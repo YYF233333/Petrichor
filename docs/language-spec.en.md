@@ -34,14 +34,22 @@ This document specifies the semantics of a statically typed scripting language f
 
 ## 2. Type system overview
 
-1. Strong static typing, inferred by default. If a type cannot be inferred, it is an error; there is no silent fallback to Variant.
-2. Variant is an explicit boxed type. You can store and pass a Variant, but before doing anything specific with it you must check, narrow or convert it.
+1. Strong static typing, inferred by default. If a type cannot be inferred, it is an error; there is no silent fallback to `any`.
+2. `any` holds a value of any language type. Operations that require a concrete type require a type check, narrowing or conversion (§2.1).
 3. Method calls and operators produce capability constraints. Traits give these constraints names so they can be reused (§4).
 4. There are named enums with payloads and exhaustive pattern matching. Option and Result are built from the same mechanism (§6).
 5. Conditions must be bool. There is no general truthiness.
 6. Single inheritance with overriding; no multiple inheritance. An override must honor the parent method's contract and must not narrow the parameters it accepts. Engine callbacks get their signatures from the engine contract.
 7. No user-defined overloading. Default parameters, generics and overriding are kept. Engine methods that have several call forms are adapted by the binding layer.
 8. The surface syntax uses Python/GDScript-style indentation and colons.
+
+### 2.1 The any type
+
+An `any` value contains a dynamic type and a value of that type. Basic types and user-defined types, including enums and Option, can be stored in `any`. Numeric values are normalized on entry: i8…i64 and u8…u32 become i64, and f32 and f64 become f64. This preserves the numeric value, not the source width. A u64 retains its full unsigned value and dynamic type in a typed box, for all values (§12.1). An `any` value is non-null: absence is represented by `Option[any].None`, not by an empty `any`.
+
+`any` is not a base class. Converting an Object reference to `any` does not change the Object inheritance hierarchy or its ownership and liveness rules (§5). A value stored in `any` must be checked, narrowed or converted before an operation requiring a concrete type. Assigning an `any` value to another `any` copies the contained value; it does not add another dynamic container layer.
+
+The representation of `any` is specified in §12.1. It is compatible with the Godot Variant ABI, but its set of valid values excludes bare NIL. A language value of type `Option[T]` stored in `any` retains that type and its `None` or `Some` variant; it is distinct from absence of the enclosing `any`.
 
 ## 3. Type inference
 
@@ -75,7 +83,7 @@ A parameter's type is determined as follows:
 Two things are not evidence:
 
 - **Method calls.** `x.hit()` tells you nothing about x's type. A method with that name could belong to any class, and adding a new class should not change the meaning of existing code.
-- **Flowing into a Variant position.** `print(x)` does not make x a Variant; otherwise it would be a silent fallback to Variant.
+- **Flowing into an any or Option[any] position.** `print(x)` does not determine x's type as `any`; otherwise it would be a silent fallback to a dynamic type.
 
 ```
 func take_damage(amount):     # hp is i32; hp -= amount → amount: i32
@@ -107,14 +115,14 @@ var groups = 1
 dispatch(list, x, y, groups) # nothing flows in; all outflows are u32 → groups: u32
 ```
 
-These rules are based on a survey of real Godot projects; see the [survey report](surveys/literal-local-constraints.en.md).
+These rules are based on a survey of real Godot projects; see the [survey report](surveys/literal-local-constraints.en.md). The report records the warning defaults used in that survey; current defaults are specified in §7.3.
 
 **Members are resolved in source order.** When you call a method or access a member on a value whose type is not yet determined, the constraints appearing before that point must determine the type under the rules above. Otherwise, it is an error asking for an annotation. If the value is a flexible literal with no constraints before that point, it takes its default type right there, and any later constraints become ordinary implicit conversions. This is the only case in R4 where the order of the code matters.
 
 ```
 var a = 1
 a.abs()             # no constraints before this point → a: i32
-a = big_i64         # i64→i32: range-loss warning
+a = big_i64         # i64→i32: truncation; optional integer-conversion warning
 
 var items = []
 items[0].hp -= 1    # element type unknown here → error, even though append(enemy) follows
@@ -188,25 +196,29 @@ Every class instance is a Godot Object with a ScriptInstance attached. A class w
 
 ### 6.1 Enums
 
-- Inside the language, an enum is a plain value type and is never boxed. Only when it is converted to a Variant does §12.4 decide whether it is stored inline or boxed.
+- An enum has value semantics. Its representation at an engine boundary is specified in §12.4; storing it in `any` uses the typed boxing rule in §12.1. These encodings do not change its value semantics.
 - **Enum values cannot be modified in place;** you construct a new value instead. Reference-type payloads are not deep-copied when an enum is copied.
 - **[Known limitation] The first version does not support recursive enums.** An enum's value layout must not contain a cycle, including cycles through value types such as Option (e.g. `enum Tree: Node(i32, Tree?, Tree?)`). A cycle is a compile error. The diagnostic shows the cycle and suggests either using a class or recursing through Array or Dictionary. Recursion through those reference types is allowed, e.g. `enum Json: …, Arr(Array[Json]), Obj(Dictionary[String, Json])`. Godot has no lightweight box type, so every workaround goes through an Array or a RefCounted object. Demand is small, so the first version does not optimize for this.
 
 ### 6.2 `T?` is `Option[T]`
 
-- `T?` is shorthand for `Option[T]`, and `null` is `None`. They are the same concept. Nesting is allowed: `T??` is valid and different from `T?`.
-- Rationale: generic code needs nesting to tell "no value" apart from "the value is null". For example, `first[T](a: Array[T]) -> T?` with T = `Enemy?` must distinguish an empty array from an array whose first element is null.
-- Option is an ordinary enum. The specification defines how it maps into Variant (the general rule in §12.4 yields `None` ↔ null), not how it is laid out in memory.
+`Option[T]` has two variants: `None`, which represents absence, and `Some(T)`, which contains a value of T. `T?` is shorthand for `Option[T]`. There is no language-level `null` value.
+
+Nesting is preserved. With `T = Enemy?`, `first[T](a: Array[T]) -> T?` distinguishes an empty array (`None`) from an array whose first element is absent (`Some(None)`). Neither value is `Some(Some(enemy))`.
+
+Option has value semantics. Except for the representation guarantee below, its internal layout is unspecified; its engine encoding is specified in §12.4. A *niche* is a representation unavailable to values of the payload type that can instead represent an Option variant. Bare NIL is not a valid `any` representation, so `Option[any]` may use it for `None`, with `Some(v)` represented by v's non-NIL representation. `any` itself cannot use NIL to represent absence.
+
+Putting `Option[T].None` into `any` produces a present value with dynamic type `Option[T]`, encoded in a non-NIL typed box (§12.1). It does not produce `Option[any].None`.
 
 ### 6.3 Narrowing
 
-- After a null check, the type is narrowed only for **local variables**. Closures capture by value (§5.4), so no other code can change a local between the check and its use. Narrowing locals is therefore sound.
+- After a check for `None`, the type is narrowed only for **local variables**. Closures capture by value (§5.4), so no other code can change a local between the check and its use. Narrowing locals is therefore sound.
 - Members, properties and array elements are not narrowed. Any call between the check and the use could change them: a method call, a synchronous signal, a setter, or an await.
 - There is a syntax that checks a value and binds it to a local in one step, e.g. `if var t = target:` (spelling [Open]).
 
 ### 6.4 Nullability sugar
 
-- **Postfix `!`** asserts that a value is non-null. If it is null, that is a program error, and the diagnostic gives the location. It guarantees only non-null, not that the object is still alive.
+- **Postfix `!`** extracts the value from `Some`. Applied to `None`, it is a program error, and the diagnostic gives the location. It guarantees presence, not that the object is still alive.
 - **`?.`** is optional chaining. If the receiver is None, the whole chain short-circuits, and the result is nullable. `?.` is a single token; postfix `?` is reserved for Result propagation (§10). The language has no `?:` ternary operator, so there is no ambiguity.
 - `?.` does not treat a freed object as None; it still reports an invalid-access error.
 
@@ -238,20 +250,65 @@ Every class instance is a Godot Object with a ScriptInstance attached. A class w
 
 In `func f(x: u8): return x + 100`, the literal 100 becomes a u8 and so does the result. When x ≥ 156 the addition overflows, which is a program error (§7.4). In `Time.get_ticks_msec() - 1000`, 1000 becomes a u64.
 
-### 7.3 Implicit conversions and warnings
+### 7.3 Numeric conversions
 
-- Lossless conversions happen automatically. Whether a conversion is lossless depends on the source type's full value range: i32→i64, u32→i64, i32→f64 and f32→f64 are all lossless.
-- Lossy implicit conversions are allowed but produce one of two kinds of warning:
+Lossless numeric conversions happen automatically at checking boundaries (§3.8). Whether a conversion is lossless depends on the source type's full value range: i32→i64, u32→i64, i32→f64 and f32→f64 are lossless. Lossy implicit conversions are also permitted, subject to the constant rule below.
+
+#### Integer conversions
+
+For a non-constant integer value x converted to an N-bit integer type, let r be the unique integer with `0 ≤ r < 2^N` and `r ≡ x (mod 2^N)`. For an unsigned target, the result is r. For a signed target, the result is r if `r < 2^(N−1)`, and `r − 2^N` otherwise.
+
+Thus narrowing discards high bits, and a same-width change of signedness preserves the bits. When widening, a signed source is sign-extended and an unsigned source is zero-extended, regardless of the target's signedness. These conversions have defined results even when they lose range. They are legal runtime operations and are independent of the arithmetic overflow setting.
+
+| Source value and type | Target | Result |
+|---|---|---|
+| 300 as i32 | u8 | 44 |
+| −1 as i8 | u8 | 255 |
+| 255 as u8 | i8 | −1 |
+| −1 as i8 | u16 | 65535 |
+| 255 as u8 | i16 | 255 |
+
+The table describes conversions of non-constant values. Converting a constant integer outside the target's range is a compile error, for implicit and explicit conversions alike. This error cannot be disabled. A constant within range is accepted unchanged.
+
+```
+const limit: i32 = 300
+var small: u8 = limit         # compile error
+var small_cast = u8(limit)    # compile error; cast spelling is tentative
+
+func narrow(x: i32) -> u8:
+    return x                 # defined conversion; 300 becomes 44 at runtime
+```
+
+The constant rule also applies when constant propagation establishes a single constant operand. A `var` declaration does not by itself prevent propagation. A range analysis showing only that a runtime value may lose range does not make that value a constant and cannot justify this error.
+
+A compiler must diagnose out-of-range integer literals and out-of-range conversions in constant expressions. Further constant propagation may be incomplete in the first version and may improve in later versions, including across declarations or functions. An undiagnosed constant error remains an error; later diagnostics may reject it. Missing a diagnostic neither creates undefined behavior nor permits the optimizer to assume that the conversion is unreachable. If such a conversion executes, its result follows the integer conversion rule above.
+
+#### Numeric values in any
+
+Converting a numeric value held in `any` to a requested numeric type applies the numeric conversion rules of this section and §7.5 to its normalized value (§2.1). It does not require the requested type to match the original source width. A boxed u64 is first recovered as an unsigned u64 value, then converted to the requested type; its payload must not first be interpreted as a negative i64.
+
+For example, storing an i32 value of 1 or an i64 value of 1 produces the same canonical i64 value in `any`. In the following example x is a runtime input; if its value is 18446744073709551615, same has that value and signed is −1 under the integer conversion rule:
+
+```
+func convert_number(x: u64):
+    var value: any = x
+    var same: u64 = u64(value)
+    var signed: i64 = i64(value)
+```
+
+The explicit conversion spelling is tentative. This example describes runtime conversions, not a constant out-of-range conversion. Storing a value in `any` does not exempt it from the constant rule when constant propagation establishes the operand's value. A non-numeric value does not become numeric merely because a numeric target is requested.
+
+#### Conversion warnings
 
 | Warning class | Covers | Default |
 |---|---|---|
 | Precision loss | f64→f32; integer→float when precision may be lost (e.g. i32→f32, i64→f64) | Off |
-| Range loss | Integer narrowing, sign changes (e.g. i32→u32), float→integer | On |
+| Integer conversion loss | Integer narrowing and changes of signedness that may lose range | Off |
+| Float-to-integer range loss | Float→integer | On |
 
-- Each class can be set independently to off, warn or error.
-- If a constant can be represented exactly in the target type, neither warning is issued.
-- An explicit conversion accepts the corresponding loss, but never causes undefined behavior (conversion semantics are in §7.5).
-- Background: the engine itself mixes f32 and f64. In `_process(delta)`, delta is a double, while Vector2 components are real_t, which is float in standard builds. A line like `position += velocity * delta` must produce no warnings at all.
+Each class can be set independently to off, warn or error. These settings do not disable constant errors. A constant exactly representable in the target type produces no loss warning. An explicit conversion accepts the corresponding loss, but does not exempt a constant from the integer range rule.
+
+The engine mixes f32 and f64: `_process(delta)` receives a double, while Vector2 components are real_t (float in standard builds; Appendix A). With default settings, `position += velocity * delta` produces no warnings. Float conversions retain the rules in §7.5.
 
 ### 7.4 Overflow
 
@@ -285,7 +342,7 @@ In C++, an out-of-range float→integer `static_cast` is undefined behavior; the
 
 - GDScript's default scalar widths are not inherited. Three notions of type are kept apart: the type in the language, the type in the engine API, and the ABI slot that Variant/ptrcall actually uses.
 - The engine API types come from `MethodBind::get_argument_meta()`, which returns a `GodotTypeInfo::Metadata` value such as INT_IS_UINT64. extension_api_dump uses the same data to produce its `meta` field, so no hand-written table of method types is needed.
-- Converting between u64 and Variant int reinterprets the bits (§12.3). A real-world test case: the ObjectID of a RefCounted object has bit 63 set, so as a u64 it is at least 2⁶³, and it becomes negative when passed through a Variant.
+- For a statically known u64 engine API slot, the ABI encoding between u64 and Variant int reinterprets the bits (§12.3); it is not a source-level constant conversion under §7.3. Storing u64 in `any` instead uses a typed box (§12.1). A real-world test case: the ObjectID of a RefCounted object has bit 63 set, so as a u64 it is at least 2⁶³, and it becomes negative when passed through a Variant.
 - Runtime bounds checking is separate from overflow detection and is on by default. [Known limitation] The first version offers no way to turn bounds checking off and has no unsafe mode.
 
 ## 8. Variables, constants and initialization
@@ -295,7 +352,7 @@ In C++, an out-of-range float→integer `static_cast` is undefined behavior; the
 - The keywords are `var` and `const`; there is no separate `let` or `mut`.
 - `const` accepts only constant expressions. There are no constants that are computed at runtime and then frozen, no `@onready const`, and no freezing phase.
 - Members, construction, scene injection and `@onready` all follow Godot's lifecycle. The language adds no user-facing types for tracking initialization state.
-- A non-null member must be initialized from a valid source; null can never be slipped into a T. Use `T?` for a value that may genuinely be absent.
+- A non-null member must be initialized from a valid source; `None` is not a value of T. Use `T?` for a value that may be absent.
 - A member with deferred initialization may have an internal "uninitialized" state. Reading it while uninitialized is a compile error when this can be decided statically; otherwise it is checked at runtime and reported with a clear diagnostic.
 
 ### 8.2 Initialization order and rules
@@ -325,14 +382,14 @@ On top of that order:
 - Lifetimes, resumption order and reentrancy follow GDScript as closely as possible. The language does not add its own automatic deferral or cancellation mechanism. A signal can resume a suspended function immediately, so code must not assume it continues only on the next frame.
 - When a suspended function resumes, the instance it belongs to is checked. If the instance no longer exists, an error is reported and the function is not resumed. This follows GDScript, which in release builds returns silently instead. The claim that an await is cancelled when its node leaves the tree has not been verified and must not be treated as a rule.
 - Functions, closures and callbacks whose signatures are known use static function types, so their arguments and results are checked at compile time.
-- Engine Callables whose signatures are unknown keep a type-erased form. In the first version they are called through `Array[Variant]`/callv; the result is a Variant that must be narrowed.
+- Engine Callables whose signatures are unknown keep a type-erased form. In the first version they use callv through the binding layer. Arguments use `any` or `Option[any]` according to the binding contract; an unknown result is `Option[any]` unless a reliable contract excludes NIL (§12.6). A concrete operation requires narrowing.
 - [Open] The following cases must be tested against the target version: the node's owner being destroyed, the node leaving the tree, the signal source being destroyed, the suspended frame being freed, and async values that cross language boundaries. Double resumption, leaks and invalid access must all be avoided.
 - [Later] Variadic generics that keep full signatures (parameter packs). These are not a reason to adopt full row polymorphism.
 
 ## 10. Errors and diagnostics
 
 - Failures that are expected and can be handled are returned as Result values and passed upward with a propagation syntax. Postfix `?` is reserved as the propagation token; its exact semantics are [Open].
-- **Program errors** are: out-of-bounds access, invalid access, reading an uninitialized value, division by zero, a failed non-null assertion, integer overflow with detection on, and a failed entry conversion (§12.6). A program error produces a runtime diagnostic and a call stack. Where script execution stops is coordinated with the engine debugger; the whole game does not have to exit.
+- **Program errors** are: out-of-bounds access, invalid access, reading an uninitialized value, division by zero, a failed non-null assertion, integer overflow with detection on, and a failed external-value check (§12.5–§12.6). A program error produces a runtime diagnostic and a call stack. Where script execution stops is coordinated with the engine debugger; the whole game does not have to exit.
 - **Error messages are a priority, even if they look rough in the first version.** What matters first is that the file, the location and the chain of constraints that led to the error are correct.
 - An error in another file must not be reported only as "the entry script failed to load". A type conflict shows the types on both sides and the relevant source locations (R7).
 - If compilation fails, no partially compiled signatures or executables are published. Polished formatting, fix-it suggestions and full inference traces can come later.
@@ -353,9 +410,25 @@ On top of that order:
 
 ## 12. Engine interop: the Variant mapping
 
-### 12.1 Principle
+### 12.1 Values, representations and ABI
 
-GDScript, the editor, Dictionary key comparison and resource files can all see how a value is represented in a Variant, so **the representation is part of the semantics**. The specification fixes each type's representation statically. It does not depend on the particular value, and it is fixed from the first version on; changing it later is a breaking change.
+Godot Variant is the engine's tagged value container. It is an interoperation concept, not a second dynamic language type. Language code uses `any` and `Option[any]` (§2.1); the binding layer adapts them automatically to engine Variant slots.
+
+The internal representation of `any` is compatible with the Godot Variant ABI, including its value layout and handling at Variant call boundaries. Numeric values use the canonical representations below. Other core-representable values use their native representations. Values without a native representation, including language enums and Option values stored in `any`, use read-only Arrays carrying concrete type information and their payload. This type information includes the type arguments needed to recover the value. The exact typed-box tag format is [Open].
+
+| Numeric source type | Dynamic numeric type in any | Representation |
+|---|---|---|
+| i8…i64, u8…u32 | i64 | Native Variant INT, preserving the numeric value |
+| f32, f64 | f64 | Native Variant FLOAT, preserving the numeric value |
+| u64 | u64 | Typed Array box preserving the full unsigned value, regardless of its magnitude |
+
+Recovering a number from `any` uses the requested target type and §7.3/§7.5, rather than testing for the source width. Recovering a boxed u64 restores its unsigned value before any numeric conversion. A u64 box is not silently turned into an ordinary signed Variant INT. For a statically known u64 engine API target, the binding may use the separate bit-transport contract in §12.3; an untyped Variant slot receives the dynamic box.
+
+A typed box is non-NIL even when its payload represents `Option[T].None`. Below, `box(T, e)` denotes a non-NIL read-only Array carrying type T and payload encoding e. This is schematic notation, not source syntax or a fixed tag format. For example, `box(Option[i32], NIL)` encodes a present `any` value containing `Option[i32].None`. `Option[any].None`, by contrast, is represented by NIL, and `Some(v)` by v's non-NIL representation. Bare NIL is never a valid `any`.
+
+The encoding of a statically known T at an engine boundary (§12.3–§12.4) need not be the encoding of that value stored in `any`. In particular, enum encoding may use NIL or omit type arguments when the static type supplies them; dynamic boxing must retain the type information and must not produce bare NIL. A shared ABI does not make these value domains identical.
+
+GDScript, the editor, Dictionary keys and resource files can observe external encodings. The rules below specify those encodings by type; they are not selected anew for each value. A later change to an established external encoding is a breaking change.
 
 ### 12.2 Containers
 
@@ -366,6 +439,8 @@ GDScript, the editor, Dictionary key comparison and resource files can all see h
 
 ### 12.3 Type mapping table
 
+This table specifies external representations for declared target types. The u64 row is the bit transport for a statically known u64 target; a u64 stored in `any` follows §12.1 instead. The read checks validate an external representation against its target type; they are distinct from numeric conversion of an already valid language `any` (§7.3).
+
 | Language type | Representation in Variant | Check when read back |
 |---|---|---|
 | i8…i64, u8…u32 | int | Value is in range |
@@ -374,62 +449,91 @@ GDScript, the editor, Dictionary key comparison and resource files can all see h
 | Core value types (Vector2, String, etc.) | The type of the same name | Type matches |
 | Non-null Object class T | Object | Non-null and the class matches |
 | enum (including Option) | See §12.4 | Fully decoded; see §12.5 |
+| `any` | Canonical i64/f64 for ordinary numbers; boxed u64; other native non-NIL values or typed boxes (§12.1) | Reject NIL; validate typed boxes and their payloads; numeric extraction follows §7.3 |
+| `Option[any]` | NIL for None; any's non-NIL representation for Some | NIL yields None; otherwise check as any |
 | Function types | Callable | Signature is verified for Callables the language created; others are checked on every call |
 | `Array[T]`, `Dictionary[K, V]` | Array, Dictionary | Each element is checked when read |
 
 ### 12.4 Enum mapping
 
-**Representation set:** the set of Variant types that a type's values can be stored as. Integers and core value types have a single element. A non-null Object class is {OBJECT}. A nullable type includes NIL. Variant is every type. An enum's set is the union of its variants' sets, and a fully boxed enum is {ARRAY}.
+This section encodes a statically known enum type for the engine. Storing an enum value in `any` follows §12.1 instead.
 
-**Rules:**
+**Representation set:** the set of Variant type tags used by a type's external encoding. Integers and core value types each use a single tag. A non-null Object class uses {OBJECT}. `any` uses all non-NIL tags, and `Option[any]` also includes NIL. An enum's set is the union of its variants' sets after selecting the encoding in its enclosing context; a fully boxed enum uses {ARRAY}. These sets describe the selected encoding; they do not determine which enclosing layer must be boxed.
 
-1. **Variants without payload:** if there is exactly one, it is represented as null; if there are several, each is represented by its index as an INT. A payload-free enum is therefore just an int, like a GDScript enum.
-2. **Single-field variants:** represented exactly as the field is represented.
-3. **Multi-field variants:** boxed as a read-only Array `[&"Enum.Variant", field1, field2, …]`. The leading StringName records the enum name and the variant name, without type arguments: both `Option[i32]` and `Option[String]` use `&"Option.Some"`, and the static type at the point of reading supplies the type arguments. Each field is stored in its own representation, and enum-typed fields apply these rules recursively.
-4. **Conflicts:** the representation sets of the variants must not overlap. Several payload-free variants sharing INT does not count as a conflict. If there is any conflict, **all variants of that enum are boxed**, including payload-free variants (`[&"Enum.Variant"]`) and single-field variants (`[&"Enum.Variant", field]`).
+**Rules:** encoding is selected from the outer enum inward, by type and payload position, not by the particular value.
+
+1. **Variants without payload:** initially reserve NIL if there is exactly one; if there are several, each is represented by its index as an INT. An enum with several variants and no payloads therefore uses int indices, like a GDScript enum.
+2. **Single-field variants:** initially use the field's encoding. If the outer enum has reserved NIL for its unique payload-free variant and the field's standalone encoding includes NIL, encode the inner field value in a non-NIL `box(T, e)`, where T is the field type and e its encoding (§12.1). This choice applies to every value in that payload position. The outer payload-free variant keeps NIL unless the remaining-conflict rule below requires full boxing.
+3. **Multi-field variants:** boxed as a read-only Array `[&"Enum.Variant", field1, field2, …]`. The leading StringName records the enum name and the variant name, without type arguments: both `Option[i32]` and `Option[String]` use `&"Option.Some"`, and the static type at the point of reading supplies the type arguments. Each field uses its own encoding recursively. An `any` field follows §12.1.
+4. **Remaining conflicts:** check the representation sets again after selecting the payload encodings, including every ARRAY introduced by an inner box. If any variants still overlap, all variants of the outer enum are boxed, including payload-free variants (`[&"Enum.Variant"]`) and single-field variants (`[&"Enum.Variant", field]`). Their explicit variant tags make decoding unique; inside these variant-tagged boxes, fields use their types' standalone encodings recursively, as in rule 3. Several payload-free variants sharing distinct INT indices do not count as a conflict. No additional layout optimization is applied to avoid this full-boxing rule.
 5. Object payloads are told apart only by their Variant type (OBJECT), not by class, because subclasses overlap.
 
 ```
 enum Cmd: Stop, Move(Vector3), Wait(f64), Hit(Node, i32)
-# Stop→null  Move→Vector3  Wait→float  Hit→[&"Cmd.Hit", node, 5]   inlined
-enum Hp: Dead, Alive(i32)              # Dead→null  Alive→int     inlined
+# Stop→NIL  Move→Vector3  Wait→float  Hit→[&"Cmd.Hit", node, 5]
+
+enum Hp: Dead, Alive(i32)              # Dead→NIL  Alive→int
 enum Shape: Circle(f64), Square(f64)   # both float: conflict → all boxed
-enum Key: A, B, Code(i32)              # index and Code are both int: conflict → all boxed
+enum Key: A, B, Code(i32)              # index and Code both int: conflict → all boxed
 ```
 
-**Option is a special case of these rules.** `None` is the only payload-free variant, so its representation set is {NIL}; `Some(x)` has T's representation set. If T's set does not contain NIL, Option is inlined. If it does (T is itself nullable, an Option or a Variant, or an enum with exactly one payload-free variant), the sets conflict. In that case **only the outer Option** is fully boxed; the inner value keeps its own representation.
+```
+enum E: Empty, Has(Option[i32])
+# Empty        → NIL
+# Has(None)    → box(Option[i32], NIL)
+# Has(Some(5)) → box(Option[i32], 5)
+```
+
+If another variant uses ARRAY, inner boxing may create a remaining conflict. For example, `enum F: Empty, Has(Option[i32]), Items(Array[i32])` has both Has and Items represented as ARRAY after step 2; step 4 therefore boxes every F variant, including Empty.
+
+**Option is an instance of these rules.** Its sole payload-free variant None reserves NIL. For `Some(x)`, a T whose standalone encoding excludes NIL is encoded directly; otherwise the inner T value uses `box(T, e)`. These payload choices do not conflict with the outer NIL, so None retains the NIL niche. No Option-specific conflict rule is needed.
+
+An Option has `None` and `Some` values, not a language-level null value. NIL in its standalone encoding does not prevent an enclosing Option from reserving NIL for its own `None`. `any` and language Object types are non-null; `Option[any]` and `Option[Enemy]` therefore need no payload box solely for absence. Raw engine null is handled by the binding and read checks (§12.5–§12.6).
 
 | Type | Representation set | `None` | `Some(…)` |
 |---|---|---|---|
-| `i32?` | {NIL, INT} | null | `Some(5)` → `5` |
-| `Enemy?` | {NIL, OBJECT} | null | the object itself |
-| `i32??` | {ARRAY} | `[&"Option.None"]` | `Some(None)` → `[&"Option.Some", null]`; `Some(Some(5))` → `[&"Option.Some", 5]` |
-| `Cmd?` (Cmd from the example above) | {ARRAY} | `[&"Option.None"]` | `Some(Cmd.Stop)` → `[&"Option.Some", null]`; `Some(Cmd.Move(v))` → `[&"Option.Some", v]` |
-| `Variant?` | {ARRAY} | `[&"Option.None"]` | `Some(null)` → `[&"Option.Some", null]` |
+| `i32?` | {NIL, INT} | NIL | `Some(5)` → `5` |
+| `Enemy?` | {NIL, OBJECT} | NIL | the object itself |
+| `i32??` | {NIL, ARRAY} | NIL | `Some(None)` → `box(Option[i32], NIL)`; `Some(Some(5))` → `box(Option[i32], 5)` |
+| `Cmd?` (Cmd above) | {NIL, ARRAY} | NIL | `Some(Cmd.Stop)` → `box(Cmd, NIL)`; `Some(Cmd.Move(v))` → `box(Cmd, v)` |
+| `any?` | all tags | NIL | `Some(v)` → v's non-NIL representation, including `box(Option[i32], NIL)` when v contains `Option[i32].None` |
+| `any??` | {NIL, ARRAY} | NIL | `Some(None)` → `box(Option[any], NIL)`; `Some(Some(v))` → `box(Option[any], v's representation)` |
 
-**Why this design:**
+NIL in these examples denotes an engine encoding, not a language value. For example, the `i32???` value `Some(Some(None))` is encoded as `box(Option[Option[i32]], box(Option[i32], NIL))`. Nested boxes preserve the Option layers. An Option stored in `any` likewise retains its complete type in a non-NIL typed box (§12.1); this does not turn it into the enclosing `Option[any].None`. The niche of an enclosing Option and the dynamic boxing of a value into `any` serve separate purposes. Distinct levels of `None` must not be collapsed.
 
-- **Boxes are read-only Arrays, not RefCounted objects.** Objects compare by identity, both with `==` and as Dictionary keys, so boxing the same value twice would produce two unequal objects. Arrays compare and hash by content and can be serialized directly. Because enums are immutable, sharing one box in several places behaves exactly like giving each place its own copy. Creating an Array also does not register anything in ObjectDB under a global lock, so it is cheaper than creating a RefCounted object.
-- **No bit packing.** There is nowhere to store which variant a value is: a Variant has a single type tag, and copying a Variant copies only the value of its concrete type, so any spare bytes in the data area are lost. Bit-packed values would also show up in the debugger as meaningless numbers.
+**Boxes and identity:**
 
-**Costs:**
+Boxes are read-only Arrays. Objects compare by identity, both with `==` and as Dictionary keys; Arrays compare and hash by content and can be serialized directly (Appendix A). Enum values are immutable, so sharing a box preserves their value semantics. No bit packing is used: a Variant has a single type tag, and copying it preserves only the concrete type's value, not spare bytes in its data area (Appendix A).
 
-- **Inlined values lose their type identity.** Once `Cmd.Move(v)` is stored in a Variant, it is just a Vector3. Narrowing from Variant to an enum can only check the shape, not where the value came from. In a Dictionary without a key type, `Cmd.Move(v)` and `v` are the same key. Boxed values keep their identity through the leading StringName.
-- **Save compatibility.** Payload-free enums are saved by index, so reordering their variants breaks old saves, as in GDScript. Boxed values are saved by name, so renaming a variant breaks old saves.
-- **Nesting depth.** If encoding would nest boxes deeper than the engine's recursion limit (`MAX_RECURSION`, currently 100), that is a program error. Beyond that depth, the engine's Array equality prints an error and **returns true**, hashing returns 0, and text serialization fails, so such a Variant must never be produced. Decoding enforces the same depth limit.
+An enum inlined directly into an engine Variant loses its type identity. For example, `Cmd.Move(v)` becomes a Vector3, so decoding can check its shape but cannot recover its origin; in an untyped Dictionary it is the same key as v. A typed box in `any` retains the enum's concrete type. These are different encodings (§12.1).
+
+Payload-free enums encoded by index change their saved meaning if variants are reordered; named boxes change if a variant is renamed.
+
+**Depth:** encoding that would exceed the engine's recursion limit (`MAX_RECURSION`, currently 100; Appendix A) is a program error. Decoding enforces the same limit. This guarantees that the language's encoder does not construct an over-depth encoding. It does not guarantee that external code cannot later deepen a shared Array or Dictionary. Normal checks on subsequent reads and object accesses still apply (§12.2, §12.5); the construction guarantee does not validate future external contents.
 
 ### 12.5 Reading back and decoding
 
-- Inlined values: the Variant's type must belong to the representation set of one of the variants, and its content is then checked against that variant's field type (range, non-null, class).
-- Boxed values: the value must be an Array whose leading StringName names an existing variant of the enum. Its length must be 1 plus that variant's number of fields. Each field is checked against its own type, and enum fields are decoded recursively.
-- Reading a value back decodes it: the fields are copied into a value inside the language, and no reference to the external Array is kept. If external code later changes the variant name or the fields in that Array, the decoded value is not affected. Reference-type payloads (objects, Arrays, etc.) are still shared and are not deep-copied.
-- When the language writes an enum into a Variant, it always creates read-only boxes. An implementation may reuse one box in several places, since nothing can tell the difference.
+An external mutable location is checked whenever its contents enter the language as a value of a trusted type. A successful check of a location does not validate that address permanently. Re-reading a property or container element requires checking its current value.
 
-### 12.6 Entry conversion
+For an `any` read, NIL is a program error. For an `Option[any]` read, NIL is `None`, and a valid non-NIL value is `Some(v)`. Typed boxes must have valid type information and a payload matching that type. Other target types are checked as follows:
 
-Instances of the language's classes are Godot Objects, so GDScript and engine code can bypass the language's static types. Examples: `node.call("take_damage", "hello")`, `node.set("hp", 1 << 40)`, property values stored in a `.tscn` file, AnimationPlayer or Tween writing properties by path, or clearing `@export var target: Node2D` in the Inspector.
+- Inlined enums: the Variant tag must identify a unique variant under the encoding selected in §12.4. NIL identifies a payload-free variant when NIL is reserved for it. A single-field variant is decoded using its selected payload encoding: validate and unwrap a required typed box before decoding its payload as the field type, or decode directly when no box is required. The field's range, presence and class requirements still apply. This includes Option without a separate decoding rule.
+- Variant-tagged enum boxes: the Array's leading StringName must name a variant of the expected enum, its length must be one plus that variant's field count, and every field must match its type. Nested enums are decoded recursively.
+- Other types: the checks in §12.3 apply.
 
-Every Variant that arrives from outside is converted and checked according to §12.3. This covers callp arguments, `set`, signal callback arguments, scene deserialization and Callable calls. A wrong type, an out-of-range value or a null in a non-null position is always a runtime error; values are never truncated silently.
+Decoding an enum copies its fields into a language value without retaining the external encoding box. Changing that box's variant tag or value fields afterwards does not change the decoded enum. Reference-type payloads remain shared. In particular, copying a Variant isolates the value slot, not the contents of an Array or Dictionary it refers to. A checked `any` copy therefore does not certify shared container elements; each read follows §12.2. If a typed box remains externally mutable, its type information and payload must be checked again when read or decoded; copying its Variant slot alone does not make that box trusted. Non-null Object values still require the liveness checks in §6.5.
+
+The language emits read-only boxes and may reuse them when that preserves value semantics. Receiving an external box does not establish that its shared contents will remain unchanged.
+
+### 12.6 Binding contracts and entry conversion
+
+An engine API Variant maps to `any` only when a reliable binding contract excludes NIL. Otherwise it maps to `Option[any]`. This applies to arguments, return values and properties. The binding layer performs the encoding and checking automatically; ordinary calls do not require source-level conversion to a raw Variant type.
+
+Instances of the language's classes are Godot Objects. GDScript and engine code can therefore bypass static types, for example with `node.call("take_damage", "hello")`, `node.set("hp", 1 << 40)`, scene property values, AnimationPlayer, Tween or clearing an exported reference in the Inspector.
+
+Every incoming Variant is decoded and checked against the declared target type (§12.3, §12.5). This includes callp arguments, `set`, signal callbacks, scene deserialization and Callable calls. A wrong type, an out-of-range integer or absence in a non-null position is a runtime error. These are checks on external representations, not the integer-to-integer conversions of language values in §7.3; they do not silently truncate. An external Variant INT of 300 read directly as u8 is an error. Converting a valid language `any` holding a runtime canonical i64 value of 300 to u8 yields 44. A direct external read must not be routed through an implicit `any` numeric conversion to bypass the target type's range or type checks.
+
+If external code writes NIL to a location exposed as `Option[any]`, the next read yields `None`. If the location is exposed as `any`, the next read fails the check. The same rules apply when external code modifies an aliased container.
 
 ### 12.7 Open questions
 
@@ -442,6 +546,8 @@ Every Variant that arrives from outside is converted and checked according to §
 The language keeps Godot's existing conventions for script files, resource paths and class registration. There is no new package manager and no elaborate visibility system. Exported properties, signals, resources, scenes and the editor reuse existing mechanisms wherever possible, but reuse alone does not prove compatibility; each still has to be verified. The first version does not specifically extend `@tool` or other ways of running scripts in the editor. These are supported if they work naturally, and otherwise deferred.
 
 ## 14. First-version scope
+
+The first version includes `any`, `Option[any]`, typed dynamic boxes and external read checks (§2.1, §12). Incomplete constant propagation does not relax the constant-error rule (§7.3).
 
 **[Known limitation]**
 
@@ -473,7 +579,7 @@ The language keeps Godot's existing conventions for script files, resource paths
 
 | Area | Minimum verification |
 |---|---|
-| Inference | Parameter types inferred from outflows; annotation required when only method calls are present; flowing into Variant is not evidence; for locals, inflows first and outflows second, with results independent of the order of constraints; flexible literals fixed to their default type at a method call; empty-container members require annotation; branches returning different classes are not merged into a common ancestor |
+| Inference | Parameter types inferred from outflows; annotation required when only method calls are present; flowing into any or Option[any] is not evidence; for locals, inflows first and outflows second, with results independent of the order of constraints; flexible literals fixed to their default type at a method call; empty-container members require annotation; branches returning different classes are not merged into a common ancestor |
 | Generics | Explicit generics instantiate; generic methods are invisible to `has_method`; instantiating with i32 gives 32-bit semantics |
 | SCC | Mutual recursion resolves within a file and across files (including the `make_b().g()` example in §11); generic utility functions outside the cycle are unaffected; conflicts are reported at their real source |
 | Enums | Payloads, named returns and exhaustiveness checks; no anonymous sum types are synthesized; enum values cannot be modified in place; a recursive enum is an error that shows the cycle, while recursion through Array, Dictionary or a class compiles |
@@ -482,14 +588,16 @@ The language keeps Godot's existing conventions for script files, resource paths
 | Liveness | A local Node held across an await is still non-null but may no longer be alive; `?.` on a freed object reports invalid access |
 | Ownership | A RefCounted object held only by an Object-typed variable stays alive; ownership is unchanged after downcasting; `weak` on a handle type is an error |
 | Sharing and write-back | Changes made through one alias are visible through the others; `line.points.append(p)` writes back to the property; explicit copies never secretly deep-copy; weak back-references and manual cycle breaking work |
-| Numbers | `position += velocity * delta` produces no warnings; each warning class can be set to off, warn or error; with `x: u8`, `x + 100` has type u8; `var a: u8 = 300` is a compile error |
+| Numbers | `position += velocity * delta` produces no warnings by default; warning classes are independently configurable; integer conversion loss defaults to off, float-to-integer range loss remains on; with `x: u8`, `x + 100` has type u8; `var a: u8 = 300` is a compile error |
+| Integer conversions | Narrowing, same-width sign changes, signed and unsigned widening, including negative signed to wider unsigned; all results follow §7.3; in-range constants are accepted, out-of-range constant conversions are errors even with an explicit cast or warnings off; propagation is not stopped by `var`; a runtime range that may lose information is not a constant error |
 | Overflow | Overflow in a constant expression is a compile error; explicit wrapping operations never report errors; turning runtime detection on and off works; the interpreter and JIT agree with detection off; an overflow that can only be shown across functions is not a compile error |
 | Numeric edge cases | Every row of the table in §7.5; u64 round trip (bit 63 of ObjectID); bounds checking is unaffected by the overflow detection setting |
 | Initialization | A construction-time member initializer that references self is an error, while `@onready` initializers may reference self; an `@onready` initializer that reaches a later-declared member through a method call is caught; `_init` is checked to be callable with no arguments; a child's `_ready` reading a parent's `@onready` member through a signal produces a readable diagnostic |
 | await | Resumption order, reentrancy, resuming after the instance is destroyed, and frame cleanup, all compared against the target version |
 | Callable | Known signatures are checked statically; type-erased results never pose as a known type |
-| Variant mapping | Every row of the mapping table round-trips; each enum rule, including boxing every variant on conflict; nested Options round-trip as in the table in §12.4; boxed values used as Dictionary keys match by content; exceeding the depth limit is an error; decoding checks the variant, the length and every field; changing a box externally after decoding does not affect the decoded value |
-| Entry conversion | GDScript passing a wrong type, an out-of-range int or null each produces a readable error and leaves the instance intact; nulls produced by `Array::resize` are caught on read |
+| Dynamic values | Ordinary integers normalize to i64 and floats to f64 without preserving source width; u64 always uses a typed box and is recovered unsigned before target conversion; a runtime maximum u64 round-trips to u64 and converts to i64 as −1; basic and user-defined values, including Option.None, enter any; Object inheritance is unchanged; bare NIL is rejected for any and becomes None for Option[any]; a typed Option.None box remains present in any; nested Option boxes preserve every layer |
+| Variant mapping | Every table row round-trips; a unique payload-free variant reserves NIL and a conflicting inner payload is boxed; remaining conflicts, including ARRAY collisions caused by that box, box every outer variant; §12.4's nested Options round-trip with outer None encoded as NIL, inner Option values boxed, and every None layer distinguished; boxes used as Dictionary keys compare by content; encoding and decoding enforce depth limits; decoding checks type information, variant, length and fields |
+| External reads and entry conversion | Wrong types, out-of-range external integers and missing non-null values report errors; Array::resize-produced nulls are checked on read; an external NIL write becomes None or an error according to the target; copied Variant slots do not deep-copy Array/Dictionary contents; later external changes are checked on read, not covered by the encoder's construction guarantee; decoded enum value fields remain independent of their encoding box |
 | Incremental compilation | After a change to a function body, a signature or an SCC it depends on, no stale results are reused |
 | Engine integration | End-to-end: attaching scripts, callbacks, properties, saving and loading scenes |
 | Diagnostics | Correct file and location, both types and the line that determined the type, a runtime call stack; no reliance on hot reload |
@@ -561,7 +669,11 @@ Checked against Godot master (4.8-beta, commit `469659e`). Paths are relative to
 | Typing a local from its initializer alone (as Swift, Kotlin and C# do) | `var r = 0` followed by assigning a double would truncate the result to 0 (R4; see the survey) |
 | An abstract int whose width is decided further along the call chain | Replaced by a full family of fixed-width types, with i32 when nothing constrains the type |
 | f32 as the default float | f64 is the default; f32 uses the `f` suffix |
-| A single warning class for all lossy implicit conversions | Losing precision and losing range carry very different risks, so there are two classes, configured separately |
+| A single warning class for all lossy implicit conversions | Precision loss, integer conversion loss and float-to-integer range loss are configured separately; integer conversions default to silent truncation (§7.3) |
+| Boxing every outer enum variant solely because a single-field payload encoding includes NIL | The unique outer payload-free variant reserves NIL and the inner payload is boxed; full outer boxing is needed only if a conflict remains (§12.4) |
+| Native signed INT for u64 stored in any, or boxing only large u64 values | any always boxes u64 to retain its unsigned value and a representation independent of magnitude; known u64 API slots use a separate bit-transport contract (§12.1, §12.3) |
+| Bare NIL as a value of any | any is non-null; Option[any] uses NIL for absence, while an Option value stored inside any uses a typed non-NIL box |
+| Rejecting all potentially lossy runtime integer conversions | Runtime conversions have defined modular results; only out-of-range constant conversions are mandatory errors (§7.3) |
 | Overflow as undefined behavior when detection is off | It would break determinism (lockstep multiplayer, replays); the result is defined to wrap instead |
 | Constants computed at runtime and then frozen | Only constant expressions are allowed |
 | `T?` and Option as separate concepts | Generic code needs nesting, and two separate APIs for absent values would split the ecosystem; `T?` is `Option[T]` |
