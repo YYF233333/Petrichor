@@ -1,0 +1,103 @@
+{
+ "_comment": "Manual decisions that override extract.py's automatic classification, keyed by repo/path:line (#n for the n-th await on a line). Every field given replaces the automatic one. Each entry was decided by reading the code; 'note' records the evidence.",
+
+ "godot_dialogue_manager/addons/dialogue_manager/dialogue_manager.gd:1956": {
+  "kind": "signal", "source": "C#", "signal": "DialogueManager.Resolved (C#)", "arity": 2, "use": "var initializer",
+  "note": "C# [Signal] ResolvedEventHandler(double id, Variant value), addons/dialogue_manager/DialogueManager.cs:78; receiver typed RefCounted; reads result[0] (request id) and returns result[1]"
+ },
+ "gdUnit4/addons/gdUnit4/src/dotnet/GdUnit4CSharpApiLoader.gd:90": {
+  "kind": "signal", "source": "C#", "signal": "ExecutionCompleted (C#)", "arity": null,
+  "note": "signal of the gdUnit4 .NET API, declared outside the corpus; untyped receiver"
+ },
+ "beehave/addons/gdUnit4/src/dotnet/GdUnit4CSharpApiLoader.gd:99": {
+  "kind": "signal", "source": "C#", "signal": "ExecutionCompleted (C#)", "arity": null,
+  "note": "vendored copy of gdUnit4"
+ },
+
+ "godot-demo-projects/mobile/android_iap/store.gd:35": {
+  "kind": "signal", "source": "plugin", "signal": "BillingClient.query_purchases_response", "arity": 1,
+  "note": "BillingClient comes from the Google Play Billing plugin, not in the repository; the signal is connected to _on_query_purchases(result: Dictionary) at line 23"
+ },
+ "godot-demo-projects/mobile/android_iap/store.gd:83": {
+  "kind": "signal", "source": "plugin", "signal": "BillingClient.consume_purchase_response", "arity": 1,
+  "note": "plugin class; one argument inferred from use: consume_res.response_code"
+ },
+ "godot-demo-projects/mobile/android_iap/store.gd:117": {
+  "kind": "signal", "source": "plugin", "signal": "BillingClient.acknowledge_purchase_response", "arity": 1,
+  "note": "plugin class; one argument inferred from use: ack_res.response_code"
+ },
+
+ "godot-demo-projects/2d/role_playing_game/game.gd:25": {
+  "kind": "signal", "source": "engine", "signal": "AnimationMixer.animation_finished", "arity": 1,
+  "note": "$AnimationPlayer is an AnimationPlayer in game.tscn"
+ },
+ "godot-demo-projects/2d/role_playing_game/game.gd:52": {
+  "kind": "signal", "source": "engine", "signal": "AnimationMixer.animation_finished", "arity": 1,
+  "note": "$AnimationPlayer is an AnimationPlayer in game.tscn"
+ },
+ "godot-demo-projects/2d/role_playing_game/grid_movement/pawns/walker.gd:51": {
+  "kind": "signal", "source": "engine", "signal": "AnimationMixer.animation_finished", "arity": 1,
+  "note": "$AnimationTree is an AnimationTree in grid_movement/pawns/character.tscn"
+ },
+ "tps-demo/enemies/red_robot/laser/impact_effect/blast.gd:9": {
+  "kind": "signal", "source": "engine", "signal": "AnimationMixer.animation_finished", "arity": 1,
+  "note": "$AnimationPlayer is an AnimationPlayer in impact_effect.tscn"
+ },
+
+ "gdUnit4/addons/gdUnit4/src/core/GdUnitTestCaseImpl.gd:79": {
+  "kind": "other", "detail": "function state",
+  "note": "_func_state holds the GDScriptFunctionState returned by callv() on a test coroutine"
+ },
+ "beehave/addons/gdUnit4/src/core/_TestCase.gd:95": {
+  "kind": "other", "detail": "function state",
+  "note": "vendored copy of gdUnit4"
+ },
+
+ "godot-statecharts/tests/test_automatic_transitions_on_state_change.gd:38": {
+  "kind": "signal", "source": "returned Signal", "signal": "GUT awaiter.timeout", "arity": 0,
+  "note": "GUT wait_seconds() returns _awaiter.timeout (addons/gut/test.gd:1112, gut.gd:1269-1272; awaiter.gd:3 declares signal timeout)"
+ },
+ "godot-statecharts/tests/test_delayed_transition.gd:21": {
+  "kind": "signal", "source": "returned Signal", "signal": "GUT awaiter.timeout", "arity": 0, "note": "GUT wait_seconds()"
+ },
+ "godot-statecharts/tests/test_history_state.gd:139": {
+  "kind": "signal", "source": "returned Signal", "signal": "GUT awaiter.timeout", "arity": 0, "note": "GUT wait_seconds()"
+ },
+ "godot-statecharts/tests/test_history_state.gd:152": {
+  "kind": "signal", "source": "returned Signal", "signal": "GUT awaiter.timeout", "arity": 0, "note": "GUT wait_seconds()"
+ },
+ "godot-statecharts/tests/test_history_state.gd:156": {
+  "kind": "signal", "source": "returned Signal", "signal": "GUT awaiter.timeout", "arity": 0, "note": "GUT wait_seconds()"
+ },
+ "godot-statecharts/tests/test_multiple_delayed_transition.gd:27": {
+  "kind": "signal", "source": "returned Signal", "signal": "GUT awaiter.timeout", "arity": 0, "note": "GUT wait_seconds()"
+ },
+ "godot-statecharts/tests/test_multiple_delayed_transition.gd:31": {
+  "kind": "signal", "source": "returned Signal", "signal": "GUT awaiter.timeout", "arity": 0, "note": "GUT wait_seconds()"
+ },
+ "godot-statecharts/tests/test_pending_transition_cancellation.gd:24": {
+  "kind": "signal", "source": "returned Signal", "signal": "GUT awaiter.timeout", "arity": 0, "note": "GUT wait_seconds()"
+ },
+ "godot-statecharts/tests/test_processing.gd:22": {
+  "kind": "signal", "source": "returned Signal", "signal": "GUT awaiter.timeout", "arity": 0,
+  "note": "GUT wait_frames() returns _awaiter.timeout (gut.gd:1278-1281)"
+ },
+ "godot-statecharts/tests/test_processing.gd:39": {
+  "kind": "signal", "source": "returned Signal", "signal": "GUT awaiter.timeout", "arity": 0, "note": "GUT wait_frames()"
+ },
+ "godot-statecharts/tests/test_transition_delay_expression.gd:19": {
+  "kind": "signal", "source": "returned Signal", "signal": "GUT awaiter.timeout", "arity": 0, "note": "GUT wait_seconds()"
+ },
+ "godot-statecharts/tests/test_transition_delay_expression.gd:24": {
+  "kind": "signal", "source": "returned Signal", "signal": "GUT awaiter.timeout", "arity": 0, "note": "GUT wait_seconds()"
+ },
+ "godot-statecharts/tests/test_transition_pending_signal.gd:18": {
+  "kind": "signal", "source": "returned Signal", "signal": "GUT awaiter.timeout", "arity": 0, "note": "GUT wait_seconds()"
+ },
+ "godot-statecharts/tests/test_transition_pending_signal.gd:49": {
+  "kind": "signal", "source": "returned Signal", "signal": "GUT awaiter.timeout", "arity": 0, "note": "GUT wait_seconds()"
+ },
+ "godot-statecharts/tests/framework/state_chart_test_base.gd:54": {
+  "kind": "signal", "source": "returned Signal", "signal": "GUT awaiter.timeout", "arity": 0, "note": "GUT wait_frames()"
+ }
+}

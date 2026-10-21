@@ -5,7 +5,10 @@ A statically typed scripting language for Godot, intended to replace GDScript an
 **Status:** the specification is a public draft (v0.1) open for comment. There is no implementation yet.
 
 - Specification: [English](docs/language-spec.en.md) · [中文](docs/language-spec.zh.md)
-- Survey: [Which numeric types do literal-initialized locals encounter?](docs/surveys/literal-local-constraints.en.md) · [中文](docs/surveys/literal-local-constraints.zh.md)
+- Surveys:
+  - [Which numeric types do literal-initialized locals encounter?](docs/surveys/literal-local-constraints.en.md) · [中文](docs/surveys/literal-local-constraints.zh.md)
+  - [How often is the result of awaiting a multi-parameter signal used?](docs/surveys/await-signal-results.en.md) · [中文](docs/surveys/await-signal-results.zh.md)
+  - [How do real Godot 4 projects use property getters?](docs/surveys/property-accessors.en.md) · [中文](docs/surveys/property-accessors.zh.md)
 - Design notes (non-normative): [English](docs/design-notes.en.md) · [中文](docs/design-notes.zh.md)
 - Project plan (non-normative): [English](docs/project-plan.en.md) · [中文](docs/project-plan.zh.md)
 

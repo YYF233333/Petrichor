@@ -1,0 +1,1365 @@
+{
+ "_about": "Manual classification for the property-accessors survey. Keys are repo/path:line of the declaration. \"getters\" lists every getter that is not literally `return <field>`; \"setters\" gives the kind of every first-party and test setter; \"hazards\" gives the verdict for every exported setter that reaches a child node, an @onready member or a member assigned in _ready.",
+ "getters": {
+  "beehave/addons/beehave/debug/new_graph_node.gd:37": {
+   "cat": "c",
+   "what": "derived: size.y or size.x depending on the layout",
+   "kind": "derived"
+  },
+  "beehave/addons/beehave/debug/old_graph_node.gd:31": {
+   "cat": "c",
+   "what": "derived: size.y or size.x depending on the layout",
+   "kind": "derived"
+  },
+  "beehave/addons/beehave/nodes/beehave_tree.gd:51": {
+   "cat": "b",
+   "what": "falls back to an internal Blackboard, creating it and adding it as a child on first read",
+   "early": "side effect: add_child during any read, including engine reads (save, duplicate, inspector)"
+  },
+  "gdUnit4/addons/gdUnit4/src/core/attributes/TestCaseAttribute.gd:19": {
+   "cat": "b",
+   "what": "lazy default: replaces the DEFAULT_TIMEOUT sentinel with the project setting on first read (writes the field)"
+  },
+  "gdUnit4/addons/gdUnit4/src/core/execution/GdUnitExecutionContext.gd:12": {
+   "cat": "b",
+   "what": "delegates to the parent context if there is one; otherwise lazily creates its own monitor"
+  },
+  "gdUnit4/addons/gdUnit4/src/core/execution/GdUnitExecutionContext.gd:19": {
+   "cat": "b",
+   "what": "returns the parent context's value if there is a parent, otherwise its own field"
+  },
+  "gdUnit4/addons/gdUnit4/src/core/execution/GdUnitExecutionContext.gd:24": {
+   "cat": "b",
+   "what": "returns its own field, falling back to the parent context's value when null"
+  },
+  "gdUnit4/addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:41": {
+   "cat": "c",
+   "what": "derived: formats a path from other members",
+   "kind": "derived"
+  },
+  "gdUnit4/addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:45": {
+   "cat": "c",
+   "what": "derived: scans the report directory on every read",
+   "kind": "derived"
+  },
+  "gdUnit4/addons/gdUnit4/src/ui/menu/GdUnitContextMenuItem.gd:21": {
+   "cat": "c",
+   "what": "derived: looks up the icon for command_id through a singleton",
+   "kind": "derived"
+  },
+  "godot-demo-projects/audio/rhythm_game/game_state/conductor.gd:7": {
+   "cat": "c",
+   "what": "proxy to player.stream_paused in both directions; the field is never used",
+   "kind": "proxy",
+   "early": "guarded by `if player`; reads the exported node reference `player`"
+  },
+  "godot-demo-projects/misc/2.5d/addons/node25d/node_25d.gd:13": {
+   "cat": "c",
+   "what": "proxy to the first child's position in both directions",
+   "kind": "proxy",
+   "early": "reads get_child(0); fails when the node has no children yet"
+  },
+  "godot-statecharts/addons/godot_state_charts/state_chart_state.gd:39": {
+   "cat": "c",
+   "what": "read-only view of the private _state_active",
+   "kind": "view"
+  },
+  "godot-statecharts/addons/godot_state_charts/transition.gd:52": {
+   "cat": "c",
+   "what": "converts the string field delay_in_seconds; the setter writes that field",
+   "kind": "view"
+  },
+  "godot-statecharts/addons/godot_state_charts/transition.gd:75": {
+   "cat": "c",
+   "what": "derived from event",
+   "kind": "derived"
+  },
+  "godot-statecharts/addons/godot_state_charts/utilities/debugger_history.gd:9": {
+   "cat": "c",
+   "what": "read-only view of the private _dirty",
+   "kind": "view"
+  },
+  "godot_dialogue_manager/addons/dialogue_manager/nodes/dialogue_label/dialogue_label.gd:55": {
+   "cat": "c",
+   "what": "derived from _is_typing and _is_awaiting_mutation; the setter writes _is_typing and emits",
+   "kind": "view"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/managers/phantom_camera_manager.gd:54": {
+   "cat": "c",
+   "what": "read-only view of a private list",
+   "kind": "view"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/managers/phantom_camera_manager.gd:58": {
+   "cat": "c",
+   "what": "read-only view of a private list",
+   "kind": "view"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/managers/phantom_camera_manager.gd:62": {
+   "cat": "c",
+   "what": "read-only view of a private list",
+   "kind": "view"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/managers/phantom_camera_manager.gd:66": {
+   "cat": "c",
+   "what": "read-only view of a private list",
+   "kind": "view"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:435": {
+   "cat": "c",
+   "what": "proxy to the static var _draw_limits; the setter writes it and redraws in the editor",
+   "kind": "view"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:475": {
+   "cat": "a",
+   "what": "returns NodePath(\"\") when the field is empty, otherwise the field; equivalent to returning the field"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:575": {
+   "cat": "c",
+   "what": "proxy to a field of tween_resource, with a default when there is none; the setter forwards",
+   "kind": "proxy"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:578": {
+   "cat": "c",
+   "what": "proxy to a field of tween_resource, with a default when there is none; the setter forwards",
+   "kind": "proxy"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:581": {
+   "cat": "c",
+   "what": "proxy to a field of tween_resource, with a default when there is none; the setter forwards",
+   "kind": "proxy"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:528": {
+   "cat": "c",
+   "what": "alias of the exported follow_distance; the setter writes follow_distance and updates the shape cast",
+   "kind": "view"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:792": {
+   "cat": "c",
+   "what": "proxy to a field of tween_resource, with a default when there is none; the setter forwards",
+   "kind": "proxy"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:799": {
+   "cat": "c",
+   "what": "proxy to a field of tween_resource, with a default when there is none; the setter forwards",
+   "kind": "proxy"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:806": {
+   "cat": "c",
+   "what": "proxy to a field of tween_resource, with a default when there is none; the setter forwards",
+   "kind": "proxy"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:811": {
+   "cat": "c",
+   "what": "proxy to camera_3d_resource.keep_aspect, but the setter writes the unused own field, not the resource",
+   "kind": "proxy"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:816": {
+   "cat": "c",
+   "what": "proxy to a field of camera_3d_resource, null when there is none; the setter forwards",
+   "kind": "proxy"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:821": {
+   "cat": "c",
+   "what": "proxy to a field of camera_3d_resource, null when there is none; the setter forwards",
+   "kind": "proxy"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:826": {
+   "cat": "c",
+   "what": "proxy to a field of camera_3d_resource, null when there is none; the setter forwards",
+   "kind": "proxy"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:831": {
+   "cat": "c",
+   "what": "proxy to a field of camera_3d_resource, null when there is none; the setter forwards",
+   "kind": "proxy"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:836": {
+   "cat": "c",
+   "what": "proxy to a field of camera_3d_resource, null when there is none; the setter forwards",
+   "kind": "proxy"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:841": {
+   "cat": "c",
+   "what": "proxy to a field of camera_3d_resource, null when there is none; the setter forwards",
+   "kind": "proxy"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:846": {
+   "cat": "c",
+   "what": "proxy to a field of camera_3d_resource, null when there is none; the setter forwards",
+   "kind": "proxy"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:851": {
+   "cat": "c",
+   "what": "proxy to a field of camera_3d_resource, null when there is none; the setter forwards",
+   "kind": "proxy"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:856": {
+   "cat": "c",
+   "what": "proxy to a field of camera_3d_resource, null when there is none; the setter forwards",
+   "kind": "proxy"
+  },
+  "Pixelorama/src/Main.gd:16": {
+   "cat": "b",
+   "what": "lazy: instantiates the dialog scene and adds it as a child on first read",
+   "early": "side effect: add_child during any read, including the remote inspector"
+  },
+  "Pixelorama/src/Autoload/DrawingAlgos.gd:11": {
+   "cat": "b",
+   "what": "lazy: loads a shader on first read"
+  },
+  "Pixelorama/src/Autoload/DrawingAlgos.gd:16": {
+   "cat": "b",
+   "what": "lazy: loads a shader on first read"
+  },
+  "Pixelorama/src/Autoload/DrawingAlgos.gd:21": {
+   "cat": "b",
+   "what": "lazy: duplicates another lazily loaded shader and patches its code on first read"
+  },
+  "Pixelorama/src/Autoload/DrawingAlgos.gd:29": {
+   "cat": "b",
+   "what": "lazy: duplicates another lazily loaded shader and patches its code on first read"
+  },
+  "Pixelorama/src/Autoload/DrawingAlgos.gd:37": {
+   "cat": "b",
+   "what": "lazy: loads a shader on first read"
+  },
+  "Pixelorama/src/Autoload/DrawingAlgos.gd:42": {
+   "cat": "b",
+   "what": "lazy: loads a shader on first read"
+  },
+  "Pixelorama/src/Autoload/ExtensionsApi.gd:253": {
+   "cat": "c",
+   "what": "proxy to a container found with find_child, in both directions",
+   "kind": "proxy",
+   "early": "find_child; fails if the UI does not exist yet"
+  },
+  "Pixelorama/src/Autoload/ExtensionsApi.gd:670": {
+   "cat": "c",
+   "what": "proxy to Global.current_project; the setter switches the current tab",
+   "kind": "proxy"
+  },
+  "Pixelorama/src/Classes/Layers/AudioLayer.gd:14": {
+   "cat": "c",
+   "what": "derived from playback_frame and the project frame rate",
+   "kind": "derived"
+  },
+  "Pixelorama/src/Palette/PalettePanel.gd:14": {
+   "cat": "b",
+   "what": "lazy: instantiates the dialog, connects its signals and adds it as a child on first read",
+   "early": "side effect: add_child during any read, including the remote inspector"
+  },
+  "Pixelorama/src/Palette/PalettePanel.gd:21": {
+   "cat": "b",
+   "what": "lazy: instantiates the dialog, connects its signals and adds it as a child on first read",
+   "early": "side effect: add_child during any read, including the remote inspector"
+  },
+  "Pixelorama/src/UI/TilesPanel.gd:22": {
+   "cat": "c",
+   "what": "derived: picks a random tile from selected_tiles on every read; the setter writes selected_tiles",
+   "kind": "derived"
+  },
+  "Pixelorama/src/UI/Canvas/ReferenceImages.gd:13": {
+   "cat": "c",
+   "what": "read-only proxy to Global.current_project.reference_index",
+   "kind": "proxy"
+  },
+  "Pixelorama/src/UI/Recorder/Recorder.gd:31": {
+   "cat": "b",
+   "what": "lazy: constructs and configures a FileDialog and adds it as a child on first read",
+   "early": "side effect: add_child during any read, including the remote inspector"
+  },
+  "Pixelorama/src/UI/Timeline/LayerButton.gd:22": {
+   "cat": "c",
+   "what": "proxy to the @onready main_button; the setter writes both the own field and main_button",
+   "kind": "proxy",
+   "early": "reads an @onready member; fails before _ready"
+  }
+ },
+ "setters": {
+  "beehave/addons/beehave/blackboard.gd:8": "validate",
+  "beehave/addons/beehave/debug/new_graph_edit.gd:18": "effect",
+  "beehave/addons/beehave/debug/new_graph_edit.gd:26": "validate",
+  "beehave/addons/beehave/debug/new_graph_node.gd:14": "effect",
+  "beehave/addons/beehave/debug/new_graph_node.gd:20": "effect",
+  "beehave/addons/beehave/debug/new_graph_node.gd:26": "effect",
+  "beehave/addons/beehave/debug/new_graph_node.gd:32": "effect",
+  "beehave/addons/beehave/debug/old_graph_edit.gd:16": "effect",
+  "beehave/addons/beehave/debug/old_graph_edit.gd:24": "validate",
+  "beehave/addons/beehave/debug/old_graph_node.gd:13": "effect",
+  "beehave/addons/beehave/debug/old_graph_node.gd:19": "effect",
+  "beehave/addons/beehave/debug/old_graph_node.gd:25": "effect",
+  "beehave/addons/beehave/nodes/beehave_tree.gd:14": "effect",
+  "beehave/addons/beehave/nodes/beehave_tree.gd:33": "effect",
+  "beehave/addons/beehave/nodes/beehave_tree.gd:42": "effect",
+  "beehave/addons/beehave/nodes/beehave_tree.gd:51": "effect",
+  "beehave/addons/beehave/nodes/beehave_tree.gd:71": "effect",
+  "beehave/addons/beehave/nodes/beehave_tree.gd:87": "validate",
+  "beehave/addons/beehave/nodes/composites/randomized_composite.gd:11": "effect",
+  "beehave/addons/beehave/nodes/composites/randomized_composite.gd:20": "effect",
+  "beehave/examples/random_tree_example/RandomTree.gd:6": "validate",
+  "gdUnit4/addons/gdUnit4/src/core/attributes/TestCaseAttribute.gd:19": "plain",
+  "gdUnit4/addons/gdUnit4/src/core/hooks/GdUnitBaseReporterTestSessionHook.gd:4": "effect",
+  "gdUnit4/addons/gdUnit4/src/core/hooks/GdUnitTestSessionHookService.gd:4": "validate",
+  "gdUnit4/addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:51": "plain",
+  "gdUnit4/addons/gdUnit4/src/reporters/console/GdUnitConsoleTestReporter.gd:4": "effect",
+  "gdUnit4/addons/gdUnit4/src/ui/menu/GdUnitContextMenuItem.gd:3": "plain",
+  "gdUnit4/addons/gdUnit4/src/ui/menu/GdUnitContextMenuItem.gd:9": "plain",
+  "gdUnit4/addons/gdUnit4/src/ui/menu/GdUnitContextMenuItem.gd:15": "plain",
+  "gdUnit4/addons/gdUnit4/test/asserts/GdUnitSignalAssertImplTest.gd:304": "effect",
+  "gdUnit4/addons/gdUnit4/test/mocker/resources/ClassWithParameterGetterSetter.gd:5": "plain",
+  "gdUnit4/addons/gdUnit4/test/resources/issues/gd-166/issue.gd:5": "effect",
+  "godot-demo-projects/2d/finite_state_machine/player/player_controller.gd:8": "effect",
+  "godot-demo-projects/2d/finite_state_machine/state_machine/state_machine.gd:18": "effect",
+  "godot-demo-projects/2d/physics_tests/tests/functional/test_one_way_collision.gd:22": "effect",
+  "godot-demo-projects/2d/physics_tests/tests/functional/test_one_way_collision.gd:29": "effect",
+  "godot-demo-projects/2d/physics_tests/tests/functional/test_one_way_collision.gd:38": "effect",
+  "godot-demo-projects/2d/physics_tests/utils/label_test.gd:3": "validate",
+  "godot-demo-projects/2d/role_playing_game/combat/turn_queue.gd:7": "validate",
+  "godot-demo-projects/2d/role_playing_game/combat/turn_queue.gd:8": "effect",
+  "godot-demo-projects/2d/role_playing_game/combat/combatants/combatant.gd:9": "effect",
+  "godot-demo-projects/2d/role_playing_game/grid_movement/pawns/pawn.gd:12": "effect",
+  "godot-demo-projects/3d/ik/addons/sade/ik_fabrik.gd:11": "effect",
+  "godot-demo-projects/3d/ik/addons/sade/ik_fabrik.gd:45": "effect",
+  "godot-demo-projects/3d/ik/addons/sade/ik_fabrik.gd:51": "effect",
+  "godot-demo-projects/3d/ik/addons/sade/ik_fabrik.gd:57": "effect",
+  "godot-demo-projects/3d/ik/addons/sade/ik_look_at.gd:4": "effect",
+  "godot-demo-projects/3d/ik/addons/sade/ik_look_at.gd:14": "effect",
+  "godot-demo-projects/3d/labels_and_texts/label_3d_layout.gd:7": "effect",
+  "godot-demo-projects/3d/physics_tests/utils/label_test.gd:4": "validate",
+  "godot-demo-projects/3d/truck_town/town/town_scene.gd:12": "effect",
+  "godot-demo-projects/3d/voxel/world/voxel_world.gd:9": "effect",
+  "godot-demo-projects/3d/waypoints/waypoint.gd:8": "effect",
+  "godot-demo-projects/audio/rhythm_game/game_state/conductor.gd:7": "proxy",
+  "godot-demo-projects/audio/rhythm_game/game_state/play_stats.gd:4": "effect",
+  "godot-demo-projects/audio/rhythm_game/game_state/play_stats.gd:10": "effect",
+  "godot-demo-projects/audio/rhythm_game/game_state/play_stats.gd:16": "effect",
+  "godot-demo-projects/audio/rhythm_game/game_state/play_stats.gd:22": "effect",
+  "godot-demo-projects/audio/rhythm_game/globals/global_settings.gd:10": "effect",
+  "godot-demo-projects/compute/post_shader/post_process_shader.gd:51": "effect",
+  "godot-demo-projects/loading/serialization/player.gd:7": "effect",
+  "godot-demo-projects/misc/2.5d/addons/node25d/node_25d.gd:13": "proxy",
+  "godot-demo-projects/networking/multiplayer_bomber/player_controls.gd:3": "validate",
+  "godot-demo-projects/networking/websocket_chat/websocket/WebSocketServer.gd:14": "proxy",
+  "godot-demo-projects/xr/openxr_character_centric_movement/objects/black_out.gd:4": "effect",
+  "godot-demo-projects/xr/openxr_hand_tracking_demo/pickup/pickup_handler.gd:12": "effect",
+  "godot-demo-projects/xr/openxr_origin_centric_movement/objects/black_out.gd:4": "effect",
+  "godot-demo-projects/xr/openxr_passthrough/fade_message.gd:6": "effect",
+  "godot-demo-projects/xr/openxr_passthrough/fade_message.gd:14": "effect",
+  "godot-demo-projects/xr/openxr_spectator_view/main.gd:4": "effect",
+  "godot-demo-projects/xr/openxr_spectator_view/cameras/spectator_camera.gd:4": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/input_hint/input_hint.gd:7": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/input_hint/input_hint.gd:13": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/input_hint/input_hint.gd:31": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/input/input_actions_list.gd:15": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/input/input_actions_list.gd:25": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/input/input_actions_list.gd:32": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/input/input_actions_list.gd:44": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/input/input_actions_tree.gd:12": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/input/input_actions_tree.gd:19": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/input/input_actions_tree.gd:31": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/input/input_options_menu.gd:18": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/option_control/list_option_control.gd:10": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/option_control/list_option_control.gd:17": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/option_control/option_control.gd:32": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/option_control/option_control.gd:41": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/option_control/option_control.gd:57": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/utilities/capture_focus.gd:23": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/utilities/file_lister.gd:11": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/windows/confirmation_popup_window_panel.gd:8": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/windows/popup_window_panel.gd:7": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/windows/popup_window_scene_container.gd:6": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/windows/window_panel.gd:15": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/windows/window_panel.gd:23": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/windows/window_panel.gd:30": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/extras/scripts/level_manager.gd:40": "plain",
+  "Godot-Game-Template/addons/maaacks_game_template/extras/scripts/level_manager.gd:41": "plain",
+  "Godot-Game-Template/addons/maaacks_game_template/extras/scripts/scene_lister.gd:10": "effect",
+  "Godot-Game-Template/addons/maaacks_game_template/installer/theme_selection_dialog.gd:6": "effect",
+  "godot-open-rpg/src/combat/battlers/battler.gd:40": "validate",
+  "godot-open-rpg/src/combat/battlers/battler.gd:74": "validate",
+  "godot-open-rpg/src/combat/battlers/battler.gd:97": "effect",
+  "godot-open-rpg/src/combat/battlers/battler.gd:111": "effect",
+  "godot-open-rpg/src/combat/battlers/battler.gd:118": "validate",
+  "godot-open-rpg/src/combat/battlers/battler.gd:127": "effect",
+  "godot-open-rpg/src/combat/battlers/battler.gd:137": "effect",
+  "godot-open-rpg/src/combat/battlers/battler_anim.gd:30": "effect",
+  "godot-open-rpg/src/combat/battlers/battler_stats.gd:24": "effect",
+  "godot-open-rpg/src/combat/battlers/battler_stats.gd:28": "effect",
+  "godot-open-rpg/src/combat/battlers/battler_stats.gd:32": "effect",
+  "godot-open-rpg/src/combat/battlers/battler_stats.gd:36": "effect",
+  "godot-open-rpg/src/combat/battlers/battler_stats.gd:40": "effect",
+  "godot-open-rpg/src/combat/battlers/battler_stats.gd:53": "validate",
+  "godot-open-rpg/src/combat/battlers/battler_stats.gd:62": "validate",
+  "godot-open-rpg/src/combat/ui/action_menu/ui_action_button.gd:5": "effect",
+  "godot-open-rpg/src/combat/ui/action_menu/ui_action_description.gd:7": "effect",
+  "godot-open-rpg/src/combat/ui/action_menu/ui_action_menu.gd:15": "effect",
+  "godot-open-rpg/src/combat/ui/battler_entry/ui_battler_entry.gd:6": "effect",
+  "godot-open-rpg/src/combat/ui/battler_entry/ui_energy_bar.gd:7": "effect",
+  "godot-open-rpg/src/combat/ui/battler_entry/ui_energy_bar.gd:16": "validate",
+  "godot-open-rpg/src/combat/ui/battler_entry/ui_energy_bar.gd:33": "validate",
+  "godot-open-rpg/src/combat/ui/battler_entry/ui_life_bar.gd:15": "effect",
+  "godot-open-rpg/src/combat/ui/battler_entry/ui_life_bar.gd:35": "effect",
+  "godot-open-rpg/src/combat/ui/battler_entry/ui_player_battler_list.gd:10": "effect",
+  "godot-open-rpg/src/combat/ui/cursors/ui_battler_target_cursor.gd:20": "effect",
+  "godot-open-rpg/src/combat/ui/cursors/ui_battler_target_cursor.gd:55": "effect",
+  "godot-open-rpg/src/combat/ui/effect_labels/ui_damage_label.gd:29": "effect",
+  "godot-open-rpg/src/common/player.gd:16": "effect",
+  "godot-open-rpg/src/field/field_camera.gd:10": "proxy",
+  "godot-open-rpg/src/field/field_camera.gd:15": "effect",
+  "godot-open-rpg/src/field/map.gd:6": "effect",
+  "godot-open-rpg/src/field/cutscenes/cutscene.gd:30": "effect",
+  "godot-open-rpg/src/field/cutscenes/interaction.gd:19": "effect",
+  "godot-open-rpg/src/field/cutscenes/trigger.gd:22": "effect",
+  "godot-open-rpg/src/field/cutscenes/popups/interaction_popup.gd:20": "effect",
+  "godot-open-rpg/src/field/cutscenes/popups/interaction_popup.gd:30": "effect",
+  "godot-open-rpg/src/field/cutscenes/popups/interaction_popup.gd:41": "effect",
+  "godot-open-rpg/src/field/cutscenes/templates/area_transitions/area_transition.gd:5": "effect",
+  "godot-open-rpg/src/field/cutscenes/templates/doors/door.gd:7": "effect",
+  "godot-open-rpg/src/field/cutscenes/templates/pickups/pickup.gd:4": "effect",
+  "godot-open-rpg/src/field/cutscenes/templates/treasure_chests/treasure_chest_interaction.gd:13": "effect",
+  "godot-open-rpg/src/field/gameboard/gameboard.gd:28": "effect",
+  "godot-open-rpg/src/field/gameboard/gameboard_properties.gd:16": "validate",
+  "godot-open-rpg/src/field/gameboard/gameboard_properties.gd:27": "effect",
+  "godot-open-rpg/src/field/gameboard/debug/debug_map_boundaries.gd:7": "effect",
+  "godot-open-rpg/src/field/gameboard/debug/debug_map_boundaries.gd:12": "effect",
+  "godot-open-rpg/src/field/gameboard/debug/debug_map_boundaries.gd:17": "effect",
+  "godot-open-rpg/src/field/gamepieces/gamepiece.gd:30": "validate",
+  "godot-open-rpg/src/field/gamepieces/gamepiece.gd:68": "effect",
+  "godot-open-rpg/src/field/gamepieces/animation/gamepiece_animation.gd:29": "validate",
+  "godot-open-rpg/src/field/gamepieces/animation/gamepiece_animation.gd:37": "effect",
+  "godot-open-rpg/src/field/gamepieces/controllers/gamepiece_controller.gd:10": "effect",
+  "godot-open-rpg/src/field/gamepieces/controllers/gamepiece_controller.gd:15": "effect",
+  "godot-open-rpg/src/field/gamepieces/controllers/gamepiece_controller.gd:17": "effect",
+  "godot-open-rpg/src/field/gamepieces/controllers/path_loop_ai_controller.gd:6": "effect",
+  "godot-open-rpg/src/field/gamepieces/controllers/cursor/field_cursor.gd:18": "effect",
+  "godot-open-rpg/src/field/ui/inventory/ui_inventory_item.gd:8": "validate",
+  "godot-open-rpg/src/field/ui/popups/ui_popup.gd:16": "effect",
+  "godot-statecharts/addons/godot_state_charts/animation_player_state.gd:7": "effect",
+  "godot-statecharts/addons/godot_state_charts/animation_tree_state.gd:8": "effect",
+  "godot-statecharts/addons/godot_state_charts/compound_state.gd:15": "effect",
+  "godot-statecharts/addons/godot_state_charts/history_state.gd:12": "effect",
+  "godot-statecharts/addons/godot_state_charts/transition.gd:26": "effect",
+  "godot-statecharts/addons/godot_state_charts/transition.gd:34": "effect",
+  "godot-statecharts/addons/godot_state_charts/transition.gd:42": "effect",
+  "godot-statecharts/addons/godot_state_charts/transition.gd:52": "proxy",
+  "godot-statecharts/addons/godot_state_charts/transition.gd:67": "effect",
+  "godot-statecharts/addons/godot_state_charts/utilities/state_chart_debugger.gd:7": "effect",
+  "godot-statecharts/godot_state_charts_examples/cooldown/skill_button/skill_button.gd:7": "effect",
+  "godot-statecharts/godot_state_charts_examples/stepping/stepping.gd:10": "effect",
+  "godot-statecharts/godot_state_charts_examples/stepping/stepping.gd:17": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/components/code_edit.gd:17": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/components/code_edit.gd:34": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/components/code_edit.gd:41": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/components/code_edit.gd:51": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/components/cue_list.gd:16": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/components/cue_list.gd:23": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/components/download_update_panel.gd:17": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/components/errors_panel.gd:14": "validate",
+  "godot_dialogue_manager/addons/dialogue_manager/components/errors_panel.gd:22": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/components/files_list.gd:24": "validate",
+  "godot_dialogue_manager/addons/dialogue_manager/components/files_list.gd:35": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/components/search_and_replace.gd:21": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/components/search_and_replace.gd:30": "validate",
+  "godot_dialogue_manager/addons/dialogue_manager/components/cue_editor_property/editor_property_control.gd:13": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/components/dialogue_editor_property/editor_property_control.gd:17": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/components/dialogue_editor_property/resource_button.gd:8": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/example_balloon/example_balloon.gd:41": "validate",
+  "godot_dialogue_manager/addons/dialogue_manager/nodes/actionable/dialogue_actionable_2d.gd:21": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/nodes/actionable/dialogue_actionable_3d.gd:21": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/nodes/context/dialogue_state_context.gd:10": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/nodes/context/dialogue_state_context.gd:18": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/nodes/dialogue_label/dialogue_label.gd:46": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/nodes/dialogue_label/dialogue_label.gd:55": "proxy",
+  "godot_dialogue_manager/addons/dialogue_manager/nodes/responses_menu/dialogue_responses_menu.gd:30": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/views/debugger_view.gd:11": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/views/debugger_view.gd:18": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/views/debugger_view.gd:25": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/views/find_in_dialogue_view.gd:22": "effect",
+  "godot_dialogue_manager/addons/dialogue_manager/views/main_view.gd:63": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/gizmos/phantom_camera_3d_gizmo_plugin.gd:9": "proxy",
+  "phantom-camera/addons/phantom_camera/scripts/panel/updater/download_update_panel.gd:48": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/panel/viewfinder/host_list_item.gd:10": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:110": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:133": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:142": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:183": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:188": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:196": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:203": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:213": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:223": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:238": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:248": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:262": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:269": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:276": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:285": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:291": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:300": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:306": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:311": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:316": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:322": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:331": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:339": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:347": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:354": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:360": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:373": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:380": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:387": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:396": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:407": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:419": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:435": "proxy",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:445": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:450": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:455": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:460": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:475": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:482": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:492": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:500": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:508": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:575": "proxy",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:578": "proxy",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:581": "proxy",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:134": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:158": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:167": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:224": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:229": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:237": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:246": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:285": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:291": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:303": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:313": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:322": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:329": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:336": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:342": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:348": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:354": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:361": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:368": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:377": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:384": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:393": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:404": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:415": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:420": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:432": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:439": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:448": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:456": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:464": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:471": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:477": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:488": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:500": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:517": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:523": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:528": "proxy",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:533": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:539": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:545": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:553": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:560": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:568": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:575": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:582": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:590": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:598": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:605": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:611": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:619": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:625": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:633": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:641": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:649": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:694": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:704": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:710": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:792": "proxy",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:799": "proxy",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:806": "proxy",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:811": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:816": "proxy",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:821": "proxy",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:826": "proxy",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:831": "proxy",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:836": "proxy",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:841": "proxy",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:846": "proxy",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:851": "proxy",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:856": "proxy",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_noise_emitter_2d.gd:20": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_noise_emitter_2d.gd:25": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_noise_emitter_2d.gd:33": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_noise_emitter_2d.gd:39": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_noise_emitter_2d.gd:45": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_noise_emitter_2d.gd:51": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_noise_emitter_2d.gd:57": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_noise_emitter_2d.gd:66": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_noise_emitter_3d.gd:20": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_noise_emitter_3d.gd:25": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_noise_emitter_3d.gd:35": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_noise_emitter_3d.gd:41": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_noise_emitter_3d.gd:48": "validate",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_noise_emitter_3d.gd:54": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_noise_emitter_3d.gd:60": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_noise_emitter_3d.gd:68": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_tween_director.gd:22": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera_host/phantom_camera_host.gd:57": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera_host/phantom_camera_host.gd:62": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/camera_3d_resource.gd:23": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/camera_3d_resource.gd:31": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/camera_3d_resource.gd:39": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/camera_3d_resource.gd:47": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/camera_3d_resource.gd:53": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/camera_3d_resource.gd:62": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/camera_3d_resource.gd:70": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/camera_3d_resource.gd:78": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/camera_3d_resource.gd:86": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/camera_3d_resource.gd:94": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_2d.gd:16": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_2d.gd:22": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_2d.gd:28": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_2d.gd:34": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_2d.gd:39": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_2d.gd:44": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_2d.gd:51": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_2d.gd:57": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_2d.gd:63": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_2d.gd:78": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_3d.gd:16": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_3d.gd:22": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_3d.gd:28": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_3d.gd:34": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_3d.gd:39": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_3d.gd:45": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_3d.gd:52": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_3d.gd:58": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_3d.gd:64": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_3d.gd:72": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_3d.gd:79": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_3d.gd:86": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/phantom_camera_noise_3d.gd:108": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/tween_director_resource.gd:27": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/resources/tween_director_resource.gd:35": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/tween_director_resource.gd:40": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/resources/tween_director_resource.gd:47": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/resources/tween_director_resource.gd:54": "effect",
+  "phantom-camera/addons/phantom_camera/scripts/resources/tween_director_resource.gd:59": "plain",
+  "phantom-camera/addons/phantom_camera/scripts/resources/tween_director_resource.gd:66": "plain",
+  "Pixelorama/src/HandleExtensions.gd:29": "effect",
+  "Pixelorama/src/Autoload/ExtensionsApi.gd:253": "proxy",
+  "Pixelorama/src/Autoload/ExtensionsApi.gd:670": "proxy",
+  "Pixelorama/src/Autoload/Global.gd:165": "effect",
+  "Pixelorama/src/Autoload/Global.gd:178": "validate",
+  "Pixelorama/src/Autoload/Global.gd:227": "effect",
+  "Pixelorama/src/Autoload/Global.gd:247": "effect",
+  "Pixelorama/src/Autoload/Global.gd:253": "effect",
+  "Pixelorama/src/Autoload/Global.gd:268": "effect",
+  "Pixelorama/src/Autoload/Global.gd:279": "effect",
+  "Pixelorama/src/Autoload/Global.gd:288": "effect",
+  "Pixelorama/src/Autoload/Global.gd:295": "effect",
+  "Pixelorama/src/Autoload/Global.gd:302": "effect",
+  "Pixelorama/src/Autoload/Global.gd:309": "effect",
+  "Pixelorama/src/Autoload/Global.gd:316": "effect",
+  "Pixelorama/src/Autoload/Global.gd:323": "effect",
+  "Pixelorama/src/Autoload/Global.gd:334": "effect",
+  "Pixelorama/src/Autoload/Global.gd:343": "effect",
+  "Pixelorama/src/Autoload/Global.gd:355": "effect",
+  "Pixelorama/src/Autoload/Global.gd:360": "effect",
+  "Pixelorama/src/Autoload/Global.gd:366": "effect",
+  "Pixelorama/src/Autoload/Global.gd:378": "effect",
+  "Pixelorama/src/Autoload/Global.gd:399": "effect",
+  "Pixelorama/src/Autoload/Global.gd:406": "effect",
+  "Pixelorama/src/Autoload/Global.gd:413": "effect",
+  "Pixelorama/src/Autoload/Global.gd:422": "effect",
+  "Pixelorama/src/Autoload/Global.gd:429": "effect",
+  "Pixelorama/src/Autoload/Global.gd:436": "effect",
+  "Pixelorama/src/Autoload/Global.gd:443": "effect",
+  "Pixelorama/src/Autoload/Global.gd:450": "effect",
+  "Pixelorama/src/Autoload/Global.gd:457": "effect",
+  "Pixelorama/src/Autoload/Global.gd:468": "effect",
+  "Pixelorama/src/Autoload/Global.gd:477": "effect",
+  "Pixelorama/src/Autoload/Global.gd:501": "effect",
+  "Pixelorama/src/Autoload/Global.gd:508": "effect",
+  "Pixelorama/src/Autoload/Global.gd:515": "effect",
+  "Pixelorama/src/Autoload/Global.gd:522": "effect",
+  "Pixelorama/src/Autoload/Global.gd:532": "effect",
+  "Pixelorama/src/Autoload/Global.gd:539": "effect",
+  "Pixelorama/src/Autoload/Global.gd:549": "effect",
+  "Pixelorama/src/Autoload/Global.gd:553": "effect",
+  "Pixelorama/src/Autoload/Global.gd:559": "effect",
+  "Pixelorama/src/Autoload/Global.gd:566": "effect",
+  "Pixelorama/src/Autoload/Global.gd:573": "effect",
+  "Pixelorama/src/Autoload/Global.gd:580": "effect",
+  "Pixelorama/src/Autoload/Global.gd:587": "effect",
+  "Pixelorama/src/Autoload/Global.gd:615": "validate",
+  "Pixelorama/src/Autoload/Global.gd:638": "effect",
+  "Pixelorama/src/Autoload/Global.gd:643": "effect",
+  "Pixelorama/src/Autoload/Global.gd:655": "effect",
+  "Pixelorama/src/Autoload/Global.gd:660": "effect",
+  "Pixelorama/src/Autoload/Global.gd:665": "effect",
+  "Pixelorama/src/Autoload/Global.gd:727": "effect",
+  "Pixelorama/src/Autoload/Global.gd:734": "effect",
+  "Pixelorama/src/Autoload/Global.gd:741": "effect",
+  "Pixelorama/src/Autoload/Global.gd:749": "effect",
+  "Pixelorama/src/Autoload/Global.gd:756": "effect",
+  "Pixelorama/src/Autoload/Global.gd:763": "effect",
+  "Pixelorama/src/Autoload/Global.gd:770": "effect",
+  "Pixelorama/src/Autoload/Tools.gd:18": "validate",
+  "Pixelorama/src/Classes/Drawers.gd:5": "effect",
+  "Pixelorama/src/Classes/LayerEffect.gd:5": "effect",
+  "Pixelorama/src/Classes/LayerEffect.gd:12": "effect",
+  "Pixelorama/src/Classes/Project.gd:22": "effect",
+  "Pixelorama/src/Classes/Project.gd:29": "effect",
+  "Pixelorama/src/Classes/Project.gd:34": "effect",
+  "Pixelorama/src/Classes/Project.gd:42": "effect",
+  "Pixelorama/src/Classes/Project.gd:70": "effect",
+  "Pixelorama/src/Classes/Project.gd:82": "effect",
+  "Pixelorama/src/Classes/Project.gd:108": "effect",
+  "Pixelorama/src/Classes/Cels/BaseCel.gd:21": "effect",
+  "Pixelorama/src/Classes/Cels/BaseCel.gd:27": "effect",
+  "Pixelorama/src/Classes/Cels/CelTileMap.gd:44": "effect",
+  "Pixelorama/src/Classes/Cels/CelTileMap.gd:51": "effect",
+  "Pixelorama/src/Classes/Cels/CelTileMap.gd:57": "effect",
+  "Pixelorama/src/Classes/Cels/CelTileMap.gd:63": "effect",
+  "Pixelorama/src/Classes/Cels/PixelCel.gd:7": "effect",
+  "Pixelorama/src/Classes/Layers/AudioLayer.gd:10": "effect",
+  "Pixelorama/src/Classes/Layers/AudioLayer.gd:23": "effect",
+  "Pixelorama/src/Classes/Layers/BaseLayer.gd:43": "effect",
+  "Pixelorama/src/Classes/Layers/BaseLayer.gd:50": "effect",
+  "Pixelorama/src/Classes/Layers/BaseLayer.gd:54": "effect",
+  "Pixelorama/src/Classes/Layers/BaseLayer.gd:71": "effect",
+  "Pixelorama/src/Classes/Layers/Layer3D.gd:125": "effect",
+  "Pixelorama/src/Palette/Palette.gd:10": "validate",
+  "Pixelorama/src/Palette/Palette.gd:15": "effect",
+  "Pixelorama/src/Palette/PaletteGrid.gd:16": "effect",
+  "Pixelorama/src/Palette/PaletteSwatch.gd:14": "effect",
+  "Pixelorama/src/Preferences/GridPreferences.gd:27": "effect",
+  "Pixelorama/src/Tools/3DTools/3DShapeEdit.gd:8": "effect",
+  "Pixelorama/src/Tools/DesignTools/Bucket.gd:16": "effect",
+  "Pixelorama/src/Tools/DesignTools/Gradient.gd:13": "effect",
+  "Pixelorama/src/Tools/SelectionTools/PaintSelect.gd:5": "effect",
+  "Pixelorama/src/Tools/UtilityTools/Text.gd:10": "effect",
+  "Pixelorama/src/Tools/UtilityTools/Text.gd:17": "effect",
+  "Pixelorama/src/Tools/UtilityTools/Text.gd:23": "effect",
+  "Pixelorama/src/Tools/UtilityTools/Text.gd:31": "effect",
+  "Pixelorama/src/Tools/UtilityTools/Text.gd:35": "effect",
+  "Pixelorama/src/UI/TilesPanel.gd:17": "effect",
+  "Pixelorama/src/UI/TilesPanel.gd:22": "proxy",
+  "Pixelorama/src/UI/TilesPanel.gd:31": "effect",
+  "Pixelorama/src/UI/TilesPanel.gd:35": "effect",
+  "Pixelorama/src/UI/TilesPanel.gd:39": "effect",
+  "Pixelorama/src/UI/TilesPanel.gd:46": "validate",
+  "Pixelorama/src/UI/Canvas/CanvasCamera.gd:14": "effect",
+  "Pixelorama/src/UI/Canvas/CanvasCamera.gd:20": "validate",
+  "Pixelorama/src/UI/Canvas/CanvasCamera.gd:28": "effect",
+  "Pixelorama/src/UI/Canvas/CanvasPreview.gd:12": "effect",
+  "Pixelorama/src/UI/Canvas/CropRect.gd:14": "plain",
+  "Pixelorama/src/UI/Canvas/CropRect.gd:21": "effect",
+  "Pixelorama/src/UI/Canvas/TransformationHandles.gd:13": "effect",
+  "Pixelorama/src/UI/Canvas/TransformationHandles.gd:29": "validate",
+  "Pixelorama/src/UI/Canvas/TransformationHandles.gd:35": "effect",
+  "Pixelorama/src/UI/Canvas/TransformationHandles.gd:41": "effect",
+  "Pixelorama/src/UI/Canvas/TransformationHandles.gd:69": "effect",
+  "Pixelorama/src/UI/Canvas/color_index.gd:6": "effect",
+  "Pixelorama/src/UI/Dialogs/ModifySelection.gd:5": "effect",
+  "Pixelorama/src/UI/Nodes/GradientEdit.gd:12": "effect",
+  "Pixelorama/src/UI/Nodes/NoiseGenerator.gd:6": "effect",
+  "Pixelorama/src/UI/Nodes/TextToolEdit.gd:4": "effect",
+  "Pixelorama/src/UI/Nodes/CurveEditor/CurveEdit.gd:68": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/BasisSliders.gd:13": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/BasisSliders.gd:21": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/BasisSliders.gd:27": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/BasisSliders.gd:33": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/BasisSliders.gd:38": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/BasisSliders.gd:43": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSlider.gd:22": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSlider.gd:31": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSlider.gd:35": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSlider.gd:50": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSlider.gd:58": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:18": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:24": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:31": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:37": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:43": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:48": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:53": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:58": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:62": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:66": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:71": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:76": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:81": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:85": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:89": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:93": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:18": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:24": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:32": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:39": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:46": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:51": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:56": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:61": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:65": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:69": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:74": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:79": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:84": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:88": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:92": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:96": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:100": "effect",
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:104": "effect",
+  "Pixelorama/src/UI/PerspectiveEditor/PointCollapseContainer.gd:3": "proxy",
+  "Pixelorama/src/UI/PerspectiveEditor/PointCollapseContainer.gd:7": "effect",
+  "Pixelorama/src/UI/Recorder/Recorder.gd:11": "validate",
+  "Pixelorama/src/UI/ReferenceImages/ReferenceImage.gd:9": "effect",
+  "Pixelorama/src/UI/ReferenceImages/ReferenceImage.gd:16": "effect",
+  "Pixelorama/src/UI/ReferenceImages/ReferenceImage.gd:21": "effect",
+  "Pixelorama/src/UI/ReferenceImages/ReferenceImage.gd:27": "effect",
+  "Pixelorama/src/UI/Timeline/AnimationTimeline.gd:29": "validate",
+  "Pixelorama/src/UI/Timeline/AnimationTimeline.gd:31": "validate",
+  "Pixelorama/src/UI/Timeline/LayerButton.gd:15": "effect",
+  "Pixelorama/src/UI/Timeline/LayerButton.gd:22": "effect",
+  "Pixelorama/src/UI/Timeline/layer_hierarchy_indicator.gd:6": "effect",
+  "Pixelorama/src/UI/Timeline/KeyframeTimeline/KeyframeTimeline.gd:6": "validate",
+  "Pixelorama/src/UI/Timeline/KeyframeTimeline/KeyframeTimeline.gd:11": "effect",
+  "Pixelorama/src/UI/Timeline/KeyframeTimeline/KeyframeTimelineCursor.gd:10": "effect",
+  "tps-demo/enemies/red_robot/parts/part.gd:11": "effect",
+  "tps-demo/player/player.gd:38": "effect"
+ },
+ "setter_notes": {
+  "gdUnit4/addons/gdUnit4/src/core/hooks/GdUnitTestSessionHookService.gd:4": "appends the incoming value to the array instead of storing it",
+  "godot-demo-projects/2d/physics_tests/utils/label_test.gd:3": "inverted change check (`if test_name != value: return`) refuses every change",
+  "godot-demo-projects/3d/physics_tests/utils/label_test.gd:4": "inverted change check (`if test_name != value: return`) refuses every change",
+  "godot-demo-projects/networking/websocket_chat/websocket/WebSocketServer.gd:14": "never stores the value; reads always return false, so the check at line 95 never refuses connections",
+  "godot-open-rpg/src/field/field_camera.gd:10": "never stores the value; reads always return null, so _on_viewport_resized always returns early",
+  "phantom-camera/addons/phantom_camera/scripts/gizmos/phantom_camera_3d_gizmo_plugin.gd:9": "write-only alias: stores into _gizmo_name; reads return the unused field",
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:811": "stores into the own field, which the getter never reads (the getter proxies camera_3d_resource)",
+  "Pixelorama/src/UI/PerspectiveEditor/PointCollapseContainer.gd:3": "forwards to the child $Label and never stores; reads return the default"
+ },
+ "hazards": {
+  "beehave/addons/beehave/debug/new_graph_node.gd:14": {
+   "verdict": "guarded",
+   "note": "null check on a label created in _ready; _ready applies the stored value",
+   "guard": "null-check"
+  },
+  "beehave/addons/beehave/debug/new_graph_node.gd:20": {
+   "verdict": "guarded",
+   "note": "null check on a label created in _ready; _ready applies the stored value",
+   "guard": "null-check"
+  },
+  "beehave/addons/beehave/debug/new_graph_node.gd:26": {
+   "verdict": "guarded",
+   "note": "null check on a label created in _ready; _ready applies the stored value",
+   "guard": "null-check"
+  },
+  "beehave/addons/beehave/debug/old_graph_node.gd:13": {
+   "verdict": "guarded",
+   "note": "null check on a label created in _ready; _ready applies the stored value",
+   "guard": "null-check"
+  },
+  "beehave/addons/beehave/debug/old_graph_node.gd:19": {
+   "verdict": "guarded",
+   "note": "null check on a label created in _ready; _ready applies the stored value",
+   "guard": "null-check"
+  },
+  "beehave/addons/beehave/debug/old_graph_node.gd:25": {
+   "verdict": "guarded",
+   "note": "null check on a label created in _ready; _ready applies the stored value",
+   "guard": "null-check"
+  },
+  "beehave/addons/beehave/nodes/beehave_tree.gd:14": {
+   "verdict": "guarded",
+   "note": "interrupt() checks get_child_count() first",
+   "guard": "other"
+  },
+  "beehave/addons/beehave/nodes/beehave_tree.gd:33": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "beehave/addons/beehave/nodes/beehave_tree.gd:42": {
+   "verdict": "guarded",
+   "note": "interrupt() checks get_child_count() first",
+   "guard": "other"
+  },
+  "beehave/addons/beehave/nodes/beehave_tree.gd:71": {
+   "verdict": "guarded",
+   "note": "branch depends on _process_time_metric_name, which stays empty until _ready",
+   "guard": "other"
+  },
+  "beehave/addons/beehave/nodes/composites/randomized_composite.gd:20": {
+   "verdict": "tolerant",
+   "note": "get_children() is empty before the children exist; the value is not applied to them"
+  },
+  "beehave/examples/random_tree_example/RandomTree.gd:6": {
+   "verdict": "not-at-load",
+   "note": "inspector button: the setter stores false, so true is never saved"
+  },
+  "godot-demo-projects/2d/physics_tests/tests/functional/test_one_way_collision.gd:22": {
+   "verdict": "guarded",
+   "note": "is_inside_tree() in the helper",
+   "guard": "ready-check"
+  },
+  "godot-demo-projects/2d/physics_tests/tests/functional/test_one_way_collision.gd:29": {
+   "verdict": "guarded",
+   "note": "is_inside_tree() in the helper",
+   "guard": "ready-check"
+  },
+  "godot-demo-projects/2d/physics_tests/tests/functional/test_one_way_collision.gd:38": {
+   "verdict": "guarded",
+   "note": "is_inside_tree() in the helper",
+   "guard": "ready-check"
+  },
+  "godot-demo-projects/3d/ik/addons/sade/ik_fabrik.gd:11": {
+   "verdict": "guarded",
+   "note": "custom first_call flag (the comment says get_node does not work on the first call)",
+   "guard": "other"
+  },
+  "godot-demo-projects/3d/ik/addons/sade/ik_fabrik.gd:45": {
+   "verdict": "tolerant",
+   "note": "has_node() is false before the children exist, so the setter creates new bone nodes"
+  },
+  "godot-demo-projects/3d/ik/addons/sade/ik_look_at.gd:4": {
+   "verdict": "guarded",
+   "note": "custom first_call flag (the comment says get_node does not work on the first call)",
+   "guard": "other"
+  },
+  "godot-demo-projects/3d/waypoints/waypoint.gd:8": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "godot-demo-projects/audio/rhythm_game/game_state/conductor.gd:7": {
+   "verdict": "guarded",
+   "note": "`if player`; a value stored in the scene is dropped, because the exported node reference `player` is assigned after the other properties",
+   "guard": "null-check"
+  },
+  "godot-demo-projects/misc/2.5d/addons/node25d/node_25d.gd:13": {
+   "verdict": "guarded",
+   "note": "null check, then get_child_count() > 0",
+   "guard": "null-check"
+  },
+  "godot-demo-projects/xr/openxr_character_centric_movement/objects/black_out.gd:4": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "godot-demo-projects/xr/openxr_hand_tracking_demo/pickup/pickup_handler.gd:12": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "godot-demo-projects/xr/openxr_origin_centric_movement/objects/black_out.gd:4": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "godot-demo-projects/xr/openxr_passthrough/fade_message.gd:6": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "godot-demo-projects/xr/openxr_passthrough/fade_message.gd:14": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "godot-demo-projects/xr/openxr_spectator_view/main.gd:4": {
+   "verdict": "not-at-load",
+   "note": "Node-typed export: the engine assigns it after all nodes of the scene exist"
+  },
+  "godot-demo-projects/xr/openxr_spectator_view/cameras/spectator_camera.gd:4": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/input_hint/input_hint.gd:7": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/input_hint/input_hint.gd:13": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/input_hint/input_hint.gd:31": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/input/input_actions_list.gd:15": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/input/input_options_menu.gd:18": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/option_control/list_option_control.gd:10": {
+   "verdict": "no-node-access",
+   "note": "the member assigned in _ready is plain data, not a node"
+  },
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/option_control/list_option_control.gd:17": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/option_control/option_control.gd:32": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/option_control/option_control.gd:41": {
+   "verdict": "no-node-access",
+   "note": "the member assigned in _ready is plain data, not a node"
+  },
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/menus/options_menu/option_control/option_control.gd:57": {
+   "verdict": "tolerant",
+   "note": "get_children() is empty before the children exist; the value is not applied to them"
+  },
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/windows/confirmation_popup_window_panel.gd:8": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/windows/popup_window_scene_container.gd:6": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/windows/window_panel.gd:15": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/windows/window_panel.gd:23": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "Godot-Game-Template/addons/maaacks_game_template/base/nodes/windows/window_panel.gd:30": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "Godot-Game-Template/addons/maaacks_game_template/installer/theme_selection_dialog.gd:6": {
+   "verdict": "guarded",
+   "note": "is_inside_tree()",
+   "guard": "ready-check"
+  },
+  "godot-open-rpg/src/combat/ui/action_menu/ui_action_description.gd:7": {
+   "verdict": "guarded",
+   "note": "if not is_inside_tree(): await ready",
+   "guard": "ready-check"
+  },
+  "godot-open-rpg/src/combat/ui/battler_entry/ui_player_battler_list.gd:10": {
+   "verdict": "guarded",
+   "note": "if not is_inside_tree(): await ready",
+   "guard": "ready-check"
+  },
+  "godot-open-rpg/src/combat/ui/cursors/ui_battler_target_cursor.gd:20": {
+   "verdict": "guarded",
+   "note": "null check on the touched member",
+   "guard": "null-check"
+  },
+  "godot-open-rpg/src/field/map.gd:6": {
+   "verdict": "guarded",
+   "note": "if not is_inside_tree(): await ready",
+   "guard": "ready-check"
+  },
+  "godot-open-rpg/src/field/cutscenes/interaction.gd:19": {
+   "verdict": "guarded",
+   "note": "if not is_inside_tree(): await ready",
+   "guard": "ready-check"
+  },
+  "godot-open-rpg/src/field/cutscenes/trigger.gd:22": {
+   "verdict": "guarded",
+   "note": "if not is_inside_tree(): await ready",
+   "guard": "ready-check"
+  },
+  "godot-open-rpg/src/field/cutscenes/popups/interaction_popup.gd:20": {
+   "verdict": "guarded",
+   "note": "if not is_inside_tree(): await ready",
+   "guard": "ready-check"
+  },
+  "godot-open-rpg/src/field/cutscenes/popups/interaction_popup.gd:30": {
+   "verdict": "guarded",
+   "note": "if not is_inside_tree(): await ready",
+   "guard": "ready-check"
+  },
+  "godot-open-rpg/src/field/cutscenes/popups/interaction_popup.gd:41": {
+   "verdict": "guarded",
+   "note": "if not is_inside_tree(): await ready",
+   "guard": "ready-check"
+  },
+  "godot-open-rpg/src/field/cutscenes/templates/area_transitions/area_transition.gd:5": {
+   "verdict": "guarded",
+   "note": "if not is_inside_tree(): await ready",
+   "guard": "ready-check"
+  },
+  "godot-open-rpg/src/field/cutscenes/templates/doors/door.gd:7": {
+   "verdict": "guarded",
+   "note": "if not is_inside_tree(): await ready",
+   "guard": "ready-check"
+  },
+  "godot-open-rpg/src/field/cutscenes/templates/pickups/pickup.gd:4": {
+   "verdict": "guarded",
+   "note": "if not is_inside_tree(): await ready",
+   "guard": "ready-check"
+  },
+  "godot-open-rpg/src/field/gamepieces/gamepiece.gd:30": {
+   "verdict": "guarded",
+   "note": "if not is_inside_tree(): await ready",
+   "guard": "ready-check"
+  },
+  "godot-statecharts/godot_state_charts_examples/cooldown/skill_button/skill_button.gd:7": {
+   "verdict": "guarded",
+   "note": "null check on the touched member",
+   "guard": "null-check"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:269": {
+   "verdict": "no-node-access",
+   "note": "the member assigned in _ready is plain data, not a node"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:291": {
+   "verdict": "guarded",
+   "note": "if not is_node_ready(): await ready",
+   "guard": "ready-check"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd:475": {
+   "verdict": "guarded",
+   "note": "if not is_node_ready(): await ready",
+   "guard": "ready-check"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:167": {
+   "verdict": "no-node-access",
+   "note": "the member assigned in _ready is plain data, not a node"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:224": {
+   "verdict": "guarded",
+   "note": "is_instance_valid() on the shape cast created in _ready",
+   "guard": "null-check"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:361": {
+   "verdict": "no-node-access",
+   "note": "the member assigned in _ready is plain data, not a node"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:384": {
+   "verdict": "guarded",
+   "note": "if not is_node_ready(): await ready",
+   "guard": "ready-check"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:528": {
+   "verdict": "guarded",
+   "note": "is_instance_valid() on the shape cast created in _ready",
+   "guard": "null-check"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:533": {
+   "verdict": "guarded",
+   "note": "is_instance_valid() on the shape cast created in _ready",
+   "guard": "null-check"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:539": {
+   "verdict": "guarded",
+   "note": "is_instance_valid() on the shape cast created in _ready",
+   "guard": "null-check"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd:545": {
+   "verdict": "guarded",
+   "note": "is_instance_valid() on the shape cast created in _ready",
+   "guard": "null-check"
+  },
+  "phantom-camera/addons/phantom_camera/scripts/phantom_camera_host/phantom_camera_host.gd:57": {
+   "verdict": "guarded",
+   "note": "_is_child_of_camera stays false until the node enters the tree",
+   "guard": "other"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/BasisSliders.gd:13": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/BasisSliders.gd:21": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/BasisSliders.gd:27": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/BasisSliders.gd:33": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/BasisSliders.gd:38": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/BasisSliders.gd:43": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:18": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:24": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:31": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:37": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:43": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:48": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:53": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:58": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:62": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:66": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:71": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:76": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:81": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:85": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:89": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV2.gd:93": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:18": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:24": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:32": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:39": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:46": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:51": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:56": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:61": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:65": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:69": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:74": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:79": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:84": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:88": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:92": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:96": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:100": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/Nodes/Sliders/ValueSliderV3.gd:104": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "Pixelorama/src/UI/PerspectiveEditor/PointCollapseContainer.gd:3": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  },
+  "tps-demo/enemies/red_robot/parts/part.gd:11": {
+   "verdict": "guarded",
+   "note": "null check on the touched member",
+   "guard": "null-check"
+  },
+  "tps-demo/player/player.gd:38": {
+   "verdict": "unguarded",
+   "note": "direct $Child access; works only when the value is set on an instance of the scene, after its children exist, or from code after _ready"
+  }
+ }
+}

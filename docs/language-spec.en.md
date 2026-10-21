@@ -16,7 +16,7 @@ This document specifies a statically typed scripting language for Godot. Petrich
 
 ### 1.2 Semantics and implementations
 
-The specification defines program validity, types and observable behavior without requiring a particular inference or execution algorithm. External value representations, equality and serialization follow §12.
+The specification defines program validity, types and observable behavior without requiring a particular inference or execution algorithm. External value representations, equality and serialization follow §12; the rules for `==` within the language are in §2.3.
 
 Design rationale and implementation proposals are recorded separately in the non-normative [design notes](design-notes.en.md).
 
@@ -46,9 +46,64 @@ Design rationale and implementation proposals are recorded separately in the non
 
 `Variant` denotes a non-NIL engine Variant value; a value that may be NIL uses `Variant?`, that is, `Option[Variant]`. It is used at interoperation positions such as Callables with unknown signatures, metadata, untyped containers and reflection interfaces.
 
-`Variant` is not a top type within the language. A language value converted to `Variant` uses its type's engine encoding (§12.1, §12.4) and does not retain its static type: numbers lose their source width, and an enum becomes its encoding. `Variant` does not convert implicitly to other types; obtaining a language value from it requires an explicit conversion that performs the entry check for the target type (§12.5, §12.6); the `T(v)` numeric conversion to a numeric target follows §7.3 and performs no range check. The same `Variant` value may pass the checks of several target types; the result is determined by the target type. The concrete semantics and applicability of `is`/`as` are [Open]; this does not prescribe checking syntax or narrowing behavior.
+`Variant` is not a top type within the language. A language value converted to `Variant` uses its type's engine encoding (§12.1, §12.4) and does not retain its static type: numbers lose their source width, and an enum becomes its encoding. `Variant` does not convert implicitly to other types; obtaining a language value from it requires an explicit conversion that performs the entry check for the target type (§12.5, §12.6); the `T(v)` numeric conversion to a numeric target follows §7.3 and performs no range check. The same `Variant` value may pass the checks of several target types; the result is determined by the target type. Explicit conversion is written `v as T` (§2.2).
 
 Converting an Object reference to `Variant` does not change the Object inheritance hierarchy or its ownership and liveness rules (§5). Assigning a `Variant` value to another `Variant` copies the contained value; it does not add another container layer. The need for heterogeneous values within the language is deferred to a later dyn trait (see the [design notes](design-notes.en.md#deferred-language-proposals)).
+
+### 2.2 is and as
+
+`x as T` checks whether x can be used as type T, and its result is `Option[T]`. The static type of x must be an object type, `Variant`, or an Option of one of these; if x is None, the result is None. Other source types are compile errors: numeric conversions use `T(x)` (§7.3), and conversions between enums and their encodings use explicit conversion (§12.5). In the first version, T cannot be a generic parameter.
+
+- **Object source, class target T:** if T is a subclass of the source type, the actual object (native class and script class) is checked at runtime; if it belongs to T the result is Some, otherwise None. The result refers to the same object as the original reference, with unchanged ownership (§5.1). If T is the source type itself or one of its ancestors, the result is always Some. If T and the source type are unrelated by inheritance, it is a compile error. If the source object has been freed, an invalid-access program error is reported rather than None (§6.5). The check holds only at the time it is made; later accesses still check liveness and script identity (§6.5).
+- **`Variant` source:** the entry check for T is performed (§12.5, §12.6); on success the result is Some containing the decoded value, otherwise None. For example, an INT of 300 gives None for `as u8`, whereas the numeric conversion `u8(v)` gives 44 under §7.3. The same value may pass the checks of several target types; for example, an enum encoding can pass `as Array` and may also pass `as Cmd`. Container element types are not checked by the conversion; elements are checked when read (§12.2).
+
+`x is T` is a bool equivalent to `(x as T) != None`. It does not narrow the type of x (§6.3); when the converted value is needed, write `if var Some(e) = x as T:`. A conversion that must succeed is written `(x as T)!`; when `!` applied directly to an `as` expression fails, the diagnostic names the actual and expected types. Operator precedence of `as` and `is` is [Open]. The node lookup `$X` checks the node's class against the expected type (§6.5).
+
+```
+@onready var sprite: Sprite2D = $Sprite2D        # must succeed
+var e = (scene.instantiate() as Enemy)!           # must succeed
+for body in get_overlapping_bodies():
+    (body as Enemy)?.take_damage(1)               # skipped unless an Enemy
+    if var Some(p) = body as Player:
+        p.hit()
+var hp = get_meta("hp") as i32                    # i32?: None if not an integer or out of range
+```
+
+### 2.3 Equality
+
+The meaning of `==` is determined by the static types of both operands, and `!=` is its negation. Users cannot define their own `==` (item 7 of §2), so classes compare only by identity.
+
+| Operand types | Rule |
+|---|---|
+| Numbers | Compared in the common type of §7.5; if no common type exists, it is a compile error, for example `i64 == u64` or `i64 == f64`. Floats follow IEEE 754: NaN is not equal to NaN, and 0.0 equals −0.0 |
+| bool, String, StringName, core value types | Both operands must have the same type; the engine's comparison for that type is used; String and StringName compare by content (§7.7) |
+| Objects | Compared by identity; the two types must be related by inheritance, otherwise it is a compile error. Comparison is not an access and does not check liveness |
+| `Option[T]` | None equals only None; `Some(a) == Some(b)` exactly when `a == b`. When one operand is `Option[T]` and the other is T, the T is wrapped in Some before comparing |
+| User enums | Same variant, and fields pairwise equal under their types; entirely payload-free closed enums compare members, with same-number aliases equal; open enums compare integer values. Comparing an enum with an integer is a compile error |
+| `Array[T]`, Dictionary | The engine's container comparison is used (§12.2) |
+| `Variant` | The engine's Variant comparison is used, comparing INT and FLOAT numerically; when the other operand has another type, it is first encoded under §12.1 |
+| Callable, Signal, RID | The engine's comparison is used |
+| `weak[T]` | Not provided (§5.2) |
+
+In the first version, `<`, `<=`, `>` and `>=` are provided only for numbers and String; numbers compare in the common type of §7.5, and a missing common type is a compile error.
+
+### 2.4 for loops
+
+In `for x in e`, e may be an integer range `range(n)`, `range(a, b)` or `range(a, b, step)`, or an `Array[T]`, a `Dictionary[K, V]`, a packed array or a String. Iterating an integer directly (as in `for i in 5`), a float or a `Variant` is a compile error; a `Variant` must be converted first, for example `(v as Array)!` (§2.2). [Known limitation] The first version does not support user-defined iterator protocols.
+
+| Iterated value | Type of the loop variable |
+|---|---|
+| `range(…)` | The common type of the arguments under §7.5; i32 if all arguments are literals; a compile error if no common type exists |
+| `Array[T]` | T; each element read is checked (§12.2) |
+| `Dictionary[K, V]` | The key type K; values are read with `d[k]` |
+| Packed arrays | The element type declared by the engine, for example u8 for PackedByteArray, i32 for PackedInt32Array, f32 for PackedFloat32Array and String for PackedStringArray (Appendix A) |
+| String | String, one character at a time |
+
+The loop variable may be annotated, for example `for i: i64 in range(n)`. The annotation provides the expected type for flexible literals in `range`, and other arguments are converted to the annotated type at check boundaries. When iterating a container, the annotation must be the element type or an ancestor of it; downcasts use `as`.
+
+The arguments of `range` are evaluated once; a step of 0 is a program error, and the step may be negative. Incrementing the loop variable does not overflow at the type's limit.
+
+Modifying a container during iteration follows engine behavior and is not undefined behavior: an Array is iterated by index and its length is rechecked at each step, and iterating a Dictionary ends when the current key is erased (Appendix A). Element reads are still checked under §12.2. Each iteration uses a fresh loop variable, and closures capture by value (§5.4); reassigning the loop variable does not affect later iterations.
 
 ## 3. Type inference
 
@@ -140,15 +195,15 @@ The return type is inferred from every return in the function. When different br
 
 ### R6 Members and signals
 
-A member variable's type comes from its annotation or its initializer. A member initialized with an empty container must be annotated; its type is not inferred from how other methods or other files use it, because the Inspector, `get_property_list` and inference in other files all need the member's type up front. Signal parameters must be annotated as well, because emit sites are callers (R1).
+A member variable's type comes from its annotation or its initializer. A member initialized with an empty container must be annotated; its type is not inferred from how other methods or other files use it, because the Inspector, `get_property_list` and inference in other files all need the member's type up front. Signal parameters must be annotated as well, because emit sites are callers (R1). Rules for emitting, connecting and awaiting signals are in §9.
 
 ### R7 Inferred signatures are the interface
 
-Editing a function body can change its inferred signature and make calls in other files fail. This is the inherent cost of an inference-first design. When it happens, the diagnostic must show three things: the type the caller expected, the type inferred for the callee, and the source line that determined it.
+Editing a function body can change its inferred signature and make calls in other files fail. This is the inherent cost of an inference-first design. When it happens, the diagnostic must show three things: the type the caller expected, the type inferred for the callee, and the source line that determined it. Being a coroutine is likewise part of the inferred signature (§9): adding an await to a function makes callers that use its call as a value fail, and the diagnostic must name the await line that made it a coroutine.
 
 ### 3.8 Where implicit conversions happen
 
-Implicit numeric conversions (§7.3) and conversion from a subclass to its superclass happen only at checking boundaries. These are assignments, arguments and return values whose expected type is known, and binary operators whose operands both already have concrete types. If a type is not yet determined, the check waits until it is.
+Implicit numeric conversions (§7.3), implicit conversions between string types (§7.7) and conversion from a subclass to its superclass happen only at checking boundaries. These are assignments, arguments and return values whose expected type is known, and binary operators whose operands both already have concrete types. If a type is not yet determined, the check waits until it is.
 
 ## 4. Generics and traits
 
@@ -274,9 +329,9 @@ This form does not provide runtime `if const` or specify general destructuring a
 - When an engine contract is unclear, the value is treated as nullable until there is evidence, and the local binding descriptions are then filled in.
 - Scanning an external mutable container once does not give a permanent static guarantee about its contents (see §12.2 for how containers are checked).
 - Absence checks on external values follow §6.3: bind the read value to a local first, then obtain the payload with conditional pattern binding.
-- `$X` is a required node lookup. It returns a non-null Node when the node is found; failure is a program error. An optional lookup uses an interface bound to return `Option[Node]`. Thus `@onready var child = $Child` needs no additional `!`. This rule does not determine a more specific subclass, and non-null results still require liveness checks.
+- `$X` and `%X` are required node lookups. When the expected type (§3.8) is a subclass T of Node, the node found must belong to T; a missing node or a class mismatch is a program error. Without an expected type, the result is Node. An optional lookup uses an interface bound to return `Option[Node]`, followed by `as` when a subclass is needed (§2.2). Thus neither `@onready var child = $Child` nor `@onready var s: Sprite2D = $Sprite2D` needs an additional `!`. Non-null results still require liveness checks.
 
-## 7. Numbers
+## 7. Numbers and strings
 
 ### 7.1 Types
 
@@ -296,6 +351,7 @@ The first version provides no type suffixes for integer or floating-point litera
 - An integer literal takes the type of the other operand or the expected type. If its value does not fit in that type, it is a compile error. With no constraint at all, it is i32.
 - A float literal takes the expected type, or f64 if there is no constraint.
 - An integer literal may also take a floating-point type, e.g. `var v: f32 = 10` or `Vector2(1, 2)`.
+- Plain string literals are flexible literals as well; see §7.7.
 
 In `func f(x: u8): return x + 100`, the literal 100 becomes a u8 and so does the result. When x ≥ 156 the addition overflows, which is a program error (§7.4). In `Time.get_ticks_msec() - 1000`, 1000 becomes a u64.
 
@@ -312,7 +368,7 @@ var largest = u64(18446744073709551615) # u64, within range
 var invalid = u8(300)                  # compile error
 ```
 
-The concrete semantics and applicability of `is`/`as` (§2.1), and other conversion forms, are [Open]. The specified numeric `T(x)` conversions are unaffected by this open item. This section does not specify object downcasts or `T(x)` construction for non-numeric types.
+Object downcasts and checked conversions from `Variant` use `as` (§2.2). Other conversion forms are [Open]. This section does not specify `T(x)` construction for non-numeric types.
 
 #### Integer conversions
 
@@ -427,6 +483,21 @@ In C++, an out-of-range float→integer `static_cast` is undefined behavior; the
 - If an original unsigned engine number is exposed as a signed bit pattern, the binding preserves the recorded number and bit pattern under its verified transport contract. It must not silently change the number or introduce a u64 enum backing type on that basis.
 - Runtime bounds checking is separate from overflow detection and is on by default. [Known limitation] The first version offers no way to turn bounds checking off and has no unsafe mode.
 
+### 7.7 Strings
+
+A plain string literal `"…"` is a flexible literal under the same rules as the numeric literals of §7.2: if the expected type is String, StringName or NodePath, it takes that type and is constructed at compile time; in a binary operation it takes the type of the other operand; with no constraint it is String. Locals are typed under R4; for example, `var action = "jump"` is a StringName if it flows only into StringName parameters. The prefixed forms `&"…"` and `^"…"` are fixed as StringName and NodePath respectively, and the path in `$X` or `%X` is a NodePath (§6.5).
+
+At check boundaries (§3.8), String converts implicitly to StringName or NodePath, and StringName and NodePath convert implicitly to String, matching the conversions GDScript allows. Constructing a StringName from a String requires a locked lookup in a global table (Appendix A); literals are constructed at compile time and do not incur this runtime cost.
+
+String and StringName can be compared by content with `==` and `!=` (§2.3). `<`, `<=`, `>` and `>=` apply only between Strings; StringName provides no ordering comparisons. Concatenating String and StringName produces a String.
+
+```
+Input.is_action_pressed("jump")        # the literal becomes a StringName
+var action = "jump"                    # flows only into StringName parameters → StringName
+anim.play("attack_" + str(n))          # String converted to StringName at the check boundary
+get_node("UI/HealthBar")               # the literal becomes a NodePath
+```
+
 ## 8. Variables, constants and initialization
 
 ### 8.1 var and const
@@ -538,6 +609,33 @@ Declaration initialization and preparation of default storage do not invoke fiel
 
 If initialization fails, the class cannot be used normally as a completely initialized class. Later access must not automatically retry initialization or its side effects. External side effects that have already occurred are not guaranteed to be rolled back. While static values are being cleared, the script code and runtime they depend on must remain available. These rules do not provide hot reload or live-state migration.
 
+### 8.6 Properties: stored and computed
+
+Properties are either stored or computed; the concrete syntax is [Open]. A setter takes the property type and returns void; a getter returns the property type.
+
+| | Stored property | Computed property |
+|---|---|---|
+| Underlying storage | Yes; initialized under §8.1; may be `@export` | None; no initializer; cannot be `@export` |
+| Setter | Optional | Optional; read-only without one |
+| Getter | Not allowed; reads always read the field | Required |
+| Property seen by the engine | With STORAGE; duplication and saving read and write only the field | Without STORAGE, so neither saved nor duplicated; usable by `get`, `set`, Tween and AnimationPlayer |
+
+- **Stored properties:** reads by the language's code and by the engine read the field directly and run no user code. Writes go through the setter; inside that property's own setter, assignment writes the field directly. A compound assignment `hp += 1` reads the field and writes back through the setter; a partial modification of a value-type property (such as `pos.x += 1`) is written back through the setter under the write-back rule of §5.3. Member initializers, `@onready` initializers and static-field initializers write the field directly without calling the setter (§8.5). The engine read and write rules for uninitialized members in §8.1 apply to all stored properties.
+- **Computed properties:** reads by the language's code and by the engine call the getter, and writes call the setter, also inside the class. The getter and setter cannot refer to the property itself. Assigning a read-only computed property from the language's code is a compile error, and writing it through an engine `set` is a program error. A getter that reads other uninitialized members is treated as a read by the language's code (§8.1).
+- An engine `set` first performs the entry check for the property type (§12.6) and then calls the setter. If another method called from a setter assigns the property again, the setter is entered again.
+- Setters and getters cannot be coroutines (§9). A side effect that must wait until the node is ready is written by checking `is_node_ready()` in the setter and applying it once in `_ready`; when a setter contains await, the diagnostic suggests this rewrite.
+
+```
+@export var color: Color:
+    set(v):
+        color = v
+        if is_node_ready(): _apply_color()
+func _ready():
+    _apply_color()
+```
+
+Lazy initialization or caching uses a private stored field plus a computed property. This split means engine reads of stored data (duplication, saving, the debugger) run no user code, proxy and derived properties leave no useless storage, and read-only properties can be declared. In a survey of real projects, getters needing manual rewriting in GDScript code occur about 0.12 times per 1,000 lines, and await in setters about 0.19 times per 1,000 lines (see the [survey](surveys/property-accessors.en.md)).
+
 ## 9. await, signals and Callable
 
 - await is integrated minimally with Godot's signals, timers, frame events and main loop. There is no separate executor. The language is responsible for suspending a function's frame and for saving and restoring its local variables.
@@ -545,7 +643,18 @@ If initialization fails, the class cannot be used normally as a completely initi
 - A suspended execution holds no strong reference to self (§5.5). When its instance is destroyed, the instance's suspended executions are cancelled: pending signal connections are disconnected, references held by the suspended frames are released under §5.5, and they are neither resumed nor reported as errors. This follows GDScript (Appendix A). Consequently, when awaiting a coroutine on another instance that is then destroyed, the awaiting execution stays suspended until its own instance is destroyed. A node leaving the tree is not destroyed, and its suspended executions are not cancelled for that reason.
 - Functions, closures and callbacks whose signatures are known use static function types, so their arguments and results are checked at compile time.
 - Engine Callables whose signatures are unknown keep a type-erased form. In the first version they use callv through the binding layer. Arguments use `Variant` or `Variant?` according to the binding contract; an unknown result is `Variant?` unless a reliable contract excludes NIL (§12.6). Option absence checks follow §6.3; after obtaining a `Variant`, concrete operations require an explicit conversion to the target type (§2.1).
-- [Open] The following cases must be tested against the engine version selected for evaluation: the node's owner being destroyed, the node leaving the tree, the signal source being destroyed, the suspended frame being freed, and async values that cross language boundaries. Double resumption, leaks and invalid access must all be avoided.
+- **Signal types.** Signal parameters must be annotated (R6); the static type of a signal member is a signal type with those parameter types, and its syntax is [Open]. The signal information visible to the engine includes the parameter types.
+- **Emitting.** When emitting through a static signal (such as `hit.emit(5, self)`), arguments are checked statically against the parameter types, implicit conversions happen only at check boundaries (§3.8), and arguments are encoded by parameter type before being passed to the engine (§12.1). Emitting by name (`emit_signal("hit", …)`) is type-erased: arguments are `Variant` and are not checked statically. The engine does not check arguments against the declaration when emitting (Appendix A).
+- **Connecting.** When connecting a Callable with a static function type (such as `hit.connect(on_hit)`), the parameter counts must be equal, and each signal parameter type must be assignable to the corresponding function parameter type; a function parameter may be an ancestor of the signal parameter type. Results of `bind` and `unbind`, and type-erased Callables, are checked when called. When the engine calls a receiver written in the language, arguments undergo the entry check for the receiver's parameter types (§12.6).
+- **Result of awaiting a signal.** If a static signal has no parameters, await produces no value, and using its result is a compile error. With one parameter, the result is a value of that parameter's type; if the emitter passes a value that does not match it, an entry-check error is reported at the resumption point. With several parameters, await can only be a statement in the first version and its result cannot be used; in a corpus survey, code using such a result occurred once, and it involved a signal with unknown parameters (see the [survey](surveys/await-signal-results.en.md)). Signals of engine classes are typed from ClassDB argument information, and Object arguments are nullable when the contract is unclear (§6.5); for example, `await area.body_entered` yields `Node2D?`. Signals with unknown parameters keep GDScript's result shape with result type `Variant?`: None for no arguments, Some(the argument) for one, and Some(an Array of the arguments) for several (Appendix A).
+- **Coroutines.** A function (including a lambda) whose body contains await is a coroutine. This is inferred from the body and is part of the inferred signature (R7).
+- **Calling coroutines.** `await f()` waits for the coroutine to finish and yields its return value. Called as a statement without await, the coroutine runs until its first suspension, after which the caller continues and the return value is discarded. Using the value of a coroutine call in an expression without await is a compile error.
+- **The operand of await** must be a signal or a coroutine call; using await on any other expression is a compile error, including a `Variant` value.
+- **Overrides.** An override must have the same coroutine status as the base method. The exception is a base method returning void, including engine virtuals such as `_ready` and `_process`: the override may be a coroutine, and calls through the base type behave as statement calls. Overrides of engine virtuals that return non-void values cannot be coroutines.
+- **Function types** record coroutine status; the syntax is [Open]. await can be used only for calls through a coroutine function type. A coroutine returning void can convert to the corresponding non-coroutine function type, with calls behaving as statement calls, so it can be connected to signals; a coroutine returning a non-void value cannot be converted this way.
+- `_init`, `_static_init` and property setters and getters cannot be coroutines; static initialization cannot suspend (§8.5).
+- **Engine calls to coroutines.** When the engine or another language calls a coroutine written in the language, the call returns NIL at the coroutine's first suspension and the return value is discarded. [Known limitation] The first version does not support cross-language coroutines: other languages cannot await the results of the language's coroutines, and the language cannot await other languages' coroutines or async values (see the [design notes](design-notes.en.md#deferred-language-proposals)).
+- [Open] The following cases must be tested against the engine version selected for evaluation: the node's owner being destroyed, the node leaving the tree, the signal source being destroyed and the suspended frame being freed. Double resumption, leaks and invalid access must all be avoided.
 - [Later] Variadic generics that keep full signatures (parameter packs). These are not a reason to adopt full row polymorphism.
 
 ## 10. Errors and diagnostics
@@ -606,7 +715,7 @@ A language value converted implicitly to `Variant` uses its type's engine encodi
 
 Language values of different types may have the same encoding after conversion to `Variant`, for example the maximum u64 value and the i64 value −1, or an enum encoding and an ordinary Array of the same form. They compare equal as Variants on the engine side and are the same Dictionary key.
 
-`Variant` does not convert implicitly to other types. An explicit conversion to a type T performs the same entry check as an engine write to a location declared as T (§12.5, §12.6); numeric targets also have the `T(v)` numeric conversion of §7.3. The same `Variant` value may pass the checks of several target types; for example, an Array can be read as an Array and may also decode as some enum. The result is determined by the target type. The syntax of explicit conversion is [Open], together with `is`/`as`.
+`Variant` does not convert implicitly to other types. An explicit conversion to a type T performs the same entry check as an engine write to a location declared as T (§12.5, §12.6); numeric targets also have the `T(v)` numeric conversion of §7.3. The same `Variant` value may pass the checks of several target types; for example, an Array can be read as an Array and may also decode as some enum. The result is determined by the target type. Explicit conversion is written `v as T`, with result `Option[T]`; a conversion that must succeed is written `(v as T)!` (§2.2).
 
 GDScript, the editor, Dictionary keys and resource files can observe external encodings. The rules below specify those encodings by type; they are not selected anew for each value. A later change to an established external encoding is a breaking change.
 
@@ -616,6 +725,8 @@ GDScript, the editor, Dictionary keys and resource files can observe external en
 - The type guarantee has two parts. Writes from the language are checked at compile time, and **every read is checked at runtime**. Reading a value that does not match T is a program error, with a diagnostic such as "element 3 is null, but the element type is Enemy (possibly written by external code)". An implementation may skip the read check when it can prove that only the language ever wrote to the container. That is an optimization and does not change the semantics.
 - Rationale: the engine side can write anything into a container. The engine's typed Array allows null for Object elements, and an `Array[i32]` can only be an `Array[int]` on the engine side. If the language used its own containers and copied them at the boundary, it would not see changes the engine makes, which breaks the guarantee that an Array is a shared reference.
 - `Array[T].resize(n)` is available only when T has a default under §8.4, and creates that default independently for each new element. Without such a default, `resize(n, fill)` is required. The explicit fill follows the existing value/reference sharing rules and is not deep-copied automatically. The language does not accept the null Object slots left by the engine's raw `Array::resize` as non-null T values (Appendix A).
+- Container `==` uses the engine's comparison: elements are compared one by one, their Variant types must match, and float elements follow IEEE 754, whereas NaN components in core value-type elements such as Vector2 and in float packed arrays are treated as equal (Appendix A). Container comparison can therefore differ from the element type's own `==`: two Vector2 values with NaN components are unequal when compared directly but equal as Array elements.
+- Dictionary key equivalence differs from `==`: NaN keys are the same key, INT and FLOAT keys are different, and String and StringName keys are the same (Appendix A). In a typed `Dictionary[K, V]` all keys share one encoding type; with `Variant` keys, 1 and 1.0 are different keys even though `1 == 1.0` is true.
 
 ### 12.3 Type mapping table
 
@@ -688,7 +799,7 @@ For a `Variant` read, NIL is a program error. For a `Variant?` read, NIL is `Non
 
 An enum and its encoding can be converted explicitly: encoding copies out the representation, and constructing an enum from a `Variant` or an Array performs the decoding above against the target enum type. The target type supplies the nominal type and the required generic arguments.
 
-A tag identifies the type of the encoding, not its construction origin. An ordinary Array of the same valid form may construct an enum through explicit conversion; no Array-identity registry or unforgeable proof of origin is required. Without a target type, an Array is not treated as an enum merely because its shape matches. The concrete APIs for explicit conversion between enums and encodings, and the persistence-version compatibility protocol, are [Open]; this does not determine the concrete semantics or applicability of `is`/`as` (§2.1).
+A tag identifies the type of the encoding, not its construction origin. An ordinary Array of the same valid form may construct an enum through explicit conversion; no Array-identity registry or unforgeable proof of origin is required. Without a target type, an Array is not treated as an enum merely because its shape matches. The concrete APIs for explicit conversion between enums and encodings, and the persistence-version compatibility protocol, are [Open]. Decoding from a `Variant` into a target enum can also be written `v as E` (§2.2).
 
 Successful validation constructs independent enum variant and field slots according to the target type; mutable encoding slots must not serve directly as trusted enum storage. Later changes to the input Array's tag or field slots do not change the constructed enum's variant or field slots. The user's input Array need not be frozen. Objects and containers in fields retain their existing reference-sharing semantics; no deep copy of the entire object graph is required. Nested enum values are likewise constructed under their value semantics, with their reference payloads still shared.
 
@@ -722,13 +833,17 @@ The first version includes `Variant` and `Variant?` for interoperation, and exte
 
 ### 14.1 Known limitations
 
-- No dyn traits. Traits contain only method signatures and serve only as generic bounds (§4). Code that treats objects of different types alike, such as iterating `get_overlapping_bodies()` and calling `take_damage` on each, must obtain the required concrete type through object type checking or use a type-erased `call()`; concrete `is`/`as` forms remain open under §14.2.
+- No dyn traits. Traits contain only method signatures and serve only as generic bounds (§4). Code that treats objects of different types alike, such as iterating `get_overlapping_bodies()` and calling `take_damage` on each, must obtain the required concrete type with `as` (§2.2) or use a type-erased `call()`.
 - No top type within the language. `Variant` is only for interoperation and does not retain the static types of language values (§2.1).
 - No recursive enums (§6.1); users cannot declare open enums (§6.1).
 - No type narrowing based on None checks, and no binding declaration with an else block (§6.3).
 - Return branches of different classes are not merged into a common ancestor (R5); no polymorphic recursion (§11).
 - `weak[T]` cannot be used with `@export` and has no `==` (§5.2).
 - Static initialization cannot suspend at await (§8.5).
+- The result of awaiting a signal with several parameters cannot be used (§9).
+- User-defined iterator protocols are not supported (§2.4).
+- Setters and getters cannot be coroutines (§8.6).
+- No cross-language coroutines: other languages cannot await the results of the language's coroutines, and the language cannot await other languages' coroutines or async values (§9).
 - No type suffixes for integer or floating-point literals (§7.1).
 - Generic functions are not exposed to the engine (R2).
 - No way to turn off bounds checking, and no unsafe mode (§7.6).
@@ -736,11 +851,10 @@ The first version includes `Variant` and `Variant?` for interoperation, and exte
 
 ### 14.2 Open language questions
 
-- Remaining enum syntax, and concrete syntax for traits, generics, remaining match-pattern forms and other conversion forms (§1.3, §6.3, §7.3).
+- Remaining enum syntax; concrete syntax for traits, generics, remaining match-pattern forms and other conversion forms; and the operator precedence of `as`/`is` (§1.3, §2.2, §6.3, §7.3).
 - Conditions for potential-integer-overflow warnings (§7.4).
 - Scene-property injection, tree-entry ordering and their interaction with inheritance (§8.3).
-- The await lifetime boundaries listed in §9, including async values that cross language boundaries.
-- Concrete semantics and applicability of `is`/`as`, and the syntax of explicit `Variant` conversion (§2.1, §7.3, §12.1, §12.5).
+- The await lifetime boundaries listed in §9.
 - APIs for explicit conversion between enums and their encodings, and the persistence-version compatibility protocol (§12.5).
 
 Deferred language proposals are recorded in the non-normative [design notes](design-notes.en.md#deferred-language-proposals). Engine-version selection, tools and distribution are covered by the [project plan](project-plan.en.md).
@@ -759,6 +873,10 @@ This checklist gives examples for checking the rules in the preceding sections; 
 | Open enums | Bitfield-marked engine enums are open automatically; `size_flags_horizontal = SIZE_EXPAND \| SIZE_SHRINK_CENTER` round-trips without losing bits; reading a `key_label` that is a Unicode character reports no error; open-enum values round-trip through parameters, returns and properties in both directions; E(n) accepts any i64 value; a match without a catch-all branch is a compile error; `\|`, `&`, `^` and `~` on one bitfield type produce that type, and operations between different types are errors; the default is 0; a closed engine enum still reports an error for a non-member integer |
 | Traits | Compile results when a constraint is satisfied and when it is not, without relying on dyn |
 | Nullability | `T?` and `Option[T]` are equivalent; `T??` distinguishes its two levels; the diagnostic when `!` fails; `?.` short-circuits the whole chain; `x != None` does not change x's type, and payloads are obtained with conditional pattern binding; members, properties and container elements are read into a local before obtaining the payload; required `$X` reports a missing node, optional lookup returns Option, and successful lookup does not guarantee later liveness |
+| for loops | The loop variable of `range(10)` is i32; `range(a, b)` with i32 and i64 arguments gives i64; `for i: i64 in range(10)` gives i64; `for i in 5` is a compile error with a rewrite suggestion; a step of 0 is an error, a negative step iterates in the right order, and reaching the i32 limit does not overflow; the loop variable over `Array[Enemy]` is Enemy, and a wrongly typed element written externally reports an error when read; annotating the loop variable with a subclass is a compile error; iterating a Dictionary yields keys and ends when the current key is erased; a PackedByteArray yields u8; a String yields one-character Strings; iterating a Variant is a compile error; closures created in the loop each capture that iteration's value |
+| Strings | The literal in `Input.is_action_pressed("jump")` becomes a StringName with no runtime conversion; `var a = "jump"` is a StringName if it flows only into StringName parameters; the literal in `get_node("A/B")` becomes a NodePath; an unconstrained literal is a String; a non-literal String passed to a StringName parameter converts implicitly, as does a StringName assigned to a String variable; `&"a" == "a"` is true; ordering comparisons between String and StringName are compile errors; concatenating StringName and String produces a String |
+| Equality | `i32 == i64` compiles and `i64 == u64` is a compile error; NaN is not equal to NaN; comparing objects of classes unrelated by inheritance is a compile error; comparing freed objects reports no error; `Some(1) == Some(1)` and `None == None`, and `Option[T]` compared with T wraps it in Some; `Cmd.Move(v) == Cmd.Move(v)`, same-number aliases are equal, and comparing an enum with an integer is a compile error; `[1]` and `[1.0]` in two Variants are unequal, while 1 in a Variant equals 1.0; Vector2 values with NaN components are equal as Array elements and unequal directly; in a Dictionary with Variant keys, 1 and 1.0 are different keys |
+| is and as | A subclass conversion gives Some on success and None on failure; conversion between classes unrelated by inheritance is a compile error; `as` on a freed object reports invalid access; after script replacement the new script's class is checked; an INT of 300 gives None for `as u8` while `u8(v)` gives 44; an enum encoding passes both `as Array` and `as Cmd`; `as Array[Enemy]` succeeds for an untyped Array and elements are checked when read; a None source gives None; numeric or String sources are compile errors; accessing subclass members directly after `is` is a compile error with a rewrite suggestion; a failed `(x as T)!` names the actual and expected types; `$X` checks the class when the expected type is a subclass, reports a missing node or class mismatch, and is Node without an expected type |
 | Conditional pattern binding | Some, Ok and user enum patterns share rules; evaluate the right-hand side once; successful lexical bindings may be reassigned; mismatch takes else; a bare variable binds the whole value, including None, without unwrapping or truthiness; irrefutable patterns are allowed without an added warning and an unexecuted else is still checked; Some(None) retains the inner None |
 | Liveness | A local of a non-null type remains non-null across an await; the referenced Node may no longer be alive and still requires a liveness check; after GDScript or the remote inspector replaces the script of a language object, access through a reference typed with the language class reports invalid access instead of crashing, while access through a Node-typed reference still works; after external code called by a method replaces the script of self, accessing a member of self is an error while the method can still return; replacement by a script that is a subclass of T passes the check; `?.` on a freed object reports invalid access |
 | Ownership | A RefCounted object held only by an Object-typed variable stays alive; ownership is unchanged after downcasting; `weak` on a handle type is an error |
@@ -778,6 +896,9 @@ This checklist gives examples for checking the rules in the preceding sections; 
 | Static initialization | Base, declaration and `_static_init` ordering; nested-class dependencies; type-only cycles do not cause execution-cycle errors; internal reads of completed own fields; cross-class reentry, incomplete-field reads and premature construction report dependency chains; explicit initializers do not borrow numeric/Option defaults; valid default initialization without an initializer; reading a static field without a default before assignment is an error; initialization bypasses setters while later assignment is unchanged; await suspension is rejected; failure publishes no usable class and does not automatically retry side effects; one initialization per runtime state; cleanup retains code and runtime dependencies |
 | await | Resumption order, reentrancy, cancellation after the instance is destroyed, and frame cleanup, all compared against the engine version selected for evaluation; self is not held while suspended, so after the instance is destroyed a timer firing neither resumes nor reports an error, and references held by locals of the suspended frame are released; with self bound to a local, a RefCounted instance stays alive and resumes normally; after an awaited coroutine is cancelled the awaiting execution stays suspended, and it is cancelled as well when its own instance is destroyed |
 | Callable | Known signatures are checked statically; type-erased results never pose as a known type |
+| Properties | Reads of a stored property read the field, and engine reads run no user code; writes call the setter, while assignment inside the setter writes the field; declaring a getter on a stored property is a compile error; reads of a computed property call the getter and writes call the setter, also inside the class, and referring to the property inside its own getter or setter is a compile error; assigning a read-only computed property is a compile error, and writing it through an engine `set` reports an error; an initializer or `@export` on a computed property is a compile error, and computed properties do not appear in saves or duplicates; `hp += 1` reads the field and writes back through the setter; `pos.x += 1` writes back through the setter; member and `@onready` initializers do not call the setter; an engine `set` performs the entry check before calling the setter and, on a type mismatch, reports an error without calling it; await in a setter or getter is a compile error whose diagnostic suggests applying the effect once ready |
+| Coroutines | A body containing await makes a coroutine; using its value in an expression without await is a compile error; a statement call runs until the first suspension, after which the caller continues and the return value is discarded; await on a plain function call or a Variant is a compile error; an override of `_ready` may be a coroutine, while mismatched coroutine status when overriding a non-void method is a compile error; a void coroutine can be connected to a signal, while converting a non-void coroutine to a non-coroutine function type is a compile error; await in `_init` or a setter is a compile error; adding await to a function makes former callers fail with a diagnostic pointing at that await; an engine call to a coroutine yields NIL at its first suspension |
+| Signals | Emitting with mistyped arguments is a compile error; connecting with a different parameter count or non-assignable types is a compile error, while a function parameter that is an ancestor of the signal parameter can be connected; using the await result of a parameterless signal is a compile error; the await result of a one-parameter signal has that parameter's type, and GDScript emitting a wrong type reports an entry-check error at resumption; using the await result of a multi-parameter signal is a compile error; `await area.body_entered` yields `Node2D?`; awaiting a signal with unknown parameters yields `Variant?` with GDScript's shape |
 | Variant values | Integers encode as INT and floats as FLOAT without preserving source width; u64 uses bit transport, so a runtime maximum u64 passed through Variant gives that value for u64(v) and −1 for i64(v); the maximum u64 and the i64 value −1 are the same Dictionary key; Variant does not convert implicitly to other types; explicit conversion performs the entry check for the target type, and one value may pass the checks of several target types; Option[T] converts only to Variant?; weak converts to a WeakRef; Object inheritance and ownership are unchanged; assigning one Variant to another adds no container layer; bare NIL is rejected for Variant and becomes None for Variant? |
 | Variant mapping | Every table row round-trips; entirely payload-free enums are INT; every variant of other enums, including payload-free variants, is a name-tagged Array; Option None is NIL, and Some uses `[&"Option.Some", …]` when the payload is an Option, so every None layer is distinguished; encodings used as Dictionary keys compare by content; encoding and decoding enforce depth limits; decoding checks variant tag, length and fields but not read-only status, so encodings duplicated by the engine or loaded from saves still decode |
 | Enums and encodings | Explicit encoding copies out the representation; reverse conversion decodes against the target type before constructing an internal value; same-form ordinary Arrays may convert without origin registration; the target type supplies the nominal type and generic arguments; later encoding-slot changes do not change enum slots, reference payloads remain shared and input Arrays need not be frozen; without a target type an Array is not treated as an enum |
@@ -817,6 +938,14 @@ Checked against Godot master (4.8-beta, commit `469659e`). Paths are relative to
 | Packed arrays are passed by reference between scripts, but built-in properties and methods return copies | `doc/classes/PackedInt32Array.xml:9` |
 | GDScript runs all member initializers, from base class to derived class, before calling `_init` | `modules/gdscript/gdscript.cpp:144, 176, 194` |
 | GDScript runs `@onready` initializers, from base class to derived class, when `_ready` is called and before the user's `_ready` body | `modules/gdscript/gdscript.cpp:1956-1972` |
+| Properties of native engine classes are defined by a setter and getter method pair | `core/object/class_db.h:457`; `scene/2d/node_2d.cpp:504` |
+| GDScript calls getters and setters for property reads and writes inside the class, except inside that property's own getter or setter, where the field is accessed directly; member and `@onready` initializers write fields directly | `modules/gdscript/gdscript_compiler.cpp:304-311, 1292-1369, 2419-2457` |
+| A GDScript instance's `set` checks and converts the type before calling the setter, and `get` calls the getter | `modules/gdscript/gdscript.cpp:1555-1579, 1632-1662` |
+| A GDScript function whose body contains await is a coroutine | `modules/gdscript/gdscript_parser.cpp:3223-3225` |
+| GDScript reports an error when a coroutine call is used in an expression without await; a statement call only raises the `MISSING_AWAIT` warning, which is off by default; await on an expression that is neither a coroutine nor a signal only raises the `REDUNDANT_AWAIT` warning | `modules/gdscript/gdscript_analyzer.cpp:3136-3140, 3820-3827`; `modules/gdscript/gdscript_warning.h:135-136` |
+| The GDScript compiler uses untyped temporaries for awaited call results because an override in a subclass may be a coroutine | `modules/gdscript/gdscript_compiler.cpp:610-613` |
+| When emitting a signal, the engine only looks up the signal and calls the connected Callables in turn, without checking arguments against the signal declaration | `core/object/object.cpp:1256-1331` |
+| In GDScript, the result of awaiting a signal is null with no arguments, the argument with one, and an Array with several; the analyzer types it as Variant | `modules/gdscript/gdscript_function.cpp:237-255`; `modules/gdscript/gdscript_analyzer.cpp:3125-3128` |
 | When an await resumes, GDScript also performs a defensive check that the script and the instance still exist | `modules/gdscript/gdscript_function.cpp:274-287` |
 | A suspended GDScript function state stores only a raw pointer to its instance, and saving the suspended frame skips the fixed stack slot that holds self, so no strong reference to self is held | `modules/gdscript/gdscript_function.h:325-328, 463-477`; `modules/gdscript/gdscript_vm.cpp:2608-2611` |
 | Destroying an instance clears its suspended function states, disconnecting pending signal connections and releasing the suspended frames, so they never resume | `modules/gdscript/gdscript.cpp:2086-2092`; `modules/gdscript/gdscript_function.cpp:303-322, 335-350` |
@@ -844,6 +973,16 @@ Checked against Godot master (4.8-beta, commit `469659e`). Paths are relative to
 | The default Signal is empty and unbound; emit/connect require an existing object | `core/variant/callable.h:179-184, 205`; `core/object/object_id.h:42, 60`; `core/variant/callable.cpp:532-545` |
 | Array and Dictionary default constructors create new empty backing containers | `core/variant/array.cpp:45-51, 983-986`; `core/variant/dictionary.cpp:43-50, 781-784`; `core/templates/hash_map.h:72-78, 681-683` |
 | Packed array types use Vector; default Vector and CowData are empty | `core/variant/variant.h:82-92`; `core/templates/vector.h:71, 318`; `core/templates/cowdata.h:88, 185, 233` |
+| An Array is iterated by index, with its length rechecked at each step | `core/variant/variant_setget.cpp:1417-1423, 1654-1662, 1833-1842` |
+| Iterating a Dictionary yields keys, finding each next key from the current one; iteration ends when the current key has been erased | `core/variant/variant_setget.cpp:1406-1415, 1643-1652, 1829-1830`; `core/variant/dictionary.cpp:581-599` |
+| Iterating a String yields one-character substrings | `core/variant/variant_setget.cpp:1398-1405, 1633-1642, 1825-1827` |
+| GDScript allows String to convert implicitly to StringName and NodePath, and those to convert back to String | `core/variant/variant.cpp:560-575, 607-612, 763-778`; `modules/gdscript/gdscript_analyzer.cpp:6419-6423` |
+| Constructing a StringName from a String hashes it and looks it up in a global table under a mutex | `core/string/string_name.cpp:280-302` |
+| Variant defines `==` and `!=` between String and StringName, and concatenation yields a String | `core/variant/variant_op.cpp:196-201, 222, 493, 615` |
+| Variant `==` compares INT and FLOAT numerically | `core/variant/variant_op.cpp:490-492` |
+| Array and Dictionary `==` call `hash_compare` on each element with semantic comparison off; it requires matching Variant types and compares floats under IEEE 754, while core value types such as Vector2 compare with `is_same`, treating NaN as equal, as do float packed arrays | `core/variant/array.cpp:135-154`; `core/variant/dictionary.cpp:278-295`; `core/variant/variant.cpp:3175-3194, 3213-3224, 3365, 3369`; `core/math/vector2.cpp:207-209`; `core/math/math_funcs.h:584-589` |
+| Dictionary keys use `hash_compare` with semantic comparison on, and treat String and StringName as the same | `core/variant/dictionary.cpp:46`; `core/variant/variant.h:837`; `core/variant/variant.cpp:3437-3448` |
+| GDScript's object `as` yields null on a class mismatch and reports an error for a freed object in debug builds; `as` with a built-in type is a conversion through `Variant::construct` that reports an error on failure | `modules/gdscript/gdscript_vm.cpp:1615-1642, 1644-1673, 1675-1722` |
 | `Object::set_script` deletes the old script instance and then creates a new one; the object and its ObjectID are unchanged; `set_script()` has no veto hook and is exposed to scripts | `core/object/object.cpp:1049-1077, 1921` |
 | `Object::set` offers a property to `ScriptInstance::set` before handling the `script` property, so a script instance can intercept writes through `set("script", …)` but not direct `set_script()` calls | `core/object/object.cpp:204-211, 227-228` |
 | The runtime remote inspector modifies an object's `script` property through `Object::set` | `scene/debugger/scene_debugger.cpp:862-863, 871` |
@@ -890,6 +1029,15 @@ This appendix records design rationale. The rules in the referenced sections def
 | Overflow as undefined behavior when detection is off | It would break determinism (lockstep multiplayer, replays); the result is defined to wrap instead |
 | Constants computed at runtime and then frozen | Only constant expressions are allowed |
 | Untyped const declarations whose type is selected at each use | A const declaration fixes its type from its annotation or initializer; its value remains available for constant propagation (§8.1) |
+| Iterating a Dictionary as key-value pairs | Not expressible without tuples; it can be added compatibly once destructuring exists (§2.4) |
+| Allowing iteration over a `Variant` | Elements could only be `Variant`, deferring type errors to runtime; converting to an Array first costs one step (§2.4) |
+| Requiring explicit conversion between non-literal String, StringName and NodePath values | Building a name and passing it is common in GDScript; these conversions lose no information, so requiring them explicitly would be inconsistent with lossless numeric conversions (§7.7) |
+| Fixing string literals as String and relying on runtime conversion | Each use of a constant string would require a global-table lookup; flexible literals are constructed at compile time (§7.7) |
+| Comparing containers element by element with the language's `==` for the element type | The same comparison would give different results in GDScript and in the language; containers are engine containers, so they compare under engine rules (§2.3, §12.2) |
+| Comparing across numeric types directly as Variant does (such as `i64 == f64`) | This needs a lossy common type, contrary to the lossless common-type rule of §7.5 (§2.3) |
+| `as` reporting an error on failure, with a separate nullable `as?` (as in Kotlin and Swift) | This inverts GDScript's meaning of `as`, which yields null on failure, so ported code that checks for null after `as` would report errors; `as` returns an Option instead, and `(x as T)!` is used when it must succeed (§2.2) |
+| Implicit downcasts driven by the expected type (like GDScript's `var e: Enemy = node`) | All type errors would be deferred to runtime; only `$X` checks against the expected type (§2.2, §6.5) |
+| A type pattern `if var e: Enemy = body` | It has the same form as an annotated declaration, so readers cannot tell an annotation from a test; `if var Some(e) = body as Enemy` is used instead (§2.2) |
 | Flow-sensitive narrowing based on None checks | The recommended forms are conditional pattern binding and `?.`, giving one set of pattern rules for obtaining payloads; narrowing can be added compatibly later (§6.3) |
 | `T?` and Option as separate concepts | Generic code needs nesting, and two separate APIs for absent values would split the ecosystem; `T?` is `Option[T]` |
 | Encoding enums as RefCounted objects | Objects compare by identity, which breaks Dictionary keys; read-only Arrays are used instead |
@@ -898,6 +1046,14 @@ This appendix records design rationale. The rules in the referenced sections def
 | Recursive enums with automatic indirection | Indirection introduces allocation; the first version rejects recursive value layouts (§6.1). An explicit-indirection proposal is recorded in the design notes |
 | Building a file-level dependency graph before inference | Method dependencies can depend on inferred receiver types; joint inference is defined per declaration (§11), with discovery strategies described in the design notes |
 | Full row polymorphism and statically forwarding arbitrary arguments | Parameter packs are listed as future work |
+| GDScript-style setget, where a stored field may have a getter | Engine duplication, saving and debugger reads run the getter, proxy and derived properties leave useless storage, and read-only properties cannot be declared; properties are split into stored and computed instead, and the survey found getters needing manual rewriting about 0.12 times per 1,000 lines (§8.6) |
+| Allowing setters and getters to be coroutines (such as `await ready` in a setter) | Asynchrony hides behind assignment, and the order in which side effects apply depends on signal connections; rewriting to apply once ready is mechanical and can be relaxed compatibly later (§8.6) |
+| Bypassing the setter for property access inside the class (Godot 3 setget) | GDScript 4 goes through the setter, and ported code depends on that (§8.6) |
+| Calling the setter during initialization | The setter may read other members not yet initialized, defeating §8.2, and this differs from GDScript (§8.6) |
+| Declaring coroutines with an explicit marker (such as `async func`) | Adds annotation burden and differs from GDScript; coroutine status can be inferred from the body (§9) |
+| Allowing overrides to change coroutine status freely (as in GDScript) | Callers cannot know statically whether await is needed, and return types become unreliable (§9, Appendix A) |
+| `Array[Variant]` as the await result of a multi-parameter signal (as in GDScript) | All type information is lost, inconsistent with static types for callbacks with known signatures (§9); binding by parameter is in the design notes |
+| Requiring function parameter types to equal signal parameter types exactly when connecting | Stricter than allowing ancestor parameter types, with no safety benefit (§9) |
 | A suspended execution holding a RefCounted self | If the awaited signal never fires, the object leaks indefinitely; this also differs from GDScript (§9) |
 | Reporting an error when resuming a suspended execution after its instance is destroyed | GDScript disconnects pending waits and cancels suspended executions when an instance is destroyed; the common pattern of awaiting and then calling `queue_free` would report false errors (§9) |
 | Hot reload and live state migration | Not planned |

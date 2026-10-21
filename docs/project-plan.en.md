@@ -31,6 +31,7 @@ Other existing tooling questions and proposals include:
 - Debugger display of enum encodings using static type information.
 - Fix-it suggestions and full inference traces, beyond the diagnostic obligations in specification §10.
 - Additional floating-point arithmetic diagnostics may be considered later; existing numeric-conversion warnings remain as specified in §7.3.
+- Hints about the cost of runtime String-to-StringName conversion on hot paths (specification §7.7).
 - A lint for encoding allocation costs of enums and proposed records, particularly in containers such as `Array[enum]`.
 - Contributing engine contract metadata upstream.
 
@@ -38,6 +39,6 @@ Other existing tooling questions and proposals include:
 
 The order specified in §8.2 is a language rule. Comparing it with engine behavior does not reopen it as an unspecified rule. Scene-property injection, entering the tree and their interaction with inheritance remain language questions in §8.3. Reads of uninitialized non-null exports follow §8.1; static initialization follows §8.5.
 
-The existing compatibility work also covers await resumption and reentrancy, destruction of instances or signal sources, node-tree transitions, frame cleanup and cross-language async values (§9); typed containers and external read checks (§12); and scripts, callbacks, properties and scene saving/loading (§13, §15).
+The existing compatibility work also covers await resumption and reentrancy, destruction of instances or signal sources, node-tree transitions and frame cleanup (§9); typed containers and external read checks (§12); and scripts, callbacks, properties and scene saving/loading (§13, §15).
 
 Evidence is tied to the selected engine revision. Engine facts are recorded with source locations in specification Appendix A.
