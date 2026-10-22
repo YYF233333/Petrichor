@@ -1,0 +1,253 @@
+# Assumption: this file, the health/death/interval_hurt components, Brick and its subclasses, Enemy and
+# Utility are migrated; Paddle, Skill, Consumables, Consumable, Ball, Balls, Breakout, ResourceManager and
+# ValueManager stay GDScript (A6). Under A6 a GDScript int is i64, object-typed members and returns may be
+# null and are seen as T?, and unannotated ones are Variant?.
+extends Node
+
+const debug: bool = false
+
+"""
+信号中心
+游戏管理中心
+player状态处理中心
+"""
+
+signal point_scored(point: i32)                       # R6: untyped in the original
+
+signal goal_text_changed(text: String)
+
+signal ammo_lost(value: i32)
+signal ammo_changed
+
+signal health_changed(value: i32)
+
+signal skill_charge(value: i32)
+signal skill_charged
+signal skill_changed
+signal try_use_skill
+
+signal ball_lost(ball: Ball)
+signal ball_hit(charge: i32)
+
+signal enemy_defeated(enemy_name: StringName)
+signal brick_broken(brick_name: StringName)
+
+signal failed
+signal track_lost #剧情杀，特殊结算
+signal goal_clear(level_name: String, goal_name: String) #关卡小目标达成，通常准备转阶段
+signal level_clear(level_name: String) #关卡完成
+
+var breakout: Breakout
+var skill: Skill?                                     # the original tests it with if skill:
+var balls: Balls
+var paddle: Paddle?                                   # Enemy tests it with if paddle_node:
+var consumables: Consumables
+
+var is_game_ended: bool = false
+var ammo: i32:
+	set(value):
+		ammo = max(value, 0)                          # [A3]
+		ammo_changed.emit()
+var score: i32 = 0
+
+var current_health: i32:
+	set(value):
+		var old_health = current_health
+		current_health = min(max(value, 0), max_health)   # [A3]
+		if _health_ready:
+			health_changed.emit(current_health-old_health)
+		else:
+			health_changed.emit(0) #为了防止初始化时血量变化被识别为回血
+var max_health: i32:
+	set(value):
+		max_health = value
+		current_health = current_health
+
+var cursed: bool = false:
+	set(value):
+		cursed = value
+		var sprite = (paddle!.sprite as Sprite2D)!     # Paddle.sprite is unannotated in GDScript -> Variant?
+		if value:
+			sprite.texture = preload("res://breakout/assets/CursedPaddle.png")
+		else:
+			sprite.texture = preload("res://breakout/assets/DefaultPaddle.png")
+var rebound: bool = false:
+	set(value):
+		rebound = value
+		var sprite = (paddle!.sprite as Sprite2D)!
+		if value:
+			sprite.texture = preload("res://breakout/assets/GoldenPaddle.png")
+		else:
+			sprite.texture = preload("res://breakout/assets/DefaultPaddle.png")
+var blessed: bool = false:
+	set(value):
+		blessed = value
+		#视效
+
+var init_message: Dictionary
+var _health_ready: bool = false
+
+func _ready():
+	try_use_skill.connect(_on_try_use_skill)
+	point_scored.connect(_on_point_scored)
+	ball_lost.connect(_on_ball_lost)
+	ammo_lost.connect(_on_ammo_lost)
+
+	failed.connect(_on_failed)
+	track_lost.connect(_on_track_lost)
+	level_clear.connect(_on_level_clear)
+
+
+# called from C# as GetNode("/root/BreakoutManager").Call("receive_init_message", data.AsDict())
+func receive_init_message(message: Dictionary):
+	init_message = message.duplicate(true)
+	reset.call_deferred()
+
+
+func send_message() -> Dictionary:
+	var player_consumables = {}                        # S5
+	for node in consumables.consumable_nodes:          # declared Array[Node] in GDScript
+		var consumable = (node as Consumable)!
+		player_consumables[consumable.consumable_info!.consumable_name] = {
+			"rest_times": consumable.rest_times,
+			"transformed": consumable.transformed,
+		}
+	return {
+		"player_consumables": player_consumables,
+		"level_result": {},
+	}
+
+
+func reset():
+	if not init_message.is_empty():                    # original: if init_message:
+		print_debug(init_message)
+		var player_consumables = (init_message["player_consumables"] as Dictionary)!
+		consumables.reset()
+		for key in player_consumables.keys():           # S6: elements are Variant?
+			var consumable_name = (key as String)!
+			var entry = (player_consumables[key] as Dictionary)!
+			var rest_times = (entry["rest_times"] as i64)!
+			var transformed = (entry["transformed"] as bool)!
+			var scene = ResourceManager.get_consumable_scene_by_name(consumable_name)!
+			var consumable = (scene.instantiate() as Consumable)!   # the original downcasts implicitly through a typed local
+			consumable.rest_times = rest_times
+			consumable.transformed = transformed
+			consumables.add_consumable_instance(consumable)
+
+		var selected_skill = (init_message["selected_skill"] as String)!
+		skill = ResourceManager.get_skill_scene_by_name(selected_skill)!.instantiate() as Skill
+		skill_changed.emit()
+
+		var selected_policy = (init_message["selected_policy"] as PackedStringArray)!
+		#TODO
+
+		ValueManager.player_max_health = (init_message["player_max_health"] as i64)!
+		ValueManager.player_init_ammo = (init_message["player_init_ammo"] as i64)!
+
+		var current_level = (init_message["current_level"] as String)!
+		if var Some(level_scene) = ResourceManager.get_level_scene_by_name(current_level):
+			var previous_level = (get_tree().get_first_node_in_group("levels") as Node2D)!   # [A2]
+			previous_level.add_sibling(level_scene.instantiate()!)   # [A1] add_sibling's parameter is non-null
+			previous_level.queue_free()
+
+		var current_level_manager_name = (init_message["current_level_manager"] as String)!
+		if var Some(manager_scene) = ResourceManager.get_level_manager_by_name(current_level_manager_name):
+			var previous_level_manager = (get_tree().get_first_node_in_group("level_managers") as Node2D)!
+			previous_level_manager.add_sibling(manager_scene.instantiate()!)
+			previous_level_manager.queue_free()
+
+
+	if var Some(s) = skill:
+		s.current_charge = 0
+
+	_health_ready = false
+	max_health = ValueManager.player_max_health #小心顺序，要先设置max_health   i64 -> i32, truncated silently
+	current_health = max_health
+	_health_ready = true
+
+	ammo = ValueManager.player_init_ammo               # i64 -> i32, truncated silently
+	score = 0
+
+
+func get_charge_percent():
+	var s = skill!
+	if s.max_charge <= 0:
+		return 1
+
+	return s.current_charge/float(s.max_charge)
+
+
+func take_damage(value: i32):
+	#debug
+	current_health -= value
+	check_death.call_deferred()
+
+
+func get_health_percent():
+	if max_health <= 0:
+		return 0
+	else:
+		return min(current_health/float(max_health), 1)   # [A3]
+
+
+func check_death():
+	if current_health <= 0:
+		failed.emit()
+
+
+func clear_bricks():
+	var bricks = get_tree().get_nodes_in_group("bricks")
+	for brick in bricks:
+		brick.queue_free()
+
+
+func clear_enemies():
+	var enemies = get_tree().get_nodes_in_group("enemies")
+	for enemy in enemies:
+		enemy.queue_free()
+
+
+func pause_game():
+	breakout.process_mode = Node.PROCESS_MODE_DISABLED
+
+
+func continue_game():
+	breakout.process_mode = Node.PROCESS_MODE_INHERIT
+
+
+func _on_try_use_skill():
+	if var Some(s) = skill:
+		s.try_use()
+
+
+func _on_point_scored(point: i32):
+	score += point
+
+
+func _on_ball_lost(ball: Ball):
+	var balls = (get_tree().get_first_node_in_group("balls") as Balls)!
+	balls.del_ball(ball)
+
+
+func _on_ammo_lost(value: i32):
+	ammo -= value
+	if ammo == 0:
+		print_debug("ammo run out") #TODO: hint label & restart bottom
+
+
+func _on_failed():
+	get_tree().paused = true
+	var end_screen = preload("res://breakout/scenes/screens/EndMiniGameScreen.tscn").instantiate()!
+	breakout.add_child(end_screen)
+
+
+func _on_track_lost():
+	get_tree().paused = true
+	var end_screen = preload("res://breakout/scenes/screens/EndMiniGameScreen.tscn").instantiate()!
+	breakout.add_child(end_screen)
+
+
+func _on_level_clear(level_name: String):
+	get_tree().paused = true
+	var end_screen = preload("res://breakout/scenes/screens/EndMiniGameScreen.tscn").instantiate()!
+	breakout.add_child(end_screen)

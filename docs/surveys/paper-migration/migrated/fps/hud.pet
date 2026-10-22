@@ -1,0 +1,6 @@
+extends CanvasLayer
+
+
+func _on_health_updated(health: i32):                # R3: only flows into str() (Variant); scene connection S7
+	var label: Label = $Health                       # $Health without an expected type is Node
+	label.text = str(health) + "%"

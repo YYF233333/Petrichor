@@ -1,0 +1,79 @@
+extends Node
+class_name HealthComponent
+
+signal health_change #use to update health_bar
+signal died
+
+var current_health: i32
+
+@export var show_floating_text: bool = true
+var floating_text_scene = preload("res://breakout/scenes/ui/floating_text.tscn")
+
+# The owner is a Brick (StaticBody2D) or an Enemy (CharacterBody2D); they share no class of this language.
+# The original reads and writes owner.init_health and owner.max_health directly. v0.1 has no trait
+# objects, so each access dispatches on the concrete class (C-trait).
+func _owner_max_health() -> i32:
+	if var Some(b) = owner as Brick: return b.max_health
+	return (owner as Enemy)!.max_health
+
+func _set_owner_max_health(value: i32):
+	if var Some(b) = owner as Brick: b.max_health = value
+	else: (owner as Enemy)!.max_health = value
+
+# Called when the node enters the scene tree for the first time.
+func _ready():
+	if var Some(b) = owner as Brick:
+		current_health = b.init_health
+	elif var Some(e) = owner as Enemy:
+		current_health = e.init_health
+	else:
+		#debug
+		print_debug("health component has wrong owner")
+		queue_free()
+
+
+func take_damage(value: i32):
+	#debug
+	var prev_health = current_health
+
+	current_health = min(max(current_health - value, 0), _owner_max_health())   # [A3]
+	health_change.emit()
+
+	if show_floating_text:
+		#加载伤害 UI 组件
+		var floating_text = (floating_text_scene.instantiate() as FloatingText)!
+		get_tree().get_first_node_in_group("foregrounds")!.add_child(floating_text)   # [A2][A1]
+
+		floating_text.global_position = (owner as Node2D)!.global_position + \
+			Vector2(randi_range(-8,8),randi_range(-4,4)-16)
+
+		var health_change_value = current_health - prev_health
+		if health_change_value == 0:
+			pass
+		elif health_change_value > 0:
+			floating_text.start(str(abs(health_change_value)), Color(0.0, 1.0, 0.0))   # [A3]
+		elif health_change_value < 0:
+			floating_text.start(str(abs(health_change_value)), Color(1.0, 0.0, 0.0))
+
+	check_death.call_deferred()
+
+
+func set_max_health(value: i32):
+	_set_owner_max_health(max(value, 0))
+	if current_health > _owner_max_health():
+		current_health = _owner_max_health()
+	health_change.emit()
+	check_death.call_deferred()
+
+
+func get_health_percent():
+	var max_health = _owner_max_health()
+	if max_health <= 0:
+		return 0
+	else:
+		return min(current_health/float(max_health), 1)
+
+
+func check_death():
+	if current_health == 0:
+		died.emit()

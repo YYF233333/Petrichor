@@ -1,0 +1,54 @@
+# ===== utility/utility.gd (autoload "Utility")
+extends Node
+
+@onready var noise = FastNoiseLite.new()
+
+
+func hint_not_available(node: Node):
+	flicker_red(node)
+
+
+func flicker_red(node: Node, times: i32 = 2, color: Color = Color(0.66, 0, 0, 0.66)):
+	var flicker_tween = create_tween().set_loops(times)   # [A1]
+	flicker_tween.tween_property(node, "modulate", color, 0.1)
+	flicker_tween.tween_property(node, "modulate", Color(1, 1, 1, 1), 0.1)
+	return flicker_tween
+
+
+func flicker_transparent(node: Node, times: i32 = 2, color: Color = Color(1, 1, 1, 0.33)):
+	var flicker_tween = create_tween().set_loops(times)
+	flicker_tween.tween_property(node, "modulate", color, 0.5)
+	flicker_tween.tween_property(node, "modulate", Color(1, 1, 1, 1), 0.5)
+	return flicker_tween
+
+
+func screen_shake(shake_force: f64 = 1.0):
+	BreakoutManager.breakout.shake = true
+	BreakoutManager.breakout.shake_force = shake_force
+
+	await get_tree().create_timer(0.1).timeout           # [A2][A1]
+
+	BreakoutManager.breakout.shake = false
+
+
+func wait_with_end_hint(node: Node?, time: f64, end_hint_time: f64 = 5.0):   # the original tests it with if node:
+	if time > end_hint_time:
+		await get_tree().create_timer(time-end_hint_time).timeout
+		if var Some(n) = node:
+			end_hint(n, end_hint_time)
+	else:
+		if var Some(n) = node:
+			end_hint(n, time)
+
+
+func end_hint(node: Node, last_time: f64):
+	var flicker_tween = flicker_transparent(node, -1)      # original: as Tween; the return type is inferred as Tween
+	await get_tree().create_timer(last_time).timeout
+	flicker_tween.kill()
+
+
+func dialogue(text: String):                            # the original parameter name str shadows the global function
+	#TODO: 替换为RING Dialogue
+	var res = (DialogueManager.create_resource_from_text(text) as DialogueResource)!   # the plugin returns Resource
+	await DialogueManager.get_next_dialogue_line(res)   # [A7] v0.1: compile error, cannot await a GDScript coroutine
+	DialogueManager.show_dialogue_balloon(res)

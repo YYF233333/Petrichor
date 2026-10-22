@@ -1,0 +1,118 @@
+extends StaticBody2D
+class_name Brick
+
+@export_group("Info")
+@export var brick_id: i32
+@export var brick_name: String
+@export_multiline var brick_description: String
+
+@export_group("Basic")
+@export var init_type: i32
+@export var max_health: i32
+@export var init_health: i32
+@export var sprites : Array[Texture]
+@export var hit_flash : bool = true
+
+@export_group("Bonus")
+@export var point: i32
+@export var drop_percent_scale: f64 = 1.0 #1.0表示正常掉率
+@export var hit_by_ball_player_charge: i32 = 1 #被球击中时玩家获得多少充能
+
+@export var lucky_drop: bool = false #会进行lucky drop
+@export var unique_drop_name: String
+
+@export_group("", "")
+
+var type: i32
+
+# component
+@onready var health_component: HealthComponent = $HealthComponent
+@onready var interval_hurt_component: IntervalHurtComponent = $IntervalHurtComponent
+@onready var chain_area: Area2D = $ChainArea
+@onready var hit_flash_animation_player: AnimationPlayer = $HitFlashAnimationPlayer
+
+@onready var health_bar: ProgressBar = $HealthBar
+@onready var health_label: Label = $HealthLabel
+
+
+func _ready():
+	var area: Area2D = $Area2D                        # original: $Area2D.body_entered
+	area.body_entered.connect(_on_area_2d_body_entered)
+	health_component.health_change.connect(_on_health_change)
+	health_component.died.connect(_on_died)
+	add_to_group("bricks")
+
+	health_bar.min_value = 0
+	health_bar.max_value = max_health
+
+	type = init_type
+	check_init_type()
+	set_type(type)
+	show_health()
+
+	_show_lucky_drop()
+
+	_individual_ready()
+
+
+func check_init_type():
+	#debug
+	# check if init_type correspond with other stats
+	if false:                                          # original: if 0:
+		print_debug("type seems not correct")
+
+
+func set_type(new_type : i32):
+	type = new_type
+	if type < 0:
+		return
+	var sprite: Sprite2D = $Sprite2D
+	sprite.texture = (sprites[type] as Texture2D)!     # the export is Texture; the property wants Texture2D
+
+
+func show_health():
+	health_bar.max_value = max_health
+	health_bar.value = health_component.current_health
+
+	health_label.text = str(health_component.current_health)
+
+func _show_lucky_drop():
+	var hint: GPUParticles2D = $LuckyDropHintParticles
+	if lucky_drop:
+		# 闪金光，表示必定掉落
+		hint.emitting = true
+	else:
+		hint.emitting = false
+
+
+func _individual_ready():
+	pass
+
+
+func hit_by_ball(ball: Ball):
+	BreakoutManager.ball_hit.emit(hit_by_ball_player_charge)
+	physic_hurt(ValueManager.ball_damage)              # GDScript int (i64) -> i32
+
+
+func hit_by_laser_beam(laser_beam: LaserBeam):
+	physic_hurt(i32(ValueManager.laser_beam_damage))   # the original passes a float to an int parameter and truncates silently
+
+
+func physic_hurt(value: i32):
+	health_component.take_damage(value)
+	if hit_flash:
+		hit_flash_animation_player.play("hit_flash")
+
+
+func _on_area_2d_body_entered(body: Node2D):          # R3: body only appears in an is test
+	if var Some(ball) = body as Ball:
+		hit_by_ball(ball)
+
+func _on_health_change():
+	var current_health = health_component.current_health
+	if current_health > 0:
+		show_health()
+
+func _on_died():
+	BreakoutManager.brick_broken.emit(self.name)
+	queue_free()

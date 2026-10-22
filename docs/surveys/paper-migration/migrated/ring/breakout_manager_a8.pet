@@ -1,0 +1,63 @@
+# The message part of breakout_manager under A8 (records encoded as name-keyed Dictionary).
+# The C# side (AsDict/FromDict in Root.cs) and GDScript callers are unchanged: they still exchange Dictionary.
+
+record ConsumableState:
+	rest_times: i64
+	transformed: bool
+
+record InitMessage:
+	player_consumables: Dictionary[String, ConsumableState]
+	selected_skill: String
+	selected_policy: PackedStringArray
+	current_level: String
+	current_level_manager: String
+	player_max_health: i64
+	player_init_ammo: i64
+
+record ResultMessage:
+	player_consumables: Dictionary[String, ConsumableState]
+	level_result: Dictionary[String, String]
+
+var init_message: InitMessage?
+
+# the entry check (§12.6) decodes the Dictionary by field name; a missing field or wrong type fails here and names the field path
+func receive_init_message(message: InitMessage):
+	init_message = Some(message)
+	reset.call_deferred()
+
+
+func send_message() -> ResultMessage:
+	var states: Dictionary[String, ConsumableState] = {}
+	for node in consumables.consumable_nodes:
+		var consumable = (node as Consumable)!
+		states[consumable.consumable_info!.consumable_name] = ConsumableState(
+			rest_times = consumable.rest_times, transformed = consumable.transformed)
+	return ResultMessage(player_consumables = states, level_result = {})
+
+
+func reset():
+	if var Some(msg) = init_message:
+		consumables.reset()
+		for name in msg.player_consumables.keys():
+			var state = msg.player_consumables[name]
+			var consumable = (ResourceManager.get_consumable_scene_by_name(name)!.instantiate() as Consumable)!
+			consumable.rest_times = state.rest_times
+			consumable.transformed = state.transformed
+			consumables.add_consumable_instance(consumable)
+
+		skill = ResourceManager.get_skill_scene_by_name(msg.selected_skill)!.instantiate() as Skill
+		skill_changed.emit()
+
+		ValueManager.player_max_health = msg.player_max_health
+		ValueManager.player_init_ammo = msg.player_init_ammo
+
+		if var Some(level_scene) = ResourceManager.get_level_scene_by_name(msg.current_level):
+			var previous_level = (get_tree().get_first_node_in_group("levels") as Node2D)!
+			previous_level.add_sibling(level_scene.instantiate()!)
+			previous_level.queue_free()
+
+		if var Some(manager_scene) = ResourceManager.get_level_manager_by_name(msg.current_level_manager):
+			var previous_level_manager = (get_tree().get_first_node_in_group("level_managers") as Node2D)!
+			previous_level_manager.add_sibling(manager_scene.instantiate()!)
+			previous_level_manager.queue_free()
+	# the rest is as in breakout_manager.pet

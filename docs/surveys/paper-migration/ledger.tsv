@@ -1,0 +1,122 @@
+file	line	cat	src	n	conv	note
+fps/player	1	annotation	type-name	1	C-trait	add class_name so enemy can name the type (the original avoided this with has_method)
+fps/player	5,24,29	rename	int-float	3	C-int	int -> i32
+fps/player	141	rename	int-float	3	C-int	float -> f64
+fps/player	35	annotation	inference	1	-	signal parameters must be annotated
+fps/player	35,277	benefit	signal	1	-	signal declared with no parameters but emitted with one; reported at compile time
+fps/player	37-42	annotation	scene	6	C-scene	@onready node members need a type, otherwise Node
+fps/player	11,33,44	decision	non-null	3	-	object member without initializer: T or T?; requires checking scenes and resources
+fps/player	63,72,72,101,118,143,148,185,216,272	undefined	operator	10	A4	mixed vector/scalar and Basis/vector operators are not specified
+fps/player	72,84,232	rewrite	variant-utility	3	A3	lerp/wrap return Variant; v0.1 needs a method or lerpf/wrapi
+fps/player	79	rewrite	variant-utility	2	A3	abs -> absf
+fps/player	144,149	rewrite	variant-utility	2	A3	clamp -> clampf
+fps/player	87,168,178,235	undefined	autoload	4	A6	type of the Audio global name
+fps/player	95,214,242,280	conversion	engine-contract	4	A2	get_tree() is SceneTree?; needs !
+fps/player	214,242	conversion	engine-contract	2	A1	root and create_tween are RequiredResult
+fps/player	100	rewrite	is-narrowing	1	C-is	is does not narrow and cannot be combined with and; split into nested if var
+fps/player	122,132	rewrite	truthiness	2	-	truth test on Vector2 and int
+fps/player	155	annotation	inference	1	C-r3	delta only appears in 20 * delta
+fps/player	192	rewrite	loop	1	A5	for n in <int>
+fps/player	204-205	gap	shared-capability	1	C-trait	has_method replaced by as Enemy; equivalent here, but a new damageable kind must be added at this call site
+fps/player	205	conversion	numeric	1	-	f64 damage passed to an i32 parameter needs i32()
+fps/player	205	benefit	numeric	1	-	the original silently truncates float damage into integer health
+fps/player	209-210	conversion	downcast	1	-	instantiate() is Node?; needs (... as T)!
+fps/player	259	conversion	downcast	1	-	same
+fps/player	267-268	conversion	downcast	1	-	find_children filters by type but is statically Array[Node]
+fps/enemy	1	annotation	type-name	1	C-trait	add class_name so player can name the type
+fps/enemy	3	decision	non-null	1	-	@export var player
+fps/enemy	5-7	annotation	scene	3	C-scene	@onready node types
+fps/enemy	31,41,66	undefined	autoload	3	A6	Audio
+fps/enemy	54,68	gap	shared-capability	1	C-trait	has_method replaced by as Player
+fps/cloud	7-8	rename	int-float	2	C-int	float -> f64
+fps/audio	8-9	annotation	inference	2	-	empty-container members need an element type
+fps/audio	12	rewrite	loop	1	A5	for i in <int>
+fps/audio	25	annotation	inference	1	-	parameter is only used as a method-call receiver
+fps/audio	31	conversion	container	1	-	pop_front() is T?
+fps/audio	31	conversion	downcast	1	-	load() returns Resource; the original implicitly downcasts to AudioStream
+fps/hud	4	annotation	inference	1	-	parameter only flows into str() (Variant)
+fps/hud	5	annotation	scene	1	C-scene	$Health is Node
+fps/weapon	11-16	rename	int-float	6	C-int	int/float -> i32/f64
+fps/weapon	5,25	decision	non-null	2	-	PackedScene and Texture2D exports; both .tres files set them
+ring/breakout_manager	11	annotation	inference	1	-	signal parameters must be annotated
+ring/breakout_manager	15,18,20,26,43,47,49,57	rename	int-float	8	C-int	int -> i32
+ring/breakout_manager	36-40	decision	non-null	5	-	skill and paddle become T? (the original tests them for null); the others stay T
+ring/breakout_manager	45,52,52,192	rewrite	variant-utility	4	A3	max/min
+ring/breakout_manager	66-75	conversion	cross-language	2	-	Paddle.sprite is unannotated in GDScript -> Variant?; the original as needs !
+ring/breakout_manager	66-75	conversion	non-null	2	-	paddle is Paddle? -> paddle!
+ring/breakout_manager	97-160	glue	cross-language	1	A8	message sent and received as nested Dictionary; field names and types written by hand in the C# class, C# AsDict/FromDict and this file
+ring/breakout_manager	107	conversion	cross-language	1	-	consumable_nodes is declared Array[Node]; as Consumable needs !
+ring/breakout_manager	107	conversion	cross-language	1	-	consumable_info is a GDScript object member -> T?
+ring/breakout_manager	122	rewrite	truthiness	1	-	if init_message:
+ring/breakout_manager	124-155	conversion	message-field	11	A8	(d[k] as T)! for every message field; the original relies on typed locals converting implicitly
+ring/breakout_manager	129,136	conversion	cross-language	2	-	ResourceManager's -> PackedScene may be null -> !
+ring/breakout_manager	129	conversion	downcast	1	-	the original var consumable: Consumable = ...instantiate() downcasts implicitly
+ring/breakout_manager	151,158	conversion	downcast	2	-	get_first_node_in_group(...) as Node2D needs !
+ring/breakout_manager	152,159	conversion	engine-contract	2	A1	add_sibling takes RequiredParam; instantiate() needs !
+ring/breakout_manager	242,248,254	conversion	engine-contract	3	A1	add_child takes RequiredParam
+ring/breakout_manager	151,158,201,207,230,241,247,253	conversion	engine-contract	8	A2	get_tree()
+ring/breakout_manager	163,221	rewrite	truthiness	2	-	if skill: -> if var Some
+ring/breakout_manager	167,171	silent-narrowing	int-width	2	-	GDScript int (i64) assigned to an i32 member; no warning by default
+ring/breakout_manager	176	conversion	non-null	1	-	skill! (the original crashes when skill is null)
+ring/breakout_manager	230	conversion	downcast	1	-	as Balls needs !
+ring/health_component	7,24,50	rename	int-float	3	C-int	int -> i32
+ring/health_component	14-62	gap	shared-capability	1	C-trait	owner is Brick or Enemy; reads and writes owner.init_health/max_health; 8 added lines of per-class dispatch
+ring/health_component	28,28,43,45,51,62	rewrite	variant-utility	6	A3	min/max/abs
+ring/health_component	33	conversion	cross-language	1	-	instantiate() as FloatingText needs !
+ring/health_component	34	conversion	engine-contract	1	A2	get_tree()
+ring/health_component	34	conversion	engine-contract	1	-	get_first_node_in_group is Node?
+ring/health_component	36	conversion	downcast	1	-	(owner as Node2D)!
+ring/death_component	19-42	gap	shared-capability	1	C-trait	four owner fields dispatched per class: 12 added lines; no tuple or record to fetch them at once
+ring/death_component	7-8	decision	non-null	2	-	exports injected through scene node_paths
+ring/death_component	29,34	rewrite	truthiness	2	-	if owner.unique_drop_name: (String)
+ring/death_component	42	conversion	downcast	1	-	(owner as Node2D)!
+ring/death_component	49	conversion	engine-contract	1	A2	get_tree()
+ring/death_component	49,50	conversion	engine-contract	2	-	get_first_node_in_group and get_parent are Node?
+ring/interval_hurt_component	4	decision	non-null	1	-	the base enemy.tscn does not set this export
+ring/interval_hurt_component	7	rewrite	option	1	-	$X as T yields an Option; rewritten as an annotated @onready
+ring/interval_hurt_component	10	rename	int-float	1	C-int	int -> i32
+ring/interval_hurt_component	13	benefit	dangling-ref	1	-	ValueManager.fire_hurt_interval was removed on 2024-06-27; reported at compile time (needs A6)
+ring/interval_hurt_component	15	rewrite	variant-utility	1	A3	max
+ring/interval_hurt_component	26	conversion	downcast	1	-	(owner as CanvasItem)!
+ring/brick	5-26,64,98	rename	int-float	10	C-int	int/float -> i32/f64
+ring/brick	29-35	rewrite	option	5	-	$X as T rewritten as annotated @onready
+ring/brick	39,68,80	annotation	scene	3	C-scene	$Area2D, $Sprite2D, $LuckyDropHintParticles are Node
+ring/brick	60	rewrite	truthiness	1	-	if 0:
+ring/brick	68	conversion	downcast	1	-	the export is Array[Texture]; Sprite2D.texture wants Texture2D
+ring/brick	91	silent-narrowing	int-width	1	-	ValueManager.ball_damage (i64) passed to an i32 parameter
+ring/brick	95	conversion	numeric	1	-	laser_beam_damage is float, the parameter is int
+ring/brick	95	benefit	numeric	1	-	the original silently truncates float damage
+ring/brick	104	annotation	inference	1	-	body only appears in an is test
+ring/brick	105	rewrite	is-narrowing	1	C-is	if body is Ball: hit_by_ball(body)
+ring/sturdy_brick	21	rename	int-float	1	C-int	int -> i32
+ring/sturdy_brick	22	rewrite	variant-utility	1	A3	min
+ring/indestructible_brick	10	rename	int-float	1	C-int	int -> i32
+ring/indestructible_brick	6,15,21	rewrite	variant-utility	3	A3	min
+ring/enemy	1-275	gap	duplication	1	C-trait	64 of Brick's 77 code lines appear verbatim in Enemy; under single inheritance they extend StaticBody2D and CharacterBody2D
+ring/enemy	5-71,144,206,240	rename	int-float	16	C-int	int/float -> i32/f64
+ring/enemy	32-42	rewrite	option	8	-	$X as T rewritten as annotated @onready
+ring/enemy	59	rewrite	variant-utility	1	A3	max
+ring/enemy	74,178,210,221,263	annotation	scene	5	C-scene	$X is Node
+ring/enemy	98,151,186,196	undefined	operator	4	A4	mixed vector/scalar operators
+ring/enemy	99	conversion	downcast	1	-	the original var collider: Node2D = get_collider() downcasts implicitly
+ring/enemy	105-111	conversion	downcast	4	-	type decided by group membership, then passed to Brick/Enemy/Ball/Paddle parameters
+ring/enemy	158	conversion	engine-contract	1	A2	get_tree()
+ring/enemy	173	rewrite	liveness	1	-	if paddle_node: also rejects freed nodes; needs an explicit is_instance_valid
+ring/enemy	178	conversion	downcast	1	-	shape as RectangleShape2D needs !
+ring/enemy	183,249	rewrite	truthiness	2	-	if !timer.time_left: (float)
+ring/enemy	202	rewrite	truthiness	1	-	if 0:
+ring/enemy	210	conversion	downcast	1	-	Texture -> Texture2D
+ring/enemy	231	silent-narrowing	int-width	1	-	ball_damage (i64) -> i32
+ring/enemy	237	conversion	numeric	1	-	laser_beam_damage float -> i32
+ring/enemy	237	benefit	numeric	1	-	same as brick
+ring/enemy	245	annotation	inference	1	-	body only appears in an is test
+ring/enemy	246	rewrite	is-narrowing	1	C-is	if body is Ball
+ring/utility	15,22,29,38,48	rename	int-float	6	C-int	int/float -> i32/f64
+ring/utility	16,23	conversion	engine-contract	4	A1	create_tween()!.set_loops()!
+ring/utility	33,40,50	conversion	engine-contract	3	A2	get_tree()
+ring/utility	33,40,50	conversion	engine-contract	3	A1	create_timer() is RequiredResult
+ring/utility	38	decision	non-null	1	-	node parameter becomes Node? (the original tests it for null)
+ring/utility	41,44	rewrite	truthiness	2	-	if node:
+ring/utility	49	benefit	inference	1	-	return type inferred as Tween; the original as Tween can go
+ring/utility	56	conversion	cross-language	1	-	the plugin returns Resource; the parameter wants DialogueResource
+ring/utility	57	gap	cross-language-coroutine	1	A7	await on the plugin's get_next_dialogue_line cannot be written in v0.1

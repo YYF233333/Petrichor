@@ -9,7 +9,7 @@ Petrichor designs a statically typed scripting language that replaces GDScript. 
 - `docs/language-spec.{zh,en}.md`: the specification, in Chinese and English.
 - `docs/design-notes.{zh,en}.md`: non-normative design rationale and implementation proposals.
 - `docs/project-plan.{zh,en}.md`: non-normative development, evaluation and tooling plans.
-- `docs/surveys/`: empirical investigations behind specific decisions. Each has a write-up in both languages and a directory of scripts that reproduce it.
+- `docs/surveys/`: empirical investigations behind specific decisions, and evaluations of the specification against real code. Each has a write-up in both languages and a directory of scripts that reproduce it.
 
 ## Documentation rules
 
