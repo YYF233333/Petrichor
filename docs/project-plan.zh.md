@@ -2,6 +2,8 @@
 
 非规范性文档。English: [project-plan.en.md](project-plan.en.md)。
 
+本文随 v0.1 规范一同冻结（git 标签 `spec-v0.1`）。设计已于 2026-10-23 重开，现行决定见[设计决定](decisions.zh.md)。
+
 本文记录已有的开发与评估安排，不定义语言语义或支持版本保证。另见[规范](language-spec.zh.md)与[设计说明](design-notes.zh.md)。
 
 ## 当前状态与引擎版本

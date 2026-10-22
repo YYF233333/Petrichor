@@ -1,0 +1,9 @@
+brick.gd physical code lines: 77; enemy.gd: 190
+brick lines with an identical line anywhere in enemy.gd (bag overlap): 67; allowing brick_/enemy_ renaming: 70
+brick.gd non-trivial logical lines (this survey's LLOC): 67
+out exact: 4 regions; brick non-trivial logical lines inside a clone with enemy.gd: 36/67 (17-22~22-27, 44-50~80-86, 57-94~199-234, 108-114~268-273); category ['cross_branch']
+out near: 4 regions; brick non-trivial logical lines inside a clone with enemy.gd: 39/67 (17-22~22-27, 40-50~76-86, 57-94~199-234, 108-114~268-273); category ['cross_branch']
+out_k3 exact: 7 regions; brick non-trivial logical lines inside a clone with enemy.gd: 45/67 (29-31~32-34, 17-22~22-27, 44-50~80-86, 57-94~199-234, 104-106~245-247, 95-99~237-241, 108-114~268-273); category ['cross_branch']
+out_k3 near: 7 regions; brick non-trivial logical lines inside a clone with enemy.gd: 48/67 (29-31~32-34, 17-22~22-27, 40-50~76-86, 57-94~199-234, 104-106~245-247, 95-99~237-241, 108-114~268-273); category ['cross_branch']
+out_k8 exact: 1 regions; brick non-trivial logical lines inside a clone with enemy.gd: 20/67 (57-94~199-234); category ['cross_branch']
+out_k8 near: 2 regions; brick non-trivial logical lines inside a clone with enemy.gd: 29/67 (40-50~76-86, 57-94~199-234); category ['cross_branch']

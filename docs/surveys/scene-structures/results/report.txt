@@ -1,0 +1,79 @@
+repo | group | commit | license | gd(1st-party) | lines | tscn | b0 | b1 | b2 | b3+ | inh(tscn/model) | inhStruct | editable | lit-scripts | struct>=2 own/all | lit&struct>=2 | nonroot-attach
+beehave | plugin | fe589153fa | MIT | 95 | 8566 | 27 | 67 | 22 | 2 | 4 | 0 (0/0) | 0 | 0 | 7 | 6/13 | 0 | 72/82
+gdUnit4 | plugin | 9bc1a45068 | MIT | 482 | 54133 | 29 | 456 | 25 | 0 | 1 | 0 (0/0) | 0 | 0 | 22 | 1/1 | 0 | 6/28
+godot_dialogue_manager | plugin | 7a72dcf64c | MIT | 79 | 14619 | 24 | 59 | 18 | 2 | 0 | 0 (0/0) | 0 | 0 | 16 | 1/1 | 1 | 2/22
+godot-demo-projects | demos | b761b4cd57 | MIT | 461 | 30819 | 396 | 53 | 381 | 16 | 11 | 8 (6/2) | 5 | 38 | 235 | 21/29 | 11 | 392/625
+Godot-Game-Template | plugin | 6849d6c352 | MIT | 125 | 8553 | 119 | 25 | 84 | 8 | 8 | 56 (56/0) | 34 | 6 | 53 | 14/24 | 12 | 65/143
+godot-open-rpg | game | d59f2f71bc | MIT | 78 | 5422 | 128 | 22 | 55 | 1 | 0 | 22 (22/0) | 14 | 0 | 34 | 7/14 | 9 | 49/77
+godot-statecharts | plugin | 76d226a3ef | MIT | 89 | 6852 | 43 | 62 | 22 | 0 | 5 | 0 (0/0) | 0 | 0 | 17 | 5/6 | 0 | 199/217
+phantom-camera | plugin | 21d3762492 | MIT | 36 | 10410 | 32 | 14 | 16 | 2 | 4 | 0 (0/0) | 0 | 1 | 13 | 6/7 | 1 | 83/95
+Pixelorama | tool | 38a8b03eaf | MIT | 210 | 54782 | 120 | 56 | 151 | 2 | 1 | 45 (45/0) | 36 | 2 | 102 | 5/10 | 6 | 131/240
+Starter-Kit-3D-Platformer | game | 3fa8a04b1c | MIT | 9 | 378 | 10 | 1 | 8 | 0 | 0 | 6 (0/6) | 0 | 1 | 6 | 0/0 | 0 | 2/8
+Starter-Kit-City-Builder | game | 4535092b74 | MIT | 6 | 311 | 1 | 4 | 2 | 0 | 0 | 0 (0/0) | 0 | 0 | 1 | 0/0 | 0 | 2/2
+Starter-Kit-FPS | game | 185fd2326d | MIT | 7 | 451 | 10 | 2 | 5 | 0 | 0 | 6 (0/6) | 0 | 0 | 3 | 0/0 | 0 | 1/5
+Starter-Kit-Racing | game | 2f2e5f2646 | MIT | 3 | 258 | 4 | 0 | 3 | 0 | 0 | 0 (0/0) | 0 | 0 | 3 | 0/1 | 1 | 1/3
+tps-demo | game | a82f15448e | MIT | 15 | 1619 | 17 | 1 | 14 | 0 | 0 | 1 (0/1) | 0 | 6 | 10 | 1/1 | 1 | 6/16
+godot-open-rts | game | a628ad3bb6 | MIT | 118 | 7415 | 84 | 30 | 87 | 0 | 1 | 9 (9/0) | 8 | 19 | 2 | 4/9 | 1 | 20/92
+tanks-of-freedom-ii | game | dbe629ea05 | MIT | 292 | 24361 | 661 | 121 | 168 | 2 | 1 | 449 (449/0) | 140 | 3 | 131 | 11/15 | 15 | 2/176
+deck_builder_tutorial | game | 91b408bc66 | MIT | 122 | 4830 | 61 | 54 | 65 | 2 | 1 | 0 (0/0) | 0 | 0 | 43 | 6/7 | 1 | 22/73
+godot-tiny-mmo | game | f4ed04f209 | MIT | 467 | 54379 | 123 | 335 | 119 | 8 | 5 | 14 (14/0) | 2 | 0 | 38 | 12/20 | 1 | 84/192
+godot_open_star_fighter | game | 6e7be5c137 | MIT | 40 | 2408 | 26 | 11 | 29 | 0 | 0 | 3 (3/0) | 2 | 0 | 18 | 1/5 | 3 | 7/29
+Ring | game | 0ec41610f2 | none | 66 | 3272 | 76 | 12 | 47 | 7 | 0 | 0 (0/0) | 0 | 6 | 27 | 2/3 | 2 | 14/62
+
+== games: 1223 first-party scripts; buckets 0/1/2/3+ = 593/602/20/8; with any scene context (own or subclass) 647
+   scripts with literal self node paths: 316
+   scripts seeing >=2 structures: own 44, incl. subclass attachments 75; of those using literal paths 34
+   HEADLINE-1 lit&multi = 34 / all 1223 = 2.8%; / scene-context scripts 647 = 5.3%; / literal-path scripts 316 = 10.8%
+   literal uses total 2023: consistent=1849, absolute=120, missing_in_some=16, unknown=14, no_context=13, missing_all=11
+   literal uses in >=2-structure scripts 180: consistent=145, missing_in_some=15, absolute=15, unknown=5
+   HEADLINE-2 differs = 0 / uses in multi-structure scripts 180 = 0.0%; / those resolved in >=2 contexts 160 = 0.0%; / all literal uses 2023 = 0.0%
+   mechanisms among >=2-structure scripts: M1_text2+_diff=15, M1_text2+_same=1, M1b_same_file_multi_node_diff=4, M2_inherited_diff=12, M2_inherited_same=12, M3_instance_modified_diff=15, M4_script_on_instance=1, M5_subclass_diff=39
+   bucket-0 reasons: non_node_code=330, resource_attached=113, node_code_only=58, autoload=44, base_class=41, editor=7
+   scripts with NO scene context but literal self paths: 9 (autoload=6, node_code_only=3)
+   access counts (uses/scripts): dollar=1865/295, unique=142/35, get_node_lit=0/0, get_node_or_null_lit=16/6, get_node_nonlit=30/25, other_recv_lit=133/27, has_node_lit=1/1, find_child=162/68, export_node=100/59, export_nodepath=9/9, dotdot=10/6, root_paths=130/62, owner_dot=29/10, get_parent=166/95, set_script=0/0
+
+== demos: 461 first-party scripts; buckets 0/1/2/3+ = 53/381/16/11; with any scene context (own or subclass) 414
+   scripts with literal self node paths: 235
+   scripts seeing >=2 structures: own 21, incl. subclass attachments 29; of those using literal paths 11
+   HEADLINE-1 lit&multi = 11 / all 461 = 2.4%; / scene-context scripts 414 = 2.7%; / literal-path scripts 235 = 4.7%
+   literal uses total 1674: consistent=1640, unknown=16, missing_all=10, no_context=5, absolute=2, outside=1
+   literal uses in >=2-structure scripts 43: consistent=43
+   HEADLINE-2 differs = 0 / uses in multi-structure scripts 43 = 0.0%; / those resolved in >=2 contexts 43 = 0.0%; / all literal uses 1674 = 0.0%
+   mechanisms among >=2-structure scripts: M1_text2+_diff=12, M1b_same_file_multi_node_diff=6, M2_inherited_diff=1, M2_inherited_same=1, M3_instance_modified_diff=2, M5_subclass_diff=9
+   bucket-0 reasons: node_code_only=12, autoload=11, editor=11, non_node_code=10, base_class=6, resource_attached=3
+   scripts with NO scene context but literal self paths: 4 (node_code_only=3, autoload=1)
+   access counts (uses/scripts): dollar=1366/215, unique=293/28, get_node_lit=15/12, get_node_or_null_lit=0/0, get_node_nonlit=47/17, other_recv_lit=53/25, has_node_lit=5/3, find_child=14/7, export_node=42/25, export_nodepath=11/9, dotdot=38/27, root_paths=3/3, owner_dot=18/9, get_parent=53/35, set_script=4/4
+
+== plugins/tools: 1116 first-party scripts; buckets 0/1/2/3+ = 739/338/16/23; with any scene context (own or subclass) 390
+   scripts with literal self node paths: 230
+   scripts seeing >=2 structures: own 38, incl. subclass attachments 62; of those using literal paths 20
+   HEADLINE-1 lit&multi = 20 / all 1116 = 1.8%; / scene-context scripts 390 = 5.1%; / literal-path scripts 230 = 8.7%
+   literal uses total 1534: consistent=1500, no_context=18, missing_in_some=10, missing_all=4, outside=2
+   literal uses in >=2-structure scripts 107: consistent=98, missing_in_some=8, outside=1
+   HEADLINE-2 differs = 0 / uses in multi-structure scripts 107 = 0.0%; / those resolved in >=2 contexts 106 = 0.0%; / all literal uses 1534 = 0.0%
+   mechanisms among >=2-structure scripts: M1_text2+_diff=25, M1b_same_file_multi_node_diff=4, M2_inherited_diff=9, M2_inherited_same=11, M3_instance_modified_diff=2, M5_subclass_diff=27
+   bucket-0 reasons: test=369, non_node_code=195, base_class=70, node_code_only=53, editor=30, autoload=14, resource_attached=8
+   scripts with NO scene context but literal self paths: 4 (test=3, non_node_code=1)
+   access counts (uses/scripts): dollar=727/134, unique=794/138, get_node_lit=10/6, get_node_or_null_lit=3/2, get_node_nonlit=64/29, other_recv_lit=129/49, has_node_lit=0/0, find_child=87/35, export_node=36/21, export_nodepath=17/16, dotdot=5/5, root_paths=8/1, owner_dot=7/3, get_parent=179/75, set_script=3/3
+
+per-repo literal-use statuses (all scripts):
+  beehave: consistent=24
+  gdUnit4: consistent=75, no_context=12
+  godot_dialogue_manager: consistent=117, no_context=6
+  godot-demo-projects: consistent=1640, unknown=16, missing_all=10, no_context=5, absolute=2, outside=1
+  Godot-Game-Template: consistent=229
+  godot-open-rpg: consistent=60
+  godot-statecharts: consistent=51
+  phantom-camera: consistent=76, missing_in_some=2
+  Pixelorama: consistent=928, missing_in_some=8, missing_all=4, outside=2
+  Starter-Kit-3D-Platformer: consistent=14, unknown=1
+  Starter-Kit-City-Builder: consistent=1
+  Starter-Kit-FPS: consistent=10
+  Starter-Kit-Racing: unknown=10, consistent=8, missing_in_some=1
+  tps-demo: consistent=40, unknown=3, missing_all=1
+  godot-open-rts: consistent=6, missing_in_some=2
+  tanks-of-freedom-ii: consistent=1178, absolute=115, missing_in_some=12, no_context=10, missing_all=3
+  deck_builder_tutorial: consistent=128, no_context=1
+  godot-tiny-mmo: consistent=263, missing_all=1, no_context=1
+  godot_open_star_fighter: consistent=55
+  Ring: consistent=86, missing_all=6, absolute=5, no_context=1, missing_in_some=1

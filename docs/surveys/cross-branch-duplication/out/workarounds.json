@@ -1,0 +1,182 @@
+{
+ "beehave": {
+  "static_funcs": 11,
+  "has_method_calls": 0,
+  "string_call": 6,
+  "is_A_or_B_lines": 1,
+  "owner_or_parent_duck_sites": 0,
+  "owner_or_parent_duck_units": 0,
+  "is_in_group_calls": 0
+ },
+ "gdUnit4": {
+  "static_funcs": 527,
+  "has_method_calls": 19,
+  "string_call": 33,
+  "is_A_or_B_lines": 0,
+  "owner_or_parent_duck_sites": 0,
+  "owner_or_parent_duck_units": 0,
+  "is_in_group_calls": 1
+ },
+ "godot_dialogue_manager": {
+  "static_funcs": 79,
+  "has_method_calls": 8,
+  "string_call": 5,
+  "is_A_or_B_lines": 0,
+  "owner_or_parent_duck_sites": 0,
+  "owner_or_parent_duck_units": 0,
+  "is_in_group_calls": 0
+ },
+ "godot-demo-projects": {
+  "static_funcs": 23,
+  "has_method_calls": 18,
+  "string_call": 4,
+  "is_A_or_B_lines": 0,
+  "owner_or_parent_duck_sites": 7,
+  "owner_or_parent_duck_units": 5,
+  "is_in_group_calls": 2
+ },
+ "Godot-Game-Template": {
+  "static_funcs": 118,
+  "has_method_calls": 3,
+  "string_call": 10,
+  "is_A_or_B_lines": 0,
+  "owner_or_parent_duck_sites": 0,
+  "owner_or_parent_duck_units": 0,
+  "is_in_group_calls": 0
+ },
+ "godot-open-rpg": {
+  "static_funcs": 6,
+  "has_method_calls": 0,
+  "string_call": 3,
+  "is_A_or_B_lines": 0,
+  "owner_or_parent_duck_sites": 0,
+  "owner_or_parent_duck_units": 0,
+  "is_in_group_calls": 0
+ },
+ "godot-statecharts": {
+  "static_funcs": 40,
+  "has_method_calls": 0,
+  "string_call": 1,
+  "is_A_or_B_lines": 2,
+  "owner_or_parent_duck_sites": 3,
+  "owner_or_parent_duck_units": 3,
+  "is_in_group_calls": 14
+ },
+ "phantom-camera": {
+  "static_funcs": 0,
+  "has_method_calls": 3,
+  "string_call": 6,
+  "is_A_or_B_lines": 0,
+  "owner_or_parent_duck_sites": 0,
+  "owner_or_parent_duck_units": 0,
+  "is_in_group_calls": 0
+ },
+ "Pixelorama": {
+  "static_funcs": 134,
+  "has_method_calls": 12,
+  "string_call": 4,
+  "is_A_or_B_lines": 5,
+  "owner_or_parent_duck_sites": 0,
+  "owner_or_parent_duck_units": 0,
+  "is_in_group_calls": 3
+ },
+ "Starter-Kit-3D-Platformer": {
+  "static_funcs": 0,
+  "has_method_calls": 1,
+  "string_call": 0,
+  "is_A_or_B_lines": 0,
+  "owner_or_parent_duck_sites": 0,
+  "owner_or_parent_duck_units": 0,
+  "is_in_group_calls": 1
+ },
+ "Starter-Kit-City-Builder": {
+  "static_funcs": 0,
+  "has_method_calls": 0,
+  "string_call": 0,
+  "is_A_or_B_lines": 0,
+  "owner_or_parent_duck_sites": 0,
+  "owner_or_parent_duck_units": 0,
+  "is_in_group_calls": 0
+ },
+ "Starter-Kit-FPS": {
+  "static_funcs": 1,
+  "has_method_calls": 2,
+  "string_call": 0,
+  "is_A_or_B_lines": 0,
+  "owner_or_parent_duck_sites": 0,
+  "owner_or_parent_duck_units": 0,
+  "is_in_group_calls": 0
+ },
+ "Starter-Kit-Racing": {
+  "static_funcs": 0,
+  "has_method_calls": 0,
+  "string_call": 0,
+  "is_A_or_B_lines": 0,
+  "owner_or_parent_duck_sites": 0,
+  "owner_or_parent_duck_units": 0,
+  "is_in_group_calls": 0
+ },
+ "tps-demo": {
+  "static_funcs": 0,
+  "has_method_calls": 1,
+  "string_call": 1,
+  "is_A_or_B_lines": 0,
+  "owner_or_parent_duck_sites": 0,
+  "owner_or_parent_duck_units": 0,
+  "is_in_group_calls": 0
+ },
+ "godot-open-rts": {
+  "static_funcs": 35,
+  "has_method_calls": 0,
+  "string_call": 0,
+  "is_A_or_B_lines": 0,
+  "owner_or_parent_duck_sites": 0,
+  "owner_or_parent_duck_units": 0,
+  "is_in_group_calls": 35
+ },
+ "tanks-of-freedom-ii": {
+  "static_funcs": 0,
+  "has_method_calls": 0,
+  "string_call": 15,
+  "is_A_or_B_lines": 0,
+  "owner_or_parent_duck_sites": 0,
+  "owner_or_parent_duck_units": 0,
+  "is_in_group_calls": 0
+ },
+ "deck_builder_tutorial": {
+  "static_funcs": 3,
+  "has_method_calls": 0,
+  "string_call": 0,
+  "is_A_or_B_lines": 3,
+  "owner_or_parent_duck_sites": 4,
+  "owner_or_parent_duck_units": 4,
+  "is_in_group_calls": 0
+ },
+ "godot-tiny-mmo": {
+  "static_funcs": 446,
+  "has_method_calls": 12,
+  "string_call": 8,
+  "is_A_or_B_lines": 0,
+  "owner_or_parent_duck_sites": 3,
+  "owner_or_parent_duck_units": 3,
+  "is_in_group_calls": 0
+ },
+ "godot_open_star_fighter": {
+  "static_funcs": 0,
+  "has_method_calls": 2,
+  "string_call": 2,
+  "is_A_or_B_lines": 0,
+  "owner_or_parent_duck_sites": 0,
+  "owner_or_parent_duck_units": 0,
+  "is_in_group_calls": 0
+ },
+ "Ring": {
+  "static_funcs": 0,
+  "has_method_calls": 0,
+  "string_call": 12,
+  "is_A_or_B_lines": 1,
+  "owner_or_parent_duck_sites": 13,
+  "owner_or_parent_duck_units": 3,
+  "is_in_group_calls": 9
+ }
+}

@@ -1,0 +1,7 @@
+[gd_scene format=3]
+[ext_resource type="PackedScene" path="res://one.tscn" id="1"]
+[node name="O" type="Node"]
+[node name="I" parent="." instance=ExtResource("1")]
+[node name="New" type="Node" parent="I/B"]
+[editable path="I"]
+[node name="J" parent="." instance=ExtResource("1")]

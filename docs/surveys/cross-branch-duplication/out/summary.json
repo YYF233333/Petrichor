@@ -1,0 +1,2868 @@
+{
+ "K": 5,
+ "repos": [
+  {
+   "repo": "beehave",
+   "group": "plugins/tools",
+   "commit": "fe589153fa780a3f88989578ceb5f539afffb7c2",
+   "units": 96,
+   "files": 95,
+   "lloc": 5169,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "tool_test": 3234,
+    "non_node": 285,
+    "cross_branch": 322,
+    "same_native_unrelated": 171,
+    "unresolved": 51,
+    "same_chain": 497
+   },
+   "inner_units": 19,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {
+     "any": 1741,
+     "same_native_unrelated": 348,
+     "cross_forced": 24,
+     "cross_branch": 24,
+     "same_chain": 419,
+     "intra_unit": 264,
+     "tool_test": 862
+    },
+    "exclusive": {
+     "same_native_unrelated": 332,
+     "cross_branch": 8,
+     "cross_forced": 8,
+     "same_chain": 419,
+     "intra_unit": 104,
+     "tool_test": 702
+    },
+    "pairs_with_clones": {
+     "same_native_unrelated": 2,
+     "cross_branch": 2,
+     "cross_forced": 2,
+     "same_chain": 61,
+     "intra_unit": 10,
+     "tool_test": 36
+    },
+    "cross_kinds": {
+     "method": 24
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 1,
+     "same_native_unrelated": 12,
+     "same_chain": 14
+    },
+    "cross_native_pairs": {
+     "GraphEdit/VBoxContainer": 1
+    }
+   },
+   "near": {
+    "lines": {
+     "any": 2061,
+     "intra_unit": 479,
+     "non_node": 10,
+     "same_native_unrelated": 370,
+     "cross_forced": 24,
+     "cross_branch": 24,
+     "same_chain": 467,
+     "tool_test": 1042
+    },
+    "exclusive": {
+     "intra_unit": 164,
+     "non_node": 10,
+     "same_native_unrelated": 354,
+     "cross_branch": 8,
+     "cross_forced": 8,
+     "same_chain": 467,
+     "tool_test": 727
+    },
+    "pairs_with_clones": {
+     "intra_unit": 14,
+     "non_node": 1,
+     "same_native_unrelated": 2,
+     "cross_branch": 2,
+     "cross_forced": 2,
+     "same_chain": 67,
+     "tool_test": 61
+    },
+    "cross_kinds": {
+     "method": 24
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 1,
+     "same_native_unrelated": 12,
+     "same_chain": 13
+    },
+    "cross_native_pairs": {
+     "GraphEdit/VBoxContainer": 1
+    }
+   },
+   "loose": {
+    "lines": {
+     "any": 2798,
+     "intra_unit": 1108,
+     "non_node": 32,
+     "same_native_unrelated": 369,
+     "cross_forced": 24,
+     "cross_branch": 24,
+     "same_chain": 539,
+     "tool_test": 1652
+    },
+    "exclusive": {
+     "intra_unit": 198,
+     "non_node": 32,
+     "same_native_unrelated": 353,
+     "cross_branch": 8,
+     "cross_forced": 8,
+     "same_chain": 539,
+     "tool_test": 742
+    },
+    "pairs_with_clones": {
+     "intra_unit": 17,
+     "non_node": 1,
+     "same_native_unrelated": 2,
+     "cross_branch": 2,
+     "cross_forced": 2,
+     "same_chain": 93,
+     "tool_test": 174
+    },
+    "cross_kinds": {
+     "method": 24
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 1,
+     "same_native_unrelated": 11,
+     "same_chain": 9
+    },
+    "cross_native_pairs": {
+     "GraphEdit/VBoxContainer": 1
+    }
+   },
+   "capability": {
+    "node_units": 45,
+    "cross_pairs_declaring_same": 13,
+    "cross_pairs_sharing_1plus": 12,
+    "cross_pairs_sharing_2plus": 2,
+    "cross_shared_names": 5,
+    "cross_shared_names_consumed": 4,
+    "consumer_mechanisms": {
+     "typed_inferred": 5,
+     "typed_engine_or_other": 4,
+     "untyped_other": 5,
+     "static_or_autoload_class": 5
+    }
+   }
+  },
+  {
+   "repo": "gdUnit4",
+   "group": "plugins/tools",
+   "commit": "9bc1a450682c9c0d337e1b8977535f0a710385e1",
+   "units": 569,
+   "files": 482,
+   "lloc": 26384,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "non_node": 28191,
+    "tool_test": 132193,
+    "same_chain": 659,
+    "same_native_unrelated": 184,
+    "cross_branch": 369
+   },
+   "inner_units": 87,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {
+     "any": 1935,
+     "intra_unit": 1399,
+     "same_chain": 143,
+     "non_node": 119,
+     "tool_test": 322
+    },
+    "exclusive": {
+     "intra_unit": 1351,
+     "same_chain": 143,
+     "non_node": 91,
+     "tool_test": 302
+    },
+    "pairs_with_clones": {
+     "intra_unit": 30,
+     "same_chain": 19,
+     "non_node": 5,
+     "tool_test": 29
+    },
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 0,
+     "same_chain": 8
+    },
+    "cross_native_pairs": {}
+   },
+   "near": {
+    "lines": {
+     "any": 2903,
+     "intra_unit": 2199,
+     "same_chain": 213,
+     "non_node": 141,
+     "tool_test": 471
+    },
+    "exclusive": {
+     "intra_unit": 2078,
+     "same_chain": 213,
+     "non_node": 98,
+     "tool_test": 393
+    },
+    "pairs_with_clones": {
+     "intra_unit": 47,
+     "same_chain": 46,
+     "non_node": 7,
+     "tool_test": 32
+    },
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 0,
+     "same_chain": 9
+    },
+    "cross_native_pairs": {}
+   },
+   "loose": {
+    "lines": {
+     "any": 6174,
+     "same_chain": 811,
+     "intra_unit": 4378,
+     "non_node": 408,
+     "tool_test": 1049,
+     "cross_forced": 11,
+     "cross_branch": 11
+    },
+    "exclusive": {
+     "same_chain": 787,
+     "intra_unit": 3918,
+     "non_node": 294,
+     "tool_test": 692
+    },
+    "pairs_with_clones": {
+     "same_chain": 124,
+     "intra_unit": 101,
+     "non_node": 30,
+     "cross_branch": 1,
+     "cross_forced": 1,
+     "tool_test": 56
+    },
+    "cross_kinds": {
+     "member": 11
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 1,
+     "same_native_unrelated": 0,
+     "same_chain": 18
+    },
+    "cross_native_pairs": {
+     "Node/PopupMenu": 1
+    }
+   },
+   "capability": {
+    "node_units": 35,
+    "cross_pairs_declaring_same": 6,
+    "cross_pairs_sharing_1plus": 2,
+    "cross_pairs_sharing_2plus": 0,
+    "cross_shared_names": 6,
+    "cross_shared_names_consumed": 2,
+    "consumer_mechanisms": {
+     "static_or_autoload_class": 3,
+     "typed_engine_or_other": 2
+    }
+   }
+  },
+  {
+   "repo": "godot_dialogue_manager",
+   "group": "plugins/tools",
+   "commit": "7a72dcf64cfec8673d398606f2991d4cf81f2d11",
+   "units": 80,
+   "files": 79,
+   "lloc": 7377,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "non_node": 735,
+    "tool_test": 2125,
+    "cross_branch": 286,
+    "same_native_unrelated": 14
+   },
+   "inner_units": 1,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {
+     "any": 245,
+     "non_node": 42,
+     "intra_unit": 125,
+     "tool_test": 10,
+     "same_native_unrelated": 10,
+     "cross_lowerable": 58,
+     "cross_branch": 58
+    },
+    "exclusive": {
+     "non_node": 42,
+     "intra_unit": 125,
+     "tool_test": 10,
+     "same_native_unrelated": 10,
+     "cross_branch": 58,
+     "cross_lowerable": 58
+    },
+    "pairs_with_clones": {
+     "non_node": 2,
+     "intra_unit": 4,
+     "tool_test": 1,
+     "same_native_unrelated": 1,
+     "cross_branch": 1,
+     "cross_lowerable": 1
+    },
+    "cross_kinds": {
+     "signal": 4,
+     "export": 4,
+     "member": 20,
+     "lifecycle": 6,
+     "method": 18,
+     "handler": 6
+    },
+    "cross_connect_lines": 2,
+    "groups": {
+     "cross_branch": 2,
+     "same_native_unrelated": 1,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {
+     "Area2D/Area3D": 2
+    }
+   },
+   "near": {
+    "lines": {
+     "any": 400,
+     "non_node": 42,
+     "intra_unit": 260,
+     "tool_test": 10,
+     "same_native_unrelated": 20,
+     "cross_lowerable": 58,
+     "cross_branch": 68,
+     "cross_forced": 10
+    },
+    "exclusive": {
+     "non_node": 42,
+     "intra_unit": 260,
+     "tool_test": 10,
+     "same_native_unrelated": 20,
+     "cross_branch": 68,
+     "cross_lowerable": 58,
+     "cross_forced": 10
+    },
+    "pairs_with_clones": {
+     "non_node": 2,
+     "intra_unit": 7,
+     "tool_test": 1,
+     "same_native_unrelated": 1,
+     "cross_branch": 2,
+     "cross_lowerable": 1,
+     "cross_forced": 1
+    },
+    "cross_kinds": {
+     "signal": 4,
+     "export": 4,
+     "member": 20,
+     "lifecycle": 8,
+     "method": 26,
+     "handler": 6
+    },
+    "cross_connect_lines": 2,
+    "groups": {
+     "cross_branch": 3,
+     "same_native_unrelated": 2,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {
+     "Area2D/Area3D": 2,
+     "Marker2D/Marker3D": 1
+    }
+   },
+   "loose": {
+    "lines": {
+     "any": 918,
+     "non_node": 189,
+     "intra_unit": 710,
+     "tool_test": 16,
+     "cross_forced": 56,
+     "cross_branch": 148,
+     "cross_lowerable": 112,
+     "same_native_unrelated": 20
+    },
+    "exclusive": {
+     "intra_unit": 572,
+     "non_node": 54,
+     "tool_test": 5,
+     "cross_branch": 112,
+     "cross_forced": 36,
+     "cross_lowerable": 86,
+     "same_native_unrelated": 20
+    },
+    "pairs_with_clones": {
+     "intra_unit": 16,
+     "non_node": 6,
+     "cross_branch": 9,
+     "cross_lowerable": 5,
+     "tool_test": 2,
+     "cross_forced": 4,
+     "same_native_unrelated": 1
+    },
+    "cross_kinds": {
+     "member": 66,
+     "handler": 16,
+     "signal": 4,
+     "export": 6,
+     "lifecycle": 8,
+     "method": 48
+    },
+    "cross_connect_lines": 2,
+    "groups": {
+     "cross_branch": 6,
+     "same_native_unrelated": 2,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {
+     "Control/HBoxContainer": 2,
+     "Area2D/Area3D": 2,
+     "CodeEdit/VBoxContainer": 1,
+     "CodeEdit/Container": 1,
+     "CodeEdit/PanelContainer": 1,
+     "Container/VBoxContainer": 1,
+     "PanelContainer/VBoxContainer": 1,
+     "Container/PanelContainer": 1,
+     "Marker2D/Marker3D": 1
+    }
+   },
+   "capability": {
+    "node_units": 25,
+    "cross_pairs_declaring_same": 30,
+    "cross_pairs_sharing_1plus": 28,
+    "cross_pairs_sharing_2plus": 2,
+    "cross_shared_names": 22,
+    "cross_shared_names_consumed": 11,
+    "consumer_mechanisms": {
+     "typed_script": 22,
+     "typed_engine_or_other": 61,
+     "string_has_method": 1,
+     "has_method_guard": 1,
+     "untyped_other": 3
+    }
+   }
+  },
+  {
+   "repo": "godot-demo-projects",
+   "group": "demos",
+   "commit": "b761b4cd5718a7118f2c95eb55f181d0a5f004f1",
+   "units": 471,
+   "files": 461,
+   "lloc": 16776,
+   "projects_with_code": 132,
+   "pair_pop": {
+    "non_node": 195,
+    "same_native_unrelated": 190,
+    "cross_branch": 1063,
+    "same_chain": 57,
+    "tool_test": 748
+   },
+   "inner_units": 10,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {
+     "any": 577,
+     "tool_test": 192,
+     "intra_unit": 120,
+     "cross_forced": 94,
+     "cross_branch": 106,
+     "same_native_unrelated": 199,
+     "cross_lowerable": 12
+    },
+    "exclusive": {
+     "tool_test": 162,
+     "intra_unit": 80,
+     "cross_branch": 106,
+     "cross_forced": 94,
+     "same_native_unrelated": 189,
+     "cross_lowerable": 12
+    },
+    "pairs_with_clones": {
+     "tool_test": 6,
+     "intra_unit": 7,
+     "cross_branch": 3,
+     "cross_forced": 2,
+     "same_native_unrelated": 7,
+     "cross_lowerable": 1
+    },
+    "cross_kinds": {
+     "per_frame": 56,
+     "member": 12,
+     "export": 4,
+     "lifecycle": 8,
+     "handler": 26
+    },
+    "cross_connect_lines": 2,
+    "groups": {
+     "cross_branch": 5,
+     "same_native_unrelated": 6,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {
+     "CharacterBody2D/RigidBody2D": 2,
+     "CanvasItem/Node": 2,
+     "XRController3D/XRNode3D": 1
+    }
+   },
+   "near": {
+    "lines": {
+     "any": 1027,
+     "intra_unit": 556,
+     "tool_test": 239,
+     "cross_forced": 94,
+     "cross_branch": 106,
+     "same_native_unrelated": 226,
+     "non_node": 10,
+     "cross_lowerable": 12
+    },
+    "exclusive": {
+     "intra_unit": 446,
+     "tool_test": 189,
+     "cross_branch": 106,
+     "cross_forced": 94,
+     "same_native_unrelated": 166,
+     "non_node": 10,
+     "cross_lowerable": 12
+    },
+    "pairs_with_clones": {
+     "intra_unit": 30,
+     "tool_test": 8,
+     "cross_branch": 3,
+     "cross_forced": 2,
+     "same_native_unrelated": 7,
+     "non_node": 1,
+     "cross_lowerable": 1
+    },
+    "cross_kinds": {
+     "per_frame": 56,
+     "member": 12,
+     "export": 4,
+     "lifecycle": 8,
+     "handler": 26
+    },
+    "cross_connect_lines": 2,
+    "groups": {
+     "cross_branch": 5,
+     "same_native_unrelated": 6,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {
+     "CharacterBody2D/RigidBody2D": 2,
+     "CanvasItem/Node": 2,
+     "XRController3D/XRNode3D": 1
+    }
+   },
+   "loose": {
+    "lines": {
+     "any": 1829,
+     "intra_unit": 1190,
+     "tool_test": 504,
+     "cross_forced": 102,
+     "cross_branch": 114,
+     "same_native_unrelated": 229,
+     "non_node": 10,
+     "cross_lowerable": 12
+    },
+    "exclusive": {
+     "intra_unit": 972,
+     "tool_test": 394,
+     "cross_branch": 114,
+     "cross_forced": 102,
+     "same_native_unrelated": 121,
+     "non_node": 10,
+     "cross_lowerable": 12
+    },
+    "pairs_with_clones": {
+     "intra_unit": 51,
+     "tool_test": 33,
+     "cross_branch": 3,
+     "cross_forced": 2,
+     "same_native_unrelated": 7,
+     "non_node": 1,
+     "cross_lowerable": 1
+    },
+    "cross_kinds": {
+     "per_frame": 56,
+     "member": 14,
+     "export": 6,
+     "lifecycle": 8,
+     "handler": 30
+    },
+    "cross_connect_lines": 2,
+    "groups": {
+     "cross_branch": 4,
+     "same_native_unrelated": 6,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {
+     "CharacterBody2D/RigidBody2D": 2,
+     "CanvasItem/Node": 1,
+     "XRController3D/XRNode3D": 1
+    }
+   },
+   "capability": {
+    "node_units": 411,
+    "cross_pairs_declaring_same": 21,
+    "cross_pairs_sharing_1plus": 19,
+    "cross_pairs_sharing_2plus": 1,
+    "cross_shared_names": 12,
+    "cross_shared_names_consumed": 9,
+    "consumer_mechanisms": {
+     "typed_engine_or_other": 4,
+     "is_A_check": 1,
+     "typed_inferred": 3,
+     "node_path": 1,
+     "untyped_other": 5,
+     "typed_script": 5,
+     "string_has_method": 1,
+     "has_method_guard": 1
+    }
+   }
+  },
+  {
+   "repo": "Godot-Game-Template",
+   "group": "plugins/tools",
+   "commit": "6849d6c352dafe8ed54b5fa4f4b9774adfca31c8",
+   "units": 125,
+   "files": 125,
+   "lloc": 5878,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "non_node": 1254,
+    "tool_test": 610,
+    "same_native_unrelated": 948,
+    "cross_branch": 4782,
+    "same_chain": 156
+   },
+   "inner_units": 0,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {
+     "any": 1892,
+     "non_node": 162,
+     "same_native_unrelated": 836,
+     "cross_forced": 156,
+     "cross_branch": 156,
+     "same_chain": 634,
+     "intra_unit": 44,
+     "tool_test": 60
+    },
+    "exclusive": {
+     "non_node": 162,
+     "same_native_unrelated": 836,
+     "cross_branch": 156,
+     "cross_forced": 156,
+     "same_chain": 634,
+     "intra_unit": 44,
+     "tool_test": 60
+    },
+    "pairs_with_clones": {
+     "non_node": 3,
+     "same_native_unrelated": 22,
+     "cross_branch": 1,
+     "cross_forced": 1,
+     "same_chain": 25,
+     "intra_unit": 2,
+     "tool_test": 3
+    },
+    "cross_kinds": {
+     "method": 110,
+     "export": 8,
+     "member": 38
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 6,
+     "same_native_unrelated": 27,
+     "same_chain": 6
+    },
+    "cross_native_pairs": {
+     "Container/Tree": 6
+    }
+   },
+   "near": {
+    "lines": {
+     "any": 1969,
+     "non_node": 178,
+     "same_native_unrelated": 877,
+     "cross_forced": 156,
+     "cross_branch": 156,
+     "intra_unit": 60,
+     "same_chain": 634,
+     "tool_test": 64
+    },
+    "exclusive": {
+     "non_node": 178,
+     "same_native_unrelated": 877,
+     "cross_branch": 156,
+     "cross_forced": 156,
+     "intra_unit": 60,
+     "same_chain": 634,
+     "tool_test": 64
+    },
+    "pairs_with_clones": {
+     "non_node": 4,
+     "same_native_unrelated": 22,
+     "cross_branch": 1,
+     "cross_forced": 1,
+     "intra_unit": 3,
+     "same_chain": 25,
+     "tool_test": 3
+    },
+    "cross_kinds": {
+     "method": 110,
+     "export": 8,
+     "member": 38
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 6,
+     "same_native_unrelated": 28,
+     "same_chain": 6
+    },
+    "cross_native_pairs": {
+     "Container/Tree": 6
+    }
+   },
+   "loose": {
+    "lines": {
+     "any": 2421,
+     "non_node": 258,
+     "intra_unit": 335,
+     "tool_test": 123,
+     "same_native_unrelated": 1057,
+     "cross_lowerable": 66,
+     "cross_branch": 266,
+     "cross_forced": 200,
+     "same_chain": 668
+    },
+    "exclusive": {
+     "non_node": 181,
+     "intra_unit": 158,
+     "tool_test": 98,
+     "same_native_unrelated": 894,
+     "cross_branch": 204,
+     "cross_lowerable": 6,
+     "cross_forced": 198,
+     "same_chain": 636
+    },
+    "pairs_with_clones": {
+     "non_node": 9,
+     "intra_unit": 19,
+     "tool_test": 7,
+     "same_native_unrelated": 32,
+     "cross_branch": 9,
+     "cross_lowerable": 5,
+     "same_chain": 27,
+     "cross_forced": 4
+    },
+    "cross_kinds": {
+     "onready": 28,
+     "handler": 35,
+     "method": 137,
+     "export": 16,
+     "member": 49,
+     "lifecycle": 1
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 10,
+     "same_native_unrelated": 29,
+     "same_chain": 8
+    },
+    "cross_native_pairs": {
+     "Container/Tree": 6,
+     "Control/PanelContainer": 2,
+     "AcceptDialog/Node": 1,
+     "CanvasLayer/Container": 1,
+     "CanvasLayer/Tree": 1,
+     "CanvasLayer/Node": 1
+    }
+   },
+   "capability": {
+    "node_units": 109,
+    "cross_pairs_declaring_same": 32,
+    "cross_pairs_sharing_1plus": 15,
+    "cross_pairs_sharing_2plus": 1,
+    "cross_shared_names": 22,
+    "cross_shared_names_consumed": 6,
+    "consumer_mechanisms": {
+     "autoload_or_class": 19,
+     "untyped_other": 8,
+     "static_or_autoload_class": 10,
+     "string_has_method": 2,
+     "has_method_guard": 2,
+     "typed_engine_or_other": 8,
+     "typed_inferred": 3
+    }
+   }
+  },
+  {
+   "repo": "godot-open-rpg",
+   "group": "games",
+   "commit": "d59f2f71bc046ac53239a4e590861269e7100a36",
+   "units": 78,
+   "files": 78,
+   "lloc": 2190,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "same_chain": 188,
+    "non_node": 913,
+    "same_native_unrelated": 340,
+    "cross_branch": 1562
+   },
+   "inner_units": 5,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {
+     "any": 90,
+     "same_chain": 68,
+     "intra_unit": 12,
+     "same_native_unrelated": 12
+    },
+    "exclusive": {
+     "same_chain": 66,
+     "intra_unit": 12,
+     "same_native_unrelated": 10
+    },
+    "pairs_with_clones": {
+     "same_chain": 3,
+     "intra_unit": 1,
+     "same_native_unrelated": 1
+    },
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 1,
+     "same_chain": 4
+    },
+    "cross_native_pairs": {}
+   },
+   "near": {
+    "lines": {
+     "any": 108,
+     "same_chain": 86,
+     "intra_unit": 12,
+     "same_native_unrelated": 12
+    },
+    "exclusive": {
+     "same_chain": 84,
+     "intra_unit": 12,
+     "same_native_unrelated": 10
+    },
+    "pairs_with_clones": {
+     "same_chain": 4,
+     "intra_unit": 1,
+     "same_native_unrelated": 1
+    },
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 1,
+     "same_chain": 5
+    },
+    "cross_native_pairs": {}
+   },
+   "loose": {
+    "lines": {
+     "any": 182,
+     "same_chain": 100,
+     "cross_forced": 10,
+     "cross_branch": 10,
+     "intra_unit": 52,
+     "same_native_unrelated": 22
+    },
+    "exclusive": {
+     "same_chain": 98,
+     "cross_branch": 10,
+     "cross_forced": 10,
+     "intra_unit": 52,
+     "same_native_unrelated": 20
+    },
+    "pairs_with_clones": {
+     "same_chain": 4,
+     "cross_branch": 1,
+     "cross_forced": 1,
+     "intra_unit": 4,
+     "same_native_unrelated": 2
+    },
+    "cross_kinds": {
+     "export": 2,
+     "member": 8
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 1,
+     "same_native_unrelated": 2,
+     "same_chain": 6
+    },
+    "cross_native_pairs": {
+     "Node2D/Path2D": 1
+    }
+   },
+   "capability": {
+    "node_units": 65,
+    "cross_pairs_declaring_same": 48,
+    "cross_pairs_sharing_1plus": 48,
+    "cross_pairs_sharing_2plus": 3,
+    "cross_shared_names": 11,
+    "cross_shared_names_consumed": 11,
+    "consumer_mechanisms": {
+     "autoload_or_class": 8,
+     "typed_script": 13,
+     "typed_engine_or_other": 6,
+     "untyped_other": 11,
+     "typed_inferred": 41,
+     "is_A_check": 1
+    }
+   }
+  },
+  {
+   "repo": "godot-statecharts",
+   "group": "plugins/tools",
+   "commit": "76d226a3efac66a72aea825382b320c94808f409",
+   "units": 89,
+   "files": 89,
+   "lloc": 3377,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "non_node": 764,
+    "same_chain": 36,
+    "tool_test": 2641,
+    "same_native_unrelated": 87,
+    "cross_branch": 388
+   },
+   "inner_units": 22,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {
+     "any": 366,
+     "same_chain": 36,
+     "tool_test": 159,
+     "intra_unit": 203
+    },
+    "exclusive": {
+     "same_chain": 36,
+     "tool_test": 127,
+     "intra_unit": 171
+    },
+    "pairs_with_clones": {
+     "same_chain": 2,
+     "tool_test": 12,
+     "intra_unit": 6
+    },
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 0,
+     "same_chain": 3
+    },
+    "cross_native_pairs": {}
+   },
+   "near": {
+    "lines": {
+     "any": 758,
+     "same_chain": 40,
+     "intra_unit": 436,
+     "tool_test": 493
+    },
+    "exclusive": {
+     "same_chain": 40,
+     "intra_unit": 225,
+     "tool_test": 282
+    },
+    "pairs_with_clones": {
+     "same_chain": 2,
+     "intra_unit": 10,
+     "tool_test": 66
+    },
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 0,
+     "same_chain": 3
+    },
+    "cross_native_pairs": {}
+   },
+   "loose": {
+    "lines": {
+     "any": 807,
+     "same_chain": 78,
+     "intra_unit": 415,
+     "tool_test": 400,
+     "cross_forced": 14,
+     "cross_branch": 14
+    },
+    "exclusive": {
+     "same_chain": 78,
+     "intra_unit": 319,
+     "tool_test": 300,
+     "cross_branch": 10,
+     "cross_forced": 10
+    },
+    "pairs_with_clones": {
+     "same_chain": 3,
+     "intra_unit": 9,
+     "tool_test": 71,
+     "cross_branch": 1,
+     "cross_forced": 1
+    },
+    "cross_kinds": {
+     "method": 14
+    },
+    "cross_connect_lines": 6,
+    "groups": {
+     "cross_branch": 1,
+     "same_native_unrelated": 0,
+     "same_chain": 6
+    },
+    "cross_native_pairs": {
+     "Control/Node": 1
+    }
+   },
+   "capability": {
+    "node_units": 32,
+    "cross_pairs_declaring_same": 12,
+    "cross_pairs_sharing_1plus": 4,
+    "cross_pairs_sharing_2plus": 2,
+    "cross_shared_names": 8,
+    "cross_shared_names_consumed": 7,
+    "consumer_mechanisms": {
+     "is_A_or_B": 2,
+     "typed_engine_or_other": 6,
+     "typed_script": 9,
+     "untyped_other": 3,
+     "autoload_or_class": 4,
+     "typed_inferred": 1
+    }
+   }
+  },
+  {
+   "repo": "phantom-camera",
+   "group": "plugins/tools",
+   "commit": "21d3762492e2dc51b448f55438b89b3c19349f96",
+   "units": 36,
+   "files": 36,
+   "lloc": 5394,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "cross_branch": 253,
+    "tool_test": 165,
+    "non_node": 189,
+    "same_native_unrelated": 20,
+    "same_chain": 3
+   },
+   "inner_units": 0,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {
+     "any": 974,
+     "same_chain": 10,
+     "cross_forced": 548,
+     "cross_branch": 792,
+     "intra_unit": 52,
+     "cross_lowerable": 244,
+     "non_node": 132
+    },
+    "exclusive": {
+     "same_chain": 10,
+     "cross_branch": 780,
+     "cross_forced": 536,
+     "cross_lowerable": 244,
+     "intra_unit": 40,
+     "non_node": 132
+    },
+    "pairs_with_clones": {
+     "same_chain": 1,
+     "cross_branch": 4,
+     "cross_forced": 3,
+     "intra_unit": 2,
+     "cross_lowerable": 1,
+     "non_node": 1
+    },
+    "cross_kinds": {
+     "lifecycle": 30,
+     "export": 30,
+     "member": 194,
+     "class_other": 2,
+     "other_virtual": 34,
+     "per_frame": 56,
+     "method": 446
+    },
+    "cross_connect_lines": 2,
+    "groups": {
+     "cross_branch": 35,
+     "same_native_unrelated": 0,
+     "same_chain": 1
+    },
+    "cross_native_pairs": {
+     "Node2D/Node3D": 35,
+     "Node/Node2D": 1,
+     "Node/Node3D": 1
+    }
+   },
+   "near": {
+    "lines": {
+     "any": 1016,
+     "same_chain": 10,
+     "cross_forced": 580,
+     "cross_branch": 808,
+     "same_native_unrelated": 32,
+     "intra_unit": 70,
+     "cross_lowerable": 252,
+     "non_node": 140
+    },
+    "exclusive": {
+     "same_chain": 10,
+     "cross_branch": 764,
+     "cross_forced": 536,
+     "cross_lowerable": 236,
+     "intra_unit": 58,
+     "non_node": 140
+    },
+    "pairs_with_clones": {
+     "same_chain": 1,
+     "cross_branch": 8,
+     "cross_forced": 5,
+     "intra_unit": 2,
+     "same_native_unrelated": 2,
+     "cross_lowerable": 3,
+     "non_node": 1
+    },
+    "cross_kinds": {
+     "lifecycle": 30,
+     "export": 30,
+     "member": 194,
+     "class_other": 2,
+     "other_virtual": 38,
+     "per_frame": 56,
+     "method": 458
+    },
+    "cross_connect_lines": 2,
+    "groups": {
+     "cross_branch": 35,
+     "same_native_unrelated": 2,
+     "same_chain": 1
+    },
+    "cross_native_pairs": {
+     "Node2D/Node3D": 35,
+     "Node/Node2D": 1,
+     "Node/Node3D": 1
+    }
+   },
+   "loose": {
+    "lines": {
+     "any": 1933,
+     "same_chain": 10,
+     "intra_unit": 961,
+     "same_native_unrelated": 209,
+     "cross_lowerable": 280,
+     "cross_branch": 1178,
+     "cross_forced": 961,
+     "non_node": 429
+    },
+    "exclusive": {
+     "same_chain": 10,
+     "intra_unit": 532,
+     "same_native_unrelated": 18,
+     "cross_branch": 728,
+     "cross_lowerable": 221,
+     "cross_forced": 520,
+     "non_node": 98
+    },
+    "pairs_with_clones": {
+     "same_chain": 1,
+     "intra_unit": 9,
+     "same_native_unrelated": 3,
+     "cross_branch": 9,
+     "cross_lowerable": 4,
+     "cross_forced": 5,
+     "non_node": 9
+    },
+    "cross_kinds": {
+     "method": 650,
+     "lifecycle": 38,
+     "signal": 14,
+     "export": 64,
+     "member": 297,
+     "class_other": 2,
+     "other_virtual": 55,
+     "per_frame": 58
+    },
+    "cross_connect_lines": 14,
+    "groups": {
+     "cross_branch": 34,
+     "same_native_unrelated": 9,
+     "same_chain": 1
+    },
+    "cross_native_pairs": {
+     "Node2D/Node3D": 33,
+     "Control/Node": 1,
+     "Node/Node2D": 1,
+     "Node/Node3D": 1
+    }
+   },
+   "capability": {
+    "node_units": 24,
+    "cross_pairs_declaring_same": 18,
+    "cross_pairs_sharing_1plus": 12,
+    "cross_pairs_sharing_2plus": 3,
+    "cross_shared_names": 111,
+    "cross_shared_names_consumed": 43,
+    "consumer_mechanisms": {
+     "typed_engine_or_other": 80,
+     "untyped_other": 93,
+     "typed_script": 84,
+     "node_path": 2,
+     "is_A_check": 4
+    }
+   }
+  },
+  {
+   "repo": "Pixelorama",
+   "group": "plugins/tools",
+   "commit": "38a8b03eafc56a2815c42ff53ef3f61db7cf432b",
+   "units": 263,
+   "files": 210,
+   "lloc": 35226,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "same_native_unrelated": 932,
+    "non_node": 19009,
+    "cross_branch": 13890,
+    "same_chain": 622
+   },
+   "inner_units": 68,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {
+     "any": 2786,
+     "cross_lowerable": 98,
+     "cross_branch": 261,
+     "non_node": 61,
+     "intra_unit": 1012,
+     "cross_forced": 163,
+     "same_chain": 1207,
+     "same_native_unrelated": 381
+    },
+    "exclusive": {
+     "cross_branch": 179,
+     "cross_lowerable": 61,
+     "non_node": 51,
+     "intra_unit": 916,
+     "cross_forced": 118,
+     "same_chain": 1126,
+     "same_native_unrelated": 378
+    },
+    "pairs_with_clones": {
+     "cross_branch": 23,
+     "cross_lowerable": 14,
+     "non_node": 4,
+     "intra_unit": 41,
+     "cross_forced": 9,
+     "same_chain": 136,
+     "same_native_unrelated": 9
+    },
+    "cross_kinds": {
+     "method": 219,
+     "handler": 25,
+     "other_virtual": 17
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 16,
+     "same_native_unrelated": 17,
+     "same_chain": 34
+    },
+    "cross_native_pairs": {
+     "Button/Panel": 4,
+     "Node/Node2D": 2,
+     "ConfirmationDialog/Node": 1,
+     "Node/VBoxContainer": 1,
+     "ConfirmationDialog/VBoxContainer": 1,
+     "Panel/VBoxContainer": 1,
+     "ConfirmationDialog/Panel": 1,
+     "Node/Panel": 1,
+     "AcceptDialog/Panel": 1,
+     "Node2D/Panel": 1,
+     "PanelContainer/VBoxContainer": 1,
+     "ConfirmationDialog/Control": 1,
+     "Button/HBoxContainer": 1,
+     "Button/FoldableContainer": 1
+    }
+   },
+   "near": {
+    "lines": {
+     "any": 3582,
+     "cross_lowerable": 124,
+     "cross_branch": 259,
+     "non_node": 209,
+     "intra_unit": 1566,
+     "cross_forced": 150,
+     "same_chain": 1250,
+     "same_native_unrelated": 444
+    },
+    "exclusive": {
+     "cross_branch": 180,
+     "cross_lowerable": 71,
+     "intra_unit": 1477,
+     "cross_forced": 114,
+     "non_node": 174,
+     "same_chain": 1175,
+     "same_native_unrelated": 430
+    },
+    "pairs_with_clones": {
+     "cross_branch": 21,
+     "cross_lowerable": 10,
+     "non_node": 10,
+     "intra_unit": 49,
+     "cross_forced": 11,
+     "same_chain": 143,
+     "same_native_unrelated": 11
+    },
+    "cross_kinds": {
+     "method": 219,
+     "handler": 40
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 16,
+     "same_native_unrelated": 20,
+     "same_chain": 31
+    },
+    "cross_native_pairs": {
+     "Node/VBoxContainer": 3,
+     "AcceptDialog/Panel": 3,
+     "Node/Node2D": 2,
+     "ConfirmationDialog/Node": 1,
+     "Button/Node": 1,
+     "Panel/VBoxContainer": 1,
+     "ConfirmationDialog/VBoxContainer": 1,
+     "PanelContainer/VBoxContainer": 1,
+     "Button/Panel": 1,
+     "HBoxContainer/Panel": 1,
+     "Button/HBoxContainer": 1,
+     "ConfirmationDialog/Control": 1,
+     "AcceptDialog/HBoxContainer": 1,
+     "Button/FoldableContainer": 1
+    }
+   },
+   "loose": {
+    "lines": {
+     "any": 5185,
+     "intra_unit": 2630,
+     "cross_lowerable": 489,
+     "cross_branch": 756,
+     "non_node": 248,
+     "cross_forced": 336,
+     "same_native_unrelated": 494,
+     "same_chain": 1668
+    },
+    "exclusive": {
+     "intra_unit": 2169,
+     "cross_branch": 445,
+     "cross_lowerable": 247,
+     "cross_forced": 249,
+     "non_node": 125,
+     "same_chain": 1403,
+     "same_native_unrelated": 443
+    },
+    "pairs_with_clones": {
+     "intra_unit": 76,
+     "cross_branch": 64,
+     "cross_lowerable": 43,
+     "non_node": 13,
+     "cross_forced": 21,
+     "same_native_unrelated": 13,
+     "same_chain": 183
+    },
+    "cross_kinds": {
+     "method": 394,
+     "member": 83,
+     "lifecycle": 18,
+     "handler": 210,
+     "input": 10,
+     "other_virtual": 41
+    },
+    "cross_connect_lines": 25,
+    "groups": {
+     "cross_branch": 35,
+     "same_native_unrelated": 21,
+     "same_chain": 42
+    },
+    "cross_native_pairs": {
+     "Node/VBoxContainer": 5,
+     "PanelContainer/VBoxContainer": 4,
+     "Panel/PanelContainer": 3,
+     "Button/Panel": 3,
+     "AcceptDialog/Panel": 3,
+     "Node/Node2D": 2,
+     "HBoxContainer/Panel": 2,
+     "Node2D/Panel": 2,
+     "AcceptDialog/HBoxContainer": 2,
+     "Container/PanelContainer": 2,
+     "Button/FoldableContainer": 2,
+     "ConfirmationDialog/Node": 1,
+     "Button/Node": 1,
+     "ConfirmationDialog/VBoxContainer": 1,
+     "Panel/VBoxContainer": 1,
+     "ConfirmationDialog/Panel": 1,
+     "Container/Node": 1,
+     "Container/VBoxContainer": 1,
+     "Node/PanelContainer": 1,
+     "ColorRect/Node": 1,
+     "PanelContainer/Window": 1,
+     "Node/Panel": 1,
+     "Button/HBoxContainer": 1,
+     "Control/Panel": 1,
+     "Container/Node2D": 1,
+     "Container/Panel": 1,
+     "Node2D/PanelContainer": 1,
+     "Node2D/VBoxContainer": 1,
+     "AcceptDialog/Window": 1,
+     "ConfirmationDialog/Control": 1
+    }
+   },
+   "capability": {
+    "node_units": 176,
+    "cross_pairs_declaring_same": 201,
+    "cross_pairs_sharing_1plus": 159,
+    "cross_pairs_sharing_2plus": 30,
+    "cross_shared_names": 60,
+    "cross_shared_names_consumed": 45,
+    "consumer_mechanisms": {
+     "typed_inferred": 364,
+     "autoload_or_class": 91,
+     "typed_script": 109,
+     "string_get": 11,
+     "typed_engine_or_other": 66,
+     "untyped_other": 177,
+     "is_A_check": 58,
+     "is_A_or_B": 33,
+     "string_has_method": 9,
+     "has_method_guard": 9,
+     "static_or_autoload_class": 3,
+     "node_path": 5
+    }
+   }
+  },
+  {
+   "repo": "Starter-Kit-3D-Platformer",
+   "group": "games",
+   "commit": "3fa8a04b1c01ab23db43123d4ce814a34c3fc7f0",
+   "units": 9,
+   "files": 9,
+   "lloc": 178,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "cross_branch": 30,
+    "same_native_unrelated": 6
+   },
+   "inner_units": 0,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {},
+    "exclusive": {},
+    "pairs_with_clones": {},
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 0,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {}
+   },
+   "near": {
+    "lines": {},
+    "exclusive": {},
+    "pairs_with_clones": {},
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 0,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {}
+   },
+   "loose": {
+    "lines": {},
+    "exclusive": {},
+    "pairs_with_clones": {},
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 0,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {}
+   },
+   "capability": {
+    "node_units": 9,
+    "cross_pairs_declaring_same": 1,
+    "cross_pairs_sharing_1plus": 0,
+    "cross_pairs_sharing_2plus": 0,
+    "cross_shared_names": 1,
+    "cross_shared_names_consumed": 0,
+    "consumer_mechanisms": {}
+   }
+  },
+  {
+   "repo": "Starter-Kit-City-Builder",
+   "group": "games",
+   "commit": "4535092b740b378b700efd9df9e27a631815b84a",
+   "units": 6,
+   "files": 6,
+   "lloc": 159,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "cross_branch": 2,
+    "non_node": 12,
+    "same_native_unrelated": 1
+   },
+   "inner_units": 0,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {
+     "any": 10,
+     "intra_unit": 10
+    },
+    "exclusive": {
+     "intra_unit": 10
+    },
+    "pairs_with_clones": {
+     "intra_unit": 1
+    },
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 0,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {}
+   },
+   "near": {
+    "lines": {
+     "any": 18,
+     "intra_unit": 18
+    },
+    "exclusive": {
+     "intra_unit": 18
+    },
+    "pairs_with_clones": {
+     "intra_unit": 1
+    },
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 0,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {}
+   },
+   "loose": {
+    "lines": {
+     "any": 20,
+     "intra_unit": 20
+    },
+    "exclusive": {
+     "intra_unit": 20
+    },
+    "pairs_with_clones": {
+     "intra_unit": 1
+    },
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 0,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {}
+   },
+   "capability": {
+    "node_units": 3,
+    "cross_pairs_declaring_same": 0,
+    "cross_pairs_sharing_1plus": 0,
+    "cross_pairs_sharing_2plus": 0,
+    "cross_shared_names": 0,
+    "cross_shared_names_consumed": 0,
+    "consumer_mechanisms": {}
+   }
+  },
+  {
+   "repo": "Starter-Kit-FPS",
+   "group": "games",
+   "commit": "185fd2326d74a5cf858cffc616f87cf9696f9cc0",
+   "units": 7,
+   "files": 7,
+   "lloc": 234,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "same_native_unrelated": 1,
+    "cross_branch": 14,
+    "non_node": 6
+   },
+   "inner_units": 0,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {},
+    "exclusive": {},
+    "pairs_with_clones": {},
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 0,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {}
+   },
+   "near": {
+    "lines": {},
+    "exclusive": {},
+    "pairs_with_clones": {},
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 0,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {}
+   },
+   "loose": {
+    "lines": {},
+    "exclusive": {},
+    "pairs_with_clones": {},
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 0,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {}
+   },
+   "capability": {
+    "node_units": 6,
+    "cross_pairs_declaring_same": 1,
+    "cross_pairs_sharing_1plus": 1,
+    "cross_pairs_sharing_2plus": 0,
+    "cross_shared_names": 2,
+    "cross_shared_names_consumed": 1,
+    "consumer_mechanisms": {
+     "string_has_method": 2,
+     "has_method_guard": 3
+    }
+   }
+  },
+  {
+   "repo": "Starter-Kit-Racing",
+   "group": "games",
+   "commit": "2f2e5f2646dda89cb21d4e8539bab60c6e955dc8",
+   "units": 3,
+   "files": 3,
+   "lloc": 123,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "same_chain": 1,
+    "same_native_unrelated": 2
+   },
+   "inner_units": 0,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {},
+    "exclusive": {},
+    "pairs_with_clones": {},
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 0,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {}
+   },
+   "near": {
+    "lines": {},
+    "exclusive": {},
+    "pairs_with_clones": {},
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 0,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {}
+   },
+   "loose": {
+    "lines": {},
+    "exclusive": {},
+    "pairs_with_clones": {},
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 0,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {}
+   },
+   "capability": {
+    "node_units": 3,
+    "cross_pairs_declaring_same": 0,
+    "cross_pairs_sharing_1plus": 0,
+    "cross_pairs_sharing_2plus": 0,
+    "cross_shared_names": 0,
+    "cross_shared_names_consumed": 0,
+    "consumer_mechanisms": {}
+   }
+  },
+  {
+   "repo": "tps-demo",
+   "group": "games",
+   "commit": "a82f15448e9b015440d3bbdf5e10801b260c4e9f",
+   "units": 15,
+   "files": 15,
+   "lloc": 1046,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "cross_branch": 96,
+    "same_native_unrelated": 9
+   },
+   "inner_units": 0,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {
+     "any": 18,
+     "same_native_unrelated": 18
+    },
+    "exclusive": {
+     "same_native_unrelated": 18
+    },
+    "pairs_with_clones": {
+     "same_native_unrelated": 1
+    },
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 1,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {}
+   },
+   "near": {
+    "lines": {
+     "any": 18,
+     "same_native_unrelated": 18
+    },
+    "exclusive": {
+     "same_native_unrelated": 18
+    },
+    "pairs_with_clones": {
+     "same_native_unrelated": 1
+    },
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 1,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {}
+   },
+   "loose": {
+    "lines": {
+     "any": 141,
+     "same_native_unrelated": 18,
+     "intra_unit": 123
+    },
+    "exclusive": {
+     "same_native_unrelated": 18,
+     "intra_unit": 123
+    },
+    "pairs_with_clones": {
+     "same_native_unrelated": 1,
+     "intra_unit": 1
+    },
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 1,
+     "same_chain": 0
+    },
+    "cross_native_pairs": {}
+   },
+   "capability": {
+    "node_units": 15,
+    "cross_pairs_declaring_same": 2,
+    "cross_pairs_sharing_1plus": 2,
+    "cross_pairs_sharing_2plus": 0,
+    "cross_shared_names": 4,
+    "cross_shared_names_consumed": 2,
+    "consumer_mechanisms": {
+     "typed_engine_or_other": 3,
+     "typed_script": 1
+    }
+   }
+  },
+  {
+   "repo": "godot-open-rts",
+   "group": "games",
+   "commit": "a628ad3bb6a9a903587a181a7ee3300dbf735e81",
+   "units": 143,
+   "files": 118,
+   "lloc": 3716,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "non_node": 4233,
+    "same_native_unrelated": 922,
+    "cross_branch": 4729,
+    "tool_test": 142,
+    "same_chain": 127
+   },
+   "inner_units": 25,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {
+     "any": 156,
+     "same_native_unrelated": 118,
+     "cross_forced": 14,
+     "cross_branch": 14,
+     "same_chain": 24
+    },
+    "exclusive": {
+     "same_native_unrelated": 118,
+     "cross_branch": 14,
+     "cross_forced": 14,
+     "same_chain": 24
+    },
+    "pairs_with_clones": {
+     "same_native_unrelated": 7,
+     "cross_branch": 1,
+     "cross_forced": 1,
+     "same_chain": 1
+    },
+    "cross_kinds": {
+     "per_frame": 4,
+     "input": 8,
+     "method": 2
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 1,
+     "same_native_unrelated": 5,
+     "same_chain": 1
+    },
+    "cross_native_pairs": {
+     "Node3D/Panel": 1
+    }
+   },
+   "near": {
+    "lines": {
+     "any": 158,
+     "same_native_unrelated": 120,
+     "cross_forced": 14,
+     "cross_branch": 14,
+     "same_chain": 24
+    },
+    "exclusive": {
+     "same_native_unrelated": 120,
+     "cross_branch": 14,
+     "cross_forced": 14,
+     "same_chain": 24
+    },
+    "pairs_with_clones": {
+     "same_native_unrelated": 7,
+     "cross_branch": 1,
+     "cross_forced": 1,
+     "same_chain": 1
+    },
+    "cross_kinds": {
+     "per_frame": 4,
+     "input": 8,
+     "method": 2
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 1,
+     "same_native_unrelated": 4,
+     "same_chain": 1
+    },
+    "cross_native_pairs": {
+     "Node3D/Panel": 1
+    }
+   },
+   "loose": {
+    "lines": {
+     "any": 464,
+     "same_native_unrelated": 262,
+     "cross_forced": 50,
+     "cross_branch": 112,
+     "cross_lowerable": 82,
+     "non_node": 45,
+     "intra_unit": 57,
+     "same_chain": 99
+    },
+    "exclusive": {
+     "same_native_unrelated": 201,
+     "cross_branch": 58,
+     "cross_forced": 35,
+     "cross_lowerable": 28,
+     "non_node": 6,
+     "intra_unit": 34,
+     "same_chain": 92
+    },
+    "pairs_with_clones": {
+     "same_native_unrelated": 26,
+     "cross_branch": 19,
+     "cross_forced": 5,
+     "cross_lowerable": 14,
+     "non_node": 6,
+     "intra_unit": 4,
+     "same_chain": 8
+    },
+    "cross_kinds": {
+     "per_frame": 11,
+     "input": 8,
+     "method": 15,
+     "onready": 31,
+     "member": 43,
+     "lifecycle": 4
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 4,
+     "same_native_unrelated": 9,
+     "same_chain": 5
+    },
+    "cross_native_pairs": {
+     "Node3D/PanelContainer": 2,
+     "Node3D/Panel": 1,
+     "GridContainer/Node3D": 1,
+     "GridContainer/PanelContainer": 1,
+     "Node/Node3D": 1,
+     "GridContainer/Node": 1,
+     "CanvasLayer/PanelContainer": 1
+    }
+   },
+   "capability": {
+    "node_units": 108,
+    "cross_pairs_declaring_same": 47,
+    "cross_pairs_sharing_1plus": 47,
+    "cross_pairs_sharing_2plus": 8,
+    "cross_shared_names": 12,
+    "cross_shared_names_consumed": 10,
+    "consumer_mechanisms": {
+     "untyped_other": 186,
+     "group_then_call": 18,
+     "node_path": 1,
+     "typed_engine_or_other": 1
+    }
+   }
+  },
+  {
+   "repo": "tanks-of-freedom-ii",
+   "group": "games",
+   "commit": "dbe629ea05691599dde4fd65ab9a13b78a4ccfe1",
+   "units": 292,
+   "files": 292,
+   "lloc": 15359,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "non_node": 24861,
+    "same_chain": 1866,
+    "cross_branch": 11398,
+    "same_native_unrelated": 4361
+   },
+   "inner_units": 0,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 2
+   },
+   "exact": {
+    "lines": {
+     "any": 3044,
+     "intra_unit": 239,
+     "same_native_unrelated": 1280,
+     "same_chain": 1697,
+     "cross_lowerable": 56,
+     "cross_branch": 64,
+     "non_node": 38,
+     "cross_forced": 24
+    },
+    "exclusive": {
+     "intra_unit": 187,
+     "same_native_unrelated": 1064,
+     "same_chain": 1473,
+     "cross_branch": 24,
+     "cross_lowerable": 24,
+     "non_node": 38
+    },
+    "pairs_with_clones": {
+     "intra_unit": 12,
+     "same_native_unrelated": 81,
+     "same_chain": 144,
+     "cross_branch": 8,
+     "cross_lowerable": 6,
+     "non_node": 1,
+     "cross_forced": 2
+    },
+    "cross_kinds": {
+     "method": 58,
+     "handler": 6
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 3,
+     "same_native_unrelated": 48,
+     "same_chain": 46
+    },
+    "cross_native_pairs": {
+     "Node2D/Node3D": 1,
+     "Control/Node2D": 1,
+     "Control/Node": 1
+    }
+   },
+   "near": {
+    "lines": {
+     "any": 4151,
+     "intra_unit": 378,
+     "same_native_unrelated": 1601,
+     "same_chain": 2591,
+     "cross_lowerable": 76,
+     "cross_branch": 84,
+     "non_node": 38,
+     "cross_forced": 24
+    },
+    "exclusive": {
+     "intra_unit": 279,
+     "same_native_unrelated": 1158,
+     "same_chain": 2125,
+     "cross_branch": 44,
+     "cross_lowerable": 44,
+     "non_node": 38
+    },
+    "pairs_with_clones": {
+     "intra_unit": 17,
+     "same_native_unrelated": 126,
+     "same_chain": 354,
+     "cross_branch": 9,
+     "cross_lowerable": 7,
+     "non_node": 1,
+     "cross_forced": 2
+    },
+    "cross_kinds": {
+     "method": 68,
+     "onready": 10,
+     "handler": 6
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 5,
+     "same_native_unrelated": 50,
+     "same_chain": 43
+    },
+    "cross_native_pairs": {
+     "Control/Node2D": 3,
+     "Node2D/Node3D": 1,
+     "Control/Node": 1
+    }
+   },
+   "loose": {
+    "lines": {
+     "any": 6727,
+     "intra_unit": 2143,
+     "cross_lowerable": 583,
+     "cross_branch": 599,
+     "same_native_unrelated": 3264,
+     "same_chain": 2940,
+     "cross_forced": 152,
+     "non_node": 538
+    },
+    "exclusive": {
+     "intra_unit": 1086,
+     "cross_branch": 87,
+     "cross_lowerable": 86,
+     "same_native_unrelated": 1596,
+     "same_chain": 1612,
+     "non_node": 99,
+     "cross_forced": 2
+    },
+    "pairs_with_clones": {
+     "intra_unit": 50,
+     "cross_branch": 276,
+     "cross_lowerable": 242,
+     "same_native_unrelated": 394,
+     "same_chain": 379,
+     "cross_forced": 34,
+     "non_node": 26
+    },
+    "cross_kinds": {
+     "input": 10,
+     "onready": 392,
+     "method": 122,
+     "member": 33,
+     "lifecycle": 22,
+     "signal": 2,
+     "handler": 18
+    },
+    "cross_connect_lines": 18,
+    "groups": {
+     "cross_branch": 9,
+     "same_native_unrelated": 57,
+     "same_chain": 46
+    },
+    "cross_native_pairs": {
+     "Control/Node2D": 5,
+     "Control/Node3D": 3,
+     "Node2D/Node3D": 2,
+     "Control/Node": 2,
+     "Node/Node2D": 1
+    }
+   },
+   "capability": {
+    "node_units": 184,
+    "cross_pairs_declaring_same": 288,
+    "cross_pairs_sharing_1plus": 281,
+    "cross_pairs_sharing_2plus": 24,
+    "cross_shared_names": 48,
+    "cross_shared_names_consumed": 43,
+    "consumer_mechanisms": {
+     "untyped_other": 906,
+     "typed_engine_or_other": 27,
+     "autoload_or_class": 2
+    }
+   }
+  },
+  {
+   "repo": "deck_builder_tutorial",
+   "group": "games",
+   "commit": "91b408bc660e9b7389892dd4242a4d76e5bc9e77",
+   "units": 122,
+   "files": 122,
+   "lloc": 2679,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "same_chain": 200,
+    "non_node": 4331,
+    "same_native_unrelated": 558,
+    "cross_branch": 2292
+   },
+   "inner_units": 0,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {
+     "any": 198,
+     "same_chain": 160,
+     "cross_lowerable": 26,
+     "cross_branch": 26,
+     "same_native_unrelated": 12
+    },
+    "exclusive": {
+     "same_chain": 160,
+     "cross_branch": 26,
+     "cross_lowerable": 26,
+     "same_native_unrelated": 12
+    },
+    "pairs_with_clones": {
+     "same_chain": 23,
+     "cross_branch": 2,
+     "cross_lowerable": 2,
+     "same_native_unrelated": 1
+    },
+    "cross_kinds": {
+     "method": 26
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 2,
+     "same_native_unrelated": 1,
+     "same_chain": 4
+    },
+    "cross_native_pairs": {
+     "Area2D/Node2D": 1,
+     "Control/HBoxContainer": 1
+    }
+   },
+   "near": {
+    "lines": {
+     "any": 208,
+     "same_chain": 170,
+     "cross_lowerable": 26,
+     "cross_branch": 26,
+     "same_native_unrelated": 12
+    },
+    "exclusive": {
+     "same_chain": 170,
+     "cross_branch": 26,
+     "cross_lowerable": 26,
+     "same_native_unrelated": 12
+    },
+    "pairs_with_clones": {
+     "same_chain": 23,
+     "cross_branch": 2,
+     "cross_lowerable": 2,
+     "same_native_unrelated": 1
+    },
+    "cross_kinds": {
+     "method": 26
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 2,
+     "same_native_unrelated": 1,
+     "same_chain": 4
+    },
+    "cross_native_pairs": {
+     "Area2D/Node2D": 1,
+     "Control/HBoxContainer": 1
+    }
+   },
+   "loose": {
+    "lines": {
+     "any": 341,
+     "same_chain": 200,
+     "non_node": 15,
+     "cross_lowerable": 46,
+     "cross_branch": 46,
+     "intra_unit": 32,
+     "same_native_unrelated": 58
+    },
+    "exclusive": {
+     "same_chain": 200,
+     "non_node": 5,
+     "cross_branch": 46,
+     "cross_lowerable": 46,
+     "intra_unit": 22,
+     "same_native_unrelated": 58
+    },
+    "pairs_with_clones": {
+     "same_chain": 26,
+     "non_node": 1,
+     "intra_unit": 3,
+     "cross_branch": 3,
+     "cross_lowerable": 3,
+     "same_native_unrelated": 1
+    },
+    "cross_kinds": {
+     "method": 46
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 4,
+     "same_native_unrelated": 3,
+     "same_chain": 5
+    },
+    "cross_native_pairs": {
+     "Area2D/Node2D": 2,
+     "CenterContainer/Control": 1,
+     "Control/HBoxContainer": 1
+    }
+   },
+   "capability": {
+    "node_units": 77,
+    "cross_pairs_declaring_same": 56,
+    "cross_pairs_sharing_1plus": 53,
+    "cross_pairs_sharing_2plus": 3,
+    "cross_shared_names": 25,
+    "cross_shared_names_consumed": 20,
+    "consumer_mechanisms": {
+     "typed_inferred": 36,
+     "is_A_or_B": 4,
+     "untyped_other": 6,
+     "autoload_or_class": 4,
+     "typed_engine_or_other": 8,
+     "typed_script": 68,
+     "is_A_check": 2
+    }
+   }
+  },
+  {
+   "repo": "godot-tiny-mmo",
+   "group": "games",
+   "commit": "f4ed04f20963c3285117e58b1149fa1117658d3c",
+   "units": 479,
+   "files": 467,
+   "lloc": 28891,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "tool_test": 3325,
+    "cross_branch": 13888,
+    "same_native_unrelated": 2147,
+    "non_node": 89620,
+    "same_chain": 5501
+   },
+   "inner_units": 12,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {
+     "any": 1767,
+     "intra_unit": 352,
+     "cross_forced": 40,
+     "cross_branch": 177,
+     "same_native_unrelated": 261,
+     "cross_lowerable": 137,
+     "same_chain": 911,
+     "non_node": 127
+    },
+    "exclusive": {
+     "intra_unit": 332,
+     "cross_branch": 160,
+     "cross_forced": 36,
+     "same_native_unrelated": 257,
+     "cross_lowerable": 124,
+     "same_chain": 874,
+     "non_node": 83
+    },
+    "pairs_with_clones": {
+     "intra_unit": 17,
+     "cross_branch": 9,
+     "cross_forced": 3,
+     "same_native_unrelated": 22,
+     "cross_lowerable": 6,
+     "same_chain": 230,
+     "non_node": 6
+    },
+    "cross_kinds": {
+     "method": 151,
+     "handler": 4,
+     "lifecycle": 2,
+     "per_frame": 8,
+     "other_virtual": 2,
+     "export": 2,
+     "member": 8
+    },
+    "cross_connect_lines": 10,
+    "groups": {
+     "cross_branch": 13,
+     "same_native_unrelated": 11,
+     "same_chain": 36
+    },
+    "cross_native_pairs": {
+     "Control/VBoxContainer": 7,
+     "Area2D/Control": 2,
+     "Area2D/CharacterBody2D": 1,
+     "Control/HBoxContainer": 1,
+     "Area2D/Node2D": 1,
+     "CanvasModulate/Node": 1
+    }
+   },
+   "near": {
+    "lines": {
+     "any": 2991,
+     "cross_lowerable": 420,
+     "cross_branch": 492,
+     "cross_forced": 143,
+     "intra_unit": 800,
+     "non_node": 163,
+     "same_native_unrelated": 528,
+     "same_chain": 1510
+    },
+    "exclusive": {
+     "cross_branch": 214,
+     "cross_lowerable": 147,
+     "cross_forced": 73,
+     "intra_unit": 633,
+     "non_node": 133,
+     "same_native_unrelated": 331,
+     "same_chain": 1290
+    },
+    "pairs_with_clones": {
+     "cross_branch": 74,
+     "cross_lowerable": 58,
+     "cross_forced": 16,
+     "intra_unit": 31,
+     "same_native_unrelated": 76,
+     "same_chain": 566,
+     "non_node": 8
+    },
+    "cross_kinds": {
+     "handler": 14,
+     "method": 423,
+     "lifecycle": 16,
+     "other_virtual": 17,
+     "per_frame": 12,
+     "export": 2,
+     "member": 8
+    },
+    "cross_connect_lines": 10,
+    "groups": {
+     "cross_branch": 14,
+     "same_native_unrelated": 18,
+     "same_chain": 39
+    },
+    "cross_native_pairs": {
+     "Control/VBoxContainer": 6,
+     "CanvasLayer/Control": 2,
+     "Control/HBoxContainer": 2,
+     "Control/PanelContainer": 2,
+     "Control/Node": 1,
+     "CanvasLayer/ColorRect": 1,
+     "CanvasLayer/VBoxContainer": 1,
+     "ColorRect/Control": 1,
+     "ColorRect/VBoxContainer": 1,
+     "ColorRect/HBoxContainer": 1,
+     "HBoxContainer/PanelContainer": 1,
+     "HBoxContainer/VBoxContainer": 1,
+     "Area2D/Control": 1,
+     "Area2D/CharacterBody2D": 1,
+     "Area2D/Node2D": 1,
+     "CanvasModulate/Node": 1
+    }
+   },
+   "loose": {
+    "lines": {
+     "any": 4593,
+     "intra_unit": 1440,
+     "same_native_unrelated": 791,
+     "cross_forced": 223,
+     "cross_branch": 814,
+     "tool_test": 54,
+     "cross_lowerable": 626,
+     "non_node": 457,
+     "same_chain": 1978
+    },
+    "exclusive": {
+     "intra_unit": 1116,
+     "same_native_unrelated": 482,
+     "cross_branch": 409,
+     "cross_forced": 148,
+     "cross_lowerable": 273,
+     "non_node": 269,
+     "same_chain": 1589,
+     "tool_test": 5
+    },
+    "pairs_with_clones": {
+     "intra_unit": 55,
+     "same_native_unrelated": 91,
+     "cross_branch": 79,
+     "cross_forced": 26,
+     "cross_lowerable": 53,
+     "same_chain": 611,
+     "non_node": 70,
+     "tool_test": 6
+    },
+    "cross_kinds": {
+     "method": 603,
+     "member": 109,
+     "lifecycle": 61,
+     "handler": 16,
+     "other_virtual": 15,
+     "per_frame": 8,
+     "export": 2
+    },
+    "cross_connect_lines": 14,
+    "groups": {
+     "cross_branch": 35,
+     "same_native_unrelated": 31,
+     "same_chain": 55
+    },
+    "cross_native_pairs": {
+     "Control/VBoxContainer": 14,
+     "Area2D/CharacterBody2D": 4,
+     "Control/HBoxContainer": 3,
+     "Area2D/Node2D": 3,
+     "Area2D/Control": 2,
+     "Control/StaticBody2D": 2,
+     "Control/PanelContainer": 2,
+     "Control/Node2D": 2,
+     "CharacterBody2D/Node": 2,
+     "Node/Node2D": 2,
+     "Area2D/Node": 2,
+     "CanvasLayer/ColorRect": 1,
+     "CanvasLayer/VBoxContainer": 1,
+     "ColorRect/VBoxContainer": 1,
+     "HBoxContainer/VBoxContainer": 1,
+     "CanvasLayer/Control": 1,
+     "CanvasLayer/HBoxContainer": 1,
+     "Control/SubViewportContainer": 1,
+     "Node2D/StaticBody2D": 1,
+     "Area2D/StaticBody2D": 1,
+     "CharacterBody2D/HBoxContainer": 1,
+     "CharacterBody2D/Node2D": 1,
+     "CanvasModulate/Node": 1
+    }
+   },
+   "capability": {
+    "node_units": 181,
+    "cross_pairs_declaring_same": 122,
+    "cross_pairs_sharing_1plus": 119,
+    "cross_pairs_sharing_2plus": 20,
+    "cross_shared_names": 49,
+    "cross_shared_names_consumed": 41,
+    "consumer_mechanisms": {
+     "typed_engine_or_other": 73,
+     "autoload_or_class": 11,
+     "string_get": 20,
+     "typed_script": 398,
+     "static_or_autoload_class": 143,
+     "untyped_other": 17,
+     "string_has_method": 2,
+     "has_method_guard": 2,
+     "is_A_check": 9,
+     "is_A_or_B": 7
+    }
+   }
+  },
+  {
+   "repo": "godot_open_star_fighter",
+   "group": "games",
+   "commit": "6e7be5c1371b91fb9dbd7f3c8c67f8cfc967580c",
+   "units": 40,
+   "files": 40,
+   "lloc": 1242,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "cross_branch": 516,
+    "same_native_unrelated": 149,
+    "non_node": 77,
+    "same_chain": 38
+   },
+   "inner_units": 0,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {
+     "any": 26,
+     "same_chain": 12,
+     "same_native_unrelated": 14
+    },
+    "exclusive": {
+     "same_chain": 12,
+     "same_native_unrelated": 14
+    },
+    "pairs_with_clones": {
+     "same_chain": 1,
+     "same_native_unrelated": 1
+    },
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 1,
+     "same_chain": 1
+    },
+    "cross_native_pairs": {}
+   },
+   "near": {
+    "lines": {
+     "any": 26,
+     "same_chain": 12,
+     "same_native_unrelated": 14
+    },
+    "exclusive": {
+     "same_chain": 12,
+     "same_native_unrelated": 14
+    },
+    "pairs_with_clones": {
+     "same_chain": 1,
+     "same_native_unrelated": 1
+    },
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 1,
+     "same_chain": 1
+    },
+    "cross_native_pairs": {}
+   },
+   "loose": {
+    "lines": {
+     "any": 55,
+     "same_chain": 31,
+     "intra_unit": 20,
+     "same_native_unrelated": 14
+    },
+    "exclusive": {
+     "same_chain": 21,
+     "same_native_unrelated": 14,
+     "intra_unit": 10
+    },
+    "pairs_with_clones": {
+     "intra_unit": 2,
+     "same_chain": 2,
+     "same_native_unrelated": 1
+    },
+    "cross_kinds": {},
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 0,
+     "same_native_unrelated": 1,
+     "same_chain": 2
+    },
+    "cross_native_pairs": {}
+   },
+   "capability": {
+    "node_units": 38,
+    "cross_pairs_declaring_same": 2,
+    "cross_pairs_sharing_1plus": 2,
+    "cross_pairs_sharing_2plus": 0,
+    "cross_shared_names": 2,
+    "cross_shared_names_consumed": 2,
+    "consumer_mechanisms": {
+     "typed_script": 4,
+     "string_has_method": 2,
+     "has_method_guard": 2
+    }
+   }
+  },
+  {
+   "repo": "Ring",
+   "group": "games",
+   "commit": "0ec41610f25d83917e6410451ad6d796a948c766",
+   "units": 66,
+   "files": 66,
+   "lloc": 1804,
+   "projects_with_code": 1,
+   "pair_pop": {
+    "cross_branch": 1705,
+    "same_native_unrelated": 176,
+    "non_node": 192,
+    "same_chain": 72
+   },
+   "inner_units": 0,
+   "big_buckets": {
+    "exact": 0,
+    "near": 0,
+    "loose": 0
+   },
+   "exact": {
+    "lines": {
+     "any": 94,
+     "same_native_unrelated": 10,
+     "cross_forced": 72,
+     "cross_branch": 72,
+     "same_chain": 12
+    },
+    "exclusive": {
+     "same_native_unrelated": 10,
+     "cross_branch": 72,
+     "cross_forced": 72,
+     "same_chain": 12
+    },
+    "pairs_with_clones": {
+     "same_native_unrelated": 1,
+     "cross_branch": 1,
+     "cross_forced": 1,
+     "same_chain": 1
+    },
+    "cross_kinds": {
+     "export": 10,
+     "lifecycle": 12,
+     "method": 40,
+     "handler": 10
+    },
+    "cross_connect_lines": 0,
+    "groups": {
+     "cross_branch": 4,
+     "same_native_unrelated": 1,
+     "same_chain": 1
+    },
+    "cross_native_pairs": {
+     "CharacterBody2D/StaticBody2D": 4
+    }
+   },
+   "near": {
+    "lines": {
+     "any": 122,
+     "same_native_unrelated": 10,
+     "cross_forced": 78,
+     "cross_branch": 78,
+     "same_chain": 24,
+     "intra_unit": 10
+    },
+    "exclusive": {
+     "same_native_unrelated": 10,
+     "cross_branch": 78,
+     "cross_forced": 78,
+     "same_chain": 24,
+     "intra_unit": 10
+    },
+    "pairs_with_clones": {
+     "same_native_unrelated": 1,
+     "cross_branch": 1,
+     "cross_forced": 1,
+     "same_chain": 1,
+     "intra_unit": 1
+    },
+    "cross_kinds": {
+     "export": 10,
+     "lifecycle": 18,
+     "method": 40,
+     "handler": 10
+    },
+    "cross_connect_lines": 4,
+    "groups": {
+     "cross_branch": 4,
+     "same_native_unrelated": 1,
+     "same_chain": 2
+    },
+    "cross_native_pairs": {
+     "CharacterBody2D/StaticBody2D": 4
+    }
+   },
+   "loose": {
+    "lines": {
+     "any": 381,
+     "same_native_unrelated": 18,
+     "intra_unit": 226,
+     "cross_forced": 96,
+     "cross_branch": 96,
+     "non_node": 22,
+     "same_chain": 29
+    },
+    "exclusive": {
+     "same_native_unrelated": 18,
+     "intra_unit": 226,
+     "cross_branch": 86,
+     "cross_forced": 86,
+     "non_node": 12,
+     "same_chain": 29
+    },
+    "pairs_with_clones": {
+     "same_native_unrelated": 1,
+     "intra_unit": 8,
+     "non_node": 5,
+     "cross_branch": 1,
+     "cross_forced": 1,
+     "same_chain": 3
+    },
+    "cross_kinds": {
+     "export": 20,
+     "lifecycle": 22,
+     "method": 40,
+     "handler": 14
+    },
+    "cross_connect_lines": 4,
+    "groups": {
+     "cross_branch": 5,
+     "same_native_unrelated": 1,
+     "same_chain": 2
+    },
+    "cross_native_pairs": {
+     "CharacterBody2D/StaticBody2D": 5
+    }
+   },
+   "capability": {
+    "node_units": 63,
+    "cross_pairs_declaring_same": 114,
+    "cross_pairs_sharing_1plus": 15,
+    "cross_pairs_sharing_2plus": 1,
+    "cross_shared_names": 27,
+    "cross_shared_names_consumed": 13,
+    "consumer_mechanisms": {
+     "autoload_or_class": 12,
+     "string_call_deferred": 2,
+     "owner_or_parent": 13,
+     "typed_script": 4,
+     "is_A_check": 2
+    }
+   }
+  }
+ ]
+}

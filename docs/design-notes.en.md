@@ -2,6 +2,8 @@
 
 Non-normative. 中文：[design-notes.zh.md](design-notes.zh.md).
 
+Frozen with specification v0.1 (git tag `spec-v0.1`). The design was restarted on 2026-10-23; the current decisions are in [Design decisions](decisions.en.md).
+
 These notes collect design rationale and implementation proposals. The [language specification](language-spec.en.md) defines program validity and observable behavior.
 
 ## Design goals

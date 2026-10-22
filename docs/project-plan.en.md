@@ -2,6 +2,8 @@
 
 Non-normative. 中文：[project-plan.zh.md](project-plan.zh.md).
 
+Frozen with specification v0.1 (git tag `spec-v0.1`). The design was restarted on 2026-10-23; the current decisions are in [Design decisions](decisions.en.md).
+
 This document records existing development and evaluation plans. It does not define language semantics or supported release guarantees. See the [specification](language-spec.en.md) and [design notes](design-notes.en.md).
 
 ## Status and engine version

@@ -1,6 +1,8 @@
 # Petrichor 语言规范（草案）
 
-**v0.1 · 2026-10-21 · 公开征求意见稿** · English: [language-spec.en.md](language-spec.en.md)
+**v0.1 · 2026-10-21 · 已冻结，作为对照（git 标签 `spec-v0.1`）** · English: [language-spec.en.md](language-spec.en.md)
+
+设计已于 2026-10-23 重开。现行决定见[设计决定](decisions.zh.md)，与本文冲突之处以其为准。
 
 本文规定一门面向 Godot 的静态类型脚本语言。Petrichor 是项目代号。本草案有内容一致的中文和英文版本。
 

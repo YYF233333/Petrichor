@@ -2,6 +2,8 @@
 
 非规范性文档。English: [design-notes.en.md](design-notes.en.md)。
 
+本文随 v0.1 规范一同冻结（git 标签 `spec-v0.1`）。设计已于 2026-10-23 重开，现行决定见[设计决定](decisions.zh.md)。
+
 本文汇集设计理由和实现提案。程序合法性与可观察行为由[语言规范](language-spec.zh.md)规定。
 
 ## 设计目标

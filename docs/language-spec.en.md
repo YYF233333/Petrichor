@@ -1,6 +1,8 @@
 # Petrichor Language Specification (Draft)
 
-**v0.1 · 2026-10-21 · Public draft for comment** · 中文：[language-spec.zh.md](language-spec.zh.md)
+**v0.1 · 2026-10-21 · Frozen as a reference (git tag `spec-v0.1`)** · 中文：[language-spec.zh.md](language-spec.zh.md)
+
+The design was restarted on 2026-10-23. The current decisions are in [Design decisions](decisions.en.md), which prevail where they conflict with this document.
 
 This document specifies a statically typed scripting language for Godot. Petrichor is the project codename. This draft has Chinese and English versions with the same content.
 

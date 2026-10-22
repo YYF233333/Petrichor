@@ -1,0 +1,54 @@
+{
+ "summary": {
+  "games": {
+   "child_scripts": 444,
+   "multi_host_type": 17,
+   "cross_branch_hosts": 11,
+   "cross_branch_hosts_plain_Node": 4
+  },
+  "demos": {
+   "child_scripts": 268,
+   "multi_host_type": 6,
+   "cross_branch_hosts": 4,
+   "cross_branch_hosts_plain_Node": 1
+  },
+  "plugins/tools": {
+   "child_scripts": 216,
+   "multi_host_type": 26,
+   "cross_branch_hosts": 18,
+   "cross_branch_hosts_plain_Node": 6
+  }
+ },
+ "plain_node_cross_branch": [
+  {
+   "group": "demos",
+   "repo": "godot-demo-projects",
+   "script": "misc/hdr_output/max_color.gd",
+   "host_types": "Control=4;Node2D=1"
+  },
+  {
+   "group": "games",
+   "repo": "deck_builder_tutorial",
+   "script": "scenes/modifier_handler/modifier_handler.gd",
+   "host_types": "Area2D=20;Node2D=2;Control=1"
+  },
+  {
+   "group": "games",
+   "repo": "godot-tiny-mmo",
+   "script": "source/common/network/sync/state_synchronizer.gd",
+   "host_types": "CharacterBody2D=131;Area2D=1"
+  },
+  {
+   "group": "games",
+   "repo": "Ring",
+   "script": "breakout/scenes/components/health_component.gd",
+   "host_types": "StaticBody2D=296;CharacterBody2D=5"
+  },
+  {
+   "group": "games",
+   "repo": "Ring",
+   "script": "breakout/scenes/components/interval_hurt_component.gd",
+   "host_types": "StaticBody2D=296;CharacterBody2D=5"
+  }
+ ]
+}
