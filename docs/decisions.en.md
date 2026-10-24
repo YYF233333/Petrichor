@@ -119,9 +119,12 @@ As of 2026-10-23 the project is being redesigned from the problem up. This docum
   - The class header declares implemented interfaces with `implements A, B`, either on the same line as `extends`, for example `class_name Player extends CharacterBody3D implements Damageable`, or on a line of its own. They are not folded into `extends`, so the base class and the interfaces are told apart at a glance.
   - `pub` is a keyword, written after annotations and before `static`, for example `@export pub var max_hp: int`, `pub static func`, `pub signal died`. It is a keyword rather than an annotation because it is written often: at least 22 times per 1,000 lines in the [member visibility survey](surveys/member-visibility.en.md).
   - Placement and naming follow GDScript: a file is a class, and the structs, enums and interfaces declared in a file belong to that class. In the same file they are written by name; in other files as `ClassName.Name`, for example `Combat.Hit` or `Player.Command.MOVE(target = p)`; files without `class_name` are reached through `preload`. Global names come only from `class_name`. Types shared by several classes go into a class that exists to hold them. Aliases or `import` can be added later without changing the meaning of existing code.
+- **Expressions.** The only conditional expression is GDScript's `a if c else b`, and its condition must be bool; there is no form that uses an if/else block as a value. For the meaning of postfix `?`, see §7; in GDScript `?` is currently a syntax error (`modules/gdscript/gdscript_parser.cpp:3834-3835`).
 
 ## 10. Not yet decided
-- Expressions: postfix `!` assertion, `?.` optional chaining, `?` propagation for Result, conditional expressions, the exact forms of match patterns. These forms already appear in this document's examples but have not been confirmed one by one.
+
+- The exact forms of match patterns.
+- The cost of members not narrowing: to be measured in the paper migration. Two directions could relax it compatibly: conditional binding, for example `if var t = _tween:`; and narrowing fields without a getter when no call, await or assignment occurs between the check and the use.
 - Mixed widths in core value-type operators, for example Vector2 times `float`, following the engine's operator table; whether `for i in n` is allowed.
 
 ## Evidence

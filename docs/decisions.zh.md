@@ -119,9 +119,12 @@
   - 类头用 `implements A, B` 声明实现的接口，可以与 `extends` 写在同一行，例如 `class_name Player extends CharacterBody3D implements Damageable`，也可以单独一行。不并入 `extends`，使基类与接口一眼可分。
   - `pub` 是关键字，写在注解之后、`static` 之前，例如 `@export pub var max_hp: int`、`pub static func`、`pub signal died`。用关键字而不用注解，因为它写得频繁：[成员可见性调查](surveys/member-visibility.zh.md)中每千行至少 22 处。
   - 放置与命名沿用 GDScript：一个文件就是一个类，文件中声明的 struct、enum 和 interface 都属于这个类。在本文件中直接写名字，在其他文件中写 `类名.名字`，例如 `Combat.Hit`、`Player.Command.MOVE(target = p)`；没有 `class_name` 的文件经 `preload` 访问。全局名只来自 `class_name`。几个类共用的类型放进一个专门承载它们的类。以后可以加入别名或 `import`，不改变现有写法的含义。
+- **表达式。** 条件表达式只有 GDScript 的 `a if c else b`，条件必须是 bool；不提供以 if/else 块为值的写法。后缀 `?` 的含义见 §7；GDScript 中 `?` 目前是语法错误（`modules/gdscript/gdscript_parser.cpp:3834-3835`）。
 
 ## 10. 尚未决定
-- 表达式：后缀 `!` 断言、`?.` 可空链、Result 的 `?` 传播、条件表达式、match 模式的具体形式。这些写法在本文的例子中已经出现，但尚未逐条确认。
+
+- match 模式的具体形式。
+- 成员不收窄的代价：在纸面迁移中测量。可以兼容地放开的方向有两个：条件绑定，例如 `if var t = _tween:`；检查与使用之间没有调用、await 或赋值时，让没有 getter 的字段收窄。
 - core 值类型运算符的混合位宽，例如 Vector2 与 `float` 相乘，按引擎的运算符表处理；`for i in n` 是否允许。
 
 ## 依据
