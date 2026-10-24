@@ -1,12 +1,14 @@
 # Survey: A paper migration of two real projects to spec v0.1
 
-**2026-10-22** · Related: [language specification](../language-spec.en.md) v0.1 (commit `7d3e718`), [project plan](../project-plan.en.md#development-and-evaluation) · 中文：[paper-migration.zh.md](paper-migration.zh.md)
+**2026-10-22** · Related: specification v0.1 (commit `7d3e718`, git tag `spec-v0.1`), [second paper migration](paper-migration-2.en.md) · 中文：[paper-migration.zh.md](paper-migration.zh.md)
 
-Each of the earlier surveys answers one specific choice in the specification. This one measures what the specification as a whole costs when applied to real code. We rewrote the GDScript of two projects, line by line, into code that follows v0.1 and recorded every piece of extra work. We then counted how often some of these idioms occur in a 14-repository corpus, to check whether the two projects are representative. No compiler checked the rewritten code, hence "paper migration". This survey does not change the specification; the amendment conventions below are assumptions made for the migration, not decisions.
+This survey evaluates the earlier specification v0.1. The project was then redesigned; the current design is the [language specification](../language-spec.en.md) (v0.2 draft), and the [second paper migration](paper-migration-2.en.md) repeats this evaluation under it. Apart from the "Current specification" columns, section numbers (§) in this survey refer to v0.1.
+
+Earlier surveys each answer one specific choice in the specification. This one measures what the specification as a whole costs when applied to real code. We rewrote the GDScript of two projects, line by line, into code that follows v0.1 and recorded every piece of extra work. We then counted how often some of these idioms occur in a 14-repository corpus, to check whether the two projects are representative. No compiler checked the rewritten code, hence "paper migration". The amendment conventions, candidates and assumptions below were adopted or counted for the migration and were not rules of v0.1 at the time; the "Current specification" column of each table shows what became of them.
 
 ## The question
 
-A specification that is self-consistent, an implementation that conforms to it, and a language that is comfortable on real projects are different acceptance criteria. Nearly all of the specification's evidence so far is of the first kind. We wanted to know:
+A specification that is self-consistent, an implementation that conforms to it, and a language that is comfortable on real projects are different acceptance criteria. Nearly all of the specification's evidence at the time was of the first kind. We wanted to know:
 
 - How many extra annotations, renames, conversions, rewrites and decisions per 100 lines does rewriting real code to v0.1 take?
 - Which rules do these costs come from, and how many come from places the specification does not yet cover?
@@ -41,39 +43,39 @@ Code lines are physical lines that are neither blank nor comments.
 
 ### Amendment conventions (adopted for the migration)
 
-| Id | Content | Relation to v0.1 |
+| Id | Content | Relation to v0.1 | Current specification |
+|---|---|---|---|
+| A1 | Engine return values and parameters annotated `RequiredResult<T>`/`RequiredParam<T>` are non-null | §6.5 allows completing the binding description once there is evidence; the engine already provides it | Adopted (§10.3) |
+| A2 | Engine interfaces that return null only on error (such as `Node.get_tree()`) are marked must-succeed in the binding description: the return type is non-null, and a null result is a program error, as with `$X` | Change: v0.1 gives `T?` | Adopted (§10.2) |
+| A3 | Math utilities bound with Variant (abs, sign, clamp, lerp, min, max, wrap and others) are typed by the common type of their arguments and return that type | Fills a gap: under v0.1 they return `Variant?`, so code must switch to typed versions such as absf and clampi or write `T(f(…)!)` | Changed: the result has the arguments' type when they agree, and mixing int and float is a compile error (§10.3) |
+| A4 | Operators on core value types follow the engine's Variant operator table; a scalar operand converts to the component type at the checking boundary, with loss warnings as in §7.3 | Fills an open item (engine operators with mixed widths) | Adopted (§5.1) |
+| A5 | `for i in n` is allowed for an integer n; the loop variable takes n's type | Relaxes §2.4 | Adopted (§5.7) |
+| A6 | GDScript classes and autoloads have a static view: they are visible with their declared types; unannotated parameters, returns and members are `Variant?`; object-typed members and returns are `T?`; a GDScript int is i64; an autoload name is a global identifier whose type is its script class | Fills a gap in §13 | Adopted (§11.1) |
+| A7 | Cross-language coroutines: when a call into a GDScript function returns a `GDScriptFunctionState`, the language can await its `completed`; when the engine or GDScript calls a coroutine of the language, the first suspension returns a Signal instead of NIL, which GDScript's await then waits on | Lifts the known limitation in §9; not yet tested | Adopted, still to be tested (§9.8) |
+| A8 | Record types, encoded as a Dictionary keyed by field name, decoded by the target type with an entry check on every field | New capability; conflicts with the `struct` proposal in the v0.1 design notes, which encodes positionally as a tagged Array | Adopted: structs are encoded as Dictionaries keyed by field name (§3.6, §11.3) |
+
+### Candidates counted but not adopted in the migration
+
+| Id | Content | Current specification |
 |---|---|---|
-| A1 | Engine return values and parameters annotated `RequiredResult<T>`/`RequiredParam<T>` are non-null | §6.5 allows completing the binding description once there is evidence; the engine already provides it |
-| A2 | Engine interfaces that return null only on error (such as `Node.get_tree()`) are marked must-succeed in the binding description: the return type is non-null, and a null result is a program error, as with `$X` | Change: v0.1 gives `T?` |
-| A3 | Math utilities bound with Variant (abs, sign, clamp, lerp, min, max, wrap and others) are typed by the common type of their arguments and return that type | Fills a gap: under v0.1 they return `Variant?`, so code must switch to typed versions such as absf and clampi or write `T(f(…)!)` |
-| A4 | Operators on core value types follow the engine's Variant operator table; a scalar operand converts to the component type at the checking boundary, with loss warnings as in §7.3 | Fills an open item (engine operators with mixed widths) |
-| A5 | `for i in n` is allowed for an integer n; the loop variable takes n's type | Relaxes §2.4 |
-| A6 | GDScript classes and autoloads have a static view: they are visible with their declared types; unannotated parameters, returns and members are `Variant?`; object-typed members and returns are `T?`; a GDScript int is i64; an autoload name is a global identifier whose type is its script class | Fills a gap in §13 |
-| A7 | Cross-language coroutines: when a call into a GDScript function returns a `GDScriptFunctionState`, the language can await its `completed`; when the engine or GDScript calls a coroutine of the language, the first suspension returns a Signal instead of NIL, which GDScript's await then waits on | Lifts the known limitation in §9; not yet tested |
-| A8 | Record types, encoded as a Dictionary keyed by field name, decoded by the target type with an entry check on every field | New capability; conflicts with the `struct` proposal in the design notes, which encodes positionally as a tagged Array |
-
-### Candidates counted but not adopted
-
-| Id | Content |
-|---|---|
-| C-int | `int` and `float` may be used as type names (for example for i64 and f64) |
-| C-scene | `$X` is typed from the scene the script is attached to |
-| C-is | `is` narrows the type of locals and parameters |
-| C-r3 | R3 counts "a parameter used in arithmetic with flexible literals whose result flows to a known type" as evidence |
-| C-trait | Run-time trait objects, which may require properties |
+| C-int | `int` and `float` may be used as type names (for example for i64 and f64) | Adopted: there are only int and float, both 64-bit (§3.2) |
+| C-scene | `$X` is typed from the scene the script is attached to | Adopted (§7.1) |
+| C-is | `is` narrows the type of locals and parameters | Adopted (§5.4) |
+| C-r3 | R3 counts "a parameter used in arithmetic with flexible literals whose result flows to a known type" as evidence | No longer applies: function signatures are not inferred (§4.6) |
+| C-trait | Run-time trait objects, which may require properties | Became nominal interfaces, which may require properties (§3.9) |
 
 ### Assumptions where the specification is silent
 
-| Id | Assumption |
-|---|---|
-| S1 | A script named with `class_name` can be used as a type; a script without class_name cannot be referred to by type |
-| S2 | Boolean negation is written `not`; prefix `!` is unspecified |
-| S3 | The conditional expression `a if c else b` exists |
-| S4 | Global functions such as `preload`, `load`, `str`, `print_debug` and `is_instance_valid` exist; `preload` is typed by file extension, and `load` returns `Resource?` |
-| S5 | Dictionary literals `{k: v}` exist |
-| S6 | `Array[T].pop_front()` returns `T?`; `keys()` of an untyped Dictionary returns an untyped Array |
-| S7 | Signal connections saved in scene files are not checked statically; calls go through the entry check of §12.6 |
-| S8 | Liveness of handle types is checked with `is_instance_valid` |
+| Id | Assumption | Current specification |
+|---|---|---|
+| S1 | A script named with `class_name` can be used as a type; a script without class_name cannot be referred to by type | Files without class_name are referred to through `preload` (§2.1) |
+| S2 | Boolean negation is written `not`; prefix `!` is unspecified | Prefix `!` is also logical not (§2.2) |
+| S3 | The conditional expression `a if c else b` exists | Kept (§5.5) |
+| S4 | Global functions such as `preload`, `load`, `str`, `print_debug` and `is_instance_valid` exist; `preload` is typed by file extension, and `load` returns `Resource?` | Changed: `preload` and `load` with a literal path are typed by the resource's actual contents (§7.4) |
+| S5 | Dictionary literals `{k: v}` exist | Kept (§2.2) |
+| S6 | `Array[T].pop_front()` returns `T?`; `keys()` of an untyped Dictionary returns an untyped Array | Kept (§3.8) |
+| S7 | Signal connections saved in scene files are not checked statically; calls go through the entry check of §12.6 | Changed: checked by the scene model (§7.7) |
+| S8 | Liveness of handle types is checked with `is_instance_valid` | Changed: a freed object reads as None through `T?`, so `!= None` is also a liveness check (§3.3) |
 
 ### Engine evidence
 
@@ -199,7 +201,7 @@ func take_damage(value: int):
 	current_health = min(max(current_health - value, 0), owner.max_health)
 ```
 
-Brick extends StaticBody2D and Enemy extends CharacterBody2D, so they cannot share a base class. HealthComponent and DeathComponent read and write 6 fields of their owner directly (`init_health`, `max_health`, `unique_drop_name`, `lucky_drop`, `drop_percent_scale`, `point`). v0.1 has no trait objects, so every field access dispatches on the concrete class, adding about 20 lines across the two components. Besides, 64 of Brick's 77 code lines appear verbatim in Enemy: exports, component wiring, `set_type`, `show_health`, `hit_by_ball`, `physic_hurt` and more. Run-time trait objects (C-trait) would remove the dispatch but not the duplication: removing the duplication needs shared implementation, and §4 explicitly excludes mixins and field injection.
+Brick extends StaticBody2D and Enemy extends CharacterBody2D, so they cannot share a base class. HealthComponent and DeathComponent read and write 6 fields of their owner directly (`init_health`, `max_health`, `unique_drop_name`, `lucky_drop`, `drop_percent_scale`, `point`). v0.1 has no trait objects, so every field access dispatches on the concrete class, adding about 20 lines across the two components. Besides, 64 of Brick's 77 code lines appear verbatim in Enemy: exports, component wiring, `set_type`, `show_health`, `hit_by_ball`, `physic_hurt` and more. Run-time trait objects (C-trait) would remove the dispatch but not the duplication: removing the duplication needs shared implementation, and v0.1 §4 explicitly excludes mixins and field injection.
 
 **3. `has_method` with a single target in practice.**
 Kenney FPS: `objects/player.gd:200-205`; `objects/enemy.gd:52-54, 68`
@@ -231,7 +233,7 @@ camera.position.y = lerp(camera.position.y, 0.0, delta * 5)
 ammo = max(value, 0)
 ```
 
-These functions are bound with Variant in the engine and so return `Variant?` by §12.6. Under v0.1 they become `container.position.lerp(…)`, `lerpf(…)` and `maxi(…)`, and the migrator has to know the name of each typed version. Under A3 all three lines are as in the original.
+These functions are bound with Variant in the engine and so return `Variant?` by v0.1 §12.6. Under v0.1 they become `container.position.lerp(…)`, `lerpf(…)` and `maxi(…)`, and the migrator has to know the name of each typed version. Under A3 all three lines are as in the original.
 
 **6. Cross-language coroutines.**
 Ring: `breakout/scenes/utility/utility.gd:54-58`
@@ -243,7 +245,7 @@ func dialogue(str: String):
 	DialogueManager.show_dialogue_balloon(res)
 ```
 
-`get_next_dialogue_line` is a GDScript coroutine in the plugin. §9 does not let the language await another language's coroutine, so this function cannot be written in v0.1. As "Engine evidence" shows, a suspending GDScript function hands its caller a `GDScriptFunctionState`, and GDScript's await accepts any Signal value; A7 uses both facts to allow awaiting in either direction.
+`get_next_dialogue_line` is a GDScript coroutine in the plugin. v0.1 §9 does not let the language await another language's coroutine, so this function cannot be written in v0.1. As "Engine evidence" shows, a suspending GDScript function hands its caller a `GDScriptFunctionState`, and GDScript's await accepts any Signal value; A7 uses both facts to allow awaiting in either direction.
 
 ## Conclusions
 
@@ -273,6 +275,6 @@ The [`paper-migration/`](paper-migration/) directory contains `ledger.tsv` (the 
 git clone https://github.com/KenneyNL/Starter-Kit-FPS fps && git -C fps checkout 185fd23
 git clone https://github.com/YYF233333/Ring ring && git -C ring checkout 0ec4161
 python docs/surveys/paper-migration/stats.py fps ring
-# corpus: clone the 14 repositories into corpus/ as in "Reproducing" of the property-accessor survey
+# corpus: clone the 14 repositories into corpus/ as in the reproduction section of the property-accessor survey
 python docs/surveys/paper-migration/idioms.py corpus Ring-breakout=ring/breakout/scenes
 ```

@@ -1,10 +1,10 @@
 # Survey: where script members are used
 
-**2026-10-24** · Related: [design decisions](../decisions.en.md) §4 encapsulation and naming, §9 syntax · 中文: [member-visibility.zh.md](member-visibility.zh.md)
+**2026-10-24** · Related: [language specification](../language-spec.en.md) §2.4, §4.2 · 中文：[member-visibility.zh.md](member-visibility.zh.md)
 
 ## Question
 
-Members are private by default, and members meant for other code are marked `pub` (design decisions §4). Two things need deciding: how often `pub` will be written, which decides between a keyword and an annotation; and whether members without `pub` should be visible to subclasses.
+The language marks members meant for other classes with `pub` (specification §4.2). This survey gives data for two choices: how often `pub` will be written, which decides between a keyword and an annotation; and whether members without `pub` should be visible to subclasses.
 
 ## Corpus
 
@@ -18,7 +18,7 @@ The same as the [cross-branch duplication survey](cross-branch-duplication.en.md
   - used externally: `.name` appears in a first-party script other than the declaring script and its descendants;
   - used only by subclasses: not used externally, and the name appears in a descendant script, as a call, a read or write, or an override;
   - used only in its own file: neither of the above;
-  - scene connection: a function named as the method of a signal connection in a first-party `.tscn`. This is access by name from the engine and is counted separately.
+  - scene connection: a function named as the method of a signal connection in a first-party `.tscn`. This is access by name from the engine and is counted separately; such functions do not need `pub` (specification §10.5).
 - **Written externally**: an externally used `var` counts as written externally when `.name` is followed by an assignment operator in another script.
 
 ## Results
@@ -51,16 +51,15 @@ By kind of member (all repositories):
 
 ## Limitations
 
-- There are more ambiguous members (9,429) than externally used ones, because common names such as `speed` or `health` are often declared separately in several unrelated scripts. Their distribution may differ from that of the classified members. The 22.6 per 1,000 lines is therefore a lower bound on the number of `pub` markers.
+- There are more ambiguous members (9,429) than externally used ones, because common names such as `speed` or `health` are often declared separately in several unrelated scripts. Their distribution may differ from that of the classified members; members used only by subclasses, for example, are clearly underestimated (see "Implications for the design"). The 22.6 per 1,000 lines is therefore a lower bound on the number of `pub` markers.
 - `.name` may refer to a same-named member of a different object. Engine member names and names declared in several places are excluded; the remaining error was not measured.
 - Members accessed through strings (`call("m")`, `connect("s", ...)`, `get("x")`) are not counted as used externally.
 - Only top-level members are counted; members of inner classes are not.
 
 ## Implications for the design
 
-- `pub` is written at least 22 times per 1,000 lines (30 in games), so it is a keyword rather than an annotation.
-- Members used only by subclasses are 7.2% of the members used outside their file (5.5% in games). The first version therefore has no subclass-visible level, and these members are marked `pub`. Overriding a member that is not `pub` is a compile error, so adding such a level later does not break existing code.
-  - Later: in the [second paper migration](paper-migration-2.en.md) this share is 28%, because this survey counted common names such as `type` and `update_stat` as ambiguous. The design was changed accordingly so that subclasses can access members without `pub` ([design decisions](../decisions.en.md) §4).
+- `pub` is written at least 22 times per 1,000 lines (30 in games), so it is a keyword rather than an annotation (specification §2.4, Appendix B).
+- Members used only by subclasses are 7.2% of the members used outside their file (5.5% in games), but this share is an underestimate: matching by name puts common names such as `type` and `update_stat`, declared separately in several scripts, under "ambiguous", especially in code that uses inheritance heavily. The [second paper migration](paper-migration-2.en.md), judging member by member, found 28%: 29 of 102 `pub` markers were written only for subclasses. The specification therefore lets subclasses read, write, call and override members without `pub`, and overriding keeps visibility (§4.2).
 
 ## Reproduction
 

@@ -1,8 +1,8 @@
 # 调查：Godot 4 脚本的暗坑清单
 
-**2026-10-23** · 引擎：Godot 提交 `469659e` · English: [pitfalls.en.md](pitfalls.en.md)
+**2026-10-23** · 引擎：Godot 提交 `469659e` · 关联：[语言规范](../language-spec.zh.md) · English: [pitfalls.en.md](pitfalls.en.md)
 
-本文整理写 Godot 4 脚本时会踩到的暗坑，分引擎与 GDScript、C#（.NET）桥接两组，共 80 条，并逐条判断：一门新的静态类型脚本语言及其工具链能否消除它，靠什么消除，修复是否需要只对引擎模块开放、不对 GDExtension 开放的 C++ 接口。项目于 2026-10-23 从问题本身重新设计，这份清单是重新设计时参考的调查之一。清单本身在 [`pitfalls/catalog.md`](pitfalls/catalog.md)，数据在 `pitfalls/catalog.tsv`；本文说明它的来源和做法，并汇总结果。文中的修复类别都是推断，不是决定。
+本文整理写 Godot 4 脚本时会踩到的暗坑，分引擎与 GDScript、C#（.NET）桥接两组，共 80 条，并逐条判断：一门新的静态类型脚本语言及其工具链能否消除它，靠什么消除，修复是否需要只对引擎模块开放、不对 GDExtension 开放的 C++ 接口。清单本身在 [`pitfalls/catalog.md`](pitfalls/catalog.md)，数据在 `pitfalls/catalog.tsv`；本文说明它的来源和做法，并汇总结果。文中的修复类别都是推断，不是决定；规范按编号引用条目，引用处列在文末。
 
 ## 问题
 
@@ -89,7 +89,7 @@
 
 ### 没有只能由模块修复的条目
 
-- 80 条中没有一条归为 M。目录给出的理由是：各条用到的钩子都已对 GDExtension 公开，包括脚本实例的回调（`GDExtensionScriptInstanceInfo3`，`core/extension/gdextension_interface.json:3242-3349`），以及 ScriptExtension 和 ScriptLanguageExtension 的虚函数：脚本的重新加载（`core/object/script_language_extension.h:79, 686, 690`）、导出成员和属性列表（`:176, 188`）、校验、补全和符号查找（`:393, 493, 533`）、全局类名（`:754`）。
+- 80 条中没有一条归为 M。目录给出的理由是：各条用到的钩子都已对 GDExtension 公开，包括脚本实例的回调（`GDExtensionScriptInstanceInfo3`，`core/extension/gdextension_interface.json:3242-3349`），以及 ScriptExtension 和 ScriptLanguageExtension 的虚函数：脚本的重新加载（`core/object/script_language_extension.h:79, 686, 690`）、导出成员和属性列表（`:176, 188`）、校验、补全和符号查找（`:393, 493, 533`）、全局类名（`:754`）。规范把这一点作为以 GDExtension 交付本语言的理由之一（§1.3，附录 B）。
 - 与引擎内部的 ScriptInstance 接口（`core/object/script_instance.h:40-96`）相比，扩展的脚本实例回调只缺两项：`call_const`（`:70`）和 `get_rpc_config`（`:93`）。前者的默认实现直接调用 `callp`（`core/object/script_instance.cpp:57-59`）；后者默认取脚本的 RPC 配置（`:88-90`），扩展的脚本可以通过 `_get_rpc_config` 提供（`core/object/script_language_extension.h:220-224`）。目录中没有条目依赖这两项（推断）。
 - 含 E 部分的条目，模块同样修不了：模块能调用未导出的 C++ 接口，但改变不了引擎的行为（推断）。例如 G-06 中节点的锁定计数 `data.blocked` 是私有成员，只有 protected 的 `_block` 和 `_unblock`，C++ 中也没有读取它的公开接口（`scene/main/node.h:217, 375-376`）。
 - 两种交付形态的差别在打包，不在接口（推断，见 C-19）。GDExtension 在 Web 上需要在导出预设中启用 Extensions Support（`variant/extensions_support`，默认关闭，`platform/web/export/export_plugin.cpp:374`），文档还要求站点配置跨域隔离响应头（[Exporting for the Web](https://docs.godotengine.org/en/latest/tutorials/export/exporting_for_web.html)）。模块则与引擎一起编译，需要自行构建的编辑器和导出模板。
@@ -122,9 +122,9 @@
 | | G-47 | 引擎 C++ 方法中的错误只打印并返回默认值；脚本只能通过 `OS.add_logger` 事后观察（`core/core_bind.cpp:870`） |
 | | C-10 | 编辑器把新生成的处理函数插在文件末尾（`editor/script/script_text_editor.cpp:430-434`）；对用花括号包住整个类的语言，这个位置在类外 |
 
-### 设计负责人提出的三个 C# 例子
+### 三个 C# 问题
 
-设计负责人用三个例子说明 C# 桥接的问题。它们在目录中的对应条目和发现如下。
+调查专门追查了 C# 桥接的三个问题。它们在目录中的对应条目和发现如下。
 
 **1. 文件名必须与类名相同。** C-01；另见 G-45。
 
@@ -164,8 +164,7 @@
 - **偏向 issue 跟踪器。** 证据主要来自 GitHub。写 issue 和 proposal 的多是有经验的用户和插件作者；按设计如此、已有文档的行为常以“不计划修复”关闭，之后不再积累反应。初学者多在论坛提问，而论坛只统计了主题数。
 - **反应数不等于发生频率。** 反应表示有多少人赞同或想要，不表示有多少人踩到。功能请求比缺陷报告更容易积累反应，旧的 issue 比新的多，重复的 issue 会分散反应。G-15 的 520 是整个重命名工具的反应数，场景部分本身只有 6。
 - **检索有选择。** 计数来自 GitHub 的 GraphQL 和 REST 检索、标题检索和网页搜索，取决于研究者选用的检索词。“标题含某句话的 issue 有 39 个”一类的数包含不相关的命中；论坛检索只翻有限的页数，超出时只记“至少”。
-- **没有运行复现。** 目录中没有一条经运行引擎确认。12 条的依据或类别中有一部分标为未核实或由阅读推断（G-04、G-09、G-18、G-23、G-24、G-31、G-34、G-48、C-01、C-16、C-19、C-21），其中 G-04、G-18、G-23、G-24 明确需要复现；另有 7 条没有找到文档说明（G-25、G-26、G-27、G-31、G-33、G-34、G-35）。
-- **一次违规的运行。** 一名研究者在被告知不要运行引擎之前，用本地构建的 Godot 编辑器以无界面模式在一个一次性项目上运行了约 10 次。目录只引用源码和网页证据，没有用到这些运行的结果。
+- **没有运行复现。** 目录中没有一条经运行引擎确认。12 条的依据或类别中有一部分标为未核实或由阅读推断（G-04、G-09、G-18、G-23、G-24、G-31、G-34、G-48、C-01、C-16、C-19、C-21），其中 G-04、G-18、G-23、G-24 明确需要复现；另有 7 条没有找到文档说明（G-25、G-26、G-27、G-31、G-33、G-34、G-35）。曾有一名研究者用本地构建的 Godot 编辑器以无界面模式在一个一次性项目上运行了约 10 次；目录只引用源码和网页证据，没有用到这些运行的结果。
 - **分类是推断。** 修复类别由 AI 代理判断，针对的是一门尚未实现的语言，没有经过实现检验。把 102 条原始行合并为 80 条也是人工判断，每次合并都记在 `merges.py` 中。
 - **覆盖不全。** 目录中没有以下方面的条目：GDScript 一侧的多线程、多人联机与 RPC、动画轨道和 `tween_property` 中的属性路径、输入动作名和分组名、GDScript 的运行性能、着色器、翻译。反应数很高、但不表现为“坑”的功能请求也不在其中，例如 proposals#7329 struct（1,086，topic:gdscript proposal 中第 1）、#737 联合类型（510）、#641 访问修饰符（423）。
 - **只对照 master。** 引擎事实只在提交 `469659e` 上核对；旧版本中的行为只依据 issue 中的描述。
@@ -210,4 +209,6 @@ pwsh docs/surveys/pitfalls/helpers/iss.ps1 godotengine/godot 21789
 
 转储文件较大，而且只反映读取当天的状态，没有收入仓库。研究者阅读文档时用的文档源文件副本另有许可，也没有收入；目录中的文档引文都给出了页面地址。引擎事实可以检出 Godot 提交 `469659e` 后按 `path:line` 核对。
 
-据此作出的决定见[设计决定](../decisions.zh.md)。
+## 在规范中的引用
+
+[语言规范](../language-spec.zh.md)引用了以下条目：G-02（§6.2），G-03 和 G-05（§6.4），G-04（§6.3），G-09（§6.6），G-10（§6.7），G-11（§9.7），G-12 和 G-13（§9.5），G-19、G-20 和 G-34（§7.6），C-17（§11.2）。

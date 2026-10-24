@@ -1,8 +1,8 @@
 # 调查：原生基类不同的脚本之间的重复代码
 
-**2026-10-23** · 关联：[设计决定](../decisions.zh.md)、[场景结构调查](scene-structures.zh.md)（语料相同） · English: [cross-branch-duplication.en.md](cross-branch-duplication.en.md)
+**2026-10-23** · 关联：[语言规范](../language-spec.zh.md) §3.9、§4.1；[场景结构调查](scene-structures.zh.md)（语料相同） · English: [cross-branch-duplication.en.md](cross-branch-duplication.en.md)
 
-Godot 的脚本只能继承一个原生类。两个原生类不同的对象需要同样的行为时，例如一个 StaticBody2D 和一个 CharacterBody2D，它们无法共用一个脚本基类，代码只能复制、放进子节点或改写成别的形式。本文在 20 个仓库上测量这种限制造成的重复有多常见、重复的是什么，并逐组判断哪种机制能消除它。数字都由脚本算出；机制归类是人工判断，文中单独标出。
+Godot 的脚本只能继承一个原生类。两个原生类不同的对象需要同样的行为时，例如一个 StaticBody2D 和一个 CharacterBody2D，它们无法共用一个脚本基类，代码只能复制、放进子节点或改写成别的形式。本文在 20 个仓库上测量这种限制造成的重复有多常见、重复的是什么，并逐组判断哪种机制能消除它。数字都由脚本算出；机制归类是阅读代码后的判断，文中单独标出。
 
 ## 问题
 
@@ -14,7 +14,7 @@ Godot 的脚本只能继承一个原生类。两个原生类不同的对象需�
 
 因此，继承 Control 的脚本可以挂在 VBoxContainer 上；而 StaticBody2D 和 CharacterBody2D 的公共祖先是 PhysicsBody2D（`doc/classes/StaticBody2D.xml:2`、`doc/classes/CharacterBody2D.xml:2`），两者能共用的脚本基类最多继承到 PhysicsBody2D，CharacterBody2D 自己的成员（例如 `velocity`，`doc/classes/CharacterBody2D.xml:198`）不在其中。
 
-下文把脚本继承链顶端的引擎类称为原生基类。我们想知道：
+下文把脚本继承链顶端的引擎类称为原生基类。本文回答以下问题：
 
 - 原生基类不同、又没有共同脚本祖先的脚本之间（下称跨分支），有多少重复代码？与继承本来就能消除、却没有消除的重复相比如何？
 - 重复的是哪类代码：字段、生命周期回调，还是普通方法？
@@ -23,7 +23,7 @@ Godot 的脚本只能继承一个原生类。两个原生类不同的对象需�
 
 ## 语料
 
-与[场景结构调查](scene-structures.zh.md)相同的 20 个仓库，提交见“各仓库”一节的表格：其中 14 个与属性访问器调查的提交相同，另有 5 个游戏仓库取 2026-10-23 的最新提交，Ring 与纸面迁移调查的提交相同。按用途分为三组：
+与[场景结构调查](scene-structures.zh.md)相同的 20 个仓库，提交见“各仓库”一节的表格：其中 14 个与[属性访问器调查](property-accessors.zh.md)的提交相同，另有 5 个游戏仓库取 2026-10-23 的最新提交，Ring 与[纸面迁移调查](paper-migration.zh.md)的提交相同。按用途分为三组：
 
 - **游戏**（12 个）：godot-open-rpg、四个 Kenney 入门模板、tps-demo、godot-open-rts、tanks-of-freedom-ii、deck_builder_tutorial、godot-tiny-mmo、godot_open_star_fighter、Ring。
 - **示例**：godot-demo-projects，其中 132 个 Godot 项目有第一方代码。
@@ -45,14 +45,14 @@ Godot 的脚本只能继承一个原生类。两个原生类不同的对象需�
 3. **单元对的类别**，按以下顺序取第一个成立的：同一单元内部；测试或编辑器（任一方是测试，或继承 `Editor*` 类）；**同继承链**（两者有共同的脚本祖先，父子或兄弟）；原生基类无法确定；非节点（任一方不是 Node）；**同原生类**（原生基类相同，没有共同的脚本祖先）；**跨分支**（原生基类不同，没有共同的脚本祖先）。按上面的引擎事实，同继承链的重复可以提到共同祖先中，同原生类的重复可以提取一个共同基类，所以这两类重复用现有的继承就能消除。
 4. **名字证据。** 对一对跨分支单元，取两者原生基类的最近公共祖先，例如 StaticBody2D 与 CharacterBody2D 的 PhysicsBody2D。若任一单元在 self 上（不带接收者，或经 `self.`、`super.`）使用了公共祖先没有、只有自己原生类那一支才有的引擎成员，就说这对单元**有名字证据**：共同基类只能继承公共祖先，用不到这些成员。没有名字证据的单元对，按引擎规则可以共用一个以公共祖先为原生基类的基类脚本。引擎成员的名单来自 Godot 类参考 XML（`build_api.py`，1,112 个类）。
 5. **重复内容的种类**按每行所在的位置划分：导出成员、`@onready` 成员、其他成员声明和属性访问器体、信号声明、生命周期回调（`_ready`、`_enter_tree`、`_init`、`_exit_tree`、`_notification`、`_static_init`）、每帧回调（`_process`、`_physics_process`、`_integrate_forces`）、输入回调（`_input`、`_unhandled_input`、`_gui_input` 等）、其他引擎虚函数、信号处理函数（`_on_*` 或 `on_*`）、普通方法。
-6. **机制标签（人工判断）。** 对 K = 5 时全部 88 个精确跨分支克隆组，阅读代表副本，按能消除它的机制归为五类：
+6. **机制标签（阅读判断）。** 对 K = 5 时全部 88 个精确跨分支克隆组，阅读代表副本，按能消除它的机制归为五类：
    - (a) **接口默认方法**：方法只读取两个类各自声明的成员（或 self 上的引擎 API），既不声明也不写入共有的状态；
    - (b) **带状态的编译期 mixin**：副本本身声明了字段、`@export` 或信号，或者写入了声明也重复的字段；
    - (c) **组合**：自成一体的子功能，有自己的状态和节点，可以做成子节点或子场景；
    - (d) **静态辅助函数**：只对参数、全局量或 autoload 计算，不需要 self 的状态；
    - (e) **无法消除**：琐碎的、或与场景结构绑定的样板。
 
-   其中 55 个组逐个标注。phantom-camera 其余 33 个组按一条规则统一标为 (b)：它们都属于 PhantomCamera2D/3D 或 NoiseEmitter2D/3D 这两对孪生脚本，引用的成员在另一份中也重复声明。标签由 AI 代理判断，记录在 `labels.csv` 中。`dup.py` 另有一个自动的预标注，与人工标签出入很大，下文不用。(c) 和 (d) 两种机制在 GDScript 中已经有（子节点和 `static func`）。
+   其中 55 个组逐个标注。phantom-camera 其余 33 个组按一条规则统一标为 (b)：它们都属于 PhantomCamera2D/3D 或 NoiseEmitter2D/3D 这两对孪生脚本，引用的成员在另一份中也重复声明。标签由 AI 代理判断，记录在 `labels.csv` 中。`dup.py` 另有一个自动的预标注，与阅读所得的标签出入很大，下文只在对照时提到。(c) 和 (d) 两种机制在 GDScript 中已经有（子节点和 `static func`）。
 7. **共同能力。** 在每个项目中，对每对跨分支的 Node 单元（不含测试和编辑器脚本），找出两者都声明的公开名字：不以下划线开头、不是引擎成员的 `func`、非 `@onready` 的 `var` 和 `signal`。这个名字在项目中每一次经非 self 接收者的访问（`x.name`，或作为字面量传给 `call`、`has_method`、`get` 等）记为一个消费点，并按接收者的写法分类：标注为脚本类或引擎类的变量、推断类型的变量、类名或 autoload 名、无类型的接收者，以及几种显式的跨类型写法：`is_in_group` 之后调用、经 `owner` 或 `get_parent()` 访问、同一函数中对至少两个脚本类做 `is` 判断并含有 `or`（典型写法是 `is A or is B`）、`has_method` 守卫。名字相同不等于能力相同，所以这些数字是上限。
 8. **变通写法的指标**：在第一方非测试代码中数 `has_method`、`is_in_group`、字符串调用（`call`、`call_deferred`、`callv` 的第一个参数是字面量）、同一行用 `or` 连接两个以上脚本类的 `is` 判断、经 `owner` 或 `get_parent()` 访问非引擎成员，以及 `static func`。
 9. **组合**（`components.py`）。组合全部 `.tscn`，包括继承场景、实例和实例上的修改，找出每个第一方 Node 脚本挂载的节点，记录父节点的原生类型；从基场景继承来的挂载不计。如果一个脚本的父节点类型中至少有两种互不为祖先，它就是已经在不同分支之间共用的组件。
@@ -137,7 +137,7 @@ Godot 的脚本只能继承一个原生类。两个原生类不同的对象需�
 - **插件与工具中，成员声明和属性访问器体有 252 行**，主要是 phantom-camera 孪生脚本中带 setter 和 getter 的导出属性。
 - 示例的 56 行每帧回调来自 physics_tests 的两个控制器。
 
-### 哪种机制能消除它（人工判断）
+### 哪种机制能消除它（阅读判断）
 
 精确匹配、K = 5 的全部跨分支克隆组，“组 / 行”：
 
@@ -156,7 +156,7 @@ Godot 的脚本只能继承一个原生类。两个原生类不同的对象需�
 - **(b) 与名字证据高度重合。** 只要组中有一对单元有名字证据，就把整组算作有。游戏中，(b) 的 102 行有 92 行在这样的组中；(a) 为 54 行中的 14 行，(c) 为 81 行中的 20 行，(d) 为 104 行中的 40 行。
 - **插件与工具的 (b) 948 行中，phantom-camera 占 734 行**；其余是 Godot-Game-Template 的 input_actions_list 与 input_actions_tree（Container 与 Tree，156 行）和 godot_dialogue_manager 的 DialogueActionable2D 与 3D（Area2D 与 Area3D，58 行）。(d) 的 313 行中有 231 行在 Pixelorama，多是撤销和重做、动画标签区间一类的片段，散在各种对话框和工具中。
 - 示例的 (b) 70 行是 physics_tests 的两个控制器（56 行，6 个相同字段加每帧的输入和速度逻辑）和 hdr_output（14 行）。
-- 自动预标注把游戏的 16 个组（273 行）标为带状态，人工标注只有 7 个组（102 行）：只要片段引用了成员，自动规则就判为带状态。
+- 自动预标注把游戏的 16 个组（273 行）标为带状态，阅读标注只有 7 个组（102 行）：只要片段引用了成员，自动规则就判为带状态。
 
 ### 共同能力与跨类型调用
 
@@ -371,9 +371,11 @@ func _gather_player_sides(map_data):
 - **跨分支重复确实存在，但不多，而且集中。** 游戏中每千行 6.1 行；有这类重复的 5 个游戏仓库中，4 个在 3.8 到 9.7 行之间。Ring 为 39.9 行，2D/3D 孪生插件 phantom-camera 为 146.8 行。
 - **继承本可消除却没有消除的重复要多得多。** 游戏中同原生类和同继承链的重复分别是跨分支的 4.9 倍和 8.2 倍，三种窗口下顺序不变；不过这两类主要来自 tanks-of-freedom-ii。
 - **跨分支重复主要是普通方法**，字段声明很少。复制了字段和导出属性的主要是 Ring 和 phantom-camera。
-- **按人工判断，游戏中一半多的跨分支重复（353 行中的 185 行）可以用组合或静态辅助函数消除**，这两种机制 GDScript 已经有。接口默认方法对应 54 行；带状态的 mixin 对应 102 行，其中 72 行来自 Ring。插件与工具中带状态的 mixin 对应 948 行，其中 734 行来自 phantom-camera，而 phantom-camera 中只差向量类型的部分不在这些数字里。
+- **按阅读判断，游戏中一半多的跨分支重复（353 行中的 185 行）可以用组合或静态辅助函数消除**，这两种机制 GDScript 已经有。接口默认方法对应 54 行；带状态的 mixin 对应 102 行，其中 72 行来自 Ring。插件与工具中带状态的 mixin 对应 948 行，其中 734 行来自 phantom-camera，而 phantom-camera 中只差向量类型的部分不在这些数字里。
 - **显式的跨类型调用很少。** 游戏的 2,081 个消费点中只有 55 处，一半以上的消费点接收者没有类型。
 - **组合已经被用来跨分支共用代码**，游戏中有 11 个这样的组件。Ring 同时用了组合和复制。
+
+依据这些数据所作的决定见[语言规范](../language-spec.zh.md) §3.9、§4.1：带状态的共同基类用 `@abstract`，不同引擎基类的类共有的能力用接口，第一版没有带状态的 mixin。规范中接口的默认方法可以通过接口属性读写状态，范围比本文的标签 (a) 宽。
 
 ## 局限
 
@@ -387,7 +389,7 @@ func _gather_player_sides(map_data):
 
 ## 复现
 
-脚本放在 [`cross-branch-duplication/`](cross-branch-duplication/) 目录，只需要 Python 3（标准库，在 3.11 上运行）和 git。`gdcorpus.py` 列出语料和第一方规则，并能拉取语料；`build_api.py` 从 Godot 类参考 XML 提取引擎类的成员和继承关系；`dup.py` 做克隆检测、共同能力和变通写法的统计；`components.py` 统计组件；`make_labels.py` 保存人工标签，并把它们与检测结果对应起来，生成 `labels.csv`；`report.py` 汇总出 `report.txt`，本文的统计数字都在其中或由其中的数字算出；`ring_check.py` 做 Ring 的核对。godot-tiny-mmo 的界面片段组见重新生成的 `groups_near.csv`。
+脚本放在 [`cross-branch-duplication/`](cross-branch-duplication/) 目录，只需要 Python 3（标准库，在 3.11 上运行）和 git。`gdcorpus.py` 列出语料和第一方规则，并能拉取语料；`build_api.py` 从 Godot 类参考 XML 提取引擎类的成员和继承关系；`dup.py` 做克隆检测、共同能力和变通写法的统计；`components.py` 统计组件；`make_labels.py` 保存阅读所得的标签，并把它们与检测结果对应起来，生成 `labels.csv`；`report.py` 汇总出 `report.txt`，本文的统计数字都在其中或由其中的数字算出；`ring_check.py` 做 Ring 的核对。godot-tiny-mmo 的界面片段组见重新生成的 `groups_near.csv`。
 
 `api.json` 约 770 KB，不随附，由 `build_api.py` 从 Godot 提交 `469659e` 的检出生成。随附的结果在 `out/`（K = 5：`report.txt`、`summary.json`、`workarounds.json`、`components.csv`、`components_summary.json`、`ring_check.txt`）、`out_k3/report.txt` 和 `out_k8/report.txt` 中。逐区域和逐组的 CSV、代码片段等大文件由脚本重新生成。
 
@@ -404,5 +406,3 @@ python docs/surveys/cross-branch-duplication/dup.py --corpus corpus --api work/a
 python docs/surveys/cross-branch-duplication/report.py work/out_k8
 python docs/surveys/cross-branch-duplication/ring_check.py --corpus corpus --api work/api.json work/out work/out_k3 work/out_k8
 ```
-
-依据本文做出的决定见[设计决定](../decisions.zh.md)中的“类型系统”一节（接口与复用）。

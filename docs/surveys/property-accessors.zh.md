@@ -1,19 +1,19 @@
 # 调查：真实的 Godot 4 项目如何使用属性的 getter
 
-**2026-10-22** · 关联规范：[语言规范](../language-spec.zh.md) §8.6 · English: [property-accessors.en.md](property-accessors.en.md)
+**2026-10-22** · 关联：[语言规范](../language-spec.zh.md) §4.4、§6.1、§6.5 · English: [property-accessors.en.md](property-accessors.en.md)
 
-本文记录一次实证调查，对应规范 §8.6 中的一个【待定】项：是否把属性分成存储属性和计算属性。做法沿用[字面量局部变量调查](literal-local-constraints.zh.md)：先在真实代码上统计所关心的写法出现得有多频繁，再看各个候选设计会对这些代码产生什么影响。
+本文调查真实的 Godot 4 代码如何使用属性访问器，用来回答规范 v0.1（git 标签 `spec-v0.1`）的一个设计问题：是否把属性分成存储属性和计算属性。做法是先在真实代码上统计所关心的写法出现得有多频繁，再看各个候选设计会对这些代码产生什么影响。v0.1 采用了下文的设计 B；现行规范沿用 GDScript 的访问器，即设计 A（§4.4），并让就绪前的 setter 自动挂起（§6.5）。结论依赖于已经改变的规则时，文中会注明。
 
 ## 问题
 
-GDScript 4 的成员变量可以带 setter、getter，或者两者都带。写法有两种：内联写法（`var x: T = init:` 后接一个缩进块，块内写 `set(value):` 和 `get:`）和具名访问器（`var x: T: set = _set_x, get = _get_x`）。getter 总是挂在一个存储字段上；在属性自己的访问器内部，`x` 指的就是这个字段。候选设计有两个：
+GDScript 4 的成员变量可以带 setter、getter，或者两者都带。写法有两种：内联写法（`var x: T = init:` 后接一个缩进块，块内写 `set(value):` 和 `get:`）和具名访问器（`var x: T: set = _set_x, get = _get_x`）。getter 总是挂在一个存储字段上；在属性自己的访问器内部，`x` 指的就是这个字段。v0.1 考虑过两种设计：
 
 | 设计 | 存储属性 | 计算属性 |
 |---|---|---|
-| A 沿用 GDScript：访问器挂在存储字段上 | 一个字段，可选 setter，可选 getter。每次读取都会执行 getter，包括引擎保存、复制或检视对象时的读取 | 不单独成类；写成一个 getter 不理会自身字段的属性 |
-| B 拆分存储属性与计算属性 | 一个字段，可选 setter，不能有 getter。读取总是直接读字段，所以引擎的读取不会执行用户代码 | 没有字段；必须有 getter；setter 可选，没有 setter 即为只读；不能 `@export`；引擎看到的是不带 `PROPERTY_USAGE_STORAGE` 的属性 |
+| A 沿用 GDScript：访问器挂在存储字段上（现行规范，§4.4） | 一个字段，可选 setter，可选 getter。每次读取都会执行 getter，包括引擎保存、复制或检视对象时的读取 | 不单独成类；写成一个 getter 不理会自身字段的属性 |
+| B 拆分存储属性与计算属性（v0.1 §8.6） | 一个字段，可选 setter，不能有 getter。读取总是直接读字段，所以引擎的读取不会执行用户代码 | 没有字段；必须有 getter；setter 可选，没有 setter 即为只读；不能 `@export`；引擎看到的是不带 `PROPERTY_USAGE_STORAGE` 的属性 |
 
-动机见[设计说明](../design-notes.zh.md#延后的语言提案)。在 B 下，getter 读取自身字段、同时还做别的事的 GDScript 属性，必须改写成一个私有存储字段加一个计算属性。我们想知道：getter 出现得有多频繁，它们在做什么，有多少需要这样改写，受影响的属性中有多少是导出的。两种设计都在存储属性上保留 setter，所以我们也记录了 setter 在做什么，特别是在 `_ready` 之前就会执行的导出属性 setter。
+B 的用意是让引擎读取存储数据时不执行用户代码，让代理和派生属性不再带着无用的存储，并且可以声明只读属性。在 B 下，getter 读取自身字段、同时还做别的事的 GDScript 属性，必须改写成一个私有存储字段加一个计算属性。我们想知道：getter 出现得有多频繁，它们在做什么，有多少需要这样改写，受影响的属性中有多少是导出的。两种设计都在存储属性上保留 setter，所以我们也记录了 setter 在做什么，特别是在 `_ready` 之前就会执行的导出属性 setter。
 
 ## 语料
 
@@ -45,7 +45,7 @@ GDScript 4 的成员变量可以带 setter、getter，或者两者都带。写�
 - 重复代码：Godot-Game-Template 的安装器会把插件里的示例复制到项目根目录的 `scenes/` 和 `scripts/`（1 个候选）。
 - 单元测试（beehave 的 `test/`、gdUnit4 的 `addons/gdUnit4/test/`、dialogue_manager 的 `tests/`、statecharts 的 `tests/`，共 35,226 行）单独报告。测试中只有 3 个候选，都在 gdUnit4：两个带平凡 getter，一个只有 setter。下文所有比率都不含测试。
 
-由于示例项目的 `addons/` 现在计入第一方，第一方行数与字面量局部变量调查不同。没有文件使用 Godot 3 的 `setget`。
+没有文件使用 Godot 3 的 `setget`。
 
 ## 方法
 
@@ -148,7 +148,7 @@ GDScript 4 的成员变量可以带 setter、getter，或者两者都带。写�
 
 - 大多数 setter 原样存值，然后通知或更新别的东西。做校验的很少。
 - 四个只有 setter 的代理中，有两个是误把值丢掉了。`WebSocketServer.gd:14` 的 `refuse_new_connections` 在第 95 行被读取，却从未被存下，所以新连接永远不会被拒绝。`field_camera.gd:10` 的 `gameboard_properties` 从未被存下，所以相机边界永远不会被计算。另外两个，一个是只写的别名（`phantom_camera_3d_gizmo_plugin.gd:9`），一个把值转发给子标签（`PointCollapseContainer.gd:3`）。
-- 有 30 个 setter（其中 16 个导出）含有 `await`，其中 25 个是 `await ready`。§8.6 不允许 setter 是协程，所以无论采用哪种设计，这些 setter 都需要改写。没有 getter 含有 `await`。
+- 有 30 个 setter（其中 16 个导出）含有 `await`，其中 25 个是 `await ready`。两种设计和现行规范（§4.4）都不允许 setter 是协程，所以这些 setter 都需要改写。没有 getter 含有 `await`。
 - 163 个具名 setter 中有 5 个被子类重新定义函数而覆盖，覆盖时通常会调用 `super`。145 个具名 getter 没有一个被覆盖。
 
 ### 在 `_ready` 之前执行的 setter
@@ -168,8 +168,9 @@ GDScript 4 的成员变量可以带 setter、getter，或者两者都带。写�
 - 接触 `@onready` 成员的 20 个 setter 全部有防护。
 - 42 个无防护的 setter 出自两个项目：Pixelorama 的滑块控件（`BasisSliders.gd` 6 个、`ValueSliderV2.gd` 16 个、`ValueSliderV3.gd` 18 个、`PointCollapseContainer.gd` 1 个），以及 tps-demo 的 `player.gd:38` `player_id`，后者由 `level.gd` 在实例化之后用代码设置。滑块之所以能工作，是因为这些值只在其场景的实例上设置，那时子场景的子节点已经存在。在 `ValueSliderV2.tscn` 和 `BasisSliders.tscn` 中，根节点保持默认值，由使用它们的场景覆盖这些值。
 - 有一个带防护的 setter 仍然会丢值：`conductor.gd:7` 的 `is_paused` 检查了 `if player`，但 `player` 是 Node 类型的导出属性，引擎在其他属性之后才设置它，所以场景中保存的 `is_paused = true` 会被丢掉。
-- 有 13 个属性在 `_ready` 中用 `x = x` 重新执行自己的 setter（Godot-Game-Template 11 个，godot-demo-projects 2 个）。这依赖于类内部的赋值经过 setter，§8.6 保留了这一点。
+- 有 13 个属性在 `_ready` 中用 `x = x` 重新执行自己的 setter（Godot-Game-Template 11 个，godot-demo-projects 2 个）。这依赖于类内部的赋值经过 setter，现行规范保留了这一点（§4.4）；成员的初始化式则不经过 setter（§6.1）。
 - 另有 79 个未导出的 setter 也会接触这类成员。它们只在代码给属性赋值时执行，我们没有检查它们的防护。
+- 现行规范由编译器完成这类防护：就绪之前，setter 在第一次访问 `@onready` 成员、`$X` 或子节点处挂起，节点就绪后继续执行（§6.5）。
 
 ### 各仓库
 
@@ -307,7 +308,7 @@ func _on_viewport_resized() -> void:
 			value_changed.emit(value)
 ```
 
-如果 `value` 保存在 `ValueSliderV2.tscn` 的根节点上，这个 setter 会在 `GridContainer` 存在之前执行。它之所以能工作，是因为只有实例化它的场景才保存这个值，而那时子场景的子节点已经存在。
+如果 `value` 保存在 `ValueSliderV2.tscn` 的根节点上，这个 setter 会在 `GridContainer` 存在之前执行。它之所以能工作，是因为只有实例化它的场景才保存这个值，而那时子场景的子节点已经存在。按现行规范（§6.5），这种情况下 setter 会在访问 `$GridContainer/X` 处挂起，节点就绪后再继续。
 
 **8. 常见的防护写法，它是一个协程。**
 `godot-open-rpg/src/field/cutscenes/popups/interaction_popup.gd:30-37`
@@ -323,9 +324,11 @@ func _on_viewport_resized() -> void:
 		_collision_shape.shape.radius = radius
 ```
 
-godot-open-rpg 有 20 个 setter 这样防护。因为有 `await`，这个 setter 是协程，而 §8.6 不允许这样。
+godot-open-rpg 有 20 个 setter 这样防护。因为有 `await`，这个 setter 是协程，两种设计都不允许（§4.4）。现行规范让编译器自动完成这里手写的防护（§6.5）。
 
 ## 结论
+
+前六点比较的是 v0.1 的两种设计。现行规范采用设计 A（§4.4），getter 的写法与 GDScript 相同，上文的 getter 都不需要改写。
 
 - **getter 不多见，大多数是平凡的。** 每千行第一方代码有 1.58 个 getter。其中 78% 只返回字段，而这 196 个中的 192 个来自三个项目的习惯。在 B 下直接删掉即可。
 - **B 要求改写的写法很少见。** 存储字段加非平凡 getter 出现 15 次（每千行 0.09 个），分布在三个仓库。其中 12 个是惰性初始化或缓存，只有 1 个是导出的。每一个都改写成私有存储字段加计算属性。
@@ -336,7 +339,7 @@ godot-open-rpg 有 20 个 setter 这样防护。因为有 `await`，这个 sette
 - **与设计选择无关的 setter 结论。**
   - 在本语料中，接触 `@onready` 成员的导出 setter 全都有防护。
   - 42 个无防护访问 `$Child` 的 setter，依赖于值只在场景实例上设置。
-  - 有 30 个 setter 使用 `await`，大多是 `await ready`，而 §8.6 禁止 setter 是协程。因此这条规则本身也有迁移代价，约每千行 0.19 处。
+  - 有 30 个 setter 使用 `await`，大多是 `await ready`，而 setter 不能是协程（§4.4）。因此这条规则本身也有迁移代价，约每千行 0.19 处。`if not is_node_ready(): await ready` 这类防护，由现行规范的自动挂起取代（§6.5）。
 
 ## 局限
 

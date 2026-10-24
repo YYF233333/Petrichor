@@ -1,24 +1,24 @@
 # Survey: How often is the result of awaiting a multi-parameter signal used?
 
-**2026-10-22** · Related: [language specification](../language-spec.en.md) §9 · 中文：[await-signal-results.zh.md](await-signal-results.zh.md)
+**2026-10-22** · Related: [language specification](../language-spec.en.md) §9.6 · 中文：[await-signal-results.zh.md](await-signal-results.zh.md)
 
-This is a record of a small empirical survey for one open choice in §9 of the specification: what awaiting a signal with several parameters produces. As in the [literal-local survey](literal-local-constraints.en.md), we first measured how often the case occurs in real code, then checked what each candidate rule would do to that code.
+This is a small empirical survey of one choice that specification v0.1 (git tag `spec-v0.1`) left open: what awaiting a signal with several parameters produces. We first measured how often the case occurs in real code, then checked what each candidate rule would do to that code. The current specification adopts rule A: awaiting a signal with several parameters is allowed only as a statement (§9.6).
 
 ## The question
 
-In GDScript, awaiting a signal yields null when the signal has no arguments, the argument when it has one, and an Array of the arguments when it has several (`modules/gdscript/gdscript_function.cpp:237-255` at Godot `469659e`; specification Appendix A). The language types the result instead: awaiting a static signal with no parameters produces no value, and awaiting one with one parameter produces a value of that parameter's type. For a static signal with several parameters there were three candidate rules:
+In GDScript, awaiting a signal yields null when the signal has no arguments, the argument when it has one, and an Array of the arguments when it has several (`modules/gdscript/gdscript_function.cpp:237-255` at Godot `469659e`; specification Appendix A). The language types the result instead: awaiting a static signal with no parameters produces no value, and awaiting one with one parameter produces a value of that parameter's type (§9.6). For a static signal with several parameters there were three candidate rules:
 
-| Rule | What `await s` produces when `s` has several parameters | Origin |
+| Rule | What `await s` produces when `s` has several parameters | Origin and status |
 |---|---|---|
-| A: statement only | No value; the await can only be a statement | §9 as currently written |
-| B: an Array | An `Array[Variant]` of the arguments | GDScript; already rejected in Appendix B |
-| C: binding by parameter | An await-only form, `var (result, code, headers, body) = await http.request_completed`, with each variable typed from the signal's parameters | Design notes |
+| A: statement only | No value; the await can only be a statement | The rule in v0.1 §9; adopted (§9.6) |
+| B: an Array | An `Array[Variant]` of the arguments | GDScript; not adopted (Appendix B) |
+| C: binding by parameter | An await-only form, `var (result, code, headers, body) = await http.request_completed`, with each variable typed from the signal's parameters | Proposed in the v0.1 design notes; not adopted, can be added later (Appendix B) |
 
 A and C differ only on code that uses the result. Under A such code has to be restructured, typically into a connected handler; under C it keeps its shape, but the language gains a binding form that exists only for await. B keeps GDScript's shape and loses the parameter types. We wanted to know three things: how often real Godot 4 code awaits a signal with two or more parameters, how often it uses the result, and what it does with it.
 
 ## Corpus
 
-We used 14 Godot 4 projects: the six from the literal-local survey, the official third-person shooter demo, the image editor Pixelorama, and six widely used plugins and templates. All are MIT-licensed. The LICENSE.md of tps-demo puts its assets under CC-BY 3.0 and its code under MIT; we only read its code. Only `.gd` files and license files were checked out.
+We used 14 Godot 4 projects: the official demo projects, an RPG demo, four Kenney starter kits, the official third-person shooter demo, the image editor Pixelorama, and six widely used plugins and templates. They are the repositories and commits of the [property accessor survey](property-accessors.en.md). All are MIT-licensed. The LICENSE.md of tps-demo puts its assets under CC-BY 3.0 and its code under MIT; we only read its code. Only `.gd` files and license files were checked out.
 
 | Repository | Commit | `.gd` files | Lines | First-party lines | Awaits (first-party) |
 |---|---|---|---|---|---|
@@ -38,7 +38,7 @@ We used 14 Godot 4 projects: the six from the literal-local survey, the official
 | [Maaack/Godot-Game-Template](https://github.com/Maaack/Godot-Game-Template) | `6849d6c` | 125 | 8,553 | 8,553 | 51 (51) |
 | **Total** | | **2,277** | **276,199** | **198,415** | **1,719 (1,356)** |
 
-"First-party" means code written by the repository's own authors. Where a repository's product is itself an addon (beehave, gdUnit4, Dialogue Manager, Godot State Charts, Phantom Camera, and Maaack's add-ons in the game template), that addon is first-party, as are the plugins that godot-demo-projects ships as part of its demos. Bundled addons by other authors are vendored and excluded: gdUnit4 inside beehave, Dialogic inside godot-open-rpg, GUT inside godot-statecharts, and four of Pixelorama's six addons (aimg_io, dockable_container, gdgifexporter, SmartSlicer), whose authorship is not evident from the repository. Pixelorama's keychain (same organization) and applinks (written for Pixelorama) are first-party. This rule is narrower than the one in the literal-local survey, which excluded every `addons/` directory.
+"First-party" means code written by the repository's own authors. Where a repository's product is itself an addon (beehave, gdUnit4, Dialogue Manager, Godot State Charts, Phantom Camera, and Maaack's add-ons in the game template), that addon is first-party, as are the plugins that godot-demo-projects ships as part of its demos. Bundled addons by other authors are vendored and excluded: gdUnit4 inside beehave, Dialogic inside godot-open-rpg, GUT inside godot-statecharts, and four of Pixelorama's six addons (aimg_io, dockable_container, gdgifexporter, SmartSlicer), whose authorship is not evident from the repository. Pixelorama's keychain (same organization) and applinks (written for Pixelorama) are first-party. The property accessor survey draws the first-party line more strictly, so its line counts differ.
 
 Four repositories have test suites: `beehave/test`, `gdUnit4/addons/gdUnit4/test`, `godot_dialogue_manager/tests` and `godot-statecharts/tests`. Together they have 35,226 lines and 625 awaits, nearly half of all first-party awaits, so we report first-party results both with and without them. The `physics_tests` directories of godot-demo-projects are demos, not test suites.
 
@@ -109,7 +109,7 @@ First-party code; the engine column counts the signals in the class reference at
 | 2 or more | 94 | 87 | 64 | 78 |
 | Unknown | 60 | 60 | – | – |
 
-Signals with two or more parameters account for 9% of the connect sites of known arity (94 of 1,033) and 12% of GDScript signal declarations (64 of 516), but for none of the awaits of engine or GDScript signals. `HTTPRequest.request_completed`, the example in the design notes, has 4 connect sites in code and no await.
+Signals with two or more parameters account for 9% of the connect sites of known arity (94 of 1,033) and 12% of GDScript signal declarations (64 of 516), but for none of the awaits of engine or GDScript signals. `HTTPRequest.request_completed`, the signal in rule C's example, has 4 connect sites in code and no await.
 
 ## Examples
 
@@ -131,7 +131,7 @@ func callv_dotnet(thing: Variant, method: String, args: Array) -> Variant:
     return null
 ```
 
-The signal is declared in C#, and the receiver is typed RefCounted, so no static signature is visible at the await. In the language this falls under §9's rule for signals with unknown parameters, which keeps GDScript's result shape with type `Variant?`; rules A and C both leave it unchanged. The loop also shows why the arguments matter here: responses to concurrent requests share one signal, and the first argument tells them apart.
+The signal is declared in C#, and the receiver is typed RefCounted, so no static signature is visible at the await; rules A to C concern signals whose parameters are known statically and do not decide this case. v0.1 gave signals with unknown parameters GDScript's result shape, typed `Variant?`; the current specification has no separate rule for them. The loop also shows why the arguments matter here: responses to concurrent requests share one signal, and the first argument tells them apart.
 
 **2. When a result is used, it is usually one typed value.**
 `godot-open-rpg/src/field/cutscenes/templates/combat/combat_trigger.gd:7-11`
@@ -143,7 +143,7 @@ func _execute() -> void:
     var did_player_win: bool = await CombatEvents.combat_finished   # signal with one parameter
 ```
 
-§9 already types this result from the signal's parameter.
+§9.6 types this result from the signal's parameter.
 
 **3. A multi-parameter signal is wrapped before it is awaited.**
 `gdUnit4/addons/gdUnit4/src/update/GdUnitUpdateClient.gd:4-69`
@@ -190,9 +190,9 @@ var signal_args: Variant = await await_signal_on(monster, "slide", [1.0, 1, 2])
 assert_array(signal_args).is_equal([1.0, 1, 2])
 ```
 
-gdUnit4 connects a callback with ten optional parameters and packs the arguments into an array itself. The signal is named by a string, so the language would treat it as a signal with unknown parameters whatever rule is chosen. gdUnit4's helpers that wait for a signal by name are awaited 93 times in first-party code; apart from the helpers passing the value on, a caller reads it only in this test (lines 11 and 19), and only line 19 is a multi-parameter signal.
+gdUnit4 connects a callback with ten optional parameters and packs the arguments into an array itself. The signal is passed by name as a string, so its parameters are not known statically whatever rule is chosen. gdUnit4's helpers that wait for a signal by name are awaited 93 times in first-party code; apart from the helpers passing the value on, a caller reads it only in this test (lines 11 and 19), and only line 19 is a multi-parameter signal.
 
-**5. A zero-parameter result that §9 rejects.**
+**5. A zero-parameter result that §9.6 rejects.**
 `gdUnit4/addons/gdUnit4/src/GdUnitAwaiter.gd:10-18`
 
 ```
@@ -203,15 +203,15 @@ func await_signal_on(source: Object, signal_name: String, args: Array = [], time
         return await (Engine.get_main_loop() as SceneTree).process_frame
 ```
 
-The function returns null after one frame. Under §9, using the result of awaiting a signal with no parameters is a compile error; the rewrite is an `await` statement followed by `return null`. This is the only such case in first-party code; beehave's vendored gdUnit4 has a copy.
+The function returns null after one frame. Under §9.6 a signal with no parameters yields no value, so its result cannot be used; the rewrite is an `await` statement followed by `return null`. This is the only such case in first-party code; beehave's vendored gdUnit4 has a copy.
 
 ## Conclusions
 
-- **Using the result of awaiting a multi-parameter signal is essentially absent.** There is one case in 1,356 first-party awaits, about 0.005 per 1,000 first-party lines. Its signal is declared in C# and reached through a receiver typed RefCounted, so §9's rule for signals with unknown parameters applies to it whichever rule is chosen. Engine signals and GDScript signals with two or more parameters are never awaited, not even as statements.
+- **Using the result of awaiting a multi-parameter signal is essentially absent.** There is one case in 1,356 first-party awaits, about 0.005 per 1,000 first-party lines. Its signal is declared in C# and reached through a receiver typed RefCounted, so its parameters are not known statically, and the choice of rule does not affect it. Engine signals and GDScript signals with two or more parameters are never awaited, not even as statements.
 - **Multi-parameter signals are common, but they are connected.** Code that needs their arguments connects a handler (94 sites). When it then wants to await, it re-emits a one-parameter signal that carries an object.
-- **Rule C would serve no code in this corpus.** Rule A costs nothing here, and C can be added later without breaking code, because it only gives meaning to code that A rejects. The data support keeping A in the first version and leaving C in the design notes. B stays rejected.
+- **Rule C would serve no code in this corpus.** Rule A costs nothing here, and C can be added later without breaking code, because it only gives meaning to code that A rejects. The data support keeping A in the first version and leaving C for later; B stays rejected. The current specification does this (§9.6; Appendix B).
 - **Signal results are rarely used at all**: in 14 of 447 first-party signal awaits, against 328 of 876 coroutine awaits. Signals with one parameter account for 12 of the 14.
-- **A side finding for the zero-parameter rule:** one first-party await uses the result of a signal with no parameters, to return null. §9 rejects this, and the rewrite is trivial.
+- **A side finding for the zero-parameter rule:** one first-party await uses the result of a signal with no parameters, to return null. §9.6 rejects this, and the rewrite is trivial.
 
 ## Limitations
 

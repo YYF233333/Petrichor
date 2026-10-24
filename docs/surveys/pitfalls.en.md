@@ -1,8 +1,8 @@
 # Survey: A catalog of pitfalls in Godot 4 scripting
 
-**2026-10-23** · Engine: Godot commit `469659e` · 中文：[pitfalls.zh.md](pitfalls.zh.md)
+**2026-10-23** · Engine: Godot commit `469659e` · Related: [language specification](../language-spec.en.md) · 中文：[pitfalls.zh.md](pitfalls.zh.md)
 
-This survey collects the pitfalls that Godot 4 script authors run into, in two groups, engine and GDScript, and the C# (.NET) bridge, 80 in all. For each one it asks whether a new statically typed script language and its toolchain could remove it, by what means, and whether the fix needs C++ APIs that are open to an engine module but not to GDExtension. The project was redesigned from the problem itself on 2026-10-23, and this catalog is one of the surveys consulted for the redesign. The catalog itself is [`pitfalls/catalog.md`](pitfalls/catalog.md), with the data in `pitfalls/catalog.tsv`; this write-up describes its sources and method and summarizes the results. Every fix class in it is an inference, not a decision.
+This survey collects the pitfalls that Godot 4 script authors run into, in two groups, engine and GDScript, and the C# (.NET) bridge, 80 in all. For each one it asks whether a new statically typed script language and its toolchain could remove it, by what means, and whether the fix needs C++ APIs that are open to an engine module but not to GDExtension. The catalog itself is [`pitfalls/catalog.md`](pitfalls/catalog.md), with the data in `pitfalls/catalog.tsv`; this write-up describes its sources and method and summarizes the results. Every fix class in it is an inference, not a decision; the specification cites entries by ID, as listed at the end.
 
 ## The question
 
@@ -89,7 +89,7 @@ Taking the highest reaction count among the issues, proposals or PRs each entry 
 
 ### No entry needs a module
 
-- None of the 80 entries is classed M. The catalog's reason is that every hook the entries rely on is already exposed to GDExtension: the script-instance callbacks (`GDExtensionScriptInstanceInfo3`, `core/extension/gdextension_interface.json:3242-3349`) and the virtuals of ScriptExtension and ScriptLanguageExtension for script reloading (`core/object/script_language_extension.h:79, 686, 690`), exports and the property list (`:176, 188`), validation, completion and symbol lookup (`:393, 493, 533`), and global class names (`:754`).
+- None of the 80 entries is classed M. The catalog's reason is that every hook the entries rely on is already exposed to GDExtension: the script-instance callbacks (`GDExtensionScriptInstanceInfo3`, `core/extension/gdextension_interface.json:3242-3349`) and the virtuals of ScriptExtension and ScriptLanguageExtension for script reloading (`core/object/script_language_extension.h:79, 686, 690`), exports and the property list (`:176, 188`), validation, completion and symbol lookup (`:393, 493, 533`), and global class names (`:754`). The specification gives this as one reason to deliver the language as a GDExtension (§1.3; Appendix B).
 - Compared with the engine's internal ScriptInstance interface (`core/object/script_instance.h:40-96`), the extension script-instance callbacks lack only two entries: `call_const` (`:70`) and `get_rpc_config` (`:93`). The default `call_const` simply calls `callp` (`core/object/script_instance.cpp:57-59`); the default `get_rpc_config` takes the script's RPC configuration (`:88-90`), which an extension script can supply through `_get_rpc_config` (`core/object/script_language_extension.h:220-224`). No entry depends on either (inference).
 - A module cannot fix the E parts either: it can call C++ APIs that are not exported, but it cannot change what the engine does (inference). In G-06, for example, a node's lock count `data.blocked` is a private member with only the protected `_block` and `_unblock`, and there is no public way to read it even from C++ (`scene/main/node.h:217, 375-376`).
 - The two forms of delivery differ in packaging, not in APIs (inference; see C-19). On the web, GDExtension needs Extensions Support enabled in the export preset (`variant/extensions_support`, off by default, `platform/web/export/export_plugin.cpp:374`), and the documentation also requires the site to send cross-origin isolation headers ([Exporting for the Web](https://docs.godotengine.org/en/latest/tutorials/export/exporting_for_web.html)). A module is compiled into the engine and needs a self-built editor and export templates.
@@ -122,9 +122,9 @@ Taking the highest reaction count among the issues, proposals or PRs each entry 
 | | G-47 | Errors inside engine C++ methods are printed and a default value is returned; scripts can only observe them afterwards through `OS.add_logger` (`core/core_bind.cpp:870`) |
 | | C-10 | The editor inserts a generated handler at the end of the file (`editor/script/script_text_editor.cpp:430-434`), which for a language that wraps the class in braces lies outside the class |
 
-### The design owner's three C# examples
+### Three C# problems
 
-The design owner gave three examples of problems with the C# bridge. Their entries in the catalog, and what was found:
+The survey followed up three problems with the C# bridge in particular. Their entries in the catalog, and what was found:
 
 **1. The file name must equal the class name.** C-01; see also G-45.
 
@@ -164,8 +164,7 @@ The catalog found no crash caused by a cross-language call as such. The crashes 
 - **Issue-tracker bias.** Most evidence comes from GitHub. Issues and proposals are mostly written by experienced users and plugin authors; behavior that is by design and documented is often closed as not planned and stops gathering reactions. Beginners mostly ask on the forums, where only topic counts were taken.
 - **Reactions are not frequency.** Reactions show how many people agree or want something, not how many are bitten. Feature requests gather reactions more easily than bug reports, older issues have more than newer ones, and duplicates split them. G-15's 520 belongs to the rename tooling as a whole; the scene part on its own has 6.
 - **Searches are selective.** Counts come from GitHub GraphQL and REST searches, title searches and web searches, and depend on the terms the researchers chose. A figure such as "39 issues have this phrase in the title" includes unrelated hits; forum searches read a limited number of pages and record only "at least" when there are more.
-- **No runtime reproduction.** No entry was confirmed by running the engine. 12 entries have part of their evidence or class marked as unverified or inferred from reading (G-04, G-09, G-18, G-23, G-24, G-31, G-34, G-48, C-01, C-16, C-19, C-21), and G-04, G-18, G-23 and G-24 explicitly need a reproduction; for 7 more no documentation statement was found (G-25, G-26, G-27, G-31, G-33, G-34, G-35).
-- **One run against the rules.** Before being told not to run the engine, one researcher ran a locally built Godot editor headless about 10 times on a throwaway project. The catalog cites only source and web evidence and uses nothing from those runs.
+- **No runtime reproduction.** No entry was confirmed by running the engine. 12 entries have part of their evidence or class marked as unverified or inferred from reading (G-04, G-09, G-18, G-23, G-24, G-31, G-34, G-48, C-01, C-16, C-19, C-21), and G-04, G-18, G-23 and G-24 explicitly need a reproduction; for 7 more no documentation statement was found (G-25, G-26, G-27, G-31, G-33, G-34, G-35). One researcher did run a locally built Godot editor headless about 10 times on a throwaway project; the catalog cites only source and web evidence and uses nothing from those runs.
 - **The classification is inference.** The fix classes were judged by AI agents for a language that does not exist yet, and have not been tested by an implementation. Merging 102 raw rows into 80 entries was also a judgement; every merge is recorded in `merges.py`.
 - **Coverage is incomplete.** The catalog has no entries on threads on the GDScript side, multiplayer and RPC, property paths in animation tracks and `tween_property`, input action and group names, GDScript run-time performance, shaders, or translation. Feature requests with many reactions that do not present as pitfalls are absent too, such as proposals#7329 structs (1,086, 1st among topic:gdscript proposals), #737 union types (510) and #641 access modifiers (423).
 - **Master only.** Engine facts were checked only at commit `469659e`; behavior in older versions rests on the descriptions in issues.
@@ -210,4 +209,6 @@ pwsh docs/surveys/pitfalls/helpers/iss.ps1 godotengine/godot 21789
 
 The dumps are large and reflect only the day they were read, so they are not in the repository. The copies of documentation source files the researchers read are separately licensed and are not included either; every documentation quote in the catalog gives the page address. Engine facts can be checked against the `path:line` citations in a checkout of Godot commit `469659e`.
 
-Decisions based on this survey are recorded in the [design decisions](../decisions.en.md).
+## Use in the specification
+
+The [language specification](../language-spec.en.md) cites these entries: G-02 (§6.2), G-03 and G-05 (§6.4), G-04 (§6.3), G-09 (§6.6), G-10 (§6.7), G-11 (§9.7), G-12 and G-13 (§9.5), G-19, G-20 and G-34 (§7.6), and C-17 (§11.2).

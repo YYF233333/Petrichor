@@ -1,24 +1,24 @@
 # 调查：等待多参数信号的结果有多常被使用
 
-**2026-10-22** · 关联规范：[语言规范](../language-spec.zh.md) §9 · English: [await-signal-results.en.md](await-signal-results.en.md)
+**2026-10-22** · 关联：[语言规范](../language-spec.zh.md) §9.6 · English: [await-signal-results.en.md](await-signal-results.en.md)
 
-本文记录一次小规模的实证调查，对象是规范 §9 中一个尚未确定的选择：await 一个有多个参数的信号，得到的是什么。做法与[字面量局部变量调查](literal-local-constraints.zh.md)相同：先在真实代码上统计这种情况出现的频率，再逐条比较各个候选规则在这些代码上分别会产生什么结果。
+本文是一次小规模的实证调查，对象是规范 v0.1（git 标签 `spec-v0.1`）中一个尚未确定的选择：await 一个有多个参数的信号，得到的是什么。做法是先在真实代码上统计这种情况出现的频率，再逐条比较各个候选规则在这些代码上分别会产生什么结果。现行规范采用了规则 A：多参数信号的 await 只能作为语句（§9.6）。
 
 ## 问题
 
-在 GDScript 中，await 一个信号时，信号没有实参则得到 null，有一个实参则得到这个实参，有多个实参则得到由这些实参组成的 Array（Godot `469659e` 的 `modules/gdscript/gdscript_function.cpp:237-255`；规范附录 A）。本语言则给结果定型：await 一个无参数的静态信号不产生值，await 一个单参数的静态信号得到该参数类型的值。对于有多个参数的静态信号，候选规则有三条：
+在 GDScript 中，await 一个信号时，信号没有实参则得到 null，有一个实参则得到这个实参，有多个实参则得到由这些实参组成的 Array（Godot `469659e` 的 `modules/gdscript/gdscript_function.cpp:237-255`；规范附录 A）。本语言则给结果定型：await 一个无参数的静态信号不产生值，await 一个单参数的静态信号得到该参数类型的值（§9.6）。对于有多个参数的静态信号，候选规则有三条：
 
-| 规则 | `s` 有多个参数时，`await s` 得到什么 | 来源 |
+| 规则 | `s` 有多个参数时，`await s` 得到什么 | 来源与现状 |
 |---|---|---|
-| A 只能作语句 | 不产生值，这个 await 只能作为语句 | §9 目前的写法 |
-| B 得到 Array | 由实参组成的 `Array[Variant]` | GDScript；附录 B 已否决 |
-| C 按参数绑定 | 一种只用于 await 的形式：`var (result, code, headers, body) = await http.request_completed`，每个变量按信号的参数定型 | 设计说明 |
+| A 只能作语句 | 不产生值，这个 await 只能作为语句 | v0.1 §9 的写法；已采用（§9.6） |
+| B 得到 Array | 由实参组成的 `Array[Variant]` | GDScript；未采用（附录 B） |
+| C 按参数绑定 | 一种只用于 await 的形式：`var (result, code, headers, body) = await http.request_completed`，每个变量按信号的参数定型 | v0.1 设计说明中的提案；未采用，以后可以加入（附录 B） |
 
 A 和 C 只在使用结果的代码上有区别。按 A，这类代码必须改写，通常改成连接一个处理函数；按 C，代码形状不变，但语言要多出一种只为 await 服务的绑定形式。B 保留 GDScript 的形状，但丢掉了参数类型。要回答的问题有三个：真实的 Godot 4 代码有多常 await 有两个及以上参数的信号？有多常使用其结果？拿结果做什么？
 
 ## 语料
 
-我们选了 14 个 Godot 4 项目：字面量局部变量调查用过的 6 个，官方第三人称射击示例，图像编辑器 Pixelorama，以及 6 个常用的插件和模板。它们都是 MIT 许可。tps-demo 的 LICENSE.md 规定其素材采用 CC-BY 3.0、代码采用 MIT，我们只读它的代码。检出时只取了 `.gd` 文件和许可证文件。
+我们选了 14 个 Godot 4 项目：官方示例集、一个 RPG 示例、四个 Kenney 入门模板、官方第三人称射击示例、图像编辑器 Pixelorama，以及 6 个常用的插件和模板。仓库和提交与[属性访问器调查](property-accessors.zh.md)相同。它们都是 MIT 许可。tps-demo 的 LICENSE.md 规定其素材采用 CC-BY 3.0、代码采用 MIT，我们只读它的代码。检出时只取了 `.gd` 文件和许可证文件。
 
 | 仓库 | 提交 | `.gd` 文件 | 行数 | 第一方行数 | await（第一方） |
 |---|---|---|---|---|---|
@@ -38,7 +38,7 @@ A 和 C 只在使用结果的代码上有区别。按 A，这类代码必须改�
 | [Maaack/Godot-Game-Template](https://github.com/Maaack/Godot-Game-Template) | `6849d6c` | 125 | 8,553 | 8,553 | 51（51） |
 | **合计** | | **2,277** | **276,199** | **198,415** | **1,719（1,356）** |
 
-“第一方”指仓库作者自己写的代码。如果仓库发布的产品本身就是一个插件（beehave、gdUnit4、Dialogue Manager、Godot State Charts、Phantom Camera，以及游戏模板里 Maaack 自己的插件），这个插件算第一方；godot-demo-projects 作为示例内容附带的插件也算第一方。随项目附带、由其他作者编写的插件不计入：beehave 中的 gdUnit4，godot-open-rpg 中的 Dialogic，godot-statecharts 中的 GUT，以及 Pixelorama 六个插件中作者无法从仓库判断的四个（aimg_io、dockable_container、gdgifexporter、SmartSlicer）。Pixelorama 的 keychain（同一组织）和 applinks（为 Pixelorama 编写）算第一方。这条规则比字面量局部变量调查窄，那次调查把所有 `addons/` 目录都排除在外。
+“第一方”指仓库作者自己写的代码。如果仓库发布的产品本身就是一个插件（beehave、gdUnit4、Dialogue Manager、Godot State Charts、Phantom Camera，以及游戏模板里 Maaack 自己的插件），这个插件算第一方；godot-demo-projects 作为示例内容附带的插件也算第一方。随项目附带、由其他作者编写的插件不计入：beehave 中的 gdUnit4，godot-open-rpg 中的 Dialogic，godot-statecharts 中的 GUT，以及 Pixelorama 六个插件中作者无法从仓库判断的四个（aimg_io、dockable_container、gdgifexporter、SmartSlicer）。Pixelorama 的 keychain（同一组织）和 applinks（为 Pixelorama 编写）算第一方。属性访问器调查对第一方的界定更严，所以行数不同。
 
 有四个仓库带测试套件：`beehave/test`、`gdUnit4/addons/gdUnit4/test`、`godot_dialogue_manager/tests` 和 `godot-statecharts/tests`，合计 35,226 行、625 个 await，接近第一方 await 的一半。因此第一方的结果分别给出含测试和不含测试两种。godot-demo-projects 中的 `physics_tests` 目录是示例，不是测试套件。
 
@@ -109,7 +109,7 @@ A 和 C 只在使用结果的代码上有区别。按 A，这类代码必须改�
 | 2 个及以上 | 94 | 87 | 64 | 78 |
 | 未知 | 60 | 60 | – | – |
 
-在参数个数已知的 `.connect()` 调用处中，两个及以上参数的信号占 9%（1,033 处中的 94 处）；在 GDScript 信号声明中占 12%（516 个中的 64 个）；而在引擎信号和 GDScript 信号的 await 中占 0。设计说明中举例用的 `HTTPRequest.request_completed`，在代码中有 4 处 `.connect()`，没有一处 await。
+在参数个数已知的 `.connect()` 调用处中，两个及以上参数的信号占 9%（1,033 处中的 94 处）；在 GDScript 信号声明中占 12%（516 个中的 64 个）；而在引擎信号和 GDScript 信号的 await 中占 0。规则 C 的例子所用的 `HTTPRequest.request_completed`，在代码中有 4 处 `.connect()`，没有一处 await。
 
 ## 典型例子
 
@@ -131,7 +131,7 @@ func callv_dotnet(thing: Variant, method: String, args: Array) -> Variant:
     return null
 ```
 
-这个信号在 C# 中声明，接收者的类型标注是 RefCounted，所以在 await 处看不到静态签名。在本语言中，它属于 §9 对参数未知的信号的规则，结果保持 GDScript 的形状，类型为 `Variant?`；规则 A 和 C 都不改变它。这个循环也说明了这里为什么需要实参：多个并发请求的响应共用一个信号，靠第一个实参来区分。
+这个信号在 C# 中声明，接收者的类型标注是 RefCounted，所以在 await 处看不到静态签名；规则 A 到 C 针对的是参数静态已知的信号，决定不了这种情况。v0.1 让参数未知的信号保持 GDScript 的结果形状，类型为 `Variant?`；现行规范没有为它们另设规则。这个循环也说明了这里为什么需要实参：多个并发请求的响应共用一个信号，靠第一个实参来区分。
 
 **2. 结果被使用时，通常是一个有类型的值。**
 `godot-open-rpg/src/field/cutscenes/templates/combat/combat_trigger.gd:7-11`
@@ -143,7 +143,7 @@ func _execute() -> void:
     var did_player_win: bool = await CombatEvents.combat_finished   # 单参数信号
 ```
 
-§9 已经按信号的参数为这个结果定型。
+§9.6 按信号的参数为这个结果定型。
 
 **3. 多参数信号先被包装，再被 await。**
 `gdUnit4/addons/gdUnit4/src/update/GdUnitUpdateClient.gd:4-69`
@@ -190,9 +190,9 @@ var signal_args: Variant = await await_signal_on(monster, "slide", [1.0, 1, 2])
 assert_array(signal_args).is_equal([1.0, 1, 2])
 ```
 
-gdUnit4 连接一个有十个可选参数的回调，自己把实参打包成数组。信号是用字符串指定的，所以无论选哪条规则，本语言都会把它当作参数未知的信号。gdUnit4 按名字等待信号的辅助函数在第一方代码中被 await 了 93 次；除了辅助函数内部把值往外传，只有这个测试的调用方读取了结果（第 11 行和第 19 行），其中只有第 19 行是多参数信号。
+gdUnit4 连接一个有十个可选参数的回调，自己把实参打包成数组。信号是以字符串形式按名字传入的，所以无论选哪条规则，它的参数在静态时都是未知的。gdUnit4 按名字等待信号的辅助函数在第一方代码中被 await 了 93 次；除了辅助函数内部把值往外传，只有这个测试的调用方读取了结果（第 11 行和第 19 行），其中只有第 19 行是多参数信号。
 
-**5. §9 会拒绝的无参数结果。**
+**5. §9.6 会拒绝的无参数结果。**
 `gdUnit4/addons/gdUnit4/src/GdUnitAwaiter.gd:10-18`
 
 ```
@@ -203,15 +203,15 @@ func await_signal_on(source: Object, signal_name: String, args: Array = [], time
         return await (Engine.get_main_loop() as SceneTree).process_frame
 ```
 
-这个函数等一帧之后返回 null。按 §9，使用无参数信号的 await 结果是编译错误；改写成一条 `await` 语句加上 `return null` 即可。这是第一方代码中唯一的这类情况；beehave 附带的 gdUnit4 中有一份副本。
+这个函数等一帧之后返回 null。按 §9.6，无参数的信号不产生值，结果不能使用；改写成一条 `await` 语句加上 `return null` 即可。这是第一方代码中唯一的这类情况；beehave 附带的 gdUnit4 中有一份副本。
 
 ## 结论
 
-- **使用多参数信号的 await 结果的代码几乎不存在。** 第一方代码的 1,356 个 await 中只有 1 个，约合每千行 0.005 个。它的信号在 C# 中声明，并且是通过类型为 RefCounted 的接收者访问的，所以无论选哪条规则，适用的都是 §9 对参数未知的信号的规则。有两个及以上参数的引擎信号和 GDScript 信号从未被 await，作为语句也没有。
+- **使用多参数信号的 await 结果的代码几乎不存在。** 第一方代码的 1,356 个 await 中只有 1 个，约合每千行 0.005 个。它的信号在 C# 中声明，并且是通过类型为 RefCounted 的接收者访问的，所以参数在静态时未知，选哪条规则都不影响它。有两个及以上参数的引擎信号和 GDScript 信号从未被 await，作为语句也没有。
 - **多参数信号很常见，但它们是被连接的。** 需要其实参的代码会连接一个处理函数（94 处）；如果之后还想 await，就再发出一个带对象的单参数信号。
-- **规则 C 在这批语料中没有服务对象。** 规则 A 在这里没有代价，而且 C 以后可以在不破坏已有代码的前提下加入，因为它只是给 A 拒绝的代码赋予含义。数据支持第一版保留 A，把 C 留在设计说明中；B 仍然否决。
+- **规则 C 在这批语料中没有服务对象。** 规则 A 在这里没有代价，而且 C 以后可以在不破坏已有代码的前提下加入，因为它只是给 A 拒绝的代码赋予含义。数据支持第一版保留 A，把 C 留待以后；B 仍然否决。现行规范就是这样规定的（§9.6，附录 B）。
 - **信号的 await 结果本来就很少被使用**：第一方代码 447 个信号 await 中只有 14 个，而协程调用 await 是 876 个中的 328 个。这 14 个中有 12 个是单参数信号。
-- **关于无参数规则的一个附带发现**：第一方代码中有 1 个 await 使用了无参数信号的结果，用来返回 null。§9 会拒绝这种写法，改写很简单。
+- **关于无参数规则的一个附带发现**：第一方代码中有 1 个 await 使用了无参数信号的结果，用来返回 null。§9.6 会拒绝这种写法，改写很简单。
 
 ## 局限
 

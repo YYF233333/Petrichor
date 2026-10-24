@@ -1,19 +1,19 @@
 # Survey: How do real Godot 4 projects use property getters?
 
-**2026-10-22** · Related: [language specification](../language-spec.en.md) §8.6 · 中文：[property-accessors.zh.md](property-accessors.zh.md)
+**2026-10-22** · Related: [language specification](../language-spec.en.md) §4.4, §6.1, §6.5 · 中文：[property-accessors.zh.md](property-accessors.zh.md)
 
-This is a record of an empirical survey for an [Open] item in §8.6 of the specification: whether to split properties into stored and computed properties. It follows the method of the [literal-local survey](literal-local-constraints.en.md): first measure how often the pattern in question occurs in real code, then check what each candidate design would do to that code.
+This survey looks at how real Godot 4 code uses property accessors, to answer a design question of specification v0.1 (git tag `spec-v0.1`): whether to split properties into stored and computed properties. It first measures how often the patterns in question occur in real code, then checks what each candidate design would do to that code. v0.1 adopted design B below; the current specification keeps GDScript's accessors, that is, design A (§4.4), and makes setters suspend automatically before ready (§6.5). Where a finding depends on a rule that has since changed, the text says so.
 
 ## The question
 
-In GDScript 4 a member variable can have a setter, a getter or both, written inline (`var x: T = init:` followed by an indented block with `set(value):` and `get:`) or as named accessors (`var x: T: set = _set_x, get = _get_x`). A getter is always attached to a stored field, and inside its own accessors `x` names that field. There are two candidate designs:
+In GDScript 4 a member variable can have a setter, a getter or both, written inline (`var x: T = init:` followed by an indented block with `set(value):` and `get:`) or as named accessors (`var x: T: set = _set_x, get = _get_x`). A getter is always attached to a stored field, and inside its own accessors `x` names that field. v0.1 considered two designs:
 
 | Design | Stored property | Computed property |
 |---|---|---|
-| A: GDScript-style accessors on stored fields | A field with an optional setter and an optional getter. Every read runs the getter, including the engine's reads when it saves, duplicates or inspects the object | Not a separate kind; written as a field whose getter ignores it |
-| B: stored/computed split | A field with an optional setter and no getter. Reads always read the field, so engine reads never run user code | No field; must have a getter; the setter is optional and the property is read-only without one; cannot be `@export`; visible to the engine without `PROPERTY_USAGE_STORAGE` |
+| A: GDScript-style accessors on stored fields (current specification, §4.4) | A field with an optional setter and an optional getter. Every read runs the getter, including the engine's reads when it saves, duplicates or inspects the object | Not a separate kind; written as a field whose getter ignores it |
+| B: stored/computed split (v0.1 §8.6) | A field with an optional setter and no getter. Reads always read the field, so engine reads never run user code | No field; must have a getter; the setter is optional and the property is read-only without one; cannot be `@export`; visible to the engine without `PROPERTY_USAGE_STORAGE` |
 
-The rationale is in the [design notes](../design-notes.en.md#deferred-language-proposals). Under B, a GDScript property whose getter reads its own field and does more must be rewritten as a private stored field plus a computed property. We wanted to know how often getters occur, what they do, how many would need that rewrite, and how many of the affected properties are exported. Because both designs keep setters on stored properties, we also recorded what setters do, in particular exported setters that run before `_ready`.
+B was meant to keep user code out of the engine's reads of stored data, to spare proxy and derived properties unused storage, and to let read-only properties be declared. Under B, a GDScript property whose getter reads its own field and does more must be rewritten as a private stored field plus a computed property. We wanted to know how often getters occur, what they do, how many would need that rewrite, and how many of the affected properties are exported. Because both designs keep setters on stored properties, we also recorded what setters do, in particular exported setters that run before `_ready`.
 
 ## Corpus
 
@@ -45,7 +45,7 @@ We used 14 MIT-licensed Godot 4 repositories: official demos, an RPG demo, small
 - Duplicates: Godot-Game-Template's installer copies the addon's examples into `scenes/` and `scripts/` at the project root (1 candidate).
 - Unit tests (beehave `test/`, gdUnit4 `addons/gdUnit4/test/`, dialogue_manager `tests/`, statecharts `tests/`; 35,226 lines) are reported separately. They contain only 3 candidates, all in gdUnit4: two have a trivial getter and one has only a setter. They are left out of all rates below.
 
-Because the demo projects' `addons/` now count, the first-party line counts differ from those of the literal-local survey. No file uses Godot 3 `setget`.
+No file uses Godot 3 `setget`.
 
 ## Method
 
@@ -148,7 +148,7 @@ Getters that act or can fail when read early:
 
 - Most setters store the value unchanged and then notify or update something. Few validate.
 - Of the four setter-only proxies, two discard the value by mistake. `WebSocketServer.gd:14` `refuse_new_connections` is read at line 95 but never stored, so new connections are never refused. `field_camera.gd:10` `gameboard_properties` is never stored, so the camera limits are never computed. The other two are a write-only alias (`phantom_camera_3d_gizmo_plugin.gd:9`) and a setter that forwards to a child label (`PointCollapseContainer.gd:3`).
-- 30 setters (16 exported) contain `await`, 25 of them `await ready`. §8.6 does not allow setters to be coroutines, so these need rewriting under either design. No getter contains `await`.
+- 30 setters (16 exported) contain `await`, 25 of them `await ready`. Neither design, nor the current specification (§4.4), allows setters to be coroutines, so these need rewriting. No getter contains `await`.
 - Subclasses override 5 of the 163 named setters by redefining the function, usually calling `super`. None of the 145 named getters is overridden.
 
 ### Setters that run before `_ready`
@@ -168,8 +168,9 @@ Of the 318 exported properties with a setter, 113 reach a child node, an `@onrea
 - All 20 setters that reach an `@onready` member are guarded.
 - The 42 unguarded setters are in two projects: Pixelorama's slider widgets (`BasisSliders.gd` 6, `ValueSliderV2.gd` 16, `ValueSliderV3.gd` 18, `PointCollapseContainer.gd` 1) and tps-demo's `player.gd:38` `player_id`, which `level.gd` sets from code after instantiation. The sliders work because the values are set only on instances of their scenes, after the sub-scene's children exist. In `ValueSliderV2.tscn` and `BasisSliders.tscn` the root node keeps its defaults, and the scenes that use them override the values.
 - One guarded setter still loses its value: `conductor.gd:7` `is_paused` checks `if player`, but `player` is a Node-typed export, which the engine sets after the other properties, so a stored `is_paused = true` is dropped.
-- 13 properties re-run their setters in `_ready` with `x = x` (Godot-Game-Template 11, godot-demo-projects 2). This relies on an assignment inside the class going through the setter, which §8.6 keeps.
+- 13 properties re-run their setters in `_ready` with `x = x` (Godot-Game-Template 11, godot-demo-projects 2). This relies on assignments inside the class going through the setter, which the current specification keeps (§4.4), while member initializers bypass it (§6.1).
 - 79 non-exported setters also reach such members. They run only when code assigns the property, and we did not review them for guards.
+- In the current specification the compiler does this guarding: before ready, a setter suspends at its first access to an `@onready` member, `$X` or a child node, and continues once the node is ready (§6.5).
 
 ### By repository
 
@@ -307,7 +308,7 @@ The value is never stored, so `_on_viewport_resized` always returns early. Both 
 			value_changed.emit(value)
 ```
 
-If `value` were stored on the root of `ValueSliderV2.tscn`, this setter would run before `GridContainer` exists. It works because only the scenes that instance it store a value, and by then the sub-scene's children exist.
+If `value` were stored on the root of `ValueSliderV2.tscn`, this setter would run before `GridContainer` exists. It works because only the scenes that instance it store a value, and by then the sub-scene's children exist. Under the current specification (§6.5), the setter would then suspend at the `$GridContainer/X` access and continue once the node is ready.
 
 **8. The common guard, which is a coroutine.**
 `godot-open-rpg/src/field/cutscenes/popups/interaction_popup.gd:30-37`
@@ -323,9 +324,11 @@ If `value` were stored on the root of `ValueSliderV2.tscn`, this setter would ru
 		_collision_shape.shape.radius = radius
 ```
 
-godot-open-rpg guards this way in 20 setters. Because of the `await`, the setter is a coroutine, which §8.6 does not allow.
+godot-open-rpg guards this way in 20 setters. Because of the `await`, the setter is a coroutine, which neither design allows (§4.4). In the current specification the compiler does what this guard does by hand (§6.5).
 
 ## Conclusions
+
+The first six points compare the two v0.1 designs. The current specification adopts design A (§4.4), where getters are written as in GDScript, so none of the getters above needs rewriting.
 
 - **Getters are uncommon, and most are trivial.** There are 1.58 getters per 1,000 first-party lines. 78% only return the field, and 192 of those 196 come from the habits of three projects. Under B they are simply deleted.
 - **The pattern that B makes people rewrite is rare.** A stored field with a non-trivial getter occurs 15 times (0.09 per 1,000 lines), in three repositories. Twelve are lazy initialization or caching, and only one is exported. Each one becomes a private stored field plus a computed property.
@@ -336,7 +339,7 @@ godot-open-rpg guards this way in 20 setters. Because of the `await`, the setter
 - **Setter findings that hold under either design.**
   - Exported setters that reach `@onready` members are always guarded in this corpus.
   - The 42 unguarded `$Child` setters depend on values being set only on scene instances.
-  - 30 setters use `await`, mostly `await ready`, and §8.6 forbids coroutine setters. That rule therefore has a migration cost of its own, about 0.19 per 1,000 lines.
+  - 30 setters use `await`, mostly `await ready`, and setters cannot be coroutines (§4.4). That rule therefore has a migration cost of its own, about 0.19 per 1,000 lines. For guards of the form `if not is_node_ready(): await ready`, the current specification's automatic suspension takes their place (§6.5).
 
 ## Limitations
 

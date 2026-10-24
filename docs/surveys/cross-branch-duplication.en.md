@@ -1,8 +1,8 @@
 # Survey: Duplicated code between scripts with different native bases
 
-**2026-10-23** · Related: [design decisions](../decisions.en.md), [scene-structure survey](scene-structures.en.md) (same corpus) · 中文：[cross-branch-duplication.zh.md](cross-branch-duplication.zh.md)
+**2026-10-23** · Related: [language specification](../language-spec.en.md) §3.9, §4.1; [scene-structure survey](scene-structures.en.md) (same corpus) · 中文：[cross-branch-duplication.zh.md](cross-branch-duplication.zh.md)
 
-A Godot script can extend only one native class. When two objects with different native classes need the same behavior, for example a StaticBody2D and a CharacterBody2D, they cannot share a script base, so the code is copied, moved into a child node, or written some other way. This survey measures, over 20 repositories, how common the duplication caused by this restriction is and what is duplicated, and judges group by group which mechanism would remove it. All numbers are computed by scripts; the mechanism labels are human judgement and are marked as such.
+A Godot script can extend only one native class. When two objects with different native classes need the same behavior, for example a StaticBody2D and a CharacterBody2D, they cannot share a script base, so the code is copied, moved into a child node, or written some other way. This survey measures, over 20 repositories, how common the duplication caused by this restriction is and what is duplicated, and judges group by group which mechanism would remove it. All numbers are computed by scripts; the mechanism labels are judgements made by reading the code and are marked as such.
 
 ## The question
 
@@ -14,7 +14,7 @@ The following engine facts were checked at Godot commit `469659e`; paths are rel
 
 So a script that extends Control can be attached to a VBoxContainer, but the common ancestor of StaticBody2D and CharacterBody2D is PhysicsBody2D (`doc/classes/StaticBody2D.xml:2`, `doc/classes/CharacterBody2D.xml:2`): a script base they share can extend at most PhysicsBody2D, which lacks CharacterBody2D's own members such as `velocity` (`doc/classes/CharacterBody2D.xml:198`).
 
-Below, the engine class at the top of a script's inheritance chain is called its native base. We wanted to know:
+Below, the engine class at the top of a script's inheritance chain is called its native base. This survey asks:
 
 - How much code is duplicated between scripts whose native bases differ and that share no script ancestor (cross-branch, below)? How does that compare with duplication that inheritance could already remove but did not?
 - What kind of code is duplicated: fields, lifecycle callbacks, or ordinary methods?
@@ -23,7 +23,7 @@ Below, the engine class at the top of a script's inheritance chain is called its
 
 ## Corpus
 
-The same 20 repositories as the [scene-structure survey](scene-structures.en.md); commits are in the table under "Per repository": 14 of them are at the same commits as in the property-accessor survey, 5 more game repositories are at their latest commit on 2026-10-23, and Ring is at the same commit as in the paper-migration survey. They fall into three groups:
+The same 20 repositories as the [scene-structure survey](scene-structures.en.md); commits are in the table under "Per repository": 14 of them are at the same commits as in the [property-accessor survey](property-accessors.en.md), 5 more game repositories are at their latest commit on 2026-10-23, and Ring is at the same commit as in the [paper-migration survey](paper-migration.en.md). They fall into three groups:
 
 - **Games** (12): godot-open-rpg, the four Kenney starter kits, tps-demo, godot-open-rts, tanks-of-freedom-ii, deck_builder_tutorial, godot-tiny-mmo, godot_open_star_fighter, Ring.
 - **Demos**: godot-demo-projects, of which 132 Godot projects have first-party code.
@@ -45,14 +45,14 @@ Only first-party code counts, with the same scope as in the scene-structure surv
 3. **Categories of unit pairs**, taking the first that applies: within one unit; test or editor (either side is a test or extends an `Editor*` class); **same chain** (the two share a script ancestor, as parent and child or as siblings); native base unknown; non-node (either side is not a Node); **same native** (same native base, no common script ancestor); **cross-branch** (different native bases, no common script ancestor). By the engine facts above, same-chain duplication can be moved into the common ancestor and same-native duplication into a new common base, so existing inheritance can remove both.
 4. **Name evidence.** For a cross-branch pair, take the nearest common ancestor of the two native bases, for example PhysicsBody2D for StaticBody2D and CharacterBody2D. If either unit uses on self (without a receiver, or through `self.` or `super.`) an engine member that the common ancestor lacks and only its own native branch has, the pair **has name evidence**: a common base can extend only the common ancestor and cannot reach those members. A pair without name evidence could, by the engine rules, share a base script whose native base is the common ancestor. The engine member lists come from the Godot class reference XML (`build_api.py`, 1,112 classes).
 5. **Kinds of duplicated code** are assigned by where each line is: exported members, `@onready` members, other member declarations and property accessor bodies, signal declarations, lifecycle callbacks (`_ready`, `_enter_tree`, `_init`, `_exit_tree`, `_notification`, `_static_init`), per-frame callbacks (`_process`, `_physics_process`, `_integrate_forces`), input callbacks (`_input`, `_unhandled_input`, `_gui_input` and so on), other engine virtual methods, signal handlers (`_on_*` or `on_*`), and ordinary methods.
-6. **Mechanism labels (human judgement).** For all 88 exact cross-branch clone groups at K = 5, we read a representative copy and assigned one of five labels by the mechanism that would remove it:
+6. **Mechanism labels (judged by reading).** For each of the 88 exact cross-branch clone groups at K = 5, a representative copy was read and given one of five labels by the mechanism that would remove it:
    - (a) **interface default methods**: methods that only read members each class declares separately (or engine API on self), and neither declare nor write shared state;
    - (b) **stateful compile-time mixin**: the copy itself declares fields, `@export` members or signals, or writes fields whose declarations are duplicated too;
    - (c) **composition**: a self-contained sub-feature with its own state and nodes that could be a child node or child scene;
    - (d) **static helper**: a computation on parameters, globals or autoloads that needs no state of self;
    - (e) **not removable**: trivial boilerplate, or boilerplate tied to the scene structure.
 
-   55 groups were labelled one by one. The other 33 phantom-camera groups were labelled (b) by one rule: all of them belong to the two pairs of twin scripts PhantomCamera2D/3D and NoiseEmitter2D/3D, and refer to members that are also declared twice. The labels are an AI agent's judgement and are recorded in `labels.csv`. `dup.py` also makes an automatic pre-label, which differs a lot from the human labels and is not used below. Mechanisms (c) and (d) already exist in GDScript (child nodes and `static func`).
+   55 groups were labelled one by one. The other 33 phantom-camera groups were labelled (b) by one rule: all of them belong to the two pairs of twin scripts PhantomCamera2D/3D and NoiseEmitter2D/3D, and refer to members that are also declared twice. The labels are an AI agent's judgement and are recorded in `labels.csv`. `dup.py` also makes an automatic pre-label, which differs a lot from the labels assigned by reading and is mentioned below only for comparison. Mechanisms (c) and (d) already exist in GDScript (child nodes and `static func`).
 7. **Shared capability.** In each project, for each cross-branch pair of Node units (excluding test and editor scripts), we found the public names both declare: a `func`, a non-`@onready` `var` or a `signal` whose name does not start with an underscore and is not an engine member. Each access to such a name in the project through a receiver other than self (`x.name`, or the name as a literal passed to `call`, `has_method`, `get` and so on) is a consumer site, classified by how the receiver is written: a variable annotated with a script class or an engine class, a variable with an inferred type, a class or autoload name, an untyped receiver, and several explicit cross-type forms: a call after `is_in_group`, access through `owner` or `get_parent()`, `is` checks against at least two script classes in the same function together with `or` (typically `is A or is B`), and a `has_method` guard. The same name does not mean the same capability, so these numbers are upper bounds.
 8. **Workaround indicators**, counted in first-party non-test code: `has_method`, `is_in_group`, string calls (`call`, `call_deferred` or `callv` whose first argument is a literal), `is` checks against two or more script classes joined by `or` on one line, access to non-engine members through `owner` or `get_parent()`, and `static func`.
 9. **Composition** (`components.py`). Every `.tscn` is composed, including inherited scenes, instances and the changes made on instances, to find the nodes each first-party Node script is attached to and the native type of each such node's parent; attachments inherited from a base scene are not counted. A script whose parent types include at least two that are not ancestors of each other is a component already shared across branches.
@@ -137,7 +137,7 @@ Cross-branch duplicated lines, exact matching, K = 5, by position:
 - **In plugins and tools, member declarations and property accessor bodies take 252 lines**, mostly exported properties with setters and getters in phantom-camera's twin scripts.
 - The 56 per-frame lines in demos come from the two physics_tests controllers.
 
-### Which mechanism would remove it (human judgement)
+### Which mechanism would remove it (judged by reading)
 
 All exact cross-branch clone groups at K = 5, "groups / lines":
 
@@ -156,7 +156,7 @@ All exact cross-branch clone groups at K = 5, "groups / lines":
 - **(b) largely coincides with name evidence.** A group counts as having name evidence if any of its unit pairs does. In games, 92 of the 102 lines of (b) are in such groups; for (a) it is 14 of 54, for (c) 20 of 81, for (d) 40 of 104.
 - **Of the 948 lines of (b) in plugins and tools, phantom-camera has 734**; the rest are Godot-Game-Template's input_actions_list and input_actions_tree (Container and Tree, 156 lines) and godot_dialogue_manager's DialogueActionable2D and 3D (Area2D and Area3D, 58 lines). Of the 313 lines of (d), 231 are in Pixelorama, mostly fragments for undo and redo or for animation tag ranges, spread over various dialogs and tools.
 - The 70 lines of (b) in demos are the two physics_tests controllers (56 lines: 6 identical fields plus per-frame input and velocity logic) and hdr_output (14 lines).
-- The automatic pre-label marks 16 game groups (273 lines) as stateful, against 7 groups (102 lines) by hand: the automatic rule calls a fragment stateful whenever it refers to a member.
+- The automatic pre-label marks 16 game groups (273 lines) as stateful, against 7 groups (102 lines) by reading: the automatic rule calls a fragment stateful whenever it refers to a member.
 
 ### Shared capability and cross-type calls
 
@@ -371,9 +371,11 @@ The 5 copies are in 2 services (Node) and 3 menus (Control), and depend only on 
 - **Cross-branch duplication exists, but it is small and concentrated.** Games have 6.1 lines per thousand; of the 5 game repositories with any, 4 lie between 3.8 and 9.7. Ring has 39.9 lines and the 2D/3D twin plugin phantom-camera 146.8.
 - **Duplication that inheritance could remove but did not is much larger.** In games, same-native and same-chain duplication are 4.9 and 8.2 times the cross-branch amount, and the order holds at all three window sizes; these two categories, however, come mainly from tanks-of-freedom-ii.
 - **Cross-branch duplication is mostly ordinary methods**; field declarations are few. The repositories that copy fields and exported properties are mainly Ring and phantom-camera.
-- **By human judgement, more than half of the cross-branch duplication in games (185 of 353 lines) could be removed by composition or static helpers**, which GDScript already has. Interface default methods would cover 54 lines; a stateful mixin 102 lines, 72 of them from Ring. In plugins and tools a stateful mixin would cover 948 lines, 734 of them from phantom-camera, and phantom-camera's parts that differ only in the vector type are not in these numbers.
+- **Judged by reading, more than half of the cross-branch duplication in games (185 of 353 lines) could be removed by composition or static helpers**, which GDScript already has. Interface default methods would cover 54 lines; a stateful mixin 102 lines, 72 of them from Ring. In plugins and tools a stateful mixin would cover 948 lines, 734 of them from phantom-camera, and phantom-camera's parts that differ only in the vector type are not in these numbers.
 - **Explicit cross-type calls are rare.** Only 55 of the 2,081 consumer sites in games use them, and more than half of the consumer sites have an untyped receiver.
 - **Composition is already used to share code across branches**: 11 such components in games. Ring uses both composition and copying.
+
+The rules based on these data are in §3.9 and §4.1 of the [language specification](../language-spec.en.md): a common base class with state is written with `@abstract`, a capability shared by classes with different engine bases is an interface, and the first version has no stateful mixins. Interface default methods in the specification may read and write state through interface properties, so their scope is wider than label (a) here.
 
 ## Limitations
 
@@ -387,7 +389,7 @@ The 5 copies are in 2 services (Node) and 3 menus (Control), and depend only on 
 
 ## Reproducing
 
-The scripts are in [`cross-branch-duplication/`](cross-branch-duplication/) and need only Python 3 (standard library; run with 3.11) and git. `gdcorpus.py` lists the corpus and the first-party rules and can fetch the corpus; `build_api.py` extracts engine class members and inheritance from the Godot class reference XML; `dup.py` does the clone detection and the shared-capability and workaround counts; `components.py` counts components; `make_labels.py` holds the human labels and matches them to the detected groups to produce `labels.csv`; `report.py` summarizes everything into `report.txt`, which contains every statistic in this survey or the numbers it is computed from; `ring_check.py` does the Ring check. godot-tiny-mmo's UI fragment group is in the regenerated `groups_near.csv`.
+The scripts are in [`cross-branch-duplication/`](cross-branch-duplication/) and need only Python 3 (standard library; run with 3.11) and git. `gdcorpus.py` lists the corpus and the first-party rules and can fetch the corpus; `build_api.py` extracts engine class members and inheritance from the Godot class reference XML; `dup.py` does the clone detection and the shared-capability and workaround counts; `components.py` counts components; `make_labels.py` holds the labels assigned by reading and matches them to the detected groups to produce `labels.csv`; `report.py` summarizes everything into `report.txt`, which contains every statistic in this survey or the numbers it is computed from; `ring_check.py` does the Ring check. godot-tiny-mmo's UI fragment group is in the regenerated `groups_near.csv`.
 
 `api.json` is about 770 KB and is not included; `build_api.py` generates it from a Godot checkout at commit `469659e`. The included results are in `out/` (K = 5: `report.txt`, `summary.json`, `workarounds.json`, `components.csv`, `components_summary.json`, `ring_check.txt`), `out_k3/report.txt` and `out_k8/report.txt`. The large files, such as the per-region and per-group CSVs and the code snippets, are regenerated by the scripts.
 
@@ -404,5 +406,3 @@ python docs/surveys/cross-branch-duplication/dup.py --corpus corpus --api work/a
 python docs/surveys/cross-branch-duplication/report.py work/out_k8
 python docs/surveys/cross-branch-duplication/ring_check.py --corpus corpus --api work/api.json work/out work/out_k3 work/out_k8
 ```
-
-The decisions based on this survey are in the "Type system" section of the [design decisions](../decisions.en.md) (interfaces and reuse).

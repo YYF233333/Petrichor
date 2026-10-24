@@ -1,12 +1,14 @@
 # 调查：按规范 v0.1 纸面迁移两个真实项目
 
-**2026-10-22** · 关联：[语言规范](../language-spec.zh.md) v0.1（提交 `7d3e718`）、[项目计划](../project-plan.zh.md#开发与评估) · English: [paper-migration.en.md](paper-migration.en.md)
+**2026-10-22** · 关联：规范 v0.1（提交 `7d3e718`，git 标签 `spec-v0.1`）、[第二次纸面迁移](paper-migration-2.zh.md) · English: [paper-migration.en.md](paper-migration.en.md)
 
-前三份调查各回答规范中的一个具体选择。本文测量整份规范落到真实代码上的代价：把两个项目的 GDScript 逐行改写成符合 v0.1 的代码，记下每一处额外工作；再在 14 个仓库的语料上统计其中几类写法的频率，检验这两个项目是否有代表性。改写没有编译器检查，所以称为纸面迁移。本文不修改规范；文中的修正约定是迁移时采用的假定，不是决定。
+本文评估的是早期的规范 v0.1。项目随后重新设计，现行设计是[语言规范](../language-spec.zh.md)（v0.2 草案），按它重做的评估见[第二次纸面迁移](paper-migration-2.zh.md)。除各表的“现行规范”一列外，文中的章节号（§）都指 v0.1。
+
+此前的调查各回答规范中的一个具体选择。本文测量整份规范落到真实代码上的代价：把两个项目的 GDScript 逐行改写成符合 v0.1 的代码，记下每一处额外工作；再在 14 个仓库的语料上统计其中几类写法的频率，检验这两个项目是否有代表性。改写没有编译器检查，所以称为纸面迁移。文中的修正约定、候选和假定是迁移时采用或计数的，当时不是 v0.1 的规则；它们在现行规范中的去向见各表的“现行规范”一列。
 
 ## 问题
 
-规范自洽、实现符合规范，与真实项目用起来顺手，是不同的验收。规范目前的证据几乎都属于前一种。我们想知道：
+规范自洽、实现符合规范，与真实项目用起来顺手，是不同的验收。当时规范的证据几乎都属于前一种。我们想知道：
 
 - 按 v0.1 改写真实代码，每百行需要多少额外的标注、改名、转换、改写和决策？
 - 这些成本出自哪些规则，有多少出自规范尚未规定的地方？
@@ -41,39 +43,39 @@
 
 ### 修正约定（迁移中采用）
 
-| 编号 | 内容 | 与 v0.1 的关系 |
+| 编号 | 内容 | 与 v0.1 的关系 | 现行规范 |
+|---|---|---|---|
+| A1 | 引擎以 `RequiredResult<T>`／`RequiredParam<T>` 标注的返回值和参数视为非空 | §6.5 允许“有了证据再补全绑定描述”，引擎已经提供了证据 | 采用（§10.3） |
+| A2 | 只在出错时返回 null 的引擎接口（如 `Node.get_tree()`）在绑定描述中标为必须成功：返回非空类型，返回 null 时报程序错误，与 `$X` 相同 | 修改：v0.1 下为 `T?` | 采用（§10.2） |
+| A3 | 以 Variant 绑定的数学工具函数（abs、sign、clamp、lerp、min、max、wrap 等）按实参的公共类型定型，返回同一类型 | 填补沉默处：v0.1 下返回 `Variant?`，须改用 absf、clampi 等定型版本或写 `T(f(…)!)` | 改：实参类型相同时返回该类型，int 与 float 混用是编译错误（§10.3） |
+| A4 | core 值类型的运算符遵循引擎的 Variant 运算符表；标量操作数在检查边界转换为分量类型，损失警告按 §7.3 | 填补待定项（引擎运算符的混合位宽） | 采用（§5.1） |
+| A5 | 允许 `for i in n`（n 为整数），循环变量取 n 的类型 | 放宽 §2.4 | 采用（§5.7） |
+| A6 | GDScript 类和 autoload 有静态视图：按其声明类型可见；未标注的参数、返回值和成员为 `Variant?`；对象类型的成员和返回值为 `T?`；GDScript 的 int 为 i64；autoload 名是全局标识符，类型为其脚本类 | 填补 §13 的沉默处 | 采用（§11.1） |
+| A7 | 跨语言协程：本语言调用 GDScript 函数得到 `GDScriptFunctionState` 时，可以 await 其 `completed`；引擎或 GDScript 调用本语言协程时，第一次挂起处返回一个 Signal 而不是 NIL，GDScript 的 await 会等待它 | 解除 §9 的已知限制；待实测 | 采用，仍待实测（§9.8） |
+| A8 | 记录类型：按字段名编码为 Dictionary，按目标类型解码，并逐字段执行入口检查 | 新能力；与 v0.1 设计说明中的 `struct` 提案（按位置编码为带标记的 Array）冲突 | 采用：struct 按字段名编码为 Dictionary（§3.6、§11.3） |
+
+### 只计数、迁移中不采用的候选
+
+| 编号 | 内容 | 现行规范 |
 |---|---|---|
-| A1 | 引擎以 `RequiredResult<T>`／`RequiredParam<T>` 标注的返回值和参数视为非空 | §6.5 允许“有了证据再补全绑定描述”，引擎已经提供了证据 |
-| A2 | 只在出错时返回 null 的引擎接口（如 `Node.get_tree()`）在绑定描述中标为必须成功：返回非空类型，返回 null 时报程序错误，与 `$X` 相同 | 修改：v0.1 下为 `T?` |
-| A3 | 以 Variant 绑定的数学工具函数（abs、sign、clamp、lerp、min、max、wrap 等）按实参的公共类型定型，返回同一类型 | 填补沉默处：v0.1 下返回 `Variant?`，须改用 absf、clampi 等定型版本或写 `T(f(…)!)` |
-| A4 | core 值类型的运算符遵循引擎的 Variant 运算符表；标量操作数在检查边界转换为分量类型，损失警告按 §7.3 | 填补待定项（引擎运算符的混合位宽） |
-| A5 | 允许 `for i in n`（n 为整数），循环变量取 n 的类型 | 放宽 §2.4 |
-| A6 | GDScript 类和 autoload 有静态视图：按其声明类型可见；未标注的参数、返回值和成员为 `Variant?`；对象类型的成员和返回值为 `T?`；GDScript 的 int 为 i64；autoload 名是全局标识符，类型为其脚本类 | 填补 §13 的沉默处 |
-| A7 | 跨语言协程：本语言调用 GDScript 函数得到 `GDScriptFunctionState` 时，可以 await 其 `completed`；引擎或 GDScript 调用本语言协程时，第一次挂起处返回一个 Signal 而不是 NIL，GDScript 的 await 会等待它 | 解除 §9 的已知限制；待实测 |
-| A8 | 记录类型：按字段名编码为 Dictionary，按目标类型解码，并逐字段执行入口检查 | 新能力；与设计说明中按位置编码为标记 Array 的 `struct` 提案冲突 |
-
-### 只计数、不采用的候选
-
-| 编号 | 内容 |
-|---|---|
-| C-int | `int`、`float` 可以作类型名（例如分别对应 i64、f64） |
-| C-scene | 按脚本挂载的场景给 `$X` 定型 |
-| C-is | `is` 对局部值和参数收窄类型 |
-| C-r3 | R3 把“参数与柔性字面量做算术、结果流向已知类型”算作推断依据 |
-| C-trait | 运行时 trait 对象，可以要求属性 |
+| C-int | `int`、`float` 可以作类型名（例如分别对应 i64、f64） | 采用：只有 int 和 float，都是 64 位（§3.2） |
+| C-scene | 按脚本挂载的场景给 `$X` 定型 | 采用（§7.1） |
+| C-is | `is` 对局部值和参数收窄类型 | 采用（§5.4） |
+| C-r3 | R3 把“参数与柔性字面量做算术、结果流向已知类型”算作推断依据 | 不再适用：函数签名不推断（§4.6） |
+| C-trait | 运行时 trait 对象，可以要求属性 | 改为名义接口，可以要求属性（§3.9） |
 
 ### 沉默处的假定
 
-| 编号 | 假定 |
-|---|---|
-| S1 | 脚本以 `class_name` 命名后可以作类型；没有 class_name 的脚本不能按类型引用 |
-| S2 | 布尔取反写作 `not`；前缀 `!` 未规定 |
-| S3 | 存在条件表达式 `a if c else b` |
-| S4 | 存在 `preload`、`load`、`str`、`print_debug`、`is_instance_valid` 等全局函数；`preload` 按扩展名定型，`load` 返回 `Resource?` |
-| S5 | 存在 Dictionary 字面量 `{k: v}` |
-| S6 | `Array[T].pop_front()` 返回 `T?`；无类型 Dictionary 的 `keys()` 返回无类型 Array |
-| S7 | 场景文件中保存的信号连接不做静态检查，调用时按 §12.6 执行入口检查 |
-| S8 | 句柄类型的存活检查使用 `is_instance_valid` |
+| 编号 | 假定 | 现行规范 |
+|---|---|---|
+| S1 | 脚本以 `class_name` 命名后可以作类型；没有 class_name 的脚本不能按类型引用 | 没有 class_name 的文件经 `preload` 引用（§2.1） |
+| S2 | 布尔取反写作 `not`；前缀 `!` 未规定 | 前缀 `!` 也是逻辑非（§2.2） |
+| S3 | 存在条件表达式 `a if c else b` | 保留（§5.5） |
+| S4 | 存在 `preload`、`load`、`str`、`print_debug`、`is_instance_valid` 等全局函数；`preload` 按扩展名定型，`load` 返回 `Resource?` | 改：`preload` 和字面量路径的 `load` 按资源的实际内容定型（§7.4） |
+| S5 | 存在 Dictionary 字面量 `{k: v}` | 保留（§2.2） |
+| S6 | `Array[T].pop_front()` 返回 `T?`；无类型 Dictionary 的 `keys()` 返回无类型 Array | 保留（§3.8） |
+| S7 | 场景文件中保存的信号连接不做静态检查，调用时按 §12.6 执行入口检查 | 改：由场景模型检查（§7.7） |
+| S8 | 句柄类型的存活检查使用 `is_instance_valid` | 改：经 `T?` 读到已释放的对象时为 None，所以 `!= None` 同时是存活检查（§3.3） |
 
 ### 引擎依据
 
@@ -199,7 +201,7 @@ func take_damage(value: int):
 	current_health = min(max(current_health - value, 0), owner.max_health)
 ```
 
-Brick 继承 StaticBody2D，Enemy 继承 CharacterBody2D，所以不能共享基类。HealthComponent 和 DeathComponent 直接读写 owner 的 6 个字段（`init_health`、`max_health`、`unique_drop_name`、`lucky_drop`、`drop_percent_scale`、`point`）。v0.1 没有 trait 对象，每个字段都要按具体类分派，两个组件共新增约 20 行。另外，Brick 的 77 行有效代码中有 64 行原样出现在 Enemy 中：导出、组件接线、`set_type`、`show_health`、`hit_by_ball`、`physic_hurt` 等。运行时 trait 对象（C-trait）能去掉分派，去不掉重复：要消除重复，需要共享实现，而 §4 明确排除了 mixin 和字段注入。
+Brick 继承 StaticBody2D，Enemy 继承 CharacterBody2D，所以不能共享基类。HealthComponent 和 DeathComponent 直接读写 owner 的 6 个字段（`init_health`、`max_health`、`unique_drop_name`、`lucky_drop`、`drop_percent_scale`、`point`）。v0.1 没有 trait 对象，每个字段都要按具体类分派，两个组件共新增约 20 行。另外，Brick 的 77 行有效代码中有 64 行原样出现在 Enemy 中：导出、组件接线、`set_type`、`show_health`、`hit_by_ball`、`physic_hurt` 等。运行时 trait 对象（C-trait）能去掉分派，去不掉重复：要消除重复，需要共享实现，而 v0.1 §4 明确排除了 mixin 和字段注入。
 
 **3. `has_method` 实际只有一个目标。**
 Kenney FPS：`objects/player.gd:200-205`；`objects/enemy.gd:52-54, 68`
@@ -231,7 +233,7 @@ camera.position.y = lerp(camera.position.y, 0.0, delta * 5)
 ammo = max(value, 0)
 ```
 
-这些函数在引擎中以 Variant 绑定，按 §12.6 返回 `Variant?`。v0.1 下要分别改为 `container.position.lerp(…)`、`lerpf(…)` 和 `maxi(…)`，迁移者需要知道每个函数的定型版本叫什么。在 A3 下，三行与原文相同。
+这些函数在引擎中以 Variant 绑定，按 v0.1 §12.6 返回 `Variant?`。v0.1 下要分别改为 `container.position.lerp(…)`、`lerpf(…)` 和 `maxi(…)`，迁移者需要知道每个函数的定型版本叫什么。在 A3 下，三行与原文相同。
 
 **6. 跨语言协程。**
 Ring：`breakout/scenes/utility/utility.gd:54-58`
@@ -243,7 +245,7 @@ func dialogue(str: String):
 	DialogueManager.show_dialogue_balloon(res)
 ```
 
-`get_next_dialogue_line` 是插件中的 GDScript 协程。§9 不允许本语言 await 其他语言的协程，所以这个函数在 v0.1 下写不出来。上文“引擎依据”表明，GDScript 函数挂起时会把 `GDScriptFunctionState` 交给调用方，而 GDScript 的 await 接受任意 Signal 值；A7 据此让两个方向都可以 await。
+`get_next_dialogue_line` 是插件中的 GDScript 协程。v0.1 §9 不允许本语言 await 其他语言的协程，所以这个函数在 v0.1 下写不出来。上文“引擎依据”表明，GDScript 函数挂起时会把 `GDScriptFunctionState` 交给调用方，而 GDScript 的 await 接受任意 Signal 值；A7 据此让两个方向都可以 await。
 
 ## 结论
 

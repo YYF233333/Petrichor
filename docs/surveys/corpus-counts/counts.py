@@ -1,4 +1,4 @@
-"""One-off token counts over the 20-repository corpus, used by individual design decisions.
+"""One-off token counts over the 20-repository corpus, used as evidence by individual rules of the specification.
 
 Usage: python counts.py CORPUS_DIR
     CORPUS_DIR: fetched with ../cross-branch-duplication/gdcorpus.py
@@ -11,7 +11,9 @@ Counts, in first-party .gd files (blank and comment lines excluded from the line
   - lambdas whose body contains `await`;
   - methods whose body contains `await` (coroutines) used as values, that is, passed as an
     argument by name in the same file, and how many of those are `connect(name)`;
-  - `assert(...)` statements, and those whose arguments contain `await`.
+  - `assert(...)` statements, and those whose arguments contain `await`;
+  - `is_instance_valid` (overall and per repository, per 1,000 lines), `static var`, `_static_init`,
+    `NOTIFICATION_PREDELETE`, `Thread.new` and `WorkerThreadPool`.
 """
 import collections
 import os
@@ -59,7 +61,9 @@ def main():
             if not (f.endswith(".gd") and repo.first_party(f)):
                 continue
             src = repo.read(f)
-            c["lines"] += sum(1 for x in src.splitlines() if x.strip() and not x.strip().startswith("#"))
+            lines = sum(1 for x in src.splitlines() if x.strip() and not x.strip().startswith("#"))
+            c["lines"] += lines
+            by_repo[name]["lines"] += lines
             ts = [t for t in G.tokenize(src) if t.k != "NL"]
             abstract_class = False
             funcs = abstract_funcs = 0
@@ -107,6 +111,22 @@ def main():
                         if depth == 0:
                             break
                         j += 1
+                if t.k == "ID":
+                    nxt = ts[i + 1].v if i + 1 < len(ts) else None
+                    if t.v == "is_instance_valid" and nxt == "(":
+                        c["is_instance_valid"] += 1
+                        by_repo[name]["is_instance_valid"] += 1
+                    elif t.v == "static" and nxt == "var":
+                        c["static_var"] += 1
+                    elif t.v == "_static_init" and i > 0 and ts[i - 1].v == "func":
+                        c["static_init"] += 1
+                    elif t.v == "NOTIFICATION_PREDELETE":
+                        c["predelete"] += 1
+                        by_repo[name]["predelete"] += 1
+                    elif t.v == "Thread" and nxt == "." and i + 2 < len(ts) and ts[i + 2].v == "new":
+                        c["thread_new"] += 1
+                    elif t.v == "WorkerThreadPool":
+                        c["worker_pool"] += 1
                 if t.k == "ID" and t.v == "null":
                     comparing = i > 1 and ts[i - 1].v == "=" and ts[i - 2].v in ("=", "!")
                     c["null_compare" if comparing else "null_other"] += 1
@@ -137,6 +157,15 @@ def main():
           f"abstract file classes whose methods are all abstract: {c['abstract_only']}")
     print(f"lambdas: {c['lambda']}; coroutine methods passed to connect(name): {c['coroutine_connect']}")
     print(f"assert statements whose arguments contain await: {c['assert_await']}")
+    per_k = ", ".join(f"{r} {n['is_instance_valid'] * 1000 / n['lines']:.1f}"
+                      for r, n in sorted(by_repo.items(), key=lambda x: -x[1]["is_instance_valid"] / max(x[1]["lines"], 1))
+                      if n["is_instance_valid"])
+    print(f"is_instance_valid: {c['is_instance_valid']} ({c['is_instance_valid'] * 1000 / c['lines']:.1f} per 1,000 lines); "
+          f"per repository per 1,000 lines: {per_k}")
+    predelete = ", ".join(f"{r} {n['predelete']}" for r, n in sorted(by_repo.items(), key=lambda x: -x[1]["predelete"]) if n["predelete"])
+    print(f"NOTIFICATION_PREDELETE: {c['predelete']} ({predelete})")
+    print(f"static var: {c['static_var']}; _static_init: {c['static_init']}; "
+          f"Thread.new: {c['thread_new']}; WorkerThreadPool: {c['worker_pool']}")
 
 
 if __name__ == "__main__":

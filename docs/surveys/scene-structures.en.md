@@ -1,6 +1,6 @@
 # Survey: How many scene structures does a script see?
 
-**2026-10-23** · Related: [design decisions](../decisions.en.md), "Scenes and nodes" · 中文：[scene-structures.zh.md](scene-structures.zh.md)
+**2026-10-23** · Related: [language specification](../language-spec.en.md) §7.1–§7.3 · 中文：[scene-structures.zh.md](scene-structures.zh.md)
 
 The static type of `$X`, `%X` and `get_node("…")` can come from the scenes that attach the script (the scene is the source of truth) or from declarations in the script. Taking it from the scenes is clean only if a script sees one scene structure, or if every structure it sees gives the same type for each path it uses. This survey tests that premise. In 20 repositories we composed the full node tree of every text scene by the engine's rules, counted how many structures each script sees, and resolved each of its literal paths in each structure.
 
@@ -15,7 +15,7 @@ There are two candidate approaches:
 | A: scene as source of truth | Every scene that attaches the script or a subclass: resolve the path in each and take the type of the node found | Source of the types |
 | B: script declarations | Declarations in the script of the nodes it needs (path and type) | Checked against the declarations |
 
-If a script sees one structure, A can give the type directly. If it sees several, the same expression may point to nodes of different types in different scenes, or to no node in some of them, and A needs further rules. B does not depend on the structure being unique, but it requires writing down again in the script what the scenes already contain. We wanted to know:
+If a script sees one structure, A can give the type directly. If it sees several, the same expression may point to nodes of different types in different scenes, or to no node in some of them, and A needs further rules. B does not depend on the structure being unique, but it requires writing down again in the script what the scenes already contain. This survey asks:
 
 - How many scripts see two or more structures, and how many of those use literal paths?
 - Do literal paths point to nodes of different types in different structures? Are they missing from some structures?
@@ -26,7 +26,7 @@ If a script sees one structure, A can give the type directly. If it sees several
 
 | Repository | Group | Commit | First-party `.gd` | Lines | `.tscn` | Inherited scenes | Scripts with literal paths | See ≥2 structures | Of those, with literal paths |
 |---|---|---|---:|---:|---:|---:|---:|---:|---:|
-| [godotengine/godot-demo-projects](https://github.com/godotengine/godot-demo-projects) | demos | `b761b4c` | 461 | 30,819 | 396 | 8 | 235 | 29 | 11 |
+| [godotengine/godot-demo-projects](https://github.com/godotengine/godot-demo-projects) | demo | `b761b4c` | 461 | 30,819 | 396 | 8 | 235 | 29 | 11 |
 | [gdquest-demos/godot-open-rpg](https://github.com/gdquest-demos/godot-open-rpg) | game | `d59f2f7` | 78 | 5,422 | 128 | 22 | 34 | 14 | 9 |
 | [KenneyNL/Starter-Kit-3D-Platformer](https://github.com/KenneyNL/Starter-Kit-3D-Platformer) | game | `3fa8a04` | 9 | 378 | 10 | 6 | 6 | 0 | 0 |
 | [KenneyNL/Starter-Kit-City-Builder](https://github.com/KenneyNL/Starter-Kit-City-Builder) | game | `4535092` | 6 | 311 | 1 | 0 | 1 | 0 | 0 |
@@ -48,7 +48,7 @@ If a script sees one structure, A can give the type directly. If it sees several
 | [YYF233333/Ring](https://github.com/YYF233333/Ring) | game | `0ec4161` | 66 | 3,272 | 76 | 0 | 27 | 3 | 2 |
 | **Total** | | | **2,800** | **293,838** | **1,991** | **619** | **781** | **166** | **65** |
 
-The first 14 repositories are those of the [property-accessor survey](property-accessors.en.md#corpus), at the same commits. To add game code we chose five more open-source games, at HEAD on 2026-10-23. Ring is at the same commit as in the [paper-migration survey](paper-migration.en.md#material). The rest of this document uses three groups based on the "Group" column: games (12 repositories), demos (1, godot-demo-projects), and plugins and tools (7). "Inherited scenes" includes scenes that inherit from imported models. "See ≥2 structures" counts the contexts of subclass scripts too (see "Method").
+The first 14 repositories are those of the [property-accessor survey](property-accessors.en.md#corpus), at the same commits. Five more open-source games, at HEAD on 2026-10-23, were added for more game code. Ring is at the same commit as in the [paper-migration survey](paper-migration.en.md#material). The rest of this document uses three groups based on the "Group" column: games (12 repositories), demos (1, godot-demo-projects), and plugins and tools (7). "Inherited scenes" includes scenes that inherit from imported models. "See ≥2 structures" counts the contexts of subclass scripts too (see "Method").
 
 **Licenses.** The licenses of the first 14 repositories are given in the property-accessor survey; their code is MIT. The five added games are MIT; the license file of tanks-of-freedom-ii states that MIT covers both its code and its graphical assets. Ring has no license file; its code excerpts are included with the repository owner's consent.
 
@@ -67,7 +67,7 @@ The first 14 repositories are those of the [property-accessor survey](property-a
    - Different types: the nodes found have two or more (native type, script) pairs.
    - Missing from some structures: found in some contexts and not in others.
    - Otherwise: found in no structure; the path enters an imported model or a placeholder and cannot be judged; it leaves the known tree through `..`; it is absolute; or the script has no context at all.
-6. **Mechanisms.** For each script that sees ≥2 structures we marked where the extra structures come from; more than one can apply:
+6. **Mechanisms.** For each script that sees ≥2 structures, the sources of the extra structures are marked; more than one can apply:
    - M1: attached directly by two or more scene files with different structures. M1b: attached in one scene file to several nodes with different subtrees.
    - M2: a scene that attaches it is inherited by other scenes, and the inherited copies have a different structure.
    - M3: a scene that attaches it is instanced elsewhere, and the outer scene changes the inside of the instance.
@@ -76,7 +76,7 @@ The first 14 repositories are those of the [property-accessor survey](property-a
 
    For attribution, each script is assigned to the first mechanism that matches, in the order inheritance (M2 or M5), independent attachment (M1 or M1b), instance edits (M3).
 7. **Purpose.** An AI agent read each of the 75 game scripts that see ≥2 structures, with its scenes, and classified it by purpose; the labels are in `purpose_labels.csv`.
-8. **Self-checks.** `test_fixture.py` checks these rules on a small synthetic project: one script attached in two scenes, an inherited scene, nodes added inside an instance, two subclasses attached in different scenes, and unique names. `check_tokens.py` compares the tokenizer's counts with naive regular expressions; every difference we sampled was a `$` inside a string or a comment, which the regex counts wrongly.
+8. **Self-checks.** `test_fixture.py` checks these rules on a small synthetic project: one script attached in two scenes, an inherited scene, nodes added inside an instance, two subclasses attached in different scenes, and unique names. `check_tokens.py` compares the tokenizer's counts with naive regular expressions; every sampled difference was a `$` inside a string or a comment, which the regex counts wrongly.
 
 All numbers below are computed by `analyze.py`, `report.py` and `summarize.py`. The quoted code lines and scene contents were checked by opening each file.
 
@@ -336,7 +336,7 @@ The model node in the scene is `DoorModel2`; the script says `DoorModel`. No che
 - **For some paths the answer is not in the attaching scene.** `%Name` resolved through the outer scene (1 in games, 2 in plugins and tools), nodes added at run time, and the inside of imported models (14 in games).
 - **Access outside the attaching scene's subtree is common.** In games, 130 `/root/…` paths, 166 `get_parent()` calls, 29 `owner.` accesses and 10 paths with `..`; 222 scripts call `add_child`.
 
-The decisions taken on the basis of these data are recorded in the "Scenes and nodes" section of the [design decisions](../decisions.en.md).
+The rules based on these data are in §7.1–§7.3 of the [language specification](../language-spec.en.md). The specification takes approach A: nodes missing from template scenes are checked by how scenes are used, optional nodes are expressed with `get_node_or_null`, and nodes added at run time are not typed by path (§7.2); `/root/X` is replaced by typed autoload global names, and parent and owner requirements are declared with `@parent(T)` and `@owner(T)` (§7.3).
 
 ## Limitations
 
@@ -348,7 +348,7 @@ The decisions taken on the basis of these data are recorded in the "Scenes and n
 - **Only literal paths on self are resolved.** Non-literal `get_node`, paths on other objects, `find_child`, `get_child(i)` and exported Node members are counted but not resolved.
 - **The structure excludes ancestors and does not compare node properties, groups or signals.** Types are compared as (native type, script).
 - **The game code is concentrated in a few repositories.** 24 of the 34 key scripts come from two repositories. The five added games are not a random sample.
-- **The purpose classification is a judgment.** An AI agent read and classified the scripts; the quoted code and scene contents were checked against the source files.
+- **The purpose classification is a judgment made by reading.** An AI agent read and classified the scripts; the quoted code and scene contents were checked against the source files.
 
 ## Reproducing
 
