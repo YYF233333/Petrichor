@@ -204,7 +204,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 
 - struct 具有值语义：赋值、传参和返回都复制。只存在于本语言内部。
 - 构造时只能按名字传参，有默认值的字段可以省略（§2.4）。【后续】位置参数。
-- 跨越引擎边界（信号参数、Variant、跨语言消息）时，自动编码为按字段名的 Dictionary；解码时检查每个字段的存在和类型，并深入容器和嵌套的 struct，例如 `Dictionary[String, ConsumableState]`。字段的解码规则与 `T.try_from` 相同（§5.3）。
+- 跨越引擎边界（信号参数、Variant、跨语言消息）时，自动编码为按字段名的 Dictionary，键为 String，使编码经过 JSON 往返后不变；解码时检查每个字段的存在和类型，并深入容器和嵌套的 struct，例如 `Dictionary[String, ConsumableState]`。字段的解码规则与 `T.try_from` 相同（§5.3）。
 - 【已知限制】第一版 struct 不能 `@export`，也不能存入 `.tres`；需要在编辑器中编辑的数据使用 Resource。
 - 方法：struct 可以声明 `func` 和 `static func`。方法中的 self 只读，给 self 的字段赋值是编译错误；需要修改时返回修改后的副本。理由：修改 self 的方法要求调用处是能写回的位置，在临时值、经 getter 读出的属性和循环变量上调用时，要么报错，要么悄悄改了副本。【后续】修改 self 的方法。
 - 字段和方法在 struct 可见的地方都可见（§4.2）。【后续】更严的 `private`。
@@ -234,7 +234,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 - 无载荷的 enum 与 GDScript 相同。
 - 带载荷的分支，载荷字段必须命名，例如 `MOVE(target: Vector3)`。命名使编码不随字段顺序改变。
 - 对 enum 的 match 必须穷尽或带 `_`（§5.6）。新增分支时，编译器列出所有没有处理它的位置。
-- 引擎看到的形式见 §10.1：无载荷的 enum 为 int，导出时显示为下拉框；带载荷的 enum 编码为按字段名的 Dictionary，用一个保留键记录分支名。保留键的名字【待定】。
+- 引擎看到的形式见 §10.1：无载荷的 enum 为 int，导出时显示为下拉框；带载荷的 enum 编码为按字段名的 Dictionary，保留键 `"$variant"` 记录分支名的字符串，例如 `Command.MOVE(target = p)` 编码为 `{"$variant": "MOVE", "target": p}`，`Command.IDLE` 编码为 `{"$variant": "IDLE"}`。`$variant` 不是合法的标识符，所以不会与字段名冲突；记录分支名而不是序号，使编码不随分支顺序改变。
 - 带载荷的 enum 的 `==` 先比较分支，再逐字段比较；哈希与 `==` 一致。
 - 载荷字段只能经 match 取出（§5.6），不能写 `c.target`；所以载荷不能原地修改，只能构造新值。
 - 【已知限制】第一版带载荷的 enum 不能有方法，因为花括号写法中没有放函数体的位置，相关函数写在所属的类中；也不能 `@export`，理由与 struct 相同（§3.6）。
@@ -752,8 +752,8 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | `int?` 等可空值 | 无类型的 Variant |
 | 元素可由引擎表示的 `Array[T]`、`Dictionary[K, V]` | 引擎的带类型容器 |
 | 无载荷的 enum | int；导出时显示为下拉框 |
-| struct | 按字段名编码的 Dictionary |
-| 带载荷的 enum | 按字段名编码的 Dictionary，用一个保留键记录分支名 |
+| struct | 按字段名编码的 Dictionary，键为 String |
+| 带载荷的 enum | 按字段名编码的 Dictionary，保留键 `"$variant"` 记录分支名（§3.7） |
 
 - GDScript 通过 Script 的反射接口为其他语言的全局类定型（`modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063`），所以 GDScript 调用本语言的类时同样有静态检查。
 - **入口检查**：值从引擎、GDScript 或 C# 进入本语言的位置（参数、`set` 写入成员、信号的实参、await 的结果、解码），按声明的类型检查，失败是程序错误。远程检查器的写入也经过入口检查（§7.5）。
@@ -936,7 +936,6 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 
 | 问题 | 章节 |
 |---|---|
-| 带载荷的 enum 编码时，记录分支名的保留键叫什么 | §3.7 |
 | await 签名未知的信号时，结果是什么类型 | §9.6 |
 | 被等待的对象被释放时，等待方结束为取消还是失败 | §9.2、§9.7 |
 | 怎样不等待地调用 GDScript 协程 | §9.8 |
@@ -978,7 +977,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 程序错误 | `_process` 往下两层调用中的程序错误中止这两层和 `_process`，下一帧照常调用 `_process`；需要返回值的入口，引擎得到该类型的默认值；除 `assert` 外，程序在 debug 和 release 构建中行为相同 |
 | 断言 | debug 构建中 `assert(false)` 是程序错误；release 构建中 `assert(f())` 不调用 f；`assert(await t)` 报编译错误；`assert(save_data)` 在 save_data 为 `Resource?` 时报编译错误并给出 `save_data != None` |
 | 协程 | 含 await 而未声明 async 报编译错误；丢弃 async 调用的结果报编译错误，`f().detach()` 合法；`cancel()` 之后结果一定是取消；`await f(...)` 启动的子任务随父任务取消，`await t` 只停止等待；被等待的对象被释放时等待方不会永远挂起；所属对象被释放时协程静默取消 |
-| 引擎边界 | 未审核的、返回对象的引擎方法类型为 `T?`；`get_tree()` 非空，`get_collider()` 可空；GDScript 向非空参数传入 null 是程序错误；远程检查器向非空成员写入 null 时原值不变；经信号传出的 struct 是按字段名编码的 Dictionary |
+| 引擎边界 | 未审核的、返回对象的引擎方法类型为 `T?`；`get_tree()` 非空，`get_collider()` 可空；GDScript 向非空参数传入 null 是程序错误；远程检查器向非空成员写入 null 时原值不变；经信号传出的 struct 是按字段名编码的 Dictionary，`Command.MOVE(target = p)` 是 `{"$variant": "MOVE", "target": p}` |
 | 工具函数 | `min(1.5, 1)` 报编译错误并给出 `min(1.5, 1.0)`；`lerp(a, b, t)` 的结果与 a 同类型；`find_children("*", "MeshInstance3D")` 为 `Array[MeshInstance3D]` |
 | 字符串 | 期望 StringName 的字面量在编译期构造；`&"a" == "a"` 为真；字面量成员名不存在时报编译错误，并参与重命名 |
 | 跨语言 | GDScript 文件继承本语言的类时，分析服务在该文件上报错并说明原因；await GDScript 协程得到按声明类型检查的结果；GDScript await 本语言的协程，在取消时得到 null 而不挂起 |

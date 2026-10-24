@@ -204,7 +204,7 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 
 - Structs have value semantics: assignment, argument passing and return copy them. They exist only inside this language.
 - Construction takes arguments by name only, and fields with defaults may be omitted (§2.4). [Later] Positional arguments.
-- When crossing the engine boundary (signal arguments, Variant, cross-language messages), a struct is encoded automatically as a Dictionary keyed by field name; decoding checks the presence and type of every field and descends into containers and nested structs, as in `Dictionary[String, ConsumableState]`. Fields are decoded by the same rules as `T.try_from` (§5.3).
+- When crossing the engine boundary (signal arguments, Variant, cross-language messages), a struct is encoded automatically as a Dictionary keyed by field name, with String keys so that the encoding survives a JSON round trip; decoding checks the presence and type of every field and descends into containers and nested structs, as in `Dictionary[String, ConsumableState]`. Fields are decoded by the same rules as `T.try_from` (§5.3).
 - [Known limitation] In the first version structs cannot be `@export`ed or stored in `.tres`; data edited in the editor uses Resource.
 - Methods: a struct can declare `func` and `static func`. Inside methods self is read-only, and assigning to a field of self is a compile error; a method that needs a change returns a modified copy. Rationale: a method that modifies self needs a call site that can be written back, and called on a temporary, on a property read through a getter, or on a loop variable, it would either be an error or silently modify a copy. [Later] Methods that modify self.
 - Fields and methods are visible wherever the struct is (§4.2). [Later] A stricter `private`.
@@ -234,7 +234,7 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 - Enums without payloads are as in GDScript.
 - Payload fields of a variant must be named, as in `MOVE(target: Vector3)`. Naming keeps the encoding independent of field order.
 - A match over an enum must be exhaustive or have `_` (§5.6). When a variant is added, the compiler lists every place that does not handle it.
-- What the engine sees is in §10.1: an enum without payloads is an int and is shown as a drop-down when exported; an enum with payloads is encoded as a Dictionary keyed by field name, with a reserved key recording the variant name. The name of the reserved key is [Open].
+- What the engine sees is in §10.1: an enum without payloads is an int and is shown as a drop-down when exported; an enum with payloads is encoded as a Dictionary keyed by field name, where the reserved key `"$variant"` holds the variant name as a string; for example, `Command.MOVE(target = p)` is encoded as `{"$variant": "MOVE", "target": p}`, and `Command.IDLE` as `{"$variant": "IDLE"}`. `$variant` is not a valid identifier, so it cannot clash with a field name; recording the name rather than an ordinal keeps the encoding independent of the order of variants.
 - `==` on an enum with payloads compares the variant first and then the fields one by one; hashing agrees with `==`.
 - Payload fields can be taken out only through match (§5.6), not as `c.target`; so payloads cannot be modified in place, and a new value is constructed instead.
 - [Known limitation] In the first version enums with payloads cannot have methods, because the brace form has no place for function bodies, so related functions go in the enclosing class; nor can they be `@export`ed, for the same reason as structs (§3.6).
@@ -752,8 +752,8 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 | nullable values such as `int?` | an untyped Variant |
 | `Array[T]` and `Dictionary[K, V]` with engine-representable elements | the engine's typed containers |
 | enums without payloads | int; shown as a drop-down when exported |
-| structs | Dictionaries keyed by field name |
-| enums with payloads | Dictionaries keyed by field name, with a reserved key recording the variant name |
+| structs | Dictionaries keyed by field name, with String keys |
+| enums with payloads | Dictionaries keyed by field name, with the reserved key `"$variant"` holding the variant name (§3.7) |
 
 - GDScript types global classes of other languages through the Script reflection interface (`modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063`), so GDScript's calls into classes of this language are statically checked too.
 - **Entry checks**: wherever a value enters this language from the engine, GDScript or C# (arguments, `set` writes to members, signal arguments, results of await, decoding), it is checked against the declared type, and a failure is a program error. Writes by the remote inspector go through entry checks too (§7.5).
@@ -936,7 +936,6 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 
 | Question | Section |
 |---|---|
-| The name of the reserved key that records the variant name when an enum with payloads is encoded | §3.7 |
 | The type of the result of awaiting a signal whose signature is unknown | §9.6 |
 | Whether a waiter ends as cancelled or failed when the awaited object is freed | §9.2, §9.7 |
 | How to call a GDScript coroutine without waiting for it | §9.8 |
@@ -978,7 +977,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Program errors | A program error two calls below `_process` aborts both frames and `_process`, and the next frame calls `_process` again; an engine entry point that must return a value gives the engine the default of its type; apart from `assert`, a program behaves the same in debug and release builds |
 | Assertions | In debug builds `assert(false)` is a program error; in release builds `assert(f())` does not call f; `assert(await t)` is a compile error; `assert(save_data)` with save_data a `Resource?` is a compile error offering `save_data != None` |
 | Coroutines | await without async is a compile error; discarding the result of an async call is a compile error, while `f().detach()` is valid; after `cancel()` the outcome is always cancelled; a child task started with `await f(...)` is cancelled with its parent, while `await t` only stops waiting; when an awaited object is freed the waiter is not left suspended forever; when the owning object is freed the coroutine is cancelled silently |
-| Engine boundary | An unaudited engine method returning an object has type `T?`; `get_tree()` is non-null and `get_collider()` is nullable; GDScript passing null to a non-null parameter is a program error; the remote inspector writing null to a non-null member leaves the value unchanged; a struct emitted through a signal arrives as a Dictionary keyed by field name |
+| Engine boundary | An unaudited engine method returning an object has type `T?`; `get_tree()` is non-null and `get_collider()` is nullable; GDScript passing null to a non-null parameter is a program error; the remote inspector writing null to a non-null member leaves the value unchanged; a struct emitted through a signal arrives as a Dictionary keyed by field name, and `Command.MOVE(target = p)` as `{"$variant": "MOVE", "target": p}` |
 | Utility functions | `min(1.5, 1)` is a compile error offering `min(1.5, 1.0)`; `lerp(a, b, t)` has a's type; `find_children("*", "MeshInstance3D")` is `Array[MeshInstance3D]` |
 | Strings | A literal where StringName is expected is constructed at compile time; `&"a" == "a"` is true; a literal member name that does not exist is a compile error and takes part in rename |
 | Cross-language | A GDScript file extending a class of this language gets an explanatory error from the analysis service; awaiting a GDScript coroutine yields a result checked against the declared type; GDScript awaiting a coroutine of this language gets null on cancellation instead of hanging |
