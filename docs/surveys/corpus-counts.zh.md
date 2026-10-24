@@ -18,8 +18,9 @@
 | `static var` 与 `_static_init` | `static var` 188 处，`_static_init` 4 个 | §4.8：静态成员沿用 GDScript 的写法和时机 |
 | `NOTIFICATION_PREDELETE` | 40 处，其中 32 处在 gdUnit4 | §6.6：析构不新增语法 |
 | `Thread.new` 与 `WorkerThreadPool` | `Thread.new` 5 处，`WorkerThreadPool` 2 处 | §12.3：第一版不新增线程 API |
+| 自身的 `get_parent()` 与 `owner` | `get_parent()` 174 处，其中直接访问成员 62 处，分布在 46 个文件；判断为空 3 处，经阅读都在处理没有父节点的情况，其中 beehave 的 `beehave_tree.gd:91` 在节点挂到父节点之前执行的 setter 中调用 `get_parent()`。`owner` 直接访问成员 49 处，分布在 21 个文件；判断为空 0 处 | §7.3：未声明 `@parent`、`@owner` 时，`get_parent()` 和 `owner` 的类型为 `Node?` |
 
-计数基于词法分析，不做类型解析；`!` 只计不紧跟 `=` 的。`...` 在 GDScript 中只出现在函数签名里（`modules/gdscript/gdscript_parser.cpp:1714, 4336`），所以紧跟名字的 `...` 都是剩余参数。协程指函数体中有 await 的方法，只在同一文件中查找对它的引用，不计场景中的信号连接。
+计数基于词法分析，不做类型解析；`!` 只计不紧跟 `=` 的。`...` 在 GDScript 中只出现在函数签名里（`modules/gdscript/gdscript_parser.cpp:1714, 4336`），所以紧跟名字的 `...` 都是剩余参数。协程指函数体中有 await 的方法，只在同一文件中查找对它的引用，不计场景中的信号连接。`get_parent()` 和 `owner` 只计在自身上的使用，即前面没有 `.` 的；判断为空包括与 null 比较、用作条件和传给 `is_instance_valid`，以及在其后 25 行内对赋得其值的变量做这些判断。
 
 ## 复现
 

@@ -530,7 +530,7 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 ### 6.4 Ready order
 
 - Children become ready before their parent, following the engine's order (`scene/main/node.cpp:326-337`); no lifecycle hooks are added.
-- When a child reads, in its `_ready`, a member of its parent that is not initialized yet, it is a program error whose diagnostic explains the cause and suggests two rewrites: have the parent configure the child in its own `_ready` (§6.2), or declare the child's `_ready` async and `await get_parent().ready`.
+- When a child reads, in its `_ready`, a member of its parent that is not initialized yet, it is a program error whose diagnostic explains the cause and suggests two rewrites: have the parent configure the child in its own `_ready` (§6.2), or declare the child's `_ready` async, declare `@parent(T)`, and `await get_parent().ready`.
 - Such a read is legal when a child is added at runtime under a parent that is already ready, so it is not rejected wholesale at compile time.
 - Re-entering the tree does not run `_ready` again, as in the engine (`node.cpp:334-336, 454`). Evidence: [pitfall catalog](surveys/pitfalls.en.md) G-03, G-05.
 
@@ -596,7 +596,7 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 ### 7.3 Upward access
 
 - Autoloads are accessed by their global names, typed as the class of their script (§11.1). Accessing an autoload through a literal path of the form `/root/X` is a compile error, and the quick fix rewrites it to the global name X.
-- Parent and owner requirements are written as the class-level annotations `@parent(T)` and `@owner(T)`, placed where `@tool` goes. `get_parent()`, `..` and `owner` then have type T; without a declaration they are Node, and an explicit conversion is needed for a more specific type (§5.3).
+- Parent and owner requirements are written as the class-level annotations `@parent(T)` and `@owner(T)`, placed where `@tool` goes. With a declaration, `get_parent()`, `$".."` and `owner` have type T. Without one, `get_parent()` and `owner` have type `Node?`, as in the engine: having no parent or owner is a normal state of a node, and the engine then returns null without an error (`scene/main/node.cpp:2118-2120, 2328-2330`); `$".."` and `get_node("..")` have type Node, because GDScript reports an error there too when there is no parent. Without a declaration, `get_parent().x` or `owner.x` is a compile error; the quick fix infers the common type of the parent or owner from the scene model and adds `@parent(T)` or `@owner(T)` to the class, or rewrites the call site with `.unwrap()`. Evidence: in the [corpus counts](surveys/corpus-counts.en.md), `get_parent()` on self occurs 174 times, 62 of them accessing a member directly, in 46 files; `owner` has a member accessed directly 49 times, in 21 files. 3 more places handle a missing parent, among them a beehave setter that runs before the node is attached to its parent, where `get_parent()` yields null.
 
   ```gdscript
   @owner(Combat.Combatant)
@@ -606,11 +606,11 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
       current_health = owner.init_health
   ```
 
-- The static check happens where scenes place the script. The owner is the root of the scene that contains the node; when a scene's root is instanced into another scene, its owner is the root of the outer scene (`scene/resources/packed_scene.cpp:640-643`). A script on the root of a scene used as a root (§7.5) has no owner, and such a scene using a script that declares `@owner` is a compile error marked on that scene.
+- The static check happens where scenes place the script. A parent requirement checks the node's parent in the scene, and the outer parent when the scene's root is instanced into another scene, and a mismatch is a compile error marked on that scene; for the main scene the parent is the root viewport, of type Window, which is checked the same way; for other scenes used as a root the parent is known only at runtime, and the check happens only at runtime. The owner is the root of the scene that contains the node; when a scene's root is instanced into another scene, its owner is the root of the outer scene (`scene/resources/packed_scene.cpp:640-643`). A script on the root of a scene used as a root (§7.5) has no owner, and such a scene using a script that declares `@owner` is a compile error marked on that scene.
 - At runtime:
-  - the parent requirement is checked when the node is attached to a parent (`NOTIFICATION_PARENTED`, `scene/main/node.h:466`);
-  - `owner` is checked on every read to be non-null and to satisfy the requirement, and to be non-null when no `@owner` is declared; a failure is a program error whose diagnostic names the requirement and the actual owner. Owner is not checked when nodes move: when a node is taken out of its owner's subtree, the engine sets owner to null (`scene/main/node.cpp:391-396, 1799-1801`), and that is a legitimate operation, for example Ring's DeathComponent reads its owner and then moves itself to the foreground layer; owner is also set to null when the owner is freed (`node.cpp:299-302`).
-- Code that needs to test whether there is an owner uses `get_owner()`, whose type is `Node?`.
+  - the parent requirement is checked when the node is attached to a parent (`NOTIFICATION_PARENTED`, `scene/main/node.h:466`); calling `get_parent()` on a node that declares `@parent(T)` while it has no parent is a program error;
+  - with `@owner(T)` declared, `owner` is checked on every read to be non-null and to satisfy the requirement; a failure is a program error whose diagnostic names the requirement and the actual owner. Owner is not checked when nodes move: when a node is taken out of its owner's subtree, the engine sets owner to null (`scene/main/node.cpp:391-396, 1799-1801`), and that is a legitimate operation, for example Ring's DeathComponent reads its owner and then moves itself to the foreground layer; owner is also set to null when the owner is freed (`node.cpp:299-302`).
+- `get_owner()` and `get_node_or_null("..")` always have type `Node?`; code that declares a requirement uses them to test whether there is an owner or a parent.
 
 ### 7.4 Scene resources
 
@@ -788,8 +788,8 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 - Object types in engine APIs that the binding metadata (§10.3) has not audited are nullable.
 - Audits start with the most frequently called APIs and have three outcomes:
   - non-null, typed T;
-  - null only on misuse, such as `get_tree()`: treated as non-null, and a null is a program error;
-  - possibly null in normal use, such as `get_collider()` and `get_first_node_in_group()`: typed `T?`.
+  - null only on misuse, that is, the engine reports an error when it returns null, such as `get_tree()` (`scene/main/node.h:559-562`): treated as non-null, and a null is a program error;
+  - possibly null in normal use, such as `get_collider()`, `get_first_node_in_group()` and `get_parent()`: typed `T?`.
 - Rationale: the engine marks return values that are "null only on error" with `RequiredResult` (`core/object/object.h:950-952`), and only about 50 API declarations use it, 29 of them in Tween.
 
 ### 10.3 Binding metadata
@@ -1000,7 +1000,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Must-assign | `BulletScene.instantiate(speed = 300.0)` without `target` is a compile error; an ancestor assigning `$Child.target = v` in `_ready` is not an error; the child reading that member in its own `_ready` is a compile error; reading an unassigned member before ready is a program error |
 | Setters before ready | A value saved in a scene makes the setter suspend where it accesses an `@onready` member and continue after ready; when a write of `"Hi"` before ready suspends and a later write of None does not, the `"Hi"` call is cancelled; a setter calling a method that starts with `if not is_node_ready(): return` does not suspend; a setter that transforms and then stores its value is read as transformed before ready; suspended calls are dropped when the node is freed before ready |
 | Leaks | A node removed and neither stored nor freed gets a warning; a closure capturing self stored in a member of self gets a warning with a `weak` quick fix; debug builds list leaked objects and where they were created on exit |
-| Scene typing | `$Head/Camera` is typed Camera3D from the scene; two scenes giving different types is a compile error; a path that cannot be found is marked on the scene lacking the node; a base scene used only for inheritance lacking a node all its inheriting scenes have is not an error, while a preloaded placeholder scene lacking it is; `get_node_or_null("X")` missing in some scenes is typed `T?` without error; `$X` found in no scene is a compile error, and `get_node_or_null("X")` yields `Node?` with a warning; `/root/X` is a compile error offering the autoload's global name; a component scene declaring `@owner(T)` is valid when instanced into another scene and a compile error when used as a root; after a node leaves its owner's subtree, not reading owner is fine and reading it is a program error |
+| Scene typing | `$Head/Camera` is typed Camera3D from the scene; two scenes giving different types is a compile error; a path that cannot be found is marked on the scene lacking the node; a base scene used only for inheritance lacking a node all its inheriting scenes have is not an error, while a preloaded placeholder scene lacking it is; `get_node_or_null("X")` missing in some scenes is typed `T?` without error; `$X` found in no scene is a compile error, and `get_node_or_null("X")` yields `Node?` with a warning; `/root/X` is a compile error offering the autoload's global name; a component scene declaring `@owner(T)` is valid when instanced into another scene and a compile error when used as a root; after a node declaring `@owner(T)` leaves its owner's subtree, not reading owner is fine and reading it is a program error; without `@parent`, `get_parent().add_child(x)` is a compile error whose quick fix adds `@parent(T)`; `var p = get_parent()` on a detached node yields None; a node declaring `@parent(Node2D)` placed under a Control in a scene is a compile error |
 | Export checks | `crosshair` in player.tscn assigned by the instance in main.tscn is not an error; an instance without the value is marked on the scene containing it; a scene referenced from nowhere gets only a warning and does not block export; a missing value at runtime is a program error at ready naming the member |
 | Resources | Modifying a shared resource gives a warning with two quick fixes; `duplicate()` keeps the static type; a `preload` cycle is a compile error |
 | Program errors | A program error two calls below `_process` aborts both frames and `_process`, and the next frame calls `_process` again; an engine entry point that must return a value gives the engine the default of its type; apart from `assert`, a program behaves the same in debug and release builds |
@@ -1056,6 +1056,7 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | The script language's per-frame callback is called after the scene tree has flushed its deletion queue | `main/main.cpp:5150-5153`; `core/object/script_language_extension.h:750`; `scene/main/scene_tree.cpp:736` |
 | The parameters of `_process` and `_physics_process` are double | `scene/main/node.h:433-434` |
 | `NOTIFICATION_PARENTED` | `scene/main/node.h:466` |
+| `get_tree()` reports an error and returns null when the node is not in a tree; `get_parent()` and `get_owner()` return null without an error when there is no parent or owner | `scene/main/node.h:559-562`; `scene/main/node.cpp:2118-2120, 2328-2330` |
 | When a node leaves its owner's subtree, its owner is set to null | `scene/main/node.cpp:391-396, 1799-1801` |
 | When an owner is freed, the owner of the nodes it owns is set to null | `scene/main/node.cpp:299-302` |
 | In PREDELETE a node deletes its children one by one, starting from the last | `scene/main/node.cpp:308-312` |

@@ -18,8 +18,9 @@ Some rules in the specification need only a single count as evidence. This docum
 | `static var` and `_static_init` | 188 `static var`, 4 `_static_init` | §4.8: static members keep GDScript's spelling and timing |
 | `NOTIFICATION_PREDELETE` | 40, 32 of them in gdUnit4 | §6.6: no new syntax for destruction |
 | `Thread.new` and `WorkerThreadPool` | 5 `Thread.new`, 2 `WorkerThreadPool` | §12.3: the first version adds no threading API |
+| `get_parent()` and `owner` on self | 174 `get_parent()`, 62 of them accessing a member directly, in 46 files; 3 tests for null, all of which, on reading, handle a missing parent; one is beehave's `beehave_tree.gd:91`, which calls `get_parent()` in a setter that runs before the node is attached to its parent. 49 direct member accesses on `owner`, in 21 files; 0 tests for null | §7.3: without `@parent` or `@owner`, `get_parent()` and `owner` have type `Node?` |
 
-The counts come from lexical analysis without type resolution; `!` is counted only when not directly followed by `=`. In GDScript `...` appears only in function signatures (`modules/gdscript/gdscript_parser.cpp:1714, 4336`), so every `...` directly followed by a name is a rest parameter. A coroutine is a method whose body contains await; references to it are looked for only in the same file, and signal connections in scenes are not counted.
+The counts come from lexical analysis without type resolution; `!` is counted only when not directly followed by `=`. In GDScript `...` appears only in function signatures (`modules/gdscript/gdscript_parser.cpp:1714, 4336`), so every `...` directly followed by a name is a rest parameter. A coroutine is a method whose body contains await; references to it are looked for only in the same file, and signal connections in scenes are not counted. `get_parent()` and `owner` are counted only on self, that is, when not preceded by `.`; a test for null is a comparison with null, use as a condition or as the argument of `is_instance_valid`, and also such a test, within the next 25 lines, of a variable assigned from them.
 
 ## Reproduction
 

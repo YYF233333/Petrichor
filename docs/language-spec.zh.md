@@ -530,7 +530,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 ### 6.4 就绪顺序
 
 - 子节点先于父节点就绪，沿用引擎的顺序（`scene/main/node.cpp:326-337`），不新增生命周期钩子。
-- 子节点在 `_ready` 中读到父节点尚未初始化的成员时，是程序错误，诊断说明原因并给出两种改法：由父节点在自己的 `_ready` 中配置子节点（§6.2）；或把子节点的 `_ready` 声明为 async，并 `await get_parent().ready`。
+- 子节点在 `_ready` 中读到父节点尚未初始化的成员时，是程序错误，诊断说明原因并给出两种改法：由父节点在自己的 `_ready` 中配置子节点（§6.2）；或把子节点的 `_ready` 声明为 async，声明 `@parent(T)`，并 `await get_parent().ready`。
 - 子节点在运行时加到已就绪的父节点下时，这样的读取是合法的，因此不在编译期一概报错。
 - 节点重新入树时不再执行 `_ready`，与引擎一致（`node.cpp:334-336, 454`）。依据：[暗坑清单](surveys/pitfalls.zh.md) G-03、G-05。
 
@@ -596,7 +596,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 ### 7.3 向上访问
 
 - autoload 用其全局名访问，类型为其脚本的类（§11.1）。以 `/root/X` 形式的字面量路径访问 autoload 是编译错误，快速修复改为全局名 X。
-- 父节点和 owner 的要求写作类级注解 `@parent(T)`、`@owner(T)`，与 `@tool` 放在同一位置。`get_parent()`、`..` 和 `owner` 因此具有类型 T；未声明时为 Node，转为具体类型须显式转换（§5.3）。
+- 父节点和 owner 的要求写作类级注解 `@parent(T)`、`@owner(T)`，与 `@tool` 放在同一位置。声明后，`get_parent()`、`$".."` 和 `owner` 具有类型 T。未声明时，`get_parent()` 和 `owner` 的类型为 `Node?`，与引擎一致：没有父节点或 owner 是节点的正常状态，引擎这时返回 null 而不报错（`scene/main/node.cpp:2118-2120, 2328-2330`）；`$".."` 和 `get_node("..")` 的类型为 Node，因为 GDScript 在没有父节点时同样报错。未声明时写 `get_parent().x` 或 `owner.x` 是编译错误，快速修复按场景模型推断出父节点或 owner 的公共类型，在类上补 `@parent(T)` 或 `@owner(T)`，也可以在调用处改为 `.unwrap()`。依据：[语料计数](surveys/corpus-counts.zh.md)中，自身的 `get_parent()` 有 174 处，其中 62 处直接访问成员，分布在 46 个文件中；`owner` 直接访问成员 49 处，分布在 21 个文件中。另有 3 处处理了没有父节点的情况，其中 beehave 的 setter 在节点挂到父节点之前执行，`get_parent()` 在那里得到 null。
 
   ```gdscript
   @owner(Combat.Combatant)
@@ -606,11 +606,11 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
       current_health = owner.init_health
   ```
 
-- 静态检查在场景中放置该脚本的位置进行。owner 是包含该节点的场景的根节点；场景的根被实例化到另一个场景中时，owner 是外层场景的根（`scene/resources/packed_scene.cpp:640-643`）。脚本挂在作为根使用（§7.5）的场景的根上时没有 owner，这样的场景使用声明了 `@owner` 的脚本是编译错误，标在该场景上。
+- 静态检查在场景中放置该脚本的位置进行。父节点要求检查节点在场景中的父节点，以及场景的根被实例化到另一个场景中时外层的父节点，不符合时是编译错误，标在该场景上；场景作为主场景时，父节点是 Window 类型的根视口，同样检查；其他作为根使用的场景，父节点要到运行时才知道，只在运行时检查。owner 是包含该节点的场景的根节点；场景的根被实例化到另一个场景中时，owner 是外层场景的根（`scene/resources/packed_scene.cpp:640-643`）。脚本挂在作为根使用（§7.5）的场景的根上时没有 owner，这样的场景使用声明了 `@owner` 的脚本是编译错误，标在该场景上。
 - 运行时：
-  - 父节点要求在节点挂到父节点时检查（`NOTIFICATION_PARENTED`，`scene/main/node.h:466`）；
-  - `owner` 在每次读取时检查不为 null 且符合要求，没有声明 `@owner` 时也检查不为 null；失败是程序错误，诊断写明要求和实际的 owner。不在移动节点时检查 owner：节点被移出 owner 的子树时，引擎把 owner 置为 null（`scene/main/node.cpp:391-396, 1799-1801`），这是合法的操作，例如 Ring 的 DeathComponent 先读 owner，再把自己移到前景层；owner 被释放时同样置为 null（`node.cpp:299-302`）。
-- 需要判断有没有 owner 的代码使用 `get_owner()`，其类型为 `Node?`。
+  - 父节点要求在节点挂到父节点时检查（`NOTIFICATION_PARENTED`，`scene/main/node.h:466`）；声明了 `@parent(T)` 的节点在没有父节点时调用 `get_parent()`，是程序错误；
+  - 声明了 `@owner(T)` 时，`owner` 在每次读取时检查不为 null 且符合要求；失败是程序错误，诊断写明要求和实际的 owner。不在移动节点时检查 owner：节点被移出 owner 的子树时，引擎把 owner 置为 null（`scene/main/node.cpp:391-396, 1799-1801`），这是合法的操作，例如 Ring 的 DeathComponent 先读 owner，再把自己移到前景层；owner 被释放时同样置为 null（`node.cpp:299-302`）。
+- `get_owner()` 和 `get_node_or_null("..")` 的类型总是 `Node?`，声明了要求的代码需要判断有没有 owner 或父节点时使用它们。
 
 ### 7.4 场景资源
 
@@ -788,8 +788,8 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 - 绑定元数据（§10.3）尚未审核的引擎 API 中，对象类型一律可空。
 - 审核从调用最频繁的 API 开始，结果分三种：
   - 非空，类型为 T；
-  - 只在误用时为空，例如 `get_tree()`：按非空处理，为空时是程序错误；
-  - 正常情况下可能为空，例如 `get_collider()`、`get_first_node_in_group()`：类型为 `T?`。
+  - 只在误用时为空，即引擎在返回 null 的同时报错，例如 `get_tree()`（`scene/main/node.h:559-562`）：按非空处理，为空时是程序错误；
+  - 正常情况下可能为空，例如 `get_collider()`、`get_first_node_in_group()`、`get_parent()`：类型为 `T?`。
 - 理由：引擎用 `RequiredResult` 标注“只在出错时为 null”的返回值（`core/object/object.h:950-952`），这样的 API 声明只有约 50 处，其中 29 处在 Tween。
 
 ### 10.3 绑定元数据
@@ -1000,7 +1000,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 必须赋值 | `BulletScene.instantiate(speed = 300.0)` 漏写 `target` 报编译错误；祖先在 `_ready` 中经 `$Child.target = v` 赋值时不报错；子节点在自己的 `_ready` 中读取该成员报编译错误；就绪前读取未赋值的成员是程序错误 |
 | 就绪前的 setter | 场景中保存的值使 setter 在访问 `@onready` 成员处挂起，就绪后继续；就绪前先写入 `"Hi"` 而挂起、再写入 None 而不挂起时，`"Hi"` 那次调用被取消；setter 调用以 `if not is_node_ready(): return` 开头的方法时不挂起；先变换再存储的 setter 就绪前读到变换后的值；节点就绪前被释放时挂起的调用被丢弃 |
 | 泄漏 | 移出后未保存也未释放的节点给出警告；捕获 self 的闭包存入 self 的成员时给出警告和 `weak` 的快速修复；debug 构建退出时列出泄漏的对象和创建位置 |
-| 场景定型 | `$Head/Camera` 按场景定为 Camera3D；两个场景给出不同类型时报编译错误；找不到的路径标在缺少该节点的场景上；只被继承的基础场景缺少继承它的场景都有的节点时不报错，被 preload 的占位场景缺少时报错；`get_node_or_null("X")` 在部分场景中缺失时类型为 `T?` 且不报错；任何场景中都没有的 `$X` 报编译错误，`get_node_or_null("X")` 得 `Node?` 并给出警告；`/root/X` 报编译错误并给出 autoload 全局名；声明 `@owner(T)` 的组件场景被实例化到别的场景中时合法，作为根使用时报编译错误；节点移出 owner 的子树后不读 owner 不报错，读取时是程序错误 |
+| 场景定型 | `$Head/Camera` 按场景定为 Camera3D；两个场景给出不同类型时报编译错误；找不到的路径标在缺少该节点的场景上；只被继承的基础场景缺少继承它的场景都有的节点时不报错，被 preload 的占位场景缺少时报错；`get_node_or_null("X")` 在部分场景中缺失时类型为 `T?` 且不报错；任何场景中都没有的 `$X` 报编译错误，`get_node_or_null("X")` 得 `Node?` 并给出警告；`/root/X` 报编译错误并给出 autoload 全局名；声明 `@owner(T)` 的组件场景被实例化到别的场景中时合法，作为根使用时报编译错误；声明 `@owner(T)` 的节点移出 owner 的子树后不读 owner 不报错，读取时是程序错误；未声明 `@parent` 时 `get_parent().add_child(x)` 报编译错误，快速修复补上 `@parent(T)`；游离节点上 `var p = get_parent()` 得 None；声明 `@parent(Node2D)` 的节点在场景中挂在 Control 下时报编译错误 |
 | 导出检查 | player.tscn 的 `crosshair` 由 main.tscn 的实例赋值时不报错；某个实例没有赋值时标在该实例所在的场景上；没有被引用的场景只给警告且不阻止导出；运行中缺值时就绪报程序错误并写明成员名 |
 | 资源 | 修改共享资源给出警告和两个快速修复；`duplicate()` 保持静态类型；`preload` 环报编译错误 |
 | 程序错误 | `_process` 往下两层调用中的程序错误中止这两层和 `_process`，下一帧照常调用 `_process`；需要返回值的入口，引擎得到该类型的默认值；除 `assert` 外，程序在 debug 和 release 构建中行为相同 |
@@ -1056,6 +1056,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 脚本语言的每帧回调在场景树处理完删除队列之后调用 | `main/main.cpp:5150-5153`；`core/object/script_language_extension.h:750`；`scene/main/scene_tree.cpp:736` |
 | `_process` 和 `_physics_process` 的参数是 double | `scene/main/node.h:433-434` |
 | `NOTIFICATION_PARENTED` | `scene/main/node.h:466` |
+| `get_tree()` 在节点不在树中时报错并返回 null；`get_parent()`、`get_owner()` 没有父节点或 owner 时返回 null 而不报错 | `scene/main/node.h:559-562`；`scene/main/node.cpp:2118-2120, 2328-2330` |
 | 节点移出 owner 的子树时 owner 被置为 null | `scene/main/node.cpp:391-396, 1799-1801` |
 | owner 被释放时，它拥有的节点的 owner 被置为 null | `scene/main/node.cpp:299-302` |
 | 节点在 PREDELETE 中从最后一个子节点起逐个删除子节点 | `scene/main/node.cpp:308-312` |

@@ -13,7 +13,10 @@ Counts, in first-party .gd files (blank and comment lines excluded from the line
     argument by name in the same file, and how many of those are `connect(name)`;
   - `assert(...)` statements, and those whose arguments contain `await`;
   - `is_instance_valid` (overall and per repository, per 1,000 lines), `static var`, `_static_init`,
-    `NOTIFICATION_PREDELETE`, `Thread.new` and `WorkerThreadPool`.
+    `NOTIFICATION_PREDELETE`, `Thread.new` and `WorkerThreadPool`;
+  - `get_parent()` called on self and `owner` read on self: member accesses on them (and the files that
+    have one), and tests for null (`== null`, `!= null`, as a condition, `is_instance_valid`), including
+    tests of a variable assigned from them within the next 25 lines.
 """
 import collections
 import os
@@ -23,6 +26,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import gdcorpus as G  # noqa: E402
 
 LAMBDA_PREV = {"(", ",", "=", ":", "[", "{", "return"}
+COND = {"if", "elif", "while", "not", "and", "or", "!"}
 OPEN, CLOSE = ("(", "[", "{"), (")", "]", "}")
 
 
@@ -50,11 +54,43 @@ def func_body(ts, i):
     return j + 1, k
 
 
+def tested(ts, i, j):
+    """Whether the expression ts[i:j] is tested for null."""
+    prev = ts[i - 1].v if i > 0 else ""
+    nxt = ts[j].v if j < len(ts) else ""
+    if nxt in ("==", "!=") and j + 1 < len(ts) and ts[j + 1].v == "null":
+        return True
+    if prev in COND and nxt in (":", "and", "or", ")"):
+        return True
+    return prev == "(" and i > 1 and ts[i - 2].v == "is_instance_valid" and nxt == ")"
+
+
+def parent_owner(ts, i, key, c, files, where):
+    """Count a self `get_parent()` or `owner` whose expression is ts[i:j]."""
+    j = i + 3 if key == "parent" else i + 1
+    c[key] += 1
+    if j < len(ts) and ts[j].v in (".", "["):
+        c[key + "_member"] += 1
+        files[key].add(where[0])
+        return
+    found = tested(ts, i, j)
+    if not found and i > 1 and ts[i - 1].v == "=" and ts[i - 2].k == "ID":
+        var, k = ts[i - 2].v, j
+        while k < len(ts) and ts[k].line <= ts[i].line + 25 and not found:
+            found = ts[k].v == var and tested(ts, k, k + 1)
+            k += 1
+    if found:
+        c[key + "_tested"] += 1
+        where[1].append(f"{where[0]}:{ts[i].line}")
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     c = collections.Counter()
     by_repo = collections.defaultdict(collections.Counter)
+    files = {"parent": set(), "owner": set()}
+    tested_at = []
     for name, _, _, group in G.REPOS:
         repo = G.Repo(sys.argv[1], name, group)
         for f in repo.files:
@@ -127,6 +163,11 @@ def main():
                         c["thread_new"] += 1
                     elif t.v == "WorkerThreadPool":
                         c["worker_pool"] += 1
+                    if i == 0 or ts[i - 1].v != ".":
+                        if t.v == "get_parent" and nxt == "(" and i + 2 < len(ts) and ts[i + 2].v == ")":
+                            parent_owner(ts, i, "parent", c, files, (f"{name}/{f}", tested_at))
+                        elif t.v == "owner" and nxt not in ("=", ":") and ts[i - 1].v not in ("var", "func", "(", ","):
+                            parent_owner(ts, i, "owner", c, files, (f"{name}/{f}", tested_at))
                 if t.k == "ID" and t.v == "null":
                     comparing = i > 1 and ts[i - 1].v == "=" and ts[i - 2].v in ("=", "!")
                     c["null_compare" if comparing else "null_other"] += 1
@@ -166,6 +207,10 @@ def main():
     print(f"NOTIFICATION_PREDELETE: {c['predelete']} ({predelete})")
     print(f"static var: {c['static_var']}; _static_init: {c['static_init']}; "
           f"Thread.new: {c['thread_new']}; WorkerThreadPool: {c['worker_pool']}")
+    for key, label in (("parent", "get_parent() on self"), ("owner", "owner on self")):
+        print(f"{label}: {c[key]}; member accesses {c[key + '_member']} in {len(files[key])} files; "
+              f"tested for null {c[key + '_tested']}")
+    print(f"tested for null at: {', '.join(tested_at)}")
 
 
 if __name__ == "__main__":
