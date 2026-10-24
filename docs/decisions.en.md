@@ -141,7 +141,8 @@ The questions raised in discussion and in the [second paper migration](surveys/p
 - The spelling of function types, including the types of async functions.
 - Which operations Variant allows: assignment, passing as an argument, `==`, `is`, `as`, conversions, and dynamic access by name.
 - Nested Options (`T??`): merged into one level, kept as two, or forbidden; for example, reading from a `Dictionary[K, V?]`.
-- Details of structs: whether they can have methods; which copy `s.x = 1` changes; `==`, and comparison and hashing as Dictionary keys. Enums with payloads raise the same questions.
+- Details of structs: whether they can have methods; which copy `s.x = 1` changes; `==`, and comparison and hashing as Dictionary keys. Enums with payloads raise the same questions, plus whether they can be `@export`ed (structs cannot in the first version, as decided).
+- The source file extension; the surveys use `.pet` provisionally.
 - Whether interfaces can extend interfaces, and whether they can be generic.
 - The rules for `==`: how int and float, objects and containers compare, and which combinations are compile errors.
 - Whether `assert` is removed in release builds as in GDScript; a failure is a program error.

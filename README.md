@@ -5,6 +5,7 @@ A statically typed scripting language for Godot, intended to replace GDScript an
 **Status:** the design was restarted on 2026-10-23. The current decisions are recorded in the design decisions document; specification v0.1 is frozen as a reference (git tag `spec-v0.1`). There is no implementation yet.
 
 - Design decisions: [English](docs/decisions.en.md) · [中文](docs/decisions.zh.md)
+- Specification v0.2 draft, rewritten from the decisions: [English](docs/language-spec-draft.en.md) · [中文](docs/language-spec-draft.zh.md)
 - Surveys:
   - [Do scripts see more than one scene structure?](docs/surveys/scene-structures.en.md) · [中文](docs/surveys/scene-structures.zh.md)
   - [How much code duplication do different native base classes force?](docs/surveys/cross-branch-duplication.en.md) · [中文](docs/surveys/cross-branch-duplication.zh.md)
