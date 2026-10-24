@@ -925,7 +925,8 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 - 需要判断的修改只报告并给出选项，不自动执行，例如改变节点类型、现有资源不再符合新类型。
 - 理由：否则导出成员改名后，场景中保存的值会静默丢失：加载时不检查 `node->set` 是否成功（`scene/resources/packed_scene.cpp:567`），保存时只写节点当前属性列表中的属性（`packed_scene.cpp:941-950`）。
 - 在场景编辑器中给节点改名或移动节点时：
-  - 本语言脚本中指向它的 `$X`、`%X` 和字面量 `get_node` 路径自动更新，与编辑器对场景中 NodePath 属性和动画轨道的更新（`editor/docks/scene_tree_dock.cpp:2173-2260, 2280-2400`）放在同一个撤销步骤中；
+  - 本语言脚本中指向它的 `$X`、`%X` 和字面量 `get_node` 路径自动更新，与编辑器对场景中 NodePath 属性和动画轨道的更新（`editor/docks/scene_tree_dock.cpp:2173-2278, 2280-2431`）放在同一个撤销步骤中；
+  - 做法是在编辑器提交动作后发出的 `history_changed` 信号中，创建同名、合并方式为 `MERGE_ALL` 的动作，它并入刚提交的动作，并保留其原有的操作（`editor/editor_undo_redo_manager.cpp:298`，`core/object/undo_redo.cpp:95, 114-115`）。不能在编辑器的动作执行中追加操作：移动节点时编辑器不在动作内部发出信号（`scene_tree_dock.cpp:2565-2707`），提交时又先退出动作再执行（`undo_redo.cpp:311-330`）。这一做法根据引擎源码推出，尚未在运行的引擎上验证；
   - 不预览，完成后在输出面板列出改动的位置；
   - 非字面量的路径，以及脚本挂在其他场景中、同一路径在那里仍指向别的节点的情况，只报告不修改，并提供更新路径的快速修复。
 
@@ -1018,7 +1019,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 工具函数 | `min(1.5, 1)` 报编译错误并给出 `min(1.5, 1.0)`；`lerp(a, b, t)` 的结果与 a 同类型；`find_children("*", "MeshInstance3D")` 为 `Array[MeshInstance3D]` |
 | 字符串 | 期望 StringName 的字面量在编译期构造；`&"a" == "a"` 为真；字面量成员名不存在时报编译错误，并参与重命名 |
 | 跨语言 | GDScript 文件继承本语言的类时，分析服务在该文件上报错并说明原因；await GDScript 协程得到按声明类型检查的结果；作为语句调用 GDScript 协程不报错，把它的结果当作值使用而不写 await 是程序错误；GDScript await 本语言的协程，在取消时得到 null 而不挂起；GDScript await 本语言中返回 Transform3D 的协程时没有警告，取消时把结果赋给 Transform3D 变量，在 debug 构建中报赋值错误而不崩溃；GDScript 持有 `p: Player` 时，属性、方法和信号的类型错误报 GDScript 编译错误；`Player.new()` 的类型为 Player，多传实参报 GDScript 编译错误 |
-| 重构 | 导出成员改名时场景中的键同时修改；场景编辑器中给节点改名时脚本中的 `$X` 同时修改，并在同一撤销步骤中；非字面量路径只报告 |
+| 重构 | 导出成员改名时场景中的键同时修改；场景编辑器中给节点改名或移动节点时脚本中的 `$X` 同时修改，并在同一撤销步骤中，一次撤销同时还原场景和脚本，一次重做同时恢复；非字面量路径只报告 |
 
 ## 16. 反馈
 
@@ -1078,7 +1079,11 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 节点引用以路径保存，实例化时解析 | `scene/resources/packed_scene.cpp:449-468` |
 | 保存场景时只写节点当前属性列表中的属性 | `scene/resources/packed_scene.cpp:941-950` |
 | 场景的根被实例化到另一个场景中时，owner 是外层场景的根 | `scene/resources/packed_scene.cpp:640-643` |
-| 编辑器给节点改名时，更新场景中的 NodePath 属性和动画轨道 | `editor/docks/scene_tree_dock.cpp:2173-2260, 2280-2400` |
+| 编辑器给节点改名或移动节点时，更新场景中的 NodePath 属性和动画轨道 | `editor/docks/scene_tree_dock.cpp:2173-2278, 2280-2431`（调用在 `:2456, 2697`） |
+| 移动节点时，编辑器在动作内部不发出信号 | `editor/docks/scene_tree_dock.cpp:2565-2707` |
+| 提交动作时先退出动作再执行，执行中不能再追加操作 | `core/object/undo_redo.cpp:311-330` |
+| 编辑器的撤销管理器在提交后发出 `history_changed` | `editor/editor_undo_redo_manager.cpp:298` |
+| 同名、合并方式为 `MERGE_ALL` 的动作并入前一个动作，保留其原有的操作 | `core/object/undo_redo.cpp:95, 114-115` |
 | Web 导出开启 Extensions Support 时使用带动态链接的模板；跨域隔离响应头只在开启线程支持时需要 | `platform/web/export/export_plugin.cpp:374`；`platform/web/export/export_plugin.h:59-73`；`platform/web/doc_classes/EditorExportPlatformWeb.xml:93-95` |
 | 导出插件的钩子都不能使导出失败 | `editor/export/editor_export_platform.cpp:2529-2537`；`editor/export/editor_export_plugin.h:132-134` |
 | 导出插件报告的错误只让导出窗口显示失败；命令行导出只在导出函数返回错误时以非零退出码结束 | `editor/export/editor_export_platform.cpp:131, 146-148`；`editor/editor_node.cpp:1465-1481` |

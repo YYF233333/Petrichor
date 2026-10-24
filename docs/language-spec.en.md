@@ -925,7 +925,8 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 - Edits that need judgment are only reported, with options, and never applied automatically, for example changing a node's type or an existing resource no longer matching a new type.
 - Rationale: without this, renaming an exported member silently loses the values saved in scenes: loading does not check whether `node->set` succeeded (`scene/resources/packed_scene.cpp:567`), and saving writes only properties in the node's current property list (`packed_scene.cpp:941-950`).
 - When a node is renamed or moved in the scene editor:
-  - the `$X`, `%X` and literal `get_node` paths that refer to it in scripts of this language are updated automatically, in the same undo step as the editor's own updates of NodePath properties and animation tracks in the scene (`editor/docks/scene_tree_dock.cpp:2173-2260, 2280-2400`);
+  - the `$X`, `%X` and literal `get_node` paths that refer to it in scripts of this language are updated automatically, in the same undo step as the editor's own updates of NodePath properties and animation tracks in the scene (`editor/docks/scene_tree_dock.cpp:2173-2278, 2280-2431`);
+  - this is done in the `history_changed` signal that the editor emits after committing its action, by creating an action with the same name and the merge mode `MERGE_ALL`, which merges into the action just committed and keeps its operations (`editor/editor_undo_redo_manager.cpp:298`, `core/object/undo_redo.cpp:95, 114-115`). Operations cannot be added while the editor's action executes: when a node is moved the editor emits no signal inside the action (`scene_tree_dock.cpp:2565-2707`), and committing leaves the action before executing it (`undo_redo.cpp:311-330`). This approach is derived from the engine source and has not been verified on a running engine;
   - there is no preview, and the changed places are listed in the output panel afterwards;
   - non-literal paths, and scripts attached in other scenes where the same path still refers to another node, are only reported, not changed, with a quick fix to update the path.
 
@@ -1018,7 +1019,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Utility functions | `min(1.5, 1)` is a compile error offering `min(1.5, 1.0)`; `lerp(a, b, t)` has a's type; `find_children("*", "MeshInstance3D")` is `Array[MeshInstance3D]` |
 | Strings | A literal where StringName is expected is constructed at compile time; `&"a" == "a"` is true; a literal member name that does not exist is a compile error and takes part in rename |
 | Cross-language | A GDScript file extending a class of this language gets an explanatory error from the analysis service; awaiting a GDScript coroutine yields a result checked against the declared type; calling a GDScript coroutine as a statement is no error, while using its result as a value without await is a program error; GDScript awaiting a coroutine of this language gets null on cancellation instead of hanging; GDScript awaiting a coroutine of this language that returns Transform3D gets no warning, and on cancellation assigning the result to a Transform3D variable is an assignment error in debug builds, not a crash; when GDScript holds `p: Player`, type errors in properties, methods and signals are GDScript compile errors; `Player.new()` has type Player, and extra arguments are a GDScript compile error |
-| Refactoring | Renaming an exported member changes the keys in scenes too; renaming a node in the scene editor changes `$X` in scripts in the same undo step; non-literal paths are only reported |
+| Refactoring | Renaming an exported member changes the keys in scenes too; renaming or moving a node in the scene editor changes `$X` in scripts in the same undo step, so one undo restores both the scene and the scripts, and one redo reapplies both; non-literal paths are only reported |
 
 ## 16. Feedback
 
@@ -1078,7 +1079,11 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | Node references are stored as paths and resolved during instantiation | `scene/resources/packed_scene.cpp:449-468` |
 | Saving a scene writes only properties in the node's current property list | `scene/resources/packed_scene.cpp:941-950` |
 | When a scene's root is instanced into another scene, its owner is the root of the outer scene | `scene/resources/packed_scene.cpp:640-643` |
-| Renaming a node in the editor updates NodePath properties and animation tracks in the scene | `editor/docks/scene_tree_dock.cpp:2173-2260, 2280-2400` |
+| Renaming or moving a node in the editor updates NodePath properties and animation tracks in the scene | `editor/docks/scene_tree_dock.cpp:2173-2278, 2280-2431` (called at `:2456, 2697`) |
+| When a node is moved, the editor emits no signal inside the action | `editor/docks/scene_tree_dock.cpp:2565-2707` |
+| Committing an action leaves it before executing it, so no operations can be added during execution | `core/object/undo_redo.cpp:311-330` |
+| The editor's undo manager emits `history_changed` after a commit | `editor/editor_undo_redo_manager.cpp:298` |
+| An action with the same name and the merge mode `MERGE_ALL` merges into the previous one, keeping its operations | `core/object/undo_redo.cpp:95, 114-115` |
 | A Web export with Extensions Support uses the dynamically linked templates; cross-origin isolation headers are needed only with thread support | `platform/web/export/export_plugin.cpp:374`; `platform/web/export/export_plugin.h:59-73`; `platform/web/doc_classes/EditorExportPlatformWeb.xml:93-95` |
 | No export plugin hook can make an export fail | `editor/export/editor_export_platform.cpp:2529-2537`; `editor/export/editor_export_plugin.h:132-134` |
 | An error reported by an export plugin only makes the export dialog show a failure; command-line export exits non-zero only when the export function returns an error | `editor/export/editor_export_platform.cpp:131, 146-148`; `editor/editor_node.cpp:1465-1481` |
