@@ -394,8 +394,14 @@ This document rewrites the language specification from the [design decisions](de
 
 ### 5.2 Comparison
 
-- The rules for `==` and `!=` are [Open]: how int and float, objects and containers compare, and which combinations are compile errors.
-- `==` between String and StringName compares contents (§10.7).
+- `==` is typed by the engine's operator table, like the other operators (§5.1); a combination missing from the table is a compile error, for example `hp == "3"` or `Vector2() == Vector2i()`.
+- int and float compare numerically, so `1 == 1.0` is true (`core/variant/variant_op.cpp:490-491`). String and StringName compare contents (§10.7).
+- Objects compare by identity (`variant_op.cpp:514`). When both types are classes and neither is a subclass of the other, it is a compile error, since the result is always false; comparisons involving interfaces are allowed.
+- Option: None equals None; two Somes are equal when their contents are; an operand that is not an Option is wrapped first, as in `hp == 3` with hp an `int?`. Comparing a value that is neither an Option nor a Variant with None is a compile error, since the result is always false; the quick fix changes the type to `T?`, or uses `is_instance_valid(x)` for a liveness check.
+- Containers compare element by element as in the engine. The engine requires compared elements to have the same type (`core/variant/array.cpp:153-156`, `core/variant/variant.cpp:3213-3216`), so `[1] == [1.0]` is false while `1 == 1.0` is true. Comparing containers with different element types, such as `Array[int] == Array[float]`, is a compile error, since they are equal only when both are empty.
+- When one operand is a Variant, the comparison is evaluated at runtime by the engine's operator table; a combination missing from the table is a program error, as in GDScript (`variant_op.cpp:1051-1056`, `modules/gdscript/gdscript_vm.cpp:756-761, 794-802`). `v == None` tests for NIL (§3.13).
+- `!=` is the negation of `==` in every case.
+- `==` for structs and enums with payloads is [Open] (§3.6).
 
 ### 5.3 Conversions
 
@@ -862,9 +868,8 @@ The following correspond to §10 of the [design decisions](decisions.en.md):
 
 | Question | Section |
 |---|---|
-| Methods, mutation, `==`, hashing and export of structs and enums with payloads | §3.6, §3.7 |
+| Methods, mutation, `==`, hashing and export of structs and enums with payloads | §3.6, §3.7, §5.2 |
 | Can interfaces extend interfaces, and can they be generic? | §3.9 |
-| The rules for `==` | §5.2 |
 | Is `assert` removed in release builds? | §8.3 |
 | The spelling of the three scene structures declared by scripts | §7.2 |
 | The source file extension | §1.4 |
@@ -879,6 +884,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Numbers | `var hp: int = 10; hp = 2.5` is a compile error, and `hp = int(2.5)` gives 2; an int argument to a float parameter needs no conversion; `7 / 2` is 3; `Vector2i(1, 2) * 0.5` is a Vector2; `Vector2() + Vector2i()` is a compile error; integer division by zero is a program error; a value outside the int32 range passed to an engine int32 parameter is a program error |
 | Nullability and freeing | A freed object read through `T?` is None; accessing its members through `T` is a program error whose diagnostic says where it was freed; after `queue_free()` and before the end of the frame it still counts as alive |
 | Option and Result | `?` returns from the current function on None or `Err`; `?` in a function returning void is a compile error; propagating an Option into a function returning Result is a compile error; `await f()?` equals `(await f())?`; discarding a Result is a compile error; a failed `unwrap` is a program error |
+| Equality | `1 == 1.0` is true; `hp == "3"` is a compile error; comparing a `Node2D` with a `Node3D` is a compile error; `hp == 3` with hp an `int?` is valid; comparing a non-null `Node` with None is a compile error; `Array[int] == Array[float]` is a compile error; comparing a Variant holding a String with an int is a program error |
 | Nested Options | `pop_back()` on an empty `Array[Enemy?]` gives None, and a Some containing None when the last element is None; `var x: Enemy?? = maybe_enemy` gives a Some; a missing key in a `Dictionary[String, Variant]` gives None, and a null value a Some containing NIL; passing an `int??` or `Variant?` to a Variant parameter is a compile error offering `.flatten()` or `.unwrap_or(null)` |
 | Conversions | `node as Sprite2D` is `Sprite2D?`; `x as int` is a compile error offering `int(x)` and `int.try_from(x)`; `int.try_from(2.0)` is `Ok(2)`, while `int.try_from(2.5)` and `int.try_from("2")` are `Err` |
 | Narrowing | Locals narrow after `!= None`, `is` and early returns; branches of conditional expressions and the right operand of `and` narrow; members do not narrow; `if x:` is a compile error with a fix depending on the type |
@@ -920,6 +926,9 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | Converting a Variant to int32 truncates | `core/variant/variant.h:348-349` |
 | `real_t` is float in standard builds | `core/math/math_defs.h:143-146` |
 | The engine's operator table | `core/variant/variant_op.cpp:256-368` |
+| `==` between int and float compares numerically; `==` on objects compares identity | `core/variant/variant_op.cpp:490-491, 514` |
+| Evaluating a combination missing from the operator table is invalid | `core/variant/variant_op.cpp:1051-1056` |
+| Array's `==` uses `hash_compare` element by element, which requires the same element type | `core/variant/array.cpp:153-156`; `core/variant/variant.cpp:3213-3216` |
 | min, max and clamp return one of their arguments unchanged | `core/variant/variant_utility.cpp:643-760` |
 | lerp requires both arguments to have the same type | `core/variant/variant_utility.cpp:466-470` |
 | `pop_front` and `pop_back` return null on an empty array without an error | `core/variant/array.cpp:798-817` |
@@ -959,6 +968,7 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | match patterns | `modules/gdscript/gdscript_parser.cpp:2499-2723` |
 | `as` to an object type yields null on failure | `modules/gdscript/gdscript_vm.cpp:1665-1666` |
 | `as` to a built-in type converts through the constructor | `modules/gdscript/gdscript_vm.cpp:1630-1637` |
+| At runtime GDScript reports an error for a combination missing from the operator table | `modules/gdscript/gdscript_vm.cpp:756-761, 794-802` |
 | `for` can iterate over floats and vectors | `modules/gdscript/gdscript_vm.cpp:3093-3230` |
 | GDScript's await accepts any Signal value | `modules/gdscript/gdscript_vm.cpp:2585-2599` |
 | After an error GDScript returns a default value built for the return type | `modules/gdscript/gdscript_vm.cpp:3975-3979` |

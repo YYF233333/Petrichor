@@ -394,8 +394,14 @@
 
 ### 5.2 比较
 
-- `==` 和 `!=` 的规则【待定】：int 与 float、对象、容器之间怎样比较，哪些组合是编译错误。
-- String 与 StringName 之间的 `==` 按内容比较（§10.7）。
+- `==` 按引擎的运算表定型，与其他运算符相同（§5.1）；表中没有的组合是编译错误，例如 `hp == "3"`、`Vector2() == Vector2i()`。
+- int 与 float 按数值比较，`1 == 1.0` 为真（`core/variant/variant_op.cpp:490-491`）。String 与 StringName 按内容比较（§10.7）。
+- 对象按同一性比较（`variant_op.cpp:514`）。两个类型都是类、且互不为子类时是编译错误，因为结果总为假；涉及接口时可以比较。
+- Option：None 等于 None；两个 Some 在内部的值相等时相等；非 Option 的一侧先包装再比较，例如 hp 为 `int?` 时的 `hp == 3`。既不是 Option 也不是 Variant 的值与 None 比较是编译错误，因为结果总为假；快速修复把类型改为 `T?`，或在检查存活时改用 `is_instance_valid(x)`。
+- 容器照引擎逐元素比较。引擎比较元素时要求类型相同（`core/variant/array.cpp:153-156`，`core/variant/variant.cpp:3213-3216`），所以 `[1] == [1.0]` 为假，而 `1 == 1.0` 为真。元素类型不同的容器比较是编译错误，例如 `Array[int] == Array[float]`，因为只有两边都为空时才相等。
+- 一侧是 Variant 时，运行时按引擎的运算表求值；组合不在表中是程序错误，与 GDScript 相同（`variant_op.cpp:1051-1056`，`modules/gdscript/gdscript_vm.cpp:756-761, 794-802`）。`v == None` 判断 NIL（§3.13）。
+- `!=` 在所有情况下都是 `==` 的否定。
+- struct 和带载荷 enum 的 `==`【待定】（§3.6）。
 
 ### 5.3 转换
 
@@ -862,9 +868,8 @@
 
 | 问题 | 章节 |
 |---|---|
-| struct 和带载荷 enum 的方法、修改、`==`、哈希和导出 | §3.6、§3.7 |
+| struct 和带载荷 enum 的方法、修改、`==`、哈希和导出 | §3.6、§3.7、§5.2 |
 | 接口能否继承接口、能否是泛型 | §3.9 |
-| `==` 的规则 | §5.2 |
 | `assert` 在 release 构建中是否去掉 | §8.3 |
 | 由脚本声明的三种场景结构的写法 | §7.2 |
 | 源文件的扩展名 | §1.4 |
@@ -879,6 +884,7 @@
 | 数值 | `var hp: int = 10; hp = 2.5` 报编译错误，`hp = int(2.5)` 得 2；int 实参传给 float 参数无需转换；`7 / 2` 得 3；`Vector2i(1, 2) * 0.5` 为 Vector2；`Vector2() + Vector2i()` 报编译错误；整数除以 0 是程序错误；超出 int32 范围的值传给引擎的 int32 参数是程序错误 |
 | 可空与释放 | 已释放对象经 `T?` 读出为 None；经 `T` 访问成员是程序错误，诊断写明释放位置；`queue_free()` 之后、帧末之前仍算存活 |
 | Option 与 Result | `?` 在 None 或 `Err` 时从当前函数返回；在返回 void 的函数中使用 `?` 报编译错误；Option 传播到返回 Result 的函数报编译错误；`await f()?` 等于 `(await f())?`；丢弃 Result 报编译错误；`unwrap` 失败是程序错误 |
+| 相等 | `1 == 1.0` 为真；`hp == "3"` 报编译错误；`Node2D` 与 `Node3D` 比较报编译错误；hp 为 `int?` 时 `hp == 3` 合法；非空的 `Node` 与 None 比较报编译错误；`Array[int] == Array[float]` 报编译错误；Variant 中是 String 时与 int 比较是程序错误 |
 | 嵌套的 Option | `Array[Enemy?]` 为空时 `pop_back()` 得 None，末元素为 None 时得包含 None 的 Some；`var x: Enemy?? = maybe_enemy` 得 Some；`Dictionary[String, Variant]` 中缺键得 None，值为 null 得包含 NIL 的 Some；把 `int??` 或 `Variant?` 传给 Variant 参数报编译错误并给出 `.flatten()` 或 `.unwrap_or(null)` |
 | 转换 | `node as Sprite2D` 为 `Sprite2D?`；`x as int` 报编译错误并给出 `int(x)` 与 `int.try_from(x)`；`int.try_from(2.0)` 得 `Ok(2)`，`int.try_from(2.5)` 和 `int.try_from("2")` 得 `Err` |
 | 收窄 | `!= None`、`is` 和提前返回之后局部变量收窄；条件表达式的分支和 `and` 右侧收窄；成员不收窄；`if x:` 报编译错误并按类型给出改法 |
@@ -920,6 +926,9 @@
 | Variant 转为 int32 时直接截断 | `core/variant/variant.h:348-349` |
 | 标准构建中 `real_t` 是 float | `core/math/math_defs.h:143-146` |
 | 引擎的运算符表 | `core/variant/variant_op.cpp:256-368` |
+| int 与 float 的 `==` 按数值比较；对象的 `==` 比较同一性 | `core/variant/variant_op.cpp:490-491, 514` |
+| 运算表中没有的组合求值无效 | `core/variant/variant_op.cpp:1051-1056` |
+| Array 的 `==` 逐元素用 `hash_compare`，它要求元素类型相同 | `core/variant/array.cpp:153-156`；`core/variant/variant.cpp:3213-3216` |
 | min、max、clamp 原样返回其中一个实参 | `core/variant/variant_utility.cpp:643-760` |
 | lerp 要求两个实参类型相同 | `core/variant/variant_utility.cpp:466-470` |
 | `pop_front`、`pop_back` 在空数组上返回 null 而不报错 | `core/variant/array.cpp:798-817` |
@@ -959,6 +968,7 @@
 | match 的模式 | `modules/gdscript/gdscript_parser.cpp:2499-2723` |
 | `as` 转为对象类型失败时得到 null | `modules/gdscript/gdscript_vm.cpp:1665-1666` |
 | `as` 转为内置类型时按构造函数转换 | `modules/gdscript/gdscript_vm.cpp:1630-1637` |
+| GDScript 在运行时遇到运算表中没有的组合时报错 | `modules/gdscript/gdscript_vm.cpp:756-761, 794-802` |
 | `for` 可以遍历 float 和向量 | `modules/gdscript/gdscript_vm.cpp:3093-3230` |
 | GDScript 的 await 接受任意 Signal 值 | `modules/gdscript/gdscript_vm.cpp:2585-2599` |
 | GDScript 出错后按返回类型构造默认值返回 | `modules/gdscript/gdscript_vm.cpp:3975-3979` |
