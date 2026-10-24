@@ -120,7 +120,14 @@
   ```
 
   调用处通常由实参推断，推断不出时显式写出，例如 `first[int]([])`、`Pair[int, String](first = 1, second = "a")`。`名字[...]` 与下标同形，由名字解析区分：名字是泛型函数或泛型类型时，方括号中是类型实参，否则是下标。GDScript 在这些位置遇到 `[` 都是语法错误（`gdscript_parser.cpp:964, 1005-1010, 1616, 1822`）。
-- **函数类型**的写法【待定】。
+- **函数类型**：沿用函数声明的形状，去掉函数名和参数名（§3.11）。GDScript 的类型只能以标识符或 `void` 开头（`gdscript_parser.cpp:3849-3861`），`func(...)` 作类型是语法错误。
+
+  ```gdscript
+  var on_hit: func(int, Node3D)                 # 没有返回值，也可以写 -> void
+  var score: func(Enemy) -> float
+  var load_level: async func(String) -> Level   # 调用得到 Task[Level]
+  var filter: (func(Enemy) -> bool)?            # 可空须加括号，否则 ? 属于返回类型
+  ```
 
 ### 2.5 语句
 
@@ -223,7 +230,13 @@
 
 ### 3.11 函数类型与 Callable
 
-- 函数类型记录参数类型、返回类型以及是否为 async。写法【待定】。
+- 函数类型记录参数类型、返回类型以及是否为 async，写法见 §2.4。没有返回类型的函数类型返回 void。
+- 调用照 GDScript 写 `f.call(x)`，按函数类型静态检查。直接写 `f(x)` 报 GDScript 现有的错误并给出改法（`modules/gdscript/gdscript_analyzer.cpp:3785-3789`）。
+- 函数值能否用在某个位置只看类型，lambda 与方法值相同：
+  - 参数逆变、返回协变，例如 `func(Node)` 可以用在期望 `func(Node3D)` 的位置；
+  - async 与普通的函数类型之间没有隐式转换；
+  - 由引擎调用的位置接受 async 函数：代码中和场景中的信号连接，以及引擎接口的 Callable 参数（如 `tween_callback`）。任务作为根任务运行，与 async 的引擎虚函数相同（§9.1）。依据：[语料计数](surveys/corpus-counts.zh.md)中作为值使用的协程方法有 91 处，其中 60 处是 `connect(名字)`。
+- 【后续】函数类型中的参数名；直接调用 `f(x)`；把普通函数传给期望 async 的位置。
 - 方法值（例如 `change_weapon`、`_on_hit`）和 lambda 具有函数类型，交给引擎时成为直接指向该方法的 Callable，不按名字查找（§10.5）。
 - `f.bind(a, b)` 的类型是在 f 的函数类型中去掉最后两个参数，因为引擎把绑定的实参接在调用实参之后（`core/variant/callable_bind.cpp:141-150`）。
 - 签名未知的 `Callable` 须显式转换为函数类型，每次调用时检查参数和返回值。
@@ -321,7 +334,7 @@
   - 调用处没有展开写法，GDScript 也没有（`gdscript_parser.cpp:4336`）；已有的数组用 `callv` 传入。【后续】展开写法。
 - 调用按位置传参，与 GDScript 相同。按名字传参只用于 struct 和带载荷分支的构造（§2.4），以及 `instantiate(...)`、`new(...)` 传入必须赋值的成员（§6.2）。
 - 函数内部的局部变量可以由初始化式推断类型。lambda 是函数内部的代码，按局部规则推断：有期望的函数类型时，参数类型取自它，没有时须写出；返回类型由函数体推断，例如 `weapon.map(func(w): return w.name)`。
-- 协程在签名上声明为 `async func`（§9.1）。
+- 协程在签名上声明为 `async func`，lambda 也是如此（§9.1）。
 
 ### 4.7 信号
 
@@ -587,6 +600,8 @@
 ### 9.1 async 与 Task
 
 - 协程在签名上声明，写作 `async func`。函数体中有 await 而没有声明，是编译错误。引擎虚函数可以声明为 async。
+- lambda 同样如此：含 await 的 lambda 写作 `async func(...)`，例如 `button.pressed.connect(async func(): await fade_out())`。GDScript 中这样的 lambda 不加标记（`modules/gdscript/gdscript_parser.cpp:3223-3225, 3726-3727`），快速修复补上 `async`。理由：判断函数是否为 async 只有一条规则，挂起点旁边一定看得到 async；[语料计数](surveys/corpus-counts.zh.md)中 979 个 lambda 只有 35 个含 await，其中 33 个在 gdUnit4 的测试中。
+- 由引擎调用的位置接受 async 函数，任务作为根任务运行（§3.11）。
 - 调用 async 函数得到 `Task[T]`。任务立即开始，运行到第一次挂起为止；`await f()` 和 `await t` 得到 T。
 - 丢弃 async 调用的结果是编译错误；确实不等待时写 `f().detach()`。GDScript 中把协程调用的结果当值使用本来就是编译错误，所以 `var t = f()` 获得新含义不违反语法硬规则。
 - setter、getter、`@onready` 初始化式和静态初始化不能 await。
@@ -806,6 +821,7 @@
 - 别名或 `import`（§2.4）；
 - 调用处的展开写法（§4.6）；
 - 泛型的多个约束，以及以类作约束（§3.10）；
+- 函数类型中的参数名、直接调用 `f(x)`、把普通函数传给期望 async 的位置（§3.11）；
 - §13.5 所列的工具。
 
 ### 14.3 待定问题
@@ -814,7 +830,6 @@
 
 | 问题 | 章节 |
 |---|---|
-| 函数类型的写法 | §3.11 |
 | Variant 上允许的操作 | §3.13 |
 | 嵌套的 Option | §3.4 |
 | struct 和带载荷 enum 的方法、修改、`==`、哈希和导出 | §3.6、§3.7 |
@@ -839,6 +854,7 @@
 | 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
 | 签名 | `func _process(delta):` 中 delta 为 float；覆盖时写出不一致的类型报编译错误；非覆盖函数省略返回类型后返回值报编译错误；有期望类型的 lambda 参数不必标注 |
 | 泛型 | `first([1, 2])` 中 T 推断为 int；`var x = first([])` 推断不出 T 报编译错误，`var x = first[int]([])` 合法；不满足约束的类型实参报编译错误；Node 脚本声明类型参数报编译错误；GDScript 引用泛型方法是 GDScript 的编译错误；`sig.connect(handle)` 在 handle 为泛型且类型实参确定不了时报编译错误 |
+| 函数类型 | `func(int)` 与 `func(int) -> void` 相同；`(func(Enemy) -> bool)?` 可空，`func(Enemy) -> bool?` 返回 `bool?`；`f(x)` 报编译错误并给出 `f.call(x)`；`func(Node)` 可以用于期望 `func(Node3D)` 的位置，反之报编译错误；含 await 而未写 async 的 lambda 报编译错误；把 async 函数传给期望普通函数类型的本语言参数报编译错误；把 async 方法连接到信号合法，任务作为根任务运行 |
 | 抽象类与剩余参数 | 构造抽象类报编译错误；具体子类缺少某个抽象方法的实现报编译错误；场景中的节点使用抽象类报编译错误；向 `...args: Array[int]` 传入 String 报编译错误；只写 `...args` 报编译错误；GDScript 调用 `...args: Array[int]` 时传入 String 是程序错误 |
 | 成员 | `var speed = 5.0` 为 float；空容器成员要求标注；没有初始化式的 int 成员为 0；所有字段都有默认值的 struct 成员取默认值，否则必须赋值 |
 | 必须赋值 | `BulletScene.instantiate(speed = 300.0)` 漏写 `target` 报编译错误；祖先在 `_ready` 中经 `$Child.target = v` 赋值时不报错；子节点在自己的 `_ready` 中读取该成员报编译错误；就绪前读取未赋值的成员是程序错误 |
@@ -897,6 +913,7 @@
 | GDScript 要求具体子类实现抽象方法，禁止构造抽象类和经 `super` 调用抽象方法 | `modules/gdscript/gdscript_analyzer.cpp:1543-1562, 3674-3687` |
 | GDScript 的剩余参数只能是元素为 Variant 的 Array | `modules/gdscript/gdscript_analyzer.cpp:1802-1809` |
 | GDScript 从其他语言的方法信息中读取 `METHOD_FLAG_VARARG` | `modules/gdscript/gdscript_analyzer.cpp:6101-6104` |
+| GDScript 中以调用函数的写法调用 Callable 变量是编译错误，提示改用 `.call()` | `modules/gdscript/gdscript_analyzer.cpp:3785-3789` |
 | GDScript 中 `?` 是语法错误 | `modules/gdscript/gdscript_parser.cpp:3834-3835` |
 | GDScript 的前缀 `!` 是逻辑非 | `modules/gdscript/gdscript_parser.cpp:2965-2967` |
 | GDScript 中内部类名、`class_name` 的名字、enum 名和函数名之后不能接 `[` | `modules/gdscript/gdscript_parser.cpp:964, 1005-1010, 1616, 1822` |
@@ -904,6 +921,8 @@
 | `@abstract` 注解，不能用于 static 方法 | `modules/gdscript/gdscript_parser.cpp:149, 4492-4516` |
 | 剩余参数只能是最后一个参数，不能有默认值 | `modules/gdscript/gdscript_parser.cpp:1723-1730` |
 | GDScript 的表达式中不能出现 `...` | `modules/gdscript/gdscript_parser.cpp:4336` |
+| GDScript 的类型只能以标识符或 `void` 开头 | `modules/gdscript/gdscript_parser.cpp:3849-3861` |
+| GDScript 的 lambda 含 await 时即为协程，不加标记 | `modules/gdscript/gdscript_parser.cpp:3223-3225, 3726-3727` |
 | match 的模式 | `modules/gdscript/gdscript_parser.cpp:2499-2723` |
 | `as` 转为对象类型失败时得到 null | `modules/gdscript/gdscript_vm.cpp:1665-1666` |
 | `as` 转为内置类型时按构造函数转换 | `modules/gdscript/gdscript_vm.cpp:1630-1637` |
@@ -946,3 +965,4 @@
 | `pop_front()` 在空数组上是程序错误 | 引擎在这里返回 null 而不报错，会悄悄不同 | §3.8 |
 | await 多参数信号得到 Array，或按参数解构 | 真实代码几乎不使用这种结果；解构可以以后加入 | §9.6 |
 | 以 if/else 块为值 | 与条件表达式重复 | §5.5 |
+| lambda 不写 async，按函数体或期望类型推断 | 判断函数是否为 async 要用多条规则，lambda 和方法值能传到哪里也会不同 | §9.1 |

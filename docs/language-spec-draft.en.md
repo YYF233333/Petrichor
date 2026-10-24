@@ -120,7 +120,14 @@ This document rewrites the language specification from the [design decisions](de
   ```
 
   At call sites type arguments are usually inferred from the arguments, and are written out when they cannot be, for example `first[int]([])` or `Pair[int, String](first = 1, second = "a")`. `name[...]` looks like a subscript and is told apart by name resolution: when the name is a generic function or a generic type, the brackets hold type arguments; otherwise they are a subscript. In GDScript `[` in each of these positions is a syntax error (`gdscript_parser.cpp:964, 1005-1010, 1616, 1822`).
-- The spelling of **function types** is [Open].
+- **Function types** keep the shape of a function declaration without the function and parameter names (§3.11). A GDScript type can only start with an identifier or `void` (`gdscript_parser.cpp:3849-3861`), so `func(...)` as a type is a syntax error.
+
+  ```gdscript
+  var on_hit: func(int, Node3D)                 # no return value; -> void may also be written
+  var score: func(Enemy) -> float
+  var load_level: async func(String) -> Level   # calling it yields Task[Level]
+  var filter: (func(Enemy) -> bool)?            # nullable needs parentheses; otherwise ? belongs to the return type
+  ```
 
 ### 2.5 Statements
 
@@ -223,7 +230,13 @@ This document rewrites the language specification from the [design decisions](de
 
 ### 3.11 Function types and Callable
 
-- A function type records the parameter types, the return type, and whether the function is async. The spelling is [Open].
+- A function type records the parameter types, the return type, and whether the function is async; the spelling is in §2.4. A function type without a return type returns void.
+- Calls are written `f.call(x)` as in GDScript and checked statically against the function type. Writing `f(x)` gives GDScript's existing error with a fix (`modules/gdscript/gdscript_analyzer.cpp:3785-3789`).
+- Whether a function value can be used in a position depends only on types, and lambdas and method values are treated alike:
+  - parameters are contravariant and return values covariant; for example, `func(Node)` can be used where `func(Node3D)` is expected;
+  - there is no implicit conversion between async and ordinary function types;
+  - positions the engine calls accept async functions: signal connections in code and in scenes, and the Callable parameters of engine APIs (such as `tween_callback`). The task runs as a root task, as with async engine virtuals (§9.1). Evidence: in the [corpus counts](surveys/corpus-counts.en.md), coroutine methods are used as values 91 times, 60 of them as `connect(name)`.
+- [Later] Parameter names in function types; direct calls `f(x)`; passing an ordinary function where an async one is expected.
 - Method values (such as `change_weapon` or `_on_hit`) and lambdas have function types; handed to the engine, they become Callables that refer to the method directly rather than by name (§10.5).
 - The type of `f.bind(a, b)` is f's function type without its last two parameters, because the engine appends bound arguments after the call's arguments (`core/variant/callable_bind.cpp:141-150`).
 - A `Callable` of unknown signature needs an explicit conversion to a function type and is checked on every call, for its arguments and return value.
@@ -321,7 +334,7 @@ This document rewrites the language specification from the [design decisions](de
   - there is no spread at call sites, and GDScript has none either (`gdscript_parser.cpp:4336`); an existing array is passed with `callv`. [Later] A spread form.
 - Calls pass arguments by position, as in GDScript. Arguments by name are used only to construct structs and variants with payloads (§2.4), and to pass must-assign members to `instantiate(...)` and `new(...)` (§6.2).
 - Local variables inside functions may infer their type from an initializer. A lambda is code inside a function and is inferred by the local rules: its parameter types come from the expected function type when there is one and must be written otherwise, and its return type is inferred from its body, as in `weapon.map(func(w): return w.name)`.
-- Coroutines are declared in the signature as `async func` (§9.1).
+- Coroutines are declared in the signature as `async func`, and so are lambdas (§9.1).
 
 ### 4.7 Signals
 
@@ -587,6 +600,8 @@ This document rewrites the language specification from the [design decisions](de
 ### 9.1 async and Task
 
 - Coroutines are declared in the signature as `async func`. A function whose body contains await without the declaration is a compile error. Engine virtual functions may be declared async.
+- The same holds for lambdas: a lambda containing await is written `async func(...)`, for example `button.pressed.connect(async func(): await fade_out())`. GDScript marks such lambdas with nothing (`modules/gdscript/gdscript_parser.cpp:3223-3225, 3726-3727`), and the quick fix adds `async`. Rationale: there is a single rule for whether a function is async, and a suspension point always has async in sight; in the [corpus counts](surveys/corpus-counts.en.md), only 35 of 979 lambdas contain await, 33 of them in gdUnit4's tests.
+- Positions the engine calls accept async functions, and the task runs as a root task (§3.11).
 - Calling an async function yields a `Task[T]`. The task starts immediately and runs until its first suspension; `await f()` and `await t` yield T.
 - Discarding the result of an async call is a compile error; to deliberately not wait, write `f().detach()`. In GDScript, using the result of a coroutine call as a value is already a compile error, so giving `var t = f()` a new meaning does not violate the syntax hard rule.
 - Setters, getters, `@onready` initializers and static initialization cannot await.
@@ -806,6 +821,7 @@ This document rewrites the language specification from the [design decisions](de
 - aliases or `import` (§2.4);
 - a spread form at call sites (§4.6);
 - several constraints on a type parameter, and classes as constraints (§3.10);
+- parameter names in function types, direct calls `f(x)`, and passing an ordinary function where an async one is expected (§3.11);
 - the tools listed in §13.5.
 
 ### 14.3 Open questions
@@ -814,7 +830,6 @@ The following correspond to §10 of the [design decisions](decisions.en.md):
 
 | Question | Section |
 |---|---|
-| The spelling of function types | §3.11 |
 | The operations Variant allows | §3.13 |
 | Nested Options | §3.4 |
 | Methods, mutation, `==`, hashing and export of structs and enums with payloads | §3.6, §3.7 |
@@ -839,6 +854,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Visibility | Members without `pub` are invisible in other classes, and readable, writable and overridable in subclasses; changing visibility in an override is a compile error; a type without `pub` in the signature of a `pub` function is a compile error; GDScript referring to a member without `pub` is a GDScript compile error; `call_deferred("reset")` makes `reset` callable by name from the engine |
 | Signatures | delta in `func _process(delta):` is a float; writing a mismatching type in an override is a compile error; returning a value from a non-override function with an omitted return type is a compile error; lambda parameters with an expected type need no annotation |
 | Generics | T in `first([1, 2])` is inferred as int; `var x = first([])` cannot infer T and is a compile error, while `var x = first[int]([])` is valid; a type argument that does not satisfy the constraint is a compile error; a Node script declaring type parameters is a compile error; GDScript referring to a generic method is a GDScript compile error; `sig.connect(handle)` with a generic handle whose type arguments cannot be determined is a compile error |
+| Function types | `func(int)` equals `func(int) -> void`; `(func(Enemy) -> bool)?` is nullable, while `func(Enemy) -> bool?` returns `bool?`; `f(x)` is a compile error offering `f.call(x)`; `func(Node)` can be used where `func(Node3D)` is expected, and the reverse is a compile error; a lambda containing await without async is a compile error; passing an async function to a parameter of this language with an ordinary function type is a compile error; connecting an async method to a signal is valid, and the task runs as a root task |
 | Abstract classes and rest parameters | Constructing an abstract class is a compile error; a concrete subclass missing an implementation of an abstract method is a compile error; a node in a scene using an abstract class is a compile error; passing a String to `...args: Array[int]` is a compile error; a bare `...args` is a compile error; GDScript passing a String when calling `...args: Array[int]` is a program error |
 | Members | `var speed = 5.0` is float; empty-container members require an annotation; an int member without an initializer is 0; a struct member takes its default when every field has one and must otherwise be assigned |
 | Must-assign | `BulletScene.instantiate(speed = 300.0)` without `target` is a compile error; an ancestor assigning `$Child.target = v` in `_ready` is not an error; the child reading that member in its own `_ready` is a compile error; reading an unassigned member before ready is a program error |
@@ -897,6 +913,7 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | GDScript requires concrete subclasses to implement abstract methods, and forbids constructing abstract classes and calling abstract methods through `super` | `modules/gdscript/gdscript_analyzer.cpp:1543-1562, 3674-3687` |
 | GDScript's rest parameter can only be an Array with Variant elements | `modules/gdscript/gdscript_analyzer.cpp:1802-1809` |
 | GDScript reads `METHOD_FLAG_VARARG` from other languages' method information | `modules/gdscript/gdscript_analyzer.cpp:6101-6104` |
+| In GDScript, calling a Callable variable with function-call syntax is a compile error suggesting `.call()` | `modules/gdscript/gdscript_analyzer.cpp:3785-3789` |
 | `?` is a syntax error in GDScript | `modules/gdscript/gdscript_parser.cpp:3834-3835` |
 | GDScript's prefix `!` is logical not | `modules/gdscript/gdscript_parser.cpp:2965-2967` |
 | In GDScript `[` cannot follow an inner class name, the name in `class_name`, an enum name or a function name | `modules/gdscript/gdscript_parser.cpp:964, 1005-1010, 1616, 1822` |
@@ -904,6 +921,8 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | The `@abstract` annotation, which cannot be applied to static methods | `modules/gdscript/gdscript_parser.cpp:149, 4492-4516` |
 | A rest parameter must be the last parameter and cannot have a default value | `modules/gdscript/gdscript_parser.cpp:1723-1730` |
 | `...` cannot appear in GDScript expressions | `modules/gdscript/gdscript_parser.cpp:4336` |
+| A GDScript type can only start with an identifier or `void` | `modules/gdscript/gdscript_parser.cpp:3849-3861` |
+| A GDScript lambda containing await is a coroutine, with no marker | `modules/gdscript/gdscript_parser.cpp:3223-3225, 3726-3727` |
 | match patterns | `modules/gdscript/gdscript_parser.cpp:2499-2723` |
 | `as` to an object type yields null on failure | `modules/gdscript/gdscript_vm.cpp:1665-1666` |
 | `as` to a built-in type converts through the constructor | `modules/gdscript/gdscript_vm.cpp:1630-1637` |
@@ -946,3 +965,4 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | `pop_front()` on an empty array being a program error | The engine returns null there without an error, so it would silently differ | §3.8 |
 | Awaiting a multi-parameter signal yielding an Array, or destructuring | Real code almost never uses such results; destructuring can be added later | §9.6 |
 | Using an if/else block as a value | Duplicates the conditional expression | §5.5 |
+| Lambdas without async, inferred from the body or the expected type | Deciding whether a function is async would take several rules, and lambdas and method values could be passed to different places | §9.1 |
