@@ -727,7 +727,14 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 
 - A signal can be awaited directly.
 - A signal without parameters yields no value; a signal with one parameter yields a value of that parameter's type; awaiting a signal with several parameters is allowed only as a statement. Evidence: in the [await signal results survey](surveys/await-signal-results.en.md), only 1 of 1,356 awaits uses the result of a signal with several parameters. GDScript yields an Array of the arguments there (`modules/gdscript/gdscript_function.cpp:237-255`), so GDScript code that uses such a result is a compile error. [Later] Destructuring the result of awaiting a signal with several parameters.
-- The type of the result of awaiting a signal whose signature is unknown (for example a Signal value taken from a Variant) is [Open].
+- A signal's signature is unknown when the static type of the signal expression is only `Signal`, for example a variable or parameter of type `Signal`, a method returning a Signal, or a signal taken from a Variant or an Object. Signals reached through a known class all have known signatures: engine classes from ClassDB, classes of this language from their declarations, and GDScript classes through reflection.
+- Awaiting a signal whose signature is unknown yields a Variant shaped at runtime as in GDScript: NIL without parameters, the argument with one parameter, and an Array of the arguments with several. As a statement there is no restriction. Rationale: an unknown signature is a dynamic source in the first place, and the result must be converted explicitly under the rules for Variant before use (§3.13). Evidence: in the [await signal results survey](surveys/await-signal-results.en.md), the result of such an await is used only once, at `godot_dialogue_manager/addons/dialogue_manager/dialogue_manager.gd:1956`, which awaits a two-parameter signal declared in C# through a receiver typed RefCounted. [Later] Signal types with parameter types.
+
+  ```gdscript
+  var r = await DialogueManager.Resolved   # receiver is a RefCounted, signature unknown: r is a Variant
+  if r is Array and r[0] == id:            # narrowed by the rules for Variant before use
+      return r[1]
+  ```
 
 ### 9.7 Freed objects and suspended coroutines
 
@@ -929,14 +936,13 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 - non-null members assigned after ready (§6.2);
 - an always-on assertion (§8.3);
 - reentrancy annotations such as `@restart` (§9.5);
-- destructuring the result of awaiting a signal with several parameters (§9.6);
+- destructuring the result of awaiting a signal with several parameters, and Signal types with parameter types (§9.6);
 - the tools listed in §13.5.
 
 ### 14.3 Open questions
 
 | Question | Section |
 |---|---|
-| The type of the result of awaiting a signal whose signature is unknown | §9.6 |
 | Whether a waiter ends as cancelled or failed when the awaited object is freed | §9.2, §9.7 |
 | How to call a GDScript coroutine without waiting for it | §9.8 |
 
@@ -961,7 +967,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Visibility | Members without `pub` are invisible in other classes, and readable, writable and overridable in subclasses; using a struct without `pub` in another file is a compile error; changing visibility in an override is a compile error; a type without `pub` in the signature of a `pub` function is a compile error; GDScript referring to a member without `pub` is a GDScript compile error; `call_deferred("reset")` makes `reset` callable by name from the engine |
 | Members | `var speed = 5.0` is float; empty-container members require an annotation; an int member without an initializer is 0, and a `T?` member is None; a struct member takes its default when every field has one and must otherwise be assigned |
 | Signatures | delta in `func _process(delta):` is a float; an override writing a subtype as its return type is valid, and writing a supertype is a compile error; an override adding a parameter with a default is valid; returning a value from a non-override function with an omitted return type is a compile error; lambda parameters with an expected type need no annotation |
-| Signals | Mismatching emit arguments and connect parameters are compile errors; a connection in a scene that does not match its signal is marked in the scene; the await result of a one-parameter signal has that parameter's type; using the await result of a multi-parameter signal is a compile error |
+| Signals | Mismatching emit arguments and connect parameters are compile errors; a connection in a scene that does not match its signal is marked in the scene; the await result of a one-parameter signal has that parameter's type; using the await result of a multi-parameter signal is a compile error; awaiting a variable of type `Signal` yields a Variant, an Array at runtime when the signal has two parameters |
 | Equality | `1 == 1.0` is true; `hp == "3"` is a compile error; comparing a `Node2D` with a `Node3D` is a compile error; `hp == 3` with hp an `int?` is valid; comparing a non-null `Node` with None is a compile error; `Array[int] == Array[float]` is a compile error; comparing a Variant holding a String with an int is a program error |
 | Conversions | `node as Sprite2D` is `Sprite2D?`; `x as int` is a compile error offering `int(x)` and `int.try_from(x)`; `int.try_from(2.0)` is `Ok(2)`, while `int.try_from(2.5)` and `int.try_from("2")` are `Err` |
 | Narrowing | Locals narrow after `!= None`, `is` and early returns; branches of conditional expressions and the right operand of `and` narrow; members do not narrow; `if x:` and `if not x:` with a non-bool x are compile errors with a fix depending on the type |

@@ -131,7 +131,7 @@ func callv_dotnet(thing: Variant, method: String, args: Array) -> Variant:
     return null
 ```
 
-这个信号在 C# 中声明，接收者的类型标注是 RefCounted，所以在 await 处看不到静态签名；规则 A 到 C 针对的是参数静态已知的信号，决定不了这种情况。v0.1 让参数未知的信号保持 GDScript 的结果形状，类型为 `Variant?`；现行规范没有为它们另设规则。这个循环也说明了这里为什么需要实参：多个并发请求的响应共用一个信号，靠第一个实参来区分。
+这个信号在 C# 中声明，接收者的类型标注是 RefCounted，所以在 await 处看不到静态签名；规则 A 到 C 针对的是参数静态已知的信号，决定不了这种情况。v0.1 让参数未知的信号保持 GDScript 的结果形状，类型为 `Variant?`；现行规范同样保持 GDScript 的结果形状，类型为 Variant（§9.6）。这个循环也说明了这里为什么需要实参：多个并发请求的响应共用一个信号，靠第一个实参来区分。
 
 **2. 结果被使用时，通常是一个有类型的值。**
 `godot-open-rpg/src/field/cutscenes/templates/combat/combat_trigger.gd:7-11`

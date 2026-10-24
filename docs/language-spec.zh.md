@@ -727,7 +727,14 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 
 - 可以直接 await 一个信号。
 - 无参数的信号不产生值；单参数的信号得到该参数类型的值；多参数信号的 await 只能作为语句。依据：[await 信号结果调查](surveys/await-signal-results.zh.md)中，1,356 个 await 只有 1 个使用了多参数信号的结果。GDScript 在这里得到由实参组成的 Array（`modules/gdscript/gdscript_function.cpp:237-255`），所以使用这种结果的 GDScript 写法是编译错误。【后续】按参数解构多参数信号的 await 结果。
-- await 签名未知的信号（例如 Variant 上取到的 Signal 值）时，结果的类型【待定】。
+- 信号表达式的静态类型只是 `Signal` 时，签名未知，例如 `Signal` 类型的变量或参数、返回 Signal 的方法、Variant 或 Object 上取到的信号。经已知的类访问的信号，签名都已知：引擎类按 ClassDB，本语言的类按声明，GDScript 类经反射。
+- await 签名未知的信号，结果是 Variant，运行时的形状与 GDScript 相同：无参数时为 NIL，一个参数时为该实参，多个参数时为由实参组成的 Array。用作语句时没有限制。理由：签名未知本来就是动态来源，结果按 Variant 的规则显式转换后才能使用（§3.13）。依据：[await 信号结果调查](surveys/await-signal-results.zh.md)中，这类 await 的结果只被使用过 1 次，即 `godot_dialogue_manager/addons/dialogue_manager/dialogue_manager.gd:1956` 经类型为 RefCounted 的接收者等待一个在 C# 中声明的两参数信号。【后续】带参数类型的 Signal 类型。
+
+  ```gdscript
+  var r = await DialogueManager.Resolved   # 接收者是 RefCounted，签名未知：r 为 Variant
+  if r is Array and r[0] == id:            # 按 Variant 的规则收窄后使用
+      return r[1]
+  ```
 
 ### 9.7 对象释放与挂起的协程
 
@@ -929,14 +936,13 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 - 就绪后才赋值的非空成员（§6.2）；
 - 始终生效的断言（§8.3）；
 - 重入策略的注解，例如 `@restart`（§9.5）；
-- 按参数解构多参数信号的 await 结果（§9.6）；
+- 按参数解构多参数信号的 await 结果，带参数类型的 Signal 类型（§9.6）；
 - §13.5 所列的工具。
 
 ### 14.3 待定问题
 
 | 问题 | 章节 |
 |---|---|
-| await 签名未知的信号时，结果是什么类型 | §9.6 |
 | 被等待的对象被释放时，等待方结束为取消还是失败 | §9.2、§9.7 |
 | 怎样不等待地调用 GDScript 协程 | §9.8 |
 
@@ -961,7 +967,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；在其他文件中使用不带 `pub` 的 struct 报编译错误；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
 | 成员 | `var speed = 5.0` 为 float；空容器成员要求标注；没有初始化式的 int 成员为 0，`T?` 成员为 None；所有字段都有默认值的 struct 成员取默认值，否则必须赋值 |
 | 签名 | `func _process(delta):` 中 delta 为 float；覆盖时把返回类型写成子类型合法，写成父类型报编译错误；覆盖时多出带默认值的参数合法；非覆盖函数省略返回类型后返回值报编译错误；有期望类型的 lambda 参数不必标注 |
-| 信号 | emit 实参不符和 connect 参数不符报编译错误；场景中的连接与信号不符时标在场景中；单参数信号的 await 结果有该参数类型；使用多参数信号的 await 结果报编译错误 |
+| 信号 | emit 实参不符和 connect 参数不符报编译错误；场景中的连接与信号不符时标在场景中；单参数信号的 await 结果有该参数类型；使用多参数信号的 await 结果报编译错误；await `Signal` 类型的变量得到 Variant，信号有两个参数时运行时为 Array |
 | 相等 | `1 == 1.0` 为真；`hp == "3"` 报编译错误；`Node2D` 与 `Node3D` 比较报编译错误；hp 为 `int?` 时 `hp == 3` 合法；非空的 `Node` 与 None 比较报编译错误；`Array[int] == Array[float]` 报编译错误；Variant 中是 String 时与 int 比较是程序错误 |
 | 转换 | `node as Sprite2D` 为 `Sprite2D?`；`x as int` 报编译错误并给出 `int(x)` 与 `int.try_from(x)`；`int.try_from(2.0)` 得 `Ok(2)`，`int.try_from(2.5)` 和 `int.try_from("2")` 得 `Err` |
 | 收窄 | `!= None`、`is` 和提前返回之后局部变量收窄；条件表达式的分支和 `and` 右侧收窄；成员不收窄；`if x:`、`if not x:` 在 x 不是 bool 时报编译错误并按类型给出改法 |

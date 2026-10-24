@@ -131,7 +131,7 @@ func callv_dotnet(thing: Variant, method: String, args: Array) -> Variant:
     return null
 ```
 
-The signal is declared in C#, and the receiver is typed RefCounted, so no static signature is visible at the await; rules A to C concern signals whose parameters are known statically and do not decide this case. v0.1 gave signals with unknown parameters GDScript's result shape, typed `Variant?`; the current specification has no separate rule for them. The loop also shows why the arguments matter here: responses to concurrent requests share one signal, and the first argument tells them apart.
+The signal is declared in C#, and the receiver is typed RefCounted, so no static signature is visible at the await; rules A to C concern signals whose parameters are known statically and do not decide this case. v0.1 gave signals with unknown parameters GDScript's result shape, typed `Variant?`; the current specification also keeps GDScript's result shape, typed Variant (§9.6). The loop also shows why the arguments matter here: responses to concurrent requests share one signal, and the first argument tells them apart.
 
 **2. When a result is used, it is usually one typed value.**
 `godot-open-rpg/src/field/cutscenes/templates/combat/combat_trigger.gd:7-11`
