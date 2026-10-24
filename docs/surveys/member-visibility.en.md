@@ -60,6 +60,7 @@ By kind of member (all repositories):
 
 - `pub` is written at least 22 times per 1,000 lines (30 in games), so it is a keyword rather than an annotation.
 - Members used only by subclasses are 7.2% of the members used outside their file (5.5% in games). The first version therefore has no subclass-visible level, and these members are marked `pub`. Overriding a member that is not `pub` is a compile error, so adding such a level later does not break existing code.
+  - Later: in the [second paper migration](paper-migration-2.en.md) this share is 28%, because this survey counted common names such as `type` and `update_stat` as ambiguous. The design was changed accordingly so that subclasses can access members without `pub` ([design decisions](../decisions.en.md) §4).
 
 ## Reproduction
 
