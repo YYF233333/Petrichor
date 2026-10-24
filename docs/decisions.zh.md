@@ -61,6 +61,7 @@
 
 - **动态值只有三个来源**：以 Variant 声明的引擎接口，GDScript 插件中没有标注类型的参数和返回值，跨语言传来的消息。
 - **能定型的从源头定型。** 引擎实际有约束但没有导出的，我们在自己的绑定元数据中补上；引擎已导出的元数据直接使用。其余动态值进入静态代码时必须显式转换，失败时报错；不做隐式检查。
+- **转换。** `x as T` 只用于对象类型，结果为 `T?`，类型不符时为 None，与 GDScript 相同（`modules/gdscript/gdscript_vm.cpp:1665-1666`）；x 的静态类型已是 T 时结果为 T，并提示这个 `as` 多余。`as` 转为内置类型是编译错误：GDScript 在这里按构造函数转换（`gdscript_vm.cpp:1630-1637`），快速修复给出 `T(x)`，它保留这种转换，如 `int("5")`；或者给出 `T.try_from(x)`。`T.try_from(v)` 是严格的显式转换，返回 `Result[T, ConversionError]`，规则与 struct 字段的解码相同，转为 int 时接受恰为整数的浮点数；用 `?` 传播失败，或用 `.unwrap()`、`.expect(…)` 把失败变为程序错误。必须成功的向下转型写作 `(x as T).unwrap()`。以字面量类名过滤的接口按该类定型，例如 `find_children("*", "MeshInstance3D")` 返回 `Array[MeshInstance3D]`；先判断分组、再向下转型的写法，快速修复建议改用 `is`。依据：[第二次纸面迁移](surveys/paper-migration-2.zh.md)中有 16 处 `(x as T).unwrap()`。
 - **引擎返回对象的可空性。** 未审核的接口一律可空。审核按语料中的调用频率由高到低进行，结果分三种：非空，类型为 T；只在误用时为空，例如 `get_tree()`，按非空处理，为空时报程序错误；正常情况下可能为空，例如 `get_collider()`，类型为 T?。理由：引擎用 `RequiredResult` 标注的接口声明只有约 50 处，其中 29 处在 Tween。
 - **字符串形式的成员名。** `connect`、`emit_signal`、`call`、`call_deferred`、`set_deferred`、`has_method`、`Callable(obj, "m")`、`tween_property` 以及 `"position:x"` 一类属性路径，在目标类型已知时，字面量按静态引用解析：检查名字是否存在及值的类型，参与重命名和查找引用。哪些参数是名字，由我们的绑定元数据标注。非字面量的名字是显式的动态访问。
 - **引擎和 GDScript 看到的类型**：
