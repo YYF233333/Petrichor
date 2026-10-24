@@ -60,9 +60,8 @@ This document rewrites the language specification from the [design decisions](de
 
 ### 2.3 Annotations
 
-- GDScript's annotations are kept with their meaning: the `@export` family, `@onready`, `@tool`, `@icon`, `@warning_ignore`, `@rpc`, `@static_unload`.
+- GDScript's annotations are kept with their meaning: the `@export` family, `@onready`, `@tool`, `@icon`, `@warning_ignore`, `@rpc`, `@static_unload`, `@abstract` (§4.1).
 - New class-level annotations: `@parent(T)` and `@owner(T)` (§7.3).
-- Whether `@abstract` is supported is [Open].
 - Annotations precede the declaration and may share its line; `pub` comes after annotations and before `static` (§2.4).
 
 ### 2.4 Declaration spellings
@@ -229,6 +228,25 @@ This document rewrites the language specification from the [design decisions](de
 - [Known limitation] It cannot extend a GDScript class. When a plugin requires extending its GDScript classes (such as Beehave's ActionLeaf), users hand-write a thin GDScript subclass that calls code in this language (§11.2).
 - A GDScript script cannot extend a class of this language: when GDScript resolves `extends GlobalClassName`, it parses the base class's file as GDScript (`modules/gdscript/gdscript_analyzer.cpp:471-487`). The analysis service reports an error explaining this on such a GDScript file (§11.2).
 - The signature rules for overriding methods are in §4.6, the visibility rules in §4.2.
+- `@abstract` is as in GDScript (`gdscript_analyzer.cpp:1543-1562, 3674-3687`, `modules/gdscript/gdscript_parser.cpp:4492-4516`):
+  - an abstract method has no colon and no body;
+  - a class with abstract methods must be marked `@abstract`;
+  - a concrete subclass must implement every abstract method;
+  - an abstract class cannot be constructed;
+  - calling an abstract method through `super` and marking a static method `@abstract` are compile errors.
+- A node in a scene that uses an abstract class is a compile error, reported on that scene. The engine itself does not instantiate abstract scripts either (`modules/gdscript/gdscript.cpp:265-270`); the language reports abstractness to the engine through `_is_abstract` and the global class list (`core/object/script_language_extension.h:143-147, 756-769`).
+- A common base class with state is written with `@abstract`; a capability shared by classes with different engine bases is an interface (§3.9). For example, BattlerAction extends Resource and has exported fields:
+
+  ```gdscript
+  @abstract
+  class_name BattlerAction extends Resource
+
+  @export var label: String
+
+  @abstract pub async func execute()
+  ```
+
+  Evidence: in the [corpus counts](surveys/corpus-counts.en.md), 25 of 28 abstract classes are in gdUnit4, and 17 of the abstract classes declared by a file have only abstract methods, so they can be rewritten as interfaces.
 
 ### 4.2 Visibility
 
@@ -271,7 +289,13 @@ This document rewrites the language specification from the [design decisions](de
 - Function signature types are written by hand, not inferred. Parameters must be annotated.
 - An override of an engine virtual or of a base-class method may omit its parameter and return types; the omitted types are taken from the overridden declaration and shown on hover. Types that are written must match it exactly, while parameter names may differ. For example, delta in `func _process(delta):` is a float (`scene/main/node.h:433-434`). This is not inference: the types are set by the overridden declaration, not by the body.
 - For a function that is not an override, an omitted return type means void; returning a value from it is a compile error, and the quick fix adds the return type.
-- Parameters may have default values, as in GDScript. Whether rest parameters `...args` are supported is [Open].
+- Parameters may have default values, as in GDScript.
+- Rest parameters:
+  - `...args: Array` is as in GDScript; it must be the last parameter and cannot have a default value (`gdscript_parser.cpp:1723-1730`);
+  - `...args: Array[T]` is also allowed, and each argument is checked at the call site; GDScript reports typed rest parameters as a compile error (`gdscript_analyzer.cpp:1802-1809`);
+  - a bare `...args` is a compile error, and the quick fix adds `: Array`;
+  - the method information the engine sees carries `METHOD_FLAG_VARARG`, from which GDScript accepts any number of extra arguments (`gdscript_analyzer.cpp:6101-6104`); the element type is enforced by the entry check (§10.1);
+  - there is no spread at call sites, and GDScript has none either (`gdscript_parser.cpp:4336`); an existing array is passed with `callv`. [Later] A spread form.
 - Calls pass arguments by position, as in GDScript. Arguments by name are used only to construct structs and variants with payloads (§2.4), and to pass must-assign members to `instantiate(...)` and `new(...)` (§6.2).
 - Local variables inside functions may infer their type from an initializer. A lambda is code inside a function and is inferred by the local rules: its parameter types come from the expected function type when there is one and must be written otherwise, and its return type is inferred from its body, as in `weapon.map(func(w): return w.name)`.
 - Coroutines are declared in the signature as `async func` (§9.1).
@@ -756,6 +780,7 @@ This document rewrites the language specification from the [design decisions](de
 - conditional binding, or narrowing fields when no call occurs between the check and the use (§5.4);
 - reentrancy annotations such as `@restart` (§9.5);
 - aliases or `import` (§2.4);
+- a spread form at call sites (§4.6);
 - the tools listed in §13.5.
 
 ### 14.3 Open questions
@@ -764,7 +789,6 @@ The following correspond to §10 of the [design decisions](decisions.en.md):
 
 | Question | Section |
 |---|---|
-| Are `@abstract` and rest parameters `...args` supported? | §2.3, §4.6 |
 | The spelling of generics | §3.10 |
 | The spelling of function types | §3.11 |
 | The operations Variant allows | §3.13 |
@@ -790,6 +814,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Narrowing | Locals narrow after `!= None`, `is` and early returns; branches of conditional expressions and the right operand of `and` narrow; members do not narrow; `if x:` is a compile error with a fix depending on the type |
 | Visibility | Members without `pub` are invisible in other classes, and readable, writable and overridable in subclasses; changing visibility in an override is a compile error; a type without `pub` in the signature of a `pub` function is a compile error; GDScript referring to a member without `pub` is a GDScript compile error; `call_deferred("reset")` makes `reset` callable by name from the engine |
 | Signatures | delta in `func _process(delta):` is a float; writing a mismatching type in an override is a compile error; returning a value from a non-override function with an omitted return type is a compile error; lambda parameters with an expected type need no annotation |
+| Abstract classes and rest parameters | Constructing an abstract class is a compile error; a concrete subclass missing an implementation of an abstract method is a compile error; a node in a scene using an abstract class is a compile error; passing a String to `...args: Array[int]` is a compile error; a bare `...args` is a compile error; GDScript passing a String when calling `...args: Array[int]` is a program error |
 | Members | `var speed = 5.0` is float; empty-container members require an annotation; an int member without an initializer is 0; a struct member takes its default when every field has one and must otherwise be assigned |
 | Must-assign | `BulletScene.instantiate(speed = 300.0)` without `target` is a compile error; an ancestor assigning `$Child.target = v` in `_ready` is not an error; the child reading that member in its own `_ready` is a compile error; reading an unassigned member before ready is a program error |
 | Export checks | `crosshair` in player.tscn assigned by the instance in main.tscn is not an error; an instance without the value is marked on the scene containing it; a scene referenced from nowhere gets only a warning and does not block export; a missing value at runtime is a program error at ready naming the member |
@@ -831,6 +856,7 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | Numbers in JSON are all parsed as floats | `core/io/json.cpp:390-396` |
 | A method's reflection information does not include whether it is a coroutine | `core/object/method_info.h:37-44` |
 | The hooks a script language needs are exposed to GDExtension | `core/object/script_language_extension.h:393, 493, 533, 596, 754` |
+| A script language from an extension reports abstractness through `_is_abstract` and the global class list | `core/object/script_language_extension.h:143-147, 756-769` |
 | The parameters of `_process` and `_physics_process` are double | `scene/main/node.h:433-434` |
 | `NOTIFICATION_PARENTED` | `scene/main/node.h:466` |
 | When a node leaves its owner's subtree, its owner is set to null | `scene/main/node.cpp:391-396, 1799-1801` |
@@ -843,11 +869,15 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | Renaming a node in the editor updates NodePath properties and animation tracks in the scene | `editor/docks/scene_tree_dock.cpp:2173-2260, 2280-2400` |
 | GDScript types global classes of other languages through the Script reflection interface | `modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063` |
 | When GDScript resolves `extends GlobalClassName` it parses the base class's file as GDScript, reporting only "Could not resolve super class" on failure | `modules/gdscript/gdscript_analyzer.cpp:471-487` (errors at `:479, 485`) |
+| GDScript requires concrete subclasses to implement abstract methods, and forbids constructing abstract classes and calling abstract methods through `super` | `modules/gdscript/gdscript_analyzer.cpp:1543-1562, 3674-3687` |
+| GDScript's rest parameter can only be an Array with Variant elements | `modules/gdscript/gdscript_analyzer.cpp:1802-1809` |
+| GDScript reads `METHOD_FLAG_VARARG` from other languages' method information | `modules/gdscript/gdscript_analyzer.cpp:6101-6104` |
 | `?` is a syntax error in GDScript | `modules/gdscript/gdscript_parser.cpp:3834-3835` |
 | GDScript's prefix `!` is logical not | `modules/gdscript/gdscript_parser.cpp:2965-2967` |
 | An abstract method declaration has no colon | `modules/gdscript/gdscript_parser.cpp:1790-1791` |
-| The `@abstract` annotation | `modules/gdscript/gdscript_parser.cpp:149, 4492-4516` |
-| Rest parameters | `modules/gdscript/gdscript_parser.cpp:1723-1730` |
+| The `@abstract` annotation, which cannot be applied to static methods | `modules/gdscript/gdscript_parser.cpp:149, 4492-4516` |
+| A rest parameter must be the last parameter and cannot have a default value | `modules/gdscript/gdscript_parser.cpp:1723-1730` |
+| `...` cannot appear in GDScript expressions | `modules/gdscript/gdscript_parser.cpp:4336` |
 | match patterns | `modules/gdscript/gdscript_parser.cpp:2499-2723` |
 | `as` to an object type yields null on failure | `modules/gdscript/gdscript_vm.cpp:1665-1666` |
 | `as` to a built-in type converts through the constructor | `modules/gdscript/gdscript_vm.cpp:1630-1637` |
@@ -856,6 +886,7 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | After an error GDScript returns a default value built for the return type | `modules/gdscript/gdscript_vm.cpp:3975-3979` |
 | Member initializers bypass setters | `modules/gdscript/gdscript_compiler.cpp:2435-2451, 2620-2643` |
 | `_static_init` is called after static members are initialized | `modules/gdscript/gdscript_compiler.cpp:2646-2649` |
+| The engine does not instantiate abstract GDScript scripts | `modules/gdscript/gdscript.cpp:265-270` |
 | `@onready` initializers run before the user's `_ready`, base class first | `modules/gdscript/gdscript.cpp:1956-1972` |
 | `GDScriptFunctionState` has a `completed` signal | `modules/gdscript/gdscript_function.cpp:327` |
 | Awaiting a multi-parameter signal yields an Array of the arguments | `modules/gdscript/gdscript_function.cpp:237-255` |

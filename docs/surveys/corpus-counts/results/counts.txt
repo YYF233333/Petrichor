@@ -1,3 +1,6 @@
 code lines: 203720
 null: 4521 (22.2 per 1,000 lines); comparisons 2541, other uses 1980
 prefix !: 460; not: 4504
+@abstract classes: 28 (gdUnit4 25, Pixelorama 2, godot-open-rpg 1)
+rest parameters: 78 (gdUnit4 76, Pixelorama 2)
+@abstract methods: 250; abstract file classes whose methods are all abstract: 17

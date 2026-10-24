@@ -123,6 +123,8 @@
   - 类头用 `implements A, B` 声明实现的接口，可以与 `extends` 写在同一行，例如 `class_name Player extends CharacterBody3D implements Damageable`，也可以单独一行。不并入 `extends`，使基类与接口一眼可分。
   - `pub` 是关键字，写在注解之后、`static` 之前，例如 `@export pub var max_hp: int`、`pub static func`、`pub signal died`。用关键字而不用注解，因为它写得频繁：[成员可见性调查](surveys/member-visibility.zh.md)中每千行至少 22 处。
   - 放置与命名沿用 GDScript：一个文件就是一个类，文件中声明的 struct、enum 和 interface 都属于这个类。在本文件中直接写名字，在其他文件中写 `类名.名字`，例如 `Combat.Hit`、`Player.Command.MOVE(target = p)`；没有 `class_name` 的文件经 `preload` 访问。全局名只来自 `class_name`。几个类共用的类型放进一个专门承载它们的类。以后可以加入别名或 `import`，不改变现有写法的含义。
+- **`@abstract`** 沿用 GDScript 的规则：抽象方法不写冒号、没有函数体；含抽象方法的类必须标 `@abstract`；具体子类必须实现全部抽象方法；抽象类不能构造；`super` 调用抽象方法，以及给 static 方法标 `@abstract`，都是编译错误（`modules/gdscript/gdscript_analyzer.cpp:1543-1562, 3674-3687`，`gdscript_parser.cpp:4505-4507`）。另外，场景中的节点使用抽象类是编译错误，标在该场景上；引擎本身也不实例化抽象脚本（`modules/gdscript/gdscript.cpp:265-270`），本语言经 `_is_abstract` 和全局类表把抽象性报告给引擎（`core/object/script_language_extension.h:143-147, 756-769`）。需要带状态的共同基类时用 `@abstract`，需要让不同引擎基类的类具备同一能力时用 interface。依据：[语料计数](surveys/corpus-counts.zh.md)中 28 个抽象类有 25 个在 gdUnit4，以文件为单位的抽象类中 17 个的方法全部是抽象的，可以改写为 interface；游戏代码中如 godot-open-rpg 的 BattlerAction，它继承 Resource，带导出字段和抽象的协程 `execute`。
+- **剩余参数** `...args: Array` 与 GDScript 相同，只能是最后一个参数，不能有默认值（`gdscript_parser.cpp:1723-1730`）。另外允许 `...args: Array[T]`，调用处逐个检查实参；GDScript 对带类型的剩余参数报编译错误（`gdscript_analyzer.cpp:1802-1809`），所以这不违反语法硬规则。参数须标注类型的规则同样适用：只写 `...args` 是编译错误，快速修复补上 `: Array`。引擎看到的方法信息带 `METHOD_FLAG_VARARG`，GDScript 据此接受任意个额外的实参（`gdscript_analyzer.cpp:6101-6104`），元素类型由入口检查。调用处没有展开写法，GDScript 也没有（`gdscript_parser.cpp:4336`）；已有的数组用 `callv` 传入。以后可以加入展开写法，不改变现有写法的含义；没有它时容易写错，例如 Pixelorama 的 `_debug_msg` 把自己的 args 整个当作一个实参传给 `_prefix_print`，后者再 `prints(args)`，打印出的是数组而不是以空格分隔的值（`src/Classes/ObjParse.gd:59-66`）。依据：语料中 78 个剩余参数有 76 个在 gdUnit4 的断言接口中，元素都是 Variant。
 - **`null`** 是 None 的别名，在所有位置的含义与 GDScript 一致：`x = null` 给 `T?` 赋空值，`x != null` 与 `x != None` 相同并带来收窄，传给 Variant 时引擎得到 NIL。把它赋给非空的 `T` 是编译错误，快速修复把类型改为 `T?`。另有一条提示建议新代码写 None，不强制。理由：[语料计数](surveys/corpus-counts.zh.md)中 `null` 每千行 22.2 处，改成编译错误只会增加机械的迁移工作。
 - **表达式。** 条件表达式只有 GDScript 的 `a if c else b`，条件必须是 bool；不提供以 if/else 块为值的写法。后缀 `?` 的含义见 §7；GDScript 中 `?` 目前是语法错误（`modules/gdscript/gdscript_parser.cpp:3834-3835`）。
 - **match** 保留 GDScript 的全部模式，含义不变：字面量和常量表达式按相等比较，`var x` 绑定，`_` 通配，数组和字典模式及其中的 `..`，逗号分隔的多个模式（其中不能绑定），`when` 守卫（`modules/gdscript/gdscript_parser.cpp:2499-2723`）。新增的模式：
@@ -136,7 +138,6 @@
 
 讨论和[第二次纸面迁移](surveys/paper-migration-2.zh.md)中发现的问题都已决定。以下是重写规范时发现的问题：
 
-- GDScript 4.5 起的 `@abstract` 类和方法（`modules/gdscript/gdscript_parser.cpp:149, 4492-4516`）与剩余参数 `...args`（`gdscript_parser.cpp:1723-1730`）：是否支持，语义是否照搬。
 - 泛型的写法：函数、struct、enum 和 RefCounted 类的声明，接口约束，调用处显式给出的类型实参。
 - 函数类型的写法，包括 async 函数的类型。
 - Variant 上允许哪些操作：赋值、传参、`==`、`is`、`as`、转换，以及按名字的动态访问。
@@ -150,4 +151,4 @@
 
 ## 依据
 
-调查：[场景结构](surveys/scene-structures.zh.md)、[跨分支重复](surveys/cross-branch-duplication.zh.md)、[暗坑清单](surveys/pitfalls.zh.md)、[纸面迁移](surveys/paper-migration.zh.md)、[属性访问器](surveys/property-accessors.zh.md)、[await 信号结果](surveys/await-signal-results.zh.md)、[成员可见性](surveys/member-visibility.zh.md)、[第二次纸面迁移](surveys/paper-migration-2.zh.md)。
+调查：[场景结构](surveys/scene-structures.zh.md)、[跨分支重复](surveys/cross-branch-duplication.zh.md)、[暗坑清单](surveys/pitfalls.zh.md)、[纸面迁移](surveys/paper-migration.zh.md)、[属性访问器](surveys/property-accessors.zh.md)、[await 信号结果](surveys/await-signal-results.zh.md)、[成员可见性](surveys/member-visibility.zh.md)、[第二次纸面迁移](surveys/paper-migration-2.zh.md)、[语料计数](surveys/corpus-counts.zh.md)。

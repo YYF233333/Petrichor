@@ -60,9 +60,8 @@
 
 ### 2.3 注解
 
-- 沿用 GDScript 的注解，含义相同：`@export` 系列、`@onready`、`@tool`、`@icon`、`@warning_ignore`、`@rpc`、`@static_unload`。
+- 沿用 GDScript 的注解，含义相同：`@export` 系列、`@onready`、`@tool`、`@icon`、`@warning_ignore`、`@rpc`、`@static_unload`、`@abstract`（§4.1）。
 - 新增的类级注解：`@parent(T)`、`@owner(T)`（§7.3）。
-- `@abstract` 是否支持【待定】。
 - 注解写在声明之前，可以与声明同一行；`pub` 写在注解之后、`static` 之前（§2.4）。
 
 ### 2.4 声明的写法
@@ -229,6 +228,25 @@
 - 【已知限制】不能继承 GDScript 类。插件要求继承它的 GDScript 类时（例如 Beehave 的 ActionLeaf），由用户手写一层薄的 GDScript 子类，在其中调用本语言的代码（§11.2）。
 - GDScript 脚本不能继承本语言的类：GDScript 解析 `extends 全局类名` 时，把基类文件当作 GDScript 解析（`modules/gdscript/gdscript_analyzer.cpp:471-487`）。分析服务在这样的 GDScript 文件上报错并说明原因（§11.2）。
 - 覆盖方法时签名的规则见 §4.6，可见性的规则见 §4.2。
+- `@abstract` 与 GDScript 相同（`gdscript_analyzer.cpp:1543-1562, 3674-3687`，`modules/gdscript/gdscript_parser.cpp:4492-4516`）：
+  - 抽象方法不写冒号、没有函数体；
+  - 含抽象方法的类必须标 `@abstract`；
+  - 具体子类必须实现全部抽象方法；
+  - 抽象类不能构造；
+  - `super` 调用抽象方法，以及给 static 方法标 `@abstract`，都是编译错误。
+- 场景中的节点使用抽象类是编译错误，标在该场景上。引擎本身也不实例化抽象脚本（`modules/gdscript/gdscript.cpp:265-270`）；本语言经 `_is_abstract` 和全局类表把抽象性报告给引擎（`core/object/script_language_extension.h:143-147, 756-769`）。
+- 带状态的共同基类用 `@abstract`；不同引擎基类的类共有的能力用接口（§3.9）。例如 BattlerAction 继承 Resource，带导出字段：
+
+  ```gdscript
+  @abstract
+  class_name BattlerAction extends Resource
+
+  @export var label: String
+
+  @abstract pub async func execute()
+  ```
+
+  依据：[语料计数](surveys/corpus-counts.zh.md)中 28 个抽象类有 25 个在 gdUnit4，以文件为单位的抽象类中 17 个的方法全部是抽象的，可以改写为接口。
 
 ### 4.2 可见性
 
@@ -271,7 +289,13 @@
 - 函数签名的类型手写，不推断。参数必须标注类型。
 - 覆盖引擎虚函数或基类方法时，可以省略参数类型和返回类型；省略的类型取自被覆盖的声明，悬停可见。写出的类型必须与之一致，参数名可以不同。例如 `func _process(delta):` 中 delta 为 float（`scene/main/node.h:433-434`）。这不是推断：类型由被覆盖的声明规定，与函数体无关。
 - 不是覆盖的函数，省略返回类型表示 void；在其中返回值是编译错误，快速修复补上返回类型。
-- 参数可以有默认值，与 GDScript 相同。剩余参数 `...args` 是否支持【待定】。
+- 参数可以有默认值，与 GDScript 相同。
+- 剩余参数：
+  - `...args: Array` 与 GDScript 相同，只能是最后一个参数，不能有默认值（`gdscript_parser.cpp:1723-1730`）；
+  - 另外允许 `...args: Array[T]`，调用处逐个检查实参；GDScript 对带类型的剩余参数报编译错误（`gdscript_analyzer.cpp:1802-1809`）；
+  - 只写 `...args` 是编译错误，快速修复补上 `: Array`；
+  - 引擎看到的方法信息带 `METHOD_FLAG_VARARG`，GDScript 据此接受任意个额外的实参（`gdscript_analyzer.cpp:6101-6104`），元素类型由入口检查（§10.1）；
+  - 调用处没有展开写法，GDScript 也没有（`gdscript_parser.cpp:4336`）；已有的数组用 `callv` 传入。【后续】展开写法。
 - 调用按位置传参，与 GDScript 相同。按名字传参只用于 struct 和带载荷分支的构造（§2.4），以及 `instantiate(...)`、`new(...)` 传入必须赋值的成员（§6.2）。
 - 函数内部的局部变量可以由初始化式推断类型。lambda 是函数内部的代码，按局部规则推断：有期望的函数类型时，参数类型取自它，没有时须写出；返回类型由函数体推断，例如 `weapon.map(func(w): return w.name)`。
 - 协程在签名上声明为 `async func`（§9.1）。
@@ -756,6 +780,7 @@
 - 条件绑定，或检查与使用之间没有调用时让字段收窄（§5.4）；
 - 重入策略的注解，例如 `@restart`（§9.5）；
 - 别名或 `import`（§2.4）；
+- 调用处的展开写法（§4.6）；
 - §13.5 所列的工具。
 
 ### 14.3 待定问题
@@ -764,7 +789,6 @@
 
 | 问题 | 章节 |
 |---|---|
-| 是否支持 `@abstract` 和剩余参数 `...args` | §2.3、§4.6 |
 | 泛型的写法 | §3.10 |
 | 函数类型的写法 | §3.11 |
 | Variant 上允许的操作 | §3.13 |
@@ -790,6 +814,7 @@
 | 收窄 | `!= None`、`is` 和提前返回之后局部变量收窄；条件表达式的分支和 `and` 右侧收窄；成员不收窄；`if x:` 报编译错误并按类型给出改法 |
 | 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
 | 签名 | `func _process(delta):` 中 delta 为 float；覆盖时写出不一致的类型报编译错误；非覆盖函数省略返回类型后返回值报编译错误；有期望类型的 lambda 参数不必标注 |
+| 抽象类与剩余参数 | 构造抽象类报编译错误；具体子类缺少某个抽象方法的实现报编译错误；场景中的节点使用抽象类报编译错误；向 `...args: Array[int]` 传入 String 报编译错误；只写 `...args` 报编译错误；GDScript 调用 `...args: Array[int]` 时传入 String 是程序错误 |
 | 成员 | `var speed = 5.0` 为 float；空容器成员要求标注；没有初始化式的 int 成员为 0；所有字段都有默认值的 struct 成员取默认值，否则必须赋值 |
 | 必须赋值 | `BulletScene.instantiate(speed = 300.0)` 漏写 `target` 报编译错误；祖先在 `_ready` 中经 `$Child.target = v` 赋值时不报错；子节点在自己的 `_ready` 中读取该成员报编译错误；就绪前读取未赋值的成员是程序错误 |
 | 导出检查 | player.tscn 的 `crosshair` 由 main.tscn 的实例赋值时不报错；某个实例没有赋值时标在该实例所在的场景上；没有被引用的场景只给警告且不阻止导出；运行中缺值时就绪报程序错误并写明成员名 |
@@ -831,6 +856,7 @@
 | JSON 中的数字都解析为浮点数 | `core/io/json.cpp:390-396` |
 | 方法的反射信息中没有协程性 | `core/object/method_info.h:37-44` |
 | 脚本语言所需的钩子对 GDExtension 公开 | `core/object/script_language_extension.h:393, 493, 533, 596, 754` |
+| 扩展实现的脚本语言经 `_is_abstract` 和全局类表报告抽象性 | `core/object/script_language_extension.h:143-147, 756-769` |
 | `_process` 和 `_physics_process` 的参数是 double | `scene/main/node.h:433-434` |
 | `NOTIFICATION_PARENTED` | `scene/main/node.h:466` |
 | 节点移出 owner 的子树时 owner 被置为 null | `scene/main/node.cpp:391-396, 1799-1801` |
@@ -843,11 +869,15 @@
 | 编辑器给节点改名时，更新场景中的 NodePath 属性和动画轨道 | `editor/docks/scene_tree_dock.cpp:2173-2260, 2280-2400` |
 | GDScript 通过 Script 的反射接口为其他语言的全局类定型 | `modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063` |
 | GDScript 解析 `extends 全局类名` 时把基类文件当作 GDScript 解析，失败时只报“Could not resolve super class” | `modules/gdscript/gdscript_analyzer.cpp:471-487`（报错在 `:479, 485`） |
+| GDScript 要求具体子类实现抽象方法，禁止构造抽象类和经 `super` 调用抽象方法 | `modules/gdscript/gdscript_analyzer.cpp:1543-1562, 3674-3687` |
+| GDScript 的剩余参数只能是元素为 Variant 的 Array | `modules/gdscript/gdscript_analyzer.cpp:1802-1809` |
+| GDScript 从其他语言的方法信息中读取 `METHOD_FLAG_VARARG` | `modules/gdscript/gdscript_analyzer.cpp:6101-6104` |
 | GDScript 中 `?` 是语法错误 | `modules/gdscript/gdscript_parser.cpp:3834-3835` |
 | GDScript 的前缀 `!` 是逻辑非 | `modules/gdscript/gdscript_parser.cpp:2965-2967` |
 | 抽象方法的声明不写冒号 | `modules/gdscript/gdscript_parser.cpp:1790-1791` |
-| `@abstract` 注解 | `modules/gdscript/gdscript_parser.cpp:149, 4492-4516` |
-| 剩余参数 | `modules/gdscript/gdscript_parser.cpp:1723-1730` |
+| `@abstract` 注解，不能用于 static 方法 | `modules/gdscript/gdscript_parser.cpp:149, 4492-4516` |
+| 剩余参数只能是最后一个参数，不能有默认值 | `modules/gdscript/gdscript_parser.cpp:1723-1730` |
+| GDScript 的表达式中不能出现 `...` | `modules/gdscript/gdscript_parser.cpp:4336` |
 | match 的模式 | `modules/gdscript/gdscript_parser.cpp:2499-2723` |
 | `as` 转为对象类型失败时得到 null | `modules/gdscript/gdscript_vm.cpp:1665-1666` |
 | `as` 转为内置类型时按构造函数转换 | `modules/gdscript/gdscript_vm.cpp:1630-1637` |
@@ -856,6 +886,7 @@
 | GDScript 出错后按返回类型构造默认值返回 | `modules/gdscript/gdscript_vm.cpp:3975-3979` |
 | 成员的初始化式不经过 setter | `modules/gdscript/gdscript_compiler.cpp:2435-2451, 2620-2643` |
 | 静态成员初始化之后调用 `_static_init` | `modules/gdscript/gdscript_compiler.cpp:2646-2649` |
+| 引擎不实例化抽象的 GDScript 脚本 | `modules/gdscript/gdscript.cpp:265-270` |
 | `@onready` 初始化式在用户的 `_ready` 之前执行，先基类后派生类 | `modules/gdscript/gdscript.cpp:1956-1972` |
 | `GDScriptFunctionState` 有 `completed` 信号 | `modules/gdscript/gdscript_function.cpp:327` |
 | await 多参数信号得到由实参组成的 Array | `modules/gdscript/gdscript_function.cpp:237-255` |
