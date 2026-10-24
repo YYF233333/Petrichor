@@ -132,7 +132,7 @@ This document rewrites the language specification from the [design decisions](de
 ### 2.5 Statements
 
 - `var`, `const`, `if`/`elif`/`else`, `while`, `for`, `match`, `break`, `continue`, `pass` and `return` are as in GDScript; their rules are in §5.
-- `assert(condition, message)` is a program error when it fails; whether it is removed in release builds is [Open].
+- `assert(condition, message)` is as in GDScript and is removed in release builds (§8.3).
 - There is no form that uses an if/else block as a value; the only conditional expression is `a if c else b` (§5.5).
 
 ## 3. Types
@@ -632,7 +632,7 @@ This document rewrites the language specification from the [design decisions](de
 ### 8.1 Program errors
 
 - A program error aborts the entire call chain of this language back to the entry point through which the engine called in. On the way out, held references are released and the error and call stack are logged; when running in the editor, the debugger breaks. The game keeps running.
-- Debug and release builds behave the same.
+- Debug and release builds behave the same; the only exception is `assert` (§8.3).
 - If the engine's entry point must return a value, the engine receives the default value of its type.
 - Every situation this document calls a "program error" is handled by this rule, including: accessing a freed object (§3.3), a failed `unwrap` or `expect`, an out-of-range index, integer division by zero, reading a member that has not been assigned yet before ready, a failed entry check at the engine boundary (§10.1), and awaiting a cancelled task (§9.2).
 - Rationale: after an error GDScript builds a default value for the return type and the caller continues (`modules/gdscript/gdscript_vm.cpp:3975-3979`); under static typing this would hand code fake values.
@@ -656,7 +656,11 @@ This document rewrites the language specification from the [design decisions](de
 
 ### 8.3 Assertions
 
-- `assert(condition, message)` is a program error when it fails. Whether it is removed in release builds, as in GDScript, is [Open].
+- `assert(condition, message)` is as in GDScript: it is evaluated only in debug builds (runs in the editor and debug exports), and a failure is a program error; in release builds it is removed, and neither its condition nor its message is evaluated (`modules/gdscript/gdscript_compiler.cpp:2182-2208`; for GDScript's handling of failures see `modules/gdscript/gdscript_vm.cpp:3869-3895`).
+- The condition and message cannot contain await or postfix `?`, which is a compile error, because they would vanish with the assertion in release builds.
+- The condition must be bool (§5.4); for example, `assert(save_data, "...")` is a compile error whose quick fix changes it to `save_data != None`.
+- Checks also needed in release builds use `expect` (§3.4) or an explicit `if`. [Later] An always-on assertion.
+- Rationale: the syntax hard rule; in the [corpus counts](surveys/corpus-counts.en.md), the conditions of the 595 asserts are almost all queries, such as `peers.has(peer_id)`, and none has await in its arguments.
 
 ### 8.4 Diagnostics
 
@@ -893,6 +897,7 @@ This document rewrites the language specification from the [design decisions](de
 - parameter names in function types, direct calls `f(x)`, and passing an ordinary function where an async one is expected (§3.11);
 - struct methods that modify self, and `private` for struct members (§3.6);
 - generic interfaces, written `interface Source[T]:` (§3.9);
+- an always-on assertion (§8.3);
 - the tools listed in §13.5.
 
 ### 14.3 Open questions
@@ -901,7 +906,6 @@ The following correspond to §10 of the [design decisions](decisions.en.md):
 
 | Question | Section |
 |---|---|
-| Is `assert` removed in release builds? | §8.3 |
 | The spelling of the three scene structures declared by scripts | §7.2 |
 | The source file extension | §1.4 |
 
@@ -916,6 +920,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Nullability and freeing | A freed object read through `T?` is None; accessing its members through `T` is a program error whose diagnostic says where it was freed; after `queue_free()` and before the end of the frame it still counts as alive |
 | Option and Result | `?` returns from the current function on None or `Err`; `?` in a function returning void is a compile error; propagating an Option into a function returning Result is a compile error; `await f()?` equals `(await f())?`; discarding a Result is a compile error; a failed `unwrap` is a program error |
 | Structs and enums with payloads | Assigning to a field of self in a method is a compile error; `player.last_hit.damage = 3` calls player's setter; after `hits[0].damage = 3`, `hits[0].damage` is 3; `get_hit().damage = 3` is a compile error; `var b = a; b.damage = 1` leaves a unchanged; an Array field of a struct is still shared after copying; two structs with equal fields are equal and hit the same entry as Dictionary keys; `c.target` is a compile error; `@export` on an enum with payloads is a compile error |
+| Assertions | In debug builds `assert(false)` is a program error; in release builds `assert(f())` does not call f; `assert(await t)` is a compile error; `assert(save_data)` with save_data a `Resource?` is a compile error offering `save_data != None` |
 | Equality | `1 == 1.0` is true; `hp == "3"` is a compile error; comparing a `Node2D` with a `Node3D` is a compile error; `hp == 3` with hp an `int?` is valid; comparing a non-null `Node` with None is a compile error; `Array[int] == Array[float]` is a compile error; comparing a Variant holding a String with an int is a program error |
 | Nested Options | `pop_back()` on an empty `Array[Enemy?]` gives None, and a Some containing None when the last element is None; `var x: Enemy?? = maybe_enemy` gives a Some; a missing key in a `Dictionary[String, Variant]` gives None, and a null value a Some containing NIL; passing an `int??` or `Variant?` to a Variant parameter is a compile error offering `.flatten()` or `.unwrap_or(null)` |
 | Conversions | `node as Sprite2D` is `Sprite2D?`; `x as int` is a compile error offering `int(x)` and `int.try_from(x)`; `int.try_from(2.0)` is `Ok(2)`, while `int.try_from(2.5)` and `int.try_from("2")` are `Err` |
@@ -1004,8 +1009,10 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | `as` to a built-in type converts through the constructor | `modules/gdscript/gdscript_vm.cpp:1630-1637` |
 | At runtime GDScript reports an error for a combination missing from the operator table | `modules/gdscript/gdscript_vm.cpp:756-761, 794-802` |
 | `for` can iterate over floats and vectors | `modules/gdscript/gdscript_vm.cpp:3093-3230` |
+| A failed GDScript `assert` reports "Assertion failed" | `modules/gdscript/gdscript_vm.cpp:3869-3895` |
 | GDScript's await accepts any Signal value | `modules/gdscript/gdscript_vm.cpp:2585-2599` |
 | After an error GDScript returns a default value built for the return type | `modules/gdscript/gdscript_vm.cpp:3975-3979` |
+| GDScript's `assert` is compiled only in debug builds | `modules/gdscript/gdscript_compiler.cpp:2182-2208` |
 | GDScript's chained assignment reads and modifies along the chain, then writes value types back while shared types are modified in place | `modules/gdscript/gdscript_compiler.cpp:1176-1194` |
 | Member initializers bypass setters | `modules/gdscript/gdscript_compiler.cpp:2435-2451, 2620-2643` |
 | `_static_init` is called after static members are initialized | `modules/gdscript/gdscript_compiler.cpp:2646-2649` |

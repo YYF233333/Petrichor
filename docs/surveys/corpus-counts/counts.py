@@ -10,7 +10,8 @@ Counts, in first-party .gd files (blank and comment lines excluded from the line
   - rest parameters (`...name`), which `...` introduces only in signatures;
   - lambdas whose body contains `await`;
   - methods whose body contains `await` (coroutines) used as values, that is, passed as an
-    argument by name in the same file, and how many of those are `connect(name)`.
+    argument by name in the same file, and how many of those are `connect(name)`;
+  - `assert(...)` statements, and those whose arguments contain `await`.
 """
 import collections
 import os
@@ -94,6 +95,18 @@ def main():
                       and ts[i + 1].col == t.col + 1 and ts[i + 2].col == t.col + 2 and ts[i + 3].k == "ID"):
                     c["rest"] += 1
                     by_repo[name]["rest"] += 1
+                if t.k == "ID" and t.v == "assert" and t.first and i + 1 < len(ts) and ts[i + 1].v == "(":
+                    c["assert"] += 1
+                    by_repo[name]["assert"] += 1
+                    j, depth = i + 1, 0
+                    while j < len(ts):
+                        depth += (ts[j].v in OPEN) - (ts[j].v in CLOSE)
+                        if ts[j].v == "await":
+                            c["assert_await"] += 1
+                            break
+                        if depth == 0:
+                            break
+                        j += 1
                 if t.k == "ID" and t.v == "null":
                     comparing = i > 1 and ts[i - 1].v == "=" and ts[i - 2].v in ("=", "!")
                     c["null_compare" if comparing else "null_other"] += 1
@@ -116,12 +129,14 @@ def main():
           f"comparisons {c['null_compare']}, other uses {c['null_other']}")
     print(f"prefix !: {c['bang']}; not: {c['not']}")
     for key, label in (("abstract_class", "@abstract classes"), ("rest", "rest parameters"),
-                       ("lambda_await", "lambdas containing await"), ("coroutine_value", "coroutine methods used as values")):
+                       ("lambda_await", "lambdas containing await"), ("coroutine_value", "coroutine methods used as values"),
+                       ("assert", "assert statements")):
         repos = ", ".join(f"{r} {n[key]}" for r, n in sorted(by_repo.items(), key=lambda x: (-x[1][key], x[0])) if n[key])
         print(f"{label}: {c[key]} ({repos})")
     print(f"@abstract methods: {c['abstract_func']}; "
           f"abstract file classes whose methods are all abstract: {c['abstract_only']}")
     print(f"lambdas: {c['lambda']}; coroutine methods passed to connect(name): {c['coroutine_connect']}")
+    print(f"assert statements whose arguments contain await: {c['assert_await']}")
 
 
 if __name__ == "__main__":

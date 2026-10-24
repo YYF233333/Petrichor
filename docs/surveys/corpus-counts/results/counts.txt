@@ -5,5 +5,7 @@ prefix !: 460; not: 4504
 rest parameters: 78 (gdUnit4 76, Pixelorama 2)
 lambdas containing await: 35 (gdUnit4 33, godot-open-rpg 1, godot_dialogue_manager 1)
 coroutine methods used as values: 91 (godot-tiny-mmo 30, Pixelorama 20, phantom-camera 11, godot-demo-projects 10, gdUnit4 6, Godot-Game-Template 5, godot_open_star_fighter 3, godot-open-rpg 2, Ring 1, godot-open-rts 1, godot_dialogue_manager 1, tps-demo 1)
+assert statements: 595 (godot_dialogue_manager 406, godot-open-rts 54, gdUnit4 29, godot-demo-projects 26, godot-open-rpg 25, godot-tiny-mmo 25, godot-statecharts 11, godot_open_star_fighter 10, deck_builder_tutorial 7, Godot-Game-Template 1, Pixelorama 1)
 @abstract methods: 250; abstract file classes whose methods are all abstract: 17
 lambdas: 979; coroutine methods passed to connect(name): 60
+assert statements whose arguments contain await: 0

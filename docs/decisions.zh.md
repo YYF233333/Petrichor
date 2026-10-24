@@ -95,6 +95,7 @@
 ## 7. 错误、协程与信号
 
 - **程序错误**中止本语言的整条调用链，退回引擎调用进来的入口；退出时释放持有的引用，记录错误和调用栈，在编辑器中运行时进入调试器；游戏继续运行。debug 和 release 构建的行为一致。若该入口需要返回值，引擎得到默认值。预期之内的失败用 Result 或 Option 表达。理由：GDScript 出错后按返回类型构造默认值返回，调用方继续执行（`modules/gdscript/gdscript_vm.cpp:3975-3979`）；在静态类型下，这会让代码拿到假值。
+- **`assert` 与 GDScript 相同，在 release 构建中去掉**，条件和消息都不求值（`modules/gdscript/gdscript_compiler.cpp:2182-2208`）；debug 构建中失败是程序错误（GDScript 见 `modules/gdscript/gdscript_vm.cpp:3869-3895`）。这是“debug 和 release 行为一致”的唯一例外。条件和消息中不能有 await 或后缀 `?`，否则是编译错误，因为它们会随断言在 release 中消失；条件必须是 bool，例如 `assert(save_data, "...")` 是编译错误，快速修复改为 `save_data != None`。release 中也要检查的，用 `expect` 或显式的 `if`；以后可以兼容地加入始终生效的断言。理由：语法硬规则；[语料计数](surveys/corpus-counts.zh.md)中 595 个 assert 的条件基本都是查询，例如 `peers.has(peer_id)`，实参中含 await 的为 0 个。
 - **Option 与 Result** 采用 Rust 的模型：Option 是值，Result 用于控制流。唯一的特殊语法是后缀 `?`，表示短路返回。作用于 `Result[T, E]` 时，遇到 `Err(e)` 当前函数返回 `Err(e)`，否则得到 T；当前函数须返回 `Result[_, E]`，E 相同，不同时先用 `map_err` 转换。作用于 `T?` 时，遇到 None 当前函数返回 None；当前函数须返回 `_?`。在返回 void 的函数中使用 `?`，或在 Option 与 Result 之间传播，都是编译错误。`await f()?` 解析为 `(await f())?`。其余操作都是方法，名字与 Rust 相同，例如 `unwrap`、`expect`（失败时是程序错误）、`unwrap_or`、`unwrap_or_else`、`map`、`and_then`、`or`、`or_else`、`filter`、`map_err`、`ok`、`ok_or`、`ok_or_else`；没有 `!`、`??`、`?.` 运算符。Result 用 `Ok(v)` 和 `Err(e)` 构造，成功值不隐式包装；Option 隐式包装，空值写 None。丢弃 Result 是编译错误，确实要忽略时写 `.ok()`。理由：短路返回改变控制流，需要语法；其余都是对值的变换，用方法就够了，也可以直接参照 Rust 的文档。若同时提供可空链 `?.`，`x?.y` 是从函数返回还是得到 None，就要看 x 的类型。
 - **嵌套的 Option 保留两层**，与 Rust 相同：`T??` 是合法的类型，多数由泛型和容器产生。隐式包装按目标类型补层：`T?` 的值赋给 `T??` 得到包含该值的 Some；字面量 None 总是最外层的 None。`?`、`unwrap`、match 和收窄每次剥去一层，`.flatten()` 把 `T??` 合为 `T?`。`Variant?` 同理：None 表示没有值，NIL 是一个值。None 交给引擎时编码为 NIL，所以只有 X 的值不会编码为 NIL 时，`X?` 才能隐式交给引擎；X 是 Option 或 Variant 时是编译错误，快速修复给出 `.flatten()` 或 `.unwrap_or(null)`，否则 Some(None) 经过引擎往返后会悄悄变成 None。理由：合并为一层时，泛型代码的行为随 T 改变，例如 `first[T]` 在 T 为 `Enemy?` 时分不清空数组和首个元素为空，通用缓存会把存入的 None 当作没有缓存；JSON 中缺少的键与 null 也无法区分。这里没有 `?.`，嵌套基本只出现在泛型和容器取值上。
 - **协程在签名上声明**，例如 `async func`；函数体中有 await 而没有声明，是编译错误。调用 async 函数得到 `Task[T]`，任务立即开始，运行到第一次挂起为止；`await f()` 和 `await t` 得到 T。丢弃调用结果是编译错误，确实不等待时写 `f().detach()`。GDScript 中把协程调用的结果当值使用本来就是编译错误，所以 `var t = f()` 获得新含义不违反语法硬规则。引擎虚函数可以声明为 async。lambda 同样如此：含 await 的 lambda 写作 `async func(...)`；GDScript 中这样的 lambda 不加标记（`modules/gdscript/gdscript_parser.cpp:3223-3225, 3726-3727`），快速修复补上 `async`。理由：判断函数是否为 async 只有一条规则，挂起点旁边一定看得到 async；[语料计数](surveys/corpus-counts.zh.md)中 979 个 lambda 只有 35 个含 await，其中 33 个在 gdUnit4 的测试中。
@@ -144,7 +145,6 @@
 讨论和[第二次纸面迁移](surveys/paper-migration-2.zh.md)中发现的问题都已决定。以下是重写规范时发现的问题：
 
 - 源文件的扩展名；调查中暂用 `.pet`。
-- `assert` 是否像 GDScript 一样在 release 构建中去掉；失败时是程序错误。
 - §3 中三种由脚本声明的场景结构（基类要求的子节点、运行时添加的子节点、可选的子节点）的写法。
 
 ## 依据

@@ -13,6 +13,7 @@ Some design decisions need only a single count as evidence. This document collec
 | Rest parameters `...args` | 78: 76 in gdUnit4, 2 in Pixelorama | Design decisions §9: rest parameters |
 | Lambdas containing await | 35 of 979 lambdas, 33 of them in gdUnit4's tests | Design decisions §7: lambdas are also written `async func` |
 | Coroutine methods used as values (passed by name as an argument in the same file) | 91, 60 of them `connect(name)`, across 12 repositories | Design decisions §7: positions the engine calls accept async functions |
+| `assert(...)` statements | 595, 406 of them in godot_dialogue_manager; 0 with await in their arguments | Design decisions §7: `assert` is removed in release builds |
 
 The counts come from lexical analysis without type resolution; `!` is counted only when not directly followed by `=`. In GDScript `...` appears only in function signatures (`modules/gdscript/gdscript_parser.cpp:1714, 4336`), so every `...` directly followed by a name is a rest parameter. A coroutine is a method whose body contains await; references to it are looked for only in the same file, and signal connections in scenes are not counted.
 

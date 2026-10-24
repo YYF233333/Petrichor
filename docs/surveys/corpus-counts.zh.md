@@ -13,6 +13,7 @@
 | 剩余参数 `...args` | 78 个：gdUnit4 76 个，Pixelorama 2 个 | 设计决定 §9：剩余参数 |
 | 含 await 的 lambda | 979 个 lambda 中 35 个，其中 33 个在 gdUnit4 的测试中 | 设计决定 §7：lambda 也写 `async func` |
 | 作为值使用的协程方法（同一文件中按名字作为实参传递） | 91 处，其中 60 处是 `connect(名字)`，分布在 12 个仓库 | 设计决定 §7：由引擎调用的位置接受 async 函数 |
+| `assert(...)` 语句 | 595 个，其中 406 个在 godot_dialogue_manager；实参中含 await 的 0 个 | 设计决定 §7：`assert` 在 release 构建中去掉 |
 
 计数基于词法分析，不做类型解析；`!` 只计不紧跟 `=` 的。`...` 在 GDScript 中只出现在函数签名里（`modules/gdscript/gdscript_parser.cpp:1714, 4336`），所以紧跟名字的 `...` 都是剩余参数。协程指函数体中有 await 的方法，只在同一文件中查找对它的引用，不计场景中的信号连接。
 

@@ -132,7 +132,7 @@
 ### 2.5 语句
 
 - `var`、`const`、`if`/`elif`/`else`、`while`、`for`、`match`、`break`、`continue`、`pass`、`return` 与 GDScript 相同，规则见 §5。
-- `assert(条件, 消息)` 失败时是程序错误；release 构建中是否去掉【待定】。
+- `assert(条件, 消息)` 与 GDScript 相同，release 构建中去掉（§8.3）。
 - 没有以 if/else 块为值的写法；条件表达式只有 `a if c else b`（§5.5）。
 
 ## 3. 类型
@@ -632,7 +632,7 @@
 ### 8.1 程序错误
 
 - 程序错误中止本语言的整条调用链，退回到引擎调用进来的入口。退出时释放持有的引用，记录错误和调用栈；在编辑器中运行时进入调试器。游戏继续运行。
-- debug 和 release 构建的行为一致。
+- debug 和 release 构建的行为一致；唯一的例外是 `assert`（§8.3）。
 - 若引擎调用的入口需要返回值，引擎得到该类型的默认值。
 - 本文中称为“程序错误”的情况都按这一条处理，包括：访问已释放的对象（§3.3）、`unwrap` 和 `expect` 失败、越界下标、整数除以 0、就绪前读取尚未赋值的成员、跨引擎边界的入口检查失败（§10.1）、等待被取消的任务（§9.2）。
 - 理由：GDScript 出错后按返回类型构造默认值返回，调用方继续执行（`modules/gdscript/gdscript_vm.cpp:3975-3979`）；在静态类型下，这会让代码拿到假值。
@@ -656,7 +656,11 @@
 
 ### 8.3 断言
 
-- `assert(条件, 消息)` 失败时是程序错误。release 构建中是否像 GDScript 一样去掉【待定】。
+- `assert(条件, 消息)` 与 GDScript 相同，只在 debug 构建（在编辑器中运行和 debug 导出）中求值，失败时是程序错误；release 构建中去掉，条件和消息都不求值（`modules/gdscript/gdscript_compiler.cpp:2182-2208`；GDScript 的失败处理见 `modules/gdscript/gdscript_vm.cpp:3869-3895`）。
+- 条件和消息中不能有 await 或后缀 `?`，否则是编译错误，因为它们会随断言在 release 中消失。
+- 条件必须是 bool（§5.4），例如 `assert(save_data, "...")` 是编译错误，快速修复改为 `save_data != None`。
+- release 中也要检查的，用 `expect`（§3.4）或显式的 `if`。【后续】始终生效的断言。
+- 理由：语法硬规则；[语料计数](surveys/corpus-counts.zh.md)中 595 个 assert 的条件基本都是查询，例如 `peers.has(peer_id)`，实参中含 await 的为 0 个。
 
 ### 8.4 诊断
 
@@ -893,6 +897,7 @@
 - 函数类型中的参数名、直接调用 `f(x)`、把普通函数传给期望 async 的位置（§3.11）；
 - 修改 self 的 struct 方法，struct 成员的 `private`（§3.6）；
 - 泛型接口，写作 `interface Source[T]:`（§3.9）；
+- 始终生效的断言（§8.3）；
 - §13.5 所列的工具。
 
 ### 14.3 待定问题
@@ -901,7 +906,6 @@
 
 | 问题 | 章节 |
 |---|---|
-| `assert` 在 release 构建中是否去掉 | §8.3 |
 | 由脚本声明的三种场景结构的写法 | §7.2 |
 | 源文件的扩展名 | §1.4 |
 
@@ -916,6 +920,7 @@
 | 可空与释放 | 已释放对象经 `T?` 读出为 None；经 `T` 访问成员是程序错误，诊断写明释放位置；`queue_free()` 之后、帧末之前仍算存活 |
 | Option 与 Result | `?` 在 None 或 `Err` 时从当前函数返回；在返回 void 的函数中使用 `?` 报编译错误；Option 传播到返回 Result 的函数报编译错误；`await f()?` 等于 `(await f())?`；丢弃 Result 报编译错误；`unwrap` 失败是程序错误 |
 | struct 与带载荷的 enum | 在方法中给 self 的字段赋值报编译错误；`player.last_hit.damage = 3` 调用 player 的 setter；`hits[0].damage = 3` 之后 `hits[0].damage` 为 3；`get_hit().damage = 3` 报编译错误；`var b = a; b.damage = 1` 不改变 a；struct 的 Array 字段在复制后仍共享；字段相同的两个 struct 相等，作为 Dictionary 键时命中同一项；`c.target` 报编译错误；`@export` 带载荷的 enum 报编译错误 |
+| 断言 | debug 构建中 `assert(false)` 是程序错误；release 构建中 `assert(f())` 不调用 f；`assert(await t)` 报编译错误；`assert(save_data)` 在 save_data 为 `Resource?` 时报编译错误并给出 `save_data != None` |
 | 相等 | `1 == 1.0` 为真；`hp == "3"` 报编译错误；`Node2D` 与 `Node3D` 比较报编译错误；hp 为 `int?` 时 `hp == 3` 合法；非空的 `Node` 与 None 比较报编译错误；`Array[int] == Array[float]` 报编译错误；Variant 中是 String 时与 int 比较是程序错误 |
 | 嵌套的 Option | `Array[Enemy?]` 为空时 `pop_back()` 得 None，末元素为 None 时得包含 None 的 Some；`var x: Enemy?? = maybe_enemy` 得 Some；`Dictionary[String, Variant]` 中缺键得 None，值为 null 得包含 NIL 的 Some；把 `int??` 或 `Variant?` 传给 Variant 参数报编译错误并给出 `.flatten()` 或 `.unwrap_or(null)` |
 | 转换 | `node as Sprite2D` 为 `Sprite2D?`；`x as int` 报编译错误并给出 `int(x)` 与 `int.try_from(x)`；`int.try_from(2.0)` 得 `Ok(2)`，`int.try_from(2.5)` 和 `int.try_from("2")` 得 `Err` |
@@ -1004,8 +1009,10 @@
 | `as` 转为内置类型时按构造函数转换 | `modules/gdscript/gdscript_vm.cpp:1630-1637` |
 | GDScript 在运行时遇到运算表中没有的组合时报错 | `modules/gdscript/gdscript_vm.cpp:756-761, 794-802` |
 | `for` 可以遍历 float 和向量 | `modules/gdscript/gdscript_vm.cpp:3093-3230` |
+| GDScript 的 `assert` 失败时报 “Assertion failed” | `modules/gdscript/gdscript_vm.cpp:3869-3895` |
 | GDScript 的 await 接受任意 Signal 值 | `modules/gdscript/gdscript_vm.cpp:2585-2599` |
 | GDScript 出错后按返回类型构造默认值返回 | `modules/gdscript/gdscript_vm.cpp:3975-3979` |
+| GDScript 的 `assert` 只在 debug 构建中编译 | `modules/gdscript/gdscript_compiler.cpp:2182-2208` |
 | GDScript 的链式赋值沿链读出、修改，再把值类型写回，共享类型原地修改 | `modules/gdscript/gdscript_compiler.cpp:1176-1194` |
 | 成员的初始化式不经过 setter | `modules/gdscript/gdscript_compiler.cpp:2435-2451, 2620-2643` |
 | 静态成员初始化之后调用 `_static_init` | `modules/gdscript/gdscript_compiler.cpp:2646-2649` |
