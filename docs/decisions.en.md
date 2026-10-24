@@ -114,7 +114,9 @@ As of 2026-10-23 the project is being redesigned from the problem up. This docum
 
 ## 10. Not yet decided
 
-There are no open questions at present.
+- Declaration spellings: structs, enums with payloads, interfaces, the public marker, declaring that a class implements an interface.
+- Expressions: postfix `!` assertion, `?.` optional chaining, `?` propagation for Result, conditional expressions, the exact forms of match patterns. These forms already appear in this document's examples but have not been confirmed one by one.
+- Mixed widths in core value-type operators, for example Vector2 times `float`, following the engine's operator table; whether `for i in n` is allowed.
 
 ## Evidence
 
