@@ -113,7 +113,7 @@ Ring 的 Brick 和 Enemy 各有 2 到 5 个子类，基类有 17 个成员只是
 1. **`pub` 的数量。** 它占全部成本的 44%，而且全部是机械的。其中只为子类而写的 29 处，远多于成员可见性调查的估计。是否让子类看到非 `pub` 成员，值得重新讨论。
 2. **跨语言继承的方向。** GDScript 不能继承本语言的类，所以部分迁移必须整棵继承树一起迁移。设计决定 §1 只写了另一个方向，应补上这一条，迁移工具也应提示。
 3. **子场景中必须赋值的导出成员。** 按现在的文字，player.tscn 和 enemy.tscn 自己没有为 `crosshair`、`player` 赋值，会被标出；而实际使用它们的 main.tscn 都赋了值（S6）。没有被任何地方引用的模板场景 `enemies/base/enemy.tscn` 也会被标出，并且会挡住发布导出。规则需要考虑“由实例化它的场景赋值”和“没有被引用的场景”这两种情况。
-4. **autoload 持有场景节点的引用。** 这类成员只能是 `T?`，带来 22 处成本。GDScript 的写法是先为 null、由场景设置之后再使用。可以考虑“就绪后才赋值的非空成员”，赋值前读取是程序错误，也可以考虑放开成员收窄，但后者只能消除其中 4 处。
+4. **autoload 持有场景节点的引用。** 这类成员只能是 `T?`，带来 22 处成本。GDScript 的写法是先为 null、由场景设置之后再使用。可以考虑“就绪后才赋值的非空成员”，赋值前读取是程序错误，也可以考虑放开成员收窄，但后者只能消除其中 4 处。不过这种写法并不常见：20 个仓库中，在 `_ready` 里把节点登记到 autoload 成员上（`Autoload.x = self`）的只有 6 处，其中 5 处在 Ring（`autoload_self.py`）。
 5. **owner 要求。** 写法没有定（S13）。组件把自己移到别的父节点之后，`owner` 不再是它的祖先；owner 被释放时，引擎把它置为 null（`scene/main/node.cpp:299-302`）。owner 要求的类型和检查时机需要考虑这种情况。接口的属性要求能否由引擎属性满足（S14），也需要明确。
 6. **`as` 与必须成功的转换。** GDScript 的 `as` 失败时得到 null，按语法硬规则，`as` 只能得到 `T?`（S4）。迁移后的代码中有 16 处 `(x as T).unwrap()`，设计决定 §5 要求的“失败时报错的显式转换”还没有写法。
 7. **签名。** 覆盖引擎虚函数时是否要标注参数（S5，6 处），省略返回类型是否表示 void（S1），需要明确。
@@ -130,10 +130,12 @@ Ring 的 Brick 和 Enemy 各有 2 到 5 个子类，基类有 17 个成员只是
 
 ## 复现
 
-[`paper-migration-2/`](paper-migration-2/) 目录包含：`ledger.tsv`（账本）；`stats.py`（由账本算出“结果”一节中的数字，原文件只用来计行数）；`migrated/` 中迁移后的代码，每个原文件对应一个 `.pet` 文件，另有两个项目各自新增的 `combat.pet`。Kenney FPS 的许可证随附在 `migrated/fps/LICENSE.md`。只需要 Python 3。
+[`paper-migration-2/`](paper-migration-2/) 目录包含：`ledger.tsv`（账本）；`stats.py`（由账本算出“结果”一节中的数字，原文件只用来计行数）；`autoload_self.py`（在[跨分支重复调查](cross-branch-duplication.zh.md)的 20 个仓库中统计 `Autoload.x = self`）；`migrated/` 中迁移后的代码，每个原文件对应一个 `.pet` 文件，另有两个项目各自新增的 `combat.pet`。Kenney FPS 的许可证随附在 `migrated/fps/LICENSE.md`。只需要 Python 3。
 
 ```
 git clone https://github.com/KenneyNL/Starter-Kit-FPS fps && git -C fps checkout 185fd23
 git clone https://github.com/YYF233333/Ring ring && git -C ring checkout 0ec4161
 python docs/surveys/paper-migration-2/stats.py fps ring
+python docs/surveys/cross-branch-duplication/gdcorpus.py corpus
+python docs/surveys/paper-migration-2/autoload_self.py corpus
 ```

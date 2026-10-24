@@ -113,7 +113,7 @@ In scenarios A, B and D this language moves the problem to editing time; in scen
 1. **The number of `pub` markers.** They are 44% of the cost, all mechanical. The 29 written only for subclasses are far more than the member visibility survey estimated. Whether subclasses should see members that are not `pub` deserves another discussion.
 2. **The direction of cross-language inheritance.** GDScript cannot extend a class of this language, so a partial migration has to move whole inheritance trees. Design decisions §1 states only the other direction; this one should be added, and migration tooling should point it out.
 3. **Required exports in sub-scenes.** As written, the rule marks player.tscn and enemy.tscn, which do not assign `crosshair` and `player` themselves, although main.tscn, which uses them, assigns both (S6). The template scene `enemies/base/enemy.tscn`, referenced nowhere, would also be marked and would block a release export. The rule needs to cover values assigned by the instancing scene, and scenes that nothing references.
-4. **Autoloads holding references to scene nodes.** Such members can only be `T?`, which costs 22 items. The GDScript idiom is to leave them null until a scene sets them. Options are a non-null member assigned after ready, where reading it before assignment is a program error, or relaxing member narrowing, which would remove only 4 of the 22.
+4. **Autoloads holding references to scene nodes.** Such members can only be `T?`, which costs 22 items. The GDScript idiom is to leave them null until a scene sets them. Options are a non-null member assigned after ready, where reading it before assignment is a program error, or relaxing member narrowing, which would remove only 4 of the 22. The idiom is uncommon, though: across 20 repositories, registering a node on an autoload member in `_ready` (`Autoload.x = self`) occurs only 6 times, 5 of them in Ring (`autoload_self.py`).
 5. **Owner requirements.** Their spelling is undecided (S13). After a component moves itself under another parent, `owner` is no longer an ancestor, and when the owner is freed the engine sets it to null (`scene/main/node.cpp:299-302`). The type and the timing of the check need to account for this. Whether a property requirement of an interface can be met by an engine property (S14) also needs to be settled.
 6. **`as` and conversions that must succeed.** GDScript's `as` yields null on failure, so under the syntax hard rule `as` can only yield `T?` (S4). The migrated code has 16 occurrences of `(x as T).unwrap()`; the explicit conversion that "reports an error on failure", required by design decisions §5, has no spelling yet.
 7. **Signatures.** Whether parameters of engine virtual overrides must be annotated (S5, 6 items), and whether an omitted return type means void (S1), need to be stated.
@@ -130,10 +130,12 @@ In scenarios A, B and D this language moves the problem to editing time; in scen
 
 ## Reproduction
 
-The [`paper-migration-2/`](paper-migration-2/) directory contains `ledger.tsv` (the ledger); `stats.py` (computes the numbers in "Results" from the ledger, reading the originals only to count lines); and in `migrated/` the migrated code, one `.pet` file per original file, plus a new `combat.pet` in each project. Kenney FPS's license is included in `migrated/fps/LICENSE.md`. Only Python 3 is needed.
+The [`paper-migration-2/`](paper-migration-2/) directory contains `ledger.tsv` (the ledger); `stats.py` (computes the numbers in "Results" from the ledger, reading the originals only to count lines); `autoload_self.py` (counts `Autoload.x = self` in the 20 repositories of the [cross-branch duplication survey](cross-branch-duplication.en.md)); and in `migrated/` the migrated code, one `.pet` file per original file, plus a new `combat.pet` in each project. Kenney FPS's license is included in `migrated/fps/LICENSE.md`. Only Python 3 is needed.
 
 ```
 git clone https://github.com/KenneyNL/Starter-Kit-FPS fps && git -C fps checkout 185fd23
 git clone https://github.com/YYF233333/Ring ring && git -C ring checkout 0ec4161
 python docs/surveys/paper-migration-2/stats.py fps ring
+python docs/surveys/cross-branch-duplication/gdcorpus.py corpus
+python docs/surveys/paper-migration-2/autoload_self.py corpus
 ```
