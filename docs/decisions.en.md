@@ -120,10 +120,14 @@ As of 2026-10-23 the project is being redesigned from the problem up. This docum
   - `pub` is a keyword, written after annotations and before `static`, for example `@export pub var max_hp: int`, `pub static func`, `pub signal died`. It is a keyword rather than an annotation because it is written often: at least 22 times per 1,000 lines in the [member visibility survey](surveys/member-visibility.en.md).
   - Placement and naming follow GDScript: a file is a class, and the structs, enums and interfaces declared in a file belong to that class. In the same file they are written by name; in other files as `ClassName.Name`, for example `Combat.Hit` or `Player.Command.MOVE(target = p)`; files without `class_name` are reached through `preload`. Global names come only from `class_name`. Types shared by several classes go into a class that exists to hold them. Aliases or `import` can be added later without changing the meaning of existing code.
 - **Expressions.** The only conditional expression is GDScript's `a if c else b`, and its condition must be bool; there is no form that uses an if/else block as a value. For the meaning of postfix `?`, see §7; in GDScript `?` is currently a syntax error (`modules/gdscript/gdscript_parser.cpp:3834-3835`).
+- **match** keeps every GDScript pattern with its meaning: literals and constant expressions compare by equality, `var x` binds, `_` is a wildcard, array and dictionary patterns with `..` inside them, several comma-separated patterns (which cannot bind), and `when` guards (`modules/gdscript/gdscript_parser.cpp:2499-2723`). New patterns:
+  - An enum variant is written `Type.VARIANT(field = pattern, ...)`, where `var field` is short for `field = var field`, for example `Command.MOVE(var target)` or `Command.ATTACK(target = var enemy, power = 0)`. Fields not listed must be covered by `..`, as in dictionary patterns. Patterns nest. Structs use the same form, for example `Hit(damage = var d, ..)`.
+  - `Ok(var v)` and `Err(var e)` are written positionally, as they are constructed. Option uses two branches, `None` and `var x`, and the value bound by the latter is narrowed to T.
+  - A match over an enum (with or without payloads), a Result or an Option must be exhaustive or have `_`, and branches with `when` do not count toward coverage; a match over other types need not be exhaustive, as in GDScript.
+  - The first version has no type patterns (use `if x is T`), no match expressions, and no binding in comma-separated patterns; adding them later does not change the meaning of existing code.
 
 ## 10. Not yet decided
 
-- The exact forms of match patterns.
 - The cost of members not narrowing: to be measured in the paper migration. Two directions could relax it compatibly: conditional binding, for example `if var t = _tween:`; and narrowing fields without a getter when no call, await or assignment occurs between the check and the use.
 - Mixed widths in core value-type operators, for example Vector2 times `float`, following the engine's operator table; whether `for i in n` is allowed.
 

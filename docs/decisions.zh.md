@@ -120,10 +120,14 @@
   - `pub` 是关键字，写在注解之后、`static` 之前，例如 `@export pub var max_hp: int`、`pub static func`、`pub signal died`。用关键字而不用注解，因为它写得频繁：[成员可见性调查](surveys/member-visibility.zh.md)中每千行至少 22 处。
   - 放置与命名沿用 GDScript：一个文件就是一个类，文件中声明的 struct、enum 和 interface 都属于这个类。在本文件中直接写名字，在其他文件中写 `类名.名字`，例如 `Combat.Hit`、`Player.Command.MOVE(target = p)`；没有 `class_name` 的文件经 `preload` 访问。全局名只来自 `class_name`。几个类共用的类型放进一个专门承载它们的类。以后可以加入别名或 `import`，不改变现有写法的含义。
 - **表达式。** 条件表达式只有 GDScript 的 `a if c else b`，条件必须是 bool；不提供以 if/else 块为值的写法。后缀 `?` 的含义见 §7；GDScript 中 `?` 目前是语法错误（`modules/gdscript/gdscript_parser.cpp:3834-3835`）。
+- **match** 保留 GDScript 的全部模式，含义不变：字面量和常量表达式按相等比较，`var x` 绑定，`_` 通配，数组和字典模式及其中的 `..`，逗号分隔的多个模式（其中不能绑定），`when` 守卫（`modules/gdscript/gdscript_parser.cpp:2499-2723`）。新增的模式：
+  - enum 分支写成 `类型.分支(字段 = 模式, ...)`，`var 字段` 是 `字段 = var 字段` 的简写，例如 `Command.MOVE(var target)`、`Command.ATTACK(target = var enemy, power = 0)`。未列出的字段须由 `..` 覆盖，与字典模式相同。模式可以嵌套。struct 用同样的写法，例如 `Hit(damage = var d, ..)`。
+  - `Ok(var v)`、`Err(var e)` 按位置书写，与构造一致。Option 用 `None` 和 `var x` 两个分支，后者绑定的值已收窄为 T。
+  - 对 enum（无论有无载荷）、Result 和 Option 的 match 必须穷尽或带 `_`，带 `when` 的分支不计入覆盖；对其他类型不要求穷尽，与 GDScript 相同。
+  - 第一版没有类型模式（用 `if x is T`）、match 表达式，也不能在逗号分隔的多个模式中绑定；以后加入不改变现有写法的含义。
 
 ## 10. 尚未决定
 
-- match 模式的具体形式。
 - 成员不收窄的代价：在纸面迁移中测量。可以兼容地放开的方向有两个：条件绑定，例如 `if var t = _tween:`；检查与使用之间没有调用、await 或赋值时，让没有 getter 的字段收窄。
 - core 值类型运算符的混合位宽，例如 Vector2 与 `float` 相乘，按引擎的运算符表处理；`for i in n` 是否允许。
 
