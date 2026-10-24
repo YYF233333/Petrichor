@@ -2,7 +2,7 @@
 
 **2026-10-25** · Related: design decisions (commit `a099ad4`), [language specification](../language-spec.en.md), [first paper migration](paper-migration.en.md) · 中文：[paper-migration-2.zh.md](paper-migration-2.zh.md)
 
-The [first paper migration](paper-migration.en.md) evaluated specification v0.1. The project was then redesigned: the new rules were first recorded as a set of design decisions and then written up as the current [language specification](../language-spec.en.md) (v0.2 draft). This survey migrates the same code again under the design decisions as of commit `a099ad4`, and then works through five maintenance scenarios. It has three aims: to measure the cost of migration; to see where the rules rub against each other once combined; and to find what the decisions did not yet say, where the migration had to assume something. All of these assumptions are now part of the specification; see "Assumptions made during the migration". The issues the migration exposed, and how the specification settles them, are in "Issues the migration exposed". Section numbers (§) refer to the current specification. The rewritten code was not type-checked by a compiler, so this is still a paper migration.
+The [first paper migration](paper-migration.en.md) evaluated specification v0.1. The project was then redesigned: the new rules were first recorded as a set of design decisions and then written up as the current [language specification](../language-spec.en.md) (v0.2 draft). This survey migrates the same code again under the design decisions as of commit `a099ad4` (then in `docs/decisions.en.md`), and then works through five maintenance scenarios. It has three aims: to measure the cost of migration; to see where the rules rub against each other once combined; and to find what the decisions did not yet say, where the migration had to assume something. All of these assumptions are now part of the specification; see "Assumptions made during the migration". The issues the migration exposed, and how the specification settles them, are in "Issues the migration exposed". Section numbers (§) refer to the current specification. The rewritten code was not type-checked by a compiler, so this is still a paper migration.
 
 ## Material
 
@@ -34,7 +34,7 @@ The table lists the assumptions made during the migration. All of them are now s
 | S1 | An omitted return type means void | Kept for functions that are not overrides; an override takes its types from the overridden declaration (§4.6) |
 | S2 | int converts implicitly to float in assignments, arguments and returns | Kept (§3.2) |
 | S3 | Value-type members (int, float, bool, String, vectors, containers) without an initializer start at their default value; only object references must be assigned | Kept, with rules added for structs and enums with payloads (§4.3) |
-| S4 | `x as T`: when the static type of x is already T, the result is T and the compiler notes the cast is redundant; otherwise the result is `T?` and a failed cast yields None, as in GDScript. A conversion that must succeed is written `(x as T).unwrap()` | Kept (§5.3) |
+| S4 | `x as T`: when the static type of x is already T, the result is T and the compiler notes the cast is redundant; otherwise the result is `T?` and a failed cast yields None, as in GDScript. A conversion that must succeed is written `(x as T).unwrap()` | Kept (§5.3); `as` to a built-in type is now a compile error, so the `as Vector2` in `migrated/ring/oppressive_enemy.pet:14` should be removed |
 | S5 | Parameters of engine virtual overrides must be annotated too | Changed: an override may omit its parameter and return types, which are taken from the overridden declaration (§4.6); the 6 annotations on engine virtual overrides are then unnecessary |
 | S6 | A required export of a sub-scene counts as assigned if every scene that instances the sub-scene assigns it | Kept; a scene referenced from nowhere gets only a warning (§7.5) |
 | S7 | `bind` on a typed function value yields a typed value | Kept (§3.11) |
@@ -73,7 +73,7 @@ The first migration, under v0.1, cost 28.1 items per 100 lines. v0.1 (git tag `s
 | Truthiness | 18 | `if x:` becomes `!= None`, `!= 0`, `!= ""` or `== 0` |
 | Option-typed members | 22 | 6 decisions, 12 `.unwrap()` and 4 locals; see below |
 | Interfaces replacing `has_method` and duck-typed access to the owner | 13 | declaring the interface, `implements`, `is` at the call sites, owner requirements, removing a run-time check |
-| Downcasts | 8 | passing values whose type was decided by group membership (4), `get_collider()`, `find_children` and others |
+| Downcasts | 8 | passing values whose type was decided by group membership (4), `get_collider()`, `find_children` and others; `find_children` filtered by a literal class name is now typed directly (§10.3) and needs no downcast |
 | Coroutines | 7 | functions containing await declared async (4); calls that are not awaited written with `.detach()` (3) |
 | Engine nullability | 6 | `get_first_node_in_group`, `CollisionShape2D.shape` |
 | Other | 30 | literal member names forcing a parameter from Node to CanvasItem (4), untyped dynamic values (4), float damage to int (4), nullable object members of GDScript classes (3), narrowed export types (3), empty containers and signal parameters (4), message structs (2), subclasses migrating along (2), and others |

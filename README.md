@@ -17,7 +17,7 @@ Petrichor is statically typed throughout, and the checking extends into scenes. 
 ```gdscript
 class_name Player extends CharacterBody3D implements Damageable
 
-signal died
+pub signal died
 
 enum Command { IDLE, MOVE(target: Vector3), ATTACK(target: Node3D, power: int) }
 

@@ -89,7 +89,7 @@ MERGED['M7'] = dict(
     frequency='loader hangs: 31 reactions over #99128/#104196 | async-exception and await-interop reports recur since 2019, each with few reactions',
     status='mixed: async exceptions by-design (.NET); loader deadlocks fixed (4.4/4.5); interop and off-thread access open',
     fix_class='N/A (analog: L+W)',
-    fix_reason='Task is absent in Petrichor; the analog: its coroutines are single-threaded and resumed by the engine, propagate errors to the awaiter (L), and surface as a Signal at the Variant boundary so GDScript can await them (a ScriptExtension can return one, W); its loader must be safe on ResourceLoader worker threads.')
+    fix_reason='The .NET System.Threading.Tasks.Task is absent in Petrichor; the analog: its coroutines are single-threaded and resumed by the engine, propagate errors to the awaiter (L), and surface as a Signal at the Variant boundary so GDScript can await them (a ScriptExtension can return one, W); its loader must be safe on ResourceLoader worker threads.')
 
 MERGED['M8'] = dict(
     source_rows='CS-B-11, CS-B-12', group='C#',
@@ -131,7 +131,7 @@ MERGED['M10'] = dict(
     frequency='#68153 is the most-reacted topic:dotnet issue (234) and #70796 the 2nd (103); the draft web PR has 451 reactions',
     status='web: open (no C# web export in 4.x); mobile: experimental since 4.2; #97859 open',
     fix_class='N/A (analog: W)',
-    fix_reason='Absent without .NET; the analog: Petrichor\'s runtime must target every platform including WASM. Compiled in as a module it ships inside the export templates; as a GDExtension the web export needs the Extensions Support option and cross-origin isolation headers (docs). This is a packaging difference between module and GDExtension, not a missing API (inference).')
+    fix_reason='Absent without .NET; the analog: Petrichor\'s runtime must target every platform including WASM. Compiled in as a module it ships inside the export templates; as a GDExtension the web export needs the Extensions Support option, and cross-origin isolation headers only when thread support is also enabled (platform/web/doc_classes/EditorExportPlatformWeb.xml:93-95; the tutorial page above says GDExtension support itself requires them). This is a packaging difference between module and GDExtension, not a missing API (inference).')
 
 MERGED['M2'] = dict(
     source_rows='EG-C-14, CS-A-02', group='engine/GDScript',

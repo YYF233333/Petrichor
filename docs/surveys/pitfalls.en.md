@@ -14,7 +14,7 @@ This survey collects the pitfalls that Godot 4 script authors run into, in two g
 
 | Source | Scope | Use |
 |---|---|---|
-| Godot source | godotengine/godot commit `469659e0617345149cd1eaec2e643d61d130aa6a` (master, 4.8-beta) | Read only, never built or run; cited as `path:line` |
+| Godot source | godotengine/godot commit `469659e0617345149cd1eaec2e643d61d130aa6a` (master, 4.8-beta) | Evidence from reading the source only, cited as `path:line`; no runtime reproduction (see Limitations) |
 | Godot documentation | Tutorials and class reference at docs.godotengine.org/en/latest | Quoted, with page addresses |
 | GitHub | Issues and PRs of godotengine/godot, and godotengine/godot-proposals | Searched with the GraphQL and REST APIs through the GitHub CLI; states, reactions and comment counts read on 2026-10-23 |
 | Forums and Q&A | forum.godotengine.org, godotforums.org, Stack Overflow | Site search APIs and web searches; topic counts and titles only |
@@ -92,7 +92,7 @@ Taking the highest reaction count among the issues, proposals or PRs each entry 
 - None of the 80 entries is classed M. The catalog's reason is that every hook the entries rely on is already exposed to GDExtension: the script-instance callbacks (`GDExtensionScriptInstanceInfo3`, `core/extension/gdextension_interface.json:3242-3349`) and the virtuals of ScriptExtension and ScriptLanguageExtension for script reloading (`core/object/script_language_extension.h:79, 686, 690`), exports and the property list (`:176, 188`), validation, completion and symbol lookup (`:393, 493, 533`), and global class names (`:754`). The specification gives this as one reason to deliver the language as a GDExtension (§1.3; Appendix B).
 - Compared with the engine's internal ScriptInstance interface (`core/object/script_instance.h:40-96`), the extension script-instance callbacks lack only two entries: `call_const` (`:70`) and `get_rpc_config` (`:93`). The default `call_const` simply calls `callp` (`core/object/script_instance.cpp:57-59`); the default `get_rpc_config` takes the script's RPC configuration (`:88-90`), which an extension script can supply through `_get_rpc_config` (`core/object/script_language_extension.h:220-224`). No entry depends on either (inference).
 - A module cannot fix the E parts either: it can call C++ APIs that are not exported, but it cannot change what the engine does (inference). In G-06, for example, a node's lock count `data.blocked` is a private member with only the protected `_block` and `_unblock`, and there is no public way to read it even from C++ (`scene/main/node.h:217, 375-376`).
-- The two forms of delivery differ in packaging, not in APIs (inference; see C-19). On the web, GDExtension needs Extensions Support enabled in the export preset (`variant/extensions_support`, off by default, `platform/web/export/export_plugin.cpp:374`), and the documentation also requires the site to send cross-origin isolation headers ([Exporting for the Web](https://docs.godotengine.org/en/latest/tutorials/export/exporting_for_web.html)). A module is compiled into the engine and needs a self-built editor and export templates.
+- The two forms of delivery differ in packaging, not in APIs (inference; see C-19). On the web, GDExtension needs Extensions Support enabled in the export preset (`variant/extensions_support`, off by default, `platform/web/export/export_plugin.cpp:374`), and cross-origin isolation headers are needed only when thread support is also enabled (`platform/web/doc_classes/EditorExportPlatformWeb.xml:93-95`; the tutorial [Exporting for the Web](https://docs.godotengine.org/en/latest/tutorials/export/exporting_for_web.html) says enabling GDExtension support itself requires them). A module is compiled into the engine and needs a self-built editor and export templates.
 
 ### What stays in the engine
 
@@ -211,4 +211,4 @@ The dumps are large and reflect only the day they were read, so they are not in 
 
 ## Use in the specification
 
-The [language specification](../language-spec.en.md) cites these entries: G-02 (§6.2), G-03 and G-05 (§6.4), G-04 (§6.3), G-09 (§6.6), G-10 (§6.7), G-11 (§9.7), G-12 and G-13 (§9.5), G-19, G-20 and G-34 (§7.6), and C-17 (§11.2).
+The [language specification](../language-spec.en.md) cites these entries: G-07 and G-08 (§3.3), G-02 (§6.2), G-03 and G-05 (§6.4), G-04 (§6.3), G-09 (§6.6), G-10 (§6.7), G-11 (§9.7), G-12 and G-13 (§9.5), G-19, G-20 and G-34 (§7.6), and C-17 (§11.2).

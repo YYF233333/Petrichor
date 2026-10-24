@@ -17,7 +17,7 @@ Petrichor 从头到尾是静态类型的，检查一直延伸到场景。它沿�
 ```gdscript
 class_name Player extends CharacterBody3D implements Damageable
 
-signal died
+pub signal died
 
 enum Command { IDLE, MOVE(target: Vector3), ATTACK(target: Node3D, power: int) }
 

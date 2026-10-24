@@ -172,7 +172,7 @@ def main():
     print('setter-only by export:', dict(collections.Counter(p['export'] for p in setters if not p['getter'])))
     aw = [p for p in setters if any(re.search(r'\bawait\b', s) for s in p['setter']['stmts'])]
     aw_ready = [p for p in aw if any(re.search(r'\bawait\s+(?:self\.)?ready\b', s) for s in p['setter']['stmts'])]
-    print(f'setters containing await (coroutine setters, not allowed by spec 8.6): {len(aw)}, exported '
+    print(f'setters containing await (coroutine setters, not allowed by spec §4.4): {len(aw)}, exported '
           f'{sum(p["export"] for p in aw)}; awaiting `ready`: {len(aw_ready)}; by repo',
           dict(collections.Counter(p['repo'] for p in aw)))
     print('getters containing await:',
