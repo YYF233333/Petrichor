@@ -133,7 +133,7 @@ These issues were found while migrating under the design decisions of the time; 
 
 ## Reproduction
 
-The [`paper-migration-2/`](paper-migration-2/) directory contains `ledger.tsv` (the ledger); `stats.py` (computes the numbers in "Results" from the ledger, reading the originals only to count lines); `autoload_self.py` (counts `Autoload.x = self` in the 20 repositories of the [cross-branch duplication survey](cross-branch-duplication.en.md)); and in `migrated/` the migrated code, one `.pet` file per original file, plus a new `combat.pet` in each project. Kenney FPS's license is included in `migrated/fps/LICENSE.md`. Only Python 3 is needed.
+The [`paper-migration-2/`](paper-migration-2/) directory contains `ledger.tsv` (the ledger); `stats.py` (computes the numbers in "Results" from the ledger, reading the originals only to count lines); `autoload_self.py` (counts `Autoload.x = self` in the 20 repositories of the [cross-branch duplication survey](cross-branch-duplication.en.md)); and in `migrated/` the migrated code, one `.pet` file per original file, plus a new `combat.pet` in each project. Kenney FPS's license is included in `migrated/fps/LICENSE.md`. The migrated Ring code is released under this repository's MIT license with the original author's consent. Only Python 3 is needed.
 
 ```
 git clone https://github.com/KenneyNL/Starter-Kit-FPS fps && git -C fps checkout 185fd23

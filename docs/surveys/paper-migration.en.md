@@ -269,7 +269,7 @@ func dialogue(str: String):
 
 ## Reproducing
 
-The [`paper-migration/`](paper-migration/) directory contains `ledger.tsv` (the ledger); `stats.py` (computes the cost figures in "Results" and the items not counted as cost from the ledger); `idioms.py` (the corpus frequencies, reusing `extract.py` and `scope.py` from `property-accessors/`); and the migrated code in `migrated/`, one `.pet` file per original file, plus `breakout_manager_a8.pet` with the message part of Ring written under A8. The Kenney FPS license is included as `migrated/fps/LICENSE.md`. Only Python 3.11 is needed.
+The [`paper-migration/`](paper-migration/) directory contains `ledger.tsv` (the ledger); `stats.py` (computes the cost figures in "Results" and the items not counted as cost from the ledger); `idioms.py` (the corpus frequencies, reusing `extract.py` and `scope.py` from `property-accessors/`); and the migrated code in `migrated/`, one `.pet` file per original file, plus `breakout_manager_a8.pet` with the message part of Ring written under A8. The Kenney FPS license is included as `migrated/fps/LICENSE.md`. The migrated Ring code is released under this repository's MIT license with the original author's consent. Only Python 3.11 is needed.
 
 ```
 git clone https://github.com/KenneyNL/Starter-Kit-FPS fps && git -C fps checkout 185fd23

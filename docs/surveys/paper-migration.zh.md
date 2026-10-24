@@ -269,7 +269,7 @@ func dialogue(str: String):
 
 ## 复现
 
-[`paper-migration/`](paper-migration/) 目录包含：`ledger.tsv`（账本）；`stats.py`（由账本算出“结果”一节中的成本数字和不计入成本的项）；`idioms.py`（语料频率，复用 `property-accessors/` 中的 `extract.py` 和 `scope.py`）；以及 `migrated/` 中迁移后的代码，每个原文件对应一个 `.pet` 文件，Ring 的消息部分另有 A8 写法 `breakout_manager_a8.pet`。Kenney FPS 的许可证随附在 `migrated/fps/LICENSE.md`。只需要 Python 3.11。
+[`paper-migration/`](paper-migration/) 目录包含：`ledger.tsv`（账本）；`stats.py`（由账本算出“结果”一节中的成本数字和不计入成本的项）；`idioms.py`（语料频率，复用 `property-accessors/` 中的 `extract.py` 和 `scope.py`）；以及 `migrated/` 中迁移后的代码，每个原文件对应一个 `.pet` 文件，Ring 的消息部分另有 A8 写法 `breakout_manager_a8.pet`。Kenney FPS 的许可证随附在 `migrated/fps/LICENSE.md`。Ring 的迁移代码经原作者同意，以本仓库的 MIT 许可证发布。只需要 Python 3.11。
 
 ```
 git clone https://github.com/KenneyNL/Starter-Kit-FPS fps && git -C fps checkout 185fd23

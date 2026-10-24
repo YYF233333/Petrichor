@@ -2,7 +2,7 @@
 
 **v0.2 draft · 2026-10-25** · 中文: [language-spec.zh.md](language-spec.zh.md)
 
-Petrichor is a statically typed scripting language that replaces GDScript, delivered as a GDExtension. This document is a draft of its specification, published for comments; there is no implementation yet. The previous version, v0.1, is kept at git tag `spec-v0.1`.
+Petrichor is a statically typed scripting language for medium-to-large Godot 4 projects, replacing GDScript in project code while coexisting with GDScript plugins, delivered as a GDExtension. This document is a draft of its specification, published for comments; there is no implementation yet. The previous version, v0.1, is kept at git tag `spec-v0.1`.
 
 ## 1. Overview
 

@@ -133,7 +133,7 @@ Ring 的 Brick 和 Enemy 各有 2 到 5 个子类，基类有 17 个成员只是
 
 ## 复现
 
-[`paper-migration-2/`](paper-migration-2/) 目录包含：`ledger.tsv`（账本）；`stats.py`（由账本算出“结果”一节中的数字，原文件只用来计行数）；`autoload_self.py`（在[跨分支重复调查](cross-branch-duplication.zh.md)的 20 个仓库中统计 `Autoload.x = self`）；`migrated/` 中迁移后的代码，每个原文件对应一个 `.pet` 文件，另有两个项目各自新增的 `combat.pet`。Kenney FPS 的许可证随附在 `migrated/fps/LICENSE.md`。只需要 Python 3。
+[`paper-migration-2/`](paper-migration-2/) 目录包含：`ledger.tsv`（账本）；`stats.py`（由账本算出“结果”一节中的数字，原文件只用来计行数）；`autoload_self.py`（在[跨分支重复调查](cross-branch-duplication.zh.md)的 20 个仓库中统计 `Autoload.x = self`）；`migrated/` 中迁移后的代码，每个原文件对应一个 `.pet` 文件，另有两个项目各自新增的 `combat.pet`。Kenney FPS 的许可证随附在 `migrated/fps/LICENSE.md`。Ring 的迁移代码经原作者同意，以本仓库的 MIT 许可证发布。只需要 Python 3。
 
 ```
 git clone https://github.com/KenneyNL/Starter-Kit-FPS fps && git -C fps checkout 185fd23

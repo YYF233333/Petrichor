@@ -1,14 +1,14 @@
 # Petrichor
 
-一门面向 Godot 4 的静态类型脚本语言，目标是替代 GDScript，以 GDExtension 的形式交付。Petrichor 是项目代号。
+一门面向中大型 Godot 4 项目的全静态类型脚本语言，在项目代码中替代 GDScript 并与 GDScript 插件共存，以 GDExtension 的形式交付。Petrichor 是项目代号。
 
-**状态：**设计阶段。[语言规范](docs/language-spec.zh.md)（v0.2）是发布出来征求意见的草案，目前还没有实现。
+**状态：**设计阶段。[语言规范](docs/language-spec.zh.md)（v0.2）是发布出来征求意见的草案，目前还没有实现。引擎行为按 Godot master（4.8-beta）核对。
 
 English: [README.md](README.md)
 
 ## 为什么
 
-用动态语言写的大型项目难以管理。GDScript 受兼容性约束，摆脱不了动态类型；即使脚本全部写成静态类型，节点路径、编辑器中连接的信号、动画轨道和资源的属性名仍然是动态的：场景里的信息到不了脚本里。C# 在 Godot 中是二等的语言支持，跨语言桥接也有自己的暗坑。
+用动态语言写的大型项目难以管理。GDScript 受兼容性约束，摆脱不了动态类型：对象引用无法改为默认非空，运行时出错后调用方拿到一个假值继续执行的行为也改不掉。即使脚本全部写成静态类型，节点路径、编辑器中连接的信号、动画轨道和资源的属性名仍然是动态的：场景里的信息到不了脚本里。C# 在 Godot 中是二等的语言支持，跨语言桥接也有自己的暗坑。
 
 Petrichor 从头到尾是静态类型的，检查一直延伸到场景。它沿用 GDScript 的表层语法，并守一条硬规则：**与 GDScript 写法相同的构造，行为要么与 GDScript 一致，要么是编译错误并给出改法**，不会悄悄不同。
 
@@ -35,7 +35,7 @@ async func run(command: Command):
     match command:                              # 必须覆盖每个分支
         Command.IDLE:
             pass
-        Command.MOVE(var target):
+        Command.MOVE(var target):               # var target 是 target = var target 的简写
             navigate_to(target)
         Command.ATTACK(var target, var power):
             await attack(target, power)

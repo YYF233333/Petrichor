@@ -1,14 +1,14 @@
 # Petrichor
 
-A statically typed scripting language for Godot 4, designed to replace GDScript and delivered as a GDExtension. Petrichor is a codename.
+A statically typed scripting language for medium-to-large Godot 4 projects, replacing GDScript in project code while coexisting with GDScript plugins, delivered as a GDExtension. Petrichor is a codename.
 
-**Status:** design stage. The [language specification](docs/language-spec.en.md) (v0.2) is a draft published for feedback. There is no implementation yet.
+**Status:** design stage. The [language specification](docs/language-spec.en.md) (v0.2) is a draft published for feedback. There is no implementation yet. Engine behavior is checked against Godot master (4.8-beta).
 
 中文：[README.zh.md](README.zh.md)
 
 ## Why
 
-Large projects written in a dynamic language are hard to manage. GDScript cannot leave dynamic typing behind because of compatibility, and even fully typed scripts leave node paths, signals connected in the editor, animation tracks and resource property names dynamic: what the scenes know never reaches the scripts. C# has second-class language support in Godot and a bridge with its own pitfalls.
+Large projects written in a dynamic language are hard to manage. GDScript cannot leave dynamic typing behind because of compatibility: object references cannot become non-null by default, nor can callers stop receiving a fake value and carrying on after a runtime error. Even fully typed scripts leave node paths, signals connected in the editor, animation tracks and resource property names dynamic: what the scenes know never reaches the scripts. C# has second-class language support in Godot and a bridge with its own pitfalls.
 
 Petrichor is statically typed throughout, and the checking extends into scenes. It keeps GDScript's surface syntax, with one hard rule: **a construct spelled as in GDScript either behaves as in GDScript or is a compile error with a suggested fix**, never silently different.
 
@@ -35,7 +35,7 @@ async func run(command: Command):
     match command:                              # must cover every variant
         Command.IDLE:
             pass
-        Command.MOVE(var target):
+        Command.MOVE(var target):               # var target is short for target = var target
             navigate_to(target)
         Command.ATTACK(var target, var power):
             await attack(target, power)
