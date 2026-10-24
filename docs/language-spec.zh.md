@@ -167,7 +167,8 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 - 对象类型 `T` 的值总是指向一个对象；`T?` 的值是一个对象或 None。
 - 对象被释放后：
   - 读取 `T?` 类型的引用时，已释放的对象读作 None，所以 `!= None` 检查和由它带来的收窄（§5.4）同时就是存活检查；
-  - `T` 类型的引用仍可以持有已释放的对象，读取、比较和传参不算访问，访问其成员是程序错误。debug 构建中，若对象是本语言的实例或由本语言代码释放，诊断写明它在哪里被释放；
+  - `T` 类型的引用仍可以持有已释放的对象，读取、比较和传参不算访问，访问其成员是程序错误；`==` 比较 ObjectID，所以两个不同的已释放对象不相等（§5.2）。debug 构建中，若对象是本语言的实例或由本语言代码释放，诊断写明它在哪里被释放；
+  - `is` 对已释放的对象为假，`as` 得到 None，对所有静态类型都如此，所以类型检查同时也是存活检查。GDScript 在这里运行时出错（`modules/gdscript/gdscript_vm.cpp:905-912, 1653-1657`）；
   - `queue_free()` 之后、帧末真正删除之前，对象仍算存活：引擎把它放入删除队列，在每个物理步和处理帧的末尾删除（`scene/main/node.cpp:3518-3528`，`scene/main/scene_tree.cpp:667, 736, 1646-1661`）。`is_instance_valid` 的行为与 GDScript 相同。
 - 每次读取 `T?` 类型的对象引用都要做一次存活查询。
 - 理由：[语料计数](surveys/corpus-counts.zh.md)中 `is_instance_valid` 每千行 3.3 处，phantom-camera 中每千行 12.8 处；引擎从 4.4 起也让已释放的对象在条件中为假（PR [#93885](https://github.com/godotengine/godot/pull/93885)，`core/variant/variant.cpp:980-981`）。依据：[暗坑清单](surveys/pitfalls.zh.md) G-07、G-08。
@@ -310,7 +311,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
   - `if v is T:`，分支中的局部变量和参数收窄为 T（§5.4）。
 - `==` 和 `!=` 按引擎的 Variant 比较（§5.2）。
 - 其余操作都是编译错误，快速修复插入转换或 `if v is T:`：运算符、成员访问 `v.x`、方法调用 `v.f()`、下标 `v[i]`、`for x in v`。GDScript 在这些位置动态执行。确实要按名字动态访问时，先转为 Object，再用引擎的 `get`、`set`、`call`（§10.4）。
-- Variant 包含 NIL：`v == None` 判断 NIL，`v is int` 对 NIL 为假，`v as Node` 对 NIL 得到 None。`Variant?` 与 Variant 不同（§3.4），例如 `Dictionary[String, Variant]` 的 `get("hp")` 在缺键时为 None，在 `{"hp": null}` 中得到包含 NIL 的 Some。
+- Variant 包含 NIL：`v == None` 对 NIL 和已释放的对象为真，与引擎的运算表相同（`core/variant/variant_op.h:532-537`），`v is int` 对 NIL 为假，`v as Node` 对 NIL 得到 None。`Variant?` 与 Variant 不同（§3.4），例如 `Dictionary[String, Variant]` 的 `get("hp")` 在缺键时为 None，在 `{"hp": null}` 中得到包含 NIL 的 Some。
 
   ```gdscript
   var data = JSON.parse_string(text)   # Variant
@@ -433,16 +434,16 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 
 - `==` 按引擎的运算表定型，与其他运算符相同（§5.1）；表中没有的组合是编译错误，例如 `hp == "3"`、`Vector2() == Vector2i()`。
 - int 与 float 按数值比较，`1 == 1.0` 为真（`core/variant/variant_op.cpp:490-491`）。String 与 StringName 按内容比较（§10.7）。
-- 对象按同一性比较（`variant_op.cpp:514`）。两个类型都是类、且互不为子类时是编译错误，因为结果总为假；涉及接口时可以比较。
+- 对象按同一性比较，比较的是 ObjectID（`variant_op.cpp:514`），所以两个不同的已释放对象不相等。引擎比较前先把已释放的对象取为 null，两个已释放对象在 GDScript 中相等（`core/variant/variant_op.h:519-525`），属于 §1.2 的例外。两个类型都是类、且互不为子类时是编译错误，因为结果总为假；涉及接口时可以比较。
 - Option：None 等于 None；两个 Some 在内部的值相等时相等；非 Option 的一侧先包装再比较，例如 hp 为 `int?` 时的 `hp == 3`。既不是 Option 也不是 Variant 的值与 None 比较是编译错误，因为结果总为假；快速修复把类型改为 `T?`，或在检查存活时改用 `is_instance_valid(x)`。
 - 容器照引擎逐元素比较，Dictionary 按键逐项比较，与顺序无关。引擎比较元素时要求类型相同（`core/variant/array.cpp:153-156`，`core/variant/dictionary.cpp:270-300`，`core/variant/variant.cpp:3213-3216`），所以 `[1] == [1.0]` 为假，而 `1 == 1.0` 为真。元素类型不同的容器比较是编译错误，例如 `Array[int] == Array[float]`，因为只有两边都为空时才相等。
-- 一侧是 Variant 时，运行时按引擎的运算表求值；组合不在表中是程序错误（`variant_op.cpp:1051-1056`）。GDScript 在这里报错；运算数的类型与这条指令第一次执行时不同的情况，只在 debug 构建中检查，release 构建得到 null 并继续执行（`modules/gdscript/gdscript_vm.cpp:756-761, 784-806`）。`v == None` 判断 NIL（§3.13）。
+- 一侧是 Variant 时，运行时按引擎的运算表求值；组合不在表中是程序错误（`variant_op.cpp:1051-1056`）。GDScript 在这里报错；运算数的类型与这条指令第一次执行时不同的情况，只在 debug 构建中检查，release 构建得到 null 并继续执行（`modules/gdscript/gdscript_vm.cpp:756-761, 784-806`）。`v == None` 对 NIL 和已释放的对象为真（§3.13）。
 - `!=` 在所有情况下都是 `==` 的否定。
 - struct 和带载荷的 enum 逐字段比较（§3.6、§3.7）。
 
 ### 5.3 转换
 
-- `x as T` 只用于对象类型，结果为 `T?`：类型不符时为 None，与 GDScript 相同（`modules/gdscript/gdscript_vm.cpp:1665-1666`）。x 的静态类型已经是 T 时，结果为 T，并提示这个 `as` 多余。
+- `x as T` 只用于对象类型，结果为 `T?`：类型不符时为 None，与 GDScript 相同（`modules/gdscript/gdscript_vm.cpp:1665-1666`）。x 的静态类型已经是 T 时，结果为 T，并提示这个 `as` 多余。已释放的对象 `as` 任何类型都得到 None（§3.3）。
 - `as` 转为内置类型是编译错误。GDScript 在这里按构造函数转换，转换失败只在 debug 构建中报错（`gdscript_vm.cpp:1630-1638`），快速修复给出两种改法：
   - `T(x)`：保留这种转换，例如 `int("5")`、`int(2.7)`；
   - `T.try_from(x)`：严格的转换。
@@ -984,7 +985,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 |---|---|
 | 语法硬规则 | 本文中每一处与 GDScript 不同的规则，对应的 GDScript 写法都得到编译错误和改法；运行时行为不同的，只限 §1.2 所列的例外，即 GDScript 在那里运行时出错或悄悄得到错误结果 |
 | 数值 | `var hp: int = 10; hp = 2.5` 报编译错误，`hp = int(2.5)` 得 2；int 实参传给 float 参数无需转换；`7 / 2` 得 3；`Vector2i(1, 2) * 0.5` 为 Vector2；`Vector2() + Vector2i()` 报编译错误；整数除以 0 是程序错误；超出 int32 范围的值传给引擎的 int32 参数是程序错误 |
-| 可空与释放 | 已释放对象经 `T?` 读出为 None；经 `T` 访问成员是程序错误，debug 构建中，本语言实例的诊断写明释放位置；`queue_free()` 之后、帧末之前仍算存活 |
+| 可空与释放 | 已释放对象经 `T?` 读出为 None；经 `T` 访问成员是程序错误，debug 构建中，本语言实例的诊断写明释放位置；`queue_free()` 之后、帧末之前仍算存活；两个不同的 Node 释放后，以 Node 比较为假，以 `Node?` 比较为真；已释放的 Node 上 `x is Sprite2D` 为假，`x as Sprite2D` 为 None |
 | Option 与 Result | `?` 在 None 或 `Err` 时从当前函数返回；在返回 void 的函数中使用 `?` 报编译错误；Option 传播到返回 Result 的函数报编译错误；`await f()?` 等于 `(await f())?`；丢弃 Result 报编译错误；`unwrap` 失败是程序错误 |
 | 嵌套的 Option | `Array[Enemy?]` 为空时 `pop_back()` 得 None，末元素为 None 时得包含 None 的 Some；`var x: Enemy?? = maybe_enemy` 得 Some；`Dictionary[String, Variant]` 中缺键得 None，值为 null 得包含 NIL 的 Some；把 `int??` 或 `Variant?` 传给 Variant 参数报编译错误并给出 `.flatten()` 或 `.unwrap_or(null)` |
 | struct 与带载荷的 enum | 在方法中给 self 的字段赋值报编译错误；`player.last_hit.damage = 3` 调用 `last_hit` 的 setter；`hits[0].damage = 3` 之后 `hits[0].damage` 为 3；`get_hit().damage = 3` 报编译错误；`var b = a; b.damage = 1` 不改变 a；struct 的 Array 字段在复制后仍共享；字段相同的两个 struct 相等，作为 Dictionary 键时命中同一项；`c.target` 报编译错误；`@export` 带载荷的 enum 报编译错误 |
@@ -992,7 +993,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 接口 | 实现 `Combatant extends Damageable` 的类可以传给期望 Damageable 的参数；两个父接口的同名方法签名不兼容时报编译错误；两个父接口都有默认实现而未覆盖时报编译错误；`interface A extends B` 与 `interface B extends A` 报编译错误；声明 `interface Source[T]:` 报编译错误 |
 | 泛型 | `first([1, 2])` 中 T 推断为 int；`var x = first([])` 推断不出 T 报编译错误，`var x = first[int]([])` 合法；不满足约束的类型实参报编译错误；Node 脚本声明类型参数报编译错误；GDScript 引用泛型方法是 GDScript 的编译错误；`sig.connect(handle)` 在 handle 为泛型且类型实参确定不了时报编译错误 |
 | 函数类型 | `func(int)` 与 `func(int) -> void` 相同；`(func(Enemy) -> bool)?` 可空，`func(Enemy) -> bool?` 返回 `bool?`；`f(x)` 报编译错误并给出 `f.call(x)`；`func(Node)` 可以用于期望 `func(Node3D)` 的位置，反之报编译错误；含 await 而未写 async 的 lambda 报编译错误；把 async 函数传给期望普通函数类型的本语言参数报编译错误；把 async 方法连接到信号合法，任务作为根任务运行 |
-| Variant | `v.hp`、`v + 1`、`v[0]`、`for x in v` 报编译错误；`if v is Dictionary:` 之后 `v.get("hp", 0)` 合法；`v as Node` 为 `Node?`；v 为 NIL 时 `v == None` 为真、`v is int` 为假；int 赋给 Variant 无需转换 |
+| Variant | `v.hp`、`v + 1`、`v[0]`、`for x in v` 报编译错误；`if v is Dictionary:` 之后 `v.get("hp", 0)` 合法；`v as Node` 为 `Node?`；v 为 NIL 时 `v == None` 为真、`v is int` 为假；v 中是已释放的对象时 `v == None` 为真、`v is Node` 为假、`v as Node` 为 None；int 赋给 Variant 无需转换 |
 | 抽象类与剩余参数 | 构造抽象类报编译错误；具体子类缺少某个抽象方法的实现报编译错误；场景中的节点使用抽象类报编译错误；向 `...args: Array[int]` 传入 String 报编译错误；只写 `...args` 报编译错误；GDScript 调用 `...args: Array[int]` 时传入 String 是程序错误 |
 | 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；在子类以外的其他类中使用不带 `pub` 的 struct 报编译错误；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
 | 成员 | `var speed = 5.0` 为 float；空容器成员要求标注；没有初始化式的 int 成员为 0，`T?` 成员为 None；所有字段都有默认值的 struct 成员取默认值，否则必须赋值 |
@@ -1033,7 +1034,8 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | Variant 转为 int32 时直接截断 | `core/variant/variant.h:348-349` |
 | 标准构建中 `real_t` 是 float | `core/math/math_defs.h:143-146` |
 | 引擎的运算符表 | `core/variant/variant_op.cpp:212-1035` |
-| int 与 float 的 `==` 按数值比较；对象的 `==` 比较同一性 | `core/variant/variant_op.cpp:490-491, 514` |
+| int 与 float 的 `==` 按数值比较；对象的 `==` 比较同一性，但先把已释放的对象取为 null | `core/variant/variant_op.cpp:490-491, 514`；`core/variant/variant_op.h:519-525` |
+| 已释放的对象与 NIL 比较为真 | `core/variant/variant_op.h:532-537` |
 | String 与 StringName 的 `==` 按内容比较 | `core/variant/variant_op.cpp:196-203, 493, 615` |
 | 运算表中没有的组合求值无效 | `core/variant/variant_op.cpp:1051-1056` |
 | Array 的 `==` 逐元素用 `hash_compare`，它要求元素类型相同 | `core/variant/array.cpp:153-156`；`core/variant/variant.cpp:3213-3216` |
@@ -1104,6 +1106,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | GDScript 的 lambda 含 await 时即为协程，不加标记 | `modules/gdscript/gdscript_parser.cpp:3223-3225, 3726-3727` |
 | match 的模式 | `modules/gdscript/gdscript_parser.cpp:2499-2723` |
 | `as` 转为对象类型失败时得到 null | `modules/gdscript/gdscript_vm.cpp:1665-1666` |
+| GDScript 对已释放的对象做 `is` 时报错并中止，release 构建也一样；做 `as` 时只在 debug 构建中报错 | `modules/gdscript/gdscript_vm.cpp:905-912, 1653-1657` |
 | `as` 转为内置类型时按构造函数转换，转换失败只在 debug 构建中报错 | `modules/gdscript/gdscript_vm.cpp:1630-1638` |
 | GDScript 在运行时遇到运算表中没有的组合时报错；运算数类型与首次执行时不同的情况只在 debug 构建中检查，release 构建得到 null | `modules/gdscript/gdscript_vm.cpp:756-761, 784-806` |
 | `for` 可以遍历 float 和向量 | `modules/gdscript/gdscript_vm.cpp:3093-3230` |
