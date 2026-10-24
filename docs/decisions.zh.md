@@ -9,7 +9,7 @@
 - **问题**：用动态语言写的大型项目难以管理。GDScript 受历史兼容性约束，摆脱不了动态类型；更根本的是工具链：场景中的静态信息到不了脚本里，即使脚本全部写成静态类型，节点路径、编辑器中连接的信号、动画轨道和资源属性名仍然是动态的。改用 C# 则语言支持降为二等，桥接有暗坑，部分引擎能力受限，工具链与 Godot 的结合也有坑。
 - **目标**：全静态类型，只在引擎或第三方强加的地方出现动态值；这种体验延伸到场景。
 - **目标用户**：会读、会改代码的开发者，项目规模中等以上，部分代码可以由 AI 生成。小项目用 GDScript 更合适，不是目标。
-- **使用方式**：以开新项目为主；第三方插件保持 GDScript，不要求迁移。插件要求继承它的 GDScript 类时（如 Beehave 的 ActionLeaf），第一版由用户手写一层薄的 GDScript 子类，在其中调用本语言的代码；GDScript 通过反射看到本语言的类型，这些调用仍有静态检查（`modules/gdscript/gdscript_analyzer.cpp:804-819`）。语言层面的跨语言继承依赖 GDScript 的内部实现，不做。依据：[暗坑清单](surveys/pitfalls.zh.md) C-17。
+- **使用方式**：以开新项目为主；第三方插件保持 GDScript，不要求迁移。插件要求继承它的 GDScript 类时（如 Beehave 的 ActionLeaf），第一版由用户手写一层薄的 GDScript 子类，在其中调用本语言的代码；GDScript 通过反射看到本语言的类型，这些调用仍有静态检查（`modules/gdscript/gdscript_analyzer.cpp:804-819`）。语言层面的跨语言继承依赖 GDScript 的内部实现，不做。依据：[暗坑清单](surveys/pitfalls.zh.md) C-17。反方向同样不可行：GDScript 解析 `extends 全局类名` 时，把基类文件当作 GDScript 解析（`modules/gdscript/gdscript_analyzer.cpp:471-487`），所以 GDScript 脚本不能继承本语言的类，而 GDScript 此时只报“Could not resolve super class”（`:479, 485`）。因此迁移一个类时，它仍为 GDScript 的子类必须一起迁移。分析服务在继承了本语言类的 GDScript 文件上报错并说明原因；迁移一个类之前，列出受影响的子类，并提供一起迁移的选项。依据：[第二次纸面迁移](surveys/paper-migration-2.zh.md)中，Ring 的 Brick 和 Enemy 因此连带迁移了 5 个子类。
 - **性能**：明显快于 GDScript 即可，不以 C# 为目标。多数脚本碰不到解释器的性能瓶颈。
 
 ## 2. 交付与工具链
