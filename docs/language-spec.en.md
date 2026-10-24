@@ -17,7 +17,7 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 ### 1.2 Relationship to GDScript
 
 - The surface syntax follows GDScript: indentation, `func`, `var`, `extends`, `signal`, `@export`, `$X` and so on. New constructs extend it in the same style (§2).
-- **Syntax hard rule**: a construct spelled as in GDScript either behaves as in GDScript or is a compile error with a suggested fix; it never behaves differently in silence. Every rule in this document that differs from GDScript satisfies this; where a rule says "as in GDScript", it means the agreement this rule requires.
+- **Syntax hard rule**: a construct spelled as in GDScript either behaves as in GDScript or is a compile error with a suggested fix; it never behaves differently in silence. The exception is where GDScript fails at runtime or silently yields a wrong result (a default value, a truncation, waiting forever): there this language raises a program error (§8.1), or produces what the code intended, as setters before ready do (§6.5). Every rule in this document that differs from GDScript satisfies this; where a rule says "as in GDScript", it means the agreement this rule requires.
 - This language does not promise to compile GDScript source directly. Migration is guided by compile errors and quick fixes (§13.4).
 
 ### 1.3 Delivery
@@ -947,7 +947,7 @@ This checklist gives test instances of the rules above and adds no language requ
 
 | Area | What to check |
 |---|---|
-| Syntax hard rule | For every rule in this document that differs from GDScript, the corresponding GDScript spelling gets a compile error with a fix rather than a different runtime behavior |
+| Syntax hard rule | For every rule in this document that differs from GDScript, the corresponding GDScript spelling gets a compile error with a fix; a different runtime behavior occurs only in the exception in §1.2, where GDScript fails at runtime or silently yields a wrong result |
 | Numbers | `var hp: int = 10; hp = 2.5` is a compile error, and `hp = int(2.5)` gives 2; an int argument to a float parameter needs no conversion; `7 / 2` is 3; `Vector2i(1, 2) * 0.5` is a Vector2; `Vector2() + Vector2i()` is a compile error; integer division by zero is a program error; a value outside the int32 range passed to an engine int32 parameter is a program error |
 | Nullability and freeing | A freed object read through `T?` is None; accessing its members through `T` is a program error, and in debug builds the diagnostic says where an instance of this language was freed; after `queue_free()` and before the end of the frame it still counts as alive |
 | Option and Result | `?` returns from the current function on None or `Err`; `?` in a function returning void is a compile error; propagating an Option into a function returning Result is a compile error; `await f()?` equals `(await f())?`; discarding a Result is a compile error; a failed `unwrap` is a program error |
