@@ -759,6 +759,7 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
   - with the result used as a value, receiving a `GDScriptFunctionState` at runtime is a program error whose diagnostic says that the method is a coroutine and needs await.
   - [Later] Obtaining a `Task` handle for a call of a GDScript coroutine, to await it later.
 - When GDScript awaits a coroutine of this language, the coroutine returns its Task's `completed` signal at its first suspension; GDScript's await accepts any Signal value (`modules/gdscript/gdscript_vm.cpp:2585-2599`). The Task emits `completed(value)` when it finishes, and `completed(null)` when it is cancelled or fails, so a GDScript waiter is never left suspended forever; a separate `cancelled` signal serves code that needs to tell the cases apart.
+- The return type that an async method of this language reports to the engine is always untyped Variant (`PROPERTY_USAGE_NIL_IS_VARIANT`), whatever the declared return type, void included; the declared type appears only in documentation and hover. Rationale: method reflection information has no coroutine flag (`core/object/method_info.h:37-44`), so GDScript can only check against the reported return type. If T were reported, every await in GDScript would get the "redundant await" warning (`modules/gdscript/gdscript_analyzer.cpp:3136-3141`), and the `completed(null)` sent on cancellation would be written unchecked into a temporary of type T (`modules/gdscript/gdscript_vm.cpp:2668-2669`, `modules/gdscript/gdscript_byte_codegen.cpp:998-1001`); when T is a value type such as Transform3D, a later instruction that accesses it by type dereferences a null pointer and the process crashes. With Variant, debug builds check the type when the result is assigned to a typed variable (`gdscript_vm.cpp:1421-1432`); release builds do not, as for any other GDScript function that returns Variant.
 - Both directions follow from reading the engine source and have not yet been tested on a running engine.
 
 ## 10. Engine boundary
@@ -774,6 +775,7 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 | enums without payloads | int; shown as a drop-down when exported |
 | structs | Dictionaries keyed by field name, with String keys |
 | enums with payloads | Dictionaries keyed by field name, with the reserved key `"$variant"` holding the variant name (§3.7) |
+| return values of async methods | untyped Variant (§9.8) |
 
 - GDScript types global classes of other languages through the Script reflection interface (`modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063`), so GDScript's calls into classes of this language are statically checked too.
 - **Entry checks**: wherever a value enters this language from the engine, GDScript or C# (arguments, `set` writes to members, signal arguments, results of await, decoding), it is checked against the declared type, and a failure is a program error. Writes by the remote inspector go through entry checks too (§7.5).
@@ -997,7 +999,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Engine boundary | An unaudited engine method returning an object has type `T?`; `get_tree()` is non-null and `get_collider()` is nullable; GDScript passing null to a non-null parameter is a program error; the remote inspector writing null to a non-null member leaves the value unchanged; a struct emitted through a signal arrives as a Dictionary keyed by field name, and `Command.MOVE(target = p)` as `{"$variant": "MOVE", "target": p}` |
 | Utility functions | `min(1.5, 1)` is a compile error offering `min(1.5, 1.0)`; `lerp(a, b, t)` has a's type; `find_children("*", "MeshInstance3D")` is `Array[MeshInstance3D]` |
 | Strings | A literal where StringName is expected is constructed at compile time; `&"a" == "a"` is true; a literal member name that does not exist is a compile error and takes part in rename |
-| Cross-language | A GDScript file extending a class of this language gets an explanatory error from the analysis service; awaiting a GDScript coroutine yields a result checked against the declared type; calling a GDScript coroutine as a statement is no error, while using its result as a value without await is a program error; GDScript awaiting a coroutine of this language gets null on cancellation instead of hanging |
+| Cross-language | A GDScript file extending a class of this language gets an explanatory error from the analysis service; awaiting a GDScript coroutine yields a result checked against the declared type; calling a GDScript coroutine as a statement is no error, while using its result as a value without await is a program error; GDScript awaiting a coroutine of this language gets null on cancellation instead of hanging; GDScript awaiting a coroutine of this language that returns Transform3D gets no warning, and on cancellation assigning the result to a Transform3D variable is an assignment error in debug builds, not a crash |
 | Refactoring | Renaming an exported member changes the keys in scenes too; renaming a node in the scene editor changes `$X` in scripts in the same undo step; non-literal paths are only reported |
 
 ## 16. Feedback
@@ -1081,6 +1083,9 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | `for` can iterate over floats and vectors | `modules/gdscript/gdscript_vm.cpp:3093-3230` |
 | A failed GDScript `assert` reports "Assertion failed" | `modules/gdscript/gdscript_vm.cpp:3869-3895` |
 | GDScript's await accepts any Signal value | `modules/gdscript/gdscript_vm.cpp:2585-2599` |
+| GDScript warns of a redundant await on a call whose return type is neither a coroutine, Variant nor Signal | `modules/gdscript/gdscript_analyzer.cpp:3136-3141` |
+| The result of an await is written unchecked into a temporary typed by the awaited call's return type | `modules/gdscript/gdscript_vm.cpp:2668-2669`; `modules/gdscript/gdscript_byte_codegen.cpp:998-1001` |
+| Assigning a Variant to a typed variable checks the type only in debug builds | `modules/gdscript/gdscript_vm.cpp:1421-1432` |
 | A suspended GDScript function state does not copy self and refers to its instance by a raw pointer | `modules/gdscript/gdscript_vm.cpp:2608-2624` |
 | After an error GDScript returns a default value built for the return type in debug builds, and null in release builds | `modules/gdscript/gdscript_vm.cpp:3956-3980` (debug); `:496, 3982` (release) |
 | GDScript's `assert` is compiled only in debug builds | `modules/gdscript/gdscript_compiler.cpp:2182-2208` |
@@ -1126,3 +1131,4 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | Requiring types written in an override to match the overridden ones exactly | Stricter than GDScript, and rejects the covariant return types of fluent interfaces such as gdUnit4's | §4.6 |
 | Merging nested Options into one level (as Kotlin does) | Generic code would behave differently depending on T; a None stored in a container could not be told from a missing value | §3.4 |
 | Lambdas without async, inferred from the body or the expected type | Deciding whether a function is async would take several rules, and lambdas and method values could be passed to different places | §9.1 |
+| Async methods reporting their declared return type to the engine | Every await in GDScript would get a warning; the null sent on cancellation, written into a temporary of a value type, would crash the process | §9.8 |

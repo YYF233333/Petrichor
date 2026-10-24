@@ -759,6 +759,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
   - 结果被当作值使用时，运行时得到 `GDScriptFunctionState` 是程序错误，诊断写明该方法是协程、须写 await。
   - 【后续】为 GDScript 协程调用取得 `Task` 句柄，以便稍后等待。
 - GDScript await 本语言的协程时，协程在第一次挂起时返回其 Task 的 `completed` 信号；GDScript 的 await 接受任意 Signal 值（`modules/gdscript/gdscript_vm.cpp:2585-2599`）。Task 完成时发出 `completed(值)`；取消或失败时发出 `completed(null)`，使 GDScript 的等待方不会永远挂起；另有 `cancelled` 信号供需要区分的代码使用。
+- 本语言的 async 方法交给引擎的返回类型一律是无类型的 Variant（`PROPERTY_USAGE_NIL_IS_VARIANT`），与声明的返回类型无关，返回 void 时也是如此；声明的类型只出现在文档和悬停中。理由：方法的反射信息中没有协程性（`core/object/method_info.h:37-44`），GDScript 只能按报告的返回类型检查。报告为 T 时，GDScript 中每处 await 都有“多余的 await”警告（`modules/gdscript/gdscript_analyzer.cpp:3136-3141`）；取消时的 `completed(null)` 不经检查写入类型为 T 的临时变量（`modules/gdscript/gdscript_vm.cpp:2668-2669`，`modules/gdscript/gdscript_byte_codegen.cpp:998-1001`），T 为 Transform3D 一类的值类型时，之后按类型访问它的指令解引用空指针，进程崩溃。报告为 Variant 时，debug 构建在把结果赋给有类型的变量时检查类型（`gdscript_vm.cpp:1421-1432`）；release 构建不检查，与 GDScript 中其他返回 Variant 的函数相同。
 - 两个方向都是根据引擎源码推出的，尚未在运行的引擎上验证。
 
 ## 10. 引擎边界
@@ -774,6 +775,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 无载荷的 enum | int；导出时显示为下拉框 |
 | struct | 按字段名编码的 Dictionary，键为 String |
 | 带载荷的 enum | 按字段名编码的 Dictionary，保留键 `"$variant"` 记录分支名（§3.7） |
+| async 方法的返回值 | 无类型的 Variant（§9.8） |
 
 - GDScript 通过 Script 的反射接口为其他语言的全局类定型（`modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063`），所以 GDScript 调用本语言的类时同样有静态检查。
 - **入口检查**：值从引擎、GDScript 或 C# 进入本语言的位置（参数、`set` 写入成员、信号的实参、await 的结果、解码），按声明的类型检查，失败是程序错误。远程检查器的写入也经过入口检查（§7.5）。
@@ -997,7 +999,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 引擎边界 | 未审核的、返回对象的引擎方法类型为 `T?`；`get_tree()` 非空，`get_collider()` 可空；GDScript 向非空参数传入 null 是程序错误；远程检查器向非空成员写入 null 时原值不变；经信号传出的 struct 是按字段名编码的 Dictionary，`Command.MOVE(target = p)` 是 `{"$variant": "MOVE", "target": p}` |
 | 工具函数 | `min(1.5, 1)` 报编译错误并给出 `min(1.5, 1.0)`；`lerp(a, b, t)` 的结果与 a 同类型；`find_children("*", "MeshInstance3D")` 为 `Array[MeshInstance3D]` |
 | 字符串 | 期望 StringName 的字面量在编译期构造；`&"a" == "a"` 为真；字面量成员名不存在时报编译错误，并参与重命名 |
-| 跨语言 | GDScript 文件继承本语言的类时，分析服务在该文件上报错并说明原因；await GDScript 协程得到按声明类型检查的结果；作为语句调用 GDScript 协程不报错，把它的结果当作值使用而不写 await 是程序错误；GDScript await 本语言的协程，在取消时得到 null 而不挂起 |
+| 跨语言 | GDScript 文件继承本语言的类时，分析服务在该文件上报错并说明原因；await GDScript 协程得到按声明类型检查的结果；作为语句调用 GDScript 协程不报错，把它的结果当作值使用而不写 await 是程序错误；GDScript await 本语言的协程，在取消时得到 null 而不挂起；GDScript await 本语言中返回 Transform3D 的协程时没有警告，取消时把结果赋给 Transform3D 变量，在 debug 构建中报赋值错误而不崩溃 |
 | 重构 | 导出成员改名时场景中的键同时修改；场景编辑器中给节点改名时脚本中的 `$X` 同时修改，并在同一撤销步骤中；非字面量路径只报告 |
 
 ## 16. 反馈
@@ -1081,6 +1083,9 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | `for` 可以遍历 float 和向量 | `modules/gdscript/gdscript_vm.cpp:3093-3230` |
 | GDScript 的 `assert` 失败时报“Assertion failed” | `modules/gdscript/gdscript_vm.cpp:3869-3895` |
 | GDScript 的 await 接受任意 Signal 值 | `modules/gdscript/gdscript_vm.cpp:2585-2599` |
+| GDScript 对返回类型既不是协程、也不是 Variant 或 Signal 的调用的 await 给出“多余的 await”警告 | `modules/gdscript/gdscript_analyzer.cpp:3136-3141` |
+| await 的结果不经检查写入按被等待者返回类型定型的临时变量 | `modules/gdscript/gdscript_vm.cpp:2668-2669`；`modules/gdscript/gdscript_byte_codegen.cpp:998-1001` |
+| Variant 赋给有类型的变量时，只在 debug 构建中检查类型 | `modules/gdscript/gdscript_vm.cpp:1421-1432` |
 | 挂起的 GDScript 函数状态不复制 self，只以裸指针指向实例 | `modules/gdscript/gdscript_vm.cpp:2608-2624` |
 | GDScript 出错后，debug 构建按返回类型构造默认值返回，release 构建返回 null | `modules/gdscript/gdscript_vm.cpp:3956-3980`（debug）；`:496, 3982`（release） |
 | GDScript 的 `assert` 只在 debug 构建中编译 | `modules/gdscript/gdscript_compiler.cpp:2182-2208` |
@@ -1126,3 +1131,4 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 覆盖时写出的类型必须与被覆盖的完全一致 | 比 GDScript 严，拒绝 gdUnit4 一类流式接口所用的协变返回类型 | §4.6 |
 | 嵌套的 Option 合并为一层（Kotlin 的做法） | 泛型代码的行为随 T 改变；容器中存入的 None 与缺少的值无法区分 | §3.4 |
 | lambda 不写 async，按函数体或期望类型推断 | 判断函数是否为 async 要用多条规则，lambda 和方法值能传到哪里也会不同 | §9.1 |
+| async 方法向引擎报告声明的返回类型 | GDScript 中每处 await 都有警告；取消时的 null 写入值类型的临时变量会使进程崩溃 | §9.8 |
