@@ -628,7 +628,8 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 - Checks happen at three points:
   - while editing, clearing is allowed. The field in the Inspector and the node in the scene tree are marked with a compile error at once, but no operation is blocked, and the mark disappears when a value is assigned again;
   - when running, the game may run: such compile errors marked on scenes do not block running in the editor; a node still missing a value raises a program error when it becomes ready, checked before `@onready` initialization, and the diagnostic names the member, as when player.tscn is run on its own in the editor;
-  - when exporting a release build, export is refused where a value is certain to be missing, and warnings do not block it.
+  - when exporting, scenes certain to miss a value are reported as errors through an export plugin, and the export dialog shows a failure whose messages name the scene and the member; warnings do not affect the export. CI blocks with the headless analysis command (§13.1);
+  - [Known limitation] the engine's exporter does not stop on errors reported by plugins: no export plugin hook can make an export fail (`editor/export/editor_export_platform.cpp:2529-2537`, `editor/export/editor_export_plugin.h:132-134`), a reported error only makes the export dialog show a failure (`editor_export_platform.cpp:131, 146-148`), the output is still written, and command-line export still exits with code 0 (`editor/editor_node.cpp:1465-1481`).
 - When the remote inspector writes null to a non-null member, the entry check fails, which is a program error (§10.1): the write is rejected and the value is unchanged.
 - Rationale: clearing and then replacing is a normal step while editing, so non-null constrains the finished scene. Replacing does not even require clearing first, since node references are stored as paths in `.tscn` and resolved during instantiation (`scene/resources/packed_scene.cpp:449-468`).
 
@@ -899,7 +900,7 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 
 ### 13.1 Analysis service
 
-- The analysis service runs in the editor process. External IDEs connect through LSP; the command line and CI run the same analysis headless.
+- The analysis service runs in the editor process. External IDEs connect through LSP; the command line and CI run the same analysis headless. The headless analysis command exits with a non-zero code when there are compile errors, including missing-value errors marked on scenes (§7.5).
 - Rationale: refactorings across scenes must modify scenes the editor has open, which only the editor can do safely. GDScript's LSP is an editor plugin too (`modules/gdscript/language_server/gdscript_language_server.h:35`, `modules/gdscript/register_types.cpp:170`).
 
 ### 13.2 Tools in the first version
@@ -944,6 +945,7 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 - There is no "non-null member assigned after ready" (§6.2).
 - Coroutines have no finally or defer (§9.4).
 - When a GDScript script is reloaded, coroutines awaiting its suspended functions stay suspended forever (§9.8).
+- The engine's exporter does not stop the export on errors about values certain to be missing (§7.5).
 - No threading API is added (§12.3).
 
 ### 14.2 Compatible later additions
@@ -1001,7 +1003,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Setters before ready | A value saved in a scene makes the setter suspend where it accesses an `@onready` member and continue after ready; when a write of `"Hi"` before ready suspends and a later write of None does not, the `"Hi"` call is cancelled; a setter calling a method that starts with `if not is_node_ready(): return` does not suspend; a setter that transforms and then stores its value is read as transformed before ready; suspended calls are dropped when the node is freed before ready |
 | Leaks | A node removed and neither stored nor freed gets a warning; a closure capturing self stored in a member of self gets a warning with a `weak` quick fix; debug builds list leaked objects and where they were created on exit |
 | Scene typing | `$Head/Camera` is typed Camera3D from the scene; two scenes giving different types is a compile error; a path that cannot be found is marked on the scene lacking the node; a base scene used only for inheritance lacking a node all its inheriting scenes have is not an error, while a preloaded placeholder scene lacking it is; `get_node_or_null("X")` missing in some scenes is typed `T?` without error; `$X` found in no scene is a compile error, and `get_node_or_null("X")` yields `Node?` with a warning; `/root/X` is a compile error offering the autoload's global name; a component scene declaring `@owner(T)` is valid when instanced into another scene and a compile error when used as a root; after a node declaring `@owner(T)` leaves its owner's subtree, not reading owner is fine and reading it is a program error; without `@parent`, `get_parent().add_child(x)` is a compile error whose quick fix adds `@parent(T)`; `var p = get_parent()` on a detached node yields None; a node declaring `@parent(Node2D)` placed under a Control in a scene is a compile error |
-| Export checks | `crosshair` in player.tscn assigned by the instance in main.tscn is not an error; an instance without the value is marked on the scene containing it; a scene referenced from nowhere gets only a warning and does not block export; a missing value at runtime is a program error at ready naming the member |
+| Export checks | `crosshair` in player.tscn assigned by the instance in main.tscn is not an error; an instance without the value is marked on the scene containing it; a scene referenced from nowhere gets only a warning and no error on export; a missing value at runtime is a program error at ready naming the member; with a scene certain to miss a value, the export dialog shows a failure naming the scene and the member, and the headless analysis command returns non-zero |
 | Resources | Modifying a shared resource gives a warning with two quick fixes; `duplicate()` keeps the static type; a `preload` cycle is a compile error |
 | Program errors | A program error two calls below `_process` aborts both frames and `_process`, and the next frame calls `_process` again; an engine entry point that must return a value gives the engine the default of its type; apart from `assert`, a program behaves the same in debug and release builds |
 | Assertions | In debug builds `assert(false)` is a program error; in release builds `assert(f())` does not call f; `assert(await t)` is a compile error; `assert(save_data)` with save_data a `Resource?` is a compile error offering `save_data != None` |
@@ -1071,6 +1073,8 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | When a scene's root is instanced into another scene, its owner is the root of the outer scene | `scene/resources/packed_scene.cpp:640-643` |
 | Renaming a node in the editor updates NodePath properties and animation tracks in the scene | `editor/docks/scene_tree_dock.cpp:2173-2260, 2280-2400` |
 | A Web export with Extensions Support uses the dynamically linked templates; cross-origin isolation headers are needed only with thread support | `platform/web/export/export_plugin.cpp:374`; `platform/web/export/export_plugin.h:59-73`; `platform/web/doc_classes/EditorExportPlatformWeb.xml:93-95` |
+| No export plugin hook can make an export fail | `editor/export/editor_export_platform.cpp:2529-2537`; `editor/export/editor_export_plugin.h:132-134` |
+| An error reported by an export plugin only makes the export dialog show a failure; command-line export exits non-zero only when the export function returns an error | `editor/export/editor_export_platform.cpp:131, 146-148`; `editor/editor_node.cpp:1465-1481` |
 | GDScript types global classes of other languages through the Script reflection interface | `modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063` |
 | When GDScript resolves `extends GlobalClassName` it parses the base class's file as GDScript, reporting only "Could not resolve super class" on failure | `modules/gdscript/gdscript_analyzer.cpp:471-487` (errors at `:479, 485`); `modules/gdscript/gdscript_cache.cpp:84-93` |
 | GDScript requires concrete subclasses to implement abstract methods, and forbids constructing abstract classes and calling abstract methods through `super` | `modules/gdscript/gdscript_analyzer.cpp:1543-1562, 3674-3687` |
@@ -1142,7 +1146,7 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | Intersection types for interfaces, such as `@owner(Node2D & Combatant)` | A new concept; letting engine properties satisfy interface property requirements is enough | §3.9 |
 | A tracing GC, or closures capturing self weakly by default | Would silently differ from GDScript | §3.11, §6.7 |
 | Checking owner when nodes move | Taking a node out of its owner's subtree is a legitimate operation | §7.3 |
-| Unreferenced scenes with missing values also blocking export | A `load` whose path is known only at runtime cannot be seen, so it cannot be concluded that the scene is unused | §7.5 |
+| Unreferenced scenes with missing values also counting as export errors | A `load` whose path is known only at runtime cannot be seen, so it cannot be concluded that the scene is unused | §7.5 |
 | Strict checking for `as` to built-in types | Would silently differ from GDScript's constructor conversion | §5.3 |
 | Promoting utility functions with mixed int and float to float | GDScript returns the argument unchanged, so the result would silently differ | §10.3 |
 | `pop_front()` on an empty array being a program error | The engine returns null there without an error, so it would silently differ | §3.8 |

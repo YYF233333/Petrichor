@@ -628,7 +628,8 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 - 检查分三个时机：
   - 编辑时允许清空。Inspector 中的字段和场景树中的节点立即标出编译错误，但不阻止任何操作，重新赋值后标记消失；
   - 运行时允许运行：这类标在场景上的编译错误不阻止在编辑器中运行；缺值的节点就绪时报程序错误，检查早于 `@onready` 的初始化，诊断写明成员名，例如在编辑器中单独运行 player.tscn 时；
-  - 导出发布版本时，确定会缺值的不允许导出，只有警告的不阻止。
+  - 导出时，确定会缺值的场景经导出插件报告为错误，导出窗口显示失败，消息写明场景和成员名；只有警告的照常导出。CI 用无界面的分析命令阻断（§13.1）；
+  - 【已知限制】引擎的导出器不因插件报告的错误中止：导出插件的钩子都不能使导出失败（`editor/export/editor_export_platform.cpp:2529-2537`，`editor/export/editor_export_plugin.h:132-134`），报告的错误只让导出窗口显示失败（`editor_export_platform.cpp:131, 146-148`），产物照样写出，命令行导出的退出码仍为 0（`editor/editor_node.cpp:1465-1481`）。
 - 远程检查器向非空成员写入 null 时，入口检查失败，即程序错误（§10.1）：写入被拒绝，原值不变。
 - 理由：编辑过程中清空再替换是正常操作，非空约束的是编辑完成的场景。替换也不需要先清空，因为节点引用在 `.tscn` 中以路径保存，实例化时才解析（`scene/resources/packed_scene.cpp:449-468`）。
 
@@ -899,7 +900,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 
 ### 13.1 分析服务
 
-- 分析服务运行在编辑器进程中。外部 IDE 通过 LSP 连接；命令行和 CI 以无界面模式运行同一套分析。
+- 分析服务运行在编辑器进程中。外部 IDE 通过 LSP 连接；命令行和 CI 以无界面模式运行同一套分析。无界面的分析命令在存在编译错误时以非零退出码结束，包括标在场景上的缺值错误（§7.5）。
 - 理由：跨场景的重构要修改编辑器正打开着的场景，只有编辑器能安全地做到。GDScript 的 LSP 同样是编辑器插件（`modules/gdscript/language_server/gdscript_language_server.h:35`，`modules/gdscript/register_types.cpp:170`）。
 
 ### 13.2 第一版的工具
@@ -944,6 +945,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 - 没有“就绪后才赋值的非空成员”（§6.2）。
 - 协程没有 finally 或 defer（§9.4）。
 - GDScript 脚本被重载时，等待它挂起的函数的协程会永远挂起（§9.8）。
+- 引擎的导出器不因确定缺值的错误中止导出（§7.5）。
 - 不新增线程 API（§12.3）。
 
 ### 14.2 以后可以兼容地加入
@@ -1001,7 +1003,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 就绪前的 setter | 场景中保存的值使 setter 在访问 `@onready` 成员处挂起，就绪后继续；就绪前先写入 `"Hi"` 而挂起、再写入 None 而不挂起时，`"Hi"` 那次调用被取消；setter 调用以 `if not is_node_ready(): return` 开头的方法时不挂起；先变换再存储的 setter 就绪前读到变换后的值；节点就绪前被释放时挂起的调用被丢弃 |
 | 泄漏 | 移出后未保存也未释放的节点给出警告；捕获 self 的闭包存入 self 的成员时给出警告和 `weak` 的快速修复；debug 构建退出时列出泄漏的对象和创建位置 |
 | 场景定型 | `$Head/Camera` 按场景定为 Camera3D；两个场景给出不同类型时报编译错误；找不到的路径标在缺少该节点的场景上；只被继承的基础场景缺少继承它的场景都有的节点时不报错，被 preload 的占位场景缺少时报错；`get_node_or_null("X")` 在部分场景中缺失时类型为 `T?` 且不报错；任何场景中都没有的 `$X` 报编译错误，`get_node_or_null("X")` 得 `Node?` 并给出警告；`/root/X` 报编译错误并给出 autoload 全局名；声明 `@owner(T)` 的组件场景被实例化到别的场景中时合法，作为根使用时报编译错误；声明 `@owner(T)` 的节点移出 owner 的子树后不读 owner 不报错，读取时是程序错误；未声明 `@parent` 时 `get_parent().add_child(x)` 报编译错误，快速修复补上 `@parent(T)`；游离节点上 `var p = get_parent()` 得 None；声明 `@parent(Node2D)` 的节点在场景中挂在 Control 下时报编译错误 |
-| 导出检查 | player.tscn 的 `crosshair` 由 main.tscn 的实例赋值时不报错；某个实例没有赋值时标在该实例所在的场景上；没有被引用的场景只给警告且不阻止导出；运行中缺值时就绪报程序错误并写明成员名 |
+| 导出检查 | player.tscn 的 `crosshair` 由 main.tscn 的实例赋值时不报错；某个实例没有赋值时标在该实例所在的场景上；没有被引用的场景只给警告，导出时不报错；运行中缺值时就绪报程序错误并写明成员名；有确定缺值的场景时，导出窗口显示失败并写明场景和成员名，无界面分析命令返回非零 |
 | 资源 | 修改共享资源给出警告和两个快速修复；`duplicate()` 保持静态类型；`preload` 环报编译错误 |
 | 程序错误 | `_process` 往下两层调用中的程序错误中止这两层和 `_process`，下一帧照常调用 `_process`；需要返回值的入口，引擎得到该类型的默认值；除 `assert` 外，程序在 debug 和 release 构建中行为相同 |
 | 断言 | debug 构建中 `assert(false)` 是程序错误；release 构建中 `assert(f())` 不调用 f；`assert(await t)` 报编译错误；`assert(save_data)` 在 save_data 为 `Resource?` 时报编译错误并给出 `save_data != None` |
@@ -1071,6 +1073,8 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 场景的根被实例化到另一个场景中时，owner 是外层场景的根 | `scene/resources/packed_scene.cpp:640-643` |
 | 编辑器给节点改名时，更新场景中的 NodePath 属性和动画轨道 | `editor/docks/scene_tree_dock.cpp:2173-2260, 2280-2400` |
 | Web 导出开启 Extensions Support 时使用带动态链接的模板；跨域隔离响应头只在开启线程支持时需要 | `platform/web/export/export_plugin.cpp:374`；`platform/web/export/export_plugin.h:59-73`；`platform/web/doc_classes/EditorExportPlatformWeb.xml:93-95` |
+| 导出插件的钩子都不能使导出失败 | `editor/export/editor_export_platform.cpp:2529-2537`；`editor/export/editor_export_plugin.h:132-134` |
+| 导出插件报告的错误只让导出窗口显示失败；命令行导出只在导出函数返回错误时以非零退出码结束 | `editor/export/editor_export_platform.cpp:131, 146-148`；`editor/editor_node.cpp:1465-1481` |
 | GDScript 通过 Script 的反射接口为其他语言的全局类定型 | `modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063` |
 | GDScript 解析 `extends 全局类名` 时把基类文件当作 GDScript 解析，失败时只报“Could not resolve super class” | `modules/gdscript/gdscript_analyzer.cpp:471-487`（报错在 `:479, 485`）；`modules/gdscript/gdscript_cache.cpp:84-93` |
 | GDScript 要求具体子类实现抽象方法，禁止构造抽象类和经 `super` 调用抽象方法 | `modules/gdscript/gdscript_analyzer.cpp:1543-1562, 3674-3687` |
@@ -1142,7 +1146,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 接口的交集类型 `@owner(Node2D & Combatant)` | 新概念；允许引擎属性满足接口的属性要求即可 | §3.9 |
 | 追踪式 GC，或闭包自动弱捕获 self | 与 GDScript 的行为悄悄不同 | §3.11、§6.7 |
 | 在移动节点时检查 owner | 节点移出 owner 的子树是合法操作 | §7.3 |
-| 没有被引用的场景缺值时也阻止导出 | 运行时才确定路径的 `load` 看不到，无法断定场景不被使用 | §7.5 |
+| 没有被引用的场景缺值时也算导出错误 | 运行时才确定路径的 `load` 看不到，无法断定场景不被使用 | §7.5 |
 | `as` 转为内置类型时严格检查 | 与 GDScript 的构造转换悄悄不同 | §5.3 |
 | int 与 float 混用的工具函数统一提升为 float | GDScript 原样返回实参，结果会悄悄不同 | §10.3 |
 | `pop_front()` 在空数组上是程序错误 | 引擎在这里返回 null 而不报错，会悄悄不同 | §3.8 |
