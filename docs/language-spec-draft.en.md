@@ -203,7 +203,28 @@ This document rewrites the language specification from the [design decisions](de
 - Construction takes arguments by name only, and fields with defaults may be omitted (§2.4). [Later] Positional arguments.
 - When crossing the engine boundary (signal arguments, Variant, cross-language messages), a struct is encoded automatically as a Dictionary keyed by field name; decoding checks the presence and type of every field and descends into containers and nested structs, as in `Dictionary[String, ConsumableState]`. Fields are decoded by the same rules as `T.try_from` (§5.3).
 - [Known limitation] In the first version structs cannot be `@export`ed or stored in `.tres`; data edited in the editor uses Resource.
-- Whether structs can have methods, which copy `s.x = 1` changes, and `==`, comparison and hashing as Dictionary keys are [Open].
+- Methods: a struct can declare `func` and `static func`. Inside methods self is read-only, and assigning to a field of self is a compile error; a method that needs a change returns a modified copy. Rationale: a method that modifies self needs a call site that can be written back, and called on a temporary, on a property read through a getter, or on a loop variable, it would either be an error or silently modify a copy. [Later] Methods that modify self.
+- Fields and methods are visible wherever the struct is (§4.2). [Later] A stricter `private`.
+- Modification: `s.x = 1` modifies the copy where s lives (a variable, a member or a container element).
+  - A chained assignment reads, modifies and writes back along the chain, as GDScript does for `node.position.x = 1` (`modules/gdscript/gdscript_compiler.cpp:1176-1194`): `player.last_hit.damage = 3` writes back through player's setter, and `hits[0].damage = 3` modifies the element in the array;
+  - assigning to a field of a temporary is a compile error, for example `get_hit().damage = 3`;
+  - loop variables and lambda captures are copies, as with Vector2 in GDScript. Modifying a field of a struct-typed loop variable that is not read afterwards gives a "modifies a copy" warning.
+- Copies are shallow: object and container fields copy the reference, as these values do when assigned anywhere else. When an independent container is needed, call `duplicate()` on that field.
+- `==` compares field by field, each field by the `==` of its own type (§5.2). Hashing agrees with `==`, and structs can be Dictionary keys; a key is a copy, so later changes to the original do not affect it.
+
+  ```gdscript
+  struct Hit:
+      var damage: int
+      var crit: bool = false
+
+      func total() -> int:
+          return damage * 2 if crit else damage
+
+  player.last_hit.damage = 3   # read, modify, write back through player's setter
+  get_hit().damage = 3         # compile error: modifies a temporary
+  for h in hits:
+      h.damage = 0             # warning: modifies a copy
+  ```
 
 ### 3.7 Enums
 
@@ -211,7 +232,9 @@ This document rewrites the language specification from the [design decisions](de
 - Payload fields of a variant must be named, as in `MOVE(target: Vector3)`. Naming keeps the encoding independent of field order.
 - A match over an enum must be exhaustive (§5.6). When a variant is added, the compiler lists every place that does not handle it.
 - What the engine sees is in §10.1: an enum without payloads is an int and is shown as a drop-down when exported; an enum with payloads is encoded as a Dictionary keyed by field name, with a reserved key recording the variant name.
-- Whether enums with payloads can be `@export`ed, and their `==` and hashing, are [Open], to be decided with the corresponding struct item.
+- `==` on an enum with payloads compares the variant first and then the fields one by one; hashing agrees with `==`.
+- Payload fields can be taken out only through match (§5.6), not as `c.target`; so payloads cannot be modified in place, and a new value is constructed instead.
+- [Known limitation] In the first version enums with payloads cannot have methods, because the brace form has no place for function bodies, so related functions go in the enclosing class; nor can they be `@export`ed, for the same reason as structs (§3.6).
 
 ### 3.8 Containers
 
@@ -401,7 +424,7 @@ This document rewrites the language specification from the [design decisions](de
 - Containers compare element by element as in the engine. The engine requires compared elements to have the same type (`core/variant/array.cpp:153-156`, `core/variant/variant.cpp:3213-3216`), so `[1] == [1.0]` is false while `1 == 1.0` is true. Comparing containers with different element types, such as `Array[int] == Array[float]`, is a compile error, since they are equal only when both are empty.
 - When one operand is a Variant, the comparison is evaluated at runtime by the engine's operator table; a combination missing from the table is a program error, as in GDScript (`variant_op.cpp:1051-1056`, `modules/gdscript/gdscript_vm.cpp:756-761, 794-802`). `v == None` tests for NIL (§3.13).
 - `!=` is the negation of `==` in every case.
-- `==` for structs and enums with payloads is [Open] (§3.6).
+- Structs and enums with payloads compare field by field (§3.6, §3.7).
 
 ### 5.3 Conversions
 
@@ -843,7 +866,7 @@ This document rewrites the language specification from the [design decisions](de
 
 - Cross-language inheritance is not supported in either direction (§11.2).
 - There are no namespaces, aliases or `import` (§2.4, §4.1).
-- Structs cannot be `@export`ed or stored in `.tres` (§3.6).
+- Structs cannot be `@export`ed or stored in `.tres` (§3.6); enums with payloads cannot have methods or be `@export`ed (§3.7).
 - There are no stateful mixins (§3.9).
 - match has no type patterns, no match expressions, and no binding in comma-separated patterns (§5.6).
 - Coroutines have no finally or defer (§9.4).
@@ -860,6 +883,7 @@ This document rewrites the language specification from the [design decisions](de
 - a spread form at call sites (§4.6);
 - several constraints on a type parameter, and classes as constraints (§3.10);
 - parameter names in function types, direct calls `f(x)`, and passing an ordinary function where an async one is expected (§3.11);
+- struct methods that modify self, and `private` for struct members (§3.6);
 - the tools listed in §13.5.
 
 ### 14.3 Open questions
@@ -868,7 +892,6 @@ The following correspond to §10 of the [design decisions](decisions.en.md):
 
 | Question | Section |
 |---|---|
-| Methods, mutation, `==`, hashing and export of structs and enums with payloads | §3.6, §3.7, §5.2 |
 | Can interfaces extend interfaces, and can they be generic? | §3.9 |
 | Is `assert` removed in release builds? | §8.3 |
 | The spelling of the three scene structures declared by scripts | §7.2 |
@@ -884,6 +907,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Numbers | `var hp: int = 10; hp = 2.5` is a compile error, and `hp = int(2.5)` gives 2; an int argument to a float parameter needs no conversion; `7 / 2` is 3; `Vector2i(1, 2) * 0.5` is a Vector2; `Vector2() + Vector2i()` is a compile error; integer division by zero is a program error; a value outside the int32 range passed to an engine int32 parameter is a program error |
 | Nullability and freeing | A freed object read through `T?` is None; accessing its members through `T` is a program error whose diagnostic says where it was freed; after `queue_free()` and before the end of the frame it still counts as alive |
 | Option and Result | `?` returns from the current function on None or `Err`; `?` in a function returning void is a compile error; propagating an Option into a function returning Result is a compile error; `await f()?` equals `(await f())?`; discarding a Result is a compile error; a failed `unwrap` is a program error |
+| Structs and enums with payloads | Assigning to a field of self in a method is a compile error; `player.last_hit.damage = 3` calls player's setter; after `hits[0].damage = 3`, `hits[0].damage` is 3; `get_hit().damage = 3` is a compile error; `var b = a; b.damage = 1` leaves a unchanged; an Array field of a struct is still shared after copying; two structs with equal fields are equal and hit the same entry as Dictionary keys; `c.target` is a compile error; `@export` on an enum with payloads is a compile error |
 | Equality | `1 == 1.0` is true; `hp == "3"` is a compile error; comparing a `Node2D` with a `Node3D` is a compile error; `hp == 3` with hp an `int?` is valid; comparing a non-null `Node` with None is a compile error; `Array[int] == Array[float]` is a compile error; comparing a Variant holding a String with an int is a program error |
 | Nested Options | `pop_back()` on an empty `Array[Enemy?]` gives None, and a Some containing None when the last element is None; `var x: Enemy?? = maybe_enemy` gives a Some; a missing key in a `Dictionary[String, Variant]` gives None, and a null value a Some containing NIL; passing an `int??` or `Variant?` to a Variant parameter is a compile error offering `.flatten()` or `.unwrap_or(null)` |
 | Conversions | `node as Sprite2D` is `Sprite2D?`; `x as int` is a compile error offering `int(x)` and `int.try_from(x)`; `int.try_from(2.0)` is `Ok(2)`, while `int.try_from(2.5)` and `int.try_from("2")` are `Err` |
@@ -972,6 +996,7 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | `for` can iterate over floats and vectors | `modules/gdscript/gdscript_vm.cpp:3093-3230` |
 | GDScript's await accepts any Signal value | `modules/gdscript/gdscript_vm.cpp:2585-2599` |
 | After an error GDScript returns a default value built for the return type | `modules/gdscript/gdscript_vm.cpp:3975-3979` |
+| GDScript's chained assignment reads and modifies along the chain, then writes value types back while shared types are modified in place | `modules/gdscript/gdscript_compiler.cpp:1176-1194` |
 | Member initializers bypass setters | `modules/gdscript/gdscript_compiler.cpp:2435-2451, 2620-2643` |
 | `_static_init` is called after static members are initialized | `modules/gdscript/gdscript_compiler.cpp:2646-2649` |
 | The engine does not instantiate abstract GDScript scripts | `modules/gdscript/gdscript.cpp:265-270` |

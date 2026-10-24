@@ -203,7 +203,28 @@
 - 构造时只能按名字传参，有默认值的字段可以省略（§2.4）。【后续】位置参数。
 - 跨越引擎边界（信号参数、Variant、跨语言消息）时，自动编码为按字段名的 Dictionary；解码时检查每个字段的存在和类型，并深入容器和嵌套的 struct，例如 `Dictionary[String, ConsumableState]`。字段的解码规则与 `T.try_from` 相同（§5.3）。
 - 【已知限制】第一版 struct 不能 `@export`，也不能存入 `.tres`；需要在编辑器中编辑的数据使用 Resource。
-- struct 能否有方法、`s.x = 1` 作用于哪一份、`==` 以及作为 Dictionary 键时的比较和哈希【待定】。
+- 方法：struct 可以声明 `func` 和 `static func`。方法中的 self 只读，给 self 的字段赋值是编译错误；需要修改时返回修改后的副本。理由：修改 self 的方法要求调用处是能写回的位置，在临时值、经 getter 读出的属性和循环变量上调用时，要么报错，要么悄悄改了副本。【后续】修改 self 的方法。
+- 字段和方法在 struct 可见的地方都可见（§4.2）。【后续】更严的 `private`。
+- 修改：`s.x = 1` 修改 s 所在位置的那一份（变量、成员或容器元素）。
+  - 链式赋值沿链读出、修改、写回，与 GDScript 对 `node.position.x = 1` 的处理相同（`modules/gdscript/gdscript_compiler.cpp:1176-1194`）：`player.last_hit.damage = 3` 经 player 的 setter 写回，`hits[0].damage = 3` 修改数组中的元素；
+  - 给临时值的字段赋值是编译错误，例如 `get_hit().damage = 3`；
+  - 循环变量和 lambda 捕获的是副本，与 GDScript 中的 Vector2 相同。修改 struct 类型循环变量的字段、之后又不读它时，给出“修改的是副本”的警告。
+- 复制是浅复制：对象和容器字段复制引用，与这些值在别处赋值时一样。需要独立的容器时，对该字段调用 `duplicate()`。
+- `==` 逐字段比较，各字段按自己类型的 `==`（§5.2）。哈希与 `==` 一致，struct 可以作 Dictionary 的键；键是副本，之后修改原值不影响键。
+
+  ```gdscript
+  struct Hit:
+      var damage: int
+      var crit: bool = false
+
+      func total() -> int:
+          return damage * 2 if crit else damage
+
+  player.last_hit.damage = 3   # 读出、修改，经 player 的 setter 写回
+  get_hit().damage = 3         # 编译错误：修改的是临时值
+  for h in hits:
+      h.damage = 0             # 警告：修改的是副本
+  ```
 
 ### 3.7 enum
 
@@ -211,7 +232,9 @@
 - 带载荷的分支，载荷字段必须命名，例如 `MOVE(target: Vector3)`。命名使编码不随字段顺序改变。
 - 对 enum 的 match 必须穷尽（§5.6）。新增分支时，编译器列出所有没有处理它的位置。
 - 引擎看到的形式见 §10.1：无载荷的 enum 为 int，导出时显示为下拉框；带载荷的 enum 编码为按字段名的 Dictionary，用一个保留键记录分支名。
-- 带载荷的 enum 能否 `@export`，以及 `==` 和哈希【待定】，与 struct 的同一项一起决定。
+- 带载荷的 enum 的 `==` 先比较分支，再逐字段比较；哈希与 `==` 一致。
+- 载荷字段只能经 match 取出（§5.6），不能写 `c.target`；所以载荷不能原地修改，只能构造新值。
+- 【已知限制】第一版带载荷的 enum 不能有方法，因为花括号写法中没有放函数体的位置，相关函数写在所属的类中；也不能 `@export`，理由与 struct 相同（§3.6）。
 
 ### 3.8 容器
 
@@ -401,7 +424,7 @@
 - 容器照引擎逐元素比较。引擎比较元素时要求类型相同（`core/variant/array.cpp:153-156`，`core/variant/variant.cpp:3213-3216`），所以 `[1] == [1.0]` 为假，而 `1 == 1.0` 为真。元素类型不同的容器比较是编译错误，例如 `Array[int] == Array[float]`，因为只有两边都为空时才相等。
 - 一侧是 Variant 时，运行时按引擎的运算表求值；组合不在表中是程序错误，与 GDScript 相同（`variant_op.cpp:1051-1056`，`modules/gdscript/gdscript_vm.cpp:756-761, 794-802`）。`v == None` 判断 NIL（§3.13）。
 - `!=` 在所有情况下都是 `==` 的否定。
-- struct 和带载荷 enum 的 `==`【待定】（§3.6）。
+- struct 和带载荷的 enum 逐字段比较（§3.6、§3.7）。
 
 ### 5.3 转换
 
@@ -843,7 +866,7 @@
 
 - 不支持跨语言继承，两个方向都不支持（§11.2）。
 - 没有命名空间、别名和 `import`（§2.4、§4.1）。
-- struct 不能 `@export`，也不能存入 `.tres`（§3.6）。
+- struct 不能 `@export`，也不能存入 `.tres`（§3.6）；带载荷的 enum 不能有方法，也不能 `@export`（§3.7）。
 - 没有带状态的 mixin（§3.9）。
 - match 没有类型模式、没有 match 表达式，也不能在逗号分隔的多个模式中绑定（§5.6）。
 - 协程没有 finally 或 defer（§9.4）。
@@ -860,6 +883,7 @@
 - 调用处的展开写法（§4.6）；
 - 泛型的多个约束，以及以类作约束（§3.10）；
 - 函数类型中的参数名、直接调用 `f(x)`、把普通函数传给期望 async 的位置（§3.11）；
+- 修改 self 的 struct 方法，struct 成员的 `private`（§3.6）；
 - §13.5 所列的工具。
 
 ### 14.3 待定问题
@@ -868,7 +892,6 @@
 
 | 问题 | 章节 |
 |---|---|
-| struct 和带载荷 enum 的方法、修改、`==`、哈希和导出 | §3.6、§3.7、§5.2 |
 | 接口能否继承接口、能否是泛型 | §3.9 |
 | `assert` 在 release 构建中是否去掉 | §8.3 |
 | 由脚本声明的三种场景结构的写法 | §7.2 |
@@ -884,6 +907,7 @@
 | 数值 | `var hp: int = 10; hp = 2.5` 报编译错误，`hp = int(2.5)` 得 2；int 实参传给 float 参数无需转换；`7 / 2` 得 3；`Vector2i(1, 2) * 0.5` 为 Vector2；`Vector2() + Vector2i()` 报编译错误；整数除以 0 是程序错误；超出 int32 范围的值传给引擎的 int32 参数是程序错误 |
 | 可空与释放 | 已释放对象经 `T?` 读出为 None；经 `T` 访问成员是程序错误，诊断写明释放位置；`queue_free()` 之后、帧末之前仍算存活 |
 | Option 与 Result | `?` 在 None 或 `Err` 时从当前函数返回；在返回 void 的函数中使用 `?` 报编译错误；Option 传播到返回 Result 的函数报编译错误；`await f()?` 等于 `(await f())?`；丢弃 Result 报编译错误；`unwrap` 失败是程序错误 |
+| struct 与带载荷的 enum | 在方法中给 self 的字段赋值报编译错误；`player.last_hit.damage = 3` 调用 player 的 setter；`hits[0].damage = 3` 之后 `hits[0].damage` 为 3；`get_hit().damage = 3` 报编译错误；`var b = a; b.damage = 1` 不改变 a；struct 的 Array 字段在复制后仍共享；字段相同的两个 struct 相等，作为 Dictionary 键时命中同一项；`c.target` 报编译错误；`@export` 带载荷的 enum 报编译错误 |
 | 相等 | `1 == 1.0` 为真；`hp == "3"` 报编译错误；`Node2D` 与 `Node3D` 比较报编译错误；hp 为 `int?` 时 `hp == 3` 合法；非空的 `Node` 与 None 比较报编译错误；`Array[int] == Array[float]` 报编译错误；Variant 中是 String 时与 int 比较是程序错误 |
 | 嵌套的 Option | `Array[Enemy?]` 为空时 `pop_back()` 得 None，末元素为 None 时得包含 None 的 Some；`var x: Enemy?? = maybe_enemy` 得 Some；`Dictionary[String, Variant]` 中缺键得 None，值为 null 得包含 NIL 的 Some；把 `int??` 或 `Variant?` 传给 Variant 参数报编译错误并给出 `.flatten()` 或 `.unwrap_or(null)` |
 | 转换 | `node as Sprite2D` 为 `Sprite2D?`；`x as int` 报编译错误并给出 `int(x)` 与 `int.try_from(x)`；`int.try_from(2.0)` 得 `Ok(2)`，`int.try_from(2.5)` 和 `int.try_from("2")` 得 `Err` |
@@ -972,6 +996,7 @@
 | `for` 可以遍历 float 和向量 | `modules/gdscript/gdscript_vm.cpp:3093-3230` |
 | GDScript 的 await 接受任意 Signal 值 | `modules/gdscript/gdscript_vm.cpp:2585-2599` |
 | GDScript 出错后按返回类型构造默认值返回 | `modules/gdscript/gdscript_vm.cpp:3975-3979` |
+| GDScript 的链式赋值沿链读出、修改，再把值类型写回，共享类型原地修改 | `modules/gdscript/gdscript_compiler.cpp:1176-1194` |
 | 成员的初始化式不经过 setter | `modules/gdscript/gdscript_compiler.cpp:2435-2451, 2620-2643` |
 | 静态成员初始化之后调用 `_static_init` | `modules/gdscript/gdscript_compiler.cpp:2646-2649` |
 | 引擎不实例化抽象的 GDScript 脚本 | `modules/gdscript/gdscript.cpp:265-270` |
