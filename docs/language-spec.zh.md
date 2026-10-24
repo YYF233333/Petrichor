@@ -64,6 +64,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 
 - 沿用 GDScript 的注解，含义相同：`@export` 系列、`@onready`、`@tool`、`@icon`、`@warning_ignore`、`@rpc`、`@static_unload`、`@abstract`（§4.1）。
 - 新增的类级注解：`@parent(T)`、`@owner(T)`（§7.3）。
+- 新增的成员注解：`@readonly`，只用于接口属性（§3.9）。
 - 注解写在声明之前，可以与声明同一行；`pub` 写在注解之后、`static` 之前（§2.4）。
 
 ### 2.4 声明的写法
@@ -87,7 +88,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
   var c = Command.MOVE(target = Vector3.ZERO)
   ```
 
-- **interface**：缩进块，可以声明 `var`、`signal` 和 `func`。没有函数体的方法不写冒号，与 GDScript 的 `@abstract func` 相同（`gdscript_parser.cpp:1790-1791`）；有函数体的是默认方法。接口的成员都是公开的：
+- **interface**：缩进块，可以声明 `var`、`signal` 和 `func`。没有函数体的方法不写冒号，与 GDScript 的 `@abstract func` 相同（`gdscript_parser.cpp:1790-1791`）；有函数体的是默认方法。属性要求可读写，只要求可读的标 `@readonly`，例如 `@readonly var max_hp: int`。接口的成员都是公开的：
 
   ```gdscript
   pub interface Damageable:
@@ -256,7 +257,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 
 - 名义接口：类必须用 `implements` 显式声明实现了哪些接口。
 - 接口可以声明方法、属性和信号，可以有默认方法；默认方法通过接口属性读写状态。
-- 属性要求可以由继承来的引擎属性满足，例如 `var global_position: Vector2` 由 Node2D 的同名属性满足；类型必须相同，读写能力相符。
+- 属性要求可以由继承来的引擎属性满足，例如 `var global_position: Vector2` 由 Node2D 的同名属性满足；类型必须相同。属性要求可读写，标 `@readonly` 的只要求可读：可读写的实现满足只读的要求，反过来不行；本语言的 `var` 总是可读写的，所以没有 setter 的引擎属性只能满足 `@readonly` 的要求。默认方法给 `@readonly` 属性赋值是编译错误。`@readonly` 只用于接口属性，用在其他位置是编译错误。
 - 实现接口的成员必须是 `pub`（§4.2）。
 - 只有本语言的类能实现接口；外部对象须显式包装。
 - 【已知限制】第一版没有带状态的 mixin。依据：[跨分支重复调查](surveys/cross-branch-duplication.zh.md)中，原生基类不同造成的重复在多数游戏仓库中每千行约 4–10 行；经阅读判断，游戏中这类重复的 353 行里有 185 行可以用组合或静态函数消除，适合带状态 mixin 的 102 行中 72 行来自 Ring 一个项目。继承本可消除却没有消除的重复更多，分别是它的 4.9 倍（同一原生基类的无关脚本之间）和 8.2 倍（同一继承链上），但主要来自 tanks-of-freedom-ii 一个仓库。
@@ -991,7 +992,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 嵌套的 Option | `Array[Enemy?]` 为空时 `pop_back()` 得 None，末元素为 None 时得包含 None 的 Some；`var x: Enemy?? = maybe_enemy` 得 Some；`Dictionary[String, Variant]` 中缺键得 None，值为 null 得包含 NIL 的 Some；把 `int??` 或 `Variant?` 传给 Variant 参数报编译错误并给出 `.flatten()` 或 `.unwrap_or(null)` |
 | struct 与带载荷的 enum | 在方法中给 self 的字段赋值报编译错误；`player.last_hit.damage = 3` 调用 `last_hit` 的 setter；`hits[0].damage = 3` 之后 `hits[0].damage` 为 3；`get_hit().damage = 3` 报编译错误；`var b = a; b.damage = 1` 不改变 a；struct 的 Array 字段在复制后仍共享；字段相同的两个 struct 相等，作为 Dictionary 键时命中同一项；`c.target` 报编译错误；`@export` 带载荷的 enum 报编译错误 |
 | 容器 | `pop_front()` 在空数组上得 None；`front()` 在空数组上是程序错误；越界下标是程序错误；`d[k]` 在缺键时是程序错误；元素为 struct 的数组直接传给 Variant 参数报编译错误，快速修复改为 `Array(hits)`，得到元素为 Dictionary 的副本，之后修改原数组不影响副本；`Array[Hit].try_from(Array(hits))` 得 `Ok` |
-| 接口 | 实现 `Combatant extends Damageable` 的类可以传给期望 Damageable 的参数；两个父接口的同名方法签名不兼容时报编译错误；两个父接口都有默认实现而未覆盖时报编译错误；`interface A extends B` 与 `interface B extends A` 报编译错误；声明 `interface Source[T]:` 报编译错误 |
+| 接口 | 实现 `Combatant extends Damageable` 的类可以传给期望 Damageable 的参数；两个父接口的同名方法签名不兼容时报编译错误；两个父接口都有默认实现而未覆盖时报编译错误；`interface A extends B` 与 `interface B extends A` 报编译错误；声明 `interface Source[T]:` 报编译错误；`@readonly var hp: int` 的要求可以由可读写的成员满足；`var hp: int` 的要求遇到没有 setter 的引擎属性报编译错误；默认方法给 `@readonly` 属性赋值报编译错误；在接口以外使用 `@readonly` 报编译错误 |
 | 泛型 | `first([1, 2])` 中 T 推断为 int；`var x = first([])` 推断不出 T 报编译错误，`var x = first[int]([])` 合法；不满足约束的类型实参报编译错误；Node 脚本声明类型参数报编译错误；GDScript 引用泛型方法是 GDScript 的编译错误；`sig.connect(handle)` 在 handle 为泛型且类型实参确定不了时报编译错误 |
 | 函数类型 | `func(int)` 与 `func(int) -> void` 相同；`(func(Enemy) -> bool)?` 可空，`func(Enemy) -> bool?` 返回 `bool?`；`f(x)` 报编译错误并给出 `f.call(x)`；`func(Node)` 可以用于期望 `func(Node3D)` 的位置，反之报编译错误；含 await 而未写 async 的 lambda 报编译错误；把 async 函数传给期望普通函数类型的本语言参数报编译错误；把 async 方法连接到信号合法，任务作为根任务运行 |
 | Variant | `v.hp`、`v + 1`、`v[0]`、`for x in v` 报编译错误；`if v is Dictionary:` 之后 `v.get("hp", 0)` 合法；`v as Node` 为 `Node?`；v 为 NIL 时 `v == None` 为真、`v is int` 为假；v 中是已释放的对象时 `v == None` 为真、`v is Node` 为假、`v as Node` 为 None；int 赋给 Variant 无需转换 |
