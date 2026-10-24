@@ -62,6 +62,7 @@
 - **动态值只有三个来源**：以 Variant 声明的引擎接口，GDScript 插件中没有标注类型的参数和返回值，跨语言传来的消息。GDScript 类经反射看到的成员、参数和返回值中，对象类型视为 `T?`，值类型照声明，没有标注的是动态值。
 - **以 Variant 绑定的工具函数**（lerp、clamp、min、max、abs、wrap 等）在绑定元数据中按实参定型：实参类型相同时返回该类型。int 与 float 混用是编译错误，快速修复把整数实参改为 float，例如 `min(ratio, 1.0)`；引擎的 min、max、clamp 原样返回其中一个实参（`core/variant/variant_utility.cpp:643-760`），GDScript 中 `min(1.5, 1)` 得到 int，统一提升为 float 会使结果悄悄不同。lerp 本身要求两个实参类型相同（`variant_utility.cpp:466-470`）。
 - **能定型的从源头定型。** 引擎实际有约束但没有导出的，我们在自己的绑定元数据中补上；引擎已导出的元数据直接使用。其余动态值进入静态代码时必须显式转换，失败时报错；不做隐式检查。
+- **Variant 上的操作。** 静态值进入 Variant 是隐式的，赋值、传参和返回都可以；struct 和带载荷的 enum 按下文的表编码。Variant 进入静态代码只有显式的途径：`v as T`（只用于对象，得到 `T?`）、`T(v)`、`T.try_from(v)`，以及 `if v is T:`，分支中的局部变量和参数收窄为 T。`==` 和 `!=` 按引擎的 Variant 比较，各种组合的规则与 `==` 一起决定（§10）。其余操作都是编译错误并给出改法，包括运算符、成员访问 `v.x`、方法调用 `v.f()`、下标 `v[i]` 和 `for x in v`；改法是插入转换或 `if v is T:`。确实要按名字动态访问时，先转为 Object，再用引擎的 `get`、`set`、`call`。GDScript 在这些位置动态执行，改为编译错误符合语法硬规则。Variant 包含 NIL：`v == None` 判断 NIL，`v is int` 对 NIL 为假，`v as Node` 对 NIL 得到 None。例如 `JSON.parse_string(text)` 的结果先 `if data is Dictionary:`，再 `int.try_from(data.get("hp")).unwrap_or(100)`。
 - **转换。** `x as T` 只用于对象类型，结果为 `T?`，类型不符时为 None，与 GDScript 相同（`modules/gdscript/gdscript_vm.cpp:1665-1666`）；x 的静态类型已是 T 时结果为 T，并提示这个 `as` 多余。`as` 转为内置类型是编译错误：GDScript 在这里按构造函数转换（`gdscript_vm.cpp:1630-1637`），快速修复给出 `T(x)`，它保留这种转换，如 `int("5")`；或者给出 `T.try_from(x)`。`T.try_from(v)` 是严格的显式转换，返回 `Result[T, ConversionError]`，规则与 struct 字段的解码相同，转为 int 时接受恰为整数的浮点数；用 `?` 传播失败，或用 `.unwrap()`、`.expect(…)` 把失败变为程序错误。必须成功的向下转型写作 `(x as T).unwrap()`。以字面量类名过滤的接口按该类定型，例如 `find_children("*", "MeshInstance3D")` 返回 `Array[MeshInstance3D]`；先判断分组、再向下转型的写法，快速修复建议改用 `is`。依据：[第二次纸面迁移](surveys/paper-migration-2.zh.md)中有 16 处 `(x as T).unwrap()`。
 - **引擎返回对象的可空性。** 未审核的接口一律可空。审核按语料中的调用频率由高到低进行，结果分三种：非空，类型为 T；只在误用时为空，例如 `get_tree()`，按非空处理，为空时报程序错误；正常情况下可能为空，例如 `get_collider()`，类型为 T?。理由：引擎用 `RequiredResult` 标注的接口声明只有约 50 处，其中 29 处在 Tween。
 - **字符串形式的成员名。** `connect`、`emit_signal`、`call`、`call_deferred`、`set_deferred`、`has_method`、`Callable(obj, "m")`、`tween_property` 以及 `"position:x"` 一类属性路径，在目标类型已知时，字面量按静态引用解析：检查名字是否存在及值的类型，参与重命名和查找引用。哪些参数是名字，由我们的绑定元数据标注。非字面量的名字是显式的动态访问。
@@ -140,8 +141,7 @@
 
 讨论和[第二次纸面迁移](surveys/paper-migration-2.zh.md)中发现的问题都已决定。以下是重写规范时发现的问题：
 
-- Variant 上允许哪些操作：赋值、传参、`==`、`is`、`as`、转换，以及按名字的动态访问。
-- 嵌套的 Option（`T??`）：合并为一层、保留两层，还是禁止；例如 `Dictionary[K, V?]` 的取值。
+- 嵌套的 Option（`T??`）：合并为一层、保留两层，还是禁止；例如 `Dictionary[K, V?]` 的取值。同一问题也决定 `Variant?` 与 Variant 的关系，因为 Variant 已包含 NIL。
 - struct 的细节：能否有方法；`s.x = 1` 改的是哪一份；`==` 以及作为 Dictionary 键时的比较和哈希。带载荷的 enum 有同样的问题，另外还有它能否 `@export`（struct 已定第一版不能）。
 - 源文件的扩展名；调查中暂用 `.pet`。
 - 接口能否继承接口，能否是泛型。

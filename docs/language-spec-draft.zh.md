@@ -175,7 +175,7 @@
 - Option 是值，对它的操作都是方法，名字与 Rust 相同：`unwrap`、`expect(消息)`（失败时都是程序错误）、`unwrap_or`、`unwrap_or_else`、`map`、`and_then`、`or`、`or_else`、`filter`、`ok_or`、`ok_or_else`。没有 `!`、`??`、`?.` 运算符。
 - 唯一的特殊语法是后缀 `?`：遇到 None 时当前函数返回 None（§8.2）。
 - 判空用 `!= None` 和收窄（§5.4）；没有真值判断。
-- 嵌套的 Option（`T??`）【待定】。
+- 嵌套的 Option（`T??`），以及 `Variant?` 与 Variant 的关系【待定】。
 
 ### 3.5 Result
 
@@ -253,7 +253,23 @@
 - 动态值只有三个来源：以 Variant 声明的引擎接口；GDScript 插件中没有标注类型的参数、返回值和成员（§11.1）；跨语言传来的消息。
 - 动态值进入静态代码时必须显式转换（§5.3），失败时报错；不做隐式检查。
 - 能定型的从源头定型：引擎实际有约束但没有导出的，在本语言的绑定元数据中补上（§10.3）。
-- Variant 上允许哪些操作（赋值、传参、`==`、`is`、`as`、转换、按名字的动态访问）【待定】。
+- 静态值进入 Variant 是隐式的：赋值、传参和返回都可以。struct 和带载荷的 enum 按 §10.1 编码。
+- Variant 进入静态代码只有显式的途径：
+  - `v as T`，只用于对象，得到 `T?`（§5.3）；
+  - `T(v)`，GDScript 的构造转换；
+  - `T.try_from(v)`，严格转换，返回 Result；
+  - `if v is T:`，分支中的局部变量和参数收窄为 T（§5.4）。
+- `==` 和 `!=` 按引擎的 Variant 比较（§5.2）。
+- 其余操作都是编译错误，快速修复插入转换或 `if v is T:`：运算符、成员访问 `v.x`、方法调用 `v.f()`、下标 `v[i]`、`for x in v`。GDScript 在这些位置动态执行。确实要按名字动态访问时，先转为 Object，再用引擎的 `get`、`set`、`call`（§10.4）。
+- Variant 包含 NIL：`v == None` 判断 NIL，`v is int` 对 NIL 为假，`v as Node` 对 NIL 得到 None。`Variant?` 与 Variant 的关系【待定】，与嵌套的 Option 一起决定（§3.4）。
+
+  ```gdscript
+  var data = JSON.parse_string(text)   # Variant
+  data.hp                              # 编译错误：先转换
+  if data is Dictionary:               # data 收窄为 Dictionary
+      var hp = int.try_from(data.get("hp")).unwrap_or(100)
+  var n = data as Node                 # Node?
+  ```
 
 ## 4. 声明
 
@@ -830,8 +846,7 @@
 
 | 问题 | 章节 |
 |---|---|
-| Variant 上允许的操作 | §3.13 |
-| 嵌套的 Option | §3.4 |
+| 嵌套的 Option 与 `Variant?` | §3.4、§3.13 |
 | struct 和带载荷 enum 的方法、修改、`==`、哈希和导出 | §3.6、§3.7 |
 | 接口能否继承接口、能否是泛型 | §3.9 |
 | `==` 的规则 | §5.2 |
@@ -854,6 +869,7 @@
 | 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
 | 签名 | `func _process(delta):` 中 delta 为 float；覆盖时写出不一致的类型报编译错误；非覆盖函数省略返回类型后返回值报编译错误；有期望类型的 lambda 参数不必标注 |
 | 泛型 | `first([1, 2])` 中 T 推断为 int；`var x = first([])` 推断不出 T 报编译错误，`var x = first[int]([])` 合法；不满足约束的类型实参报编译错误；Node 脚本声明类型参数报编译错误；GDScript 引用泛型方法是 GDScript 的编译错误；`sig.connect(handle)` 在 handle 为泛型且类型实参确定不了时报编译错误 |
+| Variant | `v.hp`、`v + 1`、`v[0]`、`for x in v` 报编译错误；`if v is Dictionary:` 之后 `v.get("hp")` 合法；`v as Node` 为 `Node?`；v 为 NIL 时 `v == None` 为真、`v is int` 为假；int 赋给 Variant 无需转换 |
 | 函数类型 | `func(int)` 与 `func(int) -> void` 相同；`(func(Enemy) -> bool)?` 可空，`func(Enemy) -> bool?` 返回 `bool?`；`f(x)` 报编译错误并给出 `f.call(x)`；`func(Node)` 可以用于期望 `func(Node3D)` 的位置，反之报编译错误；含 await 而未写 async 的 lambda 报编译错误；把 async 函数传给期望普通函数类型的本语言参数报编译错误；把 async 方法连接到信号合法，任务作为根任务运行 |
 | 抽象类与剩余参数 | 构造抽象类报编译错误；具体子类缺少某个抽象方法的实现报编译错误；场景中的节点使用抽象类报编译错误；向 `...args: Array[int]` 传入 String 报编译错误；只写 `...args` 报编译错误；GDScript 调用 `...args: Array[int]` 时传入 String 是程序错误 |
 | 成员 | `var speed = 5.0` 为 float；空容器成员要求标注；没有初始化式的 int 成员为 0；所有字段都有默认值的 struct 成员取默认值，否则必须赋值 |

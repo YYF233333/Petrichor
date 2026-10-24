@@ -175,7 +175,7 @@ This document rewrites the language specification from the [design decisions](de
 - Option is a value, and operations on it are methods with the same names as in Rust: `unwrap` and `expect(message)` (both a program error on failure), `unwrap_or`, `unwrap_or_else`, `map`, `and_then`, `or`, `or_else`, `filter`, `ok_or`, `ok_or_else`. There are no `!`, `??` or `?.` operators.
 - The only special syntax is postfix `?`: on None the current function returns None (§8.2).
 - Null tests use `!= None` and narrowing (§5.4); there is no truthiness.
-- Nested Options (`T??`) are [Open].
+- Nested Options (`T??`), and how `Variant?` relates to Variant, are [Open].
 
 ### 3.5 Result
 
@@ -253,7 +253,23 @@ This document rewrites the language specification from the [design decisions](de
 - Dynamic values have only three sources: engine interfaces declared as Variant; parameters, return values and members left untyped in GDScript plugins (§11.1); and messages from other languages.
 - A dynamic value entering static code needs an explicit conversion (§5.3), which reports an error on failure; there are no implicit checks.
 - Types are fixed at the source wherever possible: constraints the engine has but does not export are added in this language's binding metadata (§10.3).
-- Which operations Variant allows (assignment, passing as an argument, `==`, `is`, `as`, conversions, dynamic access by name) is [Open].
+- Static values enter a Variant implicitly, by assignment, as arguments and as return values. Structs and enums with payloads are encoded as in §10.1.
+- A Variant enters static code only explicitly:
+  - `v as T`, for objects only, yielding `T?` (§5.3);
+  - `T(v)`, GDScript's constructor conversion;
+  - `T.try_from(v)`, a strict conversion returning a Result;
+  - `if v is T:`, in whose branch locals and parameters narrow to T (§5.4).
+- `==` and `!=` use the engine's Variant comparison (§5.2).
+- Every other operation is a compile error, and the quick fix inserts a conversion or `if v is T:`: operators, member access `v.x`, method calls `v.f()`, subscripts `v[i]`, `for x in v`. GDScript executes these positions dynamically. Dynamic access by name, where really needed, converts to Object first and then uses the engine's `get`, `set` and `call` (§10.4).
+- A Variant includes NIL: `v == None` tests for NIL, `v is int` is false for NIL, and `v as Node` yields None for NIL. How `Variant?` relates to Variant is [Open], decided together with nested Options (§3.4).
+
+  ```gdscript
+  var data = JSON.parse_string(text)   # Variant
+  data.hp                              # compile error: convert first
+  if data is Dictionary:               # data narrows to Dictionary
+      var hp = int.try_from(data.get("hp")).unwrap_or(100)
+  var n = data as Node                 # Node?
+  ```
 
 ## 4. Declarations
 
@@ -830,8 +846,7 @@ The following correspond to §10 of the [design decisions](decisions.en.md):
 
 | Question | Section |
 |---|---|
-| The operations Variant allows | §3.13 |
-| Nested Options | §3.4 |
+| Nested Options and `Variant?` | §3.4, §3.13 |
 | Methods, mutation, `==`, hashing and export of structs and enums with payloads | §3.6, §3.7 |
 | Can interfaces extend interfaces, and can they be generic? | §3.9 |
 | The rules for `==` | §5.2 |
@@ -854,6 +869,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Visibility | Members without `pub` are invisible in other classes, and readable, writable and overridable in subclasses; changing visibility in an override is a compile error; a type without `pub` in the signature of a `pub` function is a compile error; GDScript referring to a member without `pub` is a GDScript compile error; `call_deferred("reset")` makes `reset` callable by name from the engine |
 | Signatures | delta in `func _process(delta):` is a float; writing a mismatching type in an override is a compile error; returning a value from a non-override function with an omitted return type is a compile error; lambda parameters with an expected type need no annotation |
 | Generics | T in `first([1, 2])` is inferred as int; `var x = first([])` cannot infer T and is a compile error, while `var x = first[int]([])` is valid; a type argument that does not satisfy the constraint is a compile error; a Node script declaring type parameters is a compile error; GDScript referring to a generic method is a GDScript compile error; `sig.connect(handle)` with a generic handle whose type arguments cannot be determined is a compile error |
+| Variant | `v.hp`, `v + 1`, `v[0]` and `for x in v` are compile errors; after `if v is Dictionary:`, `v.get("hp")` is valid; `v as Node` is `Node?`; when v is NIL, `v == None` is true and `v is int` is false; assigning an int to a Variant needs no conversion |
 | Function types | `func(int)` equals `func(int) -> void`; `(func(Enemy) -> bool)?` is nullable, while `func(Enemy) -> bool?` returns `bool?`; `f(x)` is a compile error offering `f.call(x)`; `func(Node)` can be used where `func(Node3D)` is expected, and the reverse is a compile error; a lambda containing await without async is a compile error; passing an async function to a parameter of this language with an ordinary function type is a compile error; connecting an async method to a signal is valid, and the task runs as a root task |
 | Abstract classes and rest parameters | Constructing an abstract class is a compile error; a concrete subclass missing an implementation of an abstract method is a compile error; a node in a scene using an abstract class is a compile error; passing a String to `...args: Array[int]` is a compile error; a bare `...args` is a compile error; GDScript passing a String when calling `...args: Array[int]` is a program error |
 | Members | `var speed = 5.0` is float; empty-container members require an annotation; an int member without an initializer is 0; a struct member takes its default when every field has one and must otherwise be assigned |
