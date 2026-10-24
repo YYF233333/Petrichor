@@ -175,7 +175,20 @@ This document rewrites the language specification from the [design decisions](de
 - Option is a value, and operations on it are methods with the same names as in Rust: `unwrap` and `expect(message)` (both a program error on failure), `unwrap_or`, `unwrap_or_else`, `map`, `and_then`, `or`, `or_else`, `filter`, `ok_or`, `ok_or_else`. There are no `!`, `??` or `?.` operators.
 - The only special syntax is postfix `?`: on None the current function returns None (§8.2).
 - Null tests use `!= None` and narrowing (§5.4); there is no truthiness.
-- Nested Options (`T??`), and how `Variant?` relates to Variant, are [Open].
+- Nested Options keep two levels, as in Rust. `T??` is a valid type, mostly produced by generics and containers (§3.8):
+  - implicit wrapping adds levels according to the target type: a `T?` value assigned to a `T??` gives a Some containing that value, and the literal None is always the outermost None;
+  - `?`, `unwrap`, match and narrowing each remove one level; `.flatten()` merges `T??` into `T?`;
+  - `Variant?` works the same way: None means no value, and NIL is a value (§3.13);
+  - the rule for handing them to the engine is in §10.1.
+
+  ```gdscript
+  var r = enemies.pop_back()   # enemies: Array[Enemy?], r: Enemy??
+  match r:
+      None: print("empty array")
+      var e: print(e)          # e: Enemy?, possibly None
+  ```
+
+  Rationale: with one merged level, generic code would behave differently depending on T; for example, `first[T]` with T = `Enemy?` could not tell an empty array from a first element that is None, and a generic cache would take a stored None for a missing entry; a missing JSON key could not be told from null either. There is no `?.` here, so nesting appears almost only in generics and when reading from containers.
 
 ### 3.5 Result
 
@@ -207,7 +220,9 @@ This document rewrites the language specification from the [design decisions](de
 - Access:
   - `pop_front()` and `pop_back()` return `T?`: the engine returns null on an empty array without reporting an error (`core/variant/array.cpp:798-817`);
   - `front()` and `back()` return T and are a program error on an empty array, where the engine reports an error too (`array.cpp:364-372`);
-  - an out-of-range index is a program error.
+  - an out-of-range index is a program error;
+  - when T is itself nullable, `pop_front()` and `pop_back()` return `T??`, and the binding layer checks for an empty array first, because the engine returns null in both cases;
+  - `Dictionary[K, V].get(k)` returns `V?`, None when the key is missing, matching the engine returning the default for a missing key (`core/variant/dictionary.cpp:177-188`); `get(k, default)` returns V.
 - The standard library provides `map`, `filter`, `sort` and similar methods taking typed lambdas on the native containers (§3.11).
 
 ### 3.9 Interfaces
@@ -261,7 +276,7 @@ This document rewrites the language specification from the [design decisions](de
   - `if v is T:`, in whose branch locals and parameters narrow to T (§5.4).
 - `==` and `!=` use the engine's Variant comparison (§5.2).
 - Every other operation is a compile error, and the quick fix inserts a conversion or `if v is T:`: operators, member access `v.x`, method calls `v.f()`, subscripts `v[i]`, `for x in v`. GDScript executes these positions dynamically. Dynamic access by name, where really needed, converts to Object first and then uses the engine's `get`, `set` and `call` (§10.4).
-- A Variant includes NIL: `v == None` tests for NIL, `v is int` is false for NIL, and `v as Node` yields None for NIL. How `Variant?` relates to Variant is [Open], decided together with nested Options (§3.4).
+- A Variant includes NIL: `v == None` tests for NIL, `v is int` is false for NIL, and `v as Node` yields None for NIL. `Variant?` differs from Variant (§3.4); for example, `get("hp")` on a `Dictionary[String, Variant]` is None when the key is missing, and a Some containing NIL for `{"hp": null}`.
 
   ```gdscript
   var data = JSON.parse_string(text)   # Variant
@@ -682,6 +697,7 @@ This document rewrites the language specification from the [design decisions](de
 
 - GDScript types global classes of other languages through the Script reflection interface (`modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063`), so GDScript's calls into classes of this language are statically checked too.
 - **Entry checks**: wherever a value enters this language from the engine, GDScript or C# (arguments, `set` writes to members, signal arguments, results of await, decoding), it is checked against the declared type, and a failure is a program error. Writes by the remote inspector go through entry checks too (§7.5).
+- When an Option is handed to the engine, None is encoded as NIL. So `X?` can be handed to the engine implicitly only when no value of X encodes as NIL; when X is an Option or Variant it is a compile error, and the quick fix offers `.flatten()` or `.unwrap_or(null)`. Otherwise Some(None) would silently turn into None after a round trip through the engine (§3.4).
 
 ### 10.2 Nullability of objects returned by the engine
 
@@ -846,7 +862,6 @@ The following correspond to §10 of the [design decisions](decisions.en.md):
 
 | Question | Section |
 |---|---|
-| Nested Options and `Variant?` | §3.4, §3.13 |
 | Methods, mutation, `==`, hashing and export of structs and enums with payloads | §3.6, §3.7 |
 | Can interfaces extend interfaces, and can they be generic? | §3.9 |
 | The rules for `==` | §5.2 |
@@ -864,6 +879,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Numbers | `var hp: int = 10; hp = 2.5` is a compile error, and `hp = int(2.5)` gives 2; an int argument to a float parameter needs no conversion; `7 / 2` is 3; `Vector2i(1, 2) * 0.5` is a Vector2; `Vector2() + Vector2i()` is a compile error; integer division by zero is a program error; a value outside the int32 range passed to an engine int32 parameter is a program error |
 | Nullability and freeing | A freed object read through `T?` is None; accessing its members through `T` is a program error whose diagnostic says where it was freed; after `queue_free()` and before the end of the frame it still counts as alive |
 | Option and Result | `?` returns from the current function on None or `Err`; `?` in a function returning void is a compile error; propagating an Option into a function returning Result is a compile error; `await f()?` equals `(await f())?`; discarding a Result is a compile error; a failed `unwrap` is a program error |
+| Nested Options | `pop_back()` on an empty `Array[Enemy?]` gives None, and a Some containing None when the last element is None; `var x: Enemy?? = maybe_enemy` gives a Some; a missing key in a `Dictionary[String, Variant]` gives None, and a null value a Some containing NIL; passing an `int??` or `Variant?` to a Variant parameter is a compile error offering `.flatten()` or `.unwrap_or(null)` |
 | Conversions | `node as Sprite2D` is `Sprite2D?`; `x as int` is a compile error offering `int(x)` and `int.try_from(x)`; `int.try_from(2.0)` is `Ok(2)`, while `int.try_from(2.5)` and `int.try_from("2")` are `Err` |
 | Narrowing | Locals narrow after `!= None`, `is` and early returns; branches of conditional expressions and the right operand of `and` narrow; members do not narrow; `if x:` is a compile error with a fix depending on the type |
 | Visibility | Members without `pub` are invisible in other classes, and readable, writable and overridable in subclasses; changing visibility in an override is a compile error; a type without `pub` in the signature of a `pub` function is a compile error; GDScript referring to a member without `pub` is a GDScript compile error; `call_deferred("reset")` makes `reset` callable by name from the engine |
@@ -908,6 +924,7 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | lerp requires both arguments to have the same type | `core/variant/variant_utility.cpp:466-470` |
 | `pop_front` and `pop_back` return null on an empty array without an error | `core/variant/array.cpp:798-817` |
 | `front` and `back` report an error on an empty array | `core/variant/array.cpp:364-372` |
+| Dictionary's `get` returns the default for a missing key | `core/variant/dictionary.cpp:177-188` |
 | `bind` appends bound arguments after the call's arguments | `core/variant/callable_bind.cpp:141-150` |
 | Constructing a StringName from a String needs a lookup under the global table's mutex | `core/string/string_name.cpp:280-302` |
 | Numbers in JSON are all parsed as floats | `core/io/json.cpp:390-396` |
@@ -981,4 +998,5 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | `pop_front()` on an empty array being a program error | The engine returns null there without an error, so it would silently differ | §3.8 |
 | Awaiting a multi-parameter signal yielding an Array, or destructuring | Real code almost never uses such results; destructuring can be added later | §9.6 |
 | Using an if/else block as a value | Duplicates the conditional expression | §5.5 |
+| Merging nested Options into one level (as Kotlin does) | Generic code would behave differently depending on T; a None stored in a container could not be told from a missing value | §3.4 |
 | Lambdas without async, inferred from the body or the expected type | Deciding whether a function is async would take several rules, and lambdas and method values could be passed to different places | §9.1 |

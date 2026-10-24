@@ -175,7 +175,20 @@
 - Option 是值，对它的操作都是方法，名字与 Rust 相同：`unwrap`、`expect(消息)`（失败时都是程序错误）、`unwrap_or`、`unwrap_or_else`、`map`、`and_then`、`or`、`or_else`、`filter`、`ok_or`、`ok_or_else`。没有 `!`、`??`、`?.` 运算符。
 - 唯一的特殊语法是后缀 `?`：遇到 None 时当前函数返回 None（§8.2）。
 - 判空用 `!= None` 和收窄（§5.4）；没有真值判断。
-- 嵌套的 Option（`T??`），以及 `Variant?` 与 Variant 的关系【待定】。
+- 嵌套的 Option 保留两层，与 Rust 相同。`T??` 是合法的类型，多数由泛型和容器产生（§3.8）：
+  - 隐式包装按目标类型补层：`T?` 的值赋给 `T??` 得到包含该值的 Some；字面量 None 总是最外层的 None；
+  - `?`、`unwrap`、match 和收窄每次剥去一层；`.flatten()` 把 `T??` 合为 `T?`；
+  - `Variant?` 同理：None 表示没有值，NIL 是一个值（§3.13）；
+  - 交给引擎的规则见 §10.1。
+
+  ```gdscript
+  var r = enemies.pop_back()   # enemies: Array[Enemy?]，r: Enemy??
+  match r:
+      None: print("空数组")
+      var e: print(e)          # e: Enemy?，可能是 None
+  ```
+
+  理由：合并为一层时，泛型代码的行为随 T 改变，例如 `first[T]` 在 T 为 `Enemy?` 时分不清空数组和首个元素为空，通用缓存会把存入的 None 当作没有缓存；JSON 中缺少的键与 null 也无法区分。这里没有 `?.`，嵌套基本只出现在泛型和容器取值上。
 
 ### 3.5 Result
 
@@ -207,7 +220,9 @@
 - 取值：
   - `pop_front()`、`pop_back()` 返回 `T?`：引擎在空数组上不报错而返回 null（`core/variant/array.cpp:798-817`）；
   - `front()`、`back()` 返回 T，空数组时是程序错误，引擎在这里同样报错（`array.cpp:364-372`）；
-  - 越界的下标是程序错误。
+  - 越界的下标是程序错误；
+  - T 本身可空时，`pop_front()`、`pop_back()` 返回 `T??`，由绑定层先检查数组是否为空，因为引擎在两种情况下都返回 null；
+  - `Dictionary[K, V].get(k)` 返回 `V?`，键不存在时为 None，对应引擎在缺键时返回默认值（`core/variant/dictionary.cpp:177-188`）；`get(k, default)` 返回 V。
 - 标准库在原生容器上提供接受带类型 lambda 的 `map`、`filter`、`sort` 等（§3.11）。
 
 ### 3.9 接口
@@ -261,7 +276,7 @@
   - `if v is T:`，分支中的局部变量和参数收窄为 T（§5.4）。
 - `==` 和 `!=` 按引擎的 Variant 比较（§5.2）。
 - 其余操作都是编译错误，快速修复插入转换或 `if v is T:`：运算符、成员访问 `v.x`、方法调用 `v.f()`、下标 `v[i]`、`for x in v`。GDScript 在这些位置动态执行。确实要按名字动态访问时，先转为 Object，再用引擎的 `get`、`set`、`call`（§10.4）。
-- Variant 包含 NIL：`v == None` 判断 NIL，`v is int` 对 NIL 为假，`v as Node` 对 NIL 得到 None。`Variant?` 与 Variant 的关系【待定】，与嵌套的 Option 一起决定（§3.4）。
+- Variant 包含 NIL：`v == None` 判断 NIL，`v is int` 对 NIL 为假，`v as Node` 对 NIL 得到 None。`Variant?` 与 Variant 不同（§3.4），例如 `Dictionary[String, Variant]` 的 `get("hp")` 在缺键时为 None，在 `{"hp": null}` 中得到包含 NIL 的 Some。
 
   ```gdscript
   var data = JSON.parse_string(text)   # Variant
@@ -682,6 +697,7 @@
 
 - GDScript 通过 Script 的反射接口为其他语言的全局类定型（`modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063`），所以 GDScript 调用本语言的类时同样有静态检查。
 - **入口检查**：值从引擎、GDScript 或 C# 进入本语言的位置（参数、`set` 写入成员、信号的实参、await 的结果、解码），按声明的类型检查，失败是程序错误。远程检查器的写入也经过入口检查（§7.5）。
+- Option 交给引擎时 None 编码为 NIL。所以只有 X 的值不会编码为 NIL 时，`X?` 才能隐式交给引擎；X 是 Option 或 Variant 时是编译错误，快速修复给出 `.flatten()` 或 `.unwrap_or(null)`。否则 Some(None) 经过引擎往返后会悄悄变成 None（§3.4）。
 
 ### 10.2 引擎返回对象的可空性
 
@@ -846,7 +862,6 @@
 
 | 问题 | 章节 |
 |---|---|
-| 嵌套的 Option 与 `Variant?` | §3.4、§3.13 |
 | struct 和带载荷 enum 的方法、修改、`==`、哈希和导出 | §3.6、§3.7 |
 | 接口能否继承接口、能否是泛型 | §3.9 |
 | `==` 的规则 | §5.2 |
@@ -864,6 +879,7 @@
 | 数值 | `var hp: int = 10; hp = 2.5` 报编译错误，`hp = int(2.5)` 得 2；int 实参传给 float 参数无需转换；`7 / 2` 得 3；`Vector2i(1, 2) * 0.5` 为 Vector2；`Vector2() + Vector2i()` 报编译错误；整数除以 0 是程序错误；超出 int32 范围的值传给引擎的 int32 参数是程序错误 |
 | 可空与释放 | 已释放对象经 `T?` 读出为 None；经 `T` 访问成员是程序错误，诊断写明释放位置；`queue_free()` 之后、帧末之前仍算存活 |
 | Option 与 Result | `?` 在 None 或 `Err` 时从当前函数返回；在返回 void 的函数中使用 `?` 报编译错误；Option 传播到返回 Result 的函数报编译错误；`await f()?` 等于 `(await f())?`；丢弃 Result 报编译错误；`unwrap` 失败是程序错误 |
+| 嵌套的 Option | `Array[Enemy?]` 为空时 `pop_back()` 得 None，末元素为 None 时得包含 None 的 Some；`var x: Enemy?? = maybe_enemy` 得 Some；`Dictionary[String, Variant]` 中缺键得 None，值为 null 得包含 NIL 的 Some；把 `int??` 或 `Variant?` 传给 Variant 参数报编译错误并给出 `.flatten()` 或 `.unwrap_or(null)` |
 | 转换 | `node as Sprite2D` 为 `Sprite2D?`；`x as int` 报编译错误并给出 `int(x)` 与 `int.try_from(x)`；`int.try_from(2.0)` 得 `Ok(2)`，`int.try_from(2.5)` 和 `int.try_from("2")` 得 `Err` |
 | 收窄 | `!= None`、`is` 和提前返回之后局部变量收窄；条件表达式的分支和 `and` 右侧收窄；成员不收窄；`if x:` 报编译错误并按类型给出改法 |
 | 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
@@ -908,6 +924,7 @@
 | lerp 要求两个实参类型相同 | `core/variant/variant_utility.cpp:466-470` |
 | `pop_front`、`pop_back` 在空数组上返回 null 而不报错 | `core/variant/array.cpp:798-817` |
 | `front`、`back` 在空数组上报错 | `core/variant/array.cpp:364-372` |
+| Dictionary 的 `get` 在缺键时返回默认值 | `core/variant/dictionary.cpp:177-188` |
 | `bind` 把绑定的实参接在调用实参之后 | `core/variant/callable_bind.cpp:141-150` |
 | 从 String 构造 StringName 需要在全局表的互斥锁下查找 | `core/string/string_name.cpp:280-302` |
 | JSON 中的数字都解析为浮点数 | `core/io/json.cpp:390-396` |
@@ -981,4 +998,5 @@
 | `pop_front()` 在空数组上是程序错误 | 引擎在这里返回 null 而不报错，会悄悄不同 | §3.8 |
 | await 多参数信号得到 Array，或按参数解构 | 真实代码几乎不使用这种结果；解构可以以后加入 | §9.6 |
 | 以 if/else 块为值 | 与条件表达式重复 | §5.5 |
+| 嵌套的 Option 合并为一层（Kotlin 的做法） | 泛型代码的行为随 T 改变；容器中存入的 None 与缺少的值无法区分 | §3.4 |
 | lambda 不写 async，按函数体或期望类型推断 | 判断函数是否为 async 要用多条规则，lambda 和方法值能传到哪里也会不同 | §9.1 |
