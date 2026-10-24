@@ -96,7 +96,7 @@
           return hp <= 0
   ```
 
-- **实现接口**：类头写 `implements A, B`（§2.1）。
+- **实现接口**：类头写 `implements A, B`（§2.1）。接口继承接口写作 `interface Combatant extends Damageable, Healable:`（§3.9）。
 - **pub**：关键字，写在注解之后、`static` 之前，例如 `@export pub var max_hp: int`、`pub static func make() -> Player`、`pub signal died`。
 - **放置与命名**：struct、enum、interface 和内部类属于声明它们的文件的类。在本文件中直接写名字；在其他文件中写 `类名.名字`，例如 `Combat.Hit`、`Player.Command.MOVE(target = p)`。几个类共用的类型放进一个专门承载它们的类。【后续】别名或 `import`。
 - **泛型**：类型参数写在名字之后的方括号中，与 `Array[int]` 一致，写法同 Python 3.12（PEP 695）；约束写作 `T: 接口`（§3.10）。文件的类在 `class_name` 上声明类型参数，例如 `class_name Cache[K, V] extends RefCounted`；内部类写作 `class Cache[K, V] extends RefCounted:`。
@@ -256,7 +256,15 @@
 - 实现接口的成员必须是 `pub`（§4.2）。
 - 只有本语言的类能实现接口；外部对象须显式包装。
 - 【已知限制】第一版没有带状态的 mixin。
-- 接口能否继承接口、能否是泛型【待定】。
+- 接口可以继承多个接口：
+  - 实现子接口的类也实现了各个父接口，子接口的值可以用在期望父接口的位置；
+  - 子接口可以用协变的返回类型重新声明父接口的方法；
+  - 两个父接口有同名而签名不兼容的成员时，在子接口上报编译错误；
+  - 两个父接口为同名方法都提供了默认实现时，子接口或实现类必须覆盖它；
+  - 继承成环是编译错误。
+
+  依据：gdUnit4 中 16 个只有抽象方法的类里，14 个继承同样只有抽象方法的 GdUnitAssert，并以更具体的返回类型重新声明它的方法，例如 `is_null() -> GdUnitAssert` 在 GdUnitIntAssert 中写作 `is_null() -> GdUnitIntAssert`。
+- 【已知限制】第一版接口不能是泛型。泛型接口需要决定型变（`Source[Enemy]` 是否是 `Source[Node]`）和 `Comparable[T]` 一类引用自身的约束；目前没有看到需求，排序和比较用 lambda（§3.8）。
 
 ### 3.10 泛型
 
@@ -377,7 +385,7 @@
 ### 4.6 函数
 
 - 函数签名的类型手写，不推断。参数必须标注类型。
-- 覆盖引擎虚函数或基类方法时，可以省略参数类型和返回类型；省略的类型取自被覆盖的声明，悬停可见。写出的类型必须与之一致，参数名可以不同。例如 `func _process(delta):` 中 delta 为 float（`scene/main/node.h:433-434`）。这不是推断：类型由被覆盖的声明规定，与函数体无关。
+- 覆盖引擎虚函数或基类方法时，可以省略参数类型和返回类型；省略的类型取自被覆盖的声明，悬停可见。写出的类型按 GDScript 的覆盖检查：返回类型可以协变，参数类型可以逆变，可以多出带默认值的参数（`modules/gdscript/gdscript_analyzer.cpp:1892-1933`）；参数名可以不同。例如 `func _process(delta):` 中 delta 为 float（`scene/main/node.h:433-434`）。这不是推断：类型由被覆盖的声明规定，与函数体无关。
 - 不是覆盖的函数，省略返回类型表示 void；在其中返回值是编译错误，快速修复补上返回类型。
 - 参数可以有默认值，与 GDScript 相同。
 - 剩余参数：
@@ -867,7 +875,7 @@
 - 不支持跨语言继承，两个方向都不支持（§11.2）。
 - 没有命名空间、别名和 `import`（§2.4、§4.1）。
 - struct 不能 `@export`，也不能存入 `.tres`（§3.6）；带载荷的 enum 不能有方法，也不能 `@export`（§3.7）。
-- 没有带状态的 mixin（§3.9）。
+- 没有带状态的 mixin，接口不能是泛型（§3.9）。
 - match 没有类型模式、没有 match 表达式，也不能在逗号分隔的多个模式中绑定（§5.6）。
 - 协程没有 finally 或 defer（§9.4）。
 - 没有“就绪后才赋值的非空成员”（§6.2）。
@@ -884,6 +892,7 @@
 - 泛型的多个约束，以及以类作约束（§3.10）；
 - 函数类型中的参数名、直接调用 `f(x)`、把普通函数传给期望 async 的位置（§3.11）；
 - 修改 self 的 struct 方法，struct 成员的 `private`（§3.6）；
+- 泛型接口，写作 `interface Source[T]:`（§3.9）；
 - §13.5 所列的工具。
 
 ### 14.3 待定问题
@@ -892,7 +901,6 @@
 
 | 问题 | 章节 |
 |---|---|
-| 接口能否继承接口、能否是泛型 | §3.9 |
 | `assert` 在 release 构建中是否去掉 | §8.3 |
 | 由脚本声明的三种场景结构的写法 | §7.2 |
 | 源文件的扩展名 | §1.4 |
@@ -913,7 +921,8 @@
 | 转换 | `node as Sprite2D` 为 `Sprite2D?`；`x as int` 报编译错误并给出 `int(x)` 与 `int.try_from(x)`；`int.try_from(2.0)` 得 `Ok(2)`，`int.try_from(2.5)` 和 `int.try_from("2")` 得 `Err` |
 | 收窄 | `!= None`、`is` 和提前返回之后局部变量收窄；条件表达式的分支和 `and` 右侧收窄；成员不收窄；`if x:` 报编译错误并按类型给出改法 |
 | 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
-| 签名 | `func _process(delta):` 中 delta 为 float；覆盖时写出不一致的类型报编译错误；非覆盖函数省略返回类型后返回值报编译错误；有期望类型的 lambda 参数不必标注 |
+| 签名 | `func _process(delta):` 中 delta 为 float；覆盖时把返回类型写成子类型合法，写成父类型报编译错误；覆盖时多出带默认值的参数合法；非覆盖函数省略返回类型后返回值报编译错误；有期望类型的 lambda 参数不必标注 |
+| 接口 | 实现 `Combatant extends Damageable` 的类可以传给期望 Damageable 的参数；两个父接口的同名方法签名不兼容时报编译错误；两个父接口都有默认实现而未覆盖时报编译错误；`interface A extends B` 与 `interface B extends A` 报编译错误；声明 `interface Source[T]:` 报编译错误 |
 | 泛型 | `first([1, 2])` 中 T 推断为 int；`var x = first([])` 推断不出 T 报编译错误，`var x = first[int]([])` 合法；不满足约束的类型实参报编译错误；Node 脚本声明类型参数报编译错误；GDScript 引用泛型方法是 GDScript 的编译错误；`sig.connect(handle)` 在 handle 为泛型且类型实参确定不了时报编译错误 |
 | Variant | `v.hp`、`v + 1`、`v[0]`、`for x in v` 报编译错误；`if v is Dictionary:` 之后 `v.get("hp")` 合法；`v as Node` 为 `Node?`；v 为 NIL 时 `v == None` 为真、`v is int` 为假；int 赋给 Variant 无需转换 |
 | 函数类型 | `func(int)` 与 `func(int) -> void` 相同；`(func(Enemy) -> bool)?` 可空，`func(Enemy) -> bool?` 返回 `bool?`；`f(x)` 报编译错误并给出 `f.call(x)`；`func(Node)` 可以用于期望 `func(Node3D)` 的位置，反之报编译错误；含 await 而未写 async 的 lambda 报编译错误；把 async 函数传给期望普通函数类型的本语言参数报编译错误；把 async 方法连接到信号合法，任务作为根任务运行 |
@@ -977,6 +986,7 @@
 | GDScript 通过 Script 的反射接口为其他语言的全局类定型 | `modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063` |
 | GDScript 解析 `extends 全局类名` 时把基类文件当作 GDScript 解析，失败时只报“Could not resolve super class” | `modules/gdscript/gdscript_analyzer.cpp:471-487`（报错在 `:479, 485`） |
 | GDScript 要求具体子类实现抽象方法，禁止构造抽象类和经 `super` 调用抽象方法 | `modules/gdscript/gdscript_analyzer.cpp:1543-1562, 3674-3687` |
+| GDScript 的覆盖检查允许返回类型协变、参数类型逆变，以及多出带默认值的参数 | `modules/gdscript/gdscript_analyzer.cpp:1892-1933` |
 | GDScript 的剩余参数只能是元素为 Variant 的 Array | `modules/gdscript/gdscript_analyzer.cpp:1802-1809` |
 | GDScript 从其他语言的方法信息中读取 `METHOD_FLAG_VARARG` | `modules/gdscript/gdscript_analyzer.cpp:6101-6104` |
 | GDScript 中以调用函数的写法调用 Callable 变量是编译错误，提示改用 `.call()` | `modules/gdscript/gdscript_analyzer.cpp:3785-3789` |
@@ -1033,5 +1043,6 @@
 | `pop_front()` 在空数组上是程序错误 | 引擎在这里返回 null 而不报错，会悄悄不同 | §3.8 |
 | await 多参数信号得到 Array，或按参数解构 | 真实代码几乎不使用这种结果；解构可以以后加入 | §9.6 |
 | 以 if/else 块为值 | 与条件表达式重复 | §5.5 |
+| 覆盖时写出的类型必须与被覆盖的完全一致 | 比 GDScript 严，拒绝 gdUnit4 一类流式接口所用的协变返回类型 | §4.6 |
 | 嵌套的 Option 合并为一层（Kotlin 的做法） | 泛型代码的行为随 T 改变；容器中存入的 None 与缺少的值无法区分 | §3.4 |
 | lambda 不写 async，按函数体或期望类型推断 | 判断函数是否为 async 要用多条规则，lambda 和方法值能传到哪里也会不同 | §9.1 |

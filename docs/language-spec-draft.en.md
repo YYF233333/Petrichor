@@ -96,7 +96,7 @@ This document rewrites the language specification from the [design decisions](de
           return hp <= 0
   ```
 
-- **Implementing interfaces**: the class header writes `implements A, B` (§2.1).
+- **Implementing interfaces**: the class header writes `implements A, B` (§2.1). An interface extending interfaces is written `interface Combatant extends Damageable, Healable:` (§3.9).
 - **pub**: a keyword written after annotations and before `static`, for example `@export pub var max_hp: int`, `pub static func make() -> Player`, `pub signal died`.
 - **Placement and naming**: structs, enums, interfaces and inner classes belong to the class of the file that declares them. In that file they are written by name; in other files as `ClassName.Name`, for example `Combat.Hit` or `Player.Command.MOVE(target = p)`. Types shared by several classes go into a class that exists to hold them. [Later] Aliases or `import`.
 - **Generics**: type parameters are written in square brackets after the name, consistent with `Array[int]` and as in Python 3.12 (PEP 695); a constraint is written `T: Interface` (§3.10). A file's class declares its type parameters on `class_name`, for example `class_name Cache[K, V] extends RefCounted`; an inner class is written `class Cache[K, V] extends RefCounted:`.
@@ -256,7 +256,15 @@ This document rewrites the language specification from the [design decisions](de
 - Members that implement an interface must be `pub` (§4.2).
 - Only classes of this language can implement interfaces; foreign objects need an explicit wrapper.
 - [Known limitation] The first version has no stateful mixins.
-- Whether interfaces can extend interfaces, and whether they can be generic, is [Open].
+- An interface can extend several interfaces:
+  - a class implementing the child interface also implements each parent, and a value of the child interface can be used where a parent is expected;
+  - a child interface may redeclare a parent's method with a covariant return type;
+  - when two parents have members of the same name with incompatible signatures, it is a compile error on the child interface;
+  - when two parents both provide a default implementation for a method of the same name, the child interface or the implementing class must override it;
+  - a cycle of extension is a compile error.
+
+  Evidence: of the 16 classes in gdUnit4 that have only abstract methods, 14 extend GdUnitAssert, which also has only abstract methods, and redeclare its methods with more specific return types; for example, `is_null() -> GdUnitAssert` is written `is_null() -> GdUnitIntAssert` in GdUnitIntAssert.
+- [Known limitation] In the first version interfaces cannot be generic. Generic interfaces need decisions on variance (whether `Source[Enemy]` is a `Source[Node]`) and on self-referential constraints such as `Comparable[T]`; no need has been seen, and sorting and comparison use lambdas (§3.8).
 
 ### 3.10 Generics
 
@@ -377,7 +385,7 @@ This document rewrites the language specification from the [design decisions](de
 ### 4.6 Functions
 
 - Function signature types are written by hand, not inferred. Parameters must be annotated.
-- An override of an engine virtual or of a base-class method may omit its parameter and return types; the omitted types are taken from the overridden declaration and shown on hover. Types that are written must match it exactly, while parameter names may differ. For example, delta in `func _process(delta):` is a float (`scene/main/node.h:433-434`). This is not inference: the types are set by the overridden declaration, not by the body.
+- An override of an engine virtual or of a base-class method may omit its parameter and return types; the omitted types are taken from the overridden declaration and shown on hover. Types that are written follow GDScript's override check: the return type may be covariant, parameter types may be contravariant, and extra parameters with defaults may be added (`modules/gdscript/gdscript_analyzer.cpp:1892-1933`); parameter names may differ. For example, delta in `func _process(delta):` is a float (`scene/main/node.h:433-434`). This is not inference: the types are set by the overridden declaration, not by the body.
 - For a function that is not an override, an omitted return type means void; returning a value from it is a compile error, and the quick fix adds the return type.
 - Parameters may have default values, as in GDScript.
 - Rest parameters:
@@ -867,7 +875,7 @@ This document rewrites the language specification from the [design decisions](de
 - Cross-language inheritance is not supported in either direction (§11.2).
 - There are no namespaces, aliases or `import` (§2.4, §4.1).
 - Structs cannot be `@export`ed or stored in `.tres` (§3.6); enums with payloads cannot have methods or be `@export`ed (§3.7).
-- There are no stateful mixins (§3.9).
+- There are no stateful mixins, and interfaces cannot be generic (§3.9).
 - match has no type patterns, no match expressions, and no binding in comma-separated patterns (§5.6).
 - Coroutines have no finally or defer (§9.4).
 - There is no "non-null member assigned after ready" (§6.2).
@@ -884,6 +892,7 @@ This document rewrites the language specification from the [design decisions](de
 - several constraints on a type parameter, and classes as constraints (§3.10);
 - parameter names in function types, direct calls `f(x)`, and passing an ordinary function where an async one is expected (§3.11);
 - struct methods that modify self, and `private` for struct members (§3.6);
+- generic interfaces, written `interface Source[T]:` (§3.9);
 - the tools listed in §13.5.
 
 ### 14.3 Open questions
@@ -892,7 +901,6 @@ The following correspond to §10 of the [design decisions](decisions.en.md):
 
 | Question | Section |
 |---|---|
-| Can interfaces extend interfaces, and can they be generic? | §3.9 |
 | Is `assert` removed in release builds? | §8.3 |
 | The spelling of the three scene structures declared by scripts | §7.2 |
 | The source file extension | §1.4 |
@@ -913,7 +921,8 @@ This checklist gives test instances of the rules above and adds no language requ
 | Conversions | `node as Sprite2D` is `Sprite2D?`; `x as int` is a compile error offering `int(x)` and `int.try_from(x)`; `int.try_from(2.0)` is `Ok(2)`, while `int.try_from(2.5)` and `int.try_from("2")` are `Err` |
 | Narrowing | Locals narrow after `!= None`, `is` and early returns; branches of conditional expressions and the right operand of `and` narrow; members do not narrow; `if x:` is a compile error with a fix depending on the type |
 | Visibility | Members without `pub` are invisible in other classes, and readable, writable and overridable in subclasses; changing visibility in an override is a compile error; a type without `pub` in the signature of a `pub` function is a compile error; GDScript referring to a member without `pub` is a GDScript compile error; `call_deferred("reset")` makes `reset` callable by name from the engine |
-| Signatures | delta in `func _process(delta):` is a float; writing a mismatching type in an override is a compile error; returning a value from a non-override function with an omitted return type is a compile error; lambda parameters with an expected type need no annotation |
+| Signatures | delta in `func _process(delta):` is a float; an override writing a subtype as its return type is valid, and writing a supertype is a compile error; an override adding a parameter with a default is valid; returning a value from a non-override function with an omitted return type is a compile error; lambda parameters with an expected type need no annotation |
+| Interfaces | A class implementing `Combatant extends Damageable` can be passed to a parameter expecting Damageable; methods of the same name with incompatible signatures in two parents are a compile error; default implementations in both parents without an override are a compile error; `interface A extends B` with `interface B extends A` is a compile error; declaring `interface Source[T]:` is a compile error |
 | Generics | T in `first([1, 2])` is inferred as int; `var x = first([])` cannot infer T and is a compile error, while `var x = first[int]([])` is valid; a type argument that does not satisfy the constraint is a compile error; a Node script declaring type parameters is a compile error; GDScript referring to a generic method is a GDScript compile error; `sig.connect(handle)` with a generic handle whose type arguments cannot be determined is a compile error |
 | Variant | `v.hp`, `v + 1`, `v[0]` and `for x in v` are compile errors; after `if v is Dictionary:`, `v.get("hp")` is valid; `v as Node` is `Node?`; when v is NIL, `v == None` is true and `v is int` is false; assigning an int to a Variant needs no conversion |
 | Function types | `func(int)` equals `func(int) -> void`; `(func(Enemy) -> bool)?` is nullable, while `func(Enemy) -> bool?` returns `bool?`; `f(x)` is a compile error offering `f.call(x)`; `func(Node)` can be used where `func(Node3D)` is expected, and the reverse is a compile error; a lambda containing await without async is a compile error; passing an async function to a parameter of this language with an ordinary function type is a compile error; connecting an async method to a signal is valid, and the task runs as a root task |
@@ -977,6 +986,7 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | GDScript types global classes of other languages through the Script reflection interface | `modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063` |
 | When GDScript resolves `extends GlobalClassName` it parses the base class's file as GDScript, reporting only "Could not resolve super class" on failure | `modules/gdscript/gdscript_analyzer.cpp:471-487` (errors at `:479, 485`) |
 | GDScript requires concrete subclasses to implement abstract methods, and forbids constructing abstract classes and calling abstract methods through `super` | `modules/gdscript/gdscript_analyzer.cpp:1543-1562, 3674-3687` |
+| GDScript's override check allows a covariant return type, contravariant parameter types, and extra parameters with defaults | `modules/gdscript/gdscript_analyzer.cpp:1892-1933` |
 | GDScript's rest parameter can only be an Array with Variant elements | `modules/gdscript/gdscript_analyzer.cpp:1802-1809` |
 | GDScript reads `METHOD_FLAG_VARARG` from other languages' method information | `modules/gdscript/gdscript_analyzer.cpp:6101-6104` |
 | In GDScript, calling a Callable variable with function-call syntax is a compile error suggesting `.call()` | `modules/gdscript/gdscript_analyzer.cpp:3785-3789` |
@@ -1033,5 +1043,6 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | `pop_front()` on an empty array being a program error | The engine returns null there without an error, so it would silently differ | §3.8 |
 | Awaiting a multi-parameter signal yielding an Array, or destructuring | Real code almost never uses such results; destructuring can be added later | §9.6 |
 | Using an if/else block as a value | Duplicates the conditional expression | §5.5 |
+| Requiring types written in an override to match the overridden ones exactly | Stricter than GDScript, and rejects the covariant return types of fluent interfaces such as gdUnit4's | §4.6 |
 | Merging nested Options into one level (as Kotlin does) | Generic code would behave differently depending on T; a None stored in a container could not be told from a missing value | §3.4 |
 | Lambdas without async, inferred from the body or the expected type | Deciding whether a function is async would take several rules, and lambdas and method values could be passed to different places | §9.1 |
