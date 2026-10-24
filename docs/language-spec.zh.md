@@ -758,6 +758,8 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
   - 作为语句调用、结果没有被使用时，运行时发现方法是协程也不报错：协程运行到第一次挂起，之后自行继续，相当于 detach；
   - 结果被当作值使用时，运行时得到 `GDScriptFunctionState` 是程序错误，诊断写明该方法是协程、须写 await。
   - 【后续】为 GDScript 协程调用取得 `Task` 句柄，以便稍后等待。
+- 等待 `GDScriptFunctionState` 时，运行时持有它直到 `completed` 发出，同时监听发起调用的对象，即接收者，或经 Callable 调用时的目标对象。这个对象被释放，或它的脚本被替换（`script_changed`，`core/object/object.cpp:1076`）时，按被等待的对象被释放处理（§9.7），`settled()` 得到 `Cancelled(OwnerFreed)`。理由：协程再次挂起后，内层状态只以 ObjectID 记住第一个状态的 `completed` 信号（`modules/gdscript/gdscript_vm.cpp:2633-2638`），第一个状态在恢复执行时就离开了实例的待处理列表（`modules/gdscript/gdscript_function.cpp:289-290`），不持有它就会被提前释放；实例析构时，引擎只清除挂起的状态，不发出 `completed`（`modules/gdscript/gdscript.cpp:2086-2095`，`gdscript_function.cpp:335-350`）；`GDScriptFunctionState` 是内部类，不暴露它所属的实例（`gdscript_function.cpp:324-328`，`modules/gdscript/register_types.cpp:141`），无法从它本身得知宿主是否已释放。
+- 【已知限制】GDScript 脚本被重载时，引擎清除它挂起的函数而不发出任何信号（`gdscript.cpp:1522-1535`，`modules/gdscript/gdscript_compiler.cpp:2721`），等待这些函数的协程会永远挂起。这只在编辑器中修改脚本时发生。
 - GDScript await 本语言的协程时，协程在第一次挂起时返回其 Task 的 `completed` 信号；GDScript 的 await 接受任意 Signal 值（`modules/gdscript/gdscript_vm.cpp:2585-2599`）。Task 完成时发出 `completed(值)`；取消或失败时发出 `completed(null)`，使 GDScript 的等待方不会永远挂起；另有 `cancelled` 信号供需要区分的代码使用。
 - 本语言的 async 方法交给引擎的返回类型一律是无类型的 Variant（`PROPERTY_USAGE_NIL_IS_VARIANT`），与声明的返回类型无关，返回 void 时也是如此；声明的类型只出现在文档和悬停中。理由：方法的反射信息中没有协程性（`core/object/method_info.h:37-44`），GDScript 只能按报告的返回类型检查。报告为 T 时，GDScript 中每处 await 都有“多余的 await”警告（`modules/gdscript/gdscript_analyzer.cpp:3136-3141`）；取消时的 `completed(null)` 不经检查写入类型为 T 的临时变量（`modules/gdscript/gdscript_vm.cpp:2668-2669`，`modules/gdscript/gdscript_byte_codegen.cpp:998-1001`），T 为 Transform3D 一类的值类型时，之后按类型访问它的指令解引用空指针，进程崩溃。报告为 Variant 时，debug 构建在把结果赋给有类型的变量时检查类型（`gdscript_vm.cpp:1421-1432`）；release 构建不检查，与 GDScript 中其他返回 Variant 的函数相同。
 - 两个方向都是根据引擎源码推出的，尚未在运行的引擎上验证。
@@ -935,6 +937,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 - match 没有类型模式、没有 match 表达式，也不能在逗号分隔的多个模式中绑定（§5.6）。
 - 没有“就绪后才赋值的非空成员”（§6.2）。
 - 协程没有 finally 或 defer（§9.4）。
+- GDScript 脚本被重载时，等待它挂起的函数的协程会永远挂起（§9.8）。
 - 不新增线程 API（§12.3）。
 
 ### 14.2 以后可以兼容地加入
@@ -995,7 +998,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 资源 | 修改共享资源给出警告和两个快速修复；`duplicate()` 保持静态类型；`preload` 环报编译错误 |
 | 程序错误 | `_process` 往下两层调用中的程序错误中止这两层和 `_process`，下一帧照常调用 `_process`；需要返回值的入口，引擎得到该类型的默认值；除 `assert` 外，程序在 debug 和 release 构建中行为相同 |
 | 断言 | debug 构建中 `assert(false)` 是程序错误；release 构建中 `assert(f())` 不调用 f；`assert(await t)` 报编译错误；`assert(save_data)` 在 save_data 为 `Resource?` 时报编译错误并给出 `save_data != None` |
-| 协程 | 含 await 而未声明 async 报编译错误；丢弃 async 调用的结果报编译错误，`f().detach()` 合法；`cancel()` 之后结果一定是取消；`await f(...)` 启动的子任务随父任务取消，`await t` 只停止等待；被等待的兄弟节点与等待方在同一次场景释放中被删除时不报错；被等待的对象被单独释放时，等待方在本帧结束后报程序错误，`Task.of(信号).settled()` 得 `Cancelled(AwaitedFreed)`；所属对象被释放时协程静默取消 |
+| 协程 | 含 await 而未声明 async 报编译错误；丢弃 async 调用的结果报编译错误，`f().detach()` 合法；`cancel()` 之后结果一定是取消；`await f(...)` 启动的子任务随父任务取消，`await t` 只停止等待；被等待的兄弟节点与等待方在同一次场景释放中被删除时不报错；被等待的对象被单独释放时，等待方在本帧结束后报程序错误，`Task.of(信号).settled()` 得 `Cancelled(AwaitedFreed)`；所属对象被释放时协程静默取消；GDScript 对象在其协程第二次挂起期间被释放时，await 这个协程的等待方在本帧结束后报程序错误，经 Callable 调用时相同 |
 | 引擎边界 | 未审核的、返回对象的引擎方法类型为 `T?`；`get_tree()` 非空，`get_collider()` 可空；GDScript 向非空参数传入 null 是程序错误；远程检查器向非空成员写入 null 时原值不变；经信号传出的 struct 是按字段名编码的 Dictionary，`Command.MOVE(target = p)` 是 `{"$variant": "MOVE", "target": p}` |
 | 工具函数 | `min(1.5, 1)` 报编译错误并给出 `min(1.5, 1.0)`；`lerp(a, b, t)` 的结果与 a 同类型；`find_children("*", "MeshInstance3D")` 为 `Array[MeshInstance3D]` |
 | 字符串 | 期望 StringName 的字面量在编译期构造；`&"a" == "a"` 为真；字面量成员名不存在时报编译错误，并参与重命名 |
@@ -1040,6 +1043,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | `RequiredResult` 标注只在出错时为 null 的返回值 | `core/object/object.h:950-952` |
 | 对象释放时调用每个实例绑定的释放回调 | `core/object/object.cpp:2435-2440` |
 | 对象析构时静默断开它的所有信号连接 | `core/object/object.cpp:2402-2417` |
+| 对象设置脚本后发出 `script_changed` | `core/object/object.cpp:1076` |
 | PREDELETE 按逆序发出，先通知脚本实例，再通知原生类 | `core/object/object.cpp:140, 1009-1012` |
 | RefCounted 在 PREDELETE 时引用计数已归零，再加引用会失败 | `core/object/ref_counted.cpp:94-95`；`core/templates/safe_refcount.h:137-147`；`core/variant/variant.cpp:2543-2547` |
 | 脚本语言的每帧回调在场景树处理完删除队列之后调用 | `main/main.cpp:5150-5153`；`core/object/script_language_extension.h:750`；`scene/main/scene_tree.cpp:736` |
@@ -1096,6 +1100,10 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | `@onready` 初始化式在用户的 `_ready` 之前执行，先基类后派生类 | `modules/gdscript/gdscript.cpp:1956-1972` |
 | GDScript 实例释放时清除其挂起的函数状态，不恢复执行 | `modules/gdscript/gdscript.cpp:2089-2092` |
 | `GDScriptFunctionState` 有 `completed` 信号 | `modules/gdscript/gdscript_function.cpp:327` |
+| GDScript 协程再次挂起时，内层状态只以 ObjectID 记住第一个状态的 `completed` 信号 | `modules/gdscript/gdscript_vm.cpp:2633-2638` |
+| GDScript 函数状态恢复执行时离开实例的待处理列表 | `modules/gdscript/gdscript_function.cpp:289-290` |
+| `GDScriptFunctionState` 是内部类，不暴露它所属的实例 | `modules/gdscript/gdscript_function.cpp:324-328`；`modules/gdscript/register_types.cpp:141` |
+| GDScript 脚本重载时清除挂起的函数，不发出信号 | `modules/gdscript/gdscript.cpp:1522-1535`；`modules/gdscript/gdscript_compiler.cpp:2721` |
 | await 多参数信号得到由实参组成的 Array | `modules/gdscript/gdscript_function.cpp:237-255` |
 | 被等待的对象被释放后，GDScript 的等待方永远挂起 | `modules/gdscript/gdscript_function.cpp:335-349` |
 | RefCounted 类中的 lambda 强引用 self | `modules/gdscript/gdscript_lambda_callable.cpp:285-291` |
