@@ -50,8 +50,8 @@ func _spawn_particles(spawn_global_position: Vector2):
 	var foregrounds = get_tree().get_first_node_in_group("foregrounds")
 	get_parent().remove_child(self)
 	foregrounds.unwrap().add_child(self)   # [conv] S12
-	# From here on `owner` is no longer an ancestor, and it becomes null once the brick is freed
-	# (scene/main/node.cpp:299-302); this file does not read it again.
+	# remove_child took this node out of its owner's subtree, so the engine has set `owner` to null
+	# (scene/main/node.cpp:391-396, 1799-1801); this file does not read it again.
 	global_position = spawn_global_position
 
 	match death_type:

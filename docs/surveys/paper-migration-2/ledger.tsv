@@ -46,7 +46,7 @@ ring/death_component	3	annotation	owner	1	J	@requires_owner(Combat.Combatant)
 ring/death_component	29,34	rewrite	truthiness	2	M	String conditions
 ring/death_component	42	rewrite	owner	1	M	(owner as Node2D).global_position -> owner.global_position
 ring/death_component	49-51	conversion	engine-nullable	1	M	get_first_node_in_group
-ring/death_component	50-52	undefined	owner-lifetime	1	-	after reparenting, owner is no longer an ancestor and becomes null when the brick is freed (scene/main/node.cpp:299-302)
+ring/death_component	50-52	undefined	owner-lifetime	1	-	remove_child takes the node out of its owner's subtree, so the engine sets owner to null (scene/main/node.cpp:391-396, 1799-1801)
 ring/interval_hurt_component	3	annotation	owner	1	J	@requires_owner(CanvasItem); was (owner as CanvasItem)
 ring/interval_hurt_component	13	benefit	dangling-ref	1	-	ValueManager.fire_hurt_interval was removed on 2024-06-27
 ring/interval_hurt_component	4	undefined	unused-scene	1	-	enemies/base/enemy.tscn does not set health_component and is referenced nowhere; the rule would mark it and block a release export
