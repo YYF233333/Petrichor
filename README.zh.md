@@ -52,7 +52,7 @@ func max_hp_from(data: Variant) -> int?:
 - **不会意外遇到 null。** 对象类型默认非空，可空的写作 `T?`；Option 和 Result 采用 Rust 的模型，唯一的特殊语法是后缀 `?`（[§3.3–§3.5](docs/language-spec.zh.md#33-对象与可空)、[§8.2](docs/language-spec.zh.md#82-预期之内的失败)）。
 - **数据类型。** 值语义的 struct、带命名载荷的 enum、穷尽的 `match`、接口和泛型（[§2.4](docs/language-spec.zh.md#24-声明的写法)、[§3](docs/language-spec.zh.md#3-类型)）。
 - **有归属的协程。** `async func` 返回 `Task`；取消沿归属传播；等待的对象被释放时报错，而不是永远挂起（[§9](docs/language-spec.zh.md#9-协程)）。
-- **与 GDScript 共存。** 第三方插件保持 GDScript，GDScript 看到的 Petrichor 类同样有静态类型（[§11](docs/language-spec.zh.md#11-与-gdscript-和-c-共存)）。
+- **与 GDScript 共存。** 第三方插件保持 GDScript，GDScript 使用 Petrichor 类的实例时同样有静态检查（[§11](docs/language-spec.zh.md#11-与-gdscript-和-c-共存)）。
 
 每一条依赖引擎行为的规则，都注明了核对过的 Godot 源码位置（[附录 A](docs/language-spec.zh.md#附录-a引擎事实)）；能用真实代码回答的设计问题，都在 20 个 Godot 项目的代码上做了调查。
 

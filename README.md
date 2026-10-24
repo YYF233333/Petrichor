@@ -52,7 +52,7 @@ func max_hp_from(data: Variant) -> int?:
 - **No null surprises.** Object types are non-null unless written `T?`; Option and Result follow Rust, and postfix `?` is the only special syntax ([§3.3–§3.5](docs/language-spec.en.md#33-objects-and-nullability), [§8.2](docs/language-spec.en.md#82-expected-failures)).
 - **Data types.** Structs with value semantics, enums with named payloads, exhaustive `match`, interfaces and generics ([§2.4](docs/language-spec.en.md#24-declaration-spellings), [§3](docs/language-spec.en.md#3-types)).
 - **Coroutines with ownership.** `async func` returns a `Task`; cancellation follows ownership, and awaiting a freed object is an error instead of hanging forever ([§9](docs/language-spec.en.md#9-coroutines)).
-- **Lives next to GDScript.** Third-party plugins stay in GDScript, and GDScript sees Petrichor classes with static types ([§11](docs/language-spec.en.md#11-coexisting-with-gdscript-and-c)).
+- **Lives next to GDScript.** Third-party plugins stay in GDScript, and GDScript's use of Petrichor instances is statically checked ([§11](docs/language-spec.en.md#11-coexisting-with-gdscript-and-c)).
 
 Every rule that depends on engine behavior cites the Godot source it was checked against ([Appendix A](docs/language-spec.en.md#appendix-a-engine-facts)), and design questions that real code can answer were answered by surveys of the code of 20 Godot projects.
 

@@ -779,7 +779,7 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 | enums with payloads | Dictionaries keyed by field name, with the reserved key `"$variant"` holding the variant name (§3.7) |
 | return values of async methods | untyped Variant (§9.8) |
 
-- GDScript types global classes of other languages through the Script reflection interface (`modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063`), so GDScript's calls into classes of this language are statically checked too.
+- GDScript types global classes of other languages through the Script reflection interface (`modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063`), so GDScript fully checks the instance members (properties, methods, signals) of classes of this language. `Player.new(...)` is checked too: the Script base class does not bind `new`, GDScript binds its own (`modules/gdscript/gdscript.cpp:1099`), so this language's Script class binds `new` and reports `_init` as a static method returning the class, and GDScript checks `new` as a static `_init` (`gdscript_analyzer.cpp:6007-6010`). Arguments are passed by position; passing must-assign members by name (§6.2) is available only in this language. Other class-level access is in §11.3.
 - **Entry checks**: wherever a value enters this language from the engine, GDScript or C# (arguments, `set` writes to members, signal arguments, results of await, decoding), it is checked against the declared type, and a failure is a program error. Writes by the remote inspector go through entry checks too (§7.5).
 - When an Option is handed to the engine, None is encoded as NIL. So `X?` can be handed to the engine implicitly only when no value of X encodes as NIL; when X is an Option or Variant it is a compile error, and the quick fix offers `.flatten()` or `.unwrap_or(null)`. Otherwise Some(None) would silently turn into None after a round trip through the engine (§3.4).
 
@@ -845,13 +845,18 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 ### 11.2 Inheritance
 
 - Cross-language inheritance is not supported in either direction:
-  - A class of this language cannot extend a GDScript class. When a plugin requires extending its classes (such as Beehave's ActionLeaf), users hand-write a thin GDScript subclass that calls code in this language; GDScript sees this language's types through reflection, so those calls are still statically checked. Evidence: [pitfall catalog](surveys/pitfalls.en.md) C-17.
+  - A class of this language cannot extend a GDScript class. When a plugin requires extending its classes (such as Beehave's ActionLeaf), users hand-write a thin GDScript subclass that calls code in this language; GDScript sees this language's types through reflection, so calls to instance members are still statically checked (§10.1). Evidence: [pitfall catalog](surveys/pitfalls.en.md) C-17.
   - A GDScript script cannot extend a class of this language: when GDScript resolves `extends GlobalClassName`, it parses the base class's file as GDScript (`modules/gdscript/gdscript_analyzer.cpp:471-487`, `modules/gdscript/gdscript_cache.cpp:84-93`) and on failure reports only "Could not resolve super class" (`:479, 485`). The analysis service reports an error explaining this on such a GDScript file.
 - Migrating a class therefore requires migrating its GDScript subclasses with it (§13.4). Evidence: in the [second paper migration](surveys/paper-migration-2.en.md), Ring's Brick and Enemy brought 5 subclasses along for this reason.
 
 ### 11.3 Cross-language calls and messages
 
 - GDScript and C# can access by name only the members listed in §10.5.
+- [Known limitation] GDScript can use classes of this language only through instances and construct them with `new` (§10.1). The following class-level access is not supported; the workaround is to go through an instance method or an autoload's instance method:
+  - static methods: GDScript's analyzer accepts `Player.make()`, but at runtime the method is not found, because GDScript and C# dispatch static methods by overriding the engine's internal `callp`, and GDExtension has no matching hook (`core/object/object.cpp:882-905`);
+  - enums and constants in a class: they cannot be used in GDScript type annotations (`modules/gdscript/gdscript_analyzer.cpp:950-952`), as `const` values or as `Player.State.IDLE`, because GDScript does not treat constants of other languages as constant expressions (`gdscript_analyzer.cpp:4372-4381`); reading a constant's value works;
+  - autoloads written in this language: GDScript types only autoloads written in GDScript (`gdscript_analyzer.cpp:821-841, 4637-4674`), so in expressions such an autoload has type Node, and in a type annotation it silently becomes untyped.
+- [Later] Supporting GDScript calls to static methods through a script instance on the Script resource; this needs to be verified on a running engine first.
 - Messages to and from C# are expressed as structs, encoded as Dictionaries keyed by field name (§3.6), and decoded and checked at the entry.
 - Cross-language await is in §9.8.
 
@@ -934,6 +939,7 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 - There are no stateful mixins, and interfaces cannot be generic (§3.9).
 - There are no namespaces (§4.1).
 - Cross-language inheritance is not supported in either direction (§4.1, §11.2).
+- GDScript cannot call static methods of classes of this language or use their enums and constants as types or constant expressions, and autoloads written in this language are untyped in GDScript (§11.3).
 - match has no type patterns, no match expressions, and no binding in comma-separated patterns (§5.6).
 - There is no "non-null member assigned after ready" (§6.2).
 - Coroutines have no finally or defer (§9.4).
@@ -956,6 +962,7 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 - reentrancy annotations such as `@restart` (§9.5);
 - destructuring the result of awaiting a signal with several parameters, and Signal types with parameter types (§9.6);
 - obtaining a `Task` handle for a call of a GDScript coroutine (§9.8);
+- GDScript calls to static methods of classes of this language (§11.3);
 - the tools listed in §13.5.
 
 ### 14.3 Open questions
@@ -1002,7 +1009,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Engine boundary | An unaudited engine method returning an object has type `T?`; `get_tree()` is non-null and `get_collider()` is nullable; GDScript passing null to a non-null parameter is a program error; the remote inspector writing null to a non-null member leaves the value unchanged; a struct emitted through a signal arrives as a Dictionary keyed by field name, and `Command.MOVE(target = p)` as `{"$variant": "MOVE", "target": p}` |
 | Utility functions | `min(1.5, 1)` is a compile error offering `min(1.5, 1.0)`; `lerp(a, b, t)` has a's type; `find_children("*", "MeshInstance3D")` is `Array[MeshInstance3D]` |
 | Strings | A literal where StringName is expected is constructed at compile time; `&"a" == "a"` is true; a literal member name that does not exist is a compile error and takes part in rename |
-| Cross-language | A GDScript file extending a class of this language gets an explanatory error from the analysis service; awaiting a GDScript coroutine yields a result checked against the declared type; calling a GDScript coroutine as a statement is no error, while using its result as a value without await is a program error; GDScript awaiting a coroutine of this language gets null on cancellation instead of hanging; GDScript awaiting a coroutine of this language that returns Transform3D gets no warning, and on cancellation assigning the result to a Transform3D variable is an assignment error in debug builds, not a crash |
+| Cross-language | A GDScript file extending a class of this language gets an explanatory error from the analysis service; awaiting a GDScript coroutine yields a result checked against the declared type; calling a GDScript coroutine as a statement is no error, while using its result as a value without await is a program error; GDScript awaiting a coroutine of this language gets null on cancellation instead of hanging; GDScript awaiting a coroutine of this language that returns Transform3D gets no warning, and on cancellation assigning the result to a Transform3D variable is an assignment error in debug builds, not a crash; when GDScript holds `p: Player`, type errors in properties, methods and signals are GDScript compile errors; `Player.new()` has type Player, and extra arguments are a GDScript compile error |
 | Refactoring | Renaming an exported member changes the keys in scenes too; renaming a node in the scene editor changes `$X` in scripts in the same undo step; non-literal paths are only reported |
 
 ## 16. Feedback
@@ -1069,6 +1076,11 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | GDScript's override check allows a covariant return type, contravariant parameter types, and extra parameters with defaults | `modules/gdscript/gdscript_analyzer.cpp:1892-1933` |
 | GDScript's rest parameter can only be an Array with Variant elements | `modules/gdscript/gdscript_analyzer.cpp:1802-1809` |
 | GDScript reads `METHOD_FLAG_VARARG` from other languages' method information | `modules/gdscript/gdscript_analyzer.cpp:6101-6104` |
+| GDScript checks `new` as a static `_init`; GDScript binds `new` itself, the Script base class does not | `modules/gdscript/gdscript_analyzer.cpp:6007-6010`; `modules/gdscript/gdscript.cpp:1099` |
+| Without a script instance, `callp` looks only for engine-registered methods, so static methods on a Script resource are not found | `core/object/object.cpp:882-905` |
+| GDScript cannot refer to a type inside another language's class in a type annotation | `modules/gdscript/gdscript_analyzer.cpp:950-952` |
+| GDScript does not treat constants of another language's class as constant expressions | `modules/gdscript/gdscript_analyzer.cpp:4372-4381` |
+| GDScript types only autoloads written in GDScript | `modules/gdscript/gdscript_analyzer.cpp:821-841, 4637-4674` |
 | In GDScript, calling a Callable variable with function-call syntax is a compile error suggesting `.call()` | `modules/gdscript/gdscript_analyzer.cpp:3785-3789` |
 | In GDScript, a coroutine call used as a value without await is a compile error; as a statement it is a warning | `modules/gdscript/gdscript_analyzer.cpp:3820-3828` |
 | `?` is a syntax error in GDScript | `modules/gdscript/gdscript_parser.cpp:3834-3835` |

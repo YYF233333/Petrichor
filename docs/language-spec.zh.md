@@ -779,7 +779,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 带载荷的 enum | 按字段名编码的 Dictionary，保留键 `"$variant"` 记录分支名（§3.7） |
 | async 方法的返回值 | 无类型的 Variant（§9.8） |
 
-- GDScript 通过 Script 的反射接口为其他语言的全局类定型（`modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063`），所以 GDScript 调用本语言的类时同样有静态检查。
+- GDScript 通过 Script 的反射接口为其他语言的全局类定型（`modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063`），所以 GDScript 对本语言类的实例成员（属性、方法、信号）有完整的静态检查。`Player.new(...)` 同样受检查：Script 基类没有绑定 `new`，GDScript 是自己绑定的（`modules/gdscript/gdscript.cpp:1099`），所以本语言的 Script 类绑定 `new`，并把 `_init` 报告为返回该类的静态方法，GDScript 把 `new` 当作静态的 `_init` 检查（`gdscript_analyzer.cpp:6007-6010`）。实参按位置传入；按名字传入必须赋值的成员（§6.2）只在本语言中可用。其余的类级访问见 §11.3。
 - **入口检查**：值从引擎、GDScript 或 C# 进入本语言的位置（参数、`set` 写入成员、信号的实参、await 的结果、解码），按声明的类型检查，失败是程序错误。远程检查器的写入也经过入口检查（§7.5）。
 - Option 交给引擎时 None 编码为 NIL。所以只有 X 的值不会编码为 NIL 时，`X?` 才能隐式交给引擎；X 是 Option 或 Variant 时是编译错误，快速修复给出 `.flatten()` 或 `.unwrap_or(null)`。否则 Some(None) 经过引擎往返后会悄悄变成 None（§3.4）。
 
@@ -845,13 +845,18 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 ### 11.2 继承
 
 - 两个方向的跨语言继承都不支持：
-  - 本语言的类不能继承 GDScript 类。插件要求继承它的类时（例如 Beehave 的 ActionLeaf），由用户手写一层薄的 GDScript 子类，在其中调用本语言的代码；GDScript 通过反射看到本语言的类型，这些调用仍有静态检查。依据：[暗坑清单](surveys/pitfalls.zh.md) C-17。
+  - 本语言的类不能继承 GDScript 类。插件要求继承它的类时（例如 Beehave 的 ActionLeaf），由用户手写一层薄的 GDScript 子类，在其中调用本语言的代码；GDScript 通过反射看到本语言的类型，对实例成员的调用仍有静态检查（§10.1）。依据：[暗坑清单](surveys/pitfalls.zh.md) C-17。
   - GDScript 脚本不能继承本语言的类：GDScript 解析 `extends 全局类名` 时，把基类文件当作 GDScript 解析（`modules/gdscript/gdscript_analyzer.cpp:471-487`，`modules/gdscript/gdscript_cache.cpp:84-93`），失败时只报“Could not resolve super class”（`:479, 485`）。分析服务在这样的 GDScript 文件上报错并说明原因。
 - 因此迁移一个类时，它仍为 GDScript 的子类必须一起迁移（§13.4）。依据：[第二次纸面迁移](surveys/paper-migration-2.zh.md)中，Ring 的 Brick 和 Enemy 因此连带迁移了 5 个子类。
 
 ### 11.3 跨语言调用与消息
 
 - GDScript 和 C# 只能按名字访问 §10.5 所列的成员。
+- 【已知限制】GDScript 只能经实例使用本语言的类，以及用 `new` 构造（§10.1）。以下类级访问不受支持，替代写法是经实例或 autoload 的实例方法转一层：
+  - 静态方法：GDScript 的分析器接受 `Player.make()`，运行时却报找不到方法，因为 GDScript 和 C# 靠覆盖引擎内部的 `callp` 分派静态方法，GDExtension 没有对应的钩子（`core/object/object.cpp:882-905`）；
+  - 类中的 enum 和常量：不能用在 GDScript 的类型标注中（`modules/gdscript/gdscript_analyzer.cpp:950-952`），也不能用作 `const` 的值或写成 `Player.State.IDLE`，因为 GDScript 不把其他语言的常量当作常量表达式（`gdscript_analyzer.cpp:4372-4381`）；读取常量的值可以；
+  - 本语言写的 autoload：GDScript 只为 GDScript 写的 autoload 定型（`gdscript_analyzer.cpp:821-841, 4637-4674`），所以它在表达式中的类型是 Node，写在类型标注中时悄悄变成无类型。
+- 【后续】经 Script 资源上的脚本实例支持 GDScript 调用静态方法；需要先在运行的引擎上验证。
 - 与 C# 之间的消息用 struct 表达，编码为按字段名的 Dictionary（§3.6），入口处解码并检查。
 - 跨语言 await 见 §9.8。
 
@@ -934,6 +939,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 - 没有带状态的 mixin，接口不能是泛型（§3.9）。
 - 没有命名空间（§4.1）。
 - 不支持跨语言继承，两个方向都不支持（§4.1、§11.2）。
+- GDScript 不能调用本语言类的静态方法，不能把其中的 enum 和常量用作类型或常量表达式，本语言写的 autoload 在 GDScript 中没有类型（§11.3）。
 - match 没有类型模式、没有 match 表达式，也不能在逗号分隔的多个模式中绑定（§5.6）。
 - 没有“就绪后才赋值的非空成员”（§6.2）。
 - 协程没有 finally 或 defer（§9.4）。
@@ -956,6 +962,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 - 重入策略的注解，例如 `@restart`（§9.5）；
 - 按参数解构多参数信号的 await 结果，带参数类型的 Signal 类型（§9.6）；
 - 为 GDScript 协程调用取得 `Task` 句柄（§9.8）；
+- GDScript 调用本语言类的静态方法（§11.3）；
 - §13.5 所列的工具。
 
 ### 14.3 待定问题
@@ -1002,7 +1009,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 引擎边界 | 未审核的、返回对象的引擎方法类型为 `T?`；`get_tree()` 非空，`get_collider()` 可空；GDScript 向非空参数传入 null 是程序错误；远程检查器向非空成员写入 null 时原值不变；经信号传出的 struct 是按字段名编码的 Dictionary，`Command.MOVE(target = p)` 是 `{"$variant": "MOVE", "target": p}` |
 | 工具函数 | `min(1.5, 1)` 报编译错误并给出 `min(1.5, 1.0)`；`lerp(a, b, t)` 的结果与 a 同类型；`find_children("*", "MeshInstance3D")` 为 `Array[MeshInstance3D]` |
 | 字符串 | 期望 StringName 的字面量在编译期构造；`&"a" == "a"` 为真；字面量成员名不存在时报编译错误，并参与重命名 |
-| 跨语言 | GDScript 文件继承本语言的类时，分析服务在该文件上报错并说明原因；await GDScript 协程得到按声明类型检查的结果；作为语句调用 GDScript 协程不报错，把它的结果当作值使用而不写 await 是程序错误；GDScript await 本语言的协程，在取消时得到 null 而不挂起；GDScript await 本语言中返回 Transform3D 的协程时没有警告，取消时把结果赋给 Transform3D 变量，在 debug 构建中报赋值错误而不崩溃 |
+| 跨语言 | GDScript 文件继承本语言的类时，分析服务在该文件上报错并说明原因；await GDScript 协程得到按声明类型检查的结果；作为语句调用 GDScript 协程不报错，把它的结果当作值使用而不写 await 是程序错误；GDScript await 本语言的协程，在取消时得到 null 而不挂起；GDScript await 本语言中返回 Transform3D 的协程时没有警告，取消时把结果赋给 Transform3D 变量，在 debug 构建中报赋值错误而不崩溃；GDScript 持有 `p: Player` 时，属性、方法和信号的类型错误报 GDScript 编译错误；`Player.new()` 的类型为 Player，多传实参报 GDScript 编译错误 |
 | 重构 | 导出成员改名时场景中的键同时修改；场景编辑器中给节点改名时脚本中的 `$X` 同时修改，并在同一撤销步骤中；非字面量路径只报告 |
 
 ## 16. 反馈
@@ -1069,6 +1076,11 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | GDScript 的覆盖检查允许返回类型协变、参数类型逆变，以及多出带默认值的参数 | `modules/gdscript/gdscript_analyzer.cpp:1892-1933` |
 | GDScript 的剩余参数只能是元素为 Variant 的 Array | `modules/gdscript/gdscript_analyzer.cpp:1802-1809` |
 | GDScript 从其他语言的方法信息中读取 `METHOD_FLAG_VARARG` | `modules/gdscript/gdscript_analyzer.cpp:6101-6104` |
+| GDScript 把 `new` 当作静态的 `_init` 检查；`new` 由 GDScript 自己绑定，Script 基类没有 | `modules/gdscript/gdscript_analyzer.cpp:6007-6010`；`modules/gdscript/gdscript.cpp:1099` |
+| 对象没有脚本实例时，`callp` 只查找引擎注册的方法，所以 Script 资源上的静态方法找不到 | `core/object/object.cpp:882-905` |
+| GDScript 不能在类型标注中引用其他语言的类中的类型 | `modules/gdscript/gdscript_analyzer.cpp:950-952` |
+| GDScript 不把其他语言的类的常量当作常量表达式 | `modules/gdscript/gdscript_analyzer.cpp:4372-4381` |
+| GDScript 只为 GDScript 写的 autoload 定型 | `modules/gdscript/gdscript_analyzer.cpp:821-841, 4637-4674` |
 | GDScript 中以调用函数的写法调用 Callable 变量是编译错误，提示改用 `.call()` | `modules/gdscript/gdscript_analyzer.cpp:3785-3789` |
 | GDScript 中不加 await 把协程调用当值使用是编译错误，作为语句时只是警告 | `modules/gdscript/gdscript_analyzer.cpp:3820-3828` |
 | GDScript 中 `?` 是语法错误 | `modules/gdscript/gdscript_parser.cpp:3834-3835` |
