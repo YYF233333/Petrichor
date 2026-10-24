@@ -133,8 +133,20 @@ As of 2026-10-23 the project is being redesigned from the problem up. This docum
 
 ## 10. Not yet decided
 
-The questions raised in discussion and in the [second paper migration](surveys/paper-migration-2.en.md) have all been decided. New questions found while rewriting the specification are recorded here.
+The questions raised in discussion and in the [second paper migration](surveys/paper-migration-2.en.md) have all been decided. The following were found while rewriting the specification:
+
+- The `null` literal: GDScript writes `null`, and the empty value of this language is None. Is `null` an alias of None, or a compile error suggesting None?
+- `@abstract` classes and methods (`modules/gdscript/gdscript_parser.cpp:149, 4492-4516`) and rest parameters `...args` (`gdscript_parser.cpp:1723-1730`), both in GDScript since 4.5: are they supported, with the same semantics?
+- The spelling of generics: declarations of functions, structs, enums and RefCounted classes, interface constraints, and explicit type arguments at call sites.
+- The spelling of function types, including the types of async functions.
+- Which operations Variant allows: assignment, passing as an argument, `==`, `is`, `as`, conversions, and dynamic access by name.
+- Nested Options (`T??`): merged into one level, kept as two, or forbidden; for example, reading from a `Dictionary[K, V?]`.
+- Details of structs: whether they can have methods; which copy `s.x = 1` changes; `==`, and comparison and hashing as Dictionary keys. Enums with payloads raise the same questions.
+- Whether interfaces can extend interfaces, and whether they can be generic.
+- The rules for `==`: how int and float, objects and containers compare, and which combinations are compile errors.
+- Whether `assert` is removed in release builds as in GDScript; a failure is a program error.
+- The spelling of the three scene structures a script declares in §3 (child nodes required by a base class, child nodes added at runtime, optional child nodes).
 
 ## Evidence
 
-Surveys: [scene structures](surveys/scene-structures.en.md), [cross-branch duplication](surveys/cross-branch-duplication.en.md), [pitfall catalog](surveys/pitfalls.en.md), [paper migration](surveys/paper-migration.en.md), [property accessors](surveys/property-accessors.en.md), [await signal results](surveys/await-signal-results.en.md), [member visibility](surveys/member-visibility.en.md).
+Surveys: [scene structures](surveys/scene-structures.en.md), [cross-branch duplication](surveys/cross-branch-duplication.en.md), [pitfall catalog](surveys/pitfalls.en.md), [paper migration](surveys/paper-migration.en.md), [property accessors](surveys/property-accessors.en.md), [await signal results](surveys/await-signal-results.en.md), [member visibility](surveys/member-visibility.en.md), [second paper migration](surveys/paper-migration-2.en.md).

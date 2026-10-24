@@ -133,8 +133,20 @@
 
 ## 10. 尚未决定
 
-讨论和[第二次纸面迁移](surveys/paper-migration-2.zh.md)中发现的问题都已决定。重写规范时发现的新问题记在这里。
+讨论和[第二次纸面迁移](surveys/paper-migration-2.zh.md)中发现的问题都已决定。以下是重写规范时发现的问题：
+
+- `null` 字面量：GDScript 写 `null`，本语言的空值写 None。`null` 是 None 的别名，还是编译错误并提示改为 None。
+- GDScript 4.5 起的 `@abstract` 类和方法（`modules/gdscript/gdscript_parser.cpp:149, 4492-4516`）与剩余参数 `...args`（`gdscript_parser.cpp:1723-1730`）：是否支持，语义是否照搬。
+- 泛型的写法：函数、struct、enum 和 RefCounted 类的声明，接口约束，调用处显式给出的类型实参。
+- 函数类型的写法，包括 async 函数的类型。
+- Variant 上允许哪些操作：赋值、传参、`==`、`is`、`as`、转换，以及按名字的动态访问。
+- 嵌套的 Option（`T??`）：合并为一层、保留两层，还是禁止；例如 `Dictionary[K, V?]` 的取值。
+- struct 的细节：能否有方法；`s.x = 1` 改的是哪一份；`==` 以及作为 Dictionary 键时的比较和哈希。带载荷的 enum 有同样的问题。
+- 接口能否继承接口，能否是泛型。
+- `==` 的规则：int 与 float、对象、容器之间怎样比较，哪些组合是编译错误。
+- `assert` 是否像 GDScript 一样在 release 构建中去掉；失败时是程序错误。
+- §3 中三种由脚本声明的场景结构（基类要求的子节点、运行时添加的子节点、可选的子节点）的写法。
 
 ## 依据
 
-调查：[场景结构](surveys/scene-structures.zh.md)、[跨分支重复](surveys/cross-branch-duplication.zh.md)、[暗坑清单](surveys/pitfalls.zh.md)、[纸面迁移](surveys/paper-migration.zh.md)、[属性访问器](surveys/property-accessors.zh.md)、[await 信号结果](surveys/await-signal-results.zh.md)、[成员可见性](surveys/member-visibility.zh.md)。
+调查：[场景结构](surveys/scene-structures.zh.md)、[跨分支重复](surveys/cross-branch-duplication.zh.md)、[暗坑清单](surveys/pitfalls.zh.md)、[纸面迁移](surveys/paper-migration.zh.md)、[属性访问器](surveys/property-accessors.zh.md)、[await 信号结果](surveys/await-signal-results.zh.md)、[成员可见性](surveys/member-visibility.zh.md)、[第二次纸面迁移](surveys/paper-migration-2.zh.md)。
