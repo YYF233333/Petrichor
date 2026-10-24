@@ -243,7 +243,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 ### 3.8 容器
 
 - 无论内部如何表示（见下条），用户看到的只有一种 `Array[T]` 和一种 `Dictionary[K, V]`，API 与 GDScript 相同。没有类型参数的 `Array`、`Dictionary` 的元素类型为 Variant，与 GDScript 相同。
-- 元素可以由引擎表示时，容器就是引擎的带类型容器，与引擎共享。元素是本语言独有的类型（struct、带载荷的 enum 等）时，使用本语言自己的表示；交给引擎须显式转换，转换生成副本。理由：隐式复制会造出“修改的其实是副本”一类的坑。
+- 元素可以由引擎表示时，容器就是引擎的带类型容器，与引擎共享。元素是本语言独有的类型（struct、带载荷的 enum 等）时，使用本语言自己的表示；交给引擎须显式转换，写作 GDScript 的构造转换 `Array(hits)`、`Dictionary(d)`，结果是引擎的无类型容器，元素按 §10.1 编码，是一份副本；反方向用 `Array[Hit].try_from(v)`（§5.3）。理由：隐式复制会造出“修改的其实是副本”一类的坑。
 - 取值：
   - `pop_front()`、`pop_back()` 返回 `T?`：引擎在空数组上不报错而返回 null（`core/variant/array.cpp:798-817`）；
   - `front()`、`back()` 返回 T，空数组时是程序错误，引擎在这里同样报错（`array.cpp:364-372`）；
@@ -303,7 +303,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 - 动态值只在三处由外部强加：以 Variant 声明的引擎 API；GDScript 插件中没有标注类型的参数、返回值和成员（§11.1）；跨语言传来的消息。本语言代码中写出的 Variant，以及没有类型参数的 Array 和 Dictionary 的元素（§3.8），同样是动态值。
 - 动态值进入静态代码时必须显式转换（§5.3）；不做隐式检查。
 - 能定型的从源头定型：引擎实际有约束但没有导出的，在本语言的绑定元数据中补上（§10.3）。
-- 静态值进入 Variant 是隐式的：赋值、传参和返回都可以。struct 和带载荷的 enum 按 §10.1 编码。例外：元素为本语言独有类型的容器须显式转换（§3.8）。
+- 静态值进入 Variant 是隐式的：赋值、传参和返回都可以。struct 和带载荷的 enum 按 §10.1 编码。例外：元素为本语言独有类型的容器须显式转换，写作 `Array(hits)`（§3.8）。
 - Variant 进入静态代码只有显式的途径：
   - `v as T`，只用于对象，得到 `T?`（§5.3）；
   - `T(v)`，GDScript 的构造转换；
@@ -837,7 +837,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 ### 10.8 JSON
 
 - 引擎把 JSON 中的所有数字解析为浮点数（`core/io/json.cpp:390-396`）。解码到 `int` 时，接受恰为整数且在 int64 范围内的浮点数，否则报错，不截断。
-- 标准库提供 struct 和 enum 与 JSON、`var_to_str`、ConfigFile 之间的编码和解码。
+- 标准库提供 struct 和 enum 与 JSON、`var_to_str`、ConfigFile 之间的编码和解码。元素为 struct 或带载荷的 enum 的容器，先用 `Array(hits)`、`Dictionary(d)` 转为引擎的容器（§3.8）。
 
 ## 11. 与 GDScript 和 C# 共存
 
@@ -990,7 +990,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | Option 与 Result | `?` 在 None 或 `Err` 时从当前函数返回；在返回 void 的函数中使用 `?` 报编译错误；Option 传播到返回 Result 的函数报编译错误；`await f()?` 等于 `(await f())?`；丢弃 Result 报编译错误；`unwrap` 失败是程序错误 |
 | 嵌套的 Option | `Array[Enemy?]` 为空时 `pop_back()` 得 None，末元素为 None 时得包含 None 的 Some；`var x: Enemy?? = maybe_enemy` 得 Some；`Dictionary[String, Variant]` 中缺键得 None，值为 null 得包含 NIL 的 Some；把 `int??` 或 `Variant?` 传给 Variant 参数报编译错误并给出 `.flatten()` 或 `.unwrap_or(null)` |
 | struct 与带载荷的 enum | 在方法中给 self 的字段赋值报编译错误；`player.last_hit.damage = 3` 调用 `last_hit` 的 setter；`hits[0].damage = 3` 之后 `hits[0].damage` 为 3；`get_hit().damage = 3` 报编译错误；`var b = a; b.damage = 1` 不改变 a；struct 的 Array 字段在复制后仍共享；字段相同的两个 struct 相等，作为 Dictionary 键时命中同一项；`c.target` 报编译错误；`@export` 带载荷的 enum 报编译错误 |
-| 容器 | `pop_front()` 在空数组上得 None；`front()` 在空数组上是程序错误；越界下标是程序错误；`d[k]` 在缺键时是程序错误；元素为 struct 的数组交给引擎须显式转换且得到副本 |
+| 容器 | `pop_front()` 在空数组上得 None；`front()` 在空数组上是程序错误；越界下标是程序错误；`d[k]` 在缺键时是程序错误；元素为 struct 的数组直接传给 Variant 参数报编译错误，快速修复改为 `Array(hits)`，得到元素为 Dictionary 的副本，之后修改原数组不影响副本；`Array[Hit].try_from(Array(hits))` 得 `Ok` |
 | 接口 | 实现 `Combatant extends Damageable` 的类可以传给期望 Damageable 的参数；两个父接口的同名方法签名不兼容时报编译错误；两个父接口都有默认实现而未覆盖时报编译错误；`interface A extends B` 与 `interface B extends A` 报编译错误；声明 `interface Source[T]:` 报编译错误 |
 | 泛型 | `first([1, 2])` 中 T 推断为 int；`var x = first([])` 推断不出 T 报编译错误，`var x = first[int]([])` 合法；不满足约束的类型实参报编译错误；Node 脚本声明类型参数报编译错误；GDScript 引用泛型方法是 GDScript 的编译错误；`sig.connect(handle)` 在 handle 为泛型且类型实参确定不了时报编译错误 |
 | 函数类型 | `func(int)` 与 `func(int) -> void` 相同；`(func(Enemy) -> bool)?` 可空，`func(Enemy) -> bool?` 返回 `bool?`；`f(x)` 报编译错误并给出 `f.call(x)`；`func(Node)` 可以用于期望 `func(Node3D)` 的位置，反之报编译错误；含 await 而未写 async 的 lambda 报编译错误；把 async 函数传给期望普通函数类型的本语言参数报编译错误；把 async 方法连接到信号合法，任务作为根任务运行 |
