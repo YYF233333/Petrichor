@@ -564,14 +564,26 @@ This document rewrites the language specification from the [design decisions](de
 
 - The compiler collects every scene structure a script can see, including inherited scenes and edits on instances, and types `$X`, `%X` and `get_node` with a literal path from them.
 - If different scene structures give different types, that is an error requiring an annotation. Evidence: in the game repositories of the [scene structure survey](surveys/scene-structures.en.md), none of 2,023 literal paths resolves to different types in different structures.
-- A path that cannot be found is a compile error, marked on the scene that lacks the node, except in the three cases of §7.2.
+- A path that cannot be found is a compile error, marked on the scene that lacks the node; which scenes need the node is in §7.2.
 
-### 7.2 Structure declared by scripts
+### 7.2 Structures that differ between scenes
 
-- Three cases are declared by the script, with a spelling that is [Open]:
-  - child nodes required by a base class and provided by inheriting scenes;
-  - child nodes added at runtime;
-  - optional child nodes, of type `T?`.
+- The following three cases all use existing spellings and need no new declaration.
+- **Child nodes required by a base class and provided by inheriting scenes**: checked by how scenes are used, with the same rules as required exports (§7.5).
+  - A scene used only as the base of inheritance may lack the node; a scene used as a root or instanced must have it; a scene referenced from nowhere gets only a warning when it lacks the node.
+  - The type of `$X` comes from the scenes that have the node.
+  - For example, tanks-of-freedom-ii's `base_ground.tscn` lacks the `$"mesh"` used by `tile.gd`; it is preloaded as a placeholder tile, which is a use as a root, so the error is marked on that scene.
+- **Optional child nodes**: `get_node_or_null(...)` with a literal path is the declaration; its type is `T?`, and scenes lacking the node are not errors.
+
+  ```gdscript
+  @onready var trail_right = get_node_or_null("Container/TrailRight")   # GPUParticles3D?
+  ```
+
+  When `$X` is missing in some scene that is used, the quick fix changes the access to `get_node_or_null`. Evidence: in the [scene structure survey](surveys/scene-structures.en.md), 8 paths in game code that are missing in some structures use `get_node_or_null`, such as the trails of the two vehicles in Starter-Kit-Racing.
+- **Child nodes added at runtime**: not typed by path.
+  - `$X` found in no scene is a compile error; the quick fix suggests storing the node in a typed member when calling `add_child`, for example `var tetromino: Tetromino?`.
+  - Where a lookup by name is really needed, `get_node_or_null("X")` yields a `Node?`, converted with `as` (§5.3).
+  - A literal path that exists in no scene gets a warning, which catches paths not updated after a rename, such as tps-demo's `door.gd:6`; for a node that really is added at runtime, `@warning_ignore` turns it off.
 
 ### 7.3 Upward access
 
@@ -906,7 +918,6 @@ The following correspond to §10 of the [design decisions](decisions.en.md):
 
 | Question | Section |
 |---|---|
-| The spelling of the three scene structures declared by scripts | §7.2 |
 | The source file extension | §1.4 |
 
 ## 15. Conformance checklist (non-normative)
@@ -937,7 +948,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Export checks | `crosshair` in player.tscn assigned by the instance in main.tscn is not an error; an instance without the value is marked on the scene containing it; a scene referenced from nowhere gets only a warning and does not block export; a missing value at runtime is a program error at ready naming the member |
 | Initialization | Member initializers do not call setters; `@onready` with `@export` is a compile error; reading an `@onready` member in `_init` is a compile error; a static initialization cycle is reported with its dependency chain |
 | Setters before ready | A value saved in a scene makes the setter suspend where it accesses an `@onready` member and continue after ready; of several writes before ready only the last continues; a transforming setter's value read before ready is the transformed one; suspended calls are dropped when the node is freed before ready |
-| Scene typing | `$Head/Camera` is typed Camera3D from the scene; two scenes giving different types is an error; a path that cannot be found is marked on the scene lacking the node; `@owner(T)` on a scene root is a compile error; after a node leaves its owner's subtree, not reading owner is fine and reading it is a program error |
+| Scene typing | `$Head/Camera` is typed Camera3D from the scene; two scenes giving different types is an error; a path that cannot be found is marked on the scene lacking the node; a base scene used only for inheritance lacking a node all its inheriting scenes have is not an error, while a preloaded placeholder scene lacking it is; `get_node_or_null("X")` missing in some scenes is typed `T?` without error; `$X` found in no scene is a compile error, and `get_node_or_null("X")` yields `Node?` with a warning; `@owner(T)` on a scene root is a compile error; after a node leaves its owner's subtree, not reading owner is fine and reading it is a program error |
 | Resources | Modifying a shared resource gives a warning with two quick fixes; `duplicate()` keeps the static type; a `preload` cycle is reported before running |
 | match | A non-exhaustive match over an enum is a compile error; branches with `when` do not count toward coverage; unlisted fields without `..` are a compile error; in the `var x` branch of an Option, x is T; a match over int need not be exhaustive |
 | Loops | i in `for i in 5` is an int; `for x in 2.5` and iterating over a vector are compile errors; annotating the loop variable with a subclass is a compile error |
@@ -1050,6 +1061,7 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | `pop_front()` on an empty array being a program error | The engine returns null there without an error, so it would silently differ | §3.8 |
 | Awaiting a multi-parameter signal yielding an Array, or destructuring | Real code almost never uses such results; destructuring can be added later | §9.6 |
 | Using an if/else block as a value | Duplicates the conditional expression | §5.5 |
+| A separate declaration for child nodes required by a base class, optional ones, and ones added at runtime | Checking by usage and `get_node_or_null` already cover the three cases; new declarations would only add concepts | §7.2 |
 | Requiring types written in an override to match the overridden ones exactly | Stricter than GDScript, and rejects the covariant return types of fluent interfaces such as gdUnit4's | §4.6 |
 | Merging nested Options into one level (as Kotlin does) | Generic code would behave differently depending on T; a None stored in a container could not be told from a missing value | §3.4 |
 | Lambdas without async, inferred from the body or the expected type | Deciding whether a function is async would take several rules, and lambdas and method values could be passed to different places | §9.1 |
