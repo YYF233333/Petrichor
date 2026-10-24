@@ -754,7 +754,10 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 
 ### 9.8 跨语言 await
 
-- 对 GDScript 方法的调用可以写 await。运行时得到 `GDScriptFunctionState` 时，等待它的 `completed` 信号（`modules/gdscript/gdscript_function.cpp:327`），再按声明的返回类型检查结果；没有写 await 却得到它时，是程序错误。协程性不在方法的反射信息中（`core/object/method_info.h:37-44`），因此无法在编译期判断。不等待地调用 GDScript 协程的写法【待定】。
+- 对 GDScript 方法的调用可以写 await。运行时得到 `GDScriptFunctionState` 时，等待它的 `completed` 信号（`modules/gdscript/gdscript_function.cpp:327`），再按声明的返回类型检查结果。协程性不在方法的反射信息中（`core/object/method_info.h:37-44`），因此无法在编译期判断。没有写 await 时，按调用的写法区分，与 GDScript 相同（`modules/gdscript/gdscript_analyzer.cpp:3820-3828`）：
+  - 作为语句调用、结果没有被使用时，运行时发现方法是协程也不报错：协程运行到第一次挂起，之后自行继续，相当于 detach；
+  - 结果被当作值使用时，运行时得到 `GDScriptFunctionState` 是程序错误，诊断写明该方法是协程、须写 await。
+  - 【后续】为 GDScript 协程调用取得 `Task` 句柄，以便稍后等待。
 - GDScript await 本语言的协程时，协程在第一次挂起时返回其 Task 的 `completed` 信号；GDScript 的 await 接受任意 Signal 值（`modules/gdscript/gdscript_vm.cpp:2585-2599`）。Task 完成时发出 `completed(值)`；取消或失败时发出 `completed(null)`，使 GDScript 的等待方不会永远挂起；另有 `cancelled` 信号供需要区分的代码使用。
 - 两个方向都是根据引擎源码推出的，尚未在运行的引擎上验证。
 
@@ -947,13 +950,12 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 - 始终生效的断言（§8.3）；
 - 重入策略的注解，例如 `@restart`（§9.5）；
 - 按参数解构多参数信号的 await 结果，带参数类型的 Signal 类型（§9.6）；
+- 为 GDScript 协程调用取得 `Task` 句柄（§9.8）；
 - §13.5 所列的工具。
 
 ### 14.3 待定问题
 
-| 问题 | 章节 |
-|---|---|
-| 怎样不等待地调用 GDScript 协程 | §9.8 |
+目前没有。
 
 ## 15. 一致性检查清单（非规范性）
 
@@ -995,7 +997,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 引擎边界 | 未审核的、返回对象的引擎方法类型为 `T?`；`get_tree()` 非空，`get_collider()` 可空；GDScript 向非空参数传入 null 是程序错误；远程检查器向非空成员写入 null 时原值不变；经信号传出的 struct 是按字段名编码的 Dictionary，`Command.MOVE(target = p)` 是 `{"$variant": "MOVE", "target": p}` |
 | 工具函数 | `min(1.5, 1)` 报编译错误并给出 `min(1.5, 1.0)`；`lerp(a, b, t)` 的结果与 a 同类型；`find_children("*", "MeshInstance3D")` 为 `Array[MeshInstance3D]` |
 | 字符串 | 期望 StringName 的字面量在编译期构造；`&"a" == "a"` 为真；字面量成员名不存在时报编译错误，并参与重命名 |
-| 跨语言 | GDScript 文件继承本语言的类时，分析服务在该文件上报错并说明原因；await GDScript 协程得到按声明类型检查的结果；GDScript await 本语言的协程，在取消时得到 null 而不挂起 |
+| 跨语言 | GDScript 文件继承本语言的类时，分析服务在该文件上报错并说明原因；await GDScript 协程得到按声明类型检查的结果；作为语句调用 GDScript 协程不报错，把它的结果当作值使用而不写 await 是程序错误；GDScript await 本语言的协程，在取消时得到 null 而不挂起 |
 | 重构 | 导出成员改名时场景中的键同时修改；场景编辑器中给节点改名时脚本中的 `$X` 同时修改，并在同一撤销步骤中；非字面量路径只报告 |
 
 ## 16. 反馈

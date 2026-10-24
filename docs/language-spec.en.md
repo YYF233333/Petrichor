@@ -754,7 +754,10 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 
 ### 9.8 Cross-language await
 
-- Calls to GDScript methods may be awaited. If the runtime receives a `GDScriptFunctionState`, it waits for its `completed` signal (`modules/gdscript/gdscript_function.cpp:327`) and then checks the result against the declared return type; receiving one without await is a program error. Whether a method is a coroutine is not in its reflection information (`core/object/method_info.h:37-44`), so this cannot be decided at compile time. How to call a GDScript coroutine without waiting for it is [Open].
+- Calls to GDScript methods may be awaited. If the runtime receives a `GDScriptFunctionState`, it waits for its `completed` signal (`modules/gdscript/gdscript_function.cpp:327`) and then checks the result against the declared return type. Whether a method is a coroutine is not in its reflection information (`core/object/method_info.h:37-44`), so this cannot be decided at compile time. Without await, the form of the call decides, as in GDScript (`modules/gdscript/gdscript_analyzer.cpp:3820-3828`):
+  - called as a statement, with the result unused, a method found at runtime to be a coroutine is no error: the coroutine runs to its first suspension and then continues on its own, as if detached;
+  - with the result used as a value, receiving a `GDScriptFunctionState` at runtime is a program error whose diagnostic says that the method is a coroutine and needs await.
+  - [Later] Obtaining a `Task` handle for a call of a GDScript coroutine, to await it later.
 - When GDScript awaits a coroutine of this language, the coroutine returns its Task's `completed` signal at its first suspension; GDScript's await accepts any Signal value (`modules/gdscript/gdscript_vm.cpp:2585-2599`). The Task emits `completed(value)` when it finishes, and `completed(null)` when it is cancelled or fails, so a GDScript waiter is never left suspended forever; a separate `cancelled` signal serves code that needs to tell the cases apart.
 - Both directions follow from reading the engine source and have not yet been tested on a running engine.
 
@@ -947,13 +950,12 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 - an always-on assertion (§8.3);
 - reentrancy annotations such as `@restart` (§9.5);
 - destructuring the result of awaiting a signal with several parameters, and Signal types with parameter types (§9.6);
+- obtaining a `Task` handle for a call of a GDScript coroutine (§9.8);
 - the tools listed in §13.5.
 
 ### 14.3 Open questions
 
-| Question | Section |
-|---|---|
-| How to call a GDScript coroutine without waiting for it | §9.8 |
+None at present.
 
 ## 15. Conformance checklist (non-normative)
 
@@ -995,7 +997,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Engine boundary | An unaudited engine method returning an object has type `T?`; `get_tree()` is non-null and `get_collider()` is nullable; GDScript passing null to a non-null parameter is a program error; the remote inspector writing null to a non-null member leaves the value unchanged; a struct emitted through a signal arrives as a Dictionary keyed by field name, and `Command.MOVE(target = p)` as `{"$variant": "MOVE", "target": p}` |
 | Utility functions | `min(1.5, 1)` is a compile error offering `min(1.5, 1.0)`; `lerp(a, b, t)` has a's type; `find_children("*", "MeshInstance3D")` is `Array[MeshInstance3D]` |
 | Strings | A literal where StringName is expected is constructed at compile time; `&"a" == "a"` is true; a literal member name that does not exist is a compile error and takes part in rename |
-| Cross-language | A GDScript file extending a class of this language gets an explanatory error from the analysis service; awaiting a GDScript coroutine yields a result checked against the declared type; GDScript awaiting a coroutine of this language gets null on cancellation instead of hanging |
+| Cross-language | A GDScript file extending a class of this language gets an explanatory error from the analysis service; awaiting a GDScript coroutine yields a result checked against the declared type; calling a GDScript coroutine as a statement is no error, while using its result as a value without await is a program error; GDScript awaiting a coroutine of this language gets null on cancellation instead of hanging |
 | Refactoring | Renaming an exported member changes the keys in scenes too; renaming a node in the scene editor changes `$X` in scripts in the same undo step; non-literal paths are only reported |
 
 ## 16. Feedback
