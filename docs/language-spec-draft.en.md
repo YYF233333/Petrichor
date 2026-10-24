@@ -55,7 +55,7 @@ This document rewrites the language specification from the [design decisions](de
   - New keywords: `pub`, `struct`, `interface`, `implements`, `async`, `None`.
   - A new postfix operator `?` (§8.2). In GDScript `?` is a syntax error (`modules/gdscript/gdscript_parser.cpp:3834-3835`).
   - Prefix `!` remains logical not (`gdscript_parser.cpp:2965-2967`).
-  - The handling of the `null` literal is [Open].
+  - `null` is an alias of None, with GDScript's meaning everywhere: `x = null` gives a `T?` the empty value, `x != null` is the same as `x != None` and narrows, and passed as a Variant the engine receives NIL. Assigning it to a non-null `T` is a compile error, and the quick fix changes the type to `T?`. A hint suggests writing None in new code. Evidence: `null` occurs 22.2 times per 1,000 lines in the [corpus counts](surveys/corpus-counts.en.md).
 - Literals: integers, floats, strings (including triple quotes and the `r` prefix), `&"…"` (StringName), `^"…"` (NodePath), arrays `[…]`, dictionaries `{k: v}` and `{k = v}`, `true`, `false` and `None`, as in GDScript; `None` is the empty value of Option (§3.4). The types of literals are in §3.2 and §10.7.
 
 ### 2.3 Annotations
@@ -764,7 +764,6 @@ The following correspond to §10 of the [design decisions](decisions.en.md):
 
 | Question | Section |
 |---|---|
-| Is the `null` literal an alias of None, or a compile error? | §2.2 |
 | Are `@abstract` and rest parameters `...args` supported? | §2.3, §4.6 |
 | The spelling of generics | §3.10 |
 | The spelling of function types | §3.11 |

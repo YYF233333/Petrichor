@@ -123,6 +123,7 @@
   - 类头用 `implements A, B` 声明实现的接口，可以与 `extends` 写在同一行，例如 `class_name Player extends CharacterBody3D implements Damageable`，也可以单独一行。不并入 `extends`，使基类与接口一眼可分。
   - `pub` 是关键字，写在注解之后、`static` 之前，例如 `@export pub var max_hp: int`、`pub static func`、`pub signal died`。用关键字而不用注解，因为它写得频繁：[成员可见性调查](surveys/member-visibility.zh.md)中每千行至少 22 处。
   - 放置与命名沿用 GDScript：一个文件就是一个类，文件中声明的 struct、enum 和 interface 都属于这个类。在本文件中直接写名字，在其他文件中写 `类名.名字`，例如 `Combat.Hit`、`Player.Command.MOVE(target = p)`；没有 `class_name` 的文件经 `preload` 访问。全局名只来自 `class_name`。几个类共用的类型放进一个专门承载它们的类。以后可以加入别名或 `import`，不改变现有写法的含义。
+- **`null`** 是 None 的别名，在所有位置的含义与 GDScript 一致：`x = null` 给 `T?` 赋空值，`x != null` 与 `x != None` 相同并带来收窄，传给 Variant 时引擎得到 NIL。把它赋给非空的 `T` 是编译错误，快速修复把类型改为 `T?`。另有一条提示建议新代码写 None，不强制。理由：[语料计数](surveys/corpus-counts.zh.md)中 `null` 每千行 22.2 处，改成编译错误只会增加机械的迁移工作。
 - **表达式。** 条件表达式只有 GDScript 的 `a if c else b`，条件必须是 bool；不提供以 if/else 块为值的写法。后缀 `?` 的含义见 §7；GDScript 中 `?` 目前是语法错误（`modules/gdscript/gdscript_parser.cpp:3834-3835`）。
 - **match** 保留 GDScript 的全部模式，含义不变：字面量和常量表达式按相等比较，`var x` 绑定，`_` 通配，数组和字典模式及其中的 `..`，逗号分隔的多个模式（其中不能绑定），`when` 守卫（`modules/gdscript/gdscript_parser.cpp:2499-2723`）。新增的模式：
   - enum 分支写成 `类型.分支(字段 = 模式, ...)`，`var 字段` 是 `字段 = var 字段` 的简写，例如 `Command.MOVE(var target)`、`Command.ATTACK(target = var enemy, power = 0)`。未列出的字段须由 `..` 覆盖，与字典模式相同。模式可以嵌套。struct 用同样的写法，例如 `Hit(damage = var d, ..)`。
@@ -135,7 +136,6 @@
 
 讨论和[第二次纸面迁移](surveys/paper-migration-2.zh.md)中发现的问题都已决定。以下是重写规范时发现的问题：
 
-- `null` 字面量：GDScript 写 `null`，本语言的空值写 None。`null` 是 None 的别名，还是编译错误并提示改为 None。
 - GDScript 4.5 起的 `@abstract` 类和方法（`modules/gdscript/gdscript_parser.cpp:149, 4492-4516`）与剩余参数 `...args`（`gdscript_parser.cpp:1723-1730`）：是否支持，语义是否照搬。
 - 泛型的写法：函数、struct、enum 和 RefCounted 类的声明，接口约束，调用处显式给出的类型实参。
 - 函数类型的写法，包括 async 函数的类型。

@@ -55,7 +55,7 @@
   - 新增关键字：`pub`、`struct`、`interface`、`implements`、`async`、`None`。
   - 新增后缀运算符 `?`（§8.2）。GDScript 中 `?` 是语法错误（`modules/gdscript/gdscript_parser.cpp:3834-3835`）。
   - 前缀 `!` 仍是逻辑非（`gdscript_parser.cpp:2965-2967`）。
-  - `null` 字面量的处理【待定】。
+  - `null` 是 None 的别名，在所有位置的含义与 GDScript 一致：`x = null` 给 `T?` 赋空值，`x != null` 与 `x != None` 相同并带来收窄，传给 Variant 时引擎得到 NIL。把它赋给非空的 `T` 是编译错误，快速修复把类型改为 `T?`。提示建议新代码写 None。依据：[语料计数](surveys/corpus-counts.zh.md)中 `null` 每千行 22.2 处。
 - 字面量：整数、浮点数、字符串（含三引号和 `r` 前缀）、`&"…"`（StringName）、`^"…"`（NodePath）、数组 `[…]`、字典 `{k: v}` 和 `{k = v}`、`true`、`false`、`None`，与 GDScript 相同；`None` 是 Option 的空值（§3.4）。字面量的类型见 §3.2 和 §10.7。
 
 ### 2.3 注解
@@ -764,7 +764,6 @@
 
 | 问题 | 章节 |
 |---|---|
-| `null` 字面量是 None 的别名，还是编译错误 | §2.2 |
 | 是否支持 `@abstract` 和剩余参数 `...args` | §2.3、§4.6 |
 | 泛型的写法 | §3.10 |
 | 函数类型的写法 | §3.11 |

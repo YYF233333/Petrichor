@@ -15,6 +15,7 @@ A statically typed scripting language for Godot, intended to replace GDScript an
   - [How do real Godot 4 projects use property getters?](docs/surveys/property-accessors.en.md) · [中文](docs/surveys/property-accessors.zh.md)
   - [Where are script members used: own file, subclasses, other scripts?](docs/surveys/member-visibility.en.md) · [中文](docs/surveys/member-visibility.zh.md)
   - [What does it cost to migrate real code under the design decisions?](docs/surveys/paper-migration-2.en.md) · [中文](docs/surveys/paper-migration-2.zh.md)
+  - [One-off counts in the corpus](docs/surveys/corpus-counts.en.md) · [中文](docs/surveys/corpus-counts.zh.md)
   - [What does it cost to migrate real code to spec v0.1?](docs/surveys/paper-migration.en.md) · [中文](docs/surveys/paper-migration.zh.md)
 - Frozen v0.1 documents: specification ([English](docs/language-spec.en.md) · [中文](docs/language-spec.zh.md)), design notes ([English](docs/design-notes.en.md) · [中文](docs/design-notes.zh.md)), project plan ([English](docs/project-plan.en.md) · [中文](docs/project-plan.zh.md))
 
