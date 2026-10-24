@@ -36,9 +36,9 @@
 | S5 | 覆盖引擎虚函数时，参数同样要标注类型 |
 | S6 | 子场景中必须赋值的导出成员，只要实例化它的每个场景都赋了值，就算已赋值 |
 | S7 | 对有类型的函数值调用 `bind`，结果仍有类型 |
-| S8 | `Array[T]` 的 `pop_front()` 返回 T，数组为空时是程序错误 |
+| S8 | `Array[T]` 的 `pop_front()` 返回 T，数组为空时是程序错误。后来的决定改为返回 `T?`，因为引擎在空数组上直接返回 null（设计决定 §6）；按此，Kenney FPS 的 audio 多一处转换 |
 | S9 | 带类型的循环变量不做隐式向下转换（本次没有出现） |
-| S10 | lerp、clamp、wrap、abs、min、max 等以 Variant 绑定的工具函数，按实参类型定型（设计决定 §5 的绑定元数据） |
+| S10 | lerp、clamp、wrap、abs、min、max 等以 Variant 绑定的工具函数，按实参类型定型（设计决定 §5 的绑定元数据）。后来的决定规定 int 与 float 混用是编译错误（设计决定 §5）；按此，Ring 的两处 `get_health_percent` 中 `min(…, 1)` 要改为 `1.0` |
 | S11 | GDScript 类中对象类型的成员和返回值为 `T?` |
 | S12 | 审核结果：`get_first_node_in_group` 为 `Node?`，`get_nodes_in_group` 为 `Array[Node]` |
 | S13 | owner 要求写作类级注解 `@requires_owner(T)` |

@@ -36,9 +36,9 @@ Code lines are physical lines that are neither blank nor comments. Ring's 14 fil
 | S5 | Parameters of engine virtual overrides must be annotated too |
 | S6 | A required export of a sub-scene counts as assigned if every scene that instances the sub-scene assigns it |
 | S7 | `bind` on a typed function value yields a typed value |
-| S8 | `pop_front()` on `Array[T]` returns T; on an empty array it is a program error |
+| S8 | `pop_front()` on `Array[T]` returns T; on an empty array it is a program error. A later decision makes it return `T?`, because the engine simply returns null on an empty array (design decisions §6); under that rule Kenney FPS's audio needs one more conversion |
 | S9 | A typed loop variable does not downcast implicitly (did not occur) |
-| S10 | Utility functions bound with Variant, such as lerp, clamp, wrap, abs, min and max, are typed by their arguments (the binding metadata of design decisions §5) |
+| S10 | Utility functions bound with Variant, such as lerp, clamp, wrap, abs, min and max, are typed by their arguments (the binding metadata of design decisions §5). A later decision makes mixing int and float a compile error (design decisions §5); under that rule `min(…, 1)` in Ring's two `get_health_percent` functions must become `1.0` |
 | S11 | Object-typed members and return values of GDScript classes are `T?` |
 | S12 | Audit results: `get_first_node_in_group` is `Node?`, `get_nodes_in_group` is `Array[Node]` |
 | S13 | An owner requirement is written as the class-level annotation `@requires_owner(T)` |

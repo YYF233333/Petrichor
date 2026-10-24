@@ -46,10 +46,10 @@
 ## 4. 类型系统
 
 - **函数签名的类型手写，不推断**；函数内部的局部变量可以推断。覆盖引擎虚函数或基类方法时，可以省略参数和返回类型，它们取自被覆盖的声明，悬停可见；写出的类型必须与之一致，参数名可以不同。例如 `func _process(delta):` 中 delta 为 float。这不是推断，类型由被覆盖的声明规定，与函数体无关。不是覆盖的函数，省略返回类型表示 void，在其中返回值是编译错误，快速修复补上返回类型。lambda 是函数内部的代码，按局部规则推断：有期望的函数类型时参数类型取自它，没有时须写出；返回类型由函数体推断，例如 `weapon.map(func(w): return w.name)`。依据：[第二次纸面迁移](surveys/paper-migration-2.zh.md)中，引擎虚函数覆盖的参数标注有 6 处。
-- **成员变量可以由初始化式推断类型**，规则与局部变量相同，例如 `var speed = 5.0` 为 float，`@onready var label = $Label` 按场景推断为 Label。没有初始化式的成员，以及推断不出类型的成员（空容器、None），必须标注。推断出的类型出现在悬停、补全和引擎看到的属性信息中。GDScript 中 `var hp = 10` 是无类型成员；在这里推断为 int 后，赋入其他类型是编译错误，符合语法硬规则。
-- **数值。** 第一版只有 `int`（64 位）和 `float`（64 位），与 Variant 一致（`core/variant/variant.h:257-258`）；没有用户可用的窄类型，固定位宽的运算使用 `int` 上的回绕运算和位运算方法。写入引擎的 f32 位置时隐式收窄，例如标准构建中为 float 的 real_t 向量分量（`core/math/math_defs.h:143-146`）。传给引擎 int32 参数时做范围检查，越界是程序错误；引擎自身在这里会直接截断（`core/variant/variant.h:348-349`）。`int` 与 `float` 混合运算时提升为 `float`。把 `float` 赋给 `int` 必须写 `int(x)` 显式转换，否则是编译错误；隐式截断会让 `hp = 2.5` 与 GDScript 悄悄不同。
+- **成员变量可以由初始化式推断类型**，规则与局部变量相同，例如 `var speed = 5.0` 为 float，`@onready var label = $Label` 按场景推断为 Label。没有初始化式的成员，以及推断不出类型的成员（空容器、None），必须标注。没有初始化式的成员中，数值、bool、String、core 值类型、容器和无载荷 enum 取默认值，与 GDScript 相同；struct 在所有字段都有默认值时取默认值，否则与对象引用一样必须赋值；带载荷的 enum 必须赋值。推断出的类型出现在悬停、补全和引擎看到的属性信息中。GDScript 中 `var hp = 10` 是无类型成员；在这里推断为 int 后，赋入其他类型是编译错误，符合语法硬规则。
+- **数值。** 第一版只有 `int`（64 位）和 `float`（64 位），与 Variant 一致（`core/variant/variant.h:257-258`）；没有用户可用的窄类型，固定位宽的运算使用 `int` 上的回绕运算和位运算方法。写入引擎的 f32 位置时隐式收窄，例如标准构建中为 float 的 real_t 向量分量（`core/math/math_defs.h:143-146`）。传给引擎 int32 参数时做范围检查，越界是程序错误；引擎自身在这里会直接截断（`core/variant/variant.h:348-349`）。`int` 与 `float` 混合运算时提升为 `float`；int 在赋值、传参和返回时隐式转为 float。把 `float` 赋给 `int` 必须写 `int(x)` 显式转换，否则是编译错误；隐式截断会让 `hp = 2.5` 与 GDScript 悄悄不同。
 - **运算的结果类型**按引擎的运算符表确定，与 GDScript 的静态检查相同（`core/variant/variant_op.cpp:256-368`）。例如 `Vector2 * float` 得到 Vector2，`Vector2i * float` 得到 Vector2，`int / int` 是整除，表中没有的组合（如 `Vector2 + Vector2i`）是编译错误。整数除以 0 是程序错误。
-- **收窄**采用 Kotlin 的规则：局部变量和参数在 `!= None`、`is` 和提前返回之后收窄，条件表达式 `a if c else b` 的分支以及 `and`、`or` 的右侧同样按条件收窄；成员不收窄，须先读入局部变量。没有真值判断，条件必须是 bool。非空不代表对象仍然存活，访问时照常检查。
+- **收窄**采用 Kotlin 的规则：局部变量和参数在 `!= None`、`is` 和提前返回之后收窄，条件表达式 `a if c else b` 的分支以及 `and`、`or` 的右侧同样按条件收窄；成员不收窄，须先读入局部变量。没有真值判断，条件必须是 bool。非空不代表对象仍然存活，访问时照常检查。依据：[第二次纸面迁移](surveys/paper-migration-2.zh.md)中，因成员不收窄而新增的局部变量只有 4 个，每千行 4.4 个。以后若要放开，可以加入条件绑定（如 `if var t = _tween:`），或在检查与使用之间没有调用、await 和赋值时让没有 getter 的字段收窄，都不会破坏已有代码。
 - **已释放的对象。** `T?` 类型的引用读到已释放的对象时，结果为 None，因此 `!= None` 检查和收窄同时就是存活检查。非空的 `T` 类型引用可以持有已释放的对象，访问其成员时报程序错误；读取、比较和传参不算访问。debug 构建中，若对象是本语言的实例或由本语言代码释放，诊断写明它在哪里被释放。`is_instance_valid` 与 GDScript 行为相同；`queue_free()` 之后到帧末删除之前，对象仍算存活。理由：语料中 `is_instance_valid` 约每千行 2 处，phantom-camera 中每千行 8 处；引擎从 4.4 起也让已释放的对象在条件中为假（PR #93885）。代价是每次读取 `T?` 类型的对象引用都要做一次存活查询。依据：[暗坑清单](surveys/pitfalls.zh.md) G-07、G-08。
 - **引用环与泄漏。** 不做追踪式 GC，RefCounted 使用引擎的引用计数，环不会被释放。闭包捕获 self 的方式与 GDScript 相同，在 RefCounted 类中是强引用（`modules/gdscript/gdscript_lambda_callable.cpp:285-291`）；按语法硬规则，不悄悄改为弱引用。提供带类型的弱引用 `weak[T]`：`weak(x)` 创建，`.get()` 返回 `T?`；需要弱捕获 self 时，在闭包外写 `var me = weak(self)`，闭包内用 `me.get()`，不需要新的捕获语法。编译器对明显的环给出警告和改写为 `weak` 的快速修复：捕获 self 的闭包存入 self 的成员、self 自身的信号连接或 self 持有的容器；两个 RefCounted 类以强引用类型的字段互相指向。Node 不做引用计数：`new()` 或 `instantiate()` 得到的节点在某条路径上既未加入场景树，也未被返回、保存或释放时，给出警告；`remove_child` 之后既未保存也未释放时同样警告。debug 构建退出时列出泄漏的节点和对象及其创建位置。经引擎容器或其他对象间接形成的环，静态分析发现不了。依据：[暗坑清单](surveys/pitfalls.zh.md) G-10。
 - **析构不新增语法。** 继续用 `_notification(what)` 处理 `NOTIFICATION_PREDELETE`，与场景树相关的清理放在 `_exit_tree`，写法和时机与 GDScript 相同；析构顺序沿用引擎。运行时保证 RefCounted 在 PREDELETE 期间可以读写自己的字段、调用自己的方法，不重新给 self 加引用。处理 PREDELETE 的分支中，把 self 传出、存入成员或容器，以及使用 await，都是编译错误；这期间指向 self 的 `weak` 返回 None。理由：语料中 `NOTIFICATION_PREDELETE` 只出现 68 次，多数在 gdUnit4 内部。依据：[暗坑清单](surveys/pitfalls.zh.md) G-09。
@@ -59,7 +59,8 @@
 
 ## 5. 动态边界与引擎绑定
 
-- **动态值只有三个来源**：以 Variant 声明的引擎接口，GDScript 插件中没有标注类型的参数和返回值，跨语言传来的消息。
+- **动态值只有三个来源**：以 Variant 声明的引擎接口，GDScript 插件中没有标注类型的参数和返回值，跨语言传来的消息。GDScript 类经反射看到的成员、参数和返回值中，对象类型视为 `T?`，值类型照声明，没有标注的是动态值。
+- **以 Variant 绑定的工具函数**（lerp、clamp、min、max、abs、wrap 等）在绑定元数据中按实参定型：实参类型相同时返回该类型。int 与 float 混用是编译错误，快速修复把整数实参改为 float，例如 `min(ratio, 1.0)`；引擎的 min、max、clamp 原样返回其中一个实参（`core/variant/variant_utility.cpp:643-760`），GDScript 中 `min(1.5, 1)` 得到 int，统一提升为 float 会使结果悄悄不同。lerp 本身要求两个实参类型相同（`variant_utility.cpp:466-470`）。
 - **能定型的从源头定型。** 引擎实际有约束但没有导出的，我们在自己的绑定元数据中补上；引擎已导出的元数据直接使用。其余动态值进入静态代码时必须显式转换，失败时报错；不做隐式检查。
 - **转换。** `x as T` 只用于对象类型，结果为 `T?`，类型不符时为 None，与 GDScript 相同（`modules/gdscript/gdscript_vm.cpp:1665-1666`）；x 的静态类型已是 T 时结果为 T，并提示这个 `as` 多余。`as` 转为内置类型是编译错误：GDScript 在这里按构造函数转换（`gdscript_vm.cpp:1630-1637`），快速修复给出 `T(x)`，它保留这种转换，如 `int("5")`；或者给出 `T.try_from(x)`。`T.try_from(v)` 是严格的显式转换，返回 `Result[T, ConversionError]`，规则与 struct 字段的解码相同，转为 int 时接受恰为整数的浮点数；用 `?` 传播失败，或用 `.unwrap()`、`.expect(…)` 把失败变为程序错误。必须成功的向下转型写作 `(x as T).unwrap()`。以字面量类名过滤的接口按该类定型，例如 `find_children("*", "MeshInstance3D")` 返回 `Array[MeshInstance3D]`；先判断分组、再向下转型的写法，快速修复建议改用 `is`。依据：[第二次纸面迁移](surveys/paper-migration-2.zh.md)中有 16 处 `(x as T).unwrap()`。
 - **引擎返回对象的可空性。** 未审核的接口一律可空。审核按语料中的调用频率由高到低进行，结果分三种：非空，类型为 T；只在误用时为空，例如 `get_tree()`，按非空处理，为空时报程序错误；正常情况下可能为空，例如 `get_collider()`，类型为 T?。理由：引擎用 `RequiredResult` 标注的接口声明只有约 50 处，其中 29 处在 Tween。
@@ -84,8 +85,8 @@
 ## 6. 数据
 
 - **带载荷的 enum 与穷尽的 match。** 载荷字段必须命名，例如 `Move(target: Vector3)`。理由：新增分支时，编译器列出所有没有处理它的位置；命名字段使编码不随字段顺序改变。
-- **struct** 具有值语义，只存在于本语言内部。跨引擎边界（信号参数、Variant、消息）时自动编码为按字段名的 Dictionary，解码时检查。第一版不能 `@export`，也不能存入 `.tres`；需要在编辑器中编辑的数据使用 Resource。
-- **容器。** 对外只有 `Array[T]` 和 `Dictionary[K, V]`，API 相同。元素可由引擎表示时，它就是引擎的容器，与引擎共享；元素为本语言独有的类型时使用自己的表示，交给引擎须显式转换，转换生成副本。理由：隐式复制会造出“修改的其实是副本”一类的坑。
+- **struct** 具有值语义，只存在于本语言内部。跨引擎边界（信号参数、Variant、消息）时自动编码为按字段名的 Dictionary，解码时检查；解码深入容器和嵌套的 struct，例如 `Dictionary[String, ConsumableState]`。第一版不能 `@export`，也不能存入 `.tres`；需要在编辑器中编辑的数据使用 Resource。
+- **容器。** 对外只有 `Array[T]` 和 `Dictionary[K, V]`，API 相同。元素可由引擎表示时，它就是引擎的容器，与引擎共享；元素为本语言独有的类型时使用自己的表示，交给引擎须显式转换，转换生成副本。理由：隐式复制会造出“修改的其实是副本”一类的坑。`pop_front()`、`pop_back()` 返回 `T?`，因为引擎在空数组上不报错而返回 null（`core/variant/array.cpp:798-817`）；`front()`、`back()` 返回 T，空数组时是程序错误，引擎在这里同样报错（`array.cpp:364-372`）；越界的下标是程序错误。
 - **JSON。** 引擎把 JSON 中的所有数字解析为浮点数（`core/io/json.cpp:390-396`）。解码到 `int` 时，接受恰为整数且在 int64 范围内的浮点数，否则报错，不截断。
 - **标准库**不重写引擎已有的功能，只补三类：绑定审核得到的带类型封装，例如把“失败返回 null、错误另取”的接口（如 `FileAccess.open`）封装为返回 Result；本语言类型的配套，包括 struct 与 enum 和 JSON、`var_to_str`、ConfigFile 之间的编码解码，Option 和 Result 上的组合操作，原生容器上接受带类型 lambda 的 map、filter、sort；测试运行器。不做包管理器。
 
@@ -104,7 +105,7 @@
 - **从未被写入的属性，就绪时不执行 setter**，与 GDScript 一致。导出属性的 setter 会同步节点、而默认值从不经过 setter 时，给出提示。
 - **跨语言 await，两个方向都支持。** 对 GDScript 方法的调用可以写 await：运行时得到 `GDScriptFunctionState` 时等待其 `completed` 信号，再按声明的返回类型检查结果；没有写 await 却得到它时，报程序错误。协程性不在方法的反射信息中（`core/object/method_info.h:37-44`），因此无法在编译期判断。GDScript await 本语言的协程时，协程第一次挂起返回其 Task 的 `completed` 信号。Task 完成时发出 `completed(值)`；取消或失败时发出 `completed(null)`，使 GDScript 的等待方不会永远挂起，另有 `cancelled` 信号供需要区分的代码使用。两个方向都须在能编译引擎的环境中实测。
 - **对象释放与挂起的协程。** 协程所属的对象被释放时，协程静默取消，挂起帧持有的引用随之释放，与 GDScript 相同。被等待的对象（另一个对象上的协程，或另一个对象的信号源）在完成之前被释放时，等待方在 await 处报程序错误并中止到引擎边界，诊断写明被释放的对象及释放位置（用 `settled()` 等待时得到 `Cancelled(AwaitedFreed)`）；GDScript 在这种情况下让等待方永远挂起（`modules/gdscript/gdscript_function.cpp:335-349`）。挂起的协程不使 self 保持存活，与 GDScript 相同。任何对象的释放都可以通过 GDExtension 公开的实例绑定释放回调感知。依据：[暗坑清单](surveys/pitfalls.zh.md) G-11。
-- **信号与函数值。** 信号参数必须标注类型；emit 和 connect 都做静态检查；场景中的连接由场景模型检查；引擎类的信号按 ClassDB 的信息定型，未审核的对象参数可空。函数类型记录参数、返回值和是否为 async。lambda 按值捕获，与 GDScript 相同。签名未知的 Callable 须显式转换为函数类型，每次调用时检查。
+- **信号与函数值。** 信号参数必须标注类型；emit 和 connect 都做静态检查；场景中的连接由场景模型检查；引擎类的信号按 ClassDB 的信息定型，未审核的对象参数可空。函数类型记录参数、返回值和是否为 async。`f.bind(a, b)` 的类型是在 f 的函数类型中去掉最后两个参数，因为引擎把绑定的实参接在调用实参之后（`core/variant/callable_bind.cpp:141-150`）。lambda 按值捕获，与 GDScript 相同。await 一个信号时，无参数的信号不产生值，单参数的信号得到该参数类型的值，多参数信号的 await 只能作为语句；依据：[await 信号结果调查](surveys/await-signal-results.zh.md)中，1,356 个 await 只有 1 个使用了多参数信号的结果。签名未知的 Callable 须显式转换为函数类型，每次调用时检查。
 
 ## 8. 运行时
 
@@ -128,11 +129,11 @@
   - `Ok(var v)`、`Err(var e)` 按位置书写，与构造一致。Option 用 `None` 和 `var x` 两个分支，后者绑定的值已收窄为 T。
   - 对 enum（无论有无载荷）、Result 和 Option 的 match 必须穷尽或带 `_`，带 `when` 的分支不计入覆盖；对其他类型不要求穷尽，与 GDScript 相同。
   - 第一版没有类型模式（用 `if x is T`）、match 表达式，也不能在逗号分隔的多个模式中绑定；以后加入不改变现有写法的含义。
-- **for** 的写法与 GDScript 相同：`for i in n` 遍历 0 到 n-1，i 为 int；`range(...)`、容器、String、Dictionary 的键都可以遍历；循环变量可以标注类型，如 `for i: int in ...`。遍历 float 和向量是编译错误，提示改用 `range(...)`；GDScript 允许这样写，把向量当作范围（`modules/gdscript/gdscript_vm.cpp:3093-3230`），在静态类型下这几乎总是误用。
+- **for** 的写法与 GDScript 相同：`for i in n` 遍历 0 到 n-1，i 为 int；`range(...)`、容器、String、Dictionary 的键都可以遍历；循环变量可以标注类型，如 `for i: int in ...`，标注的类型须是元素类型或其父类型，不做隐式的向下转换。遍历 float 和向量是编译错误，提示改用 `range(...)`；GDScript 允许这样写，把向量当作范围（`modules/gdscript/gdscript_vm.cpp:3093-3230`），在静态类型下这几乎总是误用。
 
 ## 10. 尚未决定
 
-- 成员不收窄的代价：在纸面迁移中测量。可以兼容地放开的方向有两个：条件绑定，例如 `if var t = _tween:`；检查与使用之间没有调用、await 或赋值时，让没有 getter 的字段收窄。
+- 在场景编辑器中给节点改名时，是否自动更新脚本中引用它的 `$X`、`%X` 路径。改名后这些路径立即报错已经确定（§3）；[第二次纸面迁移](surveys/paper-migration-2.zh.md)的场景 B 中有 4 处。
 
 ## 依据
 
