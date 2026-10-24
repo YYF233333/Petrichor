@@ -1,0 +1,61 @@
+extends Node
+
+@onready var noise = FastNoiseLite.new()
+
+
+pub func hint_not_available(node: CanvasItem):   # [pub] [annot] was Node; see flicker_red
+	flicker_red(node)
+
+	#var shake_tween = create_tween().set_loops(2).parallel()
+	#shake_tween.tween_property(self, "position", Vector2(0,0), 0.4).as_relative().set_trans(Tween.TRANS_SPRING)
+	# TODO：想做抖动，但这样做好像不行
+	# 高频调用shake()？
+
+
+# [annot] node: Node -> CanvasItem: "modulate" is checked against the target's static type (decisions §5),
+# and Node has no modulate
+pub func flicker_red(node: CanvasItem, times: int = 2, color: Color = Color(0.66, 0, 0, 0.66)) -> Tween:   # [pub] [annot] x2
+	var flicker_tween = create_tween().set_loops(times)
+	flicker_tween.tween_property(node, "modulate", color, 0.1)
+	flicker_tween.tween_property(node, "modulate", Color(1, 1, 1, 1), 0.1)
+	return flicker_tween
+
+
+func flicker_transparent(node: CanvasItem, times: int = 2, color: Color = Color(1, 1, 1, 0.33)) -> Tween:   # [annot] x2
+	var flicker_tween = create_tween().set_loops(times)
+	flicker_tween.tween_property(node, "modulate", color, 0.5)
+	flicker_tween.tween_property(node, "modulate", Color(1, 1, 1, 1), 0.5)
+	return flicker_tween
+
+
+pub async func screen_shake(shake_force: float = 1.0):   # [pub] [rewrite] async
+	var breakout = BreakoutManager.breakout.unwrap()   # [conv] member Option; the original reads it three times
+	breakout.shake = true
+	breakout.shake_force = shake_force
+
+	await get_tree().create_timer(0.1).timeout   # S17
+
+	breakout.shake = false
+
+
+pub async func wait_with_end_hint(node: CanvasItem?, time: float, end_hint_time: float = 5.0):   # [pub] [rewrite] async [decision] the original tests node
+	if time > end_hint_time:
+		await get_tree().create_timer(time-end_hint_time).timeout
+		if node != None:   # [rewrite]; also false once the node is freed
+			end_hint(node, end_hint_time).detach()   # [rewrite] fire and forget, as in the original
+	else:
+		if node != None:   # [rewrite]
+			end_hint(node, time).detach()   # [rewrite]
+
+
+async func end_hint(node: CanvasItem, last_time: float):   # [rewrite] async [annot] Node -> CanvasItem
+	var flicker_tween = flicker_transparent(node, -1) as Tween   # S4: redundant
+	await get_tree().create_timer(last_time).timeout
+	flicker_tween.kill()
+
+
+async func dialogue(str: String):   # [rewrite] async
+	#TODO: 替换为RING Dialogue
+	var res = (DialogueManager.create_resource_from_text(str) as DialogueResource).unwrap()   # [conv] the plugin declares -> Resource
+	await DialogueManager.get_next_dialogue_line(res)   # awaiting a GDScript coroutine (decisions §7)
+	DialogueManager.show_dialogue_balloon(res)

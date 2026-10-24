@@ -1,0 +1,277 @@
+extends Node
+
+# [pub] on 34 members: everything the remaining GDScript files (UI, Paddle, Ball, Skill, drops, levels)
+# and Root.cs reach through the BreakoutManager autoload
+pub const debug: bool = false
+
+"""
+信号中心
+游戏管理中心
+player状态处理中心
+"""
+
+pub signal point_scored(point: int)   # [annot]
+
+pub signal goal_text_changed(text: String)
+
+pub signal ammo_lost(value: int)
+pub signal ammo_changed
+
+pub signal health_changed(value: int)
+
+pub signal skill_charge(value: int)
+pub signal skill_charged
+pub signal skill_changed
+pub signal try_use_skill
+
+pub signal ball_lost(ball: Ball)
+pub signal ball_hit(charge: int)
+
+pub signal enemy_defeated(enemy_name: StringName)
+pub signal brick_broken(brick_name: StringName)
+
+signal failed
+signal track_lost #剧情杀，特殊结算
+pub signal goal_clear(level_name: String, goal_name: String) #关卡小目标达成，通常准备转阶段
+pub signal level_clear(level_name: String) #关卡完成
+
+# [rewrite] the message from Root.cs, decoded by field name at the entry check (decisions §6)
+pub struct ConsumableState:
+	var rest_times: int
+	var transformed: bool
+
+pub struct InitMessage:
+	var player_consumables: Dictionary[String, ConsumableState]   # S16: decoding recurses into containers
+	var selected_skill: String
+	var selected_policy: PackedStringArray
+	var player_max_health: int
+	var player_init_ammo: int
+	var current_level: String
+	var current_level_manager: String
+
+# [decision] all five are set by other nodes after this autoload is ready, so they are T?
+pub var breakout: Breakout?
+pub var skill: Skill?
+pub var balls: Balls?
+pub var paddle: Paddle?
+pub var consumables: Consumables?
+
+var is_game_ended : bool = false
+pub var ammo : int:
+	set(value):
+		ammo = max(value, 0)   # S10
+		ammo_changed.emit()
+pub var score : int = 0
+
+pub var current_health: int:
+	set(value):
+		var old_health = current_health
+		current_health = min(max(value, 0), max_health)   # S10
+		if _health_ready:
+			health_changed.emit(current_health-old_health)
+		else:
+			health_changed.emit(0) #为了防止初始化时血量变化被识别为回血
+pub var max_health: int:
+	set(value):
+		max_health = value
+		current_health = current_health
+
+pub var cursed: bool = false:
+	set(value):
+		cursed = value
+		# [conv] x2: paddle is Paddle?; Paddle.sprite is untyped in paddle.gd, so `as` yields an Option
+		if value:
+			(paddle.unwrap().sprite as Sprite2D).unwrap().texture = preload("res://breakout/assets/CursedPaddle.png")
+		else:
+			(paddle.unwrap().sprite as Sprite2D).unwrap().texture = preload("res://breakout/assets/DefaultPaddle.png")
+pub var rebound: bool = false:
+	set(value):
+		rebound = value
+		# [conv] x2, as above
+		if value:
+			(paddle.unwrap().sprite as Sprite2D).unwrap().texture = preload("res://breakout/assets/GoldenPaddle.png")
+		else:
+			(paddle.unwrap().sprite as Sprite2D).unwrap().texture = preload("res://breakout/assets/DefaultPaddle.png")
+pub var blessed: bool = false:
+	set(value):
+		blessed = value
+		#视效
+
+var init_message: InitMessage?   # [rewrite] was Dictionary
+var _health_ready: bool = false
+
+func _ready():
+	try_use_skill.connect(_on_try_use_skill)
+	point_scored.connect(_on_point_scored)
+	ball_lost.connect(_on_ball_lost)
+	ammo_lost.connect(_on_ammo_lost)
+
+	failed.connect(_on_failed)
+	track_lost.connect(_on_track_lost)
+	level_clear.connect(_on_level_clear)
+#
+	#call_deferred("reset") #在breakout里调用，不然restart会寄
+
+
+pub func receive_init_message(message: InitMessage):   # [rewrite] Root.cs still sends a Dictionary
+	init_message = message   # structs are values; the original duplicate(true) is not needed
+	call_deferred("reset")
+
+
+pub func send_message() -> Dictionary:
+	var ret_message = Dictionary()
+
+	var player_consumables = Dictionary()
+	for consumable in consumables.unwrap().consumable_nodes:   # [conv] member Option
+		var c = (consumable as Consumable).unwrap()   # [conv] consumable_nodes is Array[Node]
+		var consumable_name = c.consumable_info.unwrap().consumable_name   # [conv] S11: object member of a GDScript class
+		var rest_times = c.rest_times
+		var transformed = c.transformed
+		player_consumables[consumable_name] = Dictionary()
+		player_consumables[consumable_name]["rest_times"] = rest_times
+		player_consumables[consumable_name]["transformed"] = transformed
+	ret_message["player_consumables"] = player_consumables
+
+	var level_result = Dictionary()
+	ret_message["level_result"] = level_result
+
+	return ret_message
+
+
+func reset():
+	var msg = init_message   # [narrow]
+	if msg != None:   # [rewrite] was `if init_message:`
+		print_debug(msg)
+		consumables.unwrap().reset()   # [conv] member Option
+		for consumable_name in msg.player_consumables.keys():
+			var state = msg.player_consumables[consumable_name]
+			var consumable = (ResourceManager.get_consumable_scene_by_name(consumable_name).unwrap().instantiate() as Consumable).unwrap()   # [conv] x2: S11, downcast
+			consumable.rest_times = state.rest_times
+			consumable.transformed = state.transformed
+			consumables.unwrap().add_consumable_instance(consumable)   # [conv] member Option
+
+
+		var selected_skill: String = msg.selected_skill
+		skill = ResourceManager.get_skill_scene_by_name(selected_skill).unwrap().instantiate() as Skill   # [conv] S11
+		skill_changed.emit()
+
+		var selected_policy: PackedStringArray = msg.selected_policy
+		#TODO
+
+		var player_max_health: int = msg.player_max_health
+		ValueManager.player_max_health = player_max_health
+
+		var player_init_ammo: int = msg.player_init_ammo
+		ValueManager.player_init_ammo = player_init_ammo
+
+		var current_level: String = msg.current_level
+		var current_level_scene = ResourceManager.get_level_scene_by_name(current_level) as PackedScene   # PackedScene? (S11)
+		if current_level_scene != None:   # [rewrite]
+			var previous_level = (get_tree().get_first_node_in_group("levels") as Node2D).unwrap()   # [conv]
+			previous_level.add_sibling(current_level_scene.instantiate())
+			previous_level.queue_free()
+
+		var current_level_manager_name: String = msg.current_level_manager
+		var current_level_manager = ResourceManager.get_level_manager_by_name(current_level_manager_name) as PackedScene
+		if current_level_manager != None:   # [rewrite]
+			var previous_level_manager = (get_tree().get_first_node_in_group("level_managers") as Node2D).unwrap()   # [conv]
+			previous_level_manager.add_sibling(current_level_manager.instantiate())
+			previous_level_manager.queue_free()
+
+
+	var s = skill   # [narrow]
+	if s != None:   # [rewrite]
+		s.current_charge = 0
+
+	_health_ready = false
+	max_health = ValueManager.player_max_health #小心顺序，要先设置max_health
+	current_health = max_health
+	_health_ready = true
+
+	ammo = ValueManager.player_init_ammo
+	score = 0
+
+
+pub func get_charge_percent() -> float:   # [annot]
+	var s = skill.unwrap()   # [conv] [narrow] the original fails when skill is null
+	if s.max_charge <= 0:
+		return 1
+
+	return s.current_charge/float(s.max_charge)
+
+
+pub func take_damage(value: int):
+	#debug
+	current_health -= value
+	Callable(check_death).call_deferred()
+
+
+pub func get_health_percent() -> float:   # [annot]
+	if max_health <= 0:
+		return 0
+	else:
+		return min(current_health/float(max_health), 1)   # S10
+
+
+func check_death():
+	if current_health <= 0:
+		failed.emit()
+
+
+func clear_bricks():
+	var bricks = get_tree().get_nodes_in_group("bricks")
+	for brick in bricks:
+		brick.queue_free()
+
+
+func clear_enemies():
+	var enemies = get_tree().get_nodes_in_group("enemies")
+	for enemy in enemies:
+		enemy.queue_free()
+
+
+func pause_game():
+	breakout.unwrap().process_mode = Node.PROCESS_MODE_DISABLED   # [conv] member Option
+
+
+func continue_game():
+	breakout.unwrap().process_mode = Node.PROCESS_MODE_INHERIT   # [conv] member Option
+
+
+func _on_try_use_skill():
+	var s = skill   # [narrow]
+	if s != None:   # [rewrite]
+		s.try_use()
+
+
+func _on_point_scored(point: int):
+	score += point
+
+
+func _on_ball_lost(ball: Ball):
+	var balls = (get_tree().get_first_node_in_group("balls") as Balls).unwrap()   # [conv]
+	balls.del_ball(ball)
+
+
+func _on_ammo_lost(value: int):
+	ammo -= value
+	if ammo == 0:
+		print_debug("ammo run out") #TODO: hint label & restart bottom
+
+
+pub func _on_failed():   # [pub] breakout.gd calls it
+	get_tree().paused = true
+	var end_screen = preload("res://breakout/scenes/screens/EndMiniGameScreen.tscn").instantiate()
+	breakout.unwrap().add_child(end_screen)   # [conv] member Option
+
+
+func _on_track_lost():
+	get_tree().paused = true
+	var end_screen = preload("res://breakout/scenes/screens/EndMiniGameScreen.tscn").instantiate()
+	breakout.unwrap().add_child(end_screen)   # [conv] member Option
+
+
+func _on_level_clear(level_name: String):
+	get_tree().paused = true
+	var end_screen = preload("res://breakout/scenes/screens/EndMiniGameScreen.tscn").instantiate()
+	breakout.unwrap().add_child(end_screen)   # [conv] member Option

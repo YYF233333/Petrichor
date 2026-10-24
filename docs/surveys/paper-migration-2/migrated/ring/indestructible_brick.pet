@@ -1,0 +1,22 @@
+extends Brick
+
+
+pub func check_init_type():   # [pub]
+	#debug
+	if type != min(health_component.current_health-1, 1):   # S10
+		print_debug("type seems not correct")
+
+
+pub func physic_hurt(value: int):   # [pub]
+	if value > 999:
+		health_component.take_damage(health_component.current_health-1)
+		#TODO: strong_break visual effect
+	else:
+		health_component.take_damage(min(value,1))   # S10
+
+
+pub func _on_health_change():   # [pub]
+	var current_health = health_component.current_health
+	if current_health > 0:
+		set_type(min(current_health-1, 1))   # S10
+		show_health()

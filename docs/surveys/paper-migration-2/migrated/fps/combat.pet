@@ -1,0 +1,5 @@
+# [rewrite] new file: the capability the original expressed with has_method("damage")
+class_name Combat
+
+pub interface Damageable:
+	func damage(amount: float)

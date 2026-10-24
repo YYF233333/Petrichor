@@ -1,0 +1,11 @@
+# [rewrite] new file: the owner fields that HealthComponent and DeathComponent used by duck typing
+class_name Combat
+
+pub interface Combatant:
+	var init_health: int
+	var max_health: int
+	var point: int
+	var drop_percent_scale: float
+	var lucky_drop: bool
+	var unique_drop_name: String
+	var global_position: Vector2   # S14: satisfied by the engine property of Node2D

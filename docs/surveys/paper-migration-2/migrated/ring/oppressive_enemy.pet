@@ -1,0 +1,15 @@
+# Migrated only because GDScript cannot extend a class written in this language.
+extends Enemy
+
+
+pub func check_init_type():   # [pub]
+	#debug
+	# check if init_type correspond with other stats
+	if type != 0:
+		print_debug("type seems not correct")
+
+pub func update_stat(delta: float):   # [pub] [annot]
+	if knock_back_timer.time_left == 0:   # [rewrite] no truthiness
+		current_speed = move_toward(current_speed, basic_speed, basic_acceleration * delta)
+		current_direction = get_direction_to_paddle("bottom") as Vector2   # S4: redundant now that the return type is written
+	velocity = current_direction * current_speed
