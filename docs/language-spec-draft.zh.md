@@ -99,7 +99,28 @@
 - **实现接口**：类头写 `implements A, B`（§2.1）。
 - **pub**：关键字，写在注解之后、`static` 之前，例如 `@export pub var max_hp: int`、`pub static func make() -> Player`、`pub signal died`。
 - **放置与命名**：struct、enum、interface 和内部类属于声明它们的文件的类。在本文件中直接写名字；在其他文件中写 `类名.名字`，例如 `Combat.Hit`、`Player.Command.MOVE(target = p)`。几个类共用的类型放进一个专门承载它们的类。【后续】别名或 `import`。
-- **泛型**的声明和实参写法【待定】；**函数类型**的写法【待定】。
+- **泛型**：类型参数写在名字之后的方括号中，与 `Array[int]` 一致，写法同 Python 3.12（PEP 695）；约束写作 `T: 接口`（§3.10）。文件的类在 `class_name` 上声明类型参数，例如 `class_name Cache[K, V] extends RefCounted`；内部类写作 `class Cache[K, V] extends RefCounted:`。
+
+  ```gdscript
+  func first[T](items: Array[T]) -> T?:
+      return None if items.is_empty() else items[0]
+
+  struct Pair[A, B]:
+      var first: A
+      var second: B
+
+  enum Tree[T] { LEAF, NODE(value: T, children: Array[Tree[T]]) }
+
+  func weakest[T: Damageable](units: Array[T]) -> T?:
+      var best: T? = None
+      for u in units:
+          if best == None or u.hp < best.hp:
+              best = u
+      return best
+  ```
+
+  调用处通常由实参推断，推断不出时显式写出，例如 `first[int]([])`、`Pair[int, String](first = 1, second = "a")`。`名字[...]` 与下标同形，由名字解析区分：名字是泛型函数或泛型类型时，方括号中是类型实参，否则是下标。GDScript 在这些位置遇到 `[` 都是语法错误（`gdscript_parser.cpp:964, 1005-1010, 1616, 1822`）。
+- **函数类型**的写法【待定】。
 
 ### 2.5 语句
 
@@ -195,8 +216,10 @@
 ### 3.10 泛型
 
 - 函数、struct、enum，以及只由本语言代码创建的 RefCounted 类可以是泛型。Node、Resource 脚本和 autoload 不能，因为引擎实例化它们时不提供类型参数。
-- 约束用接口表达。类型参数在运行时保留。
-- 写法【待定】。
+- 约束用接口表达，第一版每个类型参数至多一个约束。类型参数在运行时保留。
+- 写法见 §2.4。
+- 泛型方法不经反射暴露（§10.5），因为引擎和 GDScript 按名字调用时给不出类型实参。作为 Callable 使用时须确定类型实参，例如 `sig.connect(handle[int])`。
+- 【后续】多个约束，以及以类作约束；写法不变。
 
 ### 3.11 函数类型与 Callable
 
@@ -657,6 +680,7 @@
   - `pub` 成员；
   - 引擎必须按名字找到的成员：导出属性、信号、引擎虚函数的覆盖、场景中连接的方法，以及本语言代码以字面量名字交给引擎的成员，例如 `call_deferred("reset")`、`tween_property(self, "current_speed")` 和场景动画轨道中的属性路径。后一类由编译器收集。
 - 其余成员对按名字的访问不可见：GDScript 引用它们是 GDScript 的编译错误；C# 的 `Call` 和非字面量的动态访问在运行时报告找不到成员。
+- 泛型方法不经反射暴露，因为按名字调用时给不出类型实参；引擎必须按名字找到的方法不能是泛型（§3.10）。
 - 由方法值形成的 Callable（例如 `tween_callback(change_weapon)`、`sig.connect(_on_x)`）直接指向方法，不按名字查找，不受此限制。
 - 调试器可以看到全部成员。
 - 理由：不带 `pub` 的成员只会被本文件、子类和编译器收集到的字面量名字引用，改名时工具能找全。
@@ -781,6 +805,7 @@
 - 重入策略的注解，例如 `@restart`（§9.5）；
 - 别名或 `import`（§2.4）；
 - 调用处的展开写法（§4.6）；
+- 泛型的多个约束，以及以类作约束（§3.10）；
 - §13.5 所列的工具。
 
 ### 14.3 待定问题
@@ -789,7 +814,6 @@
 
 | 问题 | 章节 |
 |---|---|
-| 泛型的写法 | §3.10 |
 | 函数类型的写法 | §3.11 |
 | Variant 上允许的操作 | §3.13 |
 | 嵌套的 Option | §3.4 |
@@ -814,6 +838,7 @@
 | 收窄 | `!= None`、`is` 和提前返回之后局部变量收窄；条件表达式的分支和 `and` 右侧收窄；成员不收窄；`if x:` 报编译错误并按类型给出改法 |
 | 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
 | 签名 | `func _process(delta):` 中 delta 为 float；覆盖时写出不一致的类型报编译错误；非覆盖函数省略返回类型后返回值报编译错误；有期望类型的 lambda 参数不必标注 |
+| 泛型 | `first([1, 2])` 中 T 推断为 int；`var x = first([])` 推断不出 T 报编译错误，`var x = first[int]([])` 合法；不满足约束的类型实参报编译错误；Node 脚本声明类型参数报编译错误；GDScript 引用泛型方法是 GDScript 的编译错误；`sig.connect(handle)` 在 handle 为泛型且类型实参确定不了时报编译错误 |
 | 抽象类与剩余参数 | 构造抽象类报编译错误；具体子类缺少某个抽象方法的实现报编译错误；场景中的节点使用抽象类报编译错误；向 `...args: Array[int]` 传入 String 报编译错误；只写 `...args` 报编译错误；GDScript 调用 `...args: Array[int]` 时传入 String 是程序错误 |
 | 成员 | `var speed = 5.0` 为 float；空容器成员要求标注；没有初始化式的 int 成员为 0；所有字段都有默认值的 struct 成员取默认值，否则必须赋值 |
 | 必须赋值 | `BulletScene.instantiate(speed = 300.0)` 漏写 `target` 报编译错误；祖先在 `_ready` 中经 `$Child.target = v` 赋值时不报错；子节点在自己的 `_ready` 中读取该成员报编译错误；就绪前读取未赋值的成员是程序错误 |
@@ -874,6 +899,7 @@
 | GDScript 从其他语言的方法信息中读取 `METHOD_FLAG_VARARG` | `modules/gdscript/gdscript_analyzer.cpp:6101-6104` |
 | GDScript 中 `?` 是语法错误 | `modules/gdscript/gdscript_parser.cpp:3834-3835` |
 | GDScript 的前缀 `!` 是逻辑非 | `modules/gdscript/gdscript_parser.cpp:2965-2967` |
+| GDScript 中内部类名、`class_name` 的名字、enum 名和函数名之后不能接 `[` | `modules/gdscript/gdscript_parser.cpp:964, 1005-1010, 1616, 1822` |
 | 抽象方法的声明不写冒号 | `modules/gdscript/gdscript_parser.cpp:1790-1791` |
 | `@abstract` 注解，不能用于 static 方法 | `modules/gdscript/gdscript_parser.cpp:149, 4492-4516` |
 | 剩余参数只能是最后一个参数，不能有默认值 | `modules/gdscript/gdscript_parser.cpp:1723-1730` |

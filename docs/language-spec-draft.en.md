@@ -99,7 +99,28 @@ This document rewrites the language specification from the [design decisions](de
 - **Implementing interfaces**: the class header writes `implements A, B` (§2.1).
 - **pub**: a keyword written after annotations and before `static`, for example `@export pub var max_hp: int`, `pub static func make() -> Player`, `pub signal died`.
 - **Placement and naming**: structs, enums, interfaces and inner classes belong to the class of the file that declares them. In that file they are written by name; in other files as `ClassName.Name`, for example `Combat.Hit` or `Player.Command.MOVE(target = p)`. Types shared by several classes go into a class that exists to hold them. [Later] Aliases or `import`.
-- The spelling of **generic** declarations and type arguments is [Open]; the spelling of **function types** is [Open].
+- **Generics**: type parameters are written in square brackets after the name, consistent with `Array[int]` and as in Python 3.12 (PEP 695); a constraint is written `T: Interface` (§3.10). A file's class declares its type parameters on `class_name`, for example `class_name Cache[K, V] extends RefCounted`; an inner class is written `class Cache[K, V] extends RefCounted:`.
+
+  ```gdscript
+  func first[T](items: Array[T]) -> T?:
+      return None if items.is_empty() else items[0]
+
+  struct Pair[A, B]:
+      var first: A
+      var second: B
+
+  enum Tree[T] { LEAF, NODE(value: T, children: Array[Tree[T]]) }
+
+  func weakest[T: Damageable](units: Array[T]) -> T?:
+      var best: T? = None
+      for u in units:
+          if best == None or u.hp < best.hp:
+              best = u
+      return best
+  ```
+
+  At call sites type arguments are usually inferred from the arguments, and are written out when they cannot be, for example `first[int]([])` or `Pair[int, String](first = 1, second = "a")`. `name[...]` looks like a subscript and is told apart by name resolution: when the name is a generic function or a generic type, the brackets hold type arguments; otherwise they are a subscript. In GDScript `[` in each of these positions is a syntax error (`gdscript_parser.cpp:964, 1005-1010, 1616, 1822`).
+- The spelling of **function types** is [Open].
 
 ### 2.5 Statements
 
@@ -195,8 +216,10 @@ This document rewrites the language specification from the [design decisions](de
 ### 3.10 Generics
 
 - Functions, structs, enums, and RefCounted classes created only by code of this language may be generic. Node and Resource scripts and autoloads cannot, because the engine provides no type arguments when it instantiates them.
-- Constraints are expressed with interfaces. Type arguments are kept at runtime.
-- The spelling is [Open].
+- Constraints are expressed with interfaces, at most one per type parameter in the first version. Type arguments are kept at runtime.
+- The spelling is in §2.4.
+- Generic methods are not exposed through reflection (§10.5), because the engine and GDScript cannot supply type arguments when calling by name. To use one as a Callable, its type arguments must be fixed, for example `sig.connect(handle[int])`.
+- [Later] Several constraints, and classes as constraints, with the same spelling.
 
 ### 3.11 Function types and Callable
 
@@ -657,6 +680,7 @@ This document rewrites the language specification from the [design decisions](de
   - `pub` members;
   - members the engine must find by name: exported properties, signals, overrides of engine virtuals, methods connected in scenes, and members that code in this language hands to the engine by a literal name, such as `call_deferred("reset")`, `tween_property(self, "current_speed")` and property paths in animation tracks of scenes. The compiler collects the latter.
 - All other members are invisible to access by name: referring to them from GDScript is a GDScript compile error, and C#'s `Call` and dynamic access with a non-literal name report a missing member at runtime.
+- Generic methods are not exposed through reflection, because calls by name cannot supply type arguments; methods the engine must find by name cannot be generic (§3.10).
 - A Callable formed from a method value (for example `tween_callback(change_weapon)` or `sig.connect(_on_x)`) refers to the method directly, not by name, and is not affected.
 - The debugger sees all members.
 - Rationale: members without `pub` are referred to only by their file, subclasses and the literal names the compiler collects, so the tools can find every reference when renaming them.
@@ -781,6 +805,7 @@ This document rewrites the language specification from the [design decisions](de
 - reentrancy annotations such as `@restart` (§9.5);
 - aliases or `import` (§2.4);
 - a spread form at call sites (§4.6);
+- several constraints on a type parameter, and classes as constraints (§3.10);
 - the tools listed in §13.5.
 
 ### 14.3 Open questions
@@ -789,7 +814,6 @@ The following correspond to §10 of the [design decisions](decisions.en.md):
 
 | Question | Section |
 |---|---|
-| The spelling of generics | §3.10 |
 | The spelling of function types | §3.11 |
 | The operations Variant allows | §3.13 |
 | Nested Options | §3.4 |
@@ -814,6 +838,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Narrowing | Locals narrow after `!= None`, `is` and early returns; branches of conditional expressions and the right operand of `and` narrow; members do not narrow; `if x:` is a compile error with a fix depending on the type |
 | Visibility | Members without `pub` are invisible in other classes, and readable, writable and overridable in subclasses; changing visibility in an override is a compile error; a type without `pub` in the signature of a `pub` function is a compile error; GDScript referring to a member without `pub` is a GDScript compile error; `call_deferred("reset")` makes `reset` callable by name from the engine |
 | Signatures | delta in `func _process(delta):` is a float; writing a mismatching type in an override is a compile error; returning a value from a non-override function with an omitted return type is a compile error; lambda parameters with an expected type need no annotation |
+| Generics | T in `first([1, 2])` is inferred as int; `var x = first([])` cannot infer T and is a compile error, while `var x = first[int]([])` is valid; a type argument that does not satisfy the constraint is a compile error; a Node script declaring type parameters is a compile error; GDScript referring to a generic method is a GDScript compile error; `sig.connect(handle)` with a generic handle whose type arguments cannot be determined is a compile error |
 | Abstract classes and rest parameters | Constructing an abstract class is a compile error; a concrete subclass missing an implementation of an abstract method is a compile error; a node in a scene using an abstract class is a compile error; passing a String to `...args: Array[int]` is a compile error; a bare `...args` is a compile error; GDScript passing a String when calling `...args: Array[int]` is a program error |
 | Members | `var speed = 5.0` is float; empty-container members require an annotation; an int member without an initializer is 0; a struct member takes its default when every field has one and must otherwise be assigned |
 | Must-assign | `BulletScene.instantiate(speed = 300.0)` without `target` is a compile error; an ancestor assigning `$Child.target = v` in `_ready` is not an error; the child reading that member in its own `_ready` is a compile error; reading an unassigned member before ready is a program error |
@@ -874,6 +899,7 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | GDScript reads `METHOD_FLAG_VARARG` from other languages' method information | `modules/gdscript/gdscript_analyzer.cpp:6101-6104` |
 | `?` is a syntax error in GDScript | `modules/gdscript/gdscript_parser.cpp:3834-3835` |
 | GDScript's prefix `!` is logical not | `modules/gdscript/gdscript_parser.cpp:2965-2967` |
+| In GDScript `[` cannot follow an inner class name, the name in `class_name`, an enum name or a function name | `modules/gdscript/gdscript_parser.cpp:964, 1005-1010, 1616, 1822` |
 | An abstract method declaration has no colon | `modules/gdscript/gdscript_parser.cpp:1790-1791` |
 | The `@abstract` annotation, which cannot be applied to static methods | `modules/gdscript/gdscript_parser.cpp:149, 4492-4516` |
 | A rest parameter must be the last parameter and cannot have a default value | `modules/gdscript/gdscript_parser.cpp:1723-1730` |
