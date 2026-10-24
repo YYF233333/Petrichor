@@ -176,7 +176,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 
 ### 3.4 Option
 
-- `T?` 就是 Option，值为 T 的值（下文称 Some）或 None。T 的值隐式包装为 `T?`。
+- `T?` 就是 Option，值为 `Some(v)` 或 None，v 是 T 的值。T 的值隐式包装为 Some；需要显式写出时用 `Some(v)`，例如 `T??` 中的 `Some(None)`。
 - Option 是值，对它的操作都是方法，名字与 Rust 相同：`unwrap`、`expect(消息)`（失败时都是程序错误）、`unwrap_or`、`unwrap_or_else`、`map`、`and_then`、`or`、`or_else`、`filter`、`ok_or`、`ok_or_else`。没有 `!`、`??`、`?.` 运算符。
 - 唯一的特殊语法是后缀 `?`：遇到 None 时当前函数返回 None（§8.2）。
 - 判空用 `!= None` 和收窄（§5.4）；没有真值判断。
@@ -469,8 +469,8 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 - 新增的模式：
   - enum 分支：`类型.分支(字段 = 模式, ...)`。`var 字段` 是 `字段 = var 字段` 的简写。未列出的字段须由 `..` 覆盖，与字典模式相同。模式可以嵌套。
   - struct：同样的写法，例如 `Hit(damage = var d, ..)`。
-  - Result：`Ok(var v)`、`Err(var e)`，按位置书写，与构造一致。
-  - Option：`None` 和 `var x`；后者绑定的值已收窄为 T。
+  - 内置的构造：`Ok(var v)`、`Err(var e)`（Result），`Some(var x)`（Option），`Finished(var v)`、`Cancelled(var r)`（Settled，§9.2），不带类型前缀，按位置书写，与构造一致。
+  - Option 另有 `None` 和 `var x`；后者绑定的值已收窄为 T。
 
   ```gdscript
   match cmd:
@@ -700,7 +700,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 - 协程在签名上声明，写作 `async func`。函数体中有 await 而没有声明，是编译错误。引擎虚函数可以声明为 async。
 - lambda 同样如此：含 await 的 lambda 写作 `async func(...)`，例如 `button.pressed.connect(async func(): await fade_out())`。GDScript 中这样的 lambda 不加标记（`modules/gdscript/gdscript_parser.cpp:3223-3225, 3726-3727`），快速修复补上 `async`。理由：判断函数是否为 async 只有一条规则，挂起点旁边一定看得到 async；[语料计数](surveys/corpus-counts.zh.md)中 979 个 lambda 只有 35 个含 await，其中 33 个在 gdUnit4 的测试中。
 - 由引擎调用的位置接受 async 函数，任务作为根任务运行（§3.11）。
-- 调用 async 函数得到 `Task[T]`。任务立即开始，运行到第一次挂起为止；`await f()` 和 `await t` 得到 T。
+- 调用 async 函数得到 `Task[T]`。任务立即开始，运行到第一次挂起为止；`await f()` 和 `await t` 得到 T。返回 void 的协程得到 `Task[void]`；`void` 作类型实参只能用于 Task，没有类型实参的 `Task` 是编译错误。
 - 丢弃 async 调用的结果是编译错误；确实不等待时写 `f().detach()`。GDScript 中把协程调用的结果当值使用本来就是编译错误（`modules/gdscript/gdscript_analyzer.cpp:3820-3828`），所以 `var t = f()` 获得新含义不违反语法硬规则。
 - setter、getter、`@onready` 初始化式和静态初始化不能 await。
 
@@ -711,7 +711,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
   - **取消**：由 `t.cancel()`、所属对象被释放，或 `Task.of(信号)` 的信号源被释放引起（§9.7）；
   - **失败**：任务内部发生程序错误，包括 await 到被取消的任务或已释放的信号源（§9.7）。
 - 等待被取消的任务是程序错误。失败沿 await 链向上传播到根任务，即 detach 的任务或被引擎调用的任务，不能拦截。
-- `await t.settled()` 等待任务以任何方式结束而不报错，返回 `Settled[T]`：`Finished(value: T)` 或 `Cancelled(reason: CancelReason)`，`CancelReason` 为 `Requested`、`OwnerFreed` 或 `AwaitedFreed`。不用 Result 表达，因为被取消不是错误。
+- `await t.settled()` 等待任务完成或被取消，把取消当作值而不是错误，返回 `Settled[T]`：`Finished(v)` 或 `Cancelled(r)`，r 的类型是 enum `CancelReason`，分支为 `REQUESTED`、`OWNER_FREED` 和 `AWAITED_FREED`。任务失败时，失败照常传给等待方，与 `await t` 相同。不用 Result 表达，因为被取消不是错误。
 
 ### 9.3 取消与归属
 
@@ -748,9 +748,9 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 
 - 协程所属的对象被释放时，协程静默取消，挂起帧持有的引用随之释放，与 GDScript 相同（`modules/gdscript/gdscript.cpp:2089-2092`）。运行时在对象收到 PREDELETE 时就取消它的协程。PREDELETE 先通知脚本实例，再由 Node 删除子节点（`core/object/object.cpp:140, 1009-1012`；`scene/main/node.cpp:308-312`），所以等待自己子节点的协程在子节点被删除之前已经取消。
 - 被等待的对象（另一个对象上的协程，或另一个对象的信号源）在完成之前被释放时，等待方不会像在 GDScript 中那样永远挂起（`modules/gdscript/gdscript_function.cpp:335-349`，`core/object/object.cpp:2402-2417`）。判断推迟到本帧待删除的对象都删除之后，即场景树处理完删除队列、引擎调用脚本语言的每帧回调时（`scene/main/scene_tree.cpp:736`，`main/main.cpp:5150-5153`）：
-  - 等待方的所属对象在这期间也被释放时，等待方静默取消（`OwnerFreed`）。例如切换场景时，引擎从后往前逐个删除兄弟节点（`node.cpp:308-312`），等待兄弟节点信号的协程不报错；
+  - 等待方的所属对象在这期间也被释放时，等待方静默取消（`OWNER_FREED`）。例如切换场景时，引擎从后往前逐个删除兄弟节点（`node.cpp:308-312`），等待兄弟节点信号的协程不报错；
   - 否则等待方在 await 处失败，即程序错误，诊断写明被释放的对象及释放位置，并照常沿 await 链传播（§9.2）。
-- 用 `settled()` 等待时不报错，得到被等待者自己的取消原因：`Task.of(信号)` 在信号源被释放时得到 `Cancelled(AwaitedFreed)`，另一个对象上的协程在其所属对象被释放时得到 `Cancelled(OwnerFreed)`。
+- 用 `settled()` 等待时不报错，得到被等待者自己的取消原因：`Task.of(信号)` 在信号源被释放时得到 `Cancelled(CancelReason.AWAITED_FREED)`，另一个对象上的协程在其所属对象被释放时得到 `Cancelled(CancelReason.OWNER_FREED)`。
 
   ```gdscript
   # hud.pet：HUD 和 player 都是 Main 的子节点
@@ -766,7 +766,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
   - 作为语句调用、结果没有被使用时，运行时发现方法是协程也不报错：协程运行到第一次挂起，之后自行继续，相当于 detach；
   - 结果被当作值使用时，运行时得到 `GDScriptFunctionState` 是程序错误，诊断写明该方法是协程、须写 await。
   - 【后续】为 GDScript 协程调用取得 `Task` 句柄，以便稍后等待。
-- 等待 `GDScriptFunctionState` 时，运行时持有它直到 `completed` 发出，同时监听发起调用的对象，即接收者，或经 Callable 调用时的目标对象。这个对象被释放，或它的脚本被替换（`script_changed`，`core/object/object.cpp:1076`）时，按被等待的对象被释放处理（§9.7），`settled()` 得到 `Cancelled(OwnerFreed)`。理由：协程再次挂起后，内层状态只以 ObjectID 记住第一个状态的 `completed` 信号（`modules/gdscript/gdscript_vm.cpp:2633-2638`），第一个状态在恢复执行时就离开了实例的待处理列表（`modules/gdscript/gdscript_function.cpp:289-290`），不持有它就会被提前释放；实例析构时，引擎只清除挂起的状态，不发出 `completed`（`modules/gdscript/gdscript.cpp:2086-2095`，`gdscript_function.cpp:335-350`）；`GDScriptFunctionState` 是内部类，不暴露它所属的实例（`gdscript_function.cpp:324-328`，`modules/gdscript/register_types.cpp:141`），无法从它本身得知宿主是否已释放。
+- 等待 `GDScriptFunctionState` 时，运行时持有它直到 `completed` 发出，同时监听发起调用的对象，即接收者，或经 Callable 调用时的目标对象。这个对象被释放，或它的脚本被替换（`script_changed`，`core/object/object.cpp:1076`）时，按被等待的对象被释放处理（§9.7），`settled()` 得到 `Cancelled(CancelReason.OWNER_FREED)`。理由：协程再次挂起后，内层状态只以 ObjectID 记住第一个状态的 `completed` 信号（`modules/gdscript/gdscript_vm.cpp:2633-2638`），第一个状态在恢复执行时就离开了实例的待处理列表（`modules/gdscript/gdscript_function.cpp:289-290`），不持有它就会被提前释放；实例析构时，引擎只清除挂起的状态，不发出 `completed`（`modules/gdscript/gdscript.cpp:2086-2095`，`gdscript_function.cpp:335-350`）；`GDScriptFunctionState` 是内部类，不暴露它所属的实例（`gdscript_function.cpp:324-328`，`modules/gdscript/register_types.cpp:141`），无法从它本身得知宿主是否已释放。
 - 【已知限制】GDScript 脚本被重载时，引擎清除它挂起的函数而不发出任何信号（`gdscript.cpp:1522-1535`，`modules/gdscript/gdscript_compiler.cpp:2721`），等待这些函数的协程会永远挂起。这只在编辑器中修改脚本时发生。
 - GDScript await 本语言的协程时，协程在第一次挂起时返回其 Task 的 `completed` 信号；GDScript 的 await 接受任意 Signal 值（`modules/gdscript/gdscript_vm.cpp:2585-2599`）。Task 完成时发出 `completed(值)`；取消或失败时发出 `completed(null)`，使 GDScript 的等待方不会永远挂起；另有 `cancelled` 信号供需要区分的代码使用。
 - 本语言的 async 方法交给引擎的返回类型一律是无类型的 Variant（`PROPERTY_USAGE_NIL_IS_VARIANT`），与声明的返回类型无关，返回 void 时也是如此；声明的类型只出现在文档和悬停中。理由：方法的反射信息中没有协程性（`core/object/method_info.h:37-44`），GDScript 只能按报告的返回类型检查。报告为 T 时，GDScript 中每处 await 都有“多余的 await”警告（`modules/gdscript/gdscript_analyzer.cpp:3136-3141`）；取消时的 `completed(null)` 不经检查写入类型为 T 的临时变量（`modules/gdscript/gdscript_vm.cpp:2668-2669`，`modules/gdscript/gdscript_byte_codegen.cpp:998-1001`），T 为 Transform3D 一类的值类型时，之后按类型访问它的指令解引用空指针，进程崩溃。报告为 Variant 时，debug 构建在把结果赋给有类型的变量时检查类型（`gdscript_vm.cpp:1421-1432`）；release 构建不检查，与 GDScript 中其他返回 Variant 的函数相同。
@@ -989,7 +989,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 数值 | `var hp: int = 10; hp = 2.5` 报编译错误，`hp = int(2.5)` 得 2；int 实参传给 float 参数无需转换；`7 / 2` 得 3；`Vector2i(1, 2) * 0.5` 为 Vector2；`Vector2() + Vector2i()` 报编译错误；整数除以 0 是程序错误；超出 int32 范围的值传给引擎的 int32 参数是程序错误 |
 | 可空与释放 | 已释放对象经 `T?` 读出为 None；经 `T` 访问成员是程序错误，debug 构建中，本语言实例的诊断写明释放位置；`queue_free()` 之后、帧末之前仍算存活；两个不同的 Node 释放后，以 Node 比较为假，以 `Node?` 比较为真；已释放的 Node 上 `x is Sprite2D` 为假，`x as Sprite2D` 为 None |
 | Option 与 Result | `?` 在 None 或 `Err` 时从当前函数返回；在返回 void 的函数中使用 `?` 报编译错误；Option 传播到返回 Result 的函数报编译错误；`await f()?` 等于 `(await f())?`；丢弃 Result 报编译错误；`unwrap` 失败是程序错误 |
-| 嵌套的 Option | `Array[Enemy?]` 为空时 `pop_back()` 得 None，末元素为 None 时得包含 None 的 Some；`var x: Enemy?? = maybe_enemy` 得 Some；`Dictionary[String, Variant]` 中缺键得 None，值为 null 得包含 NIL 的 Some；把 `int??` 或 `Variant?` 传给 Variant 参数报编译错误并给出 `.flatten()` 或 `.unwrap_or(null)` |
+| 嵌套的 Option | `Array[Enemy?]` 为空时 `pop_back()` 得 None，末元素为 None 时得包含 None 的 Some；`var x: Enemy?? = maybe_enemy` 得 Some；`Dictionary[String, Variant]` 中缺键得 None，值为 null 得包含 NIL 的 Some；把 `int??` 或 `Variant?` 传给 Variant 参数报编译错误并给出 `.flatten()` 或 `.unwrap_or(null)`；`var x: Enemy?? = Some(None)` 得包含 None 的 Some；对 `Enemy?` 的 match 有 `Some(var e)` 和 `None` 两个分支即为穷尽 |
 | struct 与带载荷的 enum | 在方法中给 self 的字段赋值报编译错误；`player.last_hit.damage = 3` 调用 `last_hit` 的 setter；`hits[0].damage = 3` 之后 `hits[0].damage` 为 3；`get_hit().damage = 3` 报编译错误；`var b = a; b.damage = 1` 不改变 a；struct 的 Array 字段在复制后仍共享；字段相同的两个 struct 相等，作为 Dictionary 键时命中同一项；`c.target` 报编译错误；`@export` 带载荷的 enum 报编译错误 |
 | 容器 | `pop_front()` 在空数组上得 None；`front()` 在空数组上是程序错误；越界下标是程序错误；`d[k]` 在缺键时是程序错误；元素为 struct 的数组直接传给 Variant 参数报编译错误，快速修复改为 `Array(hits)`，得到元素为 Dictionary 的副本，之后修改原数组不影响副本；`Array[Hit].try_from(Array(hits))` 得 `Ok` |
 | 接口 | 实现 `Combatant extends Damageable` 的类可以传给期望 Damageable 的参数；两个父接口的同名方法签名不兼容时报编译错误；两个父接口都有默认实现而未覆盖时报编译错误；`interface A extends B` 与 `interface B extends A` 报编译错误；声明 `interface Source[T]:` 报编译错误；`@readonly var hp: int` 的要求可以由可读写的成员满足；`var hp: int` 的要求遇到没有 setter 的引擎属性报编译错误；默认方法给 `@readonly` 属性赋值报编译错误；在接口以外使用 `@readonly` 报编译错误 |
@@ -1015,7 +1015,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 资源 | 修改共享资源给出警告和两个快速修复；`duplicate()` 保持静态类型；`preload` 环报编译错误 |
 | 程序错误 | `_process` 往下两层调用中的程序错误中止这两层和 `_process`，下一帧照常调用 `_process`；需要返回值的入口，引擎得到该类型的默认值；除 `assert` 外，程序在 debug 和 release 构建中行为相同 |
 | 断言 | debug 构建中 `assert(false)` 是程序错误；release 构建中 `assert(f())` 不调用 f；`assert(await t)` 报编译错误；`assert(save_data)` 在 save_data 为 `Resource?` 时报编译错误并给出 `save_data != None` |
-| 协程 | 含 await 而未声明 async 报编译错误；丢弃 async 调用的结果报编译错误，`f().detach()` 合法；`cancel()` 之后结果一定是取消；`await f(...)` 启动的子任务随父任务取消，`await t` 只停止等待；被等待的兄弟节点与等待方在同一次场景释放中被删除时不报错；被等待的对象被单独释放时，等待方在本帧结束后报程序错误，`Task.of(信号).settled()` 得 `Cancelled(AwaitedFreed)`；所属对象被释放时协程静默取消；GDScript 对象在其协程第二次挂起期间被释放时，await 这个协程的等待方在本帧结束后报程序错误，经 Callable 调用时相同 |
+| 协程 | 含 await 而未声明 async 报编译错误；丢弃 async 调用的结果报编译错误，`f().detach()` 合法；`cancel()` 之后结果一定是取消；`await f(...)` 启动的子任务随父任务取消，`await t` 只停止等待；被等待的兄弟节点与等待方在同一次场景释放中被删除时不报错；被等待的对象被单独释放时，等待方在本帧结束后报程序错误，`Task.of(信号).settled()` 得 `Cancelled(CancelReason.AWAITED_FREED)`；失败的任务经 `settled()` 等待时，失败照常传给等待方；`var t: Task[void] = f()` 合法，没有类型实参的 `Task` 报编译错误；所属对象被释放时协程静默取消；GDScript 对象在其协程第二次挂起期间被释放时，await 这个协程的等待方在本帧结束后报程序错误，经 Callable 调用时相同 |
 | 引擎边界 | 未审核的、返回对象的引擎方法类型为 `T?`；`get_tree()` 非空，`get_collider()` 可空；GDScript 向非空参数传入 null 是程序错误；远程检查器向非空成员写入 null 时原值不变；经信号传出的 struct 是按字段名编码的 Dictionary，`Command.MOVE(target = p)` 是 `{"$variant": "MOVE", "target": p}` |
 | 工具函数 | `min(1.5, 1)` 报编译错误并给出 `min(1.5, 1.0)`；`lerp(a, b, t)` 的结果与 a 同类型；`find_children("*", "MeshInstance3D")` 为 `Array[MeshInstance3D]` |
 | 字符串 | 期望 StringName 的字面量在编译期构造；`&"a" == "a"` 为真；字面量成员名不存在时报编译错误，并参与重命名 |
