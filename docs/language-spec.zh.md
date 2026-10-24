@@ -539,11 +539,11 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 - 场景实例化时，引擎先设置节点保存在场景中的属性，再把节点加到父节点下（`scene/resources/packed_scene.cpp:567, 616`），这时节点的子节点和 `@onready` 成员都还不可用。
 - setter 照常立即执行。执行到第一处需要节点就绪的语句时，若节点尚未就绪，就在此挂起，就绪后从这里继续：
   - 需要就绪的语句由静态分析确定：访问 `@onready` 成员、`$X` 或子节点，或者调用会访问它们的本类方法，包括子类的覆盖；
-  - 写在 `if is_node_ready():` 分支里的访问不算；
+  - 只有在 `is_node_ready()` 为真时才能执行到的访问不算，判断规则与收窄相同（§5.4）：`if is_node_ready():` 分支内、`if not is_node_ready(): return` 之后、`is_node_ready() and …` 的右侧。方法中的这类访问全部不算时，调用它也不算需要就绪。只认 `is_node_ready()`，因为 `is_inside_tree()` 为真时 `@onready` 成员仍可能尚未初始化；
   - 挂起点的位置在编辑器中悬停可见。
-- 同一属性在就绪前多次写入时，只有最后一次挂起的调用继续执行，之前的全部取消。挂起的调用在 `@onready` 初始化之后、`_ready` 之前，按写入顺序继续。节点在就绪前被释放时，挂起的调用随之丢弃。就绪以后 setter 不再挂起。
+- 同一属性在就绪前再次被写入时，之前挂起的调用立即取消，不论这次写入是否挂起。挂起的调用在 `@onready` 初始化之后、`_ready` 之前，按写入顺序继续。节点在就绪前被释放时，挂起的调用随之丢弃。就绪以后 setter 不再挂起。
 - 挂起点之前的语句照常执行。setter 通常先变换并存储值，再同步节点，所以就绪前读到的是变换后的值。只推迟整个 setter、记下原始输入的做法，会让就绪前读到未经变换的输入，例如 Ring 的 `Runtime/AVGRuntime/UI/UI.cs:16-35` 给角色名加【】。
-- 这就是 GDScript 中手写 `if not is_node_ready(): await ready` 的写法，由编译器自动完成，用户不需要新的概念。依据：[属性访问器调查](surveys/property-accessors.zh.md)中有 25 个 setter 用 `await ready` 等待就绪。
+- 这就是 GDScript 中手写 `if not is_node_ready(): await ready` 的写法，由编译器自动完成，用户不需要新的概念；setter 中手写的这一行是编译错误（§4.4），快速修复把它删去。依据：[属性访问器调查](surveys/property-accessors.zh.md)中有 25 个 setter 用 `await ready` 等待就绪。
 - 值只存在节点中的属性（没有字段、getter 读取子节点的），在就绪前读取是程序错误，诊断写明读取了哪个尚未就绪的节点。需要就绪前读取时，用字段保存。
 - 从未被写入的属性，就绪时不执行 setter，与 GDScript 一致。导出属性的 setter 会同步节点、而默认值从不经过 setter 时，给出提示。
 
@@ -998,7 +998,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 循环 | `for i in 5` 中 i 为 int；`for x in 2.5` 和遍历向量报编译错误；循环变量标注为子类报编译错误 |
 | 初始化 | 成员初始化式不调用 setter；`@onready` 与 `@export` 同用报编译错误；`_init` 中读取 `@onready` 成员报编译错误；静态初始化的环是程序错误并列出依赖链 |
 | 必须赋值 | `BulletScene.instantiate(speed = 300.0)` 漏写 `target` 报编译错误；祖先在 `_ready` 中经 `$Child.target = v` 赋值时不报错；子节点在自己的 `_ready` 中读取该成员报编译错误；就绪前读取未赋值的成员是程序错误 |
-| 就绪前的 setter | 场景中保存的值使 setter 在访问 `@onready` 成员处挂起，就绪后继续；同一属性就绪前多次写入只有最后一次继续；先变换再存储的 setter 就绪前读到变换后的值；节点就绪前被释放时挂起的调用被丢弃 |
+| 就绪前的 setter | 场景中保存的值使 setter 在访问 `@onready` 成员处挂起，就绪后继续；就绪前先写入 `"Hi"` 而挂起、再写入 None 而不挂起时，`"Hi"` 那次调用被取消；setter 调用以 `if not is_node_ready(): return` 开头的方法时不挂起；先变换再存储的 setter 就绪前读到变换后的值；节点就绪前被释放时挂起的调用被丢弃 |
 | 泄漏 | 移出后未保存也未释放的节点给出警告；捕获 self 的闭包存入 self 的成员时给出警告和 `weak` 的快速修复；debug 构建退出时列出泄漏的对象和创建位置 |
 | 场景定型 | `$Head/Camera` 按场景定为 Camera3D；两个场景给出不同类型时报编译错误；找不到的路径标在缺少该节点的场景上；只被继承的基础场景缺少继承它的场景都有的节点时不报错，被 preload 的占位场景缺少时报错；`get_node_or_null("X")` 在部分场景中缺失时类型为 `T?` 且不报错；任何场景中都没有的 `$X` 报编译错误，`get_node_or_null("X")` 得 `Node?` 并给出警告；`/root/X` 报编译错误并给出 autoload 全局名；声明 `@owner(T)` 的组件场景被实例化到别的场景中时合法，作为根使用时报编译错误；节点移出 owner 的子树后不读 owner 不报错，读取时是程序错误 |
 | 导出检查 | player.tscn 的 `crosshair` 由 main.tscn 的实例赋值时不报错；某个实例没有赋值时标在该实例所在的场景上；没有被引用的场景只给警告且不阻止导出；运行中缺值时就绪报程序错误并写明成员名 |
