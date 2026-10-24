@@ -507,7 +507,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 - Node 和 Resource 脚本的 `_init` 不能有参数，因为引擎总以零个参数构造它们（`core/object/script_language.h:156`；[暗坑清单](surveys/pitfalls.zh.md) G-02）。构造参数表达为必须赋值的成员：没有默认值的非空成员。
 - 必须赋值的成员要在所在场景就绪完毕之前赋值，来源可以是：
   - 场景：导出的成员由场景提供（§7.5）；
-  - 创建者：`instantiate(...)` 和 `new(...)` 接受按名字传入的成员值，在返回前完成赋值，例如 `BulletScene.instantiate(speed = 300.0, target = enemy)`。对 `PackedScene[T]`，编译器在调用处检查场景没有提供的必须赋值成员都已传入，漏写是编译错误；
+  - 创建者：`instantiate(...)` 和 `new(...)` 接受按名字传入的成员值，在返回前完成赋值，例如 `BulletScene.instantiate(speed = 300.0, target = enemy)`。对 `PackedScene[T]`，编译器在调用处检查必须传入的成员（§7.4）都已传入，漏写是编译错误；`new(...)` 漏传不是编译错误，按下文的时机检查；
   - 祖先：同一场景中的祖先节点在自己的 `_ready` 中赋值，只要场景模型看得见这次赋值，即写成 `$Child.target = v`，或经 `@onready` 引用赋值。
 - 检查时机：
   - 由场景或创建者提供的，在节点就绪时检查，早于 `@onready` 的初始化；
@@ -616,6 +616,11 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 
 - `preload` 和字面量路径的 `load` 按资源的实际内容定型；场景得到 `PackedScene[T]`，T 为场景根节点的类型，根节点有脚本时为脚本的类。
 - 导出的场景写作 `PackedScene[T]`，由编辑器检查所填的场景。`instantiate()` 的结果为 T。
+- `PackedScene[T]` 对 T 协变，例如 `PackedScene[Boss]` 可以用在期望 `PackedScene[Enemy]` 的位置。
+- `instantiate(...)` 须传入哪些成员，取决于是否静态知道具体的场景：
+  - 静态知道时，即 `preload`、字面量路径的 `load`，以及以它们初始化的常量，须传入该场景没有提供的必须赋值成员；
+  - 其余的 `PackedScene[T]`，即导出、变量、参数和返回值，须传入 T 中不导出的必须赋值成员；导出的必须赋值成员由场景自己提供；
+  - 场景转为后一种 `PackedScene[T]` 时，即填入导出、赋给变量或传参时，场景根的实际类中没有由场景提供的必须赋值成员只能是 T 中不导出的必须赋值成员，否则是编译错误，标在填入导出的场景上，或报在赋值处。例如 `Boss extends Enemy` 新增了不导出的必须赋值成员 `arena`，boss.tscn 填入 `PackedScene[Enemy]` 时报错，因为调用处只知道 Enemy。
 - 运行时才确定路径的 `load` 按引擎的签名得到 Resource，可空性按 §10.2 的审核；这样加载的场景，`instantiate()` 得到 Node。转为具体类型须显式转换（§5.3）。
 
 ### 7.5 必须赋值的导出
@@ -623,7 +628,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 - 非空的对象类型的导出必须赋值。确实可能缺值的写作 `T?`。
 - 按场景的使用方式检查：
   - 场景被其他场景实例化或继承时，沿实例和继承链在任何一层赋值都算数；每个实例分别检查，缺值标在该实例所在的场景上。例如 player.tscn 的 `crosshair` 指向只存在于 main.tscn 的节点，由 main.tscn 在实例上赋值，player.tscn 本身不报错；
-  - 场景作为根使用时，即主场景、以字面量路径 `load` 或 `preload` 的场景、被填入导出的 `PackedScene[T]` 属性的场景，检查场景本身；场景没有提供的值，由代码中 `instantiate(...)` 的调用处传入也算数，漏传是调用处的编译错误（§6.2）；
+  - 场景作为根使用时，即主场景、以字面量路径 `load` 或 `preload` 的场景、被填入导出的 `PackedScene[T]` 属性的场景，检查场景本身；场景没有提供的值，按 §7.4 由代码中 `instantiate(...)` 的调用处传入也算数，漏传是调用处的编译错误；
   - 没有被任何地方引用的场景只给警告，因为运行时才确定路径的 `load` 看不到。
 - 检查分三个时机：
   - 编辑时允许清空。Inspector 中的字段和场景树中的节点立即标出编译错误，但不阻止任何操作，重新赋值后标记消失；
@@ -999,11 +1004,11 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | match | enum 的 match 不穷尽报编译错误；带 `when` 的分支不计入覆盖；未列出字段而没有 `..` 报编译错误；Option 的 `var x` 分支中 x 为 T；对 int 的 match 不要求穷尽 |
 | 循环 | `for i in 5` 中 i 为 int；`for x in 2.5` 和遍历向量报编译错误；循环变量标注为子类报编译错误 |
 | 初始化 | 成员初始化式不调用 setter；`@onready` 与 `@export` 同用报编译错误；`_init` 中读取 `@onready` 成员报编译错误；静态初始化的环是程序错误并列出依赖链 |
-| 必须赋值 | `BulletScene.instantiate(speed = 300.0)` 漏写 `target` 报编译错误；祖先在 `_ready` 中经 `$Child.target = v` 赋值时不报错；子节点在自己的 `_ready` 中读取该成员报编译错误；就绪前读取未赋值的成员是程序错误 |
+| 必须赋值 | `BulletScene.instantiate(speed = 300.0)` 漏写 `target` 报编译错误；祖先在 `_ready` 中经 `$Child.target = v` 赋值时不报错；子节点在自己的 `_ready` 中读取该成员报编译错误；就绪前读取未赋值的成员是程序错误；`new()` 漏传必须赋值的成员不是编译错误，Node 在就绪时检查 |
 | 就绪前的 setter | 场景中保存的值使 setter 在访问 `@onready` 成员处挂起，就绪后继续；就绪前先写入 `"Hi"` 而挂起、再写入 None 而不挂起时，`"Hi"` 那次调用被取消；setter 调用以 `if not is_node_ready(): return` 开头的方法时不挂起；先变换再存储的 setter 就绪前读到变换后的值；节点就绪前被释放时挂起的调用被丢弃 |
 | 泄漏 | 移出后未保存也未释放的节点给出警告；捕获 self 的闭包存入 self 的成员时给出警告和 `weak` 的快速修复；debug 构建退出时列出泄漏的对象和创建位置 |
 | 场景定型 | `$Head/Camera` 按场景定为 Camera3D；两个场景给出不同类型时报编译错误；找不到的路径标在缺少该节点的场景上；只被继承的基础场景缺少继承它的场景都有的节点时不报错，被 preload 的占位场景缺少时报错；`get_node_or_null("X")` 在部分场景中缺失时类型为 `T?` 且不报错；任何场景中都没有的 `$X` 报编译错误，`get_node_or_null("X")` 得 `Node?` 并给出警告；`/root/X` 报编译错误并给出 autoload 全局名；声明 `@owner(T)` 的组件场景被实例化到别的场景中时合法，作为根使用时报编译错误；声明 `@owner(T)` 的节点移出 owner 的子树后不读 owner 不报错，读取时是程序错误；未声明 `@parent` 时 `get_parent().add_child(x)` 报编译错误，快速修复补上 `@parent(T)`；游离节点上 `var p = get_parent()` 得 None；声明 `@parent(Node2D)` 的节点在场景中挂在 Control 下时报编译错误 |
-| 导出检查 | player.tscn 的 `crosshair` 由 main.tscn 的实例赋值时不报错；某个实例没有赋值时标在该实例所在的场景上；没有被引用的场景只给警告，导出时不报错；运行中缺值时就绪报程序错误并写明成员名；有确定缺值的场景时，导出窗口显示失败并写明场景和成员名，无界面分析命令返回非零 |
+| 导出检查 | player.tscn 的 `crosshair` 由 main.tscn 的实例赋值时不报错；某个实例没有赋值时标在该实例所在的场景上；没有被引用的场景只给警告，导出时不报错；运行中缺值时就绪报程序错误并写明成员名；有确定缺值的场景时，导出窗口显示失败并写明场景和成员名，无界面分析命令返回非零；`PackedScene[Boss]` 可以赋给 `PackedScene[Enemy]`；新增了不导出的必须赋值成员的 Boss 场景填入 `PackedScene[Enemy]` 时，标在填入它的场景上报错；Enemy 有不导出的必须赋值成员 `target` 时，导出的 `PackedScene[Enemy]` 调用 `instantiate()` 漏传报编译错误 |
 | 资源 | 修改共享资源给出警告和两个快速修复；`duplicate()` 保持静态类型；`preload` 环报编译错误 |
 | 程序错误 | `_process` 往下两层调用中的程序错误中止这两层和 `_process`，下一帧照常调用 `_process`；需要返回值的入口，引擎得到该类型的默认值；除 `assert` 外，程序在 debug 和 release 构建中行为相同 |
 | 断言 | debug 构建中 `assert(false)` 是程序错误；release 构建中 `assert(f())` 不调用 f；`assert(await t)` 报编译错误；`assert(save_data)` 在 save_data 为 `Resource?` 时报编译错误并给出 `save_data != None` |
