@@ -48,6 +48,7 @@
 - **函数签名的类型手写，不推断**；函数内部的局部变量可以推断。
 - **成员变量可以由初始化式推断类型**，规则与局部变量相同，例如 `var speed = 5.0` 为 float，`@onready var label = $Label` 按场景推断为 Label。没有初始化式的成员，以及推断不出类型的成员（空容器、None），必须标注。推断出的类型出现在悬停、补全和引擎看到的属性信息中。GDScript 中 `var hp = 10` 是无类型成员；在这里推断为 int 后，赋入其他类型是编译错误，符合语法硬规则。
 - **数值。** 第一版只有 `int`（64 位）和 `float`（64 位），与 Variant 一致（`core/variant/variant.h:257-258`）；没有用户可用的窄类型，固定位宽的运算使用 `int` 上的回绕运算和位运算方法。写入引擎的 f32 位置时隐式收窄，例如标准构建中为 float 的 real_t 向量分量（`core/math/math_defs.h:143-146`）。传给引擎 int32 参数时做范围检查，越界是程序错误；引擎自身在这里会直接截断（`core/variant/variant.h:348-349`）。`int` 与 `float` 混合运算时提升为 `float`。把 `float` 赋给 `int` 必须写 `int(x)` 显式转换，否则是编译错误；隐式截断会让 `hp = 2.5` 与 GDScript 悄悄不同。
+- **运算的结果类型**按引擎的运算符表确定，与 GDScript 的静态检查相同（`core/variant/variant_op.cpp:256-368`）。例如 `Vector2 * float` 得到 Vector2，`Vector2i * float` 得到 Vector2，`int / int` 是整除，表中没有的组合（如 `Vector2 + Vector2i`）是编译错误。整数除以 0 是程序错误。
 - **收窄**采用 Kotlin 的规则：局部变量和参数在 `!= None`、`is` 和提前返回之后收窄，条件表达式 `a if c else b` 的分支以及 `and`、`or` 的右侧同样按条件收窄；成员不收窄，须先读入局部变量。没有真值判断，条件必须是 bool。非空不代表对象仍然存活，访问时照常检查。
 - **已释放的对象。** `T?` 类型的引用读到已释放的对象时，结果为 None，因此 `!= None` 检查和收窄同时就是存活检查。非空的 `T` 类型引用可以持有已释放的对象，访问其成员时报程序错误；读取、比较和传参不算访问。debug 构建中，若对象是本语言的实例或由本语言代码释放，诊断写明它在哪里被释放。`is_instance_valid` 与 GDScript 行为相同；`queue_free()` 之后到帧末删除之前，对象仍算存活。理由：语料中 `is_instance_valid` 约每千行 2 处，phantom-camera 中每千行 8 处；引擎从 4.4 起也让已释放的对象在条件中为假（PR #93885）。代价是每次读取 `T?` 类型的对象引用都要做一次存活查询。依据：[暗坑清单](surveys/pitfalls.zh.md) G-07、G-08。
 - **引用环与泄漏。** 不做追踪式 GC，RefCounted 使用引擎的引用计数，环不会被释放。闭包捕获 self 的方式与 GDScript 相同，在 RefCounted 类中是强引用（`modules/gdscript/gdscript_lambda_callable.cpp:285-291`）；按语法硬规则，不悄悄改为弱引用。提供带类型的弱引用 `weak[T]`：`weak(x)` 创建，`.get()` 返回 `T?`；需要弱捕获 self 时，在闭包外写 `var me = weak(self)`，闭包内用 `me.get()`，不需要新的捕获语法。编译器对明显的环给出警告和改写为 `weak` 的快速修复：捕获 self 的闭包存入 self 的成员、self 自身的信号连接或 self 持有的容器；两个 RefCounted 类以强引用类型的字段互相指向。Node 不做引用计数：`new()` 或 `instantiate()` 得到的节点在某条路径上既未加入场景树，也未被返回、保存或释放时，给出警告；`remove_child` 之后既未保存也未释放时同样警告。debug 构建退出时列出泄漏的节点和对象及其创建位置。经引擎容器或其他对象间接形成的环，静态分析发现不了。依据：[暗坑清单](surveys/pitfalls.zh.md) G-10。
@@ -125,11 +126,11 @@
   - `Ok(var v)`、`Err(var e)` 按位置书写，与构造一致。Option 用 `None` 和 `var x` 两个分支，后者绑定的值已收窄为 T。
   - 对 enum（无论有无载荷）、Result 和 Option 的 match 必须穷尽或带 `_`，带 `when` 的分支不计入覆盖；对其他类型不要求穷尽，与 GDScript 相同。
   - 第一版没有类型模式（用 `if x is T`）、match 表达式，也不能在逗号分隔的多个模式中绑定；以后加入不改变现有写法的含义。
+- **for** 的写法与 GDScript 相同：`for i in n` 遍历 0 到 n-1，i 为 int；`range(...)`、容器、String、Dictionary 的键都可以遍历；循环变量可以标注类型，如 `for i: int in ...`。遍历 float 和向量是编译错误，提示改用 `range(...)`；GDScript 允许这样写，把向量当作范围（`modules/gdscript/gdscript_vm.cpp:3093-3230`），在静态类型下这几乎总是误用。
 
 ## 10. 尚未决定
 
 - 成员不收窄的代价：在纸面迁移中测量。可以兼容地放开的方向有两个：条件绑定，例如 `if var t = _tween:`；检查与使用之间没有调用、await 或赋值时，让没有 getter 的字段收窄。
-- core 值类型运算符的混合位宽，例如 Vector2 与 `float` 相乘，按引擎的运算符表处理；`for i in n` 是否允许。
 
 ## 依据
 
