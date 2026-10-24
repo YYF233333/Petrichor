@@ -54,7 +54,7 @@
 - **析构不新增语法。** 继续用 `_notification(what)` 处理 `NOTIFICATION_PREDELETE`，与场景树相关的清理放在 `_exit_tree`，写法和时机与 GDScript 相同；析构顺序沿用引擎。运行时保证 RefCounted 在 PREDELETE 期间可以读写自己的字段、调用自己的方法，不重新给 self 加引用。处理 PREDELETE 的分支中，把 self 传出、存入成员或容器，以及使用 await，都是编译错误；这期间指向 self 的 `weak` 返回 None。理由：语料中 `NOTIFICATION_PREDELETE` 只出现 68 次，多数在 gdUnit4 内部。依据：[暗坑清单](surveys/pitfalls.zh.md) G-09。
 - **接口。** 名义接口，类必须显式声明实现了哪些接口。接口可以声明方法、属性和信号，可以有默认方法，默认方法通过接口属性读写状态。只有本语言的类能实现接口，外部对象须显式包装。第一版不做带状态的 mixin。依据：[跨分支重复调查](surveys/cross-branch-duplication.zh.md)中，原生基类不同造成的重复在多数游戏仓库中每千行约 4–10 行；按人工判断，游戏中这类重复的 353 行里有 185 行可以用组合或静态函数消除，适合带状态 mixin 的 102 行中 72 行来自 Ring 一个项目。继承本可消除却没有消除的重复更多，分别是它的 4.9 倍（同一原生基类的无关脚本之间）和 8.2 倍（同一继承链上），但主要来自 tanks-of-freedom-ii 一个仓库。
 - **泛型。** 函数、struct、enum，以及只由本语言代码创建的 RefCounted 类可以是泛型；Node、Resource 脚本和 autoload 不能，因为引擎实例化它们时不提供类型参数。约束用接口表达。类型参数在运行时保留。
-- **封装与命名。** 成员默认私有，只在声明它的文件内可见，包括文件中的内部类；子类也看不到。对外公开的成员标为 `pub`（写法见 §9）。子类要调用或覆盖父类的成员，该成员须为 `pub`；覆盖非 `pub` 成员是编译错误，这样以后增加子类可见的一级不会破坏已有代码。实现接口的成员必须为 `pub`。引擎按名字访问的成员（导出属性、信号、引擎虚函数的覆盖、场景中连接的方法）对引擎不受此限制。依据：[成员可见性调查](surveys/member-visibility.zh.md)中，名字可判定的成员约 25% 在其他文件中被访问；只被子类使用的成员占跨文件使用的 7.2%。类名使用引擎的扁平全局表，编译器检查重名，包括与 GDScript 插件的类名重复；第一版没有命名空间。
+- **封装与命名。** 成员默认私有，只在声明它的文件内可见，包括文件中的内部类；子类也看不到。对外公开的成员标为 `pub`（写法见 §9）。子类要调用或覆盖父类的成员，该成员须为 `pub`；覆盖非 `pub` 成员是编译错误，这样以后增加子类可见的一级不会破坏已有代码。实现接口的成员必须为 `pub`。`pub` 成员的签名中出现非 `pub` 的类型是编译错误。引擎按名字访问的成员（导出属性、信号、引擎虚函数的覆盖、场景中连接的方法）对引擎不受此限制。依据：[成员可见性调查](surveys/member-visibility.zh.md)中，名字可判定的成员约 25% 在其他文件中被访问；只被子类使用的成员占跨文件使用的 7.2%。类名使用引擎的扁平全局表，编译器检查重名，包括与 GDScript 插件的类名重复；第一版没有命名空间。
 
 ## 5. 动态边界与引擎绑定
 
@@ -117,10 +117,9 @@
   - interface 是缩进块，可以声明 `var`、`signal` 和 `func`。没有函数体的方法不写冒号，与 GDScript 的 `@abstract func` 相同（`modules/gdscript/gdscript_parser.cpp:1790-1791`）；有函数体的是默认方法。接口的成员都是公开的。
   - 类头用 `implements A, B` 声明实现的接口，可以与 `extends` 写在同一行，例如 `class_name Player extends CharacterBody3D implements Damageable`，也可以单独一行。不并入 `extends`，使基类与接口一眼可分。
   - `pub` 是关键字，写在注解之后、`static` 之前，例如 `@export pub var max_hp: int`、`pub static func`、`pub signal died`。用关键字而不用注解，因为它写得频繁：[成员可见性调查](surveys/member-visibility.zh.md)中每千行至少 22 处。
+  - 放置与命名沿用 GDScript：一个文件就是一个类，文件中声明的 struct、enum 和 interface 都属于这个类。在本文件中直接写名字，在其他文件中写 `类名.名字`，例如 `Combat.Hit`、`Player.Command.MOVE(target = p)`；没有 `class_name` 的文件经 `preload` 访问。全局名只来自 `class_name`。几个类共用的类型放进一个专门承载它们的类。以后可以加入别名或 `import`，不改变现有写法的含义。
 
 ## 10. 尚未决定
-
-- struct、enum 和 interface 放在哪里，全局名怎么取，例如写 `Player.Hit` 还是 `Hit`。
 - 表达式：后缀 `!` 断言、`?.` 可空链、Result 的 `?` 传播、条件表达式、match 模式的具体形式。这些写法在本文的例子中已经出现，但尚未逐条确认。
 - core 值类型运算符的混合位宽，例如 Vector2 与 `float` 相乘，按引擎的运算符表处理；`for i in n` 是否允许。
 
