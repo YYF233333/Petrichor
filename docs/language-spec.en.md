@@ -700,8 +700,8 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 
 - A task ends in one of three ways:
   - **finished**, with its return value;
-  - **cancelled**, by `t.cancel()`, by its owning object being freed, or by the awaited object being freed (§9.7);
-  - **failed**, by a program error inside the task.
+  - **cancelled**, by `t.cancel()`, by its owning object being freed, or, for `Task.of(signal)`, by the signal source being freed (§9.7);
+  - **failed**, by a program error inside the task, including an await that meets a cancelled task or a freed signal source (§9.7).
 - Awaiting a cancelled task is a program error. A failure propagates up the await chain to the root task, which is a detached task or a task called by the engine, and cannot be intercepted.
 - `await t.settled()` waits for the task to end in any way without an error and returns `Settled[T]`: `Finished(value: T)` or `Cancelled(reason: CancelReason)`, where `CancelReason` is `Requested`, `OwnerFreed` or `AwaitedFreed`. This is not expressed with Result, because being cancelled is not an error.
 
@@ -738,8 +738,18 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 
 ### 9.7 Freed objects and suspended coroutines
 
-- When the object a coroutine belongs to is freed, the coroutine is cancelled silently and the references its suspended frame holds are released, as in GDScript (`modules/gdscript/gdscript.cpp:2089-2092`).
-- When an awaited object (a coroutine on another object, or the signal source of another object) is freed before it completes, the waiter is not left suspended forever as in GDScript (`modules/gdscript/gdscript_function.cpp:335-349`), and a diagnostic names the freed object and where it was freed; awaiting with `settled()` yields `Cancelled(AwaitedFreed)`. Whether the waiter ends as cancelled (§9.2) or as failed (a program error) is [Open].
+- When the object a coroutine belongs to is freed, the coroutine is cancelled silently and the references its suspended frame holds are released, as in GDScript (`modules/gdscript/gdscript.cpp:2089-2092`). The runtime cancels an object's coroutines as soon as the object receives PREDELETE. PREDELETE reaches the script instance before Node deletes the children (`core/object/object.cpp:140, 1009-1012`; `scene/main/node.cpp:308-312`), so a coroutine awaiting one of its own children is cancelled before the child is deleted.
+- When an awaited object (a coroutine on another object, or the signal source of another object) is freed before it completes, the waiter is not left suspended forever as in GDScript (`modules/gdscript/gdscript_function.cpp:335-349`). The decision is deferred until the objects pending deletion in the current frame have all been deleted:
+  - if the waiter's own object has been freed in the meantime, the waiter is cancelled silently (`OwnerFreed`). For example, when the scene changes, the engine deletes siblings one by one from the last (`node.cpp:308-312`), and a coroutine awaiting a sibling's signal gets no error;
+  - otherwise the waiter fails at its await, which is a program error whose diagnostic names the freed object and where it was freed, and the failure propagates up the await chain as usual (§9.2).
+- Awaiting with `settled()` gives no error and yields the awaited task's own cancellation reason: `Task.of(signal)` yields `Cancelled(AwaitedFreed)` when the signal source is freed, and a coroutine on another object yields `Cancelled(OwnerFreed)` when its object is freed.
+
+  ```gdscript
+  # hud.pet: HUD and player are both children of Main
+  async func _ready():
+      await player.died         # scene change: player is deleted first, then HUD, cancelled silently
+      show_game_over()          # player freed alone without emitting died: a program error after the frame
+  ```
 - The freeing of any object can be observed through the instance-binding free callback that GDExtension exposes (`core/object/object.cpp:2435-2440`). Evidence: [pitfall catalog](surveys/pitfalls.en.md) G-11.
 
 ### 9.8 Cross-language await
@@ -943,7 +953,6 @@ Petrichor is a statically typed scripting language that replaces GDScript, deliv
 
 | Question | Section |
 |---|---|
-| Whether a waiter ends as cancelled or failed when the awaited object is freed | §9.2, §9.7 |
 | How to call a GDScript coroutine without waiting for it | §9.8 |
 
 ## 15. Conformance checklist (non-normative)
@@ -982,7 +991,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Resources | Modifying a shared resource gives a warning with two quick fixes; `duplicate()` keeps the static type; a `preload` cycle is a compile error |
 | Program errors | A program error two calls below `_process` aborts both frames and `_process`, and the next frame calls `_process` again; an engine entry point that must return a value gives the engine the default of its type; apart from `assert`, a program behaves the same in debug and release builds |
 | Assertions | In debug builds `assert(false)` is a program error; in release builds `assert(f())` does not call f; `assert(await t)` is a compile error; `assert(save_data)` with save_data a `Resource?` is a compile error offering `save_data != None` |
-| Coroutines | await without async is a compile error; discarding the result of an async call is a compile error, while `f().detach()` is valid; after `cancel()` the outcome is always cancelled; a child task started with `await f(...)` is cancelled with its parent, while `await t` only stops waiting; when an awaited object is freed the waiter is not left suspended forever; when the owning object is freed the coroutine is cancelled silently |
+| Coroutines | await without async is a compile error; discarding the result of an async call is a compile error, while `f().detach()` is valid; after `cancel()` the outcome is always cancelled; a child task started with `await f(...)` is cancelled with its parent, while `await t` only stops waiting; an awaited sibling deleted in the same scene release as the waiter gives no error; when an awaited object is freed on its own, the waiter gets a program error after the frame, and `Task.of(signal).settled()` yields `Cancelled(AwaitedFreed)`; when the owning object is freed the coroutine is cancelled silently |
 | Engine boundary | An unaudited engine method returning an object has type `T?`; `get_tree()` is non-null and `get_collider()` is nullable; GDScript passing null to a non-null parameter is a program error; the remote inspector writing null to a non-null member leaves the value unchanged; a struct emitted through a signal arrives as a Dictionary keyed by field name, and `Command.MOVE(target = p)` as `{"$variant": "MOVE", "target": p}` |
 | Utility functions | `min(1.5, 1)` is a compile error offering `min(1.5, 1.0)`; `lerp(a, b, t)` has a's type; `find_children("*", "MeshInstance3D")` is `Array[MeshInstance3D]` |
 | Strings | A literal where StringName is expected is constructed at compile time; `&"a" == "a"` is true; a literal member name that does not exist is a compile error and takes part in rename |
@@ -1022,10 +1031,12 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | Script instances are created without constructor arguments | `core/object/script_language.h:156` |
 | `RequiredResult` marks a return value that is null only on error | `core/object/object.h:950-952` |
 | Freeing an object calls the free callback of each instance binding | `core/object/object.cpp:2435-2440` |
+| PREDELETE is sent in reverse order, reaching the script instance before the native classes | `core/object/object.cpp:140, 1009-1012` |
 | The parameters of `_process` and `_physics_process` are double | `scene/main/node.h:433-434` |
 | `NOTIFICATION_PARENTED` | `scene/main/node.h:466` |
 | When a node leaves its owner's subtree, its owner is set to null | `scene/main/node.cpp:391-396, 1799-1801` |
 | When an owner is freed, the owner of the nodes it owns is set to null | `scene/main/node.cpp:299-302` |
+| In PREDELETE a node deletes its children one by one, starting from the last | `scene/main/node.cpp:308-312` |
 | When a node enters the tree, ready propagates synchronously to completion | `scene/main/node.cpp:3425-3429` |
 | Instantiating a scene sets saved properties first, then adds the node to its parent | `scene/resources/packed_scene.cpp:567, 616` |
 | Loading a scene does not check whether property writes succeed | `scene/resources/packed_scene.cpp:567` |

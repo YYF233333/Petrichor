@@ -700,8 +700,8 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 
 - 任务的结束状态有三种：
   - **完成**：得到返回值；
-  - **取消**：由 `t.cancel()`、所属对象被释放或所等待的对象被释放（§9.7）引起；
-  - **失败**：任务内部发生程序错误。
+  - **取消**：由 `t.cancel()`、所属对象被释放，或 `Task.of(信号)` 的信号源被释放引起（§9.7）；
+  - **失败**：任务内部发生程序错误，包括 await 到被取消的任务或已释放的信号源（§9.7）。
 - 等待被取消的任务是程序错误。失败沿 await 链向上传播到根任务，即 detach 的任务或被引擎调用的任务，不能拦截。
 - `await t.settled()` 等待任务以任何方式结束而不报错，返回 `Settled[T]`：`Finished(value: T)` 或 `Cancelled(reason: CancelReason)`，`CancelReason` 为 `Requested`、`OwnerFreed` 或 `AwaitedFreed`。不用 Result 表达，因为被取消不是错误。
 
@@ -738,8 +738,18 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 
 ### 9.7 对象释放与挂起的协程
 
-- 协程所属的对象被释放时，协程静默取消，挂起帧持有的引用随之释放，与 GDScript 相同（`modules/gdscript/gdscript.cpp:2089-2092`）。
-- 被等待的对象（另一个对象上的协程，或另一个对象的信号源）在完成之前被释放时，等待方不会像在 GDScript 中那样永远挂起（`modules/gdscript/gdscript_function.cpp:335-349`），诊断写明被释放的对象及释放位置；用 `settled()` 等待时得到 `Cancelled(AwaitedFreed)`。等待方结束为取消（§9.2）还是失败（程序错误）【待定】。
+- 协程所属的对象被释放时，协程静默取消，挂起帧持有的引用随之释放，与 GDScript 相同（`modules/gdscript/gdscript.cpp:2089-2092`）。运行时在对象收到 PREDELETE 时就取消它的协程。PREDELETE 先通知脚本实例，再由 Node 删除子节点（`core/object/object.cpp:140, 1009-1012`；`scene/main/node.cpp:308-312`），所以等待自己子节点的协程在子节点被删除之前已经取消。
+- 被等待的对象（另一个对象上的协程，或另一个对象的信号源）在完成之前被释放时，等待方不会像在 GDScript 中那样永远挂起（`modules/gdscript/gdscript_function.cpp:335-349`）。判断推迟到本帧待删除的对象都删除之后：
+  - 等待方的所属对象在这期间也被释放时，等待方静默取消（`OwnerFreed`）。例如切换场景时，引擎从后往前逐个删除兄弟节点（`node.cpp:308-312`），等待兄弟节点信号的协程不报错；
+  - 否则等待方在 await 处失败，即程序错误，诊断写明被释放的对象及释放位置，并照常沿 await 链传播（§9.2）。
+- 用 `settled()` 等待时不报错，得到被等待者自己的取消原因：`Task.of(信号)` 在信号源被释放时得到 `Cancelled(AwaitedFreed)`，另一个对象上的协程在其所属对象被释放时得到 `Cancelled(OwnerFreed)`。
+
+  ```gdscript
+  # hud.pet：HUD 和 player 都是 Main 的子节点
+  async func _ready():
+      await player.died         # 切换场景：player 先被删除，HUD 随后被删除，静默取消
+      show_game_over()          # player 被单独释放却没有发出 died：本帧结束后报程序错误
+  ```
 - 任何对象的释放都可以通过 GDExtension 公开的实例绑定释放回调感知（`core/object/object.cpp:2435-2440`）。依据：[暗坑清单](surveys/pitfalls.zh.md) G-11。
 
 ### 9.8 跨语言 await
@@ -943,7 +953,6 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 
 | 问题 | 章节 |
 |---|---|
-| 被等待的对象被释放时，等待方结束为取消还是失败 | §9.2、§9.7 |
 | 怎样不等待地调用 GDScript 协程 | §9.8 |
 
 ## 15. 一致性检查清单（非规范性）
@@ -982,7 +991,7 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 资源 | 修改共享资源给出警告和两个快速修复；`duplicate()` 保持静态类型；`preload` 环报编译错误 |
 | 程序错误 | `_process` 往下两层调用中的程序错误中止这两层和 `_process`，下一帧照常调用 `_process`；需要返回值的入口，引擎得到该类型的默认值；除 `assert` 外，程序在 debug 和 release 构建中行为相同 |
 | 断言 | debug 构建中 `assert(false)` 是程序错误；release 构建中 `assert(f())` 不调用 f；`assert(await t)` 报编译错误；`assert(save_data)` 在 save_data 为 `Resource?` 时报编译错误并给出 `save_data != None` |
-| 协程 | 含 await 而未声明 async 报编译错误；丢弃 async 调用的结果报编译错误，`f().detach()` 合法；`cancel()` 之后结果一定是取消；`await f(...)` 启动的子任务随父任务取消，`await t` 只停止等待；被等待的对象被释放时等待方不会永远挂起；所属对象被释放时协程静默取消 |
+| 协程 | 含 await 而未声明 async 报编译错误；丢弃 async 调用的结果报编译错误，`f().detach()` 合法；`cancel()` 之后结果一定是取消；`await f(...)` 启动的子任务随父任务取消，`await t` 只停止等待；被等待的兄弟节点与等待方在同一次场景释放中被删除时不报错；被等待的对象被单独释放时，等待方在本帧结束后报程序错误，`Task.of(信号).settled()` 得 `Cancelled(AwaitedFreed)`；所属对象被释放时协程静默取消 |
 | 引擎边界 | 未审核的、返回对象的引擎方法类型为 `T?`；`get_tree()` 非空，`get_collider()` 可空；GDScript 向非空参数传入 null 是程序错误；远程检查器向非空成员写入 null 时原值不变；经信号传出的 struct 是按字段名编码的 Dictionary，`Command.MOVE(target = p)` 是 `{"$variant": "MOVE", "target": p}` |
 | 工具函数 | `min(1.5, 1)` 报编译错误并给出 `min(1.5, 1.0)`；`lerp(a, b, t)` 的结果与 a 同类型；`find_children("*", "MeshInstance3D")` 为 `Array[MeshInstance3D]` |
 | 字符串 | 期望 StringName 的字面量在编译期构造；`&"a" == "a"` 为真；字面量成员名不存在时报编译错误，并参与重命名 |
@@ -1022,10 +1031,12 @@ Petrichor 是一门替代 GDScript 的静态类型脚本语言，以 GDExtension
 | 脚本实例创建时不接受构造参数 | `core/object/script_language.h:156` |
 | `RequiredResult` 标注只在出错时为 null 的返回值 | `core/object/object.h:950-952` |
 | 对象释放时调用每个实例绑定的释放回调 | `core/object/object.cpp:2435-2440` |
+| PREDELETE 按逆序发出，先通知脚本实例，再通知原生类 | `core/object/object.cpp:140, 1009-1012` |
 | `_process` 和 `_physics_process` 的参数是 double | `scene/main/node.h:433-434` |
 | `NOTIFICATION_PARENTED` | `scene/main/node.h:466` |
 | 节点移出 owner 的子树时 owner 被置为 null | `scene/main/node.cpp:391-396, 1799-1801` |
 | owner 被释放时，它拥有的节点的 owner 被置为 null | `scene/main/node.cpp:299-302` |
+| 节点在 PREDELETE 中从最后一个子节点起逐个删除子节点 | `scene/main/node.cpp:308-312` |
 | 节点入树时，就绪同步传播完毕 | `scene/main/node.cpp:3425-3429` |
 | 实例化场景时，先设置保存的属性，再把节点加到父节点下 | `scene/resources/packed_scene.cpp:567, 616` |
 | 加载场景时不检查属性写入是否成功 | `scene/resources/packed_scene.cpp:567` |
