@@ -26,6 +26,7 @@ As of 2026-10-23 the project is being redesigned from the problem up. This docum
   - a debugger wired into the engine's debugger UI: breakpoints, stepping, locals, call stack;
   - a bundled test runner: discovery, running, reporting, headless. Rationale: gdUnit4 and GUT require test classes to extend their GDScript base classes, and Godot does not support cross-language inheritance.
 - **Later**: formatting; refactorings such as extract method, change signature and pull members up to a base class; deeper profiler integration; documentation generation; generating forwarding GDScript shells for GDScript plugin classes that must be extended.
+- **The source file extension** is provisionally `.pet`, and will be fixed together with the final name before the first public release, because changing it afterwards would change every path in scenes that points to a script. The extension must be short and lowercase, must not clash with Godot or `.gd`, nor with another language in GitHub Linguist or common editors. A script language reports its extension through `get_extension` and `_get_recognized_extensions` (`core/object/script_language_extension.h:287, 697`).
 - **Hot reload has two levels.** When only function bodies change, they are replaced while running; the next call uses the new code, and suspended coroutines finish on the old version. When members, signatures or class structure change, no state is migrated and a restart is requested; tool scripts in the editor get their instances rebuilt.
 
 ## 3. Scenes and nodes
@@ -142,9 +143,7 @@ As of 2026-10-23 the project is being redesigned from the problem up. This docum
 
 ## 10. Not yet decided
 
-The questions raised in discussion and in the [second paper migration](surveys/paper-migration-2.en.md) have all been decided. The following were found while rewriting the specification:
-
-- The source file extension; the surveys use `.pet` provisionally.
+None at present. The questions raised in discussion, in the [second paper migration](surveys/paper-migration-2.en.md) and while rewriting the specification have all been decided.
 
 ## Evidence
 

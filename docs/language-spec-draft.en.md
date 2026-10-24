@@ -34,7 +34,7 @@ This document rewrites the language specification from the [design decisions](de
   - **[Later]**: can be added compatibly later and is not part of the first version.
 - A **compile error** is an error the analysis service reports before running, making the program illegal. **Warnings** and **hints** do not affect legality. A **program error** is the runtime error defined in §8.1.
 - Engine behavior cited here was checked against Godot master (4.8-beta, commit `469659e`), with sources listed in Appendix A. This is the verification baseline, not a statement of supported versions.
-- The `.pet` extension used in examples is provisional [Open].
+- The source file extension is provisionally `.pet`, and will be fixed together with the final name before the first public release, because changing it afterwards would change every path in scenes that points to a script. The extension must be short and lowercase, must not clash with Godot or `.gd`, nor with another language in GitHub Linguist or common editors. A script language reports its extension through `get_extension` and `_get_recognized_extensions` (`core/object/script_language_extension.h:287, 697`).
 
 ## 2. Lexical structure and surface syntax
 
@@ -914,11 +914,7 @@ This document rewrites the language specification from the [design decisions](de
 
 ### 14.3 Open questions
 
-The following correspond to §10 of the [design decisions](decisions.en.md):
-
-| Question | Section |
-|---|---|
-| The source file extension | §1.4 |
+None at present.
 
 ## 15. Conformance checklist (non-normative)
 
