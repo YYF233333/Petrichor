@@ -34,6 +34,8 @@ enum class ExprKind {
 	ArrayLiteral, // `[a, b]`; the elements in `args`.
 	Subscript, // `base[right]`.
 	Conditional, // `left if base else right` (spec §5.5).
+	NoneLiteral, // `None`, or `null` (spec §2.2).
+	TypeTest, // `left is cast_type`, or `left is not cast_type` when `bool_value`.
 };
 
 // What a name, a member access or a call refers to, decided by the checker.
@@ -61,6 +63,7 @@ enum class Target {
 	ObjectSignal, // A signal of an engine object.
 	BindArguments, // `f.bind(...)` of a function value.
 	EngineConstant, // An integer constant of an engine class, in `int_value`.
+	NoneComparison, // `x == None` or `x != None`: `left` or `right` is the None literal.
 };
 
 struct Expr {

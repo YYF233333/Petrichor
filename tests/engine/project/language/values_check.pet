@@ -146,6 +146,22 @@ pub func tree_root_name() -> StringName:
 pub func captured() -> int:
 	return Input.MOUSE_MODE_CAPTURED
 
+# Narrowing (spec §5.4); a freed object reads as None in T? (§3.3).
+pub func name_or_dash(n: Node?) -> String:
+	if n == None:
+		return "-"
+	return str(n.name)
+
+pub func relative_x(e: InputEvent) -> float:
+	if e is InputEventMouseMotion and e.relative.x > 0:
+		return e.relative.x
+	return 0.0
+
+pub func doubled(x: int?) -> int:
+	if x != None:
+		return x * 2
+	return -1
+
 # Engine singletons and load().
 pub func loaded(path: String) -> Resource?:
 	return load(path)

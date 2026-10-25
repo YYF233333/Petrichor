@@ -134,6 +134,7 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 					put(offset_of(instr.a));
 					break;
 				case Op::CAST_OBJECT:
+				case Op::IS_INSTANCE:
 				case Op::GET_SIGNAL:
 					put(instr.imm);
 					put(offset_of(instr.dst));

@@ -30,6 +30,7 @@ ValueType value_type(const Type &p_type) {
 		case TypeKind::Object:
 			return ValueType::Object;
 		case TypeKind::Option: // A Variant that is NIL for None (spec §3.4).
+		case TypeKind::None:
 		case TypeKind::Variant:
 			return ValueType::Variant;
 		case TypeKind::Function:
@@ -579,6 +580,12 @@ class Lowerer {
 		return result;
 	}
 
+	uint32_t negate(uint32_t p_bool) {
+		const uint32_t result = temp(ValueType::Bool);
+		instr(Op::NOT, result, p_bool);
+		return result;
+	}
+
 	uint32_t short_circuit(const Expr &p_expr) {
 		const bool is_and = p_expr.op == TokenKind::And;
 		const uint32_t result = temp(ValueType::Bool);
@@ -740,7 +747,14 @@ class Lowerer {
 			case ExprKind::Name:
 			case ExprKind::Member: {
 				if (p_expr.target == Target::Local) {
-					return uint32_t(p_expr.index);
+					const uint32_t local = uint32_t(p_expr.index);
+					if (value_type(p_expr.type) != reg_type(local)) {
+						// A T? narrowed to T (spec §5.4): the value inside.
+						const uint32_t result = temp(p_expr.type);
+						instr(Op::UNWRAP, result, local, NO_REG, 0, reg_type(result));
+						return result;
+					}
+					return local;
 				}
 				if (p_expr.target == Target::EngineConstant) {
 					bytecode::Constant constant{ ValueType::Int };
@@ -794,6 +808,13 @@ class Lowerer {
 				return result;
 			}
 			case ExprKind::Binary:
+				if (p_expr.target == Target::NoneComparison) {
+					const Expr &value = p_expr.left->kind == ExprKind::NoneLiteral ? *p_expr.right : *p_expr.left;
+					const uint32_t source = lower_expr(value);
+					const uint32_t result = temp(ValueType::Bool);
+					instr(Op::IS_NONE, result, source);
+					return p_expr.op == TokenKind::BangEqual ? negate(result) : result;
+				}
 				if (p_expr.op == TokenKind::And || p_expr.op == TokenKind::Or) {
 					return short_circuit(p_expr);
 				} else {
@@ -807,6 +828,14 @@ class Lowerer {
 				return get_node(p_expr);
 			case ExprKind::ArrayLiteral:
 				return array_literal(p_expr);
+			case ExprKind::NoneLiteral:
+				return default_value(temp(p_expr.type));
+			case ExprKind::TypeTest: {
+				const uint32_t source = lower_expr(*p_expr.left);
+				const uint32_t result = temp(ValueType::Bool);
+				instr(Op::IS_INSTANCE, result, source, NO_REG, class_index(p_expr.owner));
+				return p_expr.bool_value ? negate(result) : result;
+			}
 			case ExprKind::Conditional: {
 				const uint32_t result = temp(p_expr.type);
 				const uint32_t then_block = new_block();

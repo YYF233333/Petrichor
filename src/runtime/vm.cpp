@@ -432,6 +432,21 @@ public:
 					pc += 6;
 					break;
 				}
+				case Op::IS_INSTANCE: {
+					// A freed object is no class's instance (spec §3.3).
+					const uint8_t *src = frame + code[pc + 3];
+					const Object *object = is_live_object(src) ? variant_at(src).get_validated_object() : nullptr;
+					U64(code[pc + 2]) = object && object->is_class(image.classes[code[pc + 1]]) ? 1 : 0;
+					pc += 4;
+					break;
+				}
+				case Op::IS_NONE: {
+					// A freed object reads as None in T? (spec §3.3).
+					const Variant &value = variant_at(frame + code[pc + 2]);
+					U64(code[pc + 1]) = is_none(value) || (value.get_type() == Variant::OBJECT && !value.booleanize()) ? 1 : 0;
+					pc += 3;
+					break;
+				}
 				case Op::TO_VARIANT:
 					variant_at(frame + code[pc + 2]) = to_variant(ValueType(code[pc + 1]), frame + code[pc + 3]);
 					pc += 4;

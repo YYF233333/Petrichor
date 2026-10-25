@@ -18,6 +18,7 @@ enum class TypeKind {
 	Option, // T? of a value type T, which is `args[0]` (spec §3.4); objects carry `nullable` instead.
 	Function, // A function value (spec §3.11): `args` holds the return type, then the parameter types.
 	Signal, // A signal of an object: `args` holds the types of its arguments.
+	None, // The literal None where nothing says which T? it is.
 	Variant,
 	Unsupported, // An engine type this compiler cannot handle yet.
 };

@@ -216,7 +216,26 @@ class Parser {
 			}
 			return expr->left ? std::move(expr) : nullptr;
 		}
-		return postfix();
+		return type_test();
+	}
+
+	// `x is T` and `x is not T` bind tighter than arithmetic, as in GDScript
+	// (gdscript_parser.h:1451).
+	std::unique_ptr<Expr> type_test() {
+		auto expr = postfix();
+		while (expr && check(TokenKind::Is)) {
+			auto test = make(ExprKind::TypeTest, advance());
+			test->line = expr->line;
+			test->column = expr->column;
+			test->bool_value = match(TokenKind::Not);
+			test->cast_type = type_ref();
+			if (failed) {
+				return nullptr;
+			}
+			test->left = std::move(expr);
+			expr = std::move(test);
+		}
+		return expr;
 	}
 
 	bool call_arguments(Expr &r_call) {
@@ -339,6 +358,10 @@ class Parser {
 			case TokenKind::Self:
 				advance();
 				return make(ExprKind::Self, token);
+			case TokenKind::None:
+			case TokenKind::Null:
+				advance();
+				return make(ExprKind::NoneLiteral, token);
 			case TokenKind::Dollar:
 				return get_node();
 			case TokenKind::BracketOpen: {

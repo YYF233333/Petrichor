@@ -196,7 +196,7 @@ TEST_CASE("as converts objects to T? (spec §5.3)") {
 	// Already a Node: nothing can fail.
 	CHECK(type_of("Node3D.new() as Node") == "Node");
 	CHECK(type_of("get_parent() as Node") == "Node?");
-	CHECK(type_of("n as RandomNumberGenerator", setup).find("A Node is never a RandomNumberGenerator.") != std::string::npos);
+	CHECK(type_of("n as RandomNumberGenerator", setup).find("Node and RandomNumberGenerator are unrelated classes; as would always give None.") != std::string::npos);
 	CHECK(type_of("n as int", setup).find("as only converts objects; convert to int with int(x)") != std::string::npos);
 	CHECK(type_of("5 as Node").find("as only converts objects, not int") != std::string::npos);
 }

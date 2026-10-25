@@ -43,6 +43,8 @@ std::string Type::to_string() const {
 			return "void";
 		case TypeKind::Variant:
 			return "Variant";
+		case TypeKind::None:
+			return "None";
 		case TypeKind::Object: {
 			// PackedScene[T] carries the type of the scene's root (spec §7.4).
 			const std::string text = args.empty() ? name : name + "[" + args[0].to_string() + "]";

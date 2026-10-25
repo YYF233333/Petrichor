@@ -72,6 +72,8 @@ namespace petrichor::bytecode {
 	X(CHECK_OBJECT, 2) /* class, slot: not None, of the class */     \
 	X(CHECK_ASSIGNED, 2) /* member, slot: an export is assigned */   \
 	X(CAST_OBJECT, 3) /* class, dst, src: `as`, None if it fails */  \
+	X(IS_INSTANCE, 3) /* class, dst (bool), src: `is` */             \
+	X(IS_NONE, 2) /* dst (bool), src (Object or Variant) */          \
 	X(TO_VARIANT, 3) /* type, dst (Variant), src */                  \
 	X(UNWRAP, 4) /* type, dst, src, message (NO_SLOT: default) */    \
 	X(NEW_ARRAY, 3) /* element type (Void: untyped), class, dst */   \

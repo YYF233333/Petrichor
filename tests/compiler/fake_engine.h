@@ -42,6 +42,7 @@ class FakeEngine : public compiler::EngineApi {
 		{ "Viewport", "Node" },
 		{ "Window", "Viewport" },
 		{ "Tween", "RefCounted" },
+		{ "InputEventMouseMotion", "InputEvent" },
 	};
 	std::vector<std::string> singletons = { "Input", "ResourceLoader" };
 	std::map<std::string, int64_t> constants = {
@@ -98,6 +99,9 @@ public:
 		};
 		properties["SceneTree"] = {
 			{ "root", Type::object("Window", true), false },
+		};
+		properties["InputEventMouseMotion"] = {
+			{ "relative", Type::builtin("Vector2"), true },
 		};
 		properties["Input"] = {
 			{ "mouse_mode", t(TypeKind::Int), true },

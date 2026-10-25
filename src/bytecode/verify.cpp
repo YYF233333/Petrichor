@@ -395,6 +395,10 @@ class Verifier {
 				return slot(o[2], ValueType(o[1])) && slot(o[3], ValueType(o[0])) && slot(o[4], ValueType::Int);
 			case Op::CAST_OBJECT:
 				return index(o[0], module.classes.size(), "class") && same(o[1], o[2], ValueType::Object);
+			case Op::IS_INSTANCE:
+				return index(o[0], module.classes.size(), "class") && slot(o[1], ValueType::Bool) && slot(o[2], ValueType::Object);
+			case Op::IS_NONE:
+				return slot(o[0], ValueType::Bool) && slot_type(o[1], type) && (type == ValueType::Object || type == ValueType::Variant || fail("None is only tested on objects and options"));
 			case Op::CHECK_ASSIGNED:
 				return index(o[0], module.members.size(), "member") && slot(o[1], ValueType::Object);
 			case Op::METHOD_VALUE:

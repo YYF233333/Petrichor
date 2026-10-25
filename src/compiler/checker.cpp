@@ -22,6 +22,9 @@ bool is_assignable(const Type &p_from, const Type &p_to, const EngineApi &p_engi
 	if (p_from == p_to) {
 		return true;
 	}
+	if (p_from.kind == TypeKind::None) {
+		return p_to.is_optional() || p_to.kind == TypeKind::Variant;
+	}
 	if (p_from.kind == TypeKind::Int && p_to.kind == TypeKind::Float) {
 		return true;
 	}
@@ -200,6 +203,8 @@ class Checker {
 
 	FuncDecl *function = nullptr;
 	std::vector<std::unordered_map<std::string, int>> scopes;
+	// Types of locals narrowed by conditions (spec §5.4), innermost last.
+	std::vector<std::unordered_map<int, Type>> narrowed;
 	int loop_depth = 0;
 	// The member whose initializer is being checked: it and the members after
 	// it are not initialized yet (spec §6.1).
@@ -355,7 +360,8 @@ class Checker {
 		if (local >= 0) {
 			r_expr.target = Target::Local;
 			r_expr.index = local;
-			return set(r_expr, function->locals[local].type);
+			const Type *narrowed_to = narrowed_type(local);
+			return set(r_expr, narrowed_to ? *narrowed_to : function->locals[local].type);
 		}
 		const auto member = member_index.find(r_expr.text);
 		if (member != member_index.end()) {
@@ -637,9 +643,169 @@ class Checker {
 	}
 
 	Type check_binary(Expr &r_expr) {
+		const bool equality = r_expr.op == TokenKind::EqualEqual || r_expr.op == TokenKind::BangEqual;
+		if (equality && (r_expr.left->kind == ExprKind::NoneLiteral || r_expr.right->kind == ExprKind::NoneLiteral)) {
+			return check_none_comparison(r_expr);
+		}
 		const Type left = check_value(*r_expr.left);
-		const Type right = check_value(*r_expr.right);
+		Type right;
+		if (r_expr.op == TokenKind::And || r_expr.op == TokenKind::Or) {
+			// The right side runs only when the left is true (and) or false
+			// (or), and narrows accordingly (spec §5.4).
+			const Facts facts = facts_of(*r_expr.left);
+			narrowed.push_back(r_expr.op == TokenKind::And ? facts.when_true : facts.when_false);
+			right = check_value(*r_expr.right);
+			narrowed.pop_back();
+		} else {
+			right = check_value(*r_expr.right);
+		}
 		return set(r_expr, binary_type(r_expr.op, left, right, r_expr.line, r_expr.column));
+	}
+
+	// `x == None` and `x != None` (spec §5.2), which narrow x (§5.4).
+	Type check_none_comparison(Expr &r_expr) {
+		Expr &value = r_expr.left->kind == ExprKind::NoneLiteral ? *r_expr.right : *r_expr.left;
+		const Type type = check_value(value);
+		set(r_expr.left->kind == ExprKind::NoneLiteral ? *r_expr.left : *r_expr.right, type);
+		if (type.is_error()) {
+			return set(r_expr, type);
+		}
+		if (!type.is_optional() && type.kind != TypeKind::Variant) {
+			const std::string hint = type.kind == TypeKind::Object ? " Check whether it is alive with is_instance_valid(x), or make its type " + type.to_string() + "?." : "";
+			return fail(r_expr, "A value of type " + type.to_string() + " is never None." + hint);
+		}
+		r_expr.target = Target::NoneComparison;
+		return set(r_expr, Type::of(TypeKind::Bool));
+	}
+
+	// `x is T` (spec §5.4).
+	Type check_type_test(Expr &r_expr) {
+		const Type value = check_value(*r_expr.left);
+		const Type tested = resolve(r_expr.cast_type, false);
+		if (value.is_error() || tested.is_error()) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		if (tested.kind != TypeKind::Object || tested.nullable) {
+			return fail(r_expr, "is tests classes, not " + tested.to_string() + ".");
+		}
+		if (value.kind != TypeKind::Object) {
+			return fail(r_expr, "is tests objects, not " + value.to_string() + ".");
+		}
+		if (!engine.inherits(value.name, tested.name) && !engine.inherits(tested.name, value.name)) {
+			return fail(r_expr, value.name + " and " + tested.name + " are unrelated classes; is would always be false.");
+		}
+		r_expr.owner = tested.name;
+		return set(r_expr, Type::of(TypeKind::Bool));
+	}
+
+	/* Narrowing (spec §5.4) */
+
+	// What a condition says about locals and parameters when it is true, and
+	// when it is false.
+	struct Facts {
+		std::unordered_map<int, Type> when_true;
+		std::unordered_map<int, Type> when_false;
+	};
+
+	// The local a condition tests, or -1.
+	static int tested_local(const Expr &p_expr) {
+		return p_expr.kind == ExprKind::Name && p_expr.target == Target::Local ? p_expr.index : -1;
+	}
+
+	Facts facts_of(const Expr &p_condition) const {
+		Facts facts;
+		if (p_condition.type.is_error()) {
+			return facts;
+		}
+		switch (p_condition.kind) {
+			case ExprKind::Binary:
+				if (p_condition.target == Target::NoneComparison) {
+					const Expr &value = p_condition.left->kind == ExprKind::NoneLiteral ? *p_condition.right : *p_condition.left;
+					const int local = tested_local(value);
+					if (local >= 0) {
+						(p_condition.op == TokenKind::BangEqual ? facts.when_true : facts.when_false)[local] = function->locals[local].type.unwrapped();
+					}
+				} else if (p_condition.op == TokenKind::And) {
+					facts.when_true = facts_of(*p_condition.left).when_true;
+					for (const auto &fact : facts_of(*p_condition.right).when_true) {
+						facts.when_true[fact.first] = fact.second;
+					}
+				} else if (p_condition.op == TokenKind::Or) {
+					facts.when_false = facts_of(*p_condition.left).when_false;
+					for (const auto &fact : facts_of(*p_condition.right).when_false) {
+						facts.when_false[fact.first] = fact.second;
+					}
+				}
+				break;
+			case ExprKind::Unary:
+				if (p_condition.op == TokenKind::Not) {
+					const Facts inner = facts_of(*p_condition.left);
+					facts.when_true = inner.when_false;
+					facts.when_false = inner.when_true;
+				}
+				break;
+			case ExprKind::TypeTest: {
+				const int local = tested_local(*p_condition.left);
+				if (local >= 0) {
+					(p_condition.bool_value ? facts.when_false : facts.when_true)[local] = Type::object(p_condition.owner);
+				}
+				break;
+			}
+			default:
+				break;
+		}
+		return facts;
+	}
+
+	// The narrowed type of a local, if any; the innermost fact wins.
+	const Type *narrowed_type(int p_local) const {
+		for (auto map = narrowed.rbegin(); map != narrowed.rend(); ++map) {
+			const auto found = map->find(p_local);
+			if (found != map->end()) {
+				return &found->second;
+			}
+		}
+		return nullptr;
+	}
+
+	// An assignment ends what was known about the local, also in the
+	// enclosing blocks.
+	void forget(int p_local) {
+		for (auto &map : narrowed) {
+			map.erase(p_local);
+		}
+	}
+
+	void add_facts(const std::unordered_map<int, Type> &p_facts) {
+		for (const auto &fact : p_facts) {
+			narrowed.back()[fact.first] = fact.second;
+		}
+	}
+
+	// Before a loop: what its body assigns is not known on the next iteration.
+	void forget_assigned(const Block &p_block) {
+		for (const auto &stmt : p_block) {
+			if (stmt->kind == StmtKind::Assign && stmt->target->kind == ExprKind::Name) {
+				const int local = find_local(stmt->target->text);
+				if (local >= 0) {
+					forget(local);
+				}
+			}
+			forget_assigned(stmt->body);
+			forget_assigned(stmt->else_body);
+		}
+	}
+
+	// Leaves the block on every path: return, break or continue.
+	static bool always_exits(const Block &p_block) {
+		if (p_block.empty()) {
+			return false;
+		}
+		const Stmt &last = *p_block.back();
+		if (last.kind == StmtKind::Return || last.kind == StmtKind::Break || last.kind == StmtKind::Continue) {
+			return true;
+		}
+		return last.kind == StmtKind::If && always_exits(last.body) && always_exits(last.else_body);
 	}
 
 	void report_argument(const Expr &p_arg, const Type &p_arg_type, const Type &p_param) {
@@ -1026,8 +1192,12 @@ class Checker {
 	// `a if c else b` (spec §5.5).
 	Type check_conditional(Expr &r_expr, const Type &p_expected) {
 		expect_condition(*r_expr.base);
+		const Facts facts = facts_of(*r_expr.base);
+		narrowed.push_back(facts.when_true);
 		const Type a = check_value(*r_expr.left, p_expected);
+		narrowed.back() = facts.when_false;
 		const Type b = check_value(*r_expr.right, p_expected);
+		narrowed.pop_back();
 		if (a.is_error() || b.is_error()) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
@@ -1098,7 +1268,7 @@ class Checker {
 			return fail(r_expr, "as only converts objects, not " + from.to_string() + ".");
 		}
 		if (!engine.inherits(from.name, to.name) && !engine.inherits(to.name, from.name)) {
-			return fail(r_expr, "A " + from.name + " is never a " + to.name + ".");
+			return fail(r_expr, from.name + " and " + to.name + " are unrelated classes; as would always give None.");
 		}
 		r_expr.owner = to.name;
 		// Already a T: nothing to convert.
@@ -1274,6 +1444,14 @@ class Checker {
 				return check_subscript(r_expr);
 			case ExprKind::Conditional:
 				return check_conditional(r_expr, p_expected);
+			case ExprKind::NoneLiteral:
+				// The T? it goes to, where that is known.
+				if (p_expected.is_optional() || p_expected.kind == TypeKind::Variant) {
+					return set(r_expr, p_expected);
+				}
+				return set(r_expr, Type::of(TypeKind::None));
+			case ExprKind::TypeTest:
+				return check_type_test(r_expr);
 		}
 		return set(r_expr, Type::of(TypeKind::Error));
 	}
@@ -1351,11 +1529,13 @@ class Checker {
 
 	/* Statements */
 
-	void check_block(Block &r_block) {
+	void check_block(Block &r_block, const std::unordered_map<int, Type> &p_facts = {}) {
 		scopes.emplace_back();
+		narrowed.push_back(p_facts);
 		for (auto &stmt : r_block) {
 			check_stmt(*stmt);
 		}
+		narrowed.pop_back();
 		scopes.pop_back();
 	}
 
@@ -1431,6 +1611,9 @@ class Checker {
 					const Type value = check_value(*r_stmt.value, type);
 					if (r_stmt.declared_type) {
 						expect_assignable(*r_stmt.value, value, type, "assign");
+					} else if (value.kind == TypeKind::None) {
+						error(r_stmt.line, r_stmt.column, "\"" + r_stmt.name + "\" needs a type: None does not say which T? it is (spec §4.3).");
+						type = Type::of(TypeKind::Error);
 					} else {
 						type = value;
 					}
@@ -1444,14 +1627,27 @@ class Checker {
 			}
 			case StmtKind::Assign: {
 				Expr &target = *r_stmt.target;
-				const Type target_type = target.kind == ExprKind::Name || target.kind == ExprKind::Member ? check_expr(target) : Type::of(TypeKind::Error);
+				Type target_type = target.kind == ExprKind::Name || target.kind == ExprKind::Member ? check_expr(target) : Type::of(TypeKind::Error);
 				if (target.kind != ExprKind::Name && target.kind != ExprKind::Member) {
 					check_expr(target);
 					error(target.line, target.column, "Cannot assign to this expression.");
 					check_value(*r_stmt.value);
 					return;
 				}
+				const int local = target.target == Target::Local ? target.index : -1;
+				if (local >= 0) {
+					// A narrowed local takes what its declared type takes.
+					target_type = function->locals[local].type;
+					target.type = target_type;
+				}
 				Type value = check_value(*r_stmt.value, r_stmt.assign_op == TokenKind::Equal ? target_type : Type::of(TypeKind::Error));
+				if (local >= 0) {
+					forget(local);
+					// Narrowing follows the new value (spec §5.4).
+					if (r_stmt.assign_op == TokenKind::Equal && target_type.is_optional() && !value.is_error() && !value.is_optional() && value.kind != TypeKind::None) {
+						narrowed.back()[local] = target_type.unwrapped();
+					}
+				}
 				if (target_type.is_error() || !check_place(target)) {
 					return;
 				}
@@ -1462,18 +1658,30 @@ class Checker {
 				expect_assignable(*r_stmt.value, value, target_type, "assign");
 				return;
 			}
-			case StmtKind::If:
+			case StmtKind::If: {
 				expect_condition(*r_stmt.condition);
-				check_block(r_stmt.body);
-				check_block(r_stmt.else_body);
+				const Facts facts = facts_of(*r_stmt.condition);
+				check_block(r_stmt.body, facts.when_true);
+				check_block(r_stmt.else_body, facts.when_false);
+				// What holds where a branch that always leaves did not run.
+				if (always_exits(r_stmt.body)) {
+					add_facts(facts.when_false);
+				}
+				if (always_exits(r_stmt.else_body)) {
+					add_facts(facts.when_true);
+				}
 				return;
-			case StmtKind::While:
+			}
+			case StmtKind::While: {
+				forget_assigned(r_stmt.body);
 				expect_condition(*r_stmt.condition);
 				loop_depth++;
-				check_block(r_stmt.body);
+				check_block(r_stmt.body, facts_of(*r_stmt.condition).when_true);
 				loop_depth--;
 				return;
+			}
 			case StmtKind::For:
+				forget_assigned(r_stmt.body);
 				check_for(r_stmt);
 				return;
 			case StmtKind::Return: {
@@ -1815,6 +2023,8 @@ class Checker {
 		function = &r_function;
 		scopes.clear();
 		scopes.emplace_back();
+		narrowed.clear();
+		narrowed.emplace_back();
 		declare_params(r_function);
 		if (options.declarations_only) {
 			function = nullptr;
