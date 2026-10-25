@@ -73,6 +73,23 @@ func _ready() -> void:
 	Engine.print_error_messages = true
 	_check(zero == 0, "after a program error the caller gets the default value (spec §8.1)")
 
+	var nodes: Node = load("res://language/nodes.tscn").instantiate()
+	add_child(nodes)
+	var caption: Label = nodes.get_node("Caption")
+	_check(nodes.caption() == "from the scene" and nodes.caption_node() == caption, "$X reads the node the scene has (spec §7.1)")
+	nodes.set_caption("set")
+	_check(caption.text == "set", "a property written through $X")
+	caption.free()
+	var impostor := Node.new()
+	impostor.name = "Caption"
+	nodes.add_child(impostor)
+	Engine.print_error_messages = false
+	var replaced = nodes.caption_node()
+	impostor.free()
+	var gone = nodes.caption_node()
+	Engine.print_error_messages = true
+	_check(replaced == null and gone == null, "$X whose node has changed class or is gone is a program error")
+
 	var frames_before: int = c.frames
 	await get_tree().process_frame
 	await get_tree().process_frame

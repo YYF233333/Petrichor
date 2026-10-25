@@ -28,6 +28,7 @@ enum class ExprKind {
 	Binary,
 	Call,
 	Member, // `base.text`
+	GetNode, // `$Head/Camera` or `$"Head/Camera"`; the path in `text`.
 };
 
 // What a name, a member access or a call refers to, decided by the checker.
@@ -59,7 +60,7 @@ struct Expr {
 	bool int_overflows = false; // 9223372036854775808 without a unary minus.
 	double float_value = 0.0;
 	bool bool_value = false;
-	std::string text; // String literal, name, or called method.
+	std::string text; // String literal, name, called method, or node path.
 
 	TokenKind op = TokenKind::EndOfFile; // Unary and binary operators.
 	std::unique_ptr<Expr> left;          // Operand of a unary, left of a binary.

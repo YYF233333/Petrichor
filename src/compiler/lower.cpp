@@ -652,10 +652,30 @@ class Lowerer {
 				}
 			case ExprKind::Call:
 				return call(p_expr);
+			case ExprKind::GetNode:
+				return get_node(p_expr);
 			case ExprKind::Self:
 				break;
 		}
 		return NO_REG;
+	}
+
+	// get_node() on self, then a check that the node is there and has the
+	// class the scenes gave it (spec §7.1), in case the tree changed since.
+	uint32_t get_node(const Expr &p_expr) {
+		bytecode::Constant path;
+		path.type = ValueType::NodePath;
+		path.s = p_expr.text;
+		const uint32_t path_reg = temp(ValueType::NodePath);
+		instr(Op::CONST_VALUE, path_reg, NO_REG, NO_REG, add_constant(path), ValueType::NodePath);
+		ir::Instr i;
+		i.op = Op::CALL_ENGINE;
+		i.imm = engine_call("get_node", ValueType::Object);
+		i.args = { path_reg };
+		i.dst = temp(p_expr.type);
+		add(i);
+		instr(Op::CHECK_OBJECT, NO_REG, i.dst, NO_REG, class_index(p_expr.owner));
+		return i.dst;
 	}
 
 	/* Places */

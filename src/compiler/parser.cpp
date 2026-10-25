@@ -229,6 +229,30 @@ class Parser {
 		return expr;
 	}
 
+	// Node names in a path may be keywords, as in GDScript.
+	static bool is_node_name(TokenKind p_kind) {
+		return p_kind == TokenKind::Identifier || (p_kind >= TokenKind::And && p_kind <= TokenKind::While);
+	}
+
+	// `$Name`, `$Head/Camera` or `$"Head/Camera"` (spec §7.1).
+	std::unique_ptr<Expr> get_node() {
+		auto expr = make(ExprKind::GetNode, advance());
+		if (check(TokenKind::String)) {
+			expr->text = advance().text;
+			return expr;
+		}
+		if (!is_node_name(peek().kind)) {
+			fail(peek(), std::string("Expected a node path after \"$\", found ") + token_name(peek().kind) + ".");
+			return nullptr;
+		}
+		expr->text = advance().text;
+		while (check(TokenKind::Slash) && is_node_name(peek(1).kind)) {
+			advance();
+			expr->text += "/" + advance().text;
+		}
+		return expr;
+	}
+
 	std::unique_ptr<Expr> primary() {
 		const Token &token = peek();
 		switch (token.kind) {
@@ -267,6 +291,8 @@ class Parser {
 			case TokenKind::Self:
 				advance();
 				return make(ExprKind::Self, token);
+			case TokenKind::Dollar:
+				return get_node();
 			case TokenKind::ParenOpen: {
 				advance();
 				auto expr = expression();

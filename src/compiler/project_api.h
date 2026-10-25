@@ -10,6 +10,7 @@ struct SceneNode {
 	std::string path; // From the scene's root: "." for the root, "Head/Camera".
 	std::string type; // Its engine class; for an instanced scene, the class of that scene's root.
 	std::string script; // The res:// path of the script attached in this scene, if any.
+	bool is_instance = false; // An instanced scene, whose own nodes are not listed here.
 };
 
 // A signal connection saved in a scene (spec §7.7).

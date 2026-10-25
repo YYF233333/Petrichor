@@ -66,6 +66,8 @@ const char *token_name(TokenKind p_kind) {
 			return "\"while\"";
 		case TokenKind::At:
 			return "\"@\"";
+		case TokenKind::Dollar:
+			return "\"$\"";
 		case TokenKind::Question:
 			return "\"?\"";
 		case TokenKind::Colon:
@@ -405,6 +407,9 @@ class Lexer {
 			case '@':
 				one(TokenKind::At);
 				return;
+			case '$':
+				one(TokenKind::Dollar);
+				return;
 			case '?':
 				one(TokenKind::Question);
 				return;
@@ -505,11 +510,8 @@ public:
 					advance();
 				}
 				const auto keyword = keywords().find(name);
-				if (keyword != keywords().end()) {
-					push(keyword->second, start_line, start_column);
-				} else {
-					push(TokenKind::Identifier, start_line, start_column).text = name;
-				}
+				// A keyword keeps its spelling, since a node path may use it as a name.
+				push(keyword != keywords().end() ? keyword->second : TokenKind::Identifier, start_line, start_column).text = name;
 			} else if (c == '"' || c == '\'') {
 				string();
 			} else {

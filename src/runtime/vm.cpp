@@ -355,6 +355,19 @@ public:
 					pc += 3;
 					break;
 				}
+				case Op::CHECK_OBJECT: {
+					const StringName &expected = image.classes[code[pc + 1]];
+					const Variant &value = variant_at(frame + code[pc + 2]);
+					if (is_none(value)) {
+						FAIL(vformat("Expected %s, found None.", expected));
+					}
+					const Object *object = value.get_validated_object();
+					if (object && !object->is_class(expected)) {
+						FAIL(vformat("Expected %s, found %s.", expected, object->get_class()));
+					}
+					pc += 3;
+					break;
+				}
 				case Op::JUMP:
 					pc = code[pc + 1];
 					break;

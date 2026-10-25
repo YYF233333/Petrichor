@@ -44,6 +44,7 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state)
 		compiler::SceneNode node;
 		node.path = node_path(p_state->get_node_path(i));
 		node.type = to_utf8(node_type(p_state, i));
+		node.is_instance = p_state->get_node_instance(i).is_valid();
 		for (int32_t p = 0; p < p_state->get_node_property_count(i); p++) {
 			if (p_state->get_node_property_name(i, p) == StringName("script")) {
 				const Ref<Script> script = p_state->get_node_property_value(i, p);

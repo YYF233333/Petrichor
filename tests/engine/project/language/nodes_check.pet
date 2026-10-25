@@ -1,0 +1,12 @@
+# Node paths typed from the scenes that use this script (spec §7.1), driven by
+# language_test.gd through nodes.tscn.
+extends Node
+
+pub func caption() -> String:
+	return $Caption.text
+
+pub func set_caption(text: String):
+	$Caption.text = text
+
+pub func caption_node() -> Label:
+	return $Caption

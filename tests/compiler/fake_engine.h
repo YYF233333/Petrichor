@@ -26,6 +26,11 @@ class FakeEngine : public compiler::EngineApi {
 		{ "Timer", "Node" },
 		{ "Resource", "RefCounted" },
 		{ "InputEvent", "Resource" },
+		{ "CanvasLayer", "Node" },
+		{ "CanvasItem", "Node" },
+		{ "Control", "CanvasItem" },
+		{ "Label", "Control" },
+		{ "TextureRect", "Control" },
 	};
 	std::map<std::string, std::vector<EngineMethod>> methods;
 	std::map<std::string, std::vector<EngineProperty>> properties;
@@ -75,6 +80,9 @@ public:
 		};
 		properties["RandomNumberGenerator"] = {
 			{ "seed", t(TypeKind::Int), true },
+		};
+		properties["Label"] = {
+			{ "text", t(TypeKind::String), true },
 		};
 		signals["Node"] = {
 			method("ready", {}, t(TypeKind::Void)),

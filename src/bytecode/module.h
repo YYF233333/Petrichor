@@ -8,7 +8,7 @@ namespace petrichor::bytecode {
 
 // The compiled form of one source file: the contract between the compiler and
 // the runtime. It only needs to be readable by the same build that wrote it.
-constexpr uint32_t FORMAT_VERSION = 2;
+constexpr uint32_t FORMAT_VERSION = 3;
 
 // How a value is stored in a frame or an instance. Up to Variant the numbers
 // are the engine's Variant::Type, so the runtime can hand them to the engine's

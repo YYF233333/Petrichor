@@ -284,6 +284,58 @@ class Checker {
 		return fail(r_expr, "Values of type " + base_type.to_string() + " have no members.");
 	}
 
+	// `$X` (spec §7.1): the node at the path from every node that has this
+	// script, in every scene; they must agree on its class.
+	Type check_get_node(Expr &r_expr) {
+		if (options.declarations_only) {
+			return set(r_expr, Type::of(TypeKind::Error)); // Scenes are not read while loading.
+		}
+		const std::string &path = r_expr.text;
+		if (path.empty() || path[0] == '/' || path.find('%') != std::string::npos || path == ".." || path.rfind("../", 0) == 0 || path.find("/..") != std::string::npos) {
+			return fail(r_expr, "Only paths down from this node, such as $Head/Camera, are supported yet.");
+		}
+		bool attached = false;
+		std::string type;
+		std::string type_scene;
+		for (const Scene &scene : scenes) {
+			for (const SceneNode &node : scene.nodes) {
+				if (node.script != options.path) {
+					continue;
+				}
+				attached = true;
+				const std::string full = node.path == "." ? path : node.path + "/" + path;
+				const SceneNode *found = scene.find_node(full);
+				if (!found) {
+					for (size_t slash = full.find('/'); slash != std::string::npos; slash = full.find('/', slash + 1)) {
+						const SceneNode *outer = scene.find_node(full.substr(0, slash));
+						if (outer && outer->is_instance) {
+							return fail(r_expr, scene.path + ": paths into an instanced scene, such as " + outer->path + ", are not supported yet.");
+						}
+					}
+					error(r_expr.line, r_expr.column, scene.path + ": " + (node.path == "." ? std::string("the root") : node.path) + " has no node at \"" + path + "\" (spec §7.1).");
+					continue;
+				}
+				if (type.empty()) {
+					type = found->type;
+					type_scene = scene.path;
+				} else if (found->type != type) {
+					return fail(r_expr, "$" + path + " is a " + type + " in " + type_scene + " but a " + found->type + " in " + scene.path + "; assign it to a variable typed with a class both extend (spec §7.1).");
+				}
+			}
+		}
+		if (!attached) {
+			return fail(r_expr, "$" + path + " is typed from the scenes that use this script, and no scene does (spec §7.2).");
+		}
+		if (type.empty()) {
+			return set(r_expr, Type::of(TypeKind::Error)); // Reported for each scene above.
+		}
+		if (!engine.class_exists(type)) {
+			return fail(r_expr, "$" + path + " is a " + type + ", which is not supported yet.");
+		}
+		r_expr.owner = type;
+		return set(r_expr, Type::object(type));
+	}
+
 	Type check_unary(Expr &r_expr) {
 		const Type operand = check_value(*r_expr.left);
 		if (operand.is_error()) {
@@ -752,6 +804,8 @@ class Checker {
 				return check_call(r_expr);
 			case ExprKind::Member:
 				return check_member(r_expr);
+			case ExprKind::GetNode:
+				return check_get_node(r_expr);
 		}
 		return set(r_expr, Type::of(TypeKind::Error));
 	}

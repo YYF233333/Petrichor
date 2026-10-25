@@ -59,6 +59,13 @@ func _ready() -> void:
 			moved += 1
 	_check(moved == clouds.size(), "every cloud moves up and down (%d of %d)" % [moved, clouds.size()])
 
+	# The player's damage() emits health_updated, which main.tscn connects to the HUD.
+	var huds := _nodes_with_script(scene, "hud")
+	var player := scene.get_node("Player")
+	player.damage(10)
+	var health_text: String = huds[0].get_node("Health").text if huds.size() == 1 else ""
+	_check(health_text == "%d%%" % player.health, "the HUD shows the health the player reports (%s)" % health_text)
+
 	# The player spawns impacts when shooting, which a headless run does not do.
 	var impact: AnimatedSprite3D = load("res://objects/impact.tscn").instantiate()
 	scene.add_child(impact)

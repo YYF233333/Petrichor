@@ -42,6 +42,7 @@ enum class TokenKind {
 
 	// Punctuation and operators.
 	At,
+	Dollar,
 	Question,
 	Colon,
 	Comma,
@@ -74,7 +75,7 @@ struct Token {
 	TokenKind kind = TokenKind::EndOfFile;
 	int line = 0;
 	int column = 0;
-	std::string text; // Identifier name or decoded string literal.
+	std::string text; // Identifier or keyword as written, or decoded string literal.
 	int64_t int_value = 0;
 	double float_value = 0.0;
 	// 9223372036854775808, which is only an int after a unary minus.

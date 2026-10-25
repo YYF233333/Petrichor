@@ -359,6 +359,7 @@ class Verifier {
 				return p_op == Op::GET_PROPERTY ? slot(o[1], property) && slot_or_none(o[2], ValueType::Object) : slot_or_none(o[1], ValueType::Object) && slot(o[2], property);
 			}
 			case Op::NEW_OBJECT:
+			case Op::CHECK_OBJECT:
 				return index(o[0], module.classes.size(), "class") && slot(o[1], ValueType::Object);
 			case Op::JUMP:
 				return target(o[0]);
