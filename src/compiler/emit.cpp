@@ -95,9 +95,9 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 		const uint32_t next = b + 1;
 		switch (block.terminator) {
 			case Terminator::None:
-				if (next == p_function.blocks.size()) {
-					code.push_back(uint32_t(Op::RETURN_VOID));
-				}
+				// Never falls through into the next block: blocks are laid out in
+				// creation order, which is not the order of control flow.
+				code.push_back(uint32_t(Op::RETURN_VOID));
 				break;
 			case Terminator::Jump:
 				if (block.target != next) {

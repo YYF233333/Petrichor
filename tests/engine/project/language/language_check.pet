@@ -49,5 +49,16 @@ pub func wrap() -> int:
 pub func both(a: bool, b: bool) -> bool:
 	return a and not b or b and not a
 
+pub var chosen := 0
+
+# Ends with if/else and no return: both branches must reach the end.
+pub func choose(a: bool, b: bool):
+	if a:
+		chosen = 1
+	elif b:
+		chosen = 2
+	else:
+		chosen = 3
+
 func _process(delta):
 	frames += 1

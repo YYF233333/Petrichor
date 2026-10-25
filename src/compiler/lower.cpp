@@ -508,6 +508,13 @@ public:
 			loops.clear();
 			current = new_block();
 			lower_block(decl.body);
+			// Only the current block can still be open: every other block was
+			// left through a jump, a branch or a return. Running off the end
+			// returns; in a function with a return type the checker has made
+			// sure that this end is unreachable.
+			if (!terminated()) {
+				fn.blocks[current].terminator = ir::Terminator::ReturnVoid;
+			}
 			module.functions.push_back(ir::emit(fn, module));
 		}
 	}

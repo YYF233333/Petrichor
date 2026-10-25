@@ -26,6 +26,11 @@ func _ready() -> void:
 	_check(c.truncate(2.7) == 2 and c.truncate(-2.7) == -2, "int() truncates toward zero")
 	_check(c.wrap() < 0, "int arithmetic wraps around")
 	_check(c.both(true, false) and not c.both(true, true), "and, or and not")
+	var chosen: Array[int] = []
+	for args in [[true, false], [false, true], [false, false]]:
+		c.choose(args[0], args[1])
+		chosen.append(c.chosen)
+	_check(chosen == [1, 2, 3], "a void function that ends with if/elif/else returns from each branch")
 	_check(c.children() == 0, "engine methods called on self")
 	c.add_child(Node.new())
 	_check(c.children() == 1, "engine calls see the current state")

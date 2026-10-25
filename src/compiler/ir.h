@@ -27,7 +27,7 @@ struct Instr {
 };
 
 enum class Terminator {
-	None, // Still open; emitted as a fall-through.
+	None, // Still open. Lowering closes every block, so none reaches emit.
 	Jump,
 	Branch, // To `target` if `value` is true, else to `else_target`.
 	Return,

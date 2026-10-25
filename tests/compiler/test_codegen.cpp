@@ -3,6 +3,8 @@
 
 #include "doctest.h"
 
+#include <map>
+
 using namespace petrichor;
 using namespace petrichor::tests;
 using bytecode::ValueType;
@@ -23,6 +25,64 @@ std::string listing(const bytecode::Module &p_module, const std::string &p_funct
 
 bool contains(const std::string &p_text, const std::string &p_part) {
 	return p_text.find(p_part) != std::string::npos;
+}
+
+// Follows the control flow of a function whose branches test its bool
+// parameters, and records the int constants it stores into members. Returns
+// false when the code does not return within a bounded number of steps, or
+// uses an instruction this does not follow.
+bool trace(const bytecode::Module &p_module, const std::string &p_function, const std::vector<bool> &p_args, std::vector<int64_t> &r_stores) {
+	using bytecode::Op;
+	const bytecode::Function &fn = p_module.functions[p_module.find_function(p_function)];
+	std::map<uint32_t, uint64_t> slots;
+	for (size_t i = 0; i < p_args.size(); i++) {
+		slots[fn.params[i].offset] = p_args[i] ? 1 : 0;
+	}
+	const std::vector<uint32_t> &code = fn.code;
+	size_t pc = 0;
+	for (int steps = 0; steps < 1000 && pc < code.size(); steps++) {
+		switch (Op(code[pc])) {
+			case Op::LINE:
+				pc += 2;
+				break;
+			case Op::CONST_INT:
+				slots[code[pc + 1]] = uint64_t(p_module.constants[code[pc + 2]].i);
+				pc += 3;
+				break;
+			case Op::CONST_BOOL:
+				slots[code[pc + 1]] = code[pc + 2];
+				pc += 3;
+				break;
+			case Op::MOVE_8:
+				slots[code[pc + 1]] = slots[code[pc + 2]];
+				pc += 3;
+				break;
+			case Op::STORE_MEMBER_8:
+				r_stores.push_back(int64_t(slots[code[pc + 2]]));
+				pc += 3;
+				break;
+			case Op::JUMP:
+				pc = code[pc + 1];
+				break;
+			case Op::JUMP_IF_FALSE:
+				pc = slots[code[pc + 1]] ? pc + 3 : code[pc + 2];
+				break;
+			case Op::JUMP_IF_TRUE:
+				pc = slots[code[pc + 1]] ? code[pc + 2] : pc + 3;
+				break;
+			case Op::RETURN_VOID:
+				return true;
+			default:
+				return false;
+		}
+	}
+	return false;
+}
+
+std::vector<int64_t> stores(const bytecode::Module &p_module, const std::string &p_function, const std::vector<bool> &p_args) {
+	std::vector<int64_t> result;
+	CHECK_MESSAGE(trace(p_module, p_function, p_args, result), "the function returns");
+	return result;
 }
 
 } // namespace
@@ -88,6 +148,37 @@ func f(n: int) -> int:
 	CHECK(contains(code, "JUMP_IF_FALSE"));
 	CHECK(contains(code, "JUMP "));
 	CHECK(contains(code, "RETURN"));
+}
+
+TEST_CASE("a function that runs off its end returns from every branch") {
+	const bytecode::Module module = module_of(R"(extends Node
+var x := 0
+
+func chain(a: bool, b: bool):
+	if a:
+		x = 1
+	elif b:
+		x = 2
+	else:
+		x = 3
+
+func only_if(a: bool):
+	if a:
+		x = 1
+
+func in_loop(a: bool):
+	while a:
+		if a:
+			x = 1
+		a = false
+)");
+	CHECK(stores(module, "chain", { true, false }) == std::vector<int64_t>{ 1 });
+	CHECK(stores(module, "chain", { false, true }) == std::vector<int64_t>{ 2 });
+	CHECK(stores(module, "chain", { false, false }) == std::vector<int64_t>{ 3 });
+	CHECK(stores(module, "only_if", { true }) == std::vector<int64_t>{ 1 });
+	CHECK(stores(module, "only_if", { false }).empty());
+	CHECK(stores(module, "in_loop", { true }) == std::vector<int64_t>{ 1 });
+	CHECK(stores(module, "in_loop", { false }).empty());
 }
 
 TEST_CASE("calls") {
