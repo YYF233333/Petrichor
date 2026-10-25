@@ -54,6 +54,7 @@ struct Function {
 	std::string return_class;
 	bool is_pub = false;
 	bool is_override = false;
+	bool is_exposed = false;
 	uint32_t line = 0;
 	std::vector<Block> blocks;
 };

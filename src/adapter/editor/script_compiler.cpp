@@ -1,6 +1,7 @@
 #include "adapter/editor/script_compiler.h"
 
 #include "adapter/editor/class_db_api.h"
+#include "adapter/editor/scene_index.h"
 #include "adapter/pet_compiled.h"
 #include "compiler/compiler.h"
 
@@ -12,8 +13,12 @@ using namespace godot;
 
 namespace petrichor {
 
-std::shared_ptr<const ClassImage> compile_script(const String &p_path, const String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report) {
-	compiler::CompileResult result = compiler::compile(to_utf8(p_source), ClassDBApi::get());
+std::shared_ptr<const ClassImage> compile_script(const String &p_path, const String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, CompileMode p_mode) {
+	compiler::CompileOptions options;
+	options.path = to_utf8(p_path);
+	options.declarations_only = p_mode == CompileMode::Declarations;
+	options.project = options.declarations_only ? nullptr : &SceneIndex::get();
+	compiler::CompileResult result = compiler::compile(to_utf8(p_source), ClassDBApi::get(), options);
 	if (p_report) {
 		const CharString file = p_path.utf8();
 		for (const compiler::Diagnostic &error : result.errors) {

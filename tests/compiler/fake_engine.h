@@ -23,9 +23,11 @@ class FakeEngine : public compiler::EngineApi {
 		{ "Node2D", "Node" },
 		{ "Node3D", "Node" },
 		{ "RandomNumberGenerator", "RefCounted" },
+		{ "Timer", "Node" },
 	};
 	std::map<std::string, std::vector<EngineMethod>> methods;
 	std::map<std::string, std::vector<EngineProperty>> properties;
+	std::map<std::string, std::vector<EngineMethod>> signals;
 
 	static Type t(TypeKind p_kind) { return Type::of(p_kind); }
 
@@ -71,6 +73,13 @@ public:
 		properties["RandomNumberGenerator"] = {
 			{ "seed", t(TypeKind::Int), true },
 		};
+		signals["Node"] = {
+			method("ready", {}, t(TypeKind::Void)),
+			method("child_entered_tree", { { "node", node } }, t(TypeKind::Void)),
+		};
+		signals["Timer"] = {
+			method("timeout", {}, t(TypeKind::Void)),
+		};
 	}
 
 	bool class_exists(const std::string &p_class) const override { return parents.count(p_class) > 0; }
@@ -91,6 +100,21 @@ public:
 			for (const EngineMethod &m : found->second) {
 				if (m.name == p_method) {
 					return m;
+				}
+			}
+		}
+		return std::nullopt;
+	}
+
+	std::optional<EngineMethod> find_signal(const std::string &p_class, const std::string &p_signal) const override {
+		for (std::string cls = p_class; !cls.empty(); cls = parent_class(cls)) {
+			const auto found = signals.find(cls);
+			if (found == signals.end()) {
+				continue;
+			}
+			for (const EngineMethod &signal : found->second) {
+				if (signal.name == p_signal) {
+					return signal;
 				}
 			}
 		}

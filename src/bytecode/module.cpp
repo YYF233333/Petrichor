@@ -294,6 +294,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 	}
 	w.u32(FORMAT_VERSION);
 	w.u64(p_module.source_hash);
+	w.u8(p_module.declarations_only ? 1 : 0);
 	w.str(p_module.global_name);
 	w.str(p_module.base_class);
 
@@ -322,6 +323,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.str(function.return_class);
 		w.u8(function.is_pub ? 1 : 0);
 		w.u8(function.is_override ? 1 : 0);
+		w.u8(function.is_exposed ? 1 : 0);
 		w.u32(function.line);
 		w.u32(function.frame_size);
 		w.u32(uint32_t(function.slots.size()));
@@ -414,6 +416,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 
 	Module module;
 	module.source_hash = r.u64();
+	module.declarations_only = r.u8() != 0;
 	module.global_name = r.str();
 	module.base_class = r.str();
 
@@ -442,6 +445,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		function.return_class = r.str();
 		function.is_pub = r.u8() != 0;
 		function.is_override = r.u8() != 0;
+		function.is_exposed = r.u8() != 0;
 		function.line = r.u32();
 		function.frame_size = r.u32();
 		function.slots.resize(r.count());

@@ -109,7 +109,9 @@ bool is_literal(const Expr &p_expr) {
 class Checker {
 	ClassDecl &cls;
 	const EngineApi &engine;
+	const CompileOptions &options;
 	std::vector<Diagnostic> &errors;
+	std::vector<Scene> scenes; // The scenes that use this script.
 
 	FuncDecl *function = nullptr;
 	std::vector<std::unordered_map<std::string, int>> scopes;
@@ -1023,16 +1025,64 @@ class Checker {
 		}
 	}
 
-	void check_body(FuncDecl &r_function) {
-		function = &r_function;
-		scopes.clear();
-		scopes.emplace_back();
+	void declare_params(FuncDecl &r_function) {
 		for (const ParamDecl &param : r_function.params) {
 			if (scopes.back().count(param.name)) {
 				error(param.line, param.column, "Parameter \"" + param.name + "\" is declared twice.");
 			}
 			scopes.back()[param.name] = int(r_function.locals.size());
 			r_function.locals.push_back({ param.name, param.type });
+		}
+	}
+
+	// Connections saved in scenes to methods of this class (spec §7.7): the
+	// method must exist and take what the signal passes; the engine finds it
+	// by name (§10.5).
+	void check_connections() {
+		for (const Scene &scene : scenes) {
+			for (const SceneConnection &connection : scene.connections) {
+				const SceneNode *target = scene.find_node(connection.target);
+				if (!target || target->script != options.path) {
+					continue;
+				}
+				const std::string where = scene.path + ": the signal \"" + connection.signal + "\" of " + connection.source + " is connected to " + connection.method + "()";
+				const auto found = function_index.find(connection.method);
+				if (found == function_index.end()) {
+					error(cls.extends_line, cls.extends_column, where + ", which this class does not declare.");
+					continue;
+				}
+				FuncDecl &method = cls.functions[found->second];
+				method.is_exposed = true;
+				const SceneNode *source = scene.find_node(connection.source);
+				const auto signal = source ? engine.find_signal(source->type, connection.signal) : std::nullopt;
+				if (!signal) {
+					continue; // A signal declared by a script; checked once script signals are typed.
+				}
+				const int passed = int(signal->params.size()) - connection.unbinds + connection.binds;
+				if (int(method.params.size()) != passed) {
+					error(method.line, method.column, where + ", which passes " + std::to_string(passed) + " argument(s); " + method.name + "() takes " + std::to_string(method.params.size()) + ".");
+					continue;
+				}
+				for (int i = 0; i < int(signal->params.size()) - connection.unbinds; i++) {
+					Type argument = signal->params[i].type;
+					argument.nullable = false; // The engine's own signal arguments.
+					if (!assignable(argument, method.params[i].type)) {
+						error(method.params[i].line, method.params[i].column, where + ", which passes " + argument.to_string() + " here.");
+					}
+				}
+			}
+		}
+	}
+
+	void check_body(FuncDecl &r_function) {
+		function = &r_function;
+		scopes.clear();
+		scopes.emplace_back();
+		declare_params(r_function);
+		if (options.declarations_only) {
+			function = nullptr;
+			scopes.clear();
+			return;
 		}
 		check_block(r_function.body);
 		if (r_function.return_type.kind != TypeKind::Void && !r_function.return_type.is_error() && !always_returns(r_function.body)) {
@@ -1043,13 +1093,16 @@ class Checker {
 	}
 
 public:
-	Checker(ClassDecl &r_class, const EngineApi &p_engine, std::vector<Diagnostic> &r_errors) :
-			cls(r_class), engine(p_engine), errors(r_errors) {}
+	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors) :
+			cls(r_class), engine(p_engine), options(p_options), errors(r_errors) {}
 
 	void run() {
 		if (!engine.class_exists(cls.extends)) {
 			error(cls.extends_line, cls.extends_column, "Unknown base class \"" + cls.extends + "\".");
 			return;
+		}
+		if (options.project && !options.declarations_only && !options.path.empty()) {
+			scenes = options.project->scenes_with_script(options.path);
 		}
 		declare_members();
 		for (size_t i = 0; i < cls.functions.size(); i++) {
@@ -1066,6 +1119,7 @@ public:
 			check_signature(function_decl);
 		}
 		check_members();
+		check_connections();
 		// In declaration order, so errors come out in a stable order.
 		for (size_t i = 0; i < cls.functions.size(); i++) {
 			const auto registered = function_index.find(cls.functions[i].name);
@@ -1078,8 +1132,8 @@ public:
 
 } // namespace
 
-void check(ClassDecl &r_class, const EngineApi &p_engine, std::vector<Diagnostic> &r_errors) {
-	Checker(r_class, p_engine, r_errors).run();
+void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors) {
+	Checker(r_class, p_engine, p_options, r_errors).run();
 }
 
 } // namespace petrichor::compiler

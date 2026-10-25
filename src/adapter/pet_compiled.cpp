@@ -38,10 +38,15 @@ std::shared_ptr<const ClassImage> load_compiled(const String &p_compiled_path, c
 		r_error = "has changed since it was compiled. Run the project from the editor, or rebuild it.";
 		return nullptr;
 	}
+	if (module.declarations_only) {
+		r_error = "was compiled without its function bodies. Rebuild the project.";
+		return nullptr;
+	}
 	return ClassImage::load(std::move(module), p_script_path, r_error);
 }
 
 bool write_compiled(const String &p_compiled_path, const ClassImage &p_image) {
+	ERR_FAIL_COND_V_MSG(p_image.module.declarations_only, false, "Only a full compilation is written to " + p_compiled_path);
 	const Error dir_error = DirAccess::make_dir_recursive_absolute(p_compiled_path.get_base_dir());
 	ERR_FAIL_COND_V_MSG(dir_error != OK, false, "Cannot create " + p_compiled_path.get_base_dir());
 	const Ref<FileAccess> file = FileAccess::open(p_compiled_path, FileAccess::WRITE);

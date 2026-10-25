@@ -45,6 +45,8 @@ public:
 	// These search the class and its ancestors.
 	virtual std::optional<EngineMethod> find_method(const std::string &p_class, const std::string &p_method) const = 0;
 	virtual std::optional<EngineProperty> find_property(const std::string &p_class, const std::string &p_property) const = 0;
+	// A signal, as a method whose parameters are the signal's arguments.
+	virtual std::optional<EngineMethod> find_signal(const std::string &p_class, const std::string &p_signal) const = 0;
 
 	bool inherits(const std::string &p_class, const std::string &p_ancestor) const {
 		for (std::string cls = p_class; !cls.empty(); cls = parent_class(cls)) {

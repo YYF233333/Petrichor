@@ -9,18 +9,18 @@
 
 namespace petrichor::compiler {
 
-CompileResult compile(const std::string &p_source, const EngineApi &p_engine) {
+CompileResult compile(const std::string &p_source, const EngineApi &p_engine, const CompileOptions &p_options) {
 	CompileResult result;
 	const std::vector<Token> tokens = tokenize(p_source, result.errors);
 	ClassDecl cls = parse(tokens, result.errors);
 	if (result.errors.empty()) {
-		check(cls, p_engine, result.errors);
+		check(cls, p_engine, p_options, result.errors);
 	}
 	std::stable_sort(result.errors.begin(), result.errors.end(), [](const Diagnostic &a, const Diagnostic &b) {
 		return a.line != b.line ? a.line < b.line : a.column < b.column;
 	});
 	if (result.errors.empty()) {
-		result.module = lower(cls);
+		result.module = lower(cls, p_options.declarations_only);
 		result.module.source_hash = bytecode::hash_source(p_source);
 	}
 	return result;

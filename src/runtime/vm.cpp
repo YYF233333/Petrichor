@@ -4,6 +4,7 @@
 #include "runtime/debugger.h"
 
 #include <godot_cpp/classes/class_db_singleton.hpp>
+#include <godot_cpp/core/error_macros.hpp>
 #include <godot_cpp/godot.hpp>
 
 #include <cstring>
@@ -471,6 +472,11 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 	const std::shared_ptr<const ClassImage> image = p_image;
 	const bytecode::Function &fn = image->module.functions[p_function];
 	r_error.error = GDEXTENSION_CALL_OK;
+	if (image->module.declarations_only) {
+		ERR_PRINT(vformat("%s was only described for the editor; it runs once the project is built.", image->path));
+		r_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
+		return Variant();
+	}
 	if (size_t(p_argc) != fn.params.size()) {
 		r_error.error = size_t(p_argc) > fn.params.size() ? GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS : GDEXTENSION_CALL_ERROR_TOO_FEW_ARGUMENTS;
 		r_error.expected = int32_t(fn.params.size());

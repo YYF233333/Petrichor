@@ -1,6 +1,7 @@
 #pragma once
 
 #include "compiler/ast.h"
+#include "compiler/compiler.h"
 #include "compiler/diagnostic.h"
 #include "compiler/engine_api.h"
 
@@ -9,7 +10,7 @@
 namespace petrichor::compiler {
 
 // Resolves names and types and fills the checker fields of the AST.
-void check(ClassDecl &r_class, const EngineApi &p_engine, std::vector<Diagnostic> &r_errors);
+void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors);
 
 // Whether a value of type `p_from` can be stored where `p_to` is expected:
 // the same type, int to float (spec §3.2), String to and from StringName and

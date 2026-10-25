@@ -50,10 +50,11 @@ public:
 	void set_loaded(const godot::String &p_source, const std::shared_ptr<const ClassImage> &p_image);
 	void instance_freed(PetInstance *p_instance);
 
-	// Members and functions visible to the engine and other languages: public
-	// or exported members, and public functions and engine overrides.
+	// Members and functions visible to the engine and other languages (spec
+	// §10.5): public or exported members; public functions, engine overrides
+	// and methods connected in scenes.
 	static bool is_visible(const bytecode::Member &p_member) { return p_member.is_pub || p_member.is_export; }
-	static bool is_visible(const bytecode::Function &p_function) { return p_function.is_pub || p_function.is_override; }
+	static bool is_visible(const bytecode::Function &p_function) { return p_function.is_pub || p_function.is_override || p_function.is_exposed; }
 	int find_visible_function(const godot::StringName &p_name) const;
 
 	// GDScript constructs scripts of other languages through a bound `new`, and

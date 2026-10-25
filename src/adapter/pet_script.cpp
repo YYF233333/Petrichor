@@ -241,7 +241,8 @@ void PetScript::_placeholder_erased(void *p_placeholder) {
 }
 
 bool PetScript::_can_instantiate() const {
-	return get_image() && (_is_tool() || !Engine::get_singleton()->is_editor_hint());
+	const std::shared_ptr<const ClassImage> current = get_image();
+	return current && !current->module.declarations_only && (_is_tool() || !Engine::get_singleton()->is_editor_hint());
 }
 
 Ref<Script> PetScript::_get_base_script() const {
@@ -265,6 +266,7 @@ StringName PetScript::_get_instance_base_type() const {
 void *PetScript::_instance_create(Object *p_for_object) const {
 	const std::shared_ptr<const ClassImage> current = get_image();
 	ERR_FAIL_COND_V_MSG(!current, nullptr, get_script_path() + " has errors and cannot be instantiated.");
+	ERR_FAIL_COND_V_MSG(current->module.declarations_only, nullptr, get_script_path() + " was only described for the editor; it runs once the project is built.");
 	if (!ClassDBSingleton::get_singleton()->is_parent_class(p_for_object->get_class(), current->base_class)) {
 		ERR_PRINT(vformat("%s extends %s and cannot be attached to %s.", get_script_path(), current->base_class, p_for_object->get_class()));
 		return nullptr;

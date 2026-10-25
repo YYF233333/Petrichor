@@ -894,9 +894,10 @@ public:
 	Lowerer(const ClassDecl &p_class, bytecode::Module &r_module) :
 			cls(p_class), module(r_module) {}
 
-	void run() {
+	void run(bool p_declarations_only) {
 		module.global_name = cls.class_name;
 		module.base_class = cls.extends;
+		module.declarations_only = p_declarations_only;
 		uint32_t offset = 0;
 		for (const VarDecl &decl_member : cls.members) {
 			bytecode::Member member;
@@ -916,7 +917,7 @@ public:
 		module.instance_size = offset;
 
 		bytecode::Function initializers;
-		const bool has_initializers = lower_initializers(initializers);
+		const bool has_initializers = !p_declarations_only && lower_initializers(initializers);
 
 		for (const FuncDecl &function : cls.functions) {
 			start(function.name);
@@ -928,11 +929,14 @@ public:
 			}
 			fn.is_pub = function.is_pub;
 			fn.is_override = function.is_override;
+			fn.is_exposed = function.is_exposed;
 			fn.line = uint32_t(function.line);
 			for (const LocalInfo &local : function.locals) {
 				fn.regs.push_back(slot_of(local.name, local.type));
 			}
-			lower_block(function.body);
+			if (!p_declarations_only) {
+				lower_block(function.body);
+			}
 			finish();
 			module.functions.push_back(ir::emit(fn, module));
 		}
@@ -946,9 +950,9 @@ public:
 
 } // namespace
 
-bytecode::Module lower(const ClassDecl &p_class) {
+bytecode::Module lower(const ClassDecl &p_class, bool p_declarations_only) {
 	bytecode::Module module;
-	Lowerer(p_class, module).run();
+	Lowerer(p_class, module).run(p_declarations_only);
 	return module;
 }
 

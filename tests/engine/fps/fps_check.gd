@@ -21,10 +21,24 @@ func _nodes_with_script(root: Node, file: String) -> Array[Node]:
 		var script: Script = node.get_script()
 		if script and script.resource_path.get_file().get_basename() == file:
 			found.append(node)
-	# run.py checks this line for each migrated script.
 	if not found.is_empty():
-		print("fps check: %s runs %s" % [file, found[0].get_script().get_class()])
+		_report(file, found[0])
 	return found
+
+
+# run.py checks this line for each migrated script.
+func _report(file: String, node: Node) -> void:
+	print("fps check: %s runs %s" % [file, node.get_script().get_class()])
+
+
+# Waits up to `seconds` of real time for `condition`; headless frames are not paced.
+func _wait_until(condition: Callable, seconds: float) -> bool:
+	var deadline := Time.get_ticks_msec() + int(seconds * 1000)
+	while not condition.call():
+		if Time.get_ticks_msec() > deadline:
+			return false
+		await get_tree().process_frame
+	return true
 
 
 func _ready() -> void:
@@ -44,6 +58,14 @@ func _ready() -> void:
 		if clouds[i].position.y != heights[i]:
 			moved += 1
 	_check(moved == clouds.size(), "every cloud moves up and down (%d of %d)" % [moved, clouds.size()])
+
+	# The player spawns impacts when shooting, which a headless run does not do.
+	var impact: AnimatedSprite3D = load("res://objects/impact.tscn").instantiate()
+	scene.add_child(impact)
+	_report("impact", impact)
+	impact.play("shot")
+	var freed: bool = await _wait_until(func(): return not is_instance_valid(impact), 3.0)
+	_check(freed, "an impact frees itself when its animation finishes")
 
 	print("fps check: %d failure(s)" % failures)
 	get_tree().quit()

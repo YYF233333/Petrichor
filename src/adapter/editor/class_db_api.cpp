@@ -90,6 +90,26 @@ std::optional<EngineMethod> ClassDBApi::find_method(const std::string &p_class, 
 	return std::nullopt;
 }
 
+std::optional<EngineMethod> ClassDBApi::find_signal(const std::string &p_class, const std::string &p_signal) const {
+	ClassDBSingleton *db = ClassDBSingleton::get_singleton();
+	if (!db->class_exists(to_godot(p_class))) {
+		return std::nullopt;
+	}
+	// ClassDB looks through the ancestors.
+	const Dictionary info = db->class_get_signal(to_godot(p_class), to_godot(p_signal));
+	if (info.is_empty()) {
+		return std::nullopt;
+	}
+	EngineMethod signal;
+	signal.name = p_signal;
+	const Array args = info.get("args", Array());
+	for (int64_t a = 0; a < args.size(); a++) {
+		const Dictionary arg = args[a];
+		signal.params.push_back({ to_std(arg.get("name", String())), type_of(arg, false) });
+	}
+	return signal;
+}
+
 bool ClassDBApi::can_instantiate(const std::string &p_class) const {
 	return ClassDBSingleton::get_singleton()->can_instantiate(to_godot(p_class));
 }

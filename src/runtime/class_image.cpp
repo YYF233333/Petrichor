@@ -191,6 +191,9 @@ bool same_initializers(const bytecode::Module &p_a, const bytecode::Module &p_b)
 bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	const bytecode::Module &a = module;
 	const bytecode::Module &b = p_other.module;
+	if (a.declarations_only || b.declarations_only) {
+		return false;
+	}
 	if (a.global_name != b.global_name || a.base_class != b.base_class || a.instance_size != b.instance_size || a.members.size() != b.members.size() || a.functions.size() != b.functions.size()) {
 		return false;
 	}
@@ -213,7 +216,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 		}
 		const bytecode::Function &x = a.functions[i];
 		const bytecode::Function &y = b.functions[i];
-		if (x.name != y.name || x.return_type != y.return_type || x.return_class != y.return_class || x.is_pub != y.is_pub || x.is_override != y.is_override || x.params.size() != y.params.size()) {
+		if (x.name != y.name || x.return_type != y.return_type || x.return_class != y.return_class || x.is_pub != y.is_pub || x.is_override != y.is_override || x.is_exposed != y.is_exposed || x.params.size() != y.params.size()) {
 			return false;
 		}
 		for (size_t p = 0; p < x.params.size(); p++) {

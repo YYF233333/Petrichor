@@ -8,9 +8,49 @@
 
 namespace petrichor::tests {
 
-inline compiler::CompileResult compile(const std::string &p_source) {
+inline const FakeEngine &fake_engine() {
 	static const FakeEngine engine;
-	return compiler::compile(p_source, engine);
+	return engine;
+}
+
+inline compiler::CompileResult compile(const std::string &p_source) {
+	return compiler::compile(p_source, fake_engine());
+}
+
+// Scenes described by hand, for the scene model (spec §7).
+class FakeProject : public compiler::ProjectApi {
+public:
+	std::vector<compiler::Scene> scenes;
+
+	std::vector<compiler::Scene> scenes_with_script(const std::string &p_script_path) const override {
+		std::vector<compiler::Scene> result;
+		for (const compiler::Scene &scene : scenes) {
+			for (const compiler::SceneNode &node : scene.nodes) {
+				if (node.script == p_script_path) {
+					result.push_back(scene);
+					break;
+				}
+			}
+		}
+		return result;
+	}
+};
+
+// Compiles res://test.pet, used by the scenes of `p_project`.
+inline compiler::CompileResult compile_in(const std::string &p_source, const FakeProject &p_project, bool p_declarations_only = false) {
+	compiler::CompileOptions options;
+	options.path = "res://test.pet";
+	options.project = &p_project;
+	options.declarations_only = p_declarations_only;
+	return compiler::compile(p_source, fake_engine(), options);
+}
+
+inline std::string messages(const compiler::CompileResult &p_result) {
+	std::string text;
+	for (const compiler::Diagnostic &d : p_result.errors) {
+		text += std::to_string(d.line) + ":" + std::to_string(d.column) + ": " + d.message + "\n";
+	}
+	return text;
 }
 
 // Each error as "line:column: message".

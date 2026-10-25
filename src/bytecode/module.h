@@ -106,6 +106,8 @@ struct Function {
 	std::string return_class;
 	bool is_pub = false;
 	bool is_override = false; // Overrides an engine virtual method.
+	// The engine must find it by name: a method connected in a scene (spec §10.5).
+	bool is_exposed = false;
 	uint32_t line = 0;
 	uint32_t frame_size = 0;
 	std::vector<Slot> slots; // All slots with their types, params first.
@@ -184,6 +186,9 @@ struct TablePrefix {
 
 struct Module {
 	uint64_t source_hash = 0;
+	// Compiled without function bodies, to describe the class while it is
+	// being loaded in the editor; it cannot run.
+	bool declarations_only = false;
 	std::string global_name;
 	std::string base_class;
 	std::vector<Member> members;
