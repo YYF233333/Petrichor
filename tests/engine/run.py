@@ -215,6 +215,13 @@ def drain(connection):
 def prepare_fps(project):
     """The FPS starter kit with the extension and fps_check.gd."""
     shutil.copytree(FPS_UPSTREAM, project, ignore=shutil.ignore_patterns(".git"))
+    # A headless run draws nothing, so textures are imported without VRAM
+    # compression, on which an unoptimized engine spent most of the import
+    # (skybox.png to BPTC took about 40 s).
+    for settings in project.rglob("*.import"):
+        text = settings.read_text(encoding="utf-8")
+        if 'importer="texture"' in text:
+            settings.write_text(re.sub(r"^compress/mode=2$", "compress/mode=0", text, flags=re.M), encoding="utf-8")
     shutil.copytree(PROJECT / "bin", project / "bin")
     shutil.copy(PROJECT / "petrichor.gdextension", project)
     shutil.copy(FPS_MIGRATED / "fps_check.gd", project)
@@ -277,12 +284,13 @@ def main():
     def wanted(group):
         return not only or group in only
 
-    run(godot, "--path", str(PROJECT), "--import")
-
-    # The game reads the bytecode the editor writes (architecture §2.4).
-    code, output = run(godot, "-e", "--path", str(PROJECT), "--", "--petrichor-build")
-    expect_run("build", code, output)
-    expect("build: every script compiles", ", 0 with errors" in output, output)
+    # The fps group prepares projects of its own.
+    if not only or only - {"fps"}:
+        run(godot, "--path", str(PROJECT), "--import")
+        # The game reads the bytecode the editor writes (architecture §2.4).
+        code, output = run(godot, "-e", "--path", str(PROJECT), "--", "--petrichor-build")
+        expect_run("build", code, output)
+        expect("build: every script compiles", ", 0 with errors" in output, output)
 
     if wanted("game"):
         code, output = run(godot, "--path", str(PROJECT))
@@ -316,16 +324,18 @@ def main():
 
 
 def resources_in_use(output):
-    """What a --verbose run reports as still in use at exit."""
-    return {line for line in output.splitlines() if line.startswith("Resource still in use: ")}
+    """What a --verbose run reports as still in use at exit, apart from sounds:
+    a stopped sound's playback is released only when the audio thread next
+    mixes, so which sounds are still held at exit depends on timing."""
+    return {line for line in output.splitlines() if line.startswith("Resource still in use: ") and "res://sounds/" not in line}
 
 
 def run_fps_group(godot):
     # Architecture §5 step 4: the starter kit runs with its migrated scripts.
     # The original reports errors of its own in a headless run (sounds still
     # playing at exit, and weapon models it removes without freeing), so the
-    # migrated run may only repeat those, and keep no resource at exit that
-    # the original does not.
+    # migrated run may only repeat those, and keep no resource at exit, other
+    # than sounds, that the original does not.
     with tempfile.TemporaryDirectory() as tmp:
         original = Path(tmp) / "original"
         prepare_fps(original)
@@ -336,9 +346,11 @@ def run_fps_group(godot):
         known_in_use = resources_in_use(output)
 
         # Prepared afresh: the original's .godot caches its global classes,
-        # such as Weapon, with the paths of the GDScript files.
+        # such as Weapon, with the paths of the GDScript files. The assets are
+        # the same, so their imported data is reused instead of imported again.
         migrated = Path(tmp) / "migrated"
         prepare_fps(migrated)
+        shutil.copytree(original / ".godot" / "imported", migrated / ".godot" / "imported")
         migrate_fps(migrated)
         run(godot, "--path", str(migrated), "--import")
         code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-build")
