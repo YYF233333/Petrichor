@@ -137,6 +137,10 @@ func _ready() -> void:
 	detached.free()
 	_check(v.tree_root_name() == &"root" and detached_root == &"", "get_tree() is T, and a program error outside the tree")
 	_check(v.captured() == Input.MOUSE_MODE_CAPTURED, "an integer constant of an engine class")
+	Engine.print_error_messages = false
+	var deep = v.recurse(0)
+	Engine.print_error_messages = true
+	_check(deep == 0, "infinite recursion is a program error, not a crash")
 	var gone_node := Node.new()
 	gone_node.free()
 	_check(v.name_or_dash(null) == "-" and v.name_or_dash(v) == str(v.name) and v.callv("name_or_dash", [gone_node]) == "-", "== None narrows, and a freed object is None in T?")

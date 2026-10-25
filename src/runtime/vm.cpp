@@ -12,7 +12,9 @@
 #include <godot_cpp/core/error_macros.hpp>
 #include <godot_cpp/godot.hpp>
 
+#include <algorithm>
 #include <cstring>
+#include <memory>
 #include <new>
 
 using namespace godot;
@@ -25,43 +27,73 @@ using bytecode::ValueType;
 
 namespace {
 
+// GDScript's default limit (debug/settings/gdscript/max_call_stack,
+// modules/gdscript/gdscript.cpp:2870); deeper recursion is a program error
+// (spec §8.1) instead of a crash.
+constexpr size_t MAX_CALL_DEPTH = 1024;
+
+// The frames of this language on this thread, innermost last, for error lines
+// and the debugger. It never grows past its first reservation, so that a
+// function's record stays put while it runs.
 thread_local std::vector<StackFrame> call_stack;
 
-// Frame memory: small frames on the C++ stack, larger ones on the heap.
-class FrameMemory {
-	alignas(16) uint8_t inline_buffer[256];
-	uint8_t *heap = nullptr;
+// The memory of the frames of this language on this thread, taken and given
+// back last in first out, from blocks that do not move.
+class FrameStack {
+	static constexpr size_t BLOCK_SIZE = 64 * 1024;
+	struct Block {
+		std::unique_ptr<uint8_t[]> data;
+		size_t size = 0;
+		size_t used = 0;
+	};
+	std::vector<Block> blocks;
+	size_t current = 0;
+
+	static size_t aligned(uint32_t p_size) { return (size_t(p_size) + 15) & ~size_t(15); }
 
 public:
-	uint8_t *data;
+	uint8_t *push(uint32_t p_size) {
+		const size_t size = aligned(p_size);
+		while (current < blocks.size() && blocks[current].size - blocks[current].used < size) {
+			current++;
+		}
+		if (current == blocks.size()) {
+			const size_t block_size = std::max(BLOCK_SIZE, size);
+			blocks.push_back(Block{ std::make_unique<uint8_t[]>(block_size), block_size, 0 });
+		}
+		Block &block = blocks[current];
+		uint8_t *data = block.data.get() + block.used;
+		block.used += size;
+		return data;
+	}
 
-	explicit FrameMemory(uint32_t p_size) {
-		data = p_size <= sizeof(inline_buffer) ? inline_buffer : (heap = static_cast<uint8_t *>(::operator new(p_size)));
+	void pop(uint32_t p_size) {
+		blocks[current].used -= aligned(p_size);
+		while (current > 0 && blocks[current].used == 0) {
+			current--;
+		}
 	}
-	~FrameMemory() {
-		::operator delete(heap);
-	}
-	FrameMemory(const FrameMemory &) = delete;
-	FrameMemory &operator=(const FrameMemory &) = delete;
 };
 
-// A single slot that holds a value of any type: return values, and results
-// the engine writes that nothing reads.
-class ValueSlot {
-	alignas(16) uint8_t storage[64];
-	ValueType type;
+thread_local FrameStack frame_stack;
+
+// A frame of a function, constructed and destroyed by its layout.
+class Frame {
+	const SlotLayout &layout;
 
 public:
-	explicit ValueSlot(ValueType p_type) :
-			type(p_type) {
-		construct_value(type, storage);
+	uint8_t *const data;
+
+	explicit Frame(const SlotLayout &p_layout) :
+			layout(p_layout), data(frame_stack.push(p_layout.size)) {
+		layout.construct(data);
 	}
-	~ValueSlot() {
-		destroy_value(type, storage);
+	~Frame() {
+		layout.destroy(data);
+		frame_stack.pop(layout.size);
 	}
-	ValueSlot(const ValueSlot &) = delete;
-	ValueSlot &operator=(const ValueSlot &) = delete;
-	uint8_t *data() { return storage; }
+	Frame(const Frame &) = delete;
+	Frame &operator=(const Frame &) = delete;
 };
 
 // Where an engine function reads a right operand that a unary operator does not have.
@@ -70,29 +102,48 @@ alignas(16) const uint8_t NOTHING[64] = {};
 // The arguments of a call to the engine, from the instruction's (type, offset)
 // pairs: each in its slot's own layout, or as a Variant where the function
 // takes a Variant, for extra vararg arguments, or for every argument of a call
-// by name.
+// by name. Kept on the C++ stack up to a few arguments.
 class Arguments {
-	std::vector<Variant> variants;
+	static constexpr uint32_t INLINE = 8;
+	const void *inline_pointers[INLINE];
+	alignas(Variant) uint8_t inline_variants[INLINE * sizeof(Variant)];
+	uint32_t variant_count = 0;
+	std::vector<const void *> heap_pointers;
+	std::vector<Variant> heap_variants;
 
 public:
-	std::vector<const void *> pointers;
+	const void **pointers;
 
 	Arguments(uint8_t *p_frame, const uint32_t *p_pairs, uint32_t p_count, const std::vector<ValueType> *p_params) {
-		variants.reserve(p_count); // Pointers into it stay valid.
-		pointers.resize(p_count);
+		if (p_count > INLINE) {
+			heap_pointers.resize(p_count);
+			heap_variants.reserve(p_count); // Pointers into it stay valid.
+		}
+		pointers = p_count > INLINE ? heap_pointers.data() : inline_pointers;
 		for (uint32_t i = 0; i < p_count; i++) {
 			const ValueType type = ValueType(p_pairs[2 * i]);
 			uint8_t *slot = p_frame + p_pairs[2 * i + 1];
-			if (!p_params || i >= p_params->size() || (*p_params)[i] == ValueType::Variant) {
-				variants.push_back(to_variant(type, slot));
-				pointers[i] = &variants.back();
-			} else {
+			if (p_params && i < p_params->size() && (*p_params)[i] != ValueType::Variant) {
 				pointers[i] = slot;
+			} else if (type == ValueType::Variant || type == ValueType::Object) {
+				pointers[i] = slot; // Already a Variant.
+			} else if (p_count > INLINE) {
+				heap_variants.push_back(to_variant(type, slot));
+				pointers[i] = &heap_variants.back();
+			} else {
+				pointers[i] = new (inline_variants + variant_count++ * sizeof(Variant)) Variant(to_variant(type, slot));
 			}
 		}
 	}
+	~Arguments() {
+		for (uint32_t i = 0; i < variant_count; i++) {
+			reinterpret_cast<Variant *>(inline_variants)[i].~Variant();
+		}
+	}
+	Arguments(const Arguments &) = delete;
+	Arguments &operator=(const Arguments &) = delete;
 
-	const Variant **as_variants() { return reinterpret_cast<const Variant **>(pointers.data()); }
+	const Variant **as_variants() { return reinterpret_cast<const Variant **>(pointers); }
 };
 
 void report_error(const ClassImage &p_image, const bytecode::Function &p_function, int p_line, const String &p_message) {
@@ -106,10 +157,32 @@ void report_error(const ClassImage &p_image, const bytecode::Function &p_functio
 class Execution {
 	const ClassImage &image;
 	const InstanceContext &context;
+	// Whether the engine's debugger is on, which does not change while the
+	// engine runs (core/debugger/engine_debugger.h:106); asked once per call
+	// from the engine, since asking is a call into the engine.
+	const bool debugging;
+	// self as a Variant, made when an instruction first needs it.
+	alignas(Variant) uint8_t self_storage[sizeof(Variant)] = {};
+	bool has_self = false;
+
+	Variant &self() {
+		if (!has_self) {
+			new (self_storage) Variant(context.owner);
+			has_self = true;
+		}
+		return variant_at(self_storage);
+	}
 
 public:
-	Execution(const ClassImage &p_image, const InstanceContext &p_context) :
-			image(p_image), context(p_context) {}
+	Execution(const ClassImage &p_image, const InstanceContext &p_context, bool p_debugging) :
+			image(p_image), context(p_context), debugging(p_debugging) {}
+	~Execution() {
+		if (has_self) {
+			variant_at(self_storage).~Variant();
+		}
+	}
+	Execution(const Execution &) = delete;
+	Execution &operator=(const Execution &) = delete;
 
 	// Runs a function on an initialized frame. Returns false after a program
 	// error, which unwinds every frame of this language up to the engine.
@@ -118,44 +191,53 @@ public:
 		const bytecode::Module &module = image.module;
 		const uint32_t *code = fn.code.data();
 		uint8_t *members = context.members;
-		const size_t depth = call_stack.size();
+		if (call_stack.capacity() < MAX_CALL_DEPTH) {
+			call_stack.reserve(MAX_CALL_DEPTH);
+		}
+		if (call_stack.size() == MAX_CALL_DEPTH) {
+			const StackFrame &caller = call_stack.back();
+			report_error(*caller.image, *caller.function, caller.line, vformat("Stack overflow: more than %d calls deep. Check for infinite recursion.", int64_t(MAX_CALL_DEPTH)));
+			return false;
+		}
 		call_stack.push_back({ &image, &fn, frame, members, int(fn.line) });
-		debugger::enter_function();
+		StackFrame &record = call_stack.back();
+		if (debugging) {
+			debugger::enter_function();
+		}
 		struct Pop {
+			bool debugging;
 			~Pop() {
-				debugger::exit_function();
+				if (debugging) {
+					debugger::exit_function();
+				}
 				call_stack.pop_back();
 			}
-		} pop;
+		} pop{ debugging };
 
 #define I64(m_offset) (*reinterpret_cast<int64_t *>(frame + (m_offset)))
 #define U64(m_offset) (*reinterpret_cast<uint64_t *>(frame + (m_offset)))
 #define F64(m_offset) (*reinterpret_cast<double *>(frame + (m_offset)))
 #define STR(m_offset) (*reinterpret_cast<String *>(frame + (m_offset)))
-#define FAIL(m_message)                                                   \
-	do {                                                                  \
-		report_error(image, fn, call_stack[depth].line, (m_message));     \
-		return false;                                                     \
+#define FAIL(m_message)                                     \
+	do {                                                    \
+		report_error(image, fn, record.line, (m_message));  \
+		return false;                                       \
 	} while (false)
 // Wrapping arithmetic on int, as in GDScript; through unsigned to stay defined.
 #define WRAP(m_op) int64_t(uint64_t(I64(code[pc + 2])) m_op uint64_t(I64(code[pc + 3])))
 // The object an instruction works on: self, or a live object in a slot (spec §3.3).
 #define OBJECT(m_name, m_offset)                                                     \
-	Variant m_name;                                                                  \
-	if ((m_offset) == NO_SLOT) {                                                     \
-		m_name = Variant(context.owner);                                             \
-	} else if (is_live_object(frame + (m_offset))) {                                 \
-		m_name = variant_at(frame + (m_offset));                                     \
-	} else {                                                                         \
+	if ((m_offset) != NO_SLOT && !is_live_object(frame + (m_offset))) {              \
 		FAIL(is_none(variant_at(frame + (m_offset))) ? String("The value is None.") : String("The object was freed.")); \
-	}
+	}                                                                                \
+	Variant &m_name = (m_offset) == NO_SLOT ? self() : variant_at(frame + (m_offset));
 
 		size_t pc = 0;
 		while (true) {
 			switch (Op(code[pc])) {
 				case Op::LINE:
-					call_stack[depth].line = int(code[pc + 1]);
-					if (debugger::is_active()) {
+					record.line = int(code[pc + 1]);
+					if (debugging) {
 						debugger::line(image.source, int(code[pc + 1]));
 					}
 					pc += 2;
@@ -500,13 +582,14 @@ public:
 					const uint32_t dst = code[pc + 2];
 					const uint32_t argc = code[pc + 4];
 					const bytecode::Function &callee = module.functions[target];
-					FrameMemory callee_frame(callee.frame_size);
-					construct_slots(callee_frame.data, callee.frame_size, callee.slots);
-					for (uint32_t i = 0; i < argc; i++) {
-						copy_value(callee.params[i].type, callee_frame.data + callee.params[i].offset, frame + code[pc + 6 + 2 * i]);
+					bool ok;
+					{
+						Frame callee_frame(image.frames[target]);
+						for (uint32_t i = 0; i < argc; i++) {
+							copy_value(callee.params[i].type, callee_frame.data + callee.params[i].offset, frame + code[pc + 6 + 2 * i]);
+						}
+						ok = run(target, callee_frame.data, dst == NO_SLOT ? nullptr : frame + dst);
 					}
-					const bool ok = run(target, callee_frame.data, dst == NO_SLOT ? nullptr : frame + dst);
-					destroy_slots(callee_frame.data, callee.slots);
 					if (!ok) {
 						return false;
 					}
@@ -544,17 +627,23 @@ public:
 					const ValueType result_type = utility ? module.utility_calls[target].result_type : module.builtin_methods[target].result_type;
 					Arguments args(frame, code + pc + 5, argc, &params);
 					// A native result goes straight into its slot; a Variant one
-					// is checked on the way (spec §10.3).
-					Variant variant_result;
-					ValueSlot unread(dst == NO_SLOT && returns != ValueType::Variant ? returns : ValueType::Void);
-					void *result = returns == ValueType::Variant || returns == ValueType::Void ? static_cast<void *>(&variant_result) : (dst == NO_SLOT ? unread.data() : frame + dst);
+					// is checked on the way (spec §10.3). The scratch slot takes a
+					// Variant result, or one that nothing reads.
+					const bool via_variant = returns == ValueType::Variant || returns == ValueType::Void;
+					const bool unread = !via_variant && dst == NO_SLOT;
+					alignas(16) uint8_t scratch[64];
+					construct_value(via_variant ? ValueType::Variant : (unread ? returns : ValueType::Void), scratch);
+					void *result = via_variant || unread ? scratch : frame + dst;
 					if (utility) {
-						image.utilities[target](result, args.pointers.data(), int(argc));
+						image.utilities[target](result, args.pointers, int(argc));
 					} else {
-						image.builtin_methods[target](frame + code[pc + 3], args.pointers.data(), result, int(argc));
+						image.builtin_methods[target](frame + code[pc + 3], args.pointers, result, int(argc));
 					}
-					if (returns == ValueType::Variant && dst != NO_SLOT && !from_variant(result_type, variant_result, frame + dst)) {
-						FAIL(vformat("A call returned an unexpected %s.", Variant::get_type_name(variant_result.get_type())));
+					const bool fits = returns != ValueType::Variant || dst == NO_SLOT || from_variant(result_type, variant_at(scratch), frame + dst);
+					const Variant::Type got = via_variant ? type_of(variant_at(scratch)) : Variant::NIL;
+					destroy_value(via_variant ? ValueType::Variant : (unread ? returns : ValueType::Void), scratch);
+					if (!fits) {
+						FAIL(vformat("A call returned an unexpected %s.", Variant::get_type_name(got)));
 					}
 					pc += 5 + 2 * argc;
 					break;
@@ -567,7 +656,7 @@ public:
 					Arguments args(frame, code + pc + 5, argc, &constructor.params);
 					// The engine constructs into memory that holds no value.
 					destroy_value(constructor.type, frame + dst);
-					image.constructors[target](frame + dst, args.pointers.data());
+					image.constructors[target](frame + dst, args.pointers);
 					pc += 5 + 2 * argc;
 					break;
 				}
@@ -615,13 +704,12 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 		return Variant();
 	}
 
-	FrameMemory frame(fn.frame_size);
-	construct_slots(frame.data, fn.frame_size, fn.slots);
+	Frame frame(image->frames[p_function]);
+	const std::vector<ValueCheck> &checks = image->param_checks[p_function];
 	for (size_t i = 0; i < fn.params.size(); i++) {
 		const bytecode::Slot &param = fn.params[i];
-		const Variant value = i < size_t(p_argc) ? *p_args[i] : literal_value(fn.defaults[i - required]);
-		if (!from_variant(param.type, value, frame.data + param.offset, ValueCheck(param))) {
-			destroy_slots(frame.data, fn.slots);
+		const Variant &value = i < size_t(p_argc) ? *p_args[i] : image->param_defaults[p_function][i - required];
+		if (!from_variant(param.type, value, frame.data + param.offset, &checks[i])) {
 			// The caller reports this with its own call site, as for engine methods.
 			r_error.error = GDEXTENSION_CALL_ERROR_INVALID_ARGUMENT;
 			r_error.argument = int32_t(i);
@@ -630,13 +718,14 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 		}
 	}
 
-	ValueSlot result(fn.return_type);
-	const bool ok = Execution(*image, p_context).run(uint32_t(p_function), frame.data, result.data());
+	alignas(16) uint8_t result[64];
+	construct_value(fn.return_type, result);
+	const bool ok = Execution(*image, p_context, debugger::is_active()).run(uint32_t(p_function), frame.data, result);
 	if (r_failed) {
 		*r_failed = !ok;
 	}
-	Variant value = ok ? to_variant(fn.return_type, result.data()) : default_variant(fn.return_type);
-	destroy_slots(frame.data, fn.slots);
+	Variant value = ok ? to_variant(fn.return_type, result) : default_variant(fn.return_type);
+	destroy_value(fn.return_type, result);
 	return value;
 }
 

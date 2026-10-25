@@ -5,7 +5,6 @@
 #include <godot_cpp/godot.hpp>
 
 #include <array>
-#include <cstring>
 #include <new>
 
 using namespace godot;
@@ -24,31 +23,19 @@ bool is_variant_slot(ValueType p_type) {
 struct TypeOps {
 	GDExtensionPtrConstructor construct = nullptr; // Without arguments.
 	GDExtensionPtrConstructor copy = nullptr;
-	GDExtensionPtrDestructor destroy = nullptr; // Null for plain data.
+	// Null for types that own nothing (core/variant/variant_destruct.cpp:33-57).
+	GDExtensionPtrDestructor destroy = nullptr;
 	GDExtensionVariantFromTypeConstructorFunc to_variant = nullptr;
 	GDExtensionTypeFromVariantConstructorFunc from_variant = nullptr;
+	uint32_t size = 0;
+	bool zero_default = true; // The default value is all zero bytes.
 };
 
+// Function pointers only, so a plain global (godot-cpp values cannot be).
+std::array<TypeOps, size_t(ValueType::Count)> type_ops;
+
 const TypeOps &ops(ValueType p_type) {
-	// Built on first use: the engine's functions are only available once the
-	// library is initialized.
-	static const std::array<TypeOps, size_t(ValueType::Count)> table = [] {
-		std::array<TypeOps, size_t(ValueType::Count)> result{};
-		for (uint32_t i = uint32_t(ValueType::Bool); i < uint32_t(ValueType::Variant); i++) {
-			if (ValueType(i) == ValueType::Object) {
-				continue;
-			}
-			const GDExtensionVariantType type = GDExtensionVariantType(i);
-			// Constructor 0 takes no arguments and 1 copies, for every built-in type.
-			result[i].construct = gdextension_interface::variant_get_ptr_constructor(type, 0);
-			result[i].copy = gdextension_interface::variant_get_ptr_constructor(type, 1);
-			result[i].destroy = gdextension_interface::variant_get_ptr_destructor(type);
-			result[i].to_variant = gdextension_interface::get_variant_from_type_constructor(type);
-			result[i].from_variant = gdextension_interface::get_variant_to_type_constructor(type);
-		}
-		return result;
-	}();
-	return table[size_t(p_type)];
+	return type_ops[size_t(p_type)];
 }
 
 // A class of this language is its script; with no script asked for, any will do.
@@ -80,39 +67,79 @@ bool fits(ValueType p_type, Variant::Type p_have) {
 
 } // namespace
 
+void init_values() {
+	for (uint32_t i = 0; i < uint32_t(ValueType::Count); i++) {
+		const ValueType type = ValueType(i);
+		TypeOps &entry = type_ops[i];
+		entry.size = bytecode::value_size(type);
+		if (type == ValueType::Void || is_variant_slot(type)) {
+			continue; // A NIL Variant is all zero bytes.
+		}
+		const GDExtensionVariantType engine_type = GDExtensionVariantType(i);
+		// Constructor 0 takes no arguments and 1 copies, for every built-in type.
+		entry.construct = gdextension_interface::variant_get_ptr_constructor(engine_type, 0);
+		entry.copy = gdextension_interface::variant_get_ptr_constructor(engine_type, 1);
+		entry.destroy = gdextension_interface::variant_get_ptr_destructor(engine_type);
+		entry.to_variant = gdextension_interface::get_variant_from_type_constructor(engine_type);
+		entry.from_variant = gdextension_interface::get_variant_to_type_constructor(engine_type);
+		// Asked of the engine rather than listed: Basis and Color, say, are not zero.
+		alignas(16) uint8_t probe[64] = {};
+		entry.construct(probe, nullptr);
+		for (uint32_t b = 0; b < entry.size; b++) {
+			entry.zero_default = entry.zero_default && probe[b] == 0;
+		}
+		if (entry.destroy) {
+			entry.destroy(probe);
+		}
+	}
+}
+
 void construct_value(ValueType p_type, uint8_t *p_slot) {
-	const uint32_t size = bytecode::value_size(p_type);
 	std::memset(p_slot, 0, bytecode::slot_size(p_type));
-	if (is_variant_slot(p_type)) {
-		new (p_slot) Variant();
-	} else if (size > 0 && p_type != ValueType::Bool && p_type != ValueType::Int && p_type != ValueType::Float) {
+	if (!ops(p_type).zero_default) {
 		ops(p_type).construct(p_slot, nullptr);
 	}
 }
 
 void destroy_value(ValueType p_type, uint8_t *p_slot) {
 	if (is_variant_slot(p_type)) {
-		variant_at(p_slot).~Variant();
-	} else if (p_type < ValueType::Count && ops(p_type).destroy) {
+		if (type_of(variant_at(p_slot)) != Variant::NIL) {
+			variant_at(p_slot).~Variant();
+		}
+	} else if (ops(p_type).destroy) {
 		ops(p_type).destroy(p_slot);
 	}
 }
 
-void construct_slots(uint8_t *p_base, uint32_t p_size, const std::vector<bytecode::Slot> &p_slots) {
-	std::memset(p_base, 0, p_size);
+SlotLayout SlotLayout::of(uint32_t p_size, const std::vector<bytecode::Slot> &p_slots) {
+	SlotLayout layout;
+	layout.size = p_size;
 	for (const bytecode::Slot &slot : p_slots) {
-		construct_value(slot.type, p_base + slot.offset);
+		if (!ops(slot.type).zero_default) {
+			layout.constructed.emplace_back(slot.offset, slot.type);
+		}
+		if (is_variant_slot(slot.type) || ops(slot.type).destroy) {
+			layout.destroyed.emplace_back(slot.offset, slot.type);
+		}
+	}
+	return layout;
+}
+
+void SlotLayout::construct(uint8_t *p_base) const {
+	std::memset(p_base, 0, size);
+	for (const auto &[offset, type] : constructed) {
+		ops(type).construct(p_base + offset, nullptr);
 	}
 }
 
-void destroy_slots(uint8_t *p_base, const std::vector<bytecode::Slot> &p_slots) {
-	for (const bytecode::Slot &slot : p_slots) {
-		destroy_value(slot.type, p_base + slot.offset);
+void SlotLayout::destroy(uint8_t *p_base) const {
+	for (const auto &[offset, type] : destroyed) {
+		destroy_value(type, p_base + offset);
 	}
 }
 
 void copy_value(ValueType p_type, uint8_t *p_dst, const uint8_t *p_src) {
-	if (p_dst == p_src || p_type == ValueType::Void) {
+	if (p_dst == p_src) {
 		return;
 	}
 	if (is_variant_slot(p_type)) {
@@ -121,7 +148,7 @@ void copy_value(ValueType p_type, uint8_t *p_dst, const uint8_t *p_src) {
 	}
 	const TypeOps &type = ops(p_type);
 	if (!type.destroy) {
-		std::memcpy(p_dst, p_src, bytecode::value_size(p_type));
+		std::memcpy(p_dst, p_src, type.size);
 		return;
 	}
 	type.destroy(p_dst);
@@ -141,28 +168,30 @@ Variant to_variant(ValueType p_type, const uint8_t *p_slot) {
 	return result;
 }
 
-bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, const ValueCheck &p_check) {
-	const Variant::Type have = p_value.get_type();
+bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, const ValueCheck *p_check) {
+	const Variant::Type have = type_of(p_value);
 	switch (p_type) {
 		case ValueType::Void:
 			return true;
-		case ValueType::Variant:
-			if (p_check.option != ValueType::Void && !is_none(p_value)) {
+		case ValueType::Variant: {
+			const ValueType option = p_check ? p_check->option : ValueType::Void;
+			if (option != ValueType::Void && !is_none(p_value)) {
 				// T? of a value type holds a T, converted as for a T slot.
 				alignas(16) uint8_t storage[64];
-				construct_value(p_check.option, storage);
-				const bool ok = from_variant(p_check.option, p_value, storage);
+				construct_value(option, storage);
+				const bool ok = from_variant(option, p_value, storage);
 				if (ok) {
-					variant_at(p_slot) = to_variant(p_check.option, storage);
+					variant_at(p_slot) = to_variant(option, storage);
 				}
-				destroy_value(p_check.option, storage);
+				destroy_value(option, storage);
 				return ok;
 			}
-			variant_at(p_slot) = p_check.option != ValueType::Void ? Variant() : p_value; // None in one form.
+			variant_at(p_slot) = option != ValueType::Void ? Variant() : p_value; // None in one form.
 			return true;
+		}
 		case ValueType::Object:
 			if (is_none(p_value)) {
-				if (!p_check.nullable) {
+				if (p_check && !p_check->nullable) {
 					return false;
 				}
 				variant_at(p_slot) = Variant(); // None in one form.
@@ -171,39 +200,48 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 			if (have != Variant::OBJECT) {
 				return false;
 			}
-			if (p_value.booleanize() && p_check.class_name != StringName()) {
+			if (p_check && !p_check->class_name.is_empty() && p_value.booleanize()) {
 				const Object *object = p_value;
-				if (!object || !object->is_class(p_check.class_name) || !has_script(object->get_script(), p_check.script)) {
+				if (!object || !object->is_class(p_check->class_name) || !has_script(object->get_script(), p_check->script)) {
 					return false;
 				}
 			}
 			variant_at(p_slot) = p_value;
 			return true;
 		case ValueType::Array:
-			if (p_check.element != ValueType::Void && have == Variant::ARRAY) {
+			if (p_check && p_check->element != ValueType::Void && have == Variant::ARRAY) {
 				// Array[T] is the engine's array typed with T, and does not vary
 				// with T (spec §3.8).
 				const Array array = p_value;
-				if (!array.is_typed() || array.get_typed_builtin() != int64_t(variant_type(p_check.element)) ||
-						(p_check.element == ValueType::Object && (array.get_typed_class_name() != p_check.class_name || !has_script(array.get_typed_script(), p_check.script)))) {
+				if (!array.is_typed() || array.get_typed_builtin() != int64_t(variant_type(p_check->element)) ||
+						(p_check->element == ValueType::Object && (array.get_typed_class_name() != p_check->class_name || !has_script(array.get_typed_script(), p_check->script)))) {
 					return false;
 				}
 			}
 			break;
 		case ValueType::Bool:
-		case ValueType::Int:
-			if (have != variant_type(p_type)) {
+			if (have != Variant::BOOL) {
 				return false;
 			}
-			// The 8-byte slot stays 0 or 1 above the byte the engine writes.
-			*reinterpret_cast<uint64_t *>(p_slot) = p_type == ValueType::Bool ? (bool(p_value) ? 1 : 0) : uint64_t(int64_t(p_value));
+			// The 8-byte slot stays 0 or 1 above the byte the engine keeps.
+			*reinterpret_cast<uint64_t *>(p_slot) = *data_of(p_value) ? 1 : 0;
+			return true;
+		case ValueType::Int:
+			if (have != Variant::INT) {
+				return false;
+			}
+			std::memcpy(p_slot, data_of(p_value), 8);
 			return true;
 		case ValueType::Float:
-			if (!fits(p_type, have)) {
-				return false;
+			if (have == Variant::FLOAT) {
+				std::memcpy(p_slot, data_of(p_value), 8);
+				return true;
 			}
-			*reinterpret_cast<double *>(p_slot) = double(p_value);
-			return true;
+			if (have == Variant::INT) {
+				*reinterpret_cast<double *>(p_slot) = double(*reinterpret_cast<const int64_t *>(data_of(p_value)));
+				return true;
+			}
+			return false;
 		default:
 			break;
 	}
@@ -244,15 +282,9 @@ Variant::Type variant_type(ValueType p_type) {
 	return Variant::Type(uint32_t(p_type));
 }
 
-bool is_none(const Variant &p_value) {
-	// The engine passes a null Object* as an OBJECT Variant without an object
-	// (core/variant/variant.cpp:2507-2511), not as NIL.
-	return p_value.get_type() == Variant::NIL || (p_value.get_type() == Variant::OBJECT && p_value.operator ObjectID().is_null());
-}
-
 bool is_live_object(const uint8_t *p_slot) {
 	const Variant &value = variant_at(p_slot);
-	return value.get_type() == Variant::OBJECT && value.booleanize();
+	return type_of(value) == Variant::OBJECT && object_id_of(value) != 0 && value.booleanize();
 }
 
 bool check_value_sizes(String &r_error) {

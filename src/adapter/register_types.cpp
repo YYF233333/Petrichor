@@ -3,6 +3,7 @@
 #include "adapter/pet_resource_format.h"
 #include "adapter/pet_script.h"
 #include "runtime/task.h"
+#include "runtime/values.h"
 
 #ifdef PETRICHOR_PROBES
 #include "probe/probe.h"
@@ -31,6 +32,7 @@ static Ref<PetResourceSaver> saver;
 
 static void initialize_petrichor(ModuleInitializationLevel p_level) {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
+		init_values();
 		GDREGISTER_INTERNAL_CLASS(PetLanguage);
 		GDREGISTER_CLASS(PetScript);
 		GDREGISTER_INTERNAL_CLASS(PetResourceLoader);

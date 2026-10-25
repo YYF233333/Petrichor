@@ -138,6 +138,10 @@ pub func stop_listening(timer: Timer):
 pub func texture_size() -> Vector2:
 	return texture.get_size()
 
+# Spec §8.1: past 1024 nested calls, a program error.
+pub func recurse(depth: int) -> int:
+	return recurse(depth + 1)
+
 # A node that becomes ready without texture stops there, before _ready() (spec
 # §7.5, §8.1).
 pub var readied := false

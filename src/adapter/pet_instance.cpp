@@ -112,9 +112,8 @@ void free_method_list(const GDExtensionMethodInfo *p_list, uint32_t p_count) {
 
 PetInstance::PetInstance(PetScript *p_script, const std::shared_ptr<const ClassImage> &p_image, Object *p_owner) :
 		owner(p_owner->_owner), owner_object(p_owner), script(Ref<PetScript>(p_script)), image(p_image) {
-	const uint32_t size = std::max<uint32_t>(image->module.instance_size, 8);
-	members = static_cast<uint8_t *>(::operator new(size));
-	construct_slots(members, size, image->member_slots);
+	members = static_cast<uint8_t *>(::operator new(image->members_layout.size));
+	image->members_layout.construct(members);
 	for (const bytecode::Member &member : image->module.members) {
 		if (member.has_initial) {
 			from_variant(member.type, initial_value(*image, member), members + member.offset);
@@ -137,7 +136,7 @@ PetInstance::PetInstance(PetScript *p_script, const std::shared_ptr<const ClassI
 }
 
 PetInstance::~PetInstance() {
-	destroy_slots(members, current_image()->member_slots);
+	current_image()->members_layout.destroy(members);
 	::operator delete(members);
 }
 
@@ -190,7 +189,7 @@ static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance,
 	}
 	// A value of the wrong type is rejected, as by the entry checks (spec §10.1).
 	const size_t index = size_t(member - image->module.members.data());
-	return from_variant(member->type, *reinterpret_cast<const Variant *>(p_value), instance->members + member->offset, image->member_checks[index]);
+	return from_variant(member->type, *reinterpret_cast<const Variant *>(p_value), instance->members + member->offset, &image->member_checks[index]);
 }
 
 static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionVariantPtr r_ret) {

@@ -4,6 +4,8 @@
 
 #include <godot_cpp/classes/script.hpp>
 
+#include <algorithm>
+
 using namespace godot;
 
 namespace petrichor {
@@ -31,25 +33,38 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 	image->base_class = from_utf8(module.base_class);
 
 	for (size_t i = 0; i < module.functions.size(); i++) {
-		const StringName name = from_utf8(module.functions[i].name);
+		const bytecode::Function &function = module.functions[i];
+		const StringName name = from_utf8(function.name);
 		image->function_names.push_back(name);
 		image->function_lookup.insert(name, int(i));
-		if (module.functions[i].name == "_init" && module.functions[i].params.empty()) {
+		if (function.name == "_init" && function.params.empty()) {
 			image->user_init = int(i);
 		}
+		image->frames.push_back(SlotLayout::of(function.frame_size, function.slots));
+		std::vector<ValueCheck> checks;
+		for (const bytecode::Slot &param : function.params) {
+			checks.push_back(ValueCheck(param));
+		}
+		image->param_checks.push_back(std::move(checks));
+		std::vector<Variant> defaults;
+		for (const bytecode::Constant &value : function.defaults) {
+			defaults.push_back(literal_value(value));
+		}
+		image->param_defaults.push_back(std::move(defaults));
 	}
+	std::vector<bytecode::Slot> member_slots;
 	for (size_t i = 0; i < module.members.size(); i++) {
 		const bytecode::Member &member = module.members[i];
 		const StringName name = from_utf8(member.name);
 		image->member_names.push_back(name);
 		image->member_checks.push_back(ValueCheck(member));
 		bytecode::Slot slot;
-		slot.name = member.name;
 		slot.type = member.type;
 		slot.offset = member.offset;
-		image->member_slots.push_back(slot);
+		member_slots.push_back(slot);
 		image->member_lookup.insert(name, int(i));
 	}
+	image->members_layout = SlotLayout::of(std::max<uint32_t>(module.instance_size, 8), member_slots);
 
 	for (const bytecode::Constant &constant : module.constants) {
 		image->strings.push_back(constant.type == ValueType::String ? from_utf8(constant.s) : String());
