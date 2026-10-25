@@ -142,6 +142,19 @@ TEST_CASE("for over an array") {
 	CHECK(has_error(in_function("var u: Array = []\nfor x in u:\n\tpass"), "untyped Array are Variant"));
 }
 
+TEST_CASE("engine singletons are reached by their class name") {
+	CHECK(type_of("Input.is_action_pressed(\"jump\")") == "bool");
+	CHECK(type_of("Input") == "Input");
+	CHECK(errors_of(in_function("var loader := ResourceLoader\nvar r = loader.load(\"res://a.tres\")")).empty());
+}
+
+// Spec §7.4: a path known only at run time gives what the engine declares.
+TEST_CASE("load() is ResourceLoader.load()") {
+	CHECK(type_of("load(\"res://\" + \"a.ogg\")") == "Resource?");
+	CHECK(type_of("load(\"res://a.ogg\") as AudioStream") == "AudioStream?");
+	CHECK(has_error(in_function("var r = load(1)"), "Cannot pass a value of type int as String"));
+}
+
 TEST_CASE("as converts objects to T? (spec §5.3)") {
 	const char *setup = "var n: Node = Node3D.new()";
 	CHECK(type_of("n as Node3D", setup) == "Node3D?");

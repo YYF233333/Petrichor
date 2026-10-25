@@ -54,6 +54,7 @@ enum class Target {
 	ConvertToInt,
 	ConvertToFloat,
 	Unwrap, // `unwrap()` or `expect(message)` of T? (spec §3.4).
+	Singleton, // An engine singleton, such as Input, by its class name.
 };
 
 struct Expr {

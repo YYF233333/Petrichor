@@ -4,6 +4,7 @@
 #include "runtime/debugger.h"
 
 #include <godot_cpp/classes/class_db_singleton.hpp>
+#include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/core/error_macros.hpp>
 #include <godot_cpp/godot.hpp>
 
@@ -352,6 +353,15 @@ public:
 						FAIL(vformat("Cannot construct %s.", image.classes[code[pc + 1]]));
 					}
 					variant_at(frame + code[pc + 2]) = object;
+					pc += 3;
+					break;
+				}
+				case Op::GET_SINGLETON: {
+					Object *singleton = Engine::get_singleton()->get_singleton(image.classes[code[pc + 1]]);
+					if (!singleton) {
+						FAIL(vformat("The engine has no singleton %s.", image.classes[code[pc + 1]]));
+					}
+					variant_at(frame + code[pc + 2]) = Variant(singleton);
 					pc += 3;
 					break;
 				}

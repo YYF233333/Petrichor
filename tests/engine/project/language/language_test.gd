@@ -100,6 +100,11 @@ func _ready() -> void:
 	_check(v.element(ints, 0) == 1 and v.element(ints, -1) == 3 and out_of_bounds == 0, "an index out of bounds is a program error; a negative one counts from the end")
 	_check(v.part("a,b,c", 1) == "b" and no_part == "", "PackedStringArray from split() with its default arguments")
 	_check(v.players.is_typed() and v.players.get_typed_class_name() == &"Node3D", "a member of type Array[Node3D] starts as an empty typed array")
+	Engine.print_error_messages = false
+	var missing_resource = v.loaded("res://language/missing.tres")
+	Engine.print_error_messages = true
+	_check(v.loaded("res://language/nodes.tscn") is PackedScene and missing_resource == null, "load() with a path known at run time")
+	_check(v.pressed() == false, "a method of the Input singleton")
 	var listed: Array[float] = v.literal()
 	_check(listed == [1.0, 2.5] and listed.get_typed_builtin() == TYPE_FLOAT, "an array literal takes its element type from where it goes")
 	v.transform = Transform3D(Basis(), Vector3(7, 0, 0))

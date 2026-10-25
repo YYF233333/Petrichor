@@ -2,6 +2,7 @@
 
 #include "compiler/engine_api.h"
 
+#include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
@@ -31,7 +32,12 @@ class FakeEngine : public compiler::EngineApi {
 		{ "Control", "CanvasItem" },
 		{ "Label", "Control" },
 		{ "TextureRect", "Control" },
+		{ "Input", "Object" },
+		{ "ResourceLoader", "Object" },
+		{ "AudioStream", "Resource" },
+		{ "AudioStreamPlayer", "Node" },
 	};
+	std::vector<std::string> singletons = { "Input", "ResourceLoader" };
 	std::map<std::string, std::vector<EngineMethod>> methods;
 	std::map<std::string, std::vector<EngineProperty>> properties;
 	std::map<std::string, std::vector<EngineMethod>> signals;
@@ -65,6 +71,23 @@ public:
 		};
 		methods["Node3D"] = {
 			method("rotate_y", { { "angle", t(TypeKind::Float) } }, t(TypeKind::Void)),
+		};
+		methods["Input"] = {
+			method("is_action_pressed", { { "action", Type::builtin("StringName") }, { "exact_match", t(TypeKind::Bool) } }, t(TypeKind::Bool), false, 1),
+		};
+		methods["ResourceLoader"] = {
+			method("load", { { "path", t(TypeKind::String) }, { "type_hint", t(TypeKind::String) }, { "cache_mode", t(TypeKind::Int) } }, Type::object("Resource", true), false, 2),
+		};
+		methods["AudioStreamPlayer"] = {
+			method("play", { { "from_position", t(TypeKind::Float) } }, t(TypeKind::Void), false, 1),
+		};
+		properties["AudioStreamPlayer"] = {
+			{ "stream", Type::object("AudioStream", true), true },
+			{ "volume_db", t(TypeKind::Float), true },
+			{ "bus", Type::builtin("StringName"), true },
+		};
+		signals["AudioStreamPlayer"] = {
+			method("finished", {}, t(TypeKind::Void)),
 		};
 		methods["RandomNumberGenerator"] = {
 			method("randf_range", { { "from", t(TypeKind::Float) }, { "to", t(TypeKind::Float) } }, t(TypeKind::Float)),
@@ -101,6 +124,10 @@ public:
 	}
 
 	bool can_instantiate(const std::string &p_class) const override { return class_exists(p_class) && p_class != "Object"; }
+
+	bool is_singleton(const std::string &p_class) const override {
+		return std::find(singletons.begin(), singletons.end(), p_class) != singletons.end();
+	}
 
 	std::optional<EngineMethod> find_method(const std::string &p_class, const std::string &p_method) const override {
 		for (std::string cls = p_class; !cls.empty(); cls = parent_class(cls)) {

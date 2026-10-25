@@ -42,6 +42,8 @@ public:
 	// Empty for Object.
 	virtual std::string parent_class(const std::string &p_class) const = 0;
 	virtual bool can_instantiate(const std::string &p_class) const = 0;
+	// An engine singleton, such as Input, which code reaches by its class name.
+	virtual bool is_singleton(const std::string &p_class) const = 0;
 	// These search the class and its ancestors.
 	virtual std::optional<EngineMethod> find_method(const std::string &p_class, const std::string &p_method) const = 0;
 	virtual std::optional<EngineProperty> find_property(const std::string &p_class, const std::string &p_property) const = 0;

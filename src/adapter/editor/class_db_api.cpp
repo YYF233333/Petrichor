@@ -3,6 +3,7 @@
 #include "runtime/class_image.h"
 
 #include <godot_cpp/classes/class_db_singleton.hpp>
+#include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/variant/typed_array.hpp>
 
 using namespace godot;
@@ -40,6 +41,12 @@ Type type_of(const Dictionary &p_property, bool p_is_return) {
 			const String class_name = p_property.get("class_name", String());
 			return Type::object(to_std(class_name.is_empty() ? String("Object") : class_name), true);
 		}
+		case Variant::ARRAY:
+			// A typed array, such as the Array[Node] of get_children() (spec §3.8).
+			if (int(p_property.get("hint", 0)) == PROPERTY_HINT_ARRAY_TYPE) {
+				return compiler::api_type("typedarray::" + to_std(p_property.get("hint_string", String())), true);
+			}
+			return Type::builtin("Array");
 		default:
 			// The names ClassDB gives value types are the extension API's names.
 			return compiler::api_type(to_std(Variant::get_type_name(type)), true);
@@ -112,6 +119,10 @@ std::optional<EngineMethod> ClassDBApi::find_signal(const std::string &p_class, 
 
 bool ClassDBApi::can_instantiate(const std::string &p_class) const {
 	return ClassDBSingleton::get_singleton()->can_instantiate(to_godot(p_class));
+}
+
+bool ClassDBApi::is_singleton(const std::string &p_class) const {
+	return Engine::get_singleton()->has_singleton(to_godot(p_class));
 }
 
 std::optional<EngineProperty> ClassDBApi::find_property(const std::string &p_class, const std::string &p_property) const {

@@ -711,6 +711,11 @@ class Lowerer {
 				if (p_expr.target == Target::Local) {
 					return uint32_t(p_expr.index);
 				}
+				if (p_expr.target == Target::Singleton) {
+					const uint32_t result = temp(p_expr.type);
+					instr(Op::GET_SINGLETON, result, NO_REG, NO_REG, class_index(p_expr.text));
+					return result;
+				}
 				if (p_expr.target == Target::BuiltinConstant) {
 					const ValueType type = value_type(p_expr.type);
 					bytecode::Constant constant;

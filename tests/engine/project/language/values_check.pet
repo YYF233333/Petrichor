@@ -112,3 +112,10 @@ pub func part(text: String, index: int) -> String:
 pub func literal() -> Array[float]:
 	var values: Array[float] = [1, 2.5]
 	return values
+
+# Engine singletons and load().
+pub func loaded(path: String) -> Resource?:
+	return load(path)
+
+pub func pressed() -> bool:
+	return Input.is_action_pressed("ui_accept")

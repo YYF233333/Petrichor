@@ -66,6 +66,7 @@ namespace petrichor::bytecode {
 	X(GET_PROPERTY, 3) /* property, dst, object (NO_SLOT: self) */   \
 	X(SET_PROPERTY, 3) /* property, object (NO_SLOT: self), value */ \
 	X(NEW_OBJECT, 2) /* class, dst */                                \
+	X(GET_SINGLETON, 2) /* class, dst */                             \
 	X(CHECK_OBJECT, 2) /* class, slot: not None, of the class */     \
 	X(CAST_OBJECT, 3) /* class, dst, src: `as`, None if it fails */  \
 	X(TO_VARIANT, 3) /* type, dst (Variant), src */                  \

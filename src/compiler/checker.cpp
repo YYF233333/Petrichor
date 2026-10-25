@@ -287,7 +287,7 @@ class Checker {
 	// `Name.f()`: not when a local, a member or a property has that name.
 	bool names_type(const Expr &p_expr) const {
 		return p_expr.kind == ExprKind::Name && find_local(p_expr.text) < 0 && !member_index.count(p_expr.text) &&
-				!engine.find_property(cls.extends, p_expr.text) && is_type_name(p_expr.text);
+				!engine.find_property(cls.extends, p_expr.text) && is_type_name(p_expr.text) && !engine.is_singleton(p_expr.text);
 	}
 
 	Type check_name(Expr &r_expr) {
@@ -315,6 +315,10 @@ class Checker {
 		}
 		if (function_index.count(r_expr.text)) {
 			return fail(r_expr, "Functions cannot be used as values yet; call " + r_expr.text + "().");
+		}
+		if (engine.is_singleton(r_expr.text)) {
+			r_expr.target = Target::Singleton;
+			return set(r_expr, Type::object(r_expr.text));
 		}
 		if (is_type_name(r_expr.text)) {
 			return fail(r_expr, "\"" + r_expr.text + "\" is a type, not a value.");
@@ -982,6 +986,17 @@ class Checker {
 				if (const builtin::Class *type = builtin::find_class(name)) {
 					return check_constructor(r_expr, *type);
 				}
+			}
+			if (name == "load" && engine.is_singleton("ResourceLoader")) {
+				// GDScript's load() is ResourceLoader.load(), whose result may be
+				// None (spec §7.4, §10.2).
+				auto loader = std::make_unique<Expr>();
+				loader->kind = ExprKind::Name;
+				loader->text = "ResourceLoader";
+				loader->line = r_expr.line;
+				loader->column = r_expr.column;
+				r_expr.base = std::move(loader);
+				return check_call(r_expr);
 			}
 		}
 
