@@ -395,6 +395,8 @@ class Verifier {
 				return slot(o[2], ValueType(o[1])) && slot(o[3], ValueType(o[0])) && slot(o[4], ValueType::Int);
 			case Op::CAST_OBJECT:
 				return index(o[0], module.classes.size(), "class") && same(o[1], o[2], ValueType::Object);
+			case Op::CHECK_ASSIGNED:
+				return index(o[0], module.members.size(), "member") && slot(o[1], ValueType::Object);
 			case Op::METHOD_VALUE:
 				return index(o[0], module.functions.size(), "function") && slot(o[1], ValueType::Callable);
 			case Op::GET_SIGNAL:
@@ -480,6 +482,11 @@ public:
 		}
 		if (!layout(module.members, module.instance_size, instance)) {
 			return false;
+		}
+		for (const ExportGroup &group : module.groups) {
+			if (group.level > 2 || group.before_member > module.members.size()) {
+				return fail("an export group outside the members");
+			}
 		}
 		for (const Function &each : module.functions) {
 			function = &each;

@@ -102,6 +102,9 @@ struct Member {
 	ValueType element = ValueType::Void; // As in Slot.
 	bool is_pub = false;
 	bool is_export = false;
+	// For the inspector: PropertyHint as the engine numbers it, and its string.
+	uint32_t hint = 0;
+	std::string hint_string;
 	// A literal initial value; other initializers run in the module's init function.
 	bool has_initial = false;
 	Constant initial;
@@ -120,6 +123,15 @@ struct Function {
 	uint32_t frame_size = 0;
 	std::vector<Slot> slots; // All slots with their types, params first.
 	std::vector<uint32_t> code;
+};
+
+// `@export_category`, `@export_group` or `@export_subgroup`: a heading the
+// inspector shows before a member.
+struct ExportGroup {
+	std::string name;
+	std::string prefix;
+	uint8_t level = 1; // 0: category, 1: group, 2: subgroup.
+	uint32_t before_member = 0;
 };
 
 // A method of an engine class, called by name.
@@ -201,6 +213,7 @@ struct Module {
 	std::string global_name;
 	std::string base_class;
 	std::vector<Member> members;
+	std::vector<ExportGroup> groups;
 	uint32_t instance_size = 0;
 	std::vector<Function> functions;
 	// Runs the member initializers that are not literals, before anything else

@@ -36,6 +36,8 @@ class FakeEngine : public compiler::EngineApi {
 		{ "ResourceLoader", "Object" },
 		{ "AudioStream", "Resource" },
 		{ "AudioStreamPlayer", "Node" },
+		{ "Texture2D", "Resource" },
+		{ "PackedScene", "Resource" },
 	};
 	std::vector<std::string> singletons = { "Input", "ResourceLoader" };
 	std::map<std::string, std::vector<EngineMethod>> methods;
@@ -77,6 +79,9 @@ public:
 		};
 		methods["ResourceLoader"] = {
 			method("load", { { "path", t(TypeKind::String) }, { "type_hint", t(TypeKind::String) }, { "cache_mode", t(TypeKind::Int) } }, Type::object("Resource", true), false, 2),
+		};
+		methods["PackedScene"] = {
+			method("instantiate", { { "edit_state", t(TypeKind::Int) } }, node, false, 1),
 		};
 		methods["AudioStreamPlayer"] = {
 			method("play", { { "from_position", t(TypeKind::Float) } }, t(TypeKind::Void), false, 1),

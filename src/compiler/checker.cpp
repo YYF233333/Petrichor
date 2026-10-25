@@ -3,6 +3,9 @@
 #include "compiler/builtin_api.h"
 #include "compiler/parser.h"
 
+#include <iomanip>
+#include <locale>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -27,6 +30,13 @@ bool is_assignable(const Type &p_from, const Type &p_to, const EngineApi &p_engi
 		return true;
 	}
 	if (p_from.kind == TypeKind::Object && p_to.kind == TypeKind::Object) {
+		if (!p_to.args.empty()) {
+			// PackedScene[T] is covariant in T, and a scene of unknown root is
+			// not one (spec §7.4).
+			if (p_from.args.empty() || !p_engine.inherits(p_from.args[0].name, p_to.args[0].name)) {
+				return false;
+			}
+		}
 		return (p_to.nullable || !p_from.nullable) && p_engine.inherits(p_from.name, p_to.name);
 	}
 	if (p_to.kind == TypeKind::Option) {
@@ -256,6 +266,20 @@ class Checker {
 		if (p_ref.name == "Dictionary") {
 			error(p_ref.line, p_ref.column, "Dictionary[K, V] is not supported yet.");
 			return Type::of(TypeKind::Error);
+		}
+		if (p_ref.name == "PackedScene" && p_ref.args.size() == 1) {
+			// A scene whose root has type T (spec §7.4).
+			const Type root = resolve(p_ref.args[0], false);
+			if (root.is_error()) {
+				return root;
+			}
+			if (root.kind != TypeKind::Object || root.nullable || !engine.inherits(root.name, "Node")) {
+				error(p_ref.args[0].line, p_ref.args[0].column, "The root of a scene is a node, not " + root.to_string() + ".");
+				return Type::of(TypeKind::Error);
+			}
+			Type scene = Type::object("PackedScene");
+			scene.args.push_back(root);
+			return scene;
 		}
 		if (p_ref.name != "Array") {
 			error(p_ref.line, p_ref.column, p_ref.name + " takes no type arguments.");
@@ -1039,7 +1063,12 @@ class Checker {
 			}
 			if (base_type.kind == TypeKind::Object) {
 				if (const auto method = engine.find_method(base_type.name, name)) {
-					return check_engine_call(r_expr, *method);
+					const Type result = check_engine_call(r_expr, *method);
+					if (name == "instantiate" && base_type.name == "PackedScene" && !base_type.args.empty() && !result.is_error()) {
+						// The scene's root, checked as it is made (spec §7.4).
+						return set(r_expr, base_type.args[0]);
+					}
+					return result;
 				}
 				return fail(r_expr, base_type.name + " has no method \"" + name + "()\".");
 			}
@@ -1408,6 +1437,81 @@ class Checker {
 		}
 	}
 
+	/* Annotations (spec §2.3) */
+
+	// A number as GDScript writes it into a hint string: 1, -5, 0.1, 1.0.
+	static std::string number_text(const Expr &p_literal) {
+		const bool negative = p_literal.kind == ExprKind::Unary;
+		const Expr &value = negative ? *p_literal.left : p_literal;
+		if (value.kind == ExprKind::IntLiteral) {
+			return (negative ? "-" : "") + std::to_string(value.int_value);
+		}
+		std::ostringstream stream;
+		stream.imbue(std::locale::classic());
+		stream << std::setprecision(15) << (negative ? -value.float_value : value.float_value);
+		std::string text = stream.str();
+		if (text.find_first_of(".einf") == std::string::npos) {
+			text += ".0";
+		}
+		return text;
+	}
+
+	// `@export_range(min, max, step, "or_greater", …)`: GDScript's hint string
+	// is the arguments joined by commas.
+	void check_export_range(VarDecl &r_member, const Annotation &p_annotation) {
+		if (!r_member.type.is_numeric()) {
+			error(p_annotation.line, p_annotation.column, "@export_range applies to int and float, not " + r_member.type.to_string() + ".");
+			return;
+		}
+		std::string hint;
+		size_t numbers = 0;
+		bool options = false;
+		for (const auto &arg : p_annotation.args) {
+			const bool number = is_literal(*arg) && arg->kind != ExprKind::StringLiteral && arg->kind != ExprKind::BoolLiteral;
+			if ((number && options) || (!number && arg->kind != ExprKind::StringLiteral)) {
+				error(arg->line, arg->column, "@export_range takes numbers, then options such as \"or_greater\".");
+				return;
+			}
+			numbers += number ? 1 : 0;
+			options = options || !number;
+			hint += (hint.empty() ? "" : ",") + (number ? number_text(*arg) : arg->text);
+		}
+		if (numbers < 2 || numbers > 3) {
+			error(p_annotation.line, p_annotation.column, "@export_range takes a minimum, a maximum and an optional step.");
+			return;
+		}
+		r_member.hint = 1; // PROPERTY_HINT_RANGE (core/object/object.h).
+		r_member.hint_string = hint;
+	}
+
+	void check_annotations(VarDecl &r_member) {
+		for (const Annotation &annotation : r_member.annotations) {
+			if (annotation.name == "export_range") {
+				check_export_range(r_member, annotation);
+			} else if (!annotation.args.empty()) {
+				error(annotation.line, annotation.column, "@" + annotation.name + " takes no arguments.");
+			}
+		}
+	}
+
+	// `@export_group(name, prefix)`, `@export_subgroup(name, prefix)`, `@export_category(name)`.
+	void check_groups() {
+		for (ExportGroupDecl &group : cls.groups) {
+			const Annotation &annotation = group.annotation;
+			const size_t most = annotation.name == "export_category" ? 1 : 2;
+			bool ok = !annotation.args.empty() && annotation.args.size() <= most;
+			for (const auto &arg : annotation.args) {
+				ok = ok && arg->kind == ExprKind::StringLiteral;
+			}
+			if (!ok) {
+				error(annotation.line, annotation.column, "@" + annotation.name + " takes a name" + (most == 2 ? " and an optional prefix" : "") + ", as strings.");
+				continue;
+			}
+			group.name = annotation.args[0]->text;
+			group.prefix = annotation.args.size() > 1 ? annotation.args[1]->text : std::string();
+		}
+	}
+
 	// After the signatures, since an initializer can call this class's functions.
 	void check_members() {
 		for (size_t i = 0; i < cls.members.size(); i++) {
@@ -1433,10 +1537,19 @@ class Checker {
 			} else if (!member.declared_type) {
 				error(member.line, member.column, "\"" + member.name + "\" needs a type or an initial value.");
 			} else if (type.kind == TypeKind::Object && !type.nullable) {
-				// Spec §6.2.
-				error(member.line, member.column, "Members that must be assigned, such as \"" + member.name + "\" of type " + type.to_string() + ", are not supported yet; give it an initial value.");
+				// An export that the scene or resource must assign (spec §7.5); a
+				// member that the creator or an ancestor must assign (§6.2) is not
+				// supported yet.
+				member.must_assign = member.is_export;
+				if (!member.is_export) {
+					error(member.line, member.column, "Members that must be assigned, such as \"" + member.name + "\" of type " + type.to_string() + ", are not supported yet unless exported; give it an initial value.");
+				}
+			}
+			if (member.is_export && type.kind == TypeKind::Object && type.name == "PackedScene" && type.args.empty()) {
+				error(member.line, member.column, "An exported scene is written PackedScene[T], with the type of its root (spec §7.4).");
 			}
 			member.type = type;
+			check_annotations(member);
 		}
 	}
 
@@ -1600,6 +1713,7 @@ public:
 			check_signature(function_decl);
 		}
 		check_members();
+		check_groups();
 		check_connections();
 		// In declaration order, so errors come out in a stable order.
 		for (size_t i = 0; i < cls.functions.size(); i++) {

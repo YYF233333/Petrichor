@@ -26,7 +26,9 @@ struct Type {
 	TypeKind kind = TypeKind::Error;
 	std::string name; // Builtin: the type, such as Vector3; Object: the class; Unsupported: the engine's name.
 	bool nullable = false; // Object: T? rather than T (spec §3.3).
-	std::vector<Type> args; // Option: the value type inside; Array: the element type, if typed.
+	// Option: the value type inside; Array: the element type, if typed;
+	// PackedScene: the type of the scene's root, if known.
+	std::vector<Type> args;
 
 	static Type of(TypeKind p_kind) { return Type{ p_kind, std::string(), false, {} }; }
 	static Type builtin(const std::string &p_name) { return Type{ TypeKind::Builtin, p_name, false, {} }; }

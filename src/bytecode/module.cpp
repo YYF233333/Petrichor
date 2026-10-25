@@ -313,8 +313,17 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.type(member.element);
 		w.u8(member.is_pub ? 1 : 0);
 		w.u8(member.is_export ? 1 : 0);
+		w.u32(member.hint);
+		w.str(member.hint_string);
 		w.u8(member.has_initial ? 1 : 0);
 		w.constant(member.initial);
+	}
+	w.u32(uint32_t(p_module.groups.size()));
+	for (const ExportGroup &group : p_module.groups) {
+		w.str(group.name);
+		w.str(group.prefix);
+		w.u8(group.level);
+		w.u32(group.before_member);
 	}
 	w.u32(p_module.instance_size);
 
@@ -438,8 +447,17 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		member.element = r.type();
 		member.is_pub = r.u8() != 0;
 		member.is_export = r.u8() != 0;
+		member.hint = r.u32();
+		member.hint_string = r.str();
 		member.has_initial = r.u8() != 0;
 		member.initial = r.constant();
+	}
+	module.groups.resize(r.count());
+	for (ExportGroup &group : module.groups) {
+		group.name = r.str();
+		group.prefix = r.str();
+		group.level = r.u8();
+		group.before_member = r.u32();
 	}
 	module.instance_size = r.u32();
 

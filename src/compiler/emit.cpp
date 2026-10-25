@@ -129,6 +129,7 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 					put(offset_of(instr.dst));
 					break;
 				case Op::CHECK_OBJECT:
+				case Op::CHECK_ASSIGNED:
 					put(instr.imm);
 					put(offset_of(instr.a));
 					break;

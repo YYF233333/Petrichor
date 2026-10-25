@@ -205,7 +205,17 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 		const bytecode::Member &x = a.members[i];
 		const bytecode::Member &y = b.members[i];
 		if (x.name != y.name || x.type != y.type || x.offset != y.offset || x.class_name != y.class_name || x.nullable != y.nullable || x.option != y.option || x.element != y.element ||
-				x.is_pub != y.is_pub || x.is_export != y.is_export || x.has_initial != y.has_initial || !same_constant(x.initial, y.initial)) {
+				x.is_pub != y.is_pub || x.is_export != y.is_export || x.hint != y.hint || x.hint_string != y.hint_string || x.has_initial != y.has_initial || !same_constant(x.initial, y.initial)) {
+			return false;
+		}
+	}
+	if (a.groups.size() != b.groups.size()) {
+		return false;
+	}
+	for (size_t i = 0; i < a.groups.size(); i++) {
+		const bytecode::ExportGroup &x = a.groups[i];
+		const bytecode::ExportGroup &y = b.groups[i];
+		if (x.name != y.name || x.prefix != y.prefix || x.level != y.level || x.before_member != y.before_member) {
 			return false;
 		}
 	}

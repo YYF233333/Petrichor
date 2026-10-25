@@ -70,6 +70,7 @@ namespace petrichor::bytecode {
 	X(METHOD_VALUE, 2) /* function, dst (Callable) */                \
 	X(GET_SIGNAL, 3) /* name constant, dst, object (NO_SLOT: self) */ \
 	X(CHECK_OBJECT, 2) /* class, slot: not None, of the class */     \
+	X(CHECK_ASSIGNED, 2) /* member, slot: an export is assigned */   \
 	X(CAST_OBJECT, 3) /* class, dst, src: `as`, None if it fails */  \
 	X(TO_VARIANT, 3) /* type, dst (Variant), src */                  \
 	X(UNWRAP, 4) /* type, dst, src, message (NO_SLOT: default) */    \

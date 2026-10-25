@@ -130,6 +130,14 @@ pub func start_timer() -> Timer:
 pub func stop_listening(timer: Timer):
 	timer.timeout.disconnect(_on_timeout.bind(timer))
 
+# Exports for the inspector (spec §2.3), and one that must be assigned (§7.5).
+@export_subgroup("Tuning")
+@export_range(0, 10, 0.5) pub var tuning: float = 1.0
+@export pub var texture: Texture2D
+
+pub func texture_size() -> Vector2:
+	return texture.get_size()
+
 # Engine singletons and load().
 pub func loaded(path: String) -> Resource?:
 	return load(path)

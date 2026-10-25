@@ -81,6 +81,19 @@ static Dictionary function_info(const ClassImage &p_image, int p_index) {
 	return method_dict(p_image.function_names[p_index], args, result, METHOD_FLAGS_DEFAULT);
 }
 
+// How the inspector picks an object of the class, as for GDScript's exports:
+// from resources or from nodes.
+static PropertyHint picker_of(const String &p_class) {
+	ClassDBSingleton *db = ClassDBSingleton::get_singleton();
+	if (p_class == "Resource" || db->is_parent_class(p_class, "Resource")) {
+		return PROPERTY_HINT_RESOURCE_TYPE;
+	}
+	if (p_class == "Node" || db->is_parent_class(p_class, "Node")) {
+		return PROPERTY_HINT_NODE_TYPE;
+	}
+	return PROPERTY_HINT_NONE;
+}
+
 Dictionary property_info(const bytecode::Member &p_member) {
 	// Exported members are stored in scenes and shown in the inspector; public
 	// ones are only visible to other code.
@@ -88,14 +101,43 @@ Dictionary property_info(const bytecode::Member &p_member) {
 	if (p_member.is_export) {
 		usage |= PROPERTY_USAGE_DEFAULT;
 	}
-	return typed(property_dict(variant_type(p_member.type), String::utf8(p_member.name.c_str()), usage_of(p_member.type, usage), class_of(p_member.type, p_member.class_name)), p_member);
+	Dictionary dict = property_dict(variant_type(p_member.type), String::utf8(p_member.name.c_str()), usage_of(p_member.type, usage), class_of(p_member.type, p_member.class_name));
+	const String class_name = String::utf8(p_member.class_name.c_str());
+	if (p_member.hint != 0) {
+		dict["hint"] = p_member.hint;
+		dict["hint_string"] = String::utf8(p_member.hint_string.c_str());
+	} else if (p_member.is_export && p_member.type == ValueType::Object) {
+		dict["hint"] = picker_of(class_name);
+		dict["hint_string"] = class_name;
+	} else if (p_member.is_export && p_member.element != ValueType::Void) {
+		// An exported typed array: "type/hint:class" per element, as GDScript writes it.
+		dict["hint"] = PROPERTY_HINT_TYPE_STRING;
+		dict["hint_string"] = p_member.element == ValueType::Object ? vformat("%d/%d:%s", Variant::OBJECT, picker_of(class_name), class_name) : vformat("%d:", variant_type(p_member.element));
+	} else {
+		dict = typed(dict, p_member);
+	}
+	return dict;
+}
+
+// Headings from @export_category, @export_group and @export_subgroup.
+static Dictionary group_info(const bytecode::ExportGroup &p_group) {
+	static const uint32_t usages[] = { PROPERTY_USAGE_CATEGORY, PROPERTY_USAGE_GROUP, PROPERTY_USAGE_SUBGROUP };
+	Dictionary dict = property_dict(Variant::NIL, String::utf8(p_group.name.c_str()), usages[p_group.level]);
+	dict["hint_string"] = String::utf8(p_group.prefix.c_str());
+	return dict;
 }
 
 TypedArray<Dictionary> visible_properties(const ClassImage &p_image) {
 	TypedArray<Dictionary> list;
-	for (const bytecode::Member &member : p_image.module.members) {
-		if (PetScript::is_visible(member)) {
-			list.push_back(property_info(member));
+	const bytecode::Module &module = p_image.module;
+	for (size_t i = 0; i <= module.members.size(); i++) {
+		for (const bytecode::ExportGroup &group : module.groups) {
+			if (group.before_member == i) {
+				list.push_back(group_info(group));
+			}
+		}
+		if (i < module.members.size() && PetScript::is_visible(module.members[i])) {
+			list.push_back(property_info(module.members[i]));
 		}
 	}
 	return list;

@@ -132,17 +132,39 @@ struct Stmt {
 
 using Block = std::vector<std::unique_ptr<Stmt>>;
 
+// `@name` or `@name(args)` (spec §2.3).
+struct Annotation {
+	std::string name;
+	int line = 0;
+	int column = 0;
+	std::vector<std::unique_ptr<Expr>> args;
+};
+
 struct VarDecl {
 	std::string name;
 	int line = 0;
 	int column = 0;
 	bool is_pub = false;
 	bool is_export = false;
+	std::vector<Annotation> annotations;
 	std::optional<TypeRef> declared_type;
 	std::unique_ptr<Expr> initializer;
 	// Filled by the checker.
 	Type type;
 	bool literal_initializer = false; // Stored as the member's initial value.
+	bool must_assign = false; // An export of a non-null object type without an initial value (spec §7.5).
+	uint32_t hint = 0; // For the inspector: PropertyHint as the engine numbers it.
+	std::string hint_string;
+};
+
+// `@export_group`, `@export_subgroup` or `@export_category`, which stand
+// alone and group the exports after them in the inspector.
+struct ExportGroupDecl {
+	Annotation annotation;
+	size_t before_member = 0;
+	// Filled by the checker.
+	std::string name;
+	std::string prefix;
 };
 
 struct ParamDecl {
@@ -181,6 +203,7 @@ struct ClassDecl {
 	int extends_column = 1;
 	std::vector<VarDecl> members;
 	std::vector<FuncDecl> functions;
+	std::vector<ExportGroupDecl> groups;
 };
 
 } // namespace petrichor::compiler

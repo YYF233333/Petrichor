@@ -272,6 +272,9 @@ class Lowerer {
 		const ValueType type = reg_type(result);
 		const Op op = is_8_byte(type) ? Op::LOAD_MEMBER_8 : (type == ValueType::String ? Op::LOAD_MEMBER_STRING : Op::LOAD_MEMBER_VALUE);
 		instr(op, result, NO_REG, NO_REG, p_member, type);
+		if (cls.members[p_member].must_assign) {
+			instr(Op::CHECK_ASSIGNED, NO_REG, result, NO_REG, p_member);
+		}
 		return result;
 	}
 
@@ -702,8 +705,10 @@ class Lowerer {
 		if (written_back) {
 			store(*written_back, i.base);
 		}
-		if (p_call.target == Target::BuiltinMethod && p_call.type.kind == TypeKind::Object && !p_call.type.nullable) {
-			// An element of Array[T], which the engine may hold as null.
+		const bool from_engine = p_call.target == Target::BuiltinMethod || p_call.target == Target::EngineMethod;
+		if (from_engine && p_call.type.kind == TypeKind::Object && !p_call.type.nullable) {
+			// What the engine declares as an object or a Variant, typed T here:
+			// an element of Array[T], or the root of PackedScene[T].
 			instr(Op::CHECK_OBJECT, NO_REG, i.dst, NO_REG, class_index(p_call.type.name));
 		}
 		return i.dst;
@@ -1127,11 +1132,21 @@ public:
 			offset += bytecode::slot_size(member.type);
 			member.is_pub = decl_member.is_pub;
 			member.is_export = decl_member.is_export;
+			member.hint = decl_member.hint;
+			member.hint_string = decl_member.hint_string;
 			member.has_initial = decl_member.literal_initializer;
 			member.initial = decl_member.literal_initializer ? constant_of(*decl_member.initializer, decl_member.type) : bytecode::Constant{ member.type };
 			module.members.push_back(member);
 		}
 		module.instance_size = offset;
+		for (const ExportGroupDecl &group : cls.groups) {
+			bytecode::ExportGroup out;
+			out.name = group.name;
+			out.prefix = group.prefix;
+			out.level = group.annotation.name == "export_category" ? 0 : (group.annotation.name == "export_group" ? 1 : 2);
+			out.before_member = uint32_t(group.before_member);
+			module.groups.push_back(out);
+		}
 
 		bytecode::Function initializers;
 		const bool has_initializers = !p_declarations_only && lower_initializers(initializers);

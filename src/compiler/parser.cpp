@@ -518,20 +518,42 @@ class Parser {
 
 	/* Declarations */
 
+	static bool is_group_annotation(const std::string &p_name) {
+		return p_name == "export_group" || p_name == "export_subgroup" || p_name == "export_category";
+	}
+
 	void member(ClassDecl &r_class) {
-		bool is_export = false;
+		std::vector<Annotation> annotations;
 		while (match(TokenKind::At)) {
 			const Token &name = expect(TokenKind::Identifier, "an annotation name");
 			if (failed) {
 				return;
 			}
-			if (name.text != "export") {
+			Annotation annotation;
+			annotation.name = name.text;
+			annotation.line = name.line;
+			annotation.column = name.column;
+			if (check(TokenKind::ParenOpen)) {
+				Expr holder;
+				if (!call_arguments(holder)) {
+					return;
+				}
+				annotation.args = std::move(holder.args);
+			}
+			if (is_group_annotation(annotation.name)) {
+				// Stands alone, as in GDScript.
+				r_class.groups.push_back({ std::move(annotation), r_class.members.size() });
+				end_of_statement();
+				return;
+			}
+			if (annotation.name != "export" && annotation.name != "export_range") {
 				fail(name, "The annotation @" + name.text + " is not supported yet.");
 				return;
 			}
-			is_export = true;
+			annotations.push_back(std::move(annotation));
 			match(TokenKind::Newline);
 		}
+		const bool is_export = !annotations.empty();
 		const bool is_pub = match(TokenKind::Pub);
 
 		if (match(TokenKind::Var)) {
@@ -542,6 +564,7 @@ class Parser {
 			decl.column = name.column;
 			decl.is_pub = is_pub;
 			decl.is_export = is_export;
+			decl.annotations = std::move(annotations);
 			if (match(TokenKind::Colon) && !check(TokenKind::Equal)) {
 				decl.declared_type = type_ref();
 			}

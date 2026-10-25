@@ -105,6 +105,17 @@ func _ready() -> void:
 	Engine.print_error_messages = true
 	_check(v.loaded("res://language/nodes.tscn") is PackedScene and missing_resource == null, "load() with a path known at run time")
 	_check(v.pressed() == false, "a method of the Input singleton")
+	var listed_properties := {}
+	for property in v.get_property_list():
+		listed_properties[property.name] = property
+	_check(listed_properties.has("Tuning") and listed_properties["Tuning"].usage == PROPERTY_USAGE_SUBGROUP, "@export_subgroup shows a heading in the inspector")
+	_check(listed_properties["tuning"].hint == PROPERTY_HINT_RANGE and listed_properties["tuning"].hint_string == "0,10,0.5", "@export_range gives the range hint")
+	_check(listed_properties["texture"].hint == PROPERTY_HINT_RESOURCE_TYPE and listed_properties["texture"].hint_string == "Texture2D", "an exported resource is picked from resources")
+	Engine.print_error_messages = false
+	var unassigned_size = v.texture_size()
+	Engine.print_error_messages = true
+	v.texture = ImageTexture.create_from_image(Image.create(2, 3, false, Image.FORMAT_RGBA8))
+	_check(unassigned_size == Vector2() and v.texture_size() == Vector2(2, 3), "reading an export that was not assigned is a program error")
 	var timer: Timer = v.start_timer()
 	timer.timeout.emit()
 	_check(v.timeouts == 1 and v.last_timer == timer, "a private method connected through a method value, with a bound argument")
