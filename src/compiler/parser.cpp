@@ -190,30 +190,31 @@ class Parser {
 
 	std::unique_ptr<Expr> postfix() {
 		auto expr = primary();
-		if (!expr) {
-			return nullptr;
-		}
-		if (expr->kind == ExprKind::Name && check(TokenKind::ParenOpen)) {
-			auto call = make(ExprKind::Call, peek());
-			call->line = expr->line;
-			call->column = expr->column;
-			call->text = expr->text;
-			return call_arguments(*call) ? std::move(call) : nullptr;
-		}
-		if (expr->kind == ExprKind::Self && check(TokenKind::Period)) {
-			advance();
-			const Token &name = expect(TokenKind::Identifier, "a method name");
-			if (failed) {
-				return nullptr;
+		while (expr) {
+			if (check(TokenKind::ParenOpen) && (expr->kind == ExprKind::Name || expr->kind == ExprKind::Member)) {
+				// `f(...)` or `base.f(...)`.
+				auto call = make(ExprKind::Call, peek());
+				call->line = expr->line;
+				call->column = expr->column;
+				call->text = expr->text;
+				call->base = std::move(expr->base);
+				if (!call_arguments(*call)) {
+					return nullptr;
+				}
+				expr = std::move(call);
+			} else if (check(TokenKind::Period)) {
+				advance();
+				const Token &name = expect(TokenKind::Identifier, "a member name");
+				if (failed) {
+					return nullptr;
+				}
+				auto member = make(ExprKind::Member, name);
+				member->text = name.text;
+				member->base = std::move(expr);
+				expr = std::move(member);
+			} else {
+				break;
 			}
-			auto call = make(ExprKind::Call, name);
-			call->text = name.text;
-			call->base = std::move(expr);
-			return call_arguments(*call) ? std::move(call) : nullptr;
-		}
-		if (check(TokenKind::Period)) {
-			fail(peek(), "Member access is only supported on self so far.");
-			return nullptr;
 		}
 		return expr;
 	}

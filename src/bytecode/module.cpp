@@ -335,6 +335,10 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 	}
 
 	w.u32(uint32_t(int32_t(p_module.init_function)));
+	const TablePrefix &prefix = p_module.init_tables;
+	for (uint32_t count : { prefix.constants, prefix.engine_calls, prefix.properties, prefix.utility_calls, prefix.operators, prefix.fields, prefix.constructors, prefix.builtin_methods, prefix.classes }) {
+		w.u32(count);
+	}
 
 	w.u32(uint32_t(p_module.constants.size()));
 	for (const Constant &constant : p_module.constants) {
@@ -453,6 +457,10 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 	module.init_function = int32_t(r.u32());
 	if (module.init_function < -1 || module.init_function >= int32_t(module.functions.size())) {
 		r.failed = true;
+	}
+	TablePrefix &prefix = module.init_tables;
+	for (uint32_t *count : { &prefix.constants, &prefix.engine_calls, &prefix.properties, &prefix.utility_calls, &prefix.operators, &prefix.fields, &prefix.constructors, &prefix.builtin_methods, &prefix.classes }) {
+		*count = r.u32();
 	}
 
 	module.constants.resize(r.count());

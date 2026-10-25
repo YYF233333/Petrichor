@@ -37,6 +37,27 @@ func _ready() -> void:
 	c.speed = 0.5
 	_check(c.scale(3) == 1.5, "a member set from GDScript")
 
+	var v: ValuesCheck = ValuesCheck.new()
+	add_child(v)
+	_check(v.scaled(2) == Vector3(2, 4, 6), "Vector3 * float through the engine's operator")
+	_check(is_equal_approx(v.length_of(3, 4), 5.0), "a constructor and a method of a built-in type")
+	_check(v.up_plus(Vector3(1, 0, 0)) == Vector3(1, 1, 0), "a constant of a built-in type")
+	_check(v.negated() == Vector3(-1, -2, -3), "a unary operator of a built-in type")
+	v.position = Vector3(0, 1, 0)
+	v.lift(0.5)
+	_check(v.position == Vector3(0, 1.5, 0), "position.y += writes the property back")
+	_check(v.field_write() == Vector3(1, 5, 2), "members of a local value")
+	_check(v.interpolate(0.5) == Vector3(0.5, 1, 1.5), "lerp typed by its arguments (spec §10.3)")
+	_check(v.clamp_int(15) == 10 and v.clamp_int(-1) == 0, "clamp of int stays int")
+	_check(v.cosine(0) == 1.0, "a typed utility function")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 42
+	_check(v.seeded(42) == rng.randf_range(0.0, 1.0), "an object member made with new(), its property and its method")
+	_check(v.same(Vector3.ONE, Vector3.ONE) and not v.same(Vector3.ONE, Vector3.ZERO), "== of a built-in type")
+	_check(v.node_name() == v.name, "a StringName property")
+	v.transform = Transform3D(Basis(), Vector3(7, 0, 0))
+	_check(v.origin_x() == 7.0, "a member of a member of a property")
+
 	Engine.print_error_messages = false
 	var zero := c.divide(1, 0)
 	Engine.print_error_messages = true

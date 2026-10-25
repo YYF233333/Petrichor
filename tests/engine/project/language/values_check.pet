@@ -1,0 +1,49 @@
+# Built-in value types and engine objects (spec §3.1, §5.1, §10.3), driven by language_test.gd.
+class_name ValuesCheck
+extends Node3D
+
+var rng = RandomNumberGenerator.new()
+var start := Vector3(1, 2, 3)
+
+pub func scaled(k: float) -> Vector3:
+	return start * k
+
+pub func length_of(x: float, y: float) -> float:
+	return Vector2(x, y).length()
+
+pub func up_plus(v: Vector3) -> Vector3:
+	return Vector3.UP + v
+
+pub func negated() -> Vector3:
+	return -start
+
+pub func lift(dy: float):
+	position.y += dy
+
+pub func field_write() -> Vector3:
+	var v := Vector3(1, 1, 1)
+	v.y = 5
+	v.z += 1
+	return v
+
+pub func interpolate(w: float) -> Vector3:
+	return lerp(Vector3.ZERO, start, w)
+
+pub func clamp_int(x: int) -> int:
+	return clamp(x, 0, 10)
+
+pub func cosine(x: float) -> float:
+	return cos(x)
+
+pub func seeded(seed: int) -> float:
+	rng.seed = seed
+	return rng.randf_range(0.0, 1.0)
+
+pub func same(a: Vector3, b: Vector3) -> bool:
+	return a == b
+
+pub func node_name() -> StringName:
+	return name
+
+pub func origin_x() -> float:
+	return transform.origin.x

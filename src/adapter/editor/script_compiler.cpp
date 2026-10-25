@@ -28,7 +28,15 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 		return nullptr;
 	}
 	String load_error;
-	std::shared_ptr<const ClassImage> image = ClassImage::load(std::move(result.module), p_path, load_error);
+	std::shared_ptr<const ClassImage> image;
+	// The game verifies what it reads; the editor checks the compiler's output
+	// the same way, so that a compiler error is reported instead of run.
+	std::string problem;
+	if (!bytecode::verify(result.module, problem)) {
+		load_error = "internal compiler error: " + String::utf8(problem.c_str());
+	} else {
+		image = ClassImage::load(std::move(result.module), p_path, load_error);
+	}
 	if (!image && p_report) {
 		const CharString message = load_error.utf8();
 		const CharString file = p_path.utf8();

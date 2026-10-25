@@ -1,30 +1,23 @@
 #include "runtime/class_image.h"
 
-#include <cstring>
-#include <new>
-
 using namespace godot;
 
 namespace petrichor {
 
 using bytecode::ValueType;
 
-const std::vector<std::pair<const char *, Utility>> &utility_functions() {
-	static const std::vector<std::pair<const char *, Utility>> table = {
-		{ "print", Utility::Print },
-		{ "prints", Utility::Prints },
-		{ "printerr", Utility::Printerr },
-		{ "push_error", Utility::PushError },
-		{ "push_warning", Utility::PushWarning },
-	};
-	return table;
-}
-
 static String from_utf8(const std::string &p_text) {
 	return String::utf8(p_text.c_str(), int64_t(p_text.size()));
 }
 
+static GDExtensionVariantType engine_type(ValueType p_type) {
+	return GDExtensionVariantType(variant_type(p_type));
+}
+
 std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, const String &p_path, String &r_error) {
+	if (!check_value_sizes(r_error)) {
+		return nullptr;
+	}
 	auto image = std::make_shared<ClassImage>();
 	image->module = std::move(p_module);
 	image->path = p_path;
@@ -39,30 +32,92 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		image->function_lookup.insert(name, int(i));
 	}
 	for (size_t i = 0; i < module.members.size(); i++) {
-		const StringName name = from_utf8(module.members[i].name);
+		const bytecode::Member &member = module.members[i];
+		const StringName name = from_utf8(member.name);
 		image->member_names.push_back(name);
-		image->member_slots.push_back({ module.members[i].name, module.members[i].type, module.members[i].offset });
+		image->member_classes.push_back(from_utf8(member.class_name));
+		bytecode::Slot slot;
+		slot.name = member.name;
+		slot.type = member.type;
+		slot.offset = member.offset;
+		image->member_slots.push_back(slot);
 		image->member_lookup.insert(name, int(i));
 	}
+
 	for (const bytecode::Constant &constant : module.constants) {
 		image->strings.push_back(constant.type == ValueType::String ? from_utf8(constant.s) : String());
+		Variant value;
+		if (!constant.builtin.empty()) {
+			const StringName name = from_utf8(constant.builtin);
+			gdextension_interface::variant_get_constant_value(engine_type(constant.type), name._native_ptr(), value._native_ptr());
+		} else if (constant.type == ValueType::StringName) {
+			value = StringName(from_utf8(constant.s));
+		} else if (constant.type == ValueType::NodePath) {
+			value = NodePath(from_utf8(constant.s));
+		} else {
+			value = default_variant(constant.type);
+		}
+		if (value.get_type() != variant_type(constant.type)) {
+			r_error = vformat("the engine has no %s constant %s", bytecode::value_type_name(constant.type), from_utf8(constant.builtin));
+			return nullptr;
+		}
+		image->values.push_back(value);
 	}
 	for (const bytecode::EngineCall &call : module.engine_calls) {
 		image->engine_methods.push_back(from_utf8(call.method));
 	}
+	for (const bytecode::PropertyAccess &property : module.properties) {
+		image->properties.push_back(from_utf8(property.name));
+	}
 	for (const bytecode::UtilityCall &call : module.utility_calls) {
-		bool found = false;
-		for (const auto &entry : utility_functions()) {
-			if (call.function == entry.first) {
-				image->utilities.push_back(entry.second);
-				found = true;
-				break;
-			}
-		}
-		if (!found) {
-			r_error = "unknown utility function " + from_utf8(call.function);
+		const StringName name = from_utf8(call.function);
+		const GDExtensionPtrUtilityFunction pointer = gdextension_interface::variant_get_ptr_utility_function(name._native_ptr(), call.hash);
+		if (!pointer) {
+			r_error = "the engine has no utility function " + from_utf8(call.function) + " with this signature";
 			return nullptr;
 		}
+		image->utilities.push_back(pointer);
+	}
+	for (const bytecode::OperatorCall &call : module.operators) {
+		const GDExtensionVariantType right = call.right == ValueType::Void ? GDEXTENSION_VARIANT_TYPE_NIL : engine_type(call.right);
+		const GDExtensionPtrOperatorEvaluator pointer = gdextension_interface::variant_get_ptr_operator_evaluator(GDExtensionVariantOperator(call.op), engine_type(call.left), right);
+		if (!pointer) {
+			r_error = vformat("the engine has no operator %d for %s and %s", call.op, bytecode::value_type_name(call.left), bytecode::value_type_name(call.right));
+			return nullptr;
+		}
+		image->evaluators.push_back(pointer);
+	}
+	for (const bytecode::FieldAccess &field : module.fields) {
+		const StringName name = from_utf8(field.name);
+		const GDExtensionPtrGetter getter = gdextension_interface::variant_get_ptr_getter(engine_type(field.base), name._native_ptr());
+		const GDExtensionPtrSetter setter = gdextension_interface::variant_get_ptr_setter(engine_type(field.base), name._native_ptr());
+		if (!getter || !setter) {
+			r_error = vformat("%s has no member %s", bytecode::value_type_name(field.base), name);
+			return nullptr;
+		}
+		image->getters.push_back(getter);
+		image->setters.push_back(setter);
+	}
+	for (const bytecode::ConstructorCall &call : module.constructors) {
+		const GDExtensionPtrConstructor pointer = gdextension_interface::variant_get_ptr_constructor(engine_type(call.type), int32_t(call.index));
+		if (!pointer) {
+			r_error = vformat("%s has no constructor %d", bytecode::value_type_name(call.type), call.index);
+			return nullptr;
+		}
+		image->constructors.push_back(pointer);
+	}
+	for (const bytecode::BuiltinMethodCall &call : module.builtin_methods) {
+		const StringName name = from_utf8(call.method);
+		// The engine checks the signature through the hash.
+		const GDExtensionPtrBuiltInMethod pointer = gdextension_interface::variant_get_ptr_builtin_method(engine_type(call.base), name._native_ptr(), call.hash);
+		if (!pointer) {
+			r_error = vformat("%s has no method %s with this signature", bytecode::value_type_name(call.base), name);
+			return nullptr;
+		}
+		image->builtin_methods.push_back(pointer);
+	}
+	for (const std::string &name : module.classes) {
+		image->classes.push_back(from_utf8(name));
 	}
 	return image;
 }
@@ -77,13 +132,61 @@ int ClassImage::find_member(const StringName &p_name) const {
 	return index ? *index : -1;
 }
 
-static bool same_constant(const bytecode::Constant &p_a, const bytecode::Constant &p_b) {
-	return p_a.type == p_b.type && p_a.b == p_b.b && p_a.i == p_b.i && p_a.f == p_b.f && p_a.s == p_b.s;
+/* Hot reload */
+
+namespace {
+
+bool same_constant(const bytecode::Constant &p_a, const bytecode::Constant &p_b) {
+	return p_a.type == p_b.type && p_a.b == p_b.b && p_a.i == p_b.i && p_a.f == p_b.f && p_a.s == p_b.s && p_a.builtin == p_b.builtin;
 }
 
-static bool same_slot(const bytecode::Slot &p_a, const bytecode::Slot &p_b) {
+bool same_slot(const bytecode::Slot &p_a, const bytecode::Slot &p_b) {
 	return p_a.name == p_b.name && p_a.type == p_b.type && p_a.class_name == p_b.class_name && p_a.nullable == p_b.nullable;
 }
+
+template <typename T, typename Same>
+bool same_prefix(const std::vector<T> &p_a, const std::vector<T> &p_b, uint32_t p_count, Same p_same) {
+	for (uint32_t i = 0; i < p_count; i++) {
+		if (!p_same(p_a[i], p_b[i])) {
+			return false;
+		}
+	}
+	return true;
+}
+
+// The init function and the table entries it uses.
+bool same_initializers(const bytecode::Module &p_a, const bytecode::Module &p_b) {
+	if ((p_a.init_function < 0) != (p_b.init_function < 0)) {
+		return false;
+	}
+	if (p_a.init_function < 0) {
+		return true;
+	}
+	if (p_a.functions[p_a.init_function].code != p_b.functions[p_b.init_function].code) {
+		return false;
+	}
+	const bytecode::TablePrefix &x = p_a.init_tables;
+	const bytecode::TablePrefix &y = p_b.init_tables;
+	if (x.constants != y.constants || x.engine_calls != y.engine_calls || x.properties != y.properties || x.utility_calls != y.utility_calls || x.operators != y.operators ||
+			x.fields != y.fields || x.constructors != y.constructors || x.builtin_methods != y.builtin_methods || x.classes != y.classes) {
+		return false;
+	}
+	return same_prefix(p_a.constants, p_b.constants, x.constants, same_constant) &&
+			same_prefix(p_a.engine_calls, p_b.engine_calls, x.engine_calls, [](const auto &a, const auto &b) { return a.method == b.method && a.return_type == b.return_type; }) &&
+			same_prefix(p_a.properties, p_b.properties, x.properties, [](const auto &a, const auto &b) { return a.name == b.name && a.type == b.type; }) &&
+			same_prefix(p_a.utility_calls, p_b.utility_calls, x.utility_calls, [](const auto &a, const auto &b) {
+				return a.function == b.function && a.hash == b.hash && a.is_vararg == b.is_vararg && a.params == b.params && a.return_type == b.return_type && a.result_type == b.result_type;
+			}) &&
+			same_prefix(p_a.operators, p_b.operators, x.operators, [](const auto &a, const auto &b) { return a.op == b.op && a.left == b.left && a.right == b.right && a.result == b.result; }) &&
+			same_prefix(p_a.fields, p_b.fields, x.fields, [](const auto &a, const auto &b) { return a.base == b.base && a.name == b.name && a.type == b.type; }) &&
+			same_prefix(p_a.constructors, p_b.constructors, x.constructors, [](const auto &a, const auto &b) { return a.type == b.type && a.index == b.index && a.params == b.params; }) &&
+			same_prefix(p_a.builtin_methods, p_b.builtin_methods, x.builtin_methods, [](const auto &a, const auto &b) {
+				return a.base == b.base && a.method == b.method && a.hash == b.hash && a.params == b.params && a.return_type == b.return_type && a.result_type == b.result_type;
+			}) &&
+			same_prefix(p_a.classes, p_b.classes, x.classes, [](const auto &a, const auto &b) { return a == b; });
+}
+
+} // namespace
 
 bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	const bytecode::Module &a = module;
@@ -100,7 +203,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 		}
 	}
 	// Non-literal initializers belong to the declarations, not to a body.
-	if ((a.init_function < 0) != (b.init_function < 0) || (a.init_function >= 0 && a.functions[a.init_function].code != b.functions[b.init_function].code)) {
+	if (!same_initializers(a, b)) {
 		return false;
 	}
 	// Signatures; the line, the frame and the code belong to the body.
@@ -120,117 +223,6 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 		}
 	}
 	return true;
-}
-
-/* Values */
-
-void construct_slots(uint8_t *p_base, uint32_t p_size, const std::vector<bytecode::Slot> &p_slots) {
-	std::memset(p_base, 0, p_size);
-	for (const bytecode::Slot &slot : p_slots) {
-		if (slot.type == ValueType::String) {
-			new (p_base + slot.offset) String();
-		}
-	}
-}
-
-void destroy_slots(uint8_t *p_base, const std::vector<bytecode::Slot> &p_slots) {
-	for (const bytecode::Slot &slot : p_slots) {
-		if (slot.type == ValueType::String) {
-			reinterpret_cast<String *>(p_base + slot.offset)->~String();
-		}
-	}
-}
-
-void copy_value(ValueType p_type, uint8_t *p_dst, const uint8_t *p_src) {
-	if (p_type == ValueType::String) {
-		*reinterpret_cast<String *>(p_dst) = *reinterpret_cast<const String *>(p_src);
-	} else if (p_type != ValueType::Void) {
-		std::memcpy(p_dst, p_src, 8);
-	}
-}
-
-Variant to_variant(ValueType p_type, const uint8_t *p_slot) {
-	switch (p_type) {
-		case ValueType::Bool:
-			return *reinterpret_cast<const uint64_t *>(p_slot) != 0;
-		case ValueType::Int:
-			return *reinterpret_cast<const int64_t *>(p_slot);
-		case ValueType::Float:
-			return *reinterpret_cast<const double *>(p_slot);
-		case ValueType::String:
-			return *reinterpret_cast<const String *>(p_slot);
-		default:
-			break;
-	}
-	return Variant();
-}
-
-bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot) {
-	const Variant::Type type = p_value.get_type();
-	switch (p_type) {
-		case ValueType::Bool:
-			if (type != Variant::BOOL) {
-				return false;
-			}
-			*reinterpret_cast<uint64_t *>(p_slot) = bool(p_value) ? 1 : 0;
-			return true;
-		case ValueType::Int:
-			if (type != Variant::INT) {
-				return false;
-			}
-			*reinterpret_cast<int64_t *>(p_slot) = int64_t(p_value);
-			return true;
-		case ValueType::Float:
-			// An int is accepted where a float is expected (spec §3.2).
-			if (type != Variant::FLOAT && type != Variant::INT) {
-				return false;
-			}
-			*reinterpret_cast<double *>(p_slot) = double(p_value);
-			return true;
-		case ValueType::String:
-			if (type != Variant::STRING && type != Variant::STRING_NAME) {
-				return false;
-			}
-			*reinterpret_cast<String *>(p_slot) = String(p_value);
-			return true;
-		case ValueType::Void:
-			return true;
-		default:
-			break;
-	}
-	return false;
-}
-
-Variant default_variant(ValueType p_type) {
-	switch (p_type) {
-		case ValueType::Bool:
-			return false;
-		case ValueType::Int:
-			return int64_t(0);
-		case ValueType::Float:
-			return 0.0;
-		case ValueType::String:
-			return String();
-		default:
-			break;
-	}
-	return Variant();
-}
-
-Variant::Type variant_type(ValueType p_type) {
-	switch (p_type) {
-		case ValueType::Bool:
-			return Variant::BOOL;
-		case ValueType::Int:
-			return Variant::INT;
-		case ValueType::Float:
-			return Variant::FLOAT;
-		case ValueType::String:
-			return Variant::STRING;
-		default:
-			break;
-	}
-	return Variant::NIL;
 }
 
 } // namespace petrichor

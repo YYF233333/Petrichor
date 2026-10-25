@@ -100,9 +100,14 @@ TEST_CASE("names") {
 TEST_CASE("engine calls") {
 	CHECK(errors_of(in_function("set_process(false)\nvar n: int = get_child_count(true)")).empty());
 	CHECK(has_error(in_function("set_process(1)"), "Cannot pass a value of type int as bool"));
-	CHECK(has_error(in_function("add_child(1)"), "not supported yet"));
-	CHECK(has_error(in_function("var p = get_parent()"), "not supported yet"));
+	CHECK(has_error(in_function("add_child(1)"), "Cannot pass a value of type int as Node?"));
 	CHECK(has_error(in_function("_ready()"), "virtual engine method"));
+}
+
+TEST_CASE("objects the engine returns are nullable until audited (spec §10.2)") {
+	CHECK(errors_of(in_function("var p = get_parent()\nadd_child(p)")).empty());
+	CHECK(has_error(in_function("var p = get_parent()\nprint(p.name)"), "may be None (Node?)"));
+	CHECK(has_error(in_function("var p = get_parent()\np.queue_free()"), "may be None (Node?)"));
 }
 
 TEST_CASE("syntax errors are reported at their position") {
@@ -111,7 +116,10 @@ TEST_CASE("syntax errors are reported at their position") {
 	CHECK(errors[0].rfind("4:", 0) == 0);
 }
 
-TEST_CASE("member initial values are literals so far") {
-	CHECK(has_error("extends Node\nvar a := 1\nvar b := a\n", "literals"));
+TEST_CASE("member initializers run in declaration order (spec §6.1)") {
+	CHECK(errors_of("extends Node\nvar a := 1\nvar b := a + 1\n").empty());
 	CHECK(errors_of("extends Node\nvar a: float = -1\n").empty());
+	CHECK(has_error("extends Node\nvar b := a\nvar a := 1\n", "\"a\" is not initialized yet"));
+	CHECK(has_error("extends Node\nvar a: int = a\n", "\"a\" is not initialized yet"));
+	CHECK(errors_of("extends Node\n\nvar rng = RandomNumberGenerator.new()\nvar r := rng.randf_range(0, 1)\n").empty());
 }

@@ -26,15 +26,24 @@ enum class ExprKind {
 	Unary,
 	Binary,
 	Call,
+	Member, // `base.text`
 };
 
-// What a name or a call refers to, decided by the checker.
+// What a name, a member access or a call refers to, decided by the checker.
 enum class Target {
 	None,
 	Local,
 	Member,
+	SelfProperty, // A property of the engine class this class extends.
+	ObjectProperty, // A property of an engine object.
+	Field, // A member of a built-in value, such as x of Vector3.
+	BuiltinConstant, // Such as Vector3.UP.
+	TypeName, // A type used as the base of a member access or a call.
 	ScriptFunction,
-	EngineMethod,
+	EngineMethod, // On self, or on `base` when there is one.
+	BuiltinMethod,
+	BuiltinConstructor,
+	NewObject, // `Class.new()` of an engine class.
 	Utility,
 	ConvertToInt,
 	ConvertToFloat,
@@ -59,8 +68,15 @@ struct Expr {
 	// Filled by the checker.
 	Type type;
 	Target target = Target::None;
-	int index = -1;                    // Local, member or script function.
+	int index = -1;                    // Local, member, script function or constructor.
 	std::vector<Type> param_types;     // For calls: the type each argument converts to.
+	// Built-in methods and utility functions: the engine's signature, which
+	// the runtime needs to pass arguments in the right layout.
+	uint32_t hash = 0;
+	bool is_vararg = false;
+	bool is_const = true;              // Built-in methods that do not change their base.
+	Type engine_return;                // Variant where the engine returns a Variant.
+	std::string owner;                 // The type a field, constant, method or constructor belongs to.
 };
 
 enum class StmtKind {
@@ -92,7 +108,9 @@ struct Stmt {
 	std::vector<std::unique_ptr<Stmt>> body;
 	std::vector<std::unique_ptr<Stmt>> else_body; // `elif` becomes a nested `if` here.
 
-	int local = -1; // Var: the declared local, filled by the checker.
+	// Filled by the checker.
+	int local = -1; // Var: the declared local.
+	Type compound_result; // Assign with a compound operator: the type of `target op value`.
 };
 
 using Block = std::vector<std::unique_ptr<Stmt>>;
@@ -105,7 +123,9 @@ struct VarDecl {
 	bool is_export = false;
 	std::optional<TypeRef> declared_type;
 	std::unique_ptr<Expr> initializer;
-	Type type; // Filled by the checker.
+	// Filled by the checker.
+	Type type;
+	bool literal_initializer = false; // Stored as the member's initial value.
 };
 
 struct ParamDecl {

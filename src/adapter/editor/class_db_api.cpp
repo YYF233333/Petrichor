@@ -11,6 +11,7 @@ namespace petrichor {
 
 using compiler::EngineMethod;
 using compiler::EngineParam;
+using compiler::EngineProperty;
 using compiler::Type;
 using compiler::TypeKind;
 
@@ -25,6 +26,7 @@ String to_godot(const std::string &p_text) {
 	return String::utf8(p_text.c_str(), int64_t(p_text.size()));
 }
 
+// Objects the engine hands out are nullable until audited (spec §10.2).
 Type type_of(const Dictionary &p_property, bool p_is_return) {
 	const Variant::Type type = Variant::Type(int(p_property.get("type", Variant::NIL)));
 	const uint32_t usage = uint32_t(int(p_property.get("usage", 0)));
@@ -34,20 +36,13 @@ Type type_of(const Dictionary &p_property, bool p_is_return) {
 				return Type::of(TypeKind::Variant);
 			}
 			return Type::of(p_is_return ? TypeKind::Void : TypeKind::Variant);
-		case Variant::BOOL:
-			return Type::of(TypeKind::Bool);
-		case Variant::INT:
-			return Type::of(TypeKind::Int);
-		case Variant::FLOAT:
-			return Type::of(TypeKind::Float);
-		case Variant::STRING:
-			return Type::of(TypeKind::String);
 		case Variant::OBJECT: {
-			String class_name = p_property.get("class_name", String());
-			return Type{ TypeKind::Object, to_std(class_name.is_empty() ? String("Object") : class_name) };
+			const String class_name = p_property.get("class_name", String());
+			return Type::object(to_std(class_name.is_empty() ? String("Object") : class_name), true);
 		}
 		default:
-			return Type{ TypeKind::Unsupported, to_std(Variant::get_type_name(type)) };
+			// The names ClassDB gives value types are the extension API's names.
+			return compiler::api_type(to_std(Variant::get_type_name(type)), true);
 	}
 }
 
@@ -95,13 +90,29 @@ std::optional<EngineMethod> ClassDBApi::find_method(const std::string &p_class, 
 	return std::nullopt;
 }
 
-std::optional<EngineMethod> ClassDBApi::find_utility(const std::string &p_function) const {
-	for (const auto &entry : utility_functions()) {
-		if (p_function == entry.first) {
-			EngineMethod method;
-			method.name = p_function;
-			method.is_vararg = true;
-			return method;
+bool ClassDBApi::can_instantiate(const std::string &p_class) const {
+	return ClassDBSingleton::get_singleton()->can_instantiate(to_godot(p_class));
+}
+
+std::optional<EngineProperty> ClassDBApi::find_property(const std::string &p_class, const std::string &p_property) const {
+	ClassDBSingleton *db = ClassDBSingleton::get_singleton();
+	const StringName property_name = to_godot(p_property);
+	for (StringName cls = to_godot(p_class); cls != StringName(); cls = db->get_parent_class(cls)) {
+		const TypedArray<Dictionary> properties = db->class_get_property_list(cls, true);
+		for (int64_t i = 0; i < properties.size(); i++) {
+			const Dictionary info = properties[i];
+			const uint32_t usage = uint32_t(int(info.get("usage", 0)));
+			if (usage & (PROPERTY_USAGE_GROUP | PROPERTY_USAGE_SUBGROUP | PROPERTY_USAGE_CATEGORY)) {
+				continue;
+			}
+			if (StringName(info.get("name", String())) != property_name) {
+				continue;
+			}
+			EngineProperty property;
+			property.name = p_property;
+			property.type = type_of(info, true);
+			property.writable = db->class_get_property_setter(cls, property_name) != StringName();
+			return property;
 		}
 	}
 	return std::nullopt;

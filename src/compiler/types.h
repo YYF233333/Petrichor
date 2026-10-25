@@ -4,9 +4,7 @@
 
 namespace petrichor::compiler {
 
-// Types the checker works with. The subset of the first compilation chain
-// (architecture §5 step 3) stores bool, int, float and String; Variant only
-// appears as the parameter type of engine functions such as print.
+// Types the checker works with.
 enum class TypeKind {
 	Error, // Already reported; suppresses follow-up errors.
 	Void,
@@ -14,26 +12,40 @@ enum class TypeKind {
 	Int,
 	Float,
 	String,
+	Builtin, // Another built-in value type of the engine, named by `name`.
+	Object, // An engine class named by `name`.
 	Variant,
-	Object,
 	Unsupported, // An engine type this compiler cannot handle yet.
 };
 
 struct Type {
 	TypeKind kind = TypeKind::Error;
-	std::string name; // Class name for Object; engine type name for Unsupported.
+	std::string name; // Builtin: the type, such as Vector3; Object: the class; Unsupported: the engine's name.
+	bool nullable = false; // Object: T? rather than T (spec §3.3).
 
-	static Type of(TypeKind p_kind) { return Type{ p_kind, std::string() }; }
+	static Type of(TypeKind p_kind) { return Type{ p_kind, std::string(), false }; }
+	static Type builtin(const std::string &p_name) { return Type{ TypeKind::Builtin, p_name, false }; }
+	static Type object(const std::string &p_class, bool p_nullable = false) { return Type{ TypeKind::Object, p_class, p_nullable }; }
 
-	bool operator==(const Type &p_other) const { return kind == p_other.kind && name == p_other.name; }
+	bool operator==(const Type &p_other) const { return kind == p_other.kind && name == p_other.name && nullable == p_other.nullable; }
 	bool operator!=(const Type &p_other) const { return !(*this == p_other); }
 
 	bool is_error() const { return kind == TypeKind::Error; }
 	bool is_numeric() const { return kind == TypeKind::Int || kind == TypeKind::Float; }
-	bool is_storable() const {
-		return kind == TypeKind::Bool || kind == TypeKind::Int || kind == TypeKind::Float || kind == TypeKind::String;
-	}
+	// Bool, int, float and String have instructions of their own; the other
+	// value types go through the engine's functions for each type.
+	bool is_primitive() const { return kind == TypeKind::Bool || is_numeric() || kind == TypeKind::String; }
+	bool is_storable() const { return kind != TypeKind::Error && kind != TypeKind::Void && kind != TypeKind::Unsupported; }
+	// The name of the type in the engine's built-in table: "int", "Vector3"…;
+	// empty for objects and Variant.
+	std::string builtin_name() const;
 	std::string to_string() const;
 };
+
+// A type named as godot-cpp's extension API names it: "float", "Vector3",
+// "Variant", "enum::Vector3.Axis", a class… Objects the engine returns are
+// nullable until audited (spec §10.2), so `p_object_nullable` says how to read
+// a class name.
+Type api_type(const std::string &p_name, bool p_object_nullable);
 
 } // namespace petrichor::compiler

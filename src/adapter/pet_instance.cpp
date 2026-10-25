@@ -114,7 +114,16 @@ PetInstance::PetInstance(PetScript *p_script, const std::shared_ptr<const ClassI
 	members = static_cast<uint8_t *>(::operator new(size));
 	construct_slots(members, size, image->member_slots);
 	for (const bytecode::Member &member : image->module.members) {
-		from_variant(member.type, initial_value(*image, member), members + member.offset);
+		if (member.has_initial) {
+			from_variant(member.type, initial_value(*image, member), members + member.offset);
+		}
+	}
+	// The other initializers, in declaration order, before anything else runs
+	// on the instance (spec §6.1). After a program error the members keep
+	// their default values.
+	if (image->module.init_function >= 0) {
+		GDExtensionCallError error;
+		vm::call(image, image->module.init_function, InstanceContext{ members, owner_object }, nullptr, 0, error);
 	}
 }
 
@@ -147,8 +156,12 @@ static int visible_function(const PetInstance *p_instance, const StringName &p_n
 static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionConstVariantPtr p_value) {
 	PetInstance *instance = self(p_instance);
 	const bytecode::Member *member = visible_member(instance, as_name(p_name));
+	if (!member) {
+		return false;
+	}
 	// A value of the wrong type is rejected, as by the entry checks (spec §10.1).
-	return member && from_variant(member->type, *reinterpret_cast<const Variant *>(p_value), instance->members + member->offset);
+	const size_t index = size_t(member - instance->image->module.members.data());
+	return from_variant(member->type, *reinterpret_cast<const Variant *>(p_value), instance->members + member->offset, instance->image->member_classes[index], member->nullable);
 }
 
 static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionVariantPtr r_ret) {

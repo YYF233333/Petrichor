@@ -168,6 +168,20 @@ struct BuiltinMethodCall {
 	ValueType result_type = ValueType::Void;
 };
 
+// How many entries of each table there were once the init function was
+// lowered, before the other functions: the entries it can use.
+struct TablePrefix {
+	uint32_t constants = 0;
+	uint32_t engine_calls = 0;
+	uint32_t properties = 0;
+	uint32_t utility_calls = 0;
+	uint32_t operators = 0;
+	uint32_t fields = 0;
+	uint32_t constructors = 0;
+	uint32_t builtin_methods = 0;
+	uint32_t classes = 0;
+};
+
 struct Module {
 	uint64_t source_hash = 0;
 	std::string global_name;
@@ -177,9 +191,10 @@ struct Module {
 	std::vector<Function> functions;
 	// Runs the member initializers that are not literals, before anything else
 	// on a new instance (spec §6.1); -1 when there are none. It is lowered
-	// first, so that its code, which hot reload compares as a declaration, does
-	// not change when only a function body does.
+	// first, so that its code and the table entries it uses, which hot reload
+	// compares as declarations, do not change when only a function body does.
 	int32_t init_function = -1;
+	TablePrefix init_tables;
 	std::vector<Constant> constants;
 	std::vector<EngineCall> engine_calls;
 	std::vector<PropertyAccess> properties;

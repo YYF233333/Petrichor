@@ -23,9 +23,17 @@ struct EngineMethod {
 	bool is_virtual = false;
 };
 
-// What the compiler knows about the engine (architecture §2.1). The editor
-// implements it over ClassDB; tests implement it with a few hand-written
-// classes. Implementations must be safe to use from several threads.
+struct EngineProperty {
+	std::string name;
+	Type type;
+	bool writable = true;
+};
+
+// What the compiler knows about the engine's classes (architecture §2.1). The
+// editor implements it over ClassDB; tests implement it with a few
+// hand-written classes. Built-in types and utility functions come from
+// builtin_api.h instead. Implementations must be safe to use from several
+// threads.
 class EngineApi {
 public:
 	virtual ~EngineApi() = default;
@@ -33,9 +41,19 @@ public:
 	virtual bool class_exists(const std::string &p_class) const = 0;
 	// Empty for Object.
 	virtual std::string parent_class(const std::string &p_class) const = 0;
-	// Searches the class and its ancestors.
+	virtual bool can_instantiate(const std::string &p_class) const = 0;
+	// These search the class and its ancestors.
 	virtual std::optional<EngineMethod> find_method(const std::string &p_class, const std::string &p_method) const = 0;
-	virtual std::optional<EngineMethod> find_utility(const std::string &p_function) const = 0;
+	virtual std::optional<EngineProperty> find_property(const std::string &p_class, const std::string &p_property) const = 0;
+
+	bool inherits(const std::string &p_class, const std::string &p_ancestor) const {
+		for (std::string cls = p_class; !cls.empty(); cls = parent_class(cls)) {
+			if (cls == p_ancestor) {
+				return true;
+			}
+		}
+		return false;
+	}
 };
 
 } // namespace petrichor::compiler

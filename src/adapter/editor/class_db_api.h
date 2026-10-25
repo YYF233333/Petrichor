@@ -10,8 +10,9 @@ class ClassDBApi : public compiler::EngineApi {
 public:
 	bool class_exists(const std::string &p_class) const override;
 	std::string parent_class(const std::string &p_class) const override;
+	bool can_instantiate(const std::string &p_class) const override;
 	std::optional<compiler::EngineMethod> find_method(const std::string &p_class, const std::string &p_method) const override;
-	std::optional<compiler::EngineMethod> find_utility(const std::string &p_function) const override;
+	std::optional<compiler::EngineProperty> find_property(const std::string &p_class, const std::string &p_property) const override;
 
 	static const ClassDBApi &get();
 };

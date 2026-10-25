@@ -49,13 +49,20 @@ static Dictionary method_dict(const StringName &p_name, const Array &p_args, con
 	return dict;
 }
 
+// An object of the class as the engine and GDScript see it: T and T? alike
+// (spec §10.1).
+static StringName class_of(bytecode::ValueType p_type, const std::string &p_class) {
+	return p_type == bytecode::ValueType::Object ? StringName(String::utf8(p_class.c_str())) : StringName();
+}
+
 static Dictionary function_info(const ClassImage &p_image, int p_index) {
 	const bytecode::Function &function = p_image.module.functions[p_index];
 	Array args;
 	for (const bytecode::Slot &param : function.params) {
-		args.push_back(property_dict(variant_type(param.type), String::utf8(param.name.c_str()), PROPERTY_USAGE_DEFAULT));
+		args.push_back(property_dict(variant_type(param.type), String::utf8(param.name.c_str()), PROPERTY_USAGE_DEFAULT, class_of(param.type, param.class_name)));
 	}
-	return method_dict(p_image.function_names[p_index], args, property_dict(variant_type(function.return_type), StringName(), PROPERTY_USAGE_DEFAULT), METHOD_FLAGS_DEFAULT);
+	const Dictionary result = property_dict(variant_type(function.return_type), StringName(), PROPERTY_USAGE_DEFAULT, class_of(function.return_type, function.return_class));
+	return method_dict(p_image.function_names[p_index], args, result, METHOD_FLAGS_DEFAULT);
 }
 
 Dictionary property_info(const bytecode::Member &p_member) {
@@ -65,7 +72,7 @@ Dictionary property_info(const bytecode::Member &p_member) {
 	if (p_member.is_export) {
 		usage |= PROPERTY_USAGE_DEFAULT;
 	}
-	return property_dict(variant_type(p_member.type), String::utf8(p_member.name.c_str()), usage);
+	return property_dict(variant_type(p_member.type), String::utf8(p_member.name.c_str()), usage, class_of(p_member.type, p_member.class_name));
 }
 
 TypedArray<Dictionary> visible_properties(const ClassImage &p_image) {

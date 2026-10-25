@@ -1,11 +1,29 @@
 #!/usr/bin/env python
 
+import sys
+
 env = SConscript("thirdparty/godot-cpp/SConstruct", {"api_version": "4.7"})
 
 env.Append(CPPPATH=["src/"])
 
+# The compiler's tables of built-in types and utility functions come from the
+# extension API that godot-cpp is built against (architecture §2.1).
+sys.path.insert(0, Dir("src/compiler").abspath)
+import builtin_api_gen
+
+
+def generate_builtin_api(target, source, env):
+    builtin_api_gen.generate(str(source[0]), str(target[0]))
+
+
+builtin_api = env.Command(
+    "gen/builtin_api.gen.cpp",
+    ["thirdparty/godot-cpp/gdextension/extension_api-4-7.json", "src/compiler/builtin_api_gen.py"],
+    Action(generate_builtin_api, "Generating $TARGET"),
+)
+
 bytecode_sources = Glob("src/bytecode/*.cpp")
-compiler_sources = Glob("src/compiler/*.cpp")
+compiler_sources = Glob("src/compiler/*.cpp") + builtin_api
 
 # Exported games contain no compiler (architecture §1).
 sources = bytecode_sources + Glob("src/runtime/*.cpp") + Glob("src/adapter/*.cpp")

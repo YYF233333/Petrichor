@@ -1,0 +1,89 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <string_view>
+
+namespace petrichor::compiler::builtin {
+
+// The engine's built-in types (Vector3, String, Array…) and utility functions
+// (lerp, print…), as godot-cpp's extension_api-4-7.json describes them; the
+// tables are generated at build time (builtin_api_gen.py). ClassDB does not
+// describe these, and the engine offers an extension no way to list them, so
+// the editor uses the same tables as the tests (architecture §2.1). Types are
+// the JSON's names: "float", "Vector3", "Variant", "enum::Vector3.Axis"…; an
+// empty name is void.
+
+struct Argument {
+	const char *name;
+	const char *type;
+	bool has_default;
+};
+
+struct Method {
+	const char *name;
+	const char *return_type;
+	uint32_t hash;
+	const Argument *arguments;
+	uint32_t argument_count;
+	bool is_vararg;
+	bool is_static;
+	bool is_const;
+};
+
+struct Operator {
+	const char *name; // "+", "==", "unary-", "not"…
+	const char *right_type; // Empty for a unary operator.
+	const char *return_type;
+};
+
+struct Member {
+	const char *name;
+	const char *type;
+};
+
+struct Constant {
+	const char *name;
+	const char *type;
+};
+
+// Constructors in the engine's order: the position is the index the runtime
+// asks the engine for.
+struct Constructor {
+	const Argument *arguments;
+	uint32_t argument_count;
+};
+
+struct Class {
+	const char *name;
+	const Member *members;
+	uint32_t member_count;
+	const Constant *constants;
+	uint32_t constant_count;
+	const Operator *operators;
+	uint32_t operator_count;
+	const Method *methods;
+	uint32_t method_count;
+	const Constructor *constructors;
+	uint32_t constructor_count;
+	const char *indexing_return_type; // Empty when the type has no index.
+	bool is_keyed;
+};
+
+struct Utility {
+	const char *name;
+	const char *return_type;
+	const char *category; // "math", "random" or "general".
+	uint32_t hash;
+	const Argument *arguments;
+	uint32_t argument_count;
+	bool is_vararg;
+};
+
+const Class *find_class(std::string_view p_name);
+const Utility *find_utility(std::string_view p_name);
+const Member *find_member(const Class &p_class, std::string_view p_name);
+const Constant *find_constant(const Class &p_class, std::string_view p_name);
+const Method *find_method(const Class &p_class, std::string_view p_name);
+
+} // namespace petrichor::compiler::builtin

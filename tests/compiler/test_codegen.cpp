@@ -7,6 +7,7 @@
 
 using namespace petrichor;
 using namespace petrichor::tests;
+using bytecode::Op;
 using bytecode::ValueType;
 
 namespace {
@@ -14,7 +15,34 @@ namespace {
 bytecode::Module module_of(const std::string &p_source) {
 	compiler::CompileResult result = compile(p_source);
 	REQUIRE_MESSAGE(result.ok(), joined(errors_of(p_source)));
+	// What the compiler writes is what the runtime accepts.
+	std::string problem;
+	CHECK_MESSAGE(bytecode::verify(result.module, problem), problem);
 	return result.module;
+}
+
+// The opcodes of a function in order, without operands.
+std::vector<Op> opcodes(const bytecode::Module &p_module, const std::string &p_function) {
+	const bytecode::Function &fn = p_module.functions[p_module.find_function(p_function)];
+	std::vector<Op> result;
+	for (size_t pc = 0; pc < fn.code.size();) {
+		const Op op = Op(fn.code[pc]);
+		result.push_back(op);
+		const int count = bytecode::operand_count(op);
+		pc += count < 0 ? 5 + 2 * fn.code[pc + 4] : 1 + count;
+	}
+	return result;
+}
+
+// Whether `p_sequence` appears in `p_ops` in order, not necessarily together.
+bool in_order(const std::vector<Op> &p_ops, const std::vector<Op> &p_sequence) {
+	size_t next = 0;
+	for (Op op : p_ops) {
+		if (next < p_sequence.size() && op == p_sequence[next]) {
+			next++;
+		}
+	}
+	return next == p_sequence.size();
 }
 
 std::string listing(const bytecode::Module &p_module, const std::string &p_function) {
@@ -200,6 +228,99 @@ func f() -> void:
 	REQUIRE(module.engine_calls.size() == 1);
 	CHECK(module.engine_calls[0].method == "get_child_count");
 	CHECK(module.engine_calls[0].return_type == ValueType::Int);
+}
+
+TEST_CASE("a member of a property is changed in a copy and written back") {
+	const bytecode::Module module = module_of("extends Node3D\n\nfunc _process(delta):\n\tposition.y += delta\n");
+	CHECK(in_order(opcodes(module, "_process"), { Op::GET_PROPERTY, Op::GET_FIELD, Op::ADD_FLOAT, Op::SET_FIELD, Op::SET_PROPERTY }));
+	REQUIRE(module.properties.size() == 1);
+	CHECK(module.properties[0].name == "position");
+	CHECK(module.properties[0].type == ValueType::Vector3);
+	REQUIRE(module.fields.size() == 1);
+	CHECK(module.fields[0].base == ValueType::Vector3);
+	CHECK(module.fields[0].name == "y");
+	CHECK(module.fields[0].type == ValueType::Float);
+}
+
+TEST_CASE("member initializers that are not literals run in the init function") {
+	const bytecode::Module module = module_of(R"(extends Node
+var time = 0.0
+var rng = RandomNumberGenerator.new()
+var first := rng.randi()
+)");
+	CHECK(module.members[0].has_initial);
+	CHECK(!module.members[1].has_initial);
+	CHECK(module.members[1].type == ValueType::Object);
+	CHECK(module.members[1].class_name == "RandomNumberGenerator");
+	REQUIRE(module.init_function >= 0);
+	const bytecode::Function &init = module.functions[module.init_function];
+	CHECK(init.params.empty());
+	CHECK(!init.is_pub);
+	CHECK(in_order(opcodes(module, init.name), { Op::NEW_OBJECT, Op::STORE_MEMBER_VALUE, Op::LOAD_MEMBER_VALUE, Op::CALL_ENGINE, Op::STORE_MEMBER_8 }));
+	CHECK(module.classes == std::vector<std::string>{ "RandomNumberGenerator" });
+	CHECK(module_of("extends Node\nvar a := 1\n").init_function == -1);
+}
+
+// Hot reload compares the init function and the entries it uses (spec §12.4).
+TEST_CASE("the init function and its table entries do not change with a function body") {
+	const char *before = "extends Node\nvar v := Vector3(1, 2, 3)\n\nfunc f() -> float:\n\treturn 1.0\n";
+	const char *body_changed = "extends Node\nvar v := Vector3(1, 2, 3)\n\nfunc f() -> float:\n\treturn cos(2.0) + 3.0\n";
+	const char *initializer_changed = "extends Node\nvar v := Vector3(1, 2, 4)\n\nfunc f() -> float:\n\treturn 1.0\n";
+	const bytecode::Module a = module_of(before);
+	const bytecode::Module b = module_of(body_changed);
+	const bytecode::Module c = module_of(initializer_changed);
+	REQUIRE(a.init_function >= 0);
+	auto init_code = [](const bytecode::Module &p_module) { return p_module.functions[p_module.init_function].code; };
+	auto init_constants = [](const bytecode::Module &p_module) {
+		std::vector<int64_t> values;
+		for (uint32_t i = 0; i < p_module.init_tables.constants; i++) {
+			values.push_back(p_module.constants[i].i);
+		}
+		return values;
+	};
+	CHECK(init_code(a) == init_code(b));
+	CHECK(init_constants(a) == init_constants(b));
+	CHECK(a.init_tables.constructors == b.init_tables.constructors);
+	// The code can stay the same when a constant changes, so the entries count too.
+	CHECK(init_code(a) == init_code(c));
+	CHECK(init_constants(a) != init_constants(c));
+}
+
+TEST_CASE("built-in values take their own size in the frame") {
+	const bytecode::Module module = module_of("extends Node\n\nfunc f(v: Vector3, t: Transform3D, n: int) -> void:\n\tpass\n");
+	const bytecode::Function &f = module.functions[module.find_function("f")];
+	REQUIRE(f.params.size() == 3);
+	CHECK(f.params[0].offset == 0);
+	CHECK(f.params[1].offset == 16);
+	CHECK(f.params[2].offset == 64);
+	CHECK(f.frame_size >= 72);
+}
+
+TEST_CASE("operators, utilities and constructors carry the engine's signatures") {
+	const bytecode::Module module = module_of(R"(extends Node
+
+func f(x: float) -> Vector3:
+	var v := Vector3(x, 0, 1) * x
+	var c := cos(x)
+	return lerp(v, Vector3.UP, c)
+)");
+	REQUIRE(module.operators.size() == 1);
+	CHECK(module.operators[0].op == 8); // OP_MULTIPLY
+	CHECK(module.operators[0].left == ValueType::Vector3);
+	CHECK(module.operators[0].right == ValueType::Float);
+	CHECK(module.operators[0].result == ValueType::Vector3);
+	REQUIRE(module.constructors.size() == 1);
+	CHECK(module.constructors[0].type == ValueType::Vector3);
+	CHECK(module.constructors[0].params == std::vector<ValueType>{ ValueType::Float, ValueType::Float, ValueType::Float });
+	REQUIRE(module.utility_calls.size() == 2);
+	CHECK(module.utility_calls[0].function == "cos");
+	CHECK(module.utility_calls[0].hash == 2140049587u);
+	CHECK(module.utility_calls[0].params == std::vector<ValueType>{ ValueType::Float });
+	CHECK(module.utility_calls[0].return_type == ValueType::Float);
+	CHECK(module.utility_calls[1].function == "lerp");
+	CHECK(module.utility_calls[1].return_type == ValueType::Variant);
+	CHECK(module.utility_calls[1].result_type == ValueType::Vector3);
+	CHECK(module.constants.back().builtin == "UP");
 }
 
 TEST_CASE("serialization round-trips") {

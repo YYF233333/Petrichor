@@ -14,15 +14,18 @@ namespace petrichor::compiler::ir {
 // of frame offsets; control flow lives in block terminators.
 
 constexpr uint32_t NO_REG = 0xFFFFFFFF;
+static_assert(NO_REG == bytecode::NO_SLOT, "a missing register is emitted as a missing slot");
 
+// Operands in bytecode order (opcodes.h): `type` for the *_VALUE
+// instructions, `imm` for a table index, a constant, a member or a line, then
+// `dst`, `a` and `b` as the instruction uses them.
 struct Instr {
 	bytecode::Op op = bytecode::Op::LINE;
+	bytecode::ValueType type = bytecode::ValueType::Void;
+	uint32_t imm = 0;
 	uint32_t dst = NO_REG;
 	uint32_t a = NO_REG;
 	uint32_t b = NO_REG;
-	// LINE: line. CONST_*: constant index or bool value. *_MEMBER_*: member
-	// index. CALL*: function, engine call or utility index.
-	uint32_t imm = 0;
 	uint32_t base = NO_REG; // CALL*: the value the method is called on.
 	std::vector<uint32_t> args;
 };
@@ -48,6 +51,7 @@ struct Function {
 	std::vector<bytecode::Slot> regs; // Parameters, then locals, then temporaries.
 	uint32_t param_count = 0;
 	bytecode::ValueType return_type = bytecode::ValueType::Void;
+	std::string return_class;
 	bool is_pub = false;
 	bool is_override = false;
 	uint32_t line = 0;

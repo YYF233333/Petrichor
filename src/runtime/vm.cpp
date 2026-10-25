@@ -3,6 +3,7 @@
 #include "bytecode/opcodes.h"
 #include "runtime/debugger.h"
 
+#include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/godot.hpp>
 
 #include <cstring>
@@ -38,46 +39,55 @@ public:
 	FrameMemory &operator=(const FrameMemory &) = delete;
 };
 
-// A single slot that holds a value of any type, for return values.
+// A single slot that holds a value of any type: return values, and results
+// the engine writes that nothing reads.
 class ValueSlot {
-	alignas(8) uint8_t storage[8];
+	alignas(16) uint8_t storage[64];
 	ValueType type;
 
 public:
 	explicit ValueSlot(ValueType p_type) :
 			type(p_type) {
-		std::memset(storage, 0, sizeof(storage));
-		if (type == ValueType::String) {
-			new (storage) String();
-		}
+		construct_value(type, storage);
 	}
 	~ValueSlot() {
-		if (type == ValueType::String) {
-			reinterpret_cast<String *>(storage)->~String();
-		}
+		destroy_value(type, storage);
 	}
+	ValueSlot(const ValueSlot &) = delete;
+	ValueSlot &operator=(const ValueSlot &) = delete;
 	uint8_t *data() { return storage; }
 };
 
-// The variadic utility functions all share one signature hash.
-constexpr GDExtensionInt VARARG_UTILITY_HASH = 2648703342;
+// Where an engine function reads a right operand that a unary operator does not have.
+alignas(16) const uint8_t NOTHING[64] = {};
 
-GDExtensionPtrUtilityFunction utility_pointer(const char *p_name) {
-	const StringName name = p_name;
-	return godot::gdextension_interface::variant_get_ptr_utility_function(name._native_ptr(), VARARG_UTILITY_HASH);
-}
+// The arguments of a call to the engine, from the instruction's (type, offset)
+// pairs: each in its slot's own layout, or as a Variant where the function
+// takes a Variant, for extra vararg arguments, or for every argument of a call
+// by name.
+class Arguments {
+	std::vector<Variant> variants;
 
-void call_utility(Utility p_utility, const Variant **p_args, GDExtensionInt p_count) {
-	static const GDExtensionPtrUtilityFunction pointers[] = {
-		utility_pointer("print"),
-		utility_pointer("prints"),
-		utility_pointer("printerr"),
-		utility_pointer("push_error"),
-		utility_pointer("push_warning"),
-	};
-	Variant result;
-	pointers[int(p_utility)](&result, reinterpret_cast<GDExtensionConstVariantPtr *>(p_args), int(p_count));
-}
+public:
+	std::vector<const void *> pointers;
+
+	Arguments(uint8_t *p_frame, const uint32_t *p_pairs, uint32_t p_count, const std::vector<ValueType> *p_params) {
+		variants.reserve(p_count); // Pointers into it stay valid.
+		pointers.resize(p_count);
+		for (uint32_t i = 0; i < p_count; i++) {
+			const ValueType type = ValueType(p_pairs[2 * i]);
+			uint8_t *slot = p_frame + p_pairs[2 * i + 1];
+			if (!p_params || i >= p_params->size() || (*p_params)[i] == ValueType::Variant) {
+				variants.push_back(to_variant(type, slot));
+				pointers[i] = &variants.back();
+			} else {
+				pointers[i] = slot;
+			}
+		}
+	}
+
+	const Variant **as_variants() { return reinterpret_cast<const Variant **>(pointers.data()); }
+};
 
 void report_error(const ClassImage &p_image, const bytecode::Function &p_function, int p_line, const String &p_message) {
 	// The debugger breaks while the stack is still intact (spec §12.5).
@@ -99,6 +109,7 @@ public:
 	// error, which unwinds every frame of this language up to the engine.
 	bool run(uint32_t p_function, uint8_t *frame, uint8_t *p_result) {
 		const bytecode::Function &fn = image.module.functions[p_function];
+		const bytecode::Module &module = image.module;
 		const uint32_t *code = fn.code.data();
 		uint8_t *members = context.members;
 		const size_t depth = call_stack.size();
@@ -122,6 +133,16 @@ public:
 	} while (false)
 // Wrapping arithmetic on int, as in GDScript; through unsigned to stay defined.
 #define WRAP(m_op) int64_t(uint64_t(I64(code[pc + 2])) m_op uint64_t(I64(code[pc + 3])))
+// The object an instruction works on: self, or a live object in a slot (spec §3.3).
+#define OBJECT(m_name, m_offset)                                                     \
+	Variant m_name;                                                                  \
+	if ((m_offset) == NO_SLOT) {                                                     \
+		m_name = Variant(context.owner);                                             \
+	} else if (is_live_object(frame + (m_offset))) {                                 \
+		m_name = variant_at(frame + (m_offset));                                     \
+	} else {                                                                         \
+		FAIL(variant_at(frame + (m_offset)).get_type() == Variant::OBJECT ? String("The object was freed.") : String("The value is None.")); \
+	}
 
 		size_t pc = 0;
 		while (true) {
@@ -134,11 +155,11 @@ public:
 					pc += 2;
 					break;
 				case Op::CONST_INT:
-					I64(code[pc + 1]) = image.module.constants[code[pc + 2]].i;
+					I64(code[pc + 1]) = module.constants[code[pc + 2]].i;
 					pc += 3;
 					break;
 				case Op::CONST_FLOAT:
-					F64(code[pc + 1]) = image.module.constants[code[pc + 2]].f;
+					F64(code[pc + 1]) = module.constants[code[pc + 2]].f;
 					pc += 3;
 					break;
 				case Op::CONST_BOOL:
@@ -149,6 +170,10 @@ public:
 					STR(code[pc + 1]) = image.strings[code[pc + 2]];
 					pc += 3;
 					break;
+				case Op::CONST_VALUE:
+					from_variant(ValueType(code[pc + 1]), image.values[code[pc + 3]], frame + code[pc + 2]);
+					pc += 4;
+					break;
 				case Op::MOVE_8:
 					U64(code[pc + 1]) = U64(code[pc + 2]);
 					pc += 3;
@@ -156,6 +181,10 @@ public:
 				case Op::MOVE_STRING:
 					STR(code[pc + 1]) = STR(code[pc + 2]);
 					pc += 3;
+					break;
+				case Op::MOVE_VALUE:
+					copy_value(ValueType(code[pc + 1]), frame + code[pc + 2], frame + code[pc + 3]);
+					pc += 4;
 					break;
 				case Op::LOAD_MEMBER_8:
 					std::memcpy(frame + code[pc + 1], members + code[pc + 2], 8);
@@ -165,6 +194,10 @@ public:
 					STR(code[pc + 1]) = *reinterpret_cast<String *>(members + code[pc + 2]);
 					pc += 3;
 					break;
+				case Op::LOAD_MEMBER_VALUE:
+					copy_value(ValueType(code[pc + 1]), frame + code[pc + 2], members + code[pc + 3]);
+					pc += 4;
+					break;
 				case Op::STORE_MEMBER_8:
 					std::memcpy(members + code[pc + 1], frame + code[pc + 2], 8);
 					pc += 3;
@@ -172,6 +205,10 @@ public:
 				case Op::STORE_MEMBER_STRING:
 					*reinterpret_cast<String *>(members + code[pc + 1]) = STR(code[pc + 2]);
 					pc += 3;
+					break;
+				case Op::STORE_MEMBER_VALUE:
+					copy_value(ValueType(code[pc + 1]), members + code[pc + 2], frame + code[pc + 3]);
+					pc += 4;
 					break;
 				case Op::INT_TO_FLOAT:
 					F64(code[pc + 1]) = double(I64(code[pc + 2]));
@@ -269,6 +306,54 @@ public:
 					U64(code[pc + 1]) = U64(code[pc + 2]) ? 0 : 1;
 					pc += 3;
 					break;
+				case Op::EVALUATE: {
+					const uint32_t right = code[pc + 4];
+					image.evaluators[code[pc + 1]](frame + code[pc + 3], right == NO_SLOT ? NOTHING : frame + right, frame + code[pc + 2]);
+					pc += 5;
+					break;
+				}
+				case Op::GET_FIELD:
+					image.getters[code[pc + 1]](frame + code[pc + 3], frame + code[pc + 2]);
+					pc += 4;
+					break;
+				case Op::SET_FIELD:
+					image.setters[code[pc + 1]](frame + code[pc + 2], frame + code[pc + 3]);
+					pc += 4;
+					break;
+				case Op::GET_PROPERTY: {
+					const uint32_t index = code[pc + 1];
+					OBJECT(object, code[pc + 3]);
+					bool valid = false;
+					const Variant value = object.get_named(image.properties[index], valid);
+					if (!valid) {
+						FAIL(vformat("Cannot read the property %s.", image.properties[index]));
+					}
+					if (!from_variant(module.properties[index].type, value, frame + code[pc + 2])) {
+						FAIL(vformat("The property %s holds an unexpected %s.", image.properties[index], Variant::get_type_name(value.get_type())));
+					}
+					pc += 4;
+					break;
+				}
+				case Op::SET_PROPERTY: {
+					const uint32_t index = code[pc + 1];
+					OBJECT(object, code[pc + 2]);
+					bool valid = false;
+					object.set_named(image.properties[index], to_variant(module.properties[index].type, frame + code[pc + 3]), valid);
+					if (!valid) {
+						FAIL(vformat("Cannot write the property %s.", image.properties[index]));
+					}
+					pc += 4;
+					break;
+				}
+				case Op::NEW_OBJECT: {
+					const Variant object = ClassDBSingleton::get_singleton()->instantiate(image.classes[code[pc + 1]]);
+					if (object.get_type() != Variant::OBJECT) {
+						FAIL(vformat("Cannot construct %s.", image.classes[code[pc + 1]]));
+					}
+					variant_at(frame + code[pc + 2]) = object;
+					pc += 3;
+					break;
+				}
 				case Op::JUMP:
 					pc = code[pc + 1];
 					break;
@@ -283,7 +368,7 @@ public:
 					const uint32_t target = code[pc + 1];
 					const uint32_t dst = code[pc + 2];
 					const uint32_t argc = code[pc + 4];
-					const bytecode::Function &callee = image.module.functions[target];
+					const bytecode::Function &callee = module.functions[target];
 					FrameMemory callee_frame(callee.frame_size);
 					construct_slots(callee_frame.data, callee.frame_size, callee.slots);
 					for (uint32_t i = 0; i < argc; i++) {
@@ -297,34 +382,61 @@ public:
 					pc += 5 + 2 * argc;
 					break;
 				}
-				case Op::CALL_ENGINE:
-				case Op::CALL_UTILITY: {
-					const bool engine = Op(code[pc]) == Op::CALL_ENGINE;
+				case Op::CALL_ENGINE: {
 					const uint32_t target = code[pc + 1];
 					const uint32_t dst = code[pc + 2];
 					const uint32_t argc = code[pc + 4];
-					std::vector<Variant> args(argc);
-					std::vector<const Variant *> arg_pointers(argc);
-					for (uint32_t i = 0; i < argc; i++) {
-						args[i] = to_variant(ValueType(code[pc + 5 + 2 * i]), frame + code[pc + 6 + 2 * i]);
-						arg_pointers[i] = &args[i];
+					// By name for now; through MethodBind pointers once the
+					// compiler knows method hashes (architecture §2.2).
+					OBJECT(object, code[pc + 3]);
+					Arguments args(frame, code + pc + 5, argc, nullptr);
+					Variant result;
+					GDExtensionCallError error;
+					object.callp(image.engine_methods[target], args.as_variants(), int(argc), result, error);
+					if (error.error != GDEXTENSION_CALL_OK) {
+						FAIL(vformat("Calling %s() failed.", image.engine_methods[target]));
 					}
-					if (engine) {
-						// Dynamic for now; calls through MethodBind pointers come
-						// once the compiler knows method hashes (architecture §2.2).
-						Variant self(context.owner);
-						Variant result;
-						GDExtensionCallError error;
-						self.callp(image.engine_methods[target], arg_pointers.data(), int(argc), result, error);
-						if (error.error != GDEXTENSION_CALL_OK) {
-							FAIL(vformat("Calling %s() on %s failed.", image.engine_methods[target], context.owner->get_class()));
-						}
-						if (dst != NO_SLOT && !from_variant(image.module.engine_calls[target].return_type, result, frame + dst)) {
-							FAIL(vformat("%s() returned an unexpected %s.", image.engine_methods[target], Variant::get_type_name(result.get_type())));
-						}
+					if (dst != NO_SLOT && !from_variant(module.engine_calls[target].return_type, result, frame + dst)) {
+						FAIL(vformat("%s() returned an unexpected %s.", image.engine_methods[target], Variant::get_type_name(result.get_type())));
+					}
+					pc += 5 + 2 * argc;
+					break;
+				}
+				case Op::CALL_UTILITY:
+				case Op::CALL_BUILTIN: {
+					const bool utility = Op(code[pc]) == Op::CALL_UTILITY;
+					const uint32_t target = code[pc + 1];
+					const uint32_t dst = code[pc + 2];
+					const uint32_t argc = code[pc + 4];
+					const std::vector<ValueType> &params = utility ? module.utility_calls[target].params : module.builtin_methods[target].params;
+					const ValueType returns = utility ? module.utility_calls[target].return_type : module.builtin_methods[target].return_type;
+					const ValueType result_type = utility ? module.utility_calls[target].result_type : module.builtin_methods[target].result_type;
+					Arguments args(frame, code + pc + 5, argc, &params);
+					// A native result goes straight into its slot; a Variant one
+					// is checked on the way (spec §10.3).
+					Variant variant_result;
+					ValueSlot unread(dst == NO_SLOT && returns != ValueType::Variant ? returns : ValueType::Void);
+					void *result = returns == ValueType::Variant || returns == ValueType::Void ? static_cast<void *>(&variant_result) : (dst == NO_SLOT ? unread.data() : frame + dst);
+					if (utility) {
+						image.utilities[target](result, args.pointers.data(), int(argc));
 					} else {
-						call_utility(image.utilities[target], arg_pointers.data(), GDExtensionInt(argc));
+						image.builtin_methods[target](frame + code[pc + 3], args.pointers.data(), result, int(argc));
 					}
+					if (returns == ValueType::Variant && dst != NO_SLOT && !from_variant(result_type, variant_result, frame + dst)) {
+						FAIL(vformat("A call returned an unexpected %s.", Variant::get_type_name(variant_result.get_type())));
+					}
+					pc += 5 + 2 * argc;
+					break;
+				}
+				case Op::CONSTRUCT: {
+					const uint32_t target = code[pc + 1];
+					const uint32_t dst = code[pc + 2];
+					const uint32_t argc = code[pc + 4];
+					const bytecode::ConstructorCall &constructor = module.constructors[target];
+					Arguments args(frame, code + pc + 5, argc, &constructor.params);
+					// The engine constructs into memory that holds no value.
+					destroy_value(constructor.type, frame + dst);
+					image.constructors[target](frame + dst, args.pointers.data());
 					pc += 5 + 2 * argc;
 					break;
 				}
@@ -345,6 +457,7 @@ public:
 #undef STR
 #undef FAIL
 #undef WRAP
+#undef OBJECT
 	}
 };
 
@@ -367,12 +480,14 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 	FrameMemory frame(fn.frame_size);
 	construct_slots(frame.data, fn.frame_size, fn.slots);
 	for (size_t i = 0; i < fn.params.size(); i++) {
-		if (!from_variant(fn.params[i].type, *p_args[i], frame.data + fn.params[i].offset)) {
+		const bytecode::Slot &param = fn.params[i];
+		const StringName param_class = param.type == ValueType::Object ? StringName(String::utf8(param.class_name.c_str())) : StringName();
+		if (!from_variant(param.type, *p_args[i], frame.data + param.offset, param_class, param.nullable)) {
 			destroy_slots(frame.data, fn.slots);
 			// The caller reports this with its own call site, as for engine methods.
 			r_error.error = GDEXTENSION_CALL_ERROR_INVALID_ARGUMENT;
 			r_error.argument = int32_t(i);
-			r_error.expected = GDExtensionVariantType(variant_type(fn.params[i].type));
+			r_error.expected = GDExtensionVariantType(variant_type(param.type));
 			return Variant();
 		}
 	}

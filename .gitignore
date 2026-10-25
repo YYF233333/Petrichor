@@ -23,3 +23,6 @@ __pycache__/
 
 # Compiler tests
 tests/compiler/bin/
+
+# Generated sources
+gen/

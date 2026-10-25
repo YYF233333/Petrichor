@@ -446,6 +446,12 @@ public:
 		if (module.init_function >= 0 && !module.functions[module.init_function].params.empty()) {
 			return fail("the init function takes parameters");
 		}
+		const TablePrefix &prefix = module.init_tables;
+		if (prefix.constants > module.constants.size() || prefix.engine_calls > module.engine_calls.size() || prefix.properties > module.properties.size() ||
+				prefix.utility_calls > module.utility_calls.size() || prefix.operators > module.operators.size() || prefix.fields > module.fields.size() ||
+				prefix.constructors > module.constructors.size() || prefix.builtin_methods > module.builtin_methods.size() || prefix.classes > module.classes.size()) {
+			return fail("the init function's tables are larger than the module's");
+		}
 		return true;
 	}
 };

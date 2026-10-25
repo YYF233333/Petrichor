@@ -334,6 +334,8 @@ def run_fps_group(godot):
         code, output = run(godot, "--path", str(migrated))
         new_errors = [line for line in output.splitlines() if "ERROR" in line and line not in known_errors]
         expect("fps run", code == 0 and not new_errors and "fps check: 0 failure(s)" in output, output)
+        for script in sorted(FPS_MIGRATED.rglob("*.pet")):
+            expect(f"fps run: {script.stem} runs migrated", f"fps check: {script.stem} runs PetScript" in output, output)
 
 
 def run_debugger_groups(godot):
