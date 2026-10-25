@@ -6,10 +6,11 @@ This document records implementation decisions: how the components are split, ho
 
 ## 1. Decisions
 
-- **C++17, godot-cpp, SCons.** The interpreter has to run on iOS and consoles (spec §12.2), and an engine-module build may come later (§1.3). The engine is compiled as C++17 (`SConstruct:916, 921`) and engine modules can only be built with SCons, so this project uses both. Since v10, godot-cpp is versioned independently of Godot and one version can target several Godot versions; this project pins it to a commit and builds it with `api_version=4.7`.
+- **C++17, godot-cpp, SCons.** The interpreter has to run on iOS and consoles (spec §12.2), and an engine-module build may come later (§1.3). The engine is compiled as C++17 (`SConstruct:916, 921`) and engine modules can only be built with SCons, so this project uses both. Since v10, godot-cpp is versioned independently of Godot and one version can target several Godot versions; this project pins it to a commit and builds it with `api_version=4.7`. This project raises its C++ standard only after the engine does: C++20 brings only conveniences, and the guaranteed tail calls an interpreter may use are compiler extensions, independent of the standard.
 - **The target engine is Godot 4.7.** The extension declares 4.7 as its minimum version, and the engine loads extensions whose minimum version is not above its own (`core/extension/gdextension_library_loader.cpp:315-329`), so the same build also runs on later versions.
 - **Exported games contain only bytecode** (spec §1.3). A `.gdextension` file selects different libraries for the editor and for export templates by feature tags (`gdextension_library_loader.cpp:82-96`): the editor library includes the compiler, the export-template library only the runtime.
 - **Registers hold native values according to their static types.** Even where static types are known, GDScript's registers are Variants (`modules/gdscript/gdscript_vm.cpp:536`), its operators run through function pointers on Variants (`:848-862`), and engine method calls take Variant pointers as well (`:2273-2313`). This language uses its fully static types to avoid these costs, which is the main source of being "clearly faster than GDScript" (spec §12.2).
+- **When run from the editor, the game reads the bytecode the editor has written and does not compile** (§2.4).
 
 ## 2. Components
 
@@ -42,6 +43,7 @@ This document records implementation decisions: how the components are split, ho
 - A program error unwinds this language's call stack, releasing locals, back to the engine's call entry, which returns the default value of its type (§8.1).
 - Calls to engine methods pass pointers to native values directly to ptrcall; calls coming from the engine pass the entry checks (§10.1).
 - The virtual machine can run on any thread and uses no global mutable state that is not protected by a lock (§12.3).
+- The first version dispatches with a switch only, so there is one code path to test on every platform. GDScript uses computed goto on GCC and Clang (`modules/gdscript/gdscript_vm.cpp:254-450`); this language's main advantage lies in registers typed by static type, not in dispatch. Each instruction's handler is written once and the interpreter's state is kept in a few local variables, so computed-goto or tail-call dispatch can later be generated from the same definitions; whether to add them is decided by the benchmarks in §4. Switch dispatch stays in any case, since not every toolchain guarantees tail calls, MSVC debug builds for one.
 
 ### 2.3 adapter
 
@@ -51,7 +53,15 @@ This document records implementation decisions: how the components are split, ho
 - Editor plugin: the analysis service (§13.1), error marks in the scene editor, renaming with the scene part and undo (§13.3), compiling before running.
 - Headless command: runs the same analysis and exits with a non-zero code on compile errors (§13.1).
 
-### 2.4 Repository layout
+### 2.4 Editing, running, export and hot reload
+
+- Editing: the analysis service holds the compiled state of the whole project in the editor process, recompiles when sources or scenes change, and shows diagnostics in the script editor and the scene editor.
+- Running from the editor: the project is compiled before it runs (the editor plugin's `_build`) and the bytecode is written to `.godot/petrichor/`; the game process only reads it. Rationale: the types of `$X` and the like depend on scenes (spec §7), so a game process compiling by itself would analyse all of the project's scenes again, start more slowly, and might reach different results from the editor.
+- The headless command writes bytecode to `.godot/petrichor/` as well; tests and CI use it in place of the editor.
+- Export: the export plugin puts the bytecode in the exported package (§1).
+- Hot reload: when only function bodies change, the editor recompiles and tells the game over the debugger connection, and the game reloads the script from `.godot/petrichor/` (spec §12.4).
+
+### 2.5 Repository layout
 
 ```
 SConstruct
