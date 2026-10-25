@@ -17,6 +17,8 @@ extern const char *const NON_NULL_PROPERTIES[];
 extern const size_t NON_NULL_PROPERTIES_COUNT;
 extern const char *const NON_NULL_PARAMS[];
 extern const size_t NON_NULL_PARAMS_COUNT;
+extern const char *const CLASS_FILTERS[];
+extern const size_t CLASS_FILTERS_COUNT;
 
 namespace {
 
@@ -85,6 +87,21 @@ bool property_non_null(std::string_view p_class, std::string_view p_property) {
 
 bool param_non_null(std::string_view p_class, std::string_view p_method, uint32_t p_index) {
 	return listed(NON_NULL_PARAMS, NON_NULL_PARAMS_COUNT, std::string(p_class) + "." + std::string(p_method) + ":" + std::to_string(p_index));
+}
+
+int class_filter_param(std::string_view p_class, std::string_view p_method) {
+	const std::string prefix = std::string(p_class) + "." + std::string(p_method) + ":";
+	for (size_t i = 0; i < CLASS_FILTERS_COUNT; i++) {
+		const std::string_view entry = CLASS_FILTERS[i];
+		if (entry.substr(0, prefix.size()) == prefix) {
+			int index = 0; // The generator checks that it is a number.
+			for (const char digit : entry.substr(prefix.size())) {
+				index = index * 10 + (digit - '0');
+			}
+			return index;
+		}
+	}
+	return -1;
 }
 
 } // namespace petrichor::compiler::builtin

@@ -43,6 +43,7 @@ class FakeEngine : public compiler::EngineApi {
 		{ "Window", "Viewport" },
 		{ "Tween", "RefCounted" },
 		{ "InputEventMouseMotion", "InputEvent" },
+		{ "MeshInstance3D", "Node3D" },
 	};
 	std::vector<std::string> singletons = { "Input", "ResourceLoader" };
 	std::map<std::string, int64_t> constants = {
@@ -83,6 +84,10 @@ public:
 			method("add_child", { { "node", node } }, t(TypeKind::Void)),
 			method("set_owner", { { "owner", node } }, t(TypeKind::Void)),
 			method("queue_free", {}, t(TypeKind::Void)),
+			method("find_children", { { "pattern", t(TypeKind::String) }, { "type", t(TypeKind::String) }, { "recursive", t(TypeKind::Bool) }, { "owned", t(TypeKind::Bool) } }, Type::array(Type::object("Node")), false, 3),
+		};
+		properties["MeshInstance3D"] = {
+			{ "layers", t(TypeKind::Int), true },
 		};
 		methods["Node3D"] = {
 			method("rotate_y", { { "angle", t(TypeKind::Float) } }, t(TypeKind::Void)),

@@ -38,10 +38,11 @@ class _Pool:
 
 
 def _binding_metadata(api, metadata_path):
-    """The engine API whose objects are never null (spec §10.2, §10.3): the
-    engine's RequiredResult and RequiredParam metadata, merged with the audit
-    in binding_metadata.txt. Returns sorted lists of "Class.method",
-    "Class.property" and "Class.method:index"."""
+    """The engine's RequiredResult and RequiredParam metadata, merged with the
+    audit in binding_metadata.txt (spec §10.2, §10.3). Returns sorted lists of
+    what is never null, "Class.method", "Class.property" and
+    "Class.method:index", and of the parameters that filter by class,
+    "Class.method:index"."""
     methods = {(c["name"], m["name"]): m for c in api["classes"] for m in c.get("methods", [])}
     returns = {f"{c}.{m}" for (c, m), info in methods.items() if info.get("return_value", {}).get("meta") == "required"}
     params = {
@@ -50,15 +51,28 @@ def _binding_metadata(api, metadata_path):
         for i, a in enumerate(info.get("arguments", []))
         if a.get("meta") == "required"
     }
+    filters = set()
     with open(metadata_path, encoding="utf-8") as file:
         for number, line in enumerate(file, 1):
             words = line.split("#", 1)[0].split()
             if not words:
                 continue
-            assert len(words) == 3 and words[0] == "returns-non-null", f"{metadata_path}:{number}: expected 'returns-non-null Class.method path:line'"
+            where = f"{metadata_path}:{number}"
+            assert len(words) >= 2, f"{where}: expected a kind and Class.method"
             cls, _, method = words[1].partition(".")
-            assert (cls, method) in methods, f"{metadata_path}:{number}: the engine has no method {words[1]}"
-            returns.add(words[1])
+            assert (cls, method) in methods, f"{where}: the engine has no method {words[1]}"
+            if words[0] == "returns-non-null":
+                assert len(words) == 3, f"{where}: expected 'returns-non-null Class.method path:line'"
+                returns.add(words[1])
+            elif words[0] == "filters-by-class":
+                assert len(words) == 4 and words[2].isdigit(), f"{where}: expected 'filters-by-class Class.method index path:line'"
+                arguments = methods[(cls, method)].get("arguments", [])
+                index = int(words[2])
+                assert index < len(arguments) and arguments[index]["type"] in ("String", "StringName"), f"{where}: argument {index} is not a class name"
+                assert methods[(cls, method)].get("return_value", {}).get("type", "").startswith("typedarray::"), f"{where}: {words[1]} does not return a typed array"
+                filters.add(f"{words[1]}:{index}")
+            else:
+                assert False, f"{where}: unknown kind {words[0]}"
     # A property reads through its getter.
     properties = {
         f"{c['name']}.{p['name']}"
@@ -66,13 +80,13 @@ def _binding_metadata(api, metadata_path):
         for p in c.get("properties", [])
         if p.get("getter") and f"{c['name']}.{p['getter']}" in returns
     }
-    return sorted(returns), sorted(properties), sorted(params)
+    return sorted(returns), sorted(properties), sorted(params), sorted(filters)
 
 
 def generate(json_path, metadata_path, out_path):
     with open(json_path, encoding="utf-8") as file:
         api = json.load(file)
-    non_null = _binding_metadata(api, metadata_path)
+    metadata = _binding_metadata(api, metadata_path)
 
     arguments = _Pool("Argument", "ARGUMENTS")
     members = _Pool("Member", "MEMBERS")
@@ -152,7 +166,7 @@ def generate(json_path, metadata_path, out_path):
         out.write(f"const size_t CLASS_COUNT = {len(classes)};\n\n")
         out.write("const Utility UTILITIES[] = {\n" + "".join(f"\t{{ {row} }},\n" for row in utilities) + "};\n")
         out.write(f"const size_t UTILITY_COUNT = {len(utilities)};\n\n")
-        for name, rows in zip(("NON_NULL_RETURNS", "NON_NULL_PROPERTIES", "NON_NULL_PARAMS"), non_null):
+        for name, rows in zip(("NON_NULL_RETURNS", "NON_NULL_PROPERTIES", "NON_NULL_PARAMS", "CLASS_FILTERS"), metadata):
             out.write(f"extern const char *const {name}[];\nextern const size_t {name}_COUNT;\n")
             out.write(f"const char *const {name}[] = {{\n" + "".join(f"\t{_c_string(row)},\n" for row in rows) + "};\n")
             out.write(f"const size_t {name}_COUNT = {len(rows)};\n\n")

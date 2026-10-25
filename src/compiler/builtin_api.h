@@ -94,5 +94,8 @@ const Method *find_method(const Class &p_class, std::string_view p_name);
 bool returns_non_null(std::string_view p_class, std::string_view p_method);
 bool property_non_null(std::string_view p_class, std::string_view p_property);
 bool param_non_null(std::string_view p_class, std::string_view p_method, uint32_t p_index);
+// The parameter that names the class of the objects the method's array holds
+// (spec §10.3), or -1.
+int class_filter_param(std::string_view p_class, std::string_view p_method);
 
 } // namespace petrichor::compiler::builtin

@@ -89,6 +89,28 @@ TEST_CASE("signal arguments must fit the connected method's parameters") {
 	CHECK(messages(compile_in("extends Node\n\nfunc _on_child(node: int):\n\tpass\n", project)).find("which passes Node here") != std::string::npos);
 }
 
+TEST_CASE("a signal declared by a script of this language is checked like the engine's (spec §4.7, §7.7)") {
+	// main.tscn of the FPS starter kit connects the player's health_updated to the HUD.
+	const auto connected = [](const std::string &p_signal, const std::string &p_handler) {
+		FakeProject project = hud_scene();
+		project.add_script("res://player.pet", "extends Node3D\nsignal health_updated(health: int)\n");
+		project.scenes[0].nodes[1].instance_script = "res://player.pet";
+		project.scenes[0].connections = { { p_signal, "Player", "HUD", "_on_health_updated", 0, 0 } };
+		return messages(compile_in("extends CanvasLayer\n\nfunc _on_health_updated(" + p_handler + "):\n\tpass\n", project));
+	};
+	CHECK(connected("health_updated", "health: int").empty());
+	CHECK(contains(connected("health_updated", "health: String"), "which passes int here"));
+	CHECK(contains(connected("health_updated", ""), "which passes 1 argument(s); _on_health_updated() takes 0."));
+	CHECK(contains(connected("health_changed", "health: int"), "res://main.tscn: the signal \"health_changed\" of Player is connected to _on_health_updated(), but Player has no such signal."));
+	// The engine class's own signals.
+	CHECK(connected("ready", "").empty());
+	CHECK(contains(messages(compile_in("extends Node3D\n\nfunc _on_timer_timeout():\n\tpass\n", [] {
+		FakeProject project = timer_scene("_on_timer_timeout");
+		project.scenes[0].connections[0].signal = "timed_out";
+		return project;
+	}())), "but Timer has no such signal."));
+}
+
 TEST_CASE("$X has the class of the node at that path in the scenes that use the script (spec §7.1)") {
 	// scripts/hud.gd of the FPS starter kit, with the parameter annotated.
 	const char *hud = "extends CanvasLayer\n\nfunc _on_health_updated(health: int):\n\t$Health.text = str(health) + \"%\"\n";
@@ -101,6 +123,59 @@ TEST_CASE("$X has the class of the node at that path in the scenes that use the 
 	CHECK(hud_errors("$\"Health\".text = \"\"").empty());
 	CHECK(contains(hud_errors("$Crosshair.text = \"\""), "TextureRect has no property \"text\""));
 	CHECK(contains(hud_errors("var n: Node3D = $Health"), "Cannot assign a value of type Label as Node3D"));
+}
+
+TEST_CASE("$X of a node with a script of this language has the script's class") {
+	FakeProject project = hud_scene();
+	project.add_script("res://bar.pet", "extends Control\nclass_name Bar\n\npub func fill(x: float):\n\tpass\n", "Bar");
+	project.scenes[0].nodes.push_back({ "HUD/Bar", "Control", "res://bar.pet" });
+	const compiler::CompileResult result = compile_in("extends CanvasLayer\n\nfunc f():\n\t$Bar.fill(0.5)\n", project);
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	REQUIRE(result.module.classes.size() == 1);
+	CHECK(result.module.classes[0].script == "res://bar.pet");
+	CHECK(contains(hud_errors("$Bar.fill(\"full\")", project), "Cannot pass a value of type String as float"));
+}
+
+// Spec §7.4.
+TEST_CASE("preload() of a scene is a PackedScene of the scene's root") {
+	FakeProject project;
+	project.add_script("res://objects/impact.pet", "extends Node3D\n\npub func play_shot():\n\tpass\n");
+	compiler::Scene impact;
+	impact.path = "res://objects/impact.tscn";
+	impact.nodes = { { ".", "Node3D", "res://objects/impact.pet" } };
+	compiler::Scene platform;
+	platform.path = "res://objects/platform.tscn";
+	platform.nodes = { { ".", "Node3D", "" } };
+	compiler::Scene legacy;
+	legacy.path = "res://objects/legacy.tscn";
+	legacy.nodes = { { ".", "Node3D", "res://objects/legacy.gd" } };
+	project.scenes = { impact, platform, legacy };
+	const auto errors = [&](const std::string &p_body) {
+		return messages(compile_in("extends Node\n\nfunc f(path: String):\n\t" + p_body + "\n", project));
+	};
+
+	// The class of the root's script, when it has one of this language.
+	CHECK(errors("var shot := preload(\"res://objects/impact.tscn\").instantiate()\n\tshot.play_shot()").empty());
+	CHECK(contains(errors("var n: Label = preload(\"res://objects/impact.tscn\").instantiate()"), "Cannot assign a value of type impact.pet as Label"));
+	CHECK(errors("var s: PackedScene[Node3D] = preload(\"res://objects/platform.tscn\")").empty());
+	CHECK(errors("var n: Node3D = preload(\"res://objects/legacy.tscn\").instantiate()").empty());
+	// Relative to the script's directory.
+	CHECK(errors("var s: PackedScene[Node3D] = preload(\"objects/platform.tscn\")").empty());
+
+	CHECK(contains(errors("var s := preload(\"res://missing.tscn\")"), "There is no scene at res://missing.tscn."));
+	CHECK(contains(errors("var s := preload(\"res://icon.png\")"), "preload() of a resource other than a scene is not supported yet."));
+	CHECK(contains(errors("var s := preload(path)"), "preload() takes one literal path."));
+
+	// It loads as load() does, and checks that it got a scene.
+	const compiler::CompileResult result = compile_in("extends Node\n\nfunc f():\n\tvar s := preload(\"res://objects/platform.tscn\")\n", project);
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	REQUIRE(result.module.engine_calls.size() == 1);
+	CHECK(result.module.engine_calls[0].method == "load");
+	REQUIRE(result.module.classes.size() >= 1);
+	CHECK(result.module.classes.back().name == "PackedScene");
+
+	// Scenes are not read while loading.
+	CHECK(compile_in("extends Node\nvar s = preload(\"res://missing.tscn\")\n", project, true).ok());
 }
 
 TEST_CASE("a path that a scene using the script lacks is an error marked with that scene (spec §7.1, §7.2)") {
@@ -142,6 +217,10 @@ TEST_CASE("@onready members are set when the node is ready, from the scene") {
 		return messages(compile_in("extends CanvasLayer\n" + p_members + "\n", hud_scene()));
 	};
 	CHECK(errors("@onready var a := 1\n@onready var b := a + 1").empty());
+	// Members declared later are set by then; player.gd of the FPS starter kit.
+	const compiler::CompileResult later = compile_in("extends CanvasLayer\n@onready var weapon = weapons[weapon_index]\nvar weapon_index := 0\nvar weapons: Array[String] = []\n\nfunc f() -> String:\n\treturn weapon + \"!\"\n", hud_scene());
+	REQUIRE_MESSAGE(later.ok(), messages(later));
+	CHECK(later.module.members[0].type == bytecode::ValueType::String);
 	CHECK(contains(errors("@onready var a := 1\nvar b := a"), "\"a\" is set when the node is ready, after this initializer runs"));
 	CHECK(contains(errors("@onready var b := a\n@onready var a := 1"), "\"a\" is not initialized yet"));
 	CHECK(contains(errors("@onready @export var a := 1"), "@onready and @export do not go together"));

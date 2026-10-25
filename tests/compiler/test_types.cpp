@@ -154,6 +154,40 @@ TEST_CASE("the binding metadata says which objects are never None") {
 	CHECK(errors_of(in_function("set_owner(get_parent())")).empty());
 }
 
+// Spec §10.3: scene/main/node.cpp:2031-2042.
+TEST_CASE("an engine array filtered by a literal class name holds that class") {
+	CHECK(type_of("find_children(\"*\", \"MeshInstance3D\")") == "Array[MeshInstance3D]");
+	// player.gd of the FPS starter kit.
+	CHECK(errors_of(in_function("for child in find_children(\"*\", \"MeshInstance3D\"):\n\tchild.layers = 2")).empty());
+	CHECK(type_of("find_children(\"*\")") == "Array[Node]");
+	CHECK(type_of("find_children(\"*\", \"\")") == "Array[Node]");
+	CHECK(type_of("find_children(\"*\", kind)", "var kind := \"MeshInstance3D\"") == "Array[Node]");
+	CHECK(type_of("find_children(\"*\", \"MeshInstanc3D\")").find("find_children() filters by the class \"MeshInstanc3D\", which does not exist.") != std::string::npos);
+	CHECK(type_of("find_children(\"*\", \"Resource\")").find("find_children() returns objects of Node, and Resource is not one.") != std::string::npos);
+
+	// The engine's array is Array[Node]; a new Array[MeshInstance3D] takes its elements.
+	const auto result = compile(in_function("var meshes := find_children(\"*\", \"MeshInstance3D\")"));
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	bool assigned = false;
+	for (const auto &call : result.module.builtin_methods) {
+		assigned = assigned || (call.base == petrichor::bytecode::ValueType::Array && call.method == "assign");
+	}
+	CHECK(assigned);
+	CHECK(result.module.classes.size() == 1);
+	CHECK(result.module.classes[0].name == "MeshInstance3D");
+}
+
+TEST_CASE("a class of this language filters by its class_name") {
+	FakeProject project;
+	project.add_script("res://bar.pet", "extends Node3D\nclass_name Bar\n\npub func fill():\n\tpass\n", "Bar");
+	project.global_classes["Legacy"] = "res://legacy.gd";
+	const auto errors = [&](const std::string &p_body) {
+		return messages(compile_in("extends Node\n\nfunc f():\n\t" + p_body + "\n", project));
+	};
+	CHECK(errors("for bar in find_children(\"*\", \"Bar\"):\n\t\tbar.fill()").empty());
+	CHECK(errors("var nodes: Array[Node] = find_children(\"*\", \"Legacy\")").empty());
+}
+
 TEST_CASE("integer constants of engine classes") {
 	CHECK(type_of("Input.MOUSE_MODE_CAPTURED") == "int");
 	CHECK(type_of("Tween.EASE_OUT_IN") == "int");

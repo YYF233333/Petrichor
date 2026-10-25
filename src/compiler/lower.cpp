@@ -687,7 +687,9 @@ class Lowerer {
 				i.args.push_back(convert(lower_expr(*callee.params[a].default_value), callee.params[a].type));
 			}
 		}
-		i.dst = p_call.type.kind == TypeKind::Void ? NO_REG : temp(p_call.type);
+		// An array of the class an argument named (spec §10.3).
+		const bool filtered = p_call.target == Target::EngineMethod && p_call.type.builtin_name() == "Array" && p_call.type.to_string() != p_call.engine_return.to_string();
+		i.dst = p_call.type.kind == TypeKind::Void ? NO_REG : temp(filtered ? p_call.engine_return : p_call.type);
 		switch (p_call.target) {
 			case Target::ScriptFunction:
 				i.op = Op::CALL;
@@ -750,6 +752,19 @@ class Lowerer {
 		add(i);
 		if (written_back) {
 			store(*written_back, i.base);
+		}
+		if (filtered) {
+			// The engine made a new array, so a new array typed by that class
+			// with the same elements is not told apart from it.
+			const uint32_t typed = temp(p_call.type);
+			new_array(typed, fn.regs[typed]);
+			ir::Instr assign;
+			assign.op = Op::CALL_BUILTIN;
+			assign.imm = engine_builtin_method(ValueType::Array, "assign", { ValueType::Array }, ValueType::Void);
+			assign.base = typed;
+			assign.args = { i.dst };
+			add(assign);
+			return typed;
 		}
 		const bool from_engine = p_call.target == Target::BuiltinMethod || p_call.target == Target::EngineMethod;
 		if (from_engine && p_call.type.kind == TypeKind::Object && !p_call.type.nullable) {
@@ -859,8 +874,7 @@ class Lowerer {
 					return short_circuit(p_expr);
 				} else {
 					const uint32_t left = lower_expr(*p_expr.left);
-					const uint32_t right = lower_expr(*p_expr.right);
-					return binary(p_expr.op, left, right, p_expr.type);
+					const uint32_t right = lower_expr(*p_expr.right);					return binary(p_expr.op, left, right, p_expr.type);
 				}
 			case ExprKind::Call:
 				return call(p_expr);
@@ -924,7 +938,7 @@ class Lowerer {
 		i.args = { path_reg };
 		i.dst = temp(p_expr.type);
 		add(i);
-		instr(Op::CHECK_OBJECT, NO_REG, i.dst, NO_REG, class_index(p_expr.owner));
+		instr(Op::CHECK_OBJECT, NO_REG, i.dst, NO_REG, class_index(p_expr.type));
 		return i.dst;
 	}
 

@@ -195,6 +195,11 @@ bool is_literal(const Expr &p_expr) {
 	}
 }
 
+// A script of this language, by its path.
+bool is_script_path(const std::string &p_path) {
+	return p_path.size() > 4 && p_path.compare(p_path.size() - 4, 4, ".pet") == 0;
+}
+
 class Checker : public ClassRelation {
 	ClassDecl &cls;
 	const EngineApi &engine;
@@ -299,7 +304,7 @@ class Checker : public ClassRelation {
 			}
 			return std::nullopt;
 		}
-		if (path.size() < 4 || path.compare(path.size() - 4, 4, ".pet") != 0) {
+		if (!is_script_path(path)) {
 			error(p_ref.line, p_ref.column, head + " is a class of another language, which is not supported as a type yet (spec §11.1).");
 			return Type::of(TypeKind::Error);
 		}
@@ -544,7 +549,7 @@ class Checker : public ClassRelation {
 		const std::string autoload = options.project ? options.project->autoload_path(r_expr.text) : std::string();
 		if (!autoload.empty()) {
 			// Its type is its script's class (spec §7.3).
-			if (autoload.size() < 4 || autoload.compare(autoload.size() - 4, 4, ".pet") != 0) {
+			if (!is_script_path(autoload)) {
 				return fail(r_expr, "The autoload " + r_expr.text + " is a script of another language, which is not supported as a type yet (spec §11.1).");
 			}
 			const ScriptClass *script = autoload == options.path ? nullptr : classes.header(autoload);
@@ -738,7 +743,7 @@ class Checker : public ClassRelation {
 			return fail(r_expr, "Only paths down from this node, such as $Head/Camera, are supported yet.");
 		}
 		bool attached = false;
-		std::string type;
+		std::optional<Type> type;
 		std::string type_scene;
 		for (const Scene &scene : scenes) {
 			for (const SceneNode &node : scene.nodes) {
@@ -758,25 +763,97 @@ class Checker : public ClassRelation {
 					error(r_expr.line, r_expr.column, scene.path + ": " + (node.path == "." ? std::string("the root") : node.path) + " has no node at \"" + path + "\" (spec §7.1).");
 					continue;
 				}
-				if (type.empty()) {
-					type = found->type;
+				const Type found_type = scene_node_type(r_expr, *found, "$" + path);
+				if (found_type.is_error()) {
+					return set(r_expr, found_type);
+				}
+				if (!type) {
+					type = found_type;
 					type_scene = scene.path;
-				} else if (found->type != type) {
-					return fail(r_expr, "$" + path + " is a " + type + " in " + type_scene + " but a " + found->type + " in " + scene.path + "; assign it to a variable typed with a class both extend (spec §7.1).");
+				} else if (found_type.to_string() != type->to_string()) {
+					return fail(r_expr, "$" + path + " is a " + type->to_string() + " in " + type_scene + " but a " + found_type.to_string() + " in " + scene.path + "; assign it to a variable typed with a class both extend (spec §7.1).");
 				}
 			}
 		}
 		if (!attached) {
 			return fail(r_expr, "$" + path + " is typed from the scenes that use this script, and no scene does (spec §7.2).");
 		}
-		if (type.empty()) {
+		if (!type) {
 			return set(r_expr, Type::of(TypeKind::Error)); // Reported for each scene above.
 		}
-		if (!engine.class_exists(type)) {
-			return fail(r_expr, "$" + path + " is a " + type + ", which is not supported yet.");
+		r_expr.owner = type->engine_class();
+		return set(r_expr, *type);
+	}
+
+	// The type of a node of a scene (spec §7.1, §7.4): the class of its script
+	// when that is a script of this language, or else its engine class; Error
+	// after reporting. `p_what` names the node in messages.
+	Type scene_node_type(const Expr &p_at, const SceneNode &p_node, const std::string &p_what) {
+		const std::string &script = p_node.script.empty() ? p_node.instance_script : p_node.script;
+		if (is_script_path(script)) {
+			const ScriptClass *other = script == options.path ? nullptr : classes.header(script);
+			const ClassDecl *header = script == options.path ? &cls : (other ? &other->decl : nullptr);
+			if (!header) {
+				error(p_at.line, p_at.column, p_what + " has the script " + script + ", which cannot be read.");
+				return Type::of(TypeKind::Error);
+			}
+			return Type::script_class(display_name(*header, script), script, header->extends);
 		}
-		r_expr.owner = type;
-		return set(r_expr, Type::object(type));
+		if (!engine.class_exists(p_node.type)) {
+			error(p_at.line, p_at.column, p_what + " is a " + p_node.type + ", which is not supported yet.");
+			return Type::of(TypeKind::Error);
+		}
+		return Type::object(p_node.type);
+	}
+
+	// preload() of a scene, typed PackedScene[T] by the scene's root (spec
+	// §7.4). It loads when it runs, through the engine's resource cache, as
+	// load() does, and the result is checked to be a scene.
+	Type check_preload(Expr &r_expr) {
+		if (r_expr.args.size() != 1 || r_expr.args[0]->kind != ExprKind::StringLiteral) {
+			for (auto &arg : r_expr.args) {
+				check_value(*arg);
+			}
+			return fail(r_expr, "preload() takes one literal path.");
+		}
+		std::string path = r_expr.args[0]->text;
+		if (path.rfind("res://", 0) != 0) {
+			// Relative to the script's directory, as in GDScript.
+			path = options.path.substr(0, options.path.find_last_of('/') + 1) + path;
+			r_expr.args[0]->text = path;
+		}
+		if (options.declarations_only) {
+			return set(r_expr, Type::of(TypeKind::Error)); // Scenes are not read while loading.
+		}
+		const bool is_scene = path.size() > 5 && (path.compare(path.size() - 5, 5, ".tscn") == 0 || path.compare(path.size() - 4, 4, ".scn") == 0);
+		if (!is_scene) {
+			return fail(r_expr, "preload() of a resource other than a scene is not supported yet.");
+		}
+		const std::optional<Scene> scene = options.project ? options.project->scene(path) : std::nullopt;
+		const SceneNode *root = scene ? scene->find_node(".") : nullptr;
+		if (!root) {
+			return fail(r_expr, "There is no scene at " + path + ".");
+		}
+		const Type root_type = scene_node_type(r_expr, *root, "The root of " + path);
+		if (root_type.is_error()) {
+			return set(r_expr, root_type);
+		}
+		if (!engine.is_singleton("ResourceLoader")) {
+			return fail(r_expr, "preload() needs the engine's ResourceLoader.");
+		}
+		auto loader = std::make_unique<Expr>();
+		loader->kind = ExprKind::Name;
+		loader->text = "ResourceLoader";
+		loader->line = r_expr.line;
+		loader->column = r_expr.column;
+		r_expr.base = std::move(loader);
+		r_expr.text = "load";
+		if (check_call(r_expr).is_error()) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		Type type = Type::object("PackedScene");
+		type.args.push_back(root_type);
+		return set(r_expr, type);
 	}
 
 	Type check_unary(Expr &r_expr) {
@@ -1139,7 +1216,48 @@ class Checker : public ClassRelation {
 		}
 		check_arguments(r_expr, params, int(params.size()) - p_method.default_count, p_method.is_vararg);
 		r_expr.target = Target::EngineMethod;
-		return set(r_expr, engine_result(p_method));
+		r_expr.engine_return = engine_result(p_method);
+		return set(r_expr, filtered_result(r_expr, p_method));
+	}
+
+	// An array that the engine fills with objects of a class named by an
+	// argument holds that class, when the name is a literal (spec §10.3).
+	Type filtered_result(const Expr &p_call, const EngineMethod &p_method) {
+		const Type &result = p_call.engine_return;
+		const int index = builtin::class_filter_param(p_method.owner, p_method.name);
+		if (index < 0 || index >= int(p_call.args.size()) || p_call.args[index]->kind != ExprKind::StringLiteral || result.args.empty()) {
+			return result;
+		}
+		const Expr &arg = *p_call.args[index];
+		const std::string &name = arg.text;
+		if (name.empty() || name.rfind("res://", 0) == 0) {
+			return result; // No filter, or a script by its path.
+		}
+		Type element;
+		const std::string path = options.project ? options.project->global_class_path(name) : std::string();
+		if (engine.class_exists(name)) {
+			element = Type::object(name);
+		} else if (is_script_path(path)) {
+			TypeRef ref;
+			ref.name = name;
+			ref.line = arg.line;
+			ref.column = arg.column;
+			const std::optional<Type> script = script_type(ref);
+			if (!script || script->is_error()) {
+				return Type::of(TypeKind::Error);
+			}
+			element = *script;
+		} else if (!path.empty()) {
+			return result; // A class of another language.
+		} else {
+			error(arg.line, arg.column, p_method.name + "() filters by the class \"" + name + "\", which does not exist.");
+			return Type::of(TypeKind::Error);
+		}
+		if (!is_a(element, result.args[0])) {
+			error(arg.line, arg.column, p_method.name + "() returns objects of " + result.args[0].to_string() + ", and " + element.to_string() + " is not one.");
+			return Type::of(TypeKind::Error);
+		}
+		return Type::array(element);
 	}
 
 	Type check_utility(Expr &r_expr, const builtin::Utility &p_utility) {
@@ -1643,6 +1761,9 @@ class Checker : public ClassRelation {
 					return check_constructor(r_expr, *type);
 				}
 			}
+			if (name == "preload") {
+				return check_preload(r_expr);
+			}
 			if (name == "load" && engine.is_singleton("ResourceLoader")) {
 				// GDScript's load() is ResourceLoader.load(), whose result may be
 				// None (spec §7.4, §10.2).
@@ -2078,58 +2199,70 @@ class Checker : public ClassRelation {
 	}
 
 	// After the signatures, since an initializer can call this class's functions.
+	// The other members first, then the @onready ones, whose initializers may
+	// read any of the others (spec §6.3), so that a member's type is known
+	// before an initializer reads it.
 	void check_members() {
-		for (size_t i = 0; i < cls.members.size(); i++) {
-			VarDecl &member = cls.members[i];
-			const auto registered = member_index.find(member.name);
-			if (registered == member_index.end() || registered->second != int(i)) {
-				continue;
-			}
-			Type type = Type::of(TypeKind::Error);
-			if (member.declared_type) {
-				type = resolve(*member.declared_type, false);
-			}
-			if (member.is_onready) {
-				if (!engine.inherits(cls.extends, "Node")) {
-					error(member.line, member.column, "@onready is for Node scripts; a " + cls.extends + " is never ready (spec §6.3).");
-				}
-				if (member.is_export) {
-					error(member.line, member.column, "@onready and @export do not go together: the node's ready would overwrite what the scene assigned (spec §6.3).");
-				}
-				if (!member.initializer) {
-					error(member.line, member.column, "An @onready member needs an initializer.");
+		for (const bool onready : { false, true }) {
+			for (size_t i = 0; i < cls.members.size(); i++) {
+				if (cls.members[i].is_onready == onready) {
+					check_member(i);
 				}
 			}
-			if (member.initializer) {
-				initializing = int(i);
-				initializing_onready = member.is_onready;
-				const Type value = check_value(*member.initializer, type);
-				initializing = -1;
-				initializing_onready = false;
-				if (member.declared_type) {
-					expect_assignable(*member.initializer, value, type, "assign");
-				} else {
-					type = value;
-				}
-				// An @onready member gets even a literal when the node is ready.
-				member.literal_initializer = !member.is_onready && is_literal(*member.initializer) && type.is_primitive();
-			} else if (!member.declared_type) {
-				error(member.line, member.column, "\"" + member.name + "\" needs a type or an initial value.");
-			} else if (type.kind == TypeKind::Object && !type.nullable) {
-				// An export that the scene or resource must assign (spec §7.5); a
-				// member that the creator or an ancestor must assign (§6.2) is not
-				// supported yet.
-				member.must_assign = member.is_export;
-				if (!member.is_export) {
-					error(member.line, member.column, "Members that must be assigned, such as \"" + member.name + "\" of type " + type.to_string() + ", are not supported yet unless exported; give it an initial value.");
-				}
-			}
-			if (member.is_export && type.kind == TypeKind::Object && type.name == "PackedScene" && type.args.empty()) {
-				error(member.line, member.column, "An exported scene is written PackedScene[T], with the type of its root (spec §7.4).");
-			}
-			member.type = type;
-			check_annotations(member);
 		}
+	}
+
+	void check_member(size_t p_index) {
+		// A name declared twice is reported where it is registered.
+		VarDecl &member = cls.members[p_index];
+		const auto registered = member_index.find(member.name);
+		if (registered == member_index.end() || registered->second != int(p_index)) {
+			return;
+		}
+		Type type = Type::of(TypeKind::Error);
+		if (member.declared_type) {
+			type = resolve(*member.declared_type, false);
+		}
+		if (member.is_onready) {
+			if (!engine.inherits(cls.extends, "Node")) {
+				error(member.line, member.column, "@onready is for Node scripts; a " + cls.extends + " is never ready (spec §6.3).");
+			}
+			if (member.is_export) {
+				error(member.line, member.column, "@onready and @export do not go together: the node's ready would overwrite what the scene assigned (spec §6.3).");
+			}
+			if (!member.initializer) {
+				error(member.line, member.column, "An @onready member needs an initializer.");
+			}
+		}
+		if (member.initializer) {
+			initializing = int(p_index);
+			initializing_onready = member.is_onready;
+			const Type value = check_value(*member.initializer, type);
+			initializing = -1;
+			initializing_onready = false;
+			if (member.declared_type) {
+				expect_assignable(*member.initializer, value, type, "assign");
+			} else {
+				type = value;
+			}
+			// An @onready member gets even a literal when the node is ready.
+			member.literal_initializer = !member.is_onready && is_literal(*member.initializer) && type.is_primitive();
+		} else if (!member.declared_type) {
+			error(member.line, member.column, "\"" + member.name + "\" needs a type or an initial value.");
+		} else if (type.kind == TypeKind::Object && !type.nullable) {
+			// An export that the scene or resource must assign (spec §7.5); a
+			// member that the creator or an ancestor must assign (§6.2) is not
+			// supported yet.
+			member.must_assign = member.is_export;
+			if (!member.is_export) {
+				error(member.line, member.column, "Members that must be assigned, such as \"" + member.name + "\" of type " + type.to_string() + ", are not supported yet unless exported; give it an initial value.");
+			}
+		}
+		if (member.is_export && type.kind == TypeKind::Object && type.name == "PackedScene" && type.args.empty()) {
+			error(member.line, member.column, "An exported scene is written PackedScene[T], with the type of its root (spec §7.4).");
+		}
+		member.type = type;
+		check_annotations(member);
 	}
 
 	// Default values of parameters (spec §4.6): the last parameters, and
@@ -2269,24 +2402,64 @@ class Checker : public ClassRelation {
 				FuncDecl &method = cls.functions[found->second];
 				method.is_exposed = true;
 				const SceneNode *source = scene.find_node(connection.source);
-				const auto signal = source ? engine.find_signal(source->type, connection.signal) : std::nullopt;
-				if (!signal) {
-					continue; // A signal declared by a script; checked once script signals are typed.
+				bool missing = false;
+				const std::optional<std::vector<Type>> arguments = source ? signal_arguments(*source, connection.signal, missing) : std::nullopt;
+				if (missing) {
+					error(cls.extends_line, cls.extends_column, where + ", but " + connection.source + " has no such signal.");
 				}
-				const int passed = int(signal->params.size()) - connection.unbinds + connection.binds;
+				if (!arguments) {
+					continue;
+				}
+				const int passed = int(arguments->size()) - connection.unbinds + connection.binds;
 				if (int(method.params.size()) != passed) {
 					error(method.line, method.column, where + ", which passes " + std::to_string(passed) + " argument(s); " + method.name + "() takes " + std::to_string(method.params.size()) + ".");
 					continue;
 				}
-				for (int i = 0; i < int(signal->params.size()) - connection.unbinds; i++) {
-					Type argument = signal->params[i].type;
-					argument.nullable = false; // The engine's own signal arguments.
-					if (!assignable(argument, method.params[i].type)) {
-						error(method.params[i].line, method.params[i].column, where + ", which passes " + argument.to_string() + " here.");
+				for (int i = 0; i < int(arguments->size()) - connection.unbinds; i++) {
+					if (!assignable((*arguments)[i], method.params[i].type)) {
+						error(method.params[i].line, method.params[i].column, where + ", which passes " + (*arguments)[i].to_string() + " here.");
 					}
 				}
 			}
 		}
+	}
+
+	// What a signal of a node in a scene passes: one its script of this
+	// language declares (spec §4.7), or one of its engine class. nullopt when
+	// that is not known: a script of another language, or one with errors;
+	// `r_missing` when the node certainly has no such signal.
+	std::optional<std::vector<Type>> signal_arguments(const SceneNode &p_node, const std::string &p_signal, bool &r_missing) {
+		const std::string &script = p_node.script.empty() ? p_node.instance_script : p_node.script;
+		if (!script.empty() && !is_script_path(script)) {
+			return std::nullopt;
+		}
+		if (!script.empty()) {
+			const ClassDecl *decl = script_decl(script);
+			if (!decl) {
+				return std::nullopt;
+			}
+			for (const SignalDecl &signal : decl->signals) {
+				if (signal.name == p_signal) {
+					std::vector<Type> types;
+					for (const ParamDecl &param : signal.params) {
+						types.push_back(param.type);
+					}
+					return types;
+				}
+			}
+		}
+		const auto signal = engine.find_signal(p_node.type, p_signal);
+		if (!signal) {
+			r_missing = engine.class_exists(p_node.type);
+			return std::nullopt;
+		}
+		std::vector<Type> types;
+		for (const EngineParam &param : signal->params) {
+			Type type = param.type;
+			type.nullable = false; // The engine's own signal arguments.
+			types.push_back(type);
+		}
+		return types;
 	}
 
 	// The signatures of the interfaces the class declares (spec §3.9).
