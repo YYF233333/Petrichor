@@ -1,9 +1,20 @@
 #!/usr/bin/env python
 
 import hashlib
+import os
 import sys
 
+# Finding MSVC runs vcvarsall.bat, nearly a second on every build; SCons can
+# keep what it found (in ~/.scons_msvc_cache.json).
+os.environ.setdefault("SCONS_CACHE_MSVC_CONFIG", "1")
+
 env = SConscript("thirdparty/godot-cpp/SConstruct", {"api_version": "4.7"})
+
+# A build with nothing to do is mostly SCons hashing thousands of godot-cpp
+# files and scanning their includes: hash only files whose time changed, and
+# keep the scanned includes.
+env.Decider("content-timestamp")
+SetOption("implicit_cache", 1)
 
 env.Append(CPPPATH=["src/", "gen/"])
 

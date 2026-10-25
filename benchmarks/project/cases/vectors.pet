@@ -1,0 +1,5 @@
+pub func run(n: int) -> int:
+	var v := Vector3(1, 2, 3)
+	for i in n:
+		v = v * 0.5 + Vector3(i % 2, 1, 1)
+	return int(v.x * 1000)

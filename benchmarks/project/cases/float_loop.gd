@@ -1,0 +1,7 @@
+extends RefCounted
+
+func run(n: int) -> float:
+	var x := 0.0
+	for i in n:
+		x = x * 0.999 + i * 0.5
+	return x

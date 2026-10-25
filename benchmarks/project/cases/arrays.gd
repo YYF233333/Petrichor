@@ -1,0 +1,10 @@
+extends RefCounted
+
+func run(n: int) -> int:
+	var a: Array[int] = []
+	for i in n:
+		a.append(i)
+	var total := 0
+	for x in a:
+		total += x
+	return total

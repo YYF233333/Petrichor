@@ -1,7 +1,7 @@
 """Engine tests: run the test project headless with a Godot 4.7 editor binary.
 
 Usage:
-    scons target=editor && scons target=template_debug
+    scons target=editor
     python tests/engine/run.py <godot editor binary> [group...]    (or set GODOT)
 
 Checks the game run, the editor side (placeholders, saving, the undo probe), the

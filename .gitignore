@@ -26,3 +26,6 @@ tests/compiler/bin/
 
 # Generated sources
 gen/
+
+# MSVC writes it next to SConstruct when debug symbols are on
+/vc*.pdb

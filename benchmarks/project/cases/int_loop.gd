@@ -1,0 +1,7 @@
+extends RefCounted
+
+func run(n: int) -> int:
+	var total := 0
+	for i in n:
+		total += i * i % 7
+	return total
