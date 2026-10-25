@@ -1,7 +1,9 @@
 #include "adapter/pet_language.h"
 
 #include "adapter/pet_script.h"
+#include "runtime/debugger.h"
 #include "runtime/task.h"
+#include "runtime/vm.h"
 
 #ifdef TOOLS_ENABLED
 #include "adapter/editor/script_compiler.h"
@@ -32,6 +34,7 @@ String PetLanguage::_get_name() const {
 }
 
 void PetLanguage::_init() {
+	debugger::set_language(this);
 }
 
 String PetLanguage::_get_type() const {
@@ -222,32 +225,72 @@ void PetLanguage::_thread_exit() {
 
 /* Debugger */
 
+// Level 0 is the innermost frame of this language on the current thread.
+static const StackFrame *frame_at(int32_t p_level) {
+	const std::vector<StackFrame> &stack = vm::stack();
+	if (p_level < 0 || size_t(p_level) >= stack.size()) {
+		return nullptr;
+	}
+	return &stack[stack.size() - 1 - size_t(p_level)];
+}
+
 String PetLanguage::_debug_get_error() const {
-	return String();
+	return debugger::last_error();
 }
 
 int32_t PetLanguage::_debug_get_stack_level_count() const {
-	return 0;
+	return int32_t(vm::stack().size());
 }
 
 int32_t PetLanguage::_debug_get_stack_level_line(int32_t p_level) const {
-	return -1;
+	const StackFrame *frame = frame_at(p_level);
+	return frame ? frame->line : -1;
 }
 
 String PetLanguage::_debug_get_stack_level_function(int32_t p_level) const {
-	return String();
+	const StackFrame *frame = frame_at(p_level);
+	return frame ? String::utf8(frame->function->name.c_str()) : String();
 }
 
 String PetLanguage::_debug_get_stack_level_source(int32_t p_level) const {
-	return String();
+	const StackFrame *frame = frame_at(p_level);
+	return frame ? frame->image->path : String();
 }
 
 Dictionary PetLanguage::_debug_get_stack_level_locals(int32_t p_level, int32_t p_max_subitems, int32_t p_max_depth) {
-	return Dictionary();
+	Dictionary result;
+	const StackFrame *frame = frame_at(p_level);
+	if (!frame) {
+		return result;
+	}
+	PackedStringArray names;
+	Array values;
+	for (const bytecode::Slot &slot : frame->function->slots) {
+		if (!slot.name.empty()) {
+			names.push_back(String::utf8(slot.name.c_str()));
+			values.push_back(to_variant(slot.type, frame->frame + slot.offset));
+		}
+	}
+	result["locals"] = names;
+	result["values"] = values;
+	return result;
 }
 
 Dictionary PetLanguage::_debug_get_stack_level_members(int32_t p_level, int32_t p_max_subitems, int32_t p_max_depth) {
-	return Dictionary();
+	Dictionary result;
+	const StackFrame *frame = frame_at(p_level);
+	if (!frame) {
+		return result;
+	}
+	PackedStringArray names;
+	Array values;
+	for (const bytecode::Member &member : frame->image->module.members) {
+		names.push_back(String::utf8(member.name.c_str()));
+		values.push_back(to_variant(member.type, frame->members + member.offset));
+	}
+	result["members"] = names;
+	result["values"] = values;
+	return result;
 }
 
 void *PetLanguage::_debug_get_stack_level_instance(int32_t p_level) {
@@ -263,7 +306,15 @@ String PetLanguage::_debug_parse_stack_level_expression(int32_t p_level, const S
 }
 
 TypedArray<Dictionary> PetLanguage::_debug_get_current_stack_info() {
-	return TypedArray<Dictionary>();
+	TypedArray<Dictionary> result;
+	for (int32_t level = 0; level < _debug_get_stack_level_count(); level++) {
+		Dictionary info;
+		info["file"] = _debug_get_stack_level_source(level);
+		info["func"] = _debug_get_stack_level_function(level);
+		info["line"] = _debug_get_stack_level_line(level);
+		result.push_back(info);
+	}
+	return result;
 }
 
 /* Reloading */

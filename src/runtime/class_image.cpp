@@ -28,6 +28,7 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 	auto image = std::make_shared<ClassImage>();
 	image->module = std::move(p_module);
 	image->path = p_path;
+	image->source = p_path;
 	const bytecode::Module &module = image->module;
 	image->global_name = from_utf8(module.global_name);
 	image->base_class = from_utf8(module.base_class);

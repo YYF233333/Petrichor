@@ -14,6 +14,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -30,15 +32,82 @@ GAME_OUTPUT = [
 failures = []
 
 
+TIMEOUT = 120
+PROMPT = b"debug> "
+
+
 def run(godot, *args):
-    result = subprocess.run(
-        [godot, "--headless", *args], capture_output=True, text=True, encoding="utf-8", errors="replace"
-    )
+    # A script error can keep a scene from quitting; the timeout ends it.
+    try:
+        result = subprocess.run(
+            [godot, "--headless", *args],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as timeout:
+        output = (timeout.stdout or "") + (timeout.stderr or "")
+        if isinstance(output, bytes):
+            output = output.decode("utf-8", "replace")
+        return -1, output + "\n(timed out)"
     return result.returncode, result.stdout + result.stderr
 
 
+def run_debugger(godot, *args, commands):
+    """Runs under the engine's local debugger (`-d`), sending one command per prompt.
+
+    The local debugger reads a whole pipe buffer as one command line on Windows
+    (os_windows.cpp:2094-2107), and repeats its prompt forever once standard input
+    is closed (local_debugger.cpp:148), so each command waits for its prompt and
+    standard input stays open."""
+    process = subprocess.Popen(
+        [godot, "--headless", *args],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    output = bytearray()
+    changed = threading.Condition()
+
+    def read():
+        while chunk := process.stdout.read1(4096):
+            with changed:
+                output.extend(chunk)
+                changed.notify()
+
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    deadline = time.monotonic() + TIMEOUT
+    timed_out = False
+    for sent, command in enumerate(commands):
+        with changed:
+            prompted = changed.wait_for(
+                lambda: output.count(PROMPT) > sent or process.poll() is not None,
+                timeout=max(0, deadline - time.monotonic()),
+            )
+        if not prompted or process.poll() is not None:
+            timed_out = not prompted
+            break
+        try:
+            process.stdin.write(command.encode() + b"\n")
+            process.stdin.flush()
+        except OSError:
+            break
+    try:
+        code = process.wait(timeout=max(0, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired:
+        process.kill()
+        code = process.wait()
+        timed_out = True
+    reader.join()
+    text = output.decode("utf-8", "replace")
+    return (-1, text + "\n(timed out)") if timed_out else (code, text)
+
+
 def expect(name, ok, output=""):
-    print(("ok      " if ok else "FAILED  ") + name)
+    print(("ok      " if ok else "FAILED  ") + name, flush=True)
     if not ok:
         failures.append(name)
         if output:
@@ -46,10 +115,12 @@ def expect(name, ok, output=""):
 
 
 def expect_run(name, code, output, lines=()):
-    """The run exits with 0, reports no errors, and prints `lines` in order."""
+    """The run exits with 0, reports no errors, and prints `lines` in order.
+
+    A line may follow a prompt, such as the debugger's "debug> "."""
     errors = [line for line in output.splitlines() if "ERROR" in line]
     remaining = iter(line.strip() for line in output.splitlines())
-    in_order = all(any(out == line for out in remaining) for line in lines)
+    in_order = all(any(out.endswith(line) for out in remaining) for line in lines)
     expect(name, code == 0 and not errors and in_order, output)
 
 
@@ -76,6 +147,37 @@ def main():
 
     code, output = run(godot, "--path", str(PROJECT), "res://language/language.tscn")
     expect_run("language", code, output, ["language: 0 failure(s)"])
+
+    # Spec §12.5: breakpoints, locals, members, stepping and a break on a
+    # program error, through the engine's local debugger driven on standard input.
+    code, output = run_debugger(
+        godot,
+        "-d",
+        "--breakpoints",
+        "res://language/breakpoint.pet:8",
+        "--path",
+        str(PROJECT),
+        "res://language/breakpoint.tscn",
+        commands=["locals", "members", "s", "members", "c", "c"],
+    )
+    expect_run(
+        "breakpoint",
+        code,
+        output,
+        [
+            "Debugger Break, Reason: 'Breakpoint'",
+            "*Frame 0 - res://language/breakpoint.pet:8 in function 'step'",
+            "n: 20",
+            "doubled: 40",
+            "calls: 0",
+            "*Frame 0 - res://language/breakpoint.pet:9 in function 'step'",
+            "calls: 1",
+            "breakpoint: step returned 41",
+            "Debugger Break, Reason: 'Division by zero.'",
+            "*Frame 0 - res://language/breakpoint.pet:12 in function 'divide'",
+            "breakpoint: divide returned 0",
+        ],
+    )
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)

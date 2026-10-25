@@ -1,6 +1,7 @@
 #include "runtime/vm.h"
 
 #include "bytecode/opcodes.h"
+#include "runtime/debugger.h"
 
 #include <godot_cpp/godot.hpp>
 
@@ -80,6 +81,8 @@ void call_utility(Utility p_utility, const Variant **p_args, GDExtensionInt p_co
 }
 
 void report_error(const ClassImage &p_image, const bytecode::Function &p_function, int p_line, const String &p_message) {
+	// The debugger breaks while the stack is still intact (spec §12.5).
+	debugger::error(p_message);
 	const CharString description = p_message.utf8();
 	const CharString file = p_image.path.utf8();
 	godot::gdextension_interface::print_script_error(description.get_data(), p_function.name.c_str(), file.get_data(), p_line, true);
@@ -101,8 +104,12 @@ public:
 		uint8_t *members = context.members;
 		const size_t depth = call_stack.size();
 		call_stack.push_back({ &image, &fn, frame, members, int(fn.line) });
+		debugger::enter_function();
 		struct Pop {
-			~Pop() { call_stack.pop_back(); }
+			~Pop() {
+				debugger::exit_function();
+				call_stack.pop_back();
+			}
 		} pop;
 
 #define I64(m_offset) (*reinterpret_cast<int64_t *>(frame + (m_offset)))
@@ -122,6 +129,9 @@ public:
 			switch (Op(code[pc])) {
 				case Op::LINE:
 					call_stack[depth].line = int(code[pc + 1]);
+					if (debugger::is_active()) {
+						debugger::line(image.source, int(code[pc + 1]));
+					}
 					pc += 2;
 					break;
 				case Op::CONST_INT:

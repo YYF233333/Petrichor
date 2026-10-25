@@ -1,0 +1,12 @@
+# Driven by breakpoint_test.gd under the engine's local debugger (run.py).
+extends Node
+
+pub var calls := 0
+
+pub func step(n: int) -> int:
+	var doubled := n * 2
+	calls += 1
+	return doubled + 1
+
+pub func divide(a: int, b: int) -> int:
+	return a / b

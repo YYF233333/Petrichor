@@ -31,6 +31,7 @@ class ClassImage {
 public:
 	bytecode::Module module;
 	godot::String path;
+	godot::StringName source; // The path as the debugger names breakpoints.
 	godot::StringName global_name;
 	godot::StringName base_class;
 
