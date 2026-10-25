@@ -57,6 +57,9 @@ class Verifier {
 			if (!is_type(uint32_t(slot.type))) {
 				return fail("slot " + slot.name + " has no type");
 			}
+			if (slot.option != ValueType::Void && (slot.type != ValueType::Variant || !is_native(slot.option))) {
+				return fail("slot " + slot.name + " holds an option of no value type");
+			}
 			const uint64_t end = uint64_t(slot.offset) + slot_size(slot.type);
 			if (slot.offset % 8 != 0 || end > p_size) {
 				return fail("slot " + slot.name + " does not fit");
@@ -361,6 +364,18 @@ class Verifier {
 			case Op::NEW_OBJECT:
 			case Op::CHECK_OBJECT:
 				return index(o[0], module.classes.size(), "class") && slot(o[1], ValueType::Object);
+			case Op::CAST_OBJECT:
+				return index(o[0], module.classes.size(), "class") && same(o[1], o[2], ValueType::Object);
+			case Op::TO_VARIANT:
+				return (is_native(ValueType(o[0])) || fail("no value type")) && slot(o[1], ValueType::Variant) && slot(o[2], ValueType(o[0]));
+			case Op::UNWRAP: {
+				// An object's T? is an Object slot; a value's is a Variant slot.
+				const ValueType unwrapped = ValueType(o[0]);
+				if (unwrapped != ValueType::Object && !is_native(unwrapped)) {
+					return fail("no type to unwrap to");
+				}
+				return slot(o[1], unwrapped) && slot(o[2], unwrapped == ValueType::Object ? ValueType::Object : ValueType::Variant) && slot_or_none(o[3], ValueType::String);
+			}
 			case Op::JUMP:
 				return target(o[0]);
 			case Op::JUMP_IF_FALSE:

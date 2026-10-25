@@ -66,6 +66,17 @@ func _ready() -> void:
 	var refused = v.callv("takes_node", [no_node])
 	Engine.print_error_messages = true
 	_check(typeof(no_node) == TYPE_OBJECT and refused == null and v.takes_node(v) == 1, "a T parameter refuses a null object from the engine")
+	Engine.print_error_messages = false
+	var unwrapped_none = v.unwrapped(null)
+	var wrong_type = v.callv("unwrapped", ["4"])
+	Engine.print_error_messages = true
+	_check(v.unwrapped(4) == 4 and unwrapped_none == 0 and wrong_type == null, "an int? parameter takes an int or null, and unwrap() of None is a program error")
+	_check(v.optional_name(true) == "petrichor" and v.optional_name(false) == null, "a String? result is a String or null")
+	var plain := Node.new()
+	var freed := Node3D.new()
+	freed.free()
+	_check(v.as_node3d(v) == v and v.as_node3d(plain) == null and v.callv("as_node3d", [freed]) == null, "as gives None for another class and for a freed object")
+	plain.free()
 	v.transform = Transform3D(Basis(), Vector3(7, 0, 0))
 	_check(v.origin_x() == 7.0, "a member of a member of a property")
 

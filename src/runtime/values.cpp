@@ -131,13 +131,24 @@ Variant to_variant(ValueType p_type, const uint8_t *p_slot) {
 	return result;
 }
 
-bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, const StringName &p_class, bool p_nullable) {
+bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, const StringName &p_class, bool p_nullable, ValueType p_option) {
 	const Variant::Type have = p_value.get_type();
 	switch (p_type) {
 		case ValueType::Void:
 			return true;
 		case ValueType::Variant:
-			variant_at(p_slot) = p_value;
+			if (p_option != ValueType::Void && !is_none(p_value)) {
+				// T? of a value type holds a T, converted as for a T slot.
+				alignas(16) uint8_t storage[64];
+				construct_value(p_option, storage);
+				const bool ok = from_variant(p_option, p_value, storage);
+				if (ok) {
+					variant_at(p_slot) = to_variant(p_option, storage);
+				}
+				destroy_value(p_option, storage);
+				return ok;
+			}
+			variant_at(p_slot) = p_option != ValueType::Void ? Variant() : p_value; // None in one form.
 			return true;
 		case ValueType::Object:
 			if (is_none(p_value)) {

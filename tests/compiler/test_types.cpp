@@ -83,7 +83,34 @@ TEST_CASE("T? is a nullable object type (spec §3.3)") {
 	CHECK(errors_of(in_function("var p: Node?\np = get_parent()")).empty());
 	CHECK(type_of("rng", "var rng: RandomNumberGenerator? = RandomNumberGenerator.new()") == "RandomNumberGenerator?");
 	CHECK(has_error(in_function("var n: Node = get_parent()"), "Cannot assign a value of type Node? as Node"));
-	CHECK(has_error(in_function("var n: int?"), "Optional values of type int are not supported yet"));
+}
+
+TEST_CASE("T? of a value type is an Option (spec §3.4)") {
+	CHECK(errors_of(in_function("var a: int? = 5\nvar b: int?\nb = a\nvar s: String? = \"x\"\nvar f: float? = 1")).empty());
+	CHECK(type_of("a.unwrap()", "var a: int? = 5") == "int");
+	CHECK(type_of("s.expect(\"a name\")", "var s: String? = \"x\"") == "String");
+	CHECK(type_of("v.unwrap().y", "var v: Vector3? = Vector3.UP") == "float");
+	CHECK(type_of("a + 1", "var a: int? = 5").find("may be None (int?); unwrap it first") != std::string::npos);
+	CHECK(type_of("s.length()", "var s: String? = \"x\"").find("may be None (String?); check it before calling") != std::string::npos);
+	CHECK(type_of("v.y", "var v: Vector3? = Vector3.UP").find("may be None (Vector3?); check it before reading") != std::string::npos);
+	CHECK(type_of("a.unwrap_or(0)", "var a: int? = 5").find("not supported yet") != std::string::npos);
+	CHECK(has_error(in_function("var a: int? = 5\nvar b: int = a"), "Cannot assign a value of type int? as int"));
+	// Only a T is converted on the way in, not the T inside.
+	CHECK(has_error(in_function("var a: int? = 5\nvar f: float? = a"), "Cannot assign a value of type int? as float?"));
+	CHECK(has_error("extends Node\n\nfunc f() -> void?:\n\tpass\n", "void cannot be optional"));
+}
+
+TEST_CASE("as converts objects to T? (spec §5.3)") {
+	const char *setup = "var n: Node = Node3D.new()";
+	CHECK(type_of("n as Node3D", setup) == "Node3D?");
+	CHECK(type_of("(n as Node3D).unwrap().position", setup) == "Vector3");
+	CHECK(type_of("(n as Node3D).position", setup).find("may be None (Node3D?)") != std::string::npos);
+	// Already a Node: nothing can fail.
+	CHECK(type_of("Node3D.new() as Node") == "Node");
+	CHECK(type_of("get_parent() as Node") == "Node?");
+	CHECK(type_of("n as RandomNumberGenerator", setup).find("A Node is never a RandomNumberGenerator.") != std::string::npos);
+	CHECK(type_of("n as int", setup).find("as only converts objects; convert to int with int(x)") != std::string::npos);
+	CHECK(type_of("5 as Node").find("as only converts objects, not int") != std::string::npos);
 }
 
 // Spec §10.2: what the engine passes in is T; a parameter may accept more (§4.6).

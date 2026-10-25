@@ -55,13 +55,19 @@ static StringName class_of(bytecode::ValueType p_type, const std::string &p_clas
 	return p_type == bytecode::ValueType::Object ? StringName(String::utf8(p_class.c_str())) : StringName();
 }
 
+// A Variant slot, such as int?, is NIL to the engine, which reads that as
+// void unless told otherwise.
+static uint32_t usage_of(bytecode::ValueType p_type, uint32_t p_usage) {
+	return p_type == bytecode::ValueType::Variant ? p_usage | PROPERTY_USAGE_NIL_IS_VARIANT : p_usage;
+}
+
 static Dictionary function_info(const ClassImage &p_image, int p_index) {
 	const bytecode::Function &function = p_image.module.functions[p_index];
 	Array args;
 	for (const bytecode::Slot &param : function.params) {
-		args.push_back(property_dict(variant_type(param.type), String::utf8(param.name.c_str()), PROPERTY_USAGE_DEFAULT, class_of(param.type, param.class_name)));
+		args.push_back(property_dict(variant_type(param.type), String::utf8(param.name.c_str()), usage_of(param.type, PROPERTY_USAGE_DEFAULT), class_of(param.type, param.class_name)));
 	}
-	const Dictionary result = property_dict(variant_type(function.return_type), StringName(), PROPERTY_USAGE_DEFAULT, class_of(function.return_type, function.return_class));
+	const Dictionary result = property_dict(variant_type(function.return_type), StringName(), usage_of(function.return_type, PROPERTY_USAGE_DEFAULT), class_of(function.return_type, function.return_class));
 	return method_dict(p_image.function_names[p_index], args, result, METHOD_FLAGS_DEFAULT);
 }
 
@@ -72,7 +78,7 @@ Dictionary property_info(const bytecode::Member &p_member) {
 	if (p_member.is_export) {
 		usage |= PROPERTY_USAGE_DEFAULT;
 	}
-	return property_dict(variant_type(p_member.type), String::utf8(p_member.name.c_str()), usage, class_of(p_member.type, p_member.class_name));
+	return property_dict(variant_type(p_member.type), String::utf8(p_member.name.c_str()), usage_of(p_member.type, usage), class_of(p_member.type, p_member.class_name));
 }
 
 TypedArray<Dictionary> visible_properties(const ClassImage &p_image) {

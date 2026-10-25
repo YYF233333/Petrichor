@@ -180,6 +180,7 @@ public:
 		u32(p_slot.offset);
 		str(p_slot.class_name);
 		u8(p_slot.nullable ? 1 : 0);
+		type(p_slot.option);
 	}
 };
 
@@ -281,6 +282,7 @@ public:
 		value.offset = u32();
 		value.class_name = str();
 		value.nullable = u8() != 0;
+		value.option = type();
 		return value;
 	}
 };
@@ -305,6 +307,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.u32(member.offset);
 		w.str(member.class_name);
 		w.u8(member.nullable ? 1 : 0);
+		w.type(member.option);
 		w.u8(member.is_pub ? 1 : 0);
 		w.u8(member.is_export ? 1 : 0);
 		w.u8(member.has_initial ? 1 : 0);
@@ -427,6 +430,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		member.offset = r.u32();
 		member.class_name = r.str();
 		member.nullable = r.u8() != 0;
+		member.option = r.type();
 		member.is_pub = r.u8() != 0;
 		member.is_export = r.u8() != 0;
 		member.has_initial = r.u8() != 0;

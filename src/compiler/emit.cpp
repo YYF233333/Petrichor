@@ -130,6 +130,22 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 					put(instr.imm);
 					put(offset_of(instr.a));
 					break;
+				case Op::CAST_OBJECT:
+					put(instr.imm);
+					put(offset_of(instr.dst));
+					put(offset_of(instr.a));
+					break;
+				case Op::TO_VARIANT:
+					put(uint32_t(instr.type));
+					put(offset_of(instr.dst));
+					put(offset_of(instr.a));
+					break;
+				case Op::UNWRAP:
+					put(uint32_t(instr.type));
+					put(offset_of(instr.dst));
+					put(offset_of(instr.a));
+					put(offset_of(instr.b));
+					break;
 				default:
 					// dst, a and, for binary instructions, b.
 					put(offset_of(instr.dst));

@@ -29,6 +29,7 @@ enum class ExprKind {
 	Call,
 	Member, // `base.text`
 	GetNode, // `$Head/Camera` or `$"Head/Camera"`; the path in `text`.
+	Cast, // `left as cast_type` (spec §5.3).
 };
 
 // What a name, a member access or a call refers to, decided by the checker.
@@ -49,6 +50,7 @@ enum class Target {
 	Utility,
 	ConvertToInt,
 	ConvertToFloat,
+	Unwrap, // `unwrap()` or `expect(message)` of T? (spec §3.4).
 };
 
 struct Expr {
@@ -67,6 +69,7 @@ struct Expr {
 	std::unique_ptr<Expr> right;
 	std::unique_ptr<Expr> base;          // `self` in `self.f()`; null for `f()`.
 	std::vector<std::unique_ptr<Expr>> args;
+	TypeRef cast_type;
 
 	// Filled by the checker.
 	Type type;

@@ -66,3 +66,17 @@ pub func maybe(n: Node3D?) -> int:
 # A T parameter refuses None (spec §10.1).
 pub func takes_node(n: Node3D) -> int:
 	return 1
+
+# T? of a value type (spec §3.4).
+pub func unwrapped(x: int?) -> int:
+	return x.unwrap()
+
+pub func optional_name(present: bool) -> String?:
+	var name: String?
+	if present:
+		name = "petrichor"
+	return name
+
+# `as` (spec §5.3).
+pub func as_node3d(n: Node) -> Node3D?:
+	return n as Node3D

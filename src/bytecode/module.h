@@ -69,7 +69,7 @@ const char *value_type_name(ValueType p_type);
 // ValueType::Count when the name is not a value type.
 ValueType value_type_from_name(const std::string &p_name);
 
-// A constant of type Object is None.
+// A constant of type Object or Variant is None.
 struct Constant {
 	ValueType type = ValueType::Void;
 	bool b = false;
@@ -85,6 +85,8 @@ struct Slot {
 	uint32_t offset = 0;
 	std::string class_name; // Object: the class its values have.
 	bool nullable = false;  // Object: the value may be None.
+	// Variant: holds T? of a value type, None or a value of this type (spec §3.4).
+	ValueType option = ValueType::Void;
 };
 
 struct Member {
@@ -93,6 +95,7 @@ struct Member {
 	uint32_t offset = 0;
 	std::string class_name;
 	bool nullable = false;
+	ValueType option = ValueType::Void; // As in Slot.
 	bool is_pub = false;
 	bool is_export = false;
 	// A literal initial value; other initializers run in the module's init function.
@@ -209,7 +212,7 @@ struct Module {
 	std::vector<FieldAccess> fields;
 	std::vector<ConstructorCall> constructors;
 	std::vector<BuiltinMethodCall> builtin_methods;
-	std::vector<std::string> classes; // Engine classes constructed with new().
+	std::vector<std::string> classes; // Engine classes: constructed with new(), checked, or cast to.
 
 	int find_function(const std::string &p_name) const;
 	int find_member(const std::string &p_name) const;

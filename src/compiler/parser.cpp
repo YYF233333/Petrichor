@@ -98,7 +98,20 @@ class Parser {
 		return expr;
 	}
 
-	std::unique_ptr<Expr> expression() { return or_expr(); }
+	// `as` binds loosest, as in GDScript (gdscript_parser.h:1435).
+	std::unique_ptr<Expr> expression() {
+		auto expr = or_expr();
+		while (expr && check(TokenKind::As)) {
+			auto cast = make(ExprKind::Cast, advance());
+			cast->cast_type = type_ref();
+			if (failed) {
+				return nullptr;
+			}
+			cast->left = std::move(expr);
+			expr = std::move(cast);
+		}
+		return expr;
+	}
 
 	std::unique_ptr<Expr> or_expr() {
 		auto left = and_expr();

@@ -368,6 +368,30 @@ public:
 					pc += 3;
 					break;
 				}
+				case Op::CAST_OBJECT: {
+					// A freed object is None for every type (spec §5.3).
+					const uint8_t *src = frame + code[pc + 3];
+					const Object *object = is_live_object(src) ? variant_at(src).get_validated_object() : nullptr;
+					const bool fits = object && object->is_class(image.classes[code[pc + 1]]);
+					variant_at(frame + code[pc + 2]) = fits ? variant_at(src) : Variant();
+					pc += 4;
+					break;
+				}
+				case Op::TO_VARIANT:
+					variant_at(frame + code[pc + 2]) = to_variant(ValueType(code[pc + 1]), frame + code[pc + 3]);
+					pc += 4;
+					break;
+				case Op::UNWRAP: {
+					// A freed object reads as None in T? (spec §3.3).
+					const ValueType type = ValueType(code[pc + 1]);
+					const uint8_t *src = frame + code[pc + 3];
+					const bool present = type == ValueType::Object ? is_live_object(src) : !is_none(variant_at(src));
+					if (!present || !from_variant(type, variant_at(src), frame + code[pc + 2])) {
+						FAIL(code[pc + 4] == NO_SLOT ? String("unwrap() found None.") : STR(code[pc + 4]));
+					}
+					pc += 5;
+					break;
+				}
 				case Op::JUMP:
 					pc = code[pc + 1];
 					break;
@@ -501,7 +525,7 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 	for (size_t i = 0; i < fn.params.size(); i++) {
 		const bytecode::Slot &param = fn.params[i];
 		const StringName param_class = param.type == ValueType::Object ? StringName(String::utf8(param.class_name.c_str())) : StringName();
-		if (!from_variant(param.type, *p_args[i], frame.data + param.offset, param_class, param.nullable)) {
+		if (!from_variant(param.type, *p_args[i], frame.data + param.offset, param_class, param.nullable, param.option)) {
 			destroy_slots(frame.data, fn.slots);
 			// The caller reports this with its own call site, as for engine methods.
 			r_error.error = GDEXTENSION_CALL_ERROR_INVALID_ARGUMENT;

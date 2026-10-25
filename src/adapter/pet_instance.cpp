@@ -169,7 +169,7 @@ static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance,
 	}
 	// A value of the wrong type is rejected, as by the entry checks (spec §10.1).
 	const size_t index = size_t(member - image->module.members.data());
-	return from_variant(member->type, *reinterpret_cast<const Variant *>(p_value), instance->members + member->offset, image->member_classes[index], member->nullable);
+	return from_variant(member->type, *reinterpret_cast<const Variant *>(p_value), instance->members + member->offset, image->member_classes[index], member->nullable, member->option);
 }
 
 static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionVariantPtr r_ret) {

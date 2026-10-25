@@ -31,11 +31,22 @@ std::string Type::to_string() const {
 			return "Variant";
 		case TypeKind::Object:
 			return nullable ? name + "?" : name;
+		case TypeKind::Option:
+			return (args.empty() ? std::string("<error>") : args[0].to_string()) + "?";
 		case TypeKind::Unsupported:
 			return name;
 		default:
 			return builtin_name();
 	}
+}
+
+Type Type::unwrapped() const {
+	if (kind == TypeKind::Option) {
+		return args.empty() ? of(TypeKind::Error) : args[0];
+	}
+	Type result = *this;
+	result.nullable = false;
+	return result;
 }
 
 Type api_type(const std::string &p_name, bool p_object_nullable) {

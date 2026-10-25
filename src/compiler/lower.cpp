@@ -29,6 +29,7 @@ ValueType value_type(const Type &p_type) {
 		}
 		case TypeKind::Object:
 			return ValueType::Object;
+		case TypeKind::Option: // A Variant that is NIL for None (spec §3.4).
 		case TypeKind::Variant:
 			return ValueType::Variant;
 		default:
@@ -43,6 +44,9 @@ bytecode::Slot slot_of(const std::string &p_name, const Type &p_type) {
 	if (p_type.kind == TypeKind::Object) {
 		slot.class_name = p_type.name;
 		slot.nullable = p_type.nullable;
+	} else if (p_type.kind == TypeKind::Option) {
+		slot.nullable = true;
+		slot.option = value_type(p_type.args[0]);
 	}
 	return slot;
 }
@@ -345,6 +349,13 @@ class Lowerer {
 		}
 		const ValueType from = reg_type(p_reg);
 		const ValueType to = value_type(p_to);
+		if (p_to.kind == TypeKind::Option && from != ValueType::Variant) {
+			// T becomes Some(T) (spec §3.4).
+			const uint32_t inner = convert(p_reg, p_to.args[0]);
+			const uint32_t result = temp(p_to);
+			instr(Op::TO_VARIANT, result, inner, NO_REG, 0, reg_type(inner));
+			return result;
+		}
 		if (from == to || to == ValueType::Variant || to == ValueType::Void) {
 			return p_reg;
 		}
@@ -411,10 +422,10 @@ class Lowerer {
 				instr(Op::CONST_STRING, p_dst, NO_REG, NO_REG, add_constant(bytecode::Constant{ ValueType::String }));
 				break;
 			case ValueType::Object:
-				// None; a constant of type Object is always None.
-				instr(Op::CONST_VALUE, p_dst, NO_REG, NO_REG, add_constant(bytecode::Constant{ ValueType::Object }), ValueType::Object);
-				break;
 			case ValueType::Variant:
+				// None; a constant of type Object or Variant is always None.
+				instr(Op::CONST_VALUE, p_dst, NO_REG, NO_REG, add_constant(bytecode::Constant{ type }), type);
+				break;
 			case ValueType::Void:
 				break;
 			default: {
@@ -523,6 +534,13 @@ class Lowerer {
 			case Target::NewObject: {
 				const uint32_t result = temp(p_call.type);
 				instr(Op::NEW_OBJECT, result, NO_REG, NO_REG, class_index(p_call.owner));
+				return result;
+			}
+			case Target::Unwrap: {
+				const uint32_t value = lower_expr(*p_call.base);
+				const uint32_t message = p_call.args.empty() ? NO_REG : convert(lower_expr(*p_call.args[0]), Type::of(TypeKind::String));
+				const uint32_t result = temp(p_call.type);
+				instr(Op::UNWRAP, result, value, message, 0, reg_type(result));
 				return result;
 			}
 			default:
@@ -654,6 +672,15 @@ class Lowerer {
 				return call(p_expr);
 			case ExprKind::GetNode:
 				return get_node(p_expr);
+			case ExprKind::Cast: {
+				const uint32_t value = lower_expr(*p_expr.left);
+				if (!p_expr.type.nullable) {
+					return value; // Already a T.
+				}
+				const uint32_t result = temp(p_expr.type);
+				instr(Op::CAST_OBJECT, result, value, NO_REG, class_index(p_expr.owner));
+				return result;
+			}
 			case ExprKind::Self:
 				break;
 		}
@@ -966,6 +993,7 @@ public:
 			member.type = slot.type;
 			member.class_name = slot.class_name;
 			member.nullable = slot.nullable;
+			member.option = slot.option;
 			member.offset = offset;
 			offset += bytecode::slot_size(member.type);
 			member.is_pub = decl_member.is_pub;

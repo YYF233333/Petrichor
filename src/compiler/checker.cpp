@@ -28,6 +28,10 @@ bool is_assignable(const Type &p_from, const Type &p_to, const EngineApi &p_engi
 	if (p_from.kind == TypeKind::Object && p_to.kind == TypeKind::Object) {
 		return (p_to.nullable || !p_from.nullable) && p_engine.inherits(p_from.name, p_to.name);
 	}
+	if (p_to.kind == TypeKind::Option) {
+		// A T is wrapped implicitly; the T inside does not convert (spec §3.4).
+		return p_from.kind == TypeKind::Option ? p_from.args == p_to.args : is_assignable(p_from, p_to.args[0], p_engine);
+	}
 	return p_to.kind == TypeKind::Variant && p_from.is_storable();
 }
 
@@ -144,11 +148,15 @@ class Checker {
 	Type resolve(const TypeRef &p_ref, bool p_allow_void) {
 		Type type = resolve_name(p_ref, p_allow_void);
 		if (p_ref.nullable && !type.is_error()) {
-			if (type.kind != TypeKind::Object) {
-				error(p_ref.line, p_ref.column, "Optional values of type " + type.to_string() + " are not supported yet.");
+			if (type.kind == TypeKind::Void) {
+				error(p_ref.line, p_ref.column, "void cannot be optional.");
 				return Type::of(TypeKind::Error);
 			}
-			type.nullable = true;
+			if (type.kind == TypeKind::Object) {
+				type.nullable = true;
+			} else {
+				type = Type::option(type);
+			}
 		}
 		return type;
 	}
@@ -255,6 +263,9 @@ class Checker {
 		if (base_type.is_error()) {
 			return set(r_expr, base_type);
 		}
+		if (base_type.is_optional()) {
+			return fail(r_expr, "The value may be None (" + base_type.to_string() + "); check it before reading \"" + r_expr.text + "\".");
+		}
 		const std::string builtin_name = base_type.builtin_name();
 		if (!builtin_name.empty()) {
 			const builtin::Class *type = builtin::find_class(builtin_name);
@@ -267,9 +278,6 @@ class Checker {
 			return set(r_expr, api_type(member->type, false));
 		}
 		if (base_type.kind == TypeKind::Object) {
-			if (base_type.nullable) {
-				return fail(r_expr, "The value may be None (" + base_type.to_string() + "); check it before reading \"" + r_expr.text + "\".");
-			}
 			const auto property = engine.find_property(base_type.name, r_expr.text);
 			if (!property) {
 				return fail(r_expr, base_type.name + " has no property \"" + r_expr.text + "\".");
@@ -364,6 +372,11 @@ class Checker {
 	// The result of `p_left op p_right` (spec §5.1), or Error after reporting.
 	Type binary_type(TokenKind p_op, const Type &p_left, const Type &p_right, int p_line, int p_column) {
 		if (p_left.is_error() || p_right.is_error()) {
+			return Type::of(TypeKind::Error);
+		}
+		if (p_left.kind == TypeKind::Option || p_right.kind == TypeKind::Option) {
+			const Type &optional = p_left.kind == TypeKind::Option ? p_left : p_right;
+			error(p_line, p_column, "The value may be None (" + optional.to_string() + "); unwrap it first.");
 			return Type::of(TypeKind::Error);
 		}
 		if (p_op == TokenKind::And || p_op == TokenKind::Or) {
@@ -685,6 +698,50 @@ class Checker {
 		return set(r_expr, result);
 	}
 
+	// The methods of T? (spec §3.4).
+	Type check_option_method(Expr &r_expr, const Type &p_base) {
+		const std::string &name = r_expr.text;
+		if (name == "unwrap" || name == "expect") {
+			std::vector<Type> params;
+			if (name == "expect") {
+				params.push_back(Type::of(TypeKind::String));
+			}
+			check_arguments(r_expr, params, int(params.size()), false);
+			r_expr.target = Target::Unwrap;
+			return set(r_expr, p_base.unwrapped());
+		}
+		static const std::unordered_set<std::string> later = { "unwrap_or", "unwrap_or_else", "map", "and_then", "or_else", "filter", "ok_or", "ok_or_else", "flatten" };
+		for (auto &arg : r_expr.args) {
+			check_value(*arg);
+		}
+		if (later.count(name)) {
+			return fail(r_expr, name + "() of " + p_base.to_string() + " is not supported yet.");
+		}
+		return fail(r_expr, "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
+	}
+
+	// `x as T` (spec §5.3).
+	Type check_cast(Expr &r_expr) {
+		const Type from = check_value(*r_expr.left);
+		const Type to = resolve(r_expr.cast_type, false);
+		if (from.is_error() || to.is_error()) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		if (to.kind != TypeKind::Object) {
+			const std::string name = to.unwrapped().to_string();
+			return fail(r_expr, "as only converts objects; convert to " + name + " with " + name + "(x) or " + name + ".try_from(x).");
+		}
+		if (from.kind != TypeKind::Object) {
+			return fail(r_expr, "as only converts objects, not " + from.to_string() + ".");
+		}
+		if (!engine.inherits(from.name, to.name) && !engine.inherits(to.name, from.name)) {
+			return fail(r_expr, "A " + from.name + " is never a " + to.name + ".");
+		}
+		r_expr.owner = to.name;
+		// Already a T: nothing to convert.
+		return set(r_expr, Type::object(to.name, from.nullable || !engine.inherits(from.name, to.name)));
+	}
+
 	Type check_call(Expr &r_expr) {
 		const std::string &name = r_expr.text;
 
@@ -712,13 +769,13 @@ class Checker {
 				}
 				return set(r_expr, base_type);
 			}
+			if (base_type.is_optional()) {
+				return check_option_method(r_expr, base_type);
+			}
 			if (!base_type.builtin_name().empty()) {
 				return check_builtin_method(r_expr, base_type);
 			}
 			if (base_type.kind == TypeKind::Object) {
-				if (base_type.nullable) {
-					return fail(r_expr, "The value may be None (" + base_type.to_string() + "); check it before calling \"" + name + "()\".");
-				}
 				if (const auto method = engine.find_method(base_type.name, name)) {
 					return check_engine_call(r_expr, *method);
 				}
@@ -806,6 +863,8 @@ class Checker {
 				return check_member(r_expr);
 			case ExprKind::GetNode:
 				return check_get_node(r_expr);
+			case ExprKind::Cast:
+				return check_cast(r_expr);
 		}
 		return set(r_expr, Type::of(TypeKind::Error));
 	}

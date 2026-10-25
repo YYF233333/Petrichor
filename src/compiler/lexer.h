@@ -21,6 +21,7 @@ enum class TokenKind {
 
 	// Keywords.
 	And,
+	As,
 	Break,
 	ClassName,
 	Continue,

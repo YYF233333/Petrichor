@@ -28,6 +28,8 @@ const char *token_name(TokenKind p_kind) {
 			return "string";
 		case TokenKind::And:
 			return "\"and\"";
+		case TokenKind::As:
+			return "\"as\"";
 		case TokenKind::Break:
 			return "\"break\"";
 		case TokenKind::ClassName:
@@ -129,6 +131,7 @@ namespace {
 const std::unordered_map<std::string, TokenKind> &keywords() {
 	static const std::unordered_map<std::string, TokenKind> table = {
 		{ "and", TokenKind::And },
+		{ "as", TokenKind::As },
 		{ "break", TokenKind::Break },
 		{ "class_name", TokenKind::ClassName },
 		{ "continue", TokenKind::Continue },
