@@ -58,6 +58,7 @@ enum class Target {
 	ConvertToFloat,
 	Unwrap, // `unwrap()` or `expect(message)` of T? (spec §3.4).
 	Singleton, // An engine singleton, such as Input, by its class name.
+	Autoload, // An autoload by its global name (spec §7.3).
 	MethodValue, // A function of this class used as a value (spec §3.11).
 	SelfSignal, // A signal of the engine class this class extends, as a value.
 	ObjectSignal, // A signal of an engine object.
@@ -98,6 +99,7 @@ struct Expr {
 	Type engine_return;                // Variant where the engine returns a Variant.
 	std::vector<Type> engine_params;   // Built-in methods: the engine's parameter types.
 	std::string owner;                 // The type a field, constant, method or constructor belongs to.
+	Type tested;                       // TypeTest and Cast: the class after is or as.
 };
 
 enum class StmtKind {
@@ -214,11 +216,23 @@ struct SignalDecl {
 	std::vector<ParamDecl> params;
 };
 
+// `interface Name:` and its methods' signatures (spec §3.9).
+struct InterfaceDecl {
+	std::string name;
+	int line = 0;
+	int column = 0;
+	bool is_pub = false;
+	std::vector<FuncDecl> methods; // Without bodies.
+};
+
 struct ClassDecl {
 	std::string class_name;
 	std::string extends = "RefCounted";
 	int extends_line = 1;
 	int extends_column = 1;
+	std::vector<TypeRef> implements;
+	std::vector<InterfaceDecl> interfaces;
+	std::vector<Type> implemented; // Filled by the checker.
 	std::vector<VarDecl> members;
 	std::vector<FuncDecl> functions;
 	std::vector<SignalDecl> signals;

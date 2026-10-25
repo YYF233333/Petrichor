@@ -27,6 +27,20 @@ void set_instance_resolver(InstanceResolver p_resolver) {
 	resolver = p_resolver;
 }
 
+bool implements_interface(Object *p_object, const String &p_interface) {
+	ScriptedObject instance;
+	if (!resolver || !resolver(p_object, instance)) {
+		return false;
+	}
+	const CharString id = p_interface.utf8();
+	for (const std::string &implemented : instance.image->module.interfaces) {
+		if (implemented == id.get_data()) {
+			return true;
+		}
+	}
+	return false;
+}
+
 MethodCallable::MethodCallable(Object *p_owner, const StringName &p_method) :
 		owner(p_owner->get_instance_id()), method(p_method) {}
 

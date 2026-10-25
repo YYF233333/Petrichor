@@ -6,6 +6,9 @@
 
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/resource_loader.hpp>
+#include <godot_cpp/classes/scene_tree.hpp>
+#include <godot_cpp/classes/window.hpp>
 #include <godot_cpp/core/error_macros.hpp>
 #include <godot_cpp/godot.hpp>
 
@@ -366,6 +369,19 @@ public:
 					pc += 3;
 					break;
 				}
+				case Op::GET_AUTOLOAD: {
+					// An autoload is a child of the root by its name (spec §7.3).
+					const StringName name = image.values[code[pc + 1]];
+					SceneTree *tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop());
+					Window *root = tree ? tree->get_root() : nullptr;
+					Node *node = root ? root->get_node_or_null(NodePath(String(name))) : nullptr;
+					if (!node) {
+						FAIL(vformat("The autoload %s is not in the scene tree.", name));
+					}
+					variant_at(frame + code[pc + 2]) = Variant(node);
+					pc += 3;
+					break;
+				}
 				case Op::METHOD_VALUE:
 					*reinterpret_cast<Callable *>(frame + code[pc + 2]) = Callable(memnew(MethodCallable(context.owner, image.function_names[code[pc + 1]])));
 					pc += 3;
@@ -391,7 +407,7 @@ public:
 						FAIL(vformat("Expected %s, found None.", expected));
 					}
 					const Object *object = value.get_validated_object();
-					if (object && !object->is_class(expected)) {
+					if (object && !image.fits_class(object, code[pc + 1])) {
 						FAIL(vformat("Expected %s, found %s.", expected, object->get_class()));
 					}
 					pc += 3;
@@ -401,7 +417,7 @@ public:
 					// A freed object is None for every type (spec §5.3).
 					const uint8_t *src = frame + code[pc + 3];
 					const Object *object = is_live_object(src) ? variant_at(src).get_validated_object() : nullptr;
-					const bool fits = object && object->is_class(image.classes[code[pc + 1]]);
+					const bool fits = object && image.fits_class(object, code[pc + 1]);
 					variant_at(frame + code[pc + 2]) = fits ? variant_at(src) : Variant();
 					pc += 4;
 					break;
@@ -410,7 +426,13 @@ public:
 					Array array;
 					const ValueType element = ValueType(code[pc + 1]);
 					if (element != ValueType::Void) {
-						array.set_typed(uint32_t(variant_type(element)), code[pc + 2] == NO_SLOT ? StringName() : image.classes[code[pc + 2]], Variant());
+						// An array of a class of this language is typed with its script too.
+						const uint32_t cls = code[pc + 2];
+						Variant script;
+						if (cls != NO_SLOT && !image.class_scripts[cls].is_empty()) {
+							script = ResourceLoader::get_singleton()->call("load", image.class_scripts[cls]);
+						}
+						array.set_typed(uint32_t(variant_type(element)), cls == NO_SLOT ? StringName() : image.classes[cls], script);
 					}
 					*reinterpret_cast<Array *>(frame + code[pc + 3]) = array;
 					pc += 4;
@@ -437,7 +459,7 @@ public:
 					// A freed object is no class's instance (spec §3.3).
 					const uint8_t *src = frame + code[pc + 3];
 					const Object *object = is_live_object(src) ? variant_at(src).get_validated_object() : nullptr;
-					U64(code[pc + 2]) = object && object->is_class(image.classes[code[pc + 1]]) ? 1 : 0;
+					U64(code[pc + 2]) = object && image.fits_class(object, code[pc + 1]) ? 1 : 0;
 					pc += 4;
 					break;
 				}

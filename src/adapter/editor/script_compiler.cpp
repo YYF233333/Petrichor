@@ -18,7 +18,8 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 	compiler::CompileOptions options;
 	options.path = to_utf8(p_path);
 	options.declarations_only = p_mode == CompileMode::Declarations;
-	options.project = options.declarations_only ? nullptr : &SceneIndex::get();
+	// While loading, the compiler asks for no scenes, only classes and sources.
+	options.project = &SceneIndex::get();
 	compiler::CompileResult result = compiler::compile(to_utf8(p_source), ClassDBApi::get(), options);
 	if (p_report) {
 		const CharString file = p_path.utf8();

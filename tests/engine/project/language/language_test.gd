@@ -136,6 +136,17 @@ func _ready() -> void:
 	motion.relative = Vector2(3, 0)
 	_check(v.relative_x(motion) == 3.0 and v.relative_x(InputEventKey.new()) == 0.0, "is narrows, also on the right of and")
 	_check(v.doubled(4) == 8 and v.doubled(null) == -1, "an int? narrowed to int")
+	var target := TargetCheck.new()
+	var plain_node := Node.new()
+	_check(v.hit(target, 2.5) and v.hit(target, 1) and not v.hit(plain_node, 1) and v.taken_by(target) == 3.5, "is with an interface of another script, and its method")
+	var listed_targets: Array = v.targets(target)
+	_check(listed_targets.get_typed_script() == TargetCheck and v.as_target(target) == target and v.as_target(plain_node) == null, "an array typed with a class of this language, and as to one")
+	Engine.print_error_messages = false
+	var refused_target = v.callv("taken_by", [plain_node])
+	Engine.print_error_messages = true
+	_check(refused_target == null, "a parameter of a class of this language refuses another object of its engine class")
+	target.free()
+	plain_node.free()
 	var timer: Timer = v.start_timer()
 	timer.timeout.emit()
 	_check(v.timeouts == 1 and v.last_timer == timer, "a private method connected through a method value, with a bound argument")

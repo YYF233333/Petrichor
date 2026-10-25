@@ -179,6 +179,7 @@ public:
 		type(p_slot.type);
 		u32(p_slot.offset);
 		str(p_slot.class_name);
+		str(p_slot.script);
 		u8(p_slot.nullable ? 1 : 0);
 		type(p_slot.option);
 		type(p_slot.element);
@@ -282,6 +283,7 @@ public:
 		value.type = type();
 		value.offset = u32();
 		value.class_name = str();
+		value.script = str();
 		value.nullable = u8() != 0;
 		value.option = type();
 		value.element = type();
@@ -308,6 +310,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.type(member.type);
 		w.u32(member.offset);
 		w.str(member.class_name);
+		w.str(member.script);
 		w.u8(member.nullable ? 1 : 0);
 		w.type(member.option);
 		w.type(member.element);
@@ -426,8 +429,14 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.type(call.result_type);
 	}
 	w.u32(uint32_t(p_module.classes.size()));
-	for (const std::string &name : p_module.classes) {
-		w.str(name);
+	for (const ClassRef &ref : p_module.classes) {
+		w.str(ref.name);
+		w.str(ref.script);
+		w.str(ref.interface_name);
+	}
+	w.u32(uint32_t(p_module.interfaces.size()));
+	for (const std::string &id : p_module.interfaces) {
+		w.str(id);
 	}
 	return w.data;
 }
@@ -458,6 +467,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		member.type = r.type();
 		member.offset = r.u32();
 		member.class_name = r.str();
+		member.script = r.str();
 		member.nullable = r.u8() != 0;
 		member.option = r.type();
 		member.element = r.type();
@@ -579,8 +589,14 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		call.result_type = r.type();
 	}
 	module.classes.resize(r.count());
-	for (std::string &name : module.classes) {
-		name = r.str();
+	for (ClassRef &ref : module.classes) {
+		ref.name = r.str();
+		ref.script = r.str();
+		ref.interface_name = r.str();
+	}
+	module.interfaces.resize(r.count());
+	for (std::string &id : module.interfaces) {
+		id = r.str();
 	}
 
 	if (r.failed) {

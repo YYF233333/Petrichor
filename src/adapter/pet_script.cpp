@@ -14,6 +14,7 @@
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/error_macros.hpp>
 
@@ -108,7 +109,14 @@ Dictionary property_info(const bytecode::Member &p_member) {
 		usage |= PROPERTY_USAGE_DEFAULT;
 	}
 	Dictionary dict = property_dict(variant_type(p_member.type), String::utf8(p_member.name.c_str()), usage_of(p_member.type, usage), class_of(p_member.type, p_member.class_name));
-	const String class_name = String::utf8(p_member.class_name.c_str());
+	// The inspector picks a class of this language by its global name.
+	String class_name = String::utf8(p_member.class_name.c_str());
+	if (!p_member.script.empty()) {
+		const Ref<Script> script = ResourceLoader::get_singleton()->load(String::utf8(p_member.script.c_str()));
+		if (script.is_valid() && !script->get_global_name().is_empty()) {
+			class_name = script->get_global_name();
+		}
+	}
 	if (p_member.hint != 0) {
 		dict["hint"] = p_member.hint;
 		dict["hint_string"] = String::utf8(p_member.hint_string.c_str());

@@ -2,6 +2,7 @@
 
 #include "compiler/builtin_api.h"
 #include "compiler/parser.h"
+#include "compiler/script_classes.h"
 
 #include <iomanip>
 #include <locale>
@@ -15,7 +16,7 @@ static bool is_string_like(const Type &p_type) {
 	return p_type.kind == TypeKind::String || (p_type.kind == TypeKind::Builtin && (p_type.name == "StringName" || p_type.name == "NodePath"));
 }
 
-bool is_assignable(const Type &p_from, const Type &p_to, const EngineApi &p_engine) {
+bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_classes) {
 	if (p_from.is_error() || p_to.is_error()) {
 		return true;
 	}
@@ -36,15 +37,15 @@ bool is_assignable(const Type &p_from, const Type &p_to, const EngineApi &p_engi
 		if (!p_to.args.empty()) {
 			// PackedScene[T] is covariant in T, and a scene of unknown root is
 			// not one (spec §7.4).
-			if (p_from.args.empty() || !p_engine.inherits(p_from.args[0].name, p_to.args[0].name)) {
+			if (p_from.args.empty() || !p_classes.is_a(p_from.args[0], p_to.args[0])) {
 				return false;
 			}
 		}
-		return (p_to.nullable || !p_from.nullable) && p_engine.inherits(p_from.name, p_to.name);
+		return (p_to.nullable || !p_from.nullable) && p_classes.is_a(p_from, p_to);
 	}
 	if (p_to.kind == TypeKind::Option) {
 		// A T is wrapped implicitly; the T inside does not convert (spec §3.4).
-		return p_from.kind == TypeKind::Option ? p_from.args == p_to.args : is_assignable(p_from, p_to.args[0], p_engine);
+		return p_from.kind == TypeKind::Option ? p_from.args == p_to.args : is_assignable(p_from, p_to.args[0], p_classes);
 	}
 	if (p_from.kind == TypeKind::Function && p_to.kind == TypeKind::Function) {
 		// Parameters contravariant, the result covariant (spec §3.11).
@@ -52,11 +53,11 @@ bool is_assignable(const Type &p_from, const Type &p_to, const EngineApi &p_engi
 			return false;
 		}
 		for (size_t i = 1; i < p_to.args.size(); i++) {
-			if (!is_assignable(p_to.args[i], p_from.args[i], p_engine)) {
+			if (!is_assignable(p_to.args[i], p_from.args[i], p_classes)) {
 				return false;
 			}
 		}
-		return p_to.args[0].kind == TypeKind::Void ? p_from.args[0].kind == TypeKind::Void : is_assignable(p_from.args[0], p_to.args[0], p_engine);
+		return p_to.args[0].kind == TypeKind::Void ? p_from.args[0].kind == TypeKind::Void : is_assignable(p_from.args[0], p_to.args[0], p_classes);
 	}
 	// The engine takes them as its Callable and Signal.
 	if ((p_from.kind == TypeKind::Function || p_from.kind == TypeKind::Signal) && p_to.kind == TypeKind::Builtin && p_to.name == p_from.builtin_name()) {
@@ -194,11 +195,12 @@ bool is_literal(const Expr &p_expr) {
 	}
 }
 
-class Checker {
+class Checker : public ClassRelation {
 	ClassDecl &cls;
 	const EngineApi &engine;
 	const CompileOptions &options;
 	std::vector<Diagnostic> &errors;
+	ScriptClasses &classes; // The project's other scripts of this language.
 	std::vector<Scene> scenes; // The scenes that use this script.
 
 	FuncDecl *function = nullptr;
@@ -220,8 +222,111 @@ class Checker {
 		errors.push_back({ p_line, p_column, p_message });
 	}
 
+	/* Classes of this language (spec §11.1) */
+
+	// The declarations of a class of this language: this class itself, or
+	// another script's, checked without bodies.
+	const ClassDecl *script_decl(const std::string &p_path) const {
+		if (p_path == options.path) {
+			return &cls;
+		}
+		const ScriptClass *script = classes.declarations(p_path);
+		return script ? &script->decl : nullptr;
+	}
+
+	// The class name used in messages and types: class_name, or the file's name.
+	std::string display_name(const ClassDecl &p_decl, const std::string &p_path) const {
+		if (!p_decl.class_name.empty()) {
+			return p_decl.class_name;
+		}
+		const size_t slash = p_path.find_last_of('/');
+		return p_path.substr(slash == std::string::npos ? 0 : slash + 1);
+	}
+
+	bool implements(const Type &p_class, const Type &p_interface) const {
+		if (p_class.script.empty() || p_class.is_interface) {
+			return false; // Only this language's classes implement interfaces (spec §3.9).
+		}
+		const ClassDecl *decl = script_decl(p_class.script);
+		if (!decl) {
+			return false;
+		}
+		for (const Type &implemented : decl->implemented) {
+			if (implemented.script == p_interface.script && implemented.name == p_interface.name) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool is_a(const Type &p_from, const Type &p_to) const override {
+		if (p_to.is_interface) {
+			return p_from.is_interface ? p_from.script == p_to.script && p_from.name == p_to.name : implements(p_from, p_to);
+		}
+		if (p_from.is_interface) {
+			return p_to.script.empty() && p_to.name == "Object";
+		}
+		if (!p_to.script.empty()) {
+			return p_from.script == p_to.script; // Classes of this language extend engine classes only, so far.
+		}
+		return engine.inherits(p_from.engine_class(), p_to.name);
+	}
+
+	// Whether an object can be both: `is` and `as` between them are not always false.
+	bool related(const Type &p_a, const Type &p_b) const {
+		return is_a(p_a, p_b) || is_a(p_b, p_a) || p_a.is_interface || p_b.is_interface;
+	}
+
+	// A class of this language named by its class_name, or an interface in
+	// one, such as Combat.Damageable; nullopt if the name is not one.
+	std::optional<Type> script_type(const TypeRef &p_ref) {
+		const size_t dot = p_ref.name.find('.');
+		const std::string head = p_ref.name.substr(0, dot);
+		std::string path;
+		if (!cls.class_name.empty() && head == cls.class_name) {
+			path = options.path;
+		} else if (options.project) {
+			path = options.project->global_class_path(head);
+		}
+		if (path.empty()) {
+			// An interface of this class, by its own name.
+			if (dot == std::string::npos) {
+				for (const InterfaceDecl &interface : cls.interfaces) {
+					if (interface.name == p_ref.name) {
+						return Type::interface(display_name(cls, options.path) + "." + interface.name, options.path);
+					}
+				}
+			}
+			return std::nullopt;
+		}
+		if (path.size() < 4 || path.compare(path.size() - 4, 4, ".pet") != 0) {
+			error(p_ref.line, p_ref.column, head + " is a class of another language, which is not supported as a type yet (spec §11.1).");
+			return Type::of(TypeKind::Error);
+		}
+		const ClassDecl *header = path == options.path ? &cls : nullptr;
+		if (!header) {
+			const ScriptClass *script = classes.header(path);
+			header = script ? &script->decl : nullptr;
+		}
+		if (!header) {
+			error(p_ref.line, p_ref.column, head + " (" + path + ") cannot be read.");
+			return Type::of(TypeKind::Error);
+		}
+		if (dot == std::string::npos) {
+			return Type::script_class(head, path, header->extends);
+		}
+		const std::string inner = p_ref.name.substr(dot + 1);
+		for (const InterfaceDecl &interface : header->interfaces) {
+			if (interface.name == inner) {
+				return Type::interface(p_ref.name, path);
+			}
+		}
+		error(p_ref.line, p_ref.column, head + " declares no interface \"" + inner + "\".");
+		return Type::of(TypeKind::Error);
+	}
+
 	bool assignable(const Type &p_from, const Type &p_to) const {
-		return is_assignable(p_from, p_to, engine);
+		return is_assignable(p_from, p_to, *this);
 	}
 
 	bool is_type_name(const std::string &p_name) const {
@@ -265,6 +370,9 @@ class Checker {
 		if (engine.class_exists(p_ref.name)) {
 			return Type::object(p_ref.name);
 		}
+		if (const std::optional<Type> script = script_type(p_ref)) {
+			return *script;
+		}
 		error(p_ref.line, p_ref.column, "Unknown type \"" + p_ref.name + "\".");
 		return Type::of(TypeKind::Error);
 	}
@@ -281,7 +389,7 @@ class Checker {
 			if (root.is_error()) {
 				return root;
 			}
-			if (root.kind != TypeKind::Object || root.nullable || !engine.inherits(root.name, "Node")) {
+			if (root.kind != TypeKind::Object || root.nullable || !is_a(root, Type::object("Node"))) {
 				error(p_ref.args[0].line, p_ref.args[0].column, "The root of a scene is a node, not " + root.to_string() + ".");
 				return Type::of(TypeKind::Error);
 			}
@@ -433,10 +541,113 @@ class Checker {
 			r_expr.target = Target::Singleton;
 			return set(r_expr, Type::object(r_expr.text));
 		}
+		const std::string autoload = options.project ? options.project->autoload_path(r_expr.text) : std::string();
+		if (!autoload.empty()) {
+			// Its type is its script's class (spec §7.3).
+			if (autoload.size() < 4 || autoload.compare(autoload.size() - 4, 4, ".pet") != 0) {
+				return fail(r_expr, "The autoload " + r_expr.text + " is a script of another language, which is not supported as a type yet (spec §11.1).");
+			}
+			const ScriptClass *script = autoload == options.path ? nullptr : classes.header(autoload);
+			const ClassDecl *header = autoload == options.path ? &cls : (script ? &script->decl : nullptr);
+			if (!header) {
+				return fail(r_expr, "The autoload " + r_expr.text + " (" + autoload + ") cannot be read.");
+			}
+			r_expr.target = Target::Autoload;
+			return set(r_expr, Type::script_class(display_name(*header, autoload), autoload, header->extends));
+		}
 		if (is_type_name(r_expr.text)) {
 			return fail(r_expr, "\"" + r_expr.text + "\" is a type, not a value.");
 		}
 		return fail(r_expr, "Identifier \"" + r_expr.text + "\" is not declared in the current scope.");
+	}
+
+	// A member or signal of an object of a class of this language, which other
+	// code reaches by name, so only when it is pub (spec §10.5); nullopt when
+	// the class has no such member, so that the engine class's are looked at.
+	std::optional<Type> script_member(Expr &r_expr, const Type &p_class) {
+		const ClassDecl *decl = script_decl(p_class.script);
+		if (!decl) {
+			return fail(r_expr, p_class.script + " has errors.");
+		}
+		if (p_class.is_interface) {
+			return std::nullopt; // Interfaces declare methods only, so far.
+		}
+		for (const VarDecl &member : decl->members) {
+			if (member.name != r_expr.text) {
+				continue;
+			}
+			if (!member.is_pub) {
+				return fail(r_expr, "\"" + member.name + "\" of " + p_class.name + " is not pub.");
+			}
+			r_expr.target = Target::ObjectProperty;
+			r_expr.owner = p_class.engine_class();
+			return member.type;
+		}
+		for (const SignalDecl &signal : decl->signals) {
+			if (signal.name == r_expr.text) {
+				std::vector<Type> params;
+				for (const ParamDecl &param : signal.params) {
+					params.push_back(param.type);
+				}
+				r_expr.target = Target::ObjectSignal;
+				return Type::signal(params);
+			}
+		}
+		return std::nullopt;
+	}
+
+	// The methods an interface declares (spec §3.9).
+	const InterfaceDecl *interface_decl(const Type &p_interface) const {
+		const ClassDecl *decl = script_decl(p_interface.script);
+		if (!decl) {
+			return nullptr;
+		}
+		const std::string name = p_interface.name.substr(p_interface.name.find_last_of('.') + 1);
+		for (const InterfaceDecl &interface : decl->interfaces) {
+			if (interface.name == name) {
+				return &interface;
+			}
+		}
+		return nullptr;
+	}
+
+	// A pub method of an object of a class of this language, or a method of an
+	// interface: called by name, as the engine calls it (spec §10.5).
+	std::optional<Type> script_method(Expr &r_expr, const Type &p_class) {
+		const FuncDecl *callee = nullptr;
+		if (p_class.is_interface) {
+			if (const InterfaceDecl *interface = interface_decl(p_class)) {
+				for (const FuncDecl &method : interface->methods) {
+					if (method.name == r_expr.text) {
+						callee = &method;
+					}
+				}
+			}
+		} else if (const ClassDecl *decl = script_decl(p_class.script)) {
+			for (const FuncDecl &function : decl->functions) {
+				if (function.name == r_expr.text) {
+					callee = &function;
+				}
+			}
+		} else {
+			return fail(r_expr, p_class.script + " has errors.");
+		}
+		if (!callee) {
+			return std::nullopt;
+		}
+		if (!callee->is_pub && !callee->is_override) {
+			for (auto &arg : r_expr.args) {
+				check_value(*arg);
+			}
+			return fail(r_expr, "\"" + callee->name + "()\" of " + p_class.name + " is not pub.");
+		}
+		std::vector<Type> params;
+		for (const ParamDecl &param : callee->params) {
+			params.push_back(param.type);
+		}
+		check_arguments(r_expr, params, required_params(*callee), false);
+		r_expr.target = Target::EngineMethod;
+		return set(r_expr, callee->return_type);
 	}
 
 	// An integer constant of an engine class, such as an enum value, which is
@@ -485,14 +696,21 @@ class Checker {
 			return set(r_expr, api_type(member->type, false));
 		}
 		if (base_type.kind == TypeKind::Object) {
-			const auto property = engine.find_property(base_type.name, r_expr.text);
+			if (!base_type.script.empty()) {
+				const std::optional<Type> member = script_member(r_expr, base_type);
+				if (member) {
+					return set(r_expr, *member);
+				}
+			}
+			const std::string &engine_class = base_type.engine_class();
+			const auto property = engine.find_property(engine_class, r_expr.text);
 			if (!property) {
-				if (const auto signal = engine.find_signal(base_type.name, r_expr.text)) {
+				if (const auto signal = engine.find_signal(engine_class, r_expr.text)) {
 					r_expr.target = Target::ObjectSignal;
 					return set(r_expr, signal_type(*signal));
 				}
-				if (base.target == Target::Singleton && engine.find_constant(base_type.name, r_expr.text)) {
-					return check_engine_constant(r_expr, base_type.name); // Such as Input.MOUSE_MODE_CAPTURED.
+				if (base.target == Target::Singleton && engine.find_constant(engine_class, r_expr.text)) {
+					return check_engine_constant(r_expr, engine_class); // Such as Input.MOUSE_MODE_CAPTURED.
 				}
 				return fail(r_expr, base_type.name + " has no property \"" + r_expr.text + "\".");
 			}
@@ -500,7 +718,7 @@ class Checker {
 				return fail(r_expr, "The property \"" + r_expr.text + "\" has type " + property->type.to_string() + ", which is not supported yet.");
 			}
 			r_expr.target = Target::ObjectProperty;
-			r_expr.owner = base_type.name;
+			r_expr.owner = engine_class;
 			return set(r_expr, property_type(*property));
 		}
 		return fail(r_expr, "Values of type " + base_type.to_string() + " have no members.");
@@ -718,10 +936,10 @@ class Checker {
 		if (value.kind != TypeKind::Object) {
 			return fail(r_expr, "is tests objects, not " + value.to_string() + ".");
 		}
-		if (!engine.inherits(value.name, tested.name) && !engine.inherits(tested.name, value.name)) {
+		if (!related(value, tested)) {
 			return fail(r_expr, value.name + " and " + tested.name + " are unrelated classes; is would always be false.");
 		}
-		r_expr.owner = tested.name;
+		r_expr.tested = tested;
 		return set(r_expr, Type::of(TypeKind::Bool));
 	}
 
@@ -774,7 +992,7 @@ class Checker {
 			case ExprKind::TypeTest: {
 				const int local = tested_local(*p_condition.left);
 				if (local >= 0) {
-					(p_condition.bool_value ? facts.when_false : facts.when_true)[local] = Type::object(p_condition.owner);
+					(p_condition.bool_value ? facts.when_false : facts.when_true)[local] = p_condition.tested;
 				}
 				break;
 			}
@@ -1294,12 +1512,14 @@ class Checker {
 		if (from.kind != TypeKind::Object) {
 			return fail(r_expr, "as only converts objects, not " + from.to_string() + ".");
 		}
-		if (!engine.inherits(from.name, to.name) && !engine.inherits(to.name, from.name)) {
+		if (!related(from, to)) {
 			return fail(r_expr, from.name + " and " + to.name + " are unrelated classes; as would always give None.");
 		}
-		r_expr.owner = to.name;
+		r_expr.tested = to;
 		// Already a T: nothing to convert.
-		return set(r_expr, Type::object(to.name, from.nullable || !engine.inherits(from.name, to.name)));
+		Type result = to;
+		result.nullable = from.nullable || !is_a(from, to);
+		return set(r_expr, result);
 	}
 
 	Type check_call(Expr &r_expr) {
@@ -1352,7 +1572,13 @@ class Checker {
 				return check_builtin_method(r_expr, base_type);
 			}
 			if (base_type.kind == TypeKind::Object) {
-				if (const auto method = engine.find_method(base_type.name, name)) {
+				if (!base_type.script.empty()) {
+					const std::optional<Type> result = script_method(r_expr, base_type);
+					if (result) {
+						return *result;
+					}
+				}
+				if (const auto method = engine.find_method(base_type.engine_class(), name)) {
 					const Type result = check_engine_call(r_expr, *method);
 					if (name == "instantiate" && base_type.name == "PackedScene" && !base_type.args.empty() && !result.is_error()) {
 						// The scene's root, checked as it is made (spec §7.4).
@@ -2063,6 +2289,66 @@ class Checker {
 		}
 	}
 
+	// The signatures of the interfaces the class declares (spec §3.9).
+	void declare_interfaces() {
+		std::unordered_set<std::string> names;
+		for (InterfaceDecl &interface : cls.interfaces) {
+			if (!names.insert(interface.name).second) {
+				error(interface.line, interface.column, "The interface \"" + interface.name + "\" is already declared.");
+			}
+			for (FuncDecl &method : interface.methods) {
+				for (ParamDecl &param : method.params) {
+					if (!param.declared_type) {
+						error(param.line, param.column, "Parameter \"" + param.name + "\" needs a type.");
+						param.type = Type::of(TypeKind::Error);
+						continue;
+					}
+					param.type = resolve(*param.declared_type, false);
+				}
+				method.return_type = method.return_type_ref ? resolve(*method.return_type_ref, true) : Type::of(TypeKind::Void);
+			}
+		}
+	}
+
+	// `implements I`: the class has every method of I, pub and with the same
+	// signature (spec §3.9).
+	void check_implements() {
+		for (const TypeRef &ref : cls.implements) {
+			const Type type = resolve(ref, false);
+			if (type.is_error()) {
+				continue;
+			}
+			if (!type.is_interface) {
+				error(ref.line, ref.column, type.to_string() + " is not an interface.");
+				continue;
+			}
+			cls.implemented.push_back(type);
+			const InterfaceDecl *interface = interface_decl(type);
+			if (!interface) {
+				error(ref.line, ref.column, type.script + " has errors.");
+				continue;
+			}
+			for (const FuncDecl &method : interface->methods) {
+				const auto found = function_index.find(method.name);
+				if (found == function_index.end()) {
+					error(ref.line, ref.column, "The class does not implement " + method.name + "() of " + type.name + ".");
+					continue;
+				}
+				const FuncDecl &function = cls.functions[found->second];
+				if (!function.is_pub) {
+					error(function.line, function.column, "\"" + function.name + "()\" implements " + type.name + " and must be pub (spec §3.9).");
+				}
+				bool same = function.params.size() == method.params.size() && function.return_type == method.return_type;
+				for (size_t i = 0; same && i < method.params.size(); i++) {
+					same = function.params[i].type == method.params[i].type;
+				}
+				if (!same) {
+					error(function.line, function.column, "\"" + function.name + "()\" does not have the signature that " + type.name + " declares, " + function_type(method).to_string() + ".");
+				}
+			}
+		}
+	}
+
 	// The class's signals, whose arguments are typed (spec §4.7).
 	void declare_signals() {
 		for (size_t i = 0; i < cls.signals.size(); i++) {
@@ -2107,8 +2393,8 @@ class Checker {
 	}
 
 public:
-	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors) :
-			cls(r_class), engine(p_engine), options(p_options), errors(r_errors) {}
+	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes) :
+			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), classes(r_classes) {}
 
 	void run() {
 		if (!engine.class_exists(cls.extends)) {
@@ -2118,6 +2404,7 @@ public:
 		if (options.project && !options.declarations_only && !options.path.empty()) {
 			scenes = options.project->scenes_with_script(options.path);
 		}
+		declare_interfaces();
 		declare_members();
 		for (size_t i = 0; i < cls.functions.size(); i++) {
 			FuncDecl &function_decl = cls.functions[i];
@@ -2132,6 +2419,7 @@ public:
 			function_index[function_decl.name] = int(i);
 			check_signature(function_decl);
 		}
+		check_implements();
 		declare_signals();
 		check_members();
 		check_groups();
@@ -2148,8 +2436,8 @@ public:
 
 } // namespace
 
-void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors) {
-	Checker(r_class, p_engine, p_options, r_errors).run();
+void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes) {
+	Checker(r_class, p_engine, p_options, r_errors, r_classes).run();
 }
 
 } // namespace petrichor::compiler

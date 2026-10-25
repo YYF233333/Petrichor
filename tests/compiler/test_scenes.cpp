@@ -95,7 +95,8 @@ TEST_CASE("$X has the class of the node at that path in the scenes that use the 
 	const compiler::CompileResult result = compile_in(hud, hud_scene());
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	// Checked again at run time, in case the tree has changed since.
-	CHECK(result.module.classes == std::vector<std::string>{ "Label" });
+	REQUIRE(result.module.classes.size() == 1);
+	CHECK(result.module.classes[0].name == "Label");
 
 	CHECK(hud_errors("$\"Health\".text = \"\"").empty());
 	CHECK(contains(hud_errors("$Crosshair.text = \"\""), "TextureRect has no property \"text\""));

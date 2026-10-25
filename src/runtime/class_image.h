@@ -47,7 +47,13 @@ public:
 	std::vector<GDExtensionPtrSetter> setters;
 	std::vector<GDExtensionPtrConstructor> constructors;
 	std::vector<GDExtensionPtrBuiltInMethod> builtin_methods;
-	std::vector<godot::StringName> classes;
+	std::vector<godot::StringName> classes; // Engine classes, by class index.
+	std::vector<godot::String> class_scripts; // Classes of this language: their scripts.
+	std::vector<godot::String> class_interfaces; // Interfaces: "script::Name".
+
+	// Whether a live object is of the class at `p_index`: its engine class,
+	// and its script or the interface it implements.
+	bool fits_class(const godot::Object *p_object, uint32_t p_index) const;
 
 	// Returns null and sets r_error when the module refers to something this
 	// runtime or this engine cannot provide.

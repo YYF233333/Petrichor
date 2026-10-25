@@ -3,6 +3,8 @@
 #include "compiler/compiler.h"
 #include "fake_engine.h"
 
+#include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -21,6 +23,17 @@ inline compiler::CompileResult compile(const std::string &p_source) {
 class FakeProject : public compiler::ProjectApi {
 public:
 	std::vector<compiler::Scene> scenes;
+	std::map<std::string, std::string> sources; // By res:// path.
+	std::map<std::string, std::string> global_classes; // class_name to path.
+	std::map<std::string, std::string> autoloads; // Global name to path.
+
+	// Adds a script of this language, with its class_name if it has one.
+	void add_script(const std::string &p_path, const std::string &p_source, const std::string &p_class_name = std::string()) {
+		sources[p_path] = p_source;
+		if (!p_class_name.empty()) {
+			global_classes[p_class_name] = p_path;
+		}
+	}
 
 	std::vector<compiler::Scene> scenes_with_script(const std::string &p_script_path) const override {
 		std::vector<compiler::Scene> result;
@@ -33,6 +46,30 @@ public:
 			}
 		}
 		return result;
+	}
+
+	std::optional<compiler::Scene> scene(const std::string &p_path) const override {
+		for (const compiler::Scene &scene : scenes) {
+			if (scene.path == p_path) {
+				return scene;
+			}
+		}
+		return std::nullopt;
+	}
+
+	std::string global_class_path(const std::string &p_name) const override {
+		const auto found = global_classes.find(p_name);
+		return found == global_classes.end() ? std::string() : found->second;
+	}
+
+	std::string autoload_path(const std::string &p_name) const override {
+		const auto found = autoloads.find(p_name);
+		return found == autoloads.end() ? std::string() : found->second;
+	}
+
+	std::optional<std::string> script_source(const std::string &p_path) const override {
+		const auto found = sources.find(p_path);
+		return found == sources.end() ? std::nullopt : std::optional<std::string>(found->second);
 	}
 };
 

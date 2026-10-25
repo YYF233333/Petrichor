@@ -17,6 +17,10 @@ struct ScriptedObject {
 using InstanceResolver = bool (*)(godot::Object *p_object, ScriptedObject &r_instance);
 void set_instance_resolver(InstanceResolver p_resolver);
 
+// Whether the object's script of this language implements the interface,
+// named "script::Name" (spec §3.9).
+bool implements_interface(godot::Object *p_object, const godot::String &p_interface);
+
 // A method value (spec §3.11): a Callable that calls a function of the script
 // instance on an object directly, whether or not reflection shows the function
 // (spec §10.5). It finds the function by name on each call, so that it calls

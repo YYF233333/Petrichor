@@ -1,0 +1,5 @@
+# An interface in another script (spec §3.9), as the FPS migration's combat.pet.
+class_name CombatCheck
+
+pub interface Damageable:
+	func damage(amount: float)

@@ -401,6 +401,11 @@ class Verifier {
 				return slot(o[0], ValueType::Bool) && slot_type(o[1], type) && (type == ValueType::Object || type == ValueType::Variant || fail("None is only tested on objects and options"));
 			case Op::CHECK_ASSIGNED:
 				return index(o[0], module.members.size(), "member") && slot(o[1], ValueType::Object);
+			case Op::GET_AUTOLOAD:
+				if (!index(o[0], module.constants.size(), "constant") || module.constants[o[0]].type != ValueType::StringName) {
+					return fail("an autoload without a name");
+				}
+				return slot(o[1], ValueType::Object);
 			case Op::METHOD_VALUE:
 				return index(o[0], module.functions.size(), "function") && slot(o[1], ValueType::Callable);
 			case Op::GET_SIGNAL:

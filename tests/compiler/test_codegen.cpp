@@ -257,7 +257,8 @@ var first := rng.randi()
 	CHECK(init.params.empty());
 	CHECK(!init.is_pub);
 	CHECK(in_order(opcodes(module, init.name), { Op::NEW_OBJECT, Op::STORE_MEMBER_VALUE, Op::LOAD_MEMBER_VALUE, Op::CALL_ENGINE, Op::STORE_MEMBER_8 }));
-	CHECK(module.classes == std::vector<std::string>{ "RandomNumberGenerator" });
+	REQUIRE(module.classes.size() == 1);
+	CHECK(module.classes[0].name == "RandomNumberGenerator");
 	CHECK(module_of("extends Node\nvar a := 1\n").init_function == -1);
 }
 

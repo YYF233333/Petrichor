@@ -1,0 +1,8 @@
+# A class that implements CombatCheck.Damageable (spec §3.9).
+class_name TargetCheck
+extends Node implements CombatCheck.Damageable
+
+pub var taken := 0.0
+
+pub func damage(amount: float):
+	taken += amount

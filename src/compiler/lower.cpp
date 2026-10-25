@@ -46,8 +46,14 @@ bytecode::Slot slot_of(const std::string &p_name, const Type &p_type) {
 	bytecode::Slot slot;
 	slot.name = p_name;
 	slot.type = value_type(p_type);
+	// The engine's class, and for a class of this language its script; an
+	// interface is not checked at the entry yet.
+	const auto object_class = [&](const Type &p_object) {
+		slot.class_name = p_object.engine_class();
+		slot.script = p_object.is_interface ? std::string() : p_object.script;
+	};
 	if (p_type.kind == TypeKind::Object) {
-		slot.class_name = p_type.name;
+		object_class(p_type);
 		slot.nullable = p_type.nullable;
 	} else if (p_type.kind == TypeKind::Option) {
 		slot.nullable = true;
@@ -56,7 +62,7 @@ bytecode::Slot slot_of(const std::string &p_name, const Type &p_type) {
 		// Array[T].
 		slot.element = value_type(p_type.args[0]);
 		if (p_type.args[0].kind == TypeKind::Object) {
-			slot.class_name = p_type.args[0].name;
+			object_class(p_type.args[0]);
 		}
 	}
 	return slot;
@@ -348,8 +354,26 @@ class Lowerer {
 		});
 	}
 
-	uint32_t class_index(const std::string &p_name) {
-		return intern(module.classes, p_name, [](const auto &a, const auto &b) { return a == b; });
+	uint32_t class_index(const bytecode::ClassRef &p_ref) {
+		return intern(module.classes, p_ref, [](const auto &a, const auto &b) { return a == b; });
+	}
+
+	uint32_t class_index(const std::string &p_engine_class) {
+		bytecode::ClassRef ref;
+		ref.name = p_engine_class;
+		return class_index(ref);
+	}
+
+	// A class of this language is tested by its script, an interface by what
+	// the object's class implements.
+	uint32_t class_index(const Type &p_type) {
+		bytecode::ClassRef ref;
+		ref.name = p_type.engine_class();
+		ref.script = p_type.script;
+		if (p_type.is_interface) {
+			ref.interface_name = p_type.name.substr(p_type.name.find_last_of('.') + 1);
+		}
+		return class_index(ref);
 	}
 
 	static std::vector<ValueType> value_types(const std::vector<Type> &p_types) {
@@ -428,7 +452,10 @@ class Lowerer {
 	/* Arrays */
 
 	void new_array(uint32_t p_dst, const bytecode::Slot &p_type) {
-		const uint32_t class_operand = p_type.element == ValueType::Object ? class_index(p_type.class_name) : bytecode::NO_SLOT;
+		bytecode::ClassRef element;
+		element.name = p_type.class_name;
+		element.script = p_type.script;
+		const uint32_t class_operand = p_type.element == ValueType::Object ? class_index(element) : bytecode::NO_SLOT;
 		instr(Op::NEW_ARRAY, p_dst, NO_REG, NO_REG, class_operand, p_type.element);
 	}
 
@@ -462,7 +489,7 @@ class Lowerer {
 		const uint32_t result = temp(p_element);
 		instr(Op::GET_INDEX, result, p_container, p_index);
 		if (p_element.kind == TypeKind::Object && !p_element.nullable) {
-			instr(Op::CHECK_OBJECT, NO_REG, result, NO_REG, class_index(p_element.name));
+			instr(Op::CHECK_OBJECT, NO_REG, result, NO_REG, class_index(p_element));
 		}
 		return result;
 	}
@@ -728,7 +755,7 @@ class Lowerer {
 		if (from_engine && p_call.type.kind == TypeKind::Object && !p_call.type.nullable) {
 			// What the engine declares as an object or a Variant, typed T here:
 			// an element of Array[T], or the root of PackedScene[T].
-			instr(Op::CHECK_OBJECT, NO_REG, i.dst, NO_REG, class_index(p_call.type.name));
+			instr(Op::CHECK_OBJECT, NO_REG, i.dst, NO_REG, class_index(p_call.type));
 		}
 		return i.dst;
 	}
@@ -766,6 +793,14 @@ class Lowerer {
 					constant.i = p_expr.int_value;
 					const uint32_t result = temp(ValueType::Int);
 					instr(Op::CONST_INT, result, NO_REG, NO_REG, add_constant(constant));
+					return result;
+				}
+				if (p_expr.target == Target::Autoload) {
+					bytecode::Constant name;
+					name.type = ValueType::StringName;
+					name.s = p_expr.text;
+					const uint32_t result = temp(p_expr.type);
+					instr(Op::GET_AUTOLOAD, result, NO_REG, NO_REG, add_constant(name));
 					return result;
 				}
 				if (p_expr.target == Target::Singleton) {
@@ -838,7 +873,7 @@ class Lowerer {
 			case ExprKind::TypeTest: {
 				const uint32_t source = lower_expr(*p_expr.left);
 				const uint32_t result = temp(ValueType::Bool);
-				instr(Op::IS_INSTANCE, result, source, NO_REG, class_index(p_expr.owner));
+				instr(Op::IS_INSTANCE, result, source, NO_REG, class_index(p_expr.tested));
 				return p_expr.bool_value ? negate(result) : result;
 			}
 			case ExprKind::Conditional: {
@@ -866,7 +901,7 @@ class Lowerer {
 					return value; // Already a T.
 				}
 				const uint32_t result = temp(p_expr.type);
-				instr(Op::CAST_OBJECT, result, value, NO_REG, class_index(p_expr.owner));
+				instr(Op::CAST_OBJECT, result, value, NO_REG, class_index(p_expr.tested));
 				return result;
 			}
 			case ExprKind::Self:
@@ -958,7 +993,7 @@ class Lowerer {
 				instr(Op::GET_PROPERTY, result, p_place.kind == Place::Kind::SelfProperty ? NO_REG : p_place.reg, NO_REG, p_place.index);
 				if (p_place.type.kind == TypeKind::Object && !p_place.type.nullable) {
 					// The binding metadata says it is never None (spec §10.2).
-					instr(Op::CHECK_OBJECT, NO_REG, result, NO_REG, class_index(p_place.type.name));
+					instr(Op::CHECK_OBJECT, NO_REG, result, NO_REG, class_index(p_place.type));
 				}
 				return result;
 			}
@@ -1189,6 +1224,9 @@ public:
 	void run(bool p_declarations_only) {
 		module.global_name = cls.class_name;
 		module.base_class = cls.extends;
+		for (const Type &interface : cls.implemented) {
+			module.interfaces.push_back(interface.script + "::" + interface.name.substr(interface.name.find_last_of('.') + 1));
+		}
 		module.declarations_only = p_declarations_only;
 		uint32_t offset = 0;
 		for (const VarDecl &decl_member : cls.members) {
@@ -1199,6 +1237,7 @@ public:
 			// module only describes the class then (architecture §2.4).
 			member.type = p_declarations_only && slot.type == ValueType::Void ? ValueType::Variant : slot.type;
 			member.class_name = slot.class_name;
+			member.script = slot.script;
 			member.nullable = slot.nullable;
 			member.option = slot.option;
 			member.element = slot.element;
@@ -1244,7 +1283,7 @@ public:
 			fn.param_count = uint32_t(function.params.size());
 			fn.return_type = value_type(function.return_type);
 			if (function.return_type.kind == TypeKind::Object) {
-				fn.return_class = function.return_type.name;
+				fn.return_class = function.return_type.engine_class();
 			}
 			fn.is_pub = function.is_pub;
 			fn.is_override = function.is_override;

@@ -4,6 +4,7 @@
 #include "compiler/lexer.h"
 #include "compiler/lower.h"
 #include "compiler/parser.h"
+#include "compiler/script_classes.h"
 
 #include <algorithm>
 
@@ -14,7 +15,8 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 	const std::vector<Token> tokens = tokenize(p_source, result.errors);
 	ClassDecl cls = parse(tokens, result.errors);
 	if (result.errors.empty()) {
-		check(cls, p_engine, p_options, result.errors);
+		ScriptClasses classes(p_engine, p_options.project);
+		check(cls, p_engine, p_options, result.errors, classes);
 	}
 	std::stable_sort(result.errors.begin(), result.errors.end(), [](const Diagnostic &a, const Diagnostic &b) {
 		return a.line != b.line ? a.line < b.line : a.column < b.column;

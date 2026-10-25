@@ -1,6 +1,7 @@
 #include "runtime/values.h"
 
 #include <godot_cpp/classes/object.hpp>
+#include <godot_cpp/classes/script.hpp>
 #include <godot_cpp/godot.hpp>
 
 #include <array>
@@ -48,6 +49,15 @@ const TypeOps &ops(ValueType p_type) {
 		return result;
 	}();
 	return table[size_t(p_type)];
+}
+
+// A class of this language is its script; with no script asked for, any will do.
+bool has_script(const Variant &p_script, const String &p_path) {
+	if (p_path.is_empty()) {
+		return true;
+	}
+	const Ref<Script> script = p_script;
+	return script.is_valid() && script->get_path() == p_path;
 }
 
 // A Variant converts String and StringName into each other, like GDScript (spec §10.7).
@@ -163,7 +173,7 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 			}
 			if (p_value.booleanize() && p_check.class_name != StringName()) {
 				const Object *object = p_value;
-				if (!object || !object->is_class(p_check.class_name)) {
+				if (!object || !object->is_class(p_check.class_name) || !has_script(object->get_script(), p_check.script)) {
 					return false;
 				}
 			}
@@ -175,7 +185,7 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 				// with T (spec §3.8).
 				const Array array = p_value;
 				if (!array.is_typed() || array.get_typed_builtin() != int64_t(variant_type(p_check.element)) ||
-						(p_check.element == ValueType::Object && array.get_typed_class_name() != p_check.class_name)) {
+						(p_check.element == ValueType::Object && (array.get_typed_class_name() != p_check.class_name || !has_script(array.get_typed_script(), p_check.script)))) {
 					return false;
 				}
 			}

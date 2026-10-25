@@ -73,6 +73,11 @@ class Parser {
 	TypeRef type_ref() {
 		const Token &name = expect(TokenKind::Identifier, "a type name");
 		TypeRef ref{ name.text, name.line, name.column };
+		// A type declared in a class, such as Combat.Damageable.
+		while (!failed && check(TokenKind::Period) && peek(1).kind == TokenKind::Identifier) {
+			advance();
+			ref.name += "." + advance().text;
+		}
 		if (match(TokenKind::BracketOpen)) {
 			do {
 				ref.args.push_back(type_ref());
@@ -591,6 +596,41 @@ class Parser {
 		return result;
 	}
 
+	// After "interface": the name and a block of method signatures (spec §3.9).
+	InterfaceDecl interface(bool p_is_pub) {
+		InterfaceDecl decl;
+		const Token &name = expect(TokenKind::Identifier, "an interface name");
+		decl.name = name.text;
+		decl.line = name.line;
+		decl.column = name.column;
+		decl.is_pub = p_is_pub;
+		expect(TokenKind::Colon, "\":\"");
+		expect(TokenKind::Newline, "a line break");
+		expect(TokenKind::Indent, "an indented block");
+		while (!failed && !check(TokenKind::Dedent) && !check(TokenKind::EndOfFile)) {
+			if (match(TokenKind::Pass)) {
+				end_of_statement();
+				continue;
+			}
+			FuncDecl method;
+			expect(TokenKind::Func, "\"func\"");
+			const Token &method_name = expect(TokenKind::Identifier, "a method name");
+			method.name = method_name.text;
+			method.line = method_name.line;
+			method.column = method_name.column;
+			method.is_pub = true;
+			expect(TokenKind::ParenOpen, "\"(\"");
+			method.params = params();
+			if (match(TokenKind::Arrow)) {
+				method.return_type_ref = type_ref();
+			}
+			end_of_statement();
+			decl.methods.push_back(std::move(method));
+		}
+		match(TokenKind::Dedent);
+		return decl;
+	}
+
 	static bool is_group_annotation(const std::string &p_name) {
 		return p_name == "export_group" || p_name == "export_subgroup" || p_name == "export_category";
 	}
@@ -657,6 +697,15 @@ class Parser {
 			}
 			end_of_statement();
 			r_class.members.push_back(std::move(decl));
+			return;
+		}
+
+		if (match(TokenKind::Interface)) {
+			if (!annotations.empty() || is_static) {
+				fail(peek(), "An interface takes no annotations and is not static.");
+				return;
+			}
+			r_class.interfaces.push_back(interface(is_pub));
 			return;
 		}
 
@@ -770,6 +819,12 @@ public:
 				result.extends_line = base.line;
 				result.extends_column = base.column;
 				has_extends = true;
+				// `extends Node3D implements Combat.Damageable, Saveable` (spec §3.9).
+				if (match(TokenKind::Implements)) {
+					do {
+						result.implements.push_back(type_ref());
+					} while (!failed && match(TokenKind::Comma));
+				}
 				end_of_statement();
 				continue;
 			}

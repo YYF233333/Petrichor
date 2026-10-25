@@ -50,8 +50,12 @@ const char *token_name(TokenKind p_kind) {
 			return "\"func\"";
 		case TokenKind::If:
 			return "\"if\"";
+		case TokenKind::Implements:
+			return "\"implements\"";
 		case TokenKind::In:
 			return "\"in\"";
+		case TokenKind::Interface:
+			return "\"interface\"";
 		case TokenKind::Is:
 			return "\"is\"";
 		case TokenKind::None:
@@ -160,7 +164,9 @@ const std::unordered_map<std::string, TokenKind> &keywords() {
 		{ "for", TokenKind::For },
 		{ "func", TokenKind::Func },
 		{ "if", TokenKind::If },
+		{ "implements", TokenKind::Implements },
 		{ "in", TokenKind::In },
+		{ "interface", TokenKind::Interface },
 		{ "is", TokenKind::Is },
 		{ "None", TokenKind::None },
 		{ "null", TokenKind::Null },

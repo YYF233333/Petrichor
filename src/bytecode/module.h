@@ -8,7 +8,7 @@ namespace petrichor::bytecode {
 
 // The compiled form of one source file: the contract between the compiler and
 // the runtime. It only needs to be readable by the same build that wrote it.
-constexpr uint32_t FORMAT_VERSION = 3;
+constexpr uint32_t FORMAT_VERSION = 4;
 
 // How a value is stored in a frame or an instance. Up to Variant the numbers
 // are the engine's Variant::Type, so the runtime can hand them to the engine's
@@ -84,6 +84,9 @@ struct Slot {
 	ValueType type = ValueType::Void;
 	uint32_t offset = 0;
 	std::string class_name; // Object: the class its values have.
+	// Object, or the elements of Array: the script of a class of this
+	// language that they are (spec §11.1).
+	std::string script;
 	bool nullable = false;  // Object: the value may be None.
 	// Variant: holds T? of a value type, None or a value of this type (spec §3.4).
 	ValueType option = ValueType::Void;
@@ -97,6 +100,7 @@ struct Member {
 	ValueType type = ValueType::Void;
 	uint32_t offset = 0;
 	std::string class_name;
+	std::string script; // As in Slot.
 	bool nullable = false;
 	ValueType option = ValueType::Void; // As in Slot.
 	ValueType element = ValueType::Void; // As in Slot.
@@ -144,6 +148,16 @@ struct ExportGroup {
 	std::string prefix;
 	uint8_t level = 1; // 0: category, 1: group, 2: subgroup.
 	uint32_t before_member = 0;
+};
+
+// A class that code constructs, tests or casts to: an engine class, a class
+// of this language (spec §11.1), or an interface (§3.9).
+struct ClassRef {
+	std::string name; // The engine class its objects have.
+	std::string script; // A class of this language: its script; an interface: the script that declares it.
+	std::string interface_name; // An interface: its name in that script.
+
+	bool operator==(const ClassRef &p_other) const { return name == p_other.name && script == p_other.script && interface_name == p_other.interface_name; }
 };
 
 // A method of an engine class, called by name.
@@ -247,7 +261,9 @@ struct Module {
 	std::vector<FieldAccess> fields;
 	std::vector<ConstructorCall> constructors;
 	std::vector<BuiltinMethodCall> builtin_methods;
-	std::vector<std::string> classes; // Engine classes: constructed with new(), checked, or cast to.
+	std::vector<ClassRef> classes;
+	// The interfaces the class implements, as "script::Name" (spec §3.9).
+	std::vector<std::string> interfaces;
 
 	int find_function(const std::string &p_name) const;
 	int find_member(const std::string &p_name) const;

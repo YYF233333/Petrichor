@@ -124,6 +124,7 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 					break;
 				case Op::NEW_OBJECT:
 				case Op::GET_SINGLETON:
+				case Op::GET_AUTOLOAD:
 				case Op::METHOD_VALUE:
 					put(instr.imm);
 					put(offset_of(instr.dst));

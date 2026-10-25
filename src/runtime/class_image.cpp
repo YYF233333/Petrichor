@@ -1,5 +1,9 @@
 #include "runtime/class_image.h"
 
+#include "runtime/method_callable.h"
+
+#include <godot_cpp/classes/script.hpp>
+
 using namespace godot;
 
 namespace petrichor {
@@ -120,8 +124,10 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		}
 		image->builtin_methods.push_back(pointer);
 	}
-	for (const std::string &name : module.classes) {
-		image->classes.push_back(from_utf8(name));
+	for (const bytecode::ClassRef &ref : module.classes) {
+		image->classes.push_back(from_utf8(ref.name));
+		image->class_scripts.push_back(from_utf8(ref.script));
+		image->class_interfaces.push_back(ref.interface_name.empty() ? String() : from_utf8(ref.script + "::" + ref.interface_name));
 	}
 	return image;
 }
@@ -145,6 +151,22 @@ Variant literal_value(const bytecode::Constant &p_constant) {
 	}
 }
 
+bool ClassImage::fits_class(const Object *p_object, uint32_t p_index) const {
+	if (!p_object->is_class(classes[p_index])) {
+		return false;
+	}
+	if (!class_interfaces[p_index].is_empty()) {
+		return implements_interface(const_cast<Object *>(p_object), class_interfaces[p_index]);
+	}
+	if (!class_scripts[p_index].is_empty()) {
+		// Classes of this language extend engine classes only, so far: the
+		// object's script is the class's.
+		const Ref<Script> script = p_object->get_script();
+		return script.is_valid() && script->get_path() == class_scripts[p_index];
+	}
+	return true;
+}
+
 int ClassImage::find_function(const StringName &p_name) const {
 	const int *index = function_lookup.getptr(p_name);
 	return index ? *index : -1;
@@ -164,7 +186,7 @@ bool same_constant(const bytecode::Constant &p_a, const bytecode::Constant &p_b)
 }
 
 bool same_slot(const bytecode::Slot &p_a, const bytecode::Slot &p_b) {
-	return p_a.name == p_b.name && p_a.type == p_b.type && p_a.class_name == p_b.class_name && p_a.nullable == p_b.nullable && p_a.option == p_b.option && p_a.element == p_b.element;
+	return p_a.name == p_b.name && p_a.type == p_b.type && p_a.class_name == p_b.class_name && p_a.script == p_b.script && p_a.nullable == p_b.nullable && p_a.option == p_b.option && p_a.element == p_b.element;
 }
 
 template <typename T, typename Same>
@@ -224,7 +246,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	for (size_t i = 0; i < a.members.size(); i++) {
 		const bytecode::Member &x = a.members[i];
 		const bytecode::Member &y = b.members[i];
-		if (x.name != y.name || x.type != y.type || x.offset != y.offset || x.class_name != y.class_name || x.nullable != y.nullable || x.option != y.option || x.element != y.element || x.is_onready != y.is_onready ||
+		if (x.name != y.name || x.type != y.type || x.offset != y.offset || x.class_name != y.class_name || x.script != y.script || x.nullable != y.nullable || x.option != y.option || x.element != y.element || x.is_onready != y.is_onready ||
 				x.is_pub != y.is_pub || x.is_export != y.is_export || x.hint != y.hint || x.hint_string != y.hint_string || x.has_initial != y.has_initial || !same_constant(x.initial, y.initial)) {
 			return false;
 		}
@@ -250,6 +272,9 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 		if (x.name != y.name || x.prefix != y.prefix || x.level != y.level || x.before_member != y.before_member) {
 			return false;
 		}
+	}
+	if (a.interfaces != b.interfaces) {
+		return false;
 	}
 	// Non-literal initializers belong to the declarations, not to a body.
 	if (!same_initializers(a, b)) {

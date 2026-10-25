@@ -67,6 +67,7 @@ namespace petrichor::bytecode {
 	X(SET_PROPERTY, 3) /* property, object (NO_SLOT: self), value */ \
 	X(NEW_OBJECT, 2) /* class, dst */                                \
 	X(GET_SINGLETON, 2) /* class, dst */                             \
+	X(GET_AUTOLOAD, 2) /* name constant, dst */                      \
 	X(METHOD_VALUE, 2) /* function, dst (Callable) */                \
 	X(GET_SIGNAL, 3) /* name constant, dst, object (NO_SLOT: self) */ \
 	X(CHECK_OBJECT, 2) /* class, slot: not None, of the class */     \

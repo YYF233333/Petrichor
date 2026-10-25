@@ -162,6 +162,23 @@ pub func doubled(x: int?) -> int:
 		return x * 2
 	return -1
 
+# Classes of other scripts (spec §11.1) and their interfaces (§3.9).
+pub func hit(n: Node, amount: float) -> bool:
+	if n is CombatCheck.Damageable:
+		n.damage(amount)
+		return true
+	return false
+
+pub func taken_by(target: TargetCheck) -> float:
+	return target.taken
+
+pub func targets(target: TargetCheck) -> Array[TargetCheck]:
+	var list: Array[TargetCheck] = [target]
+	return list
+
+pub func as_target(n: Node) -> TargetCheck?:
+	return n as TargetCheck
+
 # Engine singletons and load().
 pub func loaded(path: String) -> Resource?:
 	return load(path)
