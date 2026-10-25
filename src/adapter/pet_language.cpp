@@ -1,7 +1,9 @@
 #include "adapter/pet_language.h"
 
 #include "adapter/pet_script.h"
+#include "runtime/task.h"
 
+#include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/core/error_macros.hpp>
 
 using namespace godot;
@@ -37,6 +39,7 @@ String PetLanguage::_get_extension() const {
 }
 
 void PetLanguage::_finish() {
+	task_queue::clear();
 }
 
 /* Editor */
@@ -292,6 +295,7 @@ int32_t PetLanguage::_profiling_get_frame_data(ScriptLanguageExtensionProfilingI
 }
 
 void PetLanguage::_frame() {
+	task_queue::frame();
 }
 
 /* Global classes */
@@ -301,7 +305,18 @@ bool PetLanguage::_handles_global_class_type(const String &p_type) const {
 }
 
 Dictionary PetLanguage::_get_global_class_name(const String &p_path) const {
-	return Dictionary();
+	const String source = FileAccess::get_file_as_string(p_path);
+	const PetHeader header = parse_header(source);
+	Dictionary result;
+	if (header.class_name.is_empty()) {
+		return result;
+	}
+	result["name"] = header.class_name;
+	result["base_type"] = header.base;
+	result["icon_path"] = String();
+	result["is_abstract"] = false;
+	result["is_tool"] = false;
+	return result;
 }
 
 } // namespace petrichor

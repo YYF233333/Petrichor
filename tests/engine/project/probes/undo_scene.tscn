@@ -1,0 +1,7 @@
+[gd_scene format=3]
+
+[node name="UndoRoot" type="Node"]
+
+[node name="A" type="Node" parent="."]
+
+[node name="B" type="Node" parent="."]

@@ -1,6 +1,7 @@
 #include "adapter/pet_instance.h"
 
 #include "adapter/pet_language.h"
+#include "runtime/task.h"
 
 #include <godot_cpp/variant/utility_functions.hpp>
 
@@ -181,29 +182,45 @@ static GDExtensionBool instance_has_method(GDExtensionScriptInstanceDataPtr p_in
 }
 
 static GDExtensionInt instance_get_method_argument_count(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionBool *r_is_valid) {
-	*r_is_valid = self(p_instance)->script->_has_method(as_name(p_name));
-	return 0;
+	bool valid = false;
+	const int64_t count = self(p_instance)->script->method_argument_count(as_name(p_name), valid);
+	*r_is_valid = valid;
+	return count;
 }
 
 static void instance_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_method, const GDExtensionConstVariantPtr *p_args, GDExtensionInt p_argument_count, GDExtensionVariantPtr r_return, GDExtensionCallError *r_error) {
 	PetInstance *instance = self(p_instance);
 	const StringName &method = as_name(p_method);
+	const Variant *const *args = reinterpret_cast<const Variant *const *>(p_args);
+	Variant &result = *reinterpret_cast<Variant *>(r_return);
 	r_error->error = GDEXTENSION_CALL_OK;
 
-	if (!instance->script->_has_method(method)) {
+	bool valid = false;
+	const int64_t expected = instance->script->method_argument_count(method, valid);
+	if (!valid) {
 		r_error->error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
 		return;
 	}
-	if (p_argument_count > 0) {
-		r_error->error = GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS;
-		r_error->expected = 0;
+	if (p_argument_count != expected) {
+		r_error->error = p_argument_count > expected ? GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS : GDEXTENSION_CALL_ERROR_TOO_FEW_ARGUMENTS;
+		r_error->expected = int32_t(expected);
 		return;
 	}
 
 	if (method == PetScript::ready_name()) {
 		UtilityFunctions::print(vformat("%s: _ready, message = %s", instance->script->get_script_path(), instance->message));
 	} else if (method == PetScript::greet_name()) {
-		*reinterpret_cast<Variant *>(r_return) = vformat("Hello from %s: %s", instance->script->get_script_path(), instance->message);
+		result = vformat("Hello from %s: %s", instance->script->get_script_path(), instance->message);
+	} else if (method == PetScript::echo_later_name()) {
+		if (args[1]->get_type() != Variant::INT) {
+			r_error->error = GDEXTENSION_CALL_ERROR_INVALID_ARGUMENT;
+			r_error->argument = 1;
+			r_error->expected = GDEXTENSION_VARIANT_TYPE_INT;
+			return;
+		}
+		// Called from outside this language, an async method returns the
+		// signal of its task (spec §9.8).
+		result = task_queue::deliver_later(*args[0], int64_t(*args[1]));
 	}
 }
 

@@ -1,9 +1,11 @@
 @tool
 extends EditorPlugin
 
-# In the editor, scripts that are not tools get placeholder instances, which
-# show and store the exported properties. These checks cover that path:
+# Editor-side checks, run with:
 #   godot --headless -e --path . -- --editor-checks
+# In the editor, scripts that are not tools get placeholder instances, which
+# show and store the exported properties. The last check is the undo probe of
+# architecture §5 step 2.
 
 var failures := 0
 
@@ -27,6 +29,7 @@ func _run() -> void:
 
 	_check_scene()
 	_check_new_script()
+	await _check_undo_merge()
 
 	print("editor check: %d failure(s)" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -76,3 +79,78 @@ func _check_new_script() -> void:
 	_check(node.get_script() == loaded, "a script can be attached in the editor")
 	_check(node.get("message") == "hello", "a new placeholder starts with the default value")
 	node.free()
+
+
+# Spec §13.3: after the editor commits a rename or a move, an action with the
+# same name and MERGE_ALL, created in history_changed, joins that undo step.
+func _check_undo_merge() -> void:
+	EditorInterface.open_scene_from_path("res://probes/undo_scene.tscn")
+	await get_tree().process_frame
+	var root := EditorInterface.get_edited_scene_root()
+	if root == null or root.name != &"UndoRoot":
+		_check(false, "the undo probe scene opens")
+		return
+	var a := root.get_node("A")
+	var b := root.get_node("B")
+
+	var undo := get_undo_redo()
+	var history := undo.get_history_undo_redo(undo.get_object_history_id(root))
+	var marker := RefCounted.new()
+	marker.set_meta("value", "before")
+	var state := { "armed": false, "merged_into": "" }
+	var merge := func() -> void:
+		if not state.armed:
+			return
+		state.armed = false
+		# The action name is translated in the editor, so it is read, not assumed.
+		state.merged_into = history.get_current_action_name()
+		undo.create_action(state.merged_into, UndoRedo.MERGE_ALL, root)
+		undo.add_do_method(marker, "set_meta", "value", "after")
+		undo.add_undo_method(marker, "set_meta", "value", "before")
+		undo.commit_action()
+	undo.history_changed.connect(merge)
+
+	var dock: Node = EditorInterface.get_base_control().find_children("*", "SceneTreeDock", true, false)[0]
+	var scene_tree_editor: Node = dock.get_tree_editor()
+	var tree: Tree = scene_tree_editor.find_children("*", "Tree", true, false)[0]
+
+	# Rename A through the dock's tree, as typing a new name does.
+	var steps := history.get_history_count()
+	tree.set_selected(_find_item(tree.get_root(), a.get_path()), 0)
+	state.armed = true
+	tree.edit_selected(true)
+	var line_edit: LineEdit = tree.find_children("*", "LineEdit", true, false)[0]
+	line_edit.text = "Renamed"
+	line_edit.text_submitted.emit("Renamed")
+	_check(a.name == &"Renamed" and marker.get_meta("value") == "after", "renaming in the scene dock runs the merged operation")
+	_check(history.get_history_count() == steps + 1, "the rename and the merged operation are one undo step (%s)" % state.merged_into)
+	history.undo()
+	_check(a.name == &"A" and marker.get_meta("value") == "before", "one undo reverts the rename and the merged operation")
+	history.redo()
+	_check(a.name == &"Renamed" and marker.get_meta("value") == "after", "one redo restores both")
+
+	# Move B under A, as dropping it in the dock does.
+	marker.set_meta("value", "before")
+	steps = history.get_history_count()
+	EditorInterface.get_selection().clear()
+	EditorInterface.get_selection().add_node(b)
+	state.armed = true
+	scene_tree_editor.nodes_rearranged.emit([b.get_path()], a.get_path(), 0)
+	_check(b.get_parent() == a and marker.get_meta("value") == "after", "moving a node in the scene dock runs the merged operation")
+	_check(history.get_history_count() == steps + 1, "the move and the merged operation are one undo step (%s)" % state.merged_into)
+	history.undo()
+	_check(b.get_parent() == root and marker.get_meta("value") == "before", "one undo reverts the move and the merged operation")
+	history.redo()
+	_check(b.get_parent() == a and marker.get_meta("value") == "after", "one redo restores both")
+
+	undo.history_changed.disconnect(merge)
+
+
+func _find_item(item: TreeItem, path: NodePath) -> TreeItem:
+	if item.get_metadata(0) == path:
+		return item
+	for child in item.get_children():
+		var found := _find_item(child, path)
+		if found:
+			return found
+	return null

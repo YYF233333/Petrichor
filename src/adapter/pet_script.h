@@ -10,13 +10,22 @@ namespace petrichor {
 
 struct PetInstance;
 
-// Step 1 of the architecture (engine integration) has no compiler: a script
-// only reads its base class from `extends`, and every script exposes the same
-// hard-coded members, the property `message` and the method `greet()`.
+// The class header: `class_name` and `extends`, either on one line or on two.
+struct PetHeader {
+	godot::String class_name;
+	godot::String base = "RefCounted";
+};
+
+PetHeader parse_header(const godot::String &p_source);
+
+// There is no compiler yet: a script only reads its class header, and every
+// script has the same hard-coded members, the property `message`, the methods
+// `greet()` and `echo_later(value, frames)`, and `_ready`.
 class PetScript : public godot::ScriptExtension {
 	GDCLASS(PetScript, godot::ScriptExtension);
 
 	godot::String source;
+	godot::StringName global_name;
 	godot::StringName base_type;
 	bool valid = false;
 
@@ -28,7 +37,7 @@ class PetScript : public godot::ScriptExtension {
 	void update_placeholder(void *p_placeholder) const;
 
 protected:
-	static void _bind_methods() {}
+	static void _bind_methods();
 
 public:
 	// Built on each call: static StringNames would be destroyed after the
@@ -36,9 +45,16 @@ public:
 	static godot::StringName message_name() { return "message"; }
 	static godot::StringName greet_name() { return "greet"; }
 	static godot::StringName ready_name() { return "_ready"; }
+	static godot::StringName echo_later_name() { return "echo_later"; }
+	static godot::StringName init_name() { return "_init"; }
 	static godot::String message_default() { return "hello"; }
 
 	godot::String get_script_path() const;
+	int64_t method_argument_count(const godot::StringName &p_method, bool &r_valid) const;
+
+	// GDScript constructs scripts of other languages through a bound `new`, and
+	// checks it as the static `_init` (modules/gdscript/gdscript_analyzer.cpp:5958-5961).
+	godot::Variant _new(const godot::Variant **p_args, GDExtensionInt p_argcount, GDExtensionCallError &r_error);
 
 	void set_source(const godot::String &p_source);
 	void instance_freed(PetInstance *p_instance);

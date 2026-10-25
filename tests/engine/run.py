@@ -4,8 +4,9 @@ Usage:
     scons target=editor && scons target=template_debug
     python tests/engine/run.py <godot editor binary>    (or set GODOT)
 
-Checks the game run, the editor side (placeholders, saving) and an exported
-pack run in a directory without sources.
+Checks the game run, the editor side (placeholders, saving, the undo probe), the
+other step-2 probes of the architecture, and an exported pack run in a
+directory without sources.
 """
 
 import os
@@ -64,6 +65,9 @@ def main():
 
     code, output = run(godot, "-e", "--path", str(PROJECT), "--", "--editor-checks")
     expect_run("editor checks", code, output, ["editor check: 0 failure(s)"])
+
+    code, output = run(godot, "--path", str(PROJECT), "res://probes/probes.tscn")
+    expect_run("probes", code, output, ["probe: 0 failure(s)"])
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
