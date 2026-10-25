@@ -24,11 +24,23 @@ void destroy_slots(uint8_t *p_base, const std::vector<bytecode::Slot> &p_slots);
 
 void copy_value(bytecode::ValueType p_type, uint8_t *p_dst, const uint8_t *p_src);
 godot::Variant to_variant(bytecode::ValueType p_type, const uint8_t *p_slot);
-// Entry check (spec §10.1): stores the value when its type fits. An object
-// must also have `p_class`, when one is given, and may be None only when
-// `p_nullable`; a freed object is accepted as it is (spec §3.3). A Variant
-// slot with `p_option` holds None or a value of that type.
-bool from_variant(bytecode::ValueType p_type, const godot::Variant &p_value, uint8_t *p_slot, const godot::StringName &p_class = godot::StringName(), bool p_nullable = true, bytecode::ValueType p_option = bytecode::ValueType::Void);
+// What an entry check asks of a value beyond its slot type (spec §10.1).
+struct ValueCheck {
+	godot::StringName class_name; // Object: its class; Array: the class of object elements.
+	bool nullable = true; // Object: may be None.
+	bytecode::ValueType option = bytecode::ValueType::Void; // Variant: None or a value of this type.
+	bytecode::ValueType element = bytecode::ValueType::Void; // Array: typed with this element type.
+
+	ValueCheck() = default;
+	// From a slot or a member of a module.
+	template <typename T>
+	explicit ValueCheck(const T &p_slot) :
+			class_name(godot::String::utf8(p_slot.class_name.c_str())), nullable(p_slot.type != bytecode::ValueType::Object || p_slot.nullable), option(p_slot.option), element(p_slot.element) {}
+};
+
+// Entry check: stores the value when its type fits the slot and `p_check`. A
+// freed object is accepted as it is (spec §3.3).
+bool from_variant(bytecode::ValueType p_type, const godot::Variant &p_value, uint8_t *p_slot, const ValueCheck &p_check = ValueCheck());
 godot::Variant default_variant(bytecode::ValueType p_type);
 godot::Variant::Type variant_type(bytecode::ValueType p_type);
 

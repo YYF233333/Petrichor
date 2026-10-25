@@ -15,6 +15,7 @@ struct TypeRef {
 	int line = 0;
 	int column = 0;
 	bool nullable = false; // `T?` (spec §3.3, §3.4).
+	std::vector<TypeRef> args; // `Array[T]`.
 };
 
 enum class ExprKind {
@@ -30,6 +31,8 @@ enum class ExprKind {
 	Member, // `base.text`
 	GetNode, // `$Head/Camera` or `$"Head/Camera"`; the path in `text`.
 	Cast, // `left as cast_type` (spec §5.3).
+	ArrayLiteral, // `[a, b]`; the elements in `args`.
+	Subscript, // `base[right]`.
 };
 
 // What a name, a member access or a call refers to, decided by the checker.
@@ -82,6 +85,7 @@ struct Expr {
 	bool is_vararg = false;
 	bool is_const = true;              // Built-in methods that do not change their base.
 	Type engine_return;                // Variant where the engine returns a Variant.
+	std::vector<Type> engine_params;   // Built-in methods: the engine's parameter types.
 	std::string owner;                 // The type a field, constant, method or constructor belongs to.
 };
 
@@ -118,6 +122,7 @@ struct Stmt {
 	// Filled by the checker.
 	int local = -1; // Var and For: the declared local.
 	Type compound_result; // Assign with a compound operator: the type of `target op value`.
+	Type element; // For: the type of what is iterated over, before it goes into the variable.
 };
 
 using Block = std::vector<std::unique_ptr<Stmt>>;

@@ -131,28 +131,28 @@ Variant to_variant(ValueType p_type, const uint8_t *p_slot) {
 	return result;
 }
 
-bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, const StringName &p_class, bool p_nullable, ValueType p_option) {
+bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, const ValueCheck &p_check) {
 	const Variant::Type have = p_value.get_type();
 	switch (p_type) {
 		case ValueType::Void:
 			return true;
 		case ValueType::Variant:
-			if (p_option != ValueType::Void && !is_none(p_value)) {
+			if (p_check.option != ValueType::Void && !is_none(p_value)) {
 				// T? of a value type holds a T, converted as for a T slot.
 				alignas(16) uint8_t storage[64];
-				construct_value(p_option, storage);
-				const bool ok = from_variant(p_option, p_value, storage);
+				construct_value(p_check.option, storage);
+				const bool ok = from_variant(p_check.option, p_value, storage);
 				if (ok) {
-					variant_at(p_slot) = to_variant(p_option, storage);
+					variant_at(p_slot) = to_variant(p_check.option, storage);
 				}
-				destroy_value(p_option, storage);
+				destroy_value(p_check.option, storage);
 				return ok;
 			}
-			variant_at(p_slot) = p_option != ValueType::Void ? Variant() : p_value; // None in one form.
+			variant_at(p_slot) = p_check.option != ValueType::Void ? Variant() : p_value; // None in one form.
 			return true;
 		case ValueType::Object:
 			if (is_none(p_value)) {
-				if (!p_nullable) {
+				if (!p_check.nullable) {
 					return false;
 				}
 				variant_at(p_slot) = Variant(); // None in one form.
@@ -161,14 +161,25 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 			if (have != Variant::OBJECT) {
 				return false;
 			}
-			if (p_value.booleanize() && p_class != StringName()) {
+			if (p_value.booleanize() && p_check.class_name != StringName()) {
 				const Object *object = p_value;
-				if (!object || !object->is_class(p_class)) {
+				if (!object || !object->is_class(p_check.class_name)) {
 					return false;
 				}
 			}
 			variant_at(p_slot) = p_value;
 			return true;
+		case ValueType::Array:
+			if (p_check.element != ValueType::Void && have == Variant::ARRAY) {
+				// Array[T] is the engine's array typed with T, and does not vary
+				// with T (spec §3.8).
+				const Array array = p_value;
+				if (!array.is_typed() || array.get_typed_builtin() != int64_t(variant_type(p_check.element)) ||
+						(p_check.element == ValueType::Object && array.get_typed_class_name() != p_check.class_name)) {
+					return false;
+				}
+			}
+			break;
 		case ValueType::Bool:
 		case ValueType::Int:
 			if (have != variant_type(p_type)) {

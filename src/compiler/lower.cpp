@@ -47,8 +47,18 @@ bytecode::Slot slot_of(const std::string &p_name, const Type &p_type) {
 	} else if (p_type.kind == TypeKind::Option) {
 		slot.nullable = true;
 		slot.option = value_type(p_type.args[0]);
+	} else if (p_type.kind == TypeKind::Builtin && !p_type.args.empty()) {
+		// Array[T].
+		slot.element = value_type(p_type.args[0]);
+		if (p_type.args[0].kind == TypeKind::Object) {
+			slot.class_name = p_type.args[0].name;
+		}
 	}
 	return slot;
+}
+
+bool is_typed_array(const Type &p_type) {
+	return p_type.kind == TypeKind::Builtin && p_type.name == "Array" && !p_type.args.empty();
 }
 
 bool is_8_byte(ValueType p_type) {
@@ -404,10 +414,72 @@ class Lowerer {
 		return args;
 	}
 
+	/* Arrays */
+
+	void new_array(uint32_t p_dst, const bytecode::Slot &p_type) {
+		const uint32_t class_operand = p_type.element == ValueType::Object ? class_index(p_type.class_name) : bytecode::NO_SLOT;
+		instr(Op::NEW_ARRAY, p_dst, NO_REG, NO_REG, class_operand, p_type.element);
+	}
+
+	// A method of a built-in type by name, as the engine declares it.
+	uint32_t engine_builtin_method(ValueType p_base, const char *p_method, std::vector<ValueType> p_params, ValueType p_return) {
+		const builtin::Class *type = builtin::find_class(bytecode::value_type_name(p_base));
+		const builtin::Method *method = type ? builtin::find_method(*type, p_method) : nullptr;
+		bytecode::BuiltinMethodCall call;
+		call.base = p_base;
+		call.method = p_method;
+		call.hash = method ? method->hash : 0;
+		call.params = std::move(p_params);
+		call.return_type = p_return;
+		call.result_type = p_return;
+		return builtin_method(call);
+	}
+
+	uint32_t size_of(uint32_t p_container) {
+		ir::Instr i;
+		i.op = Op::CALL_BUILTIN;
+		i.imm = engine_builtin_method(reg_type(p_container), "size", {}, ValueType::Int);
+		i.base = p_container;
+		i.dst = temp(ValueType::Int);
+		add(i);
+		return i.dst;
+	}
+
+	// An element is checked as it is read: the engine's arrays can hold null
+	// where T is not nullable (spec §3.8).
+	uint32_t get_index(uint32_t p_container, uint32_t p_index, const Type &p_element) {
+		const uint32_t result = temp(p_element);
+		instr(Op::GET_INDEX, result, p_container, p_index);
+		if (p_element.kind == TypeKind::Object && !p_element.nullable) {
+			instr(Op::CHECK_OBJECT, NO_REG, result, NO_REG, class_index(p_element.name));
+		}
+		return result;
+	}
+
+	uint32_t array_literal(const Expr &p_expr) {
+		const uint32_t result = temp(p_expr.type);
+		new_array(result, fn.regs[result]);
+		const uint32_t append = engine_builtin_method(ValueType::Array, "append", { ValueType::Variant }, ValueType::Void);
+		for (size_t e = 0; e < p_expr.args.size(); e++) {
+			ir::Instr i;
+			i.op = Op::CALL_BUILTIN;
+			i.imm = append;
+			i.base = result;
+			i.args = { argument(*p_expr.args[e], p_expr.param_types[e]) };
+			add(i);
+		}
+		return result;
+	}
+
 	/* Expressions */
 
 	uint32_t default_value(uint32_t p_dst) {
 		const ValueType type = reg_type(p_dst);
+		if (fn.regs[p_dst].element != ValueType::Void) {
+			// An empty Array[T] is typed too.
+			new_array(p_dst, fn.regs[p_dst]);
+			return p_dst;
+		}
 		switch (type) {
 			case ValueType::Int:
 				instr(Op::CONST_INT, p_dst, NO_REG, NO_REG, add_constant(bytecode::Constant{ ValueType::Int }));
@@ -594,7 +666,7 @@ class Lowerer {
 				method.base = reg_type(i.base);
 				method.method = p_call.text;
 				method.hash = p_call.hash;
-				method.params = value_types(p_call.param_types);
+				method.params = value_types(p_call.engine_params);
 				method.return_type = value_type(p_call.engine_return);
 				method.result_type = value_type(p_call.type);
 				i.imm = builtin_method(method);
@@ -610,6 +682,10 @@ class Lowerer {
 		add(i);
 		if (written_back) {
 			store(*written_back, i.base);
+		}
+		if (p_call.target == Target::BuiltinMethod && p_call.type.kind == TypeKind::Object && !p_call.type.nullable) {
+			// An element of Array[T], which the engine may hold as null.
+			instr(Op::CHECK_OBJECT, NO_REG, i.dst, NO_REG, class_index(p_call.type.name));
 		}
 		return i.dst;
 	}
@@ -672,6 +748,12 @@ class Lowerer {
 				return call(p_expr);
 			case ExprKind::GetNode:
 				return get_node(p_expr);
+			case ExprKind::ArrayLiteral:
+				return array_literal(p_expr);
+			case ExprKind::Subscript: {
+				const uint32_t container = lower_expr(*p_expr.base);
+				return get_index(container, lower_expr(*p_expr.right), p_expr.type);
+			}
 			case ExprKind::Cast: {
 				const uint32_t value = lower_expr(*p_expr.left);
 				if (!p_expr.type.nullable) {
@@ -866,10 +948,13 @@ class Lowerer {
 				return;
 			}
 			case StmtKind::For: {
-				// Counts from 0 up to the value as it was on entry; the loop
-				// variable gets the count afresh on each iteration.
-				const uint32_t limit = temp(ValueType::Int);
-				move(limit, lower_expr(*p_stmt.value));
+				// Counts from 0 up to the int as it was on entry, or over the
+				// container as it was on entry, by index and up to its current
+				// size, as GDScript does. The loop variable gets the count or the
+				// element afresh on each iteration.
+				const bool counting = p_stmt.value->type.kind == TypeKind::Int;
+				const uint32_t source = temp(p_stmt.value->type);
+				move(source, lower_expr(*p_stmt.value));
 				const uint32_t counter = temp(ValueType::Int);
 				instr(Op::CONST_INT, counter, NO_REG, NO_REG, add_constant(bytecode::Constant{ ValueType::Int }));
 				const uint32_t condition_block = new_block();
@@ -878,11 +963,12 @@ class Lowerer {
 				const uint32_t end_block = new_block();
 				jump(condition_block);
 				current = condition_block;
+				const uint32_t limit = counting ? source : size_of(source);
 				const uint32_t more = temp(ValueType::Bool);
 				instr(Op::LT_INT, more, counter, limit);
 				branch(more, body_block, end_block);
 				current = body_block;
-				move(uint32_t(p_stmt.local), counter);
+				move(uint32_t(p_stmt.local), counting ? counter : get_index(source, counter, p_stmt.element));
 				loops.push_back({ step_block, end_block });
 				lower_block(p_stmt.body);
 				loops.pop_back();
@@ -953,11 +1039,16 @@ class Lowerer {
 		decl = nullptr;
 		for (size_t m = 0; m < cls.members.size(); m++) {
 			const VarDecl &member = cls.members[m];
-			if (!member.initializer || member.literal_initializer) {
+			if (member.literal_initializer || (!member.initializer && !is_typed_array(member.type))) {
 				continue;
 			}
 			any = true;
 			instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(member.line));
+			if (!member.initializer) {
+				// An empty Array[T] is typed too.
+				store_member(uint32_t(m), default_value(temp(member.type)));
+				continue;
+			}
 			store_member(uint32_t(m), convert(lower_expr(*member.initializer), member.type));
 		}
 		finish();

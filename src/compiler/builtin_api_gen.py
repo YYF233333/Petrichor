@@ -50,7 +50,7 @@ def generate(json_path, out_path):
 
     def argument_rows(items):
         return [
-            f"{_c_string(a['name'])}, {_c_string(a['type'])}, {_bool('default_value' in a)}"
+            f"{_c_string(a['name'])}, {_c_string(a['type'])}, {_bool('default_value' in a)}, {_c_string(a.get('default_value', ''))}"
             for a in items or []
         ]
 

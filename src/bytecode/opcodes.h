@@ -70,6 +70,8 @@ namespace petrichor::bytecode {
 	X(CAST_OBJECT, 3) /* class, dst, src: `as`, None if it fails */  \
 	X(TO_VARIANT, 3) /* type, dst (Variant), src */                  \
 	X(UNWRAP, 4) /* type, dst, src, message (NO_SLOT: default) */    \
+	X(NEW_ARRAY, 3) /* element type (Void: untyped), class, dst */   \
+	X(GET_INDEX, 5) /* base type, element type, dst, base, index */  \
 	X(JUMP, 1)                                                       \
 	X(JUMP_IF_FALSE, 2)                                              \
 	X(JUMP_IF_TRUE, 2)                                               \

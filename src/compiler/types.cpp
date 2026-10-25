@@ -33,6 +33,15 @@ std::string Type::to_string() const {
 			return nullable ? name + "?" : name;
 		case TypeKind::Option:
 			return (args.empty() ? std::string("<error>") : args[0].to_string()) + "?";
+		case TypeKind::Builtin:
+			if (!args.empty()) {
+				std::string text = name + "[";
+				for (size_t i = 0; i < args.size(); i++) {
+					text += (i > 0 ? ", " : "") + args[i].to_string();
+				}
+				return text + "]";
+			}
+			return name;
 		case TypeKind::Unsupported:
 			return name;
 		default:
@@ -69,7 +78,14 @@ Type api_type(const std::string &p_name, bool p_object_nullable) {
 		return Type::of(TypeKind::Variant);
 	}
 	if (p_name.rfind("typedarray::", 0) == 0) {
-		return Type::builtin("Array"); // Element types come with containers (spec §3.8).
+		// The engine's typed array, whose elements are checked as they are read
+		// (spec §3.8); hint forms such as "24/17:Mesh" stay untyped for now.
+		const std::string element = p_name.substr(12);
+		Type array = Type::builtin("Array");
+		if (element.find_first_of(":/") == std::string::npos) {
+			array.args.push_back(api_type(element, false));
+		}
+		return array;
 	}
 	if (builtin::find_class(p_name)) {
 		return Type::builtin(p_name);

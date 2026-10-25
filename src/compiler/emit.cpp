@@ -135,6 +135,18 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 					put(offset_of(instr.dst));
 					put(offset_of(instr.a));
 					break;
+				case Op::NEW_ARRAY:
+					put(uint32_t(instr.type));
+					put(instr.imm);
+					put(offset_of(instr.dst));
+					break;
+				case Op::GET_INDEX:
+					put(uint32_t(p_function.regs[instr.a].type));
+					put(uint32_t(p_function.regs[instr.dst].type));
+					put(offset_of(instr.dst));
+					put(offset_of(instr.a));
+					put(offset_of(instr.b));
+					break;
 				case Op::TO_VARIANT:
 					put(uint32_t(instr.type));
 					put(offset_of(instr.dst));

@@ -52,6 +52,8 @@ enum class TokenKind {
 	Period,
 	ParenOpen,
 	ParenClose,
+	BracketOpen,
+	BracketClose,
 	Arrow,
 	Plus,
 	Minus,
@@ -86,8 +88,8 @@ struct Token {
 };
 
 // Indentation follows GDScript: a block is opened by a deeper indentation and
-// closed by returning to an outer one; line breaks inside parentheses are
-// ignored. A file indents with tabs or with spaces, not both.
+// closed by returning to an outer one; line breaks inside parentheses and
+// brackets are ignored. A file indents with tabs or with spaces, not both.
 std::vector<Token> tokenize(const std::string &p_source, std::vector<Diagnostic> &r_errors);
 
 } // namespace petrichor::compiler

@@ -18,6 +18,8 @@ struct Argument {
 	const char *name;
 	const char *type;
 	bool has_default;
+	// As GDScript source, such as `true`, `""` or `Vector3(0, 1, 0)`.
+	const char *default_value;
 };
 
 struct Method {

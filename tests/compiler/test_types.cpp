@@ -100,6 +100,48 @@ TEST_CASE("T? of a value type is an Option (spec §3.4)") {
 	CHECK(has_error("extends Node\n\nfunc f() -> void?:\n\tpass\n", "void cannot be optional"));
 }
 
+TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec §3.8)") {
+	const char *ints = "var a: Array[int] = [1, 2]";
+	CHECK(errors_of(in_function("var a: Array[int] = []\na.append(1)\nvar f: Array[float] = [1, 2.5]\nvar u: Array = []")).empty());
+	CHECK(type_of("a[0]", ints) == "int");
+	CHECK(type_of("a[-1] + a.front() + a.back() + a.size()", ints) == "int");
+	CHECK(type_of("a.pop_front()", ints) == "int?");
+	CHECK(type_of("a.pop_back().unwrap()", ints) == "int");
+	CHECK(type_of("a.duplicate()", ints) == "Array[int]");
+	CHECK(type_of("n[0]", "var n: Array[Node] = []") == "Node");
+	CHECK(type_of("n.pop_back()", "var n: Array[Node] = []") == "Node?");
+	CHECK(type_of("n[0]", "var n: Array[Node?] = []") == "Node?");
+	CHECK(has_error(in_function(std::string(ints) + "\na.append(\"x\")"), "Cannot pass a value of type String as int"));
+	CHECK(has_error(in_function(std::string(ints) + "\nvar f: Array[float] = a"), "Cannot assign a value of type Array[int] as Array[float]"));
+	CHECK(has_error(in_function("var a: Array[int] = [1, 2.5]"), "Cannot put a value of type float in Array[int]"));
+	CHECK(has_error(in_function("var a = []"), "An empty array needs a declared type"));
+	CHECK(type_of("a[\"x\"]", ints).find("An index must be int, found String") != std::string::npos);
+	CHECK(type_of("u[0]", "var u: Array = []").find("untyped Array are Variant") != std::string::npos);
+	CHECK(type_of("v[0]", "var v := Vector3()").find("Vector3 cannot be indexed") != std::string::npos);
+	CHECK(has_error(in_function("var a: Array[int?] = []"), "Arrays of int? are not supported yet"));
+	CHECK(has_error(in_function("var d: Dictionary[String, int]"), "Dictionary[K, V] is not supported yet"));
+}
+
+TEST_CASE("a built-in method's default values are passed as the engine declares them") {
+	CHECK(type_of("Vector3.ONE.limit_length()") == "Vector3"); // length: float = 1.0
+	CHECK(type_of("\"a,b\".split(\",\")") == "PackedStringArray"); // allow_empty = true, maxsplit = 0
+	CHECK(type_of("\"a\".split()") == "PackedStringArray"); // delimiter = ""
+}
+
+TEST_CASE("packed arrays are indexed by their element type") {
+	CHECK(type_of("\"a,b\".split(\",\")[1]") == "String");
+	CHECK(type_of("p[0]", "var p := PackedVector3Array()") == "Vector3");
+}
+
+// Spec §5.7.
+TEST_CASE("for over an array") {
+	CHECK(errors_of(in_function("var a: Array[int] = [1, 2]\nvar total := 0\nfor x in a:\n\ttotal += x")).empty());
+	CHECK(errors_of(in_function("var a: Array[Node3D] = []\nfor n: Node in a:\n\tn.queue_free()")).empty());
+	CHECK(has_error(in_function("var a: Array[Node] = []\nfor n: Node3D in a:\n\tpass"), "The elements are Node, which the loop variable of type Node3D cannot hold."));
+	CHECK(errors_of(in_function("for s in \"a,b\".split(\",\"):\n\tprint(s)")).empty());
+	CHECK(has_error(in_function("var u: Array = []\nfor x in u:\n\tpass"), "untyped Array are Variant"));
+}
+
 TEST_CASE("as converts objects to T? (spec §5.3)") {
 	const char *setup = "var n: Node = Node3D.new()";
 	CHECK(type_of("n as Node3D", setup) == "Node3D?");

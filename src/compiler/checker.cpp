@@ -1,6 +1,7 @@
 #include "compiler/checker.h"
 
 #include "compiler/builtin_api.h"
+#include "compiler/parser.h"
 
 #include <unordered_map>
 #include <unordered_set>
@@ -102,6 +103,53 @@ bool is_shared(const Type &p_type) {
 	return p_type.kind == TypeKind::Builtin && (p_type.name == "Array" || p_type.name == "Dictionary");
 }
 
+// The elements of a value that can be indexed and iterated (spec §3.8, §5.7);
+// Variant for an untyped Array.
+std::optional<Type> element_of(const Type &p_type) {
+	if (p_type.kind != TypeKind::Builtin) {
+		return std::nullopt;
+	}
+	if (p_type.name == "Array") {
+		return p_type.args.empty() ? Type::of(TypeKind::Variant) : p_type.args[0];
+	}
+	static const std::unordered_map<std::string, Type> packed = {
+		{ "PackedByteArray", Type::of(TypeKind::Int) },
+		{ "PackedInt32Array", Type::of(TypeKind::Int) },
+		{ "PackedInt64Array", Type::of(TypeKind::Int) },
+		{ "PackedFloat32Array", Type::of(TypeKind::Float) },
+		{ "PackedFloat64Array", Type::of(TypeKind::Float) },
+		{ "PackedStringArray", Type::of(TypeKind::String) },
+		{ "PackedVector2Array", Type::builtin("Vector2") },
+		{ "PackedVector3Array", Type::builtin("Vector3") },
+		{ "PackedColorArray", Type::builtin("Color") },
+		{ "PackedVector4Array", Type::builtin("Vector4") },
+	};
+	const auto found = packed.find(p_type.name);
+	return found == packed.end() ? std::nullopt : std::optional<Type>(found->second);
+}
+
+// T? of a type: nullable for an object, an Option otherwise.
+Type optional_of(const Type &p_type) {
+	if (p_type.kind == TypeKind::Object) {
+		return Type::object(p_type.name, true);
+	}
+	return Type::option(p_type);
+}
+
+// Gives an expression made by the compiler the position of the code it belongs to.
+void relocate(Expr &r_expr, int p_line, int p_column) {
+	r_expr.line = p_line;
+	r_expr.column = p_column;
+	for (Expr *child : { r_expr.left.get(), r_expr.right.get(), r_expr.base.get() }) {
+		if (child) {
+			relocate(*child, p_line, p_column);
+		}
+	}
+	for (auto &arg : r_expr.args) {
+		relocate(*arg, p_line, p_column);
+	}
+}
+
 bool is_literal(const Expr &p_expr) {
 	switch (p_expr.kind) {
 		case ExprKind::IntLiteral:
@@ -162,6 +210,9 @@ class Checker {
 	}
 
 	Type resolve_name(const TypeRef &p_ref, bool p_allow_void) {
+		if (!p_ref.args.empty()) {
+			return resolve_generic(p_ref);
+		}
 		if (p_ref.name == "void") {
 			if (p_allow_void) {
 				return Type::of(TypeKind::Void);
@@ -181,6 +232,33 @@ class Checker {
 		}
 		error(p_ref.line, p_ref.column, "Unknown type \"" + p_ref.name + "\".");
 		return Type::of(TypeKind::Error);
+	}
+
+	// `Array[T]`, the engine's typed array (spec §3.8).
+	Type resolve_generic(const TypeRef &p_ref) {
+		if (p_ref.name == "Dictionary") {
+			error(p_ref.line, p_ref.column, "Dictionary[K, V] is not supported yet.");
+			return Type::of(TypeKind::Error);
+		}
+		if (p_ref.name != "Array") {
+			error(p_ref.line, p_ref.column, p_ref.name + " takes no type arguments.");
+			return Type::of(TypeKind::Error);
+		}
+		if (p_ref.args.size() != 1) {
+			error(p_ref.line, p_ref.column, "Array takes one element type.");
+			return Type::of(TypeKind::Error);
+		}
+		const TypeRef &element_ref = p_ref.args[0];
+		const Type element = resolve(element_ref, false);
+		if (element.is_error()) {
+			return element;
+		}
+		// The engine types an array with one built-in type or one class.
+		if (element.kind == TypeKind::Option || !element.args.empty()) {
+			error(element_ref.line, element_ref.column, "Arrays of " + element.to_string() + " are not supported yet.");
+			return Type::of(TypeKind::Error);
+		}
+		return Type::array(element);
 	}
 
 	/* Expressions */
@@ -481,8 +559,8 @@ class Checker {
 		}
 		for (int i = 0; i < count; i++) {
 			Expr &arg = *r_call.args[i];
-			const Type arg_type = check_value(arg);
 			const Type param = i < max ? p_params[i] : Type::of(TypeKind::Variant);
+			const Type arg_type = check_value(arg, param);
 			r_call.param_types.push_back(param);
 			if (!assignable(arg_type, param)) {
 				report_argument(arg, arg_type, param);
@@ -645,6 +723,30 @@ class Checker {
 		return set(r_expr, api_type(p_type.name, false));
 	}
 
+	// The engine binds Array's methods with Variant; for Array[T], the values
+	// are elements of type T (spec §3.8). pop_front(), pop_back() and pop_at()
+	// give T?, since the engine returns null on an empty array
+	// (core/variant/array.cpp:781-800).
+	static void element_typed(const std::string &p_method, const Type &p_array, std::vector<Type> &r_params, Type &r_result) {
+		const Type &element = p_array.args[0];
+		if (p_method == "reduce") {
+			return; // The accumulator is not an element.
+		}
+		for (Type &param : r_params) {
+			if (param.kind == TypeKind::Variant) {
+				param = element;
+			} else if (param == Type::builtin("Array") && (p_method == "append_array" || p_method == "assign")) {
+				param = p_array;
+			}
+		}
+		if (r_result.kind == TypeKind::Variant) {
+			const bool pops = p_method == "pop_front" || p_method == "pop_back" || p_method == "pop_at";
+			r_result = pops ? optional_of(element) : element;
+		} else if (r_result == Type::builtin("Array") && (p_method == "duplicate" || p_method == "slice" || p_method == "filter")) {
+			r_result = p_array;
+		}
+	}
+
 	Type check_builtin_method(Expr &r_expr, const Type &p_base) {
 		const std::string base_name = p_base.builtin_name();
 		const builtin::Class *type = builtin::find_class(base_name);
@@ -665,15 +767,25 @@ class Checker {
 			params.push_back(param);
 			required += method->arguments[i].has_default ? 0 : 1;
 		}
-		if (int(r_expr.args.size()) != int(params.size())) {
-			// Default values of built-in methods are not passed yet.
-			if (int(r_expr.args.size()) >= required && int(r_expr.args.size()) < int(params.size())) {
-				return fail(r_expr, "\"" + r_expr.text + "()\" needs all of its " + std::to_string(params.size()) + " arguments so far.");
+		// The engine's default values are source, such as `true` or
+		// `Vector3(0, 1, 0)`, checked and passed as if written at the call.
+		for (size_t i = r_expr.args.size(); int(r_expr.args.size()) >= required && i < params.size(); i++) {
+			std::vector<Diagnostic> ignored;
+			std::unique_ptr<Expr> value = parse_expression(method->arguments[i].default_value, ignored);
+			if (!value) {
+				return fail(r_expr, "The default value of \"" + std::string(method->arguments[i].name) + "\" of \"" + r_expr.text + "()\" is not supported yet; pass it.");
 			}
+			relocate(*value, r_expr.line, r_expr.column);
+			r_expr.args.push_back(std::move(value));
 		}
-		const Type result = api_type(method->return_type, true);
+		Type result = api_type(method->return_type, true);
 		if (result.kind == TypeKind::Object || result.kind == TypeKind::Unsupported) {
 			return fail(r_expr, "\"" + r_expr.text + "()\" returns " + result.to_string() + ", which is not supported yet.");
+		}
+		r_expr.engine_params = params;
+		r_expr.engine_return = result;
+		if (base_name == "Array" && !p_base.args.empty()) {
+			element_typed(r_expr.text, p_base, params, result);
 		}
 		// A method that changes a value changes it where it came from, which
 		// must be a place that can be written; Array and Dictionary are shared
@@ -694,7 +806,6 @@ class Checker {
 		r_expr.owner = base_name;
 		r_expr.hash = method->hash;
 		r_expr.is_const = method->is_const;
-		r_expr.engine_return = result;
 		return set(r_expr, result);
 	}
 
@@ -718,6 +829,51 @@ class Checker {
 			return fail(r_expr, name + "() of " + p_base.to_string() + " is not supported yet.");
 		}
 		return fail(r_expr, "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
+	}
+
+	Type check_subscript(Expr &r_expr) {
+		const Type base = check_value(*r_expr.base);
+		const Type index = check_value(*r_expr.right);
+		if (base.is_error() || index.is_error()) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		if (base.is_optional()) {
+			return fail(r_expr, "The value may be None (" + base.to_string() + "); check it before indexing it.");
+		}
+		const std::optional<Type> element = element_of(base);
+		if (!element) {
+			return fail(r_expr, "Values of type " + base.to_string() + " cannot be indexed" + (base.name == "Dictionary" || base.kind == TypeKind::String ? " yet." : "."));
+		}
+		if (index.kind != TypeKind::Int) {
+			return fail(*r_expr.right, "An index must be int, found " + index.to_string() + ".");
+		}
+		if (element->kind == TypeKind::Variant) {
+			return fail(r_expr, "The elements of an untyped Array are Variant, which is not supported yet; declare it as Array[T].");
+		}
+		return set(r_expr, *element);
+	}
+
+	// `[a, b]` takes its type from where it goes (spec §4.3).
+	Type check_array_literal(Expr &r_expr, const Type &p_expected) {
+		const Type expected = p_expected.kind == TypeKind::Option ? p_expected.args[0] : p_expected;
+		if (expected.kind != TypeKind::Builtin || expected.name != "Array") {
+			for (auto &arg : r_expr.args) {
+				check_value(*arg);
+			}
+			if (r_expr.args.empty()) {
+				return fail(r_expr, "An empty array needs a declared type, for example var a: Array[int] = [].");
+			}
+			return fail(r_expr, "An array literal needs a declared type for now, for example var a: Array[int] = [1, 2].");
+		}
+		const Type element = expected.args.empty() ? Type::of(TypeKind::Variant) : expected.args[0];
+		for (auto &arg : r_expr.args) {
+			const Type type = check_value(*arg, element);
+			r_expr.param_types.push_back(element);
+			if (!assignable(type, element)) {
+				error(arg->line, arg->column, "Cannot put a value of type " + type.to_string() + " in " + expected.to_string() + ".");
+			}
+		}
+		return set(r_expr, expected);
 	}
 
 	// `x as T` (spec §5.3).
@@ -836,7 +992,9 @@ class Checker {
 		return set(r_expr, Type::of(TypeKind::Error));
 	}
 
-	Type check_expr(Expr &r_expr) {
+	// `p_expected` is the type the value goes to, if known; only array literals
+	// take their type from it.
+	Type check_expr(Expr &r_expr, const Type &p_expected = Type::of(TypeKind::Error)) {
 		switch (r_expr.kind) {
 			case ExprKind::IntLiteral:
 				if (r_expr.int_overflows) {
@@ -865,13 +1023,17 @@ class Checker {
 				return check_get_node(r_expr);
 			case ExprKind::Cast:
 				return check_cast(r_expr);
+			case ExprKind::ArrayLiteral:
+				return check_array_literal(r_expr, p_expected);
+			case ExprKind::Subscript:
+				return check_subscript(r_expr);
 		}
 		return set(r_expr, Type::of(TypeKind::Error));
 	}
 
 	// Checks an expression whose value is stored, passed or returned.
-	Type check_value(Expr &r_expr) {
-		const Type type = check_expr(r_expr);
+	Type check_value(Expr &r_expr, const Type &p_expected = Type::of(TypeKind::Error)) {
+		const Type type = check_expr(r_expr, p_expected);
 		if (type.kind == TypeKind::Void) {
 			error(r_expr.line, r_expr.column, "This call returns void and has no value.");
 			return Type::of(TypeKind::Error);
@@ -974,7 +1136,7 @@ class Checker {
 		}
 	}
 
-	// `for i in n` (spec §5.7).
+	// `for i in n` and over the elements of an array (spec §5.7).
 	void check_for(Stmt &r_stmt) {
 		const Type iterated = check_value(*r_stmt.value);
 		Type element = Type::of(TypeKind::Error);
@@ -983,9 +1145,16 @@ class Checker {
 			element = iterated;
 		} else if (iterated.kind == TypeKind::Float || (iterated.kind == TypeKind::Builtin && (name == "Vector2" || name == "Vector2i" || name == "Vector3" || name == "Vector3i"))) {
 			error(r_stmt.value->line, r_stmt.value->column, "Cannot iterate over " + iterated.to_string() + "; iterate over range(...) instead.");
+		} else if (const std::optional<Type> elements = element_of(iterated)) {
+			if (elements->kind == TypeKind::Variant) {
+				error(r_stmt.value->line, r_stmt.value->column, "The elements of an untyped Array are Variant, which is not supported yet; declare it as Array[T].");
+			} else {
+				element = *elements;
+			}
 		} else if (!iterated.is_error()) {
 			error(r_stmt.value->line, r_stmt.value->column, "Iterating over " + iterated.to_string() + " is not supported yet.");
 		}
+		r_stmt.element = element;
 		Type type = element;
 		if (r_stmt.declared_type) {
 			const Type declared = resolve(*r_stmt.declared_type, false);
@@ -1012,7 +1181,7 @@ class Checker {
 					type = resolve(*r_stmt.declared_type, false);
 				}
 				if (r_stmt.value) {
-					const Type value = check_value(*r_stmt.value);
+					const Type value = check_value(*r_stmt.value, type);
 					if (r_stmt.declared_type) {
 						expect_assignable(*r_stmt.value, value, type, "assign");
 					} else {
@@ -1035,7 +1204,7 @@ class Checker {
 					check_value(*r_stmt.value);
 					return;
 				}
-				Type value = check_value(*r_stmt.value);
+				Type value = check_value(*r_stmt.value, r_stmt.assign_op == TokenKind::Equal ? target_type : Type::of(TypeKind::Error));
 				if (target_type.is_error() || !check_place(target)) {
 					return;
 				}
@@ -1068,7 +1237,7 @@ class Checker {
 					}
 					return;
 				}
-				const Type value = check_value(*r_stmt.value);
+				const Type value = check_value(*r_stmt.value, expected);
 				if (expected.kind == TypeKind::Void) {
 					error(r_stmt.value->line, r_stmt.value->column, "\"" + function->name + "()\" returns void. Declare its return type, for example -> " + (value.is_error() ? std::string("int") : value.to_string()) + ".");
 					return;
@@ -1136,7 +1305,7 @@ class Checker {
 			}
 			if (member.initializer) {
 				initializing = int(i);
-				const Type value = check_value(*member.initializer);
+				const Type value = check_value(*member.initializer, type);
 				initializing = -1;
 				if (member.declared_type) {
 					expect_assignable(*member.initializer, value, type, "assign");

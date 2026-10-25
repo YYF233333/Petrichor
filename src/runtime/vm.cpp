@@ -377,6 +377,33 @@ public:
 					pc += 4;
 					break;
 				}
+				case Op::NEW_ARRAY: {
+					Array array;
+					const ValueType element = ValueType(code[pc + 1]);
+					if (element != ValueType::Void) {
+						array.set_typed(uint32_t(variant_type(element)), code[pc + 2] == NO_SLOT ? StringName() : image.classes[code[pc + 2]], Variant());
+					}
+					*reinterpret_cast<Array *>(frame + code[pc + 3]) = array;
+					pc += 4;
+					break;
+				}
+				case Op::GET_INDEX: {
+					// A negative index counts from the end, as in GDScript.
+					Variant container = to_variant(ValueType(code[pc + 1]), frame + code[pc + 4]);
+					const int64_t index = I64(code[pc + 5]);
+					bool valid = false;
+					bool out_of_bounds = false;
+					const Variant value = container.get_indexed(index, valid, out_of_bounds);
+					if (!valid || out_of_bounds) {
+						FAIL(vformat("Index %d is out of bounds (size %d).", index, int64_t(container.call("size"))));
+					}
+					const ValueType element = ValueType(code[pc + 2]);
+					if (!from_variant(element, value, frame + code[pc + 3])) {
+						FAIL(vformat("The element is %s, not %s.", Variant::get_type_name(value.get_type()), bytecode::value_type_name(element)));
+					}
+					pc += 6;
+					break;
+				}
 				case Op::TO_VARIANT:
 					variant_at(frame + code[pc + 2]) = to_variant(ValueType(code[pc + 1]), frame + code[pc + 3]);
 					pc += 4;
@@ -524,8 +551,7 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 	construct_slots(frame.data, fn.frame_size, fn.slots);
 	for (size_t i = 0; i < fn.params.size(); i++) {
 		const bytecode::Slot &param = fn.params[i];
-		const StringName param_class = param.type == ValueType::Object ? StringName(String::utf8(param.class_name.c_str())) : StringName();
-		if (!from_variant(param.type, *p_args[i], frame.data + param.offset, param_class, param.nullable, param.option)) {
+		if (!from_variant(param.type, *p_args[i], frame.data + param.offset, ValueCheck(param))) {
 			destroy_slots(frame.data, fn.slots);
 			// The caller reports this with its own call site, as for engine methods.
 			r_error.error = GDEXTENSION_CALL_ERROR_INVALID_ARGUMENT;

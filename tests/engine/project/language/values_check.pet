@@ -80,3 +80,35 @@ pub func optional_name(present: bool) -> String?:
 # `as` (spec §5.3).
 pub func as_node3d(n: Node) -> Node3D?:
 	return n as Node3D
+
+# Array[T] (spec §3.8).
+pub var players: Array[Node3D]
+
+pub func array_sum(values: Array[int]) -> int:
+	var total := 0
+	for v in values:
+		total += v
+	return total
+
+pub func names_of(nodes: Array[Node]) -> String:
+	var text := ""
+	for n in nodes:
+		text += str(n.name)
+	return text
+
+pub func queue_demo() -> String:
+	var queue: Array[String] = []
+	queue.append("a")
+	queue.append("b")
+	var first := queue.pop_front().unwrap()
+	return first + str(queue.size())
+
+pub func element(values: Array[int], index: int) -> int:
+	return values[index]
+
+pub func part(text: String, index: int) -> String:
+	return text.split(",")[index]
+
+pub func literal() -> Array[float]:
+	var values: Array[float] = [1, 2.5]
+	return values

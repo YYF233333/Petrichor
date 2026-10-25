@@ -86,6 +86,10 @@ const char *token_name(TokenKind p_kind) {
 			return "\"(\"";
 		case TokenKind::ParenClose:
 			return "\")\"";
+		case TokenKind::BracketOpen:
+			return "\"[\"";
+		case TokenKind::BracketClose:
+			return "\"]\"";
 		case TokenKind::Arrow:
 			return "\"->\"";
 		case TokenKind::Plus:
@@ -440,6 +444,17 @@ class Lexer {
 					paren_depth--;
 				}
 				one(TokenKind::ParenClose);
+				return;
+			// Line breaks inside brackets are ignored too, as in GDScript.
+			case '[':
+				paren_depth++;
+				one(TokenKind::BracketOpen);
+				return;
+			case ']':
+				if (paren_depth > 0) {
+					paren_depth--;
+				}
+				one(TokenKind::BracketClose);
 				return;
 			case '+':
 				next == '=' ? two(TokenKind::PlusEqual) : one(TokenKind::Plus);

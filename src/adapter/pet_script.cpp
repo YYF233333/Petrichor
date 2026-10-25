@@ -61,11 +61,21 @@ static uint32_t usage_of(bytecode::ValueType p_type, uint32_t p_usage) {
 	return p_type == bytecode::ValueType::Variant ? p_usage | PROPERTY_USAGE_NIL_IS_VARIANT : p_usage;
 }
 
+// Array[T] is the engine's typed array, which it describes with a hint.
+template <typename T>
+static Dictionary typed(Dictionary p_dict, const T &p_slot) {
+	if (p_slot.element != bytecode::ValueType::Void) {
+		p_dict["hint"] = PROPERTY_HINT_ARRAY_TYPE;
+		p_dict["hint_string"] = p_slot.element == bytecode::ValueType::Object ? String::utf8(p_slot.class_name.c_str()) : Variant::get_type_name(variant_type(p_slot.element));
+	}
+	return p_dict;
+}
+
 static Dictionary function_info(const ClassImage &p_image, int p_index) {
 	const bytecode::Function &function = p_image.module.functions[p_index];
 	Array args;
 	for (const bytecode::Slot &param : function.params) {
-		args.push_back(property_dict(variant_type(param.type), String::utf8(param.name.c_str()), usage_of(param.type, PROPERTY_USAGE_DEFAULT), class_of(param.type, param.class_name)));
+		args.push_back(typed(property_dict(variant_type(param.type), String::utf8(param.name.c_str()), usage_of(param.type, PROPERTY_USAGE_DEFAULT), class_of(param.type, param.class_name)), param));
 	}
 	const Dictionary result = property_dict(variant_type(function.return_type), StringName(), usage_of(function.return_type, PROPERTY_USAGE_DEFAULT), class_of(function.return_type, function.return_class));
 	return method_dict(p_image.function_names[p_index], args, result, METHOD_FLAGS_DEFAULT);
@@ -78,7 +88,7 @@ Dictionary property_info(const bytecode::Member &p_member) {
 	if (p_member.is_export) {
 		usage |= PROPERTY_USAGE_DEFAULT;
 	}
-	return property_dict(variant_type(p_member.type), String::utf8(p_member.name.c_str()), usage_of(p_member.type, usage), class_of(p_member.type, p_member.class_name));
+	return typed(property_dict(variant_type(p_member.type), String::utf8(p_member.name.c_str()), usage_of(p_member.type, usage), class_of(p_member.type, p_member.class_name)), p_member);
 }
 
 TypedArray<Dictionary> visible_properties(const ClassImage &p_image) {

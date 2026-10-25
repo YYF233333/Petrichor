@@ -38,7 +38,7 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		const bytecode::Member &member = module.members[i];
 		const StringName name = from_utf8(member.name);
 		image->member_names.push_back(name);
-		image->member_classes.push_back(from_utf8(member.class_name));
+		image->member_checks.push_back(ValueCheck(member));
 		bytecode::Slot slot;
 		slot.name = member.name;
 		slot.type = member.type;
@@ -145,7 +145,7 @@ bool same_constant(const bytecode::Constant &p_a, const bytecode::Constant &p_b)
 }
 
 bool same_slot(const bytecode::Slot &p_a, const bytecode::Slot &p_b) {
-	return p_a.name == p_b.name && p_a.type == p_b.type && p_a.class_name == p_b.class_name && p_a.nullable == p_b.nullable && p_a.option == p_b.option;
+	return p_a.name == p_b.name && p_a.type == p_b.type && p_a.class_name == p_b.class_name && p_a.nullable == p_b.nullable && p_a.option == p_b.option && p_a.element == p_b.element;
 }
 
 template <typename T, typename Same>
@@ -204,7 +204,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	for (size_t i = 0; i < a.members.size(); i++) {
 		const bytecode::Member &x = a.members[i];
 		const bytecode::Member &y = b.members[i];
-		if (x.name != y.name || x.type != y.type || x.offset != y.offset || x.class_name != y.class_name || x.nullable != y.nullable || x.option != y.option ||
+		if (x.name != y.name || x.type != y.type || x.offset != y.offset || x.class_name != y.class_name || x.nullable != y.nullable || x.option != y.option || x.element != y.element ||
 				x.is_pub != y.is_pub || x.is_export != y.is_export || x.has_initial != y.has_initial || !same_constant(x.initial, y.initial)) {
 			return false;
 		}

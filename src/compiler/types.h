@@ -24,12 +24,13 @@ struct Type {
 	TypeKind kind = TypeKind::Error;
 	std::string name; // Builtin: the type, such as Vector3; Object: the class; Unsupported: the engine's name.
 	bool nullable = false; // Object: T? rather than T (spec §3.3).
-	std::vector<Type> args; // Option: the value type inside.
+	std::vector<Type> args; // Option: the value type inside; Array: the element type, if typed.
 
 	static Type of(TypeKind p_kind) { return Type{ p_kind, std::string(), false, {} }; }
 	static Type builtin(const std::string &p_name) { return Type{ TypeKind::Builtin, p_name, false, {} }; }
 	static Type object(const std::string &p_class, bool p_nullable = false) { return Type{ TypeKind::Object, p_class, p_nullable, {} }; }
 	static Type option(const Type &p_inner) { return Type{ TypeKind::Option, std::string(), false, { p_inner } }; }
+	static Type array(const Type &p_element) { return Type{ TypeKind::Builtin, "Array", false, { p_element } }; }
 
 	bool operator==(const Type &p_other) const { return kind == p_other.kind && name == p_other.name && nullable == p_other.nullable && args == p_other.args; }
 	bool operator!=(const Type &p_other) const { return !(*this == p_other); }

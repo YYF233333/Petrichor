@@ -87,6 +87,9 @@ struct Slot {
 	bool nullable = false;  // Object: the value may be None.
 	// Variant: holds T? of a value type, None or a value of this type (spec §3.4).
 	ValueType option = ValueType::Void;
+	// Array: typed with this element type (spec §3.8); class_name has the class
+	// of object elements.
+	ValueType element = ValueType::Void;
 };
 
 struct Member {
@@ -96,6 +99,7 @@ struct Member {
 	std::string class_name;
 	bool nullable = false;
 	ValueType option = ValueType::Void; // As in Slot.
+	ValueType element = ValueType::Void; // As in Slot.
 	bool is_pub = false;
 	bool is_export = false;
 	// A literal initial value; other initializers run in the module's init function.

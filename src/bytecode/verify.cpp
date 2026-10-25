@@ -28,6 +28,16 @@ bool is_native(ValueType p_type) {
 	return p_type != ValueType::Void && p_type != ValueType::Object && p_type != ValueType::Variant && p_type < ValueType::Count;
 }
 
+// What a typed array can hold.
+bool is_element(ValueType p_type) {
+	return p_type == ValueType::Object || is_native(p_type);
+}
+
+// What GET_INDEX reads from.
+bool is_indexable(ValueType p_type) {
+	return p_type == ValueType::Array || p_type == ValueType::String || (p_type >= ValueType::PackedByteArray && p_type <= ValueType::PackedVector4Array);
+}
+
 class Verifier {
 	const Module &module;
 	std::string &error;
@@ -59,6 +69,9 @@ class Verifier {
 			}
 			if (slot.option != ValueType::Void && (slot.type != ValueType::Variant || !is_native(slot.option))) {
 				return fail("slot " + slot.name + " holds an option of no value type");
+			}
+			if (slot.element != ValueType::Void && (slot.type != ValueType::Array || !is_element(slot.element))) {
+				return fail("slot " + slot.name + " holds an array of no element type");
 			}
 			const uint64_t end = uint64_t(slot.offset) + slot_size(slot.type);
 			if (slot.offset % 8 != 0 || end > p_size) {
@@ -364,6 +377,21 @@ class Verifier {
 			case Op::NEW_OBJECT:
 			case Op::CHECK_OBJECT:
 				return index(o[0], module.classes.size(), "class") && slot(o[1], ValueType::Object);
+			case Op::NEW_ARRAY: {
+				const ValueType element = ValueType(o[0]);
+				if (element != ValueType::Void && !is_element(element)) {
+					return fail("an array of no element type");
+				}
+				if ((element == ValueType::Object) != (o[1] != NO_SLOT)) {
+					return fail("an array of objects needs a class, and only it");
+				}
+				return (o[1] == NO_SLOT || index(o[1], module.classes.size(), "class")) && slot(o[2], ValueType::Array);
+			}
+			case Op::GET_INDEX:
+				if (!is_indexable(ValueType(o[0])) || !is_type(o[1])) {
+					return fail("an index into a value that has none");
+				}
+				return slot(o[2], ValueType(o[1])) && slot(o[3], ValueType(o[0])) && slot(o[4], ValueType::Int);
 			case Op::CAST_OBJECT:
 				return index(o[0], module.classes.size(), "class") && same(o[1], o[2], ValueType::Object);
 			case Op::TO_VARIANT:

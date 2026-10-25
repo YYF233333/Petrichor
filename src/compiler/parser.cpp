@@ -73,6 +73,12 @@ class Parser {
 	TypeRef type_ref() {
 		const Token &name = expect(TokenKind::Identifier, "a type name");
 		TypeRef ref{ name.text, name.line, name.column };
+		if (match(TokenKind::BracketOpen)) {
+			do {
+				ref.args.push_back(type_ref());
+			} while (!failed && match(TokenKind::Comma));
+			expect(TokenKind::BracketClose, "\"]\"");
+		}
 		ref.nullable = match(TokenKind::Question);
 		return ref;
 	}
@@ -235,6 +241,15 @@ class Parser {
 				member->text = name.text;
 				member->base = std::move(expr);
 				expr = std::move(member);
+			} else if (check(TokenKind::BracketOpen)) {
+				auto subscript = make(ExprKind::Subscript, advance());
+				subscript->right = expression();
+				expect(TokenKind::BracketClose, "\"]\"");
+				if (failed || !subscript->right) {
+					return nullptr;
+				}
+				subscript->base = std::move(expr);
+				expr = std::move(subscript);
 			} else {
 				break;
 			}
@@ -306,6 +321,21 @@ class Parser {
 				return make(ExprKind::Self, token);
 			case TokenKind::Dollar:
 				return get_node();
+			case TokenKind::BracketOpen: {
+				auto expr = make(ExprKind::ArrayLiteral, advance());
+				while (!check(TokenKind::BracketClose)) {
+					auto element = expression();
+					if (!element) {
+						return nullptr;
+					}
+					expr->args.push_back(std::move(element));
+					if (!match(TokenKind::Comma)) {
+						break;
+					}
+				}
+				expect(TokenKind::BracketClose, "\"]\"");
+				return failed ? nullptr : std::move(expr);
+			}
 			case TokenKind::ParenOpen: {
 				advance();
 				auto expr = expression();
@@ -572,6 +602,17 @@ public:
 	Parser(const std::vector<Token> &p_tokens, std::vector<Diagnostic> &r_errors) :
 			tokens(p_tokens), errors(r_errors) {}
 
+	// An expression that is the whole source.
+	std::unique_ptr<Expr> single_expression() {
+		auto expr = expression();
+		match(TokenKind::Newline);
+		if (expr && !check(TokenKind::EndOfFile)) {
+			fail(peek(), std::string("Expected the end of the expression, found ") + token_name(peek().kind) + ".");
+			return nullptr;
+		}
+		return expr;
+	}
+
 	ClassDecl run() {
 		ClassDecl result;
 		bool has_class_name = false;
@@ -631,6 +672,13 @@ public:
 
 ClassDecl parse(const std::vector<Token> &p_tokens, std::vector<Diagnostic> &r_errors) {
 	return Parser(p_tokens, r_errors).run();
+}
+
+std::unique_ptr<Expr> parse_expression(const std::string &p_source, std::vector<Diagnostic> &r_errors) {
+	const size_t errors = r_errors.size();
+	const std::vector<Token> tokens = tokenize(p_source, r_errors);
+	std::unique_ptr<Expr> expr = Parser(tokens, r_errors).single_expression();
+	return r_errors.size() == errors ? std::move(expr) : nullptr;
 }
 
 } // namespace petrichor::compiler

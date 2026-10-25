@@ -77,6 +77,31 @@ func _ready() -> void:
 	freed.free()
 	_check(v.as_node3d(v) == v and v.as_node3d(plain) == null and v.callv("as_node3d", [freed]) == null, "as gives None for another class and for a freed object")
 	plain.free()
+
+	var ints: Array[int] = [1, 2, 3]
+	var floats: Array[float] = [1.0]
+	Engine.print_error_messages = false
+	var untyped_refused = v.callv("array_sum", [[1, 2]])
+	var other_type_refused = v.callv("array_sum", [floats])
+	Engine.print_error_messages = true
+	_check(v.array_sum(ints) == 6 and untyped_refused == null and other_type_refused == null, "an Array[int] parameter takes only an array typed with int")
+	var named: Array[Node] = [v, c]
+	_check(v.names_of(named) == "%s%s" % [v.name, c.name], "for over an Array[Node]")
+	named.append(null)
+	Engine.print_error_messages = false
+	var with_null = v.names_of(named)
+	Engine.print_error_messages = true
+	_check(with_null == "", "a null element of Array[Node] is a program error when it is read")
+	_check(v.queue_demo() == "a1", "pop_front() of Array[String] gives a String?")
+	Engine.print_error_messages = false
+	var out_of_bounds = v.element(ints, 3)
+	var no_part = v.part("a", 2)
+	Engine.print_error_messages = true
+	_check(v.element(ints, 0) == 1 and v.element(ints, -1) == 3 and out_of_bounds == 0, "an index out of bounds is a program error; a negative one counts from the end")
+	_check(v.part("a,b,c", 1) == "b" and no_part == "", "PackedStringArray from split() with its default arguments")
+	_check(v.players.is_typed() and v.players.get_typed_class_name() == &"Node3D", "a member of type Array[Node3D] starts as an empty typed array")
+	var listed: Array[float] = v.literal()
+	_check(listed == [1.0, 2.5] and listed.get_typed_builtin() == TYPE_FLOAT, "an array literal takes its element type from where it goes")
 	v.transform = Transform3D(Basis(), Vector3(7, 0, 0))
 	_check(v.origin_x() == 7.0, "a member of a member of a property")
 
