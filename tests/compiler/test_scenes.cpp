@@ -127,6 +127,28 @@ TEST_CASE("paths that are not typed yet are refused rather than guessed") {
 	CHECK(contains(hud_errors("var n: Node = $\"/root/Main\""), "are supported yet"));
 }
 
+// Spec §6.3.
+TEST_CASE("@onready members are set when the node is ready, from the scene") {
+	const char *source = "extends CanvasLayer\n@onready var health = $Health\nvar shown := \"\"\n\nfunc _ready():\n\tshown = health.text\n";
+	const compiler::CompileResult result = compile_in(source, hud_scene());
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	CHECK(result.module.members[0].is_onready);
+	CHECK(result.module.members[0].class_name == "Label");
+	CHECK(result.module.ready_function >= 0);
+	CHECK(result.module.init_function < 0); // shown starts as a literal.
+
+	const auto errors = [](const std::string &p_members) {
+		return messages(compile_in("extends CanvasLayer\n" + p_members + "\n", hud_scene()));
+	};
+	CHECK(errors("@onready var a := 1\n@onready var b := a + 1").empty());
+	CHECK(contains(errors("@onready var a := 1\nvar b := a"), "\"a\" is set when the node is ready, after this initializer runs"));
+	CHECK(contains(errors("@onready var b := a\n@onready var a := 1"), "\"a\" is not initialized yet"));
+	CHECK(contains(errors("@onready @export var a := 1"), "@onready and @export do not go together"));
+	CHECK(contains(errors("@onready var a := 1\n\nfunc _init():\n\tprint(a)"), "after _init() runs"));
+	CHECK(contains(errors("@onready var a := 1\n\nfunc _enter_tree():\n\tprint(a)"), "after _enter_tree() runs"));
+	CHECK(contains(messages(compile("extends Resource\n@onready var a := 1\n")), "@onready is for Node scripts"));
+}
+
 TEST_CASE("while loading, only declarations are compiled") {
 	// The body has a type error, and the scene's method does not exist; neither
 	// is checked without bodies and scenes.
@@ -139,6 +161,10 @@ TEST_CASE("while loading, only declarations are compiled") {
 	CHECK(f.return_type == bytecode::ValueType::String);
 	CHECK(result.module.members[0].initial.f == 2.0);
 	CHECK(!compile_in(source, timer_scene("_on_missing")).ok());
-	// Nor are node paths, which need the scenes.
+	// Nor are node paths, which need the scenes; a member typed by one is a
+	// Variant until the full compile.
 	CHECK(compile_in("extends Node3D\n\nfunc f():\n\t$Missing.text = \"\"\n", FakeProject(), true).ok());
+	const compiler::CompileResult loading = compile_in("extends CanvasLayer\n@onready var health = $Health\n", hud_scene(), true);
+	REQUIRE_MESSAGE(loading.ok(), messages(loading));
+	CHECK(loading.module.members[0].type == bytecode::ValueType::Variant);
 }

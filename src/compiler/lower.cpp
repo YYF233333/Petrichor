@@ -273,7 +273,10 @@ class Lowerer {
 		const ValueType type = reg_type(result);
 		const Op op = is_8_byte(type) ? Op::LOAD_MEMBER_8 : (type == ValueType::String ? Op::LOAD_MEMBER_STRING : Op::LOAD_MEMBER_VALUE);
 		instr(op, result, NO_REG, NO_REG, p_member, type);
-		if (cls.members[p_member].must_assign) {
+		// An export the scene did not assign (spec §7.5), or an @onready
+		// member read before the node is ready (§6.3), is still None.
+		const VarDecl &member = cls.members[p_member];
+		if (member.must_assign || (member.is_onready && member.type.kind == TypeKind::Object && !member.type.nullable)) {
 			instr(Op::CHECK_ASSIGNED, NO_REG, result, NO_REG, p_member);
 		}
 		return result;
@@ -1136,15 +1139,16 @@ class Lowerer {
 	}
 
 	// The member initializers that are not literals, in declaration order
-	// (spec §6.1). Lowered before the functions, so that its code and the
-	// table entries it uses stay the same when only a function body changes.
-	bool lower_initializers(bytecode::Function &r_out) {
+	// (spec §6.1): those that run on a new instance, or the @onready ones
+	// (§6.3). Lowered before the functions, so that their code and the table
+	// entries they use stay the same when only a function body changes.
+	bool lower_initializers(bool p_onready, bytecode::Function &r_out) {
 		bool any = false;
-		start("@init");
+		start(p_onready ? "@ready" : "@init");
 		decl = nullptr;
 		for (size_t m = 0; m < cls.members.size(); m++) {
 			const VarDecl &member = cls.members[m];
-			if (member.literal_initializer || (!member.initializer && !is_typed_array(member.type))) {
+			if (member.is_onready != p_onready || member.literal_initializer || (!member.initializer && !is_typed_array(member.type))) {
 				continue;
 			}
 			any = true;
@@ -1159,18 +1163,21 @@ class Lowerer {
 		finish();
 		if (any) {
 			r_out = ir::emit(fn, module);
-			bytecode::TablePrefix &prefix = module.init_tables;
-			prefix.constants = uint32_t(module.constants.size());
-			prefix.engine_calls = uint32_t(module.engine_calls.size());
-			prefix.properties = uint32_t(module.properties.size());
-			prefix.utility_calls = uint32_t(module.utility_calls.size());
-			prefix.operators = uint32_t(module.operators.size());
-			prefix.fields = uint32_t(module.fields.size());
-			prefix.constructors = uint32_t(module.constructors.size());
-			prefix.builtin_methods = uint32_t(module.builtin_methods.size());
-			prefix.classes = uint32_t(module.classes.size());
 		}
 		return any;
+	}
+
+	void record_init_tables() {
+		bytecode::TablePrefix &prefix = module.init_tables;
+		prefix.constants = uint32_t(module.constants.size());
+		prefix.engine_calls = uint32_t(module.engine_calls.size());
+		prefix.properties = uint32_t(module.properties.size());
+		prefix.utility_calls = uint32_t(module.utility_calls.size());
+		prefix.operators = uint32_t(module.operators.size());
+		prefix.fields = uint32_t(module.fields.size());
+		prefix.constructors = uint32_t(module.constructors.size());
+		prefix.builtin_methods = uint32_t(module.builtin_methods.size());
+		prefix.classes = uint32_t(module.classes.size());
 	}
 
 public:
@@ -1186,10 +1193,14 @@ public:
 			bytecode::Member member;
 			const bytecode::Slot slot = slot_of(decl_member.name, decl_member.type);
 			member.name = decl_member.name;
-			member.type = slot.type;
+			// Without the scenes, a type that comes from them is unknown; the
+			// module only describes the class then (architecture §2.4).
+			member.type = p_declarations_only && slot.type == ValueType::Void ? ValueType::Variant : slot.type;
 			member.class_name = slot.class_name;
 			member.nullable = slot.nullable;
 			member.option = slot.option;
+			member.element = slot.element;
+			member.is_onready = decl_member.is_onready;
 			member.offset = offset;
 			offset += bytecode::slot_size(member.type);
 			member.is_pub = decl_member.is_pub;
@@ -1211,7 +1222,10 @@ public:
 		}
 
 		bytecode::Function initializers;
-		const bool has_initializers = !p_declarations_only && lower_initializers(initializers);
+		bytecode::Function ready_initializers;
+		const bool has_initializers = !p_declarations_only && lower_initializers(false, initializers);
+		const bool has_ready_initializers = !p_declarations_only && lower_initializers(true, ready_initializers);
+		record_init_tables();
 
 		for (const FuncDecl &function : cls.functions) {
 			start(function.name);
@@ -1246,6 +1260,10 @@ public:
 		if (has_initializers) {
 			module.functions.push_back(initializers);
 			module.init_function = int32_t(module.functions.size() - 1);
+		}
+		if (has_ready_initializers) {
+			module.functions.push_back(ready_initializers);
+			module.ready_function = int32_t(module.functions.size() - 1);
 		}
 	}
 };

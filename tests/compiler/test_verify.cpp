@@ -178,7 +178,11 @@ TEST_CASE("tables and layouts must be consistent") {
 	}
 	SUBCASE("an init function outside the module") {
 		module.init_function = int32_t(module.functions.size());
-		CHECK(rejected(module, "init function"));
+		CHECK(rejected(module, "initializer function"));
+	}
+	SUBCASE("a ready function that takes parameters") {
+		module.ready_function = module.find_function("pick");
+		CHECK(rejected(module, "initializer function takes or returns a value"));
 	}
 }
 

@@ -377,9 +377,10 @@ public:
 					break;
 				}
 				case Op::CHECK_ASSIGNED:
-					// Spec §7.5: the scene or the resource did not assign the export.
 					if (is_none(variant_at(frame + code[pc + 2]))) {
-						FAIL(vformat("\"%s\" has not been assigned.", image.member_names[code[pc + 1]]));
+						const uint32_t member = code[pc + 1];
+						// Spec §6.3; §7.5: the scene or the resource did not assign the export.
+						FAIL(vformat(module.members[member].is_onready ? "\"%s\" is read before the node is ready." : "\"%s\" has not been assigned.", image.member_names[member]));
 					}
 					pc += 3;
 					break;

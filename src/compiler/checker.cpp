@@ -207,8 +207,10 @@ class Checker {
 	std::vector<std::unordered_map<int, Type>> narrowed;
 	int loop_depth = 0;
 	// The member whose initializer is being checked: it and the members after
-	// it are not initialized yet (spec §6.1).
+	// it are not initialized yet (spec §6.1), nor are @onready members unless
+	// it is one too (§6.3).
 	int initializing = -1;
+	bool initializing_onready = false;
 
 	std::unordered_map<std::string, int> member_index;
 	std::unordered_map<std::string, int> function_index;
@@ -365,8 +367,20 @@ class Checker {
 		}
 		const auto member = member_index.find(r_expr.text);
 		if (member != member_index.end()) {
-			if (initializing >= 0 && member->second >= initializing) {
-				return fail(r_expr, "\"" + r_expr.text + "\" is not initialized yet: initializers run in declaration order (spec §6.1).");
+			const VarDecl &read = cls.members[member->second];
+			if (initializing >= 0) {
+				// @onready initializers run when the node is ready, after the
+				// others (spec §6.3); each kind runs in declaration order (§6.1).
+				const bool ready = read.is_onready ? initializing_onready && member->second < initializing : !initializing_onready ? member->second < initializing : true;
+				if (!ready && read.is_onready && !initializing_onready) {
+					return fail(r_expr, "\"" + r_expr.text + "\" is set when the node is ready, after this initializer runs (spec §6.3).");
+				}
+				if (!ready) {
+					return fail(r_expr, "\"" + r_expr.text + "\" is not initialized yet: initializers run in declaration order (spec §6.1).");
+				}
+			}
+			if (read.is_onready && function && (function->name == "_init" || function->name == "_enter_tree")) {
+				return fail(r_expr, "\"" + r_expr.text + "\" is set when the node is ready, after " + function->name + "() runs (spec §6.3).");
 			}
 			if (refuse_in_static(r_expr, r_expr.text)) {
 				return set(r_expr, Type::of(TypeKind::Error));
@@ -1833,16 +1847,30 @@ class Checker {
 			if (member.declared_type) {
 				type = resolve(*member.declared_type, false);
 			}
+			if (member.is_onready) {
+				if (!engine.inherits(cls.extends, "Node")) {
+					error(member.line, member.column, "@onready is for Node scripts; a " + cls.extends + " is never ready (spec §6.3).");
+				}
+				if (member.is_export) {
+					error(member.line, member.column, "@onready and @export do not go together: the node's ready would overwrite what the scene assigned (spec §6.3).");
+				}
+				if (!member.initializer) {
+					error(member.line, member.column, "An @onready member needs an initializer.");
+				}
+			}
 			if (member.initializer) {
 				initializing = int(i);
+				initializing_onready = member.is_onready;
 				const Type value = check_value(*member.initializer, type);
 				initializing = -1;
+				initializing_onready = false;
 				if (member.declared_type) {
 					expect_assignable(*member.initializer, value, type, "assign");
 				} else {
 					type = value;
 				}
-				member.literal_initializer = is_literal(*member.initializer) && type.is_primitive();
+				// An @onready member gets even a literal when the node is ready.
+				member.literal_initializer = !member.is_onready && is_literal(*member.initializer) && type.is_primitive();
 			} else if (!member.declared_type) {
 				error(member.line, member.column, "\"" + member.name + "\" needs a type or an initial value.");
 			} else if (type.kind == TypeKind::Object && !type.nullable) {

@@ -39,7 +39,7 @@ TEST_CASE("@export_range gives the inspector GDScript's range hint") {
 	CHECK(exports_errors("@export_range(0, 1) var s: String").find("@export_range applies to int and float, not String") != std::string::npos);
 	CHECK(exports_errors("@export_range(1) var x: int").find("a minimum, a maximum and an optional step") != std::string::npos);
 	CHECK(exports_errors("@export_range(0, \"or_greater\", 1) var x: int").find("numbers, then options") != std::string::npos);
-	CHECK(exports_errors("@onready var x := 1").find("@onready is not supported yet") != std::string::npos);
+	CHECK(exports_errors("@export_enum(\"a\") var x := 1").find("@export_enum is not supported yet") != std::string::npos);
 }
 
 TEST_CASE("@export_group and @export_subgroup head the exports after them") {

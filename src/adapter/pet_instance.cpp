@@ -285,12 +285,19 @@ static void instance_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensi
 #endif
 	// One snapshot for the lookup and the call.
 	const std::shared_ptr<const ClassImage> image = instance->current_image();
+	const InstanceContext context{ instance->members, instance->owner_object };
+	if (image->module.ready_function >= 0 && method == image->ready_method) {
+		// The @onready initializers run first, as in GDScript
+		// (modules/gdscript/gdscript.cpp:1948-1953); the engine calls _ready()
+		// whether or not the class defines it (core/object/gdvirtual.gen.inc:39-45).
+		GDExtensionCallError ready_error;
+		vm::call(image, image->module.ready_function, context, nullptr, 0, ready_error);
+	}
 	const int index = visible_function(*image, method);
 	if (index < 0) {
 		r_error->error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
 		return;
 	}
-	const InstanceContext context{ instance->members, instance->owner_object };
 	result = vm::call(image, index, context, args, p_argument_count, *r_error);
 }
 

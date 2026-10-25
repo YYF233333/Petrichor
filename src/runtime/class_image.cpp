@@ -177,15 +177,16 @@ bool same_prefix(const std::vector<T> &p_a, const std::vector<T> &p_b, uint32_t 
 	return true;
 }
 
-// The init function and the table entries it uses.
-bool same_initializers(const bytecode::Module &p_a, const bytecode::Module &p_b) {
-	if ((p_a.init_function < 0) != (p_b.init_function < 0)) {
+bool same_code(const bytecode::Module &p_a, int32_t p_function_a, const bytecode::Module &p_b, int32_t p_function_b) {
+	if ((p_function_a < 0) != (p_function_b < 0)) {
 		return false;
 	}
-	if (p_a.init_function < 0) {
-		return true;
-	}
-	if (p_a.functions[p_a.init_function].code != p_b.functions[p_b.init_function].code) {
+	return p_function_a < 0 || p_a.functions[p_function_a].code == p_b.functions[p_function_b].code;
+}
+
+// The init and ready functions and the table entries they use.
+bool same_initializers(const bytecode::Module &p_a, const bytecode::Module &p_b) {
+	if (!same_code(p_a, p_a.init_function, p_b, p_b.init_function) || !same_code(p_a, p_a.ready_function, p_b, p_b.ready_function)) {
 		return false;
 	}
 	const bytecode::TablePrefix &x = p_a.init_tables;
@@ -223,7 +224,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	for (size_t i = 0; i < a.members.size(); i++) {
 		const bytecode::Member &x = a.members[i];
 		const bytecode::Member &y = b.members[i];
-		if (x.name != y.name || x.type != y.type || x.offset != y.offset || x.class_name != y.class_name || x.nullable != y.nullable || x.option != y.option || x.element != y.element ||
+		if (x.name != y.name || x.type != y.type || x.offset != y.offset || x.class_name != y.class_name || x.nullable != y.nullable || x.option != y.option || x.element != y.element || x.is_onready != y.is_onready ||
 				x.is_pub != y.is_pub || x.is_export != y.is_export || x.hint != y.hint || x.hint_string != y.hint_string || x.has_initial != y.has_initial || !same_constant(x.initial, y.initial)) {
 			return false;
 		}
@@ -244,7 +245,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	}
 	// Signatures; the line, the frame and the code belong to the body.
 	for (size_t i = 0; i < a.functions.size(); i++) {
-		if (int32_t(i) == a.init_function) {
+		if (int32_t(i) == a.init_function || int32_t(i) == a.ready_function) {
 			continue;
 		}
 		const bytecode::Function &x = a.functions[i];

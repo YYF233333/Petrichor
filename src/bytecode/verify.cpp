@@ -478,11 +478,14 @@ public:
 			module(p_module), error(r_error) {}
 
 	bool run() {
-		if (module.init_function < -1 || module.init_function >= int32_t(module.functions.size())) {
-			return fail("the init function is not a function of the module");
-		}
-		if (module.init_function >= 0 && module.functions[module.init_function].return_type != ValueType::Void) {
-			return fail("the init function returns a value");
+		// The init and ready functions run with no arguments and give nothing.
+		for (const int32_t index : { module.init_function, module.ready_function }) {
+			if (index < -1 || index >= int32_t(module.functions.size())) {
+				return fail("an initializer function is not a function of the module");
+			}
+			if (index >= 0 && (module.functions[index].return_type != ValueType::Void || !module.functions[index].params.empty())) {
+				return fail("an initializer function takes or returns a value");
+			}
 		}
 		if (!layout(module.members, module.instance_size, instance)) {
 			return false;
@@ -515,14 +518,11 @@ public:
 			}
 		}
 		function = nullptr;
-		if (module.init_function >= 0 && !module.functions[module.init_function].params.empty()) {
-			return fail("the init function takes parameters");
-		}
 		const TablePrefix &prefix = module.init_tables;
 		if (prefix.constants > module.constants.size() || prefix.engine_calls > module.engine_calls.size() || prefix.properties > module.properties.size() ||
 				prefix.utility_calls > module.utility_calls.size() || prefix.operators > module.operators.size() || prefix.fields > module.fields.size() ||
 				prefix.constructors > module.constructors.size() || prefix.builtin_methods > module.builtin_methods.size() || prefix.classes > module.classes.size()) {
-			return fail("the init function's tables are larger than the module's");
+			return fail("the initializer functions' tables are larger than the module's");
 		}
 		return true;
 	}

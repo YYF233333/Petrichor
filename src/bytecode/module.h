@@ -102,6 +102,7 @@ struct Member {
 	ValueType element = ValueType::Void; // As in Slot.
 	bool is_pub = false;
 	bool is_export = false;
+	bool is_onready = false; // Set by the ready function (spec §6.3).
 	// For the inspector: PropertyHint as the engine numbers it, and its string.
 	uint32_t hint = 0;
 	std::string hint_string;
@@ -225,7 +226,11 @@ struct Module {
 	// first, so that its code and the table entries it uses, which hot reload
 	// compares as declarations, do not change when only a function body does.
 	int32_t init_function = -1;
-	TablePrefix init_tables;
+	// Runs the @onready initializers when the node is ready, before its
+	// _ready() (spec §6.3); -1 when there are none. Lowered right after the
+	// init function, and compared with it as declarations.
+	int32_t ready_function = -1;
+	TablePrefix init_tables; // What the two use.
 	std::vector<Constant> constants;
 	std::vector<EngineCall> engine_calls;
 	std::vector<PropertyAccess> properties;

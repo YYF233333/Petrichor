@@ -593,14 +593,19 @@ class Parser {
 				end_of_statement();
 				return;
 			}
-			if (annotation.name != "export" && annotation.name != "export_range") {
+			if (annotation.name != "export" && annotation.name != "export_range" && annotation.name != "onready") {
 				fail(name, "The annotation @" + name.text + " is not supported yet.");
 				return;
 			}
 			annotations.push_back(std::move(annotation));
 			match(TokenKind::Newline);
 		}
-		const bool is_export = !annotations.empty();
+		bool is_export = false;
+		bool is_onready = false;
+		for (const Annotation &annotation : annotations) {
+			is_export = is_export || annotation.name.rfind("export", 0) == 0;
+			is_onready = is_onready || annotation.name == "onready";
+		}
 		const bool is_pub = match(TokenKind::Pub);
 		const bool is_static = match(TokenKind::Static);
 		if (is_static && !check(TokenKind::Func)) {
@@ -616,6 +621,7 @@ class Parser {
 			decl.column = name.column;
 			decl.is_pub = is_pub;
 			decl.is_export = is_export;
+			decl.is_onready = is_onready;
 			decl.annotations = std::move(annotations);
 			if (match(TokenKind::Colon) && !check(TokenKind::Equal)) {
 				decl.declared_type = type_ref();
@@ -629,8 +635,8 @@ class Parser {
 		}
 
 		if (check(TokenKind::Func)) {
-			if (is_export) {
-				fail(peek(), "@export applies to variables.");
+			if (!annotations.empty()) {
+				fail(peek(), "@" + annotations[0].name + " applies to variables.");
 				return;
 			}
 			advance();

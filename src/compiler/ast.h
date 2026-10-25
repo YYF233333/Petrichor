@@ -151,6 +151,7 @@ struct VarDecl {
 	int column = 0;
 	bool is_pub = false;
 	bool is_export = false;
+	bool is_onready = false; // Initialized when the node is ready (spec §6.3).
 	std::vector<Annotation> annotations;
 	std::optional<TypeRef> declared_type;
 	std::unique_ptr<Expr> initializer;

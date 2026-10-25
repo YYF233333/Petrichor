@@ -29,6 +29,9 @@ public:
 	std::vector<godot::StringName> function_names;
 	godot::HashMap<godot::StringName, int> function_lookup;
 	int user_init = -1; // The class's own _init(), run after the member initializers.
+	// "_ready", which runs the @onready initializers first (spec §6.3); kept
+	// here because godot-cpp values cannot be globals.
+	godot::StringName ready_method = "_ready";
 	std::vector<godot::StringName> member_names;
 	std::vector<ValueCheck> member_checks; // Entry checks of members, by member index.
 	std::vector<bytecode::Slot> member_slots; // For constructing and destroying instance storage.

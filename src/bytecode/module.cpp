@@ -313,6 +313,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.type(member.element);
 		w.u8(member.is_pub ? 1 : 0);
 		w.u8(member.is_export ? 1 : 0);
+		w.u8(member.is_onready ? 1 : 0);
 		w.u32(member.hint);
 		w.str(member.hint_string);
 		w.u8(member.has_initial ? 1 : 0);
@@ -357,6 +358,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 	}
 
 	w.u32(uint32_t(int32_t(p_module.init_function)));
+	w.u32(uint32_t(int32_t(p_module.ready_function)));
 	const TablePrefix &prefix = p_module.init_tables;
 	for (uint32_t count : { prefix.constants, prefix.engine_calls, prefix.properties, prefix.utility_calls, prefix.operators, prefix.fields, prefix.constructors, prefix.builtin_methods, prefix.classes }) {
 		w.u32(count);
@@ -452,6 +454,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		member.element = r.type();
 		member.is_pub = r.u8() != 0;
 		member.is_export = r.u8() != 0;
+		member.is_onready = r.u8() != 0;
 		member.hint = r.u32();
 		member.hint_string = r.str();
 		member.has_initial = r.u8() != 0;
@@ -496,7 +499,8 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 	}
 
 	module.init_function = int32_t(r.u32());
-	if (module.init_function < -1 || module.init_function >= int32_t(module.functions.size())) {
+	module.ready_function = int32_t(r.u32());
+	if (module.init_function < -1 || module.init_function >= int32_t(module.functions.size()) || module.ready_function < -1 || module.ready_function >= int32_t(module.functions.size())) {
 		r.failed = true;
 	}
 	TablePrefix &prefix = module.init_tables;

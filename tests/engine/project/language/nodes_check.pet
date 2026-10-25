@@ -2,6 +2,19 @@
 # language_test.gd through nodes.tscn.
 extends Node
 
+# Set when the node is ready, before _ready() (spec §6.3).
+@onready var caption_label = $Caption
+var seen_in_ready := ""
+
+func _ready():
+	seen_in_ready = caption_label.text
+
+pub func ready_text() -> String:
+	return seen_in_ready
+
+pub func early_text() -> String:
+	return caption_label.text
+
 pub func caption() -> String:
 	return $Caption.text
 

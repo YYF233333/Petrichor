@@ -149,7 +149,11 @@ func _ready() -> void:
 	_check(zero == 0, "after a program error the caller gets the default value (spec §8.1)")
 
 	var nodes: Node = load("res://language/nodes.tscn").instantiate()
+	Engine.print_error_messages = false
+	var early = nodes.early_text()
+	Engine.print_error_messages = true
 	add_child(nodes)
+	_check(early == "" and nodes.ready_text() == "from the scene" and nodes.early_text() == "from the scene", "@onready members are set when the node is ready, and reading one before is a program error")
 	var caption: Label = nodes.get_node("Caption")
 	_check(nodes.caption() == "from the scene" and nodes.caption_node() == caption, "$X reads the node the scene has (spec §7.1)")
 	nodes.set_caption("set")
