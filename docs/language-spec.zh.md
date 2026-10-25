@@ -25,6 +25,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 以 GDExtension 交付，实现 Godot 的脚本语言扩展接口（`core/object/script_language_extension.h:393, 493, 533, 596, 754`）。访问引擎的代码集中在一层薄的适配层中，保留以后改编为引擎模块的可能。
 - GDExtension 可以装进官方编辑器，使用官方导出模板。代价是 Web 导出须启用“Extensions Support”，使用带动态链接的导出模板（`platform/web/export/export_plugin.cpp:374`，`platform/web/export/export_plugin.h:59-73`）；跨域隔离响应头只在同时开启线程支持时才需要（`platform/web/doc_classes/EditorExportPlatformWeb.xml:93-95`）。
 - 理由：[暗坑清单](surveys/pitfalls.zh.md)中没有只有模块才能修复的条目；GDExtension 修不了的部分需要修改引擎，模块同样修不了。
+- 源码只在编辑器和无界面模式下编译。导出的游戏只含字节码，导出模板使用的库不含编译器。理由：`$X`、`@parent` 和 `PackedScene[T]` 的类型取决于场景（§7），在加载时编译就要在游戏中重新分析场景，并把分析器带到每个导出平台。GDScript 导出时至多做到词法化，加载时才解析和编译（`modules/gdscript/register_types.cpp:100-117`，`modules/gdscript/gdscript_cache.cpp:369-375, 388`）。
 
 ### 1.4 文档约定
 
@@ -945,6 +946,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 14.1 已知限制
 
+- 导出的游戏不能在运行时从源码加载脚本（§1.3）。
 - struct 不能 `@export`，也不能存入 `.tres`（§3.6）；带载荷的 enum 不能有方法，也不能 `@export`（§3.7）。
 - 没有带状态的 mixin，接口不能是泛型（§3.9）。
 - 没有命名空间（§4.1）。
@@ -959,6 +961,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 14.2 以后可以兼容地加入
 
+- 含编译器的运行时库，供需要在运行时从源码加载脚本的项目选用，代价是加载时编译（§1.3）；
 - 别名或 `import`（§2.4）；
 - struct 构造的位置参数、修改 self 的 struct 方法、struct 成员的 `private`、不经容器的值类型递归（§3.6）；
 - 泛型接口，写作 `interface Source[T]:`（§3.9）；
@@ -1141,6 +1144,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 被等待的对象被释放后，GDScript 的等待方永远挂起 | `modules/gdscript/gdscript_function.cpp:335-349` |
 | RefCounted 类中的 lambda 强引用 self | `modules/gdscript/gdscript_lambda_callable.cpp:285-291` |
 | GDScript 的 LSP 是编辑器插件 | `modules/gdscript/language_server/gdscript_language_server.h:35`；`modules/gdscript/register_types.cpp:170` |
+| GDScript 导出时至多把源码转为词法单元，加载时才解析和编译 | `modules/gdscript/register_types.cpp:100-117`；`modules/gdscript/gdscript_cache.cpp:369-375, 388` |
 
 ## 附录 B：考虑过但没有采用的方案（非规范性）
 

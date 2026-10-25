@@ -25,6 +25,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - It is delivered as a GDExtension implementing Godot's script language extension interface (`core/object/script_language_extension.h:393, 493, 533, 596, 754`). Code that accesses the engine is kept in a thin adapter layer, so that an engine-module build remains possible later.
 - A GDExtension can be installed in the official editor and uses the official export templates. The cost is that Web exports need "Extensions Support" enabled, which uses the dynamically linked export templates (`platform/web/export/export_plugin.cpp:374`, `platform/web/export/export_plugin.h:59-73`); cross-origin isolation headers are needed only when thread support is also enabled (`platform/web/doc_classes/EditorExportPlatformWeb.xml:93-95`).
 - Rationale: the [pitfall catalog](surveys/pitfalls.en.md) contains no entry that only a module could fix; what a GDExtension cannot fix needs changes to the engine, which a module cannot make either.
+- Source is compiled only in the editor and in headless mode. Exported games contain only bytecode, and the library used by the export templates contains no compiler. Rationale: the types of `$X`, `@parent` and `PackedScene[T]` depend on scenes (§7), so compiling at load time would mean analysing scenes again inside the game and shipping the analyzer to every export platform. GDScript goes no further than tokenizing at export, and parses and compiles at load time (`modules/gdscript/register_types.cpp:100-117`, `modules/gdscript/gdscript_cache.cpp:369-375, 388`).
 
 ### 1.4 Conventions
 
@@ -945,6 +946,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 14.1 Known limitations
 
+- Exported games cannot load scripts from source at run time (§1.3).
 - Structs cannot be `@export`ed or stored in `.tres` (§3.6); enums with payloads cannot have methods or be `@export`ed (§3.7).
 - There are no stateful mixins, and interfaces cannot be generic (§3.9).
 - There are no namespaces (§4.1).
@@ -959,7 +961,8 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 14.2 Compatible later additions
 
-- Aliases or `import` (§2.4);
+- A runtime library that includes the compiler, for projects that need to load scripts from source at run time, at the cost of compiling at load time (§1.3);
+- aliases or `import` (§2.4);
 - positional arguments for struct construction, struct methods that modify self, `private` for struct members, and value-type recursion without a container (§3.6);
 - generic interfaces, written `interface Source[T]:` (§3.9);
 - several constraints on a type parameter, and classes as constraints (§3.10);
@@ -1141,6 +1144,7 @@ The following facts are based on Godot master (4.8-beta, commit `469659e`); path
 | When an awaited object is freed, the GDScript waiter stays suspended forever | `modules/gdscript/gdscript_function.cpp:335-349` |
 | A lambda in a RefCounted class holds self strongly | `modules/gdscript/gdscript_lambda_callable.cpp:285-291` |
 | GDScript's LSP is an editor plugin | `modules/gdscript/language_server/gdscript_language_server.h:35`; `modules/gdscript/register_types.cpp:170` |
+| GDScript at most converts source to tokens at export, and parses and compiles at load time | `modules/gdscript/register_types.cpp:100-117`; `modules/gdscript/gdscript_cache.cpp:369-375, 388` |
 
 ## Appendix B: Alternatives considered but not adopted (non-normative)
 
