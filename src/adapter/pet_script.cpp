@@ -407,13 +407,15 @@ String PetScript::_get_class_icon_path() const {
 }
 
 bool PetScript::_has_method(const StringName &p_method) const {
-#ifdef PETRICHOR_PROBES
-	if (probe_methods::has(p_method)) {
+	const std::shared_ptr<const ClassImage> current = get_image();
+	if (current && (find_visible_function(*current, p_method) >= 0 || p_method == init_name())) {
 		return true;
 	}
+#ifdef PETRICHOR_PROBES
+	return probe_methods::has(get_path(), p_method);
+#else
+	return false;
 #endif
-	const std::shared_ptr<const ClassImage> current = get_image();
-	return current && (find_visible_function(*current, p_method) >= 0 || p_method == init_name());
 }
 
 bool PetScript::_has_static_method(const StringName &p_method) const {
@@ -432,8 +434,8 @@ Variant PetScript::_get_script_method_argument_count(const StringName &p_method)
 
 Dictionary PetScript::_get_method_info(const StringName &p_method) const {
 #ifdef PETRICHOR_PROBES
-	if (probe_methods::has(p_method)) {
-		return probe_methods::info(p_method);
+	if (probe_methods::has(get_path(), p_method)) {
+		return probe_methods::info(get_path(), p_method);
 	}
 #endif
 	const std::shared_ptr<const ClassImage> current = get_image();
@@ -534,7 +536,7 @@ TypedArray<Dictionary> PetScript::_get_script_method_list() const {
 		list = visible_methods(*current);
 	}
 #ifdef PETRICHOR_PROBES
-	probe_methods::append_to(list);
+	probe_methods::append_to(get_path(), list);
 #endif
 	return list;
 }

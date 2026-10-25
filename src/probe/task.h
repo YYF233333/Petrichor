@@ -6,9 +6,10 @@
 
 namespace petrichor {
 
-// A stand-in for the runtime's tasks until coroutines run in the virtual
-// machine: a result delivered after some frames. GDScript sees it as the signal `completed`, which
-// carries the result, or null when the task is cancelled (spec §9.8).
+// For the cross-language await probe, until coroutines run in the virtual
+// machine: a result delivered after some frames. GDScript sees it as the signal
+// `completed`, which carries the result, or null when the task is cancelled
+// (spec §9.8).
 class PetTask : public godot::RefCounted {
 	GDCLASS(PetTask, godot::RefCounted);
 

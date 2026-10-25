@@ -1,6 +1,6 @@
 #include "probe/probe_methods.h"
 
-#include "runtime/task.h"
+#include "probe/task.h"
 
 #include <godot_cpp/core/object.hpp>
 
@@ -23,12 +23,12 @@ static Dictionary property(Variant::Type p_type, const StringName &p_name, uint3
 	return dict;
 }
 
-bool has(const StringName &p_method) {
-	return p_method == echo_later();
+bool has(const String &p_script_path, const StringName &p_method) {
+	return p_script_path.begins_with("res://probes/") && p_method == echo_later();
 }
 
-Dictionary info(const StringName &p_method) {
-	if (!has(p_method)) {
+Dictionary info(const String &p_script_path, const StringName &p_method) {
+	if (!has(p_script_path, p_method)) {
 		return Dictionary();
 	}
 	Array args;
@@ -45,12 +45,14 @@ Dictionary info(const StringName &p_method) {
 	return dict;
 }
 
-void append_to(TypedArray<Dictionary> &r_list) {
-	r_list.push_back(info(echo_later()));
+void append_to(const String &p_script_path, TypedArray<Dictionary> &r_list) {
+	if (has(p_script_path, echo_later())) {
+		r_list.push_back(info(p_script_path, echo_later()));
+	}
 }
 
-bool call(const StringName &p_method, const Variant **p_args, int64_t p_argc, Variant &r_result, GDExtensionCallError &r_error) {
-	if (!has(p_method)) {
+bool call(const String &p_script_path, const StringName &p_method, const Variant **p_args, int64_t p_argc, Variant &r_result, GDExtensionCallError &r_error) {
+	if (!has(p_script_path, p_method)) {
 		return false;
 	}
 	r_error.error = GDEXTENSION_CALL_OK;

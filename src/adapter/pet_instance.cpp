@@ -242,9 +242,10 @@ static GDExtensionObjectPtr instance_get_owner(GDExtensionScriptInstanceDataPtr 
 }
 
 static const GDExtensionMethodInfo *instance_get_method_list(GDExtensionScriptInstanceDataPtr p_instance, uint32_t *r_count) {
-	TypedArray<Dictionary> list = visible_methods(*self(p_instance)->current_image());
+	const std::shared_ptr<const ClassImage> image = self(p_instance)->current_image();
+	TypedArray<Dictionary> list = visible_methods(*image);
 #ifdef PETRICHOR_PROBES
-	probe_methods::append_to(list);
+	probe_methods::append_to(image->path, list);
 #endif
 	*r_count = uint32_t(list.size());
 	return make_method_list(list);
@@ -262,12 +263,15 @@ static GDExtensionVariantType instance_get_property_type(GDExtensionScriptInstan
 }
 
 static GDExtensionBool instance_has_method(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name) {
-#ifdef PETRICHOR_PROBES
-	if (probe_methods::has(as_name(p_name))) {
+	const std::shared_ptr<const ClassImage> image = self(p_instance)->current_image();
+	if (visible_function(*image, as_name(p_name)) >= 0) {
 		return true;
 	}
+#ifdef PETRICHOR_PROBES
+	return probe_methods::has(image->path, as_name(p_name));
+#else
+	return false;
 #endif
-	return visible_function(*self(p_instance)->current_image(), as_name(p_name)) >= 0;
 }
 
 static GDExtensionInt instance_get_method_argument_count(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionBool *r_is_valid) {
@@ -284,11 +288,6 @@ static void instance_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensi
 	Variant &result = *reinterpret_cast<Variant *>(r_return);
 	r_error->error = GDEXTENSION_CALL_OK;
 
-#ifdef PETRICHOR_PROBES
-	if (probe_methods::call(method, args, p_argument_count, result, *r_error)) {
-		return;
-	}
-#endif
 	// One snapshot for the lookup and the call.
 	const std::shared_ptr<const ClassImage> image = instance->current_image();
 	const InstanceContext context{ instance->members, instance->owner_object };
@@ -307,6 +306,11 @@ static void instance_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensi
 	}
 	const int index = visible_function(*image, method);
 	if (index < 0) {
+#ifdef PETRICHOR_PROBES
+		if (probe_methods::call(image->path, method, args, p_argument_count, result, *r_error)) {
+			return;
+		}
+#endif
 		r_error->error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
 		return;
 	}

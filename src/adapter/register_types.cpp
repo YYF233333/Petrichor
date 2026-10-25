@@ -2,11 +2,11 @@
 #include "adapter/pet_language.h"
 #include "adapter/pet_resource_format.h"
 #include "adapter/pet_script.h"
-#include "runtime/task.h"
 #include "runtime/values.h"
 
 #ifdef PETRICHOR_PROBES
 #include "probe/probe.h"
+#include "probe/task.h"
 #endif
 
 #ifdef TOOLS_ENABLED
@@ -37,8 +37,8 @@ static void initialize_petrichor(ModuleInitializationLevel p_level) {
 		GDREGISTER_CLASS(PetScript);
 		GDREGISTER_INTERNAL_CLASS(PetResourceLoader);
 		GDREGISTER_INTERNAL_CLASS(PetResourceSaver);
-		GDREGISTER_INTERNAL_CLASS(PetTask);
 #ifdef PETRICHOR_PROBES
+		GDREGISTER_INTERNAL_CLASS(PetTask);
 		GDREGISTER_CLASS(PetrichorProbe);
 #endif
 

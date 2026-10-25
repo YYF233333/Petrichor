@@ -81,9 +81,9 @@ if env["target"] == "editor":
     sources += Glob("src/adapter/editor/*.cpp")
     libraries.insert(0, compiler_library)
 
-# The step-2 probes (architecture §5) are driven by the engine tests and stay
-# out of release builds.
-if env["target"] != "template_release":
+# The step-2 probes (architecture §5) are driven by the engine tests, which load
+# only the editor library.
+if env["target"] == "editor":
     env.Append(CPPDEFINES=["PETRICHOR_PROBES"])
     sources += Glob("src/probe/*.cpp")
 
