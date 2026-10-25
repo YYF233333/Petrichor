@@ -13,7 +13,7 @@ int operand_count(Op p_op) {
 		PETRICHOR_OPCODES(PETRICHOR_OPCODE_COUNT)
 #undef PETRICHOR_OPCODE_COUNT
 	};
-	return counts[uint32_t(p_op)];
+	return uint32_t(p_op) < uint32_t(Op::COUNT) ? counts[uint32_t(p_op)] : 0;
 }
 
 const char *op_name(Op p_op) {

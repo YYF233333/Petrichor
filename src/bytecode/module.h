@@ -221,13 +221,15 @@ std::vector<uint8_t> serialize(const Module &p_module);
 // or does not pass verify().
 bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::string &r_error);
 
-// Checks that running the module cannot reach memory outside its frames and
-// its instances, whatever the bytes of a cache file say: instructions are
-// whole, jumps land on instructions, code cannot run past its end, operands
-// name slots of the types their instructions use, slots fit their frames
-// without overlapping, and table indices are in range. Signatures of engine
-// constructors are taken from the module's table; the engine itself checks
-// the hashes of methods and utility functions.
+// Checks the module's own structure, so that a damaged or outdated cache file
+// is refused instead of run: instructions are whole, jumps land on
+// instructions, code cannot run past its end, operands name slots of the
+// types their instructions use, slots fit their frames without overlapping,
+// and table indices are in range. The engine signatures recorded in the tables
+// (operators, fields, constructors, methods, utility functions) are trusted:
+// the compiler takes them from the engine's API, and the engine finds methods
+// and utility functions by name and hash. It does not defend against a file
+// crafted to lie about them.
 bool verify(const Module &p_module, std::string &r_error);
 
 // A readable listing, for tests and debugging.

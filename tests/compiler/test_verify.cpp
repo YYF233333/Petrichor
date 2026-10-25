@@ -110,19 +110,19 @@ TEST_CASE("operands must name slots of the instruction's type") {
 	const uint32_t string_slot = pick.params[0].offset;
 	SUBCASE("int arithmetic on a String") {
 		pick.code[find(pick, Op::ADD_INT) + 2] = string_slot;
-		CHECK(rejected(module, "is not a int slot"));
+		CHECK(rejected(module, "is not a slot of type int"));
 	}
 	SUBCASE("outside the frame") {
 		pick.code[find(pick, Op::ADD_INT) + 1] = pick.frame_size;
-		CHECK(rejected(module, "is not a int slot"));
+		CHECK(rejected(module, "is not a slot of type int"));
 	}
 	SUBCASE("inside another slot") {
 		pick.code[find(pick, Op::ADD_INT) + 1] = pick.params[1].offset + 4;
-		CHECK(rejected(module, "is not a int slot"));
+		CHECK(rejected(module, "is not a slot of type int"));
 	}
 	SUBCASE("a branch on a non-bool") {
 		pick.code[find(pick, Op::JUMP_IF_FALSE) + 1] = pick.params[1].offset;
-		CHECK(rejected(module, "is not a bool slot"));
+		CHECK(rejected(module, "is not a slot of type bool"));
 	}
 	SUBCASE("a member of another type") {
 		bytecode::Function &touch = function(module, "touch");
@@ -139,7 +139,7 @@ TEST_CASE("operands must name slots of the instruction's type") {
 		bytecode::Function &touch = function(module, "touch");
 		const size_t call = find(touch, Op::CALL);
 		touch.code[call + 2] = touch.code[call + 6]; // The String argument's slot.
-		CHECK(rejected(module, "is not a int slot"));
+		CHECK(rejected(module, "is not a slot of type int"));
 	}
 }
 
@@ -175,6 +175,10 @@ TEST_CASE("tables and layouts must be consistent") {
 	SUBCASE("a parameter that is not its slot") {
 		pick.params[0].type = bytecode::ValueType::Int;
 		CHECK(rejected(module, "parameter 0"));
+	}
+	SUBCASE("an init function outside the module") {
+		module.init_function = int32_t(module.functions.size());
+		CHECK(rejected(module, "init function"));
 	}
 }
 

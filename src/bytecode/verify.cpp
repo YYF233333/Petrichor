@@ -78,7 +78,7 @@ class Verifier {
 	bool slot(uint32_t p_offset, ValueType p_type) {
 		const auto found = frame.find(p_offset);
 		if (found == frame.end() || found->second != p_type) {
-			return fail(std::string("operand ") + std::to_string(p_offset) + " is not a " + value_type_name(p_type) + " slot");
+			return fail(std::string("operand ") + std::to_string(p_offset) + " is not a slot of type " + value_type_name(p_type));
 		}
 		return true;
 	}
@@ -107,7 +107,7 @@ class Verifier {
 	bool member(uint32_t p_offset, ValueType p_type) {
 		const auto found = instance.find(p_offset);
 		if (found == instance.end() || found->second != p_type) {
-			return fail(std::string("member operand ") + std::to_string(p_offset) + " is not a " + value_type_name(p_type) + " member");
+			return fail(std::string("member operand ") + std::to_string(p_offset) + " is not a member of type " + value_type_name(p_type));
 		}
 		return true;
 	}
@@ -420,6 +420,12 @@ public:
 			module(p_module), error(r_error) {}
 
 	bool run() {
+		if (module.init_function < -1 || module.init_function >= int32_t(module.functions.size())) {
+			return fail("the init function is not a function of the module");
+		}
+		if (module.init_function >= 0 && module.functions[module.init_function].return_type != ValueType::Void) {
+			return fail("the init function returns a value");
+		}
 		if (!layout(module.members, module.instance_size, instance)) {
 			return false;
 		}

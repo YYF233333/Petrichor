@@ -108,7 +108,8 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 	}
 	for (const bytecode::BuiltinMethodCall &call : module.builtin_methods) {
 		const StringName name = from_utf8(call.method);
-		// The engine checks the signature through the hash.
+		// The engine finds the method by its hash; the parameter types recorded
+		// with it come from the compiler.
 		const GDExtensionPtrBuiltInMethod pointer = gdextension_interface::variant_get_ptr_builtin_method(engine_type(call.base), name._native_ptr(), call.hash);
 		if (!pointer) {
 			r_error = vformat("%s has no method %s with this signature", bytecode::value_type_name(call.base), name);
