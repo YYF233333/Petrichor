@@ -34,6 +34,10 @@ public:
 	std::vector<std::vector<ValueCheck>> param_checks;
 	std::vector<std::vector<godot::Variant>> param_defaults;
 	int user_init = -1; // The class's own _init(), run after the member initializers.
+	// _notification(what: int) and _to_string() -> String, which the engine
+	// reaches through the instance rather than by calling them; -1 when absent.
+	int notification_function = -1;
+	int to_string_function = -1;
 	// "_ready", which runs the @onready initializers first (spec §6.3); kept
 	// here because godot-cpp values cannot be globals.
 	godot::StringName ready_method = "_ready";

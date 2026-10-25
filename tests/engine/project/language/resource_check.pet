@@ -1,0 +1,8 @@
+# A RefCounted of this language that reaches itself through the engine while
+# it is made (spec §6.1), driven by language_test.gd: new() holds a reference
+# before _init() runs, as GDScript's does (modules/gdscript/gdscript.cpp:228-234).
+class_name ResourceCheck
+extends Resource
+
+func _init():
+	resource_name = "made"

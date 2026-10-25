@@ -313,11 +313,36 @@ static void instance_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensi
 	result = vm::call(image, index, context, args, p_argument_count, *r_error);
 }
 
+// The engine sends notifications to the script instance instead of calling
+// _notification(); GDScript calls it on every script of the inheritance chain
+// (modules/gdscript/gdscript.cpp:1968-2000), and a class of this language is one.
 static void instance_notification(GDExtensionScriptInstanceDataPtr p_instance, int32_t p_what, GDExtensionBool p_reversed) {
+	PetInstance *instance = self(p_instance);
+	const std::shared_ptr<const ClassImage> image = instance->current_image();
+	if (image->notification_function < 0) {
+		return;
+	}
+	const Variant what = int64_t(p_what);
+	const Variant *args[] = { &what };
+	GDExtensionCallError error;
+	vm::call(image, image->notification_function, InstanceContext{ instance->members, instance->owner_object }, args, 1, error);
 }
 
+// The engine's to_string() asks the instance (modules/gdscript/gdscript.cpp:2003-2022).
 static void instance_to_string(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionBool *r_is_valid, GDExtensionStringPtr r_out) {
+	PetInstance *instance = self(p_instance);
+	const std::shared_ptr<const ClassImage> image = instance->current_image();
 	*r_is_valid = false;
+	if (image->to_string_function < 0) {
+		return;
+	}
+	GDExtensionCallError error;
+	bool failed = false;
+	const Variant text = vm::call(image, image->to_string_function, InstanceContext{ instance->members, instance->owner_object }, nullptr, 0, error, &failed);
+	if (!failed && error.error == GDEXTENSION_CALL_OK) {
+		*reinterpret_cast<String *>(r_out) = text;
+		*r_is_valid = true;
+	}
 }
 
 static void instance_refcount_incremented(GDExtensionScriptInstanceDataPtr p_instance) {

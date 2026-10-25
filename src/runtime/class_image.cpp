@@ -40,6 +40,12 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		if (function.name == "_init" && function.params.empty()) {
 			image->user_init = int(i);
 		}
+		if (function.name == "_notification" && function.params.size() == 1 && function.params[0].type == ValueType::Int) {
+			image->notification_function = int(i);
+		}
+		if (function.name == "_to_string" && function.params.empty() && function.return_type == ValueType::String) {
+			image->to_string_function = int(i);
+		}
 		image->frames.push_back(SlotLayout::of(function.frame_size, function.slots));
 		std::vector<ValueCheck> checks;
 		for (const bytecode::Slot &param : function.params) {

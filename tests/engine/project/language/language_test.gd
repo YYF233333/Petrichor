@@ -54,6 +54,10 @@ func _ready() -> void:
 	add_child(unready)
 	Engine.print_error_messages = true
 	_check(v.readied and not unready.readied, "a node that becomes ready without an export it must be assigned stops before _ready()")
+	_check(v.ready_notifications == 1, "_notification() receives the engine's notifications")
+	_check(str(v) == "ValuesCheck 1", "str() gives what _to_string() returns")
+	var made := ResourceCheck.new()
+	_check(made.resource_name == "made" and made.get_reference_count() == 1, "a RefCounted of this language uses self in _init() and is held once")
 	unready.queue_free()
 	_check(v.scaled(2) == Vector3(2, 4, 6), "Vector3 * float through the engine's operator")
 	_check(is_equal_approx(v.length_of(3, 4), 5.0), "a constructor and a method of a built-in type")
