@@ -159,8 +159,10 @@ TEST_CASE("preload() of a scene is a PackedScene of the scene's root") {
 	CHECK(contains(errors("var n: Label = preload(\"res://objects/impact.tscn\").instantiate()"), "Cannot assign a value of type impact.pet as Label"));
 	CHECK(errors("var s: PackedScene[Node3D] = preload(\"res://objects/platform.tscn\")").empty());
 	CHECK(errors("var n: Node3D = preload(\"res://objects/legacy.tscn\").instantiate()").empty());
-	// Relative to the script's directory.
+	// Relative to the script's directory, and simplified as the engine does.
 	CHECK(errors("var s: PackedScene[Node3D] = preload(\"objects/platform.tscn\")").empty());
+	CHECK(errors("var s: PackedScene[Node3D] = preload(\"./objects/../objects/platform.tscn\")").empty());
+	CHECK(errors("var s: PackedScene[Node3D] = preload(\"res://objects//platform.tscn\")").empty());
 
 	CHECK(contains(errors("var s := preload(\"res://missing.tscn\")"), "There is no scene at res://missing.tscn."));
 	CHECK(contains(errors("var s := preload(\"res://icon.png\")"), "preload() of a resource other than a scene is not supported yet."));
