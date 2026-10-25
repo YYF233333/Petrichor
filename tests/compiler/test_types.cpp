@@ -19,6 +19,10 @@ TEST_CASE("operators follow the engine's table (spec §5.1)") {
 TEST_CASE("== follows the engine's table too (spec §5.2)") {
 	CHECK(type_of("Vector2(1, 2) == Vector2(1, 2)") == "bool");
 	CHECK(type_of("Vector2() == Vector2i()").find("Invalid operands") != std::string::npos);
+	const std::string arrays = "var ints: Array[int] = [1]\nvar floats: Array[float] = [1.0]\nvar more: Array[int] = [2]";
+	CHECK(type_of("ints == more", arrays) == "bool");
+	CHECK(type_of("ints == floats", arrays).find("Array[int] and Array[float] are equal only when both are empty") != std::string::npos);
+	CHECK(type_of("ints != floats", arrays).find("are equal only when both are empty") != std::string::npos);
 }
 
 TEST_CASE("utility functions bound with Variant are typed by their arguments (spec §10.3)") {

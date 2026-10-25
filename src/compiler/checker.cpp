@@ -919,6 +919,12 @@ class Checker : public ClassRelation {
 		// Other value types follow the engine's operator table.
 		const std::string left = p_left.builtin_name();
 		const std::string right = p_right.builtin_name();
+		const bool equality = p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual;
+		if (equality && left == "Array" && right == "Array" && !p_left.args.empty() && !p_right.args.empty() && p_left.args[0] != p_right.args[0]) {
+			// The engine compares elements only of the same type (spec §5.2).
+			error(p_line, p_column, p_left.to_string() + " and " + p_right.to_string() + " are equal only when both are empty, so comparing them is an error.");
+			return Type::of(TypeKind::Error);
+		}
 		const builtin::Class *type = left.empty() ? nullptr : builtin::find_class(left);
 		const std::string name = operator_name(p_op);
 		for (uint32_t i = 0; type && !right.empty() && i < type->operator_count; i++) {
