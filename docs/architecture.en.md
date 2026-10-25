@@ -69,8 +69,9 @@ src/compiler/          no Godot dependency
 src/runtime/
 src/adapter/           editor parts in src/adapter/editor/
 tests/compiler/        doctest, as in the engine's unit tests
-tests/engine/          a Godot project run in headless mode
+tests/engine/          a Godot project run in headless mode; fps/ holds the migrated scripts of the FPS project
 thirdparty/godot-cpp/  git submodule
+thirdparty/starter-kit-fps/  git submodule: the FPS project at the commit used by the second paper migration
 ```
 
 ## 3. Testing
@@ -104,7 +105,7 @@ Comparisons use optimized builds, not `dev_build`. These data decide whether a J
    - the runtime's own instance binding receives a callback when the object is freed, without affecting godot-cpp's binding (§9.7).
    If a probe fails, the question goes back to the specification.
 3. **Minimal compilation chain**: a subset of the language with `extends Node`, typed members, functions, int and float arithmetic, if and while, calls to engine methods, and `_process`. Acceptance: the script runs attached in a scene, GDScript can call it, a breakpoint stops, and a change to a function body hot-reloads.
-4. **First milestone**: the FPS code of the second paper migration actually runs. Features are added as needed, and the corresponding rows of §15 become tests at the same time.
+4. **First milestone**: the FPS code of the second paper migration actually runs. Features are added as needed, and the corresponding rows of §15 become tests at the same time. The engine tests copy the project and replace each migrated script; the scripts not yet migrated stay GDScript, and the migrated run may only report the errors that the original reports. Scripts are migrated in the order cloud, impact, hud, audio, weapon, combat and enemy, player, so that this language never calls into GDScript and the static view of GDScript classes (spec §11.1) is not needed for this milestone.
 5. The plan after that is made once the first milestone is done, including Ring, LSP and renaming, migration quick fixes, and performance benchmarks.
 
 ## 6. Not decided yet

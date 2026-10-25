@@ -2,14 +2,16 @@
 
 Usage:
     scons target=editor && scons target=template_debug
-    python tests/engine/run.py <godot editor binary>    (or set GODOT)
+    python tests/engine/run.py <godot editor binary> [group...]    (or set GODOT)
 
 Checks the game run, the editor side (placeholders, saving, the undo probe), the
 other step-2 probes of the architecture, the language, the debugger, hot reload,
-and an exported pack run in a directory without sources.
+an exported pack run in a directory without sources, and the FPS starter kit
+with its migrated scripts. Naming groups runs only those, after the build.
 """
 
 import os
+import re
 import shutil
 import socket
 import struct
@@ -22,6 +24,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PROJECT = HERE / "project"
+FPS_UPSTREAM = HERE.parent.parent / "thirdparty" / "starter-kit-fps"
+FPS_MIGRATED = HERE / "fps"
 HOT_RELOAD = PROJECT / "language" / "hot_reload"
 HOT_RELOAD_BYTECODE = PROJECT / ".godot" / "petrichor" / "language" / "hot_reload"
 LIVE_SCRIPT = "res://language/hot_reload/live.pet"
@@ -208,6 +212,44 @@ def drain(connection):
         pass
 
 
+def prepare_fps(project):
+    """The FPS starter kit with the extension and fps_check.gd."""
+    shutil.copytree(FPS_UPSTREAM, project, ignore=shutil.ignore_patterns(".git"))
+    shutil.copytree(PROJECT / "bin", project / "bin")
+    shutil.copy(PROJECT / "petrichor.gdextension", project)
+    shutil.copy(FPS_MIGRATED / "fps_check.gd", project)
+
+    settings = project / "project.godot"
+    text = settings.read_text(encoding="utf-8")
+    text = re.sub(r"^\[autoload\]\r?$", '[autoload]\n\nFpsCheck="*res://fps_check.gd"', text, count=1, flags=re.M)
+    if "FpsCheck" not in text:
+        text += '\n[autoload]\n\nFpsCheck="*res://fps_check.gd"\n'
+    settings.write_text(text, encoding="utf-8")
+
+
+def migrate_fps(project):
+    """Puts each migrated script in place of its GDScript original
+    (architecture §5 step 4)."""
+    replaced = {}
+    for script in FPS_MIGRATED.rglob("*.pet"):
+        relative = script.relative_to(FPS_MIGRATED)
+        original = project / relative.with_suffix(".gd")
+        original.unlink()
+        original.with_name(original.name + ".uid").unlink(missing_ok=True)
+        shutil.copy(script, project / relative)
+        replaced["res://" + relative.with_suffix(".gd").as_posix()] = "res://" + relative.as_posix()
+
+    # Scenes and resources name a script by uid and path; the uid belonged to
+    # the original, so only the path stays.
+    for file in [*project.rglob("*.tscn"), *project.rglob("*.tres"), project / "project.godot"]:
+        lines = file.read_text(encoding="utf-8").split("\n")
+        for i, line in enumerate(lines):
+            for old, new in replaced.items():
+                if f'"{old}"' in line or f'"*{old}"' in line:
+                    lines[i] = re.sub(r' uid="[^"]*"', "", line).replace(old, new)
+        file.write_text("\n".join(lines), encoding="utf-8")
+
+
 def expect(name, ok, output=""):
     print(("ok      " if ok else "FAILED  ") + name, flush=True)
     if not ok:
@@ -230,6 +272,10 @@ def main():
     godot = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("GODOT")
     if not godot:
         sys.exit(__doc__)
+    only = set(sys.argv[2:])
+
+    def wanted(group):
+        return not only or group in only
 
     run(godot, "--path", str(PROJECT), "--import")
 
@@ -238,18 +284,59 @@ def main():
     expect_run("build", code, output)
     expect("build: every script compiles", ", 0 with errors" in output, output)
 
-    code, output = run(godot, "--path", str(PROJECT))
-    expect_run("game run", code, output, GAME_OUTPUT)
+    if wanted("game"):
+        code, output = run(godot, "--path", str(PROJECT))
+        expect_run("game run", code, output, GAME_OUTPUT)
 
-    code, output = run(godot, "-e", "--path", str(PROJECT), "--", "--editor-checks")
-    expect_run("editor checks", code, output, ["editor check: 0 failure(s)"])
+    if wanted("editor"):
+        code, output = run(godot, "-e", "--path", str(PROJECT), "--", "--editor-checks")
+        expect_run("editor checks", code, output, ["editor check: 0 failure(s)"])
 
-    code, output = run(godot, "--path", str(PROJECT), "res://probes/probes.tscn")
-    expect_run("probes", code, output, ["probe: 0 failure(s)"])
+    if wanted("probes"):
+        code, output = run(godot, "--path", str(PROJECT), "res://probes/probes.tscn")
+        expect_run("probes", code, output, ["probe: 0 failure(s)"])
 
-    code, output = run(godot, "--path", str(PROJECT), "res://language/language.tscn")
-    expect_run("language", code, output, ["language: 0 failure(s)"])
+    if wanted("language"):
+        code, output = run(godot, "--path", str(PROJECT), "res://language/language.tscn")
+        expect_run("language", code, output, ["language: 0 failure(s)"])
 
+    if wanted("debugger"):
+        run_debugger_groups(godot)
+
+    if wanted("export"):
+        run_export_groups(godot)
+
+    if wanted("fps"):
+        run_fps_group(godot)
+
+    print(f"{len(failures)} failure(s)")
+    sys.exit(1 if failures else 0)
+
+
+def run_fps_group(godot):
+    # Architecture §5 step 4: the starter kit runs with its migrated scripts.
+    # The original reports errors of its own in a headless run (a sound still
+    # playing at exit), so the migrated run may only repeat those.
+    with tempfile.TemporaryDirectory() as tmp:
+        original = Path(tmp) / "original"
+        prepare_fps(original)
+        run(godot, "--path", str(original), "--import")
+        code, output = run(godot, "--path", str(original))
+        expect("fps original run", code == 0 and "fps check: 0 failure(s)" in output, output)
+        known_errors = {line for line in output.splitlines() if "ERROR" in line}
+
+        migrated = Path(tmp) / "migrated"
+        shutil.copytree(original, migrated)
+        migrate_fps(migrated)
+        code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-build")
+        expect_run("fps build", code, output)
+        expect("fps build: every script compiles", ", 0 with errors" in output, output)
+        code, output = run(godot, "--path", str(migrated))
+        new_errors = [line for line in output.splitlines() if "ERROR" in line and line not in known_errors]
+        expect("fps run", code == 0 and not new_errors and "fps check: 0 failure(s)" in output, output)
+
+
+def run_debugger_groups(godot):
     # Spec §12.5: breakpoints, locals, members, stepping and a break on a
     # program error, through the engine's local debugger driven on standard input.
     code, output = run_debugger(
@@ -296,6 +383,8 @@ def main():
         ],
     )
 
+
+def run_export_groups(godot):
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         pack = tmp / "game.pck"
@@ -311,9 +400,6 @@ def main():
         shutil.copytree(PROJECT / "bin", runner / "bin")
         code, output = run(godot, "--path", str(runner), "--script", str(HERE / "export_check.gd"), "--", str(pack))
         expect_run("exported pack run", code, output, ["export check: greeter.petc header = PETC", *GAME_OUTPUT])
-
-    print(f"{len(failures)} failure(s)")
-    sys.exit(1 if failures else 0)
 
 
 if __name__ == "__main__":

@@ -11,8 +11,9 @@ Petrichor designs a statically typed scripting language that replaces GDScript. 
 - `docs/architecture.{zh,en}.md`: implementation decisions: components, value representation, testing, order of work.
 - `src/compiler/`: the compiler (architecture §2.1), no Godot dependency; `src/bytecode/`: the compiled format shared with the runtime; `src/runtime/`: the runtime (§2.2).
 - `src/adapter/`: the GDExtension adapter (architecture §2.3); editor-only parts in `src/adapter/editor/`.
-- `tests/engine/`: the headless Godot test project and its runner.
+- `tests/engine/`: the headless Godot test project and its runner; `tests/engine/fps/` holds the migrated scripts of the FPS starter kit (architecture §5 step 4).
 - `thirdparty/godot-cpp`: git submodule, built with `api_version=4.7`.
+- `thirdparty/starter-kit-fps`: git submodule, the FPS starter kit at the commit of the second paper migration; the runner copies it and puts the migrated scripts in place.
 - `docs/surveys/`: empirical investigations behind specific rules, and evaluations of the design against real code. Each has a write-up in both languages and a directory of scripts that reproduce it. Single counts that back one rule go into `docs/surveys/corpus-counts` (script `corpus-counts/counts.py`).
 
 ## Documentation rules
@@ -30,6 +31,6 @@ Petrichor designs a statically typed scripting language that replaces GDScript. 
 - Setup: `git submodule update --init`.
 - Build (SCons, MSVC on Windows): `scons target=editor` and `scons target=template_debug`. The libraries go to `tests/engine/project/bin/`. Close the editor before rebuilding: the extension is not reloadable.
 - Compiler tests: `scons compiler_tests`, then run `tests/compiler/bin/compiler_tests`. They build without godot-cpp and do not start the engine.
-- Engine tests: `python tests/engine/run.py <Godot 4.7 editor binary>` runs the test project headless: the game, editor-side checks, the debugger, hot reload and an exported pack.
+- Engine tests: `python tests/engine/run.py <Godot 4.7 editor binary>` runs the test project headless: the game, editor-side checks, the debugger, hot reload, an exported pack, and the FPS starter kit with its migrated scripts. Extra arguments name the groups to run, for example `fps`.
 - Language rules come from the spec. When the implementation runs into a problem with a rule, change the spec in a separate commit; do not relax the rule in code.
 - Tests are derived from the spec (§15), the engine and real code, not from the implementation (architecture §3).

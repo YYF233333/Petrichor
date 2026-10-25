@@ -69,8 +69,9 @@ src/compiler/          不依赖 Godot
 src/runtime/
 src/adapter/           编辑器部分在 src/adapter/editor/
 tests/compiler/        doctest，与引擎的单元测试相同
-tests/engine/          以无界面模式运行的 Godot 项目
+tests/engine/          以无界面模式运行的 Godot 项目；fps/ 中是 FPS 项目迁移后的脚本
 thirdparty/godot-cpp/  git 子模块
+thirdparty/starter-kit-fps/  git 子模块：第二次纸面迁移所用提交的 FPS 项目
 ```
 
 ## 3. 测试
@@ -104,7 +105,7 @@ thirdparty/godot-cpp/  git 子模块
    - 运行时自己的实例绑定在对象释放时收到回调，不影响 godot-cpp 的绑定（§9.7）。
    探针不成立时，回到规范讨论。
 3. **最小编译链**：语言的一个子集，包括 `extends Node`、带类型的成员、函数、int 和 float 的运算、if 和 while、调用引擎方法、`_process`。验收：脚本挂进场景运行，GDScript 能调用它，断点能停下，修改函数体能热重载。
-4. **第一个里程碑**：第二次纸面迁移中的 FPS 代码真正运行。功能按需要加入，§15 中对应的行同时写成测试。
+4. **第一个里程碑**：第二次纸面迁移中的 FPS 代码真正运行。功能按需要加入，§15 中对应的行同时写成测试。引擎测试复制该项目，逐个替换已迁移的脚本，尚未迁移的仍是 GDScript；迁移后的运行只能报告原项目自己也报告的错误。迁移顺序为 cloud、impact、hud、audio、weapon、combat 和 enemy、player，使本语言始终不调用 GDScript，这个里程碑不需要 GDScript 类的静态视图（规范 §11.1）。
 5. 之后的计划在第一个里程碑完成后再定，包括 Ring、LSP 和重命名、迁移用的快速修复、性能基准。
 
 ## 6. 暂不决定
