@@ -27,8 +27,8 @@ func _nodes_with_script(root: Node, file: String) -> Array[Node]:
 
 
 # run.py checks this line for each migrated script.
-func _report(file: String, node: Node) -> void:
-	print("fps check: %s runs %s" % [file, node.get_script().get_class()])
+func _report(file: String, object: Object) -> void:
+	print("fps check: %s runs %s" % [file, object.get_script().get_class()])
 
 
 # Waits up to `seconds` of real time for `condition`; headless frames are not paced.
@@ -65,6 +65,12 @@ func _ready() -> void:
 	player.damage(10)
 	var health_text: String = huds[0].get_node("Health").text if huds.size() == 1 else ""
 	_check(health_text == "%d%%" % player.health, "the HUD shows the health the player reports (%s)" % health_text)
+
+	# The weapons are resources that player.tscn lists in its typed export.
+	var weapons: Array = player.weapons
+	_check(weapons.size() == 2 and weapons.all(func(w): return w.model is PackedScene and w.crosshair is Texture2D and w.cooldown > 0.0), "the player's weapons load with their exports")
+	if not weapons.is_empty():
+		_report("weapon", weapons[0])
 
 	# The player and the enemies call Audio.play() when they land, shoot or are
 	# hurt, which a headless run does not do.

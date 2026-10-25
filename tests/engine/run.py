@@ -327,9 +327,12 @@ def run_fps_group(godot):
         expect("fps original run", code == 0 and "fps check: 0 failure(s)" in output, output)
         known_errors = {line for line in output.splitlines() if "ERROR" in line}
 
+        # Prepared afresh: the original's .godot caches its global classes,
+        # such as Weapon, with the paths of the GDScript files.
         migrated = Path(tmp) / "migrated"
-        shutil.copytree(original, migrated)
+        prepare_fps(migrated)
         migrate_fps(migrated)
+        run(godot, "--path", str(migrated), "--import")
         code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-build")
         expect_run("fps build", code, output)
         expect("fps build: every script compiles", ", 0 with errors" in output, output)
