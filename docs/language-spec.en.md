@@ -22,10 +22,10 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 1.3 Delivery
 
-- It is delivered as a GDExtension implementing Godot's script language extension interface (`core/object/script_language_extension.h:393, 493, 533, 596, 754`). Code that accesses the engine is kept in a thin adapter layer, so that an engine-module build remains possible later.
+- It is delivered as a GDExtension implementing Godot's script language extension interface (`core/object/script_language_extension.h:304, 391, 441, 497, 655`). Code that accesses the engine is kept in a thin adapter layer, so that an engine-module build remains possible later.
 - A GDExtension can be installed in the official editor and uses the official export templates. The cost is that Web exports need "Extensions Support" enabled, which uses the dynamically linked export templates (`platform/web/export/export_plugin.cpp:374`, `platform/web/export/export_plugin.h:59-73`); cross-origin isolation headers are needed only when thread support is also enabled (`platform/web/doc_classes/EditorExportPlatformWeb.xml:93-95`).
 - Rationale: the [pitfall catalog](surveys/pitfalls.en.md) contains no entry that only a module could fix; what a GDExtension cannot fix needs changes to the engine, which a module cannot make either.
-- Source is compiled only in the editor and in headless mode. Exported games contain only bytecode, and the library used by the export templates contains no compiler. Rationale: the types of `$X`, `@parent` and `PackedScene[T]` depend on scenes (§7), so compiling at load time would mean analysing scenes again inside the game and shipping the analyzer to every export platform. GDScript goes no further than tokenizing at export, and parses and compiles at load time (`modules/gdscript/register_types.cpp:100-117`, `modules/gdscript/gdscript_cache.cpp:369-375, 388`).
+- Source is compiled only in the editor and in headless mode. Exported games contain only bytecode, and the library used by the export templates contains no compiler. Rationale: the types of `$X`, `@parent` and `PackedScene[T]` depend on scenes (§7), so compiling at load time would mean analysing scenes again inside the game and shipping the analyzer to every export platform. GDScript goes no further than tokenizing at export, and parses and compiles at load time (`modules/gdscript/register_types.cpp:99-116`, `modules/gdscript/gdscript_cache.cpp:373-379, 392`).
 
 ### 1.4 Conventions
 
@@ -36,8 +36,8 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
   - **[Known limitation]**: not supported in the first version; rules that restrict which programs are legal remain normative;
   - **[Later]**: can be added compatibly later and is not part of the first version.
 - A **compile error** is an error the analysis service reports before running, making the program illegal. The only exception is a missing value marked on a scene, which does not block running in the editor (§7.5). **Warnings** and **hints** do not affect legality. A **program error** is the runtime error defined in §8.1.
-- Engine behavior cited here was checked against Godot master (4.8-beta, commit `469659e`), with sources listed in Appendix A. This is the verification baseline, not a statement of supported versions.
-- Petrichor is a working name. The source file extension is provisionally `.pet`, and will be fixed together with the final name before the language's first release, because changing it afterwards would change every path in scenes that points to a script. The extension must be short and lowercase, must not clash with extensions Godot already uses (such as `.gd` and `.tscn`), nor with another language in GitHub Linguist or common editors. A script language reports its extension through `get_extension` (`core/object/script_language_extension.h:287`).
+- Engine behavior cited here was checked against Godot 4.7.2-stable (commit `ed1daf0`), with sources listed in Appendix A. This is the verification baseline, not a statement of supported versions.
+- Petrichor is a working name. The source file extension is provisionally `.pet`, and will be fixed together with the final name before the language's first release, because changing it afterwards would change every path in scenes that points to a script. The extension must be short and lowercase, must not clash with extensions Godot already uses (such as `.gd` and `.tscn`), nor with another language in GitHub Linguist or common editors. A script language reports its extension through `get_extension` (`core/object/script_language_extension.h:236`).
 
 ## 2. Lexical structure and surface syntax
 
@@ -56,8 +56,8 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 - Indentation, comments, identifiers, literals and operators are as in GDScript, with these changes:
   - New keywords: `pub`, `struct`, `interface`, `implements`, `async`, `None`.
-  - A new postfix operator `?` (§8.2). In GDScript `?` is a syntax error (`modules/gdscript/gdscript_parser.cpp:3834-3835`).
-  - Prefix `!` remains logical not (`gdscript_parser.cpp:2965-2967`).
+  - A new postfix operator `?` (§8.2). In GDScript `?` is a syntax error (`modules/gdscript/gdscript_parser.cpp:3860-3861`).
+  - Prefix `!` remains logical not (`gdscript_parser.cpp:2963-2965`).
   - `null` is an alias of None, with GDScript's meaning everywhere: `x = null` gives a `T?` the empty value, `x != null` is the same as `x != None` and narrows, and passed as a Variant the engine receives NIL. Assigning it to a non-null `T` is a compile error, and the quick fix changes the type to `T?`. A hint suggests writing None in new code. Rationale: `null` occurs 22.2 times per 1,000 lines in the [corpus counts](surveys/corpus-counts.en.md), and making it a compile error would only add mechanical migration work.
 - Literals: integers, floats, strings (including triple quotes and the `r` prefix), `&"…"` (StringName), `^"…"` (NodePath), arrays `[…]`, dictionaries `{k: v}` and `{k = v}`, `true`, `false` and `None`, as in GDScript; `None` is the empty value of Option (§3.4). The types of literals are in §3.2 and §10.7.
 
@@ -89,7 +89,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
   var c = Command.MOVE(target = Vector3.ZERO)
   ```
 
-- **Interfaces**: an indented block that can declare `var`, `signal` and `func`. A method without a body has no colon, as with GDScript's `@abstract func` (`gdscript_parser.cpp:1790-1791`); a method with a body is a default method. A property is required to be readable and writable; one required only to be readable is marked `@readonly`, as in `@readonly var max_hp: int`. All members of an interface are public:
+- **Interfaces**: an indented block that can declare `var`, `signal` and `func`. A method without a body has no colon, as with GDScript's `@abstract func` (`gdscript_parser.cpp:1773-1774`); a method with a body is a default method. A property is required to be readable and writable; one required only to be readable is marked `@readonly`, as in `@readonly var max_hp: int`. All members of an interface are public:
 
   ```gdscript
   pub interface Damageable:
@@ -123,8 +123,8 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
       return best
   ```
 
-  At call sites type arguments are usually inferred from the arguments, and are written out when they cannot be, for example `first[int]([])` or `Pair[int, String](first = 1, second = "a")`. `name[...]` looks like a subscript and is told apart by name resolution: when the name is a generic function or a generic type, the brackets hold type arguments; otherwise they are a subscript. In GDScript `[` after an inner class name, the name in `class_name`, an enum name or a function name is a syntax error (`gdscript_parser.cpp:964, 1005-1010, 1616, 1822`), so these declarations do not break the syntax hard rule.
-- **Function types** keep the shape of a function declaration without the function and parameter names (§3.11). A GDScript type can only start with an identifier or `void` (`gdscript_parser.cpp:3849-3861`), so `func(...)` as a type is a syntax error.
+  At call sites type arguments are usually inferred from the arguments, and are written out when they cannot be, for example `first[int]([])` or `Pair[int, String](first = 1, second = "a")`. `name[...]` looks like a subscript and is told apart by name resolution: when the name is a generic function or a generic type, the brackets hold type arguments; otherwise they are a subscript. In GDScript `[` after an inner class name, the name in `class_name`, an enum name or a function name is a syntax error (`gdscript_parser.cpp:964, 1005-1010, 1602, 1805`), so these declarations do not break the syntax hard rule.
+- **Function types** keep the shape of a function declaration without the function and parameter names (§3.11). A GDScript type can only start with an identifier or `void` (`gdscript_parser.cpp:3874-3886`), so `func(...)` as a type is a syntax error.
 
   ```gdscript
   var on_hit: func(int, Node3D)                 # no return value; -> void may also be written
@@ -158,7 +158,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 3.2 Numbers
 
-- The only numeric types are `int` and `float`, both 64-bit, matching Variant (`core/variant/variant.h:257-258`). There are no narrow types for users; fixed-width arithmetic uses wrapping methods and bit operations on `int`.
+- The only numeric types are `int` and `float`, both 64-bit, matching Variant (`core/variant/variant.h:252-253`). There are no narrow types for users; fixed-width arithmetic uses wrapping methods and bit operations on `int`.
 - Integer literals have type `int`, floating-point literals type `float`.
 - An `int` converts implicitly to `float` in assignments, arguments and returns. Converting a `float` to an `int` requires `int(x)` and is otherwise a compile error. Rationale: `var hp = 10` is inferred as int in this language (§4.3) but is untyped in GDScript, where `hp = 2.5` leaves 2.5; implicit truncation would make the result silently differ.
 - The result types of operators follow §5.1.
@@ -170,10 +170,10 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - After an object is freed:
   - reading a reference of type `T?` that refers to it yields None, so a `!= None` check, and the narrowing it brings (§5.4), is also a liveness check;
   - a reference of type `T` may still hold the freed object; reading, comparing and passing it do not count as access, and accessing its members is a program error; `==` compares ObjectIDs, so two different freed objects are not equal (§5.2). In debug builds, if the object is an instance of this language or was freed by code of this language, the diagnostic says where it was freed;
-  - `is` is false for a freed object and `as` yields None, whatever the static type, so a type test is also a liveness test. GDScript fails at runtime here (`modules/gdscript/gdscript_vm.cpp:905-912, 1653-1657`);
-  - after `queue_free()` and until the object is actually deleted at the end of the frame, it still counts as alive: the engine puts it in the deletion queue, which is flushed at the end of each physics step and each process frame (`scene/main/node.cpp:3518-3528`, `scene/main/scene_tree.cpp:667, 736, 1646-1661`). `is_instance_valid` behaves as in GDScript.
+  - `is` is false for a freed object and `as` yields None, whatever the static type, so a type test is also a liveness test. GDScript fails at runtime here (`modules/gdscript/gdscript_vm.cpp:942-947, 1665-1669`);
+  - after `queue_free()` and until the object is actually deleted at the end of the frame, it still counts as alive: the engine puts it in the deletion queue, which is flushed at the end of each physics step and each process frame (`scene/main/node.cpp:3461-3471`, `scene/main/scene_tree.cpp:666, 735, 1626-1643`). `is_instance_valid` behaves as in GDScript.
 - Every read of an object reference of type `T?` performs a liveness query.
-- Rationale: in the [corpus counts](surveys/corpus-counts.en.md), `is_instance_valid` appears 3.3 times per 1,000 lines, and 12.8 times per 1,000 lines in phantom-camera; since 4.4 the engine also treats freed objects as false in conditions (PR [#93885](https://github.com/godotengine/godot/pull/93885), `core/variant/variant.cpp:980-981`). Evidence: [pitfall catalog](surveys/pitfalls.en.md) G-07, G-08.
+- Rationale: in the [corpus counts](surveys/corpus-counts.en.md), `is_instance_valid` appears 3.3 times per 1,000 lines, and 12.8 times per 1,000 lines in phantom-camera; since 4.4 the engine also treats freed objects as false in conditions (PR [#93885](https://github.com/godotengine/godot/pull/93885), `core/variant/variant.cpp:952-953`). Evidence: [pitfall catalog](surveys/pitfalls.en.md) G-07, G-08.
 
 ### 3.4 Option
 
@@ -212,7 +212,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - Methods: a struct can declare `func` and `static func`. Inside methods self is read-only, and assigning to a field of self is a compile error; a method that needs a change returns a modified copy. Rationale: a method that modifies self needs a call site that can be written back, and called on a temporary, on a property read through a getter, or on a loop variable, it would either be an error or silently modify a copy. [Later] Methods that modify self.
 - Fields and methods are visible wherever the struct is (§4.2). [Later] A stricter `private`.
 - Modification: `s.x = 1` modifies the copy where s lives (a variable, a member or a container element).
-  - A chained assignment reads, modifies and writes back along the chain, as GDScript does for `node.position.x = 1` (`modules/gdscript/gdscript_compiler.cpp:1176-1194`): `player.last_hit.damage = 3` writes back through the setter of `last_hit`, and `hits[0].damage = 3` modifies the element in the array;
+  - A chained assignment reads, modifies and writes back along the chain, as GDScript does for `node.position.x = 1` (`modules/gdscript/gdscript_compiler.cpp:1172-1190`): `player.last_hit.damage = 3` writes back through the setter of `last_hit`, and `hits[0].damage = 3` modifies the element in the array;
   - assigning to a field of a temporary is a compile error, for example `get_hit().damage = 3`;
   - loop variables and lambda captures are copies, as with Vector2 in GDScript. Modifying a field of a struct-typed loop variable that is not read afterwards gives a "modifies a copy" warning.
 - Copies are shallow: object and container fields copy the reference, as these values do when assigned anywhere else. When an independent container is needed, call `duplicate()` on that field.
@@ -245,14 +245,14 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 3.8 Containers
 
-- Whatever their internal representation (next item), users see a single `Array[T]` and a single `Dictionary[K, V]`, with the same API as in GDScript. `Array` and `Dictionary` without type arguments have Variant elements, as in GDScript. `Array[T]` and `Dictionary[K, V]` are invariant; for example, `Array[Node2D]` cannot be used where `Array[Node]` is expected, as in GDScript's static checks (`modules/gdscript/gdscript_analyzer.cpp:6428-6442`).
+- Whatever their internal representation (next item), users see a single `Array[T]` and a single `Dictionary[K, V]`, with the same API as in GDScript. `Array` and `Dictionary` without type arguments have Variant elements, as in GDScript. `Array[T]` and `Dictionary[K, V]` are invariant; for example, `Array[Node2D]` cannot be used where `Array[Node]` is expected, as in GDScript's static checks (`modules/gdscript/gdscript_analyzer.cpp:6379-6393`).
 - When elements are representable by the engine, the container is the engine's typed container, shared with the engine. When elements are of a type only this language has (structs, enums with payloads and so on), it uses its own representation; passing it to the engine requires an explicit conversion, written as GDScript's constructor conversion `Array(hits)` or `Dictionary(d)`, whose result is an untyped engine container with the elements encoded as in §10.1, a copy; the opposite direction is `Array[Hit].try_from(v)` (§5.3). Rationale: implicit copying would create pitfalls of the "you modified a copy" kind.
 - Access:
-  - `pop_front()` and `pop_back()` return `T?`: the engine returns null on an empty array without reporting an error (`core/variant/array.cpp:798-817`);
-  - `front()` and `back()` return T and are a program error on an empty array, where the engine reports an error too (`array.cpp:364-372`);
+  - `pop_front()` and `pop_back()` return `T?`: the engine returns null on an empty array without reporting an error (`core/variant/array.cpp:781-800`);
+  - `front()` and `back()` return T and are a program error on an empty array, where the engine reports an error too (`array.cpp:354-362`);
   - an out-of-range index is a program error;
   - when T is itself nullable, `pop_front()` and `pop_back()` return `T??`, and the binding layer checks for an empty array first, because the engine returns null in both cases;
-  - `Dictionary[K, V].get(k)` returns `V?`, None when the key is missing, matching the engine returning the default for a missing key (`core/variant/dictionary.cpp:177-188`); `get(k, default)` returns V; `d[k]` with a missing key is a program error, where GDScript reports an error too.
+  - `Dictionary[K, V].get(k)` returns `V?`, None when the key is missing, matching the engine returning the default for a missing key (`core/variant/dictionary.cpp:178-187`); `get(k, default)` returns V; `d[k]` with a missing key is a program error, where GDScript reports an error too.
 - The standard library provides `map`, `filter`, `sort` and similar methods taking typed lambdas on the native containers (§3.11).
 
 ### 3.9 Interfaces
@@ -284,7 +284,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 3.11 Function types and Callable
 
 - A function type records the parameter types, the return type, and whether the function is async; the spelling is in §2.4. A function type without a return type returns void.
-- Calls are written `f.call(x)` as in GDScript and checked statically against the function type. Writing `f(x)` gives GDScript's existing error with a fix (`modules/gdscript/gdscript_analyzer.cpp:3785-3789`).
+- Calls are written `f.call(x)` as in GDScript and checked statically against the function type. Writing `f(x)` gives GDScript's existing error with a fix (`modules/gdscript/gdscript_analyzer.cpp:3741-3745`).
 - Whether a function value can be used in a position depends only on types, and lambdas and method values are treated alike:
   - parameters are contravariant and return values covariant; for example, `func(Node)` can be used where `func(Node3D)` is expected;
   - there is no implicit conversion between async and ordinary function types;
@@ -314,7 +314,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
   - `if v is T:`, in whose branch locals and parameters narrow to T (§5.4).
 - `==` and `!=` use the engine's Variant comparison (§5.2).
 - Every other operation is a compile error, and the quick fix inserts a conversion or `if v is T:`: operators, member access `v.x`, method calls `v.f()`, subscripts `v[i]`, `for x in v`. GDScript executes these positions dynamically. Dynamic access by name, where really needed, converts to Object first and then uses the engine's `get`, `set` and `call` (§10.4).
-- A Variant includes NIL: `v == None` is true for NIL and for a freed object, as in the engine's operator table (`core/variant/variant_op.h:532-537`), `v is int` is false for NIL, and `v as Node` yields None for NIL. `Variant?` differs from Variant (§3.4); for example, `get("hp")` on a `Dictionary[String, Variant]` is None when the key is missing, and a Some containing NIL for `{"hp": null}`.
+- A Variant includes NIL: `v == None` is true for NIL and for a freed object, as in the engine's operator table (`core/variant/variant_op.h:484-489`), `v is int` is false for NIL, and `v as Node` yields None for NIL. `Variant?` differs from Variant (§3.4); for example, `get("hp")` on a `Dictionary[String, Variant]` is None when the key is missing, and a Some containing NIL for `{"hp": null}`.
 
   ```gdscript
   var data = JSON.parse_string(text)   # Variant
@@ -332,13 +332,13 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - A class may extend an engine class or a class of this language.
 - [Known limitation] Cross-language inheritance is not supported in either direction: a class of this language cannot extend a GDScript class, and a GDScript script cannot extend a class of this language (§11.2).
 - The signature rules for overriding methods are in §4.6, the visibility rules in §4.2.
-- `@abstract` is as in GDScript (`modules/gdscript/gdscript_analyzer.cpp:1543-1562, 3674-3687`, `modules/gdscript/gdscript_parser.cpp:4492-4516`):
+- `@abstract` is as in GDScript (`modules/gdscript/gdscript_analyzer.cpp:1533-1552, 3630-3643`, `modules/gdscript/gdscript_parser.cpp:4500-4524`):
   - an abstract method has no colon and no body;
   - a class with abstract methods must be marked `@abstract`;
   - a concrete subclass must implement every abstract method;
   - an abstract class cannot be constructed;
   - calling an abstract method through `super` and marking a static method `@abstract` are compile errors.
-- A node in a scene that uses an abstract class is a compile error, reported on that scene. The engine itself does not instantiate abstract scripts either (`modules/gdscript/gdscript.cpp:265-270`); the language reports abstractness to the engine through `_is_abstract` and the global class list (`core/object/script_language_extension.h:143-147, 756-769`).
+- A node in a scene that uses an abstract class is a compile error, reported on that scene. The engine itself does not set abstract scripts on objects either (`core/object/object.cpp:976`); the language reports abstractness to the engine through `_is_abstract` and the global class list (`core/object/script_language_extension.h:132-136, 657-670`).
 - A common base class with state is written with `@abstract`; a capability shared by classes with different engine bases is an interface (§3.9). For example, godot-open-rpg's BattlerAction extends Resource and has exported fields and an abstract coroutine `execute`:
 
   ```gdscript
@@ -393,15 +393,15 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 4.6 Functions
 
 - Function signature types are written by hand, not inferred. Parameters must be annotated, except in overrides (next item) and in lambdas with an expected type (second-to-last item of this section).
-- An override of an engine virtual or of a base-class method may omit its parameter and return types; the omitted types are taken from the overridden declaration and shown on hover. Types that are written follow GDScript's override check: the return type may be covariant, parameter types may be contravariant, and extra parameters with defaults may be added (`modules/gdscript/gdscript_analyzer.cpp:1892-1933`); parameter names may differ. For example, delta in `func _process(delta):` is a float (`scene/main/node.h:433-434`). This is not inference: the types are set by the overridden declaration, not by the body. Evidence: the [second paper migration](surveys/paper-migration-2.en.md) has 6 parameter annotations on engine virtual overrides.
+- An override of an engine virtual or of a base-class method may omit its parameter and return types; the omitted types are taken from the overridden declaration and shown on hover. Types that are written follow GDScript's override check: the return type may be covariant, parameter types may be contravariant, and extra parameters with defaults may be added (`modules/gdscript/gdscript_analyzer.cpp:1895-1936`); parameter names may differ. For example, delta in `func _process(delta):` is a float (`scene/main/node.h:433-434`). This is not inference: the types are set by the overridden declaration, not by the body. Evidence: the [second paper migration](surveys/paper-migration-2.en.md) has 6 parameter annotations on engine virtual overrides.
 - For a function that is not an override, an omitted return type means void; returning a value from it is a compile error, and the quick fix adds the return type.
 - Parameters may have default values, as in GDScript.
 - Rest parameters:
-  - `...args: Array` is as in GDScript; it must be the last parameter and cannot have a default value (`gdscript_parser.cpp:1723-1730`);
-  - `...args: Array[T]` is also allowed, and each argument is checked at the call site; GDScript reports typed rest parameters as a compile error (`gdscript_analyzer.cpp:1802-1809`);
+  - `...args: Array` is as in GDScript; it must be the last parameter and cannot have a default value (`gdscript_parser.cpp:1709-1716`);
+  - `...args: Array[T]` is also allowed, and each argument is checked at the call site; GDScript reports typed rest parameters as a compile error (`gdscript_analyzer.cpp:1803-1810`);
   - a bare `...args` is a compile error, and the quick fix adds `: Array`;
-  - the method information the engine sees carries `METHOD_FLAG_VARARG`, from which GDScript accepts any number of extra arguments (`gdscript_analyzer.cpp:6101-6104`); the element type is enforced by the entry check (§10.1);
-  - there is no spread at call sites, and GDScript has none either (`gdscript_parser.cpp:4336`); an existing array is passed with `callv`. Without a spread form mistakes are easy; for example, Pixelorama's `_debug_msg` passes its whole args as one argument to `_prefix_print`, which then calls `prints(args)` and prints an array instead of space-separated values (`src/Classes/ObjParse.gd:59-66`). [Later] A spread form;
+  - the method information the engine sees carries `METHOD_FLAG_VARARG`, from which GDScript accepts any number of extra arguments (`gdscript_analyzer.cpp:6052-6055`); the element type is enforced by the entry check (§10.1);
+  - there is no spread at call sites, and GDScript has none either (`gdscript_parser.cpp:4344`); an existing array is passed with `callv`. Without a spread form mistakes are easy; for example, Pixelorama's `_debug_msg` passes its whole args as one argument to `_prefix_print`, which then calls `prints(args)` and prints an array instead of space-separated values (`src/Classes/ObjParse.gd:59-66`). [Later] A spread form;
   - evidence: in the [corpus counts](surveys/corpus-counts.en.md), 76 of the 78 rest parameters are in gdUnit4's assertion interfaces, all with Variant elements.
 - Calls pass arguments by position, as in GDScript. Arguments by name are used only to construct structs and variants with payloads (§2.4), and to pass must-assign members to `instantiate(...)` and `new(...)` (§6.2).
 - Local variables inside functions may infer their type from an initializer. A lambda is code inside a function and is inferred by the local rules: its parameter types come from the expected function type when there is one and must be written otherwise, and its return type is inferred from its body, as in `weapons.map(func(w): return w.name)`.
@@ -417,7 +417,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 4.8 Static members
 
-- `static var`, `static func` and `_static_init()` are written and timed as in GDScript: when a class is loaded, base classes first, its static members are initialized in declaration order and `_static_init` is called last (`modules/gdscript/gdscript_compiler.cpp:2646-2649`). Static initializers bypass setters too (`gdscript_compiler.cpp:2620-2643`).
+- `static var`, `static func` and `_static_init()` are written and timed as in GDScript: when a class is loaded, base classes first, its static members are initialized in declaration order and `_static_init` is called last (`modules/gdscript/gdscript_compiler.cpp:2629-2632`). Static initializers bypass setters too (`gdscript_compiler.cpp:2603-2626`).
 - When a class's static initialization reads a static member of another class, that class is initialized first.
 - A cycle between static initializations is a program error whose diagnostic lists the dependency chain; cycles that can be determined statically are compile errors. Default or unfinished values are never read. Related GDScript issues: [godotengine/godot#104161](https://github.com/godotengine/godot/issues/104161), [#82141](https://github.com/godotengine/godot/issues/82141), [#104588](https://github.com/godotengine/godot/issues/104588).
 - Static initialization cannot await.
@@ -428,7 +428,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 5.1 Operators
 
-- The result types of operators follow the engine's operator table, as GDScript's static checks do (`core/variant/variant_op.cpp:212-1035`). For example, `Vector2 * float` is a Vector2, `Vector2i * float` is a Vector2, and `int / int` is integer division. Combinations missing from the table, such as `Vector2 + Vector2i`, are compile errors.
+- The result types of operators follow the engine's operator table, as GDScript's static checks do (`core/variant/variant_op.cpp:212-1033`). For example, `Vector2 * float` is a Vector2, `Vector2i * float` is a Vector2, and `int / int` is integer division. Combinations missing from the table, such as `Vector2 + Vector2i`, are compile errors.
 - Mixed `int` and `float` arithmetic promotes to `float`.
 - Integer division by zero is a program error.
 - The typing of utility functions bound with Variant (lerp, clamp, min, max, abs, wrap and others) is in §10.3.
@@ -437,17 +437,17 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 - `==` is typed by the engine's operator table, like the other operators (§5.1); a combination missing from the table is a compile error, for example `hp == "3"` or `Vector2() == Vector2i()`.
 - int and float compare numerically, so `1 == 1.0` is true (`core/variant/variant_op.cpp:490-491`). String and StringName compare contents (§10.7).
-- Objects compare by identity, that is, by ObjectID (`variant_op.cpp:514`), so two different freed objects are not equal. The engine turns freed objects into null before comparing, so two freed objects are equal in GDScript (`core/variant/variant_op.h:519-525`), which falls under the exception in §1.2. When both types are classes and neither is a subclass of the other, it is a compile error, since the result is always false; comparisons involving interfaces are allowed.
+- Objects compare by identity, that is, by ObjectID (`variant_op.cpp:514`), so two different freed objects are not equal. The engine turns freed objects into null before comparing, so two freed objects are equal in GDScript (`core/variant/variant_op.h:471-477`), which falls under the exception in §1.2. When both types are classes and neither is a subclass of the other, it is a compile error, since the result is always false; comparisons involving interfaces are allowed.
 - Option: None equals None; two Somes are equal when their contents are; the operand with fewer levels is first wrapped to the same number of levels, as in `hp == 3` with hp an `int?`, or when comparing a `T?` with a `T??`. Comparing a value that is neither an Option nor a Variant with None is a compile error, since the result is always false; the quick fix changes the type to `T?`, or uses `is_instance_valid(x)` for a liveness check.
-- Containers compare element by element as in the engine; a Dictionary compares entry by entry by key, regardless of order. The engine requires compared elements to have the same type (`core/variant/array.cpp:153-156`, `core/variant/dictionary.cpp:270-300`, `core/variant/variant.cpp:3213-3216`), so `[1] == [1.0]` is false while `1 == 1.0` is true. Comparing containers with different element types, such as `Array[int] == Array[float]`, is a compile error, since they are equal only when both are empty.
-- When one operand is a Variant, the comparison is evaluated at runtime by the engine's operator table; a combination missing from the table is a program error (`variant_op.cpp:1051-1056`). GDScript reports an error there; when the operand types differ from those of the instruction's first execution, only debug builds check, and release builds get null and continue (`modules/gdscript/gdscript_vm.cpp:756-761, 784-806`). `v == None` is true for NIL and for a freed object (§3.13).
+- Containers compare element by element as in the engine; a Dictionary compares entry by entry by key, regardless of order. The engine requires compared elements to have the same type (`core/variant/array.cpp:155-158`, `core/variant/dictionary.cpp:255-285`, `core/variant/variant.cpp:3176-3179`), so `[1] == [1.0]` is false while `1 == 1.0` is true. Comparing containers with different element types, such as `Array[int] == Array[float]`, is a compile error, since they are equal only when both are empty.
+- When one operand is a Variant, the comparison is evaluated at runtime by the engine's operator table; a combination missing from the table is a program error (`variant_op.cpp:1049-1054`). GDScript reports an error there; when the operand types differ from those of the instruction's first execution, only debug builds check, and release builds get null and continue (`modules/gdscript/gdscript_vm.cpp:793-798, 821-843`). `v == None` is true for NIL and for a freed object (§3.13).
 - `!=` is the negation of `==` in every case.
 - Structs and enums with payloads compare field by field (§3.6, §3.7).
 
 ### 5.3 Conversions
 
-- `x as T` is only for object types, and its result is `T?`: None when the type does not match, as in GDScript (`modules/gdscript/gdscript_vm.cpp:1665-1666`). When the static type of x already is T, the result is T, with a hint that the `as` is redundant. `as` on a freed object yields None for any type (§3.3).
-- `as` to a built-in type is a compile error. GDScript converts through the constructor there and reports a failed conversion only in debug builds (`gdscript_vm.cpp:1630-1638`), so the quick fix offers two rewrites:
+- `x as T` is only for object types, and its result is `T?`: None when the type does not match, as in GDScript (`modules/gdscript/gdscript_vm.cpp:1677-1678`). When the static type of x already is T, the result is T, with a hint that the `as` is redundant. `as` on a freed object yields None for any type (§3.3).
+- `as` to a built-in type is a compile error. GDScript converts through the constructor there and reports a failed conversion only in debug builds (`gdscript_vm.cpp:1642-1650`), so the quick fix offers two rewrites:
   - `T(x)`, which keeps that conversion, as in `int("5")` or `int(2.7)`;
   - `T.try_from(x)`, the strict conversion.
 - `T.try_from(v)` returns `Result[T, ConversionError]`. It follows the rules for decoding a struct field: the value's type must match T; for `int`, a float that is exactly an integer within the int64 range is accepted (§10.8). `?` propagates the failure, and `.unwrap()` or `.expect(…)` turns it into a program error.
@@ -467,7 +467,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 5.6 match
 
-- Every GDScript pattern is kept with its meaning (`modules/gdscript/gdscript_parser.cpp:2499-2723`): literals and constant expressions compare by equality; `var x` binds; `_` is a wildcard; array and dictionary patterns, with `..` inside them; several comma-separated patterns, which cannot bind; and `when` guards.
+- Every GDScript pattern is kept with its meaning (`modules/gdscript/gdscript_parser.cpp:2487-2711`): literals and constant expressions compare by equality; `var x` binds; `_` is a wildcard; array and dictionary patterns, with `..` inside them; several comma-separated patterns, which cannot bind; and `when` guards.
 - New patterns:
   - Enum variants: `Type.VARIANT(field = pattern, ...)`. `var field` is short for `field = var field`. Fields not listed must be covered by `..`, as in dictionary patterns. Patterns nest.
   - Structs: the same form, for example `Hit(damage = var d, ..)`.
@@ -495,27 +495,27 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 - `for` is as in GDScript: `for i in n` iterates from 0 to n-1 with i an int; `range(...)`, containers, Strings and the keys of a Dictionary can be iterated.
 - The loop variable may be annotated, as in `for i: int in ...`, with the element type or one of its base types; there is no implicit downcast.
-- Iterating over a float or a vector is a compile error, and the quick fix uses `range(...)`. GDScript allows it and treats the vector as a range (`gdscript_vm.cpp:3093-3230`); under static typing this is almost always a mistake.
+- Iterating over a float or a vector is a compile error, and the quick fix uses `range(...)`. GDScript allows it and treats the vector as a range (`gdscript_vm.cpp:3092-3229`); under static typing this is almost always a mistake.
 - `while`, `break` and `continue` are as in GDScript.
 
 ## 6. Initialization and lifecycle
 
 ### 6.1 Member initialization
 
-- Member initializers write the field directly, bypassing the setter, for instance and static members alike, as in GDScript (`modules/gdscript/gdscript_compiler.cpp:2435-2451, 2620-2643`). The initializer gives the first value and the setter handles changes; during initialization there are no observers, and members declared later are not initialized yet.
+- Member initializers write the field directly, bypassing the setter, for instance and static members alike, as in GDScript (`modules/gdscript/gdscript_compiler.cpp:2414-2430, 2603-2626`). The initializer gives the first value and the setter handles changes; during initialization there are no observers, and members declared later are not initialized yet.
 - Derived state is computed in `_ready` or `_static_init`. When a member has both an initializer and a setter, the compiler gives a hint that initialization bypasses the setter.
 - Members without an initializer start at a default value or must be assigned (§4.3).
 
 ### 6.2 Must-assign members
 
-- `_init` of Node and Resource scripts cannot take parameters, because the engine always constructs them with zero arguments (`core/object/script_language.h:156`; [pitfall catalog](surveys/pitfalls.en.md) G-02). Constructor parameters are expressed as must-assign members: non-null members without a default.
+- `_init` of Node and Resource scripts cannot take parameters, because the engine always constructs them with zero arguments (`core/object/script_language.h:152`; [pitfall catalog](surveys/pitfalls.en.md) G-02). Constructor parameters are expressed as must-assign members: non-null members without a default.
 - A must-assign member must be assigned before its scene has finished becoming ready, by one of:
   - the scene: exported members are provided by the scene (§7.5);
   - the creator: `instantiate(...)` and `new(...)` accept member values by name and assign them before returning, as in `BulletScene.instantiate(speed = 300.0, target = enemy)`. For `PackedScene[T]`, the compiler checks at the call site that every member that must be passed (§7.4) is passed, and leaving one out is a compile error; leaving one out of `new(...)` is not a compile error, and is checked at the times below;
   - an ancestor: an ancestor node in the same scene assigns it in its own `_ready`, provided the scene model can see the assignment, that is, it is written `$Child.target = v` or goes through an `@onready` reference.
 - When checks happen:
   - members provided by the scene or the creator are checked when the node becomes ready, before `@onready` initialization;
-  - members assigned by an ancestor are checked once the whole scene is ready. Ready propagates synchronously when a node enters the tree (`scene/main/node.cpp:3425-3429`), and per-frame callbacks come from the main loop, so ordinary logic cannot read the missing value;
+  - members assigned by an ancestor are checked once the whole scene is ready. Ready propagates synchronously when a node enters the tree (`scene/main/node.cpp:3368-3372`), and per-frame callbacks come from the main loop, so ordinary logic cannot read the missing value;
   - a child reading a member assigned by an ancestor in its own `_ready` is a compile error;
   - reading a member that has not been assigned yet before ready is a program error whose diagnostic names the member;
   - if the configuration is invisible to the scene model (for example assignments in a loop over `get_children()`), the member must be written `T?`.
@@ -527,7 +527,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 6.3 `@onready`
 
-- GDScript's timing is kept: `@onready` initializers run before `_ready`, base class first, each in declaration order (`modules/gdscript/gdscript.cpp:1956-1972`).
+- GDScript's timing is kept: `@onready` initializers run before `_ready`, base class first, each in declaration order (`modules/gdscript/gdscript.cpp:1937-1953`).
 - The following are compile errors: combining `@onready` with `@export`; await in an initializer; reading an `@onready` member directly in `_init` or `_enter_tree`.
 - Reading an `@onready` member that is not initialized yet through a call is a program error whose diagnostic names the member. Evidence: [pitfall catalog](surveys/pitfalls.en.md) G-04.
 
@@ -540,7 +540,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 6.5 Setters before ready
 
-- When a scene is instantiated, the engine sets a node's saved properties before adding the node to its parent (`scene/resources/packed_scene.cpp:567, 616`), when the node's children and `@onready` members are not yet available.
+- When a scene is instantiated, the engine sets a node's saved properties before adding the node to its parent (`scene/resources/packed_scene.cpp:494, 543`), when the node's children and `@onready` members are not yet available.
 - A setter runs immediately as usual. At the first statement that needs the node to be ready, if the node is not ready yet, the setter suspends there and continues from that point once the node is ready:
   - statements that need readiness are determined by static analysis: accessing `@onready` members, `$X` or children, or calling methods of the class that access them, including overrides in subclasses;
   - accesses reachable only while `is_node_ready()` is true do not count, decided by the same rules as narrowing (§5.4): inside an `if is_node_ready():` branch, after `if not is_node_ready(): return`, and on the right of `is_node_ready() and …`. A method all of whose such accesses do not count does not need ready when called. Only `is_node_ready()` counts, because `@onready` members may still be uninitialized while `is_inside_tree()` is true;
@@ -554,7 +554,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 6.6 Destruction
 
 - No new syntax: `NOTIFICATION_PREDELETE` is still handled in `_notification(what)`, and cleanup related to the scene tree goes in `_exit_tree`, written and timed as in GDScript; the order of destruction follows the engine. Rationale: `NOTIFICATION_PREDELETE` occurs only 40 times in the [corpus counts](surveys/corpus-counts.en.md), 32 of them in gdUnit4.
-- The runtime guarantees that a RefCounted object can read and write its own fields and call its own methods during PREDELETE, without taking a new reference to self. In the engine the reference count is already zero at PREDELETE, and taking a new reference fails (`core/object/ref_counted.cpp:94-95`, `core/templates/safe_refcount.h:137-147`, `core/variant/variant.cpp:2543-2547`).
+- The runtime guarantees that a RefCounted object can read and write its own fields and call its own methods during PREDELETE, without taking a new reference to self. In the engine the reference count is already zero at PREDELETE, and taking a new reference fails (`core/object/ref_counted.cpp:94-95`, `core/templates/safe_refcount.h:136-146`, `core/variant/variant.cpp:1104-1108, 2509-2510`).
 - In the branch handling PREDELETE, passing self out, storing it in a member or container, and using await are compile errors. During that time, `weak` references to self return None. Evidence: [pitfall catalog](surveys/pitfalls.en.md) G-09.
 
 ### 6.7 Reference cycles and leaks
@@ -600,7 +600,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 7.3 Upward access
 
 - Autoloads are accessed by their global names, typed as the class of their script (§11.1). Accessing an autoload through a literal path of the form `/root/X` is a compile error, and the quick fix rewrites it to the global name X.
-- Parent and owner requirements are written as the class-level annotations `@parent(T)` and `@owner(T)`, placed where `@tool` goes. With a declaration, `get_parent()`, `$".."` and `owner` have type T. Without one, `get_parent()` and `owner` have type `Node?`, as in the engine: having no parent or owner is a normal state of a node, and the engine then returns null without an error (`scene/main/node.cpp:2118-2120, 2328-2330`); `$".."` and `get_node("..")` have type Node, because GDScript reports an error there too when there is no parent. Without a declaration, `get_parent().x` or `owner.x` is a compile error; the quick fix infers the common type of the parent or owner from the scene model and adds `@parent(T)` or `@owner(T)` to the class, or rewrites the call site with `.unwrap()`. Evidence: in the [corpus counts](surveys/corpus-counts.en.md), `get_parent()` on self occurs 174 times, 62 of them accessing a member directly, in 46 files; `owner` has a member accessed directly 49 times, in 21 files. 3 more places handle a missing parent, among them a beehave setter that runs before the node is attached to its parent, where `get_parent()` yields null.
+- Parent and owner requirements are written as the class-level annotations `@parent(T)` and `@owner(T)`, placed where `@tool` goes. With a declaration, `get_parent()`, `$".."` and `owner` have type T. Without one, `get_parent()` and `owner` have type `Node?`, as in the engine: having no parent or owner is a normal state of a node, and the engine then returns null without an error (`scene/main/node.cpp:2100-2102, 2296-2298`); `$".."` and `get_node("..")` have type Node, because GDScript reports an error there too when there is no parent. Without a declaration, `get_parent().x` or `owner.x` is a compile error; the quick fix infers the common type of the parent or owner from the scene model and adds `@parent(T)` or `@owner(T)` to the class, or rewrites the call site with `.unwrap()`. Evidence: in the [corpus counts](surveys/corpus-counts.en.md), `get_parent()` on self occurs 174 times, 62 of them accessing a member directly, in 46 files; `owner` has a member accessed directly 49 times, in 21 files. 3 more places handle a missing parent, among them a beehave setter that runs before the node is attached to its parent, where `get_parent()` yields null.
 
   ```gdscript
   @owner(Combat.Combatant)
@@ -610,10 +610,10 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
       current_health = owner.init_health
   ```
 
-- The static check happens where scenes place the script. A parent requirement checks the node's parent in the scene, and the outer parent when the scene's root is instanced into another scene, and a mismatch is a compile error marked on that scene; for the main scene the parent is the root viewport, of type Window, which is checked the same way; for other scenes used as a root the parent is known only at runtime, and the check happens only at runtime. The owner is the root of the scene that contains the node; when a scene's root is instanced into another scene, its owner is the root of the outer scene (`scene/resources/packed_scene.cpp:640-643`). A script on the root of a scene used as a root (§7.5) has no owner, and such a scene using a script that declares `@owner` is a compile error marked on that scene.
+- The static check happens where scenes place the script. A parent requirement checks the node's parent in the scene, and the outer parent when the scene's root is instanced into another scene, and a mismatch is a compile error marked on that scene; for the main scene the parent is the root viewport, of type Window, which is checked the same way; for other scenes used as a root the parent is known only at runtime, and the check happens only at runtime. The owner is the root of the scene that contains the node; when a scene's root is instanced into another scene, its owner is the root of the outer scene (`scene/resources/packed_scene.cpp:567-570`). A script on the root of a scene used as a root (§7.5) has no owner, and such a scene using a script that declares `@owner` is a compile error marked on that scene.
 - At runtime:
-  - the parent requirement is checked when the node is attached to a parent (`NOTIFICATION_PARENTED`, `scene/main/node.h:466`); calling `get_parent()` on a node that declares `@parent(T)` while it has no parent is a program error;
-  - with `@owner(T)` declared, `owner` is checked on every read to be non-null and to satisfy the requirement; a failure is a program error whose diagnostic names the requirement and the actual owner. Owner is not checked when nodes move: when a node is taken out of its owner's subtree, the engine sets owner to null (`scene/main/node.cpp:391-396, 1799-1801`), and that is a legitimate operation, for example Ring's DeathComponent reads its owner and then moves itself to the foreground layer; owner is also set to null when the owner is freed (`node.cpp:299-302`).
+  - the parent requirement is checked when the node is attached to a parent (`NOTIFICATION_PARENTED`, `scene/main/node.h:465`); calling `get_parent()` on a node that declares `@parent(T)` while it has no parent is a program error;
+  - with `@owner(T)` declared, `owner` is checked on every read to be non-null and to satisfy the requirement; a failure is a program error whose diagnostic names the requirement and the actual owner. Owner is not checked when nodes move: when a node is taken out of its owner's subtree, the engine sets owner to null (`scene/main/node.cpp:391-396, 1781-1783`), and that is a legitimate operation, for example Ring's DeathComponent reads its owner and then moves itself to the foreground layer; owner is also set to null when the owner is freed (`node.cpp:299-302`).
 - `get_owner()` and `get_node_or_null("..")` always have type `Node?`; code that declares a requirement uses them to test whether there is an owner or a parent.
 
 ### 7.4 Scene resources
@@ -638,13 +638,13 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
   - while editing, clearing is allowed. The field in the Inspector and the node in the scene tree are marked with a compile error at once, but no operation is blocked, and the mark disappears when a value is assigned again;
   - when running, the game may run: such compile errors marked on scenes do not block running in the editor; a node still missing a value raises a program error when it becomes ready, checked before `@onready` initialization, and the diagnostic names the member, as when player.tscn is run on its own in the editor;
   - when exporting, scenes certain to miss a value are reported as errors through an export plugin, and the export dialog shows a failure whose messages name the scene and the member; warnings do not affect the export. CI blocks with the headless analysis command (§13.1);
-  - [Known limitation] the engine's exporter does not stop on errors reported by plugins: no export plugin hook can make an export fail (`editor/export/editor_export_platform.cpp:2529-2537`, `editor/export/editor_export_plugin.h:132-134`), a reported error only makes the export dialog show a failure (`editor_export_platform.cpp:131, 146-148`), the output is still written, and command-line export still exits with code 0 (`editor/editor_node.cpp:1465-1481`).
+  - [Known limitation] the engine's exporter does not stop on errors reported by plugins: no export plugin hook can make an export fail (`editor/export/editor_export_platform.cpp:2568-2576`, `editor/export/editor_export_plugin.h:120-122`), a reported error only makes the export dialog show a failure (`editor_export_platform.cpp:131, 146-148`), the output is still written, and command-line export still exits with code 0 (`editor/editor_node.cpp:1408-1424`).
 - When the remote inspector writes null to a non-null member, the entry check fails, which is a program error (§10.1): the write is rejected and the value is unchanged.
-- Rationale: clearing and then replacing is a normal step while editing, so non-null constrains the finished scene. Replacing does not even require clearing first, since node references are stored as paths in `.tscn` and resolved during instantiation (`scene/resources/packed_scene.cpp:449-468`).
+- Rationale: clearing and then replacing is a normal step while editing, so non-null constrains the finished scene. Replacing does not even require clearing first, since node references are stored as paths in `.tscn` and resolved during instantiation (`scene/resources/packed_scene.cpp:376-395`).
 
 ### 7.6 Shared resources
 
-- The semantics of resource sharing are unchanged; the scene model finds the problems. The compiler knows which resources are shared: resources from `load`, `preload` and exported properties come from the cache (`core/io/resource_loader.cpp:800-810`), and embedded sub-resources in a scene that are not set to "local to scene" are shared by all instances of that scene (`scene/resources/packed_scene.cpp:786-787`).
+- The semantics of resource sharing are unchanged; the scene model finds the problems. The compiler knows which resources are shared: resources from `load`, `preload` and exported properties come from the cache (`core/io/resource_loader.cpp:800-810`), and embedded sub-resources in a scene that are not set to "local to scene" are shared by all instances of that scene (`scene/resources/packed_scene.cpp:705-706`).
 - Writing a property of a resource known to be shared, or calling a method that modifies it, gives a warning listing where it is shared, with two quick fixes: make it local to the scene, or `duplicate()` it before modifying. Deliberate modification of a shared resource is silenced with `@warning_ignore`. Resources replaced at runtime cannot be tracked and are not warned about. Example: in godot-open-rpg, the CircleShape2D embedded in `interaction_popup.tscn` is not local to scene, the setter at `interaction_popup.gd:30` changes its radius, and in `main.tscn:484-486` only one instance sets radius to 64; by the engine's sharing rules, the dozen or so instances share one shape whose radius is whatever the last setter wrote (inferred, not verified by running).
 - `duplicate()` returns the static type of its receiver; the depth of copying is stated with `duplicate_deep(mode)`.
 - Reference cycles between `preload`, exported PackedScenes and resources are compile errors, and the quick fix turns one edge into a runtime `load`; the engine returns null there (`core/io/resource_loader.cpp:1049-1056`). Evidence: [pitfall catalog](surveys/pitfalls.en.md) G-19, G-20, G-34.
@@ -663,7 +663,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - Program errors are detected and handled the same way in debug and release builds; the only exception is `assert` (§8.3). Debug builds only add detail to diagnostics and report leaks on exit (§6.7, §12.5).
 - If the engine's entry point must return a value, the engine receives the default value of its type.
 - Every situation this document calls a "program error" is handled by this rule, including: accessing a freed object (§3.3), a failed `unwrap` or `expect`, an out-of-range index, integer division by zero, reading a member that has not been assigned yet before ready, a failed entry check at the engine boundary (§10.1), and awaiting a cancelled task (§9.2).
-- Rationale: after an error GDScript returns a default value built for the return type in debug builds (`modules/gdscript/gdscript_vm.cpp:3956-3980`) and null in release builds (`:496, 3982`), and the caller continues either way; under static typing this would hand code fake values.
+- Rationale: after an error GDScript returns a default value built for the return type in debug builds (`modules/gdscript/gdscript_vm.cpp:3963-3993`) and null in release builds (`:535, 3995`), and the caller continues either way; under static typing this would hand code fake values.
 
 ### 8.2 Expected failures
 
@@ -684,7 +684,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 8.3 Assertions
 
-- `assert(condition, message)` is as in GDScript: it is evaluated only in debug builds (runs in the editor and debug exports), and a failure is a program error; in release builds it is removed, and neither its condition nor its message is evaluated (`modules/gdscript/gdscript_compiler.cpp:2182-2208`; for GDScript's handling of failures see `modules/gdscript/gdscript_vm.cpp:3869-3895`).
+- `assert(condition, message)` is as in GDScript: it is evaluated only in debug builds (runs in the editor and debug exports), and a failure is a program error; in release builds it is removed, and neither its condition nor its message is evaluated (`modules/gdscript/gdscript_compiler.cpp:2181-2207`; for GDScript's handling of failures see `modules/gdscript/gdscript_vm.cpp:3876-3902`).
 - Await or postfix `?` in the condition or message is a compile error, because it would vanish with the assertion in release builds.
 - The condition must be bool (§5.4); for example, `assert(save_data, "...")` is a compile error whose quick fix changes it to `save_data != None`.
 - Checks also needed in release builds use `expect` (§3.4) or an explicit `if`. [Later] An always-on assertion.
@@ -700,10 +700,10 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 9.1 async and Task
 
 - Coroutines are declared in the signature as `async func`. A function whose body contains await without the declaration is a compile error. Engine virtual functions may be declared async.
-- The same holds for lambdas: a lambda containing await is written `async func(...)`, for example `button.pressed.connect(async func(): await fade_out())`. GDScript marks such lambdas with nothing (`modules/gdscript/gdscript_parser.cpp:3223-3225, 3726-3727`), and the quick fix adds `async`. Rationale: there is a single rule for whether a function is async, and a suspension point always has async in sight; in the [corpus counts](surveys/corpus-counts.en.md), only 35 of 979 lambdas contain await, 33 of them in gdUnit4's tests.
+- The same holds for lambdas: a lambda containing await is written `async func(...)`, for example `button.pressed.connect(async func(): await fade_out())`. GDScript marks such lambdas with nothing (`modules/gdscript/gdscript_parser.cpp:3249-3251, 3752-3753`), and the quick fix adds `async`. Rationale: there is a single rule for whether a function is async, and a suspension point always has async in sight; in the [corpus counts](surveys/corpus-counts.en.md), only 35 of 979 lambdas contain await, 33 of them in gdUnit4's tests.
 - Positions the engine calls accept async functions, and the task runs as a root task (§3.11).
 - Calling an async function yields a `Task[T]`. The task starts immediately and runs until its first suspension; `await f()` and `await t` yield T. A coroutine returning void yields a `Task[void]`; `void` as a type argument is allowed only for Task, and `Task` without a type argument is a compile error.
-- Discarding the result of an async call is a compile error; to deliberately not wait, write `f().detach()`. In GDScript, using the result of a coroutine call as a value is already a compile error (`modules/gdscript/gdscript_analyzer.cpp:3820-3828`), so giving `var t = f()` a new meaning does not violate the syntax hard rule.
+- Discarding the result of an async call is a compile error; to deliberately not wait, write `f().detach()`. In GDScript, using the result of a coroutine call as a value is already a compile error (`modules/gdscript/gdscript_analyzer.cpp:3776-3784`), so giving `var t = f()` a new meaning does not violate the syntax hard rule.
 - Setters, getters, `@onready` initializers and static initialization cannot await.
 
 ### 9.2 How tasks end
@@ -726,7 +726,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 - A coroutine frame, its locals and suspension point, is released as soon as the task ends; held references are handled as at scope exit, and code after the await does not run. [Known limitation] The first version has no finally or defer.
 - A Task object is a RefCounted handle that only holds the result. It is freed when no variable, no waiter and no signal wait of the runtime refers to it any more.
-- A suspended coroutine does not keep self alive, as in GDScript (`modules/gdscript/gdscript_vm.cpp:2608-2624`).
+- A suspended coroutine does not keep self alive, as in GDScript (`modules/gdscript/gdscript_vm.cpp:2609-2625`).
 
 ### 9.5 Combination and reentrancy
 
@@ -736,7 +736,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 9.6 Awaiting signals
 
 - A signal can be awaited directly.
-- A signal without parameters yields no value; a signal with one parameter yields a value of that parameter's type; awaiting a signal with several parameters is allowed only as a statement. Evidence: in the [await signal results survey](surveys/await-signal-results.en.md), only 1 of 1,356 awaits uses the result of a signal with several parameters. GDScript yields an Array of the arguments there (`modules/gdscript/gdscript_function.cpp:237-255`), so GDScript code that uses such a result is a compile error. [Later] Destructuring the result of awaiting a signal with several parameters.
+- A signal without parameters yields no value; a signal with one parameter yields a value of that parameter's type; awaiting a signal with several parameters is allowed only as a statement. Evidence: in the [await signal results survey](surveys/await-signal-results.en.md), only 1 of 1,356 awaits uses the result of a signal with several parameters. GDScript yields an Array of the arguments there (`modules/gdscript/gdscript_function.cpp:256-274`), so GDScript code that uses such a result is a compile error. [Later] Destructuring the result of awaiting a signal with several parameters.
 - A signal's signature is unknown when the static type of the signal expression is only `Signal`, for example a variable or parameter of type `Signal`, a method returning a Signal, or a signal taken from a Variant or an Object. Signals reached through a known class all have known signatures: engine classes from ClassDB, classes of this language from their declarations, and GDScript classes through reflection.
 - Awaiting a signal whose signature is unknown yields a Variant shaped at runtime as in GDScript: NIL without parameters, the argument with one parameter, and an Array of the arguments with several. As a statement there is no restriction. Rationale: an unknown signature is a dynamic source in the first place, and the result must be converted explicitly under the rules for Variant before use (§3.13). Evidence: in the [await signal results survey](surveys/await-signal-results.en.md), the result of such an await is used only once, at `godot_dialogue_manager/addons/dialogue_manager/dialogue_manager.gd:1956`, which awaits a two-parameter signal declared in C# through a receiver typed RefCounted. [Later] Signal types with parameter types.
 
@@ -748,8 +748,8 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 9.7 Freed objects and suspended coroutines
 
-- When the object a coroutine belongs to is freed, the coroutine is cancelled silently and the references its suspended frame holds are released, as in GDScript (`modules/gdscript/gdscript.cpp:2089-2092`). The runtime cancels an object's coroutines as soon as the object receives PREDELETE. PREDELETE reaches the script instance before Node deletes the children (`core/object/object.cpp:140, 1009-1012`; `scene/main/node.cpp:308-312`), so a coroutine awaiting one of its own children is cancelled before the child is deleted.
-- When an awaited object (a coroutine on another object, or the signal source of another object) is freed before it completes, the waiter is not left suspended forever as in GDScript (`modules/gdscript/gdscript_function.cpp:335-349`, `core/object/object.cpp:2402-2417`). The decision is deferred until the objects pending deletion in the current frame have all been deleted, that is, until the scene tree has flushed its deletion queue and the engine calls the script language's per-frame callback (`scene/main/scene_tree.cpp:736`, `main/main.cpp:5150-5153`):
+- When the object a coroutine belongs to is freed, the coroutine is cancelled silently and the references its suspended frame holds are released, as in GDScript (`modules/gdscript/gdscript.cpp:2069-2079`). The runtime cancels an object's coroutines as soon as the object receives PREDELETE. PREDELETE reaches the script instance before Node deletes the children (`core/object/object.cpp:173, 928-931`; `scene/main/node.cpp:308-312`), so a coroutine awaiting one of its own children is cancelled before the child is deleted.
+- When an awaited object (a coroutine on another object, or the signal source of another object) is freed before it completes, the waiter is not left suspended forever as in GDScript (`modules/gdscript/gdscript.cpp:2069-2079`, `core/object/object.cpp:2327-2342`). The decision is deferred until the objects pending deletion in the current frame have all been deleted, that is, until the scene tree has flushed its deletion queue and the engine calls the script language's per-frame callback (`scene/main/scene_tree.cpp:735`, `main/main.cpp:5106-5109`):
   - if the waiter's own object has been freed in the meantime, the waiter is cancelled silently (`OWNER_FREED`). For example, when the scene changes, the engine deletes siblings one by one from the last (`node.cpp:308-312`), and a coroutine awaiting a sibling's signal gets no error;
   - otherwise the waiter fails at its await, which is a program error whose diagnostic names the freed object and where it was freed, and the failure propagates up the await chain as usual (§9.2).
 - Awaiting with `settled()` gives no error and yields the awaited task's own cancellation reason: `Task.of(signal)` yields `Cancelled(CancelReason.AWAITED_FREED)` when the signal source is freed, and a coroutine on another object yields `Cancelled(CancelReason.OWNER_FREED)` when its object is freed.
@@ -760,18 +760,18 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
       await player.died         # scene change: player is deleted first, then HUD, cancelled silently
       show_game_over()          # player freed alone without emitting died: a program error after the frame
   ```
-- The freeing of any object can be observed through the instance-binding free callback that GDExtension exposes (`core/object/object.cpp:2435-2440`). Evidence: [pitfall catalog](surveys/pitfalls.en.md) G-11.
+- The freeing of any object can be observed through the instance-binding free callback that GDExtension exposes (`core/object/object.cpp:2360-2365`). Evidence: [pitfall catalog](surveys/pitfalls.en.md) G-11.
 
 ### 9.8 Cross-language await
 
-- Calls to GDScript methods may be awaited. If the runtime receives a `GDScriptFunctionState`, it waits for its `completed` signal (`modules/gdscript/gdscript_function.cpp:327`) and then checks the result against the declared return type. Whether a method is a coroutine is not in its reflection information (`core/object/method_info.h:37-44`), so this cannot be decided at compile time. Without await, the form of the call decides, as in GDScript (`modules/gdscript/gdscript_analyzer.cpp:3820-3828`):
+- Calls to GDScript methods may be awaited. If the runtime receives a `GDScriptFunctionState`, it waits for its `completed` signal (`modules/gdscript/gdscript_function.cpp:369`) and then checks the result against the declared return type. Whether a method is a coroutine is not in its reflection information (`core/object/method_info.h:37-44`), so this cannot be decided at compile time. Without await, the form of the call decides, as in GDScript (`modules/gdscript/gdscript_analyzer.cpp:3776-3784`):
   - called as a statement, with the result unused, a method found at runtime to be a coroutine is no error: the coroutine runs to its first suspension and then continues on its own, as if detached;
   - with the result used as a value, receiving a `GDScriptFunctionState` at runtime is a program error whose diagnostic says that the method is a coroutine and needs await.
   - [Later] Obtaining a `Task` handle for a call of a GDScript coroutine, to await it later.
-- While awaiting a `GDScriptFunctionState`, the runtime holds it until `completed` is emitted, and watches the object the call was made on: the receiver, or the target object when calling through a Callable. If that object is freed, or its script is replaced (`script_changed`, `core/object/object.cpp:1076`), this is handled as an awaited object being freed (§9.7), and `settled()` yields `Cancelled(CancelReason.OWNER_FREED)`. Rationale: after the coroutine suspends again, the inner state remembers the first state's `completed` signal only by ObjectID (`modules/gdscript/gdscript_vm.cpp:2633-2638`), and the first state leaves the instance's pending list when it resumes (`modules/gdscript/gdscript_function.cpp:289-290`), so it would be freed early if not held; when the instance is destroyed, the engine only clears the suspended states and does not emit `completed` (`modules/gdscript/gdscript.cpp:2086-2095`, `gdscript_function.cpp:335-350`); `GDScriptFunctionState` is an internal class that does not expose its instance (`gdscript_function.cpp:324-328`, `modules/gdscript/register_types.cpp:141`), so it cannot tell whether its host has been freed.
-- [Known limitation] When a GDScript script is reloaded, the engine clears its suspended functions without emitting any signal (`gdscript.cpp:1522-1535`, `modules/gdscript/gdscript_compiler.cpp:2721`), and coroutines awaiting them stay suspended forever. This happens only when a script is edited in the editor.
-- When GDScript awaits a coroutine of this language, the coroutine returns its Task's `completed` signal at its first suspension; GDScript's await accepts any Signal value (`modules/gdscript/gdscript_vm.cpp:2585-2599`). The Task emits `completed(value)` when it finishes, and `completed(null)` when it is cancelled or fails, so a GDScript waiter is never left suspended forever; a separate `cancelled` signal serves code that needs to tell the cases apart.
-- The return type that an async method of this language reports to the engine is always untyped Variant (`PROPERTY_USAGE_NIL_IS_VARIANT`), whatever the declared return type, void included; the declared type appears only in documentation and hover. Rationale: method reflection information has no coroutine flag (`core/object/method_info.h:37-44`), so GDScript can only check against the reported return type. If T were reported, every await in GDScript would get the "redundant await" warning (`modules/gdscript/gdscript_analyzer.cpp:3136-3141`), and the `completed(null)` sent on cancellation would be written unchecked into a temporary of type T (`modules/gdscript/gdscript_vm.cpp:2668-2669`, `modules/gdscript/gdscript_byte_codegen.cpp:998-1001`); when T is a value type such as Transform3D, a later instruction that accesses it by type dereferences a null pointer and the process crashes. With Variant, debug builds check the type when the result is assigned to a typed variable (`gdscript_vm.cpp:1421-1432`); release builds do not, as for any other GDScript function that returns Variant.
+- While awaiting a `GDScriptFunctionState`, the runtime holds it until `completed` is emitted, and watches the object the call was made on: the receiver, or the target object when calling through a Callable. If that object is freed, or its script is replaced (`script_changed`, `core/object/object.cpp:995`), this is handled as an awaited object being freed (§9.7), and `settled()` yields `Cancelled(CancelReason.OWNER_FREED)`. Rationale: after the coroutine suspends again, the inner state remembers the first state's `completed` signal only by ObjectID (`modules/gdscript/gdscript_vm.cpp:2634-2639`), and the first state leaves the instance's pending list when it resumes (`modules/gdscript/gdscript_function.cpp:329-330`), so it would be freed early if not held; when the instance is destroyed, the engine only clears the suspended states and does not emit `completed` (`modules/gdscript/gdscript.cpp:2066-2084`, `gdscript_function.cpp:343-362`); `GDScriptFunctionState` is an internal class that does not expose its instance, and its `is_valid(true)` is always false once it has resumed (`gdscript_function.cpp:288-307, 337, 364-370`, `modules/gdscript/register_types.cpp:140`), so after the coroutine suspends again the held state cannot tell whether its host has been freed.
+- [Known limitation] When a GDScript script is reloaded, the engine clears its suspended functions without emitting any signal (`gdscript.cpp:1487-1506`, `modules/gdscript/gdscript_compiler.cpp:2700`), and coroutines awaiting them stay suspended forever. This happens only when a script is edited in the editor.
+- When GDScript awaits a coroutine of this language, the coroutine returns its Task's `completed` signal at its first suspension; GDScript's await accepts any Signal value (`modules/gdscript/gdscript_vm.cpp:2586-2600`). The Task emits `completed(value)` when it finishes, and `completed(null)` when it is cancelled or fails, so a GDScript waiter is never left suspended forever; a separate `cancelled` signal serves code that needs to tell the cases apart.
+- The return type that an async method of this language reports to the engine is always untyped Variant (`PROPERTY_USAGE_NIL_IS_VARIANT`), whatever the declared return type, void included; the declared type appears only in documentation and hover. Rationale: method reflection information has no coroutine flag (`core/object/method_info.h:37-44`), so GDScript can only check against the reported return type. If T were reported, every await in GDScript would get the "redundant await" warning (`modules/gdscript/gdscript_analyzer.cpp:3102-3107`), and the `completed(null)` sent on cancellation would be written unchecked into a temporary of type T (`modules/gdscript/gdscript_vm.cpp:2667-2668`, `modules/gdscript/gdscript_byte_codegen.cpp:998-1001`); when T is a value type such as Transform3D, a later instruction that accesses it by type dereferences a null pointer and the process crashes. With Variant, debug builds check the type when the result is assigned to a typed variable (`gdscript_vm.cpp:1433-1444`); release builds do not, as for any other GDScript function that returns Variant.
 - Both directions follow from reading the engine source and have not yet been tested on a running engine.
 
 ## 10. Engine boundary
@@ -789,7 +789,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 | enums with payloads | Dictionaries keyed by field name, with the reserved key `"$variant"` holding the variant name (§3.7) |
 | return values of async methods | untyped Variant (§9.8) |
 
-- GDScript types global classes of other languages through the Script reflection interface (`modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063`), so GDScript fully checks the instance members (properties, methods, signals) of classes of this language. `Player.new(...)` is checked too: the Script base class does not bind `new`, GDScript binds its own (`modules/gdscript/gdscript.cpp:1099`), so this language's Script class binds `new` and reports `_init` as a static method returning the class, and GDScript checks `new` as a static `_init` (`gdscript_analyzer.cpp:6007-6010`). Arguments are passed by position; passing must-assign members by name (§6.2) is available only in this language. Other class-level access is in §11.3.
+- GDScript types global classes of other languages through the Script reflection interface (`modules/gdscript/gdscript_analyzer.cpp:789-804, 4278-4319, 6005-6014`), so GDScript fully checks the instance members (properties, methods, signals) of classes of this language. `Player.new(...)` is checked too: the Script base class does not bind `new`, GDScript binds its own (`modules/gdscript/gdscript.cpp:1078`), so this language's Script class binds `new` and reports `_init` as a static method returning the class, and GDScript checks `new` as a static `_init` (`gdscript_analyzer.cpp:5958-5961`). Arguments are passed by position; passing must-assign members by name (§6.2) is available only in this language. Other class-level access is in §11.3.
 - **Entry checks**: wherever a value enters this language from the engine, GDScript or C# (arguments, `set` writes to members, signal arguments, results of await, decoding), it is checked against the declared type, and a failure is a program error. Writes by the remote inspector go through entry checks too (§7.5).
 - When an Option is handed to the engine, None is encoded as NIL. So `X?` can be handed to the engine implicitly only when no value of X encodes as NIL; when X is an Option or Variant it is a compile error, and the quick fix offers `.flatten()` or `.unwrap_or(null)`. Otherwise Some(None) would silently turn into None after a round trip through the engine (§3.4).
 
@@ -798,14 +798,14 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - Object types in engine APIs that the binding metadata (§10.3) has not audited are nullable.
 - Audits start with the most frequently called APIs and have three outcomes:
   - non-null, typed T;
-  - null only on misuse, that is, the engine reports an error when it returns null, such as `get_tree()` (`scene/main/node.h:559-562`): treated as non-null, and a null is a program error;
+  - null only on misuse, that is, the engine reports an error when it returns null, such as `get_tree()` (`scene/main/node.h:558-561`): treated as non-null, and a null is a program error;
   - possibly null in normal use, such as `get_collider()`, `get_first_node_in_group()` and `get_parent()`: typed `T?`.
-- Rationale: the engine marks return values that are "null only on error" with `RequiredResult` (`core/object/object.h:950-952`), and only about 50 API declarations use it, 29 of them in Tween.
+- Rationale: the engine marks return values that are "null only on error" with `RequiredResult` (`core/object/object.h:942-944`), and only about 50 API declarations use it, 29 of them in Tween.
 
 ### 10.3 Binding metadata
 
 - Constraints the engine actually has but does not export are added in this language's binding metadata; metadata the engine already exports is used directly.
-- Utility functions bound with Variant (lerp, clamp, min, max, abs, wrap and others) are typed by their arguments: when the arguments have the same type, the result has that type. Mixing int and float is a compile error, and the quick fix turns the integer argument into a float, as in `min(ratio, 1.0)`. Rationale: the engine's min, max and clamp return one of their arguments unchanged (`core/variant/variant_utility.cpp:643-760`), so in GDScript `min(1.5, 1)` is an int, and promoting to float would make the result silently differ; lerp itself requires both arguments to have the same type (`variant_utility.cpp:466-470`).
+- Utility functions bound with Variant (lerp, clamp, min, max, abs, wrap and others) are typed by their arguments: when the arguments have the same type, the result has that type. Mixing int and float is a compile error, and the quick fix turns the integer argument into a float, as in `min(ratio, 1.0)`. Rationale: the engine's min, max and clamp return one of their arguments unchanged (`core/variant/variant_utility.cpp:642-759`), so in GDScript `min(1.5, 1)` is an int, and promoting to float would make the result silently differ; lerp itself requires both arguments to have the same type (`variant_utility.cpp:465-469`).
 - Engine APIs that filter by a literal class name are typed by that class, for example `find_children("*", "MeshInstance3D")` returns `Array[MeshInstance3D]`.
 - Engine APIs that "return null on failure and report the error separately" (such as `FileAccess.open`) are wrapped by standard library functions that return Result.
 
@@ -829,12 +829,12 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 10.6 Numeric boundaries
 
 - Writing to an engine 32-bit float location narrows implicitly, for example `real_t` vector components, which are float in standard builds (`core/math/math_defs.h:143-146`).
-- Passing a value to an engine int32 parameter is range-checked, and an out-of-range value is a program error; the engine itself truncates there (`core/variant/variant.h:348-349`).
+- Passing a value to an engine int32 parameter is range-checked, and an out-of-range value is a program error; the engine itself truncates there (`core/variant/variant.h:343-344`).
 
 ### 10.7 String and StringName
 
 - Both directions convert implicitly where needed, as in GDScript; `==` compares contents (`core/variant/variant_op.cpp:196-203, 493, 615`).
-- Where StringName or NodePath is expected, a string literal is constructed as that type at compile time, with no runtime conversion. Constructing a StringName from a String needs a lookup under the global table's mutex (`core/string/string_name.cpp:280-302`).
+- Where StringName or NodePath is expected, a string literal is constructed as that type at compile time, with no runtime conversion. Constructing a StringName from a String needs a lookup under the global table's mutex (`core/string/string_name.cpp:263-285`).
 - The `&"x"` and `^"x"` prefixes remain. Runtime conversions on hot paths get a performance hint.
 
 ### 10.8 JSON
@@ -856,16 +856,16 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 - Cross-language inheritance is not supported in either direction:
   - A class of this language cannot extend a GDScript class. When a plugin requires extending its classes (such as Beehave's ActionLeaf), users hand-write a thin GDScript subclass that calls code in this language; GDScript sees this language's types through reflection, so calls to instance members are still statically checked (§10.1). Evidence: [pitfall catalog](surveys/pitfalls.en.md) C-17.
-  - A GDScript script cannot extend a class of this language: when GDScript resolves `extends GlobalClassName`, it parses the base class's file as GDScript (`modules/gdscript/gdscript_analyzer.cpp:471-487`, `modules/gdscript/gdscript_cache.cpp:84-93`) and on failure reports only "Could not resolve super class" (`:479, 485`). The analysis service reports an error explaining this on such a GDScript file.
+  - A GDScript script cannot extend a class of this language: when GDScript resolves `extends GlobalClassName`, it parses the base class's file as GDScript (`modules/gdscript/gdscript_analyzer.cpp:469-485`, `modules/gdscript/gdscript_cache.cpp:83-92`) and on failure reports only "Could not resolve super class" (`:483, 489`). The analysis service reports an error explaining this on such a GDScript file.
 - Migrating a class therefore requires migrating its GDScript subclasses with it (§13.4). Evidence: in the [second paper migration](surveys/paper-migration-2.en.md), Ring's Brick and Enemy brought 5 subclasses along for this reason.
 
 ### 11.3 Cross-language calls and messages
 
 - GDScript and C# can access by name only the members listed in §10.5.
 - [Known limitation] GDScript can use classes of this language only through instances and construct them with `new` (§10.1). The following class-level access is not supported; the workaround is to go through an instance method or an autoload's instance method:
-  - static methods: GDScript's analyzer accepts `Player.make()`, but at runtime the method is not found, because GDScript and C# dispatch static methods by overriding the engine's internal `callp`, and GDExtension has no matching hook (`core/object/object.cpp:882-905`);
-  - enums and constants in a class: they cannot be used in GDScript type annotations (`modules/gdscript/gdscript_analyzer.cpp:950-952`), as `const` values or as `Player.State.IDLE`, because GDScript does not treat constants of other languages as constant expressions (`gdscript_analyzer.cpp:4372-4381`); reading a constant's value works;
-  - autoloads written in this language: GDScript types only autoloads written in GDScript (`gdscript_analyzer.cpp:821-841, 4637-4674`), so in expressions such an autoload has type Node, and in a type annotation it silently becomes untyped.
+  - static methods: GDScript's analyzer accepts `Player.make()`, but at runtime the method is not found, because GDScript and C# dispatch static methods by overriding the engine's internal `callp`, and GDExtension has no matching hook (`core/object/object.cpp:800-826`);
+  - enums and constants in a class: they cannot be used in GDScript type annotations (`modules/gdscript/gdscript_analyzer.cpp:935-937`), as `const` values or as `Player.State.IDLE`, because GDScript does not treat constants of other languages as constant expressions (`gdscript_analyzer.cpp:4321-4330`); reading a constant's value works;
+  - autoloads written in this language: GDScript types only autoloads written in GDScript (`gdscript_analyzer.cpp:806-826, 4579-4616`), so in expressions such an autoload has type Node, and in a type annotation it silently becomes untyped.
 - [Later] Supporting GDScript calls to static methods through a script instance on the Script resource; this needs to be verified on a running engine first.
 - Messages to and from C# are expressed as structs, encoded as Dictionaries keyed by field name (§3.6), and decoded and checked at the entry.
 - Cross-language await is in §9.8.
@@ -910,7 +910,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 13.1 Analysis service
 
 - The analysis service runs in the editor process. External IDEs connect through LSP; the command line and CI run the same analysis headless. The headless analysis command exits with a non-zero code when there are compile errors, including missing-value errors marked on scenes (§7.5).
-- Rationale: refactorings across scenes must modify scenes the editor has open, which only the editor can do safely. GDScript's LSP is an editor plugin too (`modules/gdscript/language_server/gdscript_language_server.h:35`, `modules/gdscript/register_types.cpp:170`).
+- Rationale: refactorings across scenes must modify scenes the editor has open, which only the editor can do safely. GDScript's LSP is an editor plugin too (`modules/gdscript/language_server/gdscript_language_server.h:35`, `modules/gdscript/register_types.cpp:167`).
 
 ### 13.2 Tools in the first version
 
@@ -926,10 +926,10 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 - Refactorings include their scene half. Mechanical, meaning-preserving edits are applied with the refactoring, previewed and undoable: renamed export property keys, method names in signal connections, animation track paths, and lossless value conversions.
 - Edits that need judgment are only reported, with options, and never applied automatically, for example changing a node's type or an existing resource no longer matching a new type.
-- Rationale: without this, renaming an exported member silently loses the values saved in scenes: loading does not check whether `node->set` succeeded (`scene/resources/packed_scene.cpp:567`), and saving writes only properties in the node's current property list (`packed_scene.cpp:941-950`).
+- Rationale: without this, renaming an exported member silently loses the values saved in scenes: loading does not check whether `node->set` succeeded (`scene/resources/packed_scene.cpp:494`), and saving writes only properties in the node's current property list (`packed_scene.cpp:860-869`).
 - When a node is renamed or moved in the scene editor:
-  - the `$X`, `%X` and literal `get_node` paths that refer to it in scripts of this language are updated automatically, in the same undo step as the editor's own updates of NodePath properties and animation tracks in the scene (`editor/docks/scene_tree_dock.cpp:2173-2278, 2280-2431`);
-  - this is done in the `history_changed` signal that the editor emits after committing its action, by creating an action with the same name and the merge mode `MERGE_ALL`, which merges into the action just committed and keeps its operations (`editor/editor_undo_redo_manager.cpp:298`, `core/object/undo_redo.cpp:95, 114-115`). Operations cannot be added while the editor's action executes: when a node is moved the editor emits no signal inside the action (`scene_tree_dock.cpp:2565-2707`), and committing leaves the action before executing it (`undo_redo.cpp:311-330`). This approach is derived from the engine source and has not been verified on a running engine;
+  - the `$X`, `%X` and literal `get_node` paths that refer to it in scripts of this language are updated automatically, in the same undo step as the editor's own updates of NodePath properties and animation tracks in the scene (`editor/docks/scene_tree_dock.cpp:2143-2248, 2250-2401`);
+  - this is done in the `history_changed` signal that the editor emits after committing its action, by creating an action with the same name and the merge mode `MERGE_ALL`, which merges into the action just committed and keeps its operations (`editor/editor_undo_redo_manager.cpp:298`, `core/object/undo_redo.cpp:97, 116-117`). Operations cannot be added while the editor's action executes: when a node is moved the editor emits no signal inside the action (`scene_tree_dock.cpp:2535-2677`), and committing leaves the action before executing it (`undo_redo.cpp:313-332`). This approach is derived from the engine source and has not been verified on a running engine;
   - there is no preview, and the changed places are listed in the output panel afterwards;
   - non-literal paths, and scripts attached in other scenes where the same path still refers to another node, are only reported, not changed, with a quick fix to update the path.
 
@@ -1032,119 +1032,119 @@ Feedback is welcome through [GitHub issues](https://github.com/YYF233333/Petrich
 
 ## Appendix A: Engine facts
 
-The following facts are based on Godot master (4.8-beta, commit `469659e`); paths are relative to the root of the Godot repository.
+The following facts are based on Godot 4.7.2-stable (commit `ed1daf0`); paths are relative to the root of the Godot repository.
 
 | Fact | Source |
 |---|---|
-| Variant integers are int64_t and floats are double | `core/variant/variant.h:257-258` |
-| Converting a Variant to int32 truncates | `core/variant/variant.h:348-349` |
+| Variant integers are int64_t and floats are double | `core/variant/variant.h:252-253` |
+| Converting a Variant to int32 truncates | `core/variant/variant.h:343-344` |
 | `real_t` is float in standard builds | `core/math/math_defs.h:143-146` |
-| The engine's operator table | `core/variant/variant_op.cpp:212-1035` |
-| `==` between int and float compares numerically; `==` on objects compares identity, after turning freed objects into null | `core/variant/variant_op.cpp:490-491, 514`; `core/variant/variant_op.h:519-525` |
-| A freed object compares equal to NIL | `core/variant/variant_op.h:532-537` |
+| The engine's operator table | `core/variant/variant_op.cpp:212-1033` |
+| `==` between int and float compares numerically; `==` on objects compares identity, after turning freed objects into null | `core/variant/variant_op.cpp:490-491, 514`; `core/variant/variant_op.h:471-477` |
+| A freed object compares equal to NIL | `core/variant/variant_op.h:484-489` |
 | `==` between String and StringName compares contents | `core/variant/variant_op.cpp:196-203, 493, 615` |
-| Evaluating a combination missing from the operator table is invalid | `core/variant/variant_op.cpp:1051-1056` |
-| Array's `==` uses `hash_compare` element by element, which requires the same element type | `core/variant/array.cpp:153-156`; `core/variant/variant.cpp:3213-3216` |
-| Dictionary's `==` looks up each key and compares the values, regardless of order | `core/variant/dictionary.cpp:270-300` |
-| A freed object is false in conditions: `is_zero` for an object checks that it is still valid | `core/variant/variant.cpp:980-981`; `core/variant/variant_op.cpp:1122-1124` |
-| min, max and clamp return one of their arguments unchanged | `core/variant/variant_utility.cpp:643-760` |
-| lerp requires both arguments to have the same type | `core/variant/variant_utility.cpp:466-470` |
-| `pop_front` and `pop_back` return null on an empty array without an error | `core/variant/array.cpp:798-817` |
-| `front` and `back` report an error on an empty array | `core/variant/array.cpp:364-372` |
-| Dictionary's `get` returns the default for a missing key | `core/variant/dictionary.cpp:177-188` |
+| Evaluating a combination missing from the operator table is invalid | `core/variant/variant_op.cpp:1049-1054` |
+| Array's `==` uses `hash_compare` element by element, which requires the same element type | `core/variant/array.cpp:155-158`; `core/variant/variant.cpp:3176-3179` |
+| Dictionary's `==` looks up each key and compares the values, regardless of order | `core/variant/dictionary.cpp:255-285` |
+| A freed object is false in conditions: `is_zero` for an object checks that it is still valid | `core/variant/variant.cpp:952-953`; `core/variant/variant_op.cpp:1120-1122` |
+| min, max and clamp return one of their arguments unchanged | `core/variant/variant_utility.cpp:642-759` |
+| lerp requires both arguments to have the same type | `core/variant/variant_utility.cpp:465-469` |
+| `pop_front` and `pop_back` return null on an empty array without an error | `core/variant/array.cpp:781-800` |
+| `front` and `back` report an error on an empty array | `core/variant/array.cpp:354-362` |
+| Dictionary's `get` returns the default for a missing key | `core/variant/dictionary.cpp:178-187` |
 | `bind` appends bound arguments after the call's arguments | `core/variant/callable_bind.cpp:141-150` |
-| Constructing a StringName from a String needs a lookup under the global table's mutex | `core/string/string_name.cpp:280-302` |
+| Constructing a StringName from a String needs a lookup under the global table's mutex | `core/string/string_name.cpp:263-285` |
 | Numbers in JSON are all parsed as floats | `core/io/json.cpp:390-396` |
 | Resources are cached by path, and `load` reuses the cache by default | `core/io/resource_loader.cpp:800-810` |
 | A cyclic resource load returns null | `core/io/resource_loader.cpp:1049-1056` |
 | A method's reflection information does not include whether it is a coroutine | `core/object/method_info.h:37-44` |
-| The hooks a script language needs are exposed to GDExtension | `core/object/script_language_extension.h:393, 493, 533, 596, 754` |
-| A script language from an extension reports abstractness through `_is_abstract` and the global class list | `core/object/script_language_extension.h:143-147, 756-769` |
-| A script language reports its file extension through `get_extension` | `core/object/script_language_extension.h:287` |
-| Script instances are created without constructor arguments | `core/object/script_language.h:156` |
-| `RequiredResult` marks a return value that is null only on error | `core/object/object.h:950-952` |
-| Freeing an object calls the free callback of each instance binding | `core/object/object.cpp:2435-2440` |
-| Destroying an object silently drops all its signal connections | `core/object/object.cpp:2402-2417` |
-| An object emits `script_changed` after its script is set | `core/object/object.cpp:1076` |
-| PREDELETE is sent in reverse order, reaching the script instance before the native classes | `core/object/object.cpp:140, 1009-1012` |
-| At PREDELETE a RefCounted object's reference count is already zero, and taking a new reference fails | `core/object/ref_counted.cpp:94-95`; `core/templates/safe_refcount.h:137-147`; `core/variant/variant.cpp:2543-2547` |
-| The script language's per-frame callback is called after the scene tree has flushed its deletion queue | `main/main.cpp:5150-5153`; `core/object/script_language_extension.h:750`; `scene/main/scene_tree.cpp:736` |
+| The hooks a script language needs are exposed to GDExtension | `core/object/script_language_extension.h:304, 391, 441, 497, 655` |
+| A script language from an extension reports abstractness through `_is_abstract` and the global class list | `core/object/script_language_extension.h:132-136, 657-670` |
+| A script language reports its file extension through `get_extension` | `core/object/script_language_extension.h:236` |
+| Script instances are created without constructor arguments | `core/object/script_language.h:152` |
+| `RequiredResult` marks a return value that is null only on error | `core/object/object.h:942-944` |
+| Freeing an object calls the free callback of each instance binding | `core/object/object.cpp:2360-2365` |
+| Destroying an object silently drops all its signal connections | `core/object/object.cpp:2327-2342` |
+| An object emits `script_changed` after its script is set | `core/object/object.cpp:995` |
+| The engine does not set abstract scripts on objects | `core/object/object.cpp:976` |
+| PREDELETE is sent in reverse order, reaching the script instance before the native classes | `core/object/object.cpp:173, 928-931` |
+| At PREDELETE a RefCounted object's reference count is already zero, and taking a new reference fails | `core/object/ref_counted.cpp:94-95`; `core/templates/safe_refcount.h:136-146`; `core/variant/variant.cpp:1104-1108, 2509-2510` |
+| The script language's per-frame callback is called after the scene tree has flushed its deletion queue | `main/main.cpp:5106-5109`; `core/object/script_language_extension.h:651`; `scene/main/scene_tree.cpp:735` |
 | The parameters of `_process` and `_physics_process` are double | `scene/main/node.h:433-434` |
-| `NOTIFICATION_PARENTED` | `scene/main/node.h:466` |
-| `get_tree()` reports an error and returns null when the node is not in a tree; `get_parent()` and `get_owner()` return null without an error when there is no parent or owner | `scene/main/node.h:559-562`; `scene/main/node.cpp:2118-2120, 2328-2330` |
-| When a node leaves its owner's subtree, its owner is set to null | `scene/main/node.cpp:391-396, 1799-1801` |
+| `NOTIFICATION_PARENTED` | `scene/main/node.h:465` |
+| `get_tree()` reports an error and returns null when the node is not in a tree; `get_parent()` and `get_owner()` return null without an error when there is no parent or owner | `scene/main/node.h:558-561`; `scene/main/node.cpp:2100-2102, 2296-2298` |
+| When a node leaves its owner's subtree, its owner is set to null | `scene/main/node.cpp:391-396, 1781-1783` |
 | When an owner is freed, the owner of the nodes it owns is set to null | `scene/main/node.cpp:299-302` |
 | In PREDELETE a node deletes its children one by one, starting from the last | `scene/main/node.cpp:308-312` |
-| When a node enters the tree, ready propagates synchronously to completion | `scene/main/node.cpp:3425-3429` |
+| When a node enters the tree, ready propagates synchronously to completion | `scene/main/node.cpp:3368-3372` |
 | Children become ready before their parent; re-entering the tree does not run `_ready` again | `scene/main/node.cpp:326-337, 454` |
-| `queue_free` puts the node in the deletion queue, flushed at the end of each physics step and each process frame | `scene/main/node.cpp:3518-3528`; `scene/main/scene_tree.cpp:667, 736, 1646-1661` |
-| Sub-resources not set to local to scene are shared by all instances of the scene | `scene/resources/packed_scene.cpp:786-787` |
-| Instantiating a scene sets saved properties first, then adds the node to its parent | `scene/resources/packed_scene.cpp:567, 616` |
-| Loading a scene does not check whether property writes succeed | `scene/resources/packed_scene.cpp:567` |
-| Node references are stored as paths and resolved during instantiation | `scene/resources/packed_scene.cpp:449-468` |
-| Saving a scene writes only properties in the node's current property list | `scene/resources/packed_scene.cpp:941-950` |
-| When a scene's root is instanced into another scene, its owner is the root of the outer scene | `scene/resources/packed_scene.cpp:640-643` |
-| Renaming or moving a node in the editor updates NodePath properties and animation tracks in the scene | `editor/docks/scene_tree_dock.cpp:2173-2278, 2280-2431` (called at `:2456, 2697`) |
-| When a node is moved, the editor emits no signal inside the action | `editor/docks/scene_tree_dock.cpp:2565-2707` |
-| Committing an action leaves it before executing it, so no operations can be added during execution | `core/object/undo_redo.cpp:311-330` |
+| `queue_free` puts the node in the deletion queue, flushed at the end of each physics step and each process frame | `scene/main/node.cpp:3461-3471`; `scene/main/scene_tree.cpp:666, 735, 1626-1643` |
+| Sub-resources not set to local to scene are shared by all instances of the scene | `scene/resources/packed_scene.cpp:705-706` |
+| Instantiating a scene sets saved properties first, then adds the node to its parent | `scene/resources/packed_scene.cpp:494, 543` |
+| Loading a scene does not check whether property writes succeed | `scene/resources/packed_scene.cpp:494` |
+| Node references are stored as paths and resolved during instantiation | `scene/resources/packed_scene.cpp:376-395` |
+| Saving a scene writes only properties in the node's current property list | `scene/resources/packed_scene.cpp:860-869` |
+| When a scene's root is instanced into another scene, its owner is the root of the outer scene | `scene/resources/packed_scene.cpp:567-570` |
+| Renaming or moving a node in the editor updates NodePath properties and animation tracks in the scene | `editor/docks/scene_tree_dock.cpp:2143-2248, 2250-2401` (called at `:2426, 2667`) |
+| When a node is moved, the editor emits no signal inside the action | `editor/docks/scene_tree_dock.cpp:2535-2677` |
+| Committing an action leaves it before executing it, so no operations can be added during execution | `core/object/undo_redo.cpp:313-332` |
 | The editor's undo manager emits `history_changed` after a commit | `editor/editor_undo_redo_manager.cpp:298` |
-| An action with the same name and the merge mode `MERGE_ALL` merges into the previous one, keeping its operations | `core/object/undo_redo.cpp:95, 114-115` |
+| An action with the same name and the merge mode `MERGE_ALL` merges into the previous one, keeping its operations | `core/object/undo_redo.cpp:97, 116-117` |
 | A Web export with Extensions Support uses the dynamically linked templates; cross-origin isolation headers are needed only with thread support | `platform/web/export/export_plugin.cpp:374`; `platform/web/export/export_plugin.h:59-73`; `platform/web/doc_classes/EditorExportPlatformWeb.xml:93-95` |
-| No export plugin hook can make an export fail | `editor/export/editor_export_platform.cpp:2529-2537`; `editor/export/editor_export_plugin.h:132-134` |
-| An error reported by an export plugin only makes the export dialog show a failure; command-line export exits non-zero only when the export function returns an error | `editor/export/editor_export_platform.cpp:131, 146-148`; `editor/editor_node.cpp:1465-1481` |
-| GDScript types global classes of other languages through the Script reflection interface | `modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063` |
-| When GDScript resolves `extends GlobalClassName` it parses the base class's file as GDScript, reporting only "Could not resolve super class" on failure | `modules/gdscript/gdscript_analyzer.cpp:471-487` (errors at `:479, 485`); `modules/gdscript/gdscript_cache.cpp:84-93` |
-| GDScript requires concrete subclasses to implement abstract methods, and forbids constructing abstract classes and calling abstract methods through `super` | `modules/gdscript/gdscript_analyzer.cpp:1543-1562, 3674-3687` |
-| GDScript's override check allows a covariant return type, contravariant parameter types, and extra parameters with defaults | `modules/gdscript/gdscript_analyzer.cpp:1892-1933` |
-| GDScript's static checks require typed Arrays and Dictionaries to have exactly the same element types | `modules/gdscript/gdscript_analyzer.cpp:6428-6442` |
-| GDScript's rest parameter can only be an Array with Variant elements | `modules/gdscript/gdscript_analyzer.cpp:1802-1809` |
-| GDScript reads `METHOD_FLAG_VARARG` from other languages' method information | `modules/gdscript/gdscript_analyzer.cpp:6101-6104` |
-| GDScript checks `new` as a static `_init`; GDScript binds `new` itself, the Script base class does not | `modules/gdscript/gdscript_analyzer.cpp:6007-6010`; `modules/gdscript/gdscript.cpp:1099` |
-| Without a script instance, `callp` looks only for engine-registered methods, so static methods on a Script resource are not found | `core/object/object.cpp:882-905` |
-| GDScript cannot refer to a type inside another language's class in a type annotation | `modules/gdscript/gdscript_analyzer.cpp:950-952` |
-| GDScript does not treat constants of another language's class as constant expressions | `modules/gdscript/gdscript_analyzer.cpp:4372-4381` |
-| GDScript types only autoloads written in GDScript | `modules/gdscript/gdscript_analyzer.cpp:821-841, 4637-4674` |
-| In GDScript, calling a Callable variable with function-call syntax is a compile error suggesting `.call()` | `modules/gdscript/gdscript_analyzer.cpp:3785-3789` |
-| In GDScript, a coroutine call used as a value without await is a compile error; as a statement it is a warning | `modules/gdscript/gdscript_analyzer.cpp:3820-3828` |
-| `?` is a syntax error in GDScript | `modules/gdscript/gdscript_parser.cpp:3834-3835` |
-| GDScript's prefix `!` is logical not | `modules/gdscript/gdscript_parser.cpp:2965-2967` |
-| In GDScript `[` cannot follow an inner class name, the name in `class_name`, an enum name or a function name | `modules/gdscript/gdscript_parser.cpp:964, 1005-1010, 1616, 1822` |
-| An abstract method declaration has no colon | `modules/gdscript/gdscript_parser.cpp:1790-1791` |
-| The `@abstract` annotation, which cannot be applied to static methods | `modules/gdscript/gdscript_parser.cpp:4492-4516` |
-| A rest parameter must be the last parameter and cannot have a default value | `modules/gdscript/gdscript_parser.cpp:1723-1730` |
-| `...` cannot appear in GDScript expressions | `modules/gdscript/gdscript_parser.cpp:4336` |
-| A GDScript type can only start with an identifier or `void` | `modules/gdscript/gdscript_parser.cpp:3849-3861` |
-| A GDScript lambda containing await is a coroutine, with no marker | `modules/gdscript/gdscript_parser.cpp:3223-3225, 3726-3727` |
-| match patterns | `modules/gdscript/gdscript_parser.cpp:2499-2723` |
-| `as` to an object type yields null on failure | `modules/gdscript/gdscript_vm.cpp:1665-1666` |
-| GDScript reports an error and stops on `is` with a freed object, in release builds too, and on `as` only in debug builds | `modules/gdscript/gdscript_vm.cpp:905-912, 1653-1657` |
-| `as` to a built-in type converts through the constructor, reporting a failed conversion only in debug builds | `modules/gdscript/gdscript_vm.cpp:1630-1638` |
-| At runtime GDScript reports an error for a combination missing from the operator table; when the operand types differ from those of the first execution, only debug builds check, and release builds get null | `modules/gdscript/gdscript_vm.cpp:756-761, 784-806` |
-| `for` can iterate over floats and vectors | `modules/gdscript/gdscript_vm.cpp:3093-3230` |
-| A failed GDScript `assert` reports "Assertion failed" | `modules/gdscript/gdscript_vm.cpp:3869-3895` |
-| GDScript's await accepts any Signal value | `modules/gdscript/gdscript_vm.cpp:2585-2599` |
-| GDScript warns of a redundant await on a call whose return type is neither a coroutine, Variant nor Signal | `modules/gdscript/gdscript_analyzer.cpp:3136-3141` |
-| The result of an await is written unchecked into a temporary typed by the awaited call's return type | `modules/gdscript/gdscript_vm.cpp:2668-2669`; `modules/gdscript/gdscript_byte_codegen.cpp:998-1001` |
-| Assigning a Variant to a typed variable checks the type only in debug builds | `modules/gdscript/gdscript_vm.cpp:1421-1432` |
-| A suspended GDScript function state does not copy self and refers to its instance by a raw pointer | `modules/gdscript/gdscript_vm.cpp:2608-2624` |
-| After an error GDScript returns a default value built for the return type in debug builds, and null in release builds | `modules/gdscript/gdscript_vm.cpp:3956-3980` (debug); `:496, 3982` (release) |
-| GDScript's `assert` is compiled only in debug builds | `modules/gdscript/gdscript_compiler.cpp:2182-2208` |
-| GDScript's chained assignment reads and modifies along the chain, then writes value types back while shared types are modified in place | `modules/gdscript/gdscript_compiler.cpp:1176-1194` |
-| Member initializers bypass setters | `modules/gdscript/gdscript_compiler.cpp:2435-2451, 2620-2643` |
-| `_static_init` is called after static members are initialized | `modules/gdscript/gdscript_compiler.cpp:2646-2649` |
-| The engine does not instantiate abstract GDScript scripts | `modules/gdscript/gdscript.cpp:265-270` |
-| `@onready` initializers run before the user's `_ready`, base class first | `modules/gdscript/gdscript.cpp:1956-1972` |
-| Freeing a GDScript instance clears its suspended function states without resuming them | `modules/gdscript/gdscript.cpp:2089-2092` |
-| `GDScriptFunctionState` has a `completed` signal | `modules/gdscript/gdscript_function.cpp:327` |
-| When a GDScript coroutine suspends again, the inner state remembers the first state's `completed` signal only by ObjectID | `modules/gdscript/gdscript_vm.cpp:2633-2638` |
-| A GDScript function state leaves the instance's pending list when it resumes | `modules/gdscript/gdscript_function.cpp:289-290` |
-| `GDScriptFunctionState` is an internal class that does not expose its instance | `modules/gdscript/gdscript_function.cpp:324-328`; `modules/gdscript/register_types.cpp:141` |
-| Reloading a GDScript script clears its suspended functions without emitting a signal | `modules/gdscript/gdscript.cpp:1522-1535`; `modules/gdscript/gdscript_compiler.cpp:2721` |
-| Awaiting a multi-parameter signal yields an Array of the arguments | `modules/gdscript/gdscript_function.cpp:237-255` |
-| When an awaited object is freed, the GDScript waiter stays suspended forever | `modules/gdscript/gdscript_function.cpp:335-349` |
+| No export plugin hook can make an export fail | `editor/export/editor_export_platform.cpp:2568-2576`; `editor/export/editor_export_plugin.h:120-122` |
+| An error reported by an export plugin only makes the export dialog show a failure; command-line export exits non-zero only when the export function returns an error | `editor/export/editor_export_platform.cpp:131, 146-148`; `editor/editor_node.cpp:1408-1424` |
+| GDScript types global classes of other languages through the Script reflection interface | `modules/gdscript/gdscript_analyzer.cpp:789-804, 4278-4319, 6005-6014` |
+| When GDScript resolves `extends GlobalClassName` it parses the base class's file as GDScript, reporting only "Could not resolve super class" on failure | `modules/gdscript/gdscript_analyzer.cpp:469-485` (errors at `:477, 483`); `modules/gdscript/gdscript_cache.cpp:83-92` |
+| GDScript requires concrete subclasses to implement abstract methods, and forbids constructing abstract classes and calling abstract methods through `super` | `modules/gdscript/gdscript_analyzer.cpp:1533-1552, 3630-3643` |
+| GDScript's override check allows a covariant return type, contravariant parameter types, and extra parameters with defaults | `modules/gdscript/gdscript_analyzer.cpp:1895-1936` |
+| GDScript's static checks require typed Arrays and Dictionaries to have exactly the same element types | `modules/gdscript/gdscript_analyzer.cpp:6379-6393` |
+| GDScript's rest parameter can only be an Array with Variant elements | `modules/gdscript/gdscript_analyzer.cpp:1803-1810` |
+| GDScript reads `METHOD_FLAG_VARARG` from other languages' method information | `modules/gdscript/gdscript_analyzer.cpp:6052-6055` |
+| GDScript checks `new` as a static `_init`; GDScript binds `new` itself, the Script base class does not | `modules/gdscript/gdscript_analyzer.cpp:5958-5961`; `modules/gdscript/gdscript.cpp:1078` |
+| Without a script instance, `callp` looks only for engine-registered methods, so static methods on a Script resource are not found | `core/object/object.cpp:800-826` |
+| GDScript cannot refer to a type inside another language's class in a type annotation | `modules/gdscript/gdscript_analyzer.cpp:935-937` |
+| GDScript does not treat constants of another language's class as constant expressions | `modules/gdscript/gdscript_analyzer.cpp:4321-4330` |
+| GDScript types only autoloads written in GDScript | `modules/gdscript/gdscript_analyzer.cpp:806-826, 4579-4616` |
+| In GDScript, calling a Callable variable with function-call syntax is a compile error suggesting `.call()` | `modules/gdscript/gdscript_analyzer.cpp:3741-3745` |
+| In GDScript, a coroutine call used as a value without await is a compile error; as a statement it is a warning | `modules/gdscript/gdscript_analyzer.cpp:3776-3784` |
+| `?` is a syntax error in GDScript | `modules/gdscript/gdscript_parser.cpp:3860-3861` |
+| GDScript's prefix `!` is logical not | `modules/gdscript/gdscript_parser.cpp:2963-2965` |
+| In GDScript `[` cannot follow an inner class name, the name in `class_name`, an enum name or a function name | `modules/gdscript/gdscript_parser.cpp:964, 1005-1010, 1602, 1805` |
+| An abstract method declaration has no colon | `modules/gdscript/gdscript_parser.cpp:1773-1774` |
+| The `@abstract` annotation, which cannot be applied to static methods | `modules/gdscript/gdscript_parser.cpp:4500-4524` |
+| A rest parameter must be the last parameter and cannot have a default value | `modules/gdscript/gdscript_parser.cpp:1709-1716` |
+| `...` cannot appear in GDScript expressions | `modules/gdscript/gdscript_parser.cpp:4344` |
+| A GDScript type can only start with an identifier or `void` | `modules/gdscript/gdscript_parser.cpp:3874-3886` |
+| A GDScript lambda containing await is a coroutine, with no marker | `modules/gdscript/gdscript_parser.cpp:3249-3251, 3752-3753` |
+| match patterns | `modules/gdscript/gdscript_parser.cpp:2487-2711` |
+| `as` to an object type yields null on failure | `modules/gdscript/gdscript_vm.cpp:1677-1678` |
+| GDScript reports an error and stops on `is` with a freed object, in release builds too, and on `as` only in debug builds | `modules/gdscript/gdscript_vm.cpp:942-947, 1665-1669` |
+| `as` to a built-in type converts through the constructor, reporting a failed conversion only in debug builds | `modules/gdscript/gdscript_vm.cpp:1642-1650` |
+| At runtime GDScript reports an error for a combination missing from the operator table; when the operand types differ from those of the first execution, only debug builds check, and release builds get null | `modules/gdscript/gdscript_vm.cpp:793-798, 821-843` |
+| `for` can iterate over floats and vectors | `modules/gdscript/gdscript_vm.cpp:3092-3229` |
+| A failed GDScript `assert` reports "Assertion failed" | `modules/gdscript/gdscript_vm.cpp:3876-3902` |
+| GDScript's await accepts any Signal value | `modules/gdscript/gdscript_vm.cpp:2586-2600` |
+| GDScript warns of a redundant await on a call whose return type is neither a coroutine, Variant nor Signal | `modules/gdscript/gdscript_analyzer.cpp:3102-3107` |
+| The result of an await is written unchecked into a temporary typed by the awaited call's return type | `modules/gdscript/gdscript_vm.cpp:2667-2668`; `modules/gdscript/gdscript_byte_codegen.cpp:998-1001` |
+| Assigning a Variant to a typed variable checks the type only in debug builds | `modules/gdscript/gdscript_vm.cpp:1433-1444` |
+| A suspended GDScript function state does not copy self and refers to its instance by a raw pointer | `modules/gdscript/gdscript_vm.cpp:2609-2625` |
+| After an error GDScript returns a default value built for the return type in debug builds, and null in release builds | `modules/gdscript/gdscript_vm.cpp:3963-3993` (debug); `:535, 3995` (release) |
+| GDScript's `assert` is compiled only in debug builds | `modules/gdscript/gdscript_compiler.cpp:2181-2207` |
+| GDScript's chained assignment reads and modifies along the chain, then writes value types back while shared types are modified in place | `modules/gdscript/gdscript_compiler.cpp:1172-1190` |
+| Member initializers bypass setters | `modules/gdscript/gdscript_compiler.cpp:2414-2430, 2603-2626` |
+| `_static_init` is called after static members are initialized | `modules/gdscript/gdscript_compiler.cpp:2629-2632` |
+| `@onready` initializers run before the user's `_ready`, base class first | `modules/gdscript/gdscript.cpp:1937-1953` |
+| Freeing a GDScript instance clears its suspended function states without resuming them | `modules/gdscript/gdscript.cpp:2069-2079` |
+| `GDScriptFunctionState` has a `completed` signal | `modules/gdscript/gdscript_function.cpp:369` |
+| When a GDScript coroutine suspends again, the inner state remembers the first state's `completed` signal only by ObjectID | `modules/gdscript/gdscript_vm.cpp:2634-2639` |
+| A GDScript function state leaves the instance's pending list when it resumes | `modules/gdscript/gdscript_function.cpp:329-330` |
+| `GDScriptFunctionState` is an internal class that does not expose its instance; `is_valid` is always false once it has resumed | `modules/gdscript/gdscript_function.cpp:288-307, 337, 364-370`; `modules/gdscript/register_types.cpp:140` |
+| Reloading a GDScript script clears its suspended functions without emitting a signal | `modules/gdscript/gdscript.cpp:1487-1506`; `modules/gdscript/gdscript_compiler.cpp:2700` |
+| Awaiting a multi-parameter signal yields an Array of the arguments | `modules/gdscript/gdscript_function.cpp:256-274` |
+| When an awaited object is freed, the GDScript waiter stays suspended forever | `modules/gdscript/gdscript.cpp:2069-2079` |
 | A lambda in a RefCounted class holds self strongly | `modules/gdscript/gdscript_lambda_callable.cpp:285-291` |
-| GDScript's LSP is an editor plugin | `modules/gdscript/language_server/gdscript_language_server.h:35`; `modules/gdscript/register_types.cpp:170` |
-| GDScript at most converts source to tokens at export, and parses and compiles at load time | `modules/gdscript/register_types.cpp:100-117`; `modules/gdscript/gdscript_cache.cpp:369-375, 388` |
+| GDScript's LSP is an editor plugin | `modules/gdscript/language_server/gdscript_language_server.h:35`; `modules/gdscript/register_types.cpp:167` |
+| GDScript at most converts source to tokens at export, and parses and compiles at load time | `modules/gdscript/register_types.cpp:99-116`; `modules/gdscript/gdscript_cache.cpp:373-379, 392` |
 
 ## Appendix B: Alternatives considered but not adopted (non-normative)
 

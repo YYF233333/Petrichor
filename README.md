@@ -2,7 +2,7 @@
 
 A statically typed scripting language for medium-to-large Godot 4 projects, replacing GDScript in project code while coexisting with GDScript plugins, delivered as a GDExtension. Petrichor is a codename.
 
-**Status:** design stage. The [language specification](docs/language-spec.en.md) (v0.2) is a draft published for feedback. There is no implementation yet. Engine behavior is checked against Godot master (4.8-beta).
+**Status:** design stage. The [language specification](docs/language-spec.en.md) (v0.2) is a draft published for feedback. There is no implementation yet. Engine behavior is checked against Godot 4.7.2-stable.
 
 中文：[README.zh.md](README.zh.md)
 

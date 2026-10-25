@@ -22,10 +22,10 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 1.3 交付形态
 
-- 以 GDExtension 交付，实现 Godot 的脚本语言扩展接口（`core/object/script_language_extension.h:393, 493, 533, 596, 754`）。访问引擎的代码集中在一层薄的适配层中，保留以后改编为引擎模块的可能。
+- 以 GDExtension 交付，实现 Godot 的脚本语言扩展接口（`core/object/script_language_extension.h:304, 391, 441, 497, 655`）。访问引擎的代码集中在一层薄的适配层中，保留以后改编为引擎模块的可能。
 - GDExtension 可以装进官方编辑器，使用官方导出模板。代价是 Web 导出须启用“Extensions Support”，使用带动态链接的导出模板（`platform/web/export/export_plugin.cpp:374`，`platform/web/export/export_plugin.h:59-73`）；跨域隔离响应头只在同时开启线程支持时才需要（`platform/web/doc_classes/EditorExportPlatformWeb.xml:93-95`）。
 - 理由：[暗坑清单](surveys/pitfalls.zh.md)中没有只有模块才能修复的条目；GDExtension 修不了的部分需要修改引擎，模块同样修不了。
-- 源码只在编辑器和无界面模式下编译。导出的游戏只含字节码，导出模板使用的库不含编译器。理由：`$X`、`@parent` 和 `PackedScene[T]` 的类型取决于场景（§7），在加载时编译就要在游戏中重新分析场景，并把分析器带到每个导出平台。GDScript 导出时至多做到词法化，加载时才解析和编译（`modules/gdscript/register_types.cpp:100-117`，`modules/gdscript/gdscript_cache.cpp:369-375, 388`）。
+- 源码只在编辑器和无界面模式下编译。导出的游戏只含字节码，导出模板使用的库不含编译器。理由：`$X`、`@parent` 和 `PackedScene[T]` 的类型取决于场景（§7），在加载时编译就要在游戏中重新分析场景，并把分析器带到每个导出平台。GDScript 导出时至多做到词法化，加载时才解析和编译（`modules/gdscript/register_types.cpp:99-116`，`modules/gdscript/gdscript_cache.cpp:373-379, 392`）。
 
 ### 1.4 文档约定
 
@@ -36,8 +36,8 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   - **【已知限制】**：第一版不支持，限制程序合法性的规则仍具有规范性；
   - **【后续】**：以后可以兼容地加入，不属于第一版。
 - **编译错误**指分析服务在运行之前报告、使程序不合法的错误。唯一的例外是标在场景上的缺值错误，它不阻止在编辑器中运行（§7.5）。**警告**和**提示**不影响合法性。**程序错误**指 §8.1 定义的运行时错误。
-- 文中的引擎行为都对照 Godot master（4.8-beta，提交 `469659e`）核对过，出处列在附录 A。这是核对基线，不是支持版本声明。
-- Petrichor 是暂定名。源文件扩展名暂定为 `.pet`，在语言首次发布之前与正式名称一起确定，因为发布后再改，场景中指向脚本的路径都要跟着改。扩展名须短且全小写，不与 Godot 已用的扩展名（如 `.gd`、`.tscn`）重复，也不与 GitHub Linguist 和常用编辑器中的其他语言重复。脚本语言通过 `get_extension` 自报扩展名（`core/object/script_language_extension.h:287`）。
+- 文中的引擎行为都对照 Godot 4.7.2-stable（提交 `ed1daf0`）核对过，出处列在附录 A。这是核对基线，不是支持版本声明。
+- Petrichor 是暂定名。源文件扩展名暂定为 `.pet`，在语言首次发布之前与正式名称一起确定，因为发布后再改，场景中指向脚本的路径都要跟着改。扩展名须短且全小写，不与 Godot 已用的扩展名（如 `.gd`、`.tscn`）重复，也不与 GitHub Linguist 和常用编辑器中的其他语言重复。脚本语言通过 `get_extension` 自报扩展名（`core/object/script_language_extension.h:236`）。
 
 ## 2. 词法与表层语法
 
@@ -56,8 +56,8 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 - 缩进、注释、标识符、字面量和运算符与 GDScript 相同，另有以下增减：
   - 新增关键字：`pub`、`struct`、`interface`、`implements`、`async`、`None`。
-  - 新增后缀运算符 `?`（§8.2）。GDScript 中 `?` 是语法错误（`modules/gdscript/gdscript_parser.cpp:3834-3835`）。
-  - 前缀 `!` 仍是逻辑非（`gdscript_parser.cpp:2965-2967`）。
+  - 新增后缀运算符 `?`（§8.2）。GDScript 中 `?` 是语法错误（`modules/gdscript/gdscript_parser.cpp:3860-3861`）。
+  - 前缀 `!` 仍是逻辑非（`gdscript_parser.cpp:2963-2965`）。
   - `null` 是 None 的别名，在所有位置的含义与 GDScript 一致：`x = null` 给 `T?` 赋空值，`x != null` 与 `x != None` 相同并带来收窄，传给 Variant 时引擎得到 NIL。把它赋给非空的 `T` 是编译错误，快速修复把类型改为 `T?`。提示建议新代码写 None。理由：[语料计数](surveys/corpus-counts.zh.md)中 `null` 每千行 22.2 处，改成编译错误只会增加机械的迁移工作。
 - 字面量：整数、浮点数、字符串（含三引号和 `r` 前缀）、`&"…"`（StringName）、`^"…"`（NodePath）、数组 `[…]`、字典 `{k: v}` 和 `{k = v}`、`true`、`false`、`None`，与 GDScript 相同；`None` 是 Option 的空值（§3.4）。字面量的类型见 §3.2 和 §10.7。
 
@@ -89,7 +89,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   var c = Command.MOVE(target = Vector3.ZERO)
   ```
 
-- **interface**：缩进块，可以声明 `var`、`signal` 和 `func`。没有函数体的方法不写冒号，与 GDScript 的 `@abstract func` 相同（`gdscript_parser.cpp:1790-1791`）；有函数体的是默认方法。属性要求可读写，只要求可读的标 `@readonly`，例如 `@readonly var max_hp: int`。接口的成员都是公开的：
+- **interface**：缩进块，可以声明 `var`、`signal` 和 `func`。没有函数体的方法不写冒号，与 GDScript 的 `@abstract func` 相同（`gdscript_parser.cpp:1773-1774`）；有函数体的是默认方法。属性要求可读写，只要求可读的标 `@readonly`，例如 `@readonly var max_hp: int`。接口的成员都是公开的：
 
   ```gdscript
   pub interface Damageable:
@@ -123,8 +123,8 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
       return best
   ```
 
-  调用处通常由实参推断，推断不出时显式写出，例如 `first[int]([])`、`Pair[int, String](first = 1, second = "a")`。`名字[...]` 与下标同形，由名字解析区分：名字是泛型函数或泛型类型时，方括号中是类型实参，否则是下标。GDScript 在内部类名、`class_name` 的名字、enum 名和函数名之后遇到 `[` 都是语法错误（`gdscript_parser.cpp:964, 1005-1010, 1616, 1822`），所以这些声明写法不违反语法硬规则。
-- **函数类型**：沿用函数声明的形状，去掉函数名和参数名（§3.11）。GDScript 的类型只能以标识符或 `void` 开头（`gdscript_parser.cpp:3849-3861`），`func(...)` 作类型是语法错误。
+  调用处通常由实参推断，推断不出时显式写出，例如 `first[int]([])`、`Pair[int, String](first = 1, second = "a")`。`名字[...]` 与下标同形，由名字解析区分：名字是泛型函数或泛型类型时，方括号中是类型实参，否则是下标。GDScript 在内部类名、`class_name` 的名字、enum 名和函数名之后遇到 `[` 都是语法错误（`gdscript_parser.cpp:964, 1005-1010, 1602, 1805`），所以这些声明写法不违反语法硬规则。
+- **函数类型**：沿用函数声明的形状，去掉函数名和参数名（§3.11）。GDScript 的类型只能以标识符或 `void` 开头（`gdscript_parser.cpp:3874-3886`），`func(...)` 作类型是语法错误。
 
   ```gdscript
   var on_hit: func(int, Node3D)                 # 没有返回值，也可以写 -> void
@@ -158,7 +158,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 3.2 数值
 
-- 数值类型只有 `int` 和 `float`，都是 64 位，与 Variant 一致（`core/variant/variant.h:257-258`）。没有供用户使用的窄类型；固定位宽的运算使用 `int` 上的回绕运算方法和位运算。
+- 数值类型只有 `int` 和 `float`，都是 64 位，与 Variant 一致（`core/variant/variant.h:252-253`）。没有供用户使用的窄类型；固定位宽的运算使用 `int` 上的回绕运算方法和位运算。
 - 整数字面量的类型是 `int`，浮点字面量的类型是 `float`。
 - `int` 在赋值、传参和返回时隐式转为 `float`。`float` 转为 `int` 必须写 `int(x)`，否则是编译错误。理由：`var hp = 10` 在本语言中推断为 int（§4.3），在 GDScript 中却没有类型，`hp = 2.5` 之后为 2.5；隐式截断会让结果悄悄不同。
 - 运算的结果类型按 §5.1。
@@ -170,10 +170,10 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 对象被释放后：
   - 读取 `T?` 类型的引用时，已释放的对象读作 None，所以 `!= None` 检查和由它带来的收窄（§5.4）同时就是存活检查；
   - `T` 类型的引用仍可以持有已释放的对象，读取、比较和传参不算访问，访问其成员是程序错误；`==` 比较 ObjectID，所以两个不同的已释放对象不相等（§5.2）。debug 构建中，若对象是本语言的实例或由本语言代码释放，诊断写明它在哪里被释放；
-  - `is` 对已释放的对象为假，`as` 得到 None，对所有静态类型都如此，所以类型检查同时也是存活检查。GDScript 在这里运行时出错（`modules/gdscript/gdscript_vm.cpp:905-912, 1653-1657`）；
-  - `queue_free()` 之后、帧末真正删除之前，对象仍算存活：引擎把它放入删除队列，在每个物理步和处理帧的末尾删除（`scene/main/node.cpp:3518-3528`，`scene/main/scene_tree.cpp:667, 736, 1646-1661`）。`is_instance_valid` 的行为与 GDScript 相同。
+  - `is` 对已释放的对象为假，`as` 得到 None，对所有静态类型都如此，所以类型检查同时也是存活检查。GDScript 在这里运行时出错（`modules/gdscript/gdscript_vm.cpp:942-947, 1665-1669`）；
+  - `queue_free()` 之后、帧末真正删除之前，对象仍算存活：引擎把它放入删除队列，在每个物理步和处理帧的末尾删除（`scene/main/node.cpp:3461-3471`，`scene/main/scene_tree.cpp:666, 735, 1626-1643`）。`is_instance_valid` 的行为与 GDScript 相同。
 - 每次读取 `T?` 类型的对象引用都要做一次存活查询。
-- 理由：[语料计数](surveys/corpus-counts.zh.md)中 `is_instance_valid` 每千行 3.3 处，phantom-camera 中每千行 12.8 处；引擎从 4.4 起也让已释放的对象在条件中为假（PR [#93885](https://github.com/godotengine/godot/pull/93885)，`core/variant/variant.cpp:980-981`）。依据：[暗坑清单](surveys/pitfalls.zh.md) G-07、G-08。
+- 理由：[语料计数](surveys/corpus-counts.zh.md)中 `is_instance_valid` 每千行 3.3 处，phantom-camera 中每千行 12.8 处；引擎从 4.4 起也让已释放的对象在条件中为假（PR [#93885](https://github.com/godotengine/godot/pull/93885)，`core/variant/variant.cpp:952-953`）。依据：[暗坑清单](surveys/pitfalls.zh.md) G-07、G-08。
 
 ### 3.4 Option
 
@@ -212,7 +212,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 方法：struct 可以声明 `func` 和 `static func`。方法中的 self 只读，给 self 的字段赋值是编译错误；需要修改时返回修改后的副本。理由：修改 self 的方法要求调用处是能写回的位置，在临时值、经 getter 读出的属性和循环变量上调用时，要么报错，要么悄悄改了副本。【后续】修改 self 的方法。
 - 字段和方法在 struct 可见的地方都可见（§4.2）。【后续】更严的 `private`。
 - 修改：`s.x = 1` 修改 s 所在位置的那一份（变量、成员或容器元素）。
-  - 链式赋值沿链读出、修改、写回，与 GDScript 对 `node.position.x = 1` 的处理相同（`modules/gdscript/gdscript_compiler.cpp:1176-1194`）：`player.last_hit.damage = 3` 经 `last_hit` 的 setter 写回，`hits[0].damage = 3` 修改数组中的元素；
+  - 链式赋值沿链读出、修改、写回，与 GDScript 对 `node.position.x = 1` 的处理相同（`modules/gdscript/gdscript_compiler.cpp:1172-1190`）：`player.last_hit.damage = 3` 经 `last_hit` 的 setter 写回，`hits[0].damage = 3` 修改数组中的元素；
   - 给临时值的字段赋值是编译错误，例如 `get_hit().damage = 3`；
   - 循环变量和 lambda 捕获的是副本，与 GDScript 中的 Vector2 相同。修改 struct 类型循环变量的字段、之后又不读它时，给出“修改的是副本”的警告。
 - 复制是浅复制：对象和容器字段复制引用，与这些值在别处赋值时一样。需要独立的容器时，对该字段调用 `duplicate()`。
@@ -245,14 +245,14 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 3.8 容器
 
-- 无论内部如何表示（见下条），用户看到的只有一种 `Array[T]` 和一种 `Dictionary[K, V]`，API 与 GDScript 相同。没有类型参数的 `Array`、`Dictionary` 的元素类型为 Variant，与 GDScript 相同。`Array[T]` 和 `Dictionary[K, V]` 不变，例如 `Array[Node2D]` 不能用在期望 `Array[Node]` 的位置，与 GDScript 的静态检查相同（`modules/gdscript/gdscript_analyzer.cpp:6428-6442`）。
+- 无论内部如何表示（见下条），用户看到的只有一种 `Array[T]` 和一种 `Dictionary[K, V]`，API 与 GDScript 相同。没有类型参数的 `Array`、`Dictionary` 的元素类型为 Variant，与 GDScript 相同。`Array[T]` 和 `Dictionary[K, V]` 不变，例如 `Array[Node2D]` 不能用在期望 `Array[Node]` 的位置，与 GDScript 的静态检查相同（`modules/gdscript/gdscript_analyzer.cpp:6379-6393`）。
 - 元素可以由引擎表示时，容器就是引擎的带类型容器，与引擎共享。元素是本语言独有的类型（struct、带载荷的 enum 等）时，使用本语言自己的表示；交给引擎须显式转换，写作 GDScript 的构造转换 `Array(hits)`、`Dictionary(d)`，结果是引擎的无类型容器，元素按 §10.1 编码，是一份副本；反方向用 `Array[Hit].try_from(v)`（§5.3）。理由：隐式复制会造出“修改的其实是副本”一类的坑。
 - 取值：
-  - `pop_front()`、`pop_back()` 返回 `T?`：引擎在空数组上不报错而返回 null（`core/variant/array.cpp:798-817`）；
-  - `front()`、`back()` 返回 T，空数组时是程序错误，引擎在这里同样报错（`array.cpp:364-372`）；
+  - `pop_front()`、`pop_back()` 返回 `T?`：引擎在空数组上不报错而返回 null（`core/variant/array.cpp:781-800`）；
+  - `front()`、`back()` 返回 T，空数组时是程序错误，引擎在这里同样报错（`array.cpp:354-362`）；
   - 越界的下标是程序错误；
   - T 本身可空时，`pop_front()`、`pop_back()` 返回 `T??`，由绑定层先检查数组是否为空，因为引擎在两种情况下都返回 null；
-  - `Dictionary[K, V].get(k)` 返回 `V?`，键不存在时为 None，对应引擎在缺键时返回默认值（`core/variant/dictionary.cpp:177-188`）；`get(k, default)` 返回 V；`d[k]` 在键不存在时是程序错误，GDScript 在这里同样报错。
+  - `Dictionary[K, V].get(k)` 返回 `V?`，键不存在时为 None，对应引擎在缺键时返回默认值（`core/variant/dictionary.cpp:178-187`）；`get(k, default)` 返回 V；`d[k]` 在键不存在时是程序错误，GDScript 在这里同样报错。
 - 标准库在原生容器上提供接受带类型 lambda 的 `map`、`filter`、`sort` 等（§3.11）。
 
 ### 3.9 接口
@@ -284,7 +284,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 3.11 函数类型与 Callable
 
 - 函数类型记录参数类型、返回类型以及是否为 async，写法见 §2.4。没有返回类型的函数类型返回 void。
-- 调用照 GDScript 写 `f.call(x)`，按函数类型静态检查。直接写 `f(x)` 报 GDScript 现有的错误并给出改法（`modules/gdscript/gdscript_analyzer.cpp:3785-3789`）。
+- 调用照 GDScript 写 `f.call(x)`，按函数类型静态检查。直接写 `f(x)` 报 GDScript 现有的错误并给出改法（`modules/gdscript/gdscript_analyzer.cpp:3741-3745`）。
 - 函数值能否用在某个位置只看类型，lambda 与方法值相同：
   - 参数逆变、返回协变，例如 `func(Node)` 可以用在期望 `func(Node3D)` 的位置；
   - async 与普通的函数类型之间没有隐式转换；
@@ -314,7 +314,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   - `if v is T:`，分支中的局部变量和参数收窄为 T（§5.4）。
 - `==` 和 `!=` 按引擎的 Variant 比较（§5.2）。
 - 其余操作都是编译错误，快速修复插入转换或 `if v is T:`：运算符、成员访问 `v.x`、方法调用 `v.f()`、下标 `v[i]`、`for x in v`。GDScript 在这些位置动态执行。确实要按名字动态访问时，先转为 Object，再用引擎的 `get`、`set`、`call`（§10.4）。
-- Variant 包含 NIL：`v == None` 对 NIL 和已释放的对象为真，与引擎的运算表相同（`core/variant/variant_op.h:532-537`），`v is int` 对 NIL 为假，`v as Node` 对 NIL 得到 None。`Variant?` 与 Variant 不同（§3.4），例如 `Dictionary[String, Variant]` 的 `get("hp")` 在缺键时为 None，在 `{"hp": null}` 中得到包含 NIL 的 Some。
+- Variant 包含 NIL：`v == None` 对 NIL 和已释放的对象为真，与引擎的运算表相同（`core/variant/variant_op.h:484-489`），`v is int` 对 NIL 为假，`v as Node` 对 NIL 得到 None。`Variant?` 与 Variant 不同（§3.4），例如 `Dictionary[String, Variant]` 的 `get("hp")` 在缺键时为 None，在 `{"hp": null}` 中得到包含 NIL 的 Some。
 
   ```gdscript
   var data = JSON.parse_string(text)   # Variant
@@ -332,13 +332,13 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 一个类可以继承引擎类或本语言的类。
 - 【已知限制】跨语言继承两个方向都不支持：本语言的类不能继承 GDScript 类，GDScript 脚本也不能继承本语言的类（§11.2）。
 - 覆盖方法时签名的规则见 §4.6，可见性的规则见 §4.2。
-- `@abstract` 与 GDScript 相同（`modules/gdscript/gdscript_analyzer.cpp:1543-1562, 3674-3687`，`modules/gdscript/gdscript_parser.cpp:4492-4516`）：
+- `@abstract` 与 GDScript 相同（`modules/gdscript/gdscript_analyzer.cpp:1533-1552, 3630-3643`，`modules/gdscript/gdscript_parser.cpp:4500-4524`）：
   - 抽象方法不写冒号、没有函数体；
   - 含抽象方法的类必须标 `@abstract`；
   - 具体子类必须实现全部抽象方法；
   - 抽象类不能构造；
   - `super` 调用抽象方法，以及给 static 方法标 `@abstract`，都是编译错误。
-- 场景中的节点使用抽象类是编译错误，标在该场景上。引擎本身也不实例化抽象脚本（`modules/gdscript/gdscript.cpp:265-270`）；本语言经 `_is_abstract` 和全局类表把抽象性报告给引擎（`core/object/script_language_extension.h:143-147, 756-769`）。
+- 场景中的节点使用抽象类是编译错误，标在该场景上。引擎本身也不给对象设置抽象脚本（`core/object/object.cpp:976`）；本语言经 `_is_abstract` 和全局类表把抽象性报告给引擎（`core/object/script_language_extension.h:132-136, 657-670`）。
 - 带状态的共同基类用 `@abstract`；不同引擎基类的类共有的能力用接口（§3.9）。例如 godot-open-rpg 的 BattlerAction 继承 Resource，带导出字段和抽象的协程 `execute`：
 
   ```gdscript
@@ -393,15 +393,15 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 4.6 函数
 
 - 函数签名的类型手写，不推断。参数必须标注类型，例外是覆盖（下一条）和有期望类型的 lambda（本节倒数第二条）。
-- 覆盖引擎虚函数或基类方法时，可以省略参数类型和返回类型；省略的类型取自被覆盖的声明，悬停可见。写出的类型按 GDScript 的覆盖检查：返回类型可以协变，参数类型可以逆变，可以多出带默认值的参数（`modules/gdscript/gdscript_analyzer.cpp:1892-1933`）；参数名可以不同。例如 `func _process(delta):` 中 delta 为 float（`scene/main/node.h:433-434`）。这不是推断：类型由被覆盖的声明规定，与函数体无关。依据：[第二次纸面迁移](surveys/paper-migration-2.zh.md)中，引擎虚函数覆盖的参数标注有 6 处。
+- 覆盖引擎虚函数或基类方法时，可以省略参数类型和返回类型；省略的类型取自被覆盖的声明，悬停可见。写出的类型按 GDScript 的覆盖检查：返回类型可以协变，参数类型可以逆变，可以多出带默认值的参数（`modules/gdscript/gdscript_analyzer.cpp:1895-1936`）；参数名可以不同。例如 `func _process(delta):` 中 delta 为 float（`scene/main/node.h:433-434`）。这不是推断：类型由被覆盖的声明规定，与函数体无关。依据：[第二次纸面迁移](surveys/paper-migration-2.zh.md)中，引擎虚函数覆盖的参数标注有 6 处。
 - 不是覆盖的函数，省略返回类型表示 void；在其中返回值是编译错误，快速修复补上返回类型。
 - 参数可以有默认值，与 GDScript 相同。
 - 剩余参数：
-  - `...args: Array` 与 GDScript 相同，只能是最后一个参数，不能有默认值（`gdscript_parser.cpp:1723-1730`）；
-  - 另外允许 `...args: Array[T]`，调用处逐个检查实参；GDScript 对带类型的剩余参数报编译错误（`gdscript_analyzer.cpp:1802-1809`）；
+  - `...args: Array` 与 GDScript 相同，只能是最后一个参数，不能有默认值（`gdscript_parser.cpp:1709-1716`）；
+  - 另外允许 `...args: Array[T]`，调用处逐个检查实参；GDScript 对带类型的剩余参数报编译错误（`gdscript_analyzer.cpp:1803-1810`）；
   - 只写 `...args` 是编译错误，快速修复补上 `: Array`；
-  - 引擎看到的方法信息带 `METHOD_FLAG_VARARG`，GDScript 据此接受任意个额外的实参（`gdscript_analyzer.cpp:6101-6104`），元素类型由入口检查（§10.1）；
-  - 调用处没有展开写法，GDScript 也没有（`gdscript_parser.cpp:4336`）；已有的数组用 `callv` 传入。没有展开写法时容易写错，例如 Pixelorama 的 `_debug_msg` 把自己的 args 整个当作一个实参传给 `_prefix_print`，后者再 `prints(args)`，打印出的是数组而不是以空格分隔的值（`src/Classes/ObjParse.gd:59-66`）。【后续】展开写法；
+  - 引擎看到的方法信息带 `METHOD_FLAG_VARARG`，GDScript 据此接受任意个额外的实参（`gdscript_analyzer.cpp:6052-6055`），元素类型由入口检查（§10.1）；
+  - 调用处没有展开写法，GDScript 也没有（`gdscript_parser.cpp:4344`）；已有的数组用 `callv` 传入。没有展开写法时容易写错，例如 Pixelorama 的 `_debug_msg` 把自己的 args 整个当作一个实参传给 `_prefix_print`，后者再 `prints(args)`，打印出的是数组而不是以空格分隔的值（`src/Classes/ObjParse.gd:59-66`）。【后续】展开写法；
   - 依据：[语料计数](surveys/corpus-counts.zh.md)中 78 个剩余参数有 76 个在 gdUnit4 的断言接口中，元素都是 Variant。
 - 调用按位置传参，与 GDScript 相同。按名字传参只用于 struct 和带载荷分支的构造（§2.4），以及 `instantiate(...)`、`new(...)` 传入必须赋值的成员（§6.2）。
 - 函数内部的局部变量可以由初始化式推断类型。lambda 是函数内部的代码，按局部规则推断：有期望的函数类型时，参数类型取自它，没有时须写出；返回类型由函数体推断，例如 `weapons.map(func(w): return w.name)`。
@@ -417,7 +417,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 4.8 静态成员
 
-- `static var`、`static func`、`_static_init()` 的写法和时机与 GDScript 相同：类加载时，先基类后派生类，按声明顺序初始化静态成员，最后调用 `_static_init`（`modules/gdscript/gdscript_compiler.cpp:2646-2649`）。静态成员的初始化式同样不经过 setter（`gdscript_compiler.cpp:2620-2643`）。
+- `static var`、`static func`、`_static_init()` 的写法和时机与 GDScript 相同：类加载时，先基类后派生类，按声明顺序初始化静态成员，最后调用 `_static_init`（`modules/gdscript/gdscript_compiler.cpp:2629-2632`）。静态成员的初始化式同样不经过 setter（`gdscript_compiler.cpp:2603-2626`）。
 - 一个类在静态初始化中读取另一个类的静态成员时，先完成那个类的初始化。
 - 静态初始化之间形成环是程序错误，诊断列出依赖链；能静态判断的是编译错误。不读取默认值或未完成的值。GDScript 的相关问题见 [godotengine/godot#104161](https://github.com/godotengine/godot/issues/104161)、[#82141](https://github.com/godotengine/godot/issues/82141)、[#104588](https://github.com/godotengine/godot/issues/104588)。
 - 静态初始化不能 await。
@@ -428,7 +428,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 5.1 运算
 
-- 运算的结果类型按引擎的运算符表确定，与 GDScript 的静态检查相同（`core/variant/variant_op.cpp:212-1035`）。例如 `Vector2 * float` 得到 Vector2，`Vector2i * float` 得到 Vector2，`int / int` 是整除。表中没有的组合，例如 `Vector2 + Vector2i`，是编译错误。
+- 运算的结果类型按引擎的运算符表确定，与 GDScript 的静态检查相同（`core/variant/variant_op.cpp:212-1033`）。例如 `Vector2 * float` 得到 Vector2，`Vector2i * float` 得到 Vector2，`int / int` 是整除。表中没有的组合，例如 `Vector2 + Vector2i`，是编译错误。
 - `int` 与 `float` 混合运算时提升为 `float`。
 - 整数除以 0 是程序错误。
 - 以 Variant 绑定的工具函数（lerp、clamp、min、max、abs、wrap 等）的定型见 §10.3。
@@ -437,17 +437,17 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 - `==` 按引擎的运算表定型，与其他运算符相同（§5.1）；表中没有的组合是编译错误，例如 `hp == "3"`、`Vector2() == Vector2i()`。
 - int 与 float 按数值比较，`1 == 1.0` 为真（`core/variant/variant_op.cpp:490-491`）。String 与 StringName 按内容比较（§10.7）。
-- 对象按同一性比较，比较的是 ObjectID（`variant_op.cpp:514`），所以两个不同的已释放对象不相等。引擎比较前先把已释放的对象取为 null，两个已释放对象在 GDScript 中相等（`core/variant/variant_op.h:519-525`），属于 §1.2 的例外。两个类型都是类、且互不为子类时是编译错误，因为结果总为假；涉及接口时可以比较。
+- 对象按同一性比较，比较的是 ObjectID（`variant_op.cpp:514`），所以两个不同的已释放对象不相等。引擎比较前先把已释放的对象取为 null，两个已释放对象在 GDScript 中相等（`core/variant/variant_op.h:471-477`），属于 §1.2 的例外。两个类型都是类、且互不为子类时是编译错误，因为结果总为假；涉及接口时可以比较。
 - Option：None 等于 None；两个 Some 在内部的值相等时相等；层数较少的一侧先包装到相同的层数再比较，例如 hp 为 `int?` 时的 `hp == 3`，以及 `T?` 与 `T??` 的比较。既不是 Option 也不是 Variant 的值与 None 比较是编译错误，因为结果总为假；快速修复把类型改为 `T?`，或在检查存活时改用 `is_instance_valid(x)`。
-- 容器照引擎逐元素比较，Dictionary 按键逐项比较，与顺序无关。引擎比较元素时要求类型相同（`core/variant/array.cpp:153-156`，`core/variant/dictionary.cpp:270-300`，`core/variant/variant.cpp:3213-3216`），所以 `[1] == [1.0]` 为假，而 `1 == 1.0` 为真。元素类型不同的容器比较是编译错误，例如 `Array[int] == Array[float]`，因为只有两边都为空时才相等。
-- 一侧是 Variant 时，运行时按引擎的运算表求值；组合不在表中是程序错误（`variant_op.cpp:1051-1056`）。GDScript 在这里报错；运算数的类型与这条指令第一次执行时不同的情况，只在 debug 构建中检查，release 构建得到 null 并继续执行（`modules/gdscript/gdscript_vm.cpp:756-761, 784-806`）。`v == None` 对 NIL 和已释放的对象为真（§3.13）。
+- 容器照引擎逐元素比较，Dictionary 按键逐项比较，与顺序无关。引擎比较元素时要求类型相同（`core/variant/array.cpp:155-158`，`core/variant/dictionary.cpp:255-285`，`core/variant/variant.cpp:3176-3179`），所以 `[1] == [1.0]` 为假，而 `1 == 1.0` 为真。元素类型不同的容器比较是编译错误，例如 `Array[int] == Array[float]`，因为只有两边都为空时才相等。
+- 一侧是 Variant 时，运行时按引擎的运算表求值；组合不在表中是程序错误（`variant_op.cpp:1049-1054`）。GDScript 在这里报错；运算数的类型与这条指令第一次执行时不同的情况，只在 debug 构建中检查，release 构建得到 null 并继续执行（`modules/gdscript/gdscript_vm.cpp:793-798, 821-843`）。`v == None` 对 NIL 和已释放的对象为真（§3.13）。
 - `!=` 在所有情况下都是 `==` 的否定。
 - struct 和带载荷的 enum 逐字段比较（§3.6、§3.7）。
 
 ### 5.3 转换
 
-- `x as T` 只用于对象类型，结果为 `T?`：类型不符时为 None，与 GDScript 相同（`modules/gdscript/gdscript_vm.cpp:1665-1666`）。x 的静态类型已经是 T 时，结果为 T，并提示这个 `as` 多余。已释放的对象 `as` 任何类型都得到 None（§3.3）。
-- `as` 转为内置类型是编译错误。GDScript 在这里按构造函数转换，转换失败只在 debug 构建中报错（`gdscript_vm.cpp:1630-1638`），快速修复给出两种改法：
+- `x as T` 只用于对象类型，结果为 `T?`：类型不符时为 None，与 GDScript 相同（`modules/gdscript/gdscript_vm.cpp:1677-1678`）。x 的静态类型已经是 T 时，结果为 T，并提示这个 `as` 多余。已释放的对象 `as` 任何类型都得到 None（§3.3）。
+- `as` 转为内置类型是编译错误。GDScript 在这里按构造函数转换，转换失败只在 debug 构建中报错（`gdscript_vm.cpp:1642-1650`），快速修复给出两种改法：
   - `T(x)`：保留这种转换，例如 `int("5")`、`int(2.7)`；
   - `T.try_from(x)`：严格的转换。
 - `T.try_from(v)` 返回 `Result[T, ConversionError]`。规则与 struct 字段的解码相同：值的类型必须与 T 相符；转为 `int` 时，接受恰为整数且在 int64 范围内的浮点数（§10.8）。用 `?` 传播失败，或用 `.unwrap()`、`.expect(…)` 把失败变为程序错误。
@@ -467,7 +467,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 5.6 match
 
-- 保留 GDScript 的全部模式，含义不变（`modules/gdscript/gdscript_parser.cpp:2499-2723`）：字面量和常量表达式按相等比较；`var x` 绑定；`_` 通配；数组和字典模式，以及其中的 `..`；逗号分隔的多个模式，其中不能绑定；`when` 守卫。
+- 保留 GDScript 的全部模式，含义不变（`modules/gdscript/gdscript_parser.cpp:2487-2711`）：字面量和常量表达式按相等比较；`var x` 绑定；`_` 通配；数组和字典模式，以及其中的 `..`；逗号分隔的多个模式，其中不能绑定；`when` 守卫。
 - 新增的模式：
   - enum 分支：`类型.分支(字段 = 模式, ...)`。`var 字段` 是 `字段 = var 字段` 的简写。未列出的字段须由 `..` 覆盖，与字典模式相同。模式可以嵌套。
   - struct：同样的写法，例如 `Hit(damage = var d, ..)`。
@@ -495,27 +495,27 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 - `for` 与 GDScript 相同：`for i in n` 遍历 0 到 n-1，i 为 int；可以遍历 `range(...)`、容器、String 和 Dictionary 的键。
 - 循环变量可以标注类型，如 `for i: int in ...`；标注的类型须是元素类型或其父类型，不做隐式的向下转换。
-- 遍历 float 和向量是编译错误，快速修复改用 `range(...)`。GDScript 允许这样写，并把向量当作范围（`gdscript_vm.cpp:3093-3230`）；在静态类型下这几乎总是误用。
+- 遍历 float 和向量是编译错误，快速修复改用 `range(...)`。GDScript 允许这样写，并把向量当作范围（`gdscript_vm.cpp:3092-3229`）；在静态类型下这几乎总是误用。
 - `while`、`break`、`continue` 与 GDScript 相同。
 
 ## 6. 初始化与生命周期
 
 ### 6.1 成员的初始化
 
-- 成员的初始化式直接写字段，不经过 setter，实例成员和静态成员都是如此，与 GDScript 相同（`modules/gdscript/gdscript_compiler.cpp:2435-2451, 2620-2643`）。初始化式给出第一个值，setter 处理值的变化；初始化时没有观察者，后声明的成员也尚未初始化。
+- 成员的初始化式直接写字段，不经过 setter，实例成员和静态成员都是如此，与 GDScript 相同（`modules/gdscript/gdscript_compiler.cpp:2414-2430, 2603-2626`）。初始化式给出第一个值，setter 处理值的变化；初始化时没有观察者，后声明的成员也尚未初始化。
 - 派生状态在 `_ready` 或 `_static_init` 中计算。成员同时有初始化式和 setter 时，编译器提示初始化不经过 setter。
 - 没有初始化式的成员取默认值或必须赋值（§4.3）。
 
 ### 6.2 必须赋值的成员
 
-- Node 和 Resource 脚本的 `_init` 不能有参数，因为引擎总以零个参数构造它们（`core/object/script_language.h:156`；[暗坑清单](surveys/pitfalls.zh.md) G-02）。构造参数表达为必须赋值的成员：没有默认值的非空成员。
+- Node 和 Resource 脚本的 `_init` 不能有参数，因为引擎总以零个参数构造它们（`core/object/script_language.h:152`；[暗坑清单](surveys/pitfalls.zh.md) G-02）。构造参数表达为必须赋值的成员：没有默认值的非空成员。
 - 必须赋值的成员要在所在场景就绪完毕之前赋值，来源可以是：
   - 场景：导出的成员由场景提供（§7.5）；
   - 创建者：`instantiate(...)` 和 `new(...)` 接受按名字传入的成员值，在返回前完成赋值，例如 `BulletScene.instantiate(speed = 300.0, target = enemy)`。对 `PackedScene[T]`，编译器在调用处检查必须传入的成员（§7.4）都已传入，漏写是编译错误；`new(...)` 漏传不是编译错误，按下文的时机检查；
   - 祖先：同一场景中的祖先节点在自己的 `_ready` 中赋值，只要场景模型看得见这次赋值，即写成 `$Child.target = v`，或经 `@onready` 引用赋值。
 - 检查时机：
   - 由场景或创建者提供的，在节点就绪时检查，早于 `@onready` 的初始化；
-  - 由祖先赋值的，在整个场景就绪之后检查。就绪在节点入树时同步传播完毕（`scene/main/node.cpp:3425-3429`），每帧回调由主循环发起，所以正常逻辑读不到空值；
+  - 由祖先赋值的，在整个场景就绪之后检查。就绪在节点入树时同步传播完毕（`scene/main/node.cpp:3368-3372`），每帧回调由主循环发起，所以正常逻辑读不到空值；
   - 子节点在自己的 `_ready` 中读取由祖先赋值的成员，是编译错误；
   - 就绪前读取尚未赋值的成员是程序错误，诊断写明成员名；
   - 场景模型看不见的配置方式（例如遍历 `get_children()` 赋值），成员须写作 `T?`。
@@ -527,7 +527,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 6.3 `@onready`
 
-- 沿用 GDScript 的时机：`@onready` 的初始化式在 `_ready` 之前执行，先基类后派生类，各自按声明顺序（`modules/gdscript/gdscript.cpp:1956-1972`）。
+- 沿用 GDScript 的时机：`@onready` 的初始化式在 `_ready` 之前执行，先基类后派生类，各自按声明顺序（`modules/gdscript/gdscript.cpp:1937-1953`）。
 - 以下情况是编译错误：`@onready` 与 `@export` 同时使用；初始化式中使用 await；在 `_init` 或 `_enter_tree` 中直接读取 `@onready` 成员。
 - 经调用间接读到尚未初始化的 `@onready` 成员是程序错误，诊断写明成员名。依据：[暗坑清单](surveys/pitfalls.zh.md) G-04。
 
@@ -540,7 +540,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 6.5 就绪前的 setter
 
-- 场景实例化时，引擎先设置节点保存在场景中的属性，再把节点加到父节点下（`scene/resources/packed_scene.cpp:567, 616`），这时节点的子节点和 `@onready` 成员都还不可用。
+- 场景实例化时，引擎先设置节点保存在场景中的属性，再把节点加到父节点下（`scene/resources/packed_scene.cpp:494, 543`），这时节点的子节点和 `@onready` 成员都还不可用。
 - setter 照常立即执行。执行到第一处需要节点就绪的语句时，若节点尚未就绪，就在此挂起，就绪后从这里继续：
   - 需要就绪的语句由静态分析确定：访问 `@onready` 成员、`$X` 或子节点，或者调用会访问它们的本类方法，包括子类的覆盖；
   - 只有在 `is_node_ready()` 为真时才能执行到的访问不算，判断规则与收窄相同（§5.4）：`if is_node_ready():` 分支内、`if not is_node_ready(): return` 之后、`is_node_ready() and …` 的右侧。方法中的这类访问全部不算时，调用它也不算需要就绪。只认 `is_node_ready()`，因为 `is_inside_tree()` 为真时 `@onready` 成员仍可能尚未初始化；
@@ -554,7 +554,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 6.6 析构
 
 - 不新增语法：继续用 `_notification(what)` 处理 `NOTIFICATION_PREDELETE`，与场景树相关的清理放在 `_exit_tree`，写法和时机与 GDScript 相同；析构顺序沿用引擎。理由：[语料计数](surveys/corpus-counts.zh.md)中 `NOTIFICATION_PREDELETE` 只出现 40 次，其中 32 次在 gdUnit4。
-- 运行时保证 RefCounted 在 PREDELETE 期间可以读写自己的字段、调用自己的方法，不重新给 self 加引用。引擎在 PREDELETE 时引用计数已经归零，再加引用会失败（`core/object/ref_counted.cpp:94-95`，`core/templates/safe_refcount.h:137-147`，`core/variant/variant.cpp:2543-2547`）。
+- 运行时保证 RefCounted 在 PREDELETE 期间可以读写自己的字段、调用自己的方法，不重新给 self 加引用。引擎在 PREDELETE 时引用计数已经归零，再加引用会失败（`core/object/ref_counted.cpp:94-95`，`core/templates/safe_refcount.h:136-146`，`core/variant/variant.cpp:1104-1108, 2509-2510`）。
 - 处理 PREDELETE 的分支中，把 self 传出、存入成员或容器，以及使用 await，都是编译错误。这期间指向 self 的 `weak` 返回 None。依据：[暗坑清单](surveys/pitfalls.zh.md) G-09。
 
 ### 6.7 引用环与泄漏
@@ -600,7 +600,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 7.3 向上访问
 
 - autoload 用其全局名访问，类型为其脚本的类（§11.1）。以 `/root/X` 形式的字面量路径访问 autoload 是编译错误，快速修复改为全局名 X。
-- 父节点和 owner 的要求写作类级注解 `@parent(T)`、`@owner(T)`，与 `@tool` 放在同一位置。声明后，`get_parent()`、`$".."` 和 `owner` 具有类型 T。未声明时，`get_parent()` 和 `owner` 的类型为 `Node?`，与引擎一致：没有父节点或 owner 是节点的正常状态，引擎这时返回 null 而不报错（`scene/main/node.cpp:2118-2120, 2328-2330`）；`$".."` 和 `get_node("..")` 的类型为 Node，因为 GDScript 在没有父节点时同样报错。未声明时写 `get_parent().x` 或 `owner.x` 是编译错误，快速修复按场景模型推断出父节点或 owner 的公共类型，在类上补 `@parent(T)` 或 `@owner(T)`，也可以在调用处改为 `.unwrap()`。依据：[语料计数](surveys/corpus-counts.zh.md)中，自身的 `get_parent()` 有 174 处，其中 62 处直接访问成员，分布在 46 个文件中；`owner` 直接访问成员 49 处，分布在 21 个文件中。另有 3 处处理了没有父节点的情况，其中 beehave 的 setter 在节点挂到父节点之前执行，`get_parent()` 在那里得到 null。
+- 父节点和 owner 的要求写作类级注解 `@parent(T)`、`@owner(T)`，与 `@tool` 放在同一位置。声明后，`get_parent()`、`$".."` 和 `owner` 具有类型 T。未声明时，`get_parent()` 和 `owner` 的类型为 `Node?`，与引擎一致：没有父节点或 owner 是节点的正常状态，引擎这时返回 null 而不报错（`scene/main/node.cpp:2100-2102, 2296-2298`）；`$".."` 和 `get_node("..")` 的类型为 Node，因为 GDScript 在没有父节点时同样报错。未声明时写 `get_parent().x` 或 `owner.x` 是编译错误，快速修复按场景模型推断出父节点或 owner 的公共类型，在类上补 `@parent(T)` 或 `@owner(T)`，也可以在调用处改为 `.unwrap()`。依据：[语料计数](surveys/corpus-counts.zh.md)中，自身的 `get_parent()` 有 174 处，其中 62 处直接访问成员，分布在 46 个文件中；`owner` 直接访问成员 49 处，分布在 21 个文件中。另有 3 处处理了没有父节点的情况，其中 beehave 的 setter 在节点挂到父节点之前执行，`get_parent()` 在那里得到 null。
 
   ```gdscript
   @owner(Combat.Combatant)
@@ -610,10 +610,10 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
       current_health = owner.init_health
   ```
 
-- 静态检查在场景中放置该脚本的位置进行。父节点要求检查节点在场景中的父节点，以及场景的根被实例化到另一个场景中时外层的父节点，不符合时是编译错误，标在该场景上；场景作为主场景时，父节点是 Window 类型的根视口，同样检查；其他作为根使用的场景，父节点要到运行时才知道，只在运行时检查。owner 是包含该节点的场景的根节点；场景的根被实例化到另一个场景中时，owner 是外层场景的根（`scene/resources/packed_scene.cpp:640-643`）。脚本挂在作为根使用（§7.5）的场景的根上时没有 owner，这样的场景使用声明了 `@owner` 的脚本是编译错误，标在该场景上。
+- 静态检查在场景中放置该脚本的位置进行。父节点要求检查节点在场景中的父节点，以及场景的根被实例化到另一个场景中时外层的父节点，不符合时是编译错误，标在该场景上；场景作为主场景时，父节点是 Window 类型的根视口，同样检查；其他作为根使用的场景，父节点要到运行时才知道，只在运行时检查。owner 是包含该节点的场景的根节点；场景的根被实例化到另一个场景中时，owner 是外层场景的根（`scene/resources/packed_scene.cpp:567-570`）。脚本挂在作为根使用（§7.5）的场景的根上时没有 owner，这样的场景使用声明了 `@owner` 的脚本是编译错误，标在该场景上。
 - 运行时：
-  - 父节点要求在节点挂到父节点时检查（`NOTIFICATION_PARENTED`，`scene/main/node.h:466`）；声明了 `@parent(T)` 的节点在没有父节点时调用 `get_parent()`，是程序错误；
-  - 声明了 `@owner(T)` 时，`owner` 在每次读取时检查不为 null 且符合要求；失败是程序错误，诊断写明要求和实际的 owner。不在移动节点时检查 owner：节点被移出 owner 的子树时，引擎把 owner 置为 null（`scene/main/node.cpp:391-396, 1799-1801`），这是合法的操作，例如 Ring 的 DeathComponent 先读 owner，再把自己移到前景层；owner 被释放时同样置为 null（`node.cpp:299-302`）。
+  - 父节点要求在节点挂到父节点时检查（`NOTIFICATION_PARENTED`，`scene/main/node.h:465`）；声明了 `@parent(T)` 的节点在没有父节点时调用 `get_parent()`，是程序错误；
+  - 声明了 `@owner(T)` 时，`owner` 在每次读取时检查不为 null 且符合要求；失败是程序错误，诊断写明要求和实际的 owner。不在移动节点时检查 owner：节点被移出 owner 的子树时，引擎把 owner 置为 null（`scene/main/node.cpp:391-396, 1781-1783`），这是合法的操作，例如 Ring 的 DeathComponent 先读 owner，再把自己移到前景层；owner 被释放时同样置为 null（`node.cpp:299-302`）。
 - `get_owner()` 和 `get_node_or_null("..")` 的类型总是 `Node?`，声明了要求的代码需要判断有没有 owner 或父节点时使用它们。
 
 ### 7.4 场景资源
@@ -638,13 +638,13 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   - 编辑时允许清空。Inspector 中的字段和场景树中的节点立即标出编译错误，但不阻止任何操作，重新赋值后标记消失；
   - 运行时允许运行：这类标在场景上的编译错误不阻止在编辑器中运行；缺值的节点就绪时报程序错误，检查早于 `@onready` 的初始化，诊断写明成员名，例如在编辑器中单独运行 player.tscn 时；
   - 导出时，确定会缺值的场景经导出插件报告为错误，导出窗口显示失败，消息写明场景和成员名；只有警告的照常导出。CI 用无界面的分析命令阻断（§13.1）；
-  - 【已知限制】引擎的导出器不因插件报告的错误中止：导出插件的钩子都不能使导出失败（`editor/export/editor_export_platform.cpp:2529-2537`，`editor/export/editor_export_plugin.h:132-134`），报告的错误只让导出窗口显示失败（`editor_export_platform.cpp:131, 146-148`），产物照样写出，命令行导出的退出码仍为 0（`editor/editor_node.cpp:1465-1481`）。
+  - 【已知限制】引擎的导出器不因插件报告的错误中止：导出插件的钩子都不能使导出失败（`editor/export/editor_export_platform.cpp:2568-2576`，`editor/export/editor_export_plugin.h:120-122`），报告的错误只让导出窗口显示失败（`editor_export_platform.cpp:131, 146-148`），产物照样写出，命令行导出的退出码仍为 0（`editor/editor_node.cpp:1408-1424`）。
 - 远程检查器向非空成员写入 null 时，入口检查失败，即程序错误（§10.1）：写入被拒绝，原值不变。
-- 理由：编辑过程中清空再替换是正常操作，非空约束的是编辑完成的场景。替换也不需要先清空，因为节点引用在 `.tscn` 中以路径保存，实例化时才解析（`scene/resources/packed_scene.cpp:449-468`）。
+- 理由：编辑过程中清空再替换是正常操作，非空约束的是编辑完成的场景。替换也不需要先清空，因为节点引用在 `.tscn` 中以路径保存，实例化时才解析（`scene/resources/packed_scene.cpp:376-395`）。
 
 ### 7.6 资源共享
 
-- 资源共享的语义不变，由场景模型发现问题。编译器知道哪些资源是共享的：`load`、`preload` 和导出属性得到的资源来自缓存（`core/io/resource_loader.cpp:800-810`）；场景中没有设为“局部于场景”的内嵌子资源，由该场景的所有实例共用（`scene/resources/packed_scene.cpp:786-787`）。
+- 资源共享的语义不变，由场景模型发现问题。编译器知道哪些资源是共享的：`load`、`preload` 和导出属性得到的资源来自缓存（`core/io/resource_loader.cpp:800-810`）；场景中没有设为“局部于场景”的内嵌子资源，由该场景的所有实例共用（`scene/resources/packed_scene.cpp:705-706`）。
 - 对已知共享的资源写属性，或调用会修改它的方法时，给出警告，列出共享它的位置，并提供两个快速修复：在场景中把它设为局部于场景，或在修改前 `duplicate()`。有意修改共享资源时用 `@warning_ignore` 关闭。运行时才替换的资源追踪不到，不警告。例如 godot-open-rpg 的 `interaction_popup.tscn` 内嵌的 CircleShape2D 没有设为局部于场景，`interaction_popup.gd:30` 的 setter 修改它的半径，而 `main.tscn:484-486` 中只有一个实例把 radius 设为 64；按引擎的共享规则推断，十几个实例共用同一个形状，半径取决于最后执行的 setter（未运行验证）。
 - `duplicate()` 返回接收者的静态类型；复制深度用 `duplicate_deep(模式)` 写明。
 - `preload`、导出的 PackedScene 和资源之间的引用环是编译错误，快速修复把其中一条边改为运行时 `load`；引擎在这里返回 null（`core/io/resource_loader.cpp:1049-1056`）。依据：[暗坑清单](surveys/pitfalls.zh.md) G-19、G-20、G-34。
@@ -663,7 +663,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 程序错误的检测和处理在 debug 和 release 构建中一致；唯一的例外是 `assert`（§8.3）。debug 构建只补充诊断信息，并在退出时报告泄漏（§6.7、§12.5）。
 - 若引擎调用的入口需要返回值，引擎得到该类型的默认值。
 - 本文中称为“程序错误”的情况都按这一条处理，包括：访问已释放的对象（§3.3）、`unwrap` 和 `expect` 失败、越界下标、整数除以 0、就绪前读取尚未赋值的成员、跨引擎边界的入口检查失败（§10.1）、等待被取消的任务（§9.2）。
-- 理由：GDScript 出错后，debug 构建按返回类型构造默认值返回（`modules/gdscript/gdscript_vm.cpp:3956-3980`），release 构建返回 null（`:496, 3982`），调用方都继续执行；在静态类型下，这会让代码拿到假值。
+- 理由：GDScript 出错后，debug 构建按返回类型构造默认值返回（`modules/gdscript/gdscript_vm.cpp:3963-3993`），release 构建返回 null（`:535, 3995`），调用方都继续执行；在静态类型下，这会让代码拿到假值。
 
 ### 8.2 预期之内的失败
 
@@ -684,7 +684,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 8.3 断言
 
-- `assert(条件, 消息)` 与 GDScript 相同，只在 debug 构建（在编辑器中运行和 debug 导出）中求值，失败时是程序错误；release 构建中去掉，条件和消息都不求值（`modules/gdscript/gdscript_compiler.cpp:2182-2208`；GDScript 的失败处理见 `modules/gdscript/gdscript_vm.cpp:3869-3895`）。
+- `assert(条件, 消息)` 与 GDScript 相同，只在 debug 构建（在编辑器中运行和 debug 导出）中求值，失败时是程序错误；release 构建中去掉，条件和消息都不求值（`modules/gdscript/gdscript_compiler.cpp:2181-2207`；GDScript 的失败处理见 `modules/gdscript/gdscript_vm.cpp:3876-3902`）。
 - 条件或消息中出现 await 或后缀 `?` 是编译错误，因为它们会随断言在 release 构建中消失。
 - 条件必须是 bool（§5.4），例如 `assert(save_data, "...")` 是编译错误，快速修复改为 `save_data != None`。
 - release 中也要检查的，用 `expect`（§3.4）或显式的 `if`。【后续】始终生效的断言。
@@ -700,10 +700,10 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 9.1 async 与 Task
 
 - 协程在签名上声明，写作 `async func`。函数体中有 await 而没有声明，是编译错误。引擎虚函数可以声明为 async。
-- lambda 同样如此：含 await 的 lambda 写作 `async func(...)`，例如 `button.pressed.connect(async func(): await fade_out())`。GDScript 中这样的 lambda 不加标记（`modules/gdscript/gdscript_parser.cpp:3223-3225, 3726-3727`），快速修复补上 `async`。理由：判断函数是否为 async 只有一条规则，挂起点旁边一定看得到 async；[语料计数](surveys/corpus-counts.zh.md)中 979 个 lambda 只有 35 个含 await，其中 33 个在 gdUnit4 的测试中。
+- lambda 同样如此：含 await 的 lambda 写作 `async func(...)`，例如 `button.pressed.connect(async func(): await fade_out())`。GDScript 中这样的 lambda 不加标记（`modules/gdscript/gdscript_parser.cpp:3249-3251, 3752-3753`），快速修复补上 `async`。理由：判断函数是否为 async 只有一条规则，挂起点旁边一定看得到 async；[语料计数](surveys/corpus-counts.zh.md)中 979 个 lambda 只有 35 个含 await，其中 33 个在 gdUnit4 的测试中。
 - 由引擎调用的位置接受 async 函数，任务作为根任务运行（§3.11）。
 - 调用 async 函数得到 `Task[T]`。任务立即开始，运行到第一次挂起为止；`await f()` 和 `await t` 得到 T。返回 void 的协程得到 `Task[void]`；`void` 作类型实参只能用于 Task，没有类型实参的 `Task` 是编译错误。
-- 丢弃 async 调用的结果是编译错误；确实不等待时写 `f().detach()`。GDScript 中把协程调用的结果当值使用本来就是编译错误（`modules/gdscript/gdscript_analyzer.cpp:3820-3828`），所以 `var t = f()` 获得新含义不违反语法硬规则。
+- 丢弃 async 调用的结果是编译错误；确实不等待时写 `f().detach()`。GDScript 中把协程调用的结果当值使用本来就是编译错误（`modules/gdscript/gdscript_analyzer.cpp:3776-3784`），所以 `var t = f()` 获得新含义不违反语法硬规则。
 - setter、getter、`@onready` 初始化式和静态初始化不能 await。
 
 ### 9.2 结束状态
@@ -726,7 +726,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 - 协程帧，即局部变量和挂起点，在任务结束时立即释放；持有的引用按作用域退出处理，await 之后的代码不再执行。【已知限制】第一版没有 finally 或 defer。
 - Task 对象是只保存结果的 RefCounted 句柄。变量、等待方，以及等待信号期间的运行时都不再引用它时，它被释放。
-- 挂起的协程不使 self 保持存活，与 GDScript 相同（`modules/gdscript/gdscript_vm.cpp:2608-2624`）。
+- 挂起的协程不使 self 保持存活，与 GDScript 相同（`modules/gdscript/gdscript_vm.cpp:2609-2625`）。
 
 ### 9.5 组合与重入
 
@@ -736,7 +736,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 9.6 await 信号
 
 - 可以直接 await 一个信号。
-- 无参数的信号不产生值；单参数的信号得到该参数类型的值；多参数信号的 await 只能作为语句。依据：[await 信号结果调查](surveys/await-signal-results.zh.md)中，1,356 个 await 只有 1 个使用了多参数信号的结果。GDScript 在这里得到由实参组成的 Array（`modules/gdscript/gdscript_function.cpp:237-255`），所以使用这种结果的 GDScript 写法是编译错误。【后续】按参数解构多参数信号的 await 结果。
+- 无参数的信号不产生值；单参数的信号得到该参数类型的值；多参数信号的 await 只能作为语句。依据：[await 信号结果调查](surveys/await-signal-results.zh.md)中，1,356 个 await 只有 1 个使用了多参数信号的结果。GDScript 在这里得到由实参组成的 Array（`modules/gdscript/gdscript_function.cpp:256-274`），所以使用这种结果的 GDScript 写法是编译错误。【后续】按参数解构多参数信号的 await 结果。
 - 信号表达式的静态类型只是 `Signal` 时，签名未知，例如 `Signal` 类型的变量或参数、返回 Signal 的方法、Variant 或 Object 上取到的信号。经已知的类访问的信号，签名都已知：引擎类按 ClassDB，本语言的类按声明，GDScript 类经反射。
 - await 签名未知的信号，结果是 Variant，运行时的形状与 GDScript 相同：无参数时为 NIL，一个参数时为该实参，多个参数时为由实参组成的 Array。用作语句时没有限制。理由：签名未知本来就是动态来源，结果按 Variant 的规则显式转换后才能使用（§3.13）。依据：[await 信号结果调查](surveys/await-signal-results.zh.md)中，这类 await 的结果只被使用过 1 次，即 `godot_dialogue_manager/addons/dialogue_manager/dialogue_manager.gd:1956` 经类型为 RefCounted 的接收者等待一个在 C# 中声明的两参数信号。【后续】带参数类型的 Signal 类型。
 
@@ -748,8 +748,8 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 9.7 对象释放与挂起的协程
 
-- 协程所属的对象被释放时，协程静默取消，挂起帧持有的引用随之释放，与 GDScript 相同（`modules/gdscript/gdscript.cpp:2089-2092`）。运行时在对象收到 PREDELETE 时就取消它的协程。PREDELETE 先通知脚本实例，再由 Node 删除子节点（`core/object/object.cpp:140, 1009-1012`；`scene/main/node.cpp:308-312`），所以等待自己子节点的协程在子节点被删除之前已经取消。
-- 被等待的对象（另一个对象上的协程，或另一个对象的信号源）在完成之前被释放时，等待方不会像在 GDScript 中那样永远挂起（`modules/gdscript/gdscript_function.cpp:335-349`，`core/object/object.cpp:2402-2417`）。判断推迟到本帧待删除的对象都删除之后，即场景树处理完删除队列、引擎调用脚本语言的每帧回调时（`scene/main/scene_tree.cpp:736`，`main/main.cpp:5150-5153`）：
+- 协程所属的对象被释放时，协程静默取消，挂起帧持有的引用随之释放，与 GDScript 相同（`modules/gdscript/gdscript.cpp:2069-2079`）。运行时在对象收到 PREDELETE 时就取消它的协程。PREDELETE 先通知脚本实例，再由 Node 删除子节点（`core/object/object.cpp:173, 928-931`；`scene/main/node.cpp:308-312`），所以等待自己子节点的协程在子节点被删除之前已经取消。
+- 被等待的对象（另一个对象上的协程，或另一个对象的信号源）在完成之前被释放时，等待方不会像在 GDScript 中那样永远挂起（`modules/gdscript/gdscript.cpp:2069-2079`，`core/object/object.cpp:2327-2342`）。判断推迟到本帧待删除的对象都删除之后，即场景树处理完删除队列、引擎调用脚本语言的每帧回调时（`scene/main/scene_tree.cpp:735`，`main/main.cpp:5106-5109`）：
   - 等待方的所属对象在这期间也被释放时，等待方静默取消（`OWNER_FREED`）。例如切换场景时，引擎从后往前逐个删除兄弟节点（`node.cpp:308-312`），等待兄弟节点信号的协程不报错；
   - 否则等待方在 await 处失败，即程序错误，诊断写明被释放的对象及释放位置，并照常沿 await 链传播（§9.2）。
 - 用 `settled()` 等待时不报错，得到被等待者自己的取消原因：`Task.of(信号)` 在信号源被释放时得到 `Cancelled(CancelReason.AWAITED_FREED)`，另一个对象上的协程在其所属对象被释放时得到 `Cancelled(CancelReason.OWNER_FREED)`。
@@ -760,18 +760,18 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
       await player.died         # 切换场景：player 先被删除，HUD 随后被删除，静默取消
       show_game_over()          # player 被单独释放却没有发出 died：本帧结束后报程序错误
   ```
-- 任何对象的释放都可以通过 GDExtension 公开的实例绑定释放回调感知（`core/object/object.cpp:2435-2440`）。依据：[暗坑清单](surveys/pitfalls.zh.md) G-11。
+- 任何对象的释放都可以通过 GDExtension 公开的实例绑定释放回调感知（`core/object/object.cpp:2360-2365`）。依据：[暗坑清单](surveys/pitfalls.zh.md) G-11。
 
 ### 9.8 跨语言 await
 
-- 对 GDScript 方法的调用可以写 await。运行时得到 `GDScriptFunctionState` 时，等待它的 `completed` 信号（`modules/gdscript/gdscript_function.cpp:327`），再按声明的返回类型检查结果。协程性不在方法的反射信息中（`core/object/method_info.h:37-44`），因此无法在编译期判断。没有写 await 时，按调用的写法区分，与 GDScript 相同（`modules/gdscript/gdscript_analyzer.cpp:3820-3828`）：
+- 对 GDScript 方法的调用可以写 await。运行时得到 `GDScriptFunctionState` 时，等待它的 `completed` 信号（`modules/gdscript/gdscript_function.cpp:369`），再按声明的返回类型检查结果。协程性不在方法的反射信息中（`core/object/method_info.h:37-44`），因此无法在编译期判断。没有写 await 时，按调用的写法区分，与 GDScript 相同（`modules/gdscript/gdscript_analyzer.cpp:3776-3784`）：
   - 作为语句调用、结果没有被使用时，运行时发现方法是协程也不报错：协程运行到第一次挂起，之后自行继续，相当于 detach；
   - 结果被当作值使用时，运行时得到 `GDScriptFunctionState` 是程序错误，诊断写明该方法是协程、须写 await。
   - 【后续】为 GDScript 协程调用取得 `Task` 句柄，以便稍后等待。
-- 等待 `GDScriptFunctionState` 时，运行时持有它直到 `completed` 发出，同时监听发起调用的对象，即接收者，或经 Callable 调用时的目标对象。这个对象被释放，或它的脚本被替换（`script_changed`，`core/object/object.cpp:1076`）时，按被等待的对象被释放处理（§9.7），`settled()` 得到 `Cancelled(CancelReason.OWNER_FREED)`。理由：协程再次挂起后，内层状态只以 ObjectID 记住第一个状态的 `completed` 信号（`modules/gdscript/gdscript_vm.cpp:2633-2638`），第一个状态在恢复执行时就离开了实例的待处理列表（`modules/gdscript/gdscript_function.cpp:289-290`），不持有它就会被提前释放；实例析构时，引擎只清除挂起的状态，不发出 `completed`（`modules/gdscript/gdscript.cpp:2086-2095`，`gdscript_function.cpp:335-350`）；`GDScriptFunctionState` 是内部类，不暴露它所属的实例（`gdscript_function.cpp:324-328`，`modules/gdscript/register_types.cpp:141`），无法从它本身得知宿主是否已释放。
-- 【已知限制】GDScript 脚本被重载时，引擎清除它挂起的函数而不发出任何信号（`gdscript.cpp:1522-1535`，`modules/gdscript/gdscript_compiler.cpp:2721`），等待这些函数的协程会永远挂起。这只在编辑器中修改脚本时发生。
-- GDScript await 本语言的协程时，协程在第一次挂起时返回其 Task 的 `completed` 信号；GDScript 的 await 接受任意 Signal 值（`modules/gdscript/gdscript_vm.cpp:2585-2599`）。Task 完成时发出 `completed(值)`；取消或失败时发出 `completed(null)`，使 GDScript 的等待方不会永远挂起；另有 `cancelled` 信号供需要区分的代码使用。
-- 本语言的 async 方法交给引擎的返回类型一律是无类型的 Variant（`PROPERTY_USAGE_NIL_IS_VARIANT`），与声明的返回类型无关，返回 void 时也是如此；声明的类型只出现在文档和悬停中。理由：方法的反射信息中没有协程性（`core/object/method_info.h:37-44`），GDScript 只能按报告的返回类型检查。报告为 T 时，GDScript 中每处 await 都有“多余的 await”警告（`modules/gdscript/gdscript_analyzer.cpp:3136-3141`）；取消时的 `completed(null)` 不经检查写入类型为 T 的临时变量（`modules/gdscript/gdscript_vm.cpp:2668-2669`，`modules/gdscript/gdscript_byte_codegen.cpp:998-1001`），T 为 Transform3D 一类的值类型时，之后按类型访问它的指令解引用空指针，进程崩溃。报告为 Variant 时，debug 构建在把结果赋给有类型的变量时检查类型（`gdscript_vm.cpp:1421-1432`）；release 构建不检查，与 GDScript 中其他返回 Variant 的函数相同。
+- 等待 `GDScriptFunctionState` 时，运行时持有它直到 `completed` 发出，同时监听发起调用的对象，即接收者，或经 Callable 调用时的目标对象。这个对象被释放，或它的脚本被替换（`script_changed`，`core/object/object.cpp:995`）时，按被等待的对象被释放处理（§9.7），`settled()` 得到 `Cancelled(CancelReason.OWNER_FREED)`。理由：协程再次挂起后，内层状态只以 ObjectID 记住第一个状态的 `completed` 信号（`modules/gdscript/gdscript_vm.cpp:2634-2639`），第一个状态在恢复执行时就离开了实例的待处理列表（`modules/gdscript/gdscript_function.cpp:329-330`），不持有它就会被提前释放；实例析构时，引擎只清除挂起的状态，不发出 `completed`（`modules/gdscript/gdscript.cpp:2066-2084`，`gdscript_function.cpp:343-362`）；`GDScriptFunctionState` 是内部类，不暴露它所属的实例，它的 `is_valid(true)` 在恢复执行之后总是为假（`gdscript_function.cpp:288-307, 337, 364-370`，`modules/gdscript/register_types.cpp:140`），所以协程再次挂起后，无法从持有的状态得知宿主是否已释放。
+- 【已知限制】GDScript 脚本被重载时，引擎清除它挂起的函数而不发出任何信号（`gdscript.cpp:1487-1506`，`modules/gdscript/gdscript_compiler.cpp:2700`），等待这些函数的协程会永远挂起。这只在编辑器中修改脚本时发生。
+- GDScript await 本语言的协程时，协程在第一次挂起时返回其 Task 的 `completed` 信号；GDScript 的 await 接受任意 Signal 值（`modules/gdscript/gdscript_vm.cpp:2586-2600`）。Task 完成时发出 `completed(值)`；取消或失败时发出 `completed(null)`，使 GDScript 的等待方不会永远挂起；另有 `cancelled` 信号供需要区分的代码使用。
+- 本语言的 async 方法交给引擎的返回类型一律是无类型的 Variant（`PROPERTY_USAGE_NIL_IS_VARIANT`），与声明的返回类型无关，返回 void 时也是如此；声明的类型只出现在文档和悬停中。理由：方法的反射信息中没有协程性（`core/object/method_info.h:37-44`），GDScript 只能按报告的返回类型检查。报告为 T 时，GDScript 中每处 await 都有“多余的 await”警告（`modules/gdscript/gdscript_analyzer.cpp:3102-3107`）；取消时的 `completed(null)` 不经检查写入类型为 T 的临时变量（`modules/gdscript/gdscript_vm.cpp:2667-2668`，`modules/gdscript/gdscript_byte_codegen.cpp:998-1001`），T 为 Transform3D 一类的值类型时，之后按类型访问它的指令解引用空指针，进程崩溃。报告为 Variant 时，debug 构建在把结果赋给有类型的变量时检查类型（`gdscript_vm.cpp:1433-1444`）；release 构建不检查，与 GDScript 中其他返回 Variant 的函数相同。
 - 两个方向都是根据引擎源码推出的，尚未在运行的引擎上验证。
 
 ## 10. 引擎边界
@@ -789,7 +789,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 带载荷的 enum | 按字段名编码的 Dictionary，保留键 `"$variant"` 记录分支名（§3.7） |
 | async 方法的返回值 | 无类型的 Variant（§9.8） |
 
-- GDScript 通过 Script 的反射接口为其他语言的全局类定型（`modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063`），所以 GDScript 对本语言类的实例成员（属性、方法、信号）有完整的静态检查。`Player.new(...)` 同样受检查：Script 基类没有绑定 `new`，GDScript 是自己绑定的（`modules/gdscript/gdscript.cpp:1099`），所以本语言的 Script 类绑定 `new`，并把 `_init` 报告为返回该类的静态方法，GDScript 把 `new` 当作静态的 `_init` 检查（`gdscript_analyzer.cpp:6007-6010`）。实参按位置传入；按名字传入必须赋值的成员（§6.2）只在本语言中可用。其余的类级访问见 §11.3。
+- GDScript 通过 Script 的反射接口为其他语言的全局类定型（`modules/gdscript/gdscript_analyzer.cpp:789-804, 4278-4319, 6005-6014`），所以 GDScript 对本语言类的实例成员（属性、方法、信号）有完整的静态检查。`Player.new(...)` 同样受检查：Script 基类没有绑定 `new`，GDScript 是自己绑定的（`modules/gdscript/gdscript.cpp:1078`），所以本语言的 Script 类绑定 `new`，并把 `_init` 报告为返回该类的静态方法，GDScript 把 `new` 当作静态的 `_init` 检查（`gdscript_analyzer.cpp:5958-5961`）。实参按位置传入；按名字传入必须赋值的成员（§6.2）只在本语言中可用。其余的类级访问见 §11.3。
 - **入口检查**：值从引擎、GDScript 或 C# 进入本语言的位置（参数、`set` 写入成员、信号的实参、await 的结果、解码），按声明的类型检查，失败是程序错误。远程检查器的写入也经过入口检查（§7.5）。
 - Option 交给引擎时 None 编码为 NIL。所以只有 X 的值不会编码为 NIL 时，`X?` 才能隐式交给引擎；X 是 Option 或 Variant 时是编译错误，快速修复给出 `.flatten()` 或 `.unwrap_or(null)`。否则 Some(None) 经过引擎往返后会悄悄变成 None（§3.4）。
 
@@ -798,14 +798,14 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 绑定元数据（§10.3）尚未审核的引擎 API 中，对象类型一律可空。
 - 审核从调用最频繁的 API 开始，结果分三种：
   - 非空，类型为 T；
-  - 只在误用时为空，即引擎在返回 null 的同时报错，例如 `get_tree()`（`scene/main/node.h:559-562`）：按非空处理，为空时是程序错误；
+  - 只在误用时为空，即引擎在返回 null 的同时报错，例如 `get_tree()`（`scene/main/node.h:558-561`）：按非空处理，为空时是程序错误；
   - 正常情况下可能为空，例如 `get_collider()`、`get_first_node_in_group()`、`get_parent()`：类型为 `T?`。
-- 理由：引擎用 `RequiredResult` 标注“只在出错时为 null”的返回值（`core/object/object.h:950-952`），这样的 API 声明只有约 50 处，其中 29 处在 Tween。
+- 理由：引擎用 `RequiredResult` 标注“只在出错时为 null”的返回值（`core/object/object.h:942-944`），这样的 API 声明只有约 50 处，其中 29 处在 Tween。
 
 ### 10.3 绑定元数据
 
 - 引擎实际有约束但没有导出的，在本语言的绑定元数据中补上；引擎已导出的元数据直接使用。
-- 以 Variant 绑定的工具函数（lerp、clamp、min、max、abs、wrap 等）按实参定型：实参类型相同时返回该类型。int 与 float 混用是编译错误，快速修复把整数实参改为 float，例如 `min(ratio, 1.0)`。理由：引擎的 min、max、clamp 原样返回其中一个实参（`core/variant/variant_utility.cpp:643-760`），GDScript 中 `min(1.5, 1)` 得到 int，统一提升为 float 会使结果悄悄不同；lerp 本身要求两个实参类型相同（`variant_utility.cpp:466-470`）。
+- 以 Variant 绑定的工具函数（lerp、clamp、min、max、abs、wrap 等）按实参定型：实参类型相同时返回该类型。int 与 float 混用是编译错误，快速修复把整数实参改为 float，例如 `min(ratio, 1.0)`。理由：引擎的 min、max、clamp 原样返回其中一个实参（`core/variant/variant_utility.cpp:642-759`），GDScript 中 `min(1.5, 1)` 得到 int，统一提升为 float 会使结果悄悄不同；lerp 本身要求两个实参类型相同（`variant_utility.cpp:465-469`）。
 - 以字面量类名过滤的引擎 API 按该类定型，例如 `find_children("*", "MeshInstance3D")` 返回 `Array[MeshInstance3D]`。
 - 把“失败返回 null、错误另取”的引擎 API（如 `FileAccess.open`）封装为返回 Result 的标准库函数。
 
@@ -829,12 +829,12 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 10.6 数值边界
 
 - 写入引擎的 32 位浮点位置时隐式收窄，例如标准构建中为 float 的 `real_t` 向量分量（`core/math/math_defs.h:143-146`）。
-- 传给引擎 int32 参数时做范围检查，越界是程序错误；引擎自身在这里会直接截断（`core/variant/variant.h:348-349`）。
+- 传给引擎 int32 参数时做范围检查，越界是程序错误；引擎自身在这里会直接截断（`core/variant/variant.h:343-344`）。
 
 ### 10.7 String 与 StringName
 
 - 两个方向都在需要时隐式转换，与 GDScript 相同；`==` 按内容比较（`core/variant/variant_op.cpp:196-203, 493, 615`）。
-- 期望类型为 StringName 或 NodePath 时，字符串字面量在编译期构造为该类型，运行时不再转换。从 String 构造 StringName 需要在全局表的互斥锁下查找（`core/string/string_name.cpp:280-302`）。
+- 期望类型为 StringName 或 NodePath 时，字符串字面量在编译期构造为该类型，运行时不再转换。从 String 构造 StringName 需要在全局表的互斥锁下查找（`core/string/string_name.cpp:263-285`）。
 - `&"x"` 和 `^"x"` 前缀照旧。热路径上的运行时转换给出性能提示。
 
 ### 10.8 JSON
@@ -856,16 +856,16 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 - 两个方向的跨语言继承都不支持：
   - 本语言的类不能继承 GDScript 类。插件要求继承它的类时（例如 Beehave 的 ActionLeaf），由用户手写一层薄的 GDScript 子类，在其中调用本语言的代码；GDScript 通过反射看到本语言的类型，对实例成员的调用仍有静态检查（§10.1）。依据：[暗坑清单](surveys/pitfalls.zh.md) C-17。
-  - GDScript 脚本不能继承本语言的类：GDScript 解析 `extends 全局类名` 时，把基类文件当作 GDScript 解析（`modules/gdscript/gdscript_analyzer.cpp:471-487`，`modules/gdscript/gdscript_cache.cpp:84-93`），失败时只报“Could not resolve super class”（`:479, 485`）。分析服务在这样的 GDScript 文件上报错并说明原因。
+  - GDScript 脚本不能继承本语言的类：GDScript 解析 `extends 全局类名` 时，把基类文件当作 GDScript 解析（`modules/gdscript/gdscript_analyzer.cpp:469-485`，`modules/gdscript/gdscript_cache.cpp:83-92`），失败时只报“Could not resolve super class”（`:483, 489`）。分析服务在这样的 GDScript 文件上报错并说明原因。
 - 因此迁移一个类时，它仍为 GDScript 的子类必须一起迁移（§13.4）。依据：[第二次纸面迁移](surveys/paper-migration-2.zh.md)中，Ring 的 Brick 和 Enemy 因此连带迁移了 5 个子类。
 
 ### 11.3 跨语言调用与消息
 
 - GDScript 和 C# 只能按名字访问 §10.5 所列的成员。
 - 【已知限制】GDScript 只能经实例使用本语言的类，以及用 `new` 构造（§10.1）。以下类级访问不受支持，替代写法是经实例或 autoload 的实例方法转一层：
-  - 静态方法：GDScript 的分析器接受 `Player.make()`，运行时却报找不到方法，因为 GDScript 和 C# 靠覆盖引擎内部的 `callp` 分派静态方法，GDExtension 没有对应的钩子（`core/object/object.cpp:882-905`）；
-  - 类中的 enum 和常量：不能用在 GDScript 的类型标注中（`modules/gdscript/gdscript_analyzer.cpp:950-952`），也不能用作 `const` 的值或写成 `Player.State.IDLE`，因为 GDScript 不把其他语言的常量当作常量表达式（`gdscript_analyzer.cpp:4372-4381`）；读取常量的值可以；
-  - 本语言写的 autoload：GDScript 只为 GDScript 写的 autoload 定型（`gdscript_analyzer.cpp:821-841, 4637-4674`），所以它在表达式中的类型是 Node，写在类型标注中时悄悄变成无类型。
+  - 静态方法：GDScript 的分析器接受 `Player.make()`，运行时却报找不到方法，因为 GDScript 和 C# 靠覆盖引擎内部的 `callp` 分派静态方法，GDExtension 没有对应的钩子（`core/object/object.cpp:800-826`）；
+  - 类中的 enum 和常量：不能用在 GDScript 的类型标注中（`modules/gdscript/gdscript_analyzer.cpp:935-937`），也不能用作 `const` 的值或写成 `Player.State.IDLE`，因为 GDScript 不把其他语言的常量当作常量表达式（`gdscript_analyzer.cpp:4321-4330`）；读取常量的值可以；
+  - 本语言写的 autoload：GDScript 只为 GDScript 写的 autoload 定型（`gdscript_analyzer.cpp:806-826, 4579-4616`），所以它在表达式中的类型是 Node，写在类型标注中时悄悄变成无类型。
 - 【后续】经 Script 资源上的脚本实例支持 GDScript 调用静态方法；需要先在运行的引擎上验证。
 - 与 C# 之间的消息用 struct 表达，编码为按字段名的 Dictionary（§3.6），入口处解码并检查。
 - 跨语言 await 见 §9.8。
@@ -910,7 +910,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 13.1 分析服务
 
 - 分析服务运行在编辑器进程中。外部 IDE 通过 LSP 连接；命令行和 CI 以无界面模式运行同一套分析。无界面的分析命令在存在编译错误时以非零退出码结束，包括标在场景上的缺值错误（§7.5）。
-- 理由：跨场景的重构要修改编辑器正打开着的场景，只有编辑器能安全地做到。GDScript 的 LSP 同样是编辑器插件（`modules/gdscript/language_server/gdscript_language_server.h:35`，`modules/gdscript/register_types.cpp:170`）。
+- 理由：跨场景的重构要修改编辑器正打开着的场景，只有编辑器能安全地做到。GDScript 的 LSP 同样是编辑器插件（`modules/gdscript/language_server/gdscript_language_server.h:35`，`modules/gdscript/register_types.cpp:167`）。
 
 ### 13.2 第一版的工具
 
@@ -926,10 +926,10 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 - 重构包含场景中的那一半。机械且不改变含义的修改随重构自动完成，事先预览，可以撤销，包括改名所涉及的导出属性键、信号连接的方法名、动画轨道路径，以及无损的值转换。
 - 需要判断的修改只报告并给出选项，不自动执行，例如改变节点类型、现有资源不再符合新类型。
-- 理由：否则导出成员改名后，场景中保存的值会静默丢失：加载时不检查 `node->set` 是否成功（`scene/resources/packed_scene.cpp:567`），保存时只写节点当前属性列表中的属性（`packed_scene.cpp:941-950`）。
+- 理由：否则导出成员改名后，场景中保存的值会静默丢失：加载时不检查 `node->set` 是否成功（`scene/resources/packed_scene.cpp:494`），保存时只写节点当前属性列表中的属性（`packed_scene.cpp:860-869`）。
 - 在场景编辑器中给节点改名或移动节点时：
-  - 本语言脚本中指向它的 `$X`、`%X` 和字面量 `get_node` 路径自动更新，与编辑器对场景中 NodePath 属性和动画轨道的更新（`editor/docks/scene_tree_dock.cpp:2173-2278, 2280-2431`）放在同一个撤销步骤中；
-  - 做法是在编辑器提交动作后发出的 `history_changed` 信号中，创建同名、合并方式为 `MERGE_ALL` 的动作，它并入刚提交的动作，并保留其原有的操作（`editor/editor_undo_redo_manager.cpp:298`，`core/object/undo_redo.cpp:95, 114-115`）。不能在编辑器的动作执行中追加操作：移动节点时编辑器不在动作内部发出信号（`scene_tree_dock.cpp:2565-2707`），提交时又先退出动作再执行（`undo_redo.cpp:311-330`）。这一做法根据引擎源码推出，尚未在运行的引擎上验证；
+  - 本语言脚本中指向它的 `$X`、`%X` 和字面量 `get_node` 路径自动更新，与编辑器对场景中 NodePath 属性和动画轨道的更新（`editor/docks/scene_tree_dock.cpp:2143-2248, 2250-2401`）放在同一个撤销步骤中；
+  - 做法是在编辑器提交动作后发出的 `history_changed` 信号中，创建同名、合并方式为 `MERGE_ALL` 的动作，它并入刚提交的动作，并保留其原有的操作（`editor/editor_undo_redo_manager.cpp:298`，`core/object/undo_redo.cpp:97, 116-117`）。不能在编辑器的动作执行中追加操作：移动节点时编辑器不在动作内部发出信号（`scene_tree_dock.cpp:2535-2677`），提交时又先退出动作再执行（`undo_redo.cpp:313-332`）。这一做法根据引擎源码推出，尚未在运行的引擎上验证；
   - 不预览，完成后在输出面板列出改动的位置；
   - 非字面量的路径，以及脚本挂在其他场景中、同一路径在那里仍指向别的节点的情况，只报告不修改，并提供更新路径的快速修复。
 
@@ -1032,119 +1032,119 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ## 附录 A：引擎事实
 
-以下事实基于 Godot master（4.8-beta，提交 `469659e`），路径相对于 Godot 仓库的根目录。
+以下事实基于 Godot 4.7.2-stable（提交 `ed1daf0`），路径相对于 Godot 仓库的根目录。
 
 | 事实 | 出处 |
 |---|---|
-| Variant 的整数是 int64_t，浮点数是 double | `core/variant/variant.h:257-258` |
-| Variant 转为 int32 时直接截断 | `core/variant/variant.h:348-349` |
+| Variant 的整数是 int64_t，浮点数是 double | `core/variant/variant.h:252-253` |
+| Variant 转为 int32 时直接截断 | `core/variant/variant.h:343-344` |
 | 标准构建中 `real_t` 是 float | `core/math/math_defs.h:143-146` |
-| 引擎的运算符表 | `core/variant/variant_op.cpp:212-1035` |
-| int 与 float 的 `==` 按数值比较；对象的 `==` 比较同一性，但先把已释放的对象取为 null | `core/variant/variant_op.cpp:490-491, 514`；`core/variant/variant_op.h:519-525` |
-| 已释放的对象与 NIL 比较为真 | `core/variant/variant_op.h:532-537` |
+| 引擎的运算符表 | `core/variant/variant_op.cpp:212-1033` |
+| int 与 float 的 `==` 按数值比较；对象的 `==` 比较同一性，但先把已释放的对象取为 null | `core/variant/variant_op.cpp:490-491, 514`；`core/variant/variant_op.h:471-477` |
+| 已释放的对象与 NIL 比较为真 | `core/variant/variant_op.h:484-489` |
 | String 与 StringName 的 `==` 按内容比较 | `core/variant/variant_op.cpp:196-203, 493, 615` |
-| 运算表中没有的组合求值无效 | `core/variant/variant_op.cpp:1051-1056` |
-| Array 的 `==` 逐元素用 `hash_compare`，它要求元素类型相同 | `core/variant/array.cpp:153-156`；`core/variant/variant.cpp:3213-3216` |
-| Dictionary 的 `==` 按键查找后逐项比较值，与顺序无关 | `core/variant/dictionary.cpp:270-300` |
-| 已释放的对象在条件中为假：对象的 `is_zero` 检查对象是否仍然有效 | `core/variant/variant.cpp:980-981`；`core/variant/variant_op.cpp:1122-1124` |
-| min、max、clamp 原样返回其中一个实参 | `core/variant/variant_utility.cpp:643-760` |
-| lerp 要求两个实参类型相同 | `core/variant/variant_utility.cpp:466-470` |
-| `pop_front`、`pop_back` 在空数组上返回 null 而不报错 | `core/variant/array.cpp:798-817` |
-| `front`、`back` 在空数组上报错 | `core/variant/array.cpp:364-372` |
-| Dictionary 的 `get` 在缺键时返回默认值 | `core/variant/dictionary.cpp:177-188` |
+| 运算表中没有的组合求值无效 | `core/variant/variant_op.cpp:1049-1054` |
+| Array 的 `==` 逐元素用 `hash_compare`，它要求元素类型相同 | `core/variant/array.cpp:155-158`；`core/variant/variant.cpp:3176-3179` |
+| Dictionary 的 `==` 按键查找后逐项比较值，与顺序无关 | `core/variant/dictionary.cpp:255-285` |
+| 已释放的对象在条件中为假：对象的 `is_zero` 检查对象是否仍然有效 | `core/variant/variant.cpp:952-953`；`core/variant/variant_op.cpp:1120-1122` |
+| min、max、clamp 原样返回其中一个实参 | `core/variant/variant_utility.cpp:642-759` |
+| lerp 要求两个实参类型相同 | `core/variant/variant_utility.cpp:465-469` |
+| `pop_front`、`pop_back` 在空数组上返回 null 而不报错 | `core/variant/array.cpp:781-800` |
+| `front`、`back` 在空数组上报错 | `core/variant/array.cpp:354-362` |
+| Dictionary 的 `get` 在缺键时返回默认值 | `core/variant/dictionary.cpp:178-187` |
 | `bind` 把绑定的实参接在调用实参之后 | `core/variant/callable_bind.cpp:141-150` |
-| 从 String 构造 StringName 需要在全局表的互斥锁下查找 | `core/string/string_name.cpp:280-302` |
+| 从 String 构造 StringName 需要在全局表的互斥锁下查找 | `core/string/string_name.cpp:263-285` |
 | JSON 中的数字都解析为浮点数 | `core/io/json.cpp:390-396` |
 | 资源按路径缓存，`load` 默认复用缓存 | `core/io/resource_loader.cpp:800-810` |
 | 资源的循环加载返回 null | `core/io/resource_loader.cpp:1049-1056` |
 | 方法的反射信息中没有协程性 | `core/object/method_info.h:37-44` |
-| 脚本语言所需的钩子对 GDExtension 公开 | `core/object/script_language_extension.h:393, 493, 533, 596, 754` |
-| 扩展实现的脚本语言经 `_is_abstract` 和全局类表报告抽象性 | `core/object/script_language_extension.h:143-147, 756-769` |
-| 脚本语言通过 `get_extension` 自报扩展名 | `core/object/script_language_extension.h:287` |
-| 脚本实例创建时不接受构造参数 | `core/object/script_language.h:156` |
-| `RequiredResult` 标注只在出错时为 null 的返回值 | `core/object/object.h:950-952` |
-| 对象释放时调用每个实例绑定的释放回调 | `core/object/object.cpp:2435-2440` |
-| 对象析构时静默断开它的所有信号连接 | `core/object/object.cpp:2402-2417` |
-| 对象设置脚本后发出 `script_changed` | `core/object/object.cpp:1076` |
-| PREDELETE 按逆序发出，先通知脚本实例，再通知原生类 | `core/object/object.cpp:140, 1009-1012` |
-| RefCounted 在 PREDELETE 时引用计数已归零，再加引用会失败 | `core/object/ref_counted.cpp:94-95`；`core/templates/safe_refcount.h:137-147`；`core/variant/variant.cpp:2543-2547` |
-| 脚本语言的每帧回调在场景树处理完删除队列之后调用 | `main/main.cpp:5150-5153`；`core/object/script_language_extension.h:750`；`scene/main/scene_tree.cpp:736` |
+| 脚本语言所需的钩子对 GDExtension 公开 | `core/object/script_language_extension.h:304, 391, 441, 497, 655` |
+| 扩展实现的脚本语言经 `_is_abstract` 和全局类表报告抽象性 | `core/object/script_language_extension.h:132-136, 657-670` |
+| 脚本语言通过 `get_extension` 自报扩展名 | `core/object/script_language_extension.h:236` |
+| 脚本实例创建时不接受构造参数 | `core/object/script_language.h:152` |
+| `RequiredResult` 标注只在出错时为 null 的返回值 | `core/object/object.h:942-944` |
+| 对象释放时调用每个实例绑定的释放回调 | `core/object/object.cpp:2360-2365` |
+| 对象析构时静默断开它的所有信号连接 | `core/object/object.cpp:2327-2342` |
+| 对象设置脚本后发出 `script_changed` | `core/object/object.cpp:995` |
+| 引擎不给对象设置抽象脚本 | `core/object/object.cpp:976` |
+| PREDELETE 按逆序发出，先通知脚本实例，再通知原生类 | `core/object/object.cpp:173, 928-931` |
+| RefCounted 在 PREDELETE 时引用计数已归零，再加引用会失败 | `core/object/ref_counted.cpp:94-95`；`core/templates/safe_refcount.h:136-146`；`core/variant/variant.cpp:1104-1108, 2509-2510` |
+| 脚本语言的每帧回调在场景树处理完删除队列之后调用 | `main/main.cpp:5106-5109`；`core/object/script_language_extension.h:651`；`scene/main/scene_tree.cpp:735` |
 | `_process` 和 `_physics_process` 的参数是 double | `scene/main/node.h:433-434` |
-| `NOTIFICATION_PARENTED` | `scene/main/node.h:466` |
-| `get_tree()` 在节点不在树中时报错并返回 null；`get_parent()`、`get_owner()` 没有父节点或 owner 时返回 null 而不报错 | `scene/main/node.h:559-562`；`scene/main/node.cpp:2118-2120, 2328-2330` |
-| 节点移出 owner 的子树时 owner 被置为 null | `scene/main/node.cpp:391-396, 1799-1801` |
+| `NOTIFICATION_PARENTED` | `scene/main/node.h:465` |
+| `get_tree()` 在节点不在树中时报错并返回 null；`get_parent()`、`get_owner()` 没有父节点或 owner 时返回 null 而不报错 | `scene/main/node.h:558-561`；`scene/main/node.cpp:2100-2102, 2296-2298` |
+| 节点移出 owner 的子树时 owner 被置为 null | `scene/main/node.cpp:391-396, 1781-1783` |
 | owner 被释放时，它拥有的节点的 owner 被置为 null | `scene/main/node.cpp:299-302` |
 | 节点在 PREDELETE 中从最后一个子节点起逐个删除子节点 | `scene/main/node.cpp:308-312` |
-| 节点入树时，就绪同步传播完毕 | `scene/main/node.cpp:3425-3429` |
+| 节点入树时，就绪同步传播完毕 | `scene/main/node.cpp:3368-3372` |
 | 子节点先于父节点就绪；节点重新入树时不再执行 `_ready` | `scene/main/node.cpp:326-337, 454` |
-| `queue_free` 把节点放入删除队列，在每个物理步和处理帧的末尾删除 | `scene/main/node.cpp:3518-3528`；`scene/main/scene_tree.cpp:667, 736, 1646-1661` |
-| 没有设为局部于场景的子资源，由场景的所有实例共用 | `scene/resources/packed_scene.cpp:786-787` |
-| 实例化场景时，先设置保存的属性，再把节点加到父节点下 | `scene/resources/packed_scene.cpp:567, 616` |
-| 加载场景时不检查属性写入是否成功 | `scene/resources/packed_scene.cpp:567` |
-| 节点引用以路径保存，实例化时解析 | `scene/resources/packed_scene.cpp:449-468` |
-| 保存场景时只写节点当前属性列表中的属性 | `scene/resources/packed_scene.cpp:941-950` |
-| 场景的根被实例化到另一个场景中时，owner 是外层场景的根 | `scene/resources/packed_scene.cpp:640-643` |
-| 编辑器给节点改名或移动节点时，更新场景中的 NodePath 属性和动画轨道 | `editor/docks/scene_tree_dock.cpp:2173-2278, 2280-2431`（调用在 `:2456, 2697`） |
-| 移动节点时，编辑器在动作内部不发出信号 | `editor/docks/scene_tree_dock.cpp:2565-2707` |
-| 提交动作时先退出动作再执行，执行中不能再追加操作 | `core/object/undo_redo.cpp:311-330` |
+| `queue_free` 把节点放入删除队列，在每个物理步和处理帧的末尾删除 | `scene/main/node.cpp:3461-3471`；`scene/main/scene_tree.cpp:666, 735, 1626-1643` |
+| 没有设为局部于场景的子资源，由场景的所有实例共用 | `scene/resources/packed_scene.cpp:705-706` |
+| 实例化场景时，先设置保存的属性，再把节点加到父节点下 | `scene/resources/packed_scene.cpp:494, 543` |
+| 加载场景时不检查属性写入是否成功 | `scene/resources/packed_scene.cpp:494` |
+| 节点引用以路径保存，实例化时解析 | `scene/resources/packed_scene.cpp:376-395` |
+| 保存场景时只写节点当前属性列表中的属性 | `scene/resources/packed_scene.cpp:860-869` |
+| 场景的根被实例化到另一个场景中时，owner 是外层场景的根 | `scene/resources/packed_scene.cpp:567-570` |
+| 编辑器给节点改名或移动节点时，更新场景中的 NodePath 属性和动画轨道 | `editor/docks/scene_tree_dock.cpp:2143-2248, 2250-2401`（调用在 `:2426, 2667`） |
+| 移动节点时，编辑器在动作内部不发出信号 | `editor/docks/scene_tree_dock.cpp:2535-2677` |
+| 提交动作时先退出动作再执行，执行中不能再追加操作 | `core/object/undo_redo.cpp:313-332` |
 | 编辑器的撤销管理器在提交后发出 `history_changed` | `editor/editor_undo_redo_manager.cpp:298` |
-| 同名、合并方式为 `MERGE_ALL` 的动作并入前一个动作，保留其原有的操作 | `core/object/undo_redo.cpp:95, 114-115` |
+| 同名、合并方式为 `MERGE_ALL` 的动作并入前一个动作，保留其原有的操作 | `core/object/undo_redo.cpp:97, 116-117` |
 | Web 导出开启 Extensions Support 时使用带动态链接的模板；跨域隔离响应头只在开启线程支持时需要 | `platform/web/export/export_plugin.cpp:374`；`platform/web/export/export_plugin.h:59-73`；`platform/web/doc_classes/EditorExportPlatformWeb.xml:93-95` |
-| 导出插件的钩子都不能使导出失败 | `editor/export/editor_export_platform.cpp:2529-2537`；`editor/export/editor_export_plugin.h:132-134` |
-| 导出插件报告的错误只让导出窗口显示失败；命令行导出只在导出函数返回错误时以非零退出码结束 | `editor/export/editor_export_platform.cpp:131, 146-148`；`editor/editor_node.cpp:1465-1481` |
-| GDScript 通过 Script 的反射接口为其他语言的全局类定型 | `modules/gdscript/gdscript_analyzer.cpp:804-819, 4329-4370, 6054-6063` |
-| GDScript 解析 `extends 全局类名` 时把基类文件当作 GDScript 解析，失败时只报“Could not resolve super class” | `modules/gdscript/gdscript_analyzer.cpp:471-487`（报错在 `:479, 485`）；`modules/gdscript/gdscript_cache.cpp:84-93` |
-| GDScript 要求具体子类实现抽象方法，禁止构造抽象类和经 `super` 调用抽象方法 | `modules/gdscript/gdscript_analyzer.cpp:1543-1562, 3674-3687` |
-| GDScript 的覆盖检查允许返回类型协变、参数类型逆变，以及多出带默认值的参数 | `modules/gdscript/gdscript_analyzer.cpp:1892-1933` |
-| GDScript 的静态检查要求带类型的 Array、Dictionary 的元素类型完全相同 | `modules/gdscript/gdscript_analyzer.cpp:6428-6442` |
-| GDScript 的剩余参数只能是元素为 Variant 的 Array | `modules/gdscript/gdscript_analyzer.cpp:1802-1809` |
-| GDScript 从其他语言的方法信息中读取 `METHOD_FLAG_VARARG` | `modules/gdscript/gdscript_analyzer.cpp:6101-6104` |
-| GDScript 把 `new` 当作静态的 `_init` 检查；`new` 由 GDScript 自己绑定，Script 基类没有 | `modules/gdscript/gdscript_analyzer.cpp:6007-6010`；`modules/gdscript/gdscript.cpp:1099` |
-| 对象没有脚本实例时，`callp` 只查找引擎注册的方法，所以 Script 资源上的静态方法找不到 | `core/object/object.cpp:882-905` |
-| GDScript 不能在类型标注中引用其他语言的类中的类型 | `modules/gdscript/gdscript_analyzer.cpp:950-952` |
-| GDScript 不把其他语言的类的常量当作常量表达式 | `modules/gdscript/gdscript_analyzer.cpp:4372-4381` |
-| GDScript 只为 GDScript 写的 autoload 定型 | `modules/gdscript/gdscript_analyzer.cpp:821-841, 4637-4674` |
-| GDScript 中以调用函数的写法调用 Callable 变量是编译错误，提示改用 `.call()` | `modules/gdscript/gdscript_analyzer.cpp:3785-3789` |
-| GDScript 中不加 await 把协程调用当值使用是编译错误，作为语句时只是警告 | `modules/gdscript/gdscript_analyzer.cpp:3820-3828` |
-| GDScript 中 `?` 是语法错误 | `modules/gdscript/gdscript_parser.cpp:3834-3835` |
-| GDScript 的前缀 `!` 是逻辑非 | `modules/gdscript/gdscript_parser.cpp:2965-2967` |
-| GDScript 中内部类名、`class_name` 的名字、enum 名和函数名之后不能接 `[` | `modules/gdscript/gdscript_parser.cpp:964, 1005-1010, 1616, 1822` |
-| 抽象方法的声明不写冒号 | `modules/gdscript/gdscript_parser.cpp:1790-1791` |
-| `@abstract` 注解，不能用于 static 方法 | `modules/gdscript/gdscript_parser.cpp:4492-4516` |
-| 剩余参数只能是最后一个参数，不能有默认值 | `modules/gdscript/gdscript_parser.cpp:1723-1730` |
-| GDScript 的表达式中不能出现 `...` | `modules/gdscript/gdscript_parser.cpp:4336` |
-| GDScript 的类型只能以标识符或 `void` 开头 | `modules/gdscript/gdscript_parser.cpp:3849-3861` |
-| GDScript 的 lambda 含 await 时即为协程，不加标记 | `modules/gdscript/gdscript_parser.cpp:3223-3225, 3726-3727` |
-| match 的模式 | `modules/gdscript/gdscript_parser.cpp:2499-2723` |
-| `as` 转为对象类型失败时得到 null | `modules/gdscript/gdscript_vm.cpp:1665-1666` |
-| GDScript 对已释放的对象做 `is` 时报错并中止，release 构建也一样；做 `as` 时只在 debug 构建中报错 | `modules/gdscript/gdscript_vm.cpp:905-912, 1653-1657` |
-| `as` 转为内置类型时按构造函数转换，转换失败只在 debug 构建中报错 | `modules/gdscript/gdscript_vm.cpp:1630-1638` |
-| GDScript 在运行时遇到运算表中没有的组合时报错；运算数类型与首次执行时不同的情况只在 debug 构建中检查，release 构建得到 null | `modules/gdscript/gdscript_vm.cpp:756-761, 784-806` |
-| `for` 可以遍历 float 和向量 | `modules/gdscript/gdscript_vm.cpp:3093-3230` |
-| GDScript 的 `assert` 失败时报“Assertion failed” | `modules/gdscript/gdscript_vm.cpp:3869-3895` |
-| GDScript 的 await 接受任意 Signal 值 | `modules/gdscript/gdscript_vm.cpp:2585-2599` |
-| GDScript 对返回类型既不是协程、也不是 Variant 或 Signal 的调用的 await 给出“多余的 await”警告 | `modules/gdscript/gdscript_analyzer.cpp:3136-3141` |
-| await 的结果不经检查写入按被等待者返回类型定型的临时变量 | `modules/gdscript/gdscript_vm.cpp:2668-2669`；`modules/gdscript/gdscript_byte_codegen.cpp:998-1001` |
-| Variant 赋给有类型的变量时，只在 debug 构建中检查类型 | `modules/gdscript/gdscript_vm.cpp:1421-1432` |
-| 挂起的 GDScript 函数状态不复制 self，只以裸指针指向实例 | `modules/gdscript/gdscript_vm.cpp:2608-2624` |
-| GDScript 出错后，debug 构建按返回类型构造默认值返回，release 构建返回 null | `modules/gdscript/gdscript_vm.cpp:3956-3980`（debug）；`:496, 3982`（release） |
-| GDScript 的 `assert` 只在 debug 构建中编译 | `modules/gdscript/gdscript_compiler.cpp:2182-2208` |
-| GDScript 的链式赋值沿链读出、修改，再把值类型写回，共享类型原地修改 | `modules/gdscript/gdscript_compiler.cpp:1176-1194` |
-| 成员的初始化式不经过 setter | `modules/gdscript/gdscript_compiler.cpp:2435-2451, 2620-2643` |
-| 静态成员初始化之后调用 `_static_init` | `modules/gdscript/gdscript_compiler.cpp:2646-2649` |
-| 引擎不实例化抽象的 GDScript 脚本 | `modules/gdscript/gdscript.cpp:265-270` |
-| `@onready` 初始化式在用户的 `_ready` 之前执行，先基类后派生类 | `modules/gdscript/gdscript.cpp:1956-1972` |
-| GDScript 实例释放时清除其挂起的函数状态，不恢复执行 | `modules/gdscript/gdscript.cpp:2089-2092` |
-| `GDScriptFunctionState` 有 `completed` 信号 | `modules/gdscript/gdscript_function.cpp:327` |
-| GDScript 协程再次挂起时，内层状态只以 ObjectID 记住第一个状态的 `completed` 信号 | `modules/gdscript/gdscript_vm.cpp:2633-2638` |
-| GDScript 函数状态恢复执行时离开实例的待处理列表 | `modules/gdscript/gdscript_function.cpp:289-290` |
-| `GDScriptFunctionState` 是内部类，不暴露它所属的实例 | `modules/gdscript/gdscript_function.cpp:324-328`；`modules/gdscript/register_types.cpp:141` |
-| GDScript 脚本重载时清除挂起的函数，不发出信号 | `modules/gdscript/gdscript.cpp:1522-1535`；`modules/gdscript/gdscript_compiler.cpp:2721` |
-| await 多参数信号得到由实参组成的 Array | `modules/gdscript/gdscript_function.cpp:237-255` |
-| 被等待的对象被释放后，GDScript 的等待方永远挂起 | `modules/gdscript/gdscript_function.cpp:335-349` |
+| 导出插件的钩子都不能使导出失败 | `editor/export/editor_export_platform.cpp:2568-2576`；`editor/export/editor_export_plugin.h:120-122` |
+| 导出插件报告的错误只让导出窗口显示失败；命令行导出只在导出函数返回错误时以非零退出码结束 | `editor/export/editor_export_platform.cpp:131, 146-148`；`editor/editor_node.cpp:1408-1424` |
+| GDScript 通过 Script 的反射接口为其他语言的全局类定型 | `modules/gdscript/gdscript_analyzer.cpp:789-804, 4278-4319, 6005-6014` |
+| GDScript 解析 `extends 全局类名` 时把基类文件当作 GDScript 解析，失败时只报“Could not resolve super class” | `modules/gdscript/gdscript_analyzer.cpp:469-485`（报错在 `:477, 483`）；`modules/gdscript/gdscript_cache.cpp:83-92` |
+| GDScript 要求具体子类实现抽象方法，禁止构造抽象类和经 `super` 调用抽象方法 | `modules/gdscript/gdscript_analyzer.cpp:1533-1552, 3630-3643` |
+| GDScript 的覆盖检查允许返回类型协变、参数类型逆变，以及多出带默认值的参数 | `modules/gdscript/gdscript_analyzer.cpp:1895-1936` |
+| GDScript 的静态检查要求带类型的 Array、Dictionary 的元素类型完全相同 | `modules/gdscript/gdscript_analyzer.cpp:6379-6393` |
+| GDScript 的剩余参数只能是元素为 Variant 的 Array | `modules/gdscript/gdscript_analyzer.cpp:1803-1810` |
+| GDScript 从其他语言的方法信息中读取 `METHOD_FLAG_VARARG` | `modules/gdscript/gdscript_analyzer.cpp:6052-6055` |
+| GDScript 把 `new` 当作静态的 `_init` 检查；`new` 由 GDScript 自己绑定，Script 基类没有 | `modules/gdscript/gdscript_analyzer.cpp:5958-5961`；`modules/gdscript/gdscript.cpp:1078` |
+| 对象没有脚本实例时，`callp` 只查找引擎注册的方法，所以 Script 资源上的静态方法找不到 | `core/object/object.cpp:800-826` |
+| GDScript 不能在类型标注中引用其他语言的类中的类型 | `modules/gdscript/gdscript_analyzer.cpp:935-937` |
+| GDScript 不把其他语言的类的常量当作常量表达式 | `modules/gdscript/gdscript_analyzer.cpp:4321-4330` |
+| GDScript 只为 GDScript 写的 autoload 定型 | `modules/gdscript/gdscript_analyzer.cpp:806-826, 4579-4616` |
+| GDScript 中以调用函数的写法调用 Callable 变量是编译错误，提示改用 `.call()` | `modules/gdscript/gdscript_analyzer.cpp:3741-3745` |
+| GDScript 中不加 await 把协程调用当值使用是编译错误，作为语句时只是警告 | `modules/gdscript/gdscript_analyzer.cpp:3776-3784` |
+| GDScript 中 `?` 是语法错误 | `modules/gdscript/gdscript_parser.cpp:3860-3861` |
+| GDScript 的前缀 `!` 是逻辑非 | `modules/gdscript/gdscript_parser.cpp:2963-2965` |
+| GDScript 中内部类名、`class_name` 的名字、enum 名和函数名之后不能接 `[` | `modules/gdscript/gdscript_parser.cpp:964, 1005-1010, 1602, 1805` |
+| 抽象方法的声明不写冒号 | `modules/gdscript/gdscript_parser.cpp:1773-1774` |
+| `@abstract` 注解，不能用于 static 方法 | `modules/gdscript/gdscript_parser.cpp:4500-4524` |
+| 剩余参数只能是最后一个参数，不能有默认值 | `modules/gdscript/gdscript_parser.cpp:1709-1716` |
+| GDScript 的表达式中不能出现 `...` | `modules/gdscript/gdscript_parser.cpp:4344` |
+| GDScript 的类型只能以标识符或 `void` 开头 | `modules/gdscript/gdscript_parser.cpp:3874-3886` |
+| GDScript 的 lambda 含 await 时即为协程，不加标记 | `modules/gdscript/gdscript_parser.cpp:3249-3251, 3752-3753` |
+| match 的模式 | `modules/gdscript/gdscript_parser.cpp:2487-2711` |
+| `as` 转为对象类型失败时得到 null | `modules/gdscript/gdscript_vm.cpp:1677-1678` |
+| GDScript 对已释放的对象做 `is` 时报错并中止，release 构建也一样；做 `as` 时只在 debug 构建中报错 | `modules/gdscript/gdscript_vm.cpp:942-947, 1665-1669` |
+| `as` 转为内置类型时按构造函数转换，转换失败只在 debug 构建中报错 | `modules/gdscript/gdscript_vm.cpp:1642-1650` |
+| GDScript 在运行时遇到运算表中没有的组合时报错；运算数类型与首次执行时不同的情况只在 debug 构建中检查，release 构建得到 null | `modules/gdscript/gdscript_vm.cpp:793-798, 821-843` |
+| `for` 可以遍历 float 和向量 | `modules/gdscript/gdscript_vm.cpp:3092-3229` |
+| GDScript 的 `assert` 失败时报“Assertion failed” | `modules/gdscript/gdscript_vm.cpp:3876-3902` |
+| GDScript 的 await 接受任意 Signal 值 | `modules/gdscript/gdscript_vm.cpp:2586-2600` |
+| GDScript 对返回类型既不是协程、也不是 Variant 或 Signal 的调用的 await 给出“多余的 await”警告 | `modules/gdscript/gdscript_analyzer.cpp:3102-3107` |
+| await 的结果不经检查写入按被等待者返回类型定型的临时变量 | `modules/gdscript/gdscript_vm.cpp:2667-2668`；`modules/gdscript/gdscript_byte_codegen.cpp:998-1001` |
+| Variant 赋给有类型的变量时，只在 debug 构建中检查类型 | `modules/gdscript/gdscript_vm.cpp:1433-1444` |
+| 挂起的 GDScript 函数状态不复制 self，只以裸指针指向实例 | `modules/gdscript/gdscript_vm.cpp:2609-2625` |
+| GDScript 出错后，debug 构建按返回类型构造默认值返回，release 构建返回 null | `modules/gdscript/gdscript_vm.cpp:3963-3993`（debug）；`:535, 3995`（release） |
+| GDScript 的 `assert` 只在 debug 构建中编译 | `modules/gdscript/gdscript_compiler.cpp:2181-2207` |
+| GDScript 的链式赋值沿链读出、修改，再把值类型写回，共享类型原地修改 | `modules/gdscript/gdscript_compiler.cpp:1172-1190` |
+| 成员的初始化式不经过 setter | `modules/gdscript/gdscript_compiler.cpp:2414-2430, 2603-2626` |
+| 静态成员初始化之后调用 `_static_init` | `modules/gdscript/gdscript_compiler.cpp:2629-2632` |
+| `@onready` 初始化式在用户的 `_ready` 之前执行，先基类后派生类 | `modules/gdscript/gdscript.cpp:1937-1953` |
+| GDScript 实例释放时清除其挂起的函数状态，不恢复执行 | `modules/gdscript/gdscript.cpp:2069-2079` |
+| `GDScriptFunctionState` 有 `completed` 信号 | `modules/gdscript/gdscript_function.cpp:369` |
+| GDScript 协程再次挂起时，内层状态只以 ObjectID 记住第一个状态的 `completed` 信号 | `modules/gdscript/gdscript_vm.cpp:2634-2639` |
+| GDScript 函数状态恢复执行时离开实例的待处理列表 | `modules/gdscript/gdscript_function.cpp:329-330` |
+| `GDScriptFunctionState` 是内部类，不暴露它所属的实例；`is_valid` 在恢复执行之后总是为假 | `modules/gdscript/gdscript_function.cpp:288-307, 337, 364-370`；`modules/gdscript/register_types.cpp:140` |
+| GDScript 脚本重载时清除挂起的函数，不发出信号 | `modules/gdscript/gdscript.cpp:1487-1506`；`modules/gdscript/gdscript_compiler.cpp:2700` |
+| await 多参数信号得到由实参组成的 Array | `modules/gdscript/gdscript_function.cpp:256-274` |
+| 被等待的对象被释放后，GDScript 的等待方永远挂起 | `modules/gdscript/gdscript.cpp:2069-2079` |
 | RefCounted 类中的 lambda 强引用 self | `modules/gdscript/gdscript_lambda_callable.cpp:285-291` |
-| GDScript 的 LSP 是编辑器插件 | `modules/gdscript/language_server/gdscript_language_server.h:35`；`modules/gdscript/register_types.cpp:170` |
-| GDScript 导出时至多把源码转为词法单元，加载时才解析和编译 | `modules/gdscript/register_types.cpp:100-117`；`modules/gdscript/gdscript_cache.cpp:369-375, 388` |
+| GDScript 的 LSP 是编辑器插件 | `modules/gdscript/language_server/gdscript_language_server.h:35`；`modules/gdscript/register_types.cpp:167` |
+| GDScript 导出时至多把源码转为词法单元，加载时才解析和编译 | `modules/gdscript/register_types.cpp:99-116`；`modules/gdscript/gdscript_cache.cpp:373-379, 392` |
 
 ## 附录 B：考虑过但没有采用的方案（非规范性）
 

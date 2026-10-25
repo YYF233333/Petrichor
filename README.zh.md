@@ -2,7 +2,7 @@
 
 一门面向中大型 Godot 4 项目的全静态类型脚本语言，在项目代码中替代 GDScript 并与 GDScript 插件共存，以 GDExtension 的形式交付。Petrichor 是项目代号。
 
-**状态：**设计阶段。[语言规范](docs/language-spec.zh.md)（v0.2）是发布出来征求意见的草案，目前还没有实现。引擎行为按 Godot master（4.8-beta）核对。
+**状态：**设计阶段。[语言规范](docs/language-spec.zh.md)（v0.2）是发布出来征求意见的草案，目前还没有实现。引擎行为按 Godot 4.7.2-stable 核对。
 
 English: [README.md](README.md)
 
