@@ -797,7 +797,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 - In engine APIs that the binding metadata (§10.3) has not audited, the nullability of an object type follows the direction of the value:
   - values the engine hands to this language may be null: return values of methods and properties read, typed `T?`;
-  - values the engine passes in when it calls this language are treated as non-null: parameters of overridden virtual methods and parameters of engine signals, typed T; a null is reported as a program error by the entry checks (§10.1);
+  - values the engine passes in when it calls this language are treated as non-null: parameters of overridden virtual methods and parameters of engine signals, typed T; a null is reported as a program error by the entry checks (§10.1); a handler can declare the parameter `T?` to accept null without waiting for an audit (§4.6);
   - values this language passes to the engine may be null: method arguments and properties written accept None, and whether a null is valid is up to the engine; for example `set_owner(null)` clears the owner (`scene/main/node.cpp:2273-2281`).
 - Audits start with the most frequently called APIs. For return values they have three outcomes:
   - non-null, typed T;
