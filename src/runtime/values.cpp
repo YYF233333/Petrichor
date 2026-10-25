@@ -174,13 +174,19 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 	if (!fits(p_type, have)) {
 		return false;
 	}
+	// The engine constructs into memory that holds no value
+	// (core/variant/variant_internal.h:1009-1012).
+	const TypeOps &type = ops(p_type);
+	if (type.destroy) {
+		type.destroy(p_slot);
+	}
 	if (have != variant_type(p_type)) {
 		// String to StringName or back: the engine's conversion.
 		const Variant converted = p_type == ValueType::String ? Variant(String(p_value)) : Variant(StringName(p_value));
-		ops(p_type).from_variant(p_slot, const_cast<GDExtensionVariantPtr>(converted._native_ptr()));
+		type.from_variant(p_slot, const_cast<GDExtensionVariantPtr>(converted._native_ptr()));
 		return true;
 	}
-	ops(p_type).from_variant(p_slot, const_cast<GDExtensionVariantPtr>(p_value._native_ptr()));
+	type.from_variant(p_slot, const_cast<GDExtensionVariantPtr>(p_value._native_ptr()));
 	return true;
 }
 

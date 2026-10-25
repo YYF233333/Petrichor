@@ -45,5 +45,15 @@ pub func same(a: Vector3, b: Vector3) -> bool:
 pub func node_name() -> StringName:
 	return name
 
+# Reads a StringName property into the same slots again and again, which must
+# release what they held (run.py looks for orphan StringNames at exit).
+pub func read_name(times: int) -> int:
+	var count := 0
+	var current: StringName = name
+	while count < times:
+		current = name
+		count += 1
+	return count
+
 pub func origin_x() -> float:
 	return transform.origin.x

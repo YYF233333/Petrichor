@@ -55,6 +55,8 @@ func _ready() -> void:
 	_check(v.seeded(42) == rng.randf_range(0.0, 1.0), "an object member made with new(), its property and its method")
 	_check(v.same(Vector3.ONE, Vector3.ONE) and not v.same(Vector3.ONE, Vector3.ZERO), "== of a built-in type")
 	_check(v.node_name() == v.name, "a StringName property")
+	v.name = &"petrichor_leak_probe"
+	_check(v.read_name(5) == 5, "a slot overwritten in a loop")
 	v.transform = Transform3D(Basis(), Vector3(7, 0, 0))
 	_check(v.origin_x() == 7.0, "a member of a member of a property")
 

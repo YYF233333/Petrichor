@@ -297,8 +297,10 @@ def main():
         expect_run("probes", code, output, ["probe: 0 failure(s)"])
 
     if wanted("language"):
-        code, output = run(godot, "--path", str(PROJECT), "res://language/language.tscn")
+        # Verbose, so that StringNames still referenced at exit are listed.
+        code, output = run(godot, "--verbose", "--path", str(PROJECT), "res://language/language.tscn")
         expect_run("language", code, output, ["language: 0 failure(s)"])
+        expect("language: no value leaks", "Orphan StringName: petrichor_leak_probe" not in output, output)
 
     if wanted("debugger"):
         run_debugger_groups(godot)

@@ -348,7 +348,7 @@ public:
 				}
 				case Op::NEW_OBJECT: {
 					const Variant object = ClassDBSingleton::get_singleton()->instantiate(image.classes[code[pc + 1]]);
-					if (object.get_type() != Variant::OBJECT) {
+					if (object.get_type() != Variant::OBJECT || !object.booleanize()) {
 						FAIL(vformat("Cannot construct %s.", image.classes[code[pc + 1]]));
 					}
 					variant_at(frame + code[pc + 2]) = object;

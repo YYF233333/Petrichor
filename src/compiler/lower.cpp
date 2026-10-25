@@ -318,7 +318,7 @@ class Lowerer {
 
 	uint32_t builtin_method(const bytecode::BuiltinMethodCall &p_call) {
 		return intern(module.builtin_methods, p_call, [](const auto &a, const auto &b) {
-			return a.base == b.base && a.method == b.method && a.result_type == b.result_type;
+			return a.base == b.base && a.method == b.method && a.hash == b.hash && a.params == b.params && a.result_type == b.result_type;
 		});
 	}
 
