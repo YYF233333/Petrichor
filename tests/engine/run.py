@@ -396,8 +396,18 @@ def run_export_groups(godot):
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         pack = tmp / "game.pck"
-        code, output = run(godot, "--path", str(PROJECT), "--export-pack", "Windows Desktop", str(pack))
-        expect_run("export", code, output)
+        # A script with errors is left out, not exported as source (spec §1.3).
+        broken = PROJECT / "broken_export_check.pet"
+        broken.write_text('extends Node\n\nfunc f() -> int:\n\treturn "not an int"\n', encoding="utf-8")
+        try:
+            code, output = run(godot, "--path", str(PROJECT), "--export-pack", "Windows Desktop", str(pack))
+        finally:
+            broken.unlink(missing_ok=True)
+            broken.with_name(broken.name + ".uid").unlink(missing_ok=True)
+        expected = ("broken_export_check.pet", "Cannot return a value of type String as int.")
+        unexpected = [line for line in output.splitlines() if "ERROR" in line and not any(part in line for part in expected)]
+        expect("export", code == 0 and not unexpected, output)
+        expect("export: a script with errors is left out", "broken_export_check.pet has errors and is left out of the export." in output, output)
 
         # A project directory with the extension but without sources.
         runner = tmp / "runner"

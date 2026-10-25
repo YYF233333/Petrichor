@@ -25,7 +25,12 @@ void PetExportPlugin::_export_file(const String &p_path, const String &p_type, c
 	const String source = FileAccess::get_file_as_string(p_path);
 	ERR_FAIL_COND_MSG(FileAccess::get_open_error() != OK, vformat("Cannot read %s for export.", p_path));
 	const std::shared_ptr<const ClassImage> image = compile_script(p_path, source, nullptr, true);
-	ERR_FAIL_COND_MSG(!image, vformat("%s has errors and is left out of the export.", p_path));
+	if (!image) {
+		// Without skip(), the engine would export the source as it is; exported
+		// games contain only bytecode (spec §1.3).
+		skip();
+		ERR_FAIL_MSG(vformat("%s has errors and is left out of the export.", p_path));
+	}
 
 	const std::vector<uint8_t> data = bytecode::serialize(image->module);
 	PackedByteArray bytes;
