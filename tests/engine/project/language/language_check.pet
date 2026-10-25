@@ -29,6 +29,19 @@ pub func sum_odd_to(n: int) -> int:
 		total += i
 	return total
 
+# The loop counts on whatever the body does to i or n (spec §5.7).
+pub func count_to(n: int) -> int:
+	var seen := 0
+	for i in n:
+		if i == 2:
+			continue
+		if i == 5:
+			break
+		i += 100
+		n -= 1
+		seen += 1
+	return seen
+
 pub func describe(n: int) -> String:
 	if n < 0:
 		return "negative"

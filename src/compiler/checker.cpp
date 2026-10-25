@@ -915,6 +915,36 @@ class Checker {
 		}
 	}
 
+	// `for i in n` (spec §5.7).
+	void check_for(Stmt &r_stmt) {
+		const Type iterated = check_value(*r_stmt.value);
+		Type element = Type::of(TypeKind::Error);
+		const std::string &name = iterated.name;
+		if (iterated.kind == TypeKind::Int) {
+			element = iterated;
+		} else if (iterated.kind == TypeKind::Float || (iterated.kind == TypeKind::Builtin && (name == "Vector2" || name == "Vector2i" || name == "Vector3" || name == "Vector3i"))) {
+			error(r_stmt.value->line, r_stmt.value->column, "Cannot iterate over " + iterated.to_string() + "; iterate over range(...) instead.");
+		} else if (!iterated.is_error()) {
+			error(r_stmt.value->line, r_stmt.value->column, "Iterating over " + iterated.to_string() + " is not supported yet.");
+		}
+		Type type = element;
+		if (r_stmt.declared_type) {
+			const Type declared = resolve(*r_stmt.declared_type, false);
+			// The elements' type or a class they extend, without conversions.
+			const bool fits = declared == element || (declared.kind == TypeKind::Object && element.kind == TypeKind::Object && assignable(element, declared));
+			if (!declared.is_error() && !element.is_error() && !fits) {
+				error(r_stmt.declared_type->line, r_stmt.declared_type->column, "The elements are " + element.to_string() + ", which the loop variable of type " + declared.to_string() + " cannot hold.");
+			}
+			type = declared;
+		}
+		scopes.emplace_back();
+		declare_local(r_stmt, type);
+		loop_depth++;
+		check_block(r_stmt.body);
+		loop_depth--;
+		scopes.pop_back();
+	}
+
 	void check_stmt(Stmt &r_stmt) {
 		switch (r_stmt.kind) {
 			case StmtKind::Var: {
@@ -967,6 +997,9 @@ class Checker {
 				loop_depth++;
 				check_block(r_stmt.body);
 				loop_depth--;
+				return;
+			case StmtKind::For:
+				check_for(r_stmt);
 				return;
 			case StmtKind::Return: {
 				const Type expected = function->return_type;

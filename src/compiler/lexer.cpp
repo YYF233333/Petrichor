@@ -42,10 +42,14 @@ const char *token_name(TokenKind p_kind) {
 			return "\"extends\"";
 		case TokenKind::False:
 			return "\"false\"";
+		case TokenKind::For:
+			return "\"for\"";
 		case TokenKind::Func:
 			return "\"func\"";
 		case TokenKind::If:
 			return "\"if\"";
+		case TokenKind::In:
+			return "\"in\"";
 		case TokenKind::Not:
 			return "\"not\"";
 		case TokenKind::Or:
@@ -132,8 +136,10 @@ const std::unordered_map<std::string, TokenKind> &keywords() {
 		{ "else", TokenKind::Else },
 		{ "extends", TokenKind::Extends },
 		{ "false", TokenKind::False },
+		{ "for", TokenKind::For },
 		{ "func", TokenKind::Func },
 		{ "if", TokenKind::If },
+		{ "in", TokenKind::In },
 		{ "not", TokenKind::Not },
 		{ "or", TokenKind::Or },
 		{ "pass", TokenKind::Pass },

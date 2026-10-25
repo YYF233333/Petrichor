@@ -838,6 +838,38 @@ class Lowerer {
 				current = end_block;
 				return;
 			}
+			case StmtKind::For: {
+				// Counts from 0 up to the value as it was on entry; the loop
+				// variable gets the count afresh on each iteration.
+				const uint32_t limit = temp(ValueType::Int);
+				move(limit, lower_expr(*p_stmt.value));
+				const uint32_t counter = temp(ValueType::Int);
+				instr(Op::CONST_INT, counter, NO_REG, NO_REG, add_constant(bytecode::Constant{ ValueType::Int }));
+				const uint32_t condition_block = new_block();
+				const uint32_t body_block = new_block();
+				const uint32_t step_block = new_block();
+				const uint32_t end_block = new_block();
+				jump(condition_block);
+				current = condition_block;
+				const uint32_t more = temp(ValueType::Bool);
+				instr(Op::LT_INT, more, counter, limit);
+				branch(more, body_block, end_block);
+				current = body_block;
+				move(uint32_t(p_stmt.local), counter);
+				loops.push_back({ step_block, end_block });
+				lower_block(p_stmt.body);
+				loops.pop_back();
+				jump(step_block);
+				current = step_block;
+				bytecode::Constant one{ ValueType::Int };
+				one.i = 1;
+				const uint32_t step = temp(ValueType::Int);
+				instr(Op::CONST_INT, step, NO_REG, NO_REG, add_constant(one));
+				instr(Op::ADD_INT, counter, counter, step);
+				jump(condition_block);
+				current = end_block;
+				return;
+			}
 			case StmtKind::Return: {
 				if (terminated()) {
 					current = new_block();

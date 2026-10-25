@@ -97,6 +97,17 @@ TEST_CASE("names") {
 	CHECK(has_error("extends Missing\n", "Unknown base class"));
 }
 
+// Spec §5.7.
+TEST_CASE("for loops") {
+	CHECK(errors_of(in_function("var total := 0\nfor i in 3:\n\ttotal += i\n\tif i == 1:\n\t\tbreak")).empty());
+	CHECK(errors_of(in_function("for i: int in 3:\n\tpass")).empty());
+	CHECK(has_error(in_function("for i: float in 3:\n\tpass"), "The elements are int, which the loop variable of type float cannot hold."));
+	CHECK(has_error(in_function("for i in 3:\n\tpass\nvar j := i"), "\"i\" is not declared"));
+	CHECK(has_error(in_function("for x in 2.5:\n\tpass"), "iterate over range(...) instead"));
+	CHECK(has_error(in_function("for x in Vector2(2, 3):\n\tpass"), "iterate over range(...) instead"));
+	CHECK(has_error(in_function("for x in true:\n\tpass"), "Iterating over bool is not supported yet."));
+}
+
 TEST_CASE("engine calls") {
 	CHECK(errors_of(in_function("set_process(false)\nvar n: int = get_child_count(true)")).empty());
 	CHECK(has_error(in_function("set_process(1)"), "Cannot pass a value of type int as bool"));

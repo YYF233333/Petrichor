@@ -406,6 +406,28 @@ class Parser {
 				stmt->body = block();
 				return stmt;
 			}
+			case TokenKind::For: {
+				advance();
+				auto stmt = make_stmt(StmtKind::For, token);
+				const Token &name = expect(TokenKind::Identifier, "a variable name");
+				stmt->name = name.text;
+				stmt->line = name.line;
+				stmt->column = name.column;
+				if (match(TokenKind::Colon)) {
+					stmt->declared_type = type_ref();
+				}
+				expect(TokenKind::In, "\"in\"");
+				if (failed) {
+					return nullptr;
+				}
+				stmt->value = expression();
+				expect(TokenKind::Colon, "\":\"");
+				if (failed) {
+					return nullptr;
+				}
+				stmt->body = block();
+				return stmt;
+			}
 			case TokenKind::Return: {
 				advance();
 				auto stmt = make_stmt(StmtKind::Return, token);

@@ -87,6 +87,7 @@ enum class StmtKind {
 	Assign,
 	If,
 	While,
+	For, // `for name in value:`, optionally `for name: Type in value:`.
 	Return,
 	Pass,
 	Break,
@@ -99,20 +100,20 @@ struct Stmt {
 	int line = 0;
 	int column = 0;
 
-	// Var.
+	// Var and For: the declared variable.
 	std::string name;
 	std::optional<TypeRef> declared_type;
 	// Assign: `=` or a compound operator such as `+=`.
 	TokenKind assign_op = TokenKind::Equal;
 
 	std::unique_ptr<Expr> target;
-	std::unique_ptr<Expr> value; // Initializer, assigned value, returned value, or expression.
+	std::unique_ptr<Expr> value; // Initializer, assigned value, returned value, iterated value, or expression.
 	std::unique_ptr<Expr> condition;
 	std::vector<std::unique_ptr<Stmt>> body;
 	std::vector<std::unique_ptr<Stmt>> else_body; // `elif` becomes a nested `if` here.
 
 	// Filled by the checker.
-	int local = -1; // Var: the declared local.
+	int local = -1; // Var and For: the declared local.
 	Type compound_result; // Assign with a compound operator: the type of `target op value`.
 };
 
