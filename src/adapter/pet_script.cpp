@@ -89,6 +89,9 @@ TypedArray<Dictionary> visible_methods(const ClassImage &p_image) {
 }
 
 Variant initial_value(const ClassImage &p_image, const bytecode::Member &p_member) {
+	if (!p_member.has_initial) {
+		return default_variant(p_member.type);
+	}
 	const bytecode::Constant &initial = p_member.initial;
 	switch (p_member.type) {
 		case ValueType::Bool:
@@ -99,7 +102,7 @@ Variant initial_value(const ClassImage &p_image, const bytecode::Member &p_membe
 			return initial.f;
 		case ValueType::String:
 			return String::utf8(initial.s.c_str(), int64_t(initial.s.size()));
-		case ValueType::Void:
+		default:
 			break;
 	}
 	return Variant();

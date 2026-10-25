@@ -12,12 +12,11 @@ using namespace godot;
 
 namespace petrichor {
 
+using bytecode::NO_SLOT;
 using bytecode::Op;
 using bytecode::ValueType;
 
 namespace {
-
-constexpr uint32_t NO_SLOT = 0xFFFFFFFF;
 
 thread_local std::vector<StackFrame> call_stack;
 
@@ -279,22 +278,23 @@ public:
 				case Op::JUMP_IF_TRUE:
 					pc = U64(code[pc + 1]) ? code[pc + 2] : pc + 3;
 					break;
+				// Calls: target, dst, base, argc, then (type, offset) per argument.
 				case Op::CALL: {
 					const uint32_t target = code[pc + 1];
 					const uint32_t dst = code[pc + 2];
-					const uint32_t argc = code[pc + 3];
+					const uint32_t argc = code[pc + 4];
 					const bytecode::Function &callee = image.module.functions[target];
 					FrameMemory callee_frame(callee.frame_size);
 					construct_slots(callee_frame.data, callee.frame_size, callee.slots);
 					for (uint32_t i = 0; i < argc; i++) {
-						copy_value(callee.params[i].type, callee_frame.data + callee.params[i].offset, frame + code[pc + 5 + 2 * i]);
+						copy_value(callee.params[i].type, callee_frame.data + callee.params[i].offset, frame + code[pc + 6 + 2 * i]);
 					}
 					const bool ok = run(target, callee_frame.data, dst == NO_SLOT ? nullptr : frame + dst);
 					destroy_slots(callee_frame.data, callee.slots);
 					if (!ok) {
 						return false;
 					}
-					pc += 4 + 2 * argc;
+					pc += 5 + 2 * argc;
 					break;
 				}
 				case Op::CALL_ENGINE:
@@ -302,11 +302,11 @@ public:
 					const bool engine = Op(code[pc]) == Op::CALL_ENGINE;
 					const uint32_t target = code[pc + 1];
 					const uint32_t dst = code[pc + 2];
-					const uint32_t argc = code[pc + 3];
+					const uint32_t argc = code[pc + 4];
 					std::vector<Variant> args(argc);
 					std::vector<const Variant *> arg_pointers(argc);
 					for (uint32_t i = 0; i < argc; i++) {
-						args[i] = to_variant(ValueType(code[pc + 4 + 2 * i]), frame + code[pc + 5 + 2 * i]);
+						args[i] = to_variant(ValueType(code[pc + 5 + 2 * i]), frame + code[pc + 6 + 2 * i]);
 						arg_pointers[i] = &args[i];
 					}
 					if (engine) {
@@ -324,7 +324,8 @@ public:
 						}
 					} else {
 						call_utility(image.utilities[target], arg_pointers.data(), GDExtensionInt(argc));
-					}					pc += 4 + 2 * argc;
+					}
+					pc += 5 + 2 * argc;
 					break;
 				}
 				case Op::RETURN:

@@ -147,7 +147,12 @@ class Lowerer {
 				return i;
 			}
 		}
-		module.utility_calls.push_back({ p_function, p_return });
+		bytecode::UtilityCall call;
+		call.function = p_function;
+		call.is_vararg = true; // The print family, the only utilities so far.
+		call.return_type = p_return;
+		call.result_type = p_return;
+		module.utility_calls.push_back(call);
 		return uint32_t(module.utility_calls.size() - 1);
 	}
 
@@ -177,7 +182,7 @@ class Lowerer {
 			case ValueType::String:
 				instr(Op::CONST_STRING, p_dst, NO_REG, NO_REG, add_constant(bytecode::Constant{ ValueType::String }));
 				break;
-			case ValueType::Void:
+			default:
 				break;
 		}
 		return p_dst;
@@ -489,6 +494,7 @@ public:
 			member.offset = uint32_t(i * 8);
 			member.is_pub = decl.is_pub;
 			member.is_export = decl.is_export;
+			member.has_initial = decl.initializer != nullptr;
 			member.initial = decl.initializer ? constant_of(*decl.initializer, decl.type) : bytecode::Constant{ member.type };
 			module.members.push_back(member);
 		}

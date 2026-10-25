@@ -8,41 +8,94 @@ namespace petrichor::bytecode {
 
 // The compiled form of one source file: the contract between the compiler and
 // the runtime. It only needs to be readable by the same build that wrote it.
-constexpr uint32_t FORMAT_VERSION = 1;
+constexpr uint32_t FORMAT_VERSION = 2;
 
-// How a value is stored in a frame or an instance. Every slot is 8-byte
-// aligned; Bool, Int and Float take 8 bytes, String is the engine's String.
+// How a value is stored in a frame or an instance. Up to Variant the numbers
+// are the engine's Variant::Type, so the runtime can hand them to the engine's
+// functions for each type; values are stored in the engine's own layout, except
+// Bool, which takes 8 bytes like Int and Float, and Object, which is held in a
+// Variant for now (architecture §2.2 plans an object ID and a pointer). Variant
+// is a slot that holds any engine value.
 enum class ValueType : uint8_t {
 	Void,
 	Bool,
 	Int,
 	Float,
 	String,
+	Vector2,
+	Vector2i,
+	Rect2,
+	Rect2i,
+	Vector3,
+	Vector3i,
+	Transform2D,
+	Vector4,
+	Vector4i,
+	Plane,
+	Quaternion,
+	AABB,
+	Basis,
+	Transform3D,
+	Projection,
+	Color,
+	StringName,
+	NodePath,
+	RID,
+	Object,
+	Callable,
+	Signal,
+	Dictionary,
+	Array,
+	PackedByteArray,
+	PackedInt32Array,
+	PackedInt64Array,
+	PackedFloat32Array,
+	PackedFloat64Array,
+	PackedStringArray,
+	PackedVector2Array,
+	PackedVector3Array,
+	PackedColorArray,
+	PackedVector4Array,
+	Variant,
+	Count,
 };
 
+// The bytes a slot of the type takes in a frame or an instance, for 64-bit
+// targets with single-precision `real_t` (the engine's float_64 sizes). Slots
+// are 8-byte aligned.
 uint32_t value_size(ValueType p_type);
+uint32_t slot_size(ValueType p_type);
 const char *value_type_name(ValueType p_type);
+// ValueType::Count when the name is not a value type.
+ValueType value_type_from_name(const std::string &p_name);
 
 struct Constant {
 	ValueType type = ValueType::Void;
 	bool b = false;
 	int64_t i = 0;
 	double f = 0.0;
-	std::string s;
+	std::string s;       // String, StringName and NodePath values.
+	std::string builtin; // A constant of a built-in type, such as "UP" of Vector3.
 };
 
 struct Slot {
 	std::string name; // Empty for temporaries.
 	ValueType type = ValueType::Void;
 	uint32_t offset = 0;
+	std::string class_name; // Object: the class its values have.
+	bool nullable = false;  // Object: the value may be None.
 };
 
 struct Member {
 	std::string name;
 	ValueType type = ValueType::Void;
 	uint32_t offset = 0;
+	std::string class_name;
+	bool nullable = false;
 	bool is_pub = false;
 	bool is_export = false;
+	// A literal initial value; other initializers run in the module's init function.
+	bool has_initial = false;
 	Constant initial;
 };
 
@@ -50,6 +103,7 @@ struct Function {
 	std::string name;
 	std::vector<Slot> params;
 	ValueType return_type = ValueType::Void;
+	std::string return_class;
 	bool is_pub = false;
 	bool is_override = false; // Overrides an engine virtual method.
 	uint32_t line = 0;
@@ -58,16 +112,60 @@ struct Function {
 	std::vector<uint32_t> code;
 };
 
-// A method of the engine called on self.
+// A method of an engine class, called by name.
 struct EngineCall {
 	std::string method;
 	ValueType return_type = ValueType::Void;
 };
 
-// A global utility function of the engine, such as print.
+// A property of an engine object, read and written by name.
+struct PropertyAccess {
+	std::string name;
+	ValueType type = ValueType::Void;
+};
+
+// A global utility function of the engine, such as print or lerp. Parameters
+// of type Variant, and extra arguments of a vararg function, are passed as
+// Variant; others in the slot's own layout.
 struct UtilityCall {
 	std::string function;
+	uint32_t hash = 0;
+	bool is_vararg = false;
+	std::vector<ValueType> params;
+	ValueType return_type = ValueType::Void; // As the engine declares it.
+	ValueType result_type = ValueType::Void; // The slot that receives it.
+};
+
+// An operator of the engine's table (spec §5.1), as Variant::Operator.
+struct OperatorCall {
+	uint8_t op = 0;
+	ValueType left = ValueType::Void;
+	ValueType right = ValueType::Void; // Void for a unary operator.
+	ValueType result = ValueType::Void;
+};
+
+// A member of a built-in type, such as x of Vector3.
+struct FieldAccess {
+	ValueType base = ValueType::Void;
+	std::string name;
+	ValueType type = ValueType::Void;
+};
+
+// A constructor of a built-in type, by its index in the engine's list.
+struct ConstructorCall {
+	ValueType type = ValueType::Void;
+	uint32_t index = 0;
+	std::vector<ValueType> params;
+};
+
+// A method of a built-in type, such as lerp of Vector3.
+struct BuiltinMethodCall {
+	ValueType base = ValueType::Void;
+	std::string method;
+	uint32_t hash = 0;
+	std::vector<ValueType> params;
 	ValueType return_type = ValueType::Void;
+	ValueType result_type = ValueType::Void;
 };
 
 struct Module {
@@ -77,9 +175,20 @@ struct Module {
 	std::vector<Member> members;
 	uint32_t instance_size = 0;
 	std::vector<Function> functions;
+	// Runs the member initializers that are not literals, before anything else
+	// on a new instance (spec §6.1); -1 when there are none. It is lowered
+	// first, so that its code, which hot reload compares as a declaration, does
+	// not change when only a function body does.
+	int32_t init_function = -1;
 	std::vector<Constant> constants;
 	std::vector<EngineCall> engine_calls;
+	std::vector<PropertyAccess> properties;
 	std::vector<UtilityCall> utility_calls;
+	std::vector<OperatorCall> operators;
+	std::vector<FieldAccess> fields;
+	std::vector<ConstructorCall> constructors;
+	std::vector<BuiltinMethodCall> builtin_methods;
+	std::vector<std::string> classes; // Engine classes constructed with new().
 
 	int find_function(const std::string &p_name) const;
 	int find_member(const std::string &p_name) const;
@@ -88,8 +197,18 @@ struct Module {
 uint64_t hash_source(const std::string &p_utf8);
 
 std::vector<uint8_t> serialize(const Module &p_module);
-// Returns false and sets r_error when the data is not a module of this format.
+// Returns false and sets r_error when the data is not a module of this format,
+// or does not pass verify().
 bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::string &r_error);
+
+// Checks that running the module cannot reach memory outside its frames and
+// its instances, whatever the bytes of a cache file say: instructions are
+// whole, jumps land on instructions, code cannot run past its end, operands
+// name slots of the types their instructions use, slots fit their frames
+// without overlapping, and table indices are in range. Signatures of engine
+// constructors are taken from the module's table; the engine itself checks
+// the hashes of methods and utility functions.
+bool verify(const Module &p_module, std::string &r_error);
 
 // A readable listing, for tests and debugging.
 std::string disassemble(const Module &p_module, const Function &p_function);

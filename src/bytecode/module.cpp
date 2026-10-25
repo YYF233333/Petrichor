@@ -25,25 +25,80 @@ const char *op_name(Op p_op) {
 	return uint32_t(p_op) < uint32_t(Op::COUNT) ? names[uint32_t(p_op)] : "?";
 }
 
+namespace {
+
+struct TypeInfo {
+	const char *name;
+	uint32_t size;
+};
+
+// In ValueType order. Sizes are the engine's float_64 builtin_class_sizes,
+// except Bool (8, like Int) and Object (held in a Variant).
+const TypeInfo TYPES[] = {
+	{ "void", 0 },
+	{ "bool", 8 },
+	{ "int", 8 },
+	{ "float", 8 },
+	{ "String", 8 },
+	{ "Vector2", 8 },
+	{ "Vector2i", 8 },
+	{ "Rect2", 16 },
+	{ "Rect2i", 16 },
+	{ "Vector3", 12 },
+	{ "Vector3i", 12 },
+	{ "Transform2D", 24 },
+	{ "Vector4", 16 },
+	{ "Vector4i", 16 },
+	{ "Plane", 16 },
+	{ "Quaternion", 16 },
+	{ "AABB", 24 },
+	{ "Basis", 36 },
+	{ "Transform3D", 48 },
+	{ "Projection", 64 },
+	{ "Color", 16 },
+	{ "StringName", 8 },
+	{ "NodePath", 8 },
+	{ "RID", 8 },
+	{ "Object", 24 },
+	{ "Callable", 16 },
+	{ "Signal", 16 },
+	{ "Dictionary", 8 },
+	{ "Array", 8 },
+	{ "PackedByteArray", 16 },
+	{ "PackedInt32Array", 16 },
+	{ "PackedInt64Array", 16 },
+	{ "PackedFloat32Array", 16 },
+	{ "PackedFloat64Array", 16 },
+	{ "PackedStringArray", 16 },
+	{ "PackedVector2Array", 16 },
+	{ "PackedVector3Array", 16 },
+	{ "PackedColorArray", 16 },
+	{ "PackedVector4Array", 16 },
+	{ "Variant", 24 },
+};
+static_assert(sizeof(TYPES) / sizeof(TYPES[0]) == size_t(ValueType::Count), "one entry per value type");
+
+} // namespace
+
 uint32_t value_size(ValueType p_type) {
-	// The engine's String is a single pointer; 8 bytes also covers 32-bit targets.
-	return p_type == ValueType::Void ? 0 : 8;
+	return p_type < ValueType::Count ? TYPES[uint32_t(p_type)].size : 0;
+}
+
+uint32_t slot_size(ValueType p_type) {
+	return (value_size(p_type) + 7) & ~7u;
 }
 
 const char *value_type_name(ValueType p_type) {
-	switch (p_type) {
-		case ValueType::Void:
-			return "void";
-		case ValueType::Bool:
-			return "bool";
-		case ValueType::Int:
-			return "int";
-		case ValueType::Float:
-			return "float";
-		case ValueType::String:
-			return "String";
+	return p_type < ValueType::Count ? TYPES[uint32_t(p_type)].name : "?";
+}
+
+ValueType value_type_from_name(const std::string &p_name) {
+	for (uint32_t i = 0; i < uint32_t(ValueType::Count); i++) {
+		if (p_name == TYPES[i].name) {
+			return ValueType(i);
+		}
 	}
-	return "?";
+	return ValueType::Count;
 }
 
 int Module::find_function(const std::string &p_name) const {
@@ -104,17 +159,27 @@ public:
 		u32(uint32_t(p_value.size()));
 		data.insert(data.end(), p_value.begin(), p_value.end());
 	}
+	void type(ValueType p_type) { u8(uint8_t(p_type)); }
+	void types(const std::vector<ValueType> &p_types) {
+		u32(uint32_t(p_types.size()));
+		for (ValueType value : p_types) {
+			type(value);
+		}
+	}
 	void constant(const Constant &p_value) {
-		u8(uint8_t(p_value.type));
+		type(p_value.type);
 		u8(p_value.b ? 1 : 0);
 		u64(uint64_t(p_value.i));
 		f64(p_value.f);
 		str(p_value.s);
+		str(p_value.builtin);
 	}
 	void slot(const Slot &p_slot) {
 		str(p_slot.name);
-		u8(uint8_t(p_slot.type));
+		type(p_slot.type);
 		u32(p_slot.offset);
+		str(p_slot.class_name);
+		u8(p_slot.nullable ? 1 : 0);
 	}
 };
 
@@ -186,10 +251,18 @@ public:
 	}
 	ValueType type() {
 		const uint8_t value = u8();
-		if (value > uint8_t(ValueType::String)) {
+		if (value >= uint8_t(ValueType::Count)) {
 			failed = true;
+			return ValueType::Void;
 		}
 		return ValueType(value);
+	}
+	std::vector<ValueType> types() {
+		std::vector<ValueType> value(count());
+		for (ValueType &item : value) {
+			item = type();
+		}
+		return value;
 	}
 	Constant constant() {
 		Constant value;
@@ -198,6 +271,7 @@ public:
 		value.i = int64_t(u64());
 		value.f = f64();
 		value.s = str();
+		value.builtin = str();
 		return value;
 	}
 	Slot slot() {
@@ -205,6 +279,8 @@ public:
 		value.name = str();
 		value.type = type();
 		value.offset = u32();
+		value.class_name = str();
+		value.nullable = u8() != 0;
 		return value;
 	}
 };
@@ -224,10 +300,13 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 	w.u32(uint32_t(p_module.members.size()));
 	for (const Member &member : p_module.members) {
 		w.str(member.name);
-		w.u8(uint8_t(member.type));
+		w.type(member.type);
 		w.u32(member.offset);
+		w.str(member.class_name);
+		w.u8(member.nullable ? 1 : 0);
 		w.u8(member.is_pub ? 1 : 0);
 		w.u8(member.is_export ? 1 : 0);
+		w.u8(member.has_initial ? 1 : 0);
 		w.constant(member.initial);
 	}
 	w.u32(p_module.instance_size);
@@ -239,7 +318,8 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		for (const Slot &param : function.params) {
 			w.slot(param);
 		}
-		w.u8(uint8_t(function.return_type));
+		w.type(function.return_type);
+		w.str(function.return_class);
 		w.u8(function.is_pub ? 1 : 0);
 		w.u8(function.is_override ? 1 : 0);
 		w.u32(function.line);
@@ -254,6 +334,8 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		}
 	}
 
+	w.u32(uint32_t(int32_t(p_module.init_function)));
+
 	w.u32(uint32_t(p_module.constants.size()));
 	for (const Constant &constant : p_module.constants) {
 		w.constant(constant);
@@ -261,12 +343,53 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 	w.u32(uint32_t(p_module.engine_calls.size()));
 	for (const EngineCall &call : p_module.engine_calls) {
 		w.str(call.method);
-		w.u8(uint8_t(call.return_type));
+		w.type(call.return_type);
+	}
+	w.u32(uint32_t(p_module.properties.size()));
+	for (const PropertyAccess &property : p_module.properties) {
+		w.str(property.name);
+		w.type(property.type);
 	}
 	w.u32(uint32_t(p_module.utility_calls.size()));
 	for (const UtilityCall &call : p_module.utility_calls) {
 		w.str(call.function);
-		w.u8(uint8_t(call.return_type));
+		w.u32(call.hash);
+		w.u8(call.is_vararg ? 1 : 0);
+		w.types(call.params);
+		w.type(call.return_type);
+		w.type(call.result_type);
+	}
+	w.u32(uint32_t(p_module.operators.size()));
+	for (const OperatorCall &call : p_module.operators) {
+		w.u8(call.op);
+		w.type(call.left);
+		w.type(call.right);
+		w.type(call.result);
+	}
+	w.u32(uint32_t(p_module.fields.size()));
+	for (const FieldAccess &field : p_module.fields) {
+		w.type(field.base);
+		w.str(field.name);
+		w.type(field.type);
+	}
+	w.u32(uint32_t(p_module.constructors.size()));
+	for (const ConstructorCall &call : p_module.constructors) {
+		w.type(call.type);
+		w.u32(call.index);
+		w.types(call.params);
+	}
+	w.u32(uint32_t(p_module.builtin_methods.size()));
+	for (const BuiltinMethodCall &call : p_module.builtin_methods) {
+		w.type(call.base);
+		w.str(call.method);
+		w.u32(call.hash);
+		w.types(call.params);
+		w.type(call.return_type);
+		w.type(call.result_type);
+	}
+	w.u32(uint32_t(p_module.classes.size()));
+	for (const std::string &name : p_module.classes) {
+		w.str(name);
 	}
 	return w.data;
 }
@@ -295,8 +418,11 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		member.name = r.str();
 		member.type = r.type();
 		member.offset = r.u32();
+		member.class_name = r.str();
+		member.nullable = r.u8() != 0;
 		member.is_pub = r.u8() != 0;
 		member.is_export = r.u8() != 0;
+		member.has_initial = r.u8() != 0;
 		member.initial = r.constant();
 	}
 	module.instance_size = r.u32();
@@ -309,6 +435,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 			param = r.slot();
 		}
 		function.return_type = r.type();
+		function.return_class = r.str();
 		function.is_pub = r.u8() != 0;
 		function.is_override = r.u8() != 0;
 		function.line = r.u32();
@@ -323,6 +450,11 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		}
 	}
 
+	module.init_function = int32_t(r.u32());
+	if (module.init_function < -1 || module.init_function >= int32_t(module.functions.size())) {
+		r.failed = true;
+	}
+
 	module.constants.resize(r.count());
 	for (Constant &constant : module.constants) {
 		constant = r.constant();
@@ -332,14 +464,60 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		call.method = r.str();
 		call.return_type = r.type();
 	}
+	module.properties.resize(r.count());
+	for (PropertyAccess &property : module.properties) {
+		property.name = r.str();
+		property.type = r.type();
+	}
 	module.utility_calls.resize(r.count());
 	for (UtilityCall &call : module.utility_calls) {
 		call.function = r.str();
+		call.hash = r.u32();
+		call.is_vararg = r.u8() != 0;
+		call.params = r.types();
 		call.return_type = r.type();
+		call.result_type = r.type();
+	}
+	module.operators.resize(r.count());
+	for (OperatorCall &call : module.operators) {
+		call.op = r.u8();
+		call.left = r.type();
+		call.right = r.type();
+		call.result = r.type();
+	}
+	module.fields.resize(r.count());
+	for (FieldAccess &field : module.fields) {
+		field.base = r.type();
+		field.name = r.str();
+		field.type = r.type();
+	}
+	module.constructors.resize(r.count());
+	for (ConstructorCall &call : module.constructors) {
+		call.type = r.type();
+		call.index = r.u32();
+		call.params = r.types();
+	}
+	module.builtin_methods.resize(r.count());
+	for (BuiltinMethodCall &call : module.builtin_methods) {
+		call.base = r.type();
+		call.method = r.str();
+		call.hash = r.u32();
+		call.params = r.types();
+		call.return_type = r.type();
+		call.result_type = r.type();
+	}
+	module.classes.resize(r.count());
+	for (std::string &name : module.classes) {
+		name = r.str();
 	}
 
 	if (r.failed) {
 		r_error = "truncated or corrupt compiled script";
+		return false;
+	}
+	std::string problem;
+	if (!verify(module, problem)) {
+		r_error = "invalid compiled script: " + problem;
 		return false;
 	}
 	r_module = std::move(module);
@@ -360,12 +538,12 @@ std::string disassemble(const Module &p_module, const Function &p_function) {
 			}
 			pc += 1 + count;
 		} else {
-			const uint32_t argc = code[pc + 3];
-			out << ' ' << code[pc + 1] << ' ' << code[pc + 2] << ' ' << argc;
+			const uint32_t argc = code[pc + 4];
+			out << ' ' << code[pc + 1] << ' ' << code[pc + 2] << ' ' << code[pc + 3] << ' ' << argc;
 			for (uint32_t i = 0; i < argc; i++) {
-				out << " (" << value_type_name(ValueType(code[pc + 4 + 2 * i])) << ' ' << code[pc + 5 + 2 * i] << ')';
+				out << " (" << value_type_name(ValueType(code[pc + 5 + 2 * i])) << ' ' << code[pc + 6 + 2 * i] << ')';
 			}
-			pc += 4 + 2 * argc;
+			pc += 5 + 2 * argc;
 		}
 		out << '\n';
 	}

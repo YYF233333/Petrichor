@@ -53,6 +53,7 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 			if (count < 0) {
 				code.push_back(instr.imm);
 				code.push_back(offset_of(instr.dst));
+				code.push_back(offset_of(instr.base));
 				code.push_back(uint32_t(instr.args.size()));
 				for (uint32_t arg : instr.args) {
 					code.push_back(uint32_t(p_function.regs[arg].type));

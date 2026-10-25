@@ -82,7 +82,7 @@ static bool same_constant(const bytecode::Constant &p_a, const bytecode::Constan
 }
 
 static bool same_slot(const bytecode::Slot &p_a, const bytecode::Slot &p_b) {
-	return p_a.name == p_b.name && p_a.type == p_b.type;
+	return p_a.name == p_b.name && p_a.type == p_b.type && p_a.class_name == p_b.class_name && p_a.nullable == p_b.nullable;
 }
 
 bool ClassImage::same_declarations(const ClassImage &p_other) const {
@@ -94,15 +94,23 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	for (size_t i = 0; i < a.members.size(); i++) {
 		const bytecode::Member &x = a.members[i];
 		const bytecode::Member &y = b.members[i];
-		if (x.name != y.name || x.type != y.type || x.offset != y.offset || x.is_pub != y.is_pub || x.is_export != y.is_export || !same_constant(x.initial, y.initial)) {
+		if (x.name != y.name || x.type != y.type || x.offset != y.offset || x.class_name != y.class_name || x.nullable != y.nullable ||
+				x.is_pub != y.is_pub || x.is_export != y.is_export || x.has_initial != y.has_initial || !same_constant(x.initial, y.initial)) {
 			return false;
 		}
 	}
+	// Non-literal initializers belong to the declarations, not to a body.
+	if ((a.init_function < 0) != (b.init_function < 0) || (a.init_function >= 0 && a.functions[a.init_function].code != b.functions[b.init_function].code)) {
+		return false;
+	}
 	// Signatures; the line, the frame and the code belong to the body.
 	for (size_t i = 0; i < a.functions.size(); i++) {
+		if (int32_t(i) == a.init_function) {
+			continue;
+		}
 		const bytecode::Function &x = a.functions[i];
 		const bytecode::Function &y = b.functions[i];
-		if (x.name != y.name || x.return_type != y.return_type || x.is_pub != y.is_pub || x.is_override != y.is_override || x.params.size() != y.params.size()) {
+		if (x.name != y.name || x.return_type != y.return_type || x.return_class != y.return_class || x.is_pub != y.is_pub || x.is_override != y.is_override || x.params.size() != y.params.size()) {
 			return false;
 		}
 		for (size_t p = 0; p < x.params.size(); p++) {
@@ -151,7 +159,7 @@ Variant to_variant(ValueType p_type, const uint8_t *p_slot) {
 			return *reinterpret_cast<const double *>(p_slot);
 		case ValueType::String:
 			return *reinterpret_cast<const String *>(p_slot);
-		case ValueType::Void:
+		default:
 			break;
 	}
 	return Variant();
@@ -187,6 +195,8 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot) {
 			return true;
 		case ValueType::Void:
 			return true;
+		default:
+			break;
 	}
 	return false;
 }
@@ -201,7 +211,7 @@ Variant default_variant(ValueType p_type) {
 			return 0.0;
 		case ValueType::String:
 			return String();
-		case ValueType::Void:
+		default:
 			break;
 	}
 	return Variant();
@@ -217,7 +227,7 @@ Variant::Type variant_type(ValueType p_type) {
 			return Variant::FLOAT;
 		case ValueType::String:
 			return Variant::STRING;
-		case ValueType::Void:
+		default:
 			break;
 	}
 	return Variant::NIL;

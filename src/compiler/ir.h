@@ -23,6 +23,7 @@ struct Instr {
 	// LINE: line. CONST_*: constant index or bool value. *_MEMBER_*: member
 	// index. CALL*: function, engine call or utility index.
 	uint32_t imm = 0;
+	uint32_t base = NO_REG; // CALL*: the value the method is called on.
 	std::vector<uint32_t> args;
 };
 
