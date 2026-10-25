@@ -142,7 +142,7 @@ public:
 	} else if (is_live_object(frame + (m_offset))) {                                 \
 		m_name = variant_at(frame + (m_offset));                                     \
 	} else {                                                                         \
-		FAIL(variant_at(frame + (m_offset)).get_type() == Variant::OBJECT ? String("The object was freed.") : String("The value is None.")); \
+		FAIL(is_none(variant_at(frame + (m_offset))) ? String("The value is None.") : String("The object was freed.")); \
 	}
 
 		size_t pc = 0;

@@ -140,13 +140,17 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 			variant_at(p_slot) = p_value;
 			return true;
 		case ValueType::Object:
-			if (have == Variant::NIL) {
+			if (is_none(p_value)) {
 				if (!p_nullable) {
 					return false;
 				}
-			} else if (have != Variant::OBJECT) {
+				variant_at(p_slot) = Variant(); // None in one form.
+				return true;
+			}
+			if (have != Variant::OBJECT) {
 				return false;
-			} else if (p_value.booleanize() && p_class != StringName()) {
+			}
+			if (p_value.booleanize() && p_class != StringName()) {
 				const Object *object = p_value;
 				if (!object || !object->is_class(p_class)) {
 					return false;
@@ -206,6 +210,12 @@ Variant::Type variant_type(ValueType p_type) {
 		return Variant::NIL;
 	}
 	return Variant::Type(uint32_t(p_type));
+}
+
+bool is_none(const Variant &p_value) {
+	// The engine passes a null Object* as an OBJECT Variant without an object
+	// (core/variant/variant.cpp:2507-2511), not as NIL.
+	return p_value.get_type() == Variant::NIL || (p_value.get_type() == Variant::OBJECT && p_value.operator ObjectID().is_null());
 }
 
 bool is_live_object(const uint8_t *p_slot) {

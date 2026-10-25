@@ -31,6 +31,9 @@ bool from_variant(bytecode::ValueType p_type, const godot::Variant &p_value, uin
 godot::Variant default_variant(bytecode::ValueType p_type);
 godot::Variant::Type variant_type(bytecode::ValueType p_type);
 
+// None: NIL, or an OBJECT Variant that has no object, as the engine makes from
+// a null pointer. A freed object is not None (spec §3.3).
+bool is_none(const godot::Variant &p_value);
 // An Object slot that holds a live object; freed objects read as None (spec §3.3).
 bool is_live_object(const uint8_t *p_slot);
 inline godot::Variant &variant_at(uint8_t *p_slot) {

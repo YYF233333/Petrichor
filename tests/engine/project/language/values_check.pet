@@ -62,3 +62,7 @@ pub func origin_x() -> float:
 pub func maybe(n: Node3D?) -> int:
 	var other: Node3D?
 	return 1
+
+# A T parameter refuses None (spec §10.1).
+pub func takes_node(n: Node3D) -> int:
+	return 1

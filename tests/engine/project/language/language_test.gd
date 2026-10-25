@@ -59,6 +59,12 @@ func _ready() -> void:
 	v.name = &"petrichor_leak_probe"
 	_check(v.read_name(5) == 5, "a slot overwritten in a loop")
 	_check(v.maybe(null) == 1 and v.maybe(v) == 1, "a T? parameter accepts null and an object")
+	# The engine returns a null object as an OBJECT Variant, not as null.
+	var no_node = get_node_or_null("missing")
+	Engine.print_error_messages = false
+	var refused = v.callv("takes_node", [no_node])
+	Engine.print_error_messages = true
+	_check(typeof(no_node) == TYPE_OBJECT and refused == null and v.takes_node(v) == 1, "a T parameter refuses a null object from the engine")
 	v.transform = Transform3D(Basis(), Vector3(7, 0, 0))
 	_check(v.origin_x() == 7.0, "a member of a member of a property")
 
