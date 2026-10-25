@@ -233,6 +233,7 @@ struct ClassDecl {
 	std::vector<TypeRef> implements;
 	std::vector<InterfaceDecl> interfaces;
 	std::vector<Type> implemented; // Filled by the checker.
+	bool is_node = false; // Filled by the checker: it extends Node, and becomes ready.
 	std::vector<VarDecl> members;
 	std::vector<FuncDecl> functions;
 	std::vector<SignalDecl> signals;

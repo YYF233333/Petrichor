@@ -596,7 +596,7 @@ public:
 
 namespace vm {
 
-Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const Variant **p_args, int64_t p_argc, GDExtensionCallError &r_error) {
+Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const Variant **p_args, int64_t p_argc, GDExtensionCallError &r_error, bool *r_failed) {
 	// Old code stays alive until this call returns, even if a hot reload
 	// replaces the image meanwhile (spec §12.4).
 	const std::shared_ptr<const ClassImage> image = p_image;
@@ -632,6 +632,9 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 
 	ValueSlot result(fn.return_type);
 	const bool ok = Execution(*image, p_context).run(uint32_t(p_function), frame.data, result.data());
+	if (r_failed) {
+		*r_failed = !ok;
+	}
 	Variant value = ok ? to_variant(fn.return_type, result.data()) : default_variant(fn.return_type);
 	destroy_slots(frame.data, fn.slots);
 	return value;

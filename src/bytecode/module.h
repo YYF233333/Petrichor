@@ -250,9 +250,10 @@ struct Module {
 	// first, so that its code and the table entries it uses, which hot reload
 	// compares as declarations, do not change when only a function body does.
 	int32_t init_function = -1;
-	// Runs the @onready initializers when the node is ready, before its
-	// _ready() (spec §6.3); -1 when there are none. Lowered right after the
-	// init function, and compared with it as declarations.
+	// Runs when the node is ready, before its _ready(): checks the exports the
+	// scene must assign (spec §7.5) and runs the @onready initializers (§6.3);
+	// -1 when there is nothing to do. Lowered right after the init function,
+	// and compared with it as declarations.
 	int32_t ready_function = -1;
 	TablePrefix init_tables; // What the two use.
 	std::vector<Constant> constants;

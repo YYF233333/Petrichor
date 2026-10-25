@@ -68,6 +68,23 @@ TEST_CASE("an export of an object type must be assigned, and is checked when rea
 	CHECK(bytecode::disassemble(result.module, function).find("CHECK_ASSIGNED") != std::string::npos);
 	CHECK(exports_errors("var crosshair: Texture2D").find("not supported yet unless exported") != std::string::npos);
 	CHECK(exports_errors("@export var crosshair: Texture2D?").empty());
+	// A resource never becomes ready.
+	CHECK(result.module.ready_function < 0);
+}
+
+TEST_CASE("a node is checked for the exports it must be assigned when it becomes ready (spec §7.5)") {
+	// enemy.gd of the FPS starter kit, cut down.
+	const char *source = "extends Node3D\n@export var player: Node3D\n@onready var aim := player.position\n";
+	const compiler::CompileResult result = compile(source);
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	REQUIRE(result.module.ready_function >= 0);
+	// Before the @onready initializers, which may read the export.
+	const std::string ready = bytecode::disassemble(result.module, result.module.functions[result.module.ready_function]);
+	const size_t check = ready.find("CHECK_ASSIGNED");
+	REQUIRE(check != std::string::npos);
+	CHECK(ready.find("GET_PROPERTY") > check);
+	CHECK(compile("extends Node3D\n@export var player: Node3D\n").module.ready_function >= 0);
+	CHECK(compile("extends Node3D\n@export var player: Node3D?\n").module.ready_function < 0);
 }
 
 TEST_CASE("an exported scene is written PackedScene[T] (spec §7.4)") {

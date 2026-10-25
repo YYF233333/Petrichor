@@ -297,8 +297,14 @@ static void instance_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensi
 		// The @onready initializers run first, as in GDScript
 		// (modules/gdscript/gdscript.cpp:1948-1953); the engine calls _ready()
 		// whether or not the class defines it (core/object/gdvirtual.gen.inc:39-45).
+		// They are part of the engine's call, which a program error in them
+		// ends (spec §8.1).
 		GDExtensionCallError ready_error;
-		vm::call(image, image->module.ready_function, context, nullptr, 0, ready_error);
+		bool failed = false;
+		vm::call(image, image->module.ready_function, context, nullptr, 0, ready_error, &failed);
+		if (failed) {
+			return;
+		}
 	}
 	const int index = visible_function(*image, method);
 	if (index < 0) {

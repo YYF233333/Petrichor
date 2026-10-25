@@ -46,7 +46,15 @@ func _ready() -> void:
 	_check(c.scale(3) == 1.5, "a member set from GDScript")
 
 	var v: ValuesCheck = ValuesCheck.new()
+	var texture := ImageTexture.create_from_image(Image.create(2, 3, false, Image.FORMAT_RGBA8))
+	v.texture = texture
 	add_child(v)
+	var unready: ValuesCheck = ValuesCheck.new()
+	Engine.print_error_messages = false
+	add_child(unready)
+	Engine.print_error_messages = true
+	_check(v.readied and not unready.readied, "a node that becomes ready without an export it must be assigned stops before _ready()")
+	unready.queue_free()
 	_check(v.scaled(2) == Vector3(2, 4, 6), "Vector3 * float through the engine's operator")
 	_check(is_equal_approx(v.length_of(3, 4), 5.0), "a constructor and a method of a built-in type")
 	_check(v.up_plus(Vector3(1, 0, 0)) == Vector3(1, 1, 0), "a constant of a built-in type")
@@ -117,12 +125,12 @@ func _ready() -> void:
 	_check(listed_properties.has("Tuning") and listed_properties["Tuning"].usage == PROPERTY_USAGE_SUBGROUP, "@export_subgroup shows a heading in the inspector")
 	_check(listed_properties["tuning"].hint == PROPERTY_HINT_RANGE and listed_properties["tuning"].hint_string == "0,10,0.5", "@export_range gives the range hint")
 	_check(listed_properties["texture"].hint == PROPERTY_HINT_RESOURCE_TYPE and listed_properties["texture"].hint_string == "Texture2D", "an exported resource is picked from resources")
-	Engine.print_error_messages = false
-	var unassigned_size = v.texture_size()
-	Engine.print_error_messages = true
-	v.texture = ImageTexture.create_from_image(Image.create(2, 3, false, Image.FORMAT_RGBA8))
-	_check(unassigned_size == Vector2() and v.texture_size() == Vector2(2, 3), "reading an export that was not assigned is a program error")
 	var detached := ValuesCheck.new()
+	Engine.print_error_messages = false
+	var unassigned_size = detached.texture_size()
+	Engine.print_error_messages = true
+	detached.texture = texture
+	_check(unassigned_size == Vector2() and detached.texture_size() == Vector2(2, 3) and v.texture_size() == Vector2(2, 3), "reading an export that was not assigned is a program error")
 	Engine.print_error_messages = false
 	var detached_root = detached.tree_root_name()
 	Engine.print_error_messages = true

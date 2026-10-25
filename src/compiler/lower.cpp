@@ -1197,6 +1197,17 @@ class Lowerer {
 		bool any = false;
 		start(p_onready ? "@ready" : "@init");
 		decl = nullptr;
+		if (p_onready && cls.is_node) {
+			// A node that becomes ready without the exports the scene must
+			// assign stops there, before the @onready initializers (spec §7.5).
+			for (size_t m = 0; m < cls.members.size(); m++) {
+				if (cls.members[m].must_assign) {
+					any = true;
+					instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(cls.members[m].line));
+					load_member(uint32_t(m));
+				}
+			}
+		}
 		for (size_t m = 0; m < cls.members.size(); m++) {
 			const VarDecl &member = cls.members[m];
 			if (member.is_onready != p_onready || member.literal_initializer || (!member.initializer && !is_typed_array(member.type))) {

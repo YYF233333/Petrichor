@@ -2203,6 +2203,7 @@ class Checker : public ClassRelation {
 	// read any of the others (spec §6.3), so that a member's type is known
 	// before an initializer reads it.
 	void check_members() {
+		cls.is_node = engine.inherits(cls.extends, "Node");
 		for (const bool onready : { false, true }) {
 			for (size_t i = 0; i < cls.members.size(); i++) {
 				if (cls.members[i].is_onready == onready) {
@@ -2224,7 +2225,7 @@ class Checker : public ClassRelation {
 			type = resolve(*member.declared_type, false);
 		}
 		if (member.is_onready) {
-			if (!engine.inherits(cls.extends, "Node")) {
+			if (!cls.is_node) {
 				error(member.line, member.column, "@onready is for Node scripts; a " + cls.extends + " is never ready (spec §6.3).");
 			}
 			if (member.is_export) {

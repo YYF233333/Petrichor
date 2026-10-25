@@ -138,6 +138,13 @@ pub func stop_listening(timer: Timer):
 pub func texture_size() -> Vector2:
 	return texture.get_size()
 
+# A node that becomes ready without texture stops there, before _ready() (spec
+# §7.5, §8.1).
+pub var readied := false
+
+func _ready():
+	readied = true
+
 # The binding metadata (spec §10.2): get_tree() is audited, root's getter is a
 # RequiredResult; outside the tree, get_tree() is a program error.
 pub func tree_root_name() -> StringName:
