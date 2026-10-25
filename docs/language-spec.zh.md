@@ -769,7 +769,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   - 作为语句调用、结果没有被使用时，运行时发现方法是协程也不报错：协程运行到第一次挂起，之后自行继续，相当于 detach；
   - 结果被当作值使用时，运行时得到 `GDScriptFunctionState` 是程序错误，诊断写明该方法是协程、须写 await。
   - 【后续】为 GDScript 协程调用取得 `Task` 句柄，以便稍后等待。
-- 等待 `GDScriptFunctionState` 时，运行时持有它直到 `completed` 发出，同时监听发起调用的对象，即接收者，或经 Callable 调用时的目标对象。这个对象被释放，或它的脚本被替换（`script_changed`，`core/object/object.cpp:995`）时，按被等待的对象被释放处理（§9.7），`settled()` 得到 `Cancelled(CancelReason.OWNER_FREED)`。理由：协程再次挂起后，内层状态只以 ObjectID 记住第一个状态的 `completed` 信号（`modules/gdscript/gdscript_vm.cpp:2634-2639`），第一个状态在恢复执行时就离开了实例的待处理列表（`modules/gdscript/gdscript_function.cpp:329-330`），不持有它就会被提前释放；实例析构时，引擎只清除挂起的状态，不发出 `completed`（`modules/gdscript/gdscript.cpp:2066-2084`，`gdscript_function.cpp:343-362`）；`GDScriptFunctionState` 是内部类，不暴露它所属的实例，它的 `is_valid(true)` 在恢复执行之后总是为假（`gdscript_function.cpp:288-307, 337, 364-370`，`modules/gdscript/register_types.cpp:140`），所以协程再次挂起后，无法从持有的状态得知宿主是否已释放。
+- 等待 `GDScriptFunctionState` 时，运行时持有它直到 `completed` 发出，同时监听发起调用的对象，即接收者，或经 Callable 调用时的目标对象。这个对象被释放，或它的脚本被替换（`script_changed`，`core/object/object.cpp:995`）时，按被等待的对象被释放处理（§9.7），`settled()` 得到 `Cancelled(CancelReason.OWNER_FREED)`。理由：协程再次挂起后，内层状态只以 ObjectID 记住第一个状态的 `completed` 信号（`modules/gdscript/gdscript_vm.cpp:2634-2639`），第一个状态在恢复执行时就离开了实例的待处理列表（`modules/gdscript/gdscript_function.cpp:329-330`），不持有它就会被提前释放；实例析构时，引擎只清除挂起的状态，不发出 `completed`（`modules/gdscript/gdscript.cpp:2069-2079`，`gdscript_function.cpp:343-362`）；`GDScriptFunctionState` 是内部类，不暴露它所属的实例，它的 `is_valid(true)` 在恢复执行之后总是为假（`gdscript_function.cpp:288-307, 337, 364-370`，`modules/gdscript/register_types.cpp:140`），所以协程再次挂起后，无法从持有的状态得知宿主是否已释放。
 - 【已知限制】GDScript 脚本被重载时，引擎清除它挂起的函数而不发出任何信号（`gdscript.cpp:1487-1506`，`modules/gdscript/gdscript_compiler.cpp:2700`），等待这些函数的协程会永远挂起。这只在编辑器中修改脚本时发生。
 - GDScript await 本语言的协程时，协程在第一次挂起时返回其 Task 的 `completed` 信号；GDScript 的 await 接受任意 Signal 值（`modules/gdscript/gdscript_vm.cpp:2586-2600`）。Task 完成时发出 `completed(值)`；取消或失败时发出 `completed(null)`，使 GDScript 的等待方不会永远挂起；另有 `cancelled` 信号供需要区分的代码使用。
 - 本语言的 async 方法交给引擎的返回类型一律是无类型的 Variant（`PROPERTY_USAGE_NIL_IS_VARIANT`），与声明的返回类型无关，返回 void 时也是如此；声明的类型只出现在文档和悬停中。理由：方法的反射信息中没有协程性（`core/object/method_info.h:37-44`），GDScript 只能按报告的返回类型检查。报告为 T 时，GDScript 中每处 await 都有“多余的 await”警告（`modules/gdscript/gdscript_analyzer.cpp:3102-3107`）；取消时的 `completed(null)` 不经检查写入类型为 T 的临时变量（`modules/gdscript/gdscript_vm.cpp:2667-2668`，`modules/gdscript/gdscript_byte_codegen.cpp:998-1001`），T 为 Transform3D 一类的值类型时，之后按类型访问它的指令解引用空指针，进程崩溃。报告为 Variant 时，debug 构建在把结果赋给有类型的变量时检查类型（`gdscript_vm.cpp:1433-1444`）；release 构建不检查，与 GDScript 中其他返回 Variant 的函数相同。
@@ -811,7 +811,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 - 引擎实际有约束但没有导出的，在本语言的绑定元数据中补上；引擎已导出的元数据直接使用。
 - 以 Variant 绑定的工具函数（lerp、clamp、min、max、abs、wrap 等）按实参定型：实参类型相同时返回该类型。int 与 float 混用是编译错误，快速修复把整数实参改为 float，例如 `min(ratio, 1.0)`。理由：引擎的 min、max、clamp 原样返回其中一个实参（`core/variant/variant_utility.cpp:642-759`），GDScript 中 `min(1.5, 1)` 得到 int，统一提升为 float 会使结果悄悄不同；lerp 本身要求两个实参类型相同（`variant_utility.cpp:465-469`）。
-- 以字面量类名过滤的引擎 API 按该类定型，例如 `find_children("*", "MeshInstance3D")` 返回 `Array[MeshInstance3D]`。
+- 以字面量类名过滤的引擎 API 按该类定型，例如 `find_children("*", "MeshInstance3D")` 返回 `Array[MeshInstance3D]`：引擎只收入 `is_class` 该类名的节点，或脚本是该全局类的节点（`scene/main/node.cpp:2031-2042`）。
 - 把“失败返回 null、错误另取”的引擎 API（如 `FileAccess.open`）封装为返回 Result 的标准库函数。
 
 ### 10.4 字符串形式的成员名
@@ -1053,6 +1053,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | Dictionary 的 `==` 按键查找后逐项比较值，与顺序无关 | `core/variant/dictionary.cpp:255-285` |
 | 已释放的对象在条件中为假：对象的 `is_zero` 检查对象是否仍然有效 | `core/variant/variant.cpp:952-953`；`core/variant/variant_op.cpp:1120-1122` |
 | min、max、clamp 原样返回其中一个实参 | `core/variant/variant_utility.cpp:642-759` |
+| `find_children` 只收入 `is_class` 给定类名的节点，或脚本是该全局类的节点 | `scene/main/node.cpp:2031-2042` |
 | lerp 要求两个实参类型相同 | `core/variant/variant_utility.cpp:465-469` |
 | `pop_front`、`pop_back` 在空数组上返回 null 而不报错 | `core/variant/array.cpp:781-800` |
 | `front`、`back` 在空数组上报错 | `core/variant/array.cpp:354-362` |
