@@ -2,7 +2,7 @@
 
 ## Project
 
-Petrichor designs a statically typed scripting language that replaces GDScript. It will be delivered as a GDExtension, with engine access kept in a thin layer so that a module build remains possible. The language specification `docs/language-spec.{zh,en}.md` (v0.2 draft) is the single source of truth for the design; the previous version is kept at git tag `spec-v0.1`. Implementation follows `docs/architecture.{zh,en}.md`; steps 1–3 of its order of work are done and step 4, the first milestone (the FPS starter kit runs with migrated scripts), is under way. The target engine is Godot 4.7; engine facts are checked against `4.7.2-stable` (commit `ed1daf0`). Facts about engine behavior must be checked against the Godot source, not recalled from memory.
+Petrichor designs a statically typed scripting language that replaces GDScript. It will be delivered as a GDExtension, with engine access kept in a thin layer so that a module build remains possible. The language specification `docs/language-spec.{zh,en}.md` (v0.2 draft) is the single source of truth for the design; the previous version is kept at git tag `spec-v0.1`. Implementation follows `docs/architecture.{zh,en}.md`; steps 1–4 of its order of work are done, step 4 being the first milestone (the FPS starter kit runs with migrated scripts), and the plan for step 5 is to be made with the user. The target engine is Godot 4.7; engine facts are checked against `4.7.2-stable` (commit `ed1daf0`). Facts about engine behavior must be checked against the Godot source, not recalled from memory.
 
 ## Layout
 

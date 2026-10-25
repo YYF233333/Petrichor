@@ -2,7 +2,7 @@
 
 A statically typed scripting language for medium-to-large Godot 4 projects, replacing GDScript in project code while coexisting with GDScript plugins, delivered as a GDExtension. Petrichor is a codename.
 
-**Status:** early implementation. The [language specification](docs/language-spec.en.md) (v0.2) is a draft published for feedback. A first subset of the language runs in Godot, built as described in the [implementation architecture](docs/architecture.en.md); the first milestone is to run the scripts of a small FPS game. Engine behavior is checked against Godot 4.7.2-stable.
+**Status:** early implementation. The [language specification](docs/language-spec.en.md) (v0.2) is a draft published for feedback. A first subset of the language runs in Godot, built as described in the [implementation architecture](docs/architecture.en.md); with it, the first milestone is reached: the scripts of a small FPS game run in Petrichor. Engine behavior is checked against Godot 4.7.2-stable.
 
 中文：[README.zh.md](README.zh.md)
 
@@ -75,7 +75,7 @@ Each survey has a write-up in English and Chinese and a directory of scripts tha
 
 ## Next steps
 
-1. First milestone, in progress: the FPS starter kit of the [second paper migration](docs/surveys/paper-migration-2.en.md) runs with its scripts in Petrichor, and the rows of the checklist in [§15](docs/language-spec.en.md#15-conformance-checklist-non-normative) that it needs become tests.
+1. First milestone, done: the FPS starter kit of the [second paper migration](docs/surveys/paper-migration-2.en.md) runs with its scripts in Petrichor, and the rows of the checklist in [§15](docs/language-spec.en.md#15-conformance-checklist-non-normative) that running it needs became tests; what it leaves for later is listed in [architecture §5](docs/architecture.en.md#5-order-of-work).
 2. Then the Ring code of the same migration, the language server with renaming, quick fixes for migration, and performance benchmarks against GDScript.
 3. Throughout: collect feedback and narrow the specification to a testable core.
 

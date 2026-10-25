@@ -2,7 +2,7 @@
 
 一门面向中大型 Godot 4 项目的全静态类型脚本语言，在项目代码中替代 GDScript 并与 GDScript 插件共存，以 GDExtension 的形式交付。Petrichor 是项目代号。
 
-**状态**：早期实现阶段。[语言规范](docs/language-spec.zh.md)（v0.2）是发布出来征求意见的草案。语言的第一个子集已经能在 Godot 中运行，实现方式见[实现架构](docs/architecture.zh.md)；第一个里程碑是让一个小型 FPS 游戏的脚本运行起来。引擎行为按 Godot 4.7.2-stable 核对。
+**状态**：早期实现阶段。[语言规范](docs/language-spec.zh.md)（v0.2）是发布出来征求意见的草案。语言的第一个子集已经能在 Godot 中运行，实现方式见[实现架构](docs/architecture.zh.md)；第一个里程碑已经达成：一个小型 FPS 游戏的脚本以 Petrichor 运行。引擎行为按 Godot 4.7.2-stable 核对。
 
 English: [README.md](README.md)
 
@@ -75,7 +75,7 @@ func max_hp_from(data: Variant) -> int?:
 
 ## 下一步
 
-1. 第一个里程碑，进行中：[第二次纸面迁移](docs/surveys/paper-migration-2.zh.md)中的 FPS 项目以 Petrichor 脚本运行，所需的 [§15](docs/language-spec.zh.md#15-一致性检查清单非规范性) 检查清单条目同时写成测试。
+1. 第一个里程碑，已完成：[第二次纸面迁移](docs/surveys/paper-migration-2.zh.md)中的 FPS 项目以 Petrichor 脚本运行，运行它所需的 [§15](docs/language-spec.zh.md#15-一致性检查清单非规范性) 检查清单条目已写成测试；留待以后的部分列在[实现架构 §5](docs/architecture.zh.md#5-推进顺序)。
 2. 之后是同一次迁移中的 Ring 代码、带重命名的语言服务器、迁移用的快速修复，以及与 GDScript 的性能基准。
 3. 贯穿始终：收集反馈，把规范收敛到可测试的核心。
 
