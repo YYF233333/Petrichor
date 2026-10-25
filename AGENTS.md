@@ -8,6 +8,7 @@ Petrichor designs a statically typed scripting language that replaces GDScript. 
 
 - `README.md`, `README.zh.md`: the project introduction for the public.
 - `docs/language-spec.{zh,en}.md`: the specification. Rules come with a brief rationale and their evidence; open questions are listed in §14.3.
+- `docs/architecture.{zh,en}.md`: implementation decisions: components, value representation, testing, order of work.
 - `docs/surveys/`: empirical investigations behind specific rules, and evaluations of the design against real code. Each has a write-up in both languages and a directory of scripts that reproduce it. Single counts that back one rule go into `docs/surveys/corpus-counts` (script `corpus-counts/counts.py`).
 
 ## Documentation rules
@@ -23,3 +24,6 @@ Petrichor designs a statically typed scripting language that replaces GDScript. 
 ## Code
 
 There is no implementation yet. When code is added, document the build and test commands here.
+
+- Language rules come from the spec. When the implementation runs into a problem with a rule, change the spec in a separate commit; do not relax the rule in code.
+- Tests are derived from the spec (§15), the engine and real code, not from the implementation (architecture §3).
