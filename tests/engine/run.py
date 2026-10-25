@@ -351,7 +351,7 @@ def run_debugger_groups(godot):
         "--path",
         str(PROJECT),
         "res://language/breakpoint.tscn",
-        commands=["locals", "members", "s", "members", "c", "c"],
+        commands=["locals", "members", "s", "members", "c", "c", "locals", "c"],
     )
     expect_run(
         "breakpoint",
@@ -369,6 +369,10 @@ def run_debugger_groups(godot):
             "Debugger Break, Reason: 'Division by zero.'",
             "*Frame 0 - res://language/breakpoint.pet:12 in function 'divide'",
             "breakpoint: divide returned 0",
+            "Debugger Break, Reason: 'Breakpoint'",
+            "*Frame 0 - res://language/breakpoint.pet:8 in function 'step'",
+            "n: 3",
+            "breakpoint: step on a thread returned 7",
         ],
     )
 

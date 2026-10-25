@@ -13,4 +13,8 @@ func _ready() -> void:
 	var quotient: int = target.divide(1, 0)
 	Engine.print_error_messages = true
 	print("breakpoint: divide returned ", quotient)
+	# The breakpoint also stops a call on another thread, as in GDScript.
+	var thread := Thread.new()
+	thread.start(Callable(target, "step").bind(3))
+	print("breakpoint: step on a thread returned ", thread.wait_to_finish())
 	get_tree().quit()
