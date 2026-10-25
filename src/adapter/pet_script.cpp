@@ -165,21 +165,31 @@ void PetScript::set_loaded(const String &p_source, const std::shared_ptr<const C
 }
 
 void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image) {
+	bool kept_old_code = false;
 	{
 		std::lock_guard<std::mutex> lock(mutex);
-		const std::shared_ptr<const ClassImage> old = image;
 		image = p_image;
-		if (old && p_image && !instances.is_empty()) {
-			if (p_image->same_declarations(*old)) {
-				// Only function bodies changed: instances switch to the new
-				// code, and frames already running finish with the old (spec §12.4).
-				for (PetInstance *instance : instances) {
-					instance->image = p_image;
+		if (p_image) {
+			// Each instance is compared with the image it holds, which can be
+			// older than the script's previous one: an instance that kept its
+			// code through one reload keeps its member layout too.
+			for (PetInstance *instance : instances) {
+				if (instance->image == p_image) {
+					continue;
 				}
-			} else {
-				WARN_PRINT(get_script_path() + ": more than function bodies changed. Existing instances keep the old code; run the scene again to apply the change.");
+				if (p_image->same_declarations(*instance->image)) {
+					// Only function bodies differ: the instance switches to the
+					// new code, and frames already running finish with the old
+					// (spec §12.4).
+					instance->image = p_image;
+				} else {
+					kept_old_code = true;
+				}
 			}
 		}
+	}
+	if (kept_old_code) {
+		WARN_PRINT(get_script_path() + ": more than function bodies changed since some instances were created. They keep their old code; run the scene again to apply the change.");
 	}
 	_update_exports();
 }

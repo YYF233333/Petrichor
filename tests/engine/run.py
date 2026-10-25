@@ -192,7 +192,7 @@ def run_hot_reload(godot):
                 return running.finish()
             with connection:
                 threading.Thread(target=drain, args=(connection,), daemon=True).start()
-                for version in (2, 3):
+                for version in (2, 3, 4):
                     if not running.wait_for(f"hot reload: waiting for version {version}".encode()):
                         break
                     install_live_version(version)
@@ -369,7 +369,9 @@ def run_debugger_groups(godot):
     )
 
     # Spec §12.4: a body change replaces the code of running instances; any
-    # other change leaves them on the old code and asks for a new run.
+    # other change leaves them on the old code and asks for a new run. Each
+    # instance is compared with the code it runs, not with the previous version.
+    kept_old_code = f"{LIVE_SCRIPT}: more than function bodies changed since some instances were created. They keep their old code; run the scene again to apply the change."
     code, output = run_hot_reload(godot)
     expect_run(
         "hot reload",
@@ -378,7 +380,9 @@ def run_debugger_groups(godot):
         [
             "hot reload: waiting for version 2",
             "hot reload: waiting for version 3",
-            f"{LIVE_SCRIPT}: more than function bodies changed. Existing instances keep the old code; run the scene again to apply the change.",
+            kept_old_code,
+            "hot reload: waiting for version 4",
+            kept_old_code,
             "hot reload: 0 failure(s)",
         ],
     )

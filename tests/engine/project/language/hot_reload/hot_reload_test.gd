@@ -11,7 +11,8 @@ const MAX_WAIT_MSEC := 30000
 
 var failures := 0
 var live: Script
-var node: Node
+var node: Node # Created under version 1.
+var fresh: Node # Created under version 3.
 var waiting_for := 0
 var asked_at := 0
 
@@ -43,8 +44,16 @@ func _process(_delta: float) -> void:
 		_ask_for(3)
 	elif waiting_for == 3 and live.get_script_property_list().any(func(property): return property.name == "extra"):
 		_check(node.value() == 50, "after a member change, the instance keeps its code")
-		var fresh: Node = live.new()
+		fresh = live.new()
+		add_child(fresh)
 		_check(fresh.value() == 3, "after a member change, a new instance runs the new code")
+		fresh.count = 2
+		fresh.extra = 7
+		_ask_for(4)
+	elif waiting_for == 4 and fresh.value() != 3:
+		_check(fresh.value() == 207, "after a later body change, the newer instance runs the new code on its members")
+		_check(node.value() == 50 and node.count == 5, "an instance from before the member change keeps its code and members")
+		node.free()
 		fresh.free()
 		_finish()
 	elif Time.get_ticks_msec() - asked_at > MAX_WAIT_MSEC:
