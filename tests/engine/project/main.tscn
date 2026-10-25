@@ -1,0 +1,11 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://greeter.pet" id="1_greeter"]
+[ext_resource type="Script" path="res://check.gd" id="2_check"]
+
+[node name="Main" type="Node"]
+script = ExtResource("1_greeter")
+message = "from the scene"
+
+[node name="Check" type="Node" parent="."]
+script = ExtResource("2_check")

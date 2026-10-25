@@ -1,0 +1,17 @@
+# SCons
+.sconsign*.dblite
+*.os
+*.obj
+compile_commands.json
+
+# Built libraries
+tests/engine/project/bin/*.dll
+tests/engine/project/bin/*.so
+tests/engine/project/bin/*.dylib
+tests/engine/project/bin/*.pdb
+tests/engine/project/bin/*.lib
+tests/engine/project/bin/*.exp
+tests/engine/project/bin/*.ilk
+
+# Godot
+.godot/

@@ -1,0 +1,13 @@
+[configuration]
+
+entry_symbol = "petrichor_library_init"
+compatibility_minimum = "4.7"
+reloadable = false
+
+[libraries]
+
+; The editor library comes first: an editor binary also has the "debug"
+; feature, and among equally specific entries the first one wins.
+windows.editor.x86_64 = "res://bin/petrichor.windows.editor.x86_64.dll"
+windows.debug.x86_64 = "res://bin/petrichor.windows.template_debug.x86_64.dll"
+windows.release.x86_64 = "res://bin/petrichor.windows.template_release.x86_64.dll"

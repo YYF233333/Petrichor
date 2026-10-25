@@ -1,0 +1,3 @@
+# Without a compiler, the adapter reads only `extends`; every script has the
+# property `message` and the method `greet()`.
+extends Node
