@@ -125,7 +125,8 @@ bytecode::Constant constant_of(const Expr &p_literal, const Type &p_target) {
 	}
 	switch (literal->kind) {
 		case ExprKind::IntLiteral:
-			constant.i = negate ? -literal->int_value : literal->int_value;
+			// Negated through unsigned, so that the smallest int wraps as at run time.
+			constant.i = negate ? int64_t(0ull - uint64_t(literal->int_value)) : literal->int_value;
 			constant.f = double(constant.i);
 			break;
 		case ExprKind::FloatLiteral:
@@ -531,7 +532,9 @@ class Lowerer {
 		if (p_call.target == Target::EngineMethod && p_call.base) {
 			i.base = lower_expr(*p_call.base);
 		} else if (p_call.target == Target::BuiltinMethod) {
-			if (!p_call.is_const && is_place(*p_call.base)) {
+			const ValueType base_type = value_type(p_call.base->type);
+			const bool shared = base_type == ValueType::Array || base_type == ValueType::Dictionary;
+			if (!p_call.is_const && !shared && is_place(*p_call.base)) {
 				// A method that changes its base changes the place it came from.
 				written_back = std::make_unique<Place>(place_of(*p_call.base));
 				i.base = load(*written_back);
@@ -556,7 +559,9 @@ class Lowerer {
 				utility_call.function = p_call.text;
 				utility_call.hash = p_call.hash;
 				utility_call.is_vararg = p_call.is_vararg;
-				utility_call.params = value_types(p_call.param_types);
+				// A utility typed by its arguments takes them all as Variant (spec §10.3).
+				const bool argument_typed = p_call.engine_return.kind == TypeKind::Variant && p_call.type.kind != TypeKind::Variant;
+				utility_call.params = argument_typed ? std::vector<ValueType>(p_call.args.size(), ValueType::Variant) : value_types(p_call.param_types);
 				utility_call.return_type = value_type(p_call.engine_return);
 				utility_call.result_type = value_type(p_call.type);
 				i.imm = utility(utility_call);

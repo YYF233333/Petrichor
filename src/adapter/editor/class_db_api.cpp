@@ -130,7 +130,7 @@ std::optional<EngineProperty> ClassDBApi::find_property(const std::string &p_cla
 			}
 			EngineProperty property;
 			property.name = p_property;
-			property.type = type_of(info, true);
+			property.type = type_of(info, false); // A property is never void.
 			property.writable = db->class_get_property_setter(cls, property_name) != StringName();
 			return property;
 		}

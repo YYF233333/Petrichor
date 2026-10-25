@@ -76,6 +76,8 @@ struct Token {
 	std::string text; // Identifier name or decoded string literal.
 	int64_t int_value = 0;
 	double float_value = 0.0;
+	// 9223372036854775808, which is only an int after a unary minus.
+	bool int_overflows = false;
 };
 
 // Indentation follows GDScript: a block is opened by a deeper indentation and

@@ -70,8 +70,23 @@ TEST_CASE("numbers") {
 
 TEST_CASE("an integer literal beyond int64 is an error") {
 	std::vector<Diagnostic> errors;
-	tokenize("9223372036854775808", errors);
+	tokenize("9223372036854775809", errors);
 	CHECK(errors.size() == 1);
+	// The magnitude of the smallest int is kept for a unary minus.
+	errors.clear();
+	const std::vector<Token> tokens = tokenize("9223372036854775808", errors);
+	CHECK(errors.empty());
+	CHECK(tokens[0].int_overflows);
+}
+
+TEST_CASE("triple-quoted strings span lines") {
+	std::vector<Diagnostic> errors;
+	const std::vector<Token> tokens = tokenize("\"\"\"a\n\"b\"\n\"\"\" '''c'''", errors);
+	CHECK(errors.empty());
+	REQUIRE(tokens.size() >= 2);
+	CHECK(tokens[0].kind == TokenKind::String);
+	CHECK(tokens[0].text == "a\n\"b\"\n");
+	CHECK(tokens[1].text == "c");
 }
 
 TEST_CASE("strings decode escapes") {

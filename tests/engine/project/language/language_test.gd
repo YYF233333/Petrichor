@@ -17,6 +17,7 @@ func _check(condition: bool, what: String) -> void:
 func _ready() -> void:
 	var c: LanguageCheck = LanguageCheck.new()
 	add_child(c)
+	_check(c.from_init == 10, "_init() runs after the member initializers")
 	_check(c.add(2, 3) == 5, "int arithmetic")
 	_check(c.divide(7, 2) == 3, "int division truncates (spec §5.1)")
 	_check(c.scale(3) == 6.0, "an int argument is accepted for a float parameter")

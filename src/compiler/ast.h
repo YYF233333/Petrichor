@@ -55,6 +55,7 @@ struct Expr {
 	int column = 0;
 
 	int64_t int_value = 0;
+	bool int_overflows = false; // 9223372036854775808 without a unary minus.
 	double float_value = 0.0;
 	bool bool_value = false;
 	std::string text; // String literal, name, or called method.

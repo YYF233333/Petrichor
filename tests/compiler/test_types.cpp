@@ -26,7 +26,8 @@ TEST_CASE("utility functions bound with Variant are typed by their arguments (sp
 	CHECK(type_of("abs(-3)") == "int");
 	CHECK(type_of("wrap(5, 0, 3)") == "int");
 	CHECK(type_of("lerp(Vector3(), Vector3(1, 1, 1), 0.5)") == "Vector3");
-	CHECK(type_of("lerp(0.0, 1.0, 1)") == "float");
+	CHECK(type_of("lerp(0.0, 1.0, 1)") == "float"); // An int weight converts (spec §3.2).
+	CHECK(type_of("lerp(0.0, 1.0, \"a\")").find("must be a number") != std::string::npos);
 	CHECK(type_of("min(1.5, 1)").find("Write the int argument as a float") != std::string::npos);
 	CHECK(type_of("lerp(Vector3(), 1.0, 0.5)").find("same type") != std::string::npos);
 	CHECK(type_of("clamp(\"a\", \"b\", \"c\")").find("numbers or vectors") != std::string::npos);
@@ -68,6 +69,13 @@ TEST_CASE("assignment writes members of built-in values back to their place") {
 	CHECK(has_error(in_function("Vector3(1, 2, 3).y = 2", "func f() -> void:", "Node3D"), "member of a temporary"));
 	CHECK(has_error(in_function("var rng := RandomNumberGenerator.new()\nrng.seed = 1.5"), "Convert explicitly with int(x)."));
 	CHECK(has_error(in_function("position = 1", "func f() -> void:", "Node3D"), "Cannot assign a value of type int as Vector3"));
+}
+
+TEST_CASE("a method that changes a value needs a place to write it back") {
+	CHECK(errors_of(in_function("var a := PackedInt32Array()\na.push_back(1)")).empty());
+	CHECK(has_error(in_function("PackedInt32Array().push_back(1)"), "a temporary value"));
+	// Arrays are shared: a method changes them in place.
+	CHECK(errors_of(in_function("Array().append(1)")).empty());
 }
 
 TEST_CASE("objects that must be assigned are not supported yet (spec §6.2)") {

@@ -110,6 +110,25 @@ TEST_CASE("objects the engine returns are nullable until audited (spec §10.2)")
 	CHECK(has_error(in_function("var p = get_parent()\np.queue_free()"), "may be None (Node?)"));
 }
 
+TEST_CASE("the smallest int can be written in decimal") {
+	CHECK(errors_of(in_function("var x := -9223372036854775808")).empty());
+	CHECK(has_error(in_function("var x := 9223372036854775808"), "too large for int"));
+}
+
+// Spec §2.1.
+TEST_CASE("the class header comes before the members") {
+	CHECK(has_error("class_name A\nclass_name B\nextends Node\n", "already has a name"));
+	CHECK(has_error("extends Node\nvar a := 1\nclass_name A\n", "class header"));
+	CHECK(has_error("extends Node\n\nfunc f():\n\tpass\n\nextends Node2D\n", "class header"));
+}
+
+// Spec §6.2: the engine constructs Node and Resource scripts with no arguments.
+TEST_CASE("_init") {
+	CHECK(errors_of("extends Node\nvar ready_count := 0\n\nfunc _init():\n\tready_count = 1\n").empty());
+	CHECK(has_error("extends Node\n\nfunc _init(a: int):\n\tpass\n", "cannot take parameters"));
+	CHECK(has_error("extends Node\n\nfunc _init() -> int:\n\treturn 1\n", "returns nothing"));
+}
+
 TEST_CASE("syntax errors are reported at their position") {
 	const auto errors = errors_of("extends Node\n\nfunc f() -> void:\n\tvar x := 1 +\n\tpass\n");
 	REQUIRE(errors.size() >= 1);

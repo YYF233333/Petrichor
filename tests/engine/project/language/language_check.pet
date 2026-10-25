@@ -4,6 +4,11 @@ extends Node
 
 @export pub var speed: float = 2.0
 pub var frames := 0
+pub var from_init := 0
+
+# Runs after the member initializers.
+func _init():
+	from_init = frames + 10
 
 pub func add(a: int, b: int) -> int:
 	return a + b

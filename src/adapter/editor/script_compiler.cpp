@@ -1,6 +1,7 @@
 #include "adapter/editor/script_compiler.h"
 
 #include "adapter/editor/class_db_api.h"
+#include "adapter/editor/project_files.h"
 #include "adapter/editor/scene_index.h"
 #include "adapter/pet_compiled.h"
 #include "compiler/compiler.h"
@@ -22,8 +23,8 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 	if (p_report) {
 		const CharString file = p_path.utf8();
 		for (const compiler::Diagnostic &error : result.errors) {
-			const CharString message = String::utf8(error.message.c_str()).utf8();
-			godot::gdextension_interface::print_script_error(message.get_data(), "", file.get_data(), error.line, true);
+			// The compiler's messages are UTF-8 already.
+			gdextension_interface::print_script_error(error.message.c_str(), "", file.get_data(), error.line, true);
 		}
 	}
 	if (r_errors) {
@@ -50,29 +51,8 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 	return image;
 }
 
-static void collect_scripts(const String &p_dir, PackedStringArray &r_paths) {
-	const Ref<DirAccess> dir = DirAccess::open(p_dir);
-	if (dir.is_null()) {
-		return;
-	}
-	dir->list_dir_begin();
-	for (String name = dir->get_next(); !name.is_empty(); name = dir->get_next()) {
-		if (name.begins_with(".")) {
-			continue; // Also skips .godot.
-		}
-		const String path = p_dir.path_join(name);
-		if (dir->current_is_dir()) {
-			collect_scripts(path, r_paths);
-		} else if (name.get_extension() == "pet") {
-			r_paths.push_back(path);
-		}
-	}
-	dir->list_dir_end();
-}
-
 int build_project(int *r_script_count) {
-	PackedStringArray paths;
-	collect_scripts("res://", paths);
+	const PackedStringArray paths = project_files(PackedStringArray({ "pet" }));
 	int failed = 0;
 	for (const String &path : paths) {
 		const String source = FileAccess::get_file_as_string(path);

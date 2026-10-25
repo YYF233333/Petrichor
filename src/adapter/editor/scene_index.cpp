@@ -1,8 +1,8 @@
 #include "adapter/editor/scene_index.h"
 
+#include "adapter/editor/project_files.h"
 #include "adapter/pet_compiled.h"
 
-#include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/packed_scene.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
@@ -67,26 +67,6 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state)
 	return scene;
 }
 
-void collect_scenes(const String &p_dir, PackedStringArray &r_paths) {
-	const Ref<DirAccess> dir = DirAccess::open(p_dir);
-	if (dir.is_null()) {
-		return;
-	}
-	dir->list_dir_begin();
-	for (String name = dir->get_next(); !name.is_empty(); name = dir->get_next()) {
-		if (name.begins_with(".")) {
-			continue; // Also skips .godot.
-		}
-		const String path = p_dir.path_join(name);
-		if (dir->current_is_dir()) {
-			collect_scenes(path, r_paths);
-		} else if (name.get_extension() == "tscn" || name.get_extension() == "scn") {
-			r_paths.push_back(path);
-		}
-	}
-	dir->list_dir_end();
-}
-
 } // namespace
 
 const SceneIndex &SceneIndex::get() {
@@ -95,8 +75,7 @@ const SceneIndex &SceneIndex::get() {
 }
 
 std::vector<compiler::Scene> SceneIndex::scenes_with_script(const std::string &p_script_path) const {
-	PackedStringArray paths;
-	collect_scenes("res://", paths);
+	const PackedStringArray paths = project_files(PackedStringArray({ "tscn", "scn" }));
 	std::vector<compiler::Scene> result;
 	std::lock_guard<std::mutex> lock(mutex);
 	for (const String &path : paths) {

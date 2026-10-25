@@ -30,6 +30,9 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		const StringName name = from_utf8(module.functions[i].name);
 		image->function_names.push_back(name);
 		image->function_lookup.insert(name, int(i));
+		if (module.functions[i].name == "_init" && module.functions[i].params.empty()) {
+			image->user_init = int(i);
+		}
 	}
 	for (size_t i = 0; i < module.members.size(); i++) {
 		const bytecode::Member &member = module.members[i];

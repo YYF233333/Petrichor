@@ -2,6 +2,8 @@
 
 #include <cerrno>
 #include <cstdlib>
+#include <locale>
+#include <sstream>
 #include <unordered_map>
 
 namespace petrichor::compiler {
@@ -313,13 +315,17 @@ class Lexer {
 		errno = 0;
 		if (is_float) {
 			Token &token = push(TokenKind::Float, start_line, start_column);
-			token.float_value = std::strtod(digits.c_str(), nullptr);
+			// Whatever C locale the host process has set.
+			std::istringstream stream(digits);
+			stream.imbue(std::locale::classic());
+			stream >> token.float_value;
 		} else {
 			Token &token = push(TokenKind::Int, start_line, start_column);
 			const unsigned long long value = std::strtoull(digits.c_str(), nullptr, base);
-			if (errno == ERANGE || (base == 10 && value > 9223372036854775807ull)) {
+			if (errno == ERANGE || (base == 10 && value > 9223372036854775808ull)) {
 				error(start_line, start_column, "Integer literal is too large for int.");
 			}
+			token.int_overflows = base == 10 && value == 9223372036854775808ull;
 			token.int_value = int64_t(value);
 		}
 	}
@@ -328,16 +334,22 @@ class Lexer {
 		const int start_line = line;
 		const int start_column = column;
 		const unsigned char quote = peek();
-		advance();
+		// """…""" and '''…''' may span lines, as in GDScript.
+		const bool triple = peek(1) == quote && peek(2) == quote;
+		for (int i = 0; i < (triple ? 3 : 1); i++) {
+			advance();
+		}
 		std::string value;
 		while (true) {
 			const unsigned char c = peek();
-			if (c == 0 || c == '\n') {
+			if (c == 0 || (c == '\n' && !triple)) {
 				error(start_line, start_column, "Unterminated string.");
 				break;
 			}
-			if (c == quote) {
-				advance();
+			if (c == quote && (!triple || (peek(1) == quote && peek(2) == quote))) {
+				for (int i = 0; i < (triple ? 3 : 1); i++) {
+					advance();
+				}
 				break;
 			}
 			if (c == '\\') {

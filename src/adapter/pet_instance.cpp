@@ -121,9 +121,16 @@ PetInstance::PetInstance(PetScript *p_script, const std::shared_ptr<const ClassI
 	// The other initializers, in declaration order, before anything else runs
 	// on the instance (spec §6.1). After a program error the members keep
 	// their default values.
+	const InstanceContext context{ members, owner_object };
 	if (image->module.init_function >= 0) {
 		GDExtensionCallError error;
-		vm::call(image, image->module.init_function, InstanceContext{ members, owner_object }, nullptr, 0, error);
+		vm::call(image, image->module.init_function, context, nullptr, 0, error);
+	}
+	// Then the class's own _init(), as GDScript runs it after the member
+	// initializers.
+	if (image->user_init >= 0) {
+		GDExtensionCallError error;
+		vm::call(image, image->user_init, context, nullptr, 0, error);
 	}
 }
 

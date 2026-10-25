@@ -165,6 +165,14 @@ class Parser {
 			auto expr = make(ExprKind::Unary, op);
 			expr->op = op.kind;
 			expr->left = unary();
+			if (expr->left && expr->left->kind == ExprKind::IntLiteral && expr->left->int_overflows) {
+				// -9223372036854775808 is the smallest int; its magnitude alone is not.
+				auto literal = std::move(expr->left);
+				literal->int_overflows = false;
+				literal->line = op.line;
+				literal->column = op.column;
+				return literal;
+			}
 			return expr->left ? std::move(expr) : nullptr;
 		}
 		return postfix();
@@ -226,6 +234,7 @@ class Parser {
 				advance();
 				auto expr = make(ExprKind::IntLiteral, token);
 				expr->int_value = token.int_value;
+				expr->int_overflows = token.int_overflows;
 				return expr;
 			}
 			case TokenKind::Float: {
@@ -326,7 +335,9 @@ class Parser {
 		stmt->body = block();
 		if (check(TokenKind::Elif)) {
 			const Token &elif = advance();
-			stmt->else_body.push_back(if_statement(elif));
+			if (auto branch = if_statement(elif)) {
+				stmt->else_body.push_back(std::move(branch));
+			}
 		} else if (match(TokenKind::Else)) {
 			expect(TokenKind::Colon, "\":\"");
 			stmt->else_body = block();
@@ -500,7 +511,9 @@ public:
 
 	ClassDecl run() {
 		ClassDecl result;
+		bool has_class_name = false;
 		bool has_extends = false;
+		bool seen_member = false;
 		while (!check(TokenKind::EndOfFile)) {
 			if (failed) {
 				recover();
@@ -509,34 +522,43 @@ public:
 				}
 				continue;
 			}
-			{
-				if (match(TokenKind::Newline)) {
+			if (match(TokenKind::Newline)) {
+				continue;
+			}
+			// The class header comes before the members (spec §2.1).
+			if ((check(TokenKind::ClassName) || check(TokenKind::Extends)) && seen_member) {
+				fail(peek(), std::string(token_name(peek().kind)) + " belongs to the class header, before the members.");
+				continue;
+			}
+			if (check(TokenKind::ClassName)) {
+				const Token &keyword = advance();
+				if (has_class_name) {
+					fail(keyword, "The class already has a name.");
 					continue;
 				}
-				if (check(TokenKind::ClassName)) {
-					advance();
-					result.class_name = expect(TokenKind::Identifier, "a class name").text;
-					if (!check(TokenKind::Extends)) {
-						end_of_statement();
-						continue;
-					}
-				}
-				if (check(TokenKind::Extends)) {
-					const Token &keyword = advance();
-					if (has_extends) {
-						fail(keyword, "The class already has a base class.");
-						continue;
-					}
-					const Token &base = expect(TokenKind::Identifier, "a base class name");
-					result.extends = base.text;
-					result.extends_line = base.line;
-					result.extends_column = base.column;
-					has_extends = true;
+				result.class_name = expect(TokenKind::Identifier, "a class name").text;
+				has_class_name = true;
+				if (!check(TokenKind::Extends)) {
 					end_of_statement();
 					continue;
 				}
-				member(result);
 			}
+			if (check(TokenKind::Extends)) {
+				const Token &keyword = advance();
+				if (has_extends) {
+					fail(keyword, "The class already has a base class.");
+					continue;
+				}
+				const Token &base = expect(TokenKind::Identifier, "a base class name");
+				result.extends = base.text;
+				result.extends_line = base.line;
+				result.extends_column = base.column;
+				has_extends = true;
+				end_of_statement();
+				continue;
+			}
+			seen_member = true;
+			member(result);
 		}
 		return result;
 	}

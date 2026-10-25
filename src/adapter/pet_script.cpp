@@ -116,11 +116,23 @@ Variant initial_value(const ClassImage &p_image, const bytecode::Member &p_membe
 }
 
 PetHeader parse_header(const String &p_source) {
+	// The class header comes first (spec §2.1): read it until the members start.
 	PetHeader header;
 	bool has_base = false;
 	const PackedStringArray lines = p_source.split("\n");
 	for (int64_t i = 0; i < lines.size(); i++) {
-		const PackedStringArray words = lines[i].strip_edges().split(" ", false);
+		String code = lines[i];
+		const int64_t comment = code.find("#");
+		if (comment >= 0) {
+			code = code.substr(0, comment);
+		}
+		const PackedStringArray words = code.replace("\t", " ").replace("\r", " ").strip_edges().split(" ", false);
+		if (words.is_empty()) {
+			continue;
+		}
+		if (words[0] != "class_name" && words[0] != "extends") {
+			break;
+		}
 		for (int64_t w = 0; w + 1 < words.size(); w++) {
 			if (words[w] == "class_name" && header.class_name.is_empty()) {
 				header.class_name = words[w + 1];
@@ -128,9 +140,6 @@ PetHeader parse_header(const String &p_source) {
 				header.base = words[w + 1];
 				has_base = true;
 			}
-		}
-		if (words.size() > 0 && (words[0] == "func" || words[0] == "var" || words[0].begins_with("@") || words[0] == "pub")) {
-			break;
 		}
 	}
 	return header;

@@ -92,6 +92,12 @@ bool is_interpolable(const Type &p_type) {
 	return p_type.kind == TypeKind::Float || (p_type.kind == TypeKind::Builtin && types.count(p_type.name));
 }
 
+// Values that refer to shared engine storage: changing one through a method
+// changes it for everyone who holds it, so it is not written back.
+bool is_shared(const Type &p_type) {
+	return p_type.kind == TypeKind::Builtin && (p_type.name == "Array" || p_type.name == "Dictionary");
+}
+
 bool is_literal(const Expr &p_expr) {
 	switch (p_expr.kind) {
 		case ExprKind::IntLiteral:
@@ -502,8 +508,10 @@ class Checker {
 				return fail(r_expr, "lerp() interpolates float, vectors, Color, Quaternion and Basis, not " + result.to_string() + ".");
 			}
 			if (!types[2].is_numeric()) {
-				return fail(*r_expr.args[2], "The weight of lerp() must be a float.");
+				return fail(*r_expr.args[2], "The weight of lerp() must be a number.");
 			}
+			// An int weight converts to float (spec §3.2) before it goes to the engine.
+			r_expr.param_types[2] = Type::of(TypeKind::Float);
 		} else if (!is_numeric_or_vector(result)) {
 			return fail(r_expr, r_expr.text + "() takes numbers or vectors, not " + result.to_string() + ".");
 		}
@@ -589,6 +597,20 @@ class Checker {
 		const Type result = api_type(method->return_type, true);
 		if (result.kind == TypeKind::Object || result.kind == TypeKind::Unsupported) {
 			return fail(r_expr, "\"" + r_expr.text + "()\" returns " + result.to_string() + ", which is not supported yet.");
+		}
+		// A method that changes a value changes it where it came from, which
+		// must be a place that can be written; Array and Dictionary are shared
+		// and change in place.
+		if (!method->is_const && !is_shared(p_base)) {
+			const Expr &base = *r_expr.base;
+			const bool place = base.target == Target::Local || base.target == Target::Member || base.target == Target::SelfProperty ||
+					base.target == Target::ObjectProperty || base.target == Target::Field;
+			if (!place) {
+				return fail(r_expr, "\"" + r_expr.text + "()\" changes the " + base_name + " it is called on, which is a temporary value here.");
+			}
+			if (!check_place(base)) {
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
 		}
 		check_arguments(r_expr, params, int(params.size()), false);
 		r_expr.target = Target::BuiltinMethod;
@@ -696,6 +718,9 @@ class Checker {
 	Type check_expr(Expr &r_expr) {
 		switch (r_expr.kind) {
 			case ExprKind::IntLiteral:
+				if (r_expr.int_overflows) {
+					return fail(r_expr, "Integer literal is too large for int.");
+				}
 				return set(r_expr, Type::of(TypeKind::Int));
 			case ExprKind::FloatLiteral:
 				return set(r_expr, Type::of(TypeKind::Float));
@@ -1007,6 +1032,16 @@ class Checker {
 				error(param.line, param.column, "Parameter \"" + param.name + "\" needs a type.");
 				param.type = Type::of(TypeKind::Error);
 			}
+		}
+
+		// The engine constructs Node and Resource scripts with no arguments
+		// (spec §6.2); RefCounted constructors with arguments come with new(...).
+		if (r_function.name == "_init" && !r_function.params.empty()) {
+			const bool engine_made = engine.inherits(cls.extends, "Node") || engine.inherits(cls.extends, "Resource");
+			error(r_function.line, r_function.column, engine_made ? "_init() of a " + cls.extends + " script cannot take parameters: the engine constructs it with none. Use members that must be assigned instead (spec §6.2)." : "_init() with parameters is not supported yet.");
+		}
+		if (r_function.name == "_init" && r_function.return_type_ref && r_function.return_type_ref->name != "void") {
+			error(r_function.return_type_ref->line, r_function.return_type_ref->column, "_init() returns nothing.");
 		}
 
 		if (r_function.return_type_ref) {
