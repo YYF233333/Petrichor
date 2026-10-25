@@ -9,6 +9,7 @@ Petrichor designs a statically typed scripting language that replaces GDScript. 
 - `README.md`, `README.zh.md`: the project introduction for the public.
 - `docs/language-spec.{zh,en}.md`: the specification. Rules come with a brief rationale and their evidence; open questions are listed in §14.3.
 - `docs/architecture.{zh,en}.md`: implementation decisions: components, value representation, testing, order of work.
+- `src/compiler/`: the compiler (architecture §2.1), no Godot dependency; `src/bytecode/`: the compiled format shared with the runtime; `src/runtime/`: the runtime (§2.2).
 - `src/adapter/`: the GDExtension adapter (architecture §2.3); editor-only parts in `src/adapter/editor/`.
 - `tests/engine/`: the headless Godot test project and its runner.
 - `thirdparty/godot-cpp`: git submodule, built with `api_version=4.7`.
@@ -28,6 +29,7 @@ Petrichor designs a statically typed scripting language that replaces GDScript. 
 
 - Setup: `git submodule update --init`.
 - Build (SCons, MSVC on Windows): `scons target=editor` and `scons target=template_debug`. The libraries go to `tests/engine/project/bin/`. Close the editor before rebuilding: the extension is not reloadable.
+- Compiler tests: `scons compiler_tests`, then run `tests/compiler/bin/compiler_tests`. They build without godot-cpp and do not start the engine.
 - Engine tests: `python tests/engine/run.py <Godot 4.7 editor binary>` runs the test project headless: the game, editor-side checks and an exported pack.
 - Language rules come from the spec. When the implementation runs into a problem with a rule, change the spec in a separate commit; do not relax the rule in code.
 - Tests are derived from the spec (§15), the engine and real code, not from the implementation (architecture §3).
