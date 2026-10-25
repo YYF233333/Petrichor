@@ -47,6 +47,7 @@ String PetLanguage::_get_extension() const {
 
 void PetLanguage::_finish() {
 	task_queue::clear();
+	debugger::set_language(nullptr);
 }
 
 /* Editor */

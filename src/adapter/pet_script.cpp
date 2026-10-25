@@ -184,14 +184,15 @@ void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image) {
 			// older than the script's previous one: an instance that kept its
 			// code through one reload keeps its member layout too.
 			for (PetInstance *instance : instances) {
-				if (instance->image == p_image) {
+				const std::shared_ptr<const ClassImage> held = instance->current_image();
+				if (held == p_image) {
 					continue;
 				}
-				if (p_image->same_declarations(*instance->image)) {
+				if (p_image->same_declarations(*held)) {
 					// Only function bodies differ: the instance switches to the
 					// new code, and frames already running finish with the old
 					// (spec §12.4).
-					instance->image = p_image;
+					instance->replace_image(p_image);
 				} else {
 					kept_old_code = true;
 				}
@@ -209,13 +210,9 @@ void PetScript::instance_freed(PetInstance *p_instance) {
 	instances.erase(p_instance);
 }
 
-int PetScript::find_visible_function(const StringName &p_name) const {
-	const std::shared_ptr<const ClassImage> current = get_image();
-	if (!current) {
-		return -1;
-	}
-	const int index = current->find_function(p_name);
-	return index >= 0 && is_visible(current->module.functions[index]) ? index : -1;
+int PetScript::find_visible_function(const ClassImage &p_image, const StringName &p_name) {
+	const int index = p_image.find_function(p_name);
+	return index >= 0 && is_visible(p_image.module.functions[index]) ? index : -1;
 }
 
 void PetScript::update_placeholder(void *p_placeholder) const {
@@ -223,8 +220,9 @@ void PetScript::update_placeholder(void *p_placeholder) const {
 	Dictionary values;
 	if (const std::shared_ptr<const ClassImage> current = get_image()) {
 		for (size_t i = 0; i < current->module.members.size(); i++) {
-			if (is_visible(current->module.members[i])) {
-				values[current->member_names[i]] = initial_value(*current, current->module.members[i]);
+			const bytecode::Member &member = current->module.members[i];
+			if (is_visible(member) && member.has_initial) {
+				values[current->member_names[i]] = initial_value(*current, member);
 			}
 		}
 	}
@@ -346,7 +344,8 @@ bool PetScript::_has_method(const StringName &p_method) const {
 		return true;
 	}
 #endif
-	return find_visible_function(p_method) >= 0 || (p_method == init_name() && get_image());
+	const std::shared_ptr<const ClassImage> current = get_image();
+	return current && (find_visible_function(*current, p_method) >= 0 || p_method == init_name());
 }
 
 bool PetScript::_has_static_method(const StringName &p_method) const {
@@ -354,11 +353,13 @@ bool PetScript::_has_static_method(const StringName &p_method) const {
 }
 
 Variant PetScript::_get_script_method_argument_count(const StringName &p_method) const {
-	const int index = find_visible_function(p_method);
+	// One snapshot: a reload may replace the image between two reads.
+	const std::shared_ptr<const ClassImage> current = get_image();
+	const int index = current ? find_visible_function(*current, p_method) : -1;
 	if (index < 0) {
 		return Variant();
 	}
-	return int64_t(get_image()->module.functions[index].params.size());
+	return int64_t(current->module.functions[index].params.size());
 }
 
 Dictionary PetScript::_get_method_info(const StringName &p_method) const {
@@ -377,7 +378,7 @@ Dictionary PetScript::_get_method_info(const StringName &p_method) const {
 		const StringName type_name = current->global_name == StringName() ? current->base_class : current->global_name;
 		return method_dict(init_name(), Array(), property_dict(Variant::OBJECT, StringName(), PROPERTY_USAGE_DEFAULT, type_name), METHOD_FLAGS_DEFAULT | METHOD_FLAG_STATIC);
 	}
-	const int index = find_visible_function(p_method);
+	const int index = find_visible_function(*current, p_method);
 	return index >= 0 ? function_info(*current, index) : Dictionary();
 }
 
@@ -410,8 +411,10 @@ bool PetScript::_has_property_default_value(const StringName &p_property) const 
 	if (!current) {
 		return false;
 	}
+	// Only a literal initial value is a default; other initializers run per
+	// instance (spec §6.1).
 	const int index = current->find_member(p_property);
-	return index >= 0 && is_visible(current->module.members[index]);
+	return index >= 0 && is_visible(current->module.members[index]) && current->module.members[index].has_initial;
 }
 
 Variant PetScript::_get_property_default_value(const StringName &p_property) const {

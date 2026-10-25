@@ -1,7 +1,6 @@
 #include "runtime/debugger.h"
 
 #include <godot_cpp/classes/engine_debugger.hpp>
-#include <godot_cpp/classes/os.hpp>
 
 #include <string>
 
@@ -16,14 +15,11 @@ ScriptLanguage *language = nullptr;
 // godot-cpp can create engine values.
 thread_local std::string break_reason;
 
-bool on_main_thread() {
-	OS *os = OS::get_singleton();
-	return os->get_thread_caller_id() == os->get_main_thread_id();
-}
-
 void debug_break(const String &p_reason, bool p_can_continue) {
-	// The engine's debugger only breaks on the main thread, as for GDScript.
-	if (!language || !on_main_thread()) {
+	// On any thread, as GDScript does (modules/gdscript/gdscript_editor.cpp:273-285):
+	// the engine's debugger keeps its stepping state per thread
+	// (core/debugger/script_debugger.h:46-47), and so does this call stack.
+	if (!language) {
 		return;
 	}
 	const CharString reason = p_reason.utf8();

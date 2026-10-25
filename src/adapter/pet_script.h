@@ -55,7 +55,7 @@ public:
 	// and methods connected in scenes.
 	static bool is_visible(const bytecode::Member &p_member) { return p_member.is_pub || p_member.is_export; }
 	static bool is_visible(const bytecode::Function &p_function) { return p_function.is_pub || p_function.is_override || p_function.is_exposed; }
-	int find_visible_function(const godot::StringName &p_name) const;
+	static int find_visible_function(const ClassImage &p_image, const godot::StringName &p_name);
 
 	// GDScript constructs scripts of other languages through a bound `new`, and
 	// checks it as the static `_init` (modules/gdscript/gdscript_analyzer.cpp:5958-5961).

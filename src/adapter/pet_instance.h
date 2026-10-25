@@ -15,11 +15,20 @@ struct PetInstance {
 	GDExtensionObjectPtr owner = nullptr;
 	godot::Object *owner_object = nullptr;
 	godot::Ref<PetScript> script;
-	std::shared_ptr<const ClassImage> image; // Replaced on hot reload when the layout is unchanged.
 	uint8_t *members = nullptr;
 
 	PetInstance(PetScript *p_script, const std::shared_ptr<const ClassImage> &p_image, godot::Object *p_owner);
 	~PetInstance();
+
+	// A hot reload replaces the image on the main thread while other threads
+	// may run the instance (spec §12.3), so each use takes one snapshot.
+	std::shared_ptr<const ClassImage> current_image() const { return std::atomic_load(&image); }
+	void replace_image(const std::shared_ptr<const ClassImage> &p_image) { std::atomic_store(&image, p_image); }
+
+private:
+	std::shared_ptr<const ClassImage> image; // Replaced on hot reload when only function bodies change.
+
+public:
 
 	static const GDExtensionScriptInstanceInfo3 info;
 };

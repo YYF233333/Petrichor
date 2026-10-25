@@ -128,7 +128,7 @@ PetInstance::PetInstance(PetScript *p_script, const std::shared_ptr<const ClassI
 }
 
 PetInstance::~PetInstance() {
-	destroy_slots(members, image->member_slots);
+	destroy_slots(members, current_image()->member_slots);
 	::operator delete(members);
 }
 
@@ -140,33 +140,35 @@ static const StringName &as_name(GDExtensionConstStringNamePtr p_name) {
 	return *reinterpret_cast<const StringName *>(p_name);
 }
 
-static const bytecode::Member *visible_member(const PetInstance *p_instance, const StringName &p_name) {
-	const int index = p_instance->image->find_member(p_name);
-	if (index < 0 || !PetScript::is_visible(p_instance->image->module.members[index])) {
+static const bytecode::Member *visible_member(const ClassImage &p_image, const StringName &p_name) {
+	const int index = p_image.find_member(p_name);
+	if (index < 0 || !PetScript::is_visible(p_image.module.members[index])) {
 		return nullptr;
 	}
-	return &p_instance->image->module.members[index];
+	return &p_image.module.members[index];
 }
 
-static int visible_function(const PetInstance *p_instance, const StringName &p_name) {
-	const int index = p_instance->image->find_function(p_name);
-	return index >= 0 && PetScript::is_visible(p_instance->image->module.functions[index]) ? index : -1;
+static int visible_function(const ClassImage &p_image, const StringName &p_name) {
+	const int index = p_image.find_function(p_name);
+	return index >= 0 && PetScript::is_visible(p_image.module.functions[index]) ? index : -1;
 }
 
 static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionConstVariantPtr p_value) {
 	PetInstance *instance = self(p_instance);
-	const bytecode::Member *member = visible_member(instance, as_name(p_name));
+	const std::shared_ptr<const ClassImage> image = instance->current_image();
+	const bytecode::Member *member = visible_member(*image, as_name(p_name));
 	if (!member) {
 		return false;
 	}
 	// A value of the wrong type is rejected, as by the entry checks (spec §10.1).
-	const size_t index = size_t(member - instance->image->module.members.data());
-	return from_variant(member->type, *reinterpret_cast<const Variant *>(p_value), instance->members + member->offset, instance->image->member_classes[index], member->nullable);
+	const size_t index = size_t(member - image->module.members.data());
+	return from_variant(member->type, *reinterpret_cast<const Variant *>(p_value), instance->members + member->offset, image->member_classes[index], member->nullable);
 }
 
 static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionVariantPtr r_ret) {
 	PetInstance *instance = self(p_instance);
-	const bytecode::Member *member = visible_member(instance, as_name(p_name));
+	const std::shared_ptr<const ClassImage> image = instance->current_image();
+	const bytecode::Member *member = visible_member(*image, as_name(p_name));
 	if (!member) {
 		return false;
 	}
@@ -175,7 +177,7 @@ static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance,
 }
 
 static const GDExtensionPropertyInfo *instance_get_property_list(GDExtensionScriptInstanceDataPtr p_instance, uint32_t *r_count) {
-	const TypedArray<Dictionary> list = visible_properties(*self(p_instance)->image);
+	const TypedArray<Dictionary> list = visible_properties(*self(p_instance)->current_image());
 	*r_count = uint32_t(list.size());
 	return make_property_list(list);
 }
@@ -184,17 +186,20 @@ static void instance_free_property_list(GDExtensionScriptInstanceDataPtr p_insta
 	free_property_list(p_list, p_count);
 }
 
+// Only a literal initial value is a default the editor can revert to; other
+// initializers run per instance (spec §6.1).
 static GDExtensionBool instance_property_can_revert(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name) {
-	return visible_member(self(p_instance), as_name(p_name)) != nullptr;
+	const bytecode::Member *member = visible_member(*self(p_instance)->current_image(), as_name(p_name));
+	return member && member->has_initial;
 }
 
 static GDExtensionBool instance_property_get_revert(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionVariantPtr r_ret) {
-	PetInstance *instance = self(p_instance);
-	const bytecode::Member *member = visible_member(instance, as_name(p_name));
-	if (!member) {
+	const std::shared_ptr<const ClassImage> image = self(p_instance)->current_image();
+	const bytecode::Member *member = visible_member(*image, as_name(p_name));
+	if (!member || !member->has_initial) {
 		return false;
 	}
-	*reinterpret_cast<Variant *>(r_ret) = initial_value(*instance->image, *member);
+	*reinterpret_cast<Variant *>(r_ret) = initial_value(*image, *member);
 	return true;
 }
 
@@ -203,7 +208,7 @@ static GDExtensionObjectPtr instance_get_owner(GDExtensionScriptInstanceDataPtr 
 }
 
 static const GDExtensionMethodInfo *instance_get_method_list(GDExtensionScriptInstanceDataPtr p_instance, uint32_t *r_count) {
-	TypedArray<Dictionary> list = visible_methods(*self(p_instance)->image);
+	TypedArray<Dictionary> list = visible_methods(*self(p_instance)->current_image());
 #ifdef PETRICHOR_PROBES
 	probe_methods::append_to(list);
 #endif
@@ -216,7 +221,8 @@ static void instance_free_method_list(GDExtensionScriptInstanceDataPtr p_instanc
 }
 
 static GDExtensionVariantType instance_get_property_type(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionBool *r_is_valid) {
-	const bytecode::Member *member = visible_member(self(p_instance), as_name(p_name));
+	const std::shared_ptr<const ClassImage> image = self(p_instance)->current_image();
+	const bytecode::Member *member = visible_member(*image, as_name(p_name));
 	*r_is_valid = member != nullptr;
 	return member ? GDExtensionVariantType(variant_type(member->type)) : GDEXTENSION_VARIANT_TYPE_NIL;
 }
@@ -227,14 +233,14 @@ static GDExtensionBool instance_has_method(GDExtensionScriptInstanceDataPtr p_in
 		return true;
 	}
 #endif
-	return visible_function(self(p_instance), as_name(p_name)) >= 0;
+	return visible_function(*self(p_instance)->current_image(), as_name(p_name)) >= 0;
 }
 
 static GDExtensionInt instance_get_method_argument_count(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionBool *r_is_valid) {
-	PetInstance *instance = self(p_instance);
-	const int index = visible_function(instance, as_name(p_name));
+	const std::shared_ptr<const ClassImage> image = self(p_instance)->current_image();
+	const int index = visible_function(*image, as_name(p_name));
 	*r_is_valid = index >= 0;
-	return index >= 0 ? GDExtensionInt(instance->image->module.functions[index].params.size()) : 0;
+	return index >= 0 ? GDExtensionInt(image->module.functions[index].params.size()) : 0;
 }
 
 static void instance_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_method, const GDExtensionConstVariantPtr *p_args, GDExtensionInt p_argument_count, GDExtensionVariantPtr r_return, GDExtensionCallError *r_error) {
@@ -249,13 +255,15 @@ static void instance_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensi
 		return;
 	}
 #endif
-	const int index = visible_function(instance, method);
+	// One snapshot for the lookup and the call.
+	const std::shared_ptr<const ClassImage> image = instance->current_image();
+	const int index = visible_function(*image, method);
 	if (index < 0) {
 		r_error->error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
 		return;
 	}
 	const InstanceContext context{ instance->members, instance->owner_object };
-	result = vm::call(instance->image, index, context, args, p_argument_count, *r_error);
+	result = vm::call(image, index, context, args, p_argument_count, *r_error);
 }
 
 static void instance_notification(GDExtensionScriptInstanceDataPtr p_instance, int32_t p_what, GDExtensionBool p_reversed) {
