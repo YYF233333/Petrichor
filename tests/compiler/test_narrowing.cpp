@@ -38,6 +38,17 @@ TEST_CASE("!= None and == None narrow a T? local") {
 	CHECK(narrowing("if p != null:\n\tp.queue_free()").empty()); // null is None (spec §2.2).
 }
 
+TEST_CASE("a narrowed T? of a value type is read and written as the T inside") {
+	const auto compiles = [](const std::string &p_body) {
+		const auto result = compile(in_function(p_body, "func f(p: Vector3?) -> float:"));
+		std::string error;
+		return result.ok() && petrichor::bytecode::verify(result.module, error);
+	};
+	CHECK(compiles("if p != None:\n\treturn p.x\nreturn 0.0"));
+	CHECK(compiles("if p != None:\n\tp.x = 2.0\n\treturn p.x\nreturn 0.0"));
+	CHECK(compiles("if p != None:\n\tp = Vector3(1, 2, 3)\n\treturn p.y\nreturn 0.0"));
+}
+
 TEST_CASE("an early return narrows the rest of the block") {
 	CHECK(narrowing("if p == None:\n\treturn\np.queue_free()").empty());
 	CHECK(narrowing("for i in 3:\n\tif p == None:\n\t\tcontinue\n\tp.queue_free()").empty());

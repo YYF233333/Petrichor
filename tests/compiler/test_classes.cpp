@@ -48,6 +48,43 @@ TEST_CASE("a class_name names a class of another script") {
 	CHECK(contains(errors("var x: Enemy = w"), "Cannot assign a value of type Weapon as Enemy"));
 }
 
+TEST_CASE("members without pub are visible in their own file only (spec §4.2)") {
+	FakeProject classes = project();
+	classes.add_script("res://door.pet", "class_name Door\nextends Node\n\nsignal opened\npub signal closed\n\ninterface Lock:\n\tfunc open()\n", "Door");
+	const auto with_door = [&](const std::string &p_body) {
+		return messages(compile_in("extends Node\n\nfunc f(d: Door) -> void:\n\t" + p_body + "\n", classes));
+	};
+	CHECK(with_door("var s: Signal = d.closed").empty());
+	CHECK(contains(with_door("var s: Signal = d.opened"), "The signal \"opened\" of Door is not pub."));
+	CHECK(contains(with_door("var l: Door.Lock"), "Door.Lock is not pub"));
+	// Other instances of the same class are reached through the engine, which
+	// sees only pub members (spec §10.5).
+	const std::string own = messages(compile_in("class_name Gate\nextends Node\nvar hp := 1\n\nfunc f(other: Gate) -> int:\n\treturn other.hp\n", classes));
+	CHECK(contains(own, "\"hp\" is not pub, and members that are not pub of other instances of this class are not supported yet."));
+}
+
+TEST_CASE("a member typed from scenes is not known to other scripts") {
+	FakeProject classes = project();
+	classes.add_script("res://spawner.pet", "class_name Spawner\nextends Node\n\npub var enemy_scene = preload(\"res://enemy.tscn\")\n", "Spawner");
+	const std::string result = messages(compile_in("extends Node\n\nfunc f(s: Spawner) -> void:\n\tvar scene = s.enemy_scene\n", classes));
+	CHECK(contains(result, "The type of Spawner.enemy_scene is not known here; declare it"));
+}
+
+TEST_CASE("T? and common types of a class of this language keep its class") {
+	CHECK(errors("var weapons: Array[Weapon] = [w]\n\tvar last: Weapon? = weapons.pop_back()\n\tif last != None:\n\t\tprint(last.describe())").empty());
+	// Enemy extends Node3D, Timer extends Node: the conditional is a Node (spec §5.5).
+	CHECK(errors("var b := true\n\tvar t := Timer.new()\n\tvar x: Node = e if b else t").empty());
+}
+
+TEST_CASE("calls to methods of other classes that return arrays") {
+	FakeProject classes = project();
+	classes.add_script("res://inventory.pet", "class_name Inventory\n\npub func names() -> Array[String]:\n\treturn []\n", "Inventory");
+	const compiler::CompileResult result = compile_in("extends Node\n\nfunc f(i: Inventory) -> int:\n\tvar names := i.names()\n\treturn names.size()\n", classes);
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+}
+
 TEST_CASE("an autoload is a value of its script's class (spec §7.3)") {
 	CHECK(errors("Audio.play(\"sounds/land.ogg\")").empty());
 	CHECK(contains(errors("Audio.play(1)"), "Cannot pass a value of type int as String"));

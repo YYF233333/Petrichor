@@ -175,6 +175,7 @@ bytecode::Constant constant_of(const Expr &p_literal, const Type &p_target) {
 struct Place {
 	enum class Kind {
 		Local,
+		NarrowedLocal, // A local of type T? where it is known to hold a T (spec §5.4).
 		Member,
 		SelfProperty,
 		ObjectProperty,
@@ -688,7 +689,7 @@ class Lowerer {
 			}
 		}
 		// An array of the class an argument named (spec §10.3).
-		const bool filtered = p_call.target == Target::EngineMethod && p_call.type.builtin_name() == "Array" && p_call.type.to_string() != p_call.engine_return.to_string();
+		const bool filtered = p_call.target == Target::EngineMethod && p_call.engine_return.builtin_name() == "Array" && p_call.type != p_call.engine_return;
 		i.dst = p_call.type.kind == TypeKind::Void ? NO_REG : temp(filtered ? p_call.engine_return : p_call.type);
 		switch (p_call.target) {
 			case Target::ScriptFunction:
@@ -963,8 +964,8 @@ class Lowerer {
 		place.type = p_expr.type;
 		switch (p_expr.target) {
 			case Target::Local:
-				place.kind = Place::Kind::Local;
 				place.reg = uint32_t(p_expr.index);
+				place.kind = value_type(p_expr.type) != reg_type(place.reg) ? Place::Kind::NarrowedLocal : Place::Kind::Local;
 				break;
 			case Target::Member:
 				place.kind = Place::Kind::Member;
@@ -999,6 +1000,11 @@ class Lowerer {
 		switch (p_place.kind) {
 			case Place::Kind::Local:
 				return p_place.reg;
+			case Place::Kind::NarrowedLocal: {
+				const uint32_t result = temp(p_place.type);
+				instr(Op::UNWRAP, result, p_place.reg, NO_REG, 0, reg_type(result));
+				return result;
+			}
 			case Place::Kind::Member:
 				return load_member(p_place.index);
 			case Place::Kind::SelfProperty:
@@ -1024,6 +1030,9 @@ class Lowerer {
 		switch (p_place.kind) {
 			case Place::Kind::Local:
 				move(p_place.reg, p_value);
+				return;
+			case Place::Kind::NarrowedLocal:
+				instr(Op::TO_VARIANT, p_place.reg, p_value, NO_REG, 0, reg_type(p_value));
 				return;
 			case Place::Kind::Member:
 				store_member(p_place.index, p_value);

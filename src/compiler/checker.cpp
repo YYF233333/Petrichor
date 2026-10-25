@@ -162,7 +162,9 @@ std::optional<Type> element_of(const Type &p_type) {
 // T? of a type: nullable for an object, an Option otherwise.
 Type optional_of(const Type &p_type) {
 	if (p_type.kind == TypeKind::Object) {
-		return Type::object(p_type.name, true);
+		Type type = p_type;
+		type.nullable = true;
+		return type;
 	}
 	return Type::option(p_type);
 }
@@ -193,6 +195,14 @@ bool is_literal(const Expr &p_expr) {
 		default:
 			return false;
 	}
+}
+
+std::vector<Type> param_types(const std::vector<ParamDecl> &p_params) {
+	std::vector<Type> types;
+	for (const ParamDecl &param : p_params) {
+		types.push_back(param.type);
+	}
+	return types;
 }
 
 // A script of this language, by its path.
@@ -323,6 +333,10 @@ class Checker : public ClassRelation {
 		const std::string inner = p_ref.name.substr(dot + 1);
 		for (const InterfaceDecl &interface : header->interfaces) {
 			if (interface.name == inner) {
+				if (!interface.is_pub && path != options.path) {
+					error(p_ref.line, p_ref.column, p_ref.name + " is not pub (spec §4.2).");
+					return Type::of(TypeKind::Error);
+				}
 				return Type::interface(p_ref.name, path);
 			}
 		}
@@ -345,11 +359,7 @@ class Checker : public ClassRelation {
 				error(p_ref.line, p_ref.column, "void cannot be optional.");
 				return Type::of(TypeKind::Error);
 			}
-			if (type.kind == TypeKind::Object) {
-				type.nullable = true;
-			} else {
-				type = Type::option(type);
-			}
+			type = optional_of(type);
 		}
 		return type;
 	}
@@ -424,11 +434,7 @@ class Checker : public ClassRelation {
 	}
 
 	static Type function_type(const FuncDecl &p_function) {
-		std::vector<Type> params;
-		for (const ParamDecl &param : p_function.params) {
-			params.push_back(param.type);
-		}
-		return Type::function(p_function.return_type, params);
+		return Type::function(p_function.return_type, param_types(p_function.params));
 	}
 
 	// The engine passes what its signals declare (spec §4.7, §10.2).
@@ -529,11 +535,7 @@ class Checker : public ClassRelation {
 				return set(r_expr, Type::of(TypeKind::Error));
 			}
 			r_expr.target = Target::SelfSignal;
-			std::vector<Type> params;
-			for (const ParamDecl &param : cls.signals[own_signal->second].params) {
-				params.push_back(param.type);
-			}
-			return set(r_expr, Type::signal(params));
+			return set(r_expr, Type::signal(param_types(cls.signals[own_signal->second].params)));
 		}
 		if (const auto signal = engine.find_signal(cls.extends, r_expr.text)) {
 			if (refuse_in_static(r_expr, r_expr.text)) {
@@ -582,23 +584,40 @@ class Checker : public ClassRelation {
 				continue;
 			}
 			if (!member.is_pub) {
-				return fail(r_expr, "\"" + member.name + "\" of " + p_class.name + " is not pub.");
+				return fail(r_expr, not_pub(p_class, "\"" + member.name + "\""));
+			}
+			if (member.type.is_error()) {
+				// Typed from the scenes, which are not read for another script, or
+				// not checked yet.
+				return fail(r_expr, "The type of " + p_class.name + "." + member.name + " is not known here; declare it, as in `pub var " + member.name + ": T`.");
 			}
 			r_expr.target = Target::ObjectProperty;
 			r_expr.owner = p_class.engine_class();
 			return member.type;
 		}
 		for (const SignalDecl &signal : decl->signals) {
-			if (signal.name == r_expr.text) {
-				std::vector<Type> params;
-				for (const ParamDecl &param : signal.params) {
-					params.push_back(param.type);
-				}
-				r_expr.target = Target::ObjectSignal;
-				return Type::signal(params);
+			if (signal.name != r_expr.text) {
+				continue;
 			}
+			// A signal is reached by name like a method, and the engine knows
+			// every signal a class declares, so only other classes are refused.
+			if (!signal.is_pub && p_class.script != options.path) {
+				return fail(r_expr, not_pub(p_class, "The signal \"" + signal.name + "\""));
+			}
+			r_expr.target = Target::ObjectSignal;
+			return Type::signal(param_types(signal.params));
 		}
 		return std::nullopt;
+	}
+
+	// Members without pub are visible in their own file (spec §4.2), but other
+	// instances are reached by name through the engine, which sees only pub
+	// members (§10.5).
+	std::string not_pub(const Type &p_class, const std::string &p_what) const {
+		if (p_class.script == options.path) {
+			return p_what + " is not pub, and members that are not pub of other instances of this class are not supported yet.";
+		}
+		return p_what + " of " + p_class.name + " is not pub.";
 	}
 
 	// The methods an interface declares (spec §3.9).
@@ -644,13 +663,9 @@ class Checker : public ClassRelation {
 			for (auto &arg : r_expr.args) {
 				check_value(*arg);
 			}
-			return fail(r_expr, "\"" + callee->name + "()\" of " + p_class.name + " is not pub.");
+			return fail(r_expr, not_pub(p_class, "\"" + callee->name + "()\""));
 		}
-		std::vector<Type> params;
-		for (const ParamDecl &param : callee->params) {
-			params.push_back(param.type);
-		}
-		check_arguments(r_expr, params, required_params(*callee), false);
+		check_arguments(r_expr, param_types(callee->params), required_params(*callee), false);
 		r_expr.target = Target::EngineMethod;
 		return set(r_expr, callee->return_type);
 	}
@@ -770,7 +785,7 @@ class Checker : public ClassRelation {
 				if (!type) {
 					type = found_type;
 					type_scene = scene.path;
-				} else if (found_type.to_string() != type->to_string()) {
+				} else if (found_type != *type) {
 					return fail(r_expr, "$" + path + " is a " + type->to_string() + " in " + type_scene + " but a " + found_type.to_string() + " in " + scene.path + "; assign it to a variable typed with a class both extend (spec §7.1).");
 				}
 			}
@@ -1539,15 +1554,13 @@ class Checker : public ClassRelation {
 		if (assignable(p_b, p_a)) {
 			return p_a;
 		}
-		if (p_a.kind == TypeKind::Object && p_b.kind == TypeKind::Object && p_a.args.empty() && p_b.args.empty()) {
-			for (std::string cls = p_a.name; !cls.empty(); cls = engine.parent_class(cls)) {
-				if (engine.inherits(p_b.name, cls)) {
+		if (p_a.kind == TypeKind::Object && p_b.kind == TypeKind::Object && p_a.args.empty() && p_b.args.empty() && !p_a.is_interface && !p_b.is_interface) {
+			// Classes of this language extend engine classes only, so far.
+			for (std::string cls = p_a.engine_class(); !cls.empty(); cls = engine.parent_class(cls)) {
+				if (engine.inherits(p_b.engine_class(), cls)) {
 					return Type::object(cls, p_a.nullable || p_b.nullable);
 				}
 			}
-		}
-		if (p_a.kind == TypeKind::Object && p_a.args.empty() && p_b.kind == p_a.kind && p_b.nullable != p_a.nullable) {
-			return common_type(Type::object(p_a.name, true), Type::object(p_b.name, true));
 		}
 		return Type::of(TypeKind::Error);
 	}
@@ -1718,11 +1731,7 @@ class Checker : public ClassRelation {
 				}
 				return set(r_expr, Type::of(TypeKind::Error));
 			}
-			std::vector<Type> params;
-			for (const ParamDecl &param : callee.params) {
-				params.push_back(param.type);
-			}
-			check_arguments(r_expr, params, required_params(callee), false);
+			check_arguments(r_expr, param_types(callee.params), required_params(callee), false);
 			r_expr.target = Target::ScriptFunction;
 			r_expr.index = script->second;
 			return set(r_expr, callee.return_type);
@@ -2441,11 +2450,7 @@ class Checker : public ClassRelation {
 			}
 			for (const SignalDecl &signal : decl->signals) {
 				if (signal.name == p_signal) {
-					std::vector<Type> types;
-					for (const ParamDecl &param : signal.params) {
-						types.push_back(param.type);
-					}
-					return types;
+					return param_types(signal.params);
 				}
 			}
 		}
