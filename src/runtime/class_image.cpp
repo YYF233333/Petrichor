@@ -229,8 +229,20 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 			return false;
 		}
 	}
-	if (a.groups.size() != b.groups.size()) {
+	if (a.groups.size() != b.groups.size() || a.signals.size() != b.signals.size()) {
 		return false;
+	}
+	for (size_t i = 0; i < a.signals.size(); i++) {
+		const bytecode::SignalInfo &x = a.signals[i];
+		const bytecode::SignalInfo &y = b.signals[i];
+		if (x.name != y.name || x.is_pub != y.is_pub || x.params.size() != y.params.size()) {
+			return false;
+		}
+		for (size_t p = 0; p < x.params.size(); p++) {
+			if (!same_slot(x.params[p], y.params[p])) {
+				return false;
+			}
+		}
 	}
 	for (size_t i = 0; i < a.groups.size(); i++) {
 		const bytecode::ExportGroup &x = a.groups[i];

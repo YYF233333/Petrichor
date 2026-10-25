@@ -214,6 +214,7 @@ class Checker {
 
 	std::unordered_map<std::string, int> member_index;
 	std::unordered_map<std::string, int> function_index;
+	std::unordered_map<std::string, int> signal_index;
 
 	void error(int p_line, int p_column, const std::string &p_message) {
 		errors.push_back({ p_line, p_column, p_message });
@@ -408,6 +409,18 @@ class Checker {
 			r_expr.target = Target::MethodValue;
 			r_expr.index = function_found->second;
 			return set(r_expr, function_type(cls.functions[function_found->second]));
+		}
+		const auto own_signal = signal_index.find(r_expr.text);
+		if (own_signal != signal_index.end()) {
+			if (refuse_in_static(r_expr, r_expr.text)) {
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
+			r_expr.target = Target::SelfSignal;
+			std::vector<Type> params;
+			for (const ParamDecl &param : cls.signals[own_signal->second].params) {
+				params.push_back(param.type);
+			}
+			return set(r_expr, Type::signal(params));
 		}
 		if (const auto signal = engine.find_signal(cls.extends, r_expr.text)) {
 			if (refuse_in_static(r_expr, r_expr.text)) {
@@ -1323,7 +1336,10 @@ class Checker {
 				return name == "bind" ? check_bind(r_expr, base_type) : fail(r_expr, name + "() of a function value is not supported yet.");
 			}
 			if (base_type.kind == TypeKind::Signal && name == "emit") {
-				return fail(r_expr, "emit() of an engine signal is not supported yet.");
+				// What the connected functions take (spec §4.7).
+				check_arguments(r_expr, base_type.args, int(base_type.args.size()), false);
+				r_expr.target = Target::EmitSignal;
+				return set(r_expr, Type::of(TypeKind::Void));
 			}
 			if (base_type.kind == TypeKind::Signal && (name == "connect" || name == "disconnect" || name == "is_connected")) {
 				const Type result = check_builtin_method(r_expr, base_type);
@@ -2047,6 +2063,29 @@ class Checker {
 		}
 	}
 
+	// The class's signals, whose arguments are typed (spec §4.7).
+	void declare_signals() {
+		for (size_t i = 0; i < cls.signals.size(); i++) {
+			SignalDecl &signal = cls.signals[i];
+			if (signal_index.count(signal.name) || member_index.count(signal.name) || function_index.count(signal.name) || engine.find_signal(cls.extends, signal.name)) {
+				error(signal.line, signal.column, "\"" + signal.name + "\" is already declared.");
+				continue;
+			}
+			signal_index[signal.name] = int(i);
+			for (ParamDecl &param : signal.params) {
+				if (!param.declared_type) {
+					error(param.line, param.column, "The argument \"" + param.name + "\" of a signal needs a type (spec §4.7).");
+					param.type = Type::of(TypeKind::Error);
+					continue;
+				}
+				if (param.default_value) {
+					error(param.default_value->line, param.default_value->column, "The arguments of a signal have no default values.");
+				}
+				param.type = resolve(*param.declared_type, false);
+			}
+		}
+	}
+
 	void check_body(FuncDecl &r_function) {
 		function = &r_function;
 		scopes.clear();
@@ -2093,6 +2132,7 @@ public:
 			function_index[function_decl.name] = int(i);
 			check_signature(function_decl);
 		}
+		declare_signals();
 		check_members();
 		check_groups();
 		check_connections();

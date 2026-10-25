@@ -58,6 +58,12 @@ pub func sign_of(x: int) -> int:
 pub func neither(a: bool, b: bool) -> bool:
 	return !a and !b
 
+# A signal of the class (spec §4.7), which GDScript connects to by name.
+signal counted(total: int)
+
+pub func emit_count(total: int):
+	counted.emit(total)
+
 pub func describe(n: int) -> String:
 	if n < 0:
 		return "negative"

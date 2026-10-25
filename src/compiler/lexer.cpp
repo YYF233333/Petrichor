@@ -70,6 +70,8 @@ const char *token_name(TokenKind p_kind) {
 			return "\"return\"";
 		case TokenKind::Self:
 			return "\"self\"";
+		case TokenKind::Signal:
+			return "\"signal\"";
 		case TokenKind::Static:
 			return "\"static\"";
 		case TokenKind::True:
@@ -168,6 +170,7 @@ const std::unordered_map<std::string, TokenKind> &keywords() {
 		{ "pub", TokenKind::Pub },
 		{ "return", TokenKind::Return },
 		{ "self", TokenKind::Self },
+		{ "signal", TokenKind::Signal },
 		{ "static", TokenKind::Static },
 		{ "true", TokenKind::True },
 		{ "var", TokenKind::Var },

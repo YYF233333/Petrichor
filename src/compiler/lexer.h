@@ -42,6 +42,7 @@ enum class TokenKind {
 	Pub,
 	Return,
 	Self,
+	Signal,
 	Static,
 	True,
 	Var,

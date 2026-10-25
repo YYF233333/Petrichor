@@ -184,8 +184,20 @@ TEST_CASE("method values, signals and connect") {
 	CHECK(has_error(handler + "child_entered_tree.connect(handle)\n", "Signal(Node) passes Node as argument 1, which func(AudioStreamPlayer) does not take."));
 	CHECK(has_error(handler + "p.finished.connect(handle.bind(p, p))\n", "bind() binds 2 argument(s), but func(AudioStreamPlayer) takes 1."));
 	CHECK(has_error(handler + "p.finished.connect(handle.bind(1))\n", "Cannot pass a value of type int as AudioStreamPlayer"));
-	CHECK(has_error(handler + "p.finished.emit()\n", "not supported yet"));
+	CHECK(errors_of(handler + "p.finished.emit()\n").empty());
+	CHECK(has_error(handler + "p.finished.emit(1)\n", "takes 0 argument(s), 1 given"));
 	CHECK(type_of("p.finished", "var p := AudioStreamPlayer.new()") == "Signal()");
+}
+
+// Spec §4.7.
+TEST_CASE("signals the class declares") {
+	const std::string head = "extends Node\nsignal hit(amount: int, by: Node)\nsignal done\n\nfunc on_hit(a: int, n: Node):\n\tpass\n\nfunc f():\n\t";
+	CHECK(errors_of(head + "hit.emit(3, self_node())\n\tdone.emit()\n\thit.connect(on_hit)\n\nfunc self_node() -> Node:\n\treturn Node.new()\n").empty());
+	CHECK(has_error(head + "hit.emit(\"x\", Node.new())\n", "Cannot pass a value of type String as int"));
+	CHECK(has_error(head + "hit.emit(3)\n", "takes 2 argument(s), 1 given"));
+	CHECK(has_error(head + "done.connect(on_hit)\n", "Signal() passes 0 argument(s), but func(int, Node) takes 2."));
+	CHECK(has_error("extends Node\nsignal bad(x)\n", "needs a type"));
+	CHECK(has_error("extends Node\nvar hit := 1\nsignal hit\n", "already declared"));
 }
 
 TEST_CASE("as converts objects to T? (spec §5.3)") {

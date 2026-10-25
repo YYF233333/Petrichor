@@ -490,6 +490,13 @@ public:
 		if (!layout(module.members, module.instance_size, instance)) {
 			return false;
 		}
+		for (const SignalInfo &signal : module.signals) {
+			for (const Slot &param : signal.params) {
+				if (!is_type(uint32_t(param.type))) {
+					return fail("an argument of the signal " + signal.name + " has no type");
+				}
+			}
+		}
 		for (const ExportGroup &group : module.groups) {
 			if (group.level > 2 || group.before_member > module.members.size()) {
 				return fail("an export group outside the members");

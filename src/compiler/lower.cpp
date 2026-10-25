@@ -639,7 +639,7 @@ class Lowerer {
 		ir::Instr i;
 		std::unique_ptr<Place> written_back;
 		// The base before the arguments, as it reads in the source.
-		if ((p_call.target == Target::EngineMethod && p_call.base) || p_call.target == Target::BindArguments) {
+		if ((p_call.target == Target::EngineMethod && p_call.base) || p_call.target == Target::BindArguments || p_call.target == Target::EmitSignal) {
 			i.base = lower_expr(*p_call.base);
 		} else if (p_call.target == Target::BuiltinMethod) {
 			const ValueType base_type = value_type(p_call.base->type);
@@ -696,19 +696,21 @@ class Lowerer {
 				i.imm = builtin_method(method);
 				break;
 			}
-			case Target::BindArguments: {
-				// Callable.bind() takes its arguments as Variant.
+			case Target::BindArguments:
+			case Target::EmitSignal: {
+				// Callable.bind() and Signal.emit() take their arguments as Variant.
+				const bool bind = p_call.target == Target::BindArguments;
 				i.op = Op::CALL_BUILTIN;
-				bytecode::BuiltinMethodCall bind;
-				bind.base = ValueType::Callable;
-				bind.method = "bind";
-				const builtin::Class *callable = builtin::find_class("Callable");
-				const builtin::Method *method = callable ? builtin::find_method(*callable, "bind") : nullptr;
-				bind.hash = method ? method->hash : 0;
-				bind.is_vararg = true;
-				bind.return_type = ValueType::Callable;
-				bind.result_type = ValueType::Callable;
-				i.imm = builtin_method(bind);
+				bytecode::BuiltinMethodCall call;
+				call.base = bind ? ValueType::Callable : ValueType::Signal;
+				call.method = bind ? "bind" : "emit";
+				const builtin::Class *type = builtin::find_class(bind ? "Callable" : "Signal");
+				const builtin::Method *method = type ? builtin::find_method(*type, call.method) : nullptr;
+				call.hash = method ? method->hash : 0;
+				call.is_vararg = true;
+				call.return_type = bind ? ValueType::Callable : ValueType::Void;
+				call.result_type = call.return_type;
+				i.imm = builtin_method(call);
 				break;
 			}
 			case Target::BuiltinConstructor:
@@ -1212,6 +1214,15 @@ public:
 			module.members.push_back(member);
 		}
 		module.instance_size = offset;
+		for (const SignalDecl &signal : cls.signals) {
+			bytecode::SignalInfo info;
+			info.name = signal.name;
+			info.is_pub = signal.is_pub;
+			for (const ParamDecl &param : signal.params) {
+				info.params.push_back(slot_of(param.name, param.type));
+			}
+			module.signals.push_back(info);
+		}
 		for (const ExportGroupDecl &group : cls.groups) {
 			bytecode::ExportGroup out;
 			out.name = group.name;

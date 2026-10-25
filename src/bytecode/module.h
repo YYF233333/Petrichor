@@ -130,6 +130,13 @@ struct Function {
 	std::vector<uint32_t> code;
 };
 
+// A signal the class declares (spec §4.7); the engine finds it by name.
+struct SignalInfo {
+	std::string name;
+	std::vector<Slot> params; // Types and names; the offsets mean nothing.
+	bool is_pub = false;
+};
+
 // `@export_category`, `@export_group` or `@export_subgroup`: a heading the
 // inspector shows before a member.
 struct ExportGroup {
@@ -218,6 +225,7 @@ struct Module {
 	std::string global_name;
 	std::string base_class;
 	std::vector<Member> members;
+	std::vector<SignalInfo> signals;
 	std::vector<ExportGroup> groups;
 	uint32_t instance_size = 0;
 	std::vector<Function> functions;

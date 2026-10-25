@@ -62,6 +62,7 @@ enum class Target {
 	SelfSignal, // A signal of the engine class this class extends, as a value.
 	ObjectSignal, // A signal of an engine object.
 	BindArguments, // `f.bind(...)` of a function value.
+	EmitSignal, // `s.emit(...)` of a signal value.
 	EngineConstant, // An integer constant of an engine class, in `int_value`.
 	NoneComparison, // `x == None` or `x != None`: `left` or `right` is the None literal.
 };
@@ -204,6 +205,15 @@ struct FuncDecl {
 	std::vector<LocalInfo> locals; // Parameters first.
 };
 
+// `signal name(params)` (spec §4.7).
+struct SignalDecl {
+	std::string name;
+	int line = 0;
+	int column = 0;
+	bool is_pub = false;
+	std::vector<ParamDecl> params;
+};
+
 struct ClassDecl {
 	std::string class_name;
 	std::string extends = "RefCounted";
@@ -211,6 +221,7 @@ struct ClassDecl {
 	int extends_column = 1;
 	std::vector<VarDecl> members;
 	std::vector<FuncDecl> functions;
+	std::vector<SignalDecl> signals;
 	std::vector<ExportGroupDecl> groups;
 };
 

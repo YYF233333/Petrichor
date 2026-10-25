@@ -565,6 +565,32 @@ class Parser {
 
 	/* Declarations */
 
+	// After "(": parameters up to the ")".
+	std::vector<ParamDecl> params() {
+		std::vector<ParamDecl> result;
+		if (!check(TokenKind::ParenClose)) {
+			do {
+				if (check(TokenKind::ParenClose)) {
+					break;
+				}
+				ParamDecl param;
+				const Token &param_name = expect(TokenKind::Identifier, "a parameter name");
+				param.name = param_name.text;
+				param.line = param_name.line;
+				param.column = param_name.column;
+				if (match(TokenKind::Colon)) {
+					param.declared_type = type_ref();
+				}
+				if (match(TokenKind::Equal)) {
+					param.default_value = expression();
+				}
+				result.push_back(std::move(param));
+			} while (!failed && match(TokenKind::Comma));
+		}
+		expect(TokenKind::ParenClose, "\")\"");
+		return result;
+	}
+
 	static bool is_group_annotation(const std::string &p_name) {
 		return p_name == "export_group" || p_name == "export_subgroup" || p_name == "export_category";
 	}
@@ -634,6 +660,26 @@ class Parser {
 			return;
 		}
 
+		if (match(TokenKind::Signal)) {
+			if (!annotations.empty() || is_static) {
+				fail(peek(), "A signal takes no annotations and is not static.");
+				return;
+			}
+			SignalDecl decl;
+			const Token &name = expect(TokenKind::Identifier, "a signal name");
+			decl.name = name.text;
+			decl.line = name.line;
+			decl.column = name.column;
+			decl.is_pub = is_pub;
+			// `signal died` has no arguments, as in GDScript.
+			if (match(TokenKind::ParenOpen)) {
+				decl.params = params();
+			}
+			end_of_statement();
+			r_class.signals.push_back(std::move(decl));
+			return;
+		}
+
 		if (check(TokenKind::Func)) {
 			if (!annotations.empty()) {
 				fail(peek(), "@" + annotations[0].name + " applies to variables.");
@@ -648,26 +694,7 @@ class Parser {
 			decl.is_pub = is_pub;
 			decl.is_static = is_static;
 			expect(TokenKind::ParenOpen, "\"(\"");
-			if (!check(TokenKind::ParenClose)) {
-				do {
-					if (check(TokenKind::ParenClose)) {
-						break;
-					}
-					ParamDecl param;
-					const Token &param_name = expect(TokenKind::Identifier, "a parameter name");
-					param.name = param_name.text;
-					param.line = param_name.line;
-					param.column = param_name.column;
-					if (match(TokenKind::Colon)) {
-						param.declared_type = type_ref();
-					}
-					if (match(TokenKind::Equal)) {
-						param.default_value = expression();
-					}
-					decl.params.push_back(std::move(param));
-				} while (match(TokenKind::Comma));
-			}
-			expect(TokenKind::ParenClose, "\")\"");
+			decl.params = params();
 			if (match(TokenKind::Arrow)) {
 				decl.return_type_ref = type_ref();
 			}

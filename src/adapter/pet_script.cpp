@@ -458,12 +458,33 @@ ScriptLanguage *PetScript::_get_language() const {
 	return PetLanguage::get_singleton();
 }
 
+// Signals are always visible: the engine connects and emits them by name
+// (spec §10.5).
 bool PetScript::_has_script_signal(const StringName &p_signal) const {
+	const std::shared_ptr<const ClassImage> current = get_image();
+	if (!current) {
+		return false;
+	}
+	for (const bytecode::SignalInfo &signal : current->module.signals) {
+		if (p_signal == StringName(String::utf8(signal.name.c_str()))) {
+			return true;
+		}
+	}
 	return false;
 }
 
 TypedArray<Dictionary> PetScript::_get_script_signal_list() const {
-	return TypedArray<Dictionary>();
+	TypedArray<Dictionary> list;
+	if (const std::shared_ptr<const ClassImage> current = get_image()) {
+		for (const bytecode::SignalInfo &signal : current->module.signals) {
+			Array args;
+			for (const bytecode::Slot &param : signal.params) {
+				args.push_back(typed(property_dict(variant_type(param.type), String::utf8(param.name.c_str()), usage_of(param.type, PROPERTY_USAGE_DEFAULT), class_of(param.type, param.class_name)), param));
+			}
+			list.push_back(method_dict(String::utf8(signal.name.c_str()), args, property_dict(Variant::NIL, StringName(), PROPERTY_USAGE_DEFAULT), METHOD_FLAGS_DEFAULT));
+		}
+	}
+	return list;
 }
 
 bool PetScript::_has_property_default_value(const StringName &p_property) const {

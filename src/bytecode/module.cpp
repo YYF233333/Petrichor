@@ -319,6 +319,15 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.u8(member.has_initial ? 1 : 0);
 		w.constant(member.initial);
 	}
+	w.u32(uint32_t(p_module.signals.size()));
+	for (const SignalInfo &signal : p_module.signals) {
+		w.str(signal.name);
+		w.u8(signal.is_pub ? 1 : 0);
+		w.u32(uint32_t(signal.params.size()));
+		for (const Slot &param : signal.params) {
+			w.slot(param);
+		}
+	}
 	w.u32(uint32_t(p_module.groups.size()));
 	for (const ExportGroup &group : p_module.groups) {
 		w.str(group.name);
@@ -459,6 +468,15 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		member.hint_string = r.str();
 		member.has_initial = r.u8() != 0;
 		member.initial = r.constant();
+	}
+	module.signals.resize(r.count());
+	for (SignalInfo &signal : module.signals) {
+		signal.name = r.str();
+		signal.is_pub = r.u8() != 0;
+		signal.params.resize(r.count());
+		for (Slot &param : signal.params) {
+			param = r.slot();
+		}
 	}
 	module.groups.resize(r.count());
 	for (ExportGroup &group : module.groups) {

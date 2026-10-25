@@ -198,6 +198,13 @@ static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance,
 	const std::shared_ptr<const ClassImage> image = instance->current_image();
 	const bytecode::Member *member = visible_member(*image, as_name(p_name));
 	if (!member) {
+		// A signal reads as a Signal, as in GDScript (modules/gdscript/gdscript.cpp:1648-1651).
+		for (const bytecode::SignalInfo &signal : image->module.signals) {
+			if (as_name(p_name) == StringName(String::utf8(signal.name.c_str()))) {
+				*reinterpret_cast<Variant *>(r_ret) = Signal(instance->owner_object, as_name(p_name));
+				return true;
+			}
+		}
 		return false;
 	}
 	*reinterpret_cast<Variant *>(r_ret) = to_variant(member->type, instance->members + member->offset);
