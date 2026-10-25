@@ -1,6 +1,7 @@
 #include "bytecode/module.h"
 
 #include "bytecode/opcodes.h"
+#include "format_id.gen.h"
 
 #include <cstring>
 #include <sstream>
@@ -298,7 +299,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 	for (uint8_t byte : MAGIC) {
 		w.u8(byte);
 	}
-	w.u32(FORMAT_VERSION);
+	w.u64(FORMAT_ID);
 	w.u64(p_module.source_hash);
 	w.u8(p_module.declarations_only ? 1 : 0);
 	w.str(p_module.global_name);
@@ -449,9 +450,8 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 			return false;
 		}
 	}
-	const uint32_t version = r.u32();
-	if (version != FORMAT_VERSION) {
-		r_error = "compiled by another version of Petrichor";
+	if (r.u64() != FORMAT_ID) {
+		r_error = "compiled by a build of Petrichor with another bytecode format";
 		return false;
 	}
 

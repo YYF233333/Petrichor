@@ -340,10 +340,12 @@ TEST_CASE("serialization round-trips") {
 TEST_CASE("corrupt data is rejected") {
 	const bytecode::Module module = module_of("extends Node\n\nfunc f() -> void:\n\tpass\n");
 	std::vector<uint8_t> data = bytecode::serialize(module);
-	data.resize(data.size() / 2);
 	bytecode::Module copy;
 	std::string error;
+	const std::vector<uint8_t> truncated(data.begin(), data.begin() + data.size() / 2);
+	CHECK(!bytecode::deserialize(truncated.data(), truncated.size(), copy, error));
+	// The format's identifier follows the magic.
+	data[4] ^= 1;
 	CHECK(!bytecode::deserialize(data.data(), data.size(), copy, error));
-	data[4] = 99;
-	CHECK(!bytecode::deserialize(data.data(), data.size(), copy, error));
+	CHECK(error == "compiled by a build of Petrichor with another bytecode format");
 }

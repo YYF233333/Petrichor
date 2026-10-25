@@ -7,8 +7,10 @@
 namespace petrichor::bytecode {
 
 // The compiled form of one source file: the contract between the compiler and
-// the runtime. It only needs to be readable by the same build that wrote it.
-constexpr uint32_t FORMAT_VERSION = 4;
+// the runtime. It has no version number: a file is read only by builds whose
+// definition of the format, the files of this directory, is the same
+// (FORMAT_ID, which SConstruct generates). The meaning of each instruction's
+// operands is written in opcodes.h, so that a change to it changes the id.
 
 // How a value is stored in a frame or an instance. Up to Variant the numbers
 // are the engine's Variant::Type, so the runtime can hand them to the engine's
