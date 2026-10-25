@@ -280,7 +280,8 @@ Dictionary PetLanguage::_debug_get_stack_level_locals(int32_t p_level, int32_t p
 Dictionary PetLanguage::_debug_get_stack_level_members(int32_t p_level, int32_t p_max_subitems, int32_t p_max_depth) {
 	Dictionary result;
 	const StackFrame *frame = frame_at(p_level);
-	if (!frame) {
+	// A static function has no instance (spec §4.8).
+	if (!frame || !frame->members) {
 		return result;
 	}
 	PackedStringArray names;

@@ -141,6 +141,13 @@ class Verifier {
 		return p_index < p_count || fail(std::string("index ") + std::to_string(p_index) + " is outside the " + p_table + " table");
 	}
 
+	bool constant(uint32_t p_index, ValueType p_type) {
+		if (!index(p_index, module.constants.size(), "constant")) {
+			return false;
+		}
+		return module.constants[p_index].type == p_type || fail("the constant does not have the slot's type");
+	}
+
 	bool target(uint32_t p_pc) {
 		return (p_pc < starts.size() && starts[p_pc]) || fail("jump to " + std::to_string(p_pc) + ", which is not an instruction");
 	}
@@ -251,6 +258,12 @@ class Verifier {
 						return fail("a constructor takes an object in its own layout");
 					}
 				}
+				// The old value of dst is destroyed before the engine reads the arguments.
+				for (uint32_t i = 0; i < p_call[3]; i++) {
+					if (p_call[5 + 2 * i] == dst) {
+						return fail("a constructor writes over one of its arguments");
+					}
+				}
 				return engine_arguments(p_call, constructor.params, false);
 			}
 			default:
@@ -260,24 +273,57 @@ class Verifier {
 
 	/* Instructions */
 
+	// Whether the instruction needs the instance: members, or self as its base.
+	bool uses_instance(Op p_op, const uint32_t *o) const {
+		switch (p_op) {
+			case Op::LOAD_MEMBER_8:
+			case Op::LOAD_MEMBER_STRING:
+			case Op::LOAD_MEMBER_VALUE:
+			case Op::STORE_MEMBER_8:
+			case Op::STORE_MEMBER_STRING:
+			case Op::STORE_MEMBER_VALUE:
+			case Op::CHECK_ASSIGNED:
+			case Op::METHOD_VALUE:
+				return true;
+			case Op::GET_PROPERTY:
+			case Op::GET_SIGNAL:
+				return o[2] == NO_SLOT;
+			case Op::SET_PROPERTY:
+				return o[1] == NO_SLOT;
+			case Op::CALL_ENGINE:
+				return o[2] == NO_SLOT;
+			case Op::CALL:
+				return o[0] < module.functions.size() && !module.functions[o[0]].is_static;
+			default:
+				return false;
+		}
+	}
+
 	bool instruction(Op p_op, const uint32_t *o) {
 		ValueType type = ValueType::Void;
+		// A static function runs without an instance (spec §4.8).
+		if (function->is_static && uses_instance(p_op, o)) {
+			return fail("a static function uses the instance");
+		}
 		switch (p_op) {
 			case Op::LINE:
 				return true;
 			case Op::CONST_INT:
-				return slot(o[0], ValueType::Int) && index(o[1], module.constants.size(), "constant");
+				return slot(o[0], ValueType::Int) && constant(o[1], ValueType::Int);
 			case Op::CONST_FLOAT:
-				return slot(o[0], ValueType::Float) && index(o[1], module.constants.size(), "constant");
+				return slot(o[0], ValueType::Float) && constant(o[1], ValueType::Float);
 			case Op::CONST_BOOL:
-				return slot(o[0], ValueType::Bool);
+				// A bool slot holds 0 or 1 in all 8 bytes.
+				return slot(o[0], ValueType::Bool) && (o[1] <= 1 || fail("a bool other than 0 and 1"));
 			case Op::CONST_STRING:
-				return slot(o[0], ValueType::String) && index(o[1], module.constants.size(), "constant");
-			case Op::CONST_VALUE:
-				if (!is_type(o[0]) || !slot(o[1], ValueType(o[0])) || !index(o[2], module.constants.size(), "constant")) {
-					return false;
+				return slot(o[0], ValueType::String) && constant(o[1], ValueType::String);
+			case Op::CONST_VALUE: {
+				const ValueType value_type = ValueType(o[0]);
+				if (value_type == ValueType::Bool || value_type == ValueType::Int || value_type == ValueType::Float || value_type == ValueType::String) {
+					return fail("a constant of a type that has an instruction of its own");
 				}
-				return module.constants[o[2]].type == ValueType(o[0]) || fail("the constant does not have the slot's type");
+				return is_type(o[0]) && slot(o[1], value_type) && constant(o[2], value_type);
+			}
 			case Op::MOVE_8:
 				return slot_type(o[0], type) && (is_8_byte(type) || fail("an 8-byte move of another type")) && slot(o[1], type);
 			case Op::MOVE_STRING:
@@ -431,6 +477,8 @@ class Verifier {
 			case Op::RETURN:
 				return (function->return_type != ValueType::Void || fail("a void function returns a value")) && slot(o[0], function->return_type);
 			case Op::RETURN_VOID:
+				// Also at the unreachable end of a function with a return type;
+				// the caller's slot then keeps its default value.
 				return true;
 			default:
 				return call(p_op, o);

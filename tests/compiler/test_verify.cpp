@@ -143,6 +143,40 @@ TEST_CASE("operands must name slots of the instruction's type") {
 	}
 }
 
+TEST_CASE("constants must have the type their instruction stores") {
+	bytecode::Module module = compiled();
+	bytecode::Function &touch = function(module, "touch");
+	SUBCASE("a bool other than 0 and 1") {
+		touch.code[find(touch, Op::CONST_BOOL) + 2] = 2;
+		CHECK(rejected(module, "a bool other than 0 and 1"));
+	}
+	SUBCASE("an int instruction with a float constant") {
+		module.constants[touch.code[find(touch, Op::CONST_INT) + 2]].type = bytecode::ValueType::Float;
+		CHECK(rejected(module, "the constant does not have the slot's type"));
+	}
+}
+
+TEST_CASE("a static function does not use the instance") {
+	bytecode::Module module = compiled();
+	SUBCASE("members") {
+		function(module, "touch").is_static = true;
+		CHECK(rejected(module, "a static function uses the instance"));
+	}
+	SUBCASE("self as the base of an engine call") {
+		function(module, "pick").is_static = true;
+		CHECK(rejected(module, "a static function uses the instance"));
+	}
+}
+
+TEST_CASE("a constructor does not write over its arguments") {
+	compiler::CompileResult result = compile("extends Node\n\nfunc v(x: Vector3) -> Vector3:\n\treturn Vector3(x)\n");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	bytecode::Function &v = function(result.module, "v");
+	const size_t construct = find(v, Op::CONSTRUCT);
+	v.code[construct + 2] = v.code[construct + 6]; // dst is the first argument's slot.
+	CHECK(rejected(result.module, "a constructor writes over one of its arguments"));
+}
+
 TEST_CASE("tables and layouts must be consistent") {
 	bytecode::Module module = compiled();
 	bytecode::Function &pick = function(module, "pick");
