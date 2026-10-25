@@ -412,7 +412,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 信号的参数必须标注类型，例如 `pub signal died(cause: String)`。
 - `emit` 和 `connect` 都做静态检查：发射时的实参、连接的函数的参数个数和类型。
 - 场景中的信号连接由场景模型检查（§7.7）。
-- 引擎类的信号按 ClassDB 的信息定型；未审核的对象参数可空（§10.2）。
+- 引擎类的信号按 ClassDB 的信息定型；未审核的对象参数按非空处理（§10.2）。
 - await 信号的结果见 §9.6。
 
 ### 4.8 静态成员
@@ -793,14 +793,18 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - **入口检查**：值从引擎、GDScript 或 C# 进入本语言的位置（参数、`set` 写入成员、信号的实参、await 的结果、解码），按声明的类型检查，失败是程序错误。远程检查器的写入也经过入口检查（§7.5）。
 - Option 交给引擎时 None 编码为 NIL。所以只有 X 的值不会编码为 NIL 时，`X?` 才能隐式交给引擎；X 是 Option 或 Variant 时是编译错误，快速修复给出 `.flatten()` 或 `.unwrap_or(null)`。否则 Some(None) 经过引擎往返后会悄悄变成 None（§3.4）。
 
-### 10.2 引擎返回对象的可空性
+### 10.2 引擎 API 中对象的可空性
 
-- 绑定元数据（§10.3）尚未审核的引擎 API 中，对象类型一律可空。
-- 审核从调用最频繁的 API 开始，结果分三种：
+- 绑定元数据（§10.3）尚未审核的引擎 API，按值的流向确定对象类型的可空性：
+  - 引擎交给本语言的值可能为空：方法的返回值和读出的属性，类型为 `T?`；
+  - 引擎调用本语言时传入的值按非空处理：被覆盖的虚函数的参数和引擎信号的参数，类型为 T，为空时由入口检查（§10.1）报告程序错误；
+  - 本语言传给引擎的值可以为空：方法的参数和写入的属性接受 None，空值是否合法由引擎判断，例如 `set_owner(null)` 清除 owner（`scene/main/node.cpp:2273-2281`）。
+- 审核从调用最频繁的 API 开始。返回值的结果分三种：
   - 非空，类型为 T；
   - 只在误用时为空，即引擎在返回 null 的同时报错，例如 `get_tree()`（`scene/main/node.h:558-561`）：按非空处理，为空时是程序错误；
   - 正常情况下可能为空，例如 `get_collider()`、`get_first_node_in_group()`、`get_parent()`：类型为 `T?`。
-- 理由：引擎用 `RequiredResult` 标注“只在出错时为 null”的返回值（`core/object/object.h:942-944`），这样的 API 声明只有约 50 处，其中 29 处在 Tween。
+  参数同样审核：不接受空值的参数标为非空；引擎可能传入空值的虚函数参数和信号参数标为可空，例如 Area3D 的 `body_shape_entered` 在节点不在树中时传入 null（`scene/3d/physics/area_3d.cpp:233-234`）。
+- 理由：引擎用 `RequiredResult` 标注“只在出错时为 null”的返回值（`core/object/object.h:942-944`），这样的 API 声明只有约 50 处，其中 29 处在 Tween。引擎传入的对象几乎总是非空，GDScript 代码也不对它们判空；若一律可空，每个 `_input(event)` 和每个信号处理函数都要先检查，而少数为空的情况由入口检查在边界上报告，不会悄悄传下去。
 
 ### 10.3 绑定元数据
 
@@ -1020,7 +1024,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 程序错误 | `_process` 往下两层调用中的程序错误中止这两层和 `_process`，下一帧照常调用 `_process`；需要返回值的入口，引擎得到该类型的默认值；除 `assert` 外，程序在 debug 和 release 构建中行为相同 |
 | 断言 | debug 构建中 `assert(false)` 是程序错误；release 构建中 `assert(f())` 不调用 f；`assert(await t)` 报编译错误；`assert(save_data)` 在 save_data 为 `Resource?` 时报编译错误并给出 `save_data != None` |
 | 协程 | 含 await 而未声明 async 报编译错误；丢弃 async 调用的结果报编译错误，`f().detach()` 合法；`cancel()` 之后结果一定是取消；`await f(...)` 启动的子任务随父任务取消，`await t` 只停止等待；被等待的兄弟节点与等待方在同一次场景释放中被删除时不报错；被等待的对象被单独释放时，等待方在本帧结束后报程序错误，`Task.of(信号).settled()` 得 `Cancelled(CancelReason.AWAITED_FREED)`；失败的任务经 `settled()` 等待时，失败照常传给等待方；`var t: Task[void] = f()` 合法，没有类型实参的 `Task` 报编译错误；所属对象被释放时协程静默取消；GDScript 对象在其协程第二次挂起期间被释放时，await 这个协程的等待方在本帧结束后报程序错误，经 Callable 调用时相同 |
-| 引擎边界 | 未审核的、返回对象的引擎方法类型为 `T?`；`get_tree()` 非空，`get_collider()` 可空；GDScript 向非空参数传入 null 是程序错误；远程检查器向非空成员写入 null 时原值不变；经信号传出的 struct 是按字段名编码的 Dictionary，`Command.MOVE(target = p)` 是 `{"$variant": "MOVE", "target": p}` |
+| 引擎边界 | 未审核的、返回对象的引擎方法类型为 `T?`；`get_tree()` 非空，`get_collider()` 可空；未审核的虚函数参数和信号参数为 T，引擎传入 null 是程序错误；未审核的参数接受 None；GDScript 向非空参数传入 null 是程序错误；远程检查器向非空成员写入 null 时原值不变；经信号传出的 struct 是按字段名编码的 Dictionary，`Command.MOVE(target = p)` 是 `{"$variant": "MOVE", "target": p}` |
 | 工具函数 | `min(1.5, 1)` 报编译错误并给出 `min(1.5, 1.0)`；`lerp(a, b, t)` 的结果与 a 同类型；`find_children("*", "MeshInstance3D")` 为 `Array[MeshInstance3D]` |
 | 字符串 | 期望 StringName 的字面量在编译期构造；`&"a" == "a"` 为真；字面量成员名不存在时报编译错误，并参与重命名 |
 | 跨语言 | GDScript 文件继承本语言的类时，分析服务在该文件上报错并说明原因；await GDScript 协程得到按声明类型检查的结果；作为语句调用 GDScript 协程不报错，把它的结果当作值使用而不写 await 是程序错误；GDScript await 本语言的协程，在取消时得到 null 而不挂起；GDScript await 本语言中返回 Transform3D 的协程时没有警告，取消时把结果赋给 Transform3D 变量，在 debug 构建中报赋值错误而不崩溃；GDScript 持有 `p: Player` 时，属性、方法和信号的类型错误报 GDScript 编译错误；`Player.new()` 的类型为 Player，多传实参报 GDScript 编译错误 |
@@ -1074,12 +1078,14 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | `_process` 和 `_physics_process` 的参数是 double | `scene/main/node.h:433-434` |
 | `NOTIFICATION_PARENTED` | `scene/main/node.h:465` |
 | `get_tree()` 在节点不在树中时报错并返回 null；`get_parent()`、`get_owner()` 没有父节点或 owner 时返回 null 而不报错 | `scene/main/node.h:558-561`；`scene/main/node.cpp:2100-2102, 2296-2298` |
+| `set_owner(null)` 清除 owner，不报错 | `scene/main/node.cpp:2273-2281` |
 | 节点移出 owner 的子树时 owner 被置为 null | `scene/main/node.cpp:391-396, 1781-1783` |
 | owner 被释放时，它拥有的节点的 owner 被置为 null | `scene/main/node.cpp:299-302` |
 | 节点在 PREDELETE 中从最后一个子节点起逐个删除子节点 | `scene/main/node.cpp:308-312` |
 | 节点入树时，就绪同步传播完毕 | `scene/main/node.cpp:3368-3372` |
 | 子节点先于父节点就绪；节点重新入树时不再执行 `_ready` | `scene/main/node.cpp:326-337, 454` |
 | `queue_free` 把节点放入删除队列，在每个物理步和处理帧的末尾删除 | `scene/main/node.cpp:3461-3471`；`scene/main/scene_tree.cpp:666, 735, 1626-1643` |
+| Area3D 的 `body_shape_entered` 在物体的节点不在树中时以 null 作为节点参数 | `scene/3d/physics/area_3d.cpp:233-234` |
 | 没有设为局部于场景的子资源，由场景的所有实例共用 | `scene/resources/packed_scene.cpp:705-706` |
 | 实例化场景时，先设置保存的属性，再把节点加到父节点下 | `scene/resources/packed_scene.cpp:494, 543` |
 | 加载场景时不检查属性写入是否成功 | `scene/resources/packed_scene.cpp:494` |
@@ -1171,6 +1177,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 在移动节点时检查 owner | 节点移出 owner 的子树是合法操作 | §7.3 |
 | 没有被引用的场景缺值时也算导出错误 | 运行时才确定路径的 `load` 看不到，无法断定场景不被使用 | §7.5 |
 | `as` 转为内置类型时严格检查 | 与 GDScript 的构造转换悄悄不同 | §5.3 |
+| 未审核的引擎 API 中对象类型一律可空 | 引擎传入的虚函数参数和信号参数几乎总是非空，一律可空会让每个处理函数都先判空；少数为空的情况由入口检查报告 | §10.2 |
 | int 与 float 混用的工具函数统一提升为 float | GDScript 原样返回实参，结果会悄悄不同 | §10.3 |
 | `pop_front()` 在空数组上是程序错误 | 引擎在这里返回 null 而不报错，会悄悄不同 | §3.8 |
 | await 多参数信号得到 Array，或按参数解构 | 真实代码几乎不使用这种结果；解构可以以后加入 | §9.6 |

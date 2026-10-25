@@ -412,7 +412,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - Signal parameters must be annotated, for example `pub signal died(cause: String)`.
 - `emit` and `connect` are both checked statically: the arguments at the emit, and the parameter count and types of the connected function.
 - Connections stored in scenes are checked by the scene model (§7.7).
-- Signals of engine classes are typed from ClassDB; unaudited object parameters are nullable (§10.2).
+- Signals of engine classes are typed from ClassDB; unaudited object parameters are treated as non-null (§10.2).
 - The result of awaiting a signal is in §9.6.
 
 ### 4.8 Static members
@@ -793,14 +793,18 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - **Entry checks**: wherever a value enters this language from the engine, GDScript or C# (arguments, `set` writes to members, signal arguments, results of await, decoding), it is checked against the declared type, and a failure is a program error. Writes by the remote inspector go through entry checks too (§7.5).
 - When an Option is handed to the engine, None is encoded as NIL. So `X?` can be handed to the engine implicitly only when no value of X encodes as NIL; when X is an Option or Variant it is a compile error, and the quick fix offers `.flatten()` or `.unwrap_or(null)`. Otherwise Some(None) would silently turn into None after a round trip through the engine (§3.4).
 
-### 10.2 Nullability of objects returned by the engine
+### 10.2 Nullability of objects in engine APIs
 
-- Object types in engine APIs that the binding metadata (§10.3) has not audited are nullable.
-- Audits start with the most frequently called APIs and have three outcomes:
+- In engine APIs that the binding metadata (§10.3) has not audited, the nullability of an object type follows the direction of the value:
+  - values the engine hands to this language may be null: return values of methods and properties read, typed `T?`;
+  - values the engine passes in when it calls this language are treated as non-null: parameters of overridden virtual methods and parameters of engine signals, typed T; a null is reported as a program error by the entry checks (§10.1);
+  - values this language passes to the engine may be null: method arguments and properties written accept None, and whether a null is valid is up to the engine; for example `set_owner(null)` clears the owner (`scene/main/node.cpp:2273-2281`).
+- Audits start with the most frequently called APIs. For return values they have three outcomes:
   - non-null, typed T;
   - null only on misuse, that is, the engine reports an error when it returns null, such as `get_tree()` (`scene/main/node.h:558-561`): treated as non-null, and a null is a program error;
   - possibly null in normal use, such as `get_collider()`, `get_first_node_in_group()` and `get_parent()`: typed `T?`.
-- Rationale: the engine marks return values that are "null only on error" with `RequiredResult` (`core/object/object.h:942-944`), and only about 50 API declarations use it, 29 of them in Tween.
+  Parameters are audited as well: those that do not accept null are marked non-null; virtual-method and signal parameters through which the engine may pass null are marked nullable, for example Area3D's `body_shape_entered` passes null when the node is not in the tree (`scene/3d/physics/area_3d.cpp:233-234`).
+- Rationale: the engine marks return values that are "null only on error" with `RequiredResult` (`core/object/object.h:942-944`), and only about 50 API declarations use it, 29 of them in Tween. Objects the engine passes in are almost never null, and GDScript code does not check them; if they were nullable, every `_input(event)` and every signal handler would have to check first, while the rare null is reported by the entry checks at the boundary instead of travelling on silently.
 
 ### 10.3 Binding metadata
 
@@ -1020,7 +1024,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Program errors | A program error two calls below `_process` aborts both frames and `_process`, and the next frame calls `_process` again; an engine entry point that must return a value gives the engine the default of its type; apart from `assert`, a program behaves the same in debug and release builds |
 | Assertions | In debug builds `assert(false)` is a program error; in release builds `assert(f())` does not call f; `assert(await t)` is a compile error; `assert(save_data)` with save_data a `Resource?` is a compile error offering `save_data != None` |
 | Coroutines | await without async is a compile error; discarding the result of an async call is a compile error, while `f().detach()` is valid; after `cancel()` the outcome is always cancelled; a child task started with `await f(...)` is cancelled with its parent, while `await t` only stops waiting; an awaited sibling deleted in the same scene release as the waiter gives no error; when an awaited object is freed on its own, the waiter gets a program error after the frame, and `Task.of(signal).settled()` yields `Cancelled(CancelReason.AWAITED_FREED)`; a failed task awaited with `settled()` passes the failure to the waiter as usual; `var t: Task[void] = f()` is valid, and `Task` without a type argument is a compile error; when the owning object is freed the coroutine is cancelled silently; when a GDScript object is freed while its coroutine is suspended for the second time, a waiter awaiting that coroutine gets a program error after the frame, also when calling through a Callable |
-| Engine boundary | An unaudited engine method returning an object has type `T?`; `get_tree()` is non-null and `get_collider()` is nullable; GDScript passing null to a non-null parameter is a program error; the remote inspector writing null to a non-null member leaves the value unchanged; a struct emitted through a signal arrives as a Dictionary keyed by field name, and `Command.MOVE(target = p)` as `{"$variant": "MOVE", "target": p}` |
+| Engine boundary | An unaudited engine method returning an object has type `T?`; `get_tree()` is non-null and `get_collider()` is nullable; unaudited virtual-method and signal parameters are T, and the engine passing null is a program error; unaudited parameters accept None; GDScript passing null to a non-null parameter is a program error; the remote inspector writing null to a non-null member leaves the value unchanged; a struct emitted through a signal arrives as a Dictionary keyed by field name, and `Command.MOVE(target = p)` as `{"$variant": "MOVE", "target": p}` |
 | Utility functions | `min(1.5, 1)` is a compile error offering `min(1.5, 1.0)`; `lerp(a, b, t)` has a's type; `find_children("*", "MeshInstance3D")` is `Array[MeshInstance3D]` |
 | Strings | A literal where StringName is expected is constructed at compile time; `&"a" == "a"` is true; a literal member name that does not exist is a compile error and takes part in rename |
 | Cross-language | A GDScript file extending a class of this language gets an explanatory error from the analysis service; awaiting a GDScript coroutine yields a result checked against the declared type; calling a GDScript coroutine as a statement is no error, while using its result as a value without await is a program error; GDScript awaiting a coroutine of this language gets null on cancellation instead of hanging; GDScript awaiting a coroutine of this language that returns Transform3D gets no warning, and on cancellation assigning the result to a Transform3D variable is an assignment error in debug builds, not a crash; when GDScript holds `p: Player`, type errors in properties, methods and signals are GDScript compile errors; `Player.new()` has type Player, and extra arguments are a GDScript compile error |
@@ -1074,12 +1078,14 @@ The following facts are based on Godot 4.7.2-stable (commit `ed1daf0`); paths ar
 | The parameters of `_process` and `_physics_process` are double | `scene/main/node.h:433-434` |
 | `NOTIFICATION_PARENTED` | `scene/main/node.h:465` |
 | `get_tree()` reports an error and returns null when the node is not in a tree; `get_parent()` and `get_owner()` return null without an error when there is no parent or owner | `scene/main/node.h:558-561`; `scene/main/node.cpp:2100-2102, 2296-2298` |
+| `set_owner(null)` clears the owner without an error | `scene/main/node.cpp:2273-2281` |
 | When a node leaves its owner's subtree, its owner is set to null | `scene/main/node.cpp:391-396, 1781-1783` |
 | When an owner is freed, the owner of the nodes it owns is set to null | `scene/main/node.cpp:299-302` |
 | In PREDELETE a node deletes its children one by one, starting from the last | `scene/main/node.cpp:308-312` |
 | When a node enters the tree, ready propagates synchronously to completion | `scene/main/node.cpp:3368-3372` |
 | Children become ready before their parent; re-entering the tree does not run `_ready` again | `scene/main/node.cpp:326-337, 454` |
 | `queue_free` puts the node in the deletion queue, flushed at the end of each physics step and each process frame | `scene/main/node.cpp:3461-3471`; `scene/main/scene_tree.cpp:666, 735, 1626-1643` |
+| Area3D's `body_shape_entered` passes null as the node when the body's node is not in the tree | `scene/3d/physics/area_3d.cpp:233-234` |
 | Sub-resources not set to local to scene are shared by all instances of the scene | `scene/resources/packed_scene.cpp:705-706` |
 | Instantiating a scene sets saved properties first, then adds the node to its parent | `scene/resources/packed_scene.cpp:494, 543` |
 | Loading a scene does not check whether property writes succeed | `scene/resources/packed_scene.cpp:494` |
@@ -1171,6 +1177,7 @@ The following facts are based on Godot 4.7.2-stable (commit `ed1daf0`); paths ar
 | Checking owner when nodes move | Taking a node out of its owner's subtree is a legitimate operation | §7.3 |
 | Unreferenced scenes with missing values also counting as export errors | A `load` whose path is known only at runtime cannot be seen, so it cannot be concluded that the scene is unused | §7.5 |
 | Strict checking for `as` to built-in types | Would silently differ from GDScript's constructor conversion | §5.3 |
+| All object types in unaudited engine APIs being nullable | Virtual-method and signal parameters the engine passes in are almost never null, and this would make every handler check first; the rare null is reported by the entry checks | §10.2 |
 | Promoting utility functions with mixed int and float to float | GDScript returns the argument unchanged, so the result would silently differ | §10.3 |
 | `pop_front()` on an empty array being a program error | The engine returns null there without an error, so it would silently differ | §3.8 |
 | Awaiting a multi-parameter signal yielding an Array, or destructuring | Real code almost never uses such results; destructuring can be added later | §9.6 |
