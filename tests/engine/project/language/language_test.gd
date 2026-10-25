@@ -23,6 +23,8 @@ func _ready() -> void:
 	_check(c.scale(3) == 6.0, "an int argument is accepted for a float parameter")
 	_check(c.sum_odd_to(6) == 9, "while, if and continue")
 	_check(c.count_to(10) == 4 and c.count_to(4) == 3 and c.count_to(-1) == 0, "for over an int, with continue and break")
+	_check(c.with_default(1) == 11 and c.with_default(1, 2) == 3 and c.call_with_default() == 11, "default values of parameters, from GDScript and from this language")
+	_check(c.sign_of(-3) == -1 and c.sign_of(4) == 1 and c.neither(false, false) and not c.neither(true, false), "conditional expressions, ! and ;")
 	_check(c.describe(-1) == "negative" and c.describe(0) == "zero" and c.describe(4) == "positive", "elif chains and early returns")
 	_check(c.fib(15) == 610, "recursive calls")
 	_check(c.truncate(2.7) == 2 and c.truncate(-2.7) == -2, "int() truncates toward zero")

@@ -362,6 +362,9 @@ class Checker {
 			if (initializing >= 0 && member->second >= initializing) {
 				return fail(r_expr, "\"" + r_expr.text + "\" is not initialized yet: initializers run in declaration order (spec §6.1).");
 			}
+			if (refuse_in_static(r_expr, r_expr.text)) {
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
 			r_expr.target = Target::Member;
 			r_expr.index = member->second;
 			return set(r_expr, cls.members[member->second].type);
@@ -370,17 +373,26 @@ class Checker {
 			if (!property->type.is_storable()) {
 				return fail(r_expr, "The property \"" + r_expr.text + "\" has type " + property->type.to_string() + ", which is not supported yet.");
 			}
+			if (refuse_in_static(r_expr, r_expr.text)) {
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
 			r_expr.target = Target::SelfProperty;
 			return set(r_expr, property->type);
 		}
 		const auto function_found = function_index.find(r_expr.text);
 		if (function_found != function_index.end()) {
-			// A method value (spec §3.11).
+			// A method value (spec §3.11), which calls the function on this instance.
+			if (refuse_in_static(r_expr, r_expr.text)) {
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
 			r_expr.target = Target::MethodValue;
 			r_expr.index = function_found->second;
 			return set(r_expr, function_type(cls.functions[function_found->second]));
 		}
 		if (const auto signal = engine.find_signal(cls.extends, r_expr.text)) {
+			if (refuse_in_static(r_expr, r_expr.text)) {
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
 			r_expr.target = Target::SelfSignal;
 			return set(r_expr, signal_type(*signal));
 		}
@@ -451,6 +463,9 @@ class Checker {
 	Type check_get_node(Expr &r_expr) {
 		if (options.declarations_only) {
 			return set(r_expr, Type::of(TypeKind::Error)); // Scenes are not read while loading.
+		}
+		if (refuse_in_static(r_expr, "$" + r_expr.text)) {
+			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		const std::string &path = r_expr.text;
 		if (path.empty() || path[0] == '/' || path.find('%') != std::string::npos || path == ".." || path.rfind("../", 0) == 0 || path.find("/..") != std::string::npos) {
@@ -948,6 +963,43 @@ class Checker {
 		return fail(r_expr, "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
 	}
 
+	// The type both branches fit: one of them, or for objects the nearest
+	// class both extend; Error if there is none.
+	Type common_type(const Type &p_a, const Type &p_b) const {
+		if (assignable(p_a, p_b)) {
+			return p_b;
+		}
+		if (assignable(p_b, p_a)) {
+			return p_a;
+		}
+		if (p_a.kind == TypeKind::Object && p_b.kind == TypeKind::Object && p_a.args.empty() && p_b.args.empty()) {
+			for (std::string cls = p_a.name; !cls.empty(); cls = engine.parent_class(cls)) {
+				if (engine.inherits(p_b.name, cls)) {
+					return Type::object(cls, p_a.nullable || p_b.nullable);
+				}
+			}
+		}
+		if (p_a.kind == TypeKind::Object && p_a.args.empty() && p_b.kind == p_a.kind && p_b.nullable != p_a.nullable) {
+			return common_type(Type::object(p_a.name, true), Type::object(p_b.name, true));
+		}
+		return Type::of(TypeKind::Error);
+	}
+
+	// `a if c else b` (spec §5.5).
+	Type check_conditional(Expr &r_expr, const Type &p_expected) {
+		expect_condition(*r_expr.base);
+		const Type a = check_value(*r_expr.left, p_expected);
+		const Type b = check_value(*r_expr.right, p_expected);
+		if (a.is_error() || b.is_error()) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		const Type result = common_type(a, b);
+		if (result.is_error()) {
+			return fail(r_expr, "The branches have types " + a.to_string() + " and " + b.to_string() + ", which have no common type.");
+		}
+		return set(r_expr, result);
+	}
+
 	Type check_subscript(Expr &r_expr) {
 		const Type base = check_value(*r_expr.base);
 		const Type index = check_value(*r_expr.right);
@@ -1078,11 +1130,17 @@ class Checker {
 		const auto script = function_index.find(name);
 		if (script != function_index.end()) {
 			const FuncDecl &callee = cls.functions[script->second];
+			if (!callee.is_static && refuse_in_static(r_expr, name + "()")) {
+				for (auto &arg : r_expr.args) {
+					check_value(*arg);
+				}
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
 			std::vector<Type> params;
 			for (const ParamDecl &param : callee.params) {
 				params.push_back(param.type);
 			}
-			check_arguments(r_expr, params, int(params.size()), false);
+			check_arguments(r_expr, params, required_params(callee), false);
 			r_expr.target = Target::ScriptFunction;
 			r_expr.index = script->second;
 			return set(r_expr, callee.return_type);
@@ -1091,6 +1149,9 @@ class Checker {
 		if (const auto method = engine.find_method(cls.extends, name)) {
 			if (method->is_virtual) {
 				return fail(r_expr, "\"" + name + "()\" is a virtual engine method that this class does not define.");
+			}
+			if (refuse_in_static(r_expr, name + "()")) {
+				return set(r_expr, Type::of(TypeKind::Error));
 			}
 			r_expr.base = nullptr; // `self.f()` is `f()`.
 			return check_engine_call(r_expr, *method);
@@ -1173,6 +1234,8 @@ class Checker {
 				return check_array_literal(r_expr, p_expected);
 			case ExprKind::Subscript:
 				return check_subscript(r_expr);
+			case ExprKind::Conditional:
+				return check_conditional(r_expr, p_expected);
 		}
 		return set(r_expr, Type::of(TypeKind::Error));
 	}
@@ -1553,6 +1616,44 @@ class Checker {
 		}
 	}
 
+	// Default values of parameters (spec §4.6): the last parameters, and
+	// literals so far.
+	void check_defaults(FuncDecl &r_function) {
+		bool any = false;
+		for (ParamDecl &param : r_function.params) {
+			if (!param.default_value) {
+				if (any) {
+					error(param.line, param.column, "Parameter \"" + param.name + "\" follows one with a default value and needs one too.");
+				}
+				continue;
+			}
+			any = true;
+			if (!is_literal(*param.default_value)) {
+				error(param.default_value->line, param.default_value->column, "Default values other than literals are not supported yet.");
+				continue;
+			}
+			const Type value = check_value(*param.default_value);
+			expect_assignable(*param.default_value, value, param.type, "use");
+		}
+	}
+
+	static int required_params(const FuncDecl &p_function) {
+		int count = 0;
+		while (count < int(p_function.params.size()) && !p_function.params[count].default_value) {
+			count++;
+		}
+		return count;
+	}
+
+	// A static function has no instance (spec §4.8).
+	bool refuse_in_static(const Expr &p_expr, const std::string &p_name) {
+		if (!function || !function->is_static) {
+			return false;
+		}
+		error(p_expr.line, p_expr.column, "\"" + p_name + "\" belongs to an instance, which the static function \"" + function->name + "()\" does not have.");
+		return true;
+	}
+
 	void check_signature(FuncDecl &r_function) {
 		const auto engine_method = engine.find_method(cls.extends, r_function.name);
 		if (engine_method && !engine_method->is_virtual) {
@@ -1591,6 +1692,10 @@ class Checker {
 				error(param.line, param.column, "Parameter \"" + param.name + "\" needs a type.");
 				param.type = Type::of(TypeKind::Error);
 			}
+		}
+		check_defaults(r_function);
+		if (r_function.is_static && r_function.is_override) {
+			error(r_function.line, r_function.column, "\"" + r_function.name + "()\" overrides an engine method and cannot be static.");
 		}
 
 		// The engine constructs Node and Resource scripts with no arguments

@@ -113,6 +113,10 @@ struct Member {
 struct Function {
 	std::string name;
 	std::vector<Slot> params;
+	// The values of the last parameters when a call from the engine leaves
+	// them out; this language's calls pass every argument.
+	std::vector<Constant> defaults;
+	bool is_static = false;
 	ValueType return_type = ValueType::Void;
 	std::string return_class;
 	bool is_pub = false;

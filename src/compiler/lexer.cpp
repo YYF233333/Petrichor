@@ -64,6 +64,8 @@ const char *token_name(TokenKind p_kind) {
 			return "\"return\"";
 		case TokenKind::Self:
 			return "\"self\"";
+		case TokenKind::Static:
+			return "\"static\"";
 		case TokenKind::True:
 			return "\"true\"";
 		case TokenKind::Var:
@@ -76,8 +78,12 @@ const char *token_name(TokenKind p_kind) {
 			return "\"$\"";
 		case TokenKind::Question:
 			return "\"?\"";
+		case TokenKind::Bang:
+			return "\"!\"";
 		case TokenKind::Colon:
 			return "\":\"";
+		case TokenKind::Semicolon:
+			return "\";\"";
 		case TokenKind::Comma:
 			return "\",\"";
 		case TokenKind::Period:
@@ -153,6 +159,7 @@ const std::unordered_map<std::string, TokenKind> &keywords() {
 		{ "pub", TokenKind::Pub },
 		{ "return", TokenKind::Return },
 		{ "self", TokenKind::Self },
+		{ "static", TokenKind::Static },
 		{ "true", TokenKind::True },
 		{ "var", TokenKind::Var },
 		{ "while", TokenKind::While },
@@ -429,6 +436,9 @@ class Lexer {
 			case ':':
 				one(TokenKind::Colon);
 				return;
+			case ';':
+				one(TokenKind::Semicolon);
+				return;
 			case ',':
 				one(TokenKind::Comma);
 				return;
@@ -479,11 +489,8 @@ class Lexer {
 				next == '=' ? two(TokenKind::EqualEqual) : one(TokenKind::Equal);
 				return;
 			case '!':
-				if (next == '=') {
-					two(TokenKind::BangEqual);
-					return;
-				}
-				break;
+				next == '=' ? two(TokenKind::BangEqual) : one(TokenKind::Bang);
+				return;
 			case '<':
 				next == '=' ? two(TokenKind::LessEqual) : one(TokenKind::Less);
 				return;

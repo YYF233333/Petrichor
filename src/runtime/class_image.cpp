@@ -126,6 +126,25 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 	return image;
 }
 
+Variant literal_value(const bytecode::Constant &p_constant) {
+	switch (p_constant.type) {
+		case ValueType::Bool:
+			return p_constant.b;
+		case ValueType::Int:
+			return p_constant.i;
+		case ValueType::Float:
+			return p_constant.f;
+		case ValueType::String:
+			return from_utf8(p_constant.s);
+		case ValueType::StringName:
+			return StringName(from_utf8(p_constant.s));
+		case ValueType::NodePath:
+			return NodePath(from_utf8(p_constant.s));
+		default:
+			return Variant(); // None.
+	}
+}
+
 int ClassImage::find_function(const StringName &p_name) const {
 	const int *index = function_lookup.getptr(p_name);
 	return index ? *index : -1;
@@ -230,8 +249,14 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 		}
 		const bytecode::Function &x = a.functions[i];
 		const bytecode::Function &y = b.functions[i];
-		if (x.name != y.name || x.return_type != y.return_type || x.return_class != y.return_class || x.is_pub != y.is_pub || x.is_override != y.is_override || x.is_exposed != y.is_exposed || x.params.size() != y.params.size()) {
+		if (x.name != y.name || x.return_type != y.return_type || x.return_class != y.return_class || x.is_pub != y.is_pub || x.is_override != y.is_override || x.is_exposed != y.is_exposed ||
+				x.is_static != y.is_static || x.params.size() != y.params.size() || x.defaults.size() != y.defaults.size()) {
 			return false;
+		}
+		for (size_t d = 0; d < x.defaults.size(); d++) {
+			if (!same_constant(x.defaults[d], y.defaults[d])) {
+				return false;
+			}
 		}
 		for (size_t p = 0; p < x.params.size(); p++) {
 			if (!same_slot(x.params[p], y.params[p])) {

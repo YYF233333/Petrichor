@@ -643,6 +643,13 @@ class Lowerer {
 			}
 		}
 		i.args = arguments(p_call);
+		if (p_call.target == Target::ScriptFunction) {
+			// Calls in this language pass the default values themselves.
+			const FuncDecl &callee = cls.functions[p_call.index];
+			for (size_t a = i.args.size(); a < callee.params.size(); a++) {
+				i.args.push_back(convert(lower_expr(*callee.params[a].default_value), callee.params[a].type));
+			}
+		}
 		i.dst = p_call.type.kind == TypeKind::Void ? NO_REG : temp(p_call.type);
 		switch (p_call.target) {
 			case Target::ScriptFunction:
@@ -793,6 +800,21 @@ class Lowerer {
 				return get_node(p_expr);
 			case ExprKind::ArrayLiteral:
 				return array_literal(p_expr);
+			case ExprKind::Conditional: {
+				const uint32_t result = temp(p_expr.type);
+				const uint32_t then_block = new_block();
+				const uint32_t else_block = new_block();
+				const uint32_t end_block = new_block();
+				branch(lower_expr(*p_expr.base), then_block, else_block);
+				current = then_block;
+				move(result, convert(lower_expr(*p_expr.left), p_expr.type));
+				jump(end_block);
+				current = else_block;
+				move(result, convert(lower_expr(*p_expr.right), p_expr.type));
+				jump(end_block);
+				current = end_block;
+				return result;
+			}
 			case ExprKind::Subscript: {
 				const uint32_t container = lower_expr(*p_expr.base);
 				return get_index(container, lower_expr(*p_expr.right), p_expr.type);
@@ -1170,7 +1192,15 @@ public:
 				lower_block(function.body);
 			}
 			finish();
-			module.functions.push_back(ir::emit(fn, module));
+			bytecode::Function out = ir::emit(fn, module);
+			out.is_static = function.is_static;
+			for (const ParamDecl &param : function.params) {
+				if (param.default_value) {
+					// For an Option, the value inside; the entry check wraps it.
+					out.defaults.push_back(constant_of(*param.default_value, param.type.kind == TypeKind::Option ? param.type.args[0] : param.type));
+				}
+			}
+			module.functions.push_back(std::move(out));
 		}
 
 		if (has_initializers) {

@@ -58,4 +58,8 @@ public:
 	bool same_declarations(const ClassImage &p_other) const;
 };
 
+// A literal of the module, such as a parameter's default value; None for an
+// Object or Variant constant.
+godot::Variant literal_value(const bytecode::Constant &p_constant);
+
 } // namespace petrichor

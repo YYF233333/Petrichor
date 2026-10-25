@@ -33,6 +33,7 @@ enum class ExprKind {
 	Cast, // `left as cast_type` (spec §5.3).
 	ArrayLiteral, // `[a, b]`; the elements in `args`.
 	Subscript, // `base[right]`.
+	Conditional, // `left if base else right` (spec §5.5).
 };
 
 // What a name, a member access or a call refers to, decided by the checker.
@@ -172,6 +173,7 @@ struct ParamDecl {
 	int line = 0;
 	int column = 0;
 	std::optional<TypeRef> declared_type;
+	std::unique_ptr<Expr> default_value;
 	Type type; // Filled by the checker.
 };
 
@@ -185,6 +187,7 @@ struct FuncDecl {
 	int line = 0;
 	int column = 0;
 	bool is_pub = false;
+	bool is_static = false;
 	std::vector<ParamDecl> params;
 	std::optional<TypeRef> return_type_ref;
 	Block body;

@@ -78,7 +78,13 @@ static Dictionary function_info(const ClassImage &p_image, int p_index) {
 		args.push_back(typed(property_dict(variant_type(param.type), String::utf8(param.name.c_str()), usage_of(param.type, PROPERTY_USAGE_DEFAULT), class_of(param.type, param.class_name)), param));
 	}
 	const Dictionary result = property_dict(variant_type(function.return_type), StringName(), usage_of(function.return_type, PROPERTY_USAGE_DEFAULT), class_of(function.return_type, function.return_class));
-	return method_dict(p_image.function_names[p_index], args, result, METHOD_FLAGS_DEFAULT);
+	Dictionary method = method_dict(p_image.function_names[p_index], args, result, METHOD_FLAGS_DEFAULT | (function.is_static ? METHOD_FLAG_STATIC : 0));
+	Array defaults;
+	for (const bytecode::Constant &value : function.defaults) {
+		defaults.push_back(literal_value(value));
+	}
+	method["default_args"] = defaults;
+	return method;
 }
 
 // How the inspector picks an object of the class, as for GDScript's exports:
@@ -157,20 +163,7 @@ Variant initial_value(const ClassImage &p_image, const bytecode::Member &p_membe
 	if (!p_member.has_initial) {
 		return default_variant(p_member.type);
 	}
-	const bytecode::Constant &initial = p_member.initial;
-	switch (p_member.type) {
-		case ValueType::Bool:
-			return initial.b;
-		case ValueType::Int:
-			return initial.i;
-		case ValueType::Float:
-			return initial.f;
-		case ValueType::String:
-			return String::utf8(initial.s.c_str(), int64_t(initial.s.size()));
-		default:
-			break;
-	}
-	return Variant();
+	return literal_value(p_member.initial);
 }
 
 PetHeader parse_header(const String &p_source) {

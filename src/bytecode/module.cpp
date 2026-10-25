@@ -334,6 +334,11 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		for (const Slot &param : function.params) {
 			w.slot(param);
 		}
+		w.u32(uint32_t(function.defaults.size()));
+		for (const Constant &value : function.defaults) {
+			w.constant(value);
+		}
+		w.u8(function.is_static ? 1 : 0);
 		w.type(function.return_type);
 		w.str(function.return_class);
 		w.u8(function.is_pub ? 1 : 0);
@@ -468,6 +473,11 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		for (Slot &param : function.params) {
 			param = r.slot();
 		}
+		function.defaults.resize(r.count());
+		for (Constant &value : function.defaults) {
+			value = r.constant();
+		}
+		function.is_static = r.u8() != 0;
 		function.return_type = r.type();
 		function.return_class = r.str();
 		function.is_pub = r.u8() != 0;

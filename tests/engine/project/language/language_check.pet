@@ -42,6 +42,22 @@ pub func count_to(n: int) -> int:
 		seen += 1
 	return seen
 
+# Default values, static functions, conditional expressions and `!`.
+pub func with_default(a: int, b: int = 10) -> int:
+	return a + b
+
+pub func call_with_default() -> int:
+	return with_default(1) + twice(0)
+
+static func twice(x: int) -> int:
+	return x * 2
+
+pub func sign_of(x: int) -> int:
+	var s = -1 if x < 0 else 1; return s
+
+pub func neither(a: bool, b: bool) -> bool:
+	return !a and !b
+
 pub func describe(n: int) -> String:
 	if n < 0:
 		return "negative"

@@ -108,6 +108,42 @@ TEST_CASE("for loops") {
 	CHECK(has_error(in_function("for x in true:\n\tpass"), "Iterating over bool is not supported yet."));
 }
 
+TEST_CASE("! is not, and ; separates statements, as in GDScript") {
+	CHECK(errors_of(in_function("var a := !true; var b := not a")).empty());
+	CHECK(has_error(in_function("var b := !1"), "requires bool"));
+}
+
+// Spec §5.5.
+TEST_CASE("conditional expressions") {
+	CHECK(type_of("-1 if randi() % 2 == 0 else 1") == "int");
+	CHECK(type_of("1 if true else 2.5") == "float");
+	CHECK(type_of("Node3D.new() if true else Node.new()") == "Node");
+	CHECK(type_of("Node3D.new() if true else Timer.new()") == "Node");
+	CHECK(type_of("\"a\" if true else 1").find("no common type") != std::string::npos);
+	CHECK(has_error(in_function("var x := 1 if 0 else 2"), "A condition must be bool"));
+}
+
+// Spec §4.6.
+TEST_CASE("default values of parameters") {
+	const std::string source = "extends Node\n\nfunc add(a: int, b: int = 2, c: float = 0.5) -> float:\n\treturn a + b + c\n\nfunc f() -> void:\n\t";
+	CHECK(errors_of(source + "var x := add(1)\n\tvar y := add(1, 2, 3)\n").empty());
+	CHECK(has_error(source + "var x := add()\n", "takes 1 to 3 argument(s), 0 given"));
+	CHECK(has_error("extends Node\n\nfunc g(a: int = 1, b: int):\n\tpass\n", "needs one too"));
+	CHECK(has_error("extends Node\n\nfunc g(a: int = randi()):\n\tpass\n", "other than literals are not supported yet"));
+	CHECK(has_error("extends Node\n\nfunc g(a: int = \"x\"):\n\tpass\n", "Cannot use a value of type String as int"));
+}
+
+// Spec §4.8.
+TEST_CASE("static functions have no instance") {
+	const std::string head = "extends Node\nvar hp := 1\n\nfunc instance_only():\n\tpass\n\nstatic func twice(x: int) -> int:\n\treturn x * 2\n\n";
+	CHECK(errors_of(head + "func f() -> void:\n\tvar y := twice(3)\n").empty());
+	CHECK(errors_of(head + "static func g() -> int:\n\treturn twice(2)\n").empty());
+	CHECK(has_error(head + "static func g() -> int:\n\treturn hp\n", "\"hp\" belongs to an instance, which the static function \"g()\" does not have."));
+	CHECK(has_error(head + "static func g():\n\tinstance_only()\n", "\"instance_only()\" belongs to an instance"));
+	CHECK(has_error(head + "static func g():\n\tqueue_free()\n", "\"queue_free()\" belongs to an instance"));
+	CHECK(has_error("extends Node\n\nstatic func _ready():\n\tpass\n", "cannot be static"));
+}
+
 TEST_CASE("engine calls") {
 	CHECK(errors_of(in_function("set_process(false)\nvar n: int = get_child_count(true)")).empty());
 	CHECK(has_error(in_function("set_process(1)"), "Cannot pass a value of type int as bool"));

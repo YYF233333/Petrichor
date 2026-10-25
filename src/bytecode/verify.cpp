@@ -498,6 +498,9 @@ public:
 			if (each.params.size() > each.slots.size()) {
 				return fail("more parameters than slots");
 			}
+			if (each.defaults.size() > each.params.size()) {
+				return fail("more default values than parameters");
+			}
 			for (size_t i = 0; i < each.params.size(); i++) {
 				if (each.params[i].offset != each.slots[i].offset || each.params[i].type != each.slots[i].type) {
 					return fail("parameter " + std::to_string(i) + " is not its slot");

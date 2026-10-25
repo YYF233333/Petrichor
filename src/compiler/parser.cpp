@@ -104,9 +104,10 @@ class Parser {
 		return expr;
 	}
 
-	// `as` binds loosest, as in GDScript (gdscript_parser.h:1435).
+	// `as` binds loosest, then `a if c else b`, as in GDScript
+	// (gdscript_parser.h:1435-1436).
 	std::unique_ptr<Expr> expression() {
-		auto expr = or_expr();
+		auto expr = conditional();
 		while (expr && check(TokenKind::As)) {
 			auto cast = make(ExprKind::Cast, advance());
 			cast->cast_type = type_ref();
@@ -117,6 +118,24 @@ class Parser {
 			expr = std::move(cast);
 		}
 		return expr;
+	}
+
+	std::unique_ptr<Expr> conditional() {
+		auto expr = or_expr();
+		if (!expr || !check(TokenKind::If)) {
+			return expr;
+		}
+		auto result = make(ExprKind::Conditional, advance());
+		result->line = expr->line;
+		result->column = expr->column;
+		result->left = std::move(expr);
+		result->base = conditional();
+		expect(TokenKind::Else, "\"else\"");
+		if (failed || !result->base) {
+			return nullptr;
+		}
+		result->right = conditional();
+		return result->right ? std::move(result) : nullptr;
 	}
 
 	std::unique_ptr<Expr> or_expr() {
@@ -138,10 +157,11 @@ class Parser {
 	}
 
 	std::unique_ptr<Expr> not_expr() {
-		if (check(TokenKind::Not)) {
+		// `!` is `not`, as in GDScript.
+		if (check(TokenKind::Not) || check(TokenKind::Bang)) {
 			const Token &op = advance();
 			auto expr = make(ExprKind::Unary, op);
-			expr->op = op.kind;
+			expr->op = TokenKind::Not;
 			expr->left = not_expr();
 			return expr->left ? std::move(expr) : nullptr;
 		}
@@ -383,6 +403,10 @@ class Parser {
 	}
 
 	void end_of_statement() {
+		// `a = 1; b = 2`: the next statement follows on the same line.
+		if (match(TokenKind::Semicolon) && !check(TokenKind::Newline) && !check(TokenKind::Dedent) && !check(TokenKind::EndOfFile)) {
+			return;
+		}
 		if (!check(TokenKind::Dedent) && !check(TokenKind::EndOfFile)) {
 			expect(TokenKind::Newline, "a line break");
 		}
@@ -555,6 +579,11 @@ class Parser {
 		}
 		const bool is_export = !annotations.empty();
 		const bool is_pub = match(TokenKind::Pub);
+		const bool is_static = match(TokenKind::Static);
+		if (is_static && !check(TokenKind::Func)) {
+			fail(peek(), "Static members are not supported yet; static functions are.");
+			return;
+		}
 
 		if (match(TokenKind::Var)) {
 			VarDecl decl;
@@ -588,6 +617,7 @@ class Parser {
 			decl.line = name.line;
 			decl.column = name.column;
 			decl.is_pub = is_pub;
+			decl.is_static = is_static;
 			expect(TokenKind::ParenOpen, "\"(\"");
 			if (!check(TokenKind::ParenClose)) {
 				do {
@@ -601,6 +631,9 @@ class Parser {
 					param.column = param_name.column;
 					if (match(TokenKind::Colon)) {
 						param.declared_type = type_ref();
+					}
+					if (match(TokenKind::Equal)) {
+						param.default_value = expression();
 					}
 					decl.params.push_back(std::move(param));
 				} while (match(TokenKind::Comma));

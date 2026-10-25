@@ -569,9 +569,11 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 		r_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
 		return Variant();
 	}
-	if (size_t(p_argc) != fn.params.size()) {
+	// The last parameters may be left out when they have default values.
+	const size_t required = fn.params.size() - fn.defaults.size();
+	if (size_t(p_argc) < required || size_t(p_argc) > fn.params.size()) {
 		r_error.error = size_t(p_argc) > fn.params.size() ? GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS : GDEXTENSION_CALL_ERROR_TOO_FEW_ARGUMENTS;
-		r_error.expected = int32_t(fn.params.size());
+		r_error.expected = int32_t(size_t(p_argc) > fn.params.size() ? fn.params.size() : required);
 		return Variant();
 	}
 
@@ -579,7 +581,8 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 	construct_slots(frame.data, fn.frame_size, fn.slots);
 	for (size_t i = 0; i < fn.params.size(); i++) {
 		const bytecode::Slot &param = fn.params[i];
-		if (!from_variant(param.type, *p_args[i], frame.data + param.offset, ValueCheck(param))) {
+		const Variant value = i < size_t(p_argc) ? *p_args[i] : literal_value(fn.defaults[i - required]);
+		if (!from_variant(param.type, value, frame.data + param.offset, ValueCheck(param))) {
 			destroy_slots(frame.data, fn.slots);
 			// The caller reports this with its own call site, as for engine methods.
 			r_error.error = GDEXTENSION_CALL_ERROR_INVALID_ARGUMENT;
