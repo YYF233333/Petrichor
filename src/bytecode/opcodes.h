@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace petrichor::bytecode {
@@ -102,5 +103,12 @@ constexpr uint32_t NO_SLOT = 0xFFFFFFFF;
 // Number of operand words of a fixed-size instruction, or -1 for a call.
 int operand_count(Op p_op);
 const char *op_name(Op p_op);
+
+// The words of the instruction at `p_code`, opcode included. A call's length
+// depends on its argument count, p_code[4], which must be there.
+inline size_t instruction_length(const uint32_t *p_code) {
+	const int count = operand_count(Op(p_code[0]));
+	return count < 0 ? 5 + 2 * size_t(p_code[4]) : 1 + size_t(count);
+}
 
 } // namespace petrichor::bytecode

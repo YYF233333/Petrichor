@@ -1,5 +1,6 @@
 #include "runtime/class_image.h"
 
+#include "bytecode/opcodes.h"
 #include "runtime/method_callable.h"
 
 #include <godot_cpp/classes/script.hpp>
@@ -220,11 +221,28 @@ bool same_prefix(const std::vector<T> &p_a, const std::vector<T> &p_b, uint32_t 
 	return true;
 }
 
+// The same instructions, apart from the lines LINE records, which change when a
+// line is added above the members.
 bool same_code(const bytecode::Module &p_a, int32_t p_function_a, const bytecode::Module &p_b, int32_t p_function_b) {
 	if ((p_function_a < 0) != (p_function_b < 0)) {
 		return false;
 	}
-	return p_function_a < 0 || p_a.functions[p_function_a].code == p_b.functions[p_function_b].code;
+	if (p_function_a < 0) {
+		return true;
+	}
+	const std::vector<uint32_t> &a = p_a.functions[p_function_a].code;
+	const std::vector<uint32_t> &b = p_b.functions[p_function_b].code;
+	if (a.size() != b.size()) {
+		return false;
+	}
+	for (size_t pc = 0; pc < a.size();) {
+		const size_t length = bytecode::instruction_length(a.data() + pc);
+		if (a[pc] != b[pc] || (bytecode::Op(a[pc]) != bytecode::Op::LINE && !std::equal(a.begin() + pc, a.begin() + pc + length, b.begin() + pc))) {
+			return false;
+		}
+		pc += length;
+	}
+	return true;
 }
 
 // The init and ready functions and the table entries they use.

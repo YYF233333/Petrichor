@@ -25,11 +25,8 @@ bytecode::Module module_of(const std::string &p_source) {
 std::vector<Op> opcodes(const bytecode::Module &p_module, const std::string &p_function) {
 	const bytecode::Function &fn = p_module.functions[p_module.find_function(p_function)];
 	std::vector<Op> result;
-	for (size_t pc = 0; pc < fn.code.size();) {
-		const Op op = Op(fn.code[pc]);
-		result.push_back(op);
-		const int count = bytecode::operand_count(op);
-		pc += count < 0 ? 5 + 2 * fn.code[pc + 4] : 1 + count;
+	for (size_t pc = 0; pc < fn.code.size(); pc += bytecode::instruction_length(fn.code.data() + pc)) {
+		result.push_back(Op(fn.code[pc]));
 	}
 	return result;
 }

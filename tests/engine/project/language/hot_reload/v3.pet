@@ -3,6 +3,7 @@ extends Node
 
 pub var count := 0
 pub var extra := 0
+var origin := Vector3(1, 2, 3)
 
 pub func value() -> int:
 	return 3

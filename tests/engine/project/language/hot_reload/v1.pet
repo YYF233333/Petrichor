@@ -2,6 +2,8 @@
 extends Node
 
 pub var count := 0
+# Not a literal: run by the init function, which records its line.
+var origin := Vector3(1, 2, 3)
 
 pub func value() -> int:
 	return 1

@@ -624,15 +624,14 @@ std::string disassemble(const Module &p_module, const Function &p_function) {
 			for (int i = 0; i < count; i++) {
 				out << ' ' << code[pc + 1 + i];
 			}
-			pc += 1 + count;
 		} else {
 			const uint32_t argc = code[pc + 4];
 			out << ' ' << code[pc + 1] << ' ' << code[pc + 2] << ' ' << code[pc + 3] << ' ' << argc;
 			for (uint32_t i = 0; i < argc; i++) {
 				out << " (" << value_type_name(ValueType(code[pc + 5 + 2 * i])) << ' ' << code[pc + 6 + 2 * i] << ')';
 			}
-			pc += 5 + 2 * argc;
 		}
+		pc += instruction_length(code.data() + pc);
 		out << '\n';
 	}
 	return out.str();

@@ -43,12 +43,10 @@ bytecode::Function &function(bytecode::Module &r_module, const char *p_name) {
 size_t find(const bytecode::Function &p_function, Op p_op) {
 	size_t pc = 0;
 	while (pc < p_function.code.size()) {
-		const Op op = Op(p_function.code[pc]);
-		if (op == p_op) {
+		if (Op(p_function.code[pc]) == p_op) {
 			return pc;
 		}
-		const int count = bytecode::operand_count(op);
-		pc += count < 0 ? 5 + 2 * p_function.code[pc + 4] : 1 + count;
+		pc += bytecode::instruction_length(p_function.code.data() + pc);
 	}
 	FAIL("no such instruction");
 	return 0;
