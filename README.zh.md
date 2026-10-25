@@ -2,7 +2,7 @@
 
 一门面向中大型 Godot 4 项目的全静态类型脚本语言，在项目代码中替代 GDScript 并与 GDScript 插件共存，以 GDExtension 的形式交付。Petrichor 是项目代号。
 
-**状态：**设计阶段。[语言规范](docs/language-spec.zh.md)（v0.2）是发布出来征求意见的草案，目前还没有实现。引擎行为按 Godot 4.7.2-stable 核对。
+**状态**：早期实现阶段。[语言规范](docs/language-spec.zh.md)（v0.2）是发布出来征求意见的草案。语言的第一个子集已经能在 Godot 中运行，实现方式见[实现架构](docs/architecture.zh.md)；第一个里程碑是让一个小型 FPS 游戏的脚本运行起来。引擎行为按 Godot 4.7.2-stable 核对。
 
 English: [README.md](README.md)
 
@@ -59,6 +59,7 @@ func max_hp_from(data: Variant) -> int?:
 ## 文档
 
 - [语言规范 v0.2](docs/language-spec.zh.md) · [English](docs/language-spec.en.md)
+- [实现架构](docs/architecture.zh.md) · [English](docs/architecture.en.md)
 - 调查：
   - [脚本会见到不止一种场景结构吗？](docs/surveys/scene-structures.zh.md)
   - [原生基类不同造成了多少代码重复？](docs/surveys/cross-branch-duplication.zh.md)
@@ -74,10 +75,9 @@ func max_hp_from(data: Variant) -> int?:
 
 ## 下一步
 
-1. 收集反馈，把规范收敛到可测试的核心。
-2. 按 [§15](docs/language-spec.zh.md#15-一致性检查清单非规范性) 的检查清单编写一致性测试。
-3. 实现 GDExtension。
-4. 通过迁移一个中型游戏来评估这门语言。
+1. 第一个里程碑，进行中：[第二次纸面迁移](docs/surveys/paper-migration-2.zh.md)中的 FPS 项目以 Petrichor 脚本运行，所需的 [§15](docs/language-spec.zh.md#15-一致性检查清单非规范性) 检查清单条目同时写成测试。
+2. 之后是同一次迁移中的 Ring 代码、带重命名的语言服务器、迁移用的快速修复，以及与 GDScript 的性能基准。
+3. 贯穿始终：收集反馈，把规范收敛到可测试的核心。
 
 ## 反馈
 

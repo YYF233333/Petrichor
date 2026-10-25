@@ -2,7 +2,7 @@
 
 A statically typed scripting language for medium-to-large Godot 4 projects, replacing GDScript in project code while coexisting with GDScript plugins, delivered as a GDExtension. Petrichor is a codename.
 
-**Status:** design stage. The [language specification](docs/language-spec.en.md) (v0.2) is a draft published for feedback. There is no implementation yet. Engine behavior is checked against Godot 4.7.2-stable.
+**Status:** early implementation. The [language specification](docs/language-spec.en.md) (v0.2) is a draft published for feedback. A first subset of the language runs in Godot, built as described in the [implementation architecture](docs/architecture.en.md); the first milestone is to run the scripts of a small FPS game. Engine behavior is checked against Godot 4.7.2-stable.
 
 中文：[README.zh.md](README.zh.md)
 
@@ -59,6 +59,7 @@ Every rule that depends on engine behavior cites the Godot source it was checked
 ## Documents
 
 - [Language specification v0.2](docs/language-spec.en.md) · [中文](docs/language-spec.zh.md)
+- [Implementation architecture](docs/architecture.en.md) · [中文](docs/architecture.zh.md)
 - Surveys:
   - [Do scripts see more than one scene structure?](docs/surveys/scene-structures.en.md)
   - [How much code duplication do different native base classes force?](docs/surveys/cross-branch-duplication.en.md)
@@ -74,10 +75,9 @@ Each survey has a write-up in English and Chinese and a directory of scripts tha
 
 ## Next steps
 
-1. Collect feedback and narrow the specification to a testable core.
-2. Write conformance tests from the checklist in [§15](docs/language-spec.en.md#15-conformance-checklist-non-normative).
-3. Implement the GDExtension.
-4. Evaluate the language by migrating a medium-sized game.
+1. First milestone, in progress: the FPS starter kit of the [second paper migration](docs/surveys/paper-migration-2.en.md) runs with its scripts in Petrichor, and the rows of the checklist in [§15](docs/language-spec.en.md#15-conformance-checklist-non-normative) that it needs become tests.
+2. Then the Ring code of the same migration, the language server with renaming, quick fixes for migration, and performance benchmarks against GDScript.
+3. Throughout: collect feedback and narrow the specification to a testable core.
 
 ## Feedback
 

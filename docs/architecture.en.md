@@ -1,6 +1,6 @@
 # Petrichor implementation architecture
 
-**Draft · 2026-10-25** · 中文：[architecture.zh.md](architecture.zh.md)
+**Draft · 2026-10-25** · 中文: [architecture.zh.md](architecture.zh.md)
 
 This document records implementation decisions: how the components are split, how values are represented, testing, and the order of work. The [language specification](language-spec.en.md) is authoritative for language rules. When the implementation reveals a problem in the specification, the specification is changed in a separate commit; the implementation does not relax its rules. Engine facts are checked against Godot 4.7.2-stable (commit `ed1daf0`).
 
@@ -17,6 +17,7 @@ This document records implementation decisions: how the components are split, ho
 | Component | Depends on | Contents |
 |---|---|---|
 | compiler | nothing from Godot | lexing and parsing, semantic analysis, scene checks, typed IR, bytecode generation, diagnostics, symbol index |
+| bytecode | nothing from Godot | the format of compiled code, its serialization and its verification, shared by the compiler and the runtime |
 | runtime | godot-cpp | bytecode loading, the virtual machine, values and type descriptors, tasks, program errors, checks and conversions at the engine boundary |
 | adapter | godot-cpp, runtime; the editor library also compiler | the three extension interfaces for the script language, scripts and script instances, resource loading and saving, the export plugin, the editor plugin, the headless command |
 
@@ -28,7 +29,7 @@ This document records implementation decisions: how the components are split, ho
   - the project: scenes, resources, autoloads, global classes;
   - the static view of GDScript classes (spec §11.1);
   - binding review data (§10.3), kept as data files in the repository.
-  In the editor and in headless mode the adapter implements these interfaces through ClassDB, ResourceLoader and Script's reflection interface; in tests they are implemented from the `extension_api-4-7.json` shipped with godot-cpp and from scenes built in the tests. In the editor the engine API must come from ClassDB, because the classes of other extensions and the API of newer engine versions are not in that JSON. Built-in types (operators, members, methods, constructors) and utility functions are the exception: ClassDB does not describe them and the engine offers an extension no way to list them, so the editor and the tests both use tables generated from the JSON at build time. They do not vary with extensions, and newer engines only add to them. The tests currently describe engine classes with a few hand-written ones.
+  In the editor and in headless mode the adapter implements these interfaces: engine classes come from ClassDB, because the classes of other extensions and the API of newer engine versions are not in the `extension_api-4-7.json` shipped with godot-cpp; scenes come from the scene states the engine reads (SceneState), so text and binary scenes and instances are read as the engine reads them; GDScript classes come from Script's reflection interface. Built-in types (operators, members, methods, constructors) and utility functions are the exception: ClassDB does not describe them and the engine offers an extension no way to list them, so the editor and the tests both use tables generated from the JSON at build time; they do not vary with extensions, and newer engines only add to them. The tests currently describe engine classes and scenes by hand.
 - Pipeline: lexing → syntax tree → semantic analysis (names, types, narrowing, match, generics, interfaces, visibility) → scene checks (§7) → typed IR → bytecode, debug information and class metadata.
 - The IR consists of explicit basic blocks and virtual registers; it is not SSA. Every instruction has a type and a source position. Syntactic sugar is expanded when the IR is generated: the early return of `?`, the write-back of chained assignment (§3.6), the suspension points of await, the branches of match, and the suspension of setters before ready (§6.5). Bytecode corresponds almost one to one to the IR, with virtual registers allocated to slots in the stack frame.
 - The first version re-analyses the whole project each time, without incrementality. Each phase depends only on its own inputs, so caches can be added later as needed without changing interfaces.
@@ -56,6 +57,7 @@ This document records implementation decisions: how the components are split, ho
 ### 2.4 Editing, running, export and hot reload
 
 - Editing: the analysis service holds the compiled state of the whole project in the editor process, recompiles when sources or scenes change, and shows diagnostics in the script editor and the scene editor.
+- When the editor loads a script, it compiles only the declarations (class header, members, signatures): enough for the reflection of exported properties and methods, but not runnable. At that point the scenes that use the script cannot be loaded, since the engine refuses such a load on the same thread as cyclic (`core/io/resource_loader.cpp:1049-1056`). The full compilation, with function bodies and scene checks, happens outside of loading: checks while editing, saving, the build before running, and export. Only tool scripts run this language's code in the editor; when they are supported, a full compilation follows the load.
 - Running from the editor: the project is compiled before it runs (the editor plugin's `_build`) and the bytecode is written to `.godot/petrichor/`; the game process only reads it. Rationale: the types of `$X` and the like depend on scenes (spec §7), so a game process compiling by itself would analyse all of the project's scenes again, start more slowly, and might reach different results from the editor.
 - The headless command writes bytecode to `.godot/petrichor/` as well; tests and CI use it in place of the editor.
 - Export: the export plugin puts the bytecode in the exported package (§1).
@@ -66,8 +68,10 @@ This document records implementation decisions: how the components are split, ho
 ```
 SConstruct
 src/compiler/          no Godot dependency
+src/bytecode/          no Godot dependency, shared by the compiler and the runtime
 src/runtime/
 src/adapter/           editor parts in src/adapter/editor/
+src/probe/             the step-2 probes, in non-release builds only
 tests/compiler/        doctest, as in the engine's unit tests
 tests/engine/          a Godot project run in headless mode; fps/ holds the migrated scripts of the FPS project
 thirdparty/godot-cpp/  git submodule
