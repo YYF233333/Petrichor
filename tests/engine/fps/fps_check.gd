@@ -61,16 +61,58 @@ func _ready() -> void:
 
 	# The player's damage() emits health_updated, which main.tscn connects to the HUD.
 	var huds := _nodes_with_script(scene, "hud")
-	var player := scene.get_node("Player")
+	var player: Node3D = scene.get_node("Player")
+	_report("player", player)
 	player.damage(10)
-	var health_text: String = huds[0].get_node("Health").text if huds.size() == 1 else ""
-	_check(health_text == "%d%%" % player.health, "the HUD shows the health the player reports (%s)" % health_text)
+	var health: Label = huds[0].get_node("Health") if huds.size() == 1 else Label.new()
+	_check(health.text == "90%", "the HUD shows the health the player reports (%s)" % health.text)
 
 	# The weapons are resources that player.tscn lists in its typed export.
 	var weapons: Array = player.weapons
 	_check(weapons.size() == 2 and weapons.all(func(w): return w.model is PackedScene and w.crosshair is Texture2D and w.cooldown > 0.0), "the player's weapons load with their exports")
 	if not weapons.is_empty():
 		_report("weapon", weapons[0])
+
+	# A tween puts the weapon's model in the container and renders it on layer
+	# 2 only, and the weapon_toggle action changes to the next weapon.
+	var container := player.get_node("Head/Camera/SubViewportContainer/SubViewport/CameraItem/Container")
+	for i in weapons.size():
+		if i > 0:
+			Input.action_press("weapon_toggle")
+			await get_tree().process_frame
+			Input.action_release("weapon_toggle")
+		var model_path: String = weapons[i].model.resource_path
+		var shown: bool = await _wait_until(func(): return container.get_child_count() == 1 and container.get_child(0).scene_file_path == model_path, 3.0)
+		_check(shown, "weapon %d shows its model" % i)
+		if shown:
+			var meshes := container.get_child(0).find_children("*", "MeshInstance3D")
+			_check(not meshes.is_empty() and meshes.all(func(mesh): return mesh.layers == 2), "weapon %d's model renders on layer 2 only" % i)
+		_check(player.crosshair.texture == weapons[i].crosshair, "weapon %d shows its crosshair" % i)
+
+	# An enemy shoots what is Combat.Damageable in front of it: with the player
+	# held there, the HUD's health drops.
+	var enemies := _nodes_with_script(scene, "enemy")
+	_check(enemies.size() == 4, "the scene has its four enemies")
+	# combat.pet, which declares the interface, has no GDScript original.
+	if ResourceLoader.exists("res://scripts/combat.pet"):
+		print("fps check: combat runs %s" % load("res://scripts/combat.pet").get_class())
+	if not enemies.is_empty():
+		var enemy: Node3D = enemies[0]
+		var start := player.global_position
+		var before := health.text
+		var held_in_front := func():
+			player.global_position = enemy.global_position + Vector3(0, -0.5, 2)
+			return health.text != before
+		var hit: bool = await _wait_until(held_in_front, 5.0)
+		player.global_position = start
+		_check(hit, "an enemy's shot damages the player (%s)" % health.text)
+
+		# By id, as below for impacts.
+		var target: Node3D = enemies[1]
+		var target_id := target.get_instance_id()
+		target.damage(100)
+		var destroyed: bool = await _wait_until(func(): return not is_instance_id_valid(target_id), 3.0)
+		_check(destroyed, "an enemy damaged by its whole health is destroyed")
 
 	# The player and the enemies call Audio.play() when they land, shoot or are
 	# hurt, which a headless run does not do.

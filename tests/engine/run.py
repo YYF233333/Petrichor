@@ -229,12 +229,12 @@ def prepare_fps(project):
 
 def migrate_fps(project):
     """Puts each migrated script in place of its GDScript original
-    (architecture §5 step 4)."""
+    (architecture §5 step 4); combat.pet has none."""
     replaced = {}
     for script in FPS_MIGRATED.rglob("*.pet"):
         relative = script.relative_to(FPS_MIGRATED)
         original = project / relative.with_suffix(".gd")
-        original.unlink()
+        original.unlink(missing_ok=True)
         original.with_name(original.name + ".uid").unlink(missing_ok=True)
         shutil.copy(script, project / relative)
         replaced["res://" + relative.with_suffix(".gd").as_posix()] = "res://" + relative.as_posix()
@@ -315,17 +315,25 @@ def main():
     sys.exit(1 if failures else 0)
 
 
+def resources_in_use(output):
+    """What a --verbose run reports as still in use at exit."""
+    return {line for line in output.splitlines() if line.startswith("Resource still in use: ")}
+
+
 def run_fps_group(godot):
     # Architecture §5 step 4: the starter kit runs with its migrated scripts.
-    # The original reports errors of its own in a headless run (a sound still
-    # playing at exit), so the migrated run may only repeat those.
+    # The original reports errors of its own in a headless run (sounds still
+    # playing at exit, and weapon models it removes without freeing), so the
+    # migrated run may only repeat those, and keep no resource at exit that
+    # the original does not.
     with tempfile.TemporaryDirectory() as tmp:
         original = Path(tmp) / "original"
         prepare_fps(original)
         run(godot, "--path", str(original), "--import")
-        code, output = run(godot, "--path", str(original))
+        code, output = run(godot, "--verbose", "--path", str(original))
         expect("fps original run", code == 0 and "fps check: 0 failure(s)" in output, output)
         known_errors = {line for line in output.splitlines() if "ERROR" in line}
+        known_in_use = resources_in_use(output)
 
         # Prepared afresh: the original's .godot caches its global classes,
         # such as Weapon, with the paths of the GDScript files.
@@ -336,9 +344,13 @@ def run_fps_group(godot):
         code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-build")
         expect_run("fps build", code, output)
         expect("fps build: every script compiles", ", 0 with errors" in output, output)
-        code, output = run(godot, "--path", str(migrated))
-        new_errors = [line for line in output.splitlines() if "ERROR" in line and line not in known_errors]
+        code, output = run(godot, "--verbose", "--path", str(migrated))
+        new_errors = [
+            line for line in output.splitlines()
+            if "ERROR" in line and line not in known_errors and not re.match(r"ERROR: \d+ resources still in use at exit", line)
+        ]
         expect("fps run", code == 0 and not new_errors and "fps check: 0 failure(s)" in output, output)
+        expect("fps run: no resources kept at exit that the original frees", resources_in_use(output) <= known_in_use, output)
         for script in sorted(FPS_MIGRATED.rglob("*.pet")):
             expect(f"fps run: {script.stem} runs migrated", f"fps check: {script.stem} runs PetScript" in output, output)
 
