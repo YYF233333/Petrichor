@@ -1,16 +1,20 @@
 #pragma once
 
+#include "runtime/class_image.h"
+
 #include <godot_cpp/classes/script_extension.hpp>
 #include <godot_cpp/classes/script_language.hpp>
 #include <godot_cpp/templates/hash_set.hpp>
 
+#include <memory>
 #include <mutex>
 
 namespace petrichor {
 
 struct PetInstance;
 
-// The class header: `class_name` and `extends`, either on one line or on two.
+// The class header: `class_name` and `extends`, read without compiling, for
+// the editor's global class list.
 struct PetHeader {
 	godot::String class_name;
 	godot::String base = "RefCounted";
@@ -18,46 +22,43 @@ struct PetHeader {
 
 PetHeader parse_header(const godot::String &p_source);
 
-// There is no compiler yet: a script only reads its class header, and every
-// script has the same hard-coded members, the property `message`, the methods
-// `greet()` and `echo_later(value, frames)`, and `_ready`.
+// A script of this language. Its compiled class (ClassImage) comes from the
+// compiler in the editor, and from the bytecode cache or the exported package
+// in the game (architecture §2.4).
 class PetScript : public godot::ScriptExtension {
 	GDCLASS(PetScript, godot::ScriptExtension);
 
 	godot::String source;
-	godot::StringName global_name;
-	godot::StringName base_type;
-	bool valid = false;
+	std::shared_ptr<const ClassImage> image; // Null while the script has errors.
+	PetHeader header;
 
 	mutable std::mutex mutex;
 	mutable godot::HashSet<PetInstance *> instances;
 	mutable godot::HashSet<void *> placeholders;
 
-	void parse();
 	void update_placeholder(void *p_placeholder) const;
+	void set_image(const std::shared_ptr<const ClassImage> &p_image);
 
 protected:
 	static void _bind_methods();
 
 public:
-	// Built on each call: static StringNames would be destroyed after the
-	// engine has unloaded the extension.
-	static godot::StringName message_name() { return "message"; }
-	static godot::StringName greet_name() { return "greet"; }
-	static godot::StringName ready_name() { return "_ready"; }
-	static godot::StringName echo_later_name() { return "echo_later"; }
-	static godot::StringName init_name() { return "_init"; }
-	static godot::String message_default() { return "hello"; }
-
 	godot::String get_script_path() const;
-	int64_t method_argument_count(const godot::StringName &p_method, bool &r_valid) const;
+	std::shared_ptr<const ClassImage> get_image() const;
+
+	// The source as loaded, with its compiled class.
+	void set_loaded(const godot::String &p_source, const std::shared_ptr<const ClassImage> &p_image);
+	void instance_freed(PetInstance *p_instance);
+
+	// Members and functions visible to the engine and other languages: public
+	// or exported members, and public functions and engine overrides.
+	static bool is_visible(const bytecode::Member &p_member) { return p_member.is_pub || p_member.is_export; }
+	static bool is_visible(const bytecode::Function &p_function) { return p_function.is_pub || p_function.is_override; }
+	int find_visible_function(const godot::StringName &p_name) const;
 
 	// GDScript constructs scripts of other languages through a bound `new`, and
 	// checks it as the static `_init` (modules/gdscript/gdscript_analyzer.cpp:5958-5961).
 	godot::Variant _new(const godot::Variant **p_args, GDExtensionInt p_argcount, GDExtensionCallError &r_error);
-
-	void set_source(const godot::String &p_source);
-	void instance_freed(PetInstance *p_instance);
 
 	bool _editor_can_reload_from_file() override;
 	void _placeholder_erased(void *p_placeholder) override;
@@ -97,5 +98,11 @@ public:
 	godot::Variant _get_rpc_config() const override;
 	bool _instance_has(godot::Object *p_object) const override;
 };
+
+// Reflection dictionaries for the engine.
+godot::Dictionary property_info(const bytecode::Member &p_member);
+godot::TypedArray<godot::Dictionary> visible_properties(const ClassImage &p_image);
+godot::TypedArray<godot::Dictionary> visible_methods(const ClassImage &p_image);
+godot::Variant initial_value(const ClassImage &p_image, const bytecode::Member &p_member);
 
 } // namespace petrichor

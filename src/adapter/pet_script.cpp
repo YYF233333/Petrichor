@@ -1,10 +1,19 @@
 #include "adapter/pet_script.h"
 
+#include "adapter/pet_compiled.h"
 #include "adapter/pet_instance.h"
 #include "adapter/pet_language.h"
 
+#ifdef TOOLS_ENABLED
+#include "adapter/editor/script_compiler.h"
+#endif
+#ifdef PETRICHOR_PROBES
+#include "probe/probe_methods.h"
+#endif
+
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/error_macros.hpp>
 
@@ -12,10 +21,16 @@ using namespace godot;
 
 namespace petrichor {
 
-static Dictionary property_dict(Variant::Type p_type, const StringName &p_name, uint32_t p_usage) {
+using bytecode::ValueType;
+
+static StringName init_name() {
+	return "_init";
+}
+
+static Dictionary property_dict(Variant::Type p_type, const StringName &p_name, uint32_t p_usage, const StringName &p_class_name = StringName()) {
 	Dictionary dict;
 	dict["name"] = p_name;
-	dict["class_name"] = StringName();
+	dict["class_name"] = p_class_name;
 	dict["type"] = p_type;
 	dict["hint"] = PROPERTY_HINT_NONE;
 	dict["hint_string"] = String();
@@ -23,7 +38,7 @@ static Dictionary property_dict(Variant::Type p_type, const StringName &p_name, 
 	return dict;
 }
 
-static Dictionary method_dict(const StringName &p_name, const Dictionary &p_return, const Array &p_args = Array(), uint32_t p_flags = METHOD_FLAGS_DEFAULT) {
+static Dictionary method_dict(const StringName &p_name, const Array &p_args, const Dictionary &p_return, uint32_t p_flags) {
 	Dictionary dict;
 	dict["name"] = p_name;
 	dict["args"] = p_args;
@@ -34,13 +49,60 @@ static Dictionary method_dict(const StringName &p_name, const Dictionary &p_retu
 	return dict;
 }
 
-static Dictionary return_dict(Variant::Type p_type) {
-	return property_dict(p_type, StringName(), PROPERTY_USAGE_DEFAULT);
+static Dictionary function_info(const ClassImage &p_image, int p_index) {
+	const bytecode::Function &function = p_image.module.functions[p_index];
+	Array args;
+	for (const bytecode::Slot &param : function.params) {
+		args.push_back(property_dict(variant_type(param.type), String::utf8(param.name.c_str()), PROPERTY_USAGE_DEFAULT));
+	}
+	return method_dict(p_image.function_names[p_index], args, property_dict(variant_type(function.return_type), StringName(), PROPERTY_USAGE_DEFAULT), METHOD_FLAGS_DEFAULT);
 }
 
-// Async methods report an untyped result to the engine (spec §9.8).
-static Dictionary variant_dict(const StringName &p_name) {
-	return property_dict(Variant::NIL, p_name, PROPERTY_USAGE_NIL_IS_VARIANT);
+Dictionary property_info(const bytecode::Member &p_member) {
+	// Exported members are stored in scenes and shown in the inspector; public
+	// ones are only visible to other code.
+	uint32_t usage = PROPERTY_USAGE_SCRIPT_VARIABLE;
+	if (p_member.is_export) {
+		usage |= PROPERTY_USAGE_DEFAULT;
+	}
+	return property_dict(variant_type(p_member.type), String::utf8(p_member.name.c_str()), usage);
+}
+
+TypedArray<Dictionary> visible_properties(const ClassImage &p_image) {
+	TypedArray<Dictionary> list;
+	for (const bytecode::Member &member : p_image.module.members) {
+		if (PetScript::is_visible(member)) {
+			list.push_back(property_info(member));
+		}
+	}
+	return list;
+}
+
+TypedArray<Dictionary> visible_methods(const ClassImage &p_image) {
+	TypedArray<Dictionary> list;
+	for (size_t i = 0; i < p_image.module.functions.size(); i++) {
+		if (PetScript::is_visible(p_image.module.functions[i])) {
+			list.push_back(function_info(p_image, int(i)));
+		}
+	}
+	return list;
+}
+
+Variant initial_value(const ClassImage &p_image, const bytecode::Member &p_member) {
+	const bytecode::Constant &initial = p_member.initial;
+	switch (p_member.type) {
+		case ValueType::Bool:
+			return initial.b;
+		case ValueType::Int:
+			return initial.i;
+		case ValueType::Float:
+			return initial.f;
+		case ValueType::String:
+			return String::utf8(initial.s.c_str(), int64_t(initial.s.size()));
+		case ValueType::Void:
+			break;
+	}
+	return Variant();
 }
 
 PetHeader parse_header(const String &p_source) {
@@ -57,12 +119,14 @@ PetHeader parse_header(const String &p_source) {
 				has_base = true;
 			}
 		}
-		if (words.size() > 0 && (words[0] == "func" || words[0] == "var")) {
+		if (words.size() > 0 && (words[0] == "func" || words[0] == "var" || words[0].begins_with("@") || words[0] == "pub")) {
 			break;
 		}
 	}
 	return header;
 }
+
+/* PetScript */
 
 void PetScript::_bind_methods() {
 	MethodInfo info;
@@ -77,9 +141,8 @@ Variant PetScript::_new(const Variant **p_args, GDExtensionInt p_argcount, GDExt
 		r_error.expected = 0;
 		return Variant();
 	}
-	ERR_FAIL_COND_V_MSG(!valid, Variant(), vformat("%s cannot be constructed: unknown base class '%s'.", get_script_path(), base_type));
-
-	Variant object = ClassDBSingleton::get_singleton()->instantiate(base_type);
+	ERR_FAIL_COND_V_MSG(!get_image(), Variant(), get_script_path() + " cannot be constructed: it has errors.");
+	Variant object = ClassDBSingleton::get_singleton()->instantiate(_get_instance_base_type());
 	Object *instance = object;
 	ERR_FAIL_NULL_V(instance, Variant());
 	instance->set_script(Ref<PetScript>(this));
@@ -90,16 +153,35 @@ String PetScript::get_script_path() const {
 	return get_path();
 }
 
-void PetScript::set_source(const String &p_source) {
-	source = p_source;
-	parse();
+std::shared_ptr<const ClassImage> PetScript::get_image() const {
+	std::lock_guard<std::mutex> lock(mutex);
+	return image;
 }
 
-void PetScript::parse() {
-	const PetHeader header = parse_header(source);
-	global_name = header.class_name;
-	base_type = header.base;
-	valid = ClassDBSingleton::get_singleton()->class_exists(base_type);
+void PetScript::set_loaded(const String &p_source, const std::shared_ptr<const ClassImage> &p_image) {
+	source = p_source;
+	header = parse_header(p_source);
+	set_image(p_image);
+}
+
+void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image) {
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		const std::shared_ptr<const ClassImage> old = image;
+		image = p_image;
+		if (old && p_image && !instances.is_empty()) {
+			if (p_image->same_layout(*old)) {
+				// Only function bodies changed: instances switch to the new
+				// code, and frames already running finish with the old (spec §12.4).
+				for (PetInstance *instance : instances) {
+					instance->image = p_image;
+				}
+			} else {
+				WARN_PRINT(get_script_path() + ": its members changed. Existing instances keep the old code; run the scene again to apply the change.");
+			}
+		}
+	}
+	_update_exports();
 }
 
 void PetScript::instance_freed(PetInstance *p_instance) {
@@ -107,10 +189,25 @@ void PetScript::instance_freed(PetInstance *p_instance) {
 	instances.erase(p_instance);
 }
 
+int PetScript::find_visible_function(const StringName &p_name) const {
+	const std::shared_ptr<const ClassImage> current = get_image();
+	if (!current) {
+		return -1;
+	}
+	const int index = current->find_function(p_name);
+	return index >= 0 && is_visible(current->module.functions[index]) ? index : -1;
+}
+
 void PetScript::update_placeholder(void *p_placeholder) const {
 	Array properties = _get_script_property_list();
 	Dictionary values;
-	values[message_name()] = message_default();
+	if (const std::shared_ptr<const ClassImage> current = get_image()) {
+		for (size_t i = 0; i < current->module.members.size(); i++) {
+			if (is_visible(current->module.members[i])) {
+				values[current->member_names[i]] = initial_value(*current, current->module.members[i]);
+			}
+		}
+	}
 	gdextension_interface::placeholder_script_instance_update(p_placeholder, properties._native_ptr(), values._native_ptr());
 }
 
@@ -124,7 +221,7 @@ void PetScript::_placeholder_erased(void *p_placeholder) {
 }
 
 bool PetScript::_can_instantiate() const {
-	return valid && (_is_tool() || !Engine::get_singleton()->is_editor_hint());
+	return get_image() && (_is_tool() || !Engine::get_singleton()->is_editor_hint());
 }
 
 Ref<Script> PetScript::_get_base_script() const {
@@ -132,7 +229,8 @@ Ref<Script> PetScript::_get_base_script() const {
 }
 
 StringName PetScript::_get_global_name() const {
-	return global_name;
+	const std::shared_ptr<const ClassImage> current = get_image();
+	return current ? current->global_name : StringName(header.class_name);
 }
 
 bool PetScript::_inherits_script(const Ref<Script> &p_script) const {
@@ -140,20 +238,18 @@ bool PetScript::_inherits_script(const Ref<Script> &p_script) const {
 }
 
 StringName PetScript::_get_instance_base_type() const {
-	return base_type;
+	const std::shared_ptr<const ClassImage> current = get_image();
+	return current ? current->base_class : StringName(header.base);
 }
 
 void *PetScript::_instance_create(Object *p_for_object) const {
-	ERR_FAIL_COND_V(!valid, nullptr);
-	if (!ClassDBSingleton::get_singleton()->is_parent_class(p_for_object->get_class(), base_type)) {
-		ERR_PRINT(vformat("%s extends %s and cannot be attached to %s.", get_script_path(), base_type, p_for_object->get_class()));
+	const std::shared_ptr<const ClassImage> current = get_image();
+	ERR_FAIL_COND_V_MSG(!current, nullptr, get_script_path() + " has errors and cannot be instantiated.");
+	if (!ClassDBSingleton::get_singleton()->is_parent_class(p_for_object->get_class(), current->base_class)) {
+		ERR_PRINT(vformat("%s extends %s and cannot be attached to %s.", get_script_path(), current->base_class, p_for_object->get_class()));
 		return nullptr;
 	}
-
-	PetInstance *instance = memnew(PetInstance);
-	instance->owner = p_for_object->_owner;
-	instance->script = Ref<PetScript>(const_cast<PetScript *>(this));
-	instance->message = message_default();
+	PetInstance *instance = memnew(PetInstance(const_cast<PetScript *>(this), current, p_for_object));
 	{
 		std::lock_guard<std::mutex> lock(mutex);
 		instances.insert(instance);
@@ -172,7 +268,7 @@ void *PetScript::_placeholder_instance_create(Object *p_for_object) const {
 }
 
 bool PetScript::_has_source_code() const {
-	return true;
+	return !source.is_empty();
 }
 
 String PetScript::_get_source_code() const {
@@ -181,15 +277,32 @@ String PetScript::_get_source_code() const {
 
 void PetScript::_set_source_code(const String &p_code) {
 	source = p_code;
+	header = parse_header(p_code);
 }
 
 Error PetScript::_reload(bool p_keep_state) {
-	parse();
-	_update_exports();
-	if (!valid) {
-		ERR_PRINT(vformat("%s: unknown base class '%s'.", get_script_path(), base_type));
-		return ERR_PARSE_ERROR;
+	const String path = get_script_path();
+#ifdef TOOLS_ENABLED
+	if (Engine::get_singleton()->is_editor_hint()) {
+		const std::shared_ptr<const ClassImage> compiled = compile_script(path, source, nullptr, true);
+		set_image(compiled);
+		return compiled ? OK : ERR_PARSE_ERROR;
 	}
+#endif
+	// In the game, the editor has already compiled the new source into the cache.
+	if (!FileAccess::file_exists(path)) {
+		return OK; // An exported game has no sources to reload from.
+	}
+	const String new_source = FileAccess::get_file_as_string(path);
+	String error;
+	const std::shared_ptr<const ClassImage> loaded = load_compiled(cache_path(path), path, &new_source, error);
+	if (!loaded) {
+		ERR_PRINT(vformat("%s %s", path, error));
+		return ERR_FILE_CORRUPT;
+	}
+	source = new_source;
+	header = parse_header(new_source);
+	set_image(loaded);
 	return OK;
 }
 
@@ -206,46 +319,44 @@ String PetScript::_get_class_icon_path() const {
 }
 
 bool PetScript::_has_method(const StringName &p_method) const {
-	return !_get_method_info(p_method).is_empty();
+#ifdef PETRICHOR_PROBES
+	if (probe_methods::has(p_method)) {
+		return true;
+	}
+#endif
+	return find_visible_function(p_method) >= 0 || (p_method == init_name() && get_image());
 }
 
 bool PetScript::_has_static_method(const StringName &p_method) const {
-	return p_method == init_name();
-}
-
-int64_t PetScript::method_argument_count(const StringName &p_method, bool &r_valid) const {
-	const Dictionary info = _get_method_info(p_method);
-	r_valid = !info.is_empty();
-	return r_valid ? Array(info["args"]).size() : 0;
+	return p_method == init_name() && get_image();
 }
 
 Variant PetScript::_get_script_method_argument_count(const StringName &p_method) const {
-	bool valid_method = false;
-	const int64_t count = method_argument_count(p_method, valid_method);
-	return valid_method ? Variant(count) : Variant();
+	const int index = find_visible_function(p_method);
+	if (index < 0) {
+		return Variant();
+	}
+	return int64_t(get_image()->module.functions[index].params.size());
 }
 
 Dictionary PetScript::_get_method_info(const StringName &p_method) const {
-	if (p_method == greet_name()) {
-		return method_dict(greet_name(), return_dict(Variant::STRING));
+#ifdef PETRICHOR_PROBES
+	if (probe_methods::has(p_method)) {
+		return probe_methods::info(p_method);
 	}
-	if (p_method == ready_name()) {
-		return method_dict(ready_name(), return_dict(Variant::NIL));
-	}
-	if (p_method == echo_later_name()) {
-		Array args;
-		args.push_back(variant_dict("value"));
-		args.push_back(property_dict(Variant::INT, "frames", PROPERTY_USAGE_DEFAULT));
-		return method_dict(echo_later_name(), variant_dict(StringName()), args);
+#endif
+	const std::shared_ptr<const ClassImage> current = get_image();
+	if (!current) {
+		return Dictionary();
 	}
 	if (p_method == init_name()) {
-		// Reported as a static method returning the class, which is how GDScript
-		// types `new` (spec §10.1).
-		Dictionary result = return_dict(Variant::OBJECT);
-		result["class_name"] = global_name.is_empty() ? base_type : global_name;
-		return method_dict(init_name(), result, Array(), METHOD_FLAGS_DEFAULT | METHOD_FLAG_STATIC);
+		// A static method returning the class, which is how GDScript types
+		// `new` (spec §10.1).
+		const StringName type_name = current->global_name == StringName() ? current->base_class : current->global_name;
+		return method_dict(init_name(), Array(), property_dict(Variant::OBJECT, StringName(), PROPERTY_USAGE_DEFAULT, type_name), METHOD_FLAGS_DEFAULT | METHOD_FLAG_STATIC);
 	}
-	return Dictionary();
+	const int index = find_visible_function(p_method);
+	return index >= 0 ? function_info(*current, index) : Dictionary();
 }
 
 bool PetScript::_is_tool() const {
@@ -253,7 +364,7 @@ bool PetScript::_is_tool() const {
 }
 
 bool PetScript::_is_valid() const {
-	return valid;
+	return bool(get_image());
 }
 
 bool PetScript::_is_abstract() const {
@@ -273,14 +384,21 @@ TypedArray<Dictionary> PetScript::_get_script_signal_list() const {
 }
 
 bool PetScript::_has_property_default_value(const StringName &p_property) const {
-	return p_property == message_name();
+	const std::shared_ptr<const ClassImage> current = get_image();
+	if (!current) {
+		return false;
+	}
+	const int index = current->find_member(p_property);
+	return index >= 0 && is_visible(current->module.members[index]);
 }
 
 Variant PetScript::_get_property_default_value(const StringName &p_property) const {
-	if (p_property == message_name()) {
-		return message_default();
+	const std::shared_ptr<const ClassImage> current = get_image();
+	if (!current) {
+		return Variant();
 	}
-	return Variant();
+	const int index = current->find_member(p_property);
+	return index >= 0 ? initial_value(*current, current->module.members[index]) : Variant();
 }
 
 void PetScript::_update_exports() {
@@ -298,16 +416,18 @@ void PetScript::_update_exports() {
 
 TypedArray<Dictionary> PetScript::_get_script_method_list() const {
 	TypedArray<Dictionary> list;
-	list.push_back(_get_method_info(greet_name()));
-	list.push_back(_get_method_info(echo_later_name()));
-	list.push_back(_get_method_info(ready_name()));
+	if (const std::shared_ptr<const ClassImage> current = get_image()) {
+		list = visible_methods(*current);
+	}
+#ifdef PETRICHOR_PROBES
+	probe_methods::append_to(list);
+#endif
 	return list;
 }
 
 TypedArray<Dictionary> PetScript::_get_script_property_list() const {
-	TypedArray<Dictionary> list;
-	list.push_back(property_dict(Variant::STRING, message_name(), PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_SCRIPT_VARIABLE));
-	return list;
+	const std::shared_ptr<const ClassImage> current = get_image();
+	return current ? visible_properties(*current) : TypedArray<Dictionary>();
 }
 
 int32_t PetScript::_get_member_line(const StringName &p_member) const {
@@ -320,7 +440,13 @@ Dictionary PetScript::_get_constants() const {
 
 TypedArray<StringName> PetScript::_get_members() const {
 	TypedArray<StringName> members;
-	members.push_back(message_name());
+	if (const std::shared_ptr<const ClassImage> current = get_image()) {
+		for (size_t i = 0; i < current->module.members.size(); i++) {
+			if (is_visible(current->module.members[i])) {
+				members.push_back(current->member_names[i]);
+			}
+		}
+	}
 	return members;
 }
 

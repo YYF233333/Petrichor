@@ -1,9 +1,14 @@
 #include "adapter/pet_instance.h"
 
 #include "adapter/pet_language.h"
-#include "runtime/task.h"
+#include "runtime/vm.h"
 
-#include <godot_cpp/variant/utility_functions.hpp>
+#ifdef PETRICHOR_PROBES
+#include "probe/probe_methods.h"
+#endif
+
+#include <algorithm>
+#include <new>
 
 using namespace godot;
 
@@ -101,7 +106,22 @@ void free_method_list(const GDExtensionMethodInfo *p_list, uint32_t p_count) {
 	memdelete_arr(const_cast<GDExtensionMethodInfo *>(p_list));
 }
 
-/* Instance callbacks */
+/* Instance */
+
+PetInstance::PetInstance(PetScript *p_script, const std::shared_ptr<const ClassImage> &p_image, Object *p_owner) :
+		owner(p_owner->_owner), owner_object(p_owner), script(Ref<PetScript>(p_script)), image(p_image) {
+	const uint32_t size = std::max<uint32_t>(image->module.instance_size, 8);
+	members = static_cast<uint8_t *>(::operator new(size));
+	construct_slots(members, size, image->member_slots);
+	for (const bytecode::Member &member : image->module.members) {
+		from_variant(member.type, initial_value(*image, member), members + member.offset);
+	}
+}
+
+PetInstance::~PetInstance() {
+	destroy_slots(members, image->member_slots);
+	::operator delete(members);
+}
 
 static PetInstance *self(GDExtensionScriptInstanceDataPtr p_instance) {
 	return static_cast<PetInstance *>(p_instance);
@@ -111,28 +131,38 @@ static const StringName &as_name(GDExtensionConstStringNamePtr p_name) {
 	return *reinterpret_cast<const StringName *>(p_name);
 }
 
-static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionConstVariantPtr p_value) {
-	const Variant &value = *reinterpret_cast<const Variant *>(p_value);
-	if (as_name(p_name) == PetScript::message_name()) {
-		if (value.get_type() != Variant::STRING && value.get_type() != Variant::STRING_NAME) {
-			return false;
-		}
-		self(p_instance)->message = value;
-		return true;
+static const bytecode::Member *visible_member(const PetInstance *p_instance, const StringName &p_name) {
+	const int index = p_instance->image->find_member(p_name);
+	if (index < 0 || !PetScript::is_visible(p_instance->image->module.members[index])) {
+		return nullptr;
 	}
-	return false;
+	return &p_instance->image->module.members[index];
+}
+
+static int visible_function(const PetInstance *p_instance, const StringName &p_name) {
+	const int index = p_instance->image->find_function(p_name);
+	return index >= 0 && PetScript::is_visible(p_instance->image->module.functions[index]) ? index : -1;
+}
+
+static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionConstVariantPtr p_value) {
+	PetInstance *instance = self(p_instance);
+	const bytecode::Member *member = visible_member(instance, as_name(p_name));
+	// A value of the wrong type is rejected, as by the entry checks (spec §10.1).
+	return member && from_variant(member->type, *reinterpret_cast<const Variant *>(p_value), instance->members + member->offset);
 }
 
 static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionVariantPtr r_ret) {
-	if (as_name(p_name) == PetScript::message_name()) {
-		*reinterpret_cast<Variant *>(r_ret) = self(p_instance)->message;
-		return true;
+	PetInstance *instance = self(p_instance);
+	const bytecode::Member *member = visible_member(instance, as_name(p_name));
+	if (!member) {
+		return false;
 	}
-	return false;
+	*reinterpret_cast<Variant *>(r_ret) = to_variant(member->type, instance->members + member->offset);
+	return true;
 }
 
 static const GDExtensionPropertyInfo *instance_get_property_list(GDExtensionScriptInstanceDataPtr p_instance, uint32_t *r_count) {
-	const TypedArray<Dictionary> list = self(p_instance)->script->_get_script_property_list();
+	const TypedArray<Dictionary> list = visible_properties(*self(p_instance)->image);
 	*r_count = uint32_t(list.size());
 	return make_property_list(list);
 }
@@ -142,15 +172,16 @@ static void instance_free_property_list(GDExtensionScriptInstanceDataPtr p_insta
 }
 
 static GDExtensionBool instance_property_can_revert(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name) {
-	return self(p_instance)->script->_has_property_default_value(as_name(p_name));
+	return visible_member(self(p_instance), as_name(p_name)) != nullptr;
 }
 
 static GDExtensionBool instance_property_get_revert(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionVariantPtr r_ret) {
-	const PetScript *script = self(p_instance)->script.ptr();
-	if (!script->_has_property_default_value(as_name(p_name))) {
+	PetInstance *instance = self(p_instance);
+	const bytecode::Member *member = visible_member(instance, as_name(p_name));
+	if (!member) {
 		return false;
 	}
-	*reinterpret_cast<Variant *>(r_ret) = script->_get_property_default_value(as_name(p_name));
+	*reinterpret_cast<Variant *>(r_ret) = initial_value(*instance->image, *member);
 	return true;
 }
 
@@ -159,7 +190,10 @@ static GDExtensionObjectPtr instance_get_owner(GDExtensionScriptInstanceDataPtr 
 }
 
 static const GDExtensionMethodInfo *instance_get_method_list(GDExtensionScriptInstanceDataPtr p_instance, uint32_t *r_count) {
-	const TypedArray<Dictionary> list = self(p_instance)->script->_get_script_method_list();
+	TypedArray<Dictionary> list = visible_methods(*self(p_instance)->image);
+#ifdef PETRICHOR_PROBES
+	probe_methods::append_to(list);
+#endif
 	*r_count = uint32_t(list.size());
 	return make_method_list(list);
 }
@@ -169,59 +203,46 @@ static void instance_free_method_list(GDExtensionScriptInstanceDataPtr p_instanc
 }
 
 static GDExtensionVariantType instance_get_property_type(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionBool *r_is_valid) {
-	if (as_name(p_name) == PetScript::message_name()) {
-		*r_is_valid = true;
-		return GDEXTENSION_VARIANT_TYPE_STRING;
-	}
-	*r_is_valid = false;
-	return GDEXTENSION_VARIANT_TYPE_NIL;
+	const bytecode::Member *member = visible_member(self(p_instance), as_name(p_name));
+	*r_is_valid = member != nullptr;
+	return member ? GDExtensionVariantType(variant_type(member->type)) : GDEXTENSION_VARIANT_TYPE_NIL;
 }
 
 static GDExtensionBool instance_has_method(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name) {
-	return self(p_instance)->script->_has_method(as_name(p_name));
+#ifdef PETRICHOR_PROBES
+	if (probe_methods::has(as_name(p_name))) {
+		return true;
+	}
+#endif
+	return visible_function(self(p_instance), as_name(p_name)) >= 0;
 }
 
 static GDExtensionInt instance_get_method_argument_count(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionBool *r_is_valid) {
-	bool valid = false;
-	const int64_t count = self(p_instance)->script->method_argument_count(as_name(p_name), valid);
-	*r_is_valid = valid;
-	return count;
+	PetInstance *instance = self(p_instance);
+	const int index = visible_function(instance, as_name(p_name));
+	*r_is_valid = index >= 0;
+	return index >= 0 ? GDExtensionInt(instance->image->module.functions[index].params.size()) : 0;
 }
 
 static void instance_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_method, const GDExtensionConstVariantPtr *p_args, GDExtensionInt p_argument_count, GDExtensionVariantPtr r_return, GDExtensionCallError *r_error) {
 	PetInstance *instance = self(p_instance);
 	const StringName &method = as_name(p_method);
-	const Variant *const *args = reinterpret_cast<const Variant *const *>(p_args);
+	const Variant **args = reinterpret_cast<const Variant **>(const_cast<GDExtensionConstVariantPtr *>(p_args));
 	Variant &result = *reinterpret_cast<Variant *>(r_return);
 	r_error->error = GDEXTENSION_CALL_OK;
 
-	bool valid = false;
-	const int64_t expected = instance->script->method_argument_count(method, valid);
-	if (!valid) {
+#ifdef PETRICHOR_PROBES
+	if (probe_methods::call(method, args, p_argument_count, result, *r_error)) {
+		return;
+	}
+#endif
+	const int index = visible_function(instance, method);
+	if (index < 0) {
 		r_error->error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
 		return;
 	}
-	if (p_argument_count != expected) {
-		r_error->error = p_argument_count > expected ? GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS : GDEXTENSION_CALL_ERROR_TOO_FEW_ARGUMENTS;
-		r_error->expected = int32_t(expected);
-		return;
-	}
-
-	if (method == PetScript::ready_name()) {
-		UtilityFunctions::print(vformat("%s: _ready, message = %s", instance->script->get_script_path(), instance->message));
-	} else if (method == PetScript::greet_name()) {
-		result = vformat("Hello from %s: %s", instance->script->get_script_path(), instance->message);
-	} else if (method == PetScript::echo_later_name()) {
-		if (args[1]->get_type() != Variant::INT) {
-			r_error->error = GDEXTENSION_CALL_ERROR_INVALID_ARGUMENT;
-			r_error->argument = 1;
-			r_error->expected = GDEXTENSION_VARIANT_TYPE_INT;
-			return;
-		}
-		// Called from outside this language, an async method returns the
-		// signal of its task (spec §9.8).
-		result = task_queue::deliver_later(*args[0], int64_t(*args[1]));
-	}
+	const InstanceContext context{ instance->members, instance->owner_object };
+	result = vm::call(instance->image, index, context, args, p_argument_count, *r_error);
 }
 
 static void instance_notification(GDExtensionScriptInstanceDataPtr p_instance, int32_t p_what, GDExtensionBool p_reversed) {

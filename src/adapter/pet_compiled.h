@@ -1,13 +1,23 @@
 #pragma once
 
-#include <godot_cpp/variant/packed_byte_array.hpp>
+#include "runtime/class_image.h"
+
 #include <godot_cpp/variant/string.hpp>
+
+#include <memory>
 
 namespace petrichor {
 
-// Exported games contain only compiled scripts (spec §1.3). Until the compiler
-// produces bytecode, a compiled file is a header followed by the source.
-godot::PackedByteArray encode_compiled(const godot::String &p_source);
-bool decode_compiled(const godot::PackedByteArray &p_bytes, godot::String &r_source);
+// Where the editor writes the bytecode of a script, and the game reads it
+// (architecture §2.4): res://.godot/petrichor/<path>c.
+godot::String cache_path(const godot::String &p_script_path);
+
+// Reads a compiled script. With `p_source`, the bytecode must have been
+// compiled from exactly that source.
+std::shared_ptr<const ClassImage> load_compiled(const godot::String &p_compiled_path, const godot::String &p_script_path, const godot::String *p_source, godot::String &r_error);
+
+bool write_compiled(const godot::String &p_compiled_path, const ClassImage &p_image);
+
+std::string to_utf8(const godot::String &p_text);
 
 } // namespace petrichor

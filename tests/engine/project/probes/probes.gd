@@ -87,7 +87,7 @@ g.free()"""), "a typed use of the class compiles")
 	_check(not _compiles("var r = await TypedGreeter.new().greet()"), "awaiting a typed result is a redundant await")
 
 	var greeter: Node = load(GREETER_PATH).new()
-	_check(greeter.greet() == "Hello from %s: hello" % GREETER_PATH, "new() constructs an instance at run time")
+	_check(greeter.greet() == "Hello, hello", "new() constructs an instance at run time")
 	greeter.free()
 
 

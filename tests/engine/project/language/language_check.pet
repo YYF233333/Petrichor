@@ -1,0 +1,53 @@
+# The first language subset (architecture §5 step 3), driven by language_test.gd.
+class_name LanguageCheck
+extends Node
+
+@export pub var speed: float = 2.0
+pub var frames := 0
+
+pub func add(a: int, b: int) -> int:
+	return a + b
+
+pub func divide(a: int, b: int) -> int:
+	return a / b
+
+pub func scale(x: float) -> float:
+	return x * speed
+
+pub func sum_odd_to(n: int) -> int:
+	var total := 0
+	var i := 0
+	while i < n:
+		i += 1
+		if i % 2 == 0:
+			continue
+		total += i
+	return total
+
+pub func describe(n: int) -> String:
+	if n < 0:
+		return "negative"
+	elif n == 0:
+		return "zero"
+	return "positive"
+
+pub func fib(n: int) -> int:
+	if n < 2:
+		return n
+	return fib(n - 1) + fib(n - 2)
+
+pub func children() -> int:
+	return get_child_count()
+
+pub func truncate(x: float) -> int:
+	return int(x)
+
+pub func wrap() -> int:
+	var big := 9223372036854775807
+	return big + 1
+
+pub func both(a: bool, b: bool) -> bool:
+	return a and not b or b and not a
+
+func _process(delta):
+	frames += 1

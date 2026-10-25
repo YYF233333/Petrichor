@@ -3,6 +3,11 @@
 #include "adapter/pet_compiled.h"
 #include "adapter/pet_script.h"
 
+#ifdef TOOLS_ENABLED
+#include "adapter/editor/script_compiler.h"
+#endif
+
+#include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/core/error_macros.hpp>
 
@@ -33,29 +38,34 @@ String PetResourceLoader::_get_resource_type(const String &p_path) const {
 
 Variant PetResourceLoader::_load(const String &p_path, const String &p_original_path, bool p_use_sub_threads, int32_t p_cache_mode) const {
 	String source;
+	String error;
+	std::shared_ptr<const ClassImage> image;
 	if (p_path.get_extension().to_lower() == "petc") {
-		const PackedByteArray bytes = FileAccess::get_file_as_bytes(p_path);
-		if (bytes.is_empty()) {
-			return FileAccess::get_open_error();
-		}
-		if (!decode_compiled(bytes, source)) {
-			ERR_PRINT(vformat("%s: not a compiled Petrichor script, or compiled by another version.", p_path));
-			return ERR_FILE_CORRUPT;
-		}
+		// An exported game: the export plugin put the bytecode in place of the source.
+		image = load_compiled(p_path, p_original_path, nullptr, error);
 	} else {
 		source = FileAccess::get_file_as_string(p_path);
-		const Error error = FileAccess::get_open_error();
-		if (error != OK) {
-			return error;
+		const Error open_error = FileAccess::get_open_error();
+		if (open_error != OK) {
+			return open_error;
 		}
+#ifdef TOOLS_ENABLED
+		if (Engine::get_singleton()->is_editor_hint()) {
+			image = compile_script(p_original_path, source, nullptr, true);
+		} else
+#endif
+		{
+			// The game reads what the editor compiled (architecture §2.4).
+			image = load_compiled(cache_path(p_original_path), p_original_path, &source, error);
+		}
+	}
+	if (!error.is_empty()) {
+		ERR_PRINT(vformat("%s %s", p_original_path, error));
 	}
 
 	Ref<PetScript> script;
 	script.instantiate();
-	script->set_source(source);
-	if (!script->_is_valid()) {
-		ERR_PRINT(vformat("%s: unknown base class '%s'.", p_original_path, script->_get_instance_base_type()));
-	}
+	script->set_loaded(source, image);
 	return script;
 }
 
@@ -70,6 +80,17 @@ Error PetResourceSaver::_save(const Ref<Resource> &p_resource, const String &p_p
 		return FileAccess::get_open_error();
 	}
 	file->store_string(script->_get_source_code());
+	file->close();
+#ifdef TOOLS_ENABLED
+	// Keeps the bytecode cache current, so that a running game can reload the
+	// script right after the editor saves it (spec §12.4).
+	const String compiled_path = cache_path(p_path); // Empty outside res://.
+	if (Engine::get_singleton()->is_editor_hint() && !compiled_path.is_empty()) {
+		if (const std::shared_ptr<const ClassImage> image = compile_script(p_path, script->_get_source_code(), nullptr, false)) {
+			write_compiled(compiled_path, *image);
+		}
+	}
+#endif
 	return OK;
 }
 

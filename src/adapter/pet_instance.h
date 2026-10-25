@@ -4,14 +4,22 @@
 
 #include <gdextension_interface.h>
 
+#include <memory>
+
 namespace petrichor {
 
 // The data behind one engine script instance; the engine reaches it through
-// the callbacks in `info`.
+// the callbacks in `info`. Members are stored by type in one block laid out as
+// the image's members (architecture §2.2).
 struct PetInstance {
 	GDExtensionObjectPtr owner = nullptr;
+	godot::Object *owner_object = nullptr;
 	godot::Ref<PetScript> script;
-	godot::String message;
+	std::shared_ptr<const ClassImage> image; // Replaced on hot reload when the layout is unchanged.
+	uint8_t *members = nullptr;
+
+	PetInstance(PetScript *p_script, const std::shared_ptr<const ClassImage> &p_image, godot::Object *p_owner);
+	~PetInstance();
 
 	static const GDExtensionScriptInstanceInfo3 info;
 };

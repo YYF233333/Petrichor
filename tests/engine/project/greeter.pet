@@ -1,3 +1,11 @@
-# Without a compiler, the adapter reads only `extends`; every script has the
-# property `message` and the method `greet()`.
+# The main scene's script: exported members, calls from GDScript and engine
+# callbacks reach compiled code.
 extends Node
+
+@export pub var message: String = "hello"
+
+pub func greet() -> String:
+	return "Hello, " + message
+
+func _ready():
+	print("greeter: _ready, message = ", message)

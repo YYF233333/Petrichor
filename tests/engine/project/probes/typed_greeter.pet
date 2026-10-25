@@ -1,2 +1,7 @@
 class_name TypedGreeter
 extends Node
+
+@export pub var message: String = "hello"
+
+pub func greet() -> String:
+	return "Hello, " + message

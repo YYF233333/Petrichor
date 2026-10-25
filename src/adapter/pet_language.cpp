@@ -3,6 +3,10 @@
 #include "adapter/pet_script.h"
 #include "runtime/task.h"
 
+#ifdef TOOLS_ENABLED
+#include "adapter/editor/script_compiler.h"
+#endif
+
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/core/error_macros.hpp>
 
@@ -97,9 +101,14 @@ PackedStringArray PetLanguage::_get_string_delimiters() const {
 }
 
 Ref<Script> PetLanguage::_make_template(const String &p_template, const String &p_class_name, const String &p_base_class_name) const {
+	const String source = vformat("extends %s\n", p_base_class_name);
 	Ref<PetScript> script;
 	script.instantiate();
-	script->set_source(vformat("extends %s\n", p_base_class_name));
+#ifdef TOOLS_ENABLED
+	script->set_loaded(source, compile_script(String(), source, nullptr, false));
+#else
+	script->set_loaded(source, nullptr);
+#endif
 	return script;
 }
 
@@ -113,8 +122,21 @@ bool PetLanguage::_is_using_templates() {
 
 Dictionary PetLanguage::_validate(const String &p_script, const String &p_path, bool p_validate_functions, bool p_validate_errors, bool p_validate_warnings, bool p_validate_safe_lines) const {
 	Dictionary result;
-	result["valid"] = true;
-	result["errors"] = Array();
+	Array errors;
+#ifdef TOOLS_ENABLED
+	std::vector<compiler::Diagnostic> diagnostics;
+	compile_script(p_path, p_script, &diagnostics, false);
+	for (const compiler::Diagnostic &diagnostic : diagnostics) {
+		Dictionary error;
+		error["path"] = p_path;
+		error["line"] = diagnostic.line;
+		error["column"] = diagnostic.column;
+		error["message"] = String::utf8(diagnostic.message.c_str());
+		errors.push_back(error);
+	}
+#endif
+	result["valid"] = errors.is_empty();
+	result["errors"] = errors;
 	result["warnings"] = Array();
 	result["functions"] = PackedStringArray();
 	result["safe_lines"] = PackedInt32Array();
@@ -250,9 +272,20 @@ void PetLanguage::_reload_all_scripts() {
 }
 
 void PetLanguage::_reload_scripts(const Array &p_scripts, bool p_soft_reload) {
+	// Live reload from the editor (spec §12.4).
+	for (int64_t i = 0; i < p_scripts.size(); i++) {
+		const Ref<PetScript> script = p_scripts[i];
+		if (script.is_valid()) {
+			script->reload(true);
+		}
+	}
 }
 
 void PetLanguage::_reload_tool_script(const Ref<Script> &p_script, bool p_soft_reload) {
+	const Ref<PetScript> script = p_script;
+	if (script.is_valid()) {
+		script->reload(true);
+	}
 }
 
 /* Loader */

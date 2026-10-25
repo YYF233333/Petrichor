@@ -21,10 +21,10 @@ PROJECT = HERE / "project"
 
 GAME_OUTPUT = [
     "check: message = from the scene",
-    "check: Hello from res://greeter.pet: from the scene",
-    "check: Hello from res://greeter.pet: set from GDScript",
+    "check: Hello, from the scene",
+    "check: Hello, set from GDScript",
     'check: has_method("greet") = true',
-    "res://greeter.pet: _ready, message = set from GDScript",
+    "greeter: _ready, message = set from GDScript",
 ]
 
 failures = []
@@ -60,6 +60,11 @@ def main():
 
     run(godot, "--path", str(PROJECT), "--import")
 
+    # The game reads the bytecode the editor writes (architecture §2.4).
+    code, output = run(godot, "-e", "--path", str(PROJECT), "--", "--petrichor-build")
+    expect_run("build", code, output)
+    expect("build: every script compiles", ", 0 with errors" in output, output)
+
     code, output = run(godot, "--path", str(PROJECT))
     expect_run("game run", code, output, GAME_OUTPUT)
 
@@ -68,6 +73,9 @@ def main():
 
     code, output = run(godot, "--path", str(PROJECT), "res://probes/probes.tscn")
     expect_run("probes", code, output, ["probe: 0 failure(s)"])
+
+    code, output = run(godot, "--path", str(PROJECT), "res://language/language.tscn")
+    expect_run("language", code, output, ["language: 0 failure(s)"])
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)

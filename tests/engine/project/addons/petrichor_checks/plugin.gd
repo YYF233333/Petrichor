@@ -64,13 +64,13 @@ func _pack_to_text(root: Node) -> String:
 
 func _check_new_script() -> void:
 	var script: Script = ClassDB.instantiate("PetScript")
-	script.source_code = "extends Node2D\n"
+	script.source_code = "extends Node2D\n@export var message: String = \"hello\"\n"
 	script.reload()
 	_check(script.get_instance_base_type() == &"Node2D", "a new script reads its base class")
 
 	var path := "user://editor_check.pet"
 	_check(ResourceSaver.save(script, path) == OK, "the saver writes .pet")
-	_check(FileAccess.get_file_as_string(path) == "extends Node2D\n", "the saved file is the source")
+	_check(FileAccess.get_file_as_string(path) == script.source_code, "the saved file is the source")
 	var loaded: Script = ResourceLoader.load(path, "", ResourceLoader.CACHE_MODE_IGNORE)
 	_check(loaded != null and loaded.get_instance_base_type() == &"Node2D", "the loader reads .pet")
 
