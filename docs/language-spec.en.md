@@ -2,7 +2,7 @@
 
 **v0.2 draft · 2026-10-25** · 中文: [language-spec.zh.md](language-spec.zh.md)
 
-Petrichor is a statically typed scripting language for medium-to-large Godot 4 projects, replacing GDScript in project code while coexisting with GDScript plugins, delivered as a GDExtension. This document is a draft of its specification, published for comments; there is no implementation yet. The previous version, v0.1, is kept at git tag `spec-v0.1`.
+Petrichor is a statically typed scripting language for medium-to-large Godot 4 projects, replacing GDScript in project code while coexisting with GDScript plugins, delivered as a GDExtension. This document is a draft of its specification, published for comments; the implementation follows the [implementation architecture](architecture.en.md) and does not cover every rule yet. The previous version, v0.1, is kept at git tag `spec-v0.1`.
 
 ## 1. Overview
 
@@ -471,7 +471,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - New patterns:
   - Enum variants: `Type.VARIANT(field = pattern, ...)`. `var field` is short for `field = var field`. Fields not listed must be covered by `..`, as in dictionary patterns. Patterns nest.
   - Structs: the same form, for example `Hit(damage = var d, ..)`.
-  - built-in constructors: `Ok(var v)` and `Err(var e)` (Result), `Some(var x)` (Option), `Finished(var v)` and `Cancelled(var r)` (Settled, §9.2), without a type prefix and written positionally, as they are constructed.
+  - Built-in constructors: `Ok(var v)` and `Err(var e)` (Result), `Some(var x)` (Option), `Finished(var v)` and `Cancelled(var r)` (Settled, §9.2), without a type prefix and written positionally, as they are constructed.
   - Option also has `None` and `var x`; the value bound by the latter is narrowed to T.
 
   ```gdscript
