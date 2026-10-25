@@ -1,6 +1,7 @@
 #pragma once
 
 #include "adapter/pet_script.h"
+#include "runtime/method_callable.h"
 
 #include <gdextension_interface.h>
 
@@ -32,6 +33,9 @@ public:
 
 	static const GDExtensionScriptInstanceInfo3 info;
 };
+
+// The instance of this language on an object, for method values (runtime/method_callable.h).
+bool resolve_instance(godot::Object *p_object, ScriptedObject &r_instance);
 
 // Converts the dictionaries used by Script reflection into the C structures of
 // the script instance interface, and frees them again.

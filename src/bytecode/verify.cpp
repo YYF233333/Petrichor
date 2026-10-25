@@ -236,7 +236,7 @@ class Verifier {
 				if (!is_native(method.base) || !slot(base, method.base)) {
 					return false;
 				}
-				return engine_arguments(p_call, method.params, false) && engine_result(dst, method.return_type, method.result_type);
+				return engine_arguments(p_call, method.params, method.is_vararg) && engine_result(dst, method.return_type, method.result_type);
 			}
 			case Op::CONSTRUCT: {
 				if (!index(callee, module.constructors.size(), "constructor") || (base != NO_SLOT && !fail("a constructor has a base"))) {
@@ -395,6 +395,13 @@ class Verifier {
 				return slot(o[2], ValueType(o[1])) && slot(o[3], ValueType(o[0])) && slot(o[4], ValueType::Int);
 			case Op::CAST_OBJECT:
 				return index(o[0], module.classes.size(), "class") && same(o[1], o[2], ValueType::Object);
+			case Op::METHOD_VALUE:
+				return index(o[0], module.functions.size(), "function") && slot(o[1], ValueType::Callable);
+			case Op::GET_SIGNAL:
+				if (!index(o[0], module.constants.size(), "constant") || module.constants[o[0]].type != ValueType::StringName) {
+					return fail("a signal without a name");
+				}
+				return slot(o[1], ValueType::Signal) && slot_or_none(o[2], ValueType::Object);
 			case Op::TO_VARIANT:
 				return (is_native(ValueType(o[0])) || fail("no value type")) && slot(o[1], ValueType::Variant) && slot(o[2], ValueType(o[0]));
 			case Op::UNWRAP: {

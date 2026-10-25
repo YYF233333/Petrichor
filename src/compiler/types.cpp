@@ -16,9 +16,23 @@ std::string Type::builtin_name() const {
 			return "String";
 		case TypeKind::Builtin:
 			return name;
+		// Their methods are the engine's, such as bind() and connect().
+		case TypeKind::Function:
+			return "Callable";
+		case TypeKind::Signal:
+			return "Signal";
 		default:
 			return std::string();
 	}
+}
+
+// `func(int, Node) -> bool`, as written (spec §2.4); `func(int)` returns void.
+static std::string signature(const std::vector<Type> &p_params, size_t p_first) {
+	std::string text = "(";
+	for (size_t i = p_first; i < p_params.size(); i++) {
+		text += (i > p_first ? ", " : "") + p_params[i].to_string();
+	}
+	return text + ")";
 }
 
 std::string Type::to_string() const {
@@ -33,6 +47,10 @@ std::string Type::to_string() const {
 			return nullable ? name + "?" : name;
 		case TypeKind::Option:
 			return (args.empty() ? std::string("<error>") : args[0].to_string()) + "?";
+		case TypeKind::Function:
+			return "func" + signature(args, 1) + (args.empty() || args[0].kind == TypeKind::Void ? std::string() : " -> " + args[0].to_string());
+		case TypeKind::Signal:
+			return "Signal" + signature(args, 0);
 		case TypeKind::Builtin:
 			if (!args.empty()) {
 				std::string text = name + "[";

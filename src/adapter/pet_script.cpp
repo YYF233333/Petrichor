@@ -509,16 +509,20 @@ Variant PetScript::_get_rpc_config() const {
 }
 
 bool PetScript::_instance_has(Object *p_object) const {
+	return find_instance(p_object) != nullptr;
+}
+
+PetInstance *PetScript::find_instance(Object *p_object) const {
 	if (!p_object) {
-		return false;
+		return nullptr;
 	}
 	std::lock_guard<std::mutex> lock(mutex);
-	for (const PetInstance *instance : instances) {
+	for (PetInstance *instance : instances) {
 		if (instance->owner == p_object->_owner) {
-			return true;
+			return instance;
 		}
 	}
-	return false;
+	return nullptr;
 }
 
 } // namespace petrichor

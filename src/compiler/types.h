@@ -16,6 +16,8 @@ enum class TypeKind {
 	Builtin, // Another built-in value type of the engine, named by `name`.
 	Object, // An engine class named by `name`.
 	Option, // T? of a value type T, which is `args[0]` (spec §3.4); objects carry `nullable` instead.
+	Function, // A function value (spec §3.11): `args` holds the return type, then the parameter types.
+	Signal, // A signal of an object: `args` holds the types of its arguments.
 	Variant,
 	Unsupported, // An engine type this compiler cannot handle yet.
 };
@@ -31,6 +33,12 @@ struct Type {
 	static Type object(const std::string &p_class, bool p_nullable = false) { return Type{ TypeKind::Object, p_class, p_nullable, {} }; }
 	static Type option(const Type &p_inner) { return Type{ TypeKind::Option, std::string(), false, { p_inner } }; }
 	static Type array(const Type &p_element) { return Type{ TypeKind::Builtin, "Array", false, { p_element } }; }
+	static Type function(const Type &p_return, const std::vector<Type> &p_params) {
+		Type type{ TypeKind::Function, std::string(), false, { p_return } };
+		type.args.insert(type.args.end(), p_params.begin(), p_params.end());
+		return type;
+	}
+	static Type signal(const std::vector<Type> &p_params) { return Type{ TypeKind::Signal, std::string(), false, p_params }; }
 
 	bool operator==(const Type &p_other) const { return kind == p_other.kind && name == p_other.name && nullable == p_other.nullable && args == p_other.args; }
 	bool operator!=(const Type &p_other) const { return !(*this == p_other); }

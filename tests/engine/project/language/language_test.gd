@@ -105,6 +105,12 @@ func _ready() -> void:
 	Engine.print_error_messages = true
 	_check(v.loaded("res://language/nodes.tscn") is PackedScene and missing_resource == null, "load() with a path known at run time")
 	_check(v.pressed() == false, "a method of the Input singleton")
+	var timer: Timer = v.start_timer()
+	timer.timeout.emit()
+	_check(v.timeouts == 1 and v.last_timer == timer, "a private method connected through a method value, with a bound argument")
+	v.stop_listening(timer)
+	timer.timeout.emit()
+	_check(v.timeouts == 1 and not timer.timeout.has_connections(), "disconnect() finds the connection by an equal method value")
 	var listed: Array[float] = v.literal()
 	_check(listed == [1.0, 2.5] and listed.get_typed_builtin() == TYPE_FLOAT, "an array literal takes its element type from where it goes")
 	v.transform = Transform3D(Basis(), Vector3(7, 0, 0))

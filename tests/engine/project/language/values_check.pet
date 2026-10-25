@@ -113,6 +113,23 @@ pub func literal() -> Array[float]:
 	var values: Array[float] = [1, 2.5]
 	return values
 
+# Method values and signals (spec §3.11, §4.7); the handler is private.
+pub var timeouts := 0
+pub var last_timer: Timer?
+
+func _on_timeout(timer: Timer):
+	timeouts += 1
+	last_timer = timer
+
+pub func start_timer() -> Timer:
+	var timer := Timer.new()
+	add_child(timer)
+	timer.timeout.connect(_on_timeout.bind(timer))
+	return timer
+
+pub func stop_listening(timer: Timer):
+	timer.timeout.disconnect(_on_timeout.bind(timer))
+
 # Engine singletons and load().
 pub func loaded(path: String) -> Resource?:
 	return load(path)

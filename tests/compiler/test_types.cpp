@@ -155,6 +155,20 @@ TEST_CASE("load() is ResourceLoader.load()") {
 	CHECK(has_error(in_function("var r = load(1)"), "Cannot pass a value of type int as String"));
 }
 
+// Spec §3.11, §4.7.
+TEST_CASE("method values, signals and connect") {
+	const std::string handler = "extends Node\n\nfunc handle(p: AudioStreamPlayer):\n\tpass\n\nfunc on_child(n: Node):\n\tpass\n\nfunc f():\n\tvar p := AudioStreamPlayer.new()\n\t";
+	CHECK(errors_of(handler + "p.finished.connect(handle.bind(p))\n").empty());
+	CHECK(errors_of(handler + "child_entered_tree.connect(on_child)\n").empty());
+	CHECK(errors_of(handler + "var c: Callable = handle\n\tvar s: Signal = p.finished\n").empty());
+	CHECK(has_error(handler + "p.finished.connect(handle)\n", "Signal() passes 0 argument(s), but func(AudioStreamPlayer) takes 1."));
+	CHECK(has_error(handler + "child_entered_tree.connect(handle)\n", "Signal(Node) passes Node as argument 1, which func(AudioStreamPlayer) does not take."));
+	CHECK(has_error(handler + "p.finished.connect(handle.bind(p, p))\n", "bind() binds 2 argument(s), but func(AudioStreamPlayer) takes 1."));
+	CHECK(has_error(handler + "p.finished.connect(handle.bind(1))\n", "Cannot pass a value of type int as AudioStreamPlayer"));
+	CHECK(has_error(handler + "p.finished.emit()\n", "not supported yet"));
+	CHECK(type_of("p.finished", "var p := AudioStreamPlayer.new()") == "Signal()");
+}
+
 TEST_CASE("as converts objects to T? (spec §5.3)") {
 	const char *setup = "var n: Node = Node3D.new()";
 	CHECK(type_of("n as Node3D", setup) == "Node3D?");

@@ -185,7 +185,7 @@ bool same_initializers(const bytecode::Module &p_a, const bytecode::Module &p_b)
 			same_prefix(p_a.fields, p_b.fields, x.fields, [](const auto &a, const auto &b) { return a.base == b.base && a.name == b.name && a.type == b.type; }) &&
 			same_prefix(p_a.constructors, p_b.constructors, x.constructors, [](const auto &a, const auto &b) { return a.type == b.type && a.index == b.index && a.params == b.params; }) &&
 			same_prefix(p_a.builtin_methods, p_b.builtin_methods, x.builtin_methods, [](const auto &a, const auto &b) {
-				return a.base == b.base && a.method == b.method && a.hash == b.hash && a.params == b.params && a.return_type == b.return_type && a.result_type == b.result_type;
+				return a.base == b.base && a.method == b.method && a.hash == b.hash && a.is_vararg == b.is_vararg && a.params == b.params && a.return_type == b.return_type && a.result_type == b.result_type;
 			}) &&
 			same_prefix(p_a.classes, p_b.classes, x.classes, [](const auto &a, const auto &b) { return a == b; });
 }

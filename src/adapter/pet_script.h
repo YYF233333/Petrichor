@@ -49,6 +49,8 @@ public:
 	// The source as loaded, with its compiled class.
 	void set_loaded(const godot::String &p_source, const std::shared_ptr<const ClassImage> &p_image);
 	void instance_freed(PetInstance *p_instance);
+	// The instance of this script on the object; null for a placeholder.
+	PetInstance *find_instance(godot::Object *p_object) const;
 
 	// Members and functions visible to the engine and other languages (spec
 	// §10.5): public or exported members; public functions, engine overrides

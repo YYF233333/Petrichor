@@ -173,6 +173,7 @@ struct BuiltinMethodCall {
 	ValueType base = ValueType::Void;
 	std::string method;
 	uint32_t hash = 0;
+	bool is_vararg = false; // Extra arguments are passed as Variant.
 	std::vector<ValueType> params;
 	ValueType return_type = ValueType::Void;
 	ValueType result_type = ValueType::Void;

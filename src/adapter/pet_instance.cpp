@@ -7,6 +7,8 @@
 #include "probe/probe_methods.h"
 #endif
 
+#include <godot_cpp/classes/engine.hpp>
+
 #include <algorithm>
 #include <new>
 
@@ -137,6 +139,25 @@ PetInstance::PetInstance(PetScript *p_script, const std::shared_ptr<const ClassI
 PetInstance::~PetInstance() {
 	destroy_slots(members, current_image()->member_slots);
 	::operator delete(members);
+}
+
+bool resolve_instance(Object *p_object, ScriptedObject &r_instance) {
+	PetInstance *instance = nullptr;
+	if (Engine::get_singleton()->is_editor_hint()) {
+		// The engine's lookup would read a placeholder as an instance of this
+		// language (core/extension/gdextension_interface.cpp:1589-1599), and the
+		// editor has placeholders.
+		const Ref<PetScript> script = p_object->get_script();
+		instance = script.is_valid() ? script->find_instance(p_object) : nullptr;
+	} else {
+		instance = static_cast<PetInstance *>(gdextension_interface::object_get_script_instance(p_object->_owner, PetLanguage::get_singleton()->_owner));
+	}
+	if (!instance) {
+		return false;
+	}
+	r_instance.image = instance->current_image();
+	r_instance.context = InstanceContext{ instance->members, instance->owner_object };
+	return true;
 }
 
 static PetInstance *self(GDExtensionScriptInstanceDataPtr p_instance) {

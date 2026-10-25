@@ -395,6 +395,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.type(call.base);
 		w.str(call.method);
 		w.u32(call.hash);
+		w.u8(call.is_vararg ? 1 : 0);
 		w.types(call.params);
 		w.type(call.return_type);
 		w.type(call.result_type);
@@ -522,6 +523,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		call.base = r.type();
 		call.method = r.str();
 		call.hash = r.u32();
+		call.is_vararg = r.u8() != 0;
 		call.params = r.types();
 		call.return_type = r.type();
 		call.result_type = r.type();

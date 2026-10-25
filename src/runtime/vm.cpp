@@ -2,6 +2,7 @@
 
 #include "bytecode/opcodes.h"
 #include "runtime/debugger.h"
+#include "runtime/method_callable.h"
 
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/engine.hpp>
@@ -363,6 +364,16 @@ public:
 					}
 					variant_at(frame + code[pc + 2]) = Variant(singleton);
 					pc += 3;
+					break;
+				}
+				case Op::METHOD_VALUE:
+					*reinterpret_cast<Callable *>(frame + code[pc + 2]) = Callable(memnew(MethodCallable(context.owner, image.function_names[code[pc + 1]])));
+					pc += 3;
+					break;
+				case Op::GET_SIGNAL: {
+					OBJECT(object, code[pc + 3]);
+					*reinterpret_cast<Signal *>(frame + code[pc + 2]) = Signal(static_cast<Object *>(object), StringName(image.values[code[pc + 1]]));
+					pc += 4;
 					break;
 				}
 				case Op::CHECK_OBJECT: {

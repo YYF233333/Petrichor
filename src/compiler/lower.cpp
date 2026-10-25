@@ -32,6 +32,10 @@ ValueType value_type(const Type &p_type) {
 		case TypeKind::Option: // A Variant that is NIL for None (spec §3.4).
 		case TypeKind::Variant:
 			return ValueType::Variant;
+		case TypeKind::Function:
+			return ValueType::Callable;
+		case TypeKind::Signal:
+			return ValueType::Signal;
 		default:
 			return ValueType::Void;
 	}
@@ -333,7 +337,7 @@ class Lowerer {
 
 	uint32_t builtin_method(const bytecode::BuiltinMethodCall &p_call) {
 		return intern(module.builtin_methods, p_call, [](const auto &a, const auto &b) {
-			return a.base == b.base && a.method == b.method && a.hash == b.hash && a.params == b.params && a.result_type == b.result_type;
+			return a.base == b.base && a.method == b.method && a.hash == b.hash && a.is_vararg == b.is_vararg && a.params == b.params && a.result_type == b.result_type;
 		});
 	}
 
@@ -622,11 +626,11 @@ class Lowerer {
 		ir::Instr i;
 		std::unique_ptr<Place> written_back;
 		// The base before the arguments, as it reads in the source.
-		if (p_call.target == Target::EngineMethod && p_call.base) {
+		if ((p_call.target == Target::EngineMethod && p_call.base) || p_call.target == Target::BindArguments) {
 			i.base = lower_expr(*p_call.base);
 		} else if (p_call.target == Target::BuiltinMethod) {
 			const ValueType base_type = value_type(p_call.base->type);
-			const bool shared = base_type == ValueType::Array || base_type == ValueType::Dictionary;
+			const bool shared = base_type == ValueType::Array || base_type == ValueType::Dictionary || base_type == ValueType::Signal;
 			if (!p_call.is_const && !shared && is_place(*p_call.base)) {
 				// A method that changes its base changes the place it came from.
 				written_back = std::make_unique<Place>(place_of(*p_call.base));
@@ -672,6 +676,21 @@ class Lowerer {
 				i.imm = builtin_method(method);
 				break;
 			}
+			case Target::BindArguments: {
+				// Callable.bind() takes its arguments as Variant.
+				i.op = Op::CALL_BUILTIN;
+				bytecode::BuiltinMethodCall bind;
+				bind.base = ValueType::Callable;
+				bind.method = "bind";
+				const builtin::Class *callable = builtin::find_class("Callable");
+				const builtin::Method *method = callable ? builtin::find_method(*callable, "bind") : nullptr;
+				bind.hash = method ? method->hash : 0;
+				bind.is_vararg = true;
+				bind.return_type = ValueType::Callable;
+				bind.result_type = ValueType::Callable;
+				i.imm = builtin_method(bind);
+				break;
+			}
 			case Target::BuiltinConstructor:
 				i.op = Op::CONSTRUCT;
 				i.imm = constructor(value_type(p_call.type), uint32_t(p_call.index), value_types(p_call.param_types));
@@ -714,6 +733,20 @@ class Lowerer {
 				if (p_expr.target == Target::Singleton) {
 					const uint32_t result = temp(p_expr.type);
 					instr(Op::GET_SINGLETON, result, NO_REG, NO_REG, class_index(p_expr.text));
+					return result;
+				}
+				if (p_expr.target == Target::MethodValue) {
+					const uint32_t result = temp(p_expr.type);
+					instr(Op::METHOD_VALUE, result, NO_REG, NO_REG, uint32_t(p_expr.index));
+					return result;
+				}
+				if (p_expr.target == Target::SelfSignal || p_expr.target == Target::ObjectSignal) {
+					const uint32_t object = p_expr.target == Target::ObjectSignal ? lower_expr(*p_expr.base) : NO_REG;
+					bytecode::Constant name;
+					name.type = ValueType::StringName;
+					name.s = p_expr.text;
+					const uint32_t result = temp(p_expr.type);
+					instr(Op::GET_SIGNAL, result, object, NO_REG, add_constant(name));
 					return result;
 				}
 				if (p_expr.target == Target::BuiltinConstant) {

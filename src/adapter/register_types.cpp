@@ -1,3 +1,4 @@
+#include "adapter/pet_instance.h"
 #include "adapter/pet_language.h"
 #include "adapter/pet_resource_format.h"
 #include "adapter/pet_script.h"
@@ -41,6 +42,7 @@ static void initialize_petrichor(ModuleInitializationLevel p_level) {
 
 		language = memnew(PetLanguage);
 		Engine::get_singleton()->register_script_language(language);
+		set_instance_resolver(resolve_instance);
 
 		loader.instantiate();
 		ResourceLoader::get_singleton()->add_resource_format_loader(loader);
@@ -64,6 +66,7 @@ static void uninitialize_petrichor(ModuleInitializationLevel p_level) {
 		ResourceLoader::get_singleton()->remove_resource_format_loader(loader);
 		loader.unref();
 
+		set_instance_resolver(nullptr);
 		Engine::get_singleton()->unregister_script_language(language);
 		memdelete(language);
 		language = nullptr;

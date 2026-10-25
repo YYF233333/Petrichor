@@ -55,6 +55,10 @@ enum class Target {
 	ConvertToFloat,
 	Unwrap, // `unwrap()` or `expect(message)` of T? (spec §3.4).
 	Singleton, // An engine singleton, such as Input, by its class name.
+	MethodValue, // A function of this class used as a value (spec §3.11).
+	SelfSignal, // A signal of the engine class this class extends, as a value.
+	ObjectSignal, // A signal of an engine object.
+	BindArguments, // `f.bind(...)` of a function value.
 };
 
 struct Expr {

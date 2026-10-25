@@ -33,6 +33,22 @@ bool is_assignable(const Type &p_from, const Type &p_to, const EngineApi &p_engi
 		// A T is wrapped implicitly; the T inside does not convert (spec §3.4).
 		return p_from.kind == TypeKind::Option ? p_from.args == p_to.args : is_assignable(p_from, p_to.args[0], p_engine);
 	}
+	if (p_from.kind == TypeKind::Function && p_to.kind == TypeKind::Function) {
+		// Parameters contravariant, the result covariant (spec §3.11).
+		if (p_from.args.size() != p_to.args.size()) {
+			return false;
+		}
+		for (size_t i = 1; i < p_to.args.size(); i++) {
+			if (!is_assignable(p_to.args[i], p_from.args[i], p_engine)) {
+				return false;
+			}
+		}
+		return p_to.args[0].kind == TypeKind::Void ? p_from.args[0].kind == TypeKind::Void : is_assignable(p_from.args[0], p_to.args[0], p_engine);
+	}
+	// The engine takes them as its Callable and Signal.
+	if ((p_from.kind == TypeKind::Function || p_from.kind == TypeKind::Signal) && p_to.kind == TypeKind::Builtin && p_to.name == p_from.builtin_name()) {
+		return true;
+	}
 	return p_to.kind == TypeKind::Variant && p_from.is_storable();
 }
 
@@ -100,7 +116,8 @@ bool is_interpolable(const Type &p_type) {
 // Values that refer to shared engine storage: changing one through a method
 // changes it for everyone who holds it, so it is not written back.
 bool is_shared(const Type &p_type) {
-	return p_type.kind == TypeKind::Builtin && (p_type.name == "Array" || p_type.name == "Dictionary");
+	// A Signal names an object's signal; connecting changes the object.
+	return (p_type.kind == TypeKind::Builtin && (p_type.name == "Array" || p_type.name == "Dictionary")) || p_type.kind == TypeKind::Signal;
 }
 
 // The elements of a value that can be indexed and iterated (spec §3.8, §5.7);
@@ -261,6 +278,25 @@ class Checker {
 		return Type::array(element);
 	}
 
+	static Type function_type(const FuncDecl &p_function) {
+		std::vector<Type> params;
+		for (const ParamDecl &param : p_function.params) {
+			params.push_back(param.type);
+		}
+		return Type::function(p_function.return_type, params);
+	}
+
+	// The engine passes what its signals declare (spec §4.7, §10.2).
+	static Type signal_type(const EngineMethod &p_signal) {
+		std::vector<Type> params;
+		for (const EngineParam &param : p_signal.params) {
+			Type type = param.type;
+			type.nullable = false;
+			params.push_back(type);
+		}
+		return Type::signal(params);
+	}
+
 	/* Expressions */
 
 	Type set(Expr &r_expr, const Type &p_type) {
@@ -313,8 +349,16 @@ class Checker {
 			r_expr.target = Target::SelfProperty;
 			return set(r_expr, property->type);
 		}
-		if (function_index.count(r_expr.text)) {
-			return fail(r_expr, "Functions cannot be used as values yet; call " + r_expr.text + "().");
+		const auto function_found = function_index.find(r_expr.text);
+		if (function_found != function_index.end()) {
+			// A method value (spec §3.11).
+			r_expr.target = Target::MethodValue;
+			r_expr.index = function_found->second;
+			return set(r_expr, function_type(cls.functions[function_found->second]));
+		}
+		if (const auto signal = engine.find_signal(cls.extends, r_expr.text)) {
+			r_expr.target = Target::SelfSignal;
+			return set(r_expr, signal_type(*signal));
 		}
 		if (engine.is_singleton(r_expr.text)) {
 			r_expr.target = Target::Singleton;
@@ -362,6 +406,10 @@ class Checker {
 		if (base_type.kind == TypeKind::Object) {
 			const auto property = engine.find_property(base_type.name, r_expr.text);
 			if (!property) {
+				if (const auto signal = engine.find_signal(base_type.name, r_expr.text)) {
+					r_expr.target = Target::ObjectSignal;
+					return set(r_expr, signal_type(*signal));
+				}
 				return fail(r_expr, base_type.name + " has no property \"" + r_expr.text + "\".");
 			}
 			if (!property->type.is_storable()) {
@@ -813,6 +861,47 @@ class Checker {
 		return set(r_expr, result);
 	}
 
+	// `f.bind(a, b)` drops the last two parameters of f, which the engine
+	// passes after the caller's arguments (spec §3.11,
+	// core/variant/callable_bind.cpp:141-150).
+	Type check_bind(Expr &r_expr, const Type &p_function) {
+		const size_t param_count = p_function.args.size() - 1;
+		const size_t bound = r_expr.args.size();
+		if (bound > param_count) {
+			for (auto &arg : r_expr.args) {
+				check_value(*arg);
+			}
+			return fail(r_expr, "bind() binds " + std::to_string(bound) + " argument(s), but " + p_function.to_string() + " takes " + std::to_string(param_count) + ".");
+		}
+		const std::vector<Type> rest(p_function.args.begin() + 1, p_function.args.end() - bound);
+		const std::vector<Type> bound_params(p_function.args.end() - bound, p_function.args.end());
+		check_arguments(r_expr, bound_params, int(bound), false);
+		r_expr.target = Target::BindArguments;
+		return set(r_expr, Type::function(p_function.args[0], rest));
+	}
+
+	// A function connected to a signal takes what the signal passes (spec §4.7).
+	void check_handler(const Expr &p_handler, const Type &p_signal) {
+		const Type &handler = p_handler.type;
+		if (handler.is_error()) {
+			return;
+		}
+		if (handler.kind != TypeKind::Function) {
+			error(p_handler.line, p_handler.column, "A signal is connected to a function value, such as a method name, whose parameters it can check; found " + handler.to_string() + ".");
+			return;
+		}
+		if (handler.args.size() - 1 != p_signal.args.size()) {
+			error(p_handler.line, p_handler.column, p_signal.to_string() + " passes " + std::to_string(p_signal.args.size()) + " argument(s), but " + handler.to_string() + " takes " + std::to_string(handler.args.size() - 1) + ".");
+			return;
+		}
+		for (size_t i = 0; i < p_signal.args.size(); i++) {
+			if (!assignable(p_signal.args[i], handler.args[i + 1])) {
+				error(p_handler.line, p_handler.column, p_signal.to_string() + " passes " + p_signal.args[i].to_string() + " as argument " + std::to_string(i + 1) + ", which " + handler.to_string() + " does not take.");
+				return;
+			}
+		}
+	}
+
 	// The methods of T? (spec §3.4).
 	Type check_option_method(Expr &r_expr, const Type &p_base) {
 		const std::string &name = r_expr.text;
@@ -931,6 +1020,19 @@ class Checker {
 			}
 			if (base_type.is_optional()) {
 				return check_option_method(r_expr, base_type);
+			}
+			if (base_type.kind == TypeKind::Function && (name == "bind" || name == "call" || name == "callv")) {
+				return name == "bind" ? check_bind(r_expr, base_type) : fail(r_expr, name + "() of a function value is not supported yet.");
+			}
+			if (base_type.kind == TypeKind::Signal && name == "emit") {
+				return fail(r_expr, "emit() of an engine signal is not supported yet.");
+			}
+			if (base_type.kind == TypeKind::Signal && (name == "connect" || name == "disconnect" || name == "is_connected")) {
+				const Type result = check_builtin_method(r_expr, base_type);
+				if (!result.is_error() && !r_expr.args.empty()) {
+					check_handler(*r_expr.args[0], base_type);
+				}
+				return result;
 			}
 			if (!base_type.builtin_name().empty()) {
 				return check_builtin_method(r_expr, base_type);
