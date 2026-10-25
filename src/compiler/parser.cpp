@@ -72,7 +72,9 @@ class Parser {
 
 	TypeRef type_ref() {
 		const Token &name = expect(TokenKind::Identifier, "a type name");
-		return TypeRef{ name.text, name.line, name.column };
+		TypeRef ref{ name.text, name.line, name.column };
+		ref.nullable = match(TokenKind::Question);
+		return ref;
 	}
 
 	/* Expressions */

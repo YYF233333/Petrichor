@@ -411,6 +411,9 @@ class Lowerer {
 				instr(Op::CONST_STRING, p_dst, NO_REG, NO_REG, add_constant(bytecode::Constant{ ValueType::String }));
 				break;
 			case ValueType::Object:
+				// None; a constant of type Object is always None.
+				instr(Op::CONST_VALUE, p_dst, NO_REG, NO_REG, add_constant(bytecode::Constant{ ValueType::Object }), ValueType::Object);
+				break;
 			case ValueType::Variant:
 			case ValueType::Void:
 				break;

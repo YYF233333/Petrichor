@@ -14,6 +14,7 @@ struct TypeRef {
 	std::string name;
 	int line = 0;
 	int column = 0;
+	bool nullable = false; // `T?` (spec §3.3, §3.4).
 };
 
 enum class ExprKind {

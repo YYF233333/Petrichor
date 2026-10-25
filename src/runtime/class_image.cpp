@@ -58,9 +58,9 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		} else if (constant.type == ValueType::NodePath) {
 			value = NodePath(from_utf8(constant.s));
 		} else {
-			value = default_variant(constant.type);
+			value = default_variant(constant.type); // None for Object.
 		}
-		if (value.get_type() != variant_type(constant.type)) {
+		if (constant.type != ValueType::Object && value.get_type() != variant_type(constant.type)) {
 			r_error = vformat("the engine has no %s constant %s", bytecode::value_type_name(constant.type), from_utf8(constant.builtin));
 			return nullptr;
 		}

@@ -78,6 +78,23 @@ TEST_CASE("a method that changes a value needs a place to write it back") {
 	CHECK(errors_of(in_function("Array().append(1)")).empty());
 }
 
+TEST_CASE("T? is a nullable object type (spec §3.3)") {
+	CHECK(errors_of("extends Node\nvar target: Node3D?\n").empty());
+	CHECK(errors_of(in_function("var p: Node?\np = get_parent()")).empty());
+	CHECK(type_of("rng", "var rng: RandomNumberGenerator? = RandomNumberGenerator.new()") == "RandomNumberGenerator?");
+	CHECK(has_error(in_function("var n: Node = get_parent()"), "Cannot assign a value of type Node? as Node"));
+	CHECK(has_error(in_function("var n: int?"), "Optional values of type int are not supported yet"));
+}
+
+// Spec §10.2: what the engine passes in is T; a parameter may accept more (§4.6).
+TEST_CASE("an override may take T? where the engine passes T") {
+	CHECK(errors_of("extends Node\n\nfunc _input(event):\n\tpass\n").empty());
+	CHECK(errors_of("extends Node\n\nfunc _input(event: InputEvent):\n\tpass\n").empty());
+	CHECK(errors_of("extends Node\n\nfunc _input(event: InputEvent?):\n\tpass\n").empty());
+	CHECK(errors_of("extends Node\n\nfunc _input(event: Resource):\n\tpass\n").empty());
+	CHECK(has_error("extends Node\n\nfunc _input(event: Node):\n\tpass\n", "declares this parameter as InputEvent"));
+}
+
 TEST_CASE("objects that must be assigned are not supported yet (spec §6.2)") {
 	CHECK(has_error("extends Node\nvar n: Node3D\n", "not supported yet"));
 	CHECK(has_error(in_function("var n: Node3D"), "needs an initial value"));

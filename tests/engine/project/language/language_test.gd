@@ -58,6 +58,7 @@ func _ready() -> void:
 	_check(v.node_name() == v.name, "a StringName property")
 	v.name = &"petrichor_leak_probe"
 	_check(v.read_name(5) == 5, "a slot overwritten in a loop")
+	_check(v.maybe(null) == 1 and v.maybe(v) == 1, "a T? parameter accepts null and an object")
 	v.transform = Transform3D(Basis(), Vector3(7, 0, 0))
 	_check(v.origin_x() == 7.0, "a member of a member of a property")
 

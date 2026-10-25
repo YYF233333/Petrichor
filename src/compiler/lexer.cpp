@@ -66,6 +66,8 @@ const char *token_name(TokenKind p_kind) {
 			return "\"while\"";
 		case TokenKind::At:
 			return "\"@\"";
+		case TokenKind::Question:
+			return "\"?\"";
 		case TokenKind::Colon:
 			return "\":\"";
 		case TokenKind::Comma:
@@ -402,6 +404,9 @@ class Lexer {
 		switch (c) {
 			case '@':
 				one(TokenKind::At);
+				return;
+			case '?':
+				one(TokenKind::Question);
 				return;
 			case ':':
 				one(TokenKind::Colon);

@@ -142,6 +142,18 @@ class Checker {
 	}
 
 	Type resolve(const TypeRef &p_ref, bool p_allow_void) {
+		Type type = resolve_name(p_ref, p_allow_void);
+		if (p_ref.nullable && !type.is_error()) {
+			if (type.kind != TypeKind::Object) {
+				error(p_ref.line, p_ref.column, "Optional values of type " + type.to_string() + " are not supported yet.");
+				return Type::of(TypeKind::Error);
+			}
+			type.nullable = true;
+		}
+		return type;
+	}
+
+	Type resolve_name(const TypeRef &p_ref, bool p_allow_void) {
 		if (p_ref.name == "void") {
 			if (p_allow_void) {
 				return Type::of(TypeKind::Void);
@@ -1022,7 +1034,9 @@ class Checker {
 			}
 			if (param.declared_type) {
 				param.type = resolve(*param.declared_type, false);
-				if (r_function.is_override && !engine_type.is_error() && param.type != engine_type) {
+				// A parameter may accept more than the overridden one does, such as
+				// T? for T (spec §4.6).
+				if (r_function.is_override && !engine_type.is_error() && !param.type.is_error() && !assignable(engine_type, param.type)) {
 					error(param.declared_type->line, param.declared_type->column, "The overridden method declares this parameter as " + engine_type.to_string() + ".");
 				}
 			} else if (r_function.is_override) {

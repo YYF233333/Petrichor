@@ -59,6 +59,8 @@ TEST_CASE("signal arguments must fit the connected method's parameters") {
 	scene.connections = { { "child_entered_tree", ".", ".", "_on_child", 0, 0 } };
 	project.scenes = { scene };
 	CHECK(compile_in("extends Node\n\nfunc _on_child(node: Node):\n\tpass\n", project).ok());
+	// A handler may accept None where the engine might pass it (spec §10.2).
+	CHECK(compile_in("extends Node\n\nfunc _on_child(node: Node?):\n\tpass\n", project).ok());
 	CHECK(messages(compile_in("extends Node\n\nfunc _on_child(node: int):\n\tpass\n", project)).find("which passes Node here") != std::string::npos);
 }
 

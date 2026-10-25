@@ -42,6 +42,7 @@ enum class TokenKind {
 
 	// Punctuation and operators.
 	At,
+	Question,
 	Colon,
 	Comma,
 	Period,

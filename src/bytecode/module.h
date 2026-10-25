@@ -69,6 +69,7 @@ const char *value_type_name(ValueType p_type);
 // ValueType::Count when the name is not a value type.
 ValueType value_type_from_name(const std::string &p_name);
 
+// A constant of type Object is None.
 struct Constant {
 	ValueType type = ValueType::Void;
 	bool b = false;

@@ -24,6 +24,8 @@ class FakeEngine : public compiler::EngineApi {
 		{ "Node3D", "Node" },
 		{ "RandomNumberGenerator", "RefCounted" },
 		{ "Timer", "Node" },
+		{ "Resource", "RefCounted" },
+		{ "InputEvent", "Resource" },
 	};
 	std::map<std::string, std::vector<EngineMethod>> methods;
 	std::map<std::string, std::vector<EngineProperty>> properties;
@@ -49,6 +51,7 @@ public:
 		methods["Node"] = {
 			method("_ready", {}, t(TypeKind::Void), true),
 			method("_process", { { "delta", t(TypeKind::Float) } }, t(TypeKind::Void), true),
+			method("_input", { { "event", Type::object("InputEvent", true) } }, t(TypeKind::Void), true),
 			method("get_child_count", { { "include_internal", t(TypeKind::Bool) } }, t(TypeKind::Int), false, 1),
 			method("set_process", { { "enable", t(TypeKind::Bool) } }, t(TypeKind::Void)),
 			method("get_parent", {}, node),

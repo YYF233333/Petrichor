@@ -57,3 +57,8 @@ pub func read_name(times: int) -> int:
 
 pub func origin_x() -> float:
 	return transform.origin.x
+
+# A T? parameter accepts null from the engine (spec §10.2).
+pub func maybe(n: Node3D?) -> int:
+	var other: Node3D?
+	return 1
