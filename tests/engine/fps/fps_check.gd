@@ -66,12 +66,22 @@ func _ready() -> void:
 	var health_text: String = huds[0].get_node("Health").text if huds.size() == 1 else ""
 	_check(health_text == "%d%%" % player.health, "the HUD shows the health the player reports (%s)" % health_text)
 
+	# The player and the enemies call Audio.play() when they land, shoot or are
+	# hurt, which a headless run does not do.
+	var audio := get_node("/root/Audio")
+	_report("audio", audio)
+	audio.play("sounds/land.ogg")
+	var loaded: bool = await _wait_until(func(): return audio.get_children().any(func(p): return p.stream != null and p.stream.resource_path == "res://sounds/land.ogg"), 3.0)
+	_check(loaded, "Audio.play() loads the sound into one of its players")
+
 	# The player spawns impacts when shooting, which a headless run does not do.
 	var impact: AnimatedSprite3D = load("res://objects/impact.tscn").instantiate()
 	scene.add_child(impact)
 	_report("impact", impact)
 	impact.play("shot")
-	var freed: bool = await _wait_until(func(): return not is_instance_valid(impact), 3.0)
+	# By id: a lambda that captured the freed impact would report an error.
+	var impact_id := impact.get_instance_id()
+	var freed: bool = await _wait_until(func(): return not is_instance_id_valid(impact_id), 3.0)
 	_check(freed, "an impact frees itself when its animation finishes")
 
 	print("fps check: %d failure(s)" % failures)
