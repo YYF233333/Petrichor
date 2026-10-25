@@ -138,6 +138,14 @@ pub func stop_listening(timer: Timer):
 pub func texture_size() -> Vector2:
 	return texture.get_size()
 
+# The binding metadata (spec §10.2): get_tree() is audited, root's getter is a
+# RequiredResult; outside the tree, get_tree() is a program error.
+pub func tree_root_name() -> StringName:
+	return get_tree().root.name
+
+pub func captured() -> int:
+	return Input.MOUSE_MODE_CAPTURED
+
 # Engine singletons and load().
 pub func loaded(path: String) -> Resource?:
 	return load(path)

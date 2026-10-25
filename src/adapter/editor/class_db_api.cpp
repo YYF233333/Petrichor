@@ -80,6 +80,7 @@ std::optional<EngineMethod> ClassDBApi::find_method(const std::string &p_class, 
 			}
 			EngineMethod method;
 			method.name = p_method;
+			method.owner = to_std(cls);
 			const uint32_t flags = uint32_t(int(info.get("flags", 0)));
 			method.is_virtual = flags & (METHOD_FLAG_VIRTUAL | METHOD_FLAG_VIRTUAL_REQUIRED);
 			method.is_static = flags & METHOD_FLAG_STATIC;
@@ -121,6 +122,16 @@ bool ClassDBApi::can_instantiate(const std::string &p_class) const {
 	return ClassDBSingleton::get_singleton()->can_instantiate(to_godot(p_class));
 }
 
+std::optional<int64_t> ClassDBApi::find_constant(const std::string &p_class, const std::string &p_constant) const {
+	ClassDBSingleton *db = ClassDBSingleton::get_singleton();
+	const StringName cls = to_godot(p_class);
+	const StringName name = to_godot(p_constant);
+	if (!db->class_exists(cls) || !db->class_has_integer_constant(cls, name)) {
+		return std::nullopt;
+	}
+	return db->class_get_integer_constant(cls, name);
+}
+
 bool ClassDBApi::is_singleton(const std::string &p_class) const {
 	return Engine::get_singleton()->has_singleton(to_godot(p_class));
 }
@@ -141,6 +152,7 @@ std::optional<EngineProperty> ClassDBApi::find_property(const std::string &p_cla
 			}
 			EngineProperty property;
 			property.name = p_property;
+			property.owner = to_std(cls);
 			property.type = type_of(info, false); // A property is never void.
 			property.writable = db->class_get_property_setter(cls, property_name) != StringName();
 			return property;

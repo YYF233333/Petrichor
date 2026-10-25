@@ -742,6 +742,13 @@ class Lowerer {
 				if (p_expr.target == Target::Local) {
 					return uint32_t(p_expr.index);
 				}
+				if (p_expr.target == Target::EngineConstant) {
+					bytecode::Constant constant{ ValueType::Int };
+					constant.i = p_expr.int_value;
+					const uint32_t result = temp(ValueType::Int);
+					instr(Op::CONST_INT, result, NO_REG, NO_REG, add_constant(constant));
+					return result;
+				}
 				if (p_expr.target == Target::Singleton) {
 					const uint32_t result = temp(p_expr.type);
 					instr(Op::GET_SINGLETON, result, NO_REG, NO_REG, class_index(p_expr.text));
@@ -915,6 +922,10 @@ class Lowerer {
 			case Place::Kind::ObjectProperty: {
 				const uint32_t result = temp(p_place.type);
 				instr(Op::GET_PROPERTY, result, p_place.kind == Place::Kind::SelfProperty ? NO_REG : p_place.reg, NO_REG, p_place.index);
+				if (p_place.type.kind == TypeKind::Object && !p_place.type.nullable) {
+					// The binding metadata says it is never None (spec §10.2).
+					instr(Op::CHECK_OBJECT, NO_REG, result, NO_REG, class_index(p_place.type.name));
+				}
 				return result;
 			}
 			case Place::Kind::Field: {

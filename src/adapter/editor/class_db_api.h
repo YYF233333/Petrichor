@@ -15,6 +15,7 @@ public:
 	std::optional<compiler::EngineMethod> find_method(const std::string &p_class, const std::string &p_method) const override;
 	std::optional<compiler::EngineProperty> find_property(const std::string &p_class, const std::string &p_property) const override;
 	std::optional<compiler::EngineMethod> find_signal(const std::string &p_class, const std::string &p_signal) const override;
+	std::optional<int64_t> find_constant(const std::string &p_class, const std::string &p_constant) const override;
 
 	static const ClassDBApi &get();
 };

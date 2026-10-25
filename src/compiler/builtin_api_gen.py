@@ -37,9 +37,42 @@ class _Pool:
         return f"static const {self.c_type} {self.name}[] = {{\n{lines}}};\n"
 
 
-def generate(json_path, out_path):
+def _binding_metadata(api, metadata_path):
+    """The engine API whose objects are never null (spec §10.2, §10.3): the
+    engine's RequiredResult and RequiredParam metadata, merged with the audit
+    in binding_metadata.txt. Returns sorted lists of "Class.method",
+    "Class.property" and "Class.method:index"."""
+    methods = {(c["name"], m["name"]): m for c in api["classes"] for m in c.get("methods", [])}
+    returns = {f"{c}.{m}" for (c, m), info in methods.items() if info.get("return_value", {}).get("meta") == "required"}
+    params = {
+        f"{c}.{m}:{i}"
+        for (c, m), info in methods.items()
+        for i, a in enumerate(info.get("arguments", []))
+        if a.get("meta") == "required"
+    }
+    with open(metadata_path, encoding="utf-8") as file:
+        for number, line in enumerate(file, 1):
+            words = line.split("#", 1)[0].split()
+            if not words:
+                continue
+            assert len(words) == 3 and words[0] == "returns-non-null", f"{metadata_path}:{number}: expected 'returns-non-null Class.method path:line'"
+            cls, _, method = words[1].partition(".")
+            assert (cls, method) in methods, f"{metadata_path}:{number}: the engine has no method {words[1]}"
+            returns.add(words[1])
+    # A property reads through its getter.
+    properties = {
+        f"{c['name']}.{p['name']}"
+        for c in api["classes"]
+        for p in c.get("properties", [])
+        if p.get("getter") and f"{c['name']}.{p['getter']}" in returns
+    }
+    return sorted(returns), sorted(properties), sorted(params)
+
+
+def generate(json_path, metadata_path, out_path):
     with open(json_path, encoding="utf-8") as file:
         api = json.load(file)
+    non_null = _binding_metadata(api, metadata_path)
 
     arguments = _Pool("Argument", "ARGUMENTS")
     members = _Pool("Member", "MEMBERS")
@@ -119,4 +152,8 @@ def generate(json_path, out_path):
         out.write(f"const size_t CLASS_COUNT = {len(classes)};\n\n")
         out.write("const Utility UTILITIES[] = {\n" + "".join(f"\t{{ {row} }},\n" for row in utilities) + "};\n")
         out.write(f"const size_t UTILITY_COUNT = {len(utilities)};\n\n")
+        for name, rows in zip(("NON_NULL_RETURNS", "NON_NULL_PROPERTIES", "NON_NULL_PARAMS"), non_null):
+            out.write(f"extern const char *const {name}[];\nextern const size_t {name}_COUNT;\n")
+            out.write(f"const char *const {name}[] = {{\n" + "".join(f"\t{_c_string(row)},\n" for row in rows) + "};\n")
+            out.write(f"const size_t {name}_COUNT = {len(rows)};\n\n")
         out.write("} // namespace petrichor::compiler::builtin\n")

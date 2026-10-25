@@ -60,6 +60,7 @@ enum class Target {
 	SelfSignal, // A signal of the engine class this class extends, as a value.
 	ObjectSignal, // A signal of an engine object.
 	BindArguments, // `f.bind(...)` of a function value.
+	EngineConstant, // An integer constant of an engine class, in `int_value`.
 };
 
 struct Expr {

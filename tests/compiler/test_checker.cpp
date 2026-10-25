@@ -147,12 +147,12 @@ TEST_CASE("static functions have no instance") {
 TEST_CASE("engine calls") {
 	CHECK(errors_of(in_function("set_process(false)\nvar n: int = get_child_count(true)")).empty());
 	CHECK(has_error(in_function("set_process(1)"), "Cannot pass a value of type int as bool"));
-	CHECK(has_error(in_function("add_child(1)"), "Cannot pass a value of type int as Node?"));
+	CHECK(has_error(in_function("set_owner(1)"), "Cannot pass a value of type int as Node?"));
 	CHECK(has_error(in_function("_ready()"), "virtual engine method"));
 }
 
 TEST_CASE("objects the engine returns are nullable until audited (spec §10.2)") {
-	CHECK(errors_of(in_function("var p = get_parent()\nadd_child(p)")).empty());
+	CHECK(errors_of(in_function("var p = get_parent()\nset_owner(p)")).empty());
 	CHECK(has_error(in_function("var p = get_parent()\nprint(p.name)"), "may be None (Node?)"));
 	CHECK(has_error(in_function("var p = get_parent()\np.queue_free()"), "may be None (Node?)"));
 }

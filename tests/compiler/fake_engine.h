@@ -38,8 +38,17 @@ class FakeEngine : public compiler::EngineApi {
 		{ "AudioStreamPlayer", "Node" },
 		{ "Texture2D", "Resource" },
 		{ "PackedScene", "Resource" },
+		{ "SceneTree", "Object" },
+		{ "Viewport", "Node" },
+		{ "Window", "Viewport" },
+		{ "Tween", "RefCounted" },
 	};
 	std::vector<std::string> singletons = { "Input", "ResourceLoader" };
+	std::map<std::string, int64_t> constants = {
+		{ "Input.MOUSE_MODE_VISIBLE", 0 },
+		{ "Input.MOUSE_MODE_CAPTURED", 2 },
+		{ "Tween.EASE_OUT_IN", 3 },
+	};
 	std::map<std::string, std::vector<EngineMethod>> methods;
 	std::map<std::string, std::vector<EngineProperty>> properties;
 	std::map<std::string, std::vector<EngineMethod>> signals;
@@ -68,7 +77,10 @@ public:
 			method("get_child_count", { { "include_internal", t(TypeKind::Bool) } }, t(TypeKind::Int), false, 1),
 			method("set_process", { { "enable", t(TypeKind::Bool) } }, t(TypeKind::Void)),
 			method("get_parent", {}, node),
+			method("get_tree", {}, Type::object("SceneTree", true)),
+			method("create_tween", {}, Type::object("Tween", true)),
 			method("add_child", { { "node", node } }, t(TypeKind::Void)),
+			method("set_owner", { { "owner", node } }, t(TypeKind::Void)),
 			method("queue_free", {}, t(TypeKind::Void)),
 		};
 		methods["Node3D"] = {
@@ -79,6 +91,16 @@ public:
 		};
 		methods["ResourceLoader"] = {
 			method("load", { { "path", t(TypeKind::String) }, { "type_hint", t(TypeKind::String) }, { "cache_mode", t(TypeKind::Int) } }, Type::object("Resource", true), false, 2),
+		};
+		methods["SceneTree"] = {
+			method("get_root", {}, Type::object("Window", true)),
+			method("reload_current_scene", {}, t(TypeKind::Int)),
+		};
+		properties["SceneTree"] = {
+			{ "root", Type::object("Window", true), false },
+		};
+		properties["Input"] = {
+			{ "mouse_mode", t(TypeKind::Int), true },
 		};
 		methods["PackedScene"] = {
 			method("instantiate", { { "edit_state", t(TypeKind::Int) } }, node, false, 1),
@@ -140,8 +162,9 @@ public:
 			if (found == methods.end()) {
 				continue;
 			}
-			for (const EngineMethod &m : found->second) {
+			for (EngineMethod m : found->second) {
 				if (m.name == p_method) {
+					m.owner = cls;
 					return m;
 				}
 			}
@@ -170,10 +193,21 @@ public:
 			if (found == properties.end()) {
 				continue;
 			}
-			for (const EngineProperty &property : found->second) {
+			for (EngineProperty property : found->second) {
 				if (property.name == p_property) {
+					property.owner = cls;
 					return property;
 				}
+			}
+		}
+		return std::nullopt;
+	}
+
+	std::optional<int64_t> find_constant(const std::string &p_class, const std::string &p_constant) const override {
+		for (std::string cls = p_class; !cls.empty(); cls = parent_class(cls)) {
+			const auto found = constants.find(cls + "." + p_constant);
+			if (found != constants.end()) {
+				return found->second;
 			}
 		}
 		return std::nullopt;

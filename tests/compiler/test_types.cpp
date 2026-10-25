@@ -142,6 +142,25 @@ TEST_CASE("for over an array") {
 	CHECK(has_error(in_function("var u: Array = []\nfor x in u:\n\tpass"), "untyped Array are Variant"));
 }
 
+// Spec §10.2, §10.3: the engine's RequiredResult and RequiredParam metadata,
+// and the audit in binding_metadata.txt.
+TEST_CASE("the binding metadata says which objects are never None") {
+	CHECK(type_of("get_parent()") == "Node?");
+	CHECK(type_of("get_tree()") == "SceneTree"); // Audited: null only when misused.
+	CHECK(type_of("create_tween()") == "Tween"); // RequiredResult.
+	CHECK(type_of("get_tree().root") == "Window"); // Its getter is a RequiredResult.
+	CHECK(type_of("get_tree().get_root()") == "Window");
+	CHECK(has_error(in_function("add_child(get_parent())"), "Cannot pass a value of type Node? as Node")); // RequiredParam.
+	CHECK(errors_of(in_function("set_owner(get_parent())")).empty());
+}
+
+TEST_CASE("integer constants of engine classes") {
+	CHECK(type_of("Input.MOUSE_MODE_CAPTURED") == "int");
+	CHECK(type_of("Tween.EASE_OUT_IN") == "int");
+	CHECK(errors_of(in_function("Input.mouse_mode = Input.MOUSE_MODE_CAPTURED")).empty());
+	CHECK(type_of("Tween.NOPE").find("Tween has no constant \"NOPE\"") != std::string::npos);
+}
+
 TEST_CASE("engine singletons are reached by their class name") {
 	CHECK(type_of("Input.is_action_pressed(\"jump\")") == "bool");
 	CHECK(type_of("Input") == "Input");

@@ -88,4 +88,11 @@ const Member *find_member(const Class &p_class, std::string_view p_name);
 const Constant *find_constant(const Class &p_class, std::string_view p_name);
 const Method *find_method(const Class &p_class, std::string_view p_name);
 
+// Engine API whose objects are never None (spec §10.2): the engine's
+// RequiredResult and RequiredParam metadata, and the audit in
+// binding_metadata.txt (§10.3). Classes are those that declare the member.
+bool returns_non_null(std::string_view p_class, std::string_view p_method);
+bool property_non_null(std::string_view p_class, std::string_view p_property);
+bool param_non_null(std::string_view p_class, std::string_view p_method, uint32_t p_index);
+
 } // namespace petrichor::compiler::builtin

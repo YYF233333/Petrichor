@@ -118,6 +118,13 @@ func _ready() -> void:
 	Engine.print_error_messages = true
 	v.texture = ImageTexture.create_from_image(Image.create(2, 3, false, Image.FORMAT_RGBA8))
 	_check(unassigned_size == Vector2() and v.texture_size() == Vector2(2, 3), "reading an export that was not assigned is a program error")
+	var detached := ValuesCheck.new()
+	Engine.print_error_messages = false
+	var detached_root = detached.tree_root_name()
+	Engine.print_error_messages = true
+	detached.free()
+	_check(v.tree_root_name() == &"root" and detached_root == &"", "get_tree() is T, and a program error outside the tree")
+	_check(v.captured() == Input.MOUSE_MODE_CAPTURED, "an integer constant of an engine class")
 	var timer: Timer = v.start_timer()
 	timer.timeout.emit()
 	_check(v.timeouts == 1 and v.last_timer == timer, "a private method connected through a method value, with a bound argument")

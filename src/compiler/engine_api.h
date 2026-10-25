@@ -2,6 +2,7 @@
 
 #include "compiler/types.h"
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -15,6 +16,7 @@ struct EngineParam {
 
 struct EngineMethod {
 	std::string name;
+	std::string owner; // The class that declares it, which the binding metadata names.
 	std::vector<EngineParam> params;
 	int default_count = 0; // Trailing parameters with default values.
 	Type return_type = Type::of(TypeKind::Void);
@@ -27,6 +29,7 @@ struct EngineProperty {
 	std::string name;
 	Type type;
 	bool writable = true;
+	std::string owner; // The class that declares it.
 };
 
 // What the compiler knows about the engine's classes (architecture §2.1). The
@@ -49,6 +52,8 @@ public:
 	virtual std::optional<EngineProperty> find_property(const std::string &p_class, const std::string &p_property) const = 0;
 	// A signal, as a method whose parameters are the signal's arguments.
 	virtual std::optional<EngineMethod> find_signal(const std::string &p_class, const std::string &p_signal) const = 0;
+	// An integer constant of the class or an ancestor, such as an enum value.
+	virtual std::optional<int64_t> find_constant(const std::string &p_class, const std::string &p_constant) const = 0;
 
 	bool inherits(const std::string &p_class, const std::string &p_ancestor) const {
 		for (std::string cls = p_class; !cls.empty(); cls = parent_class(cls)) {

@@ -1,0 +1,13 @@
+# Binding metadata (spec §10.3): what the engine constrains but does not
+# declare. What it does declare, its RequiredResult and RequiredParam metadata
+# (core/object/object.h:942-944), comes from extension_api-4-7.json, and
+# builtin_api_gen.py merges the two.
+#
+# Each line: a kind, Class.method, and the evidence in the engine source at
+# 4.7.2-stable.
+#
+#   returns-non-null  The method returns null only when it is misused, and
+#                     then the engine reports an error; the result is T, and
+#                     a null is a program error (spec §10.2).
+
+returns-non-null Node.get_tree scene/main/node.h:558-561

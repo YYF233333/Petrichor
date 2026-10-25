@@ -377,7 +377,7 @@ class Checker {
 				return set(r_expr, Type::of(TypeKind::Error));
 			}
 			r_expr.target = Target::SelfProperty;
-			return set(r_expr, property->type);
+			return set(r_expr, property_type(*property));
 		}
 		const auto function_found = function_index.find(r_expr.text);
 		if (function_found != function_index.end()) {
@@ -406,6 +406,18 @@ class Checker {
 		return fail(r_expr, "Identifier \"" + r_expr.text + "\" is not declared in the current scope.");
 	}
 
+	// An integer constant of an engine class, such as an enum value, which is
+	// an int (spec §10.1).
+	Type check_engine_constant(Expr &r_expr, const std::string &p_class) {
+		const std::optional<int64_t> value = engine.find_constant(p_class, r_expr.text);
+		if (!value) {
+			return fail(r_expr, p_class + " has no constant \"" + r_expr.text + "\".");
+		}
+		r_expr.target = Target::EngineConstant;
+		r_expr.int_value = *value;
+		return set(r_expr, Type::of(TypeKind::Int));
+	}
+
 	Type check_member(Expr &r_expr) {
 		Expr &base = *r_expr.base;
 		if (names_type(base)) {
@@ -418,7 +430,7 @@ class Checker {
 				}
 				return fail(r_expr, base.text + " has no constant \"" + r_expr.text + "\".");
 			}
-			return fail(r_expr, "Constants and enums of engine classes, such as " + base.text + "." + r_expr.text + ", are not supported yet.");
+			return check_engine_constant(r_expr, base.text);
 		}
 
 		const Type base_type = check_value(base);
@@ -446,6 +458,9 @@ class Checker {
 					r_expr.target = Target::ObjectSignal;
 					return set(r_expr, signal_type(*signal));
 				}
+				if (base.target == Target::Singleton && engine.find_constant(base_type.name, r_expr.text)) {
+					return check_engine_constant(r_expr, base_type.name); // Such as Input.MOUSE_MODE_CAPTURED.
+				}
 				return fail(r_expr, base_type.name + " has no property \"" + r_expr.text + "\".");
 			}
 			if (!property->type.is_storable()) {
@@ -453,7 +468,7 @@ class Checker {
 			}
 			r_expr.target = Target::ObjectProperty;
 			r_expr.owner = base_type.name;
-			return set(r_expr, property->type);
+			return set(r_expr, property_type(*property));
 		}
 		return fail(r_expr, "Values of type " + base_type.to_string() + " have no members.");
 	}
@@ -668,9 +683,32 @@ class Checker {
 				r_ok = false;
 				return params;
 			}
-			params.push_back(param.type);
+			Type type = param.type;
+			// A parameter the engine requires to be an object (spec §10.2).
+			if (type.kind == TypeKind::Object && builtin::param_non_null(p_method.owner, p_method.name, uint32_t(params.size()))) {
+				type.nullable = false;
+			}
+			params.push_back(type);
 		}
 		return params;
+	}
+
+	// What the engine returns: T? unless the binding metadata says it is
+	// null only when misused (spec §10.2), which a check at run time reports.
+	static Type engine_result(const EngineMethod &p_method) {
+		Type type = p_method.return_type;
+		if (type.kind == TypeKind::Object && builtin::returns_non_null(p_method.owner, p_method.name)) {
+			type.nullable = false;
+		}
+		return type;
+	}
+
+	static Type property_type(const EngineProperty &p_property) {
+		Type type = p_property.type;
+		if (type.kind == TypeKind::Object && builtin::property_non_null(p_property.owner, p_property.name)) {
+			type.nullable = false;
+		}
+		return type;
 	}
 
 	Type check_engine_call(Expr &r_expr, const EngineMethod &p_method) {
@@ -690,7 +728,7 @@ class Checker {
 		}
 		check_arguments(r_expr, params, int(params.size()) - p_method.default_count, p_method.is_vararg);
 		r_expr.target = Target::EngineMethod;
-		return set(r_expr, p_method.return_type);
+		return set(r_expr, engine_result(p_method));
 	}
 
 	Type check_utility(Expr &r_expr, const builtin::Utility &p_utility) {
