@@ -80,6 +80,16 @@ func _check_new_script() -> void:
 	_check(node.get("message") == "hello", "a new placeholder starts with the default value")
 	node.free()
 
+	# Under res://, saving also writes the bytecode that the game reads and
+	# reloads (architecture §2.4).
+	var saved := "res://editor_check_saved.pet"
+	var bytecode := "res://.godot/petrichor/editor_check_saved.petc"
+	DirAccess.remove_absolute(bytecode)
+	ResourceSaver.save(script, saved)
+	_check(FileAccess.get_file_as_bytes(bytecode).slice(0, 4).get_string_from_ascii() == "PETC", "saving under res:// writes the bytecode")
+	for file in [saved, saved + ".uid", bytecode]:
+		DirAccess.remove_absolute(file)
+
 
 # Spec §13.3: after the editor commits a rename or a move, an action with the
 # same name and MERGE_ALL, created in history_changed, joins that undo step.

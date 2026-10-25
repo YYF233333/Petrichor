@@ -77,15 +77,38 @@ int ClassImage::find_member(const StringName &p_name) const {
 	return index ? *index : -1;
 }
 
-bool ClassImage::same_layout(const ClassImage &p_other) const {
-	if (module.instance_size != p_other.module.instance_size || module.members.size() != p_other.module.members.size() || module.base_class != p_other.module.base_class) {
+static bool same_constant(const bytecode::Constant &p_a, const bytecode::Constant &p_b) {
+	return p_a.type == p_b.type && p_a.b == p_b.b && p_a.i == p_b.i && p_a.f == p_b.f && p_a.s == p_b.s;
+}
+
+static bool same_slot(const bytecode::Slot &p_a, const bytecode::Slot &p_b) {
+	return p_a.name == p_b.name && p_a.type == p_b.type;
+}
+
+bool ClassImage::same_declarations(const ClassImage &p_other) const {
+	const bytecode::Module &a = module;
+	const bytecode::Module &b = p_other.module;
+	if (a.global_name != b.global_name || a.base_class != b.base_class || a.instance_size != b.instance_size || a.members.size() != b.members.size() || a.functions.size() != b.functions.size()) {
 		return false;
 	}
-	for (size_t i = 0; i < module.members.size(); i++) {
-		const bytecode::Member &a = module.members[i];
-		const bytecode::Member &b = p_other.module.members[i];
-		if (a.name != b.name || a.type != b.type || a.offset != b.offset) {
+	for (size_t i = 0; i < a.members.size(); i++) {
+		const bytecode::Member &x = a.members[i];
+		const bytecode::Member &y = b.members[i];
+		if (x.name != y.name || x.type != y.type || x.offset != y.offset || x.is_pub != y.is_pub || x.is_export != y.is_export || !same_constant(x.initial, y.initial)) {
 			return false;
+		}
+	}
+	// Signatures; the line, the frame and the code belong to the body.
+	for (size_t i = 0; i < a.functions.size(); i++) {
+		const bytecode::Function &x = a.functions[i];
+		const bytecode::Function &y = b.functions[i];
+		if (x.name != y.name || x.return_type != y.return_type || x.is_pub != y.is_pub || x.is_override != y.is_override || x.params.size() != y.params.size()) {
+			return false;
+		}
+		for (size_t p = 0; p < x.params.size(); p++) {
+			if (!same_slot(x.params[p], y.params[p])) {
+				return false;
+			}
 		}
 	}
 	return true;

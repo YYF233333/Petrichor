@@ -52,8 +52,9 @@ public:
 	int find_function(const godot::StringName &p_name) const;
 	int find_member(const godot::StringName &p_name) const;
 
-	// Whether instances of `p_other` can keep their members under this image.
-	bool same_layout(const ClassImage &p_other) const;
+	// Whether the two differ only in function bodies, so that instances of
+	// `p_other` can switch to this image (spec §12.4).
+	bool same_declarations(const ClassImage &p_other) const;
 };
 
 /* Values in frames and instances */

@@ -30,6 +30,6 @@ Petrichor designs a statically typed scripting language that replaces GDScript. 
 - Setup: `git submodule update --init`.
 - Build (SCons, MSVC on Windows): `scons target=editor` and `scons target=template_debug`. The libraries go to `tests/engine/project/bin/`. Close the editor before rebuilding: the extension is not reloadable.
 - Compiler tests: `scons compiler_tests`, then run `tests/compiler/bin/compiler_tests`. They build without godot-cpp and do not start the engine.
-- Engine tests: `python tests/engine/run.py <Godot 4.7 editor binary>` runs the test project headless: the game, editor-side checks and an exported pack.
+- Engine tests: `python tests/engine/run.py <Godot 4.7 editor binary>` runs the test project headless: the game, editor-side checks, the debugger, hot reload and an exported pack.
 - Language rules come from the spec. When the implementation runs into a problem with a rule, change the spec in a separate commit; do not relax the rule in code.
 - Tests are derived from the spec (§15), the engine and real code, not from the implementation (architecture §3).

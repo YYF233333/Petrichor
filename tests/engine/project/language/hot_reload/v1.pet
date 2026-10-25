@@ -1,0 +1,7 @@
+# Hot reload, version 1. run.py copies each version to live.pet (hot_reload_test.gd).
+extends Node
+
+pub var count := 0
+
+pub func value() -> int:
+	return 1

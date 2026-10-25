@@ -5,12 +5,14 @@ Usage:
     python tests/engine/run.py <godot editor binary>    (or set GODOT)
 
 Checks the game run, the editor side (placeholders, saving, the undo probe), the
-other step-2 probes of the architecture, and an exported pack run in a
-directory without sources.
+other step-2 probes of the architecture, the language, the debugger, hot reload,
+and an exported pack run in a directory without sources.
 """
 
 import os
 import shutil
+import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -20,6 +22,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PROJECT = HERE / "project"
+HOT_RELOAD = PROJECT / "language" / "hot_reload"
+HOT_RELOAD_BYTECODE = PROJECT / ".godot" / "petrichor" / "language" / "hot_reload"
+LIVE_SCRIPT = "res://language/hot_reload/live.pet"
 
 GAME_OUTPUT = [
     "check: message = from the scene",
@@ -55,6 +60,67 @@ def run(godot, *args):
     return result.returncode, result.stdout + result.stderr
 
 
+class Running:
+    """A run whose output is read while it goes on, so that the test can answer it."""
+
+    def __init__(self, godot, *args, stdin=False):
+        self.process = subprocess.Popen(
+            [godot, "--headless", *args],
+            stdin=subprocess.PIPE if stdin else subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        self.output = bytearray()
+        self.ended = False
+        self.changed = threading.Condition()
+        self.deadline = time.monotonic() + TIMEOUT
+        self.timed_out = False
+        self.reader = threading.Thread(target=self._read, daemon=True)
+        self.reader.start()
+
+    def _read(self):
+        while chunk := self.process.stdout.read1(4096):
+            with self.changed:
+                self.output.extend(chunk)
+                self.changed.notify_all()
+        with self.changed:
+            self.ended = True
+            self.changed.notify_all()
+
+    def _remaining(self):
+        return max(0, self.deadline - time.monotonic())
+
+    def wait_for(self, text, count=1):
+        """Whether `text` is printed `count` times before the output ends."""
+        with self.changed:
+            found = self.changed.wait_for(
+                lambda: self.output.count(text) >= count or self.ended,
+                timeout=self._remaining(),
+            ) and self.output.count(text) >= count
+        if not found and self._remaining() == 0:
+            self.timed_out = True
+        return found
+
+    def send(self, line):
+        try:
+            self.process.stdin.write(line.encode() + b"\n")
+            self.process.stdin.flush()
+            return True
+        except OSError:
+            return False
+
+    def finish(self):
+        try:
+            code = self.process.wait(timeout=self._remaining())
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            code = self.process.wait()
+            self.timed_out = True
+        self.reader.join()
+        text = self.output.decode("utf-8", "replace")
+        return (-1, text + "\n(timed out)") if self.timed_out else (code, text)
+
+
 def run_debugger(godot, *args, commands):
     """Runs under the engine's local debugger (`-d`), sending one command per prompt.
 
@@ -62,48 +128,84 @@ def run_debugger(godot, *args, commands):
     (os_windows.cpp:2094-2107), and repeats its prompt forever once standard input
     is closed (local_debugger.cpp:148), so each command waits for its prompt and
     standard input stays open."""
-    process = subprocess.Popen(
-        [godot, "--headless", *args],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
-    output = bytearray()
-    changed = threading.Condition()
-
-    def read():
-        while chunk := process.stdout.read1(4096):
-            with changed:
-                output.extend(chunk)
-                changed.notify()
-
-    reader = threading.Thread(target=read, daemon=True)
-    reader.start()
-    deadline = time.monotonic() + TIMEOUT
-    timed_out = False
+    running = Running(godot, *args, stdin=True)
     for sent, command in enumerate(commands):
-        with changed:
-            prompted = changed.wait_for(
-                lambda: output.count(PROMPT) > sent or process.poll() is not None,
-                timeout=max(0, deadline - time.monotonic()),
-            )
-        if not prompted or process.poll() is not None:
-            timed_out = not prompted
+        if not running.wait_for(PROMPT, sent + 1) or not running.send(command):
             break
+    return running.finish()
+
+
+def encode_variant(value):
+    """The engine's binary form of a Variant (marshalls.cpp:1362-1900), for the
+    types the editor's messages use here."""
+    if isinstance(value, str):
+        data = value.encode()
+        return struct.pack("<II", 4, len(data)) + data + bytes(-len(data) % 4)
+    if isinstance(value, int):
+        return struct.pack("<Ii", 2, value)
+    if isinstance(value, list):
+        return struct.pack("<II", 28, len(value)) + b"".join(encode_variant(item) for item in value)
+    raise TypeError(value)
+
+
+def send_editor_message(connection, command, data):
+    """A message from the editor's debugger: [command, thread, data]
+    (script_editor_debugger.cpp:79-86), prefixed by its length
+    (remote_debugger_peer.cpp:101-127). Thread 1 is the main thread."""
+    message = encode_variant([command, 1, data])
+    connection.sendall(struct.pack("<I", len(message)) + message)
+
+
+def install_live_version(version):
+    """What saving live.pet in the editor leaves on disk: the source and the
+    bytecode compiled from it (architecture §2.4)."""
+    shutil.copy(HOT_RELOAD / f"v{version}.pet", HOT_RELOAD / "live.pet")
+    shutil.copy(HOT_RELOAD_BYTECODE / f"v{version}.petc", HOT_RELOAD_BYTECODE / "live.petc")
+
+
+def run_hot_reload(godot):
+    """Stands in for the editor while hot_reload_test.gd runs connected to it.
+
+    When the scene asks for a version, it is put in place and announced with
+    reload_scripts, as the editor does after a save (script_editor_plugin.cpp:
+    738-741, 776-801); the game reloads it at its next idle poll
+    (remote_debugger.cpp:689-719)."""
+    with socket.create_server(("127.0.0.1", 0)) as server:
+        server.settimeout(TIMEOUT)
+        install_live_version(1)
         try:
-            process.stdin.write(command.encode() + b"\n")
-            process.stdin.flush()
-        except OSError:
-            break
+            running = Running(
+                godot,
+                "--remote-debug",
+                f"tcp://127.0.0.1:{server.getsockname()[1]}",
+                "--path",
+                str(PROJECT),
+                "res://language/hot_reload/hot_reload.tscn",
+            )
+            try:
+                connection, _ = server.accept()
+            except OSError:
+                return running.finish()
+            with connection:
+                threading.Thread(target=drain, args=(connection,), daemon=True).start()
+                for version in (2, 3):
+                    if not running.wait_for(f"hot reload: waiting for version {version}".encode()):
+                        break
+                    install_live_version(version)
+                    send_editor_message(connection, "reload_scripts", [LIVE_SCRIPT])
+                return running.finish()
+        finally:
+            (HOT_RELOAD / "live.pet").unlink(missing_ok=True)
+            (HOT_RELOAD_BYTECODE / "live.petc").unlink(missing_ok=True)
+
+
+def drain(connection):
+    # The game's messages to the editor are not checked here.
     try:
-        code = process.wait(timeout=max(0, deadline - time.monotonic()))
-    except subprocess.TimeoutExpired:
-        process.kill()
-        code = process.wait()
-        timed_out = True
-    reader.join()
-    text = output.decode("utf-8", "replace")
-    return (-1, text + "\n(timed out)") if timed_out else (code, text)
+        while connection.recv(65536):
+            pass
+    except OSError:
+        pass
 
 
 def expect(name, ok, output=""):
@@ -176,6 +278,21 @@ def main():
             "Debugger Break, Reason: 'Division by zero.'",
             "*Frame 0 - res://language/breakpoint.pet:12 in function 'divide'",
             "breakpoint: divide returned 0",
+        ],
+    )
+
+    # Spec §12.4: a body change replaces the code of running instances; any
+    # other change leaves them on the old code and asks for a new run.
+    code, output = run_hot_reload(godot)
+    expect_run(
+        "hot reload",
+        code,
+        output,
+        [
+            "hot reload: waiting for version 2",
+            "hot reload: waiting for version 3",
+            f"{LIVE_SCRIPT}: more than function bodies changed. Existing instances keep the old code; run the scene again to apply the change.",
+            "hot reload: 0 failure(s)",
         ],
     )
 

@@ -1,0 +1,7 @@
+# Hot reload, version 2: only a function body changed.
+extends Node
+
+pub var count := 0
+
+pub func value() -> int:
+	return count * 10

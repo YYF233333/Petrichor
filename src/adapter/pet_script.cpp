@@ -170,14 +170,14 @@ void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image) {
 		const std::shared_ptr<const ClassImage> old = image;
 		image = p_image;
 		if (old && p_image && !instances.is_empty()) {
-			if (p_image->same_layout(*old)) {
+			if (p_image->same_declarations(*old)) {
 				// Only function bodies changed: instances switch to the new
 				// code, and frames already running finish with the old (spec §12.4).
 				for (PetInstance *instance : instances) {
 					instance->image = p_image;
 				}
 			} else {
-				WARN_PRINT(get_script_path() + ": its members changed. Existing instances keep the old code; run the scene again to apply the change.");
+				WARN_PRINT(get_script_path() + ": more than function bodies changed. Existing instances keep the old code; run the scene again to apply the change.");
 			}
 		}
 	}
