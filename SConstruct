@@ -8,14 +8,20 @@ import sys
 # keep what it found (in ~/.scons_msvc_cache.json).
 os.environ.setdefault("SCONS_CACHE_MSVC_CONFIG", "1")
 
-env = SConscript("thirdparty/godot-cpp/SConstruct", {"api_version": "4.7"})
+# The editor library is the one the tests and benchmarks load.
+ARGUMENTS.setdefault("target", "editor")
+
+godot_cpp_env = SConscript("thirdparty/godot-cpp/SConstruct", {"api_version": "4.7"})
 
 # A build with nothing to do is mostly SCons hashing thousands of godot-cpp
 # files and scanning their includes: hash only files whose time changed, and
 # keep the scanned includes.
-env.Decider("content-timestamp")
+godot_cpp_env.Decider("content-timestamp")
 SetOption("implicit_cache", 1)
 
+# godot-cpp declared its own objects with that environment, so settings of this
+# project go into copies, or every change to them would rebuild godot-cpp.
+env = godot_cpp_env.Clone()
 env.Append(CPPPATH=["src/", "gen/"])
 
 # The compiler's tables of built-in types and utility functions come from the
@@ -38,9 +44,8 @@ builtin_api = env.Command(
 # The compiled format has no version number: a file is read only by builds
 # whose src/bytecode/ is the same, which this hash identifies (architecture
 # §2.4). Line endings are normalized, so that checkouts on different systems
-# agree.
-# The hash is taken while reading this file, since the sources include the
-# header it goes into.
+# agree. The hash is taken while reading this file, since the sources include
+# the header it goes into.
 def format_id():
     digest = hashlib.sha256()
     for node in sorted(Glob("src/bytecode/*.h") + Glob("src/bytecode/*.cpp"), key=lambda node: node.name):
@@ -61,13 +66,20 @@ def generate_format_id(target, source, env):
 
 env.Command("gen/format_id.gen.h", Value(format_id()), Action(generate_format_id, "Generating $TARGET"))
 
-bytecode_sources = Glob("src/bytecode/*.cpp")
-compiler_sources = Glob("src/compiler/*.cpp") + builtin_api
+# The bytecode and the compiler do not depend on Godot (architecture §2.1):
+# they are built without the godot-cpp include paths, once, for the library and
+# the compiler tests.
+core_env = env.Clone()
+core_env.Replace(CPPPATH=["src/", "gen/"])
+bytecode_library = core_env.StaticLibrary("gen/petrichor_bytecode" + env["suffix"], Glob("src/bytecode/*.cpp"))
+compiler_library = core_env.StaticLibrary("gen/petrichor_compiler" + env["suffix"], Glob("src/compiler/*.cpp") + builtin_api)
 
 # Exported games contain no compiler (architecture §1).
-sources = bytecode_sources + Glob("src/runtime/*.cpp") + Glob("src/adapter/*.cpp")
+sources = Glob("src/runtime/*.cpp") + Glob("src/adapter/*.cpp")
+libraries = [bytecode_library]
 if env["target"] == "editor":
-    sources += compiler_sources + Glob("src/adapter/editor/*.cpp")
+    sources += Glob("src/adapter/editor/*.cpp")
+    libraries.insert(0, compiler_library)
 
 # The step-2 probes (architecture §5) are driven by the engine tests and stay
 # out of release builds.
@@ -75,6 +87,7 @@ if env["target"] != "template_release":
     env.Append(CPPDEFINES=["PETRICHOR_PROBES"])
     sources += Glob("src/probe/*.cpp")
 
+env.Prepend(LIBS=libraries)
 library = env.SharedLibrary(
     "tests/engine/project/bin/petrichor{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
     source=sources,
@@ -83,20 +96,11 @@ library = env.SharedLibrary(
 env.NoCache(library)
 Default(library)
 
-# The compiler tests are a plain program: without the godot-cpp include paths,
-# they also show that the compiler does not depend on Godot (architecture §2.1).
 #   scons compiler_tests && tests/compiler/bin/compiler_tests
-tests_env = env.Clone()
-tests_env.Replace(
-    CPPPATH=["src/", "gen/", "thirdparty/doctest/"],
-    LIBS=[],
-    LIBPATH=[],
-    OBJSUFFIX=".tests" + env["OBJSUFFIX"],
-)
+tests_env = core_env.Clone()
+tests_env.Append(CPPPATH=["thirdparty/doctest/"])
+tests_env.Replace(LIBS=[compiler_library, bytecode_library], LIBPATH=[])
 # Engine builds disable exceptions; a failed REQUIRE then ends the run.
 tests_env.Append(CPPDEFINES=["DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS"])
-compiler_tests = tests_env.Program(
-    "tests/compiler/bin/compiler_tests",
-    source=bytecode_sources + compiler_sources + Glob("tests/compiler/*.cpp"),
-)
+compiler_tests = tests_env.Program("tests/compiler/bin/compiler_tests", Glob("tests/compiler/*.cpp"))
 Alias("compiler_tests", compiler_tests)
