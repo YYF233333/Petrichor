@@ -760,7 +760,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
       await player.died         # 切换场景：player 先被删除，HUD 随后被删除，静默取消
       show_game_over()          # player 被单独释放却没有发出 died：本帧结束后报程序错误
   ```
-- 任何对象的释放都可以通过 GDExtension 公开的实例绑定释放回调感知（`core/object/object.cpp:2360-2365`）。依据：[暗坑清单](surveys/pitfalls.zh.md) G-11。
+- 任何对象的释放都可以通过 GDExtension 公开的实例绑定释放回调感知（`core/object/object.cpp:2360-2365`）。运行时使用自己的绑定标识，一个对象可以同时持有多个标识不同的绑定（`core/object/object.cpp:2167-2201`），所以不影响 godot-cpp 的绑定；这已在运行的引擎上验证（[探针](../tests/engine/project/probes/probes.gd)）。依据：[暗坑清单](surveys/pitfalls.zh.md) G-11。
 
 ### 9.8 跨语言 await
 
@@ -772,7 +772,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 【已知限制】GDScript 脚本被重载时，引擎清除它挂起的函数而不发出任何信号（`gdscript.cpp:1487-1506`，`modules/gdscript/gdscript_compiler.cpp:2700`），等待这些函数的协程会永远挂起。这只在编辑器中修改脚本时发生。
 - GDScript await 本语言的协程时，协程在第一次挂起时返回其 Task 的 `completed` 信号；GDScript 的 await 接受任意 Signal 值（`modules/gdscript/gdscript_vm.cpp:2586-2600`）。Task 完成时发出 `completed(值)`；取消或失败时发出 `completed(null)`，使 GDScript 的等待方不会永远挂起；另有 `cancelled` 信号供需要区分的代码使用。
 - 本语言的 async 方法交给引擎的返回类型一律是无类型的 Variant（`PROPERTY_USAGE_NIL_IS_VARIANT`），与声明的返回类型无关，返回 void 时也是如此；声明的类型只出现在文档和悬停中。理由：方法的反射信息中没有协程性（`core/object/method_info.h:37-44`），GDScript 只能按报告的返回类型检查。报告为 T 时，GDScript 中每处 await 都有“多余的 await”警告（`modules/gdscript/gdscript_analyzer.cpp:3102-3107`）；取消时的 `completed(null)` 不经检查写入类型为 T 的临时变量（`modules/gdscript/gdscript_vm.cpp:2667-2668`，`modules/gdscript/gdscript_byte_codegen.cpp:998-1001`），T 为 Transform3D 一类的值类型时，之后按类型访问它的指令解引用空指针，进程崩溃。报告为 Variant 时，debug 构建在把结果赋给有类型的变量时检查类型（`gdscript_vm.cpp:1433-1444`）；release 构建不检查，与 GDScript 中其他返回 Variant 的函数相同。
-- 两个方向都是根据引擎源码推出的，尚未在运行的引擎上验证。
+- 两个方向都已在运行的引擎上验证（[探针](../tests/engine/project/probes/probes.gd)）：持有第一个状态时，协程再次挂起后仍得到结果，不持有时结果不会到达；接收者被释放时协程不再完成；GDScript 等待本语言的协程得到结果，取消时得到 null，把它赋给 Transform3D 变量只中止该函数而不崩溃。
 
 ## 10. 引擎边界
 
@@ -789,7 +789,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 带载荷的 enum | 按字段名编码的 Dictionary，保留键 `"$variant"` 记录分支名（§3.7） |
 | async 方法的返回值 | 无类型的 Variant（§9.8） |
 
-- GDScript 通过 Script 的反射接口为其他语言的全局类定型（`modules/gdscript/gdscript_analyzer.cpp:789-804, 4278-4319, 6005-6014`），所以 GDScript 对本语言类的实例成员（属性、方法、信号）有完整的静态检查。`Player.new(...)` 同样受检查：Script 基类没有绑定 `new`，GDScript 是自己绑定的（`modules/gdscript/gdscript.cpp:1078`），所以本语言的 Script 类绑定 `new`，并把 `_init` 报告为返回该类的静态方法，GDScript 把 `new` 当作静态的 `_init` 检查（`gdscript_analyzer.cpp:5958-5961`）。实参按位置传入；按名字传入必须赋值的成员（§6.2）只在本语言中可用。其余的类级访问见 §11.3。
+- GDScript 通过 Script 的反射接口为其他语言的全局类定型（`modules/gdscript/gdscript_analyzer.cpp:789-804, 4278-4319, 6005-6014`），所以 GDScript 对本语言类的实例成员（属性、方法、信号）做与原生类相同的静态检查：已知成员的类型和实参受检查，未知的方法名与在原生类上一样只是不安全访问的警告（`gdscript_analyzer.cpp:3750-3757`）。`Player.new(...)` 同样受检查：Script 基类没有绑定 `new`，GDScript 是自己绑定的（`modules/gdscript/gdscript.cpp:1078`），所以本语言的 Script 类绑定 `new`，并把 `_init` 报告为返回该类的静态方法，GDScript 把 `new` 当作静态的 `_init` 检查（`gdscript_analyzer.cpp:5958-5961`）。实参按位置传入；按名字传入必须赋值的成员（§6.2）只在本语言中可用。这些已在运行的引擎上验证（[探针](../tests/engine/project/probes/probes.gd)）。其余的类级访问见 §11.3。
 - **入口检查**：值从引擎、GDScript 或 C# 进入本语言的位置（参数、`set` 写入成员、信号的实参、await 的结果、解码），按声明的类型检查，失败是程序错误。远程检查器的写入也经过入口检查（§7.5）。
 - Option 交给引擎时 None 编码为 NIL。所以只有 X 的值不会编码为 NIL 时，`X?` 才能隐式交给引擎；X 是 Option 或 Variant 时是编译错误，快速修复给出 `.flatten()` 或 `.unwrap_or(null)`。否则 Some(None) 经过引擎往返后会悄悄变成 None（§3.4）。
 
@@ -929,7 +929,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 理由：否则导出成员改名后，场景中保存的值会静默丢失：加载时不检查 `node->set` 是否成功（`scene/resources/packed_scene.cpp:494`），保存时只写节点当前属性列表中的属性（`packed_scene.cpp:860-869`）。
 - 在场景编辑器中给节点改名或移动节点时：
   - 本语言脚本中指向它的 `$X`、`%X` 和字面量 `get_node` 路径自动更新，与编辑器对场景中 NodePath 属性和动画轨道的更新（`editor/docks/scene_tree_dock.cpp:2143-2248, 2250-2401`）放在同一个撤销步骤中；
-  - 做法是在编辑器提交动作后发出的 `history_changed` 信号中，创建同名、合并方式为 `MERGE_ALL` 的动作，它并入刚提交的动作，并保留其原有的操作（`editor/editor_undo_redo_manager.cpp:298`，`core/object/undo_redo.cpp:97, 116-117`）。不能在编辑器的动作执行中追加操作：移动节点时编辑器不在动作内部发出信号（`scene_tree_dock.cpp:2535-2677`），提交时又先退出动作再执行（`undo_redo.cpp:313-332`）。这一做法根据引擎源码推出，尚未在运行的引擎上验证；
+  - 做法是在编辑器提交动作后发出的 `history_changed` 信号中，创建同名、合并方式为 `MERGE_ALL` 的动作，它并入刚提交的动作，并保留其原有的操作（`editor/editor_undo_redo_manager.cpp:298`，`core/object/undo_redo.cpp:97, 116-117`）。不能在编辑器的动作执行中追加操作：移动节点时编辑器不在动作内部发出信号（`scene_tree_dock.cpp:2535-2677`），提交时又先退出动作再执行（`undo_redo.cpp:313-332`）。新动作以被编辑场景的根节点为上下文，从而进入同一个撤销历史（`editor/editor_undo_redo_manager.cpp:63-105, 149-156`）；信号处理是同步的，满足合并要求的 800 毫秒时限；动作名经过翻译，从历史中读出。这一做法已在运行的引擎上验证（[编辑器检查](../tests/engine/project/addons/petrichor_checks/plugin.gd)）；
   - 不预览，完成后在输出面板列出改动的位置；
   - 非字面量的路径，以及脚本挂在其他场景中、同一路径在那里仍指向别的节点的情况，只报告不修改，并提供更新路径的快速修复。
 
@@ -1064,6 +1064,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 脚本实例创建时不接受构造参数 | `core/object/script_language.h:152` |
 | `RequiredResult` 标注只在出错时为 null 的返回值 | `core/object/object.h:942-944` |
 | 对象释放时调用每个实例绑定的释放回调 | `core/object/object.cpp:2360-2365` |
+| 一个对象可以同时持有多个标识不同的实例绑定 | `core/object/object.cpp:2167-2201` |
 | 对象析构时静默断开它的所有信号连接 | `core/object/object.cpp:2327-2342` |
 | 对象设置脚本后发出 `script_changed` | `core/object/object.cpp:995` |
 | 引擎不给对象设置抽象脚本 | `core/object/object.cpp:976` |
@@ -1089,11 +1090,13 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 移动节点时，编辑器在动作内部不发出信号 | `editor/docks/scene_tree_dock.cpp:2535-2677` |
 | 提交动作时先退出动作再执行，执行中不能再追加操作 | `core/object/undo_redo.cpp:313-332` |
 | 编辑器的撤销管理器在提交后发出 `history_changed` | `editor/editor_undo_redo_manager.cpp:298` |
-| 同名、合并方式为 `MERGE_ALL` 的动作并入前一个动作，保留其原有的操作 | `core/object/undo_redo.cpp:97, 116-117` |
+| 同名、合并方式为 `MERGE_ALL`、在前一个动作之后 800 毫秒内创建的动作并入前一个动作，保留其原有的操作 | `core/object/undo_redo.cpp:97, 116-117` |
+| 撤销管理器按动作的上下文对象选择撤销历史，被编辑场景中的节点进入该场景的历史 | `editor/editor_undo_redo_manager.cpp:63-105, 149-156` |
 | Web 导出开启 Extensions Support 时使用带动态链接的模板；跨域隔离响应头只在开启线程支持时需要 | `platform/web/export/export_plugin.cpp:374`；`platform/web/export/export_plugin.h:59-73`；`platform/web/doc_classes/EditorExportPlatformWeb.xml:93-95` |
 | 导出插件的钩子都不能使导出失败 | `editor/export/editor_export_platform.cpp:2568-2576`；`editor/export/editor_export_plugin.h:120-122` |
 | 导出插件报告的错误只让导出窗口显示失败；命令行导出只在导出函数返回错误时以非零退出码结束 | `editor/export/editor_export_platform.cpp:131, 146-148`；`editor/editor_node.cpp:1408-1424` |
 | GDScript 通过 Script 的反射接口为其他语言的全局类定型 | `modules/gdscript/gdscript_analyzer.cpp:789-804, 4278-4319, 6005-6014` |
+| GDScript 对 self 和内置类型以外的对象调用未知方法，只给不安全访问的警告 | `modules/gdscript/gdscript_analyzer.cpp:3750-3757` |
 | GDScript 解析 `extends 全局类名` 时把基类文件当作 GDScript 解析，失败时只报“Could not resolve super class” | `modules/gdscript/gdscript_analyzer.cpp:469-485`（报错在 `:477, 483`）；`modules/gdscript/gdscript_cache.cpp:83-92` |
 | GDScript 要求具体子类实现抽象方法，禁止构造抽象类和经 `super` 调用抽象方法 | `modules/gdscript/gdscript_analyzer.cpp:1533-1552, 3630-3643` |
 | GDScript 的覆盖检查允许返回类型协变、参数类型逆变，以及多出带默认值的参数 | `modules/gdscript/gdscript_analyzer.cpp:1895-1936` |
