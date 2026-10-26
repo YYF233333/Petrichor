@@ -78,7 +78,7 @@ static Dictionary function_info(const ClassImage &p_image, int p_index) {
 	for (const bytecode::Slot &param : function.params) {
 		args.push_back(typed(property_dict(variant_type(param.type), String::utf8(param.name.c_str()), usage_of(param.type, PROPERTY_USAGE_DEFAULT), class_of(param.type, param.class_name)), param));
 	}
-	const Dictionary result = property_dict(variant_type(function.return_type), StringName(), usage_of(function.return_type, PROPERTY_USAGE_DEFAULT), class_of(function.return_type, function.return_class));
+	const Dictionary result = property_dict(variant_type(function.result.type), StringName(), usage_of(function.result.type, PROPERTY_USAGE_DEFAULT), class_of(function.result.type, function.result.class_name));
 	Dictionary method = method_dict(p_image.function_names[p_index], args, result, METHOD_FLAGS_DEFAULT | (function.is_static ? METHOD_FLAG_STATIC : 0));
 	Array defaults;
 	for (const bytecode::Constant &value : function.defaults) {

@@ -1,3 +1,4 @@
+#include "bytecode/opcodes.h"
 #include "helpers.h"
 
 #include "doctest.h"
@@ -83,6 +84,43 @@ TEST_CASE("calls to methods of other classes that return arrays") {
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	std::string error;
 	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+}
+
+TEST_CASE("a method of another class, another instance or an interface is called directly (spec §8.1)") {
+	FakeProject classes = project();
+	classes.add_script("res://shield.pet", "class_name Shield\nextends Node\n\npub func hit(amount: float, crit: bool = false) -> Array[int]:\n\treturn []\n\nfunc _ready():\n\tpass\n", "Shield");
+	const compiler::CompileResult result = compile_in(
+			"class_name Gate\nextends Node\n\npub func id() -> int?:\n\treturn 1\n\n"
+			"func f(w: Weapon, s: Shield, d: Combat.Damageable, other: Gate) -> void:\n\tvar text := w.describe()\n\tvar hits := s.hit(2)\n\td.damage(5)\n\tvar i := other.id()\n\ts._ready()\n",
+			classes);
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	const bytecode::Module &module = result.module;
+	const bytecode::Function &f = module.functions[module.find_function("f")];
+	std::vector<uint32_t> methods;
+	int engine_calls = 0;
+	for (size_t pc = 0; pc < f.code.size(); pc += bytecode::instruction_length(f.code.data() + pc)) {
+		if (bytecode::Op(f.code[pc]) == bytecode::Op::CALL_METHOD) {
+			methods.push_back(f.code[pc + 1]);
+		}
+		engine_calls += bytecode::Op(f.code[pc]) == bytecode::Op::CALL_ENGINE ? 1 : 0;
+	}
+	REQUIRE(methods.size() == 4);
+	const auto method = [&](size_t p_call) -> const bytecode::MethodCall & { return module.method_calls[methods[p_call]]; };
+	CHECK(method(0).method == "describe");
+	CHECK(method(0).result.type == bytecode::ValueType::String);
+	// The signature as declared, also the parameter the call leaves out.
+	CHECK(method(1).method == "hit");
+	CHECK(method(1).params.size() == 2);
+	CHECK(method(1).defaults == 1);
+	CHECK(method(1).result.element == bytecode::ValueType::Int);
+	CHECK(method(2).method == "damage");
+	CHECK(method(2).result.type == bytecode::ValueType::Void);
+	CHECK(method(3).method == "id");
+	CHECK(method(3).result.option == bytecode::ValueType::Int);
+	// An override of an engine virtual method is the engine's to run.
+	CHECK(engine_calls == 1);
 }
 
 TEST_CASE("an autoload is a value of its script's class (spec §7.3)") {

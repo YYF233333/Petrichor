@@ -13,7 +13,9 @@ namespace petrichor::bytecode {
 //
 // X(name, operand count); a count of -1 marks a call: `target, dst, base,
 // argc` followed by argc (type, offset) pairs. dst and base are NO_SLOT when
-// there is none; a base of NO_SLOT on CALL_ENGINE means self.
+// there is none; a base of NO_SLOT on CALL_ENGINE means self. CALL_METHOD calls
+// a method of a class of this language on the object in base (spec §8.1), with
+// the arguments and the result in their slots' own layout.
 #define PETRICHOR_OPCODES(X)                                         \
 	X(LINE, 1)                                                       \
 	X(CONST_INT, 2)                                                  \
@@ -85,6 +87,7 @@ namespace petrichor::bytecode {
 	X(JUMP_IF_TRUE, 2)                                               \
 	X(CALL, -1)                                                      \
 	X(CALL_ENGINE, -1)                                               \
+	X(CALL_METHOD, -1)                                               \
 	X(CALL_UTILITY, -1)                                              \
 	X(CALL_BUILTIN, -1)                                              \
 	X(CONSTRUCT, -1)                                                 \

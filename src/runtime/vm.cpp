@@ -616,6 +616,42 @@ public:
 					pc += 5 + 2 * argc;
 					break;
 				}
+				case Op::CALL_METHOD: {
+					// A method of a class of this language, called directly: a
+					// program error in it ends this function too (spec §8.1).
+					const uint32_t target = code[pc + 1];
+					const uint32_t dst = code[pc + 2];
+					const uint32_t argc = code[pc + 4];
+					OBJECT(receiver, code[pc + 3]);
+					// Within a run every script is compiled against the others
+					// (spec §12.4); only bytecode that was not built together
+					// can differ, and then the arguments would not fit.
+					ScriptedObject callee;
+					const int index = scripted_object(static_cast<Object *>(receiver), callee) ? callee.image->find_function(image.method_names[target]) : -1;
+					if (index < 0 || !callee.image->module.functions[index].is_pub || callee.image->function_signatures[index] != image.call_signatures[target]) {
+						FAIL(vformat("%s() is not the method this script was compiled against. Build the project again.", image.method_names[target]));
+					}
+					const bytecode::Function &method = callee.image->module.functions[index];
+					const size_t required = method.params.size() - method.defaults.size();
+					bool ok;
+					{
+						Frame callee_frame(callee.image->frames[index]);
+						for (size_t i = 0; i < method.params.size(); i++) {
+							uint8_t *param = callee_frame.data + method.params[i].offset;
+							if (i < argc) {
+								copy_value(method.params[i].type, param, frame + code[pc + 6 + 2 * i]);
+							} else {
+								from_variant(method.params[i].type, callee.image->param_defaults[index][i - required], param, &callee.image->param_checks[index][i]);
+							}
+						}
+						ok = Execution(*callee.image, callee.context, debugging).run(uint32_t(index), callee_frame.data, dst == NO_SLOT ? nullptr : frame + dst);
+					}
+					if (!ok) {
+						return false;
+					}
+					pc += 5 + 2 * argc;
+					break;
+				}
 				case Op::CALL_UTILITY:
 				case Op::CALL_BUILTIN: {
 					const bool utility = Op(code[pc]) == Op::CALL_UTILITY;
@@ -662,7 +698,7 @@ public:
 				}
 				case Op::RETURN:
 					if (p_result) {
-						copy_value(fn.return_type, p_result, frame + code[pc + 1]);
+						copy_value(fn.result.type, p_result, frame + code[pc + 1]);
 					}
 					return true;
 				case Op::RETURN_VOID:
@@ -719,13 +755,13 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 	}
 
 	alignas(16) uint8_t result[64];
-	construct_value(fn.return_type, result);
+	construct_value(fn.result.type, result);
 	const bool ok = Execution(*image, p_context, debugger::is_active()).run(uint32_t(p_function), frame.data, result);
 	if (r_failed) {
 		*r_failed = !ok;
 	}
-	Variant value = ok ? to_variant(fn.return_type, result) : default_variant(fn.return_type);
-	destroy_value(fn.return_type, result);
+	Variant value = ok ? to_variant(fn.result.type, result) : default_variant(fn.result.type);
+	destroy_value(fn.result.type, result);
 	return value;
 }
 

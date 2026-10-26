@@ -50,8 +50,7 @@ struct Function {
 	std::string name;
 	std::vector<bytecode::Slot> regs; // Parameters, then locals, then temporaries.
 	uint32_t param_count = 0;
-	bytecode::ValueType return_type = bytecode::ValueType::Void;
-	std::string return_class;
+	bytecode::Slot result; // As bytecode::Function::result.
 	bool is_pub = false;
 	bool is_override = false;
 	bool is_exposed = false;

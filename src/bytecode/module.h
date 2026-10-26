@@ -124,8 +124,10 @@ struct Function {
 	// them out; this language's calls pass every argument.
 	std::vector<Constant> defaults;
 	bool is_static = false;
-	ValueType return_type = ValueType::Void;
-	std::string return_class;
+	// The return value, described as a parameter is: type (Void when there is
+	// none), class, script, nullable, option and element. Name and offset mean
+	// nothing.
+	Slot result;
 	bool is_pub = false;
 	bool is_override = false; // Overrides an engine virtual method.
 	// The engine must find it by name: a method connected in a scene (spec §10.5).
@@ -167,6 +169,23 @@ struct EngineCall {
 	std::string method;
 	ValueType return_type = ValueType::Void;
 };
+
+// A method of a class of this language, called on an object of that class or
+// of an interface the class implements (spec §3.9, §11.1), with the signature
+// the caller was compiled against. The runtime calls the method only while it
+// has exactly this signature, with arguments and result in their slots' own
+// layout (spec §8.1).
+struct MethodCall {
+	std::string method;
+	std::vector<Slot> params; // Names and offsets mean nothing.
+	uint32_t defaults = 0; // How many of the last parameters have default values, which a call may leave out.
+	Slot result; // As Function::result.
+};
+
+// A signature of a method as text that is equal exactly for equal signatures:
+// the parameters' and the result's types and their classes, scripts,
+// nullability, options and elements, and how many parameters have defaults.
+std::string signature_key(const std::vector<Slot> &p_params, size_t p_defaults, const Slot &p_result);
 
 // A property of an engine object, read and written by name.
 struct PropertyAccess {
@@ -231,6 +250,7 @@ struct TablePrefix {
 	uint32_t constructors = 0;
 	uint32_t builtin_methods = 0;
 	uint32_t classes = 0;
+	uint32_t method_calls = 0;
 };
 
 struct Module {
@@ -265,6 +285,7 @@ struct Module {
 	std::vector<ConstructorCall> constructors;
 	std::vector<BuiltinMethodCall> builtin_methods;
 	std::vector<ClassRef> classes;
+	std::vector<MethodCall> method_calls;
 	// The interfaces the class implements, as "script::Name" (spec §3.9).
 	std::vector<std::string> interfaces;
 

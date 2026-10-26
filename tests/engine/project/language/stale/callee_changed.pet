@@ -1,0 +1,5 @@
+# callee.pet with another signature for value().
+extends Node
+
+pub func value(x: float) -> float:
+	return x * 2.0

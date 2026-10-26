@@ -166,6 +166,16 @@ func _ready() -> void:
 	var refused_target = v.callv("taken_by", [plain_node])
 	Engine.print_error_messages = true
 	_check(refused_target == null, "a parameter of a class of this language refuses another object of its engine class")
+	var other_values := ValuesCheck.new()
+	Engine.print_error_messages = false
+	v.through_class(target)
+	v.through_interface(target)
+	v.through_instance(other_values)
+	Engine.print_error_messages = true
+	_check(v.after_failure == 0, "a program error in a method of another class, of an interface or of another instance ends the caller too")
+	plain_node.name = &"Plain"
+	_check(v.direct_results(target, plain_node) == "[2, 4] [3] 2 true Plain", "a direct call passes a default value and returns typed arrays, options and objects")
+	other_values.free()
 	target.free()
 	plain_node.free()
 	var timer: Timer = v.start_timer()

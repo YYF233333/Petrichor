@@ -16,6 +16,7 @@ struct ScriptedObject {
 // instances are stored; false when the object has none of this language.
 using InstanceResolver = bool (*)(godot::Object *p_object, ScriptedObject &r_instance);
 void set_instance_resolver(InstanceResolver p_resolver);
+bool scripted_object(godot::Object *p_object, ScriptedObject &r_instance);
 
 // Whether the object's script of this language implements the interface,
 // named "script::Name" (spec §3.9).

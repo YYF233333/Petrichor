@@ -59,6 +59,12 @@ public:
 	std::vector<godot::StringName> classes; // Engine classes, by class index.
 	std::vector<godot::String> class_scripts; // Classes of this language: their scripts.
 	std::vector<godot::String> class_interfaces; // Interfaces: "script::Name".
+	// By method call index: the method's name, and the signature the call was
+	// compiled against; by function index, each function's own. Equal numbers
+	// are equal signatures in every image.
+	std::vector<godot::StringName> method_names;
+	std::vector<uint32_t> call_signatures;
+	std::vector<uint32_t> function_signatures;
 
 	// Whether a live object is of the class at `p_index`: its engine class,
 	// and its script or the interface it implements.

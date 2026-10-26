@@ -14,7 +14,7 @@ InstanceResolver resolver = nullptr;
 // The object's script instance and the function's index in its image.
 bool resolve(ObjectID p_owner, const StringName &p_method, ScriptedObject &r_instance, int &r_function) {
 	Object *object = ObjectDB::get_instance(p_owner);
-	if (!object || !resolver || !resolver(object, r_instance)) {
+	if (!object || !scripted_object(object, r_instance)) {
 		return false;
 	}
 	r_function = r_instance.image->find_function(p_method);
@@ -27,9 +27,13 @@ void set_instance_resolver(InstanceResolver p_resolver) {
 	resolver = p_resolver;
 }
 
+bool scripted_object(Object *p_object, ScriptedObject &r_instance) {
+	return resolver && resolver(p_object, r_instance);
+}
+
 bool implements_interface(Object *p_object, const String &p_interface) {
 	ScriptedObject instance;
-	if (!resolver || !resolver(p_object, instance)) {
+	if (!scripted_object(p_object, instance)) {
 		return false;
 	}
 	const CharString id = p_interface.utf8();

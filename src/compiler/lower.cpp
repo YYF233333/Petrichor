@@ -332,6 +332,12 @@ class Lowerer {
 		});
 	}
 
+	uint32_t method_call(const bytecode::MethodCall &p_call) {
+		return intern(module.method_calls, p_call, [](const auto &a, const auto &b) {
+			return a.method == b.method && bytecode::signature_key(a.params, a.defaults, a.result) == bytecode::signature_key(b.params, b.defaults, b.result);
+		});
+	}
+
 	uint32_t property(const std::string &p_name, ValueType p_type) {
 		return intern(module.properties, bytecode::PropertyAccess{ p_name, p_type }, [](const auto &a, const auto &b) {
 			return a.name == b.name && a.type == b.type;
@@ -684,7 +690,7 @@ class Lowerer {
 		ir::Instr i;
 		std::unique_ptr<Place> written_back;
 		// The base before the arguments, as it reads in the source.
-		if ((p_call.target == Target::EngineMethod && p_call.base) || p_call.target == Target::BindArguments || p_call.target == Target::EmitSignal) {
+		if ((p_call.target == Target::EngineMethod && p_call.base) || p_call.target == Target::ScriptMethod || p_call.target == Target::BindArguments || p_call.target == Target::EmitSignal) {
 			i.base = lower_expr(*p_call.base);
 		} else if (p_call.target == Target::BuiltinMethod) {
 			const ValueType base_type = value_type(p_call.base->type);
@@ -713,6 +719,18 @@ class Lowerer {
 				i.op = Op::CALL;
 				i.imm = uint32_t(p_call.index);
 				break;
+			case Target::ScriptMethod: {
+				i.op = Op::CALL_METHOD;
+				bytecode::MethodCall method;
+				method.method = p_call.text;
+				for (const Type &param : p_call.engine_params) {
+					method.params.push_back(slot_of(std::string(), param));
+				}
+				method.defaults = uint32_t(p_call.index);
+				method.result = slot_of(std::string(), p_call.type);
+				i.imm = method_call(method);
+				break;
+			}
 			case Target::EngineMethod:
 				i.op = Op::CALL_ENGINE;
 				i.imm = engine_call(p_call.text, value_type(p_call.type));
@@ -1272,6 +1290,7 @@ class Lowerer {
 		prefix.constructors = uint32_t(module.constructors.size());
 		prefix.builtin_methods = uint32_t(module.builtin_methods.size());
 		prefix.classes = uint32_t(module.classes.size());
+		prefix.method_calls = uint32_t(module.method_calls.size());
 	}
 
 public:
@@ -1339,10 +1358,7 @@ public:
 			decl = &function;
 			line = function.line;
 			fn.param_count = uint32_t(function.params.size());
-			fn.return_type = value_type(function.return_type);
-			if (function.return_type.kind == TypeKind::Object) {
-				fn.return_class = function.return_type.engine_class();
-			}
+			fn.result = slot_of(std::string(), function.return_type);
 			fn.is_pub = function.is_pub;
 			fn.is_override = function.is_override;
 			fn.is_exposed = function.is_exposed;

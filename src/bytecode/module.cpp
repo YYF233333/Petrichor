@@ -120,6 +120,27 @@ int Module::find_member(const std::string &p_name) const {
 	return -1;
 }
 
+std::string signature_key(const std::vector<Slot> &p_params, size_t p_defaults, const Slot &p_result) {
+	std::string key = std::to_string(p_defaults);
+	const auto add = [&](const Slot &p_slot) {
+		key += '|';
+		key += char(p_slot.type);
+		key += char(p_slot.nullable ? 1 : 0);
+		key += char(p_slot.option);
+		key += char(p_slot.element);
+		key += p_slot.class_name;
+		key += '\0';
+		key += p_slot.script;
+		key += '\0';
+	};
+	for (const Slot &param : p_params) {
+		add(param);
+	}
+	key += "->";
+	add(p_result);
+	return key;
+}
+
 uint64_t hash_source(const std::string &p_utf8) {
 	// FNV-1a.
 	uint64_t hash = 14695981039346656037ull;
@@ -353,8 +374,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 			w.constant(value);
 		}
 		w.u8(function.is_static ? 1 : 0);
-		w.type(function.return_type);
-		w.str(function.return_class);
+		w.slot(function.result);
 		w.u8(function.is_pub ? 1 : 0);
 		w.u8(function.is_override ? 1 : 0);
 		w.u8(function.is_exposed ? 1 : 0);
@@ -373,7 +393,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 	w.u32(uint32_t(int32_t(p_module.init_function)));
 	w.u32(uint32_t(int32_t(p_module.ready_function)));
 	const TablePrefix &prefix = p_module.init_tables;
-	for (uint32_t count : { prefix.constants, prefix.engine_calls, prefix.properties, prefix.utility_calls, prefix.operators, prefix.fields, prefix.constructors, prefix.builtin_methods, prefix.classes }) {
+	for (uint32_t count : { prefix.constants, prefix.engine_calls, prefix.properties, prefix.utility_calls, prefix.operators, prefix.fields, prefix.constructors, prefix.builtin_methods, prefix.classes, prefix.method_calls }) {
 		w.u32(count);
 	}
 
@@ -434,6 +454,16 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.str(ref.name);
 		w.str(ref.script);
 		w.str(ref.interface_name);
+	}
+	w.u32(uint32_t(p_module.method_calls.size()));
+	for (const MethodCall &call : p_module.method_calls) {
+		w.str(call.method);
+		w.u32(uint32_t(call.params.size()));
+		for (const Slot &param : call.params) {
+			w.slot(param);
+		}
+		w.u32(call.defaults);
+		w.slot(call.result);
 	}
 	w.u32(uint32_t(p_module.interfaces.size()));
 	for (const std::string &id : p_module.interfaces) {
@@ -509,8 +539,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 			value = r.constant();
 		}
 		function.is_static = r.u8() != 0;
-		function.return_type = r.type();
-		function.return_class = r.str();
+		function.result = r.slot();
 		function.is_pub = r.u8() != 0;
 		function.is_override = r.u8() != 0;
 		function.is_exposed = r.u8() != 0;
@@ -532,7 +561,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		r.failed = true;
 	}
 	TablePrefix &prefix = module.init_tables;
-	for (uint32_t *count : { &prefix.constants, &prefix.engine_calls, &prefix.properties, &prefix.utility_calls, &prefix.operators, &prefix.fields, &prefix.constructors, &prefix.builtin_methods, &prefix.classes }) {
+	for (uint32_t *count : { &prefix.constants, &prefix.engine_calls, &prefix.properties, &prefix.utility_calls, &prefix.operators, &prefix.fields, &prefix.constructors, &prefix.builtin_methods, &prefix.classes, &prefix.method_calls }) {
 		*count = r.u32();
 	}
 
@@ -593,6 +622,16 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		ref.name = r.str();
 		ref.script = r.str();
 		ref.interface_name = r.str();
+	}
+	module.method_calls.resize(r.count());
+	for (MethodCall &call : module.method_calls) {
+		call.method = r.str();
+		call.params.resize(r.count());
+		for (Slot &param : call.params) {
+			param = r.slot();
+		}
+		call.defaults = r.u32();
+		call.result = r.slot();
 	}
 	module.interfaces.resize(r.count());
 	for (std::string &id : module.interfaces) {

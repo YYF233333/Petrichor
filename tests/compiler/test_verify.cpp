@@ -175,6 +175,38 @@ TEST_CASE("a constructor does not write over its arguments") {
 	CHECK(rejected(result.module, "a constructor writes over one of its arguments"));
 }
 
+TEST_CASE("a call to a method of this language passes what the call table says") {
+	FakeProject project;
+	project.global_classes["Probe"] = "res://test.pet";
+	compiler::CompileResult result = compile_in("class_name Probe\nextends Node\n\npub func id(a: int, b: String = \"x\") -> int:\n\treturn a\n\nfunc poke(p: Probe, s: String) -> int:\n\treturn p.id(1, s)\n", project);
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	bytecode::Module &module = result.module;
+	bytecode::Function &poke = function(module, "poke");
+	const size_t call = find(poke, Op::CALL_METHOD);
+	CHECK(problem(module).empty());
+	SUBCASE("an argument of another type") {
+		poke.code[call + 7] = uint32_t(bytecode::ValueType::Int); // The String argument.
+		CHECK(rejected(module, "parameter's type"));
+	}
+	SUBCASE("fewer arguments than the parameters without defaults") {
+		poke.code[call + 4] = 0;
+		poke.code.erase(poke.code.begin() + call + 5, poke.code.begin() + call + 9);
+		CHECK(rejected(module, "wrong number of arguments"));
+	}
+	SUBCASE("a result slot of another type") {
+		poke.code[call + 2] = poke.code[call + 8]; // The String argument's slot.
+		CHECK(rejected(module, "is not a slot of type int"));
+	}
+	SUBCASE("no receiver") {
+		poke.code[call + 3] = bytecode::NO_SLOT;
+		CHECK(rejected(module, "is not a slot of type Object"));
+	}
+	SUBCASE("a call table entry with more defaults than parameters") {
+		module.method_calls[poke.code[call + 1]].defaults = 3;
+		CHECK(rejected(module, "more default values than parameters"));
+	}
+}
+
 TEST_CASE("tables and layouts must be consistent") {
 	bytecode::Module module = compiled();
 	bytecode::Function &pick = function(module, "pick");

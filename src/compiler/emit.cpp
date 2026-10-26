@@ -7,8 +7,7 @@ using bytecode::Op;
 bytecode::Function emit(const Function &p_function, const bytecode::Module &p_module) {
 	bytecode::Function out;
 	out.name = p_function.name;
-	out.return_type = p_function.return_type;
-	out.return_class = p_function.return_class;
+	out.result = p_function.result;
 	out.is_pub = p_function.is_pub;
 	out.is_override = p_function.is_override;
 	out.is_exposed = p_function.is_exposed;

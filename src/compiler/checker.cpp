@@ -665,7 +665,8 @@ class Checker : public ClassRelation {
 	}
 
 	// A pub method of an object of a class of this language, or a method of an
-	// interface: called by name, as the engine calls it (spec §10.5).
+	// interface, which this language calls directly (spec §8.1); an override
+	// of an engine virtual method is called through the engine, which runs it.
 	std::optional<Type> script_method(Expr &r_expr, const Type &p_class) {
 		const FuncDecl *callee = nullptr;
 		if (p_class.is_interface) {
@@ -695,7 +696,13 @@ class Checker : public ClassRelation {
 			return fail(r_expr, not_pub(p_class, "\"" + callee->name + "()\""));
 		}
 		check_arguments(r_expr, param_types(callee->params), required_params(*callee), false);
-		r_expr.target = Target::EngineMethod;
+		if (callee->is_override) {
+			r_expr.target = Target::EngineMethod;
+		} else {
+			r_expr.target = Target::ScriptMethod;
+			r_expr.engine_params = param_types(callee->params);
+			r_expr.index = int(callee->params.size()) - required_params(*callee);
+		}
 		return set(r_expr, callee->return_type);
 	}
 

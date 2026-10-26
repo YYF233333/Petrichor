@@ -29,6 +29,8 @@ FPS_UPSTREAM = HERE.parent.parent / "thirdparty" / "starter-kit-fps"
 FPS_MIGRATED = HERE / "fps"
 HOT_RELOAD = PROJECT / "language" / "hot_reload"
 HOT_RELOAD_BYTECODE = PROJECT / ".godot" / "petrichor" / "language" / "hot_reload"
+STALE = PROJECT / "language" / "stale"
+STALE_BYTECODE = PROJECT / ".godot" / "petrichor" / "language" / "stale"
 LIVE_SCRIPT = "res://language/hot_reload/live.pet"
 
 GAME_OUTPUT = [
@@ -210,6 +212,26 @@ def run_hot_reload(godot):
             (HOT_RELOAD_BYTECODE / "live.petc").unlink(missing_ok=True)
 
 
+def run_stale_bytecode(godot):
+    """Spec §8.1: a call to a method of this language checks that the callee
+    still has the signature the caller was compiled against. Within a run that
+    always holds (§12.4); a run from bytecode that was not built together, here
+    callee.pet replaced by another version while caller.pet is not built again,
+    is the way to break it."""
+    code, output = run(godot, "--path", str(PROJECT), "res://language/stale/stale_test.tscn")
+    expect_run("stale bytecode: as built", code, output, ["stale: 2"])
+    originals = {path: path.read_bytes() for path in (STALE / "callee.pet", STALE_BYTECODE / "callee.petc")}
+    try:
+        shutil.copy(STALE / "callee_changed.pet", STALE / "callee.pet")
+        shutil.copy(STALE_BYTECODE / "callee_changed.petc", STALE_BYTECODE / "callee.petc")
+        code, output = run(godot, "--path", str(PROJECT), "res://language/stale/stale_test.tscn")
+    finally:
+        for path, data in originals.items():
+            path.write_bytes(data)
+    changed = "value() is not the method this script was compiled against. Build the project again."
+    expect("stale bytecode: a call to a changed signature is a program error", code == 0 and changed in output and "stale: 0" in output, output)
+
+
 def drain(connection):
     # The game's messages to the editor are not checked here.
     try:
@@ -318,6 +340,7 @@ def main():
         code, output = run(godot, "--verbose", "--path", str(PROJECT), "res://language/language.tscn")
         expect_run("language", code, output, ["language: 0 failure(s)"])
         expect("language: no value leaks", "Orphan StringName: petrichor_leak_probe" not in output, output)
+        run_stale_bytecode(godot)
 
     if wanted("debugger"):
         run_debugger_groups(godot)

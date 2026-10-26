@@ -6,3 +6,24 @@ pub var taken := 0.0
 
 pub func damage(amount: float):
 	taken += amount
+
+# A program error (spec §8.1).
+pub func explode():
+	var zero := 0
+	taken = 1 / zero
+
+# Called directly by ValuesCheck (spec §8.1): a default value, and results
+# that are typed arrays, options and objects.
+pub func scaled(values: Array[int], factor: int = 2) -> Array[int]:
+	var result: Array[int] = []
+	for value in values:
+		result.append(value * factor)
+	return result
+
+pub func half(x: int) -> int?:
+	if x % 2 == 0:
+		return x / 2
+	return None
+
+pub func same_node(n: Node?) -> Node?:
+	return n

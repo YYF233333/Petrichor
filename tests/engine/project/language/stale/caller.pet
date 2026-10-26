@@ -1,0 +1,6 @@
+# Calls the method of the script on $X directly (spec §8.1), with the signature
+# it was compiled against.
+extends Node
+
+pub func run() -> int:
+	return $X.value(1)

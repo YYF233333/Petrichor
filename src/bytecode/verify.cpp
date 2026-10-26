@@ -57,6 +57,21 @@ class Verifier {
 		return false;
 	}
 
+	// The type of a slot, a member or a result, and what it says beyond it.
+	template <typename T>
+	bool description(const T &p_slot, bool p_void) {
+		if (!is_type(uint32_t(p_slot.type)) && !(p_void && p_slot.type == ValueType::Void)) {
+			return fail("slot " + p_slot.name + " has no type");
+		}
+		if (p_slot.option != ValueType::Void && (p_slot.type != ValueType::Variant || !is_native(p_slot.option))) {
+			return fail("slot " + p_slot.name + " holds an option of no value type");
+		}
+		if (p_slot.element != ValueType::Void && (p_slot.type != ValueType::Array || !is_element(p_slot.element))) {
+			return fail("slot " + p_slot.name + " holds an array of no element type");
+		}
+		return true;
+	}
+
 	template <typename T>
 	bool layout(const std::vector<T> &p_slots, uint32_t p_size, std::unordered_map<uint32_t, ValueType> &r_types) {
 		if (p_size > MAX_STORAGE) {
@@ -64,14 +79,8 @@ class Verifier {
 		}
 		std::vector<std::pair<uint32_t, uint32_t>> ranges;
 		for (const T &slot : p_slots) {
-			if (!is_type(uint32_t(slot.type))) {
-				return fail("slot " + slot.name + " has no type");
-			}
-			if (slot.option != ValueType::Void && (slot.type != ValueType::Variant || !is_native(slot.option))) {
-				return fail("slot " + slot.name + " holds an option of no value type");
-			}
-			if (slot.element != ValueType::Void && (slot.type != ValueType::Array || !is_element(slot.element))) {
-				return fail("slot " + slot.name + " holds an array of no element type");
+			if (!description(slot, false)) {
+				return false;
 			}
 			const uint64_t end = uint64_t(slot.offset) + slot_size(slot.type);
 			if (slot.offset % 8 != 0 || end > p_size) {
@@ -220,13 +229,30 @@ class Verifier {
 						return fail("argument " + std::to_string(i) + " does not have the parameter's type");
 					}
 				}
-				return arguments(p_call) && result(dst, target_function.return_type);
+				return arguments(p_call) && result(dst, target_function.result.type);
 			}
 			case Op::CALL_ENGINE: {
 				if (!index(callee, module.engine_calls.size(), "engine call") || !slot_or_none(base, ValueType::Object)) {
 					return false;
 				}
 				return arguments(p_call) && result(dst, module.engine_calls[callee].return_type);
+			}
+			case Op::CALL_METHOD: {
+				if (!index(callee, module.method_calls.size(), "method call") || !slot(base, ValueType::Object)) {
+					return false;
+				}
+				// The arguments a call may leave out have default values.
+				const MethodCall &method = module.method_calls[callee];
+				const uint32_t argc = p_call[3];
+				if (argc > method.params.size() || argc < method.params.size() - method.defaults) {
+					return fail("wrong number of arguments");
+				}
+				for (uint32_t i = 0; i < argc; i++) {
+					if (ValueType(p_call[4 + 2 * i]) != method.params[i].type) {
+						return fail("argument " + std::to_string(i) + " does not have the parameter's type");
+					}
+				}
+				return arguments(p_call) && result(dst, method.result.type);
 			}
 			case Op::CALL_UTILITY: {
 				if (!index(callee, module.utility_calls.size(), "utility") || (base != NO_SLOT && !fail("a utility call has a base"))) {
@@ -475,7 +501,7 @@ class Verifier {
 			case Op::JUMP_IF_TRUE:
 				return slot(o[0], ValueType::Bool) && target(o[1]);
 			case Op::RETURN:
-				return (function->return_type != ValueType::Void || fail("a void function returns a value")) && slot(o[0], function->return_type);
+				return (function->result.type != ValueType::Void || fail("a void function returns a value")) && slot(o[0], function->result.type);
 			case Op::RETURN_VOID:
 				// Also at the unreachable end of a function with a return type;
 				// the caller's slot then keeps its default value.
@@ -536,7 +562,7 @@ public:
 			if (index < -1 || index >= int32_t(module.functions.size())) {
 				return fail("an initializer function is not a function of the module");
 			}
-			if (index >= 0 && (module.functions[index].return_type != ValueType::Void || !module.functions[index].params.empty())) {
+			if (index >= 0 && (module.functions[index].result.type != ValueType::Void || !module.functions[index].params.empty())) {
 				return fail("an initializer function takes or returns a value");
 			}
 		}
@@ -555,11 +581,24 @@ public:
 				return fail("an export group outside the members");
 			}
 		}
+		for (const MethodCall &call : module.method_calls) {
+			for (const Slot &param : call.params) {
+				if (!description(param, false)) {
+					return false;
+				}
+			}
+			if (call.defaults > call.params.size()) {
+				return fail("more default values than parameters in a method call");
+			}
+			if (!description(call.result, true)) {
+				return false;
+			}
+		}
 		for (const Function &each : module.functions) {
 			function = &each;
 			frame.clear();
 			at = 0;
-			if (each.return_type == ValueType::Count || !layout(each.slots, each.frame_size, frame)) {
+			if (!description(each.result, true) || !layout(each.slots, each.frame_size, frame)) {
 				return false;
 			}
 			if (each.params.size() > each.slots.size()) {
@@ -581,7 +620,8 @@ public:
 		const TablePrefix &prefix = module.init_tables;
 		if (prefix.constants > module.constants.size() || prefix.engine_calls > module.engine_calls.size() || prefix.properties > module.properties.size() ||
 				prefix.utility_calls > module.utility_calls.size() || prefix.operators > module.operators.size() || prefix.fields > module.fields.size() ||
-				prefix.constructors > module.constructors.size() || prefix.builtin_methods > module.builtin_methods.size() || prefix.classes > module.classes.size()) {
+				prefix.constructors > module.constructors.size() || prefix.builtin_methods > module.builtin_methods.size() || prefix.classes > module.classes.size() ||
+				prefix.method_calls > module.method_calls.size()) {
 			return fail("the initializer functions' tables are larger than the module's");
 		}
 		return true;

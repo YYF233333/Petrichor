@@ -240,7 +240,7 @@ TEST_CASE("while loading, only declarations are compiled") {
 	CHECK(result.module.declarations_only);
 	const bytecode::Function &f = function(result, "f");
 	CHECK(f.params.size() == 1);
-	CHECK(f.return_type == bytecode::ValueType::String);
+	CHECK(f.result.type == bytecode::ValueType::String);
 	CHECK(result.module.members[0].initial.f == 2.0);
 	CHECK(!compile_in(source, timer_scene("_on_missing")).ok());
 	// Nor are node paths, which need the scenes; a member typed by one is a

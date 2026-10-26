@@ -143,7 +143,7 @@ TEST_CASE("signatures") {
 	CHECK(process.params[0].type == ValueType::Float);
 	const bytecode::Function &add = module.functions[module.find_function("add")];
 	CHECK(add.is_pub);
-	CHECK(add.return_type == ValueType::Int);
+	CHECK(add.result.type == ValueType::Int);
 	CHECK(contains(listing(module, "add"), "ADD_INT 16 0 8"));
 }
 

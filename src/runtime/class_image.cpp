@@ -6,6 +6,8 @@
 #include <godot_cpp/classes/script.hpp>
 
 #include <algorithm>
+#include <mutex>
+#include <unordered_map>
 
 using namespace godot;
 
@@ -19,6 +21,16 @@ static String from_utf8(const std::string &p_text) {
 
 static GDExtensionVariantType engine_type(ValueType p_type) {
 	return GDExtensionVariantType(variant_type(p_type));
+}
+
+// A signature as a number that is the same for the same signature in every
+// image, so that a call compares the one it was compiled against with the
+// callee's by comparing two numbers.
+static uint32_t signature_id(const std::vector<bytecode::Slot> &p_params, size_t p_defaults, const bytecode::Slot &p_result) {
+	static std::mutex mutex;
+	static std::unordered_map<std::string, uint32_t> ids;
+	std::lock_guard<std::mutex> lock(mutex);
+	return ids.emplace(bytecode::signature_key(p_params, p_defaults, p_result), uint32_t(ids.size())).first->second;
 }
 
 std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, const String &p_path, String &r_error) {
@@ -44,9 +56,10 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		if (function.name == "_notification" && function.params.size() == 1 && function.params[0].type == ValueType::Int) {
 			image->notification_function = int(i);
 		}
-		if (function.name == "_to_string" && function.params.empty() && function.return_type == ValueType::String) {
+		if (function.name == "_to_string" && function.params.empty() && function.result.type == ValueType::String) {
 			image->to_string_function = int(i);
 		}
+		image->function_signatures.push_back(signature_id(function.params, function.defaults.size(), function.result));
 		image->frames.push_back(SlotLayout::of(function.frame_size, function.slots));
 		std::vector<ValueCheck> checks;
 		for (const bytecode::Slot &param : function.params) {
@@ -151,6 +164,10 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		image->class_scripts.push_back(from_utf8(ref.script));
 		image->class_interfaces.push_back(ref.interface_name.empty() ? String() : from_utf8(ref.script + "::" + ref.interface_name));
 	}
+	for (const bytecode::MethodCall &call : module.method_calls) {
+		image->method_names.push_back(from_utf8(call.method));
+		image->call_signatures.push_back(signature_id(call.params, call.defaults, call.result));
+	}
 	return image;
 }
 
@@ -253,7 +270,7 @@ bool same_initializers(const bytecode::Module &p_a, const bytecode::Module &p_b)
 	const bytecode::TablePrefix &x = p_a.init_tables;
 	const bytecode::TablePrefix &y = p_b.init_tables;
 	if (x.constants != y.constants || x.engine_calls != y.engine_calls || x.properties != y.properties || x.utility_calls != y.utility_calls || x.operators != y.operators ||
-			x.fields != y.fields || x.constructors != y.constructors || x.builtin_methods != y.builtin_methods || x.classes != y.classes) {
+			x.fields != y.fields || x.constructors != y.constructors || x.builtin_methods != y.builtin_methods || x.classes != y.classes || x.method_calls != y.method_calls) {
 		return false;
 	}
 	return same_prefix(p_a.constants, p_b.constants, x.constants, same_constant) &&
@@ -268,7 +285,10 @@ bool same_initializers(const bytecode::Module &p_a, const bytecode::Module &p_b)
 			same_prefix(p_a.builtin_methods, p_b.builtin_methods, x.builtin_methods, [](const auto &a, const auto &b) {
 				return a.base == b.base && a.method == b.method && a.hash == b.hash && a.is_vararg == b.is_vararg && a.params == b.params && a.return_type == b.return_type && a.result_type == b.result_type;
 			}) &&
-			same_prefix(p_a.classes, p_b.classes, x.classes, [](const auto &a, const auto &b) { return a == b; });
+			same_prefix(p_a.classes, p_b.classes, x.classes, [](const auto &a, const auto &b) { return a == b; }) &&
+			same_prefix(p_a.method_calls, p_b.method_calls, x.method_calls, [](const auto &a, const auto &b) {
+				return a.method == b.method && bytecode::signature_key(a.params, a.defaults, a.result) == bytecode::signature_key(b.params, b.defaults, b.result);
+			});
 }
 
 } // namespace
@@ -326,7 +346,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 		}
 		const bytecode::Function &x = a.functions[i];
 		const bytecode::Function &y = b.functions[i];
-		if (x.name != y.name || x.return_type != y.return_type || x.return_class != y.return_class || x.is_pub != y.is_pub || x.is_override != y.is_override || x.is_exposed != y.is_exposed ||
+		if (x.name != y.name || !same_slot(x.result, y.result) || x.is_pub != y.is_pub || x.is_override != y.is_override || x.is_exposed != y.is_exposed ||
 				x.is_static != y.is_static || x.params.size() != y.params.size() || x.defaults.size() != y.defaults.size()) {
 			return false;
 		}

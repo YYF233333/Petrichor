@@ -49,6 +49,9 @@ enum class Target {
 	BuiltinConstant, // Such as Vector3.UP.
 	TypeName, // A type used as the base of a member access or a call.
 	ScriptFunction,
+	// A method of a class of this language on `base`, of another class or
+	// another instance, or of an interface (spec §3.9, §8.1).
+	ScriptMethod,
 	EngineMethod, // On self, or on `base` when there is one.
 	BuiltinMethod,
 	BuiltinConstructor,
@@ -89,7 +92,9 @@ struct Expr {
 	// Filled by the checker.
 	Type type;
 	Target target = Target::None;
-	int index = -1;                    // Local, member, script function or constructor.
+	// Local, member, script function or constructor; for a script method, how
+	// many of its last parameters have default values.
+	int index = -1;
 	std::vector<Type> param_types;     // For calls: the type each argument converts to.
 	// Built-in methods and utility functions: the engine's signature, which
 	// the runtime needs to pass arguments in the right layout.
@@ -97,7 +102,9 @@ struct Expr {
 	bool is_vararg = false;
 	bool is_const = true;              // Built-in methods that do not change their base.
 	Type engine_return;                // Variant where the engine returns a Variant.
-	std::vector<Type> engine_params;   // Built-in methods: the engine's parameter types.
+	// Built-in methods: the engine's parameter types; script methods: all the
+	// method's parameters, also those a call leaves out.
+	std::vector<Type> engine_params;
 	std::string owner;                 // The type a field, constant, method or constructor belongs to.
 	Type tested;                       // TypeTest and Cast: the class after is or as.
 };

@@ -1,0 +1,7 @@
+# The method that caller.pet is compiled against. run.py puts
+# callee_changed.pet and its bytecode in its place without building caller.pet
+# again, as a run from stale bytecode would.
+extends Node
+
+pub func value(x: int) -> int:
+	return x + 1

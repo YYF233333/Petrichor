@@ -3,3 +3,4 @@ class_name CombatCheck
 
 pub interface Damageable:
 	func damage(amount: float)
+	func explode()
