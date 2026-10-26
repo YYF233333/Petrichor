@@ -7,7 +7,8 @@ Usage:
 Checks the game run, the editor side (placeholders, saving, the undo probe), the
 other step-2 probes of the architecture, the language, the debugger, hot reload,
 an exported pack run in a directory without sources, and the FPS starter kit
-with its migrated scripts. Naming groups runs only those, after the build.
+with its migrated scripts. Naming groups runs only those, after the build; the
+groups are those of GROUPS, hot reload being part of debugger.
 """
 
 import os
@@ -38,6 +39,8 @@ GAME_OUTPUT = [
     "greeter: _ready, message = set from GDScript",
 ]
 
+GROUPS = ["game", "editor", "probes", "language", "debugger", "export", "fps"]
+
 failures = []
 
 
@@ -57,10 +60,12 @@ def run(godot, *args):
             timeout=TIMEOUT,
         )
     except subprocess.TimeoutExpired as timeout:
-        output = (timeout.stdout or "") + (timeout.stderr or "")
-        if isinstance(output, bytes):
-            output = output.decode("utf-8", "replace")
-        return -1, output + "\n(timed out)"
+        # Captured output is bytes here despite text=True, and a stream with
+        # nothing captured is None.
+        def text(stream):
+            return stream.decode("utf-8", "replace") if isinstance(stream, bytes) else stream or ""
+
+        return -1, text(timeout.stdout) + text(timeout.stderr) + "\n(timed out)"
     return result.returncode, result.stdout + result.stderr
 
 
@@ -280,6 +285,8 @@ def main():
     if not godot:
         sys.exit(__doc__)
     only = set(sys.argv[2:])
+    if only - set(GROUPS):
+        sys.exit(f"unknown group(s): {' '.join(sorted(only - set(GROUPS)))}; the groups are {' '.join(GROUPS)}")
 
     def wanted(group):
         return not only or group in only

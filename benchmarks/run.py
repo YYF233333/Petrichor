@@ -51,9 +51,17 @@ def main():
         speedup = int(gdscript) / max(int(petrichor), 1)
         note = "" if same == "true" else "  results differ"
         print(f"{case:<12}{int(gdscript) / 1000:>10.1f}ms{int(petrichor) / 1000:>10.1f}ms{speedup:>9.2f}x{note}")
-    errors = [line for line in output.splitlines() if re.search(r"\bERROR\b", line)]
-    if errors:
-        print("\n".join(errors))
+
+    # Times are evidence only when every case ran once, both versions computed
+    # the same result, and nothing reported an error.
+    problems = [line for line in output.splitlines() if re.search(r"\bERROR\b", line)]
+    expected = sorted(path.stem for path in (HERE / "project" / "cases").glob("*.pet"))
+    measured = sorted(row[0] for row in rows)
+    if measured != expected:
+        problems.append(f"cases measured: {measured}; expected each of {expected} once")
+    problems += [f"{row[0]}: results differ" for row in rows if row[3] != "true"]
+    if problems:
+        sys.exit("\n".join(problems))
 
 
 if __name__ == "__main__":
