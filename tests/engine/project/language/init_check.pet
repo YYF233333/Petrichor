@@ -1,0 +1,11 @@
+# A program error in a member initializer ends the construction before _init()
+# runs (spec §8.1), driven by language_test.gd.
+class_name InitCheck
+extends RefCounted
+
+var divisor := 0
+var broken: int = 1 / divisor
+pub var init_ran := false
+
+func _init():
+	init_ran = true

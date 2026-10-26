@@ -29,6 +29,8 @@ func _run() -> void:
 
 	_check_scene()
 	_check_new_script()
+	_check_placeholder_fallback()
+	await _check_instanced_scene_change()
 	await _check_undo_merge()
 
 	print("editor check: %d failure(s)" % failures)
@@ -87,8 +89,75 @@ func _check_new_script() -> void:
 	DirAccess.remove_absolute(bytecode)
 	ResourceSaver.save(script, saved)
 	_check(FileAccess.get_file_as_bytes(bytecode).slice(0, 4).get_string_from_ascii() == "PETC", "saving under res:// writes the bytecode")
+	script.source_code += "@export var count: int = 3\n"
+	ResourceSaver.save(script, saved)
+	_check(script.get_script_property_list().any(func(p): return p.name == "count"), "a saved script takes the class compiled from what was saved")
 	for file in [saved, saved + ".uid", bytecode]:
 		DirAccess.remove_absolute(file)
+
+
+# While a script has errors, a scene that uses it keeps its exported values,
+# whether the script broke after the scene was opened or before; saving the
+# scene then loses none (as for GDScript).
+func _check_placeholder_fallback() -> void:
+	var script_path := "res://editor_check_fallback.pet"
+	var scene_path := "res://editor_check_fallback.tscn"
+	var valid := "extends Node\n@export var speed: int = 1\n"
+	var broken := valid + "\nfunc f() -> int:\n\treturn missing\n"
+	_write(script_path, valid)
+	_write(scene_path, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Root" type="Node"]\nscript = ExtResource("1")\nspeed = 7\n' % script_path)
+
+	var root := (ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
+	var script: Script = root.get_script()
+	script.source_code = broken
+	Engine.print_error_messages = false
+	script.reload()
+	Engine.print_error_messages = true
+	_check(root.get("speed") == 7 and _pack_to_text(root).contains("speed = 7"), "a placeholder keeps its values once its script has errors")
+	root.free()
+
+	_write(script_path, "extends Node\n@export var speed: int = \n")
+	Engine.print_error_messages = false
+	root = (ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
+	Engine.print_error_messages = true
+	_check(root.get("speed") == 7 and _pack_to_text(root).contains("speed = 7"), "a scene whose script has errors keeps its values")
+	root.free()
+	for file in [script_path, script_path + ".uid", scene_path]:
+		DirAccess.remove_absolute(file)
+
+
+# Spec §7.1: $X of an instanced scene has the class of that scene's root. When
+# only the instanced scene changes, the next analysis in the same editor sees
+# the change, though the scene that instances it did not change.
+func _check_instanced_scene_change() -> void:
+	var inner := "res://editor_check_inner.tscn"
+	var outer := "res://editor_check_outer.tscn"
+	var script_path := "res://editor_check_outer.pet"
+	var bytecode := "res://.godot/petrichor/editor_check_outer.petc"
+	_write(inner, '[gd_scene format=3]\n\n[node name="Inner" type="Node3D"]\n')
+	_write(script_path, "extends Node\n\nfunc f() -> Vector3:\n\treturn $X.position\n")
+	_write(outer, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n[ext_resource type="PackedScene" path="%s" id="2"]\n\n[node name="Outer" type="Node"]\nscript = ExtResource("1")\n\n[node name="X" parent="." instance=ExtResource("2")]\n' % [script_path, inner])
+	var script: Script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_IGNORE)
+	DirAccess.remove_absolute(bytecode)
+	ResourceSaver.save(script, script_path)
+	_check(FileAccess.file_exists(bytecode), "$X of an instanced scene has the class of its root")
+
+	# Modification times count whole seconds.
+	var written := FileAccess.get_modified_time(inner)
+	while int(Time.get_unix_time_from_system()) <= written:
+		await get_tree().process_frame
+	_write(inner, '[gd_scene format=3]\n\n[node name="Inner" type="Node2D"]\n')
+	DirAccess.remove_absolute(bytecode)
+	ResourceSaver.save(script, script_path)
+	_check(not FileAccess.file_exists(bytecode), "a change to the instanced scene alone reaches the next analysis ($X.position is now a Vector2)")
+	for file in [inner, outer, script_path, script_path + ".uid", bytecode]:
+		DirAccess.remove_absolute(file)
+
+
+func _write(path: String, text: String) -> void:
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	file.store_string(text)
+	file.close()
 
 
 # Spec §13.3: after the editor commits a rename or a move, an action with the

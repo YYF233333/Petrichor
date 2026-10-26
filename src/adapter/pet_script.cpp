@@ -270,7 +270,9 @@ void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image) {
 	if (kept_old_code) {
 		WARN_PRINT(get_script_path() + ": more than function bodies changed since some instances were created. They keep their old code; run the scene again to apply the change.");
 	}
-	_update_exports();
+	if (p_image) {
+		_update_exports();
+	}
 }
 
 void PetScript::instance_freed(PetInstance *p_instance) {
@@ -518,6 +520,9 @@ Variant PetScript::_get_property_default_value(const StringName &p_property) con
 }
 
 void PetScript::_update_exports() {
+	if (!get_image()) {
+		return; // The placeholders keep what they have (_is_placeholder_fallback_enabled()).
+	}
 	Vector<void *> targets;
 	{
 		std::lock_guard<std::mutex> lock(mutex);
@@ -566,8 +571,12 @@ TypedArray<StringName> PetScript::_get_members() const {
 	return members;
 }
 
+// While the script has errors, placeholders keep the properties and values they
+// had, and take any value a scene sets, so that saving the scene loses none, as
+// for GDScript (modules/gdscript/gdscript.cpp:575-581,
+// core/object/script_language.cpp:854-884).
 bool PetScript::_is_placeholder_fallback_enabled() const {
-	return false;
+	return !get_image();
 }
 
 Variant PetScript::_get_rpc_config() const {

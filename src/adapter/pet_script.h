@@ -37,7 +37,6 @@ class PetScript : public godot::ScriptExtension {
 	mutable godot::HashSet<void *> placeholders;
 
 	void update_placeholder(void *p_placeholder) const;
-	void set_image(const std::shared_ptr<const ClassImage> &p_image);
 
 protected:
 	static void _bind_methods();
@@ -48,6 +47,8 @@ public:
 
 	// The source as loaded, with its compiled class.
 	void set_loaded(const godot::String &p_source, const std::shared_ptr<const ClassImage> &p_image);
+	// The class compiled from the current source; null while it has errors.
+	void set_image(const std::shared_ptr<const ClassImage> &p_image);
 	void instance_freed(PetInstance *p_instance);
 	// The instance of this script on the object; null for a placeholder.
 	PetInstance *find_instance(godot::Object *p_object) const;

@@ -18,7 +18,7 @@ tests/engine/project/bin/*.ilk
 
 # Engine tests
 tests/engine/project/language/hot_reload/live.pet
-tests/engine/project/editor_check_saved.pet*
+tests/engine/project/editor_check_*
 __pycache__/
 
 # Compiler tests

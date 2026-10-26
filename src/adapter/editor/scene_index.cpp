@@ -10,6 +10,9 @@
 #include <godot_cpp/classes/scene_state.hpp>
 #include <godot_cpp/classes/script.hpp>
 
+#include <algorithm>
+#include <set>
+
 using namespace godot;
 
 namespace petrichor {
@@ -59,6 +62,16 @@ String instanced_script(const Ref<SceneState> &p_state, int32_t p_index) {
 	return script.is_empty() ? instanced_script(instance->get_state(), 0) : script;
 }
 
+// The paths of the scenes a scene instances, through instances of instances.
+void instanced_scenes(const Ref<SceneState> &p_state, std::set<std::string> &r_paths) {
+	for (int32_t i = 0; i < p_state->get_node_count(); i++) {
+		const Ref<PackedScene> instance = p_state->get_node_instance(i);
+		if (instance.is_valid() && r_paths.insert(to_utf8(instance->get_path())).second && instance->get_state().is_valid()) {
+			instanced_scenes(instance->get_state(), r_paths);
+		}
+	}
+}
+
 compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state) {
 	compiler::Scene scene;
 	scene.path = to_utf8(p_path);
@@ -93,31 +106,48 @@ const SceneIndex &SceneIndex::get() {
 	return index;
 }
 
-const compiler::Scene &SceneIndex::read(const std::string &p_path) const {
+std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_path) const {
 	const String path = String::utf8(p_path.c_str());
+	// Before loading, so that a change during the load is seen next time.
 	const uint64_t modified = FileAccess::get_modified_time(path);
-	auto found = scenes.find(p_path);
-	if (found == scenes.end() || found->second.modified != modified) {
-		Entry entry;
-		entry.modified = modified;
-		const Ref<PackedScene> packed = ResourceLoader::get_singleton()->load(path, "PackedScene");
-		if (packed.is_valid() && packed->get_state().is_valid()) {
-			entry.scene = read_scene(path, packed->get_state());
+	std::shared_ptr<const Entry> cached;
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		const auto found = scenes.find(p_path);
+		if (found != scenes.end()) {
+			cached = found->second;
 		}
-		found = scenes.insert_or_assign(p_path, entry).first;
 	}
-	return found->second.scene;
+	if (cached && cached->modified == modified && std::all_of(cached->instanced.begin(), cached->instanced.end(), [](const auto &p_instanced) {
+			return FileAccess::get_modified_time(String::utf8(p_instanced.first.c_str())) == p_instanced.second;
+		})) {
+		return cached;
+	}
+
+	const std::shared_ptr<Entry> entry = std::make_shared<Entry>();
+	entry->modified = modified;
+	const Ref<PackedScene> packed = ResourceLoader::get_singleton()->load(path, "PackedScene");
+	if (packed.is_valid() && packed->get_state().is_valid()) {
+		entry->scene = read_scene(path, packed->get_state());
+		std::set<std::string> instanced;
+		instanced_scenes(packed->get_state(), instanced);
+		for (const std::string &instanced_path : instanced) {
+			entry->instanced.emplace_back(instanced_path, FileAccess::get_modified_time(String::utf8(instanced_path.c_str())));
+		}
+	}
+	std::lock_guard<std::mutex> lock(mutex);
+	scenes.insert_or_assign(p_path, entry);
+	return entry;
 }
 
 std::vector<compiler::Scene> SceneIndex::scenes_with_script(const std::string &p_script_path) const {
 	const PackedStringArray paths = project_files(PackedStringArray({ "tscn", "scn" }));
 	std::vector<compiler::Scene> result;
-	std::lock_guard<std::mutex> lock(mutex);
 	for (const String &path : paths) {
-		const compiler::Scene &scene = read(to_utf8(path));
-		for (const compiler::SceneNode &node : scene.nodes) {
+		const std::shared_ptr<const Entry> entry = read(to_utf8(path));
+		for (const compiler::SceneNode &node : entry->scene.nodes) {
 			if (node.script == p_script_path) {
-				result.push_back(scene);
+				result.push_back(entry->scene);
 				break;
 			}
 		}
@@ -129,9 +159,8 @@ std::optional<compiler::Scene> SceneIndex::scene(const std::string &p_path) cons
 	if (!FileAccess::file_exists(String::utf8(p_path.c_str()))) {
 		return std::nullopt;
 	}
-	std::lock_guard<std::mutex> lock(mutex);
-	const compiler::Scene &scene = read(p_path);
-	return scene.nodes.empty() ? std::nullopt : std::optional<compiler::Scene>(scene);
+	const std::shared_ptr<const Entry> entry = read(p_path);
+	return entry->scene.nodes.empty() ? std::nullopt : std::optional<compiler::Scene>(entry->scene);
 }
 
 std::string SceneIndex::global_class_path(const std::string &p_name) const {
