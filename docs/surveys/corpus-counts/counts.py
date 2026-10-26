@@ -16,7 +16,10 @@ Counts, in first-party .gd files (blank and comment lines excluded from the line
     `NOTIFICATION_PREDELETE`, `Thread.new` and `WorkerThreadPool`;
   - `get_parent()` called on self and `owner` read on self: member accesses on them (and the files that
     have one), and tests for null (`== null`, `!= null`, as a condition, `is_instance_valid`), including
-    tests of a variable assigned from them within the next 25 lines.
+    tests of a variable assigned from them within the next 25 lines;
+  - `free()` and `set_script(...)` called on self (bare, or after `self.` or `super.`), `.free()` called
+    on another object within a method whose name starts with `_on_`, with their locations for reading,
+    and `queue_free()` for comparison.
 """
 import collections
 import os
@@ -91,6 +94,7 @@ def main():
     by_repo = collections.defaultdict(collections.Counter)
     files = {"parent": set(), "owner": set()}
     tested_at = []
+    freeing_at = collections.defaultdict(list)
     for name, _, _, group in G.REPOS:
         repo = G.Repo(sys.argv[1], name, group)
         for f in repo.files:
@@ -104,7 +108,26 @@ def main():
             abstract_class = False
             funcs = abstract_funcs = 0
             coroutines = set()
+            method = ("", 0, 0)  # The method declared last: its name and body.
             for i, t in enumerate(ts):
+                if (t.k == "ID" and t.v == "func" and i + 1 < len(ts) and ts[i + 1].k == "ID"
+                        and (i == 0 or ts[i - 1].line != t.line or ts[i - 1].v == "static" or ts[i - 1].k == "AN")):
+                    method = (ts[i + 1].v, *func_body(ts, i))
+                if t.k == "ID" and t.v in ("free", "set_script", "queue_free") and i + 1 < len(ts) and ts[i + 1].v == "(":
+                    on_self = i == 0 or ts[i - 1].v != "." or (i > 1 and ts[i - 2].v in ("self", "super"))
+                    where = f"{name}/{f}:{t.line}"
+                    if t.v == "queue_free":
+                        c["queue_free"] += 1
+                    elif t.v == "set_script" and on_self:
+                        c["set_script_self"] += 1
+                        freeing_at["set_script on self"].append(where)
+                    elif t.v == "free" and i + 2 < len(ts) and ts[i + 2].v == ")":
+                        if on_self:
+                            c["free_self"] += 1
+                            freeing_at["free() on self"].append(where)
+                        elif method[0].startswith("_on_") and method[1] <= i < method[2]:
+                            c["free_in_handler"] += 1
+                            freeing_at[".free() in an _on_ method"].append(where)
                 if t.k == "AN" and t.v == "@abstract":
                     j = i + 1
                     while j < len(ts) and ts[j].k == "AN":
@@ -211,6 +234,10 @@ def main():
         print(f"{label}: {c[key]}; member accesses {c[key + '_member']} in {len(files[key])} files; "
               f"tested for null {c[key + '_tested']}")
     print(f"tested for null at: {', '.join(tested_at)}")
+    print(f"free() on self: {c['free_self']}; set_script on self: {c['set_script_self']}; "
+          f".free() in an _on_ method: {c['free_in_handler']}; queue_free(): {c['queue_free']}")
+    for label, places in freeing_at.items():
+        print(f"{label} at: {', '.join(places)}")
 
 
 if __name__ == "__main__":
