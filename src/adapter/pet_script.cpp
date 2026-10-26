@@ -175,30 +175,70 @@ Variant initial_value(const ClassImage &p_image, const bytecode::Member &p_membe
 }
 
 PetHeader parse_header(const String &p_source) {
-	// The class header comes first (spec §2.1): read it until the members start.
+	// The class header comes first (spec §2.1): class annotations, class_name,
+	// extends and implements. It is read up to the first member, past
+	// comments, strings and the arguments of annotations, such as @icon("…").
 	PetHeader header;
+	const int64_t length = p_source.length();
+	const auto is_word = [](char32_t p_char) {
+		return p_char == '_' || p_char == '.' || (p_char >= '0' && p_char <= '9') || (p_char >= 'a' && p_char <= 'z') || (p_char >= 'A' && p_char <= 'Z') || p_char >= 0x80;
+	};
+	const auto skip_string = [&](int64_t p_at) {
+		const char32_t quote = p_source[p_at++];
+		while (p_at < length && p_source[p_at] != quote && p_source[p_at] != '\n') {
+			p_at += p_source[p_at] == '\\' ? 2 : 1;
+		}
+		return p_at + 1;
+	};
+	String keyword; // class_name or extends, whose name comes next.
+	bool has_name = false;
 	bool has_base = false;
-	const PackedStringArray lines = p_source.split("\n");
-	for (int64_t i = 0; i < lines.size(); i++) {
-		String code = lines[i];
-		const int64_t comment = code.find("#");
-		if (comment >= 0) {
-			code = code.substr(0, comment);
-		}
-		const PackedStringArray words = code.replace("\t", " ").replace("\r", " ").strip_edges().split(" ", false);
-		if (words.is_empty()) {
-			continue;
-		}
-		if (words[0] != "class_name" && words[0] != "extends") {
-			break;
-		}
-		for (int64_t w = 0; w + 1 < words.size(); w++) {
-			if (words[w] == "class_name" && header.class_name.is_empty()) {
-				header.class_name = words[w + 1];
-			} else if (words[w] == "extends" && !has_base) {
-				header.base = words[w + 1];
-				has_base = true;
+	for (int64_t i = 0; i < length;) {
+		const char32_t c = p_source[i];
+		if (c == '#') {
+			while (i < length && p_source[i] != '\n') {
+				i++;
 			}
+		} else if (c == '"' || c == '\'') {
+			i = skip_string(i);
+			keyword = String(); // extends "res://path.pet" names no class.
+		} else if (c == '@') {
+			for (i++; i < length && is_word(p_source[i]); i++) {
+			}
+			while (i < length && (p_source[i] == ' ' || p_source[i] == '\t')) {
+				i++;
+			}
+			if (i < length && p_source[i] == '(') {
+				for (int depth = 0; i < length;) {
+					if (p_source[i] == '"' || p_source[i] == '\'') {
+						i = skip_string(i);
+						continue;
+					}
+					depth += p_source[i] == '(' ? 1 : (p_source[i] == ')' ? -1 : 0);
+					i++;
+					if (depth == 0) {
+						break;
+					}
+				}
+			}
+		} else if (is_word(c)) {
+			const int64_t start = i;
+			while (i < length && is_word(p_source[i])) {
+				i++;
+			}
+			const String word = p_source.substr(start, i - start);
+			if (keyword == "class_name" && !has_name) {
+				header.class_name = word;
+				has_name = true;
+			} else if (keyword == "extends" && !has_base) {
+				header.base = word;
+				has_base = true;
+			} else if (word != "class_name" && word != "extends") {
+				break; // implements, or the first member.
+			}
+			keyword = word == "class_name" || word == "extends" ? word : String();
+		} else {
+			i++;
 		}
 	}
 	return header;

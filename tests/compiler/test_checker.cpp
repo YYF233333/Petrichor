@@ -38,6 +38,12 @@ func _ready():
 	CHECK(joined(errors_of(source)) == "");
 }
 
+TEST_CASE("a class annotation is reported once, and the header after it still reads") {
+	CHECK(joined(errors_of("@tool\nclass_name X\nextends Node\n")) == "1:2: The class annotation @tool is not supported yet.\n");
+	CHECK(joined(errors_of("@icon(\"res://a#b.svg\") class_name X extends Node\n")) == "1:2: The class annotation @icon is not supported yet.\n");
+	CHECK(joined(errors_of("extends Node\n@export var x := 1\n")) == "");
+}
+
 // Spec §15, numbers.
 TEST_CASE("float to int needs an explicit conversion") {
 	CHECK(has_error(in_function("var hp: int = 10\nhp = 2.5"), "Convert explicitly with int(x)."));

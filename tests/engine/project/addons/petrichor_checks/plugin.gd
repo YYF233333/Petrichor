@@ -29,6 +29,7 @@ func _run() -> void:
 
 	_check_scene()
 	_check_new_script()
+	_check_header()
 	_check_placeholder_fallback()
 	await _check_instanced_scene_change()
 	await _check_undo_merge()
@@ -94,6 +95,18 @@ func _check_new_script() -> void:
 	_check(script.get_script_property_list().any(func(p): return p.name == "count"), "a saved script takes the class compiled from what was saved")
 	for file in [saved, saved + ".uid", bytecode]:
 		DirAccess.remove_absolute(file)
+
+
+# The editor learns a script's global class from its header (spec §2.1), also
+# while the script cannot be compiled, here because class annotations are not
+# supported yet.
+func _check_header() -> void:
+	var script: Script = ClassDB.instantiate("PetScript")
+	script.source_code = "# A comment.\n@tool\n@icon(\"res://icon#1.svg\") class_name HeaderCheck\nextends Node2D implements Combat.Damageable\nvar x := 1\n"
+	Engine.print_error_messages = false
+	script.reload()
+	Engine.print_error_messages = true
+	_check(script.get_global_name() == &"HeaderCheck" and script.get_instance_base_type() == &"Node2D", "the header is read past class annotations, their arguments and comments")
 
 
 # While a script has errors, a scene that uses it keeps its exported values,

@@ -635,6 +635,11 @@ class Parser {
 		return p_name == "export_group" || p_name == "export_subgroup" || p_name == "export_category";
 	}
 
+	// The annotations of a class (spec §2.3, §7.3).
+	static bool is_class_annotation(const std::string &p_name) {
+		return p_name == "tool" || p_name == "icon" || p_name == "static_unload" || p_name == "abstract" || p_name == "parent" || p_name == "owner";
+	}
+
 	void member(ClassDecl &r_class) {
 		std::vector<Annotation> annotations;
 		while (match(TokenKind::At)) {
@@ -788,6 +793,18 @@ public:
 				continue;
 			}
 			if (match(TokenKind::Newline)) {
+				continue;
+			}
+			// Class annotations open the header (spec §2.1, §2.3).
+			if (!seen_member && check(TokenKind::At) && is_class_annotation(peek(1).text)) {
+				advance();
+				const Token &name = advance();
+				errors.push_back({ name.line, name.column, "The class annotation @" + name.text + " is not supported yet." });
+				if (check(TokenKind::ParenOpen)) {
+					Expr holder;
+					call_arguments(holder);
+				}
+				match(TokenKind::Newline);
 				continue;
 			}
 			// The class header comes before the members (spec §2.1).
