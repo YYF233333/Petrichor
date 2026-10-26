@@ -17,6 +17,12 @@ int operand_count(Op p_op) {
 	return uint32_t(p_op) < uint32_t(Op::COUNT) ? counts[uint32_t(p_op)] : 0;
 }
 
+const char *int_range_name(IntRange p_range) {
+	static const char *const names[] = { "int8", "int16", "int32", "uint8", "uint16", "uint32", "uint64", "char32" };
+	static_assert(sizeof(names) / sizeof(names[0]) == size_t(IntRange::COUNT), "one name per range");
+	return p_range < IntRange::COUNT ? names[uint32_t(p_range)] : "?";
+}
+
 const char *op_name(Op p_op) {
 	static const char *const names[] = {
 #define PETRICHOR_OPCODE_NAME(m_name, m_count) #m_name,

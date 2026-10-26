@@ -19,8 +19,27 @@ extern const char *const NON_NULL_PARAMS[];
 extern const size_t NON_NULL_PARAMS_COUNT;
 extern const char *const CLASS_FILTERS[];
 extern const size_t CLASS_FILTERS_COUNT;
+extern const Keyed INT_PARAMS[];
+extern const size_t INT_PARAMS_COUNT;
+extern const Keyed INT_PROPERTIES[];
+extern const size_t INT_PROPERTIES_COUNT;
 
 namespace {
+
+// The generator sorts these by key.
+std::optional<bytecode::IntRange> int_range(const Keyed *p_list, size_t p_count, const std::string &p_key) {
+	const Keyed *end = p_list + p_count;
+	const Keyed *found = std::lower_bound(p_list, end, p_key, [](const Keyed &a, const std::string &b) { return std::string_view(a.key) < b; });
+	if (found == end || p_key != found->key) {
+		return std::nullopt;
+	}
+	for (uint32_t range = 0; range < uint32_t(bytecode::IntRange::COUNT); range++) {
+		if (std::string_view(found->value) == bytecode::int_range_name(bytecode::IntRange(range))) {
+			return bytecode::IntRange(range);
+		}
+	}
+	return std::nullopt;
+}
 
 // The generator sorts these lists.
 bool listed(const char *const *p_list, size_t p_count, const std::string &p_key) {
@@ -87,6 +106,14 @@ bool property_non_null(std::string_view p_class, std::string_view p_property) {
 
 bool param_non_null(std::string_view p_class, std::string_view p_method, uint32_t p_index) {
 	return listed(NON_NULL_PARAMS, NON_NULL_PARAMS_COUNT, std::string(p_class) + "." + std::string(p_method) + ":" + std::to_string(p_index));
+}
+
+std::optional<bytecode::IntRange> param_int_range(std::string_view p_class, std::string_view p_method, uint32_t p_index) {
+	return int_range(INT_PARAMS, INT_PARAMS_COUNT, std::string(p_class) + "." + std::string(p_method) + ":" + std::to_string(p_index));
+}
+
+std::optional<bytecode::IntRange> property_int_range(std::string_view p_class, std::string_view p_property) {
+	return int_range(INT_PROPERTIES, INT_PROPERTIES_COUNT, std::string(p_class) + "." + std::string(p_property));
 }
 
 int class_filter_param(std::string_view p_class, std::string_view p_method) {

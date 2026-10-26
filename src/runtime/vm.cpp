@@ -511,6 +511,15 @@ public:
 					}
 					pc += 3;
 					break;
+				case Op::CHECK_RANGE: {
+					// Spec §10.6: the engine would truncate or wrap it.
+					const bytecode::IntRange range = bytecode::IntRange(code[pc + 1]);
+					if (!bytecode::int_in_range(range, I64(code[pc + 2]))) {
+						FAIL(vformat("%d is out of range for the engine's %s.", I64(code[pc + 2]), bytecode::int_range_name(range)));
+					}
+					pc += 3;
+					break;
+				}
 				case Op::CHECK_OBJECT: {
 					const StringName &expected = image.classes[code[pc + 1]];
 					const Variant &value = variant_at(frame + code[pc + 2]);

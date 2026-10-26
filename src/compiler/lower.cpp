@@ -198,6 +198,7 @@ struct Place {
 	uint32_t reg = NO_REG; // Local: the local; ObjectProperty: the object; Field: the copy of the base.
 	uint32_t index = 0; // Member, property table or field table.
 	Type type;
+	std::optional<bytecode::IntRange> int_range; // An engine property: what its setter takes (spec §10.6).
 	std::unique_ptr<Place> parent; // Field: where the copy goes back.
 };
 
@@ -714,6 +715,12 @@ class Lowerer {
 			}
 		}
 		i.args = arguments(p_call);
+		// A value the engine would truncate or wrap is a program error (spec §10.6).
+		for (size_t a = 0; a < p_call.arg_ranges.size() && a < i.args.size(); a++) {
+			if (p_call.arg_ranges[a]) {
+				instr(Op::CHECK_RANGE, NO_REG, i.args[a], NO_REG, uint32_t(*p_call.arg_ranges[a]));
+			}
+		}
 		if (p_call.target == Target::BuiltinMethod && p_call.text == "pop_at" && reg_type(i.base) == ValueType::Array) {
 			// An index out of bounds is a program error, as for a[i] (spec §3.8),
 			// where the engine returns null.
@@ -1014,6 +1021,7 @@ class Lowerer {
 	Place place_of(const Expr &p_expr) {
 		Place place;
 		place.type = p_expr.type;
+		place.int_range = p_expr.int_range;
 		switch (p_expr.target) {
 			case Target::Local:
 				place.reg = uint32_t(p_expr.index);
@@ -1092,6 +1100,9 @@ class Lowerer {
 				return;
 			case Place::Kind::SelfProperty:
 			case Place::Kind::ObjectProperty:
+				if (p_place.int_range) {
+					instr(Op::CHECK_RANGE, NO_REG, p_value, NO_REG, uint32_t(*p_place.int_range));
+				}
 				instr(Op::SET_PROPERTY, NO_REG, p_place.kind == Place::Kind::SelfProperty ? NO_REG : p_place.reg, p_value, p_place.index);
 				return;
 			case Place::Kind::Field:

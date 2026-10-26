@@ -75,6 +75,7 @@ namespace petrichor::bytecode {
 	X(GET_SIGNAL, 3) /* name constant, dst, object (NO_SLOT: self) */ \
 	X(CHECK_OBJECT, 2) /* class, slot: not None, of the class */     \
 	X(CHECK_ASSIGNED, 2) /* member, slot: an export is assigned */   \
+	X(CHECK_RANGE, 2) /* IntRange, slot (int): fits the engine's */  \
 	X(CAST_OBJECT, 3) /* class, dst, src: `as`, None if it fails */  \
 	X(IS_INSTANCE, 3) /* class, dst (bool), src: `is` */             \
 	X(IS_NONE, 2) /* dst (bool), src (Object or Variant) */          \
@@ -102,6 +103,45 @@ enum class Op : uint32_t {
 };
 
 constexpr uint32_t NO_SLOT = 0xFFFFFFFF;
+
+// An engine integer narrower than int64 or unsigned, which the engine would
+// truncate or wrap (spec §10.6): the first operand of CHECK_RANGE.
+enum class IntRange : uint32_t {
+	INT8,
+	INT16,
+	INT32,
+	UINT8,
+	UINT16,
+	UINT32,
+	UINT64,
+	CHAR32, // A char32_t, unsigned 32 bits.
+	COUNT,
+};
+
+inline bool int_in_range(IntRange p_range, int64_t p_value) {
+	switch (p_range) {
+		case IntRange::INT8:
+			return p_value >= INT8_MIN && p_value <= INT8_MAX;
+		case IntRange::INT16:
+			return p_value >= INT16_MIN && p_value <= INT16_MAX;
+		case IntRange::INT32:
+			return p_value >= INT32_MIN && p_value <= INT32_MAX;
+		case IntRange::UINT8:
+			return p_value >= 0 && p_value <= UINT8_MAX;
+		case IntRange::UINT16:
+			return p_value >= 0 && p_value <= UINT16_MAX;
+		case IntRange::UINT32:
+		case IntRange::CHAR32:
+			return p_value >= 0 && p_value <= int64_t(UINT32_MAX);
+		case IntRange::UINT64:
+			return p_value >= 0;
+		default:
+			return false;
+	}
+}
+
+// As the engine API names it: "int8", "uint32", "char32"…
+const char *int_range_name(IntRange p_range);
 
 // Number of operand words of a fixed-size instruction, or -1 for a call.
 int operand_count(Op p_op);

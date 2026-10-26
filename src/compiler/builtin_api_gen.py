@@ -83,6 +83,29 @@ def _binding_metadata(api, metadata_path):
     return sorted(returns), sorted(properties), sorted(params), sorted(filters)
 
 
+# Integer widths the engine truncates or wraps a value to (spec §10.6).
+NARROW_INTS = ("int8", "int16", "int32", "uint8", "uint16", "uint32", "uint64", "char32")
+
+
+def _int_ranges(api):
+    """The engine's integer parameters narrower than int64 or unsigned, as
+    sorted (key, width) pairs: "Class.method:index", and "Class.property" for
+    the value a property's setter takes, its last argument."""
+    params = {}
+    properties = {}
+    for c in api["classes"]:
+        methods = {m["name"]: m for m in c.get("methods", [])}
+        for m in methods.values():
+            for i, a in enumerate(m.get("arguments", [])):
+                if a["type"] == "int" and a.get("meta") in NARROW_INTS:
+                    params[f"{c['name']}.{m['name']}:{i}"] = a["meta"]
+        for p in c.get("properties", []):
+            arguments = methods.get(p.get("setter", ""), {}).get("arguments", [])
+            if p["type"] == "int" and arguments and arguments[-1]["type"] == "int" and arguments[-1].get("meta") in NARROW_INTS:
+                properties[f"{c['name']}.{p['name']}"] = arguments[-1]["meta"]
+    return sorted(params.items()), sorted(properties.items())
+
+
 def generate(json_path, metadata_path, out_path):
     with open(json_path, encoding="utf-8") as file:
         api = json.load(file)
@@ -169,5 +192,9 @@ def generate(json_path, metadata_path, out_path):
         for name, rows in zip(("NON_NULL_RETURNS", "NON_NULL_PROPERTIES", "NON_NULL_PARAMS", "CLASS_FILTERS"), metadata):
             out.write(f"extern const char *const {name}[];\nextern const size_t {name}_COUNT;\n")
             out.write(f"const char *const {name}[] = {{\n" + "".join(f"\t{_c_string(row)},\n" for row in rows) + "};\n")
+            out.write(f"const size_t {name}_COUNT = {len(rows)};\n\n")
+        for name, rows in zip(("INT_PARAMS", "INT_PROPERTIES"), _int_ranges(api)):
+            out.write(f"extern const Keyed {name}[];\nextern const size_t {name}_COUNT;\n")
+            out.write(f"const Keyed {name}[] = {{\n" + "".join(f"\t{{ {_c_string(key)}, {_c_string(width)} }},\n" for key, width in rows) + "};\n")
             out.write(f"const size_t {name}_COUNT = {len(rows)};\n\n")
         out.write("} // namespace petrichor::compiler::builtin\n")

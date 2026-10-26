@@ -122,6 +122,22 @@ func _ready() -> void:
 	var no_part = v.part("a", 2)
 	Engine.print_error_messages = true
 	_check(v.element(ints, 0) == 1 and v.element(ints, -1) == 3 and out_of_bounds == 0, "an index out of bounds is a program error; a negative one counts from the end")
+	var holder := Node.new()
+	holder.add_child(Node.new())
+	var area := Area2D.new()
+	var layered := Node2D.new()
+	Engine.print_error_messages = false
+	var past_int32 = v.child_at(holder, 2147483648)
+	v.set_layer(area, -1)
+	v.set_z(layered, -2147483649)
+	Engine.print_error_messages = true
+	_check(past_int32 == null and v.child_at(holder, 0) == holder.get_child(0), "an int beyond int32 passed to an int32 parameter is a program error")
+	_check(area.collision_layer == 1 and layered.z_index == 0, "a value out of range written to a uint32 or an int32 property is a program error and leaves it unchanged")
+	v.set_layer(area, 4294967295)
+	v.set_z(layered, 7)
+	_check(area.collision_layer == 4294967295 and layered.z_index == 7, "values within range reach the engine")
+	for node in [holder, area, layered]:
+		node.free()
 	var to_pop: Array[int] = [1, 2, 3]
 	var empty_ints: Array[int] = []
 	var last: int = v.popped(to_pop, -1)

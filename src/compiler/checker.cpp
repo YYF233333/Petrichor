@@ -551,7 +551,7 @@ class Checker : public ClassRelation {
 				return set(r_expr, Type::of(TypeKind::Error));
 			}
 			r_expr.target = Target::SelfProperty;
-			return set(r_expr, property_type(*property));
+			return set(r_expr, property_type(*property, r_expr));
 		}
 		const auto function_found = function_index.find(r_expr.text);
 		if (function_found != function_index.end()) {
@@ -780,7 +780,7 @@ class Checker : public ClassRelation {
 			}
 			r_expr.target = Target::ObjectProperty;
 			r_expr.owner = engine_class;
-			return set(r_expr, property_type(*property));
+			return set(r_expr, property_type(*property, r_expr));
 		}
 		return fail(r_expr, "Values of type " + base_type.to_string() + " have no members.");
 	}
@@ -1254,10 +1254,14 @@ class Checker : public ClassRelation {
 		return type;
 	}
 
-	static Type property_type(const EngineProperty &p_property) {
+	// The property's type, and the range its setter takes (spec §10.6).
+	static Type property_type(const EngineProperty &p_property, Expr &r_expr) {
 		Type type = p_property.type;
 		if (type.kind == TypeKind::Object && builtin::property_non_null(p_property.owner, p_property.name)) {
 			type.nullable = false;
+		}
+		if (type.kind == TypeKind::Int) {
+			r_expr.int_range = builtin::property_int_range(p_property.owner, p_property.name);
 		}
 		return type;
 	}
@@ -1278,6 +1282,9 @@ class Checker : public ClassRelation {
 			return Type::of(TypeKind::Error);
 		}
 		check_arguments(r_expr, params, int(params.size()) - p_method.default_count, p_method.is_vararg);
+		for (size_t i = 0; i < params.size(); i++) {
+			r_expr.arg_ranges.push_back(params[i].kind == TypeKind::Int ? builtin::param_int_range(p_method.owner, p_method.name, uint32_t(i)) : std::nullopt);
+		}
 		r_expr.target = Target::EngineMethod;
 		r_expr.engine_return = engine_result(p_method);
 		return set(r_expr, filtered_result(r_expr, p_method));

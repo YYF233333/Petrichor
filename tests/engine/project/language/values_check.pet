@@ -239,6 +239,18 @@ pub func damage_through(target: CombatCheck.Damageable, amount: float) -> bool:
 pub func count_damageable(targets: Array[CombatCheck.Damageable]) -> int:
 	return targets.size()
 
+# Engine integers narrower than int64 or unsigned (spec §10.6):
+# Node.get_child takes an int32, CanvasItem.z_index is an int32 and
+# CollisionObject2D.collision_layer a uint32.
+pub func child_at(n: Node, index: int) -> Node?:
+	return n.get_child(index)
+
+pub func set_z(n: Node2D, z: int):
+	n.z_index = z
+
+pub func set_layer(a: Area2D, layer: int):
+	a.collision_layer = layer
+
 pub func through_detached(target: FreeCheck) -> int:
 	var read := target.detach_and_read()
 	after_failure += 1

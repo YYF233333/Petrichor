@@ -77,6 +77,7 @@ public:
 			method("_process", { { "delta", t(TypeKind::Float) } }, t(TypeKind::Void), true),
 			method("_input", { { "event", Type::object("InputEvent", true) } }, t(TypeKind::Void), true),
 			method("get_child_count", { { "include_internal", t(TypeKind::Bool) } }, t(TypeKind::Int), false, 1),
+			method("get_child", { { "idx", t(TypeKind::Int) }, { "include_internal", t(TypeKind::Bool) } }, node, false, 1),
 			method("set_process", { { "enable", t(TypeKind::Bool) } }, t(TypeKind::Void)),
 			method("get_parent", {}, node),
 			method("get_tree", {}, Type::object("SceneTree", true)),
@@ -142,6 +143,9 @@ public:
 		};
 		properties["Label"] = {
 			{ "text", t(TypeKind::String), true },
+		};
+		properties["CanvasItem"] = {
+			{ "z_index", t(TypeKind::Int), true },
 		};
 		signals["Node"] = {
 			method("ready", {}, t(TypeKind::Void)),

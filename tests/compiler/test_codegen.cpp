@@ -363,3 +363,24 @@ TEST_CASE("what lowering has no code for is an internal error, not wrong code") 
 	CHECK(errors[0].message.find("Internal compiler error") == 0);
 	CHECK(errors[1].line == 5);
 }
+
+// Spec §10.6: the widths come from the engine API (Node.get_child takes an
+// int32 index, CanvasItem.z_index an int32, RandomNumberGenerator.seed a uint64).
+TEST_CASE("an engine integer narrower than int64 or unsigned is checked before it goes to the engine") {
+	const bytecode::Module module = module_of("extends Node\n\nfunc f(n: Node, c: CanvasItem, r: RandomNumberGenerator, i: int) -> void:\n\tvar child := n.get_child(i)\n\tc.z_index = i\n\tc.z_index += 1\n\tr.seed = i\n\tvar count := n.get_child_count()\n");
+	const bytecode::Function &f = module.functions[module.find_function("f")];
+	std::vector<bytecode::IntRange> ranges;
+	for (size_t pc = 0; pc < f.code.size(); pc += bytecode::instruction_length(f.code.data() + pc)) {
+		if (Op(f.code[pc]) == Op::CHECK_RANGE) {
+			ranges.push_back(bytecode::IntRange(f.code[pc + 1]));
+		}
+	}
+	const std::vector<bytecode::IntRange> expected = { bytecode::IntRange::INT32, bytecode::IntRange::INT32, bytecode::IntRange::INT32, bytecode::IntRange::UINT64 };
+	CHECK(ranges == expected);
+	CHECK(bytecode::int_in_range(bytecode::IntRange::INT32, 2147483647));
+	CHECK(!bytecode::int_in_range(bytecode::IntRange::INT32, 2147483648));
+	CHECK(!bytecode::int_in_range(bytecode::IntRange::UINT32, -1));
+	CHECK(bytecode::int_in_range(bytecode::IntRange::UINT32, 4294967295));
+	CHECK(!bytecode::int_in_range(bytecode::IntRange::UINT64, -1));
+	CHECK(!bytecode::int_in_range(bytecode::IntRange::INT8, 128));
+}

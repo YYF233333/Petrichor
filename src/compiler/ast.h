@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bytecode/opcodes.h"
 #include "compiler/lexer.h"
 #include "compiler/types.h"
 
@@ -105,6 +106,11 @@ struct Expr {
 	// Built-in methods: the engine's parameter types; script methods: all the
 	// method's parameters, also those a call leaves out.
 	std::vector<Type> engine_params;
+	// Engine methods: for each argument, the range of an engine integer
+	// narrower than int64 or unsigned that it goes to (spec §10.6); engine
+	// properties: the range of the value their setter takes.
+	std::vector<std::optional<bytecode::IntRange>> arg_ranges;
+	std::optional<bytecode::IntRange> int_range;
 	std::string owner;                 // The type a field, constant, method or constructor belongs to.
 	Type tested;                       // TypeTest and Cast: the class after is or as.
 };

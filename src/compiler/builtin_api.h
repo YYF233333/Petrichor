@@ -1,7 +1,10 @@
 #pragma once
 
+#include "bytecode/opcodes.h"
+
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string_view>
 
 namespace petrichor::compiler::builtin {
@@ -97,5 +100,16 @@ bool param_non_null(std::string_view p_class, std::string_view p_method, uint32_
 // The parameter that names the class of the objects the method's array holds
 // (spec §10.3), or -1.
 int class_filter_param(std::string_view p_class, std::string_view p_method);
+
+// An entry of the generated metadata that has a value.
+struct Keyed {
+	const char *key; // "Class.method:index" or "Class.property".
+	const char *value;
+};
+
+// The range of an engine integer parameter, or of the value a property's
+// setter takes, when it is narrower than int64 or unsigned (spec §10.6).
+std::optional<bytecode::IntRange> param_int_range(std::string_view p_class, std::string_view p_method, uint32_t p_index);
+std::optional<bytecode::IntRange> property_int_range(std::string_view p_class, std::string_view p_property);
 
 } // namespace petrichor::compiler::builtin
