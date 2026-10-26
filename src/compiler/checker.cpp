@@ -388,6 +388,11 @@ class Checker : public ClassRelation {
 				error(p_ref.line, p_ref.column, "void cannot be optional.");
 				return Type::of(TypeKind::Error);
 			}
+			// The entry checks would not see its elements' type.
+			if (type.kind == TypeKind::Builtin && !type.args.empty()) {
+				error(p_ref.line, p_ref.column, type.to_string() + "? is not supported yet; an empty array can stand for none.");
+				return Type::of(TypeKind::Error);
+			}
 			type = optional_of(type);
 		}
 		return type;
