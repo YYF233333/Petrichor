@@ -122,6 +122,14 @@ func _ready() -> void:
 	var no_part = v.part("a", 2)
 	Engine.print_error_messages = true
 	_check(v.element(ints, 0) == 1 and v.element(ints, -1) == 3 and out_of_bounds == 0, "an index out of bounds is a program error; a negative one counts from the end")
+	var to_pop: Array[int] = [1, 2, 3]
+	var empty_ints: Array[int] = []
+	var last: int = v.popped(to_pop, -1)
+	Engine.print_error_messages = false
+	var past_end = v.popped(to_pop, 2)
+	var from_empty = v.popped(empty_ints, 0)
+	Engine.print_error_messages = true
+	_check(last == 3 and past_end == 0 and from_empty == 0 and to_pop == [1, 2], "pop_at() gives T, and an index out of bounds is a program error, also on an empty array")
 	_check(v.part("a,b,c", 1) == "b" and no_part == "", "PackedStringArray from split() with its default arguments")
 	_check(v.players.is_typed() and v.players.get_typed_class_name() == &"Node3D", "a member of type Array[Node3D] starts as an empty typed array")
 	Engine.print_error_messages = false

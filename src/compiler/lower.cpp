@@ -714,6 +714,11 @@ class Lowerer {
 			}
 		}
 		i.args = arguments(p_call);
+		if (p_call.target == Target::BuiltinMethod && p_call.text == "pop_at" && reg_type(i.base) == ValueType::Array) {
+			// An index out of bounds is a program error, as for a[i] (spec §3.8),
+			// where the engine returns null.
+			instr(Op::GET_INDEX, temp(ValueType::Variant), i.base, i.args[0]);
+		}
 		if (p_call.target == Target::ScriptFunction) {
 			// Calls in this language pass the default values themselves.
 			const FuncDecl &callee = cls.functions[p_call.index];

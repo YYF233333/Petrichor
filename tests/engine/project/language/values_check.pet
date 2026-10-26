@@ -106,6 +106,9 @@ pub func queue_demo() -> String:
 pub func element(values: Array[int], index: int) -> int:
 	return values[index]
 
+pub func popped(values: Array[int], index: int) -> int:
+	return values.pop_at(index)
+
 pub func part(text: String, index: int) -> String:
 	return text.split(",")[index]
 

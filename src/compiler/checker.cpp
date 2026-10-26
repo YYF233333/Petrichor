@@ -1445,9 +1445,10 @@ class Checker : public ClassRelation {
 	}
 
 	// The engine binds Array's methods with Variant; for Array[T], the values
-	// are elements of type T (spec §3.8). pop_front(), pop_back() and pop_at()
-	// give T?, since the engine returns null on an empty array
-	// (core/variant/array.cpp:781-800).
+	// are elements of type T (spec §3.8). pop_front() and pop_back() give T?,
+	// since the engine returns null on an empty array
+	// (core/variant/array.cpp:781-800); pop_at() gives T, an index out of
+	// bounds being a program error as for a[i].
 	static void element_typed(const std::string &p_method, const Type &p_array, std::vector<Type> &r_params, Type &r_result) {
 		const Type &element = p_array.args[0];
 		if (p_method == "reduce") {
@@ -1461,7 +1462,7 @@ class Checker : public ClassRelation {
 			}
 		}
 		if (r_result.kind == TypeKind::Variant) {
-			const bool pops = p_method == "pop_front" || p_method == "pop_back" || p_method == "pop_at";
+			const bool pops = p_method == "pop_front" || p_method == "pop_back";
 			r_result = pops ? optional_of(element) : element;
 		} else if (r_result == Type::builtin("Array") && (p_method == "duplicate" || p_method == "slice" || p_method == "filter")) {
 			r_result = p_array;
@@ -1506,9 +1507,9 @@ class Checker : public ClassRelation {
 		r_expr.engine_params = params;
 		r_expr.engine_return = result;
 		if (base_name == "Array" && !p_base.args.empty()) {
-			// With T?, the pop methods give T??, which tells an empty array from
-			// a None element (spec §3.8).
-			const bool pops = r_expr.text == "pop_front" || r_expr.text == "pop_back" || r_expr.text == "pop_at";
+			// With T?, pop_front() and pop_back() give T??, which tells an empty
+			// array from a None element (spec §3.8).
+			const bool pops = r_expr.text == "pop_front" || r_expr.text == "pop_back";
 			if (pops && p_base.args[0].is_optional()) {
 				return fail(r_expr, "\"" + r_expr.text + "()\" of " + p_base.to_string() + " gives " + p_base.args[0].to_string() + "?, which is not supported yet.");
 			}
