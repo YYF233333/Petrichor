@@ -19,7 +19,8 @@ Counts, in first-party .gd files (blank and comment lines excluded from the line
     tests of a variable assigned from them within the next 25 lines;
   - `free()` and `set_script(...)` called on self (bare, or after `self.` or `super.`), `.free()` called
     on another object within a method whose name starts with `_on_`, with their locations for reading,
-    and `queue_free()` for comparison.
+    and `queue_free()` for comparison;
+  - `.pop_at(`, with locations for reading, `.pop_back(` and `.pop_front(`.
 """
 import collections
 import os
@@ -113,6 +114,10 @@ def main():
                 if (t.k == "ID" and t.v == "func" and i + 1 < len(ts) and ts[i + 1].k == "ID"
                         and (i == 0 or ts[i - 1].line != t.line or ts[i - 1].v == "static" or ts[i - 1].k == "AN")):
                     method = (ts[i + 1].v, *func_body(ts, i))
+                if t.k == "ID" and t.v in ("pop_at", "pop_back", "pop_front") and i > 0 and ts[i - 1].v == "." and i + 1 < len(ts) and ts[i + 1].v == "(":
+                    c[t.v] += 1
+                    if t.v == "pop_at":
+                        freeing_at["pop_at"].append(f"{name}/{f}:{t.line}")
                 if t.k == "ID" and t.v in ("free", "set_script", "queue_free") and i + 1 < len(ts) and ts[i + 1].v == "(":
                     on_self = i == 0 or ts[i - 1].v != "." or (i > 1 and ts[i - 2].v in ("self", "super"))
                     where = f"{name}/{f}:{t.line}"
@@ -236,6 +241,7 @@ def main():
     print(f"tested for null at: {', '.join(tested_at)}")
     print(f"free() on self: {c['free_self']}; set_script on self: {c['set_script_self']}; "
           f".free() in an _on_ method: {c['free_in_handler']}; queue_free(): {c['queue_free']}")
+    print(f"pop_at: {c['pop_at']}; pop_back: {c['pop_back']}; pop_front: {c['pop_front']}")
     for label, places in freeing_at.items():
         print(f"{label} at: {', '.join(places)}")
 
