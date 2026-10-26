@@ -55,6 +55,16 @@ TEST_CASE("an early return narrows the rest of the block") {
 	CHECK(narrowing("if p == None:\n\tprint(1)\np.queue_free()").find("may be None") != std::string::npos);
 }
 
+TEST_CASE("after an if with a branch that always leaves, what the other branch ends with holds") {
+	CHECK(narrowing("if p == None:\n\treturn\nelse:\n\tprint(1)\np.queue_free()").empty());
+	CHECK(narrowing("if p == None:\n\treturn\nelse:\n\tp = Node.new()\np.queue_free()").empty());
+	// The only path that reaches the call has just assigned None.
+	CHECK(narrowing("if p == None:\n\treturn\nelse:\n\tp = None\np.queue_free()").find("may be None") != std::string::npos);
+	CHECK(narrowing("if p != None:\n\tp = None\nelse:\n\treturn\np.queue_free()").find("may be None") != std::string::npos);
+	CHECK(narrowing("for i in 3:\n\tif p == None:\n\t\tbreak\n\telse:\n\t\tp = get_parent()\n\tp.queue_free()").find("may be None") != std::string::npos);
+	CHECK(narrowing("if e is not InputEventMouseMotion:\n\treturn\nelse:\n\te = InputEventKey.new()\nvar r: Vector2 = e.relative").find("InputEvent has no property \"relative\"") != std::string::npos);
+}
+
 TEST_CASE("is narrows to the class") {
 	CHECK(narrowing("if e is InputEventMouseMotion:\n\tvar r: Vector2 = e.relative").empty());
 	CHECK(narrowing("if e is not InputEventMouseMotion:\n\treturn\nvar r: Vector2 = e.relative").empty());
@@ -86,6 +96,15 @@ TEST_CASE("an assignment narrows by the new value, also in loops") {
 TEST_CASE("an option of a value narrows too") {
 	CHECK(narrowing("if x != None:\n\tvar y: int = x + 1", "func f(x: int?) -> void:").empty());
 	CHECK(narrowing("var y: int = x + 1", "func f(x: int?) -> void:").find("may be None (int?)") != std::string::npos);
+}
+
+TEST_CASE("a compound assignment reads a narrowed local as narrowed") {
+	CHECK(narrowing("if x != None:\n\tx += 1\n\tvar y: int = x", "func f(x: int?) -> void:").empty());
+	CHECK(narrowing("x += 1", "func f(x: int?) -> void:").find("may be None (int?)") != std::string::npos);
+	const auto result = compile(in_function("if x != None:\n\tx += 1\n\treturn x\nreturn 0", "func f(x: int?) -> int:"));
+	std::string error;
+	CHECK(result.ok());
+	CHECK(petrichor::bytecode::verify(result.module, error));
 }
 
 TEST_CASE("None goes where a T? is expected") {

@@ -115,6 +115,9 @@ TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec ย
 	CHECK(type_of("n[0]", "var n: Array[Node] = []") == "Node");
 	CHECK(type_of("n.pop_back()", "var n: Array[Node] = []") == "Node?");
 	CHECK(type_of("n[0]", "var n: Array[Node?] = []") == "Node?");
+	// Node?? would tell an empty array from a None element (spec ยง3.8).
+	CHECK(type_of("n.pop_back()", "var n: Array[Node?] = []").find("gives Node??, which is not supported yet") != std::string::npos);
+	CHECK(type_of("n.pop_front()", "var n: Array[Node?] = []").find("not supported yet") != std::string::npos);
 	CHECK(has_error(in_function(std::string(ints) + "\na.append(\"x\")"), "Cannot pass a value of type String as int"));
 	CHECK(has_error(in_function(std::string(ints) + "\nvar f: Array[float] = a"), "Cannot assign a value of type Array[int] as Array[float]"));
 	CHECK(has_error(in_function("var a: Array[int] = [1, 2.5]"), "Cannot put a value of type float in Array[int]"));

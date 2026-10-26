@@ -22,7 +22,7 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 		return a.line != b.line ? a.line < b.line : a.column < b.column;
 	});
 	if (result.errors.empty()) {
-		result.module = lower(cls, p_options.declarations_only);
+		result.module = lower(cls, p_options.declarations_only, result.errors);
 		result.module.source_hash = bytecode::hash_source(p_source);
 	}
 	return result;

@@ -1,4 +1,6 @@
 #include "bytecode/opcodes.h"
+#include "compiler/lower.h"
+#include "compiler/parser.h"
 #include "helpers.h"
 
 #include "doctest.h"
@@ -345,4 +347,16 @@ TEST_CASE("corrupt data is rejected") {
 	data[4] ^= 1;
 	CHECK(!bytecode::deserialize(data.data(), data.size(), copy, error));
 	CHECK(error == "compiled by a build of Petrichor with another bytecode format");
+}
+
+TEST_CASE("what lowering has no code for is an internal error, not wrong code") {
+	// Parsed but not checked: no call or name has a target.
+	std::vector<compiler::Diagnostic> errors;
+	const compiler::ClassDecl cls = compiler::parse(compiler::tokenize("extends Node\n\nfunc f() -> void:\n\tg()\n\tx = 1\n", errors), errors);
+	REQUIRE(errors.empty());
+	compiler::lower(cls, false, errors);
+	REQUIRE(errors.size() == 2);
+	CHECK(errors[0].line == 4);
+	CHECK(errors[0].message.find("Internal compiler error") == 0);
+	CHECK(errors[1].line == 5);
 }

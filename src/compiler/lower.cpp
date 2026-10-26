@@ -95,6 +95,7 @@ enum EngineOperator : uint8_t {
 	OP_NEGATE,
 	OP_POSITIVE,
 	OP_MODULE,
+	OP_UNKNOWN = 0xFF, // Not one of the engine's.
 };
 
 uint8_t engine_operator(TokenKind p_op) {
@@ -119,8 +120,10 @@ uint8_t engine_operator(TokenKind p_op) {
 			return OP_MULTIPLY;
 		case TokenKind::Slash:
 			return OP_DIVIDE;
-		default:
+		case TokenKind::Percent:
 			return OP_MODULE;
+		default:
+			return OP_UNKNOWN;
 	}
 }
 
@@ -191,10 +194,12 @@ struct Place {
 class Lowerer {
 	const ClassDecl &cls;
 	bytecode::Module &module;
+	std::vector<Diagnostic> &errors;
 
 	ir::Function fn;
 	const FuncDecl *decl = nullptr; // Null in the init function.
 	uint32_t current = 0;
+	int line = 0; // Of the statement, member or function being lowered.
 
 	struct Loop {
 		uint32_t continue_block;
@@ -249,6 +254,14 @@ class Lowerer {
 	}
 
 	ValueType reg_type(uint32_t p_reg) const { return fn.regs[p_reg].type; }
+
+	// What the checker passed but lowering has no code for is a defect of the
+	// compiler: it is reported instead of compiled, and lowering goes on with
+	// a register of its own.
+	uint32_t internal_error(const std::string &p_what) {
+		errors.push_back({ line, 1, "Internal compiler error: " + p_what + "." });
+		return temp(ValueType::Variant);
+	}
 
 	void instr(Op p_op, uint32_t p_dst, uint32_t p_a = NO_REG, uint32_t p_b = NO_REG, uint32_t p_imm = 0, ValueType p_type = ValueType::Void) {
 		ir::Instr i;
@@ -557,8 +570,12 @@ class Lowerer {
 		const ValueType right_type = reg_type(p_right);
 		if (!is_primitive(left_type) || !is_primitive(right_type)) {
 			// The engine's operator for these two types (spec §5.1).
+			const uint8_t op = engine_operator(p_op);
+			if (op == OP_UNKNOWN) {
+				return internal_error("no engine operator for this binary operator");
+			}
 			const uint32_t result = temp(p_result);
-			instr(Op::EVALUATE, result, p_left, p_right, operator_call(engine_operator(p_op), left_type, right_type, value_type(p_result)));
+			instr(Op::EVALUATE, result, p_left, p_right, operator_call(op, left_type, right_type, value_type(p_result)));
 			return result;
 		}
 		ValueType operand = left_type;
@@ -568,7 +585,7 @@ class Lowerer {
 			p_right = convert(p_right, Type::of(TypeKind::Float));
 		}
 		const bool f = operand == ValueType::Float;
-		Op op = Op::ADD_INT;
+		Op op;
 		switch (p_op) {
 			case TokenKind::Plus:
 				op = operand == ValueType::String ? Op::ADD_STRING : (f ? Op::ADD_FLOAT : Op::ADD_INT);
@@ -604,7 +621,7 @@ class Lowerer {
 				op = f ? Op::GE_FLOAT : Op::GE_INT;
 				break;
 			default:
-				break;
+				return internal_error("no instruction for this binary operator");
 		}
 		const uint32_t result = temp(p_result);
 		instr(op, result, p_left, p_right);
@@ -748,7 +765,7 @@ class Lowerer {
 				i.imm = constructor(value_type(p_call.type), uint32_t(p_call.index), value_types(p_call.param_types));
 				break;
 			default:
-				break;
+				return internal_error("no instruction for this call");
 		}
 		add(i);
 		if (written_back) {
@@ -875,7 +892,8 @@ class Lowerer {
 					return short_circuit(p_expr);
 				} else {
 					const uint32_t left = lower_expr(*p_expr.left);
-					const uint32_t right = lower_expr(*p_expr.right);					return binary(p_expr.op, left, right, p_expr.type);
+					const uint32_t right = lower_expr(*p_expr.right);
+					return binary(p_expr.op, left, right, p_expr.type);
 				}
 			case ExprKind::Call:
 				return call(p_expr);
@@ -920,9 +938,10 @@ class Lowerer {
 				return result;
 			}
 			case ExprKind::Self:
-				break;
+				// Only the base of a call: the instance, as a missing slot.
+				return NO_REG;
 		}
-		return NO_REG;
+		return internal_error("no code for this expression");
 	}
 
 	// get_node() on self, then a check that the node is there and has the
@@ -991,6 +1010,7 @@ class Lowerer {
 				place.index = field(reg_type(place.reg), p_expr.text, value_type(p_expr.type));
 				break;
 			default:
+				place.reg = internal_error("this expression is not a place");
 				break;
 		}
 		return place;
@@ -1023,7 +1043,7 @@ class Lowerer {
 				return result;
 			}
 		}
-		return NO_REG;
+		return internal_error("no code to read this place");
 	}
 
 	void store(const Place &p_place, uint32_t p_value) {
@@ -1059,6 +1079,7 @@ class Lowerer {
 	}
 
 	void lower_stmt(const Stmt &p_stmt) {
+		line = p_stmt.line;
 		instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(p_stmt.line));
 		switch (p_stmt.kind) {
 			case StmtKind::Var: {
@@ -1212,6 +1233,7 @@ class Lowerer {
 			for (size_t m = 0; m < cls.members.size(); m++) {
 				if (cls.members[m].must_assign) {
 					any = true;
+					line = cls.members[m].line;
 					instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(cls.members[m].line));
 					load_member(uint32_t(m));
 				}
@@ -1223,6 +1245,7 @@ class Lowerer {
 				continue;
 			}
 			any = true;
+			line = member.line;
 			instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(member.line));
 			if (!member.initializer) {
 				// An empty Array[T] is typed too.
@@ -1252,8 +1275,8 @@ class Lowerer {
 	}
 
 public:
-	Lowerer(const ClassDecl &p_class, bytecode::Module &r_module) :
-			cls(p_class), module(r_module) {}
+	Lowerer(const ClassDecl &p_class, bytecode::Module &r_module, std::vector<Diagnostic> &r_errors) :
+			cls(p_class), module(r_module), errors(r_errors) {}
 
 	void run(bool p_declarations_only) {
 		module.global_name = cls.class_name;
@@ -1314,6 +1337,7 @@ public:
 		for (const FuncDecl &function : cls.functions) {
 			start(function.name);
 			decl = &function;
+			line = function.line;
 			fn.param_count = uint32_t(function.params.size());
 			fn.return_type = value_type(function.return_type);
 			if (function.return_type.kind == TypeKind::Object) {
@@ -1354,9 +1378,9 @@ public:
 
 } // namespace
 
-bytecode::Module lower(const ClassDecl &p_class, bool p_declarations_only) {
+bytecode::Module lower(const ClassDecl &p_class, bool p_declarations_only, std::vector<Diagnostic> &r_errors) {
 	bytecode::Module module;
-	Lowerer(p_class, module).run(p_declarations_only);
+	Lowerer(p_class, module, r_errors).run(p_declarations_only);
 	return module;
 }
 

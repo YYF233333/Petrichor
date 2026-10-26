@@ -152,6 +152,7 @@ func _ready() -> void:
 	motion.relative = Vector2(3, 0)
 	_check(v.relative_x(motion) == 3.0 and v.relative_x(InputEventKey.new()) == 0.0, "is narrows, also on the right of and")
 	_check(v.doubled(4) == 8 and v.doubled(null) == -1, "an int? narrowed to int")
+	_check(v.incremented(4) == 5 and v.incremented(null) == null, "a compound assignment to a narrowed int?")
 	var target := TargetCheck.new()
 	var plain_node := Node.new()
 	_check(v.hit(target, 2.5) and v.hit(target, 1) and not v.hit(plain_node, 1) and v.taken_by(target) == 3.5, "is with an interface of another script, and its method")

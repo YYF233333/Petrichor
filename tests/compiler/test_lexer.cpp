@@ -68,6 +68,18 @@ TEST_CASE("numbers") {
 	CHECK(tokens[5].kind == TokenKind::Int);
 }
 
+TEST_CASE("a digit the base lacks, or a letter after a number, is an error") {
+	for (const char *source : { "0b102", "0b2", "0xFG", "12px" }) {
+		std::vector<Diagnostic> errors;
+		tokenize(source, errors);
+		CHECK_MESSAGE(errors.size() == 1, source);
+	}
+	std::vector<Diagnostic> errors;
+	const std::vector<Token> tokens = tokenize("0b1_01 1.5.floor()", errors);
+	CHECK(errors.empty());
+	CHECK(tokens[0].int_value == 5);
+}
+
 TEST_CASE("an integer literal beyond int64 is an error") {
 	std::vector<Diagnostic> errors;
 	tokenize("9223372036854775809", errors);

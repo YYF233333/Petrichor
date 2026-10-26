@@ -1494,6 +1494,12 @@ class Checker : public ClassRelation {
 		r_expr.engine_params = params;
 		r_expr.engine_return = result;
 		if (base_name == "Array" && !p_base.args.empty()) {
+			// With T?, the pop methods give T??, which tells an empty array from
+			// a None element (spec §3.8).
+			const bool pops = r_expr.text == "pop_front" || r_expr.text == "pop_back" || r_expr.text == "pop_at";
+			if (pops && p_base.args[0].is_optional()) {
+				return fail(r_expr, "\"" + r_expr.text + "()\" of " + p_base.to_string() + " gives " + p_base.args[0].to_string() + "?, which is not supported yet.");
+			}
 			element_typed(r_expr.text, p_base, params, result);
 		}
 		// A method that changes a value changes it where it came from, which
@@ -1951,14 +1957,17 @@ class Checker : public ClassRelation {
 
 	/* Statements */
 
-	void check_block(Block &r_block, const std::unordered_map<int, Type> &p_facts = {}) {
+	// Returns what is known at the end of the block, starting from `p_facts`.
+	std::unordered_map<int, Type> check_block(Block &r_block, const std::unordered_map<int, Type> &p_facts = {}) {
 		scopes.emplace_back();
 		narrowed.push_back(p_facts);
 		for (auto &stmt : r_block) {
 			check_stmt(*stmt);
 		}
+		std::unordered_map<int, Type> facts = std::move(narrowed.back());
 		narrowed.pop_back();
 		scopes.pop_back();
+		return facts;
 	}
 
 	void declare_local(Stmt &r_stmt, const Type &p_type) {
@@ -2056,26 +2065,32 @@ class Checker : public ClassRelation {
 					check_value(*r_stmt.value);
 					return;
 				}
+				const bool compound = r_stmt.assign_op != TokenKind::Equal;
+				// A compound assignment reads the local as it is narrowed.
+				const Type read_type = target_type;
 				const int local = target.target == Target::Local ? target.index : -1;
 				if (local >= 0) {
 					// A narrowed local takes what its declared type takes.
 					target_type = function->locals[local].type;
-					target.type = target_type;
+					if (!compound) {
+						target.type = target_type;
+					}
 				}
-				Type value = check_value(*r_stmt.value, r_stmt.assign_op == TokenKind::Equal ? target_type : Type::of(TypeKind::Error));
+				Type value = check_value(*r_stmt.value, compound ? Type::of(TypeKind::Error) : target_type);
+				const bool place = !target_type.is_error() && check_place(target);
+				if (compound && place) {
+					value = binary_type(compound_operator(r_stmt.assign_op), read_type, value, r_stmt.line, r_stmt.column);
+					r_stmt.compound_result = value;
+				}
 				if (local >= 0) {
 					forget(local);
 					// Narrowing follows the new value (spec §5.4).
-					if (r_stmt.assign_op == TokenKind::Equal && target_type.is_optional() && !value.is_error() && !value.is_optional() && value.kind != TypeKind::None) {
+					if (target_type.is_optional() && !value.is_error() && !value.is_optional() && value.kind != TypeKind::None) {
 						narrowed.back()[local] = target_type.unwrapped();
 					}
 				}
-				if (target_type.is_error() || !check_place(target)) {
+				if (!place) {
 					return;
-				}
-				if (r_stmt.assign_op != TokenKind::Equal) {
-					value = binary_type(compound_operator(r_stmt.assign_op), target_type, value, r_stmt.line, r_stmt.column);
-					r_stmt.compound_result = value;
 				}
 				expect_assignable(*r_stmt.value, value, target_type, "assign");
 				return;
@@ -2083,14 +2098,15 @@ class Checker : public ClassRelation {
 			case StmtKind::If: {
 				expect_condition(*r_stmt.condition);
 				const Facts facts = facts_of(*r_stmt.condition);
-				check_block(r_stmt.body, facts.when_true);
-				check_block(r_stmt.else_body, facts.when_false);
-				// What holds where a branch that always leaves did not run.
+				const std::unordered_map<int, Type> then_end = check_block(r_stmt.body, facts.when_true);
+				const std::unordered_map<int, Type> else_end = check_block(r_stmt.else_body, facts.when_false);
+				// Where one branch always leaves, what holds at the end of the
+				// other, which may have assigned what the condition tested.
 				if (always_exits(r_stmt.body)) {
-					add_facts(facts.when_false);
+					add_facts(else_end);
 				}
 				if (always_exits(r_stmt.else_body)) {
-					add_facts(facts.when_true);
+					add_facts(then_end);
 				}
 				return;
 			}

@@ -319,7 +319,7 @@ class Lexer {
 			while (true) {
 				const unsigned char c = peek();
 				const bool hex = base == 16 && ((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
-				if (is_digit(c) || hex) {
+				if ((base == 2 ? c == '0' || c == '1' : is_digit(c)) || hex) {
 					digits.push_back(char(c));
 					advance();
 				} else if (c == '_') {
@@ -349,9 +349,18 @@ class Lexer {
 				take_digits();
 			}
 		}
+		// A digit the base does not have, or a letter, ends the number in an
+		// error: 0b102, 0xFG, 12px, as in GDScript
+		// (modules/gdscript/gdscript_tokenizer.cpp:824-827).
+		const bool trailing = is_identifier_char(peek());
+		while (is_identifier_char(peek())) {
+			advance();
+		}
 		if (digits.empty()) {
 			error(start_line, start_column, "Expected digits after the number prefix.");
 			digits = "0";
+		} else if (trailing) {
+			error(start_line, start_column, "Invalid numeric notation.");
 		}
 
 		errno = 0;
