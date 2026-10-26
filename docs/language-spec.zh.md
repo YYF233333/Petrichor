@@ -659,7 +659,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 8.1 程序错误
 
-- 程序错误中止本语言的整条调用链，退回到引擎调用进来的入口。退出时释放持有的引用，记录错误和调用栈；在编辑器中运行时进入调试器。游戏继续运行。
+- 程序错误中止本语言的整条调用链，退回到引擎调用进来的入口。对本语言的类所声明方法的调用都属于这条链，无论接收者是哪个类、是否经接口调用；引擎调用进来的地方，例如信号、Callable 和引擎虚函数，才开始新的链。退出时释放持有的引用，记录错误和调用栈；在编辑器中运行时进入调试器。游戏继续运行。
 - 程序错误的检测和处理在 debug 和 release 构建中一致；唯一的例外是 `assert`（§8.3）。debug 构建只补充诊断信息，并在退出时报告泄漏（§6.7、§12.5）。
 - 若引擎调用的入口需要返回值，引擎得到该类型的默认值。
 - 本文中称为“程序错误”的情况都按这一条处理，包括：访问已释放的对象（§3.3）、`unwrap` 和 `expect` 失败、越界下标、整数除以 0、就绪前读取尚未赋值的成员、跨引擎边界的入口检查失败（§10.1）、等待被取消的任务（§9.2）。
@@ -895,7 +895,8 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 12.4 热重载
 
 - 只修改函数体时，运行中直接替换：下一次调用使用新代码，正在挂起的协程用旧版本执行完。
-- 修改成员、签名或类结构时不迁移状态，提示需要重新运行；编辑器中的 tool 脚本重建实例。
+- 修改成员、签名或类结构时不迁移状态，提示需要重新运行：运行中的游戏不应用这次修改，此后的修改也一律不应用，直到重新运行，使一次运行中每个类只有一个版本；编辑器中的 tool 脚本重建实例。
+- 理由：只让之后新建的实例使用新版本，同一次运行中同一个类会有两个版本，按旧声明编译的代码可能调用新实例；而在拒绝一处声明修改之后，只改函数体的脚本也可能已按新的声明编译。GDScript 让所有实例换用新代码，按成员名搬移旧值而不检查类型（`modules/gdscript/gdscript_compiler.cpp:3070-3074`，`modules/gdscript/gdscript.cpp:2038-2064`），在静态类型下搬过去的值不可信。
 
 ### 12.5 调试支持
 
@@ -1022,13 +1023,14 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 场景定型 | `$Head/Camera` 按场景定为 Camera3D；两个场景给出不同类型时报编译错误；找不到的路径标在缺少该节点的场景上；只被继承的基础场景缺少继承它的场景都有的节点时不报错，被 preload 的占位场景缺少时报错；`get_node_or_null("X")` 在部分场景中缺失时类型为 `T?` 且不报错；任何场景中都没有的 `$X` 报编译错误，`get_node_or_null("X")` 得 `Node?` 并给出警告；`/root/X` 报编译错误并给出 autoload 全局名；声明 `@owner(T)` 的组件场景被实例化到别的场景中时合法，作为根使用时报编译错误；声明 `@owner(T)` 的节点移出 owner 的子树后不读 owner 不报错，读取时是程序错误；未声明 `@parent` 时 `get_parent().add_child(x)` 报编译错误，快速修复补上 `@parent(T)`；游离节点上 `var p = get_parent()` 得 None；声明 `@parent(Node2D)` 的节点在场景中挂在 Control 下时报编译错误 |
 | 导出检查 | player.tscn 的 `crosshair` 由 main.tscn 的实例赋值时不报错；某个实例没有赋值时标在该实例所在的场景上；没有被引用的场景只给警告，导出时不报错；运行中缺值时就绪报程序错误并写明成员名；有确定缺值的场景时，导出窗口显示失败并写明场景和成员名，无界面分析命令返回非零；`PackedScene[Boss]` 可以赋给 `PackedScene[Enemy]`；新增了不导出的必须赋值成员的 Boss 场景填入 `PackedScene[Enemy]` 时，标在填入它的场景上报错；Enemy 有不导出的必须赋值成员 `target` 时，导出的 `PackedScene[Enemy]` 调用 `instantiate()` 漏传报编译错误 |
 | 资源 | 修改共享资源给出警告和两个快速修复；`duplicate()` 保持静态类型；`preload` 环报编译错误 |
-| 程序错误 | `_process` 往下两层调用中的程序错误中止这两层和 `_process`，下一帧照常调用 `_process`；需要返回值的入口，引擎得到该类型的默认值；除 `assert` 外，程序在 debug 和 release 构建中行为相同；无限递归在第 1025 层调用处成为程序错误，进程不崩溃 |
+| 程序错误 | `_process` 往下两层调用中的程序错误中止这两层和 `_process`，下一帧照常调用 `_process`；需要返回值的入口，引擎得到该类型的默认值；除 `assert` 外，程序在 debug 和 release 构建中行为相同；无限递归在第 1025 层调用处成为程序错误，进程不崩溃；调用另一个类的方法时，其中的程序错误同样中止调用方 |
 | 断言 | debug 构建中 `assert(false)` 是程序错误；release 构建中 `assert(f())` 不调用 f；`assert(await t)` 报编译错误；`assert(save_data)` 在 save_data 为 `Resource?` 时报编译错误并给出 `save_data != None` |
 | 协程 | 含 await 而未声明 async 报编译错误；丢弃 async 调用的结果报编译错误，`f().detach()` 合法；`cancel()` 之后结果一定是取消；`await f(...)` 启动的子任务随父任务取消，`await t` 只停止等待；被等待的兄弟节点与等待方在同一次场景释放中被删除时不报错；被等待的对象被单独释放时，等待方在本帧结束后报程序错误，`Task.of(信号).settled()` 得 `Cancelled(CancelReason.AWAITED_FREED)`；失败的任务经 `settled()` 等待时，失败照常传给等待方；`var t: Task[void] = f()` 合法，没有类型实参的 `Task` 报编译错误；所属对象被释放时协程静默取消；GDScript 对象在其协程第二次挂起期间被释放时，await 这个协程的等待方在本帧结束后报程序错误，经 Callable 调用时相同 |
 | 引擎边界 | 未审核的、返回对象的引擎方法类型为 `T?`；`get_tree()` 非空，`get_collider()` 可空；未审核的虚函数参数和信号参数为 T，引擎传入 null 是程序错误；未审核的参数接受 None；GDScript 向非空参数传入 null 是程序错误；远程检查器向非空成员写入 null 时原值不变；经信号传出的 struct 是按字段名编码的 Dictionary，`Command.MOVE(target = p)` 是 `{"$variant": "MOVE", "target": p}` |
 | 工具函数 | `min(1.5, 1)` 报编译错误并给出 `min(1.5, 1.0)`；`lerp(a, b, t)` 的结果与 a 同类型；`find_children("*", "MeshInstance3D")` 为 `Array[MeshInstance3D]` |
 | 字符串 | 期望 StringName 的字面量在编译期构造；`&"a" == "a"` 为真；字面量成员名不存在时报编译错误，并参与重命名 |
 | 跨语言 | GDScript 文件继承本语言的类时，分析服务在该文件上报错并说明原因；await GDScript 协程得到按声明类型检查的结果；作为语句调用 GDScript 协程不报错，把它的结果当作值使用而不写 await 是程序错误；GDScript await 本语言的协程，在取消时得到 null 而不挂起；GDScript await 本语言中返回 Transform3D 的协程时没有警告，取消时把结果赋给 Transform3D 变量，在 debug 构建中报赋值错误而不崩溃；GDScript 持有 `p: Player` 时，属性、方法和信号的类型错误报 GDScript 编译错误；`Player.new()` 的类型为 Player，多传实参报 GDScript 编译错误 |
+| 热重载 | 只改函数体时，运行中的实例下一次调用使用新代码；修改成员或签名后，运行中的游戏不应用这次修改，此后只改函数体的修改也不应用，直到重新运行 |
 | 重构 | 导出成员改名时场景中的键同时修改；场景编辑器中给节点改名或移动节点时脚本中的 `$X` 同时修改，并在同一撤销步骤中，一次撤销同时还原场景和脚本，一次重做同时恢复；非字面量路径只报告 |
 
 ## 16. 反馈
@@ -1152,6 +1154,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | GDScript 函数状态恢复执行时离开实例的待处理列表 | `modules/gdscript/gdscript_function.cpp:329-330` |
 | `GDScriptFunctionState` 是内部类，不暴露它所属的实例；`is_valid` 在恢复执行之后总是为假 | `modules/gdscript/gdscript_function.cpp:288-307, 337, 364-370`；`modules/gdscript/register_types.cpp:140` |
 | GDScript 脚本重载时清除挂起的函数，不发出信号 | `modules/gdscript/gdscript.cpp:1487-1506`；`modules/gdscript/gdscript_compiler.cpp:2700` |
+| GDScript 保留状态的重载让所有实例换用新代码，按成员名搬移旧值，不检查类型 | `modules/gdscript/gdscript_compiler.cpp:3070-3074`；`modules/gdscript/gdscript.cpp:2038-2064` |
 | await 多参数信号得到由实参组成的 Array | `modules/gdscript/gdscript_function.cpp:256-274` |
 | 被等待的对象被释放后，GDScript 的等待方永远挂起 | `modules/gdscript/gdscript.cpp:2069-2079` |
 | RefCounted 类中的 lambda 强引用 self | `modules/gdscript/gdscript_lambda_callable.cpp:285-291` |
@@ -1190,3 +1193,5 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 嵌套的 Option 合并为一层（Kotlin 的做法） | 泛型代码的行为随 T 改变；容器中存入的 None 与缺少的值无法区分 | §3.4 |
 | lambda 不写 async，按函数体或期望类型推断 | 判断函数是否为 async 要用多条规则，lambda 和方法值能传到哪里也会不同 | §9.1 |
 | async 方法向引擎报告声明的返回类型 | GDScript 中每处 await 都有警告；取消时的 null 写入值类型的临时变量会使进程崩溃 | §9.8 |
+| 热重载修改声明后，让之后新建的实例使用新版本 | 同一次运行中同一个类有两个版本，按旧声明编译的代码可能调用新实例；主要用途只是调整不断新建的对象 | §12.4 |
+| 热重载修改声明后，像 GDScript 那样按成员名迁移状态 | 成员的类型可能已经改变，静态类型下搬过去的值不可信 | §12.4 |
