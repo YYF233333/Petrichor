@@ -241,7 +241,10 @@ TEST_CASE("a member of a property is changed in a copy and written back") {
 	CHECK(module.fields[0].type == ValueType::Float);
 }
 
-TEST_CASE("member initializers that are not literals run in the init function") {
+// Spec §6.1: literals among them, as GDScript runs them
+// (modules/gdscript/gdscript_compiler.cpp:2398-2435); a literal is also the
+// editor's default value.
+TEST_CASE("member initializers run in the init function in declaration order") {
 	const bytecode::Module module = module_of(R"(extends Node
 var time = 0.0
 var rng = RandomNumberGenerator.new()
@@ -255,10 +258,10 @@ var first := rng.randi()
 	const bytecode::Function &init = module.functions[module.init_function];
 	CHECK(init.params.empty());
 	CHECK(!init.is_pub);
-	CHECK(in_order(opcodes(module, init.name), { Op::NEW_OBJECT, Op::STORE_MEMBER_VALUE, Op::LOAD_MEMBER_VALUE, Op::CALL_ENGINE, Op::STORE_MEMBER_8 }));
+	CHECK(in_order(opcodes(module, init.name), { Op::CONST_FLOAT, Op::STORE_MEMBER_8, Op::NEW_OBJECT, Op::STORE_MEMBER_VALUE, Op::LOAD_MEMBER_VALUE, Op::CALL_ENGINE, Op::STORE_MEMBER_8 }));
 	REQUIRE(module.classes.size() == 1);
 	CHECK(module.classes[0].name == "RandomNumberGenerator");
-	CHECK(module_of("extends Node\nvar a := 1\n").init_function == -1);
+	CHECK(module_of("extends Node\nvar a: int\n").init_function == -1);
 }
 
 // Hot reload compares the init function and the entries it uses (spec §12.4).

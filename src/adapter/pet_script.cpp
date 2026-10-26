@@ -543,8 +543,8 @@ bool PetScript::_has_property_default_value(const StringName &p_property) const 
 	if (!current) {
 		return false;
 	}
-	// Only a literal initial value is a default; other initializers run per
-	// instance (spec §6.1).
+	// Only a literal initial value is a default; other initializers give each
+	// instance its own value (spec §6.1).
 	const int index = current->find_member(p_property);
 	return index >= 0 && is_visible(current->module.members[index]) && current->module.members[index].has_initial;
 }

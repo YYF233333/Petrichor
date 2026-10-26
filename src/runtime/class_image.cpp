@@ -335,7 +335,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	if (a.interfaces != b.interfaces) {
 		return false;
 	}
-	// Non-literal initializers belong to the declarations, not to a body.
+	// Initializers belong to the declarations, not to a body.
 	if (!same_initializers(a, b)) {
 		return false;
 	}

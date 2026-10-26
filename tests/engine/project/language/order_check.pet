@@ -1,0 +1,18 @@
+# Member initializers run in declaration order (spec §6.1), as in GDScript
+# (modules/gdscript/gdscript_compiler.cpp:2365-2435): a method that an earlier
+# initializer calls finds later members at their type's default value, and a
+# later literal writes over what that method wrote. Driven by language_test.gd.
+class_name OrderCheck
+extends RefCounted
+
+pub var seen := read_later()
+pub var later := 9
+pub var written := write_later()
+pub var overwritten := 3
+
+func read_later() -> int:
+	return later
+
+func write_later() -> int:
+	overwritten = 5
+	return 1

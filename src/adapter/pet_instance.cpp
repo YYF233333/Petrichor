@@ -112,17 +112,13 @@ void free_method_list(const GDExtensionMethodInfo *p_list, uint32_t p_count) {
 
 PetInstance::PetInstance(PetScript *p_script, const std::shared_ptr<const ClassImage> &p_image, Object *p_owner) :
 		owner(p_owner->_owner), owner_object(p_owner), script(Ref<PetScript>(p_script)), image(p_image) {
+	// Every member starts at its type's default value; then the initializers
+	// run in declaration order, before anything else runs on the instance, as
+	// in GDScript (spec §6.1; modules/gdscript/gdscript_compiler.cpp:2365-2435).
+	// A program error in them ends the engine's call, as in the ready function,
+	// so _init() does not run either (§8.1).
 	members = static_cast<uint8_t *>(::operator new(image->members_layout.size));
 	image->members_layout.construct(members);
-	for (const bytecode::Member &member : image->module.members) {
-		if (member.has_initial) {
-			from_variant(member.type, initial_value(*image, member), members + member.offset);
-		}
-	}
-	// The other initializers, in declaration order, before anything else runs
-	// on the instance (spec §6.1). A program error in them ends the engine's
-	// call, as in the ready function, so _init() does not run either (§8.1);
-	// the members keep their default values.
 	const InstanceContext context{ members, owner_object };
 	if (image->module.init_function >= 0) {
 		GDExtensionCallError error;

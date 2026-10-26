@@ -62,6 +62,8 @@ func _ready() -> void:
 	var half_made := InitCheck.new()
 	Engine.print_error_messages = true
 	_check(not half_made.init_ran, "a program error in a member initializer ends the construction before _init()")
+	var ordered := OrderCheck.new()
+	_check(ordered.seen == 0 and ordered.later == 9 and ordered.written == 1 and ordered.overwritten == 3, "member initializers run in declaration order, literals among them")
 	unready.queue_free()
 	_check(v.scaled(2) == Vector3(2, 4, 6), "Vector3 * float through the engine's operator")
 	_check(is_equal_approx(v.length_of(3, 4), 5.0), "a constructor and a method of a built-in type")

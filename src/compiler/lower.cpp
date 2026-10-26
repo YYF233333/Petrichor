@@ -1237,9 +1237,9 @@ class Lowerer {
 		current = new_block();
 	}
 
-	// The member initializers that are not literals, in declaration order
-	// (spec §6.1): those that run on a new instance, or the @onready ones
-	// (§6.3). Lowered before the functions, so that their code and the table
+	// The member initializers in declaration order (spec §6.1): those that run
+	// on a new instance, or the @onready ones (§6.3). Lowered before the
+	// functions, so that their code and the table
 	// entries they use stay the same when only a function body changes.
 	bool lower_initializers(bool p_onready, bytecode::Function &r_out) {
 		bool any = false;
@@ -1259,7 +1259,7 @@ class Lowerer {
 		}
 		for (size_t m = 0; m < cls.members.size(); m++) {
 			const VarDecl &member = cls.members[m];
-			if (member.is_onready != p_onready || member.literal_initializer || (!member.initializer && !is_typed_array(member.type))) {
+			if (member.is_onready != p_onready || (!member.initializer && !is_typed_array(member.type))) {
 				continue;
 			}
 			any = true;

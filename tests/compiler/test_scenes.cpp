@@ -1,3 +1,4 @@
+#include "bytecode/opcodes.h"
 #include "helpers.h"
 
 #include "doctest.h"
@@ -212,8 +213,23 @@ TEST_CASE("@onready members are set when the node is ready, from the scene") {
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	CHECK(result.module.members[0].is_onready);
 	CHECK(result.module.members[0].class_name == "Label");
-	CHECK(result.module.ready_function >= 0);
-	CHECK(result.module.init_function < 0); // shown starts as a literal.
+	REQUIRE(result.module.ready_function >= 0);
+	REQUIRE(result.module.init_function >= 0);
+	// shown is written on a new instance, health when the node is ready.
+	const auto stores = [&](int32_t p_function, size_t p_member) {
+		const bytecode::Function &fn = result.module.functions[p_function];
+		const uint32_t offset = result.module.members[p_member].offset;
+		for (size_t pc = 0; pc < fn.code.size(); pc += bytecode::instruction_length(fn.code.data() + pc)) {
+			const bytecode::Op op = bytecode::Op(fn.code[pc]);
+			if (((op == bytecode::Op::STORE_MEMBER_8 || op == bytecode::Op::STORE_MEMBER_STRING) && fn.code[pc + 1] == offset) || (op == bytecode::Op::STORE_MEMBER_VALUE && fn.code[pc + 2] == offset)) {
+				return true;
+			}
+		}
+		return false;
+	};
+	CHECK(stores(result.module.init_function, 1));
+	CHECK(!stores(result.module.init_function, 0));
+	CHECK(stores(result.module.ready_function, 0));
 
 	const auto errors = [](const std::string &p_members) {
 		return messages(compile_in("extends CanvasLayer\n" + p_members + "\n", hud_scene()));

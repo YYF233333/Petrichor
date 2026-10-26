@@ -112,7 +112,8 @@ struct Member {
 	// For the inspector: PropertyHint as the engine numbers it, and its string.
 	uint32_t hint = 0;
 	std::string hint_string;
-	// A literal initial value; other initializers run in the module's init function.
+	// A literal initial value, which the editor shows as the default; the
+	// module's init function writes it, with the other initializers.
 	bool has_initial = false;
 	Constant initial;
 };
@@ -265,7 +266,7 @@ struct Module {
 	std::vector<ExportGroup> groups;
 	uint32_t instance_size = 0;
 	std::vector<Function> functions;
-	// Runs the member initializers that are not literals, before anything else
+	// Runs the member initializers in declaration order, before anything else
 	// on a new instance (spec §6.1); -1 when there are none. It is lowered
 	// first, so that its code and the table entries it uses, which hot reload
 	// compares as declarations, do not change when only a function body does.
