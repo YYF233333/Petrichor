@@ -1,0 +1,28 @@
+# self freed, or detached from its script, while one of its methods runs: using
+# a member afterwards is a program error (spec §3.3), where it read memory
+# already freed. Driven by language_test.gd.
+class_name FreeCheck
+extends Node
+
+signal fired
+pub var count := 7
+pub var recorder: Node?
+
+# The engine calls _process() directly, without the lock that keeps an object
+# from being freed within a call through Object::callp
+# (core/object/make_virtuals.py:1-5, core/object/object.cpp:784-788, 798).
+func _process(_delta: float):
+	set_process(false)
+	free()
+	recorder.unwrap().set_meta("after_free", count)
+
+pub func detach_and_read() -> int:
+	var no_script: Script? = None
+	set_script(no_script)
+	return count
+
+# Emitting locks the emitter against free() (core/object/object.cpp:1237), but
+# not against losing its script.
+pub func fire_and_read() -> int:
+	fired.emit()
+	return count

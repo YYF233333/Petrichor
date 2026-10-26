@@ -175,6 +175,21 @@ func _ready() -> void:
 	v.through_instance(other_values)
 	Engine.print_error_messages = true
 	_check(v.after_failure == 0, "a program error in a method of another class, of an interface or of another instance ends the caller too")
+	# Spec §3.3: self freed or detached while its method runs.
+	var lost_script := FreeCheck.new()
+	var firing := FreeCheck.new()
+	firing.fired.connect(func(): firing.set_script(null))
+	var called := FreeCheck.new()
+	Engine.print_error_messages = false
+	var read_after_detach = lost_script.detach_and_read()
+	var read_after_signal = firing.fire_and_read()
+	var read_through_call = v.through_detached(called)
+	Engine.print_error_messages = true
+	_check(read_after_detach == 0 and lost_script.get_script() == null, "reading a member after self lost its script is a program error")
+	_check(read_after_signal == 0 and firing.get_script() == null, "reading a member after a signal handler took the emitter's script is a program error")
+	_check(read_through_call == 0 and v.after_failure == 0, "the same through a call from another class, which it ends too")
+	for node in [lost_script, firing, called]:
+		node.free()
 	plain_node.name = &"Plain"
 	_check(v.direct_results(target, plain_node) == "[2, 4] [3] 2 true Plain", "a direct call passes a default value and returns typed arrays, options and objects")
 	other_values.free()
@@ -218,9 +233,15 @@ func _ready() -> void:
 	_check(replaced == null and gone == null, "$X whose node has changed class or is gone is a program error")
 
 	var frames_before: int = c.frames
+	var freeing := FreeCheck.new()
+	freeing.recorder = self
+	add_child(freeing)
+	Engine.print_error_messages = false
 	await get_tree().process_frame
 	await get_tree().process_frame
+	Engine.print_error_messages = true
 	_check(c.frames > frames_before, "_process runs every frame")
+	_check(not is_instance_valid(freeing) and not has_meta(&"after_free"), "reading a member after self was freed in _process is a program error")
 
 	print("language: %d failure(s)" % failures)
 	get_tree().quit(1 if failures > 0 else 0)

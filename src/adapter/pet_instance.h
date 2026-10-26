@@ -11,15 +11,18 @@ namespace petrichor {
 
 // The data behind one engine script instance; the engine reaches it through
 // the callbacks in `info`. Members are stored by type in one block laid out as
-// the image's members (architecture §2.2).
+// the image's members (architecture §2.2), which running calls share, so that
+// they outlive the instance when the engine deletes it during one.
 struct PetInstance {
 	GDExtensionObjectPtr owner = nullptr;
 	godot::Object *owner_object = nullptr;
 	godot::Ref<PetScript> script;
-	uint8_t *members = nullptr;
+	std::shared_ptr<InstanceStorage> storage;
 
 	PetInstance(PetScript *p_script, const std::shared_ptr<const ClassImage> &p_image, godot::Object *p_owner);
 	~PetInstance();
+
+	InstanceContext context() const { return InstanceContext{ storage, owner_object }; }
 
 	// A hot reload replaces the image on the main thread while other threads
 	// may run the instance (spec §12.3), so each use takes one snapshot.

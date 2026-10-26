@@ -226,6 +226,11 @@ pub func explode():
 	var zero := 0
 	after_failure = 1 / zero
 
+pub func through_detached(target: FreeCheck) -> int:
+	var read := target.detach_and_read()
+	after_failure += 1
+	return read
+
 pub func direct_results(target: TargetCheck, n: Node) -> String:
 	var doubled := target.scaled([1, 2])
 	var tripled := target.scaled([1], 3)

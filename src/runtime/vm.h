@@ -7,14 +7,34 @@
 #include <godot_cpp/classes/object.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
+#include <atomic>
 #include <memory>
 #include <vector>
 
 namespace petrichor {
 
-// What a running function needs from the instance it runs on.
+// The members of an instance of this language. The instance and every call
+// running on it share them, so that they outlive an instance that the engine
+// deletes while one of its methods runs: the deletion marks them freed, and
+// whoever lets go of them last destroys them. Code that then uses self or a
+// member stops with a program error (spec §3.3).
+class InstanceStorage {
+	std::shared_ptr<const ClassImage> image; // Whose layout the members have, which a reload keeps.
+
+public:
+	uint8_t *const members;
+	std::atomic<bool> freed{ false };
+
+	explicit InstanceStorage(const std::shared_ptr<const ClassImage> &p_image);
+	~InstanceStorage();
+	InstanceStorage(const InstanceStorage &) = delete;
+	InstanceStorage &operator=(const InstanceStorage &) = delete;
+};
+
+// What a running function needs from the instance it runs on; holding it keeps
+// the members.
 struct InstanceContext {
-	uint8_t *members = nullptr; // Laid out as the image's members.
+	std::shared_ptr<InstanceStorage> storage; // None for a static function.
 	godot::Object *owner = nullptr;
 };
 

@@ -25,7 +25,20 @@ using bytecode::NO_SLOT;
 using bytecode::Op;
 using bytecode::ValueType;
 
+InstanceStorage::InstanceStorage(const std::shared_ptr<const ClassImage> &p_image) :
+		image(p_image), members(static_cast<uint8_t *>(::operator new(p_image->members_layout.size))) {
+	image->members_layout.construct(members);
+}
+
+InstanceStorage::~InstanceStorage() {
+	image->members_layout.destroy(members);
+	::operator delete(members);
+}
+
 namespace {
+
+// What a static function, which has no instance, reads as its instance's state.
+const std::atomic<bool> NO_INSTANCE_FREED{ false };
 
 // GDScript's default limit (debug/settings/gdscript/max_call_stack,
 // modules/gdscript/gdscript.cpp:2870); deeper recursion is a program error
@@ -190,7 +203,8 @@ public:
 		const bytecode::Function &fn = image.module.functions[p_function];
 		const bytecode::Module &module = image.module;
 		const uint32_t *code = fn.code.data();
-		uint8_t *members = context.members;
+		uint8_t *members = context.storage ? context.storage->members : nullptr;
+		const std::atomic<bool> &freed = context.storage ? context.storage->freed : NO_INSTANCE_FREED;
 		if (call_stack.capacity() < MAX_CALL_DEPTH) {
 			call_stack.reserve(MAX_CALL_DEPTH);
 		}
@@ -225,9 +239,17 @@ public:
 	} while (false)
 // Wrapping arithmetic on int, as in GDScript; through unsigned to stay defined.
 #define WRAP(m_op) int64_t(uint64_t(I64(code[pc + 2])) m_op uint64_t(I64(code[pc + 3])))
+// self and the members, unless the engine deleted the instance while this
+// function ran (spec §3.3).
+#define SELF_ALIVE()                                                                 \
+	if (freed.load(std::memory_order_relaxed)) {                                     \
+		FAIL("self was freed, or lost its script, while this method ran.");        \
+	}
 // The object an instruction works on: self, or a live object in a slot (spec §3.3).
 #define OBJECT(m_name, m_offset)                                                     \
-	if ((m_offset) != NO_SLOT && !is_live_object(frame + (m_offset))) {              \
+	if ((m_offset) == NO_SLOT) {                                                     \
+		SELF_ALIVE();                                                                \
+	} else if (!is_live_object(frame + (m_offset))) {                                \
 		FAIL(is_none(variant_at(frame + (m_offset))) ? String("The value is None.") : String("The object was freed.")); \
 	}                                                                                \
 	Variant &m_name = (m_offset) == NO_SLOT ? self() : variant_at(frame + (m_offset));
@@ -275,26 +297,32 @@ public:
 					pc += 4;
 					break;
 				case Op::LOAD_MEMBER_8:
+					SELF_ALIVE();
 					std::memcpy(frame + code[pc + 1], members + code[pc + 2], 8);
 					pc += 3;
 					break;
 				case Op::LOAD_MEMBER_STRING:
+					SELF_ALIVE();
 					STR(code[pc + 1]) = *reinterpret_cast<String *>(members + code[pc + 2]);
 					pc += 3;
 					break;
 				case Op::LOAD_MEMBER_VALUE:
+					SELF_ALIVE();
 					copy_value(ValueType(code[pc + 1]), frame + code[pc + 2], members + code[pc + 3]);
 					pc += 4;
 					break;
 				case Op::STORE_MEMBER_8:
+					SELF_ALIVE();
 					std::memcpy(members + code[pc + 1], frame + code[pc + 2], 8);
 					pc += 3;
 					break;
 				case Op::STORE_MEMBER_STRING:
+					SELF_ALIVE();
 					*reinterpret_cast<String *>(members + code[pc + 1]) = STR(code[pc + 2]);
 					pc += 3;
 					break;
 				case Op::STORE_MEMBER_VALUE:
+					SELF_ALIVE();
 					copy_value(ValueType(code[pc + 1]), members + code[pc + 2], frame + code[pc + 3]);
 					pc += 4;
 					break;
@@ -465,6 +493,7 @@ public:
 					break;
 				}
 				case Op::METHOD_VALUE:
+					SELF_ALIVE();
 					*reinterpret_cast<Callable *>(frame + code[pc + 2]) = Callable(memnew(MethodCallable(context.owner, image.function_names[code[pc + 1]])));
 					pc += 3;
 					break;
@@ -713,6 +742,7 @@ public:
 #undef STR
 #undef FAIL
 #undef WRAP
+#undef SELF_ALIVE
 #undef OBJECT
 	}
 };

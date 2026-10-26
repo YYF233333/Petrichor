@@ -117,13 +117,11 @@ PetInstance::PetInstance(PetScript *p_script, const std::shared_ptr<const ClassI
 	// in GDScript (spec §6.1; modules/gdscript/gdscript_compiler.cpp:2365-2435).
 	// A program error in them ends the engine's call, as in the ready function,
 	// so _init() does not run either (§8.1).
-	members = static_cast<uint8_t *>(::operator new(image->members_layout.size));
-	image->members_layout.construct(members);
-	const InstanceContext context{ members, owner_object };
+	storage = std::make_shared<InstanceStorage>(image);
 	if (image->module.init_function >= 0) {
 		GDExtensionCallError error;
 		bool failed = false;
-		vm::call(image, image->module.init_function, context, nullptr, 0, error, &failed);
+		vm::call(image, image->module.init_function, context(), nullptr, 0, error, &failed);
 		if (failed) {
 			return;
 		}
@@ -132,13 +130,13 @@ PetInstance::PetInstance(PetScript *p_script, const std::shared_ptr<const ClassI
 	// initializers.
 	if (image->user_init >= 0) {
 		GDExtensionCallError error;
-		vm::call(image, image->user_init, context, nullptr, 0, error);
+		vm::call(image, image->user_init, context(), nullptr, 0, error);
 	}
 }
 
+// The members go when no call runs on them any more (spec §3.3).
 PetInstance::~PetInstance() {
-	current_image()->members_layout.destroy(members);
-	::operator delete(members);
+	storage->freed = true;
 }
 
 bool resolve_instance(Object *p_object, ScriptedObject &r_instance) {
@@ -156,7 +154,7 @@ bool resolve_instance(Object *p_object, ScriptedObject &r_instance) {
 		return false;
 	}
 	r_instance.image = instance->current_image();
-	r_instance.context = InstanceContext{ instance->members, instance->owner_object };
+	r_instance.context = instance->context();
 	return true;
 }
 
@@ -190,7 +188,7 @@ static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance,
 	}
 	// A value of the wrong type is rejected, as by the entry checks (spec §10.1).
 	const size_t index = size_t(member - image->module.members.data());
-	return from_variant(member->type, *reinterpret_cast<const Variant *>(p_value), instance->members + member->offset, &image->member_checks[index]);
+	return from_variant(member->type, *reinterpret_cast<const Variant *>(p_value), instance->storage->members + member->offset, &image->member_checks[index]);
 }
 
 static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionVariantPtr r_ret) {
@@ -207,7 +205,7 @@ static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance,
 		}
 		return false;
 	}
-	*reinterpret_cast<Variant *>(r_ret) = to_variant(member->type, instance->members + member->offset);
+	*reinterpret_cast<Variant *>(r_ret) = to_variant(member->type, instance->storage->members + member->offset);
 	return true;
 }
 
@@ -291,7 +289,7 @@ static void instance_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensi
 
 	// One snapshot for the lookup and the call.
 	const std::shared_ptr<const ClassImage> image = instance->current_image();
-	const InstanceContext context{ instance->members, instance->owner_object };
+	const InstanceContext context = instance->context();
 	if (image->module.ready_function >= 0 && method == image->ready_method) {
 		// The @onready initializers run first, as in GDScript
 		// (modules/gdscript/gdscript.cpp:1948-1953); the engine calls _ready()
@@ -330,7 +328,7 @@ static void instance_notification(GDExtensionScriptInstanceDataPtr p_instance, i
 	const Variant what = int64_t(p_what);
 	const Variant *args[] = { &what };
 	GDExtensionCallError error;
-	vm::call(image, image->notification_function, InstanceContext{ instance->members, instance->owner_object }, args, 1, error);
+	vm::call(image, image->notification_function, instance->context(), args, 1, error);
 }
 
 // The engine's to_string() asks the instance (modules/gdscript/gdscript.cpp:2003-2022).
@@ -343,7 +341,7 @@ static void instance_to_string(GDExtensionScriptInstanceDataPtr p_instance, GDEx
 	}
 	GDExtensionCallError error;
 	bool failed = false;
-	const Variant text = vm::call(image, image->to_string_function, InstanceContext{ instance->members, instance->owner_object }, nullptr, 0, error, &failed);
+	const Variant text = vm::call(image, image->to_string_function, instance->context(), nullptr, 0, error, &failed);
 	if (!failed && error.error == GDEXTENSION_CALL_OK) {
 		*reinterpret_cast<String *>(r_out) = text;
 		*r_is_valid = true;
