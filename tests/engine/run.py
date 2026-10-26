@@ -177,8 +177,9 @@ def run_hot_reload(godot):
 
     When the scene asks for a version, it is put in place and announced with
     reload_scripts, as the editor does after a save (script_editor_plugin.cpp:
-    738-741, 776-801); the game reloads it at its next idle poll
-    (remote_debugger.cpp:689-719)."""
+    738-741, 776-801); the game reloads it at the end of the idle poll that
+    reads the message (remote_debugger.cpp:663-719). A message of the test's
+    own follows, which tells the scene that the reload has been handled."""
     with socket.create_server(("127.0.0.1", 0)) as server:
         server.settimeout(TIMEOUT)
         install_live_version(1)
@@ -202,6 +203,7 @@ def run_hot_reload(godot):
                         break
                     install_live_version(version)
                     send_editor_message(connection, "reload_scripts", [LIVE_SCRIPT])
+                    send_editor_message(connection, "hot_reload_test:reloaded", [])
                 return running.finish()
         finally:
             (HOT_RELOAD / "live.pet").unlink(missing_ok=True)
@@ -410,10 +412,9 @@ def run_debugger_groups(godot):
         ],
     )
 
-    # Spec §12.4: a body change replaces the code of running instances; any
-    # other change leaves them on the old code and asks for a new run. Each
-    # instance is compared with the code it runs, not with the previous version.
-    kept_old_code = f"{LIVE_SCRIPT}: more than function bodies changed since some instances were created. They keep their old code; run the scene again to apply the change."
+    # Spec §12.4: a body change replaces the code of running instances; after
+    # any other change the game keeps its code, and applies no later reload
+    # until it runs again.
     code, output = run_hot_reload(godot)
     expect_run(
         "hot reload",
@@ -422,9 +423,9 @@ def run_debugger_groups(godot):
         [
             "hot reload: waiting for version 2",
             "hot reload: waiting for version 3",
-            kept_old_code,
+            f"{LIVE_SCRIPT}: more than function bodies changed, so the running game keeps its code, and reloads no script until it runs again.",
             "hot reload: waiting for version 4",
-            kept_old_code,
+            f"{LIVE_SCRIPT}: not reloaded, since an earlier change needs the game to run again.",
             "hot reload: 0 failure(s)",
         ],
     )

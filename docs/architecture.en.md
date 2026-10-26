@@ -62,7 +62,7 @@ This document records implementation decisions: how the components are split, ho
 - The headless command writes bytecode to `.godot/petrichor/` as well; tests and CI use it in place of the editor.
 - Export: the export plugin puts the bytecode in the exported package (§1).
 - Bytecode carries no version number before the first release. A file carries an identifier of its format, a hash of `src/bytecode/` computed at build time, and is read only by builds with the same identifier; the editor library and the export templates built from the same sources therefore agree. The build before running recompiles every script, so the cache needs no other check of freshness.
-- Hot reload: when only function bodies change, the editor recompiles and tells the game over the debugger connection, and the game reloads the script from `.godot/petrichor/` (spec §12.4).
+- Hot reload: when a script is saved, the editor recompiles it and tells the game over the debugger connection, and the game reloads the script from `.godot/petrichor/`. When only function bodies changed, running instances switch to the new code; when declarations changed, the game keeps the code it has and applies no reload until it runs again (spec §12.4).
 
 ### 2.5 Repository layout
 

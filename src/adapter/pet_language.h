@@ -15,6 +15,10 @@ protected:
 public:
 	static PetLanguage *get_singleton() { return singleton; }
 
+	// Set in the game once a hot reload changed more than function bodies; no
+	// reload is applied after that until the game runs again (spec §12.4).
+	bool reloads_refused = false;
+
 	PetLanguage();
 	~PetLanguage();
 

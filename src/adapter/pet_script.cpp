@@ -283,32 +283,17 @@ void PetScript::set_loaded(const String &p_source, const std::shared_ptr<const C
 }
 
 void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image) {
-	bool kept_old_code = false;
 	{
 		std::lock_guard<std::mutex> lock(mutex);
 		image = p_image;
-		if (p_image) {
-			// Each instance is compared with the image it holds, which can be
-			// older than the script's previous one: an instance that kept its
-			// code through one reload keeps its member layout too.
-			for (PetInstance *instance : instances) {
-				const std::shared_ptr<const ClassImage> held = instance->current_image();
-				if (held == p_image) {
-					continue;
-				}
-				if (p_image->same_declarations(*held)) {
-					// Only function bodies differ: the instance switches to the
-					// new code, and frames already running finish with the old
-					// (spec §12.4).
-					instance->replace_image(p_image);
-				} else {
-					kept_old_code = true;
-				}
+		// Instances exist only in the game, where a reload gets here only when
+		// function bodies alone changed (_reload()): they switch to the new
+		// code, and frames already running finish with the old (spec §12.4).
+		for (PetInstance *instance : instances) {
+			if (p_image) {
+				instance->replace_image(p_image);
 			}
 		}
-	}
-	if (kept_old_code) {
-		WARN_PRINT(get_script_path() + ": more than function bodies changed since some instances were created. They keep their old code; run the scene again to apply the change.");
 	}
 	if (p_image) {
 		_update_exports();
@@ -429,6 +414,20 @@ Error PetScript::_reload(bool p_keep_state) {
 	if (!loaded) {
 		ERR_PRINT(vformat("%s %s", path, error));
 		return ERR_FILE_CORRUPT;
+	}
+	// Only function bodies change in a running game. After any other change
+	// it keeps the code it has, for this script and every later reload, so
+	// that a class has one version in a run (spec §12.4).
+	PetLanguage *language = PetLanguage::get_singleton();
+	const std::shared_ptr<const ClassImage> current = get_image();
+	if (language->reloads_refused) {
+		WARN_PRINT(vformat("%s: not reloaded, since an earlier change needs the game to run again.", path));
+		return OK;
+	}
+	if (current && !loaded->same_declarations(*current)) {
+		language->reloads_refused = true;
+		WARN_PRINT(vformat("%s: more than function bodies changed, so the running game keeps its code, and reloads no script until it runs again.", path));
+		return OK;
 	}
 	source = new_source;
 	header = parse_header(new_source);

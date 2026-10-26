@@ -1,4 +1,5 @@
-# Hot reload, version 3: a member was added.
+# Hot reload, version 3: a member was added, which the running game does not
+# apply (spec §12.4).
 extends Node
 
 pub var count := 0

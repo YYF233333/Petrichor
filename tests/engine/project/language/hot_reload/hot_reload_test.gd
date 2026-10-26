@@ -3,7 +3,10 @@ extends Node
 # Hot reload (spec §12.4), with run.py standing in for the editor: when this
 # scene asks for a version, run.py puts that version of live.pet and its
 # bytecode in place and sends reload_scripts over the debugger connection, as
-# the editor does when a script is saved.
+# the editor does when a script is saved, then a message of its own. The game
+# reloads at the end of the poll that reads reload_scripts
+# (core/debugger/remote_debugger.cpp:663-719), so once the message has arrived
+# the reload has been handled, whether it was applied or not.
 
 const LIVE := "res://language/hot_reload/live.pet"
 # Headless frames are not paced, so the wait is measured in time.
@@ -12,9 +15,10 @@ const MAX_WAIT_MSEC := 30000
 var failures := 0
 var live: Script
 var node: Node # Created under version 1.
-var fresh: Node # Created under version 3.
+var fresh: Node # Created after version 3 was refused.
 var waiting_for := 0
 var asked_at := 0
+var reloaded := false
 
 
 func _check(ok: bool, what: String) -> void:
@@ -24,6 +28,7 @@ func _check(ok: bool, what: String) -> void:
 
 
 func _ready() -> void:
+	EngineDebugger.register_message_capture("hot_reload_test", _on_message)
 	live = load(LIVE)
 	node = live.new()
 	add_child(node)
@@ -32,27 +37,32 @@ func _ready() -> void:
 	_ask_for(2)
 
 
+func _on_message(message: String, _data: Array) -> bool:
+	reloaded = message == "reloaded"
+	return true
+
+
 func _ask_for(version: int) -> void:
 	waiting_for = version
 	asked_at = Time.get_ticks_msec()
+	reloaded = false
 	print("hot reload: waiting for version ", version)
 
 
 func _process(_delta: float) -> void:
-	if waiting_for == 2 and node.value() != 1:
+	if reloaded and waiting_for == 2:
 		_check(node.value() == 50, "after a body change, the instance runs the new code on its members")
 		_ask_for(3)
-	elif waiting_for == 3 and live.get_script_property_list().any(func(property): return property.name == "extra"):
+	elif reloaded and waiting_for == 3:
 		_check(node.value() == 50, "after a member change, the instance keeps its code")
+		_check(not live.get_script_property_list().any(func(property): return property.name == "extra"), "after a member change, the script keeps its members")
 		fresh = live.new()
 		add_child(fresh)
-		_check(fresh.value() == 3, "after a member change, a new instance runs the new code")
 		fresh.count = 2
-		fresh.extra = 7
+		_check(fresh.value() == 20, "after a member change, a new instance runs the code from before it")
 		_ask_for(4)
-	elif waiting_for == 4 and fresh.value() != 3:
-		_check(fresh.value() == 207, "after a later body change, the newer instance runs the new code on its members")
-		_check(node.value() == 50 and node.count == 5, "an instance from before the member change keeps its code and members")
+	elif reloaded and waiting_for == 4:
+		_check(node.value() == 50 and fresh.value() == 20, "after a refused change, a later body change is not applied either")
 		node.free()
 		fresh.free()
 		_finish()
@@ -62,6 +72,7 @@ func _process(_delta: float) -> void:
 
 
 func _finish() -> void:
+	EngineDebugger.unregister_message_capture("hot_reload_test")
 	print("hot reload: %d failure(s)" % failures)
 	set_process(false)
 	get_tree().quit()
