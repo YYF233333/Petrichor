@@ -188,7 +188,9 @@ func _ready() -> void:
 	_check(read_after_detach == 0 and lost_script.get_script() == null, "reading a member after self lost its script is a program error")
 	_check(read_after_signal == 0 and firing.get_script() == null, "reading a member after a signal handler took the emitter's script is a program error")
 	_check(read_through_call == 0 and v.after_failure == 0, "the same through a call from another class, which it ends too")
-	for node in [lost_script, firing, called]:
+	var returning := FreeCheck.new()
+	_check(returning.detach_and_return(21) == 42 and returning.get_script() == null, "a method that removes its script and then uses no member or self ends normally")
+	for node in [lost_script, firing, called, returning]:
 		node.free()
 	plain_node.name = &"Plain"
 	_check(v.direct_results(target, plain_node) == "[2, 4] [3] 2 true Plain", "a direct call passes a default value and returns typed arrays, options and objects")

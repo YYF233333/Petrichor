@@ -21,6 +21,12 @@ pub func detach_and_read() -> int:
 	set_script(no_script)
 	return count
 
+# Without using a member or self after it, the method ends normally.
+pub func detach_and_return(value: int) -> int:
+	var no_script: Script? = None
+	set_script(no_script)
+	return value * 2
+
 # Emitting locks the emitter against free() (core/object/object.cpp:1237), but
 # not against losing its script.
 pub func fire_and_read() -> int:
