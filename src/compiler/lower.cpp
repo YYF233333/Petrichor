@@ -42,15 +42,25 @@ ValueType value_type(const Type &p_type) {
 	}
 }
 
+// An interface as the runtime names it, "script::Name" (spec §3.9).
+std::string interface_id(const Type &p_interface) {
+	return p_interface.script + "::" + p_interface.name.substr(p_interface.name.find_last_of('.') + 1);
+}
+
 bytecode::Slot slot_of(const std::string &p_name, const Type &p_type) {
 	bytecode::Slot slot;
 	slot.name = p_name;
 	slot.type = value_type(p_type);
-	// The engine's class, and for a class of this language its script; an
-	// interface is not checked at the entry yet.
+	// The engine's class, and for a class of this language its script; for an
+	// interface, the script that declares it and its name, as the runtime
+	// names interfaces.
 	const auto object_class = [&](const Type &p_object) {
 		slot.class_name = p_object.engine_class();
-		slot.script = p_object.is_interface ? std::string() : p_object.script;
+		if (p_object.is_interface) {
+			slot.interface_name = interface_id(p_object);
+		} else {
+			slot.script = p_object.script;
+		}
 	};
 	if (p_type.kind == TypeKind::Object) {
 		object_class(p_type);
@@ -1301,7 +1311,7 @@ public:
 		module.global_name = cls.class_name;
 		module.base_class = cls.extends;
 		for (const Type &interface : cls.implemented) {
-			module.interfaces.push_back(interface.script + "::" + interface.name.substr(interface.name.find_last_of('.') + 1));
+			module.interfaces.push_back(interface_id(interface));
 		}
 		module.declarations_only = p_declarations_only;
 		uint32_t offset = 0;
@@ -1314,6 +1324,7 @@ public:
 			member.type = p_declarations_only && slot.type == ValueType::Void ? ValueType::Variant : slot.type;
 			member.class_name = slot.class_name;
 			member.script = slot.script;
+			member.interface_name = slot.interface_name;
 			member.nullable = slot.nullable;
 			member.option = slot.option;
 			member.element = slot.element;

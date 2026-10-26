@@ -224,8 +224,15 @@ bool same_constant(const bytecode::Constant &p_a, const bytecode::Constant &p_b)
 	return p_a.type == p_b.type && p_a.b == p_b.b && p_a.i == p_b.i && p_a.f == p_b.f && p_a.s == p_b.s && p_a.builtin == p_b.builtin;
 }
 
+// What a slot or a member holds, as an entry check reads it.
+template <typename T>
+bool same_description(const T &p_a, const T &p_b) {
+	return p_a.type == p_b.type && p_a.class_name == p_b.class_name && p_a.script == p_b.script && p_a.interface_name == p_b.interface_name &&
+			p_a.nullable == p_b.nullable && p_a.option == p_b.option && p_a.element == p_b.element;
+}
+
 bool same_slot(const bytecode::Slot &p_a, const bytecode::Slot &p_b) {
-	return p_a.name == p_b.name && p_a.type == p_b.type && p_a.class_name == p_b.class_name && p_a.script == p_b.script && p_a.nullable == p_b.nullable && p_a.option == p_b.option && p_a.element == p_b.element;
+	return p_a.name == p_b.name && same_description(p_a, p_b);
 }
 
 template <typename T, typename Same>
@@ -305,7 +312,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	for (size_t i = 0; i < a.members.size(); i++) {
 		const bytecode::Member &x = a.members[i];
 		const bytecode::Member &y = b.members[i];
-		if (x.name != y.name || x.type != y.type || x.offset != y.offset || x.class_name != y.class_name || x.script != y.script || x.nullable != y.nullable || x.option != y.option || x.element != y.element || x.is_onready != y.is_onready ||
+		if (x.name != y.name || !same_description(x, y) || x.offset != y.offset || x.is_onready != y.is_onready ||
 				x.is_pub != y.is_pub || x.is_export != y.is_export || x.hint != y.hint || x.hint_string != y.hint_string || x.has_initial != y.has_initial || !same_constant(x.initial, y.initial)) {
 			return false;
 		}

@@ -1,5 +1,7 @@
 #include "runtime/values.h"
 
+#include "runtime/method_callable.h"
+
 #include <godot_cpp/classes/object.hpp>
 #include <godot_cpp/classes/script.hpp>
 #include <godot_cpp/godot.hpp>
@@ -201,8 +203,9 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 				return false;
 			}
 			if (p_check && !p_check->class_name.is_empty() && p_value.booleanize()) {
-				const Object *object = p_value;
-				if (!object || !object->is_class(p_check->class_name) || !has_script(object->get_script(), p_check->script)) {
+				Object *object = p_value;
+				if (!object || !object->is_class(p_check->class_name) || !has_script(object->get_script(), p_check->script) ||
+						(!p_check->interface.is_empty() && !implements_interface(object, p_check->interface))) {
 					return false;
 				}
 			}
@@ -216,6 +219,15 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 				if (!array.is_typed() || array.get_typed_builtin() != int64_t(variant_type(p_check->element)) ||
 						(p_check->element == ValueType::Object && (array.get_typed_class_name() != p_check->class_name || !has_script(array.get_typed_script(), p_check->script)))) {
 					return false;
+				}
+				// The engine types arrays by class or script only: the elements
+				// of an array of an interface are checked one by one.
+				for (int64_t i = 0; !p_check->interface.is_empty() && i < array.size(); i++) {
+					const Variant element = array[i];
+					// A freed or null element is the reader's to report (spec §3.8).
+					if (element.booleanize() && !implements_interface(element, p_check->interface)) {
+						return false;
+					}
 				}
 			}
 			break;

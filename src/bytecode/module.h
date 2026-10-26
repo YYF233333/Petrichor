@@ -89,6 +89,9 @@ struct Slot {
 	// Object, or the elements of Array: the script of a class of this
 	// language that they are (spec §11.1).
 	std::string script;
+	// Object, or the elements of Array: an interface they implement (spec
+	// §3.9), as "script::Name"; class_name is then Object.
+	std::string interface_name;
 	bool nullable = false;  // Object: the value may be None.
 	// Variant: holds T? of a value type, None or a value of this type (spec §3.4).
 	ValueType option = ValueType::Void;
@@ -103,6 +106,7 @@ struct Member {
 	uint32_t offset = 0;
 	std::string class_name;
 	std::string script; // As in Slot.
+	std::string interface_name; // As in Slot.
 	bool nullable = false;
 	ValueType option = ValueType::Void; // As in Slot.
 	ValueType element = ValueType::Void; // As in Slot.
@@ -185,7 +189,8 @@ struct MethodCall {
 
 // A signature of a method as text that is equal exactly for equal signatures:
 // the parameters' and the result's types and their classes, scripts,
-// nullability, options and elements, and how many parameters have defaults.
+// interfaces, nullability, options and elements, and how many parameters have
+// defaults.
 std::string signature_key(const std::vector<Slot> &p_params, size_t p_defaults, const Slot &p_result);
 
 // A property of an engine object, read and written by name.

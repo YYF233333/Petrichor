@@ -226,6 +226,16 @@ pub func explode():
 	var zero := 0
 	after_failure = 1 / zero
 
+# Entry checks of an interface (spec §3.9, §10.1).
+pub var damageable: CombatCheck.Damageable?
+
+pub func damage_through(target: CombatCheck.Damageable, amount: float) -> bool:
+	target.damage(amount)
+	return true
+
+pub func count_damageable(targets: Array[CombatCheck.Damageable]) -> int:
+	return targets.size()
+
 pub func through_detached(target: FreeCheck) -> int:
 	var read := target.detach_and_read()
 	after_failure += 1

@@ -132,6 +132,8 @@ std::string signature_key(const std::vector<Slot> &p_params, size_t p_defaults, 
 		key += '\0';
 		key += p_slot.script;
 		key += '\0';
+		key += p_slot.interface_name;
+		key += '\0';
 	};
 	for (const Slot &param : p_params) {
 		add(param);
@@ -202,6 +204,7 @@ public:
 		u32(p_slot.offset);
 		str(p_slot.class_name);
 		str(p_slot.script);
+		str(p_slot.interface_name);
 		u8(p_slot.nullable ? 1 : 0);
 		type(p_slot.option);
 		type(p_slot.element);
@@ -306,6 +309,7 @@ public:
 		value.offset = u32();
 		value.class_name = str();
 		value.script = str();
+		value.interface_name = str();
 		value.nullable = u8() != 0;
 		value.option = type();
 		value.element = type();
@@ -333,6 +337,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.u32(member.offset);
 		w.str(member.class_name);
 		w.str(member.script);
+		w.str(member.interface_name);
 		w.u8(member.nullable ? 1 : 0);
 		w.type(member.option);
 		w.type(member.element);
@@ -498,6 +503,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		member.offset = r.u32();
 		member.class_name = r.str();
 		member.script = r.str();
+		member.interface_name = r.str();
 		member.nullable = r.u8() != 0;
 		member.option = r.type();
 		member.element = r.type();

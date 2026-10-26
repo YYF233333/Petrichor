@@ -69,6 +69,9 @@ class Verifier {
 		if (p_slot.element != ValueType::Void && (p_slot.type != ValueType::Array || !is_element(p_slot.element))) {
 			return fail("slot " + p_slot.name + " holds an array of no element type");
 		}
+		if (!p_slot.interface_name.empty() && p_slot.type != ValueType::Object && p_slot.element != ValueType::Object) {
+			return fail("slot " + p_slot.name + " has an interface but holds no objects");
+		}
 		return true;
 	}
 

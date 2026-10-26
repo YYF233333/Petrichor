@@ -168,6 +168,18 @@ func _ready() -> void:
 	var refused_target = v.callv("taken_by", [plain_node])
 	Engine.print_error_messages = true
 	_check(refused_target == null, "a parameter of a class of this language refuses another object of its engine class")
+	var with_target: Array[Object] = [target]
+	var with_plain: Array[Object] = [plain_node]
+	Engine.print_error_messages = false
+	var refused_interface = v.callv("damage_through", [plain_node, 1.0])
+	var refused_array = v.callv("count_damageable", [with_plain])
+	v.set("damageable", plain_node)
+	Engine.print_error_messages = true
+	_check(refused_interface == null and v.damage_through(target, 0.0), "a parameter of an interface takes only an object that implements it")
+	_check(refused_array == null and v.count_damageable(with_target) == 1, "an array of an interface takes only objects that implement it")
+	_check(v.damageable == null, "a member of an interface refuses an object that does not implement it")
+	v.damageable = target
+	_check(v.damageable == target, "a member of an interface takes an object that implements it")
 	var other_values := ValuesCheck.new()
 	Engine.print_error_messages = false
 	v.through_class(target)

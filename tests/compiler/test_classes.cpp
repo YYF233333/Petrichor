@@ -123,6 +123,24 @@ TEST_CASE("a method of another class, another instance or an interface is called
 	CHECK(engine_calls == 1);
 }
 
+TEST_CASE("an interface is described in slots, for the entry checks and signatures (spec §3.9, §10.1)") {
+	FakeProject classes = project();
+	classes.add_script("res://heal.pet", "class_name Heal\n\npub interface Healable:\n\tfunc heal(amount: float)\n", "Heal");
+	const compiler::CompileResult result = compile_in("extends Node\n\nfunc a(d: Combat.Damageable) -> void:\n\tpass\n\nfunc b(h: Heal.Healable) -> void:\n\tpass\n\nfunc c(all: Array[Heal.Healable]) -> void:\n\tpass\n", classes);
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	const auto param = [&](const char *p_function) -> const bytecode::Slot & { return result.module.functions[result.module.find_function(p_function)].params[0]; };
+	CHECK(param("a").interface_name == "res://combat.pet::Damageable");
+	CHECK(param("a").class_name == "Object");
+	CHECK(param("a").script.empty());
+	CHECK(param("b").interface_name == "res://heal.pet::Healable");
+	CHECK(param("c").element == bytecode::ValueType::Object);
+	CHECK(param("c").interface_name == "res://heal.pet::Healable");
+	const bytecode::Slot none;
+	CHECK(bytecode::signature_key({ param("a") }, 0, none) != bytecode::signature_key({ param("b") }, 0, none));
+}
+
 TEST_CASE("an autoload is a value of its script's class (spec §7.3)") {
 	CHECK(errors("Audio.play(\"sounds/land.ogg\")").empty());
 	CHECK(contains(errors("Audio.play(1)"), "Cannot pass a value of type int as String"));

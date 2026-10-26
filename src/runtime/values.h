@@ -55,6 +55,7 @@ godot::Variant to_variant(bytecode::ValueType p_type, const uint8_t *p_slot);
 struct ValueCheck {
 	godot::StringName class_name; // Object: its class; Array: the class of object elements.
 	godot::String script; // As class_name, for a class of this language: its script.
+	godot::String interface; // As class_name, an interface the object implements: "script::Name".
 	bool nullable = true; // Object: may be None.
 	bytecode::ValueType option = bytecode::ValueType::Void; // Variant: None or a value of this type.
 	bytecode::ValueType element = bytecode::ValueType::Void; // Array: typed with this element type.
@@ -63,7 +64,7 @@ struct ValueCheck {
 	// From a slot or a member of a module.
 	template <typename T>
 	explicit ValueCheck(const T &p_slot) :
-			class_name(godot::String::utf8(p_slot.class_name.c_str())), script(godot::String::utf8(p_slot.script.c_str())), nullable(p_slot.type != bytecode::ValueType::Object || p_slot.nullable), option(p_slot.option), element(p_slot.element) {}
+			class_name(godot::String::utf8(p_slot.class_name.c_str())), script(godot::String::utf8(p_slot.script.c_str())), interface(godot::String::utf8(p_slot.interface_name.c_str())), nullable(p_slot.type != bytecode::ValueType::Object || p_slot.nullable), option(p_slot.option), element(p_slot.element) {}
 };
 
 // Entry check: stores the value when its type fits the slot and `p_check`, if
