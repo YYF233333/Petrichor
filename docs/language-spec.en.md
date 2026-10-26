@@ -836,7 +836,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 10.6 Numeric boundaries
 
 - Writing to an engine 32-bit float location narrows implicitly, for example `real_t` vector components, which are float in standard builds (`core/math/math_defs.h:143-146`).
-- Passing a value to an engine int32 parameter is range-checked, and an out-of-range value is a program error; the engine itself truncates there (`core/variant/variant.h:343-344`).
+- Passing a value to an engine integer parameter narrower than int64 or unsigned (int8, int16, int32, uint8, uint16, uint32, uint64, char32) is range-checked, and an out-of-range value is a program error; a property write is checked against the type of its setter's parameter. The engine itself truncates or wraps there (`core/variant/variant.h:336-353, 411-424`), and so does GDScript. Evidence: the engine API has more than 3,700 such method parameters and about 460 such properties; `collision_layer`, for example, is uint32, and writing -1 makes it 4294967295. [Known limitation] Parameter widths come from the engine API description that comes with godot-cpp; classes of other extensions are not in it, and their parameters are not checked.
 
 ### 10.7 String and StringName
 
@@ -998,7 +998,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Area | What to check |
 |---|---|
 | Syntax hard rule | For every rule in this document that differs from GDScript, the corresponding GDScript spelling gets a compile error with a fix; a different runtime behavior occurs only in the exception in §1.2, where GDScript fails at runtime or silently yields a wrong result |
-| Numbers | `var hp: int = 10; hp = 2.5` is a compile error, and `hp = int(2.5)` gives 2; an int argument to a float parameter needs no conversion; `7 / 2` is 3; `Vector2i(1, 2) * 0.5` is a Vector2; `Vector2() + Vector2i()` is a compile error; integer division by zero is a program error; a value outside the int32 range passed to an engine int32 parameter is a program error |
+| Numbers | `var hp: int = 10; hp = 2.5` is a compile error, and `hp = int(2.5)` gives 2; an int argument to a float parameter needs no conversion; `7 / 2` is 3; `Vector2i(1, 2) * 0.5` is a Vector2; `Vector2() + Vector2i()` is a compile error; integer division by zero is a program error; a value outside the int32 range passed to an engine int32 parameter is a program error, and so is writing -1 to the uint32 property `collision_layer`, while int32's largest value and 0 pass |
 | Nullability and freeing | A freed object read through `T?` is None; accessing its members through `T` is a program error, and in debug builds the diagnostic says where an instance of this language was freed; after `queue_free()` and before the end of the frame it still counts as alive; after two different Nodes are freed, comparing them as Node is false and as `Node?` is true; on a freed Node, `x is Sprite2D` is false and `x as Sprite2D` is None; reading a member in a method after it frees self or removes its script is a program error, while returning without reading one ends normally |
 | Option and Result | `?` returns from the current function on None or `Err`; `?` in a function returning void is a compile error; propagating an Option into a function returning Result is a compile error; `await f()?` equals `(await f())?`; discarding a Result is a compile error; a failed `unwrap` is a program error |
 | Nested Options | `pop_back()` on an empty `Array[Enemy?]` gives None, and a Some containing None when the last element is None; `var x: Enemy?? = maybe_enemy` gives a Some; a missing key in a `Dictionary[String, Variant]` gives None, and a null value a Some containing NIL; passing an `int??` or `Variant?` to a Variant parameter is a compile error offering `.flatten()` or `.unwrap_or(null)`; `var x: Enemy?? = Some(None)` gives a Some containing None; a match over an `Enemy?` with the branches `Some(var e)` and `None` is exhaustive |
@@ -1046,7 +1046,7 @@ The following facts are based on Godot 4.7.2-stable (commit `ed1daf0`); paths ar
 | Fact | Source |
 |---|---|
 | Variant integers are int64_t and floats are double | `core/variant/variant.h:252-253` |
-| Converting a Variant to int32 truncates | `core/variant/variant.h:343-344` |
+| Converting a Variant to an integer narrower than int64 or unsigned truncates or wraps | `core/variant/variant.h:336-353, 411-424` |
 | `real_t` is float in standard builds | `core/math/math_defs.h:143-146` |
 | The engine's operator table | `core/variant/variant_op.cpp:212-1033` |
 | `==` between int and float compares numerically; `==` on objects compares identity, after turning freed objects into null | `core/variant/variant_op.cpp:490-491, 514`; `core/variant/variant_op.h:471-477` |

@@ -836,7 +836,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 10.6 数值边界
 
 - 写入引擎的 32 位浮点位置时隐式收窄，例如标准构建中为 float 的 `real_t` 向量分量（`core/math/math_defs.h:143-146`）。
-- 传给引擎 int32 参数时做范围检查，越界是程序错误；引擎自身在这里会直接截断（`core/variant/variant.h:343-344`）。
+- 传给引擎的整数参数比 int64 窄或是无符号的（int8、int16、int32、uint8、uint16、uint32、uint64、char32）时做范围检查，越界是程序错误；经属性写入时按其 setter 参数的类型检查。引擎自身在这里直接截断或回绕（`core/variant/variant.h:336-353, 411-424`），GDScript 也是如此。依据：引擎 API 中这样的方法参数有 3,700 多个，属性约 460 个，例如 `collision_layer` 是 uint32，写入 -1 会变成 4294967295。【已知限制】参数的宽度来自 godot-cpp 附带的引擎 API 描述，其他扩展的类不在其中，它们的参数不检查。
 
 ### 10.7 String 与 StringName
 
@@ -998,7 +998,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 领域 | 检查内容 |
 |---|---|
 | 语法硬规则 | 本文中每一处与 GDScript 不同的规则，对应的 GDScript 写法都得到编译错误和改法；运行时行为不同的，只限 §1.2 所列的例外，即 GDScript 在那里运行时出错或悄悄得到错误结果 |
-| 数值 | `var hp: int = 10; hp = 2.5` 报编译错误，`hp = int(2.5)` 得 2；int 实参传给 float 参数无需转换；`7 / 2` 得 3；`Vector2i(1, 2) * 0.5` 为 Vector2；`Vector2() + Vector2i()` 报编译错误；整数除以 0 是程序错误；超出 int32 范围的值传给引擎的 int32 参数是程序错误 |
+| 数值 | `var hp: int = 10; hp = 2.5` 报编译错误，`hp = int(2.5)` 得 2；int 实参传给 float 参数无需转换；`7 / 2` 得 3；`Vector2i(1, 2) * 0.5` 为 Vector2；`Vector2() + Vector2i()` 报编译错误；整数除以 0 是程序错误；超出 int32 范围的值传给引擎的 int32 参数是程序错误，-1 写入 uint32 属性 `collision_layer` 也是，int32 的最大值和 0 照常传入 |
 | 可空与释放 | 已释放对象经 `T?` 读出为 None；经 `T` 访问成员是程序错误，debug 构建中，本语言实例的诊断写明释放位置；`queue_free()` 之后、帧末之前仍算存活；两个不同的 Node 释放后，以 Node 比较为假，以 `Node?` 比较为真；已释放的 Node 上 `x is Sprite2D` 为假，`x as Sprite2D` 为 None；方法中 `free()` 自身或卸下脚本之后读成员是程序错误，不读成员直接返回则正常结束 |
 | Option 与 Result | `?` 在 None 或 `Err` 时从当前函数返回；在返回 void 的函数中使用 `?` 报编译错误；Option 传播到返回 Result 的函数报编译错误；`await f()?` 等于 `(await f())?`；丢弃 Result 报编译错误；`unwrap` 失败是程序错误 |
 | 嵌套的 Option | `Array[Enemy?]` 为空时 `pop_back()` 得 None，末元素为 None 时得包含 None 的 Some；`var x: Enemy?? = maybe_enemy` 得 Some；`Dictionary[String, Variant]` 中缺键得 None，值为 null 得包含 NIL 的 Some；把 `int??` 或 `Variant?` 传给 Variant 参数报编译错误并给出 `.flatten()` 或 `.unwrap_or(null)`；`var x: Enemy?? = Some(None)` 得包含 None 的 Some；对 `Enemy?` 的 match 有 `Some(var e)` 和 `None` 两个分支即为穷尽 |
@@ -1046,7 +1046,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 事实 | 出处 |
 |---|---|
 | Variant 的整数是 int64_t，浮点数是 double | `core/variant/variant.h:252-253` |
-| Variant 转为 int32 时直接截断 | `core/variant/variant.h:343-344` |
+| Variant 转为比 int64 窄或无符号的整数时直接截断或回绕 | `core/variant/variant.h:336-353, 411-424` |
 | 标准构建中 `real_t` 是 float | `core/math/math_defs.h:143-146` |
 | 引擎的运算符表 | `core/variant/variant_op.cpp:212-1033` |
 | int 与 float 的 `==` 按数值比较；对象的 `==` 比较同一性，但先把已释放的对象取为 null | `core/variant/variant_op.cpp:490-491, 514`；`core/variant/variant_op.h:471-477` |
