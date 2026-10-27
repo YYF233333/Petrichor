@@ -107,6 +107,7 @@ public:
 godot::Dictionary property_info(const bytecode::Member &p_member);
 godot::TypedArray<godot::Dictionary> visible_properties(const ClassImage &p_image);
 godot::TypedArray<godot::Dictionary> visible_methods(const ClassImage &p_image);
+// A member's constant initial value; None for one that has none.
 godot::Variant initial_value(const ClassImage &p_image, size_t p_member);
 
 } // namespace petrichor

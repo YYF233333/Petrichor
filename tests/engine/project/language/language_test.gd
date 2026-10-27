@@ -22,6 +22,7 @@ func _ready() -> void:
 	c.set("items", c.property_get_revert("items"))
 	c.get("items").append(3)
 	_check(c.get("items") == [1, 2, 3] and c.property_get_revert("items") == [1, 2], "an array a member reverts to is its own")
+	_check(c.property_can_revert("level") and c.property_get_revert("level") == 0, "a member without an initializer reverts to its type's default")
 	_check(c.add(2, 3) == 5, "int arithmetic")
 	_check(c.divide(7, 2) == 3, "int division truncates (spec §5.1)")
 	_check(c.scale(3) == 6.0, "an int argument is accepted for a float parameter")

@@ -127,8 +127,10 @@ struct Member {
 	// For the inspector: PropertyHint as the engine numbers it, and its string.
 	uint32_t hint = 0;
 	std::string hint_string;
-	// A constant initial value, which the editor shows as the default; the
-	// module's init function writes it, with the other initializers.
+	// The value the member starts at, when it is a constant: a constant
+	// initializer, or its type's default without one (spec §4.3). The editor
+	// shows it as the default; the module's init function writes it, with the
+	// other initializers.
 	bool has_initial = false;
 	Constant initial;
 };

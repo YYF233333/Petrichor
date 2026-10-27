@@ -1372,8 +1372,19 @@ public:
 			member.is_export = decl_member.is_export;
 			member.hint = decl_member.hint;
 			member.hint_string = decl_member.hint_string;
-			member.has_initial = decl_member.constant_initializer;
-			member.initial = decl_member.constant_initializer ? constant_of(*decl_member.initializer, decl_member.type) : bytecode::Constant{ member.type };
+			member.initial = bytecode::Constant{ member.type };
+			if (decl_member.constant_initializer) {
+				member.has_initial = true;
+				member.initial = constant_of(*decl_member.initializer, decl_member.type);
+			} else if (!decl_member.initializer && !decl_member.must_assign) {
+				// Its type's default (spec §4.3); an empty Array[T] is typed too.
+				member.has_initial = true;
+				if (member.type == ValueType::Array) {
+					member.initial.element = slot.element;
+					member.initial.class_name = slot.class_name;
+					member.initial.script = slot.script;
+				}
+			}
 			module.members.push_back(member);
 		}
 		module.instance_size = offset;

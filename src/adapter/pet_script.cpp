@@ -170,7 +170,7 @@ TypedArray<Dictionary> visible_methods(const ClassImage &p_image) {
 Variant initial_value(const ClassImage &p_image, size_t p_member) {
 	const bytecode::Member &member = p_image.module.members[p_member];
 	if (!member.has_initial) {
-		return default_variant(member.type);
+		return Variant();
 	}
 	// Built for each request, so that no two holders share an array, and late,
 	// so that the script that types an array has been loaded.
@@ -552,10 +552,18 @@ bool PetScript::_has_property_default_value(const StringName &p_property) const 
 	if (!current) {
 		return false;
 	}
-	// Only a constant initial value is a default; other initializers give each
-	// instance its own value (spec §6.1).
+	// A constant initial value is a default. Every export has one, as in
+	// GDScript (modules/gdscript/gdscript.cpp:557-563), since a placeholder
+	// takes a value only for a property that has a default
+	// (core/object/script_language.cpp:680-707): None where code computes the
+	// value or the scene must assign it, so that the scene stores only what was
+	// set (spec §6.1, §7.5).
 	const int index = current->find_member(p_property);
-	return index >= 0 && is_visible(current->module.members[index]) && current->module.members[index].has_initial;
+	if (index < 0 || !is_visible(current->module.members[index])) {
+		return false;
+	}
+	const bytecode::Member &member = current->module.members[index];
+	return member.has_initial || member.is_export;
 }
 
 Variant PetScript::_get_property_default_value(const StringName &p_property) const {

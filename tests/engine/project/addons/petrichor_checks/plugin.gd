@@ -32,6 +32,7 @@ func _run() -> void:
 	_check_header()
 	_check_placeholder_fallback()
 	_check_constant_defaults()
+	_check_other_defaults()
 	await _check_instanced_scene_change()
 	await _check_undo_merge()
 
@@ -157,6 +158,31 @@ func _check_constant_defaults() -> void:
 	_check(expected.keys().all(func(name): return not text.contains(name + " =")), "values equal to constant defaults are not saved")
 	root.set("offset", Vector2(1, 2))
 	_check(_pack_to_text(root).contains("offset = Vector2(1, 2)"), "a value other than its constant default is saved")
+	root.free()
+	for file in [script_path, script_path + ".uid", scene_path]:
+		DirAccess.remove_absolute(file)
+
+
+# Every export has a default, as in GDScript (modules/gdscript/gdscript.cpp:557-563):
+# without an initializer its type's (spec §4.3), and None where code computes
+# the value or the scene must assign it, so that the inspector can set them and
+# the scene stores only what was set.
+func _check_other_defaults() -> void:
+	var script_path := "res://editor_check_other_defaults.pet"
+	var scene_path := "res://editor_check_other_defaults.tscn"
+	_write(script_path, "extends Node\n@export var count: int\n@export var checks: Array[LanguageCheck]\n@export var computed := Vector2(1.0, 2.0) * 2.0\n@export var target: Node\n")
+	_write(scene_path, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Root" type="Node"]\nscript = ExtResource("1")\n\n[node name="Child" type="Node" parent="."]\n' % script_path)
+	var root := (ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
+	var names := ["count", "checks", "computed", "target"]
+	var checks = root.get("checks")
+	_check(root.get("count") == 0 and checks is Array and checks.get_typed_script() == load("res://language/language_check.pet"), "a placeholder shows an export without an initializer at its type's default")
+	var text := _pack_to_text(root)
+	_check(names.all(func(name): return not text.contains(name + " =")), "a scene stores no export that was not set")
+	root.set("count", 5)
+	root.set("computed", Vector2(7, 7))
+	root.set("target", root.get_node("Child"))
+	text = _pack_to_text(root)
+	_check(text.contains("count = 5") and text.contains("computed = Vector2(7, 7)") and text.contains("target = NodePath(\"Child\")"), "the exports that were set are stored")
 	root.free()
 	for file in [script_path, script_path + ".uid", scene_path]:
 		DirAccess.remove_absolute(file)

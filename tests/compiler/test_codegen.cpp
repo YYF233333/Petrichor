@@ -327,6 +327,18 @@ var mixed: Array[float] = [1, randf()]
 	CHECK(bytecode::serialize(copy) == data);
 }
 
+// Spec §4.3: a member without an initializer starts at its type's default,
+// which is then its initial value; one the scene must assign has none (§7.5).
+TEST_CASE("a member without an initializer starts at its type's default") {
+	const bytecode::Module module = module_of("extends Node\n@export var count: int\n@export var nodes: Array[Node]\n@export var target: Node\nvar maybe: Node?\n");
+	const bytecode::Member &count = module.members[module.find_member("count")];
+	CHECK((count.has_initial && count.initial.type == ValueType::Int && count.initial.i == 0));
+	const bytecode::Member &nodes = module.members[module.find_member("nodes")];
+	CHECK((nodes.has_initial && nodes.initial.element == ValueType::Object && nodes.initial.class_name == "Node" && nodes.initial.args.empty()));
+	CHECK(!module.members[module.find_member("target")].has_initial);
+	CHECK(module.members[module.find_member("maybe")].has_initial);
+}
+
 // Hot reload compares the init function and the entries it uses (spec §12.4).
 TEST_CASE("the init function and its table entries do not change with a function body") {
 	const char *before = "extends Node\nvar v := Vector3(1, 2, 3)\n\nfunc f() -> float:\n\treturn 1.0\n";
