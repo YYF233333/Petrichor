@@ -43,7 +43,6 @@ public:
 	godot::StringName ready_method = "_ready";
 	std::vector<godot::StringName> member_names;
 	std::vector<ValueCheck> member_checks; // Entry checks of members, by member index.
-	std::vector<godot::Variant> initial_values; // By member index: the constant initial value, if it has one.
 	SlotLayout members_layout; // An instance's storage.
 	godot::HashMap<godot::StringName, int> member_lookup;
 

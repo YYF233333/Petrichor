@@ -83,7 +83,13 @@ struct Constant {
 	// list, from `args`, which have the types the constructor takes; -1 for
 	// none.
 	int32_t constructor = -1;
+	// The constructor's arguments, or the elements of an Array.
 	std::vector<Constant> args;
+	// Array: typed as a slot is, with this element type and the class and the
+	// script of object elements.
+	ValueType element = ValueType::Void;
+	std::string class_name;
+	std::string script;
 };
 
 struct Slot {

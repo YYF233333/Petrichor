@@ -2,6 +2,7 @@
 
 #include "bytecode/module.h"
 
+#include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/string_name.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
@@ -72,6 +73,10 @@ struct ValueCheck {
 bool from_variant(bytecode::ValueType p_type, const godot::Variant &p_value, uint8_t *p_slot, const ValueCheck *p_check = nullptr);
 godot::Variant default_variant(bytecode::ValueType p_type);
 godot::Variant::Type variant_type(bytecode::ValueType p_type);
+// A new empty array, typed with the element type and the class of object
+// elements, and for a class of this language with its script too (spec §3.8);
+// untyped for Void.
+godot::Array typed_array(bytecode::ValueType p_element, const godot::StringName &p_class, const godot::String &p_script);
 
 // None: NIL, or an OBJECT Variant that has no object, as the engine makes from
 // a null pointer (core/variant/variant.cpp:2507-2511). A freed object is not

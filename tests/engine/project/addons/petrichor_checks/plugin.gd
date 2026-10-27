@@ -140,16 +140,19 @@ func _check_placeholder_fallback() -> void:
 		DirAccess.remove_absolute(file)
 
 
-# A constant initializer, such as a constructor of constants, is the default
-# value the inspector shows and the scene leaves out, as in GDScript.
+# A constant initializer, such as a constructor or an array of constants, is
+# the default value the inspector shows and the scene leaves out, as in
+# GDScript; an array is typed as the member.
 func _check_constant_defaults() -> void:
 	var script_path := "res://editor_check_defaults.pet"
 	var scene_path := "res://editor_check_defaults.tscn"
-	_write(script_path, "extends Node\n@export var offset := Vector2(400.0, 0.0)\n@export var tint := Color(\"000000b0\")\n@export var up: Vector3 = Vector3.UP\n@export var placed := Transform2D(0.5, Vector2(-1, 2))\n")
+	_write(script_path, "extends Node\n@export var offset := Vector2(400.0, 0.0)\n@export var tint := Color(\"000000b0\")\n@export var up: Vector3 = Vector3.UP\n@export var placed := Transform2D(0.5, Vector2(-1, 2))\n@export var items: Array[float] = [1, 2.5]\n@export var checks: Array[LanguageCheck] = []\n")
 	_write(scene_path, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Root" type="Node"]\nscript = ExtResource("1")\n' % script_path)
 	var root := (ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
-	var expected := { "offset": Vector2(400, 0), "tint": Color("000000b0"), "up": Vector3.UP, "placed": Transform2D(0.5, Vector2(-1, 2)) }
+	var expected := { "offset": Vector2(400, 0), "tint": Color("000000b0"), "up": Vector3.UP, "placed": Transform2D(0.5, Vector2(-1, 2)), "items": [1.0, 2.5], "checks": [] }
 	_check(expected.keys().all(func(name): return root.get(name) == expected[name]), "a placeholder shows constant initializers")
+	var checks = root.get("checks")
+	_check(checks is Array and checks.get_typed_script() == load("res://language/language_check.pet") and root.get("items").get_typed_builtin() == TYPE_FLOAT, "an array default is typed as the member")
 	var text := _pack_to_text(root)
 	_check(expected.keys().all(func(name): return not text.contains(name + " =")), "values equal to constant defaults are not saved")
 	root.set("offset", Vector2(1, 2))

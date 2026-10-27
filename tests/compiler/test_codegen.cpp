@@ -278,6 +278,11 @@ var path: NodePath = "a/b"
 var doubled := Vector2(1.0, 2.0) * 2.0
 var random := Vector2(randf(), 0.0)
 var names := PackedStringArray()
+var items: Array[int] = [1, 2]
+var points: Array[Vector2] = [Vector2(1, 2), Vector2.ZERO]
+var nodes: Array[Node] = []
+var plain: Array = [1, "x"]
+var mixed: Array[float] = [1, randf()]
 )");
 	auto initial = [&](const char *p_name) { return module.members[module.find_member(p_name)].has_initial; };
 	CHECK(initial("offset"));
@@ -288,6 +293,11 @@ var names := PackedStringArray()
 	CHECK(!initial("doubled"));
 	CHECK(!initial("random"));
 	CHECK(!initial("names"));
+	CHECK(initial("items"));
+	CHECK(initial("points"));
+	CHECK(initial("nodes"));
+	CHECK(initial("plain"));
+	CHECK(!initial("mixed"));
 
 	const bytecode::Constant &offset = module.members[module.find_member("offset")].initial;
 	CHECK(offset.type == ValueType::Vector2);
@@ -301,6 +311,14 @@ var names := PackedStringArray()
 	REQUIRE(placed.args.size() == 2);
 	REQUIRE(placed.args[1].args.size() == 2);
 	CHECK((placed.args[1].type == ValueType::Vector2 && placed.args[1].args[0].type == ValueType::Float && placed.args[1].args[0].f == -1.0));
+	// An array is typed as the member; an element of an untyped one keeps its type.
+	const bytecode::Constant &items = module.members[module.find_member("items")].initial;
+	CHECK((items.type == ValueType::Array && items.element == ValueType::Int && items.args.size() == 2 && items.args[1].i == 2));
+	const bytecode::Constant &nodes = module.members[module.find_member("nodes")].initial;
+	CHECK((nodes.element == ValueType::Object && nodes.class_name == "Node" && nodes.args.empty()));
+	const bytecode::Constant &plain = module.members[module.find_member("plain")].initial;
+	REQUIRE(plain.args.size() == 2);
+	CHECK((plain.element == ValueType::Void && plain.args[0].type == ValueType::Int && plain.args[1].type == ValueType::String));
 
 	const std::vector<uint8_t> data = bytecode::serialize(module);
 	bytecode::Module copy;

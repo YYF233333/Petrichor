@@ -3,6 +3,7 @@
 #include "runtime/method_callable.h"
 
 #include <godot_cpp/classes/object.hpp>
+#include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/script.hpp>
 #include <godot_cpp/godot.hpp>
 
@@ -285,6 +286,18 @@ Variant default_variant(ValueType p_type) {
 	Variant result = to_variant(p_type, storage);
 	destroy_value(p_type, storage);
 	return result;
+}
+
+Array typed_array(ValueType p_element, const StringName &p_class, const String &p_script) {
+	Array array;
+	if (p_element != ValueType::Void) {
+		Variant script;
+		if (!p_script.is_empty()) {
+			script = ResourceLoader::get_singleton()->call("load", p_script);
+		}
+		array.set_typed(uint32_t(variant_type(p_element)), p_class, script);
+	}
+	return array;
 }
 
 Variant::Type variant_type(ValueType p_type) {

@@ -197,13 +197,25 @@ bool is_literal(const Expr &p_expr) {
 	}
 }
 
-// A value known without running code, of a type whose values are not shared
-// between copies (core/variant/variant.cpp:3437-3453): a literal, a constant
-// of a built-in type, or a constructor of a built-in type whose arguments are
-// such values, each of the type it is stored as. GDScript reduces these forms
-// to the editor's default value (modules/gdscript/gdscript_analyzer.cpp:3286-3328,
-// 4087-4090, 5652-5681); arithmetic and named constants are not among them yet.
+// A value known without running code: a literal, a constant of a built-in
+// type, a constructor of a built-in type whose arguments are such values, or
+// an array literal of such values, each of the type it is stored as. Except
+// for array literals, which make a new array each time, the type's values are
+// not shared between copies (core/variant/variant.cpp:3437-3453). GDScript
+// reduces these forms to the editor's default value
+// (modules/gdscript/gdscript_analyzer.cpp:3286-3328, 4087-4090, 5318-5338,
+// 5652-5681); arithmetic and named constants are not among them yet.
 bool is_constant(const Expr &p_expr, const Type &p_target) {
+	if (p_expr.kind == ExprKind::ArrayLiteral) {
+		for (size_t i = 0; i < p_expr.args.size(); i++) {
+			// An element of an untyped array keeps its own type.
+			const Type &element = p_expr.param_types[i].kind == TypeKind::Variant ? p_expr.args[i]->type : p_expr.param_types[i];
+			if (!is_constant(*p_expr.args[i], element)) {
+				return false;
+			}
+		}
+		return p_expr.type == p_target;
+	}
 	const bool unshared = p_target.is_primitive() ||
 			(p_target.kind == TypeKind::Builtin && p_target.name != "Array" && p_target.name != "Dictionary" && p_target.name.rfind("Packed", 0) != 0);
 	if (!unshared) {

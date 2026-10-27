@@ -6,7 +6,6 @@
 
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/engine.hpp>
-#include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/window.hpp>
 #include <godot_cpp/core/error_macros.hpp>
@@ -543,18 +542,8 @@ public:
 					break;
 				}
 				case Op::NEW_ARRAY: {
-					Array array;
-					const ValueType element = ValueType(code[pc + 1]);
-					if (element != ValueType::Void) {
-						// An array of a class of this language is typed with its script too.
-						const uint32_t cls = code[pc + 2];
-						Variant script;
-						if (cls != NO_SLOT && !image.class_scripts[cls].is_empty()) {
-							script = ResourceLoader::get_singleton()->call("load", image.class_scripts[cls]);
-						}
-						array.set_typed(uint32_t(variant_type(element)), cls == NO_SLOT ? StringName() : image.classes[cls], script);
-					}
-					*reinterpret_cast<Array *>(frame + code[pc + 3]) = array;
+					const uint32_t cls = code[pc + 2];
+					*reinterpret_cast<Array *>(frame + code[pc + 3]) = typed_array(ValueType(code[pc + 1]), cls == NO_SLOT ? StringName() : image.classes[cls], cls == NO_SLOT ? String() : image.class_scripts[cls]);
 					pc += 4;
 					break;
 				}

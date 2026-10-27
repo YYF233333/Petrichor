@@ -81,10 +81,6 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		const StringName name = from_utf8(member.name);
 		image->member_names.push_back(name);
 		image->member_checks.push_back(ValueCheck(member));
-		image->initial_values.emplace_back();
-		if (member.has_initial && !constant_value(member.initial, image->initial_values.back(), r_error)) {
-			return nullptr;
-		}
 		bytecode::Slot slot;
 		slot.type = member.type;
 		slot.offset = member.offset;
@@ -221,6 +217,18 @@ bool constant_value(const bytecode::Constant &p_constant, Variant &r_value, Stri
 	if (p_constant.constructor >= 0) {
 		return construct_constant(p_constant, r_value, r_error);
 	}
+	if (type == ValueType::Array) {
+		Array array = typed_array(p_constant.element, from_utf8(p_constant.class_name), from_utf8(p_constant.script));
+		for (const bytecode::Constant &element : p_constant.args) {
+			Variant value;
+			if (!constant_value(element, value, r_error)) {
+				return false;
+			}
+			array.push_back(value);
+		}
+		r_value = array;
+		return true;
+	}
 	switch (type) {
 		case ValueType::Bool:
 			r_value = p_constant.b;
@@ -279,7 +287,8 @@ namespace {
 
 bool same_constant(const bytecode::Constant &p_a, const bytecode::Constant &p_b) {
 	return p_a.type == p_b.type && p_a.b == p_b.b && p_a.i == p_b.i && p_a.f == p_b.f && p_a.s == p_b.s && p_a.builtin == p_b.builtin &&
-			p_a.constructor == p_b.constructor && std::equal(p_a.args.begin(), p_a.args.end(), p_b.args.begin(), p_b.args.end(), same_constant);
+			p_a.constructor == p_b.constructor && std::equal(p_a.args.begin(), p_a.args.end(), p_b.args.begin(), p_b.args.end(), same_constant) &&
+			p_a.element == p_b.element && p_a.class_name == p_b.class_name && p_a.script == p_b.script;
 }
 
 // What a slot or a member holds, as an entry check reads it.

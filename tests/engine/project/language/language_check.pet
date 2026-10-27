@@ -4,6 +4,7 @@ extends Node
 
 @export pub var speed: float = 2.0
 @export var offset := Vector2(400.0, 0.0)
+@export var items: Array[int] = [1, 2]
 pub var frames := 0
 pub var from_init := 0
 

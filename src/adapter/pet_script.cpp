@@ -169,7 +169,18 @@ TypedArray<Dictionary> visible_methods(const ClassImage &p_image) {
 
 Variant initial_value(const ClassImage &p_image, size_t p_member) {
 	const bytecode::Member &member = p_image.module.members[p_member];
-	return member.has_initial ? p_image.initial_values[p_member] : default_variant(member.type);
+	if (!member.has_initial) {
+		return default_variant(member.type);
+	}
+	// Built for each request, so that no two holders share an array, and late,
+	// so that the script that types an array has been loaded.
+	Variant value;
+	String error;
+	if (!constant_value(member.initial, value, error)) {
+		ERR_PRINT(vformat("%s: the initial value of %s: %s", p_image.path, p_image.member_names[p_member], error));
+		return default_variant(member.type);
+	}
+	return value;
 }
 
 PetHeader parse_header(const String &p_source) {

@@ -167,6 +167,18 @@ bytecode::Constant constant_of(const Expr &p_expr, const Type &p_target) {
 		}
 		return constant;
 	}
+	if (p_expr.kind == ExprKind::ArrayLiteral) {
+		const bytecode::Slot slot = slot_of(std::string(), p_target);
+		constant.element = slot.element;
+		constant.class_name = slot.class_name;
+		constant.script = slot.script;
+		for (size_t i = 0; i < p_expr.args.size(); i++) {
+			// An element of an untyped array keeps its own type.
+			const Type &element = p_expr.param_types[i].kind == TypeKind::Variant ? p_expr.args[i]->type : p_expr.param_types[i];
+			constant.args.push_back(constant_of(*p_expr.args[i], element));
+		}
+		return constant;
+	}
 	const Expr *literal = &p_expr;
 	bool negate = false;
 	if (literal->kind == ExprKind::Unary) {

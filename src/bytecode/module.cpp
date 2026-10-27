@@ -208,6 +208,9 @@ public:
 		for (const Constant &arg : p_value.args) {
 			constant(arg);
 		}
+		type(p_value.element);
+		str(p_value.class_name);
+		str(p_value.script);
 	}
 	void slot(const Slot &p_slot) {
 		str(p_slot.name);
@@ -316,6 +319,9 @@ public:
 		for (Constant &arg : value.args) {
 			arg = constant();
 		}
+		value.element = type();
+		value.class_name = str();
+		value.script = str();
 		return value;
 	}
 	Slot slot() {
