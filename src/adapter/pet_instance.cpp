@@ -219,7 +219,7 @@ static void instance_free_property_list(GDExtensionScriptInstanceDataPtr p_insta
 	free_property_list(p_list, p_count);
 }
 
-// Only a literal initial value is a default the editor can revert to; other
+// Only a constant initial value is a default the editor can revert to; other
 // initializers run per instance (spec §6.1).
 static GDExtensionBool instance_property_can_revert(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name) {
 	const bytecode::Member *member = visible_member(*self(p_instance)->current_image(), as_name(p_name));
@@ -232,7 +232,7 @@ static GDExtensionBool instance_property_get_revert(GDExtensionScriptInstanceDat
 	if (!member || !member->has_initial) {
 		return false;
 	}
-	*reinterpret_cast<Variant *>(r_ret) = initial_value(*image, *member);
+	*reinterpret_cast<Variant *>(r_ret) = initial_value(*image, size_t(member - image->module.members.data()));
 	return true;
 }
 

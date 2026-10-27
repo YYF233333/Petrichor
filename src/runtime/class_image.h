@@ -43,6 +43,7 @@ public:
 	godot::StringName ready_method = "_ready";
 	std::vector<godot::StringName> member_names;
 	std::vector<ValueCheck> member_checks; // Entry checks of members, by member index.
+	std::vector<godot::Variant> initial_values; // By member index: the constant initial value, if it has one.
 	SlotLayout members_layout; // An instance's storage.
 	godot::HashMap<godot::StringName, int> member_lookup;
 
@@ -82,8 +83,9 @@ public:
 	bool same_declarations(const ClassImage &p_other) const;
 };
 
-// A literal of the module, such as a parameter's default value; None for an
-// Object or Variant constant.
-godot::Variant literal_value(const bytecode::Constant &p_constant);
+// The value of a constant of the module; None for an Object or Variant
+// constant. Returns false and sets r_error when the engine has no such
+// constant or constructor.
+bool constant_value(const bytecode::Constant &p_constant, godot::Variant &r_value, godot::String &r_error);
 
 } // namespace petrichor

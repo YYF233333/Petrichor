@@ -203,6 +203,11 @@ public:
 		f64(p_value.f);
 		str(p_value.s);
 		str(p_value.builtin);
+		u32(uint32_t(p_value.constructor));
+		u32(uint32_t(p_value.args.size()));
+		for (const Constant &arg : p_value.args) {
+			constant(arg);
+		}
 	}
 	void slot(const Slot &p_slot) {
 		str(p_slot.name);
@@ -306,6 +311,11 @@ public:
 		value.f = f64();
 		value.s = str();
 		value.builtin = str();
+		value.constructor = int32_t(u32());
+		value.args.resize(count());
+		for (Constant &arg : value.args) {
+			arg = constant();
+		}
 		return value;
 	}
 	Slot slot() {

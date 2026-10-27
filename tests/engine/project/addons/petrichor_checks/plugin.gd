@@ -31,6 +31,7 @@ func _run() -> void:
 	_check_new_script()
 	_check_header()
 	_check_placeholder_fallback()
+	_check_constant_defaults()
 	await _check_instanced_scene_change()
 	await _check_undo_merge()
 
@@ -134,6 +135,25 @@ func _check_placeholder_fallback() -> void:
 	root = (ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 	Engine.print_error_messages = true
 	_check(root.get("speed") == 7 and _pack_to_text(root).contains("speed = 7"), "a scene whose script has errors keeps its values")
+	root.free()
+	for file in [script_path, script_path + ".uid", scene_path]:
+		DirAccess.remove_absolute(file)
+
+
+# A constant initializer, such as a constructor of constants, is the default
+# value the inspector shows and the scene leaves out, as in GDScript.
+func _check_constant_defaults() -> void:
+	var script_path := "res://editor_check_defaults.pet"
+	var scene_path := "res://editor_check_defaults.tscn"
+	_write(script_path, "extends Node\n@export var offset := Vector2(400.0, 0.0)\n@export var tint := Color(\"000000b0\")\n@export var up: Vector3 = Vector3.UP\n@export var placed := Transform2D(0.5, Vector2(-1, 2))\n")
+	_write(scene_path, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Root" type="Node"]\nscript = ExtResource("1")\n' % script_path)
+	var root := (ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
+	var expected := { "offset": Vector2(400, 0), "tint": Color("000000b0"), "up": Vector3.UP, "placed": Transform2D(0.5, Vector2(-1, 2)) }
+	_check(expected.keys().all(func(name): return root.get(name) == expected[name]), "a placeholder shows constant initializers")
+	var text := _pack_to_text(root)
+	_check(expected.keys().all(func(name): return not text.contains(name + " =")), "values equal to constant defaults are not saved")
+	root.set("offset", Vector2(1, 2))
+	_check(_pack_to_text(root).contains("offset = Vector2(1, 2)"), "a value other than its constant default is saved")
 	root.free()
 	for file in [script_path, script_path + ".uid", scene_path]:
 		DirAccess.remove_absolute(file)

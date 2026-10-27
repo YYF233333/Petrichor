@@ -197,6 +197,38 @@ bool is_literal(const Expr &p_expr) {
 	}
 }
 
+// A value known without running code, of a type whose values are not shared
+// between copies (core/variant/variant.cpp:3437-3453): a literal, a constant
+// of a built-in type, or a constructor of a built-in type whose arguments are
+// such values, each of the type it is stored as. GDScript reduces these forms
+// to the editor's default value (modules/gdscript/gdscript_analyzer.cpp:3286-3328,
+// 4087-4090, 5652-5681); arithmetic and named constants are not among them yet.
+bool is_constant(const Expr &p_expr, const Type &p_target) {
+	const bool unshared = p_target.is_primitive() ||
+			(p_target.kind == TypeKind::Builtin && p_target.name != "Array" && p_target.name != "Dictionary" && p_target.name.rfind("Packed", 0) != 0);
+	if (!unshared) {
+		return false;
+	}
+	if (is_literal(p_expr)) {
+		return true; // Assignable, so converted as written (spec §3.2, §10.7).
+	}
+	if (p_expr.type != p_target) {
+		return false;
+	}
+	if (p_expr.target == Target::BuiltinConstant) {
+		return true;
+	}
+	if (p_expr.kind != ExprKind::Call || p_expr.target != Target::BuiltinConstructor) {
+		return false;
+	}
+	for (size_t i = 0; i < p_expr.args.size(); i++) {
+		if (!is_constant(*p_expr.args[i], p_expr.param_types[i])) {
+			return false;
+		}
+	}
+	return true;
+}
+
 std::vector<Type> param_types(const std::vector<ParamDecl> &p_params) {
 	std::vector<Type> types;
 	for (const ParamDecl &param : p_params) {
@@ -2327,8 +2359,8 @@ class Checker : public ClassRelation {
 			} else {
 				type = value;
 			}
-			// An @onready member gets even a literal when the node is ready.
-			member.literal_initializer = !member.is_onready && is_literal(*member.initializer) && type.is_primitive();
+			// An @onready member gets even a constant when the node is ready.
+			member.constant_initializer = !member.is_onready && is_constant(*member.initializer, type);
 		} else if (!member.declared_type) {
 			error(member.line, member.column, "\"" + member.name + "\" needs a type or an initial value.");
 		} else if (type.kind == TypeKind::Object && !type.nullable) {

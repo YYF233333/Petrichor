@@ -67,8 +67,11 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		}
 		image->param_checks.push_back(std::move(checks));
 		std::vector<Variant> defaults;
-		for (const bytecode::Constant &value : function.defaults) {
-			defaults.push_back(literal_value(value));
+		for (const bytecode::Constant &constant : function.defaults) {
+			defaults.emplace_back();
+			if (!constant_value(constant, defaults.back(), r_error)) {
+				return nullptr;
+			}
 		}
 		image->param_defaults.push_back(std::move(defaults));
 	}
@@ -78,6 +81,10 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		const StringName name = from_utf8(member.name);
 		image->member_names.push_back(name);
 		image->member_checks.push_back(ValueCheck(member));
+		image->initial_values.emplace_back();
+		if (member.has_initial && !constant_value(member.initial, image->initial_values.back(), r_error)) {
+			return nullptr;
+		}
 		bytecode::Slot slot;
 		slot.type = member.type;
 		slot.offset = member.offset;
@@ -88,22 +95,10 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 
 	for (const bytecode::Constant &constant : module.constants) {
 		image->strings.push_back(constant.type == ValueType::String ? from_utf8(constant.s) : String());
-		Variant value;
-		if (!constant.builtin.empty()) {
-			const StringName name = from_utf8(constant.builtin);
-			gdextension_interface::variant_get_constant_value(engine_type(constant.type), name._native_ptr(), value._native_ptr());
-		} else if (constant.type == ValueType::StringName) {
-			value = StringName(from_utf8(constant.s));
-		} else if (constant.type == ValueType::NodePath) {
-			value = NodePath(from_utf8(constant.s));
-		} else {
-			value = default_variant(constant.type); // None for Object.
-		}
-		if (constant.type != ValueType::Object && value.get_type() != variant_type(constant.type)) {
-			r_error = vformat("the engine has no %s constant %s", bytecode::value_type_name(constant.type), from_utf8(constant.builtin));
+		image->values.emplace_back();
+		if (!constant_value(constant, image->values.back(), r_error)) {
 			return nullptr;
 		}
-		image->values.push_back(value);
 	}
 	for (const bytecode::EngineCall &call : module.engine_calls) {
 		image->engine_methods.push_back(from_utf8(call.method));
@@ -171,23 +166,85 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 	return image;
 }
 
-Variant literal_value(const bytecode::Constant &p_constant) {
-	switch (p_constant.type) {
-		case ValueType::Bool:
-			return p_constant.b;
-		case ValueType::Int:
-			return p_constant.i;
-		case ValueType::Float:
-			return p_constant.f;
-		case ValueType::String:
-			return from_utf8(p_constant.s);
-		case ValueType::StringName:
-			return StringName(from_utf8(p_constant.s));
-		case ValueType::NodePath:
-			return NodePath(from_utf8(p_constant.s));
-		default:
-			return Variant(); // None.
+// Built with the constructor that CONSTRUCT calls, from the arguments in their
+// slots' layout.
+static bool construct_constant(const bytecode::Constant &p_constant, Variant &r_value, String &r_error) {
+	const GDExtensionPtrConstructor constructor = gdextension_interface::variant_get_ptr_constructor(engine_type(p_constant.type), p_constant.constructor);
+	if (!constructor) {
+		r_error = vformat("%s has no constructor %d", bytecode::value_type_name(p_constant.type), p_constant.constructor);
+		return false;
 	}
+	std::vector<bytecode::Slot> slots;
+	uint32_t size = 0;
+	for (const bytecode::Constant &arg : p_constant.args) {
+		bytecode::Slot slot;
+		slot.type = arg.type;
+		slot.offset = size;
+		size += bytecode::slot_size(arg.type);
+		slots.push_back(slot);
+	}
+	const SlotLayout layout = SlotLayout::of(size, slots);
+	std::vector<uint64_t> storage(size / 8 + 1); // Slots are 8-byte aligned.
+	uint8_t *base = reinterpret_cast<uint8_t *>(storage.data());
+	layout.construct(base);
+	std::vector<const void *> pointers;
+	bool ok = true;
+	for (size_t i = 0; ok && i < slots.size(); i++) {
+		Variant value;
+		ok = constant_value(p_constant.args[i], value, r_error) && from_variant(slots[i].type, value, base + slots[i].offset);
+		pointers.push_back(base + slots[i].offset);
+	}
+	if (ok) {
+		// The engine constructs into memory that holds no value.
+		alignas(16) uint8_t result[64];
+		constructor(result, pointers.data());
+		r_value = to_variant(p_constant.type, result);
+		destroy_value(p_constant.type, result);
+	}
+	layout.destroy(base);
+	return ok;
+}
+
+bool constant_value(const bytecode::Constant &p_constant, Variant &r_value, String &r_error) {
+	const ValueType type = p_constant.type;
+	if (!p_constant.builtin.empty()) {
+		const StringName name = from_utf8(p_constant.builtin);
+		Variant value; // The engine writes over it.
+		gdextension_interface::variant_get_constant_value(engine_type(type), name._native_ptr(), value._native_ptr());
+		if (value.get_type() != variant_type(type)) {
+			r_error = vformat("the engine has no %s constant %s", bytecode::value_type_name(type), name);
+			return false;
+		}
+		r_value = value;
+		return true;
+	}
+	if (p_constant.constructor >= 0) {
+		return construct_constant(p_constant, r_value, r_error);
+	}
+	switch (type) {
+		case ValueType::Bool:
+			r_value = p_constant.b;
+			break;
+		case ValueType::Int:
+			r_value = p_constant.i;
+			break;
+		case ValueType::Float:
+			r_value = p_constant.f;
+			break;
+		case ValueType::String:
+			r_value = from_utf8(p_constant.s);
+			break;
+		case ValueType::StringName:
+			r_value = StringName(from_utf8(p_constant.s));
+			break;
+		case ValueType::NodePath:
+			r_value = NodePath(from_utf8(p_constant.s));
+			break;
+		default:
+			r_value = default_variant(type); // None for Object and Variant.
+			break;
+	}
+	return true;
 }
 
 bool ClassImage::fits_class(const Object *p_object, uint32_t p_index) const {
@@ -221,7 +278,8 @@ int ClassImage::find_member(const StringName &p_name) const {
 namespace {
 
 bool same_constant(const bytecode::Constant &p_a, const bytecode::Constant &p_b) {
-	return p_a.type == p_b.type && p_a.b == p_b.b && p_a.i == p_b.i && p_a.f == p_b.f && p_a.s == p_b.s && p_a.builtin == p_b.builtin;
+	return p_a.type == p_b.type && p_a.b == p_b.b && p_a.i == p_b.i && p_a.f == p_b.f && p_a.s == p_b.s && p_a.builtin == p_b.builtin &&
+			p_a.constructor == p_b.constructor && std::equal(p_a.args.begin(), p_a.args.end(), p_b.args.begin(), p_b.args.end(), same_constant);
 }
 
 // What a slot or a member holds, as an entry check reads it.

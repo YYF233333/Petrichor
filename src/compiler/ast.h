@@ -173,7 +173,7 @@ struct VarDecl {
 	std::unique_ptr<Expr> initializer;
 	// Filled by the checker.
 	Type type;
-	bool literal_initializer = false; // Also stored as the member's initial value, the editor's default.
+	bool constant_initializer = false; // Also stored as the member's initial value, the editor's default.
 	bool must_assign = false; // An export of a non-null object type without an initial value (spec §7.5).
 	uint32_t hint = 0; // For the inspector: PropertyHint as the engine numbers it.
 	std::string hint_string;

@@ -79,6 +79,11 @@ struct Constant {
 	double f = 0.0;
 	std::string s;       // String, StringName and NodePath values.
 	std::string builtin; // A constant of a built-in type, such as "UP" of Vector3.
+	// A value built by a constructor of the type, by its index in the engine's
+	// list, from `args`, which have the types the constructor takes; -1 for
+	// none.
+	int32_t constructor = -1;
+	std::vector<Constant> args;
 };
 
 struct Slot {
@@ -116,7 +121,7 @@ struct Member {
 	// For the inspector: PropertyHint as the engine numbers it, and its string.
 	uint32_t hint = 0;
 	std::string hint_string;
-	// A literal initial value, which the editor shows as the default; the
+	// A constant initial value, which the editor shows as the default; the
 	// module's init function writes it, with the other initializers.
 	bool has_initial = false;
 	Constant initial;

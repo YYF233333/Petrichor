@@ -81,8 +81,8 @@ static Dictionary function_info(const ClassImage &p_image, int p_index) {
 	const Dictionary result = property_dict(variant_type(function.result.type), StringName(), usage_of(function.result.type, PROPERTY_USAGE_DEFAULT), class_of(function.result.type, function.result.class_name));
 	Dictionary method = method_dict(p_image.function_names[p_index], args, result, METHOD_FLAGS_DEFAULT | (function.is_static ? METHOD_FLAG_STATIC : 0));
 	Array defaults;
-	for (const bytecode::Constant &value : function.defaults) {
-		defaults.push_back(literal_value(value));
+	for (const Variant &value : p_image.param_defaults[p_index]) {
+		defaults.push_back(value);
 	}
 	method["default_args"] = defaults;
 	return method;
@@ -167,11 +167,9 @@ TypedArray<Dictionary> visible_methods(const ClassImage &p_image) {
 	return list;
 }
 
-Variant initial_value(const ClassImage &p_image, const bytecode::Member &p_member) {
-	if (!p_member.has_initial) {
-		return default_variant(p_member.type);
-	}
-	return literal_value(p_member.initial);
+Variant initial_value(const ClassImage &p_image, size_t p_member) {
+	const bytecode::Member &member = p_image.module.members[p_member];
+	return member.has_initial ? p_image.initial_values[p_member] : default_variant(member.type);
 }
 
 PetHeader parse_header(const String &p_source) {
@@ -317,7 +315,7 @@ void PetScript::update_placeholder(void *p_placeholder) const {
 		for (size_t i = 0; i < current->module.members.size(); i++) {
 			const bytecode::Member &member = current->module.members[i];
 			if (is_visible(member) && member.has_initial) {
-				values[current->member_names[i]] = initial_value(*current, member);
+				values[current->member_names[i]] = initial_value(*current, i);
 			}
 		}
 	}
@@ -543,7 +541,7 @@ bool PetScript::_has_property_default_value(const StringName &p_property) const 
 	if (!current) {
 		return false;
 	}
-	// Only a literal initial value is a default; other initializers give each
+	// Only a constant initial value is a default; other initializers give each
 	// instance its own value (spec §6.1).
 	const int index = current->find_member(p_property);
 	return index >= 0 && is_visible(current->module.members[index]) && current->module.members[index].has_initial;
@@ -555,7 +553,7 @@ Variant PetScript::_get_property_default_value(const StringName &p_property) con
 		return Variant();
 	}
 	const int index = current->find_member(p_property);
-	return index >= 0 ? initial_value(*current, current->module.members[index]) : Variant();
+	return index >= 0 ? initial_value(*current, size_t(index)) : Variant();
 }
 
 void PetScript::_update_exports() {

@@ -264,6 +264,51 @@ var first := rng.randi()
 	CHECK(module_of("extends Node\nvar a: int\n").init_function == -1);
 }
 
+// What GDScript reduces to a constant for these forms is the editor's default
+// (modules/gdscript/gdscript_analyzer.cpp:5652-5681): a built-in constant, and
+// a constructor of a value type that is not shared whose arguments are
+// constants (:3286-3328); the init function still writes them all.
+TEST_CASE("a constant initializer is the member's initial value") {
+	const bytecode::Module module = module_of(R"(extends Node
+var offset := Vector2(400.0, 0.0)
+var tint := Color("000000b0")
+var up: Vector3 = Vector3.UP
+var placed := Transform2D(0.5, Vector2(-1, 2))
+var path: NodePath = "a/b"
+var doubled := Vector2(1.0, 2.0) * 2.0
+var random := Vector2(randf(), 0.0)
+var names := PackedStringArray()
+)");
+	auto initial = [&](const char *p_name) { return module.members[module.find_member(p_name)].has_initial; };
+	CHECK(initial("offset"));
+	CHECK(initial("tint"));
+	CHECK(initial("up"));
+	CHECK(initial("placed"));
+	CHECK(initial("path"));
+	CHECK(!initial("doubled"));
+	CHECK(!initial("random"));
+	CHECK(!initial("names"));
+
+	const bytecode::Constant &offset = module.members[module.find_member("offset")].initial;
+	CHECK(offset.type == ValueType::Vector2);
+	CHECK(offset.constructor >= 0);
+	REQUIRE(offset.args.size() == 2);
+	CHECK((offset.args[0].type == ValueType::Float && offset.args[0].f == 400.0));
+	CHECK(module.members[module.find_member("up")].initial.builtin == "UP");
+	CHECK(module.members[module.find_member("path")].initial.type == ValueType::NodePath);
+	// An int literal is converted where the constructor takes a float, as written.
+	const bytecode::Constant &placed = module.members[module.find_member("placed")].initial;
+	REQUIRE(placed.args.size() == 2);
+	REQUIRE(placed.args[1].args.size() == 2);
+	CHECK((placed.args[1].type == ValueType::Vector2 && placed.args[1].args[0].type == ValueType::Float && placed.args[1].args[0].f == -1.0));
+
+	const std::vector<uint8_t> data = bytecode::serialize(module);
+	bytecode::Module copy;
+	std::string error;
+	REQUIRE(bytecode::deserialize(data.data(), data.size(), copy, error));
+	CHECK(bytecode::serialize(copy) == data);
+}
+
 // Hot reload compares the init function and the entries it uses (spec §12.4).
 TEST_CASE("the init function and its table entries do not change with a function body") {
 	const char *before = "extends Node\nvar v := Vector3(1, 2, 3)\n\nfunc f() -> float:\n\treturn 1.0\n";

@@ -152,10 +152,22 @@ TokenKind compound_operator(TokenKind p_assign) {
 	}
 }
 
-bytecode::Constant constant_of(const Expr &p_literal, const Type &p_target) {
+// A literal, or a constant the checker found (is_constant()), as the target's type.
+bytecode::Constant constant_of(const Expr &p_expr, const Type &p_target) {
 	bytecode::Constant constant;
 	constant.type = value_type(p_target);
-	const Expr *literal = &p_literal;
+	if (p_expr.target == Target::BuiltinConstant) {
+		constant.builtin = p_expr.text;
+		return constant;
+	}
+	if (p_expr.target == Target::BuiltinConstructor) {
+		constant.constructor = p_expr.index;
+		for (size_t i = 0; i < p_expr.args.size(); i++) {
+			constant.args.push_back(constant_of(*p_expr.args[i], p_expr.param_types[i]));
+		}
+		return constant;
+	}
+	const Expr *literal = &p_expr;
 	bool negate = false;
 	if (literal->kind == ExprKind::Unary) {
 		negate = true;
@@ -897,11 +909,8 @@ class Lowerer {
 				}
 				if (p_expr.target == Target::BuiltinConstant) {
 					const ValueType type = value_type(p_expr.type);
-					bytecode::Constant constant;
-					constant.type = type;
-					constant.builtin = p_expr.text;
 					const uint32_t result = temp(type);
-					instr(Op::CONST_VALUE, result, NO_REG, NO_REG, add_constant(constant), type);
+					instr(Op::CONST_VALUE, result, NO_REG, NO_REG, add_constant(constant_of(p_expr, p_expr.type)), type);
 					return result;
 				}
 				Place place = place_of(p_expr);
@@ -1351,8 +1360,8 @@ public:
 			member.is_export = decl_member.is_export;
 			member.hint = decl_member.hint;
 			member.hint_string = decl_member.hint_string;
-			member.has_initial = decl_member.literal_initializer;
-			member.initial = decl_member.literal_initializer ? constant_of(*decl_member.initializer, decl_member.type) : bytecode::Constant{ member.type };
+			member.has_initial = decl_member.constant_initializer;
+			member.initial = decl_member.constant_initializer ? constant_of(*decl_member.initializer, decl_member.type) : bytecode::Constant{ member.type };
 			module.members.push_back(member);
 		}
 		module.instance_size = offset;
