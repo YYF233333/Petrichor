@@ -23,6 +23,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections import Counter
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -298,11 +299,21 @@ def expect(name, ok, output=""):
             print(output)
 
 
-def expect_run(name, code, output, lines=()):
-    """The run exits with 0, reports no errors, and prints `lines` in order.
+def expect_run(name, code, output, lines=(), expected_errors=()):
+    """The run exits with 0, reports no errors other than `expected_errors`,
+    each as often as it is listed, and prints `lines` in order.
 
     A line may follow a prompt, such as the debugger's "debug> "."""
-    errors = [line for line in output.splitlines() if "ERROR" in line]
+    allowed = Counter(expected_errors)
+    errors = []
+    for line in output.splitlines():
+        if "ERROR" not in line:
+            continue
+        text = re.sub(r"^\s*(SCRIPT ERROR|ERROR): ", "", line)
+        if allowed[text] > 0:
+            allowed[text] -= 1
+        else:
+            errors.append(line)
     remaining = iter(line.strip() for line in output.splitlines())
     in_order = all(any(out.endswith(line) for out in remaining) for line in lines)
     expect(name, code == 0 and not errors and in_order, output)
@@ -342,7 +353,10 @@ def main():
     if wanted("language"):
         # Verbose, so that StringNames still referenced at exit are listed.
         code, output = run(godot, "--verbose", "--path", str(PROJECT), "res://language/language.tscn")
-        expect_run("language", code, output, ["language: 0 failure(s)"])
+        # The program errors the checks raise are printed, and each one the
+        # test expected it names as such.
+        expected = [line.split("language: expected error: ", 1)[1] for line in output.splitlines() if line.startswith("language: expected error: ")]
+        expect_run("language", code, output, ["language: 0 failure(s)"], expected)
         expect("language: no value leaks", "Orphan StringName: petrichor_leak_probe" not in output, output)
         run_stale_bytecode(godot)
 

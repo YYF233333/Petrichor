@@ -4,6 +4,29 @@ extends Node
 #   godot --headless --path . res://language/language.tscn
 
 var failures := 0
+var errors := ErrorLog.new()
+
+
+# The errors the engine reports, as "file:line: message" for those of scripts
+# and as the message alone for the engine's own.
+class ErrorLog extends Logger:
+	var mutex := Mutex.new()
+	var reported: Array[Dictionary] = []
+
+	func _log_error(_function: String, file: String, line: int, code: String, rationale: String, _editor_notify: bool, error_type: int, _script_backtraces: Array[ScriptBacktrace]) -> void:
+		if error_type != ERROR_TYPE_ERROR and error_type != ERROR_TYPE_SCRIPT:
+			return
+		var text := code if rationale.is_empty() else rationale
+		mutex.lock()
+		reported.append({ "where": "%s:%d: %s" % [file.get_file(), line, text] if error_type == ERROR_TYPE_SCRIPT else text, "text": text })
+		mutex.unlock()
+
+	func take() -> Array[Dictionary]:
+		mutex.lock()
+		var taken := reported.duplicate()
+		reported.clear()
+		mutex.unlock()
+		return taken
 
 
 func _check(condition: bool, what: String) -> void:
@@ -14,7 +37,20 @@ func _check(condition: bool, what: String) -> void:
 		printerr("language: FAILED: ", what)
 
 
+# The errors reported since the last call are exactly `expected`, which names
+# the program error each call raised (spec §8.1). They are printed as well, and
+# run.py accepts those the test expected.
+func _check_errors(expected: Array[String], what: String) -> void:
+	var reported := errors.take()
+	var where := reported.map(func(error): return error.where)
+	_check(where == expected, what if where == expected else "%s: reported %s" % [what, where])
+	if where == expected:
+		for error in reported:
+			print("language: expected error: ", error.text)
+
+
 func _ready() -> void:
+	OS.add_logger(errors)
 	var c: LanguageCheck = LanguageCheck.new()
 	add_child(c)
 	_check(c.from_init == 10, "_init() runs after the member initializers")
@@ -55,17 +91,15 @@ func _ready() -> void:
 	v.texture = texture
 	add_child(v)
 	var unready: ValuesCheck = ValuesCheck.new()
-	Engine.print_error_messages = false
 	add_child(unready)
-	Engine.print_error_messages = true
+	_check_errors(["values_check.pet:139: \"texture\" has not been assigned."], "the program error names the export that was not assigned")
 	_check(v.readied and not unready.readied, "a node that becomes ready without an export it must be assigned stops before _ready()")
 	_check(v.ready_notifications == 1, "_notification() receives the engine's notifications")
 	_check(str(v) == "ValuesCheck 1", "str() gives what _to_string() returns")
 	var made := ResourceCheck.new()
 	_check(made.resource_name == "made" and made.get_reference_count() == 1, "a RefCounted of this language uses self in _init() and is held once")
-	Engine.print_error_messages = false
 	var half_made := InitCheck.new()
-	Engine.print_error_messages = true
+	_check_errors(["init_check.pet:7: Division by zero."], "the program error of the member initializer")
 	_check(not half_made.init_ran, "a program error in a member initializer ends the construction before _init()")
 	var ordered := OrderCheck.new()
 	_check(ordered.seen == 0 and ordered.later == 9 and ordered.written == 1 and ordered.overwritten == 3, "member initializers run in declaration order, literals among them")
@@ -95,8 +129,9 @@ func _ready() -> void:
 	var refused = v.callv("takes_node", [no_node])
 	Engine.print_error_messages = true
 	_check(typeof(no_node) == TYPE_OBJECT and refused == null and v.takes_node(v) == 1, "a T parameter refuses a null object from the engine")
-	Engine.print_error_messages = false
 	var unwrapped_none = v.unwrapped(null)
+	_check_errors(["values_check.pet:72: unwrap() found None."], "the program error of unwrap()")
+	Engine.print_error_messages = false
 	var wrong_type = v.callv("unwrapped", ["4"])
 	Engine.print_error_messages = true
 	_check(v.unwrapped(4) == 4 and unwrapped_none == 0 and wrong_type == null, "an int? parameter takes an int or null, and unwrap() of None is a program error")
@@ -117,25 +152,22 @@ func _ready() -> void:
 	var named: Array[Node] = [v, c]
 	_check(v.names_of(named) == "%s%s" % [v.name, c.name], "for over an Array[Node]")
 	named.append(null)
-	Engine.print_error_messages = false
 	var with_null = v.names_of(named)
-	Engine.print_error_messages = true
+	_check_errors(["values_check.pet:96: Expected Node, found None."], "the program error of the null element")
 	_check(with_null == "", "a null element of Array[Node] is a program error when it is read")
 	_check(v.queue_demo() == "a1", "pop_front() of Array[String] gives a String?")
-	Engine.print_error_messages = false
 	var out_of_bounds = v.element(ints, 3)
 	var no_part = v.part("a", 2)
-	Engine.print_error_messages = true
+	_check_errors(["values_check.pet:107: Index 3 is out of bounds (size 3).", "values_check.pet:113: Index 2 is out of bounds (size 1)."], "the program errors give the index and the size")
 	_check(v.element(ints, 0) == 1 and v.element(ints, -1) == 3 and out_of_bounds == 0, "an index out of bounds is a program error; a negative one counts from the end")
 	var holder := Node.new()
 	holder.add_child(Node.new())
 	var area := Area2D.new()
 	var layered := Node2D.new()
-	Engine.print_error_messages = false
 	var past_int32 = v.child_at(holder, 2147483648)
 	v.set_layer(area, -1)
 	v.set_z(layered, -2147483649)
-	Engine.print_error_messages = true
+	_check_errors(["values_check.pet:246: 2147483648 is out of range for the engine's int32.", "values_check.pet:252: -1 is out of range for the engine's uint32.", "values_check.pet:249: -2147483649 is out of range for the engine's int32."], "the program errors give the value and the engine's integer type")
 	_check(past_int32 == null and v.child_at(holder, 0) == holder.get_child(0), "an int beyond int32 passed to an int32 parameter is a program error")
 	_check(area.collision_layer == 1 and layered.z_index == 0, "a value out of range written to a uint32 or an int32 property is a program error and leaves it unchanged")
 	v.set_layer(area, 4294967295)
@@ -146,16 +178,14 @@ func _ready() -> void:
 	var to_pop: Array[int] = [1, 2, 3]
 	var empty_ints: Array[int] = []
 	var last: int = v.popped(to_pop, -1)
-	Engine.print_error_messages = false
 	var past_end = v.popped(to_pop, 2)
 	var from_empty = v.popped(empty_ints, 0)
-	Engine.print_error_messages = true
+	_check_errors(["values_check.pet:110: Index 2 is out of bounds (size 2).", "values_check.pet:110: Index 0 is out of bounds (size 0)."], "the program errors of pop_at()")
 	_check(last == 3 and past_end == 0 and from_empty == 0 and to_pop == [1, 2], "pop_at() gives T, and an index out of bounds is a program error, also on an empty array")
 	_check(v.part("a,b,c", 1) == "b" and no_part == "", "PackedStringArray from split() with its default arguments")
 	_check(v.players.is_typed() and v.players.get_typed_class_name() == &"Node3D", "a member of type Array[Node3D] starts as an empty typed array")
-	Engine.print_error_messages = false
 	var missing_resource = v.loaded("res://language/missing.tres")
-	Engine.print_error_messages = true
+	_check_errors(["Cannot open file 'res://language/missing.tres'.", "Failed loading resource: res://language/missing.tres.", "Error loading resource: 'res://language/missing.tres'."], "a resource that does not exist is the engine's to report")
 	_check(v.loaded("res://language/nodes.tscn") is PackedScene and missing_resource == null, "load() with a path known at run time")
 	_check(v.pressed() == false, "a method of the Input singleton")
 	var listed_properties := {}
@@ -165,20 +195,18 @@ func _ready() -> void:
 	_check(listed_properties["tuning"].hint == PROPERTY_HINT_RANGE and listed_properties["tuning"].hint_string == "0,10,0.5", "@export_range gives the range hint")
 	_check(listed_properties["texture"].hint == PROPERTY_HINT_RESOURCE_TYPE and listed_properties["texture"].hint_string == "Texture2D", "an exported resource is picked from resources")
 	var detached := ValuesCheck.new()
-	Engine.print_error_messages = false
 	var unassigned_size = detached.texture_size()
-	Engine.print_error_messages = true
+	_check_errors(["values_check.pet:142: \"texture\" has not been assigned."], "the program error names the export that is read")
 	detached.texture = texture
 	_check(unassigned_size == Vector2() and detached.texture_size() == Vector2(2, 3) and v.texture_size() == Vector2(2, 3), "reading an export that was not assigned is a program error")
-	Engine.print_error_messages = false
 	var detached_root = detached.tree_root_name()
-	Engine.print_error_messages = true
+	# The engine reports the missing tree too, as for GDScript.
+	_check_errors(["Parameter \"data.tree\" is null.", "values_check.pet:169: Expected SceneTree, found None."], "the program error of get_tree() outside the tree")
 	detached.free()
 	_check(v.tree_root_name() == &"root" and detached_root == &"", "get_tree() is T, and a program error outside the tree")
 	_check(v.captured() == Input.MOUSE_MODE_CAPTURED, "an integer constant of an engine class")
-	Engine.print_error_messages = false
 	var deep = v.recurse(0)
-	Engine.print_error_messages = true
+	_check_errors(["values_check.pet:146: Stack overflow: more than 1024 calls deep. Check for infinite recursion."], "the program error of infinite recursion")
 	_check(deep == 0, "infinite recursion is a program error, not a crash")
 	var gone_node := Node.new()
 	gone_node.free()
@@ -210,22 +238,20 @@ func _ready() -> void:
 	v.damageable = target
 	_check(v.damageable == target, "a member of an interface takes an object that implements it")
 	var other_values := ValuesCheck.new()
-	Engine.print_error_messages = false
 	v.through_class(target)
 	v.through_interface(target)
 	v.through_instance(other_values)
-	Engine.print_error_messages = true
+	_check_errors(["target_check.pet:13: Division by zero.", "target_check.pet:13: Division by zero.", "values_check.pet:230: Division by zero."], "each program error is reported where it happened, in the callee")
 	_check(v.after_failure == 0, "a program error in a method of another class, of an interface or of another instance ends the caller too")
 	# Spec §3.3: self freed or detached while its method runs.
 	var lost_script := FreeCheck.new()
 	var firing := FreeCheck.new()
 	firing.fired.connect(func(): firing.set_script(null))
 	var called := FreeCheck.new()
-	Engine.print_error_messages = false
 	var read_after_detach = lost_script.detach_and_read()
 	var read_after_signal = firing.fire_and_read()
 	var read_through_call = v.through_detached(called)
-	Engine.print_error_messages = true
+	_check_errors(["free_check.pet:22: self was freed, or lost its script, while this method ran.", "free_check.pet:34: self was freed, or lost its script, while this method ran.", "free_check.pet:22: self was freed, or lost its script, while this method ran."], "the program errors of reading a member of a detached self")
 	_check(read_after_detach == 0 and lost_script.get_script() == null, "reading a member after self lost its script is a program error")
 	_check(read_after_signal == 0 and firing.get_script() == null, "reading a member after a signal handler took the emitter's script is a program error")
 	_check(read_through_call == 0 and v.after_failure == 0, "the same through a call from another class, which it ends too")
@@ -249,15 +275,13 @@ func _ready() -> void:
 	v.transform = Transform3D(Basis(), Vector3(7, 0, 0))
 	_check(v.origin_x() == 7.0, "a member of a member of a property")
 
-	Engine.print_error_messages = false
 	var zero := c.divide(1, 0)
-	Engine.print_error_messages = true
+	_check_errors(["language_check.pet:20: Division by zero."], "the program error of division by zero")
 	_check(zero == 0, "after a program error the caller gets the default value (spec §8.1)")
 
 	var nodes: Node = load("res://language/nodes.tscn").instantiate()
-	Engine.print_error_messages = false
 	var early = nodes.early_text()
-	Engine.print_error_messages = true
+	_check_errors(["nodes_check.pet:16: \"caption_label\" is read before the node is ready."], "the program error names the @onready member")
 	add_child(nodes)
 	_check(early == "" and nodes.ready_text() == "from the scene" and nodes.early_text() == "from the scene", "@onready members are set when the node is ready, and reading one before is a program error")
 	var caption: Label = nodes.get_node("Caption")
@@ -268,23 +292,24 @@ func _ready() -> void:
 	var impostor := Node.new()
 	impostor.name = "Caption"
 	nodes.add_child(impostor)
-	Engine.print_error_messages = false
 	var replaced = nodes.caption_node()
 	impostor.free()
 	var gone = nodes.caption_node()
-	Engine.print_error_messages = true
+	# The engine reports the missing node too, as for GDScript.
+	_check_errors(["nodes_check.pet:25: Expected Label, found Node.", "Node not found: \"Caption\" (relative to \"/root/LanguageTest/NodesCheck\").", "nodes_check.pet:25: Expected Label, found None."], "the program errors give the class $X expects and what it found")
 	_check(replaced == null and gone == null, "$X whose node has changed class or is gone is a program error")
 
 	var frames_before: int = c.frames
 	var freeing := FreeCheck.new()
 	freeing.recorder = self
 	add_child(freeing)
-	Engine.print_error_messages = false
 	await get_tree().process_frame
 	await get_tree().process_frame
-	Engine.print_error_messages = true
+	_check_errors(["free_check.pet:17: self was freed, or lost its script, while this method ran."], "the program error of reading a member after self was freed")
 	_check(c.frames > frames_before, "_process runs every frame")
 	_check(not is_instance_valid(freeing) and not has_meta(&"after_free"), "reading a member after self was freed in _process is a program error")
 
+	_check_errors([], "no other errors")
+	OS.remove_logger(errors)
 	print("language: %d failure(s)" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
