@@ -58,6 +58,10 @@ godot::Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_func
 // The call stack of the current thread, innermost last.
 const std::vector<StackFrame> &stack();
 
+// Reports a program error at a line of the module's source (spec §8.1): the
+// debugger breaks, and the engine logs it with the call stack.
+void report_error(const ClassImage &p_image, const char *p_function, int p_line, const godot::String &p_message);
+
 } // namespace vm
 
 } // namespace petrichor

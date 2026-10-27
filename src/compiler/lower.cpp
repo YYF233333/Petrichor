@@ -1366,6 +1366,7 @@ public:
 			member.option = slot.option;
 			member.element = slot.element;
 			member.is_onready = decl_member.is_onready;
+			member.line = uint32_t(decl_member.line);
 			member.offset = offset;
 			offset += bytecode::slot_size(member.type);
 			member.is_pub = decl_member.is_pub;

@@ -186,9 +186,14 @@ static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance,
 	if (!member) {
 		return false;
 	}
-	// A value of the wrong type is rejected, as by the entry checks (spec §10.1).
+	// A value that fails the entry check is a program error, reported at the
+	// member, which keeps its value (spec §7.5, §10.1); the write is handled.
 	const size_t index = size_t(member - image->module.members.data());
-	return from_variant(member->type, *reinterpret_cast<const Variant *>(p_value), instance->storage->members + member->offset, &image->member_checks[index]);
+	const Variant &value = *reinterpret_cast<const Variant *>(p_value);
+	if (!from_variant(member->type, value, instance->storage->members + member->offset, &image->member_checks[index])) {
+		vm::report_error(*image, member->name.c_str(), int(member->line), vformat("\"%s\" was not written: %s.", image->member_names[index], entry_mismatch(member->type, value, image->member_checks[index])));
+	}
+	return true;
 }
 
 static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionVariantPtr r_ret) {

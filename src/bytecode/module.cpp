@@ -363,6 +363,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.u8(member.nullable ? 1 : 0);
 		w.type(member.option);
 		w.type(member.element);
+		w.u32(member.line);
 		w.u8(member.is_pub ? 1 : 0);
 		w.u8(member.is_export ? 1 : 0);
 		w.u8(member.is_onready ? 1 : 0);
@@ -529,6 +530,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		member.nullable = r.u8() != 0;
 		member.option = r.type();
 		member.element = r.type();
+		member.line = r.u32();
 		member.is_pub = r.u8() != 0;
 		member.is_export = r.u8() != 0;
 		member.is_onready = r.u8() != 0;

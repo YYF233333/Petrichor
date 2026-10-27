@@ -228,9 +228,10 @@ func _ready() -> void:
 	var refused_interface = v.callv("damage_through", [plain_node, 1.0])
 	var refused_array = v.callv("count_damageable", [with_plain])
 	_check_errors(["values_check.pet:235: Argument \"target\" of damage_through(): expected CombatCheck.Damageable, found Node.", "values_check.pet:239: Argument \"targets\" of count_damageable(): expected Array[CombatCheck.Damageable], found Node at index 0."], "the program errors name the interface, and the element that does not implement it")
-	Engine.print_error_messages = false
+	# Reported at the member, since a write by name, as the remote inspector's,
+	# may come from no script (spec §7.5).
 	v.set("damageable", plain_node)
-	Engine.print_error_messages = true
+	_check_errors(["values_check.pet:233: \"damageable\" was not written: expected CombatCheck.Damageable?, found Node."], "the program error of a write names the member, its type and what came")
 	_check(refused_interface == false and v.damage_through(target, 0.0), "a parameter of an interface takes only an object that implements it")
 	_check(refused_array == 0 and v.count_damageable(with_target) == 1, "an array of an interface takes only objects that implement it")
 	_check(v.damageable == null, "a member of an interface refuses an object that does not implement it")

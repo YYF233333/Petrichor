@@ -159,11 +159,7 @@ public:
 };
 
 void report_error(const ClassImage &p_image, const bytecode::Function &p_function, int p_line, const String &p_message) {
-	// The debugger breaks while the stack is still intact (spec §12.5).
-	debugger::error(p_message);
-	const CharString description = p_message.utf8();
-	const CharString file = p_image.path.utf8();
-	godot::gdextension_interface::print_script_error(description.get_data(), p_function.name.c_str(), file.get_data(), p_line, true);
+	vm::report_error(p_image, p_function.name.c_str(), p_line, p_message);
 }
 
 class Execution {
@@ -776,7 +772,7 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 		if (!from_variant(param.type, value, frame.data + param.offset, &checks[i])) {
 			// A program error at the entry, and the engine gets the default value
 			// (spec §8.1, §10.1); the engine's backtrace of the caller goes with it.
-			report_error(*image, fn, int(fn.line), vformat("Argument \"%s\" of %s(): %s.", String::utf8(param.name.c_str()), String::utf8(fn.name.c_str()), entry_mismatch(param.type, value, checks[i])));
+			report_error(*image, fn.name.c_str(), int(fn.line), vformat("Argument \"%s\" of %s(): %s.", String::utf8(param.name.c_str()), String::utf8(fn.name.c_str()), entry_mismatch(param.type, value, checks[i])));
 			if (r_failed) {
 				*r_failed = true;
 			}
@@ -797,6 +793,14 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 
 const std::vector<StackFrame> &stack() {
 	return call_stack;
+}
+
+void report_error(const ClassImage &p_image, const char *p_function, int p_line, const String &p_message) {
+	// The debugger breaks while the stack is still intact (spec §12.5).
+	debugger::error(p_message);
+	const CharString description = p_message.utf8();
+	const CharString file = p_image.path.utf8();
+	godot::gdextension_interface::print_script_error(description.get_data(), p_function, file.get_data(), p_line, true);
 }
 
 } // namespace vm

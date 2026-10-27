@@ -121,6 +121,7 @@ struct Member {
 	bool nullable = false;
 	ValueType option = ValueType::Void; // As in Slot.
 	ValueType element = ValueType::Void; // As in Slot.
+	uint32_t line = 0; // Where it is declared, for diagnostics.
 	bool is_pub = false;
 	bool is_export = false;
 	bool is_onready = false; // Set by the ready function (spec §6.3).
