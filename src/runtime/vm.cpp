@@ -774,11 +774,13 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 		const bytecode::Slot &param = fn.params[i];
 		const Variant &value = i < size_t(p_argc) ? *p_args[i] : image->param_defaults[p_function][i - required];
 		if (!from_variant(param.type, value, frame.data + param.offset, &checks[i])) {
-			// The caller reports this with its own call site, as for engine methods.
-			r_error.error = GDEXTENSION_CALL_ERROR_INVALID_ARGUMENT;
-			r_error.argument = int32_t(i);
-			r_error.expected = GDExtensionVariantType(variant_type(param.type));
-			return Variant();
+			// A program error at the entry, and the engine gets the default value
+			// (spec §8.1, §10.1); the engine's backtrace of the caller goes with it.
+			report_error(*image, fn, int(fn.line), vformat("Argument \"%s\" of %s(): %s.", String::utf8(param.name.c_str()), String::utf8(fn.name.c_str()), entry_mismatch(param.type, value, checks[i])));
+			if (r_failed) {
+				*r_failed = true;
+			}
+			return default_variant(fn.result.type);
 		}
 	}
 

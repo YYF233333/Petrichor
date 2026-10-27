@@ -125,16 +125,16 @@ func _ready() -> void:
 	_check(v.maybe(null) == 1 and v.maybe(v) == 1, "a T? parameter accepts null and an object")
 	# The engine returns a null object as an OBJECT Variant, not as null.
 	var no_node = get_node_or_null("missing")
-	Engine.print_error_messages = false
+	# A failed entry check is a program error, and the caller gets the default
+	# value (spec §8.1, §10.1).
 	var refused = v.callv("takes_node", [no_node])
-	Engine.print_error_messages = true
-	_check(typeof(no_node) == TYPE_OBJECT and refused == null and v.takes_node(v) == 1, "a T parameter refuses a null object from the engine")
+	_check_errors(["values_check.pet:67: Argument \"n\" of takes_node(): expected Node3D, found None."], "the program error names the parameter, its type and what it got")
+	_check(typeof(no_node) == TYPE_OBJECT and refused == 0 and v.takes_node(v) == 1, "a T parameter refuses a null object from the engine")
 	var unwrapped_none = v.unwrapped(null)
 	_check_errors(["values_check.pet:72: unwrap() found None."], "the program error of unwrap()")
-	Engine.print_error_messages = false
 	var wrong_type = v.callv("unwrapped", ["4"])
-	Engine.print_error_messages = true
-	_check(v.unwrapped(4) == 4 and unwrapped_none == 0 and wrong_type == null, "an int? parameter takes an int or null, and unwrap() of None is a program error")
+	_check_errors(["values_check.pet:71: Argument \"x\" of unwrapped(): expected int?, found String."], "the program error of a String for an int? parameter")
+	_check(v.unwrapped(4) == 4 and unwrapped_none == 0 and wrong_type == 0, "an int? parameter takes an int or null, and unwrap() of None is a program error")
 	_check(v.optional_name(true) == "petrichor" and v.optional_name(false) == null, "a String? result is a String or null")
 	var plain := Node.new()
 	var freed := Node3D.new()
@@ -144,11 +144,10 @@ func _ready() -> void:
 
 	var ints: Array[int] = [1, 2, 3]
 	var floats: Array[float] = [1.0]
-	Engine.print_error_messages = false
 	var untyped_refused = v.callv("array_sum", [[1, 2]])
 	var other_type_refused = v.callv("array_sum", [floats])
-	Engine.print_error_messages = true
-	_check(v.array_sum(ints) == 6 and untyped_refused == null and other_type_refused == null, "an Array[int] parameter takes only an array typed with int")
+	_check_errors(["values_check.pet:87: Argument \"values\" of array_sum(): expected Array[int], found Array.", "values_check.pet:87: Argument \"values\" of array_sum(): expected Array[int], found Array[float]."], "the program errors give the array types")
+	_check(v.array_sum(ints) == 6 and untyped_refused == 0 and other_type_refused == 0, "an Array[int] parameter takes only an array typed with int")
 	var named: Array[Node] = [v, c]
 	_check(v.names_of(named) == "%s%s" % [v.name, c.name], "for over an Array[Node]")
 	named.append(null)
@@ -221,19 +220,19 @@ func _ready() -> void:
 	_check(v.hit(target, 2.5) and v.hit(target, 1) and not v.hit(plain_node, 1) and v.taken_by(target) == 3.5, "is with an interface of another script, and its method")
 	var listed_targets: Array = v.targets(target)
 	_check(listed_targets.get_typed_script() == TargetCheck and v.as_target(target) == target and v.as_target(plain_node) == null, "an array typed with a class of this language, and as to one")
-	Engine.print_error_messages = false
 	var refused_target = v.callv("taken_by", [plain_node])
-	Engine.print_error_messages = true
-	_check(refused_target == null, "a parameter of a class of this language refuses another object of its engine class")
+	_check_errors(["values_check.pet:202: Argument \"target\" of taken_by(): expected TargetCheck, found Node."], "the program error names the class of this language by its class_name")
+	_check(refused_target == 0.0, "a parameter of a class of this language refuses another object of its engine class")
 	var with_target: Array[Object] = [target]
 	var with_plain: Array[Object] = [plain_node]
-	Engine.print_error_messages = false
 	var refused_interface = v.callv("damage_through", [plain_node, 1.0])
 	var refused_array = v.callv("count_damageable", [with_plain])
+	_check_errors(["values_check.pet:235: Argument \"target\" of damage_through(): expected CombatCheck.Damageable, found Node.", "values_check.pet:239: Argument \"targets\" of count_damageable(): expected Array[CombatCheck.Damageable], found Node at index 0."], "the program errors name the interface, and the element that does not implement it")
+	Engine.print_error_messages = false
 	v.set("damageable", plain_node)
 	Engine.print_error_messages = true
-	_check(refused_interface == null and v.damage_through(target, 0.0), "a parameter of an interface takes only an object that implements it")
-	_check(refused_array == null and v.count_damageable(with_target) == 1, "an array of an interface takes only objects that implement it")
+	_check(refused_interface == false and v.damage_through(target, 0.0), "a parameter of an interface takes only an object that implements it")
+	_check(refused_array == 0 and v.count_damageable(with_target) == 1, "an array of an interface takes only objects that implement it")
 	_check(v.damageable == null, "a member of an interface refuses an object that does not implement it")
 	v.damageable = target
 	_check(v.damageable == target, "a member of an interface takes an object that implements it")

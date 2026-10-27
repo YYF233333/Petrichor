@@ -50,6 +50,72 @@ bool has_script(const Variant &p_script, const String &p_path) {
 	return script.is_valid() && script->get_path() == p_path;
 }
 
+/* Diagnostics */
+
+// A script by its class_name, or its path when it has none.
+String script_name(const Ref<Script> &p_script) {
+	return p_script.is_null() ? String() : (p_script->get_global_name().is_empty() ? p_script->get_path() : String(p_script->get_global_name()));
+}
+
+// An engine class, a class of this language or an interface ("script::Name")
+// as the source names them.
+String class_description(const StringName &p_class, const String &p_script, const String &p_interface) {
+	if (!p_interface.is_empty()) {
+		const int64_t split = p_interface.rfind("::");
+		const Ref<Script> owner = ResourceLoader::get_singleton()->call("load", p_interface.substr(0, split));
+		const String name = p_interface.substr(split + 2);
+		return owner.is_valid() && !owner->get_global_name().is_empty() ? String(owner->get_global_name()) + "." + name : name;
+	}
+	if (!p_script.is_empty()) {
+		return script_name(ResourceLoader::get_singleton()->call("load", p_script));
+	}
+	return p_class;
+}
+
+String type_description(ValueType p_type, const ValueCheck &p_check) {
+	switch (p_type) {
+		case ValueType::Object: {
+			const String name = class_description(p_check.class_name, p_check.script, p_check.interface);
+			return p_check.nullable ? name + String("?") : name;
+		}
+		case ValueType::Variant:
+			return p_check.option == ValueType::Void ? String("Variant") : String(bytecode::value_type_name(p_check.option)) + "?";
+		case ValueType::Array:
+			if (p_check.element == ValueType::Void) {
+				return "Array";
+			}
+			return "Array[" + (p_check.element == ValueType::Object ? class_description(p_check.class_name, p_check.script, p_check.interface) : String(bytecode::value_type_name(p_check.element))) + "]";
+		default:
+			return bytecode::value_type_name(p_type);
+	}
+}
+
+String value_description(const Variant &p_value) {
+	if (is_none(p_value)) {
+		return "None";
+	}
+	if (type_of(p_value) == Variant::OBJECT) {
+		const Object *object = p_value.get_validated_object();
+		if (!object) {
+			return "a freed object";
+		}
+		const String name = script_name(object->get_script());
+		return name.is_empty() ? String(object->get_class()) : name;
+	}
+	if (type_of(p_value) == Variant::ARRAY) {
+		const Array array = p_value;
+		if (!array.is_typed()) {
+			return "Array";
+		}
+		if (array.get_typed_builtin() != Variant::OBJECT) {
+			return "Array[" + Variant::get_type_name(Variant::Type(array.get_typed_builtin())) + "]";
+		}
+		const String name = script_name(array.get_typed_script());
+		return "Array[" + (name.is_empty() ? String(array.get_typed_class_name()) : name) + "]";
+	}
+	return Variant::get_type_name(p_value.get_type());
+}
+
 // A Variant converts String and StringName into each other, like GDScript (spec §10.7).
 bool fits(ValueType p_type, Variant::Type p_have) {
 	const Variant::Type want = variant_type(p_type);
@@ -275,6 +341,23 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 	}
 	type.from_variant(p_slot, const_cast<GDExtensionVariantPtr>(p_value._native_ptr()));
 	return true;
+}
+
+String entry_mismatch(ValueType p_type, const Variant &p_value, const ValueCheck &p_check) {
+	String found = value_description(p_value);
+	if (p_type == ValueType::Array && !p_check.interface.is_empty() && type_of(p_value) == Variant::ARRAY) {
+		// Typed as the engine types it, with an element that does not implement
+		// the interface.
+		const Array array = p_value;
+		for (int64_t i = 0; i < array.size(); i++) {
+			const Variant element = array[i];
+			if (element.booleanize() && !implements_interface(element, p_check.interface)) {
+				found = vformat("%s at index %d", value_description(element), i);
+				break;
+			}
+		}
+	}
+	return vformat("expected %s, found %s", type_description(p_type, p_check), found);
 }
 
 Variant default_variant(ValueType p_type) {

@@ -71,6 +71,10 @@ struct ValueCheck {
 // Entry check: stores the value when its type fits the slot and `p_check`, if
 // given. A freed object is accepted as it is (spec §3.3).
 bool from_variant(bytecode::ValueType p_type, const godot::Variant &p_value, uint8_t *p_slot, const ValueCheck *p_check = nullptr);
+// Why a value failed the entry check, as its diagnostic says it (spec §8.4):
+// "expected Array[int], found Array[float]", with classes of this language by
+// their class_name.
+godot::String entry_mismatch(bytecode::ValueType p_type, const godot::Variant &p_value, const ValueCheck &p_check);
 godot::Variant default_variant(bytecode::ValueType p_type);
 godot::Variant::Type variant_type(bytecode::ValueType p_type);
 // A new empty array, typed with the element type and the class of object
