@@ -395,6 +395,13 @@ bool is_live_object(const uint8_t *p_slot) {
 	return type_of(value) == Variant::OBJECT && object_id_of(value) != 0 && value.booleanize();
 }
 
+Variant outward_variant(const bytecode::Slot &p_slot, const uint8_t *p_data) {
+	if (p_slot.type == ValueType::Object && p_slot.nullable && !is_live_object(p_data)) {
+		return Variant();
+	}
+	return to_variant(p_slot.type, p_data);
+}
+
 bool check_value_sizes(String &r_error) {
 	// The engine's sizes for this build against the compiler's float_64 sizes.
 	static const struct {

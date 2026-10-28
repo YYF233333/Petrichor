@@ -481,18 +481,33 @@ class Lowerer {
 
 	// A string literal where a StringName or a NodePath is expected is built
 	// at compile time (spec §10.7).
-	uint32_t argument(const Expr &p_arg, const Type &p_param) {
+	// A T? that goes where this language no longer follows it, to the engine
+	// or into its storage, is read there, so a freed object gives None, as
+	// every read of a T? does (spec §3.3).
+	uint32_t live_or_none(uint32_t p_reg, const Type &p_type) {
+		if (p_type.kind != TypeKind::Object || !p_type.nullable) {
+			return p_reg;
+		}
+		const uint32_t result = temp(p_type);
+		instr(Op::CAST_OBJECT, result, p_reg, NO_REG, class_index(p_type));
+		return result;
+	}
+
+	uint32_t argument(const Expr &p_arg, const Type &p_param, bool p_outward) {
 		const ValueType to = value_type(p_param);
 		if (p_arg.kind == ExprKind::StringLiteral && (to == ValueType::StringName || to == ValueType::NodePath)) {
 			return load_text(to, p_arg.text);
 		}
-		return convert(lower_expr(p_arg), p_param);
+		const uint32_t value = lower_expr(p_arg);
+		return convert(p_outward ? live_or_none(value, p_arg.type) : value, p_param);
 	}
 
 	std::vector<uint32_t> arguments(const Expr &p_call) {
+		// A function of this language reads its T? parameters itself.
+		const bool outward = p_call.target != Target::ScriptFunction && p_call.target != Target::ScriptMethod;
 		std::vector<uint32_t> args;
 		for (size_t i = 0; i < p_call.args.size(); i++) {
-			args.push_back(argument(*p_call.args[i], p_call.param_types[i]));
+			args.push_back(argument(*p_call.args[i], p_call.param_types[i], outward));
 		}
 		return args;
 	}
@@ -571,7 +586,7 @@ class Lowerer {
 		new_array(result, fn.regs[result]);
 		const uint32_t append = engine_builtin_method(ValueType::Array, "append", { ValueType::Variant }, ValueType::Void);
 		for (size_t e = 0; e < p_expr.args.size(); e++) {
-			call_builtin(append, result, { argument(*p_expr.args[e], p_expr.param_types[e]) });
+			call_builtin(append, result, { argument(*p_expr.args[e], p_expr.param_types[e], true) });
 		}
 		return result;
 	}
@@ -1133,6 +1148,9 @@ class Lowerer {
 				uint32_t value;
 				if (p_stmt.assign_op == TokenKind::Equal) {
 					value = lower_expr(*p_stmt.value);
+					if (place.kind == Place::Kind::SelfProperty || place.kind == Place::Kind::ObjectProperty) {
+						value = live_or_none(value, p_stmt.value->type); // The engine keeps it.
+					}
 				} else {
 					const uint32_t current_value = load(place);
 					value = binary(compound_operator(p_stmt.assign_op), current_value, lower_expr(*p_stmt.value), p_stmt.compound_result);

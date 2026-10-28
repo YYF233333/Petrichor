@@ -1,0 +1,23 @@
+# A T? that refers to a freed object reads as None also where the value leaves
+# this language (spec §3.3): returned to the engine, read by it as a member,
+# passed to it, put into an array or written to a property. Driven by
+# language_test.gd.
+class_name FreedRefCheck
+extends Node
+
+pub var held: Node?
+
+pub func hold(node: Node):
+	held = node
+
+pub func returned() -> Node?:
+	return held
+
+pub func printed() -> String:
+	return str(held)
+
+pub func listed() -> Array[Node?]:
+	return [held]
+
+pub func written(target: Node):
+	target.owner = held

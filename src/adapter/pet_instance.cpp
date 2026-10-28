@@ -206,7 +206,7 @@ static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance,
 		}
 		return false;
 	}
-	*reinterpret_cast<Variant *>(r_ret) = to_variant(member->type, instance->storage->members + member->offset);
+	*reinterpret_cast<Variant *>(r_ret) = outward_variant(*member, instance->storage->members + member->offset);
 	return true;
 }
 

@@ -787,7 +787,7 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 	if (r_failed) {
 		*r_failed = !ok;
 	}
-	Variant value = ok ? to_variant(fn.result.type, result) : default_variant(fn.result.type);
+	Variant value = ok ? outward_variant(fn.result, result) : default_variant(fn.result.type);
 	destroy_value(fn.result.type, result);
 	return value;
 }

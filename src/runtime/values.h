@@ -91,6 +91,9 @@ inline bool is_none(const godot::Variant &p_value) {
 }
 // An Object slot that holds a live object; freed objects read as None (spec §3.3).
 bool is_live_object(const uint8_t *p_slot);
+// The value of a slot as it leaves this language: a T? whose object was
+// freed reads as None (spec §3.3).
+godot::Variant outward_variant(const bytecode::Slot &p_slot, const uint8_t *p_data);
 inline godot::Variant &variant_at(uint8_t *p_slot) {
 	return *reinterpret_cast<godot::Variant *>(p_slot);
 }

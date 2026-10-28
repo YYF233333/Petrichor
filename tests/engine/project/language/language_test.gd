@@ -274,6 +274,20 @@ func _ready() -> void:
 	_check_errors(["nodes_check.pet:25: Expected Label, found Node.", "Node not found: \"Caption\" (relative to \"/root/LanguageTest/NodesCheck\").", "nodes_check.pet:25: Expected Label, found None."], "the program errors give the class $X expects and what it found")
 	_check(replaced == null and gone == null, "$X whose node has changed class or is gone is a program error")
 
+	# Spec §3.3: a T? to a freed object reads as None where it leaves the language too.
+	var refs := FreedRefCheck.new()
+	var held := Node.new()
+	refs.hold(held)
+	held.free()
+	var orphan := Node.new()
+	refs.written(orphan)
+	_check(typeof(refs.returned()) == TYPE_NIL and typeof(refs.held) == TYPE_NIL and typeof(refs.get("held")) == TYPE_NIL, "a T? to a freed object reaches GDScript as None, returned or read as a member")
+	_check(refs.printed() == "<null>", "the engine gets None for it as an argument")
+	_check(typeof(refs.listed()[0]) == TYPE_NIL, "and in an array")
+	_check(orphan.owner == null, "and written to a property")
+	orphan.free()
+	refs.free()
+
 	var frames_before: int = c.frames
 	var freeing := FreeCheck.new()
 	freeing.recorder = self
