@@ -10,7 +10,7 @@ A statically typed scripting language for medium-to-large Godot 4 projects, repl
 
 Large projects written in a dynamic language are hard to manage. GDScript cannot leave dynamic typing behind because of compatibility: object references cannot become non-null by default, nor can callers stop receiving a fake value and carrying on after a runtime error. Even fully typed scripts leave node paths, signals connected in the editor, animation tracks and resource property names dynamic: what the scenes know never reaches the scripts. C# has second-class language support in Godot and a bridge with its own pitfalls.
 
-Petrichor is statically typed throughout, and the checking extends into scenes. It keeps GDScript's surface syntax, with one hard rule: **a construct spelled as in GDScript either behaves as in GDScript or is a compile error with a suggested fix**, never silently different.
+Petrichor is statically typed throughout, and the checking extends into scenes. It keeps GDScript's surface syntax, with one hard rule: **a construct spelled as in GDScript either behaves as in GDScript or is a compile error with a suggested fix**, never silently different. The exception is where GDScript fails at run time or silently gives a wrong result: there Petrichor raises an error instead, or does what the code meant ([§1.2](docs/language-spec.en.md#12-relationship-to-gdscript)).
 
 ## A taste
 
@@ -76,8 +76,9 @@ Each survey has a write-up in English and Chinese and a directory of scripts tha
 ## Next steps
 
 1. First milestone, done: the FPS starter kit of the [second paper migration](docs/surveys/paper-migration-2.en.md) runs with its scripts in Petrichor, and the rows of the checklist in [§15](docs/language-spec.en.md#15-conformance-checklist-non-normative) that running it needs became tests; what it leaves for later is listed in [architecture §5](docs/architecture.en.md#5-order-of-work).
-2. Then the Ring code of the same migration, the language server with renaming, quick fixes for migration, and performance benchmarks against GDScript.
-3. Throughout: collect feedback and narrow the specification to a testable core.
+2. Now: paying down the debt the quick first implementation left, before new features ([architecture §5](docs/architecture.en.md#5-order-of-work)).
+3. Then the Ring code of the same migration, the language server with renaming, quick fixes for migration, and performance work against GDScript.
+4. Throughout: collect feedback and narrow the specification to a testable core.
 
 ## Feedback
 

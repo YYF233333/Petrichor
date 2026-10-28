@@ -2,7 +2,7 @@
 
 ## Project
 
-Petrichor designs a statically typed scripting language that replaces GDScript. It will be delivered as a GDExtension, with engine access kept in a thin layer so that a module build remains possible. The language specification `docs/language-spec.{zh,en}.md` (v0.2 draft) is the single source of truth for the design; the previous version is kept at git tag `spec-v0.1`. Implementation follows `docs/architecture.{zh,en}.md`; steps 1–4 of its order of work are done, step 4 being the first milestone (the FPS starter kit runs with migrated scripts), and the plan for step 5 is to be made with the user. The target engine is Godot 4.7; engine facts are checked against `4.7.2-stable` (commit `ed1daf0`). Facts about engine behavior must be checked against the Godot source, not recalled from memory.
+Petrichor designs a statically typed scripting language that replaces GDScript. It will be delivered as a GDExtension, with engine access kept in a thin layer so that a module build remains possible. The language specification `docs/language-spec.{zh,en}.md` (v0.2 draft) is the single source of truth for the design; the previous version is kept at git tag `spec-v0.1`. Implementation follows `docs/architecture.{zh,en}.md`; steps 1–4 of its order of work are done, step 4 being the first milestone (the FPS starter kit runs with migrated scripts), and step 5, paying down the debt of the first implementation before new features, is under way. The target engine is Godot 4.7; engine facts are checked against `4.7.2-stable` (commit `ed1daf0`). Facts about engine behavior must be checked against the Godot source, not recalled from memory.
 
 ## Layout
 
@@ -11,9 +11,12 @@ Petrichor designs a statically typed scripting language that replaces GDScript. 
 - `docs/architecture.{zh,en}.md`: implementation decisions: components, value representation, testing, order of work.
 - `src/compiler/`: the compiler (architecture §2.1), no Godot dependency; `src/bytecode/`: the compiled format and its verifier, shared with the runtime, also without Godot; `src/runtime/`: the runtime (§2.2).
 - `src/adapter/`: the GDExtension adapter (architecture §2.3); editor-only parts in `src/adapter/editor/`.
-- `src/probe/`: the step-2 probes of the architecture, built into non-release libraries only.
+- `src/probe/`: the step-2 probes of the architecture, built into the editor library only.
+- `gen/`: generated sources (the tables of built-in types, the bytecode format identifier); `build/`: objects and static libraries.
 - `tests/compiler/`: the compiler tests (doctest), built without godot-cpp.
 - `tests/engine/`: the headless Godot test project and its runner; `tests/engine/fps/` holds the migrated scripts of the FPS starter kit (architecture §5 step 4).
+- `benchmarks/`: cases in this language with their GDScript twins, and their runner (architecture §4).
+- `thirdparty/doctest`: the test framework of the compiler tests.
 - `thirdparty/godot-cpp`: git submodule, built with `api_version=4.7`.
 - `thirdparty/starter-kit-fps`: git submodule, the FPS starter kit at the commit of the second paper migration; the runner copies it and puts the migrated scripts in place.
 - `docs/surveys/`: empirical investigations behind specific rules, and evaluations of the design against real code. Each has a write-up in both languages and a directory of scripts that reproduce it. Single counts that back one rule go into `docs/surveys/corpus-counts` (script `corpus-counts/counts.py`).
