@@ -2016,7 +2016,7 @@ class Checker : public ClassRelation {
 				Type target_type = target.kind == ExprKind::Name || target.kind == ExprKind::Member ? check_expr(target) : Type::of(TypeKind::Error);
 				if (target.kind != ExprKind::Name && target.kind != ExprKind::Member) {
 					check_expr(target);
-					error(target.line, target.column, "Cannot assign to this expression.");
+					error(target.line, target.column, target.kind == ExprKind::Subscript ? "Assigning to an element, as in a[i] = v, is not supported yet." : "Cannot assign to this expression.");
 					check_value(*r_stmt.value);
 					return;
 				}

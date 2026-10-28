@@ -128,6 +128,7 @@ TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec Â
 	CHECK(contains(type_of("a[\"x\"]", ints), "An index must be int, found String"));
 	CHECK(contains(type_of("u[0]", "var u: Array = []"), "untyped Array are Variant"));
 	CHECK(contains(type_of("v[0]", "var v := Vector3()"), "Vector3 cannot be indexed"));
+	CHECK(has_error(in_function(std::string(ints) + "\na[0] = 2"), "Assigning to an element, as in a[i] = v, is not supported yet."));
 	CHECK(has_error(in_function("var a: Array[int?] = []"), "Arrays of int? are not supported yet"));
 	// The entry checks would take any array for it.
 	CHECK(has_error(in_function("var a: Array[int]? = None"), "Array[int]? is not supported yet"));
