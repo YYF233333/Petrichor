@@ -40,6 +40,11 @@ func _instance_binding() -> void:
 	var ref_id := _watch_new_ref_counted()
 	_check(probe.take_freed() == PackedInt64Array([ref_id]), "releasing the last reference reaches it")
 
+	# Queued in a process frame, the node is deleted at its end, before the next
+	# process_frame (scene/main/scene_tree.cpp:713, 735). Queued in _ready(),
+	# before the first frame, it is deleted by then only if a physics step, which
+	# deletes too (:666), comes first, as it does not at 1000 frames per second.
+	await get_tree().process_frame
 	var queued := Node.new()
 	add_child(queued)
 	var queued_id := queued.get_instance_id()
