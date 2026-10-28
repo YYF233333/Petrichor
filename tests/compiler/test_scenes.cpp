@@ -50,30 +50,20 @@ std::string hud_errors(const std::string &p_body, const FakeProject &p_project =
 	return messages(compile_in("extends CanvasLayer\n\nfunc f():\n\t" + p_body + "\n", p_project));
 }
 
-bool contains(const std::string &p_text, const std::string &p_part) {
-	return p_text.find(p_part) != std::string::npos;
-}
-
-const bytecode::Function &function(const compiler::CompileResult &p_result, const char *p_name) {
-	const int index = p_result.module.find_function(p_name);
-	REQUIRE(index >= 0);
-	return p_result.module.functions[index];
-}
-
 } // namespace
 
 TEST_CASE("a method connected in a scene is visible to the engine (spec §10.5)") {
 	const char *source = "extends Node3D\n\nfunc _on_timer_timeout():\n\tpass\n\nfunc other():\n\tpass\n";
 	const compiler::CompileResult result = compile_in(source, timer_scene("_on_timer_timeout"));
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	CHECK(function(result, "_on_timer_timeout").is_exposed);
-	CHECK(!function(result, "other").is_exposed);
+	CHECK(function_named(result.module, "_on_timer_timeout").is_exposed);
+	CHECK(!function_named(result.module, "other").is_exposed);
 }
 
 TEST_CASE("scene connections are checked against the class (spec §7.7)") {
 	const char *source = "extends Node3D\n\nfunc _on_timer_timeout():\n\tpass\n";
-	CHECK(messages(compile_in(source, timer_scene("_on_missing"))).find("res://enemy.tscn: the signal \"timeout\" of Timer is connected to _on_missing(), which this class does not declare.") != std::string::npos);
-	CHECK(messages(compile_in(source, timer_scene("_on_timer_timeout", 1))).find("which passes 1 argument(s); _on_timer_timeout() takes 0.") != std::string::npos);
+	CHECK(contains(messages(compile_in(source, timer_scene("_on_missing"))), "res://enemy.tscn: the signal \"timeout\" of Timer is connected to _on_missing(), which this class does not declare."));
+	CHECK(contains(messages(compile_in(source, timer_scene("_on_timer_timeout", 1))), "which passes 1 argument(s); _on_timer_timeout() takes 0."));
 	CHECK(compile_in("extends Node3D\n\nfunc _on_timer_timeout(extra: int):\n\tpass\n", timer_scene("_on_timer_timeout", 1)).ok());
 }
 
@@ -87,7 +77,7 @@ TEST_CASE("signal arguments must fit the connected method's parameters") {
 	CHECK(compile_in("extends Node\n\nfunc _on_child(node: Node):\n\tpass\n", project).ok());
 	// A handler may accept None where the engine might pass it (spec §10.2).
 	CHECK(compile_in("extends Node\n\nfunc _on_child(node: Node?):\n\tpass\n", project).ok());
-	CHECK(messages(compile_in("extends Node\n\nfunc _on_child(node: int):\n\tpass\n", project)).find("which passes Node here") != std::string::npos);
+	CHECK(contains(messages(compile_in("extends Node\n\nfunc _on_child(node: int):\n\tpass\n", project)), "which passes Node here"));
 }
 
 TEST_CASE("a signal declared by a script of this language is checked like the engine's (spec §4.7, §7.7)") {
@@ -254,7 +244,7 @@ TEST_CASE("while loading, only declarations are compiled") {
 	const compiler::CompileResult result = compile_in(source, timer_scene("_on_missing"), true);
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	CHECK(result.module.declarations_only);
-	const bytecode::Function &f = function(result, "f");
+	const bytecode::Function &f = function_named(result.module, "f");
 	CHECK(f.params.size() == 1);
 	CHECK(f.result.type == bytecode::ValueType::String);
 	CHECK(result.module.members[0].initial.f == 2.0);

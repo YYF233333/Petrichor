@@ -125,7 +125,7 @@ TEST_CASE("conditional expressions") {
 	CHECK(type_of("1 if true else 2.5") == "float");
 	CHECK(type_of("Node3D.new() if true else Node.new()") == "Node");
 	CHECK(type_of("Node3D.new() if true else Timer.new()") == "Node");
-	CHECK(type_of("\"a\" if true else 1").find("no common type") != std::string::npos);
+	CHECK(contains(type_of("\"a\" if true else 1"), "no common type"));
 	CHECK(has_error(in_function("var x := 1 if 0 else 2"), "A condition must be bool"));
 }
 

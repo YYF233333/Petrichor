@@ -25,7 +25,7 @@ bytecode::Module module_of(const std::string &p_source) {
 
 // The opcodes of a function in order, without operands.
 std::vector<Op> opcodes(const bytecode::Module &p_module, const std::string &p_function) {
-	const bytecode::Function &fn = p_module.functions[p_module.find_function(p_function)];
+	const bytecode::Function &fn = function_named(p_module, p_function);
 	std::vector<Op> result;
 	for (size_t pc = 0; pc < fn.code.size(); pc += bytecode::instruction_length(fn.code.data() + pc)) {
 		result.push_back(Op(fn.code[pc]));
@@ -45,13 +45,7 @@ bool in_order(const std::vector<Op> &p_ops, const std::vector<Op> &p_sequence) {
 }
 
 std::string listing(const bytecode::Module &p_module, const std::string &p_function) {
-	const int index = p_module.find_function(p_function);
-	REQUIRE(index >= 0);
-	return bytecode::disassemble(p_module, p_module.functions[index]);
-}
-
-bool contains(const std::string &p_text, const std::string &p_part) {
-	return p_text.find(p_part) != std::string::npos;
+	return bytecode::disassemble(p_module, function_named(p_module, p_function));
 }
 
 // Follows the control flow of a function whose branches test its bool
@@ -60,7 +54,7 @@ bool contains(const std::string &p_text, const std::string &p_part) {
 // uses an instruction this does not follow.
 bool trace(const bytecode::Module &p_module, const std::string &p_function, const std::vector<bool> &p_args, std::vector<int64_t> &r_stores) {
 	using bytecode::Op;
-	const bytecode::Function &fn = p_module.functions[p_module.find_function(p_function)];
+	const bytecode::Function &fn = function_named(p_module, p_function);
 	std::map<uint32_t, uint64_t> slots;
 	for (size_t i = 0; i < p_args.size(); i++) {
 		slots[fn.params[i].offset] = p_args[i] ? 1 : 0;
@@ -137,11 +131,11 @@ var label := "n"
 
 TEST_CASE("signatures") {
 	const bytecode::Module module = module_of("extends Node\n\nfunc _process(delta):\n\tpass\n\npub func add(a: int, b: int) -> int:\n\treturn a + b\n");
-	const bytecode::Function &process = module.functions[module.find_function("_process")];
+	const bytecode::Function &process = function_named(module, "_process");
 	CHECK(process.is_override);
 	REQUIRE(process.params.size() == 1);
 	CHECK(process.params[0].type == ValueType::Float);
-	const bytecode::Function &add = module.functions[module.find_function("add")];
+	const bytecode::Function &add = function_named(module, "add");
 	CHECK(add.is_pub);
 	CHECK(add.result.type == ValueType::Int);
 	CHECK(contains(listing(module, "add"), "ADD_INT 16 0 8"));
@@ -284,7 +278,7 @@ var nodes: Array[Node] = []
 var plain: Array = [1, "x"]
 var mixed: Array[float] = [1, randf()]
 )");
-	auto initial = [&](const char *p_name) { return module.members[module.find_member(p_name)].has_initial; };
+	auto initial = [&](const char *p_name) { return member_named(module, p_name).has_initial; };
 	CHECK(initial("offset"));
 	CHECK(initial("tint"));
 	CHECK(initial("up"));
@@ -299,24 +293,24 @@ var mixed: Array[float] = [1, randf()]
 	CHECK(initial("plain"));
 	CHECK(!initial("mixed"));
 
-	const bytecode::Constant &offset = module.members[module.find_member("offset")].initial;
+	const bytecode::Constant &offset = member_named(module, "offset").initial;
 	CHECK(offset.type == ValueType::Vector2);
 	CHECK(offset.constructor >= 0);
 	REQUIRE(offset.args.size() == 2);
 	CHECK((offset.args[0].type == ValueType::Float && offset.args[0].f == 400.0));
-	CHECK(module.members[module.find_member("up")].initial.builtin == "UP");
-	CHECK(module.members[module.find_member("path")].initial.type == ValueType::NodePath);
+	CHECK(member_named(module, "up").initial.builtin == "UP");
+	CHECK(member_named(module, "path").initial.type == ValueType::NodePath);
 	// An int literal is converted where the constructor takes a float, as written.
-	const bytecode::Constant &placed = module.members[module.find_member("placed")].initial;
+	const bytecode::Constant &placed = member_named(module, "placed").initial;
 	REQUIRE(placed.args.size() == 2);
 	REQUIRE(placed.args[1].args.size() == 2);
 	CHECK((placed.args[1].type == ValueType::Vector2 && placed.args[1].args[0].type == ValueType::Float && placed.args[1].args[0].f == -1.0));
 	// An array is typed as the member; an element of an untyped one keeps its type.
-	const bytecode::Constant &items = module.members[module.find_member("items")].initial;
+	const bytecode::Constant &items = member_named(module, "items").initial;
 	CHECK((items.type == ValueType::Array && items.element == ValueType::Int && items.args.size() == 2 && items.args[1].i == 2));
-	const bytecode::Constant &nodes = module.members[module.find_member("nodes")].initial;
+	const bytecode::Constant &nodes = member_named(module, "nodes").initial;
 	CHECK((nodes.element == ValueType::Object && nodes.class_name == "Node" && nodes.args.empty()));
-	const bytecode::Constant &plain = module.members[module.find_member("plain")].initial;
+	const bytecode::Constant &plain = member_named(module, "plain").initial;
 	REQUIRE(plain.args.size() == 2);
 	CHECK((plain.element == ValueType::Void && plain.args[0].type == ValueType::Int && plain.args[1].type == ValueType::String));
 
@@ -331,12 +325,12 @@ var mixed: Array[float] = [1, randf()]
 // which is then its initial value; one the scene must assign has none (§7.5).
 TEST_CASE("a member without an initializer starts at its type's default") {
 	const bytecode::Module module = module_of("extends Node\n@export var count: int\n@export var nodes: Array[Node]\n@export var target: Node\nvar maybe: Node?\n");
-	const bytecode::Member &count = module.members[module.find_member("count")];
+	const bytecode::Member &count = member_named(module, "count");
 	CHECK((count.has_initial && count.initial.type == ValueType::Int && count.initial.i == 0));
-	const bytecode::Member &nodes = module.members[module.find_member("nodes")];
+	const bytecode::Member &nodes = member_named(module, "nodes");
 	CHECK((nodes.has_initial && nodes.initial.element == ValueType::Object && nodes.initial.class_name == "Node" && nodes.initial.args.empty()));
-	CHECK(!module.members[module.find_member("target")].has_initial);
-	CHECK(module.members[module.find_member("maybe")].has_initial);
+	CHECK(!member_named(module, "target").has_initial);
+	CHECK(member_named(module, "maybe").has_initial);
 }
 
 // Hot reload compares the init function and the entries it uses (spec §12.4).
@@ -366,7 +360,7 @@ TEST_CASE("the init function and its table entries do not change with a function
 
 TEST_CASE("built-in values take their own size in the frame") {
 	const bytecode::Module module = module_of("extends Node\n\nfunc f(v: Vector3, t: Transform3D, n: int) -> void:\n\tpass\n");
-	const bytecode::Function &f = module.functions[module.find_function("f")];
+	const bytecode::Function &f = function_named(module, "f");
 	REQUIRE(f.params.size() == 3);
 	CHECK(f.params[0].offset == 0);
 	CHECK(f.params[1].offset == 16);
@@ -443,7 +437,7 @@ TEST_CASE("what lowering has no code for is an internal error, not wrong code") 
 // int32 index, CanvasItem.z_index an int32, RandomNumberGenerator.seed a uint64).
 TEST_CASE("an engine integer narrower than int64 or unsigned is checked before it goes to the engine") {
 	const bytecode::Module module = module_of("extends Node\n\nfunc f(n: Node, c: CanvasItem, r: RandomNumberGenerator, i: int) -> void:\n\tvar child := n.get_child(i)\n\tc.z_index = i\n\tc.z_index += 1\n\tr.seed = i\n\tvar count := n.get_child_count()\n");
-	const bytecode::Function &f = module.functions[module.find_function("f")];
+	const bytecode::Function &f = function_named(module, "f");
 	std::vector<bytecode::IntRange> ranges;
 	for (size_t pc = 0; pc < f.code.size(); pc += bytecode::instruction_length(f.code.data() + pc)) {
 		if (Op(f.code[pc]) == Op::CHECK_RANGE) {

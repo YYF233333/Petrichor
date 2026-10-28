@@ -32,10 +32,6 @@ std::string errors(const std::string &p_body, const std::string &p_header = "ext
 	return messages(compile_in(p_header + "\n\nfunc f(w: Weapon, n: Node, e: Enemy) -> void:\n\t" + p_body + "\n", project()));
 }
 
-bool contains(const std::string &p_text, const std::string &p_part) {
-	return p_text.find(p_part) != std::string::npos;
-}
-
 } // namespace
 
 TEST_CASE("a class_name names a class of another script") {
@@ -97,7 +93,7 @@ TEST_CASE("a method of another class, another instance or an interface is called
 	std::string error;
 	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	const bytecode::Module &module = result.module;
-	const bytecode::Function &f = module.functions[module.find_function("f")];
+	const bytecode::Function &f = function_named(module, "f");
 	std::vector<uint32_t> methods;
 	int engine_calls = 0;
 	for (size_t pc = 0; pc < f.code.size(); pc += bytecode::instruction_length(f.code.data() + pc)) {
@@ -130,7 +126,7 @@ TEST_CASE("an interface is described in slots, for the entry checks and signatur
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	std::string error;
 	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
-	const auto param = [&](const char *p_function) -> const bytecode::Slot & { return result.module.functions[result.module.find_function(p_function)].params[0]; };
+	const auto param = [&](const char *p_function) -> const bytecode::Slot & { return function_named(result.module, p_function).params[0]; };
 	CHECK(param("a").interface_name == "res://combat.pet::Damageable");
 	CHECK(param("a").class_name == "Object");
 	CHECK(param("a").script.empty());

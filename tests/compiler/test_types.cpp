@@ -13,16 +13,16 @@ TEST_CASE("operators follow the engine's table (spec §5.1)") {
 	CHECK(type_of("Vector3(1, 2, 3) / 30") == "Vector3");
 	CHECK(type_of("-Vector3(1, 2, 3)") == "Vector3");
 	CHECK(type_of("7 / 2") == "int");
-	CHECK(type_of("Vector2(1, 2) + Vector2i(1, 2)").find("Invalid operands Vector2 and Vector2i") != std::string::npos);
+	CHECK(contains(type_of("Vector2(1, 2) + Vector2i(1, 2)"), "Invalid operands Vector2 and Vector2i"));
 }
 
 TEST_CASE("== follows the engine's table too (spec §5.2)") {
 	CHECK(type_of("Vector2(1, 2) == Vector2(1, 2)") == "bool");
-	CHECK(type_of("Vector2() == Vector2i()").find("Invalid operands") != std::string::npos);
+	CHECK(contains(type_of("Vector2() == Vector2i()"), "Invalid operands"));
 	const std::string arrays = "var ints: Array[int] = [1]\nvar floats: Array[float] = [1.0]\nvar more: Array[int] = [2]";
 	CHECK(type_of("ints == more", arrays) == "bool");
-	CHECK(type_of("ints == floats", arrays).find("Array[int] and Array[float] are equal only when both are empty") != std::string::npos);
-	CHECK(type_of("ints != floats", arrays).find("are equal only when both are empty") != std::string::npos);
+	CHECK(contains(type_of("ints == floats", arrays), "Array[int] and Array[float] are equal only when both are empty"));
+	CHECK(contains(type_of("ints != floats", arrays), "are equal only when both are empty"));
 }
 
 TEST_CASE("utility functions bound with Variant are typed by their arguments (spec §10.3)") {
@@ -31,10 +31,10 @@ TEST_CASE("utility functions bound with Variant are typed by their arguments (sp
 	CHECK(type_of("wrap(5, 0, 3)") == "int");
 	CHECK(type_of("lerp(Vector3(), Vector3(1, 1, 1), 0.5)") == "Vector3");
 	CHECK(type_of("lerp(0.0, 1.0, 1)") == "float"); // An int weight converts (spec §3.2).
-	CHECK(type_of("lerp(0.0, 1.0, \"a\")").find("must be a number") != std::string::npos);
-	CHECK(type_of("min(1.5, 1)").find("Write the int argument as a float") != std::string::npos);
-	CHECK(type_of("lerp(Vector3(), 1.0, 0.5)").find("same type") != std::string::npos);
-	CHECK(type_of("clamp(\"a\", \"b\", \"c\")").find("numbers or vectors") != std::string::npos);
+	CHECK(contains(type_of("lerp(0.0, 1.0, \"a\")"), "must be a number"));
+	CHECK(contains(type_of("min(1.5, 1)"), "Write the int argument as a float"));
+	CHECK(contains(type_of("lerp(Vector3(), 1.0, 0.5)"), "same type"));
+	CHECK(contains(type_of("clamp(\"a\", \"b\", \"c\")"), "numbers or vectors"));
 }
 
 TEST_CASE("other utility functions take the engine's types") {
@@ -51,9 +51,9 @@ TEST_CASE("members, constants and constructors of built-in types") {
 	CHECK(type_of("Vector3.UP") == "Vector3");
 	CHECK(type_of("Vector3(1, 2, 3).normalized()") == "Vector3");
 	CHECK(type_of("Vector3().lerp(Vector3.ONE, 0.5)") == "Vector3");
-	CHECK(type_of("v.w", "var v := Vector3()").find("Vector3 has no member \"w\"") != std::string::npos);
-	CHECK(type_of("Vector3.NOPE").find("no constant") != std::string::npos);
-	CHECK(type_of("Vector3(\"a\")").find("No constructor of Vector3 takes (String)") != std::string::npos);
+	CHECK(contains(type_of("v.w", "var v := Vector3()"), "Vector3 has no member \"w\""));
+	CHECK(contains(type_of("Vector3.NOPE"), "no constant"));
+	CHECK(contains(type_of("Vector3(\"a\")"), "No constructor of Vector3 takes (String)"));
 }
 
 TEST_CASE("engine properties and objects") {
@@ -62,9 +62,9 @@ TEST_CASE("engine properties and objects") {
 	CHECK(type_of("RandomNumberGenerator.new()") == "RandomNumberGenerator");
 	CHECK(type_of("rng.randf_range(0, 1)", "var rng := RandomNumberGenerator.new()") == "float");
 	CHECK(type_of("rng.seed", "var rng := RandomNumberGenerator.new()") == "int");
-	CHECK(type_of("rng.nope", "var rng := RandomNumberGenerator.new()").find("has no property") != std::string::npos);
-	CHECK(type_of("RandomNumberGenerator.new(1)").find("takes no arguments") != std::string::npos);
-	CHECK(type_of("Vector3").find("is a type, not a value") != std::string::npos);
+	CHECK(contains(type_of("rng.nope", "var rng := RandomNumberGenerator.new()"), "has no property"));
+	CHECK(contains(type_of("RandomNumberGenerator.new(1)"), "takes no arguments"));
+	CHECK(contains(type_of("Vector3"), "is a type, not a value"));
 }
 
 TEST_CASE("assignment writes members of built-in values back to their place") {
@@ -94,10 +94,10 @@ TEST_CASE("T? of a value type is an Option (spec §3.4)") {
 	CHECK(type_of("a.unwrap()", "var a: int? = 5") == "int");
 	CHECK(type_of("s.expect(\"a name\")", "var s: String? = \"x\"") == "String");
 	CHECK(type_of("v.unwrap().y", "var v: Vector3? = Vector3.UP") == "float");
-	CHECK(type_of("a + 1", "var a: int? = 5").find("may be None (int?); unwrap it first") != std::string::npos);
-	CHECK(type_of("s.length()", "var s: String? = \"x\"").find("may be None (String?); check it before calling") != std::string::npos);
-	CHECK(type_of("v.y", "var v: Vector3? = Vector3.UP").find("may be None (Vector3?); check it before reading") != std::string::npos);
-	CHECK(type_of("a.unwrap_or(0)", "var a: int? = 5").find("not supported yet") != std::string::npos);
+	CHECK(contains(type_of("a + 1", "var a: int? = 5"), "may be None (int?); unwrap it first"));
+	CHECK(contains(type_of("s.length()", "var s: String? = \"x\""), "may be None (String?); check it before calling"));
+	CHECK(contains(type_of("v.y", "var v: Vector3? = Vector3.UP"), "may be None (Vector3?); check it before reading"));
+	CHECK(contains(type_of("a.unwrap_or(0)", "var a: int? = 5"), "not supported yet"));
 	CHECK(has_error(in_function("var a: int? = 5\nvar b: int = a"), "Cannot assign a value of type int? as int"));
 	// Only a T is converted on the way in, not the T inside.
 	CHECK(has_error(in_function("var a: int? = 5\nvar f: float? = a"), "Cannot assign a value of type int? as float?"));
@@ -116,8 +116,8 @@ TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec �
 	CHECK(type_of("n.pop_back()", "var n: Array[Node] = []") == "Node?");
 	CHECK(type_of("n[0]", "var n: Array[Node?] = []") == "Node?");
 	// Node?? would tell an empty array from a None element (spec §3.8).
-	CHECK(type_of("n.pop_back()", "var n: Array[Node?] = []").find("gives Node??, which is not supported yet") != std::string::npos);
-	CHECK(type_of("n.pop_front()", "var n: Array[Node?] = []").find("not supported yet") != std::string::npos);
+	CHECK(contains(type_of("n.pop_back()", "var n: Array[Node?] = []"), "gives Node??, which is not supported yet"));
+	CHECK(contains(type_of("n.pop_front()", "var n: Array[Node?] = []"), "not supported yet"));
 	// pop_at() gives T: an index out of bounds is a program error, as for a[i].
 	CHECK(type_of("a.pop_at(0)", ints) == "int");
 	CHECK(type_of("n.pop_at(0)", "var n: Array[Node?] = []") == "Node?");
@@ -125,9 +125,9 @@ TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec �
 	CHECK(has_error(in_function(std::string(ints) + "\nvar f: Array[float] = a"), "Cannot assign a value of type Array[int] as Array[float]"));
 	CHECK(has_error(in_function("var a: Array[int] = [1, 2.5]"), "Cannot put a value of type float in Array[int]"));
 	CHECK(has_error(in_function("var a = []"), "An empty array needs a declared type"));
-	CHECK(type_of("a[\"x\"]", ints).find("An index must be int, found String") != std::string::npos);
-	CHECK(type_of("u[0]", "var u: Array = []").find("untyped Array are Variant") != std::string::npos);
-	CHECK(type_of("v[0]", "var v := Vector3()").find("Vector3 cannot be indexed") != std::string::npos);
+	CHECK(contains(type_of("a[\"x\"]", ints), "An index must be int, found String"));
+	CHECK(contains(type_of("u[0]", "var u: Array = []"), "untyped Array are Variant"));
+	CHECK(contains(type_of("v[0]", "var v := Vector3()"), "Vector3 cannot be indexed"));
 	CHECK(has_error(in_function("var a: Array[int?] = []"), "Arrays of int? are not supported yet"));
 	// The entry checks would take any array for it.
 	CHECK(has_error(in_function("var a: Array[int]? = None"), "Array[int]? is not supported yet"));
@@ -178,8 +178,8 @@ TEST_CASE("an engine array filtered by a literal class name holds that class") {
 	CHECK(type_of("find_children(\"*\")") == "Array[Node]");
 	CHECK(type_of("find_children(\"*\", \"\")") == "Array[Node]");
 	CHECK(type_of("find_children(\"*\", kind)", "var kind := \"MeshInstance3D\"") == "Array[Node]");
-	CHECK(type_of("find_children(\"*\", \"MeshInstanc3D\")").find("find_children() filters by the class \"MeshInstanc3D\", which does not exist.") != std::string::npos);
-	CHECK(type_of("find_children(\"*\", \"Resource\")").find("find_children() returns objects of Node, and Resource is not one.") != std::string::npos);
+	CHECK(contains(type_of("find_children(\"*\", \"MeshInstanc3D\")"), "find_children() filters by the class \"MeshInstanc3D\", which does not exist."));
+	CHECK(contains(type_of("find_children(\"*\", \"Resource\")"), "find_children() returns objects of Node, and Resource is not one."));
 
 	// The engine's array is Array[Node]; a new Array[MeshInstance3D] takes its elements.
 	const auto result = compile(in_function("var meshes := find_children(\"*\", \"MeshInstance3D\")"));
@@ -208,7 +208,7 @@ TEST_CASE("integer constants of engine classes") {
 	CHECK(type_of("Input.MOUSE_MODE_CAPTURED") == "int");
 	CHECK(type_of("Tween.EASE_OUT_IN") == "int");
 	CHECK(errors_of(in_function("Input.mouse_mode = Input.MOUSE_MODE_CAPTURED")).empty());
-	CHECK(type_of("Tween.NOPE").find("Tween has no constant \"NOPE\"") != std::string::npos);
+	CHECK(contains(type_of("Tween.NOPE"), "Tween has no constant \"NOPE\""));
 }
 
 TEST_CASE("engine singletons are reached by their class name") {
@@ -254,13 +254,13 @@ TEST_CASE("as converts objects to T? (spec §5.3)") {
 	const char *setup = "var n: Node = Node3D.new()";
 	CHECK(type_of("n as Node3D", setup) == "Node3D?");
 	CHECK(type_of("(n as Node3D).unwrap().position", setup) == "Vector3");
-	CHECK(type_of("(n as Node3D).position", setup).find("may be None (Node3D?)") != std::string::npos);
+	CHECK(contains(type_of("(n as Node3D).position", setup), "may be None (Node3D?)"));
 	// Already a Node: nothing can fail.
 	CHECK(type_of("Node3D.new() as Node") == "Node");
 	CHECK(type_of("get_parent() as Node") == "Node?");
-	CHECK(type_of("n as RandomNumberGenerator", setup).find("Node and RandomNumberGenerator are unrelated classes; as would always give None.") != std::string::npos);
-	CHECK(type_of("n as int", setup).find("as only converts objects; convert to int with int(x)") != std::string::npos);
-	CHECK(type_of("5 as Node").find("as only converts objects, not int") != std::string::npos);
+	CHECK(contains(type_of("n as RandomNumberGenerator", setup), "Node and RandomNumberGenerator are unrelated classes; as would always give None."));
+	CHECK(contains(type_of("n as int", setup), "as only converts objects; convert to int with int(x)"));
+	CHECK(contains(type_of("5 as Node"), "as only converts objects, not int"));
 }
 
 // Spec §10.2: what the engine passes in is T; a parameter may accept more (§4.6).

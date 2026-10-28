@@ -3,6 +3,8 @@
 #include "compiler/compiler.h"
 #include "fake_engine.h"
 
+#include "doctest.h"
+
 #include <map>
 #include <optional>
 #include <string>
@@ -107,29 +109,54 @@ inline std::string joined(const std::vector<std::string> &p_lines) {
 	return result;
 }
 
+inline bool contains(const std::string &p_text, const std::string &p_part) {
+	return p_text.find(p_part) != std::string::npos;
+}
+
 // Whether some error message contains `p_text`.
 inline bool has_error(const std::string &p_source, const std::string &p_text) {
 	for (const std::string &error : errors_of(p_source)) {
-		if (error.find(p_text) != std::string::npos) {
+		if (contains(error, p_text)) {
 			return true;
 		}
 	}
 	return false;
 }
 
-// A function body in a class that extends Node (or `p_base`).
-inline std::string in_function(const std::string &p_body, const std::string &p_signature = "func f() -> void:", const std::string &p_base = "Node") {
-	std::string source = "extends " + p_base + "\n\n" + p_signature + "\n";
+// Each line of `p_text` indented by a tab, as the block of a function.
+inline std::string indented(const std::string &p_text) {
+	std::string result;
 	size_t start = 0;
-	while (start <= p_body.size()) {
-		const size_t end = p_body.find('\n', start);
-		source += "\t" + p_body.substr(start, end == std::string::npos ? std::string::npos : end - start) + "\n";
+	while (start <= p_text.size()) {
+		const size_t end = p_text.find('\n', start);
+		result += "\t" + p_text.substr(start, end == std::string::npos ? std::string::npos : end - start) + "\n";
 		if (end == std::string::npos) {
 			break;
 		}
 		start = end + 1;
 	}
-	return source;
+	return result;
+}
+
+// A function body in a class that extends Node (or `p_base`).
+inline std::string in_function(const std::string &p_body, const std::string &p_signature = "func f() -> void:", const std::string &p_base = "Node") {
+	return "extends " + p_base + "\n\n" + p_signature + "\n" + indented(p_body);
+}
+
+// The function of a module with this name, which it must have.
+template <typename T>
+auto &function_named(T &p_module, const std::string &p_name) {
+	const int index = p_module.find_function(p_name);
+	REQUIRE_MESSAGE(index >= 0, p_name);
+	return p_module.functions[index];
+}
+
+// The member of a module with this name, which it must have.
+template <typename T>
+auto &member_named(T &p_module, const std::string &p_name) {
+	const int index = p_module.find_member(p_name);
+	REQUIRE_MESSAGE(index >= 0, p_name);
+	return p_module.members[index];
 }
 
 // The type the checker gives an expression in a function of a Node3D class,

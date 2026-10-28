@@ -33,12 +33,6 @@ bytecode::Module compiled() {
 	return result.module;
 }
 
-bytecode::Function &function(bytecode::Module &r_module, const char *p_name) {
-	const int index = r_module.find_function(p_name);
-	REQUIRE(index >= 0);
-	return r_module.functions[index];
-}
-
 // The position of the first instruction with this opcode.
 size_t find(const bytecode::Function &p_function, Op p_op) {
 	size_t pc = 0;
@@ -60,7 +54,7 @@ std::string problem(const bytecode::Module &p_module) {
 bool rejected(const bytecode::Module &p_module, const std::string &p_part) {
 	const std::string error = problem(p_module);
 	INFO(error);
-	return !error.empty() && error.find(p_part) != std::string::npos;
+	return !error.empty() && contains(error, p_part);
 }
 
 } // namespace
@@ -71,7 +65,7 @@ TEST_CASE("compiled modules pass verification") {
 
 TEST_CASE("instructions must be whole and jumps must land on them") {
 	bytecode::Module module = compiled();
-	bytecode::Function &pick = function(module, "pick");
+	bytecode::Function &pick = function_named(module, "pick");
 	SUBCASE("unknown instruction") {
 		pick.code[0] = uint32_t(Op::COUNT) + 7;
 		CHECK(rejected(module, "unknown instruction"));
@@ -91,12 +85,12 @@ TEST_CASE("instructions must be whole and jumps must land on them") {
 		CHECK(!problem(module).empty());
 	}
 	SUBCASE("running past the end") {
-		bytecode::Function &touch = function(module, "touch");
+		bytecode::Function &touch = function_named(module, "touch");
 		touch.code.pop_back(); // The closing RETURN_VOID.
 		CHECK(rejected(module, "past its end"));
 	}
 	SUBCASE("a call whose argument count runs past the code") {
-		bytecode::Function &touch = function(module, "touch");
+		bytecode::Function &touch = function_named(module, "touch");
 		touch.code[find(touch, Op::CALL) + 4] = 0x40000000;
 		CHECK(rejected(module, "cut off"));
 	}
@@ -104,7 +98,7 @@ TEST_CASE("instructions must be whole and jumps must land on them") {
 
 TEST_CASE("operands must name slots of the instruction's type") {
 	bytecode::Module module = compiled();
-	bytecode::Function &pick = function(module, "pick");
+	bytecode::Function &pick = function_named(module, "pick");
 	const uint32_t string_slot = pick.params[0].offset;
 	SUBCASE("int arithmetic on a String") {
 		pick.code[find(pick, Op::ADD_INT) + 2] = string_slot;
@@ -123,18 +117,18 @@ TEST_CASE("operands must name slots of the instruction's type") {
 		CHECK(rejected(module, "is not a slot of type bool"));
 	}
 	SUBCASE("a member of another type") {
-		bytecode::Function &touch = function(module, "touch");
+		bytecode::Function &touch = function_named(module, "touch");
 		touch.code[find(touch, Op::LOAD_MEMBER_8) + 2] = module.members[1].offset;
 		CHECK(rejected(module, "member"));
 	}
 	SUBCASE("a call argument of another type") {
-		bytecode::Function &touch = function(module, "touch");
+		bytecode::Function &touch = function_named(module, "touch");
 		const size_t call = find(touch, Op::CALL);
 		touch.code[call + 5] = uint32_t(bytecode::ValueType::Int); // The String argument.
 		CHECK(rejected(module, "parameter's type"));
 	}
 	SUBCASE("a result slot of another type") {
-		bytecode::Function &touch = function(module, "touch");
+		bytecode::Function &touch = function_named(module, "touch");
 		const size_t call = find(touch, Op::CALL);
 		touch.code[call + 2] = touch.code[call + 6]; // The String argument's slot.
 		CHECK(rejected(module, "is not a slot of type int"));
@@ -143,7 +137,7 @@ TEST_CASE("operands must name slots of the instruction's type") {
 
 TEST_CASE("constants must have the type their instruction stores") {
 	bytecode::Module module = compiled();
-	bytecode::Function &touch = function(module, "touch");
+	bytecode::Function &touch = function_named(module, "touch");
 	SUBCASE("a bool other than 0 and 1") {
 		touch.code[find(touch, Op::CONST_BOOL) + 2] = 2;
 		CHECK(rejected(module, "a bool other than 0 and 1"));
@@ -157,11 +151,11 @@ TEST_CASE("constants must have the type their instruction stores") {
 TEST_CASE("a static function does not use the instance") {
 	bytecode::Module module = compiled();
 	SUBCASE("members") {
-		function(module, "touch").is_static = true;
+		function_named(module, "touch").is_static = true;
 		CHECK(rejected(module, "a static function uses the instance"));
 	}
 	SUBCASE("self as the base of an engine call") {
-		function(module, "pick").is_static = true;
+		function_named(module, "pick").is_static = true;
 		CHECK(rejected(module, "a static function uses the instance"));
 	}
 }
@@ -169,7 +163,7 @@ TEST_CASE("a static function does not use the instance") {
 TEST_CASE("a constructor does not write over its arguments") {
 	compiler::CompileResult result = compile("extends Node\n\nfunc v(x: Vector3) -> Vector3:\n\treturn Vector3(x)\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	bytecode::Function &v = function(result.module, "v");
+	bytecode::Function &v = function_named(result.module, "v");
 	const size_t construct = find(v, Op::CONSTRUCT);
 	v.code[construct + 2] = v.code[construct + 6]; // dst is the first argument's slot.
 	CHECK(rejected(result.module, "a constructor writes over one of its arguments"));
@@ -181,7 +175,7 @@ TEST_CASE("a call to a method of this language passes what the call table says")
 	compiler::CompileResult result = compile_in("class_name Probe\nextends Node\n\npub func id(a: int, b: String = \"x\") -> int:\n\treturn a\n\nfunc poke(p: Probe, s: String) -> int:\n\treturn p.id(1, s)\n", project);
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	bytecode::Module &module = result.module;
-	bytecode::Function &poke = function(module, "poke");
+	bytecode::Function &poke = function_named(module, "poke");
 	const size_t call = find(poke, Op::CALL_METHOD);
 	CHECK(problem(module).empty());
 	SUBCASE("an argument of another type") {
@@ -209,13 +203,13 @@ TEST_CASE("a call to a method of this language passes what the call table says")
 
 TEST_CASE("tables and layouts must be consistent") {
 	bytecode::Module module = compiled();
-	bytecode::Function &pick = function(module, "pick");
+	bytecode::Function &pick = function_named(module, "pick");
 	SUBCASE("engine call index") {
 		pick.code[find(pick, Op::CALL_ENGINE) + 1] = uint32_t(module.engine_calls.size());
 		CHECK(rejected(module, "outside the engine call table"));
 	}
 	SUBCASE("function index") {
-		bytecode::Function &touch = function(module, "touch");
+		bytecode::Function &touch = function_named(module, "touch");
 		touch.code[find(touch, Op::CALL) + 1] = uint32_t(module.functions.size());
 		CHECK(rejected(module, "outside the function table"));
 	}
@@ -252,11 +246,11 @@ TEST_CASE("tables and layouts must be consistent") {
 
 TEST_CASE("deserialize refuses a module that does not verify") {
 	bytecode::Module module = compiled();
-	bytecode::Function &pick = function(module, "pick");
+	bytecode::Function &pick = function_named(module, "pick");
 	pick.code[find(pick, Op::ADD_INT) + 2] = pick.params[0].offset;
 	const std::vector<uint8_t> data = bytecode::serialize(module);
 	bytecode::Module copy;
 	std::string error;
 	CHECK(!bytecode::deserialize(data.data(), data.size(), copy, error));
-	CHECK(error.find("invalid compiled script") != std::string::npos);
+	CHECK(contains(error, "invalid compiled script"));
 }
