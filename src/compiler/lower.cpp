@@ -137,6 +137,13 @@ uint8_t engine_operator(TokenKind p_op) {
 	}
 }
 
+// An array constant is typed as the slot it goes to.
+void type_array(bytecode::Constant &r_constant, const bytecode::Slot &p_slot) {
+	r_constant.element = p_slot.element;
+	r_constant.class_name = p_slot.class_name;
+	r_constant.script = p_slot.script;
+}
+
 // A literal, or a constant the checker found (is_constant()), as the target's type.
 bytecode::Constant constant_of(const Expr &p_expr, const Type &p_target) {
 	bytecode::Constant constant;
@@ -153,10 +160,7 @@ bytecode::Constant constant_of(const Expr &p_expr, const Type &p_target) {
 		return constant;
 	}
 	if (p_expr.kind == ExprKind::ArrayLiteral) {
-		const bytecode::Slot slot = slot_of(std::string(), p_target);
-		constant.element = slot.element;
-		constant.class_name = slot.class_name;
-		constant.script = slot.script;
+		type_array(constant, slot_of(std::string(), p_target));
 		for (size_t i = 0; i < p_expr.args.size(); i++) {
 			constant.args.push_back(constant_of(*p_expr.args[i], stored_element_type(p_expr, i)));
 		}
@@ -306,11 +310,16 @@ class Lowerer {
 		}
 	}
 
+	// The instruction of a family for how a value of this type is stored: in
+	// 8 bytes, as a String, or as another value.
+	static Op by_storage(ValueType p_type, Op p_8_byte, Op p_string, Op p_value) {
+		return is_8_byte(p_type) ? p_8_byte : (p_type == ValueType::String ? p_string : p_value);
+	}
+
 	uint32_t load_member(uint32_t p_member) {
 		const uint32_t result = temp(cls.members[p_member].type);
 		const ValueType type = reg_type(result);
-		const Op op = is_8_byte(type) ? Op::LOAD_MEMBER_8 : (type == ValueType::String ? Op::LOAD_MEMBER_STRING : Op::LOAD_MEMBER_VALUE);
-		instr(op, result, NO_REG, NO_REG, p_member, type);
+		instr(by_storage(type, Op::LOAD_MEMBER_8, Op::LOAD_MEMBER_STRING, Op::LOAD_MEMBER_VALUE), result, NO_REG, NO_REG, p_member, type);
 		// An export the scene did not assign (spec §7.5), or an @onready
 		// member read before the node is ready (§6.3), is still None.
 		const VarDecl &member = cls.members[p_member];
@@ -322,8 +331,7 @@ class Lowerer {
 
 	void store_member(uint32_t p_member, uint32_t p_value) {
 		const ValueType type = reg_type(p_value);
-		const Op op = is_8_byte(type) ? Op::STORE_MEMBER_8 : (type == ValueType::String ? Op::STORE_MEMBER_STRING : Op::STORE_MEMBER_VALUE);
-		instr(op, NO_REG, p_value, NO_REG, p_member, type);
+		instr(by_storage(type, Op::STORE_MEMBER_8, Op::STORE_MEMBER_STRING, Op::STORE_MEMBER_VALUE), NO_REG, p_value, NO_REG, p_member, type);
 	}
 
 	/* Tables */
@@ -342,6 +350,13 @@ class Lowerer {
 	uint32_t add_constant(const bytecode::Constant &p_constant) {
 		module.constants.push_back(p_constant);
 		return uint32_t(module.constants.size() - 1);
+	}
+
+	// A StringName or NodePath constant with this text.
+	uint32_t text_constant(ValueType p_type, const std::string &p_text) {
+		bytecode::Constant constant{ p_type };
+		constant.s = p_text;
+		return add_constant(constant);
 	}
 
 	uint32_t engine_call(const std::string &p_method, ValueType p_return) {
@@ -469,12 +484,7 @@ class Lowerer {
 	uint32_t argument(const Expr &p_arg, const Type &p_param) {
 		const ValueType to = value_type(p_param);
 		if (p_arg.kind == ExprKind::StringLiteral && (to == ValueType::StringName || to == ValueType::NodePath)) {
-			bytecode::Constant constant;
-			constant.type = to;
-			constant.s = p_arg.text;
-			const uint32_t result = temp(to);
-			instr(Op::CONST_VALUE, result, NO_REG, NO_REG, add_constant(constant), to);
-			return result;
+			return load_text(to, p_arg.text);
 		}
 		return convert(lower_expr(p_arg), p_param);
 	}
@@ -485,6 +495,26 @@ class Lowerer {
 			args.push_back(argument(*p_call.args[i], p_call.param_types[i]));
 		}
 		return args;
+	}
+
+	uint32_t load_text(ValueType p_type, const std::string &p_text) {
+		const uint32_t result = temp(p_type);
+		instr(Op::CONST_VALUE, result, NO_REG, NO_REG, text_constant(p_type, p_text), p_type);
+		return result;
+	}
+
+	void load_int(uint32_t p_dst, int64_t p_value) {
+		bytecode::Constant constant{ ValueType::Int };
+		constant.i = p_value;
+		instr(Op::CONST_INT, p_dst, NO_REG, NO_REG, add_constant(constant));
+	}
+
+	// What the engine declares as an object or a Variant, typed T here: a T
+	// that may not be None is checked to be one (spec §3.8, §10.2).
+	void check_object(uint32_t p_reg, const Type &p_type) {
+		if (p_type.kind == TypeKind::Object && !p_type.nullable) {
+			instr(Op::CHECK_OBJECT, NO_REG, p_reg, NO_REG, class_index(p_type));
+		}
 	}
 
 	/* Arrays */
@@ -498,27 +528,33 @@ class Lowerer {
 	}
 
 	// A method of a built-in type by name, as the engine declares it.
-	uint32_t engine_builtin_method(ValueType p_base, const char *p_method, std::vector<ValueType> p_params, ValueType p_return) {
+	uint32_t engine_builtin_method(ValueType p_base, const char *p_method, std::vector<ValueType> p_params, ValueType p_return, bool p_vararg = false) {
 		const builtin::Class *type = builtin::find_class(bytecode::value_type_name(p_base));
 		const builtin::Method *method = type ? builtin::find_method(*type, p_method) : nullptr;
 		bytecode::BuiltinMethodCall call;
 		call.base = p_base;
 		call.method = p_method;
 		call.hash = method ? method->hash : 0;
+		call.is_vararg = p_vararg;
 		call.params = std::move(p_params);
 		call.return_type = p_return;
 		call.result_type = p_return;
 		return builtin_method(call);
 	}
 
-	uint32_t size_of(uint32_t p_container) {
+	uint32_t call_builtin(uint32_t p_method, uint32_t p_base, std::vector<uint32_t> p_args, uint32_t p_dst = NO_REG) {
 		ir::Instr i;
 		i.op = Op::CALL_BUILTIN;
-		i.imm = engine_builtin_method(reg_type(p_container), "size", {}, ValueType::Int);
-		i.base = p_container;
-		i.dst = temp(ValueType::Int);
+		i.imm = p_method;
+		i.base = p_base;
+		i.args = std::move(p_args);
+		i.dst = p_dst;
 		add(i);
-		return i.dst;
+		return p_dst;
+	}
+
+	uint32_t size_of(uint32_t p_container) {
+		return call_builtin(engine_builtin_method(reg_type(p_container), "size", {}, ValueType::Int), p_container, {}, temp(ValueType::Int));
 	}
 
 	// An element is checked as it is read: the engine's arrays can hold null
@@ -526,9 +562,7 @@ class Lowerer {
 	uint32_t get_index(uint32_t p_container, uint32_t p_index, const Type &p_element) {
 		const uint32_t result = temp(p_element);
 		instr(Op::GET_INDEX, result, p_container, p_index);
-		if (p_element.kind == TypeKind::Object && !p_element.nullable) {
-			instr(Op::CHECK_OBJECT, NO_REG, result, NO_REG, class_index(p_element));
-		}
+		check_object(result, p_element);
 		return result;
 	}
 
@@ -537,12 +571,7 @@ class Lowerer {
 		new_array(result, fn.regs[result]);
 		const uint32_t append = engine_builtin_method(ValueType::Array, "append", { ValueType::Variant }, ValueType::Void);
 		for (size_t e = 0; e < p_expr.args.size(); e++) {
-			ir::Instr i;
-			i.op = Op::CALL_BUILTIN;
-			i.imm = append;
-			i.base = result;
-			i.args = { argument(*p_expr.args[e], p_expr.param_types[e]) };
-			add(i);
+			call_builtin(append, result, { argument(*p_expr.args[e], p_expr.param_types[e]) });
 		}
 		return result;
 	}
@@ -558,7 +587,7 @@ class Lowerer {
 		}
 		switch (type) {
 			case ValueType::Int:
-				instr(Op::CONST_INT, p_dst, NO_REG, NO_REG, add_constant(bytecode::Constant{ ValueType::Int }));
+				load_int(p_dst, 0);
 				break;
 			case ValueType::Float:
 				instr(Op::CONST_FLOAT, p_dst, NO_REG, NO_REG, add_constant(bytecode::Constant{ ValueType::Float }));
@@ -793,16 +822,7 @@ class Lowerer {
 				// Callable.bind() and Signal.emit() take their arguments as Variant.
 				const bool bind = p_call.target == Target::BindArguments;
 				i.op = Op::CALL_BUILTIN;
-				bytecode::BuiltinMethodCall call;
-				call.base = bind ? ValueType::Callable : ValueType::Signal;
-				call.method = bind ? "bind" : "emit";
-				const builtin::Class *type = builtin::find_class(bind ? "Callable" : "Signal");
-				const builtin::Method *method = type ? builtin::find_method(*type, call.method) : nullptr;
-				call.hash = method ? method->hash : 0;
-				call.is_vararg = true;
-				call.return_type = bind ? ValueType::Callable : ValueType::Void;
-				call.result_type = call.return_type;
-				i.imm = builtin_method(call);
+				i.imm = engine_builtin_method(bind ? ValueType::Callable : ValueType::Signal, bind ? "bind" : "emit", {}, bind ? ValueType::Callable : ValueType::Void, true);
 				break;
 			}
 			case Target::BuiltinConstructor:
@@ -821,19 +841,12 @@ class Lowerer {
 			// with the same elements is not told apart from it.
 			const uint32_t typed = temp(p_call.type);
 			new_array(typed, fn.regs[typed]);
-			ir::Instr assign;
-			assign.op = Op::CALL_BUILTIN;
-			assign.imm = engine_builtin_method(ValueType::Array, "assign", { ValueType::Array }, ValueType::Void);
-			assign.base = typed;
-			assign.args = { i.dst };
-			add(assign);
+			call_builtin(engine_builtin_method(ValueType::Array, "assign", { ValueType::Array }, ValueType::Void), typed, { i.dst });
 			return typed;
 		}
-		const bool from_engine = p_call.target == Target::BuiltinMethod || p_call.target == Target::EngineMethod;
-		if (from_engine && p_call.type.kind == TypeKind::Object && !p_call.type.nullable) {
-			// What the engine declares as an object or a Variant, typed T here:
-			// an element of Array[T], or the root of PackedScene[T].
-			instr(Op::CHECK_OBJECT, NO_REG, i.dst, NO_REG, class_index(p_call.type));
+		if (p_call.target == Target::BuiltinMethod || p_call.target == Target::EngineMethod) {
+			// Such as an element of Array[T], or the root of PackedScene[T].
+			check_object(i.dst, p_call.type);
 		}
 		return i.dst;
 	}
@@ -856,29 +869,14 @@ class Lowerer {
 			}
 			case ExprKind::Name:
 			case ExprKind::Member: {
-				if (p_expr.target == Target::Local) {
-					const uint32_t local = uint32_t(p_expr.index);
-					if (value_type(p_expr.type) != reg_type(local)) {
-						// A T? narrowed to T (spec §5.4): the value inside.
-						const uint32_t result = temp(p_expr.type);
-						instr(Op::UNWRAP, result, local, NO_REG, 0, reg_type(result));
-						return result;
-					}
-					return local;
-				}
 				if (p_expr.target == Target::EngineConstant) {
-					bytecode::Constant constant{ ValueType::Int };
-					constant.i = p_expr.int_value;
 					const uint32_t result = temp(ValueType::Int);
-					instr(Op::CONST_INT, result, NO_REG, NO_REG, add_constant(constant));
+					load_int(result, p_expr.int_value);
 					return result;
 				}
 				if (p_expr.target == Target::Autoload) {
-					bytecode::Constant name;
-					name.type = ValueType::StringName;
-					name.s = p_expr.text;
 					const uint32_t result = temp(p_expr.type);
-					instr(Op::GET_AUTOLOAD, result, NO_REG, NO_REG, add_constant(name));
+					instr(Op::GET_AUTOLOAD, result, NO_REG, NO_REG, text_constant(ValueType::StringName, p_expr.text));
 					return result;
 				}
 				if (p_expr.target == Target::Singleton) {
@@ -893,11 +891,8 @@ class Lowerer {
 				}
 				if (p_expr.target == Target::SelfSignal || p_expr.target == Target::ObjectSignal) {
 					const uint32_t object = p_expr.target == Target::ObjectSignal ? lower_expr(*p_expr.base) : NO_REG;
-					bytecode::Constant name;
-					name.type = ValueType::StringName;
-					name.s = p_expr.text;
 					const uint32_t result = temp(p_expr.type);
-					instr(Op::GET_SIGNAL, result, object, NO_REG, add_constant(name));
+					instr(Op::GET_SIGNAL, result, object, NO_REG, text_constant(ValueType::StringName, p_expr.text));
 					return result;
 				}
 				if (p_expr.target == Target::BuiltinConstant) {
@@ -906,8 +901,8 @@ class Lowerer {
 					instr(Op::CONST_VALUE, result, NO_REG, NO_REG, add_constant(constant_of(p_expr, p_expr.type)), type);
 					return result;
 				}
-				Place place = place_of(p_expr);
-				return load(place);
+				// A local, narrowed or not, a member, a property or a field.
+				return load(place_of(p_expr));
 			}
 			case ExprKind::Unary: {
 				const uint32_t operand = lower_expr(*p_expr.left);
@@ -989,18 +984,14 @@ class Lowerer {
 	// get_node() on self, then a check that the node is there and has the
 	// class the scenes gave it (spec §7.1), in case the tree changed since.
 	uint32_t get_node(const Expr &p_expr) {
-		bytecode::Constant path;
-		path.type = ValueType::NodePath;
-		path.s = p_expr.text;
-		const uint32_t path_reg = temp(ValueType::NodePath);
-		instr(Op::CONST_VALUE, path_reg, NO_REG, NO_REG, add_constant(path), ValueType::NodePath);
+		const uint32_t path_reg = load_text(ValueType::NodePath, p_expr.text);
 		ir::Instr i;
 		i.op = Op::CALL_ENGINE;
 		i.imm = engine_call("get_node", ValueType::Object);
 		i.args = { path_reg };
 		i.dst = temp(p_expr.type);
 		add(i);
-		instr(Op::CHECK_OBJECT, NO_REG, i.dst, NO_REG, class_index(p_expr.type));
+		check_object(i.dst, p_expr.type);
 		return i.dst;
 	}
 
@@ -1074,10 +1065,8 @@ class Lowerer {
 			case Place::Kind::ObjectProperty: {
 				const uint32_t result = temp(p_place.type);
 				instr(Op::GET_PROPERTY, result, p_place.kind == Place::Kind::SelfProperty ? NO_REG : p_place.reg, NO_REG, p_place.index);
-				if (p_place.type.kind == TypeKind::Object && !p_place.type.nullable) {
-					// The binding metadata says it is never None (spec §10.2).
-					instr(Op::CHECK_OBJECT, NO_REG, result, NO_REG, class_index(p_place.type));
-				}
+				// The binding metadata says whether it may be None (spec §10.2).
+				check_object(result, p_place.type);
 				return result;
 			}
 			case Place::Kind::Field: {
@@ -1191,7 +1180,7 @@ class Lowerer {
 				const uint32_t source = temp(p_stmt.value->type);
 				move(source, lower_expr(*p_stmt.value));
 				const uint32_t counter = temp(ValueType::Int);
-				instr(Op::CONST_INT, counter, NO_REG, NO_REG, add_constant(bytecode::Constant{ ValueType::Int }));
+				load_int(counter, 0);
 				const uint32_t condition_block = new_block();
 				const uint32_t body_block = new_block();
 				const uint32_t step_block = new_block();
@@ -1209,10 +1198,8 @@ class Lowerer {
 				loops.pop_back();
 				jump(step_block);
 				current = step_block;
-				bytecode::Constant one{ ValueType::Int };
-				one.i = 1;
 				const uint32_t step = temp(ValueType::Int);
-				instr(Op::CONST_INT, step, NO_REG, NO_REG, add_constant(one));
+				load_int(step, 1);
 				instr(Op::ADD_INT, counter, counter, step);
 				jump(condition_block);
 				current = end_block;
@@ -1357,9 +1344,7 @@ public:
 				// Its type's default (spec §4.3); an empty Array[T] is typed too.
 				member.has_initial = true;
 				if (member.type == ValueType::Array) {
-					member.initial.element = member.element;
-					member.initial.class_name = member.class_name;
-					member.initial.script = member.script;
+					type_array(member.initial, member);
 				}
 			}
 			module.members.push_back(member);
