@@ -34,7 +34,7 @@ def generate_builtin_api(target, source, env):
     builtin_api_gen.generate(str(source[0]), str(source[1]), str(target[0]))
 
 
-builtin_api = env.Command(
+env.Command(
     "gen/builtin_api.gen.cpp",
     ["thirdparty/godot-cpp/gdextension/extension_api-4-7.json", "src/compiler/binding_metadata.txt", "src/compiler/builtin_api_gen.py"],
     Action(generate_builtin_api, "Generating $TARGET"),
@@ -66,26 +66,31 @@ def generate_format_id(target, source, env):
 
 env.Command("gen/format_id.gen.h", Value(format_id()), Action(generate_format_id, "Generating $TARGET"))
 
+# Objects and the static libraries go to build/, not next to the sources.
+VariantDir("build/src", "src", duplicate=0)
+VariantDir("build/gen", "gen", duplicate=0)
+VariantDir("build/tests", "tests", duplicate=0)
+
 # The bytecode and the compiler do not depend on Godot (architecture §2.1):
 # they are built without the godot-cpp include paths, once, for the library and
 # the compiler tests.
 core_env = env.Clone()
 core_env.Replace(CPPPATH=["src/", "gen/"])
-bytecode_library = core_env.StaticLibrary("gen/petrichor_bytecode" + env["suffix"], Glob("src/bytecode/*.cpp"))
-compiler_library = core_env.StaticLibrary("gen/petrichor_compiler" + env["suffix"], Glob("src/compiler/*.cpp") + builtin_api)
+bytecode_library = core_env.StaticLibrary("build/petrichor_bytecode" + env["suffix"], Glob("build/src/bytecode/*.cpp"))
+compiler_library = core_env.StaticLibrary("build/petrichor_compiler" + env["suffix"], Glob("build/src/compiler/*.cpp") + ["build/gen/builtin_api.gen.cpp"])
 
 # Exported games contain no compiler (architecture §1).
-sources = Glob("src/runtime/*.cpp") + Glob("src/adapter/*.cpp")
+sources = Glob("build/src/runtime/*.cpp") + Glob("build/src/adapter/*.cpp")
 libraries = [bytecode_library]
 if env["target"] == "editor":
-    sources += Glob("src/adapter/editor/*.cpp")
+    sources += Glob("build/src/adapter/editor/*.cpp")
     libraries.insert(0, compiler_library)
 
 # The step-2 probes (architecture §5) are driven by the engine tests, which load
 # only the editor library.
 if env["target"] == "editor":
     env.Append(CPPDEFINES=["PETRICHOR_PROBES"])
-    sources += Glob("src/probe/*.cpp")
+    sources += Glob("build/src/probe/*.cpp")
 
 env.Prepend(LIBS=libraries)
 library = env.SharedLibrary(
@@ -102,5 +107,5 @@ tests_env.Append(CPPPATH=["thirdparty/doctest/"])
 tests_env.Replace(LIBS=[compiler_library, bytecode_library], LIBPATH=[])
 # Engine builds disable exceptions; a failed REQUIRE then ends the run.
 tests_env.Append(CPPDEFINES=["DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS"])
-compiler_tests = tests_env.Program("tests/compiler/bin/compiler_tests", Glob("tests/compiler/*.cpp"))
+compiler_tests = tests_env.Program("tests/compiler/bin/compiler_tests", Glob("build/tests/compiler/*.cpp"))
 Alias("compiler_tests", compiler_tests)

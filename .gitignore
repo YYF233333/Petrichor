@@ -1,5 +1,6 @@
 # SCons
 .sconsign*.dblite
+build/
 *.os
 *.obj
 compile_commands.json
