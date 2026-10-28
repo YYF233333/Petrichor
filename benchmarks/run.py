@@ -37,6 +37,7 @@ def main():
         shutil.copytree(HERE / "project", project)
         shutil.copytree(TESTS / "bin", project / "bin")
         shutil.copy(TESTS / "petrichor.gdextension", project)
+        # Not checked, as import_project() of tests/engine/run.py explains.
         run(godot, "--path", str(project), "--import")
         code, output = run(godot, "-e", "--path", str(project), "--", "--petrichor-build")
         if code != 0 or ", 0 with errors" not in output:

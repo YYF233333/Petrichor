@@ -246,6 +246,20 @@ def drain(connection):
         pass
 
 
+def import_project(godot, project):
+    """Imports the project without checking the import. In Godot 4.7.2 an
+    editor that exits right after its work, as --import does, can run the
+    documentation callbacks it queued (editor/doc/editor_help.cpp:3038-3044,
+    3077) after it freed the documentation (:3365-3368; main/main.cpp:5257),
+    and crash, or first report an error from EditorNode::is_cmdline_mode().
+    It does when it found the extension only while scanning, as in a fresh
+    copy, and when its documentation cache was written by another build, as
+    the dev and official editors share it (:2952-2959). The import is saved by
+    then, and the runs that use it are checked. Godot issue #111048; check the
+    import again once the engine has pull request #123658."""
+    run(godot, "--path", str(project), "--import")
+
+
 def prepare_fps(project):
     """The FPS starter kit with the extension and fps_check.gd."""
     shutil.copytree(FPS_UPSTREAM, project, ignore=shutil.ignore_patterns(".git"))
@@ -316,7 +330,7 @@ def expect_run(name, code, output, lines=(), expected_errors=()):
             errors.append(line)
     remaining = iter(line.strip() for line in output.splitlines())
     in_order = all(any(out.endswith(line) for out in remaining) for line in lines)
-    expect(name, code == 0 and not errors and in_order, output)
+    expect(name, code == 0 and not errors and not any(allowed.values()) and in_order, output)
 
 
 def main():
@@ -332,7 +346,7 @@ def main():
 
     # The fps group prepares projects of its own.
     if not only or only - {"fps"}:
-        run(godot, "--path", str(PROJECT), "--import")
+        import_project(godot, PROJECT)
         # The game reads the bytecode the editor writes (architecture §2.4).
         code, output = run(godot, "-e", "--path", str(PROJECT), "--", "--petrichor-build")
         expect_run("build", code, output)
@@ -389,7 +403,7 @@ def run_fps_group(godot):
     with tempfile.TemporaryDirectory() as tmp:
         original = Path(tmp) / "original"
         prepare_fps(original)
-        run(godot, "--path", str(original), "--import")
+        import_project(godot, original)
         code, output = run(godot, "--verbose", "--path", str(original))
         expect("fps original run", code == 0 and "fps check: 0 failure(s)" in output, output)
         known_errors = {line for line in output.splitlines() if "ERROR" in line}
@@ -402,7 +416,7 @@ def run_fps_group(godot):
         prepare_fps(migrated)
         shutil.copytree(original / ".godot" / "imported", migrated / ".godot" / "imported")
         migrate_fps(migrated)
-        run(godot, "--path", str(migrated), "--import")
+        import_project(godot, migrated)
         code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-build")
         expect_run("fps build", code, output)
         expect("fps build: every script compiles", ", 0 with errors" in output, output)
