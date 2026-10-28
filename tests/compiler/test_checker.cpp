@@ -129,6 +129,17 @@ TEST_CASE("conditional expressions") {
 	CHECK(has_error(in_function("var x := 1 if 0 else 2"), "A condition must be bool"));
 }
 
+TEST_CASE("a call that fails still reports the errors of its arguments") {
+	const std::string undeclared = "Identifier \"nope\" is not declared in the current scope.";
+	for (const std::string call : { "Node.new(nope)", "Node.instantiate(nope)", "int(nope, 1)", "Vector3().missing(nope)", "_process(nope)", "missing(nope)" }) {
+		const std::string reported = joined(errors_of(in_function("var x = " + call)));
+		INFO(call);
+		INFO(reported);
+		CHECK(contains(reported, undeclared));
+		CHECK(reported.find('\n') + 1 < reported.size()); // A second error, the call's.
+	}
+}
+
 // Spec §4.6.
 TEST_CASE("default values of parameters") {
 	const std::string source = "extends Node\n\nfunc add(a: int, b: int = 2, c: float = 0.5) -> float:\n\treturn a + b + c\n\nfunc f() -> void:\n\t";

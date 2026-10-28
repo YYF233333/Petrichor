@@ -551,6 +551,32 @@ class Checker : public ClassRelation {
 		return set(r_expr, Type::of(TypeKind::Error));
 	}
 
+	// A call that fails still has its arguments checked, so that their own
+	// errors are reported too.
+	Type fail_call(Expr &r_call, const std::string &p_message) {
+		fail_call(r_call);
+		return fail(r_call, p_message);
+	}
+
+	// The same, for a call whose error is reported already.
+	Type fail_call(Expr &r_call) {
+		for (auto &arg : r_call.args) {
+			check_value(*arg);
+		}
+		return set(r_call, Type::of(TypeKind::Error));
+	}
+
+	// Makes a call a call of the engine's ResourceLoader, as GDScript's load()
+	// and preload() are.
+	void on_resource_loader(Expr &r_call) {
+		auto loader = std::make_unique<Expr>();
+		loader->kind = ExprKind::Name;
+		loader->text = "ResourceLoader";
+		loader->line = r_call.line;
+		loader->column = r_call.column;
+		r_call.base = std::move(loader);
+	}
+
 	int find_local(const std::string &p_name) const {
 		for (auto scope = scopes.rbegin(); scope != scopes.rend(); ++scope) {
 			const auto found = scope->find(p_name);
@@ -752,10 +778,7 @@ class Checker : public ClassRelation {
 			return std::nullopt;
 		}
 		if (!callee->is_pub && !callee->is_override) {
-			for (auto &arg : r_expr.args) {
-				check_value(*arg);
-			}
-			return fail(r_expr, not_pub(p_class, "\"" + callee->name + "()\""));
+			return fail_call(r_expr, not_pub(p_class, "\"" + callee->name + "()\""));
 		}
 		check_arguments(r_expr, param_types(callee->params), required_params(*callee), false);
 		if (callee->is_override) {
@@ -923,10 +946,7 @@ class Checker : public ClassRelation {
 	// load() does, and the result is checked to be a scene.
 	Type check_preload(Expr &r_expr) {
 		if (r_expr.args.size() != 1 || r_expr.args[0]->kind != ExprKind::StringLiteral) {
-			for (auto &arg : r_expr.args) {
-				check_value(*arg);
-			}
-			return fail(r_expr, "preload() takes one literal path.");
+			return fail_call(r_expr, "preload() takes one literal path.");
 		}
 		std::string path = r_expr.args[0]->text;
 		if (path.rfind("res://", 0) != 0) {
@@ -954,12 +974,7 @@ class Checker : public ClassRelation {
 		if (!engine.is_singleton("ResourceLoader")) {
 			return fail(r_expr, "preload() needs the engine's ResourceLoader.");
 		}
-		auto loader = std::make_unique<Expr>();
-		loader->kind = ExprKind::Name;
-		loader->text = "ResourceLoader";
-		loader->line = r_expr.line;
-		loader->column = r_expr.column;
-		r_expr.base = std::move(loader);
+		on_resource_loader(r_expr);
 		r_expr.text = "load";
 		if (check_call(r_expr).is_error()) {
 			return set(r_expr, Type::of(TypeKind::Error));
@@ -1237,24 +1252,17 @@ class Checker : public ClassRelation {
 		}
 	}
 
-	// Leaves the block on every path: return, break or continue.
-	static bool always_exits(const Block &p_block) {
+	// Ends on every path with return, or, when `p_or_jump`, also with break or
+	// continue, so that it leaves the block.
+	static bool always_ends(const Block &p_block, bool p_or_jump) {
 		if (p_block.empty()) {
 			return false;
 		}
 		const Stmt &last = *p_block.back();
-		if (last.kind == StmtKind::Return || last.kind == StmtKind::Break || last.kind == StmtKind::Continue) {
+		if (last.kind == StmtKind::Return || (p_or_jump && (last.kind == StmtKind::Break || last.kind == StmtKind::Continue))) {
 			return true;
 		}
-		return last.kind == StmtKind::If && always_exits(last.body) && always_exits(last.else_body);
-	}
-
-	void report_argument(const Expr &p_arg, const Type &p_arg_type, const Type &p_param) {
-		std::string message = "Cannot pass a value of type " + p_arg_type.to_string() + " as " + p_param.to_string() + ".";
-		if (p_arg_type.kind == TypeKind::Float && p_param.kind == TypeKind::Int) {
-			message += " Convert explicitly with int(x).";
-		}
-		error(p_arg.line, p_arg.column, message);
+		return last.kind == StmtKind::If && always_ends(last.body, p_or_jump) && always_ends(last.else_body, p_or_jump);
 	}
 
 	// Checks the arguments of a call against parameter types.
@@ -1275,9 +1283,7 @@ class Checker : public ClassRelation {
 			const Type param = i < max ? p_params[i] : Type::of(TypeKind::Variant);
 			const Type arg_type = check_value(arg, param);
 			r_call.param_types.push_back(param);
-			if (!assignable(arg_type, param)) {
-				report_argument(arg, arg_type, param);
-			}
+			expect_assignable(arg, arg_type, param, "pass");
 		}
 	}
 
@@ -1324,18 +1330,18 @@ class Checker : public ClassRelation {
 
 	Type check_engine_call(Expr &r_expr, const EngineMethod &p_method) {
 		if (p_method.is_static) {
-			return fail(r_expr, "Static engine methods are not supported yet.");
+			return fail_call(r_expr, "Static engine methods are not supported yet.");
 		}
 		if (p_method.is_virtual) {
-			return fail(r_expr, "\"" + r_expr.text + "()\" is a virtual engine method.");
+			return fail_call(r_expr, "\"" + r_expr.text + "()\" is a virtual engine method.");
 		}
 		if (p_method.return_type.kind == TypeKind::Unsupported) {
-			return fail(r_expr, "\"" + r_expr.text + "()\" returns " + p_method.return_type.to_string() + ", which is not supported yet.");
+			return fail_call(r_expr, "\"" + r_expr.text + "()\" returns " + p_method.return_type.to_string() + ", which is not supported yet.");
 		}
 		bool ok = false;
 		const std::vector<Type> params = engine_params(p_method, r_expr, ok);
 		if (!ok) {
-			return Type::of(TypeKind::Error);
+			return fail_call(r_expr);
 		}
 		check_arguments(r_expr, params, int(params.size()) - p_method.default_count, p_method.is_vararg);
 		for (size_t i = 0; i < params.size(); i++) {
@@ -1416,10 +1422,7 @@ class Checker : public ClassRelation {
 		// Typed by the arguments (spec §10.3); the engine takes them as Variant.
 		const size_t expected = rule == ArgumentTyped::Lerp ? 3 : p_utility.argument_count;
 		if (r_expr.args.size() < expected || (!p_utility.is_vararg && r_expr.args.size() > expected)) {
-			for (auto &arg : r_expr.args) {
-				check_value(*arg);
-			}
-			return fail(r_expr, "Function \"" + r_expr.text + "()\" takes " + (p_utility.is_vararg ? "at least " : "") + std::to_string(expected) + " argument(s).");
+			return fail_call(r_expr, "Function \"" + r_expr.text + "()\" takes " + (p_utility.is_vararg ? "at least " : "") + std::to_string(expected) + " argument(s).");
 		}
 		std::vector<Type> types;
 		for (auto &arg : r_expr.args) {
@@ -1537,17 +1540,17 @@ class Checker : public ClassRelation {
 		const builtin::Class *type = builtin::find_class(base_name);
 		const builtin::Method *method = type ? builtin::find_method(*type, r_expr.text) : nullptr;
 		if (!method) {
-			return fail(r_expr, p_base.to_string() + " has no method \"" + r_expr.text + "()\".");
+			return fail_call(r_expr, p_base.to_string() + " has no method \"" + r_expr.text + "()\".");
 		}
 		if (method->is_vararg || method->is_static) {
-			return fail(r_expr, "\"" + r_expr.text + "()\" of " + base_name + " is not supported yet.");
+			return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + base_name + " is not supported yet.");
 		}
 		std::vector<Type> params;
 		int required = 0;
 		for (uint32_t i = 0; i < method->argument_count; i++) {
 			const Type param = api_type(method->arguments[i].type, true);
 			if (param.kind == TypeKind::Object || !param.is_storable()) {
-				return fail(r_expr, "\"" + r_expr.text + "()\" takes " + param.to_string() + ", which is not supported yet.");
+				return fail_call(r_expr, "\"" + r_expr.text + "()\" takes " + param.to_string() + ", which is not supported yet.");
 			}
 			params.push_back(param);
 			required += method->arguments[i].has_default ? 0 : 1;
@@ -1607,10 +1610,7 @@ class Checker : public ClassRelation {
 		const size_t param_count = p_function.args.size() - 1;
 		const size_t bound = r_expr.args.size();
 		if (bound > param_count) {
-			for (auto &arg : r_expr.args) {
-				check_value(*arg);
-			}
-			return fail(r_expr, "bind() binds " + std::to_string(bound) + " argument(s), but " + p_function.to_string() + " takes " + std::to_string(param_count) + ".");
+			return fail_call(r_expr, "bind() binds " + std::to_string(bound) + " argument(s), but " + p_function.to_string() + " takes " + std::to_string(param_count) + ".");
 		}
 		const std::vector<Type> rest(p_function.args.begin() + 1, p_function.args.end() - bound);
 		const std::vector<Type> bound_params(p_function.args.end() - bound, p_function.args.end());
@@ -1654,13 +1654,10 @@ class Checker : public ClassRelation {
 			return set(r_expr, p_base.unwrapped());
 		}
 		static const std::unordered_set<std::string> later = { "unwrap_or", "unwrap_or_else", "map", "and_then", "or_else", "filter", "ok_or", "ok_or_else", "flatten" };
-		for (auto &arg : r_expr.args) {
-			check_value(*arg);
-		}
 		if (later.count(name)) {
-			return fail(r_expr, name + "() of " + p_base.to_string() + " is not supported yet.");
+			return fail_call(r_expr, name + "() of " + p_base.to_string() + " is not supported yet.");
 		}
-		return fail(r_expr, "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
+		return fail_call(r_expr, "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
 	}
 
 	// The type both branches fit: one of them, or for objects the nearest
@@ -1728,13 +1725,10 @@ class Checker : public ClassRelation {
 	Type check_array_literal(Expr &r_expr, const Type &p_expected) {
 		const Type expected = p_expected.kind == TypeKind::Option ? p_expected.args[0] : p_expected;
 		if (expected.kind != TypeKind::Builtin || expected.name != "Array") {
-			for (auto &arg : r_expr.args) {
-				check_value(*arg);
-			}
 			if (r_expr.args.empty()) {
 				return fail(r_expr, "An empty array needs a declared type, for example var a: Array[int] = [].");
 			}
-			return fail(r_expr, "An array literal needs a declared type for now, for example var a: Array[int] = [1, 2].");
+			return fail_call(r_expr, "An array literal needs a declared type for now, for example var a: Array[int] = [1, 2].");
 		}
 		const Type element = expected.args.empty() ? Type::of(TypeKind::Variant) : expected.args[0];
 		for (auto &arg : r_expr.args) {
@@ -1779,23 +1773,20 @@ class Checker : public ClassRelation {
 			if (names_type(base)) {
 				if (name == "new" && engine.class_exists(base.text) && !builtin::find_class(base.text)) {
 					if (!engine.can_instantiate(base.text)) {
-						return fail(r_expr, base.text + " cannot be instantiated.");
+						return fail_call(r_expr, base.text + " cannot be instantiated.");
 					}
 					if (!r_expr.args.empty()) {
-						return fail(r_expr, "new() of an engine class takes no arguments.");
+						return fail_call(r_expr, "new() of an engine class takes no arguments.");
 					}
 					r_expr.target = Target::NewObject;
 					r_expr.owner = base.text;
 					return set(r_expr, Type::object(base.text));
 				}
-				return fail(r_expr, "Static methods such as " + base.text + "." + name + "() are not supported yet.");
+				return fail_call(r_expr, "Static methods such as " + base.text + "." + name + "() are not supported yet.");
 			}
 			const Type base_type = check_value(base);
 			if (base_type.is_error()) {
-				for (auto &arg : r_expr.args) {
-					check_value(*arg);
-				}
-				return set(r_expr, base_type);
+				return fail_call(r_expr);
 			}
 			if (base_type.is_optional()) {
 				return check_option_method(r_expr, base_type);
@@ -1843,10 +1834,7 @@ class Checker : public ClassRelation {
 		if (script != function_index.end()) {
 			const FuncDecl &callee = cls.functions[script->second];
 			if (!callee.is_static && refuse_in_static(r_expr, name + "()")) {
-				for (auto &arg : r_expr.args) {
-					check_value(*arg);
-				}
-				return set(r_expr, Type::of(TypeKind::Error));
+				return fail_call(r_expr);
 			}
 			check_arguments(r_expr, param_types(callee.params), required_params(callee), false);
 			r_expr.target = Target::ScriptFunction;
@@ -1856,7 +1844,7 @@ class Checker : public ClassRelation {
 
 		if (const auto method = engine.find_method(cls.extends, name)) {
 			if (method->is_virtual) {
-				return fail(r_expr, "\"" + name + "()\" is a virtual engine method that this class does not define.");
+				return fail_call(r_expr, "\"" + name + "()\" is a virtual engine method that this class does not define.");
 			}
 			if (refuse_in_static(r_expr, name + "()")) {
 				return set(r_expr, Type::of(TypeKind::Error));
@@ -1870,7 +1858,7 @@ class Checker : public ClassRelation {
 				const TypeKind result = name == "int" ? TypeKind::Int : TypeKind::Float;
 				r_expr.target = name == "int" ? Target::ConvertToInt : Target::ConvertToFloat;
 				if (r_expr.args.size() != 1) {
-					return fail(r_expr, name + "() takes one argument.");
+					return fail_call(r_expr, name + "() takes one argument.");
 				}
 				const Type arg = check_value(*r_expr.args[0]);
 				if (!arg.is_error() && !arg.is_numeric()) {
@@ -1893,21 +1881,12 @@ class Checker : public ClassRelation {
 			if (name == "load" && engine.is_singleton("ResourceLoader")) {
 				// GDScript's load() is ResourceLoader.load(), whose result may be
 				// None (spec §7.4, §10.2).
-				auto loader = std::make_unique<Expr>();
-				loader->kind = ExprKind::Name;
-				loader->text = "ResourceLoader";
-				loader->line = r_expr.line;
-				loader->column = r_expr.column;
-				r_expr.base = std::move(loader);
+				on_resource_loader(r_expr);
 				return check_call(r_expr);
 			}
 		}
 
-		error(r_expr.line, r_expr.column, "Function \"" + name + "()\" not found in the class or its base " + cls.extends + ".");
-		for (auto &arg : r_expr.args) {
-			check_value(*arg);
-		}
-		return set(r_expr, Type::of(TypeKind::Error));
+		return fail_call(r_expr, "Function \"" + name + "()\" not found in the class or its base " + cls.extends + ".");
 	}
 
 	// `p_expected` is the type the value goes to, if known; only array literals
@@ -2177,10 +2156,10 @@ class Checker : public ClassRelation {
 				const std::unordered_map<int, Type> else_end = check_block(r_stmt.else_body, facts.when_false);
 				// Where one branch always leaves, what holds at the end of the
 				// other, which may have assigned what the condition tested.
-				if (always_exits(r_stmt.body)) {
+				if (always_ends(r_stmt.body, true)) {
 					add_facts(else_end);
 				}
-				if (always_exits(r_stmt.else_body)) {
+				if (always_ends(r_stmt.else_body, true)) {
 					add_facts(then_end);
 				}
 				return;
@@ -2230,20 +2209,6 @@ class Checker : public ClassRelation {
 				check_expr(*r_stmt.value);
 				return;
 		}
-	}
-
-	static bool always_returns(const Block &p_block) {
-		if (p_block.empty()) {
-			return false;
-		}
-		const Stmt &last = *p_block.back();
-		if (last.kind == StmtKind::Return) {
-			return true;
-		}
-		if (last.kind == StmtKind::If) {
-			return always_returns(last.body) && always_returns(last.else_body);
-		}
-		return false;
 	}
 
 	/* Declarations */
@@ -2691,7 +2656,7 @@ class Checker : public ClassRelation {
 			return;
 		}
 		check_block(r_function.body);
-		if (r_function.return_type.kind != TypeKind::Void && !r_function.return_type.is_error() && !always_returns(r_function.body)) {
+		if (r_function.return_type.kind != TypeKind::Void && !r_function.return_type.is_error() && !always_ends(r_function.body, false)) {
 			error(r_function.line, r_function.column, "Not all paths of \"" + r_function.name + "()\" return a value.");
 		}
 		function = nullptr;
