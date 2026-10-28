@@ -44,7 +44,7 @@ ValueType value_type(const Type &p_type) {
 
 // An interface as the runtime names it, "script::Name" (spec §3.9).
 std::string interface_id(const Type &p_interface) {
-	return p_interface.script + "::" + p_interface.name.substr(p_interface.name.find_last_of('.') + 1);
+	return p_interface.script + "::" + p_interface.interface_name();
 }
 
 bytecode::Slot slot_of(const std::string &p_name, const Type &p_type) {
@@ -137,21 +137,6 @@ uint8_t engine_operator(TokenKind p_op) {
 	}
 }
 
-TokenKind compound_operator(TokenKind p_assign) {
-	switch (p_assign) {
-		case TokenKind::MinusEqual:
-			return TokenKind::Minus;
-		case TokenKind::StarEqual:
-			return TokenKind::Star;
-		case TokenKind::SlashEqual:
-			return TokenKind::Slash;
-		case TokenKind::PercentEqual:
-			return TokenKind::Percent;
-		default:
-			return TokenKind::Plus;
-	}
-}
-
 // A literal, or a constant the checker found (is_constant()), as the target's type.
 bytecode::Constant constant_of(const Expr &p_expr, const Type &p_target) {
 	bytecode::Constant constant;
@@ -173,9 +158,7 @@ bytecode::Constant constant_of(const Expr &p_expr, const Type &p_target) {
 		constant.class_name = slot.class_name;
 		constant.script = slot.script;
 		for (size_t i = 0; i < p_expr.args.size(); i++) {
-			// An element of an untyped array keeps its own type.
-			const Type &element = p_expr.param_types[i].kind == TypeKind::Variant ? p_expr.args[i]->type : p_expr.param_types[i];
-			constant.args.push_back(constant_of(*p_expr.args[i], element));
+			constant.args.push_back(constant_of(*p_expr.args[i], stored_element_type(p_expr, i)));
 		}
 		return constant;
 	}
@@ -426,7 +409,7 @@ class Lowerer {
 		ref.name = p_type.engine_class();
 		ref.script = p_type.script;
 		if (p_type.is_interface) {
-			ref.interface_name = p_type.name.substr(p_type.name.find_last_of('.') + 1);
+			ref.interface_name = p_type.interface_name();
 		}
 		return class_index(ref);
 	}
@@ -728,9 +711,7 @@ class Lowerer {
 		if ((p_call.target == Target::EngineMethod && p_call.base) || p_call.target == Target::ScriptMethod || p_call.target == Target::BindArguments || p_call.target == Target::EmitSignal) {
 			i.base = lower_expr(*p_call.base);
 		} else if (p_call.target == Target::BuiltinMethod) {
-			const ValueType base_type = value_type(p_call.base->type);
-			const bool shared = base_type == ValueType::Array || base_type == ValueType::Dictionary || base_type == ValueType::Signal;
-			if (!p_call.is_const && !shared && is_place(*p_call.base)) {
+			if (!p_call.is_const && !is_shared(p_call.base->type) && is_place(*p_call.base)) {
 				// A method that changes its base changes the place it came from.
 				written_back = std::make_unique<Place>(place_of(*p_call.base));
 				i.base = load(*written_back);

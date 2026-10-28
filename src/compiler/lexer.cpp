@@ -148,6 +148,21 @@ const char *token_name(TokenKind p_kind) {
 	return "?";
 }
 
+TokenKind compound_operator(TokenKind p_assign) {
+	switch (p_assign) {
+		case TokenKind::MinusEqual:
+			return TokenKind::Minus;
+		case TokenKind::StarEqual:
+			return TokenKind::Star;
+		case TokenKind::SlashEqual:
+			return TokenKind::Slash;
+		case TokenKind::PercentEqual:
+			return TokenKind::Percent;
+		default:
+			return TokenKind::Plus;
+	}
+}
+
 namespace {
 
 const std::unordered_map<std::string, TokenKind> &keywords() {

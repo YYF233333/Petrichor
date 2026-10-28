@@ -2,6 +2,8 @@
 
 #include "compiler/builtin_api.h"
 
+#include <unordered_map>
+
 namespace petrichor::compiler {
 
 std::string Type::builtin_name() const {
@@ -117,6 +119,97 @@ Type api_type(const std::string &p_name, bool p_object_nullable) {
 		return Type{ TypeKind::Unsupported, p_name, false };
 	}
 	return Type::object(p_name, p_object_nullable);
+}
+
+static bool is_string_like(const Type &p_type) {
+	return p_type.kind == TypeKind::String || (p_type.kind == TypeKind::Builtin && (p_type.name == "StringName" || p_type.name == "NodePath"));
+}
+
+bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_classes) {
+	if (p_from.is_error() || p_to.is_error()) {
+		return true;
+	}
+	if (p_from == p_to) {
+		return true;
+	}
+	if (p_from.kind == TypeKind::None) {
+		return p_to.is_optional() || p_to.kind == TypeKind::Variant;
+	}
+	if (p_from.kind == TypeKind::Int && p_to.kind == TypeKind::Float) {
+		return true;
+	}
+	// Converted where needed, as in GDScript (spec §10.7).
+	if (is_string_like(p_from) && is_string_like(p_to) && (p_from.kind == TypeKind::String || p_to.kind == TypeKind::String)) {
+		return true;
+	}
+	if (p_from.kind == TypeKind::Object && p_to.kind == TypeKind::Object) {
+		if (!p_to.args.empty()) {
+			// PackedScene[T] is covariant in T, and a scene of unknown root is
+			// not one (spec §7.4).
+			if (p_from.args.empty() || !p_classes.is_a(p_from.args[0], p_to.args[0])) {
+				return false;
+			}
+		}
+		return (p_to.nullable || !p_from.nullable) && p_classes.is_a(p_from, p_to);
+	}
+	if (p_to.kind == TypeKind::Option) {
+		// A T is wrapped implicitly; the T inside does not convert (spec §3.4).
+		return p_from.kind == TypeKind::Option ? p_from.args == p_to.args : is_assignable(p_from, p_to.args[0], p_classes);
+	}
+	if (p_from.kind == TypeKind::Function && p_to.kind == TypeKind::Function) {
+		// Parameters contravariant, the result covariant (spec §3.11).
+		if (p_from.args.size() != p_to.args.size()) {
+			return false;
+		}
+		for (size_t i = 1; i < p_to.args.size(); i++) {
+			if (!is_assignable(p_to.args[i], p_from.args[i], p_classes)) {
+				return false;
+			}
+		}
+		return p_to.args[0].kind == TypeKind::Void ? p_from.args[0].kind == TypeKind::Void : is_assignable(p_from.args[0], p_to.args[0], p_classes);
+	}
+	// The engine takes them as its Callable and Signal.
+	if ((p_from.kind == TypeKind::Function || p_from.kind == TypeKind::Signal) && p_to.kind == TypeKind::Builtin && p_to.name == p_from.builtin_name()) {
+		return true;
+	}
+	return p_to.kind == TypeKind::Variant && p_from.is_storable();
+}
+
+bool is_shared(const Type &p_type) {
+	// A Signal names an object's signal; connecting changes the object.
+	return (p_type.kind == TypeKind::Builtin && (p_type.name == "Array" || p_type.name == "Dictionary")) || p_type.kind == TypeKind::Signal;
+}
+
+std::optional<Type> element_of(const Type &p_type) {
+	if (p_type.kind != TypeKind::Builtin) {
+		return std::nullopt;
+	}
+	if (p_type.name == "Array") {
+		return p_type.args.empty() ? Type::of(TypeKind::Variant) : p_type.args[0];
+	}
+	static const std::unordered_map<std::string, Type> packed = {
+		{ "PackedByteArray", Type::of(TypeKind::Int) },
+		{ "PackedInt32Array", Type::of(TypeKind::Int) },
+		{ "PackedInt64Array", Type::of(TypeKind::Int) },
+		{ "PackedFloat32Array", Type::of(TypeKind::Float) },
+		{ "PackedFloat64Array", Type::of(TypeKind::Float) },
+		{ "PackedStringArray", Type::of(TypeKind::String) },
+		{ "PackedVector2Array", Type::builtin("Vector2") },
+		{ "PackedVector3Array", Type::builtin("Vector3") },
+		{ "PackedColorArray", Type::builtin("Color") },
+		{ "PackedVector4Array", Type::builtin("Vector4") },
+	};
+	const auto found = packed.find(p_type.name);
+	return found == packed.end() ? std::nullopt : std::optional<Type>(found->second);
+}
+
+Type optional_of(const Type &p_type) {
+	if (p_type.kind == TypeKind::Object) {
+		Type type = p_type;
+		type.nullable = true;
+		return type;
+	}
+	return Type::option(p_type);
 }
 
 } // namespace petrichor::compiler

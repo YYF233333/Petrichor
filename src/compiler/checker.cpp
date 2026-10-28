@@ -12,73 +12,6 @@
 
 namespace petrichor::compiler {
 
-static bool is_string_like(const Type &p_type) {
-	return p_type.kind == TypeKind::String || (p_type.kind == TypeKind::Builtin && (p_type.name == "StringName" || p_type.name == "NodePath"));
-}
-
-// How classes relate: engine classes as ClassDB says, classes of this
-// language as their declarations say.
-class ClassRelation {
-public:
-	virtual ~ClassRelation() = default;
-	// Whether every object of class `p_from` is a `p_to`; nullability aside.
-	virtual bool is_a(const Type &p_from, const Type &p_to) const = 0;
-};
-
-// Whether a value of type `p_from` can be stored where `p_to` is expected:
-// the same type, int to float (spec §3.2), String to and from StringName and
-// NodePath (§10.7), an object to a nullable or a base class, or anything to
-// Variant.
-static bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_classes) {
-	if (p_from.is_error() || p_to.is_error()) {
-		return true;
-	}
-	if (p_from == p_to) {
-		return true;
-	}
-	if (p_from.kind == TypeKind::None) {
-		return p_to.is_optional() || p_to.kind == TypeKind::Variant;
-	}
-	if (p_from.kind == TypeKind::Int && p_to.kind == TypeKind::Float) {
-		return true;
-	}
-	// Converted where needed, as in GDScript (spec §10.7).
-	if (is_string_like(p_from) && is_string_like(p_to) && (p_from.kind == TypeKind::String || p_to.kind == TypeKind::String)) {
-		return true;
-	}
-	if (p_from.kind == TypeKind::Object && p_to.kind == TypeKind::Object) {
-		if (!p_to.args.empty()) {
-			// PackedScene[T] is covariant in T, and a scene of unknown root is
-			// not one (spec §7.4).
-			if (p_from.args.empty() || !p_classes.is_a(p_from.args[0], p_to.args[0])) {
-				return false;
-			}
-		}
-		return (p_to.nullable || !p_from.nullable) && p_classes.is_a(p_from, p_to);
-	}
-	if (p_to.kind == TypeKind::Option) {
-		// A T is wrapped implicitly; the T inside does not convert (spec §3.4).
-		return p_from.kind == TypeKind::Option ? p_from.args == p_to.args : is_assignable(p_from, p_to.args[0], p_classes);
-	}
-	if (p_from.kind == TypeKind::Function && p_to.kind == TypeKind::Function) {
-		// Parameters contravariant, the result covariant (spec §3.11).
-		if (p_from.args.size() != p_to.args.size()) {
-			return false;
-		}
-		for (size_t i = 1; i < p_to.args.size(); i++) {
-			if (!is_assignable(p_to.args[i], p_from.args[i], p_classes)) {
-				return false;
-			}
-		}
-		return p_to.args[0].kind == TypeKind::Void ? p_from.args[0].kind == TypeKind::Void : is_assignable(p_from.args[0], p_to.args[0], p_classes);
-	}
-	// The engine takes them as its Callable and Signal.
-	if ((p_from.kind == TypeKind::Function || p_from.kind == TypeKind::Signal) && p_to.kind == TypeKind::Builtin && p_to.name == p_from.builtin_name()) {
-		return true;
-	}
-	return p_to.kind == TypeKind::Variant && p_from.is_storable();
-}
-
 namespace {
 
 const char *operator_name(TokenKind p_op) {
@@ -140,48 +73,6 @@ bool is_interpolable(const Type &p_type) {
 	return p_type.kind == TypeKind::Float || (p_type.kind == TypeKind::Builtin && types.count(p_type.name));
 }
 
-// Values that refer to shared engine storage: changing one through a method
-// changes it for everyone who holds it, so it is not written back.
-bool is_shared(const Type &p_type) {
-	// A Signal names an object's signal; connecting changes the object.
-	return (p_type.kind == TypeKind::Builtin && (p_type.name == "Array" || p_type.name == "Dictionary")) || p_type.kind == TypeKind::Signal;
-}
-
-// The elements of a value that can be indexed and iterated (spec §3.8, §5.7);
-// Variant for an untyped Array.
-std::optional<Type> element_of(const Type &p_type) {
-	if (p_type.kind != TypeKind::Builtin) {
-		return std::nullopt;
-	}
-	if (p_type.name == "Array") {
-		return p_type.args.empty() ? Type::of(TypeKind::Variant) : p_type.args[0];
-	}
-	static const std::unordered_map<std::string, Type> packed = {
-		{ "PackedByteArray", Type::of(TypeKind::Int) },
-		{ "PackedInt32Array", Type::of(TypeKind::Int) },
-		{ "PackedInt64Array", Type::of(TypeKind::Int) },
-		{ "PackedFloat32Array", Type::of(TypeKind::Float) },
-		{ "PackedFloat64Array", Type::of(TypeKind::Float) },
-		{ "PackedStringArray", Type::of(TypeKind::String) },
-		{ "PackedVector2Array", Type::builtin("Vector2") },
-		{ "PackedVector3Array", Type::builtin("Vector3") },
-		{ "PackedColorArray", Type::builtin("Color") },
-		{ "PackedVector4Array", Type::builtin("Vector4") },
-	};
-	const auto found = packed.find(p_type.name);
-	return found == packed.end() ? std::nullopt : std::optional<Type>(found->second);
-}
-
-// T? of a type: nullable for an object, an Option otherwise.
-Type optional_of(const Type &p_type) {
-	if (p_type.kind == TypeKind::Object) {
-		Type type = p_type;
-		type.nullable = true;
-		return type;
-	}
-	return Type::option(p_type);
-}
-
 // Gives an expression made by the compiler the position of the code it belongs to.
 void relocate(Expr &r_expr, int p_line, int p_column) {
 	r_expr.line = p_line;
@@ -221,9 +112,7 @@ bool is_literal(const Expr &p_expr) {
 bool is_constant(const Expr &p_expr, const Type &p_target) {
 	if (p_expr.kind == ExprKind::ArrayLiteral) {
 		for (size_t i = 0; i < p_expr.args.size(); i++) {
-			// An element of an untyped array keeps its own type.
-			const Type &element = p_expr.param_types[i].kind == TypeKind::Variant ? p_expr.args[i]->type : p_expr.param_types[i];
-			if (!is_constant(*p_expr.args[i], element)) {
+			if (!is_constant(*p_expr.args[i], stored_element_type(p_expr, i))) {
 				return false;
 			}
 		}
@@ -335,6 +224,21 @@ class Checker : public ClassRelation {
 		return script ? &script->decl : nullptr;
 	}
 
+	// The header of a script of this language, this class's or another's as
+	// read; null when it cannot be read.
+	const ClassDecl *script_header(const std::string &p_path) {
+		if (p_path == options.path) {
+			return &cls;
+		}
+		const ScriptClass *script = classes.header(p_path);
+		return script ? &script->decl : nullptr;
+	}
+
+	// The type of the objects of a script of this language.
+	Type script_class_type(const ClassDecl &p_header, const std::string &p_path) const {
+		return Type::script_class(display_name(p_header, p_path), p_path, p_header.extends);
+	}
+
 	// The class name used in messages and types: class_name, or the file's name.
 	std::string display_name(const ClassDecl &p_decl, const std::string &p_path) const {
 		if (!p_decl.class_name.empty()) {
@@ -404,11 +308,7 @@ class Checker : public ClassRelation {
 			error(p_ref.line, p_ref.column, head + " is a class of another language, which is not supported as a type yet (spec §11.1).");
 			return Type::of(TypeKind::Error);
 		}
-		const ClassDecl *header = path == options.path ? &cls : nullptr;
-		if (!header) {
-			const ScriptClass *script = classes.header(path);
-			header = script ? &script->decl : nullptr;
-		}
+		const ClassDecl *header = script_header(path);
 		if (!header) {
 			error(p_ref.line, p_ref.column, head + " (" + path + ") cannot be read.");
 			return Type::of(TypeKind::Error);
@@ -499,9 +399,7 @@ class Checker : public ClassRelation {
 				error(p_ref.args[0].line, p_ref.args[0].column, "The root of a scene is a node, not " + root.to_string() + ".");
 				return Type::of(TypeKind::Error);
 			}
-			Type scene = Type::object("PackedScene");
-			scene.args.push_back(root);
-			return scene;
+			return Type::scene(root);
 		}
 		if (p_ref.name != "Array") {
 			error(p_ref.line, p_ref.column, p_ref.name + " takes no type arguments.");
@@ -627,9 +525,6 @@ class Checker : public ClassRelation {
 			return set(r_expr, cls.members[member->second].type);
 		}
 		if (const auto property = engine.find_property(cls.extends, r_expr.text)) {
-			if (!property->type.is_storable()) {
-				return fail(r_expr, "The property \"" + r_expr.text + "\" has type " + property->type.to_string() + ", which is not supported yet.");
-			}
 			if (refuse_in_static(r_expr, r_expr.text)) {
 				return set(r_expr, Type::of(TypeKind::Error));
 			}
@@ -671,13 +566,12 @@ class Checker : public ClassRelation {
 			if (!is_script_path(autoload)) {
 				return fail(r_expr, "The autoload " + r_expr.text + " is a script of another language, which is not supported as a type yet (spec §11.1).");
 			}
-			const ScriptClass *script = autoload == options.path ? nullptr : classes.header(autoload);
-			const ClassDecl *header = autoload == options.path ? &cls : (script ? &script->decl : nullptr);
+			const ClassDecl *header = script_header(autoload);
 			if (!header) {
 				return fail(r_expr, "The autoload " + r_expr.text + " (" + autoload + ") cannot be read.");
 			}
 			r_expr.target = Target::Autoload;
-			return set(r_expr, Type::script_class(display_name(*header, autoload), autoload, header->extends));
+			return set(r_expr, script_class_type(*header, autoload));
 		}
 		if (is_type_name(r_expr.text)) {
 			return fail(r_expr, "\"" + r_expr.text + "\" is a type, not a value.");
@@ -743,7 +637,7 @@ class Checker : public ClassRelation {
 		if (!decl) {
 			return nullptr;
 		}
-		const std::string name = p_interface.name.substr(p_interface.name.find_last_of('.') + 1);
+		const std::string name = p_interface.interface_name();
 		for (const InterfaceDecl &interface : decl->interfaces) {
 			if (interface.name == name) {
 				return &interface;
@@ -803,7 +697,7 @@ class Checker : public ClassRelation {
 		return set(r_expr, Type::of(TypeKind::Int));
 	}
 
-	Type check_member(Expr &r_expr) {
+	Type check_member_access(Expr &r_expr) {
 		Expr &base = *r_expr.base;
 		if (names_type(base)) {
 			if (const builtin::Class *type = builtin::find_class(base.text)) {
@@ -853,9 +747,6 @@ class Checker : public ClassRelation {
 					return check_engine_constant(r_expr, engine_class); // Such as Input.MOUSE_MODE_CAPTURED.
 				}
 				return fail(r_expr, base_type.name + " has no property \"" + r_expr.text + "\".");
-			}
-			if (!property->type.is_storable()) {
-				return fail(r_expr, "The property \"" + r_expr.text + "\" has type " + property->type.to_string() + ", which is not supported yet.");
 			}
 			r_expr.target = Target::ObjectProperty;
 			r_expr.owner = engine_class;
@@ -926,13 +817,12 @@ class Checker : public ClassRelation {
 	Type scene_node_type(const Expr &p_at, const SceneNode &p_node, const std::string &p_what) {
 		const std::string &script = p_node.script.empty() ? p_node.instance_script : p_node.script;
 		if (is_script_path(script)) {
-			const ScriptClass *other = script == options.path ? nullptr : classes.header(script);
-			const ClassDecl *header = script == options.path ? &cls : (other ? &other->decl : nullptr);
+			const ClassDecl *header = script_header(script);
 			if (!header) {
 				error(p_at.line, p_at.column, p_what + " has the script " + script + ", which cannot be read.");
 				return Type::of(TypeKind::Error);
 			}
-			return Type::script_class(display_name(*header, script), script, header->extends);
+			return script_class_type(*header, script);
 		}
 		if (!engine.class_exists(p_node.type)) {
 			error(p_at.line, p_at.column, p_what + " is a " + p_node.type + ", which is not supported yet.");
@@ -979,9 +869,7 @@ class Checker : public ClassRelation {
 		if (check_call(r_expr).is_error()) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
-		Type type = Type::object("PackedScene");
-		type.args.push_back(root_type);
-		return set(r_expr, type);
+		return set(r_expr, Type::scene(root_type));
 	}
 
 	Type check_unary(Expr &r_expr) {
@@ -1316,8 +1204,12 @@ class Checker : public ClassRelation {
 		return type;
 	}
 
-	// The property's type, and the range its setter takes (spec §10.6).
-	static Type property_type(const EngineProperty &p_property, Expr &r_expr) {
+	// The property's type, and the range its setter takes (spec §10.6); Error
+	// after reporting a type this language cannot hold yet.
+	Type property_type(const EngineProperty &p_property, Expr &r_expr) {
+		if (!p_property.type.is_storable()) {
+			return fail(r_expr, "The property \"" + r_expr.text + "\" has type " + p_property.type.to_string() + ", which is not supported yet.");
+		}
 		Type type = p_property.type;
 		if (type.kind == TypeKind::Object && builtin::property_non_null(p_property.owner, p_property.name)) {
 			type.nullable = false;
@@ -1392,6 +1284,34 @@ class Checker : public ClassRelation {
 		return Type::array(element);
 	}
 
+	// The parameters of a function of the engine's API, and in `r_required`
+	// how many a call must pass; nullopt after reporting one this language
+	// cannot pass yet.
+	std::optional<std::vector<Type>> api_params(Expr &r_call, const builtin::Argument *p_args, uint32_t p_count, int &r_required) {
+		std::vector<Type> params;
+		r_required = 0;
+		for (uint32_t i = 0; i < p_count; i++) {
+			const Type param = api_type(p_args[i].type, true);
+			if (param.kind == TypeKind::Object || !param.is_storable()) {
+				fail_call(r_call, "\"" + r_call.text + "()\" takes " + param.to_string() + ", which is not supported yet.");
+				return std::nullopt;
+			}
+			params.push_back(param);
+			r_required += p_args[i].has_default ? 0 : 1;
+		}
+		return params;
+	}
+
+	// Whether this language can hold what a function of the engine's API
+	// returns; false after reporting it.
+	bool api_result_supported(Expr &r_call, const Type &p_result) {
+		if (p_result.kind == TypeKind::Object || p_result.kind == TypeKind::Unsupported) {
+			fail(r_call, "\"" + r_call.text + "()\" returns " + p_result.to_string() + ", which is not supported yet.");
+			return false;
+		}
+		return true;
+	}
+
 	Type check_utility(Expr &r_expr, const builtin::Utility &p_utility) {
 		r_expr.target = Target::Utility;
 		r_expr.hash = p_utility.hash;
@@ -1399,23 +1319,15 @@ class Checker : public ClassRelation {
 		r_expr.engine_return = api_type(p_utility.return_type, true);
 		const ArgumentTyped rule = argument_typed(r_expr.text);
 		if (rule == ArgumentTyped::None) {
-			std::vector<Type> params;
-			for (uint32_t i = 0; i < p_utility.argument_count; i++) {
-				params.push_back(api_type(p_utility.arguments[i].type, true));
-			}
-			for (const Type &type : params) {
-				if (type.kind == TypeKind::Object || !type.is_storable()) {
-					return fail(r_expr, "\"" + r_expr.text + "()\" takes " + type.to_string() + ", which is not supported yet.");
-				}
-			}
-			if (r_expr.engine_return.kind == TypeKind::Object || r_expr.engine_return.kind == TypeKind::Unsupported) {
-				return fail(r_expr, "\"" + r_expr.text + "()\" returns " + r_expr.engine_return.to_string() + ", which is not supported yet.");
-			}
 			int required = 0;
-			for (uint32_t i = 0; i < p_utility.argument_count; i++) {
-				required += p_utility.arguments[i].has_default ? 0 : 1;
+			const std::optional<std::vector<Type>> params = api_params(r_expr, p_utility.arguments, p_utility.argument_count, required);
+			if (!params) {
+				return r_expr.type;
 			}
-			check_arguments(r_expr, params, required, p_utility.is_vararg);
+			if (!api_result_supported(r_expr, r_expr.engine_return)) {
+				return r_expr.type;
+			}
+			check_arguments(r_expr, *params, required, p_utility.is_vararg);
 			return set(r_expr, r_expr.engine_return);
 		}
 
@@ -1545,16 +1457,12 @@ class Checker : public ClassRelation {
 		if (method->is_vararg || method->is_static) {
 			return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + base_name + " is not supported yet.");
 		}
-		std::vector<Type> params;
 		int required = 0;
-		for (uint32_t i = 0; i < method->argument_count; i++) {
-			const Type param = api_type(method->arguments[i].type, true);
-			if (param.kind == TypeKind::Object || !param.is_storable()) {
-				return fail_call(r_expr, "\"" + r_expr.text + "()\" takes " + param.to_string() + ", which is not supported yet.");
-			}
-			params.push_back(param);
-			required += method->arguments[i].has_default ? 0 : 1;
+		std::optional<std::vector<Type>> api = api_params(r_expr, method->arguments, method->argument_count, required);
+		if (!api) {
+			return r_expr.type;
 		}
+		std::vector<Type> params = std::move(*api);
 		// The engine's default values are source, such as `true` or
 		// `Vector3(0, 1, 0)`, checked and passed as if written at the call.
 		for (size_t i = r_expr.args.size(); int(r_expr.args.size()) >= required && i < params.size(); i++) {
@@ -1567,8 +1475,8 @@ class Checker : public ClassRelation {
 			r_expr.args.push_back(std::move(value));
 		}
 		Type result = api_type(method->return_type, true);
-		if (result.kind == TypeKind::Object || result.kind == TypeKind::Unsupported) {
-			return fail(r_expr, "\"" + r_expr.text + "()\" returns " + result.to_string() + ", which is not supported yet.");
+		if (!api_result_supported(r_expr, result)) {
+			return r_expr.type;
 		}
 		r_expr.engine_params = params;
 		r_expr.engine_return = result;
@@ -1715,10 +1623,20 @@ class Checker : public ClassRelation {
 		if (index.kind != TypeKind::Int) {
 			return fail(*r_expr.right, "An index must be int, found " + index.to_string() + ".");
 		}
-		if (element->kind == TypeKind::Variant) {
-			return fail(r_expr, "The elements of an untyped Array are Variant, which is not supported yet; declare it as Array[T].");
+		if (refuse_variant_elements(*element, r_expr)) {
+			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		return set(r_expr, *element);
+	}
+
+	// Elements read from an untyped Array, which are Variant, are refused for
+	// now; true after reporting it at `p_at`.
+	bool refuse_variant_elements(const Type &p_element, const Expr &p_at) {
+		if (p_element.kind != TypeKind::Variant) {
+			return false;
+		}
+		error(p_at.line, p_at.column, "The elements of an untyped Array are Variant, which is not supported yet; declare it as Array[T].");
+		return true;
 	}
 
 	// `[a, b]` takes its type from where it goes (spec §4.3).
@@ -1915,7 +1833,7 @@ class Checker : public ClassRelation {
 			case ExprKind::Call:
 				return check_call(r_expr);
 			case ExprKind::Member:
-				return check_member(r_expr);
+				return check_member_access(r_expr);
 			case ExprKind::GetNode:
 				return check_get_node(r_expr);
 			case ExprKind::Cast:
@@ -2033,21 +1951,6 @@ class Checker : public ClassRelation {
 		scopes.back()[r_stmt.name] = r_stmt.local;
 	}
 
-	static TokenKind compound_operator(TokenKind p_assign) {
-		switch (p_assign) {
-			case TokenKind::MinusEqual:
-				return TokenKind::Minus;
-			case TokenKind::StarEqual:
-				return TokenKind::Star;
-			case TokenKind::SlashEqual:
-				return TokenKind::Slash;
-			case TokenKind::PercentEqual:
-				return TokenKind::Percent;
-			default:
-				return TokenKind::Plus;
-		}
-	}
-
 	// `for i in n` and over the elements of an array (spec §5.7).
 	void check_for(Stmt &r_stmt) {
 		const Type iterated = check_value(*r_stmt.value);
@@ -2058,9 +1961,7 @@ class Checker : public ClassRelation {
 		} else if (iterated.kind == TypeKind::Float || (iterated.kind == TypeKind::Builtin && (name == "Vector2" || name == "Vector2i" || name == "Vector3" || name == "Vector3i"))) {
 			error(r_stmt.value->line, r_stmt.value->column, "Cannot iterate over " + iterated.to_string() + "; iterate over range(...) instead.");
 		} else if (const std::optional<Type> elements = element_of(iterated)) {
-			if (elements->kind == TypeKind::Variant) {
-				error(r_stmt.value->line, r_stmt.value->column, "The elements of an untyped Array are Variant, which is not supported yet; declare it as Array[T].");
-			} else {
+			if (!refuse_variant_elements(*elements, *r_stmt.value)) {
 				element = *elements;
 			}
 		} else if (!iterated.is_error()) {
@@ -2308,13 +2209,13 @@ class Checker : public ClassRelation {
 		for (const bool onready : { false, true }) {
 			for (size_t i = 0; i < cls.members.size(); i++) {
 				if (cls.members[i].is_onready == onready) {
-					check_member(i);
+					check_member_declaration(i);
 				}
 			}
 		}
 	}
 
-	void check_member(size_t p_index) {
+	void check_member_declaration(size_t p_index) {
 		// A name declared twice is reported where it is registered.
 		VarDecl &member = cls.members[p_index];
 		const auto registered = member_index.find(member.name);
@@ -2551,13 +2452,7 @@ class Checker : public ClassRelation {
 			r_missing = engine.class_exists(p_node.type);
 			return std::nullopt;
 		}
-		std::vector<Type> types;
-		for (const EngineParam &param : signal->params) {
-			Type type = param.type;
-			type.nullable = false; // The engine's own signal arguments.
-			types.push_back(type);
-		}
-		return types;
+		return signal_type(*signal).args;
 	}
 
 	// The signatures of the interfaces the class declares (spec §3.9).

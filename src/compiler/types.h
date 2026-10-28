@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -43,6 +44,8 @@ struct Type {
 	static Type object(const std::string &p_class, bool p_nullable = false) { return Type{ TypeKind::Object, p_class, p_nullable }; }
 	static Type option(const Type &p_inner) { return Type{ TypeKind::Option, std::string(), false, { p_inner } }; }
 	static Type array(const Type &p_element) { return Type{ TypeKind::Builtin, "Array", false, { p_element } }; }
+	// PackedScene[T], a scene whose root is a T (spec §7.4).
+	static Type scene(const Type &p_root) { return Type{ TypeKind::Object, "PackedScene", false, { p_root } }; }
 	static Type function(const Type &p_return, const std::vector<Type> &p_params) {
 		Type type{ TypeKind::Function, std::string(), false, { p_return } };
 		type.args.insert(type.args.end(), p_params.begin(), p_params.end());
@@ -84,6 +87,8 @@ struct Type {
 	// The name of the type in the engine's built-in table: "int", "Vector3"…;
 	// empty for objects, options and Variant.
 	std::string builtin_name() const;
+	// An interface's name in its script: Damageable of Combat.Damageable.
+	std::string interface_name() const { return name.substr(name.find_last_of('.') + 1); }
 	std::string to_string() const;
 };
 
@@ -92,5 +97,31 @@ struct Type {
 // nullable until audited (spec §10.2), so `p_object_nullable` says how to read
 // a class name.
 Type api_type(const std::string &p_name, bool p_object_nullable);
+
+// How classes relate: engine classes as ClassDB says, classes of this
+// language as their declarations say.
+class ClassRelation {
+public:
+	virtual ~ClassRelation() = default;
+	// Whether every object of class `p_from` is a `p_to`; nullability aside.
+	virtual bool is_a(const Type &p_from, const Type &p_to) const = 0;
+};
+
+// Whether a value of type `p_from` can be stored where `p_to` is expected:
+// the same type, int to float (spec §3.2), String to and from StringName and
+// NodePath (§10.7), an object to a nullable or a base class, or anything to
+// Variant.
+bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_classes);
+
+// Values that refer to shared engine storage: changing one through a method
+// changes it for everyone who holds it, so it is not written back.
+bool is_shared(const Type &p_type);
+
+// The elements of a value that can be indexed and iterated (spec §3.8, §5.7);
+// Variant for an untyped Array.
+std::optional<Type> element_of(const Type &p_type);
+
+// T? of a type: nullable for an object, an Option otherwise.
+Type optional_of(const Type &p_type);
 
 } // namespace petrichor::compiler

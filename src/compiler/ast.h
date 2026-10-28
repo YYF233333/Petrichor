@@ -114,6 +114,13 @@ struct Expr {
 	Type tested;                       // TypeTest and Cast: the class after is or as.
 };
 
+// The type an element of an array literal is stored as: the array's element
+// type, or in an untyped array its own.
+inline const Type &stored_element_type(const Expr &p_array, size_t p_index) {
+	const Type &element = p_array.param_types[p_index];
+	return element.kind == TypeKind::Variant ? p_array.args[p_index]->type : element;
+}
+
 enum class StmtKind {
 	Var,
 	Assign,

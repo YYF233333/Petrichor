@@ -85,6 +85,9 @@ enum class TokenKind {
 
 const char *token_name(TokenKind p_kind);
 
+// The operator of a compound assignment: + for +=.
+TokenKind compound_operator(TokenKind p_assign);
+
 struct Token {
 	TokenKind kind = TokenKind::EndOfFile;
 	int line = 0;
