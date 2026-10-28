@@ -29,7 +29,7 @@ public:
 	std::vector<godot::StringName> function_names;
 	godot::HashMap<godot::StringName, int> function_lookup;
 	// By function index: its frame, the entry checks of its parameters, and the
-	// values of the parameters a caller from the engine may leave out.
+	// values of the parameters a caller may leave out.
 	std::vector<SlotLayout> frames;
 	std::vector<std::vector<ValueCheck>> param_checks;
 	std::vector<std::vector<godot::Variant>> param_defaults;

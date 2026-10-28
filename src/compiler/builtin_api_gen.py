@@ -158,8 +158,6 @@ def generate(json_path, metadata_path, out_path):
             operators.reference(*operator_ref),
             methods.reference(*method_ref),
             constructors.reference(*constructor_ref),
-            _c_string(cls.get("indexing_return_type", "")),
-            _bool(cls.get("is_keyed", False)),
         ]))
 
     utilities = []
@@ -168,7 +166,6 @@ def generate(json_path, metadata_path, out_path):
         utilities.append(", ".join([
             _c_string(u["name"]),
             _c_string(u.get("return_type", "")),
-            _c_string(u["category"]),
             f"{u['hash']}u",
             arguments.reference(start, count),
             _bool(u.get("is_vararg", False)),

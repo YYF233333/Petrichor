@@ -71,14 +71,11 @@ struct Class {
 	uint32_t method_count;
 	const Constructor *constructors;
 	uint32_t constructor_count;
-	const char *indexing_return_type; // Empty when the type has no index.
-	bool is_keyed;
 };
 
 struct Utility {
 	const char *name;
 	const char *return_type;
-	const char *category; // "math", "random" or "general".
 	uint32_t hash;
 	const Argument *arguments;
 	uint32_t argument_count;
