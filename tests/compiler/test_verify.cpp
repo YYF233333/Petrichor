@@ -156,6 +156,18 @@ TEST_CASE("a constructor does not write over its arguments") {
 	CHECK(rejected(result.module, "a constructor writes over one of its arguments"));
 }
 
+TEST_CASE("only arrays are indexed") {
+	// The language does not index strings (spec §3.8), and the runtime's
+	// GET_INDEX does not handle them.
+	compiler::CompileResult result = compile("extends Node\n\nfunc g(s: String, a: Array[int]) -> int:\n\treturn a[0]\n");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	bytecode::Function &g = function_named(result.module, "g");
+	const size_t index = find_instruction(g, Op::GET_INDEX);
+	g.code[index + 1] = uint32_t(bytecode::ValueType::String);
+	g.code[index + 4] = g.params[0].offset; // The String as the container.
+	CHECK(rejected(result.module, "an index into a value that has none"));
+}
+
 TEST_CASE("a call to a method of this language passes what the call table says") {
 	FakeProject project;
 	project.global_classes["Probe"] = "res://test.pet";

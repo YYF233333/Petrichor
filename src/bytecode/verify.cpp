@@ -35,7 +35,7 @@ bool is_element(ValueType p_type) {
 
 // What GET_INDEX reads from.
 bool is_indexable(ValueType p_type) {
-	return p_type == ValueType::Array || p_type == ValueType::String || (p_type >= ValueType::PackedByteArray && p_type <= ValueType::PackedVector4Array);
+	return p_type == ValueType::Array || (p_type >= ValueType::PackedByteArray && p_type <= ValueType::PackedVector4Array);
 }
 
 class Verifier {
