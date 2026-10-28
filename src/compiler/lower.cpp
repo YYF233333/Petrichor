@@ -1354,17 +1354,12 @@ public:
 		uint32_t offset = 0;
 		for (const VarDecl &decl_member : cls.members) {
 			bytecode::Member member;
-			const bytecode::Slot slot = slot_of(decl_member.name, decl_member.type);
-			member.name = decl_member.name;
+			static_cast<bytecode::Slot &>(member) = slot_of(decl_member.name, decl_member.type);
 			// Without the scenes, a type that comes from them is unknown; the
 			// module only describes the class then (architecture §2.4).
-			member.type = p_declarations_only && slot.type == ValueType::Void ? ValueType::Variant : slot.type;
-			member.class_name = slot.class_name;
-			member.script = slot.script;
-			member.interface_name = slot.interface_name;
-			member.nullable = slot.nullable;
-			member.option = slot.option;
-			member.element = slot.element;
+			if (p_declarations_only && member.type == ValueType::Void) {
+				member.type = ValueType::Variant;
+			}
 			member.is_onready = decl_member.is_onready;
 			member.line = uint32_t(decl_member.line);
 			member.offset = offset;
@@ -1381,9 +1376,9 @@ public:
 				// Its type's default (spec §4.3); an empty Array[T] is typed too.
 				member.has_initial = true;
 				if (member.type == ValueType::Array) {
-					member.initial.element = slot.element;
-					member.initial.class_name = slot.class_name;
-					member.initial.script = slot.script;
+					member.initial.element = member.element;
+					member.initial.class_name = member.class_name;
+					member.initial.script = member.script;
 				}
 			}
 			module.members.push_back(member);

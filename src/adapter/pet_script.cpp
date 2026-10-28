@@ -64,8 +64,7 @@ static uint32_t usage_of(bytecode::ValueType p_type, uint32_t p_usage) {
 }
 
 // Array[T] is the engine's typed array, which it describes with a hint.
-template <typename T>
-static Dictionary typed(Dictionary p_dict, const T &p_slot) {
+static Dictionary typed(Dictionary p_dict, const bytecode::Slot &p_slot) {
 	if (p_slot.element != bytecode::ValueType::Void) {
 		p_dict["hint"] = PROPERTY_HINT_ARRAY_TYPE;
 		p_dict["hint_string"] = p_slot.element == bytecode::ValueType::Object ? to_godot(p_slot.class_name) : Variant::get_type_name(variant_type(p_slot.element));

@@ -111,16 +111,8 @@ struct Slot {
 	ValueType element = ValueType::Void;
 };
 
-struct Member {
-	std::string name;
-	ValueType type = ValueType::Void;
-	uint32_t offset = 0;
-	std::string class_name;
-	std::string script; // As in Slot.
-	std::string interface_name; // As in Slot.
-	bool nullable = false;
-	ValueType option = ValueType::Void; // As in Slot.
-	ValueType element = ValueType::Void; // As in Slot.
+// A slot of the instance, and what the class says of it.
+struct Member : Slot {
 	uint32_t line = 0; // Where it is declared, for diagnostics.
 	bool is_pub = false;
 	bool is_export = false;

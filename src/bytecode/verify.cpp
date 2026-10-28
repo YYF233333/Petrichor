@@ -58,8 +58,7 @@ class Verifier {
 	}
 
 	// The type of a slot, a member or a result, and what it says beyond it.
-	template <typename T>
-	bool description(const T &p_slot, bool p_void) {
+	bool description(const Slot &p_slot, bool p_void) {
 		if (!is_type(uint32_t(p_slot.type)) && !(p_void && p_slot.type == ValueType::Void)) {
 			return fail("slot " + p_slot.name + " has no type");
 		}

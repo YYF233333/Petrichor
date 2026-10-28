@@ -64,8 +64,7 @@ struct ValueCheck {
 
 	ValueCheck() = default;
 	// From a slot or a member of a module.
-	template <typename T>
-	explicit ValueCheck(const T &p_slot) :
+	explicit ValueCheck(const bytecode::Slot &p_slot) :
 			class_name(to_godot(p_slot.class_name)), script(to_godot(p_slot.script)), interface(to_godot(p_slot.interface_name)), nullable(p_slot.type != bytecode::ValueType::Object || p_slot.nullable), option(p_slot.option), element(p_slot.element) {}
 };
 

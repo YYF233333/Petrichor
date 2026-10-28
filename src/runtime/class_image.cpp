@@ -289,8 +289,7 @@ bool same_constant(const bytecode::Constant &p_a, const bytecode::Constant &p_b)
 }
 
 // What a slot or a member holds, as an entry check reads it.
-template <typename T>
-bool same_description(const T &p_a, const T &p_b) {
+bool same_description(const bytecode::Slot &p_a, const bytecode::Slot &p_b) {
 	return p_a.type == p_b.type && p_a.class_name == p_b.class_name && p_a.script == p_b.script && p_a.interface_name == p_b.interface_name &&
 			p_a.nullable == p_b.nullable && p_a.option == p_b.option && p_a.element == p_b.element;
 }

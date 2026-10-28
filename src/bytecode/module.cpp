@@ -336,15 +336,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 
 	w.u32(uint32_t(p_module.members.size()));
 	for (const Member &member : p_module.members) {
-		w.str(member.name);
-		w.type(member.type);
-		w.u32(member.offset);
-		w.str(member.class_name);
-		w.str(member.script);
-		w.str(member.interface_name);
-		w.u8(member.nullable ? 1 : 0);
-		w.type(member.option);
-		w.type(member.element);
+		w.slot(member);
 		w.u32(member.line);
 		w.u8(member.is_pub ? 1 : 0);
 		w.u8(member.is_export ? 1 : 0);
@@ -503,15 +495,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 
 	module.members.resize(r.count());
 	for (Member &member : module.members) {
-		member.name = r.str();
-		member.type = r.type();
-		member.offset = r.u32();
-		member.class_name = r.str();
-		member.script = r.str();
-		member.interface_name = r.str();
-		member.nullable = r.u8() != 0;
-		member.option = r.type();
-		member.element = r.type();
+		static_cast<Slot &>(member) = r.slot();
 		member.line = r.u32();
 		member.is_pub = r.u8() != 0;
 		member.is_export = r.u8() != 0;
