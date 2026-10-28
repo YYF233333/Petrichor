@@ -9,9 +9,7 @@ func _ready() -> void:
 	add_child(target)
 	print("breakpoint: step returned ", target.step(20))
 	# A program error breaks before the stack unwinds.
-	Engine.print_error_messages = false
 	var quotient: int = target.divide(1, 0)
-	Engine.print_error_messages = true
 	print("breakpoint: divide returned ", quotient)
 	# The breakpoint also stops a call on another thread, as in GDScript.
 	var thread := Thread.new()

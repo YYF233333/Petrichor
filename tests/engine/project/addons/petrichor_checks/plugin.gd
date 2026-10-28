@@ -7,7 +7,10 @@ extends EditorPlugin
 # show and store the exported properties. The last check is the undo probe of
 # architecture §5 step 2.
 
+const ErrorLog := preload("res://error_log.gd")
+
 var failures := 0
+var errors := ErrorLog.new()
 
 
 func _enter_tree() -> void:
@@ -23,9 +26,16 @@ func _check(condition: bool, what: String) -> void:
 		printerr("editor check: FAILED: ", what)
 
 
+# The errors reported since the last call are exactly `expected`.
+func _check_errors(expected: Array[String], what: String) -> void:
+	var mismatch := errors.compare(expected, "editor check")
+	_check(mismatch.is_empty(), what if mismatch.is_empty() else "%s: %s" % [what, mismatch])
+
+
 func _run() -> void:
 	while EditorInterface.get_resource_filesystem().is_scanning():
 		await get_tree().process_frame
+	OS.add_logger(errors)
 
 	_check_scene()
 	_check_new_script()
@@ -105,10 +115,9 @@ func _check_new_script() -> void:
 func _check_header() -> void:
 	var script: Script = ClassDB.instantiate("PetScript")
 	script.source_code = "# A comment.\n@tool\n@icon(\"res://icon#1.svg\") class_name HeaderCheck\nextends Node2D implements Combat.Damageable\nvar x := 1\n"
-	Engine.print_error_messages = false
 	script.reload()
-	Engine.print_error_messages = true
 	_check(script.get_global_name() == &"HeaderCheck" and script.get_instance_base_type() == &"Node2D", "the header is read past class annotations, their arguments and comments")
+	_check_errors(["The class annotation @tool is not supported yet.", "The class annotation @icon is not supported yet."], "the script reports only its class annotations")
 
 
 # While a script has errors, a scene that uses it keeps its exported values,
@@ -125,17 +134,15 @@ func _check_placeholder_fallback() -> void:
 	var root := (ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 	var script: Script = root.get_script()
 	script.source_code = broken
-	Engine.print_error_messages = false
 	script.reload()
-	Engine.print_error_messages = true
 	_check(root.get("speed") == 7 and _pack_to_text(root).contains("speed = 7"), "a placeholder keeps its values once its script has errors")
+	_check_errors(["editor_check_fallback.pet:5: Identifier \"missing\" is not declared in the current scope."], "the script reports its error")
 	root.free()
 
 	_write(script_path, "extends Node\n@export var speed: int = \n")
-	Engine.print_error_messages = false
 	root = (ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
-	Engine.print_error_messages = true
 	_check(root.get("speed") == 7 and _pack_to_text(root).contains("speed = 7"), "a scene whose script has errors keeps its values")
+	_check_errors(["editor_check_fallback.pet:2: Expected an expression, found line break."], "the script loaded with the scene reports its error")
 	root.free()
 	for file in [script_path, script_path + ".uid", scene_path]:
 		DirAccess.remove_absolute(file)

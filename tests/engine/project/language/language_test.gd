@@ -3,30 +3,10 @@ extends Node
 # Runs compiled code of the first language subset (architecture §5 step 3):
 #   godot --headless --path . res://language/language.tscn
 
+const ErrorLog := preload("res://error_log.gd")
+
 var failures := 0
 var errors := ErrorLog.new()
-
-
-# The errors the engine reports, as "file:line: message" for those of scripts
-# and as the message alone for the engine's own.
-class ErrorLog extends Logger:
-	var mutex := Mutex.new()
-	var reported: Array[Dictionary] = []
-
-	func _log_error(_function: String, file: String, line: int, code: String, rationale: String, _editor_notify: bool, error_type: int, _script_backtraces: Array[ScriptBacktrace]) -> void:
-		if error_type != ERROR_TYPE_ERROR and error_type != ERROR_TYPE_SCRIPT:
-			return
-		var text := code if rationale.is_empty() else rationale
-		mutex.lock()
-		reported.append({ "where": "%s:%d: %s" % [file.get_file(), line, text] if error_type == ERROR_TYPE_SCRIPT else text, "text": text })
-		mutex.unlock()
-
-	func take() -> Array[Dictionary]:
-		mutex.lock()
-		var taken := reported.duplicate()
-		reported.clear()
-		mutex.unlock()
-		return taken
 
 
 func _check(condition: bool, what: String) -> void:
@@ -38,15 +18,10 @@ func _check(condition: bool, what: String) -> void:
 
 
 # The errors reported since the last call are exactly `expected`, which names
-# the program error each call raised (spec §8.1). They are printed as well, and
-# run.py accepts those the test expected.
+# the program error each call raised (spec §8.1).
 func _check_errors(expected: Array[String], what: String) -> void:
-	var reported := errors.take()
-	var where := reported.map(func(error): return error.where)
-	_check(where == expected, what if where == expected else "%s: reported %s" % [what, where])
-	if where == expected:
-		for error in reported:
-			print("language: expected error: ", error.text)
+	var mismatch := errors.compare(expected, "language")
+	_check(mismatch.is_empty(), what if mismatch.is_empty() else "%s: %s" % [what, mismatch])
 
 
 func _ready() -> void:

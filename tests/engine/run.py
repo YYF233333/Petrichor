@@ -317,13 +317,13 @@ def expect_run(name, code, output, lines=(), expected_errors=()):
     """The run exits with 0, reports no errors other than `expected_errors`,
     each as often as it is listed, and prints `lines` in order.
 
-    A line may follow a prompt, such as the debugger's "debug> "."""
+    A line or an error may follow a prompt, such as the debugger's "debug> "."""
     allowed = Counter(expected_errors)
     errors = []
     for line in output.splitlines():
         if "ERROR" not in line:
             continue
-        text = re.sub(r"^\s*(SCRIPT ERROR|ERROR): ", "", line)
+        text = re.sub(r"^.*?\b(SCRIPT ERROR|ERROR): ", "", line)
         if allowed[text] > 0:
             allowed[text] -= 1
         else:
@@ -331,6 +331,13 @@ def expect_run(name, code, output, lines=(), expected_errors=()):
     remaining = iter(line.strip() for line in output.splitlines())
     in_order = all(any(out.endswith(line) for out in remaining) for line in lines)
     expect(name, code == 0 and not errors and not any(allowed.values()) and in_order, output)
+
+
+def expected_errors(output, prefix):
+    """The errors a check expected: error_log.gd prints each error a check
+    compared with the ones it expects as "<prefix>: expected error: <message>"."""
+    marker = f"{prefix}: expected error: "
+    return [line.split(marker, 1)[1] for line in output.splitlines() if line.startswith(marker)]
 
 
 def main():
@@ -358,19 +365,16 @@ def main():
 
     if wanted("editor"):
         code, output = run(godot, "-e", "--path", str(PROJECT), "--", "--editor-checks")
-        expect_run("editor checks", code, output, ["editor check: 0 failure(s)"])
+        expect_run("editor checks", code, output, ["editor check: 0 failure(s)"], expected_errors(output, "editor check"))
 
     if wanted("probes"):
         code, output = run(godot, "--path", str(PROJECT), "res://probes/probes.tscn")
-        expect_run("probes", code, output, ["probe: 0 failure(s)"])
+        expect_run("probes", code, output, ["probe: 0 failure(s)"], expected_errors(output, "probe"))
 
     if wanted("language"):
         # Verbose, so that StringNames still referenced at exit are listed.
         code, output = run(godot, "--verbose", "--path", str(PROJECT), "res://language/language.tscn")
-        # The program errors the checks raise are printed, and each one the
-        # test expected it names as such.
-        expected = [line.split("language: expected error: ", 1)[1] for line in output.splitlines() if line.startswith("language: expected error: ")]
-        expect_run("language", code, output, ["language: 0 failure(s)"], expected)
+        expect_run("language", code, output, ["language: 0 failure(s)"], expected_errors(output, "language"))
         expect("language: no value leaks", "Orphan StringName: petrichor_leak_probe" not in output, output)
         run_stale_bytecode(godot)
 
@@ -465,6 +469,7 @@ def run_debugger_groups(godot):
             "n: 3",
             "breakpoint: step on a thread returned 7",
         ],
+        ["Division by zero."],
     )
 
     # Spec §12.4: a body change replaces the code of running instances; after

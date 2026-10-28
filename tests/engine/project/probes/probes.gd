@@ -5,10 +5,12 @@ extends Node
 #   godot --headless --path . res://probes/probes.tscn
 
 const Coroutines := preload("res://probes/coroutines.gd")
+const ErrorLog := preload("res://error_log.gd")
 const GREETER_PATH := "res://probes/typed_greeter.pet"
 
 var probe := PetrichorProbe.new()
 var failures := 0
+var errors := ErrorLog.new()
 
 
 func _check(condition: bool, what: String) -> void:
@@ -19,7 +21,14 @@ func _check(condition: bool, what: String) -> void:
 		printerr("probe: FAILED: ", what)
 
 
+# The errors reported since the last call are exactly `expected`.
+func _check_errors(expected: Array[String], what: String) -> void:
+	var mismatch := errors.compare(expected, "probe")
+	_check(mismatch.is_empty(), what if mismatch.is_empty() else "%s: %s" % [what, mismatch])
+
+
 func _ready() -> void:
+	OS.add_logger(errors)
 	await _instance_binding()
 	_gdscript_static_view()
 	await _gdscript_awaits_this_language()
@@ -80,16 +89,22 @@ g.message = "x"
 var r = await g.echo_later(1, 1)
 g.free()"""), "a typed use of the class compiles")
 	_check(not _compiles("var i: int = TypedGreeter.new().greet()"), "a method's return type is checked")
+	_check_errors(["Parse Error: Cannot assign a value of type String to variable \"i\" with specified type int."], "GDScript reports the return type")
 	_check(not _compiles("TypedGreeter.new().message = 1"), "a property's type is checked")
+	_check_errors(["Parse Error: Cannot assign a value of type \"int\" as \"String\".", "Parse Error: Value of type \"int\" cannot be assigned to a variable of type \"String\"."], "GDScript reports the property's type")
 	# GDScript treats an unknown method on any object type as an unsafe access
 	# (a warning), not an error (modules/gdscript/gdscript_analyzer.cpp:3750-3757).
 	_check(_compiles("TypedGreeter.new().nope()") == _compiles("Node.new().nope()"), "an unknown method is treated as on a native class")
 	_check(not _compiles("TypedGreeter.new().echo_later(1)"), "a method's argument count is checked")
+	_check_errors(["Parse Error: Too few arguments for \"echo_later()\" call. Expected at least 2 but received 1."], "GDScript reports the argument count")
 	_check(not _compiles("TypedGreeter.new(1)"), "new() checks its arguments")
+	_check_errors(["Parse Error: Too many arguments for \"new()\" call. Expected at most 0 but received 1."], "GDScript reports the arguments of new()")
 	_check(not _compiles("var n: Node2D = TypedGreeter.new()"), "new() has the type of the class")
+	_check_errors(["Parse Error: Cannot assign a value of type res://probes/typed_greeter.pet to variable \"n\" with specified type Node2D."], "GDScript reports the type of new()")
 	# With redundant_await raised to an error in this project, awaiting a call
 	# typed String fails, and awaiting echo_later (untyped result) does not.
 	_check(not _compiles("var r = await TypedGreeter.new().greet()"), "awaiting a typed result is a redundant await")
+	_check_errors(["Parse Error: \"await\" keyword is unnecessary because the expression isn't a coroutine nor a signal. (Warning treated as error.)"], "GDScript reports the redundant await")
 
 	var greeter: Node = load(GREETER_PATH).new()
 	_check(greeter.greet() == "Hello, hello", "new() constructs an instance at run time")
@@ -99,9 +114,7 @@ g.free()"""), "a typed use of the class compiles")
 func _compiles(body: String) -> bool:
 	var script := GDScript.new()
 	script.source_code = "extends Node\n\nfunc f() -> void:\n\t" + body.strip_edges().replace("\n", "\n\t") + "\n"
-	Engine.print_error_messages = false
 	var error := script.reload()
-	Engine.print_error_messages = true
 	return error == OK
 
 
@@ -116,10 +129,9 @@ func _gdscript_awaits_this_language() -> void:
 
 	var coroutines := Coroutines.new()
 	add_child(coroutines)
-	Engine.print_error_messages = false
 	var reached: bool = await coroutines.assign_cancelled(greeter)
-	Engine.print_error_messages = true
 	_check(not reached, "null assigned to a Transform3D variable stops that function instead of crashing")
+	_check_errors(["coroutines.gd:11: Trying to assign value of type 'Nil' to a variable of type 'Transform3D'."], "GDScript reports the assignment")
 	coroutines.free()
 	greeter.free()
 
