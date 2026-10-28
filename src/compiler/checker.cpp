@@ -16,7 +16,20 @@ static bool is_string_like(const Type &p_type) {
 	return p_type.kind == TypeKind::String || (p_type.kind == TypeKind::Builtin && (p_type.name == "StringName" || p_type.name == "NodePath"));
 }
 
-bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_classes) {
+// How classes relate: engine classes as ClassDB says, classes of this
+// language as their declarations say.
+class ClassRelation {
+public:
+	virtual ~ClassRelation() = default;
+	// Whether every object of class `p_from` is a `p_to`; nullability aside.
+	virtual bool is_a(const Type &p_from, const Type &p_to) const = 0;
+};
+
+// Whether a value of type `p_from` can be stored where `p_to` is expected:
+// the same type, int to float (spec §3.2), String to and from StringName and
+// NodePath (§10.7), an object to a nullable or a base class, or anything to
+// Variant.
+static bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_classes) {
 	if (p_from.is_error() || p_to.is_error()) {
 		return true;
 	}
@@ -770,7 +783,6 @@ class Checker : public ClassRelation {
 	Type check_member(Expr &r_expr) {
 		Expr &base = *r_expr.base;
 		if (names_type(base)) {
-			base.target = Target::TypeName;
 			if (const builtin::Class *type = builtin::find_class(base.text)) {
 				if (const builtin::Constant *constant = builtin::find_constant(*type, r_expr.text)) {
 					r_expr.target = Target::BuiltinConstant;
@@ -1765,7 +1777,6 @@ class Checker : public ClassRelation {
 		if (r_expr.base && r_expr.base->kind != ExprKind::Self) {
 			Expr &base = *r_expr.base;
 			if (names_type(base)) {
-				base.target = Target::TypeName;
 				if (name == "new" && engine.class_exists(base.text) && !builtin::find_class(base.text)) {
 					if (!engine.can_instantiate(base.text)) {
 						return fail(r_expr, base.text + " cannot be instantiated.");

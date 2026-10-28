@@ -216,7 +216,7 @@ func f() -> void:
 	const std::string code = listing(module, "f");
 	CHECK(contains(code, "CALL_UTILITY"));
 	CHECK(contains(code, "CALL_ENGINE"));
-	CHECK(contains(code, "CALL " + std::to_string(module.find_function("g"))));
+	CHECK(contains(code, "CALL " + std::to_string(function_index(module, "g"))));
 	REQUIRE(module.utility_calls.size() == 1);
 	CHECK(module.utility_calls[0].function == "print");
 	REQUIRE(module.engine_calls.size() == 1);

@@ -23,9 +23,6 @@ struct ScriptClass {
 	std::string name() const;
 	// The type of its objects.
 	Type type() const;
-	const VarDecl *find_member(const std::string &p_name) const;
-	const FuncDecl *find_function(const std::string &p_name) const;
-	const SignalDecl *find_signal(const std::string &p_name) const;
 	const InterfaceDecl *find_interface(const std::string &p_name) const;
 };
 

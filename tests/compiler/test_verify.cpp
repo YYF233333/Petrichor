@@ -226,7 +226,7 @@ TEST_CASE("tables and layouts must be consistent") {
 		CHECK(rejected(module, "initializer function"));
 	}
 	SUBCASE("a ready function that takes parameters") {
-		module.ready_function = module.find_function("pick");
+		module.ready_function = function_index(module, "pick");
 		CHECK(rejected(module, "initializer function takes or returns a value"));
 	}
 }

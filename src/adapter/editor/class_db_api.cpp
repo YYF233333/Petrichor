@@ -1,7 +1,5 @@
 #include "adapter/editor/class_db_api.h"
 
-#include "runtime/class_image.h"
-
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/variant/typed_array.hpp>

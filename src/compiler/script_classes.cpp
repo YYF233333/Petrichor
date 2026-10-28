@@ -18,33 +18,6 @@ Type ScriptClass::type() const {
 	return Type::script_class(name(), path, decl.extends);
 }
 
-const VarDecl *ScriptClass::find_member(const std::string &p_name) const {
-	for (const VarDecl &member : decl.members) {
-		if (member.name == p_name) {
-			return &member;
-		}
-	}
-	return nullptr;
-}
-
-const FuncDecl *ScriptClass::find_function(const std::string &p_name) const {
-	for (const FuncDecl &function : decl.functions) {
-		if (function.name == p_name) {
-			return &function;
-		}
-	}
-	return nullptr;
-}
-
-const SignalDecl *ScriptClass::find_signal(const std::string &p_name) const {
-	for (const SignalDecl &signal : decl.signals) {
-		if (signal.name == p_name) {
-			return &signal;
-		}
-	}
-	return nullptr;
-}
-
 const InterfaceDecl *ScriptClass::find_interface(const std::string &p_name) const {
 	for (const InterfaceDecl &interface : decl.interfaces) {
 		if (interface.name == p_name) {

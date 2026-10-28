@@ -48,7 +48,6 @@ enum class Target {
 	ObjectProperty, // A property of an engine object.
 	Field, // A member of a built-in value, such as x of Vector3.
 	BuiltinConstant, // Such as Vector3.UP.
-	TypeName, // A type used as the base of a member access or a call.
 	ScriptFunction,
 	// A method of a class of this language on `base`, of another class or
 	// another instance, or of an interface (spec §3.9, §8.1).

@@ -308,9 +308,6 @@ struct Module {
 	std::vector<MethodCall> method_calls;
 	// The interfaces the class implements, as "script::Name" (spec §3.9).
 	std::vector<std::string> interfaces;
-
-	int find_function(const std::string &p_name) const;
-	int find_member(const std::string &p_name) const;
 };
 
 uint64_t hash_source(const std::string &p_utf8);

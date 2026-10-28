@@ -144,10 +144,20 @@ inline std::string in_function(const std::string &p_body, const std::string &p_s
 	return "extends " + p_base + "\n\n" + p_signature + "\n" + indented(p_body);
 }
 
+// The index of the function of a module with this name, or -1.
+inline int function_index(const bytecode::Module &p_module, const std::string &p_name) {
+	for (size_t i = 0; i < p_module.functions.size(); i++) {
+		if (p_module.functions[i].name == p_name) {
+			return int(i);
+		}
+	}
+	return -1;
+}
+
 // The function of a module with this name, which it must have.
 template <typename T>
 auto &function_named(T &p_module, const std::string &p_name) {
-	const int index = p_module.find_function(p_name);
+	const int index = function_index(p_module, p_name);
 	REQUIRE_MESSAGE(index >= 0, p_name);
 	return p_module.functions[index];
 }
@@ -168,8 +178,11 @@ inline size_t find_instruction(const bytecode::Function &p_function, bytecode::O
 // The member of a module with this name, which it must have.
 template <typename T>
 auto &member_named(T &p_module, const std::string &p_name) {
-	const int index = p_module.find_member(p_name);
-	REQUIRE_MESSAGE(index >= 0, p_name);
+	size_t index = 0;
+	while (index < p_module.members.size() && p_module.members[index].name != p_name) {
+		index++;
+	}
+	REQUIRE_MESSAGE(index < p_module.members.size(), p_name);
 	return p_module.members[index];
 }
 

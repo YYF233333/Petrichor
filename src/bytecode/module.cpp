@@ -108,24 +108,6 @@ ValueType value_type_from_name(const std::string &p_name) {
 	return ValueType::Count;
 }
 
-int Module::find_function(const std::string &p_name) const {
-	for (size_t i = 0; i < functions.size(); i++) {
-		if (functions[i].name == p_name) {
-			return int(i);
-		}
-	}
-	return -1;
-}
-
-int Module::find_member(const std::string &p_name) const {
-	for (size_t i = 0; i < members.size(); i++) {
-		if (members[i].name == p_name) {
-			return int(i);
-		}
-	}
-	return -1;
-}
-
 std::string signature_key(const std::vector<Slot> &p_params, size_t p_defaults, const Slot &p_result) {
 	std::string key = std::to_string(p_defaults);
 	const auto add = [&](const Slot &p_slot) {
