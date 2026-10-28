@@ -22,7 +22,7 @@
 | 在自身上的 `free()` 与 `set_script(...)`，以及对照的 `queue_free()` | `free()` 0 处；`set_script` 1 处，即 gdUnit4 `GdUnitMockImpl.gd:19` 的 `super.set_script(__script)`，经阅读，调用之前已设为同一个脚本，引擎遇到同一个脚本直接返回；在 `_on_` 开头的方法中对其他对象调用 `.free()` 6 处，经阅读释放的都是子节点或 TreeItem，没有释放信号的发射者；`queue_free()` 532 处 | 附录 B：不把在自身上的 `free()`、`set_script()` 定为编译错误；§3.3：方法运行中实例被删除后访问成员是程序错误 |
 | `pop_at`、`pop_back` 与 `pop_front` | `pop_at` 14 处：Pixelorama 9 处，tanks-of-freedom-ii 5 处，经阅读都按程序算出的下标移出元素，结果直接使用或丢弃，没有一处判断为空；`pop_back` 28 处，`pop_front` 48 处 | §3.8：`pop_at(i)` 返回 T，越界是程序错误 |
 
-计数基于词法分析，不做类型解析；`!` 只计不紧跟 `=` 的。`...` 在 GDScript 中只出现在函数签名里（`modules/gdscript/gdscript_parser.cpp:1714, 4336`），所以紧跟名字的 `...` 都是剩余参数。协程指函数体中有 await 的方法，只在同一文件中查找对它的引用，不计场景中的信号连接。`get_parent()` 和 `owner` 只计在自身上的使用，即前面没有 `.` 的；判断为空包括与 null 比较、用作条件和传给 `is_instance_valid`，以及在其后 25 行内对赋得其值的变量做这些判断。`free()` 和 `set_script(...)` 在自身上，指前面没有 `.`，或写作 `self.`、`super.`。
+计数基于词法分析，不做类型解析；`!` 只计不紧跟 `=` 的。`...` 在 GDScript 中只出现在函数签名里（Godot `469659e` 的 `modules/gdscript/gdscript_parser.cpp:1714, 4336`），所以紧跟名字的 `...` 都是剩余参数。协程指函数体中有 await 的方法，只在同一文件中查找对它的引用，不计场景中的信号连接。`get_parent()` 和 `owner` 只计在自身上的使用，即前面没有 `.` 的；判断为空包括与 null 比较、用作条件和传给 `is_instance_valid`，以及在其后 25 行内对赋得其值的变量做这些判断。`free()` 和 `set_script(...)` 在自身上，指前面没有 `.`，或写作 `self.`、`super.`。
 
 ## 复现
 
