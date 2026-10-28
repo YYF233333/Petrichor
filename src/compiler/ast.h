@@ -83,9 +83,15 @@ struct Expr {
 	std::string text; // String literal, name, called method, or node path.
 
 	TokenKind op = TokenKind::EndOfFile; // Unary and binary operators.
-	std::unique_ptr<Expr> left;          // Operand of a unary, left of a binary.
+	// The operand of a unary, a cast or a type test, the left of a binary,
+	// or the value of a conditional when it holds.
+	std::unique_ptr<Expr> left;
+	// The right of a binary, the value of a conditional when it does not
+	// hold, or the index of a subscript.
 	std::unique_ptr<Expr> right;
-	std::unique_ptr<Expr> base;          // `self` in `self.f()`; null for `f()`.
+	// What a member is read from, a method called on (null for `f()`) or a
+	// subscript indexes; the condition of a conditional.
+	std::unique_ptr<Expr> base;
 	std::vector<std::unique_ptr<Expr>> args;
 	TypeRef cast_type;
 

@@ -18,9 +18,11 @@ struct CompileResult {
 };
 
 struct CompileOptions {
-	// The script's res:// path, to find the scenes that use it.
+	// The script's res:// path: to find the scenes that use it, to tell the
+	// class from others of this language, and to resolve relative paths.
 	std::string path;
-	// Scene checks need the project; without it, scenes are unknown.
+	// The project's scenes, global classes, autoloads and other scripts;
+	// without it, none of them is known.
 	const ProjectApi *project = nullptr;
 	// Checks the class header, the members and the signatures, but no function
 	// bodies, and needs no scenes: the editor's view of a script while it is

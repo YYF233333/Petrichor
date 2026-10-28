@@ -761,7 +761,8 @@ class Lowerer {
 			instr(Op::GET_INDEX, temp(ValueType::Variant), i.base, i.args[0]);
 		}
 		if (p_call.target == Target::ScriptFunction) {
-			// Calls in this language pass the default values themselves.
+			// A call within the class passes the default values itself; one of a
+			// method of another class leaves them to the callee (Function::defaults).
 			const FuncDecl &callee = cls.functions[p_call.index];
 			for (size_t a = i.args.size(); a < callee.params.size(); a++) {
 				i.args.push_back(convert(lower_expr(*callee.params[a].default_value), callee.params[a].type));

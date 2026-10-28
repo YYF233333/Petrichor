@@ -131,8 +131,9 @@ struct Member : Slot {
 struct Function {
 	std::string name;
 	std::vector<Slot> params;
-	// The values of the last parameters when a call from the engine leaves
-	// them out; this language's calls pass every argument.
+	// The values of the last parameters when a call leaves them out: one from
+	// the engine, or from another class of this language (CALL_METHOD). A call
+	// within the class passes every argument.
 	std::vector<Constant> defaults;
 	bool is_static = false;
 	// The return value, described as a parameter is: type (Void when there is
