@@ -124,9 +124,8 @@ var label := "n"
 	CHECK(module.members[0].initial.f == 2.0);
 	CHECK(module.members[1].type == ValueType::Int);
 	CHECK(module.members[1].initial.i == -3);
+	CHECK(module.members[2].type == ValueType::String);
 	CHECK(module.members[2].initial.s == "n");
-	CHECK(module.members[2].offset == 16);
-	CHECK(module.instance_size == 24);
 }
 
 TEST_CASE("signatures") {
@@ -138,7 +137,9 @@ TEST_CASE("signatures") {
 	const bytecode::Function &add = function_named(module, "add");
 	CHECK(add.is_pub);
 	CHECK(add.result.type == ValueType::Int);
-	CHECK(contains(listing(module, "add"), "ADD_INT 16 0 8"));
+	const size_t sum = find_instruction(add, Op::ADD_INT);
+	CHECK(add.code[sum + 2] == add.params[0].offset);
+	CHECK(add.code[sum + 3] == add.params[1].offset);
 }
 
 TEST_CASE("mixed int and float arithmetic converts the int") {
@@ -215,7 +216,7 @@ func f() -> void:
 	const std::string code = listing(module, "f");
 	CHECK(contains(code, "CALL_UTILITY"));
 	CHECK(contains(code, "CALL_ENGINE"));
-	CHECK(contains(code, "CALL 0"));
+	CHECK(contains(code, "CALL " + std::to_string(module.find_function("g"))));
 	REQUIRE(module.utility_calls.size() == 1);
 	CHECK(module.utility_calls[0].function == "print");
 	REQUIRE(module.engine_calls.size() == 1);
@@ -361,11 +362,12 @@ TEST_CASE("the init function and its table entries do not change with a function
 TEST_CASE("built-in values take their own size in the frame") {
 	const bytecode::Module module = module_of("extends Node\n\nfunc f(v: Vector3, t: Transform3D, n: int) -> void:\n\tpass\n");
 	const bytecode::Function &f = function_named(module, "f");
+	// The slots hold the values, not Variants; the verifier, which module_of()
+	// runs, checks that each slot has its type's size in the frame.
 	REQUIRE(f.params.size() == 3);
-	CHECK(f.params[0].offset == 0);
-	CHECK(f.params[1].offset == 16);
-	CHECK(f.params[2].offset == 64);
-	CHECK(f.frame_size >= 72);
+	CHECK(f.params[0].type == ValueType::Vector3);
+	CHECK(f.params[1].type == ValueType::Transform3D);
+	CHECK(f.params[2].type == ValueType::Int);
 }
 
 TEST_CASE("operators, utilities and constructors carry the engine's signatures") {

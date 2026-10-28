@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bytecode/opcodes.h"
 #include "compiler/compiler.h"
 #include "fake_engine.h"
 
@@ -149,6 +150,19 @@ auto &function_named(T &p_module, const std::string &p_name) {
 	const int index = p_module.find_function(p_name);
 	REQUIRE_MESSAGE(index >= 0, p_name);
 	return p_module.functions[index];
+}
+
+// The position of the first instruction of a function with this opcode.
+inline size_t find_instruction(const bytecode::Function &p_function, bytecode::Op p_op) {
+	size_t pc = 0;
+	while (pc < p_function.code.size()) {
+		if (bytecode::Op(p_function.code[pc]) == p_op) {
+			return pc;
+		}
+		pc += bytecode::instruction_length(p_function.code.data() + pc);
+	}
+	FAIL("no such instruction");
+	return 0;
 }
 
 // The member of a module with this name, which it must have.
