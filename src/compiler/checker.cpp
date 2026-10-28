@@ -921,6 +921,12 @@ class Checker : public ClassRelation {
 		const std::string left = p_left.builtin_name();
 		const std::string right = p_right.builtin_name();
 		const bool equality = p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual;
+		// The sum of two arrays typed alike is typed so too, in the engine and in
+		// GDScript's static checks (core/variant/variant_op.h:665-667,
+		// modules/gdscript/gdscript_analyzer.cpp:6301-6307).
+		if (p_op == TokenKind::Plus && left == "Array" && right == "Array" && !p_left.args.empty() && p_left.args == p_right.args) {
+			return p_left;
+		}
 		if (equality && left == "Array" && right == "Array" && !p_left.args.empty() && !p_right.args.empty() && p_left.args[0] != p_right.args[0]) {
 			// The engine compares elements only of the same type (spec §5.2).
 			error(p_line, p_column, p_left.to_string() + " and " + p_right.to_string() + " are equal only when both are empty, so comparing them is an error.");

@@ -129,6 +129,9 @@ TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec ย
 	CHECK(contains(type_of("u[0]", "var u: Array = []"), "untyped Array are Variant"));
 	CHECK(contains(type_of("v[0]", "var v := Vector3()"), "Vector3 cannot be indexed"));
 	CHECK(has_error(in_function(std::string(ints) + "\na[0] = 2"), "Assigning to an element, as in a[i] = v, is not supported yet."));
+	// Spec ยง5.1: as the engine and GDScript type it, alike arrays add up typed.
+	CHECK(type_of("a + a", ints) == "Array[int]");
+	CHECK(type_of("a + f", std::string(ints) + "\nvar f: Array[float] = []") == "Array");
 	CHECK(has_error(in_function("var a: Array[int?] = []"), "Arrays of int? are not supported yet"));
 	// The entry checks would take any array for it.
 	CHECK(has_error(in_function("var a: Array[int]? = None"), "Array[int]? is not supported yet"));
