@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bytecode/module.h"
+#include "runtime/text.h"
 
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/string_name.hpp>
@@ -65,7 +66,7 @@ struct ValueCheck {
 	// From a slot or a member of a module.
 	template <typename T>
 	explicit ValueCheck(const T &p_slot) :
-			class_name(godot::String::utf8(p_slot.class_name.c_str())), script(godot::String::utf8(p_slot.script.c_str())), interface(godot::String::utf8(p_slot.interface_name.c_str())), nullable(p_slot.type != bytecode::ValueType::Object || p_slot.nullable), option(p_slot.option), element(p_slot.element) {}
+			class_name(to_godot(p_slot.class_name)), script(to_godot(p_slot.script)), interface(to_godot(p_slot.interface_name)), nullable(p_slot.type != bytecode::ValueType::Object || p_slot.nullable), option(p_slot.option), element(p_slot.element) {}
 };
 
 // Entry check: stores the value when its type fits the slot and `p_check`, if

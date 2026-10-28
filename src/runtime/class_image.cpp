@@ -2,6 +2,7 @@
 
 #include "bytecode/opcodes.h"
 #include "runtime/method_callable.h"
+#include "runtime/text.h"
 
 #include <godot_cpp/classes/script.hpp>
 
@@ -14,10 +15,6 @@ using namespace godot;
 namespace petrichor {
 
 using bytecode::ValueType;
-
-static String from_utf8(const std::string &p_text) {
-	return String::utf8(p_text.c_str(), int64_t(p_text.size()));
-}
 
 static GDExtensionVariantType engine_type(ValueType p_type) {
 	return GDExtensionVariantType(variant_type(p_type));
@@ -42,12 +39,12 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 	image->path = p_path;
 	image->source = p_path;
 	const bytecode::Module &module = image->module;
-	image->global_name = from_utf8(module.global_name);
-	image->base_class = from_utf8(module.base_class);
+	image->global_name = to_godot(module.global_name);
+	image->base_class = to_godot(module.base_class);
 
 	for (size_t i = 0; i < module.functions.size(); i++) {
 		const bytecode::Function &function = module.functions[i];
-		const StringName name = from_utf8(function.name);
+		const StringName name = to_godot(function.name);
 		image->function_names.push_back(name);
 		image->function_lookup.insert(name, int(i));
 		if (function.name == "_init" && function.params.empty()) {
@@ -78,7 +75,7 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 	std::vector<bytecode::Slot> member_slots;
 	for (size_t i = 0; i < module.members.size(); i++) {
 		const bytecode::Member &member = module.members[i];
-		const StringName name = from_utf8(member.name);
+		const StringName name = to_godot(member.name);
 		image->member_names.push_back(name);
 		image->member_checks.push_back(ValueCheck(member));
 		bytecode::Slot slot;
@@ -90,23 +87,23 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 	image->members_layout = SlotLayout::of(std::max<uint32_t>(module.instance_size, 8), member_slots);
 
 	for (const bytecode::Constant &constant : module.constants) {
-		image->strings.push_back(constant.type == ValueType::String ? from_utf8(constant.s) : String());
+		image->strings.push_back(constant.type == ValueType::String ? to_godot(constant.s) : String());
 		image->values.emplace_back();
 		if (!constant_value(constant, image->values.back(), r_error)) {
 			return nullptr;
 		}
 	}
 	for (const bytecode::EngineCall &call : module.engine_calls) {
-		image->engine_methods.push_back(from_utf8(call.method));
+		image->engine_methods.push_back(to_godot(call.method));
 	}
 	for (const bytecode::PropertyAccess &property : module.properties) {
-		image->properties.push_back(from_utf8(property.name));
+		image->properties.push_back(to_godot(property.name));
 	}
 	for (const bytecode::UtilityCall &call : module.utility_calls) {
-		const StringName name = from_utf8(call.function);
+		const StringName name = to_godot(call.function);
 		const GDExtensionPtrUtilityFunction pointer = gdextension_interface::variant_get_ptr_utility_function(name._native_ptr(), call.hash);
 		if (!pointer) {
-			r_error = "the engine has no utility function " + from_utf8(call.function) + " with this signature";
+			r_error = "the engine has no utility function " + to_godot(call.function) + " with this signature";
 			return nullptr;
 		}
 		image->utilities.push_back(pointer);
@@ -121,7 +118,7 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		image->evaluators.push_back(pointer);
 	}
 	for (const bytecode::FieldAccess &field : module.fields) {
-		const StringName name = from_utf8(field.name);
+		const StringName name = to_godot(field.name);
 		const GDExtensionPtrGetter getter = gdextension_interface::variant_get_ptr_getter(engine_type(field.base), name._native_ptr());
 		const GDExtensionPtrSetter setter = gdextension_interface::variant_get_ptr_setter(engine_type(field.base), name._native_ptr());
 		if (!getter || !setter) {
@@ -140,7 +137,7 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		image->constructors.push_back(pointer);
 	}
 	for (const bytecode::BuiltinMethodCall &call : module.builtin_methods) {
-		const StringName name = from_utf8(call.method);
+		const StringName name = to_godot(call.method);
 		// The engine finds the method by its hash; the parameter types recorded
 		// with it come from the compiler.
 		const GDExtensionPtrBuiltInMethod pointer = gdextension_interface::variant_get_ptr_builtin_method(engine_type(call.base), name._native_ptr(), call.hash);
@@ -151,12 +148,12 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		image->builtin_methods.push_back(pointer);
 	}
 	for (const bytecode::ClassRef &ref : module.classes) {
-		image->classes.push_back(from_utf8(ref.name));
-		image->class_scripts.push_back(from_utf8(ref.script));
-		image->class_interfaces.push_back(ref.interface_name.empty() ? String() : from_utf8(ref.script + "::" + ref.interface_name));
+		image->classes.push_back(to_godot(ref.name));
+		image->class_scripts.push_back(to_godot(ref.script));
+		image->class_interfaces.push_back(ref.interface_name.empty() ? String() : to_godot(ref.script + "::" + ref.interface_name));
 	}
 	for (const bytecode::MethodCall &call : module.method_calls) {
-		image->method_names.push_back(from_utf8(call.method));
+		image->method_names.push_back(to_godot(call.method));
 		image->call_signatures.push_back(signature_id(call.params, call.defaults, call.result));
 	}
 	return image;
@@ -204,7 +201,7 @@ static bool construct_constant(const bytecode::Constant &p_constant, Variant &r_
 bool constant_value(const bytecode::Constant &p_constant, Variant &r_value, String &r_error) {
 	const ValueType type = p_constant.type;
 	if (!p_constant.builtin.empty()) {
-		const StringName name = from_utf8(p_constant.builtin);
+		const StringName name = to_godot(p_constant.builtin);
 		Variant value; // The engine writes over it.
 		gdextension_interface::variant_get_constant_value(engine_type(type), name._native_ptr(), value._native_ptr());
 		if (value.get_type() != variant_type(type)) {
@@ -218,7 +215,7 @@ bool constant_value(const bytecode::Constant &p_constant, Variant &r_value, Stri
 		return construct_constant(p_constant, r_value, r_error);
 	}
 	if (type == ValueType::Array) {
-		Array array = typed_array(p_constant.element, from_utf8(p_constant.class_name), from_utf8(p_constant.script));
+		Array array = typed_array(p_constant.element, to_godot(p_constant.class_name), to_godot(p_constant.script));
 		for (const bytecode::Constant &element : p_constant.args) {
 			Variant value;
 			if (!constant_value(element, value, r_error)) {
@@ -240,13 +237,13 @@ bool constant_value(const bytecode::Constant &p_constant, Variant &r_value, Stri
 			r_value = p_constant.f;
 			break;
 		case ValueType::String:
-			r_value = from_utf8(p_constant.s);
+			r_value = to_godot(p_constant.s);
 			break;
 		case ValueType::StringName:
-			r_value = StringName(from_utf8(p_constant.s));
+			r_value = StringName(to_godot(p_constant.s));
 			break;
 		case ValueType::NodePath:
-			r_value = NodePath(from_utf8(p_constant.s));
+			r_value = NodePath(to_godot(p_constant.s));
 			break;
 		default:
 			r_value = default_variant(type); // None for Object and Variant.

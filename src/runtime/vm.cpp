@@ -3,6 +3,7 @@
 #include "bytecode/opcodes.h"
 #include "runtime/debugger.h"
 #include "runtime/method_callable.h"
+#include "runtime/text.h"
 
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/engine.hpp>
@@ -772,7 +773,7 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 		if (!from_variant(param.type, value, frame.data + param.offset, &checks[i])) {
 			// A program error at the entry, and the engine gets the default value
 			// (spec §8.1, §10.1); the engine's backtrace of the caller goes with it.
-			report_error(*image, fn.name.c_str(), int(fn.line), vformat("Argument \"%s\" of %s(): %s.", String::utf8(param.name.c_str()), String::utf8(fn.name.c_str()), entry_mismatch(param.type, value, checks[i])));
+			report_error(*image, fn.name.c_str(), int(fn.line), vformat("Argument \"%s\" of %s(): %s.", to_godot(param.name), to_godot(fn.name), entry_mismatch(param.type, value, checks[i])));
 			if (r_failed) {
 				*r_failed = true;
 			}

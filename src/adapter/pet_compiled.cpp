@@ -1,5 +1,7 @@
 #include "adapter/pet_compiled.h"
 
+#include "runtime/text.h"
+
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/core/error_macros.hpp>
@@ -9,11 +11,6 @@
 using namespace godot;
 
 namespace petrichor {
-
-std::string to_utf8(const String &p_text) {
-	const CharString utf8 = p_text.utf8();
-	return std::string(utf8.get_data(), size_t(utf8.length()));
-}
 
 String cache_path(const String &p_script_path) {
 	if (!p_script_path.begins_with("res://")) {
@@ -31,7 +28,7 @@ std::shared_ptr<const ClassImage> load_compiled(const String &p_compiled_path, c
 	bytecode::Module module;
 	std::string error;
 	if (!bytecode::deserialize(bytes.ptr(), size_t(bytes.size()), module, error)) {
-		r_error = String::utf8(error.c_str()) + ". Rebuild the project.";
+		r_error = to_godot(error) + ". Rebuild the project.";
 		return nullptr;
 	}
 	if (p_source && module.source_hash != bytecode::hash_source(to_utf8(*p_source))) {

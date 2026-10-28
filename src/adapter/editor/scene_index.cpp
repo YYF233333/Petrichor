@@ -2,6 +2,7 @@
 
 #include "adapter/editor/project_files.h"
 #include "adapter/pet_compiled.h"
+#include "runtime/text.h"
 
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/packed_scene.hpp>
@@ -107,7 +108,7 @@ const SceneIndex &SceneIndex::get() {
 }
 
 std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_path) const {
-	const String path = String::utf8(p_path.c_str());
+	const String path = to_godot(p_path);
 	// Before loading, so that a change during the load is seen next time.
 	const uint64_t modified = FileAccess::get_modified_time(path);
 	std::shared_ptr<const Entry> cached;
@@ -119,7 +120,7 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 		}
 	}
 	if (cached && cached->modified == modified && std::all_of(cached->instanced.begin(), cached->instanced.end(), [](const auto &p_instanced) {
-			return FileAccess::get_modified_time(String::utf8(p_instanced.first.c_str())) == p_instanced.second;
+			return FileAccess::get_modified_time(to_godot(p_instanced.first)) == p_instanced.second;
 		})) {
 		return cached;
 	}
@@ -132,7 +133,7 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 		std::set<std::string> instanced;
 		instanced_scenes(packed->get_state(), instanced);
 		for (const std::string &instanced_path : instanced) {
-			entry->instanced.emplace_back(instanced_path, FileAccess::get_modified_time(String::utf8(instanced_path.c_str())));
+			entry->instanced.emplace_back(instanced_path, FileAccess::get_modified_time(to_godot(instanced_path)));
 		}
 	}
 	std::lock_guard<std::mutex> lock(mutex);
@@ -156,7 +157,7 @@ std::vector<compiler::Scene> SceneIndex::scenes_with_script(const std::string &p
 }
 
 std::optional<compiler::Scene> SceneIndex::scene(const std::string &p_path) const {
-	if (!FileAccess::file_exists(String::utf8(p_path.c_str()))) {
+	if (!FileAccess::file_exists(to_godot(p_path))) {
 		return std::nullopt;
 	}
 	const std::shared_ptr<const Entry> entry = read(p_path);
@@ -164,7 +165,7 @@ std::optional<compiler::Scene> SceneIndex::scene(const std::string &p_path) cons
 }
 
 std::string SceneIndex::global_class_path(const std::string &p_name) const {
-	const StringName name = String::utf8(p_name.c_str());
+	const StringName name = to_godot(p_name);
 	const TypedArray<Dictionary> classes = ProjectSettings::get_singleton()->get_global_class_list();
 	for (int64_t i = 0; i < classes.size(); i++) {
 		const Dictionary entry = classes[i];
@@ -177,7 +178,7 @@ std::string SceneIndex::global_class_path(const std::string &p_name) const {
 
 std::string SceneIndex::autoload_path(const std::string &p_name) const {
 	// "*res://scripts/audio.gd": the star makes it a global name.
-	const String setting = "autoload/" + String::utf8(p_name.c_str());
+	const String setting = "autoload/" + to_godot(p_name);
 	ProjectSettings *settings = ProjectSettings::get_singleton();
 	if (!settings->has_setting(setting)) {
 		return std::string();
@@ -187,7 +188,7 @@ std::string SceneIndex::autoload_path(const std::string &p_name) const {
 }
 
 std::optional<std::string> SceneIndex::script_source(const std::string &p_path) const {
-	const String path = String::utf8(p_path.c_str());
+	const String path = to_godot(p_path);
 	if (!FileAccess::file_exists(path)) {
 		return std::nullopt;
 	}

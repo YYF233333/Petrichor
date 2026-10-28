@@ -1,5 +1,7 @@
 #include "runtime/debugger.h"
 
+#include "runtime/text.h"
+
 #include <godot_cpp/classes/engine_debugger.hpp>
 
 #include <string>
@@ -22,8 +24,7 @@ void debug_break(const String &p_reason, bool p_can_continue) {
 	if (!language) {
 		return;
 	}
-	const CharString reason = p_reason.utf8();
-	break_reason.assign(reason.get_data(), size_t(reason.length()));
+	break_reason = to_utf8(p_reason);
 	EngineDebugger::get_singleton()->script_debug(language, p_can_continue, p_reason != "Breakpoint");
 }
 
@@ -85,7 +86,7 @@ void error(const String &p_message) {
 }
 
 String last_error() {
-	return String::utf8(break_reason.c_str(), int64_t(break_reason.size()));
+	return to_godot(break_reason);
 }
 
 } // namespace petrichor::debugger

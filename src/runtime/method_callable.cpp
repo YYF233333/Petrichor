@@ -1,5 +1,7 @@
 #include "runtime/method_callable.h"
 
+#include "runtime/text.h"
+
 #include <godot_cpp/core/object.hpp>
 #include <godot_cpp/templates/hashfuncs.hpp>
 
@@ -36,9 +38,9 @@ bool implements_interface(Object *p_object, const String &p_interface) {
 	if (!scripted_object(p_object, instance)) {
 		return false;
 	}
-	const CharString id = p_interface.utf8();
+	const std::string id = to_utf8(p_interface);
 	for (const std::string &implemented : instance.image->module.interfaces) {
-		if (implemented == id.get_data()) {
+		if (implemented == id) {
 			return true;
 		}
 	}

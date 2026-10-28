@@ -18,6 +18,5 @@ std::shared_ptr<const ClassImage> load_compiled(const godot::String &p_compiled_
 
 bool write_compiled(const godot::String &p_compiled_path, const ClassImage &p_image);
 
-std::string to_utf8(const godot::String &p_text);
 
 } // namespace petrichor

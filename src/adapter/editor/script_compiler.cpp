@@ -5,6 +5,7 @@
 #include "adapter/editor/scene_index.h"
 #include "adapter/pet_compiled.h"
 #include "compiler/compiler.h"
+#include "runtime/text.h"
 
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/file_access.hpp>
@@ -40,7 +41,7 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 	// the same way, so that a compiler error is reported instead of run.
 	std::string problem;
 	if (!bytecode::verify(result.module, problem)) {
-		load_error = "internal compiler error: " + String::utf8(problem.c_str());
+		load_error = "internal compiler error: " + to_godot(problem);
 	} else {
 		image = ClassImage::load(std::move(result.module), p_path, load_error);
 	}

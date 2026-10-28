@@ -3,6 +3,7 @@
 #include "adapter/pet_compiled.h"
 #include "adapter/pet_instance.h"
 #include "adapter/pet_language.h"
+#include "runtime/text.h"
 
 #ifdef TOOLS_ENABLED
 #include "adapter/editor/script_compiler.h"
@@ -53,7 +54,7 @@ static Dictionary method_dict(const StringName &p_name, const Array &p_args, con
 // An object of the class as the engine and GDScript see it: T and T? alike
 // (spec §10.1).
 static StringName class_of(bytecode::ValueType p_type, const std::string &p_class) {
-	return p_type == bytecode::ValueType::Object ? StringName(String::utf8(p_class.c_str())) : StringName();
+	return p_type == bytecode::ValueType::Object ? StringName(to_godot(p_class)) : StringName();
 }
 
 // A Variant slot, such as int?, is NIL to the engine, which reads that as
@@ -67,7 +68,7 @@ template <typename T>
 static Dictionary typed(Dictionary p_dict, const T &p_slot) {
 	if (p_slot.element != bytecode::ValueType::Void) {
 		p_dict["hint"] = PROPERTY_HINT_ARRAY_TYPE;
-		p_dict["hint_string"] = p_slot.element == bytecode::ValueType::Object ? String::utf8(p_slot.class_name.c_str()) : Variant::get_type_name(variant_type(p_slot.element));
+		p_dict["hint_string"] = p_slot.element == bytecode::ValueType::Object ? to_godot(p_slot.class_name) : Variant::get_type_name(variant_type(p_slot.element));
 	}
 	return p_dict;
 }
@@ -76,7 +77,7 @@ static Dictionary function_info(const ClassImage &p_image, int p_index) {
 	const bytecode::Function &function = p_image.module.functions[p_index];
 	Array args;
 	for (const bytecode::Slot &param : function.params) {
-		args.push_back(typed(property_dict(variant_type(param.type), String::utf8(param.name.c_str()), usage_of(param.type, PROPERTY_USAGE_DEFAULT), class_of(param.type, param.class_name)), param));
+		args.push_back(typed(property_dict(variant_type(param.type), to_godot(param.name), usage_of(param.type, PROPERTY_USAGE_DEFAULT), class_of(param.type, param.class_name)), param));
 	}
 	const Dictionary result = property_dict(variant_type(function.result.type), StringName(), usage_of(function.result.type, PROPERTY_USAGE_DEFAULT), class_of(function.result.type, function.result.class_name));
 	Dictionary method = method_dict(p_image.function_names[p_index], args, result, METHOD_FLAGS_DEFAULT | (function.is_static ? METHOD_FLAG_STATIC : 0));
@@ -108,18 +109,18 @@ Dictionary property_info(const bytecode::Member &p_member) {
 	if (p_member.is_export) {
 		usage |= PROPERTY_USAGE_DEFAULT;
 	}
-	Dictionary dict = property_dict(variant_type(p_member.type), String::utf8(p_member.name.c_str()), usage_of(p_member.type, usage), class_of(p_member.type, p_member.class_name));
+	Dictionary dict = property_dict(variant_type(p_member.type), to_godot(p_member.name), usage_of(p_member.type, usage), class_of(p_member.type, p_member.class_name));
 	// The inspector picks a class of this language by its global name.
-	String class_name = String::utf8(p_member.class_name.c_str());
+	String class_name = to_godot(p_member.class_name);
 	if (!p_member.script.empty()) {
-		const Ref<Script> script = ResourceLoader::get_singleton()->load(String::utf8(p_member.script.c_str()));
+		const Ref<Script> script = ResourceLoader::get_singleton()->load(to_godot(p_member.script));
 		if (script.is_valid() && !script->get_global_name().is_empty()) {
 			class_name = script->get_global_name();
 		}
 	}
 	if (p_member.hint != 0) {
 		dict["hint"] = p_member.hint;
-		dict["hint_string"] = String::utf8(p_member.hint_string.c_str());
+		dict["hint_string"] = to_godot(p_member.hint_string);
 	} else if (p_member.is_export && p_member.type == ValueType::Object) {
 		dict["hint"] = picker_of(class_name);
 		dict["hint_string"] = class_name;
@@ -136,8 +137,8 @@ Dictionary property_info(const bytecode::Member &p_member) {
 // Headings from @export_category, @export_group and @export_subgroup.
 static Dictionary group_info(const bytecode::ExportGroup &p_group) {
 	static const uint32_t usages[] = { PROPERTY_USAGE_CATEGORY, PROPERTY_USAGE_GROUP, PROPERTY_USAGE_SUBGROUP };
-	Dictionary dict = property_dict(Variant::NIL, String::utf8(p_group.name.c_str()), usages[p_group.level]);
-	dict["hint_string"] = String::utf8(p_group.prefix.c_str());
+	Dictionary dict = property_dict(Variant::NIL, to_godot(p_group.name), usages[p_group.level]);
+	dict["hint_string"] = to_godot(p_group.prefix);
 	return dict;
 }
 
@@ -526,7 +527,7 @@ bool PetScript::_has_script_signal(const StringName &p_signal) const {
 		return false;
 	}
 	for (const bytecode::SignalInfo &signal : current->module.signals) {
-		if (p_signal == StringName(String::utf8(signal.name.c_str()))) {
+		if (p_signal == StringName(to_godot(signal.name))) {
 			return true;
 		}
 	}
@@ -539,9 +540,9 @@ TypedArray<Dictionary> PetScript::_get_script_signal_list() const {
 		for (const bytecode::SignalInfo &signal : current->module.signals) {
 			Array args;
 			for (const bytecode::Slot &param : signal.params) {
-				args.push_back(typed(property_dict(variant_type(param.type), String::utf8(param.name.c_str()), usage_of(param.type, PROPERTY_USAGE_DEFAULT), class_of(param.type, param.class_name)), param));
+				args.push_back(typed(property_dict(variant_type(param.type), to_godot(param.name), usage_of(param.type, PROPERTY_USAGE_DEFAULT), class_of(param.type, param.class_name)), param));
 			}
-			list.push_back(method_dict(String::utf8(signal.name.c_str()), args, property_dict(Variant::NIL, StringName(), PROPERTY_USAGE_DEFAULT), METHOD_FLAGS_DEFAULT));
+			list.push_back(method_dict(to_godot(signal.name), args, property_dict(Variant::NIL, StringName(), PROPERTY_USAGE_DEFAULT), METHOD_FLAGS_DEFAULT));
 		}
 	}
 	return list;

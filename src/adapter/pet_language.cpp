@@ -2,6 +2,7 @@
 
 #include "adapter/pet_script.h"
 #include "runtime/debugger.h"
+#include "runtime/text.h"
 #include "runtime/vm.h"
 
 #ifdef PETRICHOR_PROBES
@@ -140,7 +141,7 @@ Dictionary PetLanguage::_validate(const String &p_script, const String &p_path, 
 		error["path"] = p_path;
 		error["line"] = diagnostic.line;
 		error["column"] = diagnostic.column;
-		error["message"] = String::utf8(diagnostic.message.c_str());
+		error["message"] = to_godot(diagnostic.message);
 		errors.push_back(error);
 	}
 #endif
@@ -255,7 +256,7 @@ int32_t PetLanguage::_debug_get_stack_level_line(int32_t p_level) const {
 
 String PetLanguage::_debug_get_stack_level_function(int32_t p_level) const {
 	const StackFrame *frame = frame_at(p_level);
-	return frame ? String::utf8(frame->function->name.c_str()) : String();
+	return frame ? to_godot(frame->function->name) : String();
 }
 
 String PetLanguage::_debug_get_stack_level_source(int32_t p_level) const {
@@ -273,7 +274,7 @@ Dictionary PetLanguage::_debug_get_stack_level_locals(int32_t p_level, int32_t p
 	Array values;
 	for (const bytecode::Slot &slot : frame->function->slots) {
 		if (!slot.name.empty()) {
-			names.push_back(String::utf8(slot.name.c_str()));
+			names.push_back(to_godot(slot.name));
 			values.push_back(to_variant(slot.type, frame->frame + slot.offset));
 		}
 	}
@@ -292,7 +293,7 @@ Dictionary PetLanguage::_debug_get_stack_level_members(int32_t p_level, int32_t 
 	PackedStringArray names;
 	Array values;
 	for (const bytecode::Member &member : frame->image->module.members) {
-		names.push_back(String::utf8(member.name.c_str()));
+		names.push_back(to_godot(member.name));
 		values.push_back(to_variant(member.type, frame->members + member.offset));
 	}
 	result["members"] = names;

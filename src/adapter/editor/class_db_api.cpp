@@ -1,5 +1,7 @@
 #include "adapter/editor/class_db_api.h"
 
+#include "runtime/text.h"
+
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/variant/typed_array.hpp>
@@ -16,15 +18,6 @@ using compiler::TypeKind;
 
 namespace {
 
-std::string to_std(const String &p_text) {
-	const CharString utf8 = p_text.utf8();
-	return std::string(utf8.get_data(), size_t(utf8.length()));
-}
-
-String to_godot(const std::string &p_text) {
-	return String::utf8(p_text.c_str(), int64_t(p_text.size()));
-}
-
 // Objects the engine hands out are nullable until audited (spec §10.2).
 Type type_of(const Dictionary &p_property, bool p_is_return) {
 	const Variant::Type type = Variant::Type(int(p_property.get("type", Variant::NIL)));
@@ -37,17 +30,17 @@ Type type_of(const Dictionary &p_property, bool p_is_return) {
 			return Type::of(p_is_return ? TypeKind::Void : TypeKind::Variant);
 		case Variant::OBJECT: {
 			const String class_name = p_property.get("class_name", String());
-			return Type::object(to_std(class_name.is_empty() ? String("Object") : class_name), true);
+			return Type::object(to_utf8(class_name.is_empty() ? String("Object") : class_name), true);
 		}
 		case Variant::ARRAY:
 			// A typed array, such as the Array[Node] of get_children() (spec §3.8).
 			if (int(p_property.get("hint", 0)) == PROPERTY_HINT_ARRAY_TYPE) {
-				return compiler::api_type("typedarray::" + to_std(p_property.get("hint_string", String())), true);
+				return compiler::api_type("typedarray::" + to_utf8(p_property.get("hint_string", String())), true);
 			}
 			return Type::builtin("Array");
 		default:
 			// The names ClassDB gives value types are the extension API's names.
-			return compiler::api_type(to_std(Variant::get_type_name(type)), true);
+			return compiler::api_type(to_utf8(Variant::get_type_name(type)), true);
 	}
 }
 
@@ -63,7 +56,7 @@ bool ClassDBApi::class_exists(const std::string &p_class) const {
 }
 
 std::string ClassDBApi::parent_class(const std::string &p_class) const {
-	return to_std(ClassDBSingleton::get_singleton()->get_parent_class(to_godot(p_class)));
+	return to_utf8(ClassDBSingleton::get_singleton()->get_parent_class(to_godot(p_class)));
 }
 
 std::optional<EngineMethod> ClassDBApi::find_method(const std::string &p_class, const std::string &p_method) const {
@@ -78,7 +71,7 @@ std::optional<EngineMethod> ClassDBApi::find_method(const std::string &p_class, 
 			}
 			EngineMethod method;
 			method.name = p_method;
-			method.owner = to_std(cls);
+			method.owner = to_utf8(cls);
 			const uint32_t flags = uint32_t(int(info.get("flags", 0)));
 			method.is_virtual = flags & (METHOD_FLAG_VIRTUAL | METHOD_FLAG_VIRTUAL_REQUIRED);
 			method.is_static = flags & METHOD_FLAG_STATIC;
@@ -86,7 +79,7 @@ std::optional<EngineMethod> ClassDBApi::find_method(const std::string &p_class, 
 			const Array args = info.get("args", Array());
 			for (int64_t a = 0; a < args.size(); a++) {
 				const Dictionary arg = args[a];
-				method.params.push_back({ to_std(arg.get("name", String())), type_of(arg, false) });
+				method.params.push_back({ to_utf8(arg.get("name", String())), type_of(arg, false) });
 			}
 			method.default_count = int(Array(info.get("default_args", Array())).size());
 			method.return_type = type_of(info.get("return", Dictionary()), true);
@@ -111,7 +104,7 @@ std::optional<EngineMethod> ClassDBApi::find_signal(const std::string &p_class, 
 	const Array args = info.get("args", Array());
 	for (int64_t a = 0; a < args.size(); a++) {
 		const Dictionary arg = args[a];
-		signal.params.push_back({ to_std(arg.get("name", String())), type_of(arg, false) });
+		signal.params.push_back({ to_utf8(arg.get("name", String())), type_of(arg, false) });
 	}
 	return signal;
 }
@@ -150,7 +143,7 @@ std::optional<EngineProperty> ClassDBApi::find_property(const std::string &p_cla
 			}
 			EngineProperty property;
 			property.name = p_property;
-			property.owner = to_std(cls);
+			property.owner = to_utf8(cls);
 			property.type = type_of(info, false); // A property is never void.
 			property.writable = db->class_get_property_setter(cls, property_name) != StringName();
 			return property;

@@ -1,6 +1,7 @@
 #include "adapter/pet_instance.h"
 
 #include "adapter/pet_language.h"
+#include "runtime/text.h"
 #include "runtime/vm.h"
 
 #ifdef PETRICHOR_PROBES
@@ -174,11 +175,6 @@ static const bytecode::Member *visible_member(const ClassImage &p_image, const S
 	return &p_image.module.members[index];
 }
 
-static int visible_function(const ClassImage &p_image, const StringName &p_name) {
-	const int index = p_image.find_function(p_name);
-	return index >= 0 && PetScript::is_visible(p_image.module.functions[index]) ? index : -1;
-}
-
 static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionConstVariantPtr p_value) {
 	PetInstance *instance = self(p_instance);
 	const std::shared_ptr<const ClassImage> image = instance->current_image();
@@ -203,7 +199,7 @@ static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance,
 	if (!member) {
 		// A signal reads as a Signal, as in GDScript (modules/gdscript/gdscript.cpp:1648-1651).
 		for (const bytecode::SignalInfo &signal : image->module.signals) {
-			if (as_name(p_name) == StringName(String::utf8(signal.name.c_str()))) {
+			if (as_name(p_name) == StringName(to_godot(signal.name))) {
 				*reinterpret_cast<Variant *>(r_ret) = Signal(instance->owner_object, as_name(p_name));
 				return true;
 			}
@@ -268,7 +264,7 @@ static GDExtensionVariantType instance_get_property_type(GDExtensionScriptInstan
 
 static GDExtensionBool instance_has_method(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name) {
 	const std::shared_ptr<const ClassImage> image = self(p_instance)->current_image();
-	if (visible_function(*image, as_name(p_name)) >= 0) {
+	if (PetScript::find_visible_function(*image, as_name(p_name)) >= 0) {
 		return true;
 	}
 #ifdef PETRICHOR_PROBES
@@ -280,7 +276,7 @@ static GDExtensionBool instance_has_method(GDExtensionScriptInstanceDataPtr p_in
 
 static GDExtensionInt instance_get_method_argument_count(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionBool *r_is_valid) {
 	const std::shared_ptr<const ClassImage> image = self(p_instance)->current_image();
-	const int index = visible_function(*image, as_name(p_name));
+	const int index = PetScript::find_visible_function(*image, as_name(p_name));
 	*r_is_valid = index >= 0;
 	return index >= 0 ? GDExtensionInt(image->module.functions[index].params.size()) : 0;
 }
@@ -308,7 +304,7 @@ static void instance_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensi
 			return;
 		}
 	}
-	const int index = visible_function(*image, method);
+	const int index = PetScript::find_visible_function(*image, method);
 	if (index < 0) {
 #ifdef PETRICHOR_PROBES
 		if (probe_methods::call(image->path, method, args, p_argument_count, result, *r_error)) {
