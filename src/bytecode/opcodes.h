@@ -74,6 +74,7 @@ namespace petrichor::bytecode {
 	X(METHOD_VALUE, 2) /* function, dst (Callable) */ \
 	X(GET_SIGNAL, 3) /* name constant, dst, object (NO_SLOT: self) */ \
 	X(CHECK_OBJECT, 2) /* class, slot: not None, of the class */ \
+	X(CHECK_LIVE, 1) /* slot: an object the engine takes is not freed */ \
 	X(CHECK_ASSIGNED, 2) /* member, slot: an export is assigned */ \
 	X(CHECK_RANGE, 2) /* IntRange, slot (int): fits the engine's */ \
 	X(CAST_OBJECT, 3) /* class, dst, src: `as`, None if it fails */ \

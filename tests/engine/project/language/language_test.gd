@@ -285,6 +285,12 @@ func _ready() -> void:
 	_check(refs.printed() == "<null>", "the engine gets None for it as an argument")
 	_check(typeof(refs.listed()[0]) == TYPE_NIL, "and in an array")
 	_check(orphan.owner == null, "and written to a property")
+	refs.adopted(orphan)
+	refs.owned(orphan)
+	refs.appended()
+	_check_errors(["freed_ref_check.pet:29: The object given to the engine was freed.", "freed_ref_check.pet:34: The object given to the engine was freed.", "freed_ref_check.pet:40: The object given to the engine was freed."], "a freed object in a T is a program error as an engine argument, an engine property and an element of Array[Node]")
+	_check(orphan.get_child_count() == 0 and orphan.owner == null, "and the engine does not get it")
+	_check(not refs.valid(), "is_instance_valid() of a freed object in a T is false")
 	orphan.free()
 	refs.free()
 

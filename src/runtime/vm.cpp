@@ -529,6 +529,12 @@ public:
 					pc += 3;
 					break;
 				}
+				case Op::CHECK_LIVE:
+					if (!is_live_object(frame + code[pc + 1])) {
+						FAIL("The object given to the engine was freed.");
+					}
+					pc += 2;
+					break;
 				case Op::CAST_OBJECT: {
 					// A freed object is None for every type (spec §5.3).
 					const uint8_t *src = frame + code[pc + 3];

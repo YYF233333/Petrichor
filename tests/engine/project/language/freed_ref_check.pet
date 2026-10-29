@@ -1,6 +1,7 @@
 # A T? that refers to a freed object reads as None also where the value leaves
 # this language (spec §3.3): returned to the engine, read by it as a member,
-# passed to it, put into an array or written to a property. Driven by
+# passed to it, put into an array or written to a property. A T that holds one
+# is a program error where the engine takes an object. Driven by
 # language_test.gd.
 class_name FreedRefCheck
 extends Node
@@ -21,3 +22,24 @@ pub func listed() -> Array[Node?]:
 
 pub func written(target: Node):
 	target.owner = held
+
+pub func adopted(parent: Node):
+	var child := Node.new()
+	child.free()
+	parent.add_child(child)
+
+pub func owned(target: Node):
+	var gone := Node.new()
+	gone.free()
+	target.owner = gone
+
+pub func appended():
+	var nodes: Array[Node] = []
+	var gone := Node.new()
+	gone.free()
+	nodes.append(gone)
+
+pub func valid() -> bool:
+	var gone := Node.new()
+	gone.free()
+	return is_instance_valid(gone)

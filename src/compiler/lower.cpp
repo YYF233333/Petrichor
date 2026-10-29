@@ -483,9 +483,16 @@ class Lowerer {
 	// at compile time (spec §10.7).
 	// A T? that goes where this language no longer follows it, to the engine
 	// or into its storage, is read there, so a freed object gives None, as
-	// every read of a T? does (spec §3.3).
-	uint32_t live_or_none(uint32_t p_reg, const Type &p_type) {
-		if (p_type.kind != TypeKind::Object || !p_type.nullable) {
+	// every read of a T? does. A T must hold a live object where the engine
+	// takes an object, which it uses without checking (spec §3.3).
+	uint32_t outward(uint32_t p_reg, const Type &p_type, bool p_takes_object) {
+		if (p_type.kind != TypeKind::Object) {
+			return p_reg;
+		}
+		if (!p_type.nullable) {
+			if (p_takes_object) {
+				instr(Op::CHECK_LIVE, NO_REG, p_reg);
+			}
 			return p_reg;
 		}
 		const uint32_t result = temp(p_type);
@@ -493,21 +500,24 @@ class Lowerer {
 		return result;
 	}
 
-	uint32_t argument(const Expr &p_arg, const Type &p_param, bool p_outward) {
+	uint32_t argument(const Expr &p_arg, const Type &p_param, bool p_outward, bool p_takes_object) {
 		const ValueType to = value_type(p_param);
 		if (p_arg.kind == ExprKind::StringLiteral && (to == ValueType::StringName || to == ValueType::NodePath)) {
 			return load_text(to, p_arg.text);
 		}
 		const uint32_t value = lower_expr(p_arg);
-		return convert(p_outward ? live_or_none(value, p_arg.type) : value, p_param);
+		return convert(p_outward ? outward(value, p_arg.type, p_takes_object) : value, p_param);
 	}
 
 	std::vector<uint32_t> arguments(const Expr &p_call) {
 		// A function of this language reads its T? parameters itself.
 		const bool outward = p_call.target != Target::ScriptFunction && p_call.target != Target::ScriptMethod;
+		// Callable.bind() and Signal.emit() take Variant, whatever the types here.
+		const bool as_variant = p_call.target == Target::BindArguments || p_call.target == Target::EmitSignal;
 		std::vector<uint32_t> args;
 		for (size_t i = 0; i < p_call.args.size(); i++) {
-			args.push_back(argument(*p_call.args[i], p_call.param_types[i], outward));
+			const Type &param = p_call.param_types[i];
+			args.push_back(argument(*p_call.args[i], param, outward, !as_variant && param.kind == TypeKind::Object));
 		}
 		return args;
 	}
@@ -586,7 +596,8 @@ class Lowerer {
 		new_array(result, fn.regs[result]);
 		const uint32_t append = engine_builtin_method(ValueType::Array, "append", { ValueType::Variant }, ValueType::Void);
 		for (size_t e = 0; e < p_expr.args.size(); e++) {
-			call_builtin(append, result, { argument(*p_expr.args[e], p_expr.param_types[e], true) });
+			const Type &element = p_expr.param_types[e];
+			call_builtin(append, result, { argument(*p_expr.args[e], element, true, element.kind == TypeKind::Object) });
 		}
 		return result;
 	}
@@ -1149,7 +1160,7 @@ class Lowerer {
 				if (p_stmt.assign_op == TokenKind::Equal) {
 					value = lower_expr(*p_stmt.value);
 					if (place.kind == Place::Kind::SelfProperty || place.kind == Place::Kind::ObjectProperty) {
-						value = live_or_none(value, p_stmt.value->type); // The engine keeps it.
+						value = outward(value, p_stmt.value->type, target.type.kind == TypeKind::Object); // The engine keeps it.
 					}
 				} else {
 					const uint32_t current_value = load(place);
