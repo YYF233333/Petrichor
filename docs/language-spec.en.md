@@ -888,7 +888,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 12.2 Performance
 
 - Clearly faster than GDScript; C# is not the target. Most scripts never hit the interpreter's performance limits.
-- Native code comes from one code generator with several backends, used both for generating it at run time (a JIT) and ahead of time; it compiles a function at a time and does not trace: the types are known at compile time and need no traced run to be found, and generation ahead of time has no run to trace. iOS and most consoles do not allow generating machine code at run time, so there it can only be generated ahead of time. [Open] When it is generated: at run time, at export, or both; if only at run time, the interpreter alone must reach the performance goal on iOS and consoles.
+- Native code comes from one code generator with several backends, used both for generating it at run time (a JIT) and ahead of time; it compiles a function at a time and does not trace: the types are known at compile time and need no traced run to be found, and generation ahead of time has no run to trace. iOS and most consoles do not allow generating machine code at run time, so there it can only be generated ahead of time. Evidence: CPython's JIT compiles traces and is only 4–12% faster than its interpreter in 3.15 (geometric mean), and its authors proposed a method-based frontend, for maintainability, in [PEP 836](https://peps.python.org/pep-0836/). [Open] When it is generated: at run time, at export, or both; if only at run time, the interpreter alone must reach the performance goal on iOS and consoles.
 
 ### 12.3 Threads
 
