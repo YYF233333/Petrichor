@@ -97,6 +97,10 @@ TEST_CASE("names") {
 	CHECK(has_error(in_function("x = 1"), "\"x\" is not declared"));
 	CHECK(has_error(in_function("var x"), "needs a type or an initial value"));
 	CHECK(has_error(in_function("var x := 1\nvar x := 2"), "already declared"));
+	CHECK(has_error(in_function("var x := 1\nif x > 0:\n\tvar x := 2"), "already declared in an enclosing block"));
+	CHECK(has_error(in_function("var i := 1\nfor i in 3:\n\tpass"), "already declared in an enclosing block"));
+	CHECK(has_error(in_function("if n > 0:\n\tvar n := 2", "func f(n: int) -> void:"), "already a parameter"));
+	CHECK(errors_of(in_function("if true:\n\tvar x := 1\nelse:\n\tvar x := 2\nvar x := 3")).empty());
 	CHECK(has_error(in_function("break"), "only valid in a loop"));
 	CHECK(has_error(in_function("nope()"), "not found"));
 	CHECK(has_error("extends Missing\n", "Unknown base class"));

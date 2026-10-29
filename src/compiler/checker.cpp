@@ -1952,6 +1952,10 @@ class Checker : public ClassRelation {
 	void declare_local(Stmt &r_stmt, const Type &p_type) {
 		if (scopes.back().count(r_stmt.name)) {
 			error(r_stmt.line, r_stmt.column, "\"" + r_stmt.name + "\" is already declared in this block.");
+		} else if (scopes.front().count(r_stmt.name)) {
+			error(r_stmt.line, r_stmt.column, "\"" + r_stmt.name + "\" is already a parameter of this function (spec §4.6).");
+		} else if (find_local(r_stmt.name) >= 0) {
+			error(r_stmt.line, r_stmt.column, "\"" + r_stmt.name + "\" is already declared in an enclosing block (spec §4.6).");
 		}
 		r_stmt.local = int(function->locals.size());
 		function->locals.push_back({ r_stmt.name, p_type });
