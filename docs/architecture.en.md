@@ -91,7 +91,7 @@ The sections above describe the design. How much of it runs, and which tests sho
 
 | Part | State | Tests |
 |---|---|---|
-| Compiler | The language the FPS project needs (§5); not yet match, generics, structs, enums with payloads, coroutines, inheritance between classes of this language, the static view of GDScript classes | compiler tests; the build of every script in the engine tests |
+| Compiler | The language the FPS project needs (§5), and the static view of GDScript classes and autoloads; not yet match, generics, structs, enums with payloads, coroutines, inheritance between classes of this language, nor `new()`, static methods and constants of GDScript classes | compiler tests; the build of every script in the engine tests |
 | Values | int, float, bool and the engine's built-in types in their own layout; objects and T? of value types in Variant slots | language checks |
 | Members held by running calls (§2.2) | Done | language checks |
 | Calls between classes of this language | Direct, the signature checked | language checks, stale bytecode |

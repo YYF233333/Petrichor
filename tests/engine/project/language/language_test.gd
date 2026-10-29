@@ -294,6 +294,23 @@ func _ready() -> void:
 	orphan.free()
 	refs.free()
 
+	# Spec §11.1: GDScript classes as reflection shows them.
+	var view := GdViewCheck.new()
+	var base := GdViewBase.new()
+	var child := GdViewChild.new()
+	_check(view.doubled(base) == 42 and view.doubled(child) == 42, "a method of a GDScript class is called, on an instance of a GDScript subclass too")
+	_check(view.faster(base) == 3.0 and base.speed == 3.0, "a member of a GDScript class is read and written")
+	var scores := []
+	base.scored.connect(func(points: int): scores.append(points))
+	view.score(base)
+	_check(scores == [7], "a signal of a GDScript class is emitted with its argument")
+	base.buddy = child
+	_check(view.buddy_is_child(base), "a member typed by a GDScript class holds an instance of a subclass, which is tests")
+	_check(view.as_child(child) == child and view.as_child(base) == null and view.as_base(child) == child, "as names GDScript classes, and an instance of a subclass is one of its base")
+	view.free()
+	base.free()
+	child.free()
+
 	var frames_before: int = c.frames
 	var freeing := FreeCheck.new()
 	freeing.recorder = self

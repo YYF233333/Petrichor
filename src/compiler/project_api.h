@@ -1,5 +1,7 @@
 #pragma once
 
+#include "compiler/engine_api.h"
+
 #include <optional>
 #include <string>
 #include <vector>
@@ -42,6 +44,19 @@ struct Scene {
 	}
 };
 
+// A class of another language, such as GDScript, as reflection shows it
+// (spec §11.1). Objects are named by the engine class, or by the global name of
+// a script's class.
+struct ForeignClass {
+	std::string native; // The engine class it extends, through the scripts it extends; "" if not known.
+	std::string base; // The script it extends, or "".
+	bool members_known = false;
+	// With those of the scripts it extends.
+	std::vector<EngineProperty> properties;
+	std::vector<EngineMethod> methods;
+	std::vector<EngineMethod> signals;
+};
+
 // What the compiler knows about the project (architecture §2.1). The editor
 // reads it from the engine's scene states; tests describe scenes by hand.
 class ProjectApi {
@@ -59,6 +74,10 @@ public:
 	virtual std::string autoload_path(const std::string &p_name) const = 0;
 	// The source of a script of this language, UTF-8; nullopt if it cannot be read.
 	virtual std::optional<std::string> script_source(const std::string &p_path) const = 0;
+	// A script of another language by its res:// path, nullopt if there is
+	// none; its members only with `p_members`, which loads it, since a script
+	// of this language that is being loaded may load no other.
+	virtual std::optional<ForeignClass> foreign_class(const std::string &p_path, bool p_members) const = 0;
 };
 
 } // namespace petrichor::compiler

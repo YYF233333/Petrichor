@@ -1034,7 +1034,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 引擎边界 | 未审核的、返回对象的引擎方法类型为 `T?`；`get_tree()` 非空，`get_collider()` 可空；未审核的虚函数参数和信号参数为 T，引擎传入 null 是程序错误；未审核的参数接受 None；GDScript 向非空参数传入 null 是程序错误；远程检查器向非空成员写入 null 时原值不变；经信号传出的 struct 是按字段名编码的 Dictionary，`Command.MOVE(target = p)` 是 `{"$variant": "MOVE", "target": p}` |
 | 工具函数 | `min(1.5, 1)` 报编译错误并给出 `min(1.5, 1.0)`；`lerp(a, b, t)` 的结果与 a 同类型；`find_children("*", "MeshInstance3D")` 为 `Array[MeshInstance3D]` |
 | 字符串 | 期望 StringName 的字面量在编译期构造；`&"a" == "a"` 为真；字面量成员名不存在时报编译错误，并参与重命名 |
-| 跨语言 | GDScript 文件继承本语言的类时，分析服务在该文件上报错并说明原因；await GDScript 协程得到按声明类型检查的结果；作为语句调用 GDScript 协程不报错，把它的结果当作值使用而不写 await 是程序错误；GDScript await 本语言的协程，在取消时得到 null 而不挂起；GDScript await 本语言中返回 Transform3D 的协程时没有警告，取消时把结果赋给 Transform3D 变量，在 debug 构建中报赋值错误而不崩溃；GDScript 持有 `p: Player` 时，属性、方法和信号的类型错误报 GDScript 编译错误；`Player.new()` 的类型为 Player，多传实参报 GDScript 编译错误 |
+| 跨语言 | GDScript 文件继承本语言的类时，分析服务在该文件上报错并说明原因；await GDScript 协程得到按声明类型检查的结果；作为语句调用 GDScript 协程不报错，把它的结果当作值使用而不写 await 是程序错误；GDScript await 本语言的协程，在取消时得到 null 而不挂起；GDScript await 本语言中返回 Transform3D 的协程时没有警告，取消时把结果赋给 Transform3D 变量，在 debug 构建中报赋值错误而不崩溃；GDScript 持有 `p: Player` 时，属性、方法和信号的类型错误报 GDScript 编译错误；`Player.new()` 的类型为 Player，多传实参报 GDScript 编译错误；本语言持有 GDScript 类的 `b: Ball` 时，对象类型的成员为 `T?`，值类型照声明，方法和信号实参的类型错误报编译错误；以 GDScript 类为类型的参数接受其 GDScript 子类的实例，`as` 与 `is` 也认子类；没有 class_name 的 GDScript autoload 的类型为其脚本的类 |
 | 热重载 | 只改函数体时，运行中的实例下一次调用使用新代码；修改成员或签名后，运行中的游戏不应用这次修改，此后只改函数体的修改也不应用，直到重新运行 |
 | 重构 | 导出成员改名时场景中的键同时修改；场景编辑器中给节点改名或移动节点时脚本中的 `$X` 同时修改，并在同一撤销步骤中，一次撤销同时还原场景和脚本，一次重做同时恢复；非字面量路径只报告 |
 

@@ -39,6 +39,7 @@ public:
 	std::string global_class_path(const std::string &p_name) const override;
 	std::string autoload_path(const std::string &p_name) const override;
 	std::optional<std::string> script_source(const std::string &p_path) const override;
+	std::optional<compiler::ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override;
 
 	static const SceneIndex &get();
 };

@@ -1,9 +1,11 @@
 #include "adapter/editor/scene_index.h"
 
+#include "adapter/editor/class_db_api.h"
 #include "adapter/editor/project_files.h"
 #include "adapter/pet_compiled.h"
 #include "runtime/text.h"
 
+#include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/packed_scene.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
@@ -185,6 +187,67 @@ std::string SceneIndex::autoload_path(const std::string &p_name) const {
 	}
 	const String value = settings->get_setting(setting);
 	return value.begins_with("*") ? to_utf8(value.substr(1)) : std::string();
+}
+
+std::optional<compiler::ForeignClass> SceneIndex::foreign_class(const std::string &p_path, bool p_members) const {
+	const String path = to_godot(p_path);
+	if (!FileAccess::file_exists(path)) {
+		return std::nullopt;
+	}
+	compiler::ForeignClass result;
+	if (!p_members) {
+		// The global class list says what each global class extends, without
+		// loading its script.
+		const TypedArray<Dictionary> classes = ProjectSettings::get_singleton()->get_global_class_list();
+		const auto entry_where = [&](const char *p_key, const Variant &p_value) {
+			for (int64_t i = 0; i < classes.size(); i++) {
+				const Dictionary entry = classes[i];
+				if (entry.get(p_key, Variant()) == p_value) {
+					return entry;
+				}
+			}
+			return Dictionary();
+		};
+		for (Dictionary entry = entry_where("path", path); !entry.is_empty();) {
+			const StringName base = entry.get("base", StringName());
+			if (ClassDBSingleton::get_singleton()->class_exists(base)) {
+				result.native = to_utf8(base);
+				break;
+			}
+			entry = entry_where("class", base);
+			if (result.base.empty() && !entry.is_empty()) {
+				result.base = to_utf8(entry.get("path", String()));
+			}
+		}
+		return result;
+	}
+	const Ref<Script> script = ResourceLoader::get_singleton()->load(path, "Script");
+	if (script.is_null()) {
+		return std::nullopt;
+	}
+	result.native = to_utf8(script->get_instance_base_type());
+	const Ref<Script> base = script->get_base_script();
+	if (base.is_valid()) {
+		result.base = to_utf8(base->get_path());
+	}
+	const TypedArray<Dictionary> properties = script->get_script_property_list();
+	for (int64_t i = 0; i < properties.size(); i++) {
+		const Dictionary info = properties[i];
+		// Members; the list also has the groups and categories of exports.
+		if (uint32_t(int(info.get("usage", 0))) & PROPERTY_USAGE_SCRIPT_VARIABLE) {
+			result.properties.push_back({ to_utf8(info.get("name", String())), type_of(info, false), true, p_path });
+		}
+	}
+	const TypedArray<Dictionary> methods = script->get_script_method_list();
+	for (int64_t i = 0; i < methods.size(); i++) {
+		result.methods.push_back(method_of(methods[i], p_path));
+	}
+	const TypedArray<Dictionary> signals = script->get_script_signal_list();
+	for (int64_t i = 0; i < signals.size(); i++) {
+		result.signals.push_back(method_of(signals[i], p_path));
+	}
+	result.members_known = true;
+	return result;
 }
 
 std::optional<std::string> SceneIndex::script_source(const std::string &p_path) const {

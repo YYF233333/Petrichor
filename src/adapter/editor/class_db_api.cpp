@@ -16,8 +16,6 @@ using compiler::EngineProperty;
 using compiler::Type;
 using compiler::TypeKind;
 
-namespace {
-
 // Objects the engine hands out are nullable until audited (spec §10.2).
 Type type_of(const Dictionary &p_property, bool p_is_return) {
 	const Variant::Type type = Variant::Type(int(p_property.get("type", Variant::NIL)));
@@ -44,7 +42,23 @@ Type type_of(const Dictionary &p_property, bool p_is_return) {
 	}
 }
 
-} // namespace
+EngineMethod method_of(const Dictionary &p_info, const std::string &p_owner) {
+	EngineMethod method;
+	method.name = to_utf8(p_info.get("name", String()));
+	method.owner = p_owner;
+	const uint32_t flags = uint32_t(int(p_info.get("flags", 0)));
+	method.is_virtual = flags & (METHOD_FLAG_VIRTUAL | METHOD_FLAG_VIRTUAL_REQUIRED);
+	method.is_static = flags & METHOD_FLAG_STATIC;
+	method.is_vararg = flags & METHOD_FLAG_VARARG;
+	const Array args = p_info.get("args", Array());
+	for (int64_t a = 0; a < args.size(); a++) {
+		const Dictionary arg = args[a];
+		method.params.push_back({ to_utf8(arg.get("name", String())), type_of(arg, false) });
+	}
+	method.default_count = int(Array(p_info.get("default_args", Array())).size());
+	method.return_type = type_of(p_info.get("return", Dictionary()), true);
+	return method;
+}
 
 const ClassDBApi &ClassDBApi::get() {
 	static const ClassDBApi api;
@@ -66,24 +80,9 @@ std::optional<EngineMethod> ClassDBApi::find_method(const std::string &p_class, 
 		const TypedArray<Dictionary> methods = db->class_get_method_list(cls, true);
 		for (int64_t i = 0; i < methods.size(); i++) {
 			const Dictionary info = methods[i];
-			if (StringName(info.get("name", String())) != method_name) {
-				continue;
+			if (StringName(info.get("name", String())) == method_name) {
+				return method_of(info, to_utf8(cls));
 			}
-			EngineMethod method;
-			method.name = p_method;
-			method.owner = to_utf8(cls);
-			const uint32_t flags = uint32_t(int(info.get("flags", 0)));
-			method.is_virtual = flags & (METHOD_FLAG_VIRTUAL | METHOD_FLAG_VIRTUAL_REQUIRED);
-			method.is_static = flags & METHOD_FLAG_STATIC;
-			method.is_vararg = flags & METHOD_FLAG_VARARG;
-			const Array args = info.get("args", Array());
-			for (int64_t a = 0; a < args.size(); a++) {
-				const Dictionary arg = args[a];
-				method.params.push_back({ to_utf8(arg.get("name", String())), type_of(arg, false) });
-			}
-			method.default_count = int(Array(info.get("default_args", Array())).size());
-			method.return_type = type_of(info.get("return", Dictionary()), true);
-			return method;
 		}
 	}
 	return std::nullopt;
@@ -99,14 +98,7 @@ std::optional<EngineMethod> ClassDBApi::find_signal(const std::string &p_class, 
 	if (info.is_empty()) {
 		return std::nullopt;
 	}
-	EngineMethod signal;
-	signal.name = p_signal;
-	const Array args = info.get("args", Array());
-	for (int64_t a = 0; a < args.size(); a++) {
-		const Dictionary arg = args[a];
-		signal.params.push_back({ to_utf8(arg.get("name", String())), type_of(arg, false) });
-	}
-	return signal;
+	return method_of(info, std::string());
 }
 
 bool ClassDBApi::can_instantiate(const std::string &p_class) const {

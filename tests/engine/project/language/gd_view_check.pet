@@ -1,0 +1,24 @@
+# GDScript classes as reflection shows them (spec §11.1): GdViewBase and its
+# subclass GdViewChild. Driven by language_test.gd.
+class_name GdViewCheck
+extends Node
+
+pub func doubled(base: GdViewBase) -> int:
+	return base.hit(21)
+
+pub func faster(base: GdViewBase) -> float:
+	base.speed = base.speed * 2.0
+	return base.speed
+
+pub func score(base: GdViewBase):
+	base.scored.emit(7)
+
+pub func buddy_is_child(base: GdViewBase) -> bool:
+	var buddy: GdViewBase? = base.buddy
+	return buddy != None and buddy is GdViewChild
+
+pub func as_child(node: Node) -> GdViewChild?:
+	return node as GdViewChild
+
+pub func as_base(node: Node) -> GdViewBase?:
+	return node as GdViewBase

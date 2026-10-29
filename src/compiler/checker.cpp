@@ -207,6 +207,7 @@ class Checker : public ClassRelation {
 	std::unordered_map<std::string, int> member_index;
 	std::unordered_map<std::string, int> function_index;
 	std::unordered_map<std::string, int> signal_index;
+	mutable std::unordered_map<std::string, std::optional<ForeignClass>> foreign_classes; // By path.
 
 	void error(int p_line, int p_column, const std::string &p_message) {
 		errors.push_back({ p_line, p_column, p_message });
@@ -248,8 +249,109 @@ class Checker : public ClassRelation {
 		return p_path.substr(slash == std::string::npos ? 0 : slash + 1);
 	}
 
+	/* Classes of other languages (spec §11.1) */
+
+	// Without its members while only the declarations are checked, when the
+	// script being loaded may load no other.
+	const ForeignClass *foreign_class(const std::string &p_path) const {
+		auto found = foreign_classes.find(p_path);
+		if (found == foreign_classes.end()) {
+			found = foreign_classes.emplace(p_path, options.project ? options.project->foreign_class(p_path, !options.declarations_only) : std::nullopt).first;
+		}
+		return found->second ? &*found->second : nullptr;
+	}
+
+	// A class reflection names: an engine class, or a script's class by its
+	// global name, as GDScript names it (modules/gdscript/gdscript_parser.cpp:5457-5465).
+	Type localized(Type p_type) {
+		for (Type &arg : p_type.args) {
+			arg = localized(arg);
+		}
+		if (p_type.kind != TypeKind::Object || !p_type.script.empty() || engine.class_exists(p_type.name)) {
+			return p_type;
+		}
+		const std::string path = options.project ? options.project->global_class_path(p_type.name) : std::string();
+		Type local = Type::object("Object");
+		if (is_script_path(path)) {
+			if (const ClassDecl *header = script_header(path)) {
+				local = script_class_type(*header, path);
+			}
+		} else if (const ForeignClass *foreign = path.empty() ? nullptr : foreign_class(path)) {
+			if (!foreign->native.empty()) {
+				local = Type::script_class(p_type.name, path, foreign->native);
+			}
+		}
+		local.nullable = p_type.nullable;
+		return local;
+	}
+
+	// While only the declarations are checked, the members of a class of
+	// another language are not known, as the scenes are not.
+	Type unknown_foreign(Expr &r_expr, const Type &p_class) {
+		if (options.declarations_only) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		return fail(r_expr, p_class.name + " (" + p_class.script + ") cannot be read.");
+	}
+
+	// GDScript has no pub: its members are all reached by name.
+	std::optional<Type> foreign_member(Expr &r_expr, const Type &p_class) {
+		const ForeignClass *foreign = foreign_class(p_class.script);
+		if (!foreign || !foreign->members_known) {
+			return unknown_foreign(r_expr, p_class);
+		}
+		for (const EngineProperty &property : foreign->properties) {
+			if (property.name == r_expr.text) {
+				if (!property.type.is_storable()) {
+					return fail(r_expr, "The property \"" + r_expr.text + "\" has type " + property.type.to_string() + ", which is not supported yet.");
+				}
+				r_expr.target = Target::ObjectProperty;
+				r_expr.owner = p_class.engine_class();
+				return localized(property.type);
+			}
+		}
+		for (const EngineMethod &signal : foreign->signals) {
+			if (signal.name == r_expr.text) {
+				r_expr.target = Target::ObjectSignal;
+				return localized(signal_type(signal));
+			}
+		}
+		return std::nullopt;
+	}
+
+	std::optional<Type> foreign_method(Expr &r_expr, const Type &p_class) {
+		const ForeignClass *foreign = foreign_class(p_class.script);
+		if (!foreign || !foreign->members_known) {
+			return unknown_foreign(r_expr, p_class);
+		}
+		for (const EngineMethod &method : foreign->methods) {
+			if (method.name == r_expr.text) {
+				EngineMethod local = method;
+				for (EngineParam &param : local.params) {
+					param.type = localized(param.type);
+				}
+				local.return_type = localized(local.return_type);
+				return check_engine_call(r_expr, local);
+			}
+		}
+		return std::nullopt;
+	}
+
+	// The script itself, or one it extends: only scripts of other languages
+	// extend scripts, so far.
+	bool extends_script(const std::string &p_script, const std::string &p_base) const {
+		for (std::string script = p_script; !script.empty();) {
+			if (script == p_base) {
+				return true;
+			}
+			const ForeignClass *foreign = is_script_path(script) ? nullptr : foreign_class(script);
+			script = foreign ? foreign->base : std::string();
+		}
+		return false;
+	}
+
 	bool implements(const Type &p_class, const Type &p_interface) const {
-		if (p_class.script.empty() || p_class.is_interface) {
+		if (!is_script_path(p_class.script) || p_class.is_interface) {
 			return false; // Only this language's classes implement interfaces (spec §3.9).
 		}
 		const ClassDecl *decl = script_decl(p_class.script);
@@ -272,7 +374,7 @@ class Checker : public ClassRelation {
 			return p_to.script.empty() && p_to.name == "Object";
 		}
 		if (!p_to.script.empty()) {
-			return p_from.script == p_to.script; // Classes of this language extend engine classes only, so far.
+			return extends_script(p_from.script, p_to.script);
 		}
 		return engine.inherits(p_from.engine_class(), p_to.name);
 	}
@@ -305,8 +407,16 @@ class Checker : public ClassRelation {
 			return std::nullopt;
 		}
 		if (!is_script_path(path)) {
-			error(p_ref.line, p_ref.column, head + " is a class of another language, which is not supported as a type yet (spec §11.1).");
-			return Type::of(TypeKind::Error);
+			const ForeignClass *foreign = foreign_class(path);
+			if (dot != std::string::npos) {
+				error(p_ref.line, p_ref.column, head + " is a class of another language, which has no interfaces.");
+				return Type::of(TypeKind::Error);
+			}
+			if (!foreign || foreign->native.empty()) {
+				error(p_ref.line, p_ref.column, head + " (" + path + ") cannot be read.");
+				return Type::of(TypeKind::Error);
+			}
+			return Type::script_class(head, path, foreign->native);
 		}
 		const ClassDecl *header = script_header(path);
 		if (!header) {
@@ -565,7 +675,13 @@ class Checker : public ClassRelation {
 		if (!autoload.empty()) {
 			// Its type is its script's class (spec §7.3).
 			if (!is_script_path(autoload)) {
-				return fail(r_expr, "The autoload " + r_expr.text + " is a script of another language, which is not supported as a type yet (spec §11.1).");
+				const ForeignClass *foreign = foreign_class(autoload);
+				if (!foreign || foreign->native.empty()) {
+					// Without loading it, which only the declarations do not, a script without a global name is not known.
+					return options.declarations_only ? set(r_expr, Type::of(TypeKind::Error)) : fail(r_expr, "The autoload " + r_expr.text + " (" + autoload + ") cannot be read.");
+				}
+				r_expr.target = Target::Autoload;
+				return set(r_expr, Type::script_class(r_expr.text, autoload, foreign->native));
 			}
 			const ClassDecl *header = script_header(autoload);
 			if (!header) {
@@ -584,6 +700,9 @@ class Checker : public ClassRelation {
 	// code reaches by name, so only when it is pub (spec §10.5); nullopt when
 	// the class has no such member, so that the engine class's are looked at.
 	std::optional<Type> script_member(Expr &r_expr, const Type &p_class) {
+		if (!is_script_path(p_class.script)) {
+			return foreign_member(r_expr, p_class);
+		}
 		const ClassDecl *decl = script_decl(p_class.script);
 		if (!decl) {
 			return fail(r_expr, p_class.script + " has errors.");
@@ -651,6 +770,9 @@ class Checker : public ClassRelation {
 	// interface, which this language calls directly (spec §8.1); an override
 	// of an engine virtual method is called through the engine, which runs it.
 	std::optional<Type> script_method(Expr &r_expr, const Type &p_class) {
+		if (!p_class.is_interface && !is_script_path(p_class.script)) {
+			return foreign_method(r_expr, p_class);
+		}
 		const FuncDecl *callee = nullptr;
 		if (p_class.is_interface) {
 			if (const InterfaceDecl *interface = interface_decl(p_class)) {

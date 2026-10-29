@@ -41,15 +41,6 @@ const TypeOps &ops(ValueType p_type) {
 	return type_ops[size_t(p_type)];
 }
 
-// A class of this language is its script; with no script asked for, any will do.
-bool has_script(const Variant &p_script, const String &p_path) {
-	if (p_path.is_empty()) {
-		return true;
-	}
-	const Ref<Script> script = p_script;
-	return script.is_valid() && script->get_path() == p_path;
-}
-
 /* Diagnostics */
 
 // A script by its class_name, or its path when it has none.
@@ -388,6 +379,18 @@ Variant::Type variant_type(ValueType p_type) {
 		return Variant::NIL;
 	}
 	return Variant::Type(uint32_t(p_type));
+}
+
+bool has_script(const Variant &p_script, const String &p_path) {
+	if (p_path.is_empty()) {
+		return true;
+	}
+	for (Ref<Script> script = p_script; script.is_valid(); script = script->get_base_script()) {
+		if (script->get_path() == p_path) {
+			return true;
+		}
+	}
+	return false;
 }
 
 bool is_live_object(const uint8_t *p_slot) {

@@ -2,7 +2,14 @@
 
 #include "compiler/engine_api.h"
 
+#include <godot_cpp/variant/dictionary.hpp>
+
 namespace petrichor {
+
+// A property, argument or return value as the engine describes it.
+compiler::Type type_of(const godot::Dictionary &p_property, bool p_is_return);
+// A method or a signal as the engine describes it.
+compiler::EngineMethod method_of(const godot::Dictionary &p_info, const std::string &p_owner);
 
 // The compiler's view of the engine in the editor, read from ClassDB, so that
 // classes of other extensions and newer engines are included (architecture §2.1).

@@ -7,13 +7,14 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Static checks of must-assign exports in scenes, in resources and at export (spec §7.5).
 - A warning for removed nodes that are neither stored nor freed (spec §15).
 - Preload cycles (spec §7.6), and preload of resources other than scenes.
-- Inheritance between classes of this language; the static view of GDScript classes (spec §11.1).
+- Inheritance between classes of this language.
+- Of GDScript classes (spec §11.1): `new()`, static methods, constants and enums, inner classes; nodes in scenes typed by their GDScript class rather than its engine class.
 - Members that are not pub of another instance of the same class, which the engine reaches by name while reflection lists only pub ones.
 - The check of `@onready` members of value types read before ready.
 - `Dictionary[K, V]`; StringName and NodePath literals; `self` as a value.
 - `Array[T]?`; `pop_front()` and `pop_back()` of `Array[T?]`, which give `T??`.
 - Class annotations such as `@tool` and `@icon`.
-- Reading the elements of an untyped Array.
+- Values of type Variant (spec §3.13), which untyped members, parameters and results of GDScript classes have (§11.1); reading the elements of an untyped Array.
 - Default values other than literals; static members; `_init()` with parameters.
 - Assigning to an element, `a[i] = v`; calling a function value other than through `bind()`; `==` between objects.
 - In debug builds, reporting where a freed instance was freed and where the instances still alive at exit were made (spec §3.3, §6.7, §12.5).

@@ -91,6 +91,9 @@ inline bool is_none(const godot::Variant &p_value) {
 }
 // An Object slot that holds a live object; freed objects read as None (spec §3.3).
 bool is_live_object(const uint8_t *p_slot);
+// A class of a script is the script and those that extend it; with no script
+// asked for, any will do.
+bool has_script(const godot::Variant &p_script, const godot::String &p_path);
 // The value of a slot as it leaves this language: a T? whose object was
 // freed reads as None (spec §3.3).
 godot::Variant outward_variant(const bytecode::Slot &p_slot, const uint8_t *p_data);

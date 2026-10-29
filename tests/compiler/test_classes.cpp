@@ -4,6 +4,8 @@
 
 using namespace petrichor;
 using namespace petrichor::tests;
+using compiler::Type;
+using compiler::TypeKind;
 
 // Other classes of this language (spec §11.1): by class_name, as autoloads
 // (§7.3), and their interfaces (§3.9). The scripts are cut down from the FPS
@@ -22,8 +24,50 @@ FakeProject project() {
 	project.add_script("res://broken.pet", "extends Node\nclass_name Broken\npub var x: int = \"no\"\n", "Broken");
 	project.add_script("res://a.pet", "class_name A\nextends Node\npub var b: B?\n", "A");
 	project.add_script("res://b.pet", "class_name B\nextends Node\npub var a: A?\n", "B");
-	project.global_classes["Legacy"] = "res://legacy.gd";
 	project.autoloads["Audio"] = "res://audio.pet";
+	project.global_classes["Gone"] = "res://gone.gd";
+
+	// GDScript classes as reflection shows them (spec §11.1).
+	compiler::ForeignClass legacy;
+	legacy.native = "Node3D";
+	legacy.properties = {
+		{ "target", Type::object("Node3D", true), true, "res://legacy.gd" },
+		{ "speed", Type::of(TypeKind::Float), true, "res://legacy.gd" },
+		{ "anything", Type::of(TypeKind::Variant), true, "res://legacy.gd" },
+		{ "buddy", Type::object("Legacy", true), true, "res://legacy.gd" },
+	};
+	compiler::EngineMethod hit;
+	hit.name = "hit";
+	hit.owner = "res://legacy.gd";
+	hit.params = { { "amount", Type::of(TypeKind::Int) } };
+	hit.return_type = Type::of(TypeKind::Bool);
+	legacy.methods = { hit };
+	compiler::EngineMethod scored;
+	scored.name = "scored";
+	scored.params = { { "points", Type::of(TypeKind::Int) } };
+	legacy.signals = { scored };
+	project.foreign["res://legacy.gd"] = legacy;
+	project.global_classes["Legacy"] = "res://legacy.gd";
+
+	compiler::ForeignClass old_legacy;
+	old_legacy.native = "Node3D";
+	old_legacy.base = "res://legacy.gd";
+	old_legacy.properties = legacy.properties;
+	project.foreign["res://old_legacy.gd"] = old_legacy;
+	project.global_classes["OldLegacy"] = "res://old_legacy.gd";
+
+	// An autoload without a class_name.
+	compiler::ForeignClass values;
+	values.native = "Node";
+	values.properties = { { "drop_percent", Type::of(TypeKind::Float), true, "res://value_manager.gd" } };
+	compiler::EngineMethod spawn;
+	spawn.name = "spawn";
+	spawn.owner = "res://value_manager.gd";
+	spawn.params = { { "count", Type::of(TypeKind::Int) } };
+	spawn.return_type = Type::of(TypeKind::Void);
+	values.methods = { spawn };
+	project.foreign["res://value_manager.gd"] = values;
+	project.autoloads["ValueManager"] = "res://value_manager.gd";
 	return project;
 }
 
@@ -147,9 +191,45 @@ TEST_CASE("classes may refer to each other") {
 }
 
 TEST_CASE("names that are not classes of this language") {
-	CHECK(contains(errors("var x: Legacy"), "Legacy is a class of another language"));
+	CHECK(contains(errors("var x: Gone"), "Gone (res://gone.gd) cannot be read."));
+	CHECK(contains(errors("var x: Legacy.Thing"), "Legacy is a class of another language, which has no interfaces."));
 	CHECK(contains(errors("var x: Broken? = None\n\tif x != None:\n\t\tprint(x.x)"), "res://broken.pet has errors"));
 	CHECK(contains(errors("var x: Combat.Nope"), "Combat declares no interface \"Nope\""));
+}
+
+TEST_CASE("GDScript classes and autoloads as reflection shows them (spec §11.1)") {
+	const auto in = [](const std::string &p_body) {
+		return messages(compile_in("extends Node\n\nfunc f(l: Legacy, old: OldLegacy, n: Node) -> void:\n\t" + p_body + "\n", project()));
+	};
+	// Objects are T?, value types as declared, untyped ones Variant.
+	CHECK(in("var t: Node3D? = l.target\n\tvar s: float = l.speed\n\tvar b: Legacy? = l.buddy").empty());
+	CHECK(contains(in("var t: Node3D = l.target"), "Node3D?"));
+	CHECK(contains(in("var s: int = l.speed"), "int(x)"));
+	CHECK(contains(in("print(l.anything + 1)"), "Variant"));
+	CHECK(in("l.speed = 2.5").empty());
+	CHECK(contains(in("print(l.nope)"), "Legacy has no property \"nope\""));
+	CHECK(in("print(l.position)").empty());
+
+	// Methods and signals are checked like the engine's.
+	CHECK(in("var hit: bool = l.hit(3)\n\tl.scored.emit(10)").empty());
+	CHECK(contains(in("l.hit(\"no\")"), "String"));
+	CHECK(contains(in("l.scored.emit(\"no\")"), "String"));
+
+	// A class extends the scripts it extends; as and is name them.
+	CHECK(in("var as_base: Legacy = old\n\tvar l2: Legacy? = n as Legacy\n\tif n is OldLegacy:\n\t\tpass").empty());
+	CHECK(contains(in("var o: OldLegacy = l"), "OldLegacy"));
+
+	// An autoload is typed by its script's class, also without a class_name.
+	CHECK(in("var p: float = ValueManager.drop_percent * 2.0\n\tValueManager.spawn(3)").empty());
+	CHECK(contains(in("ValueManager.spawn(\"no\")"), "String"));
+}
+
+TEST_CASE("the declarations do not load scripts of other languages (spec §11.1)") {
+	// The global class list names a class's base; members, and an autoload
+	// without a class_name, are known only when the script is loaded.
+	const compiler::CompileResult result = compile_in(
+			"extends Node\n\npub var buddy: Legacy?\nvar percent = ValueManager.drop_percent\n\npub func take(l: OldLegacy) -> Legacy:\n\treturn l\n", project(), true);
+	CHECK_MESSAGE(result.ok(), messages(result));
 }
 
 TEST_CASE("implements: the class has every method of the interface, pub and with its signature (spec §3.9)") {

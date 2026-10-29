@@ -5,6 +5,7 @@
 #include "doctest.h"
 #include "fake_engine.h"
 
+#include <algorithm>
 #include <map>
 #include <optional>
 #include <string>
@@ -28,6 +29,7 @@ public:
 	std::map<std::string, std::string> sources; // By res:// path.
 	std::map<std::string, std::string> global_classes; // class_name to path.
 	std::map<std::string, std::string> autoloads; // Global name to path.
+	std::map<std::string, compiler::ForeignClass> foreign; // Scripts of other languages, by path.
 
 	// Adds a script of this language, with its class_name if it has one.
 	void add_script(const std::string &p_path, const std::string &p_source, const std::string &p_class_name = std::string()) {
@@ -72,6 +74,27 @@ public:
 	std::optional<std::string> script_source(const std::string &p_path) const override {
 		const auto found = sources.find(p_path);
 		return found == sources.end() ? std::nullopt : std::optional<std::string>(found->second);
+	}
+
+	// As the editor answers: without loading the script, only what the global
+	// class list says.
+	std::optional<compiler::ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override {
+		const auto found = foreign.find(p_path);
+		if (found == foreign.end()) {
+			return std::nullopt;
+		}
+		compiler::ForeignClass result = found->second;
+		result.members_known = p_members;
+		if (!p_members) {
+			result.properties.clear();
+			result.methods.clear();
+			result.signals.clear();
+			const bool named = std::any_of(global_classes.begin(), global_classes.end(), [&](const auto &p_entry) { return p_entry.second == p_path; });
+			if (!named) {
+				result.native.clear();
+			}
+		}
+		return result;
 	}
 };
 

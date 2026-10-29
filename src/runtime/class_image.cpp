@@ -259,13 +259,7 @@ bool ClassImage::fits_class(const Object *p_object, uint32_t p_index) const {
 	if (!class_interfaces[p_index].is_empty()) {
 		return implements_interface(const_cast<Object *>(p_object), class_interfaces[p_index]);
 	}
-	if (!class_scripts[p_index].is_empty()) {
-		// Classes of this language extend engine classes only, so far: the
-		// object's script is the class's.
-		const Ref<Script> script = p_object->get_script();
-		return script.is_valid() && script->get_path() == class_scripts[p_index];
-	}
-	return true;
+	return has_script(p_object->get_script(), class_scripts[p_index]);
 }
 
 int ClassImage::find_function(const StringName &p_name) const {
