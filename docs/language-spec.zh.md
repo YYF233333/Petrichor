@@ -170,6 +170,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 对象被释放后：
   - 读取 `T?` 类型的引用时，已释放的对象读作 None，所以 `!= None` 检查和由它带来的收窄（§5.4）同时就是存活检查；
   - `T` 类型的引用仍可以持有已释放的对象，读取、比较和传参不算访问，访问其成员是程序错误；`==` 比较 ObjectID，所以两个不同的已释放对象不相等（§5.2）。debug 构建中，若对象是本语言的实例或由本语言代码释放，诊断写明它在哪里被释放；
+  - 例外是引擎不检查存活就使用对象的地方：把已释放的对象传给引擎声明为对象类型的参数、写入对象类型的引擎属性，或交给元素为对象类型的 `Array[T]`（如 `append`、`erase`、`has`），是程序错误。引擎把 Variant 中的指针直接取出来用（`core/variant/variant.cpp:2024-2026`，`core/variant/binder_common.h:58-61`），带类型的 Array 只在 debug 构建中先查 ObjectDB（`core/variant/container_type_validate.h:89-112`）。GDScript 在这里原样交出（`modules/gdscript/gdscript_vm.cpp:2046-2055, 2072`），引擎可能用上占据了同一块内存的另一个对象。其余声明为 Variant 的参数不受影响，例如 `is_instance_valid` 先检查存活（`core/variant/variant_utility.cpp:1133-1137`）；
   - `is` 对已释放的对象为假，`as` 得到 None，对所有静态类型都如此，所以类型检查同时也是存活检查。GDScript 在这里运行时出错（`modules/gdscript/gdscript_vm.cpp:942-947, 1665-1669`）；
   - 对象在自己的方法运行中被释放，或被卸下本语言的脚本时，该方法继续运行，直到访问成员或 self，这是程序错误。GDScript 在这里读写已释放的成员（`modules/gdscript/gdscript_vm.cpp:751`，`modules/gdscript/gdscript.cpp:2066-2084`）；
   - `queue_free()` 之后、帧末真正删除之前，对象仍算存活：引擎把它放入删除队列，在每个物理步和处理帧的末尾删除（`scene/main/node.cpp:3461-3471`，`scene/main/scene_tree.cpp:666, 735, 1626-1643`）。`is_instance_valid` 的行为与 GDScript 相同。
@@ -999,7 +1000,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 |---|---|
 | 语法硬规则 | 本文中每一处与 GDScript 不同的规则，对应的 GDScript 写法都得到编译错误和改法；运行时行为不同的，只限 §1.2 所列的例外，即 GDScript 在那里运行时出错或悄悄得到错误结果 |
 | 数值 | `var hp: int = 10; hp = 2.5` 报编译错误，`hp = int(2.5)` 得 2；int 实参传给 float 参数无需转换；`7 / 2` 得 3；`Vector2i(1, 2) * 0.5` 为 Vector2；`Vector2() + Vector2i()` 报编译错误；整数除以 0 是程序错误；超出 int32 范围的值传给引擎的 int32 参数是程序错误，-1 写入 uint32 属性 `collision_layer` 也是，int32 的最大值和 0 照常传入 |
-| 可空与释放 | 已释放对象经 `T?` 读出为 None；经 `T` 访问成员是程序错误，debug 构建中，本语言实例的诊断写明释放位置；`queue_free()` 之后、帧末之前仍算存活；两个不同的 Node 释放后，以 Node 比较为假，以 `Node?` 比较为真；已释放的 Node 上 `x is Sprite2D` 为假，`x as Sprite2D` 为 None；方法中 `free()` 自身或卸下脚本之后读成员是程序错误，不读成员直接返回则正常结束 |
+| 可空与释放 | 已释放对象经 `T?` 读出为 None；经 `T` 访问成员是程序错误，debug 构建中，本语言实例的诊断写明释放位置；`queue_free()` 之后、帧末之前仍算存活；两个不同的 Node 释放后，以 Node 比较为假，以 `Node?` 比较为真；已释放的 Node 上 `x is Sprite2D` 为假，`x as Sprite2D` 为 None；方法中 `free()` 自身或卸下脚本之后读成员是程序错误，不读成员直接返回则正常结束；已释放的 Node 传给 `add_child`、写入 `owner` 或 `append` 到 `Array[Node]` 是程序错误，传给 `is_instance_valid` 得到 false |
 | Option 与 Result | `?` 在 None 或 `Err` 时从当前函数返回；在返回 void 的函数中使用 `?` 报编译错误；Option 传播到返回 Result 的函数报编译错误；`await f()?` 等于 `(await f())?`；丢弃 Result 报编译错误；`unwrap` 失败是程序错误 |
 | 嵌套的 Option | `Array[Enemy?]` 为空时 `pop_back()` 得 None，末元素为 None 时得包含 None 的 Some；`var x: Enemy?? = maybe_enemy` 得 Some；`Dictionary[String, Variant]` 中缺键得 None，值为 null 得包含 NIL 的 Some；把 `int??` 或 `Variant?` 传给 Variant 参数报编译错误并给出 `.flatten()` 或 `.unwrap_or(null)`；`var x: Enemy?? = Some(None)` 得包含 None 的 Some；对 `Enemy?` 的 match 有 `Some(var e)` 和 `None` 两个分支即为穷尽 |
 | struct 与带载荷的 enum | 在方法中给 self 的字段赋值报编译错误；`player.last_hit.damage = 3` 调用 `last_hit` 的 setter；`hits[0].damage = 3` 之后 `hits[0].damage` 为 3；`get_hit().damage = 3` 报编译错误；`var b = a; b.damage = 1` 不改变 a；struct 的 Array 字段在复制后仍共享；字段相同的两个 struct 相等，作为 Dictionary 键时命中同一项；`c.target` 报编译错误；`@export` 带载荷的 enum 报编译错误；`struct ListNode` 中声明 `var next: ListNode?` 报编译错误，`Tree[T]` 经 Array 递归合法；含 Array 字段的 struct 作 Dictionary 的键报编译错误 |
@@ -1056,6 +1057,9 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | Array 的 `==` 逐元素用 `hash_compare`，它要求元素类型相同 | `core/variant/array.cpp:155-158`；`core/variant/variant.cpp:3176-3179` |
 | Dictionary 的 `==` 按键查找后逐项比较值，与顺序无关 | `core/variant/dictionary.cpp:255-285` |
 | 已释放的对象在条件中为假：对象的 `is_zero` 检查对象是否仍然有效 | `core/variant/variant.cpp:952-953`；`core/variant/variant_op.cpp:1120-1122` |
+| Variant 转为对象指针时不检查对象是否存活；引擎方法的对象参数经它取出，debug 构建按类检查时就使用这个指针，release 构建直接交给方法 | `core/variant/variant.cpp:2024-2026`；`core/variant/binder_common.h:58-61`；`core/variant/variant_caster.h:139-140` |
+| 带类型的 Array 收到对象时，debug 构建先查 ObjectDB，拒绝已释放的对象，release 构建直接使用指针；`append`、`erase`、`has` 等都经过这一检查 | `core/variant/container_type_validate.h:89-112`；`core/variant/array.cpp:285, 350, 499` |
+| `is_instance_valid` 先检查对象是否存活 | `core/variant/variant_utility.cpp:1133-1137` |
 | min、max、clamp 原样返回其中一个实参 | `core/variant/variant_utility.cpp:642-759` |
 | `find_children` 只收入 `is_class` 给定类名的节点，或脚本是该全局类的节点 | `scene/main/node.cpp:2031-2042` |
 | lerp 要求两个实参类型相同 | `core/variant/variant_utility.cpp:465-469` |
@@ -1135,6 +1139,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | match 的模式 | `modules/gdscript/gdscript_parser.cpp:2487-2711` |
 | `as` 转为对象类型失败时得到 null | `modules/gdscript/gdscript_vm.cpp:1677-1678` |
 | GDScript 对已释放的对象做 `is` 时报错并中止，release 构建也一样；做 `as` 时只在 debug 构建中报错 | `modules/gdscript/gdscript_vm.cpp:942-947, 1665-1669` |
+| GDScript 调用引擎方法时，debug 构建只检查基对象是否已释放，实参原样交出 | `modules/gdscript/gdscript_vm.cpp:2046-2055, 2072` |
 | `as` 转为内置类型时按构造函数转换，转换失败只在 debug 构建中报错 | `modules/gdscript/gdscript_vm.cpp:1642-1650` |
 | GDScript 在运行时遇到运算表中没有的组合时报错；运算数类型与首次执行时不同的情况只在 debug 构建中检查，release 构建得到 null | `modules/gdscript/gdscript_vm.cpp:793-798, 821-843` |
 | `for` 可以遍历 float 和向量 | `modules/gdscript/gdscript_vm.cpp:3092-3229` |
