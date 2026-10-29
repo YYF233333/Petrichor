@@ -1,0 +1,4 @@
+#!/bin/sh
+root=$(git rev-parse --show-toplevel) || exit $?
+cd "$root" || exit $?
+exec python tools/check_dashboard.py --staged
