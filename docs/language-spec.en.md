@@ -888,7 +888,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 12.2 Performance
 
 - Clearly faster than GDScript; C# is not the target. Most scripts never hit the interpreter's performance limits.
-- The interpreter must reach the performance goal on its own: iOS and most consoles do not allow generating machine code at runtime, and a copy-and-patch style JIT is only an extra on desktop.
+- Native code comes from one code generator with several backends, used both for generating it at run time (a JIT) and ahead of time; it compiles a function at a time and does not trace: the types are known at compile time and need no traced run to be found, and generation ahead of time has no run to trace. iOS and most consoles do not allow generating machine code at run time, so there it can only be generated ahead of time. [Open] When it is generated: at run time, at export, or both; if only at run time, the interpreter alone must reach the performance goal on iOS and consoles.
 
 ### 12.3 Threads
 
@@ -991,7 +991,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 14.3 Open questions
 
-None at present.
+- When native code is generated: at run time, at export, or both (§12.2).
 
 ## 15. Conformance checklist (non-normative)
 
@@ -1180,6 +1180,7 @@ The following facts are based on Godot 4.7.2-stable (commit `ed1daf0`); paths ar
 | Delivery as an engine module (v0.1) | The pitfall catalog has no item only a module could fix; a GDExtension works with the official editor and export templates | §1.3 |
 | Narrow integer types such as i32 and u8 (v0.1) | The largest migration cost ([paper migration](surveys/paper-migration.en.md)); scripts rarely care about the performance of numeric types | §3.2 |
 | Inferring function signatures (v0.1) | Signatures are contracts and should not change with the body | §4.6 |
+| A JIT that compiles traces | The types are known at compile time, which gives the specialization that tracing a run would; generation ahead of time has no run to trace, so the two could not share one code generator | §12.2 |
 | Inner blocks shadowing the locals of outer ones, as in C++, Rust and Swift | GDScript forbids it, so migrated code never does it; the restriction can be relaxed compatibly later | §4.6 |
 | Cross-language inheritance at the language level | Depends on GDScript's internal implementation | §11.2 |
 | Optional chaining `?.`, defaulting `??`, postfix `!` | Combined with Result's short-circuit return, the meaning of `x?.y` would depend on the type of x; methods suffice for Option | §3.4, §8.2 |
