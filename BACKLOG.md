@@ -21,8 +21,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Runtime
 
-- A type descriptor for every type (architecture §2.2), replacing the Variant slots of objects and of `T?` of value types; `T??`, structs and enums with payloads need it.
-- Engine methods called through ptrcall.
+- A type descriptor for every type (architecture §2.2), replacing the Variant slots of objects and of `T?` of value types; `T??`, structs and enums with payloads need it. Objects as an ObjectID and a pointer, which ptrcall takes as `Object*`, belong to the same design.
 - Members of classes of this language read and written without the engine.
 - Temporary slots reused by scope, so that temporary references in a loop are released in time and a suspended coroutine keeps only the slots still in use.
 - With await: unsubscribing from the notifications of freed objects.
@@ -39,6 +38,14 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Performance
 
+Engine calls are by name with Variant arguments now, so code that calls the engine a lot is likely slower than typed GDScript, which resolves the MethodBind at compile time and makes a validated call with Variant arguments (modules/gdscript/gdscript_compiler.cpp:647-652, 705-710; ed1daf0).
+
+- First, the engine-boundary benchmarks of architecture §4 against GDScript on the official build: reading and writing properties, engine methods with value-type arguments, signals.
+- Engine methods: the MethodBind resolved when the class image loads (the bytecode records the class and the method's hash), and ptrcall with pointers to the registers, which already hold native values (gdextension_interface.h:2499 of godot-cpp); no boxing. GDScript cannot, its registers being Variants; it is as safe as GDScript's call of the MethodBind, since scripts cannot override engine methods that are not virtual.
+- Engine properties: through their setter and getter by ptrcall. GDScript reads and writes them by name, with validated access only to members of built-in types (modules/gdscript/gdscript_byte_codegen.cpp:848-883). A script's `_set` or `_get` can take engine property names, so the fast path needs a check, such as whether the object's script defines them, cached per script.
+- Engine singletons and autoloads resolved once: GET_SINGLETON looks the name up at every run, GET_AUTOLOAD calls get_node_or_null; a singleton's pointer can be kept, an autoload's ObjectID with a liveness check.
+- Engine callbacks such as `_process(delta)`: no entry check of value-type arguments, whose types the engine guarantees.
+- Calls between classes of this language: the method found by name once per call site, since a run keeps one version of each class (spec §12.4).
 - Benchmarks of real workloads, which become representative after type descriptors and ptrcall; optimizations of the IR and code generation after those.
 
 ## Open questions
