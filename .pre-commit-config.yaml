@@ -1,0 +1,33 @@
+exclude: ^(thirdparty/|docs/surveys/[^/]+/)
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v21.1.7
+    hooks:
+      - id: clang-format
+        files: \.(c|h|cpp|hpp|inc)$
+        types_or: [text]
+
+  - repo: local
+    hooks:
+      - id: dashboard
+        name: dashboard
+        language: python
+        entry: python tools/check_dashboard.py --staged
+        pass_filenames: false
+        always_run: true
+
+      - id: doc-pairs
+        name: doc-pairs
+        language: python
+        entry: python tools/check_doc_pairs.py
+        pass_filenames: false
+        files: \.md$
