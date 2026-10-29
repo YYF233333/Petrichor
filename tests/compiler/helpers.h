@@ -2,9 +2,8 @@
 
 #include "bytecode/opcodes.h"
 #include "compiler/compiler.h"
-#include "fake_engine.h"
-
 #include "doctest.h"
+#include "fake_engine.h"
 
 #include <map>
 #include <optional>

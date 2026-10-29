@@ -1,5 +1,4 @@
 #include "compiler/lexer.h"
-
 #include "doctest.h"
 
 using namespace petrichor::compiler;

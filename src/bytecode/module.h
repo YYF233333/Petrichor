@@ -77,7 +77,7 @@ struct Constant {
 	bool b = false;
 	int64_t i = 0;
 	double f = 0.0;
-	std::string s;       // String, StringName and NodePath values.
+	std::string s; // String, StringName and NodePath values.
 	std::string builtin; // A constant of a built-in type, such as "UP" of Vector3.
 	// A value built by a constructor of the type, by its index in the engine's
 	// list, from `args`, which have the types the constructor takes; -1 for
@@ -103,7 +103,7 @@ struct Slot {
 	// Object, or the elements of Array: an interface they implement (spec
 	// §3.9), as "script::Name"; class_name is then Object.
 	std::string interface_name;
-	bool nullable = false;  // Object: the value may be None.
+	bool nullable = false; // Object: the value may be None.
 	// Variant: holds T? of a value type, None or a value of this type (spec §3.4).
 	ValueType option = ValueType::Void;
 	// Array: typed with this element type (spec §3.8); class_name has the class

@@ -101,13 +101,13 @@ struct Expr {
 	// Local, member, script function or constructor; for a script method, how
 	// many of its last parameters have default values.
 	int index = -1;
-	std::vector<Type> param_types;     // For calls: the type each argument converts to.
+	std::vector<Type> param_types; // For calls: the type each argument converts to.
 	// Built-in methods and utility functions: the engine's signature, which
 	// the runtime needs to pass arguments in the right layout.
 	uint32_t hash = 0;
 	bool is_vararg = false;
-	bool is_const = true;              // Built-in methods that do not change their base.
-	Type engine_return;                // Variant where the engine returns a Variant.
+	bool is_const = true; // Built-in methods that do not change their base.
+	Type engine_return; // Variant where the engine returns a Variant.
 	// Built-in methods: the engine's parameter types; script methods: all the
 	// method's parameters, also those a call leaves out.
 	std::vector<Type> engine_params;
@@ -116,8 +116,8 @@ struct Expr {
 	// properties: the range of the value their setter takes.
 	std::vector<std::optional<bytecode::IntRange>> arg_ranges;
 	std::optional<bytecode::IntRange> int_range;
-	std::string owner;                 // The type a field, constant, method or constructor belongs to.
-	Type tested;                       // TypeTest and Cast: the class after is or as.
+	std::string owner; // The type a field, constant, method or constructor belongs to.
+	Type tested; // TypeTest and Cast: the class after is or as.
 };
 
 // The type an element of an array literal is stored as: the array's element

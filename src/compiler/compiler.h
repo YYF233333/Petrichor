@@ -12,7 +12,7 @@ namespace petrichor::compiler {
 
 struct CompileResult {
 	std::vector<Diagnostic> errors; // Sorted by position.
-	bytecode::Module module;        // Valid only without errors.
+	bytecode::Module module; // Valid only without errors.
 
 	bool ok() const { return errors.empty(); }
 };

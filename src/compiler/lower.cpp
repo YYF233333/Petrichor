@@ -671,10 +671,10 @@ class Lowerer {
 				op = Op::MOD_INT;
 				break;
 			case TokenKind::EqualEqual:
-				op = operand == ValueType::String ? Op::EQ_STRING : operand == ValueType::Bool ? Op::EQ_BOOL : (f ? Op::EQ_FLOAT : Op::EQ_INT);
+				op = operand == ValueType::String ? Op::EQ_STRING : (operand == ValueType::Bool ? Op::EQ_BOOL : (f ? Op::EQ_FLOAT : Op::EQ_INT));
 				break;
 			case TokenKind::BangEqual:
-				op = operand == ValueType::String ? Op::NE_STRING : operand == ValueType::Bool ? Op::NE_BOOL : (f ? Op::NE_FLOAT : Op::NE_INT);
+				op = operand == ValueType::String ? Op::NE_STRING : (operand == ValueType::Bool ? Op::NE_BOOL : (f ? Op::NE_FLOAT : Op::NE_INT));
 				break;
 			case TokenKind::Less:
 				op = f ? Op::LT_FLOAT : Op::LT_INT;

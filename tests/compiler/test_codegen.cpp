@@ -1,9 +1,8 @@
 #include "bytecode/opcodes.h"
 #include "compiler/lower.h"
 #include "compiler/parser.h"
-#include "helpers.h"
-
 #include "doctest.h"
+#include "helpers.h"
 
 #include <map>
 

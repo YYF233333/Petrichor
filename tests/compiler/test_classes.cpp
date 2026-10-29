@@ -1,7 +1,6 @@
 #include "bytecode/opcodes.h"
-#include "helpers.h"
-
 #include "doctest.h"
+#include "helpers.h"
 
 using namespace petrichor;
 using namespace petrichor::tests;

@@ -61,14 +61,57 @@ void PetLanguage::_finish() {
 PackedStringArray PetLanguage::_get_reserved_words() const {
 	static const char *const words[] = {
 		// GDScript keywords (spec §2.2).
-		"and", "as", "assert", "await", "break", "breakpoint", "class", "class_name", "const", "continue",
-		"elif", "else", "enum", "extends", "for", "func", "if", "in", "is", "match", "namespace", "not",
-		"or", "pass", "preload", "return", "self", "signal", "static", "super", "trait", "var", "void",
-		"when", "while", "yield",
+		"and",
+		"as",
+		"assert",
+		"await",
+		"break",
+		"breakpoint",
+		"class",
+		"class_name",
+		"const",
+		"continue",
+		"elif",
+		"else",
+		"enum",
+		"extends",
+		"for",
+		"func",
+		"if",
+		"in",
+		"is",
+		"match",
+		"namespace",
+		"not",
+		"or",
+		"pass",
+		"preload",
+		"return",
+		"self",
+		"signal",
+		"static",
+		"super",
+		"trait",
+		"var",
+		"void",
+		"when",
+		"while",
+		"yield",
 		// Added by this language (spec §2.2).
-		"pub", "struct", "interface", "implements", "async", "None",
+		"pub",
+		"struct",
+		"interface",
+		"implements",
+		"async",
+		"None",
 		// Literals and built-in constants.
-		"true", "false", "null", "PI", "TAU", "INF", "NAN",
+		"true",
+		"false",
+		"null",
+		"PI",
+		"TAU",
+		"INF",
+		"NAN",
 	};
 	PackedStringArray result;
 	for (const char *word : words) {
@@ -79,7 +122,17 @@ PackedStringArray PetLanguage::_get_reserved_words() const {
 
 bool PetLanguage::_is_control_flow_keyword(const String &p_keyword) const {
 	static const char *const words[] = {
-		"break", "continue", "elif", "else", "for", "if", "match", "pass", "return", "when", "while",
+		"break",
+		"continue",
+		"elif",
+		"else",
+		"for",
+		"if",
+		"match",
+		"pass",
+		"return",
+		"when",
+		"while",
 	};
 	for (const char *word : words) {
 		if (p_keyword == word) {

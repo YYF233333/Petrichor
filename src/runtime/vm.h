@@ -3,7 +3,6 @@
 #include "runtime/class_image.h"
 
 #include <gdextension_interface.h>
-
 #include <godot_cpp/classes/object.hpp>
 #include <godot_cpp/variant/variant.hpp>
 

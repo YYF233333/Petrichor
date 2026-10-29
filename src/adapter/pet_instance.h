@@ -33,7 +33,6 @@ private:
 	std::shared_ptr<const ClassImage> image; // Replaced on hot reload when only function bodies change.
 
 public:
-
 	static const GDExtensionScriptInstanceInfo3 info;
 };
 

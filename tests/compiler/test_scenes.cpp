@@ -1,7 +1,6 @@
 #include "bytecode/opcodes.h"
-#include "helpers.h"
-
 #include "doctest.h"
+#include "helpers.h"
 
 using namespace petrichor;
 using namespace petrichor::tests;
@@ -99,7 +98,8 @@ TEST_CASE("a signal declared by a script of this language is checked like the en
 		FakeProject project = timer_scene("_on_timer_timeout");
 		project.scenes[0].connections[0].signal = "timed_out";
 		return project;
-	}())), "but Timer has no such signal."));
+	}())),
+			"but Timer has no such signal."));
 }
 
 TEST_CASE("$X has the class of the node at that path in the scenes that use the script (spec §7.1)") {

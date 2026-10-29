@@ -506,7 +506,8 @@ class Checker : public ClassRelation {
 			if (initializing >= 0) {
 				// @onready initializers run when the node is ready, after the
 				// others (spec §6.3); each kind runs in declaration order (§6.1).
-				const bool ready = read.is_onready ? initializing_onready && member->second < initializing : !initializing_onready ? member->second < initializing : true;
+				const bool earlier = member->second < initializing;
+				const bool ready = read.is_onready ? initializing_onready && earlier : initializing_onready || earlier;
 				if (!ready && read.is_onready && !initializing_onready) {
 					return fail(r_expr, "\"" + r_expr.text + "\" is set when the node is ready, after this initializer runs (spec §6.3).");
 				}

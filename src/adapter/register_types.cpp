@@ -16,7 +16,6 @@
 #endif
 
 #include <gdextension_interface.h>
-
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/resource_saver.hpp>

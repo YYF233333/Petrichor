@@ -228,26 +228,26 @@ public:
 #define U64(m_offset) (*reinterpret_cast<uint64_t *>(frame + (m_offset)))
 #define F64(m_offset) (*reinterpret_cast<double *>(frame + (m_offset)))
 #define STR(m_offset) (*reinterpret_cast<String *>(frame + (m_offset)))
-#define FAIL(m_message)                                     \
-	do {                                                    \
-		report_error(image, fn, record.line, (m_message));  \
-		return false;                                       \
+#define FAIL(m_message) \
+	do { \
+		report_error(image, fn, record.line, (m_message)); \
+		return false; \
 	} while (false)
 // Wrapping arithmetic on int, as in GDScript; through unsigned to stay defined.
 #define WRAP(m_op) int64_t(uint64_t(I64(code[pc + 2])) m_op uint64_t(I64(code[pc + 3])))
 // self and the members, unless the engine deleted the instance while this
 // function ran (spec §3.3).
-#define SELF_ALIVE()                                                                 \
-	if (freed.load(std::memory_order_relaxed)) {                                     \
-		FAIL("self was freed, or lost its script, while this method ran.");        \
+#define SELF_ALIVE() \
+	if (freed.load(std::memory_order_relaxed)) { \
+		FAIL("self was freed, or lost its script, while this method ran."); \
 	}
 // The object an instruction works on: self, or a live object in a slot (spec §3.3).
-#define OBJECT(m_name, m_offset)                                                     \
-	if ((m_offset) == NO_SLOT) {                                                     \
-		SELF_ALIVE();                                                                \
-	} else if (!is_live_object(frame + (m_offset))) {                                \
+#define OBJECT(m_name, m_offset) \
+	if ((m_offset) == NO_SLOT) { \
+		SELF_ALIVE(); \
+	} else if (!is_live_object(frame + (m_offset))) { \
 		FAIL(is_none(variant_at(frame + (m_offset))) ? String("The value is None.") : String("The object was freed.")); \
-	}                                                                                \
+	} \
 	Variant &m_name = (m_offset) == NO_SLOT ? self() : variant_at(frame + (m_offset));
 
 		size_t pc = 0;
@@ -392,10 +392,10 @@ public:
 					STR(code[pc + 1]) = STR(code[pc + 2]) + STR(code[pc + 3]);
 					pc += 4;
 					break;
-#define COMPARE(m_op, m_access, m_cmp)                                                 \
-	case Op::m_op:                                                                     \
+#define COMPARE(m_op, m_access, m_cmp) \
+	case Op::m_op: \
 		U64(code[pc + 1]) = (m_access(code[pc + 2]) m_cmp m_access(code[pc + 3])) ? 1 : 0; \
-		pc += 4;                                                                       \
+		pc += 4; \
 		break;
 					COMPARE(EQ_INT, I64, ==)
 					COMPARE(NE_INT, I64, !=)

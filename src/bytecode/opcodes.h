@@ -16,90 +16,90 @@ namespace petrichor::bytecode {
 // there is none; a base of NO_SLOT on CALL_ENGINE means self. CALL_METHOD calls
 // a method of a class of this language on the object in base (spec §8.1), with
 // the arguments and the result in their slots' own layout.
-#define PETRICHOR_OPCODES(X)                                         \
-	X(LINE, 1)                                                       \
-	X(CONST_INT, 2)                                                  \
-	X(CONST_FLOAT, 2)                                                \
-	X(CONST_BOOL, 2)                                                 \
-	X(CONST_STRING, 2)                                               \
-	X(CONST_VALUE, 3) /* type, dst, constant */                      \
-	X(MOVE_8, 2)                                                     \
-	X(MOVE_STRING, 2)                                                \
-	X(MOVE_VALUE, 3) /* type, dst, src */                            \
-	X(LOAD_MEMBER_8, 2)                                              \
-	X(LOAD_MEMBER_STRING, 2)                                         \
-	X(LOAD_MEMBER_VALUE, 3) /* type, dst, member */                  \
-	X(STORE_MEMBER_8, 2)                                             \
-	X(STORE_MEMBER_STRING, 2)                                        \
-	X(STORE_MEMBER_VALUE, 3) /* type, member, src */                 \
-	X(INT_TO_FLOAT, 2)                                               \
-	X(FLOAT_TO_INT, 2)                                               \
-	X(ADD_INT, 3)                                                    \
-	X(SUB_INT, 3)                                                    \
-	X(MUL_INT, 3)                                                    \
-	X(DIV_INT, 3)                                                    \
-	X(MOD_INT, 3)                                                    \
-	X(NEG_INT, 2)                                                    \
-	X(ADD_FLOAT, 3)                                                  \
-	X(SUB_FLOAT, 3)                                                  \
-	X(MUL_FLOAT, 3)                                                  \
-	X(DIV_FLOAT, 3)                                                  \
-	X(NEG_FLOAT, 2)                                                  \
-	X(ADD_STRING, 3)                                                 \
-	X(EQ_INT, 3)                                                     \
-	X(NE_INT, 3)                                                     \
-	X(LT_INT, 3)                                                     \
-	X(LE_INT, 3)                                                     \
-	X(GT_INT, 3)                                                     \
-	X(GE_INT, 3)                                                     \
-	X(EQ_FLOAT, 3)                                                   \
-	X(NE_FLOAT, 3)                                                   \
-	X(LT_FLOAT, 3)                                                   \
-	X(LE_FLOAT, 3)                                                   \
-	X(GT_FLOAT, 3)                                                   \
-	X(GE_FLOAT, 3)                                                   \
-	X(EQ_BOOL, 3)                                                    \
-	X(NE_BOOL, 3)                                                    \
-	X(EQ_STRING, 3)                                                  \
-	X(NE_STRING, 3)                                                  \
-	X(NOT, 2)                                                        \
+#define PETRICHOR_OPCODES(X) \
+	X(LINE, 1) \
+	X(CONST_INT, 2) \
+	X(CONST_FLOAT, 2) \
+	X(CONST_BOOL, 2) \
+	X(CONST_STRING, 2) \
+	X(CONST_VALUE, 3) /* type, dst, constant */ \
+	X(MOVE_8, 2) \
+	X(MOVE_STRING, 2) \
+	X(MOVE_VALUE, 3) /* type, dst, src */ \
+	X(LOAD_MEMBER_8, 2) \
+	X(LOAD_MEMBER_STRING, 2) \
+	X(LOAD_MEMBER_VALUE, 3) /* type, dst, member */ \
+	X(STORE_MEMBER_8, 2) \
+	X(STORE_MEMBER_STRING, 2) \
+	X(STORE_MEMBER_VALUE, 3) /* type, member, src */ \
+	X(INT_TO_FLOAT, 2) \
+	X(FLOAT_TO_INT, 2) \
+	X(ADD_INT, 3) \
+	X(SUB_INT, 3) \
+	X(MUL_INT, 3) \
+	X(DIV_INT, 3) \
+	X(MOD_INT, 3) \
+	X(NEG_INT, 2) \
+	X(ADD_FLOAT, 3) \
+	X(SUB_FLOAT, 3) \
+	X(MUL_FLOAT, 3) \
+	X(DIV_FLOAT, 3) \
+	X(NEG_FLOAT, 2) \
+	X(ADD_STRING, 3) \
+	X(EQ_INT, 3) \
+	X(NE_INT, 3) \
+	X(LT_INT, 3) \
+	X(LE_INT, 3) \
+	X(GT_INT, 3) \
+	X(GE_INT, 3) \
+	X(EQ_FLOAT, 3) \
+	X(NE_FLOAT, 3) \
+	X(LT_FLOAT, 3) \
+	X(LE_FLOAT, 3) \
+	X(GT_FLOAT, 3) \
+	X(GE_FLOAT, 3) \
+	X(EQ_BOOL, 3) \
+	X(NE_BOOL, 3) \
+	X(EQ_STRING, 3) \
+	X(NE_STRING, 3) \
+	X(NOT, 2) \
 	X(EVALUATE, 4) /* operator, dst, left, right (NO_SLOT: unary) */ \
-	X(GET_FIELD, 3) /* field, dst, base */                           \
-	X(SET_FIELD, 3) /* field, base, value */                         \
-	X(GET_PROPERTY, 3) /* property, dst, object (NO_SLOT: self) */   \
+	X(GET_FIELD, 3) /* field, dst, base */ \
+	X(SET_FIELD, 3) /* field, base, value */ \
+	X(GET_PROPERTY, 3) /* property, dst, object (NO_SLOT: self) */ \
 	X(SET_PROPERTY, 3) /* property, object (NO_SLOT: self), value */ \
-	X(NEW_OBJECT, 2) /* class, dst */                                \
-	X(GET_SINGLETON, 2) /* class, dst */                             \
-	X(GET_AUTOLOAD, 2) /* name constant, dst */                      \
-	X(METHOD_VALUE, 2) /* function, dst (Callable) */                \
+	X(NEW_OBJECT, 2) /* class, dst */ \
+	X(GET_SINGLETON, 2) /* class, dst */ \
+	X(GET_AUTOLOAD, 2) /* name constant, dst */ \
+	X(METHOD_VALUE, 2) /* function, dst (Callable) */ \
 	X(GET_SIGNAL, 3) /* name constant, dst, object (NO_SLOT: self) */ \
-	X(CHECK_OBJECT, 2) /* class, slot: not None, of the class */     \
-	X(CHECK_ASSIGNED, 2) /* member, slot: an export is assigned */   \
-	X(CHECK_RANGE, 2) /* IntRange, slot (int): fits the engine's */  \
-	X(CAST_OBJECT, 3) /* class, dst, src: `as`, None if it fails */  \
-	X(IS_INSTANCE, 3) /* class, dst (bool), src: `is` */             \
-	X(IS_NONE, 2) /* dst (bool), src (Object or Variant) */          \
-	X(TO_VARIANT, 3) /* type, dst (Variant), src */                  \
-	X(UNWRAP, 4) /* type, dst, src, message (NO_SLOT: default) */    \
-	X(NEW_ARRAY, 3) /* element type (Void: untyped), class, dst */   \
-	X(GET_INDEX, 5) /* base type, element type, dst, base, index */  \
-	X(JUMP, 1)                                                       \
-	X(JUMP_IF_FALSE, 2)                                              \
-	X(JUMP_IF_TRUE, 2)                                               \
-	X(CALL, -1)                                                      \
-	X(CALL_ENGINE, -1)                                               \
-	X(CALL_METHOD, -1)                                               \
-	X(CALL_UTILITY, -1)                                              \
-	X(CALL_BUILTIN, -1)                                              \
-	X(CONSTRUCT, -1)                                                 \
-	X(RETURN, 1)                                                     \
+	X(CHECK_OBJECT, 2) /* class, slot: not None, of the class */ \
+	X(CHECK_ASSIGNED, 2) /* member, slot: an export is assigned */ \
+	X(CHECK_RANGE, 2) /* IntRange, slot (int): fits the engine's */ \
+	X(CAST_OBJECT, 3) /* class, dst, src: `as`, None if it fails */ \
+	X(IS_INSTANCE, 3) /* class, dst (bool), src: `is` */ \
+	X(IS_NONE, 2) /* dst (bool), src (Object or Variant) */ \
+	X(TO_VARIANT, 3) /* type, dst (Variant), src */ \
+	X(UNWRAP, 4) /* type, dst, src, message (NO_SLOT: default) */ \
+	X(NEW_ARRAY, 3) /* element type (Void: untyped), class, dst */ \
+	X(GET_INDEX, 5) /* base type, element type, dst, base, index */ \
+	X(JUMP, 1) \
+	X(JUMP_IF_FALSE, 2) \
+	X(JUMP_IF_TRUE, 2) \
+	X(CALL, -1) \
+	X(CALL_ENGINE, -1) \
+	X(CALL_METHOD, -1) \
+	X(CALL_UTILITY, -1) \
+	X(CALL_BUILTIN, -1) \
+	X(CONSTRUCT, -1) \
+	X(RETURN, 1) \
 	X(RETURN_VOID, 0)
 
 enum class Op : uint32_t {
 #define PETRICHOR_OPCODE_ENUM(m_name, m_count) m_name,
 	PETRICHOR_OPCODES(PETRICHOR_OPCODE_ENUM)
 #undef PETRICHOR_OPCODE_ENUM
-	COUNT
+			COUNT
 };
 
 constexpr uint32_t NO_SLOT = 0xFFFFFFFF;
