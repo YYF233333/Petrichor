@@ -22,7 +22,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 1.3 交付形态
 
-- 以 GDExtension 交付，实现 Godot 的脚本语言扩展接口（`core/object/script_language_extension.h:304, 391, 441, 497, 655`）。访问引擎的代码集中在一层薄的适配层中，保留以后改编为引擎模块的可能。
+- 以 GDExtension 交付，实现 Godot 的脚本语言扩展接口（`core/object/script_language_extension.h:304, 391, 441, 497, 655`）。编译器和字节码不依赖引擎，运行时使用与引擎内部类型对应的 godot-cpp，以后仍可改编为引擎模块。
 - GDExtension 可以装进官方编辑器，使用官方导出模板。代价是 Web 导出须启用“Extensions Support”，使用带动态链接的导出模板（`platform/web/export/export_plugin.cpp:374`，`platform/web/export/export_plugin.h:59-73`）；跨域隔离响应头只在同时开启线程支持时才需要（`platform/web/doc_classes/EditorExportPlatformWeb.xml:93-95`）。
 - 理由：[暗坑清单](surveys/pitfalls.zh.md)中没有只有模块才能修复的条目；GDExtension 修不了的部分需要修改引擎，模块同样修不了。
 - 源码只在编辑器和无界面模式下编译。导出的游戏只含字节码，导出模板使用的库不含编译器。理由：`$X`、`@parent` 和 `PackedScene[T]` 的类型取决于场景（§7），在加载时编译就要在游戏中重新分析场景，并把分析器带到每个导出平台。GDScript 导出时至多做到词法化，加载时才解析和编译（`modules/gdscript/register_types.cpp:99-116`，`modules/gdscript/gdscript_cache.cpp:373-379, 392`）。
@@ -883,7 +883,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 12.1 适配层
 
-- 访问引擎的代码集中在一层薄的适配层中。实例的创建、释放、属性读写和方法调用都经过 GDExtension 的脚本实例接口。
+- 实例的创建、释放、属性读写和方法调用都经过 GDExtension 的脚本实例接口。
 
 ### 12.2 性能
 

@@ -22,7 +22,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 1.3 Delivery
 
-- It is delivered as a GDExtension implementing Godot's script language extension interface (`core/object/script_language_extension.h:304, 391, 441, 497, 655`). Code that accesses the engine is kept in a thin adapter layer, so that an engine-module build remains possible later.
+- It is delivered as a GDExtension implementing Godot's script language extension interface (`core/object/script_language_extension.h:304, 391, 441, 497, 655`). The compiler and the bytecode do not depend on the engine, and the runtime uses godot-cpp, whose types correspond to the engine's own, so an engine-module build remains possible later.
 - A GDExtension can be installed in the official editor and uses the official export templates. The cost is that Web exports need "Extensions Support" enabled, which uses the dynamically linked export templates (`platform/web/export/export_plugin.cpp:374`, `platform/web/export/export_plugin.h:59-73`); cross-origin isolation headers are needed only when thread support is also enabled (`platform/web/doc_classes/EditorExportPlatformWeb.xml:93-95`).
 - Rationale: the [pitfall catalog](surveys/pitfalls.en.md) contains no entry that only a module could fix; what a GDExtension cannot fix needs changes to the engine, which a module cannot make either.
 - Source is compiled only in the editor and in headless mode. Exported games contain only bytecode, and the library used by the export templates contains no compiler. Rationale: the types of `$X`, `@parent` and `PackedScene[T]` depend on scenes (§7), so compiling at load time would mean analysing scenes again inside the game and shipping the analyzer to every export platform. GDScript goes no further than tokenizing at export, and parses and compiles at load time (`modules/gdscript/register_types.cpp:99-116`, `modules/gdscript/gdscript_cache.cpp:373-379, 392`).
@@ -883,7 +883,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 12.1 Adapter layer
 
-- Code that accesses the engine is kept in a thin adapter layer. Creating and freeing instances, reading and writing properties, and calling methods all go through GDExtension's script instance interface.
+- Creating and freeing instances, reading and writing properties, and calling methods all go through GDExtension's script instance interface.
 
 ### 12.2 Performance
 
