@@ -46,6 +46,7 @@ This document records implementation decisions: how the components are split, ho
 - The virtual machine can run on any thread and uses no global mutable state that is not protected by a lock (§12.3).
 - The runtime uses godot-cpp's types (Variant, String, Object and so on) directly, with no layer in between. They correspond to the engine's own types of the same names: for an engine-module build, the runtime would switch to the types of the engine's headers and the adapter would be rewritten (§2.3), while the compiler and the bytecode can be used as they are (§2.1).
 - The first version dispatches with a switch only, so there is one code path to test on every platform. GDScript uses computed goto on GCC and Clang (`modules/gdscript/gdscript_vm.cpp:254-450`); this language's main advantage lies in registers typed by static type, not in dispatch. Each instruction's handler is written once and the interpreter's state is kept in a few local variables, so computed-goto or tail-call dispatch can later be generated from the same definitions; whether to add them is decided by the benchmarks in §4. Switch dispatch stays in any case, since not every toolchain guarantees tail calls, MSVC debug builds for one.
+- Native code is generated as spec §12.2 says: one code generator with several backends, used for generation at run time and ahead of time, compiling a function at a time. Not tracing also follows the lesson of CPython's JIT, which compiles traces. When it is generated is not decided yet (§6).
 
 ### 2.3 adapter
 
@@ -126,7 +127,7 @@ Four groups of benchmarks compare against GDScript, measuring the virtual machin
 | Engine boundary | property reads and writes, engine method calls, Callable, signals |
 | Allocation | enums with payloads, closures, coroutine suspension, object creation |
 
-Comparisons use optimized builds, not `dev_build`. These data decide whether a JIT is needed and which paths to optimize.
+Comparisons use optimized builds, not `dev_build`. These data decide whether native code is generated and which paths to optimize.
 
 So far `benchmarks/` holds six cases of pure computation, each with a GDScript twin computing the same result, which the runner compares. On the official 4.7.2 release, on one Windows machine (2026-10-29), in milliseconds:
 
@@ -155,7 +156,7 @@ So far `benchmarks/` holds six cases of pure computation, each with a GDScript t
 
 ## 6. Not decided yet
 
-- a JIT;
+- when native code is generated (spec §12.2, §14.3);
 - caching for incremental analysis;
 - details of the LSP;
 - the final name and file extension (spec §1.4); `.pet` is used until then.
