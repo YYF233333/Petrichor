@@ -2,7 +2,7 @@
 
 ## Project
 
-Petrichor designs a statically typed scripting language that replaces GDScript. It will be delivered as a GDExtension; the compiler and the bytecode format do not depend on Godot, and the runtime uses godot-cpp, whose types correspond to the engine's own, so that a module build remains possible. The language specification `docs/language-spec.{zh,en}.md` (v0.2 draft) is the single source of truth for the design; the previous version is kept at git tag `spec-v0.1`. Implementation follows `docs/architecture.{zh,en}.md`; steps 1–4 of its order of work are done, step 4 being the first milestone (the FPS starter kit runs with migrated scripts), and the four groups of step 5, paying down the debt of the first implementation, are done; what comes after is listed in `BACKLOG.md`. The target engine is Godot 4.7; engine facts are checked against `4.7.2-stable` (commit `ed1daf0`). Facts about engine behavior must be checked against the Godot source, not recalled from memory.
+Petrichor designs a statically typed scripting language that replaces GDScript. It will be delivered as a GDExtension; the compiler and the bytecode format do not depend on Godot, and the runtime uses godot-cpp, whose types correspond to the engine's own, so that a module build remains possible. The language specification `docs/language-spec.{zh,en}.md` (v0.2 draft) is the single source of truth for the design; the previous version is kept at git tag `spec-v0.1`. Implementation follows `docs/architecture.{zh,en}.md`; steps 1–4 of its order of work are done, step 4 being the first milestone (the FPS starter kit runs with migrated scripts), and the four groups of step 5, paying down the debt of the first implementation, are done; step 6, the second milestone (Ring's breakout runs with migrated scripts), is under way, and the rest of what comes after is listed in `BACKLOG.md`. The target engine is Godot 4.7; engine facts are checked against `4.7.2-stable` (commit `ed1daf0`). Facts about engine behavior must be checked against the Godot source, not recalled from memory.
 
 ## Layout
 
@@ -14,12 +14,13 @@ Petrichor designs a statically typed scripting language that replaces GDScript. 
 - `src/probe/`: the step-2 probes of the architecture, built into the editor library only.
 - `gen/`: generated sources (the tables of built-in types, the bytecode format identifier); `build/`: objects and static libraries.
 - `tests/compiler/`: the compiler tests (doctest), built without godot-cpp.
-- `tests/engine/`: the headless Godot test project and its runner; `tests/engine/fps/` holds the migrated scripts of the FPS starter kit (architecture §5 step 4).
+- `tests/engine/`: the headless Godot test project and its runner; `tests/engine/fps/` holds the migrated scripts of the FPS starter kit (architecture §5 step 4), and `tests/engine/ring/` those of Ring's breakout with the scene that starts it in place of Ring's C# (step 6).
 - `benchmarks/`: cases in this language with their GDScript twins, and their runner (architecture §4).
 - `tools/`: the project's own pre-commit checks, and in `tools/hooks/` the Git hook that runs them.
 - `thirdparty/doctest`: the test framework of the compiler tests.
 - `thirdparty/godot-cpp`: git submodule, built with `api_version=4.7`.
 - `thirdparty/starter-kit-fps`: git submodule, the FPS starter kit at the commit of the second paper migration; the runner copies it and puts the migrated scripts in place.
+- `thirdparty/ring`: git submodule, Ring at the commit of the same migration, fetched shallow; the runner copies it in the same way.
 - `docs/surveys/`: empirical investigations behind specific rules, and evaluations of the design against real code. Each has a write-up in both languages and a directory of scripts that reproduce it. Single counts that back one rule go into `docs/surveys/corpus-counts` (script `corpus-counts/counts.py`).
 
 ## Documentation rules
@@ -38,7 +39,7 @@ Petrichor designs a statically typed scripting language that replaces GDScript. 
 - The pre-commit hook runs `.pre-commit-config.yaml` on the staged files: clang-format with `.clang-format` (Godot's), line endings and whitespace, the dashboard, and the pairing of Chinese and English documents. When it fixes a file, the commit stops; stage the fix and commit again.
 - Build (SCons, MSVC on Windows): `scons target=editor` builds the library that every test and benchmark loads, since an editor binary loads the editor library also when it runs the game. `scons target=template_debug` builds the library without the compiler that exported games use; only the engine tests' exported pack loads it, and they report it when it is not built from the current sources, so build it before running them in full, not while iterating. The libraries go to `tests/engine/project/bin/`. Close the editor before rebuilding: the extension is not reloadable. Changing `debug_symbols` or other compiler options rebuilds all of godot-cpp.
 - Compiler tests: `scons compiler_tests`, then run `tests/compiler/bin/compiler_tests`. They build without godot-cpp and do not start the engine.
-- Engine tests: `python tests/engine/run.py <Godot 4.7 editor binary>` runs the test project headless: the game, editor-side checks, the debugger, hot reload, an exported pack with the template_debug library, and the FPS starter kit with its migrated scripts. Extra arguments name the groups to run, for example `fps`.
+- Engine tests: `python tests/engine/run.py <Godot 4.7 editor binary>` runs the test project headless: the game, editor-side checks, the debugger, hot reload, an exported pack with the template_debug library, and the FPS starter kit and Ring's breakout with their migrated scripts. Extra arguments name the groups to run, for example `fps`.
 - Benchmarks: `python benchmarks/run.py <Godot 4.7 editor binary>` compares each case of `benchmarks/project/cases/` with its GDScript twin (architecture §4). It needs an optimized engine, such as the official 4.7.2-stable release, not a dev_build.
 - Language rules come from the spec. When the implementation runs into a problem with a rule, change the spec in a separate commit; do not relax the rule in code.
 - Tests are derived from the spec (§15), the engine and real code, not from the implementation (architecture §3).

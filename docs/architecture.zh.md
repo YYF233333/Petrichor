@@ -77,11 +77,12 @@ src/probe/             第 2 步的探针，只进入编辑器用的库
 gen/                   生成的源码：内置类型的表、格式标识
 build/                 目标文件和静态库
 tests/compiler/        doctest，与引擎的单元测试相同
-tests/engine/          以无界面模式运行的 Godot 项目及其运行器；fps/ 中是 FPS 项目迁移后的脚本
+tests/engine/          以无界面模式运行的 Godot 项目及其运行器；fps/ 和 ring/ 中是 FPS 项目和 Ring 迁移后的脚本
 benchmarks/            各基准及其 GDScript 对照版本，以及运行器（§4）
 thirdparty/doctest/
 thirdparty/godot-cpp/  git 子模块
 thirdparty/starter-kit-fps/  git 子模块：第二次纸面迁移所用提交的 FPS 项目
+thirdparty/ring/       git 子模块：同一次迁移所用提交的 Ring，只取这一个提交
 ```
 
 ### 2.6 实现的现状
@@ -150,6 +151,7 @@ thirdparty/starter-kit-fps/  git 子模块：第二次纸面迁移所用提交�
 3. **最小编译链**：语言的一个子集，包括 `extends Node`、带类型的成员、函数、int 和 float 的运算、if 和 while、调用引擎方法、`_process`。验收：脚本挂进场景运行，GDScript 能调用它，断点能停下，修改函数体能热重载。
 4. **第一个里程碑**：第二次纸面迁移中的 FPS 代码真正运行。功能按需要加入，§15 中对应的行同时写成测试。引擎测试复制该项目，逐个替换已迁移的脚本，尚未迁移的仍是 GDScript；迁移后的运行只能报告原项目自己也报告的错误，退出时仍占用的资源也只能是原项目也占用的。迁移顺序为 cloud、impact、hud、audio、weapon，最后 combat、enemy 和 player 一起迁移，使本语言始终不调用 GDScript，这个里程碑不需要 GDScript 类的静态视图（规范 §11.1）。最后三个放在一起，是因为 enemy 靠接口 Combat.Damageable 识别玩家，而只有本语言的类能实现接口（规范 §3.9）：单独迁移 enemy 时，敌人不再能伤到玩家，测试也察觉不到。已完成：八个脚本都以迁移后的版本运行。
 5. **偿还技术债**，先于新特性：快速完成的第一版实现留下了与规范不符的行为、在多处重复的规则、说法不实的测试和文档。按正确性、验证、代码、文档的顺序逐项处理，四组都已完成。之后要做的事列在仓库根目录的 `BACKLOG.md` 中。
+6. **第二个里程碑**：第二次纸面迁移中 Ring 的 breakout 以迁移后的脚本运行，做法同第 4 步。Ring 的主体是 C#，breakout 由 `Root.cs` 启动：它实例化 breakout 的场景，用 Dictionary 把初始化消息交给 BreakoutManager，breakout 结束时调用它的 `EndGame()`（`breakout/Root.cs:77-96`）。引擎测试不需要 .NET：`tests/engine/ring/ring_check.tscn` 代替 `Root.cs`，发出 Ring 的 `main.md` 构造的消息；对本语言来说，C# 的 `Call()` 与 GDScript 的动态调用一样，都经引擎按名字调用。除了继承 Brick 和 Enemy 的子类，迁移的脚本都用到 GDScript 类，所以先做 GDScript 类的静态视图（规范 §11.1），再做本语言类之间的继承；其余特性按脚本的需要加入。
 
 ## 6. 暂不决定
 

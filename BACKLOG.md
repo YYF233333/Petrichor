@@ -17,7 +17,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Default values other than literals; static members; `_init()` with parameters.
 - Assigning to an element, `a[i] = v`; calling a function value other than through `bind()`; `==` between objects.
 - In debug builds, reporting where a freed instance was freed and where the instances still alive at exit were made (spec §3.3, §6.7, §12.5).
-- What else Ring needs to run ([second paper migration](docs/surveys/paper-migration-2.en.md)): structs, property accessors and setters before ready (spec §6.5), coroutines, property requirements in interfaces, `@owner`, match, `const`. Ring running could be the second milestone, with real code deciding what comes first, as for the FPS kit.
 
 ## Runtime
 

@@ -8,7 +8,7 @@ Usage:
 Checks the game run, the editor side (placeholders, saving, the undo probe), the
 other step-2 probes of the architecture, the language, the debugger, hot reload,
 an exported pack run in a directory without sources with the library of export
-templates, and the FPS starter kit with its migrated scripts. Naming groups runs
+templates, and the FPS starter kit and Ring's breakout with their migrated scripts. Naming groups runs
 only those, after the build; the groups are those of GROUPS, hot reload being
 part of debugger.
 """
@@ -32,6 +32,8 @@ PROJECT = HERE / "project"
 TEMPLATE_LIBRARY = "petrichor.windows.template_debug.x86_64.dll"
 FPS_UPSTREAM = ROOT / "thirdparty" / "starter-kit-fps"
 FPS_MIGRATED = HERE / "fps"
+RING_UPSTREAM = ROOT / "thirdparty" / "ring"
+RING_MIGRATED = HERE / "ring"
 HOT_RELOAD = PROJECT / "language" / "hot_reload"
 HOT_RELOAD_BYTECODE = PROJECT / ".godot" / "petrichor" / "language" / "hot_reload"
 STALE = PROJECT / "language" / "stale"
@@ -46,7 +48,7 @@ GAME_OUTPUT = [
     "greeter: _ready, message = set from GDScript",
 ]
 
-GROUPS = ["game", "editor", "probes", "language", "debugger", "export", "fps"]
+GROUPS = ["game", "editor", "probes", "language", "debugger", "export", "fps", "ring"]
 
 failures = []
 
@@ -260,18 +262,23 @@ def import_project(godot, project):
     run(godot, "--path", str(project), "--import")
 
 
-def prepare_fps(project):
-    """The FPS starter kit with the extension and fps_check.gd."""
-    shutil.copytree(FPS_UPSTREAM, project, ignore=shutil.ignore_patterns(".git"))
+def copy_project(upstream, project, ignore):
+    """A copy of a real project, with the extension."""
+    shutil.copytree(upstream, project, ignore=ignore)
     # A headless run draws nothing, so textures are imported without VRAM
     # compression, on which an unoptimized engine spent most of the import
-    # (skybox.png to BPTC took about 40 s).
+    # (the FPS kit's skybox.png to BPTC took about 40 s).
     for settings in project.rglob("*.import"):
         text = settings.read_text(encoding="utf-8")
         if 'importer="texture"' in text:
             settings.write_text(re.sub(r"^compress/mode=2$", "compress/mode=0", text, flags=re.M), encoding="utf-8")
     shutil.copytree(PROJECT / "bin", project / "bin")
     shutil.copy(PROJECT / "petrichor.gdextension", project)
+
+
+def prepare_fps(project):
+    """The FPS starter kit with the extension and fps_check.gd."""
+    copy_project(FPS_UPSTREAM, project, shutil.ignore_patterns(".git"))
     shutil.copy(FPS_MIGRATED / "fps_check.gd", project)
 
     settings = project / "project.godot"
@@ -282,12 +289,28 @@ def prepare_fps(project):
     settings.write_text(text, encoding="utf-8")
 
 
-def migrate_fps(project):
+def prepare_ring(project):
+    """Ring with the extension and ring_check.tscn, which starts breakout in
+    place of Ring's C#. Of assets/, the visual novel's, only the bricks that
+    breakout uses and the textures of the project's theme are copied, and
+    docs/ is left out."""
+    def ignore(directory, names):
+        if Path(directory) == RING_UPSTREAM / "assets":
+            return [name for name in names if not name.startswith("Brick-") and name != "Runtime"]
+        return [name for name in names if name in (".git", "docs")]
+
+    copy_project(RING_UPSTREAM, project, ignore)
+    for file in ("ring_check.gd", "ring_check.tscn"):
+        shutil.copy(RING_MIGRATED / file, project)
+
+
+def migrate(project, migrated):
     """Puts each migrated script in place of its GDScript original
-    (architecture §5 step 4); combat.pet has none."""
+    (architecture §5 steps 4 and 6); a script without one, such as the FPS
+    kit's combat.pet, is added."""
     replaced = {}
-    for script in FPS_MIGRATED.rglob("*.pet"):
-        relative = script.relative_to(FPS_MIGRATED)
+    for script in migrated.rglob("*.pet"):
+        relative = script.relative_to(migrated)
         original = project / relative.with_suffix(".gd")
         original.unlink(missing_ok=True)
         original.with_name(original.name + ".uid").unlink(missing_ok=True)
@@ -351,8 +374,8 @@ def main():
     def wanted(group):
         return not only or group in only
 
-    # The fps group prepares projects of its own.
-    if not only or only - {"fps"}:
+    # The fps and ring groups prepare projects of their own.
+    if not only or only - {"fps", "ring"}:
         import_project(godot, PROJECT)
         # The game reads the bytecode the editor writes (architecture §2.4).
         code, output = run(godot, "-e", "--path", str(PROJECT), "--", "--petrichor-build")
@@ -385,7 +408,10 @@ def main():
         run_export_groups(godot)
 
     if wanted("fps"):
-        run_fps_group(godot)
+        run_migration_group(godot, "fps", prepare_fps, FPS_MIGRATED)
+
+    if wanted("ring"):
+        run_migration_group(godot, "ring", prepare_ring, RING_MIGRATED, "res://ring_check.tscn")
 
     print(f"{len(failures)} failure(s)")
     sys.exit(1 if failures else 0)
@@ -395,44 +421,48 @@ def resources_in_use(output):
     """What a --verbose run reports as still in use at exit, apart from sounds:
     a stopped sound's playback is released only when the audio thread next
     mixes, so which sounds are still held at exit depends on timing."""
-    return {line for line in output.splitlines() if line.startswith("Resource still in use: ") and "res://sounds/" not in line}
+    return {line for line in output.splitlines() if line.startswith("Resource still in use: ") and not re.search(r"\.(ogg|wav|mp3)\b", line)}
 
 
-def run_fps_group(godot):
-    # Architecture §5 step 4: the starter kit runs with its migrated scripts.
-    # The original reports errors of its own in a headless run (sounds still
-    # playing at exit, and weapon models it removes without freeing), so the
-    # migrated run may only repeat those, and keep no resource at exit, other
-    # than sounds, that the original does not.
+def run_migration_group(godot, name, prepare, migrated_scripts, *scene):
+    """A real project runs with its migrated scripts (architecture §5 steps 4
+    and 6). The original reports errors of its own in a headless run, such as
+    the FPS kit's sounds still playing at exit and weapon models it removes
+    without freeing, so the migrated run may only repeat those, and keep no
+    resource at exit, other than sounds, that the original does not."""
     with tempfile.TemporaryDirectory() as tmp:
         original = Path(tmp) / "original"
-        prepare_fps(original)
+        prepare(original)
         import_project(godot, original)
-        code, output = run(godot, "--verbose", "--path", str(original))
-        expect("fps original run", code == 0 and "fps check: 0 failure(s)" in output, output)
+        code, output = run(godot, "--verbose", "--path", str(original), *scene)
+        expect(f"{name} original run", code == 0 and f"{name} check: 0 failure(s)" in output, output)
+        scripts = sorted(migrated_scripts.rglob("*.pet"))
+        if not scripts:
+            return
         known_errors = {line for line in output.splitlines() if "ERROR" in line}
         known_in_use = resources_in_use(output)
 
         # Prepared afresh: the original's .godot caches its global classes,
-        # such as Weapon, with the paths of the GDScript files. The assets are
-        # the same, so their imported data is reused instead of imported again.
+        # such as the FPS kit's Weapon, with the paths of the GDScript files.
+        # The assets are the same, so their imported data is reused instead of
+        # imported again.
         migrated = Path(tmp) / "migrated"
-        prepare_fps(migrated)
+        prepare(migrated)
         shutil.copytree(original / ".godot" / "imported", migrated / ".godot" / "imported")
-        migrate_fps(migrated)
+        migrate(migrated, migrated_scripts)
         import_project(godot, migrated)
         code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-build")
-        expect_run("fps build", code, output)
-        expect("fps build: every script compiles", ", 0 with errors" in output, output)
-        code, output = run(godot, "--verbose", "--path", str(migrated))
+        expect_run(f"{name} build", code, output)
+        expect(f"{name} build: every script compiles", ", 0 with errors" in output, output)
+        code, output = run(godot, "--verbose", "--path", str(migrated), *scene)
         new_errors = [
             line for line in output.splitlines()
             if "ERROR" in line and line not in known_errors and not re.match(r"ERROR: \d+ resources still in use at exit", line)
         ]
-        expect("fps run", code == 0 and not new_errors and "fps check: 0 failure(s)" in output, output)
-        expect("fps run: no resources kept at exit that the original frees", resources_in_use(output) <= known_in_use, output)
-        for script in sorted(FPS_MIGRATED.rglob("*.pet")):
-            expect(f"fps run: {script.stem} runs migrated", f"fps check: {script.stem} runs PetScript" in output, output)
+        expect(f"{name} run", code == 0 and not new_errors and f"{name} check: 0 failure(s)" in output, output)
+        expect(f"{name} run: no resources kept at exit that the original frees", resources_in_use(output) <= known_in_use, output)
+        for script in scripts:
+            expect(f"{name} run: {script.stem} runs migrated", f"{name} check: {script.stem} runs PetScript" in output, output)
 
 
 def run_debugger_groups(godot):

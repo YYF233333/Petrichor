@@ -4,3 +4,7 @@
 [submodule "thirdparty/starter-kit-fps"]
 	path = thirdparty/starter-kit-fps
 	url = https://github.com/KenneyNL/Starter-Kit-FPS
+[submodule "thirdparty/ring"]
+	path = thirdparty/ring
+	url = https://github.com/YYF233333/Ring
+	shallow = true
