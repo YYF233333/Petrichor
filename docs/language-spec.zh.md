@@ -617,7 +617,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 静态检查在场景中放置该脚本的位置进行。父节点要求检查节点在场景中的父节点，以及场景的根被实例化到另一个场景中时外层的父节点，不符合时是编译错误，标在该场景上；场景作为主场景时，父节点是 Window 类型的根视口，同样检查；其他作为根使用的场景，父节点要到运行时才知道，只在运行时检查。owner 是包含该节点的场景的根节点；场景的根被实例化到另一个场景中时，owner 是外层场景的根（`scene/resources/packed_scene.cpp:567-570`）。脚本挂在作为根使用（§7.5）的场景的根上时没有 owner，这样的场景使用声明了 `@owner` 的脚本是编译错误，标在该场景上。
 - 运行时：
   - 父节点要求在节点挂到父节点时检查（`NOTIFICATION_PARENTED`，`scene/main/node.h:465`）；声明了 `@parent(T)` 的节点在没有父节点时调用 `get_parent()`，是程序错误；
-  - 声明了 `@owner(T)` 时，`owner` 在每次读取时检查不为 null 且符合要求；失败是程序错误，诊断写明要求和实际的 owner。不在移动节点时检查 owner：节点被移出 owner 的子树时，引擎把 owner 置为 null（`scene/main/node.cpp:391-396, 1781-1783`），这是合法的操作，例如 Ring 的 DeathComponent 先读 owner，再把自己移到前景层；owner 被释放时同样置为 null（`node.cpp:299-302`）。
+  - 声明了 `@owner(T)` 时，`owner` 在每次读取时检查不为 null 且符合要求；失败是程序错误，诊断写明要求和实际的 owner。不在移动节点时检查 owner：节点被移出 owner 的子树时，引擎把 owner 置为 null（`scene/main/node.cpp:391-396, 1781-1783`），这是合法的操作，例如 Ring 的 DeathComponent 先读 owner，再把自己移到前景层；owner 被释放时同样置为 null（`node.cpp:299-302`）。代码也可以用 `set_owner()` 把任一祖先设为 owner，或清除 owner；设为不是祖先的节点时引擎报错，owner 同样成为 null（`node.cpp:2271-2294`）。
 - `get_owner()` 和 `get_node_or_null("..")` 的类型总是 `Node?`，声明了要求的代码需要判断有没有 owner 或父节点时使用它们。
 
 ### 7.4 场景资源
@@ -1093,6 +1093,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | `NOTIFICATION_PARENTED` | `scene/main/node.h:465` |
 | `get_tree()` 在节点不在树中时报错并返回 null；`get_parent()`、`get_owner()` 没有父节点或 owner 时返回 null 而不报错 | `scene/main/node.h:558-561`；`scene/main/node.cpp:2100-2102, 2296-2298` |
 | `set_owner(null)` 清除 owner，不报错 | `scene/main/node.cpp:2273-2281` |
+| `set_owner()` 可把任一祖先设为 owner；设为不是祖先的节点时报错，owner 随后为 null | `scene/main/node.cpp:2271-2294` |
 | 节点移出 owner 的子树时 owner 被置为 null | `scene/main/node.cpp:391-396, 1781-1783` |
 | owner 被释放时，它拥有的节点的 owner 被置为 null | `scene/main/node.cpp:299-302` |
 | 节点在 PREDELETE 中从最后一个子节点起逐个删除子节点 | `scene/main/node.cpp:308-312` |
