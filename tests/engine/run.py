@@ -294,11 +294,16 @@ def prepare_fps(project):
 def prepare_ring(project):
     """Ring with the extension and ring_check.tscn, which starts breakout in
     place of Ring's C#. Of assets/, the visual novel's, only the bricks that
-    breakout uses and the textures of the project's theme are copied, and
-    docs/ is left out."""
+    breakout uses and the textures of the project's theme are copied; the
+    visual novel's other directories, which breakout does not refer to, and
+    the documentation are left out. UI/1.png alone took half the import."""
     def ignore(directory, names):
+        if Path(directory) == RING_UPSTREAM:
+            return [name for name in names if name in (".git", "docs", "Runtime", "button", "scenes", "UI", "Test", "python")]
         if Path(directory) == RING_UPSTREAM / "assets":
             return [name for name in names if not name.startswith("Brick-") and name != "Runtime"]
+        if Path(directory) == RING_UPSTREAM / "breakout":
+            return [name for name in names if name in (".git", "docs", "NOTE.assets", "README.assets")]
         return [name for name in names if name in (".git", "docs")]
 
     copy_project(RING_UPSTREAM, project, ignore)
@@ -332,12 +337,48 @@ def migrate(project, migrated):
         file.write_text("\n".join(lines), encoding="utf-8")
 
 
+report = threading.local()
+
+
+def say(text):
+    """Prints, or keeps the text while a group runs beside the others."""
+    kept = getattr(report, "lines", None)
+    if kept is None:
+        print(text, flush=True)
+    else:
+        kept.append(text)
+
+
 def expect(name, ok, output=""):
-    print(("ok      " if ok else "FAILED  ") + name, flush=True)
+    say(("ok      " if ok else "FAILED  ") + name)
     if not ok:
         failures.append(name)
         if output:
-            print(output)
+            say(output)
+
+
+def beside(name, function, *args):
+    """Starts a group that uses its own copy of a project, beside the groups of
+    the test project; finish() waits for it and prints what it reported."""
+    lines = []
+
+    def body():
+        report.lines = lines
+        try:
+            function(*args)
+        except Exception:
+            import traceback
+            expect(f"{name}: the group ran to its end", False, traceback.format_exc())
+
+    thread = threading.Thread(target=body)
+    thread.start()
+
+    def finish():
+        thread.join()
+        for line in lines:
+            print(line, flush=True)
+
+    return finish
 
 
 def expect_run(name, code, output, lines=(), expected_errors=()):
@@ -378,10 +419,17 @@ def main():
     def wanted(group):
         return not only or group in only
 
-    # The fps and ring groups prepare projects of their own.
+    # The fps and ring groups prepare projects of their own, so they run beside
+    # the groups of the test project.
+    finishes = []
+    if wanted("fps"):
+        finishes.append(beside("fps", run_migration_group, godot, "fps", prepare_fps, FPS_MIGRATED))
+    if wanted("ring"):
+        finishes.append(beside("ring", run_migration_group, godot, "ring", prepare_ring, RING_MIGRATED, "res://ring_check.tscn"))
+
     if not only or only - {"fps", "ring"}:
-        import_project(godot, PROJECT)
-        # The game reads the bytecode the editor writes (architecture §2.4).
+        # The game reads the bytecode the editor writes (architecture §2.4);
+        # the build waits for the first scan, which imports the project.
         code, output = run(godot, "-e", "--path", str(PROJECT), "--", "--petrichor-build")
         expect_run("build", code, output)
         expect("build: every script compiles", ", 0 with errors" in output, output)
@@ -411,11 +459,8 @@ def main():
     if wanted("export"):
         run_export_groups(godot)
 
-    if wanted("fps"):
-        run_migration_group(godot, "fps", prepare_fps, FPS_MIGRATED)
-
-    if wanted("ring"):
-        run_migration_group(godot, "ring", prepare_ring, RING_MIGRATED, "res://ring_check.tscn")
+    for finish in finishes:
+        finish()
 
     print(f"{len(failures)} failure(s)")
     sys.exit(1 if failures else 0)
@@ -437,11 +482,13 @@ def run_migration_group(godot, name, prepare, migrated_scripts, *scene):
     with tempfile.TemporaryDirectory() as tmp:
         original = Path(tmp) / "original"
         prepare(original)
-        import_project(godot, original)
         scripts = sorted(migrated_scripts.rglob("*.pet"))
-        if scripts:
+        if not scripts:
+            import_project(godot, original)
+        else:
             # Trigger the same scene analysis as a migrated script; this file
             # is never attached to a node and the original game stays GDScript.
+            # The build imports the copy in its first scan.
             baseline = original / "petrichor_analysis_baseline.pet"
             assert not baseline.exists()
             baseline.write_text("extends Node\n", encoding="utf-8")
@@ -465,7 +512,6 @@ def run_migration_group(godot, name, prepare, migrated_scripts, *scene):
         shutil.copytree(original, migrated)
         (migrated / ".godot" / "global_script_class_cache.cfg").unlink()
         migrate(migrated, migrated_scripts)
-        import_project(godot, migrated)
         code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-build")
         new_build_errors = [line for line in output.splitlines() if "ERROR" in line and line not in known_build_errors]
         expect(f"{name} build", code == 0 and not new_build_errors, "\n".join(new_build_errors) if code == 0 else output)

@@ -2,6 +2,8 @@
 
 #include "adapter/editor/script_compiler.h"
 
+#include <godot_cpp/classes/editor_file_system.hpp>
+#include <godot_cpp/classes/editor_interface.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
@@ -60,6 +62,13 @@ bool PetEditorPlugin::_build() {
 }
 
 void PetEditorPlugin::run_build_command() {
+	// The first scan imports the project, and lasts until its imports are done
+	// (editor/file_system/editor_file_system.cpp:1131-1137, 1838-1840), so a
+	// fresh copy builds in the same run.
+	if (EditorInterface::get_singleton()->get_resource_filesystem()->is_scanning()) {
+		get_tree()->connect("process_frame", callable_mp(this, &PetEditorPlugin::run_build_command), CONNECT_ONE_SHOT);
+		return;
+	}
 	int count = 0;
 	const int failed = build_project(&count);
 	UtilityFunctions::print(vformat("petrichor build: %d script(s), %d with errors", count, failed));
