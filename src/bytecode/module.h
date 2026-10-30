@@ -118,6 +118,10 @@ struct Member : Slot {
 	bool is_pub = false;
 	bool is_export = false;
 	bool is_onready = false; // Set by the ready function (spec §6.3).
+	// The functions that reading and writing it from outside the class call
+	// (spec §4.4); -1 without one.
+	int32_t setter = -1;
+	int32_t getter = -1;
 	// For the inspector: PropertyHint as the engine numbers it, and its string.
 	uint32_t hint = 0;
 	std::string hint_string;

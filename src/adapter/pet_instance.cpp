@@ -221,10 +221,18 @@ static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance,
 	if (!member) {
 		return false;
 	}
+	const Variant &value = *reinterpret_cast<const Variant *>(p_value);
+	// The scene, the inspector, Tween and other classes write through the
+	// setter (spec §4.4), whose entry check takes the value.
+	if (member->setter >= 0) {
+		const Variant *args[] = { &value };
+		GDExtensionCallError error;
+		vm::call(image, member->setter, instance->context(), args, 1, error);
+		return true;
+	}
 	// A value that fails the entry check is a program error, reported at the
 	// member, which keeps its value (spec §7.5, §10.1); the write is handled.
 	const size_t index = size_t(member - image->module.members.data());
-	const Variant &value = *reinterpret_cast<const Variant *>(p_value);
 	if (!from_variant(member->type, value, instance->storage->members + member->offset, &image->member_checks[index])) {
 		vm::report_error(*image, member->name.c_str(), int(member->line), vformat("\"%s\" was not written: %s.", image->member_names[index], entry_mismatch(member->type, value, image->member_checks[index])));
 	}
@@ -244,6 +252,11 @@ static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance,
 			}
 		}
 		return false;
+	}
+	if (member->getter >= 0) {
+		GDExtensionCallError error;
+		*reinterpret_cast<Variant *>(r_ret) = vm::call(image, member->getter, instance->context(), nullptr, 0, error);
+		return true;
 	}
 	*reinterpret_cast<Variant *>(r_ret) = outward_variant(*member, instance->storage->members + member->offset);
 	return true;

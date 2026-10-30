@@ -225,8 +225,16 @@ struct VarDecl {
 	std::vector<Annotation> annotations;
 	std::optional<TypeRef> declared_type;
 	std::unique_ptr<Expr> initializer;
+	// Its setter and getter, by function name (spec §4.4): `@set_x` and
+	// `@get_x` for inline ones, which the parser adds to the functions.
+	std::string setter;
+	std::string getter;
+	int accessor_line = 0;
+	int accessor_column = 0;
 	// Filled by the checker.
 	Type type;
+	int setter_index = -1; // In the class's functions.
+	int getter_index = -1;
 	bool constant_initializer = false; // Also stored as the member's initial value, the editor's default.
 	bool must_assign = false; // An export of a non-null object type without an initial value (spec §7.5).
 	uint32_t hint = 0; // For the inspector: PropertyHint as the engine numbers it.
@@ -267,6 +275,9 @@ struct FuncDecl {
 	std::vector<ParamDecl> params;
 	std::optional<TypeRef> return_type_ref;
 	Block body;
+	// The member whose setter or getter this is (spec §4.4): an inline one
+	// from the parser, a named one from the checker.
+	std::string accessor_of;
 
 	// Filled by the checker.
 	Type return_type = Type::of(TypeKind::Void);

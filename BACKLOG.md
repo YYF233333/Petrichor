@@ -9,6 +9,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Of match (spec §5.6): array and dictionary patterns; a match over `T?`, with `None` and `var x` and the check that it is exhaustive; the patterns of enums, structs, Result and Settled once they exist.
 - Static checks of must-assign exports in scenes, in resources and at export (spec §7.5), and of a scene used as a root whose root has a script with `@owner` (§7.3).
 - `@parent(T)` (spec §7.3).
+- Setters that run before ready (spec §6.5), once the open question below is settled; until then the checks that a node is ready report such a setter's first access to its node.
 - A warning for removed nodes that are neither stored nor freed (spec §15).
 - Preload cycles (spec §7.6), and preload of resources other than scenes.
 - Of GDScript classes (spec §11.1): `new()`, static methods, constants and enums, inner classes; nodes in scenes typed by their GDScript class rather than its engine class.
@@ -56,6 +57,7 @@ Engine calls are by name with Variant arguments now, so code that calls the engi
 
 ## Open questions
 
+- Whether a setter that runs before ready should wait for ready on its own (spec §6.5), or the behavior should be written in the setter: the owner suspects that the implicit suspension makes setters hard to understand. To be discussed again before §6.5 is implemented.
 - Whether diagnostics and semantic queries also serve programs, not only the editor's interface: saying which declaration or scene a constraint comes from and listing the references that broke could let AI and tools fix errors while reading less code.
 - Whether the first version (spec §14) narrows: the FPS and Ring scripts of the second paper migration use none of user-defined generics, Result and `?`, enums, weak and the built-in test runner, and suspending setters before ready (spec §6.5) is costly to implement.
 - The long-term boundary of compatibility with GDScript and Godot: which agreements are promises and which merely hold today, which Godot versions are supported, and which semantics may still change during the alpha.

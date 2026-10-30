@@ -602,6 +602,26 @@ public:
 		if (!layout(module.members, module.instance_size, instance)) {
 			return false;
 		}
+		// The engine passes the value a setter takes, and takes what a getter gives.
+		for (const Member &member : module.members) {
+			for (const int32_t index : { member.setter, member.getter }) {
+				if (index < -1 || index >= int32_t(module.functions.size())) {
+					return fail("an accessor of " + member.name + " is not a function of the module");
+				}
+			}
+			if (member.setter >= 0) {
+				const Function &setter = module.functions[member.setter];
+				if (setter.is_async || setter.result.type != ValueType::Void || setter.params.size() != 1 || setter.params[0].type != member.type) {
+					return fail("the setter of " + member.name + " does not take its type");
+				}
+			}
+			if (member.getter >= 0) {
+				const Function &getter = module.functions[member.getter];
+				if (getter.is_async || !getter.params.empty() || getter.result.type != member.type) {
+					return fail("the getter of " + member.name + " does not give its type");
+				}
+			}
+		}
 		for (const SignalInfo &signal : module.signals) {
 			for (const Slot &param : signal.params) {
 				if (!is_type(uint32_t(param.type))) {

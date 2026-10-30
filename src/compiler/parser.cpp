@@ -724,6 +724,87 @@ class Parser {
 		return decl;
 	}
 
+	// After `var x: T = v:`, the property's setter and getter (spec §4.4):
+	// `set = f, get = g` on the same line, or a block of `set(value):` and
+	// `get:`, which become the functions @set_x and @get_x, and of the named
+	// forms.
+	void accessors(VarDecl &r_decl, ClassDecl &r_class) {
+		r_decl.accessor_line = peek().line;
+		r_decl.accessor_column = peek().column;
+		if (!check(TokenKind::Newline)) {
+			named_accessors(r_decl);
+			end_of_statement();
+			return;
+		}
+		advance();
+		expect(TokenKind::Indent, "an indented block of set and get");
+		while (!failed && !check(TokenKind::Dedent) && !check(TokenKind::EndOfFile)) {
+			if (peek(1).kind == TokenKind::Equal) {
+				named_accessors(r_decl);
+				end_of_statement();
+				continue;
+			}
+			const Token &keyword = expect(TokenKind::Identifier, "set or get");
+			if (failed) {
+				return;
+			}
+			FuncDecl function;
+			function.line = keyword.line;
+			function.column = keyword.column;
+			function.accessor_of = r_decl.name;
+			if (keyword.text == "set") {
+				expect(TokenKind::ParenOpen, "\"(\"");
+				const Token &param = expect(TokenKind::Identifier, "the parameter's name");
+				expect(TokenKind::ParenClose, "\")\"");
+				ParamDecl value;
+				value.name = param.text;
+				value.line = param.line;
+				value.column = param.column;
+				function.params.push_back(std::move(value));
+				function.name = "@set_" + r_decl.name;
+			} else if (keyword.text == "get") {
+				function.name = "@get_" + r_decl.name;
+			} else {
+				fail(keyword, "Expected set or get.");
+				return;
+			}
+			if (!take_accessor(keyword.text == "set" ? r_decl.setter : r_decl.getter, function.name, keyword)) {
+				return;
+			}
+			expect(TokenKind::Colon, "\":\"");
+			if (failed) {
+				return;
+			}
+			function.body = block();
+			r_class.functions.push_back(std::move(function));
+		}
+		match(TokenKind::Dedent);
+	}
+
+	// `set = f` or `get = g`, separated by commas.
+	void named_accessors(VarDecl &r_decl) {
+		do {
+			const Token &keyword = expect(TokenKind::Identifier, "set or get");
+			if (!failed && keyword.text != "set" && keyword.text != "get") {
+				fail(keyword, "Expected set or get.");
+			}
+			expect(TokenKind::Equal, "\"=\"");
+			const Token &function = expect(TokenKind::Identifier, "a function name");
+			if (failed || !take_accessor(keyword.text == "set" ? r_decl.setter : r_decl.getter, function.text, keyword)) {
+				return;
+			}
+		} while (match(TokenKind::Comma));
+	}
+
+	bool take_accessor(std::string &r_accessor, const std::string &p_function, const Token &p_at) {
+		if (!r_accessor.empty()) {
+			fail(p_at, "The property already has a " + p_at.text + "ter.");
+			return false;
+		}
+		r_accessor = p_function;
+		return true;
+	}
+
 	static bool is_group_annotation(const std::string &p_name) {
 		return p_name == "export_group" || p_name == "export_subgroup" || p_name == "export_category";
 	}
@@ -802,7 +883,11 @@ class Parser {
 			if (match(TokenKind::Equal)) {
 				decl.initializer = expression();
 			}
-			end_of_statement();
+			if (match(TokenKind::Colon)) {
+				accessors(decl, r_class);
+			} else {
+				end_of_statement();
+			}
 			r_class.members.push_back(std::move(decl));
 			return;
 		}

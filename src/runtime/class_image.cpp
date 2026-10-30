@@ -48,7 +48,7 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 	for (uint32_t i = 0; i < image->module.inherited_members; ++i) {
 		const auto &a = image->module.members[i];
 		const auto &b = p_base->module.members[i];
-		if (a.name != b.name || a.offset != b.offset || !same_description(a, b) || a.is_pub != b.is_pub || a.is_export != b.is_export || a.is_onready != b.is_onready) {
+		if (a.name != b.name || a.offset != b.offset || !same_description(a, b) || a.is_pub != b.is_pub || a.is_export != b.is_export || a.is_onready != b.is_onready || a.setter != b.setter || a.getter != b.getter) {
 			r_error = "Inherited member layout changed. Rebuild the project.";
 			return nullptr;
 		}
@@ -419,7 +419,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	for (size_t i = 0; i < a.members.size(); i++) {
 		const bytecode::Member &x = a.members[i];
 		const bytecode::Member &y = b.members[i];
-		if (x.name != y.name || !same_description(x, y) || x.offset != y.offset || x.is_onready != y.is_onready ||
+		if (x.name != y.name || !same_description(x, y) || x.offset != y.offset || x.is_onready != y.is_onready || x.setter != y.setter || x.getter != y.getter ||
 				x.is_pub != y.is_pub || x.is_export != y.is_export || x.hint != y.hint || x.hint_string != y.hint_string || x.has_initial != y.has_initial || !same_constant(x.initial, y.initial)) {
 			return false;
 		}

@@ -2662,6 +2662,51 @@ class Checker : public ClassRelation {
 		}
 		member.type = type;
 		check_annotations(member);
+		check_accessors(member);
+	}
+
+	// A property's setter and getter (spec §4.4): its own inline ones, which
+	// take and give its type, or functions of the class that do.
+	void check_accessors(VarDecl &r_member) {
+		const auto accessor = [&](const std::string &p_name, bool p_setter) {
+			if (p_name.empty()) {
+				return -1;
+			}
+			const std::string kind = p_setter ? "setter" : "getter";
+			FuncDecl *function = nullptr;
+			for (FuncDecl &own : cls.functions) {
+				if (own.name == p_name) {
+					function = &own;
+				}
+			}
+			if (!function) {
+				error(r_member.accessor_line, r_member.accessor_column, "The " + kind + " " + p_name + "() is not a function of this class.");
+				return -1;
+			}
+			if (p_name[0] == '@') {
+				if (p_setter) {
+					function->params[0].type = r_member.type;
+				} else {
+					function->return_type = r_member.type;
+				}
+			} else {
+				if (!function->accessor_of.empty()) {
+					error(r_member.accessor_line, r_member.accessor_column, p_name + "() is already an accessor of \"" + function->accessor_of + "\".");
+				}
+				function->accessor_of = r_member.name;
+				const bool fits = p_setter ? function->params.size() == 1 && function->params[0].type == r_member.type && function->return_type.kind == TypeKind::Void : function->params.empty() && function->return_type == r_member.type;
+				if (!fits && !r_member.type.is_error()) {
+					error(function->line, function->column, "As the " + kind + " of \"" + r_member.name + "\", " + p_name + "() " + (p_setter ? "takes one argument of type " + r_member.type.to_string() + " and returns nothing" : "takes no argument and returns " + r_member.type.to_string()) + " (spec §4.4).");
+				}
+			}
+			if (function->is_async || function->is_static) {
+				error(function->line, function->column, "A " + kind + " cannot be async or static (spec §4.4).");
+			}
+			const auto found = function_index.find(p_name);
+			return found == function_index.end() ? -1 : found->second;
+		};
+		r_member.setter_index = accessor(r_member.setter, true);
+		r_member.getter_index = accessor(r_member.getter, false);
 	}
 
 	// Default parameters use the same constants as member initializers (spec §4.6).
@@ -2810,6 +2855,8 @@ class Checker : public ClassRelation {
 			} else if (r_function.is_override) {
 				// The type comes from the overridden declaration (spec §4.6).
 				param.type = engine_type;
+			} else if (!r_function.accessor_of.empty()) {
+				// An inline setter takes the member's type (check_accessors()).
 			} else {
 				error(param.line, param.column, "Parameter \"" + param.name + "\" needs a type.");
 				param.type = Type::of(TypeKind::Error);

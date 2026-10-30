@@ -1,0 +1,25 @@
+# Property accessors (spec §4.4): inline, named, and a getter alone.
+class_name AccessorCheck
+extends Node
+
+pub var writes := 0
+@export pub var speed: float = 1.0:
+	set(value):
+		speed = max(value, 0.0)
+		writes += 1
+pub var doubled: int = 3:
+	get:
+		return doubled * 2
+pub var named: int = 0: set = set_named, get = get_named
+
+func set_named(value: int):
+	named = value + 100
+
+func get_named() -> int:
+	return named - 1
+
+# Within the class, reads and writes go through the accessors too.
+pub func inside():
+	speed = -4.0
+	doubled += 1
+	named = 1

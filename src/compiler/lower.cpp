@@ -343,6 +343,24 @@ class Lowerer {
 		instr(by_storage(type, Op::STORE_MEMBER_8, Op::STORE_MEMBER_STRING, Op::STORE_MEMBER_VALUE), NO_REG, p_value, NO_REG, p_member, type);
 	}
 
+	// The setter or getter that reading or writing a member calls, or -1: in
+	// its own accessors the member's name is its field (spec §4.4).
+	int accessor(uint32_t p_member, bool p_setter) const {
+		const VarDecl &member = *cls.all_members[p_member];
+		const int index = p_setter ? member.setter_index : member.getter_index;
+		return decl && decl->accessor_of == member.name ? -1 : index;
+	}
+
+	uint32_t call_function(uint32_t p_function, std::vector<uint32_t> p_args, const Type &p_result) {
+		ir::Instr i;
+		i.op = Op::CALL;
+		i.imm = p_function;
+		i.args = std::move(p_args);
+		i.dst = p_result.kind == TypeKind::Void ? NO_REG : temp(p_result);
+		add(i);
+		return i.dst;
+	}
+
 	/* Tables */
 
 	template <typename T, typename Same>
@@ -1126,8 +1144,10 @@ class Lowerer {
 				instr(Op::UNWRAP, result, p_place.reg, NO_REG, 0, reg_type(result));
 				return result;
 			}
-			case Place::Kind::Member:
-				return load_member(p_place.index);
+			case Place::Kind::Member: {
+				const int getter = accessor(p_place.index, false);
+				return getter >= 0 ? call_function(uint32_t(getter), {}, p_place.type) : load_member(p_place.index);
+			}
 			case Place::Kind::SelfProperty:
 			case Place::Kind::ObjectProperty: {
 				const uint32_t result = temp(p_place.type);
@@ -1158,9 +1178,15 @@ class Lowerer {
 			case Place::Kind::NarrowedLocal:
 				instr(Op::TO_VARIANT, p_place.reg, p_value, NO_REG, 0, reg_type(p_value));
 				return;
-			case Place::Kind::Member:
-				store_member(p_place.index, p_value);
+			case Place::Kind::Member: {
+				const int setter = accessor(p_place.index, true);
+				if (setter >= 0) {
+					call_function(uint32_t(setter), { p_value }, Type::of(TypeKind::Void));
+				} else {
+					store_member(p_place.index, p_value);
+				}
 				return;
+			}
 			case Place::Kind::SelfProperty:
 			case Place::Kind::ObjectProperty:
 				if (p_place.int_range) {
@@ -1455,6 +1481,8 @@ public:
 				member.type = ValueType::Variant;
 			}
 			member.is_onready = decl_member.is_onready;
+			member.setter = decl_member.setter_index;
+			member.getter = decl_member.getter_index;
 			member.line = uint32_t(decl_member.line);
 			member.offset = offset;
 			offset += bytecode::slot_size(member.type);
