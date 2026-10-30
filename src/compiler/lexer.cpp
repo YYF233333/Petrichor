@@ -548,6 +548,19 @@ class Lexer {
 			case '!':
 				next == '=' ? two(TokenKind::BangEqual) : one(TokenKind::Bang);
 				return;
+			// GDScript's spellings of and and or.
+			case '&':
+				if (next == '&') {
+					two(TokenKind::And);
+					return;
+				}
+				break;
+			case '|':
+				if (next == '|') {
+					two(TokenKind::Or);
+					return;
+				}
+				break;
 			case '<':
 				next == '=' ? two(TokenKind::LessEqual) : one(TokenKind::Less);
 				return;
@@ -578,6 +591,12 @@ public:
 				while (peek() != '\n' && peek() != 0) {
 					advance();
 				}
+			} else if (c == '\\' && (peek(1) == '\n' || (peek(1) == '\r' && peek(2) == '\n'))) {
+				// A backslash at the end of a line continues it, as in GDScript.
+				while (peek() != '\n') {
+					advance();
+				}
+				advance();
 			} else if (c == '\n') {
 				// The line break token belongs to the line it ends.
 				if (paren_depth == 0) {

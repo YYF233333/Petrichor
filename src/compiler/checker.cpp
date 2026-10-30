@@ -1653,8 +1653,7 @@ class Checker : public ClassRelation {
 		if (!method) {
 			return fail_call(r_expr, p_base.to_string() + " has no method \"" + r_expr.text + "()\".");
 		}
-		const bool awaited_callable = r_expr.awaited && base_name == "Callable" && (r_expr.text == "call" || r_expr.text == "callv");
-		if ((method->is_vararg && !awaited_callable) || method->is_static) {
+		if (method->is_static) {
 			return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + base_name + " is not supported yet.");
 		}
 		int required = 0;
@@ -2046,7 +2045,19 @@ class Checker : public ClassRelation {
 				r_expr.param_types.push_back(arg);
 				return set(r_expr, Type::of(result));
 			}
-			if (const builtin::Utility *utility = builtin::find_utility(name)) {
+			if (name == "print_debug" && function) {
+				// GDScript's own: print() of the arguments and where it is called
+				// (modules/gdscript/gdscript_utility_functions.cpp:349-362), which is
+				// known here.
+				auto where = std::make_unique<Expr>();
+				where->kind = ExprKind::StringLiteral;
+				where->line = r_expr.line;
+				where->column = r_expr.column;
+				where->text = "\n   At: " + options.path + ":" + std::to_string(r_expr.line) + ":" + function->name + "()";
+				r_expr.args.push_back(std::move(where));
+				r_expr.text = "print";
+			}
+			if (const builtin::Utility *utility = builtin::find_utility(r_expr.text)) {
 				return check_utility(r_expr, *utility);
 			}
 			if (name != "bool" && name != "String") {

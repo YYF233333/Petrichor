@@ -325,6 +325,7 @@ func _ready() -> void:
 	child.free()
 
 	var frames_before: int = c.frames
+	c.defer()
 	var freeing := FreeCheck.new()
 	freeing.recorder = self
 	add_child(freeing)
@@ -332,6 +333,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	_check_errors(["free_check.pet:17: self was freed, or lost its script, while this method ran."], "the program error of reading a member after self was freed")
 	_check(c.frames > frames_before, "_process runs every frame")
+	_check(c.deferred == 2, "Callable.call_deferred() with an argument runs at the end of the frame")
 	_check(not is_instance_valid(freeing) and not has_meta(&"after_free"), "reading a member after self was freed in _process is a program error")
 
 	var owned: TargetCheck = preload("res://language/owner.tscn").instantiate()

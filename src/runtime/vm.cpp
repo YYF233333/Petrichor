@@ -281,6 +281,16 @@ void report_error(const ClassImage &p_image, const bytecode::Function &p_functio
 	vm::report_error(p_image, p_function.name.c_str(), p_line, p_message);
 }
 
+// What an object must be to fit the class table's entry `p_index`.
+ValueCheck class_check(const ClassImage &p_image, uint32_t p_index) {
+	ValueCheck check;
+	check.class_name = p_image.classes[p_index];
+	check.script = p_image.class_scripts[p_index];
+	check.interface = p_image.class_interfaces[p_index];
+	check.nullable = false;
+	return check;
+}
+
 class Execution {
 	const ClassImage &image;
 	const InstanceContext &context;
@@ -658,12 +668,7 @@ public:
 					Node *found = node ? node->get_owner() : nullptr;
 					const uint32_t index = code[pc + 1];
 					if (!found || !image.fits_class(found, index)) {
-						ValueCheck check;
-						check.class_name = image.classes[index];
-						check.script = image.class_scripts[index];
-						check.interface = image.class_interfaces[index];
-						check.nullable = false;
-						FAIL(vformat("owner: %s (@owner).", entry_mismatch(ValueType::Object, Variant(found), check)));
+						FAIL(vformat("owner: %s (@owner).", entry_mismatch(ValueType::Object, Variant(found), class_check(image, index))));
 					}
 					variant_at(frame + code[pc + 2]) = Variant(found);
 					pc += 3;
@@ -720,14 +725,11 @@ public:
 					break;
 				}
 				case Op::CHECK_OBJECT: {
-					const StringName &expected = image.classes[code[pc + 1]];
 					const Variant &value = variant_at(frame + code[pc + 2]);
-					if (is_none(value)) {
-						FAIL(vformat("Expected %s, found None.", expected));
-					}
 					const Object *object = value.get_validated_object();
-					if (object && !image.fits_class(object, code[pc + 1])) {
-						FAIL(vformat("Expected %s, found %s.", expected, object->get_class()));
+					if (is_none(value) || (object && !image.fits_class(object, code[pc + 1]))) {
+						const String mismatch = entry_mismatch(ValueType::Object, value, class_check(image, code[pc + 1]));
+						FAIL(mismatch.substr(0, 1).to_upper() + mismatch.substr(1) + ".");
 					}
 					pc += 3;
 					break;

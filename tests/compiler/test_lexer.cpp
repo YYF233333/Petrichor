@@ -39,6 +39,16 @@ TEST_CASE("blank lines, comments and line breaks in parentheses do not affect bl
 	CHECK(kinds("# comment\n\nf(1,\n      2)  # trailing\n\n") == expected);
 }
 
+TEST_CASE("&& and || spell and and or, and a backslash continues a line, as in GDScript") {
+	using K = TokenKind;
+	const std::vector<K> expected = {
+		K::Identifier, K::Equal, K::Identifier, K::And, K::Identifier, K::Or, K::Identifier, K::Newline, K::EndOfFile
+	};
+	CHECK(kinds("x = a && b || c\n") == expected);
+	CHECK(kinds("x = a && \\\n\t\tb || c\n") == expected);
+	CHECK(kinds("x = a && \\\r\n\t\tb || c\r\n") == expected);
+}
+
 TEST_CASE("mixing tabs and spaces is an error") {
 	std::vector<Diagnostic> errors;
 	kinds("func f():\n\tpass\n    pass\n", &errors);

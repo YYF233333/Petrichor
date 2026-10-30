@@ -30,6 +30,16 @@ TEST_CASE("a match ends a function when a branch takes every value and every bra
 	CHECK(contains(match_errors("\tmatch n:\n\t\t_ when n > 0:\n\t\t\treturn 1"), "Not all paths of \"f()\" return a value."));
 }
 
+TEST_CASE("print_debug() prints where it is called, as GDScript's does") {
+	const auto result = compile("func f():\n\tprint_debug(\"x\", 1)\n");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	bool where = false;
+	for (const auto &constant : result.module.constants) {
+		where = where || constant.s == "\n   At: :2:f()";
+	}
+	CHECK(where);
+}
+
 TEST_CASE("patterns that are not supported yet are refused") {
 	CHECK(contains(messages(compile("func f(o: int?):\n\tmatch o:\n\t\t_:\n\t\t\tpass\n")), "A match over int? is not supported yet"));
 	CHECK(contains(messages(compile("func f(a: Array[int]):\n\tmatch a:\n\t\t[1]:\n\t\t\tpass\n")), "Array and dictionary patterns are not supported yet."));

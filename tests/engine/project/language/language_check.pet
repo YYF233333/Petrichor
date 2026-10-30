@@ -123,3 +123,12 @@ pub func classify(s: String, n: int) -> String:
 		_:
 			pass
 	return "other"
+
+# A built-in method that takes any number of arguments.
+pub var deferred := 0
+
+pub func defer():
+	Callable(add_deferred).call_deferred(2)
+
+func add_deferred(amount: int):
+	deferred += amount
