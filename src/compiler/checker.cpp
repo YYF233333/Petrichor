@@ -660,6 +660,13 @@ class Checker : public ClassRelation {
 			r_expr.index = member->second;
 			return set(r_expr, cls.all_members[member->second]->type);
 		}
+		if (r_expr.text == "owner" && cls.owner_ref) {
+			if (refuse_in_static(r_expr, r_expr.text)) {
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
+			r_expr.target = Target::Owner;
+			return set(r_expr, cls.owner_type);
+		}
 		if (const auto property = engine.find_property(cls.native_base, r_expr.text)) {
 			if (refuse_in_static(r_expr, r_expr.text)) {
 				return set(r_expr, Type::of(TypeKind::Error));
@@ -2148,6 +2155,7 @@ class Checker : public ClassRelation {
 		switch (p_target.target) {
 			case Target::Local:
 			case Target::Member:
+			case Target::Owner:
 				return true;
 			case Target::SelfProperty:
 			case Target::ObjectProperty: {
@@ -2907,6 +2915,69 @@ class Checker : public ClassRelation {
 		}
 	}
 
+	// @owner(T): a class of this language, an interface or an engine class, on
+	// a class that extends Node (spec §7.3).
+	void declare_owner() {
+		if (!cls.owner_ref) {
+			return;
+		}
+		const TypeRef &ref = *cls.owner_ref;
+		cls.owner_type = resolve(ref, false);
+		if (cls.owner_type.is_error()) {
+			return;
+		}
+		if (cls.owner_type.kind != TypeKind::Object || cls.owner_type.nullable) {
+			error(ref.line, ref.column, "@owner takes a class or an interface, not " + cls.owner_type.to_string() + ".");
+			cls.owner_type = Type::of(TypeKind::Error);
+		} else if (!engine.inherits(cls.native_base, "Node")) {
+			error(ref.line, ref.column, "@owner is for classes that extend Node.");
+			cls.owner_type = Type::of(TypeKind::Error);
+		}
+	}
+
+	// Where scenes place the script, its owner satisfies @owner(T) (spec §7.3):
+	// that of a node is the root of its scene, and that of a scene's root the
+	// root of each scene that instances it.
+	void check_owner_scenes() {
+		if (!cls.owner_ref || cls.owner_type.is_error()) {
+			return;
+		}
+		Expr at;
+		at.line = cls.owner_ref->line;
+		at.column = cls.owner_ref->column;
+		const auto check_owner = [&](const Scene &p_scene, const SceneNode &p_node) {
+			const SceneNode *root = p_scene.find_node(".");
+			if (p_node.path == "." || !root) {
+				return;
+			}
+			const std::string &script = root->script.empty() ? root->instance_script : root->script;
+			if (!script.empty() && !is_script_path(script) && !cls.owner_type.is_interface && !cls.owner_type.script.empty()) {
+				return; // A class of another language, which the reads check.
+			}
+			const Type owner = scene_node_type(at, *root, p_scene.path + ": the root");
+			if (!owner.is_error() && !assignable(owner, cls.owner_type)) {
+				error(at.line, at.column, p_scene.path + ": the owner of " + p_node.path + " is " + owner.to_string() + ", not " + cls.owner_type.to_string() + " (@owner).");
+			}
+		};
+		for (const Scene &scene : scenes) {
+			for (const SceneNode &node : scene.nodes) {
+				if (extends_script(node.script, options.path)) {
+					check_owner(scene, node);
+				}
+			}
+		}
+		if (!options.project || options.declarations_only || options.path.empty()) {
+			return;
+		}
+		for (const Scene &scene : options.project->scenes_instancing_script(options.path)) {
+			for (const SceneNode &node : scene.nodes) {
+				if (node.is_instance && node.script.empty() && extends_script(node.instance_script, options.path)) {
+					check_owner(scene, node);
+				}
+			}
+		}
+	}
+
 	// The properties the class's interfaces require, after the members' types
 	// are known: a pub member of the same type, or an inherited engine property,
 	// which must have a setter unless the requirement is @readonly (spec §3.9).
@@ -3040,6 +3111,7 @@ public:
 			scenes = options.project->scenes_with_script(options.path);
 		}
 		declare_interfaces();
+		declare_owner();
 		declare_members();
 		std::unordered_set<std::string> own_functions;
 		for (FuncDecl &fn : cls.functions) {
@@ -3062,6 +3134,7 @@ public:
 		check_interface_properties();
 		check_groups();
 		check_connections();
+		check_owner_scenes();
 		for (FuncDecl &fn : cls.functions) {
 			const auto found = function_index.find(fn.name);
 			if (found != function_index.end() && cls.all_functions[found->second] == &fn) {

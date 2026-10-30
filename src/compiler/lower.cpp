@@ -210,6 +210,7 @@ struct Place {
 		NarrowedLocal, // A local of type T? where it is known to hold a T (spec §5.4).
 		Member,
 		SelfProperty,
+		Owner, // owner with @owner(T): read with its check (spec §7.3).
 		ObjectProperty,
 		Field,
 	};
@@ -1064,6 +1065,7 @@ class Lowerer {
 			case Target::Local:
 			case Target::Member:
 			case Target::SelfProperty:
+			case Target::Owner:
 			case Target::ObjectProperty:
 				return true;
 			case Target::Field:
@@ -1089,6 +1091,9 @@ class Lowerer {
 			case Target::SelfProperty:
 				place.kind = Place::Kind::SelfProperty;
 				place.index = property(p_expr.text, value_type(p_expr.type));
+				break;
+			case Target::Owner:
+				place.kind = Place::Kind::Owner;
 				break;
 			case Target::ObjectProperty:
 				place.kind = Place::Kind::ObjectProperty;
@@ -1131,6 +1136,11 @@ class Lowerer {
 				check_object(result, p_place.type);
 				return result;
 			}
+			case Place::Kind::Owner: {
+				const uint32_t result = temp(p_place.type);
+				instr(Op::GET_OWNER, result, NO_REG, NO_REG, class_index(p_place.type));
+				return result;
+			}
 			case Place::Kind::Field: {
 				const uint32_t result = temp(p_place.type);
 				instr(Op::GET_FIELD, result, p_place.reg, NO_REG, p_place.index);
@@ -1157,6 +1167,9 @@ class Lowerer {
 					instr(Op::CHECK_RANGE, NO_REG, p_value, NO_REG, uint32_t(*p_place.int_range));
 				}
 				instr(Op::SET_PROPERTY, NO_REG, p_place.kind == Place::Kind::SelfProperty ? NO_REG : p_place.reg, p_value, p_place.index);
+				return;
+			case Place::Kind::Owner:
+				instr(Op::SET_PROPERTY, NO_REG, NO_REG, p_value, property("owner", ValueType::Object));
 				return;
 			case Place::Kind::Field:
 				instr(Op::SET_FIELD, NO_REG, p_place.reg, p_value, p_place.index);
@@ -1194,7 +1207,7 @@ class Lowerer {
 				uint32_t value;
 				if (p_stmt.assign_op == TokenKind::Equal) {
 					value = lower_expr(*p_stmt.value);
-					if (place.kind == Place::Kind::SelfProperty || place.kind == Place::Kind::ObjectProperty) {
+					if (place.kind == Place::Kind::SelfProperty || place.kind == Place::Kind::Owner || place.kind == Place::Kind::ObjectProperty) {
 						value = outward(value, p_stmt.value->type, target.type.kind == TypeKind::Object); // The engine keeps it.
 					}
 				} else {

@@ -650,6 +650,25 @@ public:
 					pc += 3;
 					break;
 				}
+				case Op::GET_OWNER: {
+					// Checked at every read, since code and the engine change the
+					// owner (spec §7.3).
+					SELF_ALIVE();
+					const Node *node = Object::cast_to<Node>(context.owner);
+					Node *found = node ? node->get_owner() : nullptr;
+					const uint32_t index = code[pc + 1];
+					if (!found || !image.fits_class(found, index)) {
+						ValueCheck check;
+						check.class_name = image.classes[index];
+						check.script = image.class_scripts[index];
+						check.interface = image.class_interfaces[index];
+						check.nullable = false;
+						FAIL(vformat("owner: %s (@owner).", entry_mismatch(ValueType::Object, Variant(found), check)));
+					}
+					variant_at(frame + code[pc + 2]) = Variant(found);
+					pc += 3;
+					break;
+				}
 				case Op::GET_SINGLETON: {
 					Object *singleton = Engine::get_singleton()->get_singleton(image.classes[code[pc + 1]]);
 					if (!singleton) {

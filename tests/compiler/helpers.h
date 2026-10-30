@@ -40,28 +40,42 @@ public:
 		}
 	}
 
-	std::vector<compiler::Scene> scenes_with_script(const std::string &p_script_path) const override {
-		std::vector<compiler::Scene> result;
+	// Whether the script is `p_base` or extends it.
+	bool extends_script(const std::string &p_script, const std::string &p_base) const {
 		compiler::ScriptClasses classes(fake_engine(), this);
+		std::set<std::string> seen;
+		for (std::string path = p_script; !path.empty() && seen.insert(path).second;) {
+			if (path == p_base) {
+				return true;
+			}
+			const auto *header = classes.header(path);
+			path = header ? classes.base_path(header->decl, path) : std::string();
+		}
+		return false;
+	}
+
+	std::vector<compiler::Scene> scenes_with(bool (*p_uses)(const FakeProject &, const compiler::SceneNode &, const std::string &), const std::string &p_script_path) const {
+		std::vector<compiler::Scene> result;
 		for (const compiler::Scene &scene : scenes) {
-			for (const compiler::SceneNode &node : scene.nodes) {
-				std::set<std::string> seen;
-				bool matches = false;
-				for (std::string path = node.script; !path.empty() && seen.insert(path).second;) {
-					if (path == p_script_path) {
-						matches = true;
-						break;
-					}
-					const auto *header = classes.header(path);
-					path = header ? classes.base_path(header->decl, path) : std::string();
-				}
-				if (matches) {
-					result.push_back(scene);
-					break;
-				}
+			if (std::any_of(scene.nodes.begin(), scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return p_uses(*this, p_node, p_script_path); })) {
+				result.push_back(scene);
 			}
 		}
 		return result;
+	}
+
+	std::vector<compiler::Scene> scenes_with_script(const std::string &p_script_path) const override {
+		return scenes_with([](const FakeProject &p_project, const compiler::SceneNode &p_node, const std::string &p_script) {
+			return p_project.extends_script(p_node.script, p_script);
+		},
+				p_script_path);
+	}
+
+	std::vector<compiler::Scene> scenes_instancing_script(const std::string &p_script_path) const override {
+		return scenes_with([](const FakeProject &p_project, const compiler::SceneNode &p_node, const std::string &p_script) {
+			return p_node.is_instance && p_node.script.empty() && p_project.extends_script(p_node.instance_script, p_script);
+		},
+				p_script_path);
 	}
 
 	std::optional<compiler::Scene> scene(const std::string &p_path) const override {

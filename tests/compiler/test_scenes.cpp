@@ -188,6 +188,36 @@ TEST_CASE("a path that a scene using the script lacks is an error marked with th
 	CHECK(contains(hud_errors("$Health.text = \"\"", FakeProject()), "no scene does"));
 }
 
+TEST_CASE("@owner(T): owner has type T, and scenes give the script such an owner (spec §7.3)") {
+	FakeProject project;
+	project.add_script("res://combat.pet", "class_name Combat\n\npub interface Combatant:\n\tvar health: int\n", "Combat");
+	project.add_script("res://brick.pet", "class_name Brick\nextends Node3D implements Combat.Combatant\npub var health: int = 3\n", "Brick");
+	// The component's own scene, whose root has the script, and a scene that
+	// instances it under a root that satisfies the requirement.
+	compiler::Scene component;
+	component.path = "res://component.tscn";
+	component.nodes = { { ".", "Node", "res://test.pet" } };
+	compiler::Scene brick;
+	brick.path = "res://brick.tscn";
+	brick.nodes = { { ".", "Node3D", "res://brick.pet" }, { "Component", "Node", "", true, "res://test.pet" } };
+	project.scenes = { component, brick };
+	const std::string source = "@owner(Combat.Combatant)\nextends Node\n\nfunc f() -> int:\n\towner.health -= 1\n\treturn owner.health\n";
+	CHECK(messages(compile_in(source, project)).empty());
+
+	compiler::Scene plain;
+	plain.path = "res://plain.tscn";
+	plain.nodes = { { ".", "Node3D", "" }, { "Component", "Node", "", true, "res://test.pet" }, { "Direct", "Node", "res://test.pet" } };
+	project.scenes.push_back(plain);
+	const std::string errors = messages(compile_in(source, project));
+	CHECK(contains(errors, "res://plain.tscn: the owner of Component is Node3D, not Combat.Combatant (@owner)."));
+	CHECK(contains(errors, "res://plain.tscn: the owner of Direct is Node3D, not Combat.Combatant (@owner)."));
+
+	CHECK(contains(messages(compile_in("extends Node\n\nfunc f():\n\tprint(owner.name)\n", project)), "The value may be None (Node?)"));
+	CHECK(contains(messages(compile_in("@owner(Node?)\nextends Node\n", FakeProject())), "@owner takes a class or an interface, not Node?."));
+	CHECK(contains(messages(compile_in("@owner(Node)\nextends RefCounted\n", FakeProject())), "@owner is for classes that extend Node."));
+	CHECK(contains(messages(compile_in("@parent(Node)\nextends Node\n", FakeProject())), "The class annotation @parent is not supported yet."));
+}
+
 TEST_CASE("paths that are not typed yet are refused rather than guessed") {
 	FakeProject project = hud_scene();
 	project.scenes[0].nodes.push_back({ "HUD/Bar", "Control", "", true });

@@ -144,21 +144,36 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 	return entry;
 }
 
-std::vector<compiler::Scene> SceneIndex::scenes_with_script(const std::string &p_script_path) const {
+std::vector<compiler::Scene> SceneIndex::scenes_where(bool (*p_uses)(const compiler::SceneNode &, const std::string &), const std::string &p_script_path) const {
 	const PackedStringArray paths = project_files(PackedStringArray({ "tscn", "scn" }));
 	std::vector<compiler::Scene> result;
 	for (const String &path : paths) {
 		const std::shared_ptr<const Entry> entry = read(to_utf8(path));
-		for (const compiler::SceneNode &node : entry->scene.nodes) {
-			// A scene with a script that extends this one uses it too.
-			const String script = to_godot(node.script);
-			if (node.script == p_script_path || (script.get_extension() == "pet" && header_extends(parse_header(FileAccess::get_file_as_string(script)), script, to_godot(p_script_path)))) {
-				result.push_back(entry->scene);
-				break;
-			}
+		if (std::any_of(entry->scene.nodes.begin(), entry->scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return p_uses(p_node, p_script_path); })) {
+			result.push_back(entry->scene);
 		}
 	}
 	return result;
+}
+
+// A scene with a script that extends this one uses it too.
+static bool is_or_extends(const std::string &p_script, const std::string &p_base) {
+	const String script = to_godot(p_script);
+	return p_script == p_base || (script.get_extension() == "pet" && header_extends(parse_header(FileAccess::get_file_as_string(script)), script, to_godot(p_base)));
+}
+
+std::vector<compiler::Scene> SceneIndex::scenes_with_script(const std::string &p_script_path) const {
+	return scenes_where([](const compiler::SceneNode &p_node, const std::string &p_script) {
+		return is_or_extends(p_node.script, p_script);
+	},
+			p_script_path);
+}
+
+std::vector<compiler::Scene> SceneIndex::scenes_instancing_script(const std::string &p_script_path) const {
+	return scenes_where([](const compiler::SceneNode &p_node, const std::string &p_script) {
+		return p_node.is_instance && p_node.script.empty() && is_or_extends(p_node.instance_script, p_script);
+	},
+			p_script_path);
 }
 
 std::optional<compiler::Scene> SceneIndex::scene(const std::string &p_path) const {

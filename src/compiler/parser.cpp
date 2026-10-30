@@ -848,6 +848,17 @@ public:
 			if (!seen_member && check(TokenKind::At) && is_class_annotation(peek(1).text)) {
 				advance();
 				const Token &name = advance();
+				if (name.text == "owner") {
+					if (result.owner_ref) {
+						fail(name, "The class already has @owner.");
+						continue;
+					}
+					expect(TokenKind::ParenOpen, "\"(\"");
+					result.owner_ref = type_ref();
+					expect(TokenKind::ParenClose, "\")\"");
+					end_of_statement();
+					continue;
+				}
 				errors.push_back({ name.line, name.column, "The class annotation @" + name.text + " is not supported yet." });
 				if (check(TokenKind::ParenOpen)) {
 					Expr holder;

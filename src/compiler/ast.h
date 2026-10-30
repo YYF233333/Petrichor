@@ -49,6 +49,7 @@ enum class Target {
 	Local,
 	Member,
 	SelfProperty, // A property of the engine class this class extends.
+	Owner, // `owner` with @owner(T) (spec §7.3).
 	ObjectProperty, // A property of an engine object.
 	Field, // A member of a built-in value, such as x of Vector3.
 	BuiltinConstant, // Such as Vector3.UP.
@@ -289,6 +290,8 @@ struct ClassDecl {
 	int extends_line = 1;
 	int extends_column = 1;
 	std::vector<TypeRef> implements;
+	std::optional<TypeRef> owner_ref; // @owner(T) (spec §7.3).
+	Type owner_type; // Filled by the checker.
 	std::vector<InterfaceDecl> interfaces;
 	std::vector<Type> implemented; // Filled by the checker.
 	bool is_node = false; // Filled by the checker: it extends Node, and becomes ready.

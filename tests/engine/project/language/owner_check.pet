@@ -1,0 +1,10 @@
+# @owner (spec §7.3): a component whose owner implements CombatCheck.Placed.
+@owner(CombatCheck.Placed)
+class_name OwnerCheck
+extends Node
+
+pub func taken() -> float:
+	return owner.taken
+
+pub func hurt(amount: float):
+	owner.taken += amount

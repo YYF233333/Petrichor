@@ -325,6 +325,21 @@ func _ready() -> void:
 	_check(c.frames > frames_before, "_process runs every frame")
 	_check(not is_instance_valid(freeing) and not has_meta(&"after_free"), "reading a member after self was freed in _process is a program error")
 
+	var owned: TargetCheck = preload("res://language/owner.tscn").instantiate()
+	add_child(owned)
+	var component: OwnerCheck = owned.get_node("Component")
+	component.hurt(2.0)
+	_check(component.taken() == 2.0 and owned.taken == 2.0, "@owner reads and writes through the owner, typed by the requirement")
+	owned.remove_child(component)
+	component.taken()
+	var other_owner := Node2D.new()
+	other_owner.add_child(component)
+	component.owner = other_owner
+	component.taken()
+	_check_errors(["owner_check.pet:7: owner: expected CombatCheck.Placed, found None (@owner).", "owner_check.pet:7: owner: expected CombatCheck.Placed, found Node2D (@owner)."], "@owner checks every read, after the engine or code changed the owner")
+	other_owner.free()
+	owned.free()
+
 	for test: GDScript in [preload("res://language/coroutines_test.gd"), preload("res://language/defaults_test.gd"), preload("res://language/inheritance_test.gd")]:
 		var part: Node = test.new()
 		add_child(part)

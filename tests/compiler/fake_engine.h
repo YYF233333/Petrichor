@@ -134,6 +134,7 @@ public:
 		};
 		properties["Node"] = {
 			{ "name", Type::builtin("StringName"), true },
+			{ "owner", node, true },
 		};
 		properties["Node3D"] = {
 			{ "position", vector3, true },

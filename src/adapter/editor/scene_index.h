@@ -32,9 +32,12 @@ class SceneIndex : public compiler::ProjectApi {
 
 	// The scene, read again unless it is up to date.
 	std::shared_ptr<const Entry> read(const std::string &p_path) const;
+	// The scenes with a node for which `p_uses` holds.
+	std::vector<compiler::Scene> scenes_where(bool (*p_uses)(const compiler::SceneNode &, const std::string &), const std::string &p_script_path) const;
 
 public:
 	std::vector<compiler::Scene> scenes_with_script(const std::string &p_script_path) const override;
+	std::vector<compiler::Scene> scenes_instancing_script(const std::string &p_script_path) const override;
 	std::optional<compiler::Scene> scene(const std::string &p_path) const override;
 	std::string global_class_path(const std::string &p_name) const override;
 	std::string autoload_path(const std::string &p_name) const override;

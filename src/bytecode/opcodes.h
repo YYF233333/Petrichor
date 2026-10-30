@@ -92,6 +92,7 @@ namespace petrichor::bytecode {
 	X(AWAIT_TASK, 3) /* dst, task, owned (0 or 1) */ \
 	X(AWAIT_SIGNAL, 2) /* dst, signal */ \
 	X(TASK_CANCEL, 1) /* task */ \
+	X(GET_OWNER, 2) /* class, dst: the owner that @owner requires (spec §7.3) */ \
 	X(CALL_AWAIT_ENGINE, -1) \
 	X(CALL_AWAIT_BUILTIN, -1) \
 	X(CALL_ENGINE, -1) \
