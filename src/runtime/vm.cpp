@@ -280,7 +280,6 @@ void report_error(const ClassImage &p_image, const bytecode::Function &p_functio
 }
 
 class Execution {
-	std::shared_ptr<const ClassImage> image_owner;
 	const ClassImage &image;
 	const InstanceContext &context;
 	// Whether the engine's debugger is on, which does not change while the
@@ -299,9 +298,72 @@ class Execution {
 		return variant_at(self_storage);
 	}
 
+	// Calls a function of a class of this language for the call instruction at
+	// `p_call`: a program error in it ends the caller too (spec §8.1). An
+	// override or an inherited function may take and give other types than the
+	// call was compiled against (§4.6), which the arguments and result convert to.
+	bool call_function(const ClassImage &p_callee, uint32_t p_index, const InstanceContext &p_context, const uint32_t *p_call, uint8_t *frame, const bytecode::Slot &p_result, const bytecode::Function &p_caller, int p_line) {
+		const uint32_t dst = p_call[2], argc = p_call[4];
+		const bytecode::Function &method = p_callee.module.functions[p_index];
+		const auto fail = [&](const String &p_message) {
+			report_error(image, p_caller, p_line, p_message);
+			return false;
+		};
+		if (!method.is_static && !p_context.storage) {
+			return fail("An instance method needs a receiver. Build the project again.");
+		}
+		const size_t required = method.params.size() - method.defaults.size();
+		if (argc < required || argc > method.params.size()) {
+			return fail("Override argument count changed. Rebuild the project.");
+		}
+		Frame callee_frame(p_callee.frames[p_index]);
+		for (size_t i = 0; i < method.params.size(); i++) {
+			uint8_t *param = callee_frame.data + method.params[i].offset;
+			const ValueType source_type = i < argc ? ValueType(p_call[5 + 2 * i]) : ValueType::Void;
+			if (i < argc && source_type == method.params[i].type) {
+				copy_value(source_type, param, frame + p_call[6 + 2 * i]);
+				continue;
+			}
+			Variant value;
+			String error;
+			if (i < argc) {
+				value = to_variant(source_type, frame + p_call[6 + 2 * i]);
+			} else if (!constant_value(method.defaults[i - required], value, error)) {
+				return fail(error);
+			}
+			const ValueCheck &check = p_callee.param_checks[p_index][i];
+			if (!from_variant(method.params[i].type, value, param, &check)) {
+				return fail(vformat("Argument of %s(): %s.", p_callee.function_names[p_index], entry_mismatch(method.params[i].type, value, check)));
+			}
+		}
+		if (method.is_async) {
+			const Ref<CoroutineTask> task = start_task(p_callee.shared_from_this(), p_index, p_context, callee_frame.data, &p_result);
+			if (dst != NO_SLOT) {
+				variant_at(frame + dst) = task;
+			}
+			return true;
+		}
+		const bool here = &p_callee == &image && &p_context == &context;
+		const auto run_callee = [&](uint8_t *p_returned) {
+			return here ? run(p_index, callee_frame.data, p_returned) : Execution(p_callee, p_context, debugging).run(p_index, callee_frame.data, p_returned);
+		};
+		if (dst == NO_SLOT || method.result.type == p_result.type) {
+			return run_callee(dst == NO_SLOT ? nullptr : frame + dst);
+		}
+		alignas(16) uint8_t returned[64];
+		construct_value(method.result.type, returned);
+		bool ok = run_callee(returned);
+		if (ok) {
+			const ValueCheck check(p_result);
+			ok = from_variant(p_result.type, outward_variant(method.result, returned), frame + dst, &check);
+		}
+		destroy_value(method.result.type, returned);
+		return ok;
+	}
+
 public:
-	Execution(const std::shared_ptr<const ClassImage> &p_image, const InstanceContext &p_context, bool p_debugging) :
-			image_owner(p_image), image(*p_image), context(p_context), debugging(p_debugging) {}
+	Execution(const ClassImage &p_image, const InstanceContext &p_context, bool p_debugging) :
+			image(p_image), context(p_context), debugging(p_debugging) {}
 	~Execution() {
 		if (has_self) {
 			variant_at(self_storage).~Variant();
@@ -727,95 +789,45 @@ public:
 					pc = U64(code[pc + 1]) ? code[pc + 2] : pc + 3;
 					break;
 				// Calls: target, dst, base, argc, then (type, offset) per argument.
-				case Op::CALL:
+				case Op::CALL: {
+					const uint32_t target = code[pc + 1];
+					const ClassImage *owner = module.functions[target].is_static || !context.self_image ? &image : context.self_image.get();
+					const ClassImage::FunctionOrigin &origin = owner->function_origins[target];
+					if (!call_function(origin.image ? *origin.image : *owner, origin.image ? uint32_t(origin.index) : target, context, code + pc, frame, module.functions[target].result, fn, record.line)) {
+						return false;
+					}
+					pc += 5 + 2 * code[pc + 4];
+					break;
+				}
 				case Op::CALL_SUPER:
 				case Op::CALL_METHOD: {
-					const Op op = Op(code[pc]);
-					const uint32_t target = code[pc + 1], dst = code[pc + 2], argc = code[pc + 4];
-					ScriptedObject callee{ image_owner, context };
-					StringName name;
-					uint32_t signature;
-					const bytecode::Slot *result;
-					if (op == Op::CALL) {
-						const auto &decl = module.functions[target];
-						name = image.function_names[target];
-						signature = image.function_signatures[target];
-						result = &decl.result;
-						if (!decl.is_static && context.self_image) {
+					const uint32_t target = code[pc + 1];
+					const StringName &name = image.method_names[target];
+					ScriptedObject callee;
+					if (Op(code[pc]) == Op::CALL_SUPER) {
+						callee = { image.base, context };
+					} else {
+						OBJECT(receiver, code[pc + 3]);
+						if (!scripted_object(static_cast<Object *>(receiver), callee)) {
+							FAIL("The receiver is not a Petrichor instance.");
+						}
+						if (callee.context.storage == context.storage && context.self_image) {
 							callee.image = context.self_image;
 						}
-					} else {
-						name = image.method_names[target];
-						signature = image.call_signatures[target];
-						result = &module.method_calls[target].result;
-						if (op == Op::CALL_SUPER) {
-							callee.image = image.base;
-						} else {
-							OBJECT(receiver, code[pc + 3]);
-							if (!scripted_object(static_cast<Object *>(receiver), callee)) {
-								FAIL("The receiver is not a Petrichor instance.");
-							}
-							if (callee.context.storage == context.storage && context.self_image) {
-								callee.image = context.self_image;
-							}
-							callee.context.self_image = callee.image;
-						}
+						callee.context.self_image = callee.image;
 					}
+					// Within a run every script is compiled against the others
+					// (spec §12.4); only bytecode that was not built together
+					// can differ, and then the arguments would not fit.
 					int index = callee.image ? callee.image->find_function(name) : -1;
-					if (index < 0 || !callee.image->has_signature(name, signature) || (op == Op::CALL_METHOD && !callee.image->module.functions[index].is_pub && !callee.image->module.functions[index].is_override)) {
+					if (index < 0 || !callee.image->has_signature(name, image.call_signatures[target]) || (Op(code[pc]) == Op::CALL_METHOD && !callee.image->module.functions[index].is_pub && !callee.image->module.functions[index].is_override)) {
 						FAIL(vformat("%s() is not the method this script was compiled against. Build the project again.", name));
 					}
 					ClassImage::resolve_function(callee.image, index);
-					const bytecode::Function &method = callee.image->module.functions[index];
-					if (!method.is_static && !callee.context.storage) {
-						FAIL("An instance method needs a receiver. Build the project again.");
+					if (!call_function(*callee.image, uint32_t(index), callee.context, code + pc, frame, module.method_calls[target].result, fn, record.line)) {
+						return false;
 					}
-					const size_t required = method.params.size() - method.defaults.size();
-					if (argc < required || argc > method.params.size()) {
-						FAIL("Override argument count changed. Rebuild the project.");
-					}
-					Frame callee_frame(callee.image->frames[index]);
-					for (size_t i = 0; i < method.params.size(); ++i) {
-						uint8_t *param = callee_frame.data + method.params[i].offset;
-						const ValueType source_type = i < argc ? ValueType(code[pc + 5 + 2 * i]) : ValueType::Void;
-						if (i < argc && source_type == method.params[i].type) {
-							copy_value(source_type, param, frame + code[pc + 6 + 2 * i]);
-						} else {
-							Variant value;
-							String error;
-							if (i < argc) {
-								value = to_variant(source_type, frame + code[pc + 6 + 2 * i]);
-							} else if (!constant_value(method.defaults[i - required], value, error)) {
-								FAIL(error);
-							}
-							if (!from_variant(method.params[i].type, value, param, &callee.image->param_checks[index][i])) {
-								FAIL(vformat("Argument of %s(): %s.", name, entry_mismatch(method.params[i].type, value, callee.image->param_checks[index][i])));
-							}
-						}
-					}
-					if (method.is_async) {
-						const Ref<CoroutineTask> task = start_task(callee.image, uint32_t(index), callee.context, callee_frame.data, result);
-						if (dst != NO_SLOT) {
-							variant_at(frame + dst) = task;
-						}
-					} else if (dst == NO_SLOT || method.result.type == result->type) {
-						if (!Execution(callee.image, callee.context, debugging).run(uint32_t(index), callee_frame.data, dst == NO_SLOT ? nullptr : frame + dst)) {
-							return false;
-						}
-					} else {
-						alignas(16) uint8_t returned[64];
-						construct_value(method.result.type, returned);
-						bool ok = Execution(callee.image, callee.context, debugging).run(uint32_t(index), callee_frame.data, returned);
-						if (ok) {
-							const ValueCheck check(*result);
-							ok = from_variant(result->type, outward_variant(method.result, returned), frame + dst, &check);
-						}
-						destroy_value(method.result.type, returned);
-						if (!ok) {
-							return false;
-						}
-					}
-					pc += 5 + 2 * argc;
+					pc += 5 + 2 * code[pc + 4];
 					break;
 				}
 				case Op::CALL_AWAIT_ENGINE:
@@ -1247,7 +1259,7 @@ void CoroutineFrame::resume() {
 	const auto &fn = image->module.functions[function];
 	alignas(16) uint8_t result[64];
 	construct_value(fn.result.type, result);
-	const bool ok = Execution(image, context, debugger::is_active()).run(function, data, result, this);
+	const bool ok = Execution(*image, context, debugger::is_active()).run(function, data, result, this);
 	if (task->cancel_requested) {
 		task->finish(CoroutineTask::State::Cancelled);
 	} else if (!ok) {
@@ -1347,7 +1359,7 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 	}
 	alignas(16) uint8_t result[64];
 	construct_value(fn.result.type, result);
-	const bool ok = Execution(image, context, debugger::is_active()).run(uint32_t(p_function), frame.data, result);
+	const bool ok = Execution(*image, context, debugger::is_active()).run(uint32_t(p_function), frame.data, result);
 	if (r_failed) {
 		*r_failed = !ok;
 	}

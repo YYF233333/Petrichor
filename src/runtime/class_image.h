@@ -18,10 +18,13 @@ namespace petrichor {
 // running frame, so that a hot reload can replace it while old frames finish
 // with the old code (spec §12.4). Loading resolves the module's tables into
 // the engine's functions.
-class ClassImage {
+class ClassImage : public std::enable_shared_from_this<ClassImage> {
 public:
 	bytecode::Module module;
 	std::shared_ptr<const ClassImage> base;
+	// A function of the base has the same index in every class that extends it
+	// (load() checks it), so a call within a class finds an override by index;
+	// an inherited function runs the code of the class that declares it.
 	struct FunctionOrigin {
 		std::shared_ptr<const ClassImage> image; // Null for a function declared here.
 		int index = -1;

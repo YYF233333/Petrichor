@@ -5,7 +5,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 ## Language
 
 - Coroutine helpers `Task.of`, `delay`, `any`, `all`, `settled`, and async lambdas (spec §9).
-
 - Static checks of must-assign exports in scenes, in resources and at export (spec §7.5).
 - A warning for removed nodes that are neither stored nor freed (spec §15).
 - Preload cycles (spec §7.6), and preload of resources other than scenes.
@@ -46,6 +45,9 @@ Engine calls are by name with Variant arguments now, so code that calls the engi
 - Engine singletons and autoloads resolved once: GET_SINGLETON looks the name up at every run, GET_AUTOLOAD calls get_node_or_null; a singleton's pointer can be kept, an autoload's ObjectID with a liveness check.
 - Engine callbacks such as `_process(delta)`: no entry check of value-type arguments, whose types the engine guarantees.
 - Calls between classes of this language: the method found by name once per call site, since a run keeps one version of each class (spec §12.4).
+- Calls within a class: since inheritance they pass arguments the general way of calls between classes and repeat checks that loading made; the calls benchmark went from 18 to 23 ms.
+- Engine calls: whether the result is a `GDScriptFunctionState`, which only methods of GDScript classes return (spec §9.8), is asked of every object result, by a call into the engine.
+- Coroutines: freeing an instance, and every frame, walk all active tasks; tasks listed by their owner would walk only the owner's.
 - Containers: the storage behind Array and Dictionary may be replaced later, keeping their public semantics (spec §3.8); the arrays benchmark loses to GDScript mostly to boxing each element into a Variant and back.
 - Benchmarks of real workloads, which become representative after type descriptors and ptrcall; optimizations of the IR and code generation after those.
 

@@ -53,6 +53,13 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 			return nullptr;
 		}
 	}
+	for (size_t i = 0; p_base && i < p_base->module.functions.size(); i++) {
+		const std::string &name = p_base->module.functions[i].name;
+		if ((name.empty() || name[0] != '@') && (i >= image->module.functions.size() || image->module.functions[i].name != name)) {
+			r_error = "Base method declaration changed. Rebuild the project.";
+			return nullptr;
+		}
+	}
 	image->path = p_path;
 	image->source = p_path;
 	const bytecode::Module &module = image->module;
