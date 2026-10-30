@@ -197,6 +197,7 @@ func _ready() -> void:
 	var placed := TargetCheck.new()
 	_check(v.shift(placed, Vector2(2, 3)) == 1.5 and placed.position == Vector2(2, 3), "interface properties: a member of this language and an engine property")
 	placed.free()
+	_check(c.classify("middle", 0) == "center" and c.classify("bottom", 0) == "b:bottom" and c.classify("x", 0) == "zero" and c.classify("x", 2) == "small" and c.classify("x", 101) == "big" and c.classify("x", 50) == "other", "match: literals, commas, var with when, and _")
 	var listed_targets: Array = v.targets(target)
 	_check(listed_targets.get_typed_script() == TargetCheck and v.as_target(target) == target and v.as_target(plain_node) == null, "an array typed with a class of this language, and as to one")
 	var refused_target = v.callv("taken_by", [plain_node])

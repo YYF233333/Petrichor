@@ -474,9 +474,63 @@ class Parser {
 		return stmt;
 	}
 
+	// `match value:` and its branches (spec §5.6).
+	std::unique_ptr<Stmt> match_statement(const Token &p_keyword) {
+		auto stmt = make_stmt(StmtKind::Match, p_keyword);
+		stmt->value = expression();
+		expect(TokenKind::Colon, "\":\"");
+		expect(TokenKind::Newline, "a line break");
+		expect(TokenKind::Indent, "an indented block of patterns");
+		while (!failed && !check(TokenKind::Dedent) && !check(TokenKind::EndOfFile)) {
+			MatchBranch branch;
+			branch.line = peek().line;
+			branch.column = peek().column;
+			do {
+				branch.patterns.push_back(pattern());
+			} while (!failed && match(TokenKind::Comma));
+			if (!failed && match(TokenKind::When)) {
+				branch.guard = expression();
+			}
+			expect(TokenKind::Colon, "\":\"");
+			if (failed) {
+				return nullptr;
+			}
+			branch.body = block();
+			stmt->branches.push_back(std::move(branch));
+		}
+		match(TokenKind::Dedent);
+		return failed ? nullptr : std::move(stmt);
+	}
+
+	Pattern pattern() {
+		Pattern result;
+		const Token &at = peek();
+		result.line = at.line;
+		result.column = at.column;
+		if (check(TokenKind::Identifier) && at.text == "_") {
+			advance();
+			return result;
+		}
+		if (match(TokenKind::Var)) {
+			result.kind = PatternKind::Bind;
+			result.name = expect(TokenKind::Identifier, "a variable name").text;
+			return result;
+		}
+		if (check(TokenKind::BracketOpen)) {
+			fail(at, "Array and dictionary patterns are not supported yet.");
+			return result;
+		}
+		result.kind = PatternKind::Value;
+		result.value = expression();
+		return result;
+	}
+
 	std::unique_ptr<Stmt> statement() {
 		const Token &token = peek();
 		switch (token.kind) {
+			case TokenKind::Match:
+				advance();
+				return match_statement(token);
 			case TokenKind::Var: {
 				advance();
 				auto stmt = make_stmt(StmtKind::Var, token);

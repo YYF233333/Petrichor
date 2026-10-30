@@ -6,6 +6,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 - Coroutine helpers `Task.of`, `delay`, `any`, `all`, `settled`, and async lambdas (spec §9).
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
+- Of match (spec §5.6): array and dictionary patterns; a match over `T?`, with `None` and `var x` and the check that it is exhaustive; the patterns of enums, structs, Result and Settled once they exist.
 - Static checks of must-assign exports in scenes, in resources and at export (spec §7.5), and of a scene used as a root whose root has a script with `@owner` (§7.3).
 - `@parent(T)` (spec §7.3).
 - A warning for removed nodes that are neither stored nor freed (spec §15).

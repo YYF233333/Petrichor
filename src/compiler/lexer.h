@@ -38,6 +38,7 @@ enum class TokenKind {
 	In,
 	Interface,
 	Is,
+	Match,
 	None,
 	Not,
 	Null,
@@ -51,6 +52,7 @@ enum class TokenKind {
 	Static,
 	True,
 	Var,
+	When,
 	While,
 
 	// Punctuation and operators.

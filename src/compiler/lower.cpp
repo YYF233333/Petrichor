@@ -1188,6 +1188,19 @@ class Lowerer {
 		}
 	}
 
+	// Jumps to `p_matched` when the matched value fits the pattern, and goes on
+	// in a new block when it does not.
+	void lower_pattern(const Pattern &p_pattern, uint32_t p_matched) {
+		if (p_pattern.kind != PatternKind::Value) {
+			jump(p_matched);
+			current = new_block();
+			return;
+		}
+		const uint32_t next_block = new_block();
+		branch(lower_expr(*p_pattern.value), p_matched, next_block);
+		current = next_block;
+	}
+
 	void lower_stmt(const Stmt &p_stmt) {
 		line = p_stmt.line;
 		instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(p_stmt.line));
@@ -1231,6 +1244,38 @@ class Lowerer {
 					lower_block(p_stmt.else_body);
 					jump(end_block);
 				}
+				current = end_block;
+				return;
+			}
+			case StmtKind::Match: {
+				// The first branch with a pattern that matches and a guard that
+				// holds runs, and no other (spec §5.6).
+				const uint32_t matched = uint32_t(p_stmt.local);
+				move(matched, lower_expr(*p_stmt.value));
+				const uint32_t end_block = new_block();
+				for (const MatchBranch &arm : p_stmt.branches) {
+					const uint32_t body_block = new_block();
+					const uint32_t next_block = new_block();
+					for (const Pattern &pattern : arm.patterns) {
+						lower_pattern(pattern, body_block);
+					}
+					jump(next_block);
+					current = body_block;
+					for (const Pattern &pattern : arm.patterns) {
+						if (pattern.kind == PatternKind::Bind) {
+							move(uint32_t(pattern.local), matched);
+						}
+					}
+					if (arm.guard) {
+						const uint32_t guarded_block = new_block();
+						branch(lower_expr(*arm.guard), guarded_block, next_block);
+						current = guarded_block;
+					}
+					lower_block(arm.body);
+					jump(end_block);
+					current = next_block;
+				}
+				jump(end_block);
 				current = end_block;
 				return;
 			}

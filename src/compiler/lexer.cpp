@@ -62,6 +62,8 @@ const char *token_name(TokenKind p_kind) {
 			return "\"interface\"";
 		case TokenKind::Is:
 			return "\"is\"";
+		case TokenKind::Match:
+			return "\"match\"";
 		case TokenKind::None:
 			return "\"None\"";
 		case TokenKind::Null:
@@ -88,6 +90,8 @@ const char *token_name(TokenKind p_kind) {
 			return "\"true\"";
 		case TokenKind::Var:
 			return "\"var\"";
+		case TokenKind::When:
+			return "\"when\"";
 		case TokenKind::While:
 			return "\"while\"";
 		case TokenKind::At:
@@ -191,6 +195,7 @@ const std::unordered_map<std::string, TokenKind> &keywords() {
 		{ "in", TokenKind::In },
 		{ "interface", TokenKind::Interface },
 		{ "is", TokenKind::Is },
+		{ "match", TokenKind::Match },
 		{ "None", TokenKind::None },
 		{ "null", TokenKind::Null },
 		{ "not", TokenKind::Not },
@@ -204,6 +209,7 @@ const std::unordered_map<std::string, TokenKind> &keywords() {
 		{ "static", TokenKind::Static },
 		{ "true", TokenKind::True },
 		{ "var", TokenKind::Var },
+		{ "when", TokenKind::When },
 		{ "while", TokenKind::While },
 	};
 	return table;

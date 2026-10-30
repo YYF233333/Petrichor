@@ -149,7 +149,10 @@ enum class StmtKind {
 	Break,
 	Continue,
 	Expression,
+	Match,
 };
+
+struct MatchBranch;
 
 struct Stmt {
 	StmtKind kind = StmtKind::Pass;
@@ -163,18 +166,46 @@ struct Stmt {
 	TokenKind assign_op = TokenKind::Equal;
 
 	std::unique_ptr<Expr> target;
-	std::unique_ptr<Expr> value; // Initializer, assigned value, returned value, iterated value, or expression.
+	std::unique_ptr<Expr> value; // Initializer, assigned value, returned value, iterated value, expression, or what match matches.
 	std::unique_ptr<Expr> condition;
 	std::vector<std::unique_ptr<Stmt>> body;
 	std::vector<std::unique_ptr<Stmt>> else_body; // `elif` becomes a nested `if` here.
+	std::vector<MatchBranch> branches;
 
 	// Filled by the checker.
-	int local = -1; // Var and For: the declared local.
+	int local = -1; // Var and For: the declared local; Match: the matched value.
 	Type compound_result; // Assign with a compound operator: the type of `target op value`.
 	Type element; // For: the type of what is iterated over, before it goes into the variable.
 };
 
 using Block = std::vector<std::unique_ptr<Stmt>>;
+
+enum class PatternKind {
+	Wildcard, // `_`
+	Bind, // `var name`
+	Value, // A literal or a constant expression, compared with ==.
+};
+
+// A pattern of match (spec §5.6); patterns that nest, such as those of
+// arrays, keep theirs in `items`.
+struct Pattern {
+	PatternKind kind = PatternKind::Wildcard;
+	int line = 0;
+	int column = 0;
+	std::string name; // Bind.
+	// Value: the expression, which the checker makes into `matched == value`.
+	std::unique_ptr<Expr> value;
+	std::vector<Pattern> items;
+	int local = -1; // Bind: filled by the checker.
+};
+
+struct MatchBranch {
+	int line = 0;
+	int column = 0;
+	std::vector<Pattern> patterns; // Separated by commas.
+	std::unique_ptr<Expr> guard; // `when`.
+	Block body;
+};
 
 // `@name` or `@name(args)` (spec §2.3).
 struct Annotation {

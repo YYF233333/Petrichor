@@ -105,3 +105,21 @@ pub func choose(a: bool, b: bool):
 
 func _process(delta):
 	frames += 1
+
+# match (spec §5.6).
+pub func classify(s: String, n: int) -> String:
+	match s:
+		"center", "middle":
+			return "center"
+		var other when other.begins_with("b"):
+			return "b:" + other
+	match n:
+		0:
+			return "zero"
+		1, 2:
+			return "small"
+		var big when big > 100:
+			return "big"
+		_:
+			pass
+	return "other"

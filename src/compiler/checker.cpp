@@ -1320,6 +1320,9 @@ class Checker : public ClassRelation {
 			}
 			forget_assigned(stmt->body);
 			forget_assigned(stmt->else_body);
+			for (const MatchBranch &branch : stmt->branches) {
+				forget_assigned(branch.body);
+			}
 		}
 	}
 
@@ -1332,6 +1335,19 @@ class Checker : public ClassRelation {
 		const Stmt &last = *p_block.back();
 		if (last.kind == StmtKind::Return || (p_or_jump && (last.kind == StmtKind::Break || last.kind == StmtKind::Continue))) {
 			return true;
+		}
+		if (last.kind == StmtKind::Match) {
+			// Some branch takes every value, and every branch leaves.
+			bool total = false;
+			for (const MatchBranch &branch : last.branches) {
+				for (const Pattern &pattern : branch.patterns) {
+					total = total || (!branch.guard && pattern.kind != PatternKind::Value);
+				}
+				if (!always_ends(branch.body, p_or_jump)) {
+					return false;
+				}
+			}
+			return total;
 		}
 		return last.kind == StmtKind::If && always_ends(last.body, p_or_jump) && always_ends(last.else_body, p_or_jump);
 	}
@@ -2226,17 +2242,80 @@ class Checker : public ClassRelation {
 		return facts;
 	}
 
-	void declare_local(Stmt &r_stmt, const Type &p_type) {
-		if (scopes.back().count(r_stmt.name)) {
-			error(r_stmt.line, r_stmt.column, "\"" + r_stmt.name + "\" is already declared in this block.");
-		} else if (scopes.front().count(r_stmt.name)) {
-			error(r_stmt.line, r_stmt.column, "\"" + r_stmt.name + "\" is already a parameter of this function (spec §4.6).");
-		} else if (find_local(r_stmt.name) >= 0) {
-			error(r_stmt.line, r_stmt.column, "\"" + r_stmt.name + "\" is already declared in an enclosing block (spec §4.6).");
+	int declare_local(const std::string &p_name, int p_line, int p_column, const Type &p_type) {
+		if (scopes.back().count(p_name)) {
+			error(p_line, p_column, "\"" + p_name + "\" is already declared in this block.");
+		} else if (scopes.front().count(p_name)) {
+			error(p_line, p_column, "\"" + p_name + "\" is already a parameter of this function (spec §4.6).");
+		} else if (find_local(p_name) >= 0) {
+			error(p_line, p_column, "\"" + p_name + "\" is already declared in an enclosing block (spec §4.6).");
 		}
+		const int local = int(function->locals.size());
+		function->locals.push_back({ p_name, p_type });
+		scopes.back()[p_name] = local;
+		return local;
+	}
+
+	void declare_local(Stmt &r_stmt, const Type &p_type) {
+		r_stmt.local = declare_local(r_stmt.name, r_stmt.line, r_stmt.column, p_type);
+	}
+
+	// `match` (spec §5.6). The matched value goes in a local without a name,
+	// which the debugger shows as a temporary, and a value pattern becomes the
+	// comparison of that local with the pattern, checked as == is.
+	void check_match(Stmt &r_stmt) {
+		const Type matched = check_value(*r_stmt.value);
+		if (matched.is_optional()) {
+			error(r_stmt.value->line, r_stmt.value->column, "A match over " + matched.to_string() + " is not supported yet; compare it with None, or unwrap it first.");
+		}
+		scopes.emplace_back();
 		r_stmt.local = int(function->locals.size());
-		function->locals.push_back({ r_stmt.name, p_type });
-		scopes.back()[r_stmt.name] = r_stmt.local;
+		function->locals.push_back({ std::string(), matched });
+		scopes.back()[std::string()] = r_stmt.local;
+		for (MatchBranch &branch : r_stmt.branches) {
+			scopes.emplace_back();
+			for (Pattern &pattern : branch.patterns) {
+				if (pattern.kind == PatternKind::Bind && branch.patterns.size() > 1) {
+					error(pattern.line, pattern.column, "Patterns separated by commas cannot bind (spec §5.6).");
+				}
+				check_pattern(pattern, matched);
+			}
+			if (branch.guard) {
+				expect_condition(*branch.guard);
+			}
+			check_block(branch.body, {});
+			scopes.pop_back();
+		}
+		scopes.pop_back();
+	}
+
+	void check_pattern(Pattern &r_pattern, const Type &p_matched) {
+		switch (r_pattern.kind) {
+			case PatternKind::Wildcard:
+				return;
+			case PatternKind::Bind:
+				r_pattern.local = declare_local(r_pattern.name, r_pattern.line, r_pattern.column, p_matched);
+				return;
+			case PatternKind::Value: {
+				auto compare = std::make_unique<Expr>();
+				compare->kind = ExprKind::Binary;
+				compare->op = TokenKind::EqualEqual;
+				compare->line = r_pattern.line;
+				compare->column = r_pattern.column;
+				compare->left = std::make_unique<Expr>();
+				compare->left->kind = ExprKind::Name;
+				compare->left->line = r_pattern.line;
+				compare->left->column = r_pattern.column;
+				compare->right = std::move(r_pattern.value);
+				r_pattern.value = std::move(compare);
+				check_expr(*r_pattern.value);
+				const Expr &value = *r_pattern.value->right;
+				if (!value.type.is_error() && !is_constant(value, value.type)) {
+					error(value.line, value.column, "A pattern is a literal or a constant expression (spec §5.6).");
+				}
+				return;
+			}
+		}
 	}
 
 	// `for i in n` and over the elements of an array (spec §5.7).
@@ -2383,6 +2462,9 @@ class Checker : public ClassRelation {
 			case StmtKind::For:
 				forget_assigned(r_stmt.body);
 				check_for(r_stmt);
+				return;
+			case StmtKind::Match:
+				check_match(r_stmt);
 				return;
 			case StmtKind::Return: {
 				const Type expected = function->return_type;
