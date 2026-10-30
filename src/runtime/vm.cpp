@@ -52,6 +52,8 @@ struct CoroutineFrame : std::enable_shared_from_this<CoroutineFrame> {
 	int line = 0;
 	uint32_t destination = NO_SLOT;
 	uint64_t generation = 0;
+	// The awaited object was freed: tasks::frame() fails the wait once the
+	// frame's deletions are done, unless the waiter's own object went too (spec §9.7).
 	bool awaited_freed = false;
 	uint64_t lost_object = 0;
 	Signal waiting;
@@ -960,17 +962,12 @@ public:
 					pc += 5 + 2 * argc;
 					break;
 				}
-				case Op::TASK_CANCEL:
-				case Op::TASK_DETACH: {
+				case Op::TASK_CANCEL: {
 					CoroutineTask *task = Object::cast_to<CoroutineTask>(static_cast<Object *>(variant_at(frame + code[pc + 1])));
 					if (!task) {
 						FAIL("Expected a Task handle.");
 					}
-					if (Op(code[pc]) == Op::TASK_CANCEL) {
-						task->cancel();
-					} else {
-						task->detach();
-					}
+					task->cancel();
 					pc += 2;
 					break;
 				}
@@ -1001,7 +998,7 @@ public:
 						return true;
 					}
 					const Signal signal = *reinterpret_cast<Signal *>(frame + code[pc + 2]);
-					p_async->pc = pc + 4;
+					p_async->pc = pc + 3;
 					if (!p_async->suspend(signal, code[pc + 1], uint64_t(signal.get_object_id()))) {
 						FAIL("Cannot await this signal.");
 					}
@@ -1033,9 +1030,7 @@ public:
 
 void CoroutineTask::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("cancel"), &CoroutineTask::cancel);
-	ClassDB::bind_method(D_METHOD("detach"), &CoroutineTask::detach);
 	ADD_SIGNAL(MethodInfo("completed", PropertyInfo(Variant::NIL, "result", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NIL_IS_VARIANT)));
-	ADD_SIGNAL(MethodInfo("cancelled"));
 }
 
 void CoroutineTask::finish(State p_state, const Variant &p_result) {
@@ -1064,9 +1059,6 @@ void CoroutineTask::finish(State p_state, const Variant &p_result) {
 		std::lock_guard<std::mutex> lock(tasks_mutex);
 		active_tasks.erase(uint64_t(get_instance_id()));
 	}
-	if (p_state == State::Cancelled) {
-		emit_signal("cancelled");
-	}
 	emit_signal("completed", result);
 }
 
@@ -1087,7 +1079,6 @@ void CoroutineTask::cancel_owner() {
 	owner_freed_frame = task_frame.load();
 	cancel();
 }
-void CoroutineTask::detach() {}
 
 void CoroutineFrame::disconnect() {
 	++generation;

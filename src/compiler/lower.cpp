@@ -771,8 +771,13 @@ class Lowerer {
 				break;
 		}
 
-		if (p_call.target == Target::TaskCancel || p_call.target == Target::TaskDetach) {
-			instr(p_call.target == Target::TaskCancel ? Op::TASK_CANCEL : Op::TASK_DETACH, NO_REG, lower_expr(*p_call.base));
+		if (p_call.target == Target::TaskCancel) {
+			instr(Op::TASK_CANCEL, NO_REG, lower_expr(*p_call.base));
+			return NO_REG;
+		}
+		if (p_call.target == Target::TaskDetach) {
+			// Only says that the task is not awaited (spec §9.1); it runs either way.
+			lower_expr(*p_call.base);
 			return NO_REG;
 		}
 		ir::Instr i;

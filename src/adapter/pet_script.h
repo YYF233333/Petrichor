@@ -24,6 +24,8 @@ struct PetHeader {
 PetHeader parse_header(const godot::String &p_source);
 godot::String header_base_path(const PetHeader &p_header, const godot::String &p_path);
 godot::String header_native_base(const PetHeader &p_header, const godot::String &p_path);
+// Whether the script at `p_path` extends `p_base`, as the headers on disk say.
+bool header_extends(const PetHeader &p_header, const godot::String &p_path, const godot::String &p_base);
 
 // A script of this language. Its compiled class (ClassImage) comes from the
 // compiler in the editor, and from the bytecode cache or the exported package

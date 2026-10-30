@@ -65,14 +65,15 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 			}
 			switch (instr.op) {
 				case Op::TASK_CANCEL:
-				case Op::TASK_DETACH:
 					put(offset_of(instr.a));
 					break;
 				case Op::AWAIT_TASK:
 				case Op::AWAIT_SIGNAL:
 					put(offset_of(instr.dst));
 					put(offset_of(instr.a));
-					put(instr.imm);
+					if (instr.op == Op::AWAIT_TASK) {
+						put(instr.imm);
+					}
 					break;
 				case Op::LINE:
 					put(instr.imm);

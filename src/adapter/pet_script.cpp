@@ -87,6 +87,20 @@ String header_native_base(const PetHeader &p_header, const String &p_path) {
 	return "RefCounted";
 }
 
+bool header_extends(const PetHeader &p_header, const String &p_path, const String &p_base) {
+	std::set<String> seen;
+	for (String path = header_base_path(p_header, p_path); !path.is_empty() && seen.insert(path).second;) {
+		if (path == p_base) {
+			return true;
+		}
+		if (path.get_extension() != "pet") {
+			return false;
+		}
+		path = header_base_path(parse_header(FileAccess::get_file_as_string(path)), path);
+	}
+	return false;
+}
+
 static StringName init_name() {
 	return "_init";
 }
@@ -431,17 +445,7 @@ bool PetScript::apply_image(const std::shared_ptr<const ClassImage> &p_image, co
 		}
 #ifdef TOOLS_ENABLED
 		if (!old && Engine::get_singleton()->is_editor_hint()) {
-			std::set<String> seen;
-			for (String path = header_base_path(script->header, script->get_script_path()); !path.is_empty() && seen.insert(path).second;) {
-				if (path == p_image->path) {
-					dependent = true;
-					break;
-				}
-				if (path.get_extension() != "pet") {
-					break;
-				}
-				path = header_base_path(parse_header(FileAccess::get_file_as_string(path)), path);
-			}
+			dependent = header_extends(script->header, script->get_script_path(), p_image->path);
 		}
 #endif
 		if (!dependent) {

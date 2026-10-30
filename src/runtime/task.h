@@ -30,7 +30,6 @@ public:
 	std::shared_ptr<CoroutineFrame> continuation;
 
 	void cancel();
-	void detach();
 	void cancel_owner();
 	bool ended() const { return state == State::Finished || state == State::Cancelled || state == State::Failed; }
 	void finish(State p_state, const godot::Variant &p_result = godot::Variant());

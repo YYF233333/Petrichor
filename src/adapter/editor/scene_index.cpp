@@ -150,19 +150,9 @@ std::vector<compiler::Scene> SceneIndex::scenes_with_script(const std::string &p
 	for (const String &path : paths) {
 		const std::shared_ptr<const Entry> entry = read(to_utf8(path));
 		for (const compiler::SceneNode &node : entry->scene.nodes) {
-			bool matches = false;
-			std::set<String> seen;
-			for (String script = to_godot(node.script); !script.is_empty() && seen.insert(script).second;) {
-				if (script == to_godot(p_script_path)) {
-					matches = true;
-					break;
-				}
-				if (script.get_extension() != "pet") {
-					break;
-				}
-				script = header_base_path(parse_header(FileAccess::get_file_as_string(script)), script);
-			}
-			if (matches) {
+			// A scene with a script that extends this one uses it too.
+			const String script = to_godot(node.script);
+			if (node.script == p_script_path || (script.get_extension() == "pet" && header_extends(parse_header(FileAccess::get_file_as_string(script)), script, to_godot(p_script_path)))) {
 				result.push_back(entry->scene);
 				break;
 			}

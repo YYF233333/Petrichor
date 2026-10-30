@@ -525,11 +525,10 @@ class Verifier {
 			case Op::JUMP_IF_TRUE:
 				return slot(o[0], ValueType::Bool) && target(o[1]);
 			case Op::TASK_CANCEL:
-			case Op::TASK_DETACH:
 				return slot(o[0], ValueType::Object);
 			case Op::AWAIT_TASK:
 			case Op::AWAIT_SIGNAL:
-				return (function->is_async || fail("await in a synchronous function")) && slot(o[1], p_op == Op::AWAIT_TASK ? ValueType::Object : ValueType::Signal) && (o[0] == NO_SLOT || frame.count(o[0]) || fail("unknown await result slot")) && (o[2] <= 1 || fail("invalid await ownership"));
+				return (function->is_async || fail("await in a synchronous function")) && slot(o[1], p_op == Op::AWAIT_TASK ? ValueType::Object : ValueType::Signal) && (o[0] == NO_SLOT || frame.count(o[0]) || fail("unknown await result slot")) && (p_op == Op::AWAIT_SIGNAL || o[2] <= 1 || fail("invalid await ownership"));
 			case Op::RETURN:
 				return (function->result.type != ValueType::Void || fail("a void function returns a value")) && slot(o[0], function->result.type);
 			case Op::RETURN_VOID:

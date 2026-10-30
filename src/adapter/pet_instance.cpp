@@ -330,6 +330,11 @@ static void instance_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensi
 	// One snapshot for the lookup and the call.
 	const std::shared_ptr<const ClassImage> image = instance->current_image();
 	const InstanceContext context = instance->context();
+	// The @onready initializers run first, base class first, as in GDScript
+	// (modules/gdscript/gdscript.cpp:1937-1953); the engine calls _ready()
+	// whether or not the class defines it (core/object/make_virtuals.py:1-10).
+	// They are part of the engine's call, which a program error in them ends
+	// (spec §8.1).
 	if (method == image->ready_method && !run_initializers(image, context, true)) {
 		return;
 	}
