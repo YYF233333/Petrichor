@@ -209,6 +209,8 @@ class Checker : public ClassRelation {
 	std::vector<std::unordered_map<int, Type>> narrowed;
 	int loop_depth = 0;
 	bool in_predelete = false;
+	// The interfaces this class's own `implements` names, with where.
+	std::vector<std::pair<Type, const TypeRef *>> own_interfaces;
 	// The member whose initializer is being checked: it and the members after
 	// it are not initialized yet (spec §6.1), nor are @onready members unless
 	// it is one too (§6.3).
@@ -731,7 +733,14 @@ class Checker : public ClassRelation {
 			return fail(r_expr, p_class.script + " has errors.");
 		}
 		if (p_class.is_interface) {
-			return std::nullopt; // Interfaces declare methods only, so far.
+			// Read and written by name, whichever member or engine property provides it.
+			const InterfaceProperty *property = interface_property(p_class, r_expr.text);
+			if (!property) {
+				return std::nullopt;
+			}
+			r_expr.target = Target::ObjectProperty;
+			r_expr.owner = p_class.engine_class();
+			return property->type;
 		}
 		for (const VarDecl *entry : decl->all_members) {
 			const VarDecl &member = *entry;
@@ -786,6 +795,17 @@ class Checker : public ClassRelation {
 		for (const InterfaceDecl &interface : decl->interfaces) {
 			if (interface.name == name) {
 				return &interface;
+			}
+		}
+		return nullptr;
+	}
+
+	const InterfaceProperty *interface_property(const Type &p_interface, const std::string &p_name) const {
+		if (const InterfaceDecl *interface = interface_decl(p_interface)) {
+			for (const InterfaceProperty &property : interface->properties) {
+				if (property.name == p_name) {
+					return &property;
+				}
 			}
 		}
 		return nullptr;
@@ -2137,6 +2157,11 @@ class Checker : public ClassRelation {
 					error(p_target.line, p_target.column, "The property \"" + p_target.text + "\" is read-only.");
 					return false;
 				}
+				const InterfaceProperty *required = p_target.base && p_target.base->type.is_interface ? interface_property(p_target.base->type, p_target.text) : nullptr;
+				if (required && required->is_readonly) {
+					error(p_target.line, p_target.column, "The property \"" + p_target.text + "\" of " + p_target.base->type.to_string() + " is @readonly.");
+					return false;
+				}
 				return true;
 			}
 			case Target::Field:
@@ -2829,6 +2854,16 @@ class Checker : public ClassRelation {
 				}
 				method.return_type = method.return_type_ref ? resolve(*method.return_type_ref, true) : Type::of(TypeKind::Void);
 			}
+			std::unordered_set<std::string> members;
+			for (const FuncDecl &method : interface.methods) {
+				members.insert(method.name);
+			}
+			for (InterfaceProperty &property : interface.properties) {
+				if (!members.insert(property.name).second) {
+					error(property.line, property.column, "\"" + property.name + "\" is already declared in " + interface.name + ".");
+				}
+				property.type = resolve(property.type_ref, false);
+			}
 		}
 	}
 
@@ -2845,6 +2880,7 @@ class Checker : public ClassRelation {
 				continue;
 			}
 			cls.implemented.push_back(type);
+			own_interfaces.push_back({ type, &ref });
 			const InterfaceDecl *interface = interface_decl(type);
 			if (!interface) {
 				error(ref.line, ref.column, type.script + " has errors.");
@@ -2866,6 +2902,41 @@ class Checker : public ClassRelation {
 				}
 				if (!same) {
 					error(function.line, function.column, "\"" + function.name + "()\" does not have the signature that " + type.name + " declares, " + function_type(method).to_string() + ".");
+				}
+			}
+		}
+	}
+
+	// The properties the class's interfaces require, after the members' types
+	// are known: a pub member of the same type, or an inherited engine property,
+	// which must have a setter unless the requirement is @readonly (spec §3.9).
+	void check_interface_properties() {
+		for (const auto &[type, ref] : own_interfaces) {
+			const InterfaceDecl *interface = interface_decl(type);
+			if (!interface) {
+				continue;
+			}
+			for (const InterfaceProperty &required : interface->properties) {
+				if (required.type.is_error()) {
+					continue;
+				}
+				const auto member = member_index.find(required.name);
+				if (member != member_index.end()) {
+					const VarDecl &provided = *cls.all_members[member->second];
+					if (!provided.is_pub) {
+						error(provided.line, provided.column, "\"" + provided.name + "\" implements " + type.name + " and must be pub (spec §3.9).");
+					} else if (!provided.type.is_error() && provided.type != required.type) {
+						error(provided.line, provided.column, "\"" + provided.name + "\" has type " + provided.type.to_string() + ", but " + type.name + " requires " + required.type.to_string() + ".");
+					}
+					continue;
+				}
+				const auto property = engine.find_property(cls.native_base, required.name);
+				if (!property) {
+					error(ref->line, ref->column, "The class does not implement the property \"" + required.name + "\" of " + type.name + ".");
+				} else if (property->type != required.type) {
+					error(ref->line, ref->column, "The engine property \"" + required.name + "\" has type " + property->type.to_string() + ", but " + type.name + " requires " + required.type.to_string() + ".");
+				} else if (!property->writable && !required.is_readonly) {
+					error(ref->line, ref->column, "The engine property \"" + required.name + "\" is read-only, so it satisfies only a @readonly property of " + type.name + ".");
 				}
 			}
 		}
@@ -2988,6 +3059,7 @@ public:
 		check_implements();
 		declare_signals();
 		check_members();
+		check_interface_properties();
 		check_groups();
 		check_connections();
 		for (FuncDecl &fn : cls.functions) {

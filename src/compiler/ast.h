@@ -252,13 +252,25 @@ struct SignalDecl {
 	std::vector<ParamDecl> params;
 };
 
-// `interface Name:` and its methods' signatures (spec §3.9).
+// `var name: T` in an interface, `@readonly` when it need only be readable
+// (spec §3.9).
+struct InterfaceProperty {
+	std::string name;
+	int line = 0;
+	int column = 0;
+	TypeRef type_ref;
+	bool is_readonly = false;
+	Type type; // Filled by the checker.
+};
+
+// `interface Name:` with the signatures of its methods and its properties (spec §3.9).
 struct InterfaceDecl {
 	std::string name;
 	int line = 0;
 	int column = 0;
 	bool is_pub = false;
 	std::vector<FuncDecl> methods; // Without bodies.
+	std::vector<InterfaceProperty> properties;
 };
 
 struct ClassDecl {

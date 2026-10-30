@@ -1,6 +1,6 @@
-# A class that implements CombatCheck.Damageable (spec §3.9).
+# A class that implements CombatCheck.Damageable and CombatCheck.Placed (spec §3.9).
 class_name TargetCheck
-extends Node implements CombatCheck.Damageable
+extends Node2D implements CombatCheck.Damageable, CombatCheck.Placed
 
 pub var taken := 0.0
 

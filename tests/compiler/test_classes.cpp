@@ -243,6 +243,32 @@ TEST_CASE("implements: the class has every method of the interface, pub and with
 	CHECK(contains(messages(compile_in("extends Node implements Weapon\n", project())), "Weapon is not an interface."));
 }
 
+TEST_CASE("implements: interface properties, by a pub member of the same type or an engine property (spec §3.9)") {
+	FakeProject p = project();
+	p.add_script("res://placed.pet", "class_name Placed\n\npub interface Spot:\n\tvar health: int\n\tvar position: Vector3\n\npub interface Rooted:\n\t@readonly\n\tvar root: Window?\n\npub interface Rerooted:\n\tvar root: Window?\n", "Placed");
+	const auto spot = [&](const std::string &p_header, const std::string &p_members) {
+		return messages(compile_in(p_header + " implements Placed.Spot\n" + p_members + "\n", p));
+	};
+	CHECK(spot("extends Node3D", "pub var health: int = 1").empty());
+	CHECK(contains(spot("extends Node3D", ""), "The class does not implement the property \"health\" of Placed.Spot."));
+	CHECK(contains(spot("extends Node3D", "var health: int = 1"), "\"health\" implements Placed.Spot and must be pub"));
+	CHECK(contains(spot("extends Node3D", "pub var health: float = 1.0"), "\"health\" has type float, but Placed.Spot requires int."));
+	CHECK(contains(spot("extends Node", "pub var health: int = 1"), "The class does not implement the property \"position\" of Placed.Spot."));
+	CHECK(messages(compile_in("extends SceneTree implements Placed.Rooted\n", p)).empty());
+	CHECK(contains(messages(compile_in("extends SceneTree implements Placed.Rerooted\n", p)), "The engine property \"root\" is read-only, so it satisfies only a @readonly property of Placed.Rerooted."));
+
+	const auto body = [&](const std::string &p_body) {
+		return messages(compile_in("extends Node\n\nfunc f(s: Placed.Spot, r: Placed.Rooted):\n\t" + p_body + "\n", p));
+	};
+	CHECK(body("s.health += 1\n\tvar at: Vector3 = s.position\n\tvar w: Window? = r.root").empty());
+	CHECK(contains(body("r.root = None"), "The property \"root\" of Placed.Rooted is @readonly."));
+	CHECK(contains(body("var h: String = s.health"), "Cannot assign a value of type int as String"));
+	CHECK(contains(messages(compile_in("extends Node\n@readonly\nvar x: int = 1\n", p)), "@readonly is only for interface properties (spec §3.9)."));
+	CHECK(contains(messages(compile_in("pub interface Twice:\n\tfunc a()\n\tvar a: int\n", p)), "\"a\" is already declared in Twice."));
+	CHECK(contains(messages(compile_in("pub interface Loud:\n\tsignal hit\n", p)), "Signals of interfaces are not supported yet."));
+	CHECK(contains(messages(compile_in("pub interface Kind:\n\tfunc a():\n\t\tpass\n", p)), "Default methods of interfaces are not supported yet."));
+}
+
 TEST_CASE("values of an interface type") {
 	CHECK(errors("var d: Combat.Damageable = e\n\td.damage(5)").empty());
 	CHECK(contains(errors("var d: Combat.Damageable = w"), "Cannot assign a value of type Weapon as Combat.Damageable"));

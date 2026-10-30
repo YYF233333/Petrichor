@@ -270,3 +270,9 @@ pub func loaded(path: String) -> Resource?:
 
 pub func pressed() -> bool:
 	return Input.is_action_pressed("ui_accept")
+
+# Interface properties (spec §3.9): a member of this language and an engine property.
+pub func shift(target: CombatCheck.Placed, by: Vector2) -> float:
+	target.position += by
+	target.taken += 1.5
+	return target.taken

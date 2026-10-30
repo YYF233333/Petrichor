@@ -602,7 +602,8 @@ class Parser {
 		return result;
 	}
 
-	// After "interface": the name and a block of method signatures (spec §3.9).
+	// After "interface": the name and a block of method signatures and
+	// properties (spec §3.9).
 	InterfaceDecl interface(bool p_is_pub) {
 		InterfaceDecl decl;
 		const Token &name = expect(TokenKind::Identifier, "an interface name");
@@ -618,6 +619,34 @@ class Parser {
 				end_of_statement();
 				continue;
 			}
+			bool is_readonly = false;
+			if (match(TokenKind::At)) {
+				const Token &annotation = expect(TokenKind::Identifier, "an annotation name");
+				if (!failed && annotation.text != "readonly") {
+					fail(annotation, "An interface property takes only @readonly.");
+				}
+				is_readonly = true;
+				match(TokenKind::Newline);
+			}
+			if (match(TokenKind::Var)) {
+				InterfaceProperty property;
+				const Token &property_name = expect(TokenKind::Identifier, "a property name");
+				property.name = property_name.text;
+				property.line = property_name.line;
+				property.column = property_name.column;
+				property.is_readonly = is_readonly;
+				expect(TokenKind::Colon, "\":\" and the property's type");
+				property.type_ref = type_ref();
+				end_of_statement();
+				decl.properties.push_back(std::move(property));
+				continue;
+			}
+			if (is_readonly) {
+				fail(peek(), "@readonly is only for interface properties (spec §3.9).");
+			}
+			if (check(TokenKind::Signal)) {
+				fail(peek(), "Signals of interfaces are not supported yet.");
+			}
 			FuncDecl method;
 			method.is_async = match(TokenKind::Async);
 			expect(TokenKind::Func, "\"func\"");
@@ -630,6 +659,9 @@ class Parser {
 			method.params = params();
 			if (match(TokenKind::Arrow)) {
 				method.return_type_ref = type_ref();
+			}
+			if (check(TokenKind::Colon)) {
+				fail(peek(), "Default methods of interfaces are not supported yet.");
 			}
 			end_of_statement();
 			decl.methods.push_back(std::move(method));
@@ -669,6 +701,10 @@ class Parser {
 				// Stands alone, as in GDScript.
 				r_class.groups.push_back({ std::move(annotation), r_class.members.size() });
 				end_of_statement();
+				return;
+			}
+			if (annotation.name == "readonly") {
+				fail(name, "@readonly is only for interface properties (spec §3.9).");
 				return;
 			}
 			if (annotation.name != "export" && annotation.name != "export_range" && annotation.name != "onready") {

@@ -5,6 +5,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 ## Language
 
 - Coroutine helpers `Task.of`, `delay`, `any`, `all`, `settled`, and async lambdas (spec §9).
+- Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
 - Static checks of must-assign exports in scenes, in resources and at export (spec §7.5).
 - A warning for removed nodes that are neither stored nor freed (spec §15).
 - Preload cycles (spec §7.6), and preload of resources other than scenes.
