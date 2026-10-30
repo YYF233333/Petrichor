@@ -1,0 +1,51 @@
+extends Node
+
+@onready var noise = FastNoiseLite.new()
+
+
+pub func hint_not_available(node: CanvasItem):
+	flicker_red(node)
+
+
+pub func flicker_red(node: CanvasItem, times: int = 2, color: Color = Color(0.66, 0, 0, 0.66)) -> Tween:
+	var flicker_tween = create_tween().set_loops(times)
+	flicker_tween.tween_property(node, "modulate", color, 0.1)
+	flicker_tween.tween_property(node, "modulate", Color(1, 1, 1, 1), 0.1)
+	return flicker_tween
+
+
+func flicker_transparent(node: CanvasItem, times: int = 2, color: Color = Color(1, 1, 1, 0.33)) -> Tween:
+	var flicker_tween = create_tween().set_loops(times)
+	flicker_tween.tween_property(node, "modulate", color, 0.5)
+	flicker_tween.tween_property(node, "modulate", Color(1, 1, 1, 1), 0.5)
+	return flicker_tween
+
+
+pub async func screen_shake(shake_force: float = 1.0):
+	var breakout = BreakoutManager.breakout.unwrap()
+	breakout.shake = true
+	breakout.shake_force = shake_force
+	await get_tree().create_timer(0.1).timeout
+	breakout.shake = false
+
+
+pub async func wait_with_end_hint(node: CanvasItem?, time: float, end_hint_time: float = 5.0):
+	if time > end_hint_time:
+		await get_tree().create_timer(time - end_hint_time).timeout
+		if node != None:
+			end_hint(node, end_hint_time).detach()
+	else:
+		if node != None:
+			end_hint(node, time).detach()
+
+
+async func end_hint(node: CanvasItem, last_time: float):
+	var flicker_tween = flicker_transparent(node, -1)
+	await get_tree().create_timer(last_time).timeout
+	flicker_tween.kill()
+
+
+async func dialogue(text: String):
+	var res = (DialogueManager.create_resource_from_text(text) as DialogueResource).unwrap()
+	await DialogueManager.get_next_dialogue_line(res)
+	DialogueManager.show_dialogue_balloon(res)

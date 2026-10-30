@@ -41,12 +41,55 @@ func _ready() -> void:
 	_check(manager.skill != null, "the selected skill is set")
 	_check(manager.consumables.consumable_nodes.size() == 2, "the consumables come from the message (%d)" % manager.consumables.consumable_nodes.size())
 
+	_check(await _check_utility(manager), "Utility behavior checks complete")
+
 	for i in FRAMES:
 		await get_tree().process_frame
 
 	_report_scripts()
 	print("ring check: %d failure(s)" % failures)
 	get_tree().quit()
+
+
+# These public calls are also made by Ring's remaining GDScript scripts.
+func _check_utility(manager: Node) -> bool:
+	var utility := get_node("/root/Utility")
+	var target := Node2D.new()
+	add_child(target)
+	var flicker: Tween = utility.flicker_red(target, 1)
+	await flicker.step_finished
+	_check(target.modulate.is_equal_approx(Color(0.66, 0, 0, 0.66)), "Utility's default red reaches the target")
+	await flicker.finished
+	_check(target.modulate.is_equal_approx(Color.WHITE), "Utility restores the target after flickering")
+
+	utility.screen_shake(0.5)
+	_check(manager.breakout.shake and is_equal_approx(manager.breakout.shake_force, 0.5), "Utility starts shaking the GDScript breakout")
+	await get_tree().create_timer(0.15).timeout
+	_check(not manager.breakout.shake, "Utility resumes after the timer and stops shaking")
+
+	utility.wait_with_end_hint(target, 0.8, 0.6)
+	await get_tree().create_timer(0.05).timeout
+	_check(target.modulate.is_equal_approx(Color.WHITE), "the end hint waits before flickering")
+	await get_tree().create_timer(0.3).timeout
+	_check(target.modulate.a < 1.0, "the delayed end hint starts flickering")
+	await get_tree().create_timer(0.5).timeout
+	var stopped := target.modulate
+	await get_tree().create_timer(0.15).timeout
+	_check(target.modulate.is_equal_approx(stopped), "the detached end hint kills its tween")
+
+	target.modulate = Color.WHITE
+	utility.wait_with_end_hint(target, 0.2, 0.6)
+	await get_tree().create_timer(0.1).timeout
+	_check(target.modulate.a < 1.0, "a short duration starts the end hint immediately")
+	await get_tree().create_timer(0.2).timeout
+	stopped = target.modulate
+	await get_tree().create_timer(0.15).timeout
+	_check(target.modulate.is_equal_approx(stopped), "the immediate end hint also stops")
+	target.free()
+
+	utility.wait_with_end_hint(null, 0.05, 0.01)
+	await get_tree().create_timer(0.1).timeout
+	return true
 
 
 # run.py checks the line of each migrated script.

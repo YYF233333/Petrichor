@@ -327,6 +327,8 @@ def prepare_ring(project):
     copy_project(RING_UPSTREAM, project, ignore)
     for file in ("ring_check.gd", "ring_check.tscn"):
         shutil.copy(RING_MIGRATED / file, project)
+    settings = project / "project.godot"
+    settings.write_text(re.sub(r'^run/main_scene=.*$', 'run/main_scene="res://ring_check.tscn"', settings.read_text(encoding="utf-8"), flags=re.M), encoding="utf-8")
 
 
 def migrate(project, migrated):
@@ -466,9 +468,19 @@ def run_migration_group(godot, name, prepare, migrated_scripts, *scene):
         original = Path(tmp) / "original"
         prepare(original)
         import_project(godot, original)
+        scripts = sorted(migrated_scripts.rglob("*.pet"))
+        if scripts:
+            # Trigger the same scene analysis as a migrated script; this file
+            # is never attached to a node and the original game stays GDScript.
+            baseline = original / "petrichor_analysis_baseline.pet"
+            assert not baseline.exists()
+            baseline.write_text("extends Node\n", encoding="utf-8")
+            code, output = run(godot, "-e", "--path", str(original), "--", "--petrichor-build")
+            baseline.unlink()
+            expect(f"{name} original analysis baseline", code == 0 and ", 0 with errors" in output, output)
+            known_build_errors = {line for line in output.splitlines() if "ERROR" in line}
         code, output = run(godot, "--verbose", "--path", str(original), *scene)
         expect(f"{name} original run", code == 0 and f"{name} check: 0 failure(s)" in output, output)
-        scripts = sorted(migrated_scripts.rglob("*.pet"))
         if not scripts:
             return
         known_errors = {line for line in output.splitlines() if "ERROR" in line}
@@ -484,7 +496,8 @@ def run_migration_group(godot, name, prepare, migrated_scripts, *scene):
         migrate(migrated, migrated_scripts)
         import_project(godot, migrated)
         code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-build")
-        expect_run(f"{name} build", code, output)
+        new_build_errors = [line for line in output.splitlines() if "ERROR" in line and line not in known_build_errors]
+        expect(f"{name} build", code == 0 and not new_build_errors, "\n".join(new_build_errors) if code == 0 else output)
         expect(f"{name} build: every script compiles", ", 0 with errors" in output, output)
         code, output = run(godot, "--verbose", "--path", str(migrated), *scene)
         new_errors = [
