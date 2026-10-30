@@ -32,7 +32,22 @@ TEST_CASE("@export_range gives the inspector GDScript's range hint") {
 	CHECK(contains(exports_errors("@export_range(0, 1) var s: String"), "@export_range applies to int and float, not String"));
 	CHECK(contains(exports_errors("@export_range(1) var x: int"), "a minimum, a maximum and an optional step"));
 	CHECK(contains(exports_errors("@export_range(0, \"or_greater\", 1) var x: int"), "numbers, then options"));
-	CHECK(contains(exports_errors("@export_enum(\"a\") var x := 1"), "@export_enum is not supported yet"));
+}
+
+TEST_CASE("@export_enum and @export_multiline give the inspector GDScript's hints") {
+	const compiler::CompileResult result = compile(
+			"extends Resource\n"
+			"@export_enum(\"basic_enemy\", \"basic_brick\", \" \") var death_type: String = \" \"\n"
+			"@export_enum(\"a\", \"b\") var index := 1\n"
+			"@export_multiline var description: String\n");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	CHECK(member_named(result.module, "death_type").hint == 2); // PROPERTY_HINT_ENUM
+	CHECK(member_named(result.module, "death_type").hint_string == "basic_enemy,basic_brick, ");
+	CHECK(member_named(result.module, "index").hint_string == "a,b");
+	CHECK(member_named(result.module, "description").hint == 18); // PROPERTY_HINT_MULTILINE_TEXT
+	CHECK(contains(exports_errors("@export_enum(\"a\") var x := 1.5"), "@export_enum applies to int and String, not float."));
+	CHECK(contains(exports_errors("@export_multiline var x := 1"), "@export_multiline applies to String, not int."));
+	CHECK(contains(exports_errors("@export_enum var x := 1"), "@export_enum takes the names of the values."));
 }
 
 TEST_CASE("@export_group and @export_subgroup head the exports after them") {

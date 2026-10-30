@@ -2561,7 +2561,32 @@ class Checker : public ClassRelation {
 			error(p_annotation.line, p_annotation.column, "@export_range takes a minimum, a maximum and an optional step.");
 			return;
 		}
-		r_member.hint = 1; // PROPERTY_HINT_RANGE (core/object/object.h).
+		r_member.hint = 1; // PROPERTY_HINT_RANGE (core/object/property_info.h:41).
+		r_member.hint_string = hint;
+	}
+
+	// `@export_enum("a", "b")` on an int or a String, and `@export_multiline`
+	// on a String: the hint string is the arguments joined by commas, as in
+	// GDScript (modules/gdscript/gdscript_parser.cpp:4734-4739).
+	void check_export_text(VarDecl &r_member, const Annotation &p_annotation, uint32_t p_hint) {
+		const bool is_enum = p_hint == 2; // PROPERTY_HINT_ENUM, MULTILINE_TEXT is 18 (core/object/property_info.h:42, 58).
+		if (r_member.type.kind != TypeKind::String && !(is_enum && r_member.type.kind == TypeKind::Int)) {
+			error(p_annotation.line, p_annotation.column, "@" + p_annotation.name + " applies to " + (is_enum ? "int and String" : "String") + ", not " + r_member.type.to_string() + ".");
+			return;
+		}
+		std::string hint;
+		for (const auto &arg : p_annotation.args) {
+			if (arg->kind != ExprKind::StringLiteral) {
+				error(arg->line, arg->column, "@" + p_annotation.name + " takes strings.");
+				return;
+			}
+			hint += (hint.empty() ? "" : ",") + arg->text;
+		}
+		if ((is_enum && p_annotation.args.empty()) || (!is_enum && p_annotation.args.size() > 1)) {
+			error(p_annotation.line, p_annotation.column, is_enum ? "@export_enum takes the names of the values." : "@export_multiline takes at most a placeholder text.");
+			return;
+		}
+		r_member.hint = p_hint;
 		r_member.hint_string = hint;
 	}
 
@@ -2569,6 +2594,8 @@ class Checker : public ClassRelation {
 		for (const Annotation &annotation : r_member.annotations) {
 			if (annotation.name == "export_range") {
 				check_export_range(r_member, annotation);
+			} else if (annotation.name == "export_enum" || annotation.name == "export_multiline") {
+				check_export_text(r_member, annotation, annotation.name == "export_enum" ? 2 : 18);
 			} else if (!annotation.args.empty()) {
 				error(annotation.line, annotation.column, "@" + annotation.name + " takes no arguments.");
 			}

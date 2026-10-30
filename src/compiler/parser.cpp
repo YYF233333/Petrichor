@@ -842,7 +842,7 @@ class Parser {
 				fail(name, "@readonly is only for interface properties (spec §3.9).");
 				return;
 			}
-			if (annotation.name != "export" && annotation.name != "export_range" && annotation.name != "onready") {
+			if (annotation.name != "export" && annotation.name != "export_range" && annotation.name != "export_enum" && annotation.name != "export_multiline" && annotation.name != "onready") {
 				fail(name, "The annotation @" + name.text + " is not supported yet.");
 				return;
 			}
