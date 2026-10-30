@@ -1,0 +1,15 @@
+class_name InheritCaller
+pub func call_map(base: InheritBase) -> int?:
+	return base.map()
+pub func convert(base: InheritBase, value: Node3D) -> Node:
+	return base.pass_node(value)
+pub func cast_node(value: Node) -> InheritBase?:
+	return value as InheritBase
+pub func test_node(value: Node) -> bool:
+	return value is InheritBase
+pub func keep(base: InheritBase, value: Node3D) -> Task[Node]:
+	return base.object_later(value)
+pub async func consume(task: Task[Node]) -> Node:
+	return await task
+pub async func wait(base: InheritBase) -> int:
+	return await base.waiting()

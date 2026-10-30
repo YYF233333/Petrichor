@@ -54,8 +54,10 @@ std::string Type::to_string() const {
 		}
 		case TypeKind::Option:
 			return (args.empty() ? std::string("<error>") : args[0].to_string()) + "?";
+		case TypeKind::Task:
+			return "Task[" + args[0].to_string() + "]" + (nullable ? "?" : "");
 		case TypeKind::Function:
-			return "func" + signature(args, 1) + (args.empty() || args[0].kind == TypeKind::Void ? std::string() : " -> " + args[0].to_string());
+			return std::string(is_async ? "async func" : "func") + signature(args, 1) + (args.empty() || args[0].kind == TypeKind::Void ? std::string() : " -> " + args[0].to_string());
 		case TypeKind::Signal:
 			return "Signal" + signature(args, 0);
 		case TypeKind::Builtin:
@@ -132,6 +134,9 @@ bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_
 	if (p_from == p_to) {
 		return true;
 	}
+	if (p_from.kind == TypeKind::Task && p_to.kind == TypeKind::Task) {
+		return p_from.args == p_to.args && (!p_from.nullable || p_to.nullable);
+	}
 	if (p_from.kind == TypeKind::None) {
 		return p_to.is_optional() || p_to.kind == TypeKind::Variant;
 	}
@@ -158,7 +163,7 @@ bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_
 	}
 	if (p_from.kind == TypeKind::Function && p_to.kind == TypeKind::Function) {
 		// Parameters contravariant, the result covariant (spec §3.11).
-		if (p_from.args.size() != p_to.args.size()) {
+		if (p_from.is_async != p_to.is_async || p_from.args.size() != p_to.args.size()) {
 			return false;
 		}
 		for (size_t i = 1; i < p_to.args.size(); i++) {
@@ -204,7 +209,7 @@ std::optional<Type> element_of(const Type &p_type) {
 }
 
 Type optional_of(const Type &p_type) {
-	if (p_type.kind == TypeKind::Object) {
+	if (p_type.kind == TypeKind::Object || p_type.kind == TypeKind::Task) {
 		Type type = p_type;
 		type.nullable = true;
 		return type;

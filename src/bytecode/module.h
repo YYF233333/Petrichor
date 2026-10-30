@@ -93,6 +93,7 @@ struct Constant {
 };
 
 struct Slot {
+	std::string task_result; // Signature key of T for a Task[T] handle.
 	std::string name; // Empty for temporaries.
 	ValueType type = ValueType::Void;
 	uint32_t offset = 0;
@@ -129,6 +130,9 @@ struct Member : Slot {
 };
 
 struct Function {
+	bool is_inherited = false;
+	std::string base_signature;
+	bool is_async = false;
 	std::string name;
 	std::vector<Slot> params;
 	// The values of the last parameters when a call leaves them out: one from
@@ -188,6 +192,7 @@ struct EngineCall {
 // has exactly this signature, with arguments and result in their slots' own
 // layout (spec §8.1).
 struct MethodCall {
+	bool is_async = false;
 	std::string method;
 	std::vector<Slot> params; // Names and offsets mean nothing.
 	uint32_t defaults = 0; // How many of the last parameters have default values, which a call may leave out.
@@ -198,7 +203,7 @@ struct MethodCall {
 // the parameters' and the result's types and their classes, scripts,
 // interfaces, nullability, options and elements, and how many parameters have
 // defaults.
-std::string signature_key(const std::vector<Slot> &p_params, size_t p_defaults, const Slot &p_result);
+std::string signature_key(const std::vector<Slot> &p_params, size_t p_defaults, const Slot &p_result, bool p_async = false);
 
 // A property of an engine object, read and written by name.
 struct PropertyAccess {
@@ -273,6 +278,8 @@ struct Module {
 	bool declarations_only = false;
 	std::string global_name;
 	std::string base_class;
+	std::string base_script;
+	uint32_t inherited_members = 0;
 	std::vector<Member> members;
 	std::vector<SignalInfo> signals;
 	std::vector<ExportGroup> groups;

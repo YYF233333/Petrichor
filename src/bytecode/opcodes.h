@@ -88,6 +88,13 @@ namespace petrichor::bytecode {
 	X(JUMP_IF_FALSE, 2) \
 	X(JUMP_IF_TRUE, 2) \
 	X(CALL, -1) \
+	X(CALL_SUPER, -1) \
+	X(AWAIT_TASK, 3) /* dst, task, owned (0 or 1) */ \
+	X(AWAIT_SIGNAL, 3) /* dst, signal, reserved */ \
+	X(TASK_CANCEL, 1) /* task */ \
+	X(TASK_DETACH, 1) /* task */ \
+	X(CALL_AWAIT_ENGINE, -1) \
+	X(CALL_AWAIT_BUILTIN, -1) \
 	X(CALL_ENGINE, -1) \
 	X(CALL_METHOD, -1) \
 	X(CALL_UTILITY, -1) \

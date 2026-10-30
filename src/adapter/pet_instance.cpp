@@ -1,6 +1,7 @@
 #include "adapter/pet_instance.h"
 
 #include "adapter/pet_language.h"
+#include "runtime/task.h"
 #include "runtime/text.h"
 #include "runtime/vm.h"
 
@@ -111,6 +112,32 @@ void free_method_list(const GDExtensionMethodInfo *p_list, uint32_t p_count) {
 
 /* Instance */
 
+static std::vector<std::shared_ptr<const ClassImage>> image_chain(const std::shared_ptr<const ClassImage> &p_image) {
+	std::vector<std::shared_ptr<const ClassImage>> chain;
+	for (auto image = p_image; image; image = image->base) {
+		chain.push_back(image);
+	}
+	return chain;
+}
+
+static bool run_initializers(const std::shared_ptr<const ClassImage> &p_image, InstanceContext p_context, bool p_ready) {
+	const auto chain = image_chain(p_image);
+	p_context.self_image = p_image;
+	for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+		const int index = p_ready ? (*it)->module.ready_function : (*it)->module.init_function;
+		if (index < 0) {
+			continue;
+		}
+		GDExtensionCallError error;
+		bool failed = false;
+		vm::call(*it, index, p_context, nullptr, 0, error, &failed);
+		if (failed || error.error != GDEXTENSION_CALL_OK) {
+			return false;
+		}
+	}
+	return true;
+}
+
 PetInstance::PetInstance(PetScript *p_script, const std::shared_ptr<const ClassImage> &p_image, Object *p_owner) :
 		owner(p_owner->_owner), owner_object(p_owner), script(Ref<PetScript>(p_script)), image(p_image) {
 	// Every member starts at its type's default value; then the initializers
@@ -119,13 +146,8 @@ PetInstance::PetInstance(PetScript *p_script, const std::shared_ptr<const ClassI
 	// A program error in them ends the engine's call, as in the ready function,
 	// so _init() does not run either (§8.1).
 	storage = std::make_shared<InstanceStorage>(image);
-	if (image->module.init_function >= 0) {
-		GDExtensionCallError error;
-		bool failed = false;
-		vm::call(image, image->module.init_function, context(), nullptr, 0, error, &failed);
-		if (failed) {
-			return;
-		}
+	if (!run_initializers(image, context(), false)) {
+		return;
 	}
 	// Then the class's own _init(), as GDScript runs it after the member
 	// initializers.
@@ -138,6 +160,7 @@ PetInstance::PetInstance(PetScript *p_script, const std::shared_ptr<const ClassI
 // The members go when no call runs on them any more (spec §3.3).
 PetInstance::~PetInstance() {
 	storage->freed = true;
+	tasks::cancel_owner(storage);
 }
 
 bool resolve_instance(Object *p_object, ScriptedObject &r_instance) {
@@ -173,6 +196,22 @@ static const bytecode::Member *visible_member(const ClassImage &p_image, const S
 		return nullptr;
 	}
 	return &p_image.module.members[index];
+}
+
+static void instance_property_state(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionScriptInstancePropertyStateAdd p_add, void *p_userdata) {
+	PetInstance *instance = self(p_instance);
+	const auto image = instance->current_image();
+	for (size_t i = 0; i < image->module.members.size(); ++i) {
+		const auto &member = image->module.members[i];
+		if (!member.is_export) {
+			continue;
+		}
+		const Variant value = outward_variant(member, instance->storage->members + member.offset);
+		if (member.type == bytecode::ValueType::Object && !member.nullable && is_none(value)) {
+			continue;
+		}
+		p_add(image->member_names[i]._native_ptr(), value._native_ptr(), p_userdata);
+	}
 }
 
 static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionConstVariantPtr p_value) {
@@ -291,18 +330,8 @@ static void instance_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensi
 	// One snapshot for the lookup and the call.
 	const std::shared_ptr<const ClassImage> image = instance->current_image();
 	const InstanceContext context = instance->context();
-	if (image->module.ready_function >= 0 && method == image->ready_method) {
-		// The @onready initializers run first, as in GDScript
-		// (modules/gdscript/gdscript.cpp:1948-1953); the engine calls _ready()
-		// whether or not the class defines it (core/object/gdvirtual.gen.inc:39-45).
-		// They are part of the engine's call, which a program error in them
-		// ends (spec §8.1).
-		GDExtensionCallError ready_error;
-		bool failed = false;
-		vm::call(image, image->module.ready_function, context, nullptr, 0, ready_error, &failed);
-		if (failed) {
-			return;
-		}
+	if (method == image->ready_method && !run_initializers(image, context, true)) {
+		return;
 	}
 	const int index = PetScript::find_visible_function(*image, method);
 	if (index < 0) {
@@ -322,14 +351,30 @@ static void instance_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensi
 // (modules/gdscript/gdscript.cpp:1968-2000), and a class of this language is one.
 static void instance_notification(GDExtensionScriptInstanceDataPtr p_instance, int32_t p_what, GDExtensionBool p_reversed) {
 	PetInstance *instance = self(p_instance);
-	const std::shared_ptr<const ClassImage> image = instance->current_image();
-	if (image->notification_function < 0) {
-		return;
+	if (p_what == Object::NOTIFICATION_PREDELETE) {
+		tasks::cancel_owner(instance->storage);
 	}
+	const std::shared_ptr<const ClassImage> image = instance->current_image();
+	auto chain = image_chain(image);
+	if (!p_reversed) {
+		std::reverse(chain.begin(), chain.end());
+	}
+	InstanceContext context = instance->context();
+	context.self_image = image;
 	const Variant what = int64_t(p_what);
 	const Variant *args[] = { &what };
-	GDExtensionCallError error;
-	vm::call(image, image->notification_function, instance->context(), args, 1, error);
+	for (const auto &owner : chain) {
+		const int index = owner->notification_function;
+		if (index < 0 || owner->module.functions[index].is_inherited) {
+			continue;
+		}
+		GDExtensionCallError error;
+		bool failed = false;
+		vm::call(owner, index, context, args, 1, error, &failed);
+		if (failed) {
+			return;
+		}
+	}
 }
 
 // The engine's to_string() asks the instance (modules/gdscript/gdscript.cpp:2003-2022).
@@ -379,6 +424,7 @@ static GDExtensionScriptInstanceInfo3 build_info() {
 	info.set_func = instance_set;
 	info.get_func = instance_get;
 	info.get_property_list_func = instance_get_property_list;
+	info.get_property_state_func = instance_property_state;
 	info.free_property_list_func = instance_free_property_list;
 	info.property_can_revert_func = instance_property_can_revert;
 	info.property_get_revert_func = instance_property_get_revert;

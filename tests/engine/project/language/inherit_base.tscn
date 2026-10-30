@@ -1,0 +1,7 @@
+[gd_scene format=3]
+[ext_resource type="Script" path="res://language/inherit_base.pet" id="1"]
+[node name="Inherited" type="Node" node_paths=PackedStringArray("target")]
+script = ExtResource("1")
+target = NodePath("Target")
+[node name="Target" type="Node3D" parent="."]
+[connection signal="tree_entered" from="Target" to="." method="_entered"]

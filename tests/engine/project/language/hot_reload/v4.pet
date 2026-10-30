@@ -8,3 +8,8 @@ var origin := Vector3(1, 2, 3)
 
 pub func value() -> int:
 	return count * 100 + extra
+
+pub signal tick
+pub async func delayed() -> int:
+	await tick
+	return 400 + value()

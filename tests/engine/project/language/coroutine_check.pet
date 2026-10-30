@@ -1,0 +1,97 @@
+class_name CoroutineCheck
+extends Node
+pub signal tick(value: int)
+pub var count: int = 0
+
+pub async func twice() -> int:
+	var first = await tick
+	var second = await tick
+	count += 1
+	return first + second
+
+pub func start() -> Task[int]:
+	return twice()
+
+pub async func owned() -> int:
+	return await twice()
+
+pub func start_owned() -> Task[int]:
+	return owned()
+
+pub async func shared(t: Task[int]) -> int:
+	return await t
+
+pub func start_shared(t: Task[int]) -> Task[int]:
+	return shared(t)
+
+pub async func signal_from(other: Node) -> int:
+	await other.tree_exiting
+	count += 1
+	return 7
+
+pub async func wait_signal(s: Signal):
+	await s
+	count += 1
+
+pub async func from_gd(other: CoroutineBridge) -> int:
+	return await other.twice()
+
+pub func unawaited_gd(other: CoroutineBridge) -> int:
+	return other.twice()
+
+pub func detached_gd(other: CoroutineBridge):
+	other.twice()
+
+pub async func immediate() -> Transform3D:
+	return Transform3D()
+
+pub async func transform() -> Transform3D:
+	await tick
+	return Transform3D()
+
+pub async func void_task():
+	await tick
+	count += 1
+
+pub func start_void() -> Task[void]:
+	return void_task()
+
+pub async func cross(other: CoroutineCheck) -> int:
+	return await other.twice()
+
+pub func detached():
+	twice().detach()
+
+pub async func call_gd(callback: Callable):
+	await callback.call()
+	count += 1
+
+pub async func hold(value: RefCounted):
+	await tick
+
+pub func start_hold(value: RefCounted) -> Task[void]:
+	return hold(value)
+
+pub async func call_pet(callback: Callable) -> int:
+	await callback.call()
+	return 42
+
+pub async func call_pet_v(callback: Callable) -> int:
+	await callback.callv([])
+	return 42
+
+pub async func failing() -> int:
+	var divisor = await tick
+	return 1 / divisor
+
+pub async func failure_middle() -> int:
+	return await failing()
+
+pub async func failure_top() -> int:
+	return await failure_middle()
+
+pub func start_failure() -> Task[int]:
+	return failure_top()
+
+pub func emit_wrong(other: CoroutineBridge):
+	other.emit_wrong(tick)

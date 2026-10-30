@@ -3,18 +3,25 @@
 #include "bytecode/opcodes.h"
 #include "runtime/debugger.h"
 #include "runtime/method_callable.h"
+#include "runtime/object_watch.h"
+#include "runtime/task.h"
 #include "runtime/text.h"
 
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/window.hpp>
+#include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/error_macros.hpp>
+#include <godot_cpp/core/object.hpp>
 #include <godot_cpp/godot.hpp>
+#include <godot_cpp/variant/callable_custom.hpp>
 
 #include <algorithm>
 #include <cstring>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <new>
 
 using namespace godot;
@@ -35,7 +42,116 @@ InstanceStorage::~InstanceStorage() {
 	::operator delete(members);
 }
 
+struct CoroutineFrame : std::enable_shared_from_this<CoroutineFrame> {
+	std::shared_ptr<const ClassImage> image;
+	InstanceContext context;
+	CoroutineTask *task;
+	uint32_t function;
+	uint8_t *data;
+	size_t pc = 0;
+	int line = 0;
+	uint32_t destination = NO_SLOT;
+	uint64_t generation = 0;
+	bool awaited_freed = false;
+	uint64_t lost_object = 0;
+	Signal waiting;
+	Callable callback;
+	Signal script_changed;
+	Callable changed_callback;
+	object_watch::Subscription watch;
+	Variant held_state;
+	Ref<CoroutineTask> waited_task;
+	Ref<CoroutineTask> child;
+
+	CoroutineFrame(const std::shared_ptr<const ClassImage> &p_image, uint32_t p_function, const InstanceContext &p_context, CoroutineTask *p_task) :
+			image(p_image), context(p_context), task(p_task), function(p_function), data(static_cast<uint8_t *>(::operator new(p_image->frames[p_function].size))) {
+		image->frames[function].construct(data);
+		line = int(image->module.functions[function].line);
+	}
+	~CoroutineFrame() {
+		disconnect();
+		if (data) {
+			image->frames[function].destroy(data);
+		}
+		::operator delete(data);
+	}
+	void disconnect();
+	bool receive(const Variant &p_value);
+	bool await_task(const Ref<CoroutineTask> &p_task);
+	void report_error(const String &p_message);
+	void resume();
+	void complete_wait(uint64_t p_generation, const Variant &p_value);
+	bool suspend(const Signal &p_signal, uint32_t p_dst, uint64_t p_watch, bool p_script = false);
+};
+
 namespace {
+std::mutex tasks_mutex;
+std::atomic<uint64_t> task_frame{ 0 };
+std::map<uint64_t, Ref<CoroutineTask>> active_tasks;
+
+std::vector<Ref<CoroutineTask>> task_snapshot() {
+	std::lock_guard<std::mutex> lock(tasks_mutex);
+	std::vector<Ref<CoroutineTask>> tasks;
+	for (const auto &entry : active_tasks) {
+		tasks.push_back(entry.second);
+	}
+	return tasks;
+}
+
+class ResumeCallable : public CallableCustom {
+	std::function<void(const Variant &)> callback;
+	static bool equal(const CallableCustom *a, const CallableCustom *b) { return a == b; }
+	static bool less(const CallableCustom *a, const CallableCustom *b) { return std::less<const CallableCustom *>()(a, b); }
+
+public:
+	explicit ResumeCallable(std::function<void(const Variant &)> p_callback) : callback(std::move(p_callback)) {}
+	uint32_t hash() const override { return uint32_t(reinterpret_cast<uintptr_t>(this)); }
+	String get_as_text() const override { return "Petrichor await"; }
+	CompareEqualFunc get_compare_equal_func() const override { return equal; }
+	CompareLessFunc get_compare_less_func() const override { return less; }
+	ObjectID get_object() const override { return ObjectID(); }
+	bool is_valid() const override { return true; }
+	int get_argument_count(bool &r_valid) const override {
+		r_valid = true;
+		return 0;
+	}
+	void call(const Variant **p_args, int p_count, Variant &r_result, GDExtensionCallError &r_error) const override {
+		r_error.error = GDEXTENSION_CALL_OK;
+		Variant value;
+		if (p_count == 1) {
+			value = *p_args[0];
+		} else if (p_count > 1) {
+			Array args;
+			for (int i = 0; i < p_count; ++i) {
+				args.push_back(*p_args[i]);
+			}
+			value = args;
+		}
+		callback(value);
+	}
+};
+
+Ref<CoroutineTask> start_task(const std::shared_ptr<const ClassImage> &p_image, uint32_t p_function, const InstanceContext &p_context, uint8_t *p_frame, const bytecode::Slot *p_result_view = nullptr) {
+	Ref<CoroutineTask> task;
+	task.instantiate();
+	task->owner_id = p_context.owner ? uint64_t(p_context.owner->get_instance_id()) : 0;
+	task->result_signature = bytecode::signature_key({}, 0, p_result_view ? *p_result_view : p_image->module.functions[p_function].result);
+	task->continuation = std::make_shared<CoroutineFrame>(p_image, p_function, p_context, task.ptr());
+	for (const auto &param : p_image->module.functions[p_function].params) {
+		copy_value(param.type, task->continuation->data + param.offset, p_frame + param.offset);
+	}
+	{
+		std::lock_guard<std::mutex> lock(tasks_mutex);
+		active_tasks.emplace(uint64_t(task->get_instance_id()), task);
+	}
+	if (p_context.storage && p_context.storage->coroutines_cancelled) {
+		task->cancel_requested = true;
+		task->owner_freed = true;
+		task->owner_freed_frame = task_frame.load();
+	}
+	task->continuation->resume();
+	return task;
+}
 
 // What a static function, which has no instance, reads as its instance's state.
 const std::atomic<bool> NO_INSTANCE_FREED{ false };
@@ -164,6 +280,7 @@ void report_error(const ClassImage &p_image, const bytecode::Function &p_functio
 }
 
 class Execution {
+	std::shared_ptr<const ClassImage> image_owner;
 	const ClassImage &image;
 	const InstanceContext &context;
 	// Whether the engine's debugger is on, which does not change while the
@@ -183,8 +300,8 @@ class Execution {
 	}
 
 public:
-	Execution(const ClassImage &p_image, const InstanceContext &p_context, bool p_debugging) :
-			image(p_image), context(p_context), debugging(p_debugging) {}
+	Execution(const std::shared_ptr<const ClassImage> &p_image, const InstanceContext &p_context, bool p_debugging) :
+			image_owner(p_image), image(*p_image), context(p_context), debugging(p_debugging) {}
 	~Execution() {
 		if (has_self) {
 			variant_at(self_storage).~Variant();
@@ -195,21 +312,21 @@ public:
 
 	// Runs a function on an initialized frame. Returns false after a program
 	// error, which unwinds every frame of this language up to the engine.
-	bool run(uint32_t p_function, uint8_t *frame, uint8_t *p_result) {
+	bool run(uint32_t p_function, uint8_t *frame, uint8_t *p_result, CoroutineFrame *p_async = nullptr) {
 		const bytecode::Function &fn = image.module.functions[p_function];
 		const bytecode::Module &module = image.module;
 		const uint32_t *code = fn.code.data();
 		uint8_t *members = context.storage ? context.storage->members : nullptr;
 		const std::atomic<bool> &freed = context.storage ? context.storage->freed : NO_INSTANCE_FREED;
-		if (call_stack.capacity() < MAX_CALL_DEPTH) {
-			call_stack.reserve(MAX_CALL_DEPTH);
+		if (call_stack.capacity() < MAX_CALL_DEPTH + 1) {
+			call_stack.reserve(MAX_CALL_DEPTH + 1);
 		}
 		if (call_stack.size() == MAX_CALL_DEPTH) {
 			const StackFrame &caller = call_stack.back();
 			report_error(*caller.image, *caller.function, caller.line, vformat("Stack overflow: more than %d calls deep. Check for infinite recursion.", int64_t(MAX_CALL_DEPTH)));
 			return false;
 		}
-		call_stack.push_back({ &image, &fn, frame, members, int(fn.line) });
+		call_stack.push_back({ &image, context.self_image.get(), &fn, frame, members, p_async ? p_async->line : int(fn.line) });
 		StackFrame &record = call_stack.back();
 		if (debugging) {
 			debugger::enter_function();
@@ -250,11 +367,14 @@ public:
 	} \
 	Variant &m_name = (m_offset) == NO_SLOT ? self() : variant_at(frame + (m_offset));
 
-		size_t pc = 0;
+		size_t pc = p_async ? p_async->pc : 0;
 		while (true) {
 			switch (Op(code[pc])) {
 				case Op::LINE:
 					record.line = int(code[pc + 1]);
+					if (p_async) {
+						p_async->line = record.line;
+					}
 					if (debugging) {
 						debugger::line(image.source, int(code[pc + 1]));
 					}
@@ -607,25 +727,98 @@ public:
 					pc = U64(code[pc + 1]) ? code[pc + 2] : pc + 3;
 					break;
 				// Calls: target, dst, base, argc, then (type, offset) per argument.
-				case Op::CALL: {
-					const uint32_t target = code[pc + 1];
-					const uint32_t dst = code[pc + 2];
-					const uint32_t argc = code[pc + 4];
-					const bytecode::Function &callee = module.functions[target];
-					bool ok;
-					{
-						Frame callee_frame(image.frames[target]);
-						for (uint32_t i = 0; i < argc; i++) {
-							copy_value(callee.params[i].type, callee_frame.data + callee.params[i].offset, frame + code[pc + 6 + 2 * i]);
+				case Op::CALL:
+				case Op::CALL_SUPER:
+				case Op::CALL_METHOD: {
+					const Op op = Op(code[pc]);
+					const uint32_t target = code[pc + 1], dst = code[pc + 2], argc = code[pc + 4];
+					ScriptedObject callee{ image_owner, context };
+					StringName name;
+					uint32_t signature;
+					const bytecode::Slot *result;
+					if (op == Op::CALL) {
+						const auto &decl = module.functions[target];
+						name = image.function_names[target];
+						signature = image.function_signatures[target];
+						result = &decl.result;
+						if (!decl.is_static && context.self_image) {
+							callee.image = context.self_image;
 						}
-						ok = run(target, callee_frame.data, dst == NO_SLOT ? nullptr : frame + dst);
+					} else {
+						name = image.method_names[target];
+						signature = image.call_signatures[target];
+						result = &module.method_calls[target].result;
+						if (op == Op::CALL_SUPER) {
+							callee.image = image.base;
+						} else {
+							OBJECT(receiver, code[pc + 3]);
+							if (!scripted_object(static_cast<Object *>(receiver), callee)) {
+								FAIL("The receiver is not a Petrichor instance.");
+							}
+							if (callee.context.storage == context.storage && context.self_image) {
+								callee.image = context.self_image;
+							}
+							callee.context.self_image = callee.image;
+						}
 					}
-					if (!ok) {
-						return false;
+					int index = callee.image ? callee.image->find_function(name) : -1;
+					if (index < 0 || !callee.image->has_signature(name, signature) || (op == Op::CALL_METHOD && !callee.image->module.functions[index].is_pub && !callee.image->module.functions[index].is_override)) {
+						FAIL(vformat("%s() is not the method this script was compiled against. Build the project again.", name));
+					}
+					ClassImage::resolve_function(callee.image, index);
+					const bytecode::Function &method = callee.image->module.functions[index];
+					if (!method.is_static && !callee.context.storage) {
+						FAIL("An instance method needs a receiver. Build the project again.");
+					}
+					const size_t required = method.params.size() - method.defaults.size();
+					if (argc < required || argc > method.params.size()) {
+						FAIL("Override argument count changed. Rebuild the project.");
+					}
+					Frame callee_frame(callee.image->frames[index]);
+					for (size_t i = 0; i < method.params.size(); ++i) {
+						uint8_t *param = callee_frame.data + method.params[i].offset;
+						const ValueType source_type = i < argc ? ValueType(code[pc + 5 + 2 * i]) : ValueType::Void;
+						if (i < argc && source_type == method.params[i].type) {
+							copy_value(source_type, param, frame + code[pc + 6 + 2 * i]);
+						} else {
+							Variant value;
+							String error;
+							if (i < argc) {
+								value = to_variant(source_type, frame + code[pc + 6 + 2 * i]);
+							} else if (!constant_value(method.defaults[i - required], value, error)) {
+								FAIL(error);
+							}
+							if (!from_variant(method.params[i].type, value, param, &callee.image->param_checks[index][i])) {
+								FAIL(vformat("Argument of %s(): %s.", name, entry_mismatch(method.params[i].type, value, callee.image->param_checks[index][i])));
+							}
+						}
+					}
+					if (method.is_async) {
+						const Ref<CoroutineTask> task = start_task(callee.image, uint32_t(index), callee.context, callee_frame.data, result);
+						if (dst != NO_SLOT) {
+							variant_at(frame + dst) = task;
+						}
+					} else if (dst == NO_SLOT || method.result.type == result->type) {
+						if (!Execution(callee.image, callee.context, debugging).run(uint32_t(index), callee_frame.data, dst == NO_SLOT ? nullptr : frame + dst)) {
+							return false;
+						}
+					} else {
+						alignas(16) uint8_t returned[64];
+						construct_value(method.result.type, returned);
+						bool ok = Execution(callee.image, callee.context, debugging).run(uint32_t(index), callee_frame.data, returned);
+						if (ok) {
+							const ValueCheck check(*result);
+							ok = from_variant(result->type, outward_variant(method.result, returned), frame + dst, &check);
+						}
+						destroy_value(method.result.type, returned);
+						if (!ok) {
+							return false;
+						}
 					}
 					pc += 5 + 2 * argc;
 					break;
 				}
+				case Op::CALL_AWAIT_ENGINE:
 				case Op::CALL_ENGINE: {
 					const uint32_t target = code[pc + 1];
 					const uint32_t dst = code[pc + 2];
@@ -640,43 +833,72 @@ public:
 					if (error.error != GDEXTENSION_CALL_OK) {
 						FAIL(vformat("Calling %s() failed.", image.engine_methods[target]));
 					}
-					if (dst != NO_SLOT && !from_variant(module.engine_calls[target].return_type, result, frame + dst)) {
+					Object *state = result.get_type() == Variant::OBJECT ? static_cast<Object *>(result) : nullptr;
+					if (state && state->is_class("GDScriptFunctionState")) {
+						if (Op(code[pc]) == Op::CALL_AWAIT_ENGINE) {
+							if (p_async->task->cancel_requested) {
+								return true;
+							}
+							p_async->held_state = result;
+							p_async->pc = pc + 5 + 2 * argc;
+							if (!p_async->suspend(Signal(state, "completed"), dst, object_id_of(object), true)) {
+								FAIL("Cannot await GDScript completion.");
+							}
+							return true;
+						}
+						if (dst != NO_SLOT) {
+							FAIL("The method is a GDScript coroutine and needs await.");
+						}
+					} else if (dst != NO_SLOT && !from_variant(module.engine_calls[target].return_type, result, frame + dst)) {
 						FAIL(vformat("%s() returned an unexpected %s.", image.engine_methods[target], Variant::get_type_name(result.get_type())));
 					}
 					pc += 5 + 2 * argc;
 					break;
 				}
-				case Op::CALL_METHOD: {
-					// A method of a class of this language, called directly: a
-					// program error in it ends this function too (spec §8.1).
-					const uint32_t target = code[pc + 1];
+
+				case Op::CALL_AWAIT_BUILTIN: {
 					const uint32_t dst = code[pc + 2];
 					const uint32_t argc = code[pc + 4];
-					OBJECT(receiver, code[pc + 3]);
-					// Within a run every script is compiled against the others
-					// (spec §12.4); only bytecode that was not built together
-					// can differ, and then the arguments would not fit.
-					ScriptedObject callee;
-					const int index = scripted_object(static_cast<Object *>(receiver), callee) ? callee.image->find_function(image.method_names[target]) : -1;
-					if (index < 0 || !callee.image->module.functions[index].is_pub || callee.image->function_signatures[index] != image.call_signatures[target]) {
-						FAIL(vformat("%s() is not the method this script was compiled against. Build the project again.", image.method_names[target]));
+					const Callable &callable = *reinterpret_cast<Callable *>(frame + code[pc + 3]);
+					Arguments args(frame, code + pc + 5, argc, nullptr);
+					Variant base = callable;
+					Variant result;
+					GDExtensionCallError error;
+					base.callp(to_godot(module.builtin_methods[code[pc + 1]].method), args.as_variants(), int(argc), result, error);
+					if (error.error != GDEXTENSION_CALL_OK) {
+						FAIL("Calling the awaited Callable failed.");
 					}
-					const bytecode::Function &method = callee.image->module.functions[index];
-					const size_t required = method.params.size() - method.defaults.size();
-					bool ok;
-					{
-						Frame callee_frame(callee.image->frames[index]);
-						for (size_t i = 0; i < method.params.size(); i++) {
-							uint8_t *param = callee_frame.data + method.params[i].offset;
-							if (i < argc) {
-								copy_value(method.params[i].type, param, frame + code[pc + 6 + 2 * i]);
-							} else {
-								from_variant(method.params[i].type, callee.image->param_defaults[index][i - required], param, &callee.image->param_checks[index][i]);
-							}
+					Object *state = result.get_type() == Variant::OBJECT ? static_cast<Object *>(result) : nullptr;
+					p_async->destination = dst;
+					if (state && state->is_class("GDScriptFunctionState")) {
+						if (p_async->task->cancel_requested) {
+							return true;
 						}
-						ok = Execution(*callee.image, callee.context, debugging).run(uint32_t(index), callee_frame.data, dst == NO_SLOT ? nullptr : frame + dst);
+						p_async->held_state = result;
+						p_async->pc = pc + 5 + 2 * argc;
+						if (!p_async->suspend(Signal(state, "completed"), dst, uint64_t(callable.get_object_id()), true)) {
+							FAIL("Cannot await GDScript completion.");
+						}
+						return true;
 					}
-					if (!ok) {
+					if (result.get_type() == Variant::SIGNAL) {
+						if (p_async->task->cancel_requested) {
+							return true;
+						}
+						const Signal signal = result;
+						Ref<CoroutineTask> task = Object::cast_to<CoroutineTask>(signal.get_object());
+						p_async->pc = pc + 5 + 2 * argc;
+						if (task.is_valid() && signal.get_name() == StringName("completed")) {
+							if (!p_async->await_task(task)) {
+								return false;
+							}
+						} else if (!p_async->suspend(signal, dst, uint64_t(signal.get_object_id()))) {
+							FAIL("Cannot await this signal.");
+						}
+						if (p_async->task->state == CoroutineTask::State::Suspended) {
+							return true;
+						}
+					} else if (!p_async->receive(result)) {
 						return false;
 					}
 					pc += 5 + 2 * argc;
@@ -726,6 +948,53 @@ public:
 					pc += 5 + 2 * argc;
 					break;
 				}
+				case Op::TASK_CANCEL:
+				case Op::TASK_DETACH: {
+					CoroutineTask *task = Object::cast_to<CoroutineTask>(static_cast<Object *>(variant_at(frame + code[pc + 1])));
+					if (!task) {
+						FAIL("Expected a Task handle.");
+					}
+					if (Op(code[pc]) == Op::TASK_CANCEL) {
+						task->cancel();
+					} else {
+						task->detach();
+					}
+					pc += 2;
+					break;
+				}
+				case Op::AWAIT_TASK: {
+					Ref<CoroutineTask> task = variant_at(frame + code[pc + 2]);
+					if (task.is_null()) {
+						FAIL("Expected a Task handle.");
+					}
+					if (code[pc + 3]) {
+						p_async->child = task;
+					}
+					if (p_async->task->cancel_requested) {
+						return true;
+					}
+					p_async->destination = code[pc + 1];
+					p_async->pc = pc + 4;
+					if (!p_async->await_task(task)) {
+						return false;
+					}
+					if (p_async->task->state == CoroutineTask::State::Suspended) {
+						return true;
+					}
+					pc += 4;
+					break;
+				}
+				case Op::AWAIT_SIGNAL: {
+					if (p_async->task->cancel_requested) {
+						return true;
+					}
+					const Signal signal = *reinterpret_cast<Signal *>(frame + code[pc + 2]);
+					p_async->pc = pc + 4;
+					if (!p_async->suspend(signal, code[pc + 1], uint64_t(signal.get_object_id()))) {
+						FAIL("Cannot await this signal.");
+					}
+					return true;
+				}
 				case Op::RETURN:
 					if (p_result) {
 						copy_value(fn.result.type, p_result, frame + code[pc + 1]);
@@ -750,12 +1019,287 @@ public:
 
 } // namespace
 
+void CoroutineTask::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("cancel"), &CoroutineTask::cancel);
+	ClassDB::bind_method(D_METHOD("detach"), &CoroutineTask::detach);
+	ADD_SIGNAL(MethodInfo("completed", PropertyInfo(Variant::NIL, "result", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NIL_IS_VARIANT)));
+	ADD_SIGNAL(MethodInfo("cancelled"));
+}
+
+void CoroutineTask::finish(State p_state, const Variant &p_result) {
+	if (ended()) {
+		return;
+	}
+	Ref<CoroutineTask> keep(this);
+	state = p_state;
+	result = p_state == State::Finished ? p_result : Variant();
+	if (continuation) {
+		const auto frame = std::move(continuation);
+		frame->disconnect();
+		Ref<CoroutineTask> child = frame->child;
+		frame->child.unref();
+		if (p_state == State::Cancelled && child.is_valid()) {
+			child->cancel();
+		}
+		if (frame->data) {
+			uint8_t *data = frame->data;
+			frame->data = nullptr;
+			frame->image->frames[frame->function].destroy(data);
+			::operator delete(data);
+		}
+	}
+	{
+		std::lock_guard<std::mutex> lock(tasks_mutex);
+		active_tasks.erase(uint64_t(get_instance_id()));
+	}
+	if (p_state == State::Cancelled) {
+		emit_signal("cancelled");
+	}
+	emit_signal("completed", result);
+}
+
+void CoroutineTask::cancel() {
+	if (ended()) {
+		return;
+	}
+	cancel_requested = true;
+	if (state == State::Suspended) {
+		finish(State::Cancelled);
+	}
+}
+void CoroutineTask::cancel_owner() {
+	if (ended()) {
+		return;
+	}
+	owner_freed = true;
+	owner_freed_frame = task_frame.load();
+	cancel();
+}
+void CoroutineTask::detach() {}
+
+void CoroutineFrame::disconnect() {
+	++generation;
+	if (!waiting.is_null() && waiting.get_object() && waiting.is_connected(callback)) {
+		waiting.disconnect(callback);
+	}
+	if (!script_changed.is_null() && script_changed.get_object() && script_changed.is_connected(changed_callback)) {
+		script_changed.disconnect(changed_callback);
+	}
+	object_watch::unwatch(watch);
+	watch = {};
+	waiting = Signal();
+	callback = Callable();
+	script_changed = Signal();
+	changed_callback = Callable();
+	held_state = Variant();
+	waited_task.unref();
+	lost_object = 0;
+}
+
+void CoroutineFrame::report_error(const String &p_message) {
+	const auto &fn = image->module.functions[function];
+	const bool already_running = !call_stack.empty() && call_stack.back().frame == data;
+	if (!already_running) {
+		if (call_stack.capacity() < MAX_CALL_DEPTH + 1) {
+			call_stack.reserve(MAX_CALL_DEPTH + 1);
+		}
+		uint8_t *members = context.storage && !context.storage->freed.load() ? context.storage->members : nullptr;
+		call_stack.push_back({ image.get(), context.self_image.get(), &fn, data, members, line });
+	}
+	vm::report_error(*image, fn.name.c_str(), line, p_message);
+	if (!already_running) {
+		call_stack.pop_back();
+	}
+}
+
+bool CoroutineFrame::await_task(const Ref<CoroutineTask> &p_task) {
+	if (p_task->state == CoroutineTask::State::Finished) {
+		child.unref();
+		return receive(p_task->result);
+	}
+	if (p_task->state == CoroutineTask::State::Failed) {
+		return false;
+	}
+	if (p_task->owner_freed) {
+		const uint64_t id = p_task->owner_id;
+		if (p_task->owner_freed_frame != task_frame.load()) {
+			report_error(vformat("The awaited object %d was freed or lost its script.", int64_t(id)));
+			return false;
+		}
+		child.unref();
+		awaited_freed = true;
+		lost_object = id;
+		task->state = CoroutineTask::State::Suspended;
+		return true;
+	}
+	if (p_task->state == CoroutineTask::State::Cancelled) {
+		report_error("The awaited task was cancelled.");
+		return false;
+	}
+	waited_task = p_task;
+	if (!suspend(Signal(p_task.ptr(), "completed"), destination, 0)) {
+		report_error("Cannot await task completion.");
+		return false;
+	}
+	return true;
+}
+
+bool CoroutineFrame::receive(const Variant &p_value) {
+	if (destination == NO_SLOT) {
+		return true;
+	}
+	for (const auto &slot : image->module.functions[function].slots) {
+		if (slot.offset != destination) {
+			continue;
+		}
+		const ValueCheck check(slot);
+		if (from_variant(slot.type, p_value, data + destination, &check)) {
+			return true;
+		}
+		report_error("Await result: " + entry_mismatch(slot.type, p_value, check));
+		return false;
+	}
+	return false;
+}
+
+bool CoroutineFrame::suspend(const Signal &p_signal, uint32_t p_dst, uint64_t p_watch, bool p_script) {
+	destination = p_dst;
+	waiting = p_signal;
+	task->state = CoroutineTask::State::Suspended;
+	const uint64_t ticket = ++generation;
+	const std::weak_ptr<CoroutineFrame> weak = shared_from_this();
+	const std::function<void(const Variant &)> resume = [weak, ticket](const Variant &value) {
+		if (const auto frame = weak.lock()) {
+			frame->complete_wait(ticket, value);
+		}
+	};
+	callback = Callable(memnew(ResumeCallable(resume)));
+	if (!waiting.get_object()) {
+		awaited_freed = true;
+		lost_object = p_watch;
+		return true;
+	}
+	if (waiting.connect(callback) != OK) {
+		return false;
+	}
+	if (p_watch) {
+		Object *object = ObjectDB::get_instance(ObjectID(p_watch));
+		if (!object) {
+			awaited_freed = true;
+			lost_object = p_watch;
+		} else {
+			watch = object_watch::watch(object->_owner, [weak, ticket](uint64_t id) {
+				if (const auto frame = weak.lock(); frame && frame->generation == ticket) {
+					frame->awaited_freed = true;
+					frame->lost_object = id;
+				}
+			});
+			if (p_script) {
+				script_changed = Signal(object, "script_changed");
+				const std::function<void(const Variant &)> changed = [weak, ticket, p_watch](const Variant &) {
+					if (const auto frame = weak.lock(); frame && frame->generation == ticket) {
+						frame->awaited_freed = true;
+						frame->lost_object = p_watch;
+					}
+				};
+				changed_callback = Callable(memnew(ResumeCallable(changed)));
+				script_changed.connect(changed_callback);
+			}
+		}
+	}
+	return true;
+}
+
+void CoroutineFrame::complete_wait(uint64_t p_generation, const Variant &p_value) {
+	if (p_generation != generation || task->ended() || awaited_freed) {
+		return;
+	}
+	Ref<CoroutineTask> keep(task);
+	const Ref<CoroutineTask> completed = waited_task;
+	disconnect();
+	child.unref();
+	if (completed.is_valid()) {
+		if (!await_task(completed)) {
+			task->finish(CoroutineTask::State::Failed);
+			return;
+		}
+		if (awaited_freed) {
+			return;
+		}
+		resume();
+		return;
+	}
+	if (!receive(p_value)) {
+		task->finish(CoroutineTask::State::Failed);
+		return;
+	}
+	resume();
+}
+
+void CoroutineFrame::resume() {
+	const auto keep_frame = shared_from_this();
+	Ref<CoroutineTask> keep_task(task);
+	if (task->cancel_requested && pc != 0) {
+		task->finish(CoroutineTask::State::Cancelled);
+		return;
+	}
+	task->state = CoroutineTask::State::Running;
+	const auto &fn = image->module.functions[function];
+	alignas(16) uint8_t result[64];
+	construct_value(fn.result.type, result);
+	const bool ok = Execution(image, context, debugger::is_active()).run(function, data, result, this);
+	if (task->cancel_requested) {
+		task->finish(CoroutineTask::State::Cancelled);
+	} else if (!ok) {
+		task->finish(CoroutineTask::State::Failed);
+	} else if (task->state == CoroutineTask::State::Running) {
+		task->finish(CoroutineTask::State::Finished, outward_variant(fn.result, result));
+	}
+	destroy_value(fn.result.type, result);
+}
+
+namespace tasks {
+void cancel_owner(const std::shared_ptr<InstanceStorage> &p_storage) {
+	p_storage->coroutines_cancelled = true;
+	for (const auto &task : task_snapshot()) {
+		if (task->continuation && task->continuation->context.storage == p_storage) {
+			task->cancel_owner();
+		}
+	}
+}
+void frame() {
+	++task_frame;
+	for (const auto &task : task_snapshot()) {
+		const auto frame = task->continuation;
+		if (!frame || !frame->awaited_freed || task->ended()) {
+			continue;
+		}
+		if (frame->context.storage && frame->context.storage->coroutines_cancelled) {
+			task->cancel_owner();
+		} else {
+			frame->report_error(vformat("The awaited object %d was freed or lost its script.", int64_t(frame->lost_object)));
+			task->finish(CoroutineTask::State::Failed);
+		}
+	}
+}
+void clear() {
+	for (const auto &task : task_snapshot()) {
+		task->cancel();
+	}
+}
+} // namespace tasks
+
 namespace vm {
 
 Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const Variant **p_args, int64_t p_argc, GDExtensionCallError &r_error, bool *r_failed) {
 	// Old code stays alive until this call returns, even if a hot reload
 	// replaces the image meanwhile (spec §12.4).
-	const std::shared_ptr<const ClassImage> image = p_image;
+	std::shared_ptr<const ClassImage> image = p_image;
+	InstanceContext context = p_context;
+	if (!context.self_image) {
+		context.self_image = p_image;
+	}
+	ClassImage::resolve_function(image, p_function);
 	const bytecode::Function &fn = image->module.functions[p_function];
 	r_error.error = GDEXTENSION_CALL_OK;
 	if (image->module.declarations_only) {
@@ -775,11 +1319,18 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 	const std::vector<ValueCheck> &checks = image->param_checks[p_function];
 	for (size_t i = 0; i < fn.params.size(); i++) {
 		const bytecode::Slot &param = fn.params[i];
-		const Variant &value = i < size_t(p_argc) ? *p_args[i] : image->param_defaults[p_function][i - required];
-		if (!from_variant(param.type, value, frame.data + param.offset, &checks[i])) {
+		// Like member initializers, defaults are built late, after script types load.
+		Variant value = i < size_t(p_argc) ? *p_args[i] : Variant();
+		String error;
+		bool valid = i < size_t(p_argc) || constant_value(fn.defaults[i - required], value, error);
+		if (valid && !from_variant(param.type, value, frame.data + param.offset, &checks[i])) {
+			error = entry_mismatch(param.type, value, checks[i]);
+			valid = false;
+		}
+		if (!valid) {
 			// A program error at the entry, and the engine gets the default value
 			// (spec §8.1, §10.1); the engine's backtrace of the caller goes with it.
-			report_error(*image, fn.name.c_str(), int(fn.line), vformat("Argument \"%s\" of %s(): %s.", to_godot(param.name), to_godot(fn.name), entry_mismatch(param.type, value, checks[i])));
+			report_error(*image, fn.name.c_str(), int(fn.line), vformat("Argument \"%s\" of %s(): %s.", to_godot(param.name), to_godot(fn.name), error));
 			if (r_failed) {
 				*r_failed = true;
 			}
@@ -787,9 +1338,16 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 		}
 	}
 
+	if (fn.is_async) {
+		const Ref<CoroutineTask> task = start_task(image, uint32_t(p_function), context, frame.data);
+		if (r_failed) {
+			*r_failed = task->state == CoroutineTask::State::Failed;
+		}
+		return task->ended() ? task->result : Variant(Signal(task.ptr(), "completed"));
+	}
 	alignas(16) uint8_t result[64];
 	construct_value(fn.result.type, result);
-	const bool ok = Execution(*image, p_context, debugger::is_active()).run(uint32_t(p_function), frame.data, result);
+	const bool ok = Execution(image, context, debugger::is_active()).run(uint32_t(p_function), frame.data, result);
 	if (r_failed) {
 		*r_failed = !ok;
 	}

@@ -3,6 +3,7 @@
 #include <godot_cpp/core/memory.hpp>
 #include <godot_cpp/godot.hpp>
 
+#include <map>
 #include <mutex>
 #include <utility>
 #include <vector>
@@ -14,12 +15,14 @@ namespace {
 
 struct Binding {
 	uint64_t object_id = 0;
-	std::vector<Callback> callbacks;
+	std::map<uint64_t, Callback> callbacks;
 };
 
 // The address of this variable is the runtime's binding token.
 char token = 0;
 std::mutex mutex;
+uint64_t next_id = 0;
+std::map<uint64_t, Binding *> bindings;
 
 void *binding_create(void *p_token, void *p_instance) {
 	Binding *binding = memnew(Binding);
@@ -29,13 +32,14 @@ void *binding_create(void *p_token, void *p_instance) {
 
 void binding_free(void *p_token, void *p_instance, void *p_binding) {
 	Binding *binding = static_cast<Binding *>(p_binding);
-	std::vector<Callback> callbacks;
+	std::map<uint64_t, Callback> callbacks;
 	{
 		std::lock_guard<std::mutex> lock(mutex);
 		callbacks = std::move(binding->callbacks);
+		bindings.erase(binding->object_id);
 	}
-	for (const Callback &callback : callbacks) {
-		callback(binding->object_id);
+	for (const auto &callback : callbacks) {
+		callback.second(binding->object_id);
 	}
 	godot::memdelete(binding);
 }
@@ -52,10 +56,21 @@ const GDExtensionInstanceBindingCallbacks callbacks = {
 
 } // namespace
 
-void watch(GDExtensionObjectPtr p_object, Callback p_callback) {
+Subscription watch(GDExtensionObjectPtr p_object, Callback p_callback) {
 	Binding *binding = static_cast<Binding *>(godot::gdextension_interface::object_get_instance_binding(p_object, &token, &callbacks));
 	std::lock_guard<std::mutex> lock(mutex);
-	binding->callbacks.push_back(std::move(p_callback));
+	const uint64_t id = ++next_id;
+	bindings[binding->object_id] = binding;
+	binding->callbacks.emplace(id, std::move(p_callback));
+	return { binding->object_id, id };
+}
+
+void unwatch(Subscription p_subscription) {
+	std::lock_guard<std::mutex> lock(mutex);
+	const auto found = bindings.find(p_subscription.object);
+	if (found != bindings.end()) {
+		found->second->callbacks.erase(p_subscription.id);
+	}
 }
 
 } // namespace object_watch

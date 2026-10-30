@@ -1,0 +1,20 @@
+class_name DefaultCaller
+extends RefCounted
+
+pub func peers(other: DefaultValues) -> Array[DefaultValues]:
+	return other.peers()
+
+pub async func later_peers(other: DefaultValues) -> Array[DefaultValues]:
+	return await other.later_peers()
+
+pub func snapshot(other: DefaultValues) -> Array:
+	return other.snapshot()
+
+pub func append(other: DefaultValues) -> int:
+	return other.append()
+
+pub func arrays(other: DefaultValues) -> Array[Array]:
+	return other.arrays()
+
+pub async func later(other: DefaultValues) -> Array:
+	return await other.later()

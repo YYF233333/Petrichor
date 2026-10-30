@@ -14,8 +14,8 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 	CompileResult result;
 	const std::vector<Token> tokens = tokenize(p_source, result.errors);
 	ClassDecl cls = parse(tokens, result.errors);
+	ScriptClasses classes(p_engine, p_options.project, p_options.declarations_only);
 	if (result.errors.empty()) {
-		ScriptClasses classes(p_engine, p_options.project);
 		check(cls, p_engine, p_options, result.errors, classes);
 	}
 	std::stable_sort(result.errors.begin(), result.errors.end(), [](const Diagnostic &a, const Diagnostic &b) {

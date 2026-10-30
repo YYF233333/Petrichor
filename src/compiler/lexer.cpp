@@ -26,6 +26,10 @@ const char *token_name(TokenKind p_kind) {
 			return "float";
 		case TokenKind::String:
 			return "string";
+		case TokenKind::Async:
+			return "async";
+		case TokenKind::Await:
+			return "await";
 		case TokenKind::And:
 			return "\"and\"";
 		case TokenKind::As:
@@ -72,6 +76,8 @@ const char *token_name(TokenKind p_kind) {
 			return "\"pub\"";
 		case TokenKind::Return:
 			return "\"return\"";
+		case TokenKind::Super:
+			return "super";
 		case TokenKind::Self:
 			return "\"self\"";
 		case TokenKind::Signal:
@@ -167,6 +173,8 @@ namespace {
 
 const std::unordered_map<std::string, TokenKind> &keywords() {
 	static const std::unordered_map<std::string, TokenKind> table = {
+		{ "async", TokenKind::Async },
+		{ "await", TokenKind::Await },
 		{ "and", TokenKind::And },
 		{ "as", TokenKind::As },
 		{ "break", TokenKind::Break },
@@ -191,6 +199,7 @@ const std::unordered_map<std::string, TokenKind> &keywords() {
 		{ "pub", TokenKind::Pub },
 		{ "return", TokenKind::Return },
 		{ "self", TokenKind::Self },
+		{ "super", TokenKind::Super },
 		{ "signal", TokenKind::Signal },
 		{ "static", TokenKind::Static },
 		{ "true", TokenKind::True },

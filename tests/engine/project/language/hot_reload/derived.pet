@@ -1,0 +1,4 @@
+extends "v1.pet"
+
+pub func value() -> int:
+	return super() + 1

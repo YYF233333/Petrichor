@@ -1,6 +1,7 @@
 #include "runtime/values.h"
 
 #include "runtime/method_callable.h"
+#include "runtime/task.h"
 
 #include <godot_cpp/classes/object.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
@@ -264,6 +265,12 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 				Object *object = p_value;
 				if (!object || !object->is_class(p_check->class_name) || !has_script(object->get_script(), p_check->script) ||
 						(!p_check->interface.is_empty() && !implements_interface(object, p_check->interface))) {
+					return false;
+				}
+			}
+			if (p_check && !p_check->task_result.empty()) {
+				const CoroutineTask *task = Object::cast_to<CoroutineTask>(static_cast<Object *>(p_value));
+				if (!task || task->result_signature != p_check->task_result) {
 					return false;
 				}
 			}

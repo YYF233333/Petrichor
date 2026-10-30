@@ -21,6 +21,14 @@ namespace petrichor {
 class ClassImage {
 public:
 	bytecode::Module module;
+	std::shared_ptr<const ClassImage> base;
+	struct FunctionOrigin {
+		std::shared_ptr<const ClassImage> image; // Null for a function declared here.
+		int index = -1;
+	};
+	std::vector<FunctionOrigin> function_origins;
+	static void resolve_function(std::shared_ptr<const ClassImage> &r_image, int &r_index);
+	bool has_signature(const godot::StringName &p_name, uint32_t p_signature) const;
 	godot::String path;
 	godot::StringName source; // The path as the debugger names breakpoints.
 	godot::StringName global_name;
@@ -28,11 +36,9 @@ public:
 
 	std::vector<godot::StringName> function_names;
 	godot::HashMap<godot::StringName, int> function_lookup;
-	// By function index: its frame, the entry checks of its parameters, and the
-	// values of the parameters a caller may leave out.
+	// By function index: its frame and the entry checks of its parameters.
 	std::vector<SlotLayout> frames;
 	std::vector<std::vector<ValueCheck>> param_checks;
-	std::vector<std::vector<godot::Variant>> param_defaults;
 	int user_init = -1; // The class's own _init(), run after the member initializers.
 	// _notification(what: int) and _to_string() -> String, which the engine
 	// reaches through the instance rather than by calling them; -1 when absent.
@@ -72,7 +78,7 @@ public:
 
 	// Returns null and sets r_error when the module refers to something this
 	// runtime or this engine cannot provide.
-	static std::shared_ptr<const ClassImage> load(bytecode::Module &&p_module, const godot::String &p_path, godot::String &r_error);
+	static std::shared_ptr<const ClassImage> load(bytecode::Module &&p_module, const godot::String &p_path, godot::String &r_error, const std::shared_ptr<const ClassImage> &p_base = {});
 
 	int find_function(const godot::StringName &p_name) const;
 	int find_member(const godot::StringName &p_name) const;

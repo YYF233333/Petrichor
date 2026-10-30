@@ -4,10 +4,11 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Language
 
+- Coroutine helpers `Task.of`, `delay`, `any`, `all`, `settled`, and async lambdas (spec §9).
+
 - Static checks of must-assign exports in scenes, in resources and at export (spec §7.5).
 - A warning for removed nodes that are neither stored nor freed (spec §15).
 - Preload cycles (spec §7.6), and preload of resources other than scenes.
-- Inheritance between classes of this language.
 - Of GDScript classes (spec §11.1): `new()`, static methods, constants and enums, inner classes; nodes in scenes typed by their GDScript class rather than its engine class.
 - Members that are not pub of another instance of the same class, which the engine reaches by name while reflection lists only pub ones.
 - The check of `@onready` members of value types read before ready.
@@ -15,7 +16,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - `Array[T]?`; `pop_front()` and `pop_back()` of `Array[T?]`, which give `T??`.
 - Class annotations such as `@tool` and `@icon`.
 - Values of type Variant (spec §3.13), which untyped members, parameters and results of GDScript classes have (§11.1); reading the elements of an untyped Array.
-- Default values other than literals; static members; `_init()` with parameters.
+- Non-constant default values; static members; `_init()` with parameters.
 - Assigning to an element, `a[i] = v`; calling a function value other than through `bind()`; `==` between objects.
 - In debug builds, reporting where a freed instance was freed and where the instances still alive at exit were made (spec §3.3, §6.7, §12.5).
 
@@ -24,7 +25,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - A type descriptor for every type (architecture §2.2), replacing the Variant slots of objects and of `T?` of value types; `T??`, structs and enums with payloads need it. Objects as an ObjectID and a pointer, which ptrcall takes as `Object*`, belong to the same design.
 - Members of classes of this language read and written without the engine.
 - Temporary slots reused by scope, so that temporary references in a loop are released in time and a suspended coroutine keeps only the slots still in use.
-- With await: unsubscribing from the notifications of freed objects.
 
 ## Editor
 

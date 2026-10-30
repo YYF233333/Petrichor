@@ -72,6 +72,8 @@ public:
 		// Objects the engine returns are nullable until audited (spec §10.2).
 		const Type node = Type::object("Node", true);
 		const Type vector3 = Type::builtin("Vector3");
+		methods["Object"] = { method("_to_string", {}, t(TypeKind::String), true) };
+		methods["Control"] = { method("_has_point", { { "point", Type::builtin("Vector2") } }, t(TypeKind::Bool), true) };
 		methods["Node"] = {
 			method("_ready", {}, t(TypeKind::Void), true),
 			method("_process", { { "delta", t(TypeKind::Float) } }, t(TypeKind::Void), true),

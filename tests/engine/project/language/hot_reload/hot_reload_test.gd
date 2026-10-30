@@ -12,6 +12,13 @@ const LIVE := "res://language/hot_reload/live.pet"
 # Headless frames are not paced, so the wait is measured in time.
 const MAX_WAIT_MSEC := 30000
 
+var inherited := OS.get_cmdline_user_args().has("--inheritance")
+var bonus: int = 1 if inherited else 0
+var coroutine_results: Array = []
+
+func collect(value) -> void:
+	coroutine_results.append(await value)
+
 var failures := 0
 var live: Script
 var node: Node # Created under version 1.
@@ -29,11 +36,12 @@ func _check(ok: bool, what: String) -> void:
 
 func _ready() -> void:
 	EngineDebugger.register_message_capture("hot_reload_test", _on_message)
-	live = load(LIVE)
+	live = load("res://language/hot_reload/derived.pet" if inherited else LIVE)
 	node = live.new()
 	add_child(node)
 	node.count = 5
-	_check(node.value() == 1, "version 1 runs")
+	_check(node.value() == 1 + bonus, "version 1 runs")
+	collect(node.delayed())
 	_ask_for(2)
 
 
@@ -51,18 +59,23 @@ func _ask_for(version: int) -> void:
 
 func _process(_delta: float) -> void:
 	if reloaded and waiting_for == 2:
-		_check(node.value() == 50, "after a body change, the instance runs the new code on its members")
+		_check(node.value() == 50 + bonus, "after a body change, the instance runs the new code on its members")
+		node.tick.emit()
+		_check(coroutine_results == [101 + bonus], "suspended coroutine keeps its old image")
+		collect(node.delayed())
+		node.tick.emit()
+		_check(coroutine_results == [101 + bonus, 250 + bonus], "new coroutine runs the new image")
 		_ask_for(3)
 	elif reloaded and waiting_for == 3:
-		_check(node.value() == 50, "after a member change, the instance keeps its code")
+		_check(node.value() == 50 + bonus, "after a member change, the instance keeps its code")
 		_check(not live.get_script_property_list().any(func(property): return property.name == "extra"), "after a member change, the script keeps its members")
 		fresh = live.new()
 		add_child(fresh)
 		fresh.count = 2
-		_check(fresh.value() == 20, "after a member change, a new instance runs the code from before it")
+		_check(fresh.value() == 20 + bonus, "after a member change, a new instance runs the code from before it")
 		_ask_for(4)
 	elif reloaded and waiting_for == 4:
-		_check(node.value() == 50 and fresh.value() == 20, "after a refused change, a later body change is not applied either")
+		_check(node.value() == 50 + bonus and fresh.value() == 20 + bonus, "after a refused change, a later body change is not applied either")
 		node.free()
 		fresh.free()
 		_finish()

@@ -10,6 +10,7 @@ namespace petrichor::compiler {
 enum class TypeKind {
 	Error, // Already reported; suppresses follow-up errors.
 	Void,
+	Task,
 	Bool,
 	Int,
 	Float,
@@ -38,6 +39,8 @@ struct Type {
 	std::string script;
 	std::string base;
 	bool is_interface = false;
+	bool is_async = false;
+	static Type task(const Type &p_result) { return Type{ TypeKind::Task, std::string(), false, { p_result } }; }
 
 	static Type of(TypeKind p_kind) { return Type{ p_kind }; }
 	static Type builtin(const std::string &p_name) { return Type{ TypeKind::Builtin, p_name }; }
@@ -68,7 +71,7 @@ struct Type {
 	}
 
 	bool operator==(const Type &p_other) const {
-		return kind == p_other.kind && name == p_other.name && nullable == p_other.nullable && args == p_other.args && script == p_other.script && is_interface == p_other.is_interface;
+		return kind == p_other.kind && name == p_other.name && nullable == p_other.nullable && args == p_other.args && script == p_other.script && is_interface == p_other.is_interface && is_async == p_other.is_async;
 	}
 	bool operator!=(const Type &p_other) const { return !(*this == p_other); }
 
@@ -79,7 +82,7 @@ struct Type {
 	bool is_primitive() const { return kind == TypeKind::Bool || is_numeric() || kind == TypeKind::String; }
 	bool is_storable() const { return kind != TypeKind::Error && kind != TypeKind::Void && kind != TypeKind::Unsupported; }
 	// May be None: T? of an object or of a value type.
-	bool is_optional() const { return kind == TypeKind::Option || (kind == TypeKind::Object && nullable); }
+	bool is_optional() const { return kind == TypeKind::Option || ((kind == TypeKind::Object || kind == TypeKind::Task) && nullable); }
 	// The type inside T?, which unwrap() gives.
 	Type unwrapped() const;
 	// Object: the engine class its objects have.

@@ -2,6 +2,7 @@
 #include "adapter/pet_language.h"
 #include "adapter/pet_resource_format.h"
 #include "adapter/pet_script.h"
+#include "runtime/task.h"
 #include "runtime/values.h"
 
 #ifdef PETRICHOR_PROBES
@@ -32,6 +33,7 @@ static Ref<PetResourceSaver> saver;
 static void initialize_petrichor(ModuleInitializationLevel p_level) {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
 		init_values();
+		GDREGISTER_CLASS(CoroutineTask);
 		GDREGISTER_INTERNAL_CLASS(PetLanguage);
 		GDREGISTER_CLASS(PetScript);
 		GDREGISTER_INTERNAL_CLASS(PetResourceLoader);
@@ -67,6 +69,7 @@ static void uninitialize_petrichor(ModuleInitializationLevel p_level) {
 		ResourceLoader::get_singleton()->remove_resource_format_loader(loader);
 		loader.unref();
 
+		tasks::clear();
 		set_instance_resolver(nullptr);
 		Engine::get_singleton()->unregister_script_language(language);
 		memdelete(language);

@@ -43,7 +43,17 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 	if (!bytecode::verify(result.module, problem)) {
 		load_error = "internal compiler error: " + to_godot(problem);
 	} else {
-		image = ClassImage::load(std::move(result.module), p_path, load_error);
+		std::shared_ptr<const ClassImage> base;
+		if (!result.module.base_script.empty()) {
+			const String base_path = to_godot(result.module.base_script);
+			base = compile_script(base_path, FileAccess::get_file_as_string(base_path), nullptr, p_report, p_mode);
+			if (!base) {
+				load_error = "Base script " + base_path + " could not be compiled.";
+			}
+		}
+		if (load_error.is_empty()) {
+			image = ClassImage::load(std::move(result.module), p_path, load_error, base);
+		}
 	}
 	if (!image && p_report) {
 		const CharString message = load_error.utf8();

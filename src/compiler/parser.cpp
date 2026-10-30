@@ -206,6 +206,11 @@ class Parser {
 	}
 
 	std::unique_ptr<Expr> unary() {
+		if (check(TokenKind::Await)) {
+			auto expr = make(ExprKind::Await, advance());
+			expr->left = unary();
+			return expr->left ? std::move(expr) : nullptr;
+		}
 		if (check(TokenKind::Minus)) {
 			const Token &op = advance();
 			auto expr = make(ExprKind::Unary, op);
@@ -354,6 +359,7 @@ class Parser {
 				expr->bool_value = token.kind == TokenKind::True;
 				return expr;
 			}
+			case TokenKind::Super:
 			case TokenKind::Identifier: {
 				advance();
 				auto expr = make(ExprKind::Name, token);
@@ -613,6 +619,7 @@ class Parser {
 				continue;
 			}
 			FuncDecl method;
+			method.is_async = match(TokenKind::Async);
 			expect(TokenKind::Func, "\"func\"");
 			const Token &method_name = expect(TokenKind::Identifier, "a method name");
 			method.name = method_name.text;
@@ -679,6 +686,11 @@ class Parser {
 		}
 		const bool is_pub = match(TokenKind::Pub);
 		const bool is_static = match(TokenKind::Static);
+		const bool is_async = match(TokenKind::Async);
+		if (is_async && !check(TokenKind::Func)) {
+			fail(peek(), "async must precede func.");
+			return;
+		}
 		if (is_static && !check(TokenKind::Func)) {
 			fail(peek(), "Static members are not supported yet; static functions are.");
 			return;
@@ -747,6 +759,7 @@ class Parser {
 			decl.column = name.column;
 			decl.is_pub = is_pub;
 			decl.is_static = is_static;
+			decl.is_async = is_async;
 			expect(TokenKind::ParenOpen, "\"(\"");
 			decl.params = params();
 			if (match(TokenKind::Arrow)) {
@@ -831,7 +844,8 @@ public:
 					fail(keyword, "The class already has a base class.");
 					continue;
 				}
-				const Token &base = expect(TokenKind::Identifier, "a base class name");
+				result.extends_path = check(TokenKind::String);
+				const Token &base = result.extends_path ? advance() : expect(TokenKind::Identifier, "a base class name or script path");
 				result.extends = base.text;
 				result.extends_line = base.line;
 				result.extends_column = base.column;

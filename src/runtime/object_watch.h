@@ -16,7 +16,12 @@ namespace object_watch {
 
 using Callback = std::function<void(uint64_t p_object_id)>;
 
-void watch(GDExtensionObjectPtr p_object, Callback p_callback);
+struct Subscription {
+	uint64_t object = 0;
+	uint64_t id = 0;
+};
+Subscription watch(GDExtensionObjectPtr p_object, Callback p_callback);
+void unwatch(Subscription p_subscription);
 
 } // namespace object_watch
 

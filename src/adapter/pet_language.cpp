@@ -2,6 +2,7 @@
 
 #include "adapter/pet_script.h"
 #include "runtime/debugger.h"
+#include "runtime/task.h"
 #include "runtime/text.h"
 #include "runtime/vm.h"
 
@@ -219,7 +220,7 @@ bool PetLanguage::_supports_documentation() const {
 }
 
 bool PetLanguage::_can_inherit_from_file() const {
-	return false;
+	return true;
 }
 
 int32_t PetLanguage::_find_function(const String &p_function, const String &p_code) const {
@@ -345,7 +346,7 @@ Dictionary PetLanguage::_debug_get_stack_level_members(int32_t p_level, int32_t 
 	}
 	PackedStringArray names;
 	Array values;
-	for (const bytecode::Member &member : frame->image->module.members) {
+	for (const bytecode::Member &member : (frame->self_image ? frame->self_image : frame->image)->module.members) {
 		names.push_back(to_godot(member.name));
 		values.push_back(to_variant(member.type, frame->members + member.offset));
 	}
@@ -440,6 +441,7 @@ int32_t PetLanguage::_profiling_get_frame_data(ScriptLanguageExtensionProfilingI
 }
 
 void PetLanguage::_frame() {
+	tasks::frame();
 #ifdef PETRICHOR_PROBES
 	task_queue::frame();
 #endif
@@ -459,7 +461,7 @@ Dictionary PetLanguage::_get_global_class_name(const String &p_path) const {
 		return result;
 	}
 	result["name"] = header.class_name;
-	result["base_type"] = header.base;
+	result["base_type"] = header_native_base(header, p_path);
 	result["icon_path"] = String();
 	result["is_abstract"] = false;
 	result["is_tool"] = false;

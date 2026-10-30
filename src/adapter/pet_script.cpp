@@ -6,6 +6,7 @@
 #include "runtime/text.h"
 
 #ifdef TOOLS_ENABLED
+#include "adapter/editor/project_files.h"
 #include "adapter/editor/script_compiler.h"
 #endif
 #ifdef PETRICHOR_PROBES
@@ -15,15 +16,76 @@
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/error_macros.hpp>
+
+#include <set>
 
 using namespace godot;
 
 namespace petrichor {
 
 using bytecode::ValueType;
+
+namespace {
+std::mutex scripts_mutex;
+std::set<PetScript *> scripts;
+} //namespace
+
+PetScript::PetScript() {
+	std::lock_guard<std::mutex> lock(scripts_mutex);
+	scripts.insert(this);
+}
+
+PetScript::~PetScript() {
+	std::lock_guard<std::mutex> lock(scripts_mutex);
+	scripts.erase(this);
+}
+
+String header_base_path(const PetHeader &p_header, const String &p_path) {
+	if (p_header.base_is_path) {
+		return (p_header.base.begins_with("res://") ? p_header.base : p_path.get_base_dir().path_join(p_header.base)).simplify_path();
+	}
+	if (ClassDBSingleton::get_singleton()->class_exists(p_header.base)) {
+		return String();
+	}
+	const TypedArray<Dictionary> classes = ProjectSettings::get_singleton()->get_global_class_list();
+	for (int64_t i = 0; i < classes.size(); ++i) {
+		const Dictionary entry = classes[i];
+		if (String(entry.get("class", String())) == p_header.base) {
+			return entry.get("path", String());
+		}
+	}
+#ifdef TOOLS_ENABLED
+	if (Engine::get_singleton()->is_editor_hint()) {
+		for (const String &path : project_files(PackedStringArray({ "pet" }))) {
+			if (parse_header(FileAccess::get_file_as_string(path)).class_name == p_header.base) {
+				return path;
+			}
+		}
+	}
+#endif
+	return String();
+}
+
+String header_native_base(const PetHeader &p_header, const String &p_path) {
+	PetHeader header = p_header;
+	String path = p_path;
+	std::set<String> seen;
+	while (seen.insert(path).second) {
+		if (!header.base_is_path && ClassDBSingleton::get_singleton()->class_exists(header.base)) {
+			return header.base;
+		}
+		path = header_base_path(header, path);
+		if (path.is_empty() || path.get_extension() != "pet") {
+			break;
+		}
+		header = parse_header(FileAccess::get_file_as_string(path));
+	}
+	return "RefCounted";
+}
 
 static StringName init_name() {
 	return "_init";
@@ -78,10 +140,15 @@ static Dictionary function_info(const ClassImage &p_image, int p_index) {
 	for (const bytecode::Slot &param : function.params) {
 		args.push_back(typed(property_dict(variant_type(param.type), to_godot(param.name), usage_of(param.type, PROPERTY_USAGE_DEFAULT), class_of(param.type, param.class_name)), param));
 	}
-	const Dictionary result = property_dict(variant_type(function.result.type), StringName(), usage_of(function.result.type, PROPERTY_USAGE_DEFAULT), class_of(function.result.type, function.result.class_name));
+	const Dictionary result = function.is_async ? property_dict(Variant::NIL, StringName(), PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_NIL_IS_VARIANT, StringName()) : property_dict(variant_type(function.result.type), StringName(), usage_of(function.result.type, PROPERTY_USAGE_DEFAULT), class_of(function.result.type, function.result.class_name));
 	Dictionary method = method_dict(p_image.function_names[p_index], args, result, METHOD_FLAGS_DEFAULT | (function.is_static ? METHOD_FLAG_STATIC : 0));
 	Array defaults;
-	for (const Variant &value : p_image.param_defaults[p_index]) {
+	for (const bytecode::Constant &constant : function.defaults) {
+		Variant value;
+		String error;
+		if (!constant_value(constant, value, error)) {
+			ERR_PRINT(vformat("%s: a default argument of %s: %s", p_image.path, p_image.function_names[p_index], error));
+		}
 		defaults.push_back(value);
 	}
 	method["default_args"] = defaults;
@@ -209,8 +276,14 @@ PetHeader parse_header(const String &p_source) {
 				i++;
 			}
 		} else if (c == '"' || c == '\'') {
+			const int64_t start = i;
 			i = skip_string(i);
-			keyword = String(); // extends "res://path.pet" names no class.
+			if (keyword == "extends" && !has_base) {
+				header.base = p_source.substr(start + 1, i - start - 2);
+				header.base_is_path = true;
+				has_base = true;
+			}
+			keyword = String();
 		} else if (c == '@') {
 			for (i++; i < length && is_word(p_source[i]); i++) {
 			}
@@ -285,16 +358,21 @@ std::shared_ptr<const ClassImage> PetScript::get_image() const {
 	return image;
 }
 
-void PetScript::set_loaded(const String &p_source, const std::shared_ptr<const ClassImage> &p_image) {
+void PetScript::set_loaded(const String &p_source, const std::shared_ptr<const ClassImage> &p_image, const Ref<PetScript> &p_base) {
 	source = p_source;
 	header = parse_header(p_source);
-	set_image(p_image);
+	set_image(p_image, p_base);
 }
 
-void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image) {
+void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image, const Ref<PetScript> &p_base) {
 	{
 		std::lock_guard<std::mutex> lock(mutex);
 		image = p_image;
+		if (p_base.is_valid()) {
+			base_script = p_base;
+		} else if (!p_image || p_image->module.base_script.empty() || (base_script.is_valid() && base_script->get_script_path() != to_godot(p_image->module.base_script))) {
+			base_script.unref();
+		}
 		// Instances exist only in the game, where a reload gets here only when
 		// function bodies alone changed (_reload()): they switch to the new
 		// code, and frames already running finish with the old (spec §12.4).
@@ -307,6 +385,89 @@ void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image) {
 	if (p_image) {
 		_update_exports();
 	}
+}
+
+namespace {
+std::shared_ptr<const ClassImage> rebased(const std::shared_ptr<const ClassImage> &p_image, const std::shared_ptr<const ClassImage> &p_new, String &r_error) {
+	if (p_image->path == p_new->path) {
+		return p_new;
+	}
+	if (!p_image->base) {
+		return p_image;
+	}
+	const auto base = rebased(p_image->base, p_new, r_error);
+	if (!base) {
+		return nullptr;
+	}
+	if (base == p_image->base) {
+		return p_image;
+	}
+	return ClassImage::load(bytecode::Module(p_image->module), p_image->path, r_error, base);
+}
+} //namespace
+
+bool PetScript::apply_image(const std::shared_ptr<const ClassImage> &p_image, const Ref<PetScript> &p_base) {
+	if (!p_image) {
+		return false;
+	}
+	std::vector<Ref<PetScript>> live;
+	{
+		std::lock_guard<std::mutex> lock(scripts_mutex);
+		for (PetScript *script : scripts) {
+			if (script != this) {
+				live.push_back(Ref<PetScript>(script));
+			}
+		}
+	}
+	std::vector<std::pair<Ref<PetScript>, std::shared_ptr<const ClassImage>>> updates;
+	String error;
+	for (const Ref<PetScript> &script : live) {
+		const auto old = script->get_image();
+		bool dependent = false;
+		for (auto base = old ? old->base : nullptr; base; base = base->base) {
+			if (base->path == p_image->path) {
+				dependent = true;
+			}
+		}
+#ifdef TOOLS_ENABLED
+		if (!old && Engine::get_singleton()->is_editor_hint()) {
+			std::set<String> seen;
+			for (String path = header_base_path(script->header, script->get_script_path()); !path.is_empty() && seen.insert(path).second;) {
+				if (path == p_image->path) {
+					dependent = true;
+					break;
+				}
+				if (path.get_extension() != "pet") {
+					break;
+				}
+				path = header_base_path(parse_header(FileAccess::get_file_as_string(path)), path);
+			}
+		}
+#endif
+		if (!dependent) {
+			continue;
+		}
+		std::shared_ptr<const ClassImage> next;
+#ifdef TOOLS_ENABLED
+		if (Engine::get_singleton()->is_editor_hint()) {
+			next = compile_script(script->get_script_path(), script->_get_source_code(), nullptr, true, old && old->module.declarations_only ? CompileMode::Declarations : CompileMode::Full);
+		} else
+#endif
+		{
+			next = rebased(old, p_image, error);
+			if (!next || !next->same_declarations(*old)) {
+				PetLanguage::get_singleton()->reloads_refused = true;
+				WARN_PRINT("Inherited declarations changed; restart the game. " + error);
+				return false;
+			}
+		}
+		updates.emplace_back(script, next);
+	}
+	set_image(p_image, p_base);
+	for (const auto &update : updates) {
+		update.first->set_image(update.second);
+	}
+	return true;
 }
 
 void PetScript::instance_freed(PetInstance *p_instance) {
@@ -348,7 +509,29 @@ bool PetScript::_can_instantiate() const {
 }
 
 Ref<Script> PetScript::_get_base_script() const {
-	return Ref<Script>();
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		if (base_script.is_valid()) {
+			return base_script;
+		}
+	}
+	const auto current = get_image();
+	const String path = current ? to_godot(current->module.base_script) : header_base_path(header, get_script_path());
+	if (path.is_empty()) {
+		return Ref<Script>();
+	}
+	thread_local std::set<String> resolving;
+	if (!resolving.insert(path).second) {
+		return Ref<Script>();
+	}
+	Ref<PetScript> base = ResourceLoader::get_singleton()->load(path, "Script");
+	resolving.erase(path);
+	if (base.ptr() == this) {
+		return Ref<Script>();
+	}
+	std::lock_guard<std::mutex> lock(mutex);
+	base_script = base;
+	return base_script;
 }
 
 StringName PetScript::_get_global_name() const {
@@ -357,12 +540,24 @@ StringName PetScript::_get_global_name() const {
 }
 
 bool PetScript::_inherits_script(const Ref<Script> &p_script) const {
-	return p_script.ptr() == this;
+	if (p_script.ptr() == this) {
+		return true;
+	}
+	const Ref<PetScript> other = p_script;
+	if (other.is_null()) {
+		return false;
+	}
+	for (auto current = get_image(); current; current = current->base) {
+		if (current->path == other->get_script_path()) {
+			return true;
+		}
+	}
+	return false;
 }
 
 StringName PetScript::_get_instance_base_type() const {
 	const std::shared_ptr<const ClassImage> current = get_image();
-	return current ? current->base_class : StringName(header.base);
+	return current ? current->base_class : StringName(header_native_base(header, get_script_path()));
 }
 
 void *PetScript::_instance_create(Object *p_for_object) const {
@@ -409,8 +604,7 @@ Error PetScript::_reload(bool p_keep_state) {
 #ifdef TOOLS_ENABLED
 	if (Engine::get_singleton()->is_editor_hint()) {
 		const std::shared_ptr<const ClassImage> compiled = compile_script(path, source, nullptr, true);
-		set_image(compiled);
-		return compiled ? OK : ERR_PARSE_ERROR;
+		return compiled && apply_image(compiled) ? OK : ERR_PARSE_ERROR;
 	}
 #endif
 	// In the game, the editor has already compiled the new source into the cache.
@@ -419,7 +613,8 @@ Error PetScript::_reload(bool p_keep_state) {
 	}
 	const String new_source = FileAccess::get_file_as_string(path);
 	String error;
-	const std::shared_ptr<const ClassImage> loaded = load_compiled(cache_path(path), path, &new_source, error);
+	Ref<PetScript> base;
+	const std::shared_ptr<const ClassImage> loaded = load_compiled(cache_path(path), path, &new_source, error, &base);
 	if (!loaded) {
 		ERR_PRINT(vformat("%s %s", path, error));
 		return ERR_FILE_CORRUPT;
@@ -440,8 +635,7 @@ Error PetScript::_reload(bool p_keep_state) {
 	}
 	source = new_source;
 	header = parse_header(new_source);
-	set_image(loaded);
-	return OK;
+	return apply_image(loaded, base) ? OK : ERR_INVALID_DATA;
 }
 
 StringName PetScript::_get_doc_class_name() const {

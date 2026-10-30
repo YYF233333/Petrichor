@@ -23,19 +23,36 @@ static GDExtensionVariantType engine_type(ValueType p_type) {
 // A signature as a number that is the same for the same signature in every
 // image, so that a call compares the one it was compiled against with the
 // callee's by comparing two numbers.
-static uint32_t signature_id(const std::vector<bytecode::Slot> &p_params, size_t p_defaults, const bytecode::Slot &p_result) {
+static uint32_t signature_id(const std::vector<bytecode::Slot> &p_params, size_t p_defaults, const bytecode::Slot &p_result, bool p_async) {
 	static std::mutex mutex;
 	static std::unordered_map<std::string, uint32_t> ids;
 	std::lock_guard<std::mutex> lock(mutex);
-	return ids.emplace(bytecode::signature_key(p_params, p_defaults, p_result), uint32_t(ids.size())).first->second;
+	return ids.emplace(bytecode::signature_key(p_params, p_defaults, p_result, p_async), uint32_t(ids.size())).first->second;
 }
 
-std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, const String &p_path, String &r_error) {
+namespace {
+bool same_description(const bytecode::Slot &p_a, const bytecode::Slot &p_b);
+}
+
+std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, const String &p_path, String &r_error, const std::shared_ptr<const ClassImage> &p_base) {
 	if (!check_value_sizes(r_error)) {
 		return nullptr;
 	}
 	auto image = std::make_shared<ClassImage>();
 	image->module = std::move(p_module);
+	image->base = p_base;
+	if (image->module.base_script.empty() != !p_base || (p_base && (p_base->path != to_godot(image->module.base_script) || p_base->module.base_class != image->module.base_class || image->module.inherited_members != p_base->module.members.size()))) {
+		r_error = "Base script does not match this class. Rebuild the project.";
+		return nullptr;
+	}
+	for (uint32_t i = 0; i < image->module.inherited_members; ++i) {
+		const auto &a = image->module.members[i];
+		const auto &b = p_base->module.members[i];
+		if (a.name != b.name || a.offset != b.offset || !same_description(a, b) || a.is_pub != b.is_pub || a.is_export != b.is_export || a.is_onready != b.is_onready) {
+			r_error = "Inherited member layout changed. Rebuild the project.";
+			return nullptr;
+		}
+	}
 	image->path = p_path;
 	image->source = p_path;
 	const bytecode::Module &module = image->module;
@@ -47,6 +64,25 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		const StringName name = to_godot(function.name);
 		image->function_names.push_back(name);
 		image->function_lookup.insert(name, int(i));
+		const int parent = p_base ? p_base->find_function(name) : -1;
+		if (!function.name.empty() && function.name[0] != '@') {
+			const std::string expected = parent < 0 ? std::string() : bytecode::signature_key(p_base->module.functions[parent].params, p_base->module.functions[parent].defaults.size(), p_base->module.functions[parent].result, p_base->module.functions[parent].is_async);
+			if (parent >= 0 && (function.is_static != p_base->module.functions[parent].is_static || function.is_pub != p_base->module.functions[parent].is_pub)) {
+				r_error = "Base method declaration changed. Rebuild the project.";
+				return nullptr;
+			}
+			if (function.base_signature != expected || (function.is_inherited && (parent < 0 || bytecode::signature_key(function.params, function.defaults.size(), function.result, function.is_async) != expected))) {
+				r_error = "Base method signature changed. Rebuild the project.";
+				return nullptr;
+			}
+		}
+		FunctionOrigin origin;
+		if (function.is_inherited) {
+			origin.image = p_base;
+			origin.index = parent;
+			resolve_function(origin.image, origin.index);
+		}
+		image->function_origins.push_back(origin);
 		if (function.name == "_init" && function.params.empty()) {
 			image->user_init = int(i);
 		}
@@ -56,21 +92,13 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		if (function.name == "_to_string" && function.params.empty() && function.result.type == ValueType::String) {
 			image->to_string_function = int(i);
 		}
-		image->function_signatures.push_back(signature_id(function.params, function.defaults.size(), function.result));
+		image->function_signatures.push_back(signature_id(function.params, function.defaults.size(), function.result, function.is_async));
 		image->frames.push_back(SlotLayout::of(function.frame_size, function.slots));
 		std::vector<ValueCheck> checks;
 		for (const bytecode::Slot &param : function.params) {
 			checks.push_back(ValueCheck(param));
 		}
 		image->param_checks.push_back(std::move(checks));
-		std::vector<Variant> defaults;
-		for (const bytecode::Constant &constant : function.defaults) {
-			defaults.emplace_back();
-			if (!constant_value(constant, defaults.back(), r_error)) {
-				return nullptr;
-			}
-		}
-		image->param_defaults.push_back(std::move(defaults));
 	}
 	std::vector<bytecode::Slot> member_slots;
 	for (size_t i = 0; i < module.members.size(); i++) {
@@ -154,7 +182,7 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 	}
 	for (const bytecode::MethodCall &call : module.method_calls) {
 		image->method_names.push_back(to_godot(call.method));
-		image->call_signatures.push_back(signature_id(call.params, call.defaults, call.result));
+		image->call_signatures.push_back(signature_id(call.params, call.defaults, call.result, call.is_async));
 	}
 	return image;
 }
@@ -262,6 +290,24 @@ bool ClassImage::fits_class(const Object *p_object, uint32_t p_index) const {
 	return has_script(p_object->get_script(), class_scripts[p_index]);
 }
 
+void ClassImage::resolve_function(std::shared_ptr<const ClassImage> &r_image, int &r_index) {
+	const FunctionOrigin origin = r_image->function_origins[r_index];
+	if (origin.image) {
+		r_image = origin.image;
+		r_index = origin.index;
+	}
+}
+
+bool ClassImage::has_signature(const StringName &p_name, uint32_t p_signature) const {
+	for (const ClassImage *image = this; image; image = image->base.get()) {
+		const int index = image->find_function(p_name);
+		if (index >= 0 && image->function_signatures[index] == p_signature) {
+			return true;
+		}
+	}
+	return false;
+}
+
 int ClassImage::find_function(const StringName &p_name) const {
 	const int *index = function_lookup.getptr(p_name);
 	return index ? *index : -1;
@@ -284,7 +330,7 @@ bool same_constant(const bytecode::Constant &p_a, const bytecode::Constant &p_b)
 
 // What a slot or a member holds, as an entry check reads it.
 bool same_description(const bytecode::Slot &p_a, const bytecode::Slot &p_b) {
-	return p_a.type == p_b.type && p_a.class_name == p_b.class_name && p_a.script == p_b.script && p_a.interface_name == p_b.interface_name &&
+	return p_a.task_result == p_b.task_result && p_a.type == p_b.type && p_a.class_name == p_b.class_name && p_a.script == p_b.script && p_a.interface_name == p_b.interface_name &&
 			p_a.nullable == p_b.nullable && p_a.option == p_b.option && p_a.element == p_b.element;
 }
 
@@ -346,7 +392,7 @@ bool same_initializers(const bytecode::Module &p_a, const bytecode::Module &p_b)
 			same_prefix(p_a.constructors, p_b.constructors, x.constructors, [](const auto &a, const auto &b) { return a.type == b.type && a.index == b.index && a.params == b.params; }) &&
 			same_prefix(p_a.builtin_methods, p_b.builtin_methods, x.builtin_methods, [](const auto &a, const auto &b) { return a.base == b.base && a.method == b.method && a.hash == b.hash && a.is_vararg == b.is_vararg && a.params == b.params && a.return_type == b.return_type && a.result_type == b.result_type; }) &&
 			same_prefix(p_a.classes, p_b.classes, x.classes, [](const auto &a, const auto &b) { return a == b; }) &&
-			same_prefix(p_a.method_calls, p_b.method_calls, x.method_calls, [](const auto &a, const auto &b) { return a.method == b.method && bytecode::signature_key(a.params, a.defaults, a.result) == bytecode::signature_key(b.params, b.defaults, b.result); });
+			same_prefix(p_a.method_calls, p_b.method_calls, x.method_calls, [](const auto &a, const auto &b) { return a.method == b.method && bytecode::signature_key(a.params, a.defaults, a.result, a.is_async) == bytecode::signature_key(b.params, b.defaults, b.result, b.is_async); });
 }
 
 } // namespace
@@ -354,6 +400,9 @@ bool same_initializers(const bytecode::Module &p_a, const bytecode::Module &p_b)
 bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	const bytecode::Module &a = module;
 	const bytecode::Module &b = p_other.module;
+	if (a.base_script != b.base_script || bool(base) != bool(p_other.base) || (base && !base->same_declarations(*p_other.base))) {
+		return false;
+	}
 	if (a.declarations_only || b.declarations_only) {
 		return false;
 	}
@@ -404,8 +453,8 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 		}
 		const bytecode::Function &x = a.functions[i];
 		const bytecode::Function &y = b.functions[i];
-		if (x.name != y.name || !same_slot(x.result, y.result) || x.is_pub != y.is_pub || x.is_override != y.is_override || x.is_exposed != y.is_exposed ||
-				x.is_static != y.is_static || x.params.size() != y.params.size() || x.defaults.size() != y.defaults.size()) {
+		if (x.is_inherited != y.is_inherited || x.base_signature != y.base_signature || x.name != y.name || !same_slot(x.result, y.result) || x.is_pub != y.is_pub || x.is_override != y.is_override || x.is_exposed != y.is_exposed ||
+				x.is_async != y.is_async || x.is_static != y.is_static || x.params.size() != y.params.size() || x.defaults.size() != y.defaults.size()) {
 			return false;
 		}
 		for (size_t d = 0; d < x.defaults.size(); d++) {

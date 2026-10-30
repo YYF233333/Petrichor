@@ -1,0 +1,28 @@
+class_name InheritChild
+extends InheritBase
+var child_initial: int = mark("C")
+@onready var child_ready: int = mark("S")
+func _init():
+	super()
+	trace += "J"
+func _ready():
+	super._ready()
+	trace += "Z"
+func _notification(what):
+	if what == 777:
+		trace += "M"
+func secret() -> int:
+	return super() + 10
+pub func map(value: int? = 2, extra: int = 3) -> int:
+	return value.unwrap() + extra
+pub func pass_node(value: Node) -> Node3D:
+	return (value as Node3D).unwrap()
+pub async func object_later(value) -> Node3D:
+	await tick
+	return value
+func alive(value: Node) -> bool:
+	return super(value)
+pub func freed_forward() -> bool:
+	var value := Node.new()
+	value.free()
+	return alive(value)

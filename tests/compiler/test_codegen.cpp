@@ -425,8 +425,11 @@ TEST_CASE("corrupt data is rejected") {
 TEST_CASE("what lowering has no code for is an internal error, not wrong code") {
 	// Parsed but not checked: no call or name has a target.
 	std::vector<compiler::Diagnostic> errors;
-	const compiler::ClassDecl cls = compiler::parse(compiler::tokenize("extends Node\n\nfunc f() -> void:\n\tg()\n\tx = 1\n", errors), errors);
+	compiler::ClassDecl cls = compiler::parse(compiler::tokenize("extends Node\n\nfunc f() -> void:\n\tg()\n\tx = 1\n", errors), errors);
 	REQUIRE(errors.empty());
+	for (const auto &function : cls.functions) {
+		cls.all_functions.push_back(&function);
+	}
 	compiler::lower(cls, false, errors);
 	REQUIRE(errors.size() == 2);
 	CHECK(errors[0].line == 4);

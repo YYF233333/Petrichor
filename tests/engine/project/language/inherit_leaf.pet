@@ -1,0 +1,7 @@
+class_name InheritLeaf
+extends "inherit_child.pet"
+var leaf_initial: int = mark("L")
+pub func bump():
+	hidden += 1
+func _leaf_tick():
+	trace += "T"

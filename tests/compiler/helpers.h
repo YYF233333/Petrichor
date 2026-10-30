@@ -2,6 +2,7 @@
 
 #include "bytecode/opcodes.h"
 #include "compiler/compiler.h"
+#include "compiler/script_classes.h"
 #include "doctest.h"
 #include "fake_engine.h"
 
@@ -41,9 +42,20 @@ public:
 
 	std::vector<compiler::Scene> scenes_with_script(const std::string &p_script_path) const override {
 		std::vector<compiler::Scene> result;
+		compiler::ScriptClasses classes(fake_engine(), this);
 		for (const compiler::Scene &scene : scenes) {
 			for (const compiler::SceneNode &node : scene.nodes) {
-				if (node.script == p_script_path) {
+				std::set<std::string> seen;
+				bool matches = false;
+				for (std::string path = node.script; !path.empty() && seen.insert(path).second;) {
+					if (path == p_script_path) {
+						matches = true;
+						break;
+					}
+					const auto *header = classes.header(path);
+					path = header ? classes.base_path(header->decl, path) : std::string();
+				}
+				if (matches) {
 					result.push_back(scene);
 					break;
 				}

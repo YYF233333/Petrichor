@@ -1,0 +1,43 @@
+class_name InheritBase
+extends Node
+pub signal tick()
+pub var trace: String = "B"
+var hidden: int = 4
+pub var frames: int = 0
+@export var target: Node3D
+@onready var base_ready: int = mark("R")
+
+func mark(text: String) -> int:
+	trace += text
+	return trace.length()
+func _init():
+	trace += "I"
+func _ready():
+	trace += "Y"
+func _process(delta):
+	frames += 1
+func _notification(what: int):
+	if what == 777:
+		trace += "N"
+func _entered():
+	trace += "E"
+func secret() -> int:
+	return hidden
+pub func read() -> int:
+	return secret()
+pub func callback() -> Callable:
+	return secret
+pub func map(value: int = 1) -> int?:
+	return value + 10
+pub func dispatch() -> int?:
+	return map()
+pub func pass_node(value: Node3D) -> Node:
+	return value
+pub async func waiting() -> int:
+	await tick
+	return map().unwrap()
+pub async func object_later(value: Node3D) -> Node:
+	await tick
+	return value
+func alive(value: Node) -> bool:
+	return is_instance_valid(value)

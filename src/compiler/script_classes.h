@@ -33,20 +33,23 @@ struct ScriptClass {
 class ScriptClasses {
 	const EngineApi &engine;
 	const ProjectApi *project;
+	bool declarations_only;
 	std::map<std::string, std::unique_ptr<ScriptClass>> scripts; // Null: it cannot be read or parsed.
 	std::set<std::string> checking;
 	std::set<std::string> failed;
 
 public:
-	ScriptClasses(const EngineApi &p_engine, const ProjectApi *p_project) :
-			engine(p_engine), project(p_project) {}
+	ScriptClasses(const EngineApi &p_engine, const ProjectApi *p_project, bool p_declarations_only = false) :
+			engine(p_engine), project(p_project), declarations_only(p_declarations_only) {}
 
+	std::string base_path(const ClassDecl &p_decl, const std::string &p_path) const;
+	std::string native_base(const ClassDecl &p_decl, const std::string &p_path);
 	const ProjectApi *get_project() const { return project; }
 	// The parsed script, or null when it cannot be read or parsed.
 	const ScriptClass *header(const std::string &p_path);
 	// With its declarations checked; null when they have errors or depend on
 	// themselves.
-	const ScriptClass *declarations(const std::string &p_path);
+	const ScriptClass *declarations(const std::string &p_path, bool p_with_scenes = false);
 };
 
 } // namespace petrichor::compiler

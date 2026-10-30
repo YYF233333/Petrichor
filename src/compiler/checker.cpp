@@ -110,6 +110,15 @@ bool is_literal(const Expr &p_expr) {
 // (modules/gdscript/gdscript_analyzer.cpp:3286-3328, 4087-4090, 5318-5338,
 // 5652-5681); arithmetic and named constants are not among them yet.
 bool is_constant(const Expr &p_expr, const Type &p_target) {
+	if (p_expr.type.is_error()) {
+		return false;
+	}
+	if (p_expr.kind == ExprKind::NoneLiteral) {
+		return p_target.is_optional();
+	}
+	if (p_target.kind == TypeKind::Option) {
+		return is_constant(p_expr, p_target.args[0]);
+	}
 	if (p_expr.kind == ExprKind::ArrayLiteral) {
 		for (size_t i = 0; i < p_expr.args.size(); i++) {
 			if (!is_constant(*p_expr.args[i], stored_element_type(p_expr, i))) {
@@ -190,6 +199,7 @@ class Checker : public ClassRelation {
 	const EngineApi &engine;
 	const CompileOptions &options;
 	std::vector<Diagnostic> &errors;
+	bool check_bodies;
 	ScriptClasses &classes; // The project's other scripts of this language.
 	std::vector<Scene> scenes; // The scenes that use this script.
 
@@ -198,6 +208,7 @@ class Checker : public ClassRelation {
 	// Types of locals narrowed by conditions (spec §5.4), innermost last.
 	std::vector<std::unordered_map<int, Type>> narrowed;
 	int loop_depth = 0;
+	bool in_predelete = false;
 	// The member whose initializer is being checked: it and the members after
 	// it are not initialized yet (spec §6.1), nor are @onready members unless
 	// it is one too (§6.3).
@@ -227,7 +238,7 @@ class Checker : public ClassRelation {
 
 	// The header of a script of this language, this class's or another's as
 	// read; null when it cannot be read.
-	const ClassDecl *script_header(const std::string &p_path) {
+	const ClassDecl *script_header(const std::string &p_path) const {
 		if (p_path == options.path) {
 			return &cls;
 		}
@@ -237,7 +248,7 @@ class Checker : public ClassRelation {
 
 	// The type of the objects of a script of this language.
 	Type script_class_type(const ClassDecl &p_header, const std::string &p_path) const {
-		return Type::script_class(display_name(p_header, p_path), p_path, p_header.extends);
+		return Type::script_class(display_name(p_header, p_path), p_path, classes.native_base(p_header, p_path));
 	}
 
 	// The class name used in messages and types: class_name, or the file's name.
@@ -331,21 +342,27 @@ class Checker : public ClassRelation {
 					param.type = localized(param.type);
 				}
 				local.return_type = localized(local.return_type);
+				r_expr.is_foreign = true;
 				return check_engine_call(r_expr, local);
 			}
 		}
 		return std::nullopt;
 	}
 
-	// The script itself, or one it extends: only scripts of other languages
-	// extend scripts, so far.
+	// The script itself, or one it extends.
 	bool extends_script(const std::string &p_script, const std::string &p_base) const {
-		for (std::string script = p_script; !script.empty();) {
+		std::unordered_set<std::string> seen;
+		for (std::string script = p_script; !script.empty() && seen.insert(script).second;) {
 			if (script == p_base) {
 				return true;
 			}
-			const ForeignClass *foreign = is_script_path(script) ? nullptr : foreign_class(script);
-			script = foreign ? foreign->base : std::string();
+			if (is_script_path(script)) {
+				const ClassDecl *decl = script_header(script);
+				script = decl ? classes.base_path(*decl, script) : std::string();
+			} else {
+				const ForeignClass *foreign = foreign_class(script);
+				script = foreign ? foreign->base : std::string();
+			}
 		}
 		return false;
 	}
@@ -424,7 +441,7 @@ class Checker : public ClassRelation {
 			return Type::of(TypeKind::Error);
 		}
 		if (dot == std::string::npos) {
-			return Type::script_class(head, path, header->extends);
+			return script_class_type(*header, path);
 		}
 		const std::string inner = p_ref.name.substr(dot + 1);
 		for (const InterfaceDecl &interface : header->interfaces) {
@@ -495,6 +512,10 @@ class Checker : public ClassRelation {
 
 	// `Array[T]`, the engine's typed array (spec §3.8).
 	Type resolve_generic(const TypeRef &p_ref) {
+		if (p_ref.name == "Task" && p_ref.args.size() == 1) {
+			const Type result = resolve(p_ref.args[0], true);
+			return result.is_error() ? result : Type::task(result);
+		}
 		if (p_ref.name == "Dictionary") {
 			error(p_ref.line, p_ref.column, "Dictionary[K, V] is not supported yet.");
 			return Type::of(TypeKind::Error);
@@ -533,7 +554,9 @@ class Checker : public ClassRelation {
 	}
 
 	static Type function_type(const FuncDecl &p_function) {
-		return Type::function(p_function.return_type, param_types(p_function.params));
+		Type type = Type::function(p_function.return_type, param_types(p_function.params));
+		type.is_async = p_function.is_async;
+		return type;
 	}
 
 	// The engine passes what its signals declare (spec §4.7, §10.2).
@@ -599,7 +622,7 @@ class Checker : public ClassRelation {
 	// `Name.f()`: not when a local, a member or a property has that name.
 	bool names_type(const Expr &p_expr) const {
 		return p_expr.kind == ExprKind::Name && find_local(p_expr.text) < 0 && !member_index.count(p_expr.text) &&
-				!engine.find_property(cls.extends, p_expr.text) && is_type_name(p_expr.text) && !engine.is_singleton(p_expr.text);
+				!engine.find_property(cls.native_base, p_expr.text) && is_type_name(p_expr.text) && !engine.is_singleton(p_expr.text);
 	}
 
 	Type check_name(Expr &r_expr) {
@@ -612,7 +635,7 @@ class Checker : public ClassRelation {
 		}
 		const auto member = member_index.find(r_expr.text);
 		if (member != member_index.end()) {
-			const VarDecl &read = cls.members[member->second];
+			const VarDecl &read = *cls.all_members[member->second];
 			if (initializing >= 0) {
 				// @onready initializers run when the node is ready, after the
 				// others (spec §6.3); each kind runs in declaration order (§6.1).
@@ -633,9 +656,9 @@ class Checker : public ClassRelation {
 			}
 			r_expr.target = Target::Member;
 			r_expr.index = member->second;
-			return set(r_expr, cls.members[member->second].type);
+			return set(r_expr, cls.all_members[member->second]->type);
 		}
-		if (const auto property = engine.find_property(cls.extends, r_expr.text)) {
+		if (const auto property = engine.find_property(cls.native_base, r_expr.text)) {
 			if (refuse_in_static(r_expr, r_expr.text)) {
 				return set(r_expr, Type::of(TypeKind::Error));
 			}
@@ -650,7 +673,7 @@ class Checker : public ClassRelation {
 			}
 			r_expr.target = Target::MethodValue;
 			r_expr.index = function_found->second;
-			return set(r_expr, function_type(cls.functions[function_found->second]));
+			return set(r_expr, function_type(*cls.all_functions[function_found->second]));
 		}
 		const auto own_signal = signal_index.find(r_expr.text);
 		if (own_signal != signal_index.end()) {
@@ -658,9 +681,9 @@ class Checker : public ClassRelation {
 				return set(r_expr, Type::of(TypeKind::Error));
 			}
 			r_expr.target = Target::SelfSignal;
-			return set(r_expr, Type::signal(param_types(cls.signals[own_signal->second].params)));
+			return set(r_expr, Type::signal(param_types(cls.all_signals[own_signal->second]->params)));
 		}
-		if (const auto signal = engine.find_signal(cls.extends, r_expr.text)) {
+		if (const auto signal = engine.find_signal(cls.native_base, r_expr.text)) {
 			if (refuse_in_static(r_expr, r_expr.text)) {
 				return set(r_expr, Type::of(TypeKind::Error));
 			}
@@ -710,7 +733,8 @@ class Checker : public ClassRelation {
 		if (p_class.is_interface) {
 			return std::nullopt; // Interfaces declare methods only, so far.
 		}
-		for (const VarDecl &member : decl->members) {
+		for (const VarDecl *entry : decl->all_members) {
+			const VarDecl &member = *entry;
 			if (member.name != r_expr.text) {
 				continue;
 			}
@@ -726,7 +750,8 @@ class Checker : public ClassRelation {
 			r_expr.owner = p_class.engine_class();
 			return member.type;
 		}
-		for (const SignalDecl &signal : decl->signals) {
+		for (const SignalDecl *entry : decl->all_signals) {
+			const SignalDecl &signal = *entry;
 			if (signal.name != r_expr.text) {
 				continue;
 			}
@@ -783,7 +808,8 @@ class Checker : public ClassRelation {
 				}
 			}
 		} else if (const ClassDecl *decl = script_decl(p_class.script)) {
-			for (const FuncDecl &function : decl->functions) {
+			for (const FuncDecl *entry : decl->all_functions) {
+				const FuncDecl &function = *entry;
 				if (function.name == r_expr.text) {
 					callee = &function;
 				}
@@ -798,14 +824,15 @@ class Checker : public ClassRelation {
 			return fail_call(r_expr, not_pub(p_class, "\"" + callee->name + "()\""));
 		}
 		check_arguments(r_expr, param_types(callee->params), required_params(*callee), false);
-		if (callee->is_override) {
+		if (callee->is_override && !callee->is_async) {
 			r_expr.target = Target::EngineMethod;
 		} else {
 			r_expr.target = Target::ScriptMethod;
 			r_expr.engine_params = param_types(callee->params);
 			r_expr.index = int(callee->params.size()) - required_params(*callee);
 		}
-		return set(r_expr, callee->return_type);
+		r_expr.is_async = callee->is_async;
+		return set(r_expr, callee->is_async ? Type::task(callee->return_type) : callee->return_type);
 	}
 
 	// An integer constant of an engine class, such as an enum value, which is
@@ -896,7 +923,7 @@ class Checker : public ClassRelation {
 		std::string type_scene;
 		for (const Scene &scene : scenes) {
 			for (const SceneNode &node : scene.nodes) {
-				if (node.script != options.path) {
+				if (!extends_script(node.script, options.path)) {
 					continue;
 				}
 				attached = true;
@@ -1583,7 +1610,8 @@ class Checker : public ClassRelation {
 		if (!method) {
 			return fail_call(r_expr, p_base.to_string() + " has no method \"" + r_expr.text + "()\".");
 		}
-		if (method->is_vararg || method->is_static) {
+		const bool awaited_callable = r_expr.awaited && base_name == "Callable" && (r_expr.text == "call" || r_expr.text == "callv");
+		if ((method->is_vararg && !awaited_callable) || method->is_static) {
 			return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + base_name + " is not supported yet.");
 		}
 		int required = 0;
@@ -1632,7 +1660,8 @@ class Checker : public ClassRelation {
 				return set(r_expr, Type::of(TypeKind::Error));
 			}
 		}
-		check_arguments(r_expr, params, int(params.size()), false);
+		check_arguments(r_expr, params, int(params.size()), method->is_vararg);
+		r_expr.is_vararg = method->is_vararg;
 		r_expr.target = Target::BuiltinMethod;
 		r_expr.owner = base_name;
 		r_expr.hash = method->hash;
@@ -1653,7 +1682,9 @@ class Checker : public ClassRelation {
 		const std::vector<Type> bound_params(p_function.args.end() - bound, p_function.args.end());
 		check_arguments(r_expr, bound_params, int(bound), false);
 		r_expr.target = Target::BindArguments;
-		return set(r_expr, Type::function(p_function.args[0], rest));
+		Type type = Type::function(p_function.args[0], rest);
+		type.is_async = p_function.is_async;
+		return set(r_expr, type);
 	}
 
 	// A function connected to a signal takes what the signal passes (spec §4.7).
@@ -1707,7 +1738,18 @@ class Checker : public ClassRelation {
 			return p_a;
 		}
 		if (p_a.kind == TypeKind::Object && p_b.kind == TypeKind::Object && p_a.args.empty() && p_b.args.empty() && !p_a.is_interface && !p_b.is_interface) {
-			// Classes of this language extend engine classes only, so far.
+			for (std::string path = p_a.script; is_script_path(path);) {
+				const ClassDecl *header = script_header(path);
+				if (!header) {
+					break;
+				}
+				if (extends_script(p_b.script, path)) {
+					Type result = script_class_type(*header, path);
+					result.nullable = p_a.nullable || p_b.nullable;
+					return result;
+				}
+				path = classes.base_path(*header, path);
+			}
 			for (std::string cls = p_a.engine_class(); !cls.empty(); cls = engine.parent_class(cls)) {
 				if (engine.inherits(p_b.engine_class(), cls)) {
 					return Type::object(cls, p_a.nullable || p_b.nullable);
@@ -1812,7 +1854,48 @@ class Checker : public ClassRelation {
 		return set(r_expr, result);
 	}
 
+	Type check_super(Expr &r_expr) {
+		if (!function) {
+			return fail_call(r_expr, "super is only valid inside a function.");
+		}
+		if (!r_expr.base) {
+			r_expr.text = function->name;
+		}
+		const FuncDecl *callee = base_function(r_expr.text);
+		if (callee) {
+			if (!callee->is_static && refuse_in_static(r_expr, "super." + r_expr.text)) {
+				return fail_call(r_expr);
+			}
+			check_arguments(r_expr, param_types(callee->params), required_params(*callee), false);
+			r_expr.target = Target::SuperMethod;
+			r_expr.engine_params = param_types(callee->params);
+			r_expr.index = int(callee->params.size()) - required_params(*callee);
+			r_expr.is_async = callee->is_async;
+			return set(r_expr, callee->is_async ? Type::task(callee->return_type) : callee->return_type);
+		}
+		if (r_expr.text == "_init") {
+			if (refuse_in_static(r_expr, "super._init")) {
+				return fail_call(r_expr);
+			}
+			check_arguments(r_expr, {}, 0, false);
+			r_expr.target = Target::Noop;
+			return set(r_expr, Type::of(TypeKind::Void));
+		}
+		const auto method = engine.find_method(cls.native_base, r_expr.text);
+		if (!method || method->is_virtual) {
+			return fail_call(r_expr, "No base implementation of \"" + r_expr.text + "()\".");
+		}
+		if (!method->is_static && refuse_in_static(r_expr, r_expr.text)) {
+			return fail_call(r_expr);
+		}
+		r_expr.base.reset();
+		return check_engine_call(r_expr, *method);
+	}
+
 	Type check_call(Expr &r_expr) {
+		if ((!r_expr.base && r_expr.text == "super") || (r_expr.base && r_expr.base->kind == ExprKind::Name && r_expr.base->text == "super")) {
+			return check_super(r_expr);
+		}
 		const std::string &name = r_expr.text;
 
 		if (r_expr.base && r_expr.base->kind != ExprKind::Self) {
@@ -1834,6 +1917,11 @@ class Checker : public ClassRelation {
 			const Type base_type = check_value(base);
 			if (base_type.is_error()) {
 				return fail_call(r_expr);
+			}
+			if (base_type.kind == TypeKind::Task && !base_type.nullable && (name == "cancel" || name == "detach")) {
+				check_arguments(r_expr, {}, 0, false);
+				r_expr.target = name == "cancel" ? Target::TaskCancel : Target::TaskDetach;
+				return set(r_expr, Type::of(TypeKind::Void));
 			}
 			if (base_type.is_optional()) {
 				return check_option_method(r_expr, base_type);
@@ -1879,17 +1967,18 @@ class Checker : public ClassRelation {
 
 		const auto script = function_index.find(name);
 		if (script != function_index.end()) {
-			const FuncDecl &callee = cls.functions[script->second];
+			const FuncDecl &callee = *cls.all_functions[script->second];
 			if (!callee.is_static && refuse_in_static(r_expr, name + "()")) {
 				return fail_call(r_expr);
 			}
 			check_arguments(r_expr, param_types(callee.params), required_params(callee), false);
 			r_expr.target = Target::ScriptFunction;
 			r_expr.index = script->second;
-			return set(r_expr, callee.return_type);
+			r_expr.is_async = callee.is_async;
+			return set(r_expr, callee.is_async ? Type::task(callee.return_type) : callee.return_type);
 		}
 
-		if (const auto method = engine.find_method(cls.extends, name)) {
+		if (const auto method = engine.find_method(cls.native_base, name)) {
 			if (method->is_virtual) {
 				return fail_call(r_expr, "\"" + name + "()\" is a virtual engine method that this class does not define.");
 			}
@@ -1938,6 +2027,37 @@ class Checker : public ClassRelation {
 
 	// `p_expected` is the type the value goes to, if known; only array literals
 	// take their type from it.
+	Type check_await(Expr &r_expr) {
+		if (in_predelete) {
+			return fail(r_expr, "await is not allowed in the PREDELETE branch.");
+		}
+		if (!function || !function->is_async || initializing >= 0) {
+			return fail(r_expr, "await requires an async function and cannot appear in an initializer.");
+		}
+		Expr &operand = *r_expr.left;
+		operand.awaited = true;
+		const Type type = check_expr(operand);
+		if (type.is_error()) {
+			return set(r_expr, type);
+		}
+		if (type.kind == TypeKind::Task) {
+			if (type.nullable) {
+				return fail(r_expr, "Unwrap the optional Task before awaiting it.");
+			}
+			return set(r_expr, type.args[0]);
+		}
+		if (type.kind == TypeKind::Signal) {
+			return set(r_expr, type.args.size() == 1 ? type.args[0] : Type::of(TypeKind::Void));
+		}
+		if (type.builtin_name() == "Signal") {
+			return set(r_expr, Type::of(TypeKind::Variant));
+		}
+		if (operand.kind == ExprKind::Call && (operand.is_foreign || (operand.base && operand.base->type.builtin_name() == "Callable" && (operand.text == "call" || operand.text == "callv")))) {
+			return set(r_expr, type);
+		}
+		return fail(r_expr, "await expects a Task, a signal or a call to GDScript.");
+	}
+
 	Type check_expr(Expr &r_expr, const Type &p_expected = Type::of(TypeKind::Error)) {
 		switch (r_expr.kind) {
 			case ExprKind::IntLiteral:
@@ -1953,6 +2073,8 @@ class Checker : public ClassRelation {
 				return set(r_expr, Type::of(TypeKind::Bool));
 			case ExprKind::Name:
 				return check_name(r_expr);
+			case ExprKind::Await:
+				return check_await(r_expr);
 			case ExprKind::Self:
 				return fail(r_expr, "self as a value is not supported yet.");
 			case ExprKind::Unary:
@@ -2009,7 +2131,7 @@ class Checker : public ClassRelation {
 				return true;
 			case Target::SelfProperty:
 			case Target::ObjectProperty: {
-				const std::string &owner = p_target.target == Target::SelfProperty ? cls.extends : p_target.owner;
+				const std::string &owner = p_target.target == Target::SelfProperty ? cls.native_base : p_target.owner;
 				const auto property = engine.find_property(owner, p_target.text);
 				if (property && !property->writable) {
 					error(p_target.line, p_target.column, "The property \"" + p_target.text + "\" is read-only.");
@@ -2119,6 +2241,21 @@ class Checker : public ClassRelation {
 		scopes.pop_back();
 	}
 
+	bool predelete_branch(const Expr &p_condition, bool p_true) const {
+		if (!function || function->name != "_notification" || p_condition.kind != ExprKind::Binary) {
+			return false;
+		}
+		if ((p_true && p_condition.op != TokenKind::EqualEqual) || (!p_true && p_condition.op != TokenKind::BangEqual)) {
+			return false;
+		}
+		const Expr *value = p_condition.left.get();
+		const Expr *constant = p_condition.right.get();
+		if (value->target == Target::EngineConstant) {
+			std::swap(value, constant);
+		}
+		return value->target == Target::Local && value->index == 0 && constant->target == Target::EngineConstant && constant->text == "NOTIFICATION_PREDELETE";
+	}
+
 	void check_stmt(Stmt &r_stmt) {
 		switch (r_stmt.kind) {
 			case StmtKind::Var: {
@@ -2138,7 +2275,7 @@ class Checker : public ClassRelation {
 					}
 				} else if (!r_stmt.declared_type) {
 					error(r_stmt.line, r_stmt.column, "\"" + r_stmt.name + "\" needs a type or an initial value.");
-				} else if (type.kind == TypeKind::Object && !type.nullable) {
+				} else if ((type.kind == TypeKind::Object || type.kind == TypeKind::Task) && !type.nullable) {
 					error(r_stmt.line, r_stmt.column, "\"" + r_stmt.name + "\" of type " + type.to_string() + " needs an initial value.");
 				}
 				declare_local(r_stmt, type);
@@ -2186,8 +2323,12 @@ class Checker : public ClassRelation {
 			case StmtKind::If: {
 				expect_condition(*r_stmt.condition);
 				const Facts facts = facts_of(*r_stmt.condition);
+				const bool was_predelete = in_predelete;
+				in_predelete = was_predelete || predelete_branch(*r_stmt.condition, true);
 				const std::unordered_map<int, Type> then_end = check_block(r_stmt.body, facts.when_true);
+				in_predelete = was_predelete || predelete_branch(*r_stmt.condition, false);
 				const std::unordered_map<int, Type> else_end = check_block(r_stmt.else_body, facts.when_false);
+				in_predelete = was_predelete;
 				// Where one branch always leaves, what holds at the end of the
 				// other, which may have assigned what the condition tested.
 				if (always_ends(r_stmt.body, true)) {
@@ -2235,12 +2376,15 @@ class Checker : public ClassRelation {
 				}
 				return;
 			case StmtKind::Expression:
-				if (r_stmt.value->kind != ExprKind::Call) {
+				if (r_stmt.value->kind != ExprKind::Call && r_stmt.value->kind != ExprKind::Await) {
 					check_expr(*r_stmt.value);
 					error(r_stmt.value->line, r_stmt.value->column, "This expression has no effect.");
 					return;
 				}
-				check_expr(*r_stmt.value);
+				r_stmt.value->discarded = true;
+				if (check_expr(*r_stmt.value).kind == TypeKind::Task) {
+					error(r_stmt.line, r_stmt.column, "An async call must be awaited, stored or explicitly detached with detach().");
+				}
 				return;
 		}
 	}
@@ -2250,11 +2394,12 @@ class Checker : public ClassRelation {
 	void declare_members() {
 		for (size_t i = 0; i < cls.members.size(); i++) {
 			VarDecl &member = cls.members[i];
-			if (member_index.count(member.name)) {
+			if (member_index.count(member.name) || function_index.count(member.name) || signal_index.count(member.name)) {
 				error(member.line, member.column, "The member \"" + member.name + "\" is already declared.");
 				continue;
 			}
-			member_index[member.name] = int(i);
+			member_index[member.name] = int(cls.all_members.size());
+			cls.all_members.push_back(&member);
 		}
 	}
 
@@ -2338,7 +2483,7 @@ class Checker : public ClassRelation {
 	// read any of the others (spec §6.3), so that a member's type is known
 	// before an initializer reads it.
 	void check_members() {
-		cls.is_node = engine.inherits(cls.extends, "Node");
+		cls.is_node = engine.inherits(cls.native_base, "Node");
 		for (const bool onready : { false, true }) {
 			for (size_t i = 0; i < cls.members.size(); i++) {
 				if (cls.members[i].is_onready == onready) {
@@ -2352,7 +2497,7 @@ class Checker : public ClassRelation {
 		// A name declared twice is reported where it is registered.
 		VarDecl &member = cls.members[p_index];
 		const auto registered = member_index.find(member.name);
-		if (registered == member_index.end() || registered->second != int(p_index)) {
+		if (registered == member_index.end() || cls.all_members[registered->second] != &member) {
 			return;
 		}
 		Type type = Type::of(TypeKind::Error);
@@ -2371,7 +2516,7 @@ class Checker : public ClassRelation {
 			}
 		}
 		if (member.initializer) {
-			initializing = int(p_index);
+			initializing = registered->second;
 			initializing_onready = member.is_onready;
 			const Type value = check_value(*member.initializer, type);
 			initializing = -1;
@@ -2385,24 +2530,26 @@ class Checker : public ClassRelation {
 			member.constant_initializer = !member.is_onready && is_constant(*member.initializer, type);
 		} else if (!member.declared_type) {
 			error(member.line, member.column, "\"" + member.name + "\" needs a type or an initial value.");
-		} else if (type.kind == TypeKind::Object && !type.nullable) {
+		} else if ((type.kind == TypeKind::Object || type.kind == TypeKind::Task) && !type.nullable) {
 			// An export that the scene or resource must assign (spec §7.5); a
 			// member that the creator or an ancestor must assign (§6.2) is not
 			// supported yet.
-			member.must_assign = member.is_export;
+			member.must_assign = member.is_export && type.kind == TypeKind::Object;
 			if (!member.is_export) {
-				error(member.line, member.column, "Members that must be assigned, such as \"" + member.name + "\" of type " + type.to_string() + ", are not supported yet unless exported; give it an initial value.");
+				error(member.line, member.column, "Members that must be assigned, such as \"" + member.name + "\" of type " + type.to_string() + (type.kind == TypeKind::Task ? ", need an initial value." : ", are not supported yet unless exported; give it an initial value."));
 			}
 		}
 		if (member.is_export && type.kind == TypeKind::Object && type.name == "PackedScene" && type.args.empty()) {
 			error(member.line, member.column, "An exported scene is written PackedScene[T], with the type of its root (spec §7.4).");
 		}
+		if (member.is_export && type.kind == TypeKind::Task) {
+			error(member.line, member.column, "Task handles cannot be exported (spec §4.4, §9.4).");
+		}
 		member.type = type;
 		check_annotations(member);
 	}
 
-	// Default values of parameters (spec §4.6): the last parameters, and
-	// literals so far.
+	// Default parameters use the same constants as member initializers (spec §4.6).
 	void check_defaults(FuncDecl &r_function) {
 		bool any = false;
 		for (ParamDecl &param : r_function.params) {
@@ -2413,12 +2560,12 @@ class Checker : public ClassRelation {
 				continue;
 			}
 			any = true;
-			if (!is_literal(*param.default_value)) {
-				error(param.default_value->line, param.default_value->column, "Default values other than literals are not supported yet.");
-				continue;
-			}
-			const Type value = check_value(*param.default_value);
+			const size_t before = errors.size();
+			const Type value = check_value(*param.default_value, param.type);
 			expect_assignable(*param.default_value, value, param.type, "use");
+			if (errors.size() == before && !is_constant(*param.default_value, param.type)) {
+				error(param.default_value->line, param.default_value->column, "Non-constant default values are not supported yet; pass the argument explicitly.");
+			}
 		}
 	}
 
@@ -2439,12 +2586,87 @@ class Checker : public ClassRelation {
 		return true;
 	}
 
+	const FuncDecl *base_function(const std::string &p_name) const {
+		if (cls.base) {
+			for (const FuncDecl *fn : cls.base->all_functions) {
+				if (fn->name == p_name) {
+					return fn;
+				}
+			}
+		}
+		return nullptr;
+	}
+
+	bool override_assignable(const Type &p_from, const Type &p_to) const {
+		if (p_from == p_to || p_from.is_error() || p_to.is_error()) {
+			return true;
+		}
+		if (p_to.kind == TypeKind::Option) {
+			return p_from.kind == TypeKind::Option ? p_from.args == p_to.args : override_assignable(p_from, p_to.args[0]);
+		}
+		if (p_from.kind == TypeKind::Object && p_to.kind == TypeKind::Object) {
+			return assignable(p_from, p_to);
+		}
+		if (p_from.kind == TypeKind::Function && p_to.kind == TypeKind::Function) {
+			return assignable(p_from, p_to);
+		}
+		if (p_from.kind == TypeKind::Task && p_to.kind == TypeKind::Task) {
+			return assignable(p_from, p_to);
+		}
+		return p_from.kind == TypeKind::Builtin && p_to.kind == TypeKind::Builtin && p_from.name == "Array" && p_to.name == "Array" && p_to.args.empty();
+	}
+
+	void check_script_override(FuncDecl &r_fn, const FuncDecl &p_base) {
+		r_fn.is_override = p_base.is_override;
+		if (r_fn.is_pub != p_base.is_pub) {
+			error(r_fn.line, r_fn.column, "An override must preserve its base method's visibility (spec §4.2).");
+		}
+		if (r_fn.is_static != p_base.is_static || r_fn.is_async != p_base.is_async) {
+			error(r_fn.line, r_fn.column, "An override must preserve static and async (spec §4.6).");
+		}
+		for (size_t i = 0; i < r_fn.params.size(); ++i) {
+			ParamDecl &param = r_fn.params[i];
+			if (param.declared_type) {
+				param.type = resolve(*param.declared_type, false);
+			} else if (i < p_base.params.size()) {
+				param.type = p_base.params[i].type;
+			} else {
+				error(param.line, param.column, "Parameter \"" + param.name + "\" needs a type.");
+			}
+			if (i < p_base.params.size() && !override_assignable(p_base.params[i].type, param.type)) {
+				error(param.line, param.column, "The override narrows its base parameter type (spec §4.6).");
+			}
+		}
+		check_defaults(r_fn);
+		if (r_fn.params.size() < p_base.params.size() || required_params(r_fn) > required_params(p_base)) {
+			error(r_fn.line, r_fn.column, "The override must accept every argument count of its base method (spec §4.6).");
+		}
+		r_fn.return_type = r_fn.return_type_ref ? resolve(*r_fn.return_type_ref, true) : p_base.return_type;
+		if (!override_assignable(r_fn.return_type, p_base.return_type)) {
+			error(r_fn.line, r_fn.column, "The override widens its base return type (spec §4.6).");
+		}
+		if (r_fn.name == "_init" && (!r_fn.params.empty() || r_fn.is_async || r_fn.return_type.kind != TypeKind::Void)) {
+			error(r_fn.line, r_fn.column, "_init() must be synchronous, return void and take no parameters for now.");
+		}
+	}
+
 	void check_signature(FuncDecl &r_function) {
-		const auto engine_method = engine.find_method(cls.extends, r_function.name);
+		if (const FuncDecl *parent = base_function(r_function.name)) {
+			check_script_override(r_function, *parent);
+			return;
+		}
+		const auto engine_method = engine.find_method(cls.native_base, r_function.name);
 		if (engine_method && !engine_method->is_virtual) {
 			error(r_function.line, r_function.column, "\"" + r_function.name + "()\" is a method of " + cls.extends + " that cannot be overridden.");
 		}
 		r_function.is_override = engine_method && engine_method->is_virtual;
+		if (r_function.is_async) {
+			if (r_function.name == "_init") {
+				error(r_function.line, r_function.column, "_init() cannot be async (spec §9.1).");
+			} else if (r_function.is_override && !engine_method->return_type.is_error() && engine_method->return_type.kind != TypeKind::Void) {
+				error(r_function.line, r_function.column, "An engine virtual method returning " + engine_method->return_type.to_string() + " cannot be async (spec §9.1).");
+			}
+		}
 
 		if (r_function.is_override) {
 			if (r_function.params.size() != engine_method->params.size()) {
@@ -2486,7 +2708,7 @@ class Checker : public ClassRelation {
 		// The engine constructs Node and Resource scripts with no arguments
 		// (spec §6.2); RefCounted constructors with arguments come with new(...).
 		if (r_function.name == "_init" && !r_function.params.empty()) {
-			const bool engine_made = engine.inherits(cls.extends, "Node") || engine.inherits(cls.extends, "Resource");
+			const bool engine_made = engine.inherits(cls.native_base, "Node") || engine.inherits(cls.native_base, "Resource");
 			error(r_function.line, r_function.column, engine_made ? "_init() of a " + cls.extends + " script cannot take parameters: the engine constructs it with none. Use members that must be assigned instead (spec §6.2)." : "_init() with parameters is not supported yet.");
 		}
 		if (r_function.name == "_init" && r_function.return_type_ref && r_function.return_type_ref->name != "void") {
@@ -2535,8 +2757,8 @@ class Checker : public ClassRelation {
 					error(cls.extends_line, cls.extends_column, where + ", which this class does not declare.");
 					continue;
 				}
-				FuncDecl &method = cls.functions[found->second];
-				method.is_exposed = true;
+				const FuncDecl &method = *cls.all_functions[found->second];
+				cls.exposed_methods.insert(method.name);
 				const SceneNode *source = scene.find_node(connection.source);
 				bool missing = false;
 				const std::optional<std::vector<Type>> arguments = source ? signal_arguments(*source, connection.signal, missing) : std::nullopt;
@@ -2574,7 +2796,8 @@ class Checker : public ClassRelation {
 			if (!decl) {
 				return std::nullopt;
 			}
-			for (const SignalDecl &signal : decl->signals) {
+			for (const SignalDecl *entry : decl->all_signals) {
+				const SignalDecl &signal = *entry;
 				if (signal.name == p_signal) {
 					return param_types(signal.params);
 				}
@@ -2633,11 +2856,11 @@ class Checker : public ClassRelation {
 					error(ref.line, ref.column, "The class does not implement " + method.name + "() of " + type.name + ".");
 					continue;
 				}
-				const FuncDecl &function = cls.functions[found->second];
+				const FuncDecl &function = *cls.all_functions[found->second];
 				if (!function.is_pub) {
 					error(function.line, function.column, "\"" + function.name + "()\" implements " + type.name + " and must be pub (spec §3.9).");
 				}
-				bool same = function.params.size() == method.params.size() && function.return_type == method.return_type;
+				bool same = function.params.size() == method.params.size() && function.return_type == method.return_type && function.is_async == method.is_async;
 				for (size_t i = 0; same && i < method.params.size(); i++) {
 					same = function.params[i].type == method.params[i].type;
 				}
@@ -2652,11 +2875,12 @@ class Checker : public ClassRelation {
 	void declare_signals() {
 		for (size_t i = 0; i < cls.signals.size(); i++) {
 			SignalDecl &signal = cls.signals[i];
-			if (signal_index.count(signal.name) || member_index.count(signal.name) || function_index.count(signal.name) || engine.find_signal(cls.extends, signal.name)) {
+			if (signal_index.count(signal.name) || member_index.count(signal.name) || function_index.count(signal.name) || engine.find_signal(cls.native_base, signal.name)) {
 				error(signal.line, signal.column, "\"" + signal.name + "\" is already declared.");
 				continue;
 			}
-			signal_index[signal.name] = int(i);
+			signal_index[signal.name] = int(cls.all_signals.size());
+			cls.all_signals.push_back(&signal);
 			for (ParamDecl &param : signal.params) {
 				if (!param.declared_type) {
 					error(param.line, param.column, "The argument \"" + param.name + "\" of a signal needs a type (spec §4.7).");
@@ -2678,7 +2902,7 @@ class Checker : public ClassRelation {
 		narrowed.clear();
 		narrowed.emplace_back();
 		declare_params(r_function);
-		if (options.declarations_only) {
+		if (options.declarations_only || !check_bodies) {
 			function = nullptr;
 			scopes.clear();
 			return;
@@ -2692,11 +2916,52 @@ class Checker : public ClassRelation {
 	}
 
 public:
-	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes) :
-			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), classes(r_classes) {}
+	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies) :
+			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), check_bodies(p_check_bodies), classes(r_classes) {}
 
 	void run() {
-		if (!engine.class_exists(cls.extends)) {
+		cls.path = options.path;
+		cls.native_base = classes.native_base(cls, options.path);
+		cls.base_script = classes.base_path(cls, options.path);
+		if (!cls.base_script.empty()) {
+			if (!is_script_path(cls.base_script)) {
+				error(cls.extends_line, cls.extends_column, "Inheritance from a script of another language is not supported (spec §4.1).");
+				return;
+			}
+			std::unordered_set<std::string> seen{ options.path };
+			for (std::string path = cls.base_script; !path.empty();) {
+				if (!seen.insert(path).second) {
+					error(cls.extends_line, cls.extends_column, "Inheritance cycle involving " + path + ".");
+					return;
+				}
+				const ScriptClass *header = classes.header(path);
+				if (!header) {
+					break;
+				}
+				path = classes.base_path(header->decl, path);
+			}
+			const ScriptClass *parent = classes.declarations(cls.base_script, !options.declarations_only);
+			if (!parent) {
+				error(cls.extends_line, cls.extends_column, "Base script " + cls.base_script + " has errors or cannot be read.");
+				return;
+			}
+			cls.base = &parent->decl;
+			cls.all_members = cls.base->all_members;
+			cls.all_functions = cls.base->all_functions;
+			cls.all_signals = cls.base->all_signals;
+			cls.implemented = cls.base->implemented;
+			cls.exposed_methods = cls.base->exposed_methods;
+			for (size_t i = 0; i < cls.all_members.size(); ++i) {
+				member_index[cls.all_members[i]->name] = int(i);
+			}
+			for (size_t i = 0; i < cls.all_functions.size(); ++i) {
+				function_index[cls.all_functions[i]->name] = int(i);
+			}
+			for (size_t i = 0; i < cls.all_signals.size(); ++i) {
+				signal_index[cls.all_signals[i]->name] = int(i);
+			}
+		}
+		if (cls.native_base.empty()) {
 			error(cls.extends_line, cls.extends_column, "Unknown base class \"" + cls.extends + "\".");
 			return;
 		}
@@ -2705,29 +2970,30 @@ public:
 		}
 		declare_interfaces();
 		declare_members();
-		for (size_t i = 0; i < cls.functions.size(); i++) {
-			FuncDecl &function_decl = cls.functions[i];
-			if (function_index.count(function_decl.name)) {
-				error(function_decl.line, function_decl.column, "The function \"" + function_decl.name + "()\" is already declared.");
+		std::unordered_set<std::string> own_functions;
+		for (FuncDecl &fn : cls.functions) {
+			if (!own_functions.insert(fn.name).second || member_index.count(fn.name) || signal_index.count(fn.name)) {
+				error(fn.line, fn.column, "\"" + fn.name + "\" is already declared.");
 				continue;
 			}
-			if (member_index.count(function_decl.name)) {
-				error(function_decl.line, function_decl.column, "\"" + function_decl.name + "\" is already declared as a member.");
-				continue;
+			const auto found = function_index.find(fn.name);
+			if (found == function_index.end()) {
+				function_index[fn.name] = int(cls.all_functions.size());
+				cls.all_functions.push_back(&fn);
+			} else {
+				cls.all_functions[found->second] = &fn;
 			}
-			function_index[function_decl.name] = int(i);
-			check_signature(function_decl);
+			check_signature(fn);
 		}
 		check_implements();
 		declare_signals();
 		check_members();
 		check_groups();
 		check_connections();
-		// In declaration order, so errors come out in a stable order.
-		for (size_t i = 0; i < cls.functions.size(); i++) {
-			const auto registered = function_index.find(cls.functions[i].name);
-			if (registered != function_index.end() && registered->second == int(i)) {
-				check_body(cls.functions[i]);
+		for (FuncDecl &fn : cls.functions) {
+			const auto found = function_index.find(fn.name);
+			if (found != function_index.end() && cls.all_functions[found->second] == &fn) {
+				check_body(fn);
 			}
 		}
 	}
@@ -2735,8 +3001,8 @@ public:
 
 } // namespace
 
-void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes) {
-	Checker(r_class, p_engine, p_options, r_errors, r_classes).run();
+void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies) {
+	Checker(r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies).run();
 }
 
 } // namespace petrichor::compiler

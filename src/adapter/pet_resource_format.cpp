@@ -43,9 +43,10 @@ Variant PetResourceLoader::_load(const String &p_path, const String &p_original_
 	String source;
 	String error;
 	std::shared_ptr<const ClassImage> image;
+	Ref<PetScript> base;
 	if (p_path.get_extension().to_lower() == "petc") {
 		// An exported game: the export plugin put the bytecode in place of the source.
-		image = load_compiled(p_path, p_original_path, nullptr, error);
+		image = load_compiled(p_path, p_original_path, nullptr, error, &base);
 	} else {
 		source = FileAccess::get_file_as_string(p_path);
 		const Error open_error = FileAccess::get_open_error();
@@ -62,7 +63,7 @@ Variant PetResourceLoader::_load(const String &p_path, const String &p_original_
 #endif
 		{
 			// The game reads what the editor compiled (architecture §2.4).
-			image = load_compiled(cache_path(p_original_path), p_original_path, &source, error);
+			image = load_compiled(cache_path(p_original_path), p_original_path, &source, error, &base);
 		}
 	}
 	if (!error.is_empty()) {
@@ -71,7 +72,7 @@ Variant PetResourceLoader::_load(const String &p_path, const String &p_original_
 
 	Ref<PetScript> script;
 	script.instantiate();
-	script->set_loaded(source, image);
+	script->set_loaded(source, image, base);
 	return script;
 }
 
@@ -99,7 +100,7 @@ Error PetResourceSaver::_save(const Ref<Resource> &p_resource, const String &p_p
 		// The script takes the new class when the editor reloads scripts on
 		// save, as GDScript's saver does (modules/gdscript/gdscript_resource_format.cpp:167-169).
 		if (EditorInterface::get_singleton()->get_editor_settings()->get_setting("text_editor/behavior/files/auto_reload_and_parse_scripts_on_save")) {
-			script->set_image(image);
+			script->apply_image(image);
 		}
 	}
 #endif

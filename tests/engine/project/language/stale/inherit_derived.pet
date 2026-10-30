@@ -1,0 +1,3 @@
+extends "inherit_base.pet"
+pub static func run() -> int:
+	return value()

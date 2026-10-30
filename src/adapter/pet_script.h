@@ -18,9 +18,12 @@ struct PetInstance;
 struct PetHeader {
 	godot::String class_name;
 	godot::String base = "RefCounted";
+	bool base_is_path = false;
 };
 
 PetHeader parse_header(const godot::String &p_source);
+godot::String header_base_path(const PetHeader &p_header, const godot::String &p_path);
+godot::String header_native_base(const PetHeader &p_header, const godot::String &p_path);
 
 // A script of this language. Its compiled class (ClassImage) comes from the
 // compiler in the editor, and from the bytecode cache or the exported package
@@ -31,6 +34,7 @@ class PetScript : public godot::ScriptExtension {
 	godot::String source;
 	std::shared_ptr<const ClassImage> image; // Null while the script has errors.
 	PetHeader header;
+	mutable godot::Ref<PetScript> base_script;
 
 	mutable std::mutex mutex;
 	mutable godot::HashSet<PetInstance *> instances;
@@ -46,9 +50,12 @@ public:
 	std::shared_ptr<const ClassImage> get_image() const;
 
 	// The source as loaded, with its compiled class.
-	void set_loaded(const godot::String &p_source, const std::shared_ptr<const ClassImage> &p_image);
+	void set_loaded(const godot::String &p_source, const std::shared_ptr<const ClassImage> &p_image, const godot::Ref<PetScript> &p_base = {});
 	// The class compiled from the current source; null while it has errors.
-	void set_image(const std::shared_ptr<const ClassImage> &p_image);
+	void set_image(const std::shared_ptr<const ClassImage> &p_image, const godot::Ref<PetScript> &p_base = {});
+	bool apply_image(const std::shared_ptr<const ClassImage> &p_image, const godot::Ref<PetScript> &p_base = {});
+	PetScript();
+	~PetScript();
 	void instance_freed(PetInstance *p_instance);
 	// The instance of this script on the object; null for a placeholder.
 	PetInstance *find_instance(godot::Object *p_object) const;

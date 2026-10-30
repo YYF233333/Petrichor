@@ -43,6 +43,7 @@ func _run() -> void:
 	_check_placeholder_fallback()
 	_check_constant_defaults()
 	_check_other_defaults()
+	_check_inheritance_recovery()
 	await _check_instanced_scene_change()
 	await _check_undo_merge()
 
@@ -302,3 +303,29 @@ func _find_item(item: TreeItem, path: NodePath) -> TreeItem:
 		if found:
 			return found
 	return null
+
+
+func _check_inheritance_recovery() -> void:
+	var base_path := "res://editor_inherit_base.pet"
+	var child_path := "res://editor_inherit_child.pet"
+	var valid := "extends Node\n@export var speed: int = 1\npub func read() -> int:\n\treturn 1\n"
+	_write(base_path, valid)
+	_write(child_path, 'extends "editor_inherit_base.pet"\n@export var own: int = 2\npub func read() -> int:\n\treturn 7\n')
+	var base: Script = load(base_path)
+	var child: Script = load(child_path)
+	_check(child.reload() == OK, "the derived script initially compiles")
+	var node := Node.new()
+	node.set_script(child)
+	node.set("own", 9)
+	base.source_code = valid.replace("-> int:", "-> String:").replace("return 1", 'return "bad"')
+	_check(ResourceSaver.save(base, base_path) == OK, "saving a changed base recompiles its child")
+	_check(not child.has_script_method("read"), "incompatible override invalidates the child")
+	_check_errors(["editor_inherit_child.pet:3: The override widens its base return type (spec §4.6)."], "the child reports the incompatible override")
+	base.source_code = valid
+	_check(ResourceSaver.save(base, base_path) == OK, "the repaired base saves")
+	_check(child.has_script_method("read") and node.get("speed") == 1 and node.get("own") == 9, "repairing only the base recovers the failed child and its placeholder")
+	_check_errors([], "recovering the child introduces no errors")
+	node.free()
+	for path in [base_path, child_path]:
+		for file in [path, path + ".uid", path.replace("res://", "res://.godot/petrichor/").replace(".pet", ".petc")]:
+			DirAccess.remove_absolute(file)

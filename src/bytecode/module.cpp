@@ -108,14 +108,15 @@ ValueType value_type_from_name(const std::string &p_name) {
 	return ValueType::Count;
 }
 
-std::string signature_key(const std::vector<Slot> &p_params, size_t p_defaults, const Slot &p_result) {
-	std::string key = std::to_string(p_defaults);
+std::string signature_key(const std::vector<Slot> &p_params, size_t p_defaults, const Slot &p_result, bool p_async) {
+	std::string key = std::to_string(p_defaults) + (p_async ? "a" : "s");
 	const auto add = [&](const Slot &p_slot) {
 		key += '|';
 		key += char(p_slot.type);
 		key += char(p_slot.nullable ? 1 : 0);
 		key += char(p_slot.option);
 		key += char(p_slot.element);
+		key += std::to_string(p_slot.task_result.size()) + ":" + p_slot.task_result;
 		key += p_slot.class_name;
 		key += '\0';
 		key += p_slot.script;
@@ -195,6 +196,7 @@ public:
 		str(p_value.script);
 	}
 	void slot(const Slot &p_slot) {
+		str(p_slot.task_result);
 		str(p_slot.name);
 		type(p_slot.type);
 		u32(p_slot.offset);
@@ -308,6 +310,7 @@ public:
 	}
 	Slot slot() {
 		Slot value;
+		value.task_result = str();
 		value.name = str();
 		value.type = type();
 		value.offset = u32();
@@ -333,6 +336,8 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 	w.u8(p_module.declarations_only ? 1 : 0);
 	w.str(p_module.global_name);
 	w.str(p_module.base_class);
+	w.str(p_module.base_script);
+	w.u32(p_module.inherited_members);
 
 	w.u32(uint32_t(p_module.members.size()));
 	for (const Member &member : p_module.members) {
@@ -367,6 +372,8 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 	w.u32(uint32_t(p_module.functions.size()));
 	for (const Function &function : p_module.functions) {
 		w.str(function.name);
+		w.u8(function.is_inherited ? 1 : 0);
+		w.str(function.base_signature);
 		w.u32(uint32_t(function.params.size()));
 		for (const Slot &param : function.params) {
 			w.slot(param);
@@ -375,6 +382,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		for (const Constant &value : function.defaults) {
 			w.constant(value);
 		}
+		w.u8(function.is_async ? 1 : 0);
 		w.u8(function.is_static ? 1 : 0);
 		w.slot(function.result);
 		w.u8(function.is_pub ? 1 : 0);
@@ -465,6 +473,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 			w.slot(param);
 		}
 		w.u32(call.defaults);
+		w.u8(call.is_async ? 1 : 0);
 		w.slot(call.result);
 	}
 	w.u32(uint32_t(p_module.interfaces.size()));
@@ -492,6 +501,8 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 	module.declarations_only = r.u8() != 0;
 	module.global_name = r.str();
 	module.base_class = r.str();
+	module.base_script = r.str();
+	module.inherited_members = r.u32();
 
 	module.members.resize(r.count());
 	for (Member &member : module.members) {
@@ -526,6 +537,8 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 	module.functions.resize(r.count());
 	for (Function &function : module.functions) {
 		function.name = r.str();
+		function.is_inherited = r.u8() != 0;
+		function.base_signature = r.str();
 		function.params.resize(r.count());
 		for (Slot &param : function.params) {
 			param = r.slot();
@@ -534,6 +547,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		for (Constant &value : function.defaults) {
 			value = r.constant();
 		}
+		function.is_async = r.u8() != 0;
 		function.is_static = r.u8() != 0;
 		function.result = r.slot();
 		function.is_pub = r.u8() != 0;
@@ -627,6 +641,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 			param = r.slot();
 		}
 		call.defaults = r.u32();
+		call.is_async = r.u8() != 0;
 		call.result = r.slot();
 	}
 	module.interfaces.resize(r.count());

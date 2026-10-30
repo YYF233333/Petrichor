@@ -27,6 +27,7 @@ ValueType value_type(const Type &p_type) {
 			const ValueType type = bytecode::value_type_from_name(p_type.name);
 			return type == ValueType::Count ? ValueType::Void : type;
 		}
+		case TypeKind::Task:
 		case TypeKind::Object:
 			return ValueType::Object;
 		case TypeKind::Option: // A Variant that is NIL for None (spec §3.4).
@@ -62,7 +63,11 @@ bytecode::Slot slot_of(const std::string &p_name, const Type &p_type) {
 			slot.script = p_object.script;
 		}
 	};
-	if (p_type.kind == TypeKind::Object) {
+	if (p_type.kind == TypeKind::Task) {
+		slot.class_name = "CoroutineTask";
+		slot.nullable = p_type.nullable;
+		slot.task_result = bytecode::signature_key({}, 0, slot_of("", p_type.args[0]));
+	} else if (p_type.kind == TypeKind::Object) {
 		object_class(p_type);
 		slot.nullable = p_type.nullable;
 	} else if (p_type.kind == TypeKind::Option) {
@@ -146,6 +151,9 @@ void type_array(bytecode::Constant &r_constant, const bytecode::Slot &p_slot) {
 
 // A literal, or a constant the checker found (is_constant()), as the target's type.
 bytecode::Constant constant_of(const Expr &p_expr, const Type &p_target) {
+	if (p_target.kind == TypeKind::Option && p_expr.kind != ExprKind::NoneLiteral) {
+		return constant_of(p_expr, p_target.args[0]);
+	}
 	bytecode::Constant constant;
 	constant.type = value_type(p_target);
 	if (p_expr.target == Target::BuiltinConstant) {
@@ -317,12 +325,12 @@ class Lowerer {
 	}
 
 	uint32_t load_member(uint32_t p_member) {
-		const uint32_t result = temp(cls.members[p_member].type);
+		const uint32_t result = temp(cls.all_members[p_member]->type);
 		const ValueType type = reg_type(result);
 		instr(by_storage(type, Op::LOAD_MEMBER_8, Op::LOAD_MEMBER_STRING, Op::LOAD_MEMBER_VALUE), result, NO_REG, NO_REG, p_member, type);
 		// An export the scene did not assign (spec §7.5), or an @onready
 		// member read before the node is ready (§6.3), is still None.
-		const VarDecl &member = cls.members[p_member];
+		const VarDecl &member = *cls.all_members[p_member];
 		if (member.must_assign || (member.is_onready && member.type.kind == TypeKind::Object && !member.type.nullable)) {
 			instr(Op::CHECK_ASSIGNED, NO_REG, result, NO_REG, p_member);
 		}
@@ -367,7 +375,7 @@ class Lowerer {
 
 	uint32_t method_call(const bytecode::MethodCall &p_call) {
 		return intern(module.method_calls, p_call, [](const auto &a, const auto &b) {
-			return a.method == b.method && bytecode::signature_key(a.params, a.defaults, a.result) == bytecode::signature_key(b.params, b.defaults, b.result);
+			return a.method == b.method && bytecode::signature_key(a.params, a.defaults, a.result, a.is_async) == bytecode::signature_key(b.params, b.defaults, b.result, b.is_async);
 		});
 	}
 
@@ -511,7 +519,7 @@ class Lowerer {
 
 	std::vector<uint32_t> arguments(const Expr &p_call) {
 		// A function of this language reads its T? parameters itself.
-		const bool outward = p_call.target != Target::ScriptFunction && p_call.target != Target::ScriptMethod;
+		const bool outward = p_call.target != Target::ScriptFunction && p_call.target != Target::ScriptMethod && p_call.target != Target::SuperMethod;
 		// Callable.bind() and Signal.emit() take Variant, whatever the types here.
 		const bool as_variant = p_call.target == Target::BindArguments || p_call.target == Target::EmitSignal;
 		std::vector<uint32_t> args;
@@ -537,7 +545,7 @@ class Lowerer {
 	// What the engine declares as an object or a Variant, typed T here: a T
 	// that may not be None is checked to be one (spec §3.8, §10.2).
 	void check_object(uint32_t p_reg, const Type &p_type) {
-		if (p_type.kind == TypeKind::Object && !p_type.nullable) {
+		if (p_reg != NO_REG && p_type.kind == TypeKind::Object && !p_type.nullable) {
 			instr(Op::CHECK_OBJECT, NO_REG, p_reg, NO_REG, class_index(p_type));
 		}
 	}
@@ -732,6 +740,9 @@ class Lowerer {
 	}
 
 	uint32_t call(const Expr &p_call) {
+		if (p_call.target == Target::Noop) {
+			return NO_REG;
+		}
 		switch (p_call.target) {
 			case Target::ConvertToInt: {
 				const uint32_t arg = lower_expr(*p_call.args[0]);
@@ -760,6 +771,10 @@ class Lowerer {
 				break;
 		}
 
+		if (p_call.target == Target::TaskCancel || p_call.target == Target::TaskDetach) {
+			instr(p_call.target == Target::TaskCancel ? Op::TASK_CANCEL : Op::TASK_DETACH, NO_REG, lower_expr(*p_call.base));
+			return NO_REG;
+		}
 		ir::Instr i;
 		std::unique_ptr<Place> written_back;
 		// The base before the arguments, as it reads in the source.
@@ -786,14 +801,7 @@ class Lowerer {
 			// where the engine returns null.
 			instr(Op::GET_INDEX, temp(ValueType::Variant), i.base, i.args[0]);
 		}
-		if (p_call.target == Target::ScriptFunction) {
-			// A call within the class passes the default values itself; one of a
-			// method of another class leaves them to the callee (Function::defaults).
-			const FuncDecl &callee = cls.functions[p_call.index];
-			for (size_t a = i.args.size(); a < callee.params.size(); a++) {
-				i.args.push_back(convert(lower_expr(*callee.params[a].default_value), callee.params[a].type));
-			}
-		}
+
 		// An array of the class an argument named (spec §10.3).
 		const bool filtered = p_call.target == Target::EngineMethod && p_call.engine_return.builtin_name() == "Array" && p_call.type != p_call.engine_return;
 		i.dst = p_call.type.kind == TypeKind::Void ? NO_REG : temp(filtered ? p_call.engine_return : p_call.type);
@@ -802,15 +810,17 @@ class Lowerer {
 				i.op = Op::CALL;
 				i.imm = uint32_t(p_call.index);
 				break;
+			case Target::SuperMethod:
 			case Target::ScriptMethod: {
-				i.op = Op::CALL_METHOD;
+				i.op = p_call.target == Target::SuperMethod ? Op::CALL_SUPER : Op::CALL_METHOD;
 				bytecode::MethodCall method;
 				method.method = p_call.text;
 				for (const Type &param : p_call.engine_params) {
 					method.params.push_back(slot_of(std::string(), param));
 				}
 				method.defaults = uint32_t(p_call.index);
-				method.result = slot_of(std::string(), p_call.type);
+				method.is_async = p_call.is_async;
+				method.result = slot_of(std::string(), p_call.is_async ? p_call.type.args[0] : p_call.type);
 				i.imm = method_call(method);
 				break;
 			}
@@ -838,6 +848,7 @@ class Lowerer {
 				method.base = reg_type(i.base);
 				method.method = p_call.text;
 				method.hash = p_call.hash;
+				method.is_vararg = p_call.is_vararg;
 				method.params = value_types(p_call.engine_params);
 				method.return_type = value_type(p_call.engine_return);
 				method.result_type = value_type(p_call.type);
@@ -858,6 +869,15 @@ class Lowerer {
 				break;
 			default:
 				return internal_error("no instruction for this call");
+		}
+		if (p_call.discarded && p_call.target == Target::EngineMethod) {
+			i.dst = NO_REG;
+		}
+		if (p_call.awaited && p_call.target == Target::EngineMethod) {
+			i.op = Op::CALL_AWAIT_ENGINE;
+		}
+		if (p_call.awaited && p_call.target == Target::BuiltinMethod && p_call.base->type.builtin_name() == "Callable" && (p_call.text == "call" || p_call.text == "callv")) {
+			i.op = Op::CALL_AWAIT_BUILTIN;
 		}
 		add(i);
 		if (written_back) {
@@ -880,6 +900,16 @@ class Lowerer {
 
 	uint32_t lower_expr(const Expr &p_expr) {
 		switch (p_expr.kind) {
+			case ExprKind::Await: {
+				const Expr &operand = *p_expr.left;
+				const uint32_t src = lower_expr(operand);
+				if (operand.kind == ExprKind::Call && operand.type.kind != TypeKind::Task && operand.type.builtin_name() != "Signal") {
+					return src;
+				}
+				const uint32_t dst = p_expr.type.kind == TypeKind::Void || p_expr.discarded ? NO_REG : temp(p_expr.type);
+				instr(operand.type.kind == TypeKind::Task ? Op::AWAIT_TASK : Op::AWAIT_SIGNAL, dst, src, NO_REG, operand.kind == ExprKind::Call && operand.is_async ? 1 : 0);
+				return dst;
+			}
 			case ExprKind::IntLiteral:
 			case ExprKind::FloatLiteral:
 			case ExprKind::StringLiteral: {
@@ -1293,17 +1323,17 @@ class Lowerer {
 		if (p_onready && cls.is_node) {
 			// A node that becomes ready without the exports the scene must
 			// assign stops there, before the @onready initializers (spec §7.5).
-			for (size_t m = 0; m < cls.members.size(); m++) {
-				if (cls.members[m].must_assign) {
+			for (size_t m = module.inherited_members; m < cls.all_members.size(); m++) {
+				if (cls.all_members[m]->must_assign) {
 					any = true;
-					line = cls.members[m].line;
-					instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(cls.members[m].line));
+					line = cls.all_members[m]->line;
+					instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(cls.all_members[m]->line));
 					load_member(uint32_t(m));
 				}
 			}
 		}
-		for (size_t m = 0; m < cls.members.size(); m++) {
-			const VarDecl &member = cls.members[m];
+		for (size_t m = module.inherited_members; m < cls.all_members.size(); m++) {
+			const VarDecl &member = *cls.all_members[m];
 			if (member.is_onready != p_onready || (!member.initializer && !is_typed_array(member.type))) {
 				continue;
 			}
@@ -1344,13 +1374,16 @@ public:
 
 	void run(bool p_declarations_only) {
 		module.global_name = cls.class_name;
-		module.base_class = cls.extends;
+		module.base_class = cls.native_base;
+		module.base_script = cls.base_script;
+		module.inherited_members = cls.base ? uint32_t(cls.base->all_members.size()) : 0;
 		for (const Type &interface : cls.implemented) {
 			module.interfaces.push_back(interface_id(interface));
 		}
 		module.declarations_only = p_declarations_only;
 		uint32_t offset = 0;
-		for (const VarDecl &decl_member : cls.members) {
+		for (const VarDecl *entry : cls.all_members) {
+			const VarDecl &decl_member = *entry;
 			bytecode::Member member;
 			static_cast<bytecode::Slot &>(member) = slot_of(decl_member.name, decl_member.type);
 			// Without the scenes, a type that comes from them is unknown; the
@@ -1380,7 +1413,8 @@ public:
 			module.members.push_back(member);
 		}
 		module.instance_size = offset;
-		for (const SignalDecl &signal : cls.signals) {
+		for (const SignalDecl *entry : cls.all_signals) {
+			const SignalDecl &signal = *entry;
 			bytecode::SignalInfo info;
 			info.name = signal.name;
 			info.is_pub = signal.is_pub;
@@ -1389,13 +1423,24 @@ public:
 			}
 			module.signals.push_back(info);
 		}
-		for (const ExportGroupDecl &group : cls.groups) {
-			bytecode::ExportGroup out;
-			out.name = group.name;
-			out.prefix = group.prefix;
-			out.level = group.annotation.name == "export_category" ? 0 : (group.annotation.name == "export_group" ? 1 : 2);
-			out.before_member = uint32_t(group.before_member);
-			module.groups.push_back(out);
+		std::vector<const ClassDecl *> chain;
+		for (const ClassDecl *owner = &cls; owner; owner = owner->base) {
+			chain.push_back(owner);
+		}
+		for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+			const ClassDecl &owner = **it;
+			const uint32_t prefix = owner.base ? uint32_t(owner.base->all_members.size()) : 0;
+			if (owner.base) {
+				module.groups.push_back({ "", "", 1, prefix });
+			}
+			for (const ExportGroupDecl &group : owner.groups) {
+				bytecode::ExportGroup out;
+				out.name = group.name;
+				out.prefix = group.prefix;
+				out.level = group.annotation.name == "export_category" ? 0 : (group.annotation.name == "export_group" ? 1 : 2);
+				out.before_member = prefix + uint32_t(group.before_member);
+				module.groups.push_back(out);
+			}
 		}
 
 		bytecode::Function initializers;
@@ -1404,29 +1449,56 @@ public:
 		const bool has_ready_initializers = !p_declarations_only && lower_initializers(true, ready_initializers);
 		record_init_tables();
 
-		for (const FuncDecl &function : cls.functions) {
+		for (const FuncDecl *entry : cls.all_functions) {
+			const FuncDecl &function = *entry;
+			bool inherited = true;
+			for (const FuncDecl &own : cls.functions) {
+				if (&own == entry) {
+					inherited = false;
+				}
+			}
 			start(function.name);
 			decl = &function;
 			line = function.line;
 			fn.param_count = uint32_t(function.params.size());
 			fn.result = slot_of(std::string(), function.return_type);
+			fn.is_async = function.is_async;
 			fn.is_pub = function.is_pub;
 			fn.is_override = function.is_override;
-			fn.is_exposed = function.is_exposed;
+			fn.is_exposed = function.is_exposed || cls.exposed_methods.count(function.name);
 			fn.line = uint32_t(function.line);
 			for (const LocalInfo &local : function.locals) {
 				fn.regs.push_back(slot_of(local.name, local.type));
 			}
-			if (!p_declarations_only) {
+			if (!p_declarations_only && !inherited) {
 				lower_block(function.body);
 			}
 			finish();
 			bytecode::Function out = ir::emit(fn, module);
 			out.is_static = function.is_static;
+			out.is_inherited = inherited;
+			if (inherited) {
+				out.code.clear();
+			}
+			if (cls.base) {
+				for (const FuncDecl *parent : cls.base->all_functions) {
+					if (parent->name != function.name) {
+						continue;
+					}
+					std::vector<bytecode::Slot> params;
+					size_t defaults = 0;
+					for (const ParamDecl &param : parent->params) {
+						params.push_back(slot_of(param.name, param.type));
+						if (param.default_value) {
+							++defaults;
+						}
+					}
+					out.base_signature = bytecode::signature_key(params, defaults, slot_of("", parent->return_type), parent->is_async);
+				}
+			}
 			for (const ParamDecl &param : function.params) {
 				if (param.default_value) {
-					// For an Option, the value inside; the entry check wraps it.
-					out.defaults.push_back(constant_of(*param.default_value, param.type.kind == TypeKind::Option ? param.type.args[0] : param.type));
+					out.defaults.push_back(constant_of(*param.default_value, param.type));
 				}
 			}
 			module.functions.push_back(std::move(out));

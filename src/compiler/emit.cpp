@@ -8,6 +8,7 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 	bytecode::Function out;
 	out.name = p_function.name;
 	out.result = p_function.result;
+	out.is_async = p_function.is_async;
 	out.is_pub = p_function.is_pub;
 	out.is_override = p_function.is_override;
 	out.is_exposed = p_function.is_exposed;
@@ -63,6 +64,16 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 				continue;
 			}
 			switch (instr.op) {
+				case Op::TASK_CANCEL:
+				case Op::TASK_DETACH:
+					put(offset_of(instr.a));
+					break;
+				case Op::AWAIT_TASK:
+				case Op::AWAIT_SIGNAL:
+					put(offset_of(instr.dst));
+					put(offset_of(instr.a));
+					put(instr.imm);
+					break;
 				case Op::LINE:
 					put(instr.imm);
 					break;

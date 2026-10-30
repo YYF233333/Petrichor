@@ -20,6 +20,8 @@ enum class TokenKind {
 	String,
 
 	// Keywords.
+	Async,
+	Await,
 	And,
 	As,
 	Break,
@@ -44,6 +46,7 @@ enum class TokenKind {
 	Pub,
 	Return,
 	Self,
+	Super,
 	Signal,
 	Static,
 	True,

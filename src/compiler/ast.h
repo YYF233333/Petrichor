@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -26,6 +27,7 @@ enum class ExprKind {
 	BoolLiteral,
 	Name,
 	Self,
+	Await,
 	Unary,
 	Binary,
 	Call,
@@ -42,6 +44,8 @@ enum class ExprKind {
 // What a name, a member access or a call refers to, decided by the checker.
 enum class Target {
 	None,
+	TaskCancel,
+	TaskDetach,
 	Local,
 	Member,
 	SelfProperty, // A property of the engine class this class extends.
@@ -52,6 +56,8 @@ enum class Target {
 	// A method of a class of this language on `base`, of another class or
 	// another instance, or of an interface (spec §3.9, §8.1).
 	ScriptMethod,
+	SuperMethod,
+	Noop,
 	EngineMethod, // On self, or on `base` when there is one.
 	BuiltinMethod,
 	BuiltinConstructor,
@@ -105,6 +111,10 @@ struct Expr {
 	// Built-in methods and utility functions: the engine's signature, which
 	// the runtime needs to pass arguments in the right layout.
 	uint32_t hash = 0;
+	bool is_async = false;
+	bool is_foreign = false;
+	bool awaited = false;
+	bool discarded = false;
 	bool is_vararg = false;
 	bool is_const = true; // Built-in methods that do not change their base.
 	Type engine_return; // Variant where the engine returns a Variant.
@@ -221,6 +231,7 @@ struct FuncDecl {
 	int column = 0;
 	bool is_pub = false;
 	bool is_static = false;
+	bool is_async = false;
 	std::vector<ParamDecl> params;
 	std::optional<TypeRef> return_type_ref;
 	Block body;
@@ -253,6 +264,16 @@ struct InterfaceDecl {
 struct ClassDecl {
 	std::string class_name;
 	std::string extends = "RefCounted";
+	bool extends_path = false;
+	std::string path;
+	std::string native_base;
+	std::string base_script;
+	const ClassDecl *base = nullptr;
+	// Checked declaration views; their owners live through lowering.
+	std::vector<const VarDecl *> all_members;
+	std::vector<const FuncDecl *> all_functions;
+	std::vector<const SignalDecl *> all_signals;
+	std::set<std::string> exposed_methods;
 	int extends_line = 1;
 	int extends_column = 1;
 	std::vector<TypeRef> implements;

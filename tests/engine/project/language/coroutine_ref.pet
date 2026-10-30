@@ -1,0 +1,7 @@
+class_name CoroutineRef
+extends RefCounted
+pub signal tick
+pub async func wait():
+	await tick
+pub func start() -> Task[void]:
+	return wait()

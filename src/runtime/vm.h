@@ -23,6 +23,7 @@ class InstanceStorage {
 public:
 	uint8_t *const members;
 	std::atomic<bool> freed{ false };
+	std::atomic<bool> coroutines_cancelled{ false };
 
 	explicit InstanceStorage(const std::shared_ptr<const ClassImage> &p_image);
 	~InstanceStorage();
@@ -35,12 +36,14 @@ public:
 struct InstanceContext {
 	std::shared_ptr<InstanceStorage> storage; // None for a static function.
 	godot::Object *owner = nullptr;
+	std::shared_ptr<const ClassImage> self_image;
 };
 
 // An entry of this language's call stack, kept per thread for error messages
 // and the debugger.
 struct StackFrame {
 	const ClassImage *image = nullptr;
+	const ClassImage *self_image = nullptr;
 	const bytecode::Function *function = nullptr;
 	uint8_t *frame = nullptr;
 	uint8_t *members = nullptr;

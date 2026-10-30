@@ -62,6 +62,9 @@ class Verifier {
 		if (!is_type(uint32_t(p_slot.type)) && !(p_void && p_slot.type == ValueType::Void)) {
 			return fail("slot " + p_slot.name + " has no type");
 		}
+		if (!p_slot.task_result.empty() && (p_slot.type != ValueType::Object || p_slot.class_name != "CoroutineTask")) {
+			return fail("Task descriptor without a task handle");
+		}
 		if (p_slot.option != ValueType::Void && (p_slot.type != ValueType::Variant || !is_native(p_slot.option))) {
 			return fail("slot " + p_slot.name + " holds an option of no value type");
 		}
@@ -223,24 +226,30 @@ class Verifier {
 					return false;
 				}
 				const Function &target_function = module.functions[callee];
-				if (p_call[3] != target_function.params.size()) {
+				if (p_call[3] > target_function.params.size() || p_call[3] < target_function.params.size() - target_function.defaults.size()) {
 					return fail("wrong number of arguments");
 				}
-				for (size_t i = 0; i < target_function.params.size(); i++) {
+				for (size_t i = 0; i < p_call[3]; i++) {
 					if (ValueType(p_call[4 + 2 * i]) != target_function.params[i].type) {
 						return fail("argument " + std::to_string(i) + " does not have the parameter's type");
 					}
 				}
-				return arguments(p_call) && result(dst, target_function.result.type);
+				return arguments(p_call) && result(dst, target_function.is_async ? ValueType::Object : target_function.result.type);
 			}
+			case Op::CALL_AWAIT_ENGINE:
+				if (!function->is_async) {
+					return fail("await in a synchronous function");
+				}
+				[[fallthrough]];
 			case Op::CALL_ENGINE: {
 				if (!index(callee, module.engine_calls.size(), "engine call") || !slot_or_none(base, ValueType::Object)) {
 					return false;
 				}
 				return arguments(p_call) && result(dst, module.engine_calls[callee].return_type);
 			}
+			case Op::CALL_SUPER:
 			case Op::CALL_METHOD: {
-				if (!index(callee, module.method_calls.size(), "method call") || !slot(base, ValueType::Object)) {
+				if (!index(callee, module.method_calls.size(), "method call") || !(p_op == Op::CALL_SUPER ? base == NO_SLOT && !module.base_script.empty() : slot(base, ValueType::Object))) {
 					return false;
 				}
 				// The arguments a call may leave out have default values.
@@ -254,7 +263,7 @@ class Verifier {
 						return fail("argument " + std::to_string(i) + " does not have the parameter's type");
 					}
 				}
-				return arguments(p_call) && result(dst, method.result.type);
+				return arguments(p_call) && result(dst, method.is_async ? ValueType::Object : method.result.type);
 			}
 			case Op::CALL_UTILITY: {
 				if (!index(callee, module.utility_calls.size(), "utility") || (base != NO_SLOT && !fail("a utility call has a base"))) {
@@ -263,11 +272,19 @@ class Verifier {
 				const UtilityCall &utility = module.utility_calls[callee];
 				return engine_arguments(p_call, utility.params, utility.is_vararg) && engine_result(dst, utility.return_type, utility.result_type);
 			}
+			case Op::CALL_AWAIT_BUILTIN:
+				if (!function->is_async) {
+					return fail("await in a synchronous function");
+				}
+				[[fallthrough]];
 			case Op::CALL_BUILTIN: {
 				if (!index(callee, module.builtin_methods.size(), "built-in method")) {
 					return false;
 				}
 				const BuiltinMethodCall &method = module.builtin_methods[callee];
+				if (p_op == Op::CALL_AWAIT_BUILTIN && (method.base != ValueType::Callable || (method.method != "call" && method.method != "callv"))) {
+					return fail("awaited built-in call is not a Callable invocation");
+				}
 				if (!is_native(method.base) || !slot(base, method.base)) {
 					return false;
 				}
@@ -318,6 +335,7 @@ class Verifier {
 				return o[2] == NO_SLOT;
 			case Op::SET_PROPERTY:
 				return o[1] == NO_SLOT;
+			case Op::CALL_AWAIT_ENGINE:
 			case Op::CALL_ENGINE:
 				return o[2] == NO_SLOT;
 			case Op::CALL:
@@ -506,6 +524,12 @@ class Verifier {
 			case Op::JUMP_IF_FALSE:
 			case Op::JUMP_IF_TRUE:
 				return slot(o[0], ValueType::Bool) && target(o[1]);
+			case Op::TASK_CANCEL:
+			case Op::TASK_DETACH:
+				return slot(o[0], ValueType::Object);
+			case Op::AWAIT_TASK:
+			case Op::AWAIT_SIGNAL:
+				return (function->is_async || fail("await in a synchronous function")) && slot(o[1], p_op == Op::AWAIT_TASK ? ValueType::Object : ValueType::Signal) && (o[0] == NO_SLOT || frame.count(o[0]) || fail("unknown await result slot")) && (o[2] <= 1 || fail("invalid await ownership"));
 			case Op::RETURN:
 				return (function->result.type != ValueType::Void || fail("a void function returns a value")) && slot(o[0], function->result.type);
 			case Op::RETURN_VOID:
@@ -563,6 +587,9 @@ public:
 			module(p_module), error(r_error) {}
 
 	bool run() {
+		if (module.inherited_members > module.members.size() || (module.base_script.empty() && module.inherited_members)) {
+			return fail("invalid inherited member prefix");
+		}
 		// The init and ready functions run with no arguments and give nothing.
 		for (const int32_t index : { module.init_function, module.ready_function }) {
 			if (index < -1 || index >= int32_t(module.functions.size())) {
@@ -618,7 +645,7 @@ public:
 					return fail("parameter " + std::to_string(i) + " is not its slot");
 				}
 			}
-			if (!code(each)) {
+			if (each.is_inherited ? (!each.code.empty() || module.base_script.empty() || each.base_signature.empty()) : !code(each)) {
 				return false;
 			}
 		}
