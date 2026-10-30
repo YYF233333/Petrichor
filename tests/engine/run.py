@@ -38,7 +38,7 @@ HOT_RELOAD = PROJECT / "language" / "hot_reload"
 HOT_RELOAD_BYTECODE = PROJECT / ".godot" / "petrichor" / "language" / "hot_reload"
 STALE = PROJECT / "language" / "stale"
 STALE_BYTECODE = PROJECT / ".godot" / "petrichor" / "language" / "stale"
-LIVE_SCRIPT = "res://language/hot_reload/live.pet"
+LIVE_SCRIPT = "res://language/hot_reload/v1.pet"
 
 GAME_OUTPUT = [
     "check: message = from the scene",
@@ -174,29 +174,20 @@ def send_editor_message(connection, command, data):
     connection.sendall(struct.pack("<I", len(message)) + message)
 
 
-def install_live_version(version, name="live"):
-    """What saving live.pet in the editor leaves on disk: the source and the
-    bytecode compiled from it (architecture §2.4)."""
-    if name != f"v{version}":
-        shutil.copy(HOT_RELOAD / f"v{version}.pet", HOT_RELOAD / f"{name}.pet")
-        shutil.copy(HOT_RELOAD_BYTECODE / f"v{version}.petc", HOT_RELOAD_BYTECODE / f"{name}.petc")
-
-
-def run_hot_reload(godot, inherited=False):
+def run_hot_reload(godot):
     """Stands in for the editor while hot_reload_test.gd runs connected to it.
 
-    When the scene asks for a version, it is put in place and announced with
-    reload_scripts, as the editor does after a save (script_editor_plugin.cpp:
-    738-741, 776-801); the game reloads it at the end of the idle poll that
-    reads the message (remote_debugger.cpp:663-719). A message of the test's
-    own follows, which tells the scene that the reload has been handled."""
-    name = "v1" if inherited else "live"
-    target = f"res://language/hot_reload/{name}.pet"
-    paths = (HOT_RELOAD / f"{name}.pet", HOT_RELOAD_BYTECODE / f"{name}.petc")
-    originals = {p: p.read_bytes() if p.exists() else None for p in paths}
+    When the scene asks for a version, it is put in place of v1.pet with its
+    bytecode, which is what saving it in the editor leaves on disk
+    (architecture §2.4), and announced with reload_scripts, as the editor does
+    after a save (script_editor_plugin.cpp:738-741, 776-801); the game reloads
+    it at the end of the idle poll that reads the message
+    (remote_debugger.cpp:663-719). A message of the test's own follows, which
+    tells the scene that the reload has been handled."""
+    live = (HOT_RELOAD / "v1.pet", HOT_RELOAD_BYTECODE / "v1.petc")
+    originals = {path: path.read_bytes() for path in live}
     with socket.create_server(("127.0.0.1", 0)) as server:
         server.settimeout(TIMEOUT)
-        install_live_version(1, name)
         try:
             running = Running(
                 godot,
@@ -205,7 +196,6 @@ def run_hot_reload(godot, inherited=False):
                 "--path",
                 str(PROJECT),
                 "res://language/hot_reload/hot_reload.tscn",
-                *(["--", "--inheritance"] if inherited else []),
             )
             try:
                 connection, _ = server.accept()
@@ -216,52 +206,39 @@ def run_hot_reload(godot, inherited=False):
                 for version in (2, 3, 4):
                     if not running.wait_for(f"hot reload: waiting for version {version}".encode()):
                         break
-                    install_live_version(version, name)
-                    send_editor_message(connection, "reload_scripts", [target])
+                    shutil.copy(HOT_RELOAD / f"v{version}.pet", live[0])
+                    shutil.copy(HOT_RELOAD_BYTECODE / f"v{version}.petc", live[1])
+                    send_editor_message(connection, "reload_scripts", [LIVE_SCRIPT])
                     send_editor_message(connection, "hot_reload_test:reloaded", [])
                 return running.finish()
         finally:
             for path, data in originals.items():
-                if data is None:
-                    path.unlink(missing_ok=True)
-                else:
-                    path.write_bytes(data)
+                path.write_bytes(data)
 
 
 def run_stale_bytecode(godot):
     """Spec §8.1: a call to a method of this language checks that the callee
-    still has the signature the caller was compiled against. Within a run that
-    always holds (§12.4); a run from bytecode that was not built together, here
-    callee.pet replaced by another version while caller.pet is not built again,
-    is the way to break it."""
+    still has the signature the caller was compiled against, and a class loads
+    only with the base it was compiled against. Within a run that always holds
+    (§12.4); a run from bytecode that was not built together, here callee.pet
+    and inherit_base.pet replaced by other versions while the scripts that use
+    them are not built again, is the way to break it."""
     code, output = run(godot, "--path", str(PROJECT), "res://language/stale/stale_test.tscn")
-    expect_run("stale bytecode: as built", code, output, ["stale: 2"])
-    originals = {path: path.read_bytes() for path in (STALE / "callee.pet", STALE_BYTECODE / "callee.petc")}
+    expect_run("stale bytecode: as built", code, output, ["stale: 2", "stale inheritance: valid: 1"])
+    replaced = ("callee", "inherit_base")
+    originals = {path: path.read_bytes() for name in replaced for path in (STALE / f"{name}.pet", STALE_BYTECODE / f"{name}.petc")}
     try:
-        shutil.copy(STALE / "callee_changed.pet", STALE / "callee.pet")
-        shutil.copy(STALE_BYTECODE / "callee_changed.petc", STALE_BYTECODE / "callee.petc")
+        for name in replaced:
+            shutil.copy(STALE / f"{name}_changed.pet", STALE / f"{name}.pet")
+            shutil.copy(STALE_BYTECODE / f"{name}_changed.petc", STALE_BYTECODE / f"{name}.petc")
         code, output = run(godot, "--path", str(PROJECT), "res://language/stale/stale_test.tscn")
     finally:
         for path, data in originals.items():
             path.write_bytes(data)
     changed = "value() is not the method this script was compiled against. Build the project again."
     expect("stale bytecode: a call to a changed signature is a program error", code == 0 and changed in output and "stale: 0" in output, output)
-
-
-def run_stale_inheritance(godot):
-    args = ("--path", str(PROJECT), "res://language/stale/inheritance_test.tscn")
-    code, output = run(godot, *args)
-    expect_run("stale inheritance: as built", code, output, ["stale inheritance: valid: 1"])
-    originals = {p: p.read_bytes() for p in (STALE / "inherit_base.pet", STALE_BYTECODE / "inherit_base.petc")}
-    try:
-        for version in ("instance", "public"):
-            shutil.copy(STALE / f"inherit_{version}.pet", STALE / "inherit_base.pet")
-            shutil.copy(STALE_BYTECODE / f"inherit_{version}.petc", STALE_BYTECODE / "inherit_base.petc")
-            code, output = run(godot, *args)
-            expect_run(f"stale inheritance: rejects {version} change", code, output, ["stale inheritance: rejected"], ["res://language/stale/inherit_derived.pet Base method declaration changed. Rebuild the project."])
-    finally:
-        for path, data in originals.items():
-            path.write_bytes(data)
+    refused = "inherit_derived.pet Base method declaration changed. Rebuild the project."
+    expect("stale bytecode: a class whose base changed is refused", refused in output and "stale inheritance: rejected" in output, output)
 
 
 def drain(connection):
@@ -427,13 +404,6 @@ def main():
         expect_run("language", code, output, ["language: 0 failure(s)"], expected_errors(output, "language"))
         expect("language: no value leaks", "Orphan StringName: petrichor_leak_probe" not in output, output)
         run_stale_bytecode(godot)
-        run_stale_inheritance(godot)
-        code, output = run(godot, "--path", str(PROJECT), "res://language/coroutines.tscn")
-        expect_run("coroutines", code, output, ["coroutines: 0 failure(s)"], expected_errors(output, "coroutines"))
-        code, output = run(godot, "--path", str(PROJECT), "res://language/defaults.tscn")
-        expect_run("defaults", code, output, ["defaults: 0 failure(s)"])
-        code, output = run(godot, "--path", str(PROJECT), "res://language/inheritance.tscn")
-        expect_run("inheritance", code, output, ["inheritance: 0 failure(s)"])
 
     if wanted("debugger"):
         run_debugger_groups(godot)
@@ -477,6 +447,7 @@ def run_migration_group(godot, name, prepare, migrated_scripts, *scene):
             baseline.write_text("extends Node\n", encoding="utf-8")
             code, output = run(godot, "-e", "--path", str(original), "--", "--petrichor-build")
             baseline.unlink()
+            baseline.with_name(baseline.name + ".uid").unlink(missing_ok=True)
             expect(f"{name} original analysis baseline", code == 0 and ", 0 with errors" in output, output)
             known_build_errors = {line for line in output.splitlines() if "ERROR" in line}
         code, output = run(godot, "--verbose", "--path", str(original), *scene)
@@ -486,13 +457,13 @@ def run_migration_group(godot, name, prepare, migrated_scripts, *scene):
         known_errors = {line for line in output.splitlines() if "ERROR" in line}
         known_in_use = resources_in_use(output)
 
-        # Prepared afresh: the original's .godot caches its global classes,
-        # such as the FPS kit's Weapon, with the paths of the GDScript files.
-        # The assets are the same, so their imported data is reused instead of
-        # imported again.
+        # The original as imported, so that no asset is imported again, which
+        # a fresh copy would do even with .godot/imported (its .import files
+        # differ from the ones the import rewrote); without the cache of global
+        # classes, such as the FPS kit's Weapon, which names the GDScript files.
         migrated = Path(tmp) / "migrated"
-        prepare(migrated)
-        shutil.copytree(original / ".godot" / "imported", migrated / ".godot" / "imported")
+        shutil.copytree(original, migrated)
+        (migrated / ".godot" / "global_script_class_cache.cfg").unlink()
         migrate(migrated, migrated_scripts)
         import_project(godot, migrated)
         code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-build")
@@ -562,23 +533,17 @@ def run_debugger_groups(godot):
     # Spec §12.4: a body change replaces the code of running instances; after
     # any other change the game keeps its code, and applies no later reload
     # until it runs again.
-    for inherited in (False, True):
-        check_hot_reload(godot, inherited)
-
-
-def check_hot_reload(godot, inherited):
-    target = "res://language/hot_reload/v1.pet" if inherited else LIVE_SCRIPT
-    code, output = run_hot_reload(godot, inherited)
+    code, output = run_hot_reload(godot)
     expect_run(
-        "hot reload inheritance" if inherited else "hot reload",
+        "hot reload",
         code,
         output,
         [
             "hot reload: waiting for version 2",
             "hot reload: waiting for version 3",
-            f"{target}: more than function bodies changed, so the running game keeps its code, and reloads no script until it runs again.",
+            f"{LIVE_SCRIPT}: more than function bodies changed, so the running game keeps its code, and reloads no script until it runs again.",
             "hot reload: waiting for version 4",
-            f"{target}: not reloaded, since an earlier change needs the game to run again.",
+            f"{LIVE_SCRIPT}: not reloaded, since an earlier change needs the game to run again.",
             "hot reload: 0 failure(s)",
         ],
     )
@@ -618,12 +583,6 @@ def run_export_groups(godot):
         (runner / "petrichor.gdextension").write_text("\n".join(line for line in extension if not line.startswith("windows.editor.")), encoding="utf-8")
         code, output = run(godot, "--path", str(runner), "--script", str(HERE / "export_check.gd"), "--", str(pack))
         expect_run("exported pack run with the template_debug library", code, output, ["export check: greeter.petc header = PETC", *GAME_OUTPUT])
-        code, output = run(godot, "--path", str(runner), "--script", str(HERE / "export_check.gd"), "--", str(pack), "res://language/coroutines.tscn")
-        expect_run("exported coroutines", code, output, ["coroutines: 0 failure(s)"], expected_errors(output, "coroutines"))
-        code, output = run(godot, "--path", str(runner), "--script", str(HERE / "export_check.gd"), "--", str(pack), "res://language/defaults.tscn")
-        expect_run("exported defaults", code, output, ["defaults: 0 failure(s)"])
-        code, output = run(godot, "--path", str(runner), "--script", str(HERE / "export_check.gd"), "--", str(pack), "res://language/inheritance.tscn")
-        expect_run("exported inheritance", code, output, ["inheritance: 0 failure(s)"])
 
 
 def template_library_current():

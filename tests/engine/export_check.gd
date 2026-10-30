@@ -16,5 +16,4 @@ func _init() -> void:
 			return
 	var header := FileAccess.get_file_as_bytes("res://greeter.petc").slice(0, 4).get_string_from_ascii()
 	print("export check: greeter.petc header = ", header)
-	var args := OS.get_cmdline_user_args()
-	change_scene_to_file.call_deferred(args[1] if args.size() > 1 else "res://main.tscn")
+	change_scene_to_file.call_deferred("res://main.tscn")

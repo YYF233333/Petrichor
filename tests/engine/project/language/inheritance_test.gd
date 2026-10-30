@@ -1,4 +1,7 @@
 extends Node
+
+# Inheritance between classes of this language, run by language_test.gd.
+
 var failures := 0
 
 func check(ok: bool, what: String) -> void:
@@ -9,7 +12,7 @@ func check(ok: bool, what: String) -> void:
 func collect(value, results: Array) -> void:
 	results.append(await value)
 
-func _ready() -> void:
+func run(_errors) -> int:
 	var scene: PackedScene = load("res://language/inherit_leaf.tscn")
 	var node = scene.instantiate()
 	check(node.trace == "BCLIJ", "base-to-leaf members then nearest user constructor")
@@ -46,5 +49,4 @@ func _ready() -> void:
 	await get_tree().process_frame
 	check(node.frames > 0, "inherited engine virtual enables processing")
 	node.free()
-	print("inheritance: %d failure(s)" % failures)
-	get_tree().quit(1 if failures else 0)
+	return failures

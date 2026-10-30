@@ -1,4 +1,0 @@
-extends Node
-var x: int = 2
-pub static func value() -> int:
-	return 1

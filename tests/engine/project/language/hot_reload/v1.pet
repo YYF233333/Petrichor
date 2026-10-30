@@ -1,4 +1,4 @@
-# Hot reload, version 1. run.py copies each version to live.pet (hot_reload_test.gd).
+# Hot reload, version 1. run.py copies each later version over it (hot_reload_test.gd).
 extends Node
 
 pub var count := 0

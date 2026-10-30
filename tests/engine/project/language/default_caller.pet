@@ -4,9 +4,6 @@ extends RefCounted
 pub func peers(other: DefaultValues) -> Array[DefaultValues]:
 	return other.peers()
 
-pub async func later_peers(other: DefaultValues) -> Array[DefaultValues]:
-	return await other.later_peers()
-
 pub func snapshot(other: DefaultValues) -> Array:
 	return other.snapshot()
 

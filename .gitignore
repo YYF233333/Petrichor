@@ -18,7 +18,6 @@ tests/engine/project/bin/*.ilk
 .godot/
 
 # Engine tests
-tests/engine/project/language/hot_reload/live.pet
 tests/engine/project/editor_check_*
 __pycache__/
 

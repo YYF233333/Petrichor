@@ -1,7 +1,10 @@
 extends Node
+
+# Coroutines (spec §9), run by language_test.gd with its log of errors.
+
 const ErrorLog = preload("res://error_log.gd")
 var failures := 0
-var errors := ErrorLog.new()
+var errors: ErrorLog
 
 func check(ok: bool, what: String) -> void:
 	if ok: print("coroutines: ok: ", what)
@@ -10,14 +13,14 @@ func check(ok: bool, what: String) -> void:
 		printerr("coroutines: FAILED: ", what)
 
 func expect_errors(expected: Array[String], what: String) -> void:
-	var mismatch := errors.compare(expected, "coroutines")
+	var mismatch := errors.compare(expected, "language")
 	check(mismatch.is_empty(), what + " " + mismatch)
 
 func collect(value, output: Array) -> void:
 	output.append(await value)
 
-func _ready() -> void:
-	OS.add_logger(errors)
+func run(p_errors: ErrorLog) -> int:
+	errors = p_errors
 	var c := CoroutineCheck.new()
 	add_child(c)
 	var results: Array = []
@@ -101,7 +104,7 @@ func _ready() -> void:
 	bridge.tick.emit(2)
 	expect_errors([], "GDScript coroutine statement is detached")
 	c.unawaited_gd(bridge)
-	expect_errors(["coroutine_check.pet:40: The method is a GDScript coroutine and needs await."], "GDScript coroutine value needs await")
+	expect_errors(["coroutine_check.pet:35: The method is a GDScript coroutine and needs await."], "GDScript coroutine value needs await")
 	bridge.tick.emit(1)
 	bridge.tick.emit(2)
 	results.clear()
@@ -113,7 +116,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	check(results == [null], "freed GDScript receiver ends waiter after frame")
-	expect_errors(["coroutine_check.pet:37: The awaited object %d was freed or lost its script." % bridge_id], "freed receiver reports once")
+	expect_errors(["coroutine_check.pet:32: The awaited object %d was freed or lost its script." % bridge_id], "freed receiver reports once")
 
 	# Callable calls must wait even when the return value is discarded.
 	var before: int = c.count
@@ -140,16 +143,16 @@ func _ready() -> void:
 	signal_bridge.task = c.start()
 	collect(c.call_pet(signal_bridge.get_completion), [])
 	signal_bridge.task.cancel()
-	expect_errors(["coroutine_check.pet:76: The awaited task was cancelled."], "Callable Task cancellation is an error")
+	expect_errors(["coroutine_check.pet:71: The awaited task was cancelled."], "Callable Task cancellation is an error")
 	var failure = c.start_failure()
 	c.tick.emit(0)
-	expect_errors(["coroutine_check.pet:85: Division by zero."], "failure propagates through three tasks once")
+	expect_errors(["coroutine_check.pet:80: Division by zero."], "failure propagates through three tasks once")
 	c.start_shared(failure)
 	expect_errors([], "awaiting a failed Task does not report again")
 	signal_bridge.task = c.start_failure()
 	collect(c.call_pet(signal_bridge.get_completion), [])
 	c.tick.emit(0)
-	expect_errors(["coroutine_check.pet:85: Division by zero."], "Callable Task failure propagates once")
+	expect_errors(["coroutine_check.pet:80: Division by zero."], "Callable Task failure propagates once")
 	signal_bridge.free()
 	var worker := CoroutineCheck.new()
 	add_child(worker)
@@ -164,7 +167,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	check(results == [null], "freed Task owner ends waiter")
 	expect_errors(["coroutine_check.pet:22: The awaited object %d was freed or lost its script." % worker_id,
-		"coroutine_check.pet:76: The awaited object %d was freed or lost its script." % worker_id], "Task waits report the actual owner ID")
+		"coroutine_check.pet:71: The awaited object %d was freed or lost its script." % worker_id], "Task waits report the actual owner ID")
 	c.start_shared(old_task)
 	c.free()
 	expect_errors(["coroutine_check.pet:22: The awaited object %d was freed or lost its script." % worker_id], "old freed Task reports before same-frame waiter deletion")
@@ -191,6 +194,4 @@ func _ready() -> void:
 	await get_tree().process_frame
 	check(results == [null], "same-frame sibling deletion cancels silently")
 	expect_errors([], "same-frame deletion has no error")
-	OS.remove_logger(errors)
-	print("coroutines: ", failures, " failure(s)")
-	get_tree().quit(1 if failures else 0)
+	return failures

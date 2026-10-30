@@ -13,21 +13,11 @@ pub func peers(values: Array[DefaultValues] = []) -> Array[DefaultValues]:
 pub func local_peers() -> Array[DefaultValues]:
 	return peers()
 
-pub func peers_callback() -> Callable:
-	return peers.bind()
-
-pub async func later_peers(values: Array[DefaultValues] = []) -> Array[DefaultValues]:
-	await tick
-	return values
-
 pub func snapshot(red: Color = Color(0.66, 0, 0, 0.66), transparent: Color = Color(1, 1, 1, 0.33), placed: Transform2D = Transform2D(0.5, Vector2(-1, 2)), up: Vector3 = Vector3.UP, node: Node? = None, none: Color? = None, color: Color? = Color.RED, points: Array[Vector2] = [Vector2(1, 2), Vector2.ZERO]) -> Array:
 	return [red, transparent, placed, up, node, none, color, points]
 
 pub func local_snapshot() -> Array:
 	return snapshot()
-
-pub func callback() -> Callable:
-	return snapshot.bind()
 
 pub func append(values: Array[int] = [1]) -> int:
 	values.append(2)

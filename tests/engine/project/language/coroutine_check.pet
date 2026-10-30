@@ -24,11 +24,6 @@ pub async func shared(t: Task[int]) -> int:
 pub func start_shared(t: Task[int]) -> Task[int]:
 	return shared(t)
 
-pub async func signal_from(other: Node) -> int:
-	await other.tree_exiting
-	count += 1
-	return 7
-
 pub async func wait_signal(s: Signal):
 	await s
 	count += 1

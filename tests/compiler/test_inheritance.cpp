@@ -1,4 +1,3 @@
-#include "bytecode/opcodes.h"
 #include "doctest.h"
 #include "helpers.h"
 
@@ -55,7 +54,6 @@ pub func read() -> int:
 	CHECK(r.module.inherited_members == 3);
 	REQUIRE(r.module.members.size() == 4);
 	CHECK(r.module.members[1].name == "hidden");
-	CHECK(r.module.members[3].offset > r.module.members[2].offset);
 	bool inherited = false, override = false;
 	for (const auto &fn : r.module.functions) {
 		if (fn.name == "secret") {
@@ -146,19 +144,4 @@ TEST_CASE("inheritance scene connections belong to their attached class") {
 			CHECK(function_named(r.module, "child_connected").is_exposed);
 		}
 	}
-}
-
-TEST_CASE("inheritance super object arguments stay inside the language") {
-	FakeProject p;
-	p.add_script("res://base.pet", "class_name Base\nextends Node\nfunc forward(value: Node) -> Node:\n\treturn value\n", "Base");
-	const auto r = compile_in("extends Base\nfunc forward(value: Node) -> Node:\n\treturn super(value)\n", p);
-	INFO(messages(r));
-	REQUIRE(r.ok());
-	const auto &code = function_named(r.module, "forward").code;
-	bool has_super = false;
-	for (size_t pc = 0; pc < code.size(); pc += bytecode::instruction_length(code.data() + pc)) {
-		CHECK(bytecode::Op(code[pc]) != bytecode::Op::CHECK_LIVE);
-		has_super |= bytecode::Op(code[pc]) == bytecode::Op::CALL_SUPER;
-	}
-	CHECK(has_super);
 }

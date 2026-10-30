@@ -1,6 +1,7 @@
 extends Node
 
-# Runs compiled code of the first language subset (architecture §5 step 3):
+# Runs compiled code of the first language subset (architecture §5 step 3),
+# then the checks of coroutines, default values and inheritance:
 #   godot --headless --path . res://language/language.tscn
 
 const ErrorLog := preload("res://error_log.gd")
@@ -320,6 +321,12 @@ func _ready() -> void:
 	_check_errors(["free_check.pet:17: self was freed, or lost its script, while this method ran."], "the program error of reading a member after self was freed")
 	_check(c.frames > frames_before, "_process runs every frame")
 	_check(not is_instance_valid(freeing) and not has_meta(&"after_free"), "reading a member after self was freed in _process is a program error")
+
+	for test: GDScript in [preload("res://language/coroutines_test.gd"), preload("res://language/defaults_test.gd"), preload("res://language/inheritance_test.gd")]:
+		var part: Node = test.new()
+		add_child(part)
+		failures += await part.run(errors)
+		part.queue_free()
 
 	_check_errors([], "no other errors")
 	OS.remove_logger(errors)
