@@ -9,7 +9,9 @@
 #include <godot_cpp/godot.hpp>
 
 #include <array>
+#include <mutex>
 #include <new>
+#include <unordered_map>
 
 using namespace godot;
 
@@ -71,7 +73,7 @@ String type_description(ValueType p_type, const ValueCheck &p_check) {
 			return p_check.nullable ? name + String("?") : name;
 		}
 		case ValueType::Variant:
-			return p_check.option == ValueType::Void ? String("Variant") : String(bytecode::value_type_name(p_check.option)) + "?";
+			return "Variant";
 		case ValueType::Array:
 			if (p_check.element == ValueType::Void) {
 				return "Array";
@@ -172,12 +174,26 @@ void destroy_value(ValueType p_type, uint8_t *p_slot) {
 	}
 }
 
+// A number for each layout, the same in every image.
+static uint32_t layout_id(const std::string &p_key) {
+	static std::mutex mutex;
+	static std::unordered_map<std::string, uint32_t> ids;
+	std::lock_guard<std::mutex> lock(mutex);
+	return ids.emplace(p_key, uint32_t(ids.size())).first->second;
+}
+
 std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_types) {
 	std::vector<TypeImage> images;
+	images.reserve(p_types.size());
 	for (uint32_t i = 0; i < p_types.size(); i++) {
 		const bytecode::TypeDesc &type = p_types[i];
 		TypeImage image;
+		image.kind = type.kind;
 		image.storage = bytecode::storage_of(p_types, i);
+		// The verifier has checked that a type inside another comes before it.
+		image.element = type.kind == bytecode::TypeKind::Option ? &images[type.element] : nullptr;
+		image.size = bytecode::type_size(p_types, i);
+		image.layout = layout_id(bytecode::layout_key(p_types, i));
 		image.result_key = bytecode::task_result_key(p_types, i);
 		ValueCheck &check = image.check;
 		// The class of an object, or of the objects in an array.
@@ -192,9 +208,6 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 		}
 		check.task_result = type.task_result;
 		check.nullable = type.kind != bytecode::TypeKind::Object || type.nullable;
-		if (type.kind == bytecode::TypeKind::Option) {
-			check.option = bytecode::storage_of(p_types, type.element);
-		}
 		if (type.kind == bytecode::TypeKind::Array) {
 			check.element = bytecode::storage_of(p_types, type.element);
 		}
@@ -203,13 +216,94 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 	return images;
 }
 
-void SlotLayout::add(uint32_t p_offset, ValueType p_type) {
-	if (!ops(p_type).zero_default) {
-		constructed.emplace_back(p_offset, p_type);
+void SlotLayout::add(uint32_t p_offset, const TypeImage &p_type) {
+	if (p_type.kind == bytecode::TypeKind::Option) {
+		add(p_offset + 8, *p_type.element); // The tag is zero: None.
+		return;
 	}
-	if (is_variant_slot(p_type) || ops(p_type).destroy) {
-		destroyed.emplace_back(p_offset, p_type);
+	if (!ops(p_type.storage).zero_default) {
+		constructed.emplace_back(p_offset, p_type.storage);
 	}
+	if (is_variant_slot(p_type.storage) || ops(p_type.storage).destroy) {
+		destroyed.emplace_back(p_offset, p_type.storage);
+	}
+}
+
+/* Values by their type */
+
+static bool is_option(const TypeImage &p_type) {
+	return p_type.kind == bytecode::TypeKind::Option;
+}
+
+static uint64_t &tag(uint8_t *p_slot) {
+	return *reinterpret_cast<uint64_t *>(p_slot);
+}
+
+static uint64_t tag(const uint8_t *p_slot) {
+	return *reinterpret_cast<const uint64_t *>(p_slot);
+}
+
+void construct_value(const TypeImage &p_type, uint8_t *p_slot) {
+	if (is_option(p_type)) {
+		tag(p_slot) = 0;
+		construct_value(*p_type.element, p_slot + 8);
+	} else {
+		construct_value(p_type.storage, p_slot);
+	}
+}
+
+void destroy_value(const TypeImage &p_type, uint8_t *p_slot) {
+	if (is_option(p_type)) {
+		destroy_value(*p_type.element, p_slot + 8);
+	} else {
+		destroy_value(p_type.storage, p_slot);
+	}
+}
+
+void copy_value(const TypeImage &p_type, uint8_t *p_dst, const uint8_t *p_src) {
+	if (is_option(p_type)) {
+		tag(p_dst) = tag(p_src);
+		copy_value(*p_type.element, p_dst + 8, p_src + 8);
+	} else {
+		copy_value(p_type.storage, p_dst, p_src);
+	}
+}
+
+Variant to_variant(const TypeImage &p_type, const uint8_t *p_slot) {
+	if (is_option(p_type)) {
+		return tag(p_slot) ? to_variant(*p_type.element, p_slot + 8) : Variant(); // None is NIL (spec §10.1).
+	}
+	return to_variant(p_type.storage, p_slot);
+}
+
+bool from_variant(const TypeImage &p_type, const Variant &p_value, uint8_t *p_slot, bool p_check) {
+	if (is_option(p_type)) {
+		if (is_none(p_value)) {
+			tag(p_slot) = 0;
+			return true;
+		}
+		if (!from_variant(*p_type.element, p_value, p_slot + 8, p_check)) {
+			return false;
+		}
+		tag(p_slot) = 1;
+		return true;
+	}
+	return from_variant(p_type.storage, p_value, p_slot, p_check ? &p_type.check : nullptr);
+}
+
+String type_description(const TypeImage &p_type) {
+	return is_option(p_type) ? type_description(*p_type.element) + "?" : type_description(p_type.storage, p_type.check);
+}
+
+String entry_mismatch(const TypeImage &p_type, const Variant &p_value) {
+	if (is_option(p_type)) {
+		return vformat("expected %s, found %s", type_description(p_type), value_description(p_value));
+	}
+	return entry_mismatch(p_type.storage, p_value, p_type.check);
+}
+
+Variant default_variant(const TypeImage &p_type) {
+	return is_option(p_type) ? Variant() : default_variant(p_type.storage);
 }
 
 void SlotLayout::construct(uint8_t *p_base) const {
@@ -260,22 +354,9 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 	switch (p_type) {
 		case ValueType::Void:
 			return true;
-		case ValueType::Variant: {
-			const ValueType option = p_check ? p_check->option : ValueType::Void;
-			if (option != ValueType::Void && !is_none(p_value)) {
-				// T? of a value type holds a T, converted as for a T slot.
-				alignas(16) uint8_t storage[64];
-				construct_value(option, storage);
-				const bool ok = from_variant(option, p_value, storage);
-				if (ok) {
-					variant_at(p_slot) = to_variant(option, storage);
-				}
-				destroy_value(option, storage);
-				return ok;
-			}
-			variant_at(p_slot) = option != ValueType::Void ? Variant() : p_value; // None in one form.
+		case ValueType::Variant:
+			variant_at(p_slot) = p_value;
 			return true;
-		}
 		case ValueType::Object:
 			if (is_none(p_value)) {
 				if (p_check && !p_check->nullable) {
@@ -435,7 +516,7 @@ Variant outward_variant(const TypeImage &p_type, const uint8_t *p_data) {
 	if (p_type.storage == ValueType::Object && p_type.check.nullable && !is_live_object(p_data)) {
 		return Variant();
 	}
-	return to_variant(p_type.storage, p_data);
+	return to_variant(p_type, p_data);
 }
 
 bool check_value_sizes(String &r_error) {

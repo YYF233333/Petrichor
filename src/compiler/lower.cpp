@@ -30,7 +30,6 @@ ValueType value_type(const Type &p_type) {
 		case TypeKind::Task:
 		case TypeKind::Object:
 			return ValueType::Object;
-		case TypeKind::Option: // A Variant that is NIL for None (spec §3.4).
 		case TypeKind::None:
 		case TypeKind::Variant:
 			return ValueType::Variant;
@@ -202,8 +201,10 @@ class Lowerer {
 		return uint32_t(fn.regs.size() - 1);
 	}
 
-	// How the register holds its value.
+	// How the register holds its value in the engine's layout; Void for T?.
 	ValueType reg_type(uint32_t p_reg) const { return bytecode::storage_of(module.types, fn.regs[p_reg].type); }
+
+	bool is_option_reg(uint32_t p_reg) const { return module.types[fn.regs[p_reg].type].kind == bytecode::TypeKind::Option; }
 
 	/* Types */
 
@@ -485,11 +486,14 @@ class Lowerer {
 		}
 		const ValueType from = reg_type(p_reg);
 		const ValueType to = value_type(p_to);
-		if (p_to.kind == TypeKind::Option && from != ValueType::Variant) {
+		if (p_to.kind == TypeKind::Option && !is_option_reg(p_reg)) {
+			if (from == ValueType::Variant) {
+				return default_value(temp(p_to)); // The None literal.
+			}
 			// T becomes Some(T) (spec §3.4).
 			const uint32_t inner = convert(p_reg, p_to.args[0]);
 			const uint32_t result = temp(p_to);
-			instr(Op::TO_VARIANT, result, inner, NO_REG, 0, fn.regs[inner].type);
+			instr(Op::SOME, result, inner, NO_REG, 0, fn.regs[result].type);
 			return result;
 		}
 		if (from == to || to == ValueType::Variant || to == ValueType::Void) {
@@ -655,6 +659,10 @@ class Lowerer {
 		if (is_typed_array_reg(p_dst)) {
 			// An empty Array[T] is typed too.
 			new_array(p_dst);
+			return p_dst;
+		}
+		if (is_option_reg(p_dst)) {
+			instr(Op::CONST_VALUE, p_dst, NO_REG, NO_REG, default_constant(fn.regs[p_dst].type), fn.regs[p_dst].type); // None.
 			return p_dst;
 		}
 		switch (type) {
@@ -1021,7 +1029,7 @@ class Lowerer {
 					const Expr &value = p_expr.left->kind == ExprKind::NoneLiteral ? *p_expr.right : *p_expr.left;
 					const uint32_t source = lower_expr(value);
 					const uint32_t result = temp(ValueType::Bool);
-					instr(Op::IS_NONE, result, source);
+					instr(Op::IS_NONE, result, source, NO_REG, 0, fn.regs[source].type);
 					return p_expr.op == TokenKind::BangEqual ? negate(result) : result;
 				}
 				if (p_expr.op == TokenKind::And || p_expr.op == TokenKind::Or) {
@@ -1120,7 +1128,7 @@ class Lowerer {
 		switch (p_expr.target) {
 			case Target::Local:
 				place.reg = uint32_t(p_expr.index);
-				place.kind = value_type(p_expr.type) != reg_type(place.reg) ? Place::Kind::NarrowedLocal : Place::Kind::Local;
+				place.kind = is_option_reg(place.reg) && p_expr.type.kind != TypeKind::Option ? Place::Kind::NarrowedLocal : Place::Kind::Local;
 				break;
 			case Target::Member:
 				place.kind = Place::Kind::Member;
@@ -1196,7 +1204,7 @@ class Lowerer {
 				move(p_place.reg, p_value);
 				return;
 			case Place::Kind::NarrowedLocal:
-				instr(Op::TO_VARIANT, p_place.reg, p_value, NO_REG, 0, fn.regs[p_value].type);
+				instr(Op::SOME, p_place.reg, p_value, NO_REG, 0, fn.regs[p_place.reg].type);
 				return;
 			case Place::Kind::Member: {
 				const int setter = accessor(p_place.index, true);

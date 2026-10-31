@@ -132,7 +132,7 @@ static Dictionary method_dict(const StringName &p_name, const Array &p_args, con
 // the engine, which reads that as void unless told otherwise.
 static Dictionary value_dict(const TypeImage &p_type, const StringName &p_name, uint32_t p_usage) {
 	const bool object = p_type.storage == bytecode::ValueType::Object;
-	const uint32_t usage = p_type.storage == bytecode::ValueType::Variant ? p_usage | PROPERTY_USAGE_NIL_IS_VARIANT : p_usage;
+	const uint32_t usage = p_type.storage == bytecode::ValueType::Variant || p_type.kind == bytecode::TypeKind::Option ? p_usage | PROPERTY_USAGE_NIL_IS_VARIANT : p_usage;
 	return property_dict(variant_type(p_type.storage), p_name, usage, object ? p_type.check.class_name : StringName());
 }
 
@@ -259,7 +259,7 @@ Variant initial_value(const ClassImage &p_image, size_t p_member) {
 	String error;
 	if (!constant_value(p_image.types, member.initial, value, error)) {
 		ERR_PRINT(vformat("%s: the initial value of %s: %s", p_image.path, p_image.member_names[p_member], error));
-		return default_variant(p_image.types[member.type].storage);
+		return default_variant(p_image.types[member.type]);
 	}
 	return value;
 }

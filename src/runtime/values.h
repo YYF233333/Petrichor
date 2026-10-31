@@ -47,18 +47,38 @@ struct ValueCheck {
 	godot::String interface; // As class_name, an interface the object implements: "script::Name".
 	std::string task_result;
 	bool nullable = true; // Object: may be None.
-	bytecode::ValueType option = bytecode::ValueType::Void; // Variant: None or a value of this type.
 	bytecode::ValueType element = bytecode::ValueType::Void; // Array: typed with this element type.
 };
 
-// A type of a module's table as the runtime uses it (architecture §2.2).
+// A type of a module's table as the runtime uses it (architecture §2.2): how
+// its values are made, copied, destroyed and exchanged with the engine.
 struct TypeImage {
-	bytecode::ValueType storage = bytecode::ValueType::Void; // How a slot holds it.
+	bytecode::TypeKind kind = bytecode::TypeKind::Value;
+	// How a slot holds it in the engine's layout; Void for T?, whose slot is
+	// an 8-byte tag, 1 for Some, then the value, which is there also for None.
+	bytecode::ValueType storage = bytecode::ValueType::Void;
+	const TypeImage *element = nullptr; // T?: T, in the same table.
+	uint32_t size = 0; // Of its slot.
+	uint32_t layout = 0; // Equal for types laid out alike, in every image.
 	ValueCheck check;
 	std::string result_key; // The signature key of a Task[T] whose T it is.
 };
 
+// The images of a module's types; `element` points into the vector returned,
+// which must not be copied.
 std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_types);
+
+void construct_value(const TypeImage &p_type, uint8_t *p_slot);
+void destroy_value(const TypeImage &p_type, uint8_t *p_slot);
+void copy_value(const TypeImage &p_type, uint8_t *p_dst, const uint8_t *p_src);
+godot::Variant to_variant(const TypeImage &p_type, const uint8_t *p_slot);
+// Stores the value when it fits the type, and with `p_check` the type's
+// entry check too.
+bool from_variant(const TypeImage &p_type, const godot::Variant &p_value, uint8_t *p_slot, bool p_check);
+godot::String entry_mismatch(const TypeImage &p_type, const godot::Variant &p_value);
+godot::Variant default_variant(const TypeImage &p_type);
+// The type as the source writes it: "int?", "Array[Enemy]"…
+godot::String type_description(const TypeImage &p_type);
 
 // The slots of a frame or of an instance's members: zeroed as a whole, then
 // those whose default value is not all zero bytes, such as Basis or Array, are
@@ -74,7 +94,7 @@ struct SlotLayout {
 	void destroy(uint8_t *p_base) const;
 
 private:
-	void add(uint32_t p_offset, bytecode::ValueType p_type);
+	void add(uint32_t p_offset, const TypeImage &p_type);
 };
 
 template <typename T>
@@ -82,7 +102,7 @@ SlotLayout SlotLayout::of(uint32_t p_size, const std::vector<T> &p_slots, const 
 	SlotLayout layout;
 	layout.size = p_size;
 	for (const bytecode::Slot &slot : p_slots) {
-		layout.add(slot.offset, p_types[slot.type].storage);
+		layout.add(slot.offset, p_types[slot.type]);
 	}
 	return layout;
 }

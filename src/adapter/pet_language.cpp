@@ -329,7 +329,7 @@ Dictionary PetLanguage::_debug_get_stack_level_locals(int32_t p_level, int32_t p
 	for (const bytecode::Slot &slot : frame->function->slots) {
 		if (!slot.name.empty()) {
 			names.push_back(to_godot(slot.name));
-			values.push_back(to_variant(frame->image->types[slot.type].storage, frame->frame + slot.offset));
+			values.push_back(to_variant(frame->image->types[slot.type], frame->frame + slot.offset));
 		}
 	}
 	result["locals"] = names;
@@ -349,7 +349,7 @@ Dictionary PetLanguage::_debug_get_stack_level_members(int32_t p_level, int32_t 
 	const ClassImage &image = *(frame->self_image ? frame->self_image : frame->image);
 	for (const bytecode::Member &member : image.module.members) {
 		names.push_back(to_godot(member.name));
-		values.push_back(to_variant(image.types[member.type].storage, frame->members + member.offset));
+		values.push_back(to_variant(image.types[member.type], frame->members + member.offset));
 	}
 	result["members"] = names;
 	result["values"] = values;

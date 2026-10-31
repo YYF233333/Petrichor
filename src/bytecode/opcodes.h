@@ -79,9 +79,10 @@ namespace petrichor::bytecode {
 	X(CHECK_RANGE, 2) /* IntRange, slot (int): fits the engine's */ \
 	X(CAST_OBJECT, 3) /* class, dst, src: `as`, None if it fails */ \
 	X(IS_INSTANCE, 3) /* class, dst (bool), src: `is` */ \
-	X(IS_NONE, 2) /* dst (bool), src (Object or Variant) */ \
+	X(IS_NONE, 3) /* type of src, dst (bool), src (an object or T?) */ \
+	X(SOME, 3) /* type of dst (T?), dst, src (T): Some(src) (spec §3.4) */ \
 	X(TO_VARIANT, 3) /* type of src, dst (Variant), src */ \
-	X(UNWRAP, 4) /* type of dst, dst, src, message (NO_SLOT: default) */ \
+	X(UNWRAP, 4) /* type of dst, dst, src (T?), message (NO_SLOT: default) */ \
 	X(NEW_ARRAY, 2) /* type, dst: an empty array, typed as the type says */ \
 	X(GET_INDEX, 5) /* type of base, type of dst, dst, base, index */ \
 	X(JUMP, 1) \

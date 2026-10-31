@@ -105,11 +105,16 @@ struct TypeDesc {
 	}
 };
 
-// How a slot of the type holds it: Object and T? in a Variant for now.
+// How a slot of the type holds it in the engine's layout: an object in a
+// Variant for now. T? has no such layout: its slot is an 8-byte tag, 1 for
+// Some, then the value, which is there also for None.
 ValueType storage_of(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 uint32_t type_size(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 // The type as text, equal exactly for equal types in any module.
 std::string type_key(const std::vector<TypeDesc> &p_types, uint32_t p_type);
+// How a slot of the type is laid out, as text equal for types whose values can
+// be copied from one slot to the other as they are.
+std::string layout_key(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 
 // A constant of a type of the table; one of an Object type or of T? is None.
 struct Constant {

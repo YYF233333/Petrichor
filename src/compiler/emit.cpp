@@ -172,7 +172,9 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 					put(offset_of(instr.b));
 					break;
 				case Op::TO_VARIANT:
-					put(uint32_t(instr.type));
+				case Op::IS_NONE:
+				case Op::SOME:
+					put(instr.type);
 					put(offset_of(instr.dst));
 					put(offset_of(instr.a));
 					break;

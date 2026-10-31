@@ -117,8 +117,6 @@ ValueType storage_of(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 			return p_types[p_type].value;
 		case TypeKind::Object:
 			return ValueType::Object;
-		case TypeKind::Option:
-			return ValueType::Variant;
 		case TypeKind::Array:
 			return ValueType::Array;
 		default:
@@ -127,7 +125,17 @@ ValueType storage_of(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 }
 
 uint32_t type_size(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
+	if (p_type < p_types.size() && p_types[p_type].kind == TypeKind::Option && p_types[p_type].element < p_type) {
+		return 8 + type_size(p_types, p_types[p_type].element);
+	}
 	return slot_size(storage_of(p_types, p_type));
+}
+
+std::string layout_key(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
+	if (p_type < p_types.size() && p_types[p_type].kind == TypeKind::Option && p_types[p_type].element < p_type) {
+		return "?(" + layout_key(p_types, p_types[p_type].element) + ")";
+	}
+	return std::to_string(int(storage_of(p_types, p_type)));
 }
 
 std::string type_key(const std::vector<TypeDesc> &p_types, uint32_t p_type) {

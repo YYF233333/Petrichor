@@ -235,8 +235,8 @@ static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance,
 	// member, which keeps its value (spec §7.5, §10.1); the write is handled.
 	const size_t index = size_t(member - image->module.members.data());
 	const TypeImage &type = image->types[member->type];
-	if (!from_variant(type.storage, value, instance->storage->members + member->offset, &type.check)) {
-		vm::report_error(*image, member->name.c_str(), int(member->line), vformat("\"%s\" was not written: %s.", image->member_names[index], entry_mismatch(type.storage, value, type.check)));
+	if (!from_variant(type, value, instance->storage->members + member->offset, true)) {
+		vm::report_error(*image, member->name.c_str(), int(member->line), vformat("\"%s\" was not written: %s.", image->member_names[index], entry_mismatch(type, value)));
 	}
 	return true;
 }
