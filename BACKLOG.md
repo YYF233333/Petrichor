@@ -19,6 +19,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Members that are not pub of another instance of the same class, which the engine reaches by name while reflection lists only pub ones.
 - The check of `@onready` members of value types read before ready.
 - StringName and NodePath literals.
+- `const` (spec §4.5); Ring's breakout_manager.pet declares its `debug` as a pub var until then.
 - Constants of the engine class a class extends by their bare name, such as `NOTIFICATION_PREDELETE`, as GDScript has them in scope; now they need the class, `Object.NOTIFICATION_PREDELETE`.
 - `Array[T]?`; `pop_front()` and `pop_back()` of `Array[T?]`, which give `T??`.
 - Class annotations such as `@tool` and `@icon`.

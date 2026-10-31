@@ -48,6 +48,11 @@ func _ready() -> void:
 	_check(values.player_init_ammo == 6, "the initial ammo comes from the message (%d)" % values.player_init_ammo)
 	_check(manager.skill != null, "the selected skill is set")
 	_check(manager.consumables.consumable_nodes.size() == 2, "the consumables come from the message (%d)" % manager.consumables.consumable_nodes.size())
+	# What EndMiniGameScreen.gd:27 hands Root.cs when breakout ends.
+	var sent: Dictionary = manager.send_message()
+	var sent_consumables: Dictionary = sent["player_consumables"]
+	var old_model = sent_consumables.get("old model")
+	_check(sent_consumables.size() == 2 and old_model is Dictionary and old_model.keys() == ["rest_times", "transformed"] and old_model["rest_times"] is int and sent["level_result"] == {}, "the message back holds the consumables by field name (%s)" % sent)
 
 	_check(await _check_utility(manager), "Utility behavior checks complete")
 

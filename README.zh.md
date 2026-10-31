@@ -2,7 +2,7 @@
 
 一门面向中大型 Godot 4 项目的全静态类型脚本语言，在项目代码中替代 GDScript 并与 GDScript 插件共存，以 GDExtension 的形式交付。Petrichor 是项目代号。
 
-**状态**：早期实现阶段。[语言规范](docs/language-spec.zh.md)（v0.2）是发布出来征求意见的草案。语言的第一个子集已经能在 Godot 中运行，实现方式见[实现架构](docs/architecture.zh.md)；第一个里程碑已经达成：一个小型 FPS 游戏的脚本以 Petrichor 运行。引擎行为按 Godot 4.7.2-stable 核对。
+**状态**：早期实现阶段。[语言规范](docs/language-spec.zh.md)（v0.2）是发布出来征求意见的草案。语言的第一个子集已经能在 Godot 中运行，实现方式见[实现架构](docs/architecture.zh.md)；两个里程碑已经达成：一个小型 FPS 游戏的脚本以 Petrichor 运行，主体用 C# 写成的游戏 Ring 中打砖块小游戏的脚本也是。引擎行为按 Godot 4.7.2-stable 核对。
 
 English: [README.md](README.md)
 
@@ -77,7 +77,7 @@ func max_hp_from(data: Variant) -> int?:
 
 1. 第一个里程碑，已完成：[第二次纸面迁移](docs/surveys/paper-migration-2.zh.md)中的 FPS 项目以 Petrichor 脚本运行，运行它所需的 [§15](docs/language-spec.zh.md#15-一致性检查清单非规范性) 检查清单条目已写成测试；留待以后的部分列在 [BACKLOG.md](BACKLOG.md)。
 2. 已完成：偿还快速完成的第一版实现留下的技术债，分正确性、验证、代码、文档四组（[实现架构 §5](docs/architecture.zh.md#5-推进顺序)）。
-3. 当前：第二个里程碑，同一次迁移中 Ring 的 breakout 以 Petrichor 脚本运行（[实现架构 §5](docs/architecture.zh.md#5-推进顺序)）。
+3. 第二个里程碑，已完成：同一次迁移中 Ring 的 breakout 以 Petrichor 脚本运行，包括它与 C# 往来的消息所需的 struct 和元素为 struct 的容器（[实现架构 §5](docs/architecture.zh.md#5-推进顺序)）。
 4. 其余的工作列在 [BACKLOG.md](BACKLOG.md)，顺序未定，其中有带重命名的语言服务器、迁移用的快速修复，以及相对 GDScript 的性能工作。
 5. 贯穿始终：收集反馈，把规范收敛到可测试的核心。
 

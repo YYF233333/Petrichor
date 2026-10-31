@@ -2,7 +2,7 @@
 
 A fully statically typed scripting language for medium-to-large Godot 4 projects, replacing GDScript in project code while coexisting with GDScript plugins, delivered as a GDExtension. Petrichor is a codename.
 
-**Status:** early implementation. The [language specification](docs/language-spec.en.md) (v0.2) is a draft published for feedback. A first subset of the language runs in Godot, built as described in the [implementation architecture](docs/architecture.en.md); with it, the first milestone is reached: the scripts of a small FPS game run in Petrichor. Engine behavior is checked against Godot 4.7.2-stable.
+**Status:** early implementation. The [language specification](docs/language-spec.en.md) (v0.2) is a draft published for feedback. A first subset of the language runs in Godot, built as described in the [implementation architecture](docs/architecture.en.md); with it, two milestones are reached: the scripts of a small FPS game run in Petrichor, and so do those of the breakout minigame of Ring, a game written mostly in C#. Engine behavior is checked against Godot 4.7.2-stable.
 
 中文：[README.zh.md](README.zh.md)
 
@@ -77,7 +77,7 @@ Each survey has a write-up in English and Chinese and a directory of scripts tha
 
 1. First milestone, done: the FPS starter kit of the [second paper migration](docs/surveys/paper-migration-2.en.md) runs with its scripts in Petrichor, and the rows of the checklist in [§15](docs/language-spec.en.md#15-conformance-checklist-non-normative) that running it needs became tests; what it leaves for later is listed in the [backlog](BACKLOG.md).
 2. Done: paying down the debt the quick first implementation left, in four groups: correctness, verification, code and documents ([architecture §5](docs/architecture.en.md#5-order-of-work)).
-3. Now: the second milestone, the breakout of Ring in the same migration running with its scripts in Petrichor ([architecture §5](docs/architecture.en.md#5-order-of-work)).
+3. Second milestone, done: the breakout of Ring in the same migration runs with its scripts in Petrichor, with the structs and containers of them that its messages to and from C# need ([architecture §5](docs/architecture.en.md#5-order-of-work)).
 4. The rest is listed in the [backlog](BACKLOG.md), in no fixed order; among it are the language server with renaming, quick fixes for migration, and performance work against GDScript.
 5. Throughout: collect feedback and narrow the specification to a testable core.
 
