@@ -166,9 +166,15 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 					put(offset_of(instr.dst));
 					put(offset_of(instr.a));
 					break;
-				case Op::NEW_ARRAY:
+				case Op::NEW_CONTAINER:
 					put(instr.type);
 					put(offset_of(instr.dst));
+					break;
+				case Op::SET_INDEX:
+					put(p_function.regs[instr.dst].type);
+					put(offset_of(instr.dst));
+					put(offset_of(instr.a));
+					put(offset_of(instr.b));
 					break;
 				case Op::GET_INDEX:
 					put(p_function.regs[instr.a].type);

@@ -86,8 +86,9 @@ namespace petrichor::bytecode {
 	X(EQUAL, 4) /* type, dst (bool), a, b: a == b, a struct field by field (spec §3.6) */ \
 	X(TO_VARIANT, 3) /* type of src, dst (Variant), src */ \
 	X(UNWRAP, 4) /* type of dst, dst, src (T?), message (NO_SLOT: default) */ \
-	X(NEW_ARRAY, 2) /* type, dst: an empty array, typed as the type says */ \
-	X(GET_INDEX, 5) /* type of base, type of dst, dst, base, index */ \
+	X(NEW_CONTAINER, 2) /* type, dst: an empty Array or Dictionary, typed as the type says */ \
+	X(GET_INDEX, 5) /* type of base, type of dst, dst, base, index (an int, or a Dictionary's key) */ \
+	X(SET_INDEX, 4) /* type of base, base, index, src: a read-only base, an index out of bounds is a program error; a new Dictionary key is stored as a key (spec §3.8) */ \
 	X(JUMP, 1) \
 	X(JUMP_IF_FALSE, 2) \
 	X(JUMP_IF_TRUE, 2) \

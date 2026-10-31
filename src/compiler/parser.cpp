@@ -399,6 +399,8 @@ class Parser {
 				expect(TokenKind::BracketClose, "\"]\"");
 				return failed ? nullptr : std::move(expr);
 			}
+			case TokenKind::BraceOpen:
+				return dictionary_literal();
 			case TokenKind::ParenOpen: {
 				advance();
 				auto expr = expression();
@@ -409,6 +411,49 @@ class Parser {
 				fail(token, std::string("Expected an expression, found ") + token_name(token.kind) + ".");
 				return nullptr;
 		}
+	}
+
+	// `{k: v}`, or `{name = v}` with names or strings as keys, one style per
+	// literal, as in GDScript (modules/gdscript/gdscript_parser.cpp:3302-3342).
+	std::unique_ptr<Expr> dictionary_literal() {
+		auto expr = make(ExprKind::DictionaryLiteral, advance());
+		while (!check(TokenKind::BraceClose)) {
+			const Token &at = peek();
+			std::unique_ptr<Expr> key;
+			if (at.kind == TokenKind::Identifier && peek(1).kind == TokenKind::Equal) {
+				key = make(ExprKind::StringLiteral, advance());
+				key->text = at.text;
+			} else {
+				key = expression();
+				if (!key) {
+					return nullptr;
+				}
+			}
+			const bool lua = check(TokenKind::Equal);
+			if (!expr->args.empty() && lua != expr->bool_value) {
+				fail(peek(), "A dictionary is written with \":\" or \"=\" after every key, not both.");
+				return nullptr;
+			}
+			if (lua && key->kind != ExprKind::StringLiteral) {
+				fail(at, "A key written with \"=\" is a name or a string, as in { key = value }.");
+				return nullptr;
+			}
+			expr->bool_value = lua;
+			if (!match(TokenKind::Equal)) {
+				expect(TokenKind::Colon, "\":\" or \"=\" after the key");
+			}
+			auto value = failed ? nullptr : expression();
+			if (!value) {
+				return nullptr;
+			}
+			expr->args.push_back(std::move(key));
+			expr->args.push_back(std::move(value));
+			if (!match(TokenKind::Comma)) {
+				break;
+			}
+		}
+		expect(TokenKind::BraceClose, "\"}\"");
+		return failed ? nullptr : std::move(expr);
 	}
 
 	// After an error: skips the rest of the line and resumes.

@@ -1,0 +1,67 @@
+# Dictionary[K, V] and assignment to elements (spec §3.8), driven by language_test.gd.
+class_name ContainerCheck
+extends Node
+
+pub var scores: Dictionary[String, int]
+pub var points := PackedVector2Array()
+var seen: Dictionary[Array, int] = {}
+
+pub func counted() -> String:
+	var d: Dictionary[String, int] = {"a": 1, "b": 2}
+	d["c"] = 3
+	d["a"] += 10
+	var total := 0
+	for k in d:
+		total += d[k]
+	var missing := d.get("z")
+	var keys: Array[String] = d.keys()
+	return str(total) + " " + str(d.get("a", 0)) + " " + str(missing == None) + " " + str(d.get("b").unwrap()) + " " + str(keys.size()) + " " + str(d.find_key(2).unwrap())
+
+pub func scored(name: String, points_won: int) -> Dictionary[String, int]:
+	scores[name] = scores.get(name, 0) + points_won
+	return scores
+
+pub func missing_key() -> int:
+	var d: Dictionary[String, int] = {}
+	return d["nope"]
+
+pub func elements() -> String:
+	var a: Array[int] = [1, 2, 3]
+	a[0] = 10
+	a[-1] += 5
+	var v: Array[Vector2] = [Vector2(), Vector2()]
+	v[1].x = 4.0
+	points.push_back(Vector2())
+	points.push_back(Vector2())
+	points[1] = Vector2(3, 3)
+	points[0].y = 2.0
+	var p := PackedInt32Array()
+	p.push_back(1)
+	p[0] = 7
+	return str(a) + " " + str(v[1]) + " " + str(points) + " " + str(p)
+
+pub func out_of_bounds() -> void:
+	var a: Array[int] = [1]
+	a[1] = 2
+
+# A key is a copy that cannot change, so the original stays free to (spec §3.8).
+pub func keys_frozen() -> String:
+	var a: Array = [1]
+	seen[a] = 1
+	a.append(2)
+	var copy := seen.keys()[0].duplicate()
+	copy.append(3)
+	seen[copy] = 2
+	return str(seen.has([1])) + " " + str(seen.has(a)) + " " + str(seen.size()) + " " + str(seen.keys()[0].is_read_only())
+
+pub func change_key() -> void:
+	seen.keys()[0].append(9)
+
+pub func untyped() -> Dictionary:
+	var u: Dictionary = {name = 1, plain = 2}
+	u["v"] = Vector2(1, 2)
+	u["node"] = self
+	return u
+
+pub func typed_entry(d: Dictionary[String, int]) -> int:
+	return d.size()

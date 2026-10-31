@@ -116,6 +116,11 @@ String class_description(const StringName &p_class, const String &p_script, cons
 	return p_class;
 }
 
+// An element type of a container, or a Dictionary's key type.
+String element_description(ValueType p_type, const StringName &p_class, const String &p_script, const String &p_interface) {
+	return p_type == ValueType::Object ? class_description(p_class, p_script, p_interface) : String(bytecode::value_type_name(p_type));
+}
+
 String type_description(ValueType p_type, const ValueCheck &p_check) {
 	switch (p_type) {
 		case ValueType::Object: {
@@ -128,10 +133,25 @@ String type_description(ValueType p_type, const ValueCheck &p_check) {
 			if (p_check.element == ValueType::Void) {
 				return "Array";
 			}
-			return "Array[" + (p_check.element == ValueType::Object ? class_description(p_check.class_name, p_check.script, p_check.interface) : String(bytecode::value_type_name(p_check.element))) + "]";
+			return "Array[" + element_description(p_check.element, p_check.class_name, p_check.script, p_check.interface) + "]";
+		case ValueType::Dictionary:
+			if (p_check.key == ValueType::Void) {
+				return "Dictionary";
+			}
+			return "Dictionary[" + element_description(p_check.key, p_check.key_class_name, p_check.key_script, p_check.key_interface) + ", " +
+					element_description(p_check.element, p_check.class_name, p_check.script, p_check.interface) + "]";
 		default:
 			return bytecode::value_type_name(p_type);
 	}
+}
+
+// How the engine types a container's elements, or a Dictionary's keys.
+String typed_description(int64_t p_builtin, const StringName &p_class, const Variant &p_script) {
+	if (p_builtin != Variant::OBJECT) {
+		return Variant::get_type_name(Variant::Type(p_builtin));
+	}
+	const String name = script_name(p_script);
+	return name.is_empty() ? String(p_class) : name;
 }
 
 String value_description(const Variant &p_value) {
@@ -151,13 +171,35 @@ String value_description(const Variant &p_value) {
 		if (!array.is_typed()) {
 			return "Array";
 		}
-		if (array.get_typed_builtin() != Variant::OBJECT) {
-			return "Array[" + Variant::get_type_name(Variant::Type(array.get_typed_builtin())) + "]";
+		return "Array[" + typed_description(array.get_typed_builtin(), array.get_typed_class_name(), array.get_typed_script()) + "]";
+	}
+	if (type_of(p_value) == Variant::DICTIONARY) {
+		const Dictionary dictionary = p_value;
+		if (!dictionary.is_typed()) {
+			return "Dictionary";
 		}
-		const String name = script_name(array.get_typed_script());
-		return "Array[" + (name.is_empty() ? String(array.get_typed_class_name()) : name) + "]";
+		return "Dictionary[" + typed_description(dictionary.get_typed_key_builtin(), dictionary.get_typed_key_class_name(), dictionary.get_typed_key_script()) + ", " +
+				typed_description(dictionary.get_typed_value_builtin(), dictionary.get_typed_value_class_name(), dictionary.get_typed_value_script()) + "]";
 	}
 	return Variant::get_type_name(p_value.get_type());
+}
+
+// A container typed as the engine types it, with the element type, and with
+// the class and script of object elements (spec §3.8); a container does not
+// vary with its element type.
+bool typed_as(int64_t p_builtin, const StringName &p_class, const Variant &p_script, ValueType p_type, const StringName &p_want_class, const String &p_want_script) {
+	return p_builtin == int64_t(variant_type(p_type)) && (p_type != ValueType::Object || (p_class == p_want_class && has_script(p_script, p_want_script)));
+}
+
+// The engine types containers by class or script only: an element of an
+// interface type is checked one by one. A freed or null element is the
+// reader's to report (spec §3.8).
+bool implements(const Variant &p_element, const String &p_interface) {
+	return p_interface.is_empty() || !p_element.booleanize() || implements_interface(p_element, p_interface);
+}
+
+Variant load_script(const String &p_path) {
+	return p_path.is_empty() ? Variant() : ResourceLoader::get_singleton()->call("load", p_path);
 }
 
 // A Variant converts String and StringName into each other, like GDScript (spec §10.7).
@@ -269,20 +311,29 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 		image.layout = layout_id(bytecode::layout_key(p_types, i));
 		image.result_key = bytecode::task_result_key(p_types, i);
 		ValueCheck &check = image.check;
-		// The class of an object, or of the objects in an array.
-		const bytecode::TypeDesc &object = type.kind == bytecode::TypeKind::Array ? p_types[type.element] : type;
-		if (object.kind == bytecode::TypeKind::Object) {
-			check.class_name = to_godot(object.object.name);
-			if (object.object.interface_name.empty()) {
-				check.script = to_godot(object.object.script);
-			} else {
-				check.interface = to_godot(object.object.script + "::" + object.object.interface_name);
+		const bool container = type.kind == bytecode::TypeKind::Array || type.kind == bytecode::TypeKind::Dictionary;
+		// The class of an object, or of the objects in a container.
+		const auto class_of = [&](const bytecode::TypeDesc &p_object, StringName &r_class, String &r_script, String &r_interface) {
+			if (p_object.kind == bytecode::TypeKind::Object) {
+				r_class = to_godot(p_object.object.name);
+				if (p_object.object.interface_name.empty()) {
+					r_script = to_godot(p_object.object.script);
+				} else {
+					r_interface = to_godot(p_object.object.script + "::" + p_object.object.interface_name);
+				}
 			}
-		}
+		};
+		class_of(container ? p_types[type.element] : type, check.class_name, check.script, check.interface);
 		check.task_result = type.task_result;
 		check.nullable = type.kind != bytecode::TypeKind::Object || type.nullable;
-		if (type.kind == bytecode::TypeKind::Array) {
+		if (container) {
 			check.element = bytecode::storage_of(p_types, type.element);
+			image.item = &images[type.element];
+		}
+		if (type.kind == bytecode::TypeKind::Dictionary) {
+			check.key = bytecode::storage_of(p_types, type.key);
+			class_of(p_types[type.key], check.key_class_name, check.key_script, check.key_interface);
+			image.key = &images[type.key];
 		}
 		if (type.kind == bytecode::TypeKind::Struct) {
 			image.name = to_godot(type.name);
@@ -619,20 +670,30 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 			return true;
 		case ValueType::Array:
 			if (p_check && p_check->element != ValueType::Void && have == Variant::ARRAY) {
-				// Array[T] is the engine's array typed with T, and does not vary
-				// with T (spec §3.8).
 				const Array array = p_value;
-				if (!array.is_typed() || array.get_typed_builtin() != int64_t(variant_type(p_check->element)) ||
-						(p_check->element == ValueType::Object && (array.get_typed_class_name() != p_check->class_name || !has_script(array.get_typed_script(), p_check->script)))) {
+				if (!typed_as(array.get_typed_builtin(), array.get_typed_class_name(), array.get_typed_script(), p_check->element, p_check->class_name, p_check->script)) {
 					return false;
 				}
-				// The engine types arrays by class or script only: the elements
-				// of an array of an interface are checked one by one.
 				for (int64_t i = 0; !p_check->interface.is_empty() && i < array.size(); i++) {
-					const Variant element = array[i];
-					// A freed or null element is the reader's to report (spec §3.8).
-					if (element.booleanize() && !implements_interface(element, p_check->interface)) {
+					if (!implements(array[i], p_check->interface)) {
 						return false;
+					}
+				}
+			}
+			break;
+		case ValueType::Dictionary:
+			if (p_check && p_check->key != ValueType::Void && have == Variant::DICTIONARY) {
+				const Dictionary dictionary = p_value;
+				if (!typed_as(dictionary.get_typed_key_builtin(), dictionary.get_typed_key_class_name(), dictionary.get_typed_key_script(), p_check->key, p_check->key_class_name, p_check->key_script) ||
+						!typed_as(dictionary.get_typed_value_builtin(), dictionary.get_typed_value_class_name(), dictionary.get_typed_value_script(), p_check->element, p_check->class_name, p_check->script)) {
+					return false;
+				}
+				if (!p_check->key_interface.is_empty() || !p_check->interface.is_empty()) {
+					const Array keys = dictionary.keys();
+					for (int64_t i = 0; i < keys.size(); i++) {
+						if (!implements(keys[i], p_check->key_interface) || !implements(dictionary[keys[i]], p_check->interface)) {
+							return false;
+						}
 					}
 				}
 			}
@@ -713,13 +774,67 @@ Variant default_variant(ValueType p_type) {
 Array typed_array(ValueType p_element, const StringName &p_class, const String &p_script) {
 	Array array;
 	if (p_element != ValueType::Void) {
-		Variant script;
-		if (!p_script.is_empty()) {
-			script = ResourceLoader::get_singleton()->call("load", p_script);
-		}
-		array.set_typed(uint32_t(variant_type(p_element)), p_class, script);
+		array.set_typed(uint32_t(variant_type(p_element)), p_class, load_script(p_script));
 	}
 	return array;
+}
+
+Dictionary typed_dictionary(const ValueCheck &p_check) {
+	Dictionary dictionary;
+	if (p_check.key != ValueType::Void) {
+		dictionary.set_typed(uint32_t(variant_type(p_check.key)), p_check.key_class_name, load_script(p_check.key_script), uint32_t(variant_type(p_check.element)), p_check.class_name, load_script(p_check.script));
+	}
+	return dictionary;
+}
+
+// make_read_only() leaves the containers inside alone and cannot be undone
+// (core/variant/array.cpp:938-942, core/variant/dictionary.cpp:599-603), so a
+// key is copied and frozen level by level.
+Variant frozen_copy(const Variant &p_key) {
+	if (type_of(p_key) == Variant::ARRAY) {
+		const Array original = p_key;
+		Array copy = original.duplicate(false);
+		for (int64_t i = 0; i < copy.size(); i++) {
+			copy[i] = frozen_copy(original[i]);
+		}
+		copy.make_read_only();
+		return copy;
+	}
+	if (type_of(p_key) == Variant::DICTIONARY) {
+		const Dictionary original = p_key;
+		Dictionary copy = original.duplicate(false);
+		copy.clear();
+		const Array keys = original.keys();
+		for (int64_t i = 0; i < keys.size(); i++) {
+			copy[frozen_copy(keys[i])] = frozen_copy(original[keys[i]]);
+		}
+		copy.make_read_only();
+		return copy;
+	}
+	return p_key;
+}
+
+void freeze(const Variant &p_key) {
+	if (type_of(p_key) == Variant::ARRAY) {
+		Array array = p_key;
+		for (int64_t i = 0; i < array.size(); i++) {
+			freeze(array[i]);
+		}
+		array.make_read_only();
+	} else if (type_of(p_key) == Variant::DICTIONARY) {
+		Dictionary dictionary = p_key;
+		const Array keys = dictionary.keys();
+		for (int64_t i = 0; i < keys.size(); i++) {
+			freeze(keys[i]);
+			freeze(dictionary[keys[i]]);
+		}
+		dictionary.make_read_only();
+	}
+}
+
+bool keys_hold_containers(const Dictionary &p_dictionary) {
+	const int64_t key = p_dictionary.get_typed_key_builtin();
+	return key == Variant::NIL || key == Variant::ARRAY || key == Variant::DICTIONARY;
 }
 
 Variant::Type variant_type(ValueType p_type) {

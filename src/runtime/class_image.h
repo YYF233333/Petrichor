@@ -63,6 +63,15 @@ public:
 	std::vector<GDExtensionPtrSetter> setters;
 	std::vector<GDExtensionPtrConstructor> constructors;
 	std::vector<GDExtensionPtrBuiltInMethod> builtin_methods;
+	// What a method of Dictionary does with keys (spec §3.8): set() and
+	// get_or_add() may insert their first argument, keys() and find_key()
+	// hand keys out.
+	enum class KeyRole : uint8_t {
+		None,
+		Inserts,
+		HandsOut,
+	};
+	std::vector<KeyRole> key_roles; // By built-in method index.
 	std::vector<godot::StringName> classes; // Engine classes, by class index.
 	std::vector<godot::String> class_scripts; // Classes of this language: their scripts.
 	std::vector<godot::String> class_interfaces; // Interfaces: "script::Name".

@@ -17,13 +17,13 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Of GDScript classes (spec §11.1): `new()`, static methods, constants and enums, inner classes; nodes in scenes typed by their GDScript class rather than its engine class.
 - Members that are not pub of another instance of the same class, which the engine reaches by name while reflection lists only pub ones.
 - The check of `@onready` members of value types read before ready.
-- `Dictionary[K, V]`; StringName and NodePath literals.
+- StringName and NodePath literals.
 - Constants of the engine class a class extends by their bare name, such as `NOTIFICATION_PREDELETE`, as GDScript has them in scope; now they need the class, `Object.NOTIFICATION_PREDELETE`.
 - `Array[T]?`; `pop_front()` and `pop_back()` of `Array[T?]`, which give `T??`.
 - Class annotations such as `@tool` and `@icon`.
-- Values of type Variant (spec §3.13), which untyped members, parameters and results of GDScript classes have (§11.1); reading the elements of an untyped Array.
+- Values of type Variant (spec §3.13), which untyped members, parameters and results of GDScript classes have (§11.1); reading the elements of an untyped Array or Dictionary; ordering Variant elements, where a pair the engine cannot order is to be a program error (spec §3.8), while the engine's sort() now takes it as false.
 - Non-constant default values, of parameters and of struct fields; static members; `_init()` with parameters.
-- Assigning to an element, `a[i] = v`; calling a function value other than through `bind()`; `==` between objects.
+- Calling a function value other than through `bind()`; `==` between objects.
 - In debug builds, reporting where a freed instance was freed and where the instances still alive at exit were made (spec §3.3, §6.7, §12.5).
 
 ## Runtime
@@ -54,7 +54,7 @@ Engine calls are by name with Variant arguments now, so code that calls the engi
 - Calls within a class: since inheritance they pass arguments the general way of calls between classes and repeat checks that loading made; the calls benchmark went from 18 to 23 ms.
 - Engine calls: whether the result is a `GDScriptFunctionState`, which only methods of GDScript classes return (spec §9.8), is asked of every object result, by a call into the engine.
 - Coroutines: freeing an instance, and every frame, walk all active tasks; tasks listed by their owner would walk only the owner's.
-- Containers: the storage behind Array and Dictionary may be replaced later, keeping their public semantics (spec §3.8); the arrays benchmark loses to GDScript mostly to boxing each element into a Variant and back. Escape analysis can give containers that do not escape a private representation, the engine container being the reference semantics (architecture §2.2): a private representation supports some operations, a container that uses others keeps the engine's, and each private operation is tested against the engine's.
+- Containers: the storage behind Array and Dictionary may be replaced later, keeping their public semantics (spec §3.8); the arrays benchmark loses to GDScript mostly to boxing each element into a Variant and back, and the check that a container is not read-only before each change (spec §3.8) is a call into the engine, about 7 ns of an append. Escape analysis can give containers that do not escape a private representation, the engine container being the reference semantics (architecture §2.2): a private representation supports some operations, a container that uses others keeps the engine's, and each private operation is tested against the engine's.
 - Benchmarks of real workloads, which become representative after type descriptors and ptrcall; optimizations of the IR and code generation after those.
 
 ## Open questions

@@ -69,6 +69,8 @@ enum class TokenKind {
 	ParenClose,
 	BracketOpen,
 	BracketClose,
+	BraceOpen,
+	BraceClose,
 	Arrow,
 	Plus,
 	Minus,

@@ -34,7 +34,8 @@ struct Type {
 	std::string name;
 	bool nullable = false; // Object: T? rather than T (spec §3.3).
 	// Option: the value type inside; Array: the element type, if typed;
-	// PackedScene: the type of the scene's root, if known.
+	// Dictionary: the key and value types, if typed; PackedScene: the type of
+	// the scene's root, if known.
 	std::vector<Type> args;
 	// Object: a class or interface of this language, declared in this script
 	// (its res:// path), and the engine class its objects have. Struct: the
@@ -50,6 +51,7 @@ struct Type {
 	static Type object(const std::string &p_class, bool p_nullable = false) { return Type{ TypeKind::Object, p_class, p_nullable }; }
 	static Type option(const Type &p_inner) { return Type{ TypeKind::Option, std::string(), false, { p_inner } }; }
 	static Type array(const Type &p_element) { return Type{ TypeKind::Builtin, "Array", false, { p_element } }; }
+	static Type dictionary(const Type &p_key, const Type &p_value) { return Type{ TypeKind::Builtin, "Dictionary", false, { p_key, p_value } }; }
 	// PackedScene[T], a scene whose root is a T (spec §7.4).
 	static Type scene(const Type &p_root) { return Type{ TypeKind::Object, "PackedScene", false, { p_root } }; }
 	static Type function(const Type &p_return, const std::vector<Type> &p_params) {
@@ -131,6 +133,13 @@ bool is_shared(const Type &p_type);
 // The elements of a value that can be indexed and iterated (spec §3.8, §5.7);
 // Variant for an untyped Array.
 std::optional<Type> element_of(const Type &p_type);
+
+// The key and value types of a Dictionary (spec §3.8); Variant for an untyped
+// one.
+std::optional<std::pair<Type, Type>> entries_of(const Type &p_type);
+
+// An Array[T] or a Dictionary[K, V], which is made empty and typed.
+bool is_typed_container(const Type &p_type);
 
 // T? of a type: nullable for an object, an Option otherwise.
 Type optional_of(const Type &p_type);

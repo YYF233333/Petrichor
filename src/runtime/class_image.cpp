@@ -176,6 +176,10 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 			return nullptr;
 		}
 		image->builtin_methods.push_back(pointer);
+		const bool dictionary = call.base == ValueType::Dictionary;
+		const bool inserts = dictionary && (call.method == "set" || call.method == "get_or_add");
+		const bool hands_out = dictionary && (call.method == "keys" || call.method == "find_key");
+		image->key_roles.push_back(inserts ? KeyRole::Inserts : (hands_out ? KeyRole::HandsOut : KeyRole::None));
 	}
 	for (const bytecode::ClassRef &ref : module.classes) {
 		image->classes.push_back(to_godot(ref.name));
@@ -256,6 +260,10 @@ bool constant_value(const std::vector<TypeImage> &p_types, const bytecode::Const
 			array.push_back(value);
 		}
 		r_value = array;
+		return true;
+	}
+	if (type == ValueType::Dictionary) {
+		r_value = typed_dictionary(p_types[p_constant.type].check);
 		return true;
 	}
 	switch (type) {
@@ -399,7 +407,7 @@ bool same_initializers(const bytecode::Module &p_a, const bytecode::Module &p_b)
 			same_prefix(p_a.operators, p_b.operators, x.operators, [](const auto &a, const auto &b) { return a.op == b.op && a.left == b.left && a.right == b.right && a.result == b.result; }) &&
 			same_prefix(p_a.fields, p_b.fields, x.fields, [](const auto &a, const auto &b) { return a.base == b.base && a.name == b.name && a.type == b.type; }) &&
 			same_prefix(p_a.constructors, p_b.constructors, x.constructors, [](const auto &a, const auto &b) { return a.type == b.type && a.index == b.index && a.params == b.params; }) &&
-			same_prefix(p_a.builtin_methods, p_b.builtin_methods, x.builtin_methods, [](const auto &a, const auto &b) { return a.base == b.base && a.method == b.method && a.hash == b.hash && a.is_vararg == b.is_vararg && a.params == b.params && a.return_type == b.return_type && a.result_type == b.result_type; }) &&
+			same_prefix(p_a.builtin_methods, p_b.builtin_methods, x.builtin_methods, [](const auto &a, const auto &b) { return a.base == b.base && a.method == b.method && a.hash == b.hash && a.is_vararg == b.is_vararg && a.is_const == b.is_const && a.params == b.params && a.return_type == b.return_type && a.result_type == b.result_type; }) &&
 			same_prefix(p_a.classes, p_b.classes, x.classes, [](const auto &a, const auto &b) { return a == b; }) &&
 			same_prefix(p_a.method_calls, p_b.method_calls, x.method_calls, [&](const auto &a, const auto &b) { return a.method == b.method && bytecode::signature_key(p_a.types, a.params, a.defaults, a.result, a.is_async) == bytecode::signature_key(p_b.types, b.params, b.defaults, b.result, b.is_async); });
 }

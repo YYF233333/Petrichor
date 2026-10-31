@@ -209,6 +209,20 @@ std::optional<Type> element_of(const Type &p_type) {
 	return found == packed.end() ? std::nullopt : std::optional<Type>(found->second);
 }
 
+std::optional<std::pair<Type, Type>> entries_of(const Type &p_type) {
+	if (p_type.kind != TypeKind::Builtin || p_type.name != "Dictionary") {
+		return std::nullopt;
+	}
+	if (p_type.args.size() != 2) {
+		return std::make_pair(Type::of(TypeKind::Variant), Type::of(TypeKind::Variant));
+	}
+	return std::make_pair(p_type.args[0], p_type.args[1]);
+}
+
+bool is_typed_container(const Type &p_type) {
+	return p_type.kind == TypeKind::Builtin && (p_type.name == "Array" || p_type.name == "Dictionary") && !p_type.args.empty();
+}
+
 Type optional_of(const Type &p_type) {
 	if (p_type.kind == TypeKind::Object || p_type.kind == TypeKind::Task) {
 		Type type = p_type;

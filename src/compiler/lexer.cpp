@@ -120,6 +120,10 @@ const char *token_name(TokenKind p_kind) {
 			return "\"[\"";
 		case TokenKind::BracketClose:
 			return "\"]\"";
+		case TokenKind::BraceOpen:
+			return "\"{\"";
+		case TokenKind::BraceClose:
+			return "\"}\"";
 		case TokenKind::Arrow:
 			return "\"->\"";
 		case TokenKind::Plus:
@@ -525,6 +529,16 @@ class Lexer {
 					paren_depth--;
 				}
 				one(TokenKind::BracketClose);
+				return;
+			case '{':
+				paren_depth++;
+				one(TokenKind::BraceOpen);
+				return;
+			case '}':
+				if (paren_depth > 0) {
+					paren_depth--;
+				}
+				one(TokenKind::BraceClose);
 				return;
 			case '+':
 				next == '=' ? two(TokenKind::PlusEqual) : one(TokenKind::Plus);

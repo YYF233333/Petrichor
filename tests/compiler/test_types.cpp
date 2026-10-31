@@ -125,9 +125,8 @@ TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec �
 	CHECK(has_error(in_function("var a: Array[int] = [1, 2.5]"), "Cannot put a value of type float in Array[int]"));
 	CHECK(has_error(in_function("var a = []"), "An empty array needs a declared type"));
 	CHECK(contains(type_of("a[\"x\"]", ints), "An index must be int, found String"));
-	CHECK(contains(type_of("u[0]", "var u: Array = []"), "untyped Array are Variant"));
+	CHECK(contains(type_of("u[0]", "var u: Array = []"), "untyped Array or Dictionary are Variant"));
 	CHECK(contains(type_of("v[0]", "var v := Vector3()"), "Vector3 cannot be indexed"));
-	CHECK(has_error(in_function(std::string(ints) + "\na[0] = 2"), "Assigning to an element, as in a[i] = v, is not supported yet."));
 	// Spec §5.1: as the engine and GDScript type it, alike arrays add up typed.
 	CHECK(type_of("a + a", ints) == "Array[int]");
 	CHECK(type_of("a + f", std::string(ints) + "\nvar f: Array[float] = []") == "Array");
@@ -138,7 +137,51 @@ TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec �
 	CHECK(has_error("extends Node\n\nfunc f() -> Array[int]?:\n\treturn None\n", "Array[int]? is not supported yet"));
 	CHECK(has_error("extends Node\n@export var a: Array[int]?\n", "Array[int]? is not supported yet"));
 	CHECK(errors_of("extends Node\n\nfunc f(a: Array[int], b: int?, c: Array?):\n\tpass\n").empty());
-	CHECK(has_error(in_function("var d: Dictionary[String, int]"), "Dictionary[K, V] is not supported yet"));
+}
+
+// Spec §3.8: what the engine cannot order, or fill in, is an error for every
+// element type alike.
+TEST_CASE("ordering needs < on the elements, and resize() a default value") {
+	CHECK(errors_of(in_function("var a: Array[int] = [2, 1]\na.sort()\nvar i := a.bsearch(1)\nvar s: Array[String] = []\ns.sort()\nvar u: Array = []\nu.sort()")).empty());
+	CHECK(has_error(in_function("var n: Array[Node] = []\nn.sort()"), "\"sort()\" orders the elements by <, which Node does not have (spec §3.8); use sort_custom()"));
+	CHECK(has_error(in_function("var n: Array[Node] = []\nvar m = n.max()"), "\"max()\" orders the elements by <"));
+	CHECK(has_error(in_function("var d: Dictionary[Node, int] = {}\nd.sort()"), "\"sort()\" orders the keys by <, which Node does not have"));
+	CHECK(has_error(in_function("var n: Array[Node] = []\nn.resize(3)"), "declare the array as Array[Node?]"));
+	CHECK(errors_of(in_function("var n: Array[Node?] = []\nn.resize(3)\nvar a: Array[int] = []\na.resize(3)")).empty());
+}
+
+TEST_CASE("elements are assigned in place, packed arrays written back") {
+	const char *ints = "var a: Array[int] = [1, 2]";
+	CHECK(errors_of(in_function(std::string(ints) + "\na[0] = 2\na[1] += 3\nvar p := PackedInt32Array()\np[0] = 4\nvar u: Array = [1]\nu[0] = \"x\"")).empty());
+	CHECK(errors_of(in_function("var v: Array[Vector2] = [Vector2()]\nv[0].x = 1\nvar q := PackedVector3Array()\nq[0].y = 2")).empty());
+	CHECK(has_error(in_function(std::string(ints) + "\na[0] = \"x\""), "Cannot assign a value of type String as int"));
+	CHECK(has_error(in_function("PackedInt32Array()[0] = 2"), "Cannot assign to an element of a temporary value."));
+	CHECK(has_error(in_function("var u: Array = [1]\nu[0] += 1"), "untyped Array or Dictionary are Variant"));
+}
+
+TEST_CASE("Dictionary[K, V] is the engine's typed dictionary (spec §3.8)") {
+	const char *scores = "var d: Dictionary[String, int] = {\"a\": 1, \"b\": 2}";
+	CHECK(errors_of(in_function(std::string(scores) + "\nd[\"c\"] = 3\nd[\"a\"] += 1\nvar e: Dictionary[String, int] = {}\nvar f: Dictionary[StringName, float] = {a = 1, b = 2.5}")).empty());
+	CHECK(type_of("d[\"a\"]", scores) == "int");
+	CHECK(type_of("d.get(\"a\")", scores) == "int?");
+	CHECK(type_of("d.get(\"a\", 0)", scores) == "int");
+	CHECK(type_of("d.keys()", scores) == "Array[String]");
+	CHECK(type_of("d.values()", scores) == "Array[int]");
+	CHECK(type_of("d.find_key(1)", scores) == "String?");
+	CHECK(type_of("d.get_or_add(\"z\", 0)", scores) == "int");
+	CHECK(type_of("d.duplicate()", scores) == "Dictionary[String, int]");
+	CHECK(type_of("d.has(\"a\") and d.erase(\"a\")", scores) == "bool");
+	CHECK(type_of("n[k]", "var n: Dictionary[Node, Vector2] = {}\nvar k := Node.new()") == "Vector2");
+	CHECK(contains(type_of("d[1]", scores), "The keys of Dictionary[String, int] are String, not int."));
+	CHECK(has_error(in_function(std::string(scores) + "\nd[\"a\"] = 1.5"), "Cannot assign a value of type float as int"));
+	CHECK(has_error(in_function(std::string(scores) + "\nd.merge({1: 2})"), "The keys of Dictionary[String, int] are String, not int."));
+	CHECK(has_error(in_function("var d: Dictionary[String, int] = {\"a\": \"b\"}"), "Cannot put a value of type String in Dictionary[String, int]"));
+	CHECK(has_error(in_function("var d = {}"), "An empty dictionary needs a declared type"));
+	CHECK(has_error(in_function("var d: Dictionary[String, int] = {a = 1, \"b\": 2}"), "not both"));
+	CHECK(has_error(in_function("var d: Dictionary[String] = {}"), "Dictionary takes a key type and a value type."));
+	CHECK(has_error(in_function("var d: Dictionary[String, int?] = {}"), "Dictionaries of int? are not supported yet"));
+	CHECK(contains(type_of("u[\"a\"]", "var u: Dictionary = {}"), "untyped Array or Dictionary are Variant"));
+	CHECK(errors_of(in_function("var u: Dictionary = {\"b\": 2}\nu[\"c\"] = Vector2()")).empty());
 }
 
 TEST_CASE("a built-in method's default values are passed as the engine declares them") {
@@ -153,12 +196,14 @@ TEST_CASE("packed arrays are indexed by their element type") {
 }
 
 // Spec §5.7.
-TEST_CASE("for over an array") {
+TEST_CASE("for over an array, and over a Dictionary's keys") {
+	CHECK(errors_of(in_function("var d: Dictionary[String, int] = {}\nvar total := 0\nfor k in d:\n\ttotal += d[k] + k.length()")).empty());
+	CHECK(has_error(in_function("var d: Dictionary[String, int] = {}\nfor k: int in d:\n\tpass"), "The elements are String"));
 	CHECK(errors_of(in_function("var a: Array[int] = [1, 2]\nvar total := 0\nfor x in a:\n\ttotal += x")).empty());
 	CHECK(errors_of(in_function("var a: Array[Node3D] = []\nfor n: Node in a:\n\tn.queue_free()")).empty());
 	CHECK(has_error(in_function("var a: Array[Node] = []\nfor n: Node3D in a:\n\tpass"), "The elements are Node, which the loop variable of type Node3D cannot hold."));
 	CHECK(errors_of(in_function("for s in \"a,b\".split(\",\"):\n\tprint(s)")).empty());
-	CHECK(has_error(in_function("var u: Array = []\nfor x in u:\n\tpass"), "untyped Array are Variant"));
+	CHECK(has_error(in_function("var u: Array = []\nfor x in u:\n\tpass"), "untyped Array or Dictionary are Variant"));
 }
 
 // Spec §10.2, §10.3: the engine's RequiredResult and RequiredParam metadata,

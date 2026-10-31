@@ -29,9 +29,34 @@ bool is_element(ValueType p_type) {
 	return p_type == ValueType::Object || is_native(p_type);
 }
 
-// What GET_INDEX reads from.
+// What GET_INDEX reads from and SET_INDEX writes to.
 bool is_indexable(ValueType p_type) {
-	return p_type == ValueType::Array || (p_type >= ValueType::PackedByteArray && p_type <= ValueType::PackedVector4Array);
+	return p_type == ValueType::Array || p_type == ValueType::Dictionary || (p_type >= ValueType::PackedByteArray && p_type <= ValueType::PackedVector4Array);
+}
+
+// The elements of a packed array, as a slot holds them.
+ValueType packed_element(ValueType p_type) {
+	switch (p_type) {
+		case ValueType::PackedByteArray:
+		case ValueType::PackedInt32Array:
+		case ValueType::PackedInt64Array:
+			return ValueType::Int;
+		case ValueType::PackedFloat32Array:
+		case ValueType::PackedFloat64Array:
+			return ValueType::Float;
+		case ValueType::PackedStringArray:
+			return ValueType::String;
+		case ValueType::PackedVector2Array:
+			return ValueType::Vector2;
+		case ValueType::PackedVector3Array:
+			return ValueType::Vector3;
+		case ValueType::PackedColorArray:
+			return ValueType::Color;
+		case ValueType::PackedVector4Array:
+			return ValueType::Vector4;
+		default:
+			return ValueType::Void;
+	}
 }
 
 // The types of the slots that start at each offset: a struct and its first
@@ -80,6 +105,8 @@ class Verifier {
 				return type_name(type.element) + "?";
 			case TypeKind::Array:
 				return "Array[" + type_name(type.element) + "]";
+			case TypeKind::Dictionary:
+				return "Dictionary[" + type_name(type.key) + ", " + type_name(type.element) + "]";
 			case TypeKind::Struct:
 				return type.name.substr(type.name.rfind(':') + 1);
 			default:
@@ -91,8 +118,8 @@ class Verifier {
 	bool types() {
 		for (uint32_t i = 0; i < module.types.size(); i++) {
 			const TypeDesc &type = module.types[i];
-			const bool inner = type.kind == TypeKind::Option || type.kind == TypeKind::Array;
-			if (type.kind >= TypeKind::Count || type.value >= ValueType::Count || (inner && type.element >= i)) {
+			const bool inner = type.kind == TypeKind::Option || type.kind == TypeKind::Array || type.kind == TypeKind::Dictionary;
+			if (type.kind >= TypeKind::Count || type.value >= ValueType::Count || (inner && type.element >= i) || (type.kind == TypeKind::Dictionary && type.key >= i)) {
 				return fail("type " + std::to_string(i) + " is not a type");
 			}
 			if (!type.task_result.empty() && (type.kind != TypeKind::Object || type.object.name != "CoroutineTask")) {
@@ -103,6 +130,9 @@ class Verifier {
 			}
 			if (type.kind == TypeKind::Array && !is_element(storage(type.element))) {
 				return fail("an array of no element type");
+			}
+			if (type.kind == TypeKind::Dictionary && (!is_element(storage(type.key)) || !is_element(storage(type.element)))) {
+				return fail("a dictionary of no key or value type");
 			}
 			for (const FieldDesc &field : type.fields) {
 				if (type.kind != TypeKind::Struct || field.type >= i || !has_values(field.type)) {
@@ -249,6 +279,15 @@ class Verifier {
 	// A type operand: an index into the type table, of a type a slot can hold.
 	bool type_operand(uint32_t p_type) {
 		return has_values(p_type) || fail("no type");
+	}
+
+	// The index of GET_INDEX and SET_INDEX: an int, or a key of the Dictionary.
+	bool index_operand(uint32_t p_base, uint32_t p_index) {
+		const TypeDesc &base = module.types[p_base];
+		if (base.kind == TypeKind::Dictionary) {
+			return slot_like(p_index, base.key);
+		}
+		return slot(p_index, storage(p_base) == ValueType::Dictionary ? ValueType::Variant : ValueType::Int);
 	}
 
 	bool target(uint32_t p_pc) {
@@ -578,13 +617,27 @@ class Verifier {
 			case Op::GET_SINGLETON:
 			case Op::CHECK_OBJECT:
 				return index(o[0], module.classes.size(), "class") && slot(o[1], ValueType::Object);
-			case Op::NEW_ARRAY:
-				return type_operand(o[0]) && (storage(o[0]) == ValueType::Array || fail("an array of a type that is not one")) && slot(o[1], ValueType::Array);
+			case Op::NEW_CONTAINER:
+				return type_operand(o[0]) && (storage(o[0]) == ValueType::Array || storage(o[0]) == ValueType::Dictionary || fail("a container of a type that is not one")) && slot(o[1], storage(o[0]));
 			case Op::GET_INDEX:
 				if (o[0] >= module.types.size() || !is_indexable(storage(o[0])) || !type_operand(o[1])) {
 					return fail("an index into a value that has none");
 				}
-				return slot_like(o[2], o[1]) && slot(o[3], storage(o[0])) && slot(o[4], ValueType::Int);
+				return slot_like(o[2], o[1]) && slot(o[3], storage(o[0])) && index_operand(o[0], o[4]);
+			case Op::SET_INDEX: {
+				if (o[0] >= module.types.size() || !is_indexable(storage(o[0]))) {
+					return fail("an index into a value that has none");
+				}
+				if (!slot(o[1], storage(o[0])) || !index_operand(o[0], o[2])) {
+					return false;
+				}
+				const TypeDesc &base = module.types[o[0]];
+				if (base.kind == TypeKind::Array || base.kind == TypeKind::Dictionary) {
+					return slot_like(o[3], base.element);
+				}
+				const ValueType element = packed_element(storage(o[0]));
+				return slot(o[3], element == ValueType::Void ? ValueType::Variant : element);
+			}
 			case Op::CAST_OBJECT:
 				return index(o[0], module.classes.size(), "class") && same(o[1], o[2], ValueType::Object);
 			case Op::IS_INSTANCE:
@@ -621,7 +674,7 @@ class Verifier {
 				}
 				return slot(o[1], ValueType::Signal) && slot_or_none(o[2], ValueType::Object);
 			case Op::TO_VARIANT:
-				return (o[0] < module.types.size() && (is_option(o[0]) || is_struct(o[0]) || is_native(storage(o[0]))) || fail("no value type")) && slot(o[1], ValueType::Variant) && slot_like(o[2], o[0]);
+				return (o[0] < module.types.size() && (is_option(o[0]) || is_struct(o[0]) || is_element(storage(o[0]))) || fail("no value type")) && slot(o[1], ValueType::Variant) && slot_like(o[2], o[0]);
 			case Op::UNWRAP: {
 				// An object's T? is an Object slot like T's; that of another type is laid out as T? is.
 				if (!type_operand(o[0]) || storage(o[0]) == ValueType::Variant) {

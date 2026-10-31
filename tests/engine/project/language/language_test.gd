@@ -352,6 +352,28 @@ func _ready() -> void:
 	s.free()
 	other.free()
 
+	# Spec §3.8: Dictionary[K, V], elements assigned in place, keys that cannot change.
+	var containers := ContainerCheck.new()
+	_check(containers.counted() == "16 11 true 2 3 b", "a Dictionary[K, V] is indexed, assigned, iterated over its keys, and get(k) gives None for a missing key")
+	var won: Dictionary = containers.scored("ann", 3)
+	containers.scored("ann", 2)
+	_check(won.is_typed() and won.get_typed_key_builtin() == TYPE_STRING and won["ann"] == 5 and containers.scores.is_typed(), "a Dictionary[K, V] is the engine's typed dictionary, shared")
+	containers.missing_key()
+	_check_errors(["container_check.pet:26: The Dictionary has no key \"nope\"."], "the program error of a missing key")
+	_check(containers.elements() == "[10, 2, 8] (4.0, 0.0) [(0.0, 2.0), (3.0, 3.0)] [7]", "elements are assigned in place, and a packed array or a member of an element is written back")
+	containers.out_of_bounds()
+	_check_errors(["container_check.pet:45: Index 1 is out of bounds (size 1)."], "the program error of assigning out of bounds")
+	_check(containers.keys_frozen() == "true false 2 true", "a key is a read-only copy, and the original stays free to change")
+	containers.change_key()
+	_check_errors(["container_check.pet:58: The Array is read-only, as a Dictionary key is; change a duplicate() of it instead."], "changing a key is a program error")
+	var untyped: Dictionary = containers.untyped()
+	_check(untyped == {&"name": 1, &"plain": 2, "v": Vector2(1, 2), "node": containers} and typeof(untyped.keys()[0]) == TYPE_STRING_NAME, "an untyped Dictionary takes any value, and a key written as a name is a StringName")
+	var typed_scores: Dictionary[String, int] = {"a": 1}
+	_check(containers.typed_entry(typed_scores) == 1, "a typed Dictionary passes the entry check")
+	containers.callv("typed_entry", [{"a": 1}])
+	_check_errors(["container_check.pet:66: Argument \"d\" of typed_entry(): expected Dictionary[String, int], found Dictionary."], "an untyped Dictionary is refused where Dictionary[K, V] is expected")
+	containers.free()
+
 	var frames_before: int = c.frames
 	c.defer()
 	var freeing := FreeCheck.new()

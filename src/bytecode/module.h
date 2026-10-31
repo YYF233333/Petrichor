@@ -90,6 +90,7 @@ enum class TypeKind : uint8_t {
 	Option, // T? of a value type: None or a value of the type `element` (spec §3.4).
 	Array, // Array[T], T being the type `element` (spec §3.8); an untyped Array is a Value.
 	Struct, // A struct of this language, `name`, with its `fields` (spec §3.6).
+	Dictionary, // Dictionary[K, V], K being the type `key` and V the type `element` (spec §3.8); an untyped Dictionary is a Value.
 	Count,
 };
 
@@ -104,6 +105,7 @@ struct TypeDesc {
 	TypeKind kind = TypeKind::Value;
 	ValueType value = ValueType::Void;
 	uint32_t element = 0;
+	uint32_t key = 0; // Dictionary.
 	ClassRef object;
 	bool nullable = false;
 	std::string task_result; // Object: a Task[T] handle, with T's signature key.
@@ -111,8 +113,8 @@ struct TypeDesc {
 	std::vector<FieldDesc> fields; // Struct.
 
 	bool operator==(const TypeDesc &p_other) const {
-		return kind == p_other.kind && value == p_other.value && element == p_other.element && object == p_other.object && nullable == p_other.nullable && task_result == p_other.task_result &&
-				name == p_other.name && fields == p_other.fields;
+		return kind == p_other.kind && value == p_other.value && element == p_other.element && key == p_other.key && object == p_other.object && nullable == p_other.nullable &&
+				task_result == p_other.task_result && name == p_other.name && fields == p_other.fields;
 	}
 };
 
@@ -285,6 +287,9 @@ struct BuiltinMethodCall {
 	std::string method;
 	uint32_t hash = 0;
 	bool is_vararg = false; // Extra arguments are passed as Variant.
+	// Changes nothing; one that changes an Array or Dictionary is refused on a
+	// read-only one (spec §3.8).
+	bool is_const = true;
 	std::vector<ValueType> params;
 	ValueType return_type = ValueType::Void;
 	uint32_t result_type = 0; // The slot that receives it, by type.

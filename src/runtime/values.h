@@ -4,6 +4,7 @@
 #include "runtime/text.h"
 
 #include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/string_name.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
@@ -47,7 +48,13 @@ struct ValueCheck {
 	godot::String interface; // As class_name, an interface the object implements: "script::Name".
 	std::string task_result;
 	bool nullable = true; // Object: may be None.
-	bytecode::ValueType element = bytecode::ValueType::Void; // Array: typed with this element type.
+	bytecode::ValueType element = bytecode::ValueType::Void; // Array, Dictionary: typed with this element or value type.
+	// Dictionary: typed with this key type, and as class_name, script and
+	// interface say for the values, for keys of an object type.
+	bytecode::ValueType key = bytecode::ValueType::Void;
+	godot::StringName key_class_name;
+	godot::String key_script;
+	godot::String key_interface;
 };
 
 struct TypeImage;
@@ -67,6 +74,9 @@ struct TypeImage {
 	// and for a struct, whose slot holds its fields.
 	bytecode::ValueType storage = bytecode::ValueType::Void;
 	const TypeImage *element = nullptr; // T?: T, in the same table.
+	// Array[T]: T; Dictionary[K, V]: K and V; in the same table.
+	const TypeImage *item = nullptr;
+	const TypeImage *key = nullptr;
 	uint32_t size = 0; // Of its slot.
 	uint32_t layout = 0; // Equal for types laid out alike, in every image.
 	ValueCheck check;
@@ -138,6 +148,17 @@ godot::Variant::Type variant_type(bytecode::ValueType p_type);
 // elements, and for a class of this language with its script too (spec §3.8);
 // untyped for Void.
 godot::Array typed_array(bytecode::ValueType p_element, const godot::StringName &p_class, const godot::String &p_script);
+// A new empty Dictionary, typed as the check says, or untyped (spec §3.8).
+godot::Dictionary typed_dictionary(const ValueCheck &p_check);
+
+// A Dictionary keeps a key as a copy in which every Array and Dictionary is
+// read-only, so that the hash it keeps stays right; one this language
+// obtains from a Dictionary made elsewhere is made read-only in place
+// (spec §3.8). Other values are left as they are.
+godot::Variant frozen_copy(const godot::Variant &p_key);
+void freeze(const godot::Variant &p_key);
+// Whether keys of the Dictionary may hold an Array or a Dictionary.
+bool keys_hold_containers(const godot::Dictionary &p_dictionary);
 
 // None: NIL, or an OBJECT Variant that has no object, as the engine makes from
 // a null pointer (core/variant/variant.cpp:2507-2511). A freed object is not

@@ -93,7 +93,7 @@ The sections above describe the design. How much of it runs, and which tests sho
 
 | Part | State | Tests |
 |---|---|---|
-| Compiler | The language the FPS project needs (§5), the static view of GDScript classes and autoloads, coroutine core, inheritance between classes of this language, interface properties, `@owner`, match with literal patterns, property accessors and structs without methods; not yet generics, enums with payloads, setters that wait for ready, nor `new()`, static methods and constants of GDScript classes | compiler tests; the build of every script in the engine tests |
+| Compiler | The language the FPS project needs (§5), the static view of GDScript classes and autoloads, coroutine core, inheritance between classes of this language, interface properties, `@owner`, match with literal patterns, property accessors, structs without methods, and Dictionary[K, V] with assignment to elements; not yet generics, enums with payloads, setters that wait for ready, nor `new()`, static methods and constants of GDScript classes | compiler tests; the build of every script in the engine tests |
 | Values | Every type has a type descriptor (the bytecode's type table); int, float, bool and the engine's built-in types in their own layout, objects as an ObjectID and a pointer, T? of value types as a tag and the value, structs as their fields; no enums with payloads or containers of types only this language has yet | language checks |
 | Members held by running calls (§2.2) | Done | language checks |
 | Calls between classes of this language | Direct, the signature checked | language checks, stale bytecode |

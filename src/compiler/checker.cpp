@@ -543,8 +543,13 @@ class Checker : public ClassRelation {
 			return result.is_error() ? result : Type::task(result);
 		}
 		if (p_ref.name == "Dictionary") {
-			error(p_ref.line, p_ref.column, "Dictionary[K, V] is not supported yet.");
-			return Type::of(TypeKind::Error);
+			if (p_ref.args.size() != 2) {
+				error(p_ref.line, p_ref.column, "Dictionary takes a key type and a value type.");
+				return Type::of(TypeKind::Error);
+			}
+			const Type key = container_element(p_ref.args[0], "Dictionaries with keys of ");
+			const Type value = container_element(p_ref.args[1], "Dictionaries of ");
+			return key.is_error() || value.is_error() ? Type::of(TypeKind::Error) : Type::dictionary(key, value);
 		}
 		if (p_ref.name == "PackedScene" && p_ref.args.size() == 1) {
 			// A scene whose root has type T (spec §7.4).
@@ -566,17 +571,19 @@ class Checker : public ClassRelation {
 			error(p_ref.line, p_ref.column, "Array takes one element type.");
 			return Type::of(TypeKind::Error);
 		}
-		const TypeRef &element_ref = p_ref.args[0];
-		const Type element = resolve(element_ref, false);
-		if (element.is_error()) {
-			return element;
-		}
-		// The engine types an array with one built-in type or one class.
-		if (element.kind == TypeKind::Option || element.kind == TypeKind::Struct || !element.args.empty()) {
-			error(element_ref.line, element_ref.column, "Arrays of " + element.to_string() + " are not supported yet.");
+		const Type element = container_element(p_ref.args[0], "Arrays of ");
+		return element.is_error() ? element : Type::array(element);
+	}
+
+	// The engine types the elements of a container, and the keys of a
+	// Dictionary, with one built-in type or one class.
+	Type container_element(const TypeRef &p_ref, const std::string &p_what) {
+		const Type element = resolve(p_ref, false);
+		if (!element.is_error() && (element.kind == TypeKind::Option || element.kind == TypeKind::Struct || !element.args.empty())) {
+			error(p_ref.line, p_ref.column, p_what + element.to_string() + " are not supported yet.");
 			return Type::of(TypeKind::Error);
 		}
-		return Type::array(element);
+		return element;
 	}
 
 	static Type function_type(const FuncDecl &p_function) {
@@ -1713,6 +1720,78 @@ class Checker : public ClassRelation {
 		}
 	}
 
+	// Dictionary's methods take and give keys and values as Variant; for
+	// Dictionary[K, V] they are K and V (spec §3.8). find_key() gives K?, the
+	// engine returning null when no key has the value
+	// (core/variant/dictionary.cpp:237-246).
+	static void entry_typed(const builtin::Method &p_method, const Type &p_dictionary, std::vector<Type> &r_params, Type &r_result) {
+		const Type &key = p_dictionary.args[0];
+		const Type &value = p_dictionary.args[1];
+		for (size_t i = 0; i < r_params.size(); i++) {
+			const std::string name = p_method.arguments[i].name;
+			if (name == "key") {
+				r_params[i] = key;
+			} else if (name == "value" || name == "default") {
+				r_params[i] = value;
+			} else if (name == "keys") {
+				r_params[i] = Type::array(key);
+			} else if (name == "dictionary") {
+				r_params[i] = p_dictionary;
+			}
+		}
+		const std::string method = p_method.name;
+		if (r_result.kind == TypeKind::Variant) {
+			r_result = method == "find_key" ? optional_of(key) : value;
+		} else if (r_result == Type::builtin("Array") && (method == "keys" || method == "values")) {
+			// The engine gives typed arrays (core/variant/dictionary.cpp:386-425).
+			r_result = Type::array(method == "keys" ? key : value);
+		} else if (r_result == Type::builtin("Dictionary")) {
+			r_result = p_dictionary;
+		}
+	}
+
+	// Whether values of the type have `<` (spec §5.2): those the engine's
+	// operator table orders (core/variant/variant_op.cpp:731-791), and Variant,
+	// ordered when the program runs.
+	static bool has_less(const Type &p_type) {
+		static const std::unordered_set<std::string> ordered = { "StringName", "Vector2", "Vector2i", "Vector3", "Vector3i", "Vector4", "Vector4i", "RID" };
+		switch (p_type.kind) {
+			case TypeKind::Int:
+			case TypeKind::Float:
+			case TypeKind::Bool:
+			case TypeKind::String:
+			case TypeKind::Variant:
+				return true;
+			case TypeKind::Builtin:
+				if (p_type.name == "Array") {
+					return p_type.args.empty() || has_less(p_type.args[0]);
+				}
+				return ordered.count(p_type.name) > 0;
+			default:
+				return false;
+		}
+	}
+
+	// Methods that order a container's elements, or a Dictionary's keys, need
+	// `<` on them, and resize() a default value for the elements (spec §3.8).
+	bool check_container_method(const Expr &p_call, const Type &p_base) {
+		const std::string &method = p_call.text;
+		const bool array = p_base.name == "Array" && !p_base.args.empty();
+		const bool orders = array ? (method == "sort" || method == "bsearch" || method == "min" || method == "max") : (p_base.name == "Dictionary" && method == "sort");
+		if (orders) {
+			const Type &ordered = p_base.args.empty() ? Type::of(TypeKind::Variant) : p_base.args[0];
+			if (!has_less(ordered)) {
+				error(p_call.line, p_call.column, "\"" + method + "()\" orders the " + (array ? "elements" : "keys") + " by <, which " + ordered.to_string() + " does not have (spec §3.8); use " + (array ? "sort_custom() or bsearch_custom() with a comparison" : "a sorted Array of its keys") + ".");
+				return false;
+			}
+		}
+		if (array && method == "resize" && p_base.args[0].kind == TypeKind::Object && !p_base.args[0].nullable) {
+			error(p_call.line, p_call.column, "\"resize()\" fills new elements with a default value, which " + p_base.args[0].to_string() + " does not have (spec §3.8); declare the array as Array[" + p_base.args[0].to_string() + "?].");
+			return false;
+		}
+		return true;
+	}
+
 	Type check_builtin_method(Expr &r_expr, const Type &p_base) {
 		const std::string base_name = p_base.builtin_name();
 		const builtin::Class *type = builtin::find_class(base_name);
@@ -1723,12 +1802,18 @@ class Checker : public ClassRelation {
 		if (method->is_static) {
 			return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + base_name + " is not supported yet.");
 		}
+		const bool typed_dictionary = base_name == "Dictionary" && !p_base.args.empty();
+		// get(k) of Dictionary[K, V] gives V?, None for a missing key (spec §3.8).
+		const bool get_or_none = typed_dictionary && r_expr.text == "get" && r_expr.args.size() == 1;
 		int required = 0;
 		std::optional<std::vector<Type>> api = api_params(r_expr, method->arguments, method->argument_count, required);
 		if (!api) {
 			return r_expr.type;
 		}
 		std::vector<Type> params = std::move(*api);
+		if (get_or_none) {
+			params.resize(1);
+		}
 		// The engine's default values are source, such as `true` or
 		// `Vector3(0, 1, 0)`, checked and passed as if written at the call.
 		for (size_t i = r_expr.args.size(); int(r_expr.args.size()) >= required && i < params.size(); i++) {
@@ -1754,6 +1839,15 @@ class Checker : public ClassRelation {
 				return fail(r_expr, "\"" + r_expr.text + "()\" of " + p_base.to_string() + " gives " + p_base.args[0].to_string() + "?, which is not supported yet.");
 			}
 			element_typed(r_expr.text, p_base, params, result);
+		}
+		if (typed_dictionary) {
+			entry_typed(*method, p_base, params, result);
+			if (get_or_none) {
+				result = optional_of(p_base.args[1]);
+			}
+		}
+		if (!check_container_method(r_expr, p_base)) {
+			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		// A method that changes a value changes it where it came from, which
 		// must be a place that can be written; Array and Dictionary are shared
@@ -1887,35 +1981,47 @@ class Checker : public ClassRelation {
 		return set(r_expr, result);
 	}
 
-	Type check_subscript(Expr &r_expr) {
+	// `a[i]`, or `d[k]` (spec §3.8); `p_written` when it is only assigned to.
+	Type check_subscript(Expr &r_expr, bool p_written = false) {
 		const Type base = check_value(*r_expr.base);
-		const Type index = check_value(*r_expr.right);
+		const std::optional<std::pair<Type, Type>> entries = base.is_error() ? std::nullopt : entries_of(base);
+		const Type index = check_value(*r_expr.right, entries ? entries->first : Type::of(TypeKind::Error));
 		if (base.is_error() || index.is_error()) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		if (base.is_optional()) {
 			return fail(r_expr, "The value may be None (" + base.to_string() + "); check it before indexing it.");
 		}
+		if (entries) {
+			if (!assignable(index, entries->first)) {
+				return fail(*r_expr.right, "The keys of " + base.to_string() + " are " + entries->first.to_string() + ", not " + index.to_string() + ".");
+			}
+			r_expr.param_types = { entries->first };
+			if (!p_written && refuse_variant_elements(entries->second, r_expr)) {
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
+			return set(r_expr, entries->second);
+		}
 		const std::optional<Type> element = element_of(base);
 		if (!element) {
-			return fail(r_expr, "Values of type " + base.to_string() + " cannot be indexed" + (base.name == "Dictionary" || base.kind == TypeKind::String ? " yet." : "."));
+			return fail(r_expr, "Values of type " + base.to_string() + " cannot be indexed" + (base.kind == TypeKind::String ? " yet." : "."));
 		}
 		if (index.kind != TypeKind::Int) {
 			return fail(*r_expr.right, "An index must be int, found " + index.to_string() + ".");
 		}
-		if (refuse_variant_elements(*element, r_expr)) {
+		if (!p_written && refuse_variant_elements(*element, r_expr)) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		return set(r_expr, *element);
 	}
 
-	// Elements read from an untyped Array, which are Variant, are refused for
-	// now; true after reporting it at `p_at`.
+	// Elements read from an untyped Array or Dictionary, which are Variant,
+	// are refused for now; true after reporting it at `p_at`.
 	bool refuse_variant_elements(const Type &p_element, const Expr &p_at) {
 		if (p_element.kind != TypeKind::Variant) {
 			return false;
 		}
-		error(p_at.line, p_at.column, "The elements of an untyped Array are Variant, which is not supported yet; declare it as Array[T].");
+		error(p_at.line, p_at.column, "The elements of an untyped Array or Dictionary are Variant, which is not supported yet; declare it as Array[T] or Dictionary[K, V].");
 		return true;
 	}
 
@@ -1934,6 +2040,32 @@ class Checker : public ClassRelation {
 			r_expr.param_types.push_back(element);
 			if (!assignable(type, element)) {
 				error(arg->line, arg->column, "Cannot put a value of type " + type.to_string() + " in " + expected.to_string() + ".");
+			}
+		}
+		return set(r_expr, expected);
+	}
+
+	// `{k: v}` takes its type from where it goes, as `[a, b]` does. A key
+	// written as a name is a StringName, as in GDScript
+	// (modules/gdscript/gdscript_parser.cpp:3330-3336).
+	Type check_dictionary_literal(Expr &r_expr, const Type &p_expected) {
+		const Type expected = p_expected.kind == TypeKind::Option ? p_expected.args[0] : p_expected;
+		const std::optional<std::pair<Type, Type>> entries = entries_of(expected);
+		if (!entries) {
+			return fail_call(r_expr, r_expr.args.empty() ? "An empty dictionary needs a declared type, for example var d: Dictionary[String, int] = {}." : "A dictionary literal needs a declared type for now, for example var d: Dictionary[String, int] = {\"a\": 1}.");
+		}
+		const Type name_key = entries->first.kind == TypeKind::Variant ? Type::builtin("StringName") : entries->first;
+		for (size_t i = 0; i + 1 < r_expr.args.size(); i += 2) {
+			const Type &want_key = r_expr.bool_value ? name_key : entries->first;
+			const Type key = check_value(*r_expr.args[i], want_key);
+			const Type value = check_value(*r_expr.args[i + 1], entries->second);
+			r_expr.param_types.push_back(want_key);
+			r_expr.param_types.push_back(entries->second);
+			if (!assignable(key, want_key)) {
+				error(r_expr.args[i]->line, r_expr.args[i]->column, "The keys of " + expected.to_string() + " are " + entries->first.to_string() + ", not " + key.to_string() + ".");
+			}
+			if (!assignable(value, entries->second)) {
+				error(r_expr.args[i + 1]->line, r_expr.args[i + 1]->column, "Cannot put a value of type " + value.to_string() + " in " + expected.to_string() + ".");
 			}
 		}
 		return set(r_expr, expected);
@@ -2286,6 +2418,8 @@ class Checker : public ClassRelation {
 				return check_cast(r_expr);
 			case ExprKind::ArrayLiteral:
 				return check_array_literal(r_expr, p_expected);
+			case ExprKind::DictionaryLiteral:
+				return check_dictionary_literal(r_expr, p_expected);
 			case ExprKind::Subscript:
 				return check_subscript(r_expr);
 			case ExprKind::Conditional:
@@ -2320,6 +2454,11 @@ class Checker : public ClassRelation {
 	// member, a property, or a member of a built-in value in such a place,
 	// which is then written back (architecture §2.1).
 	bool check_place(const Expr &p_target) {
+		if (p_target.kind == ExprKind::Subscript) {
+			// An Array or a Dictionary changes in place; a packed array is a value,
+			// written back along the chain.
+			return is_shared(p_target.base->type) || check_written_back(p_target);
+		}
 		switch (p_target.target) {
 			case Target::Local:
 			case Target::Member:
@@ -2342,18 +2481,23 @@ class Checker : public ClassRelation {
 			}
 			case Target::Field:
 			case Target::StructField:
-				// Written back along the chain (spec §3.6).
-				if (p_target.base->kind == ExprKind::Name || p_target.base->kind == ExprKind::Member) {
-					return check_place(*p_target.base);
-				}
-				error(p_target.line, p_target.column, "Cannot assign to a member of a temporary value.");
-				return false;
+				return check_written_back(p_target);
 			default:
 				if (!p_target.type.is_error()) {
 					error(p_target.line, p_target.column, "Cannot assign to this expression.");
 				}
 				return false;
 		}
+	}
+
+	// A part of a value, changed in a copy written back along the chain (spec §3.6).
+	bool check_written_back(const Expr &p_target) {
+		const ExprKind base = p_target.base->kind;
+		if (base == ExprKind::Name || base == ExprKind::Member || base == ExprKind::Subscript) {
+			return check_place(*p_target.base);
+		}
+		error(p_target.line, p_target.column, p_target.kind == ExprKind::Subscript ? "Cannot assign to an element of a temporary value." : "Cannot assign to a member of a temporary value.");
+		return false;
 	}
 
 	void expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action) {
@@ -2475,7 +2619,8 @@ class Checker : public ClassRelation {
 		}
 	}
 
-	// `for i in n` and over the elements of an array (spec §5.7).
+	// `for i in n`, over the elements of an array and over the keys of a
+	// Dictionary (spec §5.7).
 	void check_for(Stmt &r_stmt) {
 		const Type iterated = check_value(*r_stmt.value);
 		Type element = Type::of(TypeKind::Error);
@@ -2484,6 +2629,10 @@ class Checker : public ClassRelation {
 			element = iterated;
 		} else if (iterated.kind == TypeKind::Float || (iterated.kind == TypeKind::Builtin && (name == "Vector2" || name == "Vector2i" || name == "Vector3" || name == "Vector3i"))) {
 			error(r_stmt.value->line, r_stmt.value->column, "Cannot iterate over " + iterated.to_string() + "; iterate over range(...) instead.");
+		} else if (const std::optional<std::pair<Type, Type>> entries = entries_of(iterated)) {
+			if (!refuse_variant_elements(entries->first, *r_stmt.value)) {
+				element = entries->first;
+			}
 		} else if (const std::optional<Type> elements = element_of(iterated)) {
 			if (!refuse_variant_elements(*elements, *r_stmt.value)) {
 				element = *elements;
@@ -2568,14 +2717,19 @@ class Checker : public ClassRelation {
 			}
 			case StmtKind::Assign: {
 				Expr &target = *r_stmt.target;
-				Type target_type = target.kind == ExprKind::Name || target.kind == ExprKind::Member ? check_expr(target) : Type::of(TypeKind::Error);
-				if (target.kind != ExprKind::Name && target.kind != ExprKind::Member) {
+				const bool compound = r_stmt.assign_op != TokenKind::Equal;
+				Type target_type = Type::of(TypeKind::Error);
+				if (target.kind == ExprKind::Name || target.kind == ExprKind::Member) {
+					target_type = check_expr(target);
+				} else if (target.kind == ExprKind::Subscript) {
+					// An element of an untyped container is written as a Variant.
+					target_type = check_subscript(target, !compound);
+				} else {
 					check_expr(target);
-					error(target.line, target.column, target.kind == ExprKind::Subscript ? "Assigning to an element, as in a[i] = v, is not supported yet." : "Cannot assign to this expression.");
+					error(target.line, target.column, "Cannot assign to this expression.");
 					check_value(*r_stmt.value);
 					return;
 				}
-				const bool compound = r_stmt.assign_op != TokenKind::Equal;
 				// A compound assignment reads the local as it is narrowed.
 				const Type read_type = target_type;
 				const int local = target.target == Target::Local ? target.index : -1;

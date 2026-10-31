@@ -35,6 +35,9 @@ enum class ExprKind {
 	GetNode, // `$Head/Camera` or `$"Head/Camera"`; the path in `text`.
 	Cast, // `left as cast_type` (spec §5.3).
 	ArrayLiteral, // `[a, b]`; the elements in `args`.
+	// `{k: v}`, or `{name = v}` when `bool_value`, whose keys are names as
+	// strings; each key and its value one after another in `args`.
+	DictionaryLiteral,
 	Subscript, // `base[right]`.
 	Conditional, // `left if base else right` (spec §5.5).
 	NoneLiteral, // `None`, or `null` (spec §2.2).

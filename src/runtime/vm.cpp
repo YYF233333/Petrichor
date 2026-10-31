@@ -16,6 +16,7 @@
 #include <godot_cpp/core/object.hpp>
 #include <godot_cpp/godot.hpp>
 #include <godot_cpp/variant/callable_custom.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
 
 #include <algorithm>
 #include <cstring>
@@ -23,6 +24,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <optional>
 
 using namespace godot;
 
@@ -310,6 +312,52 @@ public:
 
 void report_error(const ClassImage &p_image, const bytecode::Function &p_function, int p_line, const String &p_message) {
 	vm::report_error(p_image, p_function.name.c_str(), p_line, p_message);
+}
+
+template <typename T>
+int64_t packed_size(const uint8_t *p_slot) {
+	return reinterpret_cast<const T *>(p_slot)->size();
+}
+
+int64_t packed_array_size(ValueType p_type, const uint8_t *p_slot) {
+	switch (p_type) {
+		case ValueType::PackedByteArray:
+			return packed_size<PackedByteArray>(p_slot);
+		case ValueType::PackedInt32Array:
+			return packed_size<PackedInt32Array>(p_slot);
+		case ValueType::PackedInt64Array:
+			return packed_size<PackedInt64Array>(p_slot);
+		case ValueType::PackedFloat32Array:
+			return packed_size<PackedFloat32Array>(p_slot);
+		case ValueType::PackedFloat64Array:
+			return packed_size<PackedFloat64Array>(p_slot);
+		case ValueType::PackedStringArray:
+			return packed_size<PackedStringArray>(p_slot);
+		case ValueType::PackedVector2Array:
+			return packed_size<PackedVector2Array>(p_slot);
+		case ValueType::PackedVector3Array:
+			return packed_size<PackedVector3Array>(p_slot);
+		case ValueType::PackedColorArray:
+			return packed_size<PackedColorArray>(p_slot);
+		case ValueType::PackedVector4Array:
+			return packed_size<PackedVector4Array>(p_slot);
+		default:
+			return 0;
+	}
+}
+
+// The engine only reports an error when a read-only container is changed, or
+// changes a copy (core/variant/array.cpp:104-108, 518); here it is a program
+// error (spec §3.8).
+bool is_read_only(ValueType p_type, const uint8_t *p_slot) {
+	if (p_type == ValueType::Array) {
+		return reinterpret_cast<const Array *>(p_slot)->is_read_only();
+	}
+	return p_type == ValueType::Dictionary && reinterpret_cast<const Dictionary *>(p_slot)->is_read_only();
+}
+
+String read_only_error(ValueType p_type) {
+	return vformat("The %s is read-only, as a Dictionary key is; change a duplicate() of it instead.", bytecode::value_type_name(p_type));
 }
 
 // What an object must be to fit the class table's entry `p_index`.
@@ -786,15 +834,34 @@ public:
 					pc += 4;
 					break;
 				}
-				case Op::NEW_ARRAY: {
-					const ValueCheck &typed = image.types[code[pc + 1]].check;
-					*reinterpret_cast<Array *>(frame + code[pc + 2]) = typed_array(typed.element, typed.class_name, typed.script);
+				case Op::NEW_CONTAINER: {
+					const TypeImage &type = image.types[code[pc + 1]];
+					if (type.storage == ValueType::Dictionary) {
+						*reinterpret_cast<Dictionary *>(frame + code[pc + 2]) = typed_dictionary(type.check);
+					} else {
+						*reinterpret_cast<Array *>(frame + code[pc + 2]) = typed_array(type.check.element, type.check.class_name, type.check.script);
+					}
 					pc += 3;
 					break;
 				}
 				case Op::GET_INDEX: {
+					const TypeImage &base = image.types[code[pc + 1]];
+					const TypeImage &element = image.types[code[pc + 2]];
+					if (base.storage == ValueType::Dictionary) {
+						const Dictionary &dictionary = *reinterpret_cast<const Dictionary *>(frame + code[pc + 4]);
+						const Variant key = base.key ? to_variant(*base.key, frame + code[pc + 5]) : variant_at(frame + code[pc + 5]);
+						if (!dictionary.has(key)) {
+							FAIL(vformat("The Dictionary has no key %s.", UtilityFunctions::var_to_str(key)));
+						}
+						const Variant &value = dictionary[key];
+						if (!from_variant(element, value, frame + code[pc + 3], false)) {
+							FAIL(vformat("The value is %s, not %s.", Variant::get_type_name(value.get_type()), type_description(element)));
+						}
+						pc += 6;
+						break;
+					}
 					// A negative index counts from the end, as in GDScript.
-					Variant container = to_variant(image.types[code[pc + 1]].storage, frame + code[pc + 4]);
+					Variant container = to_variant(base.storage, frame + code[pc + 4]);
 					const int64_t index = I64(code[pc + 5]);
 					bool valid = false;
 					bool out_of_bounds = false;
@@ -802,11 +869,43 @@ public:
 					if (!valid || out_of_bounds) {
 						FAIL(vformat("Index %d is out of bounds (size %d).", index, int64_t(container.call("size"))));
 					}
-					const TypeImage &element = image.types[code[pc + 2]];
 					if (!from_variant(element, value, frame + code[pc + 3], false)) {
 						FAIL(vformat("The element is %s, not %s.", Variant::get_type_name(value.get_type()), type_description(element)));
 					}
 					pc += 6;
+					break;
+				}
+				case Op::SET_INDEX: {
+					const TypeImage &base = image.types[code[pc + 1]];
+					uint8_t *container = frame + code[pc + 2];
+					const uint8_t *index = frame + code[pc + 3];
+					const uint8_t *src = frame + code[pc + 4];
+					if (is_read_only(base.storage, container)) {
+						FAIL(read_only_error(base.storage));
+					}
+					if (base.storage == ValueType::Dictionary) {
+						Dictionary &dictionary = *reinterpret_cast<Dictionary *>(container);
+						Variant key = base.key ? to_variant(*base.key, index) : variant_at(index);
+						if (keys_hold_containers(dictionary) && !dictionary.has(key)) {
+							key = frozen_copy(key);
+						}
+						dictionary.set(key, base.item ? to_variant(*base.item, src) : variant_at(src));
+						pc += 5;
+						break;
+					}
+					// A negative index counts from the end, as in GDScript.
+					const int64_t size = base.storage == ValueType::Array ? reinterpret_cast<const Array *>(container)->size() : packed_array_size(base.storage, container);
+					const int64_t at = I64(code[pc + 3]) < 0 ? I64(code[pc + 3]) + size : I64(code[pc + 3]);
+					if (at < 0 || at >= size) {
+						FAIL(vformat("Index %d is out of bounds (size %d).", I64(code[pc + 3]), size));
+					}
+					if (base.storage == ValueType::Array) {
+						reinterpret_cast<Array *>(container)->set(at, base.item ? to_variant(*base.item, src) : variant_at(src));
+					} else {
+						// The element in its slot's layout, as the engine's setter takes it.
+						gdextension_interface::variant_get_ptr_indexed_setter(GDExtensionVariantType(base.storage))(container, at, src);
+					}
+					pc += 5;
 					break;
 				}
 				case Op::IS_INSTANCE: {
@@ -1008,6 +1107,23 @@ public:
 					const ValueType returns = utility ? module.utility_calls[target].return_type : module.builtin_methods[target].return_type;
 					const TypeImage &result_type = image.types[utility ? module.utility_calls[target].result_type : module.builtin_methods[target].result_type];
 					Arguments args(image.types, frame, code + pc + 5, argc, &params);
+					uint8_t *base = frame + code[pc + 3];
+					ClassImage::KeyRole keys = ClassImage::KeyRole::None;
+					std::optional<Variant> inserted; // A Variant is made by a call into the engine.
+					if (!utility) {
+						const bytecode::BuiltinMethodCall &method = module.builtin_methods[target];
+						if (!method.is_const && is_read_only(method.base, base)) {
+							FAIL(read_only_error(method.base));
+						}
+						if (image.key_roles[target] != ClassImage::KeyRole::None && keys_hold_containers(*reinterpret_cast<const Dictionary *>(base))) {
+							keys = image.key_roles[target];
+						}
+						// A new key goes in as a key (spec §3.8).
+						if (keys == ClassImage::KeyRole::Inserts && !reinterpret_cast<const Dictionary *>(base)->has(*reinterpret_cast<const Variant *>(args.pointers[0]))) {
+							inserted = frozen_copy(*reinterpret_cast<const Variant *>(args.pointers[0]));
+							args.pointers[0] = &*inserted;
+						}
+					}
 					// A native result goes straight into its slot; a Variant one
 					// is checked on the way (spec §10.3). The scratch slot takes a
 					// Variant result, or one that nothing reads.
@@ -1019,7 +1135,18 @@ public:
 					if (utility) {
 						image.utilities[target](result, args.pointers, int(argc));
 					} else {
-						image.builtin_methods[target](frame + code[pc + 3], args.pointers, result, int(argc));
+						image.builtin_methods[target](base, args.pointers, result, int(argc));
+					}
+					if (keys == ClassImage::KeyRole::HandsOut) {
+						// Keys this language obtains cannot be changed (spec §3.8).
+						if (returns == ValueType::Array) {
+							const Array handed = *reinterpret_cast<const Array *>(result);
+							for (int64_t i = 0; i < handed.size(); i++) {
+								freeze(handed[i]);
+							}
+						} else {
+							freeze(variant_at(scratch));
+						}
 					}
 					const bool fits = returns != ValueType::Variant || dst == NO_SLOT || from_variant(result_type, variant_at(scratch), frame + dst, false);
 					const Variant::Type got = via_variant ? type_of(variant_at(scratch)) : Variant::NIL;

@@ -137,15 +137,17 @@ struct Place {
 		ObjectProperty,
 		Field,
 		StructCopy, // A field of a copy of a struct, `whole`.
+		Element, // An element of a container, at the index or key `at`; one of a packed array goes back to `parent`.
 	};
 	Kind kind = Kind::Local;
-	uint32_t reg = NO_REG; // Local: the register; ObjectProperty: the object; Field: the copy of the base; StructCopy: the field in the copy.
+	uint32_t reg = NO_REG; // Local: the register; ObjectProperty: the object; Field: the copy of the base; StructCopy: the field in the copy; Element: the container.
 	uint32_t index = 0; // Member, property table or field table.
+	uint32_t at = NO_REG;
 	uint32_t offset = 0;
 	uint32_t whole = NO_REG;
 	Type type;
 	std::optional<bytecode::IntRange> int_range; // An engine property: what its setter takes (spec §10.6).
-	std::unique_ptr<Place> parent; // Field and StructCopy: where the copy goes back.
+	std::unique_ptr<Place> parent; // Field, StructCopy and Element: where the copy goes back.
 };
 
 class Lowerer {
@@ -248,6 +250,10 @@ class Lowerer {
 		} else if (is_typed_array(p_type)) {
 			type.kind = bytecode::TypeKind::Array;
 			type.element = type_index(p_type.args[0]);
+		} else if (is_typed_container(p_type)) {
+			type.kind = bytecode::TypeKind::Dictionary;
+			type.key = type_index(p_type.args[0]);
+			type.element = type_index(p_type.args[1]);
 		} else if (p_type.kind == TypeKind::Struct) {
 			return struct_index(p_type);
 		} else {
@@ -678,18 +684,21 @@ class Lowerer {
 		}
 	}
 
-	/* Arrays */
+	/* Containers */
 
-	void new_array(uint32_t p_dst) {
-		instr(Op::NEW_ARRAY, p_dst, NO_REG, NO_REG, 0, fn.regs[p_dst].type);
+	void new_container(uint32_t p_dst) {
+		instr(Op::NEW_CONTAINER, p_dst, NO_REG, NO_REG, 0, fn.regs[p_dst].type);
 	}
 
-	bool is_typed_array_reg(uint32_t p_reg) const {
-		return module.types[fn.regs[p_reg].type].kind == bytecode::TypeKind::Array;
+	bool is_typed_container_reg(uint32_t p_reg) const {
+		const bytecode::TypeKind kind = module.types[fn.regs[p_reg].type].kind;
+		return kind == bytecode::TypeKind::Array || kind == bytecode::TypeKind::Dictionary;
 	}
 
 	// A method of a built-in type by name, as the engine declares it.
-	uint32_t engine_builtin_method(ValueType p_base, const char *p_method, std::vector<ValueType> p_params, ValueType p_return, bool p_vararg = false) {
+	// `p_result_type` is the slot's type, such as Array[K] for keys() of a
+	// Dictionary[K, V]; by default the return type.
+	uint32_t engine_builtin_method(ValueType p_base, const char *p_method, std::vector<ValueType> p_params, ValueType p_return, bool p_vararg = false, uint32_t p_result_type = NO_REG) {
 		const builtin::Class *type = builtin::find_class(bytecode::value_type_name(p_base));
 		const builtin::Method *method = type ? builtin::find_method(*type, p_method) : nullptr;
 		bytecode::BuiltinMethodCall call;
@@ -697,9 +706,10 @@ class Lowerer {
 		call.method = p_method;
 		call.hash = method ? method->hash : 0;
 		call.is_vararg = p_vararg;
+		call.is_const = !method || method->is_const;
 		call.params = std::move(p_params);
 		call.return_type = p_return;
-		call.result_type = type_index(p_return);
+		call.result_type = p_result_type == NO_REG ? type_index(p_return) : p_result_type;
 		return builtin_method(call);
 	}
 
@@ -729,7 +739,7 @@ class Lowerer {
 
 	uint32_t array_literal(const Expr &p_expr) {
 		const uint32_t result = temp(p_expr.type);
-		new_array(result);
+		new_container(result);
 		const uint32_t append = engine_builtin_method(ValueType::Array, "append", { ValueType::Variant }, ValueType::Void);
 		for (size_t e = 0; e < p_expr.args.size(); e++) {
 			const Type &element = p_expr.param_types[e];
@@ -738,13 +748,77 @@ class Lowerer {
 		return result;
 	}
 
+	uint32_t dictionary_literal(const Expr &p_expr) {
+		const uint32_t result = temp(p_expr.type);
+		new_container(result);
+		const auto [key_type, value_type] = *entries_of(p_expr.type);
+		for (size_t e = 0; e + 1 < p_expr.args.size(); e += 2) {
+			const uint32_t key = stored(*p_expr.args[e], p_expr.param_types[e], key_type);
+			instr(Op::SET_INDEX, result, key, stored(*p_expr.args[e + 1], value_type, value_type));
+		}
+		return result;
+	}
+
+	// A value as a container keeps it, as a key or an element: of the type
+	// `p_as` is converted to, or a Variant in a container without types
+	// (spec §10.1). The engine keeps it, so a T must hold a live object, and
+	// a T? whose object was freed is None (§3.3).
+	uint32_t stored(const Expr &p_value, const Type &p_as, const Type &p_element) {
+		const uint32_t value = argument(p_value, p_as, true, true);
+		return p_element.kind == TypeKind::Variant ? as_variant(value) : convert(value, p_element);
+	}
+
+	uint32_t as_variant(uint32_t p_reg) {
+		if (reg_type(p_reg) == ValueType::Variant) {
+			return p_reg;
+		}
+		const uint32_t result = temp(ValueType::Variant);
+		instr(Op::TO_VARIANT, result, p_reg, NO_REG, 0, fn.regs[p_reg].type);
+		return result;
+	}
+
+	// The index of `a[i]`, or the key of `d[k]`.
+	uint32_t index_of(const Expr &p_subscript) {
+		if (p_subscript.param_types.empty()) {
+			return lower_expr(*p_subscript.right);
+		}
+		return stored(*p_subscript.right, p_subscript.param_types[0], p_subscript.param_types[0]);
+	}
+
+	// get(k) of Dictionary[K, V]: V?, None for a missing key (spec §3.8).
+	uint32_t get_or_none(const Expr &p_call) {
+		const uint32_t dictionary = lower_expr(*p_call.base);
+		const auto [key_type, value_type] = *entries_of(p_call.base->type);
+		const uint32_t key = stored(*p_call.args[0], key_type, key_type);
+		const uint32_t has = call_builtin(engine_builtin_method(ValueType::Dictionary, "has", { ValueType::Variant }, ValueType::Bool), dictionary, { key }, temp(ValueType::Bool));
+		const uint32_t result = temp(p_call.type);
+		const uint32_t found = new_block();
+		const uint32_t missing = new_block();
+		const uint32_t end = new_block();
+		branch(has, found, missing);
+		current = found;
+		move(result, convert(get_index(dictionary, key, value_type), p_call.type));
+		jump(end);
+		current = missing;
+		default_value(result);
+		jump(end);
+		current = end;
+		return result;
+	}
+
+	// The keys of a Dictionary[K, V], as an Array[K] (spec §5.7).
+	uint32_t keys_of(uint32_t p_dictionary, const Type &p_key) {
+		const uint32_t keys = temp(Type::array(p_key));
+		return call_builtin(engine_builtin_method(ValueType::Dictionary, "keys", {}, ValueType::Array, false, fn.regs[keys].type), p_dictionary, {}, keys);
+	}
+
 	/* Expressions */
 
 	uint32_t default_value(uint32_t p_dst) {
 		const ValueType type = reg_type(p_dst);
-		if (is_typed_array_reg(p_dst)) {
-			// An empty Array[T] is typed too.
-			new_array(p_dst);
+		if (is_typed_container_reg(p_dst)) {
+			// An empty Array[T] or Dictionary[K, V] is typed too.
+			new_container(p_dst);
 			return p_dst;
 		}
 		if (is_option_reg(p_dst)) {
@@ -886,6 +960,9 @@ class Lowerer {
 		if (p_call.target == Target::Noop) {
 			return NO_REG;
 		}
+		if (p_call.target == Target::BuiltinMethod && p_call.owner == "Dictionary" && p_call.text == "get" && p_call.args.size() == 1 && p_call.type.is_optional()) {
+			return get_or_none(p_call);
+		}
 		switch (p_call.target) {
 			case Target::ConvertToInt: {
 				const uint32_t arg = lower_expr(*p_call.args[0]);
@@ -999,6 +1076,7 @@ class Lowerer {
 				method.method = p_call.text;
 				method.hash = p_call.hash;
 				method.is_vararg = p_call.is_vararg;
+				method.is_const = p_call.is_const;
 				method.params = value_types(p_call.engine_params);
 				method.return_type = value_type(p_call.engine_return);
 				method.result_type = type_index(p_call.type);
@@ -1037,7 +1115,7 @@ class Lowerer {
 			// The engine made a new array, so a new array typed by that class
 			// with the same elements is not told apart from it.
 			const uint32_t typed = temp(p_call.type);
-			new_array(typed);
+			new_container(typed);
 			call_builtin(engine_builtin_method(ValueType::Array, "assign", { ValueType::Array }, ValueType::Void), typed, { i.dst });
 			return typed;
 		}
@@ -1144,6 +1222,8 @@ class Lowerer {
 				return get_node(p_expr);
 			case ExprKind::ArrayLiteral:
 				return array_literal(p_expr);
+			case ExprKind::DictionaryLiteral:
+				return dictionary_literal(p_expr);
 			case ExprKind::NoneLiteral:
 				return default_value(temp(p_expr.type));
 			case ExprKind::TypeTest: {
@@ -1169,7 +1249,7 @@ class Lowerer {
 			}
 			case ExprKind::Subscript: {
 				const uint32_t container = lower_expr(*p_expr.base);
-				return get_index(container, lower_expr(*p_expr.right), p_expr.type);
+				return get_index(container, index_of(p_expr), p_expr.type);
 			}
 			case ExprKind::Cast: {
 				const uint32_t value = lower_expr(*p_expr.left);
@@ -1206,6 +1286,9 @@ class Lowerer {
 	/* Places */
 
 	static bool is_place(const Expr &p_expr) {
+		if (p_expr.kind == ExprKind::Subscript) {
+			return is_shared(p_expr.base->type) || is_place(*p_expr.base);
+		}
 		switch (p_expr.target) {
 			case Target::Local:
 			case Target::Member:
@@ -1265,6 +1348,19 @@ class Lowerer {
 		Place place;
 		place.type = p_expr.type;
 		place.int_range = p_expr.int_range;
+		if (p_expr.kind == ExprKind::Subscript) {
+			// An Array or a Dictionary changes in place; a packed array is a
+			// value, written back to where it came from.
+			place.kind = Place::Kind::Element;
+			if (!is_shared(p_expr.base->type) && is_place(*p_expr.base)) {
+				place.parent = std::make_unique<Place>(place_of(*p_expr.base));
+				place.reg = load(*place.parent);
+			} else {
+				place.reg = lower_expr(*p_expr.base);
+			}
+			place.at = index_of(p_expr);
+			return place;
+		}
 		switch (p_expr.target) {
 			case Target::Local:
 				place.reg = uint32_t(p_expr.index);
@@ -1353,6 +1449,8 @@ class Lowerer {
 				instr(Op::GET_FIELD, result, p_place.reg, NO_REG, p_place.index);
 				return result;
 			}
+			case Place::Kind::Element:
+				return get_index(p_place.reg, p_place.at, p_place.type);
 		}
 		return internal_error("no code to read this place");
 	}
@@ -1404,6 +1502,12 @@ class Lowerer {
 					store(*p_place.parent, p_place.reg);
 				}
 				return;
+			case Place::Kind::Element:
+				instr(Op::SET_INDEX, p_place.reg, p_place.at, p_place.type.kind == TypeKind::Variant ? as_variant(p_value) : p_value);
+				if (p_place.parent) {
+					store(*p_place.parent, p_place.reg);
+				}
+				return;
 		}
 	}
 
@@ -1449,6 +1553,8 @@ class Lowerer {
 					value = lower_expr(*p_stmt.value);
 					if (place.kind == Place::Kind::SelfProperty || place.kind == Place::Kind::Owner || place.kind == Place::Kind::ObjectProperty) {
 						value = outward(value, p_stmt.value->type, target.type.kind == TypeKind::Object); // The engine keeps it.
+					} else if (place.kind == Place::Kind::Element) {
+						value = outward(value, p_stmt.value->type, true);
 					}
 				} else {
 					const uint32_t current_value = load(place);
@@ -1527,8 +1633,10 @@ class Lowerer {
 				// size, as GDScript does. The loop variable gets the count or the
 				// element afresh on each iteration.
 				const bool counting = p_stmt.value->type.kind == TypeKind::Int;
-				const uint32_t source = temp(p_stmt.value->type);
-				move(source, lower_expr(*p_stmt.value));
+				const std::optional<std::pair<Type, Type>> entries = entries_of(p_stmt.value->type);
+				const uint32_t source = temp(entries ? Type::array(entries->first) : p_stmt.value->type);
+				// A Dictionary is iterated over its keys as they were on entry.
+				move(source, entries ? keys_of(lower_expr(*p_stmt.value), entries->first) : lower_expr(*p_stmt.value));
 				const uint32_t counter = temp(ValueType::Int);
 				load_int(counter, 0);
 				const uint32_t condition_block = new_block();
@@ -1624,14 +1732,15 @@ class Lowerer {
 		}
 		for (size_t m = module.inherited_members; m < cls.all_members.size(); m++) {
 			const VarDecl &member = *cls.all_members[m];
-			if (member.is_onready != p_onready || (!member.initializer && !is_typed_array(member.type) && member.type.kind != TypeKind::Struct)) {
+			if (member.is_onready != p_onready || (!member.initializer && !is_typed_container(member.type) && member.type.kind != TypeKind::Struct)) {
 				continue;
 			}
 			any = true;
 			line = member.line;
 			instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(member.line));
 			if (!member.initializer) {
-				// An empty Array[T] is typed too, and a struct has its fields' defaults (spec §4.3).
+				// An empty Array[T] or Dictionary[K, V] is typed too, and a struct
+				// has its fields' defaults (spec §4.3).
 				store_member(uint32_t(m), default_value(temp(member.type)));
 				continue;
 			}

@@ -137,12 +137,20 @@ static Dictionary value_dict(const TypeImage &p_type, const StringName &p_name, 
 	return property_dict(variant_type(p_type), p_name, usage, object ? p_type.check.class_name : StringName());
 }
 
-// Array[T] is the engine's typed array, which it describes with a hint.
+static String element_name(bytecode::ValueType p_type, const StringName &p_class) {
+	return p_type == bytecode::ValueType::Object ? String(p_class) : Variant::get_type_name(variant_type(p_type));
+}
+
+// Array[T] and Dictionary[K, V] are the engine's typed containers, which it
+// describes with a hint.
 static Dictionary typed(Dictionary p_dict, const TypeImage &p_type) {
-	const bytecode::ValueType element = p_type.check.element;
-	if (element != bytecode::ValueType::Void) {
+	const ValueCheck &check = p_type.check;
+	if (check.key != bytecode::ValueType::Void) {
+		p_dict["hint"] = PROPERTY_HINT_DICTIONARY_TYPE;
+		p_dict["hint_string"] = element_name(check.key, check.key_class_name) + ";" + element_name(check.element, check.class_name);
+	} else if (check.element != bytecode::ValueType::Void) {
 		p_dict["hint"] = PROPERTY_HINT_ARRAY_TYPE;
-		p_dict["hint_string"] = element == bytecode::ValueType::Object ? String(p_type.check.class_name) : Variant::get_type_name(variant_type(element));
+		p_dict["hint_string"] = element_name(check.element, check.class_name);
 	}
 	return p_dict;
 }
@@ -191,13 +199,15 @@ Dictionary property_info(const ClassImage &p_image, const bytecode::Member &p_me
 	const TypeImage &type = p_image.types[p_member.type];
 	Dictionary dict = value_dict(type, to_godot(p_member.name), usage);
 	// The inspector picks a class of this language by its global name.
-	String class_name = type.check.class_name;
-	if (!type.check.script.is_empty()) {
-		const Ref<Script> script = ResourceLoader::get_singleton()->load(type.check.script);
-		if (script.is_valid() && !script->get_global_name().is_empty()) {
-			class_name = script->get_global_name();
-		}
-	}
+	const auto global_name = [](const StringName &p_class, const String &p_script) {
+		const Ref<Script> script = p_script.is_empty() ? Ref<Script>() : ResourceLoader::get_singleton()->load(p_script);
+		return script.is_valid() && !script->get_global_name().is_empty() ? String(script->get_global_name()) : String(p_class);
+	};
+	const String class_name = global_name(type.check.class_name, type.check.script);
+	// An exported element: "type/hint:class", as GDScript writes it.
+	const auto exported = [](ValueType p_element, const String &p_class) {
+		return p_element == ValueType::Object ? vformat("%d/%d:%s", Variant::OBJECT, picker_of(p_class), p_class) : vformat("%d:", variant_type(p_element));
+	};
 	const ValueType element = type.check.element;
 	if (p_member.hint != 0) {
 		dict["hint"] = p_member.hint;
@@ -206,9 +216,10 @@ Dictionary property_info(const ClassImage &p_image, const bytecode::Member &p_me
 		dict["hint"] = picker_of(class_name);
 		dict["hint_string"] = class_name;
 	} else if (p_member.is_export && element != ValueType::Void) {
-		// An exported typed array: "type/hint:class" per element, as GDScript writes it.
+		// A typed array, or a typed Dictionary with its key first.
 		dict["hint"] = PROPERTY_HINT_TYPE_STRING;
-		dict["hint_string"] = element == ValueType::Object ? vformat("%d/%d:%s", Variant::OBJECT, picker_of(class_name), class_name) : vformat("%d:", variant_type(element));
+		const String elements = exported(element, class_name);
+		dict["hint_string"] = type.check.key == ValueType::Void ? elements : exported(type.check.key, global_name(type.check.key_class_name, type.check.key_script)) + ";" + elements;
 	} else {
 		dict = typed(dict, type);
 	}

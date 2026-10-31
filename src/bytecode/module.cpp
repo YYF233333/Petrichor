@@ -119,6 +119,8 @@ ValueType storage_of(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 			return ValueType::Object;
 		case TypeKind::Array:
 			return ValueType::Array;
+		case TypeKind::Dictionary:
+			return ValueType::Dictionary;
 		default:
 			return ValueType::Void;
 	}
@@ -183,6 +185,8 @@ std::string type_key(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 			return "?(" + type_key(p_types, type.element) + ")";
 		case TypeKind::Array:
 			return "a(" + type_key(p_types, type.element) + ")";
+		case TypeKind::Dictionary:
+			return "d(" + type_key(p_types, type.key) + "," + type_key(p_types, type.element) + ")";
 		case TypeKind::Struct: {
 			// With its fields, so that a struct changed in one module is not taken
 			// for the old one by another.
@@ -285,6 +289,7 @@ public:
 		u8(uint8_t(p_type.kind));
 		type(p_type.value);
 		u32(p_type.element);
+		u32(p_type.key);
 		class_ref(p_type.object);
 		u8(p_type.nullable ? 1 : 0);
 		str(p_type.task_result);
@@ -416,6 +421,7 @@ public:
 		value.kind = TypeKind(kind);
 		value.value = type();
 		value.element = u32();
+		value.key = u32();
 		value.object = class_ref();
 		value.nullable = u8() != 0;
 		value.task_result = str();
@@ -566,6 +572,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.str(call.method);
 		w.u32(call.hash);
 		w.u8(call.is_vararg ? 1 : 0);
+		w.u8(call.is_const ? 1 : 0);
 		w.types(call.params);
 		w.type(call.return_type);
 		w.u32(call.result_type);
@@ -738,6 +745,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		call.method = r.str();
 		call.hash = r.u32();
 		call.is_vararg = r.u8() != 0;
+		call.is_const = r.u8() != 0;
 		call.params = r.types();
 		call.return_type = r.type();
 		call.result_type = r.u32();
