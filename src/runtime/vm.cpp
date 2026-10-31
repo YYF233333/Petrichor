@@ -53,11 +53,12 @@ struct CoroutineFrame : std::enable_shared_from_this<CoroutineFrame> {
 	size_t pc = 0;
 	int line = 0;
 	uint32_t destination = NO_SLOT;
-	uint64_t generation = 0;
+	// Also read by the callbacks of what the frame awaits, on the thread they run on.
+	std::atomic<uint64_t> generation{ 0 };
 	// The awaited object was freed: tasks::frame() fails the wait once the
 	// frame's deletions are done, unless the waiter's own object went too (spec §9.7).
-	bool awaited_freed = false;
-	uint64_t lost_object = 0;
+	std::atomic<bool> awaited_freed{ false };
+	std::atomic<uint64_t> lost_object{ 0 };
 	Signal waiting;
 	Callable callback;
 	Signal script_changed;
@@ -1139,6 +1140,10 @@ public:
 						if (!method.is_const && is_read_only(method.base, base)) {
 							FAIL(read_only_error(method.base));
 						}
+						if (image.needs_element[target] && reinterpret_cast<const Array *>(base)->is_empty()) {
+							// The engine returns null, after an error of its own for front() and back().
+							FAIL(vformat("%s() of an empty array.", method.method.c_str()));
+						}
 						if (image.replaced[target] != ClassImage::Replaced::None && keeps_boxes(to_variant(method.base, base))) {
 							replaced = image.replaced[target];
 						}
@@ -1329,26 +1334,30 @@ void CoroutineTask::_bind_methods() {
 }
 
 void CoroutineTask::finish(State p_state, const Variant &p_result) {
-	if (ended()) {
-		return;
-	}
 	Ref<CoroutineTask> keep(this);
-	state = p_state;
-	result = p_state == State::Finished ? p_result : Variant();
-	if (continuation) {
-		const auto frame = std::move(continuation);
-		frame->disconnect();
-		Ref<CoroutineTask> child = frame->child;
-		frame->child.unref();
-		if (p_state == State::Cancelled && child.is_valid()) {
-			child->cancel();
+	Ref<CoroutineTask> child;
+	{
+		std::lock_guard<std::recursive_mutex> lock(mutex);
+		if (ended()) {
+			return;
 		}
-		if (frame->data) {
-			uint8_t *data = frame->data;
-			frame->data = nullptr;
-			frame->image->frames[frame->function].destroy(data);
-			::operator delete(data);
+		result = p_state == State::Finished ? p_result : Variant();
+		state = p_state;
+		if (continuation) {
+			const auto frame = std::move(continuation);
+			frame->disconnect();
+			child = frame->child;
+			frame->child.unref();
+			if (frame->data) {
+				uint8_t *data = frame->data;
+				frame->data = nullptr;
+				frame->image->frames[frame->function].destroy(data);
+				::operator delete(data);
+			}
 		}
+	}
+	if (p_state == State::Cancelled && child.is_valid()) {
+		child->cancel();
 	}
 	{
 		std::lock_guard<std::mutex> lock(tasks_mutex);
@@ -1358,20 +1367,27 @@ void CoroutineTask::finish(State p_state, const Variant &p_result) {
 }
 
 void CoroutineTask::cancel() {
-	if (ended()) {
-		return;
+	{
+		std::lock_guard<std::recursive_mutex> lock(mutex);
+		if (ended()) {
+			return;
+		}
+		cancel_requested = true;
+		if (state != State::Suspended) {
+			return; // A running coroutine ends itself once it stops.
+		}
 	}
-	cancel_requested = true;
-	if (state == State::Suspended) {
-		finish(State::Cancelled);
-	}
+	finish(State::Cancelled);
 }
 void CoroutineTask::cancel_owner() {
-	if (ended()) {
-		return;
+	{
+		std::lock_guard<std::recursive_mutex> lock(mutex);
+		if (ended()) {
+			return;
+		}
+		owner_freed = true;
+		owner_freed_frame = task_frame.load();
 	}
-	owner_freed = true;
-	owner_freed_frame = task_frame.load();
 	cancel();
 }
 
@@ -1509,25 +1525,27 @@ bool CoroutineFrame::suspend(const Signal &p_signal, uint32_t p_dst, uint64_t p_
 }
 
 void CoroutineFrame::complete_wait(uint64_t p_generation, const Variant &p_value) {
-	if (p_generation != generation || task->ended() || awaited_freed) {
-		return;
-	}
+	const auto keep_frame = shared_from_this();
 	Ref<CoroutineTask> keep(task);
-	const Ref<CoroutineTask> completed = waited_task;
-	disconnect();
-	child.unref();
-	if (completed.is_valid()) {
-		if (!await_task(completed)) {
-			task->finish(CoroutineTask::State::Failed);
+	bool failed = false;
+	{
+		std::lock_guard<std::recursive_mutex> lock(task->mutex);
+		if (p_generation != generation || task->ended() || awaited_freed) {
 			return;
 		}
-		if (awaited_freed) {
-			return;
+		const Ref<CoroutineTask> completed = waited_task;
+		disconnect();
+		child.unref();
+		if (completed.is_valid()) {
+			failed = !await_task(completed);
+			if (!failed && awaited_freed) {
+				return;
+			}
+		} else {
+			failed = !receive(p_value);
 		}
-		resume();
-		return;
 	}
-	if (!receive(p_value)) {
+	if (failed) {
 		task->finish(CoroutineTask::State::Failed);
 		return;
 	}
@@ -1537,20 +1555,32 @@ void CoroutineFrame::complete_wait(uint64_t p_generation, const Variant &p_value
 void CoroutineFrame::resume() {
 	const auto keep_frame = shared_from_this();
 	Ref<CoroutineTask> keep_task(task);
-	if (task->cancel_requested && pc != 0) {
-		task->finish(CoroutineTask::State::Cancelled);
-		return;
+	CoroutineTask::State ends = CoroutineTask::State::Running;
+	Variant value;
+	{
+		std::lock_guard<std::recursive_mutex> lock(task->mutex);
+		if (task->ended()) {
+			return; // Cancelled on another thread meanwhile.
+		}
+		if (task->cancel_requested && pc != 0) {
+			ends = CoroutineTask::State::Cancelled;
+		} else {
+			task->state = CoroutineTask::State::Running;
+			const TypeImage &result_type = image->types[image->module.functions[function].result.type];
+			ValueBuffer result(result_type);
+			const bool ok = Execution(*image, context, debugger::is_active()).run(function, data, result.data, this);
+			if (task->cancel_requested) {
+				ends = CoroutineTask::State::Cancelled;
+			} else if (!ok) {
+				ends = CoroutineTask::State::Failed;
+			} else if (task->state == CoroutineTask::State::Running) {
+				ends = CoroutineTask::State::Finished;
+				value = outward_variant(result_type, result.data);
+			}
+		}
 	}
-	task->state = CoroutineTask::State::Running;
-	const TypeImage &result_type = image->types[image->module.functions[function].result.type];
-	ValueBuffer result(result_type);
-	const bool ok = Execution(*image, context, debugger::is_active()).run(function, data, result.data, this);
-	if (task->cancel_requested) {
-		task->finish(CoroutineTask::State::Cancelled);
-	} else if (!ok) {
-		task->finish(CoroutineTask::State::Failed);
-	} else if (task->state == CoroutineTask::State::Running) {
-		task->finish(CoroutineTask::State::Finished, outward_variant(result_type, result.data));
+	if (ends != CoroutineTask::State::Running) {
+		task->finish(ends, value);
 	}
 }
 
@@ -1558,7 +1588,9 @@ namespace tasks {
 void cancel_owner(const std::shared_ptr<InstanceStorage> &p_storage) {
 	p_storage->coroutines_cancelled = true;
 	for (const auto &task : task_snapshot()) {
+		std::unique_lock<std::recursive_mutex> lock(task->mutex);
 		if (task->continuation && task->continuation->context.storage == p_storage) {
+			lock.unlock();
 			task->cancel_owner();
 		}
 	}
@@ -1566,14 +1598,17 @@ void cancel_owner(const std::shared_ptr<InstanceStorage> &p_storage) {
 void frame() {
 	++task_frame;
 	for (const auto &task : task_snapshot()) {
+		std::unique_lock<std::recursive_mutex> lock(task->mutex);
 		const auto frame = task->continuation;
 		if (!frame || !frame->awaited_freed || task->ended()) {
 			continue;
 		}
 		if (frame->context.storage && frame->context.storage->coroutines_cancelled) {
+			lock.unlock();
 			task->cancel_owner();
 		} else {
 			frame->report_error(vformat("The awaited object %d was freed or lost its script.", int64_t(frame->lost_object)));
+			lock.unlock();
 			task->finish(CoroutineTask::State::Failed);
 		}
 	}

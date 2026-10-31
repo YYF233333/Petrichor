@@ -90,6 +90,9 @@ public:
 		Max,
 	};
 	std::vector<Replaced> replaced; // By built-in method index.
+	// front(), back(), min() and max() of an Array, a program error on an
+	// empty one (spec §3.8).
+	std::vector<bool> needs_element; // By built-in method index.
 	std::vector<godot::StringName> classes; // Engine classes, by class index.
 	std::vector<godot::String> class_scripts; // Classes of this language: their scripts.
 	std::vector<godot::String> class_interfaces; // Interfaces: "script::Name".

@@ -5,6 +5,9 @@
 #include <godot_cpp/classes/ref.hpp>
 #include <godot_cpp/classes/ref_counted.hpp>
 
+#include <atomic>
+#include <mutex>
+
 namespace petrichor {
 struct CoroutineFrame;
 
@@ -20,12 +23,17 @@ public:
 		Finished,
 		Cancelled,
 		Failed };
-	State state = State::Running;
-	bool cancel_requested = false;
-	bool owner_freed = false;
+	// A coroutine resumes on the thread that emits what it awaits, and may be
+	// cancelled on another (spec §12.3): changes of state, and the suspended
+	// frame, are under this lock, which a running coroutine holds; a task ends
+	// under it, and tells others it ended, cancelling its child, after it.
+	std::recursive_mutex mutex;
+	std::atomic<State> state{ State::Running };
+	std::atomic<bool> cancel_requested{ false };
+	std::atomic<bool> owner_freed{ false };
 	uint64_t owner_id = 0;
-	uint64_t owner_freed_frame = 0;
-	godot::Variant result;
+	std::atomic<uint64_t> owner_freed_frame{ 0 };
+	godot::Variant result; // Written before the state says Finished.
 	std::string result_signature;
 	std::shared_ptr<CoroutineFrame> continuation;
 

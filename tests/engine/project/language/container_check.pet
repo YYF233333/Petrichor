@@ -139,3 +139,10 @@ pub func ordered() -> String:
 	var keyed: Dictionary[Hit, int] = {Hit(damage = 2): 0, Hit(damage = 1): 1}
 	keyed.sort()
 	return str(order) + " " + hits[1].tags[0] + " " + str(hits.bsearch(Hit(damage = 2, tags = ["b"]))) + " " + str(hits.min().damage) + " " + str(hits.max().damage) + " " + str(Hit(damage = 1) < Hit(damage = 2)) + " " + str(maybe[0] == None and maybe[2] == 2 and p < q and q <= q) + " " + str(keyed.keys()[0].damage)
+
+# The engine returns null for them, which int does not have (spec §3.8).
+pub func least(values: Array[int]) -> int:
+	return values.min()
+
+pub func first(values: Array[int]) -> int:
+	return values.front()

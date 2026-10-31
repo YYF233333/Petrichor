@@ -385,6 +385,12 @@ func _ready() -> void:
 	containers.grid_row(1)
 	_check_errors(["container_check.pet:126: Expected Array[int], found Array."], "an inner container of another type is a program error when read")
 	_check(containers.ordered() == "[1, 2, 2, 3] a 2 1 3 true true 1", "structs order by their fields, T? with None first, and containers of them sort, search and find their least and greatest")
+	var no_ints: Array[int] = []
+	var some_ints: Array[int] = [3, 1]
+	_check(containers.least(some_ints) == 1 and containers.first(some_ints) == 3, "min() and front() give an element")
+	containers.least(no_ints)
+	containers.first(no_ints)
+	_check_errors(["container_check.pet:145: min() of an empty array.", "container_check.pet:148: front() of an empty array."], "min() and front() of an empty array are program errors")
 	containers.free()
 
 	var frames_before: int = c.frames

@@ -198,6 +198,7 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 			}
 		}
 		image->replaced.push_back(replaced);
+		image->needs_element.push_back(call.base == ValueType::Array && (call.method == "front" || call.method == "back" || call.method == "min" || call.method == "max"));
 	}
 	for (const bytecode::ClassRef &ref : module.classes) {
 		image->classes.push_back(to_godot(ref.name));
