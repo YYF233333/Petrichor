@@ -22,6 +22,8 @@ pub async func object_later(value) -> Node3D:
 	return value
 func alive(value: Node) -> bool:
 	return super(value)
+func note_deferred():
+	trace += "O"
 pub func freed_forward() -> bool:
 	var value := Node.new()
 	value.free()

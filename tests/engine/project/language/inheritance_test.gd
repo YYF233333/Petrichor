@@ -45,8 +45,11 @@ func run(_errors) -> int:
 	node.trace = ""
 	node.notification(777, true)
 	check(node.trace == "MN", "notification derived-to-base")
+	node.trace = ""
+	node.defer()
 	await get_tree().process_frame
 	await get_tree().process_frame
 	check(node.frames > 0, "inherited engine virtual enables processing")
+	check(node.trace == "O", "a method the base names in call_deferred() runs, overridden, on a derived instance")
 	node.free()
 	return failures

@@ -291,7 +291,6 @@ struct FuncDecl {
 	// Filled by the checker.
 	Type return_type = Type::of(TypeKind::Void);
 	bool is_override = false;
-	bool is_exposed = false; // Connected in a scene (spec §10.5).
 	std::vector<LocalInfo> locals; // Parameters first.
 };
 

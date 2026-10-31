@@ -79,6 +79,11 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		image->function_names.push_back(name);
 		image->function_lookup.insert(name, int(i));
 		const int parent = p_base ? p_base->find_function(name) : -1;
+		// The base's bodies may name the method to the engine, as in
+		// call_deferred("m"); compiling this class does not check them.
+		if (parent >= 0 && p_base->module.functions[parent].is_exposed) {
+			image->module.functions[i].is_exposed = true;
+		}
 		if (!function.name.empty() && function.name[0] != '@') {
 			const std::string expected = parent < 0 ? std::string() : signature_key(p_base->module, p_base->module.functions[parent]);
 			if (parent >= 0 && (function.is_static != p_base->module.functions[parent].is_static || function.is_pub != p_base->module.functions[parent].is_pub)) {

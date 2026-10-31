@@ -41,3 +41,7 @@ pub async func object_later(value: Node3D) -> Node:
 	return value
 func alive(value: Node) -> bool:
 	return is_instance_valid(value)
+pub func defer():
+	call_deferred("note_deferred")
+func note_deferred():
+	trace += "D"

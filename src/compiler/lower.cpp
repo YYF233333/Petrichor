@@ -1971,7 +1971,7 @@ public:
 			fn.is_async = function.is_async;
 			fn.is_pub = function.is_pub;
 			fn.is_override = function.is_override;
-			fn.is_exposed = function.is_exposed || cls.exposed_methods.count(function.name);
+			fn.is_exposed = cls.exposed_methods.count(function.name);
 			fn.line = uint32_t(function.line);
 			for (const LocalInfo &local : function.locals) {
 				fn.regs.push_back(slot(local.name, local.type));
