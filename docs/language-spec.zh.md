@@ -209,7 +209,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 - struct 具有值语义：赋值、传参和返回都复制。只存在于本语言内部。
 - 构造时只能按名字传参，有默认值的字段可以省略（§2.4）。【后续】位置参数。
-- 跨越引擎边界（信号参数、Variant、跨语言消息）时，自动编码为按字段名的 Dictionary，键为 String，使编码经过 JSON 往返后不变；解码时检查每个字段的存在和类型，并深入容器和嵌套的 struct，例如 `Dictionary[String, ConsumableState]`。字段的解码规则与 `T.try_from` 相同（§5.3）。
+- 跨越引擎边界（信号参数、Variant、跨语言消息）时，自动编码为按字段名的 Dictionary，键为 String，使编码经过 JSON 往返后不变；解码时检查每个字段的存在和类型，并深入容器和嵌套的 struct，例如 `Dictionary[String, ConsumableState]`。字段的解码规则与 `T.try_from` 相同（§5.3）。不是字段的键被忽略，所以较新的发送方多带了字段的消息、为多个读取方写的 JSON 都能解码，只要 struct 需要的字段都在。
 - 【已知限制】第一版 struct 不能 `@export`，也不能存入 `.tres`；需要在编辑器中编辑的数据使用 Resource。
 - 方法：struct 可以声明 `func` 和 `static func`。方法中的 self 只读，给 self 的字段赋值是编译错误；需要修改时返回修改后的副本。理由：修改 self 的方法要求调用处是能写回的位置，在临时值、经 getter 读出的属性和循环变量上调用时，要么报错，要么悄悄改了副本。【后续】修改 self 的方法。
 - 字段和方法在 struct 可见的地方都可见（§4.2）。【后续】更严的 `private`。
@@ -1034,7 +1034,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 程序错误 | `_process` 往下两层调用中的程序错误中止这两层和 `_process`，下一帧照常调用 `_process`；需要返回值的入口，引擎得到该类型的默认值；除 `assert` 外，程序在 debug 和 release 构建中行为相同；无限递归在第 1025 层调用处成为程序错误，进程不崩溃；调用另一个类的方法时，其中的程序错误同样中止调用方 |
 | 断言 | debug 构建中 `assert(false)` 是程序错误；release 构建中 `assert(f())` 不调用 f；`assert(await t)` 报编译错误；`assert(save_data)` 在 save_data 为 `Resource?` 时报编译错误并给出 `save_data != None` |
 | 协程 | `async func _init()` 和 async 的非 void 引擎虚函数覆盖报编译错误，省略返回类型时相同；async `_ready` 合法；含 await 而未声明 async 报编译错误；丢弃 async 调用的结果报编译错误，`f().detach()` 合法；`cancel()` 之后结果一定是取消；`await f(...)` 启动的子任务随父任务取消，`await t` 只停止等待；被等待的兄弟节点与等待方在同一次场景释放中被删除时不报错；被等待的对象被单独释放时，等待方在本帧结束后报程序错误，`Task.of(信号).settled()` 得 `Cancelled(CancelReason.AWAITED_FREED)`；失败的任务经 `settled()` 等待时，失败照常传给等待方；`var t: Task[void] = f()` 合法，没有类型实参的 `Task` 报编译错误；所属对象被释放时协程静默取消；GDScript 对象在其协程第二次挂起期间被释放时，await 这个协程的等待方在本帧结束后报程序错误，经 Callable 调用时相同 |
-| 引擎边界 | 未审核的、返回对象的引擎方法类型为 `T?`；`get_tree()` 非空，`get_collider()` 可空；未审核的虚函数参数和信号参数为 T，引擎传入 null 是程序错误；未审核的参数接受 None；GDScript 向非空参数传入 null 是程序错误；远程检查器向非空成员写入 null 时原值不变；经信号传出的 struct 是按字段名编码的 Dictionary，`Command.MOVE(target = p)` 是 `{"$variant": "MOVE", "target": p}` |
+| 引擎边界 | 未审核的、返回对象的引擎方法类型为 `T?`；`get_tree()` 非空，`get_collider()` 可空；未审核的虚函数参数和信号参数为 T，引擎传入 null 是程序错误；未审核的参数接受 None；GDScript 向非空参数传入 null 是程序错误；远程检查器向非空成员写入 null 时原值不变；经信号传出的 struct 是按字段名编码的 Dictionary，`Command.MOVE(target = p)` 是 `{"$variant": "MOVE", "target": p}`；多出键的 Dictionary 解码为 struct，缺少字段时是程序错误 |
 | 工具函数 | `min(1.5, 1)` 报编译错误并给出 `min(1.5, 1.0)`；`lerp(a, b, t)` 的结果与 a 同类型；`find_children("*", "MeshInstance3D")` 为 `Array[MeshInstance3D]` |
 | 字符串 | 期望 StringName 的字面量在编译期构造；`&"a" == "a"` 为真；字面量成员名不存在时报编译错误，并参与重命名 |
 | 跨语言 | GDScript 文件继承本语言的类时，分析服务在该文件上报错并说明原因；await GDScript 协程得到按声明类型检查的结果；作为语句调用 GDScript 协程不报错，把它的结果当作值使用而不写 await 是程序错误；GDScript await 本语言的协程，在取消时得到 null 而不挂起；GDScript await 本语言中返回 Transform3D 的协程时没有警告，取消时把结果赋给 Transform3D 变量，在 debug 构建中报赋值错误而不崩溃；GDScript 持有 `p: Player` 时，属性、方法和信号的类型错误报 GDScript 编译错误；`Player.new()` 的类型为 Player，多传实参报 GDScript 编译错误；本语言持有 GDScript 类的 `b: Ball` 时，对象类型的成员为 `T?`，值类型照声明，方法和信号实参的类型错误报编译错误；以 GDScript 类为类型的参数接受其 GDScript 子类的实例，`as` 与 `is` 也认子类；没有 class_name 的 GDScript autoload 的类型为其脚本的类 |
@@ -1219,3 +1219,4 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 热重载修改声明后，让之后新建的实例使用新版本 | 同一次运行中同一个类有两个版本，按旧声明编译的代码可能调用新实例；主要用途只是调整不断新建的对象 | §12.4 |
 | 热重载修改声明后，像 GDScript 那样按成员名迁移状态 | 成员的类型可能已经改变，静态类型下搬过去的值不可信 | §12.4 |
 | 在自身上调用 `free()`、`set_script()` 是编译错误 | [语料计数](surveys/corpus-counts.zh.md)中这两种写法都没有真正出现；处理函数释放发射者、被调方释放调用方等间接情况在运行之前判断不出来，运行时的检查无论如何都需要 | §3.3 |
+| 解码 struct 时拒绝不是字段的键 | 较新的发送方多带字段的消息、为多个读取方写的 JSON 会在入口处失败，尽管 struct 需要的字段都在 | §3.6 |
