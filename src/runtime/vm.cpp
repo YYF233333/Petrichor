@@ -1050,7 +1050,7 @@ public:
 					if (error.error != GDEXTENSION_CALL_OK) {
 						FAIL(vformat("Calling %s() failed.", image.engine_methods[target]));
 					}
-					Object *state = result.get_type() == Variant::OBJECT ? static_cast<Object *>(result) : nullptr;
+					Object *state = result.get_type() == Variant::OBJECT ? result.get_validated_object() : nullptr;
 					if (state && state->is_class("GDScriptFunctionState")) {
 						if (Op(code[pc]) == Op::CALL_AWAIT_ENGINE) {
 							if (p_async->task->cancel_requested) {
@@ -1085,7 +1085,7 @@ public:
 					if (error.error != GDEXTENSION_CALL_OK) {
 						FAIL("Calling the awaited Callable failed.");
 					}
-					Object *state = result.get_type() == Variant::OBJECT ? static_cast<Object *>(result) : nullptr;
+					Object *state = result.get_type() == Variant::OBJECT ? result.get_validated_object() : nullptr;
 					p_async->destination = dst;
 					if (state && state->is_class("GDScriptFunctionState")) {
 						if (p_async->task->cancel_requested) {

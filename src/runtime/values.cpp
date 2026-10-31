@@ -1262,7 +1262,7 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 				}
 			}
 			if (p_check && !p_check->task_result.empty()) {
-				const CoroutineTask *task = Object::cast_to<CoroutineTask>(static_cast<Object *>(p_value));
+				const CoroutineTask *task = Object::cast_to<CoroutineTask>(p_value.get_validated_object());
 				if (!task || task->result_signature != p_check->task_result) {
 					return false;
 				}
