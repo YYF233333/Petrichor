@@ -830,6 +830,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   - `pub` 成员；
   - 引擎必须按名字找到的成员：导出属性、信号、引擎虚函数的覆盖、场景中连接的方法，以及本语言代码以字面量名字交给引擎的成员，例如 `call_deferred("reset")`、`tween_property(self, "current_speed")` 和场景动画轨道中的属性路径。后一类由编译器收集。
 - 其余成员对按名字的访问不可见：GDScript 引用它们是 GDScript 的编译错误；C# 经 `Call` 的访问，以及任何语言以非字面量名字的访问，在运行时报告找不到成员。
+- 类型是元素为本语言独有类型的容器（§3.8）的 `pub` 成员，同样不经反射暴露。理由：反射只能交出编码后的副本，外部修改副本不影响原容器，正是 §3.8 的显式转换要避免的情况；需要时由类提供返回转换结果的方法，如 `pub func get_hits() -> Array: return Array(hits)`。struct 类型的成员照常暴露，读取得到编码的副本、写入时解码（§10.1），与 Vector3 等值类型的属性一样是复制语义。
 - 泛型方法不经反射暴露，因为按名字调用时给不出类型实参；引擎必须按名字找到的方法不能是泛型（§3.10）。
 - 由方法值形成的 Callable（例如 `tween_callback(change_weapon)`、`sig.connect(_on_x)`）直接指向方法，不按名字查找，不受此限制。
 - 调试器可以看到全部成员。
@@ -1012,7 +1013,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 函数类型 | `func(int)` 与 `func(int) -> void` 相同；`(func(Enemy) -> bool)?` 可空，`func(Enemy) -> bool?` 返回 `bool?`；`f(x)` 报编译错误并给出 `f.call(x)`；`func(Node)` 可以用于期望 `func(Node3D)` 的位置，反之报编译错误；含 await 而未写 async 的 lambda 报编译错误；把 async 函数传给期望普通函数类型的本语言参数报编译错误；把 async 方法连接到信号合法，任务作为根任务运行 |
 | Variant | `v.hp`、`v + 1`、`v[0]`、`for x in v` 报编译错误；`if v is Dictionary:` 之后 `v.get("hp", 0)` 合法；`v as Node` 为 `Node?`；v 为 NIL 时 `v == None` 为真、`v is int` 为假；v 中是已释放的对象时 `v == None` 为真、`v is Node` 为假、`v as Node` 为 None；int 赋给 Variant 无需转换 |
 | 抽象类与剩余参数 | 构造抽象类报编译错误；具体子类缺少某个抽象方法的实现报编译错误；场景中的节点使用抽象类报编译错误；向 `...args: Array[int]` 传入 String 报编译错误；只写 `...args` 报编译错误；GDScript 调用 `...args: Array[int]` 时传入 String 是程序错误 |
-| 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；在子类以外的其他类中使用不带 `pub` 的 struct 报编译错误；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
+| 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；在子类以外的其他类中使用不带 `pub` 的 struct 报编译错误；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误，引用 `pub var hits: Array[Hit]` 同样报错；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
 | 成员 | `var speed = 5.0` 为 float；空容器成员要求标注；没有初始化式的 int 成员为 0，`T?` 成员为 None；所有字段都有默认值的 struct 成员取默认值，否则必须赋值 |
 | 局部变量 | `func f(n): if c: var n = 1` 报编译错误，与外层块的局部变量同名的 `var` 和 `for` 循环变量也一样；if 与 else 两个分支各自声明 `var x` 合法 |
 | 签名 | `func _process(delta):` 中 delta 为 float；覆盖时把返回类型写成子类型合法，写成父类型报编译错误；覆盖时多出带默认值的参数合法；非覆盖函数省略返回类型后返回值报编译错误；有期望类型的 lambda 参数不必标注 |
@@ -1209,6 +1210,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | await 多参数信号得到 Array，或按参数解构 | 真实代码几乎不使用这种结果；解构可以以后加入 | §9.6 |
 | 以 if/else 块为值 | 与条件表达式重复 | §5.5 |
 | 为基类要求的、可选的和运行时添加的子节点各设一种声明 | 按使用方式的检查和 `get_node_or_null` 已经覆盖这三种情况，新的声明只会增加概念 | §7.2 |
+| 反射交出元素为本语言独有类型的容器成员的编码副本 | 外部修改副本不影响原容器，即 §3.8 的显式转换要避免的情况 | §10.5 |
 | 覆盖时写出的类型必须与被覆盖的完全一致 | 比 GDScript 严，拒绝 gdUnit4 一类流式接口所用的协变返回类型 | §4.6 |
 | 嵌套的 Option 合并为一层（Kotlin 的做法） | 泛型代码的行为随 T 改变；容器中存入的 None 与缺少的值无法区分 | §3.4 |
 | lambda 不写 async，按函数体或期望类型推断 | 判断函数是否为 async 要用多条规则，lambda 和方法值能传到哪里也会不同 | §9.1 |
