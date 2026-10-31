@@ -93,13 +93,13 @@ The sections above describe the design. How much of it runs, and which tests sho
 
 | Part | State | Tests |
 |---|---|---|
-| Compiler | The language the FPS project needs (§5), the static view of GDScript classes and autoloads, coroutine core, inheritance between classes of this language, interface properties, `@owner`, match with literal patterns, property accessors, structs without methods, Dictionary[K, V] with assignment to elements, containers of structs, of T? and of containers, and the ordering of structs and T?; not yet generics, enums with payloads, setters that wait for ready, nor `new()`, static methods and constants of GDScript classes | compiler tests; the build of every script in the engine tests |
-| Values | Every type has a type descriptor (the bytecode's type table); int, float, bool and the engine's built-in types in their own layout, objects as an ObjectID and a pointer, T? of value types as a tag and the value, structs as their fields; no enums with payloads or containers of types only this language has yet | language checks |
+| Compiler | The language the FPS project needs (§5), the static view of GDScript classes and autoloads, coroutine core, inheritance between classes of this language, interface properties, `@owner`, match with literal patterns, property accessors, structs without methods, Dictionary[K, V] with assignment to elements, containers of structs, of T? and of containers, and the ordering of structs and T?; not yet generics, enums with payloads, setters that wait for ready, nor `new()`, static methods and constants of GDScript classes; the constructs of real code that it does not support yet are counted in the [implementation coverage survey](surveys/implementation-coverage.en.md) | compiler tests; the build of every script in the engine tests |
+| Values | Every type has a type descriptor (the bytecode's type table); int, float, bool and the engine's built-in types in their own layout, objects as an ObjectID and a pointer, T? of value types as a tag and the value, structs as their fields; containers of types only this language has keep each element in a box (§2.2); no enums with payloads yet | language checks |
 | Members held by running calls (§2.2) | Done | language checks |
 | Calls between classes of this language | Direct, the signature checked | language checks, stale bytecode |
 | Calls to engine methods | By name through the engine, not yet through ptrcall | language checks, FPS |
 | Calls from the engine | Entry checks; a failed one is a program error | language checks |
-| Coroutines | Not yet in the language; the engine's side is probed (§5 step 2) | probes |
+| Coroutines | The core of async and await: Task, awaiting signals, Tasks and calls into GDScript, `cancel()` and `detach()`, cancellation of child tasks and when the owner is freed; not yet `Task.of`, `delay`, `any`, `all`, `settled` and async lambdas | language checks, breakpoint (coroutine stack), probes |
 | Debugger | Breakpoints, stepping, locals and members, a break on a program error, on any thread | breakpoint |
 | Hot reload | Function bodies; other changes wait for the next run | hot reload |
 | Editor | Declarations compiled on load, full compilation when checking, saving and building, placeholders keeping exported values; not yet error marks in the scene editor, renaming, the LSP | editor checks |
