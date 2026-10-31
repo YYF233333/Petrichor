@@ -26,7 +26,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Runtime
 
-- A type descriptor for every type (architecture §2.2), replacing the Variant slots of objects and of `T?` of value types; `T??`, structs and enums with payloads need it. Objects as an ObjectID and a pointer, which ptrcall takes as `Object*`, belong to the same design.
 - Members of classes of this language read and written without the engine.
 - Temporary slots reused by scope, so that temporary references in a loop are released in time and a suspended coroutine keeps only the slots still in use; a temporary that held self, as in `f(self, await g())`, keeps a RefCounted alive while the coroutine waits (against spec §9.4).
 

@@ -128,7 +128,26 @@ inline bool is_none(const godot::Variant &p_value) {
 	const godot::Variant::Type type = type_of(p_value);
 	return type == godot::Variant::NIL || (type == godot::Variant::OBJECT && object_id_of(p_value) == 0);
 }
-// An Object slot that holds a live object; freed objects read as None (spec §3.3).
+// An object slot holds the data of a Variant with the object, its ObjectID and
+// the engine's pointer, or zeros for None (architecture §2.2). The ObjectID's
+// top bit says whether the object is RefCounted (core/object/object_id.h:45),
+// and the slot then holds a reference to it, which Variants take and drop by
+// the same bit (core/variant/variant.cpp:1074-1092).
+
+// A Variant with the slot's object that takes no reference, for the engine to
+// read while a call runs; it is never destroyed.
+class ObjectView {
+	alignas(godot::Variant) uint8_t bytes[sizeof(godot::Variant)] = {};
+
+public:
+	explicit ObjectView(const uint8_t *p_slot);
+	godot::Variant &get() { return *reinterpret_cast<godot::Variant *>(bytes); }
+};
+
+// Holds the object of the Variant in the slot, or None for any other value.
+void set_object(uint8_t *p_slot, const godot::Variant &p_value);
+bool is_none_object(const uint8_t *p_slot);
+// An object slot that holds a live object; freed objects read as None (spec §3.3).
 bool is_live_object(const uint8_t *p_slot);
 // A class of a script is the script and those that extend it; with no script
 // asked for, any will do.

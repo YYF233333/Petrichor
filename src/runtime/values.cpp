@@ -21,8 +21,56 @@ using bytecode::ValueType;
 
 namespace {
 
+// Slots that the engine's functions for each type do not handle.
 bool is_variant_slot(ValueType p_type) {
 	return p_type == ValueType::Object || p_type == ValueType::Variant;
+}
+
+/* Objects */
+
+struct ObjectData {
+	uint64_t id = 0;
+	void *object = nullptr;
+};
+
+ObjectData &object_data(uint8_t *p_slot) {
+	return *reinterpret_cast<ObjectData *>(p_slot);
+}
+
+const ObjectData &object_data(const uint8_t *p_slot) {
+	return *reinterpret_cast<const ObjectData *>(p_slot);
+}
+
+bool holds_reference(const ObjectData &p_data) {
+	return p_data.object && (p_data.id >> 63);
+}
+
+// Drops the reference the data holds, as a Variant with it would.
+void release(const ObjectData &p_data) {
+	if (holds_reference(p_data)) {
+		ObjectView view(reinterpret_cast<const uint8_t *>(&p_data));
+		gdextension_interface::variant_destroy(view.get()._native_ptr());
+	}
+}
+
+// Holds the object of an OBJECT Variant, with a reference of its own.
+void take_object(uint8_t *p_slot, const Variant &p_value) {
+	const ObjectData old = object_data(p_slot);
+	alignas(Variant) uint8_t copy[sizeof(Variant)];
+	gdextension_interface::variant_new_copy(copy, p_value._native_ptr());
+	std::memcpy(p_slot, copy + 8, sizeof(ObjectData));
+	release(old);
+}
+
+void copy_object(uint8_t *p_dst, const uint8_t *p_src) {
+	if (holds_reference(object_data(p_src))) {
+		ObjectView view(p_src);
+		take_object(p_dst, view.get());
+		return;
+	}
+	const ObjectData old = object_data(p_dst);
+	object_data(p_dst) = object_data(p_src);
+	release(old);
 }
 
 // The engine's functions for one value type, on values in its own layout.
@@ -136,7 +184,7 @@ void init_values() {
 		TypeOps &entry = type_ops[i];
 		entry.size = bytecode::value_size(type);
 		if (type == ValueType::Void || is_variant_slot(type)) {
-			continue; // A NIL Variant is all zero bytes.
+			continue; // A NIL Variant and None are all zero bytes.
 		}
 		const GDExtensionVariantType engine_type = GDExtensionVariantType(i);
 		// Constructor 0 takes no arguments and 1 copies, for every built-in type.
@@ -165,13 +213,35 @@ void construct_value(ValueType p_type, uint8_t *p_slot) {
 }
 
 void destroy_value(ValueType p_type, uint8_t *p_slot) {
-	if (is_variant_slot(p_type)) {
+	if (p_type == ValueType::Object) {
+		release(object_data(p_slot));
+		object_data(p_slot) = ObjectData();
+	} else if (p_type == ValueType::Variant) {
 		if (type_of(variant_at(p_slot)) != Variant::NIL) {
 			variant_at(p_slot).~Variant();
 		}
 	} else if (ops(p_type).destroy) {
 		ops(p_type).destroy(p_slot);
 	}
+}
+
+ObjectView::ObjectView(const uint8_t *p_slot) {
+	if (p_slot && object_data(p_slot).object) {
+		*reinterpret_cast<int32_t *>(bytes) = Variant::OBJECT;
+		std::memcpy(bytes + 8, p_slot, sizeof(ObjectData));
+	}
+}
+
+void set_object(uint8_t *p_slot, const Variant &p_value) {
+	if (is_none(p_value) || type_of(p_value) != Variant::OBJECT) {
+		destroy_value(ValueType::Object, p_slot);
+	} else {
+		take_object(p_slot, p_value);
+	}
+}
+
+bool is_none_object(const uint8_t *p_slot) {
+	return !object_data(p_slot).object;
 }
 
 // A number for each layout, the same in every image.
@@ -323,7 +393,11 @@ void copy_value(ValueType p_type, uint8_t *p_dst, const uint8_t *p_src) {
 	if (p_dst == p_src) {
 		return;
 	}
-	if (is_variant_slot(p_type)) {
+	if (p_type == ValueType::Object) {
+		copy_object(p_dst, p_src);
+		return;
+	}
+	if (p_type == ValueType::Variant) {
 		variant_at(p_dst) = variant_at(p_src);
 		return;
 	}
@@ -338,7 +412,11 @@ void copy_value(ValueType p_type, uint8_t *p_dst, const uint8_t *p_src) {
 }
 
 Variant to_variant(ValueType p_type, const uint8_t *p_slot) {
-	if (is_variant_slot(p_type)) {
+	if (p_type == ValueType::Object) {
+		ObjectView view(p_slot);
+		return view.get();
+	}
+	if (p_type == ValueType::Variant) {
 		return variant_at(p_slot);
 	}
 	Variant result;
@@ -362,7 +440,7 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 				if (p_check && !p_check->nullable) {
 					return false;
 				}
-				variant_at(p_slot) = Variant(); // None in one form.
+				destroy_value(ValueType::Object, p_slot);
 				return true;
 			}
 			if (have != Variant::OBJECT) {
@@ -381,7 +459,7 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 					return false;
 				}
 			}
-			variant_at(p_slot) = p_value;
+			take_object(p_slot, p_value);
 			return true;
 		case ValueType::Array:
 			if (p_check && p_check->element != ValueType::Void && have == Variant::ARRAY) {
@@ -508,8 +586,10 @@ bool has_script(const Variant &p_script, const String &p_path) {
 }
 
 bool is_live_object(const uint8_t *p_slot) {
-	const Variant &value = variant_at(p_slot);
-	return type_of(value) == Variant::OBJECT && object_id_of(value) != 0 && value.booleanize();
+	const ObjectData &data = object_data(p_slot);
+	// A reference keeps a RefCounted object alive; the engine finds any other
+	// by its ObjectID only while it lives.
+	return data.object && (holds_reference(data) || gdextension_interface::object_get_instance_from_id(data.id));
 }
 
 Variant outward_variant(const TypeImage &p_type, const uint8_t *p_data) {

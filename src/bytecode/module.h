@@ -15,9 +15,9 @@ namespace petrichor::bytecode {
 // How a value is stored in a frame or an instance. Up to Variant the numbers
 // are the engine's Variant::Type, so the runtime can hand them to the engine's
 // functions for each type; values are stored in the engine's own layout, except
-// Bool, which takes 8 bytes like Int and Float, and Object, which is held in a
-// Variant for now (architecture §2.2 plans an object ID and a pointer). Variant
-// is a slot that holds any engine value.
+// Bool, which takes 8 bytes like Int and Float, and Object, which is held as
+// the data of a Variant with it, its ObjectID and the engine's pointer
+// (architecture §2.2). Variant is a slot that holds any engine value.
 enum class ValueType : uint8_t {
 	Void,
 	Bool,
@@ -105,9 +105,9 @@ struct TypeDesc {
 	}
 };
 
-// How a slot of the type holds it in the engine's layout: an object in a
-// Variant for now. T? has no such layout: its slot is an 8-byte tag, 1 for
-// Some, then the value, which is there also for None.
+// How a slot of the type holds it in the engine's layout. T? has no such
+// layout: its slot is an 8-byte tag, 1 for Some, then the value, which is
+// there also for None.
 ValueType storage_of(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 uint32_t type_size(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 // The type as text, equal exactly for equal types in any module.

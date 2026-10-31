@@ -40,7 +40,7 @@ struct TypeInfo {
 };
 
 // In ValueType order. Sizes are the engine's float_64 builtin_class_sizes,
-// except Bool (8, like Int) and Object (held in a Variant).
+// except Bool (8, like Int) and Object (a Variant's data: ObjectID and pointer).
 const TypeInfo TYPES[] = {
 	{ "void", 0 },
 	{ "bool", 8 },
@@ -66,7 +66,7 @@ const TypeInfo TYPES[] = {
 	{ "StringName", 8 },
 	{ "NodePath", 8 },
 	{ "RID", 8 },
-	{ "Object", 24 },
+	{ "Object", 16 },
 	{ "Callable", 16 },
 	{ "Signal", 16 },
 	{ "Dictionary", 8 },

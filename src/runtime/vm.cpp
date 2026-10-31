@@ -255,14 +255,18 @@ public:
 // The arguments of a call to the engine, from the instruction's (type, offset)
 // pairs: each in its slot's own layout, or as a Variant where the function
 // takes a Variant, for extra vararg arguments, or for every argument of a call
-// by name. Kept on the C++ stack up to a few arguments.
+// by name, an object as a view of its slot. Kept on the C++ stack up to a few
+// arguments.
 class Arguments {
 	static constexpr uint32_t INLINE = 8;
 	const void *inline_pointers[INLINE];
 	alignas(Variant) uint8_t inline_variants[INLINE * sizeof(Variant)];
 	uint32_t variant_count = 0;
+	alignas(ObjectView) uint8_t inline_views[INLINE * sizeof(ObjectView)];
+	uint32_t view_count = 0;
 	std::vector<const void *> heap_pointers;
 	std::vector<Variant> heap_variants;
+	std::vector<ObjectView> heap_views;
 
 public:
 	const void **pointers;
@@ -270,7 +274,8 @@ public:
 	Arguments(const std::vector<TypeImage> &p_types, uint8_t *p_frame, const uint32_t *p_pairs, uint32_t p_count, const std::vector<ValueType> *p_params) {
 		if (p_count > INLINE) {
 			heap_pointers.resize(p_count);
-			heap_variants.reserve(p_count); // Pointers into it stay valid.
+			heap_variants.reserve(p_count); // Pointers into them stay valid.
+			heap_views.reserve(p_count);
 		}
 		pointers = p_count > INLINE ? heap_pointers.data() : inline_pointers;
 		for (uint32_t i = 0; i < p_count; i++) {
@@ -278,8 +283,12 @@ public:
 			uint8_t *slot = p_frame + p_pairs[2 * i + 1];
 			if (p_params && i < p_params->size() && (*p_params)[i] != ValueType::Variant) {
 				pointers[i] = slot;
-			} else if (type.storage == ValueType::Variant || type.storage == ValueType::Object) {
-				pointers[i] = slot; // Already a Variant.
+			} else if (type.storage == ValueType::Variant) {
+				pointers[i] = slot;
+			} else if (type.storage == ValueType::Object) {
+				// A view needs no destruction.
+				ObjectView *view = p_count > INLINE ? &heap_views.emplace_back(slot) : new (inline_views + view_count++ * sizeof(ObjectView)) ObjectView(slot);
+				pointers[i] = &view->get();
 			} else if (p_count > INLINE) {
 				heap_variants.push_back(to_variant(type, slot));
 				pointers[i] = &heap_variants.back();
@@ -374,7 +383,7 @@ class Execution {
 		if (method.is_async) {
 			const Ref<CoroutineTask> task = start_task(p_callee.shared_from_this(), p_index, p_context, callee_frame.data, &result_type.result_key);
 			if (dst != NO_SLOT) {
-				variant_at(frame + dst) = task;
+				set_object(frame + dst, task);
 			}
 			return true;
 		}
@@ -454,9 +463,10 @@ public:
 	if ((m_offset) == NO_SLOT) { \
 		SELF_ALIVE(); \
 	} else if (!is_live_object(frame + (m_offset))) { \
-		FAIL(is_none(variant_at(frame + (m_offset))) ? String("The value is None.") : String("The object was freed.")); \
+		FAIL(is_none_object(frame + (m_offset)) ? String("The value is None.") : String("The object was freed.")); \
 	} \
-	Variant &m_name = (m_offset) == NO_SLOT ? self() : variant_at(frame + (m_offset));
+	ObjectView m_name##_view((m_offset) == NO_SLOT ? nullptr : frame + (m_offset)); \
+	Variant &m_name = (m_offset) == NO_SLOT ? self() : m_name##_view.get();
 
 		size_t pc = p_async ? p_async->pc : 0;
 		while (true) {
@@ -673,7 +683,7 @@ public:
 					if (object.get_type() != Variant::OBJECT || !object.booleanize()) {
 						FAIL(vformat("Cannot construct %s.", image.classes[code[pc + 1]]));
 					}
-					variant_at(frame + code[pc + 2]) = object;
+					set_object(frame + code[pc + 2], object);
 					pc += 3;
 					break;
 				}
@@ -687,13 +697,13 @@ public:
 					if (!found || !image.fits_class(found, index)) {
 						FAIL(vformat("owner: %s (@owner).", entry_mismatch(ValueType::Object, Variant(found), class_check(image, index))));
 					}
-					variant_at(frame + code[pc + 2]) = Variant(found);
+					set_object(frame + code[pc + 2], Variant(found));
 					pc += 3;
 					break;
 				}
 				case Op::GET_SELF:
 					SELF_ALIVE();
-					variant_at(frame + code[pc + 1]) = self();
+					set_object(frame + code[pc + 1], self());
 					pc += 2;
 					break;
 				case Op::GET_SINGLETON: {
@@ -701,7 +711,7 @@ public:
 					if (!singleton) {
 						FAIL(vformat("The engine has no singleton %s.", image.classes[code[pc + 1]]));
 					}
-					variant_at(frame + code[pc + 2]) = Variant(singleton);
+					set_object(frame + code[pc + 2], Variant(singleton));
 					pc += 3;
 					break;
 				}
@@ -714,7 +724,7 @@ public:
 					if (!node) {
 						FAIL(vformat("The autoload %s is not in the scene tree.", name));
 					}
-					variant_at(frame + code[pc + 2]) = Variant(node);
+					set_object(frame + code[pc + 2], Variant(node));
 					pc += 3;
 					break;
 				}
@@ -730,7 +740,7 @@ public:
 					break;
 				}
 				case Op::CHECK_ASSIGNED:
-					if (is_none(variant_at(frame + code[pc + 2]))) {
+					if (is_none_object(frame + code[pc + 2])) {
 						const uint32_t member = code[pc + 1];
 						// Spec §6.3; §7.5: the scene or the resource did not assign the export.
 						FAIL(vformat(module.members[member].is_onready ? "\"%s\" is read before the node is ready." : "\"%s\" has not been assigned.", image.member_names[member]));
@@ -747,7 +757,8 @@ public:
 					break;
 				}
 				case Op::CHECK_OBJECT: {
-					const Variant &value = variant_at(frame + code[pc + 2]);
+					ObjectView view(frame + code[pc + 2]);
+					const Variant &value = view.get();
 					const Object *object = value.get_validated_object();
 					if (is_none(value) || (object && !image.fits_class(object, code[pc + 1]))) {
 						const String mismatch = entry_mismatch(ValueType::Object, value, class_check(image, code[pc + 1]));
@@ -765,9 +776,13 @@ public:
 				case Op::CAST_OBJECT: {
 					// A freed object is None for every type (spec §5.3).
 					const uint8_t *src = frame + code[pc + 3];
-					const Object *object = is_live_object(src) ? variant_at(src).get_validated_object() : nullptr;
-					const bool fits = object && image.fits_class(object, code[pc + 1]);
-					variant_at(frame + code[pc + 2]) = fits ? variant_at(src) : Variant();
+					ObjectView view(src);
+					const Object *object = is_live_object(src) ? view.get().get_validated_object() : nullptr;
+					if (object && image.fits_class(object, code[pc + 1])) {
+						copy_value(ValueType::Object, frame + code[pc + 2], src);
+					} else {
+						destroy_value(ValueType::Object, frame + code[pc + 2]);
+					}
 					pc += 4;
 					break;
 				}
@@ -797,15 +812,19 @@ public:
 				case Op::IS_INSTANCE: {
 					// A freed object is no class's instance (spec §3.3).
 					const uint8_t *src = frame + code[pc + 3];
-					const Object *object = is_live_object(src) ? variant_at(src).get_validated_object() : nullptr;
+					ObjectView view(src);
+					const Object *object = is_live_object(src) ? view.get().get_validated_object() : nullptr;
 					U64(code[pc + 2]) = object && image.fits_class(object, code[pc + 1]) ? 1 : 0;
 					pc += 4;
 					break;
 				}
 				case Op::IS_NONE: {
 					const uint8_t *src = frame + code[pc + 3];
-					if (image.types[code[pc + 1]].kind == bytecode::TypeKind::Option) {
+					const TypeImage &type = image.types[code[pc + 1]];
+					if (type.kind == bytecode::TypeKind::Option) {
 						U64(code[pc + 2]) = U64(code[pc + 3]) ? 0 : 1;
+					} else if (type.storage == ValueType::Object) {
+						U64(code[pc + 2]) = is_live_object(src) ? 0 : 1; // A freed object reads as None in T? (spec §3.3).
 					} else {
 						// A freed object reads as None in T? (spec §3.3).
 						const Variant &value = variant_at(src);
@@ -1020,7 +1039,8 @@ public:
 					break;
 				}
 				case Op::TASK_CANCEL: {
-					CoroutineTask *task = Object::cast_to<CoroutineTask>(static_cast<Object *>(variant_at(frame + code[pc + 1])));
+					ObjectView view(frame + code[pc + 1]);
+					CoroutineTask *task = Object::cast_to<CoroutineTask>(static_cast<Object *>(view.get()));
 					if (!task) {
 						FAIL("Expected a Task handle.");
 					}
@@ -1029,7 +1049,8 @@ public:
 					break;
 				}
 				case Op::AWAIT_TASK: {
-					Ref<CoroutineTask> task = variant_at(frame + code[pc + 2]);
+					ObjectView view(frame + code[pc + 2]);
+					Ref<CoroutineTask> task = view.get();
 					if (task.is_null()) {
 						FAIL("Expected a Task handle.");
 					}
