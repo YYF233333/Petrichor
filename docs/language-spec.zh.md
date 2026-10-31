@@ -257,7 +257,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   - T 本身可空时，`pop_front()`、`pop_back()` 返回 `T??`，由绑定层先检查数组是否为空，因为引擎在两种情况下都返回 null；
   - `Dictionary[K, V].get(k)` 返回 `V?`，键不存在时为 None，对应引擎在缺键时返回默认值（`core/variant/dictionary.cpp:178-187`）；`get(k, default)` 返回 V；`d[k]` 在键不存在时是程序错误，GDScript 在这里同样报错。
 - Array 和 Dictionary 的每个方法都可用，与元素类型无关，按元素自己的运算像 GDScript 中那样工作：`has`、`find`、`count`、`erase` 和容器的 `==` 按 §5.2 匹配元素；`sort`、`bsearch`、`min`、`max`，以及 Dictionary 按键排序的 `sort`，按 `<` 排列；`hash` 像哈希键那样哈希元素（§3.6）；`resize` 以元素类型的默认值填充新元素（§4.3）；`duplicate(true)` 也复制元素内部的容器。
-- 排序类的方法要求元素类型有 `<`，没有时是编译错误，例如 `Array[Node]` 上的 `sort()`，快速修复给出 `sort_custom`；Variant 元素在运行时按运算表比较，表中比较不了的一对元素是程序错误。GDScript 把这样的比较当作假，数组成为未指定的顺序，`min`、`max` 返回 null（`core/variant/array.cpp:721-736, 828-868`，`core/variant/dictionary.cpp:315-330`）。`resize` 要求元素类型有默认值，没有时是编译错误，例如 `Array[Node]`，引擎在这里填入 null（`array.cpp:306-318`）；快速修复给出 `Array[Node?]`。
+- 排序类的方法要求元素类型有 `<`，没有时是编译错误，例如 `Array[Node]` 上的 `sort()`，快速修复给出 `sort_custom`；Variant 元素（如无类型 Array 的元素）在运行时按运算表比较。【已知限制】表中比较不了的一对元素算作不小于，与 GDScript 相同，数组因此成为未指定的顺序，`min`、`max` 这时返回 null（`core/variant/array.cpp:721-736, 828-868`，`core/variant/dictionary.cpp:315-330`）。`resize` 要求元素类型有默认值，没有时是编译错误，例如 `Array[Node]`，引擎在这里填入 null（`array.cpp:306-318`）；快速修复给出 `Array[Node?]`。
 - 键：插入新键时存入它的副本，副本中的容器每一层都只读，之后修改原值不影响键。`keys()`、`for k in d`、`find_key()` 交出的键就是这份副本：修改它是程序错误，诊断建议改为插入修改过的 `duplicate()`。查找（`has`、`d[k]`、`get`、`erase`）不复制也不冻结传入的键。来自本语言以外的 Dictionary，其容器键在本语言取得时就地设为只读。理由：Dictionary 保存每个键插入时的哈希，查找时先按这个哈希找（`core/variant/dictionary.cpp:46`，`core/templates/hash_map.h:130, 149-151, 193-198`），所以 GDScript 中 `d[a] = 1; a.append(2)` 之后，按旧内容和新内容都找不到这一项，属于 §1.2 的例外。引擎的 `make_read_only` 只作用于调用它的那个容器，且不能撤销（`core/variant/array.cpp:938-942`，`core/variant/dictionary.cpp:599-603`），所以逐层设为只读的是副本，而不是原值。
 - 标准库在原生容器上提供接受带类型 lambda 的 `map`、`filter`、`sort` 等（§3.11）。
 
@@ -973,6 +973,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - GDScript 脚本被重载时，等待它挂起的函数的协程会永远挂起（§9.8）。
 - 引擎的导出器不因确定缺值的错误中止导出（§7.5）。
 - 不新增线程 API（§12.3）。
+- 对 Variant 元素排序时，引擎比较不了的一对元素算作不小于，与 GDScript 相同（§3.8）。
 
 ### 14.2 以后可以兼容地加入
 
@@ -1010,7 +1011,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | Option 与 Result | `?` 在 None 或 `Err` 时从当前函数返回；在返回 void 的函数中使用 `?` 报编译错误；Option 传播到返回 Result 的函数报编译错误；`await f()?` 等于 `(await f())?`；丢弃 Result 报编译错误；`unwrap` 失败是程序错误 |
 | 嵌套的 Option | `Array[Enemy?]` 为空时 `pop_back()` 得 None，末元素为 None 时得包含 None 的 Some；`var x: Enemy?? = maybe_enemy` 得 Some；`Dictionary[String, Variant]` 中缺键得 None，值为 null 得包含 NIL 的 Some；把 `int??` 或 `Variant?` 传给 Variant 参数报编译错误并给出 `.flatten()` 或 `.unwrap_or(null)`；`var x: Enemy?? = Some(None)` 得包含 None 的 Some；对 `Enemy?` 的 match 有 `Some(var e)` 和 `None` 两个分支即为穷尽 |
 | struct 与带载荷的 enum | 在方法中给 self 的字段赋值报编译错误；`player.last_hit.damage = 3` 调用 `last_hit` 的 setter；`hits[0].damage = 3` 之后 `hits[0].damage` 为 3；`get_hit().damage = 3` 报编译错误；`var b = a; b.damage = 1` 不改变 a；struct 的 Array 字段在复制后仍共享；字段相同的两个 struct 相等，作为 Dictionary 键时命中同一项；`c.target` 报编译错误；`@export` 带载荷的 enum 报编译错误；`struct ListNode` 中声明 `var next: ListNode?` 报编译错误，`Tree[T]` 经 Array 递归合法；含 Array 字段的 struct 可以作 Dictionary 的键，之后向原值的 Array 追加元素不改变键；`Hit(damage = 1) < Hit(damage = 2)` 为真，字段按声明顺序比较；对含对象字段的 struct 比较大小报编译错误；IDLE 先声明，所以 `Command.IDLE < Command.MOVE(target = p)` 为真 |
-| 容器 | `pop_front()` 在空数组上得 None；`pop_at(0)` 在空数组上是程序错误，`pop_at(-1)` 取出最后一个元素；`front()` 在空数组上是程序错误；越界下标是程序错误；`d[k]` 在缺键时是程序错误；元素为 struct 的数组直接传给 Variant 参数报编译错误，快速修复改为 `Array(hits)`，得到元素为 Dictionary 的副本，之后修改原数组不影响副本；`Array[Hit].try_from(Array(hits))` 得 `Ok`；`Array[Hit]` 上的 `sort()` 按 `<` 排列，`has(h)` 找到字段相同的元素；`Array[Node]` 上的 `sort()` 报编译错误并给出 `sort_custom`，`resize` 也报编译错误并给出 `Array[Node?]`；对含 int 和 String 的无类型 Array 排序是程序错误；a 为 `[1]` 时，`d[a] = 1; a.append(2)` 之后 `d.has([1])` 为真、`d.has(a)` 为假；向取自 `d.keys()` 的键追加元素是程序错误 |
+| 容器 | `pop_front()` 在空数组上得 None；`pop_at(0)` 在空数组上是程序错误，`pop_at(-1)` 取出最后一个元素；`front()` 在空数组上是程序错误；越界下标是程序错误；`d[k]` 在缺键时是程序错误；元素为 struct 的数组直接传给 Variant 参数报编译错误，快速修复改为 `Array(hits)`，得到元素为 Dictionary 的副本，之后修改原数组不影响副本；`Array[Hit].try_from(Array(hits))` 得 `Ok`；`Array[Hit]` 上的 `sort()` 按 `<` 排列，`has(h)` 找到字段相同的元素；`Array[Node]` 上的 `sort()` 报编译错误并给出 `sort_custom`，`resize` 也报编译错误并给出 `Array[Node?]`；a 为 `[1]` 时，`d[a] = 1; a.append(2)` 之后 `d.has([1])` 为真、`d.has(a)` 为假；向取自 `d.keys()` 的键追加元素是程序错误 |
 | 接口 | 实现 `Combatant extends Damageable` 的类可以传给期望 Damageable 的参数；两个父接口的同名方法签名不兼容时报编译错误；两个父接口都有默认实现而未覆盖时报编译错误；`interface A extends B` 与 `interface B extends A` 报编译错误；声明 `interface Source[T]:` 报编译错误；`@readonly var hp: int` 的要求可以由可读写的成员满足；`var hp: int` 的要求遇到没有 setter 的引擎属性报编译错误；默认方法给 `@readonly` 属性赋值报编译错误；在接口以外使用 `@readonly` 报编译错误 |
 | 泛型 | `first([1, 2])` 中 T 推断为 int；`var x = first([])` 推断不出 T 报编译错误，`var x = first[int]([])` 合法；不满足约束的类型实参报编译错误；Node 脚本声明类型参数报编译错误；GDScript 引用泛型方法是 GDScript 的编译错误；`sig.connect(handle)` 在 handle 为泛型且类型实参确定不了时报编译错误；不继承 Resource 的泛型 RefCounted 类合法，不出现在引擎的全局类表中 |
 | 函数类型 | `func(int)` 与 `func(int) -> void` 相同；`(func(Enemy) -> bool)?` 可空，`func(Enemy) -> bool?` 返回 `bool?`；`f(x)` 报编译错误并给出 `f.call(x)`；`func(Node)` 可以用于期望 `func(Node3D)` 的位置，反之报编译错误；含 await 而未写 async 的 lambda 报编译错误；把 async 函数传给期望普通函数类型的本语言参数报编译错误；把 async 方法连接到信号合法，任务作为根任务运行 |
