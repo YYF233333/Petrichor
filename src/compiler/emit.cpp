@@ -199,6 +199,7 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 					break;
 				case Op::UNWRAP:
 				case Op::EQUAL:
+				case Op::LESS:
 					put(uint32_t(instr.type));
 					put(offset_of(instr.dst));
 					put(offset_of(instr.a));

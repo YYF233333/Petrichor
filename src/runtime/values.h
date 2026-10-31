@@ -4,6 +4,7 @@
 #include "runtime/text.h"
 
 #include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/callable.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/string_name.hpp>
 #include <godot_cpp/variant/variant.hpp>
@@ -127,6 +128,14 @@ uint32_t content_hash(const godot::Variant &p_value);
 // A copy with every container inside copied too, also inside boxes (spec
 // §3.8): -1 as duplicate(true) copies, or the mode of duplicate_deep().
 godot::Variant deep_copy(const godot::Variant &p_value, int64_t p_mode);
+// `<` of a struct, field by field in order, of a T?, None first, or of a
+// container that keeps boxes, element by element (spec §5.2).
+bool less_values(const TypeImage &p_type, const uint8_t *p_a, const uint8_t *p_b);
+// `<` of two keys or elements: boxes by their values, others by the engine's
+// operator table, which takes a pair it cannot order as not less (spec §3.8).
+bool variant_less(const godot::Variant &p_a, const godot::Variant &p_b);
+// variant_less() as a Callable, for sort_custom() and bsearch_custom().
+godot::Callable less_callable();
 godot::String entry_mismatch(const TypeImage &p_type, const godot::Variant &p_value);
 godot::Variant default_variant(const TypeImage &p_type);
 // The type as the source writes it: "int?", "Array[Enemy]"…

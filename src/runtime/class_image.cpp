@@ -188,6 +188,10 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 				{ "duplicate", Replaced::Duplicate },
 				{ "duplicate_deep", Replaced::DuplicateDeep },
 				{ "slice", Replaced::Slice },
+				{ "sort", Replaced::Sort },
+				{ "bsearch", Replaced::Bsearch },
+				{ "min", Replaced::Min },
+				{ "max", Replaced::Max },
 			};
 			for (const auto &[method, role] : methods) {
 				replaced = call.method == method ? role : replaced;

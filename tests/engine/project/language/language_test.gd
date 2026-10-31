@@ -384,6 +384,7 @@ func _ready() -> void:
 	containers.grid.append([2, 3])
 	containers.grid_row(1)
 	_check_errors(["container_check.pet:126: Expected Array[int], found Array."], "an inner container of another type is a program error when read")
+	_check(containers.ordered() == "[1, 2, 2, 3] a 2 1 3 true true 1", "structs order by their fields, T? with None first, and containers of them sort, search and find their least and greatest")
 	containers.free()
 
 	var frames_before: int = c.frames

@@ -662,6 +662,8 @@ class Verifier {
 				return slot_like(o[1], o[0]) && slot_like(o[2], module.types[o[0]].element);
 			case Op::EQUAL:
 				return type_operand(o[0]) && slot(o[1], ValueType::Bool) && slot_like(o[2], o[0]) && slot_like(o[3], o[0]);
+			case Op::LESS:
+				return (is_boxed(o[0]) || fail("LESS of a type that the engine orders")) && slot(o[1], ValueType::Bool) && slot_like(o[2], o[0]) && slot_like(o[3], o[0]);
 			case Op::CHECK_ASSIGNED:
 				return index(o[0], module.members.size(), "member") && slot(o[1], ValueType::Object);
 			case Op::CHECK_LIVE:

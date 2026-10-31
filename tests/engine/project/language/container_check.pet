@@ -124,3 +124,18 @@ pub func nested() -> String:
 
 pub func grid_row(i: int) -> int:
 	return grid[i].size()
+
+# Structs by their fields in order, T? with None first (spec §5.2).
+pub func ordered() -> String:
+	var hits: Array[Hit] = [Hit(damage = 3), Hit(damage = 1), Hit(damage = 2, tags = ["b"]), Hit(damage = 2, tags = ["a"])]
+	hits.sort()
+	var order: Array[int] = []
+	for h in hits:
+		order.append(h.damage)
+	var maybe: Array[int?] = [2, None, 1]
+	maybe.sort()
+	var p: int? = None
+	var q: int? = 5
+	var keyed: Dictionary[Hit, int] = {Hit(damage = 2): 0, Hit(damage = 1): 1}
+	keyed.sort()
+	return str(order) + " " + hits[1].tags[0] + " " + str(hits.bsearch(Hit(damage = 2, tags = ["b"]))) + " " + str(hits.min().damage) + " " + str(hits.max().damage) + " " + str(Hit(damage = 1) < Hit(damage = 2)) + " " + str(maybe[0] == None and maybe[2] == 2 and p < q and q <= q) + " " + str(keyed.keys()[0].damage)

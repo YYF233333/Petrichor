@@ -4,6 +4,7 @@
 #include "compiler/parser.h"
 #include "compiler/script_classes.h"
 
+#include <algorithm>
 #include <iomanip>
 #include <locale>
 #include <sstream>
@@ -1151,6 +1152,23 @@ class Checker : public ClassRelation {
 		if (p_left.is_error() || p_right.is_error()) {
 			return Type::of(TypeKind::Error);
 		}
+		const bool ordering = p_op == TokenKind::Less || p_op == TokenKind::LessEqual || p_op == TokenKind::Greater || p_op == TokenKind::GreaterEqual;
+		// Ordered by LESS (spec §3.6, §5.2), the types of both sides being one:
+		// `<` does not wrap a T into T?.
+		if (ordering && p_left == p_right && (p_left.kind == TypeKind::Struct || p_left.kind == TypeKind::Option || (is_typed_container(p_left) && p_left.name == "Array"))) {
+			if (!has_less(p_left)) {
+				error(p_line, p_column, "Values of type " + p_left.to_string() + " are not ordered: a struct is when all its fields are, T? and Array[T] when T is (spec §5.2).");
+				return Type::of(TypeKind::Error);
+			}
+			return Type::of(TypeKind::Bool);
+		}
+		// The side with fewer levels of T? is wrapped (spec §5.2).
+		if ((p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual) && (p_left.kind == TypeKind::Option || p_right.kind == TypeKind::Option)) {
+			const bool left_deeper = option_depth(p_left) >= option_depth(p_right);
+			if (wraps_to(left_deeper ? p_right : p_left, left_deeper ? p_left : p_right)) {
+				return Type::of(TypeKind::Bool);
+			}
+		}
 		if (p_left.kind == TypeKind::Option || p_right.kind == TypeKind::Option) {
 			const Type &optional = p_left.kind == TypeKind::Option ? p_left : p_right;
 			error(p_line, p_column, "The value may be None (" + optional.to_string() + "); unwrap it first.");
@@ -1761,8 +1779,9 @@ class Checker : public ClassRelation {
 
 	// Whether values of the type have `<` (spec §5.2): those the engine's
 	// operator table orders (core/variant/variant_op.cpp:731-791), and Variant,
-	// ordered when the program runs.
-	static bool has_less(const Type &p_type) {
+	// ordered when the program runs; a struct when all its fields have it, T?
+	// and Array[T] when T has it.
+	bool has_less(const Type &p_type) const {
 		static const std::unordered_set<std::string> ordered = { "StringName", "Vector2", "Vector2i", "Vector3", "Vector3i", "Vector4", "Vector4i", "RID" };
 		switch (p_type.kind) {
 			case TypeKind::Int:
@@ -1771,6 +1790,12 @@ class Checker : public ClassRelation {
 			case TypeKind::String:
 			case TypeKind::Variant:
 				return true;
+			case TypeKind::Option:
+				return has_less(p_type.args[0]);
+			case TypeKind::Struct: {
+				const StructDecl *decl = struct_decl(p_type);
+				return !decl || std::all_of(decl->fields.begin(), decl->fields.end(), [&](const VarDecl &p_field) { return has_less(p_field.type); });
+			}
 			case TypeKind::Builtin:
 				if (p_type.name == "Array") {
 					return p_type.args.empty() || has_less(p_type.args[0]);
@@ -1779,6 +1804,19 @@ class Checker : public ClassRelation {
 			default:
 				return false;
 		}
+	}
+
+	static int option_depth(const Type &p_type) {
+		return p_type.kind == TypeKind::Option ? 1 + option_depth(p_type.args[0]) : 0;
+	}
+
+	// Whether a value of `p_from` becomes a `p_to` when wrapped in Some as
+	// many times as needed (spec §5.2).
+	bool wraps_to(const Type &p_from, const Type &p_to) const {
+		if (p_from == p_to || (p_from.kind != TypeKind::Option && p_to.kind != TypeKind::Option && assignable(p_from, p_to))) {
+			return true;
+		}
+		return p_to.kind == TypeKind::Option && wraps_to(p_from, p_to.args[0]);
 	}
 
 	// Methods that order a container's elements, or a Dictionary's keys, need

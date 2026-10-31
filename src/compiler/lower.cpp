@@ -613,6 +613,24 @@ class Lowerer {
 		return p_reg; // The checker has made sure the types fit.
 	}
 
+	static int option_depth(const Type &p_type) {
+		return p_type.kind == TypeKind::Option ? 1 + option_depth(p_type.args[0]) : 0;
+	}
+
+	// The value as a `p_type`, wrapped in Some as many times as it takes (spec §5.2).
+	uint32_t wrapped(uint32_t p_reg, const Type &p_type) {
+		if (fn.regs[p_reg].type == type_index(p_type)) {
+			return p_reg;
+		}
+		if (p_type.kind != TypeKind::Option) {
+			return convert(p_reg, p_type);
+		}
+		const uint32_t inner = wrapped(p_reg, p_type.args[0]);
+		const uint32_t result = temp(p_type);
+		instr(Op::SOME, result, inner, NO_REG, 0, fn.regs[result].type);
+		return result;
+	}
+
 	// A string literal where a StringName or a NodePath is expected is built
 	// at compile time (spec §10.7).
 	// A T? that goes where this language no longer follows it, to the engine
@@ -918,8 +936,25 @@ class Lowerer {
 	}
 
 	uint32_t binary(TokenKind p_op, uint32_t p_left, uint32_t p_right, const Type &p_result) {
-		if (is_struct_reg(p_left)) {
-			// Field by field (spec §3.6).
+		const bool ordering = p_op == TokenKind::Less || p_op == TokenKind::LessEqual || p_op == TokenKind::Greater || p_op == TokenKind::GreaterEqual;
+		if (ordering && (is_struct_reg(p_left) || is_option_reg(p_left) || bytecode::is_boxed(module.types, fn.regs[p_left].type))) {
+			// `a > b` is `b < a`, `a <= b` is `a < b or a == b` (spec §5.2).
+			const bool swapped = p_op == TokenKind::Greater || p_op == TokenKind::GreaterEqual;
+			const uint32_t result = temp(ValueType::Bool);
+			instr(Op::LESS, result, swapped ? p_right : p_left, swapped ? p_left : p_right, 0, fn.regs[p_left].type);
+			if (p_op == TokenKind::LessEqual || p_op == TokenKind::GreaterEqual) {
+				const uint32_t equal = new_block();
+				const uint32_t end = new_block();
+				branch(result, end, equal);
+				current = equal;
+				instr(Op::EQUAL, result, p_left, p_right, 0, fn.regs[p_left].type);
+				jump(end);
+				current = end;
+			}
+			return result;
+		}
+		if (is_struct_reg(p_left) || is_option_reg(p_left)) {
+			// Field by field (spec §3.6), None equal to None (§5.2).
 			const uint32_t result = temp(ValueType::Bool);
 			instr(Op::EQUAL, result, p_left, p_right, 0, fn.regs[p_left].type);
 			return p_op == TokenKind::BangEqual ? negate(result) : result;
@@ -1275,8 +1310,14 @@ class Lowerer {
 				if (p_expr.op == TokenKind::And || p_expr.op == TokenKind::Or) {
 					return short_circuit(p_expr);
 				} else {
-					const uint32_t left = lower_expr(*p_expr.left);
-					const uint32_t right = lower_expr(*p_expr.right);
+					uint32_t left = lower_expr(*p_expr.left);
+					uint32_t right = lower_expr(*p_expr.right);
+					if (p_expr.left->type.kind == TypeKind::Option || p_expr.right->type.kind == TypeKind::Option) {
+						// The side with fewer levels of T? is wrapped (spec §5.2).
+						const Type &deeper = option_depth(p_expr.left->type) >= option_depth(p_expr.right->type) ? p_expr.left->type : p_expr.right->type;
+						left = wrapped(left, deeper);
+						right = wrapped(right, deeper);
+					}
 					return binary(p_expr.op, left, right, p_expr.type);
 				}
 			case ExprKind::Call:

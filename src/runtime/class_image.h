@@ -82,6 +82,12 @@ public:
 		Duplicate, // With deep, the boxes are copied after the engine.
 		DuplicateDeep,
 		Slice,
+		// The engine has no `<` of boxes (core/variant/variant_op.cpp:731-791):
+		// its own algorithm with this language's `<` (spec §3.8).
+		Sort,
+		Bsearch,
+		Min,
+		Max,
 	};
 	std::vector<Replaced> replaced; // By built-in method index.
 	std::vector<godot::StringName> classes; // Engine classes, by class index.

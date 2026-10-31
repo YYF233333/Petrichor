@@ -1094,6 +1094,96 @@ Variant deep_copy(const Variant &p_value, int64_t p_mode) {
 	return p_value;
 }
 
+bool less_values(const TypeImage &p_type, const uint8_t *p_a, const uint8_t *p_b) {
+	if (is_option(p_type)) {
+		if (!tag(p_a) || !tag(p_b)) {
+			return !tag(p_a) && tag(p_b);
+		}
+		return less_values(*p_type.element, p_a + 8, p_b + 8);
+	}
+	if (is_struct(p_type)) {
+		// The first field in which one is less decides, as in Array's `<`
+		// (core/variant/array.cpp:164-179).
+		for (const FieldImage &field : p_type.fields) {
+			if (less_values(*field.type, p_a + field.offset, p_b + field.offset)) {
+				return true;
+			}
+			if (less_values(*field.type, p_b + field.offset, p_a + field.offset)) {
+				return false;
+			}
+		}
+		return false;
+	}
+	switch (p_type.storage) {
+		case ValueType::Bool:
+		case ValueType::Int:
+			return *reinterpret_cast<const int64_t *>(p_a) < *reinterpret_cast<const int64_t *>(p_b);
+		case ValueType::Float:
+			return *reinterpret_cast<const double *>(p_a) < *reinterpret_cast<const double *>(p_b);
+		default:
+			return variant_less(to_variant(p_type.storage, p_a), to_variant(p_type.storage, p_b));
+	}
+}
+
+bool variant_less(const Variant &p_a, const Variant &p_b) {
+	const Box *a = as_box(p_a);
+	const Box *b = as_box(p_b);
+	if (a && b) {
+		return a->type == b->type && less_values(a->type->type(), a->value(), b->value());
+	}
+	if (type_of(p_a) == Variant::ARRAY && type_of(p_b) == Variant::ARRAY && (keeps_boxes(p_a) || keeps_boxes(p_b))) {
+		const Array &x = *reinterpret_cast<const Array *>(data_of(p_a));
+		const Array &y = *reinterpret_cast<const Array *>(data_of(p_b));
+		for (int64_t i = 0; i < x.size() && i < y.size(); i++) {
+			if (variant_less(x[i], y[i])) {
+				return true;
+			}
+			if (variant_less(y[i], x[i])) {
+				return false;
+			}
+		}
+		return x.size() < y.size();
+	}
+	Variant result;
+	bool valid = false;
+	Variant::evaluate(Variant::OP_LESS, p_a, p_b, result, valid);
+	return valid && result.booleanize();
+}
+
+namespace {
+
+class LessCallable : public CallableCustom {
+	static bool equal(const CallableCustom *p_a, const CallableCustom *p_b) { return p_a == p_b; }
+	static bool less(const CallableCustom *p_a, const CallableCustom *p_b) { return p_a < p_b; }
+
+public:
+	uint32_t hash() const override { return uint32_t(uintptr_t(this) >> 4); }
+	String get_as_text() const override { return "<"; }
+	CompareEqualFunc get_compare_equal_func() const override { return equal; }
+	CompareLessFunc get_compare_less_func() const override { return less; }
+	bool is_valid() const override { return true; }
+	ObjectID get_object() const override { return ObjectID(); }
+	int get_argument_count(bool &r_is_valid) const override {
+		r_is_valid = true;
+		return 2;
+	}
+	void call(const Variant **p_arguments, int p_argcount, Variant &r_return_value, GDExtensionCallError &r_call_error) const override {
+		if (p_argcount != 2) {
+			r_call_error.error = p_argcount < 2 ? GDEXTENSION_CALL_ERROR_TOO_FEW_ARGUMENTS : GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS;
+			r_call_error.expected = 2;
+			return;
+		}
+		r_return_value = variant_less(*p_arguments[0], *p_arguments[1]);
+		r_call_error.error = GDEXTENSION_CALL_OK;
+	}
+};
+
+} // namespace
+
+Callable less_callable() {
+	return Callable(memnew(LessCallable()));
+}
+
 void SlotLayout::construct(uint8_t *p_base) const {
 	std::memset(p_base, 0, size);
 	for (const auto &[offset, type] : constructed) {

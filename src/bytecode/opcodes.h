@@ -84,6 +84,7 @@ namespace petrichor::bytecode {
 	X(IS_NONE, 3) /* type of src, dst (bool), src (an object or T?) */ \
 	X(SOME, 3) /* type of dst (T?), dst, src (T): Some(src) (spec §3.4) */ \
 	X(EQUAL, 4) /* type, dst (bool), a, b: a == b, a struct field by field (spec §3.6) */ \
+	X(LESS, 4) /* type, dst (bool), a, b: a < b of a struct, field by field in order, of a T?, None first, or of a container that keeps boxes, element by element (spec §5.2) */ \
 	X(TO_VARIANT, 3) /* type of src, dst (Variant), src */ \
 	X(BOX, 4) /* type, dst (Variant), src, key (0 or 1): src in a box, as a container keeps a boxed type (module.h); a key's box hashes the value */ \
 	X(ENCODE, 3) /* type of src, dst, src: a container that keeps boxes as the untyped container of its kind, a copy with every key and element encoded (spec §3.8, §10.1) */ \

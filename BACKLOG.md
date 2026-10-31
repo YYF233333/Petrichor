@@ -8,7 +8,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
 - Of match (spec §5.6): array and dictionary patterns; a match over `T?`, with `None` and `var x` and the check that it is exhaustive; the patterns of structs, and those of enums, Result and Settled once they exist.
 - Of structs (spec §3.6): methods; the "modifies a copy" warning for a field of a struct loop variable; a struct that holds itself through a container, which the type table cannot list, a type's parts coming before it.
-- Ordering (spec §5.2): `<` of structs, enums with payloads and `T?`, and with it the `sort`, `bsearch`, `min` and `max` of containers that keep them boxed (architecture §2.2), compile errors until then.
 - `T.try_from(v)` (spec §5.3), as for `Array[Hit].try_from(Array(hits))`.
 - The error for a type that is not pub, such as a struct or an interface, in the signature of a pub member (spec §4.2).
 - Static checks of must-assign exports in scenes, in resources and at export (spec §7.5), and of a scene used as a root whose root has a script with `@owner` (§7.3).

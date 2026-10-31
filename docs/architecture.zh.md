@@ -93,7 +93,7 @@ thirdparty/ring/       git 子模块：同一次迁移所用提交的 Ring，只
 
 | 部分 | 现状 | 测试 |
 |---|---|---|
-| 编译器 | FPS 项目需要的语言（§5），以及 GDScript 类和 autoload 的静态视图、协程核心、本语言类之间的继承、接口属性、`@owner`、字面量模式的 match、属性访问器、不带方法的 struct、Dictionary[K, V] 和对元素的赋值，以及元素为 struct、T? 和容器的容器；尚无 struct 的大小比较、泛型、带载荷的 enum、等待 ready 的 setter，也尚无 GDScript 类的 `new()`、静态方法和常量 | 编译器测试；引擎测试中对每个脚本的构建 |
+| 编译器 | FPS 项目需要的语言（§5），以及 GDScript 类和 autoload 的静态视图、协程核心、本语言类之间的继承、接口属性、`@owner`、字面量模式的 match、属性访问器、不带方法的 struct、Dictionary[K, V] 和对元素的赋值，元素为 struct、T? 和容器的容器，以及 struct 和 T? 的大小比较；尚无泛型、带载荷的 enum、等待 ready 的 setter，也尚无 GDScript 类的 `new()`、静态方法和常量 | 编译器测试；引擎测试中对每个脚本的构建 |
 | 值 | 每个类型有类型描述（字节码的类型表）；int、float、bool 和引擎的内置类型按自己的布局存放，对象存为 ObjectID 和指针，值类型的 T? 是标记加值，struct 是它的各个字段；尚无带载荷的 enum 和元素为本语言独有类型的容器 | 语言检查 |
 | 由运行中的调用共同持有成员（§2.2） | 已完成 | 语言检查 |
 | 本语言类之间的调用 | 直接调用，检查签名 | 语言检查、过时字节码 |

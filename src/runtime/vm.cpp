@@ -947,6 +947,10 @@ public:
 					U64(code[pc + 2]) = equal_values(image.types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 4]) ? 1 : 0;
 					pc += 5;
 					break;
+				case Op::LESS:
+					U64(code[pc + 2]) = less_values(image.types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 4]) ? 1 : 0;
+					pc += 5;
+					break;
 				case Op::TO_VARIANT:
 					variant_at(frame + code[pc + 2]) = to_variant(image.types[code[pc + 1]], frame + code[pc + 3]);
 					pc += 4;
@@ -1159,6 +1163,35 @@ public:
 						image.utilities[target](result, args.pointers, int(argc));
 					} else if (replaced == ClassImage::Replaced::Hash) {
 						*static_cast<int64_t *>(result) = content_hash(to_variant(module.builtin_methods[target].base, base));
+					} else if (replaced == ClassImage::Replaced::Sort && module.builtin_methods[target].base == ValueType::Array) {
+						reinterpret_cast<Array *>(base)->sort_custom(less_callable());
+					} else if (replaced == ClassImage::Replaced::Sort) {
+						// The keys in order, each with its value (spec §3.8).
+						Dictionary &dictionary = *reinterpret_cast<Dictionary *>(base);
+						Array keys = dictionary.keys();
+						keys.sort_custom(less_callable());
+						Array values;
+						for (int64_t i = 0; i < keys.size(); i++) {
+							values.push_back(dictionary[keys[i]]);
+						}
+						dictionary.clear();
+						for (int64_t i = 0; i < keys.size(); i++) {
+							dictionary[keys[i]] = values[i];
+						}
+					} else if (replaced == ClassImage::Replaced::Bsearch) {
+						const bool before = *static_cast<const uint8_t *>(args.pointers[1]);
+						*static_cast<int64_t *>(result) = reinterpret_cast<const Array *>(base)->bsearch_custom(*static_cast<const Variant *>(args.pointers[0]), less_callable(), before);
+					} else if (replaced == ClassImage::Replaced::Min || replaced == ClassImage::Replaced::Max) {
+						// The first of the least or the greatest, as the engine picks it
+						// (core/variant/array.cpp:828-868); null for an empty array.
+						const Array &array = *reinterpret_cast<const Array *>(base);
+						Variant best = array.is_empty() ? Variant() : array[0];
+						for (int64_t i = 1; i < array.size(); i++) {
+							if (replaced == ClassImage::Replaced::Min ? variant_less(array[i], best) : variant_less(best, array[i])) {
+								best = array[i];
+							}
+						}
+						variant_at(scratch) = best;
 					} else if (replaced == ClassImage::Replaced::HasAll) {
 						const Dictionary &dictionary = *reinterpret_cast<const Dictionary *>(base);
 						const Array &wanted = *static_cast<const Array *>(args.pointers[0]);

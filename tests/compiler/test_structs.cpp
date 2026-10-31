@@ -70,13 +70,23 @@ TEST_CASE("containers of structs") {
 					.empty());
 	CHECK(contains(errors("var hits: Array[Hit] = []\nhits.resize(2)"), "give every field of Shots.Hit a default value"));
 	CHECK(contains(errors("var hits: Array[Hit] = []\nprint(hits)"), "convert it explicitly with Array(x)"));
-	CHECK(contains(errors("var hits: Array[Hit] = []\nhits.sort()"), "orders the elements by <, which Shots.Hit does not have"));
 	CHECK(contains(errors("pass", "@export var hits: Array[Settings] = []\n\n"), "cannot be exported"));
 	const compiler::CompileResult result = compile(std::string("extends Node\n\n") + HIT + "func f(a: Hit) -> int:\n\tvar hits: Array[Hit] = [a]\n\tvar keyed: Dictionary[Hit, int] = {a: 1}\n\tvar s: Array[Settings] = []\n\ts.resize(2)\n\tvar u: Array = Array(hits)\n\treturn keyed[hits[0]]\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	std::string error;
 	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	find_instruction(function_named(result.module, "f"), bytecode::Op::ENCODE);
+}
+
+// Spec §3.6, §5.2: by the fields in order, when all of them are ordered.
+TEST_CASE("structs and T? are ordered") {
+	const std::string tagged = "struct Tagged:\n\tvar node: Node\n\n";
+	CHECK(errors("var x: bool = a < b and a >= b and a > b and a <= b\nvar hits: Array[Hit] = [a, b]\nhits.sort()\nvar i := hits.bsearch(a)\nvar m: Hit = hits.min()\nvar later: bool = hits < hits").empty());
+	CHECK(errors("var p: int? = 1\nvar q: int? = None\nvar x: bool = p < q and p == q and p == 3 and q != 2").empty());
+	CHECK(contains(errors("var p: int? = 1\nvar x: bool = p < 3"), "The value may be None"));
+	CHECK(contains(errors("var t := Tagged(node = self)\nvar x: bool = t < t", tagged), "Values of type Shots.Tagged are not ordered"));
+	CHECK(contains(errors("var ts: Array[Tagged] = []\nts.sort()", tagged), "orders the elements by <, which Shots.Tagged does not have"));
+	CHECK(contains(errors("var ns: Array[Node] = []\nvar x: bool = ns < ns"), "Values of type Array[Node] are not ordered"));
 }
 
 TEST_CASE("a field of a struct in a register is a slot inside it, which the verifier accepts") {
