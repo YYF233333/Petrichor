@@ -59,8 +59,12 @@ func _ready() -> void:
 			breakout.get_node(parent_path).add_child(placed)
 			x += 181
 
+	# Seen early too: an enemy may be defeated before the frames are over.
 	for i in FRAMES:
 		await get_tree().process_frame
+		if i == 10:
+			_see_scripts()
+	_see_scripts()
 
 	_report_scripts()
 	print("ring check: %d failure(s)" % failures)
@@ -108,15 +112,22 @@ func _check_utility(manager: Node) -> bool:
 	return true
 
 
-# run.py checks the line of each migrated script.
-func _report_scripts() -> void:
-	var reported := {}
+# The scripts of the nodes in the tree, and the scripts they extend, by path.
+var seen_scripts := {}
+
+
+func _see_scripts() -> void:
 	for node in get_tree().root.find_children("*", "", true, false):
 		var script: Script = node.get_script()
-		while script and not reported.has(script.resource_path):
-			reported[script.resource_path] = true
-			print("ring check: %s runs %s" % [script.resource_path.get_file().get_basename(), script.get_class()])
+		while script and not seen_scripts.has(script.resource_path):
+			seen_scripts[script.resource_path] = script.get_class()
 			script = script.get_base_script()
+
+
+# run.py checks the line of each migrated script.
+func _report_scripts() -> void:
+	for path in seen_scripts:
+		print("ring check: %s runs %s" % [path.get_file().get_basename(), seen_scripts[path]])
 	# No node has these: combat.pet declares the interface and has no GDScript
 	# original, and heal_brick.tscn has charge_brick.gd, so that no scene of
 	# Ring's uses heal_brick.gd.
