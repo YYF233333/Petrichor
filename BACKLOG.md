@@ -22,7 +22,17 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - `const` (spec §4.5); Ring's breakout_manager.pet declares its `debug` as a pub var until then.
 - Constants of the engine class a class extends by their bare name, such as `NOTIFICATION_PREDELETE`, as GDScript has them in scope; now they need the class, `Object.NOTIFICATION_PREDELETE`.
 - `Array[T]?`; `pop_front()` and `pop_back()` of `Array[T?]`, which give `T??`.
-- Class annotations such as `@tool` and `@icon`.
+- Class annotations such as `@tool` and `@icon`, and member annotations other than `@export`, `@export_range`, `@export_enum`, `@export_multiline` and `@onready`: the rest of the `@export` family, `@warning_ignore`, `@rpc` (spec §2.3).
+- Calls through a type name, `Type.m()`: static methods of engine classes and built-in types, such as `FileAccess.open` and `Color.from_hsv`, and static methods and `new()` of classes of this language (spec §4.6, §4.8).
+- Enums (spec §3.7); inner classes (spec §2.1).
+- Lambdas (spec §3.11).
+- The operators `in` and `not in`, bitwise operators and their assignments, `**` (spec §3.2, §5.1).
+- `assert` (spec §8.3).
+- Rest parameters `...args: Array[T]` (spec §4.6).
+- Members that must be assigned and are not exported, and passing them by name to `instantiate(...)` and `new(...)` (spec §6.2, §4.6).
+- Node paths: `%Name` and `$%Name`, `$".."` without `@parent` (spec §7.3), and paths into instanced scenes (spec §7.1).
+- Property names as literals, as in `tween_property(self, "speed", ...)` and `set_deferred("speed", v)`: checked, and visible to the engine (spec §10.4, §10.5); only method names are.
+- The audit of the most frequently called engine APIs for null (spec §10.2); `binding_metadata.txt` has two entries.
 - Values of type Variant (spec §3.13), which untyped members, parameters and results of GDScript classes have (§11.1); reading the elements of an untyped Array or Dictionary.
 - Non-constant default values, of parameters and of struct fields; static members; `_init()` with parameters.
 - Calling a function value other than through `bind()`; `==` between objects.
@@ -36,7 +46,8 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 ## Editor
 
 - A resident, incremental analysis that reads unsaved edits and does not walk the whole project at every check; the LSP, renaming and quick fixes build on it. Its cache should cover dependencies: compiled bytecode is now checked against its own source only, so a game run from the command line without a build keeps old bytecode after a change to a scene or to a script it uses, and only the runtime checks (signatures, `$X` classes) catch the difference.
-- The scene index: read scenes unsaved in the editor; mark errors in scenes in the scene editor (spec §13.1); check whether it handles the nodes of the base of an inherited scene, and autoloads that are scenes.
+- The scene index: read scenes unsaved in the editor; mark errors in scenes in the scene editor (spec §13.1); check whether it handles autoloads that are scenes.
+- Completion and go to definition in the editor (`_complete_code`, `_lookup_code`; spec §13.2), for which checking goes on past syntax errors: the compiler now skips the checker when parsing fails. `_can_make_function`, so that the signal connection dialog generates the callback (editor/scene/connections_dialog.cpp:505-512; ed1daf0).
 - The debugger lists all locals of a function regardless of scope, so same-named locals of blocks side by side collide; the bytecode would record the scope of each slot.
 
 ## Tests
@@ -57,6 +68,7 @@ Engine calls are by name with Variant arguments now, so code that calls the engi
 - Engine calls: whether the result is a `GDScriptFunctionState`, which only methods of GDScript classes return (spec §9.8), is asked of every object result, by a call into the engine.
 - Coroutines: freeing an instance, and every frame, walk all active tasks; tasks listed by their owner would walk only the owner's.
 - Containers: the storage behind Array and Dictionary may be replaced later, keeping their public semantics (spec §3.8); the arrays benchmark loses to GDScript mostly to boxing each element into a Variant and back, and the check that a container is not read-only before each change (spec §3.8) is a call into the engine, about 7 ns of an append. Escape analysis can give containers that do not escape a private representation, the engine container being the reference semantics (architecture §2.2): a private representation supports some operations, a container that uses others keeps the engine's, and each private operation is tested against the engine's.
+- Constants and counting loops: every evaluation of a literal loads it into a new temporary with an instruction, and a counting `for` runs six instructions per iteration, where GDScript addresses constants as operands (modules/gdscript/gdscript_byte_codegen.h:366-367) and iterates with one instruction (modules/gdscript/gdscript_vm.cpp:3471-3492; ed1daf0); float_loop and vectors are no faster than GDScript now.
 - Benchmarks of real workloads, which become representative after type descriptors and ptrcall; optimizations of the IR and code generation after those.
 
 ## Open questions
