@@ -976,6 +976,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - The engine's exporter does not stop the export on errors about values certain to be missing (§7.5).
 - No threading API is added (§12.3).
 - Ordering Variant elements takes a pair the engine cannot order as not less, as GDScript does (§3.8).
+- Narrow integer parameters of classes of other extensions are not range-checked (§10.6).
 
 ### 14.2 Compatible later additions
 
