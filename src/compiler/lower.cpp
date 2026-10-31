@@ -4,6 +4,8 @@
 #include "compiler/ir.h"
 
 #include <memory>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace petrichor::compiler {
 
@@ -120,29 +122,39 @@ uint8_t engine_operator(TokenKind p_op) {
 
 // A place that can be read and written. The base of a member access is
 // evaluated once; a member of a built-in value is changed in a copy of the
-// value, which is then written back to where it came from.
+// value, which is then written back to where it came from. A field of a
+// struct in a register or in a member is a place of its own inside it; one
+// read through an accessor or the engine is changed in a copy of the struct,
+// written back as a member of a built-in value is (spec §3.6).
 struct Place {
 	enum class Kind {
-		Local,
+		Local, // A register: a local, or a field of a struct in one.
 		NarrowedLocal, // A local of type T? where it is known to hold a T (spec §5.4).
 		Member,
+		MemberField, // A field of a struct in a member that has no accessors, at `offset` in it.
 		SelfProperty,
 		Owner, // owner with @owner(T): read with its check (spec §7.3).
 		ObjectProperty,
 		Field,
+		StructCopy, // A field of a copy of a struct, `whole`.
 	};
 	Kind kind = Kind::Local;
-	uint32_t reg = NO_REG; // Local: the local; ObjectProperty: the object; Field: the copy of the base.
+	uint32_t reg = NO_REG; // Local: the register; ObjectProperty: the object; Field: the copy of the base; StructCopy: the field in the copy.
 	uint32_t index = 0; // Member, property table or field table.
+	uint32_t offset = 0;
+	uint32_t whole = NO_REG;
 	Type type;
 	std::optional<bytecode::IntRange> int_range; // An engine property: what its setter takes (spec §10.6).
-	std::unique_ptr<Place> parent; // Field: where the copy goes back.
+	std::unique_ptr<Place> parent; // Field and StructCopy: where the copy goes back.
 };
 
 class Lowerer {
 	const ClassDecl &cls;
 	bytecode::Module &module;
 	std::vector<Diagnostic> &errors;
+	const StructLookup &structs;
+	std::unordered_map<uint32_t, Type> struct_types; // By their index in the type table.
+	std::unordered_set<std::string> interning;
 
 	ir::Function fn;
 	const FuncDecl *decl = nullptr; // Null in the init function.
@@ -236,10 +248,84 @@ class Lowerer {
 		} else if (is_typed_array(p_type)) {
 			type.kind = bytecode::TypeKind::Array;
 			type.element = type_index(p_type.args[0]);
+		} else if (p_type.kind == TypeKind::Struct) {
+			return struct_index(p_type);
 		} else {
 			type.value = value_type(p_type);
 		}
 		return type_index(type);
+	}
+
+	// A struct, "script::Name", with the types of its fields before it.
+	uint32_t struct_index(const Type &p_struct) {
+		bytecode::TypeDesc type;
+		type.kind = bytecode::TypeKind::Struct;
+		type.name = p_struct.script + "::" + p_struct.interface_name();
+		const StructDecl *decl = struct_decl(p_struct);
+		// The checker refuses a struct that holds itself (spec §3.6), unless its
+		// script failed to be checked.
+		if (!decl || !interning.insert(type.name).second) {
+			errors.push_back({ line, 1, p_struct.name + " cannot be compiled: " + p_struct.script + " has errors." });
+			return type_index(ValueType::Void);
+		}
+		for (const VarDecl &field : decl->fields) {
+			type.fields.push_back({ field.name, type_index(field.type) });
+		}
+		interning.erase(type.name);
+		const uint32_t index = type_index(type);
+		struct_types.emplace(index, p_struct);
+		return index;
+	}
+
+	const StructDecl *struct_decl(const Type &p_struct) const {
+		return p_struct.script == cls.path ? cls.find_struct(p_struct.interface_name()) : (structs ? structs(p_struct) : nullptr);
+	}
+
+	bool is_struct_reg(uint32_t p_reg) const { return module.types[fn.regs[p_reg].type].kind == bytecode::TypeKind::Struct; }
+
+	// A field of the struct in a register, as a register over its bytes.
+	uint32_t field_view(uint32_t p_struct, uint32_t p_field) {
+		const uint32_t type = fn.regs[p_struct].type;
+		ir::View view{ p_struct, bytecode::field_offsets(module.types, type)[p_field] };
+		const auto outer = fn.views.find(p_struct);
+		if (outer != fn.views.end()) {
+			view.root = outer->second.root;
+			view.offset += outer->second.offset;
+		}
+		bytecode::Slot field;
+		field.type = module.types[type].fields[p_field].type;
+		fn.regs.push_back(field);
+		fn.views.emplace(uint32_t(fn.regs.size() - 1), view);
+		return uint32_t(fn.regs.size() - 1);
+	}
+
+	// A new struct with every field written, so that a register reused by a
+	// loop holds nothing of before: the arguments in the order written, then
+	// the defaults of the fields they leave out (spec §3.6). The fields are
+	// written once all are evaluated.
+	uint32_t construct_struct(const Type &p_struct, const Expr *p_call) {
+		const uint32_t result = temp(p_struct);
+		const StructDecl *decl = struct_decl(p_struct);
+		if (!decl) {
+			return result;
+		}
+		std::vector<uint32_t> values(decl->fields.size(), NO_REG);
+		for (size_t i = 0; p_call && i < p_call->args.size(); i++) {
+			for (size_t f = 0; f < decl->fields.size(); f++) {
+				if (decl->fields[f].name == p_call->arg_names[i]) {
+					values[f] = argument(*p_call->args[i], p_call->param_types[i], false, false);
+				}
+			}
+		}
+		for (size_t f = 0; f < decl->fields.size(); f++) {
+			if (values[f] == NO_REG) {
+				values[f] = argument(*decl->fields[f].initializer, decl->fields[f].type, false, false);
+			}
+		}
+		for (size_t f = 0; f < decl->fields.size(); f++) {
+			move(field_view(result, uint32_t(f)), values[f]);
+		}
+		return result;
 	}
 
 	bytecode::Slot slot(const std::string &p_name, const Type &p_type) {
@@ -665,6 +751,11 @@ class Lowerer {
 			instr(Op::CONST_VALUE, p_dst, NO_REG, NO_REG, default_constant(fn.regs[p_dst].type), fn.regs[p_dst].type); // None.
 			return p_dst;
 		}
+		if (is_struct_reg(p_dst)) {
+			// Each field's default (spec §4.3).
+			move(p_dst, construct_struct(struct_types.at(fn.regs[p_dst].type), nullptr));
+			return p_dst;
+		}
 		switch (type) {
 			case ValueType::Int:
 				load_int(p_dst, 0);
@@ -699,6 +790,12 @@ class Lowerer {
 	}
 
 	uint32_t binary(TokenKind p_op, uint32_t p_left, uint32_t p_right, const Type &p_result) {
+		if (is_struct_reg(p_left)) {
+			// Field by field (spec §3.6).
+			const uint32_t result = temp(ValueType::Bool);
+			instr(Op::EQUAL, result, p_left, p_right, 0, fn.regs[p_left].type);
+			return p_op == TokenKind::BangEqual ? negate(result) : result;
+		}
 		const ValueType left_type = reg_type(p_left);
 		const ValueType right_type = reg_type(p_right);
 		if (!is_primitive(left_type) || !is_primitive(right_type)) {
@@ -806,6 +903,8 @@ class Lowerer {
 				instr(Op::NEW_OBJECT, result, NO_REG, NO_REG, class_index(p_call.owner));
 				return result;
 			}
+			case Target::StructConstructor:
+				return construct_struct(p_call.type, &p_call);
 			case Target::Unwrap: {
 				const uint32_t value = lower_expr(*p_call.base);
 				const uint32_t message = p_call.args.empty() ? NO_REG : convert(lower_expr(*p_call.args[0]), Type::of(TypeKind::String));
@@ -1115,10 +1214,51 @@ class Lowerer {
 			case Target::ObjectProperty:
 				return true;
 			case Target::Field:
+			case Target::StructField:
 				return is_place(*p_expr.base);
 			default:
 				return false;
 		}
+	}
+
+	// A field of a struct at `p_base`.
+	Place struct_field(Place p_base, uint32_t p_field, const Type &p_type) {
+		Place place;
+		place.type = p_type;
+		const auto offset_in = [&](uint32_t p_struct) {
+			return bytecode::field_offsets(module.types, p_struct)[p_field];
+		};
+		switch (p_base.kind) {
+			case Place::Kind::Local:
+				place.reg = field_view(p_base.reg, p_field);
+				return place;
+			case Place::Kind::Member:
+				if (accessor(p_base.index, false) >= 0 || accessor(p_base.index, true) >= 0) {
+					break;
+				}
+				place.kind = Place::Kind::MemberField;
+				place.index = p_base.index;
+				place.offset = offset_in(type_index(p_base.type));
+				return place;
+			case Place::Kind::MemberField:
+				place.kind = Place::Kind::MemberField;
+				place.index = p_base.index;
+				place.offset = p_base.offset + offset_in(type_index(p_base.type));
+				return place;
+			case Place::Kind::StructCopy:
+				place.kind = Place::Kind::StructCopy;
+				place.reg = field_view(p_base.reg, p_field);
+				place.whole = p_base.whole;
+				place.parent = std::move(p_base.parent);
+				return place;
+			default:
+				break;
+		}
+		place.kind = Place::Kind::StructCopy;
+		place.whole = load(p_base);
+		place.reg = field_view(place.whole, p_field);
+		place.parent = std::make_unique<Place>(std::move(p_base));
+		return place;
 	}
 
 	Place place_of(const Expr &p_expr) {
@@ -1156,6 +1296,12 @@ class Lowerer {
 				}
 				place.index = field(reg_type(place.reg), p_expr.text, value_type(p_expr.type));
 				break;
+			case Target::StructField:
+				if (is_place(*p_expr.base)) {
+					return struct_field(place_of(*p_expr.base), uint32_t(p_expr.index), p_expr.type);
+				}
+				place.reg = field_view(lower_expr(*p_expr.base), uint32_t(p_expr.index)); // Only read: a field of a temporary value.
+				break;
 			default:
 				place.reg = internal_error("this expression is not a place");
 				break;
@@ -1176,6 +1322,19 @@ class Lowerer {
 				const int getter = accessor(p_place.index, false);
 				return getter >= 0 ? call_function(uint32_t(getter), {}, p_place.type) : load_member(p_place.index);
 			}
+			case Place::Kind::MemberField: {
+				const uint32_t result = temp(p_place.type);
+				ir::Instr i;
+				i.op = by_storage(reg_type(result), Op::LOAD_MEMBER_8, Op::LOAD_MEMBER_STRING, Op::LOAD_MEMBER_VALUE);
+				i.type = fn.regs[result].type;
+				i.dst = result;
+				i.imm = p_place.index;
+				i.field = p_place.offset;
+				add(i);
+				return result;
+			}
+			case Place::Kind::StructCopy:
+				return p_place.reg;
 			case Place::Kind::SelfProperty:
 			case Place::Kind::ObjectProperty: {
 				const uint32_t result = temp(p_place.type);
@@ -1215,6 +1374,20 @@ class Lowerer {
 				}
 				return;
 			}
+			case Place::Kind::MemberField: {
+				ir::Instr i;
+				i.op = by_storage(reg_type(p_value), Op::STORE_MEMBER_8, Op::STORE_MEMBER_STRING, Op::STORE_MEMBER_VALUE);
+				i.type = fn.regs[p_value].type;
+				i.a = p_value;
+				i.imm = p_place.index;
+				i.field = p_place.offset;
+				add(i);
+				return;
+			}
+			case Place::Kind::StructCopy:
+				move(p_place.reg, p_value);
+				store(*p_place.parent, p_place.whole);
+				return;
 			case Place::Kind::SelfProperty:
 			case Place::Kind::ObjectProperty:
 				if (p_place.int_range) {
@@ -1451,14 +1624,14 @@ class Lowerer {
 		}
 		for (size_t m = module.inherited_members; m < cls.all_members.size(); m++) {
 			const VarDecl &member = *cls.all_members[m];
-			if (member.is_onready != p_onready || (!member.initializer && !is_typed_array(member.type))) {
+			if (member.is_onready != p_onready || (!member.initializer && !is_typed_array(member.type) && member.type.kind != TypeKind::Struct)) {
 				continue;
 			}
 			any = true;
 			line = member.line;
 			instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(member.line));
 			if (!member.initializer) {
-				// An empty Array[T] is typed too.
+				// An empty Array[T] is typed too, and a struct has its fields' defaults (spec §4.3).
 				store_member(uint32_t(m), default_value(temp(member.type)));
 				continue;
 			}
@@ -1487,8 +1660,8 @@ class Lowerer {
 	}
 
 public:
-	Lowerer(const ClassDecl &p_class, bytecode::Module &r_module, std::vector<Diagnostic> &r_errors) :
-			cls(p_class), module(r_module), errors(r_errors) {}
+	Lowerer(const ClassDecl &p_class, bytecode::Module &r_module, std::vector<Diagnostic> &r_errors, const StructLookup &p_structs) :
+			cls(p_class), module(r_module), errors(r_errors), structs(p_structs) {}
 
 	void run(bool p_declarations_only) {
 		// Type 0, which a result that is not there has.
@@ -1508,7 +1681,7 @@ public:
 			static_cast<bytecode::Slot &>(member) = slot(decl_member.name, decl_member.type);
 			// Without the scenes, a type that comes from them is unknown; the
 			// module only describes the class then (architecture §2.4).
-			if (p_declarations_only && bytecode::storage_of(module.types, member.type) == ValueType::Void) {
+			if (p_declarations_only && member.type == type_index(ValueType::Void)) {
 				member.type = type_index(ValueType::Variant);
 			}
 			member.is_onready = decl_member.is_onready;
@@ -1527,7 +1700,7 @@ public:
 			if (decl_member.constant_initializer) {
 				member.has_initial = true;
 				member.initial = constant_of(*decl_member.initializer, decl_member.type);
-			} else if (!decl_member.initializer && !decl_member.must_assign) {
+			} else if (!decl_member.initializer && !decl_member.must_assign && decl_member.type.kind != TypeKind::Struct) {
 				member.has_initial = true;
 			}
 			module.members.push_back(member);
@@ -1637,9 +1810,9 @@ public:
 
 } // namespace
 
-bytecode::Module lower(const ClassDecl &p_class, bool p_declarations_only, std::vector<Diagnostic> &r_errors) {
+bytecode::Module lower(const ClassDecl &p_class, bool p_declarations_only, std::vector<Diagnostic> &r_errors, const StructLookup &p_structs) {
 	bytecode::Module module;
-	Lowerer(p_class, module, r_errors).run(p_declarations_only);
+	Lowerer(p_class, module, r_errors, p_structs).run(p_declarations_only);
 	return module;
 }
 

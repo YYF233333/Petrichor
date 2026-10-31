@@ -14,10 +14,16 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 	out.is_exposed = p_function.is_exposed;
 	out.line = p_function.line;
 
-	// Registers in order, each at an 8-byte aligned offset of its own size.
+	// Registers in order, each at an 8-byte aligned offset of its own size,
+	// and views inside their roots.
 	std::vector<uint32_t> offsets;
 	uint32_t frame_size = 0;
 	for (uint32_t i = 0; i < p_function.regs.size(); i++) {
+		const auto view = p_function.views.find(i);
+		if (view != p_function.views.end()) {
+			offsets.push_back(offsets[view->second.root] + view->second.offset);
+			continue;
+		}
 		bytecode::Slot slot = p_function.regs[i];
 		slot.offset = frame_size;
 		offsets.push_back(frame_size);
@@ -31,8 +37,8 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 	auto offset_of = [&](uint32_t p_reg) {
 		return p_reg == NO_REG ? bytecode::NO_SLOT : offsets[p_reg];
 	};
-	auto member_offset = [&](uint32_t p_member) {
-		return p_module.members[p_member].offset;
+	auto member_offset = [&](const Instr &p_instr) {
+		return p_module.members[p_instr.imm].offset + p_instr.field;
 	};
 
 	std::vector<uint32_t> &code = out.code;
@@ -98,21 +104,21 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 				case Op::LOAD_MEMBER_8:
 				case Op::LOAD_MEMBER_STRING:
 					put(offset_of(instr.dst));
-					put(member_offset(instr.imm));
+					put(member_offset(instr));
 					break;
 				case Op::LOAD_MEMBER_VALUE:
 					put(uint32_t(instr.type));
 					put(offset_of(instr.dst));
-					put(member_offset(instr.imm));
+					put(member_offset(instr));
 					break;
 				case Op::STORE_MEMBER_8:
 				case Op::STORE_MEMBER_STRING:
-					put(member_offset(instr.imm));
+					put(member_offset(instr));
 					put(offset_of(instr.a));
 					break;
 				case Op::STORE_MEMBER_VALUE:
 					put(uint32_t(instr.type));
-					put(member_offset(instr.imm));
+					put(member_offset(instr));
 					put(offset_of(instr.a));
 					break;
 				case Op::EVALUATE:
@@ -179,6 +185,7 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 					put(offset_of(instr.a));
 					break;
 				case Op::UNWRAP:
+				case Op::EQUAL:
 					put(uint32_t(instr.type));
 					put(offset_of(instr.dst));
 					put(offset_of(instr.a));

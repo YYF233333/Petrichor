@@ -22,7 +22,11 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 		return a.line != b.line ? a.line < b.line : a.column < b.column;
 	});
 	if (result.errors.empty()) {
-		result.module = lower(cls, p_options.declarations_only, result.errors);
+		const StructLookup structs = [&](const Type &p_struct) -> const StructDecl * {
+			const ScriptClass *script = classes.declarations(p_struct.script);
+			return script ? script->decl.find_struct(p_struct.interface_name()) : nullptr;
+		};
+		result.module = lower(cls, p_options.declarations_only, result.errors, structs);
 		result.module.source_hash = bytecode::hash_source(p_source);
 	}
 	return result;

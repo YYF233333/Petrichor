@@ -124,16 +124,46 @@ ValueType storage_of(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 	}
 }
 
+// The types inside a type come before it, which the verifier checks; until
+// then, sizes and keys do not follow a type that does not.
+static bool is_struct(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
+	return p_type < p_types.size() && p_types[p_type].kind == TypeKind::Struct;
+}
+
 uint32_t type_size(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 	if (p_type < p_types.size() && p_types[p_type].kind == TypeKind::Option && p_types[p_type].element < p_type) {
 		return 8 + type_size(p_types, p_types[p_type].element);
 	}
+	if (is_struct(p_types, p_type)) {
+		uint32_t size = 0;
+		for (const FieldDesc &field : p_types[p_type].fields) {
+			size += field.type < p_type ? type_size(p_types, field.type) : 0;
+		}
+		return size;
+	}
 	return slot_size(storage_of(p_types, p_type));
+}
+
+std::vector<uint32_t> field_offsets(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
+	std::vector<uint32_t> offsets;
+	uint32_t offset = 0;
+	for (const FieldDesc &field : p_types[p_type].fields) {
+		offsets.push_back(offset);
+		offset += field.type < p_type ? type_size(p_types, field.type) : 0;
+	}
+	return offsets;
 }
 
 std::string layout_key(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 	if (p_type < p_types.size() && p_types[p_type].kind == TypeKind::Option && p_types[p_type].element < p_type) {
 		return "?(" + layout_key(p_types, p_types[p_type].element) + ")";
+	}
+	if (is_struct(p_types, p_type)) {
+		std::string key = "s(";
+		for (const FieldDesc &field : p_types[p_type].fields) {
+			key += (field.type < p_type ? layout_key(p_types, field.type) : "!") + ",";
+		}
+		return key + ")";
 	}
 	return std::to_string(int(storage_of(p_types, p_type)));
 }
@@ -153,6 +183,15 @@ std::string type_key(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 			return "?(" + type_key(p_types, type.element) + ")";
 		case TypeKind::Array:
 			return "a(" + type_key(p_types, type.element) + ")";
+		case TypeKind::Struct: {
+			// With its fields, so that a struct changed in one module is not taken
+			// for the old one by another.
+			std::string key = "s" + text(type.name) + "(";
+			for (const FieldDesc &field : type.fields) {
+				key += text(field.name) + (field.type < p_type ? type_key(p_types, field.type) : "!") + ",";
+			}
+			return key + ")";
+		}
 		default:
 			return "!";
 	}
@@ -249,6 +288,12 @@ public:
 		class_ref(p_type.object);
 		u8(p_type.nullable ? 1 : 0);
 		str(p_type.task_result);
+		str(p_type.name);
+		u32(uint32_t(p_type.fields.size()));
+		for (const FieldDesc &field : p_type.fields) {
+			str(field.name);
+			u32(field.type);
+		}
 	}
 };
 
@@ -374,6 +419,12 @@ public:
 		value.object = class_ref();
 		value.nullable = u8() != 0;
 		value.task_result = str();
+		value.name = str();
+		value.fields.resize(count());
+		for (FieldDesc &field : value.fields) {
+			field.name = str();
+			field.type = u32();
+		}
 		return value;
 	}
 };

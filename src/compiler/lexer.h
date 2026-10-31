@@ -50,6 +50,7 @@ enum class TokenKind {
 	Super,
 	Signal,
 	Static,
+	Struct,
 	True,
 	Var,
 	When,

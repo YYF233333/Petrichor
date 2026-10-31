@@ -86,6 +86,8 @@ const char *token_name(TokenKind p_kind) {
 			return "\"signal\"";
 		case TokenKind::Static:
 			return "\"static\"";
+		case TokenKind::Struct:
+			return "\"struct\"";
 		case TokenKind::True:
 			return "\"true\"";
 		case TokenKind::Var:
@@ -207,6 +209,7 @@ const std::unordered_map<std::string, TokenKind> &keywords() {
 		{ "super", TokenKind::Super },
 		{ "signal", TokenKind::Signal },
 		{ "static", TokenKind::Static },
+		{ "struct", TokenKind::Struct },
 		{ "true", TokenKind::True },
 		{ "var", TokenKind::Var },
 		{ "when", TokenKind::When },

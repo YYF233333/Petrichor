@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace petrichor::compiler::ir {
@@ -28,6 +29,16 @@ struct Instr {
 	uint32_t b = NO_REG;
 	uint32_t base = NO_REG; // CALL*: the value the method is called on.
 	std::vector<uint32_t> args;
+	uint32_t field = 0; // Members: where a field of a struct starts in the member.
+};
+
+// A register that is a field of a struct in another register: it has no
+// slot of its own but the bytes of `root` from `offset` (architecture §2.2).
+// Writing it writes part of the root, so whatever reasons about registers
+// takes it as part of its root.
+struct View {
+	uint32_t root = NO_REG;
+	uint32_t offset = 0;
 };
 
 enum class Terminator {
@@ -49,6 +60,7 @@ struct Block {
 struct Function {
 	std::string name;
 	std::vector<bytecode::Slot> regs; // Parameters, then locals, then temporaries.
+	std::unordered_map<uint32_t, View> views; // By register; a root comes before its views.
 	uint32_t param_count = 0;
 	bytecode::Slot result; // As bytecode::Function::result.
 	bool is_async = false;

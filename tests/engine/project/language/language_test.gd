@@ -325,6 +325,33 @@ func _ready() -> void:
 	base.free()
 	child.free()
 
+	# Spec §3.6: structs, which the engine sees as Dictionaries (§10.1).
+	var s := StructCheck.new()
+	add_child(s)
+	_check(s.changed() == "7 3 (5.0, 2.0) 1 member hit 7", "a field changes where its struct lives, and an assignment copies")
+	_check(s.equal(3, 3) and not s.equal(3, 4) and s.equal_sources(s), "structs compare field by field, objects by identity")
+	_check(s.defaults() == "0 true 0.0" and s.loop_fresh() == 13, "a struct starts at its fields' defaults, and one made in a loop has every field written anew")
+	_check(s.make(3) == {"damage": 3, "point": Vector2(1, 2), "crit": false, "source": null, "tag": "hit"}, "a struct reaches the engine as a Dictionary keyed by field name")
+	_check(s.last_hit == {"damage": 7, "point": Vector2(5, 2), "crit": false, "source": null, "tag": "member"}, "a struct member is read through reflection as a copy")
+	var hit := {"damage": 7.0, "point": Vector2(), "crit": true, "source": s, "tag": "gd"}
+	_check(s.damage_of(hit) == 7, "a Dictionary decodes into a struct at the entry, an int field also from a float that is an integer")
+	var fractional = s.damage_of({"damage": 7.5, "point": Vector2(), "crit": true, "source": null, "tag": "gd"})
+	var missing = s.damage_of({"damage": 7})
+	_check_errors(["struct_check.pet:58: Argument \"hit\" of damage_of(): StructCheck.Hit.damage: expected int, found float.", "struct_check.pet:58: Argument \"hit\" of damage_of(): StructCheck.Hit.point is missing."], "the program errors name the field that does not decode")
+	_check(fractional == 0 and missing == 0, "a Dictionary without a field or with a field of another type is refused")
+	_check(s.maybe_damage() == -1, "a struct T? starts at None")
+	s.maybe = hit
+	_check(s.maybe_damage() == 8 and s.maybe["damage"] == 8 and s.maybe["source"] == s, "a struct T? is written back after a narrowed local changed")
+	var heard := []
+	s.hit_taken.connect(func(h): heard.append(h["damage"]))
+	s.emit_hit(5)
+	_check(s.received == 5 and heard == [5], "a signal passes a struct as a Dictionary, which a handler of this language decodes")
+	var other := StructCheck.new()
+	s.remote(other)
+	_check(other.last_hit["damage"] == 42 and other.last_hit["tag"] == "hit", "a field of another instance's member is written back through the engine")
+	s.free()
+	other.free()
+
 	var frames_before: int = c.frames
 	c.defer()
 	var freeing := FreeCheck.new()

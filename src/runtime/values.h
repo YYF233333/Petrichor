@@ -50,18 +50,29 @@ struct ValueCheck {
 	bytecode::ValueType element = bytecode::ValueType::Void; // Array: typed with this element type.
 };
 
+struct TypeImage;
+
+struct FieldImage {
+	godot::String name;
+	const TypeImage *type = nullptr; // In the same table.
+	uint32_t offset = 0;
+};
+
 // A type of a module's table as the runtime uses it (architecture §2.2): how
 // its values are made, copied, destroyed and exchanged with the engine.
 struct TypeImage {
 	bytecode::TypeKind kind = bytecode::TypeKind::Value;
 	// How a slot holds it in the engine's layout; Void for T?, whose slot is
-	// an 8-byte tag, 1 for Some, then the value, which is there also for None.
+	// an 8-byte tag, 1 for Some, then the value, which is there also for None,
+	// and for a struct, whose slot holds its fields.
 	bytecode::ValueType storage = bytecode::ValueType::Void;
 	const TypeImage *element = nullptr; // T?: T, in the same table.
 	uint32_t size = 0; // Of its slot.
 	uint32_t layout = 0; // Equal for types laid out alike, in every image.
 	ValueCheck check;
 	std::string result_key; // The signature key of a Task[T] whose T it is.
+	godot::String name; // Struct: "script::Name".
+	std::vector<FieldImage> fields; // Struct.
 };
 
 // The images of a module's types; `element` points into the vector returned,
@@ -71,14 +82,21 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 void construct_value(const TypeImage &p_type, uint8_t *p_slot);
 void destroy_value(const TypeImage &p_type, uint8_t *p_slot);
 void copy_value(const TypeImage &p_type, uint8_t *p_dst, const uint8_t *p_src);
+// A struct is a Dictionary with its fields by name (spec §3.6, §10.1).
 godot::Variant to_variant(const TypeImage &p_type, const uint8_t *p_slot);
 // Stores the value when it fits the type, and with `p_check` the type's
-// entry check too.
+// entry check too. A struct is decoded from a Dictionary that has each field,
+// as `T.try_from` decodes the field (spec §3.6, §5.3).
 bool from_variant(const TypeImage &p_type, const godot::Variant &p_value, uint8_t *p_slot, bool p_check);
 godot::String entry_mismatch(const TypeImage &p_type, const godot::Variant &p_value);
 godot::Variant default_variant(const TypeImage &p_type);
 // The type as the source writes it: "int?", "Array[Enemy]"…
 godot::String type_description(const TypeImage &p_type);
+// What the engine sees: NIL for T?, Dictionary for a struct (spec §10.1).
+godot::Variant::Type variant_type(const TypeImage &p_type);
+// `==` of the type: of a struct, field by field (spec §3.6); of an object, by
+// its identity (§5.2).
+bool equal_values(const TypeImage &p_type, const uint8_t *p_a, const uint8_t *p_b);
 
 // The slots of a frame or of an instance's members: zeroed as a whole, then
 // those whose default value is not all zero bytes, such as Basis or Array, are

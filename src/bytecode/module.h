@@ -89,7 +89,15 @@ enum class TypeKind : uint8_t {
 	Object, // An object of the class `object`, or also None when `nullable` (spec §3.3).
 	Option, // T? of a value type: None or a value of the type `element` (spec §3.4).
 	Array, // Array[T], T being the type `element` (spec §3.8); an untyped Array is a Value.
+	Struct, // A struct of this language, `name`, with its `fields` (spec §3.6).
 	Count,
+};
+
+struct FieldDesc {
+	std::string name;
+	uint32_t type = 0;
+
+	bool operator==(const FieldDesc &p_other) const { return name == p_other.name && type == p_other.type; }
 };
 
 struct TypeDesc {
@@ -99,17 +107,23 @@ struct TypeDesc {
 	ClassRef object;
 	bool nullable = false;
 	std::string task_result; // Object: a Task[T] handle, with T's signature key.
+	std::string name; // Struct: "script::Name", as interfaces are named.
+	std::vector<FieldDesc> fields; // Struct.
 
 	bool operator==(const TypeDesc &p_other) const {
-		return kind == p_other.kind && value == p_other.value && element == p_other.element && object == p_other.object && nullable == p_other.nullable && task_result == p_other.task_result;
+		return kind == p_other.kind && value == p_other.value && element == p_other.element && object == p_other.object && nullable == p_other.nullable && task_result == p_other.task_result &&
+				name == p_other.name && fields == p_other.fields;
 	}
 };
 
-// How a slot of the type holds it in the engine's layout. T? has no such
-// layout: its slot is an 8-byte tag, 1 for Some, then the value, which is
-// there also for None.
+// How a slot of the type holds it in the engine's layout. T? and structs have
+// no such layout: the slot of T? is an 8-byte tag, 1 for Some, then the value,
+// which is there also for None; that of a struct holds its fields one after
+// another, each in its own slot's layout, so that a field is a slot inside it.
 ValueType storage_of(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 uint32_t type_size(const std::vector<TypeDesc> &p_types, uint32_t p_type);
+// Where each field of a struct starts in its slot.
+std::vector<uint32_t> field_offsets(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 // The type as text, equal exactly for equal types in any module.
 std::string type_key(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 // How a slot of the type is laid out, as text equal for types whose values can

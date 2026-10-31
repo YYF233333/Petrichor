@@ -313,7 +313,7 @@ static GDExtensionVariantType instance_get_property_type(GDExtensionScriptInstan
 	const std::shared_ptr<const ClassImage> image = self(p_instance)->current_image();
 	const bytecode::Member *member = visible_member(*image, as_name(p_name));
 	*r_is_valid = member != nullptr;
-	return member ? GDExtensionVariantType(variant_type(image->types[member->type].storage)) : GDEXTENSION_VARIANT_TYPE_NIL;
+	return member ? GDExtensionVariantType(variant_type(image->types[member->type])) : GDEXTENSION_VARIANT_TYPE_NIL;
 }
 
 static GDExtensionBool instance_has_method(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name) {

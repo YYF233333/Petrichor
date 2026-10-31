@@ -14,10 +14,6 @@ constexpr uint32_t MAX_STORAGE = 1u << 20;
 // Variant::OP_MAX.
 constexpr uint8_t OPERATOR_COUNT = 25;
 
-bool is_8_byte(ValueType p_type) {
-	return p_type == ValueType::Bool || p_type == ValueType::Int || p_type == ValueType::Float;
-}
-
 bool is_type(uint32_t p_word) {
 	return p_word < uint32_t(ValueType::Count) && p_word != uint32_t(ValueType::Void);
 }
@@ -38,15 +34,19 @@ bool is_indexable(ValueType p_type) {
 	return p_type == ValueType::Array || (p_type >= ValueType::PackedByteArray && p_type <= ValueType::PackedVector4Array);
 }
 
+// The types of the slots that start at each offset: a struct and its first
+// field start at the same one.
+using Slots = std::unordered_map<uint32_t, std::vector<uint32_t>>;
+
 class Verifier {
 	const Module &module;
 	std::string &error;
 
-	// The function being checked: the types of slots and members by offset, and
-	// instruction starts.
+	// The function being checked: the slots of its frame and of the instance,
+	// and instruction starts.
 	const Function *function = nullptr;
-	std::unordered_map<uint32_t, uint32_t> frame;
-	std::unordered_map<uint32_t, uint32_t> instance;
+	Slots frame;
+	Slots instance;
 	std::vector<bool> starts;
 	size_t at = 0;
 
@@ -60,8 +60,11 @@ class Verifier {
 
 	ValueType storage(uint32_t p_type) const { return storage_of(module.types, p_type); }
 	bool is_option(uint32_t p_type) const { return p_type < module.types.size() && module.types[p_type].kind == TypeKind::Option; }
+	bool is_struct(uint32_t p_type) const { return p_type < module.types.size() && module.types[p_type].kind == TypeKind::Struct; }
+	// A type of the table that values have.
+	bool has_values(uint32_t p_type) const { return is_option(p_type) || is_struct(p_type) || (p_type < module.types.size() && is_type(uint32_t(storage(p_type)))); }
 	// No value: the result of a function that gives none.
-	bool is_void(uint32_t p_type) const { return !is_option(p_type) && storage(p_type) == ValueType::Void; }
+	bool is_void(uint32_t p_type) const { return p_type >= module.types.size() || (module.types[p_type].kind == TypeKind::Value && module.types[p_type].value == ValueType::Void); }
 	bool same_layout(uint32_t p_a, uint32_t p_b) const { return layout_key(module.types, p_a) == layout_key(module.types, p_b); }
 
 	// The type as an error names it.
@@ -77,6 +80,8 @@ class Verifier {
 				return type_name(type.element) + "?";
 			case TypeKind::Array:
 				return "Array[" + type_name(type.element) + "]";
+			case TypeKind::Struct:
+				return type.name.substr(type.name.rfind(':') + 1);
 			default:
 				return value_type_name(type.value);
 		}
@@ -93,11 +98,16 @@ class Verifier {
 			if (!type.task_result.empty() && (type.kind != TypeKind::Object || type.object.name != "CoroutineTask")) {
 				return fail("Task descriptor without a task handle");
 			}
-			if (type.kind == TypeKind::Option && !is_native(storage(type.element)) && !is_option(type.element)) {
+			if (type.kind == TypeKind::Option && !is_native(storage(type.element)) && !is_option(type.element) && !is_struct(type.element)) {
 				return fail("an option of no value type");
 			}
 			if (type.kind == TypeKind::Array && !is_element(storage(type.element))) {
 				return fail("an array of no element type");
+			}
+			for (const FieldDesc &field : type.fields) {
+				if (type.kind != TypeKind::Struct || field.type >= i || !has_values(field.type)) {
+					return fail("a field of type " + std::to_string(i) + " has no type");
+				}
 			}
 		}
 		return true;
@@ -105,14 +115,25 @@ class Verifier {
 
 	// The type of a slot, a member or a result.
 	bool description(const Slot &p_slot, bool p_void) {
-		if (p_slot.type >= module.types.size() || (!is_option(p_slot.type) && !is_type(uint32_t(storage(p_slot.type))) && !(p_void && is_void(p_slot.type)))) {
+		if (p_slot.type >= module.types.size() || (!has_values(p_slot.type) && !(p_void && is_void(p_slot.type)))) {
 			return fail("slot " + p_slot.name + " has no type");
 		}
 		return true;
 	}
 
+	// The slot and, inside a struct, the slots of its fields.
+	void add_slot(Slots &r_slots, uint32_t p_offset, uint32_t p_type) {
+		r_slots[p_offset].push_back(p_type);
+		if (is_struct(p_type)) {
+			const std::vector<uint32_t> offsets = field_offsets(module.types, p_type);
+			for (size_t i = 0; i < offsets.size(); i++) {
+				add_slot(r_slots, p_offset + offsets[i], module.types[p_type].fields[i].type);
+			}
+		}
+	}
+
 	template <typename T>
-	bool layout(const std::vector<T> &p_slots, uint32_t p_size, std::unordered_map<uint32_t, uint32_t> &r_types) {
+	bool layout(const std::vector<T> &p_slots, uint32_t p_size, Slots &r_slots) {
 		if (p_size > MAX_STORAGE) {
 			return fail("storage of " + std::to_string(p_size) + " bytes");
 		}
@@ -126,7 +147,7 @@ class Verifier {
 				return fail("slot " + slot.name + " does not fit");
 			}
 			ranges.push_back({ slot.offset, uint32_t(end) });
-			r_types[slot.offset] = slot.type;
+			add_slot(r_slots, slot.offset, slot.type);
 		}
 		std::sort(ranges.begin(), ranges.end());
 		for (size_t i = 1; i < ranges.size(); i++) {
@@ -139,13 +160,24 @@ class Verifier {
 
 	/* Operands */
 
+	// Whether some slot at the offset has a type that `p_fits`.
+	template <typename Fits>
+	static bool any(const Slots &p_slots, uint32_t p_offset, Fits p_fits) {
+		const auto found = p_slots.find(p_offset);
+		return found != p_slots.end() && std::any_of(found->second.begin(), found->second.end(), p_fits);
+	}
+
+	auto of_storage(ValueType p_type) const {
+		return [this, p_type](uint32_t p_slot) { return !is_option(p_slot) && !is_struct(p_slot) && storage(p_slot) == p_type; };
+	}
+
+	auto laid_out_as(uint32_t p_type) const {
+		return [this, p_type](uint32_t p_slot) { return same_layout(p_slot, p_type); };
+	}
+
 	// A slot of the engine type `p_type`, in its layout.
 	bool slot(uint32_t p_offset, ValueType p_type) {
-		const auto found = frame.find(p_offset);
-		if (found == frame.end() || is_option(found->second) || storage(found->second) != p_type) {
-			return fail(std::string("operand ") + std::to_string(p_offset) + " is not a slot of type " + value_type_name(p_type));
-		}
-		return true;
+		return any(frame, p_offset, of_storage(p_type)) || fail(std::string("operand ") + std::to_string(p_offset) + " is not a slot of type " + value_type_name(p_type));
 	}
 
 	bool slot_or_none(uint32_t p_offset, ValueType p_type) {
@@ -154,11 +186,7 @@ class Verifier {
 
 	// A slot laid out as the type `p_type` is.
 	bool slot_like(uint32_t p_offset, uint32_t p_type) {
-		const auto found = frame.find(p_offset);
-		if (found == frame.end() || !same_layout(found->second, p_type)) {
-			return fail(std::string("operand ") + std::to_string(p_offset) + " is not a slot of type " + type_name(p_type));
-		}
-		return true;
+		return any(frame, p_offset, laid_out_as(p_type)) || fail(std::string("operand ") + std::to_string(p_offset) + " is not a slot of type " + type_name(p_type));
 	}
 
 	// A result slot: none for void, otherwise none or a slot of the type.
@@ -169,38 +197,22 @@ class Verifier {
 		return p_offset == NO_SLOT || slot_like(p_offset, p_type);
 	}
 
-	bool slot_type(uint32_t p_offset, ValueType &r_type) {
-		const auto found = frame.find(p_offset);
-		if (found == frame.end()) {
-			return fail("operand " + std::to_string(p_offset) + " is not a slot");
+	// Slots of the same type of 8 bytes, of the frame or of the instance.
+	bool same_8_byte(const Slots &p_a, uint32_t p_offset_a, const Slots &p_b, uint32_t p_offset_b, const char *p_what) {
+		for (ValueType type : { ValueType::Bool, ValueType::Int, ValueType::Float }) {
+			if (any(p_a, p_offset_a, of_storage(type)) && any(p_b, p_offset_b, of_storage(type))) {
+				return true;
+			}
 		}
-		r_type = is_option(found->second) ? ValueType::Void : storage(found->second);
-		return true;
+		return fail(p_what);
 	}
 
 	bool member(uint32_t p_offset, ValueType p_type) {
-		const auto found = instance.find(p_offset);
-		if (found == instance.end() || is_option(found->second) || storage(found->second) != p_type) {
-			return fail(std::string("member operand ") + std::to_string(p_offset) + " is not a member of type " + value_type_name(p_type));
-		}
-		return true;
+		return any(instance, p_offset, of_storage(p_type)) || fail(std::string("member operand ") + std::to_string(p_offset) + " is not a member of type " + value_type_name(p_type));
 	}
 
 	bool member_like(uint32_t p_offset, uint32_t p_type) {
-		const auto found = instance.find(p_offset);
-		if (found == instance.end() || !same_layout(found->second, p_type)) {
-			return fail(std::string("member operand ") + std::to_string(p_offset) + " is not a member of type " + type_name(p_type));
-		}
-		return true;
-	}
-
-	bool member_type(uint32_t p_offset, ValueType &r_type) {
-		const auto found = instance.find(p_offset);
-		if (found == instance.end()) {
-			return fail("member operand " + std::to_string(p_offset) + " is not a member");
-		}
-		r_type = is_option(found->second) ? ValueType::Void : storage(found->second);
-		return true;
+		return any(instance, p_offset, laid_out_as(p_type)) || fail(std::string("member operand ") + std::to_string(p_offset) + " is not a member of type " + type_name(p_type));
 	}
 
 	bool index(uint32_t p_index, size_t p_count, const char *p_table) {
@@ -236,7 +248,7 @@ class Verifier {
 
 	// A type operand: an index into the type table, of a type a slot can hold.
 	bool type_operand(uint32_t p_type) {
-		return (p_type < module.types.size() && (is_option(p_type) || is_type(uint32_t(storage(p_type))))) || fail("no type");
+		return has_values(p_type) || fail("no type");
 	}
 
 	bool target(uint32_t p_pc) {
@@ -439,7 +451,6 @@ class Verifier {
 	}
 
 	bool instruction(Op p_op, const uint32_t *o) {
-		ValueType type = ValueType::Void;
 		// A static function runs without an instance (spec §4.8).
 		if (function->is_static && uses_instance(p_op, o)) {
 			return fail("a static function uses the instance");
@@ -467,19 +478,19 @@ class Verifier {
 				return slot_like(o[1], o[0]) && constant_like(o[2], o[0]);
 			}
 			case Op::MOVE_8:
-				return slot_type(o[0], type) && (is_8_byte(type) || fail("an 8-byte move of another type")) && slot(o[1], type);
+				return same_8_byte(frame, o[0], frame, o[1], "an 8-byte move of another type");
 			case Op::MOVE_STRING:
 				return same(o[0], o[1], ValueType::String);
 			case Op::MOVE_VALUE:
 				return type_operand(o[0]) && slot_like(o[1], o[0]) && slot_like(o[2], o[0]);
 			case Op::LOAD_MEMBER_8:
-				return slot_type(o[0], type) && (is_8_byte(type) || fail("an 8-byte load of another type")) && member(o[1], type);
+				return same_8_byte(frame, o[0], instance, o[1], "an 8-byte load of a member of another type");
 			case Op::LOAD_MEMBER_STRING:
 				return slot(o[0], ValueType::String) && member(o[1], ValueType::String);
 			case Op::LOAD_MEMBER_VALUE:
 				return type_operand(o[0]) && slot_like(o[1], o[0]) && member_like(o[2], o[0]);
 			case Op::STORE_MEMBER_8:
-				return member_type(o[0], type) && (is_8_byte(type) || fail("an 8-byte store of another type")) && slot(o[1], type);
+				return same_8_byte(instance, o[0], frame, o[1], "an 8-byte store into a member of another type");
 			case Op::STORE_MEMBER_STRING:
 				return member(o[0], ValueType::String) && slot(o[1], ValueType::String);
 			case Op::STORE_MEMBER_VALUE:
@@ -588,6 +599,8 @@ class Verifier {
 					return fail("Some of a type that is not T?");
 				}
 				return slot_like(o[1], o[0]) && slot_like(o[2], module.types[o[0]].element);
+			case Op::EQUAL:
+				return type_operand(o[0]) && slot(o[1], ValueType::Bool) && slot_like(o[2], o[0]) && slot_like(o[3], o[0]);
 			case Op::CHECK_ASSIGNED:
 				return index(o[0], module.members.size(), "member") && slot(o[1], ValueType::Object);
 			case Op::CHECK_LIVE:
@@ -608,7 +621,7 @@ class Verifier {
 				}
 				return slot(o[1], ValueType::Signal) && slot_or_none(o[2], ValueType::Object);
 			case Op::TO_VARIANT:
-				return (o[0] < module.types.size() && (is_option(o[0]) || is_native(storage(o[0]))) || fail("no value type")) && slot(o[1], ValueType::Variant) && slot_like(o[2], o[0]);
+				return (o[0] < module.types.size() && (is_option(o[0]) || is_struct(o[0]) || is_native(storage(o[0]))) || fail("no value type")) && slot(o[1], ValueType::Variant) && slot_like(o[2], o[0]);
 			case Op::UNWRAP: {
 				// An object's T? is an Object slot like T's; that of another type is laid out as T? is.
 				if (!type_operand(o[0]) || storage(o[0]) == ValueType::Variant) {
@@ -620,8 +633,7 @@ class Verifier {
 				if (storage(o[0]) == ValueType::Object && !is_option(o[0])) {
 					return slot(o[2], ValueType::Object);
 				}
-				const auto source = frame.find(o[2]);
-				return (source != frame.end() && is_option(source->second) && same_layout(module.types[source->second].element, o[0])) || fail("unwrapping what is not T?");
+				return any(frame, o[2], [&](uint32_t p_source) { return is_option(p_source) && same_layout(module.types[p_source].element, o[0]); }) || fail("unwrapping what is not T?");
 			}
 			case Op::JUMP:
 				return target(o[0]);
@@ -738,7 +750,7 @@ public:
 		}
 		for (const SignalInfo &signal : module.signals) {
 			for (const Slot &param : signal.params) {
-				if (param.type >= module.types.size() || (!is_option(param.type) && !is_type(uint32_t(storage(param.type))))) {
+				if (!has_values(param.type)) {
 					return fail("an argument of the signal " + signal.name + " has no type");
 				}
 			}

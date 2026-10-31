@@ -18,6 +18,7 @@ enum class TypeKind {
 	Builtin, // Another built-in value type of the engine, named by `name`.
 	Object, // An engine class named by `name`.
 	Option, // T? of a value type T, which is `args[0]` (spec §3.4); objects carry `nullable` instead.
+	Struct, // A struct (spec §3.6), named and declared as an interface is.
 	Function, // A function value (spec §3.11): `args` holds the return type, then the parameter types.
 	Signal, // A signal of an object: `args` holds the types of its arguments.
 	None, // The literal None where nothing says which T? it is.
@@ -28,14 +29,16 @@ enum class TypeKind {
 struct Type {
 	TypeKind kind = TypeKind::Error;
 	// Builtin: the type, such as Vector3; Object: the class, or the name of a
-	// class or interface of this language; Unsupported: the engine's name.
+	// class or interface of this language; Struct: its name, such as
+	// Combat.Hit; Unsupported: the engine's name.
 	std::string name;
 	bool nullable = false; // Object: T? rather than T (spec §3.3).
 	// Option: the value type inside; Array: the element type, if typed;
 	// PackedScene: the type of the scene's root, if known.
 	std::vector<Type> args;
 	// Object: a class or interface of this language, declared in this script
-	// (its res:// path), and the engine class its objects have.
+	// (its res:// path), and the engine class its objects have. Struct: the
+	// script that declares it.
 	std::string script;
 	std::string base;
 	bool is_interface = false;
@@ -69,6 +72,11 @@ struct Type {
 		type.is_interface = true;
 		return type;
 	}
+	static Type structure(const std::string &p_name, const std::string &p_script) {
+		Type type{ TypeKind::Struct, p_name };
+		type.script = p_script;
+		return type;
+	}
 
 	bool operator==(const Type &p_other) const {
 		return kind == p_other.kind && name == p_other.name && nullable == p_other.nullable && args == p_other.args && script == p_other.script && is_interface == p_other.is_interface && is_async == p_other.is_async;
@@ -90,7 +98,7 @@ struct Type {
 	// The name of the type in the engine's built-in table: "int", "Vector3"…;
 	// empty for objects, options and Variant.
 	std::string builtin_name() const;
-	// An interface's name in its script: Damageable of Combat.Damageable.
+	// An interface's or a struct's name in its script: Damageable of Combat.Damageable.
 	std::string interface_name() const { return name.substr(name.find_last_of('.') + 1); }
 	std::string to_string() const;
 };

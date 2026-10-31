@@ -128,12 +128,13 @@ static Dictionary method_dict(const StringName &p_name, const Array &p_args, con
 }
 
 // A value of the type as the engine and GDScript see it: an object as its
-// class, T and T? alike (spec §10.1); a Variant slot, such as int?, is NIL to
-// the engine, which reads that as void unless told otherwise.
+// class, T and T? alike, a struct as a Dictionary (spec §10.1); a Variant
+// slot, or int?, is NIL to the engine, which reads that as void unless told
+// otherwise.
 static Dictionary value_dict(const TypeImage &p_type, const StringName &p_name, uint32_t p_usage) {
 	const bool object = p_type.storage == bytecode::ValueType::Object;
 	const uint32_t usage = p_type.storage == bytecode::ValueType::Variant || p_type.kind == bytecode::TypeKind::Option ? p_usage | PROPERTY_USAGE_NIL_IS_VARIANT : p_usage;
-	return property_dict(variant_type(p_type.storage), p_name, usage, object ? p_type.check.class_name : StringName());
+	return property_dict(variant_type(p_type), p_name, usage, object ? p_type.check.class_name : StringName());
 }
 
 // Array[T] is the engine's typed array, which it describes with a hint.

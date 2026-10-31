@@ -70,6 +70,7 @@ std::string Type::to_string() const {
 			}
 			return name;
 		case TypeKind::Unsupported:
+		case TypeKind::Struct:
 			return name;
 		default:
 			return builtin_name();

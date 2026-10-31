@@ -52,6 +52,8 @@ enum class Target {
 	Owner, // `owner` with @owner(T) (spec §7.3).
 	ObjectProperty, // A property of an engine object.
 	Field, // A member of a built-in value, such as x of Vector3.
+	StructField, // A field of a struct, by its index in `index` (spec §3.6).
+	StructConstructor, // `Hit(damage = 3)`, the struct being the call's type.
 	BuiltinConstant, // Such as Vector3.UP.
 	ScriptFunction,
 	// A method of a class of this language on `base`, of another class or
@@ -100,6 +102,9 @@ struct Expr {
 	// subscript indexes; the condition of a conditional.
 	std::unique_ptr<Expr> base;
 	std::vector<std::unique_ptr<Expr>> args;
+	// The name of each argument passed by name, as in `Hit(damage = 3)`, or "";
+	// empty when none is.
+	std::vector<std::string> arg_names;
 	TypeRef cast_type;
 
 	// Filled by the checker.
@@ -306,6 +311,25 @@ struct InterfaceProperty {
 	Type type; // Filled by the checker.
 };
 
+// `struct Name:` with its fields (spec §3.6), whose initializers are their
+// default values.
+struct StructDecl {
+	std::string name;
+	int line = 0;
+	int column = 0;
+	bool is_pub = false;
+	std::vector<VarDecl> fields;
+
+	bool has_default() const {
+		for (const VarDecl &field : fields) {
+			if (!field.initializer) {
+				return false;
+			}
+		}
+		return true;
+	}
+};
+
 // `interface Name:` with the signatures of its methods and its properties (spec §3.9).
 struct InterfaceDecl {
 	std::string name;
@@ -335,12 +359,22 @@ struct ClassDecl {
 	std::optional<TypeRef> owner_ref; // @owner(T) (spec §7.3).
 	Type owner_type; // Filled by the checker.
 	std::vector<InterfaceDecl> interfaces;
+	std::vector<StructDecl> structs;
 	std::vector<Type> implemented; // Filled by the checker.
 	bool is_node = false; // Filled by the checker: it extends Node, and becomes ready.
 	std::vector<VarDecl> members;
 	std::vector<FuncDecl> functions;
 	std::vector<SignalDecl> signals;
 	std::vector<ExportGroupDecl> groups;
+
+	const StructDecl *find_struct(const std::string &p_name) const {
+		for (const StructDecl &decl : structs) {
+			if (decl.name == p_name) {
+				return &decl;
+			}
+		}
+		return nullptr;
+	}
 };
 
 } // namespace petrichor::compiler

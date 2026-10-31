@@ -255,9 +255,18 @@ class Parser {
 				if (check(TokenKind::ParenClose)) {
 					break; // Trailing comma.
 				}
+				std::string name;
+				if (check(TokenKind::Identifier) && peek(1).kind == TokenKind::Equal) {
+					name = advance().text;
+					advance();
+				}
 				auto arg = expression();
 				if (!arg) {
 					return false;
+				}
+				if (!name.empty() || !r_call.arg_names.empty()) {
+					r_call.arg_names.resize(r_call.args.size());
+					r_call.arg_names.push_back(name);
 				}
 				r_call.args.push_back(std::move(arg));
 			} while (match(TokenKind::Comma));
@@ -724,6 +733,53 @@ class Parser {
 		return decl;
 	}
 
+	// After "struct": the name and a block of fields (spec §2.4, §3.6).
+	StructDecl structure(bool p_is_pub) {
+		StructDecl decl;
+		const Token &name = expect(TokenKind::Identifier, "a struct name");
+		decl.name = name.text;
+		decl.line = name.line;
+		decl.column = name.column;
+		decl.is_pub = p_is_pub;
+		expect(TokenKind::Colon, "\":\"");
+		expect(TokenKind::Newline, "a line break");
+		expect(TokenKind::Indent, "an indented block");
+		while (!failed && !check(TokenKind::Dedent) && !check(TokenKind::EndOfFile)) {
+			if (match(TokenKind::Pass)) {
+				end_of_statement();
+				continue;
+			}
+			if (check(TokenKind::Func) || check(TokenKind::Static)) {
+				fail(peek(), "Methods of structs are not supported yet.");
+				break;
+			}
+			if (!check(TokenKind::Var)) {
+				fail(peek(), std::string("Expected a field, declared with var, found ") + token_name(peek().kind) + ".");
+				break;
+			}
+			advance();
+			VarDecl field;
+			const Token &field_name = expect(TokenKind::Identifier, "a field name");
+			field.name = field_name.text;
+			field.line = field_name.line;
+			field.column = field_name.column;
+			if (match(TokenKind::Colon) && !check(TokenKind::Equal)) {
+				field.declared_type = type_ref();
+			}
+			if (match(TokenKind::Equal)) {
+				field.initializer = expression();
+			}
+			if (check(TokenKind::Colon)) {
+				fail(peek(), "A field has no setter or getter.");
+				break;
+			}
+			end_of_statement();
+			decl.fields.push_back(std::move(field));
+		}
+		match(TokenKind::Dedent);
+		return decl;
+	}
+
 	// After `var x: T = v:`, the property's setter and getter (spec §4.4):
 	// `set = f, get = g` on the same line, or a block of `set(value):` and
 	// `get:`, which become the functions @set_x and @get_x, and of the named
@@ -830,6 +886,10 @@ class Parser {
 				if (!call_arguments(holder)) {
 					return;
 				}
+				if (!holder.arg_names.empty()) {
+					fail(name, "An annotation takes its arguments by position.");
+					return;
+				}
 				annotation.args = std::move(holder.args);
 			}
 			if (is_group_annotation(annotation.name)) {
@@ -898,6 +958,15 @@ class Parser {
 				return;
 			}
 			r_class.interfaces.push_back(interface(is_pub));
+			return;
+		}
+
+		if (match(TokenKind::Struct)) {
+			if (!annotations.empty() || is_static) {
+				fail(peek(), "A struct takes no annotations and is not static.");
+				return;
+			}
+			r_class.structs.push_back(structure(is_pub));
 			return;
 		}
 

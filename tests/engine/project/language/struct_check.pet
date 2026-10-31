@@ -1,0 +1,89 @@
+# Structs (spec §3.6), driven by language_test.gd.
+class_name StructCheck
+extends Node
+
+pub struct Hit:
+	var damage: int
+	var point: Vector2
+	var crit: bool = false
+	var source: Node? = None
+	var tag: String = "hit"
+
+struct Totals:
+	var count: int = 0
+	var last: Hit? = None
+	var sum: float = 0.0
+
+pub signal hit_taken(hit: Hit)
+
+pub var last_hit := Hit(damage = 0, point = Vector2.ZERO)
+pub var maybe: Hit?
+pub var received := 0
+var totals: Totals
+
+func _ready():
+	hit_taken.connect(_on_hit)
+
+func _on_hit(hit: Hit):
+	received = hit.damage
+
+pub func make(damage: int) -> Hit:
+	return Hit(damage = damage, point = Vector2(1, 2), crit = damage > 10)
+
+# A field changes where its struct lives: a local, a member, or a copy read
+# and written back.
+pub func changed() -> String:
+	var h := make(3)
+	var copy := h
+	h.damage += 4
+	h.point.x = 5.0
+	totals.count += 1
+	totals.sum += h.damage
+	totals.last = h
+	last_hit = h
+	last_hit.tag = "member"
+	return str(h.damage) + " " + str(copy.damage) + " " + str(h.point) + " " + str(totals.count) + " " + last_hit.tag + " " + h.tag + " " + str(totals.last.unwrap().damage)
+
+pub func equal(a: int, b: int) -> bool:
+	return make(a) == make(b)
+
+pub func equal_sources(n: Node) -> bool:
+	var a := make(1)
+	var b := make(1)
+	a.source = n
+	var before := a != b
+	b.source = n
+	return before and a == b
+
+pub func damage_of(hit: Hit) -> int:
+	return hit.damage
+
+pub func maybe_damage() -> int:
+	var m := maybe
+	if m != None:
+		m.damage += 1
+		maybe = m
+		return m.damage
+	return -1
+
+pub func emit_hit(damage: int):
+	hit_taken.emit(make(damage))
+
+pub func remote(other: StructCheck):
+	other.last_hit.damage = 42
+
+pub func defaults() -> String:
+	var t: Totals
+	return str(t.count) + " " + str(t.last == None) + " " + str(t.sum)
+
+# A struct constructed in a loop has every field written anew.
+pub func loop_fresh() -> int:
+	var total := 0
+	for i in 3:
+		var h := Hit(damage = i, point = Vector2.ZERO)
+		if i == 0:
+			h.crit = true
+		if h.crit:
+			total += 10
+		total += h.damage
+	return total

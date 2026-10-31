@@ -6,7 +6,9 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 - Coroutine helpers `Task.of`, `delay`, `any`, `all`, `settled`, and async lambdas (spec §9).
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
-- Of match (spec §5.6): array and dictionary patterns; a match over `T?`, with `None` and `var x` and the check that it is exhaustive; the patterns of enums, structs, Result and Settled once they exist.
+- Of match (spec §5.6): array and dictionary patterns; a match over `T?`, with `None` and `var x` and the check that it is exhaustive; the patterns of structs, and those of enums, Result and Settled once they exist.
+- Of structs (spec §3.6): methods; structs as Dictionary keys; the "modifies a copy" warning for a field of a struct loop variable; containers of structs and of `T?`, as engine containers of boxed elements (architecture §2.2), with decoding that descends into them.
+- The error for a type that is not pub, such as a struct or an interface, in the signature of a pub member (spec §4.2).
 - Static checks of must-assign exports in scenes, in resources and at export (spec §7.5), and of a scene used as a root whose root has a script with `@owner` (§7.3).
 - `@parent(T)` (spec §7.3).
 - Setters that run before ready (spec §6.5), once the open question below is settled; until then the checks that a node is ready report such a setter's first access to its node.
@@ -20,7 +22,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - `Array[T]?`; `pop_front()` and `pop_back()` of `Array[T?]`, which give `T??`.
 - Class annotations such as `@tool` and `@icon`.
 - Values of type Variant (spec §3.13), which untyped members, parameters and results of GDScript classes have (§11.1); reading the elements of an untyped Array.
-- Non-constant default values; static members; `_init()` with parameters.
+- Non-constant default values, of parameters and of struct fields; static members; `_init()` with parameters.
 - Assigning to an element, `a[i] = v`; calling a function value other than through `bind()`; `==` between objects.
 - In debug builds, reporting where a freed instance was freed and where the instances still alive at exit were made (spec §3.3, §6.7, §12.5).
 

@@ -8,8 +8,10 @@ namespace petrichor::bytecode {
 // Every instruction is an opcode word followed by operand words. Operands are
 // byte offsets into the frame (or into the instance, for members), indices
 // into the module's tables, or immediate values; an operand named `type` is an
-// index into the type table. The list is the single definition from which the
-// compiler emits and the virtual machine dispatches (architecture §2.2).
+// index into the type table. A field of a struct in a slot is a slot of its
+// own at the struct's offset plus the field's (module.h). The list is the
+// single definition from which the compiler emits and the virtual machine
+// dispatches (architecture §2.2).
 //
 // X(name, operand count); a count of -1 marks a call: `target, dst, base,
 // argc` followed by argc (type, offset) pairs. dst and base are NO_SLOT when
@@ -81,6 +83,7 @@ namespace petrichor::bytecode {
 	X(IS_INSTANCE, 3) /* class, dst (bool), src: `is` */ \
 	X(IS_NONE, 3) /* type of src, dst (bool), src (an object or T?) */ \
 	X(SOME, 3) /* type of dst (T?), dst, src (T): Some(src) (spec §3.4) */ \
+	X(EQUAL, 4) /* type, dst (bool), a, b: a == b, a struct field by field (spec §3.6) */ \
 	X(TO_VARIANT, 3) /* type of src, dst (Variant), src */ \
 	X(UNWRAP, 4) /* type of dst, dst, src (T?), message (NO_SLOT: default) */ \
 	X(NEW_ARRAY, 2) /* type, dst: an empty array, typed as the type says */ \

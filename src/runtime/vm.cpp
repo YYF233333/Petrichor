@@ -840,6 +840,10 @@ public:
 					pc += 4;
 					break;
 				}
+				case Op::EQUAL:
+					U64(code[pc + 2]) = equal_values(image.types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 4]) ? 1 : 0;
+					pc += 5;
+					break;
 				case Op::TO_VARIANT:
 					variant_at(frame + code[pc + 2]) = to_variant(image.types[code[pc + 1]], frame + code[pc + 3]);
 					pc += 4;

@@ -195,7 +195,7 @@ TEST_CASE("names that are not classes of this language") {
 	CHECK(contains(errors("var x: Gone"), "Gone (res://gone.gd) cannot be read."));
 	CHECK(contains(errors("var x: Legacy.Thing"), "Legacy is a class of another language, which has no interfaces."));
 	CHECK(contains(errors("var x: Broken? = None\n\tif x != None:\n\t\tprint(x.x)"), "res://broken.pet has errors"));
-	CHECK(contains(errors("var x: Combat.Nope"), "Combat declares no interface \"Nope\""));
+	CHECK(contains(errors("var x: Combat.Nope"), "Combat declares no interface or struct \"Nope\""));
 }
 
 TEST_CASE("GDScript classes and autoloads as reflection shows them (spec §11.1)") {

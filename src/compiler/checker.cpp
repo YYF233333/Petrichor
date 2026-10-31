@@ -403,8 +403,8 @@ class Checker : public ClassRelation {
 		return is_a(p_a, p_b) || is_a(p_b, p_a) || p_a.is_interface || p_b.is_interface;
 	}
 
-	// A class of this language named by its class_name, or an interface in
-	// one, such as Combat.Damageable; nullopt if the name is not one.
+	// A class of this language named by its class_name, or an interface or a
+	// struct in one, such as Combat.Damageable; nullopt if the name is not one.
 	std::optional<Type> script_type(const TypeRef &p_ref) {
 		const size_t dot = p_ref.name.find('.');
 		const std::string head = p_ref.name.substr(0, dot);
@@ -415,12 +415,15 @@ class Checker : public ClassRelation {
 			path = options.project->global_class_path(head);
 		}
 		if (path.empty()) {
-			// An interface of this class, by its own name.
+			// An interface or a struct of this class, by its own name.
 			if (dot == std::string::npos) {
 				for (const InterfaceDecl &interface : cls.interfaces) {
 					if (interface.name == p_ref.name) {
 						return Type::interface(display_name(cls, options.path) + "." + interface.name, options.path);
 					}
+				}
+				if (cls.find_struct(p_ref.name)) {
+					return Type::structure(display_name(cls, options.path) + "." + p_ref.name, options.path);
 				}
 			}
 			return std::nullopt;
@@ -455,8 +458,29 @@ class Checker : public ClassRelation {
 				return Type::interface(p_ref.name, path);
 			}
 		}
-		error(p_ref.line, p_ref.column, head + " declares no interface \"" + inner + "\".");
+		if (const StructDecl *found = header->find_struct(inner)) {
+			if (!found->is_pub && path != options.path) {
+				error(p_ref.line, p_ref.column, p_ref.name + " is not pub (spec §4.2).");
+				return Type::of(TypeKind::Error);
+			}
+			return Type::structure(display_name(*header, path) + "." + inner, path);
+		}
+		error(p_ref.line, p_ref.column, head + " declares no interface or struct \"" + inner + "\".");
 		return Type::of(TypeKind::Error);
+	}
+
+	// The declaration of a struct, with its fields checked; null when its
+	// script has errors.
+	const StructDecl *struct_decl(const Type &p_struct) const {
+		const ClassDecl *decl = script_decl(p_struct.script);
+		return decl ? decl->find_struct(p_struct.interface_name()) : nullptr;
+	}
+
+	// Whether a struct can start at its default value (spec §4.3); true when
+	// that is not known, which is reported elsewhere.
+	bool has_default(const Type &p_struct) const {
+		const StructDecl *decl = struct_decl(p_struct);
+		return !decl || decl->has_default();
 	}
 
 	bool assignable(const Type &p_from, const Type &p_to) const {
@@ -548,7 +572,7 @@ class Checker : public ClassRelation {
 			return element;
 		}
 		// The engine types an array with one built-in type or one class.
-		if (element.kind == TypeKind::Option || !element.args.empty()) {
+		if (element.kind == TypeKind::Option || element.kind == TypeKind::Struct || !element.args.empty()) {
 			error(element_ref.line, element_ref.column, "Arrays of " + element.to_string() + " are not supported yet.");
 			return Type::of(TypeKind::Error);
 		}
@@ -920,6 +944,20 @@ class Checker : public ClassRelation {
 		if (base_type.is_optional()) {
 			return fail(r_expr, "The value may be None (" + base_type.to_string() + "); check it before reading \"" + r_expr.text + "\".");
 		}
+		if (base_type.kind == TypeKind::Struct) {
+			const StructDecl *decl = struct_decl(base_type);
+			if (!decl) {
+				return fail(r_expr, base_type.script + " has errors.");
+			}
+			for (size_t i = 0; i < decl->fields.size(); i++) {
+				if (decl->fields[i].name == r_expr.text) {
+					r_expr.target = Target::StructField;
+					r_expr.index = int(i);
+					return set(r_expr, decl->fields[i].type);
+				}
+			}
+			return fail(r_expr, base_type.name + " has no field \"" + r_expr.text + "\".");
+		}
 		const std::string builtin_name = base_type.builtin_name();
 		if (!builtin_name.empty()) {
 			const builtin::Class *type = builtin::find_class(builtin_name);
@@ -1119,10 +1157,14 @@ class Checker : public ClassRelation {
 		if (p_left.is_primitive() && p_right.is_primitive()) {
 			return primitive_binary_type(p_op, p_left, p_right, p_line, p_column);
 		}
+		const bool equality = p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual;
+		// Structs compare field by field (spec §3.6).
+		if ((p_left.kind == TypeKind::Struct || p_right.kind == TypeKind::Struct) && equality && p_left == p_right) {
+			return Type::of(TypeKind::Bool);
+		}
 		// Other value types follow the engine's operator table.
 		const std::string left = p_left.builtin_name();
 		const std::string right = p_right.builtin_name();
-		const bool equality = p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual;
 		// The sum of two arrays typed alike is typed so too, in the engine and in
 		// GDScript's static checks (core/variant/variant_op.h:665-667,
 		// modules/gdscript/gdscript_analyzer.cpp:6301-6307).
@@ -1719,7 +1761,7 @@ class Checker : public ClassRelation {
 		if (!method->is_const && !is_shared(p_base)) {
 			const Expr &base = *r_expr.base;
 			const bool place = base.target == Target::Local || base.target == Target::Member || base.target == Target::SelfProperty ||
-					base.target == Target::ObjectProperty || base.target == Target::Field;
+					base.target == Target::ObjectProperty || base.target == Target::Field || base.target == Target::StructField;
 			if (!place) {
 				return fail(r_expr, "\"" + r_expr.text + "()\" changes the " + base_name + " it is called on, which is a temporary value here.");
 			}
@@ -1959,7 +2001,81 @@ class Checker : public ClassRelation {
 		return check_engine_call(r_expr, *method);
 	}
 
+	// The struct that a call constructs (spec §2.4): `Hit(...)` in the file
+	// that declares it, `Combat.Hit(...)` anywhere; Error after reporting one
+	// that may not be used here.
+	std::optional<Type> constructed_struct(const Expr &p_call) {
+		TypeRef ref;
+		ref.line = p_call.line;
+		ref.column = p_call.column;
+		if (!p_call.base) {
+			if (!cls.find_struct(p_call.text) || function_index.count(p_call.text)) {
+				return std::nullopt;
+			}
+			ref.name = p_call.text;
+		} else {
+			const Expr &base = *p_call.base;
+			if (base.kind != ExprKind::Name || find_local(base.text) >= 0 || member_index.count(base.text)) {
+				return std::nullopt;
+			}
+			const bool own = !cls.class_name.empty() && base.text == cls.class_name;
+			const std::string path = own ? options.path : (options.project ? options.project->global_class_path(base.text) : std::string());
+			const ClassDecl *header = is_script_path(path) ? script_header(path) : nullptr;
+			if (!header || !header->find_struct(p_call.text)) {
+				return std::nullopt;
+			}
+			ref.name = base.text + "." + p_call.text;
+		}
+		return script_type(ref);
+	}
+
+	// Fields by name, each once; those with a default may be left out (spec §3.6).
+	Type check_struct_construction(Expr &r_expr, const Type &p_struct) {
+		if (p_struct.is_error()) {
+			return fail_call(r_expr);
+		}
+		const StructDecl *decl = struct_decl(p_struct);
+		if (!decl) {
+			return fail_call(r_expr, p_struct.script + " has errors.");
+		}
+		std::vector<bool> given(decl->fields.size(), false);
+		for (size_t i = 0; i < r_expr.args.size(); i++) {
+			Expr &arg = *r_expr.args[i];
+			const std::string name = i < r_expr.arg_names.size() ? r_expr.arg_names[i] : std::string();
+			size_t field = 0;
+			while (field < decl->fields.size() && decl->fields[field].name != name) {
+				field++;
+			}
+			if (field == decl->fields.size()) {
+				check_value(arg);
+				r_expr.param_types.push_back(Type::of(TypeKind::Error));
+				error(arg.line, arg.column, name.empty() ? "A struct takes its fields by name, as in " + p_struct.name + "(" + (decl->fields.empty() ? std::string("") : decl->fields[0].name + " = ...") + ") (spec §3.6)." : p_struct.name + " has no field \"" + name + "\".");
+				continue;
+			}
+			if (given[field]) {
+				error(arg.line, arg.column, "\"" + name + "\" is given twice.");
+			}
+			given[field] = true;
+			const Type &type = decl->fields[field].type;
+			r_expr.param_types.push_back(type);
+			expect_assignable(arg, check_value(arg, type), type, "pass");
+		}
+		for (size_t field = 0; field < decl->fields.size(); field++) {
+			if (!given[field] && !decl->fields[field].initializer) {
+				error(r_expr.line, r_expr.column, p_struct.name + "() needs \"" + decl->fields[field].name + "\", which has no default value.");
+			}
+		}
+		r_expr.target = Target::StructConstructor;
+		return set(r_expr, p_struct);
+	}
+
 	Type check_call(Expr &r_expr) {
+		if (const std::optional<Type> constructed = constructed_struct(r_expr)) {
+			return check_struct_construction(r_expr, *constructed);
+		}
+		if (!r_expr.arg_names.empty()) {
+			return fail_call(r_expr, "Only structs take arguments by name yet; \"" + r_expr.text + "()\" takes them by position (spec §4.6).");
+		}
 		if ((!r_expr.base && r_expr.text == "super") || (r_expr.base && r_expr.base->kind == ExprKind::Name && r_expr.base->text == "super")) {
 			return check_super(r_expr);
 		}
@@ -2225,6 +2341,8 @@ class Checker : public ClassRelation {
 				return true;
 			}
 			case Target::Field:
+			case Target::StructField:
+				// Written back along the chain (spec §3.6).
 				if (p_target.base->kind == ExprKind::Name || p_target.base->kind == ExprKind::Member) {
 					return check_place(*p_target.base);
 				}
@@ -2442,7 +2560,7 @@ class Checker : public ClassRelation {
 					}
 				} else if (!r_stmt.declared_type) {
 					error(r_stmt.line, r_stmt.column, "\"" + r_stmt.name + "\" needs a type or an initial value.");
-				} else if ((type.kind == TypeKind::Object || type.kind == TypeKind::Task) && !type.nullable) {
+				} else if (((type.kind == TypeKind::Object || type.kind == TypeKind::Task) && !type.nullable) || (type.kind == TypeKind::Struct && !has_default(type))) {
 					error(r_stmt.line, r_stmt.column, "\"" + r_stmt.name + "\" of type " + type.to_string() + " needs an initial value.");
 				}
 				declare_local(r_stmt, type);
@@ -2735,6 +2853,12 @@ class Checker : public ClassRelation {
 			if (!member.is_export) {
 				error(member.line, member.column, "Members that must be assigned, such as \"" + member.name + "\" of type " + type.to_string() + (type.kind == TypeKind::Task ? ", need an initial value." : ", are not supported yet unless exported; give it an initial value."));
 			}
+		} else if (type.kind == TypeKind::Struct && !has_default(type)) {
+			// Starts at its default only when every field has one (spec §4.3).
+			error(member.line, member.column, "Members that must be assigned, such as \"" + member.name + "\" of type " + type.to_string() + ", are not supported yet; give it an initial value.");
+		}
+		if (member.is_export && type.unwrapped().kind == TypeKind::Struct) {
+			error(member.line, member.column, "Structs cannot be exported (spec §3.6).");
 		}
 		if (member.is_export && type.kind == TypeKind::Object && type.name == "PackedScene" && type.args.empty()) {
 			error(member.line, member.column, "An exported scene is written PackedScene[T], with the type of its root (spec §7.4).");
@@ -3086,6 +3210,90 @@ class Checker : public ClassRelation {
 		}
 	}
 
+	// The fields of the structs the class declares (spec §3.6), whose defaults
+	// are constants for now, as default parameters are.
+	void declare_structs() {
+		std::unordered_set<std::string> names;
+		for (const InterfaceDecl &interface : cls.interfaces) {
+			names.insert(interface.name);
+		}
+		for (StructDecl &decl : cls.structs) {
+			if (!names.insert(decl.name).second || is_type_name(decl.name) || (options.project && !options.project->global_class_path(decl.name).empty())) {
+				error(decl.line, decl.column, "\"" + decl.name + "\" is already declared.");
+			}
+			std::unordered_set<std::string> fields;
+			for (VarDecl &field : decl.fields) {
+				if (!fields.insert(field.name).second) {
+					error(field.line, field.column, "The field \"" + field.name + "\" is already declared in " + decl.name + ".");
+				}
+				Type type = field.declared_type ? resolve(*field.declared_type, false) : Type::of(TypeKind::Error);
+				if (field.initializer) {
+					const size_t before = errors.size();
+					const Type value = check_value(*field.initializer, type);
+					if (field.declared_type) {
+						expect_assignable(*field.initializer, value, type, "assign");
+					} else if (value.kind == TypeKind::None) {
+						error(field.line, field.column, "\"" + field.name + "\" needs a type: None does not say which T? it is (spec §4.3).");
+					} else {
+						type = value;
+					}
+					if (errors.size() == before && !is_constant(*field.initializer, type)) {
+						error(field.initializer->line, field.initializer->column, "Non-constant default values are not supported yet.");
+					}
+				} else if (!field.declared_type) {
+					error(field.line, field.column, "\"" + field.name + "\" needs a type or a default value.");
+				}
+				field.type = type;
+			}
+		}
+		for (const StructDecl &decl : cls.structs) {
+			std::vector<std::string> cycle;
+			std::unordered_set<std::string> seen;
+			if (holds(cls, options.path, decl, options.path + "::" + decl.name, cycle, seen)) {
+				std::string fields;
+				for (const std::string &field : cycle) {
+					fields += (fields.empty() ? "" : ", ") + field;
+				}
+				error(decl.line, decl.column, decl.name + " contains itself through " + fields + ", so it has no finite size; hold it in a container or a RefCounted class (spec §3.6).");
+			}
+		}
+	}
+
+	// Whether the struct holds the struct `p_target` ("script::Name") in its
+	// slot, directly or through other structs, whose fields are read as
+	// declared, so that this does not wait for their scripts to be checked;
+	// `r_cycle` lists the fields on the way.
+	bool holds(const ClassDecl &p_header, const std::string &p_path, const StructDecl &p_struct, const std::string &p_target, std::vector<std::string> &r_cycle, std::unordered_set<std::string> &r_seen) {
+		if (!r_seen.insert(p_path + "::" + p_struct.name).second) {
+			return false;
+		}
+		for (const VarDecl &field : p_struct.fields) {
+			// T and T? hold a T; a container holds a reference.
+			if (!field.declared_type || !field.declared_type->args.empty()) {
+				continue;
+			}
+			const std::string &name = field.declared_type->name;
+			const size_t dot = name.find('.');
+			std::string path = p_path;
+			const ClassDecl *header = &p_header;
+			if (dot != std::string::npos) {
+				const std::string head = name.substr(0, dot);
+				path = head == p_header.class_name ? p_path : (options.project ? options.project->global_class_path(head) : std::string());
+				header = is_script_path(path) ? script_header(path) : nullptr;
+			}
+			const StructDecl *inner = header ? header->find_struct(name.substr(dot == std::string::npos ? 0 : dot + 1)) : nullptr;
+			if (!inner) {
+				continue;
+			}
+			r_cycle.push_back(p_struct.name + "." + field.name);
+			if (path + "::" + inner->name == p_target || holds(*header, path, *inner, p_target, r_cycle, r_seen)) {
+				return true;
+			}
+			r_cycle.pop_back();
+		}
+		return false;
+	}
+
 	// `implements I`: the class has every method of I, pub and with the same
 	// signature (spec §3.9).
 	void check_implements() {
@@ -3322,6 +3530,7 @@ public:
 			scenes = options.project->scenes_with_script(options.path);
 		}
 		declare_interfaces();
+		declare_structs();
 		declare_owner();
 		declare_members();
 		std::unordered_set<std::string> own_functions;

@@ -7,6 +7,7 @@
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/script.hpp>
 #include <godot_cpp/godot.hpp>
+#include <godot_cpp/variant/dictionary.hpp>
 
 #include <array>
 #include <mutex>
@@ -81,6 +82,7 @@ struct TypeOps {
 	GDExtensionPtrDestructor destroy = nullptr;
 	GDExtensionVariantFromTypeConstructorFunc to_variant = nullptr;
 	GDExtensionTypeFromVariantConstructorFunc from_variant = nullptr;
+	GDExtensionPtrOperatorEvaluator equal = nullptr; // With a value of the same type.
 	uint32_t size = 0;
 	bool zero_default = true; // The default value is all zero bytes.
 };
@@ -193,6 +195,7 @@ void init_values() {
 		entry.destroy = gdextension_interface::variant_get_ptr_destructor(engine_type);
 		entry.to_variant = gdextension_interface::get_variant_from_type_constructor(engine_type);
 		entry.from_variant = gdextension_interface::get_variant_to_type_constructor(engine_type);
+		entry.equal = gdextension_interface::variant_get_ptr_operator_evaluator(GDEXTENSION_VARIANT_OP_EQUAL, engine_type, engine_type);
 		// Asked of the engine rather than listed: Basis and Color, say, are not zero.
 		alignas(16) uint8_t probe[64] = {};
 		entry.construct(probe, nullptr);
@@ -281,6 +284,13 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 		if (type.kind == bytecode::TypeKind::Array) {
 			check.element = bytecode::storage_of(p_types, type.element);
 		}
+		if (type.kind == bytecode::TypeKind::Struct) {
+			image.name = to_godot(type.name);
+			const std::vector<uint32_t> offsets = bytecode::field_offsets(p_types, i);
+			for (size_t f = 0; f < type.fields.size(); f++) {
+				image.fields.push_back({ to_godot(type.fields[f].name), &images[type.fields[f].type], offsets[f] });
+			}
+		}
 		images.push_back(std::move(image));
 	}
 	return images;
@@ -289,6 +299,12 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 void SlotLayout::add(uint32_t p_offset, const TypeImage &p_type) {
 	if (p_type.kind == bytecode::TypeKind::Option) {
 		add(p_offset + 8, *p_type.element); // The tag is zero: None.
+		return;
+	}
+	if (p_type.kind == bytecode::TypeKind::Struct) {
+		for (const FieldImage &field : p_type.fields) {
+			add(p_offset + field.offset, *field.type);
+		}
 		return;
 	}
 	if (!ops(p_type.storage).zero_default) {
@@ -305,6 +321,10 @@ static bool is_option(const TypeImage &p_type) {
 	return p_type.kind == bytecode::TypeKind::Option;
 }
 
+static bool is_struct(const TypeImage &p_type) {
+	return p_type.kind == bytecode::TypeKind::Struct;
+}
+
 static uint64_t &tag(uint8_t *p_slot) {
 	return *reinterpret_cast<uint64_t *>(p_slot);
 }
@@ -317,6 +337,10 @@ void construct_value(const TypeImage &p_type, uint8_t *p_slot) {
 	if (is_option(p_type)) {
 		tag(p_slot) = 0;
 		construct_value(*p_type.element, p_slot + 8);
+	} else if (is_struct(p_type)) {
+		for (const FieldImage &field : p_type.fields) {
+			construct_value(*field.type, p_slot + field.offset);
+		}
 	} else {
 		construct_value(p_type.storage, p_slot);
 	}
@@ -325,6 +349,10 @@ void construct_value(const TypeImage &p_type, uint8_t *p_slot) {
 void destroy_value(const TypeImage &p_type, uint8_t *p_slot) {
 	if (is_option(p_type)) {
 		destroy_value(*p_type.element, p_slot + 8);
+	} else if (is_struct(p_type)) {
+		for (const FieldImage &field : p_type.fields) {
+			destroy_value(*field.type, p_slot + field.offset);
+		}
 	} else {
 		destroy_value(p_type.storage, p_slot);
 	}
@@ -334,6 +362,10 @@ void copy_value(const TypeImage &p_type, uint8_t *p_dst, const uint8_t *p_src) {
 	if (is_option(p_type)) {
 		tag(p_dst) = tag(p_src);
 		copy_value(*p_type.element, p_dst + 8, p_src + 8);
+	} else if (is_struct(p_type)) {
+		for (const FieldImage &field : p_type.fields) {
+			copy_value(*field.type, p_dst + field.offset, p_src + field.offset);
+		}
 	} else {
 		copy_value(p_type.storage, p_dst, p_src);
 	}
@@ -343,7 +375,56 @@ Variant to_variant(const TypeImage &p_type, const uint8_t *p_slot) {
 	if (is_option(p_type)) {
 		return tag(p_slot) ? to_variant(*p_type.element, p_slot + 8) : Variant(); // None is NIL (spec §10.1).
 	}
+	if (is_struct(p_type)) {
+		Dictionary encoded;
+		for (const FieldImage &field : p_type.fields) {
+			encoded[field.name] = outward_variant(*field.type, p_slot + field.offset);
+		}
+		return encoded;
+	}
 	return to_variant(p_type.storage, p_slot);
+}
+
+// As `T.try_from` decodes a field (spec §5.3): an int also from a float that
+// is exactly an integer within its range, which is how the engine parses
+// every number in JSON (§10.8).
+static bool decode_field(const TypeImage &p_type, const Variant &p_value, uint8_t *p_slot, bool p_check) {
+	if (is_option(p_type) && !is_none(p_value)) {
+		if (!decode_field(*p_type.element, p_value, p_slot + 8, p_check)) {
+			return false;
+		}
+		tag(p_slot) = 1;
+		return true;
+	}
+	if (p_type.kind == bytecode::TypeKind::Value && p_type.storage == ValueType::Int && type_of(p_value) == Variant::FLOAT) {
+		const double value = p_value;
+		if (!(value >= -9223372036854775808.0 && value < 9223372036854775808.0) || value != double(int64_t(value))) {
+			return false;
+		}
+		*reinterpret_cast<int64_t *>(p_slot) = int64_t(value);
+		return true;
+	}
+	return from_variant(p_type, p_value, p_slot, p_check);
+}
+
+// The first field of the encoded struct that does not decode, or -1.
+static int64_t undecodable_field(const TypeImage &p_type, const Dictionary &p_encoded) {
+	alignas(16) uint8_t probe[80];
+	for (size_t i = 0; i < p_type.fields.size(); i++) {
+		const FieldImage &field = p_type.fields[i];
+		if (!p_encoded.has(field.name)) {
+			return int64_t(i);
+		}
+		std::vector<uint64_t> large(field.type->size > sizeof(probe) ? field.type->size / 8 + 1 : 0);
+		uint8_t *slot = large.empty() ? probe : reinterpret_cast<uint8_t *>(large.data());
+		construct_value(*field.type, slot);
+		const bool fits = decode_field(*field.type, p_encoded[field.name], slot, true);
+		destroy_value(*field.type, slot);
+		if (!fits) {
+			return int64_t(i);
+		}
+	}
+	return -1;
 }
 
 bool from_variant(const TypeImage &p_type, const Variant &p_value, uint8_t *p_slot, bool p_check) {
@@ -358,22 +439,97 @@ bool from_variant(const TypeImage &p_type, const Variant &p_value, uint8_t *p_sl
 		tag(p_slot) = 1;
 		return true;
 	}
+	if (is_struct(p_type)) {
+		if (type_of(p_value) != Variant::DICTIONARY) {
+			return false;
+		}
+		const Dictionary encoded = p_value;
+		for (const FieldImage &field : p_type.fields) {
+			if (!encoded.has(field.name) || !decode_field(*field.type, encoded[field.name], p_slot + field.offset, p_check)) {
+				return false;
+			}
+		}
+		return true;
+	}
 	return from_variant(p_type.storage, p_value, p_slot, p_check ? &p_type.check : nullptr);
 }
 
 String type_description(const TypeImage &p_type) {
+	if (is_struct(p_type)) {
+		return class_description(StringName(), String(), p_type.name);
+	}
 	return is_option(p_type) ? type_description(*p_type.element) + "?" : type_description(p_type.storage, p_type.check);
 }
 
 String entry_mismatch(const TypeImage &p_type, const Variant &p_value) {
-	if (is_option(p_type)) {
+	if (is_struct(p_type) && type_of(p_value) == Variant::DICTIONARY) {
+		// Which field: "Hit.damage: expected int, found String".
+		const Dictionary encoded = p_value;
+		const int64_t index = undecodable_field(p_type, encoded);
+		if (index >= 0) {
+			const FieldImage &field = p_type.fields[index];
+			const String where = vformat("%s.%s", type_description(p_type), field.name);
+			return encoded.has(field.name) ? vformat("%s: %s", where, entry_mismatch(*field.type, encoded[field.name])) : vformat("%s is missing", where);
+		}
+	}
+	if (is_option(p_type) || is_struct(p_type)) {
 		return vformat("expected %s, found %s", type_description(p_type), value_description(p_value));
 	}
 	return entry_mismatch(p_type.storage, p_value, p_type.check);
 }
 
 Variant default_variant(const TypeImage &p_type) {
+	if (is_struct(p_type)) {
+		std::vector<uint64_t> storage(p_type.size / 8 + 1);
+		uint8_t *slot = reinterpret_cast<uint8_t *>(storage.data());
+		construct_value(p_type, slot);
+		const Variant result = to_variant(p_type, slot);
+		destroy_value(p_type, slot);
+		return result;
+	}
 	return is_option(p_type) ? Variant() : default_variant(p_type.storage);
+}
+
+Variant::Type variant_type(const TypeImage &p_type) {
+	return is_struct(p_type) ? Variant::DICTIONARY : variant_type(p_type.storage);
+}
+
+static bool equal_values(ValueType p_type, const uint8_t *p_a, const uint8_t *p_b) {
+	switch (p_type) {
+		case ValueType::Bool:
+		case ValueType::Int:
+			return *reinterpret_cast<const uint64_t *>(p_a) == *reinterpret_cast<const uint64_t *>(p_b);
+		case ValueType::Float:
+			return *reinterpret_cast<const double *>(p_a) == *reinterpret_cast<const double *>(p_b);
+		case ValueType::Object:
+			return object_data(p_a).id == object_data(p_b).id;
+		case ValueType::Variant: {
+			Variant result;
+			bool valid = false;
+			Variant::evaluate(Variant::OP_EQUAL, variant_at(p_a), variant_at(p_b), result, valid);
+			return valid && result.booleanize();
+		}
+		default: {
+			alignas(8) uint64_t result = 0;
+			ops(p_type).equal(p_a, p_b, &result);
+			return result != 0;
+		}
+	}
+}
+
+bool equal_values(const TypeImage &p_type, const uint8_t *p_a, const uint8_t *p_b) {
+	if (is_option(p_type)) {
+		return tag(p_a) == tag(p_b) && (!tag(p_a) || equal_values(*p_type.element, p_a + 8, p_b + 8));
+	}
+	if (is_struct(p_type)) {
+		for (const FieldImage &field : p_type.fields) {
+			if (!equal_values(*field.type, p_a + field.offset, p_b + field.offset)) {
+				return false;
+			}
+		}
+		return true;
+	}
+	return equal_values(p_type.storage, p_a, p_b);
 }
 
 void SlotLayout::construct(uint8_t *p_base) const {
