@@ -78,7 +78,7 @@ func max_hp_from(data: Variant) -> int?:
 1. 第一个里程碑，已完成：[第二次纸面迁移](docs/surveys/paper-migration-2.zh.md)中的 FPS 项目以 Petrichor 脚本运行，运行它所需的 [§15](docs/language-spec.zh.md#15-一致性检查清单非规范性) 检查清单条目已写成测试；留待以后的部分列在 [BACKLOG.md](BACKLOG.md)。
 2. 已完成：偿还快速完成的第一版实现留下的技术债，分正确性、验证、代码、文档四组（[实现架构 §5](docs/architecture.zh.md#5-推进顺序)）。
 3. 第二个里程碑，已完成：同一次迁移中 Ring 的 breakout 以 Petrichor 脚本运行，包括它与 C# 往来的消息所需的 struct 和元素为 struct 的容器（[实现架构 §5](docs/architecture.zh.md#5-推进顺序)）。
-4. 其余的工作列在 [BACKLOG.md](BACKLOG.md)，顺序未定，其中有带重命名的语言服务器、迁移用的快速修复，以及相对 GDScript 的性能工作。
+4. 接下来是[实现架构 §5](docs/architecture.zh.md#5-推进顺序) 的第 7–9 步：补齐第一版的语言；然后是工具链，包括带场景部分的重命名、语言服务器和迁移用的快速修复；最后是相对 GDScript 的性能。具体工作列在 [BACKLOG.md](BACKLOG.md)。
 5. 贯穿始终：收集反馈，把规范收敛到可测试的核心。
 
 ## 反馈
