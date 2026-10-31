@@ -5,3 +5,5 @@ pub func bump():
 	hidden += 1
 func _leaf_tick():
 	trace += "T"
+pub func target_hidden() -> bool:
+	return not $Target.visible

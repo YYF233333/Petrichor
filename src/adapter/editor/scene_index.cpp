@@ -76,15 +76,29 @@ void instanced_scenes(const Ref<SceneState> &p_state, std::set<std::string> &r_p
 	}
 }
 
+// An inherited scene stores only the nodes it adds or changes and the
+// connections it adds; the rest are in its base (scene/resources/packed_scene.cpp:1483-1490,
+// 1888-1894, 1912-1928; ed1daf0).
 compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state) {
-	compiler::Scene scene;
+	const Ref<SceneState> base = p_state->get_base_scene_state();
+	compiler::Scene scene = base.is_valid() ? read_scene(p_path, base) : compiler::Scene();
 	scene.path = to_utf8(p_path);
 	for (int32_t i = 0; i < p_state->get_node_count(); i++) {
+		const std::string path = node_path(p_state->get_node_path(i));
+		const std::string script = to_utf8(attached_script(p_state, i));
+		const auto inherited = std::find_if(scene.nodes.begin(), scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return p_node.path == path; });
+		if (inherited != scene.nodes.end()) {
+			if (!script.empty()) {
+				inherited->script = script;
+				inherited->instance_script.clear();
+			}
+			continue;
+		}
 		compiler::SceneNode node;
-		node.path = node_path(p_state->get_node_path(i));
+		node.path = path;
 		node.type = to_utf8(node_type(p_state, i));
 		node.is_instance = p_state->get_node_instance(i).is_valid();
-		node.script = to_utf8(attached_script(p_state, i));
+		node.script = script;
 		if (node.is_instance && node.script.empty()) {
 			node.instance_script = to_utf8(instanced_script(p_state, i));
 		}

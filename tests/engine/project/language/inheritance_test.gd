@@ -19,6 +19,7 @@ func run(_errors) -> int:
 	add_child(node)
 	check(node.trace == "BCLIJERSYZ", "inherited connection and onready before explicit ready chain")
 	check(node.target == node.get_node("Target"), "inherited non-null export restored")
+	check(node.target_hidden(), "$Target of the base scene, changed by the inherited scene")
 	check(node.read() == 14 and node.callback().call() == 14, "virtual self calls and inherited method values")
 	node.bump()
 	check(node.read() == 15, "subclass accesses protected inherited member")

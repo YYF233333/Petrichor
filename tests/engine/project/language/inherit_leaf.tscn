@@ -3,4 +3,6 @@
 [ext_resource type="Script" path="res://language/inherit_leaf.pet" id="2"]
 [node name="Inherited" instance=ExtResource("1")]
 script = ExtResource("2")
+[node name="Target" parent="."]
+visible = false
 [connection signal="tick" from="." to="." method="_leaf_tick"]
