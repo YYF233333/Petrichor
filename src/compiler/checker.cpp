@@ -1532,6 +1532,14 @@ class Checker : public ClassRelation {
 		for (size_t i = 0; i < params.size(); i++) {
 			r_expr.arg_ranges.push_back(params[i].kind == TypeKind::Int ? builtin::param_int_range(p_method.owner, p_method.name, uint32_t(i)) : std::nullopt);
 		}
+		// A method of this class that the engine is to call by a literal name,
+		// as in call_deferred("reset"), is one it must find (spec §10.5).
+		for (size_t i = 0; !r_expr.base && i < p_method.params.size() && i < r_expr.args.size(); i++) {
+			const Expr &arg = *r_expr.args[i];
+			if (p_method.params[i].name == "method" && arg.kind == ExprKind::StringLiteral && function_index.count(arg.text)) {
+				cls.exposed_methods.insert(arg.text);
+			}
+		}
 		r_expr.target = Target::EngineMethod;
 		r_expr.engine_return = engine_result(p_method);
 		return set(r_expr, filtered_result(r_expr, p_method));

@@ -59,6 +59,13 @@ TEST_CASE("a method connected in a scene is visible to the engine (spec §10.5)"
 	CHECK(!function_named(result.module, "other").is_exposed);
 }
 
+TEST_CASE("a method the engine is to call by a literal name is visible to it (spec §10.5)") {
+	const compiler::CompileResult result = compile("extends Node\n\nfunc _ready():\n\tcall_deferred(\"reset\")\n\tother.call_deferred()\n\nfunc reset():\n\tpass\n\nfunc other():\n\tpass\n");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	CHECK(function_named(result.module, "reset").is_exposed);
+	CHECK(!function_named(result.module, "other").is_exposed);
+}
+
 TEST_CASE("scene connections are checked against the class (spec §7.7)") {
 	const char *source = "extends Node3D\n\nfunc _on_timer_timeout():\n\tpass\n";
 	CHECK(contains(messages(compile_in(source, timer_scene("_on_missing"))), "res://enemy.tscn: the signal \"timeout\" of Timer is connected to _on_missing(), which this class does not declare."));

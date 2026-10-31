@@ -76,7 +76,9 @@ public:
 		methods["Object"] = {
 			method("_to_string", {}, t(TypeKind::String), true),
 			method("_notification", { { "what", t(TypeKind::Int) } }, t(TypeKind::Void), true),
+			method("call_deferred", { { "method", Type::builtin("StringName") } }, t(TypeKind::Void)),
 		};
+		methods["Object"].back().is_vararg = true;
 		methods["Control"] = { method("_has_point", { { "point", Type::builtin("Vector2") } }, t(TypeKind::Bool), true) };
 		methods["Node"] = {
 			method("_ready", {}, t(TypeKind::Void), true),
