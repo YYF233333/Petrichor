@@ -559,7 +559,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 - 不新增语法：继续用 `_notification(what)` 处理 `NOTIFICATION_PREDELETE`，与场景树相关的清理放在 `_exit_tree`，写法和时机与 GDScript 相同；析构顺序沿用引擎。理由：[语料计数](surveys/corpus-counts.zh.md)中 `NOTIFICATION_PREDELETE` 只出现 40 次，其中 32 次在 gdUnit4。
 - 运行时保证 RefCounted 在 PREDELETE 期间可以读写自己的字段、调用自己的方法，不重新给 self 加引用。引擎在 PREDELETE 时引用计数已经归零，再加引用会失败（`core/object/ref_counted.cpp:94-95`，`core/templates/safe_refcount.h:136-146`，`core/variant/variant.cpp:1104-1108, 2509-2510`）。
-- 处理 PREDELETE 的分支中，把 self 传出、存入成员或容器，以及使用 await，都是编译错误。这期间指向 self 的 `weak` 返回 None。依据：[暗坑清单](surveys/pitfalls.zh.md) G-09。
+- 处理 PREDELETE 的分支中，把 self 用作值（作实参、存入、返回、比较等，`self.x` 和 `self.f()` 不算）以及使用 await，都是编译错误。这期间指向 self 的 `weak` 返回 None。理由：RefCounted 这时把 self 装进值得到 null，GDScript 的 self 在这里就是 null（`modules/gdscript/gdscript_vm.cpp:656-657`）；Node 的 self 传出后随即被释放，而调用处看不出被调用方是否保留它。依据：[暗坑清单](surveys/pitfalls.zh.md) G-09。
 
 ### 6.7 引用环与泄漏
 
@@ -1025,6 +1025,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 初始化 | 成员初始化式不调用 setter；`@onready` 与 `@export` 同用报编译错误；`_init` 中读取 `@onready` 成员报编译错误；静态初始化的环是程序错误并列出依赖链 |
 | 必须赋值 | `BulletScene.instantiate(speed = 300.0)` 漏写 `target` 报编译错误；祖先在 `_ready` 中经 `$Child.target = v` 赋值时不报错；子节点在自己的 `_ready` 中读取该成员报编译错误；就绪前读取未赋值的成员是程序错误；`new()` 漏传必须赋值的成员不是编译错误，Node 在就绪时检查 |
 | 就绪前的 setter | 场景中保存的值使 setter 在访问 `@onready` 成员处挂起，就绪后继续；就绪前先写入 `"Hi"` 而挂起、再写入 None 而不挂起时，`"Hi"` 那次调用被取消；setter 调用以 `if not is_node_ready(): return` 开头的方法时不挂起；先变换再存储的 setter 就绪前读到变换后的值；节点就绪前被释放时挂起的调用被丢弃 |
+| 析构 | RefCounted 在 PREDELETE 中读写自己的字段、调用自己的方法正常；处理 PREDELETE 的分支中 `add_child(self)`、`self == x` 和 await 报编译错误，`self.x` 合法 |
 | 泄漏 | 移出后未保存也未释放的节点给出警告；捕获 self 的闭包存入 self 的成员时给出警告和 `weak` 的快速修复；debug 构建退出时列出泄漏的对象和创建位置 |
 | 场景定型 | `$Head/Camera` 按场景定为 Camera3D；两个场景给出不同类型时报编译错误；找不到的路径标在缺少该节点的场景上；只被继承的基础场景缺少继承它的场景都有的节点时不报错，被 preload 的占位场景缺少时报错；`get_node_or_null("X")` 在部分场景中缺失时类型为 `T?` 且不报错；任何场景中都没有的 `$X` 报编译错误，`get_node_or_null("X")` 得 `Node?` 并给出警告；`/root/X` 报编译错误并给出 autoload 全局名；声明 `@owner(T)` 的组件场景被实例化到别的场景中时合法，作为根使用时报编译错误；声明 `@owner(T)` 的节点移出 owner 的子树后不读 owner 不报错，读取时是程序错误；未声明 `@parent` 时 `get_parent().add_child(x)` 报编译错误，快速修复补上 `@parent(T)`；游离节点上 `var p = get_parent()` 得 None；声明 `@parent(Node2D)` 的节点在场景中挂在 Control 下时报编译错误 |
 | 导出检查 | player.tscn 的 `crosshair` 由 main.tscn 的实例赋值时不报错；某个实例没有赋值时标在该实例所在的场景上；没有被引用的场景只给警告，导出时不报错；运行中缺值时就绪报程序错误并写明成员名；有确定缺值的场景时，导出窗口显示失败并写明场景和成员名，无界面分析命令返回非零；`PackedScene[Boss]` 可以赋给 `PackedScene[Enemy]`；新增了不导出的必须赋值成员的 Boss 场景填入 `PackedScene[Enemy]` 时，标在填入它的场景上报错；Enemy 有不导出的必须赋值成员 `target` 时，导出的 `PackedScene[Enemy]` 调用 `instantiate()` 漏传报编译错误 |
@@ -1154,6 +1155,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | await 的结果不经检查写入按被等待者返回类型定型的临时变量 | `modules/gdscript/gdscript_vm.cpp:2667-2668`；`modules/gdscript/gdscript_byte_codegen.cpp:998-1001` |
 | Variant 赋给有类型的变量时，只在 debug 构建中检查类型 | `modules/gdscript/gdscript_vm.cpp:1433-1444` |
 | 挂起的 GDScript 函数状态不复制 self，只以裸指针指向实例 | `modules/gdscript/gdscript_vm.cpp:2609-2625` |
+| GDScript 每次调用把实例装进 Variant 作为 self，RefCounted 在 PREDELETE 中因此得到 null；调用自己的方法以它为接收者 | `modules/gdscript/gdscript_vm.cpp:656-657`；`modules/gdscript/gdscript_byte_codegen.cpp:1345-1355` |
 | GDScript 出错后，debug 构建按返回类型构造默认值返回，release 构建返回 null | `modules/gdscript/gdscript_vm.cpp:3963-3993`（debug）；`:535, 3995`（release） |
 | GDScript 的调用栈深度上限由 `debug/settings/gdscript/max_call_stack` 设置，默认 1024，超过时报告栈溢出 | `modules/gdscript/gdscript.cpp:2870`；`modules/gdscript/gdscript.h:489-490` |
 | GDScript 的 `assert` 只在 debug 构建中编译 | `modules/gdscript/gdscript_compiler.cpp:2181-2207` |
