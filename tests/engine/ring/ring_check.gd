@@ -5,6 +5,13 @@ extends Node
 # the game and sends BreakoutManager the init message of Ring's main.md:16-22.
 
 const FRAMES := 300
+# The bricks and enemies that the starting level (goal_2.tscn) does not have,
+# some of them in no level of Ring's; placed as a level places them, so that
+# their scripts run too.
+const PLACED := {
+	"Level/Bricks": ["bricks/basic_brick/basic_brick", "bricks/charge_brick/charge_brick", "bricks/heal_brick/heal_brick", "bricks/indestructible_brick/indestructible_brick"],
+	"Level/Enemies": ["enemies/oppressive_enemy/oppressive_enemy"],
+}
 
 var failures := 0
 
@@ -16,7 +23,8 @@ func _check(ok: bool, what: String) -> void:
 
 
 func _ready() -> void:
-	add_child(load("res://breakout/scenes/breakout/breakout.tscn").instantiate())
+	var breakout: Node = load("res://breakout/scenes/breakout/breakout.tscn").instantiate()
+	add_child(breakout)
 	var manager := get_node("/root/BreakoutManager")
 	# C# hands a null string over as an empty one, and a null array as an
 	# empty one (modules/mono/glue/GodotSharp/GodotSharp/Core/NativeInterop/Marshaling.cs:242-245, 579-584).
@@ -42,6 +50,14 @@ func _ready() -> void:
 	_check(manager.consumables.consumable_nodes.size() == 2, "the consumables come from the message (%d)" % manager.consumables.consumable_nodes.size())
 
 	_check(await _check_utility(manager), "Utility behavior checks complete")
+
+	for parent_path in PLACED:
+		var x := 598.0
+		for scene in PLACED[parent_path]:
+			var placed: Node2D = load("res://breakout/scenes/%s.tscn" % scene).instantiate()
+			placed.position = Vector2(x, 300 if parent_path == "Level/Bricks" else 161)
+			breakout.get_node(parent_path).add_child(placed)
+			x += 181
 
 	for i in FRAMES:
 		await get_tree().process_frame
@@ -97,6 +113,13 @@ func _report_scripts() -> void:
 	var reported := {}
 	for node in get_tree().root.find_children("*", "", true, false):
 		var script: Script = node.get_script()
-		if script and not reported.has(script.resource_path):
+		while script and not reported.has(script.resource_path):
 			reported[script.resource_path] = true
 			print("ring check: %s runs %s" % [script.resource_path.get_file().get_basename(), script.get_class()])
+			script = script.get_base_script()
+	# No node has these: combat.pet declares the interface and has no GDScript
+	# original, and heal_brick.tscn has charge_brick.gd, so that no scene of
+	# Ring's uses heal_brick.gd.
+	for path in ["res://breakout/scenes/components/combat.pet", "res://breakout/scenes/bricks/heal_brick/heal_brick.pet"]:
+		if ResourceLoader.exists(path):
+			print("ring check: %s runs %s" % [path.get_file().get_basename(), load(path).get_class()])

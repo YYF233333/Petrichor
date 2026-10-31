@@ -1,0 +1,11 @@
+# What HealthComponent and DeathComponent read of their owner, a Brick or an Enemy.
+class_name Combat
+
+pub interface Combatant:
+	var init_health: int
+	var max_health: int
+	var point: int
+	var drop_percent_scale: float
+	var lucky_drop: bool
+	var unique_drop_name: String
+	var global_position: Vector2
