@@ -446,7 +446,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - int 与 float 按数值比较，`1 == 1.0` 为真（`core/variant/variant_op.cpp:490-491`）。String 与 StringName 按内容比较（§10.7）。
 - 对象按同一性比较，比较的是 ObjectID（`variant_op.cpp:514`），所以两个不同的已释放对象不相等。引擎比较前先把已释放的对象取为 null，两个已释放对象在 GDScript 中相等（`core/variant/variant_op.h:471-477`），属于 §1.2 的例外。两个类型都是类、且互不为子类时是编译错误，因为结果总为假；涉及接口时可以比较。
 - Option：None 等于 None；两个 Some 在内部的值相等时相等；层数较少的一侧先包装到相同的层数再比较，例如 hp 为 `int?` 时的 `hp == 3`，以及 `T?` 与 `T??` 的比较。既不是 Option 也不是 Variant 的值与 None 比较是编译错误，因为结果总为假；快速修复把类型改为 `T?`，或在检查存活时改用 `is_instance_valid(x)`。
-- 容器照引擎逐元素比较，Dictionary 按键逐项比较，与顺序无关。引擎比较元素时要求类型相同（`core/variant/array.cpp:155-158`，`core/variant/dictionary.cpp:255-285`，`core/variant/variant.cpp:3176-3179`），所以 `[1] == [1.0]` 为假，而 `1 == 1.0` 为真。元素类型不同的容器比较是编译错误，例如 `Array[int] == Array[float]`，因为只有两边都为空时才相等。是 struct 或带载荷的 enum 的元素和键，以同样的方式逐字段匹配。
+- 容器照引擎逐元素比较，Dictionary 按键逐项比较，与顺序无关。引擎比较元素时要求类型相同（`core/variant/array.cpp:155-158`，`core/variant/dictionary.cpp:255-285`，`core/variant/variant.cpp:3176-3179`），所以 `[1] == [1.0]` 为假，而 `1 == 1.0` 为真：`1 == 1.0` 先把 1 转为 float 再比较，容器匹配元素和键时不做这种转换，所以那里 Variant 中的 int 与 float 不匹配，而 NaN 匹配 NaN（`variant.cpp:3138-3139`）。元素类型不同的容器比较是编译错误，例如 `Array[int] == Array[float]`，因为只有两边都为空时才相等。是 struct 或带载荷的 enum 的元素和键，以同样的方式逐字段匹配。
 - 一侧是 Variant 时，运行时按引擎的运算表求值；组合不在表中是程序错误（`variant_op.cpp:1049-1054`）。GDScript 在这里报错；运算数的类型与这条指令第一次执行时不同的情况，只在 debug 构建中检查，release 构建得到 null 并继续执行（`modules/gdscript/gdscript_vm.cpp:793-798, 821-843`）。`v == None` 对 NIL 和已释放的对象为真（§3.13）。
 - `!=` 在所有情况下都是 `==` 的否定。
 - struct 和带载荷的 enum 逐字段比较（§3.6、§3.7）。大小比较（`<`、`>`、`<=`、`>=`）与其他运算符一样按运算表定型，对象、Dictionary、Callable 都没有（`core/variant/variant_op.cpp:731-791`）。Array 在元素类型有 `<` 时才有，逐元素比较。`T?` 在 T 有 `<` 时才有：None 排在所有 Some 之前，Some 之间按内部的值；`<` 不包装，以免 None 意外地被当作最小，所以 hp 为 `int?` 时的 `hp < 3` 是编译错误。struct 和带载荷的 enum 的大小见 §3.6、§3.7，对它们而言 `a > b` 即 `b < a`，`a <= b` 即 `a < b or a == b`，`a >= b` 同理。
@@ -1063,6 +1063,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | String 与 StringName 的 `==` 按内容比较 | `core/variant/variant_op.cpp:196-203, 493, 615` |
 | 运算表中没有的组合求值无效 | `core/variant/variant_op.cpp:1049-1054` |
 | Array 的 `==` 逐元素用 `hash_compare`，它要求元素类型相同 | `core/variant/array.cpp:155-158`；`core/variant/variant.cpp:3176-3179` |
+| `hash_compare` 认为 NaN 与 NaN 匹配 | `core/variant/variant.cpp:3138-3139` |
 | Dictionary 的 `==` 按键查找后逐项比较值，与顺序无关 | `core/variant/dictionary.cpp:255-285` |
 | 已释放的对象在条件中为假：对象的 `is_zero` 检查对象是否仍然有效 | `core/variant/variant.cpp:952-953`；`core/variant/variant_op.cpp:1120-1122` |
 | Variant 转为对象指针时不检查对象是否存活；引擎方法的对象参数经它取出，debug 构建按类检查时就使用这个指针，release 构建直接交给方法 | `core/variant/variant.cpp:2024-2026`；`core/variant/binder_common.h:58-61`；`core/variant/variant_caster.h:139-140` |
