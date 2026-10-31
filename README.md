@@ -78,7 +78,7 @@ Each survey has a write-up in English and Chinese and a directory of scripts tha
 1. First milestone, done: the FPS starter kit of the [second paper migration](docs/surveys/paper-migration-2.en.md) runs with its scripts in Petrichor, and the rows of the checklist in [§15](docs/language-spec.en.md#15-conformance-checklist-non-normative) that running it needs became tests; what it leaves for later is listed in the [backlog](BACKLOG.md).
 2. Done: paying down the debt the quick first implementation left, in four groups: correctness, verification, code and documents ([architecture §5](docs/architecture.en.md#5-order-of-work)).
 3. Second milestone, done: the breakout of Ring in the same migration runs with its scripts in Petrichor, with the structs and containers of them that its messages to and from C# need ([architecture §5](docs/architecture.en.md#5-order-of-work)).
-4. Next come steps 7–9 of [architecture §5](docs/architecture.en.md#5-order-of-work): the rest of the first version's language; then the tools, among them renaming with its part in scenes, the language server and quick fixes for migration; last, performance against GDScript. The work itself is listed in the [backlog](BACKLOG.md).
+4. Next come steps 7–9 of [architecture §5](docs/architecture.en.md#5-order-of-work): the rest of the first version's language; then the tools, among them renaming with its part in scenes, the language server, the formatter, lints and quick fixes for migration; last, performance against GDScript. The work itself is listed in the [backlog](BACKLOG.md).
 5. Throughout: collect feedback and narrow the specification to a testable core.
 
 ## Feedback
