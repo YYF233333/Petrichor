@@ -148,16 +148,16 @@ TEST_CASE("a method of another class, another instance or an interface is called
 	REQUIRE(methods.size() == 4);
 	const auto method = [&](size_t p_call) -> const bytecode::MethodCall & { return module.method_calls[methods[p_call]]; };
 	CHECK(method(0).method == "describe");
-	CHECK(method(0).result.type == bytecode::ValueType::String);
+	CHECK(storage(module, method(0).result.type) == bytecode::ValueType::String);
 	// The signature as declared, also the parameter the call leaves out.
 	CHECK(method(1).method == "hit");
 	CHECK(method(1).params.size() == 2);
 	CHECK(method(1).defaults == 1);
-	CHECK(method(1).result.element == bytecode::ValueType::Int);
+	CHECK(bytecode::type_key(module.types, method(1).result.type) == "a(v" + std::to_string(int(bytecode::ValueType::Int)) + ")");
 	CHECK(method(2).method == "damage");
-	CHECK(method(2).result.type == bytecode::ValueType::Void);
+	CHECK(storage(module, method(2).result.type) == bytecode::ValueType::Void);
 	CHECK(method(3).method == "id");
-	CHECK(method(3).result.option == bytecode::ValueType::Int);
+	CHECK(bytecode::type_key(module.types, method(3).result.type) == "?(v" + std::to_string(int(bytecode::ValueType::Int)) + ")");
 	// An override of an engine virtual method is the engine's to run.
 	CHECK(engine_calls == 1);
 }
@@ -169,15 +169,16 @@ TEST_CASE("an interface is described in slots, for the entry checks and signatur
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	std::string error;
 	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	const std::vector<bytecode::TypeDesc> &types = result.module.types;
 	const auto param = [&](const char *p_function) -> const bytecode::Slot & { return function_named(result.module, p_function).params[0]; };
-	CHECK(param("a").interface_name == "res://combat.pet::Damageable");
-	CHECK(param("a").class_name == "Object");
-	CHECK(param("a").script.empty());
-	CHECK(param("b").interface_name == "res://heal.pet::Healable");
-	CHECK(param("c").element == bytecode::ValueType::Object);
-	CHECK(param("c").interface_name == "res://heal.pet::Healable");
+	const bytecode::ClassRef &a = types[param("a").type].object;
+	CHECK((a.name == "Object" && a.script == "res://combat.pet" && a.interface_name == "Damageable"));
+	const bytecode::ClassRef &b = types[param("b").type].object;
+	CHECK((b.script == "res://heal.pet" && b.interface_name == "Healable"));
+	const bytecode::TypeDesc &c = types[param("c").type];
+	CHECK((c.kind == bytecode::TypeKind::Array && types[c.element].object == b));
 	const bytecode::Slot none;
-	CHECK(bytecode::signature_key({ param("a") }, 0, none) != bytecode::signature_key({ param("b") }, 0, none));
+	CHECK(bytecode::signature_key(types, { param("a") }, 0, none) != bytecode::signature_key(types, { param("b") }, 0, none));
 }
 
 TEST_CASE("an autoload is a value of its script's class (spec §7.3)") {

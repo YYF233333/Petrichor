@@ -16,12 +16,12 @@ namespace petrichor::compiler::ir {
 constexpr uint32_t NO_REG = 0xFFFFFFFF;
 static_assert(NO_REG == bytecode::NO_SLOT, "a missing register is emitted as a missing slot");
 
-// Operands in bytecode order (opcodes.h): `type` for the *_VALUE
-// instructions, `imm` for a table index, a constant, a member or a line, then
-// `dst`, `a` and `b` as the instruction uses them.
+// Operands in bytecode order (opcodes.h): `type` for instructions that take a
+// type, `imm` for a table index, a constant, a member or a line, then `dst`,
+// `a` and `b` as the instruction uses them.
 struct Instr {
 	bytecode::Op op = bytecode::Op::LINE;
-	bytecode::ValueType type = bytecode::ValueType::Void;
+	uint32_t type = 0; // In the module's type table.
 	uint32_t imm = 0;
 	uint32_t dst = NO_REG;
 	uint32_t a = NO_REG;

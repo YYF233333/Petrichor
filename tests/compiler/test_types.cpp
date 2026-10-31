@@ -192,8 +192,11 @@ TEST_CASE("an engine array filtered by a literal class name holds that class") {
 		assigned = assigned || (call.base == petrichor::bytecode::ValueType::Array && call.method == "assign");
 	}
 	CHECK(assigned);
-	CHECK(result.module.classes.size() == 1);
-	CHECK(result.module.classes[0].name == "MeshInstance3D");
+	bool typed = false;
+	for (const auto &type : result.module.types) {
+		typed = typed || (type.kind == petrichor::bytecode::TypeKind::Array && result.module.types[type.element].object.name == "MeshInstance3D");
+	}
+	CHECK(typed);
 }
 
 TEST_CASE("a class of this language filters by its class_name") {

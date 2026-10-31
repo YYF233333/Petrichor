@@ -7,9 +7,9 @@ namespace petrichor::bytecode {
 
 // Every instruction is an opcode word followed by operand words. Operands are
 // byte offsets into the frame (or into the instance, for members), indices
-// into the module's tables, value types, or immediate values. The list is the
-// single definition from which the compiler emits and the virtual machine
-// dispatches (architecture §2.2).
+// into the module's tables, or immediate values; an operand named `type` is an
+// index into the type table. The list is the single definition from which the
+// compiler emits and the virtual machine dispatches (architecture §2.2).
 //
 // X(name, operand count); a count of -1 marks a call: `target, dst, base,
 // argc` followed by argc (type, offset) pairs. dst and base are NO_SLOT when
@@ -80,10 +80,10 @@ namespace petrichor::bytecode {
 	X(CAST_OBJECT, 3) /* class, dst, src: `as`, None if it fails */ \
 	X(IS_INSTANCE, 3) /* class, dst (bool), src: `is` */ \
 	X(IS_NONE, 2) /* dst (bool), src (Object or Variant) */ \
-	X(TO_VARIANT, 3) /* type, dst (Variant), src */ \
-	X(UNWRAP, 4) /* type, dst, src, message (NO_SLOT: default) */ \
-	X(NEW_ARRAY, 3) /* element type (Void: untyped), class, dst */ \
-	X(GET_INDEX, 5) /* base type, element type, dst, base, index */ \
+	X(TO_VARIANT, 3) /* type of src, dst (Variant), src */ \
+	X(UNWRAP, 4) /* type of dst, dst, src, message (NO_SLOT: default) */ \
+	X(NEW_ARRAY, 2) /* type, dst: an empty array, typed as the type says */ \
+	X(GET_INDEX, 5) /* type of base, type of dst, dst, base, index */ \
 	X(JUMP, 1) \
 	X(JUMP_IF_FALSE, 2) \
 	X(JUMP_IF_TRUE, 2) \

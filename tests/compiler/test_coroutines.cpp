@@ -47,7 +47,7 @@ TEST_CASE("coroutine declarations enforce their public contracts") {
 	const auto result = compile("async func f() -> int:\n\treturn 3\n");
 	REQUIRE(result.ok());
 	const auto &fn = result.module.functions[0];
-	CHECK(bytecode::signature_key(fn.params, 0, fn.result, true) != bytecode::signature_key(fn.params, 0, fn.result, false));
+	CHECK(bytecode::signature_key(result.module.types, fn.params, 0, fn.result, true) != bytecode::signature_key(result.module.types, fn.params, 0, fn.result, false));
 }
 
 TEST_CASE("nullable Task handles require unwrap before waiting") {

@@ -223,6 +223,24 @@ inline size_t find_instruction(const bytecode::Function &p_function, bytecode::O
 	return 0;
 }
 
+// How a slot of a type of the module holds its value.
+inline bytecode::ValueType storage(const bytecode::Module &p_module, uint32_t p_type) {
+	return bytecode::storage_of(p_module.types, p_type);
+}
+
+// The index of the value type in the module's type table, added when missing.
+inline uint32_t value_type_index(bytecode::Module &r_module, bytecode::ValueType p_type) {
+	bytecode::TypeDesc type;
+	type.value = p_type;
+	for (uint32_t i = 0; i < r_module.types.size(); i++) {
+		if (r_module.types[i] == type) {
+			return i;
+		}
+	}
+	r_module.types.push_back(type);
+	return uint32_t(r_module.types.size() - 1);
+}
+
 // The member of a module with this name, which it must have.
 template <typename T>
 auto &member_named(T &p_module, const std::string &p_name) {

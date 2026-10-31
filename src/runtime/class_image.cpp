@@ -23,15 +23,20 @@ static GDExtensionVariantType engine_type(ValueType p_type) {
 // A signature as a number that is the same for the same signature in every
 // image, so that a call compares the one it was compiled against with the
 // callee's by comparing two numbers.
-static uint32_t signature_id(const std::vector<bytecode::Slot> &p_params, size_t p_defaults, const bytecode::Slot &p_result, bool p_async) {
+static uint32_t signature_id(const std::vector<bytecode::TypeDesc> &p_types, const std::vector<bytecode::Slot> &p_params, size_t p_defaults, const bytecode::Slot &p_result, bool p_async) {
 	static std::mutex mutex;
 	static std::unordered_map<std::string, uint32_t> ids;
 	std::lock_guard<std::mutex> lock(mutex);
-	return ids.emplace(bytecode::signature_key(p_params, p_defaults, p_result, p_async), uint32_t(ids.size())).first->second;
+	return ids.emplace(bytecode::signature_key(p_types, p_params, p_defaults, p_result, p_async), uint32_t(ids.size())).first->second;
 }
 
-namespace {
-bool same_description(const bytecode::Slot &p_a, const bytecode::Slot &p_b);
+static std::string signature_key(const bytecode::Module &p_module, const bytecode::Function &p_function) {
+	return bytecode::signature_key(p_module.types, p_function.params, p_function.defaults.size(), p_function.result, p_function.is_async);
+}
+
+// Whether two slots of two modules have the same type.
+static bool same_type(const bytecode::Module &p_a, uint32_t p_type_a, const bytecode::Module &p_b, uint32_t p_type_b) {
+	return bytecode::type_key(p_a.types, p_type_a) == bytecode::type_key(p_b.types, p_type_b);
 }
 
 std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, const String &p_path, String &r_error, const std::shared_ptr<const ClassImage> &p_base) {
@@ -48,7 +53,7 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 	for (uint32_t i = 0; i < image->module.inherited_members; ++i) {
 		const auto &a = image->module.members[i];
 		const auto &b = p_base->module.members[i];
-		if (a.name != b.name || a.offset != b.offset || !same_description(a, b) || a.is_pub != b.is_pub || a.is_export != b.is_export || a.is_onready != b.is_onready || a.setter != b.setter || a.getter != b.getter) {
+		if (a.name != b.name || a.offset != b.offset || !same_type(image->module, a.type, p_base->module, b.type) || a.is_pub != b.is_pub || a.is_export != b.is_export || a.is_onready != b.is_onready || a.setter != b.setter || a.getter != b.getter) {
 			r_error = "Inherited member layout changed. Rebuild the project.";
 			return nullptr;
 		}
@@ -65,6 +70,8 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 	const bytecode::Module &module = image->module;
 	image->global_name = to_godot(module.global_name);
 	image->base_class = to_godot(module.base_class);
+	image->types = type_images(module.types);
+	const std::vector<TypeImage> &types = image->types;
 
 	for (size_t i = 0; i < module.functions.size(); i++) {
 		const bytecode::Function &function = module.functions[i];
@@ -73,12 +80,12 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		image->function_lookup.insert(name, int(i));
 		const int parent = p_base ? p_base->find_function(name) : -1;
 		if (!function.name.empty() && function.name[0] != '@') {
-			const std::string expected = parent < 0 ? std::string() : bytecode::signature_key(p_base->module.functions[parent].params, p_base->module.functions[parent].defaults.size(), p_base->module.functions[parent].result, p_base->module.functions[parent].is_async);
+			const std::string expected = parent < 0 ? std::string() : signature_key(p_base->module, p_base->module.functions[parent]);
 			if (parent >= 0 && (function.is_static != p_base->module.functions[parent].is_static || function.is_pub != p_base->module.functions[parent].is_pub)) {
 				r_error = "Base method declaration changed. Rebuild the project.";
 				return nullptr;
 			}
-			if (function.base_signature != expected || (function.is_inherited && (parent < 0 || bytecode::signature_key(function.params, function.defaults.size(), function.result, function.is_async) != expected))) {
+			if (function.base_signature != expected || (function.is_inherited && (parent < 0 || signature_key(module, function) != expected))) {
 				r_error = "Base method signature changed. Rebuild the project.";
 				return nullptr;
 			}
@@ -93,38 +100,26 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		if (function.name == "_init" && function.params.empty()) {
 			image->user_init = int(i);
 		}
-		if (function.name == "_notification" && function.params.size() == 1 && function.params[0].type == ValueType::Int) {
+		if (function.name == "_notification" && function.params.size() == 1 && types[function.params[0].type].storage == ValueType::Int) {
 			image->notification_function = int(i);
 		}
-		if (function.name == "_to_string" && function.params.empty() && function.result.type == ValueType::String) {
+		if (function.name == "_to_string" && function.params.empty() && types[function.result.type].storage == ValueType::String) {
 			image->to_string_function = int(i);
 		}
-		image->function_signatures.push_back(signature_id(function.params, function.defaults.size(), function.result, function.is_async));
-		image->frames.push_back(SlotLayout::of(function.frame_size, function.slots));
-		std::vector<ValueCheck> checks;
-		for (const bytecode::Slot &param : function.params) {
-			checks.push_back(ValueCheck(param));
-		}
-		image->param_checks.push_back(std::move(checks));
+		image->function_signatures.push_back(signature_id(module.types, function.params, function.defaults.size(), function.result, function.is_async));
+		image->frames.push_back(SlotLayout::of(function.frame_size, function.slots, types));
 	}
-	std::vector<bytecode::Slot> member_slots;
 	for (size_t i = 0; i < module.members.size(); i++) {
-		const bytecode::Member &member = module.members[i];
-		const StringName name = to_godot(member.name);
+		const StringName name = to_godot(module.members[i].name);
 		image->member_names.push_back(name);
-		image->member_checks.push_back(ValueCheck(member));
-		bytecode::Slot slot;
-		slot.type = member.type;
-		slot.offset = member.offset;
-		member_slots.push_back(slot);
 		image->member_lookup.insert(name, int(i));
 	}
-	image->members_layout = SlotLayout::of(std::max<uint32_t>(module.instance_size, 8), member_slots);
+	image->members_layout = SlotLayout::of(std::max<uint32_t>(module.instance_size, 8), module.members, types);
 
 	for (const bytecode::Constant &constant : module.constants) {
-		image->strings.push_back(constant.type == ValueType::String ? to_godot(constant.s) : String());
+		image->strings.push_back(types[constant.type].storage == ValueType::String ? to_godot(constant.s) : String());
 		image->values.emplace_back();
-		if (!constant_value(constant, image->values.back(), r_error)) {
+		if (!constant_value(types, constant, image->values.back(), r_error)) {
 			return nullptr;
 		}
 	}
@@ -189,17 +184,18 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 	}
 	for (const bytecode::MethodCall &call : module.method_calls) {
 		image->method_names.push_back(to_godot(call.method));
-		image->call_signatures.push_back(signature_id(call.params, call.defaults, call.result, call.is_async));
+		image->call_signatures.push_back(signature_id(module.types, call.params, call.defaults, call.result, call.is_async));
 	}
 	return image;
 }
 
 // Built with the constructor that CONSTRUCT calls, from the arguments in their
 // slots' layout.
-static bool construct_constant(const bytecode::Constant &p_constant, Variant &r_value, String &r_error) {
-	const GDExtensionPtrConstructor constructor = gdextension_interface::variant_get_ptr_constructor(engine_type(p_constant.type), p_constant.constructor);
+static bool construct_constant(const std::vector<TypeImage> &p_types, const bytecode::Constant &p_constant, Variant &r_value, String &r_error) {
+	const ValueType type = p_types[p_constant.type].storage;
+	const GDExtensionPtrConstructor constructor = gdextension_interface::variant_get_ptr_constructor(engine_type(type), p_constant.constructor);
 	if (!constructor) {
-		r_error = vformat("%s has no constructor %d", bytecode::value_type_name(p_constant.type), p_constant.constructor);
+		r_error = vformat("%s has no constructor %d", bytecode::value_type_name(type), p_constant.constructor);
 		return false;
 	}
 	std::vector<bytecode::Slot> slots;
@@ -208,10 +204,10 @@ static bool construct_constant(const bytecode::Constant &p_constant, Variant &r_
 		bytecode::Slot slot;
 		slot.type = arg.type;
 		slot.offset = size;
-		size += bytecode::slot_size(arg.type);
+		size += bytecode::slot_size(p_types[arg.type].storage);
 		slots.push_back(slot);
 	}
-	const SlotLayout layout = SlotLayout::of(size, slots);
+	const SlotLayout layout = SlotLayout::of(size, slots, p_types);
 	std::vector<uint64_t> storage(size / 8 + 1); // Slots are 8-byte aligned.
 	uint8_t *base = reinterpret_cast<uint8_t *>(storage.data());
 	layout.construct(base);
@@ -219,22 +215,22 @@ static bool construct_constant(const bytecode::Constant &p_constant, Variant &r_
 	bool ok = true;
 	for (size_t i = 0; ok && i < slots.size(); i++) {
 		Variant value;
-		ok = constant_value(p_constant.args[i], value, r_error) && from_variant(slots[i].type, value, base + slots[i].offset);
+		ok = constant_value(p_types, p_constant.args[i], value, r_error) && from_variant(p_types[slots[i].type].storage, value, base + slots[i].offset);
 		pointers.push_back(base + slots[i].offset);
 	}
 	if (ok) {
 		// The engine constructs into memory that holds no value.
 		alignas(16) uint8_t result[64];
 		constructor(result, pointers.data());
-		r_value = to_variant(p_constant.type, result);
-		destroy_value(p_constant.type, result);
+		r_value = to_variant(type, result);
+		destroy_value(type, result);
 	}
 	layout.destroy(base);
 	return ok;
 }
 
-bool constant_value(const bytecode::Constant &p_constant, Variant &r_value, String &r_error) {
-	const ValueType type = p_constant.type;
+bool constant_value(const std::vector<TypeImage> &p_types, const bytecode::Constant &p_constant, Variant &r_value, String &r_error) {
+	const ValueType type = p_types[p_constant.type].storage;
 	if (!p_constant.builtin.empty()) {
 		const StringName name = to_godot(p_constant.builtin);
 		Variant value; // The engine writes over it.
@@ -247,13 +243,14 @@ bool constant_value(const bytecode::Constant &p_constant, Variant &r_value, Stri
 		return true;
 	}
 	if (p_constant.constructor >= 0) {
-		return construct_constant(p_constant, r_value, r_error);
+		return construct_constant(p_types, p_constant, r_value, r_error);
 	}
 	if (type == ValueType::Array) {
-		Array array = typed_array(p_constant.element, to_godot(p_constant.class_name), to_godot(p_constant.script));
+		const ValueCheck &check = p_types[p_constant.type].check;
+		Array array = typed_array(check.element, check.class_name, check.script);
 		for (const bytecode::Constant &element : p_constant.args) {
 			Variant value;
-			if (!constant_value(element, value, r_error)) {
+			if (!constant_value(p_types, element, value, r_error)) {
 				return false;
 			}
 			array.push_back(value);
@@ -329,21 +326,23 @@ int ClassImage::find_member(const StringName &p_name) const {
 
 namespace {
 
-bool same_constant(const bytecode::Constant &p_a, const bytecode::Constant &p_b) {
-	return p_a.type == p_b.type && p_a.b == p_b.b && p_a.i == p_b.i && p_a.f == p_b.f && p_a.s == p_b.s && p_a.builtin == p_b.builtin &&
-			p_a.constructor == p_b.constructor && std::equal(p_a.args.begin(), p_a.args.end(), p_b.args.begin(), p_b.args.end(), same_constant) &&
-			p_a.element == p_b.element && p_a.class_name == p_b.class_name && p_a.script == p_b.script;
-}
+// Two modules compared with each other, so that their types are compared by
+// what they are rather than by index.
+struct ModulePair {
+	const bytecode::Module &a;
+	const bytecode::Module &b;
 
-// What a slot or a member holds, as an entry check reads it.
-bool same_description(const bytecode::Slot &p_a, const bytecode::Slot &p_b) {
-	return p_a.task_result == p_b.task_result && p_a.type == p_b.type && p_a.class_name == p_b.class_name && p_a.script == p_b.script && p_a.interface_name == p_b.interface_name &&
-			p_a.nullable == p_b.nullable && p_a.option == p_b.option && p_a.element == p_b.element;
-}
+	bool same_type(uint32_t p_a, uint32_t p_b) const { return ::petrichor::same_type(a, p_a, b, p_b); }
 
-bool same_slot(const bytecode::Slot &p_a, const bytecode::Slot &p_b) {
-	return p_a.name == p_b.name && same_description(p_a, p_b);
-}
+	bool same_constant(const bytecode::Constant &p_a, const bytecode::Constant &p_b) const {
+		return same_type(p_a.type, p_b.type) && p_a.b == p_b.b && p_a.i == p_b.i && p_a.f == p_b.f && p_a.s == p_b.s && p_a.builtin == p_b.builtin &&
+				p_a.constructor == p_b.constructor && std::equal(p_a.args.begin(), p_a.args.end(), p_b.args.begin(), p_b.args.end(), [&](const auto &x, const auto &y) { return same_constant(x, y); });
+	}
+
+	bool same_slot(const bytecode::Slot &p_a, const bytecode::Slot &p_b) const {
+		return p_a.name == p_b.name && same_type(p_a.type, p_b.type);
+	}
+};
 
 template <typename T, typename Same>
 bool same_prefix(const std::vector<T> &p_a, const std::vector<T> &p_b, uint32_t p_count, Same p_same) {
@@ -386,12 +385,15 @@ bool same_initializers(const bytecode::Module &p_a, const bytecode::Module &p_b)
 	}
 	const bytecode::TablePrefix &x = p_a.init_tables;
 	const bytecode::TablePrefix &y = p_b.init_tables;
-	if (x.constants != y.constants || x.engine_calls != y.engine_calls || x.properties != y.properties || x.utility_calls != y.utility_calls || x.operators != y.operators ||
+	if (x.types != y.types || x.constants != y.constants || x.engine_calls != y.engine_calls || x.properties != y.properties || x.utility_calls != y.utility_calls || x.operators != y.operators ||
 			x.fields != y.fields || x.constructors != y.constructors || x.builtin_methods != y.builtin_methods || x.classes != y.classes || x.method_calls != y.method_calls) {
 		return false;
 	}
-	return same_prefix(p_a.constants, p_b.constants, x.constants, same_constant) &&
-			same_prefix(p_a.engine_calls, p_b.engine_calls, x.engine_calls, [](const auto &a, const auto &b) { return a.method == b.method && a.return_type == b.return_type; }) &&
+	// The code refers to the same types by the same indices.
+	const ModulePair pair{ p_a, p_b };
+	return same_prefix(p_a.types, p_b.types, x.types, [](const auto &a, const auto &b) { return a == b; }) &&
+			same_prefix(p_a.constants, p_b.constants, x.constants, [&](const auto &a, const auto &b) { return pair.same_constant(a, b); }) &&
+			same_prefix(p_a.engine_calls, p_b.engine_calls, x.engine_calls, [](const auto &a, const auto &b) { return a.method == b.method && a.result_type == b.result_type; }) &&
 			same_prefix(p_a.properties, p_b.properties, x.properties, [](const auto &a, const auto &b) { return a.name == b.name && a.type == b.type; }) &&
 			same_prefix(p_a.utility_calls, p_b.utility_calls, x.utility_calls, [](const auto &a, const auto &b) { return a.function == b.function && a.hash == b.hash && a.is_vararg == b.is_vararg && a.params == b.params && a.return_type == b.return_type && a.result_type == b.result_type; }) &&
 			same_prefix(p_a.operators, p_b.operators, x.operators, [](const auto &a, const auto &b) { return a.op == b.op && a.left == b.left && a.right == b.right && a.result == b.result; }) &&
@@ -399,7 +401,7 @@ bool same_initializers(const bytecode::Module &p_a, const bytecode::Module &p_b)
 			same_prefix(p_a.constructors, p_b.constructors, x.constructors, [](const auto &a, const auto &b) { return a.type == b.type && a.index == b.index && a.params == b.params; }) &&
 			same_prefix(p_a.builtin_methods, p_b.builtin_methods, x.builtin_methods, [](const auto &a, const auto &b) { return a.base == b.base && a.method == b.method && a.hash == b.hash && a.is_vararg == b.is_vararg && a.params == b.params && a.return_type == b.return_type && a.result_type == b.result_type; }) &&
 			same_prefix(p_a.classes, p_b.classes, x.classes, [](const auto &a, const auto &b) { return a == b; }) &&
-			same_prefix(p_a.method_calls, p_b.method_calls, x.method_calls, [](const auto &a, const auto &b) { return a.method == b.method && bytecode::signature_key(a.params, a.defaults, a.result, a.is_async) == bytecode::signature_key(b.params, b.defaults, b.result, b.is_async); });
+			same_prefix(p_a.method_calls, p_b.method_calls, x.method_calls, [&](const auto &a, const auto &b) { return a.method == b.method && bytecode::signature_key(p_a.types, a.params, a.defaults, a.result, a.is_async) == bytecode::signature_key(p_b.types, b.params, b.defaults, b.result, b.is_async); });
 }
 
 } // namespace
@@ -416,11 +418,12 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	if (a.global_name != b.global_name || a.base_class != b.base_class || a.instance_size != b.instance_size || a.members.size() != b.members.size() || a.functions.size() != b.functions.size()) {
 		return false;
 	}
+	const ModulePair pair{ a, b };
 	for (size_t i = 0; i < a.members.size(); i++) {
 		const bytecode::Member &x = a.members[i];
 		const bytecode::Member &y = b.members[i];
-		if (x.name != y.name || !same_description(x, y) || x.offset != y.offset || x.is_onready != y.is_onready || x.setter != y.setter || x.getter != y.getter ||
-				x.is_pub != y.is_pub || x.is_export != y.is_export || x.hint != y.hint || x.hint_string != y.hint_string || x.has_initial != y.has_initial || !same_constant(x.initial, y.initial)) {
+		if (!pair.same_slot(x, y) || x.offset != y.offset || x.is_onready != y.is_onready || x.setter != y.setter || x.getter != y.getter ||
+				x.is_pub != y.is_pub || x.is_export != y.is_export || x.hint != y.hint || x.hint_string != y.hint_string || x.has_initial != y.has_initial || !pair.same_constant(x.initial, y.initial)) {
 			return false;
 		}
 	}
@@ -434,7 +437,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 			return false;
 		}
 		for (size_t p = 0; p < x.params.size(); p++) {
-			if (!same_slot(x.params[p], y.params[p])) {
+			if (!pair.same_slot(x.params[p], y.params[p])) {
 				return false;
 			}
 		}
@@ -460,17 +463,17 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 		}
 		const bytecode::Function &x = a.functions[i];
 		const bytecode::Function &y = b.functions[i];
-		if (x.is_inherited != y.is_inherited || x.base_signature != y.base_signature || x.name != y.name || !same_slot(x.result, y.result) || x.is_pub != y.is_pub || x.is_override != y.is_override || x.is_exposed != y.is_exposed ||
+		if (x.is_inherited != y.is_inherited || x.base_signature != y.base_signature || x.name != y.name || !pair.same_slot(x.result, y.result) || x.is_pub != y.is_pub || x.is_override != y.is_override || x.is_exposed != y.is_exposed ||
 				x.is_async != y.is_async || x.is_static != y.is_static || x.params.size() != y.params.size() || x.defaults.size() != y.defaults.size()) {
 			return false;
 		}
 		for (size_t d = 0; d < x.defaults.size(); d++) {
-			if (!same_constant(x.defaults[d], y.defaults[d])) {
+			if (!pair.same_constant(x.defaults[d], y.defaults[d])) {
 				return false;
 			}
 		}
 		for (size_t p = 0; p < x.params.size(); p++) {
-			if (!same_slot(x.params[p], y.params[p])) {
+			if (!pair.same_slot(x.params[p], y.params[p])) {
 				return false;
 			}
 		}

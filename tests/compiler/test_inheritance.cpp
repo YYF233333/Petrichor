@@ -60,7 +60,7 @@ pub func read() -> int:
 			inherited = fn.is_inherited && fn.code.empty() && !fn.is_override;
 		}
 		if (fn.name == "choose") {
-			override = !fn.is_inherited && fn.params.size() == 3 && fn.params[0].class_name == "Node" && fn.result.class_name == "Node3D";
+			override = !fn.is_inherited && fn.params.size() == 3 && r.module.types[fn.params[0].type].object.name == "Node" && r.module.types[fn.result.type].object.name == "Node3D";
 		}
 	}
 	CHECK(inherited);

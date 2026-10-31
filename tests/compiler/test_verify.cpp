@@ -110,7 +110,7 @@ TEST_CASE("operands must name slots of the instruction's type") {
 	SUBCASE("a call argument of another type") {
 		bytecode::Function &touch = function_named(module, "touch");
 		const size_t call = find_instruction(touch, Op::CALL);
-		touch.code[call + 5] = uint32_t(bytecode::ValueType::Int); // The String argument.
+		touch.code[call + 5] = value_type_index(module, bytecode::ValueType::Int); // The String argument.
 		CHECK(rejected(module, "parameter's type"));
 	}
 	SUBCASE("a result slot of another type") {
@@ -129,7 +129,7 @@ TEST_CASE("constants must have the type their instruction stores") {
 		CHECK(rejected(module, "a bool other than 0 and 1"));
 	}
 	SUBCASE("an int instruction with a float constant") {
-		module.constants[touch.code[find_instruction(touch, Op::CONST_INT) + 2]].type = bytecode::ValueType::Float;
+		module.constants[touch.code[find_instruction(touch, Op::CONST_INT) + 2]].type = value_type_index(module, bytecode::ValueType::Float);
 		CHECK(rejected(module, "the constant does not have the slot's type"));
 	}
 }
@@ -162,7 +162,7 @@ TEST_CASE("only arrays are indexed") {
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	bytecode::Function &g = function_named(result.module, "g");
 	const size_t index = find_instruction(g, Op::GET_INDEX);
-	g.code[index + 1] = uint32_t(bytecode::ValueType::String);
+	g.code[index + 1] = value_type_index(result.module, bytecode::ValueType::String);
 	g.code[index + 4] = g.params[0].offset; // The String as the container.
 	CHECK(rejected(result.module, "an index into a value that has none"));
 }
@@ -177,7 +177,7 @@ TEST_CASE("a call to a method of this language passes what the call table says")
 	const size_t call = find_instruction(poke, Op::CALL_METHOD);
 	CHECK(problem(module).empty());
 	SUBCASE("an argument of another type") {
-		poke.code[call + 7] = uint32_t(bytecode::ValueType::Int); // The String argument.
+		poke.code[call + 7] = value_type_index(module, bytecode::ValueType::Int); // The String argument.
 		CHECK(rejected(module, "parameter's type"));
 	}
 	SUBCASE("fewer arguments than the parameters without defaults") {
@@ -229,7 +229,7 @@ TEST_CASE("tables and layouts must be consistent") {
 		CHECK(rejected(module, "storage"));
 	}
 	SUBCASE("a parameter that is not its slot") {
-		pick.params[0].type = bytecode::ValueType::Int;
+		pick.params[0].type = value_type_index(module, bytecode::ValueType::Int);
 		CHECK(rejected(module, "parameter 0"));
 	}
 	SUBCASE("an init function outside the module") {

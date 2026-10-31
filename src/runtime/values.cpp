@@ -172,18 +172,44 @@ void destroy_value(ValueType p_type, uint8_t *p_slot) {
 	}
 }
 
-SlotLayout SlotLayout::of(uint32_t p_size, const std::vector<bytecode::Slot> &p_slots) {
-	SlotLayout layout;
-	layout.size = p_size;
-	for (const bytecode::Slot &slot : p_slots) {
-		if (!ops(slot.type).zero_default) {
-			layout.constructed.emplace_back(slot.offset, slot.type);
+std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_types) {
+	std::vector<TypeImage> images;
+	for (uint32_t i = 0; i < p_types.size(); i++) {
+		const bytecode::TypeDesc &type = p_types[i];
+		TypeImage image;
+		image.storage = bytecode::storage_of(p_types, i);
+		image.result_key = bytecode::task_result_key(p_types, i);
+		ValueCheck &check = image.check;
+		// The class of an object, or of the objects in an array.
+		const bytecode::TypeDesc &object = type.kind == bytecode::TypeKind::Array ? p_types[type.element] : type;
+		if (object.kind == bytecode::TypeKind::Object) {
+			check.class_name = to_godot(object.object.name);
+			if (object.object.interface_name.empty()) {
+				check.script = to_godot(object.object.script);
+			} else {
+				check.interface = to_godot(object.object.script + "::" + object.object.interface_name);
+			}
 		}
-		if (is_variant_slot(slot.type) || ops(slot.type).destroy) {
-			layout.destroyed.emplace_back(slot.offset, slot.type);
+		check.task_result = type.task_result;
+		check.nullable = type.kind != bytecode::TypeKind::Object || type.nullable;
+		if (type.kind == bytecode::TypeKind::Option) {
+			check.option = bytecode::storage_of(p_types, type.element);
 		}
+		if (type.kind == bytecode::TypeKind::Array) {
+			check.element = bytecode::storage_of(p_types, type.element);
+		}
+		images.push_back(std::move(image));
 	}
-	return layout;
+	return images;
+}
+
+void SlotLayout::add(uint32_t p_offset, ValueType p_type) {
+	if (!ops(p_type).zero_default) {
+		constructed.emplace_back(p_offset, p_type);
+	}
+	if (is_variant_slot(p_type) || ops(p_type).destroy) {
+		destroyed.emplace_back(p_offset, p_type);
+	}
 }
 
 void SlotLayout::construct(uint8_t *p_base) const {
@@ -405,11 +431,11 @@ bool is_live_object(const uint8_t *p_slot) {
 	return type_of(value) == Variant::OBJECT && object_id_of(value) != 0 && value.booleanize();
 }
 
-Variant outward_variant(const bytecode::Slot &p_slot, const uint8_t *p_data) {
-	if (p_slot.type == ValueType::Object && p_slot.nullable && !is_live_object(p_data)) {
+Variant outward_variant(const TypeImage &p_type, const uint8_t *p_data) {
+	if (p_type.storage == ValueType::Object && p_type.check.nullable && !is_live_object(p_data)) {
 		return Variant();
 	}
-	return to_variant(p_slot.type, p_data);
+	return to_variant(p_type.storage, p_data);
 }
 
 bool check_value_sizes(String &r_error) {

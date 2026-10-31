@@ -113,7 +113,7 @@ public:
 };
 
 // Reflection dictionaries for the engine.
-godot::Dictionary property_info(const bytecode::Member &p_member);
+godot::Dictionary property_info(const ClassImage &p_image, const bytecode::Member &p_member);
 godot::TypedArray<godot::Dictionary> visible_properties(const ClassImage &p_image);
 godot::TypedArray<godot::Dictionary> visible_methods(const ClassImage &p_image);
 // A member's constant initial value; None for one that has none.

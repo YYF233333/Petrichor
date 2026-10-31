@@ -21,7 +21,7 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 		bytecode::Slot slot = p_function.regs[i];
 		slot.offset = frame_size;
 		offsets.push_back(frame_size);
-		frame_size += bytecode::slot_size(slot.type);
+		frame_size += bytecode::type_size(p_module.types, slot.type);
 		out.slots.push_back(slot);
 		if (i < p_function.param_count) {
 			out.params.push_back(slot);
@@ -58,7 +58,7 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 				put(offset_of(instr.base));
 				put(uint32_t(instr.args.size()));
 				for (uint32_t arg : instr.args) {
-					put(uint32_t(p_function.regs[arg].type));
+					put(p_function.regs[arg].type);
 					put(offset_of(arg));
 				}
 				continue;
@@ -161,13 +161,12 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 					put(offset_of(instr.a));
 					break;
 				case Op::NEW_ARRAY:
-					put(uint32_t(instr.type));
-					put(instr.imm);
+					put(instr.type);
 					put(offset_of(instr.dst));
 					break;
 				case Op::GET_INDEX:
-					put(uint32_t(p_function.regs[instr.a].type));
-					put(uint32_t(p_function.regs[instr.dst].type));
+					put(p_function.regs[instr.a].type);
+					put(p_function.regs[instr.dst].type);
 					put(offset_of(instr.dst));
 					put(offset_of(instr.a));
 					put(offset_of(instr.b));

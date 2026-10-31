@@ -127,23 +127,21 @@ static Dictionary method_dict(const StringName &p_name, const Array &p_args, con
 	return dict;
 }
 
-// An object of the class as the engine and GDScript see it: T and T? alike
-// (spec §10.1).
-static StringName class_of(bytecode::ValueType p_type, const std::string &p_class) {
-	return p_type == bytecode::ValueType::Object ? StringName(to_godot(p_class)) : StringName();
-}
-
-// A Variant slot, such as int?, is NIL to the engine, which reads that as
-// void unless told otherwise.
-static uint32_t usage_of(bytecode::ValueType p_type, uint32_t p_usage) {
-	return p_type == bytecode::ValueType::Variant ? p_usage | PROPERTY_USAGE_NIL_IS_VARIANT : p_usage;
+// A value of the type as the engine and GDScript see it: an object as its
+// class, T and T? alike (spec §10.1); a Variant slot, such as int?, is NIL to
+// the engine, which reads that as void unless told otherwise.
+static Dictionary value_dict(const TypeImage &p_type, const StringName &p_name, uint32_t p_usage) {
+	const bool object = p_type.storage == bytecode::ValueType::Object;
+	const uint32_t usage = p_type.storage == bytecode::ValueType::Variant ? p_usage | PROPERTY_USAGE_NIL_IS_VARIANT : p_usage;
+	return property_dict(variant_type(p_type.storage), p_name, usage, object ? p_type.check.class_name : StringName());
 }
 
 // Array[T] is the engine's typed array, which it describes with a hint.
-static Dictionary typed(Dictionary p_dict, const bytecode::Slot &p_slot) {
-	if (p_slot.element != bytecode::ValueType::Void) {
+static Dictionary typed(Dictionary p_dict, const TypeImage &p_type) {
+	const bytecode::ValueType element = p_type.check.element;
+	if (element != bytecode::ValueType::Void) {
 		p_dict["hint"] = PROPERTY_HINT_ARRAY_TYPE;
-		p_dict["hint_string"] = p_slot.element == bytecode::ValueType::Object ? to_godot(p_slot.class_name) : Variant::get_type_name(variant_type(p_slot.element));
+		p_dict["hint_string"] = element == bytecode::ValueType::Object ? String(p_type.check.class_name) : Variant::get_type_name(variant_type(element));
 	}
 	return p_dict;
 }
@@ -152,15 +150,15 @@ static Dictionary function_info(const ClassImage &p_image, int p_index) {
 	const bytecode::Function &function = p_image.module.functions[p_index];
 	Array args;
 	for (const bytecode::Slot &param : function.params) {
-		args.push_back(typed(property_dict(variant_type(param.type), to_godot(param.name), usage_of(param.type, PROPERTY_USAGE_DEFAULT), class_of(param.type, param.class_name)), param));
+		args.push_back(typed(value_dict(p_image.types[param.type], to_godot(param.name), PROPERTY_USAGE_DEFAULT), p_image.types[param.type]));
 	}
-	const Dictionary result = function.is_async ? property_dict(Variant::NIL, StringName(), PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_NIL_IS_VARIANT, StringName()) : property_dict(variant_type(function.result.type), StringName(), usage_of(function.result.type, PROPERTY_USAGE_DEFAULT), class_of(function.result.type, function.result.class_name));
+	const Dictionary result = function.is_async ? property_dict(Variant::NIL, StringName(), PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_NIL_IS_VARIANT, StringName()) : value_dict(p_image.types[function.result.type], StringName(), PROPERTY_USAGE_DEFAULT);
 	Dictionary method = method_dict(p_image.function_names[p_index], args, result, METHOD_FLAGS_DEFAULT | (function.is_static ? METHOD_FLAG_STATIC : 0));
 	Array defaults;
 	for (const bytecode::Constant &constant : function.defaults) {
 		Variant value;
 		String error;
-		if (!constant_value(constant, value, error)) {
+		if (!constant_value(p_image.types, constant, value, error)) {
 			ERR_PRINT(vformat("%s: a default argument of %s: %s", p_image.path, p_image.function_names[p_index], error));
 		}
 		defaults.push_back(value);
@@ -182,34 +180,36 @@ static PropertyHint picker_of(const String &p_class) {
 	return PROPERTY_HINT_NONE;
 }
 
-Dictionary property_info(const bytecode::Member &p_member) {
+Dictionary property_info(const ClassImage &p_image, const bytecode::Member &p_member) {
 	// Exported members are stored in scenes and shown in the inspector; public
 	// ones are only visible to other code.
 	uint32_t usage = PROPERTY_USAGE_SCRIPT_VARIABLE;
 	if (p_member.is_export) {
 		usage |= PROPERTY_USAGE_DEFAULT;
 	}
-	Dictionary dict = property_dict(variant_type(p_member.type), to_godot(p_member.name), usage_of(p_member.type, usage), class_of(p_member.type, p_member.class_name));
+	const TypeImage &type = p_image.types[p_member.type];
+	Dictionary dict = value_dict(type, to_godot(p_member.name), usage);
 	// The inspector picks a class of this language by its global name.
-	String class_name = to_godot(p_member.class_name);
-	if (!p_member.script.empty()) {
-		const Ref<Script> script = ResourceLoader::get_singleton()->load(to_godot(p_member.script));
+	String class_name = type.check.class_name;
+	if (!type.check.script.is_empty()) {
+		const Ref<Script> script = ResourceLoader::get_singleton()->load(type.check.script);
 		if (script.is_valid() && !script->get_global_name().is_empty()) {
 			class_name = script->get_global_name();
 		}
 	}
+	const ValueType element = type.check.element;
 	if (p_member.hint != 0) {
 		dict["hint"] = p_member.hint;
 		dict["hint_string"] = to_godot(p_member.hint_string);
-	} else if (p_member.is_export && p_member.type == ValueType::Object) {
+	} else if (p_member.is_export && type.storage == ValueType::Object) {
 		dict["hint"] = picker_of(class_name);
 		dict["hint_string"] = class_name;
-	} else if (p_member.is_export && p_member.element != ValueType::Void) {
+	} else if (p_member.is_export && element != ValueType::Void) {
 		// An exported typed array: "type/hint:class" per element, as GDScript writes it.
 		dict["hint"] = PROPERTY_HINT_TYPE_STRING;
-		dict["hint_string"] = p_member.element == ValueType::Object ? vformat("%d/%d:%s", Variant::OBJECT, picker_of(class_name), class_name) : vformat("%d:", variant_type(p_member.element));
+		dict["hint_string"] = element == ValueType::Object ? vformat("%d/%d:%s", Variant::OBJECT, picker_of(class_name), class_name) : vformat("%d:", variant_type(element));
 	} else {
-		dict = typed(dict, p_member);
+		dict = typed(dict, type);
 	}
 	return dict;
 }
@@ -232,7 +232,7 @@ TypedArray<Dictionary> visible_properties(const ClassImage &p_image) {
 			}
 		}
 		if (i < module.members.size() && PetScript::is_visible(module.members[i])) {
-			list.push_back(property_info(module.members[i]));
+			list.push_back(property_info(p_image, module.members[i]));
 		}
 	}
 	return list;
@@ -257,9 +257,9 @@ Variant initial_value(const ClassImage &p_image, size_t p_member) {
 	// so that the script that types an array has been loaded.
 	Variant value;
 	String error;
-	if (!constant_value(member.initial, value, error)) {
+	if (!constant_value(p_image.types, member.initial, value, error)) {
 		ERR_PRINT(vformat("%s: the initial value of %s: %s", p_image.path, p_image.member_names[p_member], error));
-		return default_variant(member.type);
+		return default_variant(p_image.types[member.type].storage);
 	}
 	return value;
 }
@@ -737,7 +737,7 @@ TypedArray<Dictionary> PetScript::_get_script_signal_list() const {
 		for (const bytecode::SignalInfo &signal : current->module.signals) {
 			Array args;
 			for (const bytecode::Slot &param : signal.params) {
-				args.push_back(typed(property_dict(variant_type(param.type), to_godot(param.name), usage_of(param.type, PROPERTY_USAGE_DEFAULT), class_of(param.type, param.class_name)), param));
+				args.push_back(typed(value_dict(current->types[param.type], to_godot(param.name), PROPERTY_USAGE_DEFAULT), current->types[param.type]));
 			}
 			list.push_back(method_dict(to_godot(signal.name), args, property_dict(Variant::NIL, StringName(), PROPERTY_USAGE_DEFAULT), METHOD_FLAGS_DEFAULT));
 		}

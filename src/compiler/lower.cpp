@@ -48,39 +48,16 @@ std::string interface_id(const Type &p_interface) {
 	return p_interface.script + "::" + p_interface.interface_name();
 }
 
-bytecode::Slot slot_of(const std::string &p_name, const Type &p_type) {
-	bytecode::Slot slot;
-	slot.name = p_name;
-	slot.type = value_type(p_type);
-	// The engine's class, and for a class of this language its script; for an
-	// interface, the script that declares it and its name, as the runtime
-	// names interfaces.
-	const auto object_class = [&](const Type &p_object) {
-		slot.class_name = p_object.engine_class();
-		if (p_object.is_interface) {
-			slot.interface_name = interface_id(p_object);
-		} else {
-			slot.script = p_object.script;
-		}
-	};
-	if (p_type.kind == TypeKind::Task) {
-		slot.class_name = "CoroutineTask";
-		slot.nullable = p_type.nullable;
-		slot.task_result = bytecode::signature_key({}, 0, slot_of("", p_type.args[0]));
-	} else if (p_type.kind == TypeKind::Object) {
-		object_class(p_type);
-		slot.nullable = p_type.nullable;
-	} else if (p_type.kind == TypeKind::Option) {
-		slot.nullable = true;
-		slot.option = value_type(p_type.args[0]);
-	} else if (p_type.kind == TypeKind::Builtin && !p_type.args.empty()) {
-		// Array[T].
-		slot.element = value_type(p_type.args[0]);
-		if (p_type.args[0].kind == TypeKind::Object) {
-			object_class(p_type.args[0]);
-		}
+// The engine's class, and for a class of this language its script; for an
+// interface, the script that declares it and its name.
+bytecode::ClassRef class_ref(const Type &p_type) {
+	bytecode::ClassRef ref;
+	ref.name = p_type.engine_class();
+	ref.script = p_type.script;
+	if (p_type.is_interface) {
+		ref.interface_name = p_type.interface_name();
 	}
-	return slot;
+	return ref;
 }
 
 bool is_typed_array(const Type &p_type) {
@@ -140,70 +117,6 @@ uint8_t engine_operator(TokenKind p_op) {
 		default:
 			return OP_UNKNOWN;
 	}
-}
-
-// An array constant is typed as the slot it goes to.
-void type_array(bytecode::Constant &r_constant, const bytecode::Slot &p_slot) {
-	r_constant.element = p_slot.element;
-	r_constant.class_name = p_slot.class_name;
-	r_constant.script = p_slot.script;
-}
-
-// A literal, or a constant the checker found (is_constant()), as the target's type.
-bytecode::Constant constant_of(const Expr &p_expr, const Type &p_target) {
-	if (p_target.kind == TypeKind::Option && p_expr.kind != ExprKind::NoneLiteral) {
-		return constant_of(p_expr, p_target.args[0]);
-	}
-	bytecode::Constant constant;
-	constant.type = value_type(p_target);
-	if (p_expr.target == Target::BuiltinConstant) {
-		constant.builtin = p_expr.text;
-		return constant;
-	}
-	if (p_expr.target == Target::EngineConstant) {
-		constant.i = p_expr.int_value;
-		constant.f = double(constant.i);
-		return constant;
-	}
-	if (p_expr.target == Target::BuiltinConstructor) {
-		constant.constructor = p_expr.index;
-		for (size_t i = 0; i < p_expr.args.size(); i++) {
-			constant.args.push_back(constant_of(*p_expr.args[i], p_expr.param_types[i]));
-		}
-		return constant;
-	}
-	if (p_expr.kind == ExprKind::ArrayLiteral) {
-		type_array(constant, slot_of(std::string(), p_target));
-		for (size_t i = 0; i < p_expr.args.size(); i++) {
-			constant.args.push_back(constant_of(*p_expr.args[i], stored_element_type(p_expr, i)));
-		}
-		return constant;
-	}
-	const Expr *literal = &p_expr;
-	bool negate = false;
-	if (literal->kind == ExprKind::Unary) {
-		negate = true;
-		literal = literal->left.get();
-	}
-	switch (literal->kind) {
-		case ExprKind::IntLiteral:
-			// Negated through unsigned, so that the smallest int wraps as at run time.
-			constant.i = negate ? int64_t(0ull - uint64_t(literal->int_value)) : literal->int_value;
-			constant.f = double(constant.i);
-			break;
-		case ExprKind::FloatLiteral:
-			constant.f = negate ? -literal->float_value : literal->float_value;
-			break;
-		case ExprKind::StringLiteral:
-			constant.s = literal->text;
-			break;
-		case ExprKind::BoolLiteral:
-			constant.b = literal->bool_value;
-			break;
-		default:
-			break;
-	}
-	return constant;
 }
 
 // A place that can be read and written. The base of a member access is
@@ -278,18 +191,118 @@ class Lowerer {
 	}
 
 	uint32_t temp(const Type &p_type) {
-		fn.regs.push_back(slot_of(std::string(), p_type));
+		fn.regs.push_back(slot(std::string(), p_type));
 		return uint32_t(fn.regs.size() - 1);
 	}
 
 	uint32_t temp(ValueType p_type) {
 		bytecode::Slot slot;
-		slot.type = p_type;
+		slot.type = type_index(p_type);
 		fn.regs.push_back(slot);
 		return uint32_t(fn.regs.size() - 1);
 	}
 
-	ValueType reg_type(uint32_t p_reg) const { return fn.regs[p_reg].type; }
+	// How the register holds its value.
+	ValueType reg_type(uint32_t p_reg) const { return bytecode::storage_of(module.types, fn.regs[p_reg].type); }
+
+	/* Types */
+
+	// The type's entry in the module's type table, added once (architecture §2.2).
+	uint32_t type_index(const bytecode::TypeDesc &p_type) {
+		return intern(module.types, p_type, [](const auto &a, const auto &b) { return a == b; });
+	}
+
+	uint32_t type_index(ValueType p_type) {
+		bytecode::TypeDesc type;
+		type.value = p_type;
+		return type_index(type);
+	}
+
+	uint32_t type_index(const Type &p_type) {
+		bytecode::TypeDesc type;
+		if (p_type.kind == TypeKind::Task) {
+			type.kind = bytecode::TypeKind::Object;
+			type.object.name = "CoroutineTask";
+			type.nullable = p_type.nullable;
+			type.task_result = bytecode::task_result_key(module.types, type_index(p_type.args[0]));
+		} else if (p_type.kind == TypeKind::Object) {
+			type.kind = bytecode::TypeKind::Object;
+			type.object = class_ref(p_type);
+			type.nullable = p_type.nullable;
+		} else if (p_type.kind == TypeKind::Option) {
+			type.kind = bytecode::TypeKind::Option;
+			type.element = type_index(p_type.args[0]);
+		} else if (is_typed_array(p_type)) {
+			type.kind = bytecode::TypeKind::Array;
+			type.element = type_index(p_type.args[0]);
+		} else {
+			type.value = value_type(p_type);
+		}
+		return type_index(type);
+	}
+
+	bytecode::Slot slot(const std::string &p_name, const Type &p_type) {
+		bytecode::Slot slot;
+		slot.name = p_name;
+		slot.type = type_index(p_type);
+		return slot;
+	}
+
+	// A literal, or a constant the checker found (is_constant()), as the target's type.
+	bytecode::Constant constant_of(const Expr &p_expr, const Type &p_target) {
+		if (p_target.kind == TypeKind::Option && p_expr.kind != ExprKind::NoneLiteral) {
+			return constant_of(p_expr, p_target.args[0]);
+		}
+		bytecode::Constant constant;
+		constant.type = type_index(p_target);
+		if (p_expr.target == Target::BuiltinConstant) {
+			constant.builtin = p_expr.text;
+			return constant;
+		}
+		if (p_expr.target == Target::EngineConstant) {
+			constant.i = p_expr.int_value;
+			constant.f = double(constant.i);
+			return constant;
+		}
+		if (p_expr.target == Target::BuiltinConstructor) {
+			constant.constructor = p_expr.index;
+			for (size_t i = 0; i < p_expr.args.size(); i++) {
+				constant.args.push_back(constant_of(*p_expr.args[i], p_expr.param_types[i]));
+			}
+			return constant;
+		}
+		if (p_expr.kind == ExprKind::ArrayLiteral) {
+			for (size_t i = 0; i < p_expr.args.size(); i++) {
+				constant.args.push_back(constant_of(*p_expr.args[i], stored_element_type(p_expr, i)));
+			}
+			return constant;
+		}
+		const Expr *literal = &p_expr;
+		bool negate = false;
+		if (literal->kind == ExprKind::Unary) {
+			negate = true;
+			literal = literal->left.get();
+		}
+		switch (literal->kind) {
+			case ExprKind::IntLiteral:
+				// Negated through unsigned, so that the smallest int wraps as at run time.
+				constant.i = negate ? int64_t(0ull - uint64_t(literal->int_value)) : literal->int_value;
+				constant.f = double(constant.i);
+				break;
+			case ExprKind::FloatLiteral:
+				constant.f = negate ? -literal->float_value : literal->float_value;
+				break;
+			case ExprKind::StringLiteral:
+				constant.s = literal->text;
+				break;
+			case ExprKind::BoolLiteral:
+				constant.b = literal->bool_value;
+				break;
+			default:
+				break;
+		}
+		return constant;
+	}
 
 	// What the checker passed but lowering has no code for is a defect of the
 	// compiler: it is reported instead of compiled, and lowering goes on with
@@ -299,7 +312,7 @@ class Lowerer {
 		return temp(ValueType::Variant);
 	}
 
-	void instr(Op p_op, uint32_t p_dst, uint32_t p_a = NO_REG, uint32_t p_b = NO_REG, uint32_t p_imm = 0, ValueType p_type = ValueType::Void) {
+	void instr(Op p_op, uint32_t p_dst, uint32_t p_a = NO_REG, uint32_t p_b = NO_REG, uint32_t p_imm = 0, uint32_t p_type = 0) {
 		ir::Instr i;
 		i.op = p_op;
 		i.type = p_type;
@@ -320,7 +333,7 @@ class Lowerer {
 		} else if (type == ValueType::String) {
 			instr(Op::MOVE_STRING, p_dst, p_src);
 		} else {
-			instr(Op::MOVE_VALUE, p_dst, p_src, NO_REG, 0, type);
+			instr(Op::MOVE_VALUE, p_dst, p_src, NO_REG, 0, fn.regs[p_dst].type);
 		}
 	}
 
@@ -332,8 +345,7 @@ class Lowerer {
 
 	uint32_t load_member(uint32_t p_member) {
 		const uint32_t result = temp(cls.all_members[p_member]->type);
-		const ValueType type = reg_type(result);
-		instr(by_storage(type, Op::LOAD_MEMBER_8, Op::LOAD_MEMBER_STRING, Op::LOAD_MEMBER_VALUE), result, NO_REG, NO_REG, p_member, type);
+		instr(by_storage(reg_type(result), Op::LOAD_MEMBER_8, Op::LOAD_MEMBER_STRING, Op::LOAD_MEMBER_VALUE), result, NO_REG, NO_REG, p_member, fn.regs[result].type);
 		// An export the scene did not assign (spec §7.5), or an @onready
 		// member read before the node is ready (§6.3), is still None.
 		const VarDecl &member = *cls.all_members[p_member];
@@ -344,8 +356,7 @@ class Lowerer {
 	}
 
 	void store_member(uint32_t p_member, uint32_t p_value) {
-		const ValueType type = reg_type(p_value);
-		instr(by_storage(type, Op::STORE_MEMBER_8, Op::STORE_MEMBER_STRING, Op::STORE_MEMBER_VALUE), NO_REG, p_value, NO_REG, p_member, type);
+		instr(by_storage(reg_type(p_value), Op::STORE_MEMBER_8, Op::STORE_MEMBER_STRING, Op::STORE_MEMBER_VALUE), NO_REG, p_value, NO_REG, p_member, fn.regs[p_value].type);
 	}
 
 	// The setter or getter that reading or writing a member calls, or -1: in
@@ -386,24 +397,25 @@ class Lowerer {
 
 	// A StringName or NodePath constant with this text.
 	uint32_t text_constant(ValueType p_type, const std::string &p_text) {
-		bytecode::Constant constant{ p_type };
+		bytecode::Constant constant;
+		constant.type = type_index(p_type);
 		constant.s = p_text;
 		return add_constant(constant);
 	}
 
-	uint32_t engine_call(const std::string &p_method, ValueType p_return) {
-		return intern(module.engine_calls, bytecode::EngineCall{ p_method, p_return }, [](const auto &a, const auto &b) {
-			return a.method == b.method && a.return_type == b.return_type;
+	uint32_t engine_call(const std::string &p_method, uint32_t p_result_type) {
+		return intern(module.engine_calls, bytecode::EngineCall{ p_method, p_result_type }, [](const auto &a, const auto &b) {
+			return a.method == b.method && a.result_type == b.result_type;
 		});
 	}
 
 	uint32_t method_call(const bytecode::MethodCall &p_call) {
-		return intern(module.method_calls, p_call, [](const auto &a, const auto &b) {
-			return a.method == b.method && bytecode::signature_key(a.params, a.defaults, a.result, a.is_async) == bytecode::signature_key(b.params, b.defaults, b.result, b.is_async);
+		return intern(module.method_calls, p_call, [&](const auto &a, const auto &b) {
+			return a.method == b.method && bytecode::signature_key(module.types, a.params, a.defaults, a.result, a.is_async) == bytecode::signature_key(module.types, b.params, b.defaults, b.result, b.is_async);
 		});
 	}
 
-	uint32_t property(const std::string &p_name, ValueType p_type) {
+	uint32_t property(const std::string &p_name, uint32_t p_type) {
 		return intern(module.properties, bytecode::PropertyAccess{ p_name, p_type }, [](const auto &a, const auto &b) {
 			return a.name == b.name && a.type == b.type;
 		});
@@ -452,13 +464,7 @@ class Lowerer {
 	// A class of this language is tested by its script, an interface by what
 	// the object's class implements.
 	uint32_t class_index(const Type &p_type) {
-		bytecode::ClassRef ref;
-		ref.name = p_type.engine_class();
-		ref.script = p_type.script;
-		if (p_type.is_interface) {
-			ref.interface_name = p_type.interface_name();
-		}
-		return class_index(ref);
+		return class_index(class_ref(p_type));
 	}
 
 	static std::vector<ValueType> value_types(const std::vector<Type> &p_types) {
@@ -483,7 +489,7 @@ class Lowerer {
 			// T becomes Some(T) (spec §3.4).
 			const uint32_t inner = convert(p_reg, p_to.args[0]);
 			const uint32_t result = temp(p_to);
-			instr(Op::TO_VARIANT, result, inner, NO_REG, 0, reg_type(inner));
+			instr(Op::TO_VARIANT, result, inner, NO_REG, 0, fn.regs[inner].type);
 			return result;
 		}
 		if (from == to || to == ValueType::Variant || to == ValueType::Void) {
@@ -556,12 +562,20 @@ class Lowerer {
 
 	uint32_t load_text(ValueType p_type, const std::string &p_text) {
 		const uint32_t result = temp(p_type);
-		instr(Op::CONST_VALUE, result, NO_REG, NO_REG, text_constant(p_type, p_text), p_type);
+		instr(Op::CONST_VALUE, result, NO_REG, NO_REG, text_constant(p_type, p_text), fn.regs[result].type);
 		return result;
 	}
 
+	// A constant of the type that has only its default value, such as 0 or None.
+	uint32_t default_constant(uint32_t p_type) {
+		bytecode::Constant constant;
+		constant.type = p_type;
+		return add_constant(constant);
+	}
+
 	void load_int(uint32_t p_dst, int64_t p_value) {
-		bytecode::Constant constant{ ValueType::Int };
+		bytecode::Constant constant;
+		constant.type = type_index(ValueType::Int);
 		constant.i = p_value;
 		instr(Op::CONST_INT, p_dst, NO_REG, NO_REG, add_constant(constant));
 	}
@@ -576,12 +590,12 @@ class Lowerer {
 
 	/* Arrays */
 
-	void new_array(uint32_t p_dst, const bytecode::Slot &p_type) {
-		bytecode::ClassRef element;
-		element.name = p_type.class_name;
-		element.script = p_type.script;
-		const uint32_t class_operand = p_type.element == ValueType::Object ? class_index(element) : bytecode::NO_SLOT;
-		instr(Op::NEW_ARRAY, p_dst, NO_REG, NO_REG, class_operand, p_type.element);
+	void new_array(uint32_t p_dst) {
+		instr(Op::NEW_ARRAY, p_dst, NO_REG, NO_REG, 0, fn.regs[p_dst].type);
+	}
+
+	bool is_typed_array_reg(uint32_t p_reg) const {
+		return module.types[fn.regs[p_reg].type].kind == bytecode::TypeKind::Array;
 	}
 
 	// A method of a built-in type by name, as the engine declares it.
@@ -595,7 +609,7 @@ class Lowerer {
 		call.is_vararg = p_vararg;
 		call.params = std::move(p_params);
 		call.return_type = p_return;
-		call.result_type = p_return;
+		call.result_type = type_index(p_return);
 		return builtin_method(call);
 	}
 
@@ -625,7 +639,7 @@ class Lowerer {
 
 	uint32_t array_literal(const Expr &p_expr) {
 		const uint32_t result = temp(p_expr.type);
-		new_array(result, fn.regs[result]);
+		new_array(result);
 		const uint32_t append = engine_builtin_method(ValueType::Array, "append", { ValueType::Variant }, ValueType::Void);
 		for (size_t e = 0; e < p_expr.args.size(); e++) {
 			const Type &element = p_expr.param_types[e];
@@ -638,9 +652,9 @@ class Lowerer {
 
 	uint32_t default_value(uint32_t p_dst) {
 		const ValueType type = reg_type(p_dst);
-		if (fn.regs[p_dst].element != ValueType::Void) {
+		if (is_typed_array_reg(p_dst)) {
 			// An empty Array[T] is typed too.
-			new_array(p_dst, fn.regs[p_dst]);
+			new_array(p_dst);
 			return p_dst;
 		}
 		switch (type) {
@@ -648,18 +662,18 @@ class Lowerer {
 				load_int(p_dst, 0);
 				break;
 			case ValueType::Float:
-				instr(Op::CONST_FLOAT, p_dst, NO_REG, NO_REG, add_constant(bytecode::Constant{ ValueType::Float }));
+				instr(Op::CONST_FLOAT, p_dst, NO_REG, NO_REG, default_constant(fn.regs[p_dst].type));
 				break;
 			case ValueType::Bool:
 				instr(Op::CONST_BOOL, p_dst, NO_REG, NO_REG, 0);
 				break;
 			case ValueType::String:
-				instr(Op::CONST_STRING, p_dst, NO_REG, NO_REG, add_constant(bytecode::Constant{ ValueType::String }));
+				instr(Op::CONST_STRING, p_dst, NO_REG, NO_REG, default_constant(fn.regs[p_dst].type));
 				break;
 			case ValueType::Object:
 			case ValueType::Variant:
-				// None; a constant of type Object or Variant is always None.
-				instr(Op::CONST_VALUE, p_dst, NO_REG, NO_REG, add_constant(bytecode::Constant{ type }), type);
+				// None; a constant of an object type or of T? is always None.
+				instr(Op::CONST_VALUE, p_dst, NO_REG, NO_REG, default_constant(fn.regs[p_dst].type), fn.regs[p_dst].type);
 				break;
 			case ValueType::Void:
 				break;
@@ -788,7 +802,7 @@ class Lowerer {
 				const uint32_t value = lower_expr(*p_call.base);
 				const uint32_t message = p_call.args.empty() ? NO_REG : convert(lower_expr(*p_call.args[0]), Type::of(TypeKind::String));
 				const uint32_t result = temp(p_call.type);
-				instr(Op::UNWRAP, result, value, message, 0, reg_type(result));
+				instr(Op::UNWRAP, result, value, message, 0, fn.regs[result].type);
 				return result;
 			}
 			default:
@@ -845,17 +859,17 @@ class Lowerer {
 				bytecode::MethodCall method;
 				method.method = p_call.text;
 				for (const Type &param : p_call.engine_params) {
-					method.params.push_back(slot_of(std::string(), param));
+					method.params.push_back(slot(std::string(), param));
 				}
 				method.defaults = uint32_t(p_call.index);
 				method.is_async = p_call.is_async;
-				method.result = slot_of(std::string(), p_call.is_async ? p_call.type.args[0] : p_call.type);
+				method.result = slot(std::string(), p_call.is_async ? p_call.type.args[0] : p_call.type);
 				i.imm = method_call(method);
 				break;
 			}
 			case Target::EngineMethod:
 				i.op = Op::CALL_ENGINE;
-				i.imm = engine_call(p_call.text, value_type(p_call.type));
+				i.imm = engine_call(p_call.text, type_index(filtered ? p_call.engine_return : p_call.type));
 				break;
 			case Target::Utility: {
 				i.op = Op::CALL_UTILITY;
@@ -867,7 +881,7 @@ class Lowerer {
 				const bool argument_typed = p_call.engine_return.kind == TypeKind::Variant && p_call.type.kind != TypeKind::Variant;
 				utility_call.params = argument_typed ? std::vector<ValueType>(p_call.args.size(), ValueType::Variant) : value_types(p_call.param_types);
 				utility_call.return_type = value_type(p_call.engine_return);
-				utility_call.result_type = value_type(p_call.type);
+				utility_call.result_type = type_index(p_call.type);
 				i.imm = utility(utility_call);
 				break;
 			}
@@ -880,7 +894,7 @@ class Lowerer {
 				method.is_vararg = p_call.is_vararg;
 				method.params = value_types(p_call.engine_params);
 				method.return_type = value_type(p_call.engine_return);
-				method.result_type = value_type(p_call.type);
+				method.result_type = type_index(p_call.type);
 				i.imm = builtin_method(method);
 				break;
 			}
@@ -916,7 +930,7 @@ class Lowerer {
 			// The engine made a new array, so a new array typed by that class
 			// with the same elements is not told apart from it.
 			const uint32_t typed = temp(p_call.type);
-			new_array(typed, fn.regs[typed]);
+			new_array(typed);
 			call_builtin(engine_builtin_method(ValueType::Array, "assign", { ValueType::Array }, ValueType::Void), typed, { i.dst });
 			return typed;
 		}
@@ -982,9 +996,8 @@ class Lowerer {
 					return result;
 				}
 				if (p_expr.target == Target::BuiltinConstant) {
-					const ValueType type = value_type(p_expr.type);
-					const uint32_t result = temp(type);
-					instr(Op::CONST_VALUE, result, NO_REG, NO_REG, add_constant(constant_of(p_expr, p_expr.type)), type);
+					const uint32_t result = temp(value_type(p_expr.type));
+					instr(Op::CONST_VALUE, result, NO_REG, NO_REG, add_constant(constant_of(p_expr, p_expr.type)), fn.regs[result].type);
 					return result;
 				}
 				// A local, narrowed or not, a member, a property or a field.
@@ -1075,9 +1088,9 @@ class Lowerer {
 		const uint32_t path_reg = load_text(ValueType::NodePath, p_expr.text);
 		ir::Instr i;
 		i.op = Op::CALL_ENGINE;
-		i.imm = engine_call("get_node", ValueType::Object);
 		i.args = { path_reg };
 		i.dst = temp(p_expr.type);
+		i.imm = engine_call("get_node", fn.regs[i.dst].type);
 		add(i);
 		check_object(i.dst, p_expr.type);
 		return i.dst;
@@ -1115,7 +1128,7 @@ class Lowerer {
 				break;
 			case Target::SelfProperty:
 				place.kind = Place::Kind::SelfProperty;
-				place.index = property(p_expr.text, value_type(p_expr.type));
+				place.index = property(p_expr.text, type_index(p_expr.type));
 				break;
 			case Target::Owner:
 				place.kind = Place::Kind::Owner;
@@ -1123,7 +1136,7 @@ class Lowerer {
 			case Target::ObjectProperty:
 				place.kind = Place::Kind::ObjectProperty;
 				place.reg = lower_expr(*p_expr.base);
-				place.index = property(p_expr.text, value_type(p_expr.type));
+				place.index = property(p_expr.text, type_index(p_expr.type));
 				break;
 			case Target::Field:
 				place.kind = Place::Kind::Field;
@@ -1148,7 +1161,7 @@ class Lowerer {
 				return p_place.reg;
 			case Place::Kind::NarrowedLocal: {
 				const uint32_t result = temp(p_place.type);
-				instr(Op::UNWRAP, result, p_place.reg, NO_REG, 0, reg_type(result));
+				instr(Op::UNWRAP, result, p_place.reg, NO_REG, 0, fn.regs[result].type);
 				return result;
 			}
 			case Place::Kind::Member: {
@@ -1183,7 +1196,7 @@ class Lowerer {
 				move(p_place.reg, p_value);
 				return;
 			case Place::Kind::NarrowedLocal:
-				instr(Op::TO_VARIANT, p_place.reg, p_value, NO_REG, 0, reg_type(p_value));
+				instr(Op::TO_VARIANT, p_place.reg, p_value, NO_REG, 0, fn.regs[p_value].type);
 				return;
 			case Place::Kind::Member: {
 				const int setter = accessor(p_place.index, true);
@@ -1202,7 +1215,7 @@ class Lowerer {
 				instr(Op::SET_PROPERTY, NO_REG, p_place.kind == Place::Kind::SelfProperty ? NO_REG : p_place.reg, p_value, p_place.index);
 				return;
 			case Place::Kind::Owner:
-				instr(Op::SET_PROPERTY, NO_REG, NO_REG, p_value, property("owner", ValueType::Object));
+				instr(Op::SET_PROPERTY, NO_REG, NO_REG, p_value, property("owner", fn.regs[p_value].type));
 				return;
 			case Place::Kind::Field:
 				instr(Op::SET_FIELD, NO_REG, p_place.reg, p_value, p_place.index);
@@ -1452,6 +1465,7 @@ class Lowerer {
 
 	void record_init_tables() {
 		bytecode::TablePrefix &prefix = module.init_tables;
+		prefix.types = uint32_t(module.types.size());
 		prefix.constants = uint32_t(module.constants.size());
 		prefix.engine_calls = uint32_t(module.engine_calls.size());
 		prefix.properties = uint32_t(module.properties.size());
@@ -1469,6 +1483,8 @@ public:
 			cls(p_class), module(r_module), errors(r_errors) {}
 
 	void run(bool p_declarations_only) {
+		// Type 0, which a result that is not there has.
+		type_index(ValueType::Void);
 		module.global_name = cls.class_name;
 		module.base_class = cls.native_base;
 		module.base_script = cls.base_script;
@@ -1481,32 +1497,30 @@ public:
 		for (const VarDecl *entry : cls.all_members) {
 			const VarDecl &decl_member = *entry;
 			bytecode::Member member;
-			static_cast<bytecode::Slot &>(member) = slot_of(decl_member.name, decl_member.type);
+			static_cast<bytecode::Slot &>(member) = slot(decl_member.name, decl_member.type);
 			// Without the scenes, a type that comes from them is unknown; the
 			// module only describes the class then (architecture §2.4).
-			if (p_declarations_only && member.type == ValueType::Void) {
-				member.type = ValueType::Variant;
+			if (p_declarations_only && bytecode::storage_of(module.types, member.type) == ValueType::Void) {
+				member.type = type_index(ValueType::Variant);
 			}
 			member.is_onready = decl_member.is_onready;
 			member.setter = decl_member.setter_index;
 			member.getter = decl_member.getter_index;
 			member.line = uint32_t(decl_member.line);
 			member.offset = offset;
-			offset += bytecode::slot_size(member.type);
+			offset += bytecode::type_size(module.types, member.type);
 			member.is_pub = decl_member.is_pub;
 			member.is_export = decl_member.is_export;
 			member.hint = decl_member.hint;
 			member.hint_string = decl_member.hint_string;
-			member.initial = bytecode::Constant{ member.type };
+			// Its type's default (spec §4.3) when it has no initializer; an empty
+			// Array[T] is typed too.
+			member.initial.type = member.type;
 			if (decl_member.constant_initializer) {
 				member.has_initial = true;
 				member.initial = constant_of(*decl_member.initializer, decl_member.type);
 			} else if (!decl_member.initializer && !decl_member.must_assign) {
-				// Its type's default (spec §4.3); an empty Array[T] is typed too.
 				member.has_initial = true;
-				if (member.type == ValueType::Array) {
-					type_array(member.initial, member);
-				}
 			}
 			module.members.push_back(member);
 		}
@@ -1517,7 +1531,7 @@ public:
 			info.name = signal.name;
 			info.is_pub = signal.is_pub;
 			for (const ParamDecl &param : signal.params) {
-				info.params.push_back(slot_of(param.name, param.type));
+				info.params.push_back(slot(param.name, param.type));
 			}
 			module.signals.push_back(info);
 		}
@@ -1559,14 +1573,14 @@ public:
 			decl = &function;
 			line = function.line;
 			fn.param_count = uint32_t(function.params.size());
-			fn.result = slot_of(std::string(), function.return_type);
+			fn.result = slot(std::string(), function.return_type);
 			fn.is_async = function.is_async;
 			fn.is_pub = function.is_pub;
 			fn.is_override = function.is_override;
 			fn.is_exposed = function.is_exposed || cls.exposed_methods.count(function.name);
 			fn.line = uint32_t(function.line);
 			for (const LocalInfo &local : function.locals) {
-				fn.regs.push_back(slot_of(local.name, local.type));
+				fn.regs.push_back(slot(local.name, local.type));
 			}
 			if (!p_declarations_only && !inherited) {
 				lower_block(function.body);
@@ -1586,12 +1600,12 @@ public:
 					std::vector<bytecode::Slot> params;
 					size_t defaults = 0;
 					for (const ParamDecl &param : parent->params) {
-						params.push_back(slot_of(param.name, param.type));
+						params.push_back(slot(param.name, param.type));
 						if (param.default_value) {
 							++defaults;
 						}
 					}
-					out.base_signature = bytecode::signature_key(params, defaults, slot_of("", parent->return_type), parent->is_async);
+					out.base_signature = bytecode::signature_key(module.types, params, defaults, slot("", parent->return_type), parent->is_async);
 				}
 			}
 			for (const ParamDecl &param : function.params) {

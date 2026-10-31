@@ -117,13 +117,13 @@ var label := "n"
 	CHECK(module.global_name == "Counter");
 	CHECK(module.base_class == "Node");
 	REQUIRE(module.members.size() == 3);
-	CHECK(module.members[0].type == ValueType::Float);
+	CHECK(storage(module, module.members[0].type) == ValueType::Float);
 	CHECK(module.members[0].is_pub);
 	CHECK(module.members[0].is_export);
 	CHECK(module.members[0].initial.f == 2.0);
-	CHECK(module.members[1].type == ValueType::Int);
+	CHECK(storage(module, module.members[1].type) == ValueType::Int);
 	CHECK(module.members[1].initial.i == -3);
-	CHECK(module.members[2].type == ValueType::String);
+	CHECK(storage(module, module.members[2].type) == ValueType::String);
 	CHECK(module.members[2].initial.s == "n");
 }
 
@@ -132,10 +132,10 @@ TEST_CASE("signatures") {
 	const bytecode::Function &process = function_named(module, "_process");
 	CHECK(process.is_override);
 	REQUIRE(process.params.size() == 1);
-	CHECK(process.params[0].type == ValueType::Float);
+	CHECK(storage(module, process.params[0].type) == ValueType::Float);
 	const bytecode::Function &add = function_named(module, "add");
 	CHECK(add.is_pub);
-	CHECK(add.result.type == ValueType::Int);
+	CHECK(storage(module, add.result.type) == ValueType::Int);
 	const size_t sum = find_instruction(add, Op::ADD_INT);
 	CHECK(add.code[sum + 2] == add.params[0].offset);
 	CHECK(add.code[sum + 3] == add.params[1].offset);
@@ -220,7 +220,7 @@ func f() -> void:
 	CHECK(module.utility_calls[0].function == "print");
 	REQUIRE(module.engine_calls.size() == 1);
 	CHECK(module.engine_calls[0].method == "get_child_count");
-	CHECK(module.engine_calls[0].return_type == ValueType::Int);
+	CHECK(storage(module, module.engine_calls[0].result_type) == ValueType::Int);
 }
 
 TEST_CASE("a member of a property is changed in a copy and written back") {
@@ -228,7 +228,7 @@ TEST_CASE("a member of a property is changed in a copy and written back") {
 	CHECK(in_order(opcodes(module, "_process"), { Op::GET_PROPERTY, Op::GET_FIELD, Op::ADD_FLOAT, Op::SET_FIELD, Op::SET_PROPERTY }));
 	REQUIRE(module.properties.size() == 1);
 	CHECK(module.properties[0].name == "position");
-	CHECK(module.properties[0].type == ValueType::Vector3);
+	CHECK(storage(module, module.properties[0].type) == ValueType::Vector3);
 	REQUIRE(module.fields.size() == 1);
 	CHECK(module.fields[0].base == ValueType::Vector3);
 	CHECK(module.fields[0].name == "y");
@@ -246,8 +246,8 @@ var first := rng.randi()
 )");
 	CHECK(module.members[0].has_initial);
 	CHECK(!module.members[1].has_initial);
-	CHECK(module.members[1].type == ValueType::Object);
-	CHECK(module.members[1].class_name == "RandomNumberGenerator");
+	CHECK(storage(module, module.members[1].type) == ValueType::Object);
+	CHECK(module.types[module.members[1].type].object.name == "RandomNumberGenerator");
 	REQUIRE(module.init_function >= 0);
 	const bytecode::Function &init = module.functions[module.init_function];
 	CHECK(init.params.empty());
@@ -294,25 +294,25 @@ var mixed: Array[float] = [1, randf()]
 	CHECK(!initial("mixed"));
 
 	const bytecode::Constant &offset = member_named(module, "offset").initial;
-	CHECK(offset.type == ValueType::Vector2);
+	CHECK(storage(module, offset.type) == ValueType::Vector2);
 	CHECK(offset.constructor >= 0);
 	REQUIRE(offset.args.size() == 2);
-	CHECK((offset.args[0].type == ValueType::Float && offset.args[0].f == 400.0));
+	CHECK((storage(module, offset.args[0].type) == ValueType::Float && offset.args[0].f == 400.0));
 	CHECK(member_named(module, "up").initial.builtin == "UP");
-	CHECK(member_named(module, "path").initial.type == ValueType::NodePath);
+	CHECK(storage(module, member_named(module, "path").initial.type) == ValueType::NodePath);
 	// An int literal is converted where the constructor takes a float, as written.
 	const bytecode::Constant &placed = member_named(module, "placed").initial;
 	REQUIRE(placed.args.size() == 2);
 	REQUIRE(placed.args[1].args.size() == 2);
-	CHECK((placed.args[1].type == ValueType::Vector2 && placed.args[1].args[0].type == ValueType::Float && placed.args[1].args[0].f == -1.0));
+	CHECK((storage(module, placed.args[1].type) == ValueType::Vector2 && storage(module, placed.args[1].args[0].type) == ValueType::Float && placed.args[1].args[0].f == -1.0));
 	// An array is typed as the member; an element of an untyped one keeps its type.
 	const bytecode::Constant &items = member_named(module, "items").initial;
-	CHECK((items.type == ValueType::Array && items.element == ValueType::Int && items.args.size() == 2 && items.args[1].i == 2));
+	CHECK((module.types[items.type].kind == bytecode::TypeKind::Array && storage(module, module.types[items.type].element) == ValueType::Int && items.args.size() == 2 && items.args[1].i == 2));
 	const bytecode::Constant &nodes = member_named(module, "nodes").initial;
-	CHECK((nodes.element == ValueType::Object && nodes.class_name == "Node" && nodes.args.empty()));
+	CHECK((module.types[module.types[nodes.type].element].object.name == "Node" && nodes.args.empty()));
 	const bytecode::Constant &plain = member_named(module, "plain").initial;
 	REQUIRE(plain.args.size() == 2);
-	CHECK((plain.element == ValueType::Void && plain.args[0].type == ValueType::Int && plain.args[1].type == ValueType::String));
+	CHECK((module.types[plain.type].kind == bytecode::TypeKind::Value && storage(module, plain.args[0].type) == ValueType::Int && storage(module, plain.args[1].type) == ValueType::String));
 
 	const std::vector<uint8_t> data = bytecode::serialize(module);
 	bytecode::Module copy;
@@ -326,9 +326,9 @@ var mixed: Array[float] = [1, randf()]
 TEST_CASE("a member without an initializer starts at its type's default") {
 	const bytecode::Module module = module_of("extends Node\n@export var count: int\n@export var nodes: Array[Node]\n@export var target: Node\nvar maybe: Node?\n");
 	const bytecode::Member &count = member_named(module, "count");
-	CHECK((count.has_initial && count.initial.type == ValueType::Int && count.initial.i == 0));
+	CHECK((count.has_initial && storage(module, count.initial.type) == ValueType::Int && count.initial.i == 0));
 	const bytecode::Member &nodes = member_named(module, "nodes");
-	CHECK((nodes.has_initial && nodes.initial.element == ValueType::Object && nodes.initial.class_name == "Node" && nodes.initial.args.empty()));
+	CHECK((nodes.has_initial && module.types[module.types[nodes.initial.type].element].object.name == "Node" && nodes.initial.args.empty()));
 	CHECK(!member_named(module, "target").has_initial);
 	CHECK(member_named(module, "maybe").has_initial);
 }
@@ -364,9 +364,9 @@ TEST_CASE("built-in values take their own size in the frame") {
 	// The slots hold the values, not Variants; the verifier, which module_of()
 	// runs, checks that each slot has its type's size in the frame.
 	REQUIRE(f.params.size() == 3);
-	CHECK(f.params[0].type == ValueType::Vector3);
-	CHECK(f.params[1].type == ValueType::Transform3D);
-	CHECK(f.params[2].type == ValueType::Int);
+	CHECK(storage(module, f.params[0].type) == ValueType::Vector3);
+	CHECK(storage(module, f.params[1].type) == ValueType::Transform3D);
+	CHECK(storage(module, f.params[2].type) == ValueType::Int);
 }
 
 TEST_CASE("operators, utilities and constructors carry the engine's signatures") {
@@ -392,7 +392,7 @@ func f(x: float) -> Vector3:
 	CHECK(module.utility_calls[0].return_type == ValueType::Float);
 	CHECK(module.utility_calls[1].function == "lerp");
 	CHECK(module.utility_calls[1].return_type == ValueType::Variant);
-	CHECK(module.utility_calls[1].result_type == ValueType::Vector3);
+	CHECK(storage(module, module.utility_calls[1].result_type) == ValueType::Vector3);
 	CHECK(module.constants.back().builtin == "UP");
 }
 

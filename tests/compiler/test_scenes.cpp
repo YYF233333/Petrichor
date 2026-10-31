@@ -232,7 +232,7 @@ TEST_CASE("@onready members are set when the node is ready, from the scene") {
 	const compiler::CompileResult result = compile_in(source, hud_scene());
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	CHECK(result.module.members[0].is_onready);
-	CHECK(result.module.members[0].class_name == "Label");
+	CHECK(result.module.types[result.module.members[0].type].object.name == "Label");
 	REQUIRE(result.module.ready_function >= 0);
 	REQUIRE(result.module.init_function >= 0);
 	// shown is written on a new instance, health when the node is ready.
@@ -258,7 +258,7 @@ TEST_CASE("@onready members are set when the node is ready, from the scene") {
 	// Members declared later are set by then; player.gd of the FPS starter kit.
 	const compiler::CompileResult later = compile_in("extends CanvasLayer\n@onready var weapon = weapons[weapon_index]\nvar weapon_index := 0\nvar weapons: Array[String] = []\n\nfunc f() -> String:\n\treturn weapon + \"!\"\n", hud_scene());
 	REQUIRE_MESSAGE(later.ok(), messages(later));
-	CHECK(later.module.members[0].type == bytecode::ValueType::String);
+	CHECK(storage(later.module, later.module.members[0].type) == bytecode::ValueType::String);
 	CHECK(contains(errors("@onready var a := 1\nvar b := a"), "\"a\" is set when the node is ready, after this initializer runs"));
 	CHECK(contains(errors("@onready var b := a\n@onready var a := 1"), "\"a\" is not initialized yet"));
 	CHECK(contains(errors("@onready @export var a := 1"), "@onready and @export do not go together"));
@@ -276,7 +276,7 @@ TEST_CASE("while loading, only declarations are compiled") {
 	CHECK(result.module.declarations_only);
 	const bytecode::Function &f = function_named(result.module, "f");
 	CHECK(f.params.size() == 1);
-	CHECK(f.result.type == bytecode::ValueType::String);
+	CHECK(storage(result.module, f.result.type) == bytecode::ValueType::String);
 	CHECK(result.module.members[0].initial.f == 2.0);
 	CHECK(!compile_in(source, timer_scene("_on_missing")).ok());
 	// Nor are node paths, which need the scenes; a member typed by one is a
@@ -284,5 +284,5 @@ TEST_CASE("while loading, only declarations are compiled") {
 	CHECK(compile_in("extends Node3D\n\nfunc f():\n\t$Missing.text = \"\"\n", FakeProject(), true).ok());
 	const compiler::CompileResult loading = compile_in("extends CanvasLayer\n@onready var health = $Health\n", hud_scene(), true);
 	REQUIRE_MESSAGE(loading.ok(), messages(loading));
-	CHECK(loading.module.members[0].type == bytecode::ValueType::Variant);
+	CHECK(storage(loading.module, loading.module.members[0].type) == bytecode::ValueType::Variant);
 }

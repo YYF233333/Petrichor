@@ -71,9 +71,49 @@ const char *value_type_name(ValueType p_type);
 // ValueType::Count when the name is not a value type.
 ValueType value_type_from_name(const std::string &p_name);
 
-// A constant of type Object or Variant is None.
+// A class that code constructs, tests or casts to: an engine class, a class
+// of this language (spec §11.1), or an interface (§3.9).
+struct ClassRef {
+	std::string name; // The engine class its objects have.
+	std::string script; // A class of this language: its script; an interface: the script that declares it.
+	std::string interface_name; // An interface: its name in that script.
+
+	bool operator==(const ClassRef &p_other) const { return name == p_other.name && script == p_other.script && interface_name == p_other.interface_name; }
+};
+
+// What a type is (architecture §2.2). A module lists each type that its slots,
+// members, signatures, constants and instructions use once, and they refer to
+// it by its index; a type inside another comes before it.
+enum class TypeKind : uint8_t {
+	Value, // An engine value type in its own layout, or Variant: `value`.
+	Object, // An object of the class `object`, or also None when `nullable` (spec §3.3).
+	Option, // T? of a value type: None or a value of the type `element` (spec §3.4).
+	Array, // Array[T], T being the type `element` (spec §3.8); an untyped Array is a Value.
+	Count,
+};
+
+struct TypeDesc {
+	TypeKind kind = TypeKind::Value;
+	ValueType value = ValueType::Void;
+	uint32_t element = 0;
+	ClassRef object;
+	bool nullable = false;
+	std::string task_result; // Object: a Task[T] handle, with T's signature key.
+
+	bool operator==(const TypeDesc &p_other) const {
+		return kind == p_other.kind && value == p_other.value && element == p_other.element && object == p_other.object && nullable == p_other.nullable && task_result == p_other.task_result;
+	}
+};
+
+// How a slot of the type holds it: Object and T? in a Variant for now.
+ValueType storage_of(const std::vector<TypeDesc> &p_types, uint32_t p_type);
+uint32_t type_size(const std::vector<TypeDesc> &p_types, uint32_t p_type);
+// The type as text, equal exactly for equal types in any module.
+std::string type_key(const std::vector<TypeDesc> &p_types, uint32_t p_type);
+
+// A constant of a type of the table; one of an Object type or of T? is None.
 struct Constant {
-	ValueType type = ValueType::Void;
+	uint32_t type = 0;
 	bool b = false;
 	int64_t i = 0;
 	double f = 0.0;
@@ -83,33 +123,14 @@ struct Constant {
 	// list, from `args`, which have the types the constructor takes; -1 for
 	// none.
 	int32_t constructor = -1;
-	// The constructor's arguments, or the elements of an Array.
+	// The constructor's arguments, or the elements of an Array, typed as its type says.
 	std::vector<Constant> args;
-	// Array: typed as a slot is, with this element type and the class and the
-	// script of object elements.
-	ValueType element = ValueType::Void;
-	std::string class_name;
-	std::string script;
 };
 
 struct Slot {
-	std::string task_result; // Signature key of T for a Task[T] handle.
 	std::string name; // Empty for temporaries.
-	ValueType type = ValueType::Void;
+	uint32_t type = 0; // In the module's type table.
 	uint32_t offset = 0;
-	std::string class_name; // Object: the class its values have.
-	// Object, or the elements of Array: the script of a class of this
-	// language that they are (spec §11.1).
-	std::string script;
-	// Object, or the elements of Array: an interface they implement (spec
-	// §3.9), as "script::Name"; class_name is then Object.
-	std::string interface_name;
-	bool nullable = false; // Object: the value may be None.
-	// Variant: holds T? of a value type, None or a value of this type (spec §3.4).
-	ValueType option = ValueType::Void;
-	// Array: typed with this element type (spec §3.8); class_name has the class
-	// of object elements.
-	ValueType element = ValueType::Void;
 };
 
 // A slot of the instance, and what the class says of it.
@@ -144,8 +165,7 @@ struct Function {
 	// within the class passes every argument.
 	std::vector<Constant> defaults;
 	bool is_static = false;
-	// The return value, described as a parameter is: type (Void when there is
-	// none), class, script, nullable, option and element. Name and offset mean
+	// The return value's type, Void when there is none; name and offset mean
 	// nothing.
 	Slot result;
 	bool is_pub = false;
@@ -174,20 +194,10 @@ struct ExportGroup {
 	uint32_t before_member = 0;
 };
 
-// A class that code constructs, tests or casts to: an engine class, a class
-// of this language (spec §11.1), or an interface (§3.9).
-struct ClassRef {
-	std::string name; // The engine class its objects have.
-	std::string script; // A class of this language: its script; an interface: the script that declares it.
-	std::string interface_name; // An interface: its name in that script.
-
-	bool operator==(const ClassRef &p_other) const { return name == p_other.name && script == p_other.script && interface_name == p_other.interface_name; }
-};
-
 // A method of an engine class, called by name.
 struct EngineCall {
 	std::string method;
-	ValueType return_type = ValueType::Void;
+	uint32_t result_type = 0; // The slot that receives the result, by type.
 };
 
 // A method of a class of this language, called on an object of that class or
@@ -203,16 +213,17 @@ struct MethodCall {
 	Slot result; // As Function::result.
 };
 
-// A signature of a method as text that is equal exactly for equal signatures:
-// the parameters' and the result's types and their classes, scripts,
-// interfaces, nullability, options and elements, and how many parameters have
-// defaults.
-std::string signature_key(const std::vector<Slot> &p_params, size_t p_defaults, const Slot &p_result, bool p_async = false);
+// A signature of a method as text that is equal exactly for equal signatures
+// in any module: the parameters' and the result's types (`p_types` being the
+// table they refer to), and how many parameters have defaults.
+std::string signature_key(const std::vector<TypeDesc> &p_types, const std::vector<Slot> &p_params, size_t p_defaults, const Slot &p_result, bool p_async = false);
+// The signature key of a Task[T] handle's T.
+std::string task_result_key(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 
 // A property of an engine object, read and written by name.
 struct PropertyAccess {
 	std::string name;
-	ValueType type = ValueType::Void;
+	uint32_t type = 0; // The slot it is read into or written from, by type.
 };
 
 // A global utility function of the engine, such as print or lerp. Parameters
@@ -224,7 +235,7 @@ struct UtilityCall {
 	bool is_vararg = false;
 	std::vector<ValueType> params;
 	ValueType return_type = ValueType::Void; // As the engine declares it.
-	ValueType result_type = ValueType::Void; // The slot that receives it.
+	uint32_t result_type = 0; // The slot that receives it, by type.
 };
 
 // An operator of the engine's table (spec §5.1), as Variant::Operator.
@@ -257,12 +268,13 @@ struct BuiltinMethodCall {
 	bool is_vararg = false; // Extra arguments are passed as Variant.
 	std::vector<ValueType> params;
 	ValueType return_type = ValueType::Void;
-	ValueType result_type = ValueType::Void;
+	uint32_t result_type = 0; // The slot that receives it, by type.
 };
 
 // How many entries of each table there were once the init function was
 // lowered, before the other functions: the entries it can use.
 struct TablePrefix {
+	uint32_t types = 0;
 	uint32_t constants = 0;
 	uint32_t engine_calls = 0;
 	uint32_t properties = 0;
@@ -284,6 +296,7 @@ struct Module {
 	std::string base_class;
 	std::string base_script;
 	uint32_t inherited_members = 0;
+	std::vector<TypeDesc> types;
 	std::vector<Member> members;
 	std::vector<SignalInfo> signals;
 	std::vector<ExportGroup> groups;

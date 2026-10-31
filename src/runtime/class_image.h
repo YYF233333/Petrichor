@@ -37,11 +37,10 @@ public:
 	godot::StringName global_name;
 	godot::StringName base_class;
 
+	std::vector<TypeImage> types; // By the module's type index.
 	std::vector<godot::StringName> function_names;
 	godot::HashMap<godot::StringName, int> function_lookup;
-	// By function index: its frame and the entry checks of its parameters.
-	std::vector<SlotLayout> frames;
-	std::vector<std::vector<ValueCheck>> param_checks;
+	std::vector<SlotLayout> frames; // By function index.
 	int user_init = -1; // The class's own _init(), run after the member initializers.
 	// _notification(what: int) and _to_string() -> String, which the engine
 	// reaches through the instance rather than by calling them; -1 when absent.
@@ -51,7 +50,6 @@ public:
 	// here because godot-cpp values cannot be globals.
 	godot::StringName ready_method = "_ready";
 	std::vector<godot::StringName> member_names;
-	std::vector<ValueCheck> member_checks; // Entry checks of members, by member index.
 	SlotLayout members_layout; // An instance's storage.
 	godot::HashMap<godot::StringName, int> member_lookup;
 
@@ -91,9 +89,9 @@ public:
 	bool same_declarations(const ClassImage &p_other) const;
 };
 
-// The value of a constant of the module; None for an Object or Variant
-// constant. Returns false and sets r_error when the engine has no such
-// constant or constructor.
-bool constant_value(const bytecode::Constant &p_constant, godot::Variant &r_value, godot::String &r_error);
+// The value of a constant of the module whose types `p_types` are; None for a
+// constant of an object type or of T?. Returns false and sets r_error when the
+// engine has no such constant or constructor.
+bool constant_value(const std::vector<TypeImage> &p_types, const bytecode::Constant &p_constant, godot::Variant &r_value, godot::String &r_error);
 
 } // namespace petrichor

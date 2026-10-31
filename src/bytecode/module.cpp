@@ -108,28 +108,60 @@ ValueType value_type_from_name(const std::string &p_name) {
 	return ValueType::Count;
 }
 
-std::string signature_key(const std::vector<Slot> &p_params, size_t p_defaults, const Slot &p_result, bool p_async) {
-	std::string key = std::to_string(p_defaults) + (p_async ? "a" : "s");
-	const auto add = [&](const Slot &p_slot) {
-		key += '|';
-		key += char(p_slot.type);
-		key += char(p_slot.nullable ? 1 : 0);
-		key += char(p_slot.option);
-		key += char(p_slot.element);
-		key += std::to_string(p_slot.task_result.size()) + ":" + p_slot.task_result;
-		key += p_slot.class_name;
-		key += '\0';
-		key += p_slot.script;
-		key += '\0';
-		key += p_slot.interface_name;
-		key += '\0';
-	};
-	for (const Slot &param : p_params) {
-		add(param);
+ValueType storage_of(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
+	if (p_type >= p_types.size()) {
+		return ValueType::Void;
 	}
-	key += "->";
-	add(p_result);
-	return key;
+	switch (p_types[p_type].kind) {
+		case TypeKind::Value:
+			return p_types[p_type].value;
+		case TypeKind::Object:
+			return ValueType::Object;
+		case TypeKind::Option:
+			return ValueType::Variant;
+		case TypeKind::Array:
+			return ValueType::Array;
+		default:
+			return ValueType::Void;
+	}
+}
+
+uint32_t type_size(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
+	return slot_size(storage_of(p_types, p_type));
+}
+
+std::string type_key(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
+	if (p_type >= p_types.size()) {
+		return "!";
+	}
+	const TypeDesc &type = p_types[p_type];
+	const auto text = [](const std::string &p_text) { return std::to_string(p_text.size()) + ":" + p_text; };
+	switch (type.kind) {
+		case TypeKind::Value:
+			return "v" + std::to_string(int(type.value));
+		case TypeKind::Object:
+			return std::string(type.nullable ? "o?" : "o") + text(type.object.name) + text(type.object.script) + text(type.object.interface_name) + text(type.task_result);
+		case TypeKind::Option:
+			return "?(" + type_key(p_types, type.element) + ")";
+		case TypeKind::Array:
+			return "a(" + type_key(p_types, type.element) + ")";
+		default:
+			return "!";
+	}
+}
+
+std::string signature_key(const std::vector<TypeDesc> &p_types, const std::vector<Slot> &p_params, size_t p_defaults, const Slot &p_result, bool p_async) {
+	std::string key = std::to_string(p_defaults) + (p_async ? "a" : "s");
+	for (const Slot &param : p_params) {
+		key += '|' + type_key(p_types, param.type);
+	}
+	return key + "->" + type_key(p_types, p_result.type);
+}
+
+std::string task_result_key(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
+	Slot result;
+	result.type = p_type;
+	return signature_key(p_types, {}, 0, result);
 }
 
 uint64_t hash_source(const std::string &p_utf8) {
@@ -180,7 +212,7 @@ public:
 		}
 	}
 	void constant(const Constant &p_value) {
-		type(p_value.type);
+		u32(p_value.type);
 		u8(p_value.b ? 1 : 0);
 		u64(uint64_t(p_value.i));
 		f64(p_value.f);
@@ -191,21 +223,24 @@ public:
 		for (const Constant &arg : p_value.args) {
 			constant(arg);
 		}
-		type(p_value.element);
-		str(p_value.class_name);
-		str(p_value.script);
 	}
 	void slot(const Slot &p_slot) {
-		str(p_slot.task_result);
 		str(p_slot.name);
-		type(p_slot.type);
+		u32(p_slot.type);
 		u32(p_slot.offset);
-		str(p_slot.class_name);
-		str(p_slot.script);
-		str(p_slot.interface_name);
-		u8(p_slot.nullable ? 1 : 0);
-		type(p_slot.option);
-		type(p_slot.element);
+	}
+	void class_ref(const ClassRef &p_ref) {
+		str(p_ref.name);
+		str(p_ref.script);
+		str(p_ref.interface_name);
+	}
+	void type_desc(const TypeDesc &p_type) {
+		u8(uint8_t(p_type.kind));
+		type(p_type.value);
+		u32(p_type.element);
+		class_ref(p_type.object);
+		u8(p_type.nullable ? 1 : 0);
+		str(p_type.task_result);
 	}
 };
 
@@ -292,7 +327,7 @@ public:
 	}
 	Constant constant() {
 		Constant value;
-		value.type = type();
+		value.type = u32();
 		value.b = u8() != 0;
 		value.i = int64_t(u64());
 		value.f = f64();
@@ -303,23 +338,34 @@ public:
 		for (Constant &arg : value.args) {
 			arg = constant();
 		}
-		value.element = type();
-		value.class_name = str();
-		value.script = str();
 		return value;
 	}
 	Slot slot() {
 		Slot value;
-		value.task_result = str();
 		value.name = str();
-		value.type = type();
+		value.type = u32();
 		value.offset = u32();
-		value.class_name = str();
+		return value;
+	}
+	ClassRef class_ref() {
+		ClassRef value;
+		value.name = str();
 		value.script = str();
 		value.interface_name = str();
+		return value;
+	}
+	TypeDesc type_desc() {
+		TypeDesc value;
+		const uint8_t kind = u8();
+		if (kind >= uint8_t(TypeKind::Count)) {
+			failed = true;
+		}
+		value.kind = TypeKind(kind);
+		value.value = type();
+		value.element = u32();
+		value.object = class_ref();
 		value.nullable = u8() != 0;
-		value.option = type();
-		value.element = type();
+		value.task_result = str();
 		return value;
 	}
 };
@@ -339,6 +385,10 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 	w.str(p_module.base_script);
 	w.u32(p_module.inherited_members);
 
+	w.u32(uint32_t(p_module.types.size()));
+	for (const TypeDesc &type : p_module.types) {
+		w.type_desc(type);
+	}
 	w.u32(uint32_t(p_module.members.size()));
 	for (const Member &member : p_module.members) {
 		w.slot(member);
@@ -405,7 +455,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 	w.u32(uint32_t(int32_t(p_module.init_function)));
 	w.u32(uint32_t(int32_t(p_module.ready_function)));
 	const TablePrefix &prefix = p_module.init_tables;
-	for (uint32_t count : { prefix.constants, prefix.engine_calls, prefix.properties, prefix.utility_calls, prefix.operators, prefix.fields, prefix.constructors, prefix.builtin_methods, prefix.classes, prefix.method_calls }) {
+	for (uint32_t count : { prefix.types, prefix.constants, prefix.engine_calls, prefix.properties, prefix.utility_calls, prefix.operators, prefix.fields, prefix.constructors, prefix.builtin_methods, prefix.classes, prefix.method_calls }) {
 		w.u32(count);
 	}
 
@@ -416,12 +466,12 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 	w.u32(uint32_t(p_module.engine_calls.size()));
 	for (const EngineCall &call : p_module.engine_calls) {
 		w.str(call.method);
-		w.type(call.return_type);
+		w.u32(call.result_type);
 	}
 	w.u32(uint32_t(p_module.properties.size()));
 	for (const PropertyAccess &property : p_module.properties) {
 		w.str(property.name);
-		w.type(property.type);
+		w.u32(property.type);
 	}
 	w.u32(uint32_t(p_module.utility_calls.size()));
 	for (const UtilityCall &call : p_module.utility_calls) {
@@ -430,7 +480,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.u8(call.is_vararg ? 1 : 0);
 		w.types(call.params);
 		w.type(call.return_type);
-		w.type(call.result_type);
+		w.u32(call.result_type);
 	}
 	w.u32(uint32_t(p_module.operators.size()));
 	for (const OperatorCall &call : p_module.operators) {
@@ -459,13 +509,11 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.u8(call.is_vararg ? 1 : 0);
 		w.types(call.params);
 		w.type(call.return_type);
-		w.type(call.result_type);
+		w.u32(call.result_type);
 	}
 	w.u32(uint32_t(p_module.classes.size()));
 	for (const ClassRef &ref : p_module.classes) {
-		w.str(ref.name);
-		w.str(ref.script);
-		w.str(ref.interface_name);
+		w.class_ref(ref);
 	}
 	w.u32(uint32_t(p_module.method_calls.size()));
 	for (const MethodCall &call : p_module.method_calls) {
@@ -506,6 +554,10 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 	module.base_script = r.str();
 	module.inherited_members = r.u32();
 
+	module.types.resize(r.count());
+	for (TypeDesc &type : module.types) {
+		type = r.type_desc();
+	}
 	module.members.resize(r.count());
 	for (Member &member : module.members) {
 		static_cast<Slot &>(member) = r.slot();
@@ -575,7 +627,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		r.failed = true;
 	}
 	TablePrefix &prefix = module.init_tables;
-	for (uint32_t *count : { &prefix.constants, &prefix.engine_calls, &prefix.properties, &prefix.utility_calls, &prefix.operators, &prefix.fields, &prefix.constructors, &prefix.builtin_methods, &prefix.classes, &prefix.method_calls }) {
+	for (uint32_t *count : { &prefix.types, &prefix.constants, &prefix.engine_calls, &prefix.properties, &prefix.utility_calls, &prefix.operators, &prefix.fields, &prefix.constructors, &prefix.builtin_methods, &prefix.classes, &prefix.method_calls }) {
 		*count = r.u32();
 	}
 
@@ -586,12 +638,12 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 	module.engine_calls.resize(r.count());
 	for (EngineCall &call : module.engine_calls) {
 		call.method = r.str();
-		call.return_type = r.type();
+		call.result_type = r.u32();
 	}
 	module.properties.resize(r.count());
 	for (PropertyAccess &property : module.properties) {
 		property.name = r.str();
-		property.type = r.type();
+		property.type = r.u32();
 	}
 	module.utility_calls.resize(r.count());
 	for (UtilityCall &call : module.utility_calls) {
@@ -600,7 +652,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		call.is_vararg = r.u8() != 0;
 		call.params = r.types();
 		call.return_type = r.type();
-		call.result_type = r.type();
+		call.result_type = r.u32();
 	}
 	module.operators.resize(r.count());
 	for (OperatorCall &call : module.operators) {
@@ -629,13 +681,11 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		call.is_vararg = r.u8() != 0;
 		call.params = r.types();
 		call.return_type = r.type();
-		call.result_type = r.type();
+		call.result_type = r.u32();
 	}
 	module.classes.resize(r.count());
 	for (ClassRef &ref : module.classes) {
-		ref.name = r.str();
-		ref.script = r.str();
-		ref.interface_name = r.str();
+		ref = r.class_ref();
 	}
 	module.method_calls.resize(r.count());
 	for (MethodCall &call : module.method_calls) {
@@ -682,7 +732,7 @@ std::string disassemble(const Module &p_module, const Function &p_function) {
 			const uint32_t argc = code[pc + 4];
 			out << ' ' << code[pc + 1] << ' ' << code[pc + 2] << ' ' << code[pc + 3] << ' ' << argc;
 			for (uint32_t i = 0; i < argc; i++) {
-				out << " (" << value_type_name(ValueType(code[pc + 5 + 2 * i])) << ' ' << code[pc + 6 + 2 * i] << ')';
+				out << " (" << value_type_name(storage_of(p_module.types, code[pc + 5 + 2 * i])) << ' ' << code[pc + 6 + 2 * i] << ')';
 			}
 		}
 		pc += instruction_length(code.data() + pc);

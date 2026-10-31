@@ -42,7 +42,8 @@ class Verifier {
 	const Module &module;
 	std::string &error;
 
-	// The function being checked: slot types by offset, and instruction starts.
+	// The function being checked: how slots hold their values, by offset, and
+	// instruction starts.
 	const Function *function = nullptr;
 	std::unordered_map<uint32_t, ValueType> frame;
 	std::unordered_map<uint32_t, ValueType> instance;
@@ -57,22 +58,33 @@ class Verifier {
 		return false;
 	}
 
-	// The type of a slot, a member or a result, and what it says beyond it.
+	ValueType storage(uint32_t p_type) const { return storage_of(module.types, p_type); }
+
+	// Each type is whole, and refers only to types before it.
+	bool types() {
+		for (uint32_t i = 0; i < module.types.size(); i++) {
+			const TypeDesc &type = module.types[i];
+			const bool inner = type.kind == TypeKind::Option || type.kind == TypeKind::Array;
+			if (type.kind >= TypeKind::Count || type.value >= ValueType::Count || (inner && type.element >= i)) {
+				return fail("type " + std::to_string(i) + " is not a type");
+			}
+			if (!type.task_result.empty() && (type.kind != TypeKind::Object || type.object.name != "CoroutineTask")) {
+				return fail("Task descriptor without a task handle");
+			}
+			if (type.kind == TypeKind::Option && !is_native(storage(type.element))) {
+				return fail("an option of no value type");
+			}
+			if (type.kind == TypeKind::Array && !is_element(storage(type.element))) {
+				return fail("an array of no element type");
+			}
+		}
+		return true;
+	}
+
+	// The type of a slot, a member or a result.
 	bool description(const Slot &p_slot, bool p_void) {
-		if (!is_type(uint32_t(p_slot.type)) && !(p_void && p_slot.type == ValueType::Void)) {
+		if (p_slot.type >= module.types.size() || (!is_type(uint32_t(storage(p_slot.type))) && !(p_void && storage(p_slot.type) == ValueType::Void))) {
 			return fail("slot " + p_slot.name + " has no type");
-		}
-		if (!p_slot.task_result.empty() && (p_slot.type != ValueType::Object || p_slot.class_name != "CoroutineTask")) {
-			return fail("Task descriptor without a task handle");
-		}
-		if (p_slot.option != ValueType::Void && (p_slot.type != ValueType::Variant || !is_native(p_slot.option))) {
-			return fail("slot " + p_slot.name + " holds an option of no value type");
-		}
-		if (p_slot.element != ValueType::Void && (p_slot.type != ValueType::Array || !is_element(p_slot.element))) {
-			return fail("slot " + p_slot.name + " holds an array of no element type");
-		}
-		if (!p_slot.interface_name.empty() && p_slot.type != ValueType::Object && p_slot.element != ValueType::Object) {
-			return fail("slot " + p_slot.name + " has an interface but holds no objects");
 		}
 		return true;
 	}
@@ -87,12 +99,12 @@ class Verifier {
 			if (!description(slot, false)) {
 				return false;
 			}
-			const uint64_t end = uint64_t(slot.offset) + slot_size(slot.type);
+			const uint64_t end = uint64_t(slot.offset) + type_size(module.types, slot.type);
 			if (slot.offset % 8 != 0 || end > p_size) {
 				return fail("slot " + slot.name + " does not fit");
 			}
 			ranges.push_back({ slot.offset, uint32_t(end) });
-			r_types[slot.offset] = slot.type;
+			r_types[slot.offset] = storage(slot.type);
 		}
 		std::sort(ranges.begin(), ranges.end());
 		for (size_t i = 1; i < ranges.size(); i++) {
@@ -159,7 +171,25 @@ class Verifier {
 		if (!index(p_index, module.constants.size(), "constant")) {
 			return false;
 		}
-		return module.constants[p_index].type == p_type || fail("the constant does not have the slot's type");
+		return storage(module.constants[p_index].type) == p_type || fail("the constant does not have the slot's type");
+	}
+
+	// A constant, and what it is built from, have types of the table.
+	bool typed_constant(const Constant &p_constant) {
+		if (p_constant.type >= module.types.size()) {
+			return fail("a constant has no type");
+		}
+		for (const Constant &arg : p_constant.args) {
+			if (!typed_constant(arg)) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	// A type operand: an index into the type table, of a type a slot can hold.
+	bool type_operand(uint32_t p_type) {
+		return (p_type < module.types.size() && is_type(uint32_t(storage(p_type)))) || fail("no type");
 	}
 
 	bool target(uint32_t p_pc) {
@@ -181,11 +211,16 @@ class Verifier {
 		const uint32_t argc = p_call[3];
 		for (uint32_t i = 0; i < argc; i++) {
 			const uint32_t type = p_call[4 + 2 * i];
-			if (!is_type(type) || !slot(p_call[5 + 2 * i], ValueType(type))) {
+			if (type >= module.types.size() || !is_type(uint32_t(storage(type))) || !slot(p_call[5 + 2 * i], storage(type))) {
 				return fail("argument " + std::to_string(i) + " does not name a slot of its type");
 			}
 		}
 		return true;
+	}
+
+	// The argument holds its value as the parameter does.
+	bool argument_fits(const uint32_t *p_call, size_t p_index, uint32_t p_param) {
+		return storage(p_call[4 + 2 * p_index]) == storage(p_param) || fail("argument " + std::to_string(p_index) + " does not have the parameter's type");
 	}
 
 	// Arguments passed to an engine function: Variant parameters and extra
@@ -198,7 +233,7 @@ class Verifier {
 		}
 		for (size_t i = 0; i < p_params.size(); i++) {
 			const ValueType param = p_params[i];
-			if (param != ValueType::Variant && (!is_native(param) || ValueType(p_call[4 + 2 * i]) != param)) {
+			if (param != ValueType::Variant && (!is_native(param) || storage(p_call[4 + 2 * i]) != param)) {
 				return fail("argument " + std::to_string(i) + " does not have the parameter's type");
 			}
 		}
@@ -206,14 +241,18 @@ class Verifier {
 	}
 
 	// The engine writes a native return value straight into the result slot.
-	bool engine_result(uint32_t p_dst, ValueType p_return, ValueType p_result) {
-		if (p_return != ValueType::Variant && p_return != p_result) {
+	bool engine_result(uint32_t p_dst, ValueType p_return, uint32_t p_result) {
+		if (p_result >= module.types.size()) {
+			return fail("the result has no type");
+		}
+		const ValueType held = storage(p_result);
+		if (p_return != ValueType::Variant && p_return != held) {
 			return fail("the result slot does not have the return type");
 		}
 		if (p_return != ValueType::Void && p_return != ValueType::Variant && !is_native(p_return)) {
 			return fail("an engine function returns an object in its own layout");
 		}
-		return result(p_dst, p_result);
+		return result(p_dst, held);
 	}
 
 	bool call(Op p_op, const uint32_t *p_call) {
@@ -230,11 +269,11 @@ class Verifier {
 					return fail("wrong number of arguments");
 				}
 				for (size_t i = 0; i < p_call[3]; i++) {
-					if (ValueType(p_call[4 + 2 * i]) != target_function.params[i].type) {
-						return fail("argument " + std::to_string(i) + " does not have the parameter's type");
+					if (!argument_fits(p_call, i, target_function.params[i].type)) {
+						return false;
 					}
 				}
-				return arguments(p_call) && result(dst, target_function.is_async ? ValueType::Object : target_function.result.type);
+				return arguments(p_call) && result(dst, target_function.is_async ? ValueType::Object : storage(target_function.result.type));
 			}
 			case Op::CALL_AWAIT_ENGINE:
 				if (!function->is_async) {
@@ -245,7 +284,7 @@ class Verifier {
 				if (!index(callee, module.engine_calls.size(), "engine call") || !slot_or_none(base, ValueType::Object)) {
 					return false;
 				}
-				return arguments(p_call) && result(dst, module.engine_calls[callee].return_type);
+				return arguments(p_call) && result(dst, storage(module.engine_calls[callee].result_type));
 			}
 			case Op::CALL_SUPER:
 			case Op::CALL_METHOD: {
@@ -259,11 +298,11 @@ class Verifier {
 					return fail("wrong number of arguments");
 				}
 				for (uint32_t i = 0; i < argc; i++) {
-					if (ValueType(p_call[4 + 2 * i]) != method.params[i].type) {
-						return fail("argument " + std::to_string(i) + " does not have the parameter's type");
+					if (!argument_fits(p_call, i, method.params[i].type)) {
+						return false;
 					}
 				}
-				return arguments(p_call) && result(dst, method.is_async ? ValueType::Object : method.result.type);
+				return arguments(p_call) && result(dst, method.is_async ? ValueType::Object : storage(method.result.type));
 			}
 			case Op::CALL_UTILITY: {
 				if (!index(callee, module.utility_calls.size(), "utility") || (base != NO_SLOT && !fail("a utility call has a base"))) {
@@ -366,30 +405,33 @@ class Verifier {
 			case Op::CONST_STRING:
 				return slot(o[0], ValueType::String) && constant(o[1], ValueType::String);
 			case Op::CONST_VALUE: {
-				const ValueType value_type = ValueType(o[0]);
+				if (!type_operand(o[0])) {
+					return false;
+				}
+				const ValueType value_type = storage(o[0]);
 				if (value_type == ValueType::Bool || value_type == ValueType::Int || value_type == ValueType::Float || value_type == ValueType::String) {
 					return fail("a constant of a type that has an instruction of its own");
 				}
-				return is_type(o[0]) && slot(o[1], value_type) && constant(o[2], value_type);
+				return slot(o[1], value_type) && constant(o[2], value_type);
 			}
 			case Op::MOVE_8:
 				return slot_type(o[0], type) && (is_8_byte(type) || fail("an 8-byte move of another type")) && slot(o[1], type);
 			case Op::MOVE_STRING:
 				return same(o[0], o[1], ValueType::String);
 			case Op::MOVE_VALUE:
-				return (is_type(o[0]) || fail("no type")) && same(o[1], o[2], ValueType(o[0]));
+				return type_operand(o[0]) && same(o[1], o[2], storage(o[0]));
 			case Op::LOAD_MEMBER_8:
 				return slot_type(o[0], type) && (is_8_byte(type) || fail("an 8-byte load of another type")) && member(o[1], type);
 			case Op::LOAD_MEMBER_STRING:
 				return slot(o[0], ValueType::String) && member(o[1], ValueType::String);
 			case Op::LOAD_MEMBER_VALUE:
-				return (is_type(o[0]) || fail("no type")) && slot(o[1], ValueType(o[0])) && member(o[2], ValueType(o[0]));
+				return type_operand(o[0]) && slot(o[1], storage(o[0])) && member(o[2], storage(o[0]));
 			case Op::STORE_MEMBER_8:
 				return member_type(o[0], type) && (is_8_byte(type) || fail("an 8-byte store of another type")) && slot(o[1], type);
 			case Op::STORE_MEMBER_STRING:
 				return member(o[0], ValueType::String) && slot(o[1], ValueType::String);
 			case Op::STORE_MEMBER_VALUE:
-				return (is_type(o[0]) || fail("no type")) && member(o[1], ValueType(o[0])) && slot(o[2], ValueType(o[0]));
+				return type_operand(o[0]) && member(o[1], storage(o[0])) && slot(o[2], storage(o[0]));
 			case Op::INT_TO_FLOAT:
 				return slot(o[0], ValueType::Float) && slot(o[1], ValueType::Int);
 			case Op::FLOAT_TO_INT:
@@ -462,7 +504,7 @@ class Verifier {
 				if (!index(o[0], module.properties.size(), "property")) {
 					return false;
 				}
-				const ValueType property = module.properties[o[0]].type;
+				const ValueType property = storage(module.properties[o[0]].type);
 				if (!is_type(uint32_t(property))) {
 					return fail("a property without a type");
 				}
@@ -473,21 +515,13 @@ class Verifier {
 			case Op::GET_SINGLETON:
 			case Op::CHECK_OBJECT:
 				return index(o[0], module.classes.size(), "class") && slot(o[1], ValueType::Object);
-			case Op::NEW_ARRAY: {
-				const ValueType element = ValueType(o[0]);
-				if (element != ValueType::Void && !is_element(element)) {
-					return fail("an array of no element type");
-				}
-				if ((element == ValueType::Object) != (o[1] != NO_SLOT)) {
-					return fail("an array of objects needs a class, and only it");
-				}
-				return (o[1] == NO_SLOT || index(o[1], module.classes.size(), "class")) && slot(o[2], ValueType::Array);
-			}
+			case Op::NEW_ARRAY:
+				return type_operand(o[0]) && (storage(o[0]) == ValueType::Array || fail("an array of a type that is not one")) && slot(o[1], ValueType::Array);
 			case Op::GET_INDEX:
-				if (!is_indexable(ValueType(o[0])) || !is_type(o[1])) {
+				if (o[0] >= module.types.size() || !is_indexable(storage(o[0])) || !type_operand(o[1])) {
 					return fail("an index into a value that has none");
 				}
-				return slot(o[2], ValueType(o[1])) && slot(o[3], ValueType(o[0])) && slot(o[4], ValueType::Int);
+				return slot(o[2], storage(o[1])) && slot(o[3], storage(o[0])) && slot(o[4], ValueType::Int);
 			case Op::CAST_OBJECT:
 				return index(o[0], module.classes.size(), "class") && same(o[1], o[2], ValueType::Object);
 			case Op::IS_INSTANCE:
@@ -502,22 +536,22 @@ class Verifier {
 			case Op::CHECK_RANGE:
 				return (o[0] < uint32_t(IntRange::COUNT) || fail("no integer range")) && slot(o[1], ValueType::Int);
 			case Op::GET_AUTOLOAD:
-				if (!index(o[0], module.constants.size(), "constant") || module.constants[o[0]].type != ValueType::StringName) {
+				if (!index(o[0], module.constants.size(), "constant") || storage(module.constants[o[0]].type) != ValueType::StringName) {
 					return fail("an autoload without a name");
 				}
 				return slot(o[1], ValueType::Object);
 			case Op::METHOD_VALUE:
 				return index(o[0], module.functions.size(), "function") && slot(o[1], ValueType::Callable);
 			case Op::GET_SIGNAL:
-				if (!index(o[0], module.constants.size(), "constant") || module.constants[o[0]].type != ValueType::StringName) {
+				if (!index(o[0], module.constants.size(), "constant") || storage(module.constants[o[0]].type) != ValueType::StringName) {
 					return fail("a signal without a name");
 				}
 				return slot(o[1], ValueType::Signal) && slot_or_none(o[2], ValueType::Object);
 			case Op::TO_VARIANT:
-				return (is_native(ValueType(o[0])) || fail("no value type")) && slot(o[1], ValueType::Variant) && slot(o[2], ValueType(o[0]));
+				return (is_native(storage(o[0])) || fail("no value type")) && slot(o[1], ValueType::Variant) && slot(o[2], storage(o[0]));
 			case Op::UNWRAP: {
 				// An object's T? is an Object slot; a value's is a Variant slot.
-				const ValueType unwrapped = ValueType(o[0]);
+				const ValueType unwrapped = storage(o[0]);
 				if (unwrapped != ValueType::Object && !is_native(unwrapped)) {
 					return fail("no type to unwrap to");
 				}
@@ -534,7 +568,7 @@ class Verifier {
 			case Op::AWAIT_SIGNAL:
 				return (function->is_async || fail("await in a synchronous function")) && slot(o[1], p_op == Op::AWAIT_TASK ? ValueType::Object : ValueType::Signal) && (o[0] == NO_SLOT || frame.count(o[0]) || fail("unknown await result slot")) && (p_op == Op::AWAIT_SIGNAL || o[2] <= 1 || fail("invalid await ownership"));
 			case Op::RETURN:
-				return (function->result.type != ValueType::Void || fail("a void function returns a value")) && slot(o[0], function->result.type);
+				return (storage(function->result.type) != ValueType::Void || fail("a void function returns a value")) && slot(o[0], storage(function->result.type));
 			case Op::RETURN_VOID:
 				// Also at the unreachable end of a function with a return type;
 				// the caller's slot then keeps its default value.
@@ -593,12 +627,20 @@ public:
 		if (module.inherited_members > module.members.size() || (module.base_script.empty() && module.inherited_members)) {
 			return fail("invalid inherited member prefix");
 		}
+		if (!types()) {
+			return false;
+		}
+		for (const Constant &each : module.constants) {
+			if (!typed_constant(each)) {
+				return false;
+			}
+		}
 		// The init and ready functions run with no arguments and give nothing.
 		for (const int32_t index : { module.init_function, module.ready_function }) {
 			if (index < -1 || index >= int32_t(module.functions.size())) {
 				return fail("an initializer function is not a function of the module");
 			}
-			if (index >= 0 && (module.functions[index].result.type != ValueType::Void || !module.functions[index].params.empty())) {
+			if (index >= 0 && (storage(module.functions[index].result.type) != ValueType::Void || !module.functions[index].params.empty())) {
 				return fail("an initializer function takes or returns a value");
 			}
 		}
@@ -614,7 +656,7 @@ public:
 			}
 			if (member.setter >= 0) {
 				const Function &setter = module.functions[member.setter];
-				if (setter.is_async || setter.result.type != ValueType::Void || setter.params.size() != 1 || setter.params[0].type != member.type) {
+				if (setter.is_async || storage(setter.result.type) != ValueType::Void || setter.params.size() != 1 || setter.params[0].type != member.type) {
 					return fail("the setter of " + member.name + " does not take its type");
 				}
 			}
@@ -624,12 +666,25 @@ public:
 					return fail("the getter of " + member.name + " does not give its type");
 				}
 			}
+			if (!typed_constant(member.initial)) {
+				return false;
+			}
 		}
 		for (const SignalInfo &signal : module.signals) {
 			for (const Slot &param : signal.params) {
-				if (!is_type(uint32_t(param.type))) {
+				if (param.type >= module.types.size() || !is_type(uint32_t(storage(param.type)))) {
 					return fail("an argument of the signal " + signal.name + " has no type");
 				}
+			}
+		}
+		for (const EngineCall &call : module.engine_calls) {
+			if (call.result_type >= module.types.size()) {
+				return fail("an engine call without a result type");
+			}
+		}
+		for (const PropertyAccess &property : module.properties) {
+			if (property.type >= module.types.size()) {
+				return fail("a property without a type");
 			}
 		}
 		for (const ExportGroup &group : module.groups) {
@@ -663,6 +718,11 @@ public:
 			if (each.defaults.size() > each.params.size()) {
 				return fail("more default values than parameters");
 			}
+			for (const Constant &value : each.defaults) {
+				if (!typed_constant(value)) {
+					return false;
+				}
+			}
 			for (size_t i = 0; i < each.params.size(); i++) {
 				if (each.params[i].offset != each.slots[i].offset || each.params[i].type != each.slots[i].type) {
 					return fail("parameter " + std::to_string(i) + " is not its slot");
@@ -674,7 +734,7 @@ public:
 		}
 		function = nullptr;
 		const TablePrefix &prefix = module.init_tables;
-		if (prefix.constants > module.constants.size() || prefix.engine_calls > module.engine_calls.size() || prefix.properties > module.properties.size() ||
+		if (prefix.types > module.types.size() || prefix.constants > module.constants.size() || prefix.engine_calls > module.engine_calls.size() || prefix.properties > module.properties.size() ||
 				prefix.utility_calls > module.utility_calls.size() || prefix.operators > module.operators.size() || prefix.fields > module.fields.size() ||
 				prefix.constructors > module.constructors.size() || prefix.builtin_methods > module.builtin_methods.size() || prefix.classes > module.classes.size() ||
 				prefix.method_calls > module.method_calls.size()) {

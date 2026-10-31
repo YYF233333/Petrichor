@@ -37,23 +37,10 @@ inline uint64_t object_id_of(const godot::Variant &p_value) {
 void construct_value(bytecode::ValueType p_type, uint8_t *p_slot);
 void destroy_value(bytecode::ValueType p_type, uint8_t *p_slot);
 
-// The slots of a frame or of an instance's members: zeroed as a whole, then
-// those whose default value is not all zero bytes, such as Basis or Array, are
-// constructed, and only those that own something are destroyed.
-struct SlotLayout {
-	uint32_t size = 0;
-	std::vector<std::pair<uint32_t, bytecode::ValueType>> constructed; // Offset and type.
-	std::vector<std::pair<uint32_t, bytecode::ValueType>> destroyed;
-
-	static SlotLayout of(uint32_t p_size, const std::vector<bytecode::Slot> &p_slots);
-	void construct(uint8_t *p_base) const;
-	void destroy(uint8_t *p_base) const;
-};
-
 void copy_value(bytecode::ValueType p_type, uint8_t *p_dst, const uint8_t *p_src);
 godot::Variant to_variant(bytecode::ValueType p_type, const uint8_t *p_slot);
 
-// What an entry check asks of a value beyond its slot type (spec §10.1).
+// What an entry check asks of a value beyond how its slot holds it (spec §10.1).
 struct ValueCheck {
 	godot::StringName class_name; // Object: its class; Array: the class of object elements.
 	godot::String script; // As class_name, for a class of this language: its script.
@@ -62,12 +49,43 @@ struct ValueCheck {
 	bool nullable = true; // Object: may be None.
 	bytecode::ValueType option = bytecode::ValueType::Void; // Variant: None or a value of this type.
 	bytecode::ValueType element = bytecode::ValueType::Void; // Array: typed with this element type.
-
-	ValueCheck() = default;
-	// From a slot or a member of a module.
-	explicit ValueCheck(const bytecode::Slot &p_slot) :
-			task_result(p_slot.task_result), class_name(to_godot(p_slot.class_name)), script(to_godot(p_slot.script)), interface(to_godot(p_slot.interface_name)), nullable(p_slot.type != bytecode::ValueType::Object || p_slot.nullable), option(p_slot.option), element(p_slot.element) {}
 };
+
+// A type of a module's table as the runtime uses it (architecture §2.2).
+struct TypeImage {
+	bytecode::ValueType storage = bytecode::ValueType::Void; // How a slot holds it.
+	ValueCheck check;
+	std::string result_key; // The signature key of a Task[T] whose T it is.
+};
+
+std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_types);
+
+// The slots of a frame or of an instance's members: zeroed as a whole, then
+// those whose default value is not all zero bytes, such as Basis or Array, are
+// constructed, and only those that own something are destroyed.
+struct SlotLayout {
+	uint32_t size = 0;
+	std::vector<std::pair<uint32_t, bytecode::ValueType>> constructed; // Offset and type.
+	std::vector<std::pair<uint32_t, bytecode::ValueType>> destroyed;
+
+	template <typename T>
+	static SlotLayout of(uint32_t p_size, const std::vector<T> &p_slots, const std::vector<TypeImage> &p_types);
+	void construct(uint8_t *p_base) const;
+	void destroy(uint8_t *p_base) const;
+
+private:
+	void add(uint32_t p_offset, bytecode::ValueType p_type);
+};
+
+template <typename T>
+SlotLayout SlotLayout::of(uint32_t p_size, const std::vector<T> &p_slots, const std::vector<TypeImage> &p_types) {
+	SlotLayout layout;
+	layout.size = p_size;
+	for (const bytecode::Slot &slot : p_slots) {
+		layout.add(slot.offset, p_types[slot.type].storage);
+	}
+	return layout;
+}
 
 // Entry check: stores the value when its type fits the slot and `p_check`, if
 // given. A freed object is accepted as it is (spec §3.3).
@@ -97,7 +115,7 @@ bool is_live_object(const uint8_t *p_slot);
 bool has_script(const godot::Variant &p_script, const godot::String &p_path);
 // The value of a slot as it leaves this language: a T? whose object was
 // freed reads as None (spec §3.3).
-godot::Variant outward_variant(const bytecode::Slot &p_slot, const uint8_t *p_data);
+godot::Variant outward_variant(const TypeImage &p_type, const uint8_t *p_data);
 inline godot::Variant &variant_at(uint8_t *p_slot) {
 	return *reinterpret_cast<godot::Variant *>(p_slot);
 }

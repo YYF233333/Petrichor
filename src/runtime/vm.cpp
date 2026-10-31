@@ -133,14 +133,17 @@ public:
 	}
 };
 
-Ref<CoroutineTask> start_task(const std::shared_ptr<const ClassImage> &p_image, uint32_t p_function, const InstanceContext &p_context, uint8_t *p_frame, const bytecode::Slot *p_result_view = nullptr) {
+// `p_result_key` is the result as the caller sees it, which an override may
+// give as another type (spec §4.6).
+Ref<CoroutineTask> start_task(const std::shared_ptr<const ClassImage> &p_image, uint32_t p_function, const InstanceContext &p_context, uint8_t *p_frame, const std::string *p_result_key = nullptr) {
+	const bytecode::Function &fn = p_image->module.functions[p_function];
 	Ref<CoroutineTask> task;
 	task.instantiate();
 	task->owner_id = p_context.owner ? uint64_t(p_context.owner->get_instance_id()) : 0;
-	task->result_signature = bytecode::signature_key({}, 0, p_result_view ? *p_result_view : p_image->module.functions[p_function].result);
+	task->result_signature = p_result_key ? *p_result_key : p_image->types[fn.result.type].result_key;
 	task->continuation = std::make_shared<CoroutineFrame>(p_image, p_function, p_context, task.ptr());
-	for (const auto &param : p_image->module.functions[p_function].params) {
-		copy_value(param.type, task->continuation->data + param.offset, p_frame + param.offset);
+	for (const auto &param : fn.params) {
+		copy_value(p_image->types[param.type].storage, task->continuation->data + param.offset, p_frame + param.offset);
 	}
 	{
 		std::lock_guard<std::mutex> lock(tasks_mutex);
@@ -245,14 +248,14 @@ class Arguments {
 public:
 	const void **pointers;
 
-	Arguments(uint8_t *p_frame, const uint32_t *p_pairs, uint32_t p_count, const std::vector<ValueType> *p_params) {
+	Arguments(const std::vector<TypeImage> &p_types, uint8_t *p_frame, const uint32_t *p_pairs, uint32_t p_count, const std::vector<ValueType> *p_params) {
 		if (p_count > INLINE) {
 			heap_pointers.resize(p_count);
 			heap_variants.reserve(p_count); // Pointers into it stay valid.
 		}
 		pointers = p_count > INLINE ? heap_pointers.data() : inline_pointers;
 		for (uint32_t i = 0; i < p_count; i++) {
-			const ValueType type = ValueType(p_pairs[2 * i]);
+			const ValueType type = p_types[p_pairs[2 * i]].storage;
 			uint8_t *slot = p_frame + p_pairs[2 * i + 1];
 			if (p_params && i < p_params->size() && (*p_params)[i] != ValueType::Variant) {
 				pointers[i] = slot;
@@ -331,8 +334,9 @@ class Execution {
 		Frame callee_frame(p_callee.frames[p_index]);
 		for (size_t i = 0; i < method.params.size(); i++) {
 			uint8_t *param = callee_frame.data + method.params[i].offset;
-			const ValueType source_type = i < argc ? ValueType(p_call[5 + 2 * i]) : ValueType::Void;
-			if (i < argc && source_type == method.params[i].type) {
+			const TypeImage &param_type = p_callee.types[method.params[i].type];
+			const ValueType source_type = i < argc ? image.types[p_call[5 + 2 * i]].storage : ValueType::Void;
+			if (i < argc && source_type == param_type.storage) {
 				copy_value(source_type, param, frame + p_call[6 + 2 * i]);
 				continue;
 			}
@@ -340,16 +344,16 @@ class Execution {
 			String error;
 			if (i < argc) {
 				value = to_variant(source_type, frame + p_call[6 + 2 * i]);
-			} else if (!constant_value(method.defaults[i - required], value, error)) {
+			} else if (!constant_value(p_callee.types, method.defaults[i - required], value, error)) {
 				return fail(error);
 			}
-			const ValueCheck &check = p_callee.param_checks[p_index][i];
-			if (!from_variant(method.params[i].type, value, param, &check)) {
-				return fail(vformat("Argument of %s(): %s.", p_callee.function_names[p_index], entry_mismatch(method.params[i].type, value, check)));
+			if (!from_variant(param_type.storage, value, param, &param_type.check)) {
+				return fail(vformat("Argument of %s(): %s.", p_callee.function_names[p_index], entry_mismatch(param_type.storage, value, param_type.check)));
 			}
 		}
+		const TypeImage &result_type = image.types[p_result.type];
 		if (method.is_async) {
-			const Ref<CoroutineTask> task = start_task(p_callee.shared_from_this(), p_index, p_context, callee_frame.data, &p_result);
+			const Ref<CoroutineTask> task = start_task(p_callee.shared_from_this(), p_index, p_context, callee_frame.data, &result_type.result_key);
 			if (dst != NO_SLOT) {
 				variant_at(frame + dst) = task;
 			}
@@ -359,17 +363,17 @@ class Execution {
 		const auto run_callee = [&](uint8_t *p_returned) {
 			return here ? run(p_index, callee_frame.data, p_returned) : Execution(p_callee, p_context, debugging).run(p_index, callee_frame.data, p_returned);
 		};
-		if (dst == NO_SLOT || method.result.type == p_result.type) {
+		const TypeImage &returns = p_callee.types[method.result.type];
+		if (dst == NO_SLOT || returns.storage == result_type.storage) {
 			return run_callee(dst == NO_SLOT ? nullptr : frame + dst);
 		}
 		alignas(16) uint8_t returned[64];
-		construct_value(method.result.type, returned);
+		construct_value(returns.storage, returned);
 		bool ok = run_callee(returned);
 		if (ok) {
-			const ValueCheck check(p_result);
-			ok = from_variant(p_result.type, outward_variant(method.result, returned), frame + dst, &check);
+			ok = from_variant(result_type.storage, outward_variant(returns, returned), frame + dst, &result_type.check);
 		}
-		destroy_value(method.result.type, returned);
+		destroy_value(returns.storage, returned);
 		return ok;
 	}
 
@@ -471,7 +475,7 @@ public:
 					pc += 3;
 					break;
 				case Op::CONST_VALUE:
-					from_variant(ValueType(code[pc + 1]), image.values[code[pc + 3]], frame + code[pc + 2]);
+					from_variant(image.types[code[pc + 1]].storage, image.values[code[pc + 3]], frame + code[pc + 2]);
 					pc += 4;
 					break;
 				case Op::MOVE_8:
@@ -483,7 +487,7 @@ public:
 					pc += 3;
 					break;
 				case Op::MOVE_VALUE:
-					copy_value(ValueType(code[pc + 1]), frame + code[pc + 2], frame + code[pc + 3]);
+					copy_value(image.types[code[pc + 1]].storage, frame + code[pc + 2], frame + code[pc + 3]);
 					pc += 4;
 					break;
 				case Op::LOAD_MEMBER_8:
@@ -498,7 +502,7 @@ public:
 					break;
 				case Op::LOAD_MEMBER_VALUE:
 					SELF_ALIVE();
-					copy_value(ValueType(code[pc + 1]), frame + code[pc + 2], members + code[pc + 3]);
+					copy_value(image.types[code[pc + 1]].storage, frame + code[pc + 2], members + code[pc + 3]);
 					pc += 4;
 					break;
 				case Op::STORE_MEMBER_8:
@@ -513,7 +517,7 @@ public:
 					break;
 				case Op::STORE_MEMBER_VALUE:
 					SELF_ALIVE();
-					copy_value(ValueType(code[pc + 1]), members + code[pc + 2], frame + code[pc + 3]);
+					copy_value(image.types[code[pc + 1]].storage, members + code[pc + 2], frame + code[pc + 3]);
 					pc += 4;
 					break;
 				case Op::INT_TO_FLOAT:
@@ -634,7 +638,7 @@ public:
 					if (!valid) {
 						FAIL(vformat("Cannot read the property %s.", image.properties[index]));
 					}
-					if (!from_variant(module.properties[index].type, value, frame + code[pc + 2])) {
+					if (!from_variant(image.types[module.properties[index].type].storage, value, frame + code[pc + 2])) {
 						FAIL(vformat("The property %s holds an unexpected %s.", image.properties[index], Variant::get_type_name(value.get_type())));
 					}
 					pc += 4;
@@ -644,7 +648,7 @@ public:
 					const uint32_t index = code[pc + 1];
 					OBJECT(object, code[pc + 2]);
 					bool valid = false;
-					object.set_named(image.properties[index], to_variant(module.properties[index].type, frame + code[pc + 3]), valid);
+					object.set_named(image.properties[index], to_variant(image.types[module.properties[index].type].storage, frame + code[pc + 3]), valid);
 					if (!valid) {
 						FAIL(vformat("Cannot write the property %s.", image.properties[index]));
 					}
@@ -755,14 +759,14 @@ public:
 					break;
 				}
 				case Op::NEW_ARRAY: {
-					const uint32_t cls = code[pc + 2];
-					*reinterpret_cast<Array *>(frame + code[pc + 3]) = typed_array(ValueType(code[pc + 1]), cls == NO_SLOT ? StringName() : image.classes[cls], cls == NO_SLOT ? String() : image.class_scripts[cls]);
-					pc += 4;
+					const ValueCheck &typed = image.types[code[pc + 1]].check;
+					*reinterpret_cast<Array *>(frame + code[pc + 2]) = typed_array(typed.element, typed.class_name, typed.script);
+					pc += 3;
 					break;
 				}
 				case Op::GET_INDEX: {
 					// A negative index counts from the end, as in GDScript.
-					Variant container = to_variant(ValueType(code[pc + 1]), frame + code[pc + 4]);
+					Variant container = to_variant(image.types[code[pc + 1]].storage, frame + code[pc + 4]);
 					const int64_t index = I64(code[pc + 5]);
 					bool valid = false;
 					bool out_of_bounds = false;
@@ -770,7 +774,7 @@ public:
 					if (!valid || out_of_bounds) {
 						FAIL(vformat("Index %d is out of bounds (size %d).", index, int64_t(container.call("size"))));
 					}
-					const ValueType element = ValueType(code[pc + 2]);
+					const ValueType element = image.types[code[pc + 2]].storage;
 					if (!from_variant(element, value, frame + code[pc + 3])) {
 						FAIL(vformat("The element is %s, not %s.", Variant::get_type_name(value.get_type()), bytecode::value_type_name(element)));
 					}
@@ -793,12 +797,12 @@ public:
 					break;
 				}
 				case Op::TO_VARIANT:
-					variant_at(frame + code[pc + 2]) = to_variant(ValueType(code[pc + 1]), frame + code[pc + 3]);
+					variant_at(frame + code[pc + 2]) = to_variant(image.types[code[pc + 1]].storage, frame + code[pc + 3]);
 					pc += 4;
 					break;
 				case Op::UNWRAP: {
 					// A freed object reads as None in T? (spec §3.3).
-					const ValueType type = ValueType(code[pc + 1]);
+					const ValueType type = image.types[code[pc + 1]].storage;
 					const uint8_t *src = frame + code[pc + 3];
 					const bool present = type == ValueType::Object ? is_live_object(src) : !is_none(variant_at(src));
 					if (!present || !from_variant(type, variant_at(src), frame + code[pc + 2])) {
@@ -866,7 +870,7 @@ public:
 					// By name for now; through MethodBind pointers once the
 					// compiler knows method hashes (architecture §2.2).
 					OBJECT(object, code[pc + 3]);
-					Arguments args(frame, code + pc + 5, argc, nullptr);
+					Arguments args(image.types, frame, code + pc + 5, argc, nullptr);
 					Variant result;
 					GDExtensionCallError error;
 					object.callp(image.engine_methods[target], args.as_variants(), int(argc), result, error);
@@ -889,7 +893,7 @@ public:
 						if (dst != NO_SLOT) {
 							FAIL("The method is a GDScript coroutine and needs await.");
 						}
-					} else if (dst != NO_SLOT && !from_variant(module.engine_calls[target].return_type, result, frame + dst)) {
+					} else if (dst != NO_SLOT && !from_variant(image.types[module.engine_calls[target].result_type].storage, result, frame + dst)) {
 						FAIL(vformat("%s() returned an unexpected %s.", image.engine_methods[target], Variant::get_type_name(result.get_type())));
 					}
 					pc += 5 + 2 * argc;
@@ -900,7 +904,7 @@ public:
 					const uint32_t dst = code[pc + 2];
 					const uint32_t argc = code[pc + 4];
 					const Callable &callable = *reinterpret_cast<Callable *>(frame + code[pc + 3]);
-					Arguments args(frame, code + pc + 5, argc, nullptr);
+					Arguments args(image.types, frame, code + pc + 5, argc, nullptr);
 					Variant base = callable;
 					Variant result;
 					GDExtensionCallError error;
@@ -952,8 +956,8 @@ public:
 					const uint32_t argc = code[pc + 4];
 					const std::vector<ValueType> &params = utility ? module.utility_calls[target].params : module.builtin_methods[target].params;
 					const ValueType returns = utility ? module.utility_calls[target].return_type : module.builtin_methods[target].return_type;
-					const ValueType result_type = utility ? module.utility_calls[target].result_type : module.builtin_methods[target].result_type;
-					Arguments args(frame, code + pc + 5, argc, &params);
+					const ValueType result_type = image.types[utility ? module.utility_calls[target].result_type : module.builtin_methods[target].result_type].storage;
+					Arguments args(image.types, frame, code + pc + 5, argc, &params);
 					// A native result goes straight into its slot; a Variant one
 					// is checked on the way (spec §10.3). The scratch slot takes a
 					// Variant result, or one that nothing reads.
@@ -981,7 +985,7 @@ public:
 					const uint32_t dst = code[pc + 2];
 					const uint32_t argc = code[pc + 4];
 					const bytecode::ConstructorCall &constructor = module.constructors[target];
-					Arguments args(frame, code + pc + 5, argc, &constructor.params);
+					Arguments args(image.types, frame, code + pc + 5, argc, &constructor.params);
 					// The engine constructs into memory that holds no value.
 					destroy_value(constructor.type, frame + dst);
 					image.constructors[target](frame + dst, args.pointers);
@@ -1032,7 +1036,7 @@ public:
 				}
 				case Op::RETURN:
 					if (p_result) {
-						copy_value(fn.result.type, p_result, frame + code[pc + 1]);
+						copy_value(image.types[fn.result.type].storage, p_result, frame + code[pc + 1]);
 					}
 					return true;
 				case Op::RETURN_VOID:
@@ -1181,11 +1185,11 @@ bool CoroutineFrame::receive(const Variant &p_value) {
 		if (slot.offset != destination) {
 			continue;
 		}
-		const ValueCheck check(slot);
-		if (from_variant(slot.type, p_value, data + destination, &check)) {
+		const TypeImage &type = image->types[slot.type];
+		if (from_variant(type.storage, p_value, data + destination, &type.check)) {
 			return true;
 		}
-		report_error("Await result: " + entry_mismatch(slot.type, p_value, check));
+		report_error("Await result: " + entry_mismatch(type.storage, p_value, type.check));
 		return false;
 	}
 	return false;
@@ -1273,18 +1277,18 @@ void CoroutineFrame::resume() {
 		return;
 	}
 	task->state = CoroutineTask::State::Running;
-	const auto &fn = image->module.functions[function];
+	const TypeImage &result_type = image->types[image->module.functions[function].result.type];
 	alignas(16) uint8_t result[64];
-	construct_value(fn.result.type, result);
+	construct_value(result_type.storage, result);
 	const bool ok = Execution(*image, context, debugger::is_active()).run(function, data, result, this);
 	if (task->cancel_requested) {
 		task->finish(CoroutineTask::State::Cancelled);
 	} else if (!ok) {
 		task->finish(CoroutineTask::State::Failed);
 	} else if (task->state == CoroutineTask::State::Running) {
-		task->finish(CoroutineTask::State::Finished, outward_variant(fn.result, result));
+		task->finish(CoroutineTask::State::Finished, outward_variant(result_type, result));
 	}
-	destroy_value(fn.result.type, result);
+	destroy_value(result_type.storage, result);
 }
 
 namespace tasks {
@@ -1345,15 +1349,16 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 	}
 
 	Frame frame(image->frames[p_function]);
-	const std::vector<ValueCheck> &checks = image->param_checks[p_function];
+	const TypeImage &result_type = image->types[fn.result.type];
 	for (size_t i = 0; i < fn.params.size(); i++) {
 		const bytecode::Slot &param = fn.params[i];
+		const TypeImage &type = image->types[param.type];
 		// Like member initializers, defaults are built late, after script types load.
 		Variant value = i < size_t(p_argc) ? *p_args[i] : Variant();
 		String error;
-		bool valid = i < size_t(p_argc) || constant_value(fn.defaults[i - required], value, error);
-		if (valid && !from_variant(param.type, value, frame.data + param.offset, &checks[i])) {
-			error = entry_mismatch(param.type, value, checks[i]);
+		bool valid = i < size_t(p_argc) || constant_value(image->types, fn.defaults[i - required], value, error);
+		if (valid && !from_variant(type.storage, value, frame.data + param.offset, &type.check)) {
+			error = entry_mismatch(type.storage, value, type.check);
 			valid = false;
 		}
 		if (!valid) {
@@ -1363,7 +1368,7 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 			if (r_failed) {
 				*r_failed = true;
 			}
-			return default_variant(fn.result.type);
+			return default_variant(result_type.storage);
 		}
 	}
 
@@ -1375,13 +1380,13 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 		return task->ended() ? task->result : Variant(Signal(task.ptr(), "completed"));
 	}
 	alignas(16) uint8_t result[64];
-	construct_value(fn.result.type, result);
+	construct_value(result_type.storage, result);
 	const bool ok = Execution(*image, context, debugger::is_active()).run(uint32_t(p_function), frame.data, result);
 	if (r_failed) {
 		*r_failed = !ok;
 	}
-	Variant value = ok ? outward_variant(fn.result, result) : default_variant(fn.result.type);
-	destroy_value(fn.result.type, result);
+	Variant value = ok ? outward_variant(result_type, result) : default_variant(result_type.storage);
+	destroy_value(result_type.storage, result);
 	return value;
 }
 

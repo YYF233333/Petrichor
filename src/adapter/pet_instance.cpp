@@ -206,8 +206,9 @@ static void instance_property_state(GDExtensionScriptInstanceDataPtr p_instance,
 		if (!member.is_export) {
 			continue;
 		}
-		const Variant value = outward_variant(member, instance->storage->members + member.offset);
-		if (member.type == bytecode::ValueType::Object && !member.nullable && is_none(value)) {
+		const TypeImage &type = image->types[member.type];
+		const Variant value = outward_variant(type, instance->storage->members + member.offset);
+		if (type.storage == bytecode::ValueType::Object && !type.check.nullable && is_none(value)) {
 			continue;
 		}
 		p_add(image->member_names[i]._native_ptr(), value._native_ptr(), p_userdata);
@@ -233,8 +234,9 @@ static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance,
 	// A value that fails the entry check is a program error, reported at the
 	// member, which keeps its value (spec §7.5, §10.1); the write is handled.
 	const size_t index = size_t(member - image->module.members.data());
-	if (!from_variant(member->type, value, instance->storage->members + member->offset, &image->member_checks[index])) {
-		vm::report_error(*image, member->name.c_str(), int(member->line), vformat("\"%s\" was not written: %s.", image->member_names[index], entry_mismatch(member->type, value, image->member_checks[index])));
+	const TypeImage &type = image->types[member->type];
+	if (!from_variant(type.storage, value, instance->storage->members + member->offset, &type.check)) {
+		vm::report_error(*image, member->name.c_str(), int(member->line), vformat("\"%s\" was not written: %s.", image->member_names[index], entry_mismatch(type.storage, value, type.check)));
 	}
 	return true;
 }
@@ -258,7 +260,7 @@ static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance,
 		*reinterpret_cast<Variant *>(r_ret) = vm::call(image, member->getter, instance->context(), nullptr, 0, error);
 		return true;
 	}
-	*reinterpret_cast<Variant *>(r_ret) = outward_variant(*member, instance->storage->members + member->offset);
+	*reinterpret_cast<Variant *>(r_ret) = outward_variant(image->types[member->type], instance->storage->members + member->offset);
 	return true;
 }
 
@@ -311,7 +313,7 @@ static GDExtensionVariantType instance_get_property_type(GDExtensionScriptInstan
 	const std::shared_ptr<const ClassImage> image = self(p_instance)->current_image();
 	const bytecode::Member *member = visible_member(*image, as_name(p_name));
 	*r_is_valid = member != nullptr;
-	return member ? GDExtensionVariantType(variant_type(member->type)) : GDEXTENSION_VARIANT_TYPE_NIL;
+	return member ? GDExtensionVariantType(variant_type(image->types[member->type].storage)) : GDEXTENSION_VARIANT_TYPE_NIL;
 }
 
 static GDExtensionBool instance_has_method(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name) {
