@@ -278,3 +278,18 @@ TEST_CASE("values of an interface type") {
 	CHECK(errors("var as_enemy := n as Enemy").empty());
 	CHECK(contains(errors("var as_weapon := n as Weapon"), "Node and Weapon are unrelated classes"));
 }
+
+TEST_CASE("self is a value of this class, except in the PREDELETE branch (spec §6.6)") {
+	const std::string head = "extends Node implements Combat.Damageable\nclass_name Turret\n\nvar hp := 1\n\npub func damage(amount: float):\n\tpass\n\n";
+	const compiler::CompileResult result = compile_in(head + "func f(n: Node, hp: String) -> void:\n\tvar me: Turret = self\n\tvar d: Combat.Damageable = self\n\tn.add_child(self)\n\tself.hp = 2\n\tvar h: int = self.hp\n", project());
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	find_instruction(function_named(result.module, "f"), bytecode::Op::GET_SELF);
+
+	const auto check = [&](const std::string &p_functions) { return messages(compile_in(head + p_functions, project())); };
+	CHECK(contains(check("static func s() -> void:\n\tvar me := self\n"), "\"self\" belongs to an instance"));
+	CHECK(contains(check("func f() -> void:\n\tvar x = self.nope\n"), "Turret has no member \"nope\"."));
+	const std::string predelete = check("func _notification(what: int) -> void:\n\tif what == Object.NOTIFICATION_PREDELETE:\n\t\tprint(self.hp)\n\t\tprint(self)\n\tmatch what:\n\t\tObject.NOTIFICATION_PREDELETE:\n\t\t\tvar me: Turret = self\n\t\t_:\n\t\t\tprint(self)\n");
+	CHECK(predelete == "12:9: self cannot be used as a value in the PREDELETE branch (spec §6.6).\n15:21: self cannot be used as a value in the PREDELETE branch (spec §6.6).\n");
+}

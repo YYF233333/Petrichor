@@ -329,6 +329,8 @@ class Verifier {
 			case Op::STORE_MEMBER_VALUE:
 			case Op::CHECK_ASSIGNED:
 			case Op::METHOD_VALUE:
+			case Op::GET_OWNER:
+			case Op::GET_SELF:
 				return true;
 			case Op::GET_PROPERTY:
 			case Op::GET_SIGNAL:
@@ -495,6 +497,7 @@ class Verifier {
 			case Op::CHECK_ASSIGNED:
 				return index(o[0], module.members.size(), "member") && slot(o[1], ValueType::Object);
 			case Op::CHECK_LIVE:
+			case Op::GET_SELF:
 				return slot(o[0], ValueType::Object);
 			case Op::CHECK_RANGE:
 				return (o[0] < uint32_t(IntRange::COUNT) || fail("no integer range")) && slot(o[1], ValueType::Int);

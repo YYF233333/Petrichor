@@ -150,6 +150,9 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 				case Op::CHECK_LIVE:
 					put(offset_of(instr.a));
 					break;
+				case Op::GET_SELF:
+					put(offset_of(instr.dst));
+					break;
 				case Op::CAST_OBJECT:
 				case Op::IS_INSTANCE:
 				case Op::GET_SIGNAL:

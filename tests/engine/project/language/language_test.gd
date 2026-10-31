@@ -106,6 +106,7 @@ func _ready() -> void:
 	var refused = v.callv("takes_node", [no_node])
 	_check_errors(["values_check.pet:67: Argument \"n\" of takes_node(): expected Node3D, found None."], "the program error names the parameter, its type and what it got")
 	_check(typeof(no_node) == TYPE_OBJECT and refused == 0 and v.takes_node(v) == 1, "a T parameter refuses a null object from the engine")
+	_check(v.itself() == v, "self is the instance")
 	var unwrapped_none = v.unwrapped(null)
 	_check_errors(["values_check.pet:72: unwrap() found None."], "the program error of unwrap()")
 	var wrong_type = v.callv("unwrapped", ["4"])

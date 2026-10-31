@@ -138,7 +138,7 @@ bool is_constant(const Expr &p_expr, const Type &p_target) {
 	if (p_expr.type != p_target) {
 		return false;
 	}
-	if (p_expr.target == Target::BuiltinConstant) {
+	if (p_expr.target == Target::BuiltinConstant || p_expr.target == Target::EngineConstant) {
 		return true;
 	}
 	if (p_expr.kind != ExprKind::Call || p_expr.target != Target::BuiltinConstructor) {
@@ -627,14 +627,9 @@ class Checker : public ClassRelation {
 				!engine.find_property(cls.native_base, p_expr.text) && is_type_name(p_expr.text) && !engine.is_singleton(p_expr.text);
 	}
 
-	Type check_name(Expr &r_expr) {
-		const int local = find_local(r_expr.text);
-		if (local >= 0) {
-			r_expr.target = Target::Local;
-			r_expr.index = local;
-			const Type *narrowed_to = narrowed_type(local);
-			return set(r_expr, narrowed_to ? *narrowed_to : function->locals[local].type);
-		}
+	// A name of this instance: a member, the owner, a property, a function or
+	// a signal; also what `self.name` reads, past the locals.
+	std::optional<Type> check_self_name(Expr &r_expr) {
 		const auto member = member_index.find(r_expr.text);
 		if (member != member_index.end()) {
 			const VarDecl &read = *cls.all_members[member->second];
@@ -698,6 +693,30 @@ class Checker : public ClassRelation {
 			}
 			r_expr.target = Target::SelfSignal;
 			return set(r_expr, signal_type(*signal));
+		}
+		return std::nullopt;
+	}
+
+	Type check_self(Expr &r_expr) {
+		if (refuse_in_static(r_expr, "self")) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		if (in_predelete) {
+			return fail(r_expr, "self cannot be used as a value in the PREDELETE branch (spec §6.6).");
+		}
+		return set(r_expr, script_class_type(cls, options.path));
+	}
+
+	Type check_name(Expr &r_expr) {
+		const int local = find_local(r_expr.text);
+		if (local >= 0) {
+			r_expr.target = Target::Local;
+			r_expr.index = local;
+			const Type *narrowed_to = narrowed_type(local);
+			return set(r_expr, narrowed_to ? *narrowed_to : function->locals[local].type);
+		}
+		if (const std::optional<Type> found = check_self_name(r_expr)) {
+			return *found;
 		}
 		if (engine.is_singleton(r_expr.text)) {
 			r_expr.target = Target::Singleton;
@@ -876,6 +895,12 @@ class Checker : public ClassRelation {
 
 	Type check_member_access(Expr &r_expr) {
 		Expr &base = *r_expr.base;
+		if (base.kind == ExprKind::Self) {
+			if (const std::optional<Type> found = check_self_name(r_expr)) {
+				return *found;
+			}
+			return refuse_in_static(base, "self") ? set(r_expr, Type::of(TypeKind::Error)) : fail(r_expr, display_name(cls, options.path) + " has no member \"" + r_expr.text + "\".");
+		}
 		if (names_type(base)) {
 			if (const builtin::Class *type = builtin::find_class(base.text)) {
 				if (const builtin::Constant *constant = builtin::find_constant(*type, r_expr.text)) {
@@ -2130,7 +2155,7 @@ class Checker : public ClassRelation {
 			case ExprKind::Await:
 				return check_await(r_expr);
 			case ExprKind::Self:
-				return fail(r_expr, "self as a value is not supported yet.");
+				return check_self(r_expr);
 			case ExprKind::Unary:
 				return check_unary(r_expr);
 			case ExprKind::Binary:
@@ -2283,6 +2308,7 @@ class Checker : public ClassRelation {
 		r_stmt.local = int(function->locals.size());
 		function->locals.push_back({ std::string(), matched });
 		scopes.back()[std::string()] = r_stmt.local;
+		const bool was_predelete = in_predelete;
 		for (MatchBranch &branch : r_stmt.branches) {
 			scopes.emplace_back();
 			for (Pattern &pattern : branch.patterns) {
@@ -2291,10 +2317,12 @@ class Checker : public ClassRelation {
 				}
 				check_pattern(pattern, matched);
 			}
+			in_predelete = was_predelete || predelete_branch(*r_stmt.value, branch);
 			if (branch.guard) {
 				expect_condition(*branch.guard);
 			}
 			check_block(branch.body, {});
+			in_predelete = was_predelete;
 			scopes.pop_back();
 		}
 		scopes.pop_back();
@@ -2365,10 +2393,7 @@ class Checker : public ClassRelation {
 	}
 
 	bool predelete_branch(const Expr &p_condition, bool p_true) const {
-		if (!function || function->name != "_notification" || p_condition.kind != ExprKind::Binary) {
-			return false;
-		}
-		if ((p_true && p_condition.op != TokenKind::EqualEqual) || (!p_true && p_condition.op != TokenKind::BangEqual)) {
+		if (p_condition.kind != ExprKind::Binary || p_condition.op != (p_true ? TokenKind::EqualEqual : TokenKind::BangEqual)) {
 			return false;
 		}
 		const Expr *value = p_condition.left.get();
@@ -2376,7 +2401,26 @@ class Checker : public ClassRelation {
 		if (value->target == Target::EngineConstant) {
 			std::swap(value, constant);
 		}
-		return value->target == Target::Local && value->index == 0 && constant->target == Target::EngineConstant && constant->text == "NOTIFICATION_PREDELETE";
+		return is_notification(*value) && is_predelete(*constant);
+	}
+
+	// `NOTIFICATION_PREDELETE:` in `match what:`.
+	bool predelete_branch(const Expr &p_matched, const MatchBranch &p_branch) const {
+		for (const Pattern &pattern : p_branch.patterns) {
+			if (pattern.kind == PatternKind::Value && is_notification(p_matched) && is_predelete(*pattern.value->right)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// The parameter of _notification(what).
+	bool is_notification(const Expr &p_expr) const {
+		return function && function->name == "_notification" && p_expr.target == Target::Local && p_expr.index == 0;
+	}
+
+	static bool is_predelete(const Expr &p_expr) {
+		return p_expr.target == Target::EngineConstant && p_expr.text == "NOTIFICATION_PREDELETE";
 	}
 
 	void check_stmt(Stmt &r_stmt) {

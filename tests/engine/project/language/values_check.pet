@@ -276,3 +276,7 @@ pub func shift(target: CombatCheck.Placed, by: Vector2) -> float:
 	target.position += by
 	target.taken += 1.5
 	return target.taken
+
+# self as a value (spec §6.6).
+pub func itself() -> Node3D:
+	return self

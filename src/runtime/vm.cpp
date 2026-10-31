@@ -674,6 +674,11 @@ public:
 					pc += 3;
 					break;
 				}
+				case Op::GET_SELF:
+					SELF_ALIVE();
+					variant_at(frame + code[pc + 1]) = self();
+					pc += 2;
+					break;
 				case Op::GET_SINGLETON: {
 					Object *singleton = Engine::get_singleton()->get_singleton(image.classes[code[pc + 1]]);
 					if (!singleton) {

@@ -160,6 +160,11 @@ bytecode::Constant constant_of(const Expr &p_expr, const Type &p_target) {
 		constant.builtin = p_expr.text;
 		return constant;
 	}
+	if (p_expr.target == Target::EngineConstant) {
+		constant.i = p_expr.int_value;
+		constant.f = double(constant.i);
+		return constant;
+	}
 	if (p_expr.target == Target::BuiltinConstructor) {
 		constant.constructor = p_expr.index;
 		for (size_t i = 0; i < p_expr.args.size(); i++) {
@@ -1055,9 +1060,11 @@ class Lowerer {
 				instr(Op::CAST_OBJECT, result, value, NO_REG, class_index(p_expr.tested));
 				return result;
 			}
-			case ExprKind::Self:
-				// Only the base of a call: the instance, as a missing slot.
-				return NO_REG;
+			case ExprKind::Self: {
+				const uint32_t result = temp(p_expr.type);
+				instr(Op::GET_SELF, result);
+				return result;
+			}
 		}
 		return internal_error("no code for this expression");
 	}
