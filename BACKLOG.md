@@ -53,7 +53,7 @@ Engine calls are by name with Variant arguments now, so code that calls the engi
 - Calls within a class: since inheritance they pass arguments the general way of calls between classes and repeat checks that loading made; the calls benchmark went from 18 to 23 ms.
 - Engine calls: whether the result is a `GDScriptFunctionState`, which only methods of GDScript classes return (spec §9.8), is asked of every object result, by a call into the engine.
 - Coroutines: freeing an instance, and every frame, walk all active tasks; tasks listed by their owner would walk only the owner's.
-- Containers: the storage behind Array and Dictionary may be replaced later, keeping their public semantics (spec §3.8); the arrays benchmark loses to GDScript mostly to boxing each element into a Variant and back.
+- Containers: the storage behind Array and Dictionary may be replaced later, keeping their public semantics (spec §3.8); the arrays benchmark loses to GDScript mostly to boxing each element into a Variant and back. Escape analysis can give containers that do not escape a private representation, the engine container being the reference semantics (architecture §2.2): a private representation supports some operations, a container that uses others keeps the engine's, and each private operation is tested against the engine's.
 - Benchmarks of real workloads, which become representative after type descriptors and ptrcall; optimizations of the IR and code generation after those.
 
 ## Open questions
