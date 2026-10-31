@@ -218,7 +218,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   - 给临时值的字段赋值是编译错误，例如 `get_hit().damage = 3`；
   - 循环变量和 lambda 捕获的是副本，与 GDScript 中的 Vector2 相同。修改 struct 类型循环变量的字段、之后又不读它时，给出“修改的是副本”的警告。
 - 复制是浅复制：对象和容器字段复制引用，与这些值在别处赋值时一样。需要独立的容器时，对该字段调用 `duplicate()`。
-- `==` 逐字段比较，各字段按自己类型的 `==`（§5.2）。哈希与 `==` 一致，struct 可以作 Dictionary 的键；键是副本，之后修改原值不影响键。直接或经嵌套间接含有 Array 或 Dictionary 字段的 struct 不能作键，否则是编译错误，因为复制是浅复制，修改共享的容器会改变键的哈希；Packed 数组是写时复制的值，对象按同一性哈希，都不受此限。GDScript 允许以 Array 作键，本语言照旧。
+- struct 默认按字段提供 `==`、大小比较和哈希（§5.2）：`==` 逐字段比较，各字段按自己类型的 `==`；`<` 按声明顺序比较字段，第一个分出大小的字段决定结果，与 Array 比较元素的方式相同（`core/variant/array.cpp:164-179`）；哈希包括所有字段，容器按内容，与容器匹配键和元素的方式一致（§5.2）。只有所有字段的类型都有某个运算时，struct 才有这个运算；例如有对象字段的 struct 没有 `<`，因为对象没有。理由：像脚本语言那样开箱即用。【后续】以 struct 方法重新定义它们。struct 可以作 Dictionary 的键（§3.8）。
 - struct 和带载荷的 enum 不经容器（Array、Dictionary）直接或间接包含自己，是编译错误，诊断列出成环的字段，因为这样的值没有有限的大小。经容器的递归可以，例如 §2.4 的 `Tree[T]`；需要链表一类的结构时用 RefCounted 类。【后续】类似 Swift `indirect` 的写法。
 
   ```gdscript
@@ -241,7 +241,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 带载荷的分支，载荷字段必须命名，例如 `MOVE(target: Vector3)`。命名使编码不随字段顺序改变。
 - 对 enum 的 match 必须穷尽或带 `_`（§5.6）。新增分支时，编译器列出所有没有处理它的位置。
 - 引擎看到的形式见 §10.1：无载荷的 enum 为 int，导出时显示为下拉框；带载荷的 enum 编码为按字段名的 Dictionary，保留键 `"$variant"` 记录分支名的字符串，例如 `Command.MOVE(target = p)` 编码为 `{"$variant": "MOVE", "target": p}`，`Command.IDLE` 编码为 `{"$variant": "IDLE"}`。`$variant` 不是合法的标识符，所以不会与字段名冲突；记录分支名而不是序号，使编码不随分支顺序改变。
-- 带载荷的 enum 的 `==` 先比较分支，再逐字段比较；哈希与 `==` 一致。作 Dictionary 的键的限制与 struct 相同（§3.6）。
+- 带载荷的 enum 的 `==`、大小比较和哈希按 struct 的规则（§3.6），分支在前：`==` 先比较分支，再逐字段比较；`<` 按声明顺序比较分支，同一分支的值再按字段比较；哈希包括分支。
 - 载荷字段只能经 match 取出（§5.6），不能写 `c.target`；所以载荷不能原地修改，只能构造新值。
 - 【已知限制】第一版带载荷的 enum 不能有方法，因为花括号写法中没有放函数体的位置，相关函数写在所属的类中；也不能 `@export`，理由与 struct 相同（§3.6）。
 
@@ -256,6 +256,9 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   - 越界的下标是程序错误；
   - T 本身可空时，`pop_front()`、`pop_back()` 返回 `T??`，由绑定层先检查数组是否为空，因为引擎在两种情况下都返回 null；
   - `Dictionary[K, V].get(k)` 返回 `V?`，键不存在时为 None，对应引擎在缺键时返回默认值（`core/variant/dictionary.cpp:178-187`）；`get(k, default)` 返回 V；`d[k]` 在键不存在时是程序错误，GDScript 在这里同样报错。
+- Array 和 Dictionary 的每个方法都可用，与元素类型无关，按元素自己的运算像 GDScript 中那样工作：`has`、`find`、`count`、`erase` 和容器的 `==` 按 §5.2 匹配元素；`sort`、`bsearch`、`min`、`max`，以及 Dictionary 按键排序的 `sort`，按 `<` 排列；`hash` 像哈希键那样哈希元素（§3.6）；`resize` 以元素类型的默认值填充新元素（§4.3）；`duplicate(true)` 也复制元素内部的容器。
+- 排序类的方法要求元素类型有 `<`，没有时是编译错误，例如 `Array[Node]` 上的 `sort()`，快速修复给出 `sort_custom`；Variant 元素在运行时按运算表比较，表中比较不了的一对元素是程序错误。GDScript 把这样的比较当作假，数组成为未指定的顺序，`min`、`max` 返回 null（`core/variant/array.cpp:721-736, 828-868`，`core/variant/dictionary.cpp:315-330`）。`resize` 要求元素类型有默认值，没有时是编译错误，例如 `Array[Node]`，引擎在这里填入 null（`array.cpp:306-318`）；快速修复给出 `Array[Node?]`。
+- 键：插入新键时存入它的副本，副本中的容器每一层都只读，之后修改原值不影响键。`keys()`、`for k in d`、`find_key()` 交出的键就是这份副本：修改它是程序错误，诊断建议改为插入修改过的 `duplicate()`。查找（`has`、`d[k]`、`get`、`erase`）不复制也不冻结传入的键。来自本语言以外的 Dictionary，其容器键在本语言取得时就地设为只读。理由：Dictionary 保存每个键插入时的哈希，查找时先按这个哈希找（`core/variant/dictionary.cpp:46`，`core/templates/hash_map.h:130, 149-151, 193-198`），所以 GDScript 中 `d[a] = 1; a.append(2)` 之后，按旧内容和新内容都找不到这一项，属于 §1.2 的例外。引擎的 `make_read_only` 只作用于调用它的那个容器，且不能撤销（`core/variant/array.cpp:938-942`，`core/variant/dictionary.cpp:599-603`），所以逐层设为只读的是副本，而不是原值。
 - 标准库在原生容器上提供接受带类型 lambda 的 `map`、`filter`、`sort` 等（§3.11）。
 
 ### 3.9 接口
@@ -443,10 +446,10 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - int 与 float 按数值比较，`1 == 1.0` 为真（`core/variant/variant_op.cpp:490-491`）。String 与 StringName 按内容比较（§10.7）。
 - 对象按同一性比较，比较的是 ObjectID（`variant_op.cpp:514`），所以两个不同的已释放对象不相等。引擎比较前先把已释放的对象取为 null，两个已释放对象在 GDScript 中相等（`core/variant/variant_op.h:471-477`），属于 §1.2 的例外。两个类型都是类、且互不为子类时是编译错误，因为结果总为假；涉及接口时可以比较。
 - Option：None 等于 None；两个 Some 在内部的值相等时相等；层数较少的一侧先包装到相同的层数再比较，例如 hp 为 `int?` 时的 `hp == 3`，以及 `T?` 与 `T??` 的比较。既不是 Option 也不是 Variant 的值与 None 比较是编译错误，因为结果总为假；快速修复把类型改为 `T?`，或在检查存活时改用 `is_instance_valid(x)`。
-- 容器照引擎逐元素比较，Dictionary 按键逐项比较，与顺序无关。引擎比较元素时要求类型相同（`core/variant/array.cpp:155-158`，`core/variant/dictionary.cpp:255-285`，`core/variant/variant.cpp:3176-3179`），所以 `[1] == [1.0]` 为假，而 `1 == 1.0` 为真。元素类型不同的容器比较是编译错误，例如 `Array[int] == Array[float]`，因为只有两边都为空时才相等。
+- 容器照引擎逐元素比较，Dictionary 按键逐项比较，与顺序无关。引擎比较元素时要求类型相同（`core/variant/array.cpp:155-158`，`core/variant/dictionary.cpp:255-285`，`core/variant/variant.cpp:3176-3179`），所以 `[1] == [1.0]` 为假，而 `1 == 1.0` 为真。元素类型不同的容器比较是编译错误，例如 `Array[int] == Array[float]`，因为只有两边都为空时才相等。是 struct 或带载荷的 enum 的元素和键，以同样的方式逐字段匹配。
 - 一侧是 Variant 时，运行时按引擎的运算表求值；组合不在表中是程序错误（`variant_op.cpp:1049-1054`）。GDScript 在这里报错；运算数的类型与这条指令第一次执行时不同的情况，只在 debug 构建中检查，release 构建得到 null 并继续执行（`modules/gdscript/gdscript_vm.cpp:793-798, 821-843`）。`v == None` 对 NIL 和已释放的对象为真（§3.13）。
 - `!=` 在所有情况下都是 `==` 的否定。
-- struct 和带载荷的 enum 逐字段比较（§3.6、§3.7）。
+- struct 和带载荷的 enum 逐字段比较（§3.6、§3.7）。大小比较（`<`、`>`、`<=`、`>=`）与其他运算符一样按运算表定型，对象、Dictionary、Callable 都没有（`core/variant/variant_op.cpp:731-791`）。Array 在元素类型有 `<` 时才有，逐元素比较。`T?` 在 T 有 `<` 时才有：None 排在所有 Some 之前，Some 之间按内部的值；`<` 不包装，以免 None 意外地被当作最小，所以 hp 为 `int?` 时的 `hp < 3` 是编译错误。struct 和带载荷的 enum 的大小见 §3.6、§3.7，对它们而言 `a > b` 即 `b < a`，`a <= b` 即 `a < b or a == b`，`a >= b` 同理。
 
 ### 5.3 转换
 
@@ -666,7 +669,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 程序错误中止本语言的整条调用链，退回到引擎调用进来的入口。对本语言的类所声明方法的调用都属于这条链，无论接收者是哪个类、是否经接口调用；引擎调用进来的地方，例如信号、Callable 和引擎虚函数，才开始新的链。退出时释放持有的引用，记录错误和调用栈；在编辑器中运行时进入调试器。游戏继续运行。
 - 程序错误的检测和处理在 debug 和 release 构建中一致；唯一的例外是 `assert`（§8.3）。debug 构建只补充诊断信息，并在退出时报告泄漏（§6.7、§12.5）。
 - 若引擎调用的入口需要返回值，引擎得到该类型的默认值。
-- 本文中称为“程序错误”的情况都按这一条处理，包括：访问已释放的对象（§3.3）、`unwrap` 和 `expect` 失败、越界下标、整数除以 0、就绪前读取尚未赋值的成员、跨引擎边界的入口检查失败（§10.1）、等待被取消的任务（§9.2）。
+- 本文中称为“程序错误”的情况都按这一条处理，包括：访问已释放的对象（§3.3）、`unwrap` 和 `expect` 失败、越界下标、整数除以 0、就绪前读取尚未赋值的成员、跨引擎边界的入口检查失败（§10.1）、修改 Dictionary 的键（§3.8）、等待被取消的任务（§9.2）。
 - 同一线程上本语言的调用嵌套超过 1024 层是程序错误，而不是让进程因栈溢出崩溃；1024 是 GDScript 的默认上限（`modules/gdscript/gdscript.cpp:2870`，`modules/gdscript/gdscript.h:489-490`）。
 - 理由：GDScript 出错后，debug 构建按返回类型构造默认值返回（`modules/gdscript/gdscript_vm.cpp:3963-3993`），release 构建返回 null（`:535, 3995`），调用方都继续执行；在静态类型下，这会让代码拿到假值。
 
@@ -975,7 +978,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 - 含编译器的运行时库，供需要在运行时从源码加载脚本的项目选用，代价是加载时编译（§1.3）；
 - 别名或 `import`（§2.4）；
-- struct 构造的位置参数、修改 self 的 struct 方法、struct 成员的 `private`、不经容器的值类型递归（§3.6）；
+- struct 构造的位置参数、修改 self 或重新定义 `==`、`<` 与哈希的 struct 方法、struct 成员的 `private`、不经容器的值类型递归（§3.6）；
 - 泛型接口，写作 `interface Source[T]:`（§3.9）；
 - 泛型的多个约束，以及以类作约束（§3.10）；
 - 函数类型中的参数名、直接调用 `f(x)`、把普通函数传给期望 async 的位置（§3.11）；
@@ -1006,8 +1009,8 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 可空与释放 | 已释放对象经 `T?` 读出为 None；经 `T` 访问成员是程序错误，debug 构建中，本语言实例的诊断写明释放位置；`queue_free()` 之后、帧末之前仍算存活；两个不同的 Node 释放后，以 Node 比较为假，以 `Node?` 比较为真；已释放的 Node 上 `x is Sprite2D` 为假，`x as Sprite2D` 为 None；方法中 `free()` 自身或卸下脚本之后读成员是程序错误，不读成员直接返回则正常结束；已释放的 Node 传给 `add_child`、写入 `owner` 或 `append` 到 `Array[Node]` 是程序错误，传给 `is_instance_valid` 得到 false |
 | Option 与 Result | `?` 在 None 或 `Err` 时从当前函数返回；在返回 void 的函数中使用 `?` 报编译错误；Option 传播到返回 Result 的函数报编译错误；`await f()?` 等于 `(await f())?`；丢弃 Result 报编译错误；`unwrap` 失败是程序错误 |
 | 嵌套的 Option | `Array[Enemy?]` 为空时 `pop_back()` 得 None，末元素为 None 时得包含 None 的 Some；`var x: Enemy?? = maybe_enemy` 得 Some；`Dictionary[String, Variant]` 中缺键得 None，值为 null 得包含 NIL 的 Some；把 `int??` 或 `Variant?` 传给 Variant 参数报编译错误并给出 `.flatten()` 或 `.unwrap_or(null)`；`var x: Enemy?? = Some(None)` 得包含 None 的 Some；对 `Enemy?` 的 match 有 `Some(var e)` 和 `None` 两个分支即为穷尽 |
-| struct 与带载荷的 enum | 在方法中给 self 的字段赋值报编译错误；`player.last_hit.damage = 3` 调用 `last_hit` 的 setter；`hits[0].damage = 3` 之后 `hits[0].damage` 为 3；`get_hit().damage = 3` 报编译错误；`var b = a; b.damage = 1` 不改变 a；struct 的 Array 字段在复制后仍共享；字段相同的两个 struct 相等，作为 Dictionary 键时命中同一项；`c.target` 报编译错误；`@export` 带载荷的 enum 报编译错误；`struct ListNode` 中声明 `var next: ListNode?` 报编译错误，`Tree[T]` 经 Array 递归合法；含 Array 字段的 struct 作 Dictionary 的键报编译错误 |
-| 容器 | `pop_front()` 在空数组上得 None；`pop_at(0)` 在空数组上是程序错误，`pop_at(-1)` 取出最后一个元素；`front()` 在空数组上是程序错误；越界下标是程序错误；`d[k]` 在缺键时是程序错误；元素为 struct 的数组直接传给 Variant 参数报编译错误，快速修复改为 `Array(hits)`，得到元素为 Dictionary 的副本，之后修改原数组不影响副本；`Array[Hit].try_from(Array(hits))` 得 `Ok` |
+| struct 与带载荷的 enum | 在方法中给 self 的字段赋值报编译错误；`player.last_hit.damage = 3` 调用 `last_hit` 的 setter；`hits[0].damage = 3` 之后 `hits[0].damage` 为 3；`get_hit().damage = 3` 报编译错误；`var b = a; b.damage = 1` 不改变 a；struct 的 Array 字段在复制后仍共享；字段相同的两个 struct 相等，作为 Dictionary 键时命中同一项；`c.target` 报编译错误；`@export` 带载荷的 enum 报编译错误；`struct ListNode` 中声明 `var next: ListNode?` 报编译错误，`Tree[T]` 经 Array 递归合法；含 Array 字段的 struct 可以作 Dictionary 的键，之后向原值的 Array 追加元素不改变键；`Hit(damage = 1) < Hit(damage = 2)` 为真，字段按声明顺序比较；对含对象字段的 struct 比较大小报编译错误；IDLE 先声明，所以 `Command.IDLE < Command.MOVE(target = p)` 为真 |
+| 容器 | `pop_front()` 在空数组上得 None；`pop_at(0)` 在空数组上是程序错误，`pop_at(-1)` 取出最后一个元素；`front()` 在空数组上是程序错误；越界下标是程序错误；`d[k]` 在缺键时是程序错误；元素为 struct 的数组直接传给 Variant 参数报编译错误，快速修复改为 `Array(hits)`，得到元素为 Dictionary 的副本，之后修改原数组不影响副本；`Array[Hit].try_from(Array(hits))` 得 `Ok`；`Array[Hit]` 上的 `sort()` 按 `<` 排列，`has(h)` 找到字段相同的元素；`Array[Node]` 上的 `sort()` 报编译错误并给出 `sort_custom`，`resize` 也报编译错误并给出 `Array[Node?]`；对含 int 和 String 的无类型 Array 排序是程序错误；a 为 `[1]` 时，`d[a] = 1; a.append(2)` 之后 `d.has([1])` 为真、`d.has(a)` 为假；向取自 `d.keys()` 的键追加元素是程序错误 |
 | 接口 | 实现 `Combatant extends Damageable` 的类可以传给期望 Damageable 的参数；两个父接口的同名方法签名不兼容时报编译错误；两个父接口都有默认实现而未覆盖时报编译错误；`interface A extends B` 与 `interface B extends A` 报编译错误；声明 `interface Source[T]:` 报编译错误；`@readonly var hp: int` 的要求可以由可读写的成员满足；`var hp: int` 的要求遇到没有 setter 的引擎属性报编译错误；默认方法给 `@readonly` 属性赋值报编译错误；在接口以外使用 `@readonly` 报编译错误 |
 | 泛型 | `first([1, 2])` 中 T 推断为 int；`var x = first([])` 推断不出 T 报编译错误，`var x = first[int]([])` 合法；不满足约束的类型实参报编译错误；Node 脚本声明类型参数报编译错误；GDScript 引用泛型方法是 GDScript 的编译错误；`sig.connect(handle)` 在 handle 为泛型且类型实参确定不了时报编译错误；不继承 Resource 的泛型 RefCounted 类合法，不出现在引擎的全局类表中 |
 | 函数类型 | `func(int)` 与 `func(int) -> void` 相同；`(func(Enemy) -> bool)?` 可空，`func(Enemy) -> bool?` 返回 `bool?`；`f(x)` 报编译错误并给出 `f.call(x)`；`func(Node)` 可以用于期望 `func(Node3D)` 的位置，反之报编译错误；含 await 而未写 async 的 lambda 报编译错误；把 async 函数传给期望普通函数类型的本语言参数报编译错误；把 async 方法连接到信号合法，任务作为根任务运行 |
@@ -1018,7 +1021,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 局部变量 | `func f(n): if c: var n = 1` 报编译错误，与外层块的局部变量同名的 `var` 和 `for` 循环变量也一样；if 与 else 两个分支各自声明 `var x` 合法 |
 | 签名 | `func _process(delta):` 中 delta 为 float；覆盖时把返回类型写成子类型合法，写成父类型报编译错误；覆盖时多出带默认值的参数合法；非覆盖函数省略返回类型后返回值报编译错误；有期望类型的 lambda 参数不必标注 |
 | 信号 | emit 实参不符和 connect 参数不符报编译错误；场景中的连接与信号不符时标在场景中；单参数信号的 await 结果有该参数类型；使用多参数信号的 await 结果报编译错误；await `Signal` 类型的变量得到 Variant，信号有两个参数时运行时为 Array |
-| 相等 | `1 == 1.0` 为真；`hp == "3"` 报编译错误；`Node2D` 与 `Node3D` 比较报编译错误；hp 为 `int?` 时 `hp == 3` 合法；非空的 `Node` 与 None 比较报编译错误；`Array[int] == Array[float]` 报编译错误；Variant 中是 String 时与 int 比较是程序错误；`Enemy?` 的值可以传给 `Node?` 参数，`Array[Enemy]` 传给 `Array[Node]` 参数报编译错误；`Some(3) == Some(Some(3))` 先把左侧包装为两层再比较 |
+| 相等 | `1 == 1.0` 为真；`hp == "3"` 报编译错误；`Node2D` 与 `Node3D` 比较报编译错误；hp 为 `int?` 时 `hp == 3` 合法；非空的 `Node` 与 None 比较报编译错误；`Array[int] == Array[float]` 报编译错误；Variant 中是 String 时与 int 比较是程序错误；`Enemy?` 的值可以传给 `Node?` 参数，`Array[Enemy]` 传给 `Array[Node]` 参数报编译错误；`Some(3) == Some(Some(3))` 先把左侧包装为两层再比较；hp 为 `int?` 时 `hp < 3` 报编译错误，为 None 的 `int?` 小于 `Some(0)` |
 | 转换 | `node as Sprite2D` 为 `Sprite2D?`；`x as int` 报编译错误并给出 `int(x)` 与 `int.try_from(x)`；`int.try_from(2.0)` 得 `Ok(2)`，`int.try_from(2.5)` 和 `int.try_from("2")` 得 `Err` |
 | 收窄 | `!= None`、`is` 和提前返回之后局部变量收窄；条件表达式的分支和 `and` 右侧收窄；成员不收窄；`if x:`、`if not x:` 在 x 不是 bool 时报编译错误并按类型给出改法 |
 | match | enum 的 match 不穷尽报编译错误；带 `when` 的分支不计入覆盖；未列出字段而没有 `..` 报编译错误；Option 的 `var x` 分支中 x 为 T；对 int 的 match 不要求穷尽 |
@@ -1072,6 +1075,11 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | `pop_at` 在空数组上返回 null 而不报错，非空数组越界时报错并返回 null，负下标从末尾数起 | `core/variant/array.cpp:802-826` |
 | `front`、`back` 在空数组上报错 | `core/variant/array.cpp:354-362` |
 | Dictionary 的 `get` 在缺键时返回默认值 | `core/variant/dictionary.cpp:178-187` |
+| 大小比较运算只有 bool、数值、String、StringName、向量、RID 和 Array 有，对象、Dictionary、Callable 没有；Array 逐元素比较 | `core/variant/variant_op.cpp:731-791`；`core/variant/array.cpp:164-179` |
+| Array 的 `sort`、`bsearch`、`min`、`max` 和 Dictionary 的 `sort` 按运算表比较；`sort` 把做不了的比较当作假，`min`、`max` 返回 null | `core/variant/array.cpp:721-736, 756-760, 828-868`；`core/variant/dictionary.cpp:315-330` |
+| 带类型的 Array 的 `resize` 以该类型的默认值填充新元素，对象为 null | `core/variant/array.cpp:306-318` |
+| Dictionary 保存每个键插入时的哈希，扩容时也不重算，查找时先比较哈希再比较键 | `core/variant/dictionary.cpp:46`；`core/templates/hash_map.h:130, 149-151, 193-198` |
+| `make_read_only` 只作用于调用它的那个容器，没有办法让容器重新可写 | `core/variant/array.cpp:938-942`；`core/variant/dictionary.cpp:599-603` |
 | `bind` 把绑定的实参接在调用实参之后 | `core/variant/callable_bind.cpp:141-150` |
 | 从 String 构造 StringName 需要在全局表的互斥锁下查找 | `core/string/string_name.cpp:263-285` |
 | JSON 中的数字都解析为浮点数 | `core/io/json.cpp:390-396` |
@@ -1220,3 +1228,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 热重载修改声明后，像 GDScript 那样按成员名迁移状态 | 成员的类型可能已经改变，静态类型下搬过去的值不可信 | §12.4 |
 | 在自身上调用 `free()`、`set_script()` 是编译错误 | [语料计数](surveys/corpus-counts.zh.md)中这两种写法都没有真正出现；处理函数释放发射者、被调方释放调用方等间接情况在运行之前判断不出来，运行时的检查无论如何都需要 | §3.3 |
 | 解码 struct 时拒绝不是字段的键 | 较新的发送方多带字段的消息、为多个读取方写的 JSON 会在入口处失败，尽管 struct 需要的字段都在 | §3.6 |
+| 元素为本语言独有类型的容器上，`sort`、`min`、`max`、`hash` 等报编译错误 | GDScript 代码会调用它们，迁移来的代码就得改写；运行时可以用本语言的运算完成它们 | §3.8 |
+| struct 的哈希跳过容器字段，或 struct 只有 `==` 和哈希而没有 `<` | 哪些字段参与由用户决定，而不是由实现决定；开箱即用时各个默认运算应当配套，以后可以用 struct 方法重新定义 | §3.6 |
+| 禁止含容器字段的 struct 作 Dictionary 的键 | GDScript 允许以容器作键；只读的副本使保存的哈希始终有效 | §3.8 |
+| 把原值在作键时设为只读 | `make_read_only` 不能撤销，调用方的容器，以及其他持有它的地方，从此再也不能修改 | §3.8 |
