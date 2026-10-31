@@ -935,6 +935,8 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - rename including the scene half (§13.3);
 - scene checks: `$X`, signal connections, `PackedScene[T]`, parent and owner requirements and required exports, with errors marked in the scene editor;
 - quick fixes: inserting inferred types, completing match branches, adding explicit conversions for dynamic values, and the rewrites mentioned throughout this document;
+- formatting, which does not change the syntax tree, keeps every comment and the spelling of literals, and changes nothing in a file already formatted; a file with syntax errors is not formatted. Rationale: GDScript has no formatter of its own; the implementation proposed to the engine stalled as a draft, partly because the parser keeps only the tokens that matter to execution, which loses the spelling of literals and parentheses ([godotengine/godot#76211](https://github.com/godotengine/godot/pull/76211));
+- lints: check rules of the analysis service, reported as warnings, the same kind of diagnostic as the compiler's warnings and suppressed by `@warning_ignore` alike; a `@warning_ignore` that no longer suppresses any diagnostic gets a hint;
 - the debugger (§12.5);
 - a built-in test runner: discovery, running and reporting, also headless. Rationale: gdUnit4 and GUT require test classes to extend their GDScript base classes, and cross-language inheritance is not supported.
 
@@ -956,7 +958,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 13.5 Later
 
-- [Later] Formatting; refactorings such as extract method, change signature and pull members up to a base class; deeper profiler integration; documentation generation; generating GDScript forwarding shells for GDScript plugin classes that require inheritance.
+- [Later] Refactorings such as extract method, change signature and pull members up to a base class; deeper profiler integration; documentation generation; generating GDScript forwarding shells for GDScript plugin classes that require inheritance.
 
 ## 14. First-version scope and open questions
 
@@ -1047,6 +1049,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Cross-language | A GDScript file extending a class of this language gets an explanatory error from the analysis service; awaiting a GDScript coroutine yields a result checked against the declared type; calling a GDScript coroutine as a statement is no error, while using its result as a value without await is a program error; GDScript awaiting a coroutine of this language gets null on cancellation instead of hanging; GDScript awaiting a coroutine of this language that returns Transform3D gets no warning, and on cancellation assigning the result to a Transform3D variable is an assignment error in debug builds, not a crash; when GDScript holds `p: Player`, type errors in properties, methods and signals are GDScript compile errors; `Player.new()` has type Player, and extra arguments are a GDScript compile error; when this language holds `b: Ball` of a GDScript class, its members of object types are `T?` and those of value types as declared, and arguments of the wrong type to its methods and signals are compile errors; a parameter typed by a GDScript class takes an instance of a GDScript subclass, and `as` and `is` count the subclass too; a GDScript autoload without a class_name has the type of its script's class |
 | Hot reload | When only function bodies change, running instances use the new code on their next call; after a change to members or signatures, the running game applies neither that change nor any later one, even to function bodies, until it restarts |
 | Refactoring | Renaming an exported member changes the keys in scenes too; renaming or moving a node in the scene editor changes `$X` in scripts in the same undo step, so one undo restores both the scene and the scripts, and one redo reapplies both; non-literal paths are only reported |
+| Formatting and lints | Formatting leaves the syntax tree unchanged and keeps `0xFFFF`, `else: if` and comments as written, and formatting again changes nothing; a file with syntax errors is not formatted; a `@warning_ignore` that no longer suppresses any diagnostic gets a hint |
 
 ## 16. Feedback
 
