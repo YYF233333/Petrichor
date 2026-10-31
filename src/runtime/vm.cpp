@@ -235,25 +235,6 @@ public:
 // Where an engine function reads a right operand that a unary operator does not have.
 alignas(16) const uint8_t NOTHING[64] = {};
 
-// A value of a type outside any frame, such as a result on its way, made and
-// destroyed by its type; on the C++ stack when it is small.
-class ValueBuffer {
-	const TypeImage &type;
-	alignas(16) uint8_t small[80];
-	std::unique_ptr<uint64_t[]> large;
-
-public:
-	uint8_t *const data;
-
-	explicit ValueBuffer(const TypeImage &p_type) :
-			type(p_type), large(p_type.size > sizeof(small) ? new uint64_t[p_type.size / 8 + 1] : nullptr), data(large ? reinterpret_cast<uint8_t *>(large.get()) : small) {
-		construct_value(type, data);
-	}
-	~ValueBuffer() { destroy_value(type, data); }
-	ValueBuffer(const ValueBuffer &) = delete;
-	ValueBuffer &operator=(const ValueBuffer &) = delete;
-};
-
 // The arguments of a call to the engine, from the instruction's (type, offset)
 // pairs: each in its slot's own layout, or as a Variant where the function
 // takes a Variant, for extra vararg arguments, or for every argument of a call
@@ -358,6 +339,29 @@ bool is_read_only(ValueType p_type, const uint8_t *p_slot) {
 
 String read_only_error(ValueType p_type) {
 	return vformat("The %s is read-only, as a Dictionary key is; change a duplicate() of it instead.", bytecode::value_type_name(p_type));
+}
+
+// A key or an element as GET_INDEX and SET_INDEX take it: a Variant in a
+// container without types or as a box, otherwise in its slot's layout.
+Variant kept(const TypeImage *p_type, const uint8_t *p_slot) {
+	return !p_type || p_type->box ? variant_at(p_slot) : to_variant(*p_type, p_slot);
+}
+
+// A key as a diagnostic shows it, a box as its value.
+String key_text(const Variant &p_key) {
+	return type_of(p_key) == Variant::CALLABLE ? String(p_key) : UtilityFunctions::var_to_str(p_key);
+}
+
+// A container read out of another is checked against its type, which the
+// engine keeps one level deep (spec §3.8).
+bool checked_when_read(const TypeImage &p_type) {
+	return p_type.kind == bytecode::TypeKind::Array || p_type.kind == bytecode::TypeKind::Dictionary;
+}
+
+// "Expected Array[int], found Array.", as CHECK_OBJECT says it.
+String read_error(const TypeImage &p_type, const Variant &p_value) {
+	const String mismatch = entry_mismatch(p_type, p_value);
+	return mismatch.substr(0, 1).to_upper() + mismatch.substr(1) + ".";
 }
 
 // What an object must be to fit the class table's entry `p_index`.
@@ -849,13 +853,13 @@ public:
 					const TypeImage &element = image.types[code[pc + 2]];
 					if (base.storage == ValueType::Dictionary) {
 						const Dictionary &dictionary = *reinterpret_cast<const Dictionary *>(frame + code[pc + 4]);
-						const Variant key = base.key ? to_variant(*base.key, frame + code[pc + 5]) : variant_at(frame + code[pc + 5]);
+						const Variant key = kept(base.key, frame + code[pc + 5]);
 						if (!dictionary.has(key)) {
-							FAIL(vformat("The Dictionary has no key %s.", UtilityFunctions::var_to_str(key)));
+							FAIL(vformat("The Dictionary has no key %s.", key_text(key)));
 						}
 						const Variant &value = dictionary[key];
-						if (!from_variant(element, value, frame + code[pc + 3], false)) {
-							FAIL(vformat("The value is %s, not %s.", Variant::get_type_name(value.get_type()), type_description(element)));
+						if (!from_variant(element, value, frame + code[pc + 3], checked_when_read(element))) {
+							FAIL(read_error(element, value));
 						}
 						pc += 6;
 						break;
@@ -869,8 +873,8 @@ public:
 					if (!valid || out_of_bounds) {
 						FAIL(vformat("Index %d is out of bounds (size %d).", index, int64_t(container.call("size"))));
 					}
-					if (!from_variant(element, value, frame + code[pc + 3], false)) {
-						FAIL(vformat("The element is %s, not %s.", Variant::get_type_name(value.get_type()), type_description(element)));
+					if (!from_variant(element, value, frame + code[pc + 3], checked_when_read(element))) {
+						FAIL(read_error(element, value));
 					}
 					pc += 6;
 					break;
@@ -885,11 +889,11 @@ public:
 					}
 					if (base.storage == ValueType::Dictionary) {
 						Dictionary &dictionary = *reinterpret_cast<Dictionary *>(container);
-						Variant key = base.key ? to_variant(*base.key, index) : variant_at(index);
+						Variant key = kept(base.key, index);
 						if (keys_hold_containers(dictionary) && !dictionary.has(key)) {
 							key = frozen_copy(key);
 						}
-						dictionary.set(key, base.item ? to_variant(*base.item, src) : variant_at(src));
+						dictionary.set(key, kept(base.item, src));
 						pc += 5;
 						break;
 					}
@@ -900,7 +904,7 @@ public:
 						FAIL(vformat("Index %d is out of bounds (size %d).", I64(code[pc + 3]), size));
 					}
 					if (base.storage == ValueType::Array) {
-						reinterpret_cast<Array *>(container)->set(at, base.item ? to_variant(*base.item, src) : variant_at(src));
+						reinterpret_cast<Array *>(container)->set(at, kept(base.item, src));
 					} else {
 						// The element in its slot's layout, as the engine's setter takes it.
 						gdextension_interface::variant_get_ptr_indexed_setter(GDExtensionVariantType(base.storage))(container, at, src);
@@ -947,6 +951,21 @@ public:
 					variant_at(frame + code[pc + 2]) = to_variant(image.types[code[pc + 1]], frame + code[pc + 3]);
 					pc += 4;
 					break;
+				case Op::BOX:
+					variant_at(frame + code[pc + 2]) = make_box(image.types[code[pc + 1]], frame + code[pc + 3], code[pc + 4] != 0);
+					pc += 5;
+					break;
+				case Op::ENCODE: {
+					const TypeImage &type = image.types[code[pc + 1]];
+					const Variant encoded = encode(type, frame + code[pc + 3]);
+					if (type.storage == ValueType::Array) {
+						*reinterpret_cast<Array *>(frame + code[pc + 2]) = encoded;
+					} else {
+						*reinterpret_cast<Dictionary *>(frame + code[pc + 2]) = encoded;
+					}
+					pc += 4;
+					break;
+				}
 				case Op::UNWRAP: {
 					const TypeImage &type = image.types[code[pc + 1]];
 					const uint8_t *src = frame + code[pc + 3];
@@ -1109,11 +1128,15 @@ public:
 					Arguments args(image.types, frame, code + pc + 5, argc, &params);
 					uint8_t *base = frame + code[pc + 3];
 					ClassImage::KeyRole keys = ClassImage::KeyRole::None;
+					ClassImage::Replaced replaced = ClassImage::Replaced::None;
 					std::optional<Variant> inserted; // A Variant is made by a call into the engine.
 					if (!utility) {
 						const bytecode::BuiltinMethodCall &method = module.builtin_methods[target];
 						if (!method.is_const && is_read_only(method.base, base)) {
 							FAIL(read_only_error(method.base));
+						}
+						if (image.replaced[target] != ClassImage::Replaced::None && keeps_boxes(to_variant(method.base, base))) {
+							replaced = image.replaced[target];
 						}
 						if (image.key_roles[target] != ClassImage::KeyRole::None && keys_hold_containers(*reinterpret_cast<const Dictionary *>(base))) {
 							keys = image.key_roles[target];
@@ -1134,8 +1157,38 @@ public:
 					void *result = via_variant || unread ? scratch : frame + dst;
 					if (utility) {
 						image.utilities[target](result, args.pointers, int(argc));
+					} else if (replaced == ClassImage::Replaced::Hash) {
+						*static_cast<int64_t *>(result) = content_hash(to_variant(module.builtin_methods[target].base, base));
+					} else if (replaced == ClassImage::Replaced::HasAll) {
+						const Dictionary &dictionary = *reinterpret_cast<const Dictionary *>(base);
+						const Array &wanted = *static_cast<const Array *>(args.pointers[0]);
+						bool all = true;
+						for (int64_t i = 0; all && i < wanted.size(); i++) {
+							// A box made for a key is hashed.
+							const Variant key = wanted[i];
+							all = dictionary.has(type_of(key) == Variant::CALLABLE ? frozen_copy(key) : key);
+						}
+						*static_cast<uint64_t *>(result) = all ? 1 : 0;
 					} else {
 						image.builtin_methods[target](base, args.pointers, result, int(argc));
+					}
+					// A deep copy copies the boxes too (spec §3.8).
+					const bool deep = (replaced == ClassImage::Replaced::Duplicate && *static_cast<const uint8_t *>(args.pointers[0])) || replaced == ClassImage::Replaced::DuplicateDeep ||
+							(replaced == ClassImage::Replaced::Slice && *static_cast<const uint8_t *>(args.pointers[3]));
+					if (deep && !unread) {
+						const int64_t mode = replaced == ClassImage::Replaced::DuplicateDeep ? *static_cast<const int64_t *>(args.pointers[0]) : -1;
+						if (returns == ValueType::Array) {
+							Array &copy = *static_cast<Array *>(result);
+							for (int64_t i = 0; i < copy.size(); i++) {
+								copy[i] = deep_copy(copy[i], mode);
+							}
+						} else {
+							Dictionary &copy = *static_cast<Dictionary *>(result);
+							const Array copied = copy.keys();
+							for (int64_t i = 0; i < copied.size(); i++) {
+								copy[copied[i]] = deep_copy(copy[copied[i]], mode);
+							}
+						}
 					}
 					if (keys == ClassImage::KeyRole::HandsOut) {
 						// Keys this language obtains cannot be changed (spec §3.8).
@@ -1148,7 +1201,7 @@ public:
 							freeze(variant_at(scratch));
 						}
 					}
-					const bool fits = returns != ValueType::Variant || dst == NO_SLOT || from_variant(result_type, variant_at(scratch), frame + dst, false);
+					const bool fits = returns != ValueType::Variant || dst == NO_SLOT || from_variant(result_type, variant_at(scratch), frame + dst, checked_when_read(result_type));
 					const Variant::Type got = via_variant ? type_of(variant_at(scratch)) : Variant::NIL;
 					destroy_value(via_variant ? ValueType::Variant : (unread ? returns : ValueType::Void), scratch);
 					if (!fits) {

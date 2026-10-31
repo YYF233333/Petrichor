@@ -85,10 +85,12 @@ namespace petrichor::bytecode {
 	X(SOME, 3) /* type of dst (T?), dst, src (T): Some(src) (spec §3.4) */ \
 	X(EQUAL, 4) /* type, dst (bool), a, b: a == b, a struct field by field (spec §3.6) */ \
 	X(TO_VARIANT, 3) /* type of src, dst (Variant), src */ \
+	X(BOX, 4) /* type, dst (Variant), src, key (0 or 1): src in a box, as a container keeps a boxed type (module.h); a key's box hashes the value */ \
+	X(ENCODE, 3) /* type of src, dst, src: a container that keeps boxes as the untyped container of its kind, a copy with every key and element encoded (spec §3.8, §10.1) */ \
 	X(UNWRAP, 4) /* type of dst, dst, src (T?), message (NO_SLOT: default) */ \
-	X(NEW_CONTAINER, 2) /* type, dst: an empty Array or Dictionary, typed as the type says */ \
-	X(GET_INDEX, 5) /* type of base, type of dst, dst, base, index (an int, or a Dictionary's key) */ \
-	X(SET_INDEX, 4) /* type of base, base, index, src: a read-only base, an index out of bounds is a program error; a new Dictionary key is stored as a key (spec §3.8) */ \
+	X(NEW_CONTAINER, 2) /* type, dst: an empty Array or Dictionary, typed as the type says, a boxed type as Callable */ \
+	X(GET_INDEX, 5) /* type of base, type of dst, dst, base, index (an int, or a Dictionary's key, a Variant when boxed): a box is opened, a container read is checked against its type (spec §3.8) */ \
+	X(SET_INDEX, 4) /* type of base, base, index, src (a Variant when boxed): a read-only base, an index out of bounds is a program error; a new Dictionary key is stored as a key (spec §3.8) */ \
 	X(JUMP, 1) \
 	X(JUMP_IF_FALSE, 2) \
 	X(JUMP_IF_TRUE, 2) \

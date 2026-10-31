@@ -180,6 +180,20 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		const bool inserts = dictionary && (call.method == "set" || call.method == "get_or_add");
 		const bool hands_out = dictionary && (call.method == "keys" || call.method == "find_key");
 		image->key_roles.push_back(inserts ? KeyRole::Inserts : (hands_out ? KeyRole::HandsOut : KeyRole::None));
+		Replaced replaced = Replaced::None;
+		if (dictionary || call.base == ValueType::Array) {
+			static const std::pair<const char *, Replaced> methods[] = {
+				{ "hash", Replaced::Hash },
+				{ "has_all", Replaced::HasAll },
+				{ "duplicate", Replaced::Duplicate },
+				{ "duplicate_deep", Replaced::DuplicateDeep },
+				{ "slice", Replaced::Slice },
+			};
+			for (const auto &[method, role] : methods) {
+				replaced = call.method == method ? role : replaced;
+			}
+		}
+		image->replaced.push_back(replaced);
 	}
 	for (const bytecode::ClassRef &ref : module.classes) {
 		image->classes.push_back(to_godot(ref.name));

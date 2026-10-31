@@ -62,6 +62,23 @@ TEST_CASE("another class's struct is written ClassName.Name, and must be pub") {
 	CHECK(contains(messages(compile_in("extends Node\n\nfunc f() -> void:\n\tvar s := Combat.Secret()\n", project())), "Combat.Secret is not pub"));
 }
 
+// Spec §3.8: containers keep structs boxed.
+TEST_CASE("containers of structs") {
+	CHECK(errors("var hits: Array[Hit] = [a, b]\nhits.append(a)\nhits[0].damage = 3\nvar found: bool = hits.has(b)\nvar first: Hit = hits[0]\nfor h in hits:\n\tprint(h.damage)\n"
+				 "var by_name: Dictionary[String, Hit] = {\"a\": a}\nby_name[\"b\"] = b\nvar keyed: Dictionary[Hit, int] = {a: 1}\nkeyed[b] = 2\nvar n: int = keyed[a]\n"
+				 "var nested: Array[Array[Hit]] = [hits]\nvar s: Array[Settings] = []\ns.resize(2)\nvar u: Array = Array(hits)\nvar e: Dictionary = Dictionary(by_name)")
+					.empty());
+	CHECK(contains(errors("var hits: Array[Hit] = []\nhits.resize(2)"), "give every field of Shots.Hit a default value"));
+	CHECK(contains(errors("var hits: Array[Hit] = []\nprint(hits)"), "convert it explicitly with Array(x)"));
+	CHECK(contains(errors("var hits: Array[Hit] = []\nhits.sort()"), "orders the elements by <, which Shots.Hit does not have"));
+	CHECK(contains(errors("pass", "@export var hits: Array[Settings] = []\n\n"), "cannot be exported"));
+	const compiler::CompileResult result = compile(std::string("extends Node\n\n") + HIT + "func f(a: Hit) -> int:\n\tvar hits: Array[Hit] = [a]\n\tvar keyed: Dictionary[Hit, int] = {a: 1}\n\tvar s: Array[Settings] = []\n\ts.resize(2)\n\tvar u: Array = Array(hits)\n\treturn keyed[hits[0]]\n");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	find_instruction(function_named(result.module, "f"), bytecode::Op::ENCODE);
+}
+
 TEST_CASE("a field of a struct in a register is a slot inside it, which the verifier accepts") {
 	const compiler::CompileResult result = compile(std::string("extends Node\n\n") + HIT + "func f(a: Hit) -> bool:\n\tvar h := a\n\th.crit = h.damage > 2\n\th.point.y = 1.0\n\treturn h == a\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));

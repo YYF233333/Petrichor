@@ -372,6 +372,18 @@ func _ready() -> void:
 	_check(containers.typed_entry(typed_scores) == 1, "a typed Dictionary passes the entry check")
 	containers.callv("typed_entry", [{"a": 1}])
 	_check_errors(["container_check.pet:66: Argument \"d\" of typed_entry(): expected Dictionary[String, int], found Dictionary."], "an untyped Dictionary is refused where Dictionary[K, V] is expected")
+	_check(containers.boxed() == "15 true 0 1 5 false 2 true true 3", "containers of structs and T? keep them boxed, matched and hashed by value, and a deep copy copies inside them")
+	_check(str(containers.hits_out()) == "[ContainerCheck.Hit(damage = 1, tags = [])]", "a box prints as its value")
+	_check(containers.received({"states": {"a": {"damage": 4.0, "tags": ["t"]}}, "name": "m"}) == "4 t m 1", "a struct decodes its container fields into new containers")
+	_check(containers.sent() == {"a": {"damage": 1, "tags": []}}, "Dictionary(d) encodes the structs in it")
+	_check(containers.struct_keys() == "true false true", "a struct key is a frozen copy")
+	containers.change_struct_key()
+	_check_errors(["container_check.pet:116: The Array is read-only, as a Dictionary key is; change a duplicate() of it instead."], "changing an Array in a struct key is a program error")
+	_check(containers.nested() == "[[1, 2], [3, 4], [5]] true", "a container of containers keeps their types, and resize() fills in typed ones")
+	_check(containers.grid_row(0) == 1, "an inner container of its type is read")
+	containers.grid.append([2, 3])
+	containers.grid_row(1)
+	_check_errors(["container_check.pet:126: Expected Array[int], found Array."], "an inner container of another type is a program error when read")
 	containers.free()
 
 	var frames_before: int = c.frames

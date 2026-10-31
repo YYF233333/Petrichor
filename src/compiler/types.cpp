@@ -2,6 +2,7 @@
 
 #include "compiler/builtin_api.h"
 
+#include <algorithm>
 #include <unordered_map>
 
 namespace petrichor::compiler {
@@ -178,7 +179,7 @@ bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_
 	if ((p_from.kind == TypeKind::Function || p_from.kind == TypeKind::Signal) && p_to.kind == TypeKind::Builtin && p_to.name == p_from.builtin_name()) {
 		return true;
 	}
-	return p_to.kind == TypeKind::Variant && p_from.is_storable();
+	return p_to.kind == TypeKind::Variant && p_from.is_storable() && !(is_typed_container(p_from) && is_boxed(p_from));
 }
 
 bool is_shared(const Type &p_type) {
@@ -221,6 +222,13 @@ std::optional<std::pair<Type, Type>> entries_of(const Type &p_type) {
 
 bool is_typed_container(const Type &p_type) {
 	return p_type.kind == TypeKind::Builtin && (p_type.name == "Array" || p_type.name == "Dictionary") && !p_type.args.empty();
+}
+
+bool is_boxed(const Type &p_type) {
+	if (p_type.kind == TypeKind::Option || p_type.kind == TypeKind::Struct) {
+		return true;
+	}
+	return is_typed_container(p_type) && std::any_of(p_type.args.begin(), p_type.args.end(), is_boxed);
 }
 
 Type optional_of(const Type &p_type) {

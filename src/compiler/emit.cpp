@@ -184,11 +184,18 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 					put(offset_of(instr.b));
 					break;
 				case Op::TO_VARIANT:
+				case Op::ENCODE:
 				case Op::IS_NONE:
 				case Op::SOME:
 					put(instr.type);
 					put(offset_of(instr.dst));
 					put(offset_of(instr.a));
+					break;
+				case Op::BOX:
+					put(instr.type);
+					put(offset_of(instr.dst));
+					put(offset_of(instr.a));
+					put(instr.imm);
 					break;
 				case Op::UNWRAP:
 				case Op::EQUAL:

@@ -72,6 +72,18 @@ public:
 		HandsOut,
 	};
 	std::vector<KeyRole> key_roles; // By built-in method index.
+	// A method of Array or Dictionary that, on a container that keeps boxes,
+	// the runtime carries out itself, or finishes, since the engine would hash
+	// the boxes or leave them shared (architecture §2.2).
+	enum class Replaced : uint8_t {
+		None,
+		Hash,
+		HasAll, // Its keys may be boxes of elements, which are not hashed.
+		Duplicate, // With deep, the boxes are copied after the engine.
+		DuplicateDeep,
+		Slice,
+	};
+	std::vector<Replaced> replaced; // By built-in method index.
 	std::vector<godot::StringName> classes; // Engine classes, by class index.
 	std::vector<godot::String> class_scripts; // Classes of this language: their scripts.
 	std::vector<godot::String> class_interfaces; // Interfaces: "script::Name".

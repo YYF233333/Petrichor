@@ -65,3 +65,62 @@ pub func untyped() -> Dictionary:
 
 pub func typed_entry(d: Dictionary[String, int]) -> int:
 	return d.size()
+
+# Containers keep structs and T? boxed (architecture §2.2), and type
+# containers one level deep (spec §3.8).
+struct Hit:
+	var damage: int
+	var tags: Array[String] = []
+
+struct Message:
+	var states: Dictionary[String, Hit]
+	var name: String
+
+pub var grid: Array[Array[int]] = [[1]]
+var hit_keys: Dictionary[Hit, int] = {}
+
+pub func boxed() -> String:
+	var hits: Array[Hit] = [Hit(damage = 1), Hit(damage = 2)]
+	hits.append(Hit(damage = 3))
+	hits[0].damage = 10
+	var total := 0
+	for h in hits:
+		total += h.damage
+	var copy := hits.duplicate(true)
+	copy[1].tags.append("x")
+	var by_name: Dictionary[String, Hit] = {"a": hits[1]}
+	var keyed: Dictionary[Hit, int] = {Hit(damage = 2): 5}
+	var twin: Array[Hit] = [Hit(damage = 2)]
+	var other: Array[Hit] = [Hit(damage = 2)]
+	var maybe: Array[int?] = [1, None]
+	maybe.resize(3)
+	return str(total) + " " + str(hits.has(Hit(damage = 2))) + " " + str(hits[1].tags.size()) + " " + str(copy[1].tags.size()) + " " + str(keyed[by_name["a"]]) + " " + str(keyed.has(Hit(damage = 3))) + " " + str(hits.find(Hit(damage = 3))) + " " + str(twin == other and twin.hash() == other.hash()) + " " + str(maybe[1] == None) + " " + str(maybe.size())
+
+pub func hits_out() -> Array[Hit]:
+	return [Hit(damage = 1)]
+
+pub func received(message: Message) -> String:
+	return str(message.states["a"].damage) + " " + message.states["a"].tags[0] + " " + message.name + " " + str(message.states.size())
+
+pub func sent() -> Dictionary:
+	var message := Message(states = {"a": Hit(damage = 1)}, name = "m")
+	return Dictionary(message.states)
+
+pub func struct_keys() -> String:
+	var h := Hit(damage = 1)
+	hit_keys[h] = 1
+	h.tags.append("x")
+	return str(hit_keys.has(Hit(damage = 1))) + " " + str(hit_keys.has(h)) + " " + str(hit_keys.keys()[0].tags.is_read_only())
+
+pub func change_struct_key() -> void:
+	hit_keys.keys()[0].tags.append("y")
+
+pub func nested() -> String:
+	var rows: Array[Array[int]] = [[1, 2], [3]]
+	rows[1].append(4)
+	rows.resize(3)
+	rows[2].append(5)
+	return str(rows) + " " + str(rows[2].is_typed())
+
+pub func grid_row(i: int) -> int:
+	return grid[i].size()

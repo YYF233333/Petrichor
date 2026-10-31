@@ -70,6 +70,7 @@ static void uninitialize_petrichor(ModuleInitializationLevel p_level) {
 		loader.unref();
 
 		tasks::clear();
+		clear_box_types();
 		set_instance_resolver(nullptr);
 		Engine::get_singleton()->unregister_script_language(language);
 		memdelete(language);

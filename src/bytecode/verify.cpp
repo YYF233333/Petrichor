@@ -91,6 +91,9 @@ class Verifier {
 	// No value: the result of a function that gives none.
 	bool is_void(uint32_t p_type) const { return p_type >= module.types.size() || (module.types[p_type].kind == TypeKind::Value && module.types[p_type].value == ValueType::Void); }
 	bool same_layout(uint32_t p_a, uint32_t p_b) const { return layout_key(module.types, p_a) == layout_key(module.types, p_b); }
+	bool is_boxed(uint32_t p_type) const { return bytecode::is_boxed(module.types, p_type); }
+	// What a typed container can keep.
+	bool kept(uint32_t p_type) const { return is_element(storage(p_type)) || is_boxed(p_type); }
 
 	// The type as an error names it.
 	std::string type_name(uint32_t p_type) const {
@@ -128,10 +131,10 @@ class Verifier {
 			if (type.kind == TypeKind::Option && !is_native(storage(type.element)) && !is_option(type.element) && !is_struct(type.element)) {
 				return fail("an option of no value type");
 			}
-			if (type.kind == TypeKind::Array && !is_element(storage(type.element))) {
+			if (type.kind == TypeKind::Array && !kept(type.element)) {
 				return fail("an array of no element type");
 			}
-			if (type.kind == TypeKind::Dictionary && (!is_element(storage(type.key)) || !is_element(storage(type.element)))) {
+			if (type.kind == TypeKind::Dictionary && (!kept(type.key) || !kept(type.element))) {
 				return fail("a dictionary of no key or value type");
 			}
 			for (const FieldDesc &field : type.fields) {
@@ -281,11 +284,16 @@ class Verifier {
 		return has_values(p_type) || fail("no type");
 	}
 
+	// A key or an element of a typed container, as it goes in.
+	bool kept_operand(uint32_t p_offset, uint32_t p_type) {
+		return is_boxed(p_type) ? slot(p_offset, ValueType::Variant) : slot_like(p_offset, p_type);
+	}
+
 	// The index of GET_INDEX and SET_INDEX: an int, or a key of the Dictionary.
 	bool index_operand(uint32_t p_base, uint32_t p_index) {
 		const TypeDesc &base = module.types[p_base];
 		if (base.kind == TypeKind::Dictionary) {
-			return slot_like(p_index, base.key);
+			return kept_operand(p_index, base.key);
 		}
 		return slot(p_index, storage(p_base) == ValueType::Dictionary ? ValueType::Variant : ValueType::Int);
 	}
@@ -633,7 +641,7 @@ class Verifier {
 				}
 				const TypeDesc &base = module.types[o[0]];
 				if (base.kind == TypeKind::Array || base.kind == TypeKind::Dictionary) {
-					return slot_like(o[3], base.element);
+					return kept_operand(o[3], base.element);
 				}
 				const ValueType element = packed_element(storage(o[0]));
 				return slot(o[3], element == ValueType::Void ? ValueType::Variant : element);
@@ -675,6 +683,13 @@ class Verifier {
 				return slot(o[1], ValueType::Signal) && slot_or_none(o[2], ValueType::Object);
 			case Op::TO_VARIANT:
 				return (o[0] < module.types.size() && (is_option(o[0]) || is_struct(o[0]) || is_element(storage(o[0]))) || fail("no value type")) && slot(o[1], ValueType::Variant) && slot_like(o[2], o[0]);
+			case Op::BOX:
+				return (is_boxed(o[0]) || fail("a box of a type that is not boxed")) && slot(o[1], ValueType::Variant) && slot_like(o[2], o[0]) && (o[3] <= 1 || fail("BOX takes 0 or 1"));
+			case Op::ENCODE:
+				if (!is_boxed(o[0]) || (storage(o[0]) != ValueType::Array && storage(o[0]) != ValueType::Dictionary)) {
+					return fail("encoding what is not a container of boxes");
+				}
+				return slot(o[1], storage(o[0])) && slot_like(o[2], o[0]);
 			case Op::UNWRAP: {
 				// An object's T? is an Object slot like T's; that of another type is laid out as T? is.
 				if (!type_operand(o[0]) || storage(o[0]) == ValueType::Variant) {

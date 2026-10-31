@@ -71,6 +71,7 @@ enum class Target {
 	Utility,
 	ConvertToInt,
 	ConvertToFloat,
+	Encode, // `Array(hits)` or `Dictionary(d)` of a container that keeps boxes (spec §3.8).
 	Unwrap, // `unwrap()` or `expect(message)` of T? (spec §3.4).
 	Singleton, // An engine singleton, such as Input, by its class name.
 	Autoload, // An autoload by its global name (spec §7.3).

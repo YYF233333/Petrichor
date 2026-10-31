@@ -141,6 +141,12 @@ std::optional<std::pair<Type, Type>> entries_of(const Type &p_type);
 // An Array[T] or a Dictionary[K, V], which is made empty and typed.
 bool is_typed_container(const Type &p_type);
 
+// Whether a container keeps values of the type boxed (architecture §2.2): a
+// struct, a T? of a value type, or a container that keeps its elements or keys
+// boxed, which then enters a Variant only through `Array(hits)` or
+// `Dictionary(d)` (spec §3.8).
+bool is_boxed(const Type &p_type);
+
 // T? of a type: nullable for an object, an Option otherwise.
 Type optional_of(const Type &p_type);
 

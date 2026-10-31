@@ -652,6 +652,10 @@ class Lowerer {
 		for (size_t i = 0; i < p_call.args.size(); i++) {
 			const Type &param = p_call.param_types[i];
 			args.push_back(argument(*p_call.args[i], param, outward, !as_variant && param.kind == TypeKind::Object));
+			// A key or an element of a container that keeps it boxed.
+			if (p_call.target == Target::BuiltinMethod && i < p_call.engine_params.size() && p_call.engine_params[i].kind == TypeKind::Variant && is_boxed(param)) {
+				args.back() = box(args.back(), is_key_argument(p_call, i));
+			}
 		}
 		return args;
 	}
@@ -743,7 +747,8 @@ class Lowerer {
 		const uint32_t append = engine_builtin_method(ValueType::Array, "append", { ValueType::Variant }, ValueType::Void);
 		for (size_t e = 0; e < p_expr.args.size(); e++) {
 			const Type &element = p_expr.param_types[e];
-			call_builtin(append, result, { argument(*p_expr.args[e], element, true, element.kind == TypeKind::Object) });
+			const uint32_t value = argument(*p_expr.args[e], element, true, element.kind == TypeKind::Object);
+			call_builtin(append, result, { is_boxed(element) ? box(value, false) : value });
 		}
 		return result;
 	}
@@ -753,19 +758,68 @@ class Lowerer {
 		new_container(result);
 		const auto [key_type, value_type] = *entries_of(p_expr.type);
 		for (size_t e = 0; e + 1 < p_expr.args.size(); e += 2) {
-			const uint32_t key = stored(*p_expr.args[e], p_expr.param_types[e], key_type);
-			instr(Op::SET_INDEX, result, key, stored(*p_expr.args[e + 1], value_type, value_type));
+			const uint32_t key = stored(*p_expr.args[e], p_expr.param_types[e], key_type, true);
+			instr(Op::SET_INDEX, result, key, stored(*p_expr.args[e + 1], value_type, value_type, false));
 		}
 		return result;
 	}
 
 	// A value as a container keeps it, as a key or an element: of the type
-	// `p_as` is converted to, or a Variant in a container without types
-	// (spec §10.1). The engine keeps it, so a T must hold a live object, and
-	// a T? whose object was freed is None (§3.3).
-	uint32_t stored(const Expr &p_value, const Type &p_as, const Type &p_element) {
+	// `p_as` is converted to, boxed when the container keeps it boxed, or a
+	// Variant in a container without types (spec §10.1). The engine keeps it,
+	// so a T must hold a live object, and a T? whose object was freed is None
+	// (§3.3).
+	uint32_t stored(const Expr &p_value, const Type &p_as, const Type &p_element, bool p_key) {
 		const uint32_t value = argument(p_value, p_as, true, true);
-		return p_element.kind == TypeKind::Variant ? as_variant(value) : convert(value, p_element);
+		if (p_element.kind == TypeKind::Variant) {
+			return as_variant(value);
+		}
+		const uint32_t converted = convert(value, p_element);
+		return is_boxed(p_element) ? box(converted, p_key) : converted;
+	}
+
+	// A value of a boxed type as a container keeps it (architecture §2.2); a
+	// key's box hashes the value.
+	uint32_t box(uint32_t p_reg, bool p_key) {
+		const uint32_t result = temp(ValueType::Variant);
+		instr(Op::BOX, result, p_reg, NO_REG, p_key ? 1 : 0, fn.regs[p_reg].type);
+		return result;
+	}
+
+	// Whether the argument goes to a Dictionary as a key.
+	static bool is_key_argument(const Expr &p_call, size_t p_index) {
+		const builtin::Class *type = p_call.owner == "Dictionary" ? builtin::find_class("Dictionary") : nullptr;
+		const builtin::Method *method = type ? builtin::find_method(*type, p_call.text) : nullptr;
+		return method && p_index < method->argument_count && std::string(method->arguments[p_index].name) == "key";
+	}
+
+	// resize() of an array whose elements' default the engine does not know,
+	// boxed or a typed container: the engine's, then each new element set to
+	// its own default value (spec §3.8).
+	uint32_t resize(const Expr &p_call) {
+		const uint32_t array = lower_expr(*p_call.base);
+		const Type &element = p_call.base->type.args[0];
+		const uint32_t size = argument(*p_call.args[0], Type::of(TypeKind::Int), false, false);
+		const uint32_t index = temp(ValueType::Int);
+		move(index, size_of(array));
+		const uint32_t result = call_builtin(engine_builtin_method(ValueType::Array, "resize", { ValueType::Int }, ValueType::Int), array, { size }, temp(ValueType::Int));
+		const uint32_t one = temp(ValueType::Int);
+		load_int(one, 1);
+		const uint32_t condition = new_block();
+		const uint32_t body = new_block();
+		const uint32_t end = new_block();
+		jump(condition);
+		current = condition;
+		const uint32_t more = temp(ValueType::Bool);
+		instr(Op::LT_INT, more, index, size);
+		branch(more, body, end);
+		current = body;
+		const uint32_t value = default_value(temp(element));
+		instr(Op::SET_INDEX, array, index, is_boxed(element) ? box(value, false) : value);
+		instr(Op::ADD_INT, index, index, one);
+		jump(condition);
+		current = end;
+		return result;
 	}
 
 	uint32_t as_variant(uint32_t p_reg) {
@@ -782,14 +836,14 @@ class Lowerer {
 		if (p_subscript.param_types.empty()) {
 			return lower_expr(*p_subscript.right);
 		}
-		return stored(*p_subscript.right, p_subscript.param_types[0], p_subscript.param_types[0]);
+		return stored(*p_subscript.right, p_subscript.param_types[0], p_subscript.param_types[0], true);
 	}
 
 	// get(k) of Dictionary[K, V]: V?, None for a missing key (spec §3.8).
 	uint32_t get_or_none(const Expr &p_call) {
 		const uint32_t dictionary = lower_expr(*p_call.base);
 		const auto [key_type, value_type] = *entries_of(p_call.base->type);
-		const uint32_t key = stored(*p_call.args[0], key_type, key_type);
+		const uint32_t key = stored(*p_call.args[0], key_type, key_type, true);
 		const uint32_t has = call_builtin(engine_builtin_method(ValueType::Dictionary, "has", { ValueType::Variant }, ValueType::Bool), dictionary, { key }, temp(ValueType::Bool));
 		const uint32_t result = temp(p_call.type);
 		const uint32_t found = new_block();
@@ -963,7 +1017,16 @@ class Lowerer {
 		if (p_call.target == Target::BuiltinMethod && p_call.owner == "Dictionary" && p_call.text == "get" && p_call.args.size() == 1 && p_call.type.is_optional()) {
 			return get_or_none(p_call);
 		}
+		if (p_call.target == Target::BuiltinMethod && p_call.text == "resize" && is_typed_array(p_call.base->type) && (is_boxed(p_call.base->type) || is_typed_container(p_call.base->type.args[0]))) {
+			return resize(p_call);
+		}
 		switch (p_call.target) {
+			case Target::Encode: {
+				const uint32_t value = lower_expr(*p_call.args[0]);
+				const uint32_t result = temp(p_call.type);
+				instr(Op::ENCODE, result, value, NO_REG, 0, fn.regs[value].type);
+				return result;
+			}
 			case Target::ConvertToInt: {
 				const uint32_t arg = lower_expr(*p_call.args[0]);
 				if (reg_type(arg) == ValueType::Int) {
@@ -1503,7 +1566,7 @@ class Lowerer {
 				}
 				return;
 			case Place::Kind::Element:
-				instr(Op::SET_INDEX, p_place.reg, p_place.at, p_place.type.kind == TypeKind::Variant ? as_variant(p_value) : p_value);
+				instr(Op::SET_INDEX, p_place.reg, p_place.at, p_place.type.kind == TypeKind::Variant ? as_variant(p_value) : (is_boxed(p_place.type) ? box(p_value, false) : p_value));
 				if (p_place.parent) {
 					store(*p_place.parent, p_place.reg);
 				}

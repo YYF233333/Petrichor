@@ -130,7 +130,10 @@ TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec �
 	// Spec §5.1: as the engine and GDScript type it, alike arrays add up typed.
 	CHECK(type_of("a + a", ints) == "Array[int]");
 	CHECK(type_of("a + f", std::string(ints) + "\nvar f: Array[float] = []") == "Array");
-	CHECK(has_error(in_function("var a: Array[int?] = []"), "Arrays of int? are not supported yet"));
+	// Kept boxed, and typed one level deep (spec §3.8).
+	CHECK(type_of("a[0]", "var a: Array[int?] = [1, None]") == "int?");
+	CHECK(type_of("a[0][1] + a.front().size()", "var a: Array[Array[int]] = [[1, 2]]\na.resize(3)") == "int");
+	CHECK(has_error(in_function("var a: Array[Task[int]] = []"), "Arrays of Task[int] are not supported yet"));
 	// The entry checks would take any array for it.
 	CHECK(has_error(in_function("var a: Array[int]? = None"), "Array[int]? is not supported yet"));
 	CHECK(has_error("extends Node\n\nfunc f(a: Array[Node]?):\n\tpass\n", "Array[Node]? is not supported yet"));
@@ -179,7 +182,8 @@ TEST_CASE("Dictionary[K, V] is the engine's typed dictionary (spec §3.8)") {
 	CHECK(has_error(in_function("var d = {}"), "An empty dictionary needs a declared type"));
 	CHECK(has_error(in_function("var d: Dictionary[String, int] = {a = 1, \"b\": 2}"), "not both"));
 	CHECK(has_error(in_function("var d: Dictionary[String] = {}"), "Dictionary takes a key type and a value type."));
-	CHECK(has_error(in_function("var d: Dictionary[String, int?] = {}"), "Dictionaries of int? are not supported yet"));
+	CHECK(type_of("d[\"a\"]", "var d: Dictionary[String, int?] = {\"a\": None}") == "int?");
+	CHECK(type_of("d[\"a\"].size()", "var d: Dictionary[String, Array[Node]] = {}") == "int");
 	CHECK(contains(type_of("u[\"a\"]", "var u: Dictionary = {}"), "untyped Array or Dictionary are Variant"));
 	CHECK(errors_of(in_function("var u: Dictionary = {\"b\": 2}\nu[\"c\"] = Vector2()")).empty());
 }

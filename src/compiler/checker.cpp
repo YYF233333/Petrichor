@@ -125,7 +125,8 @@ bool is_constant(const Expr &p_expr, const Type &p_target) {
 				return false;
 			}
 		}
-		return p_expr.type == p_target;
+		// Boxes are made as the program runs.
+		return p_expr.type == p_target && (p_expr.args.empty() || !is_boxed(p_target));
 	}
 	const bool unshared = p_target.is_primitive() ||
 			(p_target.kind == TypeKind::Builtin && p_target.name != "Array" && p_target.name != "Dictionary" && p_target.name.rfind("Packed", 0) != 0);
@@ -576,10 +577,11 @@ class Checker : public ClassRelation {
 	}
 
 	// The engine types the elements of a container, and the keys of a
-	// Dictionary, with one built-in type or one class.
+	// Dictionary, with one built-in type or one class, and containers one level
+	// deep; this language keeps the types only it has boxed (spec §3.8).
 	Type container_element(const TypeRef &p_ref, const std::string &p_what) {
 		const Type element = resolve(p_ref, false);
-		if (!element.is_error() && (element.kind == TypeKind::Option || element.kind == TypeKind::Struct || !element.args.empty())) {
+		if (!element.is_error() && !element.args.empty() && !is_boxed(element) && !is_typed_container(element)) {
 			error(p_ref.line, p_ref.column, p_what + element.to_string() + " are not supported yet.");
 			return Type::of(TypeKind::Error);
 		}
@@ -1655,6 +1657,13 @@ class Checker : public ClassRelation {
 				return set(r_expr, type);
 			}
 		}
+		const std::string name = p_type.name;
+		if (args.size() == 1 && args[0].name == name && is_typed_container(args[0]) && is_boxed(args[0])) {
+			// An untyped copy with the elements encoded (spec §3.8, §10.1).
+			r_expr.param_types.push_back(args[0]);
+			r_expr.target = Target::Encode;
+			return set(r_expr, Type::builtin(name));
+		}
 		// The first constructor that takes these types exactly; otherwise the
 		// first that takes them with conversions.
 		int chosen = -1;
@@ -1785,8 +1794,10 @@ class Checker : public ClassRelation {
 				return false;
 			}
 		}
-		if (array && method == "resize" && p_base.args[0].kind == TypeKind::Object && !p_base.args[0].nullable) {
-			error(p_call.line, p_call.column, "\"resize()\" fills new elements with a default value, which " + p_base.args[0].to_string() + " does not have (spec §3.8); declare the array as Array[" + p_base.args[0].to_string() + "?].");
+		const Type &element = array ? p_base.args[0] : Type::of(TypeKind::Error);
+		if (method == "resize" && ((element.kind == TypeKind::Object && !element.nullable) || (element.kind == TypeKind::Struct && !has_default(element)))) {
+			const std::string fix = element.kind == TypeKind::Struct ? "give every field of " + element.to_string() + " a default value, or " : "";
+			error(p_call.line, p_call.column, "\"resize()\" fills new elements with a default value, which " + element.to_string() + " does not have (spec §3.8); " + fix + "declare the array as Array[" + element.to_string() + "?].");
 			return false;
 		}
 		return true;
@@ -2508,6 +2519,9 @@ class Checker : public ClassRelation {
 		if (p_from.kind == TypeKind::Float && p_to.kind == TypeKind::Int) {
 			message += " Convert explicitly with int(x).";
 		}
+		if (p_to.kind == TypeKind::Variant && is_typed_container(p_from) && is_boxed(p_from)) {
+			message += " Its elements exist only in this language; convert it explicitly with " + p_from.name + "(x), a copy with the elements encoded (spec §3.8).";
+		}
 		error(p_value.line, p_value.column, message);
 	}
 
@@ -3013,6 +3027,8 @@ class Checker : public ClassRelation {
 		}
 		if (member.is_export && type.unwrapped().kind == TypeKind::Struct) {
 			error(member.line, member.column, "Structs cannot be exported (spec §3.6).");
+		} else if (member.is_export && is_typed_container(type) && is_boxed(type)) {
+			error(member.line, member.column, "Containers whose elements exist only in this language, such as " + type.to_string() + ", cannot be exported (spec §3.6, §3.8).");
 		}
 		if (member.is_export && type.kind == TypeKind::Object && type.name == "PackedScene" && type.args.empty()) {
 			error(member.line, member.column, "An exported scene is written PackedScene[T], with the type of its root (spec §7.4).");

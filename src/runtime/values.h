@@ -9,6 +9,7 @@
 #include <godot_cpp/variant/variant.hpp>
 
 #include <cstring>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -58,6 +59,7 @@ struct ValueCheck {
 };
 
 struct TypeImage;
+struct BoxType;
 
 struct FieldImage {
 	godot::String name;
@@ -83,6 +85,9 @@ struct TypeImage {
 	std::string result_key; // The signature key of a Task[T] whose T it is.
 	godot::String name; // Struct: "script::Name".
 	std::vector<FieldImage> fields; // Struct.
+	// A type that containers keep boxed (bytecode::is_boxed): its boxes' type,
+	// the same for the same type in every image.
+	const BoxType *box = nullptr;
 };
 
 // The images of a module's types; `element` points into the vector returned,
@@ -92,12 +97,36 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 void construct_value(const TypeImage &p_type, uint8_t *p_slot);
 void destroy_value(const TypeImage &p_type, uint8_t *p_slot);
 void copy_value(const TypeImage &p_type, uint8_t *p_dst, const uint8_t *p_src);
-// A struct is a Dictionary with its fields by name (spec §3.6, §10.1).
+// A struct is encoded (spec §3.6, §10.1); a container is itself, also one
+// that keeps boxes.
 godot::Variant to_variant(const TypeImage &p_type, const uint8_t *p_slot);
 // Stores the value when it fits the type, and with `p_check` the type's
-// entry check too. A struct is decoded from a Dictionary that has each field,
-// as `T.try_from` decodes the field (spec §3.6, §5.3).
+// entry check too, which looks at the elements of a container whose type the
+// engine does not keep: boxes, or containers typed one level deep (spec §3.8).
+// A box of exactly the type is opened. A struct is decoded from a Dictionary
+// that has each field, as `T.try_from` decodes the field (spec §3.6, §5.3),
+// containers in it into new ones when they are not of the field's type.
 bool from_variant(const TypeImage &p_type, const godot::Variant &p_value, uint8_t *p_slot, bool p_check);
+// The value as spec §10.1 encodes it: a struct as a Dictionary, a container
+// that keeps boxes as an untyped copy with its keys and elements encoded.
+godot::Variant encode(const TypeImage &p_type, const uint8_t *p_slot);
+
+// Boxes (architecture §2.2): a container keeps a value of a boxed type in a
+// Callable of this library that cannot be called, compared by the value as
+// containers match keys (spec §5.2), and printed as the value. A key's box
+// hashes the value when it is made.
+godot::Variant make_box(const TypeImage &p_type, const uint8_t *p_value, bool p_key);
+// The value in a box of exactly the type, or null.
+const uint8_t *opened(const TypeImage &p_type, const godot::Variant &p_value);
+// Whether the container keeps boxes, as its elements, keys or values.
+bool keeps_boxes(const godot::Variant &p_container);
+// Frees the types of boxes, when the library is unloaded.
+void clear_box_types();
+// The hash of a value as keys are hashed, boxes by their values (spec §3.6).
+uint32_t content_hash(const godot::Variant &p_value);
+// A copy with every container inside copied too, also inside boxes (spec
+// §3.8): -1 as duplicate(true) copies, or the mode of duplicate_deep().
+godot::Variant deep_copy(const godot::Variant &p_value, int64_t p_mode);
 godot::String entry_mismatch(const TypeImage &p_type, const godot::Variant &p_value);
 godot::Variant default_variant(const TypeImage &p_type);
 // The type as the source writes it: "int?", "Array[Enemy]"…
@@ -107,6 +136,25 @@ godot::Variant::Type variant_type(const TypeImage &p_type);
 // `==` of the type: of a struct, field by field (spec §3.6); of an object, by
 // its identity (§5.2).
 bool equal_values(const TypeImage &p_type, const uint8_t *p_a, const uint8_t *p_b);
+
+// A value of a type outside any frame, such as a result on its way, made and
+// destroyed by its type; on the C++ stack when it is small.
+class ValueBuffer {
+	const TypeImage &type;
+	alignas(16) uint8_t small[80];
+	std::unique_ptr<uint64_t[]> large;
+
+public:
+	uint8_t *const data;
+
+	explicit ValueBuffer(const TypeImage &p_type) :
+			type(p_type), large(p_type.size > sizeof(small) ? new uint64_t[p_type.size / 8 + 1] : nullptr), data(large ? reinterpret_cast<uint8_t *>(large.get()) : small) {
+		construct_value(type, data);
+	}
+	~ValueBuffer() { destroy_value(type, data); }
+	ValueBuffer(const ValueBuffer &) = delete;
+	ValueBuffer &operator=(const ValueBuffer &) = delete;
+};
 
 // The slots of a frame or of an instance's members: zeroed as a whole, then
 // those whose default value is not all zero bytes, such as Basis or Array, are

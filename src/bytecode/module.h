@@ -131,6 +131,10 @@ std::string type_key(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 // How a slot of the type is laid out, as text equal for types whose values can
 // be copied from one slot to the other as they are.
 std::string layout_key(const std::vector<TypeDesc> &p_types, uint32_t p_type);
+// Whether a container keeps values of the type boxed, each in a Callable of
+// this library (architecture §2.2): a struct, a T?, or a container that keeps
+// its elements or keys boxed, which is then boxed in turn.
+bool is_boxed(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 
 // A constant of a type of the table; one of an Object type or of T? is None.
 struct Constant {

@@ -170,6 +170,24 @@ std::string layout_key(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 	return std::to_string(int(storage_of(p_types, p_type)));
 }
 
+bool is_boxed(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
+	if (p_type >= p_types.size()) {
+		return false;
+	}
+	const TypeDesc &type = p_types[p_type];
+	switch (type.kind) {
+		case TypeKind::Option:
+		case TypeKind::Struct:
+			return true;
+		case TypeKind::Array:
+			return type.element < p_type && is_boxed(p_types, type.element);
+		case TypeKind::Dictionary:
+			return (type.key < p_type && is_boxed(p_types, type.key)) || (type.element < p_type && is_boxed(p_types, type.element));
+		default:
+			return false;
+	}
+}
+
 std::string type_key(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 	if (p_type >= p_types.size()) {
 		return "!";
