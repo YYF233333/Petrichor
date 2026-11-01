@@ -147,4 +147,12 @@ struct SourceFile {
 // brackets are ignored. A file indents with tabs or with spaces, not both.
 std::shared_ptr<const SourceFile> tokenize(std::string p_source, std::vector<Diagnostic> &r_errors);
 
+// Fills the tokens, trivia and line starts of `r_file` from its text, and
+// returns the offsets of the brackets open at the end. How brackets left open
+// are recovered from (architecture §2.1): one at `p_unclosed` is taken as
+// closed at the first line break after it that is followed by a line indented
+// no deeper than its own and not beginning with a closing bracket; at the
+// line breaks at `p_resets`, which the parser asks for, all are.
+std::vector<uint32_t> lex(SourceFile &r_file, const std::vector<uint32_t> &p_resets, const std::vector<uint32_t> &p_unclosed, std::vector<Diagnostic> &r_errors);
+
 } // namespace petrichor::compiler

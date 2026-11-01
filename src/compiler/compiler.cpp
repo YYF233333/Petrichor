@@ -12,11 +12,12 @@ namespace petrichor::compiler {
 
 CompileResult compile(const std::string &p_source, const EngineApi &p_engine, const CompileOptions &p_options) {
 	CompileResult result;
-	ClassDecl cls = parse(tokenize(p_source, result.errors), result.errors);
+	ClassDecl cls = parse(p_source, result.errors);
 	ScriptClasses classes(p_engine, p_options.project, p_options.declarations_only);
-	if (result.errors.empty()) {
-		check(cls, p_engine, p_options, result.errors, classes);
-	}
+	// With syntax errors only they are reported, but the checker runs on the
+	// recovered tree all the same, as the tools will (architecture §2.1).
+	std::vector<Diagnostic> unreported;
+	check(cls, p_engine, p_options, result.errors.empty() ? result.errors : unreported, classes);
 	std::stable_sort(result.errors.begin(), result.errors.end(), [](const Diagnostic &a, const Diagnostic &b) {
 		return a.begin < b.begin;
 	});

@@ -13,7 +13,7 @@
 namespace petrichor::compiler {
 
 struct TypeRef {
-	std::string name;
+	std::string name; // Empty where a syntax error left no type.
 	TokenRange range;
 	// Of the first part of the name; each further part of Combat.Damageable
 	// is two tokens on.
@@ -44,6 +44,7 @@ enum class ExprKind {
 	Conditional, // `left if base else right` (spec §5.5).
 	NoneLiteral, // `None`, or `null` (spec §2.2).
 	TypeTest, // `left is cast_type`, or `left is not cast_type` when `bool_value`.
+	Error, // What a syntax error left of an expression (architecture §2.1).
 };
 
 // What a name, a member access or a call refers to, decided by the checker.
@@ -163,6 +164,7 @@ enum class StmtKind {
 	Continue,
 	Expression,
 	Match,
+	Error, // An indented block that no statement opens, in `body`.
 };
 
 struct MatchBranch;

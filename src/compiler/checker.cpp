@@ -2503,6 +2503,8 @@ class Checker : public ClassRelation {
 				return set(r_expr, Type::of(TypeKind::None));
 			case ExprKind::TypeTest:
 				return check_type_test(r_expr);
+			case ExprKind::Error:
+				break;
 		}
 		return set(r_expr, Type::of(TypeKind::Error));
 	}
@@ -2883,6 +2885,9 @@ class Checker : public ClassRelation {
 				return;
 			}
 			case StmtKind::Pass:
+				return;
+			case StmtKind::Error:
+				check_block(r_stmt.body);
 				return;
 			case StmtKind::Break:
 			case StmtKind::Continue:

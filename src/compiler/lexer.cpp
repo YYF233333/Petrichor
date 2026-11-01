@@ -257,10 +257,18 @@ bool is_digit(unsigned char c) {
 class Lexer {
 	SourceFile &file;
 	const std::string &source;
+	const std::vector<uint32_t> &resets;
+	const std::vector<uint32_t> &unclosed;
 	std::vector<Diagnostic> &errors;
 
+	struct Bracket {
+		uint32_t offset;
+		int indent; // Of its line.
+		bool unclosed; // The text never closes it.
+	};
+
 	uint32_t at = 0;
-	int paren_depth = 0;
+	std::vector<Bracket> brackets; // Open ones, innermost last: line breaks inside them do not count.
 	char indent_char = 0;
 	std::vector<int> indents = { 0 };
 	bool line_has_tokens = false;
@@ -292,6 +300,70 @@ class Lexer {
 			line_has_tokens = true;
 		}
 		return token;
+	}
+
+	int line_indent(uint32_t p_offset) const {
+		uint32_t start = p_offset;
+		while (start > 0 && source[start - 1] != '\n') {
+			start--;
+		}
+		int width = 0;
+		while (start + width < source.size() && (source[start + width] == ' ' || source[start + width] == '\t')) {
+			width++;
+		}
+		return width;
+	}
+
+	void open_bracket() {
+		brackets.push_back({ at, line_indent(at), std::binary_search(unclosed.begin(), unclosed.end(), at) });
+	}
+
+	void close_bracket() {
+		if (!brackets.empty()) {
+			brackets.pop_back();
+		}
+	}
+
+	// At a line break inside brackets: takes them as closed where the parser
+	// asked for it, and from a bracket the text never closes on where the next
+	// line with code is indented no deeper than that bracket's line and does
+	// not begin with a closing one.
+	void recover_brackets() {
+		if (std::binary_search(resets.begin(), resets.end(), at)) {
+			brackets.clear();
+			return;
+		}
+		uint32_t next = at + 1;
+		int width = 0;
+		while (true) {
+			width = 0;
+			uint32_t i = next;
+			while (i < source.size() && (source[i] == ' ' || source[i] == '\t')) {
+				i++;
+				width++;
+			}
+			if (i >= source.size()) {
+				return;
+			}
+			const char c = source[i];
+			if (c == '\r' || c == '\n' || c == '#') {
+				while (i < source.size() && source[i] != '\n') {
+					i++;
+				}
+				next = i + 1;
+				continue;
+			}
+			if (c == ')' || c == ']' || c == '}') {
+				return;
+			}
+			break;
+		}
+		for (size_t i = 0; i < brackets.size(); i++) {
+			if (brackets[i].unclosed && width <= brackets[i].indent) {
+				brackets.resize(i);
+				return;
+			}
+		}
 	}
 
 	void trivia(TokenKind p_kind, uint32_t p_start) {
@@ -352,8 +424,10 @@ class Lexer {
 					push(TokenKind::Dedent, at);
 				}
 				if (width != indents.back()) {
+					// A block of its own, so that dedents still balance indents.
 					error(start, at, "Indentation does not match any outer block.");
 					indents.push_back(width);
+					push(TokenKind::Indent, at);
 				}
 			}
 			return;
@@ -534,34 +608,28 @@ class Lexer {
 				one(TokenKind::Period);
 				return;
 			case '(':
-				paren_depth++;
+				open_bracket();
 				one(TokenKind::ParenOpen);
 				return;
 			case ')':
-				if (paren_depth > 0) {
-					paren_depth--;
-				}
+				close_bracket();
 				one(TokenKind::ParenClose);
 				return;
 			// Line breaks inside brackets are ignored too, as in GDScript.
 			case '[':
-				paren_depth++;
+				open_bracket();
 				one(TokenKind::BracketOpen);
 				return;
 			case ']':
-				if (paren_depth > 0) {
-					paren_depth--;
-				}
+				close_bracket();
 				one(TokenKind::BracketClose);
 				return;
 			case '{':
-				paren_depth++;
+				open_bracket();
 				one(TokenKind::BraceOpen);
 				return;
 			case '}':
-				if (paren_depth > 0) {
-					paren_depth--;
-				}
+				close_bracket();
 				one(TokenKind::BraceClose);
 				return;
 			case '+':
@@ -617,10 +685,11 @@ class Lexer {
 	}
 
 public:
-	Lexer(SourceFile &r_file, std::vector<Diagnostic> &r_errors) :
-			file(r_file), source(r_file.text), errors(r_errors) {}
+	Lexer(SourceFile &r_file, const std::vector<uint32_t> &p_resets, const std::vector<uint32_t> &p_unclosed, std::vector<Diagnostic> &r_errors) :
+			file(r_file), source(r_file.text), resets(p_resets), unclosed(p_unclosed), errors(r_errors) {}
 
-	void run() {
+	// Returns the brackets open at the end.
+	std::vector<uint32_t> run() {
 		line_start();
 		while (!at_end()) {
 			const unsigned char c = peek();
@@ -638,8 +707,11 @@ public:
 				}
 				advance();
 			} else if (c == '\n') {
+				if (!brackets.empty()) {
+					recover_brackets();
+				}
 				// The line break token belongs to the line it ends.
-				if (paren_depth == 0) {
+				if (brackets.empty()) {
 					end_line();
 					advance();
 					line_start();
@@ -669,21 +741,32 @@ public:
 			push(TokenKind::Dedent, at);
 		}
 		push(TokenKind::EndOfFile, at);
+		std::vector<uint32_t> open;
+		for (const Bracket &bracket : brackets) {
+			open.push_back(bracket.offset);
+		}
+		return open;
 	}
 };
 
 } // namespace
 
+std::vector<uint32_t> lex(SourceFile &r_file, const std::vector<uint32_t> &p_resets, const std::vector<uint32_t> &p_unclosed, std::vector<Diagnostic> &r_errors) {
+	r_file.tokens.clear();
+	r_file.trivia.clear();
+	r_file.line_starts = { 0 };
+	for (uint32_t i = 0; i < r_file.text.size(); i++) {
+		if (r_file.text[i] == '\n') {
+			r_file.line_starts.push_back(i + 1);
+		}
+	}
+	return Lexer(r_file, p_resets, p_unclosed, r_errors).run();
+}
+
 std::shared_ptr<const SourceFile> tokenize(std::string p_source, std::vector<Diagnostic> &r_errors) {
 	auto file = std::make_shared<SourceFile>();
 	file->text = std::move(p_source);
-	file->line_starts.push_back(0);
-	for (uint32_t i = 0; i < file->text.size(); i++) {
-		if (file->text[i] == '\n') {
-			file->line_starts.push_back(i + 1);
-		}
-	}
-	Lexer(*file, r_errors).run();
+	lex(*file, {}, {}, r_errors);
 	return file;
 }
 

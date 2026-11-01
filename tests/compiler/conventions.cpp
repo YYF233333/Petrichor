@@ -4,6 +4,7 @@
 #include "doctest.h"
 
 #include <algorithm>
+#include <set>
 
 namespace petrichor::tests {
 
@@ -49,11 +50,17 @@ class RangeChecker {
 		REQUIRE_MESSAGE(p_range.last < file.tokens.size(), "in:\n", file.text);
 		CHECK_MESSAGE(p_range.first >= p_parent.first, "a node begins before its parent in:\n", file.text);
 		CHECK_MESSAGE(p_range.last <= p_parent.last, "a node ends after its parent in:\n", file.text);
-		CHECK_MESSAGE(int64_t(p_range.first) > r_cursor, "a node begins inside the sibling before it in:\n", file.text);
+		// Error nodes that a line left empty share the line break it ends with.
+		const bool shared = int64_t(p_range.first) == r_cursor && file.tokens[p_range.first].length == 0;
+		CHECK_MESSAGE((int64_t(p_range.first) > r_cursor || shared), "a node begins inside the sibling before it in:\n", file.text);
 		r_cursor = p_range.last;
 	}
 
+	// A name a syntax error left empty has no token of its own.
 	void name(uint32_t p_token, const std::string &p_name, const TokenRange &p_range) {
+		if (p_name.empty()) {
+			return;
+		}
 		REQUIRE(p_token < file.tokens.size());
 		CHECK_MESSAGE(p_token >= p_range.first, p_name);
 		CHECK_MESSAGE(p_token <= p_range.last, p_name);
@@ -196,7 +203,7 @@ class RangeChecker {
 	void function(const FuncDecl &p_decl, const TokenRange &p_parent, int64_t &r_cursor) {
 		enter(p_decl.range, p_parent, r_cursor);
 		// An inline accessor, @set_x or @get_x, is named by its keyword.
-		name(p_decl.name_token, p_decl.name[0] == '@' ? p_decl.name.substr(1, 3) : p_decl.name, p_decl.range);
+		name(p_decl.name_token, p_decl.name.rfind('@', 0) == 0 ? p_decl.name.substr(1, 3) : p_decl.name, p_decl.range);
 		int64_t cursor = int64_t(p_decl.range.first) - 1;
 		params(p_decl.params, p_decl.range, cursor);
 		if (p_decl.return_type_ref) {
@@ -266,16 +273,103 @@ public:
 	}
 };
 
+// Of the line at index `p_line`.
+int indentation(const SourceFile &p_file, int p_line) {
+	uint32_t at = p_file.line_starts[p_line];
+	int width = 0;
+	while (at < p_file.text.size() && (p_file.text[at] == ' ' || p_file.text[at] == '\t')) {
+		at++;
+		width++;
+	}
+	return width;
+}
+
+// Whether the line at index `p_line` has no code.
+bool blank(const SourceFile &p_file, int p_line) {
+	uint32_t at = p_file.line_starts[p_line] + uint32_t(indentation(p_file, p_line));
+	return at >= p_file.text.size() || p_file.text[at] == '\n' || p_file.text[at] == '\r' || p_file.text[at] == '#';
+}
+
+// Where each statement begins, by line.
+void statement_starts(const Block &p_block, const SourceFile &p_file, std::vector<std::pair<int, uint32_t>> &r_starts) {
+	for (const auto &stmt : p_block) {
+		const uint32_t begin = p_file.begin(stmt->range);
+		r_starts.push_back({ p_file.position(begin).line, begin });
+		statement_starts(stmt->body, p_file, r_starts);
+		statement_starts(stmt->else_body, p_file, r_starts);
+		for (const MatchBranch &branch : stmt->branches) {
+			statement_starts(branch.body, p_file, r_starts);
+		}
+	}
+}
+
+std::vector<std::pair<int, uint32_t>> statement_starts(const ClassDecl &p_class) {
+	std::vector<std::pair<int, uint32_t>> starts;
+	for (const FuncDecl &function : p_class.functions) {
+		statement_starts(function.body, *p_class.source, starts);
+	}
+	return starts;
+}
+
 } // namespace
+
+void check_recovery(const std::string &p_source, const std::function<void(const std::string &)> &p_compile) {
+	std::vector<Diagnostic> errors;
+	const ClassDecl original = parse(p_source, errors);
+	if (!errors.empty()) {
+		return;
+	}
+	const SourceFile &file = *original.source;
+	const std::vector<std::pair<int, uint32_t>> starts = statement_starts(original);
+	for (size_t line = 0; line < file.line_starts.size(); line++) {
+		const uint32_t start = file.line_starts[line];
+		uint32_t end = line + 1 < file.line_starts.size() ? file.line_starts[line + 1] - 1 : uint32_t(file.text.size());
+		if (end > start && file.text[end - 1] == '\r') {
+			end--;
+		}
+		if (end - start < 2) {
+			continue;
+		}
+		const uint32_t cut = start + (end - start) / 2;
+		const std::string truncated = file.text.substr(0, cut) + file.text.substr(end);
+		INFO("line ", line + 1, " cut in:\n", truncated);
+		if (p_compile) {
+			p_compile(truncated);
+		}
+		check_syntax_conventions(truncated);
+		std::vector<Diagnostic> ignored;
+		std::set<uint32_t> found;
+		for (const auto &entry : statement_starts(parse(truncated, ignored))) {
+			found.insert(entry.second);
+		}
+		// The lines after a bracket left open that are indented deeper than its
+		// own may be read as inside it, as the body under `func f(` is.
+		int exempt_from = 0;
+		int exempt_to = 0;
+		SourceFile plain;
+		plain.text = truncated;
+		const std::vector<uint32_t> open = lex(plain, {}, {}, ignored);
+		if (!open.empty()) {
+			exempt_from = plain.position(open[0]).line + 1;
+			const int depth = indentation(plain, exempt_from - 2);
+			exempt_to = exempt_from;
+			while (exempt_to <= int(plain.line_starts.size()) && (blank(plain, exempt_to - 1) || indentation(plain, exempt_to - 1) > depth)) {
+				exempt_to++;
+			}
+		}
+		for (const auto &[statement_line, begin] : starts) {
+			if (statement_line != int(line + 1) && (statement_line < exempt_from || statement_line >= exempt_to)) {
+				CHECK_MESSAGE(found.count(begin < cut ? begin : begin - (end - cut)), "the statement of line ", statement_line, " is lost");
+			}
+		}
+	}
+}
 
 void check_syntax_conventions(const std::string &p_source) {
 	std::vector<Diagnostic> errors;
-	const std::shared_ptr<const SourceFile> file = tokenize(p_source, errors);
-	check_lossless(*file);
-	const ClassDecl cls = parse(file, errors);
-	if (errors.empty()) {
-		RangeChecker(*file).run(cls);
-	}
+	const ClassDecl cls = parse(p_source, errors);
+	check_lossless(*cls.source);
+	RangeChecker(*cls.source).run(cls);
 }
 
 } // namespace petrichor::tests

@@ -20,9 +20,14 @@ inline const FakeEngine &fake_engine() {
 	return engine;
 }
 
+// Compiles a source, also cut line by line when it compiles (architecture §3).
 inline compiler::CompileResult compile(const std::string &p_source) {
 	check_syntax_conventions(p_source);
-	return compiler::compile(p_source, fake_engine());
+	compiler::CompileResult result = compiler::compile(p_source, fake_engine());
+	if (result.ok()) {
+		check_recovery(p_source, [](const std::string &p_cut) { compiler::compile(p_cut, fake_engine()); });
+	}
+	return result;
 }
 
 // Scenes described by hand, for the scene model (spec §7).
@@ -133,7 +138,11 @@ inline compiler::CompileResult compile_in(const std::string &p_source, const Fak
 	options.project = &p_project;
 	options.declarations_only = p_declarations_only;
 	check_syntax_conventions(p_source);
-	return compiler::compile(p_source, fake_engine(), options);
+	compiler::CompileResult result = compiler::compile(p_source, fake_engine(), options);
+	if (result.ok()) {
+		check_recovery(p_source, [&](const std::string &p_cut) { compiler::compile(p_cut, fake_engine(), options); });
+	}
+	return result;
 }
 
 inline std::string messages(const compiler::CompileResult &p_result) {
