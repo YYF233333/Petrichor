@@ -111,14 +111,13 @@ func _check_new_script() -> void:
 
 
 # The editor learns a script's global class from its header (spec §2.1), also
-# while the script cannot be compiled, here because class annotations are not
-# supported yet.
+# while the script cannot be compiled, here because @tool is not supported yet.
 func _check_header() -> void:
 	var script: Script = ClassDB.instantiate("PetScript")
 	script.source_code = "# A comment.\n@tool\n@icon(\"res://icon#1.svg\") class_name HeaderCheck\nextends Node2D implements Combat.Damageable\nvar x := 1\n"
 	script.reload()
 	_check(script.get_global_name() == &"HeaderCheck" and script.get_instance_base_type() == &"Node2D", "the header is read past class annotations, their arguments and comments")
-	_check_errors(["The class annotation @tool is not supported yet.", "The class annotation @icon is not supported yet."], "the script reports only its class annotations")
+	_check_errors(["The class annotation @tool is not supported yet."], "the script reports only its class annotation")
 
 
 # While a script has errors, a scene that uses it keeps its exported values,
