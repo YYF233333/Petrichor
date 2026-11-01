@@ -417,6 +417,9 @@ class Execution {
 		if (!method.is_static && !p_context.storage) {
 			return fail("An instance method needs a receiver. Build the project again.");
 		}
+		if (method.is_abstract) {
+			return fail(vformat("%s() is abstract, and this object's class does not implement it. Build the project again.", p_callee.function_names[p_index]));
+		}
 		const size_t required = method.params.size() - method.defaults.size();
 		if (argc < required || argc > method.params.size()) {
 			return fail("Override argument count changed. Rebuild the project.");
@@ -1709,6 +1712,11 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 	r_error.error = GDEXTENSION_CALL_OK;
 	if (image->module.declarations_only) {
 		ERR_PRINT(vformat("%s was only described for the editor; it runs once the project is built.", image->path));
+		r_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
+		return Variant();
+	}
+	if (fn.is_abstract) {
+		ERR_PRINT(vformat("%s: %s() is abstract, and this object's class does not implement it.", image->path, image->function_names[p_function]));
 		r_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
 		return Variant();
 	}

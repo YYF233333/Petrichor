@@ -583,7 +583,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	if (a.declarations_only || b.declarations_only) {
 		return false;
 	}
-	if (a.global_name != b.global_name || a.base_class != b.base_class || a.instance_size != b.instance_size || a.members.size() != b.members.size() || a.functions.size() != b.functions.size()) {
+	if (a.global_name != b.global_name || a.base_class != b.base_class || a.is_abstract != b.is_abstract || a.instance_size != b.instance_size || a.members.size() != b.members.size() || a.functions.size() != b.functions.size()) {
 		return false;
 	}
 	const ModulePair pair{ a, b };
@@ -640,7 +640,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 		const bytecode::Function &x = a.functions[i];
 		const bytecode::Function &y = b.functions[i];
 		if (x.is_inherited != y.is_inherited || x.base_signature != y.base_signature || x.name != y.name || !pair.same_slot(x.result, y.result) || x.is_pub != y.is_pub || x.is_override != y.is_override || x.is_exposed != y.is_exposed ||
-				x.is_async != y.is_async || x.is_static != y.is_static || !(x.rpc == y.rpc) || x.params.size() != y.params.size() || x.defaults.size() != y.defaults.size()) {
+				x.is_async != y.is_async || x.is_static != y.is_static || !(x.rpc == y.rpc) || x.is_abstract != y.is_abstract || x.params.size() != y.params.size() || x.defaults.size() != y.defaults.size()) {
 			return false;
 		}
 		for (size_t d = 0; d < x.defaults.size(); d++) {

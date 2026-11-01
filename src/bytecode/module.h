@@ -234,6 +234,8 @@ struct Function {
 	// The engine must find it by name: a method connected in a scene (spec §10.5).
 	bool is_exposed = false;
 	Rpc rpc;
+	// @abstract: no code, which a class that extends this one provides (spec §4.1).
+	bool is_abstract = false;
 	uint32_t line = 0;
 	uint32_t frame_size = 0;
 	std::vector<Slot> slots; // All slots with their types, params first.
@@ -362,6 +364,7 @@ struct Module {
 	// Compiled without function bodies, to describe the class while it is
 	// being loaded in the editor; it cannot run.
 	bool declarations_only = false;
+	bool is_abstract = false; // @abstract: not instantiated (spec §4.1).
 	std::string global_name;
 	std::string base_class;
 	std::string base_script;

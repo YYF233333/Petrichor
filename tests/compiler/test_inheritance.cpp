@@ -145,3 +145,30 @@ TEST_CASE("inheritance scene connections belong to their attached class") {
 		}
 	}
 }
+
+// Spec §4.1, as GDScript checks it (modules/gdscript/gdscript_analyzer.cpp:1532-1556,
+// 2008-2022, 3630-3644; modules/gdscript/gdscript_parser.cpp:715-754, 1773-1774, 4500-4524).
+TEST_CASE("an abstract class declares methods its subclasses implement") {
+	FakeProject p;
+	p.add_script("res://action.pet", "@abstract\nclass_name Action\nextends Resource\n@export var label: String\n\n@abstract pub async func execute() -> int\n\n@abstract\nfunc cost() -> int\n\npub func describe() -> String:\n\treturn label + str(cost())\n", "Action");
+	const auto action = compile_in(p.sources.at("res://action.pet"), p);
+	REQUIRE_MESSAGE(action.ok(), messages(action));
+	CHECK(action.module.is_abstract);
+	CHECK((function_named(action.module, "cost").is_abstract && function_named(action.module, "cost").code.empty()));
+	CHECK(!function_named(action.module, "describe").is_abstract);
+
+	const auto child = compile_in("extends Action\npub async func execute() -> int:\n\treturn 1\n\nfunc cost() -> int:\n\treturn 2\n", p);
+	REQUIRE_MESSAGE(child.ok(), messages(child));
+	CHECK(!child.module.is_abstract);
+	CHECK(compile_in("@abstract\nextends Action\nfunc cost() -> int:\n\treturn 2\n", p).ok());
+
+	CHECK(contains(messages(compile_in("extends Action\nfunc cost() -> int:\n\treturn 2\n", p)), "must implement \"Action.execute()\", and the other abstract methods it inherits, or be marked @abstract."));
+	CHECK(contains(messages(compile_in("extends Node\n@abstract func f()\n", p)), "is not abstract but declares the abstract \"f()\"; mark the class @abstract."));
+	CHECK(contains(messages(compile_in("@abstract\nextends Node\n@abstract func f():\n\tpass\n", p)), "An abstract function has no body"));
+	CHECK(contains(messages(compile_in("@abstract\nextends Node\n@abstract static func f()\n", p)), "A static function cannot be @abstract."));
+	CHECK(contains(messages(compile_in("extends Node\n@abstract var x := 1\n", p)), "@abstract applies to classes and functions."));
+	CHECK(contains(messages(compile_in("extends Node\nfunc f():\n\tvar a := Action.new()\n", p)), "Action is abstract and cannot be instantiated"));
+	CHECK(contains(messages(compile_in("extends Action\npub async func execute() -> int:\n\treturn 1\n\nfunc cost() -> int:\n\treturn super()\n", p)), "\"cost()\" is abstract in the base class"));
+	// Before a function it is the function's, even at the top of the file.
+	CHECK(contains(messages(compile_in("@abstract func f()\n", p)), "is not abstract but declares the abstract"));
+}

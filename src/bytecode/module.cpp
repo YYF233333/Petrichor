@@ -471,6 +471,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 	w.u64(FORMAT_ID);
 	w.u64(p_module.source_hash);
 	w.u8(p_module.declarations_only ? 1 : 0);
+	w.u8(p_module.is_abstract ? 1 : 0);
 	w.str(p_module.global_name);
 	w.str(p_module.base_class);
 	w.str(p_module.base_script);
@@ -536,6 +537,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.u8(function.rpc.transfer_mode);
 		w.u8(function.rpc.call_local ? 1 : 0);
 		w.u32(uint32_t(function.rpc.channel));
+		w.u8(function.is_abstract ? 1 : 0);
 		w.u32(function.line);
 		w.u32(function.frame_size);
 		w.u32(uint32_t(function.slots.size()));
@@ -655,6 +657,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 	Module module;
 	module.source_hash = r.u64();
 	module.declarations_only = r.u8() != 0;
+	module.is_abstract = r.u8() != 0;
 	module.global_name = r.str();
 	module.base_class = r.str();
 	module.base_script = r.str();
@@ -720,6 +723,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		function.rpc.transfer_mode = r.u8();
 		function.rpc.call_local = r.u8() != 0;
 		function.rpc.channel = int32_t(r.u32());
+		function.is_abstract = r.u8() != 0;
 		function.line = r.u32();
 		function.frame_size = r.u32();
 		function.slots.resize(r.count());

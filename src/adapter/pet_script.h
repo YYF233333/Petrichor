@@ -20,6 +20,7 @@ struct PetHeader {
 	godot::String base = "RefCounted";
 	bool base_is_path = false;
 	godot::String icon; // As written, which may be relative to the script.
+	bool is_abstract = false;
 };
 
 PetHeader parse_header(const godot::String &p_source);

@@ -162,7 +162,9 @@ static Dictionary function_info(const ClassImage &p_image, int p_index) {
 		args.push_back(typed(value_dict(p_image.types[param.type], to_godot(param.name), PROPERTY_USAGE_DEFAULT), p_image.types[param.type]));
 	}
 	const Dictionary result = function.is_async ? property_dict(Variant::NIL, StringName(), PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_NIL_IS_VARIANT, StringName()) : value_dict(p_image.types[function.result.type], StringName(), PROPERTY_USAGE_DEFAULT);
-	Dictionary method = method_dict(p_image.function_names[p_index], args, result, METHOD_FLAGS_DEFAULT | (function.is_static ? METHOD_FLAG_STATIC : 0));
+	// An abstract method as GDScript reports one (modules/gdscript/gdscript_compiler.cpp:2327-2329).
+	const uint32_t flags = METHOD_FLAGS_DEFAULT | (function.is_static ? METHOD_FLAG_STATIC : 0) | (function.is_abstract ? METHOD_FLAG_VIRTUAL_REQUIRED : 0);
+	Dictionary method = method_dict(p_image.function_names[p_index], args, result, flags);
 	Array defaults;
 	for (const bytecode::Constant &constant : function.defaults) {
 		Variant value;
@@ -302,6 +304,9 @@ PetHeader parse_header(const String &p_source) {
 	String keyword; // class_name or extends, whose name comes next.
 	bool has_name = false;
 	bool has_base = false;
+	// @abstract is the class's when the header goes on, as the compiler reads
+	// it; before a function, it is the function's.
+	bool abstract = false;
 	for (int64_t i = 0; i < length;) {
 		const char32_t c = p_source[i];
 		if (c == '#') {
@@ -324,7 +329,10 @@ PetHeader parse_header(const String &p_source) {
 			const int64_t name = i + 1;
 			for (i++; i < length && is_word(p_source[i]); i++) {
 			}
-			const bool icon = p_source.substr(name, i - name) == "icon";
+			const String annotation = p_source.substr(name, i - name);
+			const bool icon = annotation == "icon";
+			header.is_abstract = header.is_abstract || (abstract && (icon || annotation == "tool" || annotation == "static_unload"));
+			abstract = abstract || annotation == "abstract";
 			while (i < length && (p_source[i] == ' ' || p_source[i] == '\t')) {
 				i++;
 			}
@@ -361,6 +369,7 @@ PetHeader parse_header(const String &p_source) {
 				break; // implements, or the first member.
 			}
 			keyword = word == "class_name" || word == "extends" ? word : String();
+			header.is_abstract = header.is_abstract || (abstract && !keyword.is_empty());
 		} else {
 			i++;
 		}
@@ -544,7 +553,7 @@ void PetScript::_placeholder_erased(void *p_placeholder) {
 
 bool PetScript::_can_instantiate() const {
 	const std::shared_ptr<const ClassImage> current = get_image();
-	return current && !current->module.declarations_only && (_is_tool() || !Engine::get_singleton()->is_editor_hint());
+	return current && !current->module.declarations_only && !current->module.is_abstract && (_is_tool() || !Engine::get_singleton()->is_editor_hint());
 }
 
 Ref<Script> PetScript::_get_base_script() const {
@@ -743,8 +752,11 @@ bool PetScript::_is_valid() const {
 	return bool(get_image());
 }
 
+// From the header, as the global class list has it, also while the script
+// has errors; the engine then gives no object this script
+// (core/object/object.cpp:976).
 bool PetScript::_is_abstract() const {
-	return false;
+	return header.is_abstract;
 }
 
 ScriptLanguage *PetScript::_get_language() const {

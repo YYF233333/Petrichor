@@ -327,6 +327,8 @@ struct FuncDecl {
 	bool is_pub = false;
 	bool is_static = false;
 	bool is_async = false;
+	bool is_abstract = false; // @abstract, without a body (spec §4.1).
+	bool has_body = true;
 	std::vector<Annotation> annotations; // @rpc.
 	std::vector<ParamDecl> params;
 	std::optional<TypeRef> return_type_ref;
@@ -395,6 +397,7 @@ struct ClassDecl {
 	std::shared_ptr<const SourceFile> source; // What the token indices of its nodes refer to.
 	std::string class_name;
 	uint32_t class_name_token = NO_TOKEN;
+	bool is_abstract = false; // @abstract (spec §4.1).
 	std::string extends = "RefCounted";
 	bool extends_path = false;
 	std::string path;

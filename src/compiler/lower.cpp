@@ -1988,6 +1988,7 @@ public:
 		// Type 0, which a result that is not there has.
 		type_index(ValueType::Void);
 		module.global_name = cls.class_name;
+		module.is_abstract = cls.is_abstract;
 		module.base_class = cls.native_base;
 		module.base_script = cls.base_script;
 		module.inherited_members = cls.base ? uint32_t(cls.base->all_members.size()) : 0;
@@ -2099,8 +2100,9 @@ public:
 			bytecode::Function out = ir::emit(fn, module);
 			out.is_static = function.is_static;
 			out.rpc = function.rpc;
+			out.is_abstract = function.is_abstract;
 			out.is_inherited = inherited;
-			if (inherited) {
+			if (inherited || function.is_abstract) {
 				out.code.clear();
 			}
 			if (cls.base) {

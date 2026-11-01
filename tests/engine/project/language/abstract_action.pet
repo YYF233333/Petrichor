@@ -1,0 +1,11 @@
+# @abstract (spec §4.1), checked by language_test.gd with abstract_strike.pet.
+@abstract
+class_name AbstractAction
+extends Resource
+
+@export var label := "strike"
+
+@abstract func cost() -> int
+
+pub func describe() -> String:
+	return label + " " + str(cost())

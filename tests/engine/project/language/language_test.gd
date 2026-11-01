@@ -498,6 +498,22 @@ func _ready() -> void:
 	annotated.free()
 	reference.free()
 
+	# @abstract (spec §4.1).
+	var strike := AbstractStrike.new()
+	_check(strike.describe() == "strike 3", "a method of an abstract class calls the abstract method its subclass implements")
+	var action_script: Script = load("res://language/abstract_action.pet")
+	var cost_flags := 0
+	for method in action_script.get_script_method_list():
+		if method.name == "cost":
+			cost_flags = method.flags
+	_check(action_script.is_abstract() and not action_script.can_instantiate() and not strike.get_script().is_abstract() and cost_flags & METHOD_FLAG_VIRTUAL_REQUIRED, "the engine sees which classes and methods are abstract")
+	var abstract_classes := {}
+	for entry in ProjectSettings.get_global_class_list():
+		abstract_classes[entry["class"]] = entry["is_abstract"]
+	_check(abstract_classes.get(&"AbstractAction") == true and abstract_classes.get(&"AbstractStrike") == false, "the global class list marks abstract classes")
+	Resource.new().set_script(action_script)
+	_check_errors(["Cannot set object script. Script 'res://language/abstract_action.pet' should not be abstract."], "the engine gives no object an abstract script")
+
 	for test: GDScript in [preload("res://language/coroutines_test.gd"), preload("res://language/defaults_test.gd"), preload("res://language/inheritance_test.gd")]:
 		var part: Node = test.new()
 		add_child(part)

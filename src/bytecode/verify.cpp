@@ -914,8 +914,14 @@ public:
 					return fail("parameter " + std::to_string(i) + " is not its slot");
 				}
 			}
-			if (each.is_inherited ? (!each.code.empty() || module.base_script.empty() || each.base_signature.empty()) : !code(each)) {
+			if (each.is_abstract && !each.code.empty()) {
+				return fail("an abstract function with code");
+			}
+			if (each.is_inherited ? (!each.code.empty() || module.base_script.empty() || each.base_signature.empty()) : (!each.is_abstract && !code(each))) {
 				return false;
+			}
+			if (each.is_abstract && (!module.is_abstract || each.is_static)) {
+				return fail("an abstract function of a class that is not abstract, or a static one");
 			}
 		}
 		function = nullptr;

@@ -1127,6 +1127,39 @@ class Parser {
 		return p_name == "tool" || p_name == "icon" || p_name == "static_unload" || p_name == "abstract" || p_name == "parent" || p_name == "owner";
 	}
 
+	// Whether the @abstract at the cursor is the class's: it is when class_name,
+	// extends or an annotation only a class takes comes before any member, as
+	// in GDScript (modules/gdscript/gdscript_parser.cpp:715-754); otherwise it is
+	// the function's after it.
+	bool abstract_heads_class() const {
+		size_t i = 2;
+		while (true) {
+			const TokenKind kind = peek(i).kind;
+			if (kind == TokenKind::Newline) {
+				i++;
+				continue;
+			}
+			if (kind != TokenKind::At) {
+				return kind == TokenKind::ClassName || kind == TokenKind::Extends || kind == TokenKind::EndOfFile;
+			}
+			const std::string &name = peek(i + 1).text;
+			if (name == "tool" || name == "icon" || name == "static_unload") {
+				return true;
+			}
+			i += 2;
+			for (int depth = 0; peek(i).kind == TokenKind::ParenOpen || depth > 0; i++) {
+				if (peek(i).kind == TokenKind::EndOfFile) {
+					return false;
+				}
+				if (peek(i).kind == TokenKind::ParenOpen) {
+					depth++;
+				} else if (peek(i).kind == TokenKind::ParenClose) {
+					depth--;
+				}
+			}
+		}
+	}
+
 	// @warning_ignore_start and @warning_ignore_restore stand on a line of
 	// their own, as in GDScript (modules/gdscript/gdscript_parser.cpp:183-184).
 	static bool is_warning_region(const std::string &p_name) {
@@ -1208,6 +1241,11 @@ class Parser {
 				fail(name, "@readonly is only for interface properties (spec §3.9).");
 				return;
 			}
+			if (annotation.name == "abstract") {
+				annotations.push_back(std::move(annotation));
+				match(TokenKind::Newline);
+				continue;
+			}
 			if (is_class_annotation(annotation.name)) {
 				fail(name, "@" + annotation.name + " belongs to the class header, before the members.");
 				return;
@@ -1239,8 +1277,8 @@ class Parser {
 		}
 
 		for (const Annotation &annotation : annotations) {
-			if (annotation.name == "rpc" && !check(TokenKind::Func)) {
-				fail(tokens[annotation.name_token], "@rpc applies to functions.");
+			if ((annotation.name == "rpc" || annotation.name == "abstract") && !check(TokenKind::Func)) {
+				fail(tokens[annotation.name_token], annotation.name == "rpc" ? "@rpc applies to functions." : "@abstract applies to classes and functions.");
 				return;
 			}
 		}
@@ -1331,11 +1369,13 @@ class Parser {
 		}
 
 		if (check(TokenKind::Func)) {
+			bool is_abstract = false;
 			for (const Annotation &annotation : annotations) {
-				if (annotation.name != "rpc") {
+				if (annotation.name != "rpc" && annotation.name != "abstract") {
 					fail(peek(), "@" + annotation.name + " applies to variables.");
 					return;
 				}
+				is_abstract = is_abstract || annotation.name == "abstract";
 			}
 			advance();
 			FuncDecl decl;
@@ -1346,10 +1386,20 @@ class Parser {
 			decl.is_static = is_static;
 			decl.is_async = is_async;
 			decl.annotations = std::move(annotations);
+			decl.is_abstract = is_abstract;
 			expect(TokenKind::ParenOpen, "\"(\"");
 			decl.params = params();
 			if (match(TokenKind::Arrow)) {
 				decl.return_type_ref = type_ref();
+			}
+			// An abstract function has no colon and no body, as in GDScript
+			// (modules/gdscript/gdscript_parser.cpp:1773-1774).
+			if (is_abstract && !check(TokenKind::Colon)) {
+				decl.has_body = false;
+				decl.range = span(first);
+				end_of_statement();
+				r_class.functions.push_back(std::move(decl));
+				return;
 			}
 			expect(TokenKind::Colon, "\":\"");
 			decl.body = block();
@@ -1404,9 +1454,17 @@ public:
 				continue;
 			}
 			// Class annotations open the header (spec §2.1, §2.3).
-			if (!seen_member && check(TokenKind::At) && is_class_annotation(peek(1).text)) {
+			if (!seen_member && check(TokenKind::At) && is_class_annotation(peek(1).text) && (peek(1).text != "abstract" || abstract_heads_class())) {
 				advance();
 				const Token &name = advance();
+				if (name.text == "abstract") {
+					if (result.is_abstract) {
+						report(name, "The class already has @abstract.");
+					}
+					result.is_abstract = true;
+					match(TokenKind::Newline);
+					continue;
+				}
 				if (name.text == "owner") {
 					if (result.owner_ref) {
 						fail(name, "The class already has @owner.");

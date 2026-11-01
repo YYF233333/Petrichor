@@ -10,7 +10,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Of structs (spec §3.6): methods; the "modifies a copy" warning for a field of a struct loop variable; a struct that holds itself through a container, which the type table cannot list, a type's parts coming before it.
 - `T.try_from(v)` (spec §5.3), as for `Array[Hit].try_from(Array(hits))`.
 - The error for a type that is not pub, such as a struct or an interface, in the signature of a pub member (spec §4.2).
-- Static checks of must-assign exports in scenes, in resources and at export (spec §7.5), and of a scene used as a root whose root has a script with `@owner` (§7.3).
+- Static checks of must-assign exports in scenes, in resources and at export (spec §7.5), of a scene used as a root whose root has a script with `@owner` (§7.3), and of a node of a scene whose script is abstract (§4.1).
 - `@parent(T)` (spec §7.3).
 - Setters that run before ready (spec §6.5), once the open question below is settled; until then the checks that a node is ready report such a setter's first access to its node.
 - A warning for removed nodes that are neither stored nor freed (spec §15).
@@ -23,7 +23,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Constants of the engine class a class extends by their bare name, such as `NOTIFICATION_PREDELETE`, as GDScript has them in scope; now they need the class, `Object.NOTIFICATION_PREDELETE`.
 - `Array[T]?`; `pop_front()` and `pop_back()` of `Array[T?]`, which give `T??`.
 - `@tool`, which runs a script in the editor, so that it is compiled whole there and instantiated, and `@export_tool_button`, which needs it (spec §2.3).
-- `@abstract` (spec §4.1).
 - Enums (spec §3.7); inner classes (spec §2.1).
 - Lambdas (spec §3.11).
 - The operators `in` and `not in`, `**` (spec §3.2, §5.1).

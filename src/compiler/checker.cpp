@@ -2587,6 +2587,9 @@ class Checker : public ClassRelation {
 			r_expr.name_token = NO_TOKEN;
 		}
 		const FuncDecl *callee = base_function(r_expr.text);
+		if (callee && callee->is_abstract) {
+			return fail_call(r_expr, "\"" + callee->name + "()\" is abstract in the base class, which has no body to call (spec §4.1).");
+		}
 		if (callee) {
 			refer(r_expr.name_token, script_id(declaring(*cls.base, *callee, &ClassDecl::functions).path, callee->name));
 			if (!callee->is_static && refuse_in_static(r_expr, "super." + r_expr.text)) {
@@ -2715,6 +2718,9 @@ class Checker : public ClassRelation {
 		const std::string class_name = display_name(*header, p_path);
 		if (r_expr.text == "new") {
 			const Type type = script_class_type(*header, p_path);
+			if (header->is_abstract) {
+				return fail_call(r_expr, class_name + " is abstract and cannot be instantiated (spec §4.1).");
+			}
 			if (!engine.can_instantiate(type.engine_class())) {
 				return fail_call(r_expr, class_name + " cannot be instantiated: the engine cannot instantiate " + type.engine_class() + ", which it extends.");
 			}
@@ -4183,7 +4189,34 @@ class Checker : public ClassRelation {
 		}
 	}
 
+	// @abstract as GDScript checks it (modules/gdscript/gdscript_analyzer.cpp:1532-1556,
+	// 2008-2022; modules/gdscript/gdscript_parser.cpp:4513-4516).
+	void check_abstract(const FuncDecl &p_function) {
+		if (p_function.is_abstract && p_function.is_static) {
+			error(p_function.name_token, "A static function cannot be @abstract.");
+		} else if (p_function.is_abstract && p_function.has_body) {
+			error(p_function.name_token, "An abstract function has no body; a class that extends this one gives it one.");
+		} else if (p_function.is_abstract && !cls.is_abstract) {
+			error(p_function.name_token, display_name(cls, options.path) + " is not abstract but declares the abstract \"" + p_function.name + "()\"; mark the class @abstract.");
+		}
+	}
+
+	// A class that is not abstract implements every abstract method it inherits.
+	void check_implemented() {
+		if (cls.is_abstract || !cls.base) {
+			return;
+		}
+		for (const FuncDecl *function : cls.all_functions) {
+			if (function->is_abstract && std::none_of(cls.functions.begin(), cls.functions.end(), [&](const FuncDecl &p_own) { return &p_own == function; })) {
+				const ClassDecl &owner = declaring(*cls.base, *function, &ClassDecl::functions);
+				error(cls.extends_token, display_name(cls, options.path) + " must implement \"" + display_name(owner, owner.path) + "." + function->name + "()\", and the other abstract methods it inherits, or be marked @abstract.");
+				return;
+			}
+		}
+	}
+
 	void check_signature(FuncDecl &r_function) {
+		check_abstract(r_function);
 		if (const FuncDecl *parent = base_function(r_function.name)) {
 			declare_function(r_function, script_id(declaring(*cls.base, *parent, &ClassDecl::functions).path, parent->name));
 			check_script_override(r_function, *parent);
@@ -4660,7 +4693,7 @@ class Checker : public ClassRelation {
 			return;
 		}
 		check_block(r_function.body);
-		if (r_function.return_type.kind != TypeKind::Void && !r_function.return_type.is_error() && !always_ends(r_function.body, false)) {
+		if (r_function.has_body && r_function.return_type.kind != TypeKind::Void && !r_function.return_type.is_error() && !always_ends(r_function.body, false)) {
 			error(r_function.name_token, "Not all paths of \"" + r_function.name + "()\" return a value.");
 		}
 		function = nullptr;
@@ -4749,6 +4782,7 @@ public:
 			}
 			check_signature(fn);
 		}
+		check_implemented();
 		check_implements();
 		declare_signals();
 		for (ConstDecl &constant : cls.constants) {
