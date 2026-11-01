@@ -132,12 +132,16 @@ public:
 		}
 		compiler::ForeignClass result = found->second;
 		result.members_known = p_members;
+		const auto named = std::find_if(global_classes.begin(), global_classes.end(), [&](const auto &p_entry) { return p_entry.second == p_path; });
+		if (named != global_classes.end()) {
+			result.name = named->first;
+		}
 		if (!p_members) {
 			result.properties.clear();
 			result.methods.clear();
 			result.signals.clear();
-			const bool named = std::any_of(global_classes.begin(), global_classes.end(), [&](const auto &p_entry) { return p_entry.second == p_path; });
-			if (!named) {
+			result.constants.clear();
+			if (named == global_classes.end()) {
 				result.native.clear();
 			}
 		}

@@ -120,6 +120,34 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state)
 	return scene;
 }
 
+// The type of a constant by its value (spec §11.1); an object by its class,
+// or the global name of its script's class.
+compiler::Type value_type(const Variant &p_value) {
+	switch (p_value.get_type()) {
+		case Variant::NIL:
+			return compiler::Type::of(compiler::TypeKind::Variant);
+		case Variant::OBJECT: {
+			const Object *object = p_value;
+			if (!object) {
+				return compiler::Type::object("Object", true);
+			}
+			const Ref<Script> script = object->get_script();
+			const String global = Object::cast_to<Script>(object) || script.is_null() ? String() : String(script->get_global_name());
+			return compiler::Type::object(to_utf8(global.is_empty() ? object->get_class() : global));
+		}
+		case Variant::ARRAY: {
+			const Array array = p_value;
+			if (!array.is_typed()) {
+				return compiler::Type::builtin("Array");
+			}
+			const String element = array.get_typed_builtin() == Variant::OBJECT ? String(array.get_typed_class_name()) : Variant::get_type_name(Variant::Type(array.get_typed_builtin()));
+			return compiler::api_type("typedarray::" + to_utf8(element), true);
+		}
+		default:
+			return compiler::api_type(to_utf8(Variant::get_type_name(p_value.get_type())), true);
+	}
+}
+
 } // namespace
 
 const SceneIndex &SceneIndex::get() {
@@ -295,6 +323,7 @@ std::optional<compiler::ForeignClass> SceneIndex::foreign_class(const std::strin
 			}
 			return Dictionary();
 		};
+		result.name = to_utf8(entry_where("path", path).get("class", String()));
 		for (Dictionary entry = entry_where("path", path); !entry.is_empty();) {
 			const StringName base = entry.get("base", StringName());
 			if (ClassDBSingleton::get_singleton()->class_exists(base)) {
@@ -312,6 +341,7 @@ std::optional<compiler::ForeignClass> SceneIndex::foreign_class(const std::strin
 	if (script.is_null()) {
 		return std::nullopt;
 	}
+	result.name = to_utf8(script->get_global_name());
 	result.native = to_utf8(script->get_instance_base_type());
 	const Ref<Script> base = script->get_base_script();
 	if (base.is_valid()) {
@@ -332,6 +362,11 @@ std::optional<compiler::ForeignClass> SceneIndex::foreign_class(const std::strin
 	const TypedArray<Dictionary> signals = script->get_script_signal_list();
 	for (int64_t i = 0; i < signals.size(); i++) {
 		result.signals.push_back(method_of(signals[i], p_path));
+	}
+	const Dictionary constants = script->get_script_constant_map();
+	const Array names = constants.keys();
+	for (int64_t i = 0; i < names.size(); i++) {
+		result.constants.push_back({ to_utf8(names[i]), value_type(constants[names[i]]), false, p_path });
 	}
 	result.members_known = true;
 	return result;

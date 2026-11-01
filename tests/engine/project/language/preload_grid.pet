@@ -1,0 +1,13 @@
+# A class of this language without a class_name, which gd_view_check.pet
+# refers to through preload (spec §2.1).
+extends Node
+
+pub const SIZE = 16
+
+pub var cleared := false
+
+pub static func cell(x: int) -> int:
+	return x / SIZE
+
+pub func clear():
+	cleared = true

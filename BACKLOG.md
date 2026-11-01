@@ -14,8 +14,9 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - `@parent(T)` (spec §7.3).
 - Setters that run before ready (spec §6.5), once the open question below is settled; until then the checks that a node is ready report such a setter's first access to its node.
 - A warning for removed nodes that are neither stored nor freed (spec §15).
-- Preload cycles (spec §7.6), and preload of scripts, to use them as classes, as `const Utils = preload("utils.gd")` and `Utils.f()` (spec §2.1); a literal path of `load` typed as preload types it (§7.4).
-- Of GDScript classes (spec §11.1): `new()`, static methods, constants and enums, inner classes; nodes in scenes typed by their GDScript class rather than its engine class.
+- Preload cycles (spec §7.6); a literal path of `load` typed as preload types it (§7.4).
+- Of GDScript classes (spec §11.1): enums, inner classes and static variables; nodes in scenes typed by their GDScript class rather than its engine class.
+- The declarations of other scripts are checked as while the editor loads a script, which loads no script of another language, so a member typed by a preloaded GDScript class without a class_name, as `pub var unit: Unit?`, is not known to other classes (spec §2.1).
 - Members that are not pub of another instance of the same class, which the engine reaches by name while reflection lists only pub ones.
 - The check of `@onready` members of value types read before ready.
 - preload() inside a constant's container (spec §4.5).

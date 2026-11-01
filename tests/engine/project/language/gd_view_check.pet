@@ -22,3 +22,25 @@ pub func as_child(node: Node) -> GdViewChild?:
 
 pub func as_base(node: Node) -> GdViewBase?:
 	return node as GdViewBase
+
+# Through the class: new(), static methods and constants (spec §11.1), by a
+# class_name or a preload (§2.1).
+const Unit = preload("preload_unit.gd")
+const Grid = preload("preload_grid.pet")
+
+pub func through_classes() -> Array:
+	var base := GdViewBase.new()
+	var unit: Unit = Unit.new(3)
+	var direct := preload("preload_unit.gd").new()
+	var made := Unit.make(2)
+	var plain := Node2D.new()
+	plain.set_script(Unit)
+	var script: GDScript = Unit
+	var grid := Grid.new()
+	grid.clear()
+	var result: Array = [base.hit(1), GdViewBase.scaled(2), GdViewBase.BONUS, unit.level, direct.level, made != None and made.name == &"made 2", Unit.TILE_SIZE, plain is Unit, script.resource_path, Grid.cell(40), preload("preload_grid.pet").cell(32), Grid.SIZE, grid.cleared]
+	if made != None:
+		made.free()
+	for node: Node in [base, unit, direct, plain, grid]:
+		node.free()
+	return result

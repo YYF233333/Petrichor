@@ -292,15 +292,21 @@ class Checker : public ClassRelation {
 	}
 
 	// The class name used in messages and types: class_name, or the file's name.
-	std::string display_name(const ClassDecl &p_decl, const std::string &p_path) const {
-		if (!p_decl.class_name.empty()) {
-			return p_decl.class_name;
-		}
+	static std::string display_name(const ClassDecl &p_decl, const std::string &p_path) {
+		return p_decl.class_name.empty() ? file_name(p_path) : p_decl.class_name;
+	}
+
+	static std::string file_name(const std::string &p_path) {
 		const size_t slash = p_path.find_last_of('/');
 		return p_path.substr(slash == std::string::npos ? 0 : slash + 1);
 	}
 
 	/* Classes of other languages (spec §11.1) */
+
+	// Named as one of this language is.
+	static Type foreign_class_type(const std::string &p_path, const ForeignClass &p_foreign) {
+		return Type::script_class(p_foreign.name.empty() ? file_name(p_path) : p_foreign.name, p_path, p_foreign.native);
+	}
 
 	// Without its members while only the declarations are checked, when the
 	// script being loaded may load no other.
@@ -329,7 +335,7 @@ class Checker : public ClassRelation {
 			}
 		} else if (const ForeignClass *foreign = path.empty() ? nullptr : foreign_class(path)) {
 			if (!foreign->native.empty()) {
-				local = Type::script_class(p_type.name, path, foreign->native);
+				local = foreign_class_type(path, *foreign);
 			}
 		}
 		local.nullable = p_type.nullable;
@@ -450,7 +456,14 @@ class Checker : public ClassRelation {
 		const size_t dot = p_ref.name.find('.');
 		const std::string head = p_ref.name.substr(0, dot);
 		std::string path;
-		if (!cls.class_name.empty() && head == cls.class_name) {
+		const ConstPtr alias = class_alias(head);
+		if (alias) {
+			refer(p_ref.name_token, alias_id(head));
+			if (alias->script_class.is_error()) {
+				return alias->script_class; // Not known while only the declarations are checked.
+			}
+			path = alias->script;
+		} else if (!cls.class_name.empty() && head == cls.class_name) {
 			path = options.path;
 		} else if (options.project) {
 			path = options.project->global_class_path(head);
@@ -471,18 +484,23 @@ class Checker : public ClassRelation {
 			}
 			return std::nullopt;
 		}
-		refer(p_ref.name_token, is_script_path(path) ? script_id(path) : foreign_id(path, std::string()));
+		if (!alias) {
+			refer(p_ref.name_token, is_script_path(path) ? script_id(path) : foreign_id(path, std::string()));
+		}
 		if (!is_script_path(path)) {
-			const ForeignClass *foreign = foreign_class(path);
 			if (dot != std::string::npos) {
 				error(p_ref.range, head + " is a class of another language, which has no interfaces.");
 				return Type::of(TypeKind::Error);
 			}
+			if (alias) {
+				return alias->script_class;
+			}
+			const ForeignClass *foreign = foreign_class(path);
 			if (!foreign || foreign->native.empty()) {
 				error(p_ref.range, head + " (" + path + ") cannot be read.");
 				return Type::of(TypeKind::Error);
 			}
-			return Type::script_class(head, path, foreign->native);
+			return foreign_class_type(path, *foreign);
 		}
 		const ClassDecl *header = script_header(path);
 		if (!header) {
@@ -500,7 +518,7 @@ class Checker : public ClassRelation {
 					return Type::of(TypeKind::Error);
 				}
 				refer(p_ref.name_token == NO_TOKEN ? NO_TOKEN : p_ref.name_token + 2, script_id(path, inner));
-				return Type::interface(p_ref.name, path);
+				return Type::interface(display_name(*header, path) + "." + inner, path);
 			}
 		}
 		if (const StructDecl *found = header->find_struct(inner)) {
@@ -841,17 +859,71 @@ class Checker : public ClassRelation {
 		return decl;
 	}
 
-	// The script of the class of this language a name refers to by its
-	// class_name, when nothing closer has the name; empty otherwise.
-	std::string script_class_named(const Expr &p_expr) const {
-		if (p_expr.kind != ExprKind::Name || find_local(p_expr.text) >= 0 || member_index.count(p_expr.text) || constant_index.count(p_expr.text) || engine.find_property(cls.native_base, p_expr.text)) {
-			return std::string();
+	// A constant initialized with a preload of a script, which names its class
+	// where its bare name is used (spec §2.1): a local constant or a constant
+	// of this class; null for any other name.
+	ConstPtr class_alias(const std::string &p_name) {
+		const int local = find_local(p_name);
+		if (local >= 0) {
+			const ConstPtr &value = function->locals[local].constant;
+			return value && !value->script.empty() ? value : nullptr;
 		}
-		if (!cls.class_name.empty() && p_expr.text == cls.class_name) {
-			return options.path;
+		const ConstDecl *decl = own_constant(p_name);
+		return decl && decl->value && !decl->value->script.empty() ? decl->value : nullptr;
+	}
+
+	// The constant that the name of a class alias refers to.
+	DeclId alias_id(const std::string &p_name) {
+		const int local = find_local(p_name);
+		if (local >= 0) {
+			return local_id(function->locals[local].token);
 		}
-		const std::string path = options.project ? options.project->global_class_path(p_expr.text) : std::string();
-		return is_script_path(path) ? path : std::string();
+		const ConstDecl &decl = *own_constant(p_name);
+		return script_id(declaring(cls, decl, &ClassDecl::constants).path, decl.name);
+	}
+
+	// The class that the base of `Base.x` or `Base.f()` names, of this
+	// language or another (spec §2.1, §11.1): through a constant of a preload
+	// of its script, the preload itself, or its class_name when nothing closer
+	// has the name; nullopt for any other base, and Error after reporting.
+	std::optional<Type> named_class(Expr &r_base) {
+		if (r_base.kind == ExprKind::Call && !r_base.base && r_base.text == "preload") {
+			if (!is_script_file(preload_file(preload_path(r_base)))) {
+				return std::nullopt;
+			}
+			check_value(r_base);
+			return r_base.constant ? r_base.constant->script_class : Type::of(TypeKind::Error);
+		}
+		if (r_base.kind != ExprKind::Name) {
+			return std::nullopt;
+		}
+		if (const ConstPtr alias = class_alias(r_base.text)) {
+			check_value(r_base); // The constant, whose value is the script.
+			return alias->script_class;
+		}
+		if (find_local(r_base.text) >= 0 || member_index.count(r_base.text) || constant_index.count(r_base.text) || engine.find_property(cls.native_base, r_base.text)) {
+			return std::nullopt;
+		}
+		const bool own = !cls.class_name.empty() && r_base.text == cls.class_name;
+		const std::string path = own ? options.path : (options.project ? options.project->global_class_path(r_base.text) : std::string());
+		if (path.empty()) {
+			return std::nullopt;
+		}
+		if (is_script_path(path)) {
+			refer(r_base.name_token, script_id(path));
+			const ClassDecl *header = script_header(path);
+			if (!header) {
+				error(r_base.range, r_base.text + " (" + path + ") cannot be read.");
+				return Type::of(TypeKind::Error);
+			}
+			return script_class_type(*header, path);
+		}
+		refer(r_base.name_token, foreign_id(path, std::string()));
+		const ForeignClass *foreign = foreign_class(path);
+		if (!foreign || foreign->native.empty()) {
+			return unknown_foreign(r_base, Type::script_class(r_base.text, path, std::string()));
+		}
+		return foreign_class_type(path, *foreign);
 	}
 
 	// A constant of the class at `p_path` (spec §4.5), as `Class.NAME` or
@@ -1191,15 +1263,17 @@ class Checker : public ClassRelation {
 			}
 			return refuse_in_static(base, "self") ? set(r_expr, Type::of(TypeKind::Error)) : fail(r_expr, display_name(cls, options.path) + " has no member \"" + r_expr.text + "\".");
 		}
-		const std::string class_path = script_class_named(base);
-		if (!class_path.empty()) {
-			refer(base.name_token, script_id(class_path));
-			const ClassDecl *header = script_header(class_path);
-			const std::string class_name = header ? display_name(*header, class_path) : base.text;
-			if (const std::optional<Type> constant = class_constant(r_expr, class_path, class_name)) {
+		if (const std::optional<Type> named = named_class(base)) {
+			if (named->is_error()) {
+				return set(r_expr, *named);
+			}
+			if (!is_script_path(named->script)) {
+				return check_foreign_constant(r_expr, *named);
+			}
+			if (const std::optional<Type> constant = class_constant(r_expr, named->script, named->name)) {
 				return *constant;
 			}
-			return fail(r_expr, class_name + " has no constant \"" + r_expr.text + "\".");
+			return fail(r_expr, named->name + " has no constant \"" + r_expr.text + "\".");
 		}
 		if (names_type(base)) {
 			refer(base.name_token, engine_id(base.text));
@@ -1400,36 +1474,63 @@ class Checker : public ClassRelation {
 		return std::any_of(p_extensions.begin(), p_extensions.end(), [&](const char *p_extension) { return extension == p_extension; });
 	}
 
-	// preload() of a resource (spec §7.4): a scene is PackedScene[T], T its
-	// root's type; any other resource the class its file loads as, or its
-	// script's class. It loads when it runs, through the engine's resource
-	// cache, as load() does, and the result is checked to be of that type.
-	Type check_preload(Expr &r_expr) {
+	// The path that a preload() of one literal String names, from this
+	// script's directory when it is relative, as in GDScript; a uid:// path as
+	// written. Empty for any other preload().
+	std::string preload_path(const Expr &p_call) const {
 		// As in GDScript, not a StringName or a NodePath
 		// (modules/gdscript/gdscript_analyzer.cpp:4735-4736).
-		if (r_expr.args.size() != 1 || r_expr.args[0]->kind != ExprKind::StringLiteral || r_expr.args[0]->op != TokenKind::String) {
+		if (p_call.args.size() != 1 || p_call.args[0]->kind != ExprKind::StringLiteral || p_call.args[0]->op != TokenKind::String) {
+			return std::string();
+		}
+		const std::string &path = p_call.args[0]->text;
+		if (path.rfind("uid://", 0) == 0) {
+			return path;
+		}
+		return simplify_path(path.rfind("res://", 0) == 0 ? path : options.path.substr(0, options.path.find_last_of('/') + 1) + path);
+	}
+
+	// The file at a preload's path: the file a uid names; empty when there is none.
+	std::string preload_file(const std::string &p_path) const {
+		if (p_path.rfind("uid://", 0) == 0) {
+			return options.project ? options.project->uid_path(p_path) : std::string();
+		}
+		return p_path;
+	}
+
+	static bool is_script_file(const std::string &p_file) {
+		return has_extension(p_file, { ".pet", ".gd", ".cs" });
+	}
+
+	// preload() of a resource (spec §7.4): a scene is PackedScene[T], T its
+	// root's type; a script its class (§2.1); any other resource the class its
+	// file loads as, or its script's class. It loads when it runs, through the
+	// engine's resource cache, as load() does, and the result is checked to be
+	// of that type.
+	Type check_preload(Expr &r_expr) {
+		const std::string path = preload_path(r_expr);
+		if (path.empty()) {
 			return fail_call(r_expr, "preload() takes one literal path, a String.");
 		}
-		std::string path = r_expr.args[0]->text;
-		const bool by_uid = path.rfind("uid://", 0) == 0;
-		if (!by_uid) {
-			if (path.rfind("res://", 0) != 0) {
-				// Relative to the script's directory, as in GDScript.
-				path = options.path.substr(0, options.path.find_last_of('/') + 1) + path;
-			}
-			path = simplify_path(path);
-			r_expr.args[0]->text = path;
-		}
-		if (options.declarations_only) {
-			return set(r_expr, Type::of(TypeKind::Error)); // Resources are not read while loading.
-		}
+		r_expr.args[0]->text = path;
 		// A uid stays what is loaded, so that the file can move.
-		const std::string file = by_uid && options.project ? options.project->uid_path(path) : path;
-		if (file.empty()) {
+		const std::string file = preload_file(path);
+		if (file.empty() && !options.declarations_only) {
 			return fail(r_expr, "There is no resource with the uid " + path + ".");
 		}
 		Type type;
-		if (has_extension(file, { ".tscn", ".scn" })) {
+		Type script_class;
+		if (is_script_file(file)) {
+			// Read without loading, also while only the declarations are
+			// checked, so that other classes see the types it names.
+			script_class = preloaded_class(r_expr, file);
+			if (script_class.is_error() && !options.declarations_only) {
+				return set(r_expr, script_class);
+			}
+			type = script_value_type(file);
+		} else if (options.declarations_only) {
+			return set(r_expr, Type::of(TypeKind::Error)); // Resources are not read while loading.
+		} else if (has_extension(file, { ".tscn", ".scn" })) {
 			const std::optional<Scene> scene = options.project ? options.project->scene(file) : std::nullopt;
 			const SceneNode *root = scene ? scene->find_node(".") : nullptr;
 			if (!root) {
@@ -1440,8 +1541,6 @@ class Checker : public ClassRelation {
 				return set(r_expr, root_type);
 			}
 			type = Type::scene(root_type);
-		} else if (has_extension(file, { ".pet", ".gd", ".cs" })) {
-			return fail(r_expr, "preload() of a script, to use it as a class, is not supported yet.");
 		} else {
 			const std::optional<ResourceInfo> resource = options.project ? options.project->resource(file) : std::nullopt;
 			if (!resource) {
@@ -1469,8 +1568,46 @@ class Checker : public ClassRelation {
 		value->type = type;
 		value->text = path;
 		value->source = &r_expr;
+		if (is_script_file(file)) {
+			value->script = file;
+			value->script_class = script_class;
+		}
 		r_expr.constant = value;
 		return set(r_expr, type);
+	}
+
+	// The class of a preloaded script (spec §2.1), from its header, or from
+	// reflection for another language; Error after reporting one that cannot
+	// be read, and also without reporting one of another language without a
+	// global name while only the declarations are checked, which load no
+	// script.
+	Type preloaded_class(const Expr &p_preload, const std::string &p_file) {
+		if (is_script_path(p_file)) {
+			const ClassDecl *header = script_header(p_file);
+			if (!header) {
+				error(p_preload.range, "There is no script of this language at " + p_file + ", or it has syntax errors.");
+				return Type::of(TypeKind::Error);
+			}
+			return script_class_type(*header, p_file);
+		}
+		const ForeignClass *foreign = foreign_class(p_file);
+		if (!foreign || foreign->native.empty()) {
+			if (!options.declarations_only) {
+				error(p_preload.range, "There is no script at " + p_file + ", or it cannot be loaded.");
+			}
+			return Type::of(TypeKind::Error);
+		}
+		return foreign_class_type(p_file, *foreign);
+	}
+
+	// A script used as a value (spec §2.1): of the class of its resource, such
+	// as GDScript, as the project knows it.
+	Type script_value_type(const std::string &p_file) const {
+		const std::optional<ResourceInfo> resource = options.project ? options.project->resource(p_file) : std::nullopt;
+		if (resource && engine.class_exists(resource->type) && engine.inherits(resource->type, "Script")) {
+			return Type::object(resource->type);
+		}
+		return Type::object("Script");
 	}
 
 	// The class of a preloaded resource: its script's, or the engine class its
@@ -1898,7 +2035,7 @@ class Checker : public ClassRelation {
 	// through that class's name, as FileAccess.open().
 	Type check_engine_call(Expr &r_expr, const EngineMethod &p_method, const std::string &p_static_class = std::string()) {
 		if (p_method.is_static && r_expr.is_foreign) {
-			return fail_call(r_expr, "Static methods of classes of other languages are not supported yet (spec §11.1).");
+			return fail_call(r_expr, "\"" + r_expr.text + "()\" is static; call it through its class (spec §11.1).");
 		}
 		if (p_method.is_static && p_static_class.empty()) {
 			return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + p_method.owner + " is static; call it as " + p_method.owner + "." + r_expr.text + "().");
@@ -2680,12 +2817,19 @@ class Checker : public ClassRelation {
 			ref.name = p_call.text;
 		} else {
 			const Expr &base = *p_call.base;
-			if (base.kind != ExprKind::Name || find_local(base.text) >= 0 || member_index.count(base.text)) {
+			if (base.kind != ExprKind::Name || member_index.count(base.text)) {
+				return std::nullopt;
+			}
+			const ConstPtr alias = class_alias(base.text);
+			if (!alias && (find_local(base.text) >= 0 || constant_index.count(base.text))) {
 				return std::nullopt;
 			}
 			ref.name_token = base.name_token; // The struct's name two tokens on.
-			const bool own = !cls.class_name.empty() && base.text == cls.class_name;
-			const std::string path = own ? options.path : (options.project ? options.project->global_class_path(base.text) : std::string());
+			std::string path = alias ? alias->script : std::string();
+			if (!alias) {
+				const bool own = !cls.class_name.empty() && base.text == cls.class_name;
+				path = own ? options.path : (options.project ? options.project->global_class_path(base.text) : std::string());
+			}
 			const ClassDecl *header = is_script_path(path) ? script_header(path) : nullptr;
 			if (!header || !header->find_struct(p_call.text)) {
 				return std::nullopt;
@@ -2751,13 +2895,11 @@ class Checker : public ClassRelation {
 	}
 
 	// `Class.new()` or a static method of a class of this language, through its
-	// class_name (spec §4.6, §4.8).
+	// class_name or a preload (spec §2.1, §4.6, §4.8).
 	Type check_class_call(Expr &r_expr, const std::string &p_path) {
-		const Expr &base = *r_expr.base;
-		refer(base.name_token, script_id(p_path));
 		const ClassDecl *header = script_header(p_path);
 		if (!header) {
-			return fail_call(r_expr, base.text + " (" + p_path + ") cannot be read.");
+			return fail_call(r_expr, p_path + " cannot be read.");
 		}
 		const std::string class_name = display_name(*header, p_path);
 		if (r_expr.text == "new") {
@@ -2807,6 +2949,104 @@ class Checker : public ClassRelation {
 		return set(r_expr, callee.is_async ? Type::task(callee.return_type) : callee.return_type);
 	}
 
+	// The script of a class of another language as the base of `r_access`,
+	// which its static methods are called and its constants read on (spec
+	// §11.1): a constant or a preload of it is the script already; a
+	// class_name loads it as preload() does.
+	Type script_base(Expr &r_access, const std::string &p_path) {
+		if (!r_access.base->constant) {
+			auto path = std::make_unique<Expr>();
+			path->kind = ExprKind::StringLiteral;
+			path->op = TokenKind::String;
+			path->text = p_path;
+			path->range = r_access.base->range;
+			auto load = std::make_unique<Expr>();
+			load->kind = ExprKind::Call;
+			load->text = "preload";
+			load->range = r_access.base->range;
+			load->name_token = NO_TOKEN;
+			load->args.push_back(std::move(path));
+			r_access.base = std::move(load);
+			return check_value(*r_access.base);
+		}
+		return r_access.base->type;
+	}
+
+	// `Class.new(...)` or a static method of a class of another language,
+	// called on its script; new() takes what its _init does (spec §11.1).
+	Type check_foreign_class_call(Expr &r_expr, const Type &p_class) {
+		const ForeignClass *foreign = foreign_class(p_class.script);
+		if (!foreign || !foreign->members_known) {
+			fail_call(r_expr);
+			return unknown_foreign(r_expr, p_class);
+		}
+		const auto find = [&](const std::string &p_name) {
+			return std::find_if(foreign->methods.begin(), foreign->methods.end(), [&](const EngineMethod &p_method) { return p_method.name == p_name; });
+		};
+		EngineMethod method;
+		if (r_expr.text == "new") {
+			if (!engine.can_instantiate(p_class.engine_class())) {
+				return fail_call(r_expr, p_class.name + " cannot be instantiated: the engine cannot instantiate " + p_class.engine_class() + ", which it extends.");
+			}
+			const auto init = find("_init");
+			if (init != foreign->methods.end()) {
+				method = *init;
+			}
+			method.name = "new";
+			method.return_type = p_class;
+		} else {
+			const auto found = find(r_expr.text);
+			if (found == foreign->methods.end()) {
+				return fail_call(r_expr, p_class.name + " has no method \"" + r_expr.text + "()\".");
+			}
+			if (!found->is_static) {
+				return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + p_class.name + " is not static; call it on an object.");
+			}
+			method = *found;
+			method.return_type = localized(method.return_type);
+		}
+		for (EngineParam &param : method.params) {
+			param.type = localized(param.type);
+		}
+		// A method of the script object, which GDScript's answers by calling the
+		// static function (modules/gdscript/gdscript.cpp:928-940).
+		method.is_static = false;
+		method.is_virtual = false;
+		if (script_base(r_expr, p_class.script).is_error()) {
+			return fail_call(r_expr);
+		}
+		r_expr.is_foreign = true;
+		refer(r_expr.name_token, foreign_id(p_class.script, r_expr.text));
+		return check_engine_call(r_expr, method);
+	}
+
+	// A constant of a class of another language, read on its script (spec
+	// §11.1), which cannot be assigned.
+	Type check_foreign_constant(Expr &r_expr, const Type &p_class) {
+		const ForeignClass *foreign = foreign_class(p_class.script);
+		if (!foreign || !foreign->members_known) {
+			return unknown_foreign(r_expr, p_class);
+		}
+		for (const EngineProperty &constant : foreign->constants) {
+			if (constant.name != r_expr.text) {
+				continue;
+			}
+			if (!constant.type.is_storable()) {
+				return fail(r_expr, "The constant \"" + r_expr.text + "\" has type " + constant.type.to_string() + ", which is not supported yet.");
+			}
+			const Type script = script_base(r_expr, p_class.script);
+			if (script.is_error()) {
+				return set(r_expr, script);
+			}
+			r_expr.target = Target::ObjectProperty;
+			r_expr.owner = script.engine_class();
+			r_expr.is_static = true;
+			refer(r_expr.name_token, foreign_id(p_class.script, r_expr.text));
+			return set(r_expr, localized(constant.type));
+		}
+		return fail(r_expr, p_class.name + " has no constant \"" + r_expr.text + "\".");
+	}
+
 	Type check_call(Expr &r_expr) {
 		if (const std::optional<Type> constructed = constructed_struct(r_expr)) {
 			return check_struct_construction(r_expr, *constructed);
@@ -2837,9 +3077,11 @@ class Checker : public ClassRelation {
 				}
 				return check_static_call(r_expr);
 			}
-			const std::string class_path = script_class_named(base);
-			if (!class_path.empty()) {
-				return check_class_call(r_expr, class_path);
+			if (const std::optional<Type> named = named_class(base)) {
+				if (named->is_error()) {
+					return fail_call(r_expr);
+				}
+				return is_script_path(named->script) ? check_class_call(r_expr, named->script) : check_foreign_class_call(r_expr, *named);
 			}
 			const Type base_type = check_value(base);
 			if (base_type.is_error()) {
@@ -3175,6 +3417,10 @@ class Checker : public ClassRelation {
 				return true;
 			case Target::SelfProperty:
 			case Target::ObjectProperty: {
+				if (p_target.is_static) {
+					error(p_target.range, "Cannot assign to the constant \"" + p_target.text + "\".");
+					return false;
+				}
 				const std::string &owner = p_target.target == Target::SelfProperty ? cls.native_base : p_target.owner;
 				const auto property = engine.find_property(owner, p_target.text);
 				if (property && !property->writable) {
@@ -4806,11 +5052,12 @@ public:
 		if (options.project && !options.declarations_only && !options.path.empty()) {
 			scenes = options.project->scenes_with_script(options.path);
 		}
+		declare_members();
+		// Before the types that may name a class through a constant (spec §2.1).
+		declare_constants();
 		declare_interfaces();
 		declare_structs();
 		declare_owner();
-		declare_members();
-		declare_constants();
 		std::unordered_set<std::string> own_functions;
 		for (FuncDecl &fn : cls.functions) {
 			if (!own_functions.insert(fn.name).second || member_index.count(fn.name) || constant_index.count(fn.name) || signal_index.count(fn.name)) {

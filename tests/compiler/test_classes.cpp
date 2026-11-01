@@ -41,7 +41,13 @@ FakeProject project() {
 	hit.owner = "res://legacy.gd";
 	hit.params = { { "amount", Type::of(TypeKind::Int) } };
 	hit.return_type = Type::of(TypeKind::Bool);
-	legacy.methods = { hit };
+	compiler::EngineMethod count;
+	count.name = "count";
+	count.owner = "res://legacy.gd";
+	count.is_static = true;
+	count.return_type = Type::of(TypeKind::Int);
+	legacy.methods = { hit, count };
+	legacy.constants = { { "MAX_SPEED", Type::of(TypeKind::Float), false, "res://legacy.gd" } };
 	compiler::EngineMethod scored;
 	scored.name = "scored";
 	scored.params = { { "points", Type::of(TypeKind::Int) } };
@@ -68,6 +74,35 @@ FakeProject project() {
 	values.methods = { spawn };
 	project.foreign["res://value_manager.gd"] = values;
 	project.autoloads["ValueManager"] = "res://value_manager.gd";
+
+	// Scripts without a class_name, referred to through preload (spec §2.1);
+	// tanks-of-freedom-ii's unit.gd, cut down.
+	compiler::ForeignClass unit;
+	unit.native = "Node2D";
+	compiler::EngineMethod make;
+	make.name = "make";
+	make.owner = "res://units/unit.gd";
+	make.is_static = true;
+	make.params = { { "level", Type::of(TypeKind::Int) } };
+	make.return_type = Type::object("Node2D", true);
+	compiler::EngineMethod move;
+	move.name = "move";
+	move.owner = "res://units/unit.gd";
+	move.return_type = Type::of(TypeKind::Void);
+	unit.methods = { make, move };
+	unit.constants = { { "TILE_SIZE", Type::of(TypeKind::Float), false, "res://units/unit.gd" } };
+	project.foreign["res://units/unit.gd"] = unit;
+	project.resources["res://units/unit.gd"] = { "GDScript", "" };
+	compiler::ForeignClass squad;
+	squad.native = "RefCounted";
+	compiler::EngineMethod init;
+	init.name = "_init";
+	init.owner = "res://units/squad.gd";
+	init.params = { { "size", Type::of(TypeKind::Int) } };
+	init.return_type = Type::of(TypeKind::Void);
+	squad.methods = { init };
+	project.foreign["res://units/squad.gd"] = squad;
+	project.add_script("res://tools/grid.pet", "extends Node\n\npub const SIZE = 16\nconst HIDDEN = 1\n\npub static func cell(x: int) -> int:\n\treturn x / SIZE\n\npub func clear():\n\tpass\n");
 	return project;
 }
 
@@ -223,6 +258,58 @@ TEST_CASE("GDScript classes and autoloads as reflection shows them (spec §11.1)
 	// An autoload is typed by its script's class, also without a class_name.
 	CHECK(in("var p: float = ValueManager.drop_percent * 2.0\n\tValueManager.spawn(3)").empty());
 	CHECK(contains(in("ValueManager.spawn(\"no\")"), "String"));
+}
+
+TEST_CASE("a constant of a preloaded script names its class (spec §2.1)") {
+	const auto in = [](const std::string &p_body, const std::string &p_members = "") {
+		return messages(compile_in("extends Node\n\nconst Unit = preload(\"res://units/unit.gd\")\nconst Grid = preload(\"tools/grid.pet\")\n" + p_members + "\nfunc f(n: Node) -> void:\n\t" + p_body + "\n", project()));
+	};
+	// As a type, in is and as, and with new(), static methods and constants.
+	CHECK(in("var u: Unit = Unit.new()\n\tu.position = Vector2.ONE * Unit.TILE_SIZE\n\tvar made: Node2D? = Unit.make(2)\n\tif n is Unit:\n\t\tpass\n\tvar maybe: Unit? = n as Unit\n\tsquad.append(u)", "var squad: Array[Unit] = []\n").empty());
+	CHECK(in("var g: Grid = Grid.new()\n\tg.clear()\n\tvar c: int = Grid.cell(40) + Grid.SIZE").empty());
+	CHECK(contains(in("Unit.move()"), "\"move()\" of unit.gd is not static; call it on an object."));
+	CHECK(contains(in("Unit.missing()"), "unit.gd has no method \"missing()\"."));
+	CHECK(contains(in("Unit.make(\"two\")"), "String"));
+	CHECK(contains(in("Unit.TILE_SIZE = 3.0"), "Cannot assign to the constant \"TILE_SIZE\"."));
+	CHECK(contains(in("print(Unit.NOPE)"), "unit.gd has no constant \"NOPE\"."));
+	CHECK(contains(in("Grid.clear()"), "\"clear()\" of grid.pet is not static"));
+	CHECK(contains(in("print(Grid.HIDDEN)"), "The constant \"HIDDEN\" of grid.pet is not pub."));
+	// Where a value is expected, it is the script.
+	CHECK(in("n.set_script(Unit)\n\tvar s: GDScript = Unit\n\tvar g: Script = Grid").empty());
+	CHECK(contains(in("var s: Node = Unit"), "Cannot assign a value of type GDScript as Node"));
+	// A local constant, and the preload itself.
+	CHECK(in("const Squad = preload(\"res://units/squad.gd\")\n\tvar s: Squad = Squad.new(3)\n\tvar u := preload(\"res://units/unit.gd\").new()\n\tvar c := preload(\"res://tools/grid.pet\").cell(1)").empty());
+	// new() takes what _init does.
+	CHECK(contains(in("var s := preload(\"res://units/squad.gd\").new()"), "takes 1 argument(s), 0 given"));
+}
+
+TEST_CASE("GDScript classes by class_name: new(), static methods and constants (spec §11.1)") {
+	CHECK(errors("var l: Legacy = Legacy.new()\n\tvar c: int = Legacy.count()\n\tvar s: float = Legacy.MAX_SPEED").empty());
+	CHECK(contains(errors("Legacy.hit(1)"), "\"hit()\" of Legacy is not static"));
+	CHECK(contains(errors("var l: Legacy = Legacy.new()\n\tl.count()"), "\"count()\" is static; call it through its class"));
+	const compiler::CompileResult result = compile_in("extends Node\n\nconst Unit = preload(\"res://units/unit.gd\")\n\nfunc f() -> float:\n\tvar u := Unit.new()\n\tvar l := Legacy.new()\n\tvar made := Unit.make(1)\n\treturn Unit.TILE_SIZE + Legacy.MAX_SPEED\n", project());
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	// Called by name on the script, which preload() loads.
+	std::vector<std::string> calls;
+	for (const bytecode::EngineCall &call : result.module.engine_calls) {
+		calls.push_back(call.method);
+	}
+	CHECK(std::count(calls.begin(), calls.end(), "new") == 2);
+	CHECK(std::count(calls.begin(), calls.end(), "make") == 1);
+}
+
+TEST_CASE("the declarations know the classes that preloads of scripts name (spec §2.1)") {
+	// Of this language from its header; of another without a global name not
+	// at all, as no script is loaded.
+	const compiler::CompileResult result = compile_in("extends Node\n\nconst Grid = preload(\"res://tools/grid.pet\")\nconst Unit = preload(\"res://units/unit.gd\")\n\npub var grid: Grid?\npub var unit: Unit?\n", project(), true);
+	CHECK_MESSAGE(result.ok(), messages(result));
+	FakeProject classes = project();
+	classes.add_script("res://board.pet", "class_name Board\nextends Node\n\nconst Grid = preload(\"res://tools/grid.pet\")\n\npub var grid: Grid?\n", "Board");
+	CHECK(messages(compile_in("extends Node\n\nfunc f(b: Board) -> void:\n\tvar g = b.grid\n\tif g != None:\n\t\tg.clear()\n", classes)).empty());
+	// A subclass uses the constant by its bare name (spec §4.5).
+	CHECK(messages(compile_in("extends Board\n\nfunc f() -> int:\n\treturn Grid.cell(3)\n", classes)).empty());
 }
 
 TEST_CASE("the declarations do not load scripts of other languages (spec §11.1)") {

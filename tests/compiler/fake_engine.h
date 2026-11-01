@@ -26,6 +26,8 @@ class FakeEngine : public compiler::EngineApi {
 		{ "RandomNumberGenerator", "RefCounted" },
 		{ "Timer", "Node" },
 		{ "Resource", "RefCounted" },
+		{ "Script", "Resource" },
+		{ "GDScript", "Script" },
 		{ "InputEvent", "Resource" },
 		{ "CanvasLayer", "Node" },
 		{ "CanvasItem", "Node" },
@@ -78,6 +80,7 @@ public:
 		methods["Object"] = {
 			method("_to_string", {}, t(TypeKind::String), true),
 			method("_notification", { { "what", t(TypeKind::Int) } }, t(TypeKind::Void), true),
+			method("set_script", { { "script", t(TypeKind::Variant) } }, t(TypeKind::Void)),
 			method("call_deferred", { { "method", Type::builtin("StringName") } }, t(TypeKind::Void)),
 		};
 		methods["Object"].back().is_vararg = true;
@@ -148,6 +151,9 @@ public:
 		properties["Node"] = {
 			{ "name", Type::builtin("StringName"), true },
 			{ "owner", node, true },
+		};
+		properties["Node2D"] = {
+			{ "position", Type::builtin("Vector2"), true },
 		};
 		properties["Node3D"] = {
 			{ "position", vector3, true },

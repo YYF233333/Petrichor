@@ -48,6 +48,7 @@ struct Scene {
 // (spec §11.1). Objects are named by the engine class, or by the global name of
 // a script's class.
 struct ForeignClass {
+	std::string name; // Its global name (class_name), or "".
 	std::string native; // The engine class it extends, through the scripts it extends; "" if not known.
 	std::string base; // The script it extends, or "".
 	bool members_known = false;
@@ -55,6 +56,7 @@ struct ForeignClass {
 	std::vector<EngineProperty> properties;
 	std::vector<EngineMethod> methods;
 	std::vector<EngineMethod> signals;
+	std::vector<EngineProperty> constants; // Typed by their values.
 };
 
 // A resource that is not a scene, as its file says without loading it.

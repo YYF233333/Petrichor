@@ -345,6 +345,7 @@ func _ready() -> void:
 	base.buddy = child
 	_check(view.buddy_is_child(base), "a member typed by a GDScript class holds an instance of a subclass, which is tests")
 	_check(view.as_child(child) == child and view.as_child(base) == null and view.as_base(child) == child, "as names GDScript classes, and an instance of a subclass is one of its base")
+	_check(view.through_classes() == [2, 10, 5, 3, 1, true, 16.0, true, "res://language/preload_unit.gd", 2, 2, 16, true], "new() with the arguments of _init, static methods and constants through a class_name and a preload, of GDScript and of this language")
 	view.free()
 	base.free()
 	child.free()

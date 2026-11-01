@@ -82,6 +82,11 @@ struct ConstValue {
 	std::vector<Type> params;
 	Type returns;
 	const Expr *source = nullptr;
+	// Preload of a script: its file, and the class it names (spec §2.1),
+	// which is Error when it cannot be known while only the declarations are
+	// checked.
+	std::string script;
+	Type script_class;
 
 	bool is_known() const { return kind <= Kind::None; }
 	bool is_container() const { return kind == Kind::Array || kind == Kind::Dictionary; }
