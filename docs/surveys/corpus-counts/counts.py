@@ -20,7 +20,9 @@ Counts, in first-party .gd files (blank and comment lines excluded from the line
   - `free()` and `set_script(...)` called on self (bare, or after `self.` or `super.`), `.free()` called
     on another object within a method whose name starts with `_on_`, with their locations for reading,
     and `queue_free()` for comparison;
-  - `.pop_at(`, with locations for reading, `.pop_back(` and `.pop_front(`.
+  - `.pop_at(`, with locations for reading, `.pop_back(` and `.pop_front(`;
+  - strings in single or double quotes, not tripled, that contain a line break, by repository,
+    with locations for reading.
 """
 import collections
 import os
@@ -88,6 +90,41 @@ def parent_owner(ts, i, key, c, files, where):
         where[1].append(f"{where[0]}:{ts[i].line}")
 
 
+def multiline_strings(src):
+    """The lines where strings in single or double quotes, not tripled, that contain a line break begin."""
+    found, i, n, line = [], 0, len(src), 1
+    while i < n:
+        c = src[i]
+        if c == "#":
+            while i < n and src[i] != "\n":
+                i += 1
+            continue
+        if c not in "\"'":
+            line += c == "\n"
+            i += 1
+            continue
+        # A raw string keeps a backslash, which still keeps a quote or a backslash after it from ending it.
+        raw = i > 0 and src[i - 1] == "r" and (i < 2 or not (src[i - 2].isalnum() or src[i - 2] == "_"))
+        triple = src[i:i + 3] == c * 3
+        start, spans = line, False
+        i += 3 if triple else 1
+        while i < n:
+            if src[i] == "\\" and (not raw or src[i + 1:i + 2] in (c, "\\")):
+                line += src[i + 1:i + 2] == "\n"
+                i += 2
+                continue
+            if src[i] == "\n":
+                line += 1
+                spans = spans or not triple
+            if src[i:i + (3 if triple else 1)] == c * (3 if triple else 1):
+                i += 3 if triple else 1
+                break
+            i += 1
+        if spans:
+            found.append(start)
+    return found
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
@@ -102,6 +139,9 @@ def main():
             if not (f.endswith(".gd") and repo.first_party(f)):
                 continue
             src = repo.read(f)
+            for line in multiline_strings(src):
+                by_repo[name]["multiline_string"] += 1
+                freeing_at["string with a line break"].append(f"{name}/{f}:{line}")
             lines = sum(1 for x in src.splitlines() if x.strip() and not x.strip().startswith("#"))
             c["lines"] += lines
             by_repo[name]["lines"] += lines
@@ -242,6 +282,8 @@ def main():
     print(f"free() on self: {c['free_self']}; set_script on self: {c['set_script_self']}; "
           f".free() in an _on_ method: {c['free_in_handler']}; queue_free(): {c['queue_free']}")
     print(f"pop_at: {c['pop_at']}; pop_back: {c['pop_back']}; pop_front: {c['pop_front']}")
+    strings = ", ".join(f"{r} {n['multiline_string']}" for r, n in sorted(by_repo.items(), key=lambda x: -x[1]["multiline_string"]) if n["multiline_string"])
+    print(f"strings in single or double quotes with a line break: {sum(n['multiline_string'] for n in by_repo.values())} ({strings})")
     for label, places in freeing_at.items():
         print(f"{label} at: {', '.join(places)}")
 
