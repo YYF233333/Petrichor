@@ -467,7 +467,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   - 依据：[语料计数](surveys/corpus-counts.zh.md)中 78 个剩余参数有 76 个在 gdUnit4 的断言接口中，元素都是 Variant。
 - 调用按位置传参，与 GDScript 相同。按名字传参只用于 struct 和带载荷分支的构造（§2.4），以及 `instantiate(...)`、`new(...)` 传入必须赋值的成员（§6.2）。
 - 函数内部的局部变量可以由初始化式推断类型。lambda 是函数内部的代码，按局部规则推断：有期望的函数类型时，参数类型取自它，没有时须写出；返回类型由函数体推断，例如 `weapons.map(func(w): return w.name)`。
-- 局部变量、`for` 的循环变量和 match 中的 `var x` 绑定不能与同一函数中外层块的局部变量或参数同名，否则是编译错误，与 GDScript 相同（`modules/gdscript/gdscript_parser.cpp:1983-1987, 2345-2349, 2599-2600, 4384-4392`）；并列的块可以各自使用同一个名字。理由：GDScript 代码中不会出现这种写法，以后放开为允许遮蔽是兼容的改动。
+- 局部变量、`for` 的循环变量和 match 中的 `var x` 绑定不能与同一函数中外层块的局部变量或参数同名，否则是编译错误，与 GDScript 相同（`modules/gdscript/gdscript_parser.cpp:1983-1987, 2345-2349, 2599-2600, 4384-4392`）；并列的块可以各自使用同一个名字。lambda 的函数体算作所在函数中的这样一个块，lambda 的参数则可以与所在函数的局部变量同名，与 GDScript 相同：GDScript 中 lambda 函数体的父块是它外面的块（`:3758-3760`），而声明 lambda 参数时不做这项检查（`:1728-1735`）。理由：GDScript 代码中不会出现这种写法，以后放开为允许遮蔽是兼容的改动。
 - 协程在签名上声明为 `async func`，lambda 也是如此（§9.1）。
 
 ### 4.7 信号
@@ -1097,7 +1097,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；在子类以外的其他类中使用不带 `pub` 的 struct 报编译错误；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误，引用 `pub var hits: Array[Hit]` 同样报错；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
 | 成员 | `var speed = 5.0` 为 float；空容器成员要求标注；没有初始化式的 int 成员为 0，`T?` 成员为 None；所有字段都有默认值的 struct 成员取默认值，否则必须赋值 |
 | 常量 | `const DAY_MS = 24 * 60 * 60 * 1000` 在编译期求值；`const HALF = Vector3.ONE / 2.0` 在双精度构建中按 double 求值；`const N = 10 / 0` 报编译错误，标在 `/` 上；常量中的 `Color("red")` 报编译错误并给出 `Color.RED`；`const S = "%d" % 3` 报编译错误；`const SPEEDS = [1.0, 2.0]` 为 `Array[float]`，`SPEEDS.append(3.0)` 报编译错误；`@export_range(0, MAX)` 合法；`const K = 100 / roundi(sin(X))` 报编译错误；子类和静态函数中直接写常量名、经 `self.MAX` 访问都合法；GDScript 读取 `pub` 常量得到它的值 |
-| 局部变量 | `func f(n): if c: var n = 1` 报编译错误，与外层块的局部变量同名的 `var` 和 `for` 循环变量也一样；if 与 else 两个分支各自声明 `var x` 合法 |
+| 局部变量 | `func f(n): if c: var n = 1` 报编译错误，与外层块的局部变量同名的 `var` 和 `for` 循环变量也一样，在 lambda 的函数体中亦然；if 与 else 两个分支各自声明 `var x` 合法，与所在函数的局部变量同名的 lambda 参数也合法 |
 | 签名 | `func _process(delta):` 中 delta 为 float；覆盖时把返回类型写成子类型合法，写成父类型报编译错误；覆盖时多出带默认值的参数合法；非覆盖函数省略返回类型后返回值报编译错误；有期望类型的 lambda 参数不必标注；b 为 Base 类型、持有自己声明了静态 `label()` 的 Sub 时，`b.label()` 调用 Sub 的，`Base.label()` 调用 Base 的；在 Color 值上调用 `c.from_hsv(0.5, 1.0, 1.0)` 即 `Color.from_hsv()` |
 | 信号 | emit 实参不符和 connect 参数不符报编译错误；场景中的连接与信号不符时标在场景中；单参数信号的 await 结果有该参数类型；使用多参数信号的 await 结果报编译错误；await `Signal` 类型的变量得到 Variant，信号有两个参数时运行时为 Array |
 | 相等 | `1 == 1.0` 为真；`hp == "3"` 报编译错误；`Node2D` 与 `Node3D` 比较报编译错误；hp 为 `int?` 时 `hp == 3` 合法；非空的 `Node` 与 None 比较报编译错误；`Array[int] == Array[float]` 报编译错误；Variant 中是 String 时与 int 比较是程序错误；`Enemy?` 的值可以传给 `Node?` 参数，`Array[Enemy]` 传给 `Array[Node]` 参数报编译错误；`Some(3) == Some(Some(3))` 先把左侧包装为两层再比较；hp 为 `int?` 时 `hp < 3` 报编译错误，为 None 的 `int?` 小于 `Some(0)` |
@@ -1256,6 +1256,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | GDScript 对已释放的对象做 `is` 时报错并中止，release 构建也一样；做 `as` 时只在 debug 构建中报错 | `modules/gdscript/gdscript_vm.cpp:942-947, 1665-1669` |
 | GDScript 调用引擎方法时，debug 构建只检查基对象是否已释放，实参原样交出 | `modules/gdscript/gdscript_vm.cpp:2046-2055, 2072` |
 | GDScript 中，局部变量、常量、`for` 的循环变量和 match 的绑定不能与外层块的局部变量或参数同名；参数是函数体的局部变量 | `modules/gdscript/gdscript_parser.cpp:1731, 1735, 1983-1987, 1993-2002, 2345-2349, 2599-2600, 4384-4392` |
+| GDScript lambda 的函数体以外面的块为父块，声明其参数时不检查外面的名字 | `modules/gdscript/gdscript_parser.cpp:1728-1735, 3758-3760` |
 | `as` 转为内置类型时按构造函数转换，转换失败只在 debug 构建中报错 | `modules/gdscript/gdscript_vm.cpp:1642-1650` |
 | GDScript 在运行时遇到运算表中没有的组合时报错；运算数类型与首次执行时不同的情况只在 debug 构建中检查，release 构建得到 null | `modules/gdscript/gdscript_vm.cpp:793-798, 821-843` |
 | `for` 可以遍历 float 和向量 | `modules/gdscript/gdscript_vm.cpp:3092-3229` |
