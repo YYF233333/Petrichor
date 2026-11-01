@@ -150,7 +150,8 @@ const IDLE := &"idle"
 pub func literals() -> Array:
 	var as_string: String = &"a"
 	var as_name: StringName = "b"
-	return [IDLE, ^"c/d", as_string, as_name, &"a" == "a", has_method(&"add"), NodePath(&"e/f").get_name_count()]
+	return [IDLE, ^"c/d", as_string, as_name, &"a" == "a", has_method(&"add"), NodePath(&"e/f").get_name_count(), "é😀\
+" + r"\n"]
 
 pub func state_of(name: StringName) -> String:
 	match name:

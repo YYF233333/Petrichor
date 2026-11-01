@@ -594,11 +594,12 @@ class Lexer {
 		}
 	}
 
-	// A StringName or NodePath literal begins with its prefix, and is otherwise
-	// written as a string (modules/gdscript/gdscript_tokenizer.cpp:860-869).
-	void string(TokenKind p_kind = TokenKind::String) {
+	// A StringName or NodePath literal begins with its prefix, & or ^, and a
+	// raw string with r; otherwise they are written as strings
+	// (modules/gdscript/gdscript_tokenizer.cpp:849-1120).
+	void string(TokenKind p_kind = TokenKind::String, bool p_raw = false) {
 		const uint32_t start = at;
-		if (p_kind != TokenKind::String) {
+		if (p_kind != TokenKind::String || p_raw) {
 			advance();
 		}
 		const unsigned char quote = peek();
@@ -620,38 +621,135 @@ class Lexer {
 				}
 				break;
 			}
-			if (c == '\\') {
-				const uint32_t escape = at;
-				advance();
-				const unsigned char escaped = peek();
-				switch (escaped) {
-					case 'n':
-						value.push_back('\n');
-						break;
-					case 't':
-						value.push_back('\t');
-						break;
-					case 'r':
-						value.push_back('\r');
-						break;
-					case '\\':
-					case '"':
-					case '\'':
-						value.push_back(char(escaped));
-						break;
-					default:
-						error(escape, at_end() ? at : at + 1, "Unknown escape sequence.");
-						break;
-				}
-				if (!at_end() && escaped != '\n') {
+			advance();
+			if (c != '\\') {
+				value.push_back(char(c));
+			} else if (p_raw) {
+				// The backslash stays, and keeps a quote or a backslash after it
+				// from ending the string.
+				value.push_back('\\');
+				if (peek() == quote || peek() == '\\') {
+					value.push_back(char(peek()));
 					advance();
 				}
-				continue;
+			} else {
+				escape(at - 1, value);
 			}
-			value.push_back(char(c));
-			advance();
 		}
 		push(p_kind, start).text = value;
+	}
+
+	// What follows a backslash at `p_begin`
+	// (modules/gdscript/gdscript_tokenizer.cpp:929-1062).
+	void escape(uint32_t p_begin, std::string &r_value) {
+		if (at_end()) {
+			return; // Reported as an unterminated string.
+		}
+		const unsigned char c = peek();
+		advance();
+		switch (c) {
+			case 'a':
+				r_value.push_back('\a');
+				return;
+			case 'b':
+				r_value.push_back('\b');
+				return;
+			case 'f':
+				r_value.push_back('\f');
+				return;
+			case 'n':
+				r_value.push_back('\n');
+				return;
+			case 'r':
+				r_value.push_back('\r');
+				return;
+			case 't':
+				r_value.push_back('\t');
+				return;
+			case 'v':
+				r_value.push_back('\v');
+				return;
+			case '\\':
+			case '"':
+			case '\'':
+				r_value.push_back(char(c));
+				return;
+			// A backslash at the end of a line continues the string on the next.
+			case '\n':
+				return;
+			case '\r':
+				if (peek() == '\n') {
+					advance();
+					return;
+				}
+				break;
+			case 'u':
+			case 'U': {
+				uint32_t code = 0;
+				if (!hex_digits(c == 'U' ? 6 : 4, code)) {
+					return;
+				}
+				// Beyond U+FFFF also as a UTF-16 pair, such as 😀.
+				if (code >= 0xD800 && code <= 0xDBFF && peek() == '\\' && peek(1) == 'u') {
+					advance();
+					advance();
+					uint32_t trail = 0;
+					if (!hex_digits(4, trail)) {
+						return;
+					}
+					if (trail >= 0xDC00 && trail <= 0xDFFF) {
+						code = 0x10000 + ((code - 0xD800) << 10) + (trail - 0xDC00);
+					}
+				}
+				if ((code >= 0xD800 && code <= 0xDFFF) || code > 0x10FFFF) {
+					error(p_begin, at, "Invalid Unicode code point in escape sequence.");
+				} else {
+					append_utf8(code, r_value);
+				}
+				return;
+			}
+			default:
+				break;
+		}
+		error(p_begin, at, "Unknown escape sequence.");
+	}
+
+	bool hex_digits(int p_count, uint32_t &r_code) {
+		for (int i = 0; i < p_count; i++) {
+			const unsigned char c = peek();
+			uint32_t digit = 0;
+			if (is_digit(c)) {
+				digit = c - '0';
+			} else if (c >= 'a' && c <= 'f') {
+				digit = c - 'a' + 10;
+			} else if (c >= 'A' && c <= 'F') {
+				digit = c - 'A' + 10;
+			} else {
+				error(at, at_end() ? at : at + 1, "Invalid hexadecimal digit in Unicode escape sequence.");
+				return false;
+			}
+			r_code = r_code << 4 | digit;
+			advance();
+		}
+		return true;
+	}
+
+	static void append_utf8(uint32_t p_code, std::string &r_text) {
+		if (p_code < 0x80) {
+			r_text.push_back(char(p_code));
+		} else if (p_code < 0x800) {
+			r_text.push_back(char(0xC0 | p_code >> 6));
+			r_text.push_back(char(0x80 | (p_code & 0x3F)));
+		} else if (p_code < 0x10000) {
+			r_text.push_back(char(0xE0 | p_code >> 12));
+			r_text.push_back(char(0x80 | (p_code >> 6 & 0x3F)));
+			r_text.push_back(char(0x80 | (p_code & 0x3F)));
+		} else {
+			r_text.push_back(char(0xF0 | p_code >> 18));
+			r_text.push_back(char(0x80 | (p_code >> 12 & 0x3F)));
+			r_text.push_back(char(0x80 | (p_code >> 6 & 0x3F)));
+			r_text.push_back(char(0x80 | (p_code & 0x3F)));
+		}
 	}
 
 	void punctuation() {
@@ -829,6 +927,8 @@ public:
 				}
 			} else if (is_digit(c)) {
 				number();
+			} else if (c == 'r' && (peek(1) == '"' || peek(1) == '\'')) {
+				string(TokenKind::String, true);
 			} else if (is_identifier_start(c)) {
 				const uint32_t start = at;
 				while (is_identifier_char(peek())) {

@@ -227,11 +227,12 @@ class Checker : public ClassRelation {
 			return;
 		}
 		const Token &token = cls.source->tokens[p_literal.range.first];
-		const bool prefixed = token.kind == TokenKind::StringName || token.kind == TokenKind::NodePath;
-		if (token.kind != TokenKind::String && !prefixed) {
+		if (token.kind != TokenKind::String && token.kind != TokenKind::StringName && token.kind != TokenKind::NodePath) {
 			return;
 		}
-		const uint32_t begin = token.offset + (prefixed ? 1 : 0);
+		// After a prefix: &, ^ or r.
+		const char first = cls.source->text[token.offset];
+		const uint32_t begin = token.offset + (first == '"' || first == '\'' ? 0 : 1);
 		const uint32_t length = token.end() - begin;
 		const uint32_t quotes = length >= 6 && length - 6 == p_literal.text.size() ? 3 : 1;
 		if (length == p_literal.text.size() + 2 * quotes && cls.source->text.compare(begin + quotes, p_literal.text.size(), p_literal.text) == 0) {

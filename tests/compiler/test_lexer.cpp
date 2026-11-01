@@ -115,13 +115,48 @@ TEST_CASE("triple-quoted strings span lines") {
 	CHECK(tokens[1].text == "c");
 }
 
+// modules/gdscript/gdscript_tokenizer.cpp:929-1062.
 TEST_CASE("strings decode escapes") {
 	std::vector<Diagnostic> errors;
-	const auto file = tokenize("\"a\\n\\\"b\" 'c'", errors);
+	const auto file = tokenize("\"a\\n\\\"b\" 'c' \"\\a\\b\\f\\r\\t\\v\\\\\\'\" \"\\u00e9\\U01F600\\uD83D\\uDE00\" \"d\\\ne\\\r\nf\"", errors);
 	const std::vector<Token> &tokens = file->tokens;
 	CHECK(errors.empty());
+	REQUIRE(tokens.size() >= 5);
 	CHECK(tokens[0].text == "a\n\"b");
 	CHECK(tokens[1].text == "c");
+	CHECK(tokens[2].text == "\a\b\f\r\t\v\\'");
+	CHECK(tokens[3].text == "\xC3\xA9\xF0\x9F\x98\x80\xF0\x9F\x98\x80");
+	// A backslash at the end of a line continues the string.
+	CHECK(tokens[4].text == "def");
+}
+
+TEST_CASE("an escape that is unknown or no code point is an error") {
+	const auto messages = [](const std::string &p_source) {
+		std::vector<Diagnostic> errors;
+		tokenize(p_source, errors);
+		std::vector<std::string> result;
+		for (const Diagnostic &error : errors) {
+			result.push_back(error.message);
+		}
+		return result;
+	};
+	CHECK(messages("\"\\q\"") == std::vector<std::string>{ "Unknown escape sequence." });
+	CHECK(messages("\"\\u00g0\"") == std::vector<std::string>{ "Invalid hexadecimal digit in Unicode escape sequence." });
+	CHECK(messages("\"\\uD83D\"") == std::vector<std::string>{ "Invalid Unicode code point in escape sequence." });
+	CHECK(messages("\"\\uDE00\\uD83D\"") == std::vector<std::string>{ "Invalid Unicode code point in escape sequence.", "Invalid Unicode code point in escape sequence." });
+	CHECK(messages("\"\\U110000\"") == std::vector<std::string>{ "Invalid Unicode code point in escape sequence." });
+}
+
+// modules/gdscript/gdscript_tokenizer.cpp:911-928, 1421-1423.
+TEST_CASE("a raw string keeps its backslashes") {
+	std::vector<Diagnostic> errors;
+	const auto file = tokenize("r\"a\\n\\\"b\\\\\" r'''c\\d''' r x", errors);
+	const std::vector<Token> &tokens = file->tokens;
+	CHECK(errors.empty());
+	REQUIRE(tokens.size() >= 4);
+	CHECK((tokens[0].kind == TokenKind::String && tokens[0].text == "a\\n\\\"b\\\\"));
+	CHECK(tokens[1].text == "c\\d");
+	CHECK((tokens[2].kind == TokenKind::Identifier && tokens[2].text == "r"));
 }
 
 // modules/gdscript/gdscript_tokenizer.cpp:1554-1576: a quote right after & or
