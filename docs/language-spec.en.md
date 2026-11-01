@@ -44,6 +44,26 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 2.1 Files and classes
 
 - A source file is a class, as in GDScript. A file may declare a global class name with `class_name Name`; files without `class_name` are referred to through `preload`. Global names come only from `class_name` (§4.1).
+- `preload` of a script, of this language or of another such as GDScript, gives its class, as GDScript types a script by its class (`modules/gdscript/gdscript_analyzer.cpp:873-892, 5776-5786`). A constant initialized with it names the class where its bare name is used (§4.5): as a type, and with `new()`, static methods and constants as through a class_name (§4.8, §11.1); `preload(...)` followed by `.new()` or another member is the same without the constant. Where a value is expected it is the script: of type GDScript for a GDScript file, as in GDScript (`gdscript_analyzer.cpp:6447-6449`), and of its script resource's class otherwise:
+
+  ```gdscript
+  const Unit = preload("res://units/unit.gd")
+
+  var squad: Array[Unit] = []
+
+  func spawn(at: Vector2) -> Unit:
+      var unit := Unit.new()
+      unit.position = at * Unit.TILE_SIZE
+      return unit
+
+  func adopt(body: Node2D):
+      if body is Unit:
+          squad.append(body)
+      else:
+          body.set_script(Unit)
+  ```
+
+  [Later] Through another class, as `Owner.Unit`. Evidence: in the [corpus counts](surveys/corpus-counts.en.md), 207 of the 351 preloads of `.gd` files initialize constants, used in the same file with `new()` 54 times, in other calls 124 times, for other members 134 times, after `is` 69 times and as a type 46 times; 69 preloads are followed directly by `.new()`.
 - The class header may contain, in order: class-level annotations, `class_name`, `extends`, `implements`. `extends` and `implements` may be on the same line as `class_name` or on lines of their own:
 
   ```gdscript
@@ -650,7 +670,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 7.4 Scene resources
 
-- `preload` and `load` with a literal path are typed by the resource's actual contents; a scene yields `PackedScene[T]`, where T is the type of the scene's root node, or the class of its script when it has one.
+- `preload` and `load` with a literal path are typed by the resource's actual contents; a scene yields `PackedScene[T]`, where T is the type of the scene's root node, or the class of its script when it has one; a script with `preload` gives its class (§2.1).
 - Exported scenes are written `PackedScene[T]`, and the editor checks the scene that is filled in. `instantiate()` yields T.
 - `PackedScene[T]` is covariant in T; for example, `PackedScene[Boss]` can be used where `PackedScene[Enemy]` is expected.
 - Which members `instantiate(...)` must be passed depends on whether the actual scene is known statically:
@@ -889,6 +909,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
   - value types are as declared;
   - untyped ones are dynamic values (§3.13).
 - Autoload names are global identifiers whose type is the class of their script.
+- A GDScript class is named by its class_name or by a preload (§2.1): it is constructed with `new(...)`, whose parameters are those of its `_init`, as GDScript's `new` passes its arguments on to `_init` (`modules/gdscript/gdscript.cpp:210-254`); its static methods and constants are reached through the class, as `Unit.make()` and `Unit.TILE_SIZE`, and called and read on its script, which GDScript's script object answers (`gdscript.cpp:928-940, 957-971`); a constant has the type of its value. [Later] Its enums, inner classes and static variables.
 
 ### 11.2 Inheritance
 
@@ -1009,6 +1030,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 - A runtime library that includes the compiler, for projects that need to load scripts from source at run time, at the cost of compiling at load time (§1.3);
 - `@tool` and `@export_tool_button` (§2.3);
+- a class named by a preload reached through another class, as `Owner.Unit` (§2.1);
 - aliases or `import` (§2.4);
 - positional arguments for struct construction, struct methods that modify self or redefine `==`, `<` and hashing, `private` for struct members, and value-type recursion without a container (§3.6);
 - generic interfaces, written `interface Source[T]:` (§3.9);
@@ -1024,6 +1046,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - reentrancy annotations such as `@restart` (§9.5);
 - destructuring the result of awaiting a signal with several parameters, and Signal types with parameter types (§9.6);
 - obtaining a `Task` handle for a call of a GDScript coroutine (§9.8);
+- enums, inner classes and static variables of GDScript classes (§11.1);
 - GDScript calls to static methods of classes of this language (§11.3);
 - the tools listed in §13.5.
 
@@ -1074,7 +1097,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Engine boundary | An unaudited engine method returning an object has type `T?`; `get_tree()` is non-null and `get_collider()` is nullable; unaudited virtual-method and signal parameters are T, and the engine passing null is a program error; unaudited parameters accept None; GDScript passing null to a non-null parameter is a program error; the remote inspector writing null to a non-null member leaves the value unchanged; a struct emitted through a signal arrives as a Dictionary keyed by field name, and `Command.MOVE(target = p)` as `{"$variant": "MOVE", "target": p}`; a Dictionary with extra keys decodes into a struct, and one missing a field is a program error |
 | Utility functions | `min(1.5, 1)` is a compile error offering `min(1.5, 1.0)`; `lerp(a, b, t)` has a's type; `find_children("*", "MeshInstance3D")` is `Array[MeshInstance3D]` |
 | Strings | A line break right after `"a` is a compile error that suggests triple quotes; a literal where another string type is expected is constructed at compile time; `var p: NodePath = &"a"` is a compile error; `&"a" == "a"` is true; a literal member name that does not exist is a compile error and takes part in rename |
-| Cross-language | A GDScript file extending a class of this language gets an explanatory error from the analysis service; awaiting a GDScript coroutine yields a result checked against the declared type; calling a GDScript coroutine as a statement is no error, while using its result as a value without await is a program error; GDScript awaiting a coroutine of this language gets null on cancellation instead of hanging; GDScript awaiting a coroutine of this language that returns Transform3D gets no warning, and on cancellation assigning the result to a Transform3D variable is an assignment error in debug builds, not a crash; when GDScript holds `p: Player`, type errors in properties, methods and signals are GDScript compile errors; `Player.new()` has type Player, and extra arguments are a GDScript compile error; when this language holds `b: Ball` of a GDScript class, its members of object types are `T?` and those of value types as declared, and arguments of the wrong type to its methods and signals are compile errors; a parameter typed by a GDScript class takes an instance of a GDScript subclass, and `as` and `is` count the subclass too; a GDScript autoload without a class_name has the type of its script's class |
+| Cross-language | A GDScript file extending a class of this language gets an explanatory error from the analysis service; awaiting a GDScript coroutine yields a result checked against the declared type; calling a GDScript coroutine as a statement is no error, while using its result as a value without await is a program error; GDScript awaiting a coroutine of this language gets null on cancellation instead of hanging; GDScript awaiting a coroutine of this language that returns Transform3D gets no warning, and on cancellation assigning the result to a Transform3D variable is an assignment error in debug builds, not a crash; when GDScript holds `p: Player`, type errors in properties, methods and signals are GDScript compile errors; `Player.new()` has type Player, and extra arguments are a GDScript compile error; when this language holds `b: Ball` of a GDScript class, its members of object types are `T?` and those of value types as declared, and arguments of the wrong type to its methods and signals are compile errors; a parameter typed by a GDScript class takes an instance of a GDScript subclass, and `as` and `is` count the subclass too; a GDScript autoload without a class_name has the type of its script's class; with `const Unit = preload("unit.gd")`, `Unit.new()` has type Unit and passes its arguments to `_init`, `Unit.make()` calls the static method, `Unit.TILE_SIZE` reads the constant, `Unit.missing()` is a compile error, and `set_script(Unit)` passes the script |
 | Hot reload | When only function bodies change, running instances use the new code on their next call; after a change to members or signatures, the running game applies neither that change nor any later one, even to function bodies, until it restarts |
 | Refactoring | Renaming an exported member changes the keys in scenes too; renaming or moving a node in the scene editor changes `$X` in scripts in the same undo step, so one undo restores both the scene and the scripts, and one redo reapplies both; non-literal paths are only reported |
 | Formatting and lints | Formatting leaves the syntax tree unchanged and keeps `0xFFFF`, `else: if` and comments as written, and formatting again changes nothing; a file with syntax errors is not formatted; a `@warning_ignore` that no longer suppresses any diagnostic gets a hint |
@@ -1181,6 +1204,10 @@ The following facts are based on Godot 4.7.2-stable (commit `ed1daf0`); paths ar
 | GDScript's rest parameter can only be an Array with Variant elements | `modules/gdscript/gdscript_analyzer.cpp:1803-1810` |
 | GDScript reads `METHOD_FLAG_VARARG` from other languages' method information | `modules/gdscript/gdscript_analyzer.cpp:6052-6055` |
 | GDScript checks `new` as a static `_init`; GDScript binds `new` itself, the Script base class does not | `modules/gdscript/gdscript_analyzer.cpp:5958-5961`; `modules/gdscript/gdscript.cpp:1078` |
+| GDScript's `new` constructs the native object and passes its arguments to `_init` | `modules/gdscript/gdscript.cpp:210-254` |
+| GDScript's script object calls static functions by name, and reads constants, static variables and static functions | `modules/gdscript/gdscript.cpp:928-940, 957-997` |
+| GDScript types a script used as a value by its class, and a constant initialized with a preloaded script can be a type | `modules/gdscript/gdscript_analyzer.cpp:873-892, 5776-5786` |
+| In GDScript a GDScript class used as a value is a GDScript object | `modules/gdscript/gdscript_analyzer.cpp:6447-6449` |
 | Without a script instance, `callp` looks only for engine-registered methods, so static methods on a Script resource are not found | `core/object/object.cpp:800-826` |
 | GDScript cannot refer to a type inside another language's class in a type annotation | `modules/gdscript/gdscript_analyzer.cpp:935-937` |
 | GDScript does not treat constants of another language's class as constant expressions | `modules/gdscript/gdscript_analyzer.cpp:4321-4330` |

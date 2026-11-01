@@ -44,6 +44,26 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 2.1 文件与类
 
 - 一个源文件就是一个类，与 GDScript 相同。文件可以以 `class_name 名字` 声明全局类名；没有 `class_name` 的文件经 `preload` 引用。全局名只来自 `class_name`（§4.1）。
+- `preload` 一个脚本，无论是本语言的还是 GDScript 等其他语言的，得到它的类，与 GDScript 把脚本定型为它的类相同（`modules/gdscript/gdscript_analyzer.cpp:873-892, 5776-5786`）。以它初始化的常量，在用其裸名的地方（§4.5）指这个类：可作类型，`new()`、静态方法和常量的用法与经 class_name 相同（§4.8、§11.1）；`preload(...)` 后直接跟 `.new()` 或其他成员，与经常量相同。在需要值的地方它是脚本本身：GDScript 文件的类型是 GDScript，与 GDScript 相同（`gdscript_analyzer.cpp:6447-6449`），其他脚本的类型是其脚本资源的类：
+
+  ```gdscript
+  const Unit = preload("res://units/unit.gd")
+
+  var squad: Array[Unit] = []
+
+  func spawn(at: Vector2) -> Unit:
+      var unit := Unit.new()
+      unit.position = at * Unit.TILE_SIZE
+      return unit
+
+  func adopt(body: Node2D):
+      if body is Unit:
+          squad.append(body)
+      else:
+          body.set_script(Unit)
+  ```
+
+  【后续】经其他类访问，如 `Owner.Unit`。依据：[语料零散计数](surveys/corpus-counts.zh.md)中，351 处 preload `.gd` 文件中 207 处初始化常量，这些常量在同一文件中用于 `new()` 54 处、其他调用 124 处、其他成员 134 处、`is` 之后 69 处、作为类型 46 处；直接跟 `.new()` 的 preload 69 处。
 - 类头依次可以有：类级注解、`class_name`、`extends`、`implements`。`extends`、`implements` 可以写在 `class_name` 的同一行，也可以各占一行：
 
   ```gdscript
@@ -650,7 +670,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 7.4 场景资源
 
-- `preload` 和字面量路径的 `load` 按资源的实际内容定型；场景得到 `PackedScene[T]`，T 为场景根节点的类型，根节点有脚本时为脚本的类。
+- `preload` 和字面量路径的 `load` 按资源的实际内容定型；场景得到 `PackedScene[T]`，T 为场景根节点的类型，根节点有脚本时为脚本的类；`preload` 脚本得到它的类（§2.1）。
 - 导出的场景写作 `PackedScene[T]`，由编辑器检查所填的场景。`instantiate()` 的结果为 T。
 - `PackedScene[T]` 对 T 协变，例如 `PackedScene[Boss]` 可以用在期望 `PackedScene[Enemy]` 的位置。
 - `instantiate(...)` 须传入哪些成员，取决于是否静态知道具体的场景：
@@ -889,6 +909,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   - 值类型照声明；
   - 没有标注类型的是动态值（§3.13）。
 - autoload 名是全局标识符，类型为其脚本的类。
+- GDScript 类经 class_name 或 preload（§2.1）指称：以 `new(...)` 构造，参数即其 `_init` 的参数，与 GDScript 的 `new` 把实参转交 `_init` 相同（`modules/gdscript/gdscript.cpp:210-254`）；静态方法和常量经类访问，如 `Unit.make()`、`Unit.TILE_SIZE`，在其脚本上调用和读取，由 GDScript 的脚本对象应答（`gdscript.cpp:928-940, 957-971`）；常量的类型是其值的类型。【后续】它的 enum、内部类和静态变量。
 
 ### 11.2 继承
 
@@ -1009,6 +1030,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 - 含编译器的运行时库，供需要在运行时从源码加载脚本的项目选用，代价是加载时编译（§1.3）；
 - `@tool` 和 `@export_tool_button`（§2.3）；
+- 经其他类访问 preload 指称的类，如 `Owner.Unit`（§2.1）；
 - 别名或 `import`（§2.4）；
 - struct 构造的位置参数、修改 self 或重新定义 `==`、`<` 与哈希的 struct 方法、struct 成员的 `private`、不经容器的值类型递归（§3.6）；
 - 泛型接口，写作 `interface Source[T]:`（§3.9）；
@@ -1024,6 +1046,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 重入策略的注解，例如 `@restart`（§9.5）；
 - 按参数解构多参数信号的 await 结果，带参数类型的 Signal 类型（§9.6）；
 - 为 GDScript 协程调用取得 `Task` 句柄（§9.8）；
+- GDScript 类的 enum、内部类和静态变量（§11.1）；
 - GDScript 调用本语言类的静态方法（§11.3）；
 - §13.5 所列的工具。
 
@@ -1074,7 +1097,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 引擎边界 | 未审核的、返回对象的引擎方法类型为 `T?`；`get_tree()` 非空，`get_collider()` 可空；未审核的虚函数参数和信号参数为 T，引擎传入 null 是程序错误；未审核的参数接受 None；GDScript 向非空参数传入 null 是程序错误；远程检查器向非空成员写入 null 时原值不变；经信号传出的 struct 是按字段名编码的 Dictionary，`Command.MOVE(target = p)` 是 `{"$variant": "MOVE", "target": p}`；多出键的 Dictionary 解码为 struct，缺少字段时是程序错误 |
 | 工具函数 | `min(1.5, 1)` 报编译错误并给出 `min(1.5, 1.0)`；`lerp(a, b, t)` 的结果与 a 同类型；`find_children("*", "MeshInstance3D")` 为 `Array[MeshInstance3D]` |
 | 字符串 | `"a` 之后直接换行报编译错误，提示改用三引号；期望另一种字符串类型的字面量在编译期构造；`var p: NodePath = &"a"` 报编译错误；`&"a" == "a"` 为真；字面量成员名不存在时报编译错误，并参与重命名 |
-| 跨语言 | GDScript 文件继承本语言的类时，分析服务在该文件上报错并说明原因；await GDScript 协程得到按声明类型检查的结果；作为语句调用 GDScript 协程不报错，把它的结果当作值使用而不写 await 是程序错误；GDScript await 本语言的协程，在取消时得到 null 而不挂起；GDScript await 本语言中返回 Transform3D 的协程时没有警告，取消时把结果赋给 Transform3D 变量，在 debug 构建中报赋值错误而不崩溃；GDScript 持有 `p: Player` 时，属性、方法和信号的类型错误报 GDScript 编译错误；`Player.new()` 的类型为 Player，多传实参报 GDScript 编译错误；本语言持有 GDScript 类的 `b: Ball` 时，对象类型的成员为 `T?`，值类型照声明，方法和信号实参的类型错误报编译错误；以 GDScript 类为类型的参数接受其 GDScript 子类的实例，`as` 与 `is` 也认子类；没有 class_name 的 GDScript autoload 的类型为其脚本的类 |
+| 跨语言 | GDScript 文件继承本语言的类时，分析服务在该文件上报错并说明原因；await GDScript 协程得到按声明类型检查的结果；作为语句调用 GDScript 协程不报错，把它的结果当作值使用而不写 await 是程序错误；GDScript await 本语言的协程，在取消时得到 null 而不挂起；GDScript await 本语言中返回 Transform3D 的协程时没有警告，取消时把结果赋给 Transform3D 变量，在 debug 构建中报赋值错误而不崩溃；GDScript 持有 `p: Player` 时，属性、方法和信号的类型错误报 GDScript 编译错误；`Player.new()` 的类型为 Player，多传实参报 GDScript 编译错误；本语言持有 GDScript 类的 `b: Ball` 时，对象类型的成员为 `T?`，值类型照声明，方法和信号实参的类型错误报编译错误；以 GDScript 类为类型的参数接受其 GDScript 子类的实例，`as` 与 `is` 也认子类；没有 class_name 的 GDScript autoload 的类型为其脚本的类；`const Unit = preload("unit.gd")` 时，`Unit.new()` 的类型为 Unit 且把实参交给 `_init`，`Unit.make()` 调用静态方法，`Unit.TILE_SIZE` 读取常量，`Unit.missing()` 是编译错误，`set_script(Unit)` 传入脚本 |
 | 热重载 | 只改函数体时，运行中的实例下一次调用使用新代码；修改成员或签名后，运行中的游戏不应用这次修改，此后只改函数体的修改也不应用，直到重新运行 |
 | 重构 | 导出成员改名时场景中的键同时修改；场景编辑器中给节点改名或移动节点时脚本中的 `$X` 同时修改，并在同一撤销步骤中，一次撤销同时还原场景和脚本，一次重做同时恢复；非字面量路径只报告 |
 | 格式化与 lint | 格式化后语法树不变，`0xFFFF`、`else: if` 和注释原样保留，再格式化一次不再改动；有语法错误的文件不格式化；不再抑制任何诊断的 `@warning_ignore` 给出提示 |
@@ -1181,6 +1204,10 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | GDScript 的剩余参数只能是元素为 Variant 的 Array | `modules/gdscript/gdscript_analyzer.cpp:1803-1810` |
 | GDScript 从其他语言的方法信息中读取 `METHOD_FLAG_VARARG` | `modules/gdscript/gdscript_analyzer.cpp:6052-6055` |
 | GDScript 把 `new` 当作静态的 `_init` 检查；`new` 由 GDScript 自己绑定，Script 基类没有 | `modules/gdscript/gdscript_analyzer.cpp:5958-5961`；`modules/gdscript/gdscript.cpp:1078` |
+| GDScript 的 `new` 构造原生对象后把实参交给 `_init` | `modules/gdscript/gdscript.cpp:210-254` |
+| GDScript 的脚本对象按名字调用静态函数，读取常量、静态变量和静态函数 | `modules/gdscript/gdscript.cpp:928-940, 957-997` |
+| GDScript 把作为值的脚本定型为它的类，以 preload 脚本初始化的常量可作类型 | `modules/gdscript/gdscript_analyzer.cpp:873-892, 5776-5786` |
+| GDScript 中作为值使用的 GDScript 类是 GDScript 对象 | `modules/gdscript/gdscript_analyzer.cpp:6447-6449` |
 | 对象没有脚本实例时，`callp` 只查找引擎注册的方法，所以 Script 资源上的静态方法找不到 | `core/object/object.cpp:800-826` |
 | GDScript 不能在类型标注中引用其他语言的类中的类型 | `modules/gdscript/gdscript_analyzer.cpp:935-937` |
 | GDScript 不把其他语言的类的常量当作常量表达式 | `modules/gdscript/gdscript_analyzer.cpp:4321-4330` |
