@@ -49,6 +49,12 @@ TEST_CASE("a class annotation is reported once, and the header after it still re
 	CHECK(joined(errors_of("extends Node\n@export var x := 1\n")) == "");
 }
 
+// modules/gdscript/gdscript_parser.cpp:798-806, 1182-1190, 2177-2182.
+TEST_CASE("a string on a line of its own is a comment") {
+	CHECK(errors_of("\"What the class is for.\"\nclass_name X\nextends Node\n'Its state.'\nvar x := 1\nr\"a\\b\"\n\nfunc f() -> int:\n\t\"What f gives.\"\n\treturn x\n").empty());
+	CHECK(contains(joined(errors_of("extends Node\n\"a\" var x := 1\n")), "Expected a line break after a comment string."));
+}
+
 // modules/gdscript/gdscript_parser.cpp:187, 5238-5298.
 TEST_CASE("@rpc configures how other peers call a method, which they find by name") {
 	const compiler::CompileResult result = compile("extends Node\n@rpc(\"any_peer\", \"call_local\", \"unreliable\", 1)\nfunc hit(amount: int):\n\tpass\n\n@rpc\nfunc sync_state():\n\tpass\n");

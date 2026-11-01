@@ -1394,6 +1394,15 @@ public:
 				result.functions.push_back(stray_function());
 				continue;
 			}
+			// A string on a line of its own is a comment, as in GDScript
+			// (modules/gdscript/gdscript_parser.cpp:798-806, 1182-1190).
+			if (check(TokenKind::String)) {
+				advance();
+				if (!check(TokenKind::Newline) && !check(TokenKind::EndOfFile)) {
+					fail(peek(), "Expected a line break after a comment string.");
+				}
+				continue;
+			}
 			// Class annotations open the header (spec §2.1, §2.3).
 			if (!seen_member && check(TokenKind::At) && is_class_annotation(peek(1).text)) {
 				advance();

@@ -114,7 +114,7 @@ func _check_new_script() -> void:
 # while the script cannot be compiled, here because @tool is not supported yet.
 func _check_header() -> void:
 	var script: Script = ClassDB.instantiate("PetScript")
-	script.source_code = "# A comment.\n@tool\n@icon(\"res://icon#1.svg\") class_name HeaderCheck\nextends Node2D implements Combat.Damageable\nvar x := 1\n"
+	script.source_code = "# A comment.\n\"\"\"\nA comment in a string, \"class_name Wrong\".\nclass_name Wrong\n\"\"\"\n@tool\n@icon(\"res://icon#1.svg\") class_name HeaderCheck\nextends Node2D implements Combat.Damageable\nvar x := 1\n"
 	script.reload()
 	_check(script.get_global_name() == &"HeaderCheck" and script.get_instance_base_type() == &"Node2D", "the header is read past class annotations, their arguments and comments")
 	_check_errors(["The class annotation @tool is not supported yet."], "the script reports only its class annotation")

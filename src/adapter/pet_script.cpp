@@ -281,12 +281,23 @@ PetHeader parse_header(const String &p_source) {
 	const auto is_word = [](char32_t p_char) {
 		return p_char == '_' || p_char == '.' || (p_char >= '0' && p_char <= '9') || (p_char >= 'a' && p_char <= 'z') || (p_char >= 'A' && p_char <= 'Z') || p_char >= 0x80;
 	};
+	// Past the string at `p_at`, which may be triple-quoted and span lines, as
+	// a string on a line of its own does as a comment.
 	const auto skip_string = [&](int64_t p_at) {
-		const char32_t quote = p_source[p_at++];
-		while (p_at < length && p_source[p_at] != quote && p_source[p_at] != '\n') {
+		const char32_t quote = p_source[p_at];
+		const auto closes = [&](int64_t p_end, int p_quotes) {
+			for (int q = 0; q < p_quotes; q++) {
+				if (p_end + q >= length || p_source[p_end + q] != quote) {
+					return false;
+				}
+			}
+			return true;
+		};
+		const int quotes = closes(p_at, 3) ? 3 : 1;
+		for (p_at += quotes; p_at < length && !closes(p_at, quotes) && (quotes == 3 || p_source[p_at] != '\n');) {
 			p_at += p_source[p_at] == '\\' ? 2 : 1;
 		}
-		return p_at + 1;
+		return p_at + quotes;
 	};
 	String keyword; // class_name or extends, whose name comes next.
 	bool has_name = false;
@@ -305,6 +316,9 @@ PetHeader parse_header(const String &p_source) {
 				header.base_is_path = true;
 				has_base = true;
 			}
+			keyword = String();
+		} else if (c == 'r' && i + 1 < length && (p_source[i + 1] == '"' || p_source[i + 1] == '\'')) {
+			i = skip_string(i + 1); // A raw string.
 			keyword = String();
 		} else if (c == '@') {
 			const int64_t name = i + 1;

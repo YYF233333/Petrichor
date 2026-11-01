@@ -3363,6 +3363,12 @@ class Checker : public ClassRelation {
 		return p_expr.target == Target::EngineConstant && p_expr.text == "NOTIFICATION_PREDELETE";
 	}
 
+	// A string on a line of its own, which GDScript takes for a comment
+	// (modules/gdscript/gdscript_parser.cpp:2177-2182).
+	static bool is_comment(const Expr &p_expr) {
+		return p_expr.kind == ExprKind::StringLiteral && p_expr.op == TokenKind::String;
+	}
+
 	void check_stmt(Stmt &r_stmt) {
 		switch (r_stmt.kind) {
 			case StmtKind::Var: {
@@ -3501,6 +3507,9 @@ class Checker : public ClassRelation {
 				}
 				return;
 			case StmtKind::Expression:
+				if (is_comment(*r_stmt.value)) {
+					return;
+				}
 				if (r_stmt.value->kind != ExprKind::Call && r_stmt.value->kind != ExprKind::Await) {
 					check_expr(*r_stmt.value);
 					error(r_stmt.value->range, "This expression has no effect.");
