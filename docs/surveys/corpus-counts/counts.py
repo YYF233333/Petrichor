@@ -22,7 +22,10 @@ Counts, in first-party .gd files (blank and comment lines excluded from the line
     and `queue_free()` for comparison;
   - `.pop_at(`, with locations for reading, `.pop_back(` and `.pop_front(`;
   - strings in single or double quotes, not tripled, that contain a line break, by repository,
-    with locations for reading.
+    with locations for reading;
+  - files with `@tool`, by group of repository and by game repository, and those of them that name
+    an editor plugin class (EditorPlugin, EditorInspectorPlugin, EditorImportPlugin, EditorExportPlugin,
+    EditorScript).
 """
 import collections
 import os
@@ -32,6 +35,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import gdcorpus as G  # noqa: E402
 
 LAMBDA_PREV = {"(", ",", "=", ":", "[", "{", "return"}
+EDITOR_PLUGINS = {"EditorPlugin", "EditorInspectorPlugin", "EditorImportPlugin", "EditorExportPlugin", "EditorScript"}
 COND = {"if", "elif", "while", "not", "and", "or", "!"}
 OPEN, CLOSE = ("(", "[", "{"), (")", "]", "}")
 
@@ -146,6 +150,10 @@ def main():
             c["lines"] += lines
             by_repo[name]["lines"] += lines
             ts = [t for t in G.tokenize(src) if t.k != "NL"]
+            if any(t.k == "AN" and t.v == "@tool" for t in ts):
+                c["tool_" + group] += 1
+                by_repo[name]["tool"] += 1
+                c["tool_editor_api"] += any(t.k == "ID" and t.v in EDITOR_PLUGINS for t in ts)
             abstract_class = False
             funcs = abstract_funcs = 0
             coroutines = set()
@@ -282,6 +290,11 @@ def main():
     print(f"free() on self: {c['free_self']}; set_script on self: {c['set_script_self']}; "
           f".free() in an _on_ method: {c['free_in_handler']}; queue_free(): {c['queue_free']}")
     print(f"pop_at: {c['pop_at']}; pop_back: {c['pop_back']}; pop_front: {c['pop_front']}")
+    games = {name for name, _, _, group in G.REPOS if group == "game"}
+    tool_games = ", ".join(f"{r} {n['tool']}" for r, n in sorted(by_repo.items(), key=lambda x: -x[1]["tool"]) if n["tool"] and r in games)
+    tool_total = sum(n["tool"] for n in by_repo.values())
+    groups = ", ".join(f"{g} {c['tool_' + g]}" for g in sorted({group for _, _, _, group in G.REPOS}) if c["tool_" + g])
+    print(f"files with @tool: {tool_total} ({groups}); in games: {tool_games}; naming an editor plugin class: {c['tool_editor_api']}")
     strings = ", ".join(f"{r} {n['multiline_string']}" for r, n in sorted(by_repo.items(), key=lambda x: -x[1]["multiline_string"]) if n["multiline_string"])
     print(f"strings in single or double quotes with a line break: {sum(n['multiline_string'] for n in by_repo.values())} ({strings})")
     for label, places in freeing_at.items():

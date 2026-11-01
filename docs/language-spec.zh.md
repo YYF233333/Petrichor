@@ -64,7 +64,8 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 2.3 注解
 
-- 沿用 GDScript 的注解，含义相同：`@export` 系列、`@onready`、`@tool`、`@icon`、`@warning_ignore`、`@rpc`、`@static_unload`、`@abstract`（§4.1）。
+- 沿用 GDScript 的注解，含义相同：`@export` 系列、`@onready`、`@icon`、`@warning_ignore`、`@rpc`、`@static_unload`、`@abstract`（§4.1）。
+- 【后续】`@tool`：第一版的脚本不在编辑器中运行，`@tool` 和要求它的 `@export_tool_button` 报编译错误。理由：在编辑器中运行脚本，要在加载时完整编译它，并在编辑器中实例化和重载；而用到 `@tool` 的多是编辑器插件和工具，[语料计数](surveys/corpus-counts.zh.md)中 326 个含 `@tool` 的文件有 211 个在插件仓库，游戏仓库中 58 个，其中 31 个在 godot-open-rpg。
 - `@warning_ignore` 的参数是本语言的警告名。不抑制任何诊断的名字给出提示（§13.2），而 GDScript 对不认识的名字报错（`modules/gdscript/gdscript_parser.cpp:5126-5128`）：迁移来的代码写的是 GDScript 的警告名，其中许多警告本语言没有。
 - 新增的类级注解：`@parent(T)`、`@owner(T)`（§7.3）。
 - 新增的成员注解：`@readonly`，只用于接口属性（§3.9）。
@@ -631,7 +632,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 7.3 向上访问
 
 - autoload 用其全局名访问，类型为其脚本的类（§11.1）。以 `/root/X` 形式的字面量路径访问 autoload 是编译错误，快速修复改为全局名 X。
-- 父节点和 owner 的要求写作类级注解 `@parent(T)`、`@owner(T)`，与 `@tool` 放在同一位置。声明后，`get_parent()`、`$".."` 和 `owner` 具有类型 T。未声明时，`get_parent()` 和 `owner` 的类型为 `Node?`，与引擎一致：没有父节点或 owner 是节点的正常状态，引擎这时返回 null 而不报错（`scene/main/node.cpp:2100-2102, 2296-2298`）；`$".."` 和 `get_node("..")` 的类型为 Node，因为 GDScript 在没有父节点时同样报错。未声明时写 `get_parent().x` 或 `owner.x` 是编译错误，快速修复按场景模型推断出父节点或 owner 的公共类型，在类上补 `@parent(T)` 或 `@owner(T)`，也可以在调用处改为 `.unwrap()`。依据：[语料计数](surveys/corpus-counts.zh.md)中，自身的 `get_parent()` 有 174 处，其中 62 处直接访问成员，分布在 46 个文件中；`owner` 直接访问成员 49 处，分布在 21 个文件中。另有 3 处处理了没有父节点的情况，其中 beehave 的 setter 在节点挂到父节点之前执行，`get_parent()` 在那里得到 null。
+- 父节点和 owner 的要求写作类级注解 `@parent(T)`、`@owner(T)`，与 `@icon` 放在同一位置。声明后，`get_parent()`、`$".."` 和 `owner` 具有类型 T。未声明时，`get_parent()` 和 `owner` 的类型为 `Node?`，与引擎一致：没有父节点或 owner 是节点的正常状态，引擎这时返回 null 而不报错（`scene/main/node.cpp:2100-2102, 2296-2298`）；`$".."` 和 `get_node("..")` 的类型为 Node，因为 GDScript 在没有父节点时同样报错。未声明时写 `get_parent().x` 或 `owner.x` 是编译错误，快速修复按场景模型推断出父节点或 owner 的公共类型，在类上补 `@parent(T)` 或 `@owner(T)`，也可以在调用处改为 `.unwrap()`。依据：[语料计数](surveys/corpus-counts.zh.md)中，自身的 `get_parent()` 有 174 处，其中 62 处直接访问成员，分布在 46 个文件中；`owner` 直接访问成员 49 处，分布在 21 个文件中。另有 3 处处理了没有父节点的情况，其中 beehave 的 setter 在节点挂到父节点之前执行，`get_parent()` 在那里得到 null。
 
   ```gdscript
   @owner(Combat.Combatant)
@@ -987,6 +988,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 14.1 已知限制
 
 - 导出的游戏不能在运行时从源码加载脚本（§1.3）。
+- 脚本不在编辑器中运行：没有 `@tool` 和 `@export_tool_button`，编辑器插件不能用本语言写（§2.3）。
 - `_init` 和返回值非 void 的引擎虚函数覆盖不能声明为 async（§9.1）。
 - struct 不能 `@export`，也不能存入 `.tres`（§3.6）；带载荷的 enum 不能有方法，也不能 `@export`（§3.7）。
 - 没有带状态的 mixin，接口不能是泛型（§3.9）。
@@ -1006,6 +1008,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 14.2 以后可以兼容地加入
 
 - 含编译器的运行时库，供需要在运行时从源码加载脚本的项目选用，代价是加载时编译（§1.3）；
+- `@tool` 和 `@export_tool_button`（§2.3）；
 - 别名或 `import`（§2.4）；
 - struct 构造的位置参数、修改 self 或重新定义 `==`、`<` 与哈希的 struct 方法、struct 成员的 `private`、不经容器的值类型递归（§3.6）；
 - 泛型接口，写作 `interface Source[T]:`（§3.9）；

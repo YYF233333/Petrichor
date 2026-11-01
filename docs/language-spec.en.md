@@ -64,7 +64,8 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 2.3 Annotations
 
-- GDScript's annotations are kept with their meaning: the `@export` family, `@onready`, `@tool`, `@icon`, `@warning_ignore`, `@rpc`, `@static_unload`, `@abstract` (§4.1).
+- GDScript's annotations are kept with their meaning: the `@export` family, `@onready`, `@icon`, `@warning_ignore`, `@rpc`, `@static_unload`, `@abstract` (§4.1).
+- [Later] `@tool`: in the first version scripts do not run in the editor, and `@tool` and `@export_tool_button`, which needs it, are compile errors. Rationale: running a script in the editor means compiling it whole when it loads, and instantiating and reloading it in the editor, while the code that uses `@tool` is mostly editor plugins and tools: of the 326 files with `@tool` in the [corpus counts](surveys/corpus-counts.en.md), 211 are in plugin repositories and 58 in game repositories, 31 of those in godot-open-rpg.
 - `@warning_ignore` names warnings of this language. A name that suppresses no diagnostic gets a hint (§13.2), where GDScript reports a name it does not know as an error (`modules/gdscript/gdscript_parser.cpp:5126-5128`): migrated code names GDScript's warnings, many of which this language does not have.
 - New class-level annotations: `@parent(T)` and `@owner(T)` (§7.3).
 - New member annotation: `@readonly`, only for interface properties (§3.9).
@@ -631,7 +632,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 7.3 Upward access
 
 - Autoloads are accessed by their global names, typed as the class of their script (§11.1). Accessing an autoload through a literal path of the form `/root/X` is a compile error, and the quick fix rewrites it to the global name X.
-- Parent and owner requirements are written as the class-level annotations `@parent(T)` and `@owner(T)`, placed where `@tool` goes. With a declaration, `get_parent()`, `$".."` and `owner` have type T. Without one, `get_parent()` and `owner` have type `Node?`, as in the engine: having no parent or owner is a normal state of a node, and the engine then returns null without an error (`scene/main/node.cpp:2100-2102, 2296-2298`); `$".."` and `get_node("..")` have type Node, because GDScript reports an error there too when there is no parent. Without a declaration, `get_parent().x` or `owner.x` is a compile error; the quick fix infers the common type of the parent or owner from the scene model and adds `@parent(T)` or `@owner(T)` to the class, or rewrites the call site with `.unwrap()`. Evidence: in the [corpus counts](surveys/corpus-counts.en.md), `get_parent()` on self occurs 174 times, 62 of them accessing a member directly, in 46 files; `owner` has a member accessed directly 49 times, in 21 files. 3 more places handle a missing parent, among them a beehave setter that runs before the node is attached to its parent, where `get_parent()` yields null.
+- Parent and owner requirements are written as the class-level annotations `@parent(T)` and `@owner(T)`, placed where `@icon` goes. With a declaration, `get_parent()`, `$".."` and `owner` have type T. Without one, `get_parent()` and `owner` have type `Node?`, as in the engine: having no parent or owner is a normal state of a node, and the engine then returns null without an error (`scene/main/node.cpp:2100-2102, 2296-2298`); `$".."` and `get_node("..")` have type Node, because GDScript reports an error there too when there is no parent. Without a declaration, `get_parent().x` or `owner.x` is a compile error; the quick fix infers the common type of the parent or owner from the scene model and adds `@parent(T)` or `@owner(T)` to the class, or rewrites the call site with `.unwrap()`. Evidence: in the [corpus counts](surveys/corpus-counts.en.md), `get_parent()` on self occurs 174 times, 62 of them accessing a member directly, in 46 files; `owner` has a member accessed directly 49 times, in 21 files. 3 more places handle a missing parent, among them a beehave setter that runs before the node is attached to its parent, where `get_parent()` yields null.
 
   ```gdscript
   @owner(Combat.Combatant)
@@ -987,6 +988,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 14.1 Known limitations
 
 - Exported games cannot load scripts from source at run time (§1.3).
+- Scripts do not run in the editor: there is no `@tool` or `@export_tool_button`, and editor plugins cannot be written in this language (§2.3).
 - `_init` and overrides of non-void engine virtuals cannot be declared async (§9.1).
 - Structs cannot be `@export`ed or stored in `.tres` (§3.6); enums with payloads cannot have methods or be `@export`ed (§3.7).
 - There are no stateful mixins, and interfaces cannot be generic (§3.9).
@@ -1006,6 +1008,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 14.2 Compatible later additions
 
 - A runtime library that includes the compiler, for projects that need to load scripts from source at run time, at the cost of compiling at load time (§1.3);
+- `@tool` and `@export_tool_button` (§2.3);
 - aliases or `import` (§2.4);
 - positional arguments for struct construction, struct methods that modify self or redefine `==`, `<` and hashing, `private` for struct members, and value-type recursion without a container (§3.6);
 - generic interfaces, written `interface Source[T]:` (§3.9);

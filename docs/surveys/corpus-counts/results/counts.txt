@@ -17,6 +17,7 @@ owner on self: 53; member accesses 49 in 21 files; tested for null 0
 tested for null at: beehave/addons/beehave/nodes/beehave_tree.gd:91, godot-demo-projects/xr/openxr_hand_tracking_demo/xr_hand_fallback_modifier_3d.gd:23, godot-demo-projects/xr/openxr_spectator_view/cameras/spectator_camera_area.gd:22
 free() on self: 0; set_script on self: 1; .free() in an _on_ method: 6; queue_free(): 532
 pop_at: 14; pop_back: 28; pop_front: 48
+files with @tool: 326 (demos 51, game 58, plugin 211, tool 6); in games: godot-open-rpg 31, godot-tiny-mmo 18, godot-open-rts 8, godot_open_star_fighter 1; naming an editor plugin class: 33
 strings in single or double quotes with a line break: 97 (godot_dialogue_manager 95, godot-open-rpg 1, phantom-camera 1)
 .free() in an _on_ method at: beehave/addons/beehave/debug/debugger_tab.gd:187, beehave/addons/beehave/debug/debugger_tab.gd:202, beehave/addons/beehave/debug/debugger_tab.gd:210, godot-open-rpg/src/combat/combat.gd:205, Pixelorama/src/UI/Dialogs/ProjectProperties.gd:237, godot-tiny-mmo/addons/tinymmo/popup/tree.gd:73
 set_script on self at: gdUnit4/addons/gdUnit4/src/mocking/GdUnitMockImpl.gd:19
