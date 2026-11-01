@@ -1,0 +1,8 @@
+class_name StaticChild extends StaticCheck
+
+# A subclass calls the static methods of its base through the base's name,
+# those that are not pub too (spec §4.2).
+
+
+pub func through_base() -> int:
+	return StaticCheck.secret() + StaticCheck.twice(1)

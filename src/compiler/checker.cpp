@@ -1835,9 +1835,17 @@ class Checker : public ClassRelation {
 		return type;
 	}
 
-	Type check_engine_call(Expr &r_expr, const EngineMethod &p_method) {
-		if (p_method.is_static) {
-			return fail_call(r_expr, "Static engine methods are not supported yet.");
+	// A method of an engine class, or with `p_static_class` a static one called
+	// through that class's name, as FileAccess.open().
+	Type check_engine_call(Expr &r_expr, const EngineMethod &p_method, const std::string &p_static_class = std::string()) {
+		if (p_method.is_static && r_expr.is_foreign) {
+			return fail_call(r_expr, "Static methods of classes of other languages are not supported yet (spec §11.1).");
+		}
+		if (p_method.is_static && p_static_class.empty()) {
+			return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + p_method.owner + " is static; call it as " + p_method.owner + "." + r_expr.text + "().");
+		}
+		if (!p_method.is_static && !p_static_class.empty()) {
+			return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + p_method.owner + " is not static; call it on an object.");
 		}
 		if (p_method.is_virtual) {
 			return fail_call(r_expr, "\"" + r_expr.text + "()\" is a virtual engine method.");
@@ -1869,6 +1877,10 @@ class Checker : public ClassRelation {
 			refer(r_expr.name_token, engine_id(p_method.owner, r_expr.text));
 		}
 		r_expr.target = Target::EngineMethod;
+		if (!p_static_class.empty()) {
+			r_expr.is_static = true;
+			r_expr.owner = p_static_class;
+		}
 		r_expr.engine_return = engine_result(p_method);
 		return set(r_expr, filtered_result(r_expr, p_method));
 	}
@@ -2181,15 +2193,20 @@ class Checker : public ClassRelation {
 		return true;
 	}
 
-	Type check_builtin_method(Expr &r_expr, const Type &p_base) {
+	// A method of a value of a built-in type, or with `p_static` a static one
+	// called through the type's name, as Color.from_hsv().
+	Type check_builtin_method(Expr &r_expr, const Type &p_base, bool p_static = false) {
 		const std::string base_name = p_base.builtin_name();
 		const builtin::Class *type = builtin::find_class(base_name);
 		const builtin::Method *method = type ? builtin::find_method(*type, r_expr.text) : nullptr;
 		if (!method) {
 			return fail_call(r_expr, p_base.to_string() + " has no method \"" + r_expr.text + "()\".");
 		}
-		if (method->is_static) {
-			return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + base_name + " is not supported yet.");
+		if (method->is_static && !p_static) {
+			return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + base_name + " is static; call it as " + base_name + "." + r_expr.text + "().");
+		}
+		if (!method->is_static && p_static) {
+			return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + base_name + " is not static; call it on a value.");
 		}
 		const bool typed_dictionary = base_name == "Dictionary" && !p_base.args.empty();
 		// get(k) of Dictionary[K, V] gives V?, None for a missing key (spec §3.8).
@@ -2241,7 +2258,7 @@ class Checker : public ClassRelation {
 		// A method that changes a value changes it where it came from, which
 		// must be a place that can be written; Array and Dictionary are shared
 		// and change in place.
-		if (!method->is_const && !is_shared(p_base)) {
+		if (!method->is_const && !method->is_static && !is_shared(p_base)) {
 			const Expr &base = *r_expr.base;
 			const bool place = base.target == Target::Local || base.target == Target::Member || base.target == Target::SelfProperty ||
 					base.target == Target::ObjectProperty || base.target == Target::Field || base.target == Target::StructField;
@@ -2259,6 +2276,7 @@ class Checker : public ClassRelation {
 		refer(r_expr.name_token, engine_id(base_name, r_expr.text));
 		r_expr.hash = method->hash;
 		r_expr.is_const = method->is_const;
+		r_expr.is_static = method->is_static;
 		return set(r_expr, result);
 	}
 
@@ -2649,6 +2667,74 @@ class Checker : public ClassRelation {
 		return set(r_expr, p_struct);
 	}
 
+	// A static method called through the name of a built-in type or an engine
+	// class, as Color.from_hsv() or FileAccess.open().
+	Type check_static_call(Expr &r_expr) {
+		const Expr &base = *r_expr.base;
+		refer(base.name_token, engine_id(base.text));
+		if (builtin::find_class(base.text)) {
+			return check_builtin_method(r_expr, api_type(base.text, false), true);
+		}
+		if (const auto method = engine.find_method(base.text, r_expr.text)) {
+			return check_engine_call(r_expr, *method, base.text);
+		}
+		return fail_call(r_expr, base.text + " has no method \"" + r_expr.text + "()\".");
+	}
+
+	// `Class.new()` or a static method of a class of this language, through its
+	// class_name (spec §4.6, §4.8).
+	Type check_class_call(Expr &r_expr, const std::string &p_path) {
+		const Expr &base = *r_expr.base;
+		refer(base.name_token, script_id(p_path));
+		const ClassDecl *header = script_header(p_path);
+		if (!header) {
+			return fail_call(r_expr, base.text + " (" + p_path + ") cannot be read.");
+		}
+		const std::string class_name = display_name(*header, p_path);
+		if (r_expr.text == "new") {
+			const Type type = script_class_type(*header, p_path);
+			if (!engine.can_instantiate(type.engine_class())) {
+				return fail_call(r_expr, class_name + " cannot be instantiated: the engine cannot instantiate " + type.engine_class() + ", which it extends.");
+			}
+			if (!r_expr.args.empty()) {
+				return fail_call(r_expr, "new() of " + class_name + " takes no arguments: _init() with parameters is not supported yet.");
+			}
+			refer(r_expr.name_token, script_id(p_path, "new"));
+			r_expr.target = Target::NewObject;
+			return set(r_expr, type);
+		}
+		const ClassDecl *decl = script_decl(p_path);
+		if (!decl) {
+			return fail_call(r_expr, class_name + " has errors.");
+		}
+		const auto found = std::find_if(decl->all_functions.begin(), decl->all_functions.end(), [&](const FuncDecl *p_function) { return p_function->name == r_expr.text; });
+		if (found == decl->all_functions.end()) {
+			return fail_call(r_expr, class_name + " has no method \"" + r_expr.text + "()\".");
+		}
+		const FuncDecl &callee = **found;
+		if (!callee.is_static) {
+			return fail_call(r_expr, "\"" + callee.name + "()\" of " + class_name + " is not static; call it on an object.");
+		}
+		if (!callee.is_pub && !extends_script(options.path, p_path)) {
+			return fail_call(r_expr, "\"" + callee.name + "()\" of " + class_name + " is not pub.");
+		}
+		check_arguments(r_expr, param_types(callee.params), required_params(callee), false);
+		refer(r_expr.name_token, script_id(declaring(*decl, callee, &ClassDecl::functions).path, callee.name));
+		if (p_path == options.path) {
+			r_expr.target = Target::ScriptFunction;
+			r_expr.index = int(found - decl->all_functions.begin());
+		} else {
+			// Called on the class's current image (spec §12.4).
+			r_expr.target = Target::ScriptMethod;
+			r_expr.is_static = true;
+			r_expr.owner = p_path;
+			r_expr.engine_params = param_types(callee.params);
+			r_expr.index = int(callee.params.size()) - required_params(callee);
+		}
+		r_expr.is_async = callee.is_async;
+		return set(r_expr, callee.is_async ? Type::task(callee.return_type) : callee.return_type);
+	}
+
 	Type check_call(Expr &r_expr) {
 		if (const std::optional<Type> constructed = constructed_struct(r_expr)) {
 			return check_struct_construction(r_expr, *constructed);
@@ -2677,7 +2763,11 @@ class Checker : public ClassRelation {
 					refer(r_expr.name_token, engine_id(base.text, name));
 					return set(r_expr, Type::object(base.text));
 				}
-				return fail_call(r_expr, "Static methods such as " + base.text + "." + name + "() are not supported yet.");
+				return check_static_call(r_expr);
+			}
+			const std::string class_path = script_class_named(base);
+			if (!class_path.empty()) {
+				return check_class_call(r_expr, class_path);
 			}
 			const Type base_type = check_value(base);
 			if (base_type.is_error()) {

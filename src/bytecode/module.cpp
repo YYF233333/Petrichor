@@ -564,6 +564,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 	for (const EngineCall &call : p_module.engine_calls) {
 		w.str(call.method);
 		w.u32(call.result_type);
+		w.str(call.static_class);
 	}
 	w.u32(uint32_t(p_module.properties.size()));
 	for (const PropertyAccess &property : p_module.properties) {
@@ -605,6 +606,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.u32(call.hash);
 		w.u8(call.is_vararg ? 1 : 0);
 		w.u8(call.is_const ? 1 : 0);
+		w.u8(call.is_static ? 1 : 0);
 		w.types(call.params);
 		w.type(call.return_type);
 		w.u32(call.result_type);
@@ -623,6 +625,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.u32(call.defaults);
 		w.u8(call.is_async ? 1 : 0);
 		w.slot(call.result);
+		w.u32(uint32_t(call.static_class));
 	}
 	w.u32(uint32_t(p_module.interfaces.size()));
 	for (const std::string &id : p_module.interfaces) {
@@ -743,6 +746,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 	for (EngineCall &call : module.engine_calls) {
 		call.method = r.str();
 		call.result_type = r.u32();
+		call.static_class = r.str();
 	}
 	module.properties.resize(r.count());
 	for (PropertyAccess &property : module.properties) {
@@ -784,6 +788,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		call.hash = r.u32();
 		call.is_vararg = r.u8() != 0;
 		call.is_const = r.u8() != 0;
+		call.is_static = r.u8() != 0;
 		call.params = r.types();
 		call.return_type = r.type();
 		call.result_type = r.u32();
@@ -802,6 +807,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		call.defaults = r.u32();
 		call.is_async = r.u8() != 0;
 		call.result = r.slot();
+		call.static_class = int32_t(r.u32());
 	}
 	module.interfaces.resize(r.count());
 	for (std::string &id : module.interfaces) {

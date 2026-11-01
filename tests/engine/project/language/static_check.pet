@@ -1,0 +1,40 @@
+class_name StaticCheck extends Node
+
+# Calls through a type name (spec §4.6, §4.8): static methods of engine
+# classes, of built-in types and of classes of this language, and new().
+
+pub var initialized := false
+pub var level := 3
+
+
+func _init() -> void:
+	initialized = true
+
+
+pub static func twice(x: int) -> int:
+	return x * 2
+
+
+static func secret() -> int:
+	return 5
+
+
+pub func made() -> bool:
+	var node := StaticCheck.new()
+	var ref := ConstantCheck.new()
+	var ok := node.initialized and node.level == 3 and ref.day() == 86400000
+	node.free()
+	return ok
+
+
+pub func own_static() -> int:
+	return StaticCheck.twice(4)
+
+
+pub func engine_static() -> bool:
+	var file: FileAccess? = FileAccess.open("res://language/static_check.pet", FileAccess.READ)
+	return file != None and file.get_as_text().begins_with("class_name StaticCheck") and FileAccess.file_exists("res://project.godot")
+
+
+pub func builtin_static() -> bool:
+	return Color.from_hsv(0.0, 1.0, 1.0) == Color(1, 0, 0) and String.num_int64(255, 16) == "ff"

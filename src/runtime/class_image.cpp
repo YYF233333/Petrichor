@@ -128,6 +128,7 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 
 	for (const bytecode::EngineCall &call : module.engine_calls) {
 		image->engine_methods.push_back(to_godot(call.method));
+		image->engine_static_classes.push_back(call.static_class.empty() ? StringName() : StringName(to_godot(call.static_class)));
 	}
 	for (const bytecode::PropertyAccess &property : module.properties) {
 		image->properties.push_back(to_godot(property.name));
@@ -582,15 +583,15 @@ bool same_initializers(const bytecode::Module &p_a, const bytecode::Module &p_b)
 	const ModulePair pair{ p_a, p_b };
 	return same_prefix(p_a.types, p_b.types, x.types, [](const auto &a, const auto &b) { return a == b; }) &&
 			same_prefix(p_a.constants, p_b.constants, x.constants, [&](const auto &a, const auto &b) { return pair.same_constant(a, b); }) &&
-			same_prefix(p_a.engine_calls, p_b.engine_calls, x.engine_calls, [](const auto &a, const auto &b) { return a.method == b.method && a.result_type == b.result_type; }) &&
+			same_prefix(p_a.engine_calls, p_b.engine_calls, x.engine_calls, [](const auto &a, const auto &b) { return a.method == b.method && a.result_type == b.result_type && a.static_class == b.static_class; }) &&
 			same_prefix(p_a.properties, p_b.properties, x.properties, [](const auto &a, const auto &b) { return a.name == b.name && a.type == b.type; }) &&
 			same_prefix(p_a.utility_calls, p_b.utility_calls, x.utility_calls, [](const auto &a, const auto &b) { return a.function == b.function && a.hash == b.hash && a.is_vararg == b.is_vararg && a.params == b.params && a.return_type == b.return_type && a.result_type == b.result_type; }) &&
 			same_prefix(p_a.operators, p_b.operators, x.operators, [](const auto &a, const auto &b) { return a.op == b.op && a.left == b.left && a.right == b.right && a.result == b.result; }) &&
 			same_prefix(p_a.fields, p_b.fields, x.fields, [](const auto &a, const auto &b) { return a.base == b.base && a.name == b.name && a.type == b.type; }) &&
 			same_prefix(p_a.constructors, p_b.constructors, x.constructors, [](const auto &a, const auto &b) { return a.type == b.type && a.index == b.index && a.params == b.params; }) &&
-			same_prefix(p_a.builtin_methods, p_b.builtin_methods, x.builtin_methods, [](const auto &a, const auto &b) { return a.base == b.base && a.method == b.method && a.hash == b.hash && a.is_vararg == b.is_vararg && a.is_const == b.is_const && a.params == b.params && a.return_type == b.return_type && a.result_type == b.result_type; }) &&
+			same_prefix(p_a.builtin_methods, p_b.builtin_methods, x.builtin_methods, [](const auto &a, const auto &b) { return a.base == b.base && a.method == b.method && a.hash == b.hash && a.is_vararg == b.is_vararg && a.is_const == b.is_const && a.is_static == b.is_static && a.params == b.params && a.return_type == b.return_type && a.result_type == b.result_type; }) &&
 			same_prefix(p_a.classes, p_b.classes, x.classes, [](const auto &a, const auto &b) { return a == b; }) &&
-			same_prefix(p_a.method_calls, p_b.method_calls, x.method_calls, [&](const auto &a, const auto &b) { return a.method == b.method && bytecode::signature_key(p_a.types, a.params, a.defaults, a.result, a.is_async) == bytecode::signature_key(p_b.types, b.params, b.defaults, b.result, b.is_async); });
+			same_prefix(p_a.method_calls, p_b.method_calls, x.method_calls, [&](const auto &a, const auto &b) { return a.method == b.method && a.static_class == b.static_class && bytecode::signature_key(p_a.types, a.params, a.defaults, a.result, a.is_async) == bytecode::signature_key(p_b.types, b.params, b.defaults, b.result, b.is_async); });
 }
 
 } // namespace

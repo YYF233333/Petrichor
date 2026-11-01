@@ -9,6 +9,8 @@
 
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/ref_counted.hpp>
+#include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/window.hpp>
 #include <godot_cpp/core/class_db.hpp>
@@ -291,6 +293,14 @@ public:
 
 	const Variant **as_variants() { return reinterpret_cast<const Variant **>(pointers); }
 };
+
+// A static method of an engine class, by name (core/core_bind.cpp:1722-1737).
+void call_static(const StringName &p_class, const StringName &p_method, const Variant **p_args, uint32_t p_count, Variant &r_result, GDExtensionCallError &r_error) {
+	const Variant names[2] = { p_class, p_method };
+	std::vector<const Variant *> args = { &names[0], &names[1] };
+	args.insert(args.end(), p_args, p_args + p_count);
+	Variant(ClassDBSingleton::get_singleton()).callp("class_call_static", args.data(), int(args.size()), r_result, r_error);
+}
 
 void report_error(const ClassImage &p_image, const bytecode::Function &p_function, int p_line, const String &p_message) {
 	vm::report_error(p_image, p_function.name.c_str(), p_line, p_message);
@@ -763,9 +773,23 @@ public:
 					break;
 				}
 				case Op::NEW_OBJECT: {
-					const Variant object = ClassDBSingleton::get_singleton()->instantiate(image.classes[code[pc + 1]]);
+					const uint32_t index = code[pc + 1];
+					const Variant object = ClassDBSingleton::get_singleton()->instantiate(image.classes[index]);
 					if (object.get_type() != Variant::OBJECT || !object.booleanize()) {
-						FAIL(vformat("Cannot construct %s.", image.classes[code[pc + 1]]));
+						FAIL(vformat("Cannot construct %s.", image.classes[index]));
+					}
+					if (!image.class_scripts[index].is_empty()) {
+						// As PetScript.new() does: the script's instance runs the
+						// initializers and _init() (spec §6.1).
+						Object *made = object.get_validated_object();
+						made->set_script(ResourceLoader::get_singleton()->call("load", image.class_scripts[index]));
+						ScriptedObject instance;
+						if (!scripted_object(made, instance)) {
+							if (!Object::cast_to<RefCounted>(made)) {
+								memdelete(made);
+							}
+							FAIL(vformat("Cannot construct %s: it has errors.", image.class_scripts[index]));
+						}
 					}
 					set_object(frame + code[pc + 2], object);
 					pc += 3;
@@ -1039,9 +1063,13 @@ public:
 				case Op::CALL_METHOD: {
 					const uint32_t target = code[pc + 1];
 					const StringName &name = image.method_names[target];
+					const int32_t static_class = module.method_calls[target].static_class;
 					ScriptedObject callee;
 					if (Op(code[pc]) == Op::CALL_SUPER) {
 						callee = { image.base, context };
+					} else if (static_class >= 0) {
+						// The class's current image, without an instance (spec §4.8).
+						callee.image = script_image(image.class_scripts[static_class]);
 					} else {
 						OBJECT(receiver, code[pc + 3]);
 						if (!scripted_object(static_cast<Object *>(receiver), callee)) {
@@ -1054,9 +1082,12 @@ public:
 					}
 					// Within a run every script is compiled against the others
 					// (spec §12.4); only bytecode that was not built together
-					// can differ, and then the arguments would not fit.
+					// can differ, and then the arguments would not fit. Whether a
+					// static method is visible is the checker's: subclasses call
+					// those that are not pub too (spec §4.2).
 					int index = callee.image ? callee.image->find_function(name) : -1;
-					if (index < 0 || !callee.image->has_signature(name, image.call_signatures[target]) || (Op(code[pc]) == Op::CALL_METHOD && !callee.image->module.functions[index].is_pub && !callee.image->module.functions[index].is_override)) {
+					const bytecode::Function *found = index >= 0 ? &callee.image->module.functions[index] : nullptr;
+					if (!found || !callee.image->has_signature(name, image.call_signatures[target]) || (static_class >= 0 && !found->is_static) || (Op(code[pc]) == Op::CALL_METHOD && static_class < 0 && !found->is_pub && !found->is_override)) {
 						FAIL(vformat("%s() is not the method this script was compiled against. Build the project again.", name));
 					}
 					ClassImage::resolve_function(callee.image, index);
@@ -1073,10 +1104,21 @@ public:
 					const uint32_t argc = code[pc + 4];
 					// By name for now; through MethodBind pointers once the
 					// compiler knows method hashes (architecture §2.2).
-					OBJECT(object, code[pc + 3]);
 					Arguments args(image.types, frame, code + pc + 5, argc, nullptr);
 					Variant result;
 					GDExtensionCallError error;
+					if (!image.engine_static_classes[target].is_empty()) {
+						call_static(image.engine_static_classes[target], image.engine_methods[target], args.as_variants(), argc, result, error);
+						if (error.error != GDEXTENSION_CALL_OK) {
+							FAIL(vformat("Calling %s.%s() failed.", image.engine_static_classes[target], image.engine_methods[target]));
+						}
+						if (dst != NO_SLOT && !from_variant(image.types[module.engine_calls[target].result_type], result, frame + dst, false)) {
+							FAIL(vformat("%s() returned an unexpected %s.", image.engine_methods[target], Variant::get_type_name(result.get_type())));
+						}
+						pc += 5 + 2 * argc;
+						break;
+					}
+					OBJECT(object, code[pc + 3]);
 					object.callp(image.engine_methods[target], args.as_variants(), int(argc), result, error);
 					if (error.error != GDEXTENSION_CALL_OK) {
 						FAIL(vformat("Calling %s() failed.", image.engine_methods[target]));
@@ -1162,11 +1204,13 @@ public:
 					const ValueType returns = utility ? module.utility_calls[target].return_type : module.builtin_methods[target].return_type;
 					const TypeImage &result_type = image.types[utility ? module.utility_calls[target].result_type : module.builtin_methods[target].result_type];
 					Arguments args(image.types, frame, code + pc + 5, argc, &params);
-					uint8_t *base = frame + code[pc + 3];
+					// A static method has no base, which the engine does not read
+					// (core/variant/variant_call.cpp:470-472).
+					uint8_t *base = code[pc + 3] == NO_SLOT ? nullptr : frame + code[pc + 3];
 					ClassImage::KeyRole keys = ClassImage::KeyRole::None;
 					ClassImage::Replaced replaced = ClassImage::Replaced::None;
 					std::optional<Variant> inserted; // A Variant is made by a call into the engine.
-					if (!utility) {
+					if (!utility && base) {
 						const bytecode::BuiltinMethodCall &method = module.builtin_methods[target];
 						if (!method.is_const && is_read_only(method.base, base)) {
 							FAIL(read_only_error(method.base));

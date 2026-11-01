@@ -405,15 +405,25 @@ class Verifier {
 				if (!index(callee, module.engine_calls.size(), "engine call") || !slot_or_none(base, ValueType::Object)) {
 					return false;
 				}
+				if (!module.engine_calls[callee].static_class.empty() && base != NO_SLOT) {
+					return fail("a static engine call has a base");
+				}
 				return arguments(p_call) && result(dst, module.engine_calls[callee].result_type);
 			}
 			case Op::CALL_SUPER:
 			case Op::CALL_METHOD: {
-				if (!index(callee, module.method_calls.size(), "method call") || !(p_op == Op::CALL_SUPER ? base == NO_SLOT && !module.base_script.empty() : slot(base, ValueType::Object))) {
+				if (!index(callee, module.method_calls.size(), "method call")) {
 					return false;
 				}
 				// The arguments a call may leave out have default values.
 				const MethodCall &method = module.method_calls[callee];
+				if (p_op == Op::CALL_SUPER) {
+					if (module.base_script.empty() || method.static_class >= 0 || base != NO_SLOT) {
+						return fail("a super call without a base script, or with a base");
+					}
+				} else if (method.static_class >= 0 ? base != NO_SLOT && !fail("a static method call has a base") : !slot(base, ValueType::Object)) {
+					return false;
+				}
 				const uint32_t argc = p_call[3];
 				if (argc > method.params.size() || argc < method.params.size() - method.defaults) {
 					return fail("wrong number of arguments");
@@ -445,7 +455,7 @@ class Verifier {
 				if (p_op == Op::CALL_AWAIT_BUILTIN && (method.base != ValueType::Callable || (method.method != "call" && method.method != "callv"))) {
 					return fail("awaited built-in call is not a Callable invocation");
 				}
-				if (!is_native(method.base) || !slot(base, method.base)) {
+				if (!is_native(method.base) || !(method.is_static ? base == NO_SLOT || fail("a static built-in method has a base") : slot(base, method.base))) {
 					return false;
 				}
 				return engine_arguments(p_call, method.params, method.is_vararg) && engine_result(dst, method.return_type, method.result_type);
@@ -499,7 +509,7 @@ class Verifier {
 				return o[1] == NO_SLOT;
 			case Op::CALL_AWAIT_ENGINE:
 			case Op::CALL_ENGINE:
-				return o[2] == NO_SLOT;
+				return o[2] == NO_SLOT && (o[0] >= module.engine_calls.size() || module.engine_calls[o[0]].static_class.empty());
 			case Op::CALL:
 				return o[0] < module.functions.size() && !module.functions[o[0]].is_static;
 			default:
@@ -637,6 +647,7 @@ class Verifier {
 				return p_op == Op::GET_PROPERTY ? slot_like(o[1], property) && slot_or_none(o[2], ValueType::Object) : slot_or_none(o[1], ValueType::Object) && slot_like(o[2], property);
 			}
 			case Op::NEW_OBJECT:
+				return index(o[0], module.classes.size(), "class") && (module.classes[o[0]].interface_name.empty() || fail("new() of an interface")) && slot(o[1], ValueType::Object);
 			case Op::GET_OWNER:
 			case Op::GET_SINGLETON:
 			case Op::CHECK_OBJECT:
@@ -869,6 +880,9 @@ public:
 			}
 			if (call.defaults > call.params.size()) {
 				return fail("more default values than parameters in a method call");
+			}
+			if (call.static_class >= 0 && (uint32_t(call.static_class) >= module.classes.size() || module.classes[call.static_class].script.empty() || !module.classes[call.static_class].interface_name.empty())) {
+				return fail("a static method call of no class of this language");
 			}
 			if (!description(call.result, true)) {
 				return false;

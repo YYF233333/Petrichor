@@ -437,6 +437,12 @@ func _ready() -> void:
 	var constant_map: Dictionary = (k.get_script() as Script).get_script_constant_map()
 	_check(constant_map.get("ANGLE") == deg_to_rad(30) and not constant_map.has("SECRET") and k.secret() == 7, "the engine sees the pub constants only (spec §10.5)")
 
+	var statics := StaticChild.new()
+	_check(statics.made(), "new() of classes of this language runs their initializers and _init() (spec §4.6)")
+	_check(statics.own_static() == 8 and statics.through_base() == 7, "static methods of classes of this language, through the class's name (spec §4.8)")
+	_check(statics.engine_static() and statics.builtin_static(), "static methods of engine classes and built-in types")
+	statics.free()
+
 	for test: GDScript in [preload("res://language/coroutines_test.gd"), preload("res://language/defaults_test.gd"), preload("res://language/inheritance_test.gd")]:
 		var part: Node = test.new()
 		add_child(part)

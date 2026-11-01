@@ -18,6 +18,12 @@ using InstanceResolver = bool (*)(godot::Object *p_object, ScriptedObject &r_ins
 void set_instance_resolver(InstanceResolver p_resolver);
 bool scripted_object(godot::Object *p_object, ScriptedObject &r_instance);
 
+// Likewise the current image of a script of this language by its path, which
+// a static method is called on (spec §4.8); null when it has none.
+using ScriptResolver = std::shared_ptr<const ClassImage> (*)(const godot::String &p_path);
+void set_script_resolver(ScriptResolver p_resolver);
+std::shared_ptr<const ClassImage> script_image(const godot::String &p_path);
+
 // Whether the object's script of this language implements the interface,
 // named "script::Name" (spec §3.9).
 bool implements_interface(godot::Object *p_object, const godot::String &p_interface);

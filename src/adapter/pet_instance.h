@@ -38,6 +38,8 @@ public:
 
 // The instance of this language on an object, for method values (runtime/method_callable.h).
 bool resolve_instance(godot::Object *p_object, ScriptedObject &r_instance);
+// The image of a script of this language, for static methods (runtime/method_callable.h).
+std::shared_ptr<const ClassImage> resolve_script(const godot::String &p_path);
 
 // Converts the dictionaries used by Script reflection into the C structures of
 // the script instance interface, and frees them again.

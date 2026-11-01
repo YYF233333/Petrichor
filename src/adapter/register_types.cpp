@@ -46,6 +46,7 @@ static void initialize_petrichor(ModuleInitializationLevel p_level) {
 		language = memnew(PetLanguage);
 		Engine::get_singleton()->register_script_language(language);
 		set_instance_resolver(resolve_instance);
+		set_script_resolver(resolve_script);
 
 		loader.instantiate();
 		ResourceLoader::get_singleton()->add_resource_format_loader(loader);
@@ -72,6 +73,7 @@ static void uninitialize_petrichor(ModuleInitializationLevel p_level) {
 		tasks::clear();
 		clear_box_types();
 		set_instance_resolver(nullptr);
+		set_script_resolver(nullptr);
 		Engine::get_singleton()->unregister_script_language(language);
 		memdelete(language);
 		language = nullptr;

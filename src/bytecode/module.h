@@ -242,6 +242,7 @@ struct ExportGroup {
 struct EngineCall {
 	std::string method;
 	uint32_t result_type = 0; // The slot that receives the result, by type.
+	std::string static_class; // A static method: the class it is called through, with no base.
 };
 
 // A method of a class of this language, called on an object of that class or
@@ -255,6 +256,9 @@ struct MethodCall {
 	std::vector<Slot> params; // Names and offsets mean nothing.
 	uint32_t defaults = 0; // How many of the last parameters have default values, which a call may leave out.
 	Slot result; // As Function::result.
+	// A static method (spec §4.8): the class whose script declares it, an index
+	// into the classes; called with no base.
+	int32_t static_class = -1;
 };
 
 // A signature of a method as text that is equal exactly for equal signatures
@@ -313,6 +317,7 @@ struct BuiltinMethodCall {
 	// Changes nothing; one that changes an Array or Dictionary is refused on a
 	// read-only one (spec §3.8).
 	bool is_const = true;
+	bool is_static = false; // Called with no base, as Color.from_hsv().
 	std::vector<ValueType> params;
 	ValueType return_type = ValueType::Void;
 	uint32_t result_type = 0; // The slot that receives it, by type.

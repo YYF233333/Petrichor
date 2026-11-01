@@ -12,6 +12,7 @@ namespace petrichor {
 namespace {
 
 InstanceResolver resolver = nullptr;
+ScriptResolver script_resolver = nullptr;
 
 // The object's script instance and the function's index in its image.
 bool resolve(ObjectID p_owner, const StringName &p_method, ScriptedObject &r_instance, int &r_function) {
@@ -31,6 +32,14 @@ void set_instance_resolver(InstanceResolver p_resolver) {
 
 bool scripted_object(Object *p_object, ScriptedObject &r_instance) {
 	return resolver && resolver(p_object, r_instance);
+}
+
+void set_script_resolver(ScriptResolver p_resolver) {
+	script_resolver = p_resolver;
+}
+
+std::shared_ptr<const ClassImage> script_image(const String &p_path) {
+	return script_resolver ? script_resolver(p_path) : nullptr;
 }
 
 bool implements_interface(Object *p_object, const String &p_interface) {

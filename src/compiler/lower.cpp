@@ -570,15 +570,15 @@ class Lowerer {
 		return add_constant(constant);
 	}
 
-	uint32_t engine_call(const std::string &p_method, uint32_t p_result_type) {
-		return intern(module.engine_calls, bytecode::EngineCall{ p_method, p_result_type }, [](const auto &a, const auto &b) {
-			return a.method == b.method && a.result_type == b.result_type;
+	uint32_t engine_call(const std::string &p_method, uint32_t p_result_type, const std::string &p_static_class = std::string()) {
+		return intern(module.engine_calls, bytecode::EngineCall{ p_method, p_result_type, p_static_class }, [](const auto &a, const auto &b) {
+			return a.method == b.method && a.result_type == b.result_type && a.static_class == b.static_class;
 		});
 	}
 
 	uint32_t method_call(const bytecode::MethodCall &p_call) {
 		return intern(module.method_calls, p_call, [&](const auto &a, const auto &b) {
-			return a.method == b.method && bytecode::signature_key(module.types, a.params, a.defaults, a.result, a.is_async) == bytecode::signature_key(module.types, b.params, b.defaults, b.result, b.is_async);
+			return a.method == b.method && a.static_class == b.static_class && bytecode::signature_key(module.types, a.params, a.defaults, a.result, a.is_async) == bytecode::signature_key(module.types, b.params, b.defaults, b.result, b.is_async);
 		});
 	}
 
@@ -614,7 +614,7 @@ class Lowerer {
 
 	uint32_t builtin_method(const bytecode::BuiltinMethodCall &p_call) {
 		return intern(module.builtin_methods, p_call, [](const auto &a, const auto &b) {
-			return a.base == b.base && a.method == b.method && a.hash == b.hash && a.is_vararg == b.is_vararg && a.params == b.params && a.result_type == b.result_type;
+			return a.base == b.base && a.method == b.method && a.hash == b.hash && a.is_vararg == b.is_vararg && a.is_static == b.is_static && a.params == b.params && a.result_type == b.result_type;
 		});
 	}
 
@@ -1164,7 +1164,7 @@ class Lowerer {
 				return convert(lower_expr(*p_call.args[0]), Type::of(TypeKind::Float));
 			case Target::NewObject: {
 				const uint32_t result = temp(p_call.type);
-				instr(Op::NEW_OBJECT, result, NO_REG, NO_REG, class_index(p_call.owner));
+				instr(Op::NEW_OBJECT, result, NO_REG, NO_REG, class_index(p_call.type));
 				return result;
 			}
 			case Target::StructConstructor:
@@ -1192,7 +1192,9 @@ class Lowerer {
 		ir::Instr i;
 		std::unique_ptr<Place> written_back;
 		// The base before the arguments, as it reads in the source.
-		if ((p_call.target == Target::EngineMethod && p_call.base) || p_call.target == Target::ScriptMethod || p_call.target == Target::BindArguments || p_call.target == Target::EmitSignal) {
+		if (p_call.is_static) {
+			// The base names the class or type.
+		} else if ((p_call.target == Target::EngineMethod && p_call.base) || p_call.target == Target::ScriptMethod || p_call.target == Target::BindArguments || p_call.target == Target::EmitSignal) {
 			i.base = lower_expr(*p_call.base);
 		} else if (p_call.target == Target::BuiltinMethod) {
 			if (!p_call.is_const && !is_shared(p_call.base->type) && is_place(*p_call.base)) {
@@ -1235,12 +1237,17 @@ class Lowerer {
 				method.defaults = uint32_t(p_call.index);
 				method.is_async = p_call.is_async;
 				method.result = slot(std::string(), p_call.is_async ? p_call.type.args[0] : p_call.type);
+				if (p_call.is_static) {
+					bytecode::ClassRef declaring; // Only its script matters.
+					declaring.script = p_call.owner;
+					method.static_class = int32_t(class_index(declaring));
+				}
 				i.imm = method_call(method);
 				break;
 			}
 			case Target::EngineMethod:
 				i.op = Op::CALL_ENGINE;
-				i.imm = engine_call(p_call.text, type_index(filtered ? p_call.engine_return : p_call.type));
+				i.imm = engine_call(p_call.text, type_index(filtered ? p_call.engine_return : p_call.type), p_call.is_static ? p_call.owner : std::string());
 				break;
 			case Target::Utility: {
 				i.op = Op::CALL_UTILITY;
@@ -1259,11 +1266,12 @@ class Lowerer {
 			case Target::BuiltinMethod: {
 				i.op = Op::CALL_BUILTIN;
 				bytecode::BuiltinMethodCall method;
-				method.base = reg_type(i.base);
+				method.base = p_call.is_static ? value_type(api_type(p_call.owner, false)) : reg_type(i.base);
 				method.method = p_call.text;
 				method.hash = p_call.hash;
 				method.is_vararg = p_call.is_vararg;
 				method.is_const = p_call.is_const;
+				method.is_static = p_call.is_static;
 				method.params = value_types(p_call.engine_params);
 				method.return_type = value_type(p_call.engine_return);
 				method.result_type = type_index(p_call.type);

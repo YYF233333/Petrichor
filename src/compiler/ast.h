@@ -74,7 +74,7 @@ enum class Target {
 	EngineMethod, // On self, or on `base` when there is one.
 	BuiltinMethod,
 	BuiltinConstructor,
-	NewObject, // `Class.new()` of an engine class.
+	NewObject, // `Class.new()`, the class being the call's type.
 	Utility,
 	ConvertToInt,
 	ConvertToFloat,
@@ -132,6 +132,9 @@ struct Expr {
 	// the runtime needs to pass arguments in the right layout.
 	uint32_t hash = 0;
 	bool is_async = false;
+	// A static method called through the name of its class or type in `owner`,
+	// a script's path for a class of this language, with `base` naming it.
+	bool is_static = false;
 	bool is_foreign = false;
 	bool awaited = false;
 	bool discarded = false;

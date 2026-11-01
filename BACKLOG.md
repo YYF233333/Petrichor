@@ -23,7 +23,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Constants of the engine class a class extends by their bare name, such as `NOTIFICATION_PREDELETE`, as GDScript has them in scope; now they need the class, `Object.NOTIFICATION_PREDELETE`.
 - `Array[T]?`; `pop_front()` and `pop_back()` of `Array[T?]`, which give `T??`.
 - Class annotations such as `@tool` and `@icon`, and member annotations other than `@export`, `@export_range`, `@export_enum`, `@export_multiline` and `@onready`: the rest of the `@export` family, `@warning_ignore`, `@rpc` (spec §2.3).
-- Calls through a type name, `Type.m()`: static methods of engine classes and built-in types, such as `FileAccess.open` and `Color.from_hsv`, and static methods and `new()` of classes of this language (spec §4.6, §4.8).
 - Enums (spec §3.7); inner classes (spec §2.1).
 - Lambdas (spec §3.11).
 - The operators `in` and `not in`, `**` (spec §3.2, §5.1).
@@ -65,7 +64,7 @@ Engine calls are by name with Variant arguments now, so code that calls the engi
 - Engine properties: through their setter and getter by ptrcall. GDScript reads and writes them by name, with validated access only to members of built-in types (modules/gdscript/gdscript_byte_codegen.cpp:848-883). A script's `_set` or `_get` can take engine property names, so the fast path needs a check, such as whether the object's script defines them, cached per script.
 - Engine singletons and autoloads resolved once: GET_SINGLETON looks the name up at every run, GET_AUTOLOAD calls get_node_or_null; a singleton's pointer can be kept, an autoload's ObjectID with a liveness check.
 - Engine callbacks such as `_process(delta)`: no entry check of value-type arguments, whose types the engine guarantees.
-- Calls between classes of this language: the method found by name once per call site, since a run keeps one version of each class (spec §12.4).
+- Calls between classes of this language: the method found by name once per call site, since a run keeps one version of each class (spec §12.4); a static method's script, and the script `Class.new()` sets, are now loaded through ResourceLoader at every call.
 - Calls within a class: since inheritance they pass arguments the general way of calls between classes and repeat checks that loading made; the calls benchmark went from 18 to 23 ms.
 - Engine calls: whether the result is a `GDScriptFunctionState`, which only methods of GDScript classes return (spec §9.8), is asked of every object result, by a call into the engine.
 - Coroutines: freeing an instance, and every frame, walk all active tasks; tasks listed by their owner would walk only the owner's.

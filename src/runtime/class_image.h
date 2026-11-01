@@ -56,6 +56,7 @@ public:
 	std::vector<godot::String> strings; // String constants, by constant index.
 	std::vector<godot::Variant> values; // Other constants, by constant index.
 	std::vector<godot::StringName> engine_methods;
+	std::vector<godot::StringName> engine_static_classes; // Empty for a method called on an object.
 	std::vector<godot::StringName> properties;
 	std::vector<GDExtensionPtrUtilityFunction> utilities;
 	std::vector<GDExtensionPtrOperatorEvaluator> evaluators;

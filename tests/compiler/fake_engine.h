@@ -44,6 +44,7 @@ class FakeEngine : public compiler::EngineApi {
 		{ "Tween", "RefCounted" },
 		{ "InputEventMouseMotion", "InputEvent" },
 		{ "MeshInstance3D", "Node3D" },
+		{ "FileAccess", "RefCounted" },
 	};
 	std::vector<std::string> singletons = { "Input", "ResourceLoader" };
 	std::map<std::string, int64_t> constants = {
@@ -51,6 +52,7 @@ class FakeEngine : public compiler::EngineApi {
 		{ "Input.MOUSE_MODE_CAPTURED", 2 },
 		{ "Tween.EASE_OUT_IN", 3 },
 		{ "Object.NOTIFICATION_PREDELETE", 1 },
+		{ "FileAccess.READ", 1 },
 	};
 	std::map<std::string, std::vector<EngineMethod>> methods;
 	std::map<std::string, std::vector<EngineProperty>> properties;
@@ -134,6 +136,11 @@ public:
 		signals["AudioStreamPlayer"] = {
 			method("finished", {}, t(TypeKind::Void)),
 		};
+		methods["FileAccess"] = {
+			method("open", { { "path", t(TypeKind::String) }, { "flags", t(TypeKind::Int) } }, Type::object("FileAccess", true)),
+			method("get_as_text", {}, t(TypeKind::String)),
+		};
+		methods["FileAccess"][0].is_static = true;
 		methods["RandomNumberGenerator"] = {
 			method("randf_range", { { "from", t(TypeKind::Float) }, { "to", t(TypeKind::Float) } }, t(TypeKind::Float)),
 			method("randi", {}, t(TypeKind::Int)),
