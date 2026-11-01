@@ -31,13 +31,15 @@ func _report(file: String, object: Object) -> void:
 	print("fps check: %s runs %s" % [file, object.get_script().get_class()])
 
 
-# Waits up to `seconds` of real time for `condition`; headless frames are not paced.
+# Waits up to `seconds` of game time for `condition`, which the runner's fixed
+# frame rate makes independent of how fast the frames run.
 func _wait_until(condition: Callable, seconds: float) -> bool:
-	var deadline := Time.get_ticks_msec() + int(seconds * 1000)
+	var waited := 0.0
 	while not condition.call():
-		if Time.get_ticks_msec() > deadline:
+		if waited > seconds:
 			return false
 		await get_tree().process_frame
+		waited += get_process_delta_time()
 	return true
 
 

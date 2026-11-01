@@ -479,6 +479,10 @@ def run_migration_group(godot, name, prepare, migrated_scripts, *scene):
     the FPS kit's sounds still playing at exit and weapon models it removes
     without freeing, so the migrated run may only repeat those, and keep no
     resource at exit, other than sounds, that the original does not."""
+    # A headless frame sleeps, as nothing is drawn (core/os/os.cpp:721-723),
+    # unless the frame rate is fixed (main/main.cpp:5170-5172); fixed, each
+    # frame advances the game by 1/60 s, however fast it runs.
+    scene = ("--fixed-fps", "60", *scene)
     with tempfile.TemporaryDirectory() as tmp:
         original = Path(tmp) / "original"
         prepare(original)
