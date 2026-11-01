@@ -75,16 +75,16 @@ bool is_interpolable(const Type &p_type) {
 }
 
 // Gives an expression made by the compiler the position of the code it belongs to.
-void relocate(Expr &r_expr, int p_line, int p_column) {
-	r_expr.line = p_line;
-	r_expr.column = p_column;
+void relocate(Expr &r_expr, const TokenRange &p_range) {
+	r_expr.range = p_range;
+	r_expr.name_token = r_expr.op_token = p_range.first;
 	for (Expr *child : { r_expr.left.get(), r_expr.right.get(), r_expr.base.get() }) {
 		if (child) {
-			relocate(*child, p_line, p_column);
+			relocate(*child, p_range);
 		}
 	}
 	for (auto &arg : r_expr.args) {
-		relocate(*arg, p_line, p_column);
+		relocate(*arg, p_range);
 	}
 }
 
@@ -224,8 +224,23 @@ class Checker : public ClassRelation {
 	std::unordered_map<std::string, int> signal_index;
 	mutable std::unordered_map<std::string, std::optional<ForeignClass>> foreign_classes; // By path.
 
-	void error(int p_line, int p_column, const std::string &p_message) {
-		errors.push_back({ p_line, p_column, p_message });
+	void error(const TokenRange &p_range, const std::string &p_message) {
+		errors.push_back({ cls.source->begin(p_range), cls.source->end(p_range), p_message });
+	}
+	void error(uint32_t p_token, const std::string &p_message) {
+		error(TokenRange{ p_token, p_token }, p_message);
+	}
+
+	// Where to report a declaration this class has or inherits: its name, or
+	// `p_otherwise` for one of a base class, which is in another file.
+	template <typename T>
+	static TokenRange own_name(const T &p_decl, const std::vector<T> &p_own, const TokenRange &p_otherwise) {
+		return is_own(p_decl, p_own) ? TokenRange{ p_decl.name_token, p_decl.name_token } : p_otherwise;
+	}
+
+	template <typename T>
+	static bool is_own(const T &p_decl, const std::vector<T> &p_own) {
+		return std::any_of(p_own.begin(), p_own.end(), [&](const T &p_item) { return &p_item == &p_decl; });
 	}
 
 	/* Classes of this language (spec §11.1) */
@@ -433,18 +448,18 @@ class Checker : public ClassRelation {
 		if (!is_script_path(path)) {
 			const ForeignClass *foreign = foreign_class(path);
 			if (dot != std::string::npos) {
-				error(p_ref.line, p_ref.column, head + " is a class of another language, which has no interfaces.");
+				error(p_ref.range, head + " is a class of another language, which has no interfaces.");
 				return Type::of(TypeKind::Error);
 			}
 			if (!foreign || foreign->native.empty()) {
-				error(p_ref.line, p_ref.column, head + " (" + path + ") cannot be read.");
+				error(p_ref.range, head + " (" + path + ") cannot be read.");
 				return Type::of(TypeKind::Error);
 			}
 			return Type::script_class(head, path, foreign->native);
 		}
 		const ClassDecl *header = script_header(path);
 		if (!header) {
-			error(p_ref.line, p_ref.column, head + " (" + path + ") cannot be read.");
+			error(p_ref.range, head + " (" + path + ") cannot be read.");
 			return Type::of(TypeKind::Error);
 		}
 		if (dot == std::string::npos) {
@@ -454,7 +469,7 @@ class Checker : public ClassRelation {
 		for (const InterfaceDecl &interface : header->interfaces) {
 			if (interface.name == inner) {
 				if (!interface.is_pub && path != options.path) {
-					error(p_ref.line, p_ref.column, p_ref.name + " is not pub (spec §4.2).");
+					error(p_ref.range, p_ref.name + " is not pub (spec §4.2).");
 					return Type::of(TypeKind::Error);
 				}
 				return Type::interface(p_ref.name, path);
@@ -462,12 +477,12 @@ class Checker : public ClassRelation {
 		}
 		if (const StructDecl *found = header->find_struct(inner)) {
 			if (!found->is_pub && path != options.path) {
-				error(p_ref.line, p_ref.column, p_ref.name + " is not pub (spec §4.2).");
+				error(p_ref.range, p_ref.name + " is not pub (spec §4.2).");
 				return Type::of(TypeKind::Error);
 			}
 			return Type::structure(display_name(*header, path) + "." + inner, path);
 		}
-		error(p_ref.line, p_ref.column, head + " declares no interface or struct \"" + inner + "\".");
+		error(p_ref.range, head + " declares no interface or struct \"" + inner + "\".");
 		return Type::of(TypeKind::Error);
 	}
 
@@ -497,12 +512,12 @@ class Checker : public ClassRelation {
 		Type type = resolve_name(p_ref, p_allow_void);
 		if (p_ref.nullable && !type.is_error()) {
 			if (type.kind == TypeKind::Void) {
-				error(p_ref.line, p_ref.column, "void cannot be optional.");
+				error(p_ref.range, "void cannot be optional.");
 				return Type::of(TypeKind::Error);
 			}
 			// The entry checks would not see its elements' type.
 			if (type.kind == TypeKind::Builtin && !type.args.empty()) {
-				error(p_ref.line, p_ref.column, type.to_string() + "? is not supported yet; an empty array can stand for none.");
+				error(p_ref.range, type.to_string() + "? is not supported yet; an empty array can stand for none.");
 				return Type::of(TypeKind::Error);
 			}
 			type = optional_of(type);
@@ -518,11 +533,11 @@ class Checker : public ClassRelation {
 			if (p_allow_void) {
 				return Type::of(TypeKind::Void);
 			}
-			error(p_ref.line, p_ref.column, "void is only valid as a return type.");
+			error(p_ref.range, "void is only valid as a return type.");
 			return Type::of(TypeKind::Error);
 		}
 		if (p_ref.name == "Variant" || p_ref.name == "Nil") {
-			error(p_ref.line, p_ref.column, "The type " + p_ref.name + " is not supported yet.");
+			error(p_ref.range, "The type " + p_ref.name + " is not supported yet.");
 			return Type::of(TypeKind::Error);
 		}
 		if (builtin::find_class(p_ref.name)) {
@@ -534,7 +549,7 @@ class Checker : public ClassRelation {
 		if (const std::optional<Type> script = script_type(p_ref)) {
 			return *script;
 		}
-		error(p_ref.line, p_ref.column, "Unknown type \"" + p_ref.name + "\".");
+		error(p_ref.range, "Unknown type \"" + p_ref.name + "\".");
 		return Type::of(TypeKind::Error);
 	}
 
@@ -546,7 +561,7 @@ class Checker : public ClassRelation {
 		}
 		if (p_ref.name == "Dictionary") {
 			if (p_ref.args.size() != 2) {
-				error(p_ref.line, p_ref.column, "Dictionary takes a key type and a value type.");
+				error(p_ref.range, "Dictionary takes a key type and a value type.");
 				return Type::of(TypeKind::Error);
 			}
 			const Type key = container_element(p_ref.args[0], "Dictionaries with keys of ");
@@ -560,17 +575,17 @@ class Checker : public ClassRelation {
 				return root;
 			}
 			if (root.kind != TypeKind::Object || root.nullable || !is_a(root, Type::object("Node"))) {
-				error(p_ref.args[0].line, p_ref.args[0].column, "The root of a scene is a node, not " + root.to_string() + ".");
+				error(p_ref.args[0].range, "The root of a scene is a node, not " + root.to_string() + ".");
 				return Type::of(TypeKind::Error);
 			}
 			return Type::scene(root);
 		}
 		if (p_ref.name != "Array") {
-			error(p_ref.line, p_ref.column, p_ref.name + " takes no type arguments.");
+			error(p_ref.range, p_ref.name + " takes no type arguments.");
 			return Type::of(TypeKind::Error);
 		}
 		if (p_ref.args.size() != 1) {
-			error(p_ref.line, p_ref.column, "Array takes one element type.");
+			error(p_ref.range, "Array takes one element type.");
 			return Type::of(TypeKind::Error);
 		}
 		const Type element = container_element(p_ref.args[0], "Arrays of ");
@@ -583,7 +598,7 @@ class Checker : public ClassRelation {
 	Type container_element(const TypeRef &p_ref, const std::string &p_what) {
 		const Type element = resolve(p_ref, false);
 		if (!element.is_error() && !element.args.empty() && !is_boxed(element) && !is_typed_container(element)) {
-			error(p_ref.line, p_ref.column, p_what + element.to_string() + " are not supported yet.");
+			error(p_ref.range, p_what + element.to_string() + " are not supported yet.");
 			return Type::of(TypeKind::Error);
 		}
 		return element;
@@ -614,7 +629,7 @@ class Checker : public ClassRelation {
 	}
 
 	Type fail(Expr &r_expr, const std::string &p_message) {
-		error(r_expr.line, r_expr.column, p_message);
+		error(r_expr.range, p_message);
 		return set(r_expr, Type::of(TypeKind::Error));
 	}
 
@@ -639,8 +654,8 @@ class Checker : public ClassRelation {
 		auto loader = std::make_unique<Expr>();
 		loader->kind = ExprKind::Name;
 		loader->text = "ResourceLoader";
-		loader->line = r_call.line;
-		loader->column = r_call.column;
+		loader->range = r_call.range;
+		loader->name_token = r_call.range.first;
 		r_call.base = std::move(loader);
 	}
 
@@ -1036,7 +1051,7 @@ class Checker : public ClassRelation {
 							return fail(r_expr, scene.path + ": paths into an instanced scene, such as " + outer->path + ", are not supported yet.");
 						}
 					}
-					error(r_expr.line, r_expr.column, scene.path + ": " + (node.path == "." ? std::string("the root") : node.path) + " has no node at \"" + path + "\" (spec §7.1).");
+					error(r_expr.range, scene.path + ": " + (node.path == "." ? std::string("the root") : node.path) + " has no node at \"" + path + "\" (spec §7.1).");
 					continue;
 				}
 				const Type found_type = scene_node_type(r_expr, *found, "$" + path);
@@ -1069,13 +1084,13 @@ class Checker : public ClassRelation {
 		if (is_script_path(script)) {
 			const ClassDecl *header = script_header(script);
 			if (!header) {
-				error(p_at.line, p_at.column, p_what + " has the script " + script + ", which cannot be read.");
+				error(p_at.range, p_what + " has the script " + script + ", which cannot be read.");
 				return Type::of(TypeKind::Error);
 			}
 			return script_class_type(*header, script);
 		}
 		if (!engine.class_exists(p_node.type)) {
-			error(p_at.line, p_at.column, p_what + " is a " + p_node.type + ", which is not supported yet.");
+			error(p_at.range, p_what + " is a " + p_node.type + ", which is not supported yet.");
 			return Type::of(TypeKind::Error);
 		}
 		return Type::object(p_node.type);
@@ -1148,7 +1163,7 @@ class Checker : public ClassRelation {
 	}
 
 	// The result of `p_left op p_right` (spec §5.1), or Error after reporting.
-	Type binary_type(TokenKind p_op, const Type &p_left, const Type &p_right, int p_line, int p_column) {
+	Type binary_type(TokenKind p_op, const Type &p_left, const Type &p_right, const TokenRange &p_at) {
 		if (p_left.is_error() || p_right.is_error()) {
 			return Type::of(TypeKind::Error);
 		}
@@ -1157,7 +1172,7 @@ class Checker : public ClassRelation {
 		// `<` does not wrap a T into T?.
 		if (ordering && p_left == p_right && (p_left.kind == TypeKind::Struct || p_left.kind == TypeKind::Option || (is_typed_container(p_left) && p_left.name == "Array"))) {
 			if (!has_less(p_left)) {
-				error(p_line, p_column, "Values of type " + p_left.to_string() + " are not ordered: a struct is when all its fields are, T? and Array[T] when T is (spec §5.2).");
+				error(p_at, "Values of type " + p_left.to_string() + " are not ordered: a struct is when all its fields are, T? and Array[T] when T is (spec §5.2).");
 				return Type::of(TypeKind::Error);
 			}
 			return Type::of(TypeKind::Bool);
@@ -1171,18 +1186,18 @@ class Checker : public ClassRelation {
 		}
 		if (p_left.kind == TypeKind::Option || p_right.kind == TypeKind::Option) {
 			const Type &optional = p_left.kind == TypeKind::Option ? p_left : p_right;
-			error(p_line, p_column, "The value may be None (" + optional.to_string() + "); unwrap it first.");
+			error(p_at, "The value may be None (" + optional.to_string() + "); unwrap it first.");
 			return Type::of(TypeKind::Error);
 		}
 		if (p_op == TokenKind::And || p_op == TokenKind::Or) {
 			if (p_left.kind == TypeKind::Bool && p_right.kind == TypeKind::Bool) {
 				return p_left;
 			}
-			error(p_line, p_column, std::string(token_name(p_op)) + " requires bool operands, found " + p_left.to_string() + " and " + p_right.to_string() + ".");
+			error(p_at, std::string(token_name(p_op)) + " requires bool operands, found " + p_left.to_string() + " and " + p_right.to_string() + ".");
 			return Type::of(TypeKind::Error);
 		}
 		if (p_left.is_primitive() && p_right.is_primitive()) {
-			return primitive_binary_type(p_op, p_left, p_right, p_line, p_column);
+			return primitive_binary_type(p_op, p_left, p_right, p_at);
 		}
 		const bool equality = p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual;
 		// Structs compare field by field (spec §3.6).
@@ -1200,7 +1215,7 @@ class Checker : public ClassRelation {
 		}
 		if (equality && left == "Array" && right == "Array" && !p_left.args.empty() && !p_right.args.empty() && p_left.args[0] != p_right.args[0]) {
 			// The engine compares elements only of the same type (spec §5.2).
-			error(p_line, p_column, p_left.to_string() + " and " + p_right.to_string() + " are equal only when both are empty, so comparing them is an error.");
+			error(p_at, p_left.to_string() + " and " + p_right.to_string() + " are equal only when both are empty, so comparing them is an error.");
 			return Type::of(TypeKind::Error);
 		}
 		const builtin::Class *type = left.empty() ? nullptr : builtin::find_class(left);
@@ -1211,11 +1226,11 @@ class Checker : public ClassRelation {
 				return api_type(op.return_type, false);
 			}
 		}
-		error(p_line, p_column, std::string("Invalid operands ") + p_left.to_string() + " and " + p_right.to_string() + " for " + token_name(p_op) + ".");
+		error(p_at, std::string("Invalid operands ") + p_left.to_string() + " and " + p_right.to_string() + " for " + token_name(p_op) + ".");
 		return Type::of(TypeKind::Error);
 	}
 
-	Type primitive_binary_type(TokenKind p_op, const Type &p_left, const Type &p_right, int p_line, int p_column) {
+	Type primitive_binary_type(TokenKind p_op, const Type &p_left, const Type &p_right, const TokenRange &p_at) {
 		const bool numeric = p_left.is_numeric() && p_right.is_numeric();
 		const bool both_int = p_left.kind == TypeKind::Int && p_right.kind == TypeKind::Int;
 		const Type number = Type::of(both_int ? TypeKind::Int : TypeKind::Float);
@@ -1237,7 +1252,7 @@ class Checker : public ClassRelation {
 					return number;
 				}
 				if (numeric) {
-					error(p_line, p_column, "\"%\" requires int operands; use fmod() for float.");
+					error(p_at, "\"%\" requires int operands; use fmod() for float.");
 					return Type::of(TypeKind::Error);
 				}
 				break;
@@ -1254,12 +1269,12 @@ class Checker : public ClassRelation {
 				if (numeric || (p_left == p_right && (p_left.kind == TypeKind::Bool || p_left.kind == TypeKind::String))) {
 					return Type::of(TypeKind::Bool);
 				}
-				error(p_line, p_column, "Cannot compare " + p_left.to_string() + " with " + p_right.to_string() + ".");
+				error(p_at, "Cannot compare " + p_left.to_string() + " with " + p_right.to_string() + ".");
 				return Type::of(TypeKind::Error);
 			default:
 				break;
 		}
-		error(p_line, p_column, std::string("Invalid operands ") + p_left.to_string() + " and " + p_right.to_string() + " for " + token_name(p_op) + ".");
+		error(p_at, std::string("Invalid operands ") + p_left.to_string() + " and " + p_right.to_string() + " for " + token_name(p_op) + ".");
 		return Type::of(TypeKind::Error);
 	}
 
@@ -1280,7 +1295,7 @@ class Checker : public ClassRelation {
 		} else {
 			right = check_value(*r_expr.right);
 		}
-		return set(r_expr, binary_type(r_expr.op, left, right, r_expr.line, r_expr.column));
+		return set(r_expr, binary_type(r_expr.op, left, right, r_expr.range));
 	}
 
 	// `x == None` and `x != None` (spec §5.2), which narrow x (§5.4).
@@ -1457,7 +1472,7 @@ class Checker : public ClassRelation {
 			} else if (p_required != max) {
 				expected += " to " + std::to_string(max);
 			}
-			error(r_call.line, r_call.column, "Function \"" + r_call.text + "()\" takes " + expected + " argument(s), " + std::to_string(count) + " given.");
+			error(r_call.range, "Function \"" + r_call.text + "()\" takes " + expected + " argument(s), " + std::to_string(count) + " given.");
 		}
 		for (int i = 0; i < count; i++) {
 			Expr &arg = *r_call.args[i];
@@ -1565,8 +1580,8 @@ class Checker : public ClassRelation {
 		} else if (is_script_path(path)) {
 			TypeRef ref;
 			ref.name = name;
-			ref.line = arg.line;
-			ref.column = arg.column;
+			ref.range = arg.range;
+			ref.name_token = arg.range.first;
 			const std::optional<Type> script = script_type(ref);
 			if (!script || script->is_error()) {
 				return Type::of(TypeKind::Error);
@@ -1575,11 +1590,11 @@ class Checker : public ClassRelation {
 		} else if (!path.empty()) {
 			return result; // A class of another language.
 		} else {
-			error(arg.line, arg.column, p_method.name + "() filters by the class \"" + name + "\", which does not exist.");
+			error(arg.range, p_method.name + "() filters by the class \"" + name + "\", which does not exist.");
 			return Type::of(TypeKind::Error);
 		}
 		if (!is_a(element, result.args[0])) {
-			error(arg.line, arg.column, p_method.name + "() returns objects of " + result.args[0].to_string() + ", and " + element.to_string() + " is not one.");
+			error(arg.range, p_method.name + "() returns objects of " + result.args[0].to_string() + ", and " + element.to_string() + " is not one.");
 			return Type::of(TypeKind::Error);
 		}
 		return Type::array(element);
@@ -1836,14 +1851,14 @@ class Checker : public ClassRelation {
 		if (orders) {
 			const Type &ordered = p_base.args.empty() ? Type::of(TypeKind::Variant) : p_base.args[0];
 			if (!has_less(ordered)) {
-				error(p_call.line, p_call.column, "\"" + method + "()\" orders the " + (array ? "elements" : "keys") + " by <, which " + ordered.to_string() + " does not have (spec §3.8); use " + (array ? "sort_custom() or bsearch_custom() with a comparison" : "a sorted Array of its keys") + ".");
+				error(p_call.range, "\"" + method + "()\" orders the " + (array ? "elements" : "keys") + " by <, which " + ordered.to_string() + " does not have (spec §3.8); use " + (array ? "sort_custom() or bsearch_custom() with a comparison" : "a sorted Array of its keys") + ".");
 				return false;
 			}
 		}
 		const Type &element = array ? p_base.args[0] : Type::of(TypeKind::Error);
 		if (method == "resize" && ((element.kind == TypeKind::Object && !element.nullable) || (element.kind == TypeKind::Struct && !has_default(element)))) {
 			const std::string fix = element.kind == TypeKind::Struct ? "give every field of " + element.to_string() + " a default value, or " : "";
-			error(p_call.line, p_call.column, "\"resize()\" fills new elements with a default value, which " + element.to_string() + " does not have (spec §3.8); " + fix + "declare the array as Array[" + element.to_string() + "?].");
+			error(p_call.range, "\"resize()\" fills new elements with a default value, which " + element.to_string() + " does not have (spec §3.8); " + fix + "declare the array as Array[" + element.to_string() + "?].");
 			return false;
 		}
 		return true;
@@ -1879,7 +1894,7 @@ class Checker : public ClassRelation {
 			if (!value) {
 				return fail(r_expr, "The default value of \"" + std::string(method->arguments[i].name) + "\" of \"" + r_expr.text + "()\" is not supported yet; pass it.");
 			}
-			relocate(*value, r_expr.line, r_expr.column);
+			relocate(*value, r_expr.range);
 			r_expr.args.push_back(std::move(value));
 		}
 		Type result = api_type(method->return_type, true);
@@ -1954,16 +1969,16 @@ class Checker : public ClassRelation {
 			return;
 		}
 		if (handler.kind != TypeKind::Function) {
-			error(p_handler.line, p_handler.column, "A signal is connected to a function value, such as a method name, whose parameters it can check; found " + handler.to_string() + ".");
+			error(p_handler.range, "A signal is connected to a function value, such as a method name, whose parameters it can check; found " + handler.to_string() + ".");
 			return;
 		}
 		if (handler.args.size() - 1 != p_signal.args.size()) {
-			error(p_handler.line, p_handler.column, p_signal.to_string() + " passes " + std::to_string(p_signal.args.size()) + " argument(s), but " + handler.to_string() + " takes " + std::to_string(handler.args.size() - 1) + ".");
+			error(p_handler.range, p_signal.to_string() + " passes " + std::to_string(p_signal.args.size()) + " argument(s), but " + handler.to_string() + " takes " + std::to_string(handler.args.size() - 1) + ".");
 			return;
 		}
 		for (size_t i = 0; i < p_signal.args.size(); i++) {
 			if (!assignable(p_signal.args[i], handler.args[i + 1])) {
-				error(p_handler.line, p_handler.column, p_signal.to_string() + " passes " + p_signal.args[i].to_string() + " as argument " + std::to_string(i + 1) + ", which " + handler.to_string() + " does not take.");
+				error(p_handler.range, p_signal.to_string() + " passes " + p_signal.args[i].to_string() + " as argument " + std::to_string(i + 1) + ", which " + handler.to_string() + " does not take.");
 				return;
 			}
 		}
@@ -2078,7 +2093,7 @@ class Checker : public ClassRelation {
 		if (p_element.kind != TypeKind::Variant) {
 			return false;
 		}
-		error(p_at.line, p_at.column, "The elements of an untyped Array or Dictionary are Variant, which is not supported yet; declare it as Array[T] or Dictionary[K, V].");
+		error(p_at.range, "The elements of an untyped Array or Dictionary are Variant, which is not supported yet; declare it as Array[T] or Dictionary[K, V].");
 		return true;
 	}
 
@@ -2096,7 +2111,7 @@ class Checker : public ClassRelation {
 			const Type type = check_value(*arg, element);
 			r_expr.param_types.push_back(element);
 			if (!assignable(type, element)) {
-				error(arg->line, arg->column, "Cannot put a value of type " + type.to_string() + " in " + expected.to_string() + ".");
+				error(arg->range, "Cannot put a value of type " + type.to_string() + " in " + expected.to_string() + ".");
 			}
 		}
 		return set(r_expr, expected);
@@ -2119,10 +2134,10 @@ class Checker : public ClassRelation {
 			r_expr.param_types.push_back(want_key);
 			r_expr.param_types.push_back(entries->second);
 			if (!assignable(key, want_key)) {
-				error(r_expr.args[i]->line, r_expr.args[i]->column, "The keys of " + expected.to_string() + " are " + entries->first.to_string() + ", not " + key.to_string() + ".");
+				error(r_expr.args[i]->range, "The keys of " + expected.to_string() + " are " + entries->first.to_string() + ", not " + key.to_string() + ".");
 			}
 			if (!assignable(value, entries->second)) {
-				error(r_expr.args[i + 1]->line, r_expr.args[i + 1]->column, "Cannot put a value of type " + value.to_string() + " in " + expected.to_string() + ".");
+				error(r_expr.args[i + 1]->range, "Cannot put a value of type " + value.to_string() + " in " + expected.to_string() + ".");
 			}
 		}
 		return set(r_expr, expected);
@@ -2195,8 +2210,8 @@ class Checker : public ClassRelation {
 	// that may not be used here.
 	std::optional<Type> constructed_struct(const Expr &p_call) {
 		TypeRef ref;
-		ref.line = p_call.line;
-		ref.column = p_call.column;
+		ref.range = p_call.range;
+		ref.name_token = p_call.name_token;
 		if (!p_call.base) {
 			if (!cls.find_struct(p_call.text) || function_index.count(p_call.text)) {
 				return std::nullopt;
@@ -2238,11 +2253,11 @@ class Checker : public ClassRelation {
 			if (field == decl->fields.size()) {
 				check_value(arg);
 				r_expr.param_types.push_back(Type::of(TypeKind::Error));
-				error(arg.line, arg.column, name.empty() ? "A struct takes its fields by name, as in " + p_struct.name + "(" + (decl->fields.empty() ? std::string("") : decl->fields[0].name + " = ...") + ") (spec §3.6)." : p_struct.name + " has no field \"" + name + "\".");
+				error(arg.range, name.empty() ? "A struct takes its fields by name, as in " + p_struct.name + "(" + (decl->fields.empty() ? std::string("") : decl->fields[0].name + " = ...") + ") (spec §3.6)." : p_struct.name + " has no field \"" + name + "\".");
 				continue;
 			}
 			if (given[field]) {
-				error(arg.line, arg.column, "\"" + name + "\" is given twice.");
+				error(arg.range, "\"" + name + "\" is given twice.");
 			}
 			given[field] = true;
 			const Type &type = decl->fields[field].type;
@@ -2251,7 +2266,7 @@ class Checker : public ClassRelation {
 		}
 		for (size_t field = 0; field < decl->fields.size(); field++) {
 			if (!given[field] && !decl->fields[field].initializer) {
-				error(r_expr.line, r_expr.column, p_struct.name + "() needs \"" + decl->fields[field].name + "\", which has no default value.");
+				error(r_expr.range, p_struct.name + "() needs \"" + decl->fields[field].name + "\", which has no default value.");
 			}
 		}
 		r_expr.target = Target::StructConstructor;
@@ -2381,9 +2396,8 @@ class Checker : public ClassRelation {
 				// known here.
 				auto where = std::make_unique<Expr>();
 				where->kind = ExprKind::StringLiteral;
-				where->line = r_expr.line;
-				where->column = r_expr.column;
-				where->text = "\n   At: " + options.path + ":" + std::to_string(r_expr.line) + ":" + function->name + "()";
+				where->range = r_expr.range;
+				where->text = "\n   At: " + options.path + ":" + std::to_string(cls.source->line(r_expr.range.first)) + ":" + function->name + "()";
 				r_expr.args.push_back(std::move(where));
 				r_expr.text = "print";
 			}
@@ -2497,11 +2511,11 @@ class Checker : public ClassRelation {
 	Type check_value(Expr &r_expr, const Type &p_expected = Type::of(TypeKind::Error)) {
 		const Type type = check_expr(r_expr, p_expected);
 		if (type.kind == TypeKind::Void) {
-			error(r_expr.line, r_expr.column, "This call returns void and has no value.");
+			error(r_expr.range, "This call returns void and has no value.");
 			return Type::of(TypeKind::Error);
 		}
 		if (type.kind == TypeKind::Unsupported || type.kind == TypeKind::Variant) {
-			error(r_expr.line, r_expr.column, "Values of type " + type.to_string() + " are not supported yet.");
+			error(r_expr.range, "Values of type " + type.to_string() + " are not supported yet.");
 			return Type::of(TypeKind::Error);
 		}
 		return type;
@@ -2526,12 +2540,12 @@ class Checker : public ClassRelation {
 				const std::string &owner = p_target.target == Target::SelfProperty ? cls.native_base : p_target.owner;
 				const auto property = engine.find_property(owner, p_target.text);
 				if (property && !property->writable) {
-					error(p_target.line, p_target.column, "The property \"" + p_target.text + "\" is read-only.");
+					error(p_target.range, "The property \"" + p_target.text + "\" is read-only.");
 					return false;
 				}
 				const InterfaceProperty *required = p_target.base && p_target.base->type.is_interface ? interface_property(p_target.base->type, p_target.text) : nullptr;
 				if (required && required->is_readonly) {
-					error(p_target.line, p_target.column, "The property \"" + p_target.text + "\" of " + p_target.base->type.to_string() + " is @readonly.");
+					error(p_target.range, "The property \"" + p_target.text + "\" of " + p_target.base->type.to_string() + " is @readonly.");
 					return false;
 				}
 				return true;
@@ -2541,7 +2555,7 @@ class Checker : public ClassRelation {
 				return check_written_back(p_target);
 			default:
 				if (!p_target.type.is_error()) {
-					error(p_target.line, p_target.column, "Cannot assign to this expression.");
+					error(p_target.range, "Cannot assign to this expression.");
 				}
 				return false;
 		}
@@ -2553,7 +2567,7 @@ class Checker : public ClassRelation {
 		if (base == ExprKind::Name || base == ExprKind::Member || base == ExprKind::Subscript) {
 			return check_place(*p_target.base);
 		}
-		error(p_target.line, p_target.column, p_target.kind == ExprKind::Subscript ? "Cannot assign to an element of a temporary value." : "Cannot assign to a member of a temporary value.");
+		error(p_target.range, p_target.kind == ExprKind::Subscript ? "Cannot assign to an element of a temporary value." : "Cannot assign to a member of a temporary value.");
 		return false;
 	}
 
@@ -2568,7 +2582,7 @@ class Checker : public ClassRelation {
 		if (p_to.kind == TypeKind::Variant && is_typed_container(p_from) && is_boxed(p_from)) {
 			message += " Its elements exist only in this language; convert it explicitly with " + p_from.name + "(x), a copy with the elements encoded (spec §3.8).";
 		}
-		error(p_value.line, p_value.column, message);
+		error(p_value.range, message);
 	}
 
 	void expect_condition(Expr &r_condition) {
@@ -2582,7 +2596,7 @@ class Checker : public ClassRelation {
 		} else if (type.kind == TypeKind::String) {
 			hint = " Compare explicitly, for example x != \"\".";
 		}
-		error(r_condition.line, r_condition.column, "A condition must be bool, found " + type.to_string() + "." + hint);
+		error(r_condition.range, "A condition must be bool, found " + type.to_string() + "." + hint);
 	}
 
 	/* Statements */
@@ -2600,13 +2614,13 @@ class Checker : public ClassRelation {
 		return facts;
 	}
 
-	int declare_local(const std::string &p_name, int p_line, int p_column, const Type &p_type) {
+	int declare_local(const std::string &p_name, uint32_t p_at, const Type &p_type) {
 		if (scopes.back().count(p_name)) {
-			error(p_line, p_column, "\"" + p_name + "\" is already declared in this block.");
+			error(p_at, "\"" + p_name + "\" is already declared in this block.");
 		} else if (scopes.front().count(p_name)) {
-			error(p_line, p_column, "\"" + p_name + "\" is already a parameter of this function (spec §4.6).");
+			error(p_at, "\"" + p_name + "\" is already a parameter of this function (spec §4.6).");
 		} else if (find_local(p_name) >= 0) {
-			error(p_line, p_column, "\"" + p_name + "\" is already declared in an enclosing block (spec §4.6).");
+			error(p_at, "\"" + p_name + "\" is already declared in an enclosing block (spec §4.6).");
 		}
 		const int local = int(function->locals.size());
 		function->locals.push_back({ p_name, p_type });
@@ -2615,7 +2629,7 @@ class Checker : public ClassRelation {
 	}
 
 	void declare_local(Stmt &r_stmt, const Type &p_type) {
-		r_stmt.local = declare_local(r_stmt.name, r_stmt.line, r_stmt.column, p_type);
+		r_stmt.local = declare_local(r_stmt.name, r_stmt.name_token, p_type);
 	}
 
 	// `match` (spec §5.6). The matched value goes in a local without a name,
@@ -2624,7 +2638,7 @@ class Checker : public ClassRelation {
 	void check_match(Stmt &r_stmt) {
 		const Type matched = check_value(*r_stmt.value);
 		if (matched.is_optional()) {
-			error(r_stmt.value->line, r_stmt.value->column, "A match over " + matched.to_string() + " is not supported yet; compare it with None, or unwrap it first.");
+			error(r_stmt.value->range, "A match over " + matched.to_string() + " is not supported yet; compare it with None, or unwrap it first.");
 		}
 		scopes.emplace_back();
 		r_stmt.local = int(function->locals.size());
@@ -2635,7 +2649,7 @@ class Checker : public ClassRelation {
 			scopes.emplace_back();
 			for (Pattern &pattern : branch.patterns) {
 				if (pattern.kind == PatternKind::Bind && branch.patterns.size() > 1) {
-					error(pattern.line, pattern.column, "Patterns separated by commas cannot bind (spec §5.6).");
+					error(pattern.range, "Patterns separated by commas cannot bind (spec §5.6).");
 				}
 				check_pattern(pattern, matched);
 			}
@@ -2655,24 +2669,23 @@ class Checker : public ClassRelation {
 			case PatternKind::Wildcard:
 				return;
 			case PatternKind::Bind:
-				r_pattern.local = declare_local(r_pattern.name, r_pattern.line, r_pattern.column, p_matched);
+				r_pattern.local = declare_local(r_pattern.name, r_pattern.name_token, p_matched);
 				return;
 			case PatternKind::Value: {
 				auto compare = std::make_unique<Expr>();
 				compare->kind = ExprKind::Binary;
 				compare->op = TokenKind::EqualEqual;
-				compare->line = r_pattern.line;
-				compare->column = r_pattern.column;
+				compare->range = r_pattern.range;
 				compare->left = std::make_unique<Expr>();
 				compare->left->kind = ExprKind::Name;
-				compare->left->line = r_pattern.line;
-				compare->left->column = r_pattern.column;
+				compare->left->range = r_pattern.range;
+				compare->left->name_token = r_pattern.range.first;
 				compare->right = std::move(r_pattern.value);
 				r_pattern.value = std::move(compare);
 				check_expr(*r_pattern.value);
 				const Expr &value = *r_pattern.value->right;
 				if (!value.type.is_error() && !is_constant(value, value.type)) {
-					error(value.line, value.column, "A pattern is a literal or a constant expression (spec §5.6).");
+					error(value.range, "A pattern is a literal or a constant expression (spec §5.6).");
 				}
 				return;
 			}
@@ -2688,7 +2701,7 @@ class Checker : public ClassRelation {
 		if (iterated.kind == TypeKind::Int) {
 			element = iterated;
 		} else if (iterated.kind == TypeKind::Float || (iterated.kind == TypeKind::Builtin && (name == "Vector2" || name == "Vector2i" || name == "Vector3" || name == "Vector3i"))) {
-			error(r_stmt.value->line, r_stmt.value->column, "Cannot iterate over " + iterated.to_string() + "; iterate over range(...) instead.");
+			error(r_stmt.value->range, "Cannot iterate over " + iterated.to_string() + "; iterate over range(...) instead.");
 		} else if (const std::optional<std::pair<Type, Type>> entries = entries_of(iterated)) {
 			if (!refuse_variant_elements(entries->first, *r_stmt.value)) {
 				element = entries->first;
@@ -2698,7 +2711,7 @@ class Checker : public ClassRelation {
 				element = *elements;
 			}
 		} else if (!iterated.is_error()) {
-			error(r_stmt.value->line, r_stmt.value->column, "Iterating over " + iterated.to_string() + " is not supported yet.");
+			error(r_stmt.value->range, "Iterating over " + iterated.to_string() + " is not supported yet.");
 		}
 		r_stmt.element = element;
 		Type type = element;
@@ -2707,7 +2720,7 @@ class Checker : public ClassRelation {
 			// The elements' type or a class they extend, without conversions.
 			const bool fits = declared == element || (declared.kind == TypeKind::Object && element.kind == TypeKind::Object && assignable(element, declared));
 			if (!declared.is_error() && !element.is_error() && !fits) {
-				error(r_stmt.declared_type->line, r_stmt.declared_type->column, "The elements are " + element.to_string() + ", which the loop variable of type " + declared.to_string() + " cannot hold.");
+				error(r_stmt.declared_type->range, "The elements are " + element.to_string() + ", which the loop variable of type " + declared.to_string() + " cannot hold.");
 			}
 			type = declared;
 		}
@@ -2762,15 +2775,15 @@ class Checker : public ClassRelation {
 					if (r_stmt.declared_type) {
 						expect_assignable(*r_stmt.value, value, type, "assign");
 					} else if (value.kind == TypeKind::None) {
-						error(r_stmt.line, r_stmt.column, "\"" + r_stmt.name + "\" needs a type: None does not say which T? it is (spec §4.3).");
+						error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs a type: None does not say which T? it is (spec §4.3).");
 						type = Type::of(TypeKind::Error);
 					} else {
 						type = value;
 					}
 				} else if (!r_stmt.declared_type) {
-					error(r_stmt.line, r_stmt.column, "\"" + r_stmt.name + "\" needs a type or an initial value.");
+					error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs a type or an initial value.");
 				} else if (((type.kind == TypeKind::Object || type.kind == TypeKind::Task) && !type.nullable) || (type.kind == TypeKind::Struct && !has_default(type))) {
-					error(r_stmt.line, r_stmt.column, "\"" + r_stmt.name + "\" of type " + type.to_string() + " needs an initial value.");
+					error(r_stmt.name_token, "\"" + r_stmt.name + "\" of type " + type.to_string() + " needs an initial value.");
 				}
 				declare_local(r_stmt, type);
 				return;
@@ -2786,7 +2799,7 @@ class Checker : public ClassRelation {
 					target_type = check_subscript(target, !compound);
 				} else {
 					check_expr(target);
-					error(target.line, target.column, "Cannot assign to this expression.");
+					error(target.range, "Cannot assign to this expression.");
 					check_value(*r_stmt.value);
 					return;
 				}
@@ -2803,7 +2816,7 @@ class Checker : public ClassRelation {
 				Type value = check_value(*r_stmt.value, compound ? Type::of(TypeKind::Error) : target_type);
 				const bool place = !target_type.is_error() && check_place(target);
 				if (compound && place) {
-					value = binary_type(compound_operator(r_stmt.assign_op), read_type, value, r_stmt.line, r_stmt.column);
+					value = binary_type(compound_operator(r_stmt.assign_op), read_type, value, r_stmt.range);
 					r_stmt.compound_result = value;
 				}
 				if (local >= 0) {
@@ -2857,13 +2870,13 @@ class Checker : public ClassRelation {
 				const Type expected = function->return_type;
 				if (!r_stmt.value) {
 					if (expected.kind != TypeKind::Void && !expected.is_error()) {
-						error(r_stmt.line, r_stmt.column, "\"" + function->name + "()\" must return a value of type " + expected.to_string() + ".");
+						error(r_stmt.range, "\"" + function->name + "()\" must return a value of type " + expected.to_string() + ".");
 					}
 					return;
 				}
 				const Type value = check_value(*r_stmt.value, expected);
 				if (expected.kind == TypeKind::Void) {
-					error(r_stmt.value->line, r_stmt.value->column, "\"" + function->name + "()\" returns void. Declare its return type, for example -> " + (value.is_error() ? std::string("int") : value.to_string()) + ".");
+					error(r_stmt.value->range, "\"" + function->name + "()\" returns void. Declare its return type, for example -> " + (value.is_error() ? std::string("int") : value.to_string()) + ".");
 					return;
 				}
 				expect_assignable(*r_stmt.value, value, expected, "return");
@@ -2874,18 +2887,18 @@ class Checker : public ClassRelation {
 			case StmtKind::Break:
 			case StmtKind::Continue:
 				if (loop_depth == 0) {
-					error(r_stmt.line, r_stmt.column, std::string(r_stmt.kind == StmtKind::Break ? "break" : "continue") + " is only valid in a loop.");
+					error(r_stmt.range, std::string(r_stmt.kind == StmtKind::Break ? "break" : "continue") + " is only valid in a loop.");
 				}
 				return;
 			case StmtKind::Expression:
 				if (r_stmt.value->kind != ExprKind::Call && r_stmt.value->kind != ExprKind::Await) {
 					check_expr(*r_stmt.value);
-					error(r_stmt.value->line, r_stmt.value->column, "This expression has no effect.");
+					error(r_stmt.value->range, "This expression has no effect.");
 					return;
 				}
 				r_stmt.value->discarded = true;
 				if (check_expr(*r_stmt.value).kind == TypeKind::Task) {
-					error(r_stmt.line, r_stmt.column, "An async call must be awaited, stored or explicitly detached with detach().");
+					error(r_stmt.range, "An async call must be awaited, stored or explicitly detached with detach().");
 				}
 				return;
 		}
@@ -2897,7 +2910,7 @@ class Checker : public ClassRelation {
 		for (size_t i = 0; i < cls.members.size(); i++) {
 			VarDecl &member = cls.members[i];
 			if (member_index.count(member.name) || function_index.count(member.name) || signal_index.count(member.name)) {
-				error(member.line, member.column, "The member \"" + member.name + "\" is already declared.");
+				error(member.name_token, "The member \"" + member.name + "\" is already declared.");
 				continue;
 			}
 			member_index[member.name] = int(cls.all_members.size());
@@ -2928,7 +2941,7 @@ class Checker : public ClassRelation {
 	// is the arguments joined by commas.
 	void check_export_range(VarDecl &r_member, const Annotation &p_annotation) {
 		if (!r_member.type.is_numeric()) {
-			error(p_annotation.line, p_annotation.column, "@export_range applies to int and float, not " + r_member.type.to_string() + ".");
+			error(p_annotation.range, "@export_range applies to int and float, not " + r_member.type.to_string() + ".");
 			return;
 		}
 		std::string hint;
@@ -2937,7 +2950,7 @@ class Checker : public ClassRelation {
 		for (const auto &arg : p_annotation.args) {
 			const bool number = is_literal(*arg) && arg->kind != ExprKind::StringLiteral && arg->kind != ExprKind::BoolLiteral;
 			if ((number && options) || (!number && arg->kind != ExprKind::StringLiteral)) {
-				error(arg->line, arg->column, "@export_range takes numbers, then options such as \"or_greater\".");
+				error(arg->range, "@export_range takes numbers, then options such as \"or_greater\".");
 				return;
 			}
 			numbers += number ? 1 : 0;
@@ -2945,7 +2958,7 @@ class Checker : public ClassRelation {
 			hint += (hint.empty() ? "" : ",") + (number ? number_text(*arg) : arg->text);
 		}
 		if (numbers < 2 || numbers > 3) {
-			error(p_annotation.line, p_annotation.column, "@export_range takes a minimum, a maximum and an optional step.");
+			error(p_annotation.range, "@export_range takes a minimum, a maximum and an optional step.");
 			return;
 		}
 		r_member.hint = 1; // PROPERTY_HINT_RANGE (core/object/property_info.h:41).
@@ -2958,19 +2971,19 @@ class Checker : public ClassRelation {
 	void check_export_text(VarDecl &r_member, const Annotation &p_annotation, uint32_t p_hint) {
 		const bool is_enum = p_hint == 2; // PROPERTY_HINT_ENUM, MULTILINE_TEXT is 18 (core/object/property_info.h:42, 58).
 		if (r_member.type.kind != TypeKind::String && !(is_enum && r_member.type.kind == TypeKind::Int)) {
-			error(p_annotation.line, p_annotation.column, "@" + p_annotation.name + " applies to " + (is_enum ? "int and String" : "String") + ", not " + r_member.type.to_string() + ".");
+			error(p_annotation.range, "@" + p_annotation.name + " applies to " + (is_enum ? "int and String" : "String") + ", not " + r_member.type.to_string() + ".");
 			return;
 		}
 		std::string hint;
 		for (const auto &arg : p_annotation.args) {
 			if (arg->kind != ExprKind::StringLiteral) {
-				error(arg->line, arg->column, "@" + p_annotation.name + " takes strings.");
+				error(arg->range, "@" + p_annotation.name + " takes strings.");
 				return;
 			}
 			hint += (hint.empty() ? "" : ",") + arg->text;
 		}
 		if ((is_enum && p_annotation.args.empty()) || (!is_enum && p_annotation.args.size() > 1)) {
-			error(p_annotation.line, p_annotation.column, is_enum ? "@export_enum takes the names of the values." : "@export_multiline takes at most a placeholder text.");
+			error(p_annotation.range, is_enum ? "@export_enum takes the names of the values." : "@export_multiline takes at most a placeholder text.");
 			return;
 		}
 		r_member.hint = p_hint;
@@ -2984,7 +2997,7 @@ class Checker : public ClassRelation {
 			} else if (annotation.name == "export_enum" || annotation.name == "export_multiline") {
 				check_export_text(r_member, annotation, annotation.name == "export_enum" ? 2 : 18);
 			} else if (!annotation.args.empty()) {
-				error(annotation.line, annotation.column, "@" + annotation.name + " takes no arguments.");
+				error(annotation.range, "@" + annotation.name + " takes no arguments.");
 			}
 		}
 	}
@@ -2999,7 +3012,7 @@ class Checker : public ClassRelation {
 				ok = ok && arg->kind == ExprKind::StringLiteral;
 			}
 			if (!ok) {
-				error(annotation.line, annotation.column, "@" + annotation.name + " takes a name" + (most == 2 ? " and an optional prefix" : "") + ", as strings.");
+				error(annotation.range, "@" + annotation.name + " takes a name" + (most == 2 ? " and an optional prefix" : "") + ", as strings.");
 				continue;
 			}
 			group.name = annotation.args[0]->text;
@@ -3035,13 +3048,13 @@ class Checker : public ClassRelation {
 		}
 		if (member.is_onready) {
 			if (!cls.is_node) {
-				error(member.line, member.column, "@onready is for Node scripts; a " + cls.extends + " is never ready (spec §6.3).");
+				error(member.name_token, "@onready is for Node scripts; a " + cls.extends + " is never ready (spec §6.3).");
 			}
 			if (member.is_export) {
-				error(member.line, member.column, "@onready and @export do not go together: the node's ready would overwrite what the scene assigned (spec §6.3).");
+				error(member.name_token, "@onready and @export do not go together: the node's ready would overwrite what the scene assigned (spec §6.3).");
 			}
 			if (!member.initializer) {
-				error(member.line, member.column, "An @onready member needs an initializer.");
+				error(member.name_token, "An @onready member needs an initializer.");
 			}
 		}
 		if (member.initializer) {
@@ -3058,29 +3071,29 @@ class Checker : public ClassRelation {
 			// An @onready member gets even a constant when the node is ready.
 			member.constant_initializer = !member.is_onready && is_constant(*member.initializer, type);
 		} else if (!member.declared_type) {
-			error(member.line, member.column, "\"" + member.name + "\" needs a type or an initial value.");
+			error(member.name_token, "\"" + member.name + "\" needs a type or an initial value.");
 		} else if ((type.kind == TypeKind::Object || type.kind == TypeKind::Task) && !type.nullable) {
 			// An export that the scene or resource must assign (spec §7.5); a
 			// member that the creator or an ancestor must assign (§6.2) is not
 			// supported yet.
 			member.must_assign = member.is_export && type.kind == TypeKind::Object;
 			if (!member.is_export) {
-				error(member.line, member.column, "Members that must be assigned, such as \"" + member.name + "\" of type " + type.to_string() + (type.kind == TypeKind::Task ? ", need an initial value." : ", are not supported yet unless exported; give it an initial value."));
+				error(member.name_token, "Members that must be assigned, such as \"" + member.name + "\" of type " + type.to_string() + (type.kind == TypeKind::Task ? ", need an initial value." : ", are not supported yet unless exported; give it an initial value."));
 			}
 		} else if (type.kind == TypeKind::Struct && !has_default(type)) {
 			// Starts at its default only when every field has one (spec §4.3).
-			error(member.line, member.column, "Members that must be assigned, such as \"" + member.name + "\" of type " + type.to_string() + ", are not supported yet; give it an initial value.");
+			error(member.name_token, "Members that must be assigned, such as \"" + member.name + "\" of type " + type.to_string() + ", are not supported yet; give it an initial value.");
 		}
 		if (member.is_export && type.unwrapped().kind == TypeKind::Struct) {
-			error(member.line, member.column, "Structs cannot be exported (spec §3.6).");
+			error(member.name_token, "Structs cannot be exported (spec §3.6).");
 		} else if (member.is_export && is_typed_container(type) && is_boxed(type)) {
-			error(member.line, member.column, "Containers whose elements exist only in this language, such as " + type.to_string() + ", cannot be exported (spec §3.6, §3.8).");
+			error(member.name_token, "Containers whose elements exist only in this language, such as " + type.to_string() + ", cannot be exported (spec §3.6, §3.8).");
 		}
 		if (member.is_export && type.kind == TypeKind::Object && type.name == "PackedScene" && type.args.empty()) {
-			error(member.line, member.column, "An exported scene is written PackedScene[T], with the type of its root (spec §7.4).");
+			error(member.name_token, "An exported scene is written PackedScene[T], with the type of its root (spec §7.4).");
 		}
 		if (member.is_export && type.kind == TypeKind::Task) {
-			error(member.line, member.column, "Task handles cannot be exported (spec §4.4, §9.4).");
+			error(member.name_token, "Task handles cannot be exported (spec §4.4, §9.4).");
 		}
 		member.type = type;
 		check_annotations(member);
@@ -3102,7 +3115,7 @@ class Checker : public ClassRelation {
 				}
 			}
 			if (!function) {
-				error(r_member.accessor_line, r_member.accessor_column, "The " + kind + " " + p_name + "() is not a function of this class.");
+				error(r_member.accessor_token, "The " + kind + " " + p_name + "() is not a function of this class.");
 				return -1;
 			}
 			if (p_name[0] == '@') {
@@ -3113,16 +3126,16 @@ class Checker : public ClassRelation {
 				}
 			} else {
 				if (!function->accessor_of.empty()) {
-					error(r_member.accessor_line, r_member.accessor_column, p_name + "() is already an accessor of \"" + function->accessor_of + "\".");
+					error(r_member.accessor_token, p_name + "() is already an accessor of \"" + function->accessor_of + "\".");
 				}
 				function->accessor_of = r_member.name;
 				const bool fits = p_setter ? function->params.size() == 1 && function->params[0].type == r_member.type && function->return_type.kind == TypeKind::Void : function->params.empty() && function->return_type == r_member.type;
 				if (!fits && !r_member.type.is_error()) {
-					error(function->line, function->column, "As the " + kind + " of \"" + r_member.name + "\", " + p_name + "() " + (p_setter ? "takes one argument of type " + r_member.type.to_string() + " and returns nothing" : "takes no argument and returns " + r_member.type.to_string()) + " (spec §4.4).");
+					error(function->name_token, "As the " + kind + " of \"" + r_member.name + "\", " + p_name + "() " + (p_setter ? "takes one argument of type " + r_member.type.to_string() + " and returns nothing" : "takes no argument and returns " + r_member.type.to_string()) + " (spec §4.4).");
 				}
 			}
 			if (function->is_async || function->is_static) {
-				error(function->line, function->column, "A " + kind + " cannot be async or static (spec §4.4).");
+				error(function->name_token, "A " + kind + " cannot be async or static (spec §4.4).");
 			}
 			const auto found = function_index.find(p_name);
 			return found == function_index.end() ? -1 : found->second;
@@ -3137,7 +3150,7 @@ class Checker : public ClassRelation {
 		for (ParamDecl &param : r_function.params) {
 			if (!param.default_value) {
 				if (any) {
-					error(param.line, param.column, "Parameter \"" + param.name + "\" follows one with a default value and needs one too.");
+					error(param.name_token, "Parameter \"" + param.name + "\" follows one with a default value and needs one too.");
 				}
 				continue;
 			}
@@ -3146,7 +3159,7 @@ class Checker : public ClassRelation {
 			const Type value = check_value(*param.default_value, param.type);
 			expect_assignable(*param.default_value, value, param.type, "use");
 			if (errors.size() == before && !is_constant(*param.default_value, param.type)) {
-				error(param.default_value->line, param.default_value->column, "Non-constant default values are not supported yet; pass the argument explicitly.");
+				error(param.default_value->range, "Non-constant default values are not supported yet; pass the argument explicitly.");
 			}
 		}
 	}
@@ -3164,7 +3177,7 @@ class Checker : public ClassRelation {
 		if (!function || !function->is_static) {
 			return false;
 		}
-		error(p_expr.line, p_expr.column, "\"" + p_name + "\" belongs to an instance, which the static function \"" + function->name + "()\" does not have.");
+		error(p_expr.range, "\"" + p_name + "\" belongs to an instance, which the static function \"" + function->name + "()\" does not have.");
 		return true;
 	}
 
@@ -3201,10 +3214,10 @@ class Checker : public ClassRelation {
 	void check_script_override(FuncDecl &r_fn, const FuncDecl &p_base) {
 		r_fn.is_override = p_base.is_override;
 		if (r_fn.is_pub != p_base.is_pub) {
-			error(r_fn.line, r_fn.column, "An override must preserve its base method's visibility (spec §4.2).");
+			error(r_fn.name_token, "An override must preserve its base method's visibility (spec §4.2).");
 		}
 		if (r_fn.is_static != p_base.is_static || r_fn.is_async != p_base.is_async) {
-			error(r_fn.line, r_fn.column, "An override must preserve static and async (spec §4.6).");
+			error(r_fn.name_token, "An override must preserve static and async (spec §4.6).");
 		}
 		for (size_t i = 0; i < r_fn.params.size(); ++i) {
 			ParamDecl &param = r_fn.params[i];
@@ -3213,22 +3226,22 @@ class Checker : public ClassRelation {
 			} else if (i < p_base.params.size()) {
 				param.type = p_base.params[i].type;
 			} else {
-				error(param.line, param.column, "Parameter \"" + param.name + "\" needs a type.");
+				error(param.name_token, "Parameter \"" + param.name + "\" needs a type.");
 			}
 			if (i < p_base.params.size() && !override_assignable(p_base.params[i].type, param.type)) {
-				error(param.line, param.column, "The override narrows its base parameter type (spec §4.6).");
+				error(param.name_token, "The override narrows its base parameter type (spec §4.6).");
 			}
 		}
 		check_defaults(r_fn);
 		if (r_fn.params.size() < p_base.params.size() || required_params(r_fn) > required_params(p_base)) {
-			error(r_fn.line, r_fn.column, "The override must accept every argument count of its base method (spec §4.6).");
+			error(r_fn.name_token, "The override must accept every argument count of its base method (spec §4.6).");
 		}
 		r_fn.return_type = r_fn.return_type_ref ? resolve(*r_fn.return_type_ref, true) : p_base.return_type;
 		if (!override_assignable(r_fn.return_type, p_base.return_type)) {
-			error(r_fn.line, r_fn.column, "The override widens its base return type (spec §4.6).");
+			error(r_fn.name_token, "The override widens its base return type (spec §4.6).");
 		}
 		if (r_fn.name == "_init" && (!r_fn.params.empty() || r_fn.is_async || r_fn.return_type.kind != TypeKind::Void)) {
-			error(r_fn.line, r_fn.column, "_init() must be synchronous, return void and take no parameters for now.");
+			error(r_fn.name_token, "_init() must be synchronous, return void and take no parameters for now.");
 		}
 	}
 
@@ -3239,20 +3252,20 @@ class Checker : public ClassRelation {
 		}
 		const auto engine_method = engine.find_method(cls.native_base, r_function.name);
 		if (engine_method && !engine_method->is_virtual) {
-			error(r_function.line, r_function.column, "\"" + r_function.name + "()\" is a method of " + cls.extends + " that cannot be overridden.");
+			error(r_function.name_token, "\"" + r_function.name + "()\" is a method of " + cls.extends + " that cannot be overridden.");
 		}
 		r_function.is_override = engine_method && engine_method->is_virtual;
 		if (r_function.is_async) {
 			if (r_function.name == "_init") {
-				error(r_function.line, r_function.column, "_init() cannot be async (spec §9.1).");
+				error(r_function.name_token, "_init() cannot be async (spec §9.1).");
 			} else if (r_function.is_override && !engine_method->return_type.is_error() && engine_method->return_type.kind != TypeKind::Void) {
-				error(r_function.line, r_function.column, "An engine virtual method returning " + engine_method->return_type.to_string() + " cannot be async (spec §9.1).");
+				error(r_function.name_token, "An engine virtual method returning " + engine_method->return_type.to_string() + " cannot be async (spec §9.1).");
 			}
 		}
 
 		if (r_function.is_override) {
 			if (r_function.params.size() != engine_method->params.size()) {
-				error(r_function.line, r_function.column, "\"" + r_function.name + "()\" overrides an engine method with " + std::to_string(engine_method->params.size()) + " parameter(s).");
+				error(r_function.name_token, "\"" + r_function.name + "()\" overrides an engine method with " + std::to_string(engine_method->params.size()) + " parameter(s).");
 			}
 		}
 		for (size_t i = 0; i < r_function.params.size(); i++) {
@@ -3263,7 +3276,7 @@ class Checker : public ClassRelation {
 				// The engine passes its own objects to virtual methods.
 				engine_type.nullable = false;
 				if (!engine_type.is_storable() || engine_type.kind == TypeKind::Variant) {
-					error(param.line, param.column, "Parameters of type " + engine_type.to_string() + " are not supported yet.");
+					error(param.name_token, "Parameters of type " + engine_type.to_string() + " are not supported yet.");
 					engine_type = Type::of(TypeKind::Error);
 				}
 			}
@@ -3272,7 +3285,7 @@ class Checker : public ClassRelation {
 				// A parameter may accept more than the overridden one does, such as
 				// T? for T (spec §4.6).
 				if (r_function.is_override && !engine_type.is_error() && !param.type.is_error() && !assignable(engine_type, param.type)) {
-					error(param.declared_type->line, param.declared_type->column, "The overridden method declares this parameter as " + engine_type.to_string() + ".");
+					error(param.declared_type->range, "The overridden method declares this parameter as " + engine_type.to_string() + ".");
 				}
 			} else if (r_function.is_override) {
 				// The type comes from the overridden declaration (spec §4.6).
@@ -3280,34 +3293,34 @@ class Checker : public ClassRelation {
 			} else if (!r_function.accessor_of.empty()) {
 				// An inline setter takes the member's type (check_accessors()).
 			} else {
-				error(param.line, param.column, "Parameter \"" + param.name + "\" needs a type.");
+				error(param.name_token, "Parameter \"" + param.name + "\" needs a type.");
 				param.type = Type::of(TypeKind::Error);
 			}
 		}
 		check_defaults(r_function);
 		if (r_function.is_static && r_function.is_override) {
-			error(r_function.line, r_function.column, "\"" + r_function.name + "()\" overrides an engine method and cannot be static.");
+			error(r_function.name_token, "\"" + r_function.name + "()\" overrides an engine method and cannot be static.");
 		}
 
 		// The engine constructs Node and Resource scripts with no arguments
 		// (spec §6.2); RefCounted constructors with arguments come with new(...).
 		if (r_function.name == "_init" && !r_function.params.empty()) {
 			const bool engine_made = engine.inherits(cls.native_base, "Node") || engine.inherits(cls.native_base, "Resource");
-			error(r_function.line, r_function.column, engine_made ? "_init() of a " + cls.extends + " script cannot take parameters: the engine constructs it with none. Use members that must be assigned instead (spec §6.2)." : "_init() with parameters is not supported yet.");
+			error(r_function.name_token, engine_made ? "_init() of a " + cls.extends + " script cannot take parameters: the engine constructs it with none. Use members that must be assigned instead (spec §6.2)." : "_init() with parameters is not supported yet.");
 		}
 		if (r_function.name == "_init" && r_function.return_type_ref && r_function.return_type_ref->name != "void") {
-			error(r_function.return_type_ref->line, r_function.return_type_ref->column, "_init() returns nothing.");
+			error(r_function.return_type_ref->range, "_init() returns nothing.");
 		}
 
 		if (r_function.return_type_ref) {
 			r_function.return_type = resolve(*r_function.return_type_ref, true);
 			if (r_function.is_override && !engine_method->return_type.is_error() && r_function.return_type != engine_method->return_type) {
-				error(r_function.return_type_ref->line, r_function.return_type_ref->column, "The overridden method returns " + engine_method->return_type.to_string() + ".");
+				error(r_function.return_type_ref->range, "The overridden method returns " + engine_method->return_type.to_string() + ".");
 			}
 		} else if (r_function.is_override) {
 			r_function.return_type = engine_method->return_type;
 			if (r_function.return_type.kind != TypeKind::Void && (!r_function.return_type.is_storable() || r_function.return_type.kind == TypeKind::Variant)) {
-				error(r_function.line, r_function.column, "Return values of type " + r_function.return_type.to_string() + " are not supported yet.");
+				error(r_function.name_token, "Return values of type " + r_function.return_type.to_string() + " are not supported yet.");
 				r_function.return_type = Type::of(TypeKind::Error);
 			}
 		} else {
@@ -3318,7 +3331,7 @@ class Checker : public ClassRelation {
 	void declare_params(FuncDecl &r_function) {
 		for (const ParamDecl &param : r_function.params) {
 			if (scopes.back().count(param.name)) {
-				error(param.line, param.column, "Parameter \"" + param.name + "\" is declared twice.");
+				error(param.name_token, "Parameter \"" + param.name + "\" is declared twice.");
 			}
 			scopes.back()[param.name] = int(r_function.locals.size());
 			r_function.locals.push_back({ param.name, param.type });
@@ -3329,6 +3342,7 @@ class Checker : public ClassRelation {
 	// method must exist and take what the signal passes; the engine finds it
 	// by name (§10.5).
 	void check_connections() {
+		const TokenRange header{ cls.extends_token, cls.extends_token };
 		for (const Scene &scene : scenes) {
 			for (const SceneConnection &connection : scene.connections) {
 				const SceneNode *target = scene.find_node(connection.target);
@@ -3338,28 +3352,29 @@ class Checker : public ClassRelation {
 				const std::string where = scene.path + ": the signal \"" + connection.signal + "\" of " + connection.source + " is connected to " + connection.method + "()";
 				const auto found = function_index.find(connection.method);
 				if (found == function_index.end()) {
-					error(cls.extends_line, cls.extends_column, where + ", which this class does not declare.");
+					error(cls.extends_token, where + ", which this class does not declare.");
 					continue;
 				}
 				const FuncDecl &method = *cls.all_functions[found->second];
+				const bool own = is_own(method, cls.functions);
 				cls.exposed_methods.insert(method.name);
 				const SceneNode *source = scene.find_node(connection.source);
 				bool missing = false;
 				const std::optional<std::vector<Type>> arguments = source ? signal_arguments(*source, connection.signal, missing) : std::nullopt;
 				if (missing) {
-					error(cls.extends_line, cls.extends_column, where + ", but " + connection.source + " has no such signal.");
+					error(cls.extends_token, where + ", but " + connection.source + " has no such signal.");
 				}
 				if (!arguments) {
 					continue;
 				}
 				const int passed = int(arguments->size()) - connection.unbinds + connection.binds;
 				if (int(method.params.size()) != passed) {
-					error(method.line, method.column, where + ", which passes " + std::to_string(passed) + " argument(s); " + method.name + "() takes " + std::to_string(method.params.size()) + ".");
+					error(own_name(method, cls.functions, header), where + ", which passes " + std::to_string(passed) + " argument(s); " + method.name + "() takes " + std::to_string(method.params.size()) + ".");
 					continue;
 				}
 				for (int i = 0; i < int(arguments->size()) - connection.unbinds; i++) {
 					if (!assignable((*arguments)[i], method.params[i].type)) {
-						error(method.params[i].line, method.params[i].column, where + ", which passes " + (*arguments)[i].to_string() + " here.");
+						error(own ? TokenRange{ method.params[i].name_token, method.params[i].name_token } : header, where + ", which passes " + (*arguments)[i].to_string() + " here.");
 					}
 				}
 			}
@@ -3400,12 +3415,12 @@ class Checker : public ClassRelation {
 		std::unordered_set<std::string> names;
 		for (InterfaceDecl &interface : cls.interfaces) {
 			if (!names.insert(interface.name).second) {
-				error(interface.line, interface.column, "The interface \"" + interface.name + "\" is already declared.");
+				error(interface.name_token, "The interface \"" + interface.name + "\" is already declared.");
 			}
 			for (FuncDecl &method : interface.methods) {
 				for (ParamDecl &param : method.params) {
 					if (!param.declared_type) {
-						error(param.line, param.column, "Parameter \"" + param.name + "\" needs a type.");
+						error(param.name_token, "Parameter \"" + param.name + "\" needs a type.");
 						param.type = Type::of(TypeKind::Error);
 						continue;
 					}
@@ -3419,7 +3434,7 @@ class Checker : public ClassRelation {
 			}
 			for (InterfaceProperty &property : interface.properties) {
 				if (!members.insert(property.name).second) {
-					error(property.line, property.column, "\"" + property.name + "\" is already declared in " + interface.name + ".");
+					error(property.name_token, "\"" + property.name + "\" is already declared in " + interface.name + ".");
 				}
 				property.type = resolve(property.type_ref, false);
 			}
@@ -3435,12 +3450,12 @@ class Checker : public ClassRelation {
 		}
 		for (StructDecl &decl : cls.structs) {
 			if (!names.insert(decl.name).second || is_type_name(decl.name) || (options.project && !options.project->global_class_path(decl.name).empty())) {
-				error(decl.line, decl.column, "\"" + decl.name + "\" is already declared.");
+				error(decl.name_token, "\"" + decl.name + "\" is already declared.");
 			}
 			std::unordered_set<std::string> fields;
 			for (VarDecl &field : decl.fields) {
 				if (!fields.insert(field.name).second) {
-					error(field.line, field.column, "The field \"" + field.name + "\" is already declared in " + decl.name + ".");
+					error(field.name_token, "The field \"" + field.name + "\" is already declared in " + decl.name + ".");
 				}
 				Type type = field.declared_type ? resolve(*field.declared_type, false) : Type::of(TypeKind::Error);
 				if (field.initializer) {
@@ -3449,15 +3464,15 @@ class Checker : public ClassRelation {
 					if (field.declared_type) {
 						expect_assignable(*field.initializer, value, type, "assign");
 					} else if (value.kind == TypeKind::None) {
-						error(field.line, field.column, "\"" + field.name + "\" needs a type: None does not say which T? it is (spec §4.3).");
+						error(field.name_token, "\"" + field.name + "\" needs a type: None does not say which T? it is (spec §4.3).");
 					} else {
 						type = value;
 					}
 					if (errors.size() == before && !is_constant(*field.initializer, type)) {
-						error(field.initializer->line, field.initializer->column, "Non-constant default values are not supported yet.");
+						error(field.initializer->range, "Non-constant default values are not supported yet.");
 					}
 				} else if (!field.declared_type) {
-					error(field.line, field.column, "\"" + field.name + "\" needs a type or a default value.");
+					error(field.name_token, "\"" + field.name + "\" needs a type or a default value.");
 				}
 				field.type = type;
 			}
@@ -3470,7 +3485,7 @@ class Checker : public ClassRelation {
 				for (const std::string &field : cycle) {
 					fields += (fields.empty() ? "" : ", ") + field;
 				}
-				error(decl.line, decl.column, decl.name + " contains itself through " + fields + ", so it has no finite size; hold it in a container or a RefCounted class (spec §3.6).");
+				error(decl.name_token, decl.name + " contains itself through " + fields + ", so it has no finite size; hold it in a container or a RefCounted class (spec §3.6).");
 			}
 		}
 	}
@@ -3519,32 +3534,32 @@ class Checker : public ClassRelation {
 				continue;
 			}
 			if (!type.is_interface) {
-				error(ref.line, ref.column, type.to_string() + " is not an interface.");
+				error(ref.range, type.to_string() + " is not an interface.");
 				continue;
 			}
 			cls.implemented.push_back(type);
 			own_interfaces.push_back({ type, &ref });
 			const InterfaceDecl *interface = interface_decl(type);
 			if (!interface) {
-				error(ref.line, ref.column, type.script + " has errors.");
+				error(ref.range, type.script + " has errors.");
 				continue;
 			}
 			for (const FuncDecl &method : interface->methods) {
 				const auto found = function_index.find(method.name);
 				if (found == function_index.end()) {
-					error(ref.line, ref.column, "The class does not implement " + method.name + "() of " + type.name + ".");
+					error(ref.range, "The class does not implement " + method.name + "() of " + type.name + ".");
 					continue;
 				}
 				const FuncDecl &function = *cls.all_functions[found->second];
 				if (!function.is_pub) {
-					error(function.line, function.column, "\"" + function.name + "()\" implements " + type.name + " and must be pub (spec §3.9).");
+					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + type.name + " and must be pub (spec §3.9).");
 				}
 				bool same = function.params.size() == method.params.size() && function.return_type == method.return_type && function.is_async == method.is_async;
 				for (size_t i = 0; same && i < method.params.size(); i++) {
 					same = function.params[i].type == method.params[i].type;
 				}
 				if (!same) {
-					error(function.line, function.column, "\"" + function.name + "()\" does not have the signature that " + type.name + " declares, " + function_type(method).to_string() + ".");
+					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" does not have the signature that " + type.name + " declares, " + function_type(method).to_string() + ".");
 				}
 			}
 		}
@@ -3562,10 +3577,10 @@ class Checker : public ClassRelation {
 			return;
 		}
 		if (cls.owner_type.kind != TypeKind::Object || cls.owner_type.nullable) {
-			error(ref.line, ref.column, "@owner takes a class or an interface, not " + cls.owner_type.to_string() + ".");
+			error(ref.range, "@owner takes a class or an interface, not " + cls.owner_type.to_string() + ".");
 			cls.owner_type = Type::of(TypeKind::Error);
 		} else if (!engine.inherits(cls.native_base, "Node")) {
-			error(ref.line, ref.column, "@owner is for classes that extend Node.");
+			error(ref.range, "@owner is for classes that extend Node.");
 			cls.owner_type = Type::of(TypeKind::Error);
 		}
 	}
@@ -3578,8 +3593,7 @@ class Checker : public ClassRelation {
 			return;
 		}
 		Expr at;
-		at.line = cls.owner_ref->line;
-		at.column = cls.owner_ref->column;
+		at.range = cls.owner_ref->range;
 		const auto check_owner = [&](const Scene &p_scene, const SceneNode &p_node) {
 			const SceneNode *root = p_scene.find_node(".");
 			if (p_node.path == "." || !root) {
@@ -3591,7 +3605,7 @@ class Checker : public ClassRelation {
 			}
 			const Type owner = scene_node_type(at, *root, p_scene.path + ": the root");
 			if (!owner.is_error() && !assignable(owner, cls.owner_type)) {
-				error(at.line, at.column, p_scene.path + ": the owner of " + p_node.path + " is " + owner.to_string() + ", not " + cls.owner_type.to_string() + " (@owner).");
+				error(at.range, p_scene.path + ": the owner of " + p_node.path + " is " + owner.to_string() + ", not " + cls.owner_type.to_string() + " (@owner).");
 			}
 		};
 		for (const Scene &scene : scenes) {
@@ -3630,19 +3644,19 @@ class Checker : public ClassRelation {
 				if (member != member_index.end()) {
 					const VarDecl &provided = *cls.all_members[member->second];
 					if (!provided.is_pub) {
-						error(provided.line, provided.column, "\"" + provided.name + "\" implements " + type.name + " and must be pub (spec §3.9).");
+						error(own_name(provided, cls.members, ref->range), "\"" + provided.name + "\" implements " + type.name + " and must be pub (spec §3.9).");
 					} else if (!provided.type.is_error() && provided.type != required.type) {
-						error(provided.line, provided.column, "\"" + provided.name + "\" has type " + provided.type.to_string() + ", but " + type.name + " requires " + required.type.to_string() + ".");
+						error(own_name(provided, cls.members, ref->range), "\"" + provided.name + "\" has type " + provided.type.to_string() + ", but " + type.name + " requires " + required.type.to_string() + ".");
 					}
 					continue;
 				}
 				const auto property = engine.find_property(cls.native_base, required.name);
 				if (!property) {
-					error(ref->line, ref->column, "The class does not implement the property \"" + required.name + "\" of " + type.name + ".");
+					error(ref->range, "The class does not implement the property \"" + required.name + "\" of " + type.name + ".");
 				} else if (property->type != required.type) {
-					error(ref->line, ref->column, "The engine property \"" + required.name + "\" has type " + property->type.to_string() + ", but " + type.name + " requires " + required.type.to_string() + ".");
+					error(ref->range, "The engine property \"" + required.name + "\" has type " + property->type.to_string() + ", but " + type.name + " requires " + required.type.to_string() + ".");
 				} else if (!property->writable && !required.is_readonly) {
-					error(ref->line, ref->column, "The engine property \"" + required.name + "\" is read-only, so it satisfies only a @readonly property of " + type.name + ".");
+					error(ref->range, "The engine property \"" + required.name + "\" is read-only, so it satisfies only a @readonly property of " + type.name + ".");
 				}
 			}
 		}
@@ -3653,19 +3667,19 @@ class Checker : public ClassRelation {
 		for (size_t i = 0; i < cls.signals.size(); i++) {
 			SignalDecl &signal = cls.signals[i];
 			if (signal_index.count(signal.name) || member_index.count(signal.name) || function_index.count(signal.name) || engine.find_signal(cls.native_base, signal.name)) {
-				error(signal.line, signal.column, "\"" + signal.name + "\" is already declared.");
+				error(signal.name_token, "\"" + signal.name + "\" is already declared.");
 				continue;
 			}
 			signal_index[signal.name] = int(cls.all_signals.size());
 			cls.all_signals.push_back(&signal);
 			for (ParamDecl &param : signal.params) {
 				if (!param.declared_type) {
-					error(param.line, param.column, "The argument \"" + param.name + "\" of a signal needs a type (spec §4.7).");
+					error(param.name_token, "The argument \"" + param.name + "\" of a signal needs a type (spec §4.7).");
 					param.type = Type::of(TypeKind::Error);
 					continue;
 				}
 				if (param.default_value) {
-					error(param.default_value->line, param.default_value->column, "The arguments of a signal have no default values.");
+					error(param.default_value->range, "The arguments of a signal have no default values.");
 				}
 				param.type = resolve(*param.declared_type, false);
 			}
@@ -3686,7 +3700,7 @@ class Checker : public ClassRelation {
 		}
 		check_block(r_function.body);
 		if (r_function.return_type.kind != TypeKind::Void && !r_function.return_type.is_error() && !always_ends(r_function.body, false)) {
-			error(r_function.line, r_function.column, "Not all paths of \"" + r_function.name + "()\" return a value.");
+			error(r_function.name_token, "Not all paths of \"" + r_function.name + "()\" return a value.");
 		}
 		function = nullptr;
 		scopes.clear();
@@ -3702,13 +3716,13 @@ public:
 		cls.base_script = classes.base_path(cls, options.path);
 		if (!cls.base_script.empty()) {
 			if (!is_script_path(cls.base_script)) {
-				error(cls.extends_line, cls.extends_column, "Inheritance from a script of another language is not supported (spec §4.1).");
+				error(cls.extends_token, "Inheritance from a script of another language is not supported (spec §4.1).");
 				return;
 			}
 			std::unordered_set<std::string> seen{ options.path };
 			for (std::string path = cls.base_script; !path.empty();) {
 				if (!seen.insert(path).second) {
-					error(cls.extends_line, cls.extends_column, "Inheritance cycle involving " + path + ".");
+					error(cls.extends_token, "Inheritance cycle involving " + path + ".");
 					return;
 				}
 				const ScriptClass *header = classes.header(path);
@@ -3719,7 +3733,7 @@ public:
 			}
 			const ScriptClass *parent = classes.declarations(cls.base_script, !options.declarations_only);
 			if (!parent) {
-				error(cls.extends_line, cls.extends_column, "Base script " + cls.base_script + " has errors or cannot be read.");
+				error(cls.extends_token, "Base script " + cls.base_script + " has errors or cannot be read.");
 				return;
 			}
 			cls.base = &parent->decl;
@@ -3739,7 +3753,7 @@ public:
 			}
 		}
 		if (cls.native_base.empty()) {
-			error(cls.extends_line, cls.extends_column, "Unknown base class \"" + cls.extends + "\".");
+			error(cls.extends_token, "Unknown base class \"" + cls.extends + "\".");
 			return;
 		}
 		if (options.project && !options.declarations_only && !options.path.empty()) {
@@ -3752,7 +3766,7 @@ public:
 		std::unordered_set<std::string> own_functions;
 		for (FuncDecl &fn : cls.functions) {
 			if (!own_functions.insert(fn.name).second || member_index.count(fn.name) || signal_index.count(fn.name)) {
-				error(fn.line, fn.column, "\"" + fn.name + "\" is already declared.");
+				error(fn.name_token, "\"" + fn.name + "\" is already declared.");
 				continue;
 			}
 			const auto found = function_index.find(fn.name);

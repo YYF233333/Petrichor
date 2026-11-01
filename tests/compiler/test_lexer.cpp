@@ -8,7 +8,8 @@ namespace {
 std::vector<TokenKind> kinds(const std::string &p_source, std::vector<Diagnostic> *r_errors = nullptr) {
 	std::vector<Diagnostic> errors;
 	std::vector<TokenKind> result;
-	for (const Token &token : tokenize(p_source, errors)) {
+	const auto file = tokenize(p_source, errors);
+	for (const Token &token : file->tokens) {
 		result.push_back(token.kind);
 	}
 	if (r_errors) {
@@ -58,14 +59,15 @@ TEST_CASE("mixing tabs and spaces is an error") {
 
 TEST_CASE("an indentation that matches no outer block is an error") {
 	std::vector<Diagnostic> errors;
-	kinds("func f():\n    if true:\n        pass\n  pass\n", &errors);
+	const auto file = tokenize("func f():\n    if true:\n        pass\n  pass\n", errors);
 	REQUIRE(errors.size() == 1);
-	CHECK(errors[0].line == 4);
+	CHECK(file->position(errors[0].begin).line == 4);
 }
 
 TEST_CASE("numbers") {
 	std::vector<Diagnostic> errors;
-	const std::vector<Token> tokens = tokenize("1_000 0xFF 0b101 2.5 1e3 7", errors);
+	const auto file = tokenize("1_000 0xFF 0b101 2.5 1e3 7", errors);
+	const std::vector<Token> &tokens = file->tokens;
 	CHECK(errors.empty());
 	CHECK(tokens[0].int_value == 1000);
 	CHECK(tokens[1].int_value == 255);
@@ -84,7 +86,8 @@ TEST_CASE("a digit the base lacks, or a letter after a number, is an error") {
 		CHECK_MESSAGE(errors.size() == 1, source);
 	}
 	std::vector<Diagnostic> errors;
-	const std::vector<Token> tokens = tokenize("0b1_01 1.5.floor()", errors);
+	const auto file = tokenize("0b1_01 1.5.floor()", errors);
+	const std::vector<Token> &tokens = file->tokens;
 	CHECK(errors.empty());
 	CHECK(tokens[0].int_value == 5);
 }
@@ -95,14 +98,16 @@ TEST_CASE("an integer literal beyond int64 is an error") {
 	CHECK(errors.size() == 1);
 	// The magnitude of the smallest int is kept for a unary minus.
 	errors.clear();
-	const std::vector<Token> tokens = tokenize("9223372036854775808", errors);
+	const auto file = tokenize("9223372036854775808", errors);
+	const std::vector<Token> &tokens = file->tokens;
 	CHECK(errors.empty());
 	CHECK(tokens[0].int_overflows);
 }
 
 TEST_CASE("triple-quoted strings span lines") {
 	std::vector<Diagnostic> errors;
-	const std::vector<Token> tokens = tokenize("\"\"\"a\n\"b\"\n\"\"\" '''c'''", errors);
+	const auto file = tokenize("\"\"\"a\n\"b\"\n\"\"\" '''c'''", errors);
+	const std::vector<Token> &tokens = file->tokens;
 	CHECK(errors.empty());
 	REQUIRE(tokens.size() >= 2);
 	CHECK(tokens[0].kind == TokenKind::String);
@@ -112,7 +117,8 @@ TEST_CASE("triple-quoted strings span lines") {
 
 TEST_CASE("strings decode escapes") {
 	std::vector<Diagnostic> errors;
-	const std::vector<Token> tokens = tokenize("\"a\\n\\\"b\" 'c'", errors);
+	const auto file = tokenize("\"a\\n\\\"b\" 'c'", errors);
+	const std::vector<Token> &tokens = file->tokens;
 	CHECK(errors.empty());
 	CHECK(tokens[0].text == "a\n\"b");
 	CHECK(tokens[1].text == "c");
@@ -120,6 +126,7 @@ TEST_CASE("strings decode escapes") {
 
 TEST_CASE("columns count code points") {
 	std::vector<Diagnostic> errors;
-	const std::vector<Token> tokens = tokenize("\"雨后\" x", errors);
-	CHECK(tokens[1].column == 6);
+	const auto file = tokenize("\"雨后\" x", errors);
+	const std::vector<Token> &tokens = file->tokens;
+	CHECK(file->position(tokens[1].offset).column == 6);
 }

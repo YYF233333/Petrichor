@@ -12,14 +12,13 @@ namespace petrichor::compiler {
 
 CompileResult compile(const std::string &p_source, const EngineApi &p_engine, const CompileOptions &p_options) {
 	CompileResult result;
-	const std::vector<Token> tokens = tokenize(p_source, result.errors);
-	ClassDecl cls = parse(tokens, result.errors);
+	ClassDecl cls = parse(tokenize(p_source, result.errors), result.errors);
 	ScriptClasses classes(p_engine, p_options.project, p_options.declarations_only);
 	if (result.errors.empty()) {
 		check(cls, p_engine, p_options, result.errors, classes);
 	}
 	std::stable_sort(result.errors.begin(), result.errors.end(), [](const Diagnostic &a, const Diagnostic &b) {
-		return a.line != b.line ? a.line < b.line : a.column < b.column;
+		return a.begin < b.begin;
 	});
 	if (result.errors.empty()) {
 		const StructLookup structs = [&](const Type &p_struct) -> const StructDecl * {
@@ -28,6 +27,11 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 		};
 		result.module = lower(cls, p_options.declarations_only, result.errors, structs);
 		result.module.source_hash = bytecode::hash_source(p_source);
+	}
+	for (Diagnostic &error : result.errors) {
+		const SourcePosition position = cls.source->position(error.begin);
+		error.line = position.line;
+		error.column = position.column;
 	}
 	return result;
 }

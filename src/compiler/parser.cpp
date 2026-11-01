@@ -1,5 +1,7 @@
 #include "compiler/parser.h"
 
+#include <algorithm>
+
 namespace petrichor::compiler {
 
 namespace {
@@ -11,6 +13,9 @@ class Parser {
 	const std::vector<Token> &tokens;
 	std::vector<Diagnostic> &errors;
 	size_t at = 0;
+	// The last token consumed that can end a node: not a line break, an
+	// indent, a dedent or a semicolon.
+	uint32_t last = 0;
 	bool failed = false;
 
 	const Token &peek(size_t p_offset = 0) const {
@@ -21,10 +26,16 @@ class Parser {
 	const Token &advance() {
 		const Token &token = peek();
 		if (at < tokens.size() - 1) {
+			if (token.kind != TokenKind::Newline && token.kind != TokenKind::Indent && token.kind != TokenKind::Dedent && token.kind != TokenKind::Semicolon) {
+				last = uint32_t(at);
+			}
 			at++;
 		}
 		return token;
 	}
+	uint32_t index(const Token &p_token) const { return uint32_t(&p_token - tokens.data()); }
+	// From `p_first` to the last token consumed.
+	TokenRange span(uint32_t p_first) const { return { p_first, std::max(p_first, last) }; }
 	bool match(TokenKind p_kind) {
 		if (check(p_kind)) {
 			advance();
@@ -35,7 +46,7 @@ class Parser {
 
 	void fail(const Token &p_token, const std::string &p_message) {
 		if (!failed) {
-			errors.push_back({ p_token.line, p_token.column, p_message });
+			errors.push_back({ p_token.offset, p_token.end(), p_message });
 		}
 		failed = true;
 	}
@@ -72,7 +83,9 @@ class Parser {
 
 	TypeRef type_ref() {
 		const Token &name = expect(TokenKind::Identifier, "a type name");
-		TypeRef ref{ name.text, name.line, name.column };
+		TypeRef ref;
+		ref.name = name.text;
+		ref.name_token = index(name);
 		// A type declared in a class, such as Combat.Damageable.
 		while (!failed && check(TokenKind::Period) && peek(1).kind == TokenKind::Identifier) {
 			advance();
@@ -85,6 +98,7 @@ class Parser {
 			expect(TokenKind::BracketClose, "\"]\"");
 		}
 		ref.nullable = match(TokenKind::Question);
+		ref.range = span(ref.name_token);
 		return ref;
 	}
 
@@ -93,8 +107,7 @@ class Parser {
 	std::unique_ptr<Expr> make(ExprKind p_kind, const Token &p_at) {
 		auto expr = std::make_unique<Expr>();
 		expr->kind = p_kind;
-		expr->line = p_at.line;
-		expr->column = p_at.column;
+		expr->range = { index(p_at), index(p_at) };
 		return expr;
 	}
 
@@ -104,6 +117,8 @@ class Parser {
 		}
 		auto expr = make(ExprKind::Binary, p_op);
 		expr->op = p_op.kind;
+		expr->op_token = index(p_op);
+		expr->range = { p_left->range.first, p_right->range.last };
 		expr->left = std::move(p_left);
 		expr->right = std::move(p_right);
 		return expr;
@@ -119,6 +134,7 @@ class Parser {
 			if (failed) {
 				return nullptr;
 			}
+			cast->range = span(expr->range.first);
 			cast->left = std::move(expr);
 			expr = std::move(cast);
 		}
@@ -131,8 +147,7 @@ class Parser {
 			return expr;
 		}
 		auto result = make(ExprKind::Conditional, advance());
-		result->line = expr->line;
-		result->column = expr->column;
+		const uint32_t first = expr->range.first;
 		result->left = std::move(expr);
 		result->base = conditional();
 		expect(TokenKind::Else, "\"else\"");
@@ -140,6 +155,7 @@ class Parser {
 			return nullptr;
 		}
 		result->right = conditional();
+		result->range = span(first);
 		return result->right ? std::move(result) : nullptr;
 	}
 
@@ -167,7 +183,9 @@ class Parser {
 			const Token &op = advance();
 			auto expr = make(ExprKind::Unary, op);
 			expr->op = TokenKind::Not;
+			expr->op_token = index(op);
 			expr->left = not_expr();
+			expr->range = span(index(op));
 			return expr->left ? std::move(expr) : nullptr;
 		}
 		return comparison();
@@ -209,19 +227,21 @@ class Parser {
 		if (check(TokenKind::Await)) {
 			auto expr = make(ExprKind::Await, advance());
 			expr->left = unary();
+			expr->range = span(expr->range.first);
 			return expr->left ? std::move(expr) : nullptr;
 		}
 		if (check(TokenKind::Minus)) {
 			const Token &op = advance();
 			auto expr = make(ExprKind::Unary, op);
 			expr->op = op.kind;
+			expr->op_token = index(op);
 			expr->left = unary();
+			expr->range = span(index(op));
 			if (expr->left && expr->left->kind == ExprKind::IntLiteral && expr->left->int_overflows) {
 				// -9223372036854775808 is the smallest int; its magnitude alone is not.
 				auto literal = std::move(expr->left);
 				literal->int_overflows = false;
-				literal->line = op.line;
-				literal->column = op.column;
+				literal->range = expr->range;
 				return literal;
 			}
 			return expr->left ? std::move(expr) : nullptr;
@@ -235,13 +255,12 @@ class Parser {
 		auto expr = postfix();
 		while (expr && check(TokenKind::Is)) {
 			auto test = make(ExprKind::TypeTest, advance());
-			test->line = expr->line;
-			test->column = expr->column;
 			test->bool_value = match(TokenKind::Not);
 			test->cast_type = type_ref();
 			if (failed) {
 				return nullptr;
 			}
+			test->range = span(expr->range.first);
 			test->left = std::move(expr);
 			expr = std::move(test);
 		}
@@ -256,7 +275,9 @@ class Parser {
 					break; // Trailing comma.
 				}
 				std::string name;
+				uint32_t name_token = 0;
 				if (check(TokenKind::Identifier) && peek(1).kind == TokenKind::Equal) {
+					name_token = uint32_t(at);
 					name = advance().text;
 					advance();
 				}
@@ -267,6 +288,8 @@ class Parser {
 				if (!name.empty() || !r_call.arg_names.empty()) {
 					r_call.arg_names.resize(r_call.args.size());
 					r_call.arg_names.push_back(name);
+					r_call.arg_name_tokens.resize(r_call.args.size());
+					r_call.arg_name_tokens.push_back(name_token);
 				}
 				r_call.args.push_back(std::move(arg));
 			} while (match(TokenKind::Comma));
@@ -281,13 +304,13 @@ class Parser {
 			if (check(TokenKind::ParenOpen) && (expr->kind == ExprKind::Name || expr->kind == ExprKind::Member)) {
 				// `f(...)` or `base.f(...)`.
 				auto call = make(ExprKind::Call, peek());
-				call->line = expr->line;
-				call->column = expr->column;
+				call->name_token = expr->name_token;
 				call->text = expr->text;
 				call->base = std::move(expr->base);
 				if (!call_arguments(*call)) {
 					return nullptr;
 				}
+				call->range = span(expr->range.first);
 				expr = std::move(call);
 			} else if (check(TokenKind::Period)) {
 				advance();
@@ -297,6 +320,8 @@ class Parser {
 				}
 				auto member = make(ExprKind::Member, name);
 				member->text = name.text;
+				member->name_token = index(name);
+				member->range.first = expr->range.first;
 				member->base = std::move(expr);
 				expr = std::move(member);
 			} else if (check(TokenKind::BracketOpen)) {
@@ -306,6 +331,7 @@ class Parser {
 				if (failed || !subscript->right) {
 					return nullptr;
 				}
+				subscript->range = span(expr->range.first);
 				subscript->base = std::move(expr);
 				expr = std::move(subscript);
 			} else {
@@ -325,6 +351,7 @@ class Parser {
 		auto expr = make(ExprKind::GetNode, advance());
 		if (check(TokenKind::String)) {
 			expr->text = advance().text;
+			expr->range = span(expr->range.first);
 			return expr;
 		}
 		if (!is_node_name(peek().kind)) {
@@ -336,6 +363,7 @@ class Parser {
 			advance();
 			expr->text += "/" + advance().text;
 		}
+		expr->range = span(expr->range.first);
 		return expr;
 	}
 
@@ -373,6 +401,7 @@ class Parser {
 				advance();
 				auto expr = make(ExprKind::Name, token);
 				expr->text = token.text;
+				expr->name_token = index(token);
 				return expr;
 			}
 			case TokenKind::Self:
@@ -397,6 +426,7 @@ class Parser {
 					}
 				}
 				expect(TokenKind::BracketClose, "\"]\"");
+				expr->range = span(expr->range.first);
 				return failed ? nullptr : std::move(expr);
 			}
 			case TokenKind::BraceOpen:
@@ -405,7 +435,11 @@ class Parser {
 				advance();
 				auto expr = expression();
 				expect(TokenKind::ParenClose, "\")\"");
-				return failed ? nullptr : std::move(expr);
+				if (failed) {
+					return nullptr;
+				}
+				expr->range = span(index(token));
+				return expr;
 			}
 			default:
 				fail(token, std::string("Expected an expression, found ") + token_name(token.kind) + ".");
@@ -453,6 +487,7 @@ class Parser {
 			}
 		}
 		expect(TokenKind::BraceClose, "\"}\"");
+		expr->range = span(expr->range.first);
 		return failed ? nullptr : std::move(expr);
 	}
 
@@ -503,8 +538,7 @@ class Parser {
 	std::unique_ptr<Stmt> make_stmt(StmtKind p_kind, const Token &p_at) {
 		auto stmt = std::make_unique<Stmt>();
 		stmt->kind = p_kind;
-		stmt->line = p_at.line;
-		stmt->column = p_at.column;
+		stmt->range = { index(p_at), index(p_at) };
 		return stmt;
 	}
 
@@ -525,6 +559,7 @@ class Parser {
 			expect(TokenKind::Colon, "\":\"");
 			stmt->else_body = block();
 		}
+		stmt->range = span(index(p_keyword));
 		return stmt;
 	}
 
@@ -537,8 +572,7 @@ class Parser {
 		expect(TokenKind::Indent, "an indented block of patterns");
 		while (!failed && !check(TokenKind::Dedent) && !check(TokenKind::EndOfFile)) {
 			MatchBranch branch;
-			branch.line = peek().line;
-			branch.column = peek().column;
+			const uint32_t first = uint32_t(at);
 			do {
 				branch.patterns.push_back(pattern());
 			} while (!failed && match(TokenKind::Comma));
@@ -550,32 +584,37 @@ class Parser {
 				return nullptr;
 			}
 			branch.body = block();
+			branch.range = span(first);
 			stmt->branches.push_back(std::move(branch));
 		}
 		match(TokenKind::Dedent);
+		stmt->range = span(index(p_keyword));
 		return failed ? nullptr : std::move(stmt);
 	}
 
 	Pattern pattern() {
 		Pattern result;
-		const Token &at = peek();
-		result.line = at.line;
-		result.column = at.column;
-		if (check(TokenKind::Identifier) && at.text == "_") {
+		const Token &start = peek();
+		if (check(TokenKind::Identifier) && start.text == "_") {
 			advance();
+			result.range = span(index(start));
 			return result;
 		}
 		if (match(TokenKind::Var)) {
 			result.kind = PatternKind::Bind;
-			result.name = expect(TokenKind::Identifier, "a variable name").text;
+			const Token &name = expect(TokenKind::Identifier, "a variable name");
+			result.name = name.text;
+			result.name_token = index(name);
+			result.range = span(index(start));
 			return result;
 		}
 		if (check(TokenKind::BracketOpen)) {
-			fail(at, "Array and dictionary patterns are not supported yet.");
+			fail(start, "Array and dictionary patterns are not supported yet.");
 			return result;
 		}
 		result.kind = PatternKind::Value;
 		result.value = expression();
+		result.range = span(index(start));
 		return result;
 	}
 
@@ -590,14 +629,14 @@ class Parser {
 				auto stmt = make_stmt(StmtKind::Var, token);
 				const Token &name = expect(TokenKind::Identifier, "a variable name");
 				stmt->name = name.text;
-				stmt->line = name.line;
-				stmt->column = name.column;
+				stmt->name_token = index(name);
 				if (match(TokenKind::Colon) && !check(TokenKind::Equal)) {
 					stmt->declared_type = type_ref();
 				}
 				if (match(TokenKind::Equal)) {
 					stmt->value = expression();
 				}
+				stmt->range = span(index(token));
 				end_of_statement();
 				return stmt;
 			}
@@ -613,6 +652,7 @@ class Parser {
 					return nullptr;
 				}
 				stmt->body = block();
+				stmt->range = span(index(token));
 				return stmt;
 			}
 			case TokenKind::For: {
@@ -620,8 +660,7 @@ class Parser {
 				auto stmt = make_stmt(StmtKind::For, token);
 				const Token &name = expect(TokenKind::Identifier, "a variable name");
 				stmt->name = name.text;
-				stmt->line = name.line;
-				stmt->column = name.column;
+				stmt->name_token = index(name);
 				if (match(TokenKind::Colon)) {
 					stmt->declared_type = type_ref();
 				}
@@ -635,6 +674,7 @@ class Parser {
 					return nullptr;
 				}
 				stmt->body = block();
+				stmt->range = span(index(token));
 				return stmt;
 			}
 			case TokenKind::Return: {
@@ -643,6 +683,7 @@ class Parser {
 				if (!check(TokenKind::Newline) && !check(TokenKind::Dedent) && !check(TokenKind::EndOfFile)) {
 					stmt->value = expression();
 				}
+				stmt->range = span(index(token));
 				end_of_statement();
 				return stmt;
 			}
@@ -666,17 +707,17 @@ class Parser {
 		const TokenKind op = peek().kind;
 		if (op == TokenKind::Equal || op == TokenKind::PlusEqual || op == TokenKind::MinusEqual ||
 				op == TokenKind::StarEqual || op == TokenKind::SlashEqual || op == TokenKind::PercentEqual) {
-			const Token &op_token = advance();
-			auto stmt = make_stmt(StmtKind::Assign, op_token);
-			stmt->line = expr->line;
-			stmt->column = expr->column;
+			advance();
+			auto stmt = make_stmt(StmtKind::Assign, token);
 			stmt->assign_op = op;
 			stmt->target = std::move(expr);
 			stmt->value = expression();
+			stmt->range = span(index(token));
 			end_of_statement();
 			return stmt;
 		}
 		auto stmt = make_stmt(StmtKind::Expression, token);
+		stmt->range = expr->range;
 		stmt->value = std::move(expr);
 		end_of_statement();
 		return stmt;
@@ -695,14 +736,14 @@ class Parser {
 				ParamDecl param;
 				const Token &param_name = expect(TokenKind::Identifier, "a parameter name");
 				param.name = param_name.text;
-				param.line = param_name.line;
-				param.column = param_name.column;
+				param.name_token = index(param_name);
 				if (match(TokenKind::Colon)) {
 					param.declared_type = type_ref();
 				}
 				if (match(TokenKind::Equal)) {
 					param.default_value = expression();
 				}
+				param.range = span(param.name_token);
 				result.push_back(std::move(param));
 			} while (!failed && match(TokenKind::Comma));
 		}
@@ -712,12 +753,11 @@ class Parser {
 
 	// After "interface": the name and a block of method signatures and
 	// properties (spec §3.9).
-	InterfaceDecl interface(bool p_is_pub) {
+	InterfaceDecl interface(bool p_is_pub, uint32_t p_first) {
 		InterfaceDecl decl;
 		const Token &name = expect(TokenKind::Identifier, "an interface name");
 		decl.name = name.text;
-		decl.line = name.line;
-		decl.column = name.column;
+		decl.name_token = index(name);
 		decl.is_pub = p_is_pub;
 		expect(TokenKind::Colon, "\":\"");
 		expect(TokenKind::Newline, "a line break");
@@ -728,6 +768,7 @@ class Parser {
 				continue;
 			}
 			bool is_readonly = false;
+			const uint32_t first = uint32_t(at);
 			if (match(TokenKind::At)) {
 				const Token &annotation = expect(TokenKind::Identifier, "an annotation name");
 				if (!failed && annotation.text != "readonly") {
@@ -740,11 +781,11 @@ class Parser {
 				InterfaceProperty property;
 				const Token &property_name = expect(TokenKind::Identifier, "a property name");
 				property.name = property_name.text;
-				property.line = property_name.line;
-				property.column = property_name.column;
+				property.name_token = index(property_name);
 				property.is_readonly = is_readonly;
 				expect(TokenKind::Colon, "\":\" and the property's type");
 				property.type_ref = type_ref();
+				property.range = span(first);
 				end_of_statement();
 				decl.properties.push_back(std::move(property));
 				continue;
@@ -760,8 +801,7 @@ class Parser {
 			expect(TokenKind::Func, "\"func\"");
 			const Token &method_name = expect(TokenKind::Identifier, "a method name");
 			method.name = method_name.text;
-			method.line = method_name.line;
-			method.column = method_name.column;
+			method.name_token = index(method_name);
 			method.is_pub = true;
 			expect(TokenKind::ParenOpen, "\"(\"");
 			method.params = params();
@@ -771,20 +811,21 @@ class Parser {
 			if (check(TokenKind::Colon)) {
 				fail(peek(), "Default methods of interfaces are not supported yet.");
 			}
+			method.range = span(first);
 			end_of_statement();
 			decl.methods.push_back(std::move(method));
 		}
 		match(TokenKind::Dedent);
+		decl.range = span(p_first);
 		return decl;
 	}
 
 	// After "struct": the name and a block of fields (spec §2.4, §3.6).
-	StructDecl structure(bool p_is_pub) {
+	StructDecl structure(bool p_is_pub, uint32_t p_first) {
 		StructDecl decl;
 		const Token &name = expect(TokenKind::Identifier, "a struct name");
 		decl.name = name.text;
-		decl.line = name.line;
-		decl.column = name.column;
+		decl.name_token = index(name);
 		decl.is_pub = p_is_pub;
 		expect(TokenKind::Colon, "\":\"");
 		expect(TokenKind::Newline, "a line break");
@@ -802,12 +843,12 @@ class Parser {
 				fail(peek(), std::string("Expected a field, declared with var, found ") + token_name(peek().kind) + ".");
 				break;
 			}
+			const uint32_t first = uint32_t(at);
 			advance();
 			VarDecl field;
 			const Token &field_name = expect(TokenKind::Identifier, "a field name");
 			field.name = field_name.text;
-			field.line = field_name.line;
-			field.column = field_name.column;
+			field.name_token = index(field_name);
 			if (match(TokenKind::Colon) && !check(TokenKind::Equal)) {
 				field.declared_type = type_ref();
 			}
@@ -818,10 +859,12 @@ class Parser {
 				fail(peek(), "A field has no setter or getter.");
 				break;
 			}
+			field.range = span(first);
 			end_of_statement();
 			decl.fields.push_back(std::move(field));
 		}
 		match(TokenKind::Dedent);
+		decl.range = span(p_first);
 		return decl;
 	}
 
@@ -830,8 +873,7 @@ class Parser {
 	// `get:`, which become the functions @set_x and @get_x, and of the named
 	// forms.
 	void accessors(VarDecl &r_decl, ClassDecl &r_class) {
-		r_decl.accessor_line = peek().line;
-		r_decl.accessor_column = peek().column;
+		r_decl.accessor_token = uint32_t(at);
 		if (!check(TokenKind::Newline)) {
 			named_accessors(r_decl);
 			end_of_statement();
@@ -850,8 +892,7 @@ class Parser {
 				return;
 			}
 			FuncDecl function;
-			function.line = keyword.line;
-			function.column = keyword.column;
+			function.name_token = index(keyword);
 			function.accessor_of = r_decl.name;
 			if (keyword.text == "set") {
 				expect(TokenKind::ParenOpen, "\"(\"");
@@ -859,8 +900,8 @@ class Parser {
 				expect(TokenKind::ParenClose, "\")\"");
 				ParamDecl value;
 				value.name = param.text;
-				value.line = param.line;
-				value.column = param.column;
+				value.name_token = index(param);
+				value.range = { value.name_token, value.name_token };
 				function.params.push_back(std::move(value));
 				function.name = "@set_" + r_decl.name;
 			} else if (keyword.text == "get") {
@@ -877,6 +918,7 @@ class Parser {
 				return;
 			}
 			function.body = block();
+			function.range = span(function.name_token);
 			r_class.functions.push_back(std::move(function));
 		}
 		match(TokenKind::Dedent);
@@ -916,16 +958,17 @@ class Parser {
 	}
 
 	void member(ClassDecl &r_class) {
+		const uint32_t first = uint32_t(at);
 		std::vector<Annotation> annotations;
-		while (match(TokenKind::At)) {
+		while (check(TokenKind::At)) {
+			const uint32_t at_sign = index(advance());
 			const Token &name = expect(TokenKind::Identifier, "an annotation name");
 			if (failed) {
 				return;
 			}
 			Annotation annotation;
 			annotation.name = name.text;
-			annotation.line = name.line;
-			annotation.column = name.column;
+			annotation.name_token = index(name);
 			if (check(TokenKind::ParenOpen)) {
 				Expr holder;
 				if (!call_arguments(holder)) {
@@ -937,6 +980,7 @@ class Parser {
 				}
 				annotation.args = std::move(holder.args);
 			}
+			annotation.range = span(at_sign);
 			if (is_group_annotation(annotation.name)) {
 				// Stands alone, as in GDScript.
 				r_class.groups.push_back({ std::move(annotation), r_class.members.size() });
@@ -976,8 +1020,7 @@ class Parser {
 			VarDecl decl;
 			const Token &name = expect(TokenKind::Identifier, "a variable name");
 			decl.name = name.text;
-			decl.line = name.line;
-			decl.column = name.column;
+			decl.name_token = index(name);
 			decl.is_pub = is_pub;
 			decl.is_export = is_export;
 			decl.is_onready = is_onready;
@@ -990,7 +1033,9 @@ class Parser {
 			}
 			if (match(TokenKind::Colon)) {
 				accessors(decl, r_class);
+				decl.range = span(first);
 			} else {
+				decl.range = span(first);
 				end_of_statement();
 			}
 			r_class.members.push_back(std::move(decl));
@@ -1002,7 +1047,7 @@ class Parser {
 				fail(peek(), "An interface takes no annotations and is not static.");
 				return;
 			}
-			r_class.interfaces.push_back(interface(is_pub));
+			r_class.interfaces.push_back(interface(is_pub, first));
 			return;
 		}
 
@@ -1011,7 +1056,7 @@ class Parser {
 				fail(peek(), "A struct takes no annotations and is not static.");
 				return;
 			}
-			r_class.structs.push_back(structure(is_pub));
+			r_class.structs.push_back(structure(is_pub, first));
 			return;
 		}
 
@@ -1023,13 +1068,13 @@ class Parser {
 			SignalDecl decl;
 			const Token &name = expect(TokenKind::Identifier, "a signal name");
 			decl.name = name.text;
-			decl.line = name.line;
-			decl.column = name.column;
+			decl.name_token = index(name);
 			decl.is_pub = is_pub;
 			// `signal died` has no arguments, as in GDScript.
 			if (match(TokenKind::ParenOpen)) {
 				decl.params = params();
 			}
+			decl.range = span(first);
 			end_of_statement();
 			r_class.signals.push_back(std::move(decl));
 			return;
@@ -1044,8 +1089,7 @@ class Parser {
 			FuncDecl decl;
 			const Token &name = expect(TokenKind::Identifier, "a function name");
 			decl.name = name.text;
-			decl.line = name.line;
-			decl.column = name.column;
+			decl.name_token = index(name);
 			decl.is_pub = is_pub;
 			decl.is_static = is_static;
 			decl.is_async = is_async;
@@ -1059,6 +1103,7 @@ class Parser {
 				return;
 			}
 			decl.body = block();
+			decl.range = span(first);
 			r_class.functions.push_back(std::move(decl));
 			return;
 		}
@@ -1112,7 +1157,7 @@ public:
 					end_of_statement();
 					continue;
 				}
-				errors.push_back({ name.line, name.column, "The class annotation @" + name.text + " is not supported yet." });
+				errors.push_back({ name.offset, name.end(), "The class annotation @" + name.text + " is not supported yet." });
 				if (check(TokenKind::ParenOpen)) {
 					Expr holder;
 					call_arguments(holder);
@@ -1147,8 +1192,7 @@ public:
 				result.extends_path = check(TokenKind::String);
 				const Token &base = result.extends_path ? advance() : expect(TokenKind::Identifier, "a base class name or script path");
 				result.extends = base.text;
-				result.extends_line = base.line;
-				result.extends_column = base.column;
+				result.extends_token = index(base);
 				has_extends = true;
 				// `extends Node3D implements Combat.Damageable, Saveable` (spec §3.9).
 				if (match(TokenKind::Implements)) {
@@ -1168,14 +1212,16 @@ public:
 
 } // namespace
 
-ClassDecl parse(const std::vector<Token> &p_tokens, std::vector<Diagnostic> &r_errors) {
-	return Parser(p_tokens, r_errors).run();
+ClassDecl parse(const std::shared_ptr<const SourceFile> &p_file, std::vector<Diagnostic> &r_errors) {
+	ClassDecl result = Parser(p_file->tokens, r_errors).run();
+	result.source = p_file;
+	return result;
 }
 
 std::unique_ptr<Expr> parse_expression(const std::string &p_source, std::vector<Diagnostic> &r_errors) {
 	const size_t errors = r_errors.size();
-	const std::vector<Token> tokens = tokenize(p_source, r_errors);
-	std::unique_ptr<Expr> expr = Parser(tokens, r_errors).single_expression();
+	const std::shared_ptr<const SourceFile> file = tokenize(p_source, r_errors);
+	std::unique_ptr<Expr> expr = Parser(file->tokens, r_errors).single_expression();
 	return r_errors.size() == errors ? std::move(expr) : nullptr;
 }
 

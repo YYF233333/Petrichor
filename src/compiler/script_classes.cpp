@@ -87,8 +87,7 @@ const ScriptClass *ScriptClasses::header(const std::string &p_path) {
 		return nullptr;
 	}
 	std::vector<Diagnostic> errors;
-	const std::vector<Token> tokens = tokenize(*source, errors);
-	ClassDecl decl = parse(tokens, errors);
+	ClassDecl decl = parse(tokenize(*source, errors), errors);
 	if (!errors.empty()) {
 		return nullptr;
 	}

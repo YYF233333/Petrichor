@@ -3,6 +3,7 @@
 #include "bytecode/opcodes.h"
 #include "compiler/compiler.h"
 #include "compiler/script_classes.h"
+#include "conventions.h"
 #include "doctest.h"
 #include "fake_engine.h"
 
@@ -20,6 +21,7 @@ inline const FakeEngine &fake_engine() {
 }
 
 inline compiler::CompileResult compile(const std::string &p_source) {
+	check_syntax_conventions(p_source);
 	return compiler::compile(p_source, fake_engine());
 }
 
@@ -130,6 +132,7 @@ inline compiler::CompileResult compile_in(const std::string &p_source, const Fak
 	options.path = "res://test.pet";
 	options.project = &p_project;
 	options.declarations_only = p_declarations_only;
+	check_syntax_conventions(p_source);
 	return compiler::compile(p_source, fake_engine(), options);
 }
 

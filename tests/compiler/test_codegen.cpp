@@ -432,9 +432,9 @@ TEST_CASE("what lowering has no code for is an internal error, not wrong code") 
 	}
 	compiler::lower(cls, false, errors);
 	REQUIRE(errors.size() == 2);
-	CHECK(errors[0].line == 4);
+	CHECK(cls.source->position(errors[0].begin).line == 4);
 	CHECK(errors[0].message.find("Internal compiler error") == 0);
-	CHECK(errors[1].line == 5);
+	CHECK(cls.source->position(errors[1].begin).line == 5);
 }
 
 // Spec §10.6: the widths come from the engine API (Node.get_child takes an

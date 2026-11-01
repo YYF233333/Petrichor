@@ -3,6 +3,7 @@
 #include "compiler/builtin_api.h"
 #include "compiler/ir.h"
 
+#include <algorithm>
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
@@ -161,7 +162,7 @@ class Lowerer {
 	ir::Function fn;
 	const FuncDecl *decl = nullptr; // Null in the init function.
 	uint32_t current = 0;
-	int line = 0; // Of the statement, member or function being lowered.
+	TokenRange at; // The statement, member or function being lowered, where errors go.
 
 	struct Loop {
 		uint32_t continue_block;
@@ -271,7 +272,7 @@ class Lowerer {
 		// The checker refuses a struct that holds itself (spec §3.6), unless its
 		// script failed to be checked.
 		if (!decl || !interning.insert(type.name).second) {
-			errors.push_back({ line, 1, p_struct.name + " cannot be compiled: " + p_struct.script + " has errors." });
+			error(p_struct.name + " cannot be compiled: " + p_struct.script + " has errors.");
 			return type_index(ValueType::Void);
 		}
 		for (const VarDecl &field : decl->fields) {
@@ -397,11 +398,28 @@ class Lowerer {
 		return constant;
 	}
 
+	void error(const std::string &p_message) {
+		errors.push_back({ cls.source->begin(at), cls.source->end(at), p_message });
+	}
+
+	// The line of a declaration's name, in the file of the class of the chain
+	// that declares it.
+	template <typename T>
+	int decl_line(const T &p_decl, std::vector<T> ClassDecl::*p_own) const {
+		for (const ClassDecl *owner = &cls; owner; owner = owner->base) {
+			const std::vector<T> &own = owner->*p_own;
+			if (std::any_of(own.begin(), own.end(), [&](const T &p_item) { return &p_item == &p_decl; })) {
+				return owner->source->line(p_decl.name_token);
+			}
+		}
+		return 0;
+	}
+
 	// What the checker passed but lowering has no code for is a defect of the
 	// compiler: it is reported instead of compiled, and lowering goes on with
 	// a register of its own.
 	uint32_t internal_error(const std::string &p_what) {
-		errors.push_back({ line, 1, "Internal compiler error: " + p_what + "." });
+		error("Internal compiler error: " + p_what + ".");
 		return temp(ValueType::Variant);
 	}
 
@@ -1637,8 +1655,8 @@ class Lowerer {
 	}
 
 	void lower_stmt(const Stmt &p_stmt) {
-		line = p_stmt.line;
-		instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(p_stmt.line));
+		at = p_stmt.range;
+		instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(cls.source->line(p_stmt.range.first)));
 		switch (p_stmt.kind) {
 			case StmtKind::Var: {
 				const uint32_t local = uint32_t(p_stmt.local);
@@ -1828,8 +1846,8 @@ class Lowerer {
 			for (size_t m = module.inherited_members; m < cls.all_members.size(); m++) {
 				if (cls.all_members[m]->must_assign) {
 					any = true;
-					line = cls.all_members[m]->line;
-					instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(cls.all_members[m]->line));
+					at = cls.all_members[m]->range;
+					instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(cls.source->line(cls.all_members[m]->name_token)));
 					load_member(uint32_t(m));
 				}
 			}
@@ -1840,8 +1858,8 @@ class Lowerer {
 				continue;
 			}
 			any = true;
-			line = member.line;
-			instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(member.line));
+			at = member.range;
+			instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(cls.source->line(member.name_token)));
 			if (!member.initializer) {
 				// An empty Array[T] or Dictionary[K, V] is typed too, and a struct
 				// has its fields' defaults (spec §4.3).
@@ -1900,7 +1918,7 @@ public:
 			member.is_onready = decl_member.is_onready;
 			member.setter = decl_member.setter_index;
 			member.getter = decl_member.getter_index;
-			member.line = uint32_t(decl_member.line);
+			member.line = uint32_t(decl_line(decl_member, &ClassDecl::members));
 			member.offset = offset;
 			offset += bytecode::type_size(module.types, member.type);
 			member.is_pub = decl_member.is_pub;
@@ -1965,14 +1983,14 @@ public:
 			}
 			start(function.name);
 			decl = &function;
-			line = function.line;
+			at = inherited ? TokenRange{ cls.extends_token, cls.extends_token } : function.range;
 			fn.param_count = uint32_t(function.params.size());
 			fn.result = slot(std::string(), function.return_type);
 			fn.is_async = function.is_async;
 			fn.is_pub = function.is_pub;
 			fn.is_override = function.is_override;
 			fn.is_exposed = cls.exposed_methods.count(function.name);
-			fn.line = uint32_t(function.line);
+			fn.line = uint32_t(decl_line(function, &ClassDecl::functions));
 			for (const LocalInfo &local : function.locals) {
 				fn.regs.push_back(slot(local.name, local.type));
 			}

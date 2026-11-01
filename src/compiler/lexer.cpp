@@ -1,5 +1,6 @@
 #include "compiler/lexer.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdlib>
 #include <locale>
@@ -160,8 +161,27 @@ const char *token_name(TokenKind p_kind) {
 			return "\">\"";
 		case TokenKind::GreaterEqual:
 			return "\">=\"";
+		case TokenKind::Comment:
+			return "comment";
+		case TokenKind::LineContinuation:
+			return "line continuation";
+		case TokenKind::Invalid:
+			return "invalid character";
 	}
 	return "?";
+}
+
+SourcePosition SourceFile::position(uint32_t p_offset) const {
+	const auto next = std::upper_bound(line_starts.begin(), line_starts.end(), p_offset);
+	const uint32_t start = *(next - 1);
+	int column = 1;
+	for (uint32_t at = start; at < p_offset && at < text.size(); at++) {
+		// Columns count code points, not UTF-8 bytes.
+		if ((static_cast<unsigned char>(text[at]) & 0xC0) != 0x80) {
+			column++;
+		}
+	}
+	return { int(next - line_starts.begin()), column };
 }
 
 TokenKind compound_operator(TokenKind p_assign) {
@@ -235,56 +255,68 @@ bool is_digit(unsigned char c) {
 }
 
 class Lexer {
+	SourceFile &file;
 	const std::string &source;
 	std::vector<Diagnostic> &errors;
-	std::vector<Token> tokens;
 
-	size_t at = 0;
-	int line = 1;
-	int column = 1;
+	uint32_t at = 0;
 	int paren_depth = 0;
 	char indent_char = 0;
 	std::vector<int> indents = { 0 };
 	bool line_has_tokens = false;
+
+	bool at_end() const {
+		return at >= source.size();
+	}
 
 	unsigned char peek(size_t p_offset = 0) const {
 		return at + p_offset < source.size() ? static_cast<unsigned char>(source[at + p_offset]) : 0;
 	}
 
 	void advance() {
-		const unsigned char c = peek();
 		at++;
-		if (c == '\n') {
-			line++;
-			column = 1;
-		} else if ((c & 0xC0) != 0x80) {
-			// Columns count code points, not UTF-8 bytes.
-			column++;
-		}
 	}
 
-	void error(int p_line, int p_column, const std::string &p_message) {
-		errors.push_back({ p_line, p_column, p_message });
+	void error(uint32_t p_begin, uint32_t p_end, const std::string &p_message) {
+		errors.push_back({ p_begin, p_end, p_message });
 	}
 
-	Token &push(TokenKind p_kind, int p_line, int p_column) {
-		tokens.push_back(Token());
-		Token &token = tokens.back();
+	// A token from `p_start` to here.
+	Token &push(TokenKind p_kind, uint32_t p_start) {
+		file.tokens.push_back(Token());
+		Token &token = file.tokens.back();
 		token.kind = p_kind;
-		token.line = p_line;
-		token.column = p_column;
+		token.offset = p_start;
+		token.length = at - p_start;
 		if (p_kind != TokenKind::Newline && p_kind != TokenKind::Indent && p_kind != TokenKind::Dedent) {
 			line_has_tokens = true;
 		}
 		return token;
 	}
 
+	void trivia(TokenKind p_kind, uint32_t p_start) {
+		Token token;
+		token.kind = p_kind;
+		token.offset = p_start;
+		token.length = at - p_start;
+		file.trivia.push_back(token);
+	}
+
+	// From "#" to the end of the line, which a carriage return may precede.
+	void comment() {
+		const uint32_t start = at;
+		while (!at_end() && peek() != '\n' && !(peek() == '\r' && peek(1) == '\n')) {
+			advance();
+		}
+		trivia(TokenKind::Comment, start);
+	}
+
 	// At the start of a line outside parentheses: measures the indentation and
 	// emits Indent or Dedent. Blank and comment-only lines are skipped.
 	void line_start() {
 		while (true) {
+			const uint32_t start = at;
 			int width = 0;
-			const int start_line = line;
 			bool mixed = false;
 			while (peek() == ' ' || peek() == '\t') {
 				const char c = char(peek());
@@ -296,37 +328,31 @@ class Lexer {
 				width++;
 				advance();
 			}
-			const unsigned char c = peek();
-			if (c == '\r') {
-				advance();
-				continue;
+			if (at_end()) {
+				return;
 			}
-			if (c == '\n') {
+			const unsigned char c = peek();
+			if (c == '\r' || c == '\n') {
 				advance();
 				continue;
 			}
 			if (c == '#') {
-				while (peek() != '\n' && peek() != 0) {
-					advance();
-				}
+				comment();
 				continue;
 			}
-			if (c == 0) {
-				return;
-			}
 			if (mixed) {
-				error(start_line, 1, "Indentation mixes tabs and spaces.");
+				error(start, at, "Indentation mixes tabs and spaces.");
 			}
 			if (width > indents.back()) {
 				indents.push_back(width);
-				push(TokenKind::Indent, line, column);
+				push(TokenKind::Indent, at);
 			} else {
 				while (width < indents.back()) {
 					indents.pop_back();
-					push(TokenKind::Dedent, line, column);
+					push(TokenKind::Dedent, at);
 				}
 				if (width != indents.back()) {
-					error(line, column, "Indentation does not match any outer block.");
+					error(start, at, "Indentation does not match any outer block.");
 					indents.push_back(width);
 				}
 			}
@@ -336,14 +362,13 @@ class Lexer {
 
 	void end_line() {
 		if (line_has_tokens) {
-			push(TokenKind::Newline, line, column);
+			push(TokenKind::Newline, at);
 			line_has_tokens = false;
 		}
 	}
 
 	void number() {
-		const int start_line = line;
-		const int start_column = column;
+		const uint32_t start = at;
 		std::string digits;
 		bool is_float = false;
 		int base = 10;
@@ -394,24 +419,24 @@ class Lexer {
 			advance();
 		}
 		if (digits.empty()) {
-			error(start_line, start_column, "Expected digits after the number prefix.");
+			error(start, at, "Expected digits after the number prefix.");
 			digits = "0";
 		} else if (trailing) {
-			error(start_line, start_column, "Invalid numeric notation.");
+			error(start, at, "Invalid numeric notation.");
 		}
 
 		errno = 0;
 		if (is_float) {
-			Token &token = push(TokenKind::Float, start_line, start_column);
+			Token &token = push(TokenKind::Float, start);
 			// Whatever C locale the host process has set.
 			std::istringstream stream(digits);
 			stream.imbue(std::locale::classic());
 			stream >> token.float_value;
 		} else {
-			Token &token = push(TokenKind::Int, start_line, start_column);
+			Token &token = push(TokenKind::Int, start);
 			const unsigned long long value = std::strtoull(digits.c_str(), nullptr, base);
 			if (errno == ERANGE || (base == 10 && value > 9223372036854775808ull)) {
-				error(start_line, start_column, "Integer literal is too large for int.");
+				error(start, at, "Integer literal is too large for int.");
 			}
 			token.int_overflows = base == 10 && value == 9223372036854775808ull;
 			token.int_value = int64_t(value);
@@ -419,8 +444,7 @@ class Lexer {
 	}
 
 	void string() {
-		const int start_line = line;
-		const int start_column = column;
+		const uint32_t start = at;
 		const unsigned char quote = peek();
 		// """…""" and '''…''' may span lines, as in GDScript.
 		const bool triple = peek(1) == quote && peek(2) == quote;
@@ -429,11 +453,11 @@ class Lexer {
 		}
 		std::string value;
 		while (true) {
-			const unsigned char c = peek();
-			if (c == 0 || (c == '\n' && !triple)) {
-				error(start_line, start_column, "Unterminated string.");
+			if (at_end() || (peek() == '\n' && !triple)) {
+				error(start, at, "Unterminated string.");
 				break;
 			}
+			const unsigned char c = peek();
 			if (c == quote && (!triple || (peek(1) == quote && peek(2) == quote))) {
 				for (int i = 0; i < (triple ? 3 : 1); i++) {
 					advance();
@@ -441,6 +465,7 @@ class Lexer {
 				break;
 			}
 			if (c == '\\') {
+				const uint32_t escape = at;
 				advance();
 				const unsigned char escaped = peek();
 				switch (escaped) {
@@ -459,10 +484,10 @@ class Lexer {
 						value.push_back(char(escaped));
 						break;
 					default:
-						error(line, column, "Unknown escape sequence.");
+						error(escape, at_end() ? at : at + 1, "Unknown escape sequence.");
 						break;
 				}
-				if (escaped != 0 && escaped != '\n') {
+				if (!at_end() && escaped != '\n') {
 					advance();
 				}
 				continue;
@@ -470,22 +495,21 @@ class Lexer {
 			value.push_back(char(c));
 			advance();
 		}
-		push(TokenKind::String, start_line, start_column).text = value;
+		push(TokenKind::String, start).text = value;
 	}
 
 	void punctuation() {
-		const int start_line = line;
-		const int start_column = column;
+		const uint32_t start = at;
 		const unsigned char c = peek();
 		const unsigned char next = peek(1);
 		auto one = [&](TokenKind p_kind) {
 			advance();
-			push(p_kind, start_line, start_column);
+			push(p_kind, start);
 		};
 		auto two = [&](TokenKind p_kind) {
 			advance();
 			advance();
-			push(p_kind, start_line, start_column);
+			push(p_kind, start);
 		};
 		switch (c) {
 			case '@':
@@ -587,29 +611,28 @@ class Lexer {
 			default:
 				break;
 		}
-		error(start_line, start_column, std::string("Unexpected character \"") + char(c) + "\".");
 		advance();
+		trivia(TokenKind::Invalid, start);
+		error(start, at, std::string("Unexpected character \"") + char(c) + "\".");
 	}
 
 public:
-	Lexer(const std::string &p_source, std::vector<Diagnostic> &r_errors) :
-			source(p_source), errors(r_errors) {}
+	Lexer(SourceFile &r_file, std::vector<Diagnostic> &r_errors) :
+			file(r_file), source(r_file.text), errors(r_errors) {}
 
-	std::vector<Token> run() {
+	void run() {
 		line_start();
-		while (true) {
+		while (!at_end()) {
 			const unsigned char c = peek();
-			if (c == 0) {
-				break;
-			}
 			if (c == ' ' || c == '\t' || c == '\r') {
 				advance();
 			} else if (c == '#') {
-				while (peek() != '\n' && peek() != 0) {
-					advance();
-				}
+				comment();
 			} else if (c == '\\' && (peek(1) == '\n' || (peek(1) == '\r' && peek(2) == '\n'))) {
 				// A backslash at the end of a line continues it, as in GDScript.
+				const uint32_t start = at;
+				advance();
+				trivia(TokenKind::LineContinuation, start);
 				while (peek() != '\n') {
 					advance();
 				}
@@ -626,16 +649,14 @@ public:
 			} else if (is_digit(c)) {
 				number();
 			} else if (is_identifier_start(c)) {
-				const int start_line = line;
-				const int start_column = column;
-				std::string name;
+				const uint32_t start = at;
 				while (is_identifier_char(peek())) {
-					name.push_back(char(peek()));
 					advance();
 				}
+				std::string name = source.substr(start, at - start);
 				const auto keyword = keywords().find(name);
 				// A keyword keeps its spelling, since a node path may use it as a name.
-				push(keyword != keywords().end() ? keyword->second : TokenKind::Identifier, start_line, start_column).text = name;
+				push(keyword != keywords().end() ? keyword->second : TokenKind::Identifier, start).text = std::move(name);
 			} else if (c == '"' || c == '\'') {
 				string();
 			} else {
@@ -645,17 +666,25 @@ public:
 		end_line();
 		while (indents.size() > 1) {
 			indents.pop_back();
-			push(TokenKind::Dedent, line, column);
+			push(TokenKind::Dedent, at);
 		}
-		push(TokenKind::EndOfFile, line, column);
-		return std::move(tokens);
+		push(TokenKind::EndOfFile, at);
 	}
 };
 
 } // namespace
 
-std::vector<Token> tokenize(const std::string &p_source, std::vector<Diagnostic> &r_errors) {
-	return Lexer(p_source, r_errors).run();
+std::shared_ptr<const SourceFile> tokenize(std::string p_source, std::vector<Diagnostic> &r_errors) {
+	auto file = std::make_shared<SourceFile>();
+	file->text = std::move(p_source);
+	file->line_starts.push_back(0);
+	for (uint32_t i = 0; i < file->text.size(); i++) {
+		if (file->text[i] == '\n') {
+			file->line_starts.push_back(i + 1);
+		}
+	}
+	Lexer(*file, r_errors).run();
+	return file;
 }
 
 } // namespace petrichor::compiler

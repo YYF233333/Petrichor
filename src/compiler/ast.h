@@ -14,8 +14,10 @@ namespace petrichor::compiler {
 
 struct TypeRef {
 	std::string name;
-	int line = 0;
-	int column = 0;
+	TokenRange range;
+	// Of the first part of the name; each further part of Combat.Damageable
+	// is two tokens on.
+	uint32_t name_token = 0;
 	bool nullable = false; // `T?` (spec §3.3, §3.4).
 	std::vector<TypeRef> args; // `Array[T]`.
 };
@@ -86,8 +88,9 @@ enum class Target {
 
 struct Expr {
 	ExprKind kind = ExprKind::IntLiteral;
-	int line = 0;
-	int column = 0;
+	TokenRange range;
+	uint32_t name_token = 0; // Of the name of a Name, a Member or a Call.
+	uint32_t op_token = 0; // Of the operator of a Unary or a Binary.
 
 	int64_t int_value = 0;
 	bool int_overflows = false; // 9223372036854775808 without a unary minus.
@@ -109,6 +112,7 @@ struct Expr {
 	// The name of each argument passed by name, as in `Hit(damage = 3)`, or "";
 	// empty when none is.
 	std::vector<std::string> arg_names;
+	std::vector<uint32_t> arg_name_tokens; // Beside `arg_names`; 0 for an argument by position.
 	TypeRef cast_type;
 
 	// Filled by the checker.
@@ -165,11 +169,11 @@ struct MatchBranch;
 
 struct Stmt {
 	StmtKind kind = StmtKind::Pass;
-	int line = 0;
-	int column = 0;
+	TokenRange range;
 
 	// Var and For: the declared variable.
 	std::string name;
+	uint32_t name_token = 0;
 	std::optional<TypeRef> declared_type;
 	// Assign: `=` or a compound operator such as `+=`.
 	TokenKind assign_op = TokenKind::Equal;
@@ -199,9 +203,9 @@ enum class PatternKind {
 // arrays, keep theirs in `items`.
 struct Pattern {
 	PatternKind kind = PatternKind::Wildcard;
-	int line = 0;
-	int column = 0;
+	TokenRange range;
 	std::string name; // Bind.
+	uint32_t name_token = 0;
 	// Value: the expression, which the checker makes into `matched == value`.
 	std::unique_ptr<Expr> value;
 	std::vector<Pattern> items;
@@ -209,8 +213,7 @@ struct Pattern {
 };
 
 struct MatchBranch {
-	int line = 0;
-	int column = 0;
+	TokenRange range;
 	std::vector<Pattern> patterns; // Separated by commas.
 	std::unique_ptr<Expr> guard; // `when`.
 	Block body;
@@ -219,15 +222,15 @@ struct MatchBranch {
 // `@name` or `@name(args)` (spec §2.3).
 struct Annotation {
 	std::string name;
-	int line = 0;
-	int column = 0;
+	TokenRange range;
+	uint32_t name_token = 0;
 	std::vector<std::unique_ptr<Expr>> args;
 };
 
 struct VarDecl {
 	std::string name;
-	int line = 0;
-	int column = 0;
+	TokenRange range;
+	uint32_t name_token = 0;
 	bool is_pub = false;
 	bool is_export = false;
 	bool is_onready = false; // Initialized when the node is ready (spec §6.3).
@@ -238,8 +241,7 @@ struct VarDecl {
 	// `@get_x` for inline ones, which the parser adds to the functions.
 	std::string setter;
 	std::string getter;
-	int accessor_line = 0;
-	int accessor_column = 0;
+	uint32_t accessor_token = 0; // The first token after the colon that opens them.
 	// Filled by the checker.
 	Type type;
 	int setter_index = -1; // In the class's functions.
@@ -262,8 +264,8 @@ struct ExportGroupDecl {
 
 struct ParamDecl {
 	std::string name;
-	int line = 0;
-	int column = 0;
+	TokenRange range;
+	uint32_t name_token = 0;
 	std::optional<TypeRef> declared_type;
 	std::unique_ptr<Expr> default_value;
 	Type type; // Filled by the checker.
@@ -276,8 +278,8 @@ struct LocalInfo {
 
 struct FuncDecl {
 	std::string name;
-	int line = 0;
-	int column = 0;
+	TokenRange range;
+	uint32_t name_token = 0;
 	bool is_pub = false;
 	bool is_static = false;
 	bool is_async = false;
@@ -297,8 +299,8 @@ struct FuncDecl {
 // `signal name(params)` (spec §4.7).
 struct SignalDecl {
 	std::string name;
-	int line = 0;
-	int column = 0;
+	TokenRange range;
+	uint32_t name_token = 0;
 	bool is_pub = false;
 	std::vector<ParamDecl> params;
 };
@@ -307,8 +309,8 @@ struct SignalDecl {
 // (spec §3.9).
 struct InterfaceProperty {
 	std::string name;
-	int line = 0;
-	int column = 0;
+	TokenRange range;
+	uint32_t name_token = 0;
 	TypeRef type_ref;
 	bool is_readonly = false;
 	Type type; // Filled by the checker.
@@ -318,8 +320,8 @@ struct InterfaceProperty {
 // default values.
 struct StructDecl {
 	std::string name;
-	int line = 0;
-	int column = 0;
+	TokenRange range;
+	uint32_t name_token = 0;
 	bool is_pub = false;
 	std::vector<VarDecl> fields;
 
@@ -336,14 +338,15 @@ struct StructDecl {
 // `interface Name:` with the signatures of its methods and its properties (spec §3.9).
 struct InterfaceDecl {
 	std::string name;
-	int line = 0;
-	int column = 0;
+	TokenRange range;
+	uint32_t name_token = 0;
 	bool is_pub = false;
 	std::vector<FuncDecl> methods; // Without bodies.
 	std::vector<InterfaceProperty> properties;
 };
 
 struct ClassDecl {
+	std::shared_ptr<const SourceFile> source; // What the token indices of its nodes refer to.
 	std::string class_name;
 	std::string extends = "RefCounted";
 	bool extends_path = false;
@@ -356,8 +359,7 @@ struct ClassDecl {
 	std::vector<const FuncDecl *> all_functions;
 	std::vector<const SignalDecl *> all_signals;
 	std::set<std::string> exposed_methods;
-	int extends_line = 1;
-	int extends_column = 1;
+	uint32_t extends_token = 0; // The base's name or path.
 	std::vector<TypeRef> implements;
 	std::optional<TypeRef> owner_ref; // @owner(T) (spec §7.3).
 	Type owner_type; // Filled by the checker.
