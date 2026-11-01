@@ -396,7 +396,26 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 4.5 Constants
 
-- `const` is as in GDScript.
+- `const` is written as in GDScript, in a class or in a function. A constant of a class belongs to the class: this class and its subclasses use its bare name, other classes write `Player.MAX`, and it may also be reached through an instance, as in `self.MAX` and `p.MAX`; static functions use it too. Visibility follows §4.2. The type may be written; without it the initializer gives it, by the rule for members (§4.3), so `const SPEEDS = [1.0, 2.0]` is `Array[float]`, where GDScript makes it an untyped Array.
+- The initializer must be a constant expression, made of: literals; constants, enum values, and constants of engine classes and built-in types; `preload`; operators and conditional expressions; array and dictionary literals; constructors and conversions of built-in types; math utility functions, those the engine files under math (`core/variant/variant_utility.cpp:1632-1732`); subscripts and fields of constants. Method calls, lambdas, `self` and variables are not constant expressions, as in GDScript (`modules/gdscript/gdscript_analyzer.cpp:2124-2131`).
+- The compiler computes values of int, float, bool, String, StringName and NodePath: operations and conversions among them, math functions returning int or bool, and the structure of array and dictionary literals. These compute only with int64 and double, so the results do not depend on how the engine is built or on the platform; a value computed is the value of the same expression at run time.
+- The engine computes the rest once, when the class loads: constructors and operations of engine types (vectors, Color and the like), math functions returning float, and values computed from them. Reason: vector components are `real_t`, which differs between single- and double-precision builds (`core/math/math_defs.h:143-147`), so bytecode compiled once cannot fix either result; the last digit of functions such as sin varies with the platform's math library, and GDScript too computes them on the device, when the script loads (`modules/gdscript/register_types.cpp:99-116`).
+- Computing at load does not fail: once types check, the engine's constructors, operations and math functions fail on a value only in the cases below (the other errors of math functions are all argument types, `core/variant/variant_utility.cpp:383-402, 459-470, 587-606, 653-668, 697-712, 737-751`), and every case is checked at compile time. "Known" in the table means computed by the compiler:
+
+  | Case | Required at compile time | The engine and GDScript |
+  |---|---|---|
+  | `/` and `%` of int and integer vectors, `posmod` | The divisor known and not 0, each component of a vector | Invalid evaluation, a GDScript compile error (`core/variant/variant_op.h:134-146, 241-250`, `modules/gdscript/gdscript_analyzer.cpp:3139-3157`); `posmod` prints an error and returns 0 (`core/math/math_funcs.h:312-313`) |
+  | `<<` and `>>` | Both sides known and not negative, the shift less than 64 | Negative values rejected only in debug builds (`core/variant/variant_op.h:360-372`); a shift of 64 or more is undefined behavior in C++ |
+  | float to int, as in `int(x)` and `floori(x)` | x known, neither NaN nor infinite, within int64 | Undefined behavior in C++ |
+  | Subscript or key of a constant | The index or key known, the index in range, the key present | A GDScript compile error (`gdscript_analyzer.cpp:4920-4927`) |
+  | Keys of a dictionary literal | Known and distinct | A GDScript compile error (`gdscript_analyzer.cpp:3854-3856`) |
+  | `Color(s)` | s a hexadecimal literal; a color name is a compile error whose quick fix is the constant of that name, such as `Color.RED` | Looked up as a color name, printing an error and giving black when not found (`core/math/color.cpp:396-402`); the color names are the names of Color's constants (`core/variant/variant_call.cpp:3086-3089`) |
+
+- Annotation arguments, enum values and the positions the table requires known take only values the compiler computes. [Known limitation] An int rounded from a float computed only at load, such as `floori(sin(X) * 100)`, cannot be used there; if real code needs it, the compiler computing math functions that return float is discussed again.
+- [Known limitation] Constant expressions cannot use `%` formatting, `is`, `as`, `in`, GDScript's own utility functions (such as `Color8`, `len`, `char` and `ord`), or the constructors and operations that debug builds check on argument values: Basis or Quaternion from an axis and an angle, Quaternion from a Basis or two vectors, and Quaternion times a vector (`core/math/basis.cpp:716-717, 843-844`, `core/math/quaternion.cpp:289-290`, `core/math/quaternion.h:93-94, 139-140`).
+- Arrays and dictionaries in constants are read-only at every level, as in GDScript (`modules/gdscript/gdscript_analyzer.cpp:5318-5367`). Assigning to a constant, assigning to an element of a container in a constant, and calling a method that changes it directly on the constant are compile errors; changing it through another variable is a program error (§3.8).
+- Changing a constant is like changing a member: hot reload asks to run again (§12.4), since other classes may have been compiled with the old value.
+- Evidence: in the [constant-expressions survey](surveys/constant-expressions.en.md), 2,920 of 3,094 constants need no computation, 141 are scalar computations and 33 need the engine; among positions that need a value at compile time, the 7 constants in annotation arguments are all set by literals and no enum value uses a constant; none of the unsupported forms above appears.
 
 ### 4.6 Functions
 
@@ -970,6 +989,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - There are no stateful mixins, and interfaces cannot be generic (§3.9).
 - There are no namespaces (§4.1).
 - Cross-language inheritance is not supported in either direction (§4.1, §11.2).
+- Constant expressions cannot use `%` formatting, `is`, `as`, `in`, GDScript's own utility functions, or the constructors and operations of Basis and Quaternion that debug builds check on argument values; an int rounded from a float computed only at load cannot be used where a value is needed at compile time (§4.5).
 - GDScript cannot call static methods of classes of this language or use their enums and constants as types or constant expressions, and autoloads written in this language are untyped in GDScript (§11.3).
 - match has no type patterns, no match expressions, and no binding in comma-separated patterns (§5.6).
 - There is no "non-null member assigned after ready" (§6.2).
@@ -989,6 +1009,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - several constraints on a type parameter, and classes as constraints (§3.10);
 - parameter names in function types, direct calls `f(x)`, and passing an ordinary function where an async one is expected (§3.11);
 - a stricter `private` visibility (§4.2);
+- `%` formatting, `is`, `as`, `in`, GDScript's utility functions and the constructors and operations of Basis and Quaternion above in constant expressions, and the compiler computing math functions that return float (§4.5);
 - a spread form at call sites (§4.6);
 - conditional binding, or narrowing fields without a getter when no call, await or assignment occurs between the check and the use (§5.4);
 - type patterns, match expressions, and binding in comma-separated patterns (§5.6);
@@ -1024,6 +1045,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Abstract classes and rest parameters | Constructing an abstract class is a compile error; a concrete subclass missing an implementation of an abstract method is a compile error; a node in a scene using an abstract class is a compile error; passing a String to `...args: Array[int]` is a compile error; a bare `...args` is a compile error; GDScript passing a String when calling `...args: Array[int]` is a program error |
 | Visibility | Members without `pub` are invisible in other classes, and readable, writable and overridable in subclasses; using a struct without `pub` in another class that is not a subclass is a compile error; changing visibility in an override is a compile error; a type without `pub` in the signature of a `pub` function is a compile error; GDScript referring to a member without `pub` is a GDScript compile error, and so is referring to `pub var hits: Array[Hit]`; `call_deferred("reset")` makes `reset` callable by name from the engine |
 | Members | `var speed = 5.0` is float; empty-container members require an annotation; an int member without an initializer is 0, and a `T?` member is None; a struct member takes its default when every field has one and must otherwise be assigned |
+| Constants | `const DAY_MS = 24 * 60 * 60 * 1000` is computed at compile time; `const HALF = Vector3.ONE / 2.0` is computed in double in a double-precision build; `const N = 10 / 0` is a compile error at the `/`; `Color("red")` in a constant is a compile error offering `Color.RED`; `const S = "%d" % 3` is a compile error; `const SPEEDS = [1.0, 2.0]` is `Array[float]`, and `SPEEDS.append(3.0)` is a compile error; `@export_range(0, MAX)` is valid; `const K = 100 / roundi(sin(X))` is a compile error; a subclass and a static function use a constant by its bare name, and `self.MAX` is valid; GDScript reading a `pub` constant gets its value |
 | Locals | `func f(n): if c: var n = 1` is a compile error, and so are a `var` and a `for` variable named like a local of an enclosing block; the two branches of an if and else each declaring `var x` are valid |
 | Signatures | delta in `func _process(delta):` is a float; an override writing a subtype as its return type is valid, and writing a supertype is a compile error; an override adding a parameter with a default is valid; returning a value from a non-override function with an omitted return type is a compile error; lambda parameters with an expected type need no annotation |
 | Signals | Mismatching emit arguments and connect parameters are compile errors; a connection in a scene that does not match its signal is marked in the scene; the await result of a one-parameter signal has that parameter's type; using the await result of a multi-parameter signal is a compile error; awaiting a variable of type `Signal` yields a Variant, an Array at runtime when the signal has two parameters |
@@ -1063,12 +1085,17 @@ The following facts are based on Godot 4.7.2-stable (commit `ed1daf0`); paths ar
 |---|---|
 | Variant integers are int64_t and floats are double | `core/variant/variant.h:252-253` |
 | Converting a Variant to an integer narrower than int64 or unsigned truncates or wraps | `core/variant/variant.h:336-353, 411-424` |
-| `real_t` is float in standard builds | `core/math/math_defs.h:143-146` |
+| `real_t` is float in standard builds and double in double-precision builds | `core/math/math_defs.h:143-147` |
 | The engine's operator table | `core/variant/variant_op.cpp:212-1033` |
 | `==` between int and float compares numerically; `==` on objects compares identity, after turning freed objects into null | `core/variant/variant_op.cpp:490-491, 514`; `core/variant/variant_op.h:471-477` |
 | A freed object compares equal to NIL | `core/variant/variant_op.h:484-489` |
 | `==` between String and StringName compares contents | `core/variant/variant_op.cpp:196-203, 493, 615` |
 | Evaluating a combination missing from the operator table is invalid | `core/variant/variant_op.cpp:1049-1054` |
+| Dividing an int or an integer vector by 0, or taking it modulo 0, is an invalid evaluation | `core/variant/variant_op.h:134-146, 241-250` |
+| Shifts reject negative operands only in debug builds | `core/variant/variant_op.h:360-372, 386-398` |
+| The utility functions the engine files under math; their call errors are all argument types, and `posmod` prints an error and returns 0 when the divisor is 0 | `core/variant/variant_utility.cpp:383-402, 459-470, 587-606, 653-668, 697-712, 737-751, 1632-1732`; `core/math/math_funcs.h:312-313` |
+| Color from a string looks the string up as a color name unless it is hexadecimal, printing an error and giving black when not found; the color names are the names of Color's constants | `core/math/color.h:274-280`; `core/math/color.cpp:396-402`; `core/variant/variant_call.cpp:3086-3089` |
+| In debug builds, Basis and Quaternion from an axis and an angle require a normalized axis, Quaternion from a Basis requires a rotation, Quaternion from two vectors requires them non-zero, and Quaternion times a vector requires it normalized | `core/math/basis.cpp:716-717, 843-844`; `core/math/quaternion.cpp:289-290`; `core/math/quaternion.h:93-94, 139-140`; `core/math/math_defs.h:56-58` |
 | Array's `==` uses `hash_compare` element by element, which requires the same element type | `core/variant/array.cpp:155-158`; `core/variant/variant.cpp:3176-3179` |
 | `hash_compare` takes a NaN as matching a NaN | `core/variant/variant.cpp:3138-3139` |
 | Dictionary's `==` looks up each key and compares the values, regardless of order | `core/variant/dictionary.cpp:255-285` |
@@ -1148,6 +1175,10 @@ The following facts are based on Godot 4.7.2-stable (commit `ed1daf0`); paths ar
 | Without a script instance, `callp` looks only for engine-registered methods, so static methods on a Script resource are not found | `core/object/object.cpp:800-826` |
 | GDScript cannot refer to a type inside another language's class in a type annotation | `modules/gdscript/gdscript_analyzer.cpp:935-937` |
 | GDScript does not treat constants of another language's class as constant expressions | `modules/gdscript/gdscript_analyzer.cpp:4321-4330` |
+| GDScript requires the initializer of a constant to be a constant expression | `modules/gdscript/gdscript_analyzer.cpp:2124-2131` |
+| GDScript computes an operation whose sides are both constant at compile time, reporting an invalid evaluation as an error | `modules/gdscript/gdscript_analyzer.cpp:3139-3157` |
+| GDScript computes a subscript of a constant at compile time, reporting one it cannot get; a repeated constant key in a dictionary literal is a compile error | `modules/gdscript/gdscript_analyzer.cpp:3854-3856, 4920-4927` |
+| GDScript makes arrays and dictionaries in constants read-only at every level | `modules/gdscript/gdscript_analyzer.cpp:5318-5367` |
 | GDScript types only autoloads written in GDScript | `modules/gdscript/gdscript_analyzer.cpp:806-826, 4579-4616` |
 | In GDScript, calling a Callable variable with function-call syntax is a compile error suggesting `.call()` | `modules/gdscript/gdscript_analyzer.cpp:3741-3745` |
 | In GDScript, a coroutine call used as a value without await is a compile error; as a statement it is a warning | `modules/gdscript/gdscript_analyzer.cpp:3776-3784` |
@@ -1243,3 +1274,6 @@ The following facts are based on Godot 4.7.2-stable (commit `ed1daf0`); paths ar
 | Forbidding structs with container fields as Dictionary keys | GDScript allows containers as keys; read-only copies keep the stored hash valid | §3.8 |
 | Making the original read-only when it becomes a key | `make_read_only` cannot be undone, so the caller's container, and anything else holding it, could never be changed again | §3.8 |
 | `min()` and `max()` returning `T?`, as GDScript's null on an empty array would suggest | The null is a value the element type does not have, which GDScript hands on in silence; the program error says where an empty array was not expected | §3.8 |
+| The compiler computing every constant, operations on engine types included | Vector components are float or double depending on how the engine is built, and bytecode compiled once can fix only one of the results; the compiler would also rewrite the engine's operations | §4.5 |
+| Computing constants with the engine at compile time | The compiler would depend on the engine, and compiler tests could either not test constants or need the computation written again in the test stub | §4.5 |
+| Computing every constant when the class loads | Annotation arguments and enum values would have no value at compile time, and errors such as `10 / 0` would wait until loading | §4.5 |

@@ -396,7 +396,26 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 4.5 常量
 
-- `const` 与 GDScript 相同。
+- `const` 的写法与 GDScript 相同，可以声明在类中，也可以声明在函数中。类中的常量属于类：本类和子类中直接写名字，其他类中写 `Player.MAX`，也可以经实例写 `self.MAX`、`p.MAX`；静态函数中同样可用。可见性按 §4.2。类型可以写出，省略时由初始化式推断，规则与成员相同（§4.3），例如 `const SPEEDS = [1.0, 2.0]` 为 `Array[float]`，在 GDScript 中则是无类型的 Array。
+- 初始化式必须是常量表达式，由以下部分组成：字面量；常量、enum 的值、引擎类和内置类型的常量；`preload`；运算符和条件表达式；数组和字典字面量；内置类型的构造和转换；数学工具函数，即引擎归为 math 类的工具函数（`core/variant/variant_utility.cpp:1632-1732`）；对常量取下标和字段。方法调用、lambda、`self` 和变量都不是常量表达式，与 GDScript 相同（`modules/gdscript/gdscript_analyzer.cpp:2124-2131`）。
+- 编译器求出 int、float、bool、String、StringName 和 NodePath 的值，包括它们之间的运算和转换、返回 int 或 bool 的数学函数，以及数组和字典字面量的结构。这些只用 int64 和 double 计算，结果与引擎的构建和平台无关；求出的值与同一表达式在运行时的值相同。
+- 其余部分在类加载时由引擎求值一次：引擎类型（向量、Color 等）的构造和运算、返回 float 的数学函数，以及由它们算出的值。理由：向量的分量是 `real_t`，在单精度和双精度的构建中不同（`core/math/math_defs.h:143-147`），编译一次的字节码不能写死其中一种结果；sin 等函数结果的末位随平台的数学库而异，GDScript 也是在设备上加载脚本时才求值（`modules/gdscript/register_types.cpp:99-116`）。
+- 加载时的求值不会失败：类型检查通过之后，引擎的构造、运算和数学函数只在下表的情形因值出错（数学函数的其余错误都是实参类型不符，`core/variant/variant_utility.cpp:383-402, 459-470, 587-606, 653-668, 697-712, 737-751`），这些情形都在编译期检查。表中的“已知”指由编译器求出：
+
+  | 情形 | 编译期的要求 | 引擎和 GDScript 的行为 |
+  |---|---|---|
+  | int 和整数向量的 `/`、`%`，`posmod` | 除数已知且不为 0，向量逐个分量判断 | 求值无效，GDScript 报编译错误（`core/variant/variant_op.h:134-146, 241-250`，`modules/gdscript/gdscript_analyzer.cpp:3139-3157`）；`posmod` 打印错误并返回 0（`core/math/math_funcs.h:312-313`） |
+  | `<<`、`>>` | 两边已知且不为负，移位量小于 64 | 只在 debug 构建中拒绝负数（`core/variant/variant_op.h:360-372`）；移位量达到 64 时是 C++ 的未定义行为 |
+  | float 转为 int，如 `int(x)`、`floori(x)` | x 已知，不是 NaN 或无穷，在 int64 的范围内 | C++ 的未定义行为 |
+  | 对常量取下标或键 | 下标或键已知，下标不越界，键存在 | GDScript 报编译错误（`gdscript_analyzer.cpp:4920-4927`） |
+  | 字典字面量的键 | 已知，不重复 | GDScript 报编译错误（`gdscript_analyzer.cpp:3854-3856`） |
+  | `Color(s)` | s 是十六进制写法的字面量；颜色名报编译错误，快速修复改为同名的常量，如 `Color.RED` | 按颜色名查找，找不到时打印错误并返回黑色（`core/math/color.cpp:396-402`）；颜色名就是 Color 的常量名（`core/variant/variant_call.cpp:3086-3089`） |
+
+- 注解参数、enum 的值和上表中要求“已知”的位置只接受编译器求出的值。【已知限制】由加载时才求出的 float 取整得到的 int，例如 `floori(sin(X) * 100)`，不能用在这些位置；遇到真实代码需要时，再讨论由编译器求返回 float 的数学函数。
+- 【已知限制】常量表达式中不能使用 `%` 格式化、`is`、`as`、`in`，GDScript 自己的工具函数（如 `Color8`、`len`、`char`、`ord`），以及 debug 构建中会检查实参的值的构造和运算：由轴和角构造 Basis 或 Quaternion，由 Basis 或两个向量构造 Quaternion，Quaternion 乘向量（`core/math/basis.cpp:716-717, 843-844`，`core/math/quaternion.cpp:289-290`，`core/math/quaternion.h:93-94, 139-140`）。
+- 常量中的数组和字典逐层只读，与 GDScript 相同（`modules/gdscript/gdscript_analyzer.cpp:5318-5367`）。给常量赋值、给常量中容器的元素赋值、直接对常量调用修改它的方法，都是编译错误；经其他变量修改是程序错误（§3.8）。
+- 修改常量与修改成员相同，热重载时需要重新运行（§12.4），因为其他类可能已按旧值编译。
+- 依据：[常量表达式调查](surveys/constant-expressions.zh.md)中，3,094 个常量里 2,920 个不用计算，141 个是标量计算，需要引擎求值的 33 个；在编译期要用到值的位置中，注解参数用到的 7 个常量都以字面量初始化，enum 的值没有用到常量；上述不支持的写法都没有出现。
 
 ### 4.6 函数
 
@@ -970,6 +989,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 没有带状态的 mixin，接口不能是泛型（§3.9）。
 - 没有命名空间（§4.1）。
 - 不支持跨语言继承，两个方向都不支持（§4.1、§11.2）。
+- 常量表达式中不能使用 `%` 格式化、`is`、`as`、`in`、GDScript 自己的工具函数，以及 debug 构建中检查实参的值的 Basis、Quaternion 的构造和运算；由加载时才求出的 float 取整得到的 int 不能用在编译期要用到值的位置（§4.5）。
 - GDScript 不能调用本语言类的静态方法，不能把其中的 enum 和常量用作类型或常量表达式，本语言写的 autoload 在 GDScript 中没有类型（§11.3）。
 - match 没有类型模式、没有 match 表达式，也不能在逗号分隔的多个模式中绑定（§5.6）。
 - 没有“就绪后才赋值的非空成员”（§6.2）。
@@ -989,6 +1009,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 泛型的多个约束，以及以类作约束（§3.10）；
 - 函数类型中的参数名、直接调用 `f(x)`、把普通函数传给期望 async 的位置（§3.11）；
 - 更严的 `private` 可见性（§4.2）；
+- 常量表达式中的 `%` 格式化、`is`、`as`、`in`、GDScript 的工具函数和 Basis、Quaternion 的上述构造和运算，以及由编译器求返回 float 的数学函数（§4.5）；
 - 调用处的展开写法（§4.6）；
 - 条件绑定，或检查与使用之间没有调用、await 和赋值时让没有 getter 的字段收窄（§5.4）；
 - match 的类型模式、match 表达式，以及在逗号分隔的多个模式中绑定（§5.6）；
@@ -1024,6 +1045,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 抽象类与剩余参数 | 构造抽象类报编译错误；具体子类缺少某个抽象方法的实现报编译错误；场景中的节点使用抽象类报编译错误；向 `...args: Array[int]` 传入 String 报编译错误；只写 `...args` 报编译错误；GDScript 调用 `...args: Array[int]` 时传入 String 是程序错误 |
 | 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；在子类以外的其他类中使用不带 `pub` 的 struct 报编译错误；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误，引用 `pub var hits: Array[Hit]` 同样报错；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
 | 成员 | `var speed = 5.0` 为 float；空容器成员要求标注；没有初始化式的 int 成员为 0，`T?` 成员为 None；所有字段都有默认值的 struct 成员取默认值，否则必须赋值 |
+| 常量 | `const DAY_MS = 24 * 60 * 60 * 1000` 在编译期求值；`const HALF = Vector3.ONE / 2.0` 在双精度构建中按 double 求值；`const N = 10 / 0` 报编译错误，标在 `/` 上；常量中的 `Color("red")` 报编译错误并给出 `Color.RED`；`const S = "%d" % 3` 报编译错误；`const SPEEDS = [1.0, 2.0]` 为 `Array[float]`，`SPEEDS.append(3.0)` 报编译错误；`@export_range(0, MAX)` 合法；`const K = 100 / roundi(sin(X))` 报编译错误；子类和静态函数中直接写常量名、经 `self.MAX` 访问都合法；GDScript 读取 `pub` 常量得到它的值 |
 | 局部变量 | `func f(n): if c: var n = 1` 报编译错误，与外层块的局部变量同名的 `var` 和 `for` 循环变量也一样；if 与 else 两个分支各自声明 `var x` 合法 |
 | 签名 | `func _process(delta):` 中 delta 为 float；覆盖时把返回类型写成子类型合法，写成父类型报编译错误；覆盖时多出带默认值的参数合法；非覆盖函数省略返回类型后返回值报编译错误；有期望类型的 lambda 参数不必标注 |
 | 信号 | emit 实参不符和 connect 参数不符报编译错误；场景中的连接与信号不符时标在场景中；单参数信号的 await 结果有该参数类型；使用多参数信号的 await 结果报编译错误；await `Signal` 类型的变量得到 Variant，信号有两个参数时运行时为 Array |
@@ -1063,12 +1085,17 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 |---|---|
 | Variant 的整数是 int64_t，浮点数是 double | `core/variant/variant.h:252-253` |
 | Variant 转为比 int64 窄或无符号的整数时直接截断或回绕 | `core/variant/variant.h:336-353, 411-424` |
-| 标准构建中 `real_t` 是 float | `core/math/math_defs.h:143-146` |
+| `real_t` 在标准构建中是 float，在双精度构建中是 double | `core/math/math_defs.h:143-147` |
 | 引擎的运算符表 | `core/variant/variant_op.cpp:212-1033` |
 | int 与 float 的 `==` 按数值比较；对象的 `==` 比较同一性，但先把已释放的对象取为 null | `core/variant/variant_op.cpp:490-491, 514`；`core/variant/variant_op.h:471-477` |
 | 已释放的对象与 NIL 比较为真 | `core/variant/variant_op.h:484-489` |
 | String 与 StringName 的 `==` 按内容比较 | `core/variant/variant_op.cpp:196-203, 493, 615` |
 | 运算表中没有的组合求值无效 | `core/variant/variant_op.cpp:1049-1054` |
+| int 和整数向量除以 0、对 0 取模时求值无效 | `core/variant/variant_op.h:134-146, 241-250` |
+| 移位只在 debug 构建中拒绝负的运算数 | `core/variant/variant_op.h:360-372, 386-398` |
+| 引擎归为 math 类的工具函数；它们的调用错误都是实参类型不符，`posmod` 的除数为 0 时打印错误并返回 0 | `core/variant/variant_utility.cpp:383-402, 459-470, 587-606, 653-668, 697-712, 737-751, 1632-1732`；`core/math/math_funcs.h:312-313` |
+| 由字符串构造 Color 时，不是十六进制写法就按颜色名查找，找不到时打印错误并返回黑色；颜色名就是 Color 的常量名 | `core/math/color.h:274-280`；`core/math/color.cpp:396-402`；`core/variant/variant_call.cpp:3086-3089` |
+| debug 构建中，由轴和角构造 Basis、Quaternion 要求轴已归一化，由 Basis 构造 Quaternion 要求它是旋转，由两个向量构造 Quaternion 要求它们不为零，Quaternion 乘向量要求它已归一化 | `core/math/basis.cpp:716-717, 843-844`；`core/math/quaternion.cpp:289-290`；`core/math/quaternion.h:93-94, 139-140`；`core/math/math_defs.h:56-58` |
 | Array 的 `==` 逐元素用 `hash_compare`，它要求元素类型相同 | `core/variant/array.cpp:155-158`；`core/variant/variant.cpp:3176-3179` |
 | `hash_compare` 认为 NaN 与 NaN 匹配 | `core/variant/variant.cpp:3138-3139` |
 | Dictionary 的 `==` 按键查找后逐项比较值，与顺序无关 | `core/variant/dictionary.cpp:255-285` |
@@ -1148,6 +1175,10 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 对象没有脚本实例时，`callp` 只查找引擎注册的方法，所以 Script 资源上的静态方法找不到 | `core/object/object.cpp:800-826` |
 | GDScript 不能在类型标注中引用其他语言的类中的类型 | `modules/gdscript/gdscript_analyzer.cpp:935-937` |
 | GDScript 不把其他语言的类的常量当作常量表达式 | `modules/gdscript/gdscript_analyzer.cpp:4321-4330` |
+| GDScript 的常量初始化式必须是常量表达式 | `modules/gdscript/gdscript_analyzer.cpp:2124-2131` |
+| GDScript 在编译期求值两边都是常量的运算，求值无效时报错 | `modules/gdscript/gdscript_analyzer.cpp:3139-3157` |
+| GDScript 在编译期对常量取下标，取不到时报错；字典字面量中重复的常量键是编译错误 | `modules/gdscript/gdscript_analyzer.cpp:3854-3856, 4920-4927` |
+| GDScript 把常量中的数组和字典逐层设为只读 | `modules/gdscript/gdscript_analyzer.cpp:5318-5367` |
 | GDScript 只为 GDScript 写的 autoload 定型 | `modules/gdscript/gdscript_analyzer.cpp:806-826, 4579-4616` |
 | GDScript 中以调用函数的写法调用 Callable 变量是编译错误，提示改用 `.call()` | `modules/gdscript/gdscript_analyzer.cpp:3741-3745` |
 | GDScript 中不加 await 把协程调用当值使用是编译错误，作为语句时只是警告 | `modules/gdscript/gdscript_analyzer.cpp:3776-3784` |
@@ -1243,3 +1274,6 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 禁止含容器字段的 struct 作 Dictionary 的键 | GDScript 允许以容器作键；只读的副本使保存的哈希始终有效 | §3.8 |
 | 把原值在作键时设为只读 | `make_read_only` 不能撤销，调用方的容器，以及其他持有它的地方，从此再也不能修改 | §3.8 |
 | 按 GDScript 在空数组上返回 null 的样子，让 `min()`、`max()` 返回 `T?` | 这个 null 是元素类型没有的值，GDScript 默默地把它传下去；程序错误指出哪里没料到空数组 | §3.8 |
+| 编译器求出全部常量，包括引擎类型的运算 | 向量的分量随引擎的构建是 float 或 double，编译一次的字节码只能写死其中一种结果；编译器还要重写引擎的运算 | §4.5 |
+| 编译期经引擎求出常量 | 编译器就要依赖引擎，编译器测试要么测不了常量，要么在测试桩中再写一遍求值 | §4.5 |
+| 全部常量在类加载时求值 | 注解参数、enum 的值在编译期拿不到值，`10 / 0` 一类错误推迟到加载时才报 | §4.5 |
