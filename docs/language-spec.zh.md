@@ -65,6 +65,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 2.3 注解
 
 - 沿用 GDScript 的注解，含义相同：`@export` 系列、`@onready`、`@tool`、`@icon`、`@warning_ignore`、`@rpc`、`@static_unload`、`@abstract`（§4.1）。
+- `@warning_ignore` 的参数是本语言的警告名。不抑制任何诊断的名字给出提示（§13.2），而 GDScript 对不认识的名字报错（`modules/gdscript/gdscript_parser.cpp:5126-5128`）：迁移来的代码写的是 GDScript 的警告名，其中许多警告本语言没有。
 - 新增的类级注解：`@parent(T)`、`@owner(T)`（§7.3）。
 - 新增的成员注解：`@readonly`，只用于接口属性（§3.9）。
 - 注解写在声明之前，可以与声明同一行；`pub` 写在注解之后、`static` 之前（§2.4）。
@@ -1171,6 +1172,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | GDScript 的覆盖检查允许返回类型协变、参数类型逆变，以及多出带默认值的参数 | `modules/gdscript/gdscript_analyzer.cpp:1895-1936` |
 | GDScript 的静态检查要求带类型的 Array、Dictionary 的元素类型完全相同 | `modules/gdscript/gdscript_analyzer.cpp:6379-6393` |
 | GDScript 的单引号和双引号字符串可以跨行 | `modules/gdscript/gdscript_tokenizer.cpp:1086-1098` |
+| GDScript 的 `@warning_ignore` 遇到不认识的警告名时报错 | `modules/gdscript/gdscript_parser.cpp:5126-5128` |
 | GDScript 的静态检查允许 String 与 StringName、NodePath 双向隐式转换，不允许 StringName 与 NodePath 之间转换 | `modules/gdscript/gdscript_analyzer.cpp:6370-6374`；`core/variant/variant.cpp:579-587, 735-750` |
 | GDScript 不允许元素类型本身是带类型容器的带类型容器 | `modules/gdscript/gdscript_parser.cpp:3903-3904` |
 | GDScript 的剩余参数只能是元素为 Variant 的 Array | `modules/gdscript/gdscript_analyzer.cpp:1803-1810` |

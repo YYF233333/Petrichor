@@ -65,6 +65,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 2.3 Annotations
 
 - GDScript's annotations are kept with their meaning: the `@export` family, `@onready`, `@tool`, `@icon`, `@warning_ignore`, `@rpc`, `@static_unload`, `@abstract` (§4.1).
+- `@warning_ignore` names warnings of this language. A name that suppresses no diagnostic gets a hint (§13.2), where GDScript reports a name it does not know as an error (`modules/gdscript/gdscript_parser.cpp:5126-5128`): migrated code names GDScript's warnings, many of which this language does not have.
 - New class-level annotations: `@parent(T)` and `@owner(T)` (§7.3).
 - New member annotation: `@readonly`, only for interface properties (§3.9).
 - Annotations precede the declaration and may share its line; `pub` comes after annotations and before `static` (§2.4).
@@ -1171,6 +1172,7 @@ The following facts are based on Godot 4.7.2-stable (commit `ed1daf0`); paths ar
 | GDScript's override check allows a covariant return type, contravariant parameter types, and extra parameters with defaults | `modules/gdscript/gdscript_analyzer.cpp:1895-1936` |
 | GDScript's static checks require typed Arrays and Dictionaries to have exactly the same element types | `modules/gdscript/gdscript_analyzer.cpp:6379-6393` |
 | GDScript's strings in single or double quotes may span lines | `modules/gdscript/gdscript_tokenizer.cpp:1086-1098` |
+| GDScript's `@warning_ignore` reports a warning name it does not know as an error | `modules/gdscript/gdscript_parser.cpp:5126-5128` |
 | GDScript's static checks convert String to and from StringName and NodePath implicitly, and StringName and NodePath not to each other | `modules/gdscript/gdscript_analyzer.cpp:6370-6374`; `core/variant/variant.cpp:579-587, 735-750` |
 | GDScript does not allow typed containers whose element types are typed containers | `modules/gdscript/gdscript_parser.cpp:3903-3904` |
 | GDScript's rest parameter can only be an Array with Variant elements | `modules/gdscript/gdscript_analyzer.cpp:1803-1810` |
