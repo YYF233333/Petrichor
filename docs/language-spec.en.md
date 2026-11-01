@@ -1055,6 +1055,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - a class named by a preload reached through another class, as `Owner.Unit` (§2.1);
 - aliases or `import` (§2.4);
 - positional arguments for struct construction, struct methods that modify self or redefine `==`, `<` and hashing, `private` for struct members, and value-type recursion without a container (§3.6);
+- `@export` of structs and enums with payloads, and storing them in `.tres`, in the encoding of §10.1 (§3.6, §3.7);
 - generic interfaces, written `interface Source[T]:` (§3.9);
 - several constraints on a type parameter, and classes as constraints (§3.10);
 - parameter names in function types, direct calls `f(x)`, passing an ordinary function where an async one is expected, and captures shared with the enclosing function (§3.11);
