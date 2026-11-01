@@ -1109,6 +1109,56 @@ public:
 					pc += 5 + 2 * code[pc + 4];
 					break;
 				}
+				case Op::CALL_VALUE: {
+					// Through the engine, which passes the call on, also through
+					// bind(); a program error in the callee aborts this call too
+					// (spec §8.1).
+					const bytecode::MethodCall &call = module.method_calls[code[pc + 1]];
+					const uint32_t dst = code[pc + 2];
+					const uint32_t argc = code[pc + 4];
+					Variant callable = *reinterpret_cast<const Callable *>(frame + code[pc + 3]);
+					Arguments args(image.types, frame, code + pc + 5, argc, nullptr);
+					std::vector<Variant> spread;
+					std::vector<const Variant *> spread_pointers;
+					const Variant **pointers = args.as_variants();
+					int count = int(argc);
+					if (call.method == "callv") {
+						const Array &values = *reinterpret_cast<const Array *>(frame + code[pc + 6]);
+						for (int64_t i = 0; i < values.size(); i++) {
+							spread.push_back(values[i]);
+						}
+						for (const Variant &value : spread) {
+							spread_pointers.push_back(&value);
+						}
+						pointers = spread_pointers.data();
+						count = int(spread.size());
+					}
+					ValueCall &value = value_call();
+					const ValueCall outer = value;
+					value = { true, false, false };
+					Variant result;
+					GDExtensionCallError error;
+					callable.callp(image.call_method, pointers, count, result, error);
+					const ValueCall made = value;
+					value = outer;
+					if (made.entered && made.failed) {
+						return false; // The callee reported it.
+					}
+					if (error.error == GDEXTENSION_CALL_ERROR_INSTANCE_IS_NULL) {
+						FAIL("The function value's object was freed.");
+					}
+					if (error.error == GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS || error.error == GDEXTENSION_CALL_ERROR_TOO_FEW_ARGUMENTS) {
+						FAIL(vformat("callv() passes %d argument(s), but the function takes %d.", count, error.expected));
+					}
+					if (error.error != GDEXTENSION_CALL_OK) {
+						FAIL("The function value cannot be called.");
+					}
+					if (dst != NO_SLOT && !from_variant(image.types[call.result.type], result, frame + dst, true)) {
+						FAIL(vformat("A function value returned an unexpected %s.", Variant::get_type_name(result.get_type())));
+					}
+					pc += 5 + 2 * argc;
+					break;
+				}
 				case Op::CALL_AWAIT_ENGINE:
 				case Op::CALL_ENGINE: {
 					const uint32_t target = code[pc + 1];

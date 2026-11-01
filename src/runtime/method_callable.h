@@ -30,6 +30,17 @@ std::shared_ptr<const ClassImage> script_image(const godot::String &p_path);
 // named "script::Name" (spec §3.9).
 bool implements_interface(godot::Object *p_object, const godot::String &p_interface);
 
+// A call of a function value from this language (spec §8.1), which the engine
+// passes on, also through bind(): the first call of a lambda or a method value
+// that the engine makes for it is its callee, whose program error aborts the
+// caller too. Per thread; the caller keeps the one it may be inside of.
+struct ValueCall {
+	bool pending = false; // Made, and no callee has run yet.
+	bool entered = false;
+	bool failed = false;
+};
+ValueCall &value_call();
+
 // A method value (spec §3.11): a Callable that calls a function of the script
 // instance on an object directly, whether or not reflection shows the function
 // (spec §10.5). It finds the function by name on each call, so that it calls

@@ -18,9 +18,12 @@ namespace petrichor::bytecode {
 // there is none; a base of NO_SLOT on CALL_ENGINE means self, unless the call
 // is of a static method. CALL_METHOD calls a method of a class of this language
 // on the object in base (spec §8.1), or a static one with no base, with the
-// arguments and the result in their slots' own layout. MAKE_LAMBDA has this form
-// too: the lambda's function, the Callable it makes, no base, and the values it
-// captures, each of the type of its capture parameter (spec §3.11).
+// arguments and the result in their slots' own layout. CALL_VALUE calls the
+// function value in base with the signature of a method call, whose method is
+// "call", or "callv" with the Array of the arguments as its one argument; a
+// program error in the function aborts the caller (spec §8.1). MAKE_LAMBDA has
+// this form too: the lambda's function, the Callable it makes, no base, and the
+// values it captures, each of the type of its capture parameter (spec §3.11).
 #define PETRICHOR_OPCODES(X) \
 	X(LINE, 1) \
 	X(CONST_INT, 2) \
@@ -119,6 +122,7 @@ namespace petrichor::bytecode {
 	X(CALL_BUILTIN, -1) \
 	X(CONSTRUCT, -1) \
 	X(MAKE_LAMBDA, -1) \
+	X(CALL_VALUE, -1) \
 	X(RETURN, 1) \
 	X(RETURN_VOID, 0)
 

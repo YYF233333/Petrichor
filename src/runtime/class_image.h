@@ -49,6 +49,7 @@ public:
 	// "_ready", which runs the @onready initializers first (spec §6.3); kept
 	// here because godot-cpp values cannot be globals.
 	godot::StringName ready_method = "_ready";
+	godot::StringName call_method = "call"; // Of Callable, for CALL_VALUE.
 	std::vector<godot::StringName> member_names;
 	SlotLayout members_layout; // An instance's storage.
 	godot::HashMap<godot::StringName, int> member_lookup;

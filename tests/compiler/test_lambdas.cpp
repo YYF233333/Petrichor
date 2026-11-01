@@ -55,8 +55,13 @@ TEST_CASE("function values are called with call(), checked against their types (
 	CHECK(type_of("f.bind(1).call()", "var f := func(x: int): return x") == "int");
 	CHECK(has_error(in_function("var f: func(int) = func(x: String): pass"), "Cannot assign a value of type func(String) as func(int)."));
 	CHECK(has_error("extends Node\nvar f: func(int)? = null\n", "A function type that may be None is written in parentheses, as (func(int))?."));
-	const compiler::CompileResult result = compile(in_function("var f := func(x: int) -> int: return x * 2\nprint(f.call(3))"));
+	const compiler::CompileResult result = compile(in_function("var f := func(x: int) -> int: return x * 2\nprint(f.call(3))\nprint(f.callv([3]))"));
 	require_verified(result);
+	// Not a call of the engine's Callable.call, so that a program error in it aborts the caller (§8.1).
+	const bytecode::Function &caller = function_named(result.module, "f");
+	const size_t pc = find_instruction(caller, Op::CALL_VALUE);
+	CHECK(result.module.method_calls[caller.code[pc + 1]].method == "call");
+	CHECK(result.module.method_calls[caller.code[pc + 1]].params.size() == 1);
 }
 
 TEST_CASE("a lambda captures by value: assigning a capture is a compile error, a container it shares is not (spec §3.11)") {

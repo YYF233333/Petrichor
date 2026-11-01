@@ -2610,7 +2610,8 @@ class Checker : public ClassRelation {
 	}
 
 	// `f.call(x)`, checked against f's type, and `f.callv(args)`, whose
-	// arguments the function checks as it is called (spec §3.11).
+	// arguments the function checks as it is called (spec §3.11). A program
+	// error in it aborts the caller too (§8.1).
 	Type check_function_call(Expr &r_expr, const Type &p_function) {
 		if (p_function.is_async) {
 			return fail_call(r_expr, "Calling an async function value is not supported yet.");
@@ -2618,14 +2619,7 @@ class Checker : public ClassRelation {
 		const bool spread = r_expr.text == "callv";
 		const std::vector<Type> params(p_function.args.begin() + 1, p_function.args.end());
 		check_arguments(r_expr, spread ? std::vector<Type>{ Type::builtin("Array") } : params, spread ? 1 : int(params.size()), false);
-		const builtin::Class *callable = builtin::find_class("Callable");
-		const builtin::Method *method = callable ? builtin::find_method(*callable, r_expr.text) : nullptr;
-		r_expr.target = Target::BuiltinMethod;
-		r_expr.owner = "Callable";
-		r_expr.hash = method ? method->hash : 0;
-		r_expr.is_vararg = !spread;
-		r_expr.engine_params = spread ? std::vector<Type>{ Type::builtin("Array") } : std::vector<Type>();
-		r_expr.engine_return = Type::of(TypeKind::Variant);
+		r_expr.target = Target::CallValue;
 		refer(r_expr.name_token, engine_id("Callable", r_expr.text));
 		return set(r_expr, p_function.args[0]);
 	}

@@ -13,6 +13,21 @@ namespace {
 
 InstanceResolver resolver = nullptr;
 ScriptResolver script_resolver = nullptr;
+thread_local ValueCall current_value_call;
+
+// Calls the function, as the callee of a call of a function value when one is pending.
+Variant call_value(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const Variant **p_args, int p_argc, GDExtensionCallError &r_error, const uint8_t *const *p_captures) {
+	ValueCall &value = current_value_call;
+	const bool callee = value.pending;
+	value.pending = false;
+	value.entered = value.entered || callee;
+	bool failed = false;
+	Variant result = vm::call(p_image, p_function, p_context, p_args, p_argc, r_error, &failed, p_captures);
+	if (callee) {
+		value.failed = failed;
+	}
+	return result;
+}
 
 // The object's script instance and the function's index in its image.
 bool resolve(ObjectID p_owner, const StringName &p_method, ScriptedObject &r_instance, int &r_function) {
@@ -25,6 +40,10 @@ bool resolve(ObjectID p_owner, const StringName &p_method, ScriptedObject &r_ins
 }
 
 } // namespace
+
+ValueCall &value_call() {
+	return current_value_call;
+}
 
 void set_instance_resolver(InstanceResolver p_resolver) {
 	resolver = p_resolver;
@@ -96,7 +115,7 @@ void MethodCallable::call(const Variant **p_arguments, int p_argcount, Variant &
 		r_call_error.error = ObjectDB::get_instance(owner) ? GDEXTENSION_CALL_ERROR_INVALID_METHOD : GDEXTENSION_CALL_ERROR_INSTANCE_IS_NULL;
 		return;
 	}
-	r_return_value = vm::call(instance.image, function, instance.context, p_arguments, p_argcount, r_call_error);
+	r_return_value = call_value(instance.image, function, instance.context, p_arguments, p_argcount, r_call_error, nullptr);
 }
 
 LambdaCallable::LambdaCallable(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const uint8_t *p_frame, const uint32_t *p_captures) :
@@ -139,7 +158,7 @@ void LambdaCallable::call(const Variant **p_arguments, int p_argcount, Variant &
 		r_call_error.error = GDEXTENSION_CALL_ERROR_INSTANCE_IS_NULL;
 		return;
 	}
-	r_return_value = vm::call(image, function, context, p_arguments, p_argcount, r_call_error, nullptr, capture_data.data());
+	r_return_value = call_value(image, function, context, p_arguments, p_argcount, r_call_error, capture_data.data());
 }
 
 } // namespace petrichor

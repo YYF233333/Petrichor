@@ -741,7 +741,7 @@ class Lowerer {
 
 	std::vector<uint32_t> arguments(const Expr &p_call) {
 		// A function of this language reads its T? parameters itself.
-		const bool outward = p_call.target != Target::ScriptFunction && p_call.target != Target::ScriptMethod && p_call.target != Target::SuperMethod;
+		const bool outward = p_call.target != Target::ScriptFunction && p_call.target != Target::ScriptMethod && p_call.target != Target::SuperMethod && p_call.target != Target::CallValue;
 		// Callable.bind() and Signal.emit() take Variant, whatever the types here.
 		const bool as_variant = p_call.target == Target::BindArguments || p_call.target == Target::EmitSignal;
 		std::vector<uint32_t> args;
@@ -1202,7 +1202,7 @@ class Lowerer {
 			if (p_call.static_on_value) {
 				lower_expr(*p_call.base);
 			}
-		} else if ((p_call.target == Target::EngineMethod && p_call.base) || p_call.target == Target::ScriptMethod || p_call.target == Target::BindArguments || p_call.target == Target::EmitSignal) {
+		} else if ((p_call.target == Target::EngineMethod && p_call.base) || p_call.target == Target::ScriptMethod || p_call.target == Target::BindArguments || p_call.target == Target::EmitSignal || p_call.target == Target::CallValue) {
 			i.base = lower_expr(*p_call.base);
 		} else if (p_call.target == Target::BuiltinMethod) {
 			if (!p_call.is_const && !is_shared(p_call.base->type) && is_place(*p_call.base)) {
@@ -1284,6 +1284,18 @@ class Lowerer {
 				method.return_type = value_type(p_call.engine_return);
 				method.result_type = type_index(p_call.type);
 				i.imm = builtin_method(method);
+				break;
+			}
+			case Target::CallValue: {
+				// With the signature it is called with (spec §3.11).
+				i.op = Op::CALL_VALUE;
+				bytecode::MethodCall method;
+				method.method = p_call.text;
+				for (const Type &param : p_call.param_types) {
+					method.params.push_back(slot(std::string(), param));
+				}
+				method.result = slot(std::string(), p_call.type);
+				i.imm = method_call(method);
 				break;
 			}
 			case Target::BindArguments:

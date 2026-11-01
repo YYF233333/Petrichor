@@ -481,6 +481,23 @@ class Verifier {
 				}
 				return engine_arguments(p_call, constructor.params, false);
 			}
+			case Op::CALL_VALUE: {
+				if (!index(callee, module.method_calls.size(), "method call") || !slot(base, ValueType::Callable)) {
+					return false;
+				}
+				const MethodCall &method = module.method_calls[callee];
+				const bool spread = method.method == "callv";
+				if ((!spread && method.method != "call") || method.static_class >= 0 || method.is_async || method.defaults != 0 || p_call[3] != method.params.size() ||
+						(spread && (method.params.size() != 1 || storage(method.params[0].type) != ValueType::Array))) {
+					return fail("CALL_VALUE of what is not call() or callv() of a function value");
+				}
+				for (uint32_t i = 0; i < p_call[3]; i++) {
+					if (!argument_fits(p_call, i, method.params[i].type)) {
+						return false;
+					}
+				}
+				return arguments(p_call) && result(dst, method.result.type);
+			}
 			case Op::MAKE_LAMBDA: {
 				if (!index(callee, module.functions.size(), "function")) {
 					return false;

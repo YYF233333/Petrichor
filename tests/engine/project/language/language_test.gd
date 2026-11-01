@@ -421,14 +421,15 @@ func _ready() -> void:
 	var frames_before: int = c.frames
 	c.defer()
 	var freeing := FreeCheck.new()
-	freeing.recorder = self
-	add_child(freeing)
-	await get_tree().process_frame
-	await get_tree().process_frame
+	var freer := FreeCheck.new()
+	_check(freer.free_other(freeing) == 0, "a call whose callee read a member after freeing self gives the default value")
 	_check_errors(["free_check.pet:17: self was freed, or lost its script, while this method ran."], "the program error of reading a member after self was freed")
+	_check(not is_instance_valid(freeing), "a method of this language that frees self frees it")
+	freer.free()
+	await get_tree().process_frame
+	await get_tree().process_frame
 	_check(c.frames > frames_before, "_process runs every frame")
 	_check(c.deferred == 2, "Callable.call_deferred() with an argument runs at the end of the frame")
-	_check(not is_instance_valid(freeing) and not has_meta(&"after_free"), "reading a member after self was freed in _process is a program error")
 
 	var owned: TargetCheck = preload("res://language/owner.tscn").instantiate()
 	add_child(owned)
@@ -484,6 +485,11 @@ func _ready() -> void:
 	_check(lambdas.calls() == [12, 45, 42] and lambdas.sorted() == [3, 2, 1], "call(), callv() and bind() of lambdas, and a lambda the engine calls")
 	_check(lambdas.make_adder(3).call(4) == 7, "GDScript calls a lambda of this language")
 	_check(str(lambdas.named()) == "on_tick(lambda)" and str(lambdas.make_adder(1)) == "(anonymous lambda)", "a lambda's name labels its Callable, as in GDScript")
+	lambdas.after_error = -1
+	lambdas.failing_call()
+	lambdas.failing_bound()
+	_check_errors(["lambda_check.pet:91: Index 5 is out of bounds (size 1).", "lambda_check.pet:96: Index 7 is out of bounds (size 1)."], "a program error in a lambda reports where it is")
+	_check(lambdas.after_error == -1, "a program error in a lambda called with call() aborts the caller, also after bind() (spec §8.1)")
 	var on_self: Callable = lambdas.bound_to_self()
 	_check(on_self.is_valid() and on_self.get_object() == lambdas and on_self.call() == 5, "a lambda that uses self is bound to it")
 	lambdas.free()

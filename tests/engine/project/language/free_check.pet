@@ -6,15 +6,15 @@ extends Node
 
 signal fired
 pub var count := 7
-pub var recorder: Node?
 
-# The engine calls _process() directly, without the lock that keeps an object
-# from being freed within a call through Object::callp
-# (core/object/make_virtuals.py:1-5, core/object/object.cpp:784-788, 798).
-func _process(_delta: float):
-	set_process(false)
+# Called by another object of this language, without the lock that keeps an
+# object from being freed within a call through Object::callp
+# (core/object/object.cpp:784-788, 798), and with no engine code that touches
+# it after the call; freeing self in _process() leaves the engine reading it
+# (:908-914).
+pub func free_and_read() -> int:
 	free()
-	recorder.unwrap().set_meta("after_free", count)
+	return count
 
 pub func detach_and_read() -> int:
 	var no_script: Script? = None
@@ -32,3 +32,6 @@ pub func detach_and_return(value: int) -> int:
 pub func fire_and_read() -> int:
 	fired.emit()
 	return count
+
+pub func free_other(other: FreeCheck) -> int:
+	return other.free_and_read()

@@ -54,8 +54,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 ## Tests
 
 - Run an exported game with the official export templates; build and test the release library.
-- The language group's check of `free()` in `_process` (free_check.pet) lets the engine read the freed node after `_process` returns (core/object/object.cpp:908-914; ed1daf0), which crashed the group once in a full run on 2026-11-02 and passed when rerun.
-
 ## Performance
 
 Engine calls are by name with Variant arguments now, so code that calls the engine a lot is likely slower than typed GDScript, which resolves the MethodBind at compile time and makes a validated call with Variant arguments (modules/gdscript/gdscript_compiler.cpp:647-652, 705-710; ed1daf0).

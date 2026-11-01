@@ -81,3 +81,17 @@ pub func named() -> Callable:
 
 pub func bound_to_self() -> Callable:
 	return func(): return total
+
+
+# A program error in a lambda it calls aborts the caller too (spec §8.1).
+pub var after_error := 0
+
+
+pub func failing_call() -> void:
+	var at := func(items: Array[int], i: int): return items[i]
+	after_error = at.call([1], 5)
+
+
+pub func failing_bound() -> void:
+	var at := func(items: Array[int], i: int): return items[i]
+	after_error = at.bind(7).call([1])

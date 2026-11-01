@@ -96,6 +96,7 @@ enum class Target {
 	SelfSignal, // A signal of the engine class this class extends, as a value.
 	ObjectSignal, // A signal of an engine object.
 	BindArguments, // `f.bind(...)` of a function value.
+	CallValue, // `f.call(...)` or `f.callv(args)` of a function value (spec §3.11, §8.1).
 	EmitSignal, // `s.emit(...)` of a signal value.
 	EngineConstant, // An integer constant of an engine class, or a global one, in `int_value`.
 	NoneComparison, // `x == None` or `x != None`: `left` or `right` is the None literal.
