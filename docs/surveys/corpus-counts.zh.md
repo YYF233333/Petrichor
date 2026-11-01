@@ -23,8 +23,9 @@
 | `pop_at`、`pop_back` 与 `pop_front` | `pop_at` 14 处：Pixelorama 9 处，tanks-of-freedom-ii 5 处，经阅读都按程序算出的下标移出元素，结果直接使用或丢弃，没有一处判断为空；`pop_back` 28 处，`pop_front` 48 处 | §3.8：`pop_at(i)` 返回 T，越界是程序错误 |
 | 单引号或双引号（非三引号）中含换行的字符串 | 97 个：godot_dialogue_manager 95 个，都在测试中，是多行的对话脚本输入；phantom-camera 1 个，`print_rich` 打印的多行字符画；godot-open-rpg 1 个，`field.gd:30` 的 assert 消息折行，换行和缩进成了消息的一部分 | §2.2：单引号和双引号字符串不能跨行 |
 | 含 `@tool` 的文件 | 326 个：插件仓库 211 个，示例 51 个，游戏仓库 58 个（godot-open-rpg 31 个，godot-tiny-mmo 18 个，godot-open-rts 8 个，godot_open_star_fighter 1 个），工具 6 个；其中 33 个用到编辑器插件类（EditorPlugin、EditorInspectorPlugin、EditorImportPlugin、EditorExportPlugin、EditorScript） | §2.3：第一版没有 `@tool` |
+| 以字面量路径 `preload` 的 `.gd` 文件，以及以它初始化的常量在同一文件中的用法 | 351 处：游戏仓库 199 处，插件仓库 137 处，示例 13 处，工具 2 处；最多的是 tanks-of-freedom-ii 115 处、godot-open-rts 76 处、gdUnit4 67 处。初始化常量 207 处，直接 `.new()` 69 处，直接访问其他成员 1 处，作为值 74 处（经阅读多是 tanks-of-freedom-ii 按名字查脚本的字典，以及编辑器插件的 `add_custom_type`）。经这些常量：`new()` 54 处，分布在 36 个文件；其他调用 124 处，分布在 42 个文件；其他成员（常量、enum、内部类）134 处，分布在 28 个文件；`is` 69 处；作为类型 46 处；作为值 17 处 | §2.1：preload 脚本得到它的类 |
 
-计数基于词法分析，不做类型解析；`!` 只计不紧跟 `=` 的。`...` 在 GDScript 中只出现在函数签名里（Godot `469659e` 的 `modules/gdscript/gdscript_parser.cpp:1714, 4336`），所以紧跟名字的 `...` 都是剩余参数。协程指函数体中有 await 的方法，只在同一文件中查找对它的引用，不计场景中的信号连接。`get_parent()` 和 `owner` 只计在自身上的使用，即前面没有 `.` 的；判断为空包括与 null 比较、用作条件和传给 `is_instance_valid`，以及在其后 25 行内对赋得其值的变量做这些判断。`free()` 和 `set_script(...)` 在自身上，指前面没有 `.`，或写作 `self.`、`super.`。字符串由扫描注释以外的文本找出，反斜杠转义和 `r` 前缀按 GDScript 的读法处理。
+计数基于词法分析，不做类型解析；`!` 只计不紧跟 `=` 的。`...` 在 GDScript 中只出现在函数签名里（Godot `469659e` 的 `modules/gdscript/gdscript_parser.cpp:1714, 4336`），所以紧跟名字的 `...` 都是剩余参数。协程指函数体中有 await 的方法，只在同一文件中查找对它的引用，不计场景中的信号连接。`get_parent()` 和 `owner` 只计在自身上的使用，即前面没有 `.` 的；判断为空包括与 null 比较、用作条件和传给 `is_instance_valid`，以及在其后 25 行内对赋得其值的变量做这些判断。`free()` 和 `set_script(...)` 在自身上，指前面没有 `.`，或写作 `self.`、`super.`。字符串由扫描注释以外的文本找出，反斜杠转义和 `r` 前缀按 GDScript 的读法处理。preload 的常量的用法只在声明它的文件中查找：作为类型指出现在 `:`、`->`、`as` 之后或 `Array[...]` 中，不计节点路径 `$名字`、`%名字`。
 
 ## 复现
 

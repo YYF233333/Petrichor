@@ -25,7 +25,10 @@ Counts, in first-party .gd files (blank and comment lines excluded from the line
     with locations for reading;
   - files with `@tool`, by group of repository and by game repository, and those of them that name
     an editor plugin class (EditorPlugin, EditorInspectorPlugin, EditorImportPlugin, EditorExportPlugin,
-    EditorScript).
+    EditorScript);
+  - `preload` of a literal `.gd` path: into a constant, followed by `.new()` or another member, or as a
+    value; and in the same file the uses of such constants: `.new()`, other calls, other members, after
+    `is`, as a type (after `:`, `->`, `as` or in `Array[...]`), and as values.
 """
 import collections
 import os
@@ -129,12 +132,53 @@ def multiline_strings(src):
     return found
 
 
+def script_preloads(ts, c, repo, files, where):
+    """Count the preloads of .gd files in a file, and the uses of the constants they initialize."""
+    consts = set()
+    for i, t in enumerate(ts):
+        if not (t.k == "ID" and t.v == "preload" and i + 3 < len(ts) and ts[i + 1].v == "(" and ts[i + 2].k == "STR"
+                and ts[i + 2].v.endswith(".gd") and ts[i + 3].v == ")"):
+            continue
+        c["preload_gd"] += 1
+        c["preload_gd_" + where[1]] += 1
+        repo["preload_gd"] += 1
+        # `const X = preload(…)`, `const X := preload(…)` or `const X: T = preload(…)`.
+        j = i - 1
+        while j > 0 and ts[j].line == t.line and ts[j - 1].v != "const":
+            j -= 1
+        if j > 0 and ts[j - 1].v == "const" and ts[j].k == "ID" and ts[i - 1].v == "=":
+            c["preload_gd_const"] += 1
+            consts.add(ts[j].v)
+        elif i + 5 < len(ts) and ts[i + 4].v == "." and ts[i + 5].v == "new":
+            c["preload_gd_new"] += 1
+        elif i + 4 < len(ts) and ts[i + 4].v == ".":
+            c["preload_gd_member"] += 1
+        else:
+            c["preload_gd_value"] += 1
+    for i, t in enumerate(ts):
+        # Not a member of the same name, the declaration itself, or a node path such as $Name or %Name.
+        if t.k != "ID" or t.v not in consts or (i > 0 and ts[i - 1].v in (".", "const", "$", "%")):
+            continue
+        prev = ts[i - 1].v if i > 0 else ""
+        if i + 2 < len(ts) and ts[i + 1].v == ".":
+            call = i + 3 < len(ts) and ts[i + 3].v == "("
+            key = "new" if call and ts[i + 2].v == "new" else "static_call" if call else "member"
+            c["alias_" + key] += 1
+            files[key].add(where[0])
+        elif prev == "is":
+            c["alias_is"] += 1
+        elif prev in (":", ">", "as") or (prev == "[" and i > 1 and ts[i - 2].v == "Array"):
+            c["alias_type"] += 1
+        else:
+            c["alias_value"] += 1
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     c = collections.Counter()
     by_repo = collections.defaultdict(collections.Counter)
-    files = {"parent": set(), "owner": set()}
+    files = {"parent": set(), "owner": set(), "new": set(), "static_call": set(), "member": set()}
     tested_at = []
     freeing_at = collections.defaultdict(list)
     for name, _, _, group in G.REPOS:
@@ -150,6 +194,7 @@ def main():
             c["lines"] += lines
             by_repo[name]["lines"] += lines
             ts = [t for t in G.tokenize(src) if t.k != "NL"]
+            script_preloads(ts, c, by_repo[name], files, (f"{name}/{f}", group))
             if any(t.k == "AN" and t.v == "@tool" for t in ts):
                 c["tool_" + group] += 1
                 by_repo[name]["tool"] += 1
@@ -297,6 +342,15 @@ def main():
     print(f"files with @tool: {tool_total} ({groups}); in games: {tool_games}; naming an editor plugin class: {c['tool_editor_api']}")
     strings = ", ".join(f"{r} {n['multiline_string']}" for r, n in sorted(by_repo.items(), key=lambda x: -x[1]["multiline_string"]) if n["multiline_string"])
     print(f"strings in single or double quotes with a line break: {sum(n['multiline_string'] for n in by_repo.values())} ({strings})")
+    groups = ", ".join(f"{g} {c['preload_gd_' + g]}" for g in sorted({group for _, _, _, group in G.REPOS}) if c["preload_gd_" + g])
+    preload_repos = ", ".join(f"{r} {n['preload_gd']}" for r, n in sorted(by_repo.items(), key=lambda x: -x[1]["preload_gd"])[:3])
+    print(f"preloads of .gd files: {c['preload_gd']} ({groups}; most in {preload_repos}); "
+          f"into constants {c['preload_gd_const']}, .new() {c['preload_gd_new']}, other members {c['preload_gd_member']}, "
+          f"values {c['preload_gd_value']}")
+    print(f"uses of those constants: new() {c['alias_new']} in {len(files['new'])} files, "
+          f"other calls {c['alias_static_call']} in {len(files['static_call'])} files, "
+          f"other members {c['alias_member']} in {len(files['member'])} files, is {c['alias_is']}, "
+          f"types {c['alias_type']}, values {c['alias_value']}")
     for label, places in freeing_at.items():
         print(f"{label} at: {', '.join(places)}")
 
