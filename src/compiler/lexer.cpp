@@ -610,8 +610,12 @@ class Lexer {
 		}
 		std::string value;
 		while (true) {
-			if (at_end() || (peek() == '\n' && !triple)) {
+			if (at_end()) {
 				error(start, at, "Unterminated string.");
+				break;
+			}
+			if (peek() == '\n' && !triple) {
+				error(start, at, "Unterminated string; a string that spans lines is written in triple quotes (spec §2.2).");
 				break;
 			}
 			const unsigned char c = peek();

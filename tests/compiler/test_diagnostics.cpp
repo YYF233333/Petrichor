@@ -41,6 +41,8 @@ TEST_CASE("one cause gives one error") {
 
 TEST_CASE("a mistake within a line is reported where it is") {
 	CHECK(errors_of("func f():\n\tx = a +\n\ty = 1\n") == Errors{ "2:9: Expected an expression, found line break." });
-	CHECK(errors_of("func f():\n\tvar s = \"abc\n\ty = 1\n") == Errors{ "2:10: Unterminated string." });
+	// GDScript lets the string go on to the next line (spec §2.2).
+	CHECK(errors_of("func f():\n\tvar s = \"abc\n\ty = 1\n") == Errors{ "2:10: Unterminated string; a string that spans lines is written in triple quotes (spec §2.2)." });
+	CHECK(errors_of("func f():\n\tvar s = \"abc") == Errors{ "2:10: Unterminated string." });
 	CHECK(errors_of("func f():\n\tx = 1\n\t\ty = 2\n") == Errors{ "3:3: Unexpected indentation." });
 }
