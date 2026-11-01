@@ -1,4 +1,5 @@
 exclude: ^(thirdparty/|docs/surveys/[^/]+/)
+default_stages: [pre-commit]
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -31,3 +32,9 @@ repos:
         entry: python tools/check_doc_pairs.py
         pass_filenames: false
         files: \.md$
+
+      - id: commit-msg
+        name: commit message
+        language: python
+        entry: python tools/check_commit_msg.py
+        stages: [commit-msg]

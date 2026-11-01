@@ -16,7 +16,7 @@ Petrichor designs a statically typed scripting language that replaces GDScript. 
 - `tests/compiler/`: the compiler tests (doctest), built without godot-cpp.
 - `tests/engine/`: the headless Godot test project and its runner; `tests/engine/fps/` holds the migrated scripts of the FPS starter kit (architecture §5 step 4), and `tests/engine/ring/` those of Ring's breakout with the scene that starts it in place of Ring's C# (step 6).
 - `benchmarks/`: cases in this language with their GDScript twins, and their runner (architecture §4).
-- `tools/`: the project's own pre-commit checks, and in `tools/hooks/` the Git hook that runs them.
+- `tools/`: the project's own pre-commit checks and the check of commit messages, and in `tools/hooks/` the Git hooks that run them.
 - `thirdparty/doctest`: the test framework of the compiler tests.
 - `thirdparty/godot-cpp`: git submodule, built with `api_version=4.7`.
 - `thirdparty/starter-kit-fps`: git submodule, the FPS starter kit at the commit of the second paper migration; the runner copies it and puts the migrated scripts in place.
@@ -43,6 +43,12 @@ Petrichor designs a statically typed scripting language that replaces GDScript. 
 - Benchmarks: `python benchmarks/run.py <Godot 4.7 editor binary>` compares each case of `benchmarks/project/cases/` with its GDScript twin (architecture §4). It needs an optimized engine, such as the official 4.7.2-stable release, not a dev_build.
 - Language rules come from the spec. When the implementation runs into a problem with a rule, change the spec in a separate commit; do not relax the rule in code.
 - Tests are derived from the spec (§15), the engine and real code, not from the implementation (architecture §3).
+
+## Commits
+
+- A commit message is in English: a subject, a blank line, and a body wrapped at 72 columns, as in Godot's `CONTRIBUTING.md`. The commit-msg hook checks the length of the subject and the blank line.
+- The subject is `Area: Imperative summary`, within 72 characters, capitalized and without a full stop, so that `git log --oneline` can be scanned, as in `Spec: Add a formatter and lints to the first version (§13.2)`. The area is one of `Spec`, `Arch`, `Survey`, `Compiler`, `Bytecode`, `Runtime`, `Adapter`, `Editor`, `Tests`, `Bench`, `Tools` and `Docs`; a commit that spans several names the one it is about.
+- The body gives the problem, the decision with its evidence (spec sections, engine `path:line` with the commit) and the alternatives rejected; points that stand side by side go in a `-` list. It does not retell the diff, and a small change needs none.
 
 ## Workflow
 

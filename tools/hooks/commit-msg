@@ -1,0 +1,2 @@
+#!/bin/sh
+exec pre-commit run --hook-stage commit-msg --commit-msg-filename "$1"
