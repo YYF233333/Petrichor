@@ -13,15 +13,19 @@ namespace petrichor {
 
 struct PetInstance;
 
-// The class header: `class_name` and `extends`, read without compiling, for
-// the editor's global class list.
+// The class header: `class_name`, `extends` and `@icon`, read without
+// compiling, for the editor's global class list.
 struct PetHeader {
 	godot::String class_name;
 	godot::String base = "RefCounted";
 	bool base_is_path = false;
+	godot::String icon; // As written, which may be relative to the script.
 };
 
 PetHeader parse_header(const godot::String &p_source);
+// The path of the class's icon, relative to the script's directory unless
+// it is absolute, as in GDScript (modules/gdscript/gdscript_parser.cpp:4476-4484).
+godot::String header_icon_path(const PetHeader &p_header, const godot::String &p_path);
 godot::String header_base_path(const PetHeader &p_header, const godot::String &p_path);
 godot::String header_native_base(const PetHeader &p_header, const godot::String &p_path);
 // Whether the script at `p_path` extends `p_base`, as the headers on disk say.

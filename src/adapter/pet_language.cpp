@@ -463,7 +463,7 @@ Dictionary PetLanguage::_get_global_class_name(const String &p_path) const {
 	}
 	result["name"] = header.class_name;
 	result["base_type"] = header_native_base(header, p_path);
-	result["icon_path"] = String();
+	result["icon_path"] = header_icon_path(header, p_path);
 	result["is_abstract"] = false;
 	result["is_tool"] = false;
 	return result;

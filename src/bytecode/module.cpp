@@ -491,6 +491,7 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.u32(uint32_t(member.getter));
 		w.u32(member.hint);
 		w.str(member.hint_string);
+		w.u32(member.usage);
 		w.u8(member.has_initial ? 1 : 0);
 		w.constant(member.initial);
 	}
@@ -531,6 +532,10 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.u8(function.is_pub ? 1 : 0);
 		w.u8(function.is_override ? 1 : 0);
 		w.u8(function.is_exposed ? 1 : 0);
+		w.u8(function.rpc.mode);
+		w.u8(function.rpc.transfer_mode);
+		w.u8(function.rpc.call_local ? 1 : 0);
+		w.u32(uint32_t(function.rpc.channel));
 		w.u32(function.line);
 		w.u32(function.frame_size);
 		w.u32(uint32_t(function.slots.size()));
@@ -670,6 +675,7 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		member.getter = int32_t(r.u32());
 		member.hint = r.u32();
 		member.hint_string = r.str();
+		member.usage = r.u32();
 		member.has_initial = r.u8() != 0;
 		member.initial = r.constant();
 	}
@@ -710,6 +716,10 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		function.is_pub = r.u8() != 0;
 		function.is_override = r.u8() != 0;
 		function.is_exposed = r.u8() != 0;
+		function.rpc.mode = r.u8();
+		function.rpc.transfer_mode = r.u8();
+		function.rpc.call_local = r.u8() != 0;
+		function.rpc.channel = int32_t(r.u32());
 		function.line = r.u32();
 		function.frame_size = r.u32();
 		function.slots.resize(r.count());

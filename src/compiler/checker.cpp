@@ -3531,14 +3531,13 @@ class Checker : public ClassRelation {
 
 	/* Annotations (spec §2.3) */
 
-	// A number as GDScript writes it into a hint string: 1, -5, 0.1, 1.0.
+	// A number of @export_range as GDScript writes it into the hint string,
+	// having converted it to float (modules/gdscript/gdscript_analyzer.cpp:1700-1722,
+	// core/variant/variant.cpp:1605-1606): 0.0, -5.0, 0.1.
 	static std::string number_text(const ConstValue &p_value) {
-		if (p_value.kind == ConstValue::Kind::Int) {
-			return std::to_string(p_value.i);
-		}
 		std::ostringstream stream;
 		stream.imbue(std::locale::classic());
-		stream << std::setprecision(15) << p_value.f;
+		stream << std::setprecision(15) << (p_value.kind == ConstValue::Kind::Int ? double(p_value.i) : p_value.f);
 		std::string text = stream.str();
 		if (text.find_first_of(".einf") == std::string::npos) {
 			text += ".0";
@@ -3567,75 +3566,347 @@ class Checker : public ClassRelation {
 		return r_arg.constant.get();
 	}
 
-	// `@export_range(min, max, step, "or_greater", …)`: GDScript's hint string
-	// is the arguments joined by commas.
-	void check_export_range(VarDecl &r_member, const Annotation &p_annotation) {
-		if (!r_member.type.is_numeric()) {
-			error(p_annotation.range, "@export_range applies to int and float, not " + r_member.type.to_string() + ".");
+	// What an annotation of the @export family that gives a hint applies to.
+	enum class HintTarget {
+		Number,
+		Int, // GDScript also lets a float take it (modules/gdscript/gdscript_parser.cpp:4970-4971).
+		String,
+		IntOrString,
+		StringOrDictionary,
+		Color,
+		NodePath,
+	};
+
+	struct HintAnnotation {
+		const char *name;
+		uint32_t hint; // PropertyHint as the engine numbers it (core/object/property_info.h:39-85).
+		HintTarget target;
+		uint32_t least; // Arguments.
+		uint32_t most;
+	};
+
+	// As GDScript registers them (modules/gdscript/gdscript_parser.cpp:153-173).
+	static const HintAnnotation *hint_annotation(const std::string &p_name) {
+		constexpr uint32_t ANY = UINT32_MAX;
+		static const HintAnnotation annotations[] = {
+			{ "export_enum", 2, HintTarget::IntOrString, 1, ANY },
+			{ "export_file", 13, HintTarget::String, 0, ANY },
+			{ "export_file_path", 44, HintTarget::String, 0, ANY },
+			{ "export_dir", 14, HintTarget::String, 0, 0 },
+			{ "export_global_file", 15, HintTarget::String, 0, ANY },
+			{ "export_global_dir", 16, HintTarget::String, 0, 0 },
+			{ "export_multiline", 18, HintTarget::StringOrDictionary, 0, ANY },
+			{ "export_placeholder", 20, HintTarget::String, 1, 1 },
+			{ "export_range", 1, HintTarget::Number, 2, ANY },
+			{ "export_exp_easing", 4, HintTarget::Number, 0, ANY },
+			{ "export_color_no_alpha", 21, HintTarget::Color, 0, 0 },
+			{ "export_node_path", 26, HintTarget::NodePath, 0, ANY },
+			{ "export_flags", 6, HintTarget::Int, 1, ANY },
+			{ "export_flags_2d_render", 7, HintTarget::Int, 0, 0 },
+			{ "export_flags_2d_physics", 8, HintTarget::Int, 0, 0 },
+			{ "export_flags_2d_navigation", 9, HintTarget::Int, 0, 0 },
+			{ "export_flags_3d_render", 10, HintTarget::Int, 0, 0 },
+			{ "export_flags_3d_physics", 11, HintTarget::Int, 0, 0 },
+			{ "export_flags_3d_navigation", 12, HintTarget::Int, 0, 0 },
+			{ "export_flags_avoidance", 37, HintTarget::Int, 0, 0 },
+		};
+		for (const HintAnnotation &annotation : annotations) {
+			if (p_name == annotation.name) {
+				return &annotation;
+			}
+		}
+		return nullptr;
+	}
+
+	static bool fits(HintTarget p_target, const Type &p_type) {
+		switch (p_target) {
+			case HintTarget::Number:
+			case HintTarget::Int:
+				return p_type.is_numeric();
+			case HintTarget::String:
+				return p_type.kind == TypeKind::String;
+			case HintTarget::IntOrString:
+				return p_type.kind == TypeKind::Int || p_type.kind == TypeKind::String;
+			case HintTarget::StringOrDictionary:
+				return p_type.kind == TypeKind::String || p_type == Type::builtin("Dictionary");
+			case HintTarget::Color:
+				return p_type.builtin_name() == "Color";
+			case HintTarget::NodePath:
+				return p_type.builtin_name() == "NodePath";
+		}
+		return false;
+	}
+
+	static const char *target_text(HintTarget p_target) {
+		switch (p_target) {
+			case HintTarget::Number:
+			case HintTarget::Int:
+				return "int and float";
+			case HintTarget::String:
+				return "String";
+			case HintTarget::IntOrString:
+				return "int and String";
+			case HintTarget::StringOrDictionary:
+				return "String and Dictionary";
+			case HintTarget::Color:
+				return "Color";
+			case HintTarget::NodePath:
+				return "NodePath";
+		}
+		return "";
+	}
+
+	// An annotation that gives the inspector a hint, its arguments joined by
+	// commas into the hint string, each a String, or for @export_range numbers
+	// first. On an Array[T] or a packed array it applies to the elements, and
+	// the hint string says so (modules/gdscript/gdscript_parser.cpp:4679-4739,
+	// 4752-4761, 4979-4989).
+	void check_hint(VarDecl &r_member, const Annotation &p_annotation, const HintAnnotation &p_hint) {
+		const std::string name = "@" + p_annotation.name;
+		const std::optional<Type> element = element_of(r_member.type);
+		const bool of_elements = element && element->kind != TypeKind::Variant;
+		const Type &target = of_elements ? *element : r_member.type;
+		if (!fits(p_hint.target, target)) {
+			error(p_annotation.range, name + " applies to " + target_text(p_hint.target) + ", not " + r_member.type.to_string() + ".");
+			return;
+		}
+		const size_t count = p_annotation.args.size();
+		if (count < p_hint.least || count > p_hint.most) {
+			if (p_hint.target == HintTarget::Number && p_hint.hint == 1) {
+				error(p_annotation.range, "@export_range takes a minimum, a maximum and an optional step.");
+			} else if (p_hint.least == 1 && p_hint.most == UINT32_MAX) {
+				error(p_annotation.range, name + (p_hint.hint == 2 ? " takes the names of the values." : " takes at least one argument."));
+			} else {
+				error(p_annotation.range, name + (p_hint.most == 0 ? " takes no arguments." : " takes one argument."));
+			}
 			return;
 		}
 		std::string hint;
 		size_t numbers = 0;
-		bool options = false;
-		for (const auto &arg : p_annotation.args) {
-			const ConstValue *value = annotation_argument(*arg);
+		for (size_t i = 0; i < count; i++) {
+			const Expr &arg = *p_annotation.args[i];
+			const ConstValue *value = annotation_argument(*p_annotation.args[i]);
 			if (!value) {
 				return;
 			}
 			const bool number = value->kind == ConstValue::Kind::Int || value->kind == ConstValue::Kind::Float;
-			if ((number && options) || (!number && value->kind != ConstValue::Kind::String)) {
-				error(arg->range, "@export_range takes numbers, then options such as \"or_greater\".");
+			if (p_hint.hint == 1 && (number ? numbers < i : value->kind != ConstValue::Kind::String)) {
+				error(arg.range, "@export_range takes numbers, then options such as \"or_greater\".");
+				return;
+			}
+			if (p_hint.hint != 1 && value->kind != ConstValue::Kind::String) {
+				error(arg.range, name + " takes strings.");
 				return;
 			}
 			numbers += number ? 1 : 0;
-			options = options || !number;
-			hint += (hint.empty() ? "" : ",") + (number ? number_text(*value) : value->text);
+			const std::string text = number ? number_text(*value) : value->text;
+			if (p_hint.hint != 20 && (text.empty() || text.find(',') != std::string::npos)) {
+				error(arg.range, text.empty() ? name + " takes no empty strings." : "An argument of " + name + " contains a comma; give the parts as separate arguments.");
+				return;
+			}
+			if ((p_hint.hint == 6 && !check_flag(arg, text, i)) || (p_hint.hint == 26 && !check_node_class(arg, text))) {
+				return;
+			}
+			hint += (i ? "," : "") + text;
 		}
-		if (numbers < 2 || numbers > 3) {
+		if (p_hint.hint == 1 && (numbers < 2 || numbers > 3)) {
 			error(p_annotation.range, "@export_range takes a minimum, a maximum and an optional step.");
 			return;
 		}
-		r_member.hint = 1; // PROPERTY_HINT_RANGE (core/object/property_info.h:41).
+		r_member.hint = p_hint.hint;
 		r_member.hint_string = hint;
+		if (of_elements) {
+			// PROPERTY_HINT_TYPE_STRING: "type/hint:hint string" of the elements.
+			r_member.hint = 23;
+			r_member.hint_string = std::to_string(uint32_t(bytecode::value_type_from_name(element->to_string()))) + "/" + std::to_string(p_hint.hint) + ":" + hint;
+		}
 	}
 
-	// `@export_enum("a", "b")` on an int or a String, and `@export_multiline`
-	// on a String: the hint string is the arguments joined by commas, as in
-	// GDScript (modules/gdscript/gdscript_parser.cpp:4734-4739).
-	void check_export_text(VarDecl &r_member, const Annotation &p_annotation, uint32_t p_hint) {
-		const bool is_enum = p_hint == 2; // PROPERTY_HINT_ENUM, MULTILINE_TEXT is 18 (core/object/property_info.h:42, 58).
-		if (r_member.type.kind != TypeKind::String && !(is_enum && r_member.type.kind == TypeKind::Int)) {
-			error(p_annotation.range, "@" + p_annotation.name + " applies to " + (is_enum ? "int and String" : "String") + ", not " + r_member.type.to_string() + ".");
+	// `"Name"` or `"Name:value"` of @export_flags, whose value is a bit set
+	// (modules/gdscript/gdscript_parser.cpp:4695-4719).
+	bool check_flag(const Expr &p_arg, const std::string &p_text, size_t p_index) {
+		const size_t colon = p_text.find(':');
+		if (colon == 0) {
+			error(p_arg.range, "A flag of @export_flags needs a name.");
+			return false;
+		}
+		if (colon == std::string::npos) {
+			if (p_index >= 32) {
+				error(p_arg.range, "From the 33rd flag on, @export_flags needs the value of each, as in \"Name:value\".");
+				return false;
+			}
+			return true;
+		}
+		const std::string digits = p_text.substr(colon + 1);
+		const bool number = !digits.empty() && digits.size() <= 10 && std::all_of(digits.begin(), digits.end(), [](char p_char) { return p_char >= '0' && p_char <= '9'; });
+		if (!number || std::stoll(digits) < 1 || std::stoll(digits) >= (int64_t(1) << 32)) {
+			error(p_arg.range, "The value of a flag of @export_flags is an integer from 1 to 2 ** 32 - 1.");
+			return false;
+		}
+		return true;
+	}
+
+	// A class of @export_node_path, which must be a node
+	// (modules/gdscript/gdscript_parser.cpp:4720-4731).
+	bool check_node_class(const Expr &p_arg, const std::string &p_class) {
+		const std::string path = options.project ? options.project->global_class_path(p_class) : std::string();
+		std::string native = p_class;
+		if (is_script_path(path)) {
+			const ClassDecl *header = script_header(path);
+			native = header ? script_class_type(*header, path).engine_class() : std::string();
+		} else if (const ForeignClass *foreign = path.empty() ? nullptr : foreign_class(path)) {
+			native = foreign->native;
+		}
+		if (!engine.class_exists(native) || !(native == "Node" || engine.inherits(native, "Node"))) {
+			error(p_arg.range, "@export_node_path takes classes of nodes, and " + p_class + " is not one.");
+			return false;
+		}
+		return true;
+	}
+
+	// @export_custom(hint, hint_string, usage), which GDScript passes to the
+	// engine as written (modules/gdscript/gdscript_parser.cpp:5019-5045).
+	void check_export_custom(VarDecl &r_member, const Annotation &p_annotation) {
+		if (p_annotation.args.size() < 2 || p_annotation.args.size() > 3) {
+			error(p_annotation.range, "@export_custom takes a hint, a hint string and optional usage flags.");
 			return;
 		}
-		std::string hint;
+		std::vector<const ConstValue *> values;
 		for (const auto &arg : p_annotation.args) {
-			const ConstValue *value = annotation_argument(*arg);
+			values.push_back(annotation_argument(*arg));
+			if (!values.back()) {
+				return;
+			}
+		}
+		const bool has_usage = values.size() == 3;
+		if (values[0]->kind != ConstValue::Kind::Int || values[1]->kind != ConstValue::Kind::String || (has_usage && values[2]->kind != ConstValue::Kind::Int)) {
+			error(p_annotation.range, "@export_custom takes a PropertyHint, a String and PropertyUsageFlags.");
+			return;
+		}
+		r_member.hint = uint32_t(values[0]->i);
+		r_member.hint_string = values[1]->text;
+		if (has_usage) {
+			r_member.usage = uint32_t(values[2]->i);
+		}
+	}
+
+	// The inspector's view of an export (spec §2.3): @export alone shows it as
+	// its type, an annotation of the family adds a hint, @export_storage stores
+	// it without showing it. PropertyUsageFlags as the engine numbers them
+	// (core/object/property_info.h:90-91, 120).
+	void check_annotations(VarDecl &r_member) {
+		const Annotation *exported = nullptr;
+		if (r_member.is_export) {
+			r_member.usage = 6; // PROPERTY_USAGE_DEFAULT
+		}
+		for (const Annotation &annotation : r_member.annotations) {
+			if (annotation.name.rfind("export", 0) != 0) {
+				if (!annotation.args.empty()) {
+					error(annotation.range, "@" + annotation.name + " takes no arguments.");
+				}
+				continue;
+			}
+			if (exported) {
+				error(annotation.range, "@" + annotation.name + " cannot be used with another @export annotation.");
+				continue;
+			}
+			exported = &annotation;
+			if (const HintAnnotation *hint = hint_annotation(annotation.name)) {
+				check_hint(r_member, annotation, *hint);
+			} else if (annotation.name == "export_custom") {
+				check_export_custom(r_member, annotation);
+			} else if (annotation.name == "export" || annotation.name == "export_storage") {
+				if (!annotation.args.empty()) {
+					error(annotation.range, "@" + annotation.name + " takes no arguments.");
+				}
+				if (annotation.name == "export_storage") {
+					r_member.usage = 2; // PROPERTY_USAGE_STORAGE
+				}
+			} else if (annotation.name == "export_tool_button") {
+				error(annotation.range, "@export_tool_button needs @tool, which is not supported yet.");
+			} else {
+				error(annotation.range, "The annotation @" + annotation.name + " is not supported yet.");
+			}
+		}
+	}
+
+	// @rpc(mode, sync, transfer_mode, channel): the strings in any order, the
+	// channel fourth, as in GDScript (modules/gdscript/gdscript_parser.cpp:187,
+	// 5238-5298). The peers call the method by name (spec §10.5).
+	void check_rpc(FuncDecl &r_function, const Annotation &p_annotation) {
+		if (r_function.rpc.mode != 0) {
+			error(p_annotation.range, "A function takes @rpc once.");
+			return;
+		}
+		if (p_annotation.args.size() > 4) {
+			error(p_annotation.range, "@rpc takes at most four arguments.");
+			return;
+		}
+		bytecode::Rpc rpc;
+		rpc.mode = 2; // RPC_MODE_AUTHORITY
+		int locality = 0;
+		int permission = 0;
+		int transfer = 0;
+		for (size_t i = 0; i < p_annotation.args.size(); i++) {
+			const Expr &arg = *p_annotation.args[i];
+			const ConstValue *value = annotation_argument(*p_annotation.args[i]);
 			if (!value) {
 				return;
 			}
-			if (value->kind != ConstValue::Kind::String) {
-				error(arg->range, "@" + p_annotation.name + " takes strings.");
+			if (i == 3) {
+				if (value->kind != ConstValue::Kind::Int || value->i < 0 || value->i > INT32_MAX) {
+					error(arg.range, "The fourth argument of @rpc is the channel, an int that is not negative.");
+					return;
+				}
+				rpc.channel = int32_t(value->i);
+				continue;
+			}
+			const std::string text = value->kind == ConstValue::Kind::String ? value->text : std::string();
+			if (text == "call_local" || text == "call_remote") {
+				locality++;
+				rpc.call_local = text == "call_local";
+			} else if (text == "any_peer" || text == "authority") {
+				permission++;
+				rpc.mode = text == "any_peer" ? 1 : 2;
+			} else if (text == "unreliable" || text == "unreliable_ordered" || text == "reliable") {
+				transfer++;
+				rpc.transfer_mode = 2; // TRANSFER_MODE_RELIABLE
+				if (text != "reliable") {
+					rpc.transfer_mode = text == "unreliable" ? 0 : 1;
+				}
+			} else {
+				error(arg.range, "@rpc takes \"call_local\" or \"call_remote\", \"any_peer\" or \"authority\", and \"reliable\", \"unreliable\" or \"unreliable_ordered\", then the channel.");
 				return;
 			}
-			hint += (hint.empty() ? "" : ",") + value->text;
 		}
-		if ((is_enum && p_annotation.args.empty()) || (!is_enum && p_annotation.args.size() > 1)) {
-			error(p_annotation.range, is_enum ? "@export_enum takes the names of the values." : "@export_multiline takes at most a placeholder text.");
+		if (locality > 1) {
+			error(p_annotation.range, "@rpc takes one of \"call_local\" and \"call_remote\".");
 			return;
 		}
-		r_member.hint = p_hint;
-		r_member.hint_string = hint;
+		if (permission > 1) {
+			error(p_annotation.range, "@rpc takes one of \"any_peer\" and \"authority\".");
+			return;
+		}
+		if (transfer > 1) {
+			error(p_annotation.range, "@rpc takes one transfer mode.");
+			return;
+		}
+		r_function.rpc = rpc;
+		cls.exposed_methods.insert(r_function.name);
 	}
 
-	void check_annotations(VarDecl &r_member) {
-		for (const Annotation &annotation : r_member.annotations) {
-			if (annotation.name == "export_range") {
-				check_export_range(r_member, annotation);
-			} else if (annotation.name == "export_enum" || annotation.name == "export_multiline") {
-				check_export_text(r_member, annotation, annotation.name == "export_enum" ? 2 : 18);
-			} else if (!annotation.args.empty()) {
-				error(annotation.range, "@" + annotation.name + " takes no arguments.");
+	// Their arguments name warnings, as strings; which names suppress anything
+	// is for the lints to say (spec §13.2).
+	void check_warning_ignores() {
+		for (const Annotation &annotation : cls.warning_ignores) {
+			if (annotation.args.empty()) {
+				error(annotation.range, "@" + annotation.name + " takes the names of warnings.");
+			}
+			for (const auto &arg : annotation.args) {
+				const ConstValue *value = annotation_argument(*arg);
+				if (value && value->kind != ConstValue::Kind::String) {
+					error(arg->range, "@" + annotation.name + " takes the names of warnings, as strings.");
+				}
 			}
 		}
 	}
@@ -4480,6 +4751,12 @@ public:
 		check_members();
 		check_interface_properties();
 		check_groups();
+		for (FuncDecl &fn : cls.functions) {
+			for (const Annotation &annotation : fn.annotations) {
+				check_rpc(fn, annotation);
+			}
+		}
+		check_warning_ignores();
 		check_connections();
 		check_owner_scenes();
 		for (FuncDecl &fn : cls.functions) {

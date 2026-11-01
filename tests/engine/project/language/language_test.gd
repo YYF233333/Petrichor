@@ -190,7 +190,7 @@ func _ready() -> void:
 	for property in v.get_property_list():
 		listed_properties[property.name] = property
 	_check(listed_properties.has("Tuning") and listed_properties["Tuning"].usage == PROPERTY_USAGE_SUBGROUP, "@export_subgroup shows a heading in the inspector")
-	_check(listed_properties["tuning"].hint == PROPERTY_HINT_RANGE and listed_properties["tuning"].hint_string == "0,10,0.5", "@export_range gives the range hint")
+	_check(listed_properties["tuning"].hint == PROPERTY_HINT_RANGE and listed_properties["tuning"].hint_string == "0.0,10.0,0.5", "@export_range gives the range hint")
 	_check(listed_properties["texture"].hint == PROPERTY_HINT_RESOURCE_TYPE and listed_properties["texture"].hint_string == "Texture2D", "an exported resource is picked from resources")
 	var detached := ValuesCheck.new()
 	var unassigned_size = detached.texture_size()
@@ -468,6 +468,35 @@ func _ready() -> void:
 	var static_script: Script = load("res://language/static_check.pet")
 	for i in 3:
 		_check(static_script.get("NODES") == load("res://language/nodes.tscn"), "a pub preloaded constant read by name is the loaded resource, each time")
+
+	# Annotations describe a class to the engine as GDScript's do (spec §2.3).
+	var annotated := AnnotationCheck.new()
+	var reference := AnnotationReference.new()
+	var annotated_properties := {}
+	for property in annotated.get_property_list():
+		annotated_properties[property.name] = property
+	var mismatched: Array[String] = []
+	for property in reference.get_property_list():
+		var own: Dictionary = annotated_properties.get(property.name, {})
+		if property.usage & PROPERTY_USAGE_SCRIPT_VARIABLE and ["type", "hint", "hint_string", "usage"].any(func(key): return own.get(key) != property[key]):
+			mismatched.append("%s: %s, not %s" % [property.name, own, property])
+	_check(mismatched.is_empty(), "the @export family describes members as in GDScript%s" % ("" if mismatched.is_empty() else ": %s" % mismatched))
+	var rpc_defaults := { "rpc_mode": MultiplayerAPI.RPC_MODE_DISABLED, "transfer_mode": MultiplayerPeer.TRANSFER_MODE_RELIABLE, "call_local": false, "channel": 0 }
+	var own_rpc: Dictionary = annotated.get_script().get_rpc_config()
+	var reference_rpc: Dictionary = reference.get_script().get_rpc_config()
+	var same_rpc := own_rpc.size() == reference_rpc.size() and reference_rpc.size() == 3
+	for method in reference_rpc:
+		for key in rpc_defaults:
+			same_rpc = same_rpc and own_rpc.get(method, {}).get(key, rpc_defaults[key]) == reference_rpc[method].get(key, rpc_defaults[key])
+	_check(same_rpc, "@rpc configures methods as in GDScript: %s" % own_rpc)
+	annotated.call("hit", 4)
+	_check(annotated.hit_count() == 4, "the engine finds a method with @rpc by name")
+	var icons := {}
+	for entry in ProjectSettings.get_global_class_list():
+		icons[entry["class"]] = entry["icon"]
+	_check(icons.get(&"AnnotationCheck") == "res://language/icons/annotation.svg" and icons.get(&"AnnotationReference") == icons.get(&"AnnotationCheck"), "@icon is relative to the script's directory, as in GDScript")
+	annotated.free()
+	reference.free()
 
 	for test: GDScript in [preload("res://language/coroutines_test.gd"), preload("res://language/defaults_test.gd"), preload("res://language/inheritance_test.gd")]:
 		var part: Node = test.new()

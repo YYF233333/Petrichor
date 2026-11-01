@@ -190,12 +190,29 @@ struct Member : Slot {
 	// For the inspector: PropertyHint as the engine numbers it, and its string.
 	uint32_t hint = 0;
 	std::string hint_string;
+	// For the inspector and scenes: PropertyUsageFlags as the engine numbers
+	// them, without SCRIPT_VARIABLE, which every member has.
+	uint32_t usage = 0;
 	// The value the member starts at, when it is a constant: a constant
 	// initializer, or its type's default without one (spec §4.3). The editor
 	// shows it as the default; the module's init function writes it, with the
 	// other initializers.
 	bool has_initial = false;
 	Constant initial;
+};
+
+// How the multiplayer API calls a method from another peer (@rpc), as the
+// engine numbers its modes (scene/main/multiplayer_api.h:48-50,
+// scene/main/multiplayer_peer.h:43-45); mode 0 is not called that way.
+struct Rpc {
+	uint8_t mode = 0;
+	uint8_t transfer_mode = 2;
+	bool call_local = false;
+	int32_t channel = 0;
+
+	bool operator==(const Rpc &p_other) const {
+		return mode == p_other.mode && transfer_mode == p_other.transfer_mode && call_local == p_other.call_local && channel == p_other.channel;
+	}
 };
 
 struct Function {
@@ -216,6 +233,7 @@ struct Function {
 	bool is_override = false; // Overrides an engine virtual method.
 	// The engine must find it by name: a method connected in a scene (spec §10.5).
 	bool is_exposed = false;
+	Rpc rpc;
 	uint32_t line = 0;
 	uint32_t frame_size = 0;
 	std::vector<Slot> slots; // All slots with their types, params first.

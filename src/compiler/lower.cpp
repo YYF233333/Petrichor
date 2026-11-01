@@ -2012,6 +2012,7 @@ public:
 			member.is_export = decl_member.is_export;
 			member.hint = decl_member.hint;
 			member.hint_string = decl_member.hint_string;
+			member.usage = decl_member.usage;
 			// Its type's default (spec §4.3) when it has no initializer; an empty
 			// Array[T] is typed too.
 			member.initial.type = member.type;
@@ -2094,6 +2095,7 @@ public:
 			finish();
 			bytecode::Function out = ir::emit(fn, module);
 			out.is_static = function.is_static;
+			out.rpc = function.rpc;
 			out.is_inherited = inherited;
 			if (inherited) {
 				out.code.clear();

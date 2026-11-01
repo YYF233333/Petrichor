@@ -190,14 +190,10 @@ static PropertyHint picker_of(const String &p_class) {
 }
 
 Dictionary property_info(const ClassImage &p_image, const bytecode::Member &p_member) {
-	// Exported members are stored in scenes and shown in the inspector; public
-	// ones are only visible to other code.
-	uint32_t usage = PROPERTY_USAGE_SCRIPT_VARIABLE;
-	if (p_member.is_export) {
-		usage |= PROPERTY_USAGE_DEFAULT;
-	}
+	// Exported members are stored in scenes and shown in the inspector, as
+	// their annotation says; public ones are only visible to other code.
 	const TypeImage &type = p_image.types[p_member.type];
-	Dictionary dict = value_dict(type, to_godot(p_member.name), usage);
+	Dictionary dict = value_dict(type, to_godot(p_member.name), PROPERTY_USAGE_SCRIPT_VARIABLE | p_member.usage);
 	// The inspector picks a class of this language by its global name.
 	const auto global_name = [](const StringName &p_class, const String &p_script) {
 		const Ref<Script> script = p_script.is_empty() ? Ref<Script>() : ResourceLoader::get_singleton()->load(p_script);
@@ -209,7 +205,7 @@ Dictionary property_info(const ClassImage &p_image, const bytecode::Member &p_me
 		return p_element == ValueType::Object ? vformat("%d/%d:%s", Variant::OBJECT, picker_of(p_class), p_class) : vformat("%d:", variant_type(p_element));
 	};
 	const ValueType element = type.check.element;
-	if (p_member.hint != 0) {
+	if (p_member.hint != 0 || !p_member.hint_string.empty()) {
 		dict["hint"] = p_member.hint;
 		dict["hint_string"] = to_godot(p_member.hint_string);
 	} else if (p_member.is_export && type.storage == ValueType::Object) {
@@ -311,15 +307,21 @@ PetHeader parse_header(const String &p_source) {
 			}
 			keyword = String();
 		} else if (c == '@') {
+			const int64_t name = i + 1;
 			for (i++; i < length && is_word(p_source[i]); i++) {
 			}
+			const bool icon = p_source.substr(name, i - name) == "icon";
 			while (i < length && (p_source[i] == ' ' || p_source[i] == '\t')) {
 				i++;
 			}
 			if (i < length && p_source[i] == '(') {
 				for (int depth = 0; i < length;) {
 					if (p_source[i] == '"' || p_source[i] == '\'') {
+						const int64_t start = i;
 						i = skip_string(i);
+						if (icon && header.icon.is_empty()) {
+							header.icon = p_source.substr(start + 1, i - start - 2);
+						}
 						continue;
 					}
 					depth += p_source[i] == '(' ? 1 : (p_source[i] == ')' ? -1 : 0);
@@ -350,6 +352,13 @@ PetHeader parse_header(const String &p_source) {
 		}
 	}
 	return header;
+}
+
+String header_icon_path(const PetHeader &p_header, const String &p_path) {
+	if (p_header.icon.is_empty() || p_header.icon.is_absolute_path()) {
+		return p_header.icon.simplify_path();
+	}
+	return p_path.get_base_dir().path_join(p_header.icon).simplify_path();
 }
 
 /* PetScript */
@@ -663,7 +672,7 @@ TypedArray<Dictionary> PetScript::_get_documentation() const {
 }
 
 String PetScript::_get_class_icon_path() const {
-	return String();
+	return header_icon_path(header, get_script_path());
 }
 
 bool PetScript::_has_method(const StringName &p_method) const {
@@ -867,8 +876,24 @@ bool PetScript::_is_placeholder_fallback_enabled() const {
 	return !get_image();
 }
 
+// The methods with @rpc, as SceneRPCInterface reads them
+// (modules/multiplayer/scene_rpc_interface.cpp:75-95).
 Variant PetScript::_get_rpc_config() const {
-	return Dictionary();
+	Dictionary config;
+	const std::shared_ptr<const ClassImage> current = get_image();
+	for (size_t i = 0; current && i < current->module.functions.size(); i++) {
+		const bytecode::Rpc &rpc = current->module.functions[i].rpc;
+		if (rpc.mode == 0) {
+			continue;
+		}
+		Dictionary method;
+		method["rpc_mode"] = rpc.mode;
+		method["transfer_mode"] = rpc.transfer_mode;
+		method["call_local"] = rpc.call_local;
+		method["channel"] = rpc.channel;
+		config[current->function_names[i]] = method;
+	}
+	return config;
 }
 
 bool PetScript::_instance_has(Object *p_object) const {

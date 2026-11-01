@@ -901,6 +901,9 @@ public:
 			if (each.defaults.size() > each.params.size()) {
 				return fail("more default values than parameters");
 			}
+			if (each.rpc.mode > 2 || each.rpc.transfer_mode > 2) {
+				return fail("an RPC mode the engine does not have");
+			}
 			for (const Constant &value : each.defaults) {
 				if (!typed_constant(value)) {
 					return false;

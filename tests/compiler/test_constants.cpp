@@ -167,7 +167,7 @@ const LABEL = "Insert an expression..."
 @export_multiline(LABEL) var text: String
 )");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	CHECK(member_named(result.module, "amount").hint_string == "0,100,2");
+	CHECK(member_named(result.module, "amount").hint_string == "0.0,100.0,2.0");
 	CHECK(member_named(result.module, "text").hint_string == "Insert an expression...");
 	CHECK(has_error("const ANGLE = deg_to_rad(30)\n@export_range(0, ANGLE) var a: float\n", "An annotation argument must be known at compile time"));
 }

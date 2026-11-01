@@ -29,6 +29,7 @@ class Parser {
 	uint32_t last = 0;
 	bool failed = false;
 	bool line_failed = false; // Whether the line the last line break ended had failed.
+	std::vector<Annotation> warning_ignores; // For the class, wherever they are.
 
 	const Token &peek(size_t p_offset = 0) const {
 		const size_t index = at + p_offset;
@@ -632,6 +633,8 @@ class Parser {
 				stmt->body = stray_block();
 				stmt->range = span(first);
 				r_body.push_back(std::move(stmt));
+			} else if (check(TokenKind::At)) {
+				statement_annotation();
 			} else if (!match(TokenKind::Newline)) {
 				r_body.push_back(statement());
 			}
@@ -1124,43 +1127,94 @@ class Parser {
 		return p_name == "tool" || p_name == "icon" || p_name == "static_unload" || p_name == "abstract" || p_name == "parent" || p_name == "owner";
 	}
 
+	// @warning_ignore_start and @warning_ignore_restore stand on a line of
+	// their own, as in GDScript (modules/gdscript/gdscript_parser.cpp:183-184).
+	static bool is_warning_region(const std::string &p_name) {
+		return p_name == "warning_ignore_start" || p_name == "warning_ignore_restore";
+	}
+
+	// `@name` or `@name(args)`, at the "@"; false after a syntax error.
+	bool annotation(Annotation &r_annotation) {
+		const uint32_t at_sign = index(advance());
+		const Token &name = expect(TokenKind::Identifier, "an annotation name");
+		if (failed) {
+			return false;
+		}
+		r_annotation.name = name.text;
+		r_annotation.name_token = index(name);
+		if (check(TokenKind::ParenOpen)) {
+			Expr holder;
+			call_arguments(holder);
+			if (failed) {
+				return false;
+			}
+			if (!holder.arg_names.empty()) {
+				fail(name, "An annotation takes its arguments by position.");
+				return false;
+			}
+			r_annotation.args = std::move(holder.args);
+		}
+		r_annotation.range = span(at_sign);
+		return true;
+	}
+
+	// Before a statement only @warning_ignore, and the regions it can open
+	// and close (modules/gdscript/gdscript_parser.cpp:2124-2134).
+	void statement_annotation() {
+		Annotation annotation;
+		if (!this->annotation(annotation)) {
+			return;
+		}
+		const Token &name = tokens[annotation.name_token];
+		const bool region = is_warning_region(annotation.name);
+		if (!region && annotation.name != "warning_ignore") {
+			fail(name, "A statement takes only @warning_ignore.");
+			return;
+		}
+		warning_ignores.push_back(std::move(annotation));
+		if (region) {
+			end_of_statement();
+		} else {
+			match(TokenKind::Newline);
+		}
+	}
+
 	void member(ClassDecl &r_class) {
 		const uint32_t first = uint32_t(at);
 		std::vector<Annotation> annotations;
 		while (check(TokenKind::At)) {
-			const uint32_t at_sign = index(advance());
-			const Token &name = expect(TokenKind::Identifier, "an annotation name");
-			if (failed) {
+			Annotation annotation;
+			if (!this->annotation(annotation)) {
 				return;
 			}
-			Annotation annotation;
-			annotation.name = name.text;
-			annotation.name_token = index(name);
-			if (check(TokenKind::ParenOpen)) {
-				Expr holder;
-				call_arguments(holder);
-				if (failed) {
-					return;
-				}
-				if (!holder.arg_names.empty()) {
-					fail(name, "An annotation takes its arguments by position.");
-					return;
-				}
-				annotation.args = std::move(holder.args);
-			}
-			annotation.range = span(at_sign);
+			const Token &name = tokens[annotation.name_token];
 			if (is_group_annotation(annotation.name)) {
 				// Stands alone, as in GDScript.
 				r_class.groups.push_back({ std::move(annotation), r_class.members.size() });
 				end_of_statement();
 				return;
 			}
+			if (is_warning_region(annotation.name)) {
+				warning_ignores.push_back(std::move(annotation));
+				end_of_statement();
+				return;
+			}
+			if (annotation.name == "warning_ignore") {
+				warning_ignores.push_back(std::move(annotation));
+				match(TokenKind::Newline);
+				continue;
+			}
 			if (annotation.name == "readonly") {
 				fail(name, "@readonly is only for interface properties (spec §3.9).");
 				return;
 			}
-			if (annotation.name != "export" && annotation.name != "export_range" && annotation.name != "export_enum" && annotation.name != "export_multiline" && annotation.name != "onready") {
-				fail(name, "The annotation @" + name.text + " is not supported yet.");
+			if (is_class_annotation(annotation.name)) {
+				fail(name, "@" + annotation.name + " belongs to the class header, before the members.");
+				return;
+			}
+			// The checker knows the members of the @export family.
+			if (annotation.name.rfind("export", 0) != 0 && annotation.name != "onready" && annotation.name != "rpc") {
+				fail(name, "The annotation @" + annotation.name + " is not supported yet.");
 				return;
 			}
 			annotations.push_back(std::move(annotation));
@@ -1182,6 +1236,13 @@ class Parser {
 		if (is_static && !check(TokenKind::Func)) {
 			fail(peek(), "Static members are not supported yet; static functions are.");
 			return;
+		}
+
+		for (const Annotation &annotation : annotations) {
+			if (annotation.name == "rpc" && !check(TokenKind::Func)) {
+				fail(tokens[annotation.name_token], "@rpc applies to functions.");
+				return;
+			}
 		}
 
 		if (match(TokenKind::Var)) {
@@ -1270,9 +1331,11 @@ class Parser {
 		}
 
 		if (check(TokenKind::Func)) {
-			if (!annotations.empty()) {
-				fail(peek(), "@" + annotations[0].name + " applies to variables.");
-				return;
+			for (const Annotation &annotation : annotations) {
+				if (annotation.name != "rpc") {
+					fail(peek(), "@" + annotation.name + " applies to variables.");
+					return;
+				}
 			}
 			advance();
 			FuncDecl decl;
@@ -1282,6 +1345,7 @@ class Parser {
 			decl.is_pub = is_pub;
 			decl.is_static = is_static;
 			decl.is_async = is_async;
+			decl.annotations = std::move(annotations);
 			expect(TokenKind::ParenOpen, "\"(\"");
 			decl.params = params();
 			if (match(TokenKind::Arrow)) {
@@ -1319,6 +1383,7 @@ public:
 		ClassDecl result;
 		bool has_class_name = false;
 		bool has_extends = false;
+		bool has_icon = false;
 		bool seen_member = false;
 		while (!check(TokenKind::EndOfFile)) {
 			// Dedents balance indents; one that a block ending early left is skipped.
@@ -1342,6 +1407,28 @@ public:
 					result.owner_ref = type_ref();
 					expect(TokenKind::ParenClose, "\")\"");
 					end_of_statement();
+					continue;
+				}
+				// The editor's icon of the class, which the runtime reads from the
+				// header. GDScript takes a string literal, and only once
+				// (modules/gdscript/gdscript_parser.cpp:4422-4440, 4465-4473).
+				if (name.text == "icon") {
+					expect(TokenKind::ParenOpen, "\"(\"");
+					const Token &path = expect(TokenKind::String, "the path to the icon");
+					if (!failed && has_icon) {
+						report(name, "The class already has @icon.");
+					} else if (!failed && path.text.empty()) {
+						report(path, "@icon takes the path to the icon.");
+					}
+					has_icon = true;
+					expect(TokenKind::ParenClose, "\")\"");
+					match(TokenKind::Newline);
+					continue;
+				}
+				// Releases static members when nothing uses the class; without them,
+				// which are not supported yet, it does nothing.
+				if (name.text == "static_unload") {
+					match(TokenKind::Newline);
 					continue;
 				}
 				report(name, "The class annotation @" + name.text + " is not supported yet.");
@@ -1395,6 +1482,7 @@ public:
 			seen_member = true;
 			member(result);
 		}
+		result.warning_ignores = std::move(warning_ignores);
 		return result;
 	}
 };

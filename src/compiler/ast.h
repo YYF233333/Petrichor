@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bytecode/module.h"
 #include "bytecode/opcodes.h"
 #include "compiler/constant.h"
 #include "compiler/lexer.h"
@@ -271,6 +272,7 @@ struct VarDecl {
 	bool must_assign = false; // An export of a non-null object type without an initial value (spec §7.5).
 	uint32_t hint = 0; // For the inspector: PropertyHint as the engine numbers it.
 	std::string hint_string;
+	uint32_t usage = 0; // PropertyUsageFlags as the engine numbers them, for an export.
 };
 
 // `const NAME = value` in a class (spec §4.5).
@@ -325,6 +327,7 @@ struct FuncDecl {
 	bool is_pub = false;
 	bool is_static = false;
 	bool is_async = false;
+	std::vector<Annotation> annotations; // @rpc.
 	std::vector<ParamDecl> params;
 	std::optional<TypeRef> return_type_ref;
 	Block body;
@@ -336,6 +339,7 @@ struct FuncDecl {
 	Type return_type = Type::of(TypeKind::Void);
 	bool is_override = false;
 	std::vector<LocalInfo> locals; // Parameters first.
+	bytecode::Rpc rpc;
 };
 
 // `signal name(params)` (spec §4.7).
@@ -416,6 +420,9 @@ struct ClassDecl {
 	std::vector<FuncDecl> functions;
 	std::vector<SignalDecl> signals;
 	std::vector<ExportGroupDecl> groups;
+	// @warning_ignore, @warning_ignore_start and @warning_ignore_restore,
+	// wherever they are; the compiler has no warnings to suppress yet.
+	std::vector<Annotation> warning_ignores;
 
 	const StructDecl *find_struct(const std::string &p_name) const {
 		for (const StructDecl &decl : structs) {
