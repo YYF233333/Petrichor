@@ -396,7 +396,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 4.5 常量
 
-- `const` 的写法与 GDScript 相同，可以声明在类中，也可以声明在函数中。类中的常量属于类：本类和子类中直接写名字，其他类中写 `Player.MAX`，也可以经实例写 `self.MAX`、`p.MAX`；静态函数中同样可用。可见性按 §4.2。类型可以写出，省略时由初始化式推断，规则与成员相同（§4.3），例如 `const SPEEDS = [1.0, 2.0]` 为 `Array[float]`，在 GDScript 中则是无类型的 Array。
+- `const` 的写法与 GDScript 相同，可以声明在类中，也可以声明在函数中。类中的常量属于类：本类和子类中直接写名字，其他类中写 `Player.MAX`，也可以经实例写 `self.MAX`、`p.MAX`；静态函数中同样可用。可见性按 §4.2。类型可以写出，省略时由初始化式推断，规则与成员相同（§4.3），例如 `const SPEEDS = [1.0, 2.0]` 为 `Array[float]`，在 GDScript 中则是无类型的 Array；初始化式为 None 时须写出 `T?` 类型，例如 `const FALLBACK: Node? = None`。
 - 初始化式必须是常量表达式，由以下部分组成：字面量；常量、enum 的值、引擎类和内置类型的常量；`preload`；运算符和条件表达式；数组和字典字面量；内置类型的构造和转换；数学工具函数，即引擎归为 math 类的工具函数（`core/variant/variant_utility.cpp:1632-1732`）；对常量取下标和字段。方法调用、lambda、`self` 和变量都不是常量表达式，与 GDScript 相同（`modules/gdscript/gdscript_analyzer.cpp:2124-2131`）。
 - 编译器求出 int、float、bool、String、StringName 和 NodePath 的值，包括它们之间的运算和转换、返回 int 或 bool 的数学函数，以及数组和字典字面量的结构。这些只用 int64 和 double 计算，结果与引擎的构建和平台无关；求出的值与同一表达式在运行时的值相同。
 - 其余部分在类加载时由引擎求值一次：引擎类型（向量、Color 等）的构造和运算、返回 float 的数学函数，以及由它们算出的值。理由：向量的分量是 `real_t`，在单精度和双精度的构建中不同（`core/math/math_defs.h:143-147`），编译一次的字节码不能写死其中一种结果；sin 等函数结果的末位随平台的数学库而异，GDScript 也是在设备上加载脚本时才求值（`modules/gdscript/register_types.cpp:99-116`）。
@@ -459,6 +459,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 运算的结果类型按引擎的运算符表确定，与 GDScript 的静态检查相同（`core/variant/variant_op.cpp:212-1033`）。例如 `Vector2 * float` 得到 Vector2，`Vector2i * float` 得到 Vector2，`int / int` 是整除。表中没有的组合，例如 `Vector2 + Vector2i`，是编译错误。
 - `int` 与 `float` 混合运算时提升为 `float`。
 - 整数除以 0 是程序错误。
+- 位运算 `&`、`|`、`^`、`~`、`<<`、`>>` 及其复合赋值用于 int。移位时左边为负数、移位量为负或达到 64 是程序错误，在常量中是编译错误（§4.5）。理由：引擎只在 debug 构建的一般路径中拒绝负数（`core/variant/variant_op.h:360-372`），移位量达到 64 是 C++ 的未定义行为，release 构建中两种情况都不报错，结果不确定。
 - 以 Variant 绑定的工具函数（lerp、clamp、min、max、abs、wrap 等）的定型见 §10.3。
 
 ### 5.2 比较
@@ -1032,7 +1033,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 领域 | 检查内容 |
 |---|---|
 | 语法硬规则 | 本文中每一处与 GDScript 不同的规则，对应的 GDScript 写法都得到编译错误和改法；运行时行为不同的，只限 §1.2 所列的例外，即 GDScript 在那里运行时出错或悄悄得到错误结果 |
-| 数值 | `var hp: int = 10; hp = 2.5` 报编译错误，`hp = int(2.5)` 得 2；int 实参传给 float 参数无需转换；`7 / 2` 得 3；`Vector2i(1, 2) * 0.5` 为 Vector2；`Vector2() + Vector2i()` 报编译错误；整数除以 0 是程序错误；超出 int32 范围的值传给引擎的 int32 参数是程序错误，-1 写入 uint32 属性 `collision_layer` 也是，int32 的最大值和 0 照常传入 |
+| 数值 | `var hp: int = 10; hp = 2.5` 报编译错误，`hp = int(2.5)` 得 2；int 实参传给 float 参数无需转换；`7 / 2` 得 3；`Vector2i(1, 2) * 0.5` 为 Vector2；`Vector2() + Vector2i()` 报编译错误；整数除以 0 是程序错误；运行时 `x << n` 在 n 为 -1 或 64 时是程序错误，`x & 3` 和 `flags |= 4` 照常计算；超出 int32 范围的值传给引擎的 int32 参数是程序错误，-1 写入 uint32 属性 `collision_layer` 也是，int32 的最大值和 0 照常传入 |
 | 可空与释放 | 已释放对象经 `T?` 读出为 None；经 `T` 访问成员是程序错误，debug 构建中，本语言实例的诊断写明释放位置；`queue_free()` 之后、帧末之前仍算存活；两个不同的 Node 释放后，以 Node 比较为假，以 `Node?` 比较为真；已释放的 Node 上 `x is Sprite2D` 为假，`x as Sprite2D` 为 None；方法中 `free()` 自身或卸下脚本之后读成员是程序错误，不读成员直接返回则正常结束；已释放的 Node 传给 `add_child`、写入 `owner` 或 `append` 到 `Array[Node]` 是程序错误，传给 `is_instance_valid` 得到 false |
 | Option 与 Result | `?` 在 None 或 `Err` 时从当前函数返回；在返回 void 的函数中使用 `?` 报编译错误；Option 传播到返回 Result 的函数报编译错误；`await f()?` 等于 `(await f())?`；丢弃 Result 报编译错误；`unwrap` 失败是程序错误 |
 | 嵌套的 Option | `Array[Enemy?]` 为空时 `pop_back()` 得 None，末元素为 None 时得包含 None 的 Some；`var x: Enemy?? = maybe_enemy` 得 Some；`Dictionary[String, Variant]` 中缺键得 None，值为 null 得包含 NIL 的 Some；把 `int??` 或 `Variant?` 传给 Variant 参数报编译错误并给出 `.flatten()` 或 `.unwrap_or(null)`；`var x: Enemy?? = Some(None)` 得包含 None 的 Some；对 `Enemy?` 的 match 有 `Some(var e)` 和 `None` 两个分支即为穷尽 |

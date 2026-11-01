@@ -26,7 +26,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Calls through a type name, `Type.m()`: static methods of engine classes and built-in types, such as `FileAccess.open` and `Color.from_hsv`, and static methods and `new()` of classes of this language (spec §4.6, §4.8).
 - Enums (spec §3.7); inner classes (spec §2.1).
 - Lambdas (spec §3.11).
-- The operators `in` and `not in`, bitwise operators outside constant expressions and their assignments, with what a shift by a negative amount or by 64 or more does at run time, `**` (spec §3.2, §5.1).
+- The operators `in` and `not in`, bitwise operators outside constant expressions and their assignments, `**` (spec §3.2, §5.1).
 - `assert` (spec §8.3).
 - Rest parameters `...args: Array[T]` (spec §4.6).
 - Members that must be assigned and are not exported, and passing them by name to `instantiate(...)` and `new(...)` (spec §6.2, §4.6).
