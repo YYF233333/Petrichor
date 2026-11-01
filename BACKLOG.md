@@ -20,6 +20,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The check of `@onready` members of value types read before ready.
 - StringName and NodePath literals.
 - preload() inside a constant's container (spec §4.5).
+- In the editor, GDScript does not see a pub constant whose value is a preload(), such as `Spawner.SCENE`, and reports a parse error: the editor compiles the scripts it loads with declarations only, which read no scenes, so the constant is left out of the image (spec §4.5, §11.3).
 - Constants of the engine class a class extends by their bare name, such as `NOTIFICATION_PREDELETE`, as GDScript has them in scope; now they need the class, `Object.NOTIFICATION_PREDELETE`.
 - `Array[T]?`; `pop_front()` and `pop_back()` of `Array[T?]`, which give `T??`.
 - Class annotations such as `@tool` and `@icon`, and member annotations other than `@export`, `@export_range`, `@export_enum`, `@export_multiline` and `@onready`: the rest of the `@export` family, `@warning_ignore`, `@rpc` (spec §2.3).

@@ -10,7 +10,6 @@
 #endif
 
 #include <godot_cpp/classes/engine.hpp>
-#include <godot_cpp/classes/resource_loader.hpp>
 
 #include <algorithm>
 #include <new>
@@ -184,8 +183,7 @@ bool resolve_instance(Object *p_object, ScriptedObject &r_instance) {
 }
 
 std::shared_ptr<const ClassImage> resolve_script(const String &p_path) {
-	// load() would release the script once too often through the Ref it returns.
-	const Ref<PetScript> script = ResourceLoader::get_singleton()->call("load", p_path);
+	const Ref<PetScript> script = load_resource(p_path);
 	return script.is_valid() ? script->get_image() : nullptr;
 }
 

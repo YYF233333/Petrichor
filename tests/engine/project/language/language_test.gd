@@ -442,6 +442,9 @@ func _ready() -> void:
 	_check(statics.own_static() == 8 and statics.through_base() == 7, "static methods of classes of this language, through the class's name (spec §4.8)")
 	_check(statics.engine_static() and statics.builtin_static(), "static methods of engine classes and built-in types")
 	statics.free()
+	var static_script: Script = load("res://language/static_check.pet")
+	for i in 3:
+		_check(static_script.get("NODES") == load("res://language/nodes.tscn"), "a pub preloaded constant read by name is the loaded resource, each time")
 
 	for test: GDScript in [preload("res://language/coroutines_test.gd"), preload("res://language/defaults_test.gd"), preload("res://language/inheritance_test.gd")]:
 		var part: Node = test.new()

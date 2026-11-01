@@ -10,7 +10,6 @@
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/ref_counted.hpp>
-#include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/window.hpp>
 #include <godot_cpp/core/class_db.hpp>
@@ -782,7 +781,7 @@ public:
 						// As PetScript.new() does: the script's instance runs the
 						// initializers and _init() (spec §6.1).
 						Object *made = object.get_validated_object();
-						made->set_script(ResourceLoader::get_singleton()->call("load", image.class_scripts[index]));
+						made->set_script(load_resource(image.class_scripts[index]));
 						ScriptedObject instance;
 						if (!scripted_object(made, instance)) {
 							if (!Object::cast_to<RefCounted>(made)) {

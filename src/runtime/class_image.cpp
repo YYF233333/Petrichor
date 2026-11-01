@@ -4,7 +4,6 @@
 #include "runtime/method_callable.h"
 #include "runtime/text.h"
 
-#include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/script.hpp>
 
 #include <algorithm>
@@ -373,7 +372,7 @@ bool constant_value(const ClassImage &p_image, const bytecode::Constant &p_const
 	const std::vector<TypeImage> &p_types = p_image.types;
 	const ValueType type = p_types[p_constant.type].storage;
 	if (p_constant.load) {
-		r_value = ResourceLoader::get_singleton()->load(to_godot(p_constant.s));
+		r_value = load_resource(to_godot(p_constant.s));
 		return true;
 	}
 	if (p_constant.op >= 0) {

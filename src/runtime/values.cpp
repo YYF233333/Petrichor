@@ -230,12 +230,12 @@ String script_name(const Ref<Script> &p_script) {
 String class_description(const StringName &p_class, const String &p_script, const String &p_interface) {
 	if (!p_interface.is_empty()) {
 		const int64_t split = p_interface.rfind("::");
-		const Ref<Script> owner = ResourceLoader::get_singleton()->call("load", p_interface.substr(0, split));
+		const Ref<Script> owner = load_resource(p_interface.substr(0, split));
 		const String name = p_interface.substr(split + 2);
 		return owner.is_valid() && !owner->get_global_name().is_empty() ? String(owner->get_global_name()) + "." + name : name;
 	}
 	if (!p_script.is_empty()) {
-		return script_name(ResourceLoader::get_singleton()->call("load", p_script));
+		return script_name(load_resource(p_script));
 	}
 	return p_class;
 }
@@ -323,10 +323,6 @@ bool typed_as(int64_t p_builtin, const StringName &p_class, const Variant &p_scr
 // reader's to report (spec §3.8).
 bool implements(const Variant &p_element, const String &p_interface) {
 	return p_interface.is_empty() || !p_element.booleanize() || implements_interface(p_element, p_interface);
-}
-
-Variant load_script(const String &p_path) {
-	return p_path.is_empty() ? Variant() : ResourceLoader::get_singleton()->call("load", p_path);
 }
 
 // A Variant converts String and StringName into each other, like GDScript (spec §10.7).
@@ -1374,10 +1370,14 @@ Variant default_variant(ValueType p_type) {
 	return result;
 }
 
+Variant load_resource(const String &p_path) {
+	return p_path.is_empty() ? Variant() : ResourceLoader::get_singleton()->call("load", p_path);
+}
+
 Array typed_array(ValueType p_element, const StringName &p_class, const String &p_script) {
 	Array array;
 	if (p_element != ValueType::Void) {
-		array.set_typed(uint32_t(variant_type(p_element)), p_class, load_script(p_script));
+		array.set_typed(uint32_t(variant_type(p_element)), p_class, load_resource(p_script));
 	}
 	return array;
 }
@@ -1385,7 +1385,7 @@ Array typed_array(ValueType p_element, const StringName &p_class, const String &
 Dictionary typed_dictionary(const ValueCheck &p_check) {
 	Dictionary dictionary;
 	if (p_check.key != ValueType::Void) {
-		dictionary.set_typed(uint32_t(variant_type(p_check.key)), p_check.key_class_name, load_script(p_check.key_script), uint32_t(variant_type(p_check.element)), p_check.class_name, load_script(p_check.script));
+		dictionary.set_typed(uint32_t(variant_type(p_check.key)), p_check.key_class_name, load_resource(p_check.key_script), uint32_t(variant_type(p_check.element)), p_check.class_name, load_resource(p_check.script));
 	}
 	return dictionary;
 }

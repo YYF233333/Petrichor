@@ -3,6 +3,8 @@ class_name StaticCheck extends Node
 # Calls through a type name (spec §4.6, §4.8): static methods of engine
 # classes, of built-in types and of classes of this language, and new().
 
+pub const NODES = preload("res://language/nodes.tscn")
+
 pub var initialized := false
 pub var level := 3
 

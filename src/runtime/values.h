@@ -201,6 +201,11 @@ bool from_variant(bytecode::ValueType p_type, const godot::Variant &p_value, uin
 godot::String entry_mismatch(bytecode::ValueType p_type, const godot::Variant &p_value, const ValueCheck &p_check);
 godot::Variant default_variant(bytecode::ValueType p_type);
 godot::Variant::Type variant_type(bytecode::ValueType p_type);
+// The resource at a path, a script or another, as ResourceLoader loads it;
+// null for an empty path. Made from the Ref that godot-cpp's load() returns,
+// a Variant holding a script of this language released it once too often,
+// and the next destruction of it crashed.
+godot::Variant load_resource(const godot::String &p_path);
 // A new empty array, typed with the element type and the class of object
 // elements, and for a class of this language with its script too (spec §3.8);
 // untyped for Void.
