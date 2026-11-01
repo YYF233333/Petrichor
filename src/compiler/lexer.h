@@ -86,6 +86,11 @@ enum class TokenKind {
 	StarEqual,
 	SlashEqual,
 	PercentEqual,
+	AmpersandEqual,
+	PipeEqual,
+	CaretEqual,
+	ShiftLeftEqual,
+	ShiftRightEqual,
 	EqualEqual,
 	BangEqual,
 	Less,
@@ -107,7 +112,7 @@ enum class TokenKind {
 
 const char *token_name(TokenKind p_kind);
 
-// The operator of a compound assignment: + for +=.
+// The operator of a compound assignment: + for +=; Invalid for other tokens.
 TokenKind compound_operator(TokenKind p_assign);
 
 struct Token {

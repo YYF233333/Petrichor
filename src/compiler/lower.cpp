@@ -1069,6 +1069,21 @@ class Lowerer {
 			case TokenKind::Percent:
 				op = Op::MOD_INT;
 				break;
+			case TokenKind::Ampersand:
+				op = Op::AND_INT;
+				break;
+			case TokenKind::Pipe:
+				op = Op::OR_INT;
+				break;
+			case TokenKind::Caret:
+				op = Op::XOR_INT;
+				break;
+			case TokenKind::ShiftLeft:
+				op = Op::SHL_INT;
+				break;
+			case TokenKind::ShiftRight:
+				op = Op::SHR_INT;
+				break;
 			case TokenKind::EqualEqual:
 				op = operand == ValueType::String ? Op::EQ_STRING : (operand == ValueType::Bool ? Op::EQ_BOOL : (f ? Op::EQ_FLOAT : Op::EQ_INT));
 				break;
@@ -1303,7 +1318,9 @@ class Lowerer {
 			if (p_expr.kind == ExprKind::Member && p_expr.base && p_expr.base->kind == ExprKind::Call) {
 				lower_expr(*p_expr.base); // For what the call does; the constant is the class's.
 			}
-			return load_constant(p_expr.constant);
+			// A constant of T? keeps the value inside Some (converted()).
+			const uint32_t value = load_constant(p_expr.constant);
+			return p_expr.type.kind == TypeKind::Option ? wrapped(value, p_expr.type) : value;
 		}
 		switch (p_expr.kind) {
 			case ExprKind::Await: {
@@ -1372,6 +1389,8 @@ class Lowerer {
 				const uint32_t result = temp(p_expr.type);
 				if (p_expr.op == TokenKind::Not) {
 					instr(Op::NOT, result, operand);
+				} else if (p_expr.op == TokenKind::Tilde) {
+					instr(Op::NOT_INT, result, operand);
 				} else if (type == ValueType::Float || type == ValueType::Int) {
 					instr(type == ValueType::Float ? Op::NEG_FLOAT : Op::NEG_INT, result, operand);
 				} else {

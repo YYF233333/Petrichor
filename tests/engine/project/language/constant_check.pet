@@ -14,6 +14,8 @@ pub const RIGHT = Vector2(1, 0) == Vector2.RIGHT
 pub const NAMES = ["a", "b"]
 pub const LIMITS = {"hp": 100, "mp": 50}
 pub const RED = Color("#ff0000")
+pub const LIMIT: int? = 3
+pub const FALLBACK: Node? = None
 const SECRET = 7
 
 
@@ -68,3 +70,22 @@ pub func change() -> void:
 
 pub func secret() -> int:
 	return SECRET
+
+
+pub func limit() -> int:
+	return LIMIT.unwrap() if FALLBACK == None else 0
+
+
+# Spec §5.1: bitwise operators at run time.
+pub func bits(x: int, n: int) -> int:
+	var flags := x & 240 | n ^ 1
+	flags <<= 2
+	flags >>= 1
+	flags |= 1
+	flags &= ~4
+	flags ^= 8
+	return flags
+
+
+pub func shift(x: int, n: int) -> int:
+	return x << n

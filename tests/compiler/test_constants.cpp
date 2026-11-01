@@ -110,7 +110,28 @@ TEST_CASE("an initializer that is not a constant expression is reported at what 
 	CHECK(errors_of("const R = randi() + 1\n") == Errors{ "1:11: \"randi()\" is not a constant expression: of calls, only constructors of built-in types and math functions are (spec §4.5)." });
 	CHECK_MESSAGE(errors_of("var hp = 3\nconst H = hp * 2\n") == Errors{ "2:11: \"hp\" is a variable, not a constant (spec §4.5)." }, joined(errors_of("var hp = 3\nconst H = hp * 2\n")));
 	CHECK(errors_of("const A = B\nconst B = A\n") == Errors{ "2:11: The constant \"A\" depends on its own value." });
-	CHECK(errors_of("const N: int? = 3\n") == Errors{ "1:10: Constants of type int? are not supported yet." });
+}
+
+TEST_CASE("a constant of T? is used as Some of its value") {
+	const compiler::CompileResult result = compile(R"(extends Node
+const LIMIT: int? = 3
+const RATE: float? = 2
+const NOTHING: int? = None
+const FALLBACK: Node? = None
+const ORIGIN: Vector2? = Vector2.ZERO
+func f() -> float:
+	var total := LIMIT.unwrap() + RATE.unwrap()
+	if NOTHING == None and FALLBACK == None and ORIGIN != None and LIMIT == 3:
+		total += 1
+	return total
+)");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	CHECK(named(result.module, "LIMIT").i == 3);
+	CHECK(named(result.module, "RATE").f == 2.0);
+	find_instruction(function_named(result.module, "f"), bytecode::Op::SOME);
+	CHECK(errors_of("const N = None\n") == Errors{ "1:11: The constant needs a type: None does not say which T? it is (spec §4.5)." });
 }
 
 TEST_CASE("constants are read-only") {
@@ -151,9 +172,17 @@ const LABEL = "Insert an expression..."
 	CHECK(has_error("const ANGLE = deg_to_rad(30)\n@export_range(0, ANGLE) var a: float\n", "An annotation argument must be known at compile time"));
 }
 
-TEST_CASE("bitwise operators work in constant expressions only, for now") {
-	CHECK(compile(in_function("var mask := 1 << 4\nprint(mask)")).ok());
-	CHECK(has_error(in_function("pass", "func f(x: int) -> int:\n\treturn x | 1\nfunc g() -> void:"), "Bitwise operators are supported only in constant expressions yet."));
+TEST_CASE("bitwise operators and their assignments take ints at run time") {
+	const compiler::CompileResult result = compile(in_function("var flags := x & 3 | ~n ^ 1\nflags <<= n\nflags >>= 1\nflags &= 7\nflags |= 8\nflags ^= 2\nreturn flags", "func f(x: int, n: int) -> int:"));
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	const bytecode::Function &f = function_named(result.module, "f");
+	for (const bytecode::Op op : { bytecode::Op::AND_INT, bytecode::Op::OR_INT, bytecode::Op::XOR_INT, bytecode::Op::NOT_INT, bytecode::Op::SHL_INT, bytecode::Op::SHR_INT }) {
+		find_instruction(f, op);
+	}
+	CHECK(has_error(in_function("var flags := 1\nflags |= 1.5"), "Invalid operands int and float for \"|\"."));
+	CHECK(has_error(in_function("var on := true\nprint(~on)"), "\"~\" requires int, found bool."));
 }
 
 TEST_CASE("constants of other classes, pub to all and the rest to subclasses") {

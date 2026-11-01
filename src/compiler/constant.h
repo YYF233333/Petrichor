@@ -96,7 +96,7 @@ ConstPtr fold(Expr &r_expr);
 
 // The value as stored where a `p_to` is expected: int as float (spec §3.2),
 // a String as a StringName or a NodePath (§10.7), the elements of a container
-// as its element types.
+// as its element types; for a T?, the value inside Some, or None.
 ConstPtr converted(const ConstPtr &p_value, const Type &p_to);
 
 // Whether a preload is in the value, which no table of constants can hold.

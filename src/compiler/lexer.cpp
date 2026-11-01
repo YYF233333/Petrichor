@@ -151,6 +151,16 @@ const char *token_name(TokenKind p_kind) {
 			return "\"/=\"";
 		case TokenKind::PercentEqual:
 			return "\"%=\"";
+		case TokenKind::AmpersandEqual:
+			return "\"&=\"";
+		case TokenKind::PipeEqual:
+			return "\"|=\"";
+		case TokenKind::CaretEqual:
+			return "\"^=\"";
+		case TokenKind::ShiftLeftEqual:
+			return "\"<<=\"";
+		case TokenKind::ShiftRightEqual:
+			return "\">>=\"";
 		case TokenKind::EqualEqual:
 			return "\"==\"";
 		case TokenKind::BangEqual:
@@ -200,6 +210,8 @@ SourcePosition SourceFile::position(uint32_t p_offset) const {
 
 TokenKind compound_operator(TokenKind p_assign) {
 	switch (p_assign) {
+		case TokenKind::PlusEqual:
+			return TokenKind::Plus;
 		case TokenKind::MinusEqual:
 			return TokenKind::Minus;
 		case TokenKind::StarEqual:
@@ -208,8 +220,18 @@ TokenKind compound_operator(TokenKind p_assign) {
 			return TokenKind::Slash;
 		case TokenKind::PercentEqual:
 			return TokenKind::Percent;
+		case TokenKind::AmpersandEqual:
+			return TokenKind::Ampersand;
+		case TokenKind::PipeEqual:
+			return TokenKind::Pipe;
+		case TokenKind::CaretEqual:
+			return TokenKind::Caret;
+		case TokenKind::ShiftLeftEqual:
+			return TokenKind::ShiftLeft;
+		case TokenKind::ShiftRightEqual:
+			return TokenKind::ShiftRight;
 		default:
-			return TokenKind::Plus;
+			return TokenKind::Invalid;
 	}
 }
 
@@ -636,6 +658,12 @@ class Lexer {
 			advance();
 			push(p_kind, start);
 		};
+		auto three = [&](TokenKind p_kind) {
+			advance();
+			advance();
+			advance();
+			push(p_kind, start);
+		};
 		switch (c) {
 			case '@':
 				one(TokenKind::At);
@@ -708,8 +736,8 @@ class Lexer {
 			// && and || are GDScript's spellings of and and or. A quote after & or
 			// ^ would begin a StringName or NodePath literal, not supported yet.
 			case '&':
-				if (next == '&') {
-					two(TokenKind::And);
+				if (next == '&' || next == '=') {
+					two(next == '&' ? TokenKind::And : TokenKind::AmpersandEqual);
 					return;
 				}
 				if (next != '"' && next != '\'') {
@@ -718,9 +746,17 @@ class Lexer {
 				}
 				break;
 			case '|':
-				next == '|' ? two(TokenKind::Or) : one(TokenKind::Pipe);
+				if (next == '|' || next == '=') {
+					two(next == '|' ? TokenKind::Or : TokenKind::PipeEqual);
+				} else {
+					one(TokenKind::Pipe);
+				}
 				return;
 			case '^':
+				if (next == '=') {
+					two(TokenKind::CaretEqual);
+					return;
+				}
 				if (next != '"' && next != '\'') {
 					one(TokenKind::Caret);
 					return;
@@ -731,14 +767,14 @@ class Lexer {
 				return;
 			case '<':
 				if (next == '<') {
-					two(TokenKind::ShiftLeft);
+					peek(2) == '=' ? three(TokenKind::ShiftLeftEqual) : two(TokenKind::ShiftLeft);
 				} else {
 					next == '=' ? two(TokenKind::LessEqual) : one(TokenKind::Less);
 				}
 				return;
 			case '>':
 				if (next == '>') {
-					two(TokenKind::ShiftRight);
+					peek(2) == '=' ? three(TokenKind::ShiftRightEqual) : two(TokenKind::ShiftRight);
 				} else {
 					next == '=' ? two(TokenKind::GreaterEqual) : one(TokenKind::Greater);
 				}

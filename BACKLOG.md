@@ -19,14 +19,14 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Members that are not pub of another instance of the same class, which the engine reaches by name while reflection lists only pub ones.
 - The check of `@onready` members of value types read before ready.
 - StringName and NodePath literals.
-- Of constants (spec §4.5): types T?, and preload() inside a container.
+- preload() inside a constant's container (spec §4.5).
 - Constants of the engine class a class extends by their bare name, such as `NOTIFICATION_PREDELETE`, as GDScript has them in scope; now they need the class, `Object.NOTIFICATION_PREDELETE`.
 - `Array[T]?`; `pop_front()` and `pop_back()` of `Array[T?]`, which give `T??`.
 - Class annotations such as `@tool` and `@icon`, and member annotations other than `@export`, `@export_range`, `@export_enum`, `@export_multiline` and `@onready`: the rest of the `@export` family, `@warning_ignore`, `@rpc` (spec §2.3).
 - Calls through a type name, `Type.m()`: static methods of engine classes and built-in types, such as `FileAccess.open` and `Color.from_hsv`, and static methods and `new()` of classes of this language (spec §4.6, §4.8).
 - Enums (spec §3.7); inner classes (spec §2.1).
 - Lambdas (spec §3.11).
-- The operators `in` and `not in`, bitwise operators outside constant expressions and their assignments, `**` (spec §3.2, §5.1).
+- The operators `in` and `not in`, `**` (spec §3.2, §5.1).
 - `assert` (spec §8.3).
 - Rest parameters `...args: Array[T]` (spec §4.6).
 - Members that must be assigned and are not exported, and passing them by name to `instantiate(...)` and `new(...)` (spec §6.2, §4.6).

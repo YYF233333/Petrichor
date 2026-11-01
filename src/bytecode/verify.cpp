@@ -561,8 +561,14 @@ class Verifier {
 			case Op::MUL_INT:
 			case Op::DIV_INT:
 			case Op::MOD_INT:
+			case Op::AND_INT:
+			case Op::OR_INT:
+			case Op::XOR_INT:
+			case Op::SHL_INT:
+			case Op::SHR_INT:
 				return three(o, ValueType::Int, ValueType::Int);
 			case Op::NEG_INT:
+			case Op::NOT_INT:
 				return same(o[0], o[1], ValueType::Int);
 			case Op::ADD_FLOAT:
 			case Op::SUB_FLOAT:

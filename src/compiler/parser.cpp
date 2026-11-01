@@ -852,8 +852,7 @@ class Parser {
 
 		auto expr = expression();
 		const TokenKind op = peek().kind;
-		if (op == TokenKind::Equal || op == TokenKind::PlusEqual || op == TokenKind::MinusEqual ||
-				op == TokenKind::StarEqual || op == TokenKind::SlashEqual || op == TokenKind::PercentEqual) {
+		if (op == TokenKind::Equal || compound_operator(op) != TokenKind::Invalid) {
 			advance();
 			auto stmt = make_stmt(StmtKind::Assign, token);
 			stmt->assign_op = op;

@@ -54,13 +54,6 @@ const char *operator_name(TokenKind p_op) {
 	}
 }
 
-bool is_bitwise(const Expr &p_expr) {
-	if (p_expr.kind == ExprKind::Unary) {
-		return p_expr.op == TokenKind::Tilde;
-	}
-	return p_expr.kind == ExprKind::Binary && (p_expr.op == TokenKind::ShiftLeft || p_expr.op == TokenKind::ShiftRight || p_expr.op == TokenKind::Ampersand || p_expr.op == TokenKind::Pipe || p_expr.op == TokenKind::Caret);
-}
-
 // Utility functions that the engine binds with Variant and that are typed by
 // their arguments instead (spec §10.3).
 enum class ArgumentTyped {
@@ -769,10 +762,6 @@ class Checker : public ClassRelation {
 		r_type = Type::of(TypeKind::Error);
 		if (p_declared) {
 			r_type = resolve(*p_declared, false);
-			if (r_type.kind == TypeKind::Option || (r_type.kind == TypeKind::Object && r_type.nullable)) {
-				error(p_declared->range, "Constants of type " + r_type.to_string() + " are not supported yet.");
-				r_type = Type::of(TypeKind::Error);
-			}
 		}
 		const Type value = check_value(r_initializer, r_type);
 		if (value.is_error()) {
@@ -787,7 +776,7 @@ class Checker : public ClassRelation {
 				return nullptr;
 			}
 		} else if (value.kind == TypeKind::None) {
-			error(r_initializer.range, "None does not say which T? it is; constants of type T? are not supported yet.");
+			error(r_initializer.range, "The constant needs a type: None does not say which T? it is (spec §4.5).");
 			r_type = Type::of(TypeKind::Error);
 			return nullptr;
 		} else {
@@ -2866,13 +2855,6 @@ class Checker : public ClassRelation {
 		}
 		if (!r_expr.constant) {
 			r_expr.constant = fold(r_expr);
-		}
-		if (is_bitwise(r_expr) && !r_expr.constant) {
-			if (r_expr.constant_error.empty()) {
-				r_expr.constant_error = "Bitwise operators are supported only in constant expressions yet.";
-			}
-			report_constant_error(r_expr);
-			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		return type;
 	}

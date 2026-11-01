@@ -42,6 +42,12 @@ namespace petrichor::bytecode {
 	X(DIV_INT, 3) \
 	X(MOD_INT, 3) \
 	X(NEG_INT, 2) \
+	X(AND_INT, 3) \
+	X(OR_INT, 3) \
+	X(XOR_INT, 3) \
+	X(NOT_INT, 2) \
+	X(SHL_INT, 3) /* a negative operand or an amount of 64 or more is a program error (spec §5.1) */ \
+	X(SHR_INT, 3) \
 	X(ADD_FLOAT, 3) \
 	X(SUB_FLOAT, 3) \
 	X(MUL_FLOAT, 3) \

@@ -642,6 +642,37 @@ public:
 					I64(code[pc + 1]) = int64_t(0ull - uint64_t(I64(code[pc + 2])));
 					pc += 3;
 					break;
+				case Op::AND_INT:
+					I64(code[pc + 1]) = I64(code[pc + 2]) & I64(code[pc + 3]);
+					pc += 4;
+					break;
+				case Op::OR_INT:
+					I64(code[pc + 1]) = I64(code[pc + 2]) | I64(code[pc + 3]);
+					pc += 4;
+					break;
+				case Op::XOR_INT:
+					I64(code[pc + 1]) = I64(code[pc + 2]) ^ I64(code[pc + 3]);
+					pc += 4;
+					break;
+				case Op::NOT_INT:
+					I64(code[pc + 1]) = ~I64(code[pc + 2]);
+					pc += 3;
+					break;
+				case Op::SHL_INT:
+				case Op::SHR_INT: {
+					const int64_t a = I64(code[pc + 2]);
+					const int64_t b = I64(code[pc + 3]);
+					const bool left = Op(code[pc]) == Op::SHL_INT;
+					if (a < 0 || b < 0) {
+						FAIL(vformat("Cannot compute %d %s %d: a shift takes operands that are not negative.", a, left ? "<<" : ">>", b));
+					}
+					if (b >= 64) {
+						FAIL(vformat("Cannot compute %d %s %d: a shift by 64 or more bits is undefined.", a, left ? "<<" : ">>", b));
+					}
+					I64(code[pc + 1]) = left ? int64_t(uint64_t(a) << b) : a >> b;
+					pc += 4;
+					break;
+				}
 				case Op::ADD_FLOAT:
 					F64(code[pc + 1]) = F64(code[pc + 2]) + F64(code[pc + 3]);
 					pc += 4;
