@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace petrichor::compiler {
@@ -94,7 +95,7 @@ enum class TokenKind {
 	// Trivia, which the parser does not read.
 	Comment,
 	LineContinuation, // A backslash that continues a line.
-	Invalid, // A character that begins no token.
+	Invalid, // A character that begins no token, or a closing bracket that closes none.
 };
 
 const char *token_name(TokenKind p_kind);
@@ -152,7 +153,9 @@ std::shared_ptr<const SourceFile> tokenize(std::string p_source, std::vector<Dia
 // are recovered from (architecture §2.1): one at `p_unclosed` is taken as
 // closed at the first line break after it that is followed by a line indented
 // no deeper than its own and not beginning with a closing bracket; at the
-// line breaks at `p_resets`, which the parser asks for, all are.
-std::vector<uint32_t> lex(SourceFile &r_file, const std::vector<uint32_t> &p_resets, const std::vector<uint32_t> &p_unclosed, std::vector<Diagnostic> &r_errors);
+// line breaks at `p_resets`, which the parser asks for, all are. Each at
+// `p_unclosed` is reported, and `r_recovered` receives the range from it to
+// where it was taken as closed.
+std::vector<uint32_t> lex(SourceFile &r_file, const std::vector<uint32_t> &p_resets, const std::vector<uint32_t> &p_unclosed, std::vector<Diagnostic> &r_errors, std::vector<std::pair<uint32_t, uint32_t>> *r_recovered = nullptr);
 
 } // namespace petrichor::compiler

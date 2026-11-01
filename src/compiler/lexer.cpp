@@ -260,6 +260,7 @@ class Lexer {
 	const std::vector<uint32_t> &resets;
 	const std::vector<uint32_t> &unclosed;
 	std::vector<Diagnostic> &errors;
+	std::vector<std::pair<uint32_t, uint32_t>> *recovered;
 
 	struct Bracket {
 		uint32_t offset;
@@ -269,6 +270,7 @@ class Lexer {
 
 	uint32_t at = 0;
 	std::vector<Bracket> brackets; // Open ones, innermost last: line breaks inside them do not count.
+	uint32_t cleared = 0; // Brackets taken as closed early, whose closing ones may still come.
 	char indent_char = 0;
 	std::vector<int> indents = { 0 };
 	bool line_has_tokens = false;
@@ -318,10 +320,44 @@ class Lexer {
 		brackets.push_back({ at, line_indent(at), std::binary_search(unclosed.begin(), unclosed.end(), at) });
 	}
 
-	void close_bracket() {
-		if (!brackets.empty()) {
-			brackets.pop_back();
+	// False for a closing bracket without an opening one, which becomes trivia.
+	bool close_bracket() {
+		if (brackets.empty()) {
+			return false;
 		}
+		brackets.pop_back();
+		return true;
+	}
+
+	void unmatched(uint32_t p_start) {
+		advance();
+		trivia(TokenKind::Invalid, p_start);
+		if (cleared > 0) {
+			cleared--; // It closes one taken as closed already.
+		} else {
+			error(p_start, at, std::string("Unmatched \"") + source[p_start] + "\".");
+		}
+	}
+
+	// A bracket the text never closes is reported at itself, once; whatever
+	// the parser finds wrong up to where it is taken as closed follows from it.
+	void never_closed(const Bracket &p_bracket, uint32_t p_close) {
+		error(p_bracket.offset, p_bracket.offset + 1, std::string("\"") + source[p_bracket.offset] + "\" is never closed.");
+		if (recovered) {
+			recovered->push_back({ p_bracket.offset, p_close });
+		}
+	}
+
+	// Takes the brackets from the one at `p_index` on as closed here.
+	void close_from(size_t p_index) {
+		for (size_t i = p_index; i < brackets.size(); i++) {
+			if (brackets[i].unclosed) {
+				never_closed(brackets[i], at);
+			} else {
+				cleared++;
+			}
+		}
+		brackets.resize(p_index);
 	}
 
 	// At a line break inside brackets: takes them as closed where the parser
@@ -330,7 +366,7 @@ class Lexer {
 	// not begin with a closing one.
 	void recover_brackets() {
 		if (std::binary_search(resets.begin(), resets.end(), at)) {
-			brackets.clear();
+			close_from(0);
 			return;
 		}
 		uint32_t next = at + 1;
@@ -360,7 +396,7 @@ class Lexer {
 		}
 		for (size_t i = 0; i < brackets.size(); i++) {
 			if (brackets[i].unclosed && width <= brackets[i].indent) {
-				brackets.resize(i);
+				close_from(i);
 				return;
 			}
 		}
@@ -612,8 +648,7 @@ class Lexer {
 				one(TokenKind::ParenOpen);
 				return;
 			case ')':
-				close_bracket();
-				one(TokenKind::ParenClose);
+				close_bracket() ? one(TokenKind::ParenClose) : unmatched(start);
 				return;
 			// Line breaks inside brackets are ignored too, as in GDScript.
 			case '[':
@@ -621,16 +656,14 @@ class Lexer {
 				one(TokenKind::BracketOpen);
 				return;
 			case ']':
-				close_bracket();
-				one(TokenKind::BracketClose);
+				close_bracket() ? one(TokenKind::BracketClose) : unmatched(start);
 				return;
 			case '{':
 				open_bracket();
 				one(TokenKind::BraceOpen);
 				return;
 			case '}':
-				close_bracket();
-				one(TokenKind::BraceClose);
+				close_bracket() ? one(TokenKind::BraceClose) : unmatched(start);
 				return;
 			case '+':
 				next == '=' ? two(TokenKind::PlusEqual) : one(TokenKind::Plus);
@@ -685,8 +718,8 @@ class Lexer {
 	}
 
 public:
-	Lexer(SourceFile &r_file, const std::vector<uint32_t> &p_resets, const std::vector<uint32_t> &p_unclosed, std::vector<Diagnostic> &r_errors) :
-			file(r_file), source(r_file.text), resets(p_resets), unclosed(p_unclosed), errors(r_errors) {}
+	Lexer(SourceFile &r_file, const std::vector<uint32_t> &p_resets, const std::vector<uint32_t> &p_unclosed, std::vector<Diagnostic> &r_errors, std::vector<std::pair<uint32_t, uint32_t>> *r_recovered) :
+			file(r_file), source(r_file.text), resets(p_resets), unclosed(p_unclosed), errors(r_errors), recovered(r_recovered) {}
 
 	// Returns the brackets open at the end.
 	std::vector<uint32_t> run() {
@@ -744,6 +777,9 @@ public:
 		std::vector<uint32_t> open;
 		for (const Bracket &bracket : brackets) {
 			open.push_back(bracket.offset);
+			if (bracket.unclosed) {
+				never_closed(bracket, at);
+			}
 		}
 		return open;
 	}
@@ -751,7 +787,7 @@ public:
 
 } // namespace
 
-std::vector<uint32_t> lex(SourceFile &r_file, const std::vector<uint32_t> &p_resets, const std::vector<uint32_t> &p_unclosed, std::vector<Diagnostic> &r_errors) {
+std::vector<uint32_t> lex(SourceFile &r_file, const std::vector<uint32_t> &p_resets, const std::vector<uint32_t> &p_unclosed, std::vector<Diagnostic> &r_errors, std::vector<std::pair<uint32_t, uint32_t>> *r_recovered) {
 	r_file.tokens.clear();
 	r_file.trivia.clear();
 	r_file.line_starts = { 0 };
@@ -760,7 +796,7 @@ std::vector<uint32_t> lex(SourceFile &r_file, const std::vector<uint32_t> &p_res
 			r_file.line_starts.push_back(i + 1);
 		}
 	}
-	return Lexer(r_file, p_resets, p_unclosed, r_errors).run();
+	return Lexer(r_file, p_resets, p_unclosed, r_errors, r_recovered).run();
 }
 
 std::shared_ptr<const SourceFile> tokenize(std::string p_source, std::vector<Diagnostic> &r_errors) {

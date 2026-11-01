@@ -86,6 +86,47 @@ class Parser {
 		return peek();
 	}
 
+	// After an element of a list: takes the comma. When another element
+	// follows without one, the missing comma is reported where it goes.
+	bool comma() {
+		if (match(TokenKind::Comma)) {
+			return true;
+		}
+		if (!failed && begins_expression(peek().kind)) {
+			const uint32_t end = tokens[last].end();
+			errors.push_back({ end, end, "Missing \",\"." });
+			failed = true;
+			skip_line();
+		}
+		return false;
+	}
+
+	static bool begins_expression(TokenKind p_kind) {
+		switch (p_kind) {
+			case TokenKind::Identifier:
+			case TokenKind::Int:
+			case TokenKind::Float:
+			case TokenKind::String:
+			case TokenKind::True:
+			case TokenKind::False:
+			case TokenKind::None:
+			case TokenKind::Null:
+			case TokenKind::Self:
+			case TokenKind::Super:
+			case TokenKind::Await:
+			case TokenKind::Not:
+			case TokenKind::Bang:
+			case TokenKind::Minus:
+			case TokenKind::Dollar:
+			case TokenKind::ParenOpen:
+			case TokenKind::BracketOpen:
+			case TokenKind::BraceOpen:
+				return true;
+			default:
+				return false;
+		}
+	}
+
 	void skip_line() {
 		while (!check(TokenKind::EndOfFile) && !is_layout(peek().kind)) {
 			if (unclosed && joined(at)) {
@@ -144,7 +185,7 @@ class Parser {
 		if (match(TokenKind::BracketOpen)) {
 			do {
 				ref.args.push_back(type_ref());
-			} while (match(TokenKind::Comma));
+			} while (comma());
 			expect(TokenKind::BracketClose, "\"]\"");
 		}
 		ref.nullable = match(TokenKind::Question);
@@ -330,7 +371,7 @@ class Parser {
 				r_call.arg_name_tokens.push_back(name_token);
 			}
 			r_call.args.push_back(std::move(arg));
-			if (!match(TokenKind::Comma)) {
+			if (!comma()) {
 				break;
 			}
 		}
@@ -449,7 +490,7 @@ class Parser {
 				auto expr = make(ExprKind::ArrayLiteral, advance());
 				while (!failed && !check(TokenKind::BracketClose)) {
 					expr->args.push_back(expression());
-					if (!match(TokenKind::Comma)) {
+					if (!comma()) {
 						break;
 					}
 				}
@@ -497,7 +538,7 @@ class Parser {
 			}
 			expr->args.push_back(std::move(key));
 			expr->args.push_back(expression());
-			if (!match(TokenKind::Comma)) {
+			if (!comma()) {
 				break;
 			}
 		}
@@ -795,7 +836,7 @@ class Parser {
 			}
 			param.range = span(first);
 			result.push_back(std::move(param));
-			if (!match(TokenKind::Comma)) {
+			if (!comma()) {
 				break;
 			}
 		}
@@ -1285,22 +1326,40 @@ public:
 ClassDecl parse(std::string p_source, std::vector<Diagnostic> &r_errors) {
 	const auto file = std::make_shared<SourceFile>();
 	file->text = std::move(p_source);
-	std::vector<Diagnostic> errors;
-	const std::vector<uint32_t> unclosed = lex(*file, {}, {}, errors);
+	std::vector<Diagnostic> lexed;
+	const std::vector<uint32_t> unclosed = lex(*file, {}, {}, lexed);
 	std::vector<uint32_t> resets;
 	while (true) {
+		std::vector<std::pair<uint32_t, uint32_t>> recovered;
 		if (!unclosed.empty()) {
-			errors.clear();
-			lex(*file, resets, unclosed, errors);
+			lexed.clear();
+			lex(*file, resets, unclosed, lexed, &recovered);
 		}
-		Parser parser(*file, errors, !unclosed.empty(), resets);
+		std::vector<Diagnostic> parsed;
+		Parser parser(*file, parsed, !unclosed.empty(), resets);
 		ClassDecl result = parser.run();
-		if (parser.reset == NO_OFFSET) {
-			r_errors.insert(r_errors.end(), errors.begin(), errors.end());
-			result.source = file;
-			return result;
+		if (parser.reset != NO_OFFSET) {
+			resets.insert(std::upper_bound(resets.begin(), resets.end(), parser.reset), parser.reset);
+			continue;
 		}
-		resets.insert(std::upper_bound(resets.begin(), resets.end(), parser.reset), parser.reset);
+		// One error for one cause: what the parser finds wrong inside a
+		// bracket that is never closed, or on a line with an error of the
+		// lexer, follows from that error.
+		std::vector<int> lexed_lines;
+		for (const Diagnostic &error : lexed) {
+			lexed_lines.push_back(file->position(error.begin).line);
+		}
+		r_errors.insert(r_errors.end(), lexed.begin(), lexed.end());
+		for (const Diagnostic &error : parsed) {
+			const bool inside = std::any_of(recovered.begin(), recovered.end(), [&](const std::pair<uint32_t, uint32_t> &p_range) {
+				return error.begin >= p_range.first && error.begin <= p_range.second;
+			});
+			if (!inside && std::find(lexed_lines.begin(), lexed_lines.end(), file->position(error.begin).line) == lexed_lines.end()) {
+				r_errors.push_back(error);
+			}
+		}
+		result.source = file;
+		return result;
 	}
 }
 
