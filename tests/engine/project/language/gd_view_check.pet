@@ -38,7 +38,7 @@ pub func through_classes() -> Array:
 	var script: GDScript = Unit
 	var grid := Grid.new()
 	grid.clear()
-	var result: Array = [base.hit(1), GdViewBase.scaled(2), GdViewBase.BONUS, unit.level, direct.level, made != None and made.name == &"made 2", Unit.TILE_SIZE, plain is Unit, script.resource_path, Grid.cell(40), preload("preload_grid.pet").cell(32), Grid.SIZE, grid.cleared]
+	var result: Array = [base.hit(1), GdViewBase.scaled(2), base.scaled(3), GdViewBase.BONUS, unit.level, direct.level, made != None and made.name == &"made 2", Unit.TILE_SIZE, plain is Unit, script.resource_path, Grid.cell(40), preload("preload_grid.pet").cell(32), Grid.SIZE, grid.cleared]
 	if made != None:
 		made.free()
 	for node: Node in [base, unit, direct, plain, grid]:

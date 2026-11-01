@@ -138,6 +138,9 @@ struct Expr {
 	// A static method called through the name of its class or type in `owner`,
 	// a script's path for a class of this language, with `base` naming it.
 	bool is_static = false;
+	// A static method of an engine class or a built-in type called on a value,
+	// which is evaluated first and not used (spec §4.8).
+	bool static_on_value = false;
 	bool is_foreign = false;
 	bool awaited = false;
 	bool discarded = false;

@@ -1187,7 +1187,11 @@ class Lowerer {
 		std::unique_ptr<Place> written_back;
 		// The base before the arguments, as it reads in the source.
 		if (p_call.is_static) {
-			// The base names the class or type.
+			// The base names the class or type, or is a value whose static
+			// method this is (spec §4.8).
+			if (p_call.static_on_value) {
+				lower_expr(*p_call.base);
+			}
 		} else if ((p_call.target == Target::EngineMethod && p_call.base) || p_call.target == Target::ScriptMethod || p_call.target == Target::BindArguments || p_call.target == Target::EmitSignal) {
 			i.base = lower_expr(*p_call.base);
 		} else if (p_call.target == Target::BuiltinMethod) {

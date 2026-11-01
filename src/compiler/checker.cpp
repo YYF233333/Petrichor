@@ -2032,13 +2032,14 @@ class Checker : public ClassRelation {
 	}
 
 	// A method of an engine class, or with `p_static_class` a static one called
-	// through that class's name, as FileAccess.open().
-	Type check_engine_call(Expr &r_expr, const EngineMethod &p_method, const std::string &p_static_class = std::string()) {
-		if (p_method.is_static && r_expr.is_foreign) {
-			return fail_call(r_expr, "\"" + r_expr.text + "()\" is static; call it through its class (spec §11.1).");
-		}
-		if (p_method.is_static && p_static_class.empty()) {
-			return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + p_method.owner + " is static; call it as " + p_method.owner + "." + r_expr.text + "().");
+	// through that class's name, as FileAccess.open(). A static one called on
+	// an object or on self is its class's (spec §4.8), but that of a GDScript
+	// class is found by name on the object, as GDScript's instance finds it
+	// (modules/gdscript/gdscript.cpp:1954-1958).
+	Type check_engine_call(Expr &r_expr, const EngineMethod &p_method, std::string p_static_class = std::string()) {
+		if (p_method.is_static && p_static_class.empty() && !r_expr.is_foreign) {
+			p_static_class = p_method.owner;
+			r_expr.static_on_value = r_expr.base != nullptr;
 		}
 		if (!p_method.is_static && !p_static_class.empty()) {
 			return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + p_method.owner + " is not static; call it on an object.");
@@ -2405,9 +2406,8 @@ class Checker : public ClassRelation {
 		if (!method) {
 			return fail_call(r_expr, p_base.to_string() + " has no method \"" + r_expr.text + "()\".");
 		}
-		if (method->is_static && !p_static) {
-			return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + base_name + " is static; call it as " + base_name + "." + r_expr.text + "().");
-		}
+		// On a value, the type's own (spec §4.8).
+		r_expr.static_on_value = method->is_static && !p_static;
 		if (!method->is_static && p_static) {
 			return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + base_name + " is not static; call it on a value.");
 		}
@@ -3159,7 +3159,8 @@ class Checker : public ClassRelation {
 			if (method->is_virtual) {
 				return fail_call(r_expr, "\"" + name + "()\" is a virtual engine method that this class does not define.");
 			}
-			if (refuse_in_static(r_expr, name + "()")) {
+			// A static method needs no instance, but `self` does.
+			if ((!method->is_static || r_expr.base) && refuse_in_static(r_expr, method->is_static ? std::string("self") : name + "()")) {
 				return set(r_expr, Type::of(TypeKind::Error));
 			}
 			r_expr.base = nullptr; // `self.f()` is `f()`.

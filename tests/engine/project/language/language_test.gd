@@ -345,7 +345,7 @@ func _ready() -> void:
 	base.buddy = child
 	_check(view.buddy_is_child(base), "a member typed by a GDScript class holds an instance of a subclass, which is tests")
 	_check(view.as_child(child) == child and view.as_child(base) == null and view.as_base(child) == child, "as names GDScript classes, and an instance of a subclass is one of its base")
-	_check(view.through_classes() == [2, 10, 5, 3, 1, true, 16.0, true, "res://language/preload_unit.gd", 2, 2, 16, true], "new() with the arguments of _init, static methods and constants through a class_name and a preload, of GDScript and of this language")
+	_check(view.through_classes() == [2, 10, 15, 5, 3, 1, true, 16.0, true, "res://language/preload_unit.gd", 2, 2, 16, true], "new() with the arguments of _init, static methods and constants through a class_name and a preload, of GDScript and of this language")
 	view.free()
 	base.free()
 	child.free()
@@ -467,6 +467,7 @@ func _ready() -> void:
 	_check(statics.made(), "new() of classes of this language runs their initializers and _init() (spec §4.6)")
 	_check(statics.own_static() == 8 and statics.through_base() == 7, "static methods of classes of this language, through the class's name (spec §4.8)")
 	_check(statics.engine_static() and statics.builtin_static(), "static methods of engine classes and built-in types")
+	_check(statics.on_objects(statics) == ["child", "check", true, true], "a static method called on an object is found from its class up, and one of an engine class or a built-in type is that type's (spec §4.8)")
 	statics.free()
 	var static_script: Script = load("res://language/static_check.pet")
 	for i in 3:

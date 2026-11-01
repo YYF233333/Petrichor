@@ -6,3 +6,7 @@ class_name StaticChild extends StaticCheck
 
 pub func through_base() -> int:
 	return StaticCheck.secret() + StaticCheck.twice(1)
+
+
+pub static func label() -> String:
+	return "child"

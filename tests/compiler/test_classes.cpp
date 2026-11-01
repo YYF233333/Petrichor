@@ -286,7 +286,7 @@ TEST_CASE("a constant of a preloaded script names its class (spec §2.1)") {
 TEST_CASE("GDScript classes by class_name: new(), static methods and constants (spec §11.1)") {
 	CHECK(errors("var l: Legacy = Legacy.new()\n\tvar c: int = Legacy.count()\n\tvar s: float = Legacy.MAX_SPEED").empty());
 	CHECK(contains(errors("Legacy.hit(1)"), "\"hit()\" of Legacy is not static"));
-	CHECK(contains(errors("var l: Legacy = Legacy.new()\n\tl.count()"), "\"count()\" is static; call it through its class"));
+	CHECK(errors("var l: Legacy = Legacy.new()\n\tvar c: int = l.count()").empty());
 	const compiler::CompileResult result = compile_in("extends Node\n\nconst Unit = preload(\"res://units/unit.gd\")\n\nfunc f() -> float:\n\tvar u := Unit.new()\n\tvar l := Legacy.new()\n\tvar made := Unit.make(1)\n\treturn Unit.TILE_SIZE + Legacy.MAX_SPEED\n", project());
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	std::string error;

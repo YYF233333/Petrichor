@@ -40,8 +40,16 @@ TEST_CASE("a static engine method is called through its class") {
 	REQUIRE(opened != result.module.engine_calls.end());
 	CHECK(opened->static_class == "FileAccess");
 	CHECK(has_error(in_function("print(FileAccess.get_as_text())"), "\"get_as_text()\" of FileAccess is not static; call it on an object."));
-	CHECK(has_error(in_function("var file: FileAccess? = FileAccess.open(\"res://a.txt\", 1)\nif file != None:\n\tfile.open(\"res://b.txt\", 1)"), "\"open()\" of FileAccess is static; call it as FileAccess.open()."));
 	CHECK(has_error(in_function("FileAccess.nope()"), "FileAccess has no method \"nope()\"."));
+}
+
+TEST_CASE("a static engine method called on an object is its class's, after the object (spec §4.8)") {
+	const compiler::CompileResult result = compile(in_function("var again: FileAccess? = opened().open(\"res://b.txt\", 1)") + "\nfunc opened() -> FileAccess:\n\treturn FileAccess.open(\"res://a.txt\", 1).unwrap()\n");
+	require_verified(result);
+	const bytecode::Function &f = function_named(result.module, "f");
+	const size_t engine = find_instruction(f, Op::CALL_ENGINE);
+	CHECK(find_instruction(f, Op::CALL) < engine);
+	CHECK(result.module.engine_calls[f.code[engine + 1]].static_class == "FileAccess");
 }
 
 TEST_CASE("a static method of a built-in type is called through the type") {
@@ -53,7 +61,9 @@ TEST_CASE("a static method of a built-in type is called through the type") {
 	CHECK(from_hsv->base == bytecode::ValueType::Color);
 	CHECK(type_of("Color.from_hsv(0.5, 1.0, 1.0)") == "Color");
 	CHECK(has_error(in_function("print(Vector2.length())"), "\"length()\" of Vector2 is not static; call it on a value."));
-	CHECK(has_error(in_function("var c := Color.RED\nprint(c.from_hsv(0.5, 1.0, 1.0))"), "\"from_hsv()\" of Color is static; call it as Color.from_hsv()."));
+	// On a value, the type's own (spec §4.8).
+	CHECK(type_of("c.from_hsv(0.5, 1.0, 1.0)", "var c := Color.RED") == "Color");
+	require_verified(compile(in_function("var c := Color.RED\nprint(c.from_hsv(0.5, 1.0, 1.0))")));
 }
 
 TEST_CASE("a static method of a class of this language is called on the class") {
@@ -70,6 +80,11 @@ TEST_CASE("a static method of a class of this language is called on the class") 
 	CHECK(contains(messages(compile_in("extends Node\nfunc f() -> void:\n\tSpawner.tick()\n", project)), "\"tick()\" of Spawner is not static; call it on an object."));
 	CHECK(contains(messages(compile_in("extends Node\nfunc f() -> void:\n\tSpawner.nope()\n", project)), "Spawner has no method \"nope()\"."));
 	CHECK(contains(messages(compile_in("extends Node\nfunc f() -> void:\n\tSpawner.make(\"x\")\n", project)), "Cannot pass a value of type String as int"));
+	// On an object, found by name from its class up, as an instance method is (spec §4.8).
+	const compiler::CompileResult on_object = compile_in("extends Node\nfunc f(s: Spawner) -> int:\n\treturn s.make(2)\n", project);
+	require_verified(on_object);
+	REQUIRE(on_object.module.method_calls.size() == 1);
+	CHECK(on_object.module.method_calls[0].static_class < 0);
 }
 
 TEST_CASE("a class calls its own static methods through its class_name") {

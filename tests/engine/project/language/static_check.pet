@@ -40,3 +40,16 @@ pub func engine_static() -> bool:
 
 pub func builtin_static() -> bool:
 	return Color.from_hsv(0.0, 1.0, 1.0) == Color(1, 0, 0) and String.num_int64(255, 16) == "ff"
+
+
+pub static func label() -> String:
+	return "check"
+
+
+# Static methods called on objects and values (spec §4.8): of a class of this
+# language, found from the object's class up; of an engine class or a
+# built-in type, that type's.
+pub func on_objects(other: StaticCheck) -> Array:
+	var file: FileAccess? = FileAccess.open("res://project.godot", FileAccess.READ)
+	var red := Color.RED
+	return [other.label(), StaticCheck.label(), file != None and file.file_exists("res://project.godot"), red.from_hsv(0.5, 1.0, 1.0) == Color.from_hsv(0.5, 1.0, 1.0)]
