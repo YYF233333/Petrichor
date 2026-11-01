@@ -12,6 +12,7 @@
 | `@abstract` 类和方法 | 28 个类：gdUnit4 25 个，Pixelorama 2 个，godot-open-rpg 1 个；250 个抽象方法；以文件为单位的抽象类中，17 个的方法全部是抽象的 | §4.1：`@abstract` |
 | 剩余参数 `...args` | 78 个：gdUnit4 76 个，Pixelorama 2 个 | §4.6：剩余参数 |
 | 含 await 的 lambda | 979 个 lambda 中 35 个，其中 33 个在 gdUnit4 的测试中 | §9.1：lambda 也写 `async func` |
+| 命名的、带默认值的、给捕获赋值的 lambda | 979 个 lambda 中命名的 18 个，带默认值的 0 个；方法中的 958 个里，给方法的参数或局部变量赋值的 0 个，经其成员或下标赋值的 15 个，经阅读都是对象或容器，例如 godot-statecharts 用信号连接设置的 `var holder: Array[bool] = [false]` | §3.11：给捕获的变量赋值是编译错误；命名的 lambda；lambda 的参数不带默认值 |
 | 作为值使用的协程方法（同一文件中按名字作为实参传递） | 91 处，其中 60 处是 `connect(名字)`，分布在 12 个仓库 | §3.11：由引擎调用的位置接受 async 函数 |
 | `assert(...)` 语句 | 595 个，其中 406 个在 godot_dialogue_manager；实参中含 await 的 0 个 | §8.3：`assert` 在 release 构建中去掉 |
 | `is_instance_valid(...)` | 678 处，每千行 3.3 处；phantom-camera 中每千行 12.8 处 | §3.3：经 `T?` 读到已释放的对象时为 None |
@@ -25,7 +26,7 @@
 | 含 `@tool` 的文件 | 326 个：插件仓库 211 个，示例 51 个，游戏仓库 58 个（godot-open-rpg 31 个，godot-tiny-mmo 18 个，godot-open-rts 8 个，godot_open_star_fighter 1 个），工具 6 个；其中 33 个用到编辑器插件类（EditorPlugin、EditorInspectorPlugin、EditorImportPlugin、EditorExportPlugin、EditorScript） | §2.3：第一版没有 `@tool` |
 | 以字面量路径 `preload` 的 `.gd` 文件，以及以它初始化的常量在同一文件中的用法 | 351 处：游戏仓库 199 处，插件仓库 137 处，示例 13 处，工具 2 处；最多的是 tanks-of-freedom-ii 115 处、godot-open-rts 76 处、gdUnit4 67 处。初始化常量 207 处，直接 `.new()` 69 处，直接访问其他成员 1 处，作为值 74 处（经阅读多是 tanks-of-freedom-ii 按名字查脚本的字典，以及编辑器插件的 `add_custom_type`）。经这些常量：`new()` 54 处，分布在 36 个文件；其他调用 124 处，分布在 42 个文件；其他成员（常量、enum、内部类）134 处，分布在 28 个文件；`is` 69 处；作为类型 46 处；作为值 17 处 | §2.1：preload 脚本得到它的类 |
 
-计数基于词法分析，不做类型解析；`!` 只计不紧跟 `=` 的。`...` 在 GDScript 中只出现在函数签名里（Godot `469659e` 的 `modules/gdscript/gdscript_parser.cpp:1714, 4336`），所以紧跟名字的 `...` 都是剩余参数。协程指函数体中有 await 的方法，只在同一文件中查找对它的引用，不计场景中的信号连接。`get_parent()` 和 `owner` 只计在自身上的使用，即前面没有 `.` 的；判断为空包括与 null 比较、用作条件和传给 `is_instance_valid`，以及在其后 25 行内对赋得其值的变量做这些判断。`free()` 和 `set_script(...)` 在自身上，指前面没有 `.`，或写作 `self.`、`super.`。字符串由扫描注释以外的文本找出，反斜杠转义和 `r` 前缀按 GDScript 的读法处理。preload 的常量的用法只在声明它的文件中查找：作为类型指出现在 `:`、`->`、`as` 之后或 `Array[...]` 中，不计节点路径 `$名字`、`%名字`。
+计数基于词法分析，不做类型解析；`!` 只计不紧跟 `=` 的。`...` 在 GDScript 中只出现在函数签名里（Godot `469659e` 的 `modules/gdscript/gdscript_parser.cpp:1714, 4336`），所以紧跟名字的 `...` 都是剩余参数。协程指函数体中有 await 的方法，只在同一文件中查找对它的引用，不计场景中的信号连接。lambda 的捕获指所在方法在它之前声明的参数和局部变量，lambda 自己的参数和局部变量除外。`get_parent()` 和 `owner` 只计在自身上的使用，即前面没有 `.` 的；判断为空包括与 null 比较、用作条件和传给 `is_instance_valid`，以及在其后 25 行内对赋得其值的变量做这些判断。`free()` 和 `set_script(...)` 在自身上，指前面没有 `.`，或写作 `self.`、`super.`。字符串由扫描注释以外的文本找出，反斜杠转义和 `r` 前缀按 GDScript 的读法处理。preload 的常量的用法只在声明它的文件中查找：作为类型指出现在 `:`、`->`、`as` 之后或 `Array[...]` 中，不计节点路径 `$名字`、`%名字`。
 
 ## 复现
 

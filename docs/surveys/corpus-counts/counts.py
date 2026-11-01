@@ -8,7 +8,9 @@ Counts, in first-party .gd files (blank and comment lines excluded from the line
   - prefix `!` (not followed by `=`) versus the `not` keyword (`not in` included);
   - `@abstract` classes and methods, and abstract classes whose methods are all abstract;
   - rest parameters (`...name`), which `...` introduces only in signatures;
-  - lambdas whose body contains `await`;
+  - lambdas whose body contains `await`; lambdas that are named or have default values; and of the lambdas
+    in methods, those that assign a parameter or local the method declares before them, directly or
+    through members and subscripts, with locations of the latter for reading;
   - methods whose body contains `await` (coroutines) used as values, that is, passed as an
     argument by name in the same file, and how many of those are `connect(name)`;
   - `assert(...)` statements, and those whose arguments contain `await`;
@@ -95,6 +97,70 @@ def parent_owner(ts, i, key, c, files, where):
     if found:
         c[key + "_tested"] += 1
         where[1].append(f"{where[0]}:{ts[i].line}")
+
+
+def params(ts, i):
+    """The parameter names of the `func` at token i, and whether one has a default value."""
+    j = i + 1
+    while j < len(ts) and ts[j].v != "(":
+        j += 1
+    names, default, depth, start = [], False, 0, True
+    for t in ts[j + 1:]:
+        if depth == 0 and t.v == ")":
+            break
+        depth += (t.v in OPEN) - (t.v in CLOSE)
+        if depth == 0 and t.v == ",":
+            start = True
+        elif depth == 0 and start and t.k == "ID":
+            names.append(t.v)
+            start = False
+        default = default or (depth == 0 and t.v == "=")
+    return names, default
+
+
+def assigns(ts, k):
+    """Whether the token after ts[k] begins an assignment: `=` or a compound operator such as `+=`."""
+    if k + 1 >= len(ts):
+        return False
+    a, b = ts[k + 1], ts[k + 2] if k + 2 < len(ts) else None
+    adjacent = b is not None and b.v == "=" and b.col == a.col + 1
+    if a.v == "=":
+        return not adjacent
+    return a.k == "OP" and a.v in "+-*/%&|^" and adjacent and not (k + 3 < len(ts) and ts[k + 3].v == "=" and ts[k + 3].col == b.col + 1)
+
+
+def lambda_captures(ts, i, s, e, method, c, where):
+    """Count a lambda at token i, with body ts[s:e], that is named, has default values or assigns a local of
+    the method around it: the local itself, or through members and subscripts."""
+    names, default = params(ts, i)
+    c["lambda_named"] += ts[i + 1].k == "ID"
+    c["lambda_default"] += default
+    if not method[1] <= i < method[2]:
+        return
+    c["lambda_in_method"] += 1
+    declared = lambda a, b: {ts[k + 1].v for k in range(a, b - 1) if ts[k].v in ("var", "for") and ts[k + 1].k == "ID"}
+    captured = (set(params(ts, method[3])[0]) | declared(method[1], i)) - set(names) - declared(s, e)
+    direct = through = False
+    for k in range(s, e):
+        if ts[k].k != "ID" or ts[k].v not in captured or ts[k - 1].v in (".", "$", "%"):
+            continue
+        m = k + 1
+        while m < e and ts[m].v in (".", "["):
+            if ts[m].v == ".":
+                m += 2
+                continue
+            depth = 0
+            while m < e:
+                depth += (ts[m].v == "[") - (ts[m].v == "]")
+                m += 1
+                if depth == 0:
+                    break
+        if assigns(ts, m - 1):
+            direct, through = direct or m == k + 1, through or m > k + 1
+            if m > k + 1:
+                where[1].append(f"{where[0]}:{ts[k].line} {ts[k].v}")
+    c["lambda_capture_assign"] += direct
+    c["lambda_capture_member"] += through
 
 
 def multiline_strings(src):
@@ -202,11 +268,11 @@ def main():
             abstract_class = False
             funcs = abstract_funcs = 0
             coroutines = set()
-            method = ("", 0, 0)  # The method declared last: its name and body.
+            method = ("", 0, 0, 0)  # The method declared last: its name, its body and its `func`.
             for i, t in enumerate(ts):
                 if (t.k == "ID" and t.v == "func" and i + 1 < len(ts) and ts[i + 1].k == "ID"
                         and (i == 0 or ts[i - 1].line != t.line or ts[i - 1].v == "static" or ts[i - 1].k == "AN")):
-                    method = (ts[i + 1].v, *func_body(ts, i))
+                    method = (ts[i + 1].v, *func_body(ts, i), i)
                 if t.k == "ID" and t.v in ("pop_at", "pop_back", "pop_front") and i > 0 and ts[i - 1].v == "." and i + 1 < len(ts) and ts[i + 1].v == "(":
                     c[t.v] += 1
                     if t.v == "pop_at":
@@ -252,6 +318,7 @@ def main():
                     if any(ts[x].v == "await" for x in range(s, e)):
                         c["lambda_await"] += 1
                         by_repo[name]["lambda_await"] += 1
+                    lambda_captures(ts, i, s, e, method, c, (f"{name}/{f}", freeing_at["assignment through a capture"]))
                 elif (t.k == "OP" and t.v == "." and i + 3 < len(ts) and ts[i + 1].v == "." and ts[i + 2].v == "."
                       and ts[i + 1].col == t.col + 1 and ts[i + 2].col == t.col + 2 and ts[i + 3].k == "ID"):
                     c["rest"] += 1
@@ -318,6 +385,8 @@ def main():
     print(f"@abstract methods: {c['abstract_func']}; "
           f"abstract file classes whose methods are all abstract: {c['abstract_only']}")
     print(f"lambdas: {c['lambda']}; coroutine methods passed to connect(name): {c['coroutine_connect']}")
+    print(f"lambdas named: {c['lambda_named']}; with default values: {c['lambda_default']}; in methods: {c['lambda_in_method']}, "
+          f"assigning a local of the method: {c['lambda_capture_assign']}, through its members or subscripts: {c['lambda_capture_member']}")
     print(f"assert statements whose arguments contain await: {c['assert_await']}")
     per_k = ", ".join(f"{r} {n['is_instance_valid'] * 1000 / n['lines']:.1f}"
                       for r, n in sorted(by_repo.items(), key=lambda x: -x[1]["is_instance_valid"] / max(x[1]["lines"], 1))
