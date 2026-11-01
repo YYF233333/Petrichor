@@ -17,9 +17,6 @@ namespace petrichor {
 
 using bytecode::ValueType;
 
-// Makes a constant's containers read-only, those inside them too.
-static void freeze(const Variant &p_value);
-
 static GDExtensionVariantType engine_type(ValueType p_type) {
 	return GDExtensionVariantType(variant_type(p_type));
 }
@@ -329,24 +326,6 @@ static bool call_utility_constant(const ClassImage &p_image, const bytecode::Con
 		default:
 			r_error = "the utility function " + name + " returns a type constants do not hold";
 			return false;
-	}
-}
-
-static void freeze(const Variant &p_value) {
-	if (p_value.get_type() == Variant::ARRAY) {
-		Array array = p_value;
-		for (int64_t i = 0; i < array.size(); i++) {
-			freeze(array[i]);
-		}
-		array.make_read_only();
-	} else if (p_value.get_type() == Variant::DICTIONARY) {
-		Dictionary dictionary = p_value;
-		const Array keys = dictionary.keys();
-		for (int64_t i = 0; i < keys.size(); i++) {
-			freeze(keys[i]);
-			freeze(dictionary[keys[i]]);
-		}
-		dictionary.make_read_only();
 	}
 }
 
