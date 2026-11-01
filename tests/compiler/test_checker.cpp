@@ -39,7 +39,7 @@ func _ready():
 }
 
 TEST_CASE("a class annotation is reported once, and the header after it still reads") {
-	CHECK(joined(errors_of("@tool\nclass_name X\nextends Node\n")) == "1:2: The class annotation @tool is not supported yet.\n");
+	CHECK(joined(errors_of("@tool\nclass_name X\nextends Node\n")) == "1:2: @tool is not in the first version: scripts of this language do not run in the editor (spec §2.3).\n");
 	CHECK(joined(errors_of("@icon(\"res://a#b.svg\") class_name X extends Node\n")) == "");
 	// GDScript takes a string literal, and only once (modules/gdscript/gdscript_parser.cpp:4422-4440, 4465-4473).
 	CHECK(joined(errors_of("@icon(\"\")\nextends Node\n")) == "1:7: @icon takes the path to the icon.\n");

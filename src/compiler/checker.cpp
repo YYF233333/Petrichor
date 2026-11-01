@@ -3838,7 +3838,7 @@ class Checker : public ClassRelation {
 					r_member.usage = 2; // PROPERTY_USAGE_STORAGE
 				}
 			} else if (annotation.name == "export_tool_button") {
-				error(annotation.range, "@export_tool_button needs @tool, which is not supported yet.");
+				error(annotation.range, "@export_tool_button needs @tool, which is not in the first version (spec §2.3).");
 			} else {
 				error(annotation.range, "The annotation @" + annotation.name + " is not supported yet.");
 			}

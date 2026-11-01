@@ -22,7 +22,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - In the editor, GDScript does not see a pub constant whose value is a preload(), such as `Spawner.SCENE`, and reports a parse error: the editor compiles the scripts it loads with declarations only, which read no scenes, so the constant is left out of the image (spec §4.5, §11.3).
 - Constants of the engine class a class extends by their bare name, such as `NOTIFICATION_PREDELETE`, as GDScript has them in scope; now they need the class, `Object.NOTIFICATION_PREDELETE`.
 - `Array[T]?`; `pop_front()` and `pop_back()` of `Array[T?]`, which give `T??`.
-- `@tool`, which runs a script in the editor, so that it is compiled whole there and instantiated, and `@export_tool_button`, which needs it (spec §2.3).
 - Enums (spec §3.7); inner classes (spec §2.1).
 - Lambdas (spec §3.11).
 - The operators `in` and `not in`, `**` (spec §3.2, §5.1).

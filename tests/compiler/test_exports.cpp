@@ -92,7 +92,7 @@ TEST_CASE("the rest of the @export family gives the inspector GDScript's hints")
 	CHECK(contains(exports_errors("@export_node_path(\"Resource\") var x: NodePath"), "@export_node_path takes classes of nodes, and Resource is not one."));
 	CHECK(contains(exports_errors("@export @export_range(0, 1) var x: int"), "@export_range cannot be used with another @export annotation."));
 	CHECK(contains(exports_errors("@export_custom(1) var x: int"), "@export_custom takes a hint, a hint string and optional usage flags."));
-	CHECK(contains(exports_errors("@export_tool_button(\"Go\") var x := 1"), "needs @tool, which is not supported yet"));
+	CHECK(contains(exports_errors("@export_tool_button(\"Go\") var x := 1"), "needs @tool, which is not in the first version"));
 	CHECK(contains(exports_errors("@export_nope var x := 1"), "The annotation @export_nope is not supported yet."));
 }
 

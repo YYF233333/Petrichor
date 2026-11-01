@@ -1498,7 +1498,11 @@ public:
 					match(TokenKind::Newline);
 					continue;
 				}
-				report(name, "The class annotation @" + name.text + " is not supported yet.");
+				if (name.text == "tool") {
+					report(name, "@tool is not in the first version: scripts of this language do not run in the editor (spec §2.3).");
+				} else {
+					report(name, "The class annotation @" + name.text + " is not supported yet.");
+				}
 				if (check(TokenKind::ParenOpen)) {
 					Expr holder;
 					call_arguments(holder);
