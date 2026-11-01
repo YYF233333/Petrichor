@@ -469,6 +469,16 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 4.8 静态成员
 
 - `static var`、`static func`、`_static_init()` 的写法和时机与 GDScript 相同：类加载时，先基类后派生类，按声明顺序初始化静态成员，最后调用 `_static_init`（`modules/gdscript/gdscript_compiler.cpp:2629-2632`）。静态成员的初始化式同样不经过 setter（`gdscript_compiler.cpp:2603-2626`）。
+- 静态方法经类调用，如 `Base.label()`；也可以在对象或值上调用，与 GDScript 相同，GDScript 对此默认只给警告（`modules/gdscript/gdscript_analyzer.cpp:3699-3703`；`modules/gdscript/gdscript_warning.h:131`）：两种写法含义相同，哪种更好读是风格问题，交给 lint（§13.2）。在本语言或 GDScript 的类的对象上，按名字从对象的类往上查找，与实例方法相同，也与 GDScript 实例的查找相同（`modules/gdscript/gdscript.cpp:1954-1958`），所以子类声明了同名的静态方法时调用子类的；在引擎类的对象或内置类型的值上，脚本不能重新声明其静态方法，调用的就是该类型的方法，对象或值照常先求值：
+
+  ```gdscript
+  var b: Base = Sub.new()
+  b.label()       # Sub 的 label()
+  Base.label()    # Base 的
+  var c := Color.RED
+  var hue := c.from_hsv(0.5, 1.0, 1.0)  # Color.from_hsv()
+  ```
+
 - 一个类在静态初始化中读取另一个类的静态成员时，先完成那个类的初始化。
 - 静态初始化之间形成环是程序错误，诊断列出依赖链；能静态判断的是编译错误。不读取默认值或未完成的值。GDScript 的相关问题见 [godotengine/godot#104161](https://github.com/godotengine/godot/issues/104161)、[#82141](https://github.com/godotengine/godot/issues/82141)、[#104588](https://github.com/godotengine/godot/issues/104588)。
 - 静态初始化不能 await。
@@ -1076,7 +1086,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 成员 | `var speed = 5.0` 为 float；空容器成员要求标注；没有初始化式的 int 成员为 0，`T?` 成员为 None；所有字段都有默认值的 struct 成员取默认值，否则必须赋值 |
 | 常量 | `const DAY_MS = 24 * 60 * 60 * 1000` 在编译期求值；`const HALF = Vector3.ONE / 2.0` 在双精度构建中按 double 求值；`const N = 10 / 0` 报编译错误，标在 `/` 上；常量中的 `Color("red")` 报编译错误并给出 `Color.RED`；`const S = "%d" % 3` 报编译错误；`const SPEEDS = [1.0, 2.0]` 为 `Array[float]`，`SPEEDS.append(3.0)` 报编译错误；`@export_range(0, MAX)` 合法；`const K = 100 / roundi(sin(X))` 报编译错误；子类和静态函数中直接写常量名、经 `self.MAX` 访问都合法；GDScript 读取 `pub` 常量得到它的值 |
 | 局部变量 | `func f(n): if c: var n = 1` 报编译错误，与外层块的局部变量同名的 `var` 和 `for` 循环变量也一样；if 与 else 两个分支各自声明 `var x` 合法 |
-| 签名 | `func _process(delta):` 中 delta 为 float；覆盖时把返回类型写成子类型合法，写成父类型报编译错误；覆盖时多出带默认值的参数合法；非覆盖函数省略返回类型后返回值报编译错误；有期望类型的 lambda 参数不必标注 |
+| 签名 | `func _process(delta):` 中 delta 为 float；覆盖时把返回类型写成子类型合法，写成父类型报编译错误；覆盖时多出带默认值的参数合法；非覆盖函数省略返回类型后返回值报编译错误；有期望类型的 lambda 参数不必标注；b 为 Base 类型、持有自己声明了静态 `label()` 的 Sub 时，`b.label()` 调用 Sub 的，`Base.label()` 调用 Base 的；在 Color 值上调用 `c.from_hsv(0.5, 1.0, 1.0)` 即 `Color.from_hsv()` |
 | 信号 | emit 实参不符和 connect 参数不符报编译错误；场景中的连接与信号不符时标在场景中；单参数信号的 await 结果有该参数类型；使用多参数信号的 await 结果报编译错误；await `Signal` 类型的变量得到 Variant，信号有两个参数时运行时为 Array |
 | 相等 | `1 == 1.0` 为真；`hp == "3"` 报编译错误；`Node2D` 与 `Node3D` 比较报编译错误；hp 为 `int?` 时 `hp == 3` 合法；非空的 `Node` 与 None 比较报编译错误；`Array[int] == Array[float]` 报编译错误；Variant 中是 String 时与 int 比较是程序错误；`Enemy?` 的值可以传给 `Node?` 参数，`Array[Enemy]` 传给 `Array[Node]` 参数报编译错误；`Some(3) == Some(Some(3))` 先把左侧包装为两层再比较；hp 为 `int?` 时 `hp < 3` 报编译错误，为 None 的 `int?` 小于 `Some(0)` |
 | 转换 | `node as Sprite2D` 为 `Sprite2D?`；`x as int` 报编译错误并给出 `int(x)` 与 `int.try_from(x)`；`int.try_from(2.0)` 得 `Ok(2)`，`int.try_from(2.5)` 和 `int.try_from("2")` 得 `Err` |
@@ -1206,6 +1216,8 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | GDScript 把 `new` 当作静态的 `_init` 检查；`new` 由 GDScript 自己绑定，Script 基类没有 | `modules/gdscript/gdscript_analyzer.cpp:5958-5961`；`modules/gdscript/gdscript.cpp:1078` |
 | GDScript 的 `new` 构造原生对象后把实参交给 `_init` | `modules/gdscript/gdscript.cpp:210-254` |
 | GDScript 的脚本对象按名字调用静态函数，读取常量、静态变量和静态函数 | `modules/gdscript/gdscript.cpp:928-940, 957-997` |
+| GDScript 实例从自己的脚本往上按名字查找方法，包括静态函数 | `modules/gdscript/gdscript.cpp:1948-1966` |
+| 在实例上调用静态方法，GDScript 默认只给警告 | `modules/gdscript/gdscript_analyzer.cpp:3699-3703`；`modules/gdscript/gdscript_warning.h:131` |
 | GDScript 把作为值的脚本定型为它的类，以 preload 脚本初始化的常量可作类型 | `modules/gdscript/gdscript_analyzer.cpp:873-892, 5776-5786` |
 | GDScript 中作为值使用的 GDScript 类是 GDScript 对象 | `modules/gdscript/gdscript_analyzer.cpp:6447-6449` |
 | 对象没有脚本实例时，`callp` 只查找引擎注册的方法，所以 Script 资源上的静态方法找不到 | `core/object/object.cpp:800-826` |

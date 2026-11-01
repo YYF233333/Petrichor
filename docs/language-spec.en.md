@@ -469,6 +469,16 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 4.8 Static members
 
 - `static var`, `static func` and `_static_init()` are written and timed as in GDScript: when a class is loaded, base classes first, its static members are initialized in declaration order and `_static_init` is called last (`modules/gdscript/gdscript_compiler.cpp:2629-2632`). Static initializers bypass setters too (`gdscript_compiler.cpp:2603-2626`).
+- A static method is called through its class, as `Base.label()`, or also on an object or a value, as in GDScript, which by default only warns about it (`modules/gdscript/gdscript_analyzer.cpp:3699-3703`; `modules/gdscript/gdscript_warning.h:131`): both mean the same, and which reads better is a matter of style, for lints (§13.2). On an object of a class of this language or of GDScript, the method is found by name from the object's class up, as an instance method is and as a GDScript instance finds it (`modules/gdscript/gdscript.cpp:1954-1958`), so that a subclass that declares a static method of the same name has its own called; on an object of an engine class or a value of a built-in type, whose static methods scripts cannot redeclare, it is that type's method, the object or value being evaluated first as usual:
+
+  ```gdscript
+  var b: Base = Sub.new()
+  b.label()       # Sub's label()
+  Base.label()    # Base's
+  var c := Color.RED
+  var hue := c.from_hsv(0.5, 1.0, 1.0)  # Color.from_hsv()
+  ```
+
 - When a class's static initialization reads a static member of another class, that class is initialized first.
 - A cycle between static initializations is a program error whose diagnostic lists the dependency chain; cycles that can be determined statically are compile errors. Default or unfinished values are never read. Related GDScript issues: [godotengine/godot#104161](https://github.com/godotengine/godot/issues/104161), [#82141](https://github.com/godotengine/godot/issues/82141), [#104588](https://github.com/godotengine/godot/issues/104588).
 - Static initialization cannot await.
@@ -1076,7 +1086,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Members | `var speed = 5.0` is float; empty-container members require an annotation; an int member without an initializer is 0, and a `T?` member is None; a struct member takes its default when every field has one and must otherwise be assigned |
 | Constants | `const DAY_MS = 24 * 60 * 60 * 1000` is computed at compile time; `const HALF = Vector3.ONE / 2.0` is computed in double in a double-precision build; `const N = 10 / 0` is a compile error at the `/`; `Color("red")` in a constant is a compile error offering `Color.RED`; `const S = "%d" % 3` is a compile error; `const SPEEDS = [1.0, 2.0]` is `Array[float]`, and `SPEEDS.append(3.0)` is a compile error; `@export_range(0, MAX)` is valid; `const K = 100 / roundi(sin(X))` is a compile error; a subclass and a static function use a constant by its bare name, and `self.MAX` is valid; GDScript reading a `pub` constant gets its value |
 | Locals | `func f(n): if c: var n = 1` is a compile error, and so are a `var` and a `for` variable named like a local of an enclosing block; the two branches of an if and else each declaring `var x` are valid |
-| Signatures | delta in `func _process(delta):` is a float; an override writing a subtype as its return type is valid, and writing a supertype is a compile error; an override adding a parameter with a default is valid; returning a value from a non-override function with an omitted return type is a compile error; lambda parameters with an expected type need no annotation |
+| Signatures | delta in `func _process(delta):` is a float; an override writing a subtype as its return type is valid, and writing a supertype is a compile error; an override adding a parameter with a default is valid; returning a value from a non-override function with an omitted return type is a compile error; lambda parameters with an expected type need no annotation; with b a Base holding a Sub that declares its own static `label()`, `b.label()` calls Sub's and `Base.label()` Base's; `c.from_hsv(0.5, 1.0, 1.0)` on a Color calls `Color.from_hsv()` |
 | Signals | Mismatching emit arguments and connect parameters are compile errors; a connection in a scene that does not match its signal is marked in the scene; the await result of a one-parameter signal has that parameter's type; using the await result of a multi-parameter signal is a compile error; awaiting a variable of type `Signal` yields a Variant, an Array at runtime when the signal has two parameters |
 | Equality | `1 == 1.0` is true; `hp == "3"` is a compile error; comparing a `Node2D` with a `Node3D` is a compile error; `hp == 3` with hp an `int?` is valid; comparing a non-null `Node` with None is a compile error; `Array[int] == Array[float]` is a compile error; comparing a Variant holding a String with an int is a program error; an `Enemy?` can be passed to a `Node?` parameter, while passing an `Array[Enemy]` to an `Array[Node]` parameter is a compile error; `Some(3) == Some(Some(3))` wraps the left side to two levels before comparing; `hp < 3` with hp an `int?` is a compile error, and an `int?` holding None is less than `Some(0)` |
 | Conversions | `node as Sprite2D` is `Sprite2D?`; `x as int` is a compile error offering `int(x)` and `int.try_from(x)`; `int.try_from(2.0)` is `Ok(2)`, while `int.try_from(2.5)` and `int.try_from("2")` are `Err` |
@@ -1206,6 +1216,8 @@ The following facts are based on Godot 4.7.2-stable (commit `ed1daf0`); paths ar
 | GDScript checks `new` as a static `_init`; GDScript binds `new` itself, the Script base class does not | `modules/gdscript/gdscript_analyzer.cpp:5958-5961`; `modules/gdscript/gdscript.cpp:1078` |
 | GDScript's `new` constructs the native object and passes its arguments to `_init` | `modules/gdscript/gdscript.cpp:210-254` |
 | GDScript's script object calls static functions by name, and reads constants, static variables and static functions | `modules/gdscript/gdscript.cpp:928-940, 957-997` |
+| A GDScript instance finds a method by name from its script up, static functions included | `modules/gdscript/gdscript.cpp:1948-1966` |
+| GDScript by default only warns about a static method called on an instance | `modules/gdscript/gdscript_analyzer.cpp:3699-3703`; `modules/gdscript/gdscript_warning.h:131` |
 | GDScript types a script used as a value by its class, and a constant initialized with a preloaded script can be a type | `modules/gdscript/gdscript_analyzer.cpp:873-892, 5776-5786` |
 | In GDScript a GDScript class used as a value is a GDScript object | `modules/gdscript/gdscript_analyzer.cpp:6447-6449` |
 | Without a script instance, `callp` looks only for engine-registered methods, so static methods on a Script resource are not found | `core/object/object.cpp:800-826` |
