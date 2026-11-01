@@ -56,6 +56,15 @@ func _ready() -> void:
 		c.choose(args[0], args[1])
 		chosen.append(c.chosen)
 	_check(chosen == [1, 2, 3], "a void function that ends with if/elif/else returns from each branch")
+	c.chosen = 0
+	c.choose_if(false)
+	var skipped_if := c.chosen
+	c.choose_if(true)
+	var taken_if := c.chosen
+	c.choose_in_loop(false)
+	var skipped_loop := c.chosen
+	c.choose_in_loop(true)
+	_check(skipped_if == 0 and taken_if == 4 and skipped_loop == 4 and c.chosen == 5, "a void function that ends with an if without else, or with a loop, returns either way")
 	_check(c.children() == 0, "engine methods called on self")
 	c.add_child(Node.new())
 	_check(c.children() == 1, "engine calls see the current state")
@@ -149,6 +158,13 @@ func _ready() -> void:
 	v.set_layer(area, 4294967295)
 	v.set_z(layered, 7)
 	_check(area.collision_layer == 4294967295 and layered.z_index == 7, "values within range reach the engine")
+	var seeded := RandomNumberGenerator.new()
+	seeded.seed = 5
+	v.raise_z(layered, 2147483647)
+	v.set_seed(seeded, -1)
+	_check_errors(["values_check.pet:287: 2147483654 is out of range for the engine's int32.", "values_check.pet:290: -1 is out of range for the engine's uint64."], "a compound assignment and a uint64 property are checked too")
+	v.raise_z(layered, 1)
+	_check(layered.z_index == 8 and seeded.seed == 5, "a value out of range is not written; one within range is")
 	for node in [holder, area, layered]:
 		node.free()
 	var to_pop: Array[int] = [1, 2, 3]

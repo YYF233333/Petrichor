@@ -103,6 +103,17 @@ pub func choose(a: bool, b: bool):
 	else:
 		chosen = 3
 
+# Ends with an if that has no else, or with a loop.
+pub func choose_if(a: bool):
+	if a:
+		chosen = 4
+
+pub func choose_in_loop(a: bool):
+	while a:
+		if a:
+			chosen = 5
+		a = false
+
 func _process(delta):
 	frames += 1
 

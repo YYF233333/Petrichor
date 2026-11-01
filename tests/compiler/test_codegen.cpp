@@ -1,15 +1,15 @@
-#include "bytecode/opcodes.h"
 #include "compiler/lower.h"
 #include "compiler/parser.h"
 #include "doctest.h"
 #include "helpers.h"
 
-#include <map>
-
 using namespace petrichor;
 using namespace petrichor::tests;
-using bytecode::Op;
 using bytecode::ValueType;
+
+// What the compiler hands the runtime: the class's metadata, initial values
+// and the bytecode format. What the code does is tested by running it, in the
+// engine tests (architecture §3).
 
 namespace {
 
@@ -22,87 +22,8 @@ bytecode::Module module_of(const std::string &p_source) {
 	return result.module;
 }
 
-// The opcodes of a function in order, without operands.
-std::vector<Op> opcodes(const bytecode::Module &p_module, const std::string &p_function) {
-	const bytecode::Function &fn = function_named(p_module, p_function);
-	std::vector<Op> result;
-	for (size_t pc = 0; pc < fn.code.size(); pc += bytecode::instruction_length(fn.code.data() + pc)) {
-		result.push_back(Op(fn.code[pc]));
-	}
-	return result;
-}
-
-// Whether `p_sequence` appears in `p_ops` in order, not necessarily together.
-bool in_order(const std::vector<Op> &p_ops, const std::vector<Op> &p_sequence) {
-	size_t next = 0;
-	for (Op op : p_ops) {
-		if (next < p_sequence.size() && op == p_sequence[next]) {
-			next++;
-		}
-	}
-	return next == p_sequence.size();
-}
-
 std::string listing(const bytecode::Module &p_module, const std::string &p_function) {
 	return bytecode::disassemble(p_module, function_named(p_module, p_function));
-}
-
-// Follows the control flow of a function whose branches test its bool
-// parameters, and records the int constants it stores into members. Returns
-// false when the code does not return within a bounded number of steps, or
-// uses an instruction this does not follow.
-bool trace(const bytecode::Module &p_module, const std::string &p_function, const std::vector<bool> &p_args, std::vector<int64_t> &r_stores) {
-	using bytecode::Op;
-	const bytecode::Function &fn = function_named(p_module, p_function);
-	std::map<uint32_t, uint64_t> slots;
-	for (size_t i = 0; i < p_args.size(); i++) {
-		slots[fn.params[i].offset] = p_args[i] ? 1 : 0;
-	}
-	const std::vector<uint32_t> &code = fn.code;
-	size_t pc = 0;
-	for (int steps = 0; steps < 1000 && pc < code.size(); steps++) {
-		switch (Op(code[pc])) {
-			case Op::LINE:
-				pc += 2;
-				break;
-			case Op::CONST_INT:
-				slots[code[pc + 1]] = uint64_t(p_module.constants[code[pc + 2]].i);
-				pc += 3;
-				break;
-			case Op::CONST_BOOL:
-				slots[code[pc + 1]] = code[pc + 2];
-				pc += 3;
-				break;
-			case Op::MOVE_8:
-				slots[code[pc + 1]] = slots[code[pc + 2]];
-				pc += 3;
-				break;
-			case Op::STORE_MEMBER_8:
-				r_stores.push_back(int64_t(slots[code[pc + 2]]));
-				pc += 3;
-				break;
-			case Op::JUMP:
-				pc = code[pc + 1];
-				break;
-			case Op::JUMP_IF_FALSE:
-				pc = slots[code[pc + 1]] ? pc + 3 : code[pc + 2];
-				break;
-			case Op::JUMP_IF_TRUE:
-				pc = slots[code[pc + 1]] ? code[pc + 2] : pc + 3;
-				break;
-			case Op::RETURN_VOID:
-				return true;
-			default:
-				return false;
-		}
-	}
-	return false;
-}
-
-std::vector<int64_t> stores(const bytecode::Module &p_module, const std::string &p_function, const std::vector<bool> &p_args) {
-	std::vector<int64_t> result;
-	CHECK_MESSAGE(trace(p_module, p_function, p_args, result), "the function returns");
-	return result;
 }
 
 } // namespace
@@ -136,126 +57,6 @@ TEST_CASE("signatures") {
 	const bytecode::Function &add = function_named(module, "add");
 	CHECK(add.is_pub);
 	CHECK(storage(module, add.result.type) == ValueType::Int);
-	const size_t sum = find_instruction(add, Op::ADD_INT);
-	CHECK(add.code[sum + 2] == add.params[0].offset);
-	CHECK(add.code[sum + 3] == add.params[1].offset);
-}
-
-TEST_CASE("mixed int and float arithmetic converts the int") {
-	const std::string code = listing(module_of("extends Node\n\nfunc f(x: float) -> float:\n\treturn x * 2\n"), "f");
-	CHECK(contains(code, "INT_TO_FLOAT"));
-	CHECK(contains(code, "MUL_FLOAT"));
-}
-
-TEST_CASE("int division stays int") {
-	const std::string code = listing(module_of("extends Node\n\nfunc f(a: int) -> int:\n\treturn a / 2\n"), "f");
-	CHECK(contains(code, "DIV_INT"));
-	CHECK(!contains(code, "INT_TO_FLOAT"));
-}
-
-TEST_CASE("control flow becomes jumps") {
-	const std::string code = listing(module_of(R"(extends Node
-
-func f(n: int) -> int:
-	var total := 0
-	while n > 0:
-		if n == 3:
-			break
-		total += n
-		n -= 1
-	return total
-)"),
-			"f");
-	CHECK(contains(code, "JUMP_IF_FALSE"));
-	CHECK(contains(code, "JUMP "));
-	CHECK(contains(code, "RETURN"));
-}
-
-TEST_CASE("a function that runs off its end returns from every branch") {
-	const bytecode::Module module = module_of(R"(extends Node
-var x := 0
-
-func chain(a: bool, b: bool):
-	if a:
-		x = 1
-	elif b:
-		x = 2
-	else:
-		x = 3
-
-func only_if(a: bool):
-	if a:
-		x = 1
-
-func in_loop(a: bool):
-	while a:
-		if a:
-			x = 1
-		a = false
-)");
-	CHECK(stores(module, "chain", { true, false }) == std::vector<int64_t>{ 1 });
-	CHECK(stores(module, "chain", { false, true }) == std::vector<int64_t>{ 2 });
-	CHECK(stores(module, "chain", { false, false }) == std::vector<int64_t>{ 3 });
-	CHECK(stores(module, "only_if", { true }) == std::vector<int64_t>{ 1 });
-	CHECK(stores(module, "only_if", { false }).empty());
-	CHECK(stores(module, "in_loop", { true }) == std::vector<int64_t>{ 1 });
-	CHECK(stores(module, "in_loop", { false }).empty());
-}
-
-TEST_CASE("calls") {
-	const bytecode::Module module = module_of(R"(extends Node
-
-func g(x: float) -> float:
-	return x
-
-func f() -> void:
-	print("n = ", get_child_count())
-	g(1)
-)");
-	const std::string code = listing(module, "f");
-	CHECK(contains(code, "CALL_UTILITY"));
-	CHECK(contains(code, "CALL_ENGINE"));
-	CHECK(contains(code, "CALL " + std::to_string(function_index(module, "g"))));
-	REQUIRE(module.utility_calls.size() == 1);
-	CHECK(module.utility_calls[0].function == "print");
-	REQUIRE(module.engine_calls.size() == 1);
-	CHECK(module.engine_calls[0].method == "get_child_count");
-	CHECK(storage(module, module.engine_calls[0].result_type) == ValueType::Int);
-}
-
-TEST_CASE("a member of a property is changed in a copy and written back") {
-	const bytecode::Module module = module_of("extends Node3D\n\nfunc _process(delta):\n\tposition.y += delta\n");
-	CHECK(in_order(opcodes(module, "_process"), { Op::GET_PROPERTY, Op::GET_FIELD, Op::ADD_FLOAT, Op::SET_FIELD, Op::SET_PROPERTY }));
-	REQUIRE(module.properties.size() == 1);
-	CHECK(module.properties[0].name == "position");
-	CHECK(storage(module, module.properties[0].type) == ValueType::Vector3);
-	REQUIRE(module.fields.size() == 1);
-	CHECK(module.fields[0].base == ValueType::Vector3);
-	CHECK(module.fields[0].name == "y");
-	CHECK(module.fields[0].type == ValueType::Float);
-}
-
-// Spec §6.1: literals among them, as GDScript runs them
-// (modules/gdscript/gdscript_compiler.cpp:2398-2435); a literal is also the
-// editor's default value.
-TEST_CASE("member initializers run in the init function in declaration order") {
-	const bytecode::Module module = module_of(R"(extends Node
-var time = 0.0
-var rng = RandomNumberGenerator.new()
-var first := rng.randi()
-)");
-	CHECK(module.members[0].has_initial);
-	CHECK(!module.members[1].has_initial);
-	CHECK(storage(module, module.members[1].type) == ValueType::Object);
-	CHECK(module.types[module.members[1].type].object.name == "RandomNumberGenerator");
-	REQUIRE(module.init_function >= 0);
-	const bytecode::Function &init = module.functions[module.init_function];
-	CHECK(init.params.empty());
-	CHECK(!init.is_pub);
-	CHECK(in_order(opcodes(module, init.name), { Op::CONST_FLOAT, Op::STORE_MEMBER_8, Op::NEW_OBJECT, Op::STORE_MEMBER_VALUE, Op::LOAD_MEMBER_VALUE, Op::CALL_ENGINE, Op::STORE_MEMBER_8 }));
-	REQUIRE(module.classes.size() == 1);
-	CHECK(module.classes[0].name == "RandomNumberGenerator");
-	CHECK(module_of("extends Node\nvar a: int\n").init_function == -1);
 }
 
 // An initializer that is a constant expression is the editor's default, as
@@ -357,44 +158,6 @@ TEST_CASE("the init function and its table entries do not change with a function
 	CHECK(init_constants(a) != init_constants(c));
 }
 
-TEST_CASE("built-in values take their own size in the frame") {
-	const bytecode::Module module = module_of("extends Node\n\nfunc f(v: Vector3, t: Transform3D, n: int) -> void:\n\tpass\n");
-	const bytecode::Function &f = function_named(module, "f");
-	// The slots hold the values, not Variants; the verifier, which module_of()
-	// runs, checks that each slot has its type's size in the frame.
-	REQUIRE(f.params.size() == 3);
-	CHECK(storage(module, f.params[0].type) == ValueType::Vector3);
-	CHECK(storage(module, f.params[1].type) == ValueType::Transform3D);
-	CHECK(storage(module, f.params[2].type) == ValueType::Int);
-}
-
-TEST_CASE("operators, utilities and constructors carry the engine's signatures") {
-	const bytecode::Module module = module_of(R"(extends Node
-
-func f(x: float) -> Vector3:
-	var v := Vector3(x, 0, 1) * x
-	var c := cos(x)
-	return lerp(v, Vector3.UP, c)
-)");
-	REQUIRE(module.operators.size() == 1);
-	CHECK(module.operators[0].op == 8); // OP_MULTIPLY
-	CHECK(module.operators[0].left == ValueType::Vector3);
-	CHECK(module.operators[0].right == ValueType::Float);
-	CHECK(module.operators[0].result == ValueType::Vector3);
-	REQUIRE(module.constructors.size() == 1);
-	CHECK(module.constructors[0].type == ValueType::Vector3);
-	CHECK(module.constructors[0].params == std::vector<ValueType>{ ValueType::Float, ValueType::Float, ValueType::Float });
-	REQUIRE(module.utility_calls.size() == 2);
-	CHECK(module.utility_calls[0].function == "cos");
-	CHECK(module.utility_calls[0].hash == 2140049587u);
-	CHECK(module.utility_calls[0].params == std::vector<ValueType>{ ValueType::Float });
-	CHECK(module.utility_calls[0].return_type == ValueType::Float);
-	CHECK(module.utility_calls[1].function == "lerp");
-	CHECK(module.utility_calls[1].return_type == ValueType::Variant);
-	CHECK(storage(module, module.utility_calls[1].result_type) == ValueType::Vector3);
-	CHECK(module.constants.back().builtin == "UP");
-}
-
 TEST_CASE("serialization round-trips") {
 	const bytecode::Module module = module_of("class_name A\nextends Node\nvar s := \"x\"\n\nfunc f(a: int) -> String:\n\tif a > 1:\n\t\treturn s\n\treturn \"y\"\n");
 	const std::vector<uint8_t> data = bytecode::serialize(module);
@@ -436,19 +199,9 @@ TEST_CASE("what lowering has no code for is an internal error, not wrong code") 
 	CHECK(cls.source->position(errors[1].begin).line == 5);
 }
 
-// Spec §10.6: the widths come from the engine API (Node.get_child takes an
-// int32 index, CanvasItem.z_index an int32, RandomNumberGenerator.seed a uint64).
-TEST_CASE("an engine integer narrower than int64 or unsigned is checked before it goes to the engine") {
-	const bytecode::Module module = module_of("extends Node\n\nfunc f(n: Node, c: CanvasItem, r: RandomNumberGenerator, i: int) -> void:\n\tvar child := n.get_child(i)\n\tc.z_index = i\n\tc.z_index += 1\n\tr.seed = i\n\tvar count := n.get_child_count()\n");
-	const bytecode::Function &f = function_named(module, "f");
-	std::vector<bytecode::IntRange> ranges;
-	for (size_t pc = 0; pc < f.code.size(); pc += bytecode::instruction_length(f.code.data() + pc)) {
-		if (Op(f.code[pc]) == Op::CHECK_RANGE) {
-			ranges.push_back(bytecode::IntRange(f.code[pc + 1]));
-		}
-	}
-	const std::vector<bytecode::IntRange> expected = { bytecode::IntRange::INT32, bytecode::IntRange::INT32, bytecode::IntRange::INT32, bytecode::IntRange::UINT64 };
-	CHECK(ranges == expected);
+// Spec §10.6: the engine's integer types, which the runtime checks values
+// against before they go to the engine.
+TEST_CASE("the ranges of engine integers narrower than int64 or unsigned") {
 	CHECK(bytecode::int_in_range(bytecode::IntRange::INT32, 2147483647));
 	CHECK(!bytecode::int_in_range(bytecode::IntRange::INT32, 2147483648));
 	CHECK(!bytecode::int_in_range(bytecode::IntRange::UINT32, -1));
