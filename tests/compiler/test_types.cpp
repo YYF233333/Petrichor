@@ -277,6 +277,17 @@ TEST_CASE("integer constants of engine classes") {
 	CHECK(contains(type_of("Tween.NOPE"), "Tween has no constant \"NOPE\""));
 }
 
+// GDScript has the values of the engine's global enums and its global
+// constants in scope (modules/gdscript/gdscript_analyzer.cpp:4620-4631).
+TEST_CASE("global constants of the engine") {
+	CHECK(type_of("KEY_ESCAPE") == "int");
+	CHECK(type_of("MOUSE_BUTTON_LEFT + TYPE_INT") == "int");
+	CHECK(errors_of(in_function("const LIMIT := INT64_MIN\nvar ok := OK == ERR_BUSY")).empty());
+	// A name of the class comes first.
+	CHECK(type_of("KEY_ESCAPE", "var KEY_ESCAPE := \"x\"") == "String");
+	CHECK(contains(type_of("KEY_NOPE"), "Identifier \"KEY_NOPE\" is not declared"));
+}
+
 TEST_CASE("engine singletons are reached by their class name") {
 	CHECK(type_of("Input.is_action_pressed(\"jump\")") == "bool");
 	CHECK(type_of("Input") == "Input");

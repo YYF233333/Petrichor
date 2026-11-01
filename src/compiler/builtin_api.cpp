@@ -23,6 +23,8 @@ extern const Keyed INT_PARAMS[];
 extern const size_t INT_PARAMS_COUNT;
 extern const Keyed INT_PROPERTIES[];
 extern const size_t INT_PROPERTIES_COUNT;
+extern const GlobalConstant GLOBAL_CONSTANTS[];
+extern const size_t GLOBAL_CONSTANTS_COUNT;
 
 namespace {
 
@@ -114,6 +116,16 @@ std::optional<bytecode::IntRange> param_int_range(std::string_view p_class, std:
 
 std::optional<bytecode::IntRange> property_int_range(std::string_view p_class, std::string_view p_property) {
 	return int_range(INT_PROPERTIES, INT_PROPERTIES_COUNT, std::string(p_class) + "." + std::string(p_property));
+}
+
+// The generator sorts them by name.
+std::optional<int64_t> global_constant(std::string_view p_name) {
+	const GlobalConstant *end = GLOBAL_CONSTANTS + GLOBAL_CONSTANTS_COUNT;
+	const GlobalConstant *found = std::lower_bound(GLOBAL_CONSTANTS, end, p_name, [](const GlobalConstant &a, std::string_view b) { return std::string_view(a.name) < b; });
+	if (found == end || p_name != found->name) {
+		return std::nullopt;
+	}
+	return found->value;
 }
 
 int class_filter_param(std::string_view p_class, std::string_view p_method) {

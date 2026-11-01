@@ -87,7 +87,7 @@ enum class Target {
 	ObjectSignal, // A signal of an engine object.
 	BindArguments, // `f.bind(...)` of a function value.
 	EmitSignal, // `s.emit(...)` of a signal value.
-	EngineConstant, // An integer constant of an engine class, in `int_value`.
+	EngineConstant, // An integer constant of an engine class, or a global one, in `int_value`.
 	NoneComparison, // `x == None` or `x != None`: `left` or `right` is the None literal.
 	Constant, // A constant of a class (spec §4.5), whose value is `constant`.
 };

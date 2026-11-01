@@ -89,3 +89,7 @@ pub func bits(x: int, n: int) -> int:
 
 pub func shift(x: int, n: int) -> int:
 	return x << n
+
+# The engine's global constants, which the compiler takes from godot-cpp's API description.
+pub func global_constants() -> Array:
+	return [KEY_ESCAPE, MOUSE_BUTTON_RIGHT, PROPERTY_HINT_FILE_PATH, INT64_MIN]

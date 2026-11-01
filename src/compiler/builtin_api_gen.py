@@ -106,6 +106,19 @@ def _int_ranges(api):
     return sorted(params.items()), sorted(properties.items())
 
 
+def _global_constants(api):
+    """The values of the engine's global enums, such as KEY_ESCAPE, and its
+    global constants, such as INT32_MAX, as sorted (name, value) pairs."""
+    pairs = [(v["name"], v["value"]) for e in api["global_enums"] for v in e["values"]]
+    pairs += [(c["name"], c["value"]) for c in api.get("global_constants", [])]
+    assert len({name for name, _ in pairs}) == len(pairs), "global constant names are unique"
+    return sorted(pairs)
+
+
+def _int64(value):
+    return "INT64_MIN" if value == -(2**63) else f"INT64_C({value})"
+
+
 def generate(json_path, metadata_path, out_path):
     with open(json_path, encoding="utf-8") as file:
         api = json.load(file)
@@ -195,4 +208,8 @@ def generate(json_path, metadata_path, out_path):
             out.write(f"extern const Keyed {name}[];\nextern const size_t {name}_COUNT;\n")
             out.write(f"const Keyed {name}[] = {{\n" + "".join(f"\t{{ {_c_string(key)}, {_c_string(width)} }},\n" for key, width in rows) + "};\n")
             out.write(f"const size_t {name}_COUNT = {len(rows)};\n\n")
+        rows = _global_constants(api)
+        out.write("extern const GlobalConstant GLOBAL_CONSTANTS[];\nextern const size_t GLOBAL_CONSTANTS_COUNT;\n")
+        out.write("const GlobalConstant GLOBAL_CONSTANTS[] = {\n" + "".join(f"\t{{ {_c_string(name)}, {_int64(value)} }},\n" for name, value in rows) + "};\n")
+        out.write(f"const size_t GLOBAL_CONSTANTS_COUNT = {len(rows)};\n\n")
         out.write("} // namespace petrichor::compiler::builtin\n")

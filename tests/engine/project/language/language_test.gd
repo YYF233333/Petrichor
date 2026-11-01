@@ -458,6 +458,7 @@ func _ready() -> void:
 	_check(ConstantCheck.DAY_MS == 86400000 and ConstantCheck.NAMES == ["a", "b"] and k.MASK == 9, "GDScript reads a pub constant through the class and through an instance (spec §11.3)")
 	var constant_map: Dictionary = (k.get_script() as Script).get_script_constant_map()
 	_check(constant_map.get("ANGLE") == deg_to_rad(30) and not constant_map.has("SECRET") and k.secret() == 7, "the engine sees the pub constants only (spec §10.5)")
+	_check(k.global_constants() == [KEY_ESCAPE, MOUSE_BUTTON_RIGHT, PROPERTY_HINT_FILE_PATH, INT64_MIN], "the engine's global constants have the engine's values")
 
 	var statics := StaticChild.new()
 	_check(statics.made(), "new() of classes of this language runs their initializers and _init() (spec §4.6)")

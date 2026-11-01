@@ -110,4 +110,13 @@ struct Keyed {
 std::optional<bytecode::IntRange> param_int_range(std::string_view p_class, std::string_view p_method, uint32_t p_index);
 std::optional<bytecode::IntRange> property_int_range(std::string_view p_class, std::string_view p_property);
 
+struct GlobalConstant {
+	const char *name;
+	int64_t value;
+};
+
+// A value of the engine's global enums, such as KEY_ESCAPE, or one of its
+// global constants, such as INT32_MAX, which GDScript has in scope.
+std::optional<int64_t> global_constant(std::string_view p_name);
+
 } // namespace petrichor::compiler::builtin

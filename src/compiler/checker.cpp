@@ -1014,6 +1014,12 @@ class Checker : public ClassRelation {
 			refer(r_expr.name_token, { DeclId::Kind::Autoload, std::string(), r_expr.text });
 			return set(r_expr, script_class_type(*header, autoload));
 		}
+		if (const std::optional<int64_t> value = builtin::global_constant(r_expr.text)) {
+			r_expr.target = Target::EngineConstant;
+			r_expr.int_value = *value;
+			refer(r_expr.name_token, engine_id("@GlobalScope", r_expr.text));
+			return set(r_expr, Type::of(TypeKind::Int));
+		}
 		if (is_type_name(r_expr.text)) {
 			return fail(r_expr, "\"" + r_expr.text + "\" is a type, not a value.");
 		}
