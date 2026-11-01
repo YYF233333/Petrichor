@@ -4,7 +4,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Language
 
-- Coroutine helpers `Task.of`, `delay`, `any`, `all`, `settled`, and async lambdas (spec §9).
+- Coroutine helpers `Task.of`, `delay`, `any`, `all`, `settled`; async lambdas and calls of async function values, `f.call(x)` giving a `Task[T]` (spec §9, §3.11).
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
 - Of match (spec §5.6): array and dictionary patterns; a match over `T?`, with `None` and `var x` and the check that it is exhaustive; the patterns of structs, and those of enums, Result and Settled once they exist.
 - Of structs (spec §3.6): methods; the "modifies a copy" warning for a field of a struct loop variable; a struct that holds itself through a container, which the type table cannot list, a type's parts coming before it.
