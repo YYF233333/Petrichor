@@ -705,8 +705,6 @@ class Lowerer {
 		return result;
 	}
 
-	// A string literal where a StringName or a NodePath is expected is built
-	// at compile time (spec §10.7).
 	// A T? that goes where this language no longer follows it, to the engine
 	// or into its storage, is read there, so a freed object gives None, as
 	// every read of a T? does. A T must hold a live object where the engine
@@ -727,10 +725,6 @@ class Lowerer {
 	}
 
 	uint32_t argument(const Expr &p_arg, const Type &p_param, bool p_outward, bool p_takes_object) {
-		const ValueType to = value_type(p_param);
-		if (p_arg.kind == ExprKind::StringLiteral && (to == ValueType::StringName || to == ValueType::NodePath)) {
-			return load_text(to, p_arg.text);
-		}
 		const uint32_t value = lower_expr(p_arg);
 		return convert(p_outward ? outward(value, p_arg.type, p_takes_object) : value, p_param);
 	}
@@ -1345,6 +1339,9 @@ class Lowerer {
 			case ExprKind::FloatLiteral:
 			case ExprKind::StringLiteral: {
 				const ValueType type = value_type(p_expr.type);
+				if (type == ValueType::StringName || type == ValueType::NodePath) {
+					return load_text(type, p_expr.text);
+				}
 				const uint32_t result = temp(type);
 				const Op op = type == ValueType::Int ? Op::CONST_INT : (type == ValueType::Float ? Op::CONST_FLOAT : Op::CONST_STRING);
 				instr(op, result, NO_REG, NO_REG, add_constant(constant_of(p_expr)));

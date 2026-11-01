@@ -104,7 +104,9 @@ struct Expr {
 	bool bool_value = false;
 	std::string text; // String literal, name, called method, or node path.
 
-	TokenKind op = TokenKind::EndOfFile; // Unary and binary operators.
+	// Unary and binary operators; StringName or NodePath for a string literal
+	// with its prefix (spec §2.2).
+	TokenKind op = TokenKind::EndOfFile;
 	// The operand of a unary, a cast or a type test, the left of a binary,
 	// or the value of a conditional when it holds.
 	std::unique_ptr<Expr> left;

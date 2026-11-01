@@ -124,6 +124,24 @@ TEST_CASE("strings decode escapes") {
 	CHECK(tokens[1].text == "c");
 }
 
+// modules/gdscript/gdscript_tokenizer.cpp:1554-1576: a quote right after & or
+// ^ begins a literal; otherwise they are operators.
+TEST_CASE("&\"…\" is a StringName and ^\"…\" a NodePath") {
+	std::vector<Diagnostic> errors;
+	const auto file = tokenize("&\"a\\tb\" ^'c/d' &'''e''' a & \"f\" b ^ 'g' a &= b", errors);
+	const std::vector<Token> &tokens = file->tokens;
+	CHECK(errors.empty());
+	REQUIRE(tokens.size() >= 13);
+	CHECK((tokens[0].kind == TokenKind::StringName && tokens[0].text == "a\tb" && tokens[0].length == 7));
+	CHECK((tokens[1].kind == TokenKind::NodePath && tokens[1].text == "c/d"));
+	CHECK((tokens[2].kind == TokenKind::StringName && tokens[2].text == "e"));
+	CHECK(tokens[4].kind == TokenKind::Ampersand);
+	CHECK(tokens[5].kind == TokenKind::String);
+	CHECK(tokens[7].kind == TokenKind::Caret);
+	CHECK(tokens[8].kind == TokenKind::String);
+	CHECK(tokens[10].kind == TokenKind::AmpersandEqual);
+}
+
 TEST_CASE("columns count code points") {
 	std::vector<Diagnostic> errors;
 	const auto file = tokenize("\"雨后\" x", errors);

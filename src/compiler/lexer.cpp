@@ -27,6 +27,10 @@ const char *token_name(TokenKind p_kind) {
 			return "float";
 		case TokenKind::String:
 			return "string";
+		case TokenKind::StringName:
+			return "StringName";
+		case TokenKind::NodePath:
+			return "NodePath";
 		case TokenKind::Async:
 			return "async";
 		case TokenKind::Await:
@@ -590,8 +594,13 @@ class Lexer {
 		}
 	}
 
-	void string() {
+	// A StringName or NodePath literal begins with its prefix, and is otherwise
+	// written as a string (modules/gdscript/gdscript_tokenizer.cpp:860-869).
+	void string(TokenKind p_kind = TokenKind::String) {
 		const uint32_t start = at;
+		if (p_kind != TokenKind::String) {
+			advance();
+		}
 		const unsigned char quote = peek();
 		// """…""" and '''…''' may span lines, as in GDScript.
 		const bool triple = peek(1) == quote && peek(2) == quote;
@@ -642,7 +651,7 @@ class Lexer {
 			value.push_back(char(c));
 			advance();
 		}
-		push(TokenKind::String, start).text = value;
+		push(p_kind, start).text = value;
 	}
 
 	void punctuation() {
@@ -733,18 +742,16 @@ class Lexer {
 			case '!':
 				next == '=' ? two(TokenKind::BangEqual) : one(TokenKind::Bang);
 				return;
-			// && and || are GDScript's spellings of and and or. A quote after & or
-			// ^ would begin a StringName or NodePath literal, not supported yet.
+			// && and || are GDScript's spellings of and and or.
 			case '&':
 				if (next == '&' || next == '=') {
 					two(next == '&' ? TokenKind::And : TokenKind::AmpersandEqual);
-					return;
-				}
-				if (next != '"' && next != '\'') {
+				} else if (next == '"' || next == '\'') {
+					string(TokenKind::StringName);
+				} else {
 					one(TokenKind::Ampersand);
-					return;
 				}
-				break;
+				return;
 			case '|':
 				if (next == '|' || next == '=') {
 					two(next == '|' ? TokenKind::Or : TokenKind::PipeEqual);
@@ -755,13 +762,12 @@ class Lexer {
 			case '^':
 				if (next == '=') {
 					two(TokenKind::CaretEqual);
-					return;
-				}
-				if (next != '"' && next != '\'') {
+				} else if (next == '"' || next == '\'') {
+					string(TokenKind::NodePath);
+				} else {
 					one(TokenKind::Caret);
-					return;
 				}
-				break;
+				return;
 			case '~':
 				one(TokenKind::Tilde);
 				return;

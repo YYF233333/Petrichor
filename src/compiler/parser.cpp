@@ -107,6 +107,8 @@ class Parser {
 			case TokenKind::Int:
 			case TokenKind::Float:
 			case TokenKind::String:
+			case TokenKind::StringName:
+			case TokenKind::NodePath:
 			case TokenKind::True:
 			case TokenKind::False:
 			case TokenKind::None:
@@ -504,10 +506,13 @@ class Parser {
 				expr->float_value = token.float_value;
 				return expr;
 			}
-			case TokenKind::String: {
+			case TokenKind::String:
+			case TokenKind::StringName:
+			case TokenKind::NodePath: {
 				advance();
 				auto expr = make(ExprKind::StringLiteral, token);
 				expr->text = token.text;
+				expr->op = token.kind;
 				return expr;
 			}
 			case TokenKind::True:

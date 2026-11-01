@@ -227,9 +227,15 @@ class Checker : public ClassRelation {
 			return;
 		}
 		const Token &token = cls.source->tokens[p_literal.range.first];
-		const uint32_t quotes = token.length >= 6 && token.length - 6 == p_literal.text.size() ? 3 : 1;
-		if (token.kind == TokenKind::String && token.length == p_literal.text.size() + 2 * quotes && cls.source->text.compare(token.offset + quotes, p_literal.text.size(), p_literal.text) == 0) {
-			refer_bytes(token.offset + quotes, token.end() - quotes, p_target);
+		const bool prefixed = token.kind == TokenKind::StringName || token.kind == TokenKind::NodePath;
+		if (token.kind != TokenKind::String && !prefixed) {
+			return;
+		}
+		const uint32_t begin = token.offset + (prefixed ? 1 : 0);
+		const uint32_t length = token.end() - begin;
+		const uint32_t quotes = length >= 6 && length - 6 == p_literal.text.size() ? 3 : 1;
+		if (length == p_literal.text.size() + 2 * quotes && cls.source->text.compare(begin + quotes, p_literal.text.size(), p_literal.text) == 0) {
+			refer_bytes(begin + quotes, token.end() - quotes, p_target);
 		}
 	}
 
@@ -1385,8 +1391,10 @@ class Checker : public ClassRelation {
 	// §7.4). It loads when it runs, through the engine's resource cache, as
 	// load() does, and the result is checked to be a scene.
 	Type check_preload(Expr &r_expr) {
-		if (r_expr.args.size() != 1 || r_expr.args[0]->kind != ExprKind::StringLiteral) {
-			return fail_call(r_expr, "preload() takes one literal path.");
+		// As in GDScript, not a StringName or a NodePath
+		// (modules/gdscript/gdscript_analyzer.cpp:4735-4736).
+		if (r_expr.args.size() != 1 || r_expr.args[0]->kind != ExprKind::StringLiteral || r_expr.args[0]->op != TokenKind::String) {
+			return fail_call(r_expr, "preload() takes one literal path, a String.");
 		}
 		std::string path = r_expr.args[0]->text;
 		if (path.rfind("res://", 0) != 0) {
@@ -2066,7 +2074,14 @@ class Checker : public ClassRelation {
 		}
 		const builtin::Constructor &constructor = p_type.constructors[chosen];
 		for (uint32_t a = 0; a < constructor.argument_count; a++) {
-			r_expr.param_types.push_back(api_type(constructor.arguments[a].type, false));
+			const Type param = api_type(constructor.arguments[a].type, false);
+			r_expr.param_types.push_back(param);
+			// Chosen by its own type, a string literal is built as the parameter's.
+			Expr &arg = *r_expr.args[a];
+			if (arg.kind == ExprKind::StringLiteral && literal_type(arg, param) != arg.type) {
+				arg.constant = nullptr;
+				check_expr(arg, param);
+			}
 		}
 		r_expr.target = Target::BuiltinConstructor;
 		r_expr.index = chosen;
@@ -2903,8 +2918,6 @@ class Checker : public ClassRelation {
 		return fail_call(r_expr, "Function \"" + name + "()\" not found in the class or its base " + cls.extends + ".");
 	}
 
-	// `p_expected` is the type the value goes to, if known; only array literals
-	// take their type from it.
 	Type check_await(Expr &r_expr) {
 		if (in_predelete) {
 			return fail(r_expr, "await is not allowed in the PREDELETE branch.");
@@ -3005,6 +3018,17 @@ class Checker : public ClassRelation {
 		error(part.range, what + " (spec §4.5).");
 	}
 
+	// The string type a string literal is built as: the one it goes to, when
+	// it converts to that (spec §10.7), otherwise its own.
+	Type literal_type(const Expr &p_literal, const Type &p_to) const {
+		const Type own = p_literal.op == TokenKind::StringName ? Type::builtin("StringName") : (p_literal.op == TokenKind::NodePath ? Type::builtin("NodePath") : Type::of(TypeKind::String));
+		const Type to = p_to.kind == TypeKind::Option ? p_to.args[0] : p_to;
+		const bool text = to.kind == TypeKind::String || to.builtin_name() == "StringName" || to.builtin_name() == "NodePath";
+		return text && assignable(own, to) ? to : own;
+	}
+
+	// `p_expected` is the type the value goes to, if known; literals of arrays,
+	// dictionaries, strings and None take their type from it.
 	Type type_expr(Expr &r_expr, const Type &p_expected) {
 		switch (r_expr.kind) {
 			case ExprKind::IntLiteral:
@@ -3015,7 +3039,7 @@ class Checker : public ClassRelation {
 			case ExprKind::FloatLiteral:
 				return set(r_expr, Type::of(TypeKind::Float));
 			case ExprKind::StringLiteral:
-				return set(r_expr, Type::of(TypeKind::String));
+				return set(r_expr, literal_type(r_expr, p_expected));
 			case ExprKind::BoolLiteral:
 				return set(r_expr, Type::of(TypeKind::Bool));
 			case ExprKind::Name:

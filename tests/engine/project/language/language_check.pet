@@ -143,3 +143,19 @@ pub func defer():
 
 func add_deferred(amount: int):
 	deferred += amount
+
+# &"…" and ^"…", and string literals built as the string type they go to (spec §10.7).
+const IDLE := &"idle"
+
+pub func literals() -> Array:
+	var as_string: String = &"a"
+	var as_name: StringName = "b"
+	return [IDLE, ^"c/d", as_string, as_name, &"a" == "a", has_method(&"add"), NodePath(&"e/f").get_name_count()]
+
+pub func state_of(name: StringName) -> String:
+	match name:
+		IDLE:
+			return "idle"
+		&"run", "walk":
+			return "moving"
+	return "other"

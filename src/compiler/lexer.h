@@ -20,6 +20,8 @@ enum class TokenKind {
 	Int,
 	Float,
 	String,
+	StringName, // `&"…"`
+	NodePath, // `^"…"`
 
 	// Keywords.
 	Async,

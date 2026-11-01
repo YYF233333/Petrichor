@@ -101,7 +101,7 @@ TEST_CASE("a method a scene connects is referred to from the scene, and one name
 	scene.nodes = { { ".", "Node3D", "res://test.pet" }, { "Timer", "Timer", "" } };
 	scene.connections = { { "timeout", "Timer", ".", "_on_timeout", 0, 0 } };
 	project.scenes = { scene };
-	const std::string source = "extends Node3D\n\nfunc _on_timeout():\n\tcall_deferred(\"reset\")\n\nfunc reset():\n\tpass\n";
+	const std::string source = "extends Node3D\n\nfunc _on_timeout():\n\tcall_deferred(\"reset\")\n\tcall_deferred(&'''reset''')\n\nfunc reset():\n\tpass\n";
 	const auto result = compile_in(source, project);
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	bool connected = false;
@@ -110,6 +110,7 @@ TEST_CASE("a method a scene connects is referred to from the scene, and one name
 	}
 	CHECK(connected);
 	CHECK(has(at(result, source, "reset"), { Kind::Script, "res://test.pet", "reset" }));
+	CHECK(has(at(result, source, "reset", 1), { Kind::Script, "res://test.pet", "reset" }));
 }
 
 TEST_CASE("a local is the same where it is declared and where it is used") {

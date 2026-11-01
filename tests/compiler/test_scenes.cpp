@@ -164,7 +164,8 @@ TEST_CASE("preload() of a scene is a PackedScene of the scene's root") {
 
 	CHECK(contains(errors("var s := preload(\"res://missing.tscn\")"), "There is no scene at res://missing.tscn."));
 	CHECK(contains(errors("var s := preload(\"res://icon.png\")"), "preload() of a resource other than a scene is not supported yet."));
-	CHECK(contains(errors("var s := preload(path)"), "preload() takes one literal path."));
+	CHECK(contains(errors("var s := preload(path)"), "preload() takes one literal path, a String."));
+	CHECK(contains(errors("var s := preload(&\"res://objects/platform.tscn\")"), "preload() takes one literal path, a String."));
 
 	// It loads as load() does, and checks that it got a scene.
 	const compiler::CompileResult result = compile_in("extends Node\n\nfunc f():\n\tvar s := preload(\"res://objects/platform.tscn\")\n", project);

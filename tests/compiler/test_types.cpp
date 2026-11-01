@@ -24,6 +24,17 @@ TEST_CASE("== follows the engine's table too (spec §5.2)") {
 	CHECK(contains(type_of("ints != floats", arrays), "are equal only when both are empty"));
 }
 
+// Spec §10.7: String converts to and from StringName and NodePath, which do
+// not convert to each other.
+TEST_CASE("&\"…\" is a StringName and ^\"…\" a NodePath, built as the string type they go to") {
+	CHECK(type_of("&\"a\"") == "StringName");
+	CHECK(type_of("^\"a/b\"") == "NodePath");
+	CHECK(type_of("&\"a\" == \"a\"") == "bool");
+	CHECK(errors_of(in_function("var s: String = &\"a\"\nvar n: StringName = \"a\"\nvar p: NodePath = \"a\"\nvar o: StringName? = &\"a\" if s.is_empty() else \"b\"")).empty());
+	CHECK(has_error(in_function("var p: NodePath = &\"a\""), "Cannot assign a value of type StringName as NodePath."));
+	CHECK(has_error(in_function("var n: StringName = ^\"a\""), "Cannot assign a value of type NodePath as StringName."));
+}
+
 TEST_CASE("utility functions bound with Variant are typed by their arguments (spec §10.3)") {
 	CHECK(type_of("clamp(0.5, 0.0, 1.0)") == "float");
 	CHECK(type_of("abs(-3)") == "int");

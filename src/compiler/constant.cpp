@@ -828,7 +828,7 @@ ConstPtr fold(Expr &r_expr) {
 		case ExprKind::FloatLiteral:
 			return float_value(r_expr.float_value);
 		case ExprKind::StringLiteral: {
-			auto value = make(Kind::String, Type::of(TypeKind::String));
+			auto value = make(Kind::String, r_expr.type);
 			value->text = r_expr.text;
 			return value;
 		}

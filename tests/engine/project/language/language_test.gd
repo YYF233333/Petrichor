@@ -65,6 +65,11 @@ func _ready() -> void:
 	var skipped_loop := c.chosen
 	c.choose_in_loop(true)
 	_check(skipped_if == 0 and taken_if == 4 and skipped_loop == 4 and c.chosen == 5, "a void function that ends with an if without else, or with a loop, returns either way")
+	var literals := c.literals()
+	_check(typeof(literals[0]) == TYPE_STRING_NAME and literals[0] == &"idle" and typeof(literals[1]) == TYPE_NODE_PATH and literals[1] == ^"c/d", "&\"…\" is a StringName and ^\"…\" a NodePath")
+	_check(typeof(literals[2]) == TYPE_STRING and literals[2] == "a" and typeof(literals[3]) == TYPE_STRING_NAME and literals[3] == &"b", "a string literal is built as the string type it goes to")
+	_check(literals.slice(4) == [true, true, 2], "a StringName literal compares with a String, names a method, and converts to NodePath")
+	_check(c.state_of(&"idle") == "idle" and c.state_of(&"run") == "moving" and c.state_of(&"walk") == "moving" and c.state_of(&"jump") == "other", "match over a StringName")
 	_check(c.children() == 0, "engine methods called on self")
 	c.add_child(Node.new())
 	_check(c.children() == 1, "engine calls see the current state")
