@@ -1,9 +1,12 @@
 #include "conventions.h"
 
+#include "compiler/checker.h"
 #include "compiler/parser.h"
+#include "compiler/script_classes.h"
 #include "doctest.h"
 
 #include <algorithm>
+#include <map>
 #include <set>
 
 namespace petrichor::tests {
@@ -311,7 +314,151 @@ std::vector<std::pair<int, uint32_t>> statement_starts(const ClassDecl &p_class)
 	return starts;
 }
 
+// The spelling a reference must have, or "" where the declaration does not
+// say: a class of this language may be named by its global name or its path,
+// and a local by whatever its declaration spells.
+std::string spelling(const DeclId &p_id) {
+	switch (p_id.kind) {
+		case DeclId::Kind::Script:
+		case DeclId::Kind::Foreign:
+			return p_id.name.substr(p_id.name.find('.') + 1);
+		case DeclId::Kind::Engine:
+		case DeclId::Kind::Language:
+			return p_id.name.empty() ? p_id.scope : p_id.name;
+		case DeclId::Kind::Node:
+			return p_id.name.substr(p_id.name.find_last_of('/') + 1);
+		case DeclId::Kind::Autoload:
+		case DeclId::Kind::Unresolved:
+			return p_id.name;
+		case DeclId::Kind::Local:
+			break;
+	}
+	return std::string();
+}
+
+// The names that a checked class resolves or declares, which must all have a
+// reference.
+class ResolvedNames {
+	const SourceFile &file;
+	std::vector<std::pair<uint32_t, std::string>> names; // Token and what it is.
+
+	void add(uint32_t p_token, const std::string &p_name, const char *p_what) {
+		if (p_token < file.tokens.size() && file.tokens[p_token].length > 0 && !p_name.empty() && p_name[0] != '@') {
+			names.push_back({ p_token, std::string(p_what) + " " + p_name });
+		}
+	}
+
+	void expr(const Expr *p_expr) {
+		if (!p_expr) {
+			return;
+		}
+		if ((p_expr->kind == ExprKind::Name || p_expr->kind == ExprKind::Member || p_expr->kind == ExprKind::Call) && p_expr->target != Target::None && p_expr->target != Target::NoneComparison) {
+			add(p_expr->name_token, p_expr->text, "use of");
+		}
+		expr(p_expr->left.get());
+		expr(p_expr->right.get());
+		expr(p_expr->base.get());
+		for (const auto &arg : p_expr->args) {
+			expr(arg.get());
+		}
+	}
+
+	void block(const Block &p_block) {
+		for (const auto &stmt : p_block) {
+			if (stmt->kind == StmtKind::Var || stmt->kind == StmtKind::For) {
+				add(stmt->name_token, stmt->name, "local");
+			}
+			expr(stmt->target.get());
+			expr(stmt->condition.get());
+			expr(stmt->value.get());
+			block(stmt->body);
+			block(stmt->else_body);
+			for (const MatchBranch &branch : stmt->branches) {
+				for (const Pattern &pattern : branch.patterns) {
+					if (pattern.kind == PatternKind::Bind) {
+						add(pattern.name_token, pattern.name, "local");
+					}
+					expr(pattern.value.get());
+				}
+				expr(branch.guard.get());
+				block(branch.body);
+			}
+		}
+	}
+
+public:
+	ResolvedNames(const ClassDecl &p_class, const SourceFile &p_file) :
+			file(p_file) {
+		for (const VarDecl &member : p_class.members) {
+			add(member.name_token, member.name, "member");
+			expr(member.initializer.get());
+		}
+		for (const FuncDecl &function : p_class.functions) {
+			add(function.name_token, function.name, "function");
+			for (const ParamDecl &param : function.params) {
+				add(param.name_token, param.name, "parameter");
+				expr(param.default_value.get());
+			}
+			block(function.body);
+		}
+		for (const SignalDecl &signal : p_class.signals) {
+			add(signal.name_token, signal.name, "signal");
+		}
+		for (const StructDecl &decl : p_class.structs) {
+			add(decl.name_token, decl.name, "struct");
+			for (const VarDecl &field : decl.fields) {
+				add(field.name_token, field.name, "field");
+				expr(field.initializer.get());
+			}
+		}
+		for (const InterfaceDecl &decl : p_class.interfaces) {
+			add(decl.name_token, decl.name, "interface");
+			for (const FuncDecl &method : decl.methods) {
+				add(method.name_token, method.name, "method");
+			}
+			for (const InterfaceProperty &property : decl.properties) {
+				add(property.name_token, property.name, "property");
+			}
+		}
+	}
+
+	const std::vector<std::pair<uint32_t, std::string>> &all() const { return names; }
+};
+
 } // namespace
+
+void check_references(const std::string &p_source, const EngineApi &p_engine, const CompileOptions &p_options) {
+	std::vector<Diagnostic> errors;
+	ClassDecl cls = parse(p_source, errors);
+	ScriptClasses classes(p_engine, p_options.project, p_options.declarations_only);
+	std::vector<Reference> references;
+	check(cls, p_engine, p_options, errors, classes, true, &references);
+	REQUIRE(errors.empty());
+	const SourceFile &file = *cls.source;
+	std::map<DeclId, std::string> locals;
+	std::set<std::pair<uint32_t, uint32_t>> places;
+	for (const Reference &reference : references) {
+		if (!reference.scene.empty()) {
+			continue;
+		}
+		const std::string text = file.text.substr(reference.begin, reference.end - reference.begin);
+		places.insert({ reference.begin, reference.end });
+		if (reference.target.kind == DeclId::Kind::Local) {
+			const auto [entry, added] = locals.insert({ reference.target, text });
+			CHECK_MESSAGE(entry->second == text, "a local spelled ", entry->second, " is referred to as ", text, " in:\n", p_source);
+			continue;
+		}
+		const std::string expected = spelling(reference.target);
+		CHECK_MESSAGE((expected.empty() || expected == text), "a reference to ", reference.target.scope, " ", reference.target.name, " is spelled ", text, " in:\n", p_source);
+	}
+	if (p_options.declarations_only) {
+		return; // Without bodies, whose names are not resolved.
+	}
+	const ResolvedNames resolved(cls, file);
+	for (const auto &[token, what] : resolved.all()) {
+		CHECK_MESSAGE(places.count({ file.tokens[token].offset, file.tokens[token].end() }), "the ", what, " has no reference in:\n", p_source);
+	}
+}
 
 void check_recovery(const std::string &p_source, const std::function<void(const std::string &)> &p_compile) {
 	std::vector<Diagnostic> errors;

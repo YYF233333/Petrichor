@@ -17,7 +17,7 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 	// With syntax errors only they are reported, but the checker runs on the
 	// recovered tree all the same, as the tools will (architecture §2.1).
 	std::vector<Diagnostic> unreported;
-	check(cls, p_engine, p_options, result.errors.empty() ? result.errors : unreported, classes);
+	check(cls, p_engine, p_options, result.errors.empty() ? result.errors : unreported, classes, true, &result.references);
 	std::stable_sort(result.errors.begin(), result.errors.end(), [](const Diagnostic &a, const Diagnostic &b) {
 		return a.begin < b.begin;
 	});

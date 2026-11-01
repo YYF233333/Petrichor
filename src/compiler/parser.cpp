@@ -1004,6 +1004,7 @@ class Parser {
 			if (failed || !take_accessor(keyword.text == "set" ? r_decl.setter : r_decl.getter, function.text, keyword)) {
 				return;
 			}
+			(keyword.text == "set" ? r_decl.setter_token : r_decl.getter_token) = index(function);
 		} while (match(TokenKind::Comma));
 	}
 
@@ -1243,7 +1244,9 @@ public:
 					fail(keyword, "The class already has a name.");
 					continue;
 				}
-				result.class_name = expect(TokenKind::Identifier, "a class name").text;
+				const Token &name = expect(TokenKind::Identifier, "a class name");
+				result.class_name = name.text;
+				result.class_name_token = index(name);
 				has_class_name = true;
 				if (!check(TokenKind::Extends)) {
 					end_of_statement();

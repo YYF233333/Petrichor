@@ -12,6 +12,9 @@
 
 namespace petrichor::compiler {
 
+// The name token of a node the compiler made, which has none.
+constexpr uint32_t NO_TOKEN = UINT32_MAX;
+
 struct TypeRef {
 	std::string name; // Empty where a syntax error left no type.
 	TokenRange range;
@@ -244,6 +247,8 @@ struct VarDecl {
 	std::string setter;
 	std::string getter;
 	uint32_t accessor_token = 0; // The first token after the colon that opens them.
+	uint32_t setter_token = NO_TOKEN; // Of the function's name in `set = f`.
+	uint32_t getter_token = NO_TOKEN;
 	// Filled by the checker.
 	Type type;
 	int setter_index = -1; // In the class's functions.
@@ -276,6 +281,7 @@ struct ParamDecl {
 struct LocalInfo {
 	std::string name;
 	Type type;
+	uint32_t token = NO_TOKEN; // Of its name where declared.
 };
 
 struct FuncDecl {
@@ -350,6 +356,7 @@ struct InterfaceDecl {
 struct ClassDecl {
 	std::shared_ptr<const SourceFile> source; // What the token indices of its nodes refer to.
 	std::string class_name;
+	uint32_t class_name_token = NO_TOKEN;
 	std::string extends = "RefCounted";
 	bool extends_path = false;
 	std::string path;
@@ -361,7 +368,7 @@ struct ClassDecl {
 	std::vector<const FuncDecl *> all_functions;
 	std::vector<const SignalDecl *> all_signals;
 	std::set<std::string> exposed_methods;
-	uint32_t extends_token = 0; // The base's name or path.
+	uint32_t extends_token = NO_TOKEN; // The base's name or path, if written.
 	std::vector<TypeRef> implements;
 	std::optional<TypeRef> owner_ref; // @owner(T) (spec §7.3).
 	Type owner_type; // Filled by the checker.

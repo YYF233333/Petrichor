@@ -33,7 +33,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Node paths: `%Name` and `$%Name`, `$".."` without `@parent` (spec §7.3), and paths into instanced scenes (spec §7.1).
 - Property names as literals, as in `tween_property(self, "speed", ...)` and `set_deferred("speed", v)`: checked, and visible to the engine (spec §10.4, §10.5); only method names are.
 - The audit of the most frequently called engine APIs for null (spec §10.2); `binding_metadata.txt` has two entries.
-- Values of type Variant (spec §3.13), which untyped members, parameters and results of GDScript classes have (§11.1); reading the elements of an untyped Array or Dictionary.
+- Values of type Variant (spec §3.13), which untyped members, parameters and results of GDScript classes have (§11.1); reading the elements of an untyped Array or Dictionary. A member read or method called through a Variant is recorded as an unresolved name (architecture §2.1).
 - Non-constant default values, of parameters and of struct fields; static members; `_init()` with parameters.
 - Calling a function value other than through `bind()`; `==` between objects.
 - In debug builds, reporting where a freed instance was freed and where the instances still alive at exit were made (spec §3.3, §6.7, §12.5).
@@ -45,7 +45,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Editor
 
-- What architecture §2.1 sets out for the tools, for the existing syntax and checks (architecture §5 step 7): the lossless token stream, the first and last token of each node, error nodes in place of dropped statements, and the reference table, also fed by the scene index.
+- References from scenes for the keys of exported properties (architecture §2.1), once the scene index reads the values scenes give properties; now only the methods of signal connections are.
 - The formatter and lints (spec §13.2, architecture §2.1).
 - A resident, incremental analysis that reads unsaved edits and does not walk the whole project at every check; the LSP, renaming and quick fixes build on it. Its cache should cover dependencies: compiled bytecode is now checked against its own source only, so a game run from the command line without a build keeps old bytecode after a change to a scene or to a script it uses, and only the runtime checks (signatures, `$X` classes) catch the difference.
 - The scene index: read scenes unsaved in the editor; mark errors in scenes in the scene editor (spec §13.1); check whether it handles autoloads that are scenes.

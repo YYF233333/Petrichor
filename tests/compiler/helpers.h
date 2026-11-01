@@ -20,11 +20,13 @@ inline const FakeEngine &fake_engine() {
 	return engine;
 }
 
-// Compiles a source, also cut line by line when it compiles (architecture §3).
+// Compiles a source; when it compiles, also checks its references and cuts it
+// line by line (architecture §3).
 inline compiler::CompileResult compile(const std::string &p_source) {
 	check_syntax_conventions(p_source);
 	compiler::CompileResult result = compiler::compile(p_source, fake_engine());
 	if (result.ok()) {
+		check_references(p_source, fake_engine(), compiler::CompileOptions());
 		check_recovery(p_source, [](const std::string &p_cut) { compiler::compile(p_cut, fake_engine()); });
 	}
 	return result;
@@ -140,6 +142,7 @@ inline compiler::CompileResult compile_in(const std::string &p_source, const Fak
 	check_syntax_conventions(p_source);
 	compiler::CompileResult result = compiler::compile(p_source, fake_engine(), options);
 	if (result.ok()) {
+		check_references(p_source, fake_engine(), options);
 		check_recovery(p_source, [&](const std::string &p_cut) { compiler::compile(p_cut, fake_engine(), options); });
 	}
 	return result;

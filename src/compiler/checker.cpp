@@ -77,7 +77,7 @@ bool is_interpolable(const Type &p_type) {
 // Gives an expression made by the compiler the position of the code it belongs to.
 void relocate(Expr &r_expr, const TokenRange &p_range) {
 	r_expr.range = p_range;
-	r_expr.name_token = r_expr.op_token = p_range.first;
+	r_expr.name_token = r_expr.op_token = NO_TOKEN;
 	for (Expr *child : { r_expr.left.get(), r_expr.right.get(), r_expr.base.get() }) {
 		if (child) {
 			relocate(*child, p_range);
@@ -204,6 +204,7 @@ class Checker : public ClassRelation {
 	bool check_bodies;
 	ScriptClasses &classes; // The project's other scripts of this language.
 	std::vector<Scene> scenes; // The scenes that use this script.
+	std::vector<Reference> *references; // Recorded for this file only.
 
 	FuncDecl *function = nullptr;
 	std::vector<std::unordered_map<std::string, int>> scopes;
@@ -224,11 +225,77 @@ class Checker : public ClassRelation {
 	std::unordered_map<std::string, int> signal_index;
 	mutable std::unordered_map<std::string, std::optional<ForeignClass>> foreign_classes; // By path.
 
+	// At the start of the file for what was not written, such as the base
+	// class of a class without extends.
 	void error(const TokenRange &p_range, const std::string &p_message) {
-		errors.push_back({ cls.source->begin(p_range), cls.source->end(p_range), p_message });
+		const TokenRange range = p_range.first < cls.source->tokens.size() ? p_range : TokenRange{ 0, 0 };
+		errors.push_back({ cls.source->begin(range), cls.source->end(range), p_message });
 	}
 	void error(uint32_t p_token, const std::string &p_message) {
 		error(TokenRange{ p_token, p_token }, p_message);
+	}
+
+	/* References (architecture §2.1) */
+
+	static DeclId script_id(const std::string &p_path, const std::string &p_name = std::string()) {
+		return { DeclId::Kind::Script, p_path, p_name };
+	}
+	static DeclId foreign_id(const std::string &p_path, const std::string &p_name) {
+		return { DeclId::Kind::Foreign, p_path, p_name };
+	}
+	static DeclId engine_id(const std::string &p_class, const std::string &p_name = std::string()) {
+		return { DeclId::Kind::Engine, p_class, p_name };
+	}
+	static DeclId language_id(const std::string &p_type, const std::string &p_name) {
+		return { DeclId::Kind::Language, p_type, p_name };
+	}
+	// By the name token of its declaration.
+	DeclId local_id(uint32_t p_token) const {
+		return { DeclId::Kind::Local, options.path, p_token < cls.source->tokens.size() ? std::to_string(cls.source->tokens[p_token].offset) : std::string() };
+	}
+
+	// A name of this file, unless the compiler made it or a syntax error left
+	// it empty.
+	void refer(uint32_t p_token, const DeclId &p_target, bool p_declaration = false, const std::optional<DeclId> &p_overrides = std::nullopt) {
+		if (p_token < cls.source->tokens.size() && cls.source->tokens[p_token].length > 0) {
+			refer_bytes(cls.source->tokens[p_token].offset, cls.source->tokens[p_token].end(), p_target, p_declaration, p_overrides);
+		}
+	}
+
+	void refer_bytes(uint32_t p_begin, uint32_t p_end, const DeclId &p_target, bool p_declaration = false, const std::optional<DeclId> &p_overrides = std::nullopt) {
+		if (references) {
+			Reference reference;
+			reference.target = p_target;
+			reference.is_declaration = p_declaration;
+			reference.overrides = p_overrides;
+			reference.begin = p_begin;
+			reference.end = p_end;
+			references->push_back(std::move(reference));
+		}
+	}
+
+	// What a string literal holds, when it is written without escapes.
+	void refer_string(const Expr &p_literal, const DeclId &p_target) {
+		if (p_literal.kind != ExprKind::StringLiteral || p_literal.range.first >= cls.source->tokens.size()) {
+			return;
+		}
+		const Token &token = cls.source->tokens[p_literal.range.first];
+		const uint32_t quotes = token.length >= 6 && token.length - 6 == p_literal.text.size() ? 3 : 1;
+		if (token.kind == TokenKind::String && token.length == p_literal.text.size() + 2 * quotes && cls.source->text.compare(token.offset + quotes, p_literal.text.size(), p_literal.text) == 0) {
+			refer_bytes(token.offset + quotes, token.end() - quotes, p_target);
+		}
+	}
+
+	// The class of the chain from `p_class` that declares a member.
+	template <typename T>
+	static const ClassDecl &declaring(const ClassDecl &p_class, const T &p_decl, std::vector<T> ClassDecl::*p_own) {
+		for (const ClassDecl *owner = &p_class; owner; owner = owner->base) {
+			const std::vector<T> &own = owner->*p_own;
+			if (std::any_of(own.begin(), own.end(), [&](const T &p_item) { return &p_item == &p_decl; })) {
+				return *owner;
+			}
+		}
+		return p_class;
 	}
 
 	// Where to report a declaration this class has or inherits: its name, or
@@ -337,12 +404,14 @@ class Checker : public ClassRelation {
 				}
 				r_expr.target = Target::ObjectProperty;
 				r_expr.owner = p_class.engine_class();
+				refer(r_expr.name_token, foreign_id(p_class.script, r_expr.text));
 				return localized(property.type);
 			}
 		}
 		for (const EngineMethod &signal : foreign->signals) {
 			if (signal.name == r_expr.text) {
 				r_expr.target = Target::ObjectSignal;
+				refer(r_expr.name_token, foreign_id(p_class.script, r_expr.text));
 				return localized(signal_type(signal));
 			}
 		}
@@ -362,6 +431,7 @@ class Checker : public ClassRelation {
 				}
 				local.return_type = localized(local.return_type);
 				r_expr.is_foreign = true;
+				refer(r_expr.name_token, foreign_id(p_class.script, r_expr.text));
 				return check_engine_call(r_expr, local);
 			}
 		}
@@ -436,15 +506,18 @@ class Checker : public ClassRelation {
 			if (dot == std::string::npos) {
 				for (const InterfaceDecl &interface : cls.interfaces) {
 					if (interface.name == p_ref.name) {
+						refer(p_ref.name_token, script_id(options.path, interface.name));
 						return Type::interface(display_name(cls, options.path) + "." + interface.name, options.path);
 					}
 				}
 				if (cls.find_struct(p_ref.name)) {
+					refer(p_ref.name_token, script_id(options.path, p_ref.name));
 					return Type::structure(display_name(cls, options.path) + "." + p_ref.name, options.path);
 				}
 			}
 			return std::nullopt;
 		}
+		refer(p_ref.name_token, is_script_path(path) ? script_id(path) : foreign_id(path, std::string()));
 		if (!is_script_path(path)) {
 			const ForeignClass *foreign = foreign_class(path);
 			if (dot != std::string::npos) {
@@ -472,6 +545,7 @@ class Checker : public ClassRelation {
 					error(p_ref.range, p_ref.name + " is not pub (spec §4.2).");
 					return Type::of(TypeKind::Error);
 				}
+				refer(p_ref.name_token == NO_TOKEN ? NO_TOKEN : p_ref.name_token + 2, script_id(path, inner));
 				return Type::interface(p_ref.name, path);
 			}
 		}
@@ -480,6 +554,7 @@ class Checker : public ClassRelation {
 				error(p_ref.range, p_ref.name + " is not pub (spec §4.2).");
 				return Type::of(TypeKind::Error);
 			}
+			refer(p_ref.name_token == NO_TOKEN ? NO_TOKEN : p_ref.name_token + 2, script_id(path, inner));
 			return Type::structure(display_name(*header, path) + "." + inner, path);
 		}
 		error(p_ref.range, head + " declares no interface or struct \"" + inner + "\".");
@@ -541,9 +616,11 @@ class Checker : public ClassRelation {
 			return Type::of(TypeKind::Error);
 		}
 		if (builtin::find_class(p_ref.name)) {
+			refer(p_ref.name_token, engine_id(p_ref.name));
 			return api_type(p_ref.name, false);
 		}
 		if (engine.class_exists(p_ref.name)) {
+			refer(p_ref.name_token, engine_id(p_ref.name));
 			return Type::object(p_ref.name);
 		}
 		if (const std::optional<Type> script = script_type(p_ref)) {
@@ -555,6 +632,7 @@ class Checker : public ClassRelation {
 
 	// `Array[T]`, the engine's typed array (spec §3.8).
 	Type resolve_generic(const TypeRef &p_ref) {
+		refer(p_ref.name_token, p_ref.name == "Task" ? language_id("Task", std::string()) : engine_id(p_ref.name));
 		if (p_ref.name == "Task" && p_ref.args.size() == 1) {
 			const Type result = resolve(p_ref.args[0], true);
 			return result.is_error() ? result : Type::task(result);
@@ -655,7 +733,7 @@ class Checker : public ClassRelation {
 		loader->kind = ExprKind::Name;
 		loader->text = "ResourceLoader";
 		loader->range = r_call.range;
-		loader->name_token = r_call.range.first;
+		loader->name_token = NO_TOKEN;
 		r_call.base = std::move(loader);
 	}
 
@@ -702,6 +780,7 @@ class Checker : public ClassRelation {
 			}
 			r_expr.target = Target::Member;
 			r_expr.index = member->second;
+			refer(r_expr.name_token, script_id(declaring(cls, read, &ClassDecl::members).path, read.name));
 			return set(r_expr, cls.all_members[member->second]->type);
 		}
 		if (r_expr.text == "owner" && cls.owner_ref) {
@@ -709,6 +788,7 @@ class Checker : public ClassRelation {
 				return set(r_expr, Type::of(TypeKind::Error));
 			}
 			r_expr.target = Target::Owner;
+			refer(r_expr.name_token, engine_id("Node", "owner"));
 			return set(r_expr, cls.owner_type);
 		}
 		if (const auto property = engine.find_property(cls.native_base, r_expr.text)) {
@@ -716,6 +796,7 @@ class Checker : public ClassRelation {
 				return set(r_expr, Type::of(TypeKind::Error));
 			}
 			r_expr.target = Target::SelfProperty;
+			refer(r_expr.name_token, engine_id(property->owner, r_expr.text));
 			return set(r_expr, property_type(*property, r_expr));
 		}
 		const auto function_found = function_index.find(r_expr.text);
@@ -726,6 +807,8 @@ class Checker : public ClassRelation {
 			}
 			r_expr.target = Target::MethodValue;
 			r_expr.index = function_found->second;
+			const FuncDecl &method = *cls.all_functions[function_found->second];
+			refer(r_expr.name_token, script_id(declaring(cls, method, &ClassDecl::functions).path, method.name));
 			return set(r_expr, function_type(*cls.all_functions[function_found->second]));
 		}
 		const auto own_signal = signal_index.find(r_expr.text);
@@ -734,13 +817,16 @@ class Checker : public ClassRelation {
 				return set(r_expr, Type::of(TypeKind::Error));
 			}
 			r_expr.target = Target::SelfSignal;
-			return set(r_expr, Type::signal(param_types(cls.all_signals[own_signal->second]->params)));
+			const SignalDecl &signal = *cls.all_signals[own_signal->second];
+			refer(r_expr.name_token, script_id(declaring(cls, signal, &ClassDecl::signals).path, signal.name));
+			return set(r_expr, Type::signal(param_types(signal.params)));
 		}
 		if (const auto signal = engine.find_signal(cls.native_base, r_expr.text)) {
 			if (refuse_in_static(r_expr, r_expr.text)) {
 				return set(r_expr, Type::of(TypeKind::Error));
 			}
 			r_expr.target = Target::SelfSignal;
+			refer(r_expr.name_token, engine_id(signal->owner, r_expr.text));
 			return set(r_expr, signal_type(*signal));
 		}
 		return std::nullopt;
@@ -761,6 +847,7 @@ class Checker : public ClassRelation {
 		if (local >= 0) {
 			r_expr.target = Target::Local;
 			r_expr.index = local;
+			refer(r_expr.name_token, local_id(function->locals[local].token));
 			const Type *narrowed_to = narrowed_type(local);
 			return set(r_expr, narrowed_to ? *narrowed_to : function->locals[local].type);
 		}
@@ -769,6 +856,7 @@ class Checker : public ClassRelation {
 		}
 		if (engine.is_singleton(r_expr.text)) {
 			r_expr.target = Target::Singleton;
+			refer(r_expr.name_token, engine_id(r_expr.text));
 			return set(r_expr, Type::object(r_expr.text));
 		}
 		const std::string autoload = options.project ? options.project->autoload_path(r_expr.text) : std::string();
@@ -781,6 +869,7 @@ class Checker : public ClassRelation {
 					return options.declarations_only ? set(r_expr, Type::of(TypeKind::Error)) : fail(r_expr, "The autoload " + r_expr.text + " (" + autoload + ") cannot be read.");
 				}
 				r_expr.target = Target::Autoload;
+				refer(r_expr.name_token, { DeclId::Kind::Autoload, std::string(), r_expr.text });
 				return set(r_expr, Type::script_class(r_expr.text, autoload, foreign->native));
 			}
 			const ClassDecl *header = script_header(autoload);
@@ -788,6 +877,7 @@ class Checker : public ClassRelation {
 				return fail(r_expr, "The autoload " + r_expr.text + " (" + autoload + ") cannot be read.");
 			}
 			r_expr.target = Target::Autoload;
+			refer(r_expr.name_token, { DeclId::Kind::Autoload, std::string(), r_expr.text });
 			return set(r_expr, script_class_type(*header, autoload));
 		}
 		if (is_type_name(r_expr.text)) {
@@ -815,6 +905,7 @@ class Checker : public ClassRelation {
 			}
 			r_expr.target = Target::ObjectProperty;
 			r_expr.owner = p_class.engine_class();
+			refer(r_expr.name_token, script_id(p_class.script, p_class.interface_name() + "." + property->name));
 			return property->type;
 		}
 		for (const VarDecl *entry : decl->all_members) {
@@ -832,6 +923,7 @@ class Checker : public ClassRelation {
 			}
 			r_expr.target = Target::ObjectProperty;
 			r_expr.owner = p_class.engine_class();
+			refer(r_expr.name_token, script_id(declaring(*decl, member, &ClassDecl::members).path, member.name));
 			return member.type;
 		}
 		for (const SignalDecl *entry : decl->all_signals) {
@@ -845,6 +937,7 @@ class Checker : public ClassRelation {
 				return fail(r_expr, not_pub(p_class, "The signal \"" + signal.name + "\""));
 			}
 			r_expr.target = Target::ObjectSignal;
+			refer(r_expr.name_token, script_id(declaring(*decl, signal, &ClassDecl::signals).path, signal.name));
 			return Type::signal(param_types(signal.params));
 		}
 		return std::nullopt;
@@ -894,11 +987,13 @@ class Checker : public ClassRelation {
 			return foreign_method(r_expr, p_class);
 		}
 		const FuncDecl *callee = nullptr;
+		DeclId id;
 		if (p_class.is_interface) {
 			if (const InterfaceDecl *interface = interface_decl(p_class)) {
 				for (const FuncDecl &method : interface->methods) {
 					if (method.name == r_expr.text) {
 						callee = &method;
+						id = script_id(p_class.script, interface->name + "." + method.name);
 					}
 				}
 			}
@@ -907,6 +1002,7 @@ class Checker : public ClassRelation {
 				const FuncDecl &function = *entry;
 				if (function.name == r_expr.text) {
 					callee = &function;
+					id = script_id(declaring(*decl, function, &ClassDecl::functions).path, function.name);
 				}
 			}
 		} else {
@@ -919,6 +1015,7 @@ class Checker : public ClassRelation {
 			return fail_call(r_expr, not_pub(p_class, "\"" + callee->name + "()\""));
 		}
 		check_arguments(r_expr, param_types(callee->params), required_params(*callee), false);
+		refer(r_expr.name_token, id);
 		if (callee->is_override && !callee->is_async) {
 			r_expr.target = Target::EngineMethod;
 		} else {
@@ -939,6 +1036,7 @@ class Checker : public ClassRelation {
 		}
 		r_expr.target = Target::EngineConstant;
 		r_expr.int_value = *value;
+		refer(r_expr.name_token, engine_id(p_class, r_expr.text));
 		return set(r_expr, Type::of(TypeKind::Int));
 	}
 
@@ -951,10 +1049,12 @@ class Checker : public ClassRelation {
 			return refuse_in_static(base, "self") ? set(r_expr, Type::of(TypeKind::Error)) : fail(r_expr, display_name(cls, options.path) + " has no member \"" + r_expr.text + "\".");
 		}
 		if (names_type(base)) {
+			refer(base.name_token, engine_id(base.text));
 			if (const builtin::Class *type = builtin::find_class(base.text)) {
 				if (const builtin::Constant *constant = builtin::find_constant(*type, r_expr.text)) {
 					r_expr.target = Target::BuiltinConstant;
 					r_expr.owner = base.text;
+					refer(r_expr.name_token, engine_id(base.text, r_expr.text));
 					return set(r_expr, api_type(constant->type, false));
 				}
 				return fail(r_expr, base.text + " has no constant \"" + r_expr.text + "\".");
@@ -978,6 +1078,7 @@ class Checker : public ClassRelation {
 				if (decl->fields[i].name == r_expr.text) {
 					r_expr.target = Target::StructField;
 					r_expr.index = int(i);
+					refer(r_expr.name_token, script_id(base_type.script, decl->name + "." + decl->fields[i].name));
 					return set(r_expr, decl->fields[i].type);
 				}
 			}
@@ -992,6 +1093,7 @@ class Checker : public ClassRelation {
 			}
 			r_expr.target = Target::Field;
 			r_expr.owner = builtin_name;
+			refer(r_expr.name_token, engine_id(builtin_name, r_expr.text));
 			return set(r_expr, api_type(member->type, false));
 		}
 		if (base_type.kind == TypeKind::Object) {
@@ -1006,6 +1108,7 @@ class Checker : public ClassRelation {
 			if (!property) {
 				if (const auto signal = engine.find_signal(engine_class, r_expr.text)) {
 					r_expr.target = Target::ObjectSignal;
+					refer(r_expr.name_token, engine_id(signal->owner, r_expr.text));
 					return set(r_expr, signal_type(*signal));
 				}
 				if (base.target == Target::Singleton && engine.find_constant(engine_class, r_expr.text)) {
@@ -1015,6 +1118,7 @@ class Checker : public ClassRelation {
 			}
 			r_expr.target = Target::ObjectProperty;
 			r_expr.owner = engine_class;
+			refer(r_expr.name_token, engine_id(property->owner, r_expr.text));
 			return set(r_expr, property_type(*property, r_expr));
 		}
 		return fail(r_expr, "Values of type " + base_type.to_string() + " have no members.");
@@ -1054,6 +1158,7 @@ class Checker : public ClassRelation {
 					error(r_expr.range, scene.path + ": " + (node.path == "." ? std::string("the root") : node.path) + " has no node at \"" + path + "\" (spec §7.1).");
 					continue;
 				}
+				refer_node_path(r_expr, scene, node.path);
 				const Type found_type = scene_node_type(r_expr, *found, "$" + path);
 				if (found_type.is_error()) {
 					return set(r_expr, found_type);
@@ -1074,6 +1179,46 @@ class Checker : public ClassRelation {
 		}
 		r_expr.owner = type->engine_class();
 		return set(r_expr, *type);
+	}
+
+	// Each part of the path of `` refers to the node it reaches from the node
+	// at `p_from` of a scene.
+	void refer_node_path(const Expr &p_get_node, const Scene &p_scene, const std::string &p_from) {
+		const std::vector<Token> &tokens = cls.source->tokens;
+		const uint32_t first = p_get_node.range.first + 1;
+		std::vector<std::pair<uint32_t, uint32_t>> parts;
+		if (first > p_get_node.range.last || first >= tokens.size()) {
+			return;
+		}
+		if (tokens[first].kind == TokenKind::String) {
+			// `$"Head/Camera"`, when written without escapes.
+			const Token &token = tokens[first];
+			const std::string &text = p_get_node.text;
+			if (token.length != text.size() + 2) {
+				return;
+			}
+			uint32_t start = token.offset + 1;
+			for (uint32_t i = 0; i <= text.size(); i++) {
+				if (i == text.size() || text[i] == '/') {
+					parts.push_back({ start, token.offset + 1 + i });
+					start = token.offset + 2 + i;
+				}
+			}
+		} else {
+			for (uint32_t i = first; i <= p_get_node.range.last; i++) {
+				if (tokens[i].kind != TokenKind::Slash) {
+					parts.push_back({ tokens[i].offset, tokens[i].end() });
+				}
+			}
+		}
+		std::string path = p_from == "." ? std::string() : p_from;
+		for (const auto &[begin, end] : parts) {
+			path += (path.empty() ? "" : "/") + cls.source->text.substr(begin, end - begin);
+			if (!p_scene.find_node(path)) {
+				return;
+			}
+			refer_bytes(begin, end, { DeclId::Kind::Node, p_scene.path, path });
+		}
 	}
 
 	// The type of a node of a scene (spec §7.1, §7.4): the class of its script
@@ -1129,8 +1274,11 @@ class Checker : public ClassRelation {
 		if (!engine.is_singleton("ResourceLoader")) {
 			return fail(r_expr, "preload() needs the engine's ResourceLoader.");
 		}
+		refer(r_expr.name_token, language_id("@GlobalScope", "preload"));
+		// A call of ResourceLoader.load(), as written nowhere.
 		on_resource_loader(r_expr);
 		r_expr.text = "load";
+		r_expr.name_token = NO_TOKEN;
 		if (check_call(r_expr).is_error()) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
@@ -1551,9 +1699,15 @@ class Checker : public ClassRelation {
 		// as in call_deferred("reset"), is one it must find (spec §10.5).
 		for (size_t i = 0; !r_expr.base && i < p_method.params.size() && i < r_expr.args.size(); i++) {
 			const Expr &arg = *r_expr.args[i];
-			if (p_method.params[i].name == "method" && arg.kind == ExprKind::StringLiteral && function_index.count(arg.text)) {
+			const auto named = arg.kind == ExprKind::StringLiteral ? function_index.find(arg.text) : function_index.end();
+			if (p_method.params[i].name == "method" && named != function_index.end()) {
 				cls.exposed_methods.insert(arg.text);
+				const FuncDecl &method = *cls.all_functions[named->second];
+				refer_string(arg, script_id(declaring(cls, method, &ClassDecl::functions).path, method.name));
 			}
+		}
+		if (!r_expr.is_foreign) {
+			refer(r_expr.name_token, engine_id(p_method.owner, r_expr.text));
 		}
 		r_expr.target = Target::EngineMethod;
 		r_expr.engine_return = engine_result(p_method);
@@ -1577,11 +1731,13 @@ class Checker : public ClassRelation {
 		const std::string path = options.project ? options.project->global_class_path(name) : std::string();
 		if (engine.class_exists(name)) {
 			element = Type::object(name);
+			refer_string(arg, engine_id(name));
 		} else if (is_script_path(path)) {
+			refer_string(arg, script_id(path));
 			TypeRef ref;
 			ref.name = name;
 			ref.range = arg.range;
-			ref.name_token = arg.range.first;
+			ref.name_token = NO_TOKEN;
 			const std::optional<Type> script = script_type(ref);
 			if (!script || script->is_error()) {
 				return Type::of(TypeKind::Error);
@@ -1630,6 +1786,7 @@ class Checker : public ClassRelation {
 
 	Type check_utility(Expr &r_expr, const builtin::Utility &p_utility) {
 		r_expr.target = Target::Utility;
+		refer(r_expr.name_token, engine_id("@GlobalScope", r_expr.text));
 		r_expr.hash = p_utility.hash;
 		r_expr.is_vararg = p_utility.is_vararg;
 		r_expr.engine_return = api_type(p_utility.return_type, true);
@@ -1689,6 +1846,7 @@ class Checker : public ClassRelation {
 	}
 
 	Type check_constructor(Expr &r_expr, const builtin::Class &p_type) {
+		refer(r_expr.name_token, engine_id(p_type.name));
 		std::vector<Type> args;
 		for (auto &arg : r_expr.args) {
 			args.push_back(check_value(*arg));
@@ -1939,6 +2097,7 @@ class Checker : public ClassRelation {
 		r_expr.is_vararg = method->is_vararg;
 		r_expr.target = Target::BuiltinMethod;
 		r_expr.owner = base_name;
+		refer(r_expr.name_token, engine_id(base_name, r_expr.text));
 		r_expr.hash = method->hash;
 		r_expr.is_const = method->is_const;
 		return set(r_expr, result);
@@ -1957,6 +2116,7 @@ class Checker : public ClassRelation {
 		const std::vector<Type> bound_params(p_function.args.end() - bound, p_function.args.end());
 		check_arguments(r_expr, bound_params, int(bound), false);
 		r_expr.target = Target::BindArguments;
+		refer(r_expr.name_token, engine_id("Callable", "bind"));
 		Type type = Type::function(p_function.args[0], rest);
 		type.is_async = p_function.is_async;
 		return set(r_expr, type);
@@ -1994,6 +2154,7 @@ class Checker : public ClassRelation {
 			}
 			check_arguments(r_expr, params, int(params.size()), false);
 			r_expr.target = Target::Unwrap;
+			refer(r_expr.name_token, language_id("Option", name));
 			return set(r_expr, p_base.unwrapped());
 		}
 		static const std::unordered_set<std::string> later = { "unwrap_or", "unwrap_or_else", "map", "and_then", "or_else", "filter", "ok_or", "ok_or_else", "flatten" };
@@ -2172,10 +2333,13 @@ class Checker : public ClassRelation {
 			return fail_call(r_expr, "super is only valid inside a function.");
 		}
 		if (!r_expr.base) {
+			// `super()` names no function.
 			r_expr.text = function->name;
+			r_expr.name_token = NO_TOKEN;
 		}
 		const FuncDecl *callee = base_function(r_expr.text);
 		if (callee) {
+			refer(r_expr.name_token, script_id(declaring(*cls.base, *callee, &ClassDecl::functions).path, callee->name));
 			if (!callee->is_static && refuse_in_static(r_expr, "super." + r_expr.text)) {
 				return fail_call(r_expr);
 			}
@@ -2192,6 +2356,7 @@ class Checker : public ClassRelation {
 			}
 			check_arguments(r_expr, {}, 0, false);
 			r_expr.target = Target::Noop;
+			refer(r_expr.name_token, engine_id("Object", "_init"));
 			return set(r_expr, Type::of(TypeKind::Void));
 		}
 		const auto method = engine.find_method(cls.native_base, r_expr.text);
@@ -2222,6 +2387,7 @@ class Checker : public ClassRelation {
 			if (base.kind != ExprKind::Name || find_local(base.text) >= 0 || member_index.count(base.text)) {
 				return std::nullopt;
 			}
+			ref.name_token = base.name_token; // The struct's name two tokens on.
 			const bool own = !cls.class_name.empty() && base.text == cls.class_name;
 			const std::string path = own ? options.path : (options.project ? options.project->global_class_path(base.text) : std::string());
 			const ClassDecl *header = is_script_path(path) ? script_header(path) : nullptr;
@@ -2260,6 +2426,7 @@ class Checker : public ClassRelation {
 				error(arg.range, "\"" + name + "\" is given twice.");
 			}
 			given[field] = true;
+			refer(r_expr.arg_name_tokens[i], script_id(p_struct.script, decl->name + "." + name));
 			const Type &type = decl->fields[field].type;
 			r_expr.param_types.push_back(type);
 			expect_assignable(arg, check_value(arg, type), type, "pass");
@@ -2297,6 +2464,8 @@ class Checker : public ClassRelation {
 					}
 					r_expr.target = Target::NewObject;
 					r_expr.owner = base.text;
+					refer(base.name_token, engine_id(base.text));
+					refer(r_expr.name_token, engine_id(base.text, name));
 					return set(r_expr, Type::object(base.text));
 				}
 				return fail_call(r_expr, "Static methods such as " + base.text + "." + name + "() are not supported yet.");
@@ -2308,6 +2477,7 @@ class Checker : public ClassRelation {
 			if (base_type.kind == TypeKind::Task && !base_type.nullable && (name == "cancel" || name == "detach")) {
 				check_arguments(r_expr, {}, 0, false);
 				r_expr.target = name == "cancel" ? Target::TaskCancel : Target::TaskDetach;
+				refer(r_expr.name_token, language_id("Task", name));
 				return set(r_expr, Type::of(TypeKind::Void));
 			}
 			if (base_type.is_optional()) {
@@ -2320,6 +2490,7 @@ class Checker : public ClassRelation {
 				// What the connected functions take (spec §4.7).
 				check_arguments(r_expr, base_type.args, int(base_type.args.size()), false);
 				r_expr.target = Target::EmitSignal;
+				refer(r_expr.name_token, engine_id("Signal", "emit"));
 				return set(r_expr, Type::of(TypeKind::Void));
 			}
 			if (base_type.kind == TypeKind::Signal && (name == "connect" || name == "disconnect" || name == "is_connected")) {
@@ -2361,6 +2532,7 @@ class Checker : public ClassRelation {
 			check_arguments(r_expr, param_types(callee.params), required_params(callee), false);
 			r_expr.target = Target::ScriptFunction;
 			r_expr.index = script->second;
+			refer(r_expr.name_token, script_id(declaring(cls, callee, &ClassDecl::functions).path, callee.name));
 			r_expr.is_async = callee.is_async;
 			return set(r_expr, callee.is_async ? Type::task(callee.return_type) : callee.return_type);
 		}
@@ -2380,6 +2552,7 @@ class Checker : public ClassRelation {
 			if (name == "int" || name == "float") {
 				const TypeKind result = name == "int" ? TypeKind::Int : TypeKind::Float;
 				r_expr.target = name == "int" ? Target::ConvertToInt : Target::ConvertToFloat;
+				refer(r_expr.name_token, engine_id(name));
 				if (r_expr.args.size() != 1) {
 					return fail_call(r_expr, name + "() takes one argument.");
 				}
@@ -2399,7 +2572,10 @@ class Checker : public ClassRelation {
 				where->range = r_expr.range;
 				where->text = "\n   At: " + options.path + ":" + std::to_string(cls.source->line(r_expr.range.first)) + ":" + function->name + "()";
 				r_expr.args.push_back(std::move(where));
+				refer(r_expr.name_token, engine_id("@GlobalScope", "print_debug"));
+				// Calls print(), as written nowhere.
 				r_expr.text = "print";
+				r_expr.name_token = NO_TOKEN;
 			}
 			if (const builtin::Utility *utility = builtin::find_utility(r_expr.text)) {
 				return check_utility(r_expr, *utility);
@@ -2625,7 +2801,8 @@ class Checker : public ClassRelation {
 			error(p_at, "\"" + p_name + "\" is already declared in an enclosing block (spec §4.6).");
 		}
 		const int local = int(function->locals.size());
-		function->locals.push_back({ p_name, p_type });
+		function->locals.push_back({ p_name, p_type, p_at });
+		refer(p_at, local_id(p_at), true);
 		scopes.back()[p_name] = local;
 		return local;
 	}
@@ -2681,7 +2858,7 @@ class Checker : public ClassRelation {
 				compare->left = std::make_unique<Expr>();
 				compare->left->kind = ExprKind::Name;
 				compare->left->range = r_pattern.range;
-				compare->left->name_token = r_pattern.range.first;
+				compare->left->name_token = NO_TOKEN;
 				compare->right = std::move(r_pattern.value);
 				r_pattern.value = std::move(compare);
 				check_expr(*r_pattern.value);
@@ -2920,6 +3097,7 @@ class Checker : public ClassRelation {
 			}
 			member_index[member.name] = int(cls.all_members.size());
 			cls.all_members.push_back(&member);
+			refer(member.name_token, script_id(options.path, member.name), true);
 		}
 	}
 
@@ -3134,6 +3312,7 @@ class Checker : public ClassRelation {
 					error(r_member.accessor_token, p_name + "() is already an accessor of \"" + function->accessor_of + "\".");
 				}
 				function->accessor_of = r_member.name;
+				refer(p_setter ? r_member.setter_token : r_member.getter_token, script_id(options.path, p_name));
 				const bool fits = p_setter ? function->params.size() == 1 && function->params[0].type == r_member.type && function->return_type.kind == TypeKind::Void : function->params.empty() && function->return_type == r_member.type;
 				if (!fits && !r_member.type.is_error()) {
 					error(function->name_token, "As the " + kind + " of \"" + r_member.name + "\", " + p_name + "() " + (p_setter ? "takes one argument of type " + r_member.type.to_string() + " and returns nothing" : "takes no argument and returns " + r_member.type.to_string()) + " (spec §4.4).");
@@ -3250,12 +3429,22 @@ class Checker : public ClassRelation {
 		}
 	}
 
+	// Its declaration, with what it overrides; an inline accessor has no name
+	// of its own.
+	void declare_function(const FuncDecl &p_function, const std::optional<DeclId> &p_overrides) {
+		if (p_function.name.rfind('@', 0) != 0) {
+			refer(p_function.name_token, script_id(options.path, p_function.name), true, p_overrides);
+		}
+	}
+
 	void check_signature(FuncDecl &r_function) {
 		if (const FuncDecl *parent = base_function(r_function.name)) {
+			declare_function(r_function, script_id(declaring(*cls.base, *parent, &ClassDecl::functions).path, parent->name));
 			check_script_override(r_function, *parent);
 			return;
 		}
 		const auto engine_method = engine.find_method(cls.native_base, r_function.name);
+		declare_function(r_function, engine_method && engine_method->is_virtual ? std::optional<DeclId>(engine_id(engine_method->owner, r_function.name)) : std::nullopt);
 		if (engine_method && !engine_method->is_virtual) {
 			error(r_function.name_token, "\"" + r_function.name + "()\" is a method of " + cls.extends + " that cannot be overridden.");
 		}
@@ -3339,7 +3528,8 @@ class Checker : public ClassRelation {
 				error(param.name_token, "Parameter \"" + param.name + "\" is declared twice.");
 			}
 			scopes.back()[param.name] = int(r_function.locals.size());
-			r_function.locals.push_back({ param.name, param.type });
+			r_function.locals.push_back({ param.name, param.type, param.name_token });
+			refer(param.name_token, local_id(param.name_token), true);
 		}
 	}
 
@@ -3363,6 +3553,13 @@ class Checker : public ClassRelation {
 				const FuncDecl &method = *cls.all_functions[found->second];
 				const bool own = is_own(method, cls.functions);
 				cls.exposed_methods.insert(method.name);
+				if (references) {
+					Reference reference;
+					reference.target = script_id(declaring(cls, method, &ClassDecl::functions).path, method.name);
+					reference.scene = scene.path;
+					reference.connection = connection;
+					references->push_back(std::move(reference));
+				}
 				const SceneNode *source = scene.find_node(connection.source);
 				bool missing = false;
 				const std::optional<std::vector<Type>> arguments = source ? signal_arguments(*source, connection.signal, missing) : std::nullopt;
@@ -3422,7 +3619,9 @@ class Checker : public ClassRelation {
 			if (!names.insert(interface.name).second) {
 				error(interface.name_token, "The interface \"" + interface.name + "\" is already declared.");
 			}
+			refer(interface.name_token, script_id(options.path, interface.name), true);
 			for (FuncDecl &method : interface.methods) {
+				refer(method.name_token, script_id(options.path, interface.name + "." + method.name), true);
 				for (ParamDecl &param : method.params) {
 					if (!param.declared_type) {
 						error(param.name_token, "Parameter \"" + param.name + "\" needs a type.");
@@ -3441,6 +3640,7 @@ class Checker : public ClassRelation {
 				if (!members.insert(property.name).second) {
 					error(property.name_token, "\"" + property.name + "\" is already declared in " + interface.name + ".");
 				}
+				refer(property.name_token, script_id(options.path, interface.name + "." + property.name), true);
 				property.type = resolve(property.type_ref, false);
 			}
 		}
@@ -3457,8 +3657,10 @@ class Checker : public ClassRelation {
 			if (!names.insert(decl.name).second || is_type_name(decl.name) || (options.project && !options.project->global_class_path(decl.name).empty())) {
 				error(decl.name_token, "\"" + decl.name + "\" is already declared.");
 			}
+			refer(decl.name_token, script_id(options.path, decl.name), true);
 			std::unordered_set<std::string> fields;
 			for (VarDecl &field : decl.fields) {
+				refer(field.name_token, script_id(options.path, decl.name + "." + field.name), true);
 				if (!fields.insert(field.name).second) {
 					error(field.name_token, "The field \"" + field.name + "\" is already declared in " + decl.name + ".");
 				}
@@ -3556,6 +3758,9 @@ class Checker : public ClassRelation {
 					continue;
 				}
 				const FuncDecl &function = *cls.all_functions[found->second];
+				if (is_own(function, cls.functions)) {
+					refer(function.name_token, script_id(options.path, function.name), true, script_id(type.script, interface->name + "." + method.name));
+				}
 				if (!function.is_pub) {
 					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + type.name + " and must be pub (spec §3.9).");
 				}
@@ -3648,6 +3853,9 @@ class Checker : public ClassRelation {
 				const auto member = member_index.find(required.name);
 				if (member != member_index.end()) {
 					const VarDecl &provided = *cls.all_members[member->second];
+					if (is_own(provided, cls.members)) {
+						refer(provided.name_token, script_id(options.path, provided.name), true, script_id(type.script, interface->name + "." + required.name));
+					}
 					if (!provided.is_pub) {
 						error(own_name(provided, cls.members, ref->range), "\"" + provided.name + "\" implements " + type.name + " and must be pub (spec §3.9).");
 					} else if (!provided.type.is_error() && provided.type != required.type) {
@@ -3677,6 +3885,7 @@ class Checker : public ClassRelation {
 			}
 			signal_index[signal.name] = int(cls.all_signals.size());
 			cls.all_signals.push_back(&signal);
+			refer(signal.name_token, script_id(options.path, signal.name), true);
 			for (ParamDecl &param : signal.params) {
 				if (!param.declared_type) {
 					error(param.name_token, "The argument \"" + param.name + "\" of a signal needs a type (spec §4.7).");
@@ -3712,13 +3921,22 @@ class Checker : public ClassRelation {
 	}
 
 public:
-	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies) :
-			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), check_bodies(p_check_bodies), classes(r_classes) {}
+	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references) :
+			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), check_bodies(p_check_bodies), classes(r_classes), references(r_references) {}
 
 	void run() {
 		cls.path = options.path;
 		cls.native_base = classes.native_base(cls, options.path);
 		cls.base_script = classes.base_path(cls, options.path);
+		refer(cls.class_name_token, script_id(options.path), true);
+		if (!cls.extends_path) {
+			refer(cls.extends_token, cls.base_script.empty() ? engine_id(cls.extends) : (is_script_path(cls.base_script) ? script_id(cls.base_script) : foreign_id(cls.base_script, std::string())));
+		} else if (cls.extends_token < cls.source->tokens.size()) {
+			const Token &token = cls.source->tokens[cls.extends_token];
+			if (token.length == cls.extends.size() + 2) {
+				refer_bytes(token.offset + 1, token.end() - 1, script_id(cls.base_script));
+			}
+		}
 		if (!cls.base_script.empty()) {
 			if (!is_script_path(cls.base_script)) {
 				error(cls.extends_token, "Inheritance from a script of another language is not supported (spec §4.1).");
@@ -3801,8 +4019,8 @@ public:
 
 } // namespace
 
-void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies) {
-	Checker(r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies).run();
+void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references) {
+	Checker(r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references).run();
 }
 
 } // namespace petrichor::compiler

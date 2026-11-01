@@ -399,7 +399,8 @@ class Lowerer {
 	}
 
 	void error(const std::string &p_message) {
-		errors.push_back({ cls.source->begin(at), cls.source->end(at), p_message });
+		const TokenRange range = at.first < cls.source->tokens.size() ? at : TokenRange{ 0, 0 };
+		errors.push_back({ cls.source->begin(range), cls.source->end(range), p_message });
 	}
 
 	// The line of a declaration's name, in the file of the class of the chain

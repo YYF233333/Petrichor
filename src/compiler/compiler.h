@@ -4,6 +4,7 @@
 #include "compiler/diagnostic.h"
 #include "compiler/engine_api.h"
 #include "compiler/project_api.h"
+#include "compiler/references.h"
 
 #include <string>
 #include <vector>
@@ -13,6 +14,8 @@ namespace petrichor::compiler {
 struct CompileResult {
 	std::vector<Diagnostic> errors; // Sorted by position.
 	bytecode::Module module; // Valid only without errors.
+	// Where the file resolves names (architecture §2.1), also with syntax errors.
+	std::vector<Reference> references;
 
 	bool ok() const { return errors.empty(); }
 };

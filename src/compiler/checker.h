@@ -4,6 +4,7 @@
 #include "compiler/compiler.h"
 #include "compiler/diagnostic.h"
 #include "compiler/engine_api.h"
+#include "compiler/references.h"
 
 #include <vector>
 
@@ -11,8 +12,9 @@ namespace petrichor::compiler {
 
 class ScriptClasses;
 
-// Resolves names and types and fills the checker fields of the AST. Other
-// scripts of this language come from `r_classes`.
-void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies = true);
+// Resolves names and types and fills the checker fields of the AST, and with
+// `r_references` records where each name is resolved (architecture §2.1).
+// Other scripts of this language come from `r_classes`.
+void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies = true, std::vector<Reference> *r_references = nullptr);
 
 } // namespace petrichor::compiler

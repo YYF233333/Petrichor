@@ -108,6 +108,7 @@ The sections above describe the design. How much of it runs, and which tests sho
 | Debugger | Breakpoints, stepping, locals and members, a break on a program error, on any thread | breakpoint |
 | Hot reload | Function bodies; other changes wait for the next run | hot reload |
 | Editor | Declarations compiled on load, full compilation when checking, saving and building, placeholders keeping exported values; not yet error marks in the scene editor, renaming, the LSP | editor checks |
+| Tooling substrate (§2.1) | Lossless token stream, node ranges, error nodes recovered by line, reference table; keys of exported properties in scenes are not in the table yet, and no name is left unresolved yet | convention checks and cuts in the compiler tests |
 | Headless command | `--petrichor-build` | every engine test run |
 | Export | Bytecode only, run by the library without the compiler; not yet run by the official export templates, and the release library is neither built nor tested | export: the editor binary runs the exported pack with the template_debug library |
 | Benchmarks | Six cases of pure computation (§4) | `benchmarks/run.py` |
