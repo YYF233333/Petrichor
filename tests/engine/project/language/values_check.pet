@@ -288,3 +288,11 @@ pub func raise_z(n: Node2D, by: int):
 
 pub func set_seed(r: RandomNumberGenerator, seed: int):
 	r.seed = seed
+
+# preload() of resources other than scenes, typed by what their files load as (spec §7.4).
+const GRADIENT := preload("gradient.tres")
+
+pub func preloaded() -> Array:
+	var icon: CompressedTexture2D = preload("icons/annotation.svg")
+	var made: ResourceCheck = preload("res://language/made_resource.tres")
+	return [icon, GRADIENT, made.resource_name]

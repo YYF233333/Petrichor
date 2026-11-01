@@ -57,6 +57,12 @@ struct ForeignClass {
 	std::vector<EngineMethod> signals;
 };
 
+// A resource that is not a scene, as its file says without loading it.
+struct ResourceInfo {
+	std::string type; // The engine class it loads as, such as CompressedTexture2D for an imported image.
+	std::string script_class; // The global name of its script's class, if it has a script with one.
+};
+
 // What the compiler knows about the project (architecture §2.1). The editor
 // reads it from the engine's scene states; tests describe scenes by hand.
 class ProjectApi {
@@ -70,6 +76,10 @@ public:
 	virtual std::vector<Scene> scenes_instancing_script(const std::string &p_script_path) const = 0;
 	// A scene by its res:// path, for preload (spec §7.4); nullopt if there is none.
 	virtual std::optional<Scene> scene(const std::string &p_path) const = 0;
+	// Any other resource by its res:// path, for preload; nullopt if there is none.
+	virtual std::optional<ResourceInfo> resource(const std::string &p_path) const = 0;
+	// The res:// path a uid:// path names, or "".
+	virtual std::string uid_path(const std::string &p_uid) const = 0;
 
 	// The script that a global class name (class_name) refers to, or "".
 	virtual std::string global_class_path(const std::string &p_name) const = 0;

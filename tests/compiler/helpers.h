@@ -40,6 +40,8 @@ public:
 	std::map<std::string, std::string> global_classes; // class_name to path.
 	std::map<std::string, std::string> autoloads; // Global name to path.
 	std::map<std::string, compiler::ForeignClass> foreign; // Scripts of other languages, by path.
+	std::map<std::string, compiler::ResourceInfo> resources; // Resources other than scenes, by path.
+	std::map<std::string, std::string> uids; // uid:// to res://.
 
 	// Adds a script of this language, with its class_name if it has one.
 	void add_script(const std::string &p_path, const std::string &p_source, const std::string &p_class_name = std::string()) {
@@ -94,6 +96,16 @@ public:
 			}
 		}
 		return std::nullopt;
+	}
+
+	std::optional<compiler::ResourceInfo> resource(const std::string &p_path) const override {
+		const auto found = resources.find(p_path);
+		return found == resources.end() ? std::nullopt : std::optional<compiler::ResourceInfo>(found->second);
+	}
+
+	std::string uid_path(const std::string &p_uid) const override {
+		const auto found = uids.find(p_uid);
+		return found == uids.end() ? std::string() : found->second;
 	}
 
 	std::string global_class_path(const std::string &p_name) const override {

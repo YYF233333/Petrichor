@@ -1394,9 +1394,16 @@ class Checker : public ClassRelation {
 		return Type::object(p_node.type);
 	}
 
-	// preload() of a scene, typed PackedScene[T] by the scene's root (spec
-	// §7.4). It loads when it runs, through the engine's resource cache, as
-	// load() does, and the result is checked to be a scene.
+	static bool has_extension(const std::string &p_path, std::initializer_list<const char *> p_extensions) {
+		const size_t dot = p_path.find_last_of("./");
+		const std::string extension = dot != std::string::npos && p_path[dot] == '.' ? p_path.substr(dot) : std::string();
+		return std::any_of(p_extensions.begin(), p_extensions.end(), [&](const char *p_extension) { return extension == p_extension; });
+	}
+
+	// preload() of a resource (spec §7.4): a scene is PackedScene[T], T its
+	// root's type; any other resource the class its file loads as, or its
+	// script's class. It loads when it runs, through the engine's resource
+	// cache, as load() does, and the result is checked to be of that type.
 	Type check_preload(Expr &r_expr) {
 		// As in GDScript, not a StringName or a NodePath
 		// (modules/gdscript/gdscript_analyzer.cpp:4735-4736).
@@ -1404,27 +1411,46 @@ class Checker : public ClassRelation {
 			return fail_call(r_expr, "preload() takes one literal path, a String.");
 		}
 		std::string path = r_expr.args[0]->text;
-		if (path.rfind("res://", 0) != 0) {
-			// Relative to the script's directory, as in GDScript.
-			path = options.path.substr(0, options.path.find_last_of('/') + 1) + path;
+		const bool by_uid = path.rfind("uid://", 0) == 0;
+		if (!by_uid) {
+			if (path.rfind("res://", 0) != 0) {
+				// Relative to the script's directory, as in GDScript.
+				path = options.path.substr(0, options.path.find_last_of('/') + 1) + path;
+			}
+			path = simplify_path(path);
+			r_expr.args[0]->text = path;
 		}
-		path = simplify_path(path);
-		r_expr.args[0]->text = path;
 		if (options.declarations_only) {
-			return set(r_expr, Type::of(TypeKind::Error)); // Scenes are not read while loading.
+			return set(r_expr, Type::of(TypeKind::Error)); // Resources are not read while loading.
 		}
-		const bool is_scene = path.size() > 5 && (path.compare(path.size() - 5, 5, ".tscn") == 0 || path.compare(path.size() - 4, 4, ".scn") == 0);
-		if (!is_scene) {
-			return fail(r_expr, "preload() of a resource other than a scene is not supported yet.");
+		// A uid stays what is loaded, so that the file can move.
+		const std::string file = by_uid && options.project ? options.project->uid_path(path) : path;
+		if (file.empty()) {
+			return fail(r_expr, "There is no resource with the uid " + path + ".");
 		}
-		const std::optional<Scene> scene = options.project ? options.project->scene(path) : std::nullopt;
-		const SceneNode *root = scene ? scene->find_node(".") : nullptr;
-		if (!root) {
-			return fail(r_expr, "There is no scene at " + path + ".");
-		}
-		const Type root_type = scene_node_type(r_expr, *root, "The root of " + path);
-		if (root_type.is_error()) {
-			return set(r_expr, root_type);
+		Type type;
+		if (has_extension(file, { ".tscn", ".scn" })) {
+			const std::optional<Scene> scene = options.project ? options.project->scene(file) : std::nullopt;
+			const SceneNode *root = scene ? scene->find_node(".") : nullptr;
+			if (!root) {
+				return fail(r_expr, "There is no scene at " + file + ".");
+			}
+			const Type root_type = scene_node_type(r_expr, *root, "The root of " + file);
+			if (root_type.is_error()) {
+				return set(r_expr, root_type);
+			}
+			type = Type::scene(root_type);
+		} else if (has_extension(file, { ".pet", ".gd", ".cs" })) {
+			return fail(r_expr, "preload() of a script, to use it as a class, is not supported yet.");
+		} else {
+			const std::optional<ResourceInfo> resource = options.project ? options.project->resource(file) : std::nullopt;
+			if (!resource) {
+				return fail(r_expr, "There is no resource at " + file + ".");
+			}
+			type = resource_type(r_expr, file, *resource);
+			if (type.is_error()) {
+				return set(r_expr, type);
+			}
 		}
 		if (!engine.is_singleton("ResourceLoader")) {
 			return fail(r_expr, "preload() needs the engine's ResourceLoader.");
@@ -1440,11 +1466,29 @@ class Checker : public ClassRelation {
 		// A constant expression, loaded where it is used (spec §4.5, §7.4).
 		auto value = std::make_shared<ConstValue>();
 		value->kind = ConstValue::Kind::Preload;
-		value->type = Type::scene(root_type);
+		value->type = type;
 		value->text = path;
 		value->source = &r_expr;
 		r_expr.constant = value;
-		return set(r_expr, Type::scene(root_type));
+		return set(r_expr, type);
+	}
+
+	// The class of a preloaded resource: its script's, or the engine class its
+	// file loads as, as GDScript types it by the resource it loads
+	// (modules/gdscript/gdscript_analyzer.cpp:4757-4780).
+	Type resource_type(const Expr &p_preload, const std::string &p_path, const ResourceInfo &p_resource) {
+		if (!p_resource.script_class.empty()) {
+			TypeRef ref;
+			ref.name = p_resource.script_class;
+			ref.range = p_preload.range;
+			ref.name_token = NO_TOKEN;
+			return resolve(ref, false);
+		}
+		if (!engine.class_exists(p_resource.type) || !(p_resource.type == "Resource" || engine.inherits(p_resource.type, "Resource"))) {
+			error(p_preload.range, "The file at " + p_path + " is not a resource the engine knows" + (p_resource.type.empty() ? std::string(".") : ": " + p_resource.type + "."));
+			return Type::of(TypeKind::Error);
+		}
+		return Type::object(p_resource.type);
 	}
 
 	Type check_unary(Expr &r_expr) {

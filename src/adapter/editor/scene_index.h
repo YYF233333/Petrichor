@@ -39,6 +39,8 @@ public:
 	std::vector<compiler::Scene> scenes_with_script(const std::string &p_script_path) const override;
 	std::vector<compiler::Scene> scenes_instancing_script(const std::string &p_script_path) const override;
 	std::optional<compiler::Scene> scene(const std::string &p_path) const override;
+	std::optional<compiler::ResourceInfo> resource(const std::string &p_path) const override;
+	std::string uid_path(const std::string &p_uid) const override;
 	std::string global_class_path(const std::string &p_name) const override;
 	std::string autoload_path(const std::string &p_name) const override;
 	std::optional<std::string> script_source(const std::string &p_path) const override;

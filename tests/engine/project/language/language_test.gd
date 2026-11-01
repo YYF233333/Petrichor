@@ -171,6 +171,8 @@ func _ready() -> void:
 	_check_errors(["values_check.pet:287: 2147483654 is out of range for the engine's int32.", "values_check.pet:290: -1 is out of range for the engine's uint64."], "a compound assignment and a uint64 property are checked too")
 	v.raise_z(layered, 1)
 	_check(layered.z_index == 8 and seeded.seed == 5, "a value out of range is not written; one within range is")
+	var preloaded := v.preloaded()
+	_check(preloaded[0] is CompressedTexture2D and preloaded[1] is Gradient and preloaded[2] == "made", "preload() of an imported file, a resource and a resource with a script of this language")
 	for node in [holder, area, layered]:
 		node.free()
 	var to_pop: Array[int] = [1, 2, 3]

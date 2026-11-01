@@ -163,7 +163,19 @@ TEST_CASE("preload() of a scene is a PackedScene of the scene's root") {
 	CHECK(errors("var s: PackedScene[Node3D] = preload(\"res://objects//platform.tscn\")").empty());
 
 	CHECK(contains(errors("var s := preload(\"res://missing.tscn\")"), "There is no scene at res://missing.tscn."));
-	CHECK(contains(errors("var s := preload(\"res://icon.png\")"), "preload() of a resource other than a scene is not supported yet."));
+	// Other resources take the class their file loads as, or their script's
+	// (modules/gdscript/gdscript_analyzer.cpp:4757-4780).
+	project.resources["res://icon.png"] = { "Texture2D", "" };
+	project.resources["res://odd.bin"] = { "", "" };
+	project.add_script("res://weapon.pet", "class_name Weapon\nextends Resource\n@export pub var damage := 1\n", "Weapon");
+	project.resources["res://rifle.tres"] = { "Resource", "Weapon" };
+	project.uids["uid://b4icon"] = "res://icon.png";
+	CHECK(errors("var t: Texture2D = preload(\"res://icon.png\")\n\tvar w: int = preload(\"res://rifle.tres\").damage\n\tvar u: Texture2D = preload(\"uid://b4icon\")").empty());
+	CHECK(contains(errors("var t: Label = preload(\"res://icon.png\")"), "Cannot assign a value of type Texture2D as Label"));
+	CHECK(contains(errors("var t := preload(\"res://missing.png\")"), "There is no resource at res://missing.png."));
+	CHECK(contains(errors("var t := preload(\"uid://nope\")"), "There is no resource with the uid uid://nope."));
+	CHECK(contains(errors("var t := preload(\"res://odd.bin\")"), "The file at res://odd.bin is not a resource the engine knows."));
+	CHECK(contains(errors("var t := preload(\"res://weapon.pet\")"), "preload() of a script, to use it as a class, is not supported yet."));
 	CHECK(contains(errors("var s := preload(path)"), "preload() takes one literal path, a String."));
 	CHECK(contains(errors("var s := preload(&\"res://objects/platform.tscn\")"), "preload() takes one literal path, a String."));
 

@@ -7,10 +7,13 @@
 #include "runtime/text.h"
 
 #include <godot_cpp/classes/class_db_singleton.hpp>
+#include <godot_cpp/classes/editor_file_system.hpp>
+#include <godot_cpp/classes/editor_interface.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/packed_scene.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
+#include <godot_cpp/classes/resource_uid.hpp>
 #include <godot_cpp/classes/scene_state.hpp>
 #include <godot_cpp/classes/script.hpp>
 
@@ -196,6 +199,58 @@ std::optional<compiler::Scene> SceneIndex::scene(const std::string &p_path) cons
 	}
 	const std::shared_ptr<const Entry> entry = read(p_path);
 	return entry->scene.nodes.empty() ? std::nullopt : std::optional<compiler::Scene>(entry->scene);
+}
+
+namespace {
+
+// The value of `p_name="…"` in a line of a resource file, or "".
+String attribute(const String &p_line, const String &p_name) {
+	const String start = p_name + String("=\"");
+	const int64_t at = p_line.find(start);
+	if (at < 0) {
+		return String();
+	}
+	const int64_t end = p_line.find("\"", at + start.length());
+	return end < 0 ? String() : p_line.substr(at + start.length(), end - at - start.length());
+}
+
+} // namespace
+
+// The class a file loads as, from the editor's file system, which knows
+// imported files too, or from the file: the header of a text resource,
+// `[gd_resource type="Resource" script_class="Weapon" …]`, or the remap of an
+// imported one. The script class comes from the header, which the editor
+// keeps but does not expose (editor/file_system/editor_file_system.cpp:203-206).
+std::optional<compiler::ResourceInfo> SceneIndex::resource(const std::string &p_path) const {
+	const String path = to_godot(p_path);
+	if (!FileAccess::file_exists(path)) {
+		return std::nullopt;
+	}
+	compiler::ResourceInfo info;
+	EditorInterface *editor = EditorInterface::get_singleton();
+	if (editor && editor->get_resource_filesystem()) {
+		info.type = to_utf8(editor->get_resource_filesystem()->get_file_type(path));
+	}
+	String header;
+	if (path.get_extension() == "tres") {
+		header = FileAccess::get_file_as_string(path).get_slicec('\n', 0);
+	} else if (FileAccess::file_exists(path + String(".import"))) {
+		const PackedStringArray lines = FileAccess::get_file_as_string(path + String(".import")).split("\n");
+		for (int64_t i = 0; i < lines.size() && header.is_empty(); i++) {
+			if (lines[i].begins_with("type=")) {
+				header = lines[i];
+			}
+		}
+	}
+	if (info.type.empty()) {
+		info.type = to_utf8(attribute(header, "type"));
+	}
+	info.script_class = to_utf8(attribute(header, "script_class"));
+	return info;
+}
+
+std::string SceneIndex::uid_path(const std::string &p_uid) const {
+	return to_utf8(ResourceUID::uid_to_path(to_godot(p_uid)));
 }
 
 std::string SceneIndex::global_class_path(const std::string &p_name) const {
