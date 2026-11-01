@@ -481,6 +481,22 @@ class Verifier {
 				}
 				return engine_arguments(p_call, constructor.params, false);
 			}
+			case Op::MAKE_LAMBDA: {
+				if (!index(callee, module.functions.size(), "function")) {
+					return false;
+				}
+				const Function &lambda = module.functions[callee];
+				if (!lambda.is_lambda || base != NO_SLOT || p_call[3] != lambda.captures) {
+					return fail("MAKE_LAMBDA of what is not a lambda, with a base or with other captures");
+				}
+				const size_t first = lambda.params.size() - lambda.captures;
+				for (size_t i = 0; i < p_call[3]; i++) {
+					if (!argument_fits(p_call, i, lambda.params[first + i].type)) {
+						return false;
+					}
+				}
+				return arguments(p_call) && slot(dst, ValueType::Callable);
+			}
 			default:
 				return fail("not a call");
 		}
@@ -511,6 +527,7 @@ class Verifier {
 			case Op::CALL_ENGINE:
 				return o[2] == NO_SLOT && (o[0] >= module.engine_calls.size() || module.engine_calls[o[0]].static_class.empty());
 			case Op::CALL:
+			case Op::MAKE_LAMBDA:
 				return o[0] < module.functions.size() && !module.functions[o[0]].is_static;
 			default:
 				return false;
@@ -922,6 +939,9 @@ public:
 			}
 			if (each.is_abstract && (!module.is_abstract || each.is_static)) {
 				return fail("an abstract function of a class that is not abstract, or a static one");
+			}
+			if (each.is_lambda ? each.captures > each.params.size() || !each.defaults.empty() || each.is_pub || each.is_override || each.is_exposed || each.is_abstract || each.is_inherited : each.captures != 0) {
+				return fail("a lambda with more captures than parameters, or declared as a method");
 			}
 		}
 		function = nullptr;

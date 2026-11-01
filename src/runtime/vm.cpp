@@ -843,6 +843,16 @@ public:
 					*reinterpret_cast<Callable *>(frame + code[pc + 2]) = Callable(memnew(MethodCallable(context.owner, image.function_names[code[pc + 1]])));
 					pc += 3;
 					break;
+				case Op::MAKE_LAMBDA: {
+					const uint32_t lambda = code[pc + 1];
+					const bool on_self = !module.functions[lambda].is_static;
+					if (on_self) {
+						SELF_ALIVE();
+					}
+					*reinterpret_cast<Callable *>(frame + code[pc + 2]) = Callable(memnew(LambdaCallable(image.shared_from_this(), lambda, on_self ? context : InstanceContext(), frame, code + pc + 5)));
+					pc += 5 + 2 * code[pc + 4];
+					break;
+				}
 				case Op::GET_SIGNAL: {
 					OBJECT(object, code[pc + 3]);
 					*reinterpret_cast<Signal *>(frame + code[pc + 2]) = Signal(static_cast<Object *>(object), StringName(image.values[code[pc + 1]]));
@@ -1699,7 +1709,7 @@ void clear() {
 
 namespace vm {
 
-Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const Variant **p_args, int64_t p_argc, GDExtensionCallError &r_error, bool *r_failed) {
+Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const Variant **p_args, int64_t p_argc, GDExtensionCallError &r_error, bool *r_failed, const uint8_t *const *p_captures) {
 	// Old code stays alive until this call returns, even if a hot reload
 	// replaces the image meanwhile (spec §12.4).
 	std::shared_ptr<const ClassImage> image = p_image;
@@ -1721,10 +1731,11 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 		return Variant();
 	}
 	// The last parameters may be left out when they have default values.
-	const size_t required = fn.params.size() - fn.defaults.size();
-	if (size_t(p_argc) < required || size_t(p_argc) > fn.params.size()) {
-		r_error.error = size_t(p_argc) > fn.params.size() ? GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS : GDEXTENSION_CALL_ERROR_TOO_FEW_ARGUMENTS;
-		r_error.expected = int32_t(size_t(p_argc) > fn.params.size() ? fn.params.size() : required);
+	const size_t given = fn.params.size() - fn.captures;
+	const size_t required = given - fn.defaults.size();
+	if (size_t(p_argc) < required || size_t(p_argc) > given) {
+		r_error.error = size_t(p_argc) > given ? GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS : GDEXTENSION_CALL_ERROR_TOO_FEW_ARGUMENTS;
+		r_error.expected = int32_t(size_t(p_argc) > given ? given : required);
 		return Variant();
 	}
 
@@ -1733,6 +1744,10 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 	for (size_t i = 0; i < fn.params.size(); i++) {
 		const bytecode::Slot &param = fn.params[i];
 		const TypeImage &type = image->types[param.type];
+		if (i >= given) {
+			copy_value(type, frame.data + param.offset, p_captures[i - given]);
+			continue;
+		}
 		// Like member initializers, defaults are built late, after script types load.
 		Variant value = i < size_t(p_argc) ? *p_args[i] : Variant();
 		String error;

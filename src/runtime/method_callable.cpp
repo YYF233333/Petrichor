@@ -99,4 +99,47 @@ void MethodCallable::call(const Variant **p_arguments, int p_argcount, Variant &
 	r_return_value = vm::call(instance.image, function, instance.context, p_arguments, p_argcount, r_call_error);
 }
 
+LambdaCallable::LambdaCallable(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const uint8_t *p_frame, const uint32_t *p_captures) :
+		image(p_image), function(p_function), context(p_context) {
+	if (context.owner) {
+		owner = context.owner->get_instance_id();
+		kept = Variant(context.owner);
+	}
+	const bytecode::Function &fn = image->module.functions[function];
+	const size_t first = fn.params.size() - fn.captures;
+	for (size_t i = 0; i < fn.captures; i++) {
+		const TypeImage &type = image->types[fn.params[first + i].type];
+		captures.push_back(std::make_unique<ValueBuffer>(type));
+		copy_value(type, captures.back()->data, p_frame + p_captures[2 * i + 1]);
+		capture_data.push_back(captures.back()->data);
+	}
+}
+
+uint32_t LambdaCallable::hash() const {
+	return hash_murmur3_one_64(uint64_t(this));
+}
+
+String LambdaCallable::get_as_text() const {
+	const StringName &name = image->function_names[function];
+	return String(name).begins_with("<") ? String("(anonymous lambda)") : String(name) + "(lambda)";
+}
+
+bool LambdaCallable::is_valid() const {
+	return !context.storage || (!context.storage->freed && ObjectDB::get_instance(owner));
+}
+
+int LambdaCallable::get_argument_count(bool &r_is_valid) const {
+	r_is_valid = true;
+	const bytecode::Function &fn = image->module.functions[function];
+	return int(fn.params.size() - fn.captures);
+}
+
+void LambdaCallable::call(const Variant **p_arguments, int p_argcount, Variant &r_return_value, GDExtensionCallError &r_call_error) const {
+	if (!is_valid()) {
+		r_call_error.error = GDEXTENSION_CALL_ERROR_INSTANCE_IS_NULL;
+		return;
+	}
+	r_return_value = vm::call(image, function, context, p_arguments, p_argcount, r_call_error, nullptr, capture_data.data());
+}
+
 } // namespace petrichor

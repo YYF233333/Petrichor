@@ -538,6 +538,8 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.u8(function.rpc.call_local ? 1 : 0);
 		w.u32(uint32_t(function.rpc.channel));
 		w.u8(function.is_abstract ? 1 : 0);
+		w.u8(function.is_lambda ? 1 : 0);
+		w.u32(function.captures);
 		w.u32(function.line);
 		w.u32(function.frame_size);
 		w.u32(uint32_t(function.slots.size()));
@@ -724,6 +726,8 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		function.rpc.call_local = r.u8() != 0;
 		function.rpc.channel = int32_t(r.u32());
 		function.is_abstract = r.u8() != 0;
+		function.is_lambda = r.u8() != 0;
+		function.captures = r.u32();
 		function.line = r.u32();
 		function.frame_size = r.u32();
 		function.slots.resize(r.count());

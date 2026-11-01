@@ -4,6 +4,8 @@
 
 #include <godot_cpp/variant/callable_custom.hpp>
 
+#include <functional>
+
 namespace petrichor {
 
 // The script instance of this language on an object: its image and members.
@@ -46,6 +48,38 @@ public:
 	godot::String get_as_text() const override;
 	CompareEqualFunc get_compare_equal_func() const override { return compare_equal; }
 	CompareLessFunc get_compare_less_func() const override { return compare_less; }
+	godot::ObjectID get_object() const override { return owner; }
+	int get_argument_count(bool &r_is_valid) const override;
+	void call(const godot::Variant **p_arguments, int p_argcount, godot::Variant &r_return_value, GDExtensionCallError &r_call_error) const override;
+};
+
+// A lambda (spec §3.11): a Callable that runs the lambda's function in the
+// image that made it, also after a hot reload (§12.4), with copies of what it
+// captured, and on the instance it was made on when it uses self, which it
+// keeps when RefCounted, as GDScript does
+// (modules/gdscript/gdscript_lambda_callable.cpp:285-291). Equal only to
+// itself, as GDScript's (:37-45).
+class LambdaCallable : public godot::CallableCustom {
+	std::shared_ptr<const ClassImage> image;
+	int function;
+	InstanceContext context; // Without storage when it does not use self.
+	godot::ObjectID owner;
+	godot::Variant kept; // Holds a RefCounted owner.
+	std::vector<std::unique_ptr<ValueBuffer>> captures;
+	std::vector<const uint8_t *> capture_data;
+
+	static bool compare_equal(const godot::CallableCustom *p_a, const godot::CallableCustom *p_b) { return p_a == p_b; }
+	static bool compare_less(const godot::CallableCustom *p_a, const godot::CallableCustom *p_b) { return std::less<const godot::CallableCustom *>()(p_a, p_b); }
+
+public:
+	// The captures are the (type, offset) pairs of MAKE_LAMBDA in `p_frame`.
+	LambdaCallable(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const uint8_t *p_frame, const uint32_t *p_captures);
+
+	uint32_t hash() const override;
+	godot::String get_as_text() const override;
+	CompareEqualFunc get_compare_equal_func() const override { return compare_equal; }
+	CompareLessFunc get_compare_less_func() const override { return compare_less; }
+	bool is_valid() const override;
 	godot::ObjectID get_object() const override { return owner; }
 	int get_argument_count(bool &r_is_valid) const override;
 	void call(const godot::Variant **p_arguments, int p_argcount, godot::Variant &r_return_value, GDExtensionCallError &r_call_error) const override;

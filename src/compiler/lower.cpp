@@ -125,6 +125,16 @@ class Lowerer {
 		uint32_t break_block;
 	};
 	std::vector<Loop> loops;
+	// A lambda's register for each of its locals, whose captures come right
+	// after the parameters; empty where a local is its register.
+	std::vector<uint32_t> local_regs;
+	// Lambdas, which come after the class's functions (spec §3.11), in the order
+	// they are made in.
+	std::vector<bytecode::Function> lambdas;
+
+	uint32_t reg_of(int p_local) const {
+		return local_regs.empty() ? uint32_t(p_local) : local_regs[p_local];
+	}
 
 	/* Blocks and registers */
 
@@ -1319,6 +1329,67 @@ class Lowerer {
 		return i.dst;
 	}
 
+	// A lambda (spec §3.11): its function, lowered here, and the Callable that
+	// runs it with the values it captures, read now.
+	uint32_t make_lambda(const Expr &p_expr) {
+		const FuncDecl &lambda = *p_expr.function;
+		ir::Instr i;
+		i.op = Op::MAKE_LAMBDA;
+		for (const auto &value : p_expr.args) {
+			i.args.push_back(lower_expr(*value));
+		}
+		i.dst = temp(p_expr.type);
+		const size_t own = lambdas.size();
+		i.imm = uint32_t(cls.all_functions.size() + own);
+		add(i);
+
+		lambdas.emplace_back();
+		ir::Function outer_fn = std::move(fn);
+		const FuncDecl *outer_decl = decl;
+		const uint32_t outer_current = current;
+		const TokenRange outer_at = at;
+		std::vector<Loop> outer_loops = std::move(loops);
+		std::vector<uint32_t> outer_regs = std::move(local_regs);
+
+		start(lambda.name.empty() ? "<lambda>" : lambda.name);
+		decl = &lambda;
+		at = lambda.range;
+		fn.param_count = uint32_t(lambda.params.size() + lambda.captures.size());
+		fn.result = slot(std::string(), lambda.return_type);
+		fn.line = uint32_t(cls.source->line(lambda.name_token));
+		// The parameters, then the captures, then the other locals.
+		std::vector<int> order;
+		for (size_t p = 0; p < lambda.params.size(); p++) {
+			order.push_back(int(p));
+		}
+		order.insert(order.end(), lambda.captures.begin(), lambda.captures.end());
+		for (size_t l = lambda.params.size(); l < lambda.locals.size(); l++) {
+			if (std::find(lambda.captures.begin(), lambda.captures.end(), int(l)) == lambda.captures.end()) {
+				order.push_back(int(l));
+			}
+		}
+		local_regs.assign(lambda.locals.size(), NO_REG);
+		for (int local : order) {
+			local_regs[local] = uint32_t(fn.regs.size());
+			fn.regs.push_back(slot(lambda.locals[local].name, lambda.locals[local].type));
+		}
+		lower_block(lambda.body);
+		finish();
+		bytecode::Function out = ir::emit(fn, module);
+		out.is_lambda = true;
+		out.captures = uint32_t(lambda.captures.size());
+		out.is_static = !lambda.uses_self;
+		lambdas[own] = std::move(out);
+
+		fn = std::move(outer_fn);
+		decl = outer_decl;
+		current = outer_current;
+		at = outer_at;
+		loops = std::move(outer_loops);
+		local_regs = std::move(outer_regs);
+		return i.dst;
+	}
+
 	uint32_t lower_expr(const Expr &p_expr) {
 		if (lowered_as_constant(p_expr)) {
 			if (p_expr.kind == ExprKind::Member && p_expr.base && p_expr.base->kind == ExprKind::Call) {
@@ -1329,6 +1400,8 @@ class Lowerer {
 			return p_expr.type.kind == TypeKind::Option ? wrapped(value, p_expr.type) : value;
 		}
 		switch (p_expr.kind) {
+			case ExprKind::Lambda:
+				return make_lambda(p_expr);
 			case ExprKind::Await: {
 				const Expr &operand = *p_expr.left;
 				const uint32_t src = lower_expr(operand);
@@ -1575,7 +1648,7 @@ class Lowerer {
 		}
 		switch (p_expr.target) {
 			case Target::Local:
-				place.reg = uint32_t(p_expr.index);
+				place.reg = reg_of(p_expr.index);
 				place.kind = is_option_reg(place.reg) && p_expr.type.kind != TypeKind::Option ? Place::Kind::NarrowedLocal : Place::Kind::Local;
 				break;
 			case Target::Member:
@@ -1750,9 +1823,9 @@ class Lowerer {
 		switch (p_stmt.kind) {
 			case StmtKind::Var:
 			case StmtKind::Const: {
-				const uint32_t local = uint32_t(p_stmt.local);
+				const uint32_t local = reg_of(p_stmt.local);
 				if (p_stmt.value) {
-					move(local, convert(lower_expr(*p_stmt.value), decl->locals[local].type));
+					move(local, convert(lower_expr(*p_stmt.value), decl->locals[p_stmt.local].type));
 				} else {
 					default_value(local);
 				}
@@ -1796,7 +1869,7 @@ class Lowerer {
 			case StmtKind::Match: {
 				// The first branch with a pattern that matches and a guard that
 				// holds runs, and no other (spec §5.6).
-				const uint32_t matched = uint32_t(p_stmt.local);
+				const uint32_t matched = reg_of(p_stmt.local);
 				move(matched, lower_expr(*p_stmt.value));
 				const uint32_t end_block = new_block();
 				for (const MatchBranch &arm : p_stmt.branches) {
@@ -1809,7 +1882,7 @@ class Lowerer {
 					current = body_block;
 					for (const Pattern &pattern : arm.patterns) {
 						if (pattern.kind == PatternKind::Bind) {
-							move(uint32_t(pattern.local), matched);
+							move(reg_of(pattern.local), matched);
 						}
 					}
 					if (arm.guard) {
@@ -1863,7 +1936,7 @@ class Lowerer {
 				instr(Op::LT_INT, more, counter, limit);
 				branch(more, body_block, end_block);
 				current = body_block;
-				move(uint32_t(p_stmt.local), counting ? counter : get_index(source, counter, p_stmt.element));
+				move(reg_of(p_stmt.local), counting ? counter : get_index(source, counter, p_stmt.element));
 				loops.push_back({ step_block, end_block });
 				lower_block(p_stmt.body);
 				loops.pop_back();
@@ -2132,6 +2205,9 @@ public:
 				}
 			}
 			module.functions.push_back(std::move(out));
+		}
+		for (bytecode::Function &lambda : lambdas) {
+			module.functions.push_back(std::move(lambda));
 		}
 
 		if (has_initializers) {

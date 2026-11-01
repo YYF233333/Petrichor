@@ -469,6 +469,27 @@ func _ready() -> void:
 	_check(statics.engine_static() and statics.builtin_static(), "static methods of engine classes and built-in types")
 	_check(statics.on_objects(statics) == ["child", "check", true, true], "a static method called on an object is found from its class up, and one of an engine class or a built-in type is that type's (spec §4.8)")
 	statics.free()
+
+	# Lambdas (spec §3.11).
+	var lambdas := LambdaCheck.new()
+	add_child(lambdas)
+	_check(lambdas.by_value() == [1, 1], "a lambda captures values as they are where it is made, a struct as a copy (spec §3.11)")
+	_check(lambdas.shared() == [5, 5], "a lambda shares the containers it captures, and self")
+	_check(lambdas.connected() == 40, "a lambda connected to a signal takes what the signal passes")
+	var parent := Node.new()
+	parent.name = "P"
+	_check(lambdas.nested(parent) == "in P", "a lambda in a lambda captures through it, as narrowed where it is made")
+	parent.free()
+	_check(lambdas.static_lambda() == 3, "a lambda in a static function")
+	_check(lambdas.calls() == [12, 45, 42] and lambdas.sorted() == [3, 2, 1], "call(), callv() and bind() of lambdas, and a lambda the engine calls")
+	_check(lambdas.make_adder(3).call(4) == 7, "GDScript calls a lambda of this language")
+	_check(str(lambdas.named()) == "on_tick(lambda)" and str(lambdas.make_adder(1)) == "(anonymous lambda)", "a lambda's name labels its Callable, as in GDScript")
+	var on_self: Callable = lambdas.bound_to_self()
+	_check(on_self.is_valid() and on_self.get_object() == lambdas and on_self.call() == 5, "a lambda that uses self is bound to it")
+	lambdas.free()
+	_check(not on_self.is_valid(), "a lambda whose node was freed is not valid")
+	var reader: Callable = LambdaHolder.new().reader()
+	_check(reader.call() == 5, "a lambda keeps its RefCounted self alive")
 	var static_script: Script = load("res://language/static_check.pet")
 	for i in 3:
 		_check(static_script.get("NODES") == load("res://language/nodes.tscn"), "a pub preloaded constant read by name is the loaded resource, each time")

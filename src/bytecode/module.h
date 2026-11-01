@@ -236,6 +236,12 @@ struct Function {
 	Rpc rpc;
 	// @abstract: no code, which a class that extends this one provides (spec §4.1).
 	bool is_abstract = false;
+	// A lambda (spec §3.11): no method of the class, run only by the Callable
+	// that MAKE_LAMBDA makes, whose captures are its last `captures` params. It
+	// is static when it does not use self. Lambdas come after the class's
+	// functions, before the init and ready functions.
+	bool is_lambda = false;
+	uint32_t captures = 0;
 	uint32_t line = 0;
 	uint32_t frame_size = 0;
 	std::vector<Slot> slots; // All slots with their types, params first.

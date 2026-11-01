@@ -30,6 +30,14 @@ class Parser {
 	bool failed = false;
 	bool line_failed = false; // Whether the line the last line break ended had failed.
 	std::vector<Annotation> warning_ignores; // For the class, wherever they are.
+	// Lambdas whose statements are on one line, which a semicolon separates and
+	// the end of the expression around them ends; `semicolon` when one did.
+	int inline_lambdas = 0;
+	bool semicolon = false;
+	// Right after the block of a lambda, which ends the statement it is in;
+	// cleared when that statement ends.
+	uint32_t block_end = NO_OFFSET;
+	int block_end_stops = 0;
 
 	const Token &peek(size_t p_offset = 0) const {
 		const size_t index = at + p_offset;
@@ -125,6 +133,8 @@ class Parser {
 			case TokenKind::ParenOpen:
 			case TokenKind::BracketOpen:
 			case TokenKind::BraceOpen:
+			case TokenKind::Func:
+			case TokenKind::Async:
 				return true;
 			default:
 				return false;
@@ -133,6 +143,13 @@ class Parser {
 
 	void skip_line() {
 		while (!check(TokenKind::EndOfFile) && !is_layout(peek().kind)) {
+			// The line ended with the block of a lambda. The statement around it
+			// ends there; stopping is bounded so that recovery always moves on.
+			if (at == block_end && block_end_stops < 8) {
+				block_end_stops++;
+				failed = false;
+				return;
+			}
 			if (unclosed && joined(at)) {
 				const uint32_t offset = line_break(tokens[at - 1].end(), tokens[at].offset);
 				if (!std::binary_search(resets.begin(), resets.end(), offset)) {
@@ -172,6 +189,37 @@ class Parser {
 	TypeRef type_ref() {
 		TypeRef ref;
 		const uint32_t first = uint32_t(at);
+		if (check(TokenKind::ParenOpen)) {
+			// `(func(Enemy) -> bool)?`, where ? would otherwise belong to the return type (spec §2.4).
+			advance();
+			ref = type_ref();
+			expect(TokenKind::ParenClose, "\")\"");
+			ref.nullable = match(TokenKind::Question) || ref.nullable;
+			ref.range = span(first);
+			return ref;
+		}
+		if (check(TokenKind::Func) || (check(TokenKind::Async) && peek(1).kind == TokenKind::Func)) {
+			ref.is_function = true;
+			ref.is_async = match(TokenKind::Async);
+			ref.name = "func";
+			ref.name_token = uint32_t(at);
+			advance();
+			expect(TokenKind::ParenOpen, "\"(\"");
+			while (!failed && !check(TokenKind::ParenClose)) {
+				ref.args.push_back(type_ref());
+				if (!comma()) {
+					break;
+				}
+			}
+			expect(TokenKind::ParenClose, "\")\"");
+			if (match(TokenKind::Arrow)) {
+				ref.result.push_back(type_ref());
+			} else if (check(TokenKind::Question)) {
+				fail(peek(), "A function type that may be None is written in parentheses, as (func(int))?.");
+			}
+			ref.range = span(first);
+			return ref;
+		}
 		if (!check(TokenKind::Identifier)) {
 			// An error type, which has no name.
 			fail(peek(), std::string("Expected a type name, found ") + token_name(peek().kind) + ".");
@@ -554,6 +602,9 @@ class Parser {
 			}
 			case TokenKind::BraceOpen:
 				return dictionary_literal();
+			case TokenKind::Func:
+			case TokenKind::Async:
+				return lambda();
 			case TokenKind::ParenOpen: {
 				advance();
 				auto expr = expression();
@@ -564,6 +615,69 @@ class Parser {
 			default:
 				fail(token, std::string("Expected an expression, found ") + token_name(token.kind) + ".");
 				return error_expr(index(token));
+		}
+	}
+
+	// `func name(params) -> T: body`, the name and the return type optional
+	// (spec §3.11). The body is an indented block, or statements on the same
+	// line up to what ends the expression the lambda is in.
+	std::unique_ptr<Expr> lambda() {
+		const uint32_t first = uint32_t(at);
+		auto expr = make(ExprKind::Lambda, peek());
+		auto function = std::make_unique<FuncDecl>();
+		function->is_lambda = true;
+		function->is_async = match(TokenKind::Async);
+		function->name_token = uint32_t(at);
+		expect(TokenKind::Func, "\"func\"");
+		if (check(TokenKind::Identifier)) {
+			function->name_token = uint32_t(at);
+			function->name = advance().text;
+		}
+		expect(TokenKind::ParenOpen, "\"(\"");
+		if (!failed) {
+			function->params = params();
+		}
+		if (match(TokenKind::Arrow)) {
+			function->return_type_ref = type_ref();
+		}
+		expect(TokenKind::Colon, "\":\"");
+		if (!failed) {
+			if (check(TokenKind::Newline)) {
+				const int was_inline = inline_lambdas;
+				inline_lambdas = 0;
+				function->body = block();
+				inline_lambdas = was_inline;
+				// The statement around it ends with the block.
+				block_end = uint32_t(at);
+				block_end_stops = 0;
+			} else {
+				inline_lambdas++;
+				do {
+					function->body.push_back(statement());
+				} while (!failed && semicolon);
+				semicolon = false;
+				inline_lambdas--;
+			}
+		}
+		function->range = span(first);
+		expr->range = function->range;
+		expr->function = std::move(function);
+		return expr;
+	}
+
+	// What ends the statements of a lambda on one line.
+	bool ends_inline() const {
+		switch (peek().kind) {
+			case TokenKind::Newline:
+			case TokenKind::Dedent:
+			case TokenKind::EndOfFile:
+			case TokenKind::ParenClose:
+			case TokenKind::BracketClose:
+			case TokenKind::BraceClose:
+			case TokenKind::Comma:
+				return true;
+			default:
+				return false;
 		}
 	}
 
@@ -670,6 +784,17 @@ class Parser {
 	}
 
 	void end_of_statement() {
+		if (inline_lambdas > 0) {
+			semicolon = match(TokenKind::Semicolon) && !ends_inline();
+			if (!semicolon && !ends_inline() && at != block_end) {
+				fail(peek(), std::string("Expected the end of the lambda, found ") + token_name(peek().kind) + ".");
+			}
+			return;
+		}
+		if (at == block_end) {
+			block_end = NO_OFFSET;
+			return;
+		}
 		// `a = 1; b = 2`: the next statement follows on the same line.
 		if (match(TokenKind::Semicolon) && !check(TokenKind::Newline) && !check(TokenKind::Dedent) && !check(TokenKind::EndOfFile)) {
 			return;
@@ -838,7 +963,7 @@ class Parser {
 			case TokenKind::Return: {
 				advance();
 				auto stmt = make_stmt(StmtKind::Return, token);
-				if (!check(TokenKind::Newline) && !check(TokenKind::Dedent) && !check(TokenKind::EndOfFile)) {
+				if (!check(TokenKind::Newline) && !check(TokenKind::Dedent) && !check(TokenKind::EndOfFile) && !(inline_lambdas > 0 && (ends_inline() || check(TokenKind::Semicolon)))) {
 					stmt->value = expression();
 				}
 				stmt->range = span(index(token));

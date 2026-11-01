@@ -165,6 +165,25 @@ class Checker : public ClassRelation {
 	bool initializing_onready = false;
 	// Checking a constant's initializer, which may come before the members' types are known.
 	bool in_constant = false;
+	// The functions around the lambda being checked (spec §3.11), outermost
+	// first, each as it was where its lambda is.
+	struct Enclosing {
+		FuncDecl *function;
+		std::vector<std::unordered_map<std::string, int>> scopes;
+		std::vector<std::unordered_map<int, Type>> narrowed;
+		Expr *lambda;
+		int loop_depth;
+		bool in_predelete;
+		int initializing;
+		bool initializing_onready;
+	};
+	std::vector<Enclosing> enclosing;
+	// The return type of a lambda without one, as its return statements give it.
+	struct Returns {
+		std::optional<Type> type;
+		bool bare = false; // A return without a value.
+	};
+	Returns *returns = nullptr;
 
 	std::unordered_map<std::string, int> member_index;
 	std::unordered_map<std::string, int> constant_index; // In all_constants.
@@ -573,6 +592,22 @@ class Checker : public ClassRelation {
 	}
 
 	Type resolve_name(const TypeRef &p_ref, bool p_allow_void) {
+		if (p_ref.is_function) {
+			// `func(int, Node) -> bool` (spec §2.4, §3.11).
+			std::vector<Type> params;
+			bool valid = true;
+			for (const TypeRef &param : p_ref.args) {
+				params.push_back(resolve(param, false));
+				valid = valid && !params.back().is_error();
+			}
+			const Type result = p_ref.result.empty() ? Type::of(TypeKind::Void) : resolve(p_ref.result[0], true);
+			if (!valid || result.is_error()) {
+				return Type::of(TypeKind::Error);
+			}
+			Type type = Type::function(result, params);
+			type.is_async = p_ref.is_async;
+			return type;
+		}
 		if (!p_ref.args.empty()) {
 			return resolve_generic(p_ref);
 		}
@@ -709,8 +744,8 @@ class Checker : public ClassRelation {
 		r_call.base = std::move(loader);
 	}
 
-	int find_local(const std::string &p_name) const {
-		for (auto scope = scopes.rbegin(); scope != scopes.rend(); ++scope) {
+	static int find_in(const std::vector<std::unordered_map<std::string, int>> &p_scopes, const std::string &p_name) {
+		for (auto scope = p_scopes.rbegin(); scope != p_scopes.rend(); ++scope) {
 			const auto found = scope->find(p_name);
 			if (found != scope->end()) {
 				return found->second;
@@ -719,10 +754,78 @@ class Checker : public ClassRelation {
 		return -1;
 	}
 
+	int find_local(const std::string &p_name) const {
+		return find_in(scopes, p_name);
+	}
+
+	// A local of the function being checked, or of one around the lambda
+	// being checked, which a use would capture.
+	const LocalInfo *visible_local(const std::string &p_name) const {
+		const int local = find_local(p_name);
+		if (local >= 0) {
+			return &function->locals[local];
+		}
+		for (auto outer = enclosing.rbegin(); outer != enclosing.rend(); ++outer) {
+			const int found = outer->function ? find_in(outer->scopes, p_name) : -1;
+			if (found >= 0) {
+				return &outer->function->locals[found];
+			}
+		}
+		return nullptr;
+	}
+
+	// A local of a function around the lambda, which the lambda captures,
+	// and so do the lambdas between (spec §3.11): the lambda's local for it,
+	// or -1 when there is none.
+	int capture(const std::string &p_name) {
+		for (size_t level = enclosing.size(); level-- > 0;) {
+			const Enclosing &outer = enclosing[level];
+			int source = outer.function ? find_in(outer.scopes, p_name) : -1;
+			if (source < 0) {
+				continue;
+			}
+			// What is narrowed where the lambda is made stays narrowed in it (§5.4).
+			const LocalInfo declared = outer.function->locals[source];
+			const Type *narrowed_to = narrowed_in(outer.narrowed, source);
+			const Type type = narrowed_to ? *narrowed_to : declared.type;
+			for (size_t inner = level; inner < enclosing.size(); inner++) {
+				const bool innermost = inner + 1 == enclosing.size();
+				FuncDecl &into = innermost ? *function : *enclosing[inner + 1].function;
+				Expr &lambda = *enclosing[inner].lambda;
+				// The value as the function around the lambda reads it.
+				auto read = std::make_unique<Expr>();
+				read->kind = ExprKind::Name;
+				read->text = p_name;
+				read->range = lambda.range;
+				read->name_token = NO_TOKEN;
+				read->target = Target::Local;
+				read->index = source;
+				read->type = type;
+				read->constant = declared.constant;
+				lambda.args.push_back(std::move(read));
+				source = int(into.locals.size());
+				into.locals.push_back({ p_name, type, declared.token, declared.constant });
+				into.captures.push_back(source);
+				(innermost ? scopes : enclosing[inner + 1].scopes).front()[p_name] = source;
+			}
+			return source;
+		}
+		return -1;
+	}
+
+	bool is_capture(int p_local) const {
+		return function && std::find(function->captures.begin(), function->captures.end(), p_local) != function->captures.end();
+	}
+
+	// The function that code being checked is in: the one around a lambda.
+	const FuncDecl *outermost() const {
+		return enclosing.empty() ? function : enclosing.front().function;
+	}
+
 	// The type a name refers to when it is the base of `Name.x` or
 	// `Name.f()`: not when a local, a member or a property has that name.
 	bool names_type(const Expr &p_expr) const {
-		return p_expr.kind == ExprKind::Name && find_local(p_expr.text) < 0 && !member_index.count(p_expr.text) &&
+		return p_expr.kind == ExprKind::Name && !visible_local(p_expr.text) && !member_index.count(p_expr.text) &&
 				!engine.find_property(cls.native_base, p_expr.text) && is_type_name(p_expr.text) && !engine.is_singleton(p_expr.text);
 	}
 
@@ -863,10 +966,8 @@ class Checker : public ClassRelation {
 	// where its bare name is used (spec §2.1): a local constant or a constant
 	// of this class; null for any other name.
 	ConstPtr class_alias(const std::string &p_name) {
-		const int local = find_local(p_name);
-		if (local >= 0) {
-			const ConstPtr &value = function->locals[local].constant;
-			return value && !value->script.empty() ? value : nullptr;
+		if (const LocalInfo *local = visible_local(p_name)) {
+			return local->constant && !local->constant->script.empty() ? local->constant : nullptr;
 		}
 		const ConstDecl *decl = own_constant(p_name);
 		return decl && decl->value && !decl->value->script.empty() ? decl->value : nullptr;
@@ -874,9 +975,8 @@ class Checker : public ClassRelation {
 
 	// The constant that the name of a class alias refers to.
 	DeclId alias_id(const std::string &p_name) {
-		const int local = find_local(p_name);
-		if (local >= 0) {
-			return local_id(function->locals[local].token);
+		if (const LocalInfo *local = visible_local(p_name)) {
+			return local_id(local->token);
 		}
 		const ConstDecl &decl = *own_constant(p_name);
 		return script_id(declaring(cls, decl, &ClassDecl::constants).path, decl.name);
@@ -901,7 +1001,7 @@ class Checker : public ClassRelation {
 			check_value(r_base); // The constant, whose value is the script.
 			return alias->script_class;
 		}
-		if (find_local(r_base.text) >= 0 || member_index.count(r_base.text) || constant_index.count(r_base.text) || engine.find_property(cls.native_base, r_base.text)) {
+		if (visible_local(r_base.text) || member_index.count(r_base.text) || constant_index.count(r_base.text) || engine.find_property(cls.native_base, r_base.text)) {
 			return std::nullopt;
 		}
 		const bool own = !cls.class_name.empty() && r_base.text == cls.class_name;
@@ -1048,7 +1148,10 @@ class Checker : public ClassRelation {
 	}
 
 	Type check_name(Expr &r_expr) {
-		const int local = find_local(r_expr.text);
+		int local = find_local(r_expr.text);
+		if (local < 0 && !enclosing.empty()) {
+			local = capture(r_expr.text);
+		}
 		if (local >= 0) {
 			r_expr.target = Target::Local;
 			r_expr.index = local;
@@ -1897,14 +2000,18 @@ class Checker : public ClassRelation {
 	}
 
 	// The narrowed type of a local, if any; the innermost fact wins.
-	const Type *narrowed_type(int p_local) const {
-		for (auto map = narrowed.rbegin(); map != narrowed.rend(); ++map) {
+	static const Type *narrowed_in(const std::vector<std::unordered_map<int, Type>> &p_narrowed, int p_local) {
+		for (auto map = p_narrowed.rbegin(); map != p_narrowed.rend(); ++map) {
 			const auto found = map->find(p_local);
 			if (found != map->end()) {
 				return &found->second;
 			}
 		}
 		return nullptr;
+	}
+
+	const Type *narrowed_type(int p_local) const {
+		return narrowed_in(narrowed, p_local);
 	}
 
 	// An assignment ends what was known about the local, also in the
@@ -2502,6 +2609,101 @@ class Checker : public ClassRelation {
 		return set(r_expr, type);
 	}
 
+	// `f.call(x)`, checked against f's type, and `f.callv(args)`, whose
+	// arguments the function checks as it is called (spec §3.11).
+	Type check_function_call(Expr &r_expr, const Type &p_function) {
+		if (p_function.is_async) {
+			return fail_call(r_expr, "Calling an async function value is not supported yet.");
+		}
+		const bool spread = r_expr.text == "callv";
+		const std::vector<Type> params(p_function.args.begin() + 1, p_function.args.end());
+		check_arguments(r_expr, spread ? std::vector<Type>{ Type::builtin("Array") } : params, spread ? 1 : int(params.size()), false);
+		const builtin::Class *callable = builtin::find_class("Callable");
+		const builtin::Method *method = callable ? builtin::find_method(*callable, r_expr.text) : nullptr;
+		r_expr.target = Target::BuiltinMethod;
+		r_expr.owner = "Callable";
+		r_expr.hash = method ? method->hash : 0;
+		r_expr.is_vararg = !spread;
+		r_expr.engine_params = spread ? std::vector<Type>{ Type::builtin("Array") } : std::vector<Type>();
+		r_expr.engine_return = Type::of(TypeKind::Variant);
+		refer(r_expr.name_token, engine_id("Callable", r_expr.text));
+		return set(r_expr, p_function.args[0]);
+	}
+
+	// `func(x): body` (spec §3.11): code of the function around it, checked
+	// as a function of its own. Its parameters take the types of the function
+	// type it goes to, unless written, and its return type is what it returns
+	// (§4.6). Checked once, also when a call checks its arguments again.
+	Type check_lambda(Expr &r_expr, const Type &p_expected) {
+		FuncDecl &lambda = *r_expr.function;
+		if (lambda.checked) {
+			return r_expr.type;
+		}
+		lambda.checked = true;
+		if (lambda.is_async) {
+			return fail(r_expr, "Async lambdas are not supported yet.");
+		}
+		if (in_constant) {
+			return fail(r_expr, "A lambda is not a constant expression (spec §4.5).");
+		}
+		lambda.is_static = function && function->is_static;
+		const bool typed_by_expected = p_expected.kind == TypeKind::Function && p_expected.args.size() == lambda.params.size() + 1;
+		for (size_t i = 0; i < lambda.params.size(); i++) {
+			ParamDecl &param = lambda.params[i];
+			if (param.default_value) {
+				error(param.default_value->range, "Lambda parameters have no default values (spec §3.11).");
+			}
+			if (param.declared_type) {
+				param.type = resolve(*param.declared_type, false);
+			} else if (typed_by_expected) {
+				param.type = p_expected.args[i + 1];
+			} else {
+				error(param.name_token, "Parameter \"" + param.name + "\" needs a type: nothing the lambda goes to gives one (spec §4.6).");
+				param.type = Type::of(TypeKind::Error);
+			}
+		}
+		Returns inferred;
+		Returns *const outer_returns = returns;
+		if (lambda.return_type_ref) {
+			lambda.return_type = resolve(*lambda.return_type_ref, true);
+			returns = nullptr;
+		} else {
+			returns = &inferred;
+		}
+
+		enclosing.push_back({ function, std::move(scopes), std::move(narrowed), &r_expr, loop_depth, in_predelete, initializing, initializing_onready });
+		function = &lambda;
+		scopes = { {} };
+		narrowed = { {} };
+		loop_depth = 0;
+		in_predelete = false;
+		initializing = -1;
+		declare_params(lambda);
+		check_block(lambda.body);
+		if (!lambda.return_type_ref) {
+			lambda.return_type = inferred.type.value_or(Type::of(TypeKind::Void));
+			if (inferred.type && inferred.bare) {
+				error(r_expr.range, function_label() + " returns a value on some paths and none on others.");
+			}
+		}
+		if (lambda.return_type.kind != TypeKind::Void && !lambda.return_type.is_error() && !always_ends(lambda.body, false)) {
+			error(r_expr.range, "Not all paths of " + (lambda.name.empty() ? std::string("the lambda") : "the lambda \"" + lambda.name + "\"") + " return a value.");
+		}
+		Enclosing &outer = enclosing.back();
+		function = outer.function;
+		scopes = std::move(outer.scopes);
+		narrowed = std::move(outer.narrowed);
+		loop_depth = outer.loop_depth;
+		in_predelete = outer.in_predelete;
+		initializing = outer.initializing;
+		initializing_onready = outer.initializing_onready;
+		enclosing.pop_back();
+		returns = outer_returns;
+
+		Type type = Type::function(lambda.return_type, param_types(lambda.params));
+		return set(r_expr, type);
+	}
+
 	// A function connected to a signal takes what the signal passes (spec §4.7).
 	void check_handler(const Expr &p_handler, const Type &p_signal) {
 		const Type &handler = p_handler.type;
@@ -2821,7 +3023,7 @@ class Checker : public ClassRelation {
 				return std::nullopt;
 			}
 			const ConstPtr alias = class_alias(base.text);
-			if (!alias && (find_local(base.text) >= 0 || constant_index.count(base.text))) {
+			if (!alias && (visible_local(base.text) || constant_index.count(base.text))) {
 				return std::nullopt;
 			}
 			ref.name_token = base.name_token; // The struct's name two tokens on.
@@ -3097,7 +3299,7 @@ class Checker : public ClassRelation {
 				return check_option_method(r_expr, base_type);
 			}
 			if (base_type.kind == TypeKind::Function && (name == "bind" || name == "call" || name == "callv")) {
-				return name == "bind" ? check_bind(r_expr, base_type) : fail(r_expr, name + "() of a function value is not supported yet.");
+				return name == "bind" ? check_bind(r_expr, base_type) : check_function_call(r_expr, base_type);
 			}
 			if (base_type.kind == TypeKind::Signal && name == "emit") {
 				// What the connected functions take (spec §4.7).
@@ -3107,6 +3309,10 @@ class Checker : public ClassRelation {
 				return set(r_expr, Type::of(TypeKind::Void));
 			}
 			if (base_type.kind == TypeKind::Signal && (name == "connect" || name == "disconnect" || name == "is_connected")) {
+				if (!r_expr.args.empty() && r_expr.args[0]->kind == ExprKind::Lambda) {
+					// It takes what the signal passes (spec §4.7).
+					check_lambda(*r_expr.args[0], Type::function(Type::of(TypeKind::Void), base_type.args));
+				}
 				const Type result = check_builtin_method(r_expr, base_type);
 				if (!result.is_error() && !r_expr.args.empty()) {
 					check_handler(*r_expr.args[0], base_type);
@@ -3141,6 +3347,15 @@ class Checker : public ClassRelation {
 			return fail(r_expr, "Values of type " + base_type.to_string() + " have no methods.");
 		}
 
+		if (!r_expr.base) {
+			// As in GDScript (modules/gdscript/gdscript_analyzer.cpp:3741-3745).
+			const LocalInfo *local = visible_local(name);
+			const auto member = member_index.find(name);
+			const Type *value = local ? &local->type : (member != member_index.end() ? &cls.all_members[member->second]->type : nullptr);
+			if (value && value->unwrapped().kind == TypeKind::Function) {
+				return fail_call(r_expr, "\"" + name + "\" is a function value; call it as " + name + ".call(...) (spec §3.11).");
+			}
+		}
 		const auto script = function_index.find(name);
 		if (script != function_index.end()) {
 			const FuncDecl &callee = *cls.all_functions[script->second];
@@ -3182,14 +3397,14 @@ class Checker : public ClassRelation {
 				r_expr.param_types.push_back(arg);
 				return set(r_expr, Type::of(result));
 			}
-			if (name == "print_debug" && function) {
+			if (name == "print_debug" && outermost()) {
 				// GDScript's own: print() of the arguments and where it is called
 				// (modules/gdscript/gdscript_utility_functions.cpp:349-362), which is
 				// known here.
 				auto where = std::make_unique<Expr>();
 				where->kind = ExprKind::StringLiteral;
 				where->range = r_expr.range;
-				where->text = "\n   At: " + options.path + ":" + std::to_string(cls.source->line(r_expr.range.first)) + ":" + function->name + "()";
+				where->text = "\n   At: " + options.path + ":" + std::to_string(cls.source->line(r_expr.range.first)) + ":" + outermost()->name + "()";
 				r_expr.args.push_back(std::move(where));
 				refer(r_expr.name_token, engine_id("@GlobalScope", "print_debug"));
 				// Calls print(), as written nowhere.
@@ -3243,7 +3458,7 @@ class Checker : public ClassRelation {
 		if (type.builtin_name() == "Signal") {
 			return set(r_expr, Type::of(TypeKind::Variant));
 		}
-		if (operand.kind == ExprKind::Call && (operand.is_foreign || (operand.base && operand.base->type.builtin_name() == "Callable" && (operand.text == "call" || operand.text == "callv")))) {
+		if (operand.kind == ExprKind::Call && (operand.is_foreign || (operand.base && operand.base->type == Type::builtin("Callable") && (operand.text == "call" || operand.text == "callv")))) {
 			return set(r_expr, type);
 		}
 		return fail(r_expr, "await expects a Task, a signal or a call to GDScript.");
@@ -3376,6 +3591,8 @@ class Checker : public ClassRelation {
 				return set(r_expr, Type::of(TypeKind::None));
 			case ExprKind::TypeTest:
 				return check_type_test(r_expr);
+			case ExprKind::Lambda:
+				return check_lambda(r_expr, p_expected);
 			case ExprKind::Error:
 				break;
 		}
@@ -3413,6 +3630,12 @@ class Checker : public ClassRelation {
 		}
 		switch (p_target.target) {
 			case Target::Local:
+				if (is_capture(p_target.index)) {
+					// It would change neither the variable outside nor the next call (spec §3.11).
+					error(p_target.range, "Cannot assign to \"" + p_target.text + "\", which the lambda captures as a copy; keep what it shares in a member or a container (spec §3.11).");
+					return false;
+				}
+				return true;
 			case Target::Member:
 			case Target::Owner:
 				return true;
@@ -3511,11 +3734,14 @@ class Checker : public ClassRelation {
 	}
 
 	int declare_local(const std::string &p_name, uint32_t p_at, const Type &p_type) {
+		const int known = find_local(p_name);
 		if (scopes.back().count(p_name)) {
 			error(p_at, "\"" + p_name + "\" is already declared in this block.");
+		} else if (known >= 0 ? is_capture(known) : visible_local(p_name) != nullptr) {
+			error(p_at, "\"" + p_name + "\" is already declared in the function around this lambda (spec §4.6).");
 		} else if (scopes.front().count(p_name)) {
 			error(p_at, "\"" + p_name + "\" is already a parameter of this function (spec §4.6).");
-		} else if (find_local(p_name) >= 0) {
+		} else if (known >= 0) {
 			error(p_at, "\"" + p_name + "\" is already declared in an enclosing block (spec §4.6).");
 		}
 		const int local = int(function->locals.size());
@@ -3777,16 +4003,38 @@ class Checker : public ClassRelation {
 				check_match(r_stmt);
 				return;
 			case StmtKind::Return: {
+				if (returns) {
+					// The lambda's return type is what it returns (spec §4.6).
+					if (!r_stmt.value) {
+						returns->bare = true;
+						return;
+					}
+					Type value = check_value(*r_stmt.value);
+					if (value.kind == TypeKind::None) {
+						error(r_stmt.value->range, function_label() + " needs a return type: None does not say which T? it returns.");
+						value = Type::of(TypeKind::Error);
+					}
+					if (!returns->type || value.is_error() || returns->type->is_error()) {
+						returns->type = returns->type ? Type::of(TypeKind::Error) : value;
+						return;
+					}
+					const Type common = common_type(*returns->type, value);
+					if (common.is_error()) {
+						error(r_stmt.value->range, function_label() + " returns " + returns->type->to_string() + " and " + value.to_string() + "; declare its return type.");
+					}
+					returns->type = common;
+					return;
+				}
 				const Type expected = function->return_type;
 				if (!r_stmt.value) {
 					if (expected.kind != TypeKind::Void && !expected.is_error()) {
-						error(r_stmt.range, "\"" + function->name + "()\" must return a value of type " + expected.to_string() + ".");
+						error(r_stmt.range, function_label() + " must return a value of type " + expected.to_string() + ".");
 					}
 					return;
 				}
 				const Type value = check_value(*r_stmt.value, expected);
 				if (expected.kind == TypeKind::Void) {
-					error(r_stmt.value->range, "\"" + function->name + "()\" returns void. Declare its return type, for example -> " + (value.is_error() ? std::string("int") : value.to_string()) + ".");
+					error(r_stmt.value->range, function_label() + " returns void. Declare its return type, for example -> " + (value.is_error() ? std::string("int") : value.to_string()) + ".");
 					return;
 				}
 				expect_assignable(*r_stmt.value, value, expected, "return");
@@ -4402,10 +4650,25 @@ class Checker : public ClassRelation {
 	// A static function has no instance (spec §4.8).
 	bool refuse_in_static(const Expr &p_expr, const std::string &p_name) {
 		if (!function || !function->is_static) {
+			// A lambda that uses self holds it, and so do those it is in (spec §3.11).
+			for (size_t i = 0; function && function->is_lambda && i <= enclosing.size(); i++) {
+				FuncDecl *lambda = i < enclosing.size() ? enclosing[i].function : function;
+				if (lambda && lambda->is_lambda) {
+					lambda->uses_self = true;
+				}
+			}
 			return false;
 		}
-		error(p_expr.range, "\"" + p_name + "\" belongs to an instance, which the static function \"" + function->name + "()\" does not have.");
+		error(p_expr.range, "\"" + p_name + "\" belongs to an instance, which the static function \"" + outermost()->name + "()\" does not have.");
 		return true;
+	}
+
+	// The function being checked, as messages name it.
+	std::string function_label() const {
+		if (!function->is_lambda) {
+			return "\"" + function->name + "()\"";
+		}
+		return function->name.empty() ? std::string("The lambda") : "The lambda \"" + function->name + "\"";
 	}
 
 	const FuncDecl *base_function(const std::string &p_name) const {

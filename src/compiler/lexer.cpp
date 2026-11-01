@@ -4,6 +4,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <locale>
+#include <optional>
 #include <sstream>
 #include <unordered_map>
 
@@ -309,12 +310,40 @@ class Lexer {
 		bool unclosed; // The text never closes it.
 	};
 
+	// The block of a lambda inside brackets (spec §3.11): its lines are
+	// statements, with line breaks and indentation of their own, until a line
+	// indented no deeper than the one its header ends on, a bracket opened
+	// before it closes, or a comma ends a line, as in `[func(): ..., func(): ...]`.
+	// GDScript's parser has its tokenizer do the same
+	// (modules/gdscript/gdscript_parser.cpp:3735-3745, 3788-3794).
+	struct LambdaBlock {
+		size_t brackets; // Open at its header.
+		std::vector<int> indents; // Those around it, back at its end.
+	};
+	// `func` inside brackets, up to the colon after its parameters and return type.
+	struct LambdaHeader {
+		size_t brackets;
+		bool params = false; // Their parentheses are closed.
+	};
+
 	uint32_t at = 0;
 	std::vector<Bracket> brackets; // Open ones, innermost last: line breaks inside them do not count.
 	uint32_t cleared = 0; // Brackets taken as closed early, whose closing ones may still come.
 	char indent_char = 0;
-	std::vector<int> indents = { 0 };
+	std::vector<int> indents = { 0 }; // Those of a lambda's block start at its header's line.
 	bool line_has_tokens = false;
+	std::vector<LambdaBlock> lambda_blocks;
+	std::optional<LambdaHeader> header;
+	bool block_opens = false; // A lambda's header ended its line, and its block begins on the next.
+
+	// Line breaks count outside brackets, or in a lambda's block outside those
+	// opened in it.
+	size_t statement_brackets() const {
+		return lambda_blocks.empty() ? 0 : lambda_blocks.back().brackets;
+	}
+	bool at_statement() const {
+		return brackets.size() == statement_brackets();
+	}
 
 	bool at_end() const {
 		return at >= source.size();
@@ -341,8 +370,62 @@ class Lexer {
 		token.length = at - p_start;
 		if (p_kind != TokenKind::Newline && p_kind != TokenKind::Indent && p_kind != TokenKind::Dedent) {
 			line_has_tokens = true;
+			follow_header(p_kind);
 		}
 		return token;
+	}
+
+	void follow_header(TokenKind p_kind) {
+		const size_t depth = brackets.size();
+		if (p_kind == TokenKind::Func) {
+			if (!header && depth > statement_brackets()) {
+				header = LambdaHeader{ depth };
+			}
+			return;
+		}
+		if (!header || depth > header->brackets) {
+			return;
+		}
+		if (depth < header->brackets || p_kind == TokenKind::Comma) {
+			header.reset();
+		} else if (p_kind == TokenKind::ParenClose) {
+			header->params = true;
+		} else if (p_kind == TokenKind::Colon && header->params) {
+			header.reset();
+			block_opens = rest_of_line_empty(at);
+		}
+	}
+
+	bool rest_of_line_empty(uint32_t p_from) const {
+		uint32_t i = p_from;
+		while (i < source.size() && (source[i] == ' ' || source[i] == '\t' || source[i] == '\r')) {
+			i++;
+		}
+		return i >= source.size() || source[i] == '\n' || source[i] == '#';
+	}
+
+	// At the line break after a lambda's header.
+	void open_lambda_block() {
+		block_opens = false;
+		lambda_blocks.push_back({ brackets.size(), indents });
+		indents = { line_indent(at) };
+	}
+
+	void close_lambda_block() {
+		end_line();
+		while (indents.size() > 1) {
+			indents.pop_back();
+			push(TokenKind::Dedent, at);
+		}
+		indents = std::move(lambda_blocks.back().indents);
+		lambda_blocks.pop_back();
+	}
+
+	// Before a bracket opened outside the innermost block closes.
+	void close_lambda_blocks(size_t p_brackets) {
+		while (!lambda_blocks.empty() && p_brackets < lambda_blocks.back().brackets) {
+			close_lambda_block();
+		}
 	}
 
 	int line_indent(uint32_t p_offset) const {
@@ -366,6 +449,7 @@ class Lexer {
 		if (brackets.empty()) {
 			return false;
 		}
+		close_lambda_blocks(brackets.size() - 1);
 		brackets.pop_back();
 		return true;
 	}
@@ -398,6 +482,7 @@ class Lexer {
 				cleared++;
 			}
 		}
+		close_lambda_blocks(p_index);
 		brackets.resize(p_index);
 	}
 
@@ -491,6 +576,11 @@ class Lexer {
 			}
 			if (mixed) {
 				error(start, at, "Indentation mixes tabs and spaces.");
+			}
+			if (!lambda_blocks.empty() && width <= indents.front()) {
+				// The lambda's block ends, and the expression around it goes on.
+				close_lambda_block();
+				return;
 			}
 			if (width > indents.back()) {
 				indents.push_back(width);
@@ -792,6 +882,9 @@ class Lexer {
 				one(TokenKind::Semicolon);
 				return;
 			case ',':
+				if (!lambda_blocks.empty() && at_statement() && rest_of_line_empty(at + 1)) {
+					close_lambda_block();
+				}
 				one(TokenKind::Comma);
 				return;
 			case '.':
@@ -918,11 +1011,14 @@ public:
 				}
 				advance();
 			} else if (c == '\n') {
+				if (block_opens) {
+					open_lambda_block();
+				}
 				if (!brackets.empty()) {
 					recover_brackets();
 				}
 				// The line break token belongs to the line it ends.
-				if (brackets.empty()) {
+				if (at_statement()) {
 					end_line();
 					advance();
 					line_start();
@@ -948,6 +1044,7 @@ public:
 				punctuation();
 			}
 		}
+		close_lambda_blocks(0);
 		end_line();
 		while (indents.size() > 1) {
 			indents.pop_back();

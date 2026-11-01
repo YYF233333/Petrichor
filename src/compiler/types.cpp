@@ -54,6 +54,9 @@ std::string Type::to_string() const {
 			return nullable ? text + "?" : text;
 		}
 		case TypeKind::Option:
+			if (!args.empty() && args[0].kind == TypeKind::Function) {
+				return "(" + args[0].to_string() + ")?"; // As written (spec §2.4).
+			}
 			return (args.empty() ? std::string("<error>") : args[0].to_string()) + "?";
 		case TypeKind::Task:
 			return "Task[" + args[0].to_string() + "]" + (nullable ? "?" : "");

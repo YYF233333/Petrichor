@@ -24,8 +24,14 @@ struct TypeRef {
 	// is two tokens on.
 	uint32_t name_token = 0;
 	bool nullable = false; // `T?` (spec §3.3, §3.4).
-	std::vector<TypeRef> args; // `Array[T]`.
+	std::vector<TypeRef> args; // `Array[T]`; a function type's parameters.
+	// `func(T) -> R` (spec §2.4), with its return type in `result` when written.
+	bool is_function = false;
+	bool is_async = false;
+	std::vector<TypeRef> result;
 };
+
+struct FuncDecl;
 
 enum class ExprKind {
 	IntLiteral,
@@ -49,6 +55,9 @@ enum class ExprKind {
 	Conditional, // `left if base else right` (spec §5.5).
 	NoneLiteral, // `None`, or `null` (spec §2.2).
 	TypeTest, // `left is cast_type`, or `left is not cast_type` when `bool_value`.
+	// `func(x): body` (spec §3.11), in `function`; the checker puts what it
+	// captures, as read where it is made, in `args`.
+	Lambda,
 	Error, // What a syntax error left of an expression (architecture §2.1).
 };
 
@@ -123,6 +132,7 @@ struct Expr {
 	std::vector<std::string> arg_names;
 	std::vector<uint32_t> arg_name_tokens; // Beside `arg_names`; 0 for an argument by position.
 	TypeRef cast_type;
+	std::unique_ptr<FuncDecl> function; // Lambda.
 
 	// Filled by the checker.
 	Type type;
@@ -345,6 +355,12 @@ struct FuncDecl {
 	bool is_override = false;
 	std::vector<LocalInfo> locals; // Parameters first.
 	bytecode::Rpc rpc;
+	// A lambda (spec §3.11): the local each value it captures goes in, in the
+	// order of the lambda's `args`, and whether it uses self.
+	bool is_lambda = false;
+	std::vector<int> captures;
+	bool uses_self = false;
+	bool checked = false;
 };
 
 // `signal name(params)` (spec §4.7).

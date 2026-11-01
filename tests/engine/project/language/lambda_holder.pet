@@ -1,0 +1,9 @@
+# A RefCounted class whose lambda keeps it alive, as GDScript's does (spec §3.11).
+class_name LambdaHolder
+extends RefCounted
+
+var value := 5
+
+
+pub func reader() -> Callable:
+	return func(): return value

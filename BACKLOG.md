@@ -13,7 +13,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Static checks of must-assign exports in scenes, in resources and at export (spec §7.5), of a scene used as a root whose root has a script with `@owner` (§7.3), and of a node of a scene whose script is abstract (§4.1).
 - `@parent(T)` (spec §7.3).
 - Setters that run before ready (spec §6.5), once the open question below is settled; until then the checks that a node is ready report such a setter's first access to its node.
-- A warning for removed nodes that are neither stored nor freed (spec §15).
+- A warning for removed nodes that are neither stored nor freed, and one with a `weak` quick fix for a lambda capturing self stored in a member of self (spec §6.7, §15); `weak[T]` (§3.12).
 - Preload cycles (spec §7.6); a literal path of `load` typed as preload types it (§7.4).
 - Of GDScript classes (spec §11.1): enums, inner classes and static variables; nodes in scenes typed by their GDScript class rather than its engine class.
 - The declarations of other scripts are checked as while the editor loads a script, which loads no script of another language, so a member typed by a preloaded GDScript class without a class_name, as `pub var unit: Unit?`, is not known to other classes (spec §2.1).
@@ -24,7 +24,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Constants of the engine class a class extends by their bare name, such as `NOTIFICATION_PREDELETE`, as GDScript has them in scope; now they need the class, `Object.NOTIFICATION_PREDELETE`.
 - `Array[T]?`; `pop_front()` and `pop_back()` of `Array[T?]`, which give `T??`.
 - Enums (spec §3.7); inner classes (spec §2.1).
-- Lambdas (spec §3.11).
 - The operators `in` and `not in`, `**` (spec §3.2, §5.1).
 - `assert` (spec §8.3).
 - Rest parameters `...args: Array[T]` (spec §4.6).
@@ -34,7 +33,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The audit of the most frequently called engine APIs for null (spec §10.2); `binding_metadata.txt` has two entries.
 - Values of type Variant (spec §3.13), which untyped members, parameters and results of GDScript classes have (§11.1); reading the elements of an untyped Array or Dictionary. A member read or method called through a Variant is recorded as an unresolved name (architecture §2.1).
 - Non-constant default values, of parameters and of struct fields; static members; `_init()` with parameters.
-- Calling a function value other than through `bind()`; `==` between objects.
+- `==` between objects; a `Callable` of unknown signature converted to a function type and checked on every call (spec §3.11).
 - In debug builds, reporting where a freed instance was freed and where the instances still alive at exit were made (spec §3.3, §6.7, §12.5).
 
 ## Runtime
@@ -55,6 +54,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 ## Tests
 
 - Run an exported game with the official export templates; build and test the release library.
+- The language group's check of `free()` in `_process` (free_check.pet) lets the engine read the freed node after `_process` returns (core/object/object.cpp:908-914; ed1daf0), which crashed the group once in a full run on 2026-11-02 and passed when rerun.
 
 ## Performance
 
@@ -67,6 +67,7 @@ Engine calls are by name with Variant arguments now, so code that calls the engi
 - Engine callbacks such as `_process(delta)`: no entry check of value-type arguments, whose types the engine guarantees.
 - Calls between classes of this language: the method found by name once per call site, since a run keeps one version of each class (spec §12.4); a static method's script, and the script `Class.new()` sets, are now loaded through ResourceLoader at every call.
 - Calls within a class: since inheritance they pass arguments the general way of calls between classes and repeat checks that loading made; the calls benchmark went from 18 to 23 ms.
+- Function values: `f.call(x)` goes through the engine's `Callable.call` with Variant arguments, a struct encoded and decoded on the way; a lambda or method value of this language could be called directly, its arguments in their slots' layout.
 - Engine calls: whether the result is a `GDScriptFunctionState`, which only methods of GDScript classes return (spec §9.8), is asked of every object result, by a call into the engine.
 - Coroutines: freeing an instance, and every frame, walk all active tasks; tasks listed by their owner would walk only the owner's.
 - Containers: the storage behind Array and Dictionary may be replaced later, keeping their public semantics (spec §3.8); the arrays benchmark loses to GDScript mostly to boxing each element into a Variant and back, and the check that a container is not read-only before each change (spec §3.8) is a call into the engine, about 7 ns of an append. Escape analysis can give containers that do not escape a private representation, the engine container being the reference semantics (architecture §2.2): a private representation supports some operations, a container that uses others keeps the engine's, and each private operation is tested against the engine's.

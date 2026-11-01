@@ -1,0 +1,83 @@
+# Lambdas (spec §3.11). Driven by language_test.gd.
+class_name LambdaCheck
+extends Node
+
+pub signal scored(points: int)
+
+struct Hit:
+	var damage: int
+
+var total := 0
+var doubler := func(x: int): return x * 2
+
+
+# A capture is the value where the lambda is made.
+pub func by_value() -> Array[int]:
+	var n := 1
+	var hit := Hit(damage = 1)
+	var f := func(): return [n, hit.damage]
+	n = 2
+	hit.damage = 2
+	return f.call()
+
+
+# A container is shared; so is self.
+pub func shared() -> Array[int]:
+	var counter: Array[int] = [0]
+	var f := func(step: int):
+		counter[0] += step
+		total += step
+	f.call(2)
+	f.call(3)
+	return [counter[0], total]
+
+
+pub func connected() -> int:
+	var received: Array[int] = []
+	scored.connect(func(points): received.append(points * 10))
+	scored.emit(4)
+	return received[0]
+
+
+# Through a lambda in a lambda; narrowed where it is made.
+pub func nested(parent: Node?) -> String:
+	if parent == None:
+		return ""
+	var prefix := "in "
+	var outer := func():
+		var inner := func(): return prefix + str(parent.name)
+		return inner.call()
+	return outer.call()
+
+
+static func from_static(n: int) -> int:
+	var add := func(x: int): return x + n
+	return add.call(1)
+
+
+pub func static_lambda() -> int:
+	return from_static(2)
+
+
+pub func calls() -> Array[int]:
+	var f := func(a: int, b: int) -> int: return a * 10 + b
+	return [f.callv([1, 2]), f.bind(5).call(4), doubler.call(21)]
+
+
+# One the engine calls.
+pub func sorted() -> Array[int]:
+	var numbers: Array[int] = [3, 1, 2]
+	numbers.sort_custom(func(a: int, b: int): return a > b)
+	return numbers
+
+
+pub func make_adder(n: int) -> Callable:
+	return func(x: int): return x + n
+
+
+pub func named() -> Callable:
+	return func on_tick(): return total
+
+
+pub func bound_to_self() -> Callable:
+	return func(): return total

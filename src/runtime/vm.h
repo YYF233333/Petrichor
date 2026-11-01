@@ -54,8 +54,10 @@ namespace vm {
 
 // Calls a function from the engine or another language. The arguments pass the
 // entry checks (spec §10.1); after a program error the engine gets the default
-// value of the return type (spec §8.1), and `r_failed`, when given, is set.
-godot::Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const godot::Variant **p_args, int64_t p_argc, GDExtensionCallError &r_error, bool *r_failed = nullptr);
+// value of the return type (spec §8.1), and `r_failed`, when given, is set. A
+// lambda's captures, its last parameters, are copied from `p_captures`, each
+// in its parameter's layout (spec §3.11).
+godot::Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const godot::Variant **p_args, int64_t p_argc, GDExtensionCallError &r_error, bool *r_failed = nullptr, const uint8_t *const *p_captures = nullptr);
 
 // The call stack of the current thread, innermost last.
 const std::vector<StackFrame> &stack();

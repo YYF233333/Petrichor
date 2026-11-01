@@ -61,7 +61,7 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 	}
 	for (size_t i = 0; p_base && i < p_base->module.functions.size(); i++) {
 		const std::string &name = p_base->module.functions[i].name;
-		if ((name.empty() || name[0] != '@') && (i >= image->module.functions.size() || image->module.functions[i].name != name)) {
+		if (!p_base->module.functions[i].is_lambda && (name.empty() || name[0] != '@') && (i >= image->module.functions.size() || image->module.functions[i].name != name)) {
 			r_error = "Base method declaration changed. Rebuild the project.";
 			return nullptr;
 		}
@@ -78,6 +78,13 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		const bytecode::Function &function = module.functions[i];
 		const StringName name = to_godot(function.name);
 		image->function_names.push_back(name);
+		// A lambda is no method of the class (spec §3.11).
+		if (function.is_lambda) {
+			image->function_origins.emplace_back();
+			image->function_signatures.push_back(signature_id(module.types, function.params, function.defaults.size(), function.result, function.is_async));
+			image->frames.push_back(SlotLayout::of(function.frame_size, function.slots, types));
+			continue;
+		}
 		image->function_lookup.insert(name, int(i));
 		const int parent = p_base ? p_base->find_function(name) : -1;
 		// The base's bodies may name the method to the engine, as in
@@ -577,13 +584,22 @@ bool same_initializers(const bytecode::Module &p_a, const bytecode::Module &p_b)
 bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	const bytecode::Module &a = module;
 	const bytecode::Module &b = p_other.module;
+	// Those the class declares, which come first; lambdas belong to the bodies
+	// they are in (spec §3.11, §12.4).
+	const auto declared = [](const bytecode::Module &p_module) {
+		size_t count = 0;
+		while (count < p_module.functions.size() && !p_module.functions[count].is_lambda && int32_t(count) != p_module.init_function && int32_t(count) != p_module.ready_function) {
+			count++;
+		}
+		return count;
+	};
 	if (a.base_script != b.base_script || bool(base) != bool(p_other.base) || (base && !base->same_declarations(*p_other.base))) {
 		return false;
 	}
 	if (a.declarations_only || b.declarations_only) {
 		return false;
 	}
-	if (a.global_name != b.global_name || a.base_class != b.base_class || a.is_abstract != b.is_abstract || a.instance_size != b.instance_size || a.members.size() != b.members.size() || a.functions.size() != b.functions.size()) {
+	if (a.global_name != b.global_name || a.base_class != b.base_class || a.is_abstract != b.is_abstract || a.instance_size != b.instance_size || a.members.size() != b.members.size() || declared(a) != declared(b)) {
 		return false;
 	}
 	const ModulePair pair{ a, b };
@@ -633,10 +649,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 		return false;
 	}
 	// Signatures; the line, the frame and the code belong to the body.
-	for (size_t i = 0; i < a.functions.size(); i++) {
-		if (int32_t(i) == a.init_function || int32_t(i) == a.ready_function) {
-			continue;
-		}
+	for (size_t i = 0; i < declared(a); i++) {
 		const bytecode::Function &x = a.functions[i];
 		const bytecode::Function &y = b.functions[i];
 		if (x.is_inherited != y.is_inherited || x.base_signature != y.base_signature || x.name != y.name || !pair.same_slot(x.result, y.result) || x.is_pub != y.is_pub || x.is_override != y.is_override || x.is_exposed != y.is_exposed ||
