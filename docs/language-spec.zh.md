@@ -324,7 +324,19 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 方法值（例如 `change_weapon`、`_on_hit`）和 lambda 具有函数类型，交给引擎时成为直接指向该方法的 Callable，不按名字查找（§10.5）。
 - `f.bind(a, b)` 的类型是在 f 的函数类型中去掉最后两个参数，因为引擎把绑定的实参接在调用实参之后（`core/variant/callable_bind.cpp:141-150`）。
 - 签名未知的 `Callable` 须显式转换为函数类型，每次调用时检查参数和返回值。
-- lambda 按值捕获，与 GDScript 相同。在 RefCounted 类中捕获 self 是强引用（`modules/gdscript/gdscript_lambda_callable.cpp:285-291`），不悄悄改为弱引用；需要弱捕获时用 `weak`（§3.12）。
+- lambda 按值捕获，与 GDScript 相同：lambda 保留它用到的局部变量和参数在创建时的值。在 RefCounted 类中捕获 self 是强引用（`modules/gdscript/gdscript_lambda_callable.cpp:285-291`），不悄悄改为弱引用；需要弱捕获时用 `weak`（§3.12）。
+- 在 lambda 中给捕获的变量赋值，或给捕获的值类型的值的字段赋值，是编译错误。GDScript 允许这样写，但每次调用都把捕获作为实参传入（`modules/gdscript/gdscript_lambda_callable.cpp:101-120`），赋值既不改变外面的变量，也影响不到下一次调用，GDScript 自己对此给出警告（`modules/gdscript/gdscript_analyzer.cpp:2895-2917`）。与 lambda 共享的状态放在成员或容器中：
+
+  ```gdscript
+  var hits := 0
+  area.body_entered.connect(func(body): hits += 1)        # 错误：给捕获的 hits 赋值
+  var counter: Array[int] = [0]
+  area.body_entered.connect(func(body): counter[0] += 1)  # 容器是共享的
+  ```
+
+  由于捕获的变量在 lambda 中不会改变，创建 lambda 处已收窄的类型在它的函数体中仍然收窄（§5.4）。依据：[语料计数](surveys/corpus-counts.zh.md)中方法里的 958 个 lambda 没有一个给所在方法的局部变量赋值，经其成员或下标赋值的 15 个改的都是对象或容器。【后续】与外层函数共享的捕获。
+- lambda 可以命名，如 `func on_timeout(): ...`；与 GDScript 相同，名字用于在调用栈和它的 Callable 的文本中标识它，在函数体中不可见（`modules/gdscript/gdscript_parser.cpp:3731-3733`、`modules/gdscript/gdscript_lambda_callable.cpp:61-62`）。依据：语料计数的 979 个 lambda 中命名的有 18 个。
+- lambda 的参数不带默认值，写了是编译错误：函数类型不记录默认值，本语言的调用方总是传入全部实参。依据：语料计数的 979 个 lambda 没有一个带默认值。【后续】lambda 参数的默认值。
 - lambda 的类型按局部规则推断（§4.6）。
 
 ### 3.12 弱引用
@@ -518,7 +530,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 5.4 收窄
 
-- 收窄与 Kotlin 的智能转换类似，但只用于局部变量和参数：它们在 `!= None`、`is` 和提前返回之后收窄；条件表达式 `a if c else b` 的两个分支，以及 `and`、`or` 的右侧，同样按条件收窄。给局部变量重新赋值后，收窄按新值重新计算。
+- 收窄与 Kotlin 的智能转换类似，但只用于局部变量和参数：它们在 `!= None`、`is` 和提前返回之后收窄；条件表达式 `a if c else b` 的两个分支，以及 `and`、`or` 的右侧，同样按条件收窄。给局部变量重新赋值后，收窄按新值重新计算。lambda 的捕获保持创建 lambda 处的收窄（§3.11）。
 - 成员不收窄，须先读入局部变量。依据：[第二次纸面迁移](surveys/paper-migration-2.zh.md)中，因此新增的局部变量每千行 4.4 个。【后续】条件绑定（例如 `if var t = _tween:`），或在检查与使用之间没有调用、await 和赋值时让没有 getter 的字段收窄。
 - 没有真值判断：条件，以及 `not`、`!`、`and`、`or` 的操作数，必须是 bool。x 不是 bool 时，GDScript 的 `if x:`、`if not x:` 是编译错误，快速修复按 x 的类型改为 `x != None`、`x != 0`、`x != ""` 等，`not x` 相应改为 `x == None` 等。
 - 非空不代表对象仍然存活；访问时照常检查（§3.3）。
@@ -958,7 +970,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 12.4 热重载
 
-- 只修改函数体时，运行中直接替换：下一次调用使用新代码，正在挂起的协程用旧版本执行完。
+- 只修改函数体时，运行中直接替换：下一次调用使用新代码，正在挂起的协程用旧版本执行完。修改之前创建的 lambda 也一样，运行创建它的那一版代码。GDScript 把 lambda 换成新版本中同一位置的 lambda，lambda 的个数、捕获或参数对不上时使它失效（`modules/gdscript/gdscript_compiler.cpp:3217-3254`、`modules/gdscript/gdscript.cpp:1411-1421`），可能用旧的捕获运行另一个 lambda 的函数体。
 - 修改成员、签名或类结构时不迁移状态，提示需要重新运行：运行中的游戏不应用这次修改，此后的修改也一律不应用，直到重新运行，使一次运行中每个类只有一个版本；编辑器中的 tool 脚本重建实例。
 - 理由：只让之后新建的实例使用新版本，同一次运行中同一个类会有两个版本，按旧声明编译的代码可能调用新实例；而在拒绝一处声明修改之后，只改函数体的脚本也可能已按新的声明编译。GDScript 让所有实例换用新代码，按成员名搬移旧值而不检查类型（`modules/gdscript/gdscript_compiler.cpp:3070-3074`，`modules/gdscript/gdscript.cpp:2038-2064`），在静态类型下搬过去的值不可信。
 
@@ -1045,7 +1057,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - struct 构造的位置参数、修改 self 或重新定义 `==`、`<` 与哈希的 struct 方法、struct 成员的 `private`、不经容器的值类型递归（§3.6）；
 - 泛型接口，写作 `interface Source[T]:`（§3.9）；
 - 泛型的多个约束，以及以类作约束（§3.10）；
-- 函数类型中的参数名、直接调用 `f(x)`、把普通函数传给期望 async 的位置（§3.11）；
+- 函数类型中的参数名、直接调用 `f(x)`、把普通函数传给期望 async 的位置、与外层函数共享的捕获，以及 lambda 参数的默认值（§3.11）；
 - 更严的 `private` 可见性（§4.2）；
 - 常量表达式中的 `%` 格式化、`is`、`as`、`in`、GDScript 的工具函数和 Basis、Quaternion 的上述构造和运算，以及由编译器求返回 float 的数学函数（§4.5）；
 - 调用处的展开写法（§4.6）；
@@ -1079,7 +1091,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 容器 | `pop_front()` 在空数组上得 None；`pop_at(0)` 在空数组上是程序错误，`pop_at(-1)` 取出最后一个元素；`front()` 在空数组上是程序错误，空 `Array[int]` 上的 `min()` 也是；越界下标是程序错误；`d[k]` 在缺键时是程序错误；元素为 struct 的数组直接传给 Variant 参数报编译错误，快速修复改为 `Array(hits)`，得到元素为 Dictionary 的副本，之后修改原数组不影响副本；`Array[Hit].try_from(Array(hits))` 得 `Ok`；`Array[Hit]` 上的 `sort()` 按 `<` 排列，`has(h)` 找到字段相同的元素；`Array[Node]` 上的 `sort()` 报编译错误并给出 `sort_custom`，`resize` 也报编译错误并给出 `Array[Node?]`；a 为 `[1]` 时，`d[a] = 1; a.append(2)` 之后 `d.has([1])` 为真、`d.has(a)` 为假；向取自 `d.keys()` 的键追加元素是程序错误；读出 GDScript 追加进 `Array[Array[int]]` 的无类型 Array 是程序错误，`Array[Array[int]]` 的 `resize` 填入空的 `Array[int]` |
 | 接口 | 实现 `Combatant extends Damageable` 的类可以传给期望 Damageable 的参数；两个父接口的同名方法签名不兼容时报编译错误；两个父接口都有默认实现而未覆盖时报编译错误；`interface A extends B` 与 `interface B extends A` 报编译错误；声明 `interface Source[T]:` 报编译错误；`@readonly var hp: int` 的要求可以由可读写的成员满足；`var hp: int` 的要求遇到没有 setter 的引擎属性报编译错误；默认方法给 `@readonly` 属性赋值报编译错误；在接口以外使用 `@readonly` 报编译错误 |
 | 泛型 | `first([1, 2])` 中 T 推断为 int；`var x = first([])` 推断不出 T 报编译错误，`var x = first[int]([])` 合法；不满足约束的类型实参报编译错误；Node 脚本声明类型参数报编译错误；GDScript 引用泛型方法是 GDScript 的编译错误；`sig.connect(handle)` 在 handle 为泛型且类型实参确定不了时报编译错误；不继承 Resource 的泛型 RefCounted 类合法，不出现在引擎的全局类表中 |
-| 函数类型 | `func(int)` 与 `func(int) -> void` 相同；`(func(Enemy) -> bool)?` 可空，`func(Enemy) -> bool?` 返回 `bool?`；`f(x)` 报编译错误并给出 `f.call(x)`；`func(Node)` 可以用于期望 `func(Node3D)` 的位置，反之报编译错误；含 await 而未写 async 的 lambda 报编译错误；把 async 函数传给期望普通函数类型的本语言参数报编译错误；把 async 方法连接到信号合法，任务作为根任务运行 |
+| 函数类型 | `func(int)` 与 `func(int) -> void` 相同；`(func(Enemy) -> bool)?` 可空，`func(Enemy) -> bool?` 返回 `bool?`；`f(x)` 报编译错误并给出 `f.call(x)`；`func(Node)` 可以用于期望 `func(Node3D)` 的位置，反之报编译错误；含 await 而未写 async 的 lambda 报编译错误；把 async 函数传给期望普通函数类型的本语言参数报编译错误；把 async 方法连接到信号合法，任务作为根任务运行；在 lambda 中对捕获的局部变量写 `hits += 1`、对捕获的 Vector2 写 `v.x = 1` 报编译错误，对捕获的 Array 写 `counter[0] += 1` 合法，外面也看到改变；lambda 保留捕获的局部变量在创建时的值；lambda 外由 `if x != None:` 收窄的捕获 `x: Node?` 在 lambda 中是 Node；lambda 参数的默认值报编译错误；命名 lambda 的名字在其函数体中不可见 |
 | Variant | `v.hp`、`v + 1`、`v[0]`、`for x in v` 报编译错误；`if v is Dictionary:` 之后 `v.get("hp", 0)` 合法；`v as Node` 为 `Node?`；v 为 NIL 时 `v == None` 为真、`v is int` 为假；v 中是已释放的对象时 `v == None` 为真、`v is Node` 为假、`v as Node` 为 None；int 赋给 Variant 无需转换 |
 | 抽象类与剩余参数 | 构造抽象类报编译错误；具体子类缺少某个抽象方法的实现报编译错误；场景中的节点使用抽象类报编译错误；向 `...args: Array[int]` 传入 String 报编译错误；只写 `...args` 报编译错误；GDScript 调用 `...args: Array[int]` 时传入 String 是程序错误 |
 | 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；在子类以外的其他类中使用不带 `pub` 的 struct 报编译错误；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误，引用 `pub var hits: Array[Hit]` 同样报错；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
@@ -1108,7 +1120,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 工具函数 | `min(1.5, 1)` 报编译错误并给出 `min(1.5, 1.0)`；`lerp(a, b, t)` 的结果与 a 同类型；`find_children("*", "MeshInstance3D")` 为 `Array[MeshInstance3D]` |
 | 字符串 | `"a` 之后直接换行报编译错误，提示改用三引号；期望另一种字符串类型的字面量在编译期构造；`var p: NodePath = &"a"` 报编译错误；`&"a" == "a"` 为真；字面量成员名不存在时报编译错误，并参与重命名 |
 | 跨语言 | GDScript 文件继承本语言的类时，分析服务在该文件上报错并说明原因；await GDScript 协程得到按声明类型检查的结果；作为语句调用 GDScript 协程不报错，把它的结果当作值使用而不写 await 是程序错误；GDScript await 本语言的协程，在取消时得到 null 而不挂起；GDScript await 本语言中返回 Transform3D 的协程时没有警告，取消时把结果赋给 Transform3D 变量，在 debug 构建中报赋值错误而不崩溃；GDScript 持有 `p: Player` 时，属性、方法和信号的类型错误报 GDScript 编译错误；`Player.new()` 的类型为 Player，多传实参报 GDScript 编译错误；本语言持有 GDScript 类的 `b: Ball` 时，对象类型的成员为 `T?`，值类型照声明，方法和信号实参的类型错误报编译错误；以 GDScript 类为类型的参数接受其 GDScript 子类的实例，`as` 与 `is` 也认子类；没有 class_name 的 GDScript autoload 的类型为其脚本的类；`const Unit = preload("unit.gd")` 时，`Unit.new()` 的类型为 Unit 且把实参交给 `_init`，`Unit.make()` 调用静态方法，`Unit.TILE_SIZE` 读取常量，`Unit.missing()` 是编译错误，`set_script(Unit)` 传入脚本 |
-| 热重载 | 只改函数体时，运行中的实例下一次调用使用新代码；修改成员或签名后，运行中的游戏不应用这次修改，此后只改函数体的修改也不应用，直到重新运行 |
+| 热重载 | 只改函数体时，运行中的实例下一次调用使用新代码，之前创建的 lambda 运行旧的函数体；修改成员或签名后，运行中的游戏不应用这次修改，此后只改函数体的修改也不应用，直到重新运行 |
 | 重构 | 导出成员改名时场景中的键同时修改；场景编辑器中给节点改名或移动节点时脚本中的 `$X` 同时修改，并在同一撤销步骤中，一次撤销同时还原场景和脚本，一次重做同时恢复；非字面量路径只报告 |
 | 格式化与 lint | 格式化后语法树不变，`0xFFFF`、`else: if` 和注释原样保留，再格式化一次不再改动；有语法错误的文件不格式化；不再抑制任何诊断的 `@warning_ignore` 给出提示 |
 
@@ -1273,6 +1285,9 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | await 多参数信号得到由实参组成的 Array | `modules/gdscript/gdscript_function.cpp:256-274` |
 | 被等待的对象被释放后，GDScript 的等待方永远挂起 | `modules/gdscript/gdscript.cpp:2069-2079` |
 | RefCounted 类中的 lambda 强引用 self | `modules/gdscript/gdscript_lambda_callable.cpp:285-291` |
+| GDScript 的 lambda 每次调用都把捕获作为实参接收，给捕获赋值既不改变外面的变量，也影响不到下一次调用；GDScript 对此给出警告 | `modules/gdscript/gdscript_lambda_callable.cpp:101-120`；`modules/gdscript/gdscript_analyzer.cpp:2895-2917` |
+| GDScript 的 lambda 可以命名，名字用于标识它的 Callable，不在其函数体中声明 | `modules/gdscript/gdscript_parser.cpp:3731-3733`；`modules/gdscript/gdscript_lambda_callable.cpp:61-62` |
+| GDScript 重新加载时把 lambda 换成新版本中同一位置的 lambda，lambda 的个数、捕获或参数不同时使它失效 | `modules/gdscript/gdscript_compiler.cpp:3217-3254`；`modules/gdscript/gdscript.cpp:1411-1421` |
 | GDScript 的 LSP 是编辑器插件 | `modules/gdscript/language_server/gdscript_language_server.h:35`；`modules/gdscript/register_types.cpp:167` |
 | GDScript 导出时至多把源码转为词法单元，加载时才解析和编译 | `modules/gdscript/register_types.cpp:99-116`；`modules/gdscript/gdscript_cache.cpp:373-379, 392` |
 
@@ -1297,6 +1312,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 文件顶层的类型直接成为全局名 | 打破“文件就是类”，需要另一张全局名表 | §2.4 |
 | 接口的交集类型 `@owner(Node2D & Combatant)` | 新概念；允许引擎属性满足接口的属性要求即可 | §3.9 |
 | 追踪式 GC，或闭包自动弱捕获 self | 与 GDScript 的行为悄悄不同 | §3.11、§6.7 |
+| 像 GDScript 那样允许给捕获的变量赋值，只给出警告 | 赋值既不改变外面的变量，也影响不到下一次调用，与字面意思相反；语料中没有 lambda 这样写 | §3.11 |
 | 在移动节点时检查 owner | 节点移出 owner 的子树是合法操作 | §7.3 |
 | 没有被引用的场景缺值时也算导出错误 | 运行时才确定路径的 `load` 看不到，无法断定场景不被使用 | §7.5 |
 | `as` 转为内置类型时严格检查 | 与 GDScript 的构造转换悄悄不同 | §5.3 |
