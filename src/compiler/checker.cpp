@@ -39,9 +39,26 @@ const char *operator_name(TokenKind p_op) {
 			return ">";
 		case TokenKind::GreaterEqual:
 			return ">=";
+		case TokenKind::ShiftLeft:
+			return "<<";
+		case TokenKind::ShiftRight:
+			return ">>";
+		case TokenKind::Ampersand:
+			return "&";
+		case TokenKind::Pipe:
+			return "|";
+		case TokenKind::Caret:
+			return "^";
 		default:
 			return "";
 	}
+}
+
+bool is_bitwise(const Expr &p_expr) {
+	if (p_expr.kind == ExprKind::Unary) {
+		return p_expr.op == TokenKind::Tilde;
+	}
+	return p_expr.kind == ExprKind::Binary && (p_expr.op == TokenKind::ShiftLeft || p_expr.op == TokenKind::ShiftRight || p_expr.op == TokenKind::Ampersand || p_expr.op == TokenKind::Pipe || p_expr.op == TokenKind::Caret);
 }
 
 // Utility functions that the engine binds with Variant and that are typed by
@@ -86,72 +103,6 @@ void relocate(Expr &r_expr, const TokenRange &p_range) {
 	for (auto &arg : r_expr.args) {
 		relocate(*arg, p_range);
 	}
-}
-
-bool is_literal(const Expr &p_expr) {
-	switch (p_expr.kind) {
-		case ExprKind::IntLiteral:
-		case ExprKind::FloatLiteral:
-		case ExprKind::StringLiteral:
-		case ExprKind::BoolLiteral:
-			return true;
-		case ExprKind::Unary:
-			return p_expr.op == TokenKind::Minus && (p_expr.left->kind == ExprKind::IntLiteral || p_expr.left->kind == ExprKind::FloatLiteral);
-		default:
-			return false;
-	}
-}
-
-// A value known without running code: a literal, a constant of a built-in
-// type, a constructor of a built-in type whose arguments are such values, or
-// an array literal of such values, each of the type it is stored as. Except
-// for array literals, which make a new array each time, the type's values are
-// not shared between copies (core/variant/variant.cpp:3437-3453). GDScript
-// reduces these forms to the editor's default value
-// (modules/gdscript/gdscript_analyzer.cpp:3286-3328, 4087-4090, 5318-5338,
-// 5652-5681); arithmetic and named constants are not among them yet.
-bool is_constant(const Expr &p_expr, const Type &p_target) {
-	if (p_expr.type.is_error()) {
-		return false;
-	}
-	if (p_expr.kind == ExprKind::NoneLiteral) {
-		return p_target.is_optional();
-	}
-	if (p_target.kind == TypeKind::Option) {
-		return is_constant(p_expr, p_target.args[0]);
-	}
-	if (p_expr.kind == ExprKind::ArrayLiteral) {
-		for (size_t i = 0; i < p_expr.args.size(); i++) {
-			if (!is_constant(*p_expr.args[i], stored_element_type(p_expr, i))) {
-				return false;
-			}
-		}
-		// Boxes are made as the program runs.
-		return p_expr.type == p_target && (p_expr.args.empty() || !is_boxed(p_target));
-	}
-	const bool unshared = p_target.is_primitive() ||
-			(p_target.kind == TypeKind::Builtin && p_target.name != "Array" && p_target.name != "Dictionary" && p_target.name.rfind("Packed", 0) != 0);
-	if (!unshared) {
-		return false;
-	}
-	if (is_literal(p_expr)) {
-		return true; // Assignable, so converted as written (spec §3.2, §10.7).
-	}
-	if (p_expr.type != p_target) {
-		return false;
-	}
-	if (p_expr.target == Target::BuiltinConstant || p_expr.target == Target::EngineConstant) {
-		return true;
-	}
-	if (p_expr.kind != ExprKind::Call || p_expr.target != Target::BuiltinConstructor) {
-		return false;
-	}
-	for (size_t i = 0; i < p_expr.args.size(); i++) {
-		if (!is_constant(*p_expr.args[i], p_expr.param_types[i])) {
-			return false;
-		}
-	}
-	return true;
 }
 
 std::vector<Type> param_types(const std::vector<ParamDecl> &p_params) {
@@ -219,8 +170,11 @@ class Checker : public ClassRelation {
 	// it is one too (§6.3).
 	int initializing = -1;
 	bool initializing_onready = false;
+	// Checking a constant's initializer, which may come before the members' types are known.
+	bool in_constant = false;
 
 	std::unordered_map<std::string, int> member_index;
+	std::unordered_map<std::string, int> constant_index; // In all_constants.
 	std::unordered_map<std::string, int> function_index;
 	std::unordered_map<std::string, int> signal_index;
 	mutable std::unordered_map<std::string, std::optional<ForeignClass>> foreign_classes; // By path.
@@ -754,12 +708,195 @@ class Checker : public ClassRelation {
 				!engine.find_property(cls.native_base, p_expr.text) && is_type_name(p_expr.text) && !engine.is_singleton(p_expr.text);
 	}
 
-	// A name of this instance: a member, the owner, a property, a function or
-	// a signal; also what `self.name` reads, past the locals.
+	/* Constants (spec §4.5) */
+
+	// The class's own constants and those it inherits; a name may be declared
+	// once among them, the members, the functions and the signals.
+	void declare_constants() {
+		if (cls.base) {
+			cls.all_constants = cls.base->all_constants;
+			for (size_t i = 0; i < cls.all_constants.size(); i++) {
+				constant_index[cls.all_constants[i]->name] = int(i);
+			}
+		}
+		for (ConstDecl &constant : cls.constants) {
+			if (constant_index.count(constant.name) || member_index.count(constant.name)) {
+				error(constant.name_token, "\"" + constant.name + "\" is already declared.");
+				continue;
+			}
+			constant_index[constant.name] = int(cls.all_constants.size());
+			cls.all_constants.push_back(&constant);
+			refer(constant.name_token, script_id(options.path, constant.name), true);
+		}
+	}
+
+	// What a constant's initializer is checked in: the class, outside any
+	// function, wherever the constant is first used.
+	struct ClassScope {
+		Checker &checker;
+		FuncDecl *function;
+		std::vector<std::unordered_map<std::string, int>> scopes;
+		std::vector<std::unordered_map<int, Type>> narrowed;
+		int loop_depth;
+		bool in_predelete;
+		int initializing;
+		bool initializing_onready;
+
+		explicit ClassScope(Checker &r_checker) :
+				checker(r_checker), function(r_checker.function), scopes(std::move(r_checker.scopes)), narrowed(std::move(r_checker.narrowed)), loop_depth(r_checker.loop_depth), in_predelete(r_checker.in_predelete), initializing(r_checker.initializing), initializing_onready(r_checker.initializing_onready) {
+			checker.function = nullptr;
+			checker.scopes.clear();
+			checker.narrowed.assign(1, {});
+			checker.loop_depth = 0;
+			checker.in_predelete = false;
+			checker.initializing = -1;
+			checker.initializing_onready = false;
+		}
+		~ClassScope() {
+			checker.function = function;
+			checker.scopes = std::move(scopes);
+			checker.narrowed = std::move(narrowed);
+			checker.loop_depth = loop_depth;
+			checker.in_predelete = in_predelete;
+			checker.initializing = initializing;
+			checker.initializing_onready = initializing_onready;
+		}
+	};
+
+	// A value whose type is `p_type`, from the initializer as written: the
+	// type is inferred from it when not declared (spec §4.3, §4.5).
+	ConstPtr constant_value(Expr &r_initializer, const std::optional<TypeRef> &p_declared, Type &r_type) {
+		r_type = Type::of(TypeKind::Error);
+		if (p_declared) {
+			r_type = resolve(*p_declared, false);
+			if (r_type.kind == TypeKind::Option || (r_type.kind == TypeKind::Object && r_type.nullable)) {
+				error(p_declared->range, "Constants of type " + r_type.to_string() + " are not supported yet.");
+				r_type = Type::of(TypeKind::Error);
+			}
+		}
+		const Type value = check_value(r_initializer, r_type);
+		if (value.is_error()) {
+			return nullptr;
+		}
+		if (p_declared) {
+			if (r_type.is_error()) {
+				return nullptr;
+			}
+			expect_assignable(r_initializer, value, r_type, "assign");
+			if (!assignable(value, r_type)) {
+				return nullptr;
+			}
+		} else if (value.kind == TypeKind::None) {
+			error(r_initializer.range, "None does not say which T? it is; constants of type T? are not supported yet.");
+			r_type = Type::of(TypeKind::Error);
+			return nullptr;
+		} else {
+			r_type = value;
+		}
+		if (!r_initializer.constant) {
+			require_constant(r_initializer);
+			return nullptr;
+		}
+		return converted(r_initializer.constant, r_type);
+	}
+
+	// Checks a constant of this class when it is first needed, so that a
+	// constant may use one declared after it, as in GDScript
+	// (modules/gdscript/gdscript_analyzer.cpp:967-1119).
+	void check_constant(ConstDecl &r_decl) {
+		if (r_decl.state != ConstDecl::State::Unchecked) {
+			return;
+		}
+		r_decl.state = ConstDecl::State::Checking;
+		{
+			const ClassScope scope(*this);
+			const bool was_in_constant = in_constant;
+			in_constant = true;
+			r_decl.value = constant_value(*r_decl.initializer, r_decl.declared_type, r_decl.type);
+			in_constant = was_in_constant;
+		}
+		r_decl.state = ConstDecl::State::Checked;
+	}
+
+	// A use of a constant of the class at `p_path`, which declares it.
+	Type use_constant(Expr &r_expr, const ConstDecl &p_decl, const std::string &p_path) {
+		refer(r_expr.name_token, script_id(p_path, p_decl.name));
+		r_expr.target = Target::Constant;
+		if (p_decl.state == ConstDecl::State::Checking) {
+			return fail(r_expr, "The constant \"" + p_decl.name + "\" depends on its own value.");
+		}
+		if (p_decl.type.is_error()) {
+			return set(r_expr, p_decl.type);
+		}
+		r_expr.constant = p_decl.value;
+		return set(r_expr, p_decl.type);
+	}
+
+	// A constant this class declares or inherits, checked; null if none.
+	const ConstDecl *own_constant(const std::string &p_name) {
+		const auto found = constant_index.find(p_name);
+		if (found == constant_index.end()) {
+			return nullptr;
+		}
+		const ConstDecl *decl = cls.all_constants[found->second];
+		if (is_own(*decl, cls.constants)) {
+			check_constant(const_cast<ConstDecl &>(*decl));
+		}
+		return decl;
+	}
+
+	// The script of the class of this language a name refers to by its
+	// class_name, when nothing closer has the name; empty otherwise.
+	std::string script_class_named(const Expr &p_expr) const {
+		if (p_expr.kind != ExprKind::Name || find_local(p_expr.text) >= 0 || member_index.count(p_expr.text) || constant_index.count(p_expr.text) || engine.find_property(cls.native_base, p_expr.text)) {
+			return std::string();
+		}
+		if (!cls.class_name.empty() && p_expr.text == cls.class_name) {
+			return options.path;
+		}
+		const std::string path = options.project ? options.project->global_class_path(p_expr.text) : std::string();
+		return is_script_path(path) ? path : std::string();
+	}
+
+	// A constant of the class at `p_path` (spec §4.5), as `Class.NAME` or
+	// `object.NAME`; nullopt when the class has no constant of that name.
+	// Other classes see only pub constants, except subclasses (§4.2).
+	std::optional<Type> class_constant(Expr &r_expr, const std::string &p_path, const std::string &p_class) {
+		if (p_path == options.path) {
+			if (const ConstDecl *decl = own_constant(r_expr.text)) {
+				return use_constant(r_expr, *decl, declaring(cls, *decl, &ClassDecl::constants).path);
+			}
+			return std::nullopt;
+		}
+		const ClassDecl *decl = script_decl(p_path);
+		if (!decl) {
+			return fail(r_expr, p_class + " has errors.");
+		}
+		for (const ConstDecl *constant : decl->all_constants) {
+			if (constant->name != r_expr.text) {
+				continue;
+			}
+			if (!constant->is_pub && !extends_script(options.path, p_path)) {
+				return fail(r_expr, "The constant \"" + constant->name + "\" of " + p_class + " is not pub.");
+			}
+			return use_constant(r_expr, *constant, declaring(*decl, *constant, &ClassDecl::constants).path);
+		}
+		return std::nullopt;
+	}
+
+	// A name of this instance: a constant, a member, the owner, a property, a
+	// function or a signal; also what `self.name` reads, past the locals.
 	std::optional<Type> check_self_name(Expr &r_expr) {
+		if (const ConstDecl *constant = own_constant(r_expr.text)) {
+			return use_constant(r_expr, *constant, declaring(cls, *constant, &ClassDecl::constants).path);
+		}
 		const auto member = member_index.find(r_expr.text);
 		if (member != member_index.end()) {
 			const VarDecl &read = *cls.all_members[member->second];
+			if (in_constant) {
+				refer(r_expr.name_token, script_id(declaring(cls, read, &ClassDecl::members).path, read.name));
+				return fail(r_expr, "\"" + r_expr.text + "\" is a variable, not a constant (spec §4.5).");
+			}
 			if (initializing >= 0) {
 				// @onready initializers run when the node is ready, after the
 				// others (spec §6.3); each kind runs in declaration order (§6.1).
@@ -847,6 +984,7 @@ class Checker : public ClassRelation {
 		if (local >= 0) {
 			r_expr.target = Target::Local;
 			r_expr.index = local;
+			r_expr.constant = function->locals[local].constant;
 			refer(r_expr.name_token, local_id(function->locals[local].token));
 			const Type *narrowed_to = narrowed_type(local);
 			return set(r_expr, narrowed_to ? *narrowed_to : function->locals[local].type);
@@ -907,6 +1045,9 @@ class Checker : public ClassRelation {
 			r_expr.owner = p_class.engine_class();
 			refer(r_expr.name_token, script_id(p_class.script, p_class.interface_name() + "." + property->name));
 			return property->type;
+		}
+		if (const std::optional<Type> constant = class_constant(r_expr, p_class.script, p_class.name)) {
+			return constant;
 		}
 		for (const VarDecl *entry : decl->all_members) {
 			const VarDecl &member = *entry;
@@ -1047,6 +1188,16 @@ class Checker : public ClassRelation {
 				return *found;
 			}
 			return refuse_in_static(base, "self") ? set(r_expr, Type::of(TypeKind::Error)) : fail(r_expr, display_name(cls, options.path) + " has no member \"" + r_expr.text + "\".");
+		}
+		const std::string class_path = script_class_named(base);
+		if (!class_path.empty()) {
+			refer(base.name_token, script_id(class_path));
+			const ClassDecl *header = script_header(class_path);
+			const std::string class_name = header ? display_name(*header, class_path) : base.text;
+			if (const std::optional<Type> constant = class_constant(r_expr, class_path, class_name)) {
+				return *constant;
+			}
+			return fail(r_expr, class_name + " has no constant \"" + r_expr.text + "\".");
 		}
 		if (names_type(base)) {
 			refer(base.name_token, engine_id(base.text));
@@ -1282,6 +1433,13 @@ class Checker : public ClassRelation {
 		if (check_call(r_expr).is_error()) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
+		// A constant expression, loaded where it is used (spec §4.5, §7.4).
+		auto value = std::make_shared<ConstValue>();
+		value->kind = ConstValue::Kind::Preload;
+		value->type = Type::scene(root_type);
+		value->text = path;
+		value->source = &r_expr;
+		r_expr.constant = value;
 		return set(r_expr, Type::scene(root_type));
 	}
 
@@ -1303,6 +1461,9 @@ class Checker : public ClassRelation {
 				}
 			}
 			return fail(r_expr, "Cannot negate a value of type " + operand.to_string() + ".");
+		}
+		if (r_expr.op == TokenKind::Tilde) {
+			return operand.kind == TypeKind::Int ? set(r_expr, operand) : fail(r_expr, "\"~\" requires int, found " + operand.to_string() + ".");
 		}
 		if (operand.kind == TypeKind::Bool) {
 			return set(r_expr, operand);
@@ -1402,6 +1563,15 @@ class Checker : public ClassRelation {
 				if (numeric) {
 					error(p_at, "\"%\" requires int operands; use fmod() for float.");
 					return Type::of(TypeKind::Error);
+				}
+				break;
+			case TokenKind::ShiftLeft:
+			case TokenKind::ShiftRight:
+			case TokenKind::Ampersand:
+			case TokenKind::Pipe:
+			case TokenKind::Caret:
+				if (both_int) {
+					return number;
 				}
 				break;
 			case TokenKind::Less:
@@ -2265,7 +2435,13 @@ class Checker : public ClassRelation {
 			if (r_expr.args.empty()) {
 				return fail(r_expr, "An empty array needs a declared type, for example var a: Array[int] = [].");
 			}
-			return fail_call(r_expr, "An array literal needs a declared type for now, for example var a: Array[int] = [1, 2].");
+			// Otherwise its elements' common type gives it (spec §4.3).
+			const std::optional<Type> element = common_element(r_expr.args, 0, 1, "elements");
+			if (!element) {
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
+			r_expr.param_types.assign(r_expr.args.size(), *element);
+			return set(r_expr, Type::array(*element));
 		}
 		const Type element = expected.args.empty() ? Type::of(TypeKind::Variant) : expected.args[0];
 		for (auto &arg : r_expr.args) {
@@ -2278,14 +2454,58 @@ class Checker : public ClassRelation {
 		return set(r_expr, expected);
 	}
 
-	// `{k: v}` takes its type from where it goes, as `[a, b]` does. A key
-	// written as a name is a StringName, as in GDScript
-	// (modules/gdscript/gdscript_parser.cpp:3330-3336).
+	// The common type of the values at `p_first`, `p_first + p_step`… of a
+	// literal, which have no type to go to; nullopt after reporting.
+	std::optional<Type> common_element(std::vector<std::unique_ptr<Expr>> &r_values, size_t p_first, size_t p_step, const std::string &p_what) {
+		std::optional<Type> common;
+		bool ok = true;
+		for (size_t i = p_first; i < r_values.size(); i += p_step) {
+			const Type type = check_value(*r_values[i]);
+			if (type.is_error() || !ok) {
+				ok = false;
+				continue;
+			}
+			if (type.kind == TypeKind::None) {
+				error(r_values[i]->range, "None does not say which T? the " + p_what + " are; declare the type.");
+				ok = false;
+				continue;
+			}
+			const Type next = common ? common_type(*common, type) : type;
+			if (next.is_error()) {
+				error(r_values[i]->range, "The " + p_what + " have types " + common->to_string() + " and " + type.to_string() + ", which have no common type; declare the type.");
+				ok = false;
+				continue;
+			}
+			common = next;
+		}
+		return ok ? common : std::nullopt;
+	}
+
+	// `{k: v}` takes its type from where it goes, as `[a, b]` does, or from
+	// its keys and values. A key written as a name is a StringName, as in
+	// GDScript (modules/gdscript/gdscript_parser.cpp:3330-3336).
 	Type check_dictionary_literal(Expr &r_expr, const Type &p_expected) {
 		const Type expected = p_expected.kind == TypeKind::Option ? p_expected.args[0] : p_expected;
 		const std::optional<std::pair<Type, Type>> entries = entries_of(expected);
+		if (!entries && r_expr.args.empty()) {
+			return fail_call(r_expr, "An empty dictionary needs a declared type, for example var d: Dictionary[String, int] = {}.");
+		}
 		if (!entries) {
-			return fail_call(r_expr, r_expr.args.empty() ? "An empty dictionary needs a declared type, for example var d: Dictionary[String, int] = {}." : "A dictionary literal needs a declared type for now, for example var d: Dictionary[String, int] = {\"a\": 1}.");
+			const std::optional<Type> key = r_expr.bool_value ? std::optional<Type>(Type::builtin("StringName")) : common_element(r_expr.args, 0, 2, "keys");
+			if (r_expr.bool_value) {
+				for (size_t i = 0; i < r_expr.args.size(); i += 2) {
+					check_value(*r_expr.args[i], *key);
+				}
+			}
+			const std::optional<Type> value = common_element(r_expr.args, 1, 2, "values");
+			if (!key || !value) {
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
+			for (size_t i = 0; i + 1 < r_expr.args.size(); i += 2) {
+				r_expr.param_types.push_back(*key);
+				r_expr.param_types.push_back(*value);
+			}
+			return set(r_expr, Type::dictionary(*key, *value));
 		}
 		const Type name_key = entries->first.kind == TypeKind::Variant ? Type::builtin("StringName") : entries->first;
 		for (size_t i = 0; i + 1 < r_expr.args.size(); i += 2) {
@@ -2501,7 +2721,12 @@ class Checker : public ClassRelation {
 				return result;
 			}
 			if (!base_type.builtin_name().empty()) {
-				return check_builtin_method(r_expr, base_type);
+				const Type result = check_builtin_method(r_expr, base_type);
+				const std::string constant = result.is_error() || r_expr.is_const ? std::string() : constant_root(base);
+				if (!constant.empty()) {
+					return fail(r_expr, "\"" + constant + "\" is a constant, whose containers are read-only (spec §4.5).");
+				}
+				return result;
 			}
 			if (base_type.kind == TypeKind::Object) {
 				if (!base_type.script.empty()) {
@@ -2632,7 +2857,83 @@ class Checker : public ClassRelation {
 		return fail(r_expr, "await expects a Task, a signal or a call to GDScript.");
 	}
 
+	// Types an expression and computes its value when it is a constant
+	// expression (spec §4.5).
 	Type check_expr(Expr &r_expr, const Type &p_expected = Type::of(TypeKind::Error)) {
+		const Type type = type_expr(r_expr, p_expected);
+		if (type.is_error()) {
+			return type;
+		}
+		if (!r_expr.constant) {
+			r_expr.constant = fold(r_expr);
+		}
+		if (is_bitwise(r_expr) && !r_expr.constant) {
+			if (r_expr.constant_error.empty()) {
+				r_expr.constant_error = "Bitwise operators are supported only in constant expressions yet.";
+			}
+			report_constant_error(r_expr);
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		return type;
+	}
+
+	void report_constant_error(const Expr &p_expr) {
+		if (p_expr.constant_error_at) {
+			error(p_expr.constant_error_at->range, p_expr.constant_error);
+		} else if (p_expr.kind == ExprKind::Binary && p_expr.op_token != NO_TOKEN) {
+			error(p_expr.op_token, p_expr.constant_error);
+		} else {
+			error(p_expr.range, p_expr.constant_error);
+		}
+	}
+
+	// The part of an expression that keeps it from being a constant expression.
+	static const Expr &not_constant_part(const Expr &p_expr) {
+		for (const Expr *child : { p_expr.base.get(), p_expr.left.get(), p_expr.right.get() }) {
+			if (child && !child->constant && !child->type.is_error()) {
+				return not_constant_part(*child);
+			}
+		}
+		for (const auto &arg : p_expr.args) {
+			if (!arg->constant && !arg->type.is_error()) {
+				return not_constant_part(*arg);
+			}
+		}
+		return p_expr;
+	}
+
+	// Reports why an expression whose value must be a constant is not one.
+	void require_constant(const Expr &p_expr) {
+		const Expr &part = not_constant_part(p_expr);
+		if (!part.constant_error.empty()) {
+			report_constant_error(part);
+			return;
+		}
+		std::string what = "This is not a constant expression";
+		switch (part.kind) {
+			case ExprKind::Call:
+				what = "\"" + part.text + "()\" is not a constant expression: of calls, only constructors of built-in types and math functions are";
+				break;
+			case ExprKind::Name:
+			case ExprKind::Member:
+				if (part.target == Target::Local || part.target == Target::Member || part.target == Target::SelfProperty || part.target == Target::ObjectProperty) {
+					what = "\"" + part.text + "\" is a variable, not a constant";
+				}
+				break;
+			case ExprKind::Self:
+				what = "self is not a constant expression";
+				break;
+			case ExprKind::Cast:
+			case ExprKind::TypeTest:
+				what = "as and is are not supported in constant expressions";
+				break;
+			default:
+				break;
+		}
+		error(part.range, what + " (spec §4.5).");
+	}
+
+	Type type_expr(Expr &r_expr, const Type &p_expected) {
 		switch (r_expr.kind) {
 			case ExprKind::IntLiteral:
 				if (r_expr.int_overflows) {
@@ -2703,6 +3004,12 @@ class Checker : public ClassRelation {
 	// member, a property, or a member of a built-in value in such a place,
 	// which is then written back (architecture §2.1).
 	bool check_place(const Expr &p_target) {
+		const std::string constant = constant_root(p_target);
+		if (!constant.empty()) {
+			const bool whole = p_target.kind != ExprKind::Subscript && p_target.target != Target::Field && p_target.target != Target::StructField;
+			error(p_target.range, whole ? "Cannot assign to the constant \"" + constant + "\"." : "\"" + constant + "\" is a constant, whose containers are read-only (spec §4.5).");
+			return false;
+		}
 		if (p_target.kind == ExprKind::Subscript) {
 			// An Array or a Dictionary changes in place; a packed array is a value,
 			// written back along the chain.
@@ -2737,6 +3044,17 @@ class Checker : public ClassRelation {
 				}
 				return false;
 		}
+	}
+
+	// The constant an expression is or is a part of, as `C`, `C[i]` and `C.x`
+	// are; empty for anything else.
+	std::string constant_root(const Expr &p_expr) const {
+		const bool name = p_expr.kind == ExprKind::Name || p_expr.kind == ExprKind::Member;
+		if (name && (p_expr.target == Target::Constant || (p_expr.target == Target::Local && function && function->locals[p_expr.index].constant))) {
+			return p_expr.text;
+		}
+		const bool part = p_expr.kind == ExprKind::Subscript || (p_expr.kind == ExprKind::Member && (p_expr.target == Target::Field || p_expr.target == Target::StructField));
+		return part && p_expr.base ? constant_root(*p_expr.base) : std::string();
 	}
 
 	// A part of a value, changed in a copy written back along the chain (spec §3.6).
@@ -2863,7 +3181,7 @@ class Checker : public ClassRelation {
 				r_pattern.value = std::move(compare);
 				check_expr(*r_pattern.value);
 				const Expr &value = *r_pattern.value->right;
-				if (!value.type.is_error() && !is_constant(value, value.type)) {
+				if (!value.type.is_error() && !value.constant) {
 					error(value.range, "A pattern is a literal or a constant expression (spec §5.6).");
 				}
 				return;
@@ -2965,6 +3283,13 @@ class Checker : public ClassRelation {
 					error(r_stmt.name_token, "\"" + r_stmt.name + "\" of type " + type.to_string() + " needs an initial value.");
 				}
 				declare_local(r_stmt, type);
+				return;
+			}
+			case StmtKind::Const: {
+				Type type;
+				const ConstPtr value = constant_value(*r_stmt.value, r_stmt.declared_type, type);
+				declare_local(r_stmt, type);
+				function->locals[r_stmt.local].constant = value;
 				return;
 			}
 			case StmtKind::Assign: {
@@ -3104,20 +3429,39 @@ class Checker : public ClassRelation {
 	/* Annotations (spec §2.3) */
 
 	// A number as GDScript writes it into a hint string: 1, -5, 0.1, 1.0.
-	static std::string number_text(const Expr &p_literal) {
-		const bool negative = p_literal.kind == ExprKind::Unary;
-		const Expr &value = negative ? *p_literal.left : p_literal;
-		if (value.kind == ExprKind::IntLiteral) {
-			return (negative ? "-" : "") + std::to_string(value.int_value);
+	static std::string number_text(const ConstValue &p_value) {
+		if (p_value.kind == ConstValue::Kind::Int) {
+			return std::to_string(p_value.i);
 		}
 		std::ostringstream stream;
 		stream.imbue(std::locale::classic());
-		stream << std::setprecision(15) << (negative ? -value.float_value : value.float_value);
+		stream << std::setprecision(15) << p_value.f;
 		std::string text = stream.str();
 		if (text.find_first_of(".einf") == std::string::npos) {
 			text += ".0";
 		}
 		return text;
+	}
+
+	// An argument of an annotation, which the compiler must know (spec §2.3,
+	// §4.5); null after reporting.
+	const ConstValue *annotation_argument(Expr &r_arg) {
+		const bool was_in_constant = in_constant;
+		in_constant = true;
+		const Type type = check_value(r_arg);
+		in_constant = was_in_constant;
+		if (type.is_error()) {
+			return nullptr;
+		}
+		if (!r_arg.constant) {
+			require_constant(r_arg);
+			return nullptr;
+		}
+		if (!r_arg.constant->is_known()) {
+			error(r_arg.range, "An annotation argument must be known at compile time, and this one is computed when the class loads (spec §4.5).");
+			return nullptr;
+		}
+		return r_arg.constant.get();
 	}
 
 	// `@export_range(min, max, step, "or_greater", …)`: GDScript's hint string
@@ -3131,14 +3475,18 @@ class Checker : public ClassRelation {
 		size_t numbers = 0;
 		bool options = false;
 		for (const auto &arg : p_annotation.args) {
-			const bool number = is_literal(*arg) && arg->kind != ExprKind::StringLiteral && arg->kind != ExprKind::BoolLiteral;
-			if ((number && options) || (!number && arg->kind != ExprKind::StringLiteral)) {
+			const ConstValue *value = annotation_argument(*arg);
+			if (!value) {
+				return;
+			}
+			const bool number = value->kind == ConstValue::Kind::Int || value->kind == ConstValue::Kind::Float;
+			if ((number && options) || (!number && value->kind != ConstValue::Kind::String)) {
 				error(arg->range, "@export_range takes numbers, then options such as \"or_greater\".");
 				return;
 			}
 			numbers += number ? 1 : 0;
 			options = options || !number;
-			hint += (hint.empty() ? "" : ",") + (number ? number_text(*arg) : arg->text);
+			hint += (hint.empty() ? "" : ",") + (number ? number_text(*value) : value->text);
 		}
 		if (numbers < 2 || numbers > 3) {
 			error(p_annotation.range, "@export_range takes a minimum, a maximum and an optional step.");
@@ -3159,11 +3507,15 @@ class Checker : public ClassRelation {
 		}
 		std::string hint;
 		for (const auto &arg : p_annotation.args) {
-			if (arg->kind != ExprKind::StringLiteral) {
+			const ConstValue *value = annotation_argument(*arg);
+			if (!value) {
+				return;
+			}
+			if (value->kind != ConstValue::Kind::String) {
 				error(arg->range, "@" + p_annotation.name + " takes strings.");
 				return;
 			}
-			hint += (hint.empty() ? "" : ",") + arg->text;
+			hint += (hint.empty() ? "" : ",") + value->text;
 		}
 		if ((is_enum && p_annotation.args.empty()) || (!is_enum && p_annotation.args.size() > 1)) {
 			error(p_annotation.range, is_enum ? "@export_enum takes the names of the values." : "@export_multiline takes at most a placeholder text.");
@@ -3191,15 +3543,24 @@ class Checker : public ClassRelation {
 			const Annotation &annotation = group.annotation;
 			const size_t most = annotation.name == "export_category" ? 1 : 2;
 			bool ok = !annotation.args.empty() && annotation.args.size() <= most;
+			std::vector<std::string> texts;
 			for (const auto &arg : annotation.args) {
-				ok = ok && arg->kind == ExprKind::StringLiteral;
+				const ConstValue *value = annotation_argument(*arg);
+				if (!value) {
+					ok = false;
+					break;
+				}
+				ok = ok && value->kind == ConstValue::Kind::String;
+				texts.push_back(value->text);
 			}
 			if (!ok) {
-				error(annotation.range, "@" + annotation.name + " takes a name" + (most == 2 ? " and an optional prefix" : "") + ", as strings.");
+				if (texts.size() == annotation.args.size()) {
+					error(annotation.range, "@" + annotation.name + " takes a name" + (most == 2 ? " and an optional prefix" : "") + ", as strings.");
+				}
 				continue;
 			}
-			group.name = annotation.args[0]->text;
-			group.prefix = annotation.args.size() > 1 ? annotation.args[1]->text : std::string();
+			group.name = texts[0];
+			group.prefix = texts.size() > 1 ? texts[1] : std::string();
 		}
 	}
 
@@ -3252,7 +3613,8 @@ class Checker : public ClassRelation {
 				type = value;
 			}
 			// An @onready member gets even a constant when the node is ready.
-			member.constant_initializer = !member.is_onready && is_constant(*member.initializer, type);
+			const ConstPtr initial = converted(member.initializer->constant, type);
+			member.constant_initializer = !member.is_onready && initial && !loads(*initial);
 		} else if (!member.declared_type) {
 			error(member.name_token, "\"" + member.name + "\" needs a type or an initial value.");
 		} else if ((type.kind == TypeKind::Object || type.kind == TypeKind::Task) && !type.nullable) {
@@ -3342,7 +3704,8 @@ class Checker : public ClassRelation {
 			const size_t before = errors.size();
 			const Type value = check_value(*param.default_value, param.type);
 			expect_assignable(*param.default_value, value, param.type, "use");
-			if (errors.size() == before && !is_constant(*param.default_value, param.type)) {
+			const ConstPtr constant = converted(param.default_value->constant, param.type);
+			if (errors.size() == before && (!constant || loads(*constant))) {
 				error(param.default_value->range, "Non-constant default values are not supported yet; pass the argument explicitly.");
 			}
 		}
@@ -3675,7 +4038,8 @@ class Checker : public ClassRelation {
 					} else {
 						type = value;
 					}
-					if (errors.size() == before && !is_constant(*field.initializer, type)) {
+					const ConstPtr constant = converted(field.initializer->constant, type);
+					if (errors.size() == before && (!constant || loads(*constant))) {
 						error(field.initializer->range, "Non-constant default values are not supported yet.");
 					}
 				} else if (!field.declared_type) {
@@ -3879,7 +4243,7 @@ class Checker : public ClassRelation {
 	void declare_signals() {
 		for (size_t i = 0; i < cls.signals.size(); i++) {
 			SignalDecl &signal = cls.signals[i];
-			if (signal_index.count(signal.name) || member_index.count(signal.name) || function_index.count(signal.name) || engine.find_signal(cls.native_base, signal.name)) {
+			if (signal_index.count(signal.name) || member_index.count(signal.name) || constant_index.count(signal.name) || function_index.count(signal.name) || engine.find_signal(cls.native_base, signal.name)) {
 				error(signal.name_token, "\"" + signal.name + "\" is already declared.");
 				continue;
 			}
@@ -3986,9 +4350,10 @@ public:
 		declare_structs();
 		declare_owner();
 		declare_members();
+		declare_constants();
 		std::unordered_set<std::string> own_functions;
 		for (FuncDecl &fn : cls.functions) {
-			if (!own_functions.insert(fn.name).second || member_index.count(fn.name) || signal_index.count(fn.name)) {
+			if (!own_functions.insert(fn.name).second || member_index.count(fn.name) || constant_index.count(fn.name) || signal_index.count(fn.name)) {
 				error(fn.name_token, "\"" + fn.name + "\" is already declared.");
 				continue;
 			}
@@ -4003,6 +4368,12 @@ public:
 		}
 		check_implements();
 		declare_signals();
+		for (ConstDecl &constant : cls.constants) {
+			const auto registered = constant_index.find(constant.name);
+			if (registered != constant_index.end() && cls.all_constants[registered->second] == &constant) {
+				check_constant(constant);
+			}
+		}
 		check_members();
 		check_interface_properties();
 		check_groups();

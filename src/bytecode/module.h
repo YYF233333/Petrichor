@@ -136,20 +136,39 @@ std::string layout_key(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 // its elements or keys boxed, which is then boxed in turn.
 bool is_boxed(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 
-// A constant of a type of the table; one of an Object type or of T? is None.
+// A constant of a type of the table; one of an Object type or of T? is None,
+// unless it loads a resource. The runtime computes it once, when the class
+// loads (spec §4.5): the engine's computations below cannot fail on the values
+// the compiler lets through.
 struct Constant {
 	uint32_t type = 0;
 	bool b = false;
 	int64_t i = 0;
 	double f = 0.0;
-	std::string s; // String, StringName and NodePath values.
+	std::string s; // String, StringName and NodePath values; the path a resource loads from.
 	std::string builtin; // A constant of a built-in type, such as "UP" of Vector3.
 	// A value built by a constructor of the type, by its index in the engine's
 	// list, from `args`, which have the types the constructor takes; -1 for
 	// none.
 	int32_t constructor = -1;
-	// The constructor's arguments, or the elements of an Array, typed as its type says.
+	int32_t op = -1; // The engine's operator (Variant::Operator) on `args`, one or two; -1 for none.
+	int32_t utility = -1; // A utility function of the table, called with `args`; -1 for none.
+	std::string field; // The member of the built-in value `args[0]`, such as x of Vector3.
+	// The resource at `s`, which the runtime loads only when asked for it: only
+	// the class's own constants (`Module::named_constants`) refer to one.
+	bool load = false;
+	// The constructor's arguments, the operands, the utility function's
+	// arguments, the elements of an Array, or each key of a Dictionary and its
+	// value, typed as its type says.
 	std::vector<Constant> args;
+};
+
+// A constant the class declares or inherits (spec §4.5), which the engine and
+// GDScript read by name when it is pub (§10.5, §11.3).
+struct NamedConstant {
+	std::string name;
+	uint32_t constant = 0; // In the constants table.
+	bool is_pub = false;
 };
 
 struct Slot {
@@ -341,6 +360,9 @@ struct Module {
 	// and compared with it as declarations.
 	int32_t ready_function = -1;
 	TablePrefix init_tables; // What the two use.
+	// Lowered before the init function, so that their entries are among the
+	// declarations hot reload compares (spec §4.5, §12.4).
+	std::vector<NamedConstant> named_constants;
 	std::vector<Constant> constants;
 	std::vector<EngineCall> engine_calls;
 	std::vector<PropertyAccess> properties;

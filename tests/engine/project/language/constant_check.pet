@@ -1,0 +1,70 @@
+class_name ConstantCheck extends RefCounted
+
+# Constants (spec §4.5): the compiler computes scalars, the engine the rest
+# once, when the class loads.
+
+pub const DAY_MS = 24 * 60 * 60 * 1000
+pub const MASK = 1 << 3 | 1
+pub const EXTENTS := Vector3.ONE / 2.0
+pub const HALF_X = EXTENTS.x
+pub const TINT = Color.WHITE * Color(1, 1, 1, 0.5)
+pub const ANGLE = deg_to_rad(30)
+pub const SLOPE = tan(ANGLE)
+pub const RIGHT = Vector2(1, 0) == Vector2.RIGHT
+pub const NAMES = ["a", "b"]
+pub const LIMITS = {"hp": 100, "mp": 50}
+pub const RED = Color("#ff0000")
+const SECRET = 7
+
+
+pub func day() -> int:
+	return DAY_MS + MASK - 9
+
+
+pub func extents() -> Vector3:
+	return EXTENTS
+
+
+pub func half_x() -> float:
+	return HALF_X
+
+
+pub func tint() -> Color:
+	return TINT
+
+
+pub func angle() -> float:
+	return ANGLE
+
+
+pub func slope() -> float:
+	return SLOPE
+
+
+pub func right() -> bool:
+	return RIGHT
+
+
+pub func red() -> Color:
+	return RED
+
+
+pub func names() -> Array[String]:
+	return NAMES
+
+
+pub func hp() -> int:
+	return LIMITS["hp"]
+
+
+pub func read_only() -> bool:
+	return NAMES.is_read_only() and LIMITS.is_read_only()
+
+
+pub func change() -> void:
+	var names := NAMES
+	names.append("c")
+
+
+pub func secret() -> int:
+	return SECRET

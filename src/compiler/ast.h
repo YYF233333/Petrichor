@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bytecode/opcodes.h"
+#include "compiler/constant.h"
 #include "compiler/lexer.h"
 #include "compiler/types.h"
 
@@ -88,6 +89,7 @@ enum class Target {
 	EmitSignal, // `s.emit(...)` of a signal value.
 	EngineConstant, // An integer constant of an engine class, in `int_value`.
 	NoneComparison, // `x == None` or `x != None`: `left` or `right` is the None literal.
+	Constant, // A constant of a class (spec §4.5), whose value is `constant`.
 };
 
 struct Expr {
@@ -146,6 +148,12 @@ struct Expr {
 	std::optional<bytecode::IntRange> int_range;
 	std::string owner; // The type a field, constant, method or constructor belongs to.
 	Type tested; // TypeTest and Cast: the class after is or as.
+	// Its value when it is a constant expression (spec §4.5); otherwise null,
+	// and when that is because computing it would fail, why, and at which of
+	// its parts if not at itself.
+	ConstPtr constant;
+	std::string constant_error;
+	const Expr *constant_error_at = nullptr;
 };
 
 // The type an element of an array literal is stored as: the array's element
@@ -167,6 +175,7 @@ enum class StmtKind {
 	Continue,
 	Expression,
 	Match,
+	Const, // `const name = value`: a local whose value is a constant expression (spec §4.5).
 	Error, // An indented block that no statement opens, in `body`.
 };
 
@@ -176,7 +185,7 @@ struct Stmt {
 	StmtKind kind = StmtKind::Pass;
 	TokenRange range;
 
-	// Var and For: the declared variable.
+	// Var, Const and For: the declared variable.
 	std::string name;
 	uint32_t name_token = 0;
 	std::optional<TypeRef> declared_type;
@@ -191,7 +200,7 @@ struct Stmt {
 	std::vector<MatchBranch> branches;
 
 	// Filled by the checker.
-	int local = -1; // Var and For: the declared local; Match: the matched value.
+	int local = -1; // Var, Const and For: the declared local; Match: the matched value.
 	Type compound_result; // Assign with a compound operator: the type of `target op value`.
 	Type element; // For: the type of what is iterated over, before it goes into the variable.
 };
@@ -259,6 +268,25 @@ struct VarDecl {
 	std::string hint_string;
 };
 
+// `const NAME = value` in a class (spec §4.5).
+struct ConstDecl {
+	std::string name;
+	TokenRange range;
+	uint32_t name_token = 0;
+	bool is_pub = false;
+	std::optional<TypeRef> declared_type;
+	std::unique_ptr<Expr> initializer;
+	// Filled by the checker, which checks a constant when it is first used.
+	Type type;
+	ConstPtr value; // Null when the initializer has errors.
+	enum class State {
+		Unchecked,
+		Checking,
+		Checked,
+	};
+	State state = State::Unchecked;
+};
+
 // `@export_group`, `@export_subgroup` or `@export_category`, which stand
 // alone and group the exports after them in the inspector.
 struct ExportGroupDecl {
@@ -282,6 +310,7 @@ struct LocalInfo {
 	std::string name;
 	Type type;
 	uint32_t token = NO_TOKEN; // Of its name where declared.
+	ConstPtr constant; // A local constant's value (spec §4.5).
 };
 
 struct FuncDecl {
@@ -365,6 +394,7 @@ struct ClassDecl {
 	const ClassDecl *base = nullptr;
 	// Checked declaration views; their owners live through lowering.
 	std::vector<const VarDecl *> all_members;
+	std::vector<const ConstDecl *> all_constants;
 	std::vector<const FuncDecl *> all_functions;
 	std::vector<const SignalDecl *> all_signals;
 	std::set<std::string> exposed_methods;
@@ -376,6 +406,7 @@ struct ClassDecl {
 	std::vector<StructDecl> structs;
 	std::vector<Type> implemented; // Filled by the checker.
 	bool is_node = false; // Filled by the checker: it extends Node, and becomes ready.
+	std::vector<ConstDecl> constants;
 	std::vector<VarDecl> members;
 	std::vector<FuncDecl> functions;
 	std::vector<SignalDecl> signals;

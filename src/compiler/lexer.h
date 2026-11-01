@@ -28,6 +28,7 @@ enum class TokenKind {
 	As,
 	Break,
 	ClassName,
+	Const,
 	Continue,
 	Elif,
 	Else,
@@ -91,6 +92,12 @@ enum class TokenKind {
 	LessEqual,
 	Greater,
 	GreaterEqual,
+	Ampersand,
+	Pipe,
+	Caret,
+	Tilde,
+	ShiftLeft,
+	ShiftRight,
 
 	// Trivia, which the parser does not read.
 	Comment,

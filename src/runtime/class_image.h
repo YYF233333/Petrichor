@@ -119,9 +119,14 @@ public:
 	bool same_declarations(const ClassImage &p_other) const;
 };
 
-// The value of a constant of the module whose types `p_types` are; None for a
-// constant of an object type or of T?. Returns false and sets r_error when the
-// engine has no such constant or constructor.
-bool constant_value(const std::vector<TypeImage> &p_types, const bytecode::Constant &p_constant, godot::Variant &r_value, godot::String &r_error);
+// The value of a constant of the image's module, computed now, containers
+// new and writable; None for a constant of an object type or of T?, unless it
+// loads a resource. Returns false and sets r_error when the engine has no such
+// constant, constructor, operator or function.
+bool constant_value(const ClassImage &p_image, const bytecode::Constant &p_constant, godot::Variant &r_value, godot::String &r_error);
+
+// The value of a pub constant the class declares or inherits (spec §4.5), as
+// the engine and GDScript read it by name (§10.5, §11.3); false if there is none.
+bool pub_constant(const ClassImage &p_image, const godot::StringName &p_name, godot::Variant &r_value);
 
 } // namespace petrichor

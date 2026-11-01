@@ -2,7 +2,7 @@ extends Node
 
 # [pub] what the remaining GDScript files (UI, Paddle, Ball, Skill, drops, levels)
 # and Root.cs reach through the BreakoutManager autoload
-pub var debug: bool = false   # [conv] was const, which this language does not have yet; balls.gd reads it
+pub const debug = false   # balls.gd reads it
 
 # [conv] was a """ string
 # 信号中心

@@ -46,6 +46,7 @@ class PetScript : public godot::ScriptExtension {
 
 protected:
 	static void _bind_methods();
+	bool _get(const godot::StringName &p_name, godot::Variant &r_value) const;
 
 public:
 	godot::String get_script_path() const;

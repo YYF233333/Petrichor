@@ -30,7 +30,7 @@ func local_call():
 TEST_CASE("unsupported defaults cannot hide behind unresolved member types") {
 	FakeProject project;
 	for (const bool declarations : { false, true }) {
-		for (const std::string expression : { "hp", "randi()", "1 + 2" }) {
+		for (const std::string expression : { "hp", "randi()" }) {
 			const auto result = compile_in("extends Node\nvar hp: int = 10\nfunc f(value: int = " + expression + "):\n\tpass\n", project, declarations);
 			CHECK_MESSAGE(!result.ok(), expression);
 			CHECK(contains(messages(result), "Non-constant default values"));
@@ -38,5 +38,16 @@ TEST_CASE("unsupported defaults cannot hide behind unresolved member types") {
 		CHECK_FALSE(compile_in("extends Node\nfunc f(value: Node = $Child):\n\tpass\n", project, declarations).ok());
 	}
 	CHECK(has_error("func f(value: int = None):\n\tpass\n", "Cannot use"));
-	CHECK(has_error("func f(value: PackedByteArray = PackedByteArray()):\n\tpass\n", "Non-constant"));
+}
+
+// Constant expressions (spec §4.5), made again for each call that leaves the
+// argument out.
+TEST_CASE("defaults are constant expressions") {
+	const auto result = compile("extends Node\nconst LIMIT = 10\nfunc f(value: int = LIMIT * 2 + 1, bytes: PackedByteArray = PackedByteArray(), mask: int = 1 << 4):\n\tpass\n");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	const auto &defaults = function_named(result.module, "f").defaults;
+	REQUIRE(defaults.size() == 3);
+	CHECK(defaults[0].i == 21);
+	CHECK(defaults[1].constructor >= 0);
+	CHECK(defaults[2].i == 16);
 }

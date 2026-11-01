@@ -74,53 +74,6 @@ bool is_primitive(ValueType p_type) {
 	return is_8_byte(p_type) || p_type == ValueType::String;
 }
 
-// Variant::Operator (core/variant/variant.h:564-597).
-enum EngineOperator : uint8_t {
-	OP_EQUAL,
-	OP_NOT_EQUAL,
-	OP_LESS,
-	OP_LESS_EQUAL,
-	OP_GREATER,
-	OP_GREATER_EQUAL,
-	OP_ADD,
-	OP_SUBTRACT,
-	OP_MULTIPLY,
-	OP_DIVIDE,
-	OP_NEGATE,
-	OP_POSITIVE,
-	OP_MODULE,
-	OP_UNKNOWN = 0xFF, // Not one of the engine's.
-};
-
-uint8_t engine_operator(TokenKind p_op) {
-	switch (p_op) {
-		case TokenKind::EqualEqual:
-			return OP_EQUAL;
-		case TokenKind::BangEqual:
-			return OP_NOT_EQUAL;
-		case TokenKind::Less:
-			return OP_LESS;
-		case TokenKind::LessEqual:
-			return OP_LESS_EQUAL;
-		case TokenKind::Greater:
-			return OP_GREATER;
-		case TokenKind::GreaterEqual:
-			return OP_GREATER_EQUAL;
-		case TokenKind::Plus:
-			return OP_ADD;
-		case TokenKind::Minus:
-			return OP_SUBTRACT;
-		case TokenKind::Star:
-			return OP_MULTIPLY;
-		case TokenKind::Slash:
-			return OP_DIVIDE;
-		case TokenKind::Percent:
-			return OP_MODULE;
-		default:
-			return OP_UNKNOWN;
-	}
-}
-
 // A place that can be read and written. The base of a member access is
 // evaluated once; a member of a built-in value is changed in a copy of the
 // value, which is then written back to where it came from. A field of a
@@ -158,6 +111,9 @@ class Lowerer {
 	const StructLookup &structs;
 	std::unordered_map<uint32_t, Type> struct_types; // By their index in the type table.
 	std::unordered_set<std::string> interning;
+	// The entry of each constant value that is not a scalar, so that every use
+	// of a constant reads the same container (spec §4.5).
+	std::unordered_map<const ConstValue *, uint32_t> constant_entries;
 
 	ir::Function fn;
 	const FuncDecl *decl = nullptr; // Null in the init function.
@@ -342,60 +298,159 @@ class Lowerer {
 		return slot;
 	}
 
-	// A literal, or a constant the checker found (is_constant()), as the target's type.
-	bytecode::Constant constant_of(const Expr &p_expr, const Type &p_target) {
-		if (p_target.kind == TypeKind::Option && p_expr.kind != ExprKind::NoneLiteral) {
-			return constant_of(p_expr, p_target.args[0]);
-		}
+	// A literal, or a constant of a built-in type, as its own type.
+	bytecode::Constant constant_of(const Expr &p_expr) {
 		bytecode::Constant constant;
-		constant.type = type_index(p_target);
-		if (p_expr.target == Target::BuiltinConstant) {
-			constant.builtin = p_expr.text;
-			return constant;
-		}
-		if (p_expr.target == Target::EngineConstant) {
-			constant.i = p_expr.int_value;
-			constant.f = double(constant.i);
-			return constant;
-		}
-		if (p_expr.target == Target::BuiltinConstructor) {
-			constant.constructor = p_expr.index;
-			for (size_t i = 0; i < p_expr.args.size(); i++) {
-				constant.args.push_back(constant_of(*p_expr.args[i], p_expr.param_types[i]));
-			}
-			return constant;
-		}
-		if (p_expr.kind == ExprKind::ArrayLiteral) {
-			for (size_t i = 0; i < p_expr.args.size(); i++) {
-				constant.args.push_back(constant_of(*p_expr.args[i], stored_element_type(p_expr, i)));
-			}
-			return constant;
-		}
-		const Expr *literal = &p_expr;
-		bool negate = false;
-		if (literal->kind == ExprKind::Unary) {
-			negate = true;
-			literal = literal->left.get();
-		}
-		switch (literal->kind) {
+		constant.type = type_index(p_expr.type);
+		switch (p_expr.kind) {
 			case ExprKind::IntLiteral:
-				// Negated through unsigned, so that the smallest int wraps as at run time.
-				constant.i = negate ? int64_t(0ull - uint64_t(literal->int_value)) : literal->int_value;
+				constant.i = p_expr.int_value;
 				constant.f = double(constant.i);
 				break;
 			case ExprKind::FloatLiteral:
-				constant.f = negate ? -literal->float_value : literal->float_value;
+				constant.f = p_expr.float_value;
 				break;
 			case ExprKind::StringLiteral:
-				constant.s = literal->text;
-				break;
-			case ExprKind::BoolLiteral:
-				constant.b = literal->bool_value;
+				constant.s = p_expr.text;
 				break;
 			default:
+				constant.builtin = p_expr.text;
 				break;
 		}
 		return constant;
+	}
+
+	// The table entry of a constant expression's value (spec §4.5): what the
+	// compiler knows, and what the engine computes when the class loads.
+	bytecode::Constant constant_of(const ConstValue &p_value) {
+		using Kind = ConstValue::Kind;
+		bytecode::Constant constant;
+		constant.type = type_index(p_value.type);
+		switch (p_value.kind) {
+			case Kind::Int:
+				constant.i = p_value.i;
+				constant.f = double(p_value.i);
+				return constant;
+			case Kind::Float:
+				constant.f = p_value.f;
+				return constant;
+			case Kind::Bool:
+				constant.b = p_value.b;
+				return constant;
+			case Kind::String:
+				constant.s = p_value.text;
+				return constant;
+			case Kind::None:
+				return constant;
+			case Kind::Builtin:
+				constant.builtin = p_value.text;
+				return constant;
+			case Kind::Construct:
+				constant.constructor = p_value.index;
+				break;
+			case Kind::Operator:
+				constant.op = p_value.index;
+				break;
+			case Kind::Utility: {
+				bytecode::UtilityCall call;
+				call.function = p_value.text;
+				call.hash = p_value.hash;
+				call.is_vararg = p_value.b;
+				// A utility typed by its arguments takes them all as Variant (spec §10.3).
+				const bool argument_typed = p_value.returns.kind == TypeKind::Variant && p_value.type.kind != TypeKind::Variant;
+				call.params = argument_typed ? std::vector<ValueType>(p_value.items.size(), ValueType::Variant) : value_types(p_value.params);
+				call.return_type = value_type(p_value.returns);
+				call.result_type = type_index(p_value.type);
+				constant.utility = int32_t(utility(call));
+				break;
+			}
+			case Kind::Field:
+				constant.field = p_value.text;
+				break;
+			case Kind::Preload:
+				constant.s = p_value.text;
+				constant.load = true;
+				return constant;
+			case Kind::Array:
+			case Kind::Dictionary:
+				break;
+		}
+		for (const ConstPtr &item : p_value.items) {
+			constant.args.push_back(constant_of(*item));
+		}
+		return constant;
+	}
+
+	uint32_t shared_constant(const ConstValue &p_value) {
+		const auto found = constant_entries.find(&p_value);
+		if (found != constant_entries.end()) {
+			return found->second;
+		}
+		const uint32_t entry = add_constant(constant_of(p_value));
+		constant_entries.emplace(&p_value, entry);
+		return entry;
+	}
+
+	// A constant's value in a new register: what the compiler knows as a
+	// literal is, a preload where it is used, the rest from its table entry,
+	// which the runtime computes when the class loads.
+	uint32_t load_constant(const ConstPtr &p_value) {
+		using Kind = ConstValue::Kind;
+		if (p_value->kind == Kind::Preload) {
+			return lower_expr(*p_value->source);
+		}
+		const uint32_t result = temp(p_value->type);
+		const ValueType type = reg_type(result);
+		const auto entry = [&]() { return p_value->is_known() ? add_constant(constant_of(*p_value)) : shared_constant(*p_value); };
+		switch (type) {
+			case ValueType::Bool:
+				if (p_value->kind == Kind::Bool) {
+					instr(Op::CONST_BOOL, result, NO_REG, NO_REG, p_value->b ? 1 : 0);
+				} else {
+					// Read as an int, bool having no constant instruction.
+					const uint32_t number = load_constant(converted(p_value, Type::of(TypeKind::Int)));
+					const uint32_t zero = temp(ValueType::Int);
+					load_int(zero, 0);
+					instr(Op::NE_INT, result, number, zero);
+				}
+				return result;
+			case ValueType::Int:
+				instr(Op::CONST_INT, result, NO_REG, NO_REG, entry());
+				return result;
+			case ValueType::Float:
+				instr(Op::CONST_FLOAT, result, NO_REG, NO_REG, entry());
+				return result;
+			case ValueType::String:
+				instr(Op::CONST_STRING, result, NO_REG, NO_REG, entry());
+				return result;
+			default:
+				if (p_value->kind == Kind::None) {
+					return default_value(result);
+				}
+				instr(Op::CONST_VALUE, result, NO_REG, NO_REG, entry(), fn.regs[result].type);
+				return result;
+		}
+	}
+
+	// Whether an expression is lowered as its value: a constant, or a scalar
+	// the compiler computed, such as `1 << 4` (spec §4.5).
+	static bool lowered_as_constant(const Expr &p_expr) {
+		if (!p_expr.constant) {
+			return false;
+		}
+		if (p_expr.target == Target::Constant) {
+			return true;
+		}
+		switch (p_expr.kind) {
+			case ExprKind::Unary:
+			case ExprKind::Binary:
+			case ExprKind::Conditional:
+			case ExprKind::Subscript:
+			case ExprKind::Call:
+				return p_expr.constant->is_known();
+			default:
+				return false;
+		}
 	}
 
 	void error(const std::string &p_message) {
@@ -1244,6 +1299,12 @@ class Lowerer {
 	}
 
 	uint32_t lower_expr(const Expr &p_expr) {
+		if (lowered_as_constant(p_expr)) {
+			if (p_expr.kind == ExprKind::Member && p_expr.base && p_expr.base->kind == ExprKind::Call) {
+				lower_expr(*p_expr.base); // For what the call does; the constant is the class's.
+			}
+			return load_constant(p_expr.constant);
+		}
 		switch (p_expr.kind) {
 			case ExprKind::Await: {
 				const Expr &operand = *p_expr.left;
@@ -1261,7 +1322,7 @@ class Lowerer {
 				const ValueType type = value_type(p_expr.type);
 				const uint32_t result = temp(type);
 				const Op op = type == ValueType::Int ? Op::CONST_INT : (type == ValueType::Float ? Op::CONST_FLOAT : Op::CONST_STRING);
-				instr(op, result, NO_REG, NO_REG, add_constant(constant_of(p_expr, p_expr.type)));
+				instr(op, result, NO_REG, NO_REG, add_constant(constant_of(p_expr)));
 				return result;
 			}
 			case ExprKind::BoolLiteral: {
@@ -1299,7 +1360,7 @@ class Lowerer {
 				}
 				if (p_expr.target == Target::BuiltinConstant) {
 					const uint32_t result = temp(value_type(p_expr.type));
-					instr(Op::CONST_VALUE, result, NO_REG, NO_REG, add_constant(constant_of(p_expr, p_expr.type)), fn.regs[result].type);
+					instr(Op::CONST_VALUE, result, NO_REG, NO_REG, add_constant(constant_of(p_expr)), fn.regs[result].type);
 					return result;
 				}
 				// A local, narrowed or not, a member, a property or a field.
@@ -1659,7 +1720,8 @@ class Lowerer {
 		at = p_stmt.range;
 		instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(cls.source->line(p_stmt.range.first)));
 		switch (p_stmt.kind) {
-			case StmtKind::Var: {
+			case StmtKind::Var:
+			case StmtKind::Const: {
 				const uint32_t local = uint32_t(p_stmt.local);
 				if (p_stmt.value) {
 					move(local, convert(lower_expr(*p_stmt.value), decl->locals[local].type));
@@ -1931,7 +1993,7 @@ public:
 			member.initial.type = member.type;
 			if (decl_member.constant_initializer) {
 				member.has_initial = true;
-				member.initial = constant_of(*decl_member.initializer, decl_member.type);
+				member.initial = constant_of(*converted(decl_member.initializer->constant, decl_member.type));
 			} else if (!decl_member.initializer && !decl_member.must_assign && decl_member.type.kind != TypeKind::Struct) {
 				member.has_initial = true;
 			}
@@ -1965,6 +2027,13 @@ public:
 				out.level = group.annotation.name == "export_category" ? 0 : (group.annotation.name == "export_group" ? 1 : 2);
 				out.before_member = prefix + uint32_t(group.before_member);
 				module.groups.push_back(out);
+			}
+		}
+
+		// The constants the engine and GDScript read by name (spec §10.5, §11.3).
+		for (const ConstDecl *constant : cls.all_constants) {
+			if (constant->value) {
+				module.named_constants.push_back({ constant->name, shared_constant(*constant->value), constant->is_pub });
 			}
 		}
 
@@ -2023,7 +2092,8 @@ public:
 			}
 			for (const ParamDecl &param : function.params) {
 				if (param.default_value) {
-					out.defaults.push_back(constant_of(*param.default_value, param.type));
+					const ConstPtr value = converted(param.default_value->constant, param.type);
+					out.defaults.push_back(value ? constant_of(*value) : bytecode::Constant{ type_index(param.type) });
 				}
 			}
 			module.functions.push_back(std::move(out));

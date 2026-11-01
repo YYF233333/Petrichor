@@ -4,9 +4,11 @@
 #include "runtime/method_callable.h"
 #include "runtime/text.h"
 
+#include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/script.hpp>
 
 #include <algorithm>
+#include <cstring>
 #include <mutex>
 #include <unordered_map>
 
@@ -15,6 +17,9 @@ using namespace godot;
 namespace petrichor {
 
 using bytecode::ValueType;
+
+// Makes a constant's containers read-only, those inside them too.
+static void freeze(const Variant &p_value);
 
 static GDExtensionVariantType engine_type(ValueType p_type) {
 	return GDExtensionVariantType(variant_type(p_type));
@@ -121,13 +126,6 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 	}
 	image->members_layout = SlotLayout::of(std::max<uint32_t>(module.instance_size, 8), module.members, types);
 
-	for (const bytecode::Constant &constant : module.constants) {
-		image->strings.push_back(types[constant.type].storage == ValueType::String ? to_godot(constant.s) : String());
-		image->values.emplace_back();
-		if (!constant_value(types, constant, image->values.back(), r_error)) {
-			return nullptr;
-		}
-	}
 	for (const bytecode::EngineCall &call : module.engine_calls) {
 		image->engine_methods.push_back(to_godot(call.method));
 	}
@@ -214,12 +212,35 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 		image->method_names.push_back(to_godot(call.method));
 		image->call_signatures.push_back(signature_id(module.types, call.params, call.defaults, call.result, call.is_async));
 	}
+	// Each constant once (spec §4.5), its containers read-only at every level,
+	// as GDScript makes them (modules/gdscript/gdscript_analyzer.cpp:5318-5367).
+	// A scalar the engine computed is written into the constant, which the
+	// instructions for scalars read; a resource loads only when asked for.
+	for (size_t i = 0; i < module.constants.size(); i++) {
+		bytecode::Constant &constant = image->module.constants[i];
+		const ValueType storage = types[constant.type].storage;
+		image->values.emplace_back();
+		if (!constant.load && !constant_value(*image, constant, image->values.back(), r_error)) {
+			return nullptr;
+		}
+		const Variant &value = image->values.back();
+		const bool computed = constant.constructor >= 0 || constant.op >= 0 || constant.utility >= 0 || !constant.field.empty();
+		if (computed && (storage == ValueType::Bool || storage == ValueType::Int || storage == ValueType::Float || storage == ValueType::String)) {
+			constant.b = value.booleanize();
+			constant.i = storage == ValueType::Bool ? int64_t(constant.b) : int64_t(value);
+			constant.f = double(value);
+			constant.s = storage == ValueType::String ? to_utf8(String(value)) : std::string();
+		}
+		image->strings.push_back(storage == ValueType::String ? to_godot(constant.s) : String());
+		freeze(value);
+	}
 	return image;
 }
 
 // Built with the constructor that CONSTRUCT calls, from the arguments in their
 // slots' layout.
-static bool construct_constant(const std::vector<TypeImage> &p_types, const bytecode::Constant &p_constant, Variant &r_value, String &r_error) {
+static bool construct_constant(const ClassImage &p_image, const bytecode::Constant &p_constant, Variant &r_value, String &r_error) {
+	const std::vector<TypeImage> &p_types = p_image.types;
 	const ValueType type = p_types[p_constant.type].storage;
 	const GDExtensionPtrConstructor constructor = gdextension_interface::variant_get_ptr_constructor(engine_type(type), p_constant.constructor);
 	if (!constructor) {
@@ -243,7 +264,7 @@ static bool construct_constant(const std::vector<TypeImage> &p_types, const byte
 	bool ok = true;
 	for (size_t i = 0; ok && i < slots.size(); i++) {
 		Variant value;
-		ok = constant_value(p_types, p_constant.args[i], value, r_error) && from_variant(p_types[slots[i].type].storage, value, base + slots[i].offset);
+		ok = constant_value(p_image, p_constant.args[i], value, r_error) && from_variant(p_types[slots[i].type].storage, value, base + slots[i].offset);
 		pointers.push_back(base + slots[i].offset);
 	}
 	if (ok) {
@@ -257,8 +278,133 @@ static bool construct_constant(const std::vector<TypeImage> &p_types, const byte
 	return ok;
 }
 
-bool constant_value(const std::vector<TypeImage> &p_types, const bytecode::Constant &p_constant, Variant &r_value, String &r_error) {
+// A math utility function of the module's table (spec §4.5), whose parameters
+// are int, float or Variant.
+static bool call_utility_constant(const ClassImage &p_image, const bytecode::Constant &p_constant, Variant &r_value, String &r_error) {
+	const bytecode::UtilityCall &call = p_image.module.utility_calls[p_constant.utility];
+	const StringName name = to_godot(call.function);
+	const GDExtensionPtrUtilityFunction function = gdextension_interface::variant_get_ptr_utility_function(name._native_ptr(), call.hash);
+	if (!function) {
+		r_error = "the engine has no utility function " + name + " with this signature";
+		return false;
+	}
+	const size_t count = p_constant.args.size();
+	std::vector<Variant> variants(count);
+	std::vector<uint64_t> words(count);
+	std::vector<const void *> pointers(count);
+	for (size_t i = 0; i < count; i++) {
+		if (!constant_value(p_image, p_constant.args[i], variants[i], r_error)) {
+			return false;
+		}
+		const ValueType param = i < call.params.size() ? call.params[i] : ValueType::Variant;
+		if (param == ValueType::Variant) {
+			pointers[i] = &variants[i];
+		} else if (param == ValueType::Int || param == ValueType::Float) {
+			from_variant(param, variants[i], reinterpret_cast<uint8_t *>(&words[i]));
+			pointers[i] = &words[i];
+		} else {
+			r_error = "the utility function " + name + " takes a parameter constants do not pass";
+			return false;
+		}
+	}
+	if (call.return_type == ValueType::Variant) {
+		function(&r_value, pointers.data(), int(count));
+		return true;
+	}
+	uint64_t result = 0;
+	function(&result, pointers.data(), int(count));
+	switch (call.return_type) {
+		case ValueType::Bool:
+			r_value = (result & 0xFF) != 0;
+			return true;
+		case ValueType::Int:
+			r_value = int64_t(result);
+			return true;
+		case ValueType::Float: {
+			double number;
+			std::memcpy(&number, &result, sizeof(number));
+			r_value = number;
+			return true;
+		}
+		default:
+			r_error = "the utility function " + name + " returns a type constants do not hold";
+			return false;
+	}
+}
+
+static void freeze(const Variant &p_value) {
+	if (p_value.get_type() == Variant::ARRAY) {
+		Array array = p_value;
+		for (int64_t i = 0; i < array.size(); i++) {
+			freeze(array[i]);
+		}
+		array.make_read_only();
+	} else if (p_value.get_type() == Variant::DICTIONARY) {
+		Dictionary dictionary = p_value;
+		const Array keys = dictionary.keys();
+		for (int64_t i = 0; i < keys.size(); i++) {
+			freeze(keys[i]);
+			freeze(dictionary[keys[i]]);
+		}
+		dictionary.make_read_only();
+	}
+}
+
+bool pub_constant(const ClassImage &p_image, const StringName &p_name, Variant &r_value) {
+	for (const bytecode::NamedConstant &constant : p_image.module.named_constants) {
+		if (!constant.is_pub || to_godot(constant.name) != String(p_name)) {
+			continue;
+		}
+		if (!p_image.module.constants[constant.constant].load) {
+			r_value = p_image.values[constant.constant];
+			return true;
+		}
+		String error;
+		if (!constant_value(p_image, p_image.module.constants[constant.constant], r_value, error)) {
+			ERR_PRINT(vformat("%s: the constant %s: %s", p_image.path, p_name, error));
+		}
+		return true;
+	}
+	return false;
+}
+
+bool constant_value(const ClassImage &p_image, const bytecode::Constant &p_constant, Variant &r_value, String &r_error) {
+	const std::vector<TypeImage> &p_types = p_image.types;
 	const ValueType type = p_types[p_constant.type].storage;
+	if (p_constant.load) {
+		r_value = ResourceLoader::get_singleton()->load(to_godot(p_constant.s));
+		return true;
+	}
+	if (p_constant.op >= 0) {
+		Variant operands[2];
+		for (size_t i = 0; i < p_constant.args.size(); i++) {
+			if (!constant_value(p_image, p_constant.args[i], operands[i], r_error)) {
+				return false;
+			}
+		}
+		bool valid = false;
+		Variant::evaluate(Variant::Operator(p_constant.op), operands[0], operands[1], r_value, valid);
+		if (!valid) {
+			r_error = vformat("the engine has no operator %d for %s and %s", p_constant.op, Variant::get_type_name(operands[0].get_type()), Variant::get_type_name(operands[1].get_type()));
+			return false;
+		}
+		return true;
+	}
+	if (p_constant.utility >= 0) {
+		return call_utility_constant(p_image, p_constant, r_value, r_error);
+	}
+	if (!p_constant.field.empty()) {
+		Variant base;
+		if (!constant_value(p_image, p_constant.args[0], base, r_error)) {
+			return false;
+		}
+		bool valid = false;
+		r_value = base.get_named(to_godot(p_constant.field), valid);
+		if (!valid) {
+			r_error = vformat("%s has no member %s", Variant::get_type_name(base.get_type()), to_godot(p_constant.field));
+		}
+		return valid;
+	}
 	if (!p_constant.builtin.empty()) {
 		const StringName name = to_godot(p_constant.builtin);
 		Variant value; // The engine writes over it.
@@ -271,14 +417,14 @@ bool constant_value(const std::vector<TypeImage> &p_types, const bytecode::Const
 		return true;
 	}
 	if (p_constant.constructor >= 0) {
-		return construct_constant(p_types, p_constant, r_value, r_error);
+		return construct_constant(p_image, p_constant, r_value, r_error);
 	}
 	if (type == ValueType::Array) {
 		const ValueCheck &check = p_types[p_constant.type].check;
 		Array array = typed_array(check.element, check.class_name, check.script);
 		for (const bytecode::Constant &element : p_constant.args) {
 			Variant value;
-			if (!constant_value(p_types, element, value, r_error)) {
+			if (!constant_value(p_image, element, value, r_error)) {
 				return false;
 			}
 			array.push_back(value);
@@ -287,7 +433,16 @@ bool constant_value(const std::vector<TypeImage> &p_types, const bytecode::Const
 		return true;
 	}
 	if (type == ValueType::Dictionary) {
-		r_value = typed_dictionary(p_types[p_constant.type].check);
+		Dictionary dictionary = typed_dictionary(p_types[p_constant.type].check);
+		for (size_t i = 0; i + 1 < p_constant.args.size(); i += 2) {
+			Variant key;
+			Variant value;
+			if (!constant_value(p_image, p_constant.args[i], key, r_error) || !constant_value(p_image, p_constant.args[i + 1], value, r_error)) {
+				return false;
+			}
+			dictionary[key] = value;
+		}
+		r_value = dictionary;
 		return true;
 	}
 	switch (type) {
@@ -368,7 +523,9 @@ struct ModulePair {
 
 	bool same_constant(const bytecode::Constant &p_a, const bytecode::Constant &p_b) const {
 		return same_type(p_a.type, p_b.type) && p_a.b == p_b.b && p_a.i == p_b.i && p_a.f == p_b.f && p_a.s == p_b.s && p_a.builtin == p_b.builtin &&
-				p_a.constructor == p_b.constructor && std::equal(p_a.args.begin(), p_a.args.end(), p_b.args.begin(), p_b.args.end(), [&](const auto &x, const auto &y) { return same_constant(x, y); });
+				p_a.constructor == p_b.constructor && p_a.op == p_b.op && p_a.field == p_b.field && p_a.load == p_b.load && (p_a.utility < 0) == (p_b.utility < 0) &&
+				(p_a.utility < 0 || (a.utility_calls[p_a.utility].function == b.utility_calls[p_b.utility].function && a.utility_calls[p_a.utility].params == b.utility_calls[p_b.utility].params)) &&
+				std::equal(p_a.args.begin(), p_a.args.end(), p_b.args.begin(), p_b.args.end(), [&](const auto &x, const auto &y) { return same_constant(x, y); });
 	}
 
 	bool same_slot(const bytecode::Slot &p_a, const bytecode::Slot &p_b) const {
@@ -481,8 +638,16 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 			return false;
 		}
 	}
-	if (a.interfaces != b.interfaces) {
+	if (a.interfaces != b.interfaces || a.named_constants.size() != b.named_constants.size()) {
 		return false;
+	}
+	// Other classes may have been compiled with a constant's value (spec §4.5).
+	for (size_t i = 0; i < a.named_constants.size(); i++) {
+		const bytecode::NamedConstant &x = a.named_constants[i];
+		const bytecode::NamedConstant &y = b.named_constants[i];
+		if (x.name != y.name || x.is_pub != y.is_pub || !pair.same_constant(a.constants[x.constant], b.constants[y.constant])) {
+			return false;
+		}
 	}
 	// Initializers belong to the declarations, not to a body.
 	if (!same_initializers(a, b)) {

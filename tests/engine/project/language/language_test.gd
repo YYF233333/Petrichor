@@ -365,7 +365,7 @@ func _ready() -> void:
 	_check_errors(["container_check.pet:45: Index 1 is out of bounds (size 1)."], "the program error of assigning out of bounds")
 	_check(containers.keys_frozen() == "true false 2 true", "a key is a read-only copy, and the original stays free to change")
 	containers.change_key()
-	_check_errors(["container_check.pet:58: The Array is read-only, as a Dictionary key is; change a duplicate() of it instead."], "changing a key is a program error")
+	_check_errors(["container_check.pet:58: The Array is read-only, as Dictionary keys and the containers of constants are; change a duplicate() of it instead."], "changing a key is a program error")
 	var untyped: Dictionary = containers.untyped()
 	_check(untyped == {&"name": 1, &"plain": 2, "v": Vector2(1, 2), "node": containers} and typeof(untyped.keys()[0]) == TYPE_STRING_NAME, "an untyped Dictionary takes any value, and a key written as a name is a StringName")
 	var typed_scores: Dictionary[String, int] = {"a": 1}
@@ -378,7 +378,7 @@ func _ready() -> void:
 	_check(containers.sent() == {"a": {"damage": 1, "tags": []}}, "Dictionary(d) encodes the structs in it")
 	_check(containers.struct_keys() == "true false true", "a struct key is a frozen copy")
 	containers.change_struct_key()
-	_check_errors(["container_check.pet:116: The Array is read-only, as a Dictionary key is; change a duplicate() of it instead."], "changing an Array in a struct key is a program error")
+	_check_errors(["container_check.pet:116: The Array is read-only, as Dictionary keys and the containers of constants are; change a duplicate() of it instead."], "changing an Array in a struct key is a program error")
 	_check(containers.nested() == "[[1, 2], [3, 4], [5]] true", "a container of containers keeps their types, and resize() fills in typed ones")
 	_check(containers.grid_row(0) == 1, "an inner container of its type is read")
 	containers.grid.append([2, 3])
@@ -419,6 +419,18 @@ func _ready() -> void:
 	_check_errors(["owner_check.pet:7: owner: expected CombatCheck.Placed, found None (@owner).", "owner_check.pet:7: owner: expected CombatCheck.Placed, found Node2D (@owner)."], "@owner checks every read, after the engine or code changed the owner")
 	other_owner.free()
 	owned.free()
+
+	var k := ConstantCheck.new()
+	_check(k.day() == 86400000, "a constant the compiler computes (spec §4.5)")
+	_check(k.extents() == Vector3(0.5, 0.5, 0.5) and k.half_x() == 0.5 and k.tint() == Color(1, 1, 1, 0.5), "constants of engine types, computed when the class loads")
+	_check(k.angle() == deg_to_rad(30) and k.slope() == tan(deg_to_rad(30)), "math functions that return float, computed by the engine")
+	_check(k.right() and k.red() == Color.RED, "a bool and a Color from a string, computed by the engine")
+	_check(k.names() == ["a", "b"] and k.hp() == 100 and k.read_only(), "containers in constants are read-only")
+	k.change()
+	_check_errors(["constant_check.pet:66: The Array is read-only, as Dictionary keys and the containers of constants are; change a duplicate() of it instead."], "changing a constant's container through a variable is a program error")
+	_check(ConstantCheck.DAY_MS == 86400000 and ConstantCheck.NAMES == ["a", "b"] and k.MASK == 9, "GDScript reads a pub constant through the class and through an instance (spec §11.3)")
+	var constant_map: Dictionary = (k.get_script() as Script).get_script_constant_map()
+	_check(constant_map.get("ANGLE") == deg_to_rad(30) and not constant_map.has("SECRET") and k.secret() == 7, "the engine sees the pub constants only (spec §10.5)")
 
 	for test: GDScript in [preload("res://language/coroutines_test.gd"), preload("res://language/defaults_test.gd"), preload("res://language/inheritance_test.gd")]:
 		var part: Node = test.new()

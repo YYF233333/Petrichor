@@ -169,6 +169,7 @@ def generate(json_path, metadata_path, out_path):
             f"{u['hash']}u",
             arguments.reference(start, count),
             _bool(u.get("is_vararg", False)),
+            _bool(u.get("category") == "math"),
         ]))
 
     header = api["header"]

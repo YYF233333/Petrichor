@@ -339,7 +339,7 @@ bool is_read_only(ValueType p_type, const uint8_t *p_slot) {
 }
 
 String read_only_error(ValueType p_type) {
-	return vformat("The %s is read-only, as a Dictionary key is; change a duplicate() of it instead.", bytecode::value_type_name(p_type));
+	return vformat("The %s is read-only, as Dictionary keys and the containers of constants are; change a duplicate() of it instead.", bytecode::value_type_name(p_type));
 }
 
 // A key or an element as GET_INDEX and SET_INDEX take it: a Variant in a
@@ -425,7 +425,7 @@ class Execution {
 			String error;
 			if (source) {
 				value = to_variant(*source, frame + p_call[6 + 2 * i]);
-			} else if (!constant_value(p_callee.types, method.defaults[i - required], value, error)) {
+			} else if (!constant_value(p_callee, method.defaults[i - required], value, error)) {
 				return fail(error);
 			}
 			if (!from_variant(param_type, value, param, true)) {
@@ -1654,7 +1654,7 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 		// Like member initializers, defaults are built late, after script types load.
 		Variant value = i < size_t(p_argc) ? *p_args[i] : Variant();
 		String error;
-		bool valid = i < size_t(p_argc) || constant_value(image->types, fn.defaults[i - required], value, error);
+		bool valid = i < size_t(p_argc) || constant_value(*image, fn.defaults[i - required], value, error);
 		if (valid && !from_variant(type, value, frame.data + param.offset, true)) {
 			error = entry_mismatch(type, value);
 			valid = false;

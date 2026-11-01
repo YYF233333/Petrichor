@@ -117,6 +117,7 @@ class Parser {
 			case TokenKind::Not:
 			case TokenKind::Bang:
 			case TokenKind::Minus:
+			case TokenKind::Tilde:
 			case TokenKind::Dollar:
 			case TokenKind::ParenOpen:
 			case TokenKind::BracketOpen:
@@ -286,8 +287,46 @@ class Parser {
 	}
 
 	std::unique_ptr<Expr> comparison() {
-		auto left = additive();
+		auto left = bit_or();
 		while (is_comparison(peek().kind)) {
+			const Token &op = advance();
+			left = binary(op, std::move(left), bit_or());
+		}
+		return left;
+	}
+
+	// The bitwise operators bind tighter than comparisons, | loosest and the
+	// shifts tightest, as in GDScript (gdscript_parser.h:1441-1446).
+	std::unique_ptr<Expr> bit_or() {
+		auto left = bit_xor();
+		while (check(TokenKind::Pipe)) {
+			const Token &op = advance();
+			left = binary(op, std::move(left), bit_xor());
+		}
+		return left;
+	}
+
+	std::unique_ptr<Expr> bit_xor() {
+		auto left = bit_and();
+		while (check(TokenKind::Caret)) {
+			const Token &op = advance();
+			left = binary(op, std::move(left), bit_and());
+		}
+		return left;
+	}
+
+	std::unique_ptr<Expr> bit_and() {
+		auto left = shift();
+		while (check(TokenKind::Ampersand)) {
+			const Token &op = advance();
+			left = binary(op, std::move(left), shift());
+		}
+		return left;
+	}
+
+	std::unique_ptr<Expr> shift() {
+		auto left = additive();
+		while (check(TokenKind::ShiftLeft) || check(TokenKind::ShiftRight)) {
 			const Token &op = advance();
 			left = binary(op, std::move(left), additive());
 		}
@@ -333,6 +372,15 @@ class Parser {
 				literal->range = expr->range;
 				return literal;
 			}
+			return expr;
+		}
+		if (check(TokenKind::Tilde)) {
+			const Token &op = advance();
+			auto expr = make(ExprKind::Unary, op);
+			expr->op = op.kind;
+			expr->op_token = index(op);
+			expr->left = unary();
+			expr->range = span(index(op));
 			return expr;
 		}
 		return type_test();
@@ -701,7 +749,7 @@ class Parser {
 
 	static bool begins_statement_only(TokenKind p_kind) {
 		return p_kind == TokenKind::Return || p_kind == TokenKind::If || p_kind == TokenKind::While || p_kind == TokenKind::For ||
-				p_kind == TokenKind::Match || p_kind == TokenKind::Pass || p_kind == TokenKind::Break || p_kind == TokenKind::Continue;
+				p_kind == TokenKind::Match || p_kind == TokenKind::Pass || p_kind == TokenKind::Break || p_kind == TokenKind::Continue || p_kind == TokenKind::Const;
 	}
 
 	Pattern pattern() {
@@ -730,16 +778,21 @@ class Parser {
 			case TokenKind::Match:
 				advance();
 				return match_statement(token);
-			case TokenKind::Var: {
+			case TokenKind::Var:
+			case TokenKind::Const: {
 				advance();
-				auto stmt = make_stmt(StmtKind::Var, token);
-				const Token &name = expect(TokenKind::Identifier, "a variable name");
+				const bool is_const = token.kind == TokenKind::Const;
+				auto stmt = make_stmt(is_const ? StmtKind::Const : StmtKind::Var, token);
+				const Token &name = expect(TokenKind::Identifier, is_const ? "a constant name" : "a variable name");
 				stmt->name = name.text;
 				stmt->name_token = index(name);
 				if (match(TokenKind::Colon) && !check(TokenKind::Equal)) {
 					stmt->declared_type = type_ref();
 				}
-				if (match(TokenKind::Equal)) {
+				if (is_const) {
+					expect(TokenKind::Equal, "\"=\"");
+					stmt->value = expression();
+				} else if (match(TokenKind::Equal)) {
 					stmt->value = expression();
 				}
 				stmt->range = span(index(token));
@@ -1153,6 +1206,27 @@ class Parser {
 			return;
 		}
 
+		if (match(TokenKind::Const)) {
+			if (!annotations.empty() || is_static) {
+				fail(peek(), "A constant takes no annotations and is not static.");
+				return;
+			}
+			ConstDecl decl;
+			const Token &name = expect(TokenKind::Identifier, "a constant name");
+			decl.name = name.text;
+			decl.name_token = index(name);
+			decl.is_pub = is_pub;
+			if (match(TokenKind::Colon) && !check(TokenKind::Equal)) {
+				decl.declared_type = type_ref();
+			}
+			expect(TokenKind::Equal, "\"=\"");
+			decl.initializer = expression();
+			decl.range = span(first);
+			end_of_statement();
+			r_class.constants.push_back(std::move(decl));
+			return;
+		}
+
 		if (match(TokenKind::Interface)) {
 			if (!annotations.empty() || is_static) {
 				fail(peek(), "An interface takes no annotations and is not static.");
@@ -1216,7 +1290,7 @@ class Parser {
 			return;
 		}
 
-		fail(peek(), std::string("Expected a variable or a function, found ") + token_name(peek().kind) + ".");
+		fail(peek(), std::string("Expected a declaration, found ") + token_name(peek().kind) + ".");
 	}
 
 public:

@@ -80,6 +80,7 @@ struct Utility {
 	const Argument *arguments;
 	uint32_t argument_count;
 	bool is_vararg;
+	bool is_math; // Filed under math, which constant expressions may call (spec §4.5).
 };
 
 const Class *find_class(std::string_view p_name);

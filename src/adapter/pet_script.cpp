@@ -167,7 +167,7 @@ static Dictionary function_info(const ClassImage &p_image, int p_index) {
 	for (const bytecode::Constant &constant : function.defaults) {
 		Variant value;
 		String error;
-		if (!constant_value(p_image.types, constant, value, error)) {
+		if (!constant_value(p_image, constant, value, error)) {
 			ERR_PRINT(vformat("%s: a default argument of %s: %s", p_image.path, p_image.function_names[p_index], error));
 		}
 		defaults.push_back(value);
@@ -269,7 +269,7 @@ Variant initial_value(const ClassImage &p_image, size_t p_member) {
 	// so that the script that types an array has been loaded.
 	Variant value;
 	String error;
-	if (!constant_value(p_image.types, member.initial, value, error)) {
+	if (!constant_value(p_image, member.initial, value, error)) {
 		ERR_PRINT(vformat("%s: the initial value of %s: %s", p_image.path, p_image.member_names[p_member], error));
 		return default_variant(p_image.types[member.type]);
 	}
@@ -821,8 +821,30 @@ int32_t PetScript::_get_member_line(const StringName &p_member) const {
 	return -1;
 }
 
+// The pub constants (spec §4.5, §10.5), which the debugger and GDScript's
+// editor read (scene/debugger/scene_debugger_object.cpp:107-120,
+// modules/gdscript/gdscript_editor.cpp:1358-1364).
 Dictionary PetScript::_get_constants() const {
-	return Dictionary();
+	Dictionary constants;
+	if (const std::shared_ptr<const ClassImage> current = get_image()) {
+		for (const bytecode::NamedConstant &constant : current->module.named_constants) {
+			Variant value;
+			const StringName name = to_godot(constant.name);
+			if (pub_constant(*current, name, value)) {
+				constants[name] = value;
+			}
+		}
+	}
+	return constants;
+}
+
+// GDScript reads a constant of a class of another language by name from the
+// script (modules/gdscript/gdscript_compiler.cpp:834-835,
+// modules/gdscript/gdscript_vm.cpp:1260-1287), which Object::get asks after
+// the script instance, which a script has none of (core/object/object.cpp:316-389).
+bool PetScript::_get(const StringName &p_name, Variant &r_value) const {
+	const std::shared_ptr<const ClassImage> current = get_image();
+	return current && pub_constant(*current, p_name, r_value);
 }
 
 TypedArray<StringName> PetScript::_get_members() const {

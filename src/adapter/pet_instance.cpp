@@ -253,7 +253,9 @@ static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance,
 				return true;
 			}
 		}
-		return false;
+		// A pub constant reads through an instance too, as in GDScript
+		// (modules/gdscript/gdscript.cpp:1624-1632; spec §4.5).
+		return pub_constant(*image, as_name(p_name), *reinterpret_cast<Variant *>(r_ret));
 	}
 	if (member->getter >= 0) {
 		GDExtensionCallError error;

@@ -258,10 +258,9 @@ var first := rng.randi()
 	CHECK(module_of("extends Node\nvar a: int\n").init_function == -1);
 }
 
-// What GDScript reduces to a constant for these forms is the editor's default
-// (modules/gdscript/gdscript_analyzer.cpp:5652-5681): a built-in constant, and
-// a constructor of a value type that is not shared whose arguments are
-// constants (:3286-3328); the init function still writes them all.
+// An initializer that is a constant expression is the editor's default, as
+// what GDScript reduces to a constant is (modules/gdscript/gdscript_analyzer.cpp:5652-5681;
+// spec §4.5); the init function still writes them all.
 TEST_CASE("a constant initializer is the member's initial value") {
 	const bytecode::Module module = module_of(R"(extends Node
 var offset := Vector2(400.0, 0.0)
@@ -284,9 +283,9 @@ var mixed: Array[float] = [1, randf()]
 	CHECK(initial("up"));
 	CHECK(initial("placed"));
 	CHECK(initial("path"));
-	CHECK(!initial("doubled"));
+	CHECK(initial("doubled"));
 	CHECK(!initial("random"));
-	CHECK(!initial("names"));
+	CHECK(initial("names"));
 	CHECK(initial("items"));
 	CHECK(initial("points"));
 	CHECK(initial("nodes"));

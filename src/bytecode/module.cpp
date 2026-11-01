@@ -288,6 +288,10 @@ public:
 		str(p_value.s);
 		str(p_value.builtin);
 		u32(uint32_t(p_value.constructor));
+		u32(uint32_t(p_value.op));
+		u32(uint32_t(p_value.utility));
+		str(p_value.field);
+		u8(p_value.load ? 1 : 0);
 		u32(uint32_t(p_value.args.size()));
 		for (const Constant &arg : p_value.args) {
 			constant(arg);
@@ -410,6 +414,10 @@ public:
 		value.s = str();
 		value.builtin = str();
 		value.constructor = int32_t(u32());
+		value.op = int32_t(u32());
+		value.utility = int32_t(u32());
+		value.field = str();
+		value.load = u8() != 0;
 		value.args.resize(count());
 		for (Constant &arg : value.args) {
 			arg = constant();
@@ -542,6 +550,12 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.u32(count);
 	}
 
+	w.u32(uint32_t(p_module.named_constants.size()));
+	for (const NamedConstant &constant : p_module.named_constants) {
+		w.str(constant.name);
+		w.u32(constant.constant);
+		w.u8(constant.is_pub ? 1 : 0);
+	}
 	w.u32(uint32_t(p_module.constants.size()));
 	for (const Constant &constant : p_module.constants) {
 		w.constant(constant);
@@ -715,6 +729,12 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 		*count = r.u32();
 	}
 
+	module.named_constants.resize(r.count());
+	for (NamedConstant &constant : module.named_constants) {
+		constant.name = r.str();
+		constant.constant = r.u32();
+		constant.is_pub = r.u8() != 0;
+	}
 	module.constants.resize(r.count());
 	for (Constant &constant : module.constants) {
 		constant = r.constant();

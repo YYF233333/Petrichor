@@ -266,10 +266,20 @@ class Verifier {
 		return same_layout(module.constants[p_index].type, p_type) || fail("the constant does not have the slot's type");
 	}
 
-	// A constant, and what it is built from, have types of the table.
+	// A constant, and what it is built from, have types of the table; an
+	// operator has its operands, a field its base.
 	bool typed_constant(const Constant &p_constant) {
 		if (p_constant.type >= module.types.size()) {
 			return fail("a constant has no type");
+		}
+		if (p_constant.op >= 0 && (p_constant.op > 24 || p_constant.args.empty() || p_constant.args.size() > 2)) {
+			return fail("a constant applies an invalid operator");
+		}
+		if (p_constant.utility >= 0 && !index(uint32_t(p_constant.utility), module.utility_calls.size(), "utility call")) {
+			return false;
+		}
+		if (!p_constant.field.empty() && p_constant.args.size() != 1) {
+			return fail("a constant reads a field of no value");
 		}
 		for (const Constant &arg : p_constant.args) {
 			if (!typed_constant(arg)) {
@@ -780,6 +790,11 @@ public:
 		}
 		for (const Constant &each : module.constants) {
 			if (!typed_constant(each)) {
+				return false;
+			}
+		}
+		for (const NamedConstant &each : module.named_constants) {
+			if (!index(each.constant, module.constants.size(), "constant")) {
 				return false;
 			}
 		}

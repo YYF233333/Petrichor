@@ -147,7 +147,7 @@ class RangeChecker {
 		enter(p_stmt.range, p_parent, r_cursor);
 		const TokenRange &range = p_stmt.range;
 		int64_t cursor = int64_t(range.first) - 1;
-		if (p_stmt.kind == StmtKind::Var || p_stmt.kind == StmtKind::For) {
+		if (p_stmt.kind == StmtKind::Var || p_stmt.kind == StmtKind::Const || p_stmt.kind == StmtKind::For) {
 			name(p_stmt.name_token, p_stmt.name, range);
 		}
 		if (p_stmt.declared_type) {
@@ -224,6 +224,16 @@ public:
 		int64_t cursor = -1;
 		for (const VarDecl &member : p_class.members) {
 			variable(member, whole, cursor);
+		}
+		cursor = -1;
+		for (const ConstDecl &constant : p_class.constants) {
+			enter(constant.range, whole, cursor);
+			name(constant.name_token, constant.name, constant.range);
+			int64_t inner = int64_t(constant.range.first) - 1;
+			if (constant.declared_type) {
+				type(*constant.declared_type, constant.range, inner);
+			}
+			expr(constant.initializer.get(), constant.range, inner);
 		}
 		cursor = -1;
 		for (const FuncDecl &function_decl : p_class.functions) {
@@ -365,7 +375,7 @@ class ResolvedNames {
 
 	void block(const Block &p_block) {
 		for (const auto &stmt : p_block) {
-			if (stmt->kind == StmtKind::Var || stmt->kind == StmtKind::For) {
+			if (stmt->kind == StmtKind::Var || stmt->kind == StmtKind::Const || stmt->kind == StmtKind::For) {
 				add(stmt->name_token, stmt->name, "local");
 			}
 			expr(stmt->target.get());
@@ -391,7 +401,21 @@ public:
 			file(p_file) {
 		for (const VarDecl &member : p_class.members) {
 			add(member.name_token, member.name, "member");
+			for (const Annotation &annotation : member.annotations) {
+				for (const auto &arg : annotation.args) {
+					expr(arg.get());
+				}
+			}
 			expr(member.initializer.get());
+		}
+		for (const ExportGroupDecl &group : p_class.groups) {
+			for (const auto &arg : group.annotation.args) {
+				expr(arg.get());
+			}
+		}
+		for (const ConstDecl &constant : p_class.constants) {
+			add(constant.name_token, constant.name, "constant");
+			expr(constant.initializer.get());
 		}
 		for (const FuncDecl &function : p_class.functions) {
 			add(function.name_token, function.name, "function");

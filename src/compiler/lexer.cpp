@@ -39,6 +39,8 @@ const char *token_name(TokenKind p_kind) {
 			return "\"break\"";
 		case TokenKind::ClassName:
 			return "\"class_name\"";
+		case TokenKind::Const:
+			return "\"const\"";
 		case TokenKind::Continue:
 			return "\"continue\"";
 		case TokenKind::Elif:
@@ -161,6 +163,18 @@ const char *token_name(TokenKind p_kind) {
 			return "\">\"";
 		case TokenKind::GreaterEqual:
 			return "\">=\"";
+		case TokenKind::Ampersand:
+			return "\"&\"";
+		case TokenKind::Pipe:
+			return "\"|\"";
+		case TokenKind::Caret:
+			return "\"^\"";
+		case TokenKind::Tilde:
+			return "\"~\"";
+		case TokenKind::ShiftLeft:
+			return "\"<<\"";
+		case TokenKind::ShiftRight:
+			return "\">>\"";
 		case TokenKind::Comment:
 			return "comment";
 		case TokenKind::LineContinuation:
@@ -209,6 +223,7 @@ const std::unordered_map<std::string, TokenKind> &keywords() {
 		{ "as", TokenKind::As },
 		{ "break", TokenKind::Break },
 		{ "class_name", TokenKind::ClassName },
+		{ "const", TokenKind::Const },
 		{ "continue", TokenKind::Continue },
 		{ "elif", TokenKind::Elif },
 		{ "else", TokenKind::Else },
@@ -690,24 +705,43 @@ class Lexer {
 			case '!':
 				next == '=' ? two(TokenKind::BangEqual) : one(TokenKind::Bang);
 				return;
-			// GDScript's spellings of and and or.
+			// && and || are GDScript's spellings of and and or. A quote after & or
+			// ^ would begin a StringName or NodePath literal, not supported yet.
 			case '&':
 				if (next == '&') {
 					two(TokenKind::And);
 					return;
 				}
-				break;
-			case '|':
-				if (next == '|') {
-					two(TokenKind::Or);
+				if (next != '"' && next != '\'') {
+					one(TokenKind::Ampersand);
 					return;
 				}
 				break;
+			case '|':
+				next == '|' ? two(TokenKind::Or) : one(TokenKind::Pipe);
+				return;
+			case '^':
+				if (next != '"' && next != '\'') {
+					one(TokenKind::Caret);
+					return;
+				}
+				break;
+			case '~':
+				one(TokenKind::Tilde);
+				return;
 			case '<':
-				next == '=' ? two(TokenKind::LessEqual) : one(TokenKind::Less);
+				if (next == '<') {
+					two(TokenKind::ShiftLeft);
+				} else {
+					next == '=' ? two(TokenKind::LessEqual) : one(TokenKind::Less);
+				}
 				return;
 			case '>':
-				next == '=' ? two(TokenKind::GreaterEqual) : one(TokenKind::Greater);
+				if (next == '>') {
+					two(TokenKind::ShiftRight);
+				} else {
+					next == '=' ? two(TokenKind::GreaterEqual) : one(TokenKind::Greater);
+				}
 				return;
 			default:
 				break;
