@@ -330,7 +330,33 @@ class Parser {
 			expr->range = span(index(op));
 			return expr;
 		}
-		return comparison();
+		return content_test();
+	}
+
+	// `x in c` and `x not in c` bind looser than comparisons, as in GDScript
+	// (gdscript_parser.h:1439-1441); `not in` is `not (x in c)`
+	// (gdscript_parser.cpp:2981-2993).
+	std::unique_ptr<Expr> content_test() {
+		auto left = comparison();
+		while (check(TokenKind::In) || (check(TokenKind::Not) && peek(1).kind == TokenKind::In)) {
+			const Token &first = peek();
+			const bool negated = first.kind == TokenKind::Not;
+			if (negated) {
+				advance();
+			}
+			const Token &op = advance();
+			const uint32_t start = left->range.first;
+			left = binary(op, std::move(left), comparison());
+			if (negated) {
+				auto expr = make(ExprKind::Unary, first);
+				expr->op = TokenKind::Not;
+				expr->op_token = index(first);
+				expr->left = std::move(left);
+				expr->range = span(start);
+				left = std::move(expr);
+			}
+		}
+		return left;
 	}
 
 	static bool is_comparison(TokenKind p_kind) {
@@ -435,7 +461,19 @@ class Parser {
 			expr->range = span(index(op));
 			return expr;
 		}
-		return type_test();
+		return power();
+	}
+
+	// `**` binds tighter than the signs and is left-associative, as in GDScript
+	// (gdscript_parser.h:1448-1450, gdscript_parser.cpp:2942, 3001); its right
+	// side may start with a sign, as in `2 ** -1`.
+	std::unique_ptr<Expr> power() {
+		auto left = type_test();
+		while (check(TokenKind::StarStar)) {
+			const Token &op = advance();
+			left = binary(op, std::move(left), check(TokenKind::Minus) || check(TokenKind::Tilde) ? unary() : type_test());
+		}
+		return left;
 	}
 
 	// `x is T` and `x is not T` bind tighter than arithmetic, as in GDScript

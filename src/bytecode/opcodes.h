@@ -54,10 +54,12 @@ namespace petrichor::bytecode {
 	X(NOT_INT, 2) \
 	X(SHL_INT, 3) /* a negative operand or an amount of 64 or more is a program error (spec §5.1) */ \
 	X(SHR_INT, 3) \
+	X(POW_INT, 3) /* int_power(); 0 to a negative power is a program error (spec §5.1) */ \
 	X(ADD_FLOAT, 3) \
 	X(SUB_FLOAT, 3) \
 	X(MUL_FLOAT, 3) \
 	X(DIV_FLOAT, 3) \
+	X(POW_FLOAT, 3) \
 	X(NEG_FLOAT, 2) \
 	X(ADD_STRING, 3) \
 	X(EQ_INT, 3) \
@@ -81,6 +83,7 @@ namespace petrichor::bytecode {
 	X(GET_FIELD, 3) /* field, dst, base */ \
 	X(SET_FIELD, 3) /* field, base, value */ \
 	X(GET_PROPERTY, 3) /* property, dst, object (NO_SLOT: self) */ \
+	X(HAS_MEMBER, 3) /* dst (bool), object, name (String): whether the object's get() finds it (spec §5.1) */ \
 	X(SET_PROPERTY, 3) /* property, object (NO_SLOT: self), value */ \
 	X(NEW_OBJECT, 2) /* class, dst: of a class of this language, the engine class with the script */ \
 	X(GET_SINGLETON, 2) /* class, dst */ \
@@ -169,6 +172,29 @@ inline bool int_in_range(IntRange p_range, int64_t p_value) {
 		default:
 			return false;
 	}
+}
+
+// `a ** n` of two ints (spec §5.1), as POW_INT computes it and the compiler
+// in constants: exact, wrapping as `*` does; for a negative n, 1 divided by
+// a ** n truncated toward zero. False for 0 to a negative power.
+inline bool int_power(int64_t p_base, int64_t p_exponent, int64_t &r_result) {
+	if (p_exponent < 0) {
+		if (p_base == 0) {
+			return false;
+		}
+		r_result = p_base == 1 ? 1 : (p_base == -1 ? ((p_exponent & 1) ? -1 : 1) : 0);
+		return true;
+	}
+	uint64_t result = 1;
+	uint64_t base = uint64_t(p_base);
+	for (uint64_t exponent = uint64_t(p_exponent); exponent != 0; exponent >>= 1) {
+		if (exponent & 1) {
+			result *= base;
+		}
+		base *= base;
+	}
+	r_result = int64_t(result);
+	return true;
 }
 
 // As the engine API names it: "int8", "uint32", "char32"…

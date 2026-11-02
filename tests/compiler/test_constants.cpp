@@ -47,6 +47,10 @@ const WRAPPED = SMALL - 1
 const CHOSEN = 1 if DAY_MS > 0 else 2
 const LIMITS = [10, 20, 30]
 const SECOND = LIMITS[1] + LIMITS[-1]
+const LEFT = 2 ** 3 ** 2
+const SIGNED = -2 ** 2 + 2 ** -1 + (-1) ** -3
+const EXACT = 3 ** 39
+const WRAPS = 2 ** 64
 )");
 	CHECK(named(module, "DAY_MS").i == 86400000);
 	CHECK(named(module, "MASK").i == 9);
@@ -57,6 +61,12 @@ const SECOND = LIMITS[1] + LIMITS[-1]
 	CHECK(named(module, "WRAPPED").i == INT64_MAX);
 	CHECK(named(module, "CHOSEN").i == 1);
 	CHECK(named(module, "SECOND").i == 50);
+	// ** is left-associative and binds tighter than the signs, as in GDScript;
+	// of ints exact, wrapping as * does (spec §5.1).
+	CHECK(named(module, "LEFT").i == 64);
+	CHECK(named(module, "SIGNED").i == -4 + 0 - 1);
+	CHECK(named(module, "EXACT").i == 4052555153018976267);
+	CHECK(named(module, "WRAPS").i == 0);
 	CHECK(storage(module, named(module, "LIMITS").type) == ValueType::Array);
 	CHECK(named(module, "LIMITS").args.size() == 3);
 }
@@ -70,8 +80,10 @@ const SLOPE = tan(ANGLE)
 const CORNERS: Array[Vector2i] = [Vector2i.ONE, -Vector2i.ONE]
 const STATIC = Color("#82010b")
 const SPLIT = Vector2i(4, 2).x / 2
+const ROOT = 2.0 ** 0.5
 )");
 	CHECK(named(module, "SPLIT").op == compiler::OP_DIVIDE);
+	CHECK(named(module, "ROOT").op == compiler::OP_POWER);
 	CHECK(has_error("const SPLIT = 4 / Vector2i(4, 2).x\n", "The divisor of an int must be known at compile time (spec §4.5)."));
 	const bytecode::Constant &extents = named(module, "EXTENTS");
 	CHECK(extents.op == compiler::OP_DIVIDE);
@@ -96,6 +108,8 @@ TEST_CASE("what loading could fail on is a compile error, where it is") {
 	CHECK(errors_of("const N = posmod(10, 0)\n") == Errors{ "1:11: Modulo by zero." });
 	CHECK(errors_of("const N = 1 << -1\n") == Errors{ "1:13: A shift takes operands that are not negative (spec §4.5)." });
 	CHECK(errors_of("const N = 1 << 64\n") == Errors{ "1:13: A shift by 64 or more bits is undefined (spec §4.5)." });
+	CHECK(errors_of("const N = 0 ** -1\n") == Errors{ "1:13: 0 ** -1 divides by zero." });
+	CHECK(errors_of("const N = Vector2i(4, 2).x ** 2\n") == Errors{ "1:28: Both sides of ** of two ints must be known at compile time (spec §4.5)." });
 	CHECK(errors_of("const N = int(1e300)\n") == Errors{ "1:11: Cannot convert 1.0000000000000001e+300 to int: out of range." });
 	CHECK(errors_of("const L = [1, 2]\nconst E = L[5]\n") == Errors{ "2:11: Index 5 is out of bounds (size 2)." });
 	CHECK(errors_of("const D = {\"a\": 1, \"a\": 2}\n") == Errors{ "1:20: The key \"a\" is already in this dictionary." });

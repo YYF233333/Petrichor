@@ -140,6 +140,8 @@ const char *token_name(TokenKind p_kind) {
 			return "\"-\"";
 		case TokenKind::Star:
 			return "\"*\"";
+		case TokenKind::StarStar:
+			return "\"**\"";
 		case TokenKind::Slash:
 			return "\"/\"";
 		case TokenKind::Percent:
@@ -152,6 +154,8 @@ const char *token_name(TokenKind p_kind) {
 			return "\"-=\"";
 		case TokenKind::StarEqual:
 			return "\"*=\"";
+		case TokenKind::StarStarEqual:
+			return "\"**=\"";
 		case TokenKind::SlashEqual:
 			return "\"/=\"";
 		case TokenKind::PercentEqual:
@@ -221,6 +225,8 @@ TokenKind compound_operator(TokenKind p_assign) {
 			return TokenKind::Minus;
 		case TokenKind::StarEqual:
 			return TokenKind::Star;
+		case TokenKind::StarStarEqual:
+			return TokenKind::StarStar;
 		case TokenKind::SlashEqual:
 			return TokenKind::Slash;
 		case TokenKind::PercentEqual:
@@ -923,7 +929,11 @@ class Lexer {
 				}
 				return;
 			case '*':
-				next == '=' ? two(TokenKind::StarEqual) : one(TokenKind::Star);
+				if (next == '*') {
+					peek(2) == '=' ? three(TokenKind::StarStarEqual) : two(TokenKind::StarStar);
+				} else {
+					next == '=' ? two(TokenKind::StarEqual) : one(TokenKind::Star);
+				}
 				return;
 			case '/':
 				next == '=' ? two(TokenKind::SlashEqual) : one(TokenKind::Slash);

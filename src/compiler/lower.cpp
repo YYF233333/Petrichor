@@ -935,6 +935,15 @@ class Lowerer {
 		return stored(*p_subscript.right, p_subscript.param_types[0], p_subscript.param_types[0], true);
 	}
 
+	// `x in c` (spec §5.1): c.has(x) or c.contains(x), x as an element or key.
+	uint32_t contains(const Expr &p_expr) {
+		const Type &element = p_expr.param_types[0];
+		const uint32_t value = stored(*p_expr.left, element, element, p_expr.owner == "Dictionary");
+		const uint32_t container = lower_expr(*p_expr.right);
+		const uint32_t method = engine_builtin_method(reg_type(container), p_expr.text.c_str(), value_types(p_expr.engine_params), ValueType::Bool);
+		return call_builtin(method, container, { value }, temp(ValueType::Bool));
+	}
+
 	// get(k) of Dictionary[K, V]: V?, None for a missing key (spec §3.8).
 	uint32_t get_or_none(const Expr &p_call) {
 		const uint32_t dictionary = lower_expr(*p_call.base);
@@ -1069,6 +1078,9 @@ class Lowerer {
 				break;
 			case TokenKind::Slash:
 				op = f ? Op::DIV_FLOAT : Op::DIV_INT;
+				break;
+			case TokenKind::StarStar:
+				op = f ? Op::POW_FLOAT : Op::POW_INT;
 				break;
 			case TokenKind::Percent:
 				op = Op::MOD_INT;
@@ -1499,6 +1511,16 @@ class Lowerer {
 					const uint32_t result = temp(ValueType::Bool);
 					instr(Op::IS_NONE, result, source, NO_REG, 0, fn.regs[source].type);
 					return p_expr.op == TokenKind::BangEqual ? negate(result) : result;
+				}
+				if (p_expr.target == Target::Contains) {
+					return contains(p_expr);
+				}
+				if (p_expr.target == Target::HasMember) {
+					const uint32_t name = convert(lower_expr(*p_expr.left), Type::of(TypeKind::String));
+					const uint32_t object = lower_expr(*p_expr.right);
+					const uint32_t result = temp(ValueType::Bool);
+					instr(Op::HAS_MEMBER, result, object, name);
+					return result;
 				}
 				if (p_expr.op == TokenKind::And || p_expr.op == TokenKind::Or) {
 					return short_circuit(p_expr);

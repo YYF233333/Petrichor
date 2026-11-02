@@ -100,6 +100,8 @@ enum class Target {
 	EmitSignal, // `s.emit(...)` of a signal value.
 	EngineConstant, // An integer constant of an engine class, or a global one, in `int_value`.
 	NoneComparison, // `x == None` or `x != None`: `left` or `right` is the None literal.
+	Contains, // `x in c`: the method `text` of the built-in type `owner`, has or contains, taking `param_types[0]`.
+	HasMember, // `name in obj`: whether the engine finds a member by that name.
 	Constant, // A constant of a class (spec §4.5), whose value is `constant`.
 };
 

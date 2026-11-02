@@ -381,6 +381,7 @@ func _ready() -> void:
 	# Spec §3.8: Dictionary[K, V], elements assigned in place, keys that cannot change.
 	var containers := ContainerCheck.new()
 	_check(containers.counted() == "16 11 true 2 3 b", "a Dictionary[K, V] is indexed, assigned, iterated over its keys, and get(k) gives None for a missing key")
+	_check(containers.contained() == "[true, true, true, true, false, true, true, false, true, true, false, true]", "in is has() or contains(), x converted as they take it; on an object it looks for a member by name (spec §5.1)")
 	var won: Dictionary = containers.scored("ann", 3)
 	containers.scored("ann", 2)
 	_check(won.is_typed() and won.get_typed_key_builtin() == TYPE_STRING and won["ann"] == 5 and containers.scores.is_typed(), "a Dictionary[K, V] is the engine's typed dictionary, shared")
@@ -460,6 +461,10 @@ func _ready() -> void:
 	k.shift(1, 64)
 	k.shift(-1, 1)
 	_check_errors(["constant_check.pet:91: Cannot compute 1 << 64: a shift by 64 or more bits is undefined.", "constant_check.pet:91: Cannot compute -1 << 1: a shift takes operands that are not negative."], "a shift of a negative int or by 64 or more bits is a program error")
+	_check(k.power(3, 39) == 4052555153018976267 and k.power(2, 64) == 0 and k.power(2, -1) == 0 and k.power(-1, -3) == -1 and ConstantCheck.POWERS == [64, -4, 4052555153018976267, 0, -1], "** of ints is exact and wraps as * does, in code and in constants (spec §5.1)")
+	_check(ConstantCheck.ROOT == pow(2.0, 0.5) and k.root(2.0) == pow(2.0, 0.5), "** of floats is the engine's pow")
+	k.power(0, -1)
+	_check_errors(["constant_check.pet:103: Cannot compute 0 ** -1: division by zero."], "0 to a negative power is a program error")
 	_check(ConstantCheck.DAY_MS == 86400000 and ConstantCheck.NAMES == ["a", "b"] and k.MASK == 9, "GDScript reads a pub constant through the class and through an instance (spec §11.3)")
 	var constant_map: Dictionary = (k.get_script() as Script).get_script_constant_map()
 	_check(constant_map.get("ANGLE") == deg_to_rad(30) and not constant_map.has("SECRET") and k.secret() == 7, "the engine sees the pub constants only (spec §10.5)")

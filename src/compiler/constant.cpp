@@ -1,5 +1,6 @@
 #include "compiler/constant.h"
 
+#include "bytecode/opcodes.h"
 #include "compiler/ast.h"
 #include "compiler/builtin_api.h"
 
@@ -38,6 +39,8 @@ uint8_t engine_operator(TokenKind p_op) {
 			return OP_DIVIDE;
 		case TokenKind::Percent:
 			return OP_MODULE;
+		case TokenKind::StarStar:
+			return OP_POWER;
 		case TokenKind::ShiftLeft:
 			return OP_SHIFT_LEFT;
 		case TokenKind::ShiftRight:
@@ -213,6 +216,13 @@ ConstPtr fold_int_binary(Expr &r_expr, int64_t p_a, int64_t p_b) {
 				return fail(r_expr, "A shift by 64 or more bits is undefined (spec §4.5).");
 			}
 			return int_value(r_expr.op == TokenKind::ShiftLeft ? wrapping(uint64_t(p_a) << p_b) : p_a >> p_b);
+		case TokenKind::StarStar: {
+			int64_t result = 0;
+			if (!bytecode::int_power(p_a, p_b, result)) {
+				return fail(r_expr, "0 ** " + std::to_string(p_b) + " divides by zero.");
+			}
+			return int_value(result);
+		}
 		case TokenKind::Ampersand:
 			return int_value(p_a & p_b);
 		case TokenKind::Pipe:
@@ -342,6 +352,9 @@ ConstPtr fold_binary(Expr &r_expr) {
 	}
 	if ((r_expr.op == TokenKind::ShiftLeft || r_expr.op == TokenKind::ShiftRight)) {
 		return fail(r_expr, "Both sides of a shift must be known at compile time (spec §4.5).");
+	}
+	if (r_expr.op == TokenKind::StarStar && left->type.kind == TypeKind::Int && right->type.kind == TypeKind::Int) {
+		return fail(r_expr, "Both sides of ** of two ints must be known at compile time (spec §4.5).");
 	}
 	const uint8_t op = engine_operator(r_expr.op);
 	if (op == OP_UNKNOWN) {

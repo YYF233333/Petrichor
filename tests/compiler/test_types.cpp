@@ -15,6 +15,32 @@ TEST_CASE("operators follow the engine's table (spec §5.1)") {
 	CHECK(contains(type_of("Vector2(1, 2) + Vector2i(1, 2)"), "Invalid operands Vector2 and Vector2i"));
 }
 
+TEST_CASE("** is int for two ints and float otherwise (spec §5.1)") {
+	CHECK(type_of("2 ** 3") == "int");
+	CHECK(type_of("2 ** 0.5") == "float");
+	CHECK(type_of("2.0 ** -1") == "float");
+	CHECK(contains(type_of("Vector2() ** 2"), "Invalid operands Vector2 and int for \"**\""));
+	CHECK(errors_of(in_function("var n := 2\nn **= 3\nn **= -n", "func f() -> void:", "Node3D")).empty());
+}
+
+TEST_CASE("x in c is c.has(x), or c.contains(x) of a string, x as they take it (spec §5.1)") {
+	const std::string setup = "var ids: Array[int] = [1, 2]\nvar weights: Array[float] = [1.0]\nvar names: Dictionary[String, int] = {}\nvar bytes := PackedByteArray()\nvar loose: Array = []\nvar text := \"abc\"";
+	CHECK(type_of("1 in weights and 2 not in ids and not 3 in ids", setup) == "bool");
+	CHECK(type_of("\"a\" in names and &\"b\" in names and 3 in bytes and \"x\" in loose", setup) == "bool");
+	CHECK(type_of("\"b\" in text and &\"b\" in &\"abc\" and Vector2.ONE in [Vector2.ZERO]", setup) == "bool");
+	CHECK(contains(type_of("1.5 in ids", setup), "\"in\" looks for a value of type int in Array[int], not float. Convert explicitly with int(x)."));
+	CHECK(contains(type_of("\"a\" in ids", setup), "\"in\" looks for a value of type int in Array[int], not String."));
+	CHECK(contains(type_of("1 in names", setup), "of type String in Dictionary[String, int], not int."));
+	CHECK(contains(type_of("1 in text", setup), "of type String in String, not int."));
+	CHECK(contains(type_of("1 in 5"), "Invalid operands int and int for \"in\"."));
+	// In GDScript, comparisons bind tighter (gdscript_parser.h:1440-1441).
+	CHECK(contains(type_of("1 in ids == ids", setup), "Invalid operands int and bool for \"in\"."));
+	// On an object, a member's name.
+	CHECK(type_of("\"position\" in self and &\"hp\" not in self") == "bool");
+	CHECK(contains(type_of("1 in self"), "\"in\" on an object looks for a member by name, a String or StringName, not int."));
+	CHECK(contains(type_of("\"hp\" in get_parent()"), "The value may be None (Node?); unwrap it first."));
+}
+
 TEST_CASE("== follows the engine's table too (spec §5.2)") {
 	CHECK(type_of("Vector2(1, 2) == Vector2(1, 2)") == "bool");
 	CHECK(contains(type_of("Vector2() == Vector2i()"), "Invalid operands"));

@@ -93,3 +93,17 @@ pub func shift(x: int, n: int) -> int:
 # The engine's global constants, which the compiler takes from godot-cpp's API description.
 pub func global_constants() -> Array:
 	return [KEY_ESCAPE, MOUSE_BUTTON_RIGHT, PROPERTY_HINT_FILE_PATH, INT64_MIN]
+
+# Spec §5.1: ** of ints is exact and wraps as * does; of floats the engine's pow.
+pub const POWERS = [2 ** 3 ** 2, -2 ** 2, 3 ** 39, 2 ** -1, (-1) ** -3]
+pub const ROOT = 2.0 ** 0.5
+
+
+pub func power(a: int, n: int) -> int:
+	var x := a ** n
+	x **= 1
+	return x
+
+
+pub func root(x: float) -> float:
+	return x ** 0.5

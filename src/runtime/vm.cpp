@@ -20,6 +20,7 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -685,6 +686,13 @@ public:
 					pc += 4;
 					break;
 				}
+				case Op::POW_INT: {
+					if (!bytecode::int_power(I64(code[pc + 2]), I64(code[pc + 3]), I64(code[pc + 1]))) {
+						FAIL(vformat("Cannot compute 0 ** %d: division by zero.", I64(code[pc + 3])));
+					}
+					pc += 4;
+					break;
+				}
 				case Op::ADD_FLOAT:
 					F64(code[pc + 1]) = F64(code[pc + 2]) + F64(code[pc + 3]);
 					pc += 4;
@@ -699,6 +707,11 @@ public:
 					break;
 				case Op::DIV_FLOAT:
 					F64(code[pc + 1]) = F64(code[pc + 2]) / F64(code[pc + 3]);
+					pc += 4;
+					break;
+				case Op::POW_FLOAT:
+					// As the engine's Math::pow (core/math/math_funcs.h:185-187; ed1daf0).
+					F64(code[pc + 1]) = std::pow(F64(code[pc + 2]), F64(code[pc + 3]));
 					pc += 4;
 					break;
 				case Op::NEG_FLOAT:
@@ -760,6 +773,15 @@ public:
 					if (!from_variant(image.types[module.properties[index].type], value, frame + code[pc + 2], false)) {
 						FAIL(vformat("The property %s holds an unexpected %s.", image.properties[index], Variant::get_type_name(value.get_type())));
 					}
+					pc += 4;
+					break;
+				}
+				case Op::HAS_MEMBER: {
+					OBJECT(object, code[pc + 2]);
+					// As the engine's `in` (core/variant/variant_op.h:1217-1250; ed1daf0).
+					bool valid = false;
+					object.get_named(StringName(STR(code[pc + 3])), valid);
+					U64(code[pc + 1]) = valid ? 1 : 0;
 					pc += 4;
 					break;
 				}

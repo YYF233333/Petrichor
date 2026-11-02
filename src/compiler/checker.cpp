@@ -24,6 +24,8 @@ const char *operator_name(TokenKind p_op) {
 			return "-";
 		case TokenKind::Star:
 			return "*";
+		case TokenKind::StarStar:
+			return "**";
 		case TokenKind::Slash:
 			return "/";
 		case TokenKind::Percent:
@@ -1936,6 +1938,7 @@ class Checker : public ClassRelation {
 				[[fallthrough]];
 			case TokenKind::Minus:
 			case TokenKind::Star:
+			case TokenKind::StarStar:
 			case TokenKind::Slash:
 				if (numeric) {
 					return number;
@@ -1986,6 +1989,9 @@ class Checker : public ClassRelation {
 		if (equality && (r_expr.left->kind == ExprKind::NoneLiteral || r_expr.right->kind == ExprKind::NoneLiteral)) {
 			return check_none_comparison(r_expr);
 		}
+		if (r_expr.op == TokenKind::In) {
+			return check_in(r_expr);
+		}
 		const Type left = check_value(*r_expr.left);
 		Type right;
 		if (r_expr.op == TokenKind::And || r_expr.op == TokenKind::Or) {
@@ -2014,6 +2020,60 @@ class Checker : public ClassRelation {
 			return fail(r_expr, "A value of type " + type.to_string() + " is never None." + hint);
 		}
 		r_expr.target = Target::NoneComparison;
+		return set(r_expr, Type::of(TypeKind::Bool));
+	}
+
+	// `x in c` (spec §5.1): c.has(x) of an Array, a Dictionary or a packed
+	// array, c.contains(x) of a String or StringName, so x takes the type
+	// those take; or, on an object, whether the engine finds a member named x.
+	Type check_in(Expr &r_expr) {
+		const Type container = check_value(*r_expr.right);
+		if (container.is_error()) {
+			check_value(*r_expr.left);
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		if (container.kind == TypeKind::Object) {
+			const Type name = check_value(*r_expr.left);
+			if (container.nullable) {
+				return fail(r_expr, "The value may be None (" + container.to_string() + "); unwrap it first.");
+			}
+			if (!name.is_error() && name.kind != TypeKind::String && name != Type::builtin("StringName")) {
+				error(r_expr.left->range, "\"in\" on an object looks for a member by name, a String or StringName, not " + name.to_string() + ".");
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
+			r_expr.target = Target::HasMember;
+			return set(r_expr, Type::of(TypeKind::Bool));
+		}
+		const std::string base = container.kind == TypeKind::String ? std::string("String") : container.builtin_name();
+		const bool text = base == "String" || base == "StringName";
+		const bool listed = base == "Array" || base == "Dictionary" || base.rfind("Packed", 0) == 0;
+		const builtin::Class *type = text || listed ? builtin::find_class(base) : nullptr;
+		const builtin::Method *method = type ? builtin::find_method(*type, text ? "contains" : "has") : nullptr;
+		if (!method || method->argument_count != 1) {
+			const Type value = check_value(*r_expr.left);
+			if (container.kind == TypeKind::Option) {
+				return fail(r_expr, "The value may be None (" + container.to_string() + "); unwrap it first.");
+			}
+			return value.is_error() ? set(r_expr, value) : fail(r_expr, "Invalid operands " + value.to_string() + " and " + container.to_string() + " for \"in\".");
+		}
+		r_expr.engine_params = { api_type(method->arguments[0].type, false) };
+		Type element = r_expr.engine_params[0];
+		if ((base == "Array" || base == "Dictionary") && !container.args.empty()) {
+			element = container.args[0]; // The element or key type (spec §3.8).
+		}
+		const Type value = check_value(*r_expr.left, element);
+		if (!value.is_error() && !assignable(value, element)) {
+			std::string message = "\"in\" looks for a value of type " + element.to_string() + " in " + container.to_string() + ", not " + value.to_string() + ".";
+			if (value.kind == TypeKind::Float && element.kind == TypeKind::Int) {
+				message += " Convert explicitly with int(x).";
+			}
+			error(r_expr.left->range, message);
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		r_expr.target = Target::Contains;
+		r_expr.owner = base;
+		r_expr.text = method->name;
+		r_expr.param_types = { element };
 		return set(r_expr, Type::of(TypeKind::Bool));
 	}
 

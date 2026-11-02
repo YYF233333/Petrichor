@@ -146,3 +146,12 @@ pub func least(values: Array[int]) -> int:
 
 pub func first(values: Array[int]) -> int:
 	return values.front()
+
+# Spec §5.1: in and not in, as has() and contains(); on an object, a member's name.
+pub func contained() -> String:
+	var weights: Array[float] = [1.0, 2.5]
+	var hits: Array[Hit] = [Hit(damage = 2)]
+	var names: Dictionary[String, int] = {"a": 1}
+	var bytes := PackedByteArray()
+	bytes.append(7)
+	return str([1 in weights, 2 not in weights, Hit(damage = 2) in hits, &"a" in names, "b" in names, 7 in bytes, "ell" in "hello", &"x" in "hello", "name" in self, &"scores" in self, "nothing" in self, 3 in [1, 2, 3]])

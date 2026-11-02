@@ -610,6 +610,7 @@ class Verifier {
 			case Op::XOR_INT:
 			case Op::SHL_INT:
 			case Op::SHR_INT:
+			case Op::POW_INT:
 				return three(o, ValueType::Int, ValueType::Int);
 			case Op::NEG_INT:
 			case Op::NOT_INT:
@@ -618,6 +619,7 @@ class Verifier {
 			case Op::SUB_FLOAT:
 			case Op::MUL_FLOAT:
 			case Op::DIV_FLOAT:
+			case Op::POW_FLOAT:
 				return three(o, ValueType::Float, ValueType::Float);
 			case Op::NEG_FLOAT:
 				return same(o[0], o[1], ValueType::Float);
@@ -680,6 +682,8 @@ class Verifier {
 				}
 				return p_op == Op::GET_PROPERTY ? slot_like(o[1], property) && slot_or_none(o[2], ValueType::Object) : slot_or_none(o[1], ValueType::Object) && slot_like(o[2], property);
 			}
+			case Op::HAS_MEMBER:
+				return slot(o[0], ValueType::Bool) && slot(o[1], ValueType::Object) && slot(o[2], ValueType::String);
 			case Op::NEW_OBJECT:
 				return index(o[0], module.classes.size(), "class") && (module.classes[o[0]].interface_name.empty() || fail("new() of an interface")) && slot(o[1], ValueType::Object);
 			case Op::GET_OWNER:
