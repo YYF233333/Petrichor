@@ -776,6 +776,14 @@ public:
 					pc += 4;
 					break;
 				}
+				case Op::CHECK_ENUM: {
+					const TypeImage &type = image.types[code[pc + 1]];
+					if (!is_enum_value(type, I64(code[pc + 2]))) {
+						FAIL(vformat("%d is none of the values of %s.", I64(code[pc + 2]), type_description(type)));
+					}
+					pc += 3;
+					break;
+				}
 				case Op::HAS_MEMBER: {
 					OBJECT(object, code[pc + 2]);
 					// As the engine's `in` (core/variant/variant_op.h:1217-1250; ed1daf0).

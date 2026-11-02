@@ -111,6 +111,7 @@ class Verifier {
 			case TypeKind::Dictionary:
 				return "Dictionary[" + type_name(type.key) + ", " + type_name(type.element) + "]";
 			case TypeKind::Struct:
+			case TypeKind::Enum:
 				return type.name.substr(type.name.rfind(':') + 1);
 			default:
 				return value_type_name(type.value);
@@ -141,6 +142,12 @@ class Verifier {
 				if (type.kind != TypeKind::Struct || field.type >= i || !has_values(field.type)) {
 					return fail("a field of type " + std::to_string(i) + " has no type");
 				}
+			}
+			if (type.kind == TypeKind::Enum && type.name.empty()) {
+				return fail("an enum without a name");
+			}
+			if (!type.values.empty() && type.kind != TypeKind::Enum) {
+				return fail("values of type " + std::to_string(i) + ", which is no enum");
 			}
 		}
 		return true;
@@ -684,6 +691,8 @@ class Verifier {
 			}
 			case Op::HAS_MEMBER:
 				return slot(o[0], ValueType::Bool) && slot(o[1], ValueType::Object) && slot(o[2], ValueType::String);
+			case Op::CHECK_ENUM:
+				return type_operand(o[0]) && (module.types[o[0]].kind == TypeKind::Enum || fail("CHECK_ENUM of no enum")) && slot(o[1], ValueType::Int);
 			case Op::NEW_OBJECT:
 				return index(o[0], module.classes.size(), "class") && (module.classes[o[0]].interface_name.empty() || fail("new() of an interface")) && slot(o[1], ValueType::Object);
 			case Op::GET_OWNER:

@@ -21,6 +21,7 @@ ValueType value_type(const Type &p_type) {
 		case TypeKind::Bool:
 			return ValueType::Bool;
 		case TypeKind::Int:
+		case TypeKind::Enum:
 			return ValueType::Int;
 		case TypeKind::Float:
 			return ValueType::Float;
@@ -223,6 +224,14 @@ class Lowerer {
 			type.element = type_index(p_type.args[1]);
 		} else if (p_type.kind == TypeKind::Struct) {
 			return struct_index(p_type);
+		} else if (p_type.kind == TypeKind::Enum) {
+			// "script::Name" for an enum of this language, as for a struct.
+			type.kind = bytecode::TypeKind::Enum;
+			type.value = ValueType::Int;
+			type.name = p_type.script.empty() ? p_type.name : p_type.script + "::" + p_type.interface_name();
+			for (const auto &[name, value] : p_type.values ? p_type.values->list : std::vector<std::pair<std::string, int64_t>>()) {
+				type.values.push_back({ name, value });
+			}
 		} else {
 			type.value = value_type(p_type);
 		}
@@ -1178,6 +1187,13 @@ class Lowerer {
 			}
 			case Target::ConvertToFloat:
 				return convert(lower_expr(*p_call.args[0]), Type::of(TypeKind::Float));
+			case Target::EnumFromInt: {
+				// One of the values, or a program error (spec §3.7).
+				const uint32_t result = temp(p_call.type);
+				move(result, lower_expr(*p_call.args[0]));
+				instr(Op::CHECK_ENUM, NO_REG, result, NO_REG, fn.regs[result].type);
+				return result;
+			}
 			case Target::NewObject: {
 				const uint32_t result = temp(p_call.type);
 				instr(Op::NEW_OBJECT, result, NO_REG, NO_REG, class_index(p_call.type));
@@ -2174,6 +2190,15 @@ public:
 		for (const ConstDecl *constant : cls.all_constants) {
 			if (constant->value) {
 				module.named_constants.push_back({ constant->name, shared_constant(*constant->value), constant->is_pub });
+			}
+		}
+		// An enum's name as GDScript's, a Dictionary, and the values of an unnamed one (spec §3.7).
+		for (const EnumDecl *decl : cls.all_enums) {
+			if (!decl->name.empty() && decl->dictionary) {
+				module.named_constants.push_back({ decl->name, shared_constant(*decl->dictionary), decl->is_pub });
+			}
+			for (size_t i = 0; decl->name.empty() && i < decl->constants.size(); i++) {
+				module.named_constants.push_back({ decl->values[i].name, shared_constant(*decl->constants[i]), decl->is_pub });
 			}
 		}
 

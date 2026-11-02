@@ -84,8 +84,10 @@ struct TypeImage {
 	uint32_t layout = 0; // Equal for types laid out alike, in every image.
 	ValueCheck check;
 	std::string result_key; // The signature key of a Task[T] whose T it is.
-	godot::String name; // Struct: "script::Name".
+	godot::String name; // Struct and Enum: "script::Name"; an engine enum as the engine names it.
 	std::vector<FieldImage> fields; // Struct.
+	std::vector<int64_t> enum_values; // Enum, sorted.
+	std::vector<std::pair<godot::String, int64_t>> enum_declared; // Enum, the names and values in declaration order.
 	// A type that containers keep boxed (bytecode::is_boxed): its boxes' type,
 	// the same for the same type in every image.
 	const BoxType *box = nullptr;
@@ -108,6 +110,8 @@ godot::Variant to_variant(const TypeImage &p_type, const uint8_t *p_slot);
 // that has each field, as `T.try_from` decodes the field (spec §3.6, §5.3),
 // containers in it into new ones when they are not of the field's type.
 bool from_variant(const TypeImage &p_type, const godot::Variant &p_value, uint8_t *p_slot, bool p_check);
+// Whether an int is one of an enum's values (spec §3.7).
+bool is_enum_value(const TypeImage &p_type, int64_t p_value);
 // The value as spec §10.1 encodes it: a struct as a Dictionary, a container
 // that keeps boxes as an untyped copy with its keys and elements encoded.
 godot::Variant encode(const TypeImage &p_type, const uint8_t *p_slot);

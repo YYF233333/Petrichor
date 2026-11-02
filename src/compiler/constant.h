@@ -107,4 +107,9 @@ ConstPtr converted(const ConstPtr &p_value, const Type &p_to);
 // Whether a preload is in the value, which no table of constants can hold.
 bool loads(const ConstValue &p_value);
 
+// A value of an enum (spec §3.7), an int typed as the enum, and its name as a
+// value: a Dictionary of the names and the values.
+ConstPtr enum_constant(int64_t p_value, const Type &p_enum);
+ConstPtr enum_dictionary(const EnumValues &p_values, const Type &p_enum);
+
 } // namespace petrichor::compiler

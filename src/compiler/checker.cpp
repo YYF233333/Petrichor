@@ -8,6 +8,7 @@
 #include <cctype>
 #include <iomanip>
 #include <locale>
+#include <set>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -168,6 +169,10 @@ class Checker : public ClassRelation {
 	bool initializing_onready = false;
 	// Checking a constant's initializer, which may come before the members' types are known.
 	bool in_constant = false;
+	// The enum whose values are being computed, whose values before
+	// `current_value` its own may name (spec §3.7).
+	const EnumDecl *current_enum = nullptr;
+	size_t current_value = 0;
 	// The functions around the lambda being checked (spec §3.11), outermost
 	// first, each as it was where its lambda is.
 	struct Enclosing {
@@ -503,6 +508,10 @@ class Checker : public ClassRelation {
 					refer(p_ref.name_token, script_id(options.path, p_ref.name));
 					return Type::structure(display_name(cls, options.path) + "." + p_ref.name, options.path);
 				}
+				if (const EnumDecl *decl = p_ref.name.empty() ? nullptr : cls.find_enum(p_ref.name)) {
+					refer(p_ref.name_token, script_id(decl->script, decl->name));
+					return decl->type;
+				}
 			}
 			return std::nullopt;
 		}
@@ -551,7 +560,21 @@ class Checker : public ClassRelation {
 			refer(p_ref.name_token == NO_TOKEN ? NO_TOKEN : p_ref.name_token + 2, script_id(path, inner));
 			return Type::structure(display_name(*header, path) + "." + inner, path);
 		}
-		error(p_ref.range, head + " declares no interface or struct \"" + inner + "\".");
+		if (std::any_of(header->enums.begin(), header->enums.end(), [&](const EnumDecl &p_enum) { return p_enum.name == inner; })) {
+			const ClassDecl *checked = path == options.path ? &cls : script_decl(path);
+			const EnumDecl *found = checked ? checked->find_enum(inner) : nullptr;
+			if (!found) {
+				error(p_ref.range, head + " (" + path + ") has errors.");
+				return Type::of(TypeKind::Error);
+			}
+			if (!found->is_pub && path != options.path && !extends_script(options.path, path)) {
+				error(p_ref.range, p_ref.name + " is not pub (spec §4.2).");
+				return Type::of(TypeKind::Error);
+			}
+			refer(p_ref.name_token == NO_TOKEN ? NO_TOKEN : p_ref.name_token + 2, script_id(found->script, inner));
+			return found->type;
+		}
+		error(p_ref.range, head + " declares no interface, struct or enum \"" + inner + "\".");
 		return Type::of(TypeKind::Error);
 	}
 
@@ -965,6 +988,317 @@ class Checker : public ClassRelation {
 		return decl;
 	}
 
+	/* Enums (spec §3.7) */
+
+	// The class's own enums and those it inherits, before any type names one.
+	void declare_enums() {
+		if (cls.base) {
+			cls.all_enums = cls.base->all_enums;
+		}
+		for (EnumDecl &decl : cls.enums) {
+			decl.script = options.path;
+			decl.numbers = std::make_shared<EnumValues>();
+			decl.type = decl.name.empty() ? Type::of(TypeKind::Int) : Type::enumeration(display_name(cls, options.path) + "." + decl.name, options.path, decl.numbers);
+			if (!decl.name.empty()) {
+				refer(decl.name_token, script_id(options.path, decl.name), true);
+			}
+			for (const EnumValueDecl &value : decl.values) {
+				refer(value.name_token, script_id(options.path, enum_value_id(decl, value.name)), true);
+			}
+			cls.all_enums.push_back(&decl);
+		}
+	}
+
+	// What a value is called in references: State.IDLE, or A of an unnamed enum.
+	static std::string enum_value_id(const EnumDecl &p_decl, const std::string &p_value) {
+		return p_decl.name.empty() ? p_value : p_decl.name + "." + p_value;
+	}
+
+	bool is_own(const EnumDecl &p_decl) const {
+		return &p_decl >= cls.enums.data() && &p_decl < cls.enums.data() + cls.enums.size();
+	}
+
+	// Each name once among the class's types, constants and members, after
+	// they are declared; then the values, which the declarations of other
+	// scripts need too.
+	void check_enums() {
+		std::unordered_set<std::string> names;
+		for (const InterfaceDecl &interface : cls.interfaces) {
+			names.insert(interface.name);
+		}
+		for (const StructDecl &decl : cls.structs) {
+			names.insert(decl.name);
+		}
+		const auto taken = [&](const std::string &p_name) {
+			return constant_index.count(p_name) || member_index.count(p_name) || function_index.count(p_name) || signal_index.count(p_name);
+		};
+		for (const EnumDecl *decl : cls.all_enums) {
+			const bool own = is_own(*decl);
+			if (!decl->name.empty()) {
+				const bool twice = !names.insert(decl->name).second;
+				if (own && (twice || taken(decl->name) || is_type_name(decl->name) || (options.project && !options.project->global_class_path(decl->name).empty()))) {
+					error(decl->name_token, "\"" + decl->name + "\" is already declared.");
+				}
+				continue;
+			}
+			for (const EnumValueDecl &value : decl->values) {
+				if (!names.insert(value.name).second || taken(value.name)) {
+					if (own) {
+						error(value.name_token, "\"" + value.name + "\" is already declared.");
+					}
+				}
+			}
+		}
+		for (EnumDecl &decl : cls.enums) {
+			check_enum(decl);
+		}
+	}
+
+	// The values in order: each one more than the one before, from 0, unless
+	// written as a constant int (spec §3.7, §4.5).
+	void check_enum(EnumDecl &r_decl) {
+		if (r_decl.state != EnumDecl::State::Unchecked) {
+			return;
+		}
+		r_decl.state = EnumDecl::State::Checking;
+		{
+			const ClassScope scope(*this);
+			const bool was_in_constant = in_constant;
+			const EnumDecl *was_enum = current_enum;
+			const size_t was_value = current_value;
+			in_constant = true;
+			current_enum = &r_decl;
+			std::unordered_set<std::string> names;
+			int64_t next = 0;
+			for (size_t i = 0; i < r_decl.values.size(); i++) {
+				EnumValueDecl &value = r_decl.values[i];
+				if (!r_decl.name.empty() && !names.insert(value.name).second) {
+					error(value.name_token, "\"" + value.name + "\" is already a value of " + r_decl.name + ".");
+				}
+				current_value = i;
+				if (value.value) {
+					const Type type = check_value(*value.value, Type::of(TypeKind::Int));
+					if (type.is_error()) {
+					} else if (type.kind != TypeKind::Int && type.kind != TypeKind::Enum) {
+						error(value.value->range, "The values of an enum are ints, not " + type.to_string() + ".");
+					} else if (!value.value->constant || value.value->constant->kind != ConstValue::Kind::Int) {
+						error(value.value->range, "The values of an enum must be known at compile time (spec §4.5).");
+					} else {
+						next = value.value->constant->i;
+					}
+				}
+				r_decl.numbers->list.push_back({ value.name, next });
+				r_decl.constants.push_back(enum_constant(next, r_decl.type));
+				next = int64_t(uint64_t(next) + 1);
+			}
+			if (!r_decl.name.empty()) {
+				r_decl.dictionary = enum_dictionary(*r_decl.numbers, r_decl.type);
+			}
+			in_constant = was_in_constant;
+			current_enum = was_enum;
+			current_value = was_value;
+		}
+		r_decl.state = EnumDecl::State::Checked;
+	}
+
+	// A named enum this class declares or inherits, checked; null if none.
+	const EnumDecl *own_enum(const std::string &p_name) {
+		for (const EnumDecl *decl : cls.all_enums) {
+			if (!decl->name.empty() && decl->name == p_name) {
+				if (is_own(*decl)) {
+					check_enum(const_cast<EnumDecl &>(*decl));
+				}
+				return decl;
+			}
+		}
+		return nullptr;
+	}
+
+	// A value written by its bare name: one of an unnamed enum of this class,
+	// or one the enum being computed has before the current one.
+	std::optional<std::pair<const EnumDecl *, int>> bare_enum_value(const std::string &p_name) {
+		if (current_enum && !current_enum->name.empty()) {
+			const int index = current_enum->find(p_name);
+			if (index >= 0 && size_t(index) < current_value) {
+				return std::pair(current_enum, index);
+			}
+		}
+		for (const EnumDecl *decl : cls.all_enums) {
+			if (!decl->name.empty()) {
+				continue;
+			}
+			const int index = decl->find(p_name);
+			if (index < 0) {
+				continue;
+			}
+			if (is_own(*decl)) {
+				EnumDecl &own = const_cast<EnumDecl &>(*decl);
+				if (own.state == EnumDecl::State::Checking && (decl != current_enum || size_t(index) >= current_value)) {
+					return std::nullopt; // Not computed yet, which the caller reports.
+				}
+				check_enum(own);
+			}
+			return std::pair(decl, index);
+		}
+		return std::nullopt;
+	}
+
+	// A value of an enum as a constant of it, or an int for an unnamed one.
+	Type use_enum_value(Expr &r_expr, const EnumDecl &p_decl, int p_index) {
+		refer(r_expr.name_token, script_id(p_decl.script, enum_value_id(p_decl, p_decl.values[p_index].name)));
+		if (size_t(p_index) >= p_decl.constants.size()) {
+			return fail(r_expr, "The value \"" + p_decl.values[p_index].name + "\" depends on its own value.");
+		}
+		r_expr.target = Target::Constant;
+		r_expr.constant = p_decl.constants[p_index];
+		return set(r_expr, p_decl.constants[p_index]->type);
+	}
+
+	// The name of a named enum as a value: its names and values (spec §3.7).
+	Type use_enum_dictionary(Expr &r_expr, const EnumDecl &p_decl, bool p_refer = true) {
+		if (p_refer) {
+			refer(r_expr.name_token, script_id(p_decl.script, p_decl.name));
+		}
+		if (!p_decl.dictionary) {
+			return fail(r_expr, "The enum " + p_decl.name + " depends on its own values.");
+		}
+		r_expr.target = Target::Constant;
+		r_expr.constant = p_decl.dictionary;
+		return set(r_expr, p_decl.dictionary->type);
+	}
+
+	// The enum that the base of `State.IDLE`, `State(x)` or `State.try_from(x)`
+	// names: one of this class by its bare name, when nothing closer has it, or
+	// a pub one of another class, as in `Player.State`; null for any other base.
+	const EnumDecl *named_enum(Expr &r_base) {
+		if (r_base.kind == ExprKind::Name) {
+			if (visible_local(r_base.text) || member_index.count(r_base.text) || constant_index.count(r_base.text) || engine.find_property(cls.native_base, r_base.text)) {
+				return nullptr;
+			}
+			const EnumDecl *decl = own_enum(r_base.text);
+			if (decl) {
+				refer(r_base.name_token, script_id(decl->script, decl->name));
+			}
+			return decl;
+		}
+		if (r_base.kind != ExprKind::Member || !r_base.base || !names_enum_of_class(*r_base.base, r_base.text)) {
+			return nullptr;
+		}
+		const std::optional<Type> named = named_class(*r_base.base);
+		if (!named || named->is_error() || !is_script_path(named->script)) {
+			return nullptr;
+		}
+		const ClassDecl *decl = named->script == options.path ? &cls : script_decl(named->script);
+		const EnumDecl *found = decl ? decl->find_enum(r_base.text) : nullptr;
+		if (!found) {
+			return nullptr;
+		}
+		if (named->script == options.path) {
+			found = own_enum(r_base.text);
+		} else if (!found->is_pub && !extends_script(options.path, named->script)) {
+			error(r_base.range, "The enum " + named->name + "." + found->name + " is not pub.");
+		}
+		refer(r_base.name_token, script_id(found->script, found->name));
+		return found;
+	}
+
+	// Whether `Class.Name` names an enum of a class of this language, found
+	// as named_class() finds the class, without referring to anything yet.
+	bool names_enum_of_class(const Expr &p_class, const std::string &p_name) {
+		if (p_class.kind != ExprKind::Name || visible_local(p_class.text) || member_index.count(p_class.text) || engine.find_property(cls.native_base, p_class.text)) {
+			return false;
+		}
+		std::string path;
+		if (const ConstPtr alias = class_alias(p_class.text)) {
+			path = alias->script;
+		} else if (constant_index.count(p_class.text)) {
+			return false;
+		} else if (!cls.class_name.empty() && p_class.text == cls.class_name) {
+			path = options.path;
+		} else if (options.project) {
+			path = options.project->global_class_path(p_class.text);
+		}
+		if (!is_script_path(path)) {
+			return false;
+		}
+		const ClassDecl *decl = path == options.path ? &cls : script_header(path);
+		return decl && (decl->find_enum(p_name) || std::any_of(decl->enums.begin(), decl->enums.end(), [&](const EnumDecl &p_enum) { return p_enum.name == p_name; }));
+	}
+
+	// How this file writes an enum: State for its own, Player.State for another class's.
+	std::string enum_spelling(const Type &p_enum) const {
+		return p_enum.script == options.path ? p_enum.interface_name() : p_enum.name;
+	}
+
+	// `State(x)` or `Player.State(x)`: the enum the call names, if any.
+	const EnumDecl *called_enum(Expr &r_call) {
+		if (!r_call.base) {
+			if (function_index.count(r_call.text) || visible_local(r_call.text) || member_index.count(r_call.text)) {
+				return nullptr;
+			}
+			const EnumDecl *decl = own_enum(r_call.text);
+			if (decl) {
+				refer(r_call.name_token, script_id(decl->script, decl->name));
+			}
+			return decl;
+		}
+		if (r_call.base->kind != ExprKind::Name || !names_enum_of_class(*r_call.base, r_call.text)) {
+			return nullptr;
+		}
+		Expr type;
+		type.kind = ExprKind::Member;
+		type.text = r_call.text;
+		type.range = r_call.range;
+		type.name_token = r_call.name_token;
+		type.base = std::move(r_call.base);
+		const EnumDecl *decl = named_enum(type);
+		r_call.base = std::move(type.base);
+		return decl;
+	}
+
+	// An int as one of the enum's values, a program error when it is none
+	// (spec §3.7); checked at compile time when the int is known.
+	Type check_enum_conversion(Expr &r_expr, const EnumDecl &p_decl) {
+		if (r_expr.args.size() != 1 || !r_expr.arg_names.empty()) {
+			for (auto &arg : r_expr.args) {
+				check_value(*arg);
+			}
+			return fail_call(r_expr, enum_spelling(p_decl.type) + "() takes one int.");
+		}
+		Expr &arg = *r_expr.args[0];
+		const Type value = check_value(arg, Type::of(TypeKind::Int));
+		if (value.is_error()) {
+			return set(r_expr, value);
+		}
+		if (value.kind != TypeKind::Int && value.kind != TypeKind::Enum) {
+			return fail(r_expr, enum_spelling(p_decl.type) + "() converts an int, not " + value.to_string() + "." + (value.kind == TypeKind::Float ? " Convert it with int(x) first." : ""));
+		}
+		if (arg.constant && arg.constant->kind == ConstValue::Kind::Int) {
+			if (!p_decl.numbers->has(arg.constant->i)) {
+				return fail(r_expr, std::to_string(arg.constant->i) + " is none of the values of " + enum_spelling(p_decl.type) + ".");
+			}
+			r_expr.constant = enum_constant(arg.constant->i, p_decl.type);
+		}
+		r_expr.target = Target::EnumFromInt;
+		r_expr.param_types = { Type::of(TypeKind::Int) };
+		return set(r_expr, p_decl.type);
+	}
+
+	// `State.IDLE` (spec §3.7).
+	Type check_enum_value(Expr &r_expr, const EnumDecl &p_decl) {
+		const int index = p_decl.find(r_expr.text);
+		if (index < 0) {
+			return fail(r_expr, p_decl.name + " has no value \"" + r_expr.text + "\".");
+		}
+		return use_enum_value(r_expr, p_decl, index);
+	}
+
+	// Whether a type has a default value (spec §4.3): an enum when 0 is one of
+	// its values (§3.7).
+	bool enum_has_default(const Type &p_enum) const {
+		return p_enum.kind != TypeKind::Enum || !p_enum.values || p_enum.values->has(0);
+	}
+
 	// A constant initialized with a preload of a script, which names its class
 	// where its bare name is used (spec §2.1): a local constant or a constant
 	// of this class; null for any other name.
@@ -1037,6 +1371,9 @@ class Checker : public ClassRelation {
 			if (const ConstDecl *decl = own_constant(r_expr.text)) {
 				return use_constant(r_expr, *decl, declaring(cls, *decl, &ClassDecl::constants).path);
 			}
+			if (const auto value = bare_enum_value(r_expr.text)) {
+				return use_enum_value(r_expr, *value->first, value->second);
+			}
 			return std::nullopt;
 		}
 		const ClassDecl *decl = script_decl(p_path);
@@ -1052,14 +1389,31 @@ class Checker : public ClassRelation {
 			}
 			return use_constant(r_expr, *constant, declaring(*decl, *constant, &ClassDecl::constants).path);
 		}
+		// A value of an unnamed enum is a constant of the class (spec §3.7).
+		for (const EnumDecl *entry : decl->all_enums) {
+			const int index = entry->name.empty() ? entry->find(r_expr.text) : -1;
+			if (index < 0) {
+				continue;
+			}
+			if (!entry->is_pub && !extends_script(options.path, p_path)) {
+				return fail(r_expr, "The constant \"" + r_expr.text + "\" of " + p_class + " is not pub.");
+			}
+			return use_enum_value(r_expr, *entry, index);
+		}
 		return std::nullopt;
 	}
 
 	// A name of this instance: a constant, a member, the owner, a property, a
 	// function or a signal; also what `self.name` reads, past the locals.
 	std::optional<Type> check_self_name(Expr &r_expr) {
+		if (const auto value = bare_enum_value(r_expr.text)) {
+			return use_enum_value(r_expr, *value->first, value->second);
+		}
 		if (const ConstDecl *constant = own_constant(r_expr.text)) {
 			return use_constant(r_expr, *constant, declaring(cls, *constant, &ClassDecl::constants).path);
+		}
+		if (const EnumDecl *decl = own_enum(r_expr.text)) {
+			return use_enum_dictionary(r_expr, *decl);
 		}
 		const auto member = member_index.find(r_expr.text);
 		if (member != member_index.end()) {
@@ -1368,6 +1722,16 @@ class Checker : public ClassRelation {
 				return *found;
 			}
 			return refuse_in_static(base, "self") ? set(r_expr, Type::of(TypeKind::Error)) : fail(r_expr, display_name(cls, options.path) + " has no member \"" + r_expr.text + "\".");
+		}
+		if (const EnumDecl *decl = named_enum(base)) {
+			return check_enum_value(r_expr, *decl);
+		}
+		if (base.kind == ExprKind::Name && names_enum_of_class(base, r_expr.text)) {
+			// `Player.State`, the enum's name as a value.
+			if (const EnumDecl *decl = named_enum(r_expr)) {
+				return use_enum_dictionary(r_expr, *decl, false);
+			}
+			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		if (const std::optional<Type> named = named_class(base)) {
 			if (named->is_error()) {
@@ -1830,8 +2194,13 @@ class Checker : public ClassRelation {
 		return Type::object(p_resource.type);
 	}
 
+	// An enum's value takes part in operations as the int it is (spec §3.7).
+	static Type as_int(const Type &p_type) {
+		return p_type.kind == TypeKind::Enum ? Type::of(TypeKind::Int) : p_type;
+	}
+
 	Type check_unary(Expr &r_expr) {
-		const Type operand = check_value(*r_expr.left);
+		const Type operand = as_int(check_value(*r_expr.left));
 		if (operand.is_error()) {
 			return set(r_expr, operand);
 		}
@@ -1891,6 +2260,9 @@ class Checker : public ClassRelation {
 			}
 			error(p_at, std::string(token_name(p_op)) + " requires bool operands, found " + p_left.to_string() + " and " + p_right.to_string() + ".");
 			return Type::of(TypeKind::Error);
+		}
+		if (p_left.kind == TypeKind::Enum || p_right.kind == TypeKind::Enum) {
+			return binary_type(p_op, as_int(p_left), as_int(p_right), p_at);
 		}
 		if (p_left.is_primitive() && p_right.is_primitive()) {
 			return primitive_binary_type(p_op, p_left, p_right, p_at);
@@ -2653,7 +3025,7 @@ class Checker : public ClassRelation {
 			}
 		}
 		const Type &element = array ? p_base.args[0] : Type::of(TypeKind::Error);
-		if (method == "resize" && ((element.kind == TypeKind::Object && !element.nullable) || (element.kind == TypeKind::Struct && !has_default(element)))) {
+		if (method == "resize" && ((element.kind == TypeKind::Object && !element.nullable) || (element.kind == TypeKind::Struct && !has_default(element)) || !enum_has_default(element))) {
 			const std::string fix = element.kind == TypeKind::Struct ? "give every field of " + element.to_string() + " a default value, or " : "";
 			error(p_call.range, "\"resize()\" fills new elements with a default value, which " + element.to_string() + " does not have (spec §3.8); " + fix + "declare the array as Array[" + element.to_string() + "?].");
 			return false;
@@ -3404,6 +3776,15 @@ class Checker : public ClassRelation {
 		if (const std::optional<Type> constructed = constructed_struct(r_expr)) {
 			return check_struct_construction(r_expr, *constructed);
 		}
+		if (const EnumDecl *decl = called_enum(r_expr)) {
+			return check_enum_conversion(r_expr, *decl);
+		}
+		if (r_expr.base && r_expr.text == "try_from" && named_enum(*r_expr.base)) {
+			for (auto &arg : r_expr.args) {
+				check_value(*arg);
+			}
+			return fail_call(r_expr, "try_from() is not supported yet; convert with " + r_expr.base->text + "(x).");
+		}
 		if (!r_expr.arg_names.empty()) {
 			return fail_call(r_expr, "Only structs take arguments by name yet; \"" + r_expr.text + "()\" takes them by position (spec §4.6).");
 		}
@@ -3849,6 +4230,10 @@ class Checker : public ClassRelation {
 		if (p_from.kind == TypeKind::Float && p_to.kind == TypeKind::Int) {
 			message += " Convert explicitly with int(x).";
 		}
+		if (p_to.unwrapped().kind == TypeKind::Enum && (p_from.kind == TypeKind::Int || p_from.kind == TypeKind::Enum)) {
+			const std::string name = enum_spelling(p_to.unwrapped());
+			message += " Convert explicitly with " + name + "(x), which checks that it is one of the values (spec §3.7).";
+		}
 		if (p_to.kind == TypeKind::Variant && is_typed_container(p_from) && is_boxed(p_from)) {
 			message += " Its elements exist only in this language; convert it explicitly with " + p_from.name + "(x), a copy with the elements encoded (spec §3.8).";
 		}
@@ -3936,6 +4321,46 @@ class Checker : public ClassRelation {
 			scopes.pop_back();
 		}
 		scopes.pop_back();
+		if (matched.kind == TypeKind::Enum && matched.values) {
+			check_exhaustive(r_stmt, matched);
+		}
+	}
+
+	// A match over an enum handles every value or has `_`; branches with
+	// `when` do not count (spec §3.7, §5.6).
+	void check_exhaustive(const Stmt &p_match, const Type &p_enum) {
+		std::set<int64_t> handled;
+		for (const MatchBranch &branch : p_match.branches) {
+			for (const Pattern &pattern : branch.patterns) {
+				if (branch.guard) {
+					continue;
+				}
+				if (pattern.kind != PatternKind::Value) {
+					return;
+				}
+				const Expr *value = pattern.value && pattern.value->right ? pattern.value->right.get() : nullptr;
+				if (value && value->constant && value->constant->kind == ConstValue::Kind::Int) {
+					handled.insert(value->constant->i);
+				}
+			}
+		}
+		std::vector<std::string> missing;
+		for (const auto &[name, value] : p_enum.values->list) {
+			if (!handled.count(value)) {
+				missing.push_back(name);
+			}
+		}
+		if (missing.empty()) {
+			return;
+		}
+		std::string names;
+		for (size_t i = 0; i < missing.size() && i < 8; i++) {
+			names += (i == 0 ? "" : (i + 1 == missing.size() ? " and " : ", ")) + missing[i];
+		}
+		if (missing.size() > 8) {
+			names += " and " + std::to_string(missing.size() - 8) + " more";
+		}
+		error(p_match.value->range, "This match over " + enum_spelling(p_enum) + " does not handle " + names + "; handle them or add a `_` branch (spec §5.6).");
 	}
 
 	void check_pattern(Pattern &r_pattern, const Type &p_matched) {
@@ -4064,6 +4489,8 @@ class Checker : public ClassRelation {
 					error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs a type or an initial value.");
 				} else if (((type.kind == TypeKind::Object || type.kind == TypeKind::Task) && !type.nullable) || (type.kind == TypeKind::Struct && !has_default(type))) {
 					error(r_stmt.name_token, "\"" + r_stmt.name + "\" of type " + type.to_string() + " needs an initial value.");
+				} else if (!enum_has_default(type)) {
+					error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs an initial value: " + enum_spelling(type) + " has no value 0 to start at (spec §3.7).");
 				}
 				declare_local(r_stmt, type);
 				return;
@@ -4707,6 +5134,8 @@ class Checker : public ClassRelation {
 		} else if (type.kind == TypeKind::Struct && !has_default(type)) {
 			// Starts at its default only when every field has one (spec §4.3).
 			error(member.name_token, "Members that must be assigned, such as \"" + member.name + "\" of type " + type.to_string() + ", are not supported yet; give it an initial value.");
+		} else if (!enum_has_default(type)) {
+			error(member.name_token, "\"" + member.name + "\" needs an initial value: " + enum_spelling(type) + " has no value 0 to start at (spec §3.7).");
 		}
 		if (member.is_export && type.unwrapped().kind == TypeKind::Struct) {
 			error(member.name_token, "Structs cannot be exported (spec §3.6).");
@@ -5467,6 +5896,7 @@ public:
 		if (options.project && !options.declarations_only && !options.path.empty()) {
 			scenes = options.project->scenes_with_script(options.path);
 		}
+		declare_enums();
 		declare_members();
 		// Before the types that may name a class through a constant (spec §2.1).
 		declare_constants();
@@ -5491,6 +5921,7 @@ public:
 		check_implemented();
 		check_implements();
 		declare_signals();
+		check_enums();
 		for (ConstDecl &constant : cls.constants) {
 			const auto registered = constant_index.find(constant.name);
 			if (registered != constant_index.end() && cls.all_constants[registered->second] == &constant) {

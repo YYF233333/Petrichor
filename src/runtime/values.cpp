@@ -470,6 +470,14 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 				image.fields.push_back({ to_godot(type.fields[f].name), &images[type.fields[f].type], offsets[f] });
 			}
 		}
+		if (type.kind == bytecode::TypeKind::Enum) {
+			image.name = to_godot(type.name);
+			for (const bytecode::EnumValueDesc &value : type.values) {
+				image.enum_values.push_back(value.value);
+				image.enum_declared.push_back({ to_godot(value.name), value.value });
+			}
+			std::sort(image.enum_values.begin(), image.enum_values.end());
+		}
 		images.push_back(std::move(image));
 	}
 	return images;
@@ -755,12 +763,22 @@ bool from_variant(const TypeImage &p_type, const Variant &p_value, uint8_t *p_sl
 	if (!from_variant(p_type.storage, p_value, p_slot, p_check ? &p_type.check : nullptr)) {
 		return false;
 	}
+	if (p_check && p_type.kind == bytecode::TypeKind::Enum) {
+		return is_enum_value(p_type, *reinterpret_cast<const int64_t *>(p_slot));
+	}
 	return !p_check || !p_type.item || misfit_element(p_type, p_value) < 0;
 }
 
+bool is_enum_value(const TypeImage &p_type, int64_t p_value) {
+	return std::binary_search(p_type.enum_values.begin(), p_type.enum_values.end(), p_value);
+}
+
 String type_description(const TypeImage &p_type) {
-	if (is_struct(p_type)) {
+	if (is_struct(p_type) || (p_type.kind == bytecode::TypeKind::Enum && p_type.name.contains("::"))) {
 		return class_description(StringName(), String(), p_type.name);
+	}
+	if (p_type.kind == bytecode::TypeKind::Enum) {
+		return p_type.name;
 	}
 	if (p_type.kind == bytecode::TypeKind::Array) {
 		return "Array[" + type_description(*p_type.item) + "]";
@@ -786,6 +804,9 @@ String entry_mismatch(const TypeImage &p_type, const Variant &p_value) {
 			found = kept_fits(*p_type.key, key) ? vformat("%s for the key %s", value_description(dictionary[key]), UtilityFunctions::var_to_str(key)) : vformat("the key %s", value_description(key));
 		}
 		return vformat("expected %s, found %s", type_description(p_type), found);
+	}
+	if (p_type.kind == bytecode::TypeKind::Enum && type_of(p_value) == Variant::INT) {
+		return vformat("expected %s, found %d, which is none of its values", type_description(p_type), int64_t(p_value));
 	}
 	if (is_struct(p_type) && type_of(p_value) == Variant::DICTIONARY) {
 		// Which field: "Hit.damage: expected int, found String".

@@ -781,7 +781,7 @@ ConstPtr converted(const ConstPtr &p_value, const Type &p_to) {
 	if (p_to.kind == TypeKind::Option && p_value->kind != Kind::None) {
 		return converted(p_value, p_to.args[0]); // Some(value), which lowering wraps.
 	}
-	if (p_to.kind == TypeKind::Float && p_value->type.kind == TypeKind::Int) {
+	if (p_to.kind == TypeKind::Float && (p_value->type.kind == TypeKind::Int || p_value->type.kind == TypeKind::Enum)) {
 		if (p_value->kind == Kind::Int) {
 			return float_value(double(p_value->i));
 		}
@@ -815,6 +815,23 @@ ConstPtr converted(const ConstPtr &p_value, const Type &p_to) {
 			value->items[k] = converted(value->items[k], entries ? entries->first : value->items[k]->type);
 			value->items[k + 1] = converted(value->items[k + 1], entries ? entries->second : value->items[k + 1]->type);
 		}
+	}
+	return value;
+}
+
+ConstPtr enum_constant(int64_t p_value, const Type &p_enum) {
+	auto value = make(Kind::Int, p_enum);
+	value->i = p_value;
+	return value;
+}
+
+ConstPtr enum_dictionary(const EnumValues &p_values, const Type &p_enum) {
+	auto value = make(Kind::Dictionary, Type::dictionary(Type::of(TypeKind::String), p_enum));
+	for (const auto &[name, number] : p_values.list) {
+		auto key = make(Kind::String, Type::of(TypeKind::String));
+		key->text = name;
+		value->items.push_back(key);
+		value->items.push_back(enum_constant(number, p_enum));
 	}
 	return value;
 }

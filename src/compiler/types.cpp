@@ -75,6 +75,7 @@ std::string Type::to_string() const {
 			return name;
 		case TypeKind::Unsupported:
 		case TypeKind::Struct:
+		case TypeKind::Enum:
 			return name;
 		default:
 			return builtin_name();
@@ -145,7 +146,8 @@ bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_
 	if (p_from.kind == TypeKind::None) {
 		return p_to.is_optional() || p_to.kind == TypeKind::Variant;
 	}
-	if (p_from.kind == TypeKind::Int && p_to.kind == TypeKind::Float) {
+	// An enum's value is an int, but an int is one of its values only explicitly (spec §3.7).
+	if ((p_from.kind == TypeKind::Int || p_from.kind == TypeKind::Enum) && (p_to.kind == TypeKind::Float || (p_to.kind == TypeKind::Int && p_from.kind == TypeKind::Enum))) {
 		return true;
 	}
 	// Converted where needed, as in GDScript (spec §10.7).

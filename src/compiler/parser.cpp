@@ -1159,6 +1159,45 @@ class Parser {
 		return decl;
 	}
 
+	// After "enum": the name, if any, and the values in braces, each `NAME` or
+	// `NAME = value`, as in GDScript (spec §3.7).
+	EnumDecl enumeration(bool p_is_pub, uint32_t p_first) {
+		EnumDecl decl;
+		decl.is_pub = p_is_pub;
+		if (check(TokenKind::Identifier)) {
+			const Token &name = advance();
+			decl.name = name.text;
+			decl.name_token = index(name);
+		}
+		expect(TokenKind::BraceOpen, "\"{\"");
+		while (!failed && !check(TokenKind::BraceClose)) {
+			const uint32_t first = uint32_t(at);
+			const Token &name = expect(TokenKind::Identifier, "the name of a value");
+			if (failed) {
+				break;
+			}
+			if (check(TokenKind::ParenOpen)) {
+				fail(peek(), "Enums with payloads are not supported yet.");
+				break;
+			}
+			EnumValueDecl value;
+			value.name = name.text;
+			value.name_token = index(name);
+			if (match(TokenKind::Equal)) {
+				value.value = expression();
+			}
+			value.range = span(first);
+			decl.values.push_back(std::move(value));
+			if (!comma()) {
+				break;
+			}
+		}
+		expect(TokenKind::BraceClose, "\"}\"");
+		decl.range = span(p_first);
+		end_of_statement();
+		return decl;
+	}
+
 	// After "struct": the name and a block of fields (spec §2.4, §3.6).
 	StructDecl structure(bool p_is_pub, uint32_t p_first, ClassDecl &r_class) {
 		StructDecl decl;
@@ -1524,6 +1563,15 @@ class Parser {
 				return;
 			}
 			r_class.structs.push_back(structure(is_pub, first, r_class));
+			return;
+		}
+
+		if (match(TokenKind::Enum)) {
+			if (!annotations.empty() || is_static) {
+				fail(peek(), "An enum takes no annotations and is not static.");
+				return;
+			}
+			r_class.enums.push_back(enumeration(is_pub, first));
 			return;
 		}
 

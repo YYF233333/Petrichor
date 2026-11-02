@@ -103,6 +103,7 @@ enum class Target {
 	Contains, // `x in c`: the method `text` of the built-in type `owner`, has or contains, taking `param_types[0]`.
 	HasMember, // `name in obj`: whether the engine finds a member by that name.
 	Constant, // A constant of a class (spec §4.5), whose value is `constant`.
+	EnumFromInt, // `State(x)`: the int, checked to be one of the values of the call's type (spec §3.7).
 };
 
 struct Expr {
@@ -405,6 +406,45 @@ struct StructDecl {
 	}
 };
 
+// A value of an enum without payloads, with the value written for it, if any.
+struct EnumValueDecl {
+	std::string name;
+	TokenRange range;
+	uint32_t name_token = 0;
+	std::unique_ptr<Expr> value;
+};
+
+// `enum Name { A, B = 2 }`, or an unnamed one, whose values are int constants
+// of the class (spec §3.7).
+struct EnumDecl {
+	std::string name; // Empty when unnamed.
+	TokenRange range;
+	uint32_t name_token = 0;
+	bool is_pub = false;
+	std::vector<EnumValueDecl> values;
+	// Filled by the checker when the enum is first needed.
+	enum class State {
+		Unchecked,
+		Checking,
+		Checked,
+	};
+	State state = State::Unchecked;
+	std::string script; // That declares it.
+	Type type; // A named enum's, which shares `numbers`; int for an unnamed one.
+	std::shared_ptr<EnumValues> numbers; // Filled as `constants` are.
+	std::vector<ConstPtr> constants; // Each value's, typed as `type`.
+	ConstPtr dictionary; // A named enum's name as a value: its names and values.
+
+	int find(const std::string &p_name) const {
+		for (size_t i = 0; i < values.size(); i++) {
+			if (values[i].name == p_name) {
+				return int(i);
+			}
+		}
+		return -1;
+	}
+};
+
 // `interface Name:` with the signatures of its methods and its properties (spec §3.9).
 struct InterfaceDecl {
 	std::string name;
@@ -438,6 +478,8 @@ struct ClassDecl {
 	Type owner_type; // Filled by the checker.
 	std::vector<InterfaceDecl> interfaces;
 	std::vector<StructDecl> structs;
+	std::vector<EnumDecl> enums;
+	std::vector<const EnumDecl *> all_enums; // With those it inherits; filled by the checker.
 	std::vector<Type> implemented; // Filled by the checker.
 	bool is_node = false; // Filled by the checker: it extends Node, and becomes ready.
 	std::vector<ConstDecl> constants;
@@ -453,6 +495,21 @@ struct ClassDecl {
 		for (const StructDecl &decl : structs) {
 			if (decl.name == p_name) {
 				return &decl;
+			}
+		}
+		return nullptr;
+	}
+
+	// A named enum, its own or inherited once checked.
+	const EnumDecl *find_enum(const std::string &p_name) const {
+		for (const EnumDecl &decl : enums) {
+			if (decl.name == p_name) {
+				return &decl;
+			}
+		}
+		for (const EnumDecl *decl : all_enums) {
+			if (decl->name == p_name) {
+				return decl;
 			}
 		}
 		return nullptr;

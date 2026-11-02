@@ -52,6 +52,8 @@ const char *token_name(TokenKind p_kind) {
 			return "\"elif\"";
 		case TokenKind::Else:
 			return "\"else\"";
+		case TokenKind::Enum:
+			return "\"enum\"";
 		case TokenKind::Extends:
 			return "\"extends\"";
 		case TokenKind::False:
@@ -260,6 +262,7 @@ const std::unordered_map<std::string, TokenKind> &keywords() {
 		{ "continue", TokenKind::Continue },
 		{ "elif", TokenKind::Elif },
 		{ "else", TokenKind::Else },
+		{ "enum", TokenKind::Enum },
 		{ "extends", TokenKind::Extends },
 		{ "false", TokenKind::False },
 		{ "for", TokenKind::For },

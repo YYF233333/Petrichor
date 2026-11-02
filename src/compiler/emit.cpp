@@ -150,6 +150,7 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 				case Op::CHECK_OBJECT:
 				case Op::CHECK_ASSIGNED:
 				case Op::CHECK_RANGE:
+				case Op::CHECK_ENUM:
 					put(instr.imm);
 					put(offset_of(instr.a));
 					break;

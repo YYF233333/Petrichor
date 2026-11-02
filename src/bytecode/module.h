@@ -91,7 +91,15 @@ enum class TypeKind : uint8_t {
 	Array, // Array[T], T being the type `element` (spec §3.8); an untyped Array is a Value.
 	Struct, // A struct of this language, `name`, with its `fields` (spec §3.6).
 	Dictionary, // Dictionary[K, V], K being the type `key` and V the type `element` (spec §3.8); an untyped Dictionary is a Value.
+	Enum, // An int that is one of the `values` of the enum `name` (spec §3.7).
 	Count,
+};
+
+struct EnumValueDesc {
+	std::string name;
+	int64_t value = 0;
+
+	bool operator==(const EnumValueDesc &p_other) const { return name == p_other.name && value == p_other.value; }
 };
 
 struct FieldDesc {
@@ -109,12 +117,13 @@ struct TypeDesc {
 	ClassRef object;
 	bool nullable = false;
 	std::string task_result; // Object: a Task[T] handle, with T's signature key.
-	std::string name; // Struct: "script::Name", as interfaces are named.
+	std::string name; // Struct and Enum: "script::Name", as interfaces are named; the engine's enum as it names it, such as "Node.ProcessMode".
 	std::vector<FieldDesc> fields; // Struct.
+	std::vector<EnumValueDesc> values; // Enum, in declaration order.
 
 	bool operator==(const TypeDesc &p_other) const {
 		return kind == p_other.kind && value == p_other.value && element == p_other.element && key == p_other.key && object == p_other.object && nullable == p_other.nullable &&
-				task_result == p_other.task_result && name == p_other.name && fields == p_other.fields;
+				task_result == p_other.task_result && name == p_other.name && fields == p_other.fields && values == p_other.values;
 	}
 };
 

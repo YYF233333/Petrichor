@@ -107,3 +107,16 @@ pub func power(a: int, n: int) -> int:
 
 pub func root(x: float) -> float:
 	return x ** 0.5
+
+# Spec §3.7: enums without payloads.
+pub enum Mode { CALM, ANGRY = 3 }
+pub enum { SMALL, LARGE }
+@export pub var mode := Mode.ANGRY
+
+
+pub func mode_of(n: int) -> Mode:
+	return Mode(n)
+
+
+pub func takes_mode(m: Mode) -> int:
+	return m + LARGE

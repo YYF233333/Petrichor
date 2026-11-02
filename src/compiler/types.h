@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -19,11 +21,26 @@ enum class TypeKind {
 	Object, // An engine class named by `name`.
 	Option, // T? of a value type T, which is `args[0]` (spec §3.4); objects carry `nullable` instead.
 	Struct, // A struct (spec §3.6), named and declared as an interface is.
+	Enum, // An enum without payloads (spec §3.7), named as a struct is, or as the engine names it; an int with `values`.
 	Function, // A function value (spec §3.11): `args` holds the return type, then the parameter types.
 	Signal, // A signal of an object: `args` holds the types of its arguments.
 	None, // The literal None where nothing says which T? it is.
 	Variant,
 	Unsupported, // An engine type this compiler cannot handle yet.
+};
+
+// The values of an enum without payloads, in declaration order (spec §3.7).
+struct EnumValues {
+	std::vector<std::pair<std::string, int64_t>> list;
+
+	bool has(int64_t p_value) const {
+		for (const auto &[name, value] : list) {
+			if (value == p_value) {
+				return true;
+			}
+		}
+		return false;
+	}
 };
 
 struct Type {
@@ -44,6 +61,7 @@ struct Type {
 	std::string base;
 	bool is_interface = false;
 	bool is_async = false;
+	std::shared_ptr<const EnumValues> values; // Enum; the name and the script say which enum it is.
 	static Type task(const Type &p_result) { return Type{ TypeKind::Task, std::string(), false, { p_result } }; }
 
 	static Type of(TypeKind p_kind) { return Type{ p_kind }; }
@@ -77,6 +95,14 @@ struct Type {
 	static Type structure(const std::string &p_name, const std::string &p_script) {
 		Type type{ TypeKind::Struct, p_name };
 		type.script = p_script;
+		return type;
+	}
+	// An enum of a script of this language, named as a struct, or of the engine
+	// without a script.
+	static Type enumeration(const std::string &p_name, const std::string &p_script, std::shared_ptr<const EnumValues> p_values) {
+		Type type{ TypeKind::Enum, p_name };
+		type.script = p_script;
+		type.values = std::move(p_values);
 		return type;
 	}
 

@@ -121,6 +121,8 @@ ValueType storage_of(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 			return ValueType::Array;
 		case TypeKind::Dictionary:
 			return ValueType::Dictionary;
+		case TypeKind::Enum:
+			return ValueType::Int;
 		default:
 			return ValueType::Void;
 	}
@@ -211,6 +213,14 @@ std::string type_key(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 			std::string key = "s" + text(type.name) + "(";
 			for (const FieldDesc &field : type.fields) {
 				key += text(field.name) + (field.type < p_type ? type_key(p_types, field.type) : "!") + ",";
+			}
+			return key + ")";
+		}
+		case TypeKind::Enum: {
+			// With its values, as a struct with its fields.
+			std::string key = "e" + text(type.name) + "(";
+			for (const EnumValueDesc &value : type.values) {
+				key += text(value.name) + std::to_string(value.value) + ",";
 			}
 			return key + ")";
 		}
@@ -320,6 +330,11 @@ public:
 		for (const FieldDesc &field : p_type.fields) {
 			str(field.name);
 			u32(field.type);
+		}
+		u32(uint32_t(p_type.values.size()));
+		for (const EnumValueDesc &value : p_type.values) {
+			str(value.name);
+			u64(uint64_t(value.value));
 		}
 	}
 };
@@ -456,6 +471,11 @@ public:
 		for (FieldDesc &field : value.fields) {
 			field.name = str();
 			field.type = u32();
+		}
+		value.values.resize(count());
+		for (EnumValueDesc &entry : value.values) {
+			entry.name = str();
+			entry.value = int64_t(u64());
 		}
 		return value;
 	}

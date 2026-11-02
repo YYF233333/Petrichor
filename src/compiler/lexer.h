@@ -34,6 +34,7 @@ enum class TokenKind {
 	Continue,
 	Elif,
 	Else,
+	Enum,
 	Extends,
 	False,
 	For,

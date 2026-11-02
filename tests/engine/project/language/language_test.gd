@@ -469,6 +469,15 @@ func _ready() -> void:
 	var constant_map: Dictionary = (k.get_script() as Script).get_script_constant_map()
 	_check(constant_map.get("ANGLE") == deg_to_rad(30) and not constant_map.has("SECRET") and k.secret() == 7, "the engine sees the pub constants only (spec §10.5)")
 	_check(k.global_constants() == [KEY_ESCAPE, MOUSE_BUTTON_RIGHT, PROPERTY_HINT_FILE_PATH, INT64_MIN], "the engine's global constants have the engine's values")
+	_check(k.mode_of(3) == 3 and k.takes_mode(3) == 4 and k.mode == 3 and ConstantCheck.Mode == {"CALM": 0, "ANGRY": 3} and ConstantCheck.LARGE == 1, "an enum's values are ints, and GDScript reads its name as a Dictionary (spec §3.7)")
+	k.mode_of(1)
+	k.takes_mode(2)
+	_check_errors(["constant_check.pet:118: 1 is none of the values of ConstantCheck.Mode.", "constant_check.pet:121: Argument \"m\" of takes_mode(): expected ConstantCheck.Mode, found 2, which is none of its values."], "an int that is none of an enum's values is a program error, also at the entry")
+	var mode_property := {}
+	for property in k.get_property_list():
+		if property.name == "mode":
+			mode_property = property
+	_check(mode_property.get("hint") == PROPERTY_HINT_ENUM and mode_property.get("hint_string") == "Calm:0,Angry:3", "an exported enum is a drop-down, as GDScript's")
 
 	var statics := StaticChild.new()
 	_check(statics.made(), "new() of classes of this language runs their initializers and _init() (spec §4.6)")

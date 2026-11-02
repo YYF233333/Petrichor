@@ -84,6 +84,7 @@ namespace petrichor::bytecode {
 	X(SET_FIELD, 3) /* field, base, value */ \
 	X(GET_PROPERTY, 3) /* property, dst, object (NO_SLOT: self) */ \
 	X(HAS_MEMBER, 3) /* dst (bool), object, name (String): whether the object's get() finds it (spec §5.1) */ \
+	X(CHECK_ENUM, 2) /* type, src: a program error unless the int in src is one of the enum's values (spec §3.7) */ \
 	X(SET_PROPERTY, 3) /* property, object (NO_SLOT: self), value */ \
 	X(NEW_OBJECT, 2) /* class, dst: of a class of this language, the engine class with the script */ \
 	X(GET_SINGLETON, 2) /* class, dst */ \

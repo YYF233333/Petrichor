@@ -191,6 +191,16 @@ static PropertyHint picker_of(const String &p_class) {
 	return PROPERTY_HINT_NONE;
 }
 
+// The inspector's drop-down of an enum, "Idle:0,Run:1", as GDScript writes it
+// (modules/gdscript/gdscript_parser.cpp:4832-4845; ed1daf0).
+static String enum_hint(const TypeImage &p_enum) {
+	PackedStringArray values;
+	for (const auto &[name, value] : p_enum.enum_declared) {
+		values.push_back(name.capitalize().xml_escape() + ":" + String::num_int64(value).xml_escape());
+	}
+	return String(",").join(values);
+}
+
 Dictionary property_info(const ClassImage &p_image, const bytecode::Member &p_member) {
 	// Exported members are stored in scenes and shown in the inspector, as
 	// their annotation says; public ones are only visible to other code.
@@ -210,6 +220,12 @@ Dictionary property_info(const ClassImage &p_image, const bytecode::Member &p_me
 	if (p_member.hint != 0 || !p_member.hint_string.empty()) {
 		dict["hint"] = p_member.hint;
 		dict["hint_string"] = to_godot(p_member.hint_string);
+	} else if (p_member.is_export && type.kind == bytecode::TypeKind::Enum) {
+		dict["hint"] = PROPERTY_HINT_ENUM;
+		dict["hint_string"] = enum_hint(type);
+	} else if (p_member.is_export && type.item && type.item->kind == bytecode::TypeKind::Enum && type.check.key == ValueType::Void) {
+		dict["hint"] = PROPERTY_HINT_TYPE_STRING;
+		dict["hint_string"] = vformat("%d/%d:%s", Variant::INT, PROPERTY_HINT_ENUM, enum_hint(*type.item));
 	} else if (p_member.is_export && type.storage == ValueType::Object) {
 		dict["hint"] = picker_of(class_name);
 		dict["hint_string"] = class_name;
