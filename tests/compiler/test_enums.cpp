@@ -81,6 +81,13 @@ TEST_CASE("an enum of another class is written through its class, if pub (spec �
 	CHECK(contains(errors_in("var s: Player.Secret = Player.Secret.HIDDEN\nreturn p"), "Player.Secret is not pub (spec §4.2)."));
 }
 
+TEST_CASE("a constant initialized with an enum's name names the same enum (spec §3.7)") {
+	CHECK(errors("var t: ALIAS = ALIAS.RUN\nt = ALIAS(n)\nvar u: State = t\nvar names: Array[String] = ALIAS.keys()\nmatch t:\n\tALIAS.IDLE, ALIAS.RUN, ALIAS.JUMP, ALIAS.FALL:\n\t\tpass", "const ALIAS = State\n\n").empty());
+	// gdUnit4's `const STATE = GdUnitInspectorTreeConstants.STATE`.
+	const compiler::CompileResult result = compile_in("extends Node\nconst STATE = Player.State\n\nfunc f(s: STATE) -> Player.State:\n\treturn STATE.RUN if s == STATE.IDLE else STATE(0)\n", project());
+	CHECK_MESSAGE(result.ok(), messages(result));
+}
+
 TEST_CASE("the engine's enums are enum types too, and its bitfields stay int (spec §3.7)") {
 	const auto errors_in = [](const std::string &p_body) {
 		return joined(errors_of(in_function(p_body, "func f(n: int, e: Tween.EaseType) -> void:")));

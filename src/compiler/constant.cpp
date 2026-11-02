@@ -827,6 +827,7 @@ ConstPtr enum_constant(int64_t p_value, const Type &p_enum) {
 
 ConstPtr enum_dictionary(const EnumValues &p_values, const Type &p_enum) {
 	auto value = make(Kind::Dictionary, Type::dictionary(Type::of(TypeKind::String), p_enum));
+	value->names_enum = true;
 	for (const auto &[name, number] : p_values.list) {
 		auto key = make(Kind::String, Type::of(TypeKind::String));
 		key->text = name;

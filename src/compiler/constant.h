@@ -87,6 +87,9 @@ struct ConstValue {
 	// checked.
 	std::string script;
 	Type script_class;
+	// An enum's name as a value, a Dictionary of its names and values: a
+	// constant initialized with it names the enum (spec §3.7).
+	bool names_enum = false;
 
 	bool is_known() const { return kind <= Kind::None; }
 	bool is_container() const { return kind == Kind::Array || kind == Kind::Dictionary; }

@@ -498,6 +498,10 @@ class Checker : public ClassRelation {
 		if (path.empty()) {
 			// An interface or a struct of this class, by its own name.
 			if (dot == std::string::npos) {
+				if (const EnumDecl *aliased = constant_index.count(p_ref.name) ? aliased_enum(p_ref.name) : nullptr) {
+					refer(p_ref.name_token, alias_id(p_ref.name));
+					return aliased->type;
+				}
 				for (const InterfaceDecl &interface : cls.interfaces) {
 					if (interface.name == p_ref.name) {
 						refer(p_ref.name_token, script_id(options.path, interface.name));
@@ -1176,8 +1180,15 @@ class Checker : public ClassRelation {
 	// a pub one of another class, as in `Player.State`; null for any other base.
 	const EnumDecl *named_enum(Expr &r_base) {
 		if (r_base.kind == ExprKind::Name) {
-			if (visible_local(r_base.text) || member_index.count(r_base.text) || constant_index.count(r_base.text) || engine.find_property(cls.native_base, r_base.text)) {
+			if (visible_local(r_base.text) || member_index.count(r_base.text) || engine.find_property(cls.native_base, r_base.text)) {
 				return nullptr;
+			}
+			if (constant_index.count(r_base.text)) {
+				const EnumDecl *aliased = aliased_enum(r_base.text);
+				if (aliased) {
+					refer(r_base.name_token, alias_id(r_base.text));
+				}
+				return aliased;
 			}
 			const EnumDecl *decl = own_enum(r_base.text);
 			if (decl) {
@@ -1204,6 +1215,18 @@ class Checker : public ClassRelation {
 		}
 		refer(r_base.name_token, script_id(found->script, found->name));
 		return found;
+	}
+
+	// The enum that a constant of this class names, being initialized with
+	// the enum's name, as in `const STATE = Inspector.STATE` (spec §3.7).
+	const EnumDecl *aliased_enum(const std::string &p_name) {
+		const ConstDecl *constant = own_constant(p_name);
+		if (!constant || !constant->value || !constant->value->names_enum || constant->type.args.size() != 2 || constant->type.args[1].kind != TypeKind::Enum) {
+			return nullptr;
+		}
+		const Type &type = constant->type.args[1];
+		const ClassDecl *decl = type.script == options.path ? &cls : script_decl(type.script);
+		return decl ? decl->find_enum(type.interface_name()) : nullptr;
 	}
 
 	// Whether `Class.Name` names an enum of a class of this language, found
@@ -1250,6 +1273,13 @@ class Checker : public ClassRelation {
 		if (!r_call.base) {
 			if (function_index.count(r_call.text) || visible_local(r_call.text) || member_index.count(r_call.text)) {
 				return nullptr;
+			}
+			if (constant_index.count(r_call.text)) {
+				const EnumDecl *aliased = aliased_enum(r_call.text);
+				if (aliased) {
+					refer(r_call.name_token, alias_id(r_call.text));
+				}
+				return aliased;
 			}
 			const EnumDecl *decl = own_enum(r_call.text);
 			if (decl) {
