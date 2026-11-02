@@ -48,15 +48,20 @@ String node_type(const Ref<SceneState> &p_state, int32_t p_index) {
 	return String();
 }
 
-// The script a scene attaches to the node, if any.
-String attached_script(const Ref<SceneState> &p_state, int32_t p_index) {
+// The value a scene gives a property of the node, or nil.
+Variant node_property(const Ref<SceneState> &p_state, int32_t p_index, const char *p_name) {
 	for (int32_t p = 0; p < p_state->get_node_property_count(p_index); p++) {
-		if (p_state->get_node_property_name(p_index, p) == StringName("script")) {
-			const Ref<Script> script = p_state->get_node_property_value(p_index, p);
-			return script.is_valid() ? script->get_path() : String();
+		if (p_state->get_node_property_name(p_index, p) == StringName(p_name)) {
+			return p_state->get_node_property_value(p_index, p);
 		}
 	}
-	return String();
+	return Variant();
+}
+
+// The script a scene attaches to the node, if any.
+String attached_script(const Ref<SceneState> &p_state, int32_t p_index) {
+	const Ref<Script> script = node_property(p_state, p_index, "script");
+	return script.is_valid() ? script->get_path() : String();
 }
 
 // The script an instanced scene's root has, through instances of instances.
@@ -95,6 +100,10 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state)
 				inherited->script = script;
 				inherited->instance_script.clear();
 			}
+			const Variant unique = node_property(p_state, i, "unique_name_in_owner");
+			if (unique.get_type() == Variant::BOOL) {
+				inherited->unique = unique;
+			}
 			continue;
 		}
 		compiler::SceneNode node;
@@ -102,6 +111,10 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state)
 		node.type = to_utf8(node_type(p_state, i));
 		node.is_instance = p_state->get_node_instance(i).is_valid();
 		node.script = script;
+		// A node of an instanced scene that this scene only changes has the
+		// instance's root as its owner, and its unique name is that root's
+		// (scene/resources/packed_scene.cpp:567-573, 1888-1894; ed1daf0).
+		node.unique = (node.is_instance || !p_state->get_node_type(i).is_empty()) && bool(node_property(p_state, i, "unique_name_in_owner"));
 		if (node.is_instance && node.script.empty()) {
 			node.instance_script = to_utf8(instanced_script(p_state, i));
 		}

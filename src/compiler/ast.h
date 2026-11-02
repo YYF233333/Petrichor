@@ -45,7 +45,7 @@ enum class ExprKind {
 	Binary,
 	Call,
 	Member, // `base.text`
-	GetNode, // `$Head/Camera` or `$"Head/Camera"`; the path in `text`.
+	GetNode, // `$Head/Camera`, `$"../Level"` or `%Name`; the path in `text`, such as "../Level" or "%Name".
 	Cast, // `left as cast_type` (spec §5.3).
 	ArrayLiteral, // `[a, b]`; the elements in `args`.
 	// `{k: v}`, or `{name = v}` when `bool_value`, whose keys are names as

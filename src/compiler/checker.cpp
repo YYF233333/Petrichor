@@ -5,6 +5,7 @@
 #include "compiler/script_classes.h"
 
 #include <algorithm>
+#include <cctype>
 #include <iomanip>
 #include <locale>
 #include <sstream>
@@ -1454,18 +1455,120 @@ class Checker : public ClassRelation {
 		return fail(r_expr, "Values of type " + base_type.to_string() + " have no members.");
 	}
 
+	// A node path as written: $Head/Camera, %Name or $"../Level".
+	static std::string shown_path(const std::string &p_path) {
+		if (p_path[0] == '%') {
+			return p_path;
+		}
+		const bool plain = p_path[0] != '/' && std::all_of(p_path.begin(), p_path.end(), [](char p_char) {
+			return std::isalnum((unsigned char)p_char) || p_char == '_' || p_char == '/' || p_char == '%';
+		});
+		return plain ? "$" + p_path : "$\"" + p_path + "\"";
+	}
+
+	static std::vector<std::string> path_parts(const std::string &p_path) {
+		std::vector<std::string> parts;
+		for (size_t start = 0;;) {
+			const size_t slash = p_path.find('/', start);
+			parts.push_back(p_path.substr(start, slash - start));
+			if (slash == std::string::npos) {
+				return parts;
+			}
+			start = slash + 1;
+		}
+	}
+
+	static std::string parent_path(const std::string &p_path) {
+		const size_t slash = p_path.rfind('/');
+		return slash == std::string::npos ? std::string(".") : p_path.substr(0, slash);
+	}
+
+	// Where a path leads from the node at `p_from` of a scene, part by part, as
+	// the engine resolves it (scene/main/node.cpp:1924-1961; ed1daf0). `%Name`
+	// is a node the current node owns, or else one its owner does: the scene's
+	// root owns the scene's nodes, and an instanced scene's root those of that
+	// scene (scene/resources/packed_scene.cpp:567-573).
+	struct NodeWalk {
+		std::vector<std::string> reached; // The node after each part.
+		const SceneNode *node = nullptr; // Where it ends, unless:
+		std::string missing; // the scene has no such node;
+		std::string unsupported; // or the scene's own nodes do not tell.
+	};
+
+	static NodeWalk walk_node_path(const Scene &p_scene, const std::string &p_from, const std::string &p_path) {
+		NodeWalk walk;
+		std::string at = p_from;
+		const auto into_instance = [&]() {
+			for (std::string path = at;; path = parent_path(path)) {
+				const SceneNode *node = p_scene.find_node(path);
+				if (node && node->is_instance) {
+					walk.unsupported = p_scene.path + ": paths into an instanced scene, such as " + node->path + ", are not supported yet.";
+					return true;
+				}
+				if (path == ".") {
+					return false;
+				}
+			}
+		};
+		for (const std::string &part : path_parts(p_path)) {
+			if (part == "..") {
+				if (at == ".") {
+					walk.unsupported = p_scene.path + ": " + shown_path(p_path) + " goes above the root of the scene, which is not supported yet.";
+					return walk;
+				}
+				at = parent_path(at);
+			} else if (!part.empty() && part[0] == '%') {
+				const SceneNode *current = p_scene.find_node(at);
+				if (current && (current->is_instance || current->type.empty()) && into_instance()) {
+					return walk;
+				}
+				const std::string name = part.substr(1);
+				const auto unique = std::find_if(p_scene.nodes.begin(), p_scene.nodes.end(), [&](const SceneNode &p_node) {
+					return p_node.unique && p_node.path.substr(p_node.path.rfind('/') + 1) == name;
+				});
+				if (unique == p_scene.nodes.end()) {
+					if (at == ".") {
+						// The root's owner is the root of a scene that instances this one.
+						walk.unsupported = p_scene.path + ": the scene has no node with the unique name " + part + "; unique names of the scenes that instance it are not supported yet.";
+					} else {
+						walk.missing = p_scene.path + ": no node has the unique name " + part + " (spec §7.1).";
+					}
+					return walk;
+				}
+				at = unique->path;
+			} else if (!part.empty() && part != ".") {
+				const std::string child = at == "." ? part : at + "/" + part;
+				if (!p_scene.find_node(child)) {
+					if (!into_instance()) {
+						walk.missing = p_scene.path + ": " + (p_from == "." ? std::string("the root") : p_from) + " has no node at \"" + p_path + "\" (spec §7.1).";
+					}
+					return walk;
+				}
+				at = child;
+			}
+			walk.reached.push_back(at);
+		}
+		walk.node = p_scene.find_node(at);
+		return walk;
+	}
+
 	// `$X` (spec §7.1): the node at the path from every node that has this
-	// script, in every scene; they must agree on its class.
+	// script, in every scene; they must agree on its class. `$".."` is any
+	// Node (spec §7.3).
 	Type check_get_node(Expr &r_expr) {
 		if (options.declarations_only) {
 			return set(r_expr, Type::of(TypeKind::Error)); // Scenes are not read while loading.
 		}
-		if (refuse_in_static(r_expr, "$" + r_expr.text)) {
+		const std::string &path = r_expr.text;
+		if (refuse_in_static(r_expr, shown_path(path))) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
-		const std::string &path = r_expr.text;
-		if (path.empty() || path[0] == '/' || path.find('%') != std::string::npos || path == ".." || path.rfind("../", 0) == 0 || path.find("/..") != std::string::npos) {
-			return fail(r_expr, "Only paths down from this node, such as $Head/Camera, are supported yet.");
+		if (path == "..") {
+			r_expr.owner = "Node";
+			return set(r_expr, Type::object("Node"));
+		}
+		if (path.empty() || path[0] == '/') {
+			return fail(r_expr, "Only paths from this node, such as $Head/Camera, are supported yet.");
 		}
 		bool attached = false;
 		std::optional<Type> type;
@@ -1476,20 +1579,16 @@ class Checker : public ClassRelation {
 					continue;
 				}
 				attached = true;
-				const std::string full = node.path == "." ? path : node.path + "/" + path;
-				const SceneNode *found = scene.find_node(full);
-				if (!found) {
-					for (size_t slash = full.find('/'); slash != std::string::npos; slash = full.find('/', slash + 1)) {
-						const SceneNode *outer = scene.find_node(full.substr(0, slash));
-						if (outer && outer->is_instance) {
-							return fail(r_expr, scene.path + ": paths into an instanced scene, such as " + outer->path + ", are not supported yet.");
-						}
-					}
-					error(r_expr.range, scene.path + ": " + (node.path == "." ? std::string("the root") : node.path) + " has no node at \"" + path + "\" (spec §7.1).");
+				const NodeWalk walk = walk_node_path(scene, node.path, path);
+				if (!walk.unsupported.empty()) {
+					return fail(r_expr, walk.unsupported);
+				}
+				if (!walk.node) {
+					error(r_expr.range, walk.missing);
 					continue;
 				}
-				refer_node_path(r_expr, scene, node.path);
-				const Type found_type = scene_node_type(r_expr, *found, "$" + path);
+				refer_node_path(r_expr, scene, walk);
+				const Type found_type = scene_node_type(r_expr, *walk.node, shown_path(path));
 				if (found_type.is_error()) {
 					return set(r_expr, found_type);
 				}
@@ -1497,12 +1596,12 @@ class Checker : public ClassRelation {
 					type = found_type;
 					type_scene = scene.path;
 				} else if (found_type != *type) {
-					return fail(r_expr, "$" + path + " is a " + type->to_string() + " in " + type_scene + " but a " + found_type.to_string() + " in " + scene.path + "; assign it to a variable typed with a class both extend (spec §7.1).");
+					return fail(r_expr, shown_path(path) + " is a " + type->to_string() + " in " + type_scene + " but a " + found_type.to_string() + " in " + scene.path + "; assign it to a variable typed with a class both extend (spec §7.1).");
 				}
 			}
 		}
 		if (!attached) {
-			return fail(r_expr, "$" + path + " is typed from the scenes that use this script, and no scene does (spec §7.2).");
+			return fail(r_expr, shown_path(path) + " is typed from the scenes that use this script, and no scene does (spec §7.2).");
 		}
 		if (!type) {
 			return set(r_expr, Type::of(TypeKind::Error)); // Reported for each scene above.
@@ -1511,43 +1610,41 @@ class Checker : public ClassRelation {
 		return set(r_expr, *type);
 	}
 
-	// Each part of the path of `` refers to the node it reaches from the node
-	// at `p_from` of a scene.
-	void refer_node_path(const Expr &p_get_node, const Scene &p_scene, const std::string &p_from) {
+	// Each name in the path of `$X` refers to the node it reaches in a scene;
+	// the name of `%Name` without the "%". Not the parts of a string written
+	// with escapes.
+	void refer_node_path(const Expr &p_get_node, const Scene &p_scene, const NodeWalk &p_walk) {
 		const std::vector<Token> &tokens = cls.source->tokens;
-		const uint32_t first = p_get_node.range.first + 1;
-		std::vector<std::pair<uint32_t, uint32_t>> parts;
-		if (first > p_get_node.range.last || first >= tokens.size()) {
+		using Bytes = std::optional<std::pair<uint32_t, uint32_t>>;
+		std::vector<Bytes> parts;
+		for (uint32_t i = p_get_node.range.first; i <= p_get_node.range.last && i < tokens.size(); i++) {
+			const Token &token = tokens[i];
+			if (token.kind == TokenKind::Dollar || token.kind == TokenKind::Percent || token.kind == TokenKind::Slash) {
+				continue;
+			}
+			if (token.kind != TokenKind::String) {
+				parts.push_back(Bytes({ token.offset, token.end() }));
+				continue;
+			}
+			const bool plain = token.length == token.text.size() + 2;
+			uint32_t first = 0; // Of the part in the string.
+			for (uint32_t c = 0; c <= token.text.size(); c++) {
+				if (c < token.text.size() && token.text[c] != '/') {
+					continue;
+				}
+				const uint32_t unique = c > first && token.text[first] == '%';
+				parts.push_back(plain ? Bytes({ token.offset + 1 + first + unique, token.offset + 1 + c }) : Bytes());
+				first = c + 1;
+			}
+		}
+		const std::vector<std::string> names = path_parts(p_get_node.text);
+		if (parts.size() != names.size() || p_walk.reached.size() != names.size()) {
 			return;
 		}
-		if (tokens[first].kind == TokenKind::String) {
-			// `$"Head/Camera"`, when written without escapes.
-			const Token &token = tokens[first];
-			const std::string &text = p_get_node.text;
-			if (token.length != text.size() + 2) {
-				return;
+		for (size_t i = 0; i < names.size(); i++) {
+			if (parts[i] && !names[i].empty() && names[i] != "." && names[i] != "..") {
+				refer_bytes(parts[i]->first, parts[i]->second, { DeclId::Kind::Node, p_scene.path, p_walk.reached[i] });
 			}
-			uint32_t start = token.offset + 1;
-			for (uint32_t i = 0; i <= text.size(); i++) {
-				if (i == text.size() || text[i] == '/') {
-					parts.push_back({ start, token.offset + 1 + i });
-					start = token.offset + 2 + i;
-				}
-			}
-		} else {
-			for (uint32_t i = first; i <= p_get_node.range.last; i++) {
-				if (tokens[i].kind != TokenKind::Slash) {
-					parts.push_back({ tokens[i].offset, tokens[i].end() });
-				}
-			}
-		}
-		std::string path = p_from == "." ? std::string() : p_from;
-		for (const auto &[begin, end] : parts) {
-			path += (path.empty() ? "" : "/") + cls.source->text.substr(begin, end - begin);
-			if (!p_scene.find_node(path)) {
-				return;
-			}
-			refer_bytes(begin, end, { DeclId::Kind::Node, p_scene.path, path });
 		}
 	}
 

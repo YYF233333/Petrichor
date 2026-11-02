@@ -239,12 +239,62 @@ TEST_CASE("@owner(T): owner has type T, and scenes give the script such an owner
 	CHECK(contains(messages(compile_in("@parent(Node)\nextends Node\n", FakeProject())), "The class annotation @parent is not supported yet."));
 }
 
+TEST_CASE("%Name is the node with that unique name, which the scene's root owns (spec §7.1)") {
+	// The engine looks in the unique names the node owns, then in its owner's
+	// (scene/main/node.cpp:1942-1950).
+	FakeProject project = hud_scene();
+	project.scenes[0].nodes[4].unique = true;
+	project.scenes[0].nodes.push_back({ "HUD/Panel", "Panel", "" });
+	project.scenes[0].nodes.push_back({ "HUD/Panel/Ammo", "Label", "", false, "", true });
+	project.scenes[0].nodes.push_back({ "HUD/Panel/Ammo/Icon", "TextureRect", "" });
+	CHECK(hud_errors("%Health.text = \"\"\n\t$%Ammo.text = %Health.text\n\t$\"%Ammo\".text = \"\"", project).empty());
+	CHECK(contains(hud_errors("var n: Node3D = %Ammo", project), "Cannot assign a value of type Label as Node3D"));
+	CHECK(contains(hud_errors("%Crosshair.visible = false", project), "res://main.tscn: no node has the unique name %Crosshair"));
+	// On from a unique node, as GDScript writes it
+	// (modules/gdscript/gdscript_parser.cpp:3609-3685).
+	CHECK(contains(hud_errors("var n: Label = %Ammo/Icon", project), "Cannot assign a value of type TextureRect as Label"));
+	CHECK(contains(hud_errors("var n: Node3D = %Ammo/%Health", project), "Cannot assign a value of type Label as Node3D"));
+	CHECK(hud_errors("var n := 7 % 2\n\tn %= 2", project).empty());
+	// The names an instanced scene's root owns are that scene's.
+	CHECK(contains(hud_errors("var n = $\"../Player\"/%Gun", project), "paths into an instanced scene, such as Player, are not supported yet"));
+
+	// Ring's paddle.gd uses $%HealthIcon, which breakout.tscn has: the root of
+	// paddle.tscn has breakout's root as its owner once instanced there.
+	FakeProject paddle;
+	compiler::Scene scene;
+	scene.path = "res://paddle.tscn";
+	scene.nodes = { { ".", "Node2D", "res://test.pet" } };
+	paddle.scenes = { scene };
+	CHECK(contains(messages(compile_in("extends Node2D\n\nfunc f():\n\t$%HealthIcon.visible = false\n", paddle)), "res://paddle.tscn: the scene has no node with the unique name %HealthIcon; unique names of the scenes that instance it are not supported yet."));
+}
+
+TEST_CASE("a path with .. goes up to the parent in the scene, and $\"..\" is a Node (spec §7.1, §7.3)") {
+	// Ring's goal_test_level_manager.gd, beside the level it manages:
+	// `@onready var bricks: Node2D = $"../Level/Bricks"`.
+	FakeProject project;
+	compiler::Scene scene;
+	scene.path = "res://goal_test_level.tscn";
+	scene.nodes = { { ".", "Node2D", "" }, { "Level", "Node2D", "" }, { "Level/Bricks", "Node2D", "" }, { "Manager", "Node", "res://test.pet" } };
+	project.scenes = { scene };
+	const auto errors = [&](const std::string &p_body) {
+		return messages(compile_in("extends Node\n\nfunc f():\n\t" + p_body + "\n", project));
+	};
+	CHECK(errors("var bricks: Node2D = $\"../Level/Bricks\"\n\tvar root: Node2D = $\"../Level/..\"").empty());
+	CHECK(contains(errors("var n: Label = $\"../Level\""), "Cannot assign a value of type Node2D as Label"));
+	CHECK(contains(errors("var n = $\"../Lvl\""), "res://goal_test_level.tscn: Manager has no node at \"../Lvl\""));
+	CHECK(contains(errors("var n = $\"../..\""), "res://goal_test_level.tscn: $\"../..\" goes above the root of the scene, which is not supported yet."));
+	// The parent is any node, as in GDScript, with or without scenes.
+	CHECK(errors("var n: Node = $\"..\"").empty());
+	CHECK(contains(errors("var n: Node2D = $\"..\""), "Cannot assign a value of type Node as Node2D"));
+	CHECK(compile("extends Node\n\nfunc f() -> Node:\n\treturn $\"..\"\n").ok());
+}
+
 TEST_CASE("paths that are not typed yet are refused rather than guessed") {
 	FakeProject project = hud_scene();
 	project.scenes[0].nodes.push_back({ "HUD/Bar", "Control", "", true });
 	CHECK(contains(hud_errors("var n: Node = $Bar/Fill", project), "paths into an instanced scene, such as HUD/Bar, are not supported yet"));
-	CHECK(contains(hud_errors("var n: Node = $\"../Player\""), "are supported yet"));
 	CHECK(contains(hud_errors("var n: Node = $\"/root/Main\""), "are supported yet"));
+	CHECK(contains(hud_errors("var n: Node = $/root/Main"), "are supported yet"));
 }
 
 // Spec §6.3.

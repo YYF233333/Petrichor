@@ -7,3 +7,9 @@ script = ExtResource("1_script")
 
 [node name="Caption" type="Label" parent="."]
 text = "from the scene"
+
+[node name="Box" type="Control" parent="."]
+
+[node name="Title" type="Label" parent="Box"]
+unique_name_in_owner = true
+text = "unique"

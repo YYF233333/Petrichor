@@ -17,6 +17,7 @@ struct SceneNode {
 	// For an instanced scene: the script its root has there, unless this scene
 	// attaches another.
 	std::string instance_script;
+	bool unique = false; // Reached from the scene's nodes as `%Name` (unique_name_in_owner).
 };
 
 // A signal connection saved in a scene (spec §7.7).

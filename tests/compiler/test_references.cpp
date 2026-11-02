@@ -79,10 +79,10 @@ TEST_CASE("a node path refers to the node of each scene the script is attached i
 	for (const char *path : { "res://a.tscn", "res://b.tscn" }) {
 		compiler::Scene scene;
 		scene.path = path;
-		scene.nodes = { { ".", "Node3D", "res://test.pet" }, { "Head", "Node3D", "" }, { "Head/Camera", "Timer", "" } };
+		scene.nodes = { { ".", "Node3D", "res://test.pet" }, { "Head", "Node3D", "" }, { "Head/Camera", "Timer", "", false, "", true } };
 		project.scenes.push_back(scene);
 	}
-	const std::string source = "extends Node3D\n\nfunc f():\n\tvar a = $Head/Camera\n\tvar b = $\"Head/Camera\"\n";
+	const std::string source = "extends Node3D\n\nfunc f():\n\tvar a = $Head/Camera\n\tvar b = $\"Head/Camera\"\n\tvar c = %Camera\n\tvar d = $\"%Camera\"\n";
 	const auto result = compile_in(source, project);
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	for (int nth : { 0, 1 }) {
@@ -90,6 +90,8 @@ TEST_CASE("a node path refers to the node of each scene the script is attached i
 		CHECK(head.size() == 2);
 		CHECK(has(head, { Kind::Node, "res://a.tscn", "Head" }));
 		CHECK(has(head, { Kind::Node, "res://b.tscn", "Head" }));
+	}
+	for (int nth : { 0, 1, 2, 3 }) {
 		CHECK(has(at(result, source, "Camera", nth), { Kind::Node, "res://b.tscn", "Head/Camera" }));
 	}
 }

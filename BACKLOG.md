@@ -28,7 +28,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - `assert` (spec §8.3).
 - Rest parameters `...args: Array[T]` (spec §4.6).
 - Members that must be assigned and are not exported, and passing them by name to `instantiate(...)` and `new(...)` (spec §6.2, §4.6).
-- Node paths: `%Name` and `$%Name`, `$".."` without `@parent` (spec §7.3), and paths into instanced scenes (spec §7.1).
+- Node paths into instanced scenes, and out of a scene from its root: `..` above the root, and `%Name` of a scene that instances it, as Ring's paddle.gd uses `$%HealthIcon` (spec §7.1).
 - Property names as literals, as in `tween_property(self, "speed", ...)` and `set_deferred("speed", v)`: checked, and visible to the engine (spec §10.4, §10.5); only method names are.
 - The audit of the most frequently called engine APIs for null (spec §10.2); `binding_metadata.txt` has two entries.
 - Values of type Variant (spec §3.13), which untyped members, parameters and results of GDScript classes have (§11.1); reading the elements of an untyped Array or Dictionary. A member read or method called through a Variant is recorded as an unresolved name (architecture §2.1).

@@ -23,3 +23,6 @@ pub func set_caption(text: String):
 
 pub func caption_node() -> Label:
 	return $Caption
+
+pub func title() -> String:
+	return %Title.text

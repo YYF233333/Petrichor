@@ -130,6 +130,7 @@ class Parser {
 			case TokenKind::Minus:
 			case TokenKind::Tilde:
 			case TokenKind::Dollar:
+			case TokenKind::Percent:
 			case TokenKind::ParenOpen:
 			case TokenKind::BracketOpen:
 			case TokenKind::BraceOpen:
@@ -518,19 +519,33 @@ class Parser {
 		return p_kind == TokenKind::Identifier || (p_kind >= TokenKind::And && p_kind <= TokenKind::While);
 	}
 
-	// `$Name`, `$Head/Camera` or `$"Head/Camera"` (spec §7.1).
+	// `$Head/Camera`, `$"../Level"`, `%Name` or `$%Name/Child` (spec §7.1): names
+	// and strings joined by "/", each name after "$" or "/" possibly unique, as
+	// in GDScript (modules/gdscript/gdscript_parser.cpp:3609-3685; ed1daf0).
 	std::unique_ptr<Expr> get_node() {
-		auto expr = make(ExprKind::GetNode, advance());
-		if (check(TokenKind::String)) {
-			expr->text = advance().text;
-		} else if (!is_node_name(peek().kind)) {
-			fail(peek(), std::string("Expected a node path after \"$\", found ") + token_name(peek().kind) + ".");
-		} else {
-			expr->text = advance().text;
-			while (check(TokenKind::Slash) && is_node_name(peek(1).kind)) {
-				advance();
-				expr->text += "/" + advance().text;
+		const Token &start = advance();
+		auto expr = make(ExprKind::GetNode, start);
+		if (start.kind == TokenKind::Dollar && check(TokenKind::Slash)) {
+			advance();
+			expr->text = "/";
+		}
+		bool unique = start.kind == TokenKind::Percent;
+		while (true) {
+			if (!unique && match(TokenKind::Percent)) {
+				unique = true;
 			}
+			if (!check(TokenKind::String) && !is_node_name(peek().kind)) {
+				fail(peek(), std::string("Expected a node path after ") + token_name(tokens[last].kind) + ", found " + token_name(peek().kind) + ".");
+				break;
+			}
+			expr->text += (unique ? "%" : "") + advance().text;
+			unique = false;
+			const TokenKind next = peek(1).kind;
+			if (!check(TokenKind::Slash) || (next != TokenKind::String && next != TokenKind::Percent && !is_node_name(next))) {
+				break;
+			}
+			advance();
+			expr->text += "/";
 		}
 		expr->range = span(expr->range.first);
 		return expr;
@@ -587,6 +602,7 @@ class Parser {
 				advance();
 				return make(ExprKind::NoneLiteral, token);
 			case TokenKind::Dollar:
+			case TokenKind::Percent:
 				return get_node();
 			case TokenKind::BracketOpen: {
 				auto expr = make(ExprKind::ArrayLiteral, advance());
