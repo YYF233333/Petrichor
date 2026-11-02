@@ -297,8 +297,8 @@ TEST_CASE("a class of this language filters by its class_name") {
 }
 
 TEST_CASE("integer constants of engine classes") {
-	CHECK(type_of("Input.MOUSE_MODE_CAPTURED") == "int");
-	CHECK(type_of("Tween.EASE_OUT_IN") == "int");
+	CHECK(type_of("Input.MOUSE_MODE_CAPTURED") == "Input.MouseMode");
+	CHECK(type_of("Tween.EASE_OUT_IN") == "Tween.EaseType");
 	CHECK(errors_of(in_function("Input.mouse_mode = Input.MOUSE_MODE_CAPTURED")).empty());
 	CHECK(contains(type_of("Tween.NOPE"), "Tween has no constant \"NOPE\""));
 }
@@ -306,7 +306,7 @@ TEST_CASE("integer constants of engine classes") {
 // GDScript has the values of the engine's global enums and its global
 // constants in scope (modules/gdscript/gdscript_analyzer.cpp:4620-4631).
 TEST_CASE("global constants of the engine") {
-	CHECK(type_of("KEY_ESCAPE") == "int");
+	CHECK(type_of("KEY_ESCAPE") == "Key");
 	CHECK(type_of("MOUSE_BUTTON_LEFT + TYPE_INT") == "int");
 	CHECK(errors_of(in_function("const LIMIT := INT64_MIN\nvar ok := OK == ERR_BUSY")).empty());
 	// A name of the class comes first.

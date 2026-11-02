@@ -54,6 +54,13 @@ public:
 	virtual std::optional<EngineMethod> find_signal(const std::string &p_class, const std::string &p_signal) const = 0;
 	// An integer constant of the class or an ancestor, such as an enum value.
 	virtual std::optional<int64_t> find_constant(const std::string &p_class, const std::string &p_constant) const = 0;
+	// An enum of the class or an ancestor, such as ProcessMode of Node, named
+	// by the class that declares it (spec §3.7); nullopt if there is none, and
+	// for a bitfield, which stays int.
+	virtual std::optional<Type> find_enum(const std::string &p_class, const std::string &p_enum) const = 0;
+	// The type of an integer constant of the class or an ancestor: the enum
+	// it is a value of, or int.
+	virtual Type constant_type(const std::string &p_class, const std::string &p_constant) const = 0;
 
 	bool inherits(const std::string &p_class, const std::string &p_ancestor) const {
 		for (std::string cls = p_class; !cls.empty(); cls = parent_class(cls)) {

@@ -25,6 +25,9 @@ extern const Keyed INT_PROPERTIES[];
 extern const size_t INT_PROPERTIES_COUNT;
 extern const GlobalConstant GLOBAL_CONSTANTS[];
 extern const size_t GLOBAL_CONSTANTS_COUNT;
+extern const EnumValue ENUM_VALUES[];
+extern const Enum ENUMS[];
+extern const size_t ENUM_COUNT;
 
 namespace {
 
@@ -119,13 +122,26 @@ std::optional<bytecode::IntRange> property_int_range(std::string_view p_class, s
 }
 
 // The generator sorts them by name.
-std::optional<int64_t> global_constant(std::string_view p_name) {
+static const GlobalConstant *find_global_constant(std::string_view p_name) {
 	const GlobalConstant *end = GLOBAL_CONSTANTS + GLOBAL_CONSTANTS_COUNT;
 	const GlobalConstant *found = std::lower_bound(GLOBAL_CONSTANTS, end, p_name, [](const GlobalConstant &a, std::string_view b) { return std::string_view(a.name) < b; });
-	if (found == end || p_name != found->name) {
-		return std::nullopt;
-	}
-	return found->value;
+	return found == end || p_name != found->name ? nullptr : found;
+}
+
+std::optional<int64_t> global_constant(std::string_view p_name) {
+	const GlobalConstant *found = find_global_constant(p_name);
+	return found ? std::optional<int64_t>(found->value) : std::nullopt;
+}
+
+const Enum *find_enum(std::string_view p_name) {
+	const Enum *end = ENUMS + ENUM_COUNT;
+	const Enum *found = std::lower_bound(ENUMS, end, p_name, [](const Enum &a, std::string_view b) { return std::string_view(a.name) < b; });
+	return found == end || p_name != found->name ? nullptr : found;
+}
+
+const Enum *global_constant_enum(std::string_view p_name) {
+	const GlobalConstant *found = find_global_constant(p_name);
+	return found && found->enum_index >= 0 ? &ENUMS[found->enum_index] : nullptr;
 }
 
 int class_filter_param(std::string_view p_class, std::string_view p_method) {

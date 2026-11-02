@@ -36,6 +36,17 @@ Type type_of(const Dictionary &p_property, bool p_is_return) {
 				return compiler::api_type("typedarray::" + to_utf8(p_property.get("hint_string", String())), true);
 			}
 			return Type::builtin("Array");
+		case Variant::INT:
+			// An enum, as "Node.ProcessMode" or "Key"; a bitfield stays int (spec §3.7).
+			if (usage & PROPERTY_USAGE_CLASS_IS_ENUM) {
+				const String name = p_property.get("class_name", String());
+				const int64_t dot = name.find(".");
+				const std::optional<Type> found = dot > 0 && ClassDBSingleton::get_singleton()->class_exists(name.substr(0, dot)) ? ClassDBApi::get().find_enum(to_utf8(name.substr(0, dot)), to_utf8(name.substr(dot + 1))) : compiler::builtin_enum(to_utf8(name));
+				if (found) {
+					return *found;
+				}
+			}
+			return Type::of(TypeKind::Int);
 		default:
 			// The names ClassDB gives value types are the extension API's names.
 			return compiler::api_type(to_utf8(Variant::get_type_name(type)), true);
@@ -113,6 +124,34 @@ std::optional<int64_t> ClassDBApi::find_constant(const std::string &p_class, con
 		return std::nullopt;
 	}
 	return db->class_get_integer_constant(cls, name);
+}
+
+std::optional<Type> ClassDBApi::find_enum(const std::string &p_class, const std::string &p_enum) const {
+	ClassDBSingleton *db = ClassDBSingleton::get_singleton();
+	const StringName name = to_godot(p_enum);
+	for (StringName cls = to_godot(p_class); cls != StringName(); cls = db->get_parent_class(cls)) {
+		if (!db->class_get_enum_list(cls, true).has(String(name))) {
+			continue;
+		}
+		if (db->is_class_enum_bitfield(cls, name, true)) {
+			return std::nullopt;
+		}
+		return compiler::engine_enum(to_utf8(cls) + "." + p_enum, [&]() {
+			std::vector<std::pair<std::string, int64_t>> values;
+			const PackedStringArray constants = db->class_get_enum_constants(cls, name, true);
+			for (const String &constant : constants) {
+				values.push_back({ to_utf8(constant), db->class_get_integer_constant(cls, constant) });
+			}
+			return values;
+		});
+	}
+	return std::nullopt;
+}
+
+Type ClassDBApi::constant_type(const std::string &p_class, const std::string &p_constant) const {
+	const StringName enum_name = ClassDBSingleton::get_singleton()->class_get_integer_constant_enum(to_godot(p_class), to_godot(p_constant), false);
+	const std::optional<Type> found = enum_name == StringName() ? std::nullopt : find_enum(p_class, to_utf8(enum_name));
+	return found ? *found : Type::of(TypeKind::Int);
 }
 
 bool ClassDBApi::is_singleton(const std::string &p_class) const {

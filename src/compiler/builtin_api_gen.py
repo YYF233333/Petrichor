@@ -106,13 +106,25 @@ def _int_ranges(api):
     return sorted(params.items()), sorted(properties.items())
 
 
-def _global_constants(api):
+def _enums(api):
+    """The engine's global enums, such as Key and Variant.Type, and those of its
+    built-in types, such as Vector3.Axis, as sorted (name, is_bitfield, values)."""
+    enums = [(e["name"], e.get("is_bitfield", False), [(v["name"], v["value"]) for v in e["values"]]) for e in api["global_enums"]]
+    for c in api["builtin_classes"]:
+        for e in c.get("enums", []):
+            enums.append((f"{c['name']}.{e['name']}", e.get("is_bitfield", False), [(v["name"], v["value"]) for v in e["values"]]))
+    return sorted(enums)
+
+
+def _global_constants(api, enums):
     """The values of the engine's global enums, such as KEY_ESCAPE, and its
-    global constants, such as INT32_MAX, as sorted (name, value) pairs."""
-    pairs = [(v["name"], v["value"]) for e in api["global_enums"] for v in e["values"]]
-    pairs += [(c["name"], c["value"]) for c in api.get("global_constants", [])]
-    assert len({name for name, _ in pairs}) == len(pairs), "global constant names are unique"
-    return sorted(pairs)
+    global constants, such as INT32_MAX, as sorted (name, value, index of the
+    enum or -1) triples."""
+    index = {name: i for i, (name, _, _) in enumerate(enums)}
+    rows = [(v["name"], v["value"], index[e["name"]]) for e in api["global_enums"] for v in e["values"]]
+    rows += [(c["name"], c["value"], -1) for c in api.get("global_constants", [])]
+    assert len({name for name, _, _ in rows}) == len(rows), "global constant names are unique"
+    return sorted(rows)
 
 
 def _int64(value):
@@ -208,8 +220,17 @@ def generate(json_path, metadata_path, out_path):
             out.write(f"extern const Keyed {name}[];\nextern const size_t {name}_COUNT;\n")
             out.write(f"const Keyed {name}[] = {{\n" + "".join(f"\t{{ {_c_string(key)}, {_c_string(width)} }},\n" for key, width in rows) + "};\n")
             out.write(f"const size_t {name}_COUNT = {len(rows)};\n\n")
-        rows = _global_constants(api)
+        enums = _enums(api)
+        values, enum_rows = [], []
+        for name, is_bitfield, entries in enums:
+            enum_rows.append(f"{_c_string(name)}, {_bool(is_bitfield)}, ENUM_VALUES + {len(values)}, {len(entries)}")
+            values += entries
+        out.write("extern const EnumValue ENUM_VALUES[];\nextern const Enum ENUMS[];\nextern const size_t ENUM_COUNT;\n")
+        out.write("const EnumValue ENUM_VALUES[] = {\n" + "".join(f"\t{{ {_c_string(name)}, {_int64(value)} }},\n" for name, value in values) + "};\n")
+        out.write("const Enum ENUMS[] = {\n" + "".join(f"\t{{ {row} }},\n" for row in enum_rows) + "};\n")
+        out.write(f"const size_t ENUM_COUNT = {len(enum_rows)};\n\n")
+        rows = _global_constants(api, enums)
         out.write("extern const GlobalConstant GLOBAL_CONSTANTS[];\nextern const size_t GLOBAL_CONSTANTS_COUNT;\n")
-        out.write("const GlobalConstant GLOBAL_CONSTANTS[] = {\n" + "".join(f"\t{{ {_c_string(name)}, {_int64(value)} }},\n" for name, value in rows) + "};\n")
+        out.write("const GlobalConstant GLOBAL_CONSTANTS[] = {\n" + "".join(f"\t{{ {_c_string(name)}, {_int64(value)}, {enum} }},\n" for name, value, enum in rows) + "};\n")
         out.write(f"const size_t GLOBAL_CONSTANTS_COUNT = {len(rows)};\n\n")
         out.write("} // namespace petrichor::compiler::builtin\n")

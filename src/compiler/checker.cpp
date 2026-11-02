@@ -656,6 +656,10 @@ class Checker : public ClassRelation {
 			refer(p_ref.name_token, engine_id(p_ref.name));
 			return Type::object(p_ref.name);
 		}
+		if (const std::optional<Type> found = named_engine_enum(p_ref.name)) {
+			refer_engine_enum(p_ref.name, p_ref.name_token, p_ref.name_token == NO_TOKEN ? NO_TOKEN : p_ref.name_token + 2);
+			return *found;
+		}
 		if (const std::optional<Type> script = script_type(p_ref)) {
 			return *script;
 		}
@@ -1225,9 +1229,20 @@ class Checker : public ClassRelation {
 		return decl && (decl->find_enum(p_name) || std::any_of(decl->enums.begin(), decl->enums.end(), [&](const EnumDecl &p_enum) { return p_enum.name == p_name; }));
 	}
 
+	// An enum of the engine by the name code writes: a global one, such as
+	// MouseButton or Variant.Type, one of a built-in type, such as
+	// Vector3.Axis, or one of a class, such as Node.ProcessMode (spec §3.7).
+	std::optional<Type> named_engine_enum(const std::string &p_name) const {
+		const size_t dot = p_name.find('.');
+		if (dot != std::string::npos && p_name.find('.', dot + 1) == std::string::npos && engine.class_exists(p_name.substr(0, dot))) {
+			return engine.find_enum(p_name.substr(0, dot), p_name.substr(dot + 1));
+		}
+		return builtin_enum(p_name);
+	}
+
 	// How this file writes an enum: State for its own, Player.State for another class's.
 	std::string enum_spelling(const Type &p_enum) const {
-		return p_enum.script == options.path ? p_enum.interface_name() : p_enum.name;
+		return p_enum.values && !p_enum.values->is_engine && p_enum.script == options.path ? p_enum.interface_name() : p_enum.name;
 	}
 
 	// `State(x)` or `Player.State(x)`: the enum the call names, if any.
@@ -1256,14 +1271,44 @@ class Checker : public ClassRelation {
 		return decl;
 	}
 
+	// `MouseButton(x)`, `Node.ProcessMode(x)` or `Vector3.Axis(x)`: the
+	// engine's enum the call names, if any.
+	std::optional<Type> called_engine_enum(Expr &r_call) {
+		std::string name = r_call.text;
+		if (r_call.base) {
+			if (r_call.base->kind != ExprKind::Name || visible_local(r_call.base->text) || member_index.count(r_call.base->text) || constant_index.count(r_call.base->text)) {
+				return std::nullopt;
+			}
+			name = r_call.base->text + "." + r_call.text;
+		} else if (function_index.count(name) || visible_local(name) || member_index.count(name) || constant_index.count(name)) {
+			return std::nullopt;
+		}
+		const std::optional<Type> found = named_engine_enum(name);
+		if (found) {
+			refer_engine_enum(name, r_call.base ? r_call.base->name_token : r_call.name_token, r_call.name_token);
+		}
+		return found;
+	}
+
+	// MouseButton, or Node and ProcessMode of Node.ProcessMode, each by its token.
+	void refer_engine_enum(const std::string &p_name, uint32_t p_first, uint32_t p_last) {
+		const size_t dot = p_name.find('.');
+		if (dot == std::string::npos) {
+			refer(p_first, engine_id(p_name));
+			return;
+		}
+		refer(p_first, engine_id(p_name.substr(0, dot)));
+		refer(p_last, engine_id(p_name.substr(0, dot), p_name.substr(dot + 1)));
+	}
+
 	// An int as one of the enum's values, a program error when it is none
 	// (spec §3.7); checked at compile time when the int is known.
-	Type check_enum_conversion(Expr &r_expr, const EnumDecl &p_decl) {
+	Type check_enum_conversion(Expr &r_expr, const Type &p_enum) {
 		if (r_expr.args.size() != 1 || !r_expr.arg_names.empty()) {
 			for (auto &arg : r_expr.args) {
 				check_value(*arg);
 			}
-			return fail_call(r_expr, enum_spelling(p_decl.type) + "() takes one int.");
+			return fail_call(r_expr, enum_spelling(p_enum) + "() takes one int.");
 		}
 		Expr &arg = *r_expr.args[0];
 		const Type value = check_value(arg, Type::of(TypeKind::Int));
@@ -1271,17 +1316,17 @@ class Checker : public ClassRelation {
 			return set(r_expr, value);
 		}
 		if (value.kind != TypeKind::Int && value.kind != TypeKind::Enum) {
-			return fail(r_expr, enum_spelling(p_decl.type) + "() converts an int, not " + value.to_string() + "." + (value.kind == TypeKind::Float ? " Convert it with int(x) first." : ""));
+			return fail(r_expr, enum_spelling(p_enum) + "() converts an int, not " + value.to_string() + "." + (value.kind == TypeKind::Float ? " Convert it with int(x) first." : ""));
 		}
 		if (arg.constant && arg.constant->kind == ConstValue::Kind::Int) {
-			if (!p_decl.numbers->has(arg.constant->i)) {
-				return fail(r_expr, std::to_string(arg.constant->i) + " is none of the values of " + enum_spelling(p_decl.type) + ".");
+			if (!p_enum.values->has(arg.constant->i)) {
+				return fail(r_expr, std::to_string(arg.constant->i) + " is none of the values of " + enum_spelling(p_enum) + ".");
 			}
-			r_expr.constant = enum_constant(arg.constant->i, p_decl.type);
+			r_expr.constant = enum_constant(arg.constant->i, p_enum);
 		}
 		r_expr.target = Target::EnumFromInt;
 		r_expr.param_types = { Type::of(TypeKind::Int) };
-		return set(r_expr, p_decl.type);
+		return set(r_expr, p_enum);
 	}
 
 	// `State.IDLE` (spec §3.7).
@@ -1550,7 +1595,10 @@ class Checker : public ClassRelation {
 			r_expr.target = Target::EngineConstant;
 			r_expr.int_value = *value;
 			refer(r_expr.name_token, engine_id("@GlobalScope", r_expr.text));
-			return set(r_expr, Type::of(TypeKind::Int));
+			// Typed by its enum, such as Key of KEY_ESCAPE (spec §3.7).
+			const builtin::Enum *of = builtin::global_constant_enum(r_expr.text);
+			const std::optional<Type> type = of ? builtin_enum(of->name) : std::nullopt;
+			return set(r_expr, type ? *type : Type::of(TypeKind::Int));
 		}
 		if (is_type_name(r_expr.text)) {
 			return fail(r_expr, "\"" + r_expr.text + "\" is a type, not a value.");
@@ -1712,7 +1760,7 @@ class Checker : public ClassRelation {
 		r_expr.target = Target::EngineConstant;
 		r_expr.int_value = *value;
 		refer(r_expr.name_token, engine_id(p_class, r_expr.text));
-		return set(r_expr, Type::of(TypeKind::Int));
+		return set(r_expr, engine.constant_type(p_class, r_expr.text));
 	}
 
 	Type check_member_access(Expr &r_expr) {
@@ -3777,7 +3825,10 @@ class Checker : public ClassRelation {
 			return check_struct_construction(r_expr, *constructed);
 		}
 		if (const EnumDecl *decl = called_enum(r_expr)) {
-			return check_enum_conversion(r_expr, *decl);
+			return check_enum_conversion(r_expr, decl->type);
+		}
+		if (const std::optional<Type> found = called_engine_enum(r_expr)) {
+			return check_enum_conversion(r_expr, *found);
 		}
 		if (r_expr.base && r_expr.text == "try_from" && named_enum(*r_expr.base)) {
 			for (auto &arg : r_expr.args) {

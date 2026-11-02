@@ -87,6 +87,7 @@ struct TypeImage {
 	godot::String name; // Struct and Enum: "script::Name"; an engine enum as the engine names it.
 	std::vector<FieldImage> fields; // Struct.
 	std::vector<int64_t> enum_values; // Enum, sorted.
+	bool enum_checked = false; // An enum of this language, whose values entry checks check.
 	std::vector<std::pair<godot::String, int64_t>> enum_declared; // Enum, the names and values in declaration order.
 	// A type that containers keep boxed (bytecode::is_boxed): its boxes' type,
 	// the same for the same type in every image.

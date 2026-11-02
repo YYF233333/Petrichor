@@ -472,6 +472,9 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 		}
 		if (type.kind == bytecode::TypeKind::Enum) {
 			image.name = to_godot(type.name);
+			// The engine gives values outside its enums, such as a Key with the
+			// bits of modifiers (core/input/input_event.cpp:394-396; ed1daf0).
+			image.enum_checked = type.name.find("::") != std::string::npos;
 			for (const bytecode::EnumValueDesc &value : type.values) {
 				image.enum_values.push_back(value.value);
 				image.enum_declared.push_back({ to_godot(value.name), value.value });
@@ -763,7 +766,7 @@ bool from_variant(const TypeImage &p_type, const Variant &p_value, uint8_t *p_sl
 	if (!from_variant(p_type.storage, p_value, p_slot, p_check ? &p_type.check : nullptr)) {
 		return false;
 	}
-	if (p_check && p_type.kind == bytecode::TypeKind::Enum) {
+	if (p_check && p_type.enum_checked) {
 		return is_enum_value(p_type, *reinterpret_cast<const int64_t *>(p_slot));
 	}
 	return !p_check || !p_type.item || misfit_element(p_type, p_value) < 0;

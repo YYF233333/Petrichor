@@ -81,6 +81,20 @@ TEST_CASE("an enum of another class is written through its class, if pub (spec �
 	CHECK(contains(errors_in("var s: Player.Secret = Player.Secret.HIDDEN\nreturn p"), "Player.Secret is not pub (spec §4.2)."));
 }
 
+TEST_CASE("the engine's enums are enum types too, and its bitfields stay int (spec §3.7)") {
+	const auto errors_in = [](const std::string &p_body) {
+		return joined(errors_of(in_function(p_body, "func f(n: int, e: Tween.EaseType) -> void:")));
+	};
+	CHECK(errors_in("Input.mouse_mode = Input.MOUSE_MODE_CAPTURED\nvar m: Input.MouseMode = Input.mouse_mode\nvar i: int = m + e\n"
+					"var k: Key = KEY_ESCAPE\nvar b: MouseButton = MouseButton(n)\nvar t := Tween.EaseType(n)\nvar a: Vector3.Axis = Vector3.Axis(0)\nvar v: Variant.Type = TYPE_INT")
+					.empty());
+	CHECK(type_of("KEY_ESCAPE") == "Key");
+	CHECK(type_of("KEY_MASK_SHIFT") == "int"); // A value of the bitfield KeyModifierMask.
+	CHECK(contains(errors_in("Input.mouse_mode = 2"), "Cannot assign a value of type int as Input.MouseMode. Convert explicitly with Input.MouseMode(x)"));
+	CHECK(contains(errors_in("var b := MouseButton(100)"), "100 is none of the values of MouseButton."));
+	CHECK(contains(errors_in("match e:\n\tTween.EASE_IN:\n\t\tpass"), "This match over Tween.EaseType does not handle EASE_OUT, EASE_IN_OUT and EASE_OUT_IN;"));
+}
+
 TEST_CASE("an enum compiles to an int checked where it is made from one") {
 	const compiler::CompileResult result = compile_in(std::string("extends Node\n\n") + STATE + "func f(n: int) -> State:\n\treturn State(n)\n", FakeProject());
 	REQUIRE_MESSAGE(result.ok(), messages(result));

@@ -120,3 +120,16 @@ pub func mode_of(n: int) -> Mode:
 
 pub func takes_mode(m: Mode) -> int:
 	return m + LARGE
+
+
+# The engine's enums, as ClassDB and its global enums give them.
+pub func button_of(n: int) -> MouseButton:
+	return MouseButton(n)
+
+
+pub func process_name(mode: Node.ProcessMode) -> String:
+	match mode:
+		Node.PROCESS_MODE_ALWAYS:
+			return "always"
+		_:
+			return "other"

@@ -23,6 +23,8 @@ public:
 	std::optional<compiler::EngineProperty> find_property(const std::string &p_class, const std::string &p_property) const override;
 	std::optional<compiler::EngineMethod> find_signal(const std::string &p_class, const std::string &p_signal) const override;
 	std::optional<int64_t> find_constant(const std::string &p_class, const std::string &p_constant) const override;
+	std::optional<compiler::Type> find_enum(const std::string &p_class, const std::string &p_enum) const override;
+	compiler::Type constant_type(const std::string &p_class, const std::string &p_constant) const override;
 
 	static const ClassDBApi &get();
 };

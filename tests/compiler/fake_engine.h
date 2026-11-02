@@ -51,11 +51,33 @@ class FakeEngine : public compiler::EngineApi {
 	std::vector<std::string> singletons = { "Input", "ResourceLoader" };
 	std::map<std::string, int64_t> constants = {
 		{ "Input.MOUSE_MODE_VISIBLE", 0 },
+		{ "Input.MOUSE_MODE_HIDDEN", 1 },
 		{ "Input.MOUSE_MODE_CAPTURED", 2 },
+		{ "Tween.EASE_IN", 0 },
+		{ "Tween.EASE_OUT", 1 },
+		{ "Tween.EASE_IN_OUT", 2 },
 		{ "Tween.EASE_OUT_IN", 3 },
 		{ "Object.NOTIFICATION_PREDELETE", 1 },
 		{ "FileAccess.READ", 1 },
+		{ "FileAccess.WRITE", 2 },
 	};
+	// Each enum by "Class.Enum", with its constants in order.
+	std::map<std::string, std::vector<std::string>> enums = {
+		{ "Input.MouseMode", { "MOUSE_MODE_VISIBLE", "MOUSE_MODE_HIDDEN", "MOUSE_MODE_CAPTURED" } },
+		{ "Tween.EaseType", { "EASE_IN", "EASE_OUT", "EASE_IN_OUT", "EASE_OUT_IN" } },
+		{ "FileAccess.ModeFlags", { "READ", "WRITE" } },
+	};
+
+	Type enum_type(const std::string &p_name) const {
+		return compiler::engine_enum(p_name, [&]() {
+			std::vector<std::pair<std::string, int64_t>> values;
+			const std::string owner = p_name.substr(0, p_name.find('.'));
+			for (const std::string &constant : enums.at(p_name)) {
+				values.push_back({ constant, constants.at(owner + "." + constant) });
+			}
+			return values;
+		});
+	}
 	std::map<std::string, std::vector<EngineMethod>> methods;
 	std::map<std::string, std::vector<EngineProperty>> properties;
 	std::map<std::string, std::vector<EngineMethod>> signals;
@@ -123,7 +145,7 @@ public:
 			{ "relative", Type::builtin("Vector2"), true },
 		};
 		properties["Input"] = {
-			{ "mouse_mode", t(TypeKind::Int), true },
+			{ "mouse_mode", enum_type("Input.MouseMode"), true },
 		};
 		methods["PackedScene"] = {
 			method("instantiate", { { "edit_state", t(TypeKind::Int) } }, node, false, 1),
@@ -140,7 +162,7 @@ public:
 			method("finished", {}, t(TypeKind::Void)),
 		};
 		methods["FileAccess"] = {
-			method("open", { { "path", t(TypeKind::String) }, { "flags", t(TypeKind::Int) } }, Type::object("FileAccess", true)),
+			method("open", { { "path", t(TypeKind::String) }, { "flags", enum_type("FileAccess.ModeFlags") } }, Type::object("FileAccess", true)),
 			method("get_as_text", {}, t(TypeKind::String)),
 		};
 		methods["FileAccess"][0].is_static = true;
@@ -246,6 +268,26 @@ public:
 			}
 		}
 		return std::nullopt;
+	}
+
+	std::optional<Type> find_enum(const std::string &p_class, const std::string &p_enum) const override {
+		for (std::string cls = p_class; !cls.empty(); cls = parent_class(cls)) {
+			if (enums.count(cls + "." + p_enum)) {
+				return enum_type(cls + "." + p_enum);
+			}
+		}
+		return std::nullopt;
+	}
+
+	Type constant_type(const std::string &p_class, const std::string &p_constant) const override {
+		for (std::string cls = p_class; !cls.empty(); cls = parent_class(cls)) {
+			for (const auto &[name, values] : enums) {
+				if (name.rfind(cls + ".", 0) == 0 && std::find(values.begin(), values.end(), p_constant) != values.end()) {
+					return enum_type(name);
+				}
+			}
+		}
+		return Type::of(TypeKind::Int);
 	}
 };
 

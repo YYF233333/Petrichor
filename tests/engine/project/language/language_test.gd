@@ -478,6 +478,9 @@ func _ready() -> void:
 		if property.name == "mode":
 			mode_property = property
 	_check(mode_property.get("hint") == PROPERTY_HINT_ENUM and mode_property.get("hint_string") == "Calm:0,Angry:3", "an exported enum is a drop-down, as GDScript's")
+	_check(k.button_of(2) == MOUSE_BUTTON_RIGHT and k.process_name(Node.PROCESS_MODE_ALWAYS) == "always" and k.process_name(1000) == "other", "the engine's enums are enum types, whose values are not checked at entry")
+	k.button_of(1000)
+	_check_errors(["constant_check.pet:127: 1000 is none of the values of MouseButton."], "converting an int to an engine enum checks it")
 
 	var statics := StaticChild.new()
 	_check(statics.made(), "new() of classes of this language runs their initializers and _init() (spec §4.6)")

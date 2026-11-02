@@ -113,10 +113,28 @@ std::optional<bytecode::IntRange> property_int_range(std::string_view p_class, s
 struct GlobalConstant {
 	const char *name;
 	int64_t value;
+	int32_t enum_index; // In ENUMS, or -1 for a constant of no enum.
 };
 
 // A value of the engine's global enums, such as KEY_ESCAPE, or one of its
 // global constants, such as INT32_MAX, which GDScript has in scope.
 std::optional<int64_t> global_constant(std::string_view p_name);
+
+struct EnumValue {
+	const char *name;
+	int64_t value;
+};
+
+struct Enum {
+	const char *name; // "Key", "Variant.Type", "Vector3.Axis".
+	bool is_bitfield;
+	const EnumValue *values;
+	uint32_t value_count;
+};
+
+// One of the engine's global enums, or an enum of a built-in type; null if none.
+const Enum *find_enum(std::string_view p_name);
+// The global enum a global constant is a value of, such as Key of KEY_ESCAPE; null for another constant.
+const Enum *global_constant_enum(std::string_view p_name);
 
 } // namespace petrichor::compiler::builtin

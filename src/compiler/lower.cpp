@@ -228,7 +228,7 @@ class Lowerer {
 			// "script::Name" for an enum of this language, as for a struct.
 			type.kind = bytecode::TypeKind::Enum;
 			type.value = ValueType::Int;
-			type.name = p_type.script.empty() ? p_type.name : p_type.script + "::" + p_type.interface_name();
+			type.name = p_type.values && p_type.values->is_engine ? p_type.name : p_type.script + "::" + p_type.interface_name();
 			for (const auto &[name, value] : p_type.values ? p_type.values->list : std::vector<std::pair<std::string, int64_t>>()) {
 				type.values.push_back({ name, value });
 			}

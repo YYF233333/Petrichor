@@ -3,6 +3,7 @@
 #include "compiler/builtin_api.h"
 
 #include <algorithm>
+#include <mutex>
 #include <unordered_map>
 
 namespace petrichor::compiler {
@@ -98,6 +99,11 @@ Type api_type(const std::string &p_name, bool p_object_nullable) {
 	if (p_name == "bool") {
 		return Type::of(TypeKind::Bool);
 	}
+	if (p_name.rfind("enum::", 0) == 0) {
+		if (const std::optional<Type> found = builtin_enum(p_name.substr(6))) {
+			return *found;
+		}
+	}
 	if (p_name == "int" || p_name.rfind("enum::", 0) == 0 || p_name.rfind("bitfield::", 0) == 0) {
 		return Type::of(TypeKind::Int);
 	}
@@ -127,6 +133,34 @@ Type api_type(const std::string &p_name, bool p_object_nullable) {
 		return Type{ TypeKind::Unsupported, p_name, false };
 	}
 	return Type::object(p_name, p_object_nullable);
+}
+
+Type engine_enum(const std::string &p_name, const std::function<std::vector<std::pair<std::string, int64_t>>()> &p_values) {
+	static std::mutex mutex;
+	static std::unordered_map<std::string, std::shared_ptr<const EnumValues>> known;
+	std::lock_guard<std::mutex> lock(mutex);
+	std::shared_ptr<const EnumValues> &values = known[p_name];
+	if (!values) {
+		auto made = std::make_shared<EnumValues>();
+		made->list = p_values();
+		made->is_engine = true;
+		values = made;
+	}
+	return Type::enumeration(p_name, std::string(), values);
+}
+
+std::optional<Type> builtin_enum(const std::string &p_name) {
+	const builtin::Enum *found = builtin::find_enum(p_name);
+	if (!found || found->is_bitfield) {
+		return std::nullopt;
+	}
+	return engine_enum(p_name, [found]() {
+		std::vector<std::pair<std::string, int64_t>> values;
+		for (uint32_t i = 0; i < found->value_count; i++) {
+			values.push_back({ found->values[i].name, found->values[i].value });
+		}
+		return values;
+	});
 }
 
 static bool is_string_like(const Type &p_type) {

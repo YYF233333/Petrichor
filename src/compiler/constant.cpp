@@ -413,7 +413,7 @@ ConstPtr fold_conditional(Expr &r_expr) {
 ConstPtr fold_name(Expr &r_expr) {
 	switch (r_expr.target) {
 		case Target::EngineConstant:
-			return int_value(r_expr.int_value);
+			return r_expr.type.kind == TypeKind::Enum ? enum_constant(r_expr.int_value, r_expr.type) : int_value(r_expr.int_value);
 		case Target::BuiltinConstant: {
 			auto value = make(Kind::Builtin, r_expr.type);
 			value->text = r_expr.text;

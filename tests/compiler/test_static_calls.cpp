@@ -44,7 +44,7 @@ TEST_CASE("a static engine method is called through its class") {
 }
 
 TEST_CASE("a static engine method called on an object is its class's, after the object (spec §4.8)") {
-	const compiler::CompileResult result = compile(in_function("var again: FileAccess? = opened().open(\"res://b.txt\", 1)") + "\nfunc opened() -> FileAccess:\n\treturn FileAccess.open(\"res://a.txt\", 1).unwrap()\n");
+	const compiler::CompileResult result = compile(in_function("var again: FileAccess? = opened().open(\"res://b.txt\", FileAccess.READ)") + "\nfunc opened() -> FileAccess:\n\treturn FileAccess.open(\"res://a.txt\", FileAccess.WRITE).unwrap()\n");
 	require_verified(result);
 	const bytecode::Function &f = function_named(result.module, "f");
 	const size_t engine = find_instruction(f, Op::CALL_ENGINE);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -32,6 +33,7 @@ enum class TypeKind {
 // The values of an enum without payloads, in declaration order (spec §3.7).
 struct EnumValues {
 	std::vector<std::pair<std::string, int64_t>> list;
+	bool is_engine = false; // An enum of the engine, named as it names it.
 
 	bool has(int64_t p_value) const {
 		for (const auto &[name, value] : list) {
@@ -136,6 +138,14 @@ struct Type {
 // nullable until audited (spec §10.2), so `p_object_nullable` says how to read
 // a class name.
 Type api_type(const std::string &p_name, bool p_object_nullable);
+
+// An enum of the engine (spec §3.7), such as Node.ProcessMode or Key, with
+// its values, which `p_values` gives the first time the name is asked for.
+Type engine_enum(const std::string &p_name, const std::function<std::vector<std::pair<std::string, int64_t>>()> &p_values);
+// One of the engine's global enums or an enum of a built-in type, such as
+// MouseButton or Vector3.Axis; nullopt for any other name and for a bitfield,
+// which stays int.
+std::optional<Type> builtin_enum(const std::string &p_name);
 
 // How classes relate: engine classes as ClassDB says, classes of this
 // language as their declarations say.
