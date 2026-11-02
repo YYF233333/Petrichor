@@ -260,7 +260,18 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 3.7 enum
 
-- 无载荷的 enum 与 GDScript 相同。
+- 无载荷的 enum 写法与 GDScript 相同：`enum State { IDLE, RUN }`，每个值比前一个大 1，除非写出 `= 值`，值为编译器求出的 int（§4.5）；匿名的 `enum { A, B }` 声明类的 int 常量。具名 enum 是类型，引擎的 enum，如 `MouseButton`、`Node.ProcessMode`，在引擎的参数、属性和返回值中也是这样的类型；引擎的 bitfield 仍为 int。
+- enum 的值隐式转为 int，与 GDScript 相同（`modules/gdscript/gdscript_analyzer.cpp:6375-6378`）。int 只能显式转为 enum：`State(x)`，x 不是它的值时是程序错误；或 `State.try_from(x)`（§5.3）；两个 enum 的值不互相转换。理由：GDScript 接受 int 并给出默认开启的警告 INT_AS_ENUM_WITHOUT_CAST（`gdscript_analyzer.cpp:6326-6336, 6397-6406`，`modules/gdscript/gdscript_warning.h:140`），而值一定是 enum 的值之一，对它的 match 才能穷尽。依据：[语料计数](surveys/corpus-counts.zh.md)中用 `as` 把 int 转为 enum 10 处，忽略这条警告的 4 处。
+
+  ```gdscript
+  enum SpeedUnit { KMH, MPH }
+  var unit := SpeedUnit.KMH
+  unit = SpeedUnit((unit + 1) % SpeedUnit.size())   # GDScript：(...) as SpeedUnit
+  unit = 1                                          # 编译错误；快速修复改为 SpeedUnit(1)
+  ```
+
+- enum 名作为值时，与 GDScript 相同，是从各值的名字（String）到值的只读 Dictionary（`gdscript_analyzer.cpp:1159-1197`），它的方法按 enum 定型：`keys()` 得 `Array[String]`，`values()` 得 `Array[State]`，`find_key(v)` 得 `String?`，`get(name)` 得 `State?`，`State[name]` 得 State，没有这个名字时是程序错误。以 enum 名初始化的常量指同一个 enum。依据：语料计数中把 enum 名当 Dictionary 用 38 处，以常量作 enum 的别名 3 处。
+- 没有值 0 的 enum 没有默认值，它的变量必须赋值（§4.3）；GDScript 让它们从 0 开始，并给出警告 ENUM_VARIABLE_WITHOUT_DEFAULT（`gdscript_analyzer.cpp:2207-2217`）。依据：语料计数的 258 个 enum 中有 8 个没有 0。
 - 带载荷的分支，载荷字段必须命名，例如 `MOVE(target: Vector3)`。命名使编码不随字段顺序改变。
 - 对 enum 的 match 必须穷尽或带 `_`（§5.6）。新增分支时，编译器列出所有没有处理它的位置。
 - 引擎看到的形式见 §10.1：无载荷的 enum 为 int，导出时显示为下拉框；带载荷的 enum 编码为按字段名的 Dictionary，保留键 `"$variant"` 记录分支名的字符串，例如 `Command.MOVE(target = p)` 编码为 `{"$variant": "MOVE", "target": p}`，`Command.IDLE` 编码为 `{"$variant": "IDLE"}`。`$variant` 不是合法的标识符，所以不会与字段名冲突；记录分支名而不是序号，使编码不随分支顺序改变。
@@ -413,10 +424,10 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 以下成员必须标注类型：没有初始化式的；初始化式推断不出类型的，例如空容器和 None。
 - GDScript 中 `var hp = 10` 是无类型成员；在本语言中推断为 int，此后赋入其他类型是编译错误，符合语法硬规则。
 - 没有初始化式的成员：
-  - 数值、bool、String、StringName、NodePath、core 值类型、容器、`Callable`、`Signal` 和无载荷的 enum 取默认值，与 GDScript 相同；
+  - 数值、bool、String、StringName、NodePath、core 值类型、容器、`Callable`、`Signal` 和有值 0 的无载荷 enum 取默认值，与 GDScript 相同，enum 取 0；
   - `T?` 取 None，Variant 取 NIL，`weak[T]` 取不指向对象的弱引用；
   - struct 在所有字段都有默认值时取默认值，否则与对象引用一样必须赋值；
-  - 带载荷的 enum 和函数类型必须赋值；
+  - 带载荷的 enum、没有值 0 的 enum（§3.7）和函数类型必须赋值；
   - 必须赋值的成员的规则见 §6.2。
 - `@export` 的规则与 GDScript 相同，另有：struct 和带载荷的 enum 不能导出（§3.6、§3.7）；导出的场景写作 `PackedScene[T]`（§7.4）；非空的对象类型的导出必须赋值（§7.5）。
 - `@onready` 见 §6.3。
@@ -528,6 +539,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - `as` 转为内置类型是编译错误。GDScript 在这里按构造函数转换，转换失败只在 debug 构建中报错（`gdscript_vm.cpp:1642-1650`），快速修复给出两种改法：
   - `T(x)`：保留这种转换，例如 `int("5")`、`int(2.7)`；
   - `T.try_from(x)`：严格的转换。
+- `as` 转为 enum 同样是编译错误，快速修复给出 `State(x)` 和 `State.try_from(x)`（§3.7）；GDScript 把 int 转为 enum 时不做检查（`gdscript_analyzer.cpp:3826-3829`）。int 不是 enum 的值时，`State.try_from(x)` 为 `Err`。
 - `T.try_from(v)` 返回 `Result[T, ConversionError]`。规则与 struct 字段的解码相同：值的类型必须与 T 相符；转为 `int` 时，接受恰为整数且在 int64 范围内的浮点数（§10.8）。用 `?` 传播失败，或用 `.unwrap()`、`.expect(…)` 把失败变为程序错误。
 - 必须成功的向下转型写作 `(x as T).unwrap()`。依据：[第二次纸面迁移](surveys/paper-migration-2.zh.md)中有 16 处。
 - 先用 `is_in_group` 判断分组、再向下转型的写法，快速修复建议改用 `is` 收窄。
@@ -1106,9 +1118,9 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 签名 | `func _process(delta):` 中 delta 为 float；覆盖时把返回类型写成子类型合法，写成父类型报编译错误；覆盖时多出带默认值的参数合法；非覆盖函数省略返回类型后返回值报编译错误；有期望类型的 lambda 参数不必标注；b 为 Base 类型、持有自己声明了静态 `label()` 的 Sub 时，`b.label()` 调用 Sub 的，`Base.label()` 调用 Base 的；在 Color 值上调用 `c.from_hsv(0.5, 1.0, 1.0)` 即 `Color.from_hsv()` |
 | 信号 | emit 实参不符和 connect 参数不符报编译错误；场景中的连接与信号不符时标在场景中；单参数信号的 await 结果有该参数类型；使用多参数信号的 await 结果报编译错误；await `Signal` 类型的变量得到 Variant，信号有两个参数时运行时为 Array |
 | 相等 | `1 == 1.0` 为真；`hp == "3"` 报编译错误；`Node2D` 与 `Node3D` 比较报编译错误；hp 为 `int?` 时 `hp == 3` 合法；非空的 `Node` 与 None 比较报编译错误；`Array[int] == Array[float]` 报编译错误；Variant 中是 String 时与 int 比较是程序错误；`Enemy?` 的值可以传给 `Node?` 参数，`Array[Enemy]` 传给 `Array[Node]` 参数报编译错误；`Some(3) == Some(Some(3))` 先把左侧包装为两层再比较；hp 为 `int?` 时 `hp < 3` 报编译错误，为 None 的 `int?` 小于 `Some(0)` |
-| 转换 | `node as Sprite2D` 为 `Sprite2D?`；`x as int` 报编译错误并给出 `int(x)` 与 `int.try_from(x)`；`int.try_from(2.0)` 得 `Ok(2)`，`int.try_from(2.5)` 和 `int.try_from("2")` 得 `Err` |
+| 转换 | `node as Sprite2D` 为 `Sprite2D?`；`x as int` 报编译错误并给出 `int(x)` 与 `int.try_from(x)`；`int.try_from(2.0)` 得 `Ok(2)`，`int.try_from(2.5)` 和 `int.try_from("2")` 得 `Err`；`unit: SpeedUnit` 时 `unit + 1` 为 int，`unit = 1` 报编译错误并给出 `SpeedUnit(1)`，5 不是它的值时 `SpeedUnit(5)` 是程序错误，`SpeedUnit.values()` 为 `Array[SpeedUnit]`；没有值 0 的 enum 类型的成员没有初始化式时报编译错误 |
 | 收窄 | `!= None`、`is` 和提前返回之后局部变量收窄；条件表达式的分支和 `and` 右侧收窄；成员不收窄；`if x:`、`if not x:` 在 x 不是 bool 时报编译错误并按类型给出改法 |
-| match | enum 的 match 不穷尽报编译错误；带 `when` 的分支不计入覆盖；未列出字段而没有 `..` 报编译错误；Option 的 `var x` 分支中 x 为 T；对 int 的 match 不要求穷尽 |
+| match | enum 的 match 不穷尽报编译错误，对引擎的 `MouseButton` 也是；带 `when` 的分支不计入覆盖；未列出字段而没有 `..` 报编译错误；Option 的 `var x` 分支中 x 为 T；对 int 的 match 不要求穷尽 |
 | 循环 | `for i in 5` 中 i 为 int；`for x in 2.5` 和遍历向量报编译错误；循环变量标注为子类报编译错误 |
 | 初始化 | 成员初始化式不调用 setter；`@onready` 与 `@export` 同用报编译错误；`_init` 中读取 `@onready` 成员报编译错误；静态初始化的环是程序错误并列出依赖链 |
 | 必须赋值 | `BulletScene.instantiate(speed = 300.0)` 漏写 `target` 报编译错误；祖先在 `_ready` 中经 `$Child.target = v` 赋值时不报错；子节点在自己的 `_ready` 中读取该成员报编译错误；就绪前读取未赋值的成员是程序错误；`new()` 漏传必须赋值的成员不是编译错误，Node 在就绪时检查 |
@@ -1235,6 +1247,8 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | GDScript 的脚本对象按名字调用静态函数，读取常量、静态变量和静态函数 | `modules/gdscript/gdscript.cpp:928-940, 957-997` |
 | GDScript 实例从自己的脚本往上按名字查找方法，包括静态函数 | `modules/gdscript/gdscript.cpp:1948-1966` |
 | 在实例上调用静态方法，GDScript 默认只给警告 | `modules/gdscript/gdscript_analyzer.cpp:3699-3703`；`modules/gdscript/gdscript_warning.h:131` |
+| GDScript 把 enum 的值转为 int 不提示，把 int 转为 enum 给出默认开启的警告，不把一个 enum 转为另一个；`as` 把 int 转为 enum 时不做检查 | `modules/gdscript/gdscript_analyzer.cpp:3826-3829, 6326-6336, 6375-6378, 6397-6406`；`modules/gdscript/gdscript_warning.h:140` |
+| GDScript 把 enum 名作为从各值的名字（String）到值的只读 Dictionary，没有值 0 的 enum 的变量从 0 开始并给出警告 | `modules/gdscript/gdscript_analyzer.cpp:1159-1197, 2207-2217` |
 | GDScript 把作为值的脚本定型为它的类，以 preload 脚本初始化的常量可作类型 | `modules/gdscript/gdscript_analyzer.cpp:873-892, 5776-5786` |
 | GDScript 中作为值使用的 GDScript 类是 GDScript 对象 | `modules/gdscript/gdscript_analyzer.cpp:6447-6449` |
 | 对象没有脚本实例时，`callp` 只查找引擎注册的方法，所以 Script 资源上的静态方法找不到 | `core/object/object.cpp:800-826` |

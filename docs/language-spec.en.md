@@ -260,7 +260,18 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 3.7 Enums
 
-- Enums without payloads are as in GDScript.
+- Enums without payloads are written as in GDScript: `enum State { IDLE, RUN }`, each value one more than the previous unless written as `= value`, an int the compiler computes (§4.5); an unnamed `enum { A, B }` declares int constants of the class. A named enum is a type, and so are the engine's enums, such as `MouseButton` and `Node.ProcessMode`, in its parameters, properties and return values; the engine's bitfields stay int.
+- A value of an enum converts implicitly to int, as in GDScript (`modules/gdscript/gdscript_analyzer.cpp:6375-6378`). An int becomes an enum only explicitly, with `State(x)`, a program error when x is none of its values, or with `State.try_from(x)` (§5.3); values of two enums do not convert to each other. Reason: GDScript accepts an int with the warning INT_AS_ENUM_WITHOUT_CAST, on by default (`gdscript_analyzer.cpp:6326-6336, 6397-6406`, `modules/gdscript/gdscript_warning.h:140`), and a value that is one of the enum's lets a match over it be exhaustive. Evidence: the [corpus counts](surveys/corpus-counts.en.md) have 10 casts of an int with `as` and 4 places that ignore the warning.
+
+  ```gdscript
+  enum SpeedUnit { KMH, MPH }
+  var unit := SpeedUnit.KMH
+  unit = SpeedUnit((unit + 1) % SpeedUnit.size())   # GDScript: (...) as SpeedUnit
+  unit = 1                                          # compile error; the quick fix writes SpeedUnit(1)
+  ```
+
+- The name of an enum used as a value is, as in GDScript, a read-only Dictionary from the names of its values, as String, to the values (`gdscript_analyzer.cpp:1159-1197`), with its methods typed by the enum: `keys()` gives `Array[String]`, `values()` `Array[State]`, `find_key(v)` `String?`, `get(name)` `State?`, and `State[name]` a State, a program error for a name it does not have. A constant initialized with an enum's name names the same enum. Evidence: the corpus counts use the name as a Dictionary 38 times and alias an enum 3 times.
+- An enum without the value 0 has no default value, and its variables must be assigned (§4.3); GDScript starts them at 0 with the warning ENUM_VARIABLE_WITHOUT_DEFAULT (`gdscript_analyzer.cpp:2207-2217`). Evidence: 8 of the 258 enums in the corpus counts have no 0.
 - Payload fields of a variant must be named, as in `MOVE(target: Vector3)`. Naming keeps the encoding independent of field order.
 - A match over an enum must be exhaustive or have `_` (§5.6). When a variant is added, the compiler lists every place that does not handle it.
 - What the engine sees is in §10.1: an enum without payloads is an int and is shown as a drop-down when exported; an enum with payloads is encoded as a Dictionary keyed by field name, where the reserved key `"$variant"` holds the variant name as a string; for example, `Command.MOVE(target = p)` is encoded as `{"$variant": "MOVE", "target": p}`, and `Command.IDLE` as `{"$variant": "IDLE"}`. `$variant` is not a valid identifier, so it cannot clash with a field name; recording the name rather than an ordinal keeps the encoding independent of the order of variants.
@@ -413,10 +424,10 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - These members must be annotated: those without an initializer, and those whose initializer does not determine a type, such as empty containers and None.
 - In GDScript `var hp = 10` is an untyped member; in this language it is inferred as int, and assigning another type afterwards is a compile error, which the syntax hard rule allows.
 - Members without an initializer:
-  - numbers, bool, String, StringName, NodePath, core value types, containers, `Callable`, `Signal` and enums without payloads start at their default value, as in GDScript;
+  - numbers, bool, String, StringName, NodePath, core value types, containers, `Callable`, `Signal` and enums without payloads that have the value 0 start at their default value, as in GDScript, 0 for an enum;
   - `T?` starts at None, Variant at NIL, and `weak[T]` at a weak reference to no object;
   - a struct starts at its default when every field has a default, and must otherwise be assigned like an object reference;
-  - enums with payloads and function types must be assigned;
+  - enums with payloads, enums without the value 0 (§3.7) and function types must be assigned;
   - the rules for must-assign members are in §6.2.
 - `@export` follows GDScript, and in addition: structs and enums with payloads cannot be exported (§3.6, §3.7); exported scenes are written `PackedScene[T]` (§7.4); exports of non-null object type must be assigned (§7.5).
 - `@onready` is in §6.3.
@@ -528,6 +539,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - `as` to a built-in type is a compile error. GDScript converts through the constructor there and reports a failed conversion only in debug builds (`gdscript_vm.cpp:1642-1650`), so the quick fix offers two rewrites:
   - `T(x)`, which keeps that conversion, as in `int("5")` or `int(2.7)`;
   - `T.try_from(x)`, the strict conversion.
+- `as` to an enum is a compile error in the same way, offering `State(x)` and `State.try_from(x)` (§3.7); GDScript casts an int to an enum without a check (`gdscript_analyzer.cpp:3826-3829`). `State.try_from(x)` is an `Err` for an int that is none of the enum's values.
 - `T.try_from(v)` returns `Result[T, ConversionError]`. It follows the rules for decoding a struct field: the value's type must match T; for `int`, a float that is exactly an integer within the int64 range is accepted (§10.8). `?` propagates the failure, and `.unwrap()` or `.expect(…)` turns it into a program error.
 - A downcast that must succeed is written `(x as T).unwrap()`. Evidence: the [second paper migration](surveys/paper-migration-2.en.md) has 16 of them.
 - For code that tests membership with `is_in_group` and then downcasts, the quick fix suggests narrowing with `is` instead.
@@ -1106,9 +1118,9 @@ This checklist gives test instances of the rules above and adds no language requ
 | Signatures | delta in `func _process(delta):` is a float; an override writing a subtype as its return type is valid, and writing a supertype is a compile error; an override adding a parameter with a default is valid; returning a value from a non-override function with an omitted return type is a compile error; lambda parameters with an expected type need no annotation; with b a Base holding a Sub that declares its own static `label()`, `b.label()` calls Sub's and `Base.label()` Base's; `c.from_hsv(0.5, 1.0, 1.0)` on a Color calls `Color.from_hsv()` |
 | Signals | Mismatching emit arguments and connect parameters are compile errors; a connection in a scene that does not match its signal is marked in the scene; the await result of a one-parameter signal has that parameter's type; using the await result of a multi-parameter signal is a compile error; awaiting a variable of type `Signal` yields a Variant, an Array at runtime when the signal has two parameters |
 | Equality | `1 == 1.0` is true; `hp == "3"` is a compile error; comparing a `Node2D` with a `Node3D` is a compile error; `hp == 3` with hp an `int?` is valid; comparing a non-null `Node` with None is a compile error; `Array[int] == Array[float]` is a compile error; comparing a Variant holding a String with an int is a program error; an `Enemy?` can be passed to a `Node?` parameter, while passing an `Array[Enemy]` to an `Array[Node]` parameter is a compile error; `Some(3) == Some(Some(3))` wraps the left side to two levels before comparing; `hp < 3` with hp an `int?` is a compile error, and an `int?` holding None is less than `Some(0)` |
-| Conversions | `node as Sprite2D` is `Sprite2D?`; `x as int` is a compile error offering `int(x)` and `int.try_from(x)`; `int.try_from(2.0)` is `Ok(2)`, while `int.try_from(2.5)` and `int.try_from("2")` are `Err` |
+| Conversions | `node as Sprite2D` is `Sprite2D?`; `x as int` is a compile error offering `int(x)` and `int.try_from(x)`; `int.try_from(2.0)` is `Ok(2)`, while `int.try_from(2.5)` and `int.try_from("2")` are `Err`; with `unit: SpeedUnit`, `unit + 1` is an int, `unit = 1` is a compile error offering `SpeedUnit(1)`, `SpeedUnit(5)` is a program error when 5 is none of its values, and `SpeedUnit.values()` is an `Array[SpeedUnit]`; a member of an enum without the value 0 and without an initializer is a compile error |
 | Narrowing | Locals narrow after `!= None`, `is` and early returns; branches of conditional expressions and the right operand of `and` narrow; members do not narrow; `if x:` and `if not x:` with a non-bool x are compile errors with a fix depending on the type |
-| match | A non-exhaustive match over an enum is a compile error; branches with `when` do not count toward coverage; unlisted fields without `..` are a compile error; in the `var x` branch of an Option, x is T; a match over int need not be exhaustive |
+| match | A non-exhaustive match over an enum is a compile error, over the engine's `MouseButton` too; branches with `when` do not count toward coverage; unlisted fields without `..` are a compile error; in the `var x` branch of an Option, x is T; a match over int need not be exhaustive |
 | Loops | i in `for i in 5` is an int; `for x in 2.5` and iterating over a vector are compile errors; annotating the loop variable with a subclass is a compile error |
 | Initialization | Member initializers do not call setters; `@onready` with `@export` is a compile error; reading an `@onready` member in `_init` is a compile error; a static initialization cycle is a program error listing its dependency chain |
 | Must-assign | `BulletScene.instantiate(speed = 300.0)` without `target` is a compile error; an ancestor assigning `$Child.target = v` in `_ready` is not an error; the child reading that member in its own `_ready` is a compile error; reading an unassigned member before ready is a program error; leaving a must-assign member out of `new()` is not a compile error, and a Node checks it at ready |
@@ -1235,6 +1247,8 @@ The following facts are based on Godot 4.7.2-stable (commit `ed1daf0`); paths ar
 | GDScript's script object calls static functions by name, and reads constants, static variables and static functions | `modules/gdscript/gdscript.cpp:928-940, 957-997` |
 | A GDScript instance finds a method by name from its script up, static functions included | `modules/gdscript/gdscript.cpp:1948-1966` |
 | GDScript by default only warns about a static method called on an instance | `modules/gdscript/gdscript_analyzer.cpp:3699-3703`; `modules/gdscript/gdscript_warning.h:131` |
+| GDScript converts an enum value to int silently, an int to an enum with a warning on by default, and not one enum to another; `as` casts an int to an enum without a check | `modules/gdscript/gdscript_analyzer.cpp:3826-3829, 6326-6336, 6375-6378, 6397-6406`; `modules/gdscript/gdscript_warning.h:140` |
+| GDScript makes an enum's name a read-only Dictionary from the names of its values, as String, to the values, and starts a variable of an enum without the value 0 at 0 with a warning | `modules/gdscript/gdscript_analyzer.cpp:1159-1197, 2207-2217` |
 | GDScript types a script used as a value by its class, and a constant initialized with a preloaded script can be a type | `modules/gdscript/gdscript_analyzer.cpp:873-892, 5776-5786` |
 | In GDScript a GDScript class used as a value is a GDScript object | `modules/gdscript/gdscript_analyzer.cpp:6447-6449` |
 | Without a script instance, `callp` looks only for engine-registered methods, so static methods on a Script resource are not found | `core/object/object.cpp:800-826` |
