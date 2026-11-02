@@ -579,6 +579,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   ```
 
 - 对 enum（无论有无载荷）、Result 和 Option 的 match 必须穷尽或带 `_`，对引擎的 enum 的 match 因其开放必须带 `_`（§3.7）；带 `when` 的分支不计入覆盖。对其他类型不要求穷尽，与 GDScript 相同。
+- 对本语言的 enum 的穷尽 match 与带 `_` 的 match 一样覆盖所有路径，所以每个分支都返回的函数在它之后无需再返回。不是 enum 的值只能从引擎来到 match，例如 GDScript 追加进 `Array[State]` 的 int，引擎把它保存为 `Array[int]`；这样的值在 match 处是程序错误。
 - 【已知限制】第一版没有类型模式（用 `if x is T`）、没有 match 表达式，也不能在逗号分隔的多个模式中绑定。【后续】这三项都可以兼容地加入。
 
 ### 5.7 循环
@@ -1120,7 +1121,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 相等 | `1 == 1.0` 为真；`hp == "3"` 报编译错误；`Node2D` 与 `Node3D` 比较报编译错误；hp 为 `int?` 时 `hp == 3` 合法；非空的 `Node` 与 None 比较报编译错误；`Array[int] == Array[float]` 报编译错误；Variant 中是 String 时与 int 比较是程序错误；`Enemy?` 的值可以传给 `Node?` 参数，`Array[Enemy]` 传给 `Array[Node]` 参数报编译错误；`Some(3) == Some(Some(3))` 先把左侧包装为两层再比较；hp 为 `int?` 时 `hp < 3` 报编译错误，为 None 的 `int?` 小于 `Some(0)` |
 | 转换 | `node as Sprite2D` 为 `Sprite2D?`；`x as int` 报编译错误并给出 `int(x)` 与 `int.try_from(x)`；`int.try_from(2.0)` 得 `Ok(2)`，`int.try_from(2.5)` 和 `int.try_from("2")` 得 `Err`；`unit: SpeedUnit` 时 `unit + 1` 为 int，`unit = 1` 报编译错误并给出 `SpeedUnit(1)`，5 不是它的值时 `SpeedUnit(5)` 是程序错误，`MouseButton(1000)` 则不是，`SpeedUnit.values()` 为 `Array[SpeedUnit]`；没有值 0 的 enum 类型的成员没有初始化式时报编译错误 |
 | 收窄 | `!= None`、`is` 和提前返回之后局部变量收窄；条件表达式的分支和 `and` 右侧收窄；成员不收窄；`if x:`、`if not x:` 在 x 不是 bool 时报编译错误并按类型给出改法 |
-| match | enum 的 match 不穷尽报编译错误，对引擎的 `MouseButton` 的 match 没有 `_` 时即使列出所有值也报编译错误；带 `when` 的分支不计入覆盖；未列出字段而没有 `..` 报编译错误；Option 的 `var x` 分支中 x 为 T；对 int 的 match 不要求穷尽 |
+| match | enum 的 match 不穷尽报编译错误，对引擎的 `MouseButton` 的 match 没有 `_` 时即使列出所有值也报编译错误；在对本语言 enum 的穷尽 match 的每个分支中都返回的函数无需再返回；带 `when` 的分支不计入覆盖；未列出字段而没有 `..` 报编译错误；Option 的 `var x` 分支中 x 为 T；对 int 的 match 不要求穷尽 |
 | 循环 | `for i in 5` 中 i 为 int；`for x in 2.5` 和遍历向量报编译错误；循环变量标注为子类报编译错误 |
 | 初始化 | 成员初始化式不调用 setter；`@onready` 与 `@export` 同用报编译错误；`_init` 中读取 `@onready` 成员报编译错误；静态初始化的环是程序错误并列出依赖链 |
 | 必须赋值 | `BulletScene.instantiate(speed = 300.0)` 漏写 `target` 报编译错误；祖先在 `_ready` 中经 `$Child.target = v` 赋值时不报错；子节点在自己的 `_ready` 中读取该成员报编译错误；就绪前读取未赋值的成员是程序错误；`new()` 漏传必须赋值的成员不是编译错误，Node 在就绪时检查 |
