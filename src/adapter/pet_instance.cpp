@@ -446,10 +446,23 @@ static void instance_free(GDExtensionScriptInstanceDataPtr p_instance) {
 	memdelete(instance);
 }
 
+// Editor builds ask for these after every other lookup by name has failed,
+// and without them read an uninitialized bool that may say found
+// (core/object/object.cpp:289-293, 364-368; core/object/script_language_extension.h:909-926; ed1daf0).
+static GDExtensionBool instance_set_fallback(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionConstVariantPtr p_value) {
+	return false;
+}
+
+static GDExtensionBool instance_get_fallback(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionVariantPtr r_ret) {
+	return false;
+}
+
 static GDExtensionScriptInstanceInfo3 build_info() {
 	GDExtensionScriptInstanceInfo3 info = {};
 	info.set_func = instance_set;
 	info.get_func = instance_get;
+	info.set_fallback_func = instance_set_fallback;
+	info.get_fallback_func = instance_get_fallback;
 	info.get_property_list_func = instance_get_property_list;
 	info.get_property_state_func = instance_property_state;
 	info.free_property_list_func = instance_free_property_list;
