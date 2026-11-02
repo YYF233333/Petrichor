@@ -179,6 +179,18 @@ TEST_CASE("assert evaluates its message only when it fails, and only in debug bu
 	CHECK((debug < test && test < message && message < failure));
 }
 
+// Spec §5.1.
+TEST_CASE("% of a String formats a value of any type, which enters the engine as anywhere else") {
+	CHECK(type_of("\"%d\" % 3") == "String");
+	CHECK(type_of("&\"%s\" % Vector2()") == "String");
+	CHECK(joined(errors_of(in_function("var maybe: int? = None\nvar text := \"%s %s\" % [maybe, Node.new()]\ntext %= maybe\ntext = \"%s\" % maybe\ntext %= [1, \"a\"]\ntext = \"%s\" % \"a\""))) == "");
+	CHECK(has_error(in_function("var hits: Array[Vector2?] = []\nvar text := \"%s\" % hits"), "Cannot format a value of type Array[Vector2?]. Its elements exist only in this language; convert it explicitly with Array(x)"));
+	const compiler::CompileResult result = compile(in_function("var text := \"%d\" % n\ntext %= n", "func f(n: int) -> void:"));
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	const std::string code = bytecode::disassemble(result.module, function_named(result.module, "f"));
+	CHECK(code.find("FORMAT") != code.rfind("FORMAT"));
+}
+
 TEST_CASE("! is not, and ; separates statements, as in GDScript") {
 	CHECK(errors_of(in_function("var a := !true; var b := not a")).empty());
 	CHECK(has_error(in_function("var b := !1"), "requires bool"));

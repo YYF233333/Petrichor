@@ -62,6 +62,7 @@ namespace petrichor::bytecode {
 	X(POW_FLOAT, 3) \
 	X(NEG_FLOAT, 2) \
 	X(ADD_STRING, 3) \
+	X(FORMAT, 3) /* dst (String), format (String), values (Variant): the engine's `%`, a format error a program error (spec §5.1) */ \
 	X(EQ_INT, 3) \
 	X(NE_INT, 3) \
 	X(LT_INT, 3) \

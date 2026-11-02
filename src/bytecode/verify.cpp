@@ -632,6 +632,8 @@ class Verifier {
 				return same(o[0], o[1], ValueType::Float);
 			case Op::ADD_STRING:
 				return three(o, ValueType::String, ValueType::String);
+			case Op::FORMAT:
+				return slot(o[0], ValueType::String) && slot(o[1], ValueType::String) && slot(o[2], ValueType::Variant);
 			case Op::EQ_INT:
 			case Op::NE_INT:
 			case Op::LT_INT:

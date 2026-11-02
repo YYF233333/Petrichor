@@ -177,6 +177,9 @@ std::optional<std::pair<Type, Type>> entries_of(const Type &p_type);
 // An Array[T] or a Dictionary[K, V], which is made empty and typed.
 bool is_typed_container(const Type &p_type);
 
+// A String or StringName, whose `%` formats a value of any type (spec §5.1).
+bool is_format_string(const Type &p_type);
+
 // Whether a container keeps values of the type boxed (architecture §2.2): a
 // struct, a T? of a value type, or a container that keeps its elements or keys
 // boxed, which then enters a Variant only through `Array(hits)` or

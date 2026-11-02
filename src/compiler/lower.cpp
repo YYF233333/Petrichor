@@ -927,6 +927,16 @@ class Lowerer {
 		return result;
 	}
 
+	// `text % value` (spec §5.1): the value enters the engine as an argument
+	// does (§10.1).
+	uint32_t format(uint32_t p_text, uint32_t p_value, const Type &p_type) {
+		const uint32_t text = convert(p_text, Type::of(TypeKind::String));
+		const uint32_t value = as_variant(outward(p_value, p_type, false));
+		const uint32_t result = temp(ValueType::String);
+		instr(Op::FORMAT, result, text, value);
+		return result;
+	}
+
 	uint32_t as_variant(uint32_t p_reg) {
 		if (reg_type(p_reg) == ValueType::Variant) {
 			return p_reg;
@@ -1541,6 +1551,10 @@ class Lowerer {
 					instr(Op::HAS_MEMBER, result, object, name);
 					return result;
 				}
+				if (p_expr.op == TokenKind::Percent && is_format_string(p_expr.left->type)) {
+					const uint32_t text = lower_expr(*p_expr.left);
+					return format(text, lower_expr(*p_expr.right), p_expr.right->type);
+				}
 				if (p_expr.op == TokenKind::And || p_expr.op == TokenKind::Or) {
 					return short_circuit(p_expr);
 				} else {
@@ -1895,6 +1909,9 @@ class Lowerer {
 					} else if (place.kind == Place::Kind::Element) {
 						value = outward(value, p_stmt.value->type, true);
 					}
+				} else if (p_stmt.assign_op == TokenKind::PercentEqual && is_format_string(target.type)) {
+					const uint32_t current_value = load(place);
+					value = format(current_value, lower_expr(*p_stmt.value), p_stmt.value->type);
 				} else {
 					const uint32_t current_value = load(place);
 					value = binary(compound_operator(p_stmt.assign_op), current_value, lower_expr(*p_stmt.value), p_stmt.compound_result);

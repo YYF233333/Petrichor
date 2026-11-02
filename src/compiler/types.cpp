@@ -263,6 +263,10 @@ bool is_typed_container(const Type &p_type) {
 	return p_type.kind == TypeKind::Builtin && (p_type.name == "Array" || p_type.name == "Dictionary") && !p_type.args.empty();
 }
 
+bool is_format_string(const Type &p_type) {
+	return p_type.kind == TypeKind::String || (p_type.kind == TypeKind::Builtin && p_type.name == "StringName");
+}
+
 bool is_boxed(const Type &p_type) {
 	if (p_type.kind == TypeKind::Option || p_type.kind == TypeKind::Struct) {
 		return true;

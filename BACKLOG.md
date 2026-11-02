@@ -25,6 +25,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - `Array[T]?`; `pop_front()` and `pop_back()` of `Array[T?]`, which give `T??`.
 - Enums with payloads, and the names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7); `T.try_from(x)` (spec §5.3); inner classes (spec §2.1).
 - Rest parameters `...args: Array[T]` (spec §4.6).
+- A text form of this language's own types, such as `Hit(damage = 3, crit = false)`, for `str()`, `print()` and `%` together; now they read as their encoding (spec §5.1, §10.1).
 - Members that must be assigned and are not exported, and passing them by name to `instantiate(...)` and `new(...)` (spec §6.2, §4.6).
 - Node paths into instanced scenes, and out of a scene from its root: `..` above the root, and `%Name` of a scene that instances it, as Ring's paddle.gd uses `$%HealthIcon` (spec §7.1).
 - Property names as literals, as in `tween_property(self, "speed", ...)` and `set_deferred("speed", v)`: checked, and visible to the engine (spec §10.4, §10.5); only method names are.

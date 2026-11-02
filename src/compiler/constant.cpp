@@ -330,7 +330,7 @@ ConstPtr fold_binary(Expr &r_expr) {
 	if (left->kind == Kind::Preload || right->kind == Kind::Preload) {
 		return nullptr;
 	}
-	if (r_expr.op == TokenKind::Percent && left->type.kind == TypeKind::String) {
+	if (r_expr.op == TokenKind::Percent && is_format_string(left->type)) {
 		return fail(r_expr, "Formatting with % is not supported in constant expressions (spec §4.5).");
 	}
 	if (r_expr.op == TokenKind::Plus && left->kind == Kind::Array && right->kind == Kind::Array) {

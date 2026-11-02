@@ -2312,6 +2312,19 @@ class Checker : public ClassRelation {
 		if (p_left.is_error() || p_right.is_error()) {
 			return Type::of(TypeKind::Error);
 		}
+		// Formats a value of any type, which enters the engine as anywhere else
+		// (spec §5.1, §10.1).
+		if (p_op == TokenKind::Percent && is_format_string(p_left)) {
+			if (!assignable(p_right, Type::of(TypeKind::Variant))) {
+				std::string message = "Cannot format a value of type " + p_right.to_string() + ".";
+				if (is_typed_container(p_right) && is_boxed(p_right)) {
+					message += " Its elements exist only in this language; convert it explicitly with " + p_right.name + "(x), a copy with the elements encoded (spec §3.8).";
+				}
+				error(p_at, message);
+				return Type::of(TypeKind::Error);
+			}
+			return Type::of(TypeKind::String);
+		}
 		const bool ordering = p_op == TokenKind::Less || p_op == TokenKind::LessEqual || p_op == TokenKind::Greater || p_op == TokenKind::GreaterEqual;
 		// Ordered by LESS (spec §3.6, §5.2), the types of both sides being one:
 		// `<` does not wrap a T into T?.
@@ -2453,6 +2466,9 @@ class Checker : public ClassRelation {
 			narrowed.push_back(r_expr.op == TokenKind::And ? facts.when_true : facts.when_false);
 			right = check_value(*r_expr.right);
 			narrowed.pop_back();
+		} else if (r_expr.op == TokenKind::Percent && is_format_string(left)) {
+			// The values to format, of any types (spec §5.1).
+			right = check_value(*r_expr.right, Type::builtin("Array"));
 		} else {
 			right = check_value(*r_expr.right);
 		}
@@ -4623,7 +4639,8 @@ class Checker : public ClassRelation {
 						target.type = target_type;
 					}
 				}
-				Type value = check_value(*r_stmt.value, compound ? Type::of(TypeKind::Error) : target_type);
+				const bool formats = r_stmt.assign_op == TokenKind::PercentEqual && is_format_string(read_type);
+				Type value = check_value(*r_stmt.value, formats ? Type::builtin("Array") : (compound ? Type::of(TypeKind::Error) : target_type));
 				const bool place = !target_type.is_error() && check_place(target);
 				if (compound && place) {
 					value = binary_type(compound_operator(r_stmt.assign_op), read_type, value, r_stmt.range);

@@ -155,3 +155,13 @@ pub func contained() -> String:
 	var bytes := PackedByteArray()
 	bytes.append(7)
 	return str([1 in weights, 2 not in weights, Hit(damage = 2) in hits, &"a" in names, "b" in names, 7 in bytes, "ell" in "hello", &"x" in "hello", "name" in self, &"scores" in self, "nothing" in self, 3 in [1, 2, 3]])
+
+# Spec §5.1: % formats a value of any type, this language's own as they enter
+# the engine (§10.1); a format error is a program error.
+pub func formatted(n: int, maybe: int?) -> String:
+	var tail := "<%s>"
+	tail %= maybe
+	return "%d %s %s " % [n, maybe, Hit(damage = 3)] + tail + &" [%05.1f]" % 2.5
+
+pub func misformatted() -> String:
+	return "%d %d" % [1]

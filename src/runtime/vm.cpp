@@ -722,6 +722,19 @@ public:
 					STR(code[pc + 1]) = STR(code[pc + 2]) + STR(code[pc + 3]);
 					pc += 4;
 					break;
+				case Op::FORMAT: {
+					// The engine's general evaluation, which reports the error that
+					// its direct one drops (core/variant/variant_op.h:720-837; ed1daf0).
+					Variant result;
+					bool valid = false;
+					Variant::evaluate(Variant::OP_MODULE, STR(code[pc + 2]), variant_at(frame + code[pc + 3]), result, valid);
+					if (!valid) {
+						FAIL(vformat("String formatting error: %s.", result));
+					}
+					STR(code[pc + 1]) = result;
+					pc += 4;
+					break;
+				}
 #define COMPARE(m_op, m_access, m_cmp) \
 	case Op::m_op: \
 		U64(code[pc + 1]) = (m_access(code[pc + 2]) m_cmp m_access(code[pc + 3])) ? 1 : 0; \

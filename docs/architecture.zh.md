@@ -100,7 +100,7 @@ thirdparty/ring/       git 子模块：同一次迁移所用提交的 Ring，只
 
 | 部分 | 现状 | 测试 |
 |---|---|---|
-| 编译器 | FPS 项目需要的语言（§5），以及 GDScript 类和 autoload 的静态视图、协程核心、本语言类之间的继承、接口属性、`@owner`、字面量模式的 match、属性访问器、不带方法的 struct、Dictionary[K, V] 和对元素的赋值，元素为 struct、T? 和容器的容器，struct 和 T? 的大小比较，常量，引擎的全局常量，位运算，`&"…"` 和 `^"…"` 字面量，`@tool` 以外的注解（包括 `@abstract`），场景以外资源的 `preload()`，preload 脚本作为类，经类型名的访问（静态方法、`new()` 和常量，包括 GDScript 类的），lambda、函数类型和函数值的 `call()`，带唯一名称（`%Name`）和 `..` 的节点路径，`in`、`not in` 和 `**`，不带载荷的 enum，`assert`；尚无泛型、带载荷的 enum、等待 ready 的 setter；真实代码中用到而尚不支持的写法见[实现覆盖调查](surveys/implementation-coverage.zh.md) | 编译器测试；引擎测试中对每个脚本的构建 |
+| 编译器 | FPS 项目需要的语言（§5），以及 GDScript 类和 autoload 的静态视图、协程核心、本语言类之间的继承、接口属性、`@owner`、字面量模式的 match、属性访问器、不带方法的 struct、Dictionary[K, V] 和对元素的赋值，元素为 struct、T? 和容器的容器，struct 和 T? 的大小比较，常量，引擎的全局常量，位运算，`&"…"` 和 `^"…"` 字面量，`@tool` 以外的注解（包括 `@abstract`），场景以外资源的 `preload()`，preload 脚本作为类，经类型名的访问（静态方法、`new()` 和常量，包括 GDScript 类的），lambda、函数类型和函数值的 `call()`，带唯一名称（`%Name`）和 `..` 的节点路径，`in`、`not in` 和 `**`，不带载荷的 enum，`assert`，`%` 格式化；尚无泛型、带载荷的 enum、等待 ready 的 setter；真实代码中用到而尚不支持的写法见[实现覆盖调查](surveys/implementation-coverage.zh.md) | 编译器测试；引擎测试中对每个脚本的构建 |
 | 值 | 每个类型有类型描述（字节码的类型表）；int、float、bool 和引擎的内置类型按自己的布局存放，对象存为 ObjectID 和指针，值类型的 T? 是标记加值，struct 是它的各个字段；元素为本语言独有类型的容器把每个元素装在盒子里（§2.2）；尚无带载荷的 enum | 语言检查 |
 | 由运行中的调用共同持有成员（§2.2） | 已完成 | 语言检查 |
 | 本语言类之间的调用 | 直接调用，检查签名 | 语言检查、过时字节码 |
