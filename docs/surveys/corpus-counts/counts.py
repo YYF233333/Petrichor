@@ -30,7 +30,13 @@ Counts, in first-party .gd files (blank and comment lines excluded from the line
     EditorScript);
   - `preload` of a literal `.gd` path: into a constant, followed by `.new()` or another member, or as a
     value; and in the same file the uses of such constants: `.new()`, other calls, other members, after
-    `is`, as a type (after `:`, `->`, `as` or in `Array[...]`), and as values.
+    `is`, as a type (after `:`, `->`, `as` or in `Array[...]`), and as values;
+  - enum declarations, named and unnamed, and those whose values, all int literals or counted on, do not
+    include 0; casts with `as` to an enum the repository declares, written by its name or after a
+    class_name of the repository; `@warning_ignore("int_as_enum_without_cast")`; such enum names used as a
+    Dictionary (`keys()`, `values()`, `size()`, `get()`, `find_key()`, `has()`, `Name[...]`,
+    `for x in Name:`), and constants initialized with one; match statements with a branch on the engine's
+    KEY_, MOUSE_BUTTON_, JOY_BUTTON_ or JOY_AXIS_ constants and no `_` branch.
 """
 import collections
 import os
@@ -239,6 +245,108 @@ def script_preloads(ts, c, repo, files, where):
             c["alias_value"] += 1
 
 
+ENUM_DICT_METHODS = {"keys", "values", "size", "get", "find_key", "has"}
+ENGINE_ENUM_PREFIXES = ("KEY_", "MOUSE_BUTTON_", "JOY_BUTTON_", "JOY_AXIS_")
+
+
+def enum_declarations(ts):
+    """The enums a file declares: (name or None, values, or None for a value that is not an int literal)."""
+    found = []
+    for i, t in enumerate(ts):
+        if not (t.k == "ID" and t.v == "enum"):
+            continue
+        j = i + 1
+        name = ts[j].v if j < len(ts) and ts[j].k == "ID" else None
+        j += name is not None
+        if j >= len(ts) or ts[j].v != "{":
+            continue
+        values, previous, depth, k, member, written = [], -1, 0, j, None, []
+
+        def close():
+            nonlocal previous
+            if member is None:
+                return
+            if written:
+                try:
+                    previous = int("".join(written), 0)
+                except ValueError:
+                    previous = None
+            else:
+                previous = None if previous is None else previous + 1
+            values.append(previous)
+
+        while k < len(ts):
+            v = ts[k].v
+            depth += (v in OPEN) - (v in CLOSE)
+            if depth == 0:
+                close()
+                break
+            if depth == 1 and v == ",":
+                close()
+                member, written = None, []
+            elif depth == 1 and member is None and ts[k].k == "ID":
+                member = v
+            elif member is not None and v not in ("=", "{"):
+                written.append(v)
+            k += 1
+        found.append((name, values))
+    return found
+
+
+def enum_uses(ts, enums, classes, c, where):
+    """Count the uses of the enums of a repository in a file: casts with `as`, uses of the name as a Dictionary,
+    and constants that alias an enum. `Q.Name` counts when Q is a class_name of the repository."""
+    for i, t in enumerate(ts):
+        if t.k != "ID" or t.v not in enums or (i > 0 and ts[i - 1].v == "enum"):
+            continue
+        start = i
+        if i > 1 and ts[i - 1].v == ".":
+            if ts[i - 2].v not in classes:
+                continue
+            start = i - 2
+        elif i > 0 and ts[i - 1].v == ".":
+            continue
+        prev = ts[start - 1].v if start > 0 else ""
+        nxt = ts[i + 1].v if i + 1 < len(ts) else ""
+        if prev == "as":
+            c["enum_as"] += 1
+            where.append(f"{ts[i].line} as {t.v}")
+        elif nxt == "." and i + 3 < len(ts) and ts[i + 2].v in ENUM_DICT_METHODS and ts[i + 3].v == "(":
+            c["enum_dict"] += 1
+            c["enum_dict_" + ts[i + 2].v] += 1
+        elif nxt == "[":
+            c["enum_dict"] += 1
+            c["enum_dict_index"] += 1
+        elif prev == "in" and start > 2 and ts[start - 3].v == "for" and nxt == ":":
+            c["enum_dict"] += 1
+            c["enum_dict_for"] += 1
+        elif prev == "=" and start > 2 and ts[start - 3].v == "const" and (i + 1 >= len(ts) or ts[i + 1].line != t.line):
+            c["enum_alias"] += 1
+
+
+def engine_enum_matches(src, c, where):
+    """Count the match statements whose branches test the engine's enum constants and have no `_` branch."""
+    lines = src.splitlines()
+    for i, line in enumerate(lines):
+        if not line.strip().startswith("match ") or not line.rstrip().endswith(":"):
+            continue
+        indent = len(line[:len(line) - len(line.lstrip())].expandtabs(4))
+        patterns, branch = [], None
+        for k in range(i + 1, len(lines)):
+            text = lines[k]
+            if not text.strip() or text.strip().startswith("#"):
+                continue
+            width = len(text[:len(text) - len(text.lstrip())].expandtabs(4))
+            if width <= indent:
+                break
+            branch = width if branch is None else branch
+            if width == branch:
+                patterns.append(text.strip().split(":")[0].strip())
+        if any(p.startswith(ENGINE_ENUM_PREFIXES) for p in patterns) and not any(p == "_" for p in patterns):
+            c["engine_enum_match"] += 1
+            where.append(i + 1)
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
@@ -249,6 +357,7 @@ def main():
     freeing_at = collections.defaultdict(list)
     for name, _, _, group in G.REPOS:
         repo = G.Repo(sys.argv[1], name, group)
+        repo_files = []
         for f in repo.files:
             if not (f.endswith(".gd") and repo.first_party(f)):
                 continue
@@ -260,6 +369,22 @@ def main():
             c["lines"] += lines
             by_repo[name]["lines"] += lines
             ts = [t for t in G.tokenize(src) if t.k != "NL"]
+            repo_files.append((f, ts))
+            for ename, values in enum_declarations(ts):
+                c["enum"] += 1
+                c["enum_named" if ename else "enum_unnamed"] += 1
+                if None not in values and 0 not in values:
+                    c["enum_without_zero"] += 1
+                    freeing_at["enum without the value 0"].append(f"{name}/{f} {ename}")
+            for i, t in enumerate(ts):
+                if t.k == "AN" and t.v.startswith("@warning_ignore") and i + 2 < len(ts) and ts[i + 1].v == "(":
+                    k = i + 2
+                    while k < len(ts) and ts[k].v != ")":
+                        c["enum_ignore"] += ts[k].k == "STR" and ts[k].v == "int_as_enum_without_cast"
+                        k += 1
+            match_lines = []
+            engine_enum_matches(src, c, match_lines)
+            freeing_at["match over the engine's enums without _"] += [f"{name}/{f}:{line}" for line in match_lines]
             script_preloads(ts, c, by_repo[name], files, (f"{name}/{f}", group))
             if any(t.k == "AN" and t.v == "@tool" for t in ts):
                 c["tool_" + group] += 1
@@ -372,6 +497,12 @@ def main():
                     by_repo[name]["coroutine_value"] += 1
                     if ts[i - 1].v == "(" and i > 1 and ts[i - 2].v == "connect":
                         c["coroutine_connect"] += 1
+        enums = {e for _, ts in repo_files for e, _ in enum_declarations(ts) if e}
+        classes = {ts[i + 1].v for _, ts in repo_files for i, t in enumerate(ts[:-1]) if t.v == "class_name"}
+        for f, ts in repo_files:
+            casts = []
+            enum_uses(ts, enums, classes, c, casts)
+            freeing_at["cast to an enum with as"] += [f"{name}/{f}:{cast}" for cast in casts]
     null = c["null_compare"] + c["null_other"]
     print(f"code lines: {c['lines']}")
     print(f"null: {null} ({null * 1000 / c['lines']:.1f} per 1,000 lines); "
@@ -420,6 +551,11 @@ def main():
           f"other calls {c['alias_static_call']} in {len(files['static_call'])} files, "
           f"other members {c['alias_member']} in {len(files['member'])} files, is {c['alias_is']}, "
           f"types {c['alias_type']}, values {c['alias_value']}")
+    print(f"enums: {c['enum']} ({c['enum_named']} named, {c['enum_unnamed']} unnamed), without the value 0: {c['enum_without_zero']}")
+    print(f"casts to an enum with as: {c['enum_as']}; @warning_ignore of int_as_enum_without_cast: {c['enum_ignore']}")
+    uses = ", ".join(f"{m} {c['enum_dict_' + m]}" for m in sorted(ENUM_DICT_METHODS | {"index", "for"}) if c["enum_dict_" + m])
+    print(f"enum names used as a Dictionary: {c['enum_dict']} ({uses}); constants aliasing an enum: {c['enum_alias']}")
+    print(f"match over the engine's enums without _: {c['engine_enum_match']}")
     for label, places in freeing_at.items():
         print(f"{label} at: {', '.join(places)}")
 
