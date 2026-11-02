@@ -260,7 +260,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 3.7 enum
 
-- 无载荷的 enum 写法与 GDScript 相同：`enum State { IDLE, RUN }`，每个值比前一个大 1，除非写出 `= 值`，值为编译器求出的 int（§4.5）；匿名的 `enum { A, B }` 声明类的 int 常量。具名 enum 是类型，引擎的 enum，如 `MouseButton`、`Node.ProcessMode`，在引擎的参数、属性和返回值中也是这样的类型；引擎的 bitfield 仍为 int。引擎给出的引擎 enum 的值不做检查，因为它会给出 enum 之外的值，例如 `get_keycode_with_modifiers()` 给出带修饰键位的 Key（`core/input/input_event.cpp:394-396`）；入口检查只检查本语言的 enum 的值。
+- 无载荷的 enum 写法与 GDScript 相同：`enum State { IDLE, RUN }`，每个值比前一个大 1，除非写出 `= 值`，值为编译器求出的 int（§4.5）；匿名的 `enum { A, B }` 声明类的 int 常量。具名 enum 是类型，引擎的 enum，如 `MouseButton`、`Node.ProcessMode`，在引擎的参数、属性和返回值中也是这样的类型；引擎的 bitfield 仍为 int。引擎的 enum 是开放的：引擎会给出 enum 之外的值，例如 `get_keycode_with_modifiers()` 给出带修饰键位的 Key（`core/input/input_event.cpp:394-396`），而且后续版本会增加值，同一份构建要在这些版本上运行（架构 §6.3）。因此它们的值不做检查，`MouseButton(x)` 只把这个 int 标为该 enum 的值，对它的 match 必须有 `_`（§5.6）。本语言的 enum 是封闭的，入口检查检查它们的值。
 - enum 的值隐式转为 int，与 GDScript 相同（`modules/gdscript/gdscript_analyzer.cpp:6375-6378`）。int 只能显式转为 enum：`State(x)`，x 不是它的值时是程序错误；或 `State.try_from(x)`（§5.3）；两个 enum 的值不互相转换。理由：GDScript 接受 int 并给出默认开启的警告 INT_AS_ENUM_WITHOUT_CAST（`gdscript_analyzer.cpp:6326-6336, 6397-6406`，`modules/gdscript/gdscript_warning.h:140`），而值一定是 enum 的值之一，对它的 match 才能穷尽。依据：[语料计数](surveys/corpus-counts.zh.md)中用 `as` 把 int 转为 enum 10 处，忽略这条警告的 4 处。
 
   ```gdscript
@@ -273,7 +273,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - enum 名作为值时，与 GDScript 相同，是从各值的名字（String）到值的只读 Dictionary（`gdscript_analyzer.cpp:1159-1197`），它的方法按 enum 定型：`keys()` 得 `Array[String]`，`values()` 得 `Array[State]`，`find_key(v)` 得 `String?`，`get(name)` 得 `State?`，`State[name]` 得 State，没有这个名字时是程序错误。以 enum 名初始化的常量指同一个 enum。依据：语料计数中把 enum 名当 Dictionary 用 38 处，以常量作 enum 的别名 3 处。
 - 没有值 0 的 enum 没有默认值，它的变量必须赋值（§4.3）；GDScript 让它们从 0 开始，并给出警告 ENUM_VARIABLE_WITHOUT_DEFAULT（`gdscript_analyzer.cpp:2207-2217`）。依据：语料计数的 258 个 enum 中有 8 个没有 0。
 - 带载荷的分支，载荷字段必须命名，例如 `MOVE(target: Vector3)`。命名使编码不随字段顺序改变。
-- 对 enum 的 match 必须穷尽或带 `_`（§5.6）。新增分支时，编译器列出所有没有处理它的位置。
+- 对本语言的 enum 的 match 必须穷尽或带 `_`，对引擎的 enum 的 match 必须带 `_`（§5.6）。新增分支时，编译器列出所有没有处理它的位置。
 - 引擎看到的形式见 §10.1：无载荷的 enum 为 int，导出时显示为下拉框；带载荷的 enum 编码为按字段名的 Dictionary，保留键 `"$variant"` 记录分支名的字符串，例如 `Command.MOVE(target = p)` 编码为 `{"$variant": "MOVE", "target": p}`，`Command.IDLE` 编码为 `{"$variant": "IDLE"}`。`$variant` 不是合法的标识符，所以不会与字段名冲突；记录分支名而不是序号，使编码不随分支顺序改变。
 - 带载荷的 enum 的 `==`、大小比较和哈希按 struct 的规则（§3.6），分支在前：`==` 先比较分支，再逐字段比较；`<` 按声明顺序比较分支，同一分支的值再按字段比较；哈希包括分支。
 - 载荷字段只能经 match 取出（§5.6），不能写 `c.target`；所以载荷不能原地修改，只能构造新值。
@@ -578,7 +578,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
           hit()
   ```
 
-- 对 enum（无论有无载荷）、Result 和 Option 的 match 必须穷尽或带 `_`；带 `when` 的分支不计入覆盖。对其他类型不要求穷尽，与 GDScript 相同。
+- 对 enum（无论有无载荷）、Result 和 Option 的 match 必须穷尽或带 `_`，对引擎的 enum 的 match 因其开放必须带 `_`（§3.7）；带 `when` 的分支不计入覆盖。对其他类型不要求穷尽，与 GDScript 相同。
 - 【已知限制】第一版没有类型模式（用 `if x is T`）、没有 match 表达式，也不能在逗号分隔的多个模式中绑定。【后续】这三项都可以兼容地加入。
 
 ### 5.7 循环
@@ -1118,9 +1118,9 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 签名 | `func _process(delta):` 中 delta 为 float；覆盖时把返回类型写成子类型合法，写成父类型报编译错误；覆盖时多出带默认值的参数合法；非覆盖函数省略返回类型后返回值报编译错误；有期望类型的 lambda 参数不必标注；b 为 Base 类型、持有自己声明了静态 `label()` 的 Sub 时，`b.label()` 调用 Sub 的，`Base.label()` 调用 Base 的；在 Color 值上调用 `c.from_hsv(0.5, 1.0, 1.0)` 即 `Color.from_hsv()` |
 | 信号 | emit 实参不符和 connect 参数不符报编译错误；场景中的连接与信号不符时标在场景中；单参数信号的 await 结果有该参数类型；使用多参数信号的 await 结果报编译错误；await `Signal` 类型的变量得到 Variant，信号有两个参数时运行时为 Array |
 | 相等 | `1 == 1.0` 为真；`hp == "3"` 报编译错误；`Node2D` 与 `Node3D` 比较报编译错误；hp 为 `int?` 时 `hp == 3` 合法；非空的 `Node` 与 None 比较报编译错误；`Array[int] == Array[float]` 报编译错误；Variant 中是 String 时与 int 比较是程序错误；`Enemy?` 的值可以传给 `Node?` 参数，`Array[Enemy]` 传给 `Array[Node]` 参数报编译错误；`Some(3) == Some(Some(3))` 先把左侧包装为两层再比较；hp 为 `int?` 时 `hp < 3` 报编译错误，为 None 的 `int?` 小于 `Some(0)` |
-| 转换 | `node as Sprite2D` 为 `Sprite2D?`；`x as int` 报编译错误并给出 `int(x)` 与 `int.try_from(x)`；`int.try_from(2.0)` 得 `Ok(2)`，`int.try_from(2.5)` 和 `int.try_from("2")` 得 `Err`；`unit: SpeedUnit` 时 `unit + 1` 为 int，`unit = 1` 报编译错误并给出 `SpeedUnit(1)`，5 不是它的值时 `SpeedUnit(5)` 是程序错误，`SpeedUnit.values()` 为 `Array[SpeedUnit]`；没有值 0 的 enum 类型的成员没有初始化式时报编译错误 |
+| 转换 | `node as Sprite2D` 为 `Sprite2D?`；`x as int` 报编译错误并给出 `int(x)` 与 `int.try_from(x)`；`int.try_from(2.0)` 得 `Ok(2)`，`int.try_from(2.5)` 和 `int.try_from("2")` 得 `Err`；`unit: SpeedUnit` 时 `unit + 1` 为 int，`unit = 1` 报编译错误并给出 `SpeedUnit(1)`，5 不是它的值时 `SpeedUnit(5)` 是程序错误，`MouseButton(1000)` 则不是，`SpeedUnit.values()` 为 `Array[SpeedUnit]`；没有值 0 的 enum 类型的成员没有初始化式时报编译错误 |
 | 收窄 | `!= None`、`is` 和提前返回之后局部变量收窄；条件表达式的分支和 `and` 右侧收窄；成员不收窄；`if x:`、`if not x:` 在 x 不是 bool 时报编译错误并按类型给出改法 |
-| match | enum 的 match 不穷尽报编译错误，对引擎的 `MouseButton` 也是；带 `when` 的分支不计入覆盖；未列出字段而没有 `..` 报编译错误；Option 的 `var x` 分支中 x 为 T；对 int 的 match 不要求穷尽 |
+| match | enum 的 match 不穷尽报编译错误，对引擎的 `MouseButton` 的 match 没有 `_` 时即使列出所有值也报编译错误；带 `when` 的分支不计入覆盖；未列出字段而没有 `..` 报编译错误；Option 的 `var x` 分支中 x 为 T；对 int 的 match 不要求穷尽 |
 | 循环 | `for i in 5` 中 i 为 int；`for x in 2.5` 和遍历向量报编译错误；循环变量标注为子类报编译错误 |
 | 初始化 | 成员初始化式不调用 setter；`@onready` 与 `@export` 同用报编译错误；`_init` 中读取 `@onready` 成员报编译错误；静态初始化的环是程序错误并列出依赖链 |
 | 必须赋值 | `BulletScene.instantiate(speed = 300.0)` 漏写 `target` 报编译错误；祖先在 `_ready` 中经 `$Child.target = v` 赋值时不报错；子节点在自己的 `_ready` 中读取该成员报编译错误；就绪前读取未赋值的成员是程序错误；`new()` 漏传必须赋值的成员不是编译错误，Node 在就绪时检查 |
