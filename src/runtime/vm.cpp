@@ -923,6 +923,20 @@ public:
 					}
 					pc += 2;
 					break;
+				case Op::DEBUG_BUILD:
+#ifdef DEBUG_ENABLED
+					U64(code[pc + 1]) = 1;
+#else
+					U64(code[pc + 1]) = 0;
+#endif
+					pc += 2;
+					break;
+				case Op::ASSERT_FAIL:
+					// As GDScript words it (modules/gdscript/gdscript_vm.cpp:3876-3902; ed1daf0).
+					if (code[pc + 1] == NO_SLOT || STR(code[pc + 1]).is_empty()) {
+						FAIL("Assertion failed.");
+					}
+					FAIL("Assertion failed: " + STR(code[pc + 1]));
 				case Op::CAST_OBJECT: {
 					// A freed object is None for every type (spec §5.3).
 					const uint8_t *src = frame + code[pc + 3];

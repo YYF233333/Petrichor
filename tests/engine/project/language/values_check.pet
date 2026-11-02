@@ -296,3 +296,17 @@ pub func preloaded() -> Array:
 	var icon: CompressedTexture2D = preload("icons/annotation.svg")
 	var made: ResourceCheck = preload("res://language/made_resource.tres")
 	return [icon, GRADIENT, made.resource_name]
+
+# Spec §8.3: assert runs in debug builds, evaluating its message only when it
+# fails.
+pub var messages := 0
+
+pub func asserted(ok: bool, with_message: bool) -> int:
+	if with_message:
+		assert(ok, message())
+	assert(ok)
+	return messages
+
+func message() -> String:
+	messages += 1
+	return "not ok"

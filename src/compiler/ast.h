@@ -199,6 +199,7 @@ enum class StmtKind {
 	Expression,
 	Match,
 	Const, // `const name = value`: a local whose value is a constant expression (spec §4.5).
+	Assert, // `assert(condition, value)`, the message `value` optional (spec §8.3).
 	Error, // An indented block that no statement opens, in `body`.
 };
 

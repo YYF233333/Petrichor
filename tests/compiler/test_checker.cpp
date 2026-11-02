@@ -158,6 +158,27 @@ TEST_CASE("for loops") {
 	CHECK(has_error(in_function("for x in true:\n\tpass"), "Iterating over bool is not supported yet."));
 }
 
+// Spec §8.3.
+TEST_CASE("assert takes a bool condition and a String message, and does not narrow") {
+	CHECK(joined(errors_of(in_function("var n := randi()\nassert(n >= 0)\nassert(n >= 0, \"negative: \" + str(n))\nassert(n >= 0, \"negative\",)\nassert(\n\tn >= 0,\n\t\"negative\"\n)"))) == "");
+	CHECK(has_error(in_function("var save_data: Resource? = None\nassert(save_data, \"no save\")"), "A condition must be bool, found Resource?. Compare explicitly, for example x != None."));
+	CHECK(has_error(in_function("assert(true, 3)"), "The message of an assert must be a String, found int. Convert it with str(x)."));
+	CHECK(has_error(in_function("assert true"), "Expected \"(\", found \"true\"."));
+	CHECK(has_error(in_function("var r: Resource? = None\nassert(r != None)\nvar s: Resource = r"), "Cannot assign a value of type Resource? as Resource."));
+	CHECK(has_error("signal done(ok: bool)\nasync func f() -> void:\n\tassert(await done)\n", "await cannot appear in an assert: it would vanish with the assertion in release builds (spec §8.3)."));
+	CHECK(has_error("signal done(ok: bool)\nasync func f() -> void:\n\tassert(true, str(await done))\n", "await cannot appear in an assert"));
+}
+
+TEST_CASE("assert evaluates its message only when it fails, and only in debug builds") {
+	const compiler::CompileResult result = compile(in_function("assert(n > 0, str(n))", "func f(n: int) -> void:"));
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	const std::string code = bytecode::disassemble(result.module, function_named(result.module, "f"));
+	INFO(code);
+	const size_t debug = code.find("DEBUG_BUILD"), test = code.find("GT_INT"), message = code.find("CALL_UTILITY"), failure = code.find("ASSERT_FAIL");
+	REQUIRE(failure != std::string::npos);
+	CHECK((debug < test && test < message && message < failure));
+}
+
 TEST_CASE("! is not, and ; separates statements, as in GDScript") {
 	CHECK(errors_of(in_function("var a := !true; var b := not a")).empty());
 	CHECK(has_error(in_function("var b := !1"), "requires bool"));

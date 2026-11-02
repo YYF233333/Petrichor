@@ -95,6 +95,8 @@ namespace petrichor::bytecode {
 	X(CHECK_LIVE, 1) /* slot: an object the engine takes is not freed */ \
 	X(CHECK_ASSIGNED, 2) /* member, slot: an export is assigned */ \
 	X(CHECK_RANGE, 2) /* IntRange, slot (int): fits the engine's */ \
+	X(DEBUG_BUILD, 1) /* dst (bool): whether this is a debug build, the only one where assert runs (spec §8.3) */ \
+	X(ASSERT_FAIL, 1) /* message (String, NO_SLOT: none): the program error of a failed assert */ \
 	X(CAST_OBJECT, 3) /* class, dst, src: `as`, None if it fails */ \
 	X(IS_INSTANCE, 3) /* class, dst (bool), src: `is` */ \
 	X(IS_NONE, 3) /* type of src, dst (bool), src (an object or T?) */ \

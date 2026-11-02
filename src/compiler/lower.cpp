@@ -2029,6 +2029,23 @@ class Lowerer {
 			case StmtKind::Continue:
 				jump(loops.back().continue_block);
 				return;
+			case StmtKind::Assert: {
+				// Release builds evaluate neither the condition nor the message, and
+				// debug builds the message only when the condition is false (spec §8.3).
+				const uint32_t debug = temp(ValueType::Bool);
+				instr(Op::DEBUG_BUILD, debug);
+				const uint32_t check_block = new_block();
+				const uint32_t fail_block = new_block();
+				const uint32_t end_block = new_block();
+				branch(debug, check_block, end_block);
+				current = check_block;
+				branch(lower_expr(*p_stmt.condition), end_block, fail_block);
+				current = fail_block;
+				instr(Op::ASSERT_FAIL, NO_REG, p_stmt.value ? lower_expr(*p_stmt.value) : NO_REG);
+				jump(end_block);
+				current = end_block;
+				return;
+			}
 			case StmtKind::Pass:
 				return;
 			case StmtKind::Expression:

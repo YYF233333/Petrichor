@@ -155,9 +155,11 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 					put(offset_of(instr.a));
 					break;
 				case Op::CHECK_LIVE:
+				case Op::ASSERT_FAIL:
 					put(offset_of(instr.a));
 					break;
 				case Op::GET_SELF:
+				case Op::DEBUG_BUILD:
 					put(offset_of(instr.dst));
 					break;
 				case Op::CAST_OBJECT:

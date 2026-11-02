@@ -160,6 +160,7 @@ class Checker : public ClassRelation {
 	std::vector<std::unordered_map<int, Type>> narrowed;
 	int loop_depth = 0;
 	bool in_predelete = false;
+	bool in_assert = false;
 	// The interfaces this class's own `implements` names, with where.
 	std::vector<std::pair<Type, const TypeRef *>> own_interfaces;
 	// The member whose initializer is being checked: it and the members after
@@ -3279,9 +3280,12 @@ class Checker : public ClassRelation {
 		narrowed = { {} };
 		loop_depth = 0;
 		in_predelete = false;
+		const bool was_assert = in_assert;
+		in_assert = false;
 		initializing = -1;
 		declare_params(lambda);
 		check_block(lambda.body);
+		in_assert = was_assert;
 		if (!lambda.return_type_ref) {
 			lambda.return_type = inferred.type.value_or(Type::of(TypeKind::Void));
 			if (inferred.type && inferred.bare) {
@@ -4048,6 +4052,9 @@ class Checker : public ClassRelation {
 	}
 
 	Type check_await(Expr &r_expr) {
+		if (in_assert) {
+			return fail(r_expr, "await cannot appear in an assert: it would vanish with the assertion in release builds (spec §8.3).");
+		}
 		if (in_predelete) {
 			return fail(r_expr, "await is not allowed in the PREDELETE branch.");
 		}
@@ -4332,6 +4339,8 @@ class Checker : public ClassRelation {
 			hint = " Compare explicitly, for example x != 0.";
 		} else if (type.kind == TypeKind::String) {
 			hint = " Compare explicitly, for example x != \"\".";
+		} else if (type.is_optional()) {
+			hint = " Compare explicitly, for example x != None.";
 		}
 		error(r_condition.range, "A condition must be bool, found " + type.to_string() + "." + hint);
 	}
@@ -4703,6 +4712,19 @@ class Checker : public ClassRelation {
 					return;
 				}
 				expect_assignable(*r_stmt.value, value, expected, "return");
+				return;
+			}
+			case StmtKind::Assert: {
+				// Without narrowing what follows: release builds remove it (spec §8.3).
+				in_assert = true;
+				expect_condition(*r_stmt.condition);
+				if (r_stmt.value) {
+					const Type message = check_value(*r_stmt.value, Type::of(TypeKind::String));
+					if (!message.is_error() && message.kind != TypeKind::String) {
+						error(r_stmt.value->range, "The message of an assert must be a String, found " + message.to_string() + ". Convert it with str(x).");
+					}
+				}
+				in_assert = false;
 				return;
 			}
 			case StmtKind::Pass:

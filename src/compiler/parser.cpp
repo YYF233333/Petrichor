@@ -936,7 +936,8 @@ class Parser {
 
 	static bool begins_statement_only(TokenKind p_kind) {
 		return p_kind == TokenKind::Return || p_kind == TokenKind::If || p_kind == TokenKind::While || p_kind == TokenKind::For ||
-				p_kind == TokenKind::Match || p_kind == TokenKind::Pass || p_kind == TokenKind::Break || p_kind == TokenKind::Continue || p_kind == TokenKind::Const;
+				p_kind == TokenKind::Match || p_kind == TokenKind::Pass || p_kind == TokenKind::Break || p_kind == TokenKind::Continue || p_kind == TokenKind::Const ||
+				p_kind == TokenKind::Assert;
 	}
 
 	Pattern pattern() {
@@ -1020,6 +1021,20 @@ class Parser {
 				if (!check(TokenKind::Newline) && !check(TokenKind::Dedent) && !check(TokenKind::EndOfFile) && !(inline_lambdas > 0 && (ends_inline() || check(TokenKind::Semicolon)))) {
 					stmt->value = expression();
 				}
+				stmt->range = span(index(token));
+				end_of_statement();
+				return stmt;
+			}
+			case TokenKind::Assert: {
+				advance();
+				auto stmt = make_stmt(StmtKind::Assert, token);
+				expect(TokenKind::ParenOpen, "\"(\"");
+				stmt->condition = expression();
+				if (match(TokenKind::Comma) && !check(TokenKind::ParenClose)) {
+					stmt->value = expression();
+					match(TokenKind::Comma);
+				}
+				expect(TokenKind::ParenClose, "\")\"");
 				stmt->range = span(index(token));
 				end_of_statement();
 				return stmt;

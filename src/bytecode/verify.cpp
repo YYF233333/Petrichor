@@ -743,6 +743,10 @@ class Verifier {
 			case Op::CHECK_LIVE:
 			case Op::GET_SELF:
 				return slot(o[0], ValueType::Object);
+			case Op::DEBUG_BUILD:
+				return slot(o[0], ValueType::Bool);
+			case Op::ASSERT_FAIL:
+				return slot_or_none(o[0], ValueType::String);
 			case Op::CHECK_RANGE:
 				return (o[0] < uint32_t(IntRange::COUNT) || fail("no integer range")) && slot(o[1], ValueType::Int);
 			case Op::GET_AUTOLOAD:

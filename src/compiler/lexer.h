@@ -28,6 +28,7 @@ enum class TokenKind {
 	Await,
 	And,
 	As,
+	Assert,
 	Break,
 	ClassName,
 	Const,
