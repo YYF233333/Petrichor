@@ -520,6 +520,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - `x in c` 和 `x not in c` 判断 c 是否包含 x：对 Array、Dictionary（按键）和各种 Packed 数组同 `c.has(x)`，对 String 和 StringName 同 `c.contains(x)`。因此 x 必须能赋给这些方法的参数，对类型化容器即其元素或键的类型（§3.8）：`scores: Array[float]`、`ids: Array[int]` 时，`1 in scores` 为真，`1.5 in ids` 和 `"a" in ids` 是编译错误。理由：引擎先把 x 转换为类型化数组的元素类型，`1.5 in ids` 被截断为 1，可能得真，不能转换的值在运行时报错并得假（`core/variant/container_type_validate.h:55-75`）；Packed 数组同样截断（`core/variant/variant_op.h:1142-1153`）。
 - `name in obj` 中 name 为 String 或 StringName，引擎在对象上找到这个名字的成员时为真，与 `obj.get(name)` 相同（`core/variant/variant_op.h:1217-1252`）；对本语言的对象，即反射所见的成员（§10.5），对已释放的对象是程序错误（§3.3）。依据：godot-open-rts 用这种写法检查单位 16 次，如 `if "hp" in unit:`。
 - `**` 的优先级和左结合与 GDScript 相同，`2 ** 3 ** 2` 得 64，`-2 ** 2` 得 -4（`modules/gdscript/gdscript_parser.h:1448-1450`，`modules/gdscript/gdscript_parser.cpp:2942, 3001`）。int 的 int 次方精确计算，溢出时与 `*` 一样回绕；指数为负时得 1 除以 a 的相应次方、与整除一样向零截断的结果，所以 `2 ** -1` 得 0，`(-1) ** -3` 得 -1，`0 ** -1` 与整数除以 0 一样是程序错误。理由：引擎用 double 计算再转回 int（`core/variant/variant_op.h:86-95`），超过 2^53 不精确，结果超出范围或为无穷时是 C++ 的未定义行为。
+- 左边是 String 或 StringName 的 `%` 与引擎的运算符一样格式化任何类型的值：Array 依次给出各个值，其他值就是唯一的值（`core/variant/variant_op.cpp:205-210, 408-449`，`core/variant/variant_op.h:720-837`）。本语言自有类型的值像在其他任何地方进入引擎一样进入（§10.1），所以 `"%s" % hit` 与 `str(hit)` 得到的相同，元素只存在于本语言的容器要写 `Array(hits)`（§3.8）。格式串与值不符，例如 `"%d %d" % [1]`，是程序错误。理由：GDScript 打印错误后以格式串作为结果继续（`variant_op.h:737-745`），引擎的直接求值则以错误文本作为结果继续（`variant_op.h:746-748`）。
 - 以 Variant 绑定的工具函数（lerp、clamp、min、max、abs、wrap 等）的定型见 §10.3。
 
 ### 5.2 比较
@@ -1137,7 +1138,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 协程 | `async func _init()` 和 async 的非 void 引擎虚函数覆盖报编译错误，省略返回类型时相同；async `_ready` 合法；含 await 而未声明 async 报编译错误；丢弃 async 调用的结果报编译错误，`f().detach()` 合法；`cancel()` 之后结果一定是取消；`await f(...)` 启动的子任务随父任务取消，`await t` 只停止等待；被等待的兄弟节点与等待方在同一次场景释放中被删除时不报错；被等待的对象被单独释放时，等待方在本帧结束后报程序错误，`Task.of(信号).settled()` 得 `Cancelled(CancelReason.AWAITED_FREED)`；失败的任务经 `settled()` 等待时，失败照常传给等待方；`var t: Task[void] = f()` 合法，没有类型实参的 `Task` 报编译错误；所属对象被释放时协程静默取消；GDScript 对象在其协程第二次挂起期间被释放时，await 这个协程的等待方在本帧结束后报程序错误，经 Callable 调用时相同 |
 | 引擎边界 | 未审核的、返回对象的引擎方法类型为 `T?`；`get_tree()` 非空，`get_collider()` 可空；未审核的虚函数参数和信号参数为 T，引擎传入 null 是程序错误；未审核的参数接受 None；GDScript 向非空参数传入 null 是程序错误；远程检查器向非空成员写入 null 时原值不变；经信号传出的 struct 是按字段名编码的 Dictionary，`Command.MOVE(target = p)` 是 `{"$variant": "MOVE", "target": p}`；多出键的 Dictionary 解码为 struct，缺少字段时是程序错误 |
 | 工具函数 | `min(1.5, 1)` 报编译错误并给出 `min(1.5, 1.0)`；`lerp(a, b, t)` 的结果与 a 同类型；`find_children("*", "MeshInstance3D")` 为 `Array[MeshInstance3D]` |
-| 字符串 | `"a` 之后直接换行报编译错误，提示改用三引号；期望另一种字符串类型的字面量在编译期构造；`var p: NodePath = &"a"` 报编译错误；`&"a" == "a"` 为真；字面量成员名不存在时报编译错误，并参与重命名 |
+| 字符串 | `"a` 之后直接换行报编译错误，提示改用三引号；期望另一种字符串类型的字面量在编译期构造；`var p: NodePath = &"a"` 报编译错误；`&"a" == "a"` 为真；字面量成员名不存在时报编译错误，并参与重命名；`"%d" % 3` 得 "3"，`"%d %d" % [1]` 是程序错误 |
 | 跨语言 | GDScript 文件继承本语言的类时，分析服务在该文件上报错并说明原因；await GDScript 协程得到按声明类型检查的结果；作为语句调用 GDScript 协程不报错，把它的结果当作值使用而不写 await 是程序错误；GDScript await 本语言的协程，在取消时得到 null 而不挂起；GDScript await 本语言中返回 Transform3D 的协程时没有警告，取消时把结果赋给 Transform3D 变量，在 debug 构建中报赋值错误而不崩溃；GDScript 持有 `p: Player` 时，属性、方法和信号的类型错误报 GDScript 编译错误；`Player.new()` 的类型为 Player，多传实参报 GDScript 编译错误；本语言持有 GDScript 类的 `b: Ball` 时，对象类型的成员为 `T?`，值类型照声明，方法和信号实参的类型错误报编译错误；以 GDScript 类为类型的参数接受其 GDScript 子类的实例，`as` 与 `is` 也认子类；没有 class_name 的 GDScript autoload 的类型为其脚本的类；`const Unit = preload("unit.gd")` 时，`Unit.new()` 的类型为 Unit 且把实参交给 `_init`，`Unit.make()` 调用静态方法，`Unit.TILE_SIZE` 读取常量，`Unit.missing()` 是编译错误，`set_script(Unit)` 传入脚本 |
 | 热重载 | 只改函数体时，运行中的实例下一次调用使用新代码，之前创建的 lambda 运行旧的函数体；修改成员或签名后，运行中的游戏不应用这次修改，此后只改函数体的修改也不应用，直到重新运行 |
 | 重构 | 导出成员改名时场景中的键同时修改；场景编辑器中给节点改名或移动节点时脚本中的 `$X` 同时修改，并在同一撤销步骤中，一次撤销同时还原场景和脚本，一次重做同时恢复；非字面量路径只报告 |
@@ -1163,6 +1164,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 运算表中没有的组合求值无效 | `core/variant/variant_op.cpp:1049-1054` |
 | int 和整数向量除以 0、对 0 取模时求值无效 | `core/variant/variant_op.h:134-146, 241-250` |
 | 移位只在 debug 构建中拒绝负的运算数 | `core/variant/variant_op.h:360-372, 386-398` |
+| String 或 StringName 的 `%` 格式化任何类型的值，Array 视为其中各个值；格式出错时，经验证的求值打印错误并给出格式串，直接求值给出错误文本 | `core/variant/variant_op.cpp:205-210, 408-449`；`core/variant/variant_op.h:720-837` |
 | 引擎归为 math 类的工具函数；它们的调用错误都是实参类型不符，`posmod` 的除数为 0 时打印错误并返回 0 | `core/variant/variant_utility.cpp:383-402, 459-470, 587-606, 653-668, 697-712, 737-751, 1632-1732`；`core/math/math_funcs.h:312-313` |
 | 由字符串构造 Color 时，不是十六进制写法就按颜色名查找，找不到时打印错误并返回黑色；颜色名就是 Color 的常量名 | `core/math/color.h:274-280`；`core/math/color.cpp:396-402`；`core/variant/variant_call.cpp:3086-3089` |
 | debug 构建中，由轴和角构造 Basis、Quaternion 要求轴已归一化，由 Basis 构造 Quaternion 要求它是旋转，由两个向量构造 Quaternion 要求它们不为零，Quaternion 乘向量要求它已归一化 | `core/math/basis.cpp:716-717, 843-844`；`core/math/quaternion.cpp:289-290`；`core/math/quaternion.h:93-94, 139-140`；`core/math/math_defs.h:56-58` |
