@@ -777,6 +777,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 8.3 断言
 
 - `assert(条件, 消息)` 与 GDScript 相同，只在 debug 构建（在编辑器中运行和 debug 导出）中求值，失败时是程序错误；release 构建中去掉，条件和消息都不求值（`modules/gdscript/gdscript_compiler.cpp:2181-2207`；GDScript 的失败处理见 `modules/gdscript/gdscript_vm.cpp:3876-3902`）。
+- 消息是 String（`modules/gdscript/gdscript_analyzer.cpp:2399-2405`），只在条件为假时求值。GDScript 在判断条件之前就求值消息（`modules/gdscript/gdscript_compiler.cpp:2185-2198`），通过的断言也要格式化一次消息；[语料计数](surveys/corpus-counts.zh.md)中的 539 个消息都是字面量、查询和格式化，没有一个依赖每次都求值。
 - 条件或消息中出现 await 或后缀 `?` 是编译错误，因为它们会随断言在 release 构建中消失。
 - 条件必须是 bool（§5.4），例如 `assert(save_data, "...")` 是编译错误，快速修复改为 `save_data != None`。
 - release 中也要检查的，用 `expect`（§3.4）或显式的 `if`。【后续】始终生效的断言。
@@ -1132,7 +1133,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 导出检查 | player.tscn 的 `crosshair` 由 main.tscn 的实例赋值时不报错；某个实例没有赋值时标在该实例所在的场景上；没有被引用的场景只给警告，导出时不报错；运行中缺值时就绪报程序错误并写明成员名；有确定缺值的场景时，导出窗口显示失败并写明场景和成员名，无界面分析命令返回非零；`PackedScene[Boss]` 可以赋给 `PackedScene[Enemy]`；新增了不导出的必须赋值成员的 Boss 场景填入 `PackedScene[Enemy]` 时，标在填入它的场景上报错；Enemy 有不导出的必须赋值成员 `target` 时，导出的 `PackedScene[Enemy]` 调用 `instantiate()` 漏传报编译错误 |
 | 资源 | 修改共享资源给出警告和两个快速修复；`duplicate()` 保持静态类型；`preload` 环报编译错误 |
 | 程序错误 | `_process` 往下两层调用中的程序错误中止这两层和 `_process`，下一帧照常调用 `_process`；需要返回值的入口，引擎得到该类型的默认值；除 `assert` 外，程序在 debug 和 release 构建中行为相同；无限递归在第 1025 层调用处成为程序错误，进程不崩溃；调用另一个类的方法时，其中的程序错误同样中止调用方，以 `f.call()` 调用的 lambda 中的程序错误也一样，`bind()` 之后亦然 |
-| 断言 | debug 构建中 `assert(false)` 是程序错误；release 构建中 `assert(f())` 不调用 f；`assert(await t)` 报编译错误；`assert(save_data)` 在 save_data 为 `Resource?` 时报编译错误并给出 `save_data != None` |
+| 断言 | debug 构建中 `assert(false)` 是程序错误，`assert(true, f())` 不调用 f；release 构建中 `assert(f())` 不调用 f；`assert(await t)` 报编译错误；`assert(save_data)` 在 save_data 为 `Resource?` 时报编译错误并给出 `save_data != None` |
 | 协程 | `async func _init()` 和 async 的非 void 引擎虚函数覆盖报编译错误，省略返回类型时相同；async `_ready` 合法；含 await 而未声明 async 报编译错误；丢弃 async 调用的结果报编译错误，`f().detach()` 合法；`cancel()` 之后结果一定是取消；`await f(...)` 启动的子任务随父任务取消，`await t` 只停止等待；被等待的兄弟节点与等待方在同一次场景释放中被删除时不报错；被等待的对象被单独释放时，等待方在本帧结束后报程序错误，`Task.of(信号).settled()` 得 `Cancelled(CancelReason.AWAITED_FREED)`；失败的任务经 `settled()` 等待时，失败照常传给等待方；`var t: Task[void] = f()` 合法，没有类型实参的 `Task` 报编译错误；所属对象被释放时协程静默取消；GDScript 对象在其协程第二次挂起期间被释放时，await 这个协程的等待方在本帧结束后报程序错误，经 Callable 调用时相同 |
 | 引擎边界 | 未审核的、返回对象的引擎方法类型为 `T?`；`get_tree()` 非空，`get_collider()` 可空；未审核的虚函数参数和信号参数为 T，引擎传入 null 是程序错误；未审核的参数接受 None；GDScript 向非空参数传入 null 是程序错误；远程检查器向非空成员写入 null 时原值不变；经信号传出的 struct 是按字段名编码的 Dictionary，`Command.MOVE(target = p)` 是 `{"$variant": "MOVE", "target": p}`；多出键的 Dictionary 解码为 struct，缺少字段时是程序错误 |
 | 工具函数 | `min(1.5, 1)` 报编译错误并给出 `min(1.5, 1.0)`；`lerp(a, b, t)` 的结果与 a 同类型；`find_children("*", "MeshInstance3D")` 为 `Array[MeshInstance3D]` |
@@ -1291,6 +1292,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | GDScript 出错后，debug 构建按返回类型构造默认值返回，release 构建返回 null | `modules/gdscript/gdscript_vm.cpp:3963-3993`（debug）；`:535, 3995`（release） |
 | GDScript 的调用栈深度上限由 `debug/settings/gdscript/max_call_stack` 设置，默认 1024，超过时报告栈溢出 | `modules/gdscript/gdscript.cpp:2870`；`modules/gdscript/gdscript.h:489-490` |
 | GDScript 的 `assert` 只在 debug 构建中编译 | `modules/gdscript/gdscript_compiler.cpp:2181-2207` |
+| GDScript 在判断 `assert` 的条件之前求值其消息，并要求消息是 String | `modules/gdscript/gdscript_compiler.cpp:2185-2198`；`modules/gdscript/gdscript_analyzer.cpp:2399-2405` |
 | GDScript 的链式赋值沿链读出、修改，再把值类型写回，共享类型原地修改 | `modules/gdscript/gdscript_compiler.cpp:1172-1190` |
 | 成员的初始化式不经过 setter | `modules/gdscript/gdscript_compiler.cpp:2414-2430, 2603-2626` |
 | 构造调用不等待 `_init` 的返回值；带返回值的引擎虚函数同步读取并转换脚本返回值 | `modules/gdscript/gdscript.cpp:194`；`core/object/make_virtuals.py:1-10, 173-174` |

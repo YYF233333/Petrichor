@@ -14,7 +14,7 @@
 | 含 await 的 lambda | 979 个 lambda 中 35 个，其中 33 个在 gdUnit4 的测试中 | §9.1：lambda 也写 `async func` |
 | 命名的、带默认值的、给捕获赋值的 lambda | 979 个 lambda 中命名的 18 个，带默认值的 0 个；方法中的 958 个里，给方法的参数或局部变量赋值的 0 个，经其成员或下标赋值的 15 个，经阅读都是对象或容器，例如 godot-statecharts 用信号连接设置的 `var holder: Array[bool] = [false]` | §3.11：给捕获的变量赋值是编译错误；命名的 lambda；lambda 的参数不带默认值 |
 | 作为值使用的协程方法（同一文件中按名字作为实参传递） | 91 处，其中 60 处是 `connect(名字)`，分布在 12 个仓库 | §3.11：由引擎调用的位置接受 async 函数 |
-| `assert(...)` 语句 | 595 个，其中 406 个在 godot_dialogue_manager；实参中含 await 的 0 个 | §8.3：`assert` 在 release 构建中去掉 |
+| `assert(...)` 语句 | 595 个，其中 406 个在 godot_dialogue_manager；实参中含 await 的 0 个；带消息的 539 个：字符串字面量 495 个，含调用的 19 个，都是查询或格式化（`translate` 15 次、`format` 6 次、`size` 3 次、`get_error_message` 2 次、`get_error_text` 2 次、`get` 1 次、`str` 1 次），其他表达式 25 个，例如用 `%` 格式化 | §8.3：`assert` 在 release 构建中去掉；消息只在失败时求值 |
 | `is_instance_valid(...)` | 678 处，每千行 3.3 处；phantom-camera 中每千行 12.8 处 | §3.3：经 `T?` 读到已释放的对象时为 None |
 | `static var` 与 `_static_init` | `static var` 188 处，`_static_init` 4 个 | §4.8：静态成员沿用 GDScript 的写法和时机 |
 | `NOTIFICATION_PREDELETE` | 40 处，其中 32 处在 gdUnit4 | §6.6：析构不新增语法 |

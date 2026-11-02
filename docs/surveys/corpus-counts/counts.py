@@ -13,7 +13,8 @@ Counts, in first-party .gd files (blank and comment lines excluded from the line
     through members and subscripts, with locations of the latter for reading;
   - methods whose body contains `await` (coroutines) used as values, that is, passed as an
     argument by name in the same file, and how many of those are `connect(name)`;
-  - `assert(...)` statements, and those whose arguments contain `await`;
+  - `assert(...)` statements, those whose arguments contain `await`, and their messages: string literals,
+    expressions with calls (and the names called) and other expressions;
   - `is_instance_valid` (overall and per repository, per 1,000 lines), `static var`, `_static_init`,
     `NOTIFICATION_PREDELETE`, `Thread.new` and `WorkerThreadPool`;
   - `get_parent()` called on self and `owner` read on self: member accesses on them (and the files that
@@ -355,6 +356,7 @@ def main():
     files = {"parent": set(), "owner": set(), "new": set(), "static_call": set(), "member": set()}
     tested_at = []
     freeing_at = collections.defaultdict(list)
+    assert_calls = collections.Counter()
     for name, _, _, group in G.REPOS:
         repo = G.Repo(sys.argv[1], name, group)
         repo_files = []
@@ -451,15 +453,26 @@ def main():
                 if t.k == "ID" and t.v == "assert" and t.first and i + 1 < len(ts) and ts[i + 1].v == "(":
                     c["assert"] += 1
                     by_repo[name]["assert"] += 1
-                    j, depth = i + 1, 0
+                    j, depth, comma = i + 1, 0, None
                     while j < len(ts):
                         depth += (ts[j].v in OPEN) - (ts[j].v in CLOSE)
-                        if ts[j].v == "await":
-                            c["assert_await"] += 1
-                            break
+                        if depth == 1 and ts[j].v == "," and comma is None:
+                            comma = j
                         if depth == 0:
                             break
                         j += 1
+                    c["assert_await"] += any(x.v == "await" for x in ts[i:j])
+                    message = ts[comma + 1:j] if comma is not None else []
+                    if message and message[-1].v == ",":
+                        message = message[:-1]
+                    if message:
+                        c["assert_message"] += 1
+                        calls = [x.v for x, y in zip(message, message[1:]) if x.k == "ID" and y.v == "("]
+                        if len(message) == 1 and message[0].k == "STR":
+                            c["assert_message_literal"] += 1
+                        elif calls:
+                            c["assert_message_call"] += 1
+                            assert_calls.update(calls)
                 if t.k == "ID":
                     nxt = ts[i + 1].v if i + 1 < len(ts) else None
                     if t.v == "is_instance_valid" and nxt == "(":
@@ -519,6 +532,10 @@ def main():
     print(f"lambdas named: {c['lambda_named']}; with default values: {c['lambda_default']}; in methods: {c['lambda_in_method']}, "
           f"assigning a local of the method: {c['lambda_capture_assign']}, through its members or subscripts: {c['lambda_capture_member']}")
     print(f"assert statements whose arguments contain await: {c['assert_await']}")
+    calls = ", ".join(f"{name} {n}" for name, n in sorted(assert_calls.items(), key=lambda x: (-x[1], x[0])))
+    print(f"assert messages: {c['assert_message']}; string literals {c['assert_message_literal']}, "
+          f"with calls {c['assert_message_call']} ({calls}), other expressions "
+          f"{c['assert_message'] - c['assert_message_literal'] - c['assert_message_call']}")
     per_k = ", ".join(f"{r} {n['is_instance_valid'] * 1000 / n['lines']:.1f}"
                       for r, n in sorted(by_repo.items(), key=lambda x: -x[1]["is_instance_valid"] / max(x[1]["lines"], 1))
                       if n["is_instance_valid"])
