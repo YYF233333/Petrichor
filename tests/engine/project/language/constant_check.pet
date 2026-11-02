@@ -133,3 +133,12 @@ pub func process_name(mode: Node.ProcessMode) -> String:
 			return "always"
 		_:
 			return "other"
+
+
+# Exhaustive, so it takes every path (spec §5.6).
+pub func mode_name(modes: Array[Mode]) -> String:
+	match modes[0]:
+		Mode.CALM:
+			return "calm"
+		Mode.ANGRY:
+			return "angry"

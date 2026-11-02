@@ -1332,7 +1332,8 @@ class Checker : public ClassRelation {
 	}
 
 	// An int as one of the enum's values, a program error when it is none
-	// (spec §3.7); checked at compile time when the int is known.
+	// (spec §3.7); checked at compile time when the int is known. An enum of
+	// the engine is open, and the int is only marked as one of it.
 	Type check_enum_conversion(Expr &r_expr, const Type &p_enum) {
 		if (r_expr.args.size() != 1 || !r_expr.arg_names.empty()) {
 			for (auto &arg : r_expr.args) {
@@ -1349,7 +1350,7 @@ class Checker : public ClassRelation {
 			return fail(r_expr, enum_spelling(p_enum) + "() converts an int, not " + value.to_string() + "." + (value.kind == TypeKind::Float ? " Convert it with int(x) first." : ""));
 		}
 		if (arg.constant && arg.constant->kind == ConstValue::Kind::Int) {
-			if (!p_enum.values->has(arg.constant->i)) {
+			if (!p_enum.values->is_engine && !p_enum.values->has(arg.constant->i)) {
 				return fail(r_expr, std::to_string(arg.constant->i) + " is none of the values of " + enum_spelling(p_enum) + ".");
 			}
 			r_expr.constant = enum_constant(arg.constant->i, p_enum);
@@ -2667,7 +2668,7 @@ class Checker : public ClassRelation {
 			bool total = false;
 			for (const MatchBranch &branch : last.branches) {
 				for (const Pattern &pattern : branch.patterns) {
-					total = total || (!branch.guard && pattern.kind != PatternKind::Value);
+					total = total || (!branch.guard && pattern.kind != PatternKind::Value) || last.exhaustive;
 				}
 				if (!always_ends(branch.body, p_or_jump)) {
 					return false;
@@ -4409,9 +4410,9 @@ class Checker : public ClassRelation {
 
 	// A match over an enum handles every value or has `_`; branches with
 	// `when` do not count (spec §3.7, §5.6).
-	void check_exhaustive(const Stmt &p_match, const Type &p_enum) {
+	void check_exhaustive(Stmt &r_match, const Type &p_enum) {
 		std::set<int64_t> handled;
-		for (const MatchBranch &branch : p_match.branches) {
+		for (const MatchBranch &branch : r_match.branches) {
 			for (const Pattern &pattern : branch.patterns) {
 				if (branch.guard) {
 					continue;
@@ -4425,6 +4426,10 @@ class Checker : public ClassRelation {
 				}
 			}
 		}
+		if (p_enum.values->is_engine) {
+			error(r_match.value->range, "A match over " + enum_spelling(p_enum) + " needs a `_` branch: the engine's enums are open, it gives values outside them and later versions add more (spec §3.7).");
+			return;
+		}
 		std::vector<std::string> missing;
 		for (const auto &[name, value] : p_enum.values->list) {
 			if (!handled.count(value)) {
@@ -4432,6 +4437,7 @@ class Checker : public ClassRelation {
 			}
 		}
 		if (missing.empty()) {
+			r_match.exhaustive = true;
 			return;
 		}
 		std::string names;
@@ -4441,7 +4447,7 @@ class Checker : public ClassRelation {
 		if (missing.size() > 8) {
 			names += " and " + std::to_string(missing.size() - 8) + " more";
 		}
-		error(p_match.value->range, "This match over " + enum_spelling(p_enum) + " does not handle " + names + "; handle them or add a `_` branch (spec §5.6).");
+		error(r_match.value->range, "This match over " + enum_spelling(p_enum) + " does not handle " + names + "; handle them or add a `_` branch (spec §5.6).");
 	}
 
 	void check_pattern(Pattern &r_pattern, const Type &p_matched) {

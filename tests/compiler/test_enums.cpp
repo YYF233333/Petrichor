@@ -70,6 +70,13 @@ TEST_CASE("a match over an enum handles every value or has _ (spec §5.6)") {
 	// Branches with `when` do not count.
 	CHECK(contains(errors("match s:\n\tState.IDLE, State.RUN, State.JUMP:\n\t\tpass\n\tState.FALL when n > 0:\n\t\tpass"), "does not handle FALL;"));
 	CHECK(errors("match n:\n\t1:\n\t\tpass").empty());
+	// Closed, it takes every path, and only a value from the engine misses every branch.
+	const char *name = "func name(s: State) -> String:\n\tmatch s:\n\t\tState.IDLE, State.RUN:\n\t\t\treturn \"ground\"\n\t\tState.JUMP:\n\t\t\treturn \"up\"\n\t\tState.FALL:\n\t\t\treturn \"down\"\n\n";
+	CHECK(errors("pass", name).empty());
+	CHECK(contains(errors("pass", "func name(s: State) -> String:\n\tmatch s:\n\t\tState.IDLE:\n\t\t\treturn \"idle\"\n\t\t_ when s == State.RUN:\n\t\t\treturn \"run\"\n\n"), "Not all paths of \"name()\" return a value."));
+	const compiler::CompileResult result = compile(std::string("extends Node\n\n") + STATE + name);
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	CHECK(contains(bytecode::disassemble(result.module, function_named(result.module, "name")), "CHECK_ENUM"));
 }
 
 TEST_CASE("an enum of another class is written through its class, if pub (spec §3.7, §4.2)") {
@@ -98,8 +105,12 @@ TEST_CASE("the engine's enums are enum types too, and its bitfields stay int (sp
 	CHECK(type_of("KEY_ESCAPE") == "Key");
 	CHECK(type_of("KEY_MASK_SHIFT") == "int"); // A value of the bitfield KeyModifierMask.
 	CHECK(contains(errors_in("Input.mouse_mode = 2"), "Cannot assign a value of type int as Input.MouseMode. Convert explicitly with Input.MouseMode(x)"));
-	CHECK(contains(errors_in("var b := MouseButton(100)"), "100 is none of the values of MouseButton."));
-	CHECK(contains(errors_in("match e:\n\tTween.EASE_IN:\n\t\tpass"), "This match over Tween.EaseType does not handle EASE_OUT, EASE_IN_OUT and EASE_OUT_IN;"));
+	// Open: the engine gives values outside them, and later versions add more.
+	CHECK(errors_in("var b := MouseButton(100)\nmatch e:\n\tTween.EASE_IN:\n\t\tpass\n\t_:\n\t\tpass").empty());
+	CHECK(contains(errors_in("match e:\n\tTween.EASE_IN, Tween.EASE_OUT, Tween.EASE_IN_OUT, Tween.EASE_OUT_IN:\n\t\tpass"), "A match over Tween.EaseType needs a `_` branch: the engine's enums are open"));
+	const compiler::CompileResult result = compile(in_function("var b := MouseButton(n)", "func f(n: int) -> void:"));
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	CHECK(!contains(bytecode::disassemble(result.module, function_named(result.module, "f")), "CHECK_ENUM"));
 }
 
 TEST_CASE("an enum compiles to an int checked where it is made from one") {

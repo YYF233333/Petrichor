@@ -217,10 +217,13 @@ std::string type_key(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 			return key + ")";
 		}
 		case TypeKind::Enum: {
-			// With its values, as a struct with its fields.
+			// With its values, as a struct with its fields; an enum of the engine,
+			// named without "::", is open, and later versions add values (spec §3.7).
 			std::string key = "e" + text(type.name) + "(";
 			for (const EnumValueDesc &value : type.values) {
-				key += text(value.name) + std::to_string(value.value) + ",";
+				if (type.name.find("::") != std::string::npos) {
+					key += text(value.name) + std::to_string(value.value) + ",";
+				}
 			}
 			return key + ")";
 		}

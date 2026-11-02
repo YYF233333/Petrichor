@@ -226,6 +226,9 @@ struct Stmt {
 	int local = -1; // Var, Const and For: the declared local; Match: the matched value.
 	Type compound_result; // Assign with a compound operator: the type of `target op value`.
 	Type element; // For: the type of what is iterated over, before it goes into the variable.
+	// Match: over an enum of this language, handling every value without `_`,
+	// so that it takes every path (spec §3.7, §5.6).
+	bool exhaustive = false;
 };
 
 using Block = std::vector<std::unique_ptr<Stmt>>;

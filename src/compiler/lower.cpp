@@ -1188,10 +1188,13 @@ class Lowerer {
 			case Target::ConvertToFloat:
 				return convert(lower_expr(*p_call.args[0]), Type::of(TypeKind::Float));
 			case Target::EnumFromInt: {
-				// One of the values, or a program error (spec §3.7).
+				// One of the values, or a program error; any int for an enum of the
+				// engine, which is open (spec §3.7).
 				const uint32_t result = temp(p_call.type);
 				move(result, lower_expr(*p_call.args[0]));
-				instr(Op::CHECK_ENUM, NO_REG, result, NO_REG, fn.regs[result].type);
+				if (!p_call.type.values || !p_call.type.values->is_engine) {
+					instr(Op::CHECK_ENUM, NO_REG, result, NO_REG, fn.regs[result].type);
+				}
 				return result;
 			}
 			case Target::NewObject: {
@@ -1943,6 +1946,11 @@ class Lowerer {
 					lower_block(arm.body);
 					jump(end_block);
 					current = next_block;
+				}
+				if (p_stmt.exhaustive) {
+					// Only a value that is none of the enum's comes here, as an int that
+					// GDScript put into an Array[State]: a program error (spec §5.6).
+					instr(Op::CHECK_ENUM, NO_REG, matched, NO_REG, fn.regs[matched].type);
 				}
 				jump(end_block);
 				current = end_block;
