@@ -508,7 +508,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 位运算 `&`、`|`、`^`、`~`、`<<`、`>>` 及其复合赋值用于 int。移位时左边为负数、移位量为负或达到 64 是程序错误，在常量中是编译错误（§4.5）。理由：引擎只在 debug 构建的一般路径中拒绝负数（`core/variant/variant_op.h:360-372`），移位量达到 64 是 C++ 的未定义行为，release 构建中两种情况都不报错，结果不确定。
 - `x in c` 和 `x not in c` 判断 c 是否包含 x：对 Array、Dictionary（按键）和各种 Packed 数组同 `c.has(x)`，对 String 和 StringName 同 `c.contains(x)`。因此 x 必须能赋给这些方法的参数，对类型化容器即其元素或键的类型（§3.8）：`scores: Array[float]`、`ids: Array[int]` 时，`1 in scores` 为真，`1.5 in ids` 和 `"a" in ids` 是编译错误。理由：引擎先把 x 转换为类型化数组的元素类型，`1.5 in ids` 被截断为 1，可能得真，不能转换的值在运行时报错并得假（`core/variant/container_type_validate.h:55-75`）；Packed 数组同样截断（`core/variant/variant_op.h:1142-1153`）。
 - `name in obj` 中 name 为 String 或 StringName，引擎在对象上找到这个名字的成员时为真，与 `obj.get(name)` 相同（`core/variant/variant_op.h:1217-1252`）；对本语言的对象，即反射所见的成员（§10.5），对已释放的对象是程序错误（§3.3）。依据：godot-open-rts 用这种写法检查单位 16 次，如 `if "hp" in unit:`。
-- `**` 的优先级和左结合与 GDScript 相同，`2 ** 3 ** 2` 得 64，`-2 ** 2` 得 -4（`modules/gdscript/gdscript_parser.h:1448-1450`，`modules/gdscript/gdscript_parser.cpp:2942, 3001`）。int 的 int 次方精确计算，溢出时与 `*` 一样回绕；指数为负时得 `1 / a ** n` 的整除结果，所以 `2 ** -1` 得 0，`0 ** -1` 与整数除以 0 一样是程序错误。理由：引擎用 double 计算再转回 int（`core/variant/variant_op.h:86-95`），超过 2^53 不精确，结果超出范围或为无穷时是 C++ 的未定义行为。
+- `**` 的优先级和左结合与 GDScript 相同，`2 ** 3 ** 2` 得 64，`-2 ** 2` 得 -4（`modules/gdscript/gdscript_parser.h:1448-1450`，`modules/gdscript/gdscript_parser.cpp:2942, 3001`）。int 的 int 次方精确计算，溢出时与 `*` 一样回绕；指数为负时得 1 除以 a 的相应次方、与整除一样向零截断的结果，所以 `2 ** -1` 得 0，`(-1) ** -3` 得 -1，`0 ** -1` 与整数除以 0 一样是程序错误。理由：引擎用 double 计算再转回 int（`core/variant/variant_op.h:86-95`），超过 2^53 不精确，结果超出范围或为无穷时是 C++ 的未定义行为。
 - 以 Variant 绑定的工具函数（lerp、clamp、min、max、abs、wrap 等）的定型见 §10.3。
 
 ### 5.2 比较
