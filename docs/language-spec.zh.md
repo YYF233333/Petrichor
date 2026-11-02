@@ -260,7 +260,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 3.7 enum
 
-- 无载荷的 enum 写法与 GDScript 相同：`enum State { IDLE, RUN }`，每个值比前一个大 1，除非写出 `= 值`，值为编译器求出的 int（§4.5）；匿名的 `enum { A, B }` 声明类的 int 常量。具名 enum 是类型，引擎的 enum，如 `MouseButton`、`Node.ProcessMode`，在引擎的参数、属性和返回值中也是这样的类型；引擎的 bitfield 仍为 int。
+- 无载荷的 enum 写法与 GDScript 相同：`enum State { IDLE, RUN }`，每个值比前一个大 1，除非写出 `= 值`，值为编译器求出的 int（§4.5）；匿名的 `enum { A, B }` 声明类的 int 常量。具名 enum 是类型，引擎的 enum，如 `MouseButton`、`Node.ProcessMode`，在引擎的参数、属性和返回值中也是这样的类型；引擎的 bitfield 仍为 int。引擎给出的引擎 enum 的值不做检查，因为它会给出 enum 之外的值，例如 `get_keycode_with_modifiers()` 给出带修饰键位的 Key（`core/input/input_event.cpp:394-396`）；入口检查只检查本语言的 enum 的值。
 - enum 的值隐式转为 int，与 GDScript 相同（`modules/gdscript/gdscript_analyzer.cpp:6375-6378`）。int 只能显式转为 enum：`State(x)`，x 不是它的值时是程序错误；或 `State.try_from(x)`（§5.3）；两个 enum 的值不互相转换。理由：GDScript 接受 int 并给出默认开启的警告 INT_AS_ENUM_WITHOUT_CAST（`gdscript_analyzer.cpp:6326-6336, 6397-6406`，`modules/gdscript/gdscript_warning.h:140`），而值一定是 enum 的值之一，对它的 match 才能穷尽。依据：[语料计数](surveys/corpus-counts.zh.md)中用 `as` 把 int 转为 enum 10 处，忽略这条警告的 4 处。
 
   ```gdscript
@@ -1249,6 +1249,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 在实例上调用静态方法，GDScript 默认只给警告 | `modules/gdscript/gdscript_analyzer.cpp:3699-3703`；`modules/gdscript/gdscript_warning.h:131` |
 | GDScript 把 enum 的值转为 int 不提示，把 int 转为 enum 给出默认开启的警告，不把一个 enum 转为另一个；`as` 把 int 转为 enum 时不做检查 | `modules/gdscript/gdscript_analyzer.cpp:3826-3829, 6326-6336, 6375-6378, 6397-6406`；`modules/gdscript/gdscript_warning.h:140` |
 | GDScript 把 enum 名作为从各值的名字（String）到值的只读 Dictionary，没有值 0 的 enum 的变量从 0 开始并给出警告 | `modules/gdscript/gdscript_analyzer.cpp:1159-1197, 2207-2217` |
+| `get_keycode_with_modifiers()` 给出带修饰键位的 Key，不在 enum 的值之中 | `core/input/input_event.cpp:394-396` |
 | GDScript 把作为值的脚本定型为它的类，以 preload 脚本初始化的常量可作类型 | `modules/gdscript/gdscript_analyzer.cpp:873-892, 5776-5786` |
 | GDScript 中作为值使用的 GDScript 类是 GDScript 对象 | `modules/gdscript/gdscript_analyzer.cpp:6447-6449` |
 | 对象没有脚本实例时，`callp` 只查找引擎注册的方法，所以 Script 资源上的静态方法找不到 | `core/object/object.cpp:800-826` |
