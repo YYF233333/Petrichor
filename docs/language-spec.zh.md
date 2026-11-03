@@ -70,7 +70,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   class_name Player extends CharacterBody3D implements Combat.Damageable
   ```
 
-- 文件中可以声明内部类（`class 名字:`）、struct、enum 和 interface，它们都属于这个文件的类（§2.4）。
+- 文件中可以声明内部类、struct、enum 和 interface，它们都属于这个文件的类（§2.4）。内部类写作 `class 名字:`，类头写在这一行，如 `class Bolt extends Area3D implements Combat.Damageable:`；`extends`、`implements` 也可以在类体开头各占一行，与 GDScript 允许 `extends` 写在那里相同（`modules/gdscript/gdscript_parser.cpp:974-980`）。其规则见 §4.1。
 
 ### 2.2 词法
 
@@ -405,6 +405,14 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   ```
 
   依据：[语料计数](surveys/corpus-counts.zh.md)中 28 个抽象类有 25 个在 gdUnit4，以文件为单位的抽象类中 17 个的方法全部是抽象的，可以改写为接口。
+- 内部类（§2.1）与文件的类一样是类，不同之处：
+  - 文件的类能声明的它都能声明，包括内部类；`class_name` 和 `@abstract` 以外的类级注解属于文件，与 GDScript 相同（`modules/gdscript/gdscript_parser.cpp:146-149, 1215, 1859-1861`）；
+  - 它还可以继承本文件的内部类（写名字）、其他类的内部类（写 `Other.Inner`）和包含它的类；不写 `extends` 时继承 RefCounted，与 GDScript 相同（`modules/gdscript/gdscript_analyzer.cpp:425-429`）；
+  - 其中的名字先指它自己的和继承来的声明，再由近及远指包含它的类中不需要实例的声明：常量、类型、静态函数和静态变量。使用外层类的实例成员是编译错误，说明内部类没有外层类的实例。GDScript 只解析外层类的常量、enum 和内部类，外层的静态函数和静态变量要写 `Outer.f()`（`modules/gdscript/gdscript_analyzer.cpp:4229, 4249, 4270-4271`），这是其查找方式的副产品；Java、C#、Kotlin 的嵌套类都能直接用这些名字，GDScript 能解析的名字在这里含义不变；
+  - 经它的类访问，如 `Outer.Inner`，也可以经这个类的对象访问，与常量相同（§4.5）：godot-open-rts 经 autoload 访问存放常量的内部类，如 `Constants.Match.Units.PROJECTILES`；
+  - 引擎看到的它是一个单独的脚本，其对象的 `get_script()` 返回它，没有路径，也没有全局名，与 GDScript 相同（`modules/gdscript/gdscript.cpp:1082-1084`，`modules/gdscript/gdscript_parser.h:778-780`）；因为没有路径，它不能设在场景中的节点上，运行时可以用 `set_script()` 设置。
+
+  依据：[语料计数](surveys/corpus-counts.zh.md)中 2,800 个文件有 121 个含内部类，共 192 个，游戏仓库中 19 个文件含 37 个；7 个嵌套在另一个内部类中，10 个把 `extends` 写在类体开头，经 autoload 的 175 处使用中 168 处在 godot-open-rts。
 
 ### 4.2 可见性
 
@@ -922,6 +930,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 类型是元素为本语言独有类型的容器（§3.8）的 `pub` 成员，同样不经反射暴露。理由：反射只能交出编码后的副本，外部修改副本不影响原容器，正是 §3.8 的显式转换要避免的情况；需要时由类提供返回转换结果的方法，如 `pub func get_hits() -> Array: return Array(hits)`。struct 类型的成员照常暴露，读取得到编码的副本、写入时解码（§10.1），与 Vector3 等值类型的属性一样是复制语义。
 - 泛型方法不经反射暴露，因为按名字调用时给不出类型实参；引擎必须按名字找到的方法不能是泛型（§3.10）。
 - 由方法值形成的 Callable（例如 `tween_callback(change_weapon)`、`sig.connect(_on_x)`）直接指向方法，不按名字查找，不受此限制。
+- `pub` 内部类也是包含它的类的常量，值是它的脚本，与 GDScript 把内部类列入常量相同（`modules/gdscript/gdscript_compiler.cpp:3003`）。
 - 调试器可以看到全部成员。
 - 理由：不带 `pub` 的成员只会被本文件、子类和编译器收集到的字面量名字引用，改名时工具能找全。
 
@@ -964,7 +973,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - GDScript 和 C# 只能按名字访问 §10.5 所列的成员。
 - 【已知限制】GDScript 只能经实例使用本语言的类，以及用 `new` 构造（§10.1）。以下类级访问不受支持，替代写法是经实例或 autoload 的实例方法转一层：
   - 静态方法：GDScript 的分析器接受 `Player.make()`，运行时却报找不到方法，因为 GDScript 和 C# 靠覆盖引擎内部的 `callp` 分派静态方法，GDExtension 没有对应的钩子（`core/object/object.cpp:800-826`）；
-  - 类中的 enum 和常量：不能用在 GDScript 的类型标注中（`modules/gdscript/gdscript_analyzer.cpp:935-937`），也不能用作 `const` 的值或写成 `Player.State.IDLE`，因为 GDScript 不把其他语言的常量当作常量表达式（`gdscript_analyzer.cpp:4321-4330`）；读取常量的值可以；
+  - 类中的 enum、常量和内部类：不能用在 GDScript 的类型标注中（`modules/gdscript/gdscript_analyzer.cpp:935-937`），也不能用作 `const` 的值或写成 `Player.State.IDLE`，因为 GDScript 不把其他语言的常量当作常量表达式（`gdscript_analyzer.cpp:4321-4330`）；读取常量的值、经 `Player.Inner` 取得内部类的脚本可以；
   - 本语言写的 autoload：GDScript 只为 GDScript 写的 autoload 定型（`gdscript_analyzer.cpp:806-826, 4579-4616`），所以它在表达式中的类型是 Node，写在类型标注中时悄悄变成无类型。
 - 【后续】经 Script 资源上的脚本实例支持 GDScript 调用静态方法；需要先在运行的引擎上验证。
 - 与 C# 之间的消息用 struct 表达，编码为按字段名的 Dictionary（§3.6），入口处解码并检查。
@@ -1057,7 +1066,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 没有命名空间（§4.1）。
 - 不支持跨语言继承，两个方向都不支持（§4.1、§11.2）。
 - 常量表达式中不能使用 `%` 格式化、`is`、`as`、`in`、GDScript 自己的工具函数，以及 debug 构建中检查实参的值的 Basis、Quaternion 的构造和运算；由加载时才求出的 float 取整得到的 int 不能用在编译期要用到值的位置（§4.5）。
-- GDScript 不能调用本语言类的静态方法，不能把其中的 enum 和常量用作类型或常量表达式，本语言写的 autoload 在 GDScript 中没有类型（§11.3）。
+- GDScript 不能调用本语言类的静态方法，不能把其中的 enum、常量和内部类用作类型或常量表达式，本语言写的 autoload 在 GDScript 中没有类型（§11.3）。
 - match 没有类型模式、没有 match 表达式，也不能在逗号分隔的多个模式中绑定（§5.6）。
 - 没有“就绪后才赋值的非空成员”（§6.2）。
 - 协程没有 finally 或 defer（§9.4）。
@@ -1114,6 +1123,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 函数类型 | `func(int)` 与 `func(int) -> void` 相同；`(func(Enemy) -> bool)?` 可空，`func(Enemy) -> bool?` 返回 `bool?`；`f(x)` 报编译错误并给出 `f.call(x)`；`func(Node)` 可以用于期望 `func(Node3D)` 的位置，反之报编译错误；含 await 而未写 async 的 lambda 报编译错误；把 async 函数传给期望普通函数类型的本语言参数报编译错误；把 async 方法连接到信号合法，任务作为根任务运行；在 lambda 中对捕获的局部变量写 `hits += 1`、对捕获的 Vector2 写 `v.x = 1` 报编译错误，对捕获的 Array 写 `counter[0] += 1` 合法，外面也看到改变；lambda 保留捕获的局部变量在创建时的值；lambda 外由 `if x != None:` 收窄的捕获 `x: Node?` 在 lambda 中是 Node；lambda 参数的默认值报编译错误；命名 lambda 的名字在其函数体中不可见 |
 | Variant | `v.hp`、`v + 1`、`v[0]`、`for x in v` 报编译错误；`if v is Dictionary:` 之后 `v.get("hp", 0)` 合法；`v as Node` 为 `Node?`；v 为 NIL 时 `v == None` 为真、`v is int` 为假；v 中是已释放的对象时 `v == None` 为真、`v is Node` 为假、`v as Node` 为 None；int 赋给 Variant 无需转换 |
 | 抽象类与剩余参数 | 构造抽象类报编译错误；具体子类缺少某个抽象方法的实现报编译错误；场景中的节点使用抽象类报编译错误；向 `...args: Array[int]` 传入 String 报编译错误；只写 `...args` 报编译错误；GDScript 调用 `...args: Array[int]` 时传入 String 是程序错误 |
+| 内部类 | 不写 `extends` 的 `class Shot:` 是 RefCounted，类体第一行写 `extends Area3D` 时是 Area3D；内部类中直接用外层类的常量、静态函数和静态变量，用外层的成员变量是编译错误，说明没有外层类的实例；基类的常量遮蔽外层同名的常量；在其他文件中使用不带 `pub` 的 `Outer.Inner` 是编译错误；经 autoload 的 `Constants.Match.MAX` 读到常量；其对象的 `get_script()` 是内部类的脚本，`resource_path` 为空；内部类中写 `class_name` 是编译错误；GDScript 读 `Outer.Inner` 得到脚本 |
 | 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；在子类以外的其他类中使用不带 `pub` 的 struct 报编译错误；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误，引用 `pub var hits: Array[Hit]` 同样报错；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
 | 成员 | `var speed = 5.0` 为 float；空容器成员要求标注；没有初始化式的 int 成员为 0，`T?` 成员为 None；所有字段都有默认值的 struct 成员取默认值，否则必须赋值 |
 | 常量 | `const DAY_MS = 24 * 60 * 60 * 1000` 在编译期求值；`const HALF = Vector3.ONE / 2.0` 在双精度构建中按 double 求值；`const N = 10 / 0` 报编译错误，标在 `/` 上；常量中的 `Color("red")` 报编译错误并给出 `Color.RED`；`const S = "%d" % 3` 报编译错误；`const SPEEDS = [1.0, 2.0]` 为 `Array[float]`，`SPEEDS.append(3.0)` 报编译错误；`@export_range(0, MAX)` 合法；`const K = 100 / roundi(sin(X))` 报编译错误；子类和静态函数中直接写常量名、经 `self.MAX` 访问都合法；GDScript 读取 `pub` 常量得到它的值 |
@@ -1269,6 +1279,10 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | GDScript 中 `?` 是语法错误 | `modules/gdscript/gdscript_parser.cpp:3860-3861` |
 | GDScript 的前缀 `!` 是逻辑非 | `modules/gdscript/gdscript_parser.cpp:2963-2965` |
 | GDScript 中内部类名、`class_name` 的名字、enum 名和函数名之后不能接 `[` | `modules/gdscript/gdscript_parser.cpp:964, 1005-1010, 1602, 1805` |
+| GDScript 中不写 `extends` 的内部类继承 RefCounted，`extends` 可以写在类体第一行 | `modules/gdscript/gdscript_analyzer.cpp:425-429`；`modules/gdscript/gdscript_parser.cpp:974-980` |
+| GDScript 的内部类按裸名解析外层类的常量、enum 和内部类，不解析其静态函数和静态变量 | `modules/gdscript/gdscript_analyzer.cpp:4229, 4249, 4270-4271` |
+| GDScript 的内部类是单独的脚本，没有资源路径和全局名，列在外层类的常量中 | `modules/gdscript/gdscript.cpp:1082-1084`；`modules/gdscript/gdscript_parser.h:778-780`；`modules/gdscript/gdscript_compiler.cpp:3003` |
+| GDScript 的内部类中不能写 `class_name`、`@tool`、`@icon` 和 `@static_unload` | `modules/gdscript/gdscript_parser.cpp:146-149, 1215, 1859-1861` |
 | 抽象方法的声明不写冒号 | `modules/gdscript/gdscript_parser.cpp:1773-1774` |
 | `@abstract` 注解，不能用于 static 方法 | `modules/gdscript/gdscript_parser.cpp:4500-4524` |
 | 剩余参数只能是最后一个参数，不能有默认值 | `modules/gdscript/gdscript_parser.cpp:1709-1716` |
@@ -1369,3 +1383,4 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 编译期经引擎求出常量 | 编译器就要依赖引擎，编译器测试要么测不了常量，要么在测试桩中再写一遍求值 | §4.5 |
 | 全部常量在类加载时求值 | 注解参数、enum 的值在编译期拿不到值，`10 / 0` 一类错误推迟到加载时才报 | §4.5 |
 | 单引号和双引号字符串可以跨行，与 GDScript 相同 | 漏写右引号时错误报在远处；语料中 97 个这样的字符串，95 个在同一个仓库的测试中 | §2.2 |
+| 内部类只解析外层类的常量、enum 和内部类，与 GDScript 相同 | GDScript 的限制是其查找方式的副产品；静态成员不需要实例，Java、C#、Kotlin 的嵌套类都能直接用 | §4.1 |

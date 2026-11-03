@@ -70,7 +70,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
   class_name Player extends CharacterBody3D implements Combat.Damageable
   ```
 
-- A file may declare inner classes (`class Name:`), structs, enums and interfaces, all of which belong to the file's class (§2.4).
+- A file may declare inner classes, structs, enums and interfaces, all of which belong to the file's class (§2.4). An inner class is written `class Name:` with its header on that line, as in `class Bolt extends Area3D implements Combat.Damageable:`; `extends` and `implements` may also each take a line of their own at the start of its body, as GDScript allows `extends` there (`modules/gdscript/gdscript_parser.cpp:974-980`). Its rules are in §4.1.
 
 ### 2.2 Lexical structure
 
@@ -405,6 +405,14 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
   ```
 
   Evidence: in the [corpus counts](surveys/corpus-counts.en.md), 25 of 28 abstract classes are in gdUnit4, and 17 of the abstract classes declared by a file have only abstract methods, so they can be rewritten as interfaces.
+- An inner class (§2.1) is a class as a file's is, except that:
+  - it can declare whatever a file's class can, inner classes included; `class_name` and the class annotations other than `@abstract` belong to the file, as in GDScript (`modules/gdscript/gdscript_parser.cpp:146-149, 1215, 1859-1861`);
+  - it may also extend an inner class of its file by name, one of another class as `Other.Inner`, and a class that encloses it; without `extends` it extends RefCounted, as in GDScript (`modules/gdscript/gdscript_analyzer.cpp:425-429`);
+  - a name in it refers first to its own declarations and those it inherits, then, nearest first, to the declarations of the classes enclosing it that need no instance: constants, types, static functions and static variables. Using an instance member of an enclosing class is a compile error saying that the inner class has no instance of it. GDScript resolves only the constants, enums and inner classes of enclosing classes and needs `Outer.f()` for their static functions and variables (`modules/gdscript/gdscript_analyzer.cpp:4229, 4249, 4270-4271`), a by-product of its lookup; Java, C# and Kotlin let nested classes use them by name, and every name GDScript resolves means the same here;
+  - it is reached through its class, as `Outer.Inner`, and also through an object of that class, as constants are (§4.5): godot-open-rts reaches the inner classes holding its constants through an autoload, as `Constants.Match.Units.PROJECTILES`;
+  - to the engine it is a script of its own, which `get_script()` of its objects returns, with no path and no global name, as in GDScript (`modules/gdscript/gdscript.cpp:1082-1084`, `modules/gdscript/gdscript_parser.h:778-780`); having no path, it cannot be set on a node in a scene, while `set_script()` sets it at run time.
+
+  Evidence: in the [corpus counts](surveys/corpus-counts.en.md), 192 inner classes are in 121 of the 2,800 files and 37 in 19 files of game repositories; 7 are nested in another, 10 write `extends` at the start of the body, and 168 of the 175 uses through an autoload are in godot-open-rts.
 
 ### 4.2 Visibility
 
@@ -922,6 +930,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - A `pub` member whose type is a container with elements of a type only this language has (§3.8) is not exposed through reflection either. Rationale: reflection could hand over only an encoded copy, and changes to the copy outside would not reach the container, which is what the explicit conversion of §3.8 avoids; where needed, the class provides a method returning the conversion, such as `pub func get_hits() -> Array: return Array(hits)`. Members of struct type are exposed: reading gives an encoded copy and writing decodes it (§10.1), copy semantics as for properties of value types such as Vector3.
 - Generic methods are not exposed through reflection, because calls by name cannot supply type arguments; methods the engine must find by name cannot be generic (§3.10).
 - A Callable formed from a method value (for example `tween_callback(change_weapon)` or `sig.connect(_on_x)`) refers to the method directly, not by name, and is not affected.
+- A `pub` inner class is also a constant of the class that encloses it, whose value is its script, as GDScript lists its inner classes among its constants (`modules/gdscript/gdscript_compiler.cpp:3003`).
 - The debugger sees all members.
 - Rationale: members without `pub` are referred to only by their file, subclasses and the literal names the compiler collects, so the tools can find every reference when renaming them.
 
@@ -964,7 +973,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - GDScript and C# can access by name only the members listed in §10.5.
 - [Known limitation] GDScript can use classes of this language only through instances and construct them with `new` (§10.1). The following class-level access is not supported; the workaround is to go through an instance method or an autoload's instance method:
   - static methods: GDScript's analyzer accepts `Player.make()`, but at runtime the method is not found, because GDScript and C# dispatch static methods by overriding the engine's internal `callp`, and GDExtension has no matching hook (`core/object/object.cpp:800-826`);
-  - enums and constants in a class: they cannot be used in GDScript type annotations (`modules/gdscript/gdscript_analyzer.cpp:935-937`), as `const` values or as `Player.State.IDLE`, because GDScript does not treat constants of other languages as constant expressions (`gdscript_analyzer.cpp:4321-4330`); reading a constant's value works;
+  - enums, constants and inner classes in a class: they cannot be used in GDScript type annotations (`modules/gdscript/gdscript_analyzer.cpp:935-937`), as `const` values or as `Player.State.IDLE`, because GDScript does not treat constants of other languages as constant expressions (`gdscript_analyzer.cpp:4321-4330`); reading a constant's value, and an inner class's script as `Player.Inner`, works;
   - autoloads written in this language: GDScript types only autoloads written in GDScript (`gdscript_analyzer.cpp:806-826, 4579-4616`), so in expressions such an autoload has type Node, and in a type annotation it silently becomes untyped.
 - [Later] Supporting GDScript calls to static methods through a script instance on the Script resource; this needs to be verified on a running engine first.
 - Messages to and from C# are expressed as structs, encoded as Dictionaries keyed by field name (§3.6), and decoded and checked at the entry.
@@ -1057,7 +1066,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - There are no namespaces (§4.1).
 - Cross-language inheritance is not supported in either direction (§4.1, §11.2).
 - Constant expressions cannot use `%` formatting, `is`, `as`, `in`, GDScript's own utility functions, or the constructors and operations of Basis and Quaternion that debug builds check on argument values; an int rounded from a float computed only at load cannot be used where a value is needed at compile time (§4.5).
-- GDScript cannot call static methods of classes of this language or use their enums and constants as types or constant expressions, and autoloads written in this language are untyped in GDScript (§11.3).
+- GDScript cannot call static methods of classes of this language or use their enums, constants and inner classes as types or constant expressions, and autoloads written in this language are untyped in GDScript (§11.3).
 - match has no type patterns, no match expressions, and no binding in comma-separated patterns (§5.6).
 - There is no "non-null member assigned after ready" (§6.2).
 - Coroutines have no finally or defer (§9.4).
@@ -1114,6 +1123,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Function types | `func(int)` equals `func(int) -> void`; `(func(Enemy) -> bool)?` is nullable, while `func(Enemy) -> bool?` returns `bool?`; `f(x)` is a compile error offering `f.call(x)`; `func(Node)` can be used where `func(Node3D)` is expected, and the reverse is a compile error; a lambda containing await without async is a compile error; passing an async function to a parameter of this language with an ordinary function type is a compile error; connecting an async method to a signal is valid, and the task runs as a root task; in a lambda, `hits += 1` on a captured local and `v.x = 1` on a captured Vector2 are compile errors, while `counter[0] += 1` on a captured Array is valid and changes it outside too; a lambda keeps a captured local's value from when it was created; a captured `x: Node?` narrowed by `if x != None:` around the lambda is a Node in it; a default value of a lambda parameter is a compile error; the name of a named lambda is not in scope in its body |
 | Variant | `v.hp`, `v + 1`, `v[0]` and `for x in v` are compile errors; after `if v is Dictionary:`, `v.get("hp", 0)` is valid; `v as Node` is `Node?`; when v is NIL, `v == None` is true and `v is int` is false; when v holds a freed object, `v == None` is true, `v is Node` is false and `v as Node` is None; assigning an int to a Variant needs no conversion |
 | Abstract classes and rest parameters | Constructing an abstract class is a compile error; a concrete subclass missing an implementation of an abstract method is a compile error; a node in a scene using an abstract class is a compile error; passing a String to `...args: Array[int]` is a compile error; a bare `...args` is a compile error; GDScript passing a String when calling `...args: Array[int]` is a program error |
+| Inner classes | `class Shot:` without `extends` is a RefCounted, and with `extends Area3D` on the first line of its body an Area3D; in an inner class, a constant, a static function and a static variable of the outer class are used by bare name, while an outer member variable is a compile error saying that it has no instance of the outer class; a constant of its base hides an outer one of the same name; `Outer.Inner` without `pub` used in another file is a compile error; `Constants.Match.MAX` through an autoload reads the constant; `get_script()` of its object is the inner class's script, whose `resource_path` is empty; `class_name` in an inner class is a compile error; GDScript reading `Outer.Inner` gets the script |
 | Visibility | Members without `pub` are invisible in other classes, and readable, writable and overridable in subclasses; using a struct without `pub` in another class that is not a subclass is a compile error; changing visibility in an override is a compile error; a type without `pub` in the signature of a `pub` function is a compile error; GDScript referring to a member without `pub` is a GDScript compile error, and so is referring to `pub var hits: Array[Hit]`; `call_deferred("reset")` makes `reset` callable by name from the engine |
 | Members | `var speed = 5.0` is float; empty-container members require an annotation; an int member without an initializer is 0, and a `T?` member is None; a struct member takes its default when every field has one and must otherwise be assigned |
 | Constants | `const DAY_MS = 24 * 60 * 60 * 1000` is computed at compile time; `const HALF = Vector3.ONE / 2.0` is computed in double in a double-precision build; `const N = 10 / 0` is a compile error at the `/`; `Color("red")` in a constant is a compile error offering `Color.RED`; `const S = "%d" % 3` is a compile error; `const SPEEDS = [1.0, 2.0]` is `Array[float]`, and `SPEEDS.append(3.0)` is a compile error; `@export_range(0, MAX)` is valid; `const K = 100 / roundi(sin(X))` is a compile error; a subclass and a static function use a constant by its bare name, and `self.MAX` is valid; GDScript reading a `pub` constant gets its value |
@@ -1269,6 +1279,10 @@ The following facts are based on Godot 4.7.2-stable (commit `ed1daf0`); paths ar
 | `?` is a syntax error in GDScript | `modules/gdscript/gdscript_parser.cpp:3860-3861` |
 | GDScript's prefix `!` is logical not | `modules/gdscript/gdscript_parser.cpp:2963-2965` |
 | In GDScript `[` cannot follow an inner class name, the name in `class_name`, an enum name or a function name | `modules/gdscript/gdscript_parser.cpp:964, 1005-1010, 1602, 1805` |
+| In GDScript an inner class without `extends` extends RefCounted, and `extends` may be written on the first line of its body | `modules/gdscript/gdscript_analyzer.cpp:425-429`; `modules/gdscript/gdscript_parser.cpp:974-980` |
+| In GDScript an inner class resolves the constants, enums and inner classes of the classes enclosing it by bare name, but not their static functions and variables | `modules/gdscript/gdscript_analyzer.cpp:4229, 4249, 4270-4271` |
+| A GDScript inner class is a script of its own, with no resource path and no global name, listed among the constants of the class enclosing it | `modules/gdscript/gdscript.cpp:1082-1084`; `modules/gdscript/gdscript_parser.h:778-780`; `modules/gdscript/gdscript_compiler.cpp:3003` |
+| `class_name`, `@tool`, `@icon` and `@static_unload` cannot be written in a GDScript inner class | `modules/gdscript/gdscript_parser.cpp:146-149, 1215, 1859-1861` |
 | An abstract method declaration has no colon | `modules/gdscript/gdscript_parser.cpp:1773-1774` |
 | The `@abstract` annotation, which cannot be applied to static methods | `modules/gdscript/gdscript_parser.cpp:4500-4524` |
 | A rest parameter must be the last parameter and cannot have a default value | `modules/gdscript/gdscript_parser.cpp:1709-1716` |
@@ -1369,3 +1383,4 @@ The following facts are based on Godot 4.7.2-stable (commit `ed1daf0`); paths ar
 | Computing constants with the engine at compile time | The compiler would depend on the engine, and compiler tests could either not test constants or need the computation written again in the test stub | §4.5 |
 | Computing every constant when the class loads | Annotation arguments and enum values would have no value at compile time, and errors such as `10 / 0` would wait until loading | §4.5 |
 | Strings in single or double quotes that span lines, as in GDScript | A missing closing quote would be reported far away; the corpus has 97 such strings, 95 in the tests of one repository | §2.2 |
+| Inner classes resolving, of the classes enclosing them, only constants, enums and inner classes, as GDScript does | GDScript's restriction is a by-product of its lookup; static members need no instance, and Java, C# and Kotlin let nested classes use them by name | §4.1 |
