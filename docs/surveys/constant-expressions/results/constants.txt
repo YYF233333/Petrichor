@@ -286,7 +286,7 @@ tps-demo                                                          25      8     
   unused in file: all 32 games 15
 
 ## Q5 qualified const access
-  ClassName (other file)           all  1722 files  263 distinct  362   games   444 files  112 distinct  103
+  ClassName (other file)           all  1721 files  263 distinct  361   games   444 files  112 distinct  103
   ClassName (same file)            all    26 files    5 distinct   16   games     4 files    1 distinct    1
   Name.Inner(.Inner).CONST         all    94 files   29 distinct    0   games    94 files   29 distinct    0
   autoload (other file)            all    84 files   36 distinct   13   games    33 files   22 distinct    3
@@ -295,16 +295,16 @@ tps-demo                                                          25      8     
   preload alias (other file)       all   100 files   17 distinct   30   games     3 files    1 distinct    2
   self.CONST                       all   721 files   49 distinct    0   games   721 files   49 distinct    0
   instance samples: [('builder', 'CLASS_BUILDING'), ('builder', 'CLASS_DAMAGE'), ('builder', 'CLASS_DECORATION'), ('builder', 'CLASS_FRAME'), ('builder', 'CLASS_GROUND'), ('builder', 'CLASS_HERO'), ('builder', 'CLASS_TERRAIN'), ('builder', 'CLASS_UNIT'), ('builder', 'SUB_CLASS_CONSTRUCTION'), ('card_ui', 'BASE_STYLEBOX'), ('card_ui', 'DRAG_STYLEBOX'), ('card_ui', 'HOVER_STYLEBOX'), ('control_point', 'OFFSET'), ('extensions', 'EXTENSIONS_PATH'), ('player_resource', 'BASE_STATS'), ('run_stats', 'BASE_RARE_WEIGHT'), ('tile', 'EAST'), ('tile', 'NORTH'), ('tile', 'SOUTH'), ('tile', 'WEST')]
-  all: class-level consts in class_name scripts: 1353, distinct accessed as ClassName.CONST from another file: 362
+  all: class-level consts in class_name scripts: 1353, distinct accessed as ClassName.CONST from another file: 361
   games: class-level consts in class_name scripts: 505, distinct accessed as ClassName.CONST from another file: 103
-  per repo ClassName.CONST (other file): [('gdUnit4', 628), ('godot_dialogue_manager', 554), ('godot-tiny-mmo', 427), ('Pixelorama', 35), ('Godot-Game-Template', 32), ('godot-demo-projects', 29), ('deck_builder_tutorial', 9), ('godot-open-rpg', 8)]
+  per repo ClassName.CONST (other file): [('gdUnit4', 628), ('godot_dialogue_manager', 553), ('godot-tiny-mmo', 427), ('Pixelorama', 35), ('Godot-Game-Template', 32), ('godot-demo-projects', 29), ('deck_builder_tutorial', 9), ('godot-open-rpg', 8)]
 
 ## Q6 constant positions
   annotation args: any name                     all    18 files    7   games     1 files    1
   annotation args: engine constant              all    11 files    2   games     0 files    0
   annotation args: user const                   all     7 files    5   games     1 files    1
   annotations with args                         all  1622 files    0   games   338 files    0
-  default parameter values                      all  1633 files    0   games   331 files    0
+  default parameter values                      all  1634 files    0   games   331 files    0
   default value refers to builtin               all    73 files   40   games     5 files    5
   default value refers to const                 all    56 files   30   games    10 files    9
   default value refers to engine                all    47 files   16   games     2 files    1

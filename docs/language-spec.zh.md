@@ -345,7 +345,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   area.body_entered.connect(func(body): counter[0] += 1)  # 容器是共享的
   ```
 
-  由于捕获的变量在 lambda 中不会改变，创建 lambda 处已收窄的类型在它的函数体中仍然收窄（§5.4）。依据：[语料计数](surveys/corpus-counts.zh.md)中方法里的 958 个 lambda 没有一个给所在方法的局部变量赋值，经其成员或下标赋值的 15 个改的都是对象或容器。【后续】与外层函数共享的捕获。
+  由于捕获的变量在 lambda 中不会改变，创建 lambda 处已收窄的类型在它的函数体中仍然收窄（§5.4）。依据：[语料计数](surveys/corpus-counts.zh.md)中方法里的 961 个 lambda 没有一个给所在方法的局部变量赋值，经其成员或下标赋值的 15 个改的都是对象或容器。【后续】与外层函数共享的捕获。
 - lambda 可以命名，如 `func on_timeout(): ...`；与 GDScript 相同，名字用于在调用栈和它的 Callable 的文本中标识它，在函数体中不可见（`modules/gdscript/gdscript_parser.cpp:3731-3733`、`modules/gdscript/gdscript_lambda_callable.cpp:61-62`）。依据：语料计数的 979 个 lambda 中命名的有 18 个。
 - lambda 的参数不带默认值，写了是编译错误：函数类型不记录默认值，本语言的调用方总是传入全部实参。依据：语料计数的 979 个 lambda 没有一个带默认值。
 - lambda 的类型按局部规则推断（§4.6）。

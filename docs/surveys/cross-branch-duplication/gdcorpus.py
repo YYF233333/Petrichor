@@ -154,9 +154,6 @@ def tokenize(src):
                     break
                 if ch == "\n":
                     line += 1
-                    if not triple:
-                        j += 1
-                        break
                 buf.append(ch)
                 j += 1
             toks.append(Tok("STR", "".join(buf), sline, col, first, pre))

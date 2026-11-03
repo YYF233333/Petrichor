@@ -345,7 +345,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
   area.body_entered.connect(func(body): counter[0] += 1)  # the container is shared
   ```
 
-  Since a captured variable does not change in the lambda, what is narrowed where the lambda is created stays narrowed in its body (§5.4). Evidence: in the [corpus counts](surveys/corpus-counts.en.md), none of the 958 lambdas in methods assigns a local of its method, and the 15 that assign through a member or subscript of one all reach objects or containers. [Later] Captures shared with the enclosing function.
+  Since a captured variable does not change in the lambda, what is narrowed where the lambda is created stays narrowed in its body (§5.4). Evidence: in the [corpus counts](surveys/corpus-counts.en.md), none of the 961 lambdas in methods assigns a local of its method, and the 15 that assign through a member or subscript of one all reach objects or containers. [Later] Captures shared with the enclosing function.
 - A lambda may be named, as in `func on_timeout(): ...`; as in GDScript the name labels it in stack traces and in the text of its Callable, and is not in scope in its body (`modules/gdscript/gdscript_parser.cpp:3731-3733`, `modules/gdscript/gdscript_lambda_callable.cpp:61-62`). Evidence: 18 of 979 lambdas in the corpus counts are named.
 - Lambda parameters have no default values, a compile error: function types do not record them, so callers in this language pass every argument. Evidence: none of the 979 lambdas in the corpus counts has one.
 - The types of lambdas are inferred by the local rules (§4.6).

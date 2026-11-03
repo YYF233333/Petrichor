@@ -33,12 +33,12 @@ The same as the [cross-branch duplication survey](cross-branch-duplication.en.md
 | `preload()` of a resource other than a scene | §7.4 | 9.7% | 3.3 | 8.7% | 4.6 |
 | Lambdas | §3.11 | 8.5% | 4.9 | 7.4% | 3.3 |
 | `%Name` and `$".."` | §7.1, §7.3 | 7.8% | 4.8 | 3.4% | 2.1 |
-| `in` and `not in` | §5.1 | 7.4% | 2.8 | 4.9% | 1.4 |
+| `in` and `not in` | §5.1 | 7.4% | 2.8 | 4.8% | 1.4 |
 | `enum` | §3.7 | 6.7% | 1.3 | 4.7% | 1.0 |
 | `assert` | §8.3 | 4.4% | 2.9 | 5.2% | 1.7 |
 | Inner classes | §2.1 | 4.3% | 0.9 | 1.6% | 0.5 |
-| Bitwise operators | §3.2, §5.1 | 3.1% | 1.8 | 1.2% | 1.0 |
 | `static var` | §4.8 | 2.7% | 0.9 | 2.9% | 1.2 |
+| Bitwise operators | §3.2, §5.1 | 2.6% | 1.3 | 1.2% | 1.0 |
 | `**` | §5.1 | 0.1% | 0.0 | 0 | 0 |
 
 Files using none of them, by repository:

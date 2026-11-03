@@ -66,7 +66,7 @@ The same as the [cross-branch duplication survey](cross-branch-duplication.en.md
 
 - Writes to containers in constants: none.
 - The 208 constants that preload scripts are used, in the same file, as types 140 times, in `X.new()` 55 times and to call static methods 111 times.
-- Constants are accessed from other files as `ClassName.CONST` 1,722 times in 263 files; `self.CONST` 721 times, all in tanks-of-freedom-ii; through instances about 35 times.
+- Constants are accessed from other files as `ClassName.CONST` 1,721 times in 263 files; `self.CONST` 721 times, all in tanks-of-freedom-ii; through instances about 35 times.
 
 Samples of each category are in `constant-expressions/results/constants.txt`, which lists every initializer that needs the engine.
 

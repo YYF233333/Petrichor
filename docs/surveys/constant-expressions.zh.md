@@ -66,7 +66,7 @@ GDScript 借引擎在编译期求出常量的值，本语言的编译器不依�
 
 - 写入常量中的容器：0 处。
 - preload 脚本的 208 个常量中，在同一文件里用作类型 140 处，`X.new()` 55 处，调用静态方法 111 处。
-- 从其他文件以 `ClassName.CONST` 访问常量 1,722 处，在 263 个文件中；`self.CONST` 721 处，全在 tanks-of-freedom-ii；经实例访问约 35 处。
+- 从其他文件以 `ClassName.CONST` 访问常量 1,721 处，在 263 个文件中；`self.CONST` 721 处，全在 tanks-of-freedom-ii；经实例访问约 35 处。
 
 各类别的抽样位置见 `constant-expressions/results/constants.txt`，需要引擎求值的初始化式在其中全部列出。
 

@@ -6,15 +6,15 @@ Some rules in the specification need only a single count as evidence. This docum
 
 | Count | Result | Used by |
 |---|---|---|
-| The `null` literal | 4,521, 22.2 per 1,000 lines; 2,541 comparisons (`== null`, `!= null`) and 1,980 assignments, returns and arguments | §2.2: `null` is an alias of None |
-| Prefix `!` and `not` | 460 prefix `!`, 4,504 `not` (including `not in`) | Appendix B: background for not adopting postfix `!`; prefix `!` remains logical not (§2.2) |
+| The `null` literal | 4,520, 22.2 per 1,000 lines; 2,541 comparisons (`== null`, `!= null`) and 1,979 assignments, returns and arguments | §2.2: `null` is an alias of None |
+| Prefix `!` and `not` | 449 prefix `!`, 4,500 `not` (including `not in`) | Appendix B: background for not adopting postfix `!`; prefix `!` remains logical not (§2.2) |
 | Registering a node on an autoload member in `_ready` (`Autoload.x = self`) | 6, 5 of them in Ring | §6.2: autoload members referring to scene nodes are `T?` (script: `paper-migration-2/autoload_self.py`) |
 | `@abstract` classes and methods | 28 classes: 25 in gdUnit4, 2 in Pixelorama, 1 in godot-open-rpg; 250 abstract methods; of the abstract classes declared by a file, 17 have only abstract methods | §4.1: `@abstract` |
 | Rest parameters `...args` | 78: 76 in gdUnit4, 2 in Pixelorama | §4.6: rest parameters |
 | Lambdas containing await | 35 of 979 lambdas, 33 of them in gdUnit4's tests | §9.1: lambdas are also written `async func` |
-| Lambdas that are named, have default values or assign a capture | Of 979 lambdas, 18 are named and 0 have default values; of the 958 in methods, 0 assign a parameter or local of the method, and 15 assign through a member or subscript of one, which on reading are all objects or containers, such as godot-statecharts' `var holder: Array[bool] = [false]` set from a signal connection | §3.11: assigning a captured variable is a compile error; named lambdas; lambda parameters have no default values |
+| Lambdas that are named, have default values or assign a capture | Of 979 lambdas, 18 are named and 0 have default values; of the 961 in methods, 0 assign a parameter or local of the method, and 15 assign through a member or subscript of one, which on reading are all objects or containers, such as godot-statecharts' `var holder: Array[bool] = [false]` set from a signal connection | §3.11: assigning a captured variable is a compile error; named lambdas; lambda parameters have no default values |
 | Coroutine methods used as values (passed by name as an argument in the same file) | 91, 60 of them `connect(name)`, across 12 repositories | §3.11: positions the engine calls accept async functions |
-| `assert(...)` statements | 595, 406 of them in godot_dialogue_manager; 0 with await in their arguments; 539 with a message: 495 string literals, 19 with calls, all queries or formatting (`translate` 15, `format` 6, `size` 3, `get_error_message` 2, `get_error_text` 2, `get` 1, `str` 1), and 25 other expressions, such as formatting with `%` | §8.3: `assert` is removed in release builds; its message is evaluated only when it fails |
+| `assert(...)` statements | 595, 406 of them in godot_dialogue_manager; 0 with await in their arguments; 539 with a message: 496 string literals, 19 with calls, all queries or formatting (`translate` 15, `format` 6, `size` 3, `get_error_message` 2, `get_error_text` 2, `get` 1, `str` 1), and 24 other expressions, such as formatting with `%` | §8.3: `assert` is removed in release builds; its message is evaluated only when it fails |
 | `is_instance_valid(...)` | 678, 3.3 per 1,000 lines; 12.8 per 1,000 lines in phantom-camera | §3.3: a freed object read through `T?` is None |
 | `static var` and `_static_init` | 188 `static var`, 4 `_static_init` | §4.8: static members keep GDScript's spelling and timing |
 | `NOTIFICATION_PREDELETE` | 40, 32 of them in gdUnit4 | §6.6: no new syntax for destruction |
