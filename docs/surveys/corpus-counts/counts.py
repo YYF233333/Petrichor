@@ -16,7 +16,8 @@ Counts, in first-party .gd files (blank and comment lines excluded from the line
   - `assert(...)` statements, those whose arguments contain `await`, and their messages: string literals,
     expressions with calls (and the names called) and other expressions;
   - `is_instance_valid` (overall and per repository, per 1,000 lines), `static var`, `_static_init`,
-    `NOTIFICATION_PREDELETE`, `Thread.new` and `WorkerThreadPool`;
+    `NOTIFICATION_PREDELETE`, `Thread.new` and `WorkerThreadPool`; of the `static var`, those with an
+    initializer and, without one, untyped, of a built-in type (which has a default value) or of another type;
   - `get_parent()` called on self and `owner` read on self: member accesses on them (and the files that
     have one), and tests for null (`== null`, `!= null`, as a condition, `is_instance_valid`), including
     tests of a variable assigned from them within the next 25 lines;
@@ -50,6 +51,26 @@ LAMBDA_PREV = {"(", ",", "=", ":", "[", "{", "return"}
 EDITOR_PLUGINS = {"EditorPlugin", "EditorInspectorPlugin", "EditorImportPlugin", "EditorExportPlugin", "EditorScript"}
 COND = {"if", "elif", "while", "not", "and", "or", "!"}
 OPEN, CLOSE = ("(", "[", "{"), (")", "]", "}")
+BUILTIN_TYPES = {"bool", "int", "float", "String", "StringName", "NodePath", "Vector2", "Vector2i", "Rect2", "Rect2i",
+                 "Vector3", "Vector3i", "Transform2D", "Vector4", "Vector4i", "Plane", "Quaternion", "AABB", "Basis",
+                 "Transform3D", "Projection", "Color", "RID", "Callable", "Signal", "Dictionary", "Array", "Variant",
+                 "PackedByteArray", "PackedInt32Array", "PackedInt64Array", "PackedFloat32Array", "PackedFloat64Array",
+                 "PackedStringArray", "PackedVector2Array", "PackedVector3Array", "PackedColorArray", "PackedVector4Array"}
+
+
+def static_var_kind(ts, i):
+    """Of the `static var` at token i: with an initializer, or without one untyped, of a built-in type or other."""
+    j, depth, typ = i + 3, 0, None
+    if j < len(ts) and ts[j].v == ":" and j + 1 < len(ts) and ts[j + 1].v != "=" and not ts[j + 1].first:
+        typ = ts[j + 1].v
+    while j < len(ts) and not (ts[j].first and depth == 0):
+        if depth == 0 and ts[j].v == "=":
+            return "static_var_init"
+        depth += (ts[j].v in OPEN) - (ts[j].v in CLOSE)
+        j += 1
+    if typ is None:
+        return "static_var_untyped"
+    return "static_var_builtin" if typ in BUILTIN_TYPES else "static_var_other"
 
 
 def func_body(ts, i):
@@ -480,6 +501,7 @@ def main():
                         by_repo[name]["is_instance_valid"] += 1
                     elif t.v == "static" and nxt == "var":
                         c["static_var"] += 1
+                        c[static_var_kind(ts, i)] += 1
                     elif t.v == "_static_init" and i > 0 and ts[i - 1].v == "func":
                         c["static_init"] += 1
                     elif t.v == "NOTIFICATION_PREDELETE":
@@ -543,7 +565,9 @@ def main():
           f"per repository per 1,000 lines: {per_k}")
     predelete = ", ".join(f"{r} {n['predelete']}" for r, n in sorted(by_repo.items(), key=lambda x: -x[1]["predelete"]) if n["predelete"])
     print(f"NOTIFICATION_PREDELETE: {c['predelete']} ({predelete})")
-    print(f"static var: {c['static_var']}; _static_init: {c['static_init']}; "
+    print(f"static var: {c['static_var']} (with an initializer {c['static_var_init']}; without: untyped "
+          f"{c['static_var_untyped']}, of a built-in type {c['static_var_builtin']}, of another type {c['static_var_other']}); "
+          f"_static_init: {c['static_init']}; "
           f"Thread.new: {c['thread_new']}; WorkerThreadPool: {c['worker_pool']}")
     for key, label in (("parent", "get_parent() on self"), ("owner", "owner on self")):
         print(f"{label}: {c[key]}; member accesses {c[key + '_member']} in {len(files[key])} files; "

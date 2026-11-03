@@ -500,7 +500,11 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 4.8 静态成员
 
-- `static var`、`static func`、`_static_init()` 的写法和时机与 GDScript 相同：类加载时，先基类后派生类，按声明顺序初始化静态成员，最后调用 `_static_init`（`modules/gdscript/gdscript_compiler.cpp:2629-2632`）。静态成员的初始化式同样不经过 setter（`gdscript_compiler.cpp:2603-2626`）。
+- `static var`、`static func`、`_static_init()` 的写法和时机与 GDScript 相同：类加载时，先基类后派生类，按声明顺序初始化静态成员，最后调用 `_static_init`（`modules/gdscript/gdscript_compiler.cpp:2629-2632`），再依次初始化其内部类（`modules/gdscript/gdscript.cpp:667-683`）。静态成员的初始化式同样不经过 setter（`gdscript_compiler.cpp:2603-2626`）。`_static_init` 必须是静态的，没有参数，不返回值（`modules/gdscript/gdscript_parser.cpp:1751-1757`，`modules/gdscript/gdscript_analyzer.cpp:1841-1850`）。脚本不在编辑器中运行（§2.3），静态初始化也不运行；GDScript 只在 tool 脚本中运行它（`gdscript.cpp:803, 882-887`）。
+- 静态变量属于声明它的类，子类与它共用同一个变量。它可以有 setter 和 getter（§4.4），不能 `@export` 或 `@onready`，与 GDScript 相同（`gdscript_parser.cpp:4536-4537, 4665-4666`）。
+- 没有初始化式的静态变量按成员的规则（§4.3）取默认值；类型没有默认值时，例如非空的对象类型，是编译错误，须写初始化式或写作 `T?`。GDScript 中对象类型的静态变量从 null 开始（`gdscript_compiler.cpp:2555-2590`）。依据：[语料计数](surveys/corpus-counts.zh.md)中没有初始化式的静态变量有 29 个是类类型，例如单例 `static var instance: DMPlugin`。
+- 不带 `@static_unload` 时，有静态变量的类在整个运行中保持加载，值不因没有引用而丢失，与 GDScript 相同（`gdscript_compiler.cpp:3315-3316`，`modules/gdscript/gdscript_cache.cpp:449-453`）。
+- 静态变量在本类、子类和内部类中直接写名字，在其他类中写 `Registry.count`，也可以经对象写 `r.count`，与常量（§4.5）和静态方法（下一条）相同，GDScript 也允许经对象访问（`gdscript_analyzer.cpp:4229`）。`pub` 静态变量可以由 GDScript 经类和对象按名字读写（§10.5），与 GDScript 的静态变量相同（`gdscript.cpp:973-985, 1022-1043, 1634-1646`）。
 - 静态方法经类调用，如 `Base.label()`；也可以在对象或值上调用，与 GDScript 相同，GDScript 对此默认只给警告（`modules/gdscript/gdscript_analyzer.cpp:3699-3703`；`modules/gdscript/gdscript_warning.h:131`）：两种写法含义相同，哪种更好读是风格问题，交给 lint（§13.2）。在本语言或 GDScript 的类的对象上，按名字从对象的类往上查找，与实例方法相同，也与 GDScript 实例的查找相同（`modules/gdscript/gdscript.cpp:1954-1958`），所以子类声明了同名的静态方法时调用子类的；在引擎类的对象或内置类型的值上，脚本不能重新声明其静态方法，调用的就是该类型的方法，对象或值照常先求值：
 
   ```gdscript
@@ -512,9 +516,22 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   ```
 
 - 一个类在静态初始化中读取另一个类的静态成员时，先完成那个类的初始化。
-- 静态初始化之间形成环是程序错误，诊断列出依赖链；能静态判断的是编译错误。不读取默认值或未完成的值。GDScript 的相关问题见 [godotengine/godot#104161](https://github.com/godotengine/godot/issues/104161)、[#82141](https://github.com/godotengine/godot/issues/82141)、[#104588](https://github.com/godotengine/godot/issues/104588)。
+- 静态初始化不读取默认值或未完成的值。GDScript 的相关问题见 [godotengine/godot#104161](https://github.com/godotengine/godot/issues/104161)、[#82141](https://github.com/godotengine/godot/issues/82141)、[#104588](https://github.com/godotengine/godot/issues/104588)：
+  - 初始化式直接读取本类在它之后声明的静态变量，是编译错误，与实例成员相同（§6.1）；
+  - 类在自己的静态初始化中，包括经它调用的函数，读写尚未初始化的静态变量，是程序错误；
+  - 一个类的静态初始化开始了另一个类的初始化，后者又读写前者的静态变量，即静态初始化之间形成环，是程序错误，诊断列出依赖链。跨类的环不在编译期检查：那要知道其他文件的初始化读取什么，而这样的环每次运行加载这些类时都会报出。
+
+  ```gdscript
+  # a.pet
+  class_name A extends RefCounted
+  static var x := B.y + 1
+  # b.pet
+  class_name B extends RefCounted
+  static var y := A.x + 1  # A 先加载时是程序错误：A.x 的初始化读取 B.y，B.y 的初始化又读取 A.x
+  ```
+
 - 静态初始化不能 await。
-- 修改静态成员的声明属于结构变化，热重载时要求重新运行（§12.4）。
+- 增删静态成员，或修改其名字、类型、可见性和访问器，属于结构变化，热重载时要求重新运行（§12.4）。只修改函数体、静态变量的初始化式或 `_static_init` 时，静态变量保留原有的值，静态初始化不再运行；GDScript 重新运行静态初始化，再按名字搬回旧值（`gdscript.cpp:714-731, 803-807, 882-892`），`_static_init` 的副作用因而再发生一次。
 - 理由：[语料计数](surveys/corpus-counts.zh.md)中 `static var` 只有 188 处、`_static_init` 4 个，接触频率低。
 
 ## 5. 表达式与语句
@@ -1093,6 +1110,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 条件绑定，或检查与使用之间没有调用、await 和赋值时让没有 getter 的字段收窄（§5.4）；
 - match 的类型模式、match 表达式，以及在逗号分隔的多个模式中绑定（§5.6）；
 - 就绪后才赋值的非空成员（§6.2）；
+- 在 `_static_init` 中赋值的、没有默认值的静态变量（§4.8）；
 - 始终生效的断言（§8.3）；
 - 重入策略的注解，例如 `@restart`（§9.5）；
 - 按参数解构多参数信号的 await 结果，带参数类型的 Signal 类型（§9.6）；
@@ -1126,6 +1144,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 内部类 | 不写 `extends` 的 `class Shot:` 是 RefCounted，类体第一行写 `extends Area3D` 时是 Area3D；内部类中直接用外层类的常量、静态函数和静态变量，用外层的成员变量是编译错误，说明没有外层类的实例；基类的常量遮蔽外层同名的常量；在其他文件中使用不带 `pub` 的 `Outer.Inner` 是编译错误；经 autoload 的 `Constants.Match.MAX` 读到常量；其对象的 `get_script()` 是内部类的脚本，`resource_path` 为空；内部类中写 `class_name` 是编译错误；GDScript 读 `Outer.Inner` 得到脚本 |
 | 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；在子类以外的其他类中使用不带 `pub` 的 struct 报编译错误；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误，引用 `pub var hits: Array[Hit]` 同样报错；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
 | 成员 | `var speed = 5.0` 为 float；空容器成员要求标注；没有初始化式的 int 成员为 0，`T?` 成员为 None；所有字段都有默认值的 struct 成员取默认值，否则必须赋值 |
+| 静态成员 | `static var instance: Registry` 报编译错误，`Registry?` 合法；子类写入基类的静态变量后，经基类读到新值；经对象的 `r.count` 读到静态变量；`static var a := b` 在 b 之后声明时报编译错误；A 与 B 的静态初始化互相读取时是程序错误并列出依赖链；`_static_init` 在全部初始化式之后执行，内部类在外层类之后初始化；`@export static var` 报编译错误；只改 `_static_init` 的热重载不再运行它，静态变量保留原值；GDScript 经类读写 `pub` 静态变量 |
 | 常量 | `const DAY_MS = 24 * 60 * 60 * 1000` 在编译期求值；`const HALF = Vector3.ONE / 2.0` 在双精度构建中按 double 求值；`const N = 10 / 0` 报编译错误，标在 `/` 上；常量中的 `Color("red")` 报编译错误并给出 `Color.RED`；`const S = "%d" % 3` 报编译错误；`const SPEEDS = [1.0, 2.0]` 为 `Array[float]`，`SPEEDS.append(3.0)` 报编译错误；`@export_range(0, MAX)` 合法；`const K = 100 / roundi(sin(X))` 报编译错误；子类和静态函数中直接写常量名、经 `self.MAX` 访问都合法；GDScript 读取 `pub` 常量得到它的值 |
 | 局部变量 | `func f(n): if c: var n = 1` 报编译错误，与外层块的局部变量同名的 `var` 和 `for` 循环变量也一样，在 lambda 的函数体中亦然；if 与 else 两个分支各自声明 `var x` 合法，与所在函数的局部变量同名的 lambda 参数也合法 |
 | 签名 | `func _process(delta):` 中 delta 为 float；覆盖时把返回类型写成子类型合法，写成父类型报编译错误；覆盖时多出带默认值的参数合法；非覆盖函数省略返回类型后返回值报编译错误；有期望类型的 lambda 参数不必标注；b 为 Base 类型、持有自己声明了静态 `label()` 的 Sub 时，`b.label()` 调用 Sub 的，`Base.label()` 调用 Base 的；在 Color 值上调用 `c.from_hsv(0.5, 1.0, 1.0)` 即 `Color.from_hsv()` |
@@ -1313,6 +1332,15 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 成员的初始化式不经过 setter | `modules/gdscript/gdscript_compiler.cpp:2414-2430, 2603-2626` |
 | 构造调用不等待 `_init` 的返回值；带返回值的引擎虚函数同步读取并转换脚本返回值 | `modules/gdscript/gdscript.cpp:194`；`core/object/make_virtuals.py:1-10, 173-174` |
 | 静态成员初始化之后调用 `_static_init` | `modules/gdscript/gdscript_compiler.cpp:2629-2632` |
+| GDScript 先初始化外层类的静态成员，再依次初始化其内部类 | `modules/gdscript/gdscript.cpp:667-683` |
+| GDScript 只在启用了脚本的进程中或 tool 脚本中运行静态初始化 | `modules/gdscript/gdscript.cpp:803, 882-887` |
+| `_static_init` 必须是静态的，没有参数，不返回值 | `modules/gdscript/gdscript_parser.cpp:1751-1757`；`modules/gdscript/gdscript_analyzer.cpp:1841-1850` |
+| 静态变量不能 `@export`、`@onready` | `modules/gdscript/gdscript_parser.cpp:4536-4537, 4665-4666` |
+| GDScript 中对象类型的静态变量从 null 开始 | `modules/gdscript/gdscript_compiler.cpp:2555-2590` |
+| 不带 `@static_unload` 时，有静态变量的 GDScript 脚本一直留在缓存中 | `modules/gdscript/gdscript_compiler.cpp:3315-3316`；`modules/gdscript/gdscript_cache.cpp:449-453` |
+| GDScript 允许经实例访问静态变量 | `modules/gdscript/gdscript_analyzer.cpp:4229` |
+| GDScript 的脚本和实例按名字读写静态变量 | `modules/gdscript/gdscript.cpp:973-985, 1022-1043, 1562-1587, 1634-1646` |
+| GDScript 保留状态的重载重新运行静态初始化，再按名字搬回旧的静态变量值 | `modules/gdscript/gdscript.cpp:714-731, 803-807, 882-892` |
 | `@onready` 初始化式在用户的 `_ready` 之前执行，先基类后派生类 | `modules/gdscript/gdscript.cpp:1937-1953` |
 | GDScript 实例释放时清除其挂起的函数状态，不恢复执行 | `modules/gdscript/gdscript.cpp:2069-2079` |
 | GDScript 函数开始时取得实例成员的地址，实例在函数运行中释放时，成员随之释放 | `modules/gdscript/gdscript_vm.cpp:751`；`modules/gdscript/gdscript.cpp:2066-2084` |
@@ -1384,3 +1412,6 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 全部常量在类加载时求值 | 注解参数、enum 的值在编译期拿不到值，`10 / 0` 一类错误推迟到加载时才报 | §4.5 |
 | 单引号和双引号字符串可以跨行，与 GDScript 相同 | 漏写右引号时错误报在远处；语料中 97 个这样的字符串，95 个在同一个仓库的测试中 | §2.2 |
 | 内部类只解析外层类的常量、enum 和内部类，与 GDScript 相同 | GDScript 的限制是其查找方式的副产品；静态成员不需要实例，Java、C#、Kotlin 的嵌套类都能直接用 | §4.1 |
+| 没有初始化式的对象类型静态变量从 None 开始，与 GDScript 相同 | 非空的类型没有 None 这个值；需要空值时写作 `T?` | §4.8 |
+| 编译期检查跨类的静态初始化环 | 要知道其他文件的初始化读取什么；这样的环每次运行加载这些类时都会报出 | §4.8 |
+| 热重载时重新运行静态初始化，再按名字搬回旧值，与 GDScript 相同 | `_static_init` 的副作用（如登记）会再发生一次；只修改函数体时，正在运行的程序只换之后的调用（§12.4） | §4.8 |

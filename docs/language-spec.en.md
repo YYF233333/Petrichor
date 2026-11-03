@@ -500,7 +500,11 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 4.8 Static members
 
-- `static var`, `static func` and `_static_init()` are written and timed as in GDScript: when a class is loaded, base classes first, its static members are initialized in declaration order and `_static_init` is called last (`modules/gdscript/gdscript_compiler.cpp:2629-2632`). Static initializers bypass setters too (`gdscript_compiler.cpp:2603-2626`).
+- `static var`, `static func` and `_static_init()` are written and timed as in GDScript: when a class is loaded, base classes first, its static members are initialized in declaration order and `_static_init` is called last (`modules/gdscript/gdscript_compiler.cpp:2629-2632`), then its inner classes are initialized in turn (`modules/gdscript/gdscript.cpp:667-683`). Static initializers bypass setters too (`gdscript_compiler.cpp:2603-2626`). `_static_init` must be static, take no parameters and return nothing (`modules/gdscript/gdscript_parser.cpp:1751-1757`, `modules/gdscript/gdscript_analyzer.cpp:1841-1850`). Scripts do not run in the editor (§2.3), and neither does static initialization; GDScript runs it there only in tool scripts (`gdscript.cpp:803, 882-887`).
+- A static variable belongs to the class that declares it, and subclasses share that one variable. It may have a setter and a getter (§4.4), and cannot be `@export` or `@onready`, as in GDScript (`gdscript_parser.cpp:4536-4537, 4665-4666`).
+- A static variable without an initializer takes its default value by the rules of members (§4.3); a type without a default value, such as a non-null object type, is a compile error, and needs an initializer or `T?`. In GDScript a static variable of an object type starts as null (`gdscript_compiler.cpp:2555-2590`). Evidence: in the [corpus counts](surveys/corpus-counts.en.md), 29 static variables without an initializer are of class types, such as the singleton `static var instance: DMPlugin`.
+- Without `@static_unload`, a class with static variables stays loaded for the whole run, so their values are not lost when nothing references it, as in GDScript (`gdscript_compiler.cpp:3315-3316`, `modules/gdscript/gdscript_cache.cpp:449-453`).
+- A static variable is named directly in its class, subclasses and inner classes, as `Registry.count` in other classes, and also through an object, as `r.count`, as constants (§4.5) and static methods (next item) are; GDScript also allows the access through an object (`gdscript_analyzer.cpp:4229`). GDScript reads and writes a `pub` static variable by name through the class and its objects (§10.5), as it does its own static variables (`gdscript.cpp:973-985, 1022-1043, 1634-1646`).
 - A static method is called through its class, as `Base.label()`, or also on an object or a value, as in GDScript, which by default only warns about it (`modules/gdscript/gdscript_analyzer.cpp:3699-3703`; `modules/gdscript/gdscript_warning.h:131`): both mean the same, and which reads better is a matter of style, for lints (§13.2). On an object of a class of this language or of GDScript, the method is found by name from the object's class up, as an instance method is and as a GDScript instance finds it (`modules/gdscript/gdscript.cpp:1954-1958`), so that a subclass that declares a static method of the same name has its own called; on an object of an engine class or a value of a built-in type, whose static methods scripts cannot redeclare, it is that type's method, the object or value being evaluated first as usual:
 
   ```gdscript
@@ -512,9 +516,22 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
   ```
 
 - When a class's static initialization reads a static member of another class, that class is initialized first.
-- A cycle between static initializations is a program error whose diagnostic lists the dependency chain; cycles that can be determined statically are compile errors. Default or unfinished values are never read. Related GDScript issues: [godotengine/godot#104161](https://github.com/godotengine/godot/issues/104161), [#82141](https://github.com/godotengine/godot/issues/82141), [#104588](https://github.com/godotengine/godot/issues/104588).
+- Static initialization never reads default or unfinished values. Related GDScript issues: [godotengine/godot#104161](https://github.com/godotengine/godot/issues/104161), [#82141](https://github.com/godotengine/godot/issues/82141), [#104588](https://github.com/godotengine/godot/issues/104588):
+  - an initializer that directly reads a static variable its class declares after it is a compile error, as for instance members (§6.1);
+  - a class that, in its own static initialization, functions it calls included, reads or writes a static variable not yet initialized makes a program error;
+  - a class whose static initialization starts that of another class, which then reads or writes the first one's static variables, that is, a cycle between static initializations, makes a program error whose diagnostic lists the dependency chain. Cycles across classes are not checked at compile time: that would need to know what the initialization of other files reads, and such a cycle is reported every time a run loads those classes.
+
+  ```gdscript
+  # a.pet
+  class_name A extends RefCounted
+  static var x := B.y + 1
+  # b.pet
+  class_name B extends RefCounted
+  static var y := A.x + 1  # When A loads first, a program error: A.x's initialization reads B.y, whose initialization reads A.x
+  ```
+
 - Static initialization cannot await.
-- Editing the declaration of a static member is a structural change; hot reload requires a restart (§12.4).
+- Adding or removing a static member, or changing its name, type, visibility or accessors, is a structural change; hot reload requires a restart (§12.4). When only function bodies, initializers of static variables or `_static_init` change, static variables keep their values and static initialization does not run again; GDScript runs static initialization again and then moves the old values back by name (`gdscript.cpp:714-731, 803-807, 882-892`), so the side effects of `_static_init` happen a second time.
 - Rationale: the [corpus counts](surveys/corpus-counts.en.md) have only 188 `static var` and 4 `_static_init`, so contact is rare.
 
 ## 5. Expressions and statements
@@ -1093,6 +1110,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - conditional binding, or narrowing fields without a getter when no call, await or assignment occurs between the check and the use (§5.4);
 - type patterns, match expressions, and binding in comma-separated patterns (§5.6);
 - non-null members assigned after ready (§6.2);
+- static variables without a default value assigned in `_static_init` (§4.8);
 - an always-on assertion (§8.3);
 - reentrancy annotations such as `@restart` (§9.5);
 - destructuring the result of awaiting a signal with several parameters, and Signal types with parameter types (§9.6);
@@ -1126,6 +1144,7 @@ This checklist gives test instances of the rules above and adds no language requ
 | Inner classes | `class Shot:` without `extends` is a RefCounted, and with `extends Area3D` on the first line of its body an Area3D; in an inner class, a constant, a static function and a static variable of the outer class are used by bare name, while an outer member variable is a compile error saying that it has no instance of the outer class; a constant of its base hides an outer one of the same name; `Outer.Inner` without `pub` used in another file is a compile error; `Constants.Match.MAX` through an autoload reads the constant; `get_script()` of its object is the inner class's script, whose `resource_path` is empty; `class_name` in an inner class is a compile error; GDScript reading `Outer.Inner` gets the script |
 | Visibility | Members without `pub` are invisible in other classes, and readable, writable and overridable in subclasses; using a struct without `pub` in another class that is not a subclass is a compile error; changing visibility in an override is a compile error; a type without `pub` in the signature of a `pub` function is a compile error; GDScript referring to a member without `pub` is a GDScript compile error, and so is referring to `pub var hits: Array[Hit]`; `call_deferred("reset")` makes `reset` callable by name from the engine |
 | Members | `var speed = 5.0` is float; empty-container members require an annotation; an int member without an initializer is 0, and a `T?` member is None; a struct member takes its default when every field has one and must otherwise be assigned |
+| Static members | `static var instance: Registry` is a compile error, and `Registry?` is valid; after a subclass writes a static variable of its base, reading it through the base gives the new value; `r.count` through an object reads the static variable; `static var a := b` with b declared later is a compile error; static initializations of A and B that read each other make a program error listing the dependency chain; `_static_init` runs after every initializer, and inner classes are initialized after the class around them; `@export static var` is a compile error; a hot reload that changes only `_static_init` does not run it again, and static variables keep their values; GDScript reads and writes a `pub` static variable through the class |
 | Constants | `const DAY_MS = 24 * 60 * 60 * 1000` is computed at compile time; `const HALF = Vector3.ONE / 2.0` is computed in double in a double-precision build; `const N = 10 / 0` is a compile error at the `/`; `Color("red")` in a constant is a compile error offering `Color.RED`; `const S = "%d" % 3` is a compile error; `const SPEEDS = [1.0, 2.0]` is `Array[float]`, and `SPEEDS.append(3.0)` is a compile error; `@export_range(0, MAX)` is valid; `const K = 100 / roundi(sin(X))` is a compile error; a subclass and a static function use a constant by its bare name, and `self.MAX` is valid; GDScript reading a `pub` constant gets its value |
 | Locals | `func f(n): if c: var n = 1` is a compile error, and so are a `var` and a `for` variable named like a local of an enclosing block, also in a lambda's body; the two branches of an if and else each declaring `var x` are valid, and so is a lambda parameter named like a local of the function around it |
 | Signatures | delta in `func _process(delta):` is a float; an override writing a subtype as its return type is valid, and writing a supertype is a compile error; an override adding a parameter with a default is valid; returning a value from a non-override function with an omitted return type is a compile error; lambda parameters with an expected type need no annotation; with b a Base holding a Sub that declares its own static `label()`, `b.label()` calls Sub's and `Base.label()` Base's; `c.from_hsv(0.5, 1.0, 1.0)` on a Color calls `Color.from_hsv()` |
@@ -1313,6 +1332,15 @@ The following facts are based on Godot 4.7.2-stable (commit `ed1daf0`); paths ar
 | Member initializers bypass setters | `modules/gdscript/gdscript_compiler.cpp:2414-2430, 2603-2626` |
 | Construction does not wait for the return value of `_init`; engine virtuals with return values synchronously read and convert the script result | `modules/gdscript/gdscript.cpp:194`; `core/object/make_virtuals.py:1-10, 173-174` |
 | `_static_init` is called after static members are initialized | `modules/gdscript/gdscript_compiler.cpp:2629-2632` |
+| GDScript initializes the static members of the class around first, then its inner classes in turn | `modules/gdscript/gdscript.cpp:667-683` |
+| GDScript runs static initialization only in a process with scripting enabled, or in tool scripts | `modules/gdscript/gdscript.cpp:803, 882-887` |
+| `_static_init` must be static, take no parameters and return nothing | `modules/gdscript/gdscript_parser.cpp:1751-1757`; `modules/gdscript/gdscript_analyzer.cpp:1841-1850` |
+| Static variables cannot be `@export` or `@onready` | `modules/gdscript/gdscript_parser.cpp:4536-4537, 4665-4666` |
+| In GDScript a static variable of an object type starts as null | `modules/gdscript/gdscript_compiler.cpp:2555-2590` |
+| Without `@static_unload`, a GDScript script with static variables stays in the cache | `modules/gdscript/gdscript_compiler.cpp:3315-3316`; `modules/gdscript/gdscript_cache.cpp:449-453` |
+| GDScript allows access to static variables through an instance | `modules/gdscript/gdscript_analyzer.cpp:4229` |
+| GDScript's scripts and instances read and write static variables by name | `modules/gdscript/gdscript.cpp:973-985, 1022-1043, 1562-1587, 1634-1646` |
+| GDScript's reload that keeps state runs static initialization again, then moves the old static values back by name | `modules/gdscript/gdscript.cpp:714-731, 803-807, 882-892` |
 | `@onready` initializers run before the user's `_ready`, base class first | `modules/gdscript/gdscript.cpp:1937-1953` |
 | Freeing a GDScript instance clears its suspended function states without resuming them | `modules/gdscript/gdscript.cpp:2069-2079` |
 | A GDScript function takes the address of its instance's members when it starts; when the instance is freed while the function runs, the members go with it | `modules/gdscript/gdscript_vm.cpp:751`; `modules/gdscript/gdscript.cpp:2066-2084` |
@@ -1384,3 +1412,6 @@ The following facts are based on Godot 4.7.2-stable (commit `ed1daf0`); paths ar
 | Computing every constant when the class loads | Annotation arguments and enum values would have no value at compile time, and errors such as `10 / 0` would wait until loading | §4.5 |
 | Strings in single or double quotes that span lines, as in GDScript | A missing closing quote would be reported far away; the corpus has 97 such strings, 95 in the tests of one repository | §2.2 |
 | Inner classes resolving, of the classes enclosing them, only constants, enums and inner classes, as GDScript does | GDScript's restriction is a by-product of its lookup; static members need no instance, and Java, C# and Kotlin let nested classes use them by name | §4.1 |
+| Static variables of object types without an initializer starting as None, as in GDScript | A non-null type has no None value; `T?` is written where an empty value is needed | §4.8 |
+| Checking cycles between static initializations of different classes at compile time | It would need to know what the initialization of other files reads; such a cycle is reported every time a run loads those classes | §4.8 |
+| Running static initialization again on hot reload and moving the old values back by name, as GDScript does | The side effects of `_static_init`, such as registrations, would happen a second time; when only function bodies change, a running program only changes the calls that follow (§12.4) | §4.8 |
