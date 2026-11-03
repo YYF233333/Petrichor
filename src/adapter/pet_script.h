@@ -4,6 +4,7 @@
 
 #include <godot_cpp/classes/script_extension.hpp>
 #include <godot_cpp/classes/script_language.hpp>
+#include <godot_cpp/templates/hash_map.hpp>
 #include <godot_cpp/templates/hash_set.hpp>
 
 #include <memory>
@@ -43,18 +44,29 @@ class PetScript : public godot::ScriptExtension {
 	PetHeader header;
 	mutable godot::Ref<PetScript> base_script;
 
+	// An inner class's script (spec §4.1) has no resource path but this one:
+	// its file's followed by "::" and its names.
+	godot::String inner_path;
+	// Those of the inner classes, which take their images with this one's.
+	godot::HashMap<godot::StringName, godot::Ref<PetScript>> inner_scripts;
+
 	mutable std::mutex mutex;
 	mutable godot::HashSet<PetInstance *> instances;
 	mutable godot::HashSet<void *> placeholders;
 
 	void update_placeholder(void *p_placeholder) const;
+	void update_inner_scripts(const std::shared_ptr<const ClassImage> &p_image);
 
 protected:
 	static void _bind_methods();
 	bool _get(const godot::StringName &p_name, godot::Variant &r_value) const;
 
 public:
+	// The path the bytecode names the class by: the resource path, or an inner
+	// class's own.
 	godot::String get_script_path() const;
+	// The script of an inner class by its name; null when there is none.
+	godot::Ref<PetScript> get_inner_script(const godot::StringName &p_name) const;
 	std::shared_ptr<const ClassImage> get_image() const;
 
 	// The source as loaded, with its compiled class.

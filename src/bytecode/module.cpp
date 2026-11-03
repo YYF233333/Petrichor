@@ -486,12 +486,9 @@ public:
 
 } // namespace
 
-std::vector<uint8_t> serialize(const Module &p_module) {
-	Writer w;
-	for (uint8_t byte : MAGIC) {
-		w.u8(byte);
-	}
-	w.u64(FORMAT_ID);
+namespace {
+
+void write_module(Writer &w, const Module &p_module) {
 	w.u64(p_module.source_hash);
 	w.u8(p_module.declarations_only ? 1 : 0);
 	w.u8(p_module.is_abstract ? 1 : 0);
@@ -663,23 +660,20 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 	for (const std::string &id : p_module.interfaces) {
 		w.str(id);
 	}
-	return w.data;
+	w.str(p_module.name);
+	w.u8(p_module.is_pub ? 1 : 0);
+	w.u32(uint32_t(p_module.inner_classes.size()));
+	for (const Module &inner : p_module.inner_classes) {
+		write_module(w, inner);
+	}
 }
 
-bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::string &r_error) {
-	Reader r(p_data, p_size);
-	for (uint8_t byte : MAGIC) {
-		if (r.u8() != byte) {
-			r_error = "not a compiled Petrichor script";
-			return false;
-		}
-	}
-	if (r.u64() != FORMAT_ID) {
-		r_error = "compiled by a build of Petrichor with another bytecode format";
+// False when the data runs out, which the caller reports.
+bool read_module(Reader &r, Module &module, int p_depth) {
+	if (p_depth > 64) {
+		r.failed = true;
 		return false;
 	}
-
-	Module module;
 	module.source_hash = r.u64();
 	module.declarations_only = r.u8() != 0;
 	module.is_abstract = r.u8() != 0;
@@ -854,8 +848,43 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 	for (std::string &id : module.interfaces) {
 		id = r.str();
 	}
+	module.name = r.str();
+	module.is_pub = r.u8() != 0;
+	module.inner_classes.resize(r.count());
+	for (Module &inner : module.inner_classes) {
+		if (!read_module(r, inner, p_depth + 1)) {
+			return false;
+		}
+	}
+	return !r.failed;
+}
 
-	if (r.failed) {
+} // namespace
+
+std::vector<uint8_t> serialize(const Module &p_module) {
+	Writer w;
+	for (uint8_t byte : MAGIC) {
+		w.u8(byte);
+	}
+	w.u64(FORMAT_ID);
+	write_module(w, p_module);
+	return w.data;
+}
+
+bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::string &r_error) {
+	Reader r(p_data, p_size);
+	for (uint8_t byte : MAGIC) {
+		if (r.u8() != byte) {
+			r_error = "not a compiled Petrichor script";
+			return false;
+		}
+	}
+	if (r.u64() != FORMAT_ID) {
+		r_error = "compiled by a build of Petrichor with another bytecode format";
+		return false;
+	}
+	Module module;
+	if (!read_module(r, module, 0)) {
 		r_error = "truncated or corrupt compiled script";
 		return false;
 	}

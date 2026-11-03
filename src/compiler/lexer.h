@@ -30,6 +30,7 @@ enum class TokenKind {
 	As,
 	Assert,
 	Break,
+	Class,
 	ClassName,
 	Const,
 	Continue,

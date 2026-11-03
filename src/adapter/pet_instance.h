@@ -40,6 +40,10 @@ public:
 bool resolve_instance(godot::Object *p_object, ScriptedObject &r_instance);
 // The image of a script of this language, for static methods (runtime/method_callable.h).
 std::shared_ptr<const ClassImage> resolve_script(const godot::String &p_path);
+// The script of an inner class in a script, and the path of a script, for
+// classes named by their paths (runtime/values.h).
+godot::Variant resolve_inner_script(const godot::Variant &p_script, const godot::String &p_name);
+godot::String resolve_script_path(const godot::Ref<godot::Script> &p_script);
 
 // Converts the dictionaries used by Script reflection into the C structures of
 // the script instance interface, and frees them again.

@@ -23,8 +23,10 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - In the editor, GDScript does not see a pub constant whose value is a preload(), such as `Spawner.SCENE`, and reports a parse error: the editor compiles the scripts it loads with declarations only, which read no scenes, so the constant is left out of the image (spec §4.5, §11.3).
 - Constants of the engine class a class extends by their bare name, such as `NOTIFICATION_PREDELETE`, as GDScript has them in scope; now they need the class, `Object.NOTIFICATION_PREDELETE`.
 - `Array[T]?`; `pop_front()` and `pop_back()` of `Array[T?]`, which give `T??`.
-- Enums with payloads, and the names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7); `T.try_from(x)` (spec §5.3); inner classes (spec §2.1).
+- Enums with payloads, and the names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7); `T.try_from(x)` (spec §5.3).
 - Rest parameters `...args: Array[T]` (spec §4.6).
+- Static functions as values: one of a class around an inner class by its bare name, or one of another class as `Class.f`; now they can only be called (spec §3.11, §4.1).
+- Inner classes of two files that extend each other's classes, as `A.X extends B.Y` with `B.Y extends A.Z`: the checker accepts them, but no image can be loaded before the other's, so the editor reports it and the game cannot load the base.
 - A text form of this language's own types, such as `Hit(damage = 3, crit = false)`, for `str()`, `print()` and `%` together; now they read as their encoding (spec §5.1, §10.1).
 - Members that must be assigned and are not exported, and passing them by name to `instantiate(...)` and `new(...)` (spec §6.2, §4.6).
 - Node paths into instanced scenes, and out of a scene from its root: `..` above the root, and `%Name` of a scene that instances it, as Ring's paddle.gd uses `$%HealthIcon` (spec §7.1).
@@ -74,6 +76,7 @@ Engine calls are by name with Variant arguments now, so code that calls the engi
 ## Open questions
 
 - Whether a setter that runs before ready should wait for ready on its own (spec §6.5), or the behavior should be written in the setter: the owner suspects that the implicit suspension makes setters hard to understand. To be discussed again before §6.5 is implemented.
+- Whether an autoload's name stands for its script's class in a type, as GDScript's does (`modules/gdscript/gdscript_analyzer.cpp:806-826`): godot-open-rts writes `var p: Constants.Match.Player` 5 times, `Constants` being an autoload (`docs/surveys/corpus-counts/inner_classes.py`).
 - Whether diagnostics and semantic queries also serve programs, not only the editor's interface: saying which declaration or scene a constraint comes from and listing the references that broke could let AI and tools fix errors while reading less code.
 - Whether the first version (spec §14) narrows: the FPS and Ring scripts of the second paper migration use none of user-defined generics, Result and `?`, enums, weak and the built-in test runner, and suspending setters before ready (spec §6.5) is costly to implement.
 - The long-term boundary of compatibility with GDScript and Godot: which agreements are promises and which merely hold today, which Godot versions are supported, and which semantics may still change during the alpha.

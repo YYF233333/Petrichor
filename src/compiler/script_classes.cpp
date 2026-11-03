@@ -6,30 +6,57 @@
 
 namespace petrichor::compiler {
 
-std::string ScriptClass::name() const {
-	if (!decl.class_name.empty()) {
-		return decl.class_name;
+namespace {
+
+// The inner class of a file's class that the names after its file in
+// `p_path` lead to; the class itself for a file's path.
+const ClassDecl *walk(const ClassDecl *p_decl, const std::string &p_path) {
+	for (size_t at = p_path.find("::"); p_decl && at != std::string::npos;) {
+		const size_t next = p_path.find("::", at + 2);
+		p_decl = p_decl->find_class(p_path.substr(at + 2, next == std::string::npos ? next : next - at - 2));
+		at = next;
 	}
-	const size_t slash = path.find_last_of('/');
-	return path.substr(slash == std::string::npos ? 0 : slash + 1);
+	return p_decl;
 }
 
-Type ScriptClass::type() const {
-	return Type::script_class(name(), path, decl.native_base);
-}
+} // namespace
 
-const InterfaceDecl *ScriptClass::find_interface(const std::string &p_name) const {
-	for (const InterfaceDecl &interface : decl.interfaces) {
-		if (interface.name == p_name) {
-			return &interface;
-		}
-	}
-	return nullptr;
-}
-
-std::string ScriptClasses::base_path(const ClassDecl &p_decl, const std::string &p_path) const {
+std::string ScriptClasses::base_path(const ClassDecl &p_decl, const std::string &p_path) {
 	if (!p_decl.extends_path) {
-		return engine.class_exists(p_decl.extends) || !project ? std::string() : project->global_class_path(p_decl.extends);
+		const size_t dot = p_decl.extends.find('.');
+		const std::string head = p_decl.extends.substr(0, dot);
+		if (dot == std::string::npos && engine.class_exists(head)) {
+			return std::string();
+		}
+		std::string path;
+		// An inner class names the inner classes of the classes around it
+		// (spec §4.1), nearest first.
+		for (std::string scope = p_path; path.empty() && scope.size() > script_file(scope).size();) {
+			scope = scope.substr(0, scope.rfind("::"));
+			const ClassDecl *decl = header(scope);
+			if (decl && decl->find_class(head)) {
+				path = scope + "::" + head;
+			}
+		}
+		// The class of its own file, by its class_name, also before the project
+		// lists the class.
+		const ClassDecl *file = path.empty() ? header(script_file(p_path)) : nullptr;
+		if (file && !file->class_name.empty() && file->class_name == head) {
+			path = script_file(p_path);
+		}
+		if (path.empty() && project) {
+			path = project->global_class_path(head);
+		}
+		if (path.empty()) {
+			return path;
+		}
+		// `Other.Inner`.
+		for (size_t at = dot; at != std::string::npos;) {
+			const size_t next = p_decl.extends.find('.', at + 1);
+			path += "::" + p_decl.extends.substr(at + 1, next == std::string::npos ? next : next - at - 1);
+			at = next;
+		}
+		return path;
 	}
 	std::string path = p_decl.extends;
 	if (path.rfind("res://", 0) != 0) {
@@ -67,22 +94,26 @@ std::string ScriptClasses::native_base(const ClassDecl &p_decl, const std::strin
 			return decl->extends;
 		}
 		path = base_path(*decl, path);
-		const ScriptClass *parent = path.empty() ? nullptr : header(path);
+		const ClassDecl *parent = path.empty() ? nullptr : header(path);
 		if (!parent) {
 			return std::string();
 		}
-		decl = &parent->decl;
+		decl = parent;
 	}
 	return std::string();
 }
 
-const ScriptClass *ScriptClasses::header(const std::string &p_path) {
-	const auto found = scripts.find(p_path);
-	if (found != scripts.end()) {
-		return found->second.get();
+const ClassDecl *ScriptClasses::file_header(const std::string &p_file) {
+	const auto local = checking.find(p_file);
+	if (local != checking.end()) {
+		return local->second.decl;
 	}
-	std::unique_ptr<ScriptClass> &script = scripts[p_path];
-	const std::optional<std::string> source = project ? project->script_source(p_path) : std::nullopt;
+	const auto found = files.find(p_file);
+	if (found != files.end()) {
+		return found->second ? &found->second->decl : nullptr;
+	}
+	std::unique_ptr<File> &file = files[p_file];
+	const std::optional<std::string> source = project ? project->script_source(p_file) : std::nullopt;
 	if (!source) {
 		return nullptr;
 	}
@@ -91,33 +122,56 @@ const ScriptClass *ScriptClasses::header(const std::string &p_path) {
 	if (!errors.empty()) {
 		return nullptr;
 	}
-	script = std::make_unique<ScriptClass>();
-	script->path = p_path;
-	script->decl = std::move(decl);
-	return script.get();
+	file = std::make_unique<File>();
+	file->decl = std::move(decl);
+	return &file->decl;
 }
 
-const ScriptClass *ScriptClasses::declarations(const std::string &p_path, bool p_with_scenes) {
-	ScriptClass *script = const_cast<ScriptClass *>(header(p_path));
-	if (!script || failed.count(p_path) || checking.count(p_path)) {
+const ClassDecl *ScriptClasses::header(const std::string &p_path) {
+	return walk(file_header(script_file(p_path)), p_path);
+}
+
+const ClassDecl *ScriptClasses::declarations(const std::string &p_path, bool p_with_scenes) {
+	const std::string file = script_file(p_path);
+	const auto local = checking.find(file);
+	if (local != checking.end()) {
+		// Null while its declarations are being checked, as when a script it
+		// uses uses it in turn.
+		return local->second.declarations ? local->second.declarations(p_path) : walk(local->second.decl, p_path);
+	}
+	if (!file_header(file) || failed.count(file)) {
 		return nullptr;
 	}
-	if (!script->checked) {
-		checking.insert(p_path);
+	File &entry = *files[file];
+	if (!entry.checked) {
 		CompileOptions options;
-		options.path = p_path;
+		options.path = file;
 		options.project = project;
 		options.declarations_only = declarations_only || !p_with_scenes;
 		std::vector<Diagnostic> errors;
-		check(script->decl, engine, options, errors, *this, false);
-		checking.erase(p_path);
+		check(entry.decl, engine, options, errors, *this, false);
 		if (!errors.empty()) {
-			failed.insert(p_path);
+			failed.insert(file);
 			return nullptr;
 		}
-		script->checked = true;
+		entry.checked = true;
 	}
-	return script;
+	return walk(&entry.decl, p_path);
+}
+
+void ScriptClasses::enter(const std::string &p_file, ClassDecl &r_decl, std::function<const ClassDecl *(const std::string &)> p_declarations) {
+	checking[p_file] = { &r_decl, std::move(p_declarations) };
+}
+
+void ScriptClasses::leave(const std::string &p_file) {
+	// A file read for its declarations is kept with the others; the one being
+	// compiled stays as checked, for what is done with it next.
+	const auto found = files.find(p_file);
+	if (found != files.end() && found->second && &found->second->decl == checking[p_file].decl) {
+		checking.erase(p_file);
+	} else {
+		checking[p_file].declarations = nullptr;
+	}
 }
 
 } // namespace petrichor::compiler

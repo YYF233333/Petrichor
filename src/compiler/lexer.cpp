@@ -44,6 +44,8 @@ const char *token_name(TokenKind p_kind) {
 			return "\"assert\"";
 		case TokenKind::Break:
 			return "\"break\"";
+		case TokenKind::Class:
+			return "\"class\"";
 		case TokenKind::ClassName:
 			return "\"class_name\"";
 		case TokenKind::Const:
@@ -260,6 +262,7 @@ const std::unordered_map<std::string, TokenKind> &keywords() {
 		{ "as", TokenKind::As },
 		{ "assert", TokenKind::Assert },
 		{ "break", TokenKind::Break },
+		{ "class", TokenKind::Class },
 		{ "class_name", TokenKind::ClassName },
 		{ "const", TokenKind::Const },
 		{ "continue", TokenKind::Continue },

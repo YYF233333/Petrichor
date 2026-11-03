@@ -187,6 +187,16 @@ std::shared_ptr<const ClassImage> resolve_script(const String &p_path) {
 	return script.is_valid() ? script->get_image() : nullptr;
 }
 
+Variant resolve_inner_script(const Variant &p_script, const String &p_name) {
+	const Ref<PetScript> script = p_script;
+	return script.is_valid() ? Variant(script->get_inner_script(p_name)) : Variant();
+}
+
+String resolve_script_path(const Ref<Script> &p_script) {
+	const Ref<PetScript> script = p_script;
+	return script.is_valid() ? script->get_script_path() : p_script->get_path();
+}
+
 static PetInstance *self(GDExtensionScriptInstanceDataPtr p_instance) {
 	return static_cast<PetInstance *>(p_instance);
 }

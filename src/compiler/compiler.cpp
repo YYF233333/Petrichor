@@ -23,11 +23,18 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 	});
 	if (result.errors.empty()) {
 		const StructLookup structs = [&](const Type &p_struct) -> const StructDecl * {
-			const ScriptClass *script = classes.declarations(p_struct.script);
-			return script ? script->decl.find_struct(p_struct.interface_name()) : nullptr;
+			const ClassDecl *decl = classes.declarations(p_struct.script);
+			return decl ? decl->find_struct(p_struct.interface_name()) : nullptr;
 		};
 		result.module = lower(cls, p_options.declarations_only, result.errors, structs);
-		result.module.source_hash = bytecode::hash_source(p_source);
+		const uint64_t source_hash = bytecode::hash_source(p_source);
+		const auto hash = [&](bytecode::Module &r_module, const auto &p_self) -> void {
+			r_module.source_hash = source_hash;
+			for (bytecode::Module &inner : r_module.inner_classes) {
+				p_self(inner, p_self);
+			}
+		};
+		hash(result.module, hash);
 	}
 	for (Diagnostic &error : result.errors) {
 		const SourcePosition position = cls.source->position(error.begin);

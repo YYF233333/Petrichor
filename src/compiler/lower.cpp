@@ -1494,6 +1494,13 @@ class Lowerer {
 					instr(Op::GET_AUTOLOAD, result, NO_REG, NO_REG, text_constant(ValueType::StringName, p_expr.text));
 					return result;
 				}
+				if (p_expr.target == Target::ClassScript) {
+					bytecode::ClassRef script; // Only its script matters.
+					script.script = p_expr.owner;
+					const uint32_t result = temp(p_expr.type);
+					instr(Op::GET_SCRIPT, result, NO_REG, NO_REG, class_index(script));
+					return result;
+				}
 				if (p_expr.target == Target::Singleton) {
 					const uint32_t result = temp(p_expr.type);
 					instr(Op::GET_SINGLETON, result, NO_REG, NO_REG, class_index(p_expr.text));
@@ -2327,6 +2334,11 @@ public:
 bytecode::Module lower(const ClassDecl &p_class, bool p_declarations_only, std::vector<Diagnostic> &r_errors, const StructLookup &p_structs) {
 	bytecode::Module module;
 	Lowerer(p_class, module, r_errors, p_structs).run(p_declarations_only);
+	module.name = p_class.name;
+	module.is_pub = p_class.is_pub;
+	for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
+		module.inner_classes.push_back(lower(*inner, p_declarations_only, r_errors, p_structs));
+	}
 	return module;
 }
 

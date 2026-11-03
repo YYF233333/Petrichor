@@ -54,7 +54,7 @@ std::shared_ptr<const ClassImage> load_compiled(const String &p_compiled_path, c
 	}
 	Ref<PetScript> base;
 	if (!module.base_script.empty()) {
-		base = ResourceLoader::get_singleton()->load(to_godot(module.base_script), "Script");
+		base = load_resource(to_godot(module.base_script)); // Also an inner class (spec §4.1).
 		if (base.is_null() || !base->get_image()) {
 			r_error = "Base script could not be loaded. Rebuild the project.";
 			return nullptr;

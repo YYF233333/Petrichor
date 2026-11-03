@@ -424,7 +424,35 @@ Variant PetScript::_new(const Variant **p_args, GDExtensionInt p_argcount, GDExt
 }
 
 String PetScript::get_script_path() const {
-	return get_path();
+	return inner_path.is_empty() ? get_path() : inner_path;
+}
+
+Ref<PetScript> PetScript::get_inner_script(const StringName &p_name) const {
+	std::lock_guard<std::mutex> lock(mutex);
+	const auto found = inner_scripts.find(p_name);
+	return found == inner_scripts.end() ? Ref<PetScript>() : found->value;
+}
+
+// Each inner class's script takes its image (spec §4.1); one that is gone is
+// dropped, and its instances keep it.
+void PetScript::update_inner_scripts(const std::shared_ptr<const ClassImage> &p_image) {
+	if (!p_image) {
+		return;
+	}
+	HashMap<StringName, Ref<PetScript>> next;
+	for (const std::shared_ptr<const ClassImage> &inner : p_image->inner_classes) {
+		const StringName name = to_godot(inner->module.name);
+		Ref<PetScript> script = get_inner_script(name);
+		if (script.is_null()) {
+			script.instantiate();
+			// The image's path: while the file loads, its own is not set yet.
+			script->inner_path = inner->path;
+		}
+		script->set_image(inner);
+		next.insert(name, script);
+	}
+	std::lock_guard<std::mutex> lock(mutex);
+	inner_scripts = next;
 }
 
 std::shared_ptr<const ClassImage> PetScript::get_image() const {
@@ -456,27 +484,57 @@ void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image, cons
 			}
 		}
 	}
+	update_inner_scripts(p_image);
 	if (p_image) {
 		_update_exports();
 	}
 }
 
 namespace {
+// The file of a class's path, which an inner class's continues (spec §4.1).
+String file_of(const String &p_path) {
+	return p_path.get_slice("::", 0);
+}
+
+// Whether the class or one of its inner classes extends a class of the file.
+bool depends_on(const ClassImage &p_image, const String &p_file) {
+	for (auto base = p_image.base; base; base = base->base) {
+		if (file_of(base->path) == p_file) {
+			return true;
+		}
+	}
+	for (const std::shared_ptr<const ClassImage> &inner : p_image.inner_classes) {
+		if (depends_on(*inner, p_file)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// The image again with `p_new` in place of the image of its file wherever it
+// extends one of that file's classes.
 std::shared_ptr<const ClassImage> rebased(const std::shared_ptr<const ClassImage> &p_image, const std::shared_ptr<const ClassImage> &p_new, String &r_error) {
-	if (p_image->path == p_new->path) {
-		return p_new;
+	if (file_of(p_image->path) == p_new->path) {
+		const auto found = p_new->find_class(p_image->path);
+		if (!found) {
+			r_error = p_image->path + String(" is gone.");
+		}
+		return found;
 	}
-	if (!p_image->base) {
+	if (!depends_on(*p_image, p_new->path)) {
 		return p_image;
 	}
-	const auto base = rebased(p_image->base, p_new, r_error);
-	if (!base) {
-		return nullptr;
+	std::shared_ptr<const ClassImage> base;
+	if (p_image->base) {
+		base = rebased(p_image->base, p_new, r_error);
+		if (!base) {
+			return nullptr;
+		}
 	}
-	if (base == p_image->base) {
-		return p_image;
-	}
-	return ClassImage::load(bytecode::Module(p_image->module), p_image->path, r_error, base);
+	return ClassImage::load(bytecode::Module(p_image->module), p_image->path, r_error, base, [&](const String &p_path) {
+		const auto current = script_image(p_path);
+		return current ? rebased(current, p_new, r_error) : nullptr;
+	});
 }
 } //namespace
 
@@ -496,13 +554,11 @@ bool PetScript::apply_image(const std::shared_ptr<const ClassImage> &p_image, co
 	std::vector<std::pair<Ref<PetScript>, std::shared_ptr<const ClassImage>>> updates;
 	String error;
 	for (const Ref<PetScript> &script : live) {
-		const auto old = script->get_image();
-		bool dependent = false;
-		for (auto base = old ? old->base : nullptr; base; base = base->base) {
-			if (base->path == p_image->path) {
-				dependent = true;
-			}
+		if (!script->inner_path.is_empty()) {
+			continue; // It takes its image with its file's.
 		}
+		const auto old = script->get_image();
+		bool dependent = old && depends_on(*old, p_image->path);
 #ifdef TOOLS_ENABLED
 		if (!old && Engine::get_singleton()->is_editor_hint()) {
 			dependent = header_extends(script->header, script->get_script_path(), p_image->path);
@@ -588,7 +644,7 @@ Ref<Script> PetScript::_get_base_script() const {
 	if (!resolving.insert(path).second) {
 		return Ref<Script>();
 	}
-	Ref<PetScript> base = ResourceLoader::get_singleton()->load(path, "Script");
+	Ref<PetScript> base = load_resource(path);
 	resolving.erase(path);
 	if (base.ptr() == this) {
 		return Ref<Script>();
@@ -664,6 +720,9 @@ void PetScript::_set_source_code(const String &p_code) {
 }
 
 Error PetScript::_reload(bool p_keep_state) {
+	if (!inner_path.is_empty()) {
+		return OK; // Its file's script reloads it.
+	}
 	const String path = get_script_path();
 #ifdef TOOLS_ENABLED
 	if (Engine::get_singleton()->is_editor_hint()) {
@@ -885,6 +944,14 @@ Dictionary PetScript::_get_constants() const {
 				constants[name] = value;
 			}
 		}
+		// And the pub inner classes, as GDScript lists its inner classes
+		// (modules/gdscript/gdscript_compiler.cpp:3003).
+		for (const std::shared_ptr<const ClassImage> &inner : current->inner_classes) {
+			const StringName name = to_godot(inner->module.name);
+			if (inner->module.is_pub) {
+				constants[name] = get_inner_script(name);
+			}
+		}
 	}
 	return constants;
 }
@@ -895,7 +962,19 @@ Dictionary PetScript::_get_constants() const {
 // the script instance, which a script has none of (core/object/object.cpp:316-389).
 bool PetScript::_get(const StringName &p_name, Variant &r_value) const {
 	const std::shared_ptr<const ClassImage> current = get_image();
-	return current && pub_constant(*current, p_name, r_value);
+	if (!current) {
+		return false;
+	}
+	if (pub_constant(*current, p_name, r_value)) {
+		return true;
+	}
+	for (const std::shared_ptr<const ClassImage> &inner : current->inner_classes) {
+		if (inner->module.is_pub && to_godot(inner->module.name) == String(p_name)) {
+			r_value = get_inner_script(p_name);
+			return true;
+		}
+	}
+	return false;
 }
 
 TypedArray<StringName> PetScript::_get_members() const {

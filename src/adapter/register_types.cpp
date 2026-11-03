@@ -47,6 +47,7 @@ static void initialize_petrichor(ModuleInitializationLevel p_level) {
 		Engine::get_singleton()->register_script_language(language);
 		set_instance_resolver(resolve_instance);
 		set_script_resolver(resolve_script);
+		set_inner_script_resolvers(resolve_inner_script, resolve_script_path);
 
 		loader.instantiate();
 		ResourceLoader::get_singleton()->add_resource_format_loader(loader);
@@ -74,6 +75,7 @@ static void uninitialize_petrichor(ModuleInitializationLevel p_level) {
 		clear_box_types();
 		set_instance_resolver(nullptr);
 		set_script_resolver(nullptr);
+		set_inner_script_resolvers(nullptr, nullptr);
 		Engine::get_singleton()->unregister_script_language(language);
 		memdelete(language);
 		language = nullptr;

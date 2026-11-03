@@ -11,6 +11,9 @@
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/godot.hpp>
 
+#include <algorithm>
+#include <vector>
+
 using namespace godot;
 
 namespace petrichor {
@@ -43,16 +46,31 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 	if (!bytecode::verify(result.module, problem)) {
 		load_error = "internal compiler error: " + to_godot(problem);
 	} else {
+		// A class of another script, also an inner class (spec §4.1), from its
+		// file compiled as this one is. Inner classes of two files can extend
+		// each other's classes, which no image can be loaded for.
+		thread_local std::vector<String> extending;
+		const ClassImage::BaseLoader compiled = [&](const String &p_class) -> std::shared_ptr<const ClassImage> {
+			const String file = p_class.get_slice("::", 0);
+			if (std::find(extending.begin(), extending.end(), file) != extending.end()) {
+				load_error = "The classes of this script and of " + file + " extend each other's.";
+				return nullptr;
+			}
+			extending.push_back(p_path);
+			const std::shared_ptr<const ClassImage> image = compile_script(file, FileAccess::get_file_as_string(file), nullptr, p_report, p_mode);
+			extending.pop_back();
+			return image ? image->find_class(p_class) : nullptr;
+		};
 		std::shared_ptr<const ClassImage> base;
 		if (!result.module.base_script.empty()) {
 			const String base_path = to_godot(result.module.base_script);
-			base = compile_script(base_path, FileAccess::get_file_as_string(base_path), nullptr, p_report, p_mode);
+			base = compiled(base_path);
 			if (!base) {
 				load_error = "Base script " + base_path + " could not be compiled.";
 			}
 		}
 		if (load_error.is_empty()) {
-			image = ClassImage::load(std::move(result.module), p_path, load_error, base);
+			image = ClassImage::load(std::move(result.module), p_path, load_error, base, compiled);
 		}
 	}
 	if (!image && p_report) {

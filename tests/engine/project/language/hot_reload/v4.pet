@@ -13,3 +13,7 @@ pub signal tick
 pub async func delayed() -> int:
 	await tick
 	return 400 + value()
+
+pub class Part:
+	pub func value() -> int:
+		return 4

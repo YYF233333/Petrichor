@@ -416,6 +416,12 @@ struct Module {
 	std::vector<MethodCall> method_calls;
 	// The interfaces the class implements, as "script::Name" (spec §3.9).
 	std::vector<std::string> interfaces;
+	// An inner class's name in the class whose module holds it, empty for a
+	// file's class; its path is that class's followed by "::" and the name
+	// (spec §2.1, §4.1).
+	std::string name;
+	bool is_pub = false;
+	std::vector<Module> inner_classes;
 };
 
 uint64_t hash_source(const std::string &p_utf8);

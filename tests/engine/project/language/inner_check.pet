@@ -1,0 +1,66 @@
+class_name InnerCheck extends Node
+
+# Inner classes (spec §2.1, §4.1): each a script of its own, using what the
+# class around it declares that needs no instance.
+
+const STEP := 2
+
+
+static func doubled(x: int) -> int:
+	return x * STEP
+
+
+pub class Shot:
+	pub var damage := STEP
+
+	pub static func make(amount: int) -> Shot:
+		var shot := Shot.new()
+		shot.damage = doubled(amount)
+		return shot
+
+	pub func boosted() -> int:
+		return damage + Trail.LENGTH
+
+	pub func failing() -> int:
+		var values := [1]
+		return values[5]
+
+
+class Trail extends Node:
+	const LENGTH := 10
+	pub var label := "trail"
+
+
+pub class Bolt extends Shot:
+	pub func boosted() -> int:
+		return super.boosted() * 2
+
+
+class Copy extends InnerCheck:
+	pub func label() -> String:
+		return "copy"
+
+
+pub func shots() -> Array:
+	var shot := Shot.make(3)
+	var bolt := Bolt.new()
+	return [shot.damage, shot.boosted(), bolt.boosted(), bolt is Shot, shot is Bolt]
+
+
+pub func shot_script() -> Script:
+	return Shot
+
+
+pub func attach(node: Node) -> void:
+	node.set_script(Trail)
+
+
+pub func copy_label() -> String:
+	var copy := Copy.new()
+	var label := copy.label()
+	copy.free()
+	return label
+
+
+pub func failing() -> int:
+	return Shot.new().failing()

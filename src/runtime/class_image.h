@@ -9,6 +9,7 @@
 #include <godot_cpp/variant/string_name.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -105,13 +106,23 @@ public:
 	std::vector<uint32_t> call_signatures;
 	std::vector<uint32_t> function_signatures;
 
+	// The images of the inner classes, in declaration order (spec §4.1), each
+	// at its path: this one's followed by "::" and its name.
+	std::vector<std::shared_ptr<const ClassImage>> inner_classes;
+
 	// Whether a live object is of the class at `p_index`: its engine class,
 	// and its script or the interface it implements.
 	bool fits_class(const godot::Object *p_object, uint32_t p_index) const;
 
+	// The base of an inner class that is not of its file.
+	using BaseLoader = std::function<std::shared_ptr<const ClassImage>(const godot::String &p_path)>;
+
 	// Returns null and sets r_error when the module refers to something this
-	// runtime or this engine cannot provide.
-	static std::shared_ptr<const ClassImage> load(bytecode::Module &&p_module, const godot::String &p_path, godot::String &r_error, const std::shared_ptr<const ClassImage> &p_base = {});
+	// runtime or this engine cannot provide. The images of its inner classes
+	// are loaded with it.
+	static std::shared_ptr<const ClassImage> load(bytecode::Module &&p_module, const godot::String &p_path, godot::String &r_error, const std::shared_ptr<const ClassImage> &p_base = {}, const BaseLoader &p_bases = {});
+	// This class or an inner class of it by its path; null when there is none.
+	std::shared_ptr<const ClassImage> find_class(const godot::String &p_path) const;
 
 	int find_function(const godot::StringName &p_name) const;
 	int find_member(const godot::StringName &p_name) const;
@@ -119,6 +130,9 @@ public:
 	// Whether the two differ only in function bodies, so that instances of
 	// `p_other` can switch to this image (spec §12.4).
 	bool same_declarations(const ClassImage &p_other) const;
+
+private:
+	static std::shared_ptr<ClassImage> load_class(bytecode::Module &&p_module, const godot::String &p_path, godot::String &r_error, const std::shared_ptr<const ClassImage> &p_base);
 };
 
 // The value of a constant of the image's module, computed now, containers

@@ -315,7 +315,7 @@ String PetLanguage::_debug_get_stack_level_function(int32_t p_level) const {
 
 String PetLanguage::_debug_get_stack_level_source(int32_t p_level) const {
 	const StackFrame *frame = frame_at(p_level);
-	return frame ? frame->image->path : String();
+	return frame ? String(frame->image->source) : String();
 }
 
 Dictionary PetLanguage::_debug_get_stack_level_locals(int32_t p_level, int32_t p_max_subitems, int32_t p_max_depth) {

@@ -840,6 +840,15 @@ public:
 					pc += 3;
 					break;
 				}
+				case Op::GET_SCRIPT: {
+					const Variant script = load_resource(image.class_scripts[code[pc + 1]]);
+					if (script.get_type() != Variant::OBJECT || !script.booleanize()) {
+						FAIL(vformat("Cannot load the script of %s.", image.class_scripts[code[pc + 1]]));
+					}
+					set_object(frame + code[pc + 2], script);
+					pc += 3;
+					break;
+				}
 				case Op::GET_OWNER: {
 					// Checked at every read, since code and the engine change the
 					// owner (spec §7.3).
@@ -1897,7 +1906,7 @@ void report_error(const ClassImage &p_image, const char *p_function, int p_line,
 	// The debugger breaks while the stack is still intact (spec §12.5).
 	debugger::error(p_message);
 	const CharString description = p_message.utf8();
-	const CharString file = p_image.path.utf8();
+	const CharString file = String(p_image.source).utf8(); // An inner class's is its file's.
 	godot::gdextension_interface::print_script_error(description.get_data(), p_function, file.get_data(), p_line, true);
 }
 

@@ -60,7 +60,7 @@ public:
 				return true;
 			}
 			const auto *header = classes.header(path);
-			path = header ? classes.base_path(header->decl, path) : std::string();
+			path = header ? classes.base_path(*header, path) : std::string();
 		}
 		return false;
 	}

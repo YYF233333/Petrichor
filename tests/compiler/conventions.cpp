@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <map>
+#include <optional>
 #include <set>
 
 namespace petrichor::tests {
@@ -219,8 +220,9 @@ public:
 	explicit RangeChecker(const SourceFile &p_file) :
 			file(p_file) {}
 
-	void run(const ClassDecl &p_class) {
-		const TokenRange whole{ 0, uint32_t(file.tokens.size() - 1) };
+	// The nodes of a class, within p_within for an inner class.
+	void run(const ClassDecl &p_class, std::optional<TokenRange> p_within = std::nullopt) {
+		const TokenRange whole = p_within ? *p_within : TokenRange{ 0, uint32_t(file.tokens.size() - 1) };
 		int64_t cursor = -1;
 		for (const VarDecl &member : p_class.members) {
 			variable(member, whole, cursor);
@@ -283,6 +285,12 @@ public:
 		for (const ExportGroupDecl &group : p_class.groups) {
 			annotation(group.annotation, whole, cursor);
 		}
+		cursor = -1;
+		for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
+			enter(inner->range, whole, cursor);
+			name(inner->name_token, inner->name, inner->range);
+			run(*inner, inner->range);
+		}
 	}
 };
 
@@ -320,6 +328,10 @@ std::vector<std::pair<int, uint32_t>> statement_starts(const ClassDecl &p_class)
 	std::vector<std::pair<int, uint32_t>> starts;
 	for (const FuncDecl &function : p_class.functions) {
 		statement_starts(function.body, *p_class.source, starts);
+	}
+	for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
+		const std::vector<std::pair<int, uint32_t>> inner_starts = statement_starts(*inner);
+		starts.insert(starts.end(), inner_starts.begin(), inner_starts.end());
 	}
 	return starts;
 }
@@ -443,6 +455,11 @@ public:
 			for (const InterfaceProperty &property : decl.properties) {
 				add(property.name_token, property.name, "property");
 			}
+		}
+		for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
+			add(inner->name_token, inner->name, "class");
+			const ResolvedNames names(*inner, p_file);
+			this->names.insert(this->names.end(), names.names.begin(), names.names.end());
 		}
 	}
 

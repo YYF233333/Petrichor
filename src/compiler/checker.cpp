@@ -139,20 +139,42 @@ std::string simplify_path(const std::string &p_path) {
 	return result;
 }
 
-// A script of this language, by its path.
+// A class of this language, by its path: a script's, or an inner class's,
+// which the tests' unnamed file has too (spec §2.1).
 bool is_script_path(const std::string &p_path) {
-	return p_path.size() > 4 && p_path.compare(p_path.size() - 4, 4, ".pet") == 0;
+	const std::string file = script_file(p_path);
+	return file.empty() ? !p_path.empty() : file.size() > 4 && file.compare(file.size() - 4, 4, ".pet") == 0;
 }
+
+class Checker;
+
+// The classes of one file, each checked by a checker of its own (spec §2.1,
+// §4.1): all are declared before any function body is checked, and they reach
+// each other's declarations here, also while they are being declared.
+struct FileCheck {
+	std::vector<std::unique_ptr<Checker>> checkers; // Each class before its inner classes.
+
+	Checker *find(const std::string &p_path) const;
+};
 
 class Checker : public ClassRelation {
 	ClassDecl &cls;
 	const EngineApi &engine;
-	const CompileOptions &options;
+	const CompileOptions options;
 	std::vector<Diagnostic> &errors;
 	bool check_bodies;
 	ScriptClasses &classes; // The project's other scripts of this language.
 	std::vector<Scene> scenes; // The scenes that use this script.
 	std::vector<Reference> *references; // Recorded for this file only.
+	FileCheck *file = nullptr;
+	Checker *outer_checker = nullptr; // The checker of the class around this one, if any (spec §4.1).
+	enum class State {
+		Unchecked,
+		Declaring,
+		Declared,
+	};
+	State state = State::Unchecked;
+	bool declared = false; // Declared without an error that stops it, so its bodies are checked.
 
 	FuncDecl *function = nullptr;
 	std::vector<std::unordered_map<std::string, int>> scopes;
@@ -296,12 +318,16 @@ class Checker : public ClassRelation {
 
 	// The declarations of a class of this language: this class itself, or
 	// another script's, checked without bodies.
+	// One of this file, while it is being declared too.
 	const ClassDecl *script_decl(const std::string &p_path) const {
 		if (p_path == options.path) {
 			return &cls;
 		}
-		const ScriptClass *script = classes.declarations(p_path);
-		return script ? &script->decl : nullptr;
+		if (Checker *local = file ? file->find(p_path) : nullptr) {
+			local->declare();
+			return local->state == State::Declared && !local->declared ? nullptr : &local->cls;
+		}
+		return classes.declarations(p_path);
 	}
 
 	// The header of a script of this language, this class's or another's as
@@ -310,8 +336,10 @@ class Checker : public ClassRelation {
 		if (p_path == options.path) {
 			return &cls;
 		}
-		const ScriptClass *script = classes.header(p_path);
-		return script ? &script->decl : nullptr;
+		if (const Checker *local = file ? file->find(p_path) : nullptr) {
+			return &local->cls;
+		}
+		return classes.header(p_path);
 	}
 
 	// The type of the objects of a script of this language.
@@ -319,9 +347,192 @@ class Checker : public ClassRelation {
 		return Type::script_class(display_name(p_header, p_path), p_path, classes.native_base(p_header, p_path));
 	}
 
-	// The class name used in messages and types: class_name, or the file's name.
-	static std::string display_name(const ClassDecl &p_decl, const std::string &p_path) {
-		return p_decl.class_name.empty() ? file_name(p_path) : p_decl.class_name;
+	// The class name used in messages and types: class_name, or the file's
+	// name, followed by the names of the inner classes down to it, as
+	// Player.Shot.
+	std::string display_name(const ClassDecl &p_decl, const std::string &p_path) const {
+		const size_t inner = p_path.find("::");
+		if (inner == std::string::npos) {
+			return p_decl.class_name.empty() ? file_name(p_path) : p_decl.class_name;
+		}
+		const std::string file_path = p_path.substr(0, inner);
+		const ClassDecl *file_decl = script_header(file_path);
+		std::string name = file_decl && !file_decl->class_name.empty() ? file_decl->class_name : file_name(file_path);
+		for (size_t at = inner; at != std::string::npos;) {
+			const size_t next = p_path.find("::", at + 2);
+			name += "." + p_path.substr(at + 2, next == std::string::npos ? next : next - at - 2);
+			at = next;
+		}
+		return name;
+	}
+
+	// Whether the class at `p_path` is in this file, which sees what it
+	// declares without pub (spec §4.2).
+	bool in_this_file(const std::string &p_path) const {
+		return script_file(p_path) == script_file(options.path);
+	}
+
+	// Whether code here sees what the class at `p_path` declares without pub:
+	// in its file or a subclass (spec §4.2).
+	bool sees(const std::string &p_path) const {
+		return in_this_file(p_path) || extends_script(options.path, p_path);
+	}
+
+	/* Inner classes (spec §4.1) */
+
+	// The inner class `p_name` that the class at `p_path` declares or inherits;
+	// empty when there is none.
+	std::string inner_class_path(const std::string &p_path, const std::string &p_name) const {
+		std::unordered_set<std::string> seen;
+		for (std::string path = p_path; is_script_path(path) && seen.insert(path).second;) {
+			const ClassDecl *decl = script_header(path);
+			if (!decl) {
+				break;
+			}
+			if (decl->find_class(p_name)) {
+				return path + "::" + p_name;
+			}
+			path = classes.base_path(*decl, path);
+		}
+		return std::string();
+	}
+
+	// Whether this class, a local or the engine class it extends has the name,
+	// which the classes around it then do not give (spec §4.1).
+	bool declares(const std::string &p_name) const {
+		if (visible_local(p_name) || member_index.count(p_name) || constant_index.count(p_name) || function_index.count(p_name) || signal_index.count(p_name) || cls.find_struct(p_name) ||
+				!inner_class_path(options.path, p_name).empty() || engine.find_property(cls.native_base, p_name) || engine.find_method(cls.native_base, p_name) || engine.find_signal(cls.native_base, p_name)) {
+			return true;
+		}
+		for (const InterfaceDecl &interface : cls.interfaces) {
+			if (interface.name == p_name) {
+				return true;
+			}
+		}
+		for (const EnumDecl *decl : cls.all_enums) {
+			if (decl->name == p_name || (decl->name.empty() && decl->find(p_name) >= 0)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// The checker of the nearest class around this one that has a name this
+	// class does not; null when none has it.
+	Checker *class_around(const std::string &p_name) const {
+		if (declares(p_name)) {
+			return nullptr;
+		}
+		for (Checker *around = outer_checker; around; around = around->outer_checker) {
+			if (around->declares(p_name)) {
+				return around;
+			}
+		}
+		return nullptr;
+	}
+
+	// An inner class by its bare name: one this class has, or one a class
+	// around it has; empty for any other name.
+	std::string scope_class(const std::string &p_name) const {
+		const std::string own = inner_class_path(options.path, p_name);
+		if (!own.empty()) {
+			return own;
+		}
+		const Checker *around = class_around(p_name);
+		return around ? inner_class_path(around->path(), p_name) : std::string();
+	}
+
+	// The class of this language that a name or a chain of names such as
+	// `Outer.Inner` names, found as named_class() finds it but referring to
+	// nothing; empty for anything else. The first name of a chain may be an
+	// autoload, an object the class is reached through.
+	std::string class_path_of(const Expr &p_expr, bool p_object = false) {
+		if (p_expr.kind == ExprKind::Member && p_expr.base) {
+			const std::string owner = class_path_of(*p_expr.base, true);
+			return owner.empty() ? owner : inner_class_path(owner, p_expr.text);
+		}
+		if (p_expr.kind == ExprKind::Call && !p_expr.base && p_expr.text == "preload") {
+			const std::string file = preload_file(preload_path(p_expr));
+			return is_script_path(file) ? file : std::string();
+		}
+		if (p_expr.kind != ExprKind::Name || visible_local(p_expr.text) || member_index.count(p_expr.text) || engine.find_property(cls.native_base, p_expr.text)) {
+			return std::string();
+		}
+		if (const ConstPtr alias = class_alias(p_expr.text)) {
+			return is_script_path(alias->script) ? alias->script : std::string();
+		}
+		if (constant_index.count(p_expr.text)) {
+			return std::string();
+		}
+		std::string path = scope_class(p_expr.text);
+		if (path.empty() && !cls.class_name.empty() && p_expr.text == cls.class_name) {
+			path = options.path;
+		}
+		if (path.empty() && options.project) {
+			path = options.project->global_class_path(p_expr.text);
+			if (path.empty() && p_object) {
+				path = options.project->autoload_path(p_expr.text);
+			}
+		}
+		return is_script_path(path) ? path : std::string();
+	}
+
+	// `Outer.Inner` and the like as written, from its first name.
+	static std::string dotted_name(const Expr &p_expr) {
+		return p_expr.kind == ExprKind::Member && p_expr.base ? dotted_name(*p_expr.base) + "." + p_expr.text : p_expr.text;
+	}
+
+	static uint32_t first_name_token(const Expr &p_expr) {
+		return p_expr.kind == ExprKind::Member && p_expr.base ? first_name_token(*p_expr.base) : p_expr.name_token;
+	}
+
+	// An inner class as a value: its script, which has no path of its own to
+	// preload (spec §2.1, §4.1).
+	Type class_value(Expr &r_expr, const std::string &p_path) {
+		const ClassDecl *header = script_header(p_path);
+		if (!header) {
+			return fail(r_expr, p_path + " cannot be read.");
+		}
+		refer(r_expr.name_token, script_id(p_path));
+		if (!header->is_pub && !sees(p_path.substr(0, p_path.rfind("::")))) {
+			return fail(r_expr, display_name(*header, p_path) + " is not pub (spec §4.2).");
+		}
+		r_expr.target = Target::ClassScript;
+		r_expr.owner = p_path;
+		return set(r_expr, script_value_type(script_file(p_path)));
+	}
+
+	// A name of the class around this one, `r_around`, as a value: what needs
+	// no instance (spec §4.1).
+	Type value_around(Expr &r_expr, Checker &r_around) {
+		const std::string &name = r_expr.text;
+		if (const auto value = r_around.bare_enum_value(name)) {
+			return use_enum_value(r_expr, *value->first, value->second);
+		}
+		if (const ConstDecl *constant = r_around.own_constant(name)) {
+			return use_constant(r_expr, *constant, declaring(r_around.cls, *constant, &ClassDecl::constants).path);
+		}
+		if (const EnumDecl *decl = r_around.own_enum(name)) {
+			return use_enum_dictionary(r_expr, *decl);
+		}
+		const std::string inner = inner_class_path(r_around.path(), name);
+		if (!inner.empty()) {
+			return class_value(r_expr, inner);
+		}
+		const auto function = r_around.function_index.find(name);
+		if (function != r_around.function_index.end() && r_around.cls.all_functions[function->second]->is_static) {
+			refer(r_expr.name_token, script_id(declaring(r_around.cls, *r_around.cls.all_functions[function->second], &ClassDecl::functions).path, name));
+			return fail(r_expr, "A static function as a value is not supported yet; call \"" + name + "()\".");
+		}
+		if (r_around.member_index.count(name) || r_around.signal_index.count(name) || function != r_around.function_index.end() || engine.find_property(r_around.cls.native_base, name) ||
+				engine.find_method(r_around.cls.native_base, name) || engine.find_signal(r_around.cls.native_base, name)) {
+			return fail(r_expr, no_instance(name, r_around));
+		}
+		return fail(r_expr, "\"" + name + "\" is a type, not a value.");
+	}
+
+	std::string no_instance(const std::string &p_name, const Checker &p_around) const {
+		return "\"" + p_name + "\" belongs to an object of " + display_name(p_around.cls, p_around.path()) + ", which " + display_name(cls, options.path) + " does not have: an inner class has no object of the class around it (spec §4.1).";
 	}
 
 	static std::string file_name(const std::string &p_path) {
@@ -481,8 +692,15 @@ class Checker : public ClassRelation {
 	// A class of this language named by its class_name, or an interface or a
 	// struct in one, such as Combat.Damageable; nullopt if the name is not one.
 	std::optional<Type> script_type(const TypeRef &p_ref) {
-		const size_t dot = p_ref.name.find('.');
-		const std::string head = p_ref.name.substr(0, dot);
+		std::vector<std::string> names;
+		for (size_t at = 0; at <= p_ref.name.size();) {
+			const size_t dot = p_ref.name.find('.', at);
+			names.push_back(p_ref.name.substr(at, dot == std::string::npos ? dot : dot - at));
+			at = dot == std::string::npos ? p_ref.name.size() + 1 : dot + 1;
+		}
+		const std::string &head = names[0];
+		// The token of each name of `Outer.Inner.Hit`.
+		const auto token = [&](size_t p_index) { return p_ref.name_token == NO_TOKEN ? NO_TOKEN : p_ref.name_token + uint32_t(2 * p_index); };
 		std::string path;
 		const ConstPtr alias = class_alias(head);
 		if (alias) {
@@ -491,31 +709,20 @@ class Checker : public ClassRelation {
 				return alias->script_class; // Not known while only the declarations are checked.
 			}
 			path = alias->script;
+		} else if (!(path = scope_class(head)).empty()) {
 		} else if (!cls.class_name.empty() && head == cls.class_name) {
 			path = options.path;
 		} else if (options.project) {
 			path = options.project->global_class_path(head);
 		}
 		if (path.empty()) {
-			// An interface or a struct of this class, by its own name.
-			if (dot == std::string::npos) {
-				if (const EnumDecl *aliased = constant_index.count(p_ref.name) ? aliased_enum(p_ref.name) : nullptr) {
-					refer(p_ref.name_token, alias_id(p_ref.name));
-					return aliased->type;
+			// A type of this class or of one around it, by its own name.
+			if (names.size() == 1) {
+				if (const std::optional<Type> own = own_type(p_ref.name, p_ref.name_token)) {
+					return own;
 				}
-				for (const InterfaceDecl &interface : cls.interfaces) {
-					if (interface.name == p_ref.name) {
-						refer(p_ref.name_token, script_id(options.path, interface.name));
-						return Type::interface(display_name(cls, options.path) + "." + interface.name, options.path);
-					}
-				}
-				if (cls.find_struct(p_ref.name)) {
-					refer(p_ref.name_token, script_id(options.path, p_ref.name));
-					return Type::structure(display_name(cls, options.path) + "." + p_ref.name, options.path);
-				}
-				if (const EnumDecl *decl = p_ref.name.empty() ? nullptr : cls.find_enum(p_ref.name)) {
-					refer(p_ref.name_token, script_id(decl->script, decl->name));
-					return decl->type;
+				if (Checker *around = class_around(p_ref.name)) {
+					return around->own_type(p_ref.name, p_ref.name_token);
 				}
 			}
 			return std::nullopt;
@@ -523,6 +730,7 @@ class Checker : public ClassRelation {
 		if (!alias) {
 			refer(p_ref.name_token, is_script_path(path) ? script_id(path) : foreign_id(path, std::string()));
 		}
+		const size_t dot = p_ref.name.find('.');
 		if (!is_script_path(path)) {
 			if (dot != std::string::npos) {
 				error(p_ref.range, head + " is a class of another language, which has no interfaces.");
@@ -543,44 +751,90 @@ class Checker : public ClassRelation {
 			error(p_ref.range, head + " (" + path + ") cannot be read.");
 			return Type::of(TypeKind::Error);
 		}
-		if (dot == std::string::npos) {
+		// The inner classes down to the last name (spec §4.1).
+		for (size_t i = 1; i < names.size(); i++) {
+			const std::string inner = inner_class_path(path, names[i]);
+			if (inner.empty()) {
+				if (i + 1 < names.size()) {
+					error(p_ref.range, display_name(*header, path) + " declares no class \"" + names[i] + "\".");
+					return Type::of(TypeKind::Error);
+				}
+				break;
+			}
+			path = inner;
+			header = script_header(path);
+			refer(token(i), script_id(path));
+			if (!header->is_pub && !sees(path.substr(0, path.rfind("::")))) {
+				error(p_ref.range, p_ref.name + " is not pub (spec §4.2).");
+				return Type::of(TypeKind::Error);
+			}
+			if (i + 1 == names.size()) {
+				return script_class_type(*header, path);
+			}
+		}
+		if (names.size() == 1) {
 			return script_class_type(*header, path);
 		}
-		const std::string inner = p_ref.name.substr(dot + 1);
+		const std::string &inner = names.back();
+		const uint32_t at = token(names.size() - 1);
 		for (const InterfaceDecl &interface : header->interfaces) {
 			if (interface.name == inner) {
-				if (!interface.is_pub && path != options.path) {
+				if (!interface.is_pub && !in_this_file(path)) {
 					error(p_ref.range, p_ref.name + " is not pub (spec §4.2).");
 					return Type::of(TypeKind::Error);
 				}
-				refer(p_ref.name_token == NO_TOKEN ? NO_TOKEN : p_ref.name_token + 2, script_id(path, inner));
+				refer(at, script_id(path, inner));
 				return Type::interface(display_name(*header, path) + "." + inner, path);
 			}
 		}
 		if (const StructDecl *found = header->find_struct(inner)) {
-			if (!found->is_pub && path != options.path) {
+			if (!found->is_pub && !in_this_file(path)) {
 				error(p_ref.range, p_ref.name + " is not pub (spec §4.2).");
 				return Type::of(TypeKind::Error);
 			}
-			refer(p_ref.name_token == NO_TOKEN ? NO_TOKEN : p_ref.name_token + 2, script_id(path, inner));
+			refer(at, script_id(path, inner));
 			return Type::structure(display_name(*header, path) + "." + inner, path);
 		}
 		if (std::any_of(header->enums.begin(), header->enums.end(), [&](const EnumDecl &p_enum) { return p_enum.name == inner; })) {
 			const ClassDecl *checked = path == options.path ? &cls : script_decl(path);
 			const EnumDecl *found = checked ? checked->find_enum(inner) : nullptr;
 			if (!found) {
-				error(p_ref.range, head + " (" + path + ") has errors.");
+				error(p_ref.range, display_name(*header, path) + " (" + path + ") has errors.");
 				return Type::of(TypeKind::Error);
 			}
-			if (!found->is_pub && path != options.path && !extends_script(options.path, path)) {
+			if (!found->is_pub && !sees(path)) {
 				error(p_ref.range, p_ref.name + " is not pub (spec §4.2).");
 				return Type::of(TypeKind::Error);
 			}
-			refer(p_ref.name_token == NO_TOKEN ? NO_TOKEN : p_ref.name_token + 2, script_id(found->script, inner));
+			refer(at, script_id(found->script, inner));
 			return found->type;
 		}
-		error(p_ref.range, head + " declares no interface, struct or enum \"" + inner + "\".");
+		error(p_ref.range, display_name(*header, path) + " declares no class, interface, struct or enum \"" + inner + "\".");
 		return Type::of(TypeKind::Error);
+	}
+
+	// A type this class declares, by its bare name: an interface, a struct or
+	// an enum, or an enum that a constant names.
+	std::optional<Type> own_type(const std::string &p_name, uint32_t p_token) {
+		if (const EnumDecl *aliased = constant_index.count(p_name) ? aliased_enum(p_name) : nullptr) {
+			refer(p_token, alias_id(p_name));
+			return aliased->type;
+		}
+		for (const InterfaceDecl &interface : cls.interfaces) {
+			if (interface.name == p_name) {
+				refer(p_token, script_id(options.path, interface.name));
+				return Type::interface(display_name(cls, options.path) + "." + interface.name, options.path);
+			}
+		}
+		if (cls.find_struct(p_name)) {
+			refer(p_token, script_id(options.path, p_name));
+			return Type::structure(display_name(cls, options.path) + "." + p_name, options.path);
+		}
+		if (const EnumDecl *decl = p_name.empty() ? nullptr : cls.find_enum(p_name)) {
+			refer(p_token, script_id(decl->script, decl->name));
+			return decl->type;
+		}
+		return std::nullopt;
 	}
 
 	// The declaration of a struct, with its fields checked; null when its
@@ -1191,7 +1445,7 @@ class Checker : public ClassRelation {
 				}
 				return aliased;
 			}
-			const EnumDecl *decl = own_enum(r_base.text);
+			const EnumDecl *decl = scope_enum(r_base.text);
 			if (decl) {
 				refer(r_base.name_token, script_id(decl->script, decl->name));
 			}
@@ -1209,9 +1463,12 @@ class Checker : public ClassRelation {
 		if (!found) {
 			return nullptr;
 		}
-		if (named->script == options.path) {
-			found = own_enum(r_base.text);
-		} else if (!found->is_pub && !extends_script(options.path, named->script)) {
+		if (Checker *local = file->find(named->script)) {
+			// Checked when first used, also while that class is declared.
+			if (const EnumDecl *checked = local->own_enum(r_base.text)) {
+				found = checked;
+			}
+		} else if (!found->is_pub && !sees(named->script)) {
 			error(r_base.range, "The enum " + named->name + "." + found->name + " is not pub.");
 		}
 		refer(r_base.name_token, script_id(found->script, found->name));
@@ -1233,24 +1490,32 @@ class Checker : public ClassRelation {
 	// Whether `Class.Name` names an enum of a class of this language, found
 	// as named_class() finds the class, without referring to anything yet.
 	bool names_enum_of_class(const Expr &p_class, const std::string &p_name) {
-		if (p_class.kind != ExprKind::Name || visible_local(p_class.text) || member_index.count(p_class.text) || engine.find_property(cls.native_base, p_class.text)) {
+		if (p_class.kind != ExprKind::Name && p_class.kind != ExprKind::Member) {
 			return false;
 		}
-		std::string path;
-		if (const ConstPtr alias = class_alias(p_class.text)) {
-			path = alias->script;
-		} else if (constant_index.count(p_class.text)) {
-			return false;
-		} else if (!cls.class_name.empty() && p_class.text == cls.class_name) {
-			path = options.path;
-		} else if (options.project) {
-			path = options.project->global_class_path(p_class.text);
+		// Declared or inherited, as the headers say.
+		std::unordered_set<std::string> seen;
+		for (std::string path = class_path_of(p_class); is_script_path(path) && seen.insert(path).second;) {
+			const ClassDecl *decl = script_header(path);
+			if (!decl) {
+				return false;
+			}
+			if (std::any_of(decl->enums.begin(), decl->enums.end(), [&](const EnumDecl &p_enum) { return p_enum.name == p_name; })) {
+				return true;
+			}
+			path = classes.base_path(*decl, path);
 		}
-		if (!is_script_path(path)) {
-			return false;
+		return false;
+	}
+
+	// A named enum by its bare name: one this class has, checked, or one a
+	// class around it has (spec §4.1).
+	const EnumDecl *scope_enum(const std::string &p_name) {
+		if (const EnumDecl *own = own_enum(p_name)) {
+			return own;
 		}
-		const ClassDecl *decl = path == options.path ? &cls : script_header(path);
-		return decl && (decl->find_enum(p_name) || std::any_of(decl->enums.begin(), decl->enums.end(), [&](const EnumDecl &p_enum) { return p_enum.name == p_name; }));
+		Checker *around = class_around(p_name);
+		return around ? around->own_enum(p_name) : nullptr;
 	}
 
 	// An enum of the engine by the name code writes: a global one, such as
@@ -1282,13 +1547,13 @@ class Checker : public ClassRelation {
 				}
 				return aliased;
 			}
-			const EnumDecl *decl = own_enum(r_call.text);
+			const EnumDecl *decl = scope_enum(r_call.text);
 			if (decl) {
 				refer(r_call.name_token, script_id(decl->script, decl->name));
 			}
 			return decl;
 		}
-		if (r_call.base->kind != ExprKind::Name || !names_enum_of_class(*r_call.base, r_call.text)) {
+		if (!names_enum_of_class(*r_call.base, r_call.text)) {
 			return nullptr;
 		}
 		Expr type;
@@ -1383,8 +1648,19 @@ class Checker : public ClassRelation {
 		if (const LocalInfo *local = visible_local(p_name)) {
 			return local->constant && !local->constant->script.empty() ? local->constant : nullptr;
 		}
-		const ConstDecl *decl = own_constant(p_name);
+		const ConstDecl *decl = alias_decl(p_name).first;
 		return decl && decl->value && !decl->value->script.empty() ? decl->value : nullptr;
+	}
+
+	// A constant of this class or of one around it (spec §4.1), and the class
+	// it is reached in.
+	std::pair<const ConstDecl *, const ClassDecl *> alias_decl(const std::string &p_name) {
+		if (const ConstDecl *decl = own_constant(p_name)) {
+			return { decl, &cls };
+		}
+		Checker *around = constant_index.count(p_name) ? nullptr : class_around(p_name);
+		const ConstDecl *decl = around ? around->own_constant(p_name) : nullptr;
+		return { decl, decl ? &around->cls : nullptr };
 	}
 
 	// The constant that the name of a class alias refers to.
@@ -1392,8 +1668,8 @@ class Checker : public ClassRelation {
 		if (const LocalInfo *local = visible_local(p_name)) {
 			return local_id(local->token);
 		}
-		const ConstDecl &decl = *own_constant(p_name);
-		return script_id(declaring(cls, decl, &ClassDecl::constants).path, decl.name);
+		const auto [decl, owner] = alias_decl(p_name);
+		return script_id(declaring(*owner, *decl, &ClassDecl::constants).path, decl->name);
 	}
 
 	// The class that the base of `Base.x` or `Base.f()` names, of this
@@ -1408,6 +1684,24 @@ class Checker : public ClassRelation {
 			check_value(r_base);
 			return r_base.constant ? r_base.constant->script_class : Type::of(TypeKind::Error);
 		}
+		if (r_base.kind == ExprKind::Member && r_base.base) {
+			// `Outer.Inner`, through the class or an object of it, which is not
+			// evaluated (spec §4.1).
+			const std::string path = class_path_of(r_base);
+			if (path.empty()) {
+				return std::nullopt;
+			}
+			if (!named_class(*r_base.base)) {
+				check_value(*r_base.base);
+			}
+			const ClassDecl *header = script_header(path);
+			refer(r_base.name_token, script_id(path));
+			if (!header->is_pub && !sees(path.substr(0, path.rfind("::")))) {
+				error(r_base.range, display_name(*header, path) + " is not pub (spec §4.2).");
+				return Type::of(TypeKind::Error);
+			}
+			return script_class_type(*header, path);
+		}
 		if (r_base.kind != ExprKind::Name) {
 			return std::nullopt;
 		}
@@ -1417,6 +1711,12 @@ class Checker : public ClassRelation {
 		}
 		if (visible_local(r_base.text) || member_index.count(r_base.text) || constant_index.count(r_base.text) || engine.find_property(cls.native_base, r_base.text)) {
 			return std::nullopt;
+		}
+		// An inner class of this class or of one around it (spec §4.1).
+		const std::string inner = scope_class(r_base.text);
+		if (!inner.empty()) {
+			refer(r_base.name_token, script_id(inner));
+			return script_class_type(*script_header(inner), inner);
 		}
 		const bool own = !cls.class_name.empty() && r_base.text == cls.class_name;
 		const std::string path = own ? options.path : (options.project ? options.project->global_class_path(r_base.text) : std::string());
@@ -1461,7 +1761,7 @@ class Checker : public ClassRelation {
 			if (constant->name != r_expr.text) {
 				continue;
 			}
-			if (!constant->is_pub && !extends_script(options.path, p_path)) {
+			if (!constant->is_pub && !sees(p_path)) {
 				return fail(r_expr, "The constant \"" + constant->name + "\" of " + p_class + " is not pub.");
 			}
 			return use_constant(r_expr, *constant, declaring(*decl, *constant, &ClassDecl::constants).path);
@@ -1472,7 +1772,7 @@ class Checker : public ClassRelation {
 			if (index < 0) {
 				continue;
 			}
-			if (!entry->is_pub && !extends_script(options.path, p_path)) {
+			if (!entry->is_pub && !sees(p_path)) {
 				return fail(r_expr, "The constant \"" + r_expr.text + "\" of " + p_class + " is not pub.");
 			}
 			return use_enum_value(r_expr, *entry, index);
@@ -1597,6 +1897,13 @@ class Checker : public ClassRelation {
 		if (const std::optional<Type> found = check_self_name(r_expr)) {
 			return *found;
 		}
+		const std::string inner = inner_class_path(options.path, r_expr.text);
+		if (!inner.empty()) {
+			return class_value(r_expr, inner);
+		}
+		if (Checker *around = class_around(r_expr.text)) {
+			return value_around(r_expr, *around);
+		}
 		if (engine.is_singleton(r_expr.text)) {
 			r_expr.target = Target::Singleton;
 			refer(r_expr.name_token, engine_id(r_expr.text));
@@ -1663,6 +1970,11 @@ class Checker : public ClassRelation {
 		if (const std::optional<Type> constant = class_constant(r_expr, p_class.script, p_class.name)) {
 			return constant;
 		}
+		// An inner class, reached through an object as constants are (spec §4.1).
+		const std::string inner = inner_class_path(p_class.script, r_expr.text);
+		if (!inner.empty()) {
+			return class_value(r_expr, inner);
+		}
 		for (const VarDecl *entry : decl->all_members) {
 			const VarDecl &member = *entry;
 			if (member.name != r_expr.text) {
@@ -1688,7 +2000,7 @@ class Checker : public ClassRelation {
 			}
 			// A signal is reached by name like a method, and the engine knows
 			// every signal a class declares, so only other classes are refused.
-			if (!signal.is_pub && p_class.script != options.path) {
+			if (!signal.is_pub && !in_this_file(p_class.script)) {
 				return fail(r_expr, not_pub(p_class, "The signal \"" + signal.name + "\""));
 			}
 			r_expr.target = Target::ObjectSignal;
@@ -1823,6 +2135,10 @@ class Checker : public ClassRelation {
 			if (const std::optional<Type> constant = class_constant(r_expr, named->script, named->name)) {
 				return *constant;
 			}
+			const std::string inner = inner_class_path(named->script, r_expr.text);
+			if (!inner.empty()) {
+				return class_value(r_expr, inner);
+			}
 			return fail(r_expr, named->name + " has no constant \"" + r_expr.text + "\".");
 		}
 		if (names_type(base)) {
@@ -1842,6 +2158,15 @@ class Checker : public ClassRelation {
 		const Type base_type = check_value(base);
 		if (base_type.is_error()) {
 			return set(r_expr, base_type);
+		}
+		if (base.target == Target::ClassScript) {
+			// An inner class reached through an object (spec §4.1).
+			const std::string class_name = display_name(*script_header(base.owner), base.owner);
+			if (const std::optional<Type> constant = class_constant(r_expr, base.owner, class_name)) {
+				return *constant;
+			}
+			const std::string inner = inner_class_path(base.owner, r_expr.text);
+			return inner.empty() ? fail(r_expr, class_name + " has no constant \"" + r_expr.text + "\".") : class_value(r_expr, inner);
 		}
 		if (base_type.is_optional()) {
 			return fail(r_expr, "The value may be None (" + base_type.to_string() + "); check it before reading \"" + r_expr.text + "\".");
@@ -3635,30 +3960,26 @@ class Checker : public ClassRelation {
 		ref.range = p_call.range;
 		ref.name_token = p_call.name_token;
 		if (!p_call.base) {
-			if (!cls.find_struct(p_call.text) || function_index.count(p_call.text)) {
+			if (function_index.count(p_call.text)) {
 				return std::nullopt;
+			}
+			if (!cls.find_struct(p_call.text)) {
+				// One of a class around this one (spec §4.1).
+				const Checker *around = class_around(p_call.text);
+				if (!around || !around->cls.find_struct(p_call.text)) {
+					return std::nullopt;
+				}
 			}
 			ref.name = p_call.text;
 		} else {
 			const Expr &base = *p_call.base;
-			if (base.kind != ExprKind::Name || member_index.count(base.text)) {
-				return std::nullopt;
-			}
-			const ConstPtr alias = class_alias(base.text);
-			if (!alias && (visible_local(base.text) || constant_index.count(base.text))) {
-				return std::nullopt;
-			}
-			ref.name_token = base.name_token; // The struct's name two tokens on.
-			std::string path = alias ? alias->script : std::string();
-			if (!alias) {
-				const bool own = !cls.class_name.empty() && base.text == cls.class_name;
-				path = own ? options.path : (options.project ? options.project->global_class_path(base.text) : std::string());
-			}
-			const ClassDecl *header = is_script_path(path) ? script_header(path) : nullptr;
+			const std::string path = class_path_of(base);
+			const ClassDecl *header = path.empty() ? nullptr : script_header(path);
 			if (!header || !header->find_struct(p_call.text)) {
 				return std::nullopt;
 			}
-			ref.name = base.text + "." + p_call.text;
+			ref.name_token = first_name_token(base); // Each name two tokens after the one before.
+			ref.name = dotted_name(base) + "." + p_call.text;
 		}
 		return script_type(ref);
 	}
@@ -3753,7 +4074,7 @@ class Checker : public ClassRelation {
 		if (!callee.is_static) {
 			return fail_call(r_expr, "\"" + callee.name + "()\" of " + class_name + " is not static; call it on an object.");
 		}
-		if (!callee.is_pub && !extends_script(options.path, p_path)) {
+		if (!callee.is_pub && !sees(p_path)) {
 			return fail_call(r_expr, "\"" + callee.name + "()\" of " + class_name + " is not pub.");
 		}
 		check_arguments(r_expr, param_types(callee.params), required_params(callee), false);
@@ -3923,6 +4244,9 @@ class Checker : public ClassRelation {
 			if (base_type.is_error()) {
 				return fail_call(r_expr);
 			}
+			if (base.target == Target::ClassScript) {
+				return check_class_call(r_expr, base.owner); // An inner class reached through an object (spec §4.1).
+			}
 			if (base_type.kind == TypeKind::Task && !base_type.nullable && (name == "cancel" || name == "detach")) {
 				check_arguments(r_expr, {}, 0, false);
 				r_expr.target = name == "cancel" ? Target::TaskCancel : Target::TaskDetach;
@@ -4014,6 +4338,17 @@ class Checker : public ClassRelation {
 			}
 			r_expr.base = nullptr; // `self.f()` is `f()`.
 			return check_engine_call(r_expr, *method);
+		}
+
+		// A static function of a class around this one (spec §4.1).
+		if (Checker *around = r_expr.base ? nullptr : class_around(name)) {
+			const auto found = around->function_index.find(name);
+			if (found != around->function_index.end() && around->cls.all_functions[found->second]->is_static) {
+				return check_class_call(r_expr, around->path());
+			}
+			if (found != around->function_index.end() || around->member_index.count(name) || engine.find_method(around->cls.native_base, name)) {
+				return fail_call(r_expr, no_instance(name + "()", *around));
+			}
 		}
 
 		if (!r_expr.base) {
@@ -5960,17 +6295,103 @@ class Checker : public ClassRelation {
 		scopes.clear();
 	}
 
+	// The names of the inner classes (spec §4.1), each once among the class's
+	// declarations, and none a type's or a global class's.
+	void declare_classes() {
+		std::unordered_set<std::string> names;
+		for (const InterfaceDecl &interface : cls.interfaces) {
+			names.insert(interface.name);
+		}
+		for (const StructDecl &decl : cls.structs) {
+			names.insert(decl.name);
+		}
+		for (const EnumDecl &decl : cls.enums) {
+			names.insert(decl.name);
+		}
+		for (const std::unique_ptr<ClassDecl> &inner : cls.classes) {
+			const std::string &name = inner->name;
+			if (!names.insert(name).second || constant_index.count(name) || member_index.count(name) || function_index.count(name) || signal_index.count(name) || is_type_name(name) ||
+					(options.project && !options.project->global_class_path(name).empty())) {
+				error(inner->name_token, "\"" + name + "\" is already declared.");
+			}
+		}
+	}
+
+	// Every function's name, before any type is resolved, which may need a
+	// class of this file that uses them (spec §4.1).
+	void declare_functions() {
+		std::unordered_set<std::string> own_functions;
+		for (FuncDecl &fn : cls.functions) {
+			if (!own_functions.insert(fn.name).second || member_index.count(fn.name) || constant_index.count(fn.name) || signal_index.count(fn.name)) {
+				error(fn.name_token, "\"" + fn.name + "\" is already declared.");
+				continue;
+			}
+			const auto found = function_index.find(fn.name);
+			if (found == function_index.end()) {
+				function_index[fn.name] = int(cls.all_functions.size());
+				cls.all_functions.push_back(&fn);
+			} else {
+				cls.all_functions[found->second] = &fn;
+			}
+		}
+	}
+
+	// Whether the function is the one its name was declared for.
+	bool is_declared(const FuncDecl &p_function) const {
+		const auto found = function_index.find(p_function.name);
+		return found != function_index.end() && cls.all_functions[found->second] == &p_function;
+	}
+
 public:
 	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references) :
 			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), check_bodies(p_check_bodies), classes(r_classes), references(r_references) {}
 
-	void run() {
+	void attach(FileCheck &r_file, Checker *p_outer) {
+		file = &r_file;
+		outer_checker = p_outer;
+	}
+
+	const std::string &path() const { return options.path; }
+	const ClassDecl &decl() const { return cls; }
+	bool is_declared_class() const { return state == State::Declared && declared; }
+
+	// The class's declarations, once; when another class of this file needs
+	// them first, then.
+	void declare() {
+		if (state != State::Unchecked) {
+			return;
+		}
+		state = State::Declaring;
+		declared = declare_class();
+		state = State::Declared;
+	}
+
+	void check_function_bodies() {
+		if (!declared) {
+			return;
+		}
+		for (FuncDecl &fn : cls.functions) {
+			if (is_declared(fn)) {
+				check_body(fn);
+			}
+		}
+	}
+
+private:
+	bool declare_class() {
 		cls.path = options.path;
 		cls.native_base = classes.native_base(cls, options.path);
 		cls.base_script = classes.base_path(cls, options.path);
-		refer(cls.class_name_token, script_id(options.path), true);
-		if (!cls.extends_path) {
-			refer(cls.extends_token, cls.base_script.empty() ? engine_id(cls.extends) : (is_script_path(cls.base_script) ? script_id(cls.base_script) : foreign_id(cls.base_script, std::string())));
+		refer(cls.name.empty() ? cls.class_name_token : cls.name_token, script_id(options.path), true);
+		if (!cls.extends_path && is_script_path(cls.base_script)) {
+			// Each name of `Other.Inner` refers to its class (spec §4.1).
+			std::string path = cls.base_script;
+			for (size_t i = size_t(std::count(cls.extends.begin(), cls.extends.end(), '.')) + 1; i-- > 0 && cls.extends_token != NO_TOKEN;) {
+				refer(cls.extends_token + uint32_t(2 * i), script_id(path));
+				path = path.substr(0, path.rfind("::"));
+			}
+		} else if (!cls.extends_path) {
+			refer(cls.extends_token, cls.base_script.empty() ? engine_id(cls.extends) : foreign_id(cls.base_script, std::string()));
 		} else if (cls.extends_token < cls.source->tokens.size()) {
 			const Token &token = cls.source->tokens[cls.extends_token];
 			if (token.length == cls.extends.size() + 2) {
@@ -5980,26 +6401,36 @@ public:
 		if (!cls.base_script.empty()) {
 			if (!is_script_path(cls.base_script)) {
 				error(cls.extends_token, "Inheritance from a script of another language is not supported (spec §4.1).");
-				return;
+				return false;
 			}
 			std::unordered_set<std::string> seen{ options.path };
 			for (std::string path = cls.base_script; !path.empty();) {
 				if (!seen.insert(path).second) {
 					error(cls.extends_token, "Inheritance cycle involving " + path + ".");
-					return;
+					return false;
 				}
-				const ScriptClass *header = classes.header(path);
+				const ClassDecl *header = script_header(path);
 				if (!header) {
 					break;
 				}
-				path = classes.base_path(header->decl, path);
+				path = classes.base_path(*header, path);
 			}
-			const ScriptClass *parent = classes.declarations(cls.base_script, !options.declarations_only);
+			const ClassDecl *parent = nullptr;
+			if (Checker *local = file->find(cls.base_script)) {
+				local->declare();
+				if (local->state != State::Declared) {
+					error(cls.extends_token, display_name(local->cls, local->path()) + " uses " + display_name(cls, options.path) + " in its declarations, so it cannot be its base class.");
+					return false;
+				}
+				parent = local->declared ? &local->cls : nullptr;
+			} else {
+				parent = classes.declarations(cls.base_script, !options.declarations_only);
+			}
 			if (!parent) {
 				error(cls.extends_token, "Base script " + cls.base_script + " has errors or cannot be read.");
-				return;
+				return false;
 			}
-			cls.base = &parent->decl;
+			cls.base = parent;
 			cls.all_members = cls.base->all_members;
 			cls.all_functions = cls.base->all_functions;
 			cls.all_signals = cls.base->all_signals;
@@ -6017,37 +6448,30 @@ public:
 		}
 		if (cls.native_base.empty()) {
 			error(cls.extends_token, "Unknown base class \"" + cls.extends + "\".");
-			return;
+			return false;
 		}
-		if (options.project && !options.declarations_only && !options.path.empty()) {
+		// Only a file's class is set on nodes in scenes (spec §4.1).
+		if (options.project && !options.declarations_only && !options.path.empty() && cls.name.empty()) {
 			scenes = options.project->scenes_with_script(options.path);
 		}
 		declare_enums();
 		declare_members();
 		// Before the types that may name a class through a constant (spec §2.1).
 		declare_constants();
+		declare_functions();
 		declare_interfaces();
 		declare_structs();
 		declare_owner();
-		std::unordered_set<std::string> own_functions;
 		for (FuncDecl &fn : cls.functions) {
-			if (!own_functions.insert(fn.name).second || member_index.count(fn.name) || constant_index.count(fn.name) || signal_index.count(fn.name)) {
-				error(fn.name_token, "\"" + fn.name + "\" is already declared.");
-				continue;
+			if (is_declared(fn)) {
+				check_signature(fn);
 			}
-			const auto found = function_index.find(fn.name);
-			if (found == function_index.end()) {
-				function_index[fn.name] = int(cls.all_functions.size());
-				cls.all_functions.push_back(&fn);
-			} else {
-				cls.all_functions[found->second] = &fn;
-			}
-			check_signature(fn);
 		}
 		check_implemented();
 		check_implements();
 		declare_signals();
 		check_enums();
+		declare_classes();
 		for (ConstDecl &constant : cls.constants) {
 			const auto registered = constant_index.find(constant.name);
 			if (registered != constant_index.end() && cls.all_constants[registered->second] == &constant) {
@@ -6065,19 +6489,50 @@ public:
 		check_warning_ignores();
 		check_connections();
 		check_owner_scenes();
-		for (FuncDecl &fn : cls.functions) {
-			const auto found = function_index.find(fn.name);
-			if (found != function_index.end() && cls.all_functions[found->second] == &fn) {
-				check_body(fn);
-			}
-		}
+		return true;
 	}
 };
+
+Checker *FileCheck::find(const std::string &p_path) const {
+	for (const std::unique_ptr<Checker> &checker : checkers) {
+		if (checker->path() == p_path) {
+			return checker.get();
+		}
+	}
+	return nullptr;
+}
+
+void add_checkers(FileCheck &r_file, ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, Checker *p_outer) {
+	r_file.checkers.push_back(std::make_unique<Checker>(r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references));
+	Checker *checker = r_file.checkers.back().get();
+	checker->attach(r_file, p_outer);
+	for (std::unique_ptr<ClassDecl> &inner : r_class.classes) {
+		CompileOptions options = p_options;
+		options.path += "::" + inner->name;
+		add_checkers(r_file, *inner, p_engine, options, r_errors, r_classes, p_check_bodies, r_references, checker);
+	}
+}
 
 } // namespace
 
 void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references) {
-	Checker(r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references).run();
+	FileCheck file;
+	add_checkers(file, r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references, nullptr);
+	r_classes.enter(p_options.path, r_class, [&](const std::string &p_path) -> const ClassDecl * {
+		Checker *checker = file.find(p_path);
+		if (!checker) {
+			return nullptr;
+		}
+		checker->declare();
+		return checker->is_declared_class() ? &checker->decl() : nullptr;
+	});
+	for (const std::unique_ptr<Checker> &checker : file.checkers) {
+		checker->declare();
+	}
+	for (const std::unique_ptr<Checker> &checker : file.checkers) {
+		checker->check_function_bodies();
+	}
+	r_classes.leave(p_options.path);
 }
 
 } // namespace petrichor::compiler

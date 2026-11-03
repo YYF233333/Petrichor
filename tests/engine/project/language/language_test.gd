@@ -529,6 +529,26 @@ func _ready() -> void:
 	for i in 3:
 		_check(static_script.get("NODES") == load("res://language/nodes.tscn"), "a pub preloaded constant read by name is the loaded resource, each time")
 
+	# Inner classes (spec §4.1).
+	var inner := InnerCheck.new()
+	add_child(inner)
+	var shots := inner.shots()
+	_check(shots == [6, 16, 24, true, false], "inner classes run, using the static functions and constants of the classes around them: %s" % [shots])
+	var shot_script: Script = inner.shot_script()
+	_check(shot_script.resource_path == "" and shot_script.get_global_name() == &"" and shot_script.get_instance_base_type() == &"RefCounted", "an inner class is a script of its own, without a path or a global name")
+	var shot = shot_script.new()
+	_check(shot.get_script() == shot_script and shot.boosted() == 12, "an object of an inner class has its script")
+	var inner_file: Script = load("res://language/inner_check.pet")
+	_check(inner_file.get_script_constant_map().get("Shot") == shot_script and not inner_file.get_script_constant_map().has("Trail") and inner_file.get("Shot") == shot_script and InnerCheck.Shot == shot_script, "a pub inner class is a constant of the class around it, which GDScript reads (spec §10.5)")
+	var trail_node := Node.new()
+	inner.attach(trail_node)
+	_check(trail_node.get_script() != null and trail_node.get("label") == "trail" and trail_node.get_script().resource_path == "", "set_script() sets an inner class at run time")
+	trail_node.free()
+	_check(inner.copy_label() == "copy", "an inner class extends the class around it")
+	inner.failing()
+	_check_errors(["inner_check.pet:26: Index 5 is out of bounds (size 1)."], "a program error in an inner class reports the line of its file")
+	inner.free()
+
 	# Annotations describe a class to the engine as GDScript's do (spec §2.3).
 	var annotated := AnnotationCheck.new()
 	var reference := AnnotationReference.new()

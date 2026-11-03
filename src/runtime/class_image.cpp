@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <functional>
 #include <mutex>
 #include <unordered_map>
 
@@ -40,7 +41,17 @@ static bool same_type(const bytecode::Module &p_a, uint32_t p_type_a, const byte
 	return bytecode::type_key(p_a.types, p_type_a) == bytecode::type_key(p_b.types, p_type_b);
 }
 
-std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, const String &p_path, String &r_error, const std::shared_ptr<const ClassImage> &p_base) {
+namespace {
+
+// The file of a class's path: everything before "::", which an inner class's
+// path continues with its names (spec §4.1).
+std::string script_file(const std::string &p_path) {
+	return p_path.substr(0, p_path.find("::"));
+}
+
+} // namespace
+
+std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, const String &p_path, String &r_error, const std::shared_ptr<const ClassImage> &p_base) {
 	if (!check_value_sizes(r_error)) {
 		return nullptr;
 	}
@@ -241,6 +252,85 @@ std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, 
 	return image;
 }
 
+std::shared_ptr<const ClassImage> ClassImage::load(bytecode::Module &&p_module, const String &p_path, String &r_error, const std::shared_ptr<const ClassImage> &p_base, const BaseLoader &p_bases) {
+	const std::shared_ptr<ClassImage> image = load_class(std::move(p_module), p_path, r_error, p_base);
+	if (!image || image->module.inner_classes.empty()) {
+		return image;
+	}
+	// The inner classes (spec §4.1), each after its base when that is a class
+	// of this file; the base of any other comes from `p_bases`, or from the
+	// current image of its script.
+	const std::string file = to_utf8(p_path);
+	std::unordered_map<std::string, std::shared_ptr<ClassImage>> loaded{ { file, image } };
+	std::vector<std::string> loading;
+	std::function<std::shared_ptr<ClassImage>(const std::string &)> at = [&](const std::string &p_inner) -> std::shared_ptr<ClassImage> {
+		const auto found = loaded.find(p_inner);
+		if (found != loaded.end()) {
+			return found->second;
+		}
+		if (std::find(loading.begin(), loading.end(), p_inner) != loading.end()) {
+			r_error = "Inheritance cycle in compiled scripts.";
+			return nullptr;
+		}
+		const bytecode::Module *module = &image->module;
+		for (size_t at_name = p_inner.find("::"); module && at_name != std::string::npos;) {
+			const size_t next = p_inner.find("::", at_name + 2);
+			const std::string name = p_inner.substr(at_name + 2, next == std::string::npos ? next : next - at_name - 2);
+			const auto inner = std::find_if(module->inner_classes.begin(), module->inner_classes.end(), [&](const bytecode::Module &p_module) { return p_module.name == name; });
+			module = inner == module->inner_classes.end() ? nullptr : &*inner;
+			at_name = next;
+		}
+		if (!module || script_file(p_inner) != file) {
+			r_error = "Base script " + to_godot(p_inner) + " is not in the compiled script. Rebuild the project.";
+			return nullptr;
+		}
+		loading.push_back(p_inner);
+		std::shared_ptr<const ClassImage> base;
+		if (!module->base_script.empty()) {
+			const String base_path = to_godot(module->base_script);
+			base = script_file(module->base_script) == file ? at(module->base_script) : (p_bases ? p_bases(base_path) : script_image(base_path));
+			if (!base) {
+				if (r_error.is_empty()) {
+					r_error = "Base script " + base_path + " could not be loaded. Rebuild the project.";
+				}
+				return nullptr;
+			}
+		}
+		loading.pop_back();
+		bytecode::Module copy = *module;
+		copy.inner_classes.clear(); // Each inner class's own image has them.
+		const std::shared_ptr<ClassImage> inner = load_class(std::move(copy), to_godot(p_inner), r_error, base);
+		if (inner) {
+			inner->source = image->source;
+			loaded[p_inner] = inner;
+		}
+		return inner;
+	};
+	const std::function<bool(ClassImage &, const bytecode::Module &, const std::string &)> attach = [&](ClassImage &r_outer, const bytecode::Module &p_module, const std::string &p_outer) {
+		for (const bytecode::Module &module : p_module.inner_classes) {
+			const std::string path = p_outer + "::" + module.name;
+			const std::shared_ptr<ClassImage> inner = at(path);
+			if (!inner || !attach(*inner, module, path)) {
+				return false;
+			}
+			r_outer.inner_classes.push_back(inner);
+		}
+		return true;
+	};
+	return attach(*image, image->module, file) ? image : nullptr;
+}
+
+std::shared_ptr<const ClassImage> ClassImage::find_class(const String &p_path) const {
+	if (p_path == path) {
+		return shared_from_this();
+	}
+	for (const std::shared_ptr<const ClassImage> &inner : inner_classes) {
+		if (p_path == inner->path || p_path.begins_with(inner->path + String("::"))) {
+			return inner->find_class(p_path);
+		}
+	}
+	return nullptr;
+}
 // Built with the constructor that CONSTRUCT calls, from the arguments in their
 // slots' layout.
 static bool construct_constant(const ClassImage &p_image, const bytecode::Constant &p_constant, Variant &r_value, String &r_error) {
@@ -593,7 +683,8 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 		}
 		return count;
 	};
-	if (a.base_script != b.base_script || bool(base) != bool(p_other.base) || (base && !base->same_declarations(*p_other.base))) {
+	// A base of the same file is compared with the file's classes.
+	if (a.base_script != b.base_script || bool(base) != bool(p_other.base) || (base && script_file(to_utf8(base->path)) != script_file(to_utf8(path)) && !base->same_declarations(*p_other.base))) {
 		return false;
 	}
 	if (a.declarations_only || b.declarations_only) {
@@ -665,6 +756,16 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 			if (!pair.same_slot(x.params[p], y.params[p])) {
 				return false;
 			}
+		}
+	}
+	if (inner_classes.size() != p_other.inner_classes.size()) {
+		return false;
+	}
+	for (size_t i = 0; i < inner_classes.size(); i++) {
+		const bytecode::Module &x = inner_classes[i]->module;
+		const bytecode::Module &y = p_other.inner_classes[i]->module;
+		if (x.name != y.name || x.is_pub != y.is_pub || !inner_classes[i]->same_declarations(*p_other.inner_classes[i])) {
+			return false;
 		}
 	}
 	return true;

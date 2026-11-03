@@ -3,6 +3,7 @@
 #include "bytecode/module.h"
 #include "runtime/text.h"
 
+#include <godot_cpp/classes/script.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/callable.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
@@ -209,8 +210,16 @@ godot::Variant::Type variant_type(bytecode::ValueType p_type);
 // The resource at a path, a script or another, as ResourceLoader loads it;
 // null for an empty path. Made from the Ref that godot-cpp's load() returns,
 // a Variant holding a script of this language released it once too often,
-// and the next destruction of it crashed.
+// and the next destruction of it crashed. An inner class's path, its file's
+// followed by "::" and its names (spec §4.1), gives the class's script.
 godot::Variant load_resource(const godot::String &p_path);
+// The adapter knows the scripts of inner classes, which have no resource path
+// (spec §4.1): the one named so in a script, and the path that names a script
+// as the bytecode does, for an inner class its file's followed by its names.
+using InnerScriptResolver = godot::Variant (*)(const godot::Variant &p_script, const godot::String &p_name);
+using ScriptPathResolver = godot::String (*)(const godot::Ref<godot::Script> &p_script);
+void set_inner_script_resolvers(InnerScriptResolver p_inner, ScriptPathResolver p_path);
+godot::String script_path(const godot::Ref<godot::Script> &p_script);
 // A new empty array, typed with the element type and the class of object
 // elements, and for a class of this language with its script too (spec §3.8);
 // untyped for Void.

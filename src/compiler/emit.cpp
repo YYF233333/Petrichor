@@ -140,6 +140,7 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 					put(offset_of(instr.b));
 					break;
 				case Op::NEW_OBJECT:
+				case Op::GET_SCRIPT:
 				case Op::GET_OWNER:
 				case Op::GET_SINGLETON:
 				case Op::GET_AUTOLOAD:

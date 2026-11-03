@@ -104,6 +104,7 @@ enum class Target {
 	HasMember, // `name in obj`: whether the engine finds a member by that name.
 	Constant, // A constant of a class (spec §4.5), whose value is `constant`.
 	EnumFromInt, // `State(x)`: the int, checked to be one of the values of the call's type (spec §3.7).
+	ClassScript, // The script of the class of this language at `owner`, as a value (spec §2.1, §4.1).
 };
 
 struct Expr {
@@ -459,8 +460,20 @@ struct InterfaceDecl {
 	std::vector<InterfaceProperty> properties;
 };
 
+// The path of an inner class is its file's followed by "::" and the names of
+// the classes down to it, as structs and interfaces are named (spec §2.1).
+inline std::string script_file(const std::string &p_path) {
+	return p_path.substr(0, p_path.find("::"));
+}
+
 struct ClassDecl {
 	std::shared_ptr<const SourceFile> source; // What the token indices of its nodes refer to.
+	// An inner class's name, declared in the class that encloses it (spec
+	// §2.1, §4.1); empty for the file's class.
+	std::string name;
+	uint32_t name_token = NO_TOKEN;
+	bool is_pub = false;
+	TokenRange range;
 	std::string class_name;
 	uint32_t class_name_token = NO_TOKEN;
 	bool is_abstract = false; // @abstract (spec §4.1).
@@ -480,6 +493,7 @@ struct ClassDecl {
 	std::vector<TypeRef> implements;
 	std::optional<TypeRef> owner_ref; // @owner(T) (spec §7.3).
 	Type owner_type; // Filled by the checker.
+	std::vector<std::unique_ptr<ClassDecl>> classes; // Its inner classes.
 	std::vector<InterfaceDecl> interfaces;
 	std::vector<StructDecl> structs;
 	std::vector<EnumDecl> enums;
@@ -514,6 +528,15 @@ struct ClassDecl {
 		for (const EnumDecl *decl : all_enums) {
 			if (decl->name == p_name) {
 				return decl;
+			}
+		}
+		return nullptr;
+	}
+
+	const ClassDecl *find_class(const std::string &p_name) const {
+		for (const std::unique_ptr<ClassDecl> &decl : classes) {
+			if (decl->name == p_name) {
+				return decl.get();
 			}
 		}
 		return nullptr;

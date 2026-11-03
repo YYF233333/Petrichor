@@ -697,6 +697,8 @@ class Verifier {
 				return type_operand(o[0]) && (module.types[o[0]].kind == TypeKind::Enum || fail("CHECK_ENUM of no enum")) && slot(o[1], ValueType::Int);
 			case Op::NEW_OBJECT:
 				return index(o[0], module.classes.size(), "class") && (module.classes[o[0]].interface_name.empty() || fail("new() of an interface")) && slot(o[1], ValueType::Object);
+			case Op::GET_SCRIPT:
+				return index(o[0], module.classes.size(), "class") && (!module.classes[o[0]].script.empty() || fail("the script of an engine class")) && slot(o[1], ValueType::Object);
 			case Op::GET_OWNER:
 			case Op::GET_SINGLETON:
 			case Op::CHECK_OBJECT:
@@ -995,7 +997,20 @@ public:
 } // namespace
 
 bool verify(const Module &p_module, std::string &r_error) {
-	return Verifier(p_module, r_error).run();
+	if (!Verifier(p_module, r_error).run()) {
+		return false;
+	}
+	for (const Module &inner : p_module.inner_classes) {
+		if (inner.name.empty()) {
+			r_error = "an inner class without a name";
+			return false;
+		}
+		if (!verify(inner, r_error)) {
+			r_error = inner.name + ": " + r_error;
+			return false;
+		}
+	}
+	return true;
 }
 
 } // namespace petrichor::bytecode

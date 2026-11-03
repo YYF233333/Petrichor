@@ -222,7 +222,7 @@ const BoxType *box_type(const std::vector<bytecode::TypeDesc> &p_types, uint32_t
 
 // A script by its class_name, or its path when it has none.
 String script_name(const Ref<Script> &p_script) {
-	return p_script.is_null() ? String() : (p_script->get_global_name().is_empty() ? p_script->get_path() : String(p_script->get_global_name()));
+	return p_script.is_null() ? String() : (p_script->get_global_name().is_empty() ? script_path(p_script) : String(p_script->get_global_name()));
 }
 
 // An engine class, a class of this language or an interface ("script::Name")
@@ -1394,8 +1394,33 @@ Variant default_variant(ValueType p_type) {
 	return result;
 }
 
+namespace {
+InnerScriptResolver inner_script = nullptr;
+ScriptPathResolver path_of_script = nullptr;
+} // namespace
+
+void set_inner_script_resolvers(InnerScriptResolver p_inner, ScriptPathResolver p_path) {
+	inner_script = p_inner;
+	path_of_script = p_path;
+}
+
+String script_path(const Ref<Script> &p_script) {
+	return p_script.is_null() ? String() : (path_of_script ? path_of_script(p_script) : p_script->get_path());
+}
+
 Variant load_resource(const String &p_path) {
-	return p_path.is_empty() ? Variant() : ResourceLoader::get_singleton()->call("load", p_path);
+	if (p_path.is_empty()) {
+		return Variant();
+	}
+	const int64_t inner = p_path.find("::");
+	if (inner < 0) {
+		return ResourceLoader::get_singleton()->call("load", p_path);
+	}
+	Variant script = ResourceLoader::get_singleton()->call("load", p_path.substr(0, inner));
+	for (const String &name : p_path.substr(inner + 2).split("::")) {
+		script = inner_script && type_of(script) == Variant::OBJECT ? inner_script(script, name) : Variant();
+	}
+	return script;
 }
 
 Array typed_array(ValueType p_element, const StringName &p_class, const String &p_script) {
@@ -1488,7 +1513,7 @@ bool has_script(const Variant &p_script, const String &p_path) {
 		return true;
 	}
 	for (Ref<Script> script = p_script; script.is_valid(); script = script->get_base_script()) {
-		if (script->get_path() == p_path) {
+		if (script_path(script) == p_path) {
 			return true;
 		}
 	}

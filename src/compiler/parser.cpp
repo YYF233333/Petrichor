@@ -1213,6 +1213,93 @@ class Parser {
 		return decl;
 	}
 
+	// `extends Base`, which `implements A, B` may follow, or `implements A, B`
+	// alone (spec §2.1, §3.9). The base is a class name, as `Other.Inner` for
+	// an inner class (§4.1), or a script's path.
+	void class_header(ClassDecl &r_class, bool &r_has_extends) {
+		if (check(TokenKind::Extends)) {
+			const Token &keyword = advance();
+			if (r_has_extends) {
+				fail(keyword, "The class already has a base class.");
+				return;
+			}
+			r_class.extends_path = check(TokenKind::String);
+			const Token &base = r_class.extends_path ? advance() : expect(TokenKind::Identifier, "a base class name or script path");
+			r_class.extends = base.text;
+			r_class.extends_token = index(base);
+			r_has_extends = true;
+			while (!r_class.extends_path && !failed && check(TokenKind::Period) && peek(1).kind == TokenKind::Identifier) {
+				advance();
+				r_class.extends += "." + advance().text;
+			}
+		}
+		if (check(TokenKind::Implements)) {
+			const Token &keyword = advance();
+			if (!r_class.implements.empty()) {
+				fail(keyword, "The class already names the interfaces it implements.");
+				return;
+			}
+			do {
+				r_class.implements.push_back(type_ref());
+			} while (match(TokenKind::Comma));
+		}
+	}
+
+	// After "class": the name, the header and a block of members, which may
+	// begin with `extends` and `implements` lines (spec §2.1, §4.1).
+	std::unique_ptr<ClassDecl> inner_class(bool p_is_pub, bool p_is_abstract, uint32_t p_first) {
+		auto decl = std::make_unique<ClassDecl>();
+		const Token &name = expect(TokenKind::Identifier, "a class name");
+		decl->name = name.text;
+		decl->name_token = index(name);
+		decl->is_pub = p_is_pub;
+		decl->is_abstract = p_is_abstract;
+		bool has_extends = false;
+		if (!failed) {
+			class_header(*decl, has_extends);
+		}
+		expect(TokenKind::Colon, "\":\"");
+		if (open_block("an indented block")) {
+			bool seen_member = false;
+			while (!check(TokenKind::Dedent) && !check(TokenKind::EndOfFile)) {
+				if (match(TokenKind::Newline)) {
+					continue;
+				}
+				if (check(TokenKind::Indent)) {
+					decl->functions.push_back(stray_function());
+					continue;
+				}
+				if (match(TokenKind::Pass)) {
+					end_of_statement();
+					continue;
+				}
+				// A string on a line of its own is a comment, as at the top level.
+				if (check(TokenKind::String) && (peek(1).kind == TokenKind::Newline || peek(1).kind == TokenKind::Dedent)) {
+					advance();
+					continue;
+				}
+				if (check(TokenKind::ClassName)) {
+					fail(peek(), "class_name belongs to the file's class (spec §4.1).");
+					continue;
+				}
+				if (check(TokenKind::Extends) || check(TokenKind::Implements)) {
+					if (seen_member) {
+						fail(peek(), std::string(token_name(peek().kind)) + " belongs to the class header, before the members.");
+						continue;
+					}
+					class_header(*decl, has_extends);
+					end_of_statement();
+					continue;
+				}
+				seen_member = true;
+				member(*decl);
+			}
+			match(TokenKind::Dedent);
+		}
+		decl->range = span(p_first);
+		return decl;
+	}
+
 	// After "struct": the name and a block of fields (spec §2.4, §3.6).
 	StructDecl structure(bool p_is_pub, uint32_t p_first, ClassDecl &r_class) {
 		StructDecl decl;
@@ -1480,7 +1567,7 @@ class Parser {
 				continue;
 			}
 			if (is_class_annotation(annotation.name)) {
-				fail(name, "@" + annotation.name + " belongs to the class header, before the members.");
+				fail(name, "@" + annotation.name + (r_class.name.empty() ? " belongs to the class header, before the members." : " belongs to the file's class (spec §4.1)."));
 				return;
 			}
 			// The checker knows the members of the @export family.
@@ -1510,10 +1597,21 @@ class Parser {
 		}
 
 		for (const Annotation &annotation : annotations) {
-			if ((annotation.name == "rpc" || annotation.name == "abstract") && !check(TokenKind::Func)) {
+			if ((annotation.name == "rpc" || annotation.name == "abstract") && !check(TokenKind::Func) && !(annotation.name == "abstract" && check(TokenKind::Class))) {
 				fail(tokens[annotation.name_token], annotation.name == "rpc" ? "@rpc applies to functions." : "@abstract applies to classes and functions.");
 				return;
 			}
+		}
+
+		if (match(TokenKind::Class)) {
+			for (const Annotation &annotation : annotations) {
+				if (annotation.name != "abstract") {
+					fail(tokens[annotation.name_token], "@" + annotation.name + " does not apply to classes.");
+					return;
+				}
+			}
+			r_class.classes.push_back(inner_class(is_pub, !annotations.empty(), first));
+			return;
 		}
 
 		if (match(TokenKind::Var)) {
@@ -1753,7 +1851,7 @@ public:
 				continue;
 			}
 			// The class header comes before the members (spec §2.1).
-			if ((check(TokenKind::ClassName) || check(TokenKind::Extends)) && seen_member) {
+			if ((check(TokenKind::ClassName) || check(TokenKind::Extends) || check(TokenKind::Implements)) && seen_member) {
 				fail(peek(), std::string(token_name(peek().kind)) + " belongs to the class header, before the members.");
 				continue;
 			}
@@ -1767,28 +1865,13 @@ public:
 				result.class_name = name.text;
 				result.class_name_token = index(name);
 				has_class_name = true;
-				if (!check(TokenKind::Extends)) {
+				if (!check(TokenKind::Extends) && !check(TokenKind::Implements)) {
 					end_of_statement();
 					continue;
 				}
 			}
-			if (check(TokenKind::Extends)) {
-				const Token &keyword = advance();
-				if (has_extends) {
-					fail(keyword, "The class already has a base class.");
-					continue;
-				}
-				result.extends_path = check(TokenKind::String);
-				const Token &base = result.extends_path ? advance() : expect(TokenKind::Identifier, "a base class name or script path");
-				result.extends = base.text;
-				result.extends_token = index(base);
-				has_extends = true;
-				// `extends Node3D implements Combat.Damageable, Saveable` (spec §3.9).
-				if (match(TokenKind::Implements)) {
-					do {
-						result.implements.push_back(type_ref());
-					} while (match(TokenKind::Comma));
-				}
+			if (check(TokenKind::Extends) || check(TokenKind::Implements)) {
+				class_header(result, has_extends);
 				end_of_statement();
 				continue;
 			}
@@ -1837,7 +1920,13 @@ ClassDecl parse(std::string p_source, std::vector<Diagnostic> &r_errors) {
 				r_errors.push_back(error);
 			}
 		}
-		result.source = file;
+		const auto set_source = [&](ClassDecl &r_class, const auto &p_self) -> void {
+			r_class.source = file;
+			for (std::unique_ptr<ClassDecl> &inner : r_class.classes) {
+				p_self(*inner, p_self);
+			}
+		};
+		set_source(result, set_source);
 		return result;
 	}
 }
