@@ -406,8 +406,14 @@ class Checker : public ClassRelation {
 	// Whether this class, a local or the engine class it extends has the name,
 	// which the classes around it then do not give (spec §4.1).
 	bool declares(const std::string &p_name) const {
+		return declares_in_script(p_name) || engine.find_property(cls.native_base, p_name) || engine.find_method(cls.native_base, p_name) || engine.find_signal(cls.native_base, p_name) ||
+				engine.find_constant(cls.native_base, p_name) || engine.find_enum(cls.native_base, p_name);
+	}
+
+	// Whether this class, a base of this language or a local has the name.
+	bool declares_in_script(const std::string &p_name) const {
 		if (visible_local(p_name) || member_index.count(p_name) || static_index.count(p_name) || constant_index.count(p_name) || function_index.count(p_name) || signal_index.count(p_name) || cls.find_struct(p_name) ||
-				!inner_class_path(options.path, p_name).empty() || engine.find_property(cls.native_base, p_name) || engine.find_method(cls.native_base, p_name) || engine.find_signal(cls.native_base, p_name)) {
+				!inner_class_path(options.path, p_name).empty()) {
 			return true;
 		}
 		for (const InterfaceDecl &interface : cls.interfaces) {
@@ -417,6 +423,19 @@ class Checker : public ClassRelation {
 		}
 		for (const EnumDecl *decl : cls.all_enums) {
 			if (decl->name == p_name || (decl->name.empty() && decl->find(p_name) >= 0)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// A name of the engine class this one extends, used bare in an inner class
+	// whose classes around it declare it too: GDScript would take theirs, this
+	// language the inherited one, so it is an error (spec §4.1).
+	bool refuse_ambiguous_engine_name(const std::string &p_name, const TokenRange &p_at) {
+		for (Checker *around = outer_checker; around; around = around->outer_checker) {
+			if (around->declares_in_script(p_name)) {
+				error(p_at, "\"" + p_name + "\" is both a name of " + cls.native_base + ", which " + display_name(cls, options.path) + " extends, and one of " + display_name(around->cls, around->path()) + "; write " + cls.native_base + "." + p_name + " or " + display_name(around->cls, around->path()) + "." + p_name + " (spec §4.1).");
 				return true;
 			}
 		}
@@ -936,8 +955,18 @@ class Checker : public ClassRelation {
 			refer_engine_enum(p_ref.name, p_ref.name_token, p_ref.name_token == NO_TOKEN ? NO_TOKEN : p_ref.name_token + 2);
 			return *found;
 		}
+		// An enum of the engine class this one extends, such as ProcessMode
+		// (spec §4.1), after what the class declares and the global classes.
+		const std::optional<Type> base_enum = p_ref.name.find('.') == std::string::npos && !declares_in_script(p_ref.name) ? engine.find_enum(cls.native_base, p_ref.name) : std::nullopt;
+		if (base_enum && refuse_ambiguous_engine_name(p_ref.name, p_ref.range)) {
+			return Type::of(TypeKind::Error);
+		}
 		if (const std::optional<Type> script = script_type(p_ref)) {
 			return *script;
+		}
+		if (base_enum) {
+			refer(p_ref.name_token, engine_id(base_enum->name.substr(0, base_enum->name.find('.')), p_ref.name));
+			return *base_enum;
 		}
 		error(p_ref.range, "Unknown type \"" + p_ref.name + "\".");
 		return Type::of(TypeKind::Error);
@@ -1602,6 +1631,13 @@ class Checker : public ClassRelation {
 		const std::optional<Type> found = named_engine_enum(name);
 		if (found) {
 			refer_engine_enum(name, r_call.base ? r_call.base->name_token : r_call.name_token, r_call.name_token);
+		} else if (!r_call.base && !declares_in_script(name)) {
+			// One of the engine class this one extends (spec §4.1).
+			const std::optional<Type> base_enum = engine.find_enum(cls.native_base, name);
+			if (base_enum) {
+				refer(r_call.name_token, engine_id(base_enum->name.substr(0, base_enum->name.find('.')), name));
+			}
+			return base_enum;
 		}
 		return found;
 	}
@@ -1936,6 +1972,13 @@ class Checker : public ClassRelation {
 			refer(r_expr.name_token, engine_id(signal->owner, r_expr.text));
 			return set(r_expr, signal_type(*signal));
 		}
+		// Such as NOTIFICATION_PREDELETE (spec §4.1).
+		if (engine.find_constant(cls.native_base, r_expr.text)) {
+			if (refuse_ambiguous_engine_name(r_expr.text, r_expr.range)) {
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
+			return check_engine_constant(r_expr, cls.native_base);
+		}
 		return std::nullopt;
 	}
 
@@ -2177,7 +2220,12 @@ class Checker : public ClassRelation {
 		}
 		r_expr.target = Target::EngineConstant;
 		r_expr.int_value = *value;
-		refer(r_expr.name_token, engine_id(p_class, r_expr.text));
+		// The class that declares it, also when named through a subclass.
+		std::string owner = p_class;
+		for (std::string up = engine.parent_class(owner); !up.empty() && engine.find_constant(up, r_expr.text); up = engine.parent_class(up)) {
+			owner = up;
+		}
+		refer(r_expr.name_token, engine_id(owner, r_expr.text));
 		return set(r_expr, engine.constant_type(p_class, r_expr.text));
 	}
 
@@ -6084,6 +6132,40 @@ class Checker : public ClassRelation {
 		}
 	}
 
+	// The class names the constants of the engine class it extends bare, so
+	// it declares nothing else by their names, as in GDScript
+	// (modules/gdscript/gdscript_analyzer.cpp:255-276; spec §4.1).
+	void check_engine_constant_names() {
+		const auto check = [&](const std::string &p_name, uint32_t p_token) {
+			if (!p_name.empty() && engine.find_constant(cls.native_base, p_name)) {
+				error(p_token, "\"" + p_name + "\" is already a constant of " + cls.native_base + ", which this class extends (spec §4.1).");
+			}
+		};
+		for (const VarDecl &member : cls.members) {
+			check(member.name, member.name_token);
+		}
+		for (const VarDecl &variable : cls.static_vars) {
+			check(variable.name, variable.name_token);
+		}
+		for (const ConstDecl &constant : cls.constants) {
+			check(constant.name, constant.name_token);
+		}
+		for (const SignalDecl &signal : cls.signals) {
+			check(signal.name, signal.name_token);
+		}
+		for (const EnumDecl &decl : cls.enums) {
+			check(decl.name, decl.name_token);
+			for (const EnumValueDecl &value : decl.values) {
+				if (decl.name.empty()) {
+					check(value.name, value.name_token);
+				}
+			}
+		}
+		for (const std::unique_ptr<ClassDecl> &inner : cls.classes) {
+			check(inner->name, inner->name_token);
+		}
+	}
+
 	void check_signature(FuncDecl &r_function) {
 		check_abstract(r_function);
 		// Each class's _init() has its own signature (spec §6.1).
@@ -6763,6 +6845,7 @@ private:
 		declare_signals();
 		check_enums();
 		declare_classes();
+		check_engine_constant_names();
 		for (ConstDecl &constant : cls.constants) {
 			const auto registered = constant_index.find(constant.name);
 			if (registered != constant_index.end() && cls.all_constants[registered->second] == &constant) {

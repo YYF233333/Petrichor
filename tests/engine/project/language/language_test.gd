@@ -85,7 +85,7 @@ func _ready() -> void:
 	add_child(unready)
 	_check_errors(["values_check.pet:139: \"texture\" has not been assigned."], "the program error names the export that was not assigned")
 	_check(v.readied and not unready.readied, "a node that becomes ready without an export it must be assigned stops before _ready()")
-	_check(v.ready_notifications == 1, "_notification() receives the engine's notifications")
+	_check(v.ready_notifications == 1, "_notification() receives the engine's notifications, named by their bare names (spec §4.1)")
 	_check(str(v) == "ValuesCheck 1", "str() gives what _to_string() returns")
 	var made := ResourceCheck.new()
 	_check(made.resource_name == "made" and made.get_reference_count() == 1, "a RefCounted of this language uses self in _init() and is held once")

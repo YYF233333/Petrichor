@@ -34,6 +34,26 @@ TEST_CASE("objects compare by identity, never when neither class extends the oth
 	CHECK(f.code[second + 1] == 2); // m, on the right, is a T?.
 }
 
+TEST_CASE("a class names the constants and enums of its engine base by bare name (spec §4.1)") {
+	CHECK(type_of("NOTIFICATION_PREDELETE == 1 and self.NOTIFICATION_PREDELETE == 1") == "bool");
+	CHECK(contains(type_of("PROCESS_MODE_ALWAYS"), "Node.ProcessMode"));
+	const auto typed = compile(in_function("var mode: ProcessMode = PROCESS_MODE_ALWAYS\nvar again := ProcessMode(0)\nprint(mode == again)\nvar NOTIFICATION_PREDELETE := \"a local first\"\nprint(NOTIFICATION_PREDELETE.length())"));
+	REQUIRE_MESSAGE(typed.ok(), messages(typed));
+	CHECK(!errors_of(in_function("print(PROCESS_MODE_ALWAYS)", "func f() -> void:", "RefCounted")).empty());
+	const std::string taken = "is already a constant of Node, which this class extends (spec §4.1).";
+	CHECK(has_error("extends Node\nconst NOTIFICATION_PREDELETE = 2\n", "\"NOTIFICATION_PREDELETE\" " + taken));
+	CHECK(has_error("extends Node\nvar PROCESS_MODE_ALWAYS := 1\n", taken));
+	CHECK(has_error("extends Node\nenum { PROCESS_MODE_INHERIT }\n", taken));
+	CHECK(has_error("extends Node\nsignal NOTIFICATION_PREDELETE\n", taken));
+	CHECK(errors_of("extends RefCounted\nconst PROCESS_MODE_ALWAYS = 9\n").empty());
+	// In an inner class, GDScript takes the name of a class around it first.
+	const std::string ambiguous = "extends RefCounted\nconst PROCESS_MODE_ALWAYS = 9\nclass Inner extends Node:\n\tfunc f() -> int:\n\t\treturn PROCESS_MODE_ALWAYS\n";
+	INFO(messages(compile(ambiguous)));
+	CHECK(has_error(ambiguous, "\"PROCESS_MODE_ALWAYS\" is both a name of Node"));
+	CHECK(has_error("extends RefCounted\nenum ProcessMode { A }\nclass Inner extends Node:\n\tvar m: ProcessMode\n", "\"ProcessMode\" is both a name of Node"));
+	CHECK(errors_of("extends RefCounted\nclass Inner extends Node:\n\tfunc f() -> bool:\n\t\treturn PROCESS_MODE_ALWAYS == ProcessMode(3)\n").empty());
+}
+
 TEST_CASE("** is int for two ints and float otherwise (spec §5.1)") {
 	CHECK(type_of("2 ** 3") == "int");
 	CHECK(type_of("2 ** 0.5") == "float");

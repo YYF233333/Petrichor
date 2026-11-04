@@ -58,6 +58,8 @@ class FakeEngine : public compiler::EngineApi {
 		{ "Tween.EASE_IN_OUT", 2 },
 		{ "Tween.EASE_OUT_IN", 3 },
 		{ "Object.NOTIFICATION_PREDELETE", 1 },
+		{ "Node.PROCESS_MODE_INHERIT", 0 },
+		{ "Node.PROCESS_MODE_ALWAYS", 3 },
 		{ "FileAccess.READ", 1 },
 		{ "FileAccess.WRITE", 2 },
 	};
@@ -66,6 +68,7 @@ class FakeEngine : public compiler::EngineApi {
 		{ "Input.MouseMode", { "MOUSE_MODE_VISIBLE", "MOUSE_MODE_HIDDEN", "MOUSE_MODE_CAPTURED" } },
 		{ "Tween.EaseType", { "EASE_IN", "EASE_OUT", "EASE_IN_OUT", "EASE_OUT_IN" } },
 		{ "FileAccess.ModeFlags", { "READ", "WRITE" } },
+		{ "Node.ProcessMode", { "PROCESS_MODE_INHERIT", "PROCESS_MODE_ALWAYS" } },
 	};
 
 	Type enum_type(const std::string &p_name) const {
