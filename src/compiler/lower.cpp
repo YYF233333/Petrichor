@@ -87,6 +87,7 @@ struct Place {
 		NarrowedLocal, // A local of type T? where it is known to hold a T (spec §5.4).
 		Member,
 		MemberField, // A field of a struct in a member that has no accessors, at `offset` in it.
+		Static, // A static variable (spec §4.8), `variable`, the `index`th of the class at `owner`.
 		SelfProperty,
 		Owner, // owner with @owner(T): read with its check (spec §7.3).
 		ObjectProperty,
@@ -103,6 +104,8 @@ struct Place {
 	Type type;
 	std::optional<bytecode::IntRange> int_range; // An engine property: what its setter takes (spec §10.6).
 	std::unique_ptr<Place> parent; // Field, StructCopy and Element: where the copy goes back.
+	const VarDecl *variable = nullptr;
+	std::string owner;
 };
 
 class Lowerer {
@@ -551,6 +554,60 @@ class Lowerer {
 		const VarDecl &member = *cls.all_members[p_member];
 		const int index = p_setter ? member.setter_index : member.getter_index;
 		return decl && decl->accessor_of == member.name ? -1 : index;
+	}
+
+	/* Static variables (spec §4.8) */
+
+	static constexpr int NO_ACCESSOR = -2;
+
+	// The class operand of a static variable's instructions.
+	uint32_t static_class(const Place &p_place) {
+		if (p_place.owner == cls.path) {
+			return bytecode::NO_SLOT;
+		}
+		bytecode::ClassRef declaring; // Only its script matters.
+		declaring.script = p_place.owner;
+		return class_index(declaring);
+	}
+
+	// The setter or getter that using a static variable calls: its index in
+	// this class's functions, -1 for one of another class, or NO_ACCESSOR when
+	// it has none or this is it (spec §4.4).
+	int static_accessor(const Place &p_place, bool p_setter) const {
+		const VarDecl &variable = *p_place.variable;
+		if ((p_setter ? variable.setter : variable.getter).empty() || (decl && decl->accessor_of == variable.name && p_place.owner == cls.path)) {
+			return NO_ACCESSOR;
+		}
+		for (const ClassDecl *owner = &cls; owner; owner = owner->base) {
+			if (owner->path == p_place.owner) {
+				return p_setter ? variable.setter_index : variable.getter_index;
+			}
+		}
+		return -1;
+	}
+
+	uint32_t call_static_accessor(const Place &p_place, bool p_setter, std::vector<uint32_t> p_args) {
+		const VarDecl &variable = *p_place.variable;
+		const Type result = p_setter ? Type::of(TypeKind::Void) : variable.type;
+		const int index = static_accessor(p_place, p_setter);
+		if (index >= 0) {
+			return call_function(uint32_t(index), std::move(p_args), result);
+		}
+		// Another class's, called on its script.
+		ir::Instr i;
+		i.op = Op::CALL_METHOD;
+		bytecode::MethodCall method;
+		method.method = p_setter ? variable.setter : variable.getter;
+		if (p_setter) {
+			method.params.push_back(slot(std::string(), variable.type));
+		}
+		method.result = slot(std::string(), result);
+		method.static_class = int32_t(static_class(p_place));
+		i.imm = method_call(method);
+		i.args = std::move(p_args);
+		i.dst = p_setter ? NO_REG : temp(result);
+		add(i);
+		return i.dst;
 	}
 
 	uint32_t call_function(uint32_t p_function, std::vector<uint32_t> p_args, const Type &p_result) {
@@ -1651,6 +1708,7 @@ class Lowerer {
 		switch (p_expr.target) {
 			case Target::Local:
 			case Target::Member:
+			case Target::StaticVar:
 			case Target::SelfProperty:
 			case Target::Owner:
 			case Target::ObjectProperty:
@@ -1729,6 +1787,15 @@ class Lowerer {
 				place.kind = Place::Kind::Member;
 				place.index = uint32_t(p_expr.index);
 				break;
+			case Target::StaticVar:
+				if (p_expr.static_on_value) {
+					lower_expr(*p_expr.base); // Evaluated, and not used (spec §4.8).
+				}
+				place.kind = Place::Kind::Static;
+				place.index = uint32_t(p_expr.index);
+				place.variable = p_expr.variable;
+				place.owner = p_expr.owner;
+				break;
 			case Target::SelfProperty:
 				place.kind = Place::Kind::SelfProperty;
 				place.index = property(p_expr.text, type_index(p_expr.type));
@@ -1790,6 +1857,19 @@ class Lowerer {
 			}
 			case Place::Kind::StructCopy:
 				return p_place.reg;
+			case Place::Kind::Static: {
+				if (const int getter = static_accessor(p_place, false); getter != NO_ACCESSOR) {
+					return call_static_accessor(p_place, false, {});
+				}
+				ir::Instr i;
+				i.op = Op::LOAD_STATIC;
+				i.dst = temp(p_place.type);
+				i.type = fn.regs[i.dst].type;
+				i.imm = p_place.index;
+				i.field = static_class(p_place);
+				add(i);
+				return i.dst;
+			}
 			case Place::Kind::SelfProperty:
 			case Place::Kind::ObjectProperty: {
 				const uint32_t result = temp(p_place.type);
@@ -1845,6 +1925,20 @@ class Lowerer {
 				move(p_place.reg, p_value);
 				store(*p_place.parent, p_place.whole);
 				return;
+			case Place::Kind::Static: {
+				if (static_accessor(p_place, true) != NO_ACCESSOR) {
+					call_static_accessor(p_place, true, { p_value });
+					return;
+				}
+				ir::Instr i;
+				i.op = Op::STORE_STATIC;
+				i.type = fn.regs[p_value].type;
+				i.a = p_value;
+				i.imm = p_place.index;
+				i.field = static_class(p_place);
+				add(i);
+				return;
+			}
 			case Place::Kind::SelfProperty:
 			case Place::Kind::ObjectProperty:
 				if (p_place.int_range) {
@@ -2141,6 +2235,55 @@ class Lowerer {
 		return any;
 	}
 
+	// The static variables' first values in declaration order, then the
+	// class's own _static_init(), once when the class loads (spec §4.8).
+	bool lower_static_initializer(bytecode::Function &r_out) {
+		bool any = false;
+		start("@static_init");
+		decl = nullptr;
+		const auto init_static = [&](size_t p_variable, uint32_t p_value) {
+			ir::Instr i;
+			i.op = Op::INIT_STATIC;
+			i.type = fn.regs[p_value].type;
+			i.a = p_value;
+			i.imm = uint32_t(p_variable);
+			add(i);
+		};
+		for (const bool with_initializer : { false, true }) {
+			for (size_t v = 0; v < cls.static_vars.size(); v++) {
+				const VarDecl &variable = cls.static_vars[v];
+				// Without one, a variable holds its type's default from the start;
+				// an empty Array[T] is typed too, and a struct has its fields'.
+				if (bool(variable.initializer) != with_initializer || (!with_initializer && !is_typed_container(variable.type) && variable.type.kind != TypeKind::Struct)) {
+					continue;
+				}
+				any = true;
+				at = variable.range;
+				instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(cls.source->line(variable.name_token)));
+				init_static(v, with_initializer ? convert(lower_expr(*variable.initializer), variable.type) : default_value(temp(variable.type)));
+			}
+		}
+		for (size_t f = 0; f < cls.all_functions.size(); f++) {
+			const FuncDecl &function = *cls.all_functions[f];
+			if (function.name == "_static_init" && function.is_static && is_own_function(function)) {
+				any = true;
+				at = function.range;
+				instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(cls.source->line(function.name_token)));
+				call_function(uint32_t(f), {}, Type::of(TypeKind::Void));
+			}
+		}
+		finish();
+		if (any) {
+			r_out = ir::emit(fn, module);
+			r_out.is_static = true;
+		}
+		return any;
+	}
+
+	bool is_own_function(const FuncDecl &p_function) const {
+		return std::any_of(cls.functions.begin(), cls.functions.end(), [&](const FuncDecl &p_own) { return &p_own == &p_function; });
+	}
+
 	void record_init_tables() {
 		bytecode::TablePrefix &prefix = module.init_tables;
 		prefix.types = uint32_t(module.types.size());
@@ -2205,6 +2348,25 @@ public:
 			module.members.push_back(member);
 		}
 		module.instance_size = offset;
+		uint32_t static_offset = 0;
+		for (const VarDecl &variable : cls.static_vars) {
+			bytecode::Member out;
+			static_cast<bytecode::Slot &>(out) = slot(variable.name, variable.type);
+			if (p_declarations_only && out.type == type_index(ValueType::Void)) {
+				out.type = type_index(ValueType::Variant);
+			}
+			out.line = uint32_t(cls.source->line(variable.name_token));
+			out.offset = static_offset;
+			static_offset += bytecode::type_size(module.types, out.type);
+			out.is_pub = variable.is_pub;
+			out.setter = variable.setter_index;
+			out.getter = variable.getter_index;
+			out.has_initial = !variable.initializer;
+			out.initial.type = out.type;
+			module.statics.push_back(out);
+		}
+		module.statics_size = static_offset;
+		module.static_unload = cls.static_unload;
 		for (const SignalDecl *entry : cls.all_signals) {
 			const SignalDecl &signal = *entry;
 			bytecode::SignalInfo info;
@@ -2314,6 +2476,8 @@ public:
 			}
 			module.functions.push_back(std::move(out));
 		}
+		bytecode::Function static_initializer;
+		const bool has_static_initializer = !p_declarations_only && lower_static_initializer(static_initializer);
 		for (bytecode::Function &lambda : lambdas) {
 			module.functions.push_back(std::move(lambda));
 		}
@@ -2325,6 +2489,10 @@ public:
 		if (has_ready_initializers) {
 			module.functions.push_back(ready_initializers);
 			module.ready_function = int32_t(module.functions.size() - 1);
+		}
+		if (has_static_initializer) {
+			module.functions.push_back(static_initializer);
+			module.static_init_function = int32_t(module.functions.size() - 1);
 		}
 	}
 };

@@ -1388,6 +1388,7 @@ class Parser {
 			FuncDecl function;
 			function.name_token = index(keyword);
 			function.accessor_of = r_decl.name;
+			function.is_static = r_decl.is_static;
 			if (keyword.text == "set") {
 				expect(TokenKind::ParenOpen, "\"(\"");
 				const Token &param = expect(TokenKind::Identifier, "the parameter's name");
@@ -1591,8 +1592,12 @@ class Parser {
 			fail(peek(), "async must precede func.");
 			return;
 		}
-		if (is_static && !check(TokenKind::Func)) {
-			fail(peek(), "Static members are not supported yet; static functions are.");
+		if (is_static && !check(TokenKind::Func) && !check(TokenKind::Var)) {
+			fail(peek(), "Only variables and functions can be static.");
+			return;
+		}
+		if (is_static && (is_export || is_onready)) {
+			fail(peek(), std::string("@") + (is_onready ? "onready" : "export") + " cannot be applied to a static variable (spec §4.8).");
 			return;
 		}
 
@@ -1622,6 +1627,7 @@ class Parser {
 			decl.is_pub = is_pub;
 			decl.is_export = is_export;
 			decl.is_onready = is_onready;
+			decl.is_static = is_static;
 			decl.annotations = std::move(annotations);
 			if (match(TokenKind::Colon) && !check(TokenKind::Equal)) {
 				decl.declared_type = type_ref();
@@ -1636,7 +1642,7 @@ class Parser {
 				decl.range = span(first);
 				end_of_statement();
 			}
-			r_class.members.push_back(std::move(decl));
+			(is_static ? r_class.static_vars : r_class.members).push_back(std::move(decl));
 			return;
 		}
 
@@ -1832,9 +1838,10 @@ public:
 					match(TokenKind::Newline);
 					continue;
 				}
-				// Releases static members when nothing uses the class; without them,
-				// which are not supported yet, it does nothing.
+				// The class may unload with its static variables when nothing
+				// uses it (spec §4.8).
 				if (name.text == "static_unload") {
+					result.static_unload = true;
 					match(TokenKind::Newline);
 					continue;
 				}

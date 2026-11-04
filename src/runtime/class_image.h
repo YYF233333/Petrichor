@@ -9,11 +9,38 @@
 #include <godot_cpp/variant/string_name.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
+#include <atomic>
 #include <functional>
 #include <memory>
+#include <thread>
 #include <vector>
 
 namespace petrichor {
+
+// The static variables of a class (spec §4.8): made with its image, and
+// handed on to the next image of the class by a hot reload that changes only
+// function bodies, so that they keep their values.
+struct Statics {
+	enum class State : uint8_t {
+		Uninitialized,
+		Initializing,
+		Initialized,
+		Failed, // Its initialization ended in a program error.
+	};
+	std::atomic<State> state{ State::Uninitialized };
+	std::thread::id thread; // That initializes it.
+	// While it initializes, the static variables before this one that have
+	// initializers have run them.
+	uint32_t next = 0;
+	SlotLayout layout;
+	std::unique_ptr<uint64_t[]> data;
+
+	explicit Statics(const SlotLayout &p_layout);
+	~Statics();
+	Statics(const Statics &) = delete;
+	Statics &operator=(const Statics &) = delete;
+	uint8_t *at(uint32_t p_offset) { return reinterpret_cast<uint8_t *>(data.get()) + p_offset; }
+};
 
 // A loaded module: immutable, shared by the script, its instances and every
 // running frame, so that a hot reload can replace it while old frames finish
@@ -54,6 +81,9 @@ public:
 	std::vector<godot::StringName> member_names;
 	SlotLayout members_layout; // An instance's storage.
 	godot::HashMap<godot::StringName, int> member_lookup;
+	// Set when the image loads; a hot reload hands it on (adopt_statics()).
+	mutable std::shared_ptr<Statics> statics;
+	godot::HashMap<godot::StringName, int> static_lookup;
 
 	std::vector<godot::String> strings; // String constants, by constant index.
 	std::vector<godot::Variant> values; // Other constants, by constant index.
@@ -126,6 +156,10 @@ public:
 
 	int find_function(const godot::StringName &p_name) const;
 	int find_member(const godot::StringName &p_name) const;
+	int find_static(const godot::StringName &p_name) const;
+	// This image and its inner classes take the static variables of
+	// `p_previous`, an image of the same class with the same declarations.
+	void adopt_statics(const ClassImage &p_previous) const;
 
 	// Whether the two differ only in function bodies, so that instances of
 	// `p_other` can switch to this image (spec §12.4).

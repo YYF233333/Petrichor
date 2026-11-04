@@ -47,6 +47,7 @@ func _ready() -> void:
 	# names the file it was compiled as.
 	part = live.get("Part").new()
 	_check(node.value() == 1 and derived.value() == 2 and part.value() == 1, "version 1 runs")
+	_check(node.hit() == 101 and live.get("hits") == 1, "version 1 initializes its static variables once")
 	collect(node.delayed())
 	_ask_for(2)
 
@@ -68,6 +69,7 @@ func _process(_delta: float) -> void:
 		_check(node.value() == 50, "after a body change, the instance runs the new code on its members")
 		_check(derived.value() == 51, "an instance of a class that extends it runs the new code of its base")
 		_check(part.value() == 2, "an instance of an inner class runs the new code of its body (spec §4.1)")
+		_check(node.hit() == 1002 and live.get("hits") == 2, "after a body change, static variables keep their values and _static_init() does not run again (spec §4.8)")
 		node.tick.emit()
 		_check(coroutine_results == [101], "suspended coroutine keeps its old image")
 		collect(node.delayed())
@@ -83,7 +85,7 @@ func _process(_delta: float) -> void:
 		_check(fresh.value() == 20, "after a member change, a new instance runs the code from before it")
 		_ask_for(4)
 	elif reloaded and waiting_for == 4:
-		_check(node.value() == 50 and fresh.value() == 20 and derived.value() == 51 and part.value() == 2, "after a refused change, a later body change is not applied either")
+		_check(node.value() == 50 and fresh.value() == 20 and derived.value() == 51 and part.value() == 2 and node.hit() == 1003, "after a refused change, a later body change is not applied either")
 		node.free()
 		fresh.free()
 		derived.free()

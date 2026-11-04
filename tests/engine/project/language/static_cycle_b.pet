@@ -1,0 +1,2 @@
+class_name StaticCycleB extends RefCounted
+pub static var y: int = StaticCycleA.x + 1

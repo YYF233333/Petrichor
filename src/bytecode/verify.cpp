@@ -255,6 +255,15 @@ class Verifier {
 		return any(instance, p_offset, laid_out_as(p_type)) || fail(std::string("member operand ") + std::to_string(p_offset) + " is not a member of type " + type_name(p_type));
 	}
 
+	// A static variable of this class, of the type; one of another class is
+	// looked up when the code runs (spec §4.8).
+	bool static_variable(uint32_t p_class, uint32_t p_variable, uint32_t p_type) {
+		if (p_class != NO_SLOT) {
+			return index(p_class, module.classes.size(), "class") && (!module.classes[p_class].script.empty() || fail("a static variable of an engine class"));
+		}
+		return index(p_variable, module.statics.size(), "static variable") && (same_layout(module.statics[p_variable].type, p_type) || fail("static variable " + module.statics[p_variable].name + " is not of type " + type_name(p_type)));
+	}
+
 	bool index(uint32_t p_index, size_t p_count, const char *p_table) {
 		return p_index < p_count || fail(std::string("index ") + std::to_string(p_index) + " is outside the " + p_table + " table");
 	}
@@ -603,6 +612,15 @@ class Verifier {
 				return member(o[0], ValueType::String) && slot(o[1], ValueType::String);
 			case Op::STORE_MEMBER_VALUE:
 				return type_operand(o[0]) && member_like(o[1], o[0]) && slot_like(o[2], o[0]);
+			case Op::LOAD_STATIC:
+				return type_operand(o[0]) && slot_like(o[1], o[0]) && static_variable(o[2], o[3], o[0]);
+			case Op::STORE_STATIC:
+				return type_operand(o[0]) && static_variable(o[1], o[2], o[0]) && slot_like(o[3], o[0]);
+			case Op::INIT_STATIC:
+				if (int32_t(function - module.functions.data()) != module.static_init_function) {
+					return fail("INIT_STATIC outside the static initializer");
+				}
+				return type_operand(o[0]) && static_variable(NO_SLOT, o[1], o[0]) && slot_like(o[2], o[0]);
 			case Op::INT_TO_FLOAT:
 				return slot(o[0], ValueType::Float) && slot(o[1], ValueType::Int);
 			case Op::FLOAT_TO_INT:
@@ -881,6 +899,25 @@ public:
 		}
 		if (!layout(module.members, module.instance_size, instance)) {
 			return false;
+		}
+		Slots statics;
+		if (!layout(module.statics, module.statics_size, statics)) {
+			return false;
+		}
+		if (module.static_init_function >= 0 && module.static_init_function < int32_t(module.functions.size())) {
+			const Function &initializer = module.functions[module.static_init_function];
+			if (!initializer.is_static || !is_void(initializer.result.type) || !initializer.params.empty()) {
+				return fail("the static initializer takes or returns a value, or is not static");
+			}
+		} else if (module.static_init_function != -1) {
+			return fail("the static initializer is not a function of the module");
+		}
+		for (const Member &variable : module.statics) {
+			for (const int32_t index : { variable.setter, variable.getter }) {
+				if (index < -1 || index >= int32_t(module.functions.size()) || (index >= 0 && !module.functions[index].is_static)) {
+					return fail("an accessor of the static variable " + variable.name + " is not a static function of the module");
+				}
+			}
 		}
 		// The engine passes the value a setter takes, and takes what a getter gives.
 		for (const Member &member : module.members) {

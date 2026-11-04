@@ -235,7 +235,9 @@ static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance,
 	const std::shared_ptr<const ClassImage> image = instance->current_image();
 	const bytecode::Member *member = visible_member(*image, as_name(p_name));
 	if (!member) {
-		return false;
+		// A pub static variable, through an object as in GDScript
+		// (modules/gdscript/gdscript.cpp:1562-1587; spec §4.8).
+		return vm::set_static(image, as_name(p_name), *reinterpret_cast<const Variant *>(p_value));
 	}
 	const Variant &value = *reinterpret_cast<const Variant *>(p_value);
 	// The scene, the inspector, Tween and other classes write through the
@@ -270,7 +272,8 @@ static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance,
 		}
 		// A pub constant reads through an instance too, as in GDScript
 		// (modules/gdscript/gdscript.cpp:1624-1632; spec §4.5).
-		return pub_constant(*image, as_name(p_name), *reinterpret_cast<Variant *>(r_ret));
+		// So do pub static variables (gdscript.cpp:1634-1646; spec §4.8).
+		return pub_constant(*image, as_name(p_name), *reinterpret_cast<Variant *>(r_ret)) || vm::get_static(image, as_name(p_name), *reinterpret_cast<Variant *>(r_ret));
 	}
 	if (member->getter >= 0) {
 		GDExtensionCallError error;

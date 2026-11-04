@@ -139,6 +139,10 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 		image->member_lookup.insert(name, int(i));
 	}
 	image->members_layout = SlotLayout::of(std::max<uint32_t>(module.instance_size, 8), module.members, types);
+	for (size_t i = 0; i < module.statics.size(); i++) {
+		image->static_lookup.insert(to_godot(module.statics[i].name), int(i));
+	}
+	image->statics = std::make_shared<Statics>(SlotLayout::of(std::max<uint32_t>(module.statics_size, 8), module.statics, types));
 
 	for (const bytecode::EngineCall &call : module.engine_calls) {
 		image->engine_methods.push_back(to_godot(call.method));
@@ -585,6 +589,29 @@ int ClassImage::find_member(const StringName &p_name) const {
 	return index ? *index : -1;
 }
 
+int ClassImage::find_static(const StringName &p_name) const {
+	const int *index = static_lookup.getptr(p_name);
+	return index ? *index : -1;
+}
+
+void ClassImage::adopt_statics(const ClassImage &p_previous) const {
+	statics = p_previous.statics;
+	for (const std::shared_ptr<const ClassImage> &inner : inner_classes) {
+		if (const std::shared_ptr<const ClassImage> previous = p_previous.find_class(inner->path)) {
+			inner->adopt_statics(*previous);
+		}
+	}
+}
+
+Statics::Statics(const SlotLayout &p_layout) :
+		layout(p_layout), data(new uint64_t[p_layout.size / 8 + 1]()) {
+	layout.construct(at(0));
+}
+
+Statics::~Statics() {
+	layout.destroy(at(0));
+}
+
 /* Hot reload */
 
 namespace {
@@ -678,7 +705,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	// they are in (spec §3.11, §12.4).
 	const auto declared = [](const bytecode::Module &p_module) {
 		size_t count = 0;
-		while (count < p_module.functions.size() && !p_module.functions[count].is_lambda && int32_t(count) != p_module.init_function && int32_t(count) != p_module.ready_function) {
+		while (count < p_module.functions.size() && !p_module.functions[count].is_lambda && int32_t(count) != p_module.init_function && int32_t(count) != p_module.ready_function && int32_t(count) != p_module.static_init_function) {
 			count++;
 		}
 		return count;
@@ -699,6 +726,17 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 		const bytecode::Member &y = b.members[i];
 		if (!pair.same_slot(x, y) || x.offset != y.offset || x.is_onready != y.is_onready || x.setter != y.setter || x.getter != y.getter ||
 				x.is_pub != y.is_pub || x.is_export != y.is_export || x.hint != y.hint || x.hint_string != y.hint_string || x.usage != y.usage || x.has_initial != y.has_initial || !pair.same_constant(x.initial, y.initial)) {
+			return false;
+		}
+	}
+	// Their initializers belong to a body, which does not run again (spec §4.8).
+	if (a.statics.size() != b.statics.size() || a.statics_size != b.statics_size || a.static_unload != b.static_unload) {
+		return false;
+	}
+	for (size_t i = 0; i < a.statics.size(); i++) {
+		const bytecode::Member &x = a.statics[i];
+		const bytecode::Member &y = b.statics[i];
+		if (x.name != y.name || !pair.same_slot(x, y) || x.offset != y.offset || x.is_pub != y.is_pub || x.setter != y.setter || x.getter != y.getter || x.has_initial != y.has_initial) {
 			return false;
 		}
 	}

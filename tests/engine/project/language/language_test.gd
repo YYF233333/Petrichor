@@ -549,6 +549,23 @@ func _ready() -> void:
 	_check_errors(["inner_check.pet:26: Index 5 is out of bounds (size 1)."], "a program error in an inner class reports the line of its file")
 	inner.free()
 
+	# Static variables (spec §4.8).
+	var static_vars: Script = load("res://language/static_vars.pet")
+	_check(static_vars.get("log") == ["StaticVars", "_static_init", "Late"], "static initialization runs when the class loads, _static_init() last, then the inner classes': %s" % [static_vars.get("log")])
+	_check(static_vars.get("doubled") == 2 and static_vars.get("from_inner") == 6 and static_vars.get("names") == { "a": 2 } and static_vars.get("Late").get("order") == 2, "static initializers run in declaration order, and a class they read is initialized first")
+	var static_object := StaticVars.new()
+	_check(static_object.instance_count() == 8 and static_object.through_object(static_object) == 1 and static_object.get("count") == 1, "a static variable is read in its class and through objects")
+	static_vars.set("label", "abc")
+	static_vars.set("count", 4)
+	_check(static_vars.get("label") == "ABC" and static_object.instance_count() == 11, "GDScript writes a pub static variable through the class, past its setter")
+	_check(static_vars.get("hidden") == null, "a static variable that is not pub is not reached by name (spec §10.5)")
+	StaticSub.new().set_count(9)
+	_check(static_vars.get("count") == 9, "a subclass shares the static variables of its base")
+	load("res://language/static_cycle_a.pet")
+	_check_errors(["static_cycle_b.pet:2: Static initialization cycle: StaticCycleA.x → StaticCycleB.y → StaticCycleA.x.", "static_cycle_a.pet:3: StaticCycleB.y cannot be used: the static initialization of StaticCycleB failed."], "a cycle between static initializations is a program error that lists it")
+	load("res://language/static_order.pet")
+	_check_errors(["static_order.pet:8: static_order.pet.b is used before its initializer runs: static variables are initialized in declaration order."], "a static variable used before its initializer runs is a program error")
+
 	# Annotations describe a class to the engine as GDScript's do (spec §2.3).
 	var annotated := AnnotationCheck.new()
 	var reference := AnnotationReference.new()

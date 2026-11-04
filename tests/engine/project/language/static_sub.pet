@@ -1,0 +1,7 @@
+class_name StaticSub extends StaticVars
+
+# Shares the static variables of its base (spec §4.8).
+
+
+pub func set_count(value: int) -> void:
+	count = value

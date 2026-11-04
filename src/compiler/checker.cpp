@@ -190,6 +190,10 @@ class Checker : public ClassRelation {
 	// it is one too (§6.3).
 	int initializing = -1;
 	bool initializing_onready = false;
+	// The static variable whose initializer is being checked, by its index in
+	// the class's own: it and those after it are not initialized yet, and
+	// there is no instance (spec §4.8).
+	int static_initializing = -1;
 	// Checking a constant's initializer, which may come before the members' types are known.
 	bool in_constant = false;
 	// The enum whose values are being computed, whose values before
@@ -207,6 +211,7 @@ class Checker : public ClassRelation {
 		bool in_predelete;
 		int initializing;
 		bool initializing_onready;
+		int static_initializing;
 	};
 	std::vector<Enclosing> enclosing;
 	// The return type of a lambda without one, as its return statements give it.
@@ -217,6 +222,7 @@ class Checker : public ClassRelation {
 	Returns *returns = nullptr;
 
 	std::unordered_map<std::string, int> member_index;
+	std::unordered_map<std::string, int> static_index; // In all_static_vars.
 	std::unordered_map<std::string, int> constant_index; // In all_constants.
 	std::unordered_map<std::string, int> function_index;
 	std::unordered_map<std::string, int> signal_index;
@@ -400,7 +406,7 @@ class Checker : public ClassRelation {
 	// Whether this class, a local or the engine class it extends has the name,
 	// which the classes around it then do not give (spec §4.1).
 	bool declares(const std::string &p_name) const {
-		if (visible_local(p_name) || member_index.count(p_name) || constant_index.count(p_name) || function_index.count(p_name) || signal_index.count(p_name) || cls.find_struct(p_name) ||
+		if (visible_local(p_name) || member_index.count(p_name) || static_index.count(p_name) || constant_index.count(p_name) || function_index.count(p_name) || signal_index.count(p_name) || cls.find_struct(p_name) ||
 				!inner_class_path(options.path, p_name).empty() || engine.find_property(cls.native_base, p_name) || engine.find_method(cls.native_base, p_name) || engine.find_signal(cls.native_base, p_name)) {
 			return true;
 		}
@@ -455,7 +461,7 @@ class Checker : public ClassRelation {
 			const std::string file = preload_file(preload_path(p_expr));
 			return is_script_path(file) ? file : std::string();
 		}
-		if (p_expr.kind != ExprKind::Name || visible_local(p_expr.text) || member_index.count(p_expr.text) || engine.find_property(cls.native_base, p_expr.text)) {
+		if (p_expr.kind != ExprKind::Name || visible_local(p_expr.text) || member_index.count(p_expr.text) || static_index.count(p_expr.text) || engine.find_property(cls.native_base, p_expr.text)) {
 			return std::string();
 		}
 		if (const ConstPtr alias = class_alias(p_expr.text)) {
@@ -518,6 +524,11 @@ class Checker : public ClassRelation {
 		const std::string inner = inner_class_path(r_around.path(), name);
 		if (!inner.empty()) {
 			return class_value(r_expr, inner);
+		}
+		const auto variable = r_around.static_index.find(name);
+		if (variable != r_around.static_index.end()) {
+			const VarDecl &found = *r_around.cls.all_static_vars[variable->second];
+			return use_static(r_expr, found, declaring(r_around.cls, found, &ClassDecl::static_vars));
 		}
 		const auto function = r_around.function_index.find(name);
 		if (function != r_around.function_index.end() && r_around.cls.all_functions[function->second]->is_static) {
@@ -1114,7 +1125,7 @@ class Checker : public ClassRelation {
 	// The type a name refers to when it is the base of `Name.x` or
 	// `Name.f()`: not when a local, a member or a property has that name.
 	bool names_type(const Expr &p_expr) const {
-		return p_expr.kind == ExprKind::Name && !visible_local(p_expr.text) && !member_index.count(p_expr.text) &&
+		return p_expr.kind == ExprKind::Name && !visible_local(p_expr.text) && !member_index.count(p_expr.text) && !static_index.count(p_expr.text) &&
 				!engine.find_property(cls.native_base, p_expr.text) && is_type_name(p_expr.text) && !engine.is_singleton(p_expr.text);
 	}
 
@@ -1130,7 +1141,7 @@ class Checker : public ClassRelation {
 			}
 		}
 		for (ConstDecl &constant : cls.constants) {
-			if (constant_index.count(constant.name) || member_index.count(constant.name)) {
+			if (constant_index.count(constant.name) || member_index.count(constant.name) || static_index.count(constant.name)) {
 				error(constant.name_token, "\"" + constant.name + "\" is already declared.");
 				continue;
 			}
@@ -1151,9 +1162,10 @@ class Checker : public ClassRelation {
 		bool in_predelete;
 		int initializing;
 		bool initializing_onready;
+		int static_initializing;
 
 		explicit ClassScope(Checker &r_checker) :
-				checker(r_checker), function(r_checker.function), scopes(std::move(r_checker.scopes)), narrowed(std::move(r_checker.narrowed)), loop_depth(r_checker.loop_depth), in_predelete(r_checker.in_predelete), initializing(r_checker.initializing), initializing_onready(r_checker.initializing_onready) {
+				checker(r_checker), function(r_checker.function), scopes(std::move(r_checker.scopes)), narrowed(std::move(r_checker.narrowed)), loop_depth(r_checker.loop_depth), in_predelete(r_checker.in_predelete), initializing(r_checker.initializing), initializing_onready(r_checker.initializing_onready), static_initializing(r_checker.static_initializing) {
 			checker.function = nullptr;
 			checker.scopes.clear();
 			checker.narrowed.assign(1, {});
@@ -1161,6 +1173,7 @@ class Checker : public ClassRelation {
 			checker.in_predelete = false;
 			checker.initializing = -1;
 			checker.initializing_onready = false;
+			checker.static_initializing = -1;
 		}
 		~ClassScope() {
 			checker.function = function;
@@ -1170,6 +1183,7 @@ class Checker : public ClassRelation {
 			checker.in_predelete = in_predelete;
 			checker.initializing = initializing;
 			checker.initializing_onready = initializing_onready;
+			checker.static_initializing = static_initializing;
 		}
 	};
 
@@ -1709,7 +1723,7 @@ class Checker : public ClassRelation {
 			check_value(r_base); // The constant, whose value is the script.
 			return alias->script_class;
 		}
-		if (visible_local(r_base.text) || member_index.count(r_base.text) || constant_index.count(r_base.text) || engine.find_property(cls.native_base, r_base.text)) {
+		if (visible_local(r_base.text) || member_index.count(r_base.text) || static_index.count(r_base.text) || constant_index.count(r_base.text) || engine.find_property(cls.native_base, r_base.text)) {
 			return std::nullopt;
 		}
 		// An inner class of this class or of one around it (spec §4.1).
@@ -1780,6 +1794,49 @@ class Checker : public ClassRelation {
 		return std::nullopt;
 	}
 
+	// A static variable that the class `p_owner` declares (spec §4.8), which
+	// an initializer of that class may read once it is initialized.
+	Type use_static(Expr &r_expr, const VarDecl &p_variable, const ClassDecl &p_owner) {
+		refer(r_expr.name_token, script_id(p_owner.path, p_variable.name));
+		if (in_constant) {
+			return fail(r_expr, "\"" + p_variable.name + "\" is a variable, not a constant (spec §4.5).");
+		}
+		const int index = int(&p_variable - p_owner.static_vars.data());
+		if (static_initializing >= 0 && p_owner.path == options.path && index >= static_initializing) {
+			return fail(r_expr, "\"" + p_variable.name + "\" is not initialized yet: static variables are initialized in declaration order (spec §4.8).");
+		}
+		if (p_variable.type.is_error()) {
+			return fail(r_expr, "The type of " + display_name(p_owner, p_owner.path) + "." + p_variable.name + " is not known here" + (p_variable.declared_type ? std::string(".") : "; declare it, as in `static var " + p_variable.name + ": T`."));
+		}
+		r_expr.target = Target::StaticVar;
+		r_expr.owner = p_owner.path;
+		r_expr.index = index;
+		r_expr.variable = &p_variable;
+		return set(r_expr, p_variable.type);
+	}
+
+	// A static variable of the class at `p_path`, as `Class.name` or
+	// `object.name` (spec §4.8); nullopt when the class has none of that
+	// name. Other classes see only pub ones, except subclasses (§4.2).
+	std::optional<Type> class_static(Expr &r_expr, const std::string &p_path, const std::string &p_class) {
+		const ClassDecl *decl = script_decl(p_path);
+		if (!decl) {
+			return fail(r_expr, p_class + " has errors.");
+		}
+		for (const VarDecl *variable : decl->all_static_vars) {
+			if (variable->name != r_expr.text) {
+				continue;
+			}
+			const ClassDecl &owner = declaring(*decl, *variable, &ClassDecl::static_vars);
+			if (!variable->is_pub && !sees(owner.path)) {
+				refer(r_expr.name_token, script_id(owner.path, variable->name));
+				return fail(r_expr, "The static variable \"" + variable->name + "\" of " + p_class + " is not pub.");
+			}
+			return use_static(r_expr, *variable, owner);
+		}
+		return std::nullopt;
+	}
+
 	// A name of this instance: a constant, a member, the owner, a property, a
 	// function or a signal; also what `self.name` reads, past the locals.
 	std::optional<Type> check_self_name(Expr &r_expr) {
@@ -1821,6 +1878,11 @@ class Checker : public ClassRelation {
 			r_expr.index = member->second;
 			refer(r_expr.name_token, script_id(declaring(cls, read, &ClassDecl::members).path, read.name));
 			return set(r_expr, cls.all_members[member->second]->type);
+		}
+		const auto found_static = static_index.find(r_expr.text);
+		if (found_static != static_index.end()) {
+			const VarDecl &variable = *cls.all_static_vars[found_static->second];
+			return use_static(r_expr, variable, declaring(cls, variable, &ClassDecl::static_vars));
 		}
 		if (r_expr.text == "owner" && cls.owner_ref) {
 			if (refuse_in_static(r_expr, r_expr.text)) {
@@ -1974,6 +2036,12 @@ class Checker : public ClassRelation {
 		const std::string inner = inner_class_path(p_class.script, r_expr.text);
 		if (!inner.empty()) {
 			return class_value(r_expr, inner);
+		}
+		// A static variable, through an object as in GDScript, which is
+		// evaluated first (spec §4.8).
+		if (const std::optional<Type> variable = class_static(r_expr, p_class.script, p_class.name)) {
+			r_expr.static_on_value = r_expr.target == Target::StaticVar;
+			return variable;
 		}
 		for (const VarDecl *entry : decl->all_members) {
 			const VarDecl &member = *entry;
@@ -2135,11 +2203,14 @@ class Checker : public ClassRelation {
 			if (const std::optional<Type> constant = class_constant(r_expr, named->script, named->name)) {
 				return *constant;
 			}
+			if (const std::optional<Type> variable = class_static(r_expr, named->script, named->name)) {
+				return *variable;
+			}
 			const std::string inner = inner_class_path(named->script, r_expr.text);
 			if (!inner.empty()) {
 				return class_value(r_expr, inner);
 			}
-			return fail(r_expr, named->name + " has no constant \"" + r_expr.text + "\".");
+			return fail(r_expr, named->name + " has no constant or static variable \"" + r_expr.text + "\".");
 		}
 		if (names_type(base)) {
 			refer(base.name_token, engine_id(base.text));
@@ -2165,8 +2236,11 @@ class Checker : public ClassRelation {
 			if (const std::optional<Type> constant = class_constant(r_expr, base.owner, class_name)) {
 				return *constant;
 			}
+			if (const std::optional<Type> variable = class_static(r_expr, base.owner, class_name)) {
+				return *variable;
+			}
 			const std::string inner = inner_class_path(base.owner, r_expr.text);
-			return inner.empty() ? fail(r_expr, class_name + " has no constant \"" + r_expr.text + "\".") : class_value(r_expr, inner);
+			return inner.empty() ? fail(r_expr, class_name + " has no constant or static variable \"" + r_expr.text + "\".") : class_value(r_expr, inner);
 		}
 		if (base_type.is_optional()) {
 			return fail(r_expr, "The value may be None (" + base_type.to_string() + "); check it before reading \"" + r_expr.text + "\".");
@@ -3520,7 +3594,7 @@ class Checker : public ClassRelation {
 		// and change in place.
 		if (!method->is_const && !method->is_static && !is_shared(p_base)) {
 			const Expr &base = *r_expr.base;
-			const bool place = base.target == Target::Local || base.target == Target::Member || base.target == Target::SelfProperty ||
+			const bool place = base.target == Target::Local || base.target == Target::Member || base.target == Target::StaticVar || base.target == Target::SelfProperty ||
 					base.target == Target::ObjectProperty || base.target == Target::Field || base.target == Target::StructField;
 			if (!place) {
 				return fail(r_expr, "\"" + r_expr.text + "()\" changes the " + base_name + " it is called on, which is a temporary value here.");
@@ -3590,7 +3664,7 @@ class Checker : public ClassRelation {
 		if (in_constant) {
 			return fail(r_expr, "A lambda is not a constant expression (spec §4.5).");
 		}
-		lambda.is_static = function && function->is_static;
+		lambda.is_static = function ? function->is_static : static_initializing >= 0;
 		const bool typed_by_expected = p_expected.kind == TypeKind::Function && p_expected.args.size() == lambda.params.size() + 1;
 		for (size_t i = 0; i < lambda.params.size(); i++) {
 			ParamDecl &param = lambda.params[i];
@@ -3615,7 +3689,7 @@ class Checker : public ClassRelation {
 			returns = &inferred;
 		}
 
-		enclosing.push_back({ function, std::move(scopes), std::move(narrowed), &r_expr, loop_depth, in_predelete, initializing, initializing_onready });
+		enclosing.push_back({ function, std::move(scopes), std::move(narrowed), &r_expr, loop_depth, in_predelete, initializing, initializing_onready, static_initializing });
 		function = &lambda;
 		scopes = { {} };
 		narrowed = { {} };
@@ -3624,6 +3698,7 @@ class Checker : public ClassRelation {
 		const bool was_assert = in_assert;
 		in_assert = false;
 		initializing = -1;
+		static_initializing = -1;
 		declare_params(lambda);
 		check_block(lambda.body);
 		in_assert = was_assert;
@@ -3644,6 +3719,7 @@ class Checker : public ClassRelation {
 		in_predelete = outer.in_predelete;
 		initializing = outer.initializing;
 		initializing_onready = outer.initializing_onready;
+		static_initializing = outer.static_initializing;
 		enclosing.pop_back();
 		returns = outer_returns;
 
@@ -4488,7 +4564,7 @@ class Checker : public ClassRelation {
 				break;
 			case ExprKind::Name:
 			case ExprKind::Member:
-				if (part.target == Target::Local || part.target == Target::Member || part.target == Target::SelfProperty || part.target == Target::ObjectProperty) {
+				if (part.target == Target::Local || part.target == Target::Member || part.target == Target::StaticVar || part.target == Target::SelfProperty || part.target == Target::ObjectProperty) {
 					what = "\"" + part.text + "\" is a variable, not a constant";
 				}
 				break;
@@ -4609,6 +4685,7 @@ class Checker : public ClassRelation {
 				}
 				return true;
 			case Target::Member:
+			case Target::StaticVar:
 			case Target::Owner:
 				return true;
 			case Target::SelfProperty:
@@ -5112,13 +5189,22 @@ class Checker : public ClassRelation {
 	void declare_members() {
 		for (size_t i = 0; i < cls.members.size(); i++) {
 			VarDecl &member = cls.members[i];
-			if (member_index.count(member.name) || function_index.count(member.name) || signal_index.count(member.name)) {
+			if (member_index.count(member.name) || static_index.count(member.name) || function_index.count(member.name) || signal_index.count(member.name)) {
 				error(member.name_token, "The member \"" + member.name + "\" is already declared.");
 				continue;
 			}
 			member_index[member.name] = int(cls.all_members.size());
 			cls.all_members.push_back(&member);
 			refer(member.name_token, script_id(options.path, member.name), true);
+		}
+		for (VarDecl &variable : cls.static_vars) {
+			if (member_index.count(variable.name) || static_index.count(variable.name) || function_index.count(variable.name) || signal_index.count(variable.name)) {
+				error(variable.name_token, "The member \"" + variable.name + "\" is already declared.");
+				continue;
+			}
+			static_index[variable.name] = int(cls.all_static_vars.size());
+			cls.all_static_vars.push_back(&variable);
+			refer(variable.name_token, script_id(options.path, variable.name), true);
 		}
 	}
 
@@ -5537,6 +5623,16 @@ class Checker : public ClassRelation {
 	// before an initializer reads it.
 	void check_members() {
 		cls.is_node = engine.inherits(cls.native_base, "Node");
+		// First, since instance initializers may read them; the types written
+		// before any initializer, whose lambdas may read later ones.
+		for (VarDecl &variable : cls.static_vars) {
+			if (variable.declared_type) {
+				variable.type = resolve(*variable.declared_type, false);
+			}
+		}
+		for (size_t i = 0; i < cls.static_vars.size(); i++) {
+			check_static_declaration(i);
+		}
 		for (const bool onready : { false, true }) {
 			for (size_t i = 0; i < cls.members.size(); i++) {
 				if (cls.members[i].is_onready == onready) {
@@ -5614,6 +5710,37 @@ class Checker : public ClassRelation {
 		check_accessors(member);
 	}
 
+	// A static variable (spec §4.8): typed as a member is (§4.3), but one of
+	// a type without a default value needs an initializer. Without the bodies,
+	// one whose type is written needs no initializer checked, which may read
+	// the class being compiled.
+	void check_static_declaration(size_t p_index) {
+		VarDecl &variable = cls.static_vars[p_index];
+		const auto registered = static_index.find(variable.name);
+		if (registered == static_index.end() || cls.all_static_vars[registered->second] != &variable) {
+			return;
+		}
+		Type type = variable.declared_type ? variable.type : Type::of(TypeKind::Error);
+		if (variable.initializer && !(options.declarations_only && variable.declared_type)) {
+			static_initializing = int(p_index);
+			const Type value = check_value(*variable.initializer, type);
+			static_initializing = -1;
+			if (variable.declared_type) {
+				expect_assignable(*variable.initializer, value, type, "assign");
+			} else {
+				type = value;
+			}
+		} else if (!variable.declared_type) {
+			error(variable.name_token, "\"" + variable.name + "\" needs a type or an initial value.");
+		} else if (!variable.initializer && (((type.kind == TypeKind::Object || type.kind == TypeKind::Task) && !type.nullable) || type.kind == TypeKind::Function || (type.kind == TypeKind::Struct && !has_default(type)))) {
+			error(variable.name_token, "The static variable \"" + variable.name + "\" needs an initial value: " + type.to_string() + " has no default value. Give it one, or the type " + type.to_string() + "? (spec §4.8).");
+		} else if (!variable.initializer && !enum_has_default(type)) {
+			error(variable.name_token, "\"" + variable.name + "\" needs an initial value: " + enum_spelling(type) + " has no value 0 to start at (spec §3.7).");
+		}
+		variable.type = type;
+		check_accessors(variable);
+	}
+
 	// A property's setter and getter (spec §4.4): its own inline ones, which
 	// take and give its type, or functions of the class that do.
 	void check_accessors(VarDecl &r_member) {
@@ -5649,7 +5776,9 @@ class Checker : public ClassRelation {
 					error(function->name_token, "As the " + kind + " of \"" + r_member.name + "\", " + p_name + "() " + (p_setter ? "takes one argument of type " + r_member.type.to_string() + " and returns nothing" : "takes no argument and returns " + r_member.type.to_string()) + " (spec §4.4).");
 				}
 			}
-			if (function->is_async || function->is_static) {
+			if (r_member.is_static && (function->is_async || !function->is_static)) {
+				error(function->name_token, "A " + kind + " of a static variable is static and not async (spec §4.4, §4.8).");
+			} else if (!r_member.is_static && (function->is_async || function->is_static)) {
 				error(function->name_token, "A " + kind + " cannot be async or static (spec §4.4).");
 			}
 			const auto found = function_index.find(p_name);
@@ -5690,7 +5819,7 @@ class Checker : public ClassRelation {
 
 	// A static function has no instance (spec §4.8).
 	bool refuse_in_static(const Expr &p_expr, const std::string &p_name) {
-		if (!function || !function->is_static) {
+		if (function ? !function->is_static : static_initializing < 0) {
 			// A lambda that uses self holds it, and so do those it is in (spec §3.11).
 			for (size_t i = 0; function && function->is_lambda && i <= enclosing.size(); i++) {
 				FuncDecl *lambda = i < enclosing.size() ? enclosing[i].function : function;
@@ -5700,7 +5829,8 @@ class Checker : public ClassRelation {
 			}
 			return false;
 		}
-		error(p_expr.range, "\"" + p_name + "\" belongs to an instance, which the static function \"" + outermost()->name + "()\" does not have.");
+		const FuncDecl *outer = outermost();
+		error(p_expr.range, "\"" + p_name + "\" belongs to an instance, which " + (outer ? "the static function \"" + outer->name + "()\"" : std::string("a static variable's initializer")) + " does not have.");
 		return true;
 	}
 
@@ -5878,6 +6008,11 @@ class Checker : public ClassRelation {
 		}
 		if (r_function.name == "_init" && r_function.return_type_ref && r_function.return_type_ref->name != "void") {
 			error(r_function.return_type_ref->range, "_init() returns nothing.");
+		}
+		// Called once when the class loads, as GDScript's
+		// (modules/gdscript/gdscript_parser.cpp:1751-1757; spec §4.8).
+		if (r_function.name == "_static_init" && (!r_function.is_static || !r_function.params.empty() || r_function.is_async || (r_function.return_type_ref && r_function.return_type_ref->name != "void"))) {
+			error(r_function.name_token, "_static_init() is static, takes no parameters, returns nothing and cannot await (spec §4.8).");
 		}
 
 		if (r_function.return_type_ref) {
@@ -6310,7 +6445,7 @@ class Checker : public ClassRelation {
 		}
 		for (const std::unique_ptr<ClassDecl> &inner : cls.classes) {
 			const std::string &name = inner->name;
-			if (!names.insert(name).second || constant_index.count(name) || member_index.count(name) || function_index.count(name) || signal_index.count(name) || is_type_name(name) ||
+			if (!names.insert(name).second || constant_index.count(name) || member_index.count(name) || static_index.count(name) || function_index.count(name) || signal_index.count(name) || is_type_name(name) ||
 					(options.project && !options.project->global_class_path(name).empty())) {
 				error(inner->name_token, "\"" + name + "\" is already declared.");
 			}
@@ -6322,7 +6457,7 @@ class Checker : public ClassRelation {
 	void declare_functions() {
 		std::unordered_set<std::string> own_functions;
 		for (FuncDecl &fn : cls.functions) {
-			if (!own_functions.insert(fn.name).second || member_index.count(fn.name) || constant_index.count(fn.name) || signal_index.count(fn.name)) {
+			if (!own_functions.insert(fn.name).second || member_index.count(fn.name) || static_index.count(fn.name) || constant_index.count(fn.name) || signal_index.count(fn.name)) {
 				error(fn.name_token, "\"" + fn.name + "\" is already declared.");
 				continue;
 			}
@@ -6432,12 +6567,16 @@ private:
 			}
 			cls.base = parent;
 			cls.all_members = cls.base->all_members;
+			cls.all_static_vars = cls.base->all_static_vars;
 			cls.all_functions = cls.base->all_functions;
 			cls.all_signals = cls.base->all_signals;
 			cls.implemented = cls.base->implemented;
 			cls.exposed_methods = cls.base->exposed_methods;
 			for (size_t i = 0; i < cls.all_members.size(); ++i) {
 				member_index[cls.all_members[i]->name] = int(i);
+			}
+			for (size_t i = 0; i < cls.all_static_vars.size(); ++i) {
+				static_index[cls.all_static_vars[i]->name] = int(i);
 			}
 			for (size_t i = 0; i < cls.all_functions.size(); ++i) {
 				function_index[cls.all_functions[i]->name] = int(i);

@@ -40,6 +40,9 @@ namespace petrichor::bytecode {
 	X(STORE_MEMBER_8, 2) \
 	X(STORE_MEMBER_STRING, 2) \
 	X(STORE_MEMBER_VALUE, 3) /* type, member, src */ \
+	X(LOAD_STATIC, 4) /* type, dst, class (NO_SLOT: this one), static variable: the class is initialized first, and a variable not yet initialized is a program error (spec §4.8) */ \
+	X(STORE_STATIC, 4) /* type, class (NO_SLOT: this one), static variable, src: as LOAD_STATIC */ \
+	X(INIT_STATIC, 3) /* type, static variable, src: in the static initializer, which counts the variable as initialized then */ \
 	X(INT_TO_FLOAT, 2) \
 	X(FLOAT_TO_INT, 2) \
 	X(ADD_INT, 3) \

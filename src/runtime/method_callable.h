@@ -25,6 +25,11 @@ bool scripted_object(godot::Object *p_object, ScriptedObject &r_instance);
 using ScriptResolver = std::shared_ptr<const ClassImage> (*)(const godot::String &p_path);
 void set_script_resolver(ScriptResolver p_resolver);
 std::shared_ptr<const ClassImage> script_image(const godot::String &p_path);
+// A file whose script is loading on this thread, which script_image() finds
+// before the loader hands the script to the engine: its static
+// initialization runs then (spec §4.8). Nested loads end in reverse order.
+void begin_loading(const std::shared_ptr<const ClassImage> &p_image);
+void end_loading();
 
 // Whether the object's script of this language implements the interface,
 // named "script::Name" (spec §3.9).

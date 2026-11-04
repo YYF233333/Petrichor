@@ -488,6 +488,36 @@ public:
 
 namespace {
 
+void write_member(Writer &w, const Member &p_member) {
+	w.slot(p_member);
+	w.u32(p_member.line);
+	w.u8(p_member.is_pub ? 1 : 0);
+	w.u8(p_member.is_export ? 1 : 0);
+	w.u8(p_member.is_onready ? 1 : 0);
+	w.u32(uint32_t(p_member.setter));
+	w.u32(uint32_t(p_member.getter));
+	w.u32(p_member.hint);
+	w.str(p_member.hint_string);
+	w.u32(p_member.usage);
+	w.u8(p_member.has_initial ? 1 : 0);
+	w.constant(p_member.initial);
+}
+
+void read_member(Reader &r, Member &r_member) {
+	static_cast<Slot &>(r_member) = r.slot();
+	r_member.line = r.u32();
+	r_member.is_pub = r.u8() != 0;
+	r_member.is_export = r.u8() != 0;
+	r_member.is_onready = r.u8() != 0;
+	r_member.setter = int32_t(r.u32());
+	r_member.getter = int32_t(r.u32());
+	r_member.hint = r.u32();
+	r_member.hint_string = r.str();
+	r_member.usage = r.u32();
+	r_member.has_initial = r.u8() != 0;
+	r_member.initial = r.constant();
+}
+
 void write_module(Writer &w, const Module &p_module) {
 	w.u64(p_module.source_hash);
 	w.u8(p_module.declarations_only ? 1 : 0);
@@ -503,18 +533,7 @@ void write_module(Writer &w, const Module &p_module) {
 	}
 	w.u32(uint32_t(p_module.members.size()));
 	for (const Member &member : p_module.members) {
-		w.slot(member);
-		w.u32(member.line);
-		w.u8(member.is_pub ? 1 : 0);
-		w.u8(member.is_export ? 1 : 0);
-		w.u8(member.is_onready ? 1 : 0);
-		w.u32(uint32_t(member.setter));
-		w.u32(uint32_t(member.getter));
-		w.u32(member.hint);
-		w.str(member.hint_string);
-		w.u32(member.usage);
-		w.u8(member.has_initial ? 1 : 0);
-		w.constant(member.initial);
+		write_member(w, member);
 	}
 	w.u32(uint32_t(p_module.signals.size()));
 	for (const SignalInfo &signal : p_module.signals) {
@@ -578,6 +597,13 @@ void write_module(Writer &w, const Module &p_module) {
 	for (uint32_t count : { prefix.types, prefix.constants, prefix.engine_calls, prefix.properties, prefix.utility_calls, prefix.operators, prefix.fields, prefix.constructors, prefix.builtin_methods, prefix.classes, prefix.method_calls }) {
 		w.u32(count);
 	}
+	w.u32(uint32_t(p_module.statics.size()));
+	for (const Member &variable : p_module.statics) {
+		write_member(w, variable);
+	}
+	w.u32(p_module.statics_size);
+	w.u32(uint32_t(int32_t(p_module.static_init_function)));
+	w.u8(p_module.static_unload ? 1 : 0);
 
 	w.u32(uint32_t(p_module.named_constants.size()));
 	for (const NamedConstant &constant : p_module.named_constants) {
@@ -688,18 +714,7 @@ bool read_module(Reader &r, Module &module, int p_depth) {
 	}
 	module.members.resize(r.count());
 	for (Member &member : module.members) {
-		static_cast<Slot &>(member) = r.slot();
-		member.line = r.u32();
-		member.is_pub = r.u8() != 0;
-		member.is_export = r.u8() != 0;
-		member.is_onready = r.u8() != 0;
-		member.setter = int32_t(r.u32());
-		member.getter = int32_t(r.u32());
-		member.hint = r.u32();
-		member.hint_string = r.str();
-		member.usage = r.u32();
-		member.has_initial = r.u8() != 0;
-		member.initial = r.constant();
+		read_member(r, member);
 	}
 	module.signals.resize(r.count());
 	for (SignalInfo &signal : module.signals) {
@@ -766,6 +781,16 @@ bool read_module(Reader &r, Module &module, int p_depth) {
 	for (uint32_t *count : { &prefix.types, &prefix.constants, &prefix.engine_calls, &prefix.properties, &prefix.utility_calls, &prefix.operators, &prefix.fields, &prefix.constructors, &prefix.builtin_methods, &prefix.classes, &prefix.method_calls }) {
 		*count = r.u32();
 	}
+	module.statics.resize(r.count());
+	for (Member &variable : module.statics) {
+		read_member(r, variable);
+	}
+	module.statics_size = r.u32();
+	module.static_init_function = int32_t(r.u32());
+	if (module.static_init_function < -1 || module.static_init_function >= int32_t(module.functions.size())) {
+		r.failed = true;
+	}
+	module.static_unload = r.u8() != 0;
 
 	module.named_constants.resize(r.count());
 	for (NamedConstant &constant : module.named_constants) {

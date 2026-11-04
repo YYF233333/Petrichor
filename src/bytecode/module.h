@@ -401,6 +401,16 @@ struct Module {
 	// and compared with it as declarations.
 	int32_t ready_function = -1;
 	TablePrefix init_tables; // What the two use.
+	// The static variables (spec §4.8) in declaration order, at their offsets
+	// in the class's static storage; `has_initial` marks those without an
+	// initializer, which hold their type's default from the start.
+	std::vector<Member> statics;
+	uint32_t statics_size = 0;
+	// Gives the static variables their first values in declaration order and
+	// calls _static_init(), once when the class loads; -1 when there is nothing
+	// to do. A body: hot reload neither compares nor runs it again.
+	int32_t static_init_function = -1;
+	bool static_unload = false; // @static_unload: the class may unload with its static variables (spec §4.8).
 	// Lowered before the init function, so that their entries are among the
 	// declarations hot reload compares (spec §4.5, §12.4).
 	std::vector<NamedConstant> named_constants;

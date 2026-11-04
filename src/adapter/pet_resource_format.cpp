@@ -1,7 +1,9 @@
 #include "adapter/pet_resource_format.h"
 
 #include "adapter/pet_compiled.h"
+#include "adapter/pet_language.h"
 #include "adapter/pet_script.h"
+#include "runtime/method_callable.h"
 
 #ifdef TOOLS_ENABLED
 #include "adapter/editor/script_compiler.h"
@@ -19,6 +21,18 @@ using namespace godot;
 namespace petrichor {
 
 /* Loader */
+
+static bool has_statics(const ClassImage &p_image) {
+	if (!p_image.module.statics.empty() || p_image.module.static_init_function >= 0) {
+		return true;
+	}
+	for (const std::shared_ptr<const ClassImage> &inner : p_image.inner_classes) {
+		if (has_statics(*inner)) {
+			return true;
+		}
+	}
+	return false;
+}
 
 PackedStringArray PetResourceLoader::_get_recognized_extensions() const {
 	PackedStringArray result;
@@ -73,6 +87,16 @@ Variant PetResourceLoader::_load(const String &p_path, const String &p_original_
 	Ref<PetScript> script;
 	script.instantiate();
 	script->set_loaded(source, image, base);
+	// Its classes' static variables are initialized as it loads, but not in the
+	// editor, where scripts do not run (spec §2.3, §4.8).
+	if (image && !image->module.declarations_only && !Engine::get_singleton()->is_editor_hint()) {
+		begin_loading(image);
+		vm::initialize_statics(image);
+		end_loading();
+		if (has_statics(*image) && !image->module.static_unload) {
+			PetLanguage::get_singleton()->keep_loaded(script);
+		}
+	}
 	return script;
 }
 

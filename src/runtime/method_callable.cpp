@@ -14,6 +14,7 @@ namespace {
 InstanceResolver resolver = nullptr;
 ScriptResolver script_resolver = nullptr;
 thread_local ValueCall current_value_call;
+thread_local std::vector<std::shared_ptr<const ClassImage>> loading_files;
 
 // Calls the function, as the callee of a call of a function value when one is pending.
 Variant call_value(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const Variant **p_args, int p_argc, GDExtensionCallError &r_error, const uint8_t *const *p_captures) {
@@ -58,7 +59,20 @@ void set_script_resolver(ScriptResolver p_resolver) {
 }
 
 std::shared_ptr<const ClassImage> script_image(const String &p_path) {
+	for (auto it = loading_files.rbegin(); it != loading_files.rend(); ++it) {
+		if (std::shared_ptr<const ClassImage> found = (*it)->find_class(p_path)) {
+			return found;
+		}
+	}
 	return script_resolver ? script_resolver(p_path) : nullptr;
+}
+
+void begin_loading(const std::shared_ptr<const ClassImage> &p_image) {
+	loading_files.push_back(p_image);
+}
+
+void end_loading() {
+	loading_files.pop_back();
 }
 
 bool implements_interface(Object *p_object, const String &p_interface) {

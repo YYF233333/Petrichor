@@ -33,7 +33,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Property names as literals, as in `tween_property(self, "speed", ...)` and `set_deferred("speed", v)`: checked, and visible to the engine (spec §10.4, §10.5); only method names are.
 - The audit of the most frequently called engine APIs for null (spec §10.2); `binding_metadata.txt` has two entries.
 - Values of type Variant (spec §3.13), which untyped members, parameters and results of GDScript classes have (§11.1); reading the elements of an untyped Array or Dictionary. A member read or method called through a Variant is recorded as an unresolved name (architecture §2.1).
-- Non-constant default values, of parameters and of struct fields; static members; `_init()` with parameters.
+- Non-constant default values, of parameters and of struct fields; `_init()` with parameters.
 - `==` between objects; a `Callable` of unknown signature converted to a function type and checked on every call (spec §3.11).
 - In debug builds, reporting where a freed instance was freed and where the instances still alive at exit were made (spec §3.3, §6.7, §12.5).
 
@@ -64,7 +64,7 @@ Engine calls are by name with Variant arguments now, so code that calls the engi
 - Engine properties: through their setter and getter by ptrcall. GDScript reads and writes them by name, with validated access only to members of built-in types (modules/gdscript/gdscript_byte_codegen.cpp:848-883). A script's `_set` or `_get` can take engine property names, so the fast path needs a check, such as whether the object's script defines them, cached per script.
 - Engine singletons and autoloads resolved once: GET_SINGLETON looks the name up at every run, GET_AUTOLOAD calls get_node_or_null; a singleton's pointer can be kept, an autoload's ObjectID with a liveness check.
 - Engine callbacks such as `_process(delta)`: no entry check of value-type arguments, whose types the engine guarantees.
-- Calls between classes of this language: the method found by name once per call site, since a run keeps one version of each class (spec §12.4); a static method's script, and the script `Class.new()` sets, are now loaded through ResourceLoader at every call.
+- Calls between classes of this language: the method found by name once per call site, since a run keeps one version of each class (spec §12.4); a static method's script, the script `Class.new()` sets and the class of a static variable that another class or an inner class uses (spec §4.8) are now loaded through ResourceLoader at every use.
 - Calls within a class: since inheritance they pass arguments the general way of calls between classes and repeat checks that loading made; the calls benchmark went from 18 to 23 ms.
 - Function values: `f.call(x)` goes through the engine's `Callable.call` with Variant arguments, a struct encoded and decoded on the way; a lambda or method value of this language could be called directly, its arguments in their slots' layout.
 - Engine calls: whether the result is a `GDScriptFunctionState`, which only methods of GDScript classes return (spec §9.8), is asked of every object result, by a call into the engine.

@@ -2,6 +2,9 @@
 
 #include <godot_cpp/classes/script_language_extension.hpp>
 
+#include <mutex>
+#include <vector>
+
 namespace petrichor {
 
 class PetLanguage : public godot::ScriptLanguageExtension {
@@ -19,6 +22,15 @@ public:
 	// reload is applied after that until the game runs again (spec §12.4).
 	bool reloads_refused = false;
 
+	// The scripts of classes with static variables stay loaded for the run,
+	// and the variables with them, unless @static_unload (spec §4.8).
+	void keep_loaded(const godot::Ref<godot::Script> &p_script);
+
+private:
+	std::mutex kept_mutex;
+	std::vector<godot::Ref<godot::Script>> kept_scripts;
+
+public:
 	PetLanguage();
 	~PetLanguage();
 

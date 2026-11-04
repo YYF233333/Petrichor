@@ -55,6 +55,13 @@ void PetLanguage::_finish() {
 	task_queue::clear();
 #endif
 	debugger::set_language(nullptr);
+	std::lock_guard<std::mutex> lock(kept_mutex);
+	kept_scripts.clear();
+}
+
+void PetLanguage::keep_loaded(const Ref<Script> &p_script) {
+	std::lock_guard<std::mutex> lock(kept_mutex);
+	kept_scripts.push_back(p_script);
 }
 
 /* Editor */

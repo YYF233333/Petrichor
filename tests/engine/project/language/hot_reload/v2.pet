@@ -5,6 +5,15 @@ extends Node
 pub var count := 0
 # Not a literal: run by the init function, which records its line.
 var origin := Vector3(1, 2, 3)
+pub static var hits := 0
+static var inits := 0
+
+static func _static_init() -> void:
+	inits += 10
+
+pub func hit() -> int:
+	hits += 1
+	return hits + 1000 * inits
 
 pub func value() -> int:
 	return count * 10

@@ -60,6 +60,7 @@ class PetScript : public godot::ScriptExtension {
 protected:
 	static void _bind_methods();
 	bool _get(const godot::StringName &p_name, godot::Variant &r_value) const;
+	bool _set(const godot::StringName &p_name, const godot::Variant &p_value);
 
 public:
 	// The path the bytecode names the class by: the resource path, or an inner

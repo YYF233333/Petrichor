@@ -1,0 +1,38 @@
+class_name StaticVars extends RefCounted
+
+# Static variables (spec §4.8): given their first values when the class
+# loads, in declaration order, then _static_init(); its inner classes after.
+
+pub static var log: Array[String] = ["StaticVars"]
+pub static var count := 1
+pub static var doubled := count * 2
+pub static var from_inner := Early.seen + 1
+pub static var names: Dictionary[String, int]
+pub static var label := "none":
+	set(value):
+		label = value.to_upper()
+static var hidden := 7
+
+
+static func _static_init() -> void:
+	log.append("_static_init")
+	names["a"] = doubled
+
+
+pub func instance_count() -> int:
+	return count + hidden
+
+
+pub func through_object(other: StaticVars) -> int:
+	return other.count
+
+
+pub class Early:
+	pub static var seen := 5
+
+
+pub class Late:
+	pub static var order := log.size()
+
+	static func _static_init() -> void:
+		log.append("Late")

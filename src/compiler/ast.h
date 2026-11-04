@@ -32,6 +32,7 @@ struct TypeRef {
 };
 
 struct FuncDecl;
+struct VarDecl;
 
 enum class ExprKind {
 	IntLiteral,
@@ -105,6 +106,10 @@ enum class Target {
 	Constant, // A constant of a class (spec §4.5), whose value is `constant`.
 	EnumFromInt, // `State(x)`: the int, checked to be one of the values of the call's type (spec §3.7).
 	ClassScript, // The script of the class of this language at `owner`, as a value (spec §2.1, §4.1).
+	// A static variable, `variable`, of the class of this language at `owner`,
+	// the `index`th it declares; `base`, when `static_on_value`, is an object
+	// evaluated first (spec §4.8).
+	StaticVar,
 };
 
 struct Expr {
@@ -172,6 +177,7 @@ struct Expr {
 	std::optional<bytecode::IntRange> int_range;
 	std::string owner; // The type a field, constant, method or constructor belongs to.
 	Type tested; // TypeTest and Cast: the class after is or as.
+	const VarDecl *variable = nullptr; // StaticVar.
 	// Its value when it is a constant expression (spec §4.5); otherwise null,
 	// and when that is because computing it would fail, why, and at which of
 	// its parts if not at itself.
@@ -276,6 +282,7 @@ struct VarDecl {
 	bool is_pub = false;
 	bool is_export = false;
 	bool is_onready = false; // Initialized when the node is ready (spec §6.3).
+	bool is_static = false; // Of the class, not of an instance (spec §4.8).
 	std::vector<Annotation> annotations;
 	std::optional<TypeRef> declared_type;
 	std::unique_ptr<Expr> initializer;
@@ -485,6 +492,7 @@ struct ClassDecl {
 	const ClassDecl *base = nullptr;
 	// Checked declaration views; their owners live through lowering.
 	std::vector<const VarDecl *> all_members;
+	std::vector<const VarDecl *> all_static_vars; // With those it inherits, first.
 	std::vector<const ConstDecl *> all_constants;
 	std::vector<const FuncDecl *> all_functions;
 	std::vector<const SignalDecl *> all_signals;
@@ -502,6 +510,8 @@ struct ClassDecl {
 	bool is_node = false; // Filled by the checker: it extends Node, and becomes ready.
 	std::vector<ConstDecl> constants;
 	std::vector<VarDecl> members;
+	std::vector<VarDecl> static_vars; // In declaration order (spec §4.8).
+	bool static_unload = false; // @static_unload on the file's class.
 	std::vector<FuncDecl> functions;
 	std::vector<SignalDecl> signals;
 	std::vector<ExportGroupDecl> groups;

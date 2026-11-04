@@ -21,12 +21,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <condition_variable>
 #include <cstring>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <new>
 #include <optional>
+#include <thread>
 
 using namespace godot;
 
@@ -385,6 +387,110 @@ ValueCheck class_check(const ClassImage &p_image, uint32_t p_index) {
 	return check;
 }
 
+/* Static variables (spec §4.8) */
+
+// The classes whose static initialization runs on this thread, innermost last.
+thread_local std::vector<const ClassImage *> initializing;
+// Guards the states of static variables, which another thread waits on while
+// one thread initializes them.
+std::mutex statics_mutex;
+std::condition_variable statics_changed;
+
+String class_label(const ClassImage &p_image) {
+	return p_image.global_name.is_empty() ? p_image.path.get_file().replace("::", ".") : String(p_image.global_name);
+}
+
+// What the class's initialization is doing: the initializer of a static
+// variable, or _static_init().
+String initializing_part(const ClassImage &p_image) {
+	const std::vector<bytecode::Member> &variables = p_image.module.statics;
+	for (size_t i = p_image.statics->next; i < variables.size(); i++) {
+		if (!variables[i].has_initial) {
+			return class_label(p_image) + "." + to_godot(variables[i].name);
+		}
+	}
+	return class_label(p_image) + "._static_init()";
+}
+
+void set_state(Statics &r_statics, Statics::State p_state) {
+	{
+		std::lock_guard<std::mutex> lock(statics_mutex);
+		r_statics.state.store(p_state, std::memory_order_release);
+	}
+	statics_changed.notify_all();
+}
+
+// The class's own static initialization, after its base's; false when it, or
+// its base's, ended in a program error.
+bool initialize_class(const std::shared_ptr<const ClassImage> &p_image) {
+	Statics &statics = *p_image->statics;
+	{
+		std::unique_lock<std::mutex> lock(statics_mutex);
+		// Another thread finishes what it started; on this one, whoever asks
+		// learns where it stands from the variable it reads.
+		statics_changed.wait(lock, [&] { return statics.state.load(std::memory_order_acquire) != Statics::State::Initializing || statics.thread == std::this_thread::get_id(); });
+		if (statics.state.load(std::memory_order_acquire) != Statics::State::Uninitialized) {
+			return statics.state.load(std::memory_order_acquire) != Statics::State::Failed;
+		}
+		statics.state.store(Statics::State::Initializing, std::memory_order_release);
+		statics.thread = std::this_thread::get_id();
+		statics.next = 0;
+	}
+	initializing.push_back(p_image.get());
+	bool ok = !p_image->base || initialize_class(p_image->base);
+	if (ok && p_image->module.static_init_function >= 0) {
+		GDExtensionCallError error;
+		bool failed = false;
+		vm::call(p_image, p_image->module.static_init_function, InstanceContext(), nullptr, 0, error, &failed);
+		ok = !failed;
+	}
+	initializing.pop_back();
+	set_state(statics, ok ? Statics::State::Initialized : Statics::State::Failed);
+	return ok;
+}
+
+// Whether the static variable may be used now, which first initializes its
+// class if that has not begun; otherwise why not.
+bool static_ready(const ClassImage &p_owner, uint32_t p_variable, String &r_error) {
+	Statics &statics = *p_owner.statics;
+	const String name = class_label(p_owner) + "." + to_godot(p_owner.module.statics[p_variable].name);
+	while (true) {
+		switch (statics.state.load(std::memory_order_acquire)) {
+			case Statics::State::Initialized:
+				return true;
+			case Statics::State::Failed:
+				r_error = vformat("%s cannot be used: the static initialization of %s failed.", name, class_label(p_owner));
+				return false;
+			case Statics::State::Uninitialized:
+				if (!initialize_class(p_owner.shared_from_this())) {
+					continue;
+				}
+				break;
+			case Statics::State::Initializing: {
+				if (statics.thread != std::this_thread::get_id()) {
+					initialize_class(p_owner.shared_from_this()); // Waits for the other thread.
+					continue;
+				}
+				const auto at = std::find(initializing.begin(), initializing.end(), &p_owner);
+				if (at == initializing.end() || at + 1 == initializing.end()) {
+					// Its own initialization, also in a function it calls.
+					if (p_owner.module.statics[p_variable].has_initial || p_variable < statics.next) {
+						return true;
+					}
+					r_error = vformat("%s is used before its initializer runs: static variables are initialized in declaration order.", name);
+					return false;
+				}
+				String chain;
+				for (auto it = at; it != initializing.end(); ++it) {
+					chain += initializing_part(**it) + String::utf8(" → ");
+				}
+				r_error = vformat("Static initialization cycle: %s%s.", chain, name);
+				return false;
+			}
+		}
+	}
+}
+
 class Execution {
 	const ClassImage &image;
 	const InstanceContext &context;
@@ -402,6 +508,40 @@ class Execution {
 			has_self = true;
 		}
 		return variant_at(self_storage);
+	}
+
+	// A static variable of the class at `p_class`, or of this one (spec §4.8);
+	// null with the reason after a program error.
+	uint8_t *static_variable(uint32_t p_class, uint32_t p_variable, uint32_t p_type, String &r_error) {
+		if (p_class == NO_SLOT) {
+			Statics &statics = *image.statics;
+			if (statics.state.load(std::memory_order_acquire) != Statics::State::Initialized && !static_ready(image, p_variable, r_error)) {
+				return nullptr;
+			}
+			return statics.at(image.module.statics[p_variable].offset);
+		}
+		const String &path = image.class_scripts[p_class];
+		std::shared_ptr<const ClassImage> owner = image.base;
+		while (owner && owner->path != path) {
+			owner = owner->base;
+		}
+		if (!owner) {
+			owner = script_image(path);
+		}
+		if (!owner) {
+			r_error = vformat("%s cannot be loaded.", path);
+			return nullptr;
+		}
+		const std::vector<bytecode::Member> &variables = owner->module.statics;
+		if (p_variable >= variables.size() || owner->types[variables[p_variable].type].layout != image.types[p_type].layout) {
+			r_error = vformat("A static variable of %s is not the one this script was compiled against. Build the project again.", path);
+			return nullptr;
+		}
+		Statics &statics = *owner->statics;
+		if (statics.state.load(std::memory_order_acquire) != Statics::State::Initialized && !static_ready(*owner, p_variable, r_error)) {
+			return nullptr;
+		}
+		return statics.at(variables[p_variable].offset);
 	}
 
 	// Calls a function of a class of this language for the call instruction at
@@ -609,6 +749,36 @@ public:
 					copy_value(image.types[code[pc + 1]], members + code[pc + 2], frame + code[pc + 3]);
 					pc += 4;
 					break;
+				case Op::LOAD_STATIC: {
+					String error;
+					const uint8_t *variable = static_variable(code[pc + 3], code[pc + 4], code[pc + 1], error);
+					if (!variable) {
+						FAIL(error);
+					}
+					copy_value(image.types[code[pc + 1]], frame + code[pc + 2], variable);
+					pc += 5;
+					break;
+				}
+				case Op::STORE_STATIC: {
+					String error;
+					uint8_t *variable = static_variable(code[pc + 2], code[pc + 3], code[pc + 1], error);
+					if (!variable) {
+						FAIL(error);
+					}
+					copy_value(image.types[code[pc + 1]], variable, frame + code[pc + 4]);
+					pc += 5;
+					break;
+				}
+				case Op::INIT_STATIC: {
+					Statics &statics = *image.statics;
+					const bytecode::Member &variable = module.statics[code[pc + 2]];
+					copy_value(image.types[code[pc + 1]], statics.at(variable.offset), frame + code[pc + 3]);
+					if (!variable.has_initial) {
+						statics.next = code[pc + 2] + 1;
+					}
+					pc += 4;
+					break;
+				}
 				case Op::INT_TO_FLOAT:
 					F64(code[pc + 1]) = double(I64(code[pc + 2]));
 					pc += 3;
@@ -1900,6 +2070,83 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 
 const std::vector<StackFrame> &stack() {
 	return call_stack;
+}
+
+namespace {
+
+// The pub static variable of that name of the class or a base: the image of
+// the class that declares it, and its index there.
+std::shared_ptr<const ClassImage> pub_static(const std::shared_ptr<const ClassImage> &p_image, const StringName &p_name, int &r_index) {
+	for (std::shared_ptr<const ClassImage> owner = p_image; owner; owner = owner->base) {
+		r_index = owner->find_static(p_name);
+		if (r_index >= 0) {
+			return owner->module.statics[r_index].is_pub ? owner : nullptr;
+		}
+	}
+	return nullptr;
+}
+
+// Whether code may use the variable, reporting why not; the editor runs none.
+bool static_usable(const ClassImage &p_owner, int p_index) {
+	String error;
+	if (Engine::get_singleton()->is_editor_hint() || p_owner.statics->state.load(std::memory_order_acquire) == Statics::State::Initialized || static_ready(p_owner, uint32_t(p_index), error)) {
+		return true;
+	}
+	const bytecode::Member &variable = p_owner.module.statics[p_index];
+	report_error(p_owner, variable.name.c_str(), int(variable.line), error);
+	return false;
+}
+
+} // namespace
+
+bool get_static(const std::shared_ptr<const ClassImage> &p_image, const StringName &p_name, Variant &r_value) {
+	int index = -1;
+	const std::shared_ptr<const ClassImage> owner = pub_static(p_image, p_name, index);
+	if (!owner) {
+		return false;
+	}
+	const bytecode::Member &variable = owner->module.statics[index];
+	const TypeImage &type = owner->types[variable.type];
+	if (!static_usable(*owner, index)) {
+		r_value = default_variant(type);
+	} else if (variable.getter >= 0 && !Engine::get_singleton()->is_editor_hint()) {
+		GDExtensionCallError error;
+		r_value = call(owner, variable.getter, InstanceContext(), nullptr, 0, error);
+	} else {
+		r_value = outward_variant(type, owner->statics->at(variable.offset));
+	}
+	return true;
+}
+
+bool set_static(const std::shared_ptr<const ClassImage> &p_image, const StringName &p_name, const Variant &p_value) {
+	int index = -1;
+	const std::shared_ptr<const ClassImage> owner = pub_static(p_image, p_name, index);
+	if (!owner) {
+		return false;
+	}
+	const bytecode::Member &variable = owner->module.statics[index];
+	if (!static_usable(*owner, index)) {
+		return true;
+	}
+	if (variable.setter >= 0 && !Engine::get_singleton()->is_editor_hint()) {
+		const Variant *args[] = { &p_value };
+		GDExtensionCallError error;
+		call(owner, variable.setter, InstanceContext(), args, 1, error);
+		return true;
+	}
+	const TypeImage &type = owner->types[variable.type];
+	if (!from_variant(type, p_value, owner->statics->at(variable.offset), true)) {
+		report_error(*owner, variable.name.c_str(), int(variable.line), vformat("\"%s\" was not written: %s.", p_name, entry_mismatch(type, p_value)));
+	}
+	return true;
+}
+
+bool initialize_statics(const std::shared_ptr<const ClassImage> &p_image) {
+	bool ok = initialize_class(p_image);
+	for (const std::shared_ptr<const ClassImage> &inner : p_image->inner_classes) {
+		ok = initialize_statics(inner) && ok;
+	}
+	return ok;
 }
 
 void report_error(const ClassImage &p_image, const char *p_function, int p_line, const String &p_message) {

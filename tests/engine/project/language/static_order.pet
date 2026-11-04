@@ -1,0 +1,8 @@
+extends RefCounted
+# Reads, through a function, a variable whose initializer has not run (spec §4.8).
+static var a := read_b()
+static var b := 1
+
+
+static func read_b() -> int:
+	return b

@@ -469,6 +469,11 @@ void PetScript::set_loaded(const String &p_source, const std::shared_ptr<const C
 void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image, const Ref<PetScript> &p_base) {
 	{
 		std::lock_guard<std::mutex> lock(mutex);
+		// In the game a new image of the class has the same declarations
+		// (_reload()), and keeps the static variables (spec §4.8, §12.4).
+		if (p_image && image && p_image != image && !Engine::get_singleton()->is_editor_hint()) {
+			p_image->adopt_statics(*image);
+		}
 		image = p_image;
 		if (p_base.is_valid()) {
 			base_script = p_base;
@@ -974,7 +979,14 @@ bool PetScript::_get(const StringName &p_name, Variant &r_value) const {
 			return true;
 		}
 	}
-	return false;
+	// And its pub static variables, as GDScript's scripts give theirs
+	// (modules/gdscript/gdscript.cpp:973-985; spec §4.8).
+	return vm::get_static(current, p_name, r_value);
+}
+
+bool PetScript::_set(const StringName &p_name, const Variant &p_value) {
+	const std::shared_ptr<const ClassImage> current = get_image();
+	return current && vm::set_static(current, p_name, p_value);
 }
 
 TypedArray<StringName> PetScript::_get_members() const {
