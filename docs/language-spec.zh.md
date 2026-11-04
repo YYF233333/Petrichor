@@ -126,7 +126,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - **实现接口**：类头写 `implements A, B`（§2.1），不并入 `extends`，使基类与接口一眼可分。接口继承接口写作 `interface Combatant extends Damageable, Healable:`（§3.9）。
 - **pub**：关键字，写在注解之后、`static` 之前，例如 `@export pub var max_hp: int`、`pub static func make() -> Player`、`pub signal died`。struct、enum、interface 和内部类同样用 `pub` 公开，例如 `pub interface Damageable:`（§4.2）。用关键字而不用注解，因为它写得频繁：[成员可见性调查](surveys/member-visibility.zh.md)中每千行至少 22 处。
 - **放置与命名**：struct、enum、interface 和内部类属于声明它们的文件的类。在本文件中直接写名字；在其他文件中写 `类名.名字`，例如 `Combat.Hit`、`Player.Command.MOVE(target = p)`。几个类共用的类型放进一个专门承载它们的类。【后续】别名或 `import`。
-- **泛型**：类型参数写在名字之后的方括号中，与 `Array[int]` 一致，写法同 Python 3.12（PEP 695）；约束写作 `T: 接口`（§3.10）。文件的类在 `class_name` 上声明类型参数，例如 `class_name Cache[K, V] extends RefCounted`；内部类写作 `class Cache[K, V] extends RefCounted:`。
+- **泛型**：【后续】类型参数写在名字之后的方括号中，与 `Array[int]` 一致，写法同 Python 3.12（PEP 695）；约束写作 `T: 接口`（§3.10）。文件的类在 `class_name` 上声明类型参数，例如 `class_name Cache[K, V] extends RefCounted`；内部类写作 `class Cache[K, V] extends RefCounted:`。
 
   ```gdscript
   func first[T](items: Array[T]) -> T?:
@@ -318,6 +318,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 3.10 泛型
 
+- 【后续】用户定义的泛型在第一版之后加入，本节是它的设计。第一版只有内置的泛型类型，如 `Array[T]`、`Dictionary[K, V]`、`Result[T, E]` 和 `Task[T]`，代码不能声明类型参数。理由：GDScript 没有用户定义的泛型，迁移来的代码不会用到，FPS 和 Ring 的迁移也没有用到；以后加入是兼容的，因为这些写法现在都是编译错误。
 - 函数、struct、enum，以及不继承 Resource 的 RefCounted 类可以是泛型。Node、Resource 脚本和 autoload 不能，因为引擎实例化它们时不提供类型参数。泛型类不登记进引擎的全局类表，GDScript 看不到它，因为 GDScript 给不出类型实参。
 - 约束用接口表达，第一版每个类型参数至多一个约束。类型实参在运行时保留。
 - 写法见 §2.4。
@@ -662,13 +663,14 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 6.5 就绪前的 setter
 
 - 场景实例化时，引擎先设置节点保存在场景中的属性，再把节点加到父节点下（`scene/resources/packed_scene.cpp:494, 543`），这时节点的子节点和 `@onready` 成员都还不可用。
-- setter 照常立即执行。执行到第一处需要节点就绪的语句时，若节点尚未就绪，就在此挂起，就绪后从这里继续：
+- setter 照常立即执行。就绪前访问 `@onready` 成员或子节点是程序错误（§6.3），诊断写明访问的成员或节点。需要同步节点的 setter 先存储值，在 `is_node_ready()` 为真时才同步，并在 `_ready` 中同步一次。GDScript 写在 setter 中的 `if not is_node_ready(): await ready` 在这里是编译错误，因为 setter 不能是协程（§4.4）。依据：[属性访问器调查](surveys/property-accessors.zh.md)中有 25 个 setter 用 `await ready` 等待就绪。
+- 【后续】setter 执行到第一处需要节点就绪的语句时，若节点尚未就绪，就在此挂起，就绪后从这里继续，由编译器完成手写的 `await ready`。这是兼容的放宽：第一版中的程序错误变为挂起。设计如下：
   - 需要就绪的语句由静态分析确定：访问 `@onready` 成员、`$X` 或子节点，或者调用会访问它们的本类方法，包括子类的覆盖；
   - 只有在 `is_node_ready()` 为真时才能执行到的访问不算，判断规则与收窄相同（§5.4）：`if is_node_ready():` 分支内、`if not is_node_ready(): return` 之后、`is_node_ready() and …` 的右侧。方法中的这类访问全部不算时，调用它也不算需要就绪。只认 `is_node_ready()`，因为 `is_inside_tree()` 为真时 `@onready` 成员仍可能尚未初始化；
-  - 挂起点的位置在编辑器中悬停可见。
-- 同一属性在就绪前再次被写入时，之前挂起的调用立即取消，不论这次写入是否挂起。挂起的调用在 `@onready` 初始化之后、`_ready` 之前，按写入顺序继续。节点在就绪前被释放时，挂起的调用随之丢弃。就绪以后 setter 不再挂起。
-- 挂起点之前的语句照常执行。setter 通常先变换并存储值，再同步节点，所以就绪前读到的是变换后的值。只推迟整个 setter、记下原始输入的做法，会让就绪前读到未经变换的输入，例如 Ring 的 `Runtime/AVGRuntime/UI/UI.cs:16-35` 给角色名加【】。
-- 这就是 GDScript 中手写 `if not is_node_ready(): await ready` 的写法，由编译器自动完成，用户不需要新的概念；setter 中手写的这一行是编译错误（§4.4），快速修复把它删去。依据：[属性访问器调查](surveys/property-accessors.zh.md)中有 25 个 setter 用 `await ready` 等待就绪。
+  - 挂起点的位置在编辑器中悬停可见；
+  - 同一属性在就绪前再次被写入时，之前挂起的调用立即取消，不论这次写入是否挂起。挂起的调用在 `@onready` 初始化之后、`_ready` 之前，按写入顺序继续。节点在就绪前被释放时，挂起的调用随之丢弃。就绪以后 setter 不再挂起；
+  - 挂起点之前的语句照常执行。setter 通常先变换并存储值，再同步节点，所以就绪前读到的是变换后的值。只推迟整个 setter、记下原始输入的做法，会让就绪前读到未经变换的输入，例如 Ring 的 `Runtime/AVGRuntime/UI/UI.cs:16-35` 给角色名加【】；
+  - 用户不需要新的概念；setter 中手写的 `await ready` 仍是编译错误，快速修复把它删去。
 - 值只存在节点中的属性（没有字段、getter 读取子节点的），在就绪前读取是程序错误，诊断写明读取了哪个尚未就绪的节点。需要就绪前读取时，用字段保存。
 - 从未被写入的属性，就绪时不执行 setter，与 GDScript 一致。导出属性的 setter 会同步节点、而默认值从不经过 setter 时，给出提示。
 
@@ -1105,8 +1107,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 别名或 `import`（§2.4）；
 - struct 构造的位置参数、修改 self 或重新定义 `==`、`<` 与哈希的 struct 方法、struct 成员的 `private`、不经容器的值类型递归（§3.6）；
 - struct 和带载荷 enum 的 `@export` 与存入 `.tres`，以 §10.1 的编码存储（§3.6、§3.7）；
-- 泛型接口，写作 `interface Source[T]:`（§3.9）；
-- 泛型的多个约束，以及以类作约束（§3.10）；
+- 用户定义的泛型（§3.10），包括泛型接口，写作 `interface Source[T]:`（§3.9），以及多个约束和以类作约束；
 - 函数类型中的参数名、直接调用 `f(x)`、把普通函数传给期望 async 的位置，以及与外层函数共享的捕获（§3.11）；
 - 更严的 `private` 可见性（§4.2）；
 - 常量表达式中的 `%` 格式化、`is`、`as`、`in`、GDScript 的工具函数和 Basis、Quaternion 的上述构造和运算，以及由编译器求返回 float 的数学函数（§4.5）；
@@ -1114,6 +1115,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 条件绑定，或检查与使用之间没有调用、await 和赋值时让没有 getter 的字段收窄（§5.4）；
 - match 的类型模式、match 表达式，以及在逗号分隔的多个模式中绑定（§5.6）；
 - 就绪后才赋值的非空成员（§6.2）；
+- 就绪前的 setter 自动等待就绪（§6.5）；
 - 在 `_static_init` 中赋值的、没有默认值的静态变量（§4.8）；
 - 始终生效的断言（§8.3）；
 - 重入策略的注解，例如 `@restart`（§9.5）；
@@ -1141,7 +1143,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | struct 与带载荷的 enum | 在方法中给 self 的字段赋值报编译错误；`player.last_hit.damage = 3` 调用 `last_hit` 的 setter；`hits[0].damage = 3` 之后 `hits[0].damage` 为 3；`get_hit().damage = 3` 报编译错误；`var b = a; b.damage = 1` 不改变 a；struct 的 Array 字段在复制后仍共享；字段相同的两个 struct 相等，作为 Dictionary 键时命中同一项；`c.target` 报编译错误；`@export` 带载荷的 enum 报编译错误；`struct ListNode` 中声明 `var next: ListNode?` 报编译错误，`Tree[T]` 经 Array 递归合法；含 Array 字段的 struct 可以作 Dictionary 的键，之后向原值的 Array 追加元素不改变键；`Hit(damage = 1) < Hit(damage = 2)` 为真，字段按声明顺序比较；对含对象字段的 struct 比较大小报编译错误；IDLE 先声明，所以 `Command.IDLE < Command.MOVE(target = p)` 为真 |
 | 容器 | `pop_front()` 在空数组上得 None；`pop_at(0)` 在空数组上是程序错误，`pop_at(-1)` 取出最后一个元素；`front()` 在空数组上是程序错误，空 `Array[int]` 上的 `min()` 也是；越界下标是程序错误；`d[k]` 在缺键时是程序错误；元素为 struct 的数组直接传给 Variant 参数报编译错误，快速修复改为 `Array(hits)`，得到元素为 Dictionary 的副本，之后修改原数组不影响副本；`Array[Hit].try_from(Array(hits))` 得 `Ok`；`Array[Hit]` 上的 `sort()` 按 `<` 排列，`has(h)` 和 `h in hits` 找到字段相同的元素；`Array[float]` 的 `1 in scores` 为真，`Array[int]` 的 `1.5 in ids` 是编译错误；`Array[Node]` 上的 `sort()` 报编译错误并给出 `sort_custom`，`resize` 也报编译错误并给出 `Array[Node?]`；a 为 `[1]` 时，`d[a] = 1; a.append(2)` 之后 `d.has([1])` 为真、`d.has(a)` 为假；向取自 `d.keys()` 的键追加元素是程序错误；读出 GDScript 追加进 `Array[Array[int]]` 的无类型 Array 是程序错误，`Array[Array[int]]` 的 `resize` 填入空的 `Array[int]`；`Array[int]` 可以传给 `Array` 参数，两者是同一个数组，经后者 `append("x")` 或 `has(1.5)` 是程序错误；无类型的 a 恰为 `Array[int]` 时 `if a is Array[int]:` 为真，是无类型的数组时为假；a 含 1.5 时 `ids.assign(a)` 是程序错误 |
 | 接口 | 实现 `Combatant extends Damageable` 的类可以传给期望 Damageable 的参数；两个父接口的同名方法签名不兼容时报编译错误；两个父接口都有默认实现而未覆盖时报编译错误；`interface A extends B` 与 `interface B extends A` 报编译错误；声明 `interface Source[T]:` 报编译错误；`@readonly var hp: int` 的要求可以由可读写的成员满足；`var hp: int` 的要求遇到没有 setter 的引擎属性报编译错误；默认方法给 `@readonly` 属性赋值报编译错误；在接口以外使用 `@readonly` 报编译错误 |
-| 泛型 | `first([1, 2])` 中 T 推断为 int；`var x = first([])` 推断不出 T 报编译错误，`var x = first[int]([])` 合法；不满足约束的类型实参报编译错误；Node 脚本声明类型参数报编译错误；GDScript 引用泛型方法是 GDScript 的编译错误；`sig.connect(handle)` 在 handle 为泛型且类型实参确定不了时报编译错误；不继承 Resource 的泛型 RefCounted 类合法，不出现在引擎的全局类表中 |
+| 泛型 | 【后续】`first([1, 2])` 中 T 推断为 int；`var x = first([])` 推断不出 T 报编译错误，`var x = first[int]([])` 合法；不满足约束的类型实参报编译错误；Node 脚本声明类型参数报编译错误；GDScript 引用泛型方法是 GDScript 的编译错误；`sig.connect(handle)` 在 handle 为泛型且类型实参确定不了时报编译错误；不继承 Resource 的泛型 RefCounted 类合法，不出现在引擎的全局类表中 |
 | 函数类型 | `func(int)` 与 `func(int) -> void` 相同；`(func(Enemy) -> bool)?` 可空，`func(Enemy) -> bool?` 返回 `bool?`；`f(x)` 报编译错误并给出 `f.call(x)`；`func(Node)` 可以用于期望 `func(Node3D)` 的位置，反之报编译错误；含 await 而未写 async 的 lambda 报编译错误；把 async 函数传给期望普通函数类型的本语言参数报编译错误；把 async 方法连接到信号合法，任务作为根任务运行；在 lambda 中对捕获的局部变量写 `hits += 1`、对捕获的 Vector2 写 `v.x = 1` 报编译错误，对捕获的 Array 写 `counter[0] += 1` 合法，外面也看到改变；lambda 保留捕获的局部变量在创建时的值；lambda 外由 `if x != None:` 收窄的捕获 `x: Node?` 在 lambda 中是 Node；lambda 参数的默认值报编译错误；命名 lambda 的名字在其函数体中不可见 |
 | Variant | `v.hp`、`v + 1`、`v[0]`、`for x in v` 报编译错误；`if v is Dictionary:` 之后 `v.get("hp", 0)` 合法；`v as Node` 为 `Node?`；v 为 NIL 时 `v == None` 为真、`v is int` 为假；v 中是已释放的对象时 `v == None` 为真、`v is Node` 为假、`v as Node` 为 None；v 为 5 时 `v as Node` 为 None；int 赋给 Variant 无需转换；d 为无类型 Dictionary 时 `d[k] = []` 合法，`var v: Variant = [1]` 是无类型的 Array |
 | 抽象类与剩余参数 | 构造抽象类报编译错误；具体子类缺少某个抽象方法的实现报编译错误；场景中的节点使用抽象类报编译错误；向 `...args: Array[int]` 传入 String 报编译错误；只写 `...args` 报编译错误；GDScript 调用 `...args: Array[int]` 时传入 String 是程序错误 |
@@ -1160,7 +1162,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 循环 | `for i in 5` 中 i 为 int；`for x in 2.5` 和遍历向量报编译错误；循环变量标注为子类报编译错误 |
 | 初始化 | 成员初始化式不调用 setter；`new(...)` 把实参交给继承链上最近的 `_init`，基类的 `_init` 只经 `super._init(...)` 运行；子类 `_init` 的签名与基类不同时不报错；`set_script` 附加 `_init` 有必填参数的脚本是程序错误；`@onready` 与 `@export` 同用报编译错误；`_init` 中读取 `@onready` 成员报编译错误；静态初始化的环是程序错误并列出依赖链 |
 | 必须赋值 | `BulletScene.instantiate(speed = 300.0)` 漏写 `target` 报编译错误；祖先在 `_ready` 中经 `$Child.target = v` 赋值时不报错；子节点在自己的 `_ready` 中读取该成员报编译错误；就绪前读取未赋值的成员是程序错误；`new()` 漏传必须赋值的成员不是编译错误，Node 在就绪时检查 |
-| 就绪前的 setter | 场景中保存的值使 setter 在访问 `@onready` 成员处挂起，就绪后继续；就绪前先写入 `"Hi"` 而挂起、再写入 None 而不挂起时，`"Hi"` 那次调用被取消；setter 调用以 `if not is_node_ready(): return` 开头的方法时不挂起；先变换再存储的 setter 就绪前读到变换后的值；节点就绪前被释放时挂起的调用被丢弃 |
+| 就绪前的 setter | 场景中保存的值使 setter 在就绪前访问 `@onready` 成员时是程序错误，诊断写明该成员；`if is_node_ready():` 中的访问就绪前不执行；setter 中写 `await ready` 报编译错误；【后续】场景中保存的值使 setter 在访问 `@onready` 成员处挂起，就绪后继续；就绪前先写入 `"Hi"` 而挂起、再写入 None 而不挂起时，`"Hi"` 那次调用被取消；setter 调用以 `if not is_node_ready(): return` 开头的方法时不挂起；先变换再存储的 setter 就绪前读到变换后的值；节点就绪前被释放时挂起的调用被丢弃 |
 | 析构 | RefCounted 在 PREDELETE 中读写自己的字段、调用自己的方法正常；处理 PREDELETE 的分支中 `add_child(self)`、`self == x` 和 await 报编译错误，`self.x` 合法 |
 | 泄漏 | 移出后未保存也未释放的节点给出警告；捕获 self 的闭包存入 self 的成员时给出警告和 `weak` 的快速修复；debug 构建退出时列出泄漏的对象和创建位置 |
 | 场景定型 | `$Head/Camera` 按场景定为 Camera3D；两个场景给出不同类型时报编译错误；找不到的路径标在缺少该节点的场景上；只被继承的基础场景缺少继承它的场景都有的节点时不报错，被 preload 的占位场景缺少时报错；`get_node_or_null("X")` 在部分场景中缺失时类型为 `T?` 且不报错；任何场景中都没有的 `$X` 报编译错误，`get_node_or_null("X")` 得 `Node?` 并给出警告；`/root/X` 报编译错误并给出 autoload 全局名；声明 `@owner(T)` 的组件场景被实例化到别的场景中时合法，作为根使用时报编译错误；声明 `@owner(T)` 的节点移出 owner 的子树后不读 owner 不报错，读取时是程序错误；未声明 `@parent` 时 `get_parent().add_child(x)` 报编译错误，快速修复补上 `@parent(T)`；游离节点上 `var p = get_parent()` 得 None；声明 `@parent(Node2D)` 的节点在场景中挂在 Control 下时报编译错误 |
