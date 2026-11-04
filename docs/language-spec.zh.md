@@ -282,6 +282,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 3.8 容器
 
 - 无论内部如何表示（见下条），用户看到的只有一种 `Array[T]` 和一种 `Dictionary[K, V]`，API 与 GDScript 相同。没有类型参数的 `Array`、`Dictionary` 的元素类型为 Variant，与 GDScript 相同。`Array[T]` 和 `Dictionary[K, V]` 不变，例如 `Array[Node2D]` 不能用在期望 `Array[Node]` 的位置，与 GDScript 的静态检查相同（`modules/gdscript/gdscript_analyzer.cpp:6379-6393`）。
+- 带类型的容器可以隐式用在期望无类型容器的位置，两者是同一个容器，与 GDScript 的静态检查相同（`gdscript_analyzer.cpp:6379-6393`）。反方向须显式：容器恰为该类型时，`if a is Array[int]:` 为真并使 a 收窄，不复制，与 GDScript 的 `is` 相同（`modules/gdscript/gdscript_vm.cpp:879-895`）；`assign()` 把元素复制进带类型的容器。GDScript 的静态检查允许隐式赋值，但运行时只有容器恰为该类型时才成功（`gdscript_vm.cpp:1454-1481`）。经无类型的视图，例如无类型的变量和 Variant，向带类型的容器写入不能赋给其元素类型的值（§3.2、§10.7），或以这样的值查找（`has`、`find`、`erase` 等），是程序错误；`assign()` 遇到这样的元素也一样。Dictionary 的键和值同理。理由：引擎在写入时报错后跳过这次写入，程序继续运行；能转换的值先转换，所以查找和 `assign()` 把 1.5 截断为 1（`core/variant/container_type_validate.h:55-75`，`core/variant/array.cpp:252-266, 285, 520`，`core/variant/dictionary.cpp:205-207, 222`），正是 §5.1 在静态检查中拒绝的情况。引擎为 `Array[Node]` 和 `Array[Node?]` 记录同一个元素类型，所以写入前者的 None 在读出时是程序错误。
 - 元素可以由引擎表示时，容器就是引擎的带类型容器，与引擎共享。元素是本语言独有的类型（struct、带载荷的 enum 等）时，使用本语言自己的表示；交给引擎须显式转换，写作 GDScript 的构造转换 `Array(hits)`、`Dictionary(d)`，结果是引擎的无类型容器，元素按 §10.1 编码，是一份副本；反方向用 `Array[Hit].try_from(v)`（§5.3）。理由：隐式复制会造出“修改的其实是副本”一类的坑。
 - 元素本身是容器的容器，例如 `Array[Array[int]]`、`Dictionary[String, Array[Node]]`，是元素类型为 Array 或 Dictionary 的引擎容器，因为引擎只为元素记录一层类型（`core/variant/container_type_validate.h:37-40`）；内层容器保留自己的类型，在入口检查和读出内层容器时检查。GDScript 不允许这样的类型（`modules/gdscript/gdscript_parser.cpp:3903-3904`）。内层元素是本语言独有的类型时，如 `Array[Array[Hit]]`，适用上一条。
 - 取值：
@@ -362,7 +363,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 能定型的从源头定型：引擎实际有约束但没有导出的，在本语言的绑定元数据中补上（§10.3）。
 - 静态值进入 Variant 是隐式的：赋值、传参和返回都可以。struct 和带载荷的 enum 按 §10.1 编码。例外：元素为本语言独有类型的容器须显式转换，写作 `Array(hits)`（§3.8）。
 - Variant 进入静态代码只有显式的途径：
-  - `v as T`，只用于对象，得到 `T?`（§5.3）；
+  - `v as T`，只用于对象，得到 `T?`，v 中不是对象时也为 None（§5.3）；
   - `T(v)`，GDScript 的构造转换；
   - `T.try_from(v)`，严格转换，返回 Result；
   - `if v is T:`，分支中的局部变量和参数收窄为 T（§5.4）。
@@ -561,7 +562,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 5.3 转换
 
-- `x as T` 只用于对象类型，结果为 `T?`：类型不符时为 None，与 GDScript 相同（`modules/gdscript/gdscript_vm.cpp:1677-1678`）。x 的静态类型已经是 T 时，结果为 T，并提示这个 `as` 多余。已释放的对象 `as` 任何类型都得到 None（§3.3）。
+- `x as T` 只用于对象类型，结果为 `T?`：类型不符时为 None，与 GDScript 相同（`modules/gdscript/gdscript_vm.cpp:1677-1678`）。Variant 中不是对象时也为 None；GDScript 在这里只在 debug 构建中报错，release 构建把这个值原样交出（`gdscript_vm.cpp:1670-1681`）。x 的静态类型已经是 T 时，结果为 T，并提示这个 `as` 多余。已释放的对象 `as` 任何类型都得到 None（§3.3）。
 - `as` 转为内置类型是编译错误。GDScript 在这里按构造函数转换，转换失败只在 debug 构建中报错（`gdscript_vm.cpp:1642-1650`），快速修复给出两种改法：
   - `T(x)`：保留这种转换，例如 `int("5")`、`int(2.7)`；
   - `T.try_from(x)`：严格的转换。
@@ -583,7 +584,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 5.6 match
 
-- 保留 GDScript 的全部模式，含义不变（`modules/gdscript/gdscript_parser.cpp:2487-2711`）：字面量和常量表达式按相等比较；`var x` 绑定；`_` 通配；数组和字典模式，以及其中的 `..`；逗号分隔的多个模式，其中不能绑定；`when` 守卫。
+- 保留 GDScript 的全部模式，含义不变（`modules/gdscript/gdscript_parser.cpp:2487-2711`）：字面量和常量表达式按相等比较；`var x` 绑定；`_` 通配；数组和字典模式，以及其中的 `..`；逗号分隔的多个模式，其中不能绑定；`when` 守卫。对 Variant 的值，字面量和常量表达式先比较类型，类型不同即不匹配，String 与 StringName 视为同一类型，与 GDScript 相同（`modules/gdscript/gdscript_compiler.cpp:1451-1477, 1550-1556`）：1.0 不匹配 `1`；v 为 `"a"` 时模式 `1` 不匹配，不会因比较而成为程序错误（§5.2）。
 - 新增的模式：
   - enum 分支：`类型.分支(字段 = 模式, ...)`。`var 字段` 是 `字段 = var 字段` 的简写。未列出的字段须由 `..` 覆盖，与字典模式相同。模式可以嵌套。
   - struct：同样的写法，例如 `Hit(damage = var d, ..)`。
@@ -1135,11 +1136,11 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | Option 与 Result | `?` 在 None 或 `Err` 时从当前函数返回；在返回 void 的函数中使用 `?` 报编译错误；Option 传播到返回 Result 的函数报编译错误；`await f()?` 等于 `(await f())?`；丢弃 Result 报编译错误；`unwrap` 失败是程序错误 |
 | 嵌套的 Option | `Array[Enemy?]` 为空时 `pop_back()` 得 None，末元素为 None 时得包含 None 的 Some；`var x: Enemy?? = maybe_enemy` 得 Some；`Dictionary[String, Variant]` 中缺键得 None，值为 null 得包含 NIL 的 Some；把 `int??` 或 `Variant?` 传给 Variant 参数报编译错误并给出 `.flatten()` 或 `.unwrap_or(null)`；`var x: Enemy?? = Some(None)` 得包含 None 的 Some；对 `Enemy?` 的 match 有 `Some(var e)` 和 `None` 两个分支即为穷尽 |
 | struct 与带载荷的 enum | 在方法中给 self 的字段赋值报编译错误；`player.last_hit.damage = 3` 调用 `last_hit` 的 setter；`hits[0].damage = 3` 之后 `hits[0].damage` 为 3；`get_hit().damage = 3` 报编译错误；`var b = a; b.damage = 1` 不改变 a；struct 的 Array 字段在复制后仍共享；字段相同的两个 struct 相等，作为 Dictionary 键时命中同一项；`c.target` 报编译错误；`@export` 带载荷的 enum 报编译错误；`struct ListNode` 中声明 `var next: ListNode?` 报编译错误，`Tree[T]` 经 Array 递归合法；含 Array 字段的 struct 可以作 Dictionary 的键，之后向原值的 Array 追加元素不改变键；`Hit(damage = 1) < Hit(damage = 2)` 为真，字段按声明顺序比较；对含对象字段的 struct 比较大小报编译错误；IDLE 先声明，所以 `Command.IDLE < Command.MOVE(target = p)` 为真 |
-| 容器 | `pop_front()` 在空数组上得 None；`pop_at(0)` 在空数组上是程序错误，`pop_at(-1)` 取出最后一个元素；`front()` 在空数组上是程序错误，空 `Array[int]` 上的 `min()` 也是；越界下标是程序错误；`d[k]` 在缺键时是程序错误；元素为 struct 的数组直接传给 Variant 参数报编译错误，快速修复改为 `Array(hits)`，得到元素为 Dictionary 的副本，之后修改原数组不影响副本；`Array[Hit].try_from(Array(hits))` 得 `Ok`；`Array[Hit]` 上的 `sort()` 按 `<` 排列，`has(h)` 和 `h in hits` 找到字段相同的元素；`Array[float]` 的 `1 in scores` 为真，`Array[int]` 的 `1.5 in ids` 是编译错误；`Array[Node]` 上的 `sort()` 报编译错误并给出 `sort_custom`，`resize` 也报编译错误并给出 `Array[Node?]`；a 为 `[1]` 时，`d[a] = 1; a.append(2)` 之后 `d.has([1])` 为真、`d.has(a)` 为假；向取自 `d.keys()` 的键追加元素是程序错误；读出 GDScript 追加进 `Array[Array[int]]` 的无类型 Array 是程序错误，`Array[Array[int]]` 的 `resize` 填入空的 `Array[int]` |
+| 容器 | `pop_front()` 在空数组上得 None；`pop_at(0)` 在空数组上是程序错误，`pop_at(-1)` 取出最后一个元素；`front()` 在空数组上是程序错误，空 `Array[int]` 上的 `min()` 也是；越界下标是程序错误；`d[k]` 在缺键时是程序错误；元素为 struct 的数组直接传给 Variant 参数报编译错误，快速修复改为 `Array(hits)`，得到元素为 Dictionary 的副本，之后修改原数组不影响副本；`Array[Hit].try_from(Array(hits))` 得 `Ok`；`Array[Hit]` 上的 `sort()` 按 `<` 排列，`has(h)` 和 `h in hits` 找到字段相同的元素；`Array[float]` 的 `1 in scores` 为真，`Array[int]` 的 `1.5 in ids` 是编译错误；`Array[Node]` 上的 `sort()` 报编译错误并给出 `sort_custom`，`resize` 也报编译错误并给出 `Array[Node?]`；a 为 `[1]` 时，`d[a] = 1; a.append(2)` 之后 `d.has([1])` 为真、`d.has(a)` 为假；向取自 `d.keys()` 的键追加元素是程序错误；读出 GDScript 追加进 `Array[Array[int]]` 的无类型 Array 是程序错误，`Array[Array[int]]` 的 `resize` 填入空的 `Array[int]`；`Array[int]` 可以传给 `Array` 参数，两者是同一个数组，经后者 `append("x")` 或 `has(1.5)` 是程序错误；无类型的 a 恰为 `Array[int]` 时 `if a is Array[int]:` 为真，是无类型的数组时为假；a 含 1.5 时 `ids.assign(a)` 是程序错误 |
 | 接口 | 实现 `Combatant extends Damageable` 的类可以传给期望 Damageable 的参数；两个父接口的同名方法签名不兼容时报编译错误；两个父接口都有默认实现而未覆盖时报编译错误；`interface A extends B` 与 `interface B extends A` 报编译错误；声明 `interface Source[T]:` 报编译错误；`@readonly var hp: int` 的要求可以由可读写的成员满足；`var hp: int` 的要求遇到没有 setter 的引擎属性报编译错误；默认方法给 `@readonly` 属性赋值报编译错误；在接口以外使用 `@readonly` 报编译错误 |
 | 泛型 | `first([1, 2])` 中 T 推断为 int；`var x = first([])` 推断不出 T 报编译错误，`var x = first[int]([])` 合法；不满足约束的类型实参报编译错误；Node 脚本声明类型参数报编译错误；GDScript 引用泛型方法是 GDScript 的编译错误；`sig.connect(handle)` 在 handle 为泛型且类型实参确定不了时报编译错误；不继承 Resource 的泛型 RefCounted 类合法，不出现在引擎的全局类表中 |
 | 函数类型 | `func(int)` 与 `func(int) -> void` 相同；`(func(Enemy) -> bool)?` 可空，`func(Enemy) -> bool?` 返回 `bool?`；`f(x)` 报编译错误并给出 `f.call(x)`；`func(Node)` 可以用于期望 `func(Node3D)` 的位置，反之报编译错误；含 await 而未写 async 的 lambda 报编译错误；把 async 函数传给期望普通函数类型的本语言参数报编译错误；把 async 方法连接到信号合法，任务作为根任务运行；在 lambda 中对捕获的局部变量写 `hits += 1`、对捕获的 Vector2 写 `v.x = 1` 报编译错误，对捕获的 Array 写 `counter[0] += 1` 合法，外面也看到改变；lambda 保留捕获的局部变量在创建时的值；lambda 外由 `if x != None:` 收窄的捕获 `x: Node?` 在 lambda 中是 Node；lambda 参数的默认值报编译错误；命名 lambda 的名字在其函数体中不可见 |
-| Variant | `v.hp`、`v + 1`、`v[0]`、`for x in v` 报编译错误；`if v is Dictionary:` 之后 `v.get("hp", 0)` 合法；`v as Node` 为 `Node?`；v 为 NIL 时 `v == None` 为真、`v is int` 为假；v 中是已释放的对象时 `v == None` 为真、`v is Node` 为假、`v as Node` 为 None；int 赋给 Variant 无需转换 |
+| Variant | `v.hp`、`v + 1`、`v[0]`、`for x in v` 报编译错误；`if v is Dictionary:` 之后 `v.get("hp", 0)` 合法；`v as Node` 为 `Node?`；v 为 NIL 时 `v == None` 为真、`v is int` 为假；v 中是已释放的对象时 `v == None` 为真、`v is Node` 为假、`v as Node` 为 None；v 为 5 时 `v as Node` 为 None；int 赋给 Variant 无需转换 |
 | 抽象类与剩余参数 | 构造抽象类报编译错误；具体子类缺少某个抽象方法的实现报编译错误；场景中的节点使用抽象类报编译错误；向 `...args: Array[int]` 传入 String 报编译错误；只写 `...args` 报编译错误；GDScript 调用 `...args: Array[int]` 时传入 String 是程序错误 |
 | 内部类 | 不写 `extends` 的 `class Shot:` 是 RefCounted，类体第一行写 `extends Area3D` 时是 Area3D；内部类中直接用外层类的常量、静态函数和静态变量，用外层的成员变量是编译错误，说明没有外层类的实例；基类的常量遮蔽外层同名的常量；在其他文件中使用不带 `pub` 的 `Outer.Inner` 是编译错误；经 autoload 的 `Constants.Match.MAX` 读到常量；其对象的 `get_script()` 是内部类的脚本，`resource_path` 为空；内部类中写 `class_name` 是编译错误；GDScript 读 `Outer.Inner` 得到脚本 |
 | 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；在子类以外的其他类中使用不带 `pub` 的 struct 报编译错误；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误，引用 `pub var hits: Array[Hit]` 同样报错；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
@@ -1152,7 +1153,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 相等 | `1 == 1.0` 为真；`hp == "3"` 报编译错误；`Node2D` 与 `Node3D` 比较报编译错误；hp 为 `int?` 时 `hp == 3` 合法；非空的 `Node` 与 None 比较报编译错误；`Array[int] == Array[float]` 报编译错误；Variant 中是 String 时与 int 比较是程序错误；`Enemy?` 的值可以传给 `Node?` 参数，`Array[Enemy]` 传给 `Array[Node]` 参数报编译错误；`Some(3) == Some(Some(3))` 先把左侧包装为两层再比较；hp 为 `int?` 时 `hp < 3` 报编译错误，为 None 的 `int?` 小于 `Some(0)` |
 | 转换 | `node as Sprite2D` 为 `Sprite2D?`；`x as int` 报编译错误并给出 `int(x)` 与 `int.try_from(x)`；`int.try_from(2.0)` 得 `Ok(2)`，`int.try_from(2.5)` 和 `int.try_from("2")` 得 `Err`；`unit: SpeedUnit` 时 `unit + 1` 为 int，`unit = 1` 报编译错误并给出 `SpeedUnit(1)`，5 不是它的值时 `SpeedUnit(5)` 是程序错误，`MouseButton(1000)` 则不是，`SpeedUnit.values()` 为 `Array[SpeedUnit]`；没有值 0 的 enum 类型的成员没有初始化式时报编译错误 |
 | 收窄 | `!= None`、`is` 和提前返回之后局部变量收窄；条件表达式的分支和 `and` 右侧收窄；成员不收窄；`if x:`、`if not x:` 在 x 不是 bool 时报编译错误并按类型给出改法 |
-| match | enum 的 match 不穷尽报编译错误，对引擎的 `MouseButton` 的 match 没有 `_` 时即使列出所有值也报编译错误；在对本语言 enum 的穷尽 match 的每个分支中都返回的函数无需再返回；带 `when` 的分支不计入覆盖；未列出字段而没有 `..` 报编译错误；Option 的 `var x` 分支中 x 为 T；对 int 的 match 不要求穷尽 |
+| match | enum 的 match 不穷尽报编译错误，对引擎的 `MouseButton` 的 match 没有 `_` 时即使列出所有值也报编译错误；在对本语言 enum 的穷尽 match 的每个分支中都返回的函数无需再返回；带 `when` 的分支不计入覆盖；未列出字段而没有 `..` 报编译错误；Option 的 `var x` 分支中 x 为 T；对 int 的 match 不要求穷尽；对 Variant 的 match 中 1.0 不匹配 `1`，`&"a"` 匹配 `"a"`，v 为 `"a"` 时经过模式 `1` 不是程序错误 |
 | 循环 | `for i in 5` 中 i 为 int；`for x in 2.5` 和遍历向量报编译错误；循环变量标注为子类报编译错误 |
 | 初始化 | 成员初始化式不调用 setter；`@onready` 与 `@export` 同用报编译错误；`_init` 中读取 `@onready` 成员报编译错误；静态初始化的环是程序错误并列出依赖链 |
 | 必须赋值 | `BulletScene.instantiate(speed = 300.0)` 漏写 `target` 报编译错误；祖先在 `_ready` 中经 `$Child.target = v` 赋值时不报错；子节点在自己的 `_ready` 中读取该成员报编译错误；就绪前读取未赋值的成员是程序错误；`new()` 漏传必须赋值的成员不是编译错误，Node 在就绪时检查 |
@@ -1214,6 +1215,8 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 大小比较运算只有 bool、数值、String、StringName、向量、RID 和 Array 有，对象、Dictionary、Callable 没有；Array 逐元素比较 | `core/variant/variant_op.cpp:731-791`；`core/variant/array.cpp:164-179` |
 | Array 的 `sort`、`bsearch`、`min`、`max` 和 Dictionary 的 `sort` 按运算表比较；`sort` 把做不了的比较当作假，`min`、`max` 返回 null，在空数组上也是，都不报错 | `core/variant/array.cpp:721-736, 756-760, 828-868`；`core/variant/dictionary.cpp:315-330` |
 | 带类型的 Array 的 `resize` 以该类型的默认值填充新元素，对象为 null | `core/variant/array.cpp:306-318` |
+| 带类型的容器收到不合元素类型的值时，能按 `can_convert_strict` 转换的先转换，float 因此截断为 int；不能转换的报错，不写入也不查找 | `core/variant/container_type_validate.h:55-75`；`core/variant/variant.cpp:557-566`；`core/variant/array.cpp:285, 374, 499, 520`；`core/variant/dictionary.cpp:205-207, 222` |
+| 带类型的 Array 的 `assign` 同样按 `can_convert_strict` 转换元素，转换不了时报错，数组不变 | `core/variant/array.cpp:252-266, 276` |
 | 引擎为容器的元素以及 Dictionary 的键和值只记录一层类型：一个内置类型、一个类和一个脚本 | `core/variant/container_type_validate.h:37-40` |
 | Dictionary 保存每个键插入时的哈希，扩容时也不重算，查找时先比较哈希再比较键 | `core/variant/dictionary.cpp:46`；`core/templates/hash_map.h:130, 149-151, 193-198` |
 | `make_read_only` 只作用于调用它的那个容器，没有办法让容器重新可写 | `core/variant/array.cpp:938-942`；`core/variant/dictionary.cpp:599-603` |
@@ -1268,7 +1271,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | GDScript 解析 `extends 全局类名` 时把基类文件当作 GDScript 解析，失败时只报“Could not resolve super class” | `modules/gdscript/gdscript_analyzer.cpp:469-485`（报错在 `:477, 483`）；`modules/gdscript/gdscript_cache.cpp:83-92` |
 | GDScript 要求具体子类实现抽象方法，禁止构造抽象类和经 `super` 调用抽象方法 | `modules/gdscript/gdscript_analyzer.cpp:1533-1552, 3630-3643` |
 | GDScript 的覆盖检查允许返回类型协变、参数类型逆变，以及多出带默认值的参数 | `modules/gdscript/gdscript_analyzer.cpp:1895-1936` |
-| GDScript 的静态检查要求带类型的 Array、Dictionary 的元素类型完全相同 | `modules/gdscript/gdscript_analyzer.cpp:6379-6393` |
+| GDScript 的静态检查要求带类型的 Array、Dictionary 的元素类型完全相同，一边没有类型时不检查 | `modules/gdscript/gdscript_analyzer.cpp:6379-6393` |
 | GDScript 的单引号和双引号字符串可以跨行 | `modules/gdscript/gdscript_tokenizer.cpp:1086-1098` |
 | GDScript 的 `@warning_ignore` 遇到不认识的警告名时报错 | `modules/gdscript/gdscript_parser.cpp:5126-5128` |
 | GDScript 的静态检查允许 String 与 StringName、NodePath 双向隐式转换，不允许 StringName 与 NodePath 之间转换 | `modules/gdscript/gdscript_analyzer.cpp:6370-6374`；`core/variant/variant.cpp:579-587, 735-750` |
@@ -1309,7 +1312,10 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | GDScript 的类型只能以标识符或 `void` 开头 | `modules/gdscript/gdscript_parser.cpp:3874-3886` |
 | GDScript 的 lambda 含 await 时即为协程，不加标记 | `modules/gdscript/gdscript_parser.cpp:3249-3251, 3752-3753` |
 | match 的模式 | `modules/gdscript/gdscript_parser.cpp:2487-2711` |
+| GDScript 的 match 中，字面量和表达式模式先比较类型，String 与 StringName 视为相同，再比较值 | `modules/gdscript/gdscript_compiler.cpp:1451-1477, 1550-1556` |
 | `as` 转为对象类型失败时得到 null | `modules/gdscript/gdscript_vm.cpp:1677-1678` |
+| GDScript 把不是对象的值 `as` 转为对象类型时，debug 构建报错，release 构建原样交出这个值 | `modules/gdscript/gdscript_vm.cpp:1670-1681` |
+| GDScript 的 `is Array[T]` 要求数组的类型完全一致；把数组赋给带类型的变量时也这样要求，否则报错 | `modules/gdscript/gdscript_vm.cpp:879-895, 1454-1481` |
 | GDScript 对已释放的对象做 `is` 时报错并中止，release 构建也一样；做 `as` 时只在 debug 构建中报错 | `modules/gdscript/gdscript_vm.cpp:942-947, 1665-1669` |
 | GDScript 调用引擎方法时，debug 构建只检查基对象是否已释放，实参原样交出 | `modules/gdscript/gdscript_vm.cpp:2046-2055, 2072` |
 | GDScript 中，局部变量、常量、`for` 的循环变量和 match 的绑定不能与外层块的局部变量或参数同名；参数是函数体的局部变量 | `modules/gdscript/gdscript_parser.cpp:1731, 1735, 1983-1987, 1993-2002, 2345-2349, 2599-2600, 4384-4392` |
@@ -1413,5 +1419,8 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 单引号和双引号字符串可以跨行，与 GDScript 相同 | 漏写右引号时错误报在远处；语料中 97 个这样的字符串，95 个在同一个仓库的测试中 | §2.2 |
 | 内部类只解析外层类的常量、enum 和内部类，与 GDScript 相同 | GDScript 的限制是其查找方式的副产品；静态成员不需要实例，Java、C#、Kotlin 的嵌套类都能直接用 | §4.1 |
 | 没有初始化式的对象类型静态变量从 None 开始，与 GDScript 相同 | 非空的类型没有 None 这个值；需要空值时写作 `T?` | §4.8 |
+| 无类型的容器隐式转为带类型的容器，与 GDScript 的静态检查相同 | GDScript 运行时只有容器恰为该类型时才成功，隐式转换把这个一定会做的检查藏到运行时；显式的 `is` 写出了它 | §3.8 |
+| 经无类型的视图写入不合元素类型的值时跳过这次写入，与引擎相同 | 程序带着没写进去的值继续运行；查找时引擎还把 1.5 截断为 1 | §3.8 |
+| `as` 遇到 Variant 中不是对象的值时是程序错误，与 GDScript 的 debug 构建相同 | `as` 是可以失败的转换，类型不符时就是 None，`v is Node` 在这里同样为假 | §5.3 |
 | 编译期检查跨类的静态初始化环 | 要知道其他文件的初始化读取什么；这样的环每次运行加载这些类时都会报出 | §4.8 |
 | 热重载时重新运行静态初始化，再按名字搬回旧值，与 GDScript 相同 | `_static_init` 的副作用（如登记）会再发生一次；只修改函数体时，正在运行的程序只换之后的调用（§12.4） | §4.8 |
