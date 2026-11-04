@@ -1373,6 +1373,10 @@ public:
 					U64(code[pc + 2]) = equal_values(image.types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 4]) ? 1 : 0;
 					pc += 5;
 					break;
+				case Op::SAME_OBJECT:
+					U64(code[pc + 2]) = same_object(frame + code[pc + 3], code[pc + 1] & 1, frame + code[pc + 4], code[pc + 1] & 2) ? 1 : 0;
+					pc += 5;
+					break;
 				case Op::LESS:
 					U64(code[pc + 2]) = less_values(image.types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 4]) ? 1 : 0;
 					pc += 5;

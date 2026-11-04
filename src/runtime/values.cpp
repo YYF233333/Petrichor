@@ -1648,6 +1648,14 @@ bool is_live_object(const uint8_t *p_slot) {
 	return data.object && (holds_reference(data) || gdextension_interface::object_get_instance_from_id(data.id));
 }
 
+bool same_object(const uint8_t *p_a, bool p_a_optional, const uint8_t *p_b, bool p_b_optional) {
+	const auto identity = [](const uint8_t *p_slot, bool p_optional) -> uint64_t {
+		const ObjectData &data = object_data(p_slot);
+		return !data.object || (p_optional && !is_live_object(p_slot)) ? 0 : data.id;
+	};
+	return identity(p_a, p_a_optional) == identity(p_b, p_b_optional);
+}
+
 Variant outward_variant(const TypeImage &p_type, const uint8_t *p_data) {
 	if (p_type.storage == ValueType::Object && p_type.check.nullable && !is_live_object(p_data)) {
 		return Variant();

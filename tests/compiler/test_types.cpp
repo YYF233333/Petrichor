@@ -1,6 +1,7 @@
 #include "doctest.h"
 #include "helpers.h"
 
+using namespace petrichor;
 using namespace petrichor::tests;
 
 // Built-in value types and engine objects (spec §3.1, §3.3, §5, §10).
@@ -13,6 +14,24 @@ TEST_CASE("operators follow the engine's table (spec §5.1)") {
 	CHECK(type_of("-Vector3(1, 2, 3)") == "Vector3");
 	CHECK(type_of("7 / 2") == "int");
 	CHECK(contains(type_of("Vector2(1, 2) + Vector2i(1, 2)"), "Invalid operands Vector2 and Vector2i"));
+}
+
+TEST_CASE("objects compare by identity, never when neither class extends the other (spec §5.2)") {
+	const std::string setup = "var node := Node.new()\nvar node2d := Node2D.new()\nvar label := Label.new()\nvar maybe: Node? = None";
+	CHECK(type_of("node == node2d and node2d != node and maybe == node and node2d != maybe and maybe == maybe", setup) == "bool");
+	CHECK(contains(type_of("label == node2d", setup), "Label and Node2D are never the same object, since neither class extends the other (spec §5.2)."));
+	const auto result = compile("interface Hit:\n\tfunc hit()\n\nfunc f(h: Hit, l: Label, m: Node?) -> bool:\n\treturn h == l and l != m\n");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	const bytecode::Function &f = function_named(result.module, "f");
+	const size_t first = find_instruction(f, bytecode::Op::SAME_OBJECT);
+	CHECK(f.code[first + 1] == 0);
+	size_t second = first + bytecode::instruction_length(f.code.data() + first);
+	while (bytecode::Op(f.code[second]) != bytecode::Op::SAME_OBJECT) {
+		second += bytecode::instruction_length(f.code.data() + second);
+	}
+	CHECK(f.code[second + 1] == 2); // m, on the right, is a T?.
 }
 
 TEST_CASE("** is int for two ints and float otherwise (spec §5.1)") {

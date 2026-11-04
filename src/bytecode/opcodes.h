@@ -114,6 +114,7 @@ namespace petrichor::bytecode {
 	X(VARIANT_OBJECT, 2) /* dst (Object), src (Variant): the object in it, None for any other value (spec §5.3) */ \
 	X(IS_TYPE, 3) /* type, dst (bool), src (Variant): `is` of a built-in type, a container only of exactly that type (spec §3.8, §5.4) */ \
 	X(CONSTRUCT_FROM, 3) /* type of dst, dst, src (Variant): `T(v)`, the engine's construction, a value it cannot convert a program error (spec §3.13) */ \
+	X(SAME_OBJECT, 4) /* T? sides (bit 0: a, bit 1: b), dst (bool), a, b (Object): the same object by ObjectID, a freed one on a T? side being None (spec §3.3, §5.2) */ \
 	X(VARIANT_EQUAL, 3) /* dst (bool), a, b (Variant): `==` by the engine's operator table, a pair not in it a program error (spec §5.2) */ \
 	X(MATCHES, 3) /* dst (bool), value, pattern (Variant): of the pattern's type, String and StringName alike, and equal to it (spec §5.6) */ \
 	X(BOX, 4) /* type, dst (Variant), src, key (0 or 1): src in a box, as a container keeps a boxed type (module.h); a key's box hashes the value */ \

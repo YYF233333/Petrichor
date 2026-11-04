@@ -800,6 +800,8 @@ class Verifier {
 				return (p_op == Op::IS_TYPE ? slot(o[1], ValueType::Bool) : slot_like(o[1], o[0])) && slot(o[2], ValueType::Variant);
 			case Op::VARIANT_OBJECT:
 				return slot(o[0], ValueType::Object) && slot(o[1], ValueType::Variant);
+			case Op::SAME_OBJECT:
+				return (o[0] <= 3 || fail("SAME_OBJECT of sides beyond two")) && slot(o[1], ValueType::Bool) && same(o[2], o[3], ValueType::Object);
 			case Op::VARIANT_EQUAL:
 			case Op::MATCHES:
 				return slot(o[0], ValueType::Bool) && same(o[1], o[2], ValueType::Variant);

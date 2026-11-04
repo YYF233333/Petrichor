@@ -288,6 +288,9 @@ void set_object(uint8_t *p_slot, const godot::Variant &p_value);
 bool is_none_object(const uint8_t *p_slot);
 // An object slot that holds a live object; freed objects read as None (spec §3.3).
 bool is_live_object(const uint8_t *p_slot);
+// Whether two object slots hold the same object, by ObjectID, so that two
+// freed objects are not one; a freed object in a T? reads as None (spec §5.2).
+bool same_object(const uint8_t *p_a, bool p_a_optional, const uint8_t *p_b, bool p_b_optional);
 // A class of a script is the script and those that extend it; with no script
 // asked for, any will do.
 bool has_script(const godot::Variant &p_script, const godot::String &p_path);

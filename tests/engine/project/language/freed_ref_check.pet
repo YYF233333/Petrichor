@@ -43,3 +43,16 @@ pub func valid() -> bool:
 	var gone := Node.new()
 	gone.free()
 	return is_instance_valid(gone)
+
+# == of objects compares ObjectIDs (spec §5.2): two freed objects are two,
+# while in a T? a freed one reads as None.
+pub func identities() -> Array[bool]:
+	var a := Node.new()
+	var b := Node.new()
+	var also_a: Node = a
+	var live := [a == also_a, a != b, a == b]
+	a.free()
+	b.free()
+	var maybe_a: Node? = also_a
+	var none: Node? = None
+	return live + [a == also_a, a == b, maybe_a == none, maybe_a == a]

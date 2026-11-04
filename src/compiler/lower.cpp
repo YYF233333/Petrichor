@@ -1715,6 +1715,13 @@ class Lowerer {
 						instr(Op::VARIANT_EQUAL, result, as_variant(outward(left, p_expr.left->type, false)), as_variant(outward(right, p_expr.right->type, false)));
 						return p_expr.op == TokenKind::BangEqual ? negate(result) : result;
 					}
+					if (p_expr.left->type.kind == TypeKind::Object && p_expr.right->type.kind == TypeKind::Object) {
+						// By ObjectID, not by the engine's operator, which takes two
+						// freed objects for equal (spec §5.2).
+						const uint32_t result = temp(ValueType::Bool);
+						instr(Op::SAME_OBJECT, result, left, right, (p_expr.left->type.nullable ? 1u : 0u) | (p_expr.right->type.nullable ? 2u : 0u));
+						return p_expr.op == TokenKind::BangEqual ? negate(result) : result;
+					}
 					if (p_expr.left->type.kind == TypeKind::Option || p_expr.right->type.kind == TypeKind::Option) {
 						// The side with fewer levels of T? is wrapped (spec §5.2).
 						const Type &deeper = option_depth(p_expr.left->type) >= option_depth(p_expr.right->type) ? p_expr.left->type : p_expr.right->type;

@@ -2776,6 +2776,18 @@ class Checker : public ClassRelation {
 			error(p_at, compares ? "Cannot compare a Variant with " + other.to_string() + "." : std::string("Cannot use ") + token_name(p_op) + " on a Variant." + variant_hint());
 			return Type::of(TypeKind::Error);
 		}
+		// Objects by identity (spec §5.2), which two classes that do not extend
+		// one another never share.
+		if ((p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual) && p_left.kind == TypeKind::Object && p_right.kind == TypeKind::Object) {
+			Type left = p_left;
+			Type right = p_right;
+			left.nullable = right.nullable = false;
+			if (!left.is_interface && !right.is_interface && !assignable(left, right) && !assignable(right, left)) {
+				error(p_at, left.to_string() + " and " + right.to_string() + " are never the same object, since neither class extends the other (spec §5.2).");
+				return Type::of(TypeKind::Error);
+			}
+			return Type::of(TypeKind::Bool);
+		}
 		if (p_left.kind == TypeKind::Enum || p_right.kind == TypeKind::Enum) {
 			return binary_type(p_op, as_int(p_left), as_int(p_right), p_at);
 		}
