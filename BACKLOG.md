@@ -24,6 +24,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - `Array[T]?`; `pop_front()` and `pop_back()` of `Array[T?]`, which give `T??`.
 - Enums with payloads, and the names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7); `T.try_from(x)` (spec §5.3).
 - Rest parameters `...args: Array[T]` (spec §4.6).
+- `for` over a String (spec §5.7); no file of the coverage survey's corpus does it.
 - Static functions as values: one of a class around an inner class by its bare name, or one of another class as `Class.f`; now they can only be called (spec §3.11, §4.1).
 - Inner classes of two files that extend each other's classes, as `A.X extends B.Y` with `B.Y extends A.Z`: the checker accepts them, but no image can be loaded before the other's, so the editor reports it and the game cannot load the base.
 - A text form of this language's own types, such as `Hit(damage = 3, crit = false)`, for `str()`, `print()` and `%` together; now they read as their encoding (spec §5.1, §10.1).
