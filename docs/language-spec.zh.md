@@ -361,7 +361,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 动态值只在三处由外部强加：以 Variant 声明的引擎 API；GDScript 插件中没有标注类型的参数、返回值和成员（§11.1）；跨语言传来的消息。本语言代码中写出的 Variant，以及没有类型参数的 Array 和 Dictionary 的元素（§3.8），同样是动态值。
 - 动态值进入静态代码时必须显式转换（§5.3）；不做隐式检查。
 - 能定型的从源头定型：引擎实际有约束但没有导出的，在本语言的绑定元数据中补上（§10.3）。
-- 静态值进入 Variant 是隐式的：赋值、传参和返回都可以。struct 和带载荷的 enum 按 §10.1 编码。例外：元素为本语言独有类型的容器须显式转换，写作 `Array(hits)`（§3.8）。
+- 静态值进入 Variant 是隐式的：赋值、传参和返回都可以。struct 和带载荷的 enum 按 §10.1 编码。例外：元素为本语言独有类型的容器须显式转换，写作 `Array(hits)`（§3.8）。进入 Variant 的数组和字典字面量，包括无类型容器的元素，是无类型的 Array 和 Dictionary，与 GDScript 只在去处为带类型容器时才为字面量定型相同（`modules/gdscript/gdscript_analyzer.cpp:2112-2121, 3647-3658`），所以 `d[k] = []` 和 `set_meta("tags", [1, "a"])` 合法。没有去处的字面量由元素定型（§4.3）。
 - Variant 进入静态代码只有显式的途径：
   - `v as T`，只用于对象，得到 `T?`，v 中不是对象时也为 None（§5.3）；
   - `T(v)`，GDScript 的构造转换；
@@ -1140,7 +1140,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 接口 | 实现 `Combatant extends Damageable` 的类可以传给期望 Damageable 的参数；两个父接口的同名方法签名不兼容时报编译错误；两个父接口都有默认实现而未覆盖时报编译错误；`interface A extends B` 与 `interface B extends A` 报编译错误；声明 `interface Source[T]:` 报编译错误；`@readonly var hp: int` 的要求可以由可读写的成员满足；`var hp: int` 的要求遇到没有 setter 的引擎属性报编译错误；默认方法给 `@readonly` 属性赋值报编译错误；在接口以外使用 `@readonly` 报编译错误 |
 | 泛型 | `first([1, 2])` 中 T 推断为 int；`var x = first([])` 推断不出 T 报编译错误，`var x = first[int]([])` 合法；不满足约束的类型实参报编译错误；Node 脚本声明类型参数报编译错误；GDScript 引用泛型方法是 GDScript 的编译错误；`sig.connect(handle)` 在 handle 为泛型且类型实参确定不了时报编译错误；不继承 Resource 的泛型 RefCounted 类合法，不出现在引擎的全局类表中 |
 | 函数类型 | `func(int)` 与 `func(int) -> void` 相同；`(func(Enemy) -> bool)?` 可空，`func(Enemy) -> bool?` 返回 `bool?`；`f(x)` 报编译错误并给出 `f.call(x)`；`func(Node)` 可以用于期望 `func(Node3D)` 的位置，反之报编译错误；含 await 而未写 async 的 lambda 报编译错误；把 async 函数传给期望普通函数类型的本语言参数报编译错误；把 async 方法连接到信号合法，任务作为根任务运行；在 lambda 中对捕获的局部变量写 `hits += 1`、对捕获的 Vector2 写 `v.x = 1` 报编译错误，对捕获的 Array 写 `counter[0] += 1` 合法，外面也看到改变；lambda 保留捕获的局部变量在创建时的值；lambda 外由 `if x != None:` 收窄的捕获 `x: Node?` 在 lambda 中是 Node；lambda 参数的默认值报编译错误；命名 lambda 的名字在其函数体中不可见 |
-| Variant | `v.hp`、`v + 1`、`v[0]`、`for x in v` 报编译错误；`if v is Dictionary:` 之后 `v.get("hp", 0)` 合法；`v as Node` 为 `Node?`；v 为 NIL 时 `v == None` 为真、`v is int` 为假；v 中是已释放的对象时 `v == None` 为真、`v is Node` 为假、`v as Node` 为 None；v 为 5 时 `v as Node` 为 None；int 赋给 Variant 无需转换 |
+| Variant | `v.hp`、`v + 1`、`v[0]`、`for x in v` 报编译错误；`if v is Dictionary:` 之后 `v.get("hp", 0)` 合法；`v as Node` 为 `Node?`；v 为 NIL 时 `v == None` 为真、`v is int` 为假；v 中是已释放的对象时 `v == None` 为真、`v is Node` 为假、`v as Node` 为 None；v 为 5 时 `v as Node` 为 None；int 赋给 Variant 无需转换；d 为无类型 Dictionary 时 `d[k] = []` 合法，`var v: Variant = [1]` 是无类型的 Array |
 | 抽象类与剩余参数 | 构造抽象类报编译错误；具体子类缺少某个抽象方法的实现报编译错误；场景中的节点使用抽象类报编译错误；向 `...args: Array[int]` 传入 String 报编译错误；只写 `...args` 报编译错误；GDScript 调用 `...args: Array[int]` 时传入 String 是程序错误 |
 | 内部类 | 不写 `extends` 的 `class Shot:` 是 RefCounted，类体第一行写 `extends Area3D` 时是 Area3D；内部类中直接用外层类的常量、静态函数和静态变量，用外层的成员变量是编译错误，说明没有外层类的实例；基类的常量遮蔽外层同名的常量；在其他文件中使用不带 `pub` 的 `Outer.Inner` 是编译错误；经 autoload 的 `Constants.Match.MAX` 读到常量；其对象的 `get_script()` 是内部类的脚本，`resource_path` 为空；内部类中写 `class_name` 是编译错误；GDScript 读 `Outer.Inner` 得到脚本 |
 | 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；在子类以外的其他类中使用不带 `pub` 的 struct 报编译错误；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误，引用 `pub var hits: Array[Hit]` 同样报错；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
@@ -1316,6 +1316,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | `as` 转为对象类型失败时得到 null | `modules/gdscript/gdscript_vm.cpp:1677-1678` |
 | GDScript 把不是对象的值 `as` 转为对象类型时，debug 构建报错，release 构建原样交出这个值 | `modules/gdscript/gdscript_vm.cpp:1670-1681` |
 | GDScript 的 `is Array[T]` 要求数组的类型完全一致；把数组赋给带类型的变量时也这样要求，否则报错 | `modules/gdscript/gdscript_vm.cpp:879-895, 1454-1481` |
+| GDScript 只在去处为带类型容器时为数组和字典字面量定型，否则它们是无类型的 | `modules/gdscript/gdscript_analyzer.cpp:2112-2121, 3647-3658` |
 | GDScript 对已释放的对象做 `is` 时报错并中止，release 构建也一样；做 `as` 时只在 debug 构建中报错 | `modules/gdscript/gdscript_vm.cpp:942-947, 1665-1669` |
 | GDScript 调用引擎方法时，debug 构建只检查基对象是否已释放，实参原样交出 | `modules/gdscript/gdscript_vm.cpp:2046-2055, 2072` |
 | GDScript 中，局部变量、常量、`for` 的循环变量和 match 的绑定不能与外层块的局部变量或参数同名；参数是函数体的局部变量 | `modules/gdscript/gdscript_parser.cpp:1731, 1735, 1983-1987, 1993-2002, 2345-2349, 2599-2600, 4384-4392` |
@@ -1422,5 +1423,6 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 无类型的容器隐式转为带类型的容器，与 GDScript 的静态检查相同 | GDScript 运行时只有容器恰为该类型时才成功，隐式转换把这个一定会做的检查藏到运行时；显式的 `is` 写出了它 | §3.8 |
 | 经无类型的视图写入不合元素类型的值时跳过这次写入，与引擎相同 | 程序带着没写进去的值继续运行；查找时引擎还把 1.5 截断为 1 | §3.8 |
 | `as` 遇到 Variant 中不是对象的值时是程序错误，与 GDScript 的 debug 构建相同 | `as` 是可以失败的转换，类型不符时就是 None，`v is Node` 在这里同样为假 | §5.3 |
+| 进入 Variant 的字面量也由元素定型 | 空字面量无从定型，`d[k] = []` 要写出类型；有元素时得到带类型的容器，之后经 Variant 写入其他类型的值是程序错误，GDScript 中则可以 | §3.13 |
 | 编译期检查跨类的静态初始化环 | 要知道其他文件的初始化读取什么；这样的环每次运行加载这些类时都会报出 | §4.8 |
 | 热重载时重新运行静态初始化，再按名字搬回旧值，与 GDScript 相同 | `_static_init` 的副作用（如登记）会再发生一次；只修改函数体时，正在运行的程序只换之后的调用（§12.4） | §4.8 |
