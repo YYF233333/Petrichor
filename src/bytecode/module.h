@@ -353,6 +353,11 @@ struct BuiltinMethodCall {
 	// read-only one (spec §3.8).
 	bool is_const = true;
 	bool is_static = false; // Called with no base, as Color.from_hsv().
+	// Through an untyped view of a container, or with one as the argument that
+	// fills it: the arguments that go in as its elements, keys or values, or are
+	// looked up as them, are checked against the types the container has when
+	// it runs (spec §3.8).
+	bool checks_elements = false;
 	std::vector<ValueType> params;
 	ValueType return_type = ValueType::Void;
 	uint32_t result_type = 0; // The slot that receives it, by type.

@@ -218,6 +218,11 @@ bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_
 	if ((p_from.kind == TypeKind::Function || p_from.kind == TypeKind::Signal) && p_to.kind == TypeKind::Builtin && p_to.name == p_from.builtin_name()) {
 		return true;
 	}
+	// A typed container is the same container through an untyped view (spec
+	// §3.8), unless it keeps boxes, which leave only as an encoded copy.
+	if (is_typed_container(p_from) && !is_boxed(p_from) && p_to.kind == TypeKind::Builtin && p_to.args.empty() && p_to.name == p_from.name) {
+		return true;
+	}
 	return p_to.kind == TypeKind::Variant && p_from.is_storable() && !(is_typed_container(p_from) && is_boxed(p_from));
 }
 

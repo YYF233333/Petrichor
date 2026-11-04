@@ -109,6 +109,12 @@ namespace petrichor::bytecode {
 	X(EQUAL, 4) /* type, dst (bool), a, b: a == b, a struct field by field (spec §3.6) */ \
 	X(LESS, 4) /* type, dst (bool), a, b: a < b of a struct, field by field in order, of a T?, None first, or of a container that keeps boxes, element by element (spec §5.2) */ \
 	X(TO_VARIANT, 3) /* type of src, dst (Variant), src */ \
+	X(FROM_VARIANT, 3) /* type of dst, dst, src (Variant): a value that is of the type, as a narrowed local is (spec §5.4) */ \
+	X(VARIANT_OBJECT, 2) /* dst (Object), src (Variant): the object in it, None for any other value (spec §5.3) */ \
+	X(IS_TYPE, 3) /* type, dst (bool), src (Variant): `is` of a built-in type, a container only of exactly that type (spec §3.8, §5.4) */ \
+	X(CONSTRUCT_FROM, 3) /* type of dst, dst, src (Variant): `T(v)`, the engine's construction, a value it cannot convert a program error (spec §3.13) */ \
+	X(VARIANT_EQUAL, 3) /* dst (bool), a, b (Variant): `==` by the engine's operator table, a pair not in it a program error (spec §5.2) */ \
+	X(MATCHES, 3) /* dst (bool), value, pattern (Variant): of the pattern's type, String and StringName alike, and equal to it (spec §5.6) */ \
 	X(BOX, 4) /* type, dst (Variant), src, key (0 or 1): src in a box, as a container keeps a boxed type (module.h); a key's box hashes the value */ \
 	X(ENCODE, 3) /* type of src, dst, src: a container that keeps boxes as the untyped container of its kind, a copy with every key and element encoded (spec §3.8, §10.1) */ \
 	X(UNWRAP, 4) /* type of dst, dst, src (T?), message (NO_SLOT: default) */ \

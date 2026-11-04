@@ -377,6 +377,103 @@ String read_error(const TypeImage &p_type, const Variant &p_value) {
 	return mismatch.substr(0, 1).to_upper() + mismatch.substr(1) + ".";
 }
 
+// The instructions below make values of their own here, out of run(), whose
+// frame every call of this language nests, up to MAX_CALL_DEPTH of them on
+// the thread's stack. Each is false after it sets helper_error() to the error of
+// its program error.
+#ifdef _MSC_VER
+#define PETRICHOR_NOINLINE __declspec(noinline)
+#else
+#define PETRICHOR_NOINLINE __attribute__((noinline))
+#endif
+
+// Made on first use and never destroyed: no godot-cpp value may be made before
+// the engine loads the library, or destroyed after it unloads it.
+PETRICHOR_NOINLINE String &helper_error() {
+	thread_local String *error = nullptr;
+	if (!error) {
+		error = new String();
+	}
+	return *error;
+}
+
+// The arguments of a call through an untyped view that do not fit the types
+// the container has (spec §3.8).
+PETRICHOR_NOINLINE bool arguments_fit(const std::vector<std::pair<uint32_t, ElementRole>> &p_roles, const std::vector<ValueType> &p_params, const void *const *p_args, ValueType p_base, const uint8_t *p_container) {
+	String &r_error = helper_error();
+	const Variant container = to_variant(p_base, p_container);
+	for (const auto &[index, role] : p_roles) {
+		const Variant value = p_params[index] == ValueType::Variant ? *static_cast<const Variant *>(p_args[index]) : to_variant(p_params[index], static_cast<const uint8_t *>(p_args[index]));
+		r_error = untyped_misfit(container, role, value);
+		if (!r_error.is_empty()) {
+			return false;
+		}
+	}
+	return true;
+}
+
+// An element, or a key and with `p_value` its value, written or looked up
+// through an untyped view (spec §3.8).
+PETRICHOR_NOINLINE bool entry_fits(const TypeImage &p_base, const uint8_t *p_container, const uint8_t *p_key, const uint8_t *p_value) {
+	String &r_error = helper_error();
+	if (p_base.storage == ValueType::Array) {
+		r_error = untyped_misfit(*reinterpret_cast<const Array *>(p_container), ElementRole::Element, kept(p_base.item, p_value));
+		return r_error.is_empty();
+	}
+	const Dictionary &dictionary = *reinterpret_cast<const Dictionary *>(p_container);
+	r_error = untyped_misfit(dictionary, ElementRole::Key, kept(p_base.key, p_key));
+	if (r_error.is_empty() && p_value) {
+		r_error = untyped_misfit(dictionary, ElementRole::Value, kept(p_base.item, p_value));
+	}
+	return r_error.is_empty();
+}
+
+// The value of a Variant in a slot of its type (spec §5.4).
+PETRICHOR_NOINLINE bool read_variant(const TypeImage &p_type, const uint8_t *p_variant, uint8_t *p_slot) {
+	const Variant &value = variant_at(p_variant);
+	if (from_variant(p_type, value, p_slot, true)) {
+		return true;
+	}
+	helper_error() = read_error(p_type, value);
+	return false;
+}
+
+// `T(v)` as GDScript converts (core/variant/variant_construct.cpp:264-289;
+// ed1daf0, spec §3.13).
+PETRICHOR_NOINLINE bool construct_from(const TypeImage &p_type, const uint8_t *p_variant, uint8_t *p_slot) {
+	const Variant &value = variant_at(p_variant);
+	const GDExtensionConstVariantPtr arg = value._native_ptr();
+	Variant made;
+	GDExtensionCallError error;
+	gdextension_interface::variant_construct(GDExtensionVariantType(variant_type(p_type.storage)), made._native_ptr(), &arg, 1, &error);
+	if (error.error == GDEXTENSION_CALL_OK && from_variant(p_type, made, p_slot, true)) {
+		return true;
+	}
+	helper_error() = vformat("%s() cannot convert %s.", type_description(p_type), describe_value(value));
+	return false;
+}
+
+// `==` by the engine's operator table (spec §5.2), or with `p_pattern` the
+// match of a pattern, of its type first, String and StringName alike (§5.6).
+PETRICHOR_NOINLINE bool compare_variants(const uint8_t *p_a, const uint8_t *p_b, bool p_pattern, uint64_t &r_equal) {
+	const Variant &a = variant_at(p_a);
+	const Variant &b = variant_at(p_b);
+	const auto stringy = [](Variant::Type p_type) { return p_type == Variant::STRING || p_type == Variant::STRING_NAME; };
+	r_equal = 0;
+	if (p_pattern && type_of(a) != type_of(b) && !(stringy(type_of(a)) && stringy(type_of(b)))) {
+		return true;
+	}
+	Variant result;
+	bool valid = false;
+	Variant::evaluate(Variant::OP_EQUAL, a, b, result, valid);
+	if (!valid) {
+		helper_error() = vformat("Cannot compare %s with %s.", describe_value(a), describe_value(b));
+		return false;
+	}
+	r_equal = result.booleanize() ? 1 : 0;
+	return true;
+}
+
 // What an object must be to fit the class table's entry `p_index`.
 ValueCheck class_check(const ClassImage &p_image, uint32_t p_index) {
 	ValueCheck check;
@@ -1157,6 +1254,10 @@ public:
 					const TypeImage &element = image.types[code[pc + 2]];
 					if (base.storage == ValueType::Dictionary) {
 						const Dictionary &dictionary = *reinterpret_cast<const Dictionary *>(frame + code[pc + 4]);
+						// Through an untyped view, a key looked up must fit (spec §3.8).
+						if (base.kind == bytecode::TypeKind::Value && !entry_fits(base, frame + code[pc + 4], frame + code[pc + 5], nullptr)) {
+							FAIL(helper_error());
+						}
 						const Variant key = kept(base.key, frame + code[pc + 5]);
 						if (!dictionary.has(key)) {
 							FAIL(vformat("The Dictionary has no key %s.", key_text(key)));
@@ -1190,6 +1291,11 @@ public:
 					const uint8_t *src = frame + code[pc + 4];
 					if (is_read_only(base.storage, container)) {
 						FAIL(read_only_error(base.storage));
+					}
+					// Through an untyped view, values must fit the types the
+					// container has (spec §3.8).
+					if (base.kind == bytecode::TypeKind::Value && (base.storage == ValueType::Dictionary || base.storage == ValueType::Array) && !entry_fits(base, container, index, src)) {
+						FAIL(helper_error());
 					}
 					if (base.storage == ValueType::Dictionary) {
 						Dictionary &dictionary = *reinterpret_cast<Dictionary *>(container);
@@ -1259,6 +1365,36 @@ public:
 					variant_at(frame + code[pc + 2]) = to_variant(image.types[code[pc + 1]], frame + code[pc + 3]);
 					pc += 4;
 					break;
+				case Op::FROM_VARIANT: {
+					if (!read_variant(image.types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 2])) {
+						FAIL(helper_error());
+					}
+					pc += 4;
+					break;
+				}
+				case Op::VARIANT_OBJECT:
+					set_object(frame + code[pc + 1], variant_at(frame + code[pc + 2]));
+					pc += 3;
+					break;
+				case Op::IS_TYPE:
+					U64(code[pc + 2]) = is_exactly(image.types[code[pc + 1]], variant_at(frame + code[pc + 3])) ? 1 : 0;
+					pc += 4;
+					break;
+				case Op::CONSTRUCT_FROM: {
+					if (!construct_from(image.types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 2])) {
+						FAIL(helper_error());
+					}
+					pc += 4;
+					break;
+				}
+				case Op::VARIANT_EQUAL:
+				case Op::MATCHES: {
+					if (!compare_variants(frame + code[pc + 2], frame + code[pc + 3], Op(code[pc]) == Op::MATCHES, U64(code[pc + 1]))) {
+						FAIL(helper_error());
+					}
+					pc += 4;
+					break;
+				}
 				case Op::BOX:
 					variant_at(frame + code[pc + 2]) = make_box(image.types[code[pc + 1]], frame + code[pc + 3], code[pc + 4] != 0);
 					pc += 5;
@@ -1512,6 +1648,11 @@ public:
 						const bytecode::BuiltinMethodCall &method = module.builtin_methods[target];
 						if (!method.is_const && is_read_only(method.base, base)) {
 							FAIL(read_only_error(method.base));
+						}
+						// Through an untyped view, values must fit the types the
+						// container has (spec §3.8).
+						if (!image.element_args[target].empty() && !arguments_fit(image.element_args[target], params, args.pointers, method.base, base)) {
+							FAIL(helper_error());
 						}
 						if (image.needs_element[target] && reinterpret_cast<const Array *>(base)->is_empty()) {
 							// The engine returns null, after an error of its own for front() and back().

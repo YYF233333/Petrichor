@@ -1520,6 +1520,127 @@ bool has_script(const Variant &p_script, const String &p_path) {
 	return false;
 }
 
+namespace {
+
+bool exactly_typed(int64_t p_builtin, const StringName &p_class, const Variant &p_script, ValueType p_type, const StringName &p_want_class, const String &p_want_script) {
+	return p_builtin == int64_t(variant_type(p_type)) && (p_type != ValueType::Object || (p_class == p_want_class && script_path(p_script) == p_want_script));
+}
+
+// As a value is assigned to an element of the type: int to float (spec §3.2),
+// String to StringName or NodePath and back (§10.7); None to an object type,
+// which the engine keeps alike for T and T?; a live object of the class and
+// script (§3.3).
+bool fits_typed(int64_t p_builtin, const StringName &p_class, const Variant &p_script, const Variant &p_value) {
+	const Variant::Type want = Variant::Type(p_builtin);
+	const Variant::Type have = type_of(p_value);
+	if (want == Variant::NIL) {
+		return true;
+	}
+	if (is_none(p_value)) {
+		return want == Variant::OBJECT;
+	}
+	if (want == Variant::OBJECT) {
+		const Object *object = have == Variant::OBJECT ? p_value.get_validated_object() : nullptr;
+		return object && (p_class.is_empty() || object->is_class(p_class)) && has_script(object->get_script(), script_path(p_script));
+	}
+	switch (want) {
+		case Variant::FLOAT:
+			return have == want || have == Variant::INT;
+		case Variant::STRING:
+			return have == want || have == Variant::STRING_NAME || have == Variant::NODE_PATH;
+		case Variant::STRING_NAME:
+		case Variant::NODE_PATH:
+			return have == want || have == Variant::STRING;
+		default:
+			return have == want;
+	}
+}
+
+} // namespace
+
+String describe_value(const Variant &p_value) {
+	return value_description(p_value);
+}
+
+bool is_exactly(const TypeImage &p_type, const Variant &p_value) {
+	if (type_of(p_value) != variant_type(p_type.storage)) {
+		return false;
+	}
+	const ValueCheck &check = p_type.check;
+	if (p_type.storage == ValueType::Array && check.element != ValueType::Void) {
+		const Array array = p_value;
+		return exactly_typed(array.get_typed_builtin(), array.get_typed_class_name(), array.get_typed_script(), check.element, check.class_name, check.script);
+	}
+	if (p_type.storage == ValueType::Dictionary && check.key != ValueType::Void) {
+		const Dictionary dictionary = p_value;
+		return exactly_typed(dictionary.get_typed_key_builtin(), dictionary.get_typed_key_class_name(), dictionary.get_typed_key_script(), check.key, check.key_class_name, check.key_script) &&
+				exactly_typed(dictionary.get_typed_value_builtin(), dictionary.get_typed_value_class_name(), dictionary.get_typed_value_script(), check.element, check.class_name, check.script);
+	}
+	return true;
+}
+
+String untyped_misfit(const Variant &p_container, ElementRole p_role, const Variant &p_value) {
+	int64_t builtin = Variant::NIL;
+	StringName class_name;
+	Variant script;
+	const bool key = p_role == ElementRole::Key || p_role == ElementRole::Keys;
+	if (type_of(p_container) == Variant::ARRAY) {
+		const Array array = p_container;
+		builtin = array.get_typed_builtin();
+		class_name = array.get_typed_class_name();
+		script = array.get_typed_script();
+	} else if (key) {
+		const Dictionary dictionary = p_container;
+		builtin = dictionary.get_typed_key_builtin();
+		class_name = dictionary.get_typed_key_class_name();
+		script = dictionary.get_typed_key_script();
+	} else if (p_role != ElementRole::Entries) {
+		const Dictionary dictionary = p_container;
+		builtin = dictionary.get_typed_value_builtin();
+		class_name = dictionary.get_typed_value_class_name();
+		script = dictionary.get_typed_value_script();
+	}
+	const auto misfit = [&](const Variant &p_item, const String &p_where) {
+		if (fits_typed(builtin, class_name, script, p_item)) {
+			return String();
+		}
+		const String holds = key ? String("has keys of type") : String("holds");
+		return vformat("%s %s %s, not %s%s.", value_description(p_container), holds, typed_description(builtin, class_name, script), value_description(p_item), p_where);
+	};
+	switch (p_role) {
+		case ElementRole::Element:
+		case ElementRole::Key:
+		case ElementRole::Value:
+			return misfit(p_value, String());
+		case ElementRole::Elements:
+		case ElementRole::Keys: {
+			const Array items = p_value;
+			for (int64_t i = 0; i < items.size(); i++) {
+				const String error = misfit(items[i], vformat(", which the Array given has at index %d", i));
+				if (!error.is_empty()) {
+					return error;
+				}
+			}
+			return String();
+		}
+		case ElementRole::Entries: {
+			const Dictionary entries = p_value;
+			const Array keys = entries.keys();
+			for (int64_t i = 0; i < keys.size(); i++) {
+				String error = untyped_misfit(p_container, ElementRole::Key, keys[i]);
+				if (error.is_empty()) {
+					error = untyped_misfit(p_container, ElementRole::Value, entries[keys[i]]);
+				}
+				if (!error.is_empty()) {
+					return error;
+				}
+			}
+			return String();
+		}
+	}
+	return String();
+}
+
 bool is_live_object(const uint8_t *p_slot) {
 	const ObjectData &data = object_data(p_slot);
 	// A reference keeps a RefCounted object alive; the engine finds any other

@@ -662,6 +662,7 @@ void write_module(Writer &w, const Module &p_module) {
 		w.u8(call.is_vararg ? 1 : 0);
 		w.u8(call.is_const ? 1 : 0);
 		w.u8(call.is_static ? 1 : 0);
+		w.u8(call.checks_elements ? 1 : 0);
 		w.types(call.params);
 		w.type(call.return_type);
 		w.u32(call.result_type);
@@ -849,6 +850,7 @@ bool read_module(Reader &r, Module &module, int p_depth) {
 		call.is_vararg = r.u8() != 0;
 		call.is_const = r.u8() != 0;
 		call.is_static = r.u8() != 0;
+		call.checks_elements = r.u8() != 0;
 		call.params = r.types();
 		call.return_type = r.type();
 		call.result_type = r.u32();

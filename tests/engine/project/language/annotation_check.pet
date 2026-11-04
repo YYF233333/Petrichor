@@ -6,6 +6,7 @@ extends Node
 
 @warning_ignore_start("unused_private_class_variable")
 @export_file("*.json", "*.txt") var data_file: String
+@export var anything: Variant
 @export_file_path var any_file: String
 @export_dir var folder: String
 @export_global_file("*.png") var image_file: String

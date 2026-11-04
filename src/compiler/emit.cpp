@@ -205,6 +205,9 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 					put(offset_of(instr.b));
 					break;
 				case Op::TO_VARIANT:
+				case Op::FROM_VARIANT:
+				case Op::IS_TYPE:
+				case Op::CONSTRUCT_FROM:
 				case Op::ENCODE:
 				case Op::IS_NONE:
 				case Op::SOME:

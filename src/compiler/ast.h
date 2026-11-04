@@ -105,6 +105,7 @@ enum class Target {
 	HasMember, // `name in obj`: whether the engine finds a member by that name.
 	Constant, // A constant of a class (spec §4.5), whose value is `constant`.
 	EnumFromInt, // `State(x)`: the int, checked to be one of the values of the call's type (spec §3.7).
+	ConstructFromVariant, // `T(v)` of a Variant: the engine's construction of the call's type (spec §3.13).
 	ClassScript, // The script of the class of this language at `owner`, as a value (spec §2.1, §4.1).
 	// A static variable, `variable`, of the class of this language at `owner`,
 	// the `index`th it declares; `base`, when `static_on_value`, is an object
@@ -166,6 +167,10 @@ struct Expr {
 	bool discarded = false;
 	bool is_vararg = false;
 	bool is_const = true; // Built-in methods that do not change their base.
+	// A built-in method or `in` through an untyped view of a container, or
+	// filling a typed one from an untyped one: the elements are checked as the
+	// program runs (spec §3.8).
+	bool checks_elements = false;
 	Type engine_return; // Variant where the engine returns a Variant.
 	// Built-in methods: the engine's parameter types; script methods: all the
 	// method's parameters, also those a call leaves out.

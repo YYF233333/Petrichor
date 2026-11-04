@@ -49,6 +49,43 @@ std::string script_file(const std::string &p_path) {
 	return p_path.substr(0, p_path.find("::"));
 }
 
+// The arguments of a method of Array or Dictionary that go in, or are looked
+// up, as its elements, keys or values (spec §3.8), as the engine declares them.
+std::vector<std::pair<uint32_t, ElementRole>> element_arguments(ValueType p_base, const std::string &p_method) {
+	using Role = ElementRole;
+	static const std::unordered_map<std::string, std::vector<std::pair<uint32_t, Role>>> array = {
+		{ "append", { { 0, Role::Element } } },
+		{ "push_back", { { 0, Role::Element } } },
+		{ "push_front", { { 0, Role::Element } } },
+		{ "insert", { { 1, Role::Element } } },
+		{ "fill", { { 0, Role::Element } } },
+		{ "erase", { { 0, Role::Element } } },
+		{ "has", { { 0, Role::Element } } },
+		{ "count", { { 0, Role::Element } } },
+		{ "find", { { 0, Role::Element } } },
+		{ "rfind", { { 0, Role::Element } } },
+		{ "bsearch", { { 0, Role::Element } } },
+		{ "bsearch_custom", { { 0, Role::Element } } },
+		{ "append_array", { { 0, Role::Elements } } },
+		{ "assign", { { 0, Role::Elements } } },
+	};
+	static const std::unordered_map<std::string, std::vector<std::pair<uint32_t, Role>>> dictionary = {
+		{ "has", { { 0, Role::Key } } },
+		{ "erase", { { 0, Role::Key } } },
+		{ "get", { { 0, Role::Key } } },
+		{ "set", { { 0, Role::Key }, { 1, Role::Value } } },
+		{ "get_or_add", { { 0, Role::Key }, { 1, Role::Value } } },
+		{ "find_key", { { 0, Role::Value } } },
+		{ "has_all", { { 0, Role::Keys } } },
+		{ "merge", { { 0, Role::Entries } } },
+		{ "merged", { { 0, Role::Entries } } },
+		{ "assign", { { 0, Role::Entries } } },
+	};
+	const auto &table = p_base == ValueType::Array ? array : dictionary;
+	const auto found = table.find(p_method);
+	return found == table.end() ? std::vector<std::pair<uint32_t, Role>>() : found->second;
+}
+
 } // namespace
 
 std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, const String &p_path, String &r_error, const std::shared_ptr<const ClassImage> &p_base) {
@@ -221,6 +258,7 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 		}
 		image->replaced.push_back(replaced);
 		image->needs_element.push_back(call.base == ValueType::Array && (call.method == "front" || call.method == "back" || call.method == "min" || call.method == "max"));
+		image->element_args.push_back(call.checks_elements ? element_arguments(call.base, call.method) : std::vector<std::pair<uint32_t, ElementRole>>());
 	}
 	for (const bytecode::ClassRef &ref : module.classes) {
 		image->classes.push_back(to_godot(ref.name));

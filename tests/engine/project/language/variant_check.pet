@@ -1,0 +1,121 @@
+# Variant (spec §3.13), untyped containers (§3.8) and match over a Variant
+# (§5.6), checked by language_test.gd.
+class_name VariantCheck
+extends RefCounted
+
+struct Hit:
+	var damage: int
+
+pub var kept: Variant
+
+
+pub func echo(v: Variant) -> Variant:
+	return v
+
+
+# What a Variant holds, as ==, is and as tell it.
+pub func describe(v: Variant) -> String:
+	var text := ""
+	if v == None:
+		text += "none "
+	if v is int:
+		text += "int "
+	if v is Node:
+		text += "node "
+	if (v as Node) == None:
+		text += "no-node "
+	return text.strip_edges()
+
+
+# Read as the type it is narrowed to, and written back as a Variant.
+pub func narrowed(v: Variant) -> int:
+	if v is int:
+		v += 1
+	if v is int:
+		return v * 10
+	if v is String:
+		return v.length()
+	return -1
+
+
+pub func node_name(v: Variant) -> String:
+	if v is Node:
+		return v.name
+	return ""
+
+
+pub func to_int(v: Variant) -> int:
+	return int(v)
+
+
+pub func same(a: Variant, b: int) -> bool:
+	return a == b
+
+
+pub func matched(v: Variant) -> int:
+	match v:
+		1:
+			return 1
+		"a":
+			return 2
+		2.5:
+			return 3
+		_:
+			return 0
+
+
+pub func append_through(any: Array, value: Variant) -> void:
+	any.append(value)
+
+
+pub func has_through(any: Array, value: Variant) -> bool:
+	return any.has(value)
+
+
+pub func set_through(any: Dictionary, key: Variant, value: Variant) -> void:
+	any[key] = value
+
+
+# A typed array goes where an untyped one is expected, as the same array.
+pub func grow_typed() -> int:
+	var ids: Array[int] = [1, 2]
+	append_through(ids, 3)
+	return ids.size()
+
+
+pub func is_ints(a: Array) -> bool:
+	if a is Array[int]:
+		a.append(4)
+		return true
+	return false
+
+
+pub func assign_from(a: Array) -> Array[int]:
+	var ids: Array[int] = []
+	ids.assign(a)
+	return ids
+
+
+pub func pop_kind(a: Array) -> String:
+	var last = a.pop_back()
+	return "empty" if last == None else "some"
+
+
+pub func get_kind(d: Dictionary, key: String) -> String:
+	var found = d.get(key)
+	return "missing" if found == None else "found"
+
+
+pub func hit_as_variant() -> Variant:
+	var v: Variant = Hit(damage = 3)
+	return v
+
+
+pub func literal() -> Variant:
+	return [1, "a"]
+
+
+pub func array_of(v: Variant) -> int:
+	var a := Array(v)
+	a.append(9)
+	return a.size()

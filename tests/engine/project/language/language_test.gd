@@ -566,6 +566,39 @@ func _ready() -> void:
 	load("res://language/static_order.pet")
 	_check_errors(["static_order.pet:8: static_order.pet.b is used before its initializer runs: static variables are initialized in declaration order."], "a static variable used before its initializer runs is a program error")
 
+	# Variant (spec §3.13), untyped containers (§3.8).
+	var variants := VariantCheck.new()
+	var freed_node := Node.new()
+	freed_node.free()
+	var held_node := Node.new()
+	held_node.name = "held_node"
+	_check([variants.describe(null), variants.describe(5), variants.describe(held_node), variants.describe(freed_node)] == ["none no-node", "int no-node", "node", "none no-node"], "== None, is and as tell what a Variant holds, a freed object as None (spec §3.13)")
+	_check(variants.narrowed(4) == 50 and variants.narrowed("abc") == 3 and variants.narrowed(null) == -1 and variants.node_name(held_node) == "held_node", "is narrows a Variant, read as its type and written back")
+	held_node.free()
+	_check(variants.echo([1, "a"]) == [1, "a"] and variants.to_int("12") == 12 and variants.to_int(2.7) == 2, "a Variant passes through, and int(v) converts as GDScript's int() does")
+	variants.kept = Vector2(1, 2)
+	_check(variants.kept == Vector2(1, 2), "a member of type Variant holds any value")
+	_check(variants.same(3, 3) and variants.same(3.0, 3) and not variants.same(4, 3), "== of a Variant follows the engine's operator table (spec §5.2)")
+	_check([variants.matched(1), variants.matched(1.0), variants.matched("a"), variants.matched(&"a"), variants.matched(2.5), variants.matched([1])] == [1, 0, 2, 2, 3, 0], "a match over a Variant compares the type first, String and StringName alike (spec §5.6)")
+	variants.to_int(Vector2())
+	variants.same("3", 3)
+	_check_errors(["variant_check.pet:48: int() cannot convert Vector2.", "variant_check.pet:52: Cannot compare String with int."], "a conversion the engine cannot make, and a comparison not in its table, are program errors")
+	var typed_ints: Array[int] = [1, 2]
+	_check(variants.grow_typed() == 3 and variants.is_ints(typed_ints) and typed_ints == [1, 2, 4] and not variants.is_ints([1, 2]) and variants.has_through(typed_ints, 2), "a typed array goes where an untyped one is expected, and is narrows it back (spec §3.8)")
+	variants.append_through(typed_ints, "x")
+	variants.has_through(typed_ints, 1.5)
+	var variant_scores: Dictionary[String, int] = {}
+	variants.set_through(variant_scores, "a", "b")
+	_check_errors(["variant_check.pet:68: Array[int] holds int, not String.", "variant_check.pet:72: Array[int] holds int, not float.", "variant_check.pet:76: Dictionary[String, int] holds int, not String."], "through an untyped view, a value that does not fit is a program error")
+	_check(typed_ints == [1, 2, 4] and variant_scores.is_empty(), "the writes that did not fit left the containers as they were")
+	var assigned: Array[int] = variants.assign_from([1, 2])
+	_check(assigned == [1, 2] and assigned.is_typed(), "assign() copies the elements of an untyped array into a typed one")
+	variants.assign_from([1, 1.5])
+	_check_errors(["variant_check.pet:95: Array[int] holds int, not float, which the Array given has at index 1."], "assign() of an element that does not fit is a program error")
+	_check(variants.pop_kind([]) == "empty" and variants.pop_kind([null]) == "some" and variants.get_kind({}, "hp") == "missing" and variants.get_kind({"hp": null}, "hp") == "found", "Variant? tells an empty array and a missing key from null (spec §3.4)")
+	var shared := [1]
+	_check(variants.hit_as_variant() == {"damage": 3} and not variants.literal().is_typed() and variants.array_of(shared) == 2 and shared.size() == 2, "a struct is encoded in a Variant, a literal there is untyped, and Array(v) is the same array")
+
 	# Annotations describe a class to the engine as GDScript's do (spec §2.3).
 	var annotated := AnnotationCheck.new()
 	var reference := AnnotationReference.new()

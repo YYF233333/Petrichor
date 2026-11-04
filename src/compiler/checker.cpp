@@ -914,8 +914,14 @@ class Checker : public ClassRelation {
 			error(p_ref.range, "void is only valid as a return type.");
 			return Type::of(TypeKind::Error);
 		}
-		if (p_ref.name == "Variant" || p_ref.name == "Nil") {
-			error(p_ref.range, "The type " + p_ref.name + " is not supported yet.");
+		if (p_ref.name == "Variant") {
+			refer(p_ref.name_token, engine_id(p_ref.name));
+			return Type::of(TypeKind::Variant);
+		}
+		// The engine's name for the type of null, which is no type, as in
+		// GDScript (modules/gdscript/gdscript_parser.cpp:48-65; ed1daf0).
+		if (p_ref.name == "Nil") {
+			error(p_ref.range, "Unknown type \"Nil\".");
 			return Type::of(TypeKind::Error);
 		}
 		if (builtin::find_class(p_ref.name)) {
@@ -2245,6 +2251,9 @@ class Checker : public ClassRelation {
 		if (base_type.is_optional()) {
 			return fail(r_expr, "The value may be None (" + base_type.to_string() + "); check it before reading \"" + r_expr.text + "\".");
 		}
+		if (base_type.kind == TypeKind::Variant) {
+			return fail(r_expr, "Cannot read \"" + r_expr.text + "\" of a Variant." + variant_hint());
+		}
 		if (base_type.kind == TypeKind::Struct) {
 			const StructDecl *decl = struct_decl(base_type);
 			if (!decl) {
@@ -2683,6 +2692,9 @@ class Checker : public ClassRelation {
 		if (operand.is_error()) {
 			return set(r_expr, operand);
 		}
+		if (operand.kind == TypeKind::Variant) {
+			return fail(r_expr, std::string("Cannot use ") + token_name(r_expr.op) + " on a Variant." + variant_hint());
+		}
 		if (r_expr.op == TokenKind::Minus) {
 			if (operand.is_numeric()) {
 				return set(r_expr, operand);
@@ -2751,6 +2763,17 @@ class Checker : public ClassRelation {
 				return p_left;
 			}
 			error(p_at, std::string(token_name(p_op)) + " requires bool operands, found " + p_left.to_string() + " and " + p_right.to_string() + ".");
+			return Type::of(TypeKind::Error);
+		}
+		// Only == and != take a Variant, by the engine's operator table when
+		// the program runs (spec §3.13, §5.2).
+		if (p_left.kind == TypeKind::Variant || p_right.kind == TypeKind::Variant) {
+			const Type &other = p_left.kind == TypeKind::Variant ? p_right : p_left;
+			const bool compares = p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual;
+			if (compares && assignable(other, Type::of(TypeKind::Variant))) {
+				return Type::of(TypeKind::Bool);
+			}
+			error(p_at, compares ? "Cannot compare a Variant with " + other.to_string() + "." : std::string("Cannot use ") + token_name(p_op) + " on a Variant." + variant_hint());
 			return Type::of(TypeKind::Error);
 		}
 		if (p_left.kind == TypeKind::Enum || p_right.kind == TypeKind::Enum) {
@@ -2899,6 +2922,10 @@ class Checker : public ClassRelation {
 			check_value(*r_expr.left);
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
+		if (container.kind == TypeKind::Variant) {
+			check_value(*r_expr.left);
+			return fail(r_expr, "Cannot look for a value in a Variant." + variant_hint());
+		}
 		if (container.kind == TypeKind::Object) {
 			const Type name = check_value(*r_expr.left);
 			if (container.nullable) {
@@ -2941,6 +2968,8 @@ class Checker : public ClassRelation {
 		r_expr.owner = base;
 		r_expr.text = method->name;
 		r_expr.param_types = { element };
+		// Through an untyped view, checked as the program runs (spec §3.8).
+		r_expr.checks_elements = (base == "Array" || base == "Dictionary") && container.args.empty();
 		return set(r_expr, Type::of(TypeKind::Bool));
 	}
 
@@ -2950,6 +2979,17 @@ class Checker : public ClassRelation {
 		const Type tested = resolve(r_expr.cast_type, false);
 		if (value.is_error() || tested.is_error()) {
 			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		// What a Variant holds, or of an untyped container, whether it is typed
+		// so (spec §3.8, §3.13).
+		const bool untyped = value.kind == TypeKind::Builtin && value.args.empty() && is_typed_container(tested) && tested.name == value.name;
+		if (value.kind == TypeKind::Variant || untyped) {
+			const bool object = tested.kind == TypeKind::Object && !tested.nullable;
+			if (!object && !testable(tested)) {
+				return fail(r_expr, "is tests classes and built-in types, not " + tested.to_string() + ".");
+			}
+			r_expr.tested = tested;
+			return set(r_expr, Type::of(TypeKind::Bool));
 		}
 		if (tested.kind != TypeKind::Object || tested.nullable) {
 			return fail(r_expr, "is tests classes, not " + tested.to_string() + ".");
@@ -2962,6 +3002,18 @@ class Checker : public ClassRelation {
 		}
 		r_expr.tested = tested;
 		return set(r_expr, Type::of(TypeKind::Bool));
+	}
+
+	// A built-in type whose values a Variant tells by their engine type, a
+	// container by the types the engine keeps for it (spec §3.8).
+	static bool testable(const Type &p_type) {
+		if (p_type.is_primitive()) {
+			return true;
+		}
+		if (p_type.kind != TypeKind::Builtin || is_boxed(p_type)) {
+			return false;
+		}
+		return std::none_of(p_type.args.begin(), p_type.args.end(), [](const Type &p_arg) { return p_arg.is_interface || is_typed_container(p_arg); });
 	}
 
 	/* Narrowing (spec §5.4) */
@@ -3344,6 +3396,14 @@ class Checker : public ClassRelation {
 		return set(r_expr, result);
 	}
 
+	// `T(v)`: the engine constructs a T from what the Variant holds, as
+	// GDScript's conversion does (spec §3.13).
+	Type construct_from_variant(Expr &r_expr, const Type &p_type) {
+		r_expr.target = Target::ConstructFromVariant;
+		r_expr.param_types = { Type::of(TypeKind::Variant) };
+		return set(r_expr, p_type);
+	}
+
 	Type check_constructor(Expr &r_expr, const builtin::Class &p_type) {
 		refer(r_expr.name_token, engine_id(p_type.name));
 		std::vector<Type> args;
@@ -3356,6 +3416,9 @@ class Checker : public ClassRelation {
 			}
 		}
 		const std::string name = p_type.name;
+		if (args.size() == 1 && args[0].kind == TypeKind::Variant) {
+			return construct_from_variant(r_expr, api_type(name, false));
+		}
 		if (args.size() == 1 && args[0].name == name && is_typed_container(args[0]) && is_boxed(args[0])) {
 			// An untyped copy with the elements encoded (spec §3.8, §10.1).
 			r_expr.param_types.push_back(args[0]);
@@ -3409,6 +3472,12 @@ class Checker : public ClassRelation {
 		return set(r_expr, api_type(p_type.name, false));
 	}
 
+	// A method that fills a container from another of its kind.
+	static bool fills(const std::string &p_method, const Type &p_container) {
+		const bool array = p_container.name == "Array";
+		return array ? p_method == "append_array" || p_method == "assign" : p_method == "merge" || p_method == "merged" || p_method == "assign";
+	}
+
 	// The engine binds Array's methods with Variant; for Array[T], the values
 	// are elements of type T (spec §3.8). pop_front() and pop_back() give T?,
 	// since the engine returns null on an empty array
@@ -3422,7 +3491,7 @@ class Checker : public ClassRelation {
 		for (Type &param : r_params) {
 			if (param.kind == TypeKind::Variant) {
 				param = element;
-			} else if (param == Type::builtin("Array") && (p_method == "append_array" || p_method == "assign")) {
+			} else if (param == Type::builtin("Array") && fills(p_method, p_array)) {
 				param = p_array;
 			}
 		}
@@ -3543,8 +3612,9 @@ class Checker : public ClassRelation {
 			return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + base_name + " is not static; call it on a value.");
 		}
 		const bool typed_dictionary = base_name == "Dictionary" && !p_base.args.empty();
-		// get(k) of Dictionary[K, V] gives V?, None for a missing key (spec §3.8).
-		const bool get_or_none = typed_dictionary && r_expr.text == "get" && r_expr.args.size() == 1;
+		// get(k) of Dictionary[K, V] gives V?, None for a missing key, and of an
+		// untyped one Variant? (spec §3.8).
+		const bool get_or_none = base_name == "Dictionary" && r_expr.text == "get" && r_expr.args.size() == 1;
 		int required = 0;
 		std::optional<std::vector<Type>> api = api_params(r_expr, method->arguments, method->argument_count, required);
 		if (!api) {
@@ -3580,11 +3650,24 @@ class Checker : public ClassRelation {
 			}
 			element_typed(r_expr.text, p_base, params, result);
 		}
+		// pop_front() and pop_back() of an untyped Array give Variant?, which
+		// tells an empty array from a null element (spec §3.4, §3.8).
+		if (base_name == "Array" && p_base.args.empty() && (r_expr.text == "pop_front" || r_expr.text == "pop_back")) {
+			result = optional_of(result);
+		}
 		if (typed_dictionary) {
 			entry_typed(*method, p_base, params, result);
-			if (get_or_none) {
-				result = optional_of(p_base.args[1]);
-			}
+		}
+		if (get_or_none) {
+			result = optional_of(typed_dictionary ? p_base.args[1] : Type::of(TypeKind::Variant));
+		}
+		// Filled from an untyped container, whose elements are checked as the
+		// program runs (spec §3.8); a container that keeps boxes only from one of
+		// its type, and a literal is of the container's type.
+		const bool literal = !r_expr.args.empty() && (r_expr.args[0]->kind == ExprKind::ArrayLiteral || r_expr.args[0]->kind == ExprKind::DictionaryLiteral);
+		const bool filled = is_typed_container(p_base) && !is_boxed(p_base) && fills(r_expr.text, p_base) && !params.empty() && !literal;
+		if (filled) {
+			params[0] = Type::builtin(base_name);
 		}
 		if (!check_container_method(r_expr, p_base)) {
 			return set(r_expr, Type::of(TypeKind::Error));
@@ -3604,6 +3687,14 @@ class Checker : public ClassRelation {
 			}
 		}
 		check_arguments(r_expr, params, int(params.size()), method->is_vararg);
+		r_expr.checks_elements = (base_name == "Array" || base_name == "Dictionary") && p_base.args.empty();
+		if (filled && !r_expr.args.empty()) {
+			const Type &given = r_expr.args[0]->type;
+			if (is_typed_container(given) && given != p_base) {
+				error(r_expr.args[0]->range, "Cannot pass a value of type " + given.to_string() + " as " + p_base.to_string() + ".");
+			}
+			r_expr.checks_elements = !is_typed_container(given);
+		}
 		r_expr.is_vararg = method->is_vararg;
 		r_expr.target = Target::BuiltinMethod;
 		r_expr.owner = base_name;
@@ -3820,7 +3911,7 @@ class Checker : public ClassRelation {
 	}
 
 	// `a[i]`, or `d[k]` (spec §3.8); `p_written` when it is only assigned to.
-	Type check_subscript(Expr &r_expr, bool p_written = false) {
+	Type check_subscript(Expr &r_expr) {
 		const Type base = check_value(*r_expr.base);
 		const std::optional<std::pair<Type, Type>> entries = base.is_error() ? std::nullopt : entries_of(base);
 		const Type index = check_value(*r_expr.right, entries ? entries->first : Type::of(TypeKind::Error));
@@ -3830,14 +3921,14 @@ class Checker : public ClassRelation {
 		if (base.is_optional()) {
 			return fail(r_expr, "The value may be None (" + base.to_string() + "); check it before indexing it.");
 		}
+		if (base.kind == TypeKind::Variant) {
+			return fail(r_expr, "Cannot index a Variant." + variant_hint());
+		}
 		if (entries) {
 			if (!assignable(index, entries->first)) {
 				return fail(*r_expr.right, "The keys of " + base.to_string() + " are " + entries->first.to_string() + ", not " + index.to_string() + ".");
 			}
 			r_expr.param_types = { entries->first };
-			if (!p_written && refuse_variant_elements(entries->second, r_expr)) {
-				return set(r_expr, Type::of(TypeKind::Error));
-			}
 			return set(r_expr, entries->second);
 		}
 		const std::optional<Type> element = element_of(base);
@@ -3847,25 +3938,14 @@ class Checker : public ClassRelation {
 		if (index.kind != TypeKind::Int) {
 			return fail(*r_expr.right, "An index must be int, found " + index.to_string() + ".");
 		}
-		if (!p_written && refuse_variant_elements(*element, r_expr)) {
-			return set(r_expr, Type::of(TypeKind::Error));
-		}
 		return set(r_expr, *element);
-	}
-
-	// Elements read from an untyped Array or Dictionary, which are Variant,
-	// are refused for now; true after reporting it at `p_at`.
-	bool refuse_variant_elements(const Type &p_element, const Expr &p_at) {
-		if (p_element.kind != TypeKind::Variant) {
-			return false;
-		}
-		error(p_at.range, "The elements of an untyped Array or Dictionary are Variant, which is not supported yet; declare it as Array[T] or Dictionary[K, V].");
-		return true;
 	}
 
 	// `[a, b]` takes its type from where it goes (spec §4.3).
 	Type check_array_literal(Expr &r_expr, const Type &p_expected) {
-		const Type expected = p_expected.kind == TypeKind::Option ? p_expected.args[0] : p_expected;
+		// Into a Variant, as in an untyped Array, it is an untyped Array.
+		const Type wanted = p_expected.kind == TypeKind::Option ? p_expected.args[0] : p_expected;
+		const Type expected = wanted.kind == TypeKind::Variant ? Type::builtin("Array") : wanted;
 		if (expected.kind != TypeKind::Builtin || expected.name != "Array") {
 			if (r_expr.args.empty()) {
 				return fail(r_expr, "An empty array needs a declared type, for example var a: Array[int] = [].");
@@ -3920,7 +4000,8 @@ class Checker : public ClassRelation {
 	// its keys and values. A key written as a name is a StringName, as in
 	// GDScript (modules/gdscript/gdscript_parser.cpp:3330-3336).
 	Type check_dictionary_literal(Expr &r_expr, const Type &p_expected) {
-		const Type expected = p_expected.kind == TypeKind::Option ? p_expected.args[0] : p_expected;
+		const Type wanted = p_expected.kind == TypeKind::Option ? p_expected.args[0] : p_expected;
+		const Type expected = wanted.kind == TypeKind::Variant ? Type::builtin("Dictionary") : wanted;
 		const std::optional<std::pair<Type, Type>> entries = entries_of(expected);
 		if (!entries && r_expr.args.empty()) {
 			return fail_call(r_expr, "An empty dictionary needs a declared type, for example var d: Dictionary[String, int] = {}.");
@@ -3969,6 +4050,13 @@ class Checker : public ClassRelation {
 		if (to.kind != TypeKind::Object) {
 			const std::string name = to.unwrapped().to_string();
 			return fail(r_expr, "as only converts objects; convert to " + name + " with " + name + "(x) or " + name + ".try_from(x).");
+		}
+		if (from.kind == TypeKind::Variant) {
+			// None also when it holds no object (spec §5.3).
+			r_expr.tested = to;
+			Type result = to;
+			result.nullable = true;
+			return set(r_expr, result);
 		}
 		if (from.kind != TypeKind::Object) {
 			return fail(r_expr, "as only converts objects, not " + from.to_string() + ".");
@@ -4332,6 +4420,12 @@ class Checker : public ClassRelation {
 			if (base_type.is_optional()) {
 				return check_option_method(r_expr, base_type);
 			}
+			if (base_type.kind == TypeKind::Variant) {
+				for (auto &arg : r_expr.args) {
+					check_value(*arg);
+				}
+				return fail_call(r_expr, "Cannot call \"" + name + "()\" on a Variant." + variant_hint() + " To call a method by name, convert it to Object and use call() (spec §10.4).");
+			}
 			if (base_type.kind == TypeKind::Function && (name == "bind" || name == "call" || name == "callv")) {
 				return name == "bind" ? check_bind(r_expr, base_type) : check_function_call(r_expr, base_type);
 			}
@@ -4436,6 +4530,9 @@ class Checker : public ClassRelation {
 					return fail_call(r_expr, name + "() takes one argument.");
 				}
 				const Type arg = check_value(*r_expr.args[0]);
+				if (arg.kind == TypeKind::Variant) {
+					return construct_from_variant(r_expr, Type::of(result));
+				}
 				if (!arg.is_error() && !arg.is_numeric()) {
 					return fail(*r_expr.args[0], name + "() of " + arg.to_string() + " is not supported yet.");
 				}
@@ -4458,6 +4555,14 @@ class Checker : public ClassRelation {
 			}
 			if (const builtin::Utility *utility = builtin::find_utility(r_expr.text)) {
 				return check_utility(r_expr, *utility);
+			}
+			if ((name == "bool" || name == "String") && r_expr.args.size() == 1) {
+				const Type arg = check_value(*r_expr.args[0]);
+				if (arg.kind == TypeKind::Variant) {
+					refer(r_expr.name_token, engine_id(name));
+					return construct_from_variant(r_expr, Type::of(name == "bool" ? TypeKind::Bool : TypeKind::String));
+				}
+				return arg.is_error() ? fail_call(r_expr) : fail_call(r_expr, "Function \"" + name + "()\" not found in the class or its base " + cls.extends + ".");
 			}
 			if (name != "bool" && name != "String") {
 				if (const builtin::Class *type = builtin::find_class(name)) {
@@ -4654,11 +4759,23 @@ class Checker : public ClassRelation {
 			error(r_expr.range, "This call returns void and has no value.");
 			return Type::of(TypeKind::Error);
 		}
-		if (type.kind == TypeKind::Unsupported || type.kind == TypeKind::Variant) {
+		if (type.kind == TypeKind::Unsupported) {
 			error(r_expr.range, "Values of type " + type.to_string() + " are not supported yet.");
 			return Type::of(TypeKind::Error);
 		}
 		return type;
+	}
+
+	// What a Variant needs before it is used as a value of a type (spec §3.13).
+	static std::string variant_hint(const Type &p_to = Type::of(TypeKind::Error)) {
+		if (p_to.kind == TypeKind::Object) {
+			return " Convert it first with v as " + p_to.name + ", or narrow it with if v is " + p_to.name + ": (spec §3.13).";
+		}
+		if (is_typed_container(p_to)) {
+			return " Narrow it first with if v is " + p_to.to_string() + ": (spec §3.13).";
+		}
+		const std::string name = p_to.kind == TypeKind::Builtin || p_to.is_primitive() ? p_to.to_string() : "T";
+		return " Convert it first with " + name + "(v), or narrow it with if v is " + name + ": (spec §3.13).";
 	}
 
 	// Whether the expression is a place that can be written: a local, a
@@ -4754,6 +4871,12 @@ class Checker : public ClassRelation {
 		if (p_to.kind == TypeKind::Variant && is_typed_container(p_from) && is_boxed(p_from)) {
 			message += " Its elements exist only in this language; convert it explicitly with " + p_from.name + "(x), a copy with the elements encoded (spec §3.8).";
 		}
+		if (p_from.kind == TypeKind::Variant) {
+			message += variant_hint(p_to.unwrapped());
+		}
+		if (is_typed_container(p_to) && p_from.kind == TypeKind::Builtin && p_from.args.empty() && p_from.name == p_to.name) {
+			message += " Its elements may be of any type; narrow it with if x is " + p_to.to_string() + ":, or copy them in with assign() (spec §3.8).";
+		}
 		error(p_value.range, message);
 	}
 
@@ -4767,7 +4890,7 @@ class Checker : public ClassRelation {
 			hint = " Compare explicitly, for example x != 0.";
 		} else if (type.kind == TypeKind::String) {
 			hint = " Compare explicitly, for example x != \"\".";
-		} else if (type.is_optional()) {
+		} else if (type.is_optional() || type.kind == TypeKind::Variant) {
 			hint = " Compare explicitly, for example x != None.";
 		}
 		error(r_condition.range, "A condition must be bool, found " + type.to_string() + "." + hint);
@@ -4926,13 +5049,11 @@ class Checker : public ClassRelation {
 		} else if (iterated.kind == TypeKind::Float || (iterated.kind == TypeKind::Builtin && (name == "Vector2" || name == "Vector2i" || name == "Vector3" || name == "Vector3i"))) {
 			error(r_stmt.value->range, "Cannot iterate over " + iterated.to_string() + "; iterate over range(...) instead.");
 		} else if (const std::optional<std::pair<Type, Type>> entries = entries_of(iterated)) {
-			if (!refuse_variant_elements(entries->first, *r_stmt.value)) {
-				element = entries->first;
-			}
+			element = entries->first;
 		} else if (const std::optional<Type> elements = element_of(iterated)) {
-			if (!refuse_variant_elements(*elements, *r_stmt.value)) {
-				element = *elements;
-			}
+			element = *elements;
+		} else if (iterated.kind == TypeKind::Variant) {
+			error(r_stmt.value->range, "Cannot iterate over a Variant." + variant_hint());
 		} else if (!iterated.is_error()) {
 			error(r_stmt.value->range, "Iterating over " + iterated.to_string() + " is not supported yet.");
 		}
@@ -5033,8 +5154,7 @@ class Checker : public ClassRelation {
 				if (target.kind == ExprKind::Name || target.kind == ExprKind::Member) {
 					target_type = check_expr(target);
 				} else if (target.kind == ExprKind::Subscript) {
-					// An element of an untyped container is written as a Variant.
-					target_type = check_subscript(target, !compound);
+					target_type = check_subscript(target);
 				} else {
 					check_expr(target);
 					error(target.range, "Cannot assign to this expression.");
@@ -5961,6 +6081,12 @@ class Checker : public ClassRelation {
 			}
 		}
 
+		// The engine reaches these through the script instance, which does not
+		// call them yet, as GDScript's does (modules/gdscript/gdscript.cpp:1590, 1677, 1714, 1739, 1857, 1879; ed1daf0).
+		static const std::unordered_set<std::string> by_instance = { "_get", "_set", "_get_property_list", "_validate_property", "_property_can_revert", "_property_get_revert" };
+		if (by_instance.count(r_function.name) && !r_function.is_static) {
+			error(r_function.name_token, "Overriding " + r_function.name + "() is not supported yet.");
+		}
 		if (r_function.is_override) {
 			if (r_function.params.size() != engine_method->params.size()) {
 				error(r_function.name_token, "\"" + r_function.name + "()\" overrides an engine method with " + std::to_string(engine_method->params.size()) + " parameter(s).");
@@ -5973,7 +6099,7 @@ class Checker : public ClassRelation {
 				engine_type = engine_method->params[i].type;
 				// The engine passes its own objects to virtual methods.
 				engine_type.nullable = false;
-				if (!engine_type.is_storable() || engine_type.kind == TypeKind::Variant) {
+				if (!engine_type.is_storable()) {
 					error(param.name_token, "Parameters of type " + engine_type.to_string() + " are not supported yet.");
 					engine_type = Type::of(TypeKind::Error);
 				}
@@ -6022,7 +6148,7 @@ class Checker : public ClassRelation {
 			}
 		} else if (r_function.is_override) {
 			r_function.return_type = engine_method->return_type;
-			if (r_function.return_type.kind != TypeKind::Void && (!r_function.return_type.is_storable() || r_function.return_type.kind == TypeKind::Variant)) {
+			if (r_function.return_type.kind != TypeKind::Void && !r_function.return_type.is_storable()) {
 				error(r_function.name_token, "Return values of type " + r_function.return_type.to_string() + " are not supported yet.");
 				r_function.return_type = Type::of(TypeKind::Error);
 			}

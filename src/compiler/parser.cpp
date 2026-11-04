@@ -922,8 +922,19 @@ class Parser {
 					if (match(TokenKind::When)) {
 						branch.guard = expression();
 					}
+					// A value on a line without a colon is a statement where a
+					// pattern should be, as a line cut short leaves a branch's body.
+					const bool statement_line = !failed && check(TokenKind::Newline) && branch.patterns.size() == 1 && branch.patterns[0].kind == PatternKind::Value && !branch.guard;
 					expect(TokenKind::Colon, "\":\"");
 					branch.body = block();
+					if (statement_line) {
+						auto stmt = std::make_unique<Stmt>();
+						stmt->kind = StmtKind::Expression;
+						stmt->range = branch.patterns[0].value->range;
+						stmt->value = std::move(branch.patterns[0].value);
+						branch.patterns.clear();
+						branch.body.insert(branch.body.begin(), std::move(stmt));
+					}
 				}
 				branch.range = span(first);
 				stmt->branches.push_back(std::move(branch));

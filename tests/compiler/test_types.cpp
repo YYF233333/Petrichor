@@ -162,7 +162,7 @@ TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec �
 	CHECK(has_error(in_function("var a: Array[int] = [1, 2.5]"), "Cannot put a value of type float in Array[int]"));
 	CHECK(has_error(in_function("var a = []"), "An empty array needs a declared type"));
 	CHECK(contains(type_of("a[\"x\"]", ints), "An index must be int, found String"));
-	CHECK(contains(type_of("u[0]", "var u: Array = []"), "untyped Array or Dictionary are Variant"));
+	CHECK(type_of("u[0]", "var u: Array = []") == "Variant");
 	CHECK(contains(type_of("v[0]", "var v := Vector3()"), "Vector3 cannot be indexed"));
 	// Spec §5.1: as the engine and GDScript type it, alike arrays add up typed.
 	CHECK(type_of("a + a", ints) == "Array[int]");
@@ -196,7 +196,7 @@ TEST_CASE("elements are assigned in place, packed arrays written back") {
 	CHECK(errors_of(in_function("var v: Array[Vector2] = [Vector2()]\nv[0].x = 1\nvar q := PackedVector3Array()\nq[0].y = 2")).empty());
 	CHECK(has_error(in_function(std::string(ints) + "\na[0] = \"x\""), "Cannot assign a value of type String as int"));
 	CHECK(has_error(in_function("PackedInt32Array()[0] = 2"), "Cannot assign to an element of a temporary value."));
-	CHECK(has_error(in_function("var u: Array = [1]\nu[0] += 1"), "untyped Array or Dictionary are Variant"));
+	CHECK(has_error(in_function("var u: Array = [1]\nu[0] += 1"), "Cannot use \"+\" on a Variant."));
 }
 
 TEST_CASE("Dictionary[K, V] is the engine's typed dictionary (spec §3.8)") {
@@ -221,7 +221,7 @@ TEST_CASE("Dictionary[K, V] is the engine's typed dictionary (spec §3.8)") {
 	CHECK(has_error(in_function("var d: Dictionary[String] = {}"), "Dictionary takes a key type and a value type."));
 	CHECK(type_of("d[\"a\"]", "var d: Dictionary[String, int?] = {\"a\": None}") == "int?");
 	CHECK(type_of("d[\"a\"].size()", "var d: Dictionary[String, Array[Node]] = {}") == "int");
-	CHECK(contains(type_of("u[\"a\"]", "var u: Dictionary = {}"), "untyped Array or Dictionary are Variant"));
+	CHECK(type_of("u[\"a\"]", "var u: Dictionary = {}") == "Variant");
 	CHECK(errors_of(in_function("var u: Dictionary = {\"b\": 2}\nu[\"c\"] = Vector2()")).empty());
 }
 
@@ -244,7 +244,7 @@ TEST_CASE("for over an array, and over a Dictionary's keys") {
 	CHECK(errors_of(in_function("var a: Array[Node3D] = []\nfor n: Node in a:\n\tn.queue_free()")).empty());
 	CHECK(has_error(in_function("var a: Array[Node] = []\nfor n: Node3D in a:\n\tpass"), "The elements are Node, which the loop variable of type Node3D cannot hold."));
 	CHECK(errors_of(in_function("for s in \"a,b\".split(\",\"):\n\tprint(s)")).empty());
-	CHECK(has_error(in_function("var u: Array = []\nfor x in u:\n\tpass"), "untyped Array or Dictionary are Variant"));
+	CHECK(has_error(in_function("var u: Array = []\nfor x in u:\n\tvar n: int = x"), "Cannot assign a value of type Variant as int."));
 }
 
 // Spec §10.2, §10.3: the engine's RequiredResult and RequiredParam metadata,

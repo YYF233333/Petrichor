@@ -85,6 +85,9 @@ struct Place {
 	enum class Kind {
 		Local, // A register: a local, or a field of a struct in one.
 		NarrowedLocal, // A local of type T? where it is known to hold a T (spec §5.4).
+		// A Variant known to hold a T, or an untyped container known to be typed
+		// so (spec §3.8, §5.4): read converted to `type`, written back as declared.
+		Retyped,
 		Member,
 		MemberField, // A field of a struct in a member that has no accessors, at `offset` in it.
 		Static, // A static variable (spec §4.8), `variable`, the `index`th of the class at `owner`.
@@ -690,7 +693,7 @@ class Lowerer {
 
 	uint32_t builtin_method(const bytecode::BuiltinMethodCall &p_call) {
 		return intern(module.builtin_methods, p_call, [](const auto &a, const auto &b) {
-			return a.base == b.base && a.method == b.method && a.hash == b.hash && a.is_vararg == b.is_vararg && a.is_static == b.is_static && a.params == b.params && a.result_type == b.result_type;
+			return a.base == b.base && a.method == b.method && a.hash == b.hash && a.is_vararg == b.is_vararg && a.is_static == b.is_static && a.checks_elements == b.checks_elements && a.params == b.params && a.result_type == b.result_type;
 		});
 	}
 
@@ -729,8 +732,10 @@ class Lowerer {
 		const ValueType from = reg_type(p_reg);
 		const ValueType to = value_type(p_to);
 		if (p_to.kind == TypeKind::Option && !is_option_reg(p_reg)) {
-			if (from == ValueType::Variant) {
-				return default_value(temp(p_to)); // The None literal.
+			// Only a Variant goes into Variant?; another T? takes a Variant only
+			// as the None literal.
+			if (from == ValueType::Variant && p_to.args[0].kind != TypeKind::Variant) {
+				return default_value(temp(p_to));
 			}
 			// T becomes Some(T) (spec §3.4).
 			const uint32_t inner = convert(p_reg, p_to.args[0]);
@@ -738,8 +743,11 @@ class Lowerer {
 			instr(Op::SOME, result, inner, NO_REG, 0, fn.regs[result].type);
 			return result;
 		}
-		if (from == to || to == ValueType::Variant || to == ValueType::Void) {
+		if (from == to || to == ValueType::Void) {
 			return p_reg;
+		}
+		if (to == ValueType::Variant) {
+			return as_variant(p_reg); // A struct encoded (spec §3.13, §10.1).
 		}
 		if (from == ValueType::Int && to == ValueType::Float) {
 			const uint32_t result = temp(ValueType::Float);
@@ -802,6 +810,10 @@ class Lowerer {
 
 	uint32_t argument(const Expr &p_arg, const Type &p_param, bool p_outward, bool p_takes_object) {
 		const uint32_t value = lower_expr(p_arg);
+		if (p_outward && p_param.kind == TypeKind::Variant) {
+			// The call makes the Variant from the slot and its type.
+			return outward(value, p_arg.type, p_takes_object);
+		}
 		return convert(p_outward ? outward(value, p_arg.type, p_takes_object) : value, p_param);
 	}
 
@@ -864,7 +876,7 @@ class Lowerer {
 	// A method of a built-in type by name, as the engine declares it.
 	// `p_result_type` is the slot's type, such as Array[K] for keys() of a
 	// Dictionary[K, V]; by default the return type.
-	uint32_t engine_builtin_method(ValueType p_base, const char *p_method, std::vector<ValueType> p_params, ValueType p_return, bool p_vararg = false, uint32_t p_result_type = NO_REG) {
+	uint32_t engine_builtin_method(ValueType p_base, const char *p_method, std::vector<ValueType> p_params, ValueType p_return, bool p_vararg = false, uint32_t p_result_type = NO_REG, bool p_checks_elements = false) {
 		const builtin::Class *type = builtin::find_class(bytecode::value_type_name(p_base));
 		const builtin::Method *method = type ? builtin::find_method(*type, p_method) : nullptr;
 		bytecode::BuiltinMethodCall call;
@@ -876,6 +888,7 @@ class Lowerer {
 		call.params = std::move(p_params);
 		call.return_type = p_return;
 		call.result_type = p_result_type == NO_REG ? type_index(p_return) : p_result_type;
+		call.checks_elements = p_checks_elements;
 		return builtin_method(call);
 	}
 
@@ -994,6 +1007,21 @@ class Lowerer {
 		return result;
 	}
 
+	// The value of a Variant known to hold a T (spec §5.4).
+	uint32_t from_variant(uint32_t p_variant, const Type &p_type) {
+		const uint32_t result = temp(p_type);
+		instr(Op::FROM_VARIANT, result, p_variant, NO_REG, 0, fn.regs[result].type);
+		return result;
+	}
+
+	// The object a Variant holds, as a T? to test or convert; None for any
+	// other value.
+	uint32_t variant_object(uint32_t p_variant, const Type &p_class) {
+		const uint32_t result = temp(optional_of(p_class));
+		instr(Op::VARIANT_OBJECT, result, p_variant);
+		return result;
+	}
+
 	uint32_t as_variant(uint32_t p_reg) {
 		if (reg_type(p_reg) == ValueType::Variant) {
 			return p_reg;
@@ -1016,7 +1044,7 @@ class Lowerer {
 		const Type &element = p_expr.param_types[0];
 		const uint32_t value = stored(*p_expr.left, element, element, p_expr.owner == "Dictionary");
 		const uint32_t container = lower_expr(*p_expr.right);
-		const uint32_t method = engine_builtin_method(reg_type(container), p_expr.text.c_str(), value_types(p_expr.engine_params), ValueType::Bool);
+		const uint32_t method = engine_builtin_method(reg_type(container), p_expr.text.c_str(), value_types(p_expr.engine_params), ValueType::Bool, false, NO_REG, p_expr.checks_elements);
 		return call_builtin(method, container, { value }, temp(ValueType::Bool));
 	}
 
@@ -1025,7 +1053,8 @@ class Lowerer {
 		const uint32_t dictionary = lower_expr(*p_call.base);
 		const auto [key_type, value_type] = *entries_of(p_call.base->type);
 		const uint32_t key = stored(*p_call.args[0], key_type, key_type, true);
-		const uint32_t has = call_builtin(engine_builtin_method(ValueType::Dictionary, "has", { ValueType::Variant }, ValueType::Bool), dictionary, { key }, temp(ValueType::Bool));
+		const bool untyped = p_call.base->type.args.empty();
+		const uint32_t has = call_builtin(engine_builtin_method(ValueType::Dictionary, "has", { ValueType::Variant }, ValueType::Bool, false, NO_REG, untyped), dictionary, { key }, temp(ValueType::Bool));
 		const uint32_t result = temp(p_call.type);
 		const uint32_t found = new_block();
 		const uint32_t missing = new_block();
@@ -1033,6 +1062,28 @@ class Lowerer {
 		branch(has, found, missing);
 		current = found;
 		move(result, convert(get_index(dictionary, key, value_type), p_call.type));
+		jump(end);
+		current = missing;
+		default_value(result);
+		jump(end);
+		current = end;
+		return result;
+	}
+
+	// pop_front() and pop_back() of an untyped Array: Variant?, None only for
+	// an empty one, since the engine gives null for an empty array and for a
+	// null element (spec §3.4, §3.8).
+	uint32_t pop_or_none(const Expr &p_call) {
+		const uint32_t array = lower_expr(*p_call.base);
+		const uint32_t empty = call_builtin(engine_builtin_method(ValueType::Array, "is_empty", {}, ValueType::Bool), array, {}, temp(ValueType::Bool));
+		const uint32_t result = temp(p_call.type);
+		const uint32_t found = new_block();
+		const uint32_t missing = new_block();
+		const uint32_t end = new_block();
+		branch(empty, missing, found);
+		current = found;
+		const uint32_t value = call_builtin(engine_builtin_method(ValueType::Array, p_call.text.c_str(), {}, ValueType::Variant), array, {}, temp(ValueType::Variant));
+		instr(Op::SOME, result, value, NO_REG, 0, fn.regs[result].type);
 		jump(end);
 		current = missing;
 		default_value(result);
@@ -1236,6 +1287,9 @@ class Lowerer {
 		if (p_call.target == Target::BuiltinMethod && p_call.text == "resize" && is_typed_array(p_call.base->type) && (is_boxed(p_call.base->type) || is_typed_container(p_call.base->type.args[0]))) {
 			return resize(p_call);
 		}
+		if (p_call.target == Target::BuiltinMethod && p_call.owner == "Array" && (p_call.text == "pop_front" || p_call.text == "pop_back") && p_call.base->type.args.empty()) {
+			return pop_or_none(p_call);
+		}
 		switch (p_call.target) {
 			case Target::Encode: {
 				const uint32_t value = lower_expr(*p_call.args[0]);
@@ -1254,6 +1308,12 @@ class Lowerer {
 			}
 			case Target::ConvertToFloat:
 				return convert(lower_expr(*p_call.args[0]), Type::of(TypeKind::Float));
+			case Target::ConstructFromVariant: {
+				const uint32_t value = lower_expr(*p_call.args[0]);
+				const uint32_t result = temp(p_call.type);
+				instr(Op::CONSTRUCT_FROM, result, value, NO_REG, 0, fn.regs[result].type);
+				return result;
+			}
 			case Target::EnumFromInt: {
 				// One of the values, or a program error; any int for an enum of the
 				// engine, which is open (spec §3.7).
@@ -1378,6 +1438,7 @@ class Lowerer {
 				method.is_vararg = p_call.is_vararg;
 				method.is_const = p_call.is_const;
 				method.is_static = p_call.is_static;
+				method.checks_elements = p_call.checks_elements;
 				method.params = value_types(p_call.engine_params);
 				method.return_type = value_type(p_call.engine_return);
 				method.result_type = type_index(p_call.type);
@@ -1624,6 +1685,12 @@ class Lowerer {
 				} else {
 					uint32_t left = lower_expr(*p_expr.left);
 					uint32_t right = lower_expr(*p_expr.right);
+					if (p_expr.left->type.kind == TypeKind::Variant || p_expr.right->type.kind == TypeKind::Variant) {
+						// By the engine's operator table (spec §5.2).
+						const uint32_t result = temp(ValueType::Bool);
+						instr(Op::VARIANT_EQUAL, result, as_variant(outward(left, p_expr.left->type, false)), as_variant(outward(right, p_expr.right->type, false)));
+						return p_expr.op == TokenKind::BangEqual ? negate(result) : result;
+					}
 					if (p_expr.left->type.kind == TypeKind::Option || p_expr.right->type.kind == TypeKind::Option) {
 						// The side with fewer levels of T? is wrapped (spec §5.2).
 						const Type &deeper = option_depth(p_expr.left->type) >= option_depth(p_expr.right->type) ? p_expr.left->type : p_expr.right->type;
@@ -1643,8 +1710,18 @@ class Lowerer {
 			case ExprKind::NoneLiteral:
 				return default_value(temp(p_expr.type));
 			case ExprKind::TypeTest: {
-				const uint32_t source = lower_expr(*p_expr.left);
+				uint32_t source = lower_expr(*p_expr.left);
 				const uint32_t result = temp(ValueType::Bool);
+				if (p_expr.left->type.kind != TypeKind::Object) {
+					// What a Variant holds, or how an untyped container is typed
+					// (spec §3.8, §3.13).
+					source = as_variant(source);
+					if (p_expr.tested.kind != TypeKind::Object) {
+						instr(Op::IS_TYPE, result, source, NO_REG, 0, type_index(p_expr.tested));
+						return p_expr.bool_value ? negate(result) : result;
+					}
+					source = variant_object(source, p_expr.tested);
+				}
 				instr(Op::IS_INSTANCE, result, source, NO_REG, class_index(p_expr.tested));
 				return p_expr.bool_value ? negate(result) : result;
 			}
@@ -1668,8 +1745,10 @@ class Lowerer {
 				return get_index(container, index_of(p_expr), p_expr.type);
 			}
 			case ExprKind::Cast: {
-				const uint32_t value = lower_expr(*p_expr.left);
-				if (!p_expr.type.nullable) {
+				uint32_t value = lower_expr(*p_expr.left);
+				if (p_expr.left->type.kind == TypeKind::Variant) {
+					value = variant_object(value, p_expr.tested); // None also for what is no object (spec §5.3).
+				} else if (!p_expr.type.nullable) {
 					return value; // Already a T.
 				}
 				const uint32_t result = temp(p_expr.type);
@@ -1782,6 +1861,9 @@ class Lowerer {
 			case Target::Local:
 				place.reg = reg_of(p_expr.index);
 				place.kind = is_option_reg(place.reg) && p_expr.type.kind != TypeKind::Option ? Place::Kind::NarrowedLocal : Place::Kind::Local;
+				if (place.kind == Place::Kind::Local && fn.regs[place.reg].type != type_index(p_expr.type) && (reg_type(place.reg) == ValueType::Variant || (!is_typed_container_reg(place.reg) && is_typed_container(p_expr.type)))) {
+					place.kind = Place::Kind::Retyped;
+				}
 				break;
 			case Target::Member:
 				place.kind = Place::Kind::Member;
@@ -1836,8 +1918,23 @@ class Lowerer {
 			case Place::Kind::Local:
 				return p_place.reg;
 			case Place::Kind::NarrowedLocal: {
+				const uint32_t element = module.types[fn.regs[p_place.reg].type].element;
+				if (module.types[element].kind == bytecode::TypeKind::Value && module.types[element].value == ValueType::Variant && p_place.type.kind != TypeKind::Variant) {
+					// A Variant? known to hold a T (spec §5.4).
+					const uint32_t variant = temp(ValueType::Variant);
+					instr(Op::UNWRAP, variant, p_place.reg, NO_REG, 0, fn.regs[variant].type);
+					return from_variant(variant, p_place.type);
+				}
 				const uint32_t result = temp(p_place.type);
 				instr(Op::UNWRAP, result, p_place.reg, NO_REG, 0, fn.regs[result].type);
+				return result;
+			}
+			case Place::Kind::Retyped: {
+				if (reg_type(p_place.reg) == ValueType::Variant) {
+					return from_variant(p_place.reg, p_place.type);
+				}
+				const uint32_t result = temp(p_place.type);
+				move(result, p_place.reg);
 				return result;
 			}
 			case Place::Kind::Member: {
@@ -1899,8 +1996,14 @@ class Lowerer {
 			case Place::Kind::Local:
 				move(p_place.reg, p_value);
 				return;
-			case Place::Kind::NarrowedLocal:
-				instr(Op::SOME, p_place.reg, p_value, NO_REG, 0, fn.regs[p_place.reg].type);
+			case Place::Kind::NarrowedLocal: {
+				const bytecode::TypeDesc &element = module.types[module.types[fn.regs[p_place.reg].type].element];
+				const bool variant = element.kind == bytecode::TypeKind::Value && element.value == ValueType::Variant;
+				instr(Op::SOME, p_place.reg, variant ? as_variant(p_value) : p_value, NO_REG, 0, fn.regs[p_place.reg].type);
+				return;
+			}
+			case Place::Kind::Retyped:
+				move(p_place.reg, reg_type(p_place.reg) == ValueType::Variant ? as_variant(p_value) : p_value);
 				return;
 			case Place::Kind::Member: {
 				const int setter = accessor(p_place.index, true);
@@ -1981,7 +2084,16 @@ class Lowerer {
 			return;
 		}
 		const uint32_t next_block = new_block();
-		branch(lower_expr(*p_pattern.value), p_matched, next_block);
+		const Expr &compare = *p_pattern.value;
+		if (compare.target != Target::NoneComparison && compare.left->type.kind == TypeKind::Variant) {
+			// Of the pattern's type first, as in GDScript (spec §5.6).
+			const uint32_t matches = temp(ValueType::Bool);
+			const uint32_t value = lower_expr(*compare.left);
+			instr(Op::MATCHES, matches, value, as_variant(lower_expr(*compare.right)));
+			branch(matches, p_matched, next_block);
+		} else {
+			branch(lower_expr(compare), p_matched, next_block);
+		}
 		current = next_block;
 	}
 

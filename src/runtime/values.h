@@ -236,6 +236,30 @@ void freeze(const godot::Variant &p_key);
 // Whether keys of the Dictionary may hold an Array or a Dictionary.
 bool keys_hold_containers(const godot::Dictionary &p_dictionary);
 
+// A value as diagnostics name it: by its type or class, "None", "a freed object".
+godot::String describe_value(const godot::Variant &p_value);
+
+// `v is T` of a built-in type: the Variant holds a value of exactly the type,
+// and a typed container one typed exactly so, as GDScript's `is` asks
+// (modules/gdscript/gdscript_vm.cpp:879-895; ed1daf0); any container is an
+// untyped container's (spec §3.8, §5.4).
+bool is_exactly(const TypeImage &p_type, const godot::Variant &p_value);
+
+// What an argument of a method of a container is to it, through an untyped
+// view (spec §3.8): a value that goes in or is looked up as an element, a key
+// or a value, or a container of them.
+enum class ElementRole : uint8_t {
+	Element,
+	Elements, // An Array of elements.
+	Key,
+	Keys, // An Array of keys.
+	Value,
+	Entries, // A Dictionary of keys and values.
+};
+// Why the value, in the role, does not fit the types the container has, as
+// it would be assigned there; empty when it fits.
+godot::String untyped_misfit(const godot::Variant &p_container, ElementRole p_role, const godot::Variant &p_value);
+
 // None: NIL, or an OBJECT Variant that has no object, as the engine makes from
 // a null pointer (core/variant/variant.cpp:2507-2511). A freed object is not
 // None (spec §3.3).

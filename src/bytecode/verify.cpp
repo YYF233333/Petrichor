@@ -129,7 +129,7 @@ class Verifier {
 			if (!type.task_result.empty() && (type.kind != TypeKind::Object || type.object.name != "CoroutineTask")) {
 				return fail("Task descriptor without a task handle");
 			}
-			if (type.kind == TypeKind::Option && !is_native(storage(type.element)) && !is_option(type.element) && !is_struct(type.element)) {
+			if (type.kind == TypeKind::Option && !is_native(storage(type.element)) && storage(type.element) != ValueType::Variant && !is_option(type.element) && !is_struct(type.element)) {
 				return fail("an option of no value type");
 			}
 			if (type.kind == TypeKind::Array && !kept(type.element)) {
@@ -785,6 +785,19 @@ class Verifier {
 				return slot(o[1], ValueType::Signal) && slot_or_none(o[2], ValueType::Object);
 			case Op::TO_VARIANT:
 				return (o[0] < module.types.size() && (is_option(o[0]) || is_struct(o[0]) || is_element(storage(o[0]))) || fail("no value type")) && slot(o[1], ValueType::Variant) && slot_like(o[2], o[0]);
+			case Op::FROM_VARIANT:
+				return (o[0] < module.types.size() && (is_option(o[0]) || is_struct(o[0]) || is_element(storage(o[0]))) || fail("no value type")) && slot_like(o[1], o[0]) && slot(o[2], ValueType::Variant);
+			case Op::IS_TYPE:
+			case Op::CONSTRUCT_FROM:
+				if (o[0] >= module.types.size() || is_option(o[0]) || is_struct(o[0]) || !is_native(storage(o[0]))) {
+					return fail("no built-in type");
+				}
+				return (p_op == Op::IS_TYPE ? slot(o[1], ValueType::Bool) : slot_like(o[1], o[0])) && slot(o[2], ValueType::Variant);
+			case Op::VARIANT_OBJECT:
+				return slot(o[0], ValueType::Object) && slot(o[1], ValueType::Variant);
+			case Op::VARIANT_EQUAL:
+			case Op::MATCHES:
+				return slot(o[0], ValueType::Bool) && same(o[1], o[2], ValueType::Variant);
 			case Op::BOX:
 				return (is_boxed(o[0]) || fail("a box of a type that is not boxed")) && slot(o[1], ValueType::Variant) && slot_like(o[2], o[0]) && (o[3] <= 1 || fail("BOX takes 0 or 1"));
 			case Op::ENCODE:

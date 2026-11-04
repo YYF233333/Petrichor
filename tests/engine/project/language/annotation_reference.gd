@@ -5,6 +5,7 @@ class_name AnnotationReference
 extends Node
 
 @export_file("*.json", "*.txt") var data_file: String
+@export var anything: Variant
 @export_file_path var any_file: String
 @export_dir var folder: String
 @export_global_file("*.png") var image_file: String

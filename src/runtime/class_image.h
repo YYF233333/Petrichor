@@ -126,6 +126,9 @@ public:
 	// front(), back(), min() and max() of an Array, a program error on an
 	// empty one (spec §3.8).
 	std::vector<bool> needs_element; // By built-in method index.
+	// A call through an untyped view (bytecode::BuiltinMethodCall::checks_elements):
+	// its arguments that are elements, keys or values, by index.
+	std::vector<std::vector<std::pair<uint32_t, ElementRole>>> element_args; // By built-in method index.
 	std::vector<godot::StringName> classes; // Engine classes, by class index.
 	std::vector<godot::String> class_scripts; // Classes of this language: their scripts.
 	std::vector<godot::String> class_interfaces; // Interfaces: "script::Name".
