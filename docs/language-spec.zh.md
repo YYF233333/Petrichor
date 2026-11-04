@@ -422,6 +422,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 覆盖时可见性不变：覆盖 `pub` 成员须写 `pub`，覆盖不带 `pub` 的成员不能加 `pub`。
 - 实现接口的成员必须是 `pub`。
 - `pub` 成员的签名中出现非 `pub` 的类型是编译错误。
+- `new(...)` 的可见性就是 `_init` 的可见性：`_init` 不带 `pub` 时，只有本文件和子类中的代码能以 `new(...)` 构造这个类，其他类经它提供的方法构造；没有 `_init` 的类在哪里都能 `new()`。子类没有自己的 `_init` 时，取继承链上最近的 `_init`（§6.1）。GDScript 没有可见性，`new` 在哪里都能用。
 - 不带 `pub` 的必须赋值成员（§6.2）只能由场景（导出时）、本文件或子类中的代码赋值；都没有时是编译错误，标在成员的声明处。
 - 引擎、GDScript 和 C# 按名字能访问哪些成员，见 §10.5。
 - 依据：[成员可见性调查](surveys/member-visibility.zh.md)中，名字可判定的成员约 25% 在其他文件中被访问。[第二次纸面迁移](surveys/paper-migration-2.zh.md)中，如果子类只能看到 `pub` 成员，102 处 `pub` 中有 29 处只是为了子类。
@@ -623,6 +624,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 成员的初始化式直接写字段，不经过 setter，实例成员和静态成员都是如此，与 GDScript 相同（`modules/gdscript/gdscript_compiler.cpp:2414-2430, 2603-2626`）。初始化式给出第一个值，setter 处理值的变化；初始化时没有观察者，后声明的成员也尚未初始化。
 - 派生状态在 `_ready` 或 `_static_init` 中计算。成员同时有初始化式和 setter 时，编译器提示初始化不经过 setter。
 - 没有初始化式的成员取默认值或必须赋值（§4.3）。
+- 各类的成员初始化式都运行之后，构造调用继承链上最近的一个 `_init`；基类的 `_init` 只在子类的 `_init` 调用 `super._init(...)` 时运行。各类的 `_init` 签名可以不同，不受覆盖规则（§4.6）约束。这些与 GDScript 相同（`modules/gdscript/gdscript.cpp:125-152, 176-194`，`modules/gdscript/gdscript_analyzer.cpp:1830-1875`）。
 
 ### 6.2 必须赋值的成员
 
@@ -639,7 +641,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   - 场景模型看不见的配置方式（例如遍历 `get_children()` 赋值），成员须写作 `T?`。
 - 运行时才确定路径的场景，只有就绪时的检查。
 - Resource 没有就绪阶段：`.tres` 中的赋值静态检查；代码中 `new()` 出来的，在读取时检查。
-- 不继承 Resource 的 RefCounted 类，照常使用带参数的 `_init`；GDScript 经 `new` 按位置传参（§10.1）。
+- 不继承 Node 和 Resource 的类，照常使用带参数的 `_init`；GDScript 经 `new` 按位置传参（§10.1）。引擎不经 `new` 构造时，例如经 `set_script` 附加脚本，不带实参调用 `_init`：`_init` 有必填参数时是程序错误，`_init` 不运行。GDScript 这时不创建脚本实例（`modules/gdscript/gdscript.cpp:192-203, 406-424`）。
 - autoload 比场景活得久，引用场景节点的成员只能写作 `T?`。需要非空时，把管理器作为场景中的节点，用必须赋值的导出成员引用其他节点。
 - 【已知限制】第一版没有“就绪后才赋值的非空成员”（如 Kotlin 的 `lateinit`）。依据：[语料计数](surveys/corpus-counts.zh.md)中，在 `_ready` 里把节点登记到 autoload 成员上的写法只有 6 处，其中 5 处在同一个项目（Ring，[第二次纸面迁移](surveys/paper-migration-2.zh.md)的素材之一）中。【后续】就绪后才赋值的非空成员。
 
@@ -909,7 +911,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 带载荷的 enum | 按字段名编码的 Dictionary，保留键 `"$variant"` 记录分支名（§3.7） |
 | async 方法的返回值 | 无类型的 Variant（§9.8） |
 
-- GDScript 通过 Script 的反射接口为其他语言的全局类定型（`modules/gdscript/gdscript_analyzer.cpp:789-804, 4278-4319, 6005-6014`），所以 GDScript 对本语言类的实例成员（属性、方法、信号）做与原生类相同的静态检查：已知成员的类型和实参受检查，未知的方法名与在原生类上一样只是不安全访问的警告（`gdscript_analyzer.cpp:3750-3757`）。`Player.new(...)` 同样受检查：Script 基类没有绑定 `new`，GDScript 是自己绑定的（`modules/gdscript/gdscript.cpp:1078`），所以本语言的 Script 类绑定 `new`，并把 `_init` 报告为返回该类的静态方法，GDScript 把 `new` 当作静态的 `_init` 检查（`gdscript_analyzer.cpp:5958-5961`）。实参按位置传入；按名字传入必须赋值的成员（§6.2）只在本语言中可用。这些已在运行的引擎上验证（[探针](../tests/engine/project/probes/probes.gd)）。其余的类级访问见 §11.3。
+- GDScript 通过 Script 的反射接口为其他语言的全局类定型（`modules/gdscript/gdscript_analyzer.cpp:789-804, 4278-4319, 6005-6014`），所以 GDScript 对本语言类的实例成员（属性、方法、信号）做与原生类相同的静态检查：已知成员的类型和实参受检查，未知的方法名与在原生类上一样只是不安全访问的警告（`gdscript_analyzer.cpp:3750-3757`）。`Player.new(...)` 同样受检查：Script 基类没有绑定 `new`，GDScript 是自己绑定的（`modules/gdscript/gdscript.cpp:1078`），所以本语言的 Script 类绑定 `new`，并把 `_init` 报告为返回该类的静态方法，GDScript 把 `new` 当作静态的 `_init` 检查（`gdscript_analyzer.cpp:5958-5961`）。`_init` 不带 `pub` 时（§4.2）不报告它，GDScript 便把这个类当作只有无参的构造（`gdscript_analyzer.cpp:6005-6031`），`new` 在运行时报错。实参按位置传入；按名字传入必须赋值的成员（§6.2）只在本语言中可用。这些已在运行的引擎上验证（[探针](../tests/engine/project/probes/probes.gd)）。其余的类级访问见 §11.3。
 - **入口检查**：值从引擎、GDScript 或 C# 进入本语言的位置（参数、`set` 写入成员、信号的实参、await 的结果、解码），按声明的类型检查，失败是程序错误。远程检查器的写入也经过入口检查（§7.5）。
 - Option 交给引擎时 None 编码为 NIL。所以只有 X 的值不会编码为 NIL 时，`X?` 才能隐式交给引擎；X 是 Option 或 Variant 时是编译错误，快速修复给出 `.flatten()` 或 `.unwrap_or(null)`。否则 Some(None) 经过引擎往返后会悄悄变成 None（§3.4）。
 
@@ -1143,7 +1145,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | Variant | `v.hp`、`v + 1`、`v[0]`、`for x in v` 报编译错误；`if v is Dictionary:` 之后 `v.get("hp", 0)` 合法；`v as Node` 为 `Node?`；v 为 NIL 时 `v == None` 为真、`v is int` 为假；v 中是已释放的对象时 `v == None` 为真、`v is Node` 为假、`v as Node` 为 None；v 为 5 时 `v as Node` 为 None；int 赋给 Variant 无需转换；d 为无类型 Dictionary 时 `d[k] = []` 合法，`var v: Variant = [1]` 是无类型的 Array |
 | 抽象类与剩余参数 | 构造抽象类报编译错误；具体子类缺少某个抽象方法的实现报编译错误；场景中的节点使用抽象类报编译错误；向 `...args: Array[int]` 传入 String 报编译错误；只写 `...args` 报编译错误；GDScript 调用 `...args: Array[int]` 时传入 String 是程序错误 |
 | 内部类 | 不写 `extends` 的 `class Shot:` 是 RefCounted，类体第一行写 `extends Area3D` 时是 Area3D；内部类中直接用外层类的常量、静态函数和静态变量，用外层的成员变量是编译错误，说明没有外层类的实例；基类的常量遮蔽外层同名的常量；在其他文件中使用不带 `pub` 的 `Outer.Inner` 是编译错误；经 autoload 的 `Constants.Match.MAX` 读到常量；其对象的 `get_script()` 是内部类的脚本，`resource_path` 为空；内部类中写 `class_name` 是编译错误；GDScript 读 `Outer.Inner` 得到脚本 |
-| 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；在子类以外的其他类中使用不带 `pub` 的 struct 报编译错误；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误，引用 `pub var hits: Array[Hit]` 同样报错；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
+| 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；在子类以外的其他类中使用不带 `pub` 的 struct 报编译错误；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；其他类以 `new(...)` 构造 `_init` 不带 `pub` 的类报编译错误，GDScript 这样构造时在运行时报错；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误，引用 `pub var hits: Array[Hit]` 同样报错；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
 | 成员 | `var speed = 5.0` 为 float；空容器成员要求标注；没有初始化式的 int 成员为 0，`T?` 成员为 None；所有字段都有默认值的 struct 成员取默认值，否则必须赋值 |
 | 静态成员 | `static var instance: Registry` 报编译错误，`Registry?` 合法；子类写入基类的静态变量后，经基类读到新值；经对象的 `r.count` 读到静态变量；`static var a := b` 在 b 之后声明时报编译错误；A 与 B 的静态初始化互相读取时是程序错误并列出依赖链；`_static_init` 在全部初始化式之后执行，内部类在外层类之后初始化；`@export static var` 报编译错误；只改 `_static_init` 的热重载不再运行它，静态变量保留原值；GDScript 经类读写 `pub` 静态变量 |
 | 常量 | `const DAY_MS = 24 * 60 * 60 * 1000` 在编译期求值；`const HALF = Vector3.ONE / 2.0` 在双精度构建中按 double 求值；`const N = 10 / 0` 报编译错误，标在 `/` 上；常量中的 `Color("red")` 报编译错误并给出 `Color.RED`；`const S = "%d" % 3` 报编译错误；`const SPEEDS = [1.0, 2.0]` 为 `Array[float]`，`SPEEDS.append(3.0)` 报编译错误；`@export_range(0, MAX)` 合法；`const K = 100 / roundi(sin(X))` 报编译错误；子类和静态函数中直接写常量名、经 `self.MAX` 访问都合法；GDScript 读取 `pub` 常量得到它的值 |
@@ -1155,7 +1157,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 收窄 | `!= None`、`is` 和提前返回之后局部变量收窄；条件表达式的分支和 `and` 右侧收窄；成员不收窄；`if x:`、`if not x:` 在 x 不是 bool 时报编译错误并按类型给出改法 |
 | match | enum 的 match 不穷尽报编译错误，对引擎的 `MouseButton` 的 match 没有 `_` 时即使列出所有值也报编译错误；在对本语言 enum 的穷尽 match 的每个分支中都返回的函数无需再返回；带 `when` 的分支不计入覆盖；未列出字段而没有 `..` 报编译错误；Option 的 `var x` 分支中 x 为 T；对 int 的 match 不要求穷尽；对 Variant 的 match 中 1.0 不匹配 `1`，`&"a"` 匹配 `"a"`，v 为 `"a"` 时经过模式 `1` 不是程序错误 |
 | 循环 | `for i in 5` 中 i 为 int；`for x in 2.5` 和遍历向量报编译错误；循环变量标注为子类报编译错误 |
-| 初始化 | 成员初始化式不调用 setter；`@onready` 与 `@export` 同用报编译错误；`_init` 中读取 `@onready` 成员报编译错误；静态初始化的环是程序错误并列出依赖链 |
+| 初始化 | 成员初始化式不调用 setter；`new(...)` 把实参交给继承链上最近的 `_init`，基类的 `_init` 只经 `super._init(...)` 运行；子类 `_init` 的签名与基类不同时不报错；`set_script` 附加 `_init` 有必填参数的脚本是程序错误；`@onready` 与 `@export` 同用报编译错误；`_init` 中读取 `@onready` 成员报编译错误；静态初始化的环是程序错误并列出依赖链 |
 | 必须赋值 | `BulletScene.instantiate(speed = 300.0)` 漏写 `target` 报编译错误；祖先在 `_ready` 中经 `$Child.target = v` 赋值时不报错；子节点在自己的 `_ready` 中读取该成员报编译错误；就绪前读取未赋值的成员是程序错误；`new()` 漏传必须赋值的成员不是编译错误，Node 在就绪时检查 |
 | 就绪前的 setter | 场景中保存的值使 setter 在访问 `@onready` 成员处挂起，就绪后继续；就绪前先写入 `"Hi"` 而挂起、再写入 None 而不挂起时，`"Hi"` 那次调用被取消；setter 调用以 `if not is_node_ready(): return` 开头的方法时不挂起；先变换再存储的 setter 就绪前读到变换后的值；节点就绪前被释放时挂起的调用被丢弃 |
 | 析构 | RefCounted 在 PREDELETE 中读写自己的字段、调用自己的方法正常；处理 PREDELETE 的分支中 `add_child(self)`、`self == x` 和 await 报编译错误，`self.x` 合法 |
@@ -1279,7 +1281,10 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | GDScript 的剩余参数只能是元素为 Variant 的 Array | `modules/gdscript/gdscript_analyzer.cpp:1803-1810` |
 | GDScript 从其他语言的方法信息中读取 `METHOD_FLAG_VARARG` | `modules/gdscript/gdscript_analyzer.cpp:6052-6055` |
 | GDScript 把 `new` 当作静态的 `_init` 检查；`new` 由 GDScript 自己绑定，Script 基类没有 | `modules/gdscript/gdscript_analyzer.cpp:5958-5961`；`modules/gdscript/gdscript.cpp:1078` |
-| GDScript 的 `new` 构造原生对象后把实参交给 `_init` | `modules/gdscript/gdscript.cpp:210-254` |
+| GDScript 的 `new` 构造原生对象，运行各类的成员初始化式，再把实参交给继承链上最近的 `_init` | `modules/gdscript/gdscript.cpp:125-152, 176-194, 210-254` |
+| GDScript 不按覆盖规则检查 `_init` 的签名 | `modules/gdscript/gdscript_analyzer.cpp:1830-1875` |
+| 引擎附加 GDScript 脚本时不带实参调用 `_init`，调用失败则不创建脚本实例 | `modules/gdscript/gdscript.cpp:192-203, 406-424` |
+| GDScript 把没有报告 `_init` 的其他语言的脚本当作只有无参的构造 | `modules/gdscript/gdscript_analyzer.cpp:6005-6031` |
 | GDScript 的脚本对象按名字调用静态函数，读取常量、静态变量和静态函数 | `modules/gdscript/gdscript.cpp:928-940, 957-997` |
 | GDScript 实例从自己的脚本往上按名字查找方法，包括静态函数 | `modules/gdscript/gdscript.cpp:1948-1966` |
 | 在实例上调用静态方法，GDScript 默认只给警告 | `modules/gdscript/gdscript_analyzer.cpp:3699-3703`；`modules/gdscript/gdscript_warning.h:131` |
@@ -1426,3 +1431,4 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 进入 Variant 的字面量也由元素定型 | 空字面量无从定型，`d[k] = []` 要写出类型；有元素时得到带类型的容器，之后经 Variant 写入其他类型的值是程序错误，GDScript 中则可以 | §3.13 |
 | 编译期检查跨类的静态初始化环 | 要知道其他文件的初始化读取什么；这样的环每次运行加载这些类时都会报出 | §4.8 |
 | 热重载时重新运行静态初始化，再按名字搬回旧值，与 GDScript 相同 | `_static_init` 的副作用（如登记）会再发生一次；只修改函数体时，正在运行的程序只换之后的调用（§12.4） | §4.8 |
+| `new(...)` 跟随类的可见性，不看 `_init` 是否 `pub`，与 GDScript 相同 | 与其他成员不一致：不带 `pub` 的 `_init` 改签名时，调用方不只在本文件和子类中；类也无法只经自己的方法构造 | §4.2 |
