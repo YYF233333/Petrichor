@@ -387,6 +387,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 一个类可以继承引擎类或本语言的类。
 - 【已知限制】跨语言继承两个方向都不支持：本语言的类不能继承 GDScript 类，GDScript 脚本也不能继承本语言的类（§11.2）。
 - 覆盖方法时签名的规则见 §4.6，可见性的规则见 §4.2。
+- 类中的裸名也指所继承的引擎类及其祖先的常量、enum 的值和 enum 名，与它们的属性、方法和信号一样，例如 `NOTIFICATION_PREDELETE`、`SIZE_EXPAND_FILL`，以及类型中的 `ProcessMode`；enum 的值的类型是引擎的 enum，bitfield 的值和其余常量是 int（§3.7）。这与 GDScript 相同（`modules/gdscript/gdscript_analyzer.cpp:837-839, 4333-4385`）。局部变量、本类和本语言基类的声明先于它们。本类声明与这样的常量同名的变量、常量、信号、匿名 enum 的值或内部类是编译错误，与 GDScript 相同（`gdscript_analyzer.cpp:255-276`）。内部类中，包含它的类也声明了这个名字时是编译错误，要写成 `Outer.X` 或引擎类的 `Area3D.X`：GDScript 在这里先找外层类（`gdscript_analyzer.cpp:4185-4275`），本语言则先找继承来的声明。依据：[实现覆盖调查](surveys/implementation-coverage.zh.md)中 4.9% 的文件以裸名使用引擎类的常量。
 - `@abstract` 与 GDScript 相同（`modules/gdscript/gdscript_analyzer.cpp:1533-1552, 3630-3643`，`modules/gdscript/gdscript_parser.cpp:4500-4524`）：
   - 抽象方法不写冒号、没有函数体；
   - 含抽象方法的类必须标 `@abstract`；
@@ -1148,7 +1149,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 可见性 | 不带 `pub` 的成员在其他类中不可见，在子类中可以读写和覆盖；在子类以外的其他类中使用不带 `pub` 的 struct 报编译错误；覆盖时改变可见性报编译错误；`pub` 函数的签名中出现非 `pub` 的类型报编译错误；其他类以 `new(...)` 构造 `_init` 不带 `pub` 的类报编译错误，GDScript 这样构造时在运行时报错；GDScript 引用不带 `pub` 的成员报 GDScript 编译错误，引用 `pub var hits: Array[Hit]` 同样报错；`call_deferred("reset")` 使 `reset` 可以被引擎按名字调用 |
 | 成员 | `var speed = 5.0` 为 float；空容器成员要求标注；没有初始化式的 int 成员为 0，`T?` 成员为 None；所有字段都有默认值的 struct 成员取默认值，否则必须赋值 |
 | 静态成员 | `static var instance: Registry` 报编译错误，`Registry?` 合法；子类写入基类的静态变量后，经基类读到新值；经对象的 `r.count` 读到静态变量；`static var a := b` 在 b 之后声明时报编译错误；A 与 B 的静态初始化互相读取时是程序错误并列出依赖链；`_static_init` 在全部初始化式之后执行，内部类在外层类之后初始化；`@export static var` 报编译错误；只改 `_static_init` 的热重载不再运行它，静态变量保留原值；GDScript 经类读写 `pub` 静态变量 |
-| 常量 | `const DAY_MS = 24 * 60 * 60 * 1000` 在编译期求值；`const HALF = Vector3.ONE / 2.0` 在双精度构建中按 double 求值；`const N = 10 / 0` 报编译错误，标在 `/` 上；常量中的 `Color("red")` 报编译错误并给出 `Color.RED`；`const S = "%d" % 3` 报编译错误；`const SPEEDS = [1.0, 2.0]` 为 `Array[float]`，`SPEEDS.append(3.0)` 报编译错误；`@export_range(0, MAX)` 合法；`const K = 100 / roundi(sin(X))` 报编译错误；子类和静态函数中直接写常量名、经 `self.MAX` 访问都合法；GDScript 读取 `pub` 常量得到它的值 |
+| 常量 | `const DAY_MS = 24 * 60 * 60 * 1000` 在编译期求值；`const HALF = Vector3.ONE / 2.0` 在双精度构建中按 double 求值；`const N = 10 / 0` 报编译错误，标在 `/` 上；常量中的 `Color("red")` 报编译错误并给出 `Color.RED`；`const S = "%d" % 3` 报编译错误；`const SPEEDS = [1.0, 2.0]` 为 `Array[float]`，`SPEEDS.append(3.0)` 报编译错误；`@export_range(0, MAX)` 合法；`const K = 100 / roundi(sin(X))` 报编译错误；子类和静态函数中直接写常量名、经 `self.MAX` 访问都合法；Node 的子类中裸写 `PROCESS_MODE_ALWAYS` 得到 `Node.ProcessMode` 的值，`var m: ProcessMode` 合法，声明 `const NOTIFICATION_READY = 1` 报编译错误；GDScript 读取 `pub` 常量得到它的值 |
 | 局部变量 | `func f(n): if c: var n = 1` 报编译错误，与外层块的局部变量同名的 `var` 和 `for` 循环变量也一样，在 lambda 的函数体中亦然；if 与 else 两个分支各自声明 `var x` 合法，与所在函数的局部变量同名的 lambda 参数也合法 |
 | 签名 | `func _process(delta):` 中 delta 为 float；覆盖时把返回类型写成子类型合法，写成父类型报编译错误；覆盖时多出带默认值的参数合法；非覆盖函数省略返回类型后返回值报编译错误；有期望类型的 lambda 参数不必标注；b 为 Base 类型、持有自己声明了静态 `label()` 的 Sub 时，`b.label()` 调用 Sub 的，`Base.label()` 调用 Base 的；在 Color 值上调用 `c.from_hsv(0.5, 1.0, 1.0)` 即 `Color.from_hsv()` |
 | 信号 | emit 实参不符和 connect 参数不符报编译错误；场景中的连接与信号不符时标在场景中；单参数信号的 await 结果有该参数类型；使用多参数信号的 await 结果报编译错误；await `Signal` 类型的变量得到 Variant，信号有两个参数时运行时为 Array |
@@ -1308,6 +1309,8 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | GDScript 中内部类名、`class_name` 的名字、enum 名和函数名之后不能接 `[` | `modules/gdscript/gdscript_parser.cpp:964, 1005-1010, 1602, 1805` |
 | GDScript 中不写 `extends` 的内部类继承 RefCounted，`extends` 可以写在类体第一行 | `modules/gdscript/gdscript_analyzer.cpp:425-429`；`modules/gdscript/gdscript_parser.cpp:974-980` |
 | GDScript 的内部类按裸名解析外层类的常量、enum 和内部类，不解析其静态函数和静态变量 | `modules/gdscript/gdscript_analyzer.cpp:4229, 4249, 4270-4271` |
+| GDScript 中的裸名先在本类、脚本基类和外层类中找，再在原生基类的属性、方法、信号、enum 和整数常量中找；类型中的裸名也可以是原生基类的 enum | `modules/gdscript/gdscript_analyzer.cpp:332-343, 837-839, 4185-4275, 4333-4385` |
+| GDScript 中类的变量、常量、信号、enum 和内部类与原生基类的信号、属性或整数常量同名是编译错误 | `modules/gdscript/gdscript_analyzer.cpp:255-276, 1050, 1110, 1121, 1151, 1216, 1232, 1250` |
 | GDScript 的内部类是单独的脚本，没有资源路径和全局名，列在外层类的常量中 | `modules/gdscript/gdscript.cpp:1082-1084`；`modules/gdscript/gdscript_parser.h:778-780`；`modules/gdscript/gdscript_compiler.cpp:3003` |
 | GDScript 的内部类中不能写 `class_name`、`@tool`、`@icon` 和 `@static_unload` | `modules/gdscript/gdscript_parser.cpp:146-149, 1215, 1859-1861` |
 | 抽象方法的声明不写冒号 | `modules/gdscript/gdscript_parser.cpp:1773-1774` |
