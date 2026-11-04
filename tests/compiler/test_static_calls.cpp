@@ -103,6 +103,41 @@ TEST_CASE("new() of a class of this language makes the engine object with the sc
 	CHECK(result.module.classes[made].name == "Node");
 	CHECK(result.module.classes[made].script == "res://spawner.pet");
 	CHECK(compile_in("class_name Link extends RefCounted\nfunc next() -> Link:\n\treturn Link.new()\n", FakeProject()).ok());
-	CHECK(contains(messages(compile_in("extends Node\nfunc f() -> void:\n\tadd_child(Spawner.new(3))\n", project)), "new() of Spawner takes no arguments: _init() with parameters is not supported yet."));
+	CHECK(contains(messages(compile_in("extends Node\nfunc f() -> void:\n\tadd_child(Spawner.new(3))\n", project)), "Function \"new()\" takes 0 argument(s), 1 given."));
 	CHECK(contains(messages(compile_in("extends Node\nfunc f() -> void:\n\tprint(Plain.new())\n", project)), "Plain cannot be instantiated: the engine cannot instantiate Object, which it extends."));
+}
+
+TEST_CASE("new(...) passes its arguments to the nearest _init(), whose visibility it has (spec §4.2, §6.1)") {
+	FakeProject project;
+	project.add_script("res://pair.pet", "class_name Pair extends RefCounted\npub var left := 0\npub var right := \"\"\npub func _init(a: int, b: String = \"b\"):\n\tleft = a\n\tright = b\n", "Pair");
+	project.add_script("res://triple.pet", "class_name Triple extends Pair\n", "Triple");
+	project.add_script("res://pool.pet", "class_name Pool extends RefCounted\nvar size := 0\nfunc _init(n: int):\n\tsize = n\npub static func make() -> Pool:\n\treturn Pool.new(8)\n", "Pool");
+	project.add_script("res://quiet.pet", "class_name Quiet extends RefCounted\nfunc _init():\n\tpass\n", "Quiet");
+	const compiler::CompileResult result = compile_in("extends Node\nfunc f() -> int:\n\tvar p := Pair.new(order(1), \"x\")\n\treturn p.left + Triple.new(2).left\nfunc order(n: int) -> int:\n\treturn n\n", project);
+	require_verified(result);
+	const bytecode::Function &f = function_named(result.module, "f");
+	// The arguments, the object, then its _init() with them.
+	const size_t made = find_instruction(f, Op::NEW_WITHOUT_INIT);
+	CHECK(find_instruction(f, Op::CALL) < made);
+	const size_t init = find_instruction(f, Op::CALL_METHOD);
+	CHECK(made < init);
+	CHECK(f.code[init + 3] == f.code[made + 2]);
+	const bytecode::MethodCall &call = result.module.method_calls[f.code[init + 1]];
+	CHECK(call.method == "_init");
+	CHECK(call.params.size() == 2);
+	CHECK(call.defaults == 1);
+
+	const auto errors = [&](const std::string &p_source) { return messages(compile_in(p_source, project)); };
+	CHECK(contains(errors("extends Node\nfunc f() -> void:\n\tprint(Pair.new())\n"), "Function \"new()\" takes 1 to 2 argument(s), 0 given."));
+	CHECK(contains(errors("extends Node\nfunc f() -> void:\n\tprint(Pair.new(\"x\"))\n"), "Cannot pass a value of type String as int"));
+	CHECK(contains(errors("extends Node\nfunc f() -> void:\n\tprint(Pool.new(1))\n"), "new() of Pool cannot be called here: its _init() is not pub (spec §4.2)."));
+	CHECK(contains(errors("extends Node\nfunc f() -> void:\n\tprint(Quiet.new())\n"), "new() of Quiet cannot be called here"));
+	CHECK(compile_in("extends Node\nfunc f() -> void:\n\tprint(Pool.make())\n", project).ok());
+	CHECK(compile_in("extends Pool\nfunc f() -> void:\n\tprint(Pool.new(1))\n", project).ok());
+	// Each class's _init() has its own signature and visibility; a base's runs through super.
+	const compiler::CompileResult named = compile_in("class_name Named extends Pair\nfunc _init(name: String):\n\tsuper._init(1, name)\nfunc again() -> Named:\n\treturn Named.new(\"n\")\n", project);
+	require_verified(named);
+	CHECK(contains(errors("extends Pair\nfunc _init():\n\tsuper._init(\"x\")\n"), "Cannot pass a value of type String as int"));
+	CHECK(contains(errors("extends Pair\nfunc _init(name):\n\tpass\n"), "Parameter \"name\" needs a type."));
+	CHECK(compile_in("class_name Counted extends Object\nfunc _init(n: int):\n\tpass\n", project).ok());
 }

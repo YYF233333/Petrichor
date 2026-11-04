@@ -819,7 +819,7 @@ class Lowerer {
 
 	std::vector<uint32_t> arguments(const Expr &p_call) {
 		// A function of this language reads its T? parameters itself.
-		const bool outward = p_call.target != Target::ScriptFunction && p_call.target != Target::ScriptMethod && p_call.target != Target::SuperMethod && p_call.target != Target::CallValue;
+		const bool outward = p_call.target != Target::ScriptFunction && p_call.target != Target::ScriptMethod && p_call.target != Target::SuperMethod && p_call.target != Target::CallValue && p_call.target != Target::NewObject;
 		// Callable.bind() and Signal.emit() take Variant, whatever the types here.
 		const bool as_variant = p_call.target == Target::BindArguments || p_call.target == Target::EmitSignal;
 		std::vector<uint32_t> args;
@@ -1092,6 +1092,27 @@ class Lowerer {
 		return result;
 	}
 
+	// `Class.new(...)` of a class whose _init() takes parameters: the
+	// arguments, the object with its initializers run, then its _init()
+	// (spec §6.1).
+	uint32_t new_with_arguments(const Expr &p_call) {
+		ir::Instr i;
+		i.args = arguments(p_call);
+		i.base = temp(p_call.type);
+		instr(Op::NEW_WITHOUT_INIT, i.base, NO_REG, NO_REG, class_index(p_call.type));
+		i.op = Op::CALL_METHOD;
+		bytecode::MethodCall method;
+		method.method = "_init";
+		for (const Type &param : p_call.engine_params) {
+			method.params.push_back(slot(std::string(), param));
+		}
+		method.defaults = uint32_t(p_call.index);
+		method.result = slot(std::string(), Type::of(TypeKind::Void));
+		i.imm = method_call(method);
+		add(i);
+		return i.base;
+	}
+
 	// The keys of a Dictionary[K, V], as an Array[K] (spec §5.7).
 	uint32_t keys_of(uint32_t p_dictionary, const Type &p_key) {
 		const uint32_t keys = temp(Type::array(p_key));
@@ -1325,6 +1346,9 @@ class Lowerer {
 				return result;
 			}
 			case Target::NewObject: {
+				if (!p_call.engine_params.empty()) {
+					return new_with_arguments(p_call);
+				}
 				const uint32_t result = temp(p_call.type);
 				instr(Op::NEW_OBJECT, result, NO_REG, NO_REG, class_index(p_call.type));
 				return result;

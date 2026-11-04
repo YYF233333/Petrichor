@@ -1,0 +1,7 @@
+class_name ConstructSkip extends ConstructCheck
+
+# An _init() that does not call its base's, which then does not run (spec §6.1).
+
+
+pub func _init():
+	right = "own"

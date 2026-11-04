@@ -7,5 +7,5 @@ var divisor := 0
 var broken: int = 1 / divisor
 pub var init_ran := false
 
-func _init():
+pub func _init():
 	init_ran = true

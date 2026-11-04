@@ -10,7 +10,7 @@ pub var frames := 0
 pub var from_init := 0
 
 # Runs after the member initializers.
-func _init():
+pub func _init():
 	from_init = frames + 10
 
 pub func add(a: int, b: int) -> int:

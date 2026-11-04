@@ -142,7 +142,8 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 		}
 		if (!function.name.empty() && function.name[0] != '@') {
 			const std::string expected = parent < 0 ? std::string() : signature_key(p_base->module, p_base->module.functions[parent]);
-			if (parent >= 0 && (function.is_static != p_base->module.functions[parent].is_static || function.is_pub != p_base->module.functions[parent].is_pub)) {
+			// Each class's _init() has its own visibility (spec §6.1).
+			if (parent >= 0 && function.name != "_init" && (function.is_static != p_base->module.functions[parent].is_static || function.is_pub != p_base->module.functions[parent].is_pub)) {
 				r_error = "Base method declaration changed. Rebuild the project.";
 				return nullptr;
 			}
@@ -158,7 +159,7 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 			resolve_function(origin.image, origin.index);
 		}
 		image->function_origins.push_back(origin);
-		if (function.name == "_init" && function.params.empty()) {
+		if (function.name == "_init") {
 			image->user_init = int(i);
 		}
 		if (function.name == "_notification" && function.params.size() == 1 && types[function.params[0].type].storage == ValueType::Int) {

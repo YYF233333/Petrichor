@@ -1,0 +1,17 @@
+class_name ConstructSub extends ConstructCheck
+
+# Its own _init(), which runs its base's through super (spec §6.1).
+
+pub var named := ""
+
+
+pub func _init(name: String):
+	super._init(7, name)
+	named = name
+
+
+pub func subclasses() -> Array[String]:
+	var own := ConstructSub.new("n")
+	var kept := ConstructKept.new(5, "k")
+	var skipped := ConstructSkip.new()
+	return ["%d %s %s %s" % [own.left, own.right, own.named, own.steps], "%d %s %s" % [kept.left, kept.right, kept.steps], "%d %s %s" % [skipped.left, skipped.right, skipped.steps]]

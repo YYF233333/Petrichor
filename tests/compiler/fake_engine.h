@@ -100,6 +100,7 @@ public:
 		const Type node = Type::object("Node", true);
 		const Type vector3 = Type::builtin("Vector3");
 		methods["Object"] = {
+			method("_init", {}, t(TypeKind::Void), true),
 			method("_to_string", {}, t(TypeKind::String), true),
 			method("_notification", { { "what", t(TypeKind::Int) } }, t(TypeKind::Void), true),
 			method("set_script", { { "script", t(TypeKind::Variant) } }, t(TypeKind::Void)),

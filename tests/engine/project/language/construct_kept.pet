@@ -1,0 +1,5 @@
+class_name ConstructKept extends ConstructCheck
+
+# No _init() of its own: new(...) takes its base's (spec §4.2, §6.1).
+
+pub var extra := 1

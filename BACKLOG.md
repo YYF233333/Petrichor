@@ -33,7 +33,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Property names as literals, as in `tween_property(self, "speed", ...)` and `set_deferred("speed", v)`: checked, and visible to the engine (spec §10.4, §10.5); only method names are.
 - The audit of the most frequently called engine APIs for null (spec §10.2); `binding_metadata.txt` has two entries.
 - Overriding Object's `_get`, `_set`, `_get_property_list`, `_validate_property`, `_property_can_revert` and `_property_get_revert`, which the engine reaches through the script instance and GDScript's instance calls (modules/gdscript/gdscript.cpp:1590, 1677, 1714, 1739, 1857, 1879; ed1daf0); now a compile error, since the runtime does not call them.
-- Non-constant default values, of parameters and of struct fields; `_init()` with parameters.
+- Non-constant default values, of parameters and of struct fields.
 - `==` between objects; a `Callable` of unknown signature converted to a function type and checked on every call (spec §3.11).
 - In debug builds, reporting where a freed instance was freed and where the instances still alive at exit were made (spec §3.3, §6.7, §12.5).
 

@@ -715,6 +715,11 @@ class Verifier {
 				return type_operand(o[0]) && (module.types[o[0]].kind == TypeKind::Enum || fail("CHECK_ENUM of no enum")) && slot(o[1], ValueType::Int);
 			case Op::NEW_OBJECT:
 				return index(o[0], module.classes.size(), "class") && (module.classes[o[0]].interface_name.empty() || fail("new() of an interface")) && slot(o[1], ValueType::Object);
+			case Op::NEW_WITHOUT_INIT:
+				// The next instruction, which a program error in the initializers
+				// skips.
+				return index(o[0], module.classes.size(), "class") && (!module.classes[o[0]].script.empty() || fail("_init() of an engine class")) && (module.classes[o[0]].interface_name.empty() || fail("new() of an interface")) && slot(o[1], ValueType::Object) &&
+						((function->code.size() >= at + 8 && Op(o[2]) == Op::CALL_METHOD && o[3] < module.method_calls.size() && module.method_calls[o[3]].method == "_init" && o[5] == o[1]) || fail("NEW_WITHOUT_INIT not followed by its _init()"));
 			case Op::GET_SCRIPT:
 				return index(o[0], module.classes.size(), "class") && (!module.classes[o[0]].script.empty() || fail("the script of an engine class")) && slot(o[1], ValueType::Object);
 			case Op::GET_OWNER:

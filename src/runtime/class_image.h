@@ -69,7 +69,7 @@ public:
 	std::vector<godot::StringName> function_names;
 	godot::HashMap<godot::StringName, int> function_lookup;
 	std::vector<SlotLayout> frames; // By function index.
-	int user_init = -1; // The class's own _init(), run after the member initializers.
+	int user_init = -1; // The nearest _init(), run after the member initializers (spec §6.1).
 	// _notification(what: int) and _to_string() -> String, which the engine
 	// reaches through the instance rather than by calling them; -1 when absent.
 	int notification_function = -1;

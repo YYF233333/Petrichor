@@ -4219,8 +4219,23 @@ class Checker : public ClassRelation {
 			if (!engine.can_instantiate(type.engine_class())) {
 				return fail_call(r_expr, class_name + " cannot be instantiated: the engine cannot instantiate " + type.engine_class() + ", which it extends.");
 			}
-			if (!r_expr.args.empty()) {
-				return fail_call(r_expr, "new() of " + class_name + " takes no arguments: _init() with parameters is not supported yet.");
+			// new(...) takes the arguments of the nearest _init() and has its
+			// visibility (spec §4.2, §6.1).
+			const ClassDecl *decl = script_decl(p_path);
+			if (!decl) {
+				return fail_call(r_expr, class_name + " has errors.");
+			}
+			const auto init = std::find_if(decl->all_functions.begin(), decl->all_functions.end(), [](const FuncDecl *p_function) { return p_function->name == "_init"; });
+			if (init != decl->all_functions.end()) {
+				const FuncDecl &callee = **init;
+				if (!callee.is_pub && !sees(declaring(*decl, callee, &ClassDecl::functions).path)) {
+					return fail_call(r_expr, "new() of " + class_name + " cannot be called here: its _init() is not pub (spec §4.2).");
+				}
+				check_arguments(r_expr, param_types(callee.params), required_params(callee), false);
+				r_expr.engine_params = param_types(callee.params);
+				r_expr.index = int(callee.params.size()) - required_params(callee);
+			} else {
+				check_arguments(r_expr, {}, 0, false);
 			}
 			refer(r_expr.name_token, script_id(p_path, "new"));
 			r_expr.target = Target::NewObject;
@@ -6021,9 +6036,6 @@ class Checker : public ClassRelation {
 		if (!override_assignable(r_fn.return_type, p_base.return_type)) {
 			error(r_fn.name_token, "The override widens its base return type (spec §4.6).");
 		}
-		if (r_fn.name == "_init" && (!r_fn.params.empty() || r_fn.is_async || r_fn.return_type.kind != TypeKind::Void)) {
-			error(r_fn.name_token, "_init() must be synchronous, return void and take no parameters for now.");
-		}
 	}
 
 	// Its declaration, with what it overrides; an inline accessor has no name
@@ -6062,12 +6074,15 @@ class Checker : public ClassRelation {
 
 	void check_signature(FuncDecl &r_function) {
 		check_abstract(r_function);
-		if (const FuncDecl *parent = base_function(r_function.name)) {
+		// Each class's _init() has its own signature (spec §6.1).
+		if (const FuncDecl *parent = r_function.name == "_init" ? nullptr : base_function(r_function.name)) {
 			declare_function(r_function, script_id(declaring(*cls.base, *parent, &ClassDecl::functions).path, parent->name));
 			check_script_override(r_function, *parent);
 			return;
 		}
-		const auto engine_method = engine.find_method(cls.native_base, r_function.name);
+		// Object binds _init() as a virtual (core/object/object.cpp:1928; ed1daf0),
+		// but it is no override: the engine does not call it by name.
+		const std::optional<EngineMethod> engine_method = r_function.name == "_init" ? std::nullopt : engine.find_method(cls.native_base, r_function.name);
 		declare_function(r_function, engine_method && engine_method->is_virtual ? std::optional<DeclId>(engine_id(engine_method->owner, r_function.name)) : std::nullopt);
 		if (engine_method && !engine_method->is_virtual) {
 			error(r_function.name_token, "\"" + r_function.name + "()\" is a method of " + cls.extends + " that cannot be overridden.");
@@ -6127,10 +6142,9 @@ class Checker : public ClassRelation {
 		}
 
 		// The engine constructs Node and Resource scripts with no arguments
-		// (spec §6.2); RefCounted constructors with arguments come with new(...).
-		if (r_function.name == "_init" && !r_function.params.empty()) {
-			const bool engine_made = engine.inherits(cls.native_base, "Node") || engine.inherits(cls.native_base, "Resource");
-			error(r_function.name_token, engine_made ? "_init() of a " + cls.extends + " script cannot take parameters: the engine constructs it with none. Use members that must be assigned instead (spec §6.2)." : "_init() with parameters is not supported yet.");
+		// (spec §6.2); others take them through new(...).
+		if (r_function.name == "_init" && !r_function.params.empty() && (engine.inherits(cls.native_base, "Node") || engine.inherits(cls.native_base, "Resource"))) {
+			error(r_function.name_token, "_init() of a " + cls.extends + " script cannot take parameters: the engine constructs it with none. Use members that must be assigned instead (spec §6.2).");
 		}
 		if (r_function.name == "_init" && r_function.return_type_ref && r_function.return_type_ref->name != "void") {
 			error(r_function.return_type_ref->range, "_init() returns nothing.");

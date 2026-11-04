@@ -1,0 +1,37 @@
+class_name ConstructCheck extends RefCounted
+
+# _init() with parameters, run by language_test.gd (spec §6.1, §6.2).
+
+static var order: Array[String] = []
+
+pub var steps: Array[String] = [ConstructCheck.step("initializer")]
+pub var left := 0
+pub var right := ""
+
+
+pub func _init(a: int, b: String = "b"):
+	steps.append(ConstructCheck.step("_init"))
+	left = a
+	right = b
+
+
+pub static func step(what: String) -> String:
+	order.append(what)
+	return what
+
+
+static func argument(n: int) -> int:
+	order.append("argument")
+	return n
+
+
+# The arguments of new(...), then the initializers, then _init().
+pub func made_in_order() -> Array[String]:
+	order.clear()
+	var made := ConstructCheck.new(ConstructCheck.argument(2))
+	order.append("made %d %s" % [made.left, made.right])
+	return order
+
+
+pub func private_size() -> int:
+	return ConstructPrivate.make().size

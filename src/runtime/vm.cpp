@@ -453,6 +453,32 @@ PETRICHOR_NOINLINE bool construct_from(const TypeImage &p_type, const uint8_t *p
 	return false;
 }
 
+// An object of the class: the engine class, with the script when the class is
+// one of this language, as PetScript.new() makes it; the script's instance
+// runs the initializers and, unless `p_without_init`, _init() (spec §6.1).
+// `r_initialized` is false when a program error ended the initializers.
+PETRICHOR_NOINLINE bool new_object(const ClassImage &p_image, uint32_t p_class, bool p_without_init, uint8_t *p_slot, bool &r_initialized) {
+	r_initialized = true;
+	const Variant object = ClassDBSingleton::get_singleton()->instantiate(p_image.classes[p_class]);
+	if (object.get_type() != Variant::OBJECT || !object.booleanize()) {
+		helper_error() = vformat("Cannot construct %s.", p_image.classes[p_class]);
+		return false;
+	}
+	if (!p_image.class_scripts[p_class].is_empty()) {
+		Object *made = object.get_validated_object();
+		ScriptedObject instance;
+		if (!attach_script(made, load_resource(p_image.class_scripts[p_class]), p_without_init, instance, r_initialized)) {
+			if (!Object::cast_to<RefCounted>(made)) {
+				memdelete(made);
+			}
+			helper_error() = vformat("Cannot construct %s: it has errors.", p_image.class_scripts[p_class]);
+			return false;
+		}
+	}
+	set_object(p_slot, object);
+	return true;
+}
+
 // `==` by the engine's operator table (spec §5.2), or with `p_pattern` the
 // match of a pattern, of its type first, String and StringName alike (§5.6).
 PETRICHOR_NOINLINE bool compare_variants(const uint8_t *p_a, const uint8_t *p_b, bool p_pattern, uint64_t &r_equal) {
@@ -1084,27 +1110,17 @@ public:
 					pc += 4;
 					break;
 				}
-				case Op::NEW_OBJECT: {
-					const uint32_t index = code[pc + 1];
-					const Variant object = ClassDBSingleton::get_singleton()->instantiate(image.classes[index]);
-					if (object.get_type() != Variant::OBJECT || !object.booleanize()) {
-						FAIL(vformat("Cannot construct %s.", image.classes[index]));
+				case Op::NEW_OBJECT:
+				case Op::NEW_WITHOUT_INIT: {
+					bool initialized;
+					if (!new_object(image, code[pc + 1], Op(code[pc]) == Op::NEW_WITHOUT_INIT, frame + code[pc + 2], initialized)) {
+						FAIL(helper_error());
 					}
-					if (!image.class_scripts[index].is_empty()) {
-						// As PetScript.new() does: the script's instance runs the
-						// initializers and _init() (spec §6.1).
-						Object *made = object.get_validated_object();
-						made->set_script(load_resource(image.class_scripts[index]));
-						ScriptedObject instance;
-						if (!scripted_object(made, instance)) {
-							if (!Object::cast_to<RefCounted>(made)) {
-								memdelete(made);
-							}
-							FAIL(vformat("Cannot construct %s: it has errors.", image.class_scripts[index]));
-						}
-					}
-					set_object(frame + code[pc + 2], object);
 					pc += 3;
+					if (!initialized && Op(code[pc - 3]) == Op::NEW_WITHOUT_INIT) {
+						// A program error ended the initializers: no _init() (spec §8.1).
+						pc += bytecode::instruction_length(code + pc);
+					}
 					break;
 				}
 				case Op::GET_SCRIPT: {
@@ -1467,11 +1483,11 @@ public:
 					// Within a run every script is compiled against the others
 					// (spec §12.4); only bytecode that was not built together
 					// can differ, and then the arguments would not fit. Whether a
-					// static method is visible is the checker's: subclasses call
-					// those that are not pub too (spec §4.2).
+					// static method or _init() is visible is the checker's:
+					// subclasses call those that are not pub too (spec §4.2).
 					int index = callee.image ? callee.image->find_function(name) : -1;
 					const bytecode::Function *found = index >= 0 ? &callee.image->module.functions[index] : nullptr;
-					if (!found || !callee.image->has_signature(name, image.call_signatures[target]) || (static_class >= 0 && !found->is_static) || (Op(code[pc]) == Op::CALL_METHOD && static_class < 0 && !found->is_pub && !found->is_override)) {
+					if (!found || !callee.image->has_signature(name, image.call_signatures[target]) || (static_class >= 0 && !found->is_static) || (Op(code[pc]) == Op::CALL_METHOD && static_class < 0 && !found->is_pub && !found->is_override && index != callee.image->user_init)) {
 						FAIL(vformat("%s() is not the method this script was compiled against. Build the project again.", name));
 					}
 					ClassImage::resolve_function(callee.image, index);

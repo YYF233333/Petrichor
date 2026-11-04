@@ -91,6 +91,7 @@ namespace petrichor::bytecode {
 	X(CHECK_ENUM, 2) /* type, src: a program error unless the int in src is one of the enum's values (spec §3.7) */ \
 	X(SET_PROPERTY, 3) /* property, object (NO_SLOT: self), value */ \
 	X(NEW_OBJECT, 2) /* class, dst: of a class of this language, the engine class with the script */ \
+	X(NEW_WITHOUT_INIT, 2) /* class (of this language), dst: as NEW_OBJECT, but _init() is left to the CALL_METHOD on dst that follows, skipped when the initializers fail (spec §6.1, §8.1) */ \
 	X(GET_SCRIPT, 2) /* class, dst: the script of a class of this language, also of an inner class (spec §4.1) */ \
 	X(GET_SINGLETON, 2) /* class, dst */ \
 	X(GET_AUTOLOAD, 2) /* name constant, dst */ \

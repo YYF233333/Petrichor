@@ -105,6 +105,12 @@ static StringName init_name() {
 	return "_init";
 }
 
+// Whether other languages may construct the class with new(...): its nearest
+// _init() is pub, or it has none (spec §4.2, §10.1).
+static bool constructible(const ClassImage &p_image) {
+	return p_image.user_init < 0 || p_image.module.functions[p_image.user_init].is_pub;
+}
+
 static Dictionary property_dict(Variant::Type p_type, const StringName &p_name, uint32_t p_usage, const StringName &p_class_name = StringName()) {
 	Dictionary dict;
 	dict["name"] = p_name;
@@ -410,16 +416,35 @@ void PetScript::_bind_methods() {
 
 Variant PetScript::_new(const Variant **p_args, GDExtensionInt p_argcount, GDExtensionCallError &r_error) {
 	r_error.error = GDEXTENSION_CALL_OK;
-	if (p_argcount > 0) {
+	const std::shared_ptr<const ClassImage> current = get_image();
+	ERR_FAIL_COND_V_MSG(!current, Variant(), get_script_path() + " cannot be constructed: it has errors.");
+	if (!constructible(*current)) {
+		r_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
+		ERR_FAIL_V_MSG(Variant(), get_script_path() + " cannot be constructed here: its _init() is not pub.");
+	}
+	if (current->user_init < 0 && p_argcount > 0) {
 		r_error.error = GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS;
 		r_error.expected = 0;
 		return Variant();
 	}
-	ERR_FAIL_COND_V_MSG(!get_image(), Variant(), get_script_path() + " cannot be constructed: it has errors.");
 	Variant object = ClassDBSingleton::get_singleton()->instantiate(_get_instance_base_type());
-	Object *instance = object;
-	ERR_FAIL_NULL_V(instance, Variant());
-	instance->set_script(Ref<PetScript>(this));
+	Object *made = object;
+	ERR_FAIL_NULL_V(made, Variant());
+	ScriptedObject instance;
+	bool initialized;
+	if (!attach_script(made, Ref<PetScript>(this), current->user_init >= 0, instance, initialized) || !initialized || instance.image->user_init < 0) {
+		return object;
+	}
+	// _init() with the arguments, after the initializers (spec §6.1); the
+	// object is not handed out when they do not fit.
+	bool failed = false;
+	vm::call(instance.image, instance.image->user_init, instance.context, p_args, p_argcount, r_error, &failed);
+	if (failed || r_error.error != GDEXTENSION_CALL_OK) {
+		if (!Object::cast_to<RefCounted>(made)) {
+			memdelete(made);
+		}
+		return Variant();
+	}
 	return object;
 }
 
@@ -780,7 +805,7 @@ String PetScript::_get_class_icon_path() const {
 
 bool PetScript::_has_method(const StringName &p_method) const {
 	const std::shared_ptr<const ClassImage> current = get_image();
-	if (current && (find_visible_function(*current, p_method) >= 0 || p_method == init_name())) {
+	if (current && (find_visible_function(*current, p_method) >= 0 || (p_method == init_name() && constructible(*current)))) {
 		return true;
 	}
 #ifdef PETRICHOR_PROBES
@@ -791,7 +816,8 @@ bool PetScript::_has_method(const StringName &p_method) const {
 }
 
 bool PetScript::_has_static_method(const StringName &p_method) const {
-	return p_method == init_name() && get_image();
+	const std::shared_ptr<const ClassImage> current = get_image();
+	return p_method == init_name() && current && constructible(*current);
 }
 
 Variant PetScript::_get_script_method_argument_count(const StringName &p_method) const {
@@ -815,10 +841,16 @@ Dictionary PetScript::_get_method_info(const StringName &p_method) const {
 		return Dictionary();
 	}
 	if (p_method == init_name()) {
-		// A static method returning the class, which is how GDScript types
-		// `new` (spec §10.1).
+		// A static method with the parameters of the nearest _init(), returning
+		// the class, which is how GDScript types `new` (spec §10.1).
+		if (!constructible(*current)) {
+			return Dictionary();
+		}
 		const StringName type_name = current->global_name == StringName() ? current->base_class : current->global_name;
-		return method_dict(init_name(), Array(), property_dict(Variant::OBJECT, StringName(), PROPERTY_USAGE_DEFAULT, type_name), METHOD_FLAGS_DEFAULT | METHOD_FLAG_STATIC);
+		Dictionary method = current->user_init >= 0 ? function_info(*current, current->user_init) : method_dict(init_name(), Array(), Dictionary(), 0);
+		method["return"] = property_dict(Variant::OBJECT, StringName(), PROPERTY_USAGE_DEFAULT, type_name);
+		method["flags"] = METHOD_FLAGS_DEFAULT | METHOD_FLAG_STATIC;
+		return method;
 	}
 	const int index = find_visible_function(*current, p_method);
 	return index >= 0 ? function_info(*current, index) : Dictionary();

@@ -4,5 +4,5 @@
 class_name ResourceCheck
 extends Resource
 
-func _init():
+pub func _init():
 	resource_name = "made"

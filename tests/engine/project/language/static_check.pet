@@ -9,7 +9,7 @@ pub var initialized := false
 pub var level := 3
 
 
-func _init() -> void:
+pub func _init() -> void:
 	initialized = true
 
 

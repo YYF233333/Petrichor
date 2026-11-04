@@ -599,6 +599,17 @@ func _ready() -> void:
 	var shared := [1]
 	_check(variants.hit_as_variant() == {"damage": 3} and not variants.literal().is_typed() and variants.array_of(shared) == 2 and shared.size() == 2, "a struct is encoded in a Variant, a literal there is untyped, and Array(v) is the same array")
 
+	# _init() with parameters (spec §4.2, §6.1, §6.2).
+	var constructed := ConstructCheck.new(3, "x")
+	var constructed_kept := ConstructKept.new(4)
+	_check(constructed.left == 3 and constructed.right == "x" and constructed.steps == ["initializer", "_init"] and constructed_kept.left == 4 and constructed_kept.right == "b", "GDScript passes the arguments of new(...) to the nearest _init() by position")
+	_check(constructed.made_in_order() == ["argument", "initializer", "_init", "made 2 b"], "new(...) evaluates its arguments, then runs the initializers, then _init() with them")
+	_check(ConstructSub.new("x").subclasses() == ["7 n n [\"initializer\", \"_init\"]", "5 k [\"initializer\", \"_init\"]", "0 own [\"initializer\"]"], "each class has its own _init(), a base's runs through super, and a class without one takes its base's")
+	_check(constructed.private_size() == 8 and load("res://language/construct_private.pet").callv("new", []) == null, "a class whose _init() is not pub is made only through its own methods")
+	_check_errors(["res://language/construct_private.pet cannot be constructed here: its _init() is not pub.", "Error calling method from 'callv': 'PetScript::new': Method not found."], "GDScript cannot construct a class whose _init() is not pub")
+	RefCounted.new().set_script(load("res://language/construct_check.pet"))
+	_check_errors(["construct_check.pet:12: ConstructCheck was constructed without arguments, but its _init() requires them; construct it with new(...)."], "the engine constructing a class whose _init() has required parameters is a program error")
+
 	# Annotations describe a class to the engine as GDScript's do (spec §2.3).
 	var annotated := AnnotationCheck.new()
 	var reference := AnnotationReference.new()

@@ -20,6 +20,17 @@ using InstanceResolver = bool (*)(godot::Object *p_object, ScriptedObject &r_ins
 void set_instance_resolver(InstanceResolver p_resolver);
 bool scripted_object(godot::Object *p_object, ScriptedObject &r_instance);
 
+// Sets the script of this language on a new object, whose instance runs the
+// member initializers and then _init() without arguments; with
+// `p_without_init` it leaves _init() to the caller, which passes the arguments
+// of new(...) (spec §6.1). False when the object gets no instance of this
+// language; `r_initialized` is false when a program error ended its
+// initializers, and _init() is not to run then (§8.1). The instance asks
+// init_left_to_caller() as it is made and calls constructed() last.
+bool attach_script(godot::Object *p_object, const godot::Variant &p_script, bool p_without_init, ScriptedObject &r_instance, bool &r_initialized);
+bool init_left_to_caller();
+void constructed(bool p_initialized);
+
 // Likewise the current image of a script of this language by its path, which
 // a static method is called on (spec §4.8); null when it has none.
 using ScriptResolver = std::shared_ptr<const ClassImage> (*)(const godot::String &p_path);

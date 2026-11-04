@@ -145,16 +145,22 @@ PetInstance::PetInstance(PetScript *p_script, const std::shared_ptr<const ClassI
 	// in GDScript (spec §6.1; modules/gdscript/gdscript_compiler.cpp:2365-2435).
 	// A program error in them ends the engine's call, as in the ready function,
 	// so _init() does not run either (§8.1).
+	const bool init_later = init_left_to_caller();
 	storage = std::make_shared<InstanceStorage>(image);
-	if (!run_initializers(image, context(), false)) {
-		return;
+	const bool initialized = run_initializers(image, context(), false);
+	// Then the nearest _init(), as GDScript runs it after the member
+	// initializers; new(...) calls it itself with its arguments.
+	if (initialized && image->user_init >= 0 && !init_later) {
+		const bytecode::Function &init = image->module.functions[image->user_init];
+		if (init.params.size() > init.defaults.size()) {
+			// GDScript creates no instance then (modules/gdscript/gdscript.cpp:192-203, 406-424).
+			vm::report_error(*image, "_init", int(init.line), vformat("%s was constructed without arguments, but its _init() requires them; construct it with new(...).", image->global_name == StringName() ? String(image->path) : String(image->global_name)));
+		} else {
+			GDExtensionCallError error;
+			vm::call(image, image->user_init, context(), nullptr, 0, error);
+		}
 	}
-	// Then the class's own _init(), as GDScript runs it after the member
-	// initializers.
-	if (image->user_init >= 0) {
-		GDExtensionCallError error;
-		vm::call(image, image->user_init, context(), nullptr, 0, error);
-	}
+	constructed(initialized);
 }
 
 // The members go when no call runs on them any more (spec §3.3).

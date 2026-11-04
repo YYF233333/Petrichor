@@ -15,6 +15,8 @@ InstanceResolver resolver = nullptr;
 ScriptResolver script_resolver = nullptr;
 thread_local ValueCall current_value_call;
 thread_local std::vector<std::shared_ptr<const ClassImage>> loading_files;
+thread_local bool without_init = false;
+thread_local bool last_initialized = true;
 
 // Calls the function, as the callee of a call of a function value when one is pending.
 Variant call_value(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const Variant **p_args, int p_argc, GDExtensionCallError &r_error, const uint8_t *const *p_captures) {
@@ -52,6 +54,27 @@ void set_instance_resolver(InstanceResolver p_resolver) {
 
 bool scripted_object(Object *p_object, ScriptedObject &r_instance) {
 	return resolver && resolver(p_object, r_instance);
+}
+
+bool attach_script(Object *p_object, const Variant &p_script, bool p_without_init, ScriptedObject &r_instance, bool &r_initialized) {
+	// The engine makes the instance within set_script(), before anything else
+	// can make one on this thread; instances it makes meanwhile finish first.
+	without_init = p_without_init;
+	last_initialized = true;
+	p_object->set_script(p_script);
+	without_init = false;
+	r_initialized = last_initialized;
+	return scripted_object(p_object, r_instance);
+}
+
+bool init_left_to_caller() {
+	const bool left = without_init;
+	without_init = false;
+	return left;
+}
+
+void constructed(bool p_initialized) {
+	last_initialized = p_initialized;
 }
 
 void set_script_resolver(ScriptResolver p_resolver) {

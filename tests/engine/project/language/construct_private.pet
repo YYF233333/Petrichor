@@ -1,0 +1,13 @@
+class_name ConstructPrivate extends RefCounted
+
+# new(...) only in this file and subclasses: _init() is not pub (spec §4.2).
+
+pub var size := 0
+
+
+func _init(n: int):
+	size = n
+
+
+pub static func make() -> ConstructPrivate:
+	return ConstructPrivate.new(8)
