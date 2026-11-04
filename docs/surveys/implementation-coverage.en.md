@@ -79,9 +79,36 @@ The counts of each construct are in `implementation-coverage/results/coverage.tx
 - Across all repositories, seven files in ten use at least one construct that is not implemented yet; in the game repositories, about six in ten. The most common ones are small features: `const`, static methods and `new()` called through a class name, `&"…"` literals, and annotations.
 - The projects of the two milestones hardly use these constructs: all 7 files of FPS and 55 of the 66 files of Ring use none of them, against 29.6% across all repositories. This is why neither migration revealed these gaps.
 
+## Rerun at `a203ae1` (2026-11-04)
+
+Every construct of the tables above is implemented at `a203ae1`, except `@tool` and `@export_tool_button`, which have since left the first version (specification §2.3). What remains of three of them is counted below: `_init()` with the arguments of `Type.new()`, lambdas that await, and `preload()` in a container of a constant.
+
+The rerun counts, with `implementation-coverage/remaining.py` on the same corpus, the constructs of the first version that real GDScript code uses and the implementation at `a203ae1` does not support yet. A name has a type only where its file writes one, so `==` between objects and the engine methods that return Variant are lower bounds; the script's docstring defines each construct.
+
+| Construct | Spec | All: files | All: per 1,000 lines | Games: files | Games: per 1,000 lines |
+|---|---|---:|---:|---:|---:|
+| Files using none of them | | 60.0% | | 63.4% | |
+| Variant as a type: untyped `Array` and `Dictionary`, and `Variant` | §3.13 | 28.2% | 22.1 | 26.7% | 28.7 |
+| Engine methods that return Variant, such as `get_meta()` and `get_setting()` | §3.13 | 9.4% | 3.5 | 6.3% | 2.4 |
+| `_init()` with parameters | §6.2 | 8.1% | 1.2 | 4.1% | 0.7 |
+| `==` and `!=` between objects | §5.2 | 5.1% | 1.3 | 4.3% | 1.3 |
+| A constant of an engine class by its bare name, such as `NOTIFICATION_PREDELETE` | | 4.9% | 1.1 | 2.9% | 0.8 |
+| Default values of parameters that are not constant | §4.6 | 0.8% | 0.2 | 0.7% | 0.2 |
+| Lambdas that await | §9.1 | 0.3% | 0.2 | 0.1% | 0.0 |
+| `preload()` in a container of a constant | §4.5 | 0.2% | 0.0 | 0.4% | 0.1 |
+| A static function as a value, such as `Battler.sort` | §3.11 | 0.2% | 0.1 | 0.3% | 0.1 |
+| A member of the file named by a literal on self, such as `set("x", v)` | §10.4, §10.5 | 0.2% | 0.0 | 0.1% | 0.0 |
+| Array and dictionary patterns of match | §5.6 | 0.1% | 0.0 | 0.2% | 0.1 |
+| `for` over a String | §5.7 | 0 | 0 | 0 | 0 |
+
+- A member named by a literal compiles, but its name is not checked and a member without `pub` is not shown to the engine (§10.5); the implementation reports each of the other constructs as not supported yet. Node and Resource scripts take, instead of the parameters of `_init()`, members that must be assigned (§6.2), which are not implemented either.
+- All files of FPS, Starter-Kit-3D-Platformer and Starter-Kit-Racing, and 58 of the 66 of Ring, use none of them; the fewest do in godot_dialogue_manager (31.6%), godot-tiny-mmo (32.5%) and Pixelorama (38.6%). The counts by repository are in `implementation-coverage/results/remaining.txt`.
+- Not counted: paths into instanced scenes and unique names of the scenes that instance one (§7.1), which need the scenes; match over `T?`; static functions of a class around an inner class used as values; untyped values that a migration has to type.
+- The main gap left is Variant (§3.13): 28.2% of the files write an untyped container or Variant as a type, and 9.4% call an engine method that returns Variant. Then come `_init()` with parameters, `==` between objects and the engine's constants by bare name, each in 5–8% of the files; every other construct is in fewer than 1%.
 ## Reproduction
 
 ```
 python docs/surveys/cross-branch-duplication/gdcorpus.py corpus
 python docs/surveys/implementation-coverage/coverage.py corpus thirdparty/godot-cpp/gdextension/extension_api-4-7.json > docs/surveys/implementation-coverage/results/coverage.txt
+python docs/surveys/implementation-coverage/remaining.py corpus thirdparty/godot-cpp/gdextension/extension_api-4-7.json > docs/surveys/implementation-coverage/results/remaining.txt
 ```

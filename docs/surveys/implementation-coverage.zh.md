@@ -79,9 +79,36 @@
 - 在全部仓库中，七成文件至少用到一种尚未实现的写法，游戏仓库中约六成。最常见的几种都是小特性：`const`、经类名调用静态方法和 `new()`、`&"…"` 字面量、注解。
 - 两个里程碑的项目几乎不用这些写法：FPS 的 7 个文件全部、Ring 的 66 个文件中 55 个一种都没用到，而全部仓库中只有 29.6%。所以两次迁移都没有暴露这些缺口。
 
+## 重跑（`a203ae1`，2026-11-04）
+
+上面表中的写法在 `a203ae1` 都已实现，只有 `@tool` 和 `@export_tool_button` 例外，它们此后移出了第一版（规范 §2.3）。其中三种还有未实现的部分，计入下表：`Type.new()` 传参所需的带参数 `_init()`、含 await 的 lambda，以及常量的容器中的 `preload()`。
+
+重跑用 `implementation-coverage/remaining.py` 在同一语料上统计：真实的 GDScript 代码用到、属于第一版而 `a203ae1` 的实现尚不支持的写法。名字只在文件写出其类型时才有类型，所以对象之间的 `==` 和返回 Variant 的引擎方法是下限；各写法的定义见脚本的文档字符串。
+
+| 写法 | 规范 | 全部：文件 | 全部：每千行 | 游戏：文件 | 游戏：每千行 |
+|---|---|---:|---:|---:|---:|
+| 一种都没用到的文件 | | 60.0% | | 63.4% | |
+| Variant 作类型：无类型的 `Array`、`Dictionary`，以及 `Variant` | §3.13 | 28.2% | 22.1 | 26.7% | 28.7 |
+| 返回 Variant 的引擎方法，如 `get_meta()`、`get_setting()` | §3.13 | 9.4% | 3.5 | 6.3% | 2.4 |
+| 带参数的 `_init()` | §6.2 | 8.1% | 1.2 | 4.1% | 0.7 |
+| 对象之间的 `==`、`!=` | §5.2 | 5.1% | 1.3 | 4.3% | 1.3 |
+| 以裸名使用引擎类的常量，如 `NOTIFICATION_PREDELETE` | | 4.9% | 1.1 | 2.9% | 0.8 |
+| 不是常量的参数默认值 | §4.6 | 0.8% | 0.2 | 0.7% | 0.2 |
+| 含 await 的 lambda | §9.1 | 0.3% | 0.2 | 0.1% | 0.0 |
+| 常量的容器中的 `preload()` | §4.5 | 0.2% | 0.0 | 0.4% | 0.1 |
+| 静态函数作为值，如 `Battler.sort` | §3.11 | 0.2% | 0.1 | 0.3% | 0.1 |
+| 在自身上以字面量指名本文件的成员，如 `set("x", v)` | §10.4、§10.5 | 0.2% | 0.0 | 0.1% | 0.0 |
+| match 的数组和字典模式 | §5.6 | 0.1% | 0.0 | 0.2% | 0.1 |
+| 遍历 String 的 `for` | §5.7 | 0 | 0 | 0 | 0 |
+
+- 以字面量指名的成员能够编译，但名字不受检查，不带 `pub` 的成员也不暴露给引擎（§10.5）；其余各种写法，实现都报告尚不支持。Node 和 Resource 脚本用必须赋值的成员代替 `_init()` 的参数（§6.2），这也尚未实现。
+- FPS、Starter-Kit-3D-Platformer 和 Starter-Kit-Racing 的全部文件，以及 Ring 的 66 个文件中的 58 个，一种都没用到；比例最低的是 godot_dialogue_manager（31.6%）、godot-tiny-mmo（32.5%）和 Pixelorama（38.6%）。各仓库的计数见 `implementation-coverage/results/remaining.txt`。
+- 未计入：进入实例化场景的路径和实例化它的场景中的唯一名称（§7.1），这要读场景；对 `T?` 的 match；把内部类外层类的静态函数作为值；迁移时必须补上类型的无类型值。
+- 剩下的主要缺口是 Variant（§3.13）：28.2% 的文件把无类型的容器或 Variant 写作类型，9.4% 调用返回 Variant 的引擎方法。其次是带参数的 `_init()`、对象之间的 `==` 和以裸名使用引擎的常量，各占 5–8% 的文件；其余每种不到 1%。
 ## 复现
 
 ```
 python docs/surveys/cross-branch-duplication/gdcorpus.py corpus
 python docs/surveys/implementation-coverage/coverage.py corpus thirdparty/godot-cpp/gdextension/extension_api-4-7.json > docs/surveys/implementation-coverage/results/coverage.txt
+python docs/surveys/implementation-coverage/remaining.py corpus thirdparty/godot-cpp/gdextension/extension_api-4-7.json > docs/surveys/implementation-coverage/results/remaining.txt
 ```
