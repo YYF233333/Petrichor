@@ -12,7 +12,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The error for a type that is not pub, such as a struct or an interface, in the signature of a pub member (spec §4.2).
 - Static checks of must-assign exports in scenes, in resources and at export (spec §7.5), of a scene used as a root whose root has a script with `@owner` (§7.3), and of a node of a scene whose script is abstract (§4.1).
 - `@parent(T)` (spec §7.3).
-- Setters that run before ready (spec §6.5), once the open question below is settled; until then the checks that a node is ready report such a setter's first access to its node.
+- Setters that wait for ready on their own (spec §6.5, after the first version), once the open question below is settled.
 - A warning for removed nodes that are neither stored nor freed, and one with a `weak` quick fix for a lambda capturing self stored in a member of self (spec §6.7, §15); `weak[T]` (§3.12).
 - Preload cycles (spec §7.6); a literal path of `load` typed as preload types it (§7.4).
 - Of GDScript classes (spec §11.1): enums, inner classes and static variables; nodes in scenes typed by their GDScript class rather than its engine class.
@@ -79,6 +79,6 @@ Engine calls are by name with Variant arguments now, so code that calls the engi
 - Whether a setter that runs before ready should wait for ready on its own (spec §6.5), or the behavior should be written in the setter: the owner suspects that the implicit suspension makes setters hard to understand. To be discussed again before §6.5 is implemented.
 - Whether an autoload's name stands for its script's class in a type, as GDScript's does (`modules/gdscript/gdscript_analyzer.cpp:806-826`): godot-open-rts writes `var p: Constants.Match.Player` 5 times, `Constants` being an autoload (`docs/surveys/corpus-counts/inner_classes.py`).
 - Whether diagnostics and semantic queries also serve programs, not only the editor's interface: saying which declaration or scene a constraint comes from and listing the references that broke could let AI and tools fix errors while reading less code.
-- Whether the first version (spec §14) narrows: the FPS and Ring scripts of the second paper migration use none of user-defined generics, Result and `?`, enums, weak and the built-in test runner, and suspending setters before ready (spec §6.5) is costly to implement.
+- Whether the first version (spec §14) leaves out `weak[T]` (spec §3.12) and the built-in test runner (§13.2), which the FPS and Ring scripts of the second paper migration do not use.
 - The long-term boundary of compatibility with GDScript and Godot: which agreements are promises and which merely hold today, which Godot versions are supported, and which semantics may still change during the alpha.
 - How to test the gain in maintenance: use the language in a real project through several rounds of changing requirements, and see how many problems it points out ahead of renames, interface changes and refactorings across files; the cost of adoption includes migrating in step by step, mixing and leaving, and with cross-language inheritance restricted, the unit of migration may be an inheritance cluster or a subsystem.
