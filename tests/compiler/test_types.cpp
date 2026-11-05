@@ -187,6 +187,7 @@ TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec Â
 	CHECK(type_of("a.pop_front()", ints) == "int?");
 	CHECK(type_of("a.pop_back().unwrap()", ints) == "int");
 	CHECK(type_of("a.duplicate()", ints) == "Array[int]");
+	CHECK(type_of("a.duplicate_deep()", ints) == "Array[int]");
 	CHECK(type_of("n[0]", "var n: Array[Node] = []") == "Node");
 	CHECK(type_of("n.pop_back()", "var n: Array[Node] = []") == "Node?");
 	CHECK(type_of("n[0]", "var n: Array[Node?] = []") == "Node?");

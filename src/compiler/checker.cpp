@@ -3612,7 +3612,7 @@ class Checker : public ClassRelation {
 		if (r_result.kind == TypeKind::Variant) {
 			const bool pops = p_method == "pop_front" || p_method == "pop_back";
 			r_result = pops ? optional_of(element) : element;
-		} else if (r_result == Type::builtin("Array") && (p_method == "duplicate" || p_method == "slice" || p_method == "filter")) {
+		} else if (r_result == Type::builtin("Array") && (p_method == "duplicate" || p_method == "duplicate_deep" || p_method == "slice" || p_method == "filter")) {
 			r_result = p_array;
 		}
 	}
