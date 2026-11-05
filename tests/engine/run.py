@@ -174,6 +174,16 @@ def send_editor_message(connection, command, data):
     connection.sendall(struct.pack("<I", len(message)) + message)
 
 
+def snapshot_files(paths):
+    return {path: (path.read_bytes(), path.stat()) for path in paths}
+
+
+def restore_files(originals):
+    for path, (data, stat) in originals.items():
+        path.write_bytes(data)
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+
+
 def run_hot_reload(godot):
     """Stands in for the editor while hot_reload_test.gd runs connected to it.
 
@@ -185,7 +195,7 @@ def run_hot_reload(godot):
     (remote_debugger.cpp:663-719). A message of the test's own follows, which
     tells the scene that the reload has been handled."""
     live = (HOT_RELOAD / "v1.pet", HOT_RELOAD_BYTECODE / "v1.petc")
-    originals = {path: path.read_bytes() for path in live}
+    originals = snapshot_files(live)
     with socket.create_server(("127.0.0.1", 0)) as server:
         server.settimeout(TIMEOUT)
         try:
@@ -212,8 +222,7 @@ def run_hot_reload(godot):
                     send_editor_message(connection, "hot_reload_test:reloaded", [])
                 return running.finish()
         finally:
-            for path, data in originals.items():
-                path.write_bytes(data)
+            restore_files(originals)
 
 
 def run_stale_bytecode(godot):
@@ -226,15 +235,14 @@ def run_stale_bytecode(godot):
     code, output = run(godot, "--path", str(PROJECT), "res://language/stale/stale_test.tscn")
     expect_run("stale bytecode: as built", code, output, ["stale: 2", "stale inheritance: valid: 1"])
     replaced = ("callee", "inherit_base")
-    originals = {path: path.read_bytes() for name in replaced for path in (STALE / f"{name}.pet", STALE_BYTECODE / f"{name}.petc")}
+    originals = snapshot_files(path for name in replaced for path in (STALE / f"{name}.pet", STALE_BYTECODE / f"{name}.petc"))
     try:
         for name in replaced:
             shutil.copy(STALE / f"{name}_changed.pet", STALE / f"{name}.pet")
             shutil.copy(STALE_BYTECODE / f"{name}_changed.petc", STALE_BYTECODE / f"{name}.petc")
         code, output = run(godot, "--path", str(PROJECT), "res://language/stale/stale_test.tscn")
     finally:
-        for path, data in originals.items():
-            path.write_bytes(data)
+        restore_files(originals)
     changed = "value() is not the method this script was compiled against. Build the project again."
     expect("stale bytecode: a call to a changed signature is a program error", code == 0 and changed in output and "stale: 0" in output, output)
     refused = "inherit_derived.pet Base method declaration changed. Rebuild the project."
@@ -295,22 +303,52 @@ def prepare_ring(project):
     """Ring with the extension and ring_check.tscn, which starts breakout in
     place of Ring's C#. Of assets/, the visual novel's, only the bricks that
     breakout uses and the textures of the project's theme are copied; the
-    visual novel's other directories, which breakout does not refer to, and
-    the documentation are left out. UI/1.png alone took half the import."""
+    visual novel's other directories, DialogueManager's editor plugin and 2 MB
+    main_view.tscn, shaderV's example scene, unused breakout source archives
+    and drafts, and the documentation are left out. UI/1.png alone took half
+    the import."""
+    mine_used = {
+        "blood bullet.png",
+        "calculator.png",
+        "communicator.png",
+        "new model.png",
+        "notebook.png",
+        "old model.png",
+        "package.png",
+        "passport.png",
+        "pixil-glowing-blue.png",
+        "select_box.png",
+    }
+
     def ignore(directory, names):
-        if Path(directory) == RING_UPSTREAM:
+        path = Path(directory)
+        if path == RING_UPSTREAM:
             return [name for name in names if name in (".git", "docs", "Runtime", "button", "scenes", "UI", "Test", "python")]
-        if Path(directory) == RING_UPSTREAM / "assets":
+        if path == RING_UPSTREAM / "addons" / "dialogue_manager":
+            return [name for name in names if name in ("views", "plugin.cfg", "plugin.gd", "plugin.gd.uid")]
+        if path == RING_UPSTREAM / "assets":
             return [name for name in names if not name.startswith("Brick-") and name != "Runtime"]
-        if Path(directory) == RING_UPSTREAM / "breakout":
+        if path == RING_UPSTREAM / "breakout":
             return [name for name in names if name in (".git", "docs", "NOTE.assets", "README.assets")]
-        return [name for name in names if name in (".git", "docs")]
+        if path == RING_UPSTREAM / "breakout" / "addons" / "shaderV" / "examples":
+            return [name for name in names if name.startswith("basic_examples.tscn")]
+        if path == RING_UPSTREAM / "breakout" / "assets":
+            return [name for name in names if name == "Breakout_Tile_Set_Free.zip"]
+        if path == RING_UPSTREAM / "breakout" / "assets" / "Breakout_Tile_Set_Free" / "Breakout Tile Set Free":
+            return [name for name in names if name in ("Sprite Sheet", "Vector")]
+        if path == RING_UPSTREAM / "breakout" / "assets" / "Mine":
+            return [name for name in names if name.removesuffix(".import") not in mine_used]
+        return [name for name in names if name in (".git", "docs") or name.endswith((".dialogue", ".dialogue.uid", ".tmp"))]
 
     copy_project(RING_UPSTREAM, project, ignore)
     for file in ("ring_check.gd", "ring_check.tscn"):
         shutil.copy(RING_MIGRATED / file, project)
     settings = project / "project.godot"
-    settings.write_text(re.sub(r'^run/main_scene=.*$', 'run/main_scene="res://ring_check.tscn"', settings.read_text(encoding="utf-8"), flags=re.M), encoding="utf-8")
+    text = settings.read_text(encoding="utf-8")
+    text = re.sub(r'^run/main_scene=.*$', 'run/main_scene="res://ring_check.tscn"', text, flags=re.M)
+    text = re.sub(r'^enabled=PackedStringArray\("res://addons/dialogue_manager/plugin\.cfg"\)\r?\n?', "", text, flags=re.M)
+    text = re.sub(r'^locale/translations_pot_files=.*\r?\n?', "", text, flags=re.M)
+    settings.write_text(text, encoding="utf-8")
 
 
 def migrate(project, migrated):
@@ -427,7 +465,7 @@ def main():
     if wanted("ring"):
         finishes.append(beside("ring", run_migration_group, godot, "ring", prepare_ring, RING_MIGRATED, "res://ring_check.tscn"))
 
-    if not only or only - {"fps", "ring"}:
+    if not only or (only - {"fps", "ring"} and ("editor" in only or not project_bytecode_current())):
         # The game reads the bytecode the editor writes (architecture §2.4);
         # the build waits for the first scan, which imports the project.
         code, output = run(godot, "-e", "--path", str(PROJECT), "--", "--petrichor-build")
@@ -635,9 +673,68 @@ def run_export_groups(godot):
         expect_run("exported pack run with the template_debug library", code, output, ["export check: greeter.petc header = PETC", *GAME_OUTPUT])
 
 
+def max_mtime(paths):
+    latest = 0
+    for root in paths:
+        if root.is_file():
+            latest = max(latest, root.stat().st_mtime_ns)
+        elif root.is_dir():
+            for dirpath, dirnames, filenames in os.walk(root):
+                dirnames[:] = [d for d in dirnames if d not in (".godot", "bin", "__pycache__")]
+                for name in filenames:
+                    latest = max(latest, Path(dirpath, name).stat().st_mtime_ns)
+    return latest
+
+
+def project_bytecode_current():
+    """Whether every script of PROJECT already has current compiled bytecode,
+    so a single-group run need not open the editor to rebuild."""
+    header = ROOT / "gen" / "format_id.gen.h"
+    if not header.is_file() or not (PROJECT / ".godot" / "imported").is_dir():
+        return False
+    match = re.search(r"FORMAT_ID = 0x([0-9a-fA-F]+)ull;", header.read_text(encoding="utf-8"))
+    if not match:
+        return False
+    expected = b"PETC" + struct.pack("<Q", int(match.group(1), 16))
+    inputs_mtime = max_mtime([
+        PROJECT,
+        ROOT / "src" / "bytecode",
+        ROOT / "src" / "compiler",
+        ROOT / "src" / "adapter" / "editor",
+        ROOT / "gen",
+    ])
+    scripts = [p for p in PROJECT.rglob("*.pet") if ".godot" not in p.parts]
+    if not scripts:
+        return False
+    for script in scripts:
+        petc = PROJECT / ".godot" / "petrichor" / (script.relative_to(PROJECT).as_posix() + "c")
+        try:
+            if petc.stat().st_mtime_ns < inputs_mtime:
+                return False
+            with petc.open("rb") as file:
+                if file.read(12) != expected:
+                    return False
+        except OSError:
+            return False
+    return True
+
+
 def template_library_current():
     """Whether the template_debug library is built from the current sources;
     scons -q only answers, without building."""
+    library = PROJECT / "bin" / TEMPLATE_LIBRARY
+    godot_cpp_lib = ROOT / "thirdparty" / "godot-cpp" / "bin" / "libgodot-cpp.windows.template_debug.x86_64.lib"
+    if library.is_file() and godot_cpp_lib.is_file():
+        inputs = [
+            ROOT / "SConstruct",
+            godot_cpp_lib,
+            ROOT / "gen",
+            ROOT / "src" / "bytecode",
+            ROOT / "src" / "runtime",
+            *(p for p in (ROOT / "src" / "adapter").glob("*") if p.is_file()),
+        ]
+        if library.stat().st_mtime_ns >= max_mtime(inputs):
+            return True
     scons = shutil.which("scons")
     return scons is not None and subprocess.run([scons, "target=template_debug", "-q"], cwd=ROOT, capture_output=True).returncode == 0
 
