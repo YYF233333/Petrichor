@@ -19,6 +19,7 @@ using namespace godot;
 namespace petrichor {
 
 std::shared_ptr<const ClassImage> compile_script(const String &p_path, const String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, CompileMode p_mode) {
+	const SceneIndex::Pass pass;
 	compiler::CompileOptions options;
 	options.path = to_utf8(p_path);
 	options.declarations_only = p_mode == CompileMode::Declarations;
@@ -82,6 +83,7 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 }
 
 int build_project(int *r_script_count) {
+	const SceneIndex::Pass pass;
 	const PackedStringArray paths = project_files(PackedStringArray({ "pet" }));
 	int failed = 0;
 	for (const String &path : paths) {
