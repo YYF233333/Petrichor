@@ -13,6 +13,7 @@ only those, after the build; the groups are those of GROUPS, hot reload being
 part of debugger.
 """
 
+import hashlib
 import os
 import re
 import shutil
@@ -30,6 +31,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 PROJECT = HERE / "project"
 TEMPLATE_LIBRARY = "petrichor.windows.template_debug.x86_64.dll"
+BUILD_STAMP = PROJECT / ".godot" / "petrichor_build_stamp"
 FPS_UPSTREAM = ROOT / "thirdparty" / "starter-kit-fps"
 FPS_MIGRATED = HERE / "fps"
 RING_UPSTREAM = ROOT / "thirdparty" / "ring"
@@ -465,12 +467,18 @@ def main():
     if wanted("ring"):
         finishes.append(beside("ring", run_migration_group, godot, "ring", prepare_ring, RING_MIGRATED, "res://ring_check.tscn"))
 
-    if not only or (only - {"fps", "ring"} and ("editor" in only or not project_bytecode_current())):
+    if not only or (only - {"fps", "ring"} and ("editor" in only or not project_bytecode_current(godot))):
         # The game reads the bytecode the editor writes (architecture §2.4);
         # the build waits for the first scan, which imports the project.
+        BUILD_STAMP.unlink(missing_ok=True)
         code, output = run(godot, "-e", "--path", str(PROJECT), "--", "--petrichor-build")
         expect_run("build", code, output)
-        expect("build: every script compiles", ", 0 with errors" in output, output)
+        compiled = ", 0 with errors" in output
+        expect("build: every script compiles", compiled, output)
+        if code == 0 and compiled:
+            stamp = project_build_stamp(godot)
+            if stamp is not None:
+                BUILD_STAMP.write_text(stamp + "\n", encoding="utf-8")
 
     if wanted("game"):
         code, output = run(godot, "--path", str(PROJECT))
@@ -673,68 +681,75 @@ def run_export_groups(godot):
         expect_run("exported pack run with the template_debug library", code, output, ["export check: greeter.petc header = PETC", *GAME_OUTPUT])
 
 
-def max_mtime(paths):
-    latest = 0
-    for root in paths:
-        if root.is_file():
-            latest = max(latest, root.stat().st_mtime_ns)
-        elif root.is_dir():
-            for dirpath, dirnames, filenames in os.walk(root):
-                dirnames[:] = [d for d in dirnames if d not in (".godot", "bin", "__pycache__")]
-                for name in filenames:
-                    latest = max(latest, Path(dirpath, name).stat().st_mtime_ns)
-    return latest
+def project_build_stamp(godot):
+    """Fingerprint of every input and compiled script of PROJECT, so a
+    single-group run rebuilds when any project file, scene or binary changes,
+    including deletions."""
+    bin_dir = PROJECT / "bin"
+    editor_libs = sorted(p for p in bin_dir.glob("*editor*") if p.is_file()) if bin_dir.is_dir() else []
+    godot_bin = Path(shutil.which(godot) or godot)
+    if not editor_libs or not (PROJECT / ".godot" / "imported").is_dir():
+        return None
+    try:
+        godot_stat = godot_bin.stat()
+        lib_stats = [(lib.name, lib.stat()) for lib in editor_libs]
+    except OSError:
+        return None
 
+    digest = hashlib.sha256()
+    digest.update(f"godot:{godot_bin.resolve()}:{godot_stat.st_mtime_ns}:{godot_stat.st_size}\0".encode())
+    for name, stat in lib_stats:
+        digest.update(f"lib:{name}:{stat.st_mtime_ns}:{stat.st_size}\0".encode())
 
-def project_bytecode_current():
-    """Whether every script of PROJECT already has current compiled bytecode,
-    so a single-group run need not open the editor to rebuild."""
-    header = ROOT / "gen" / "format_id.gen.h"
-    if not header.is_file() or not (PROJECT / ".godot" / "imported").is_dir():
-        return False
-    match = re.search(r"FORMAT_ID = 0x([0-9a-fA-F]+)ull;", header.read_text(encoding="utf-8"))
-    if not match:
-        return False
-    expected = b"PETC" + struct.pack("<Q", int(match.group(1), 16))
-    inputs_mtime = max_mtime([
-        PROJECT,
-        ROOT / "src" / "bytecode",
-        ROOT / "src" / "compiler",
-        ROOT / "src" / "adapter" / "editor",
-        ROOT / "gen",
-    ])
-    scripts = [p for p in PROJECT.rglob("*.pet") if ".godot" not in p.parts]
+    for source_dir in ("src/bytecode", "src/compiler", "src/adapter/editor", "gen"):
+        base = ROOT / source_dir
+        if base.is_dir():
+            for dirpath, dirnames, filenames in os.walk(base):
+                dirnames.sort()
+                for name in sorted(filenames):
+                    full = Path(dirpath, name)
+                    stat = full.stat()
+                    rel = full.relative_to(ROOT).as_posix()
+                    digest.update(f"src:{rel}:{stat.st_mtime_ns}:{stat.st_size}\0".encode())
+
+    scripts = []
+    for dirpath, dirnames, filenames in os.walk(PROJECT):
+        dirnames[:] = sorted(d for d in dirnames if d not in (".godot", "bin", "__pycache__"))
+        for name in sorted(filenames):
+            full = Path(dirpath, name)
+            rel = full.relative_to(PROJECT).as_posix()
+            data = full.read_bytes()
+            digest.update(f"proj:{rel}:{len(data)}\0".encode())
+            digest.update(data)
+            if rel.endswith(".pet"):
+                scripts.append(rel)
+
     if not scripts:
-        return False
-    for script in scripts:
-        petc = PROJECT / ".godot" / "petrichor" / (script.relative_to(PROJECT).as_posix() + "c")
+        return None
+    for rel in scripts:
+        petc = PROJECT / ".godot" / "petrichor" / (rel + "c")
         try:
-            if petc.stat().st_mtime_ns < inputs_mtime:
-                return False
-            with petc.open("rb") as file:
-                if file.read(12) != expected:
-                    return False
+            data = petc.read_bytes()
         except OSError:
-            return False
-    return True
+            return None
+        digest.update(f"petc:{rel}:{len(data)}\0".encode())
+        digest.update(data)
+
+    return digest.hexdigest()
+
+
+def project_bytecode_current(godot):
+    """Whether PROJECT and its compiled bytecode match the last clean build."""
+    try:
+        recorded = BUILD_STAMP.read_text(encoding="utf-8").strip()
+    except OSError:
+        return False
+    return bool(recorded) and project_build_stamp(godot) == recorded
 
 
 def template_library_current():
     """Whether the template_debug library is built from the current sources;
     scons -q only answers, without building."""
-    library = PROJECT / "bin" / TEMPLATE_LIBRARY
-    godot_cpp_lib = ROOT / "thirdparty" / "godot-cpp" / "bin" / "libgodot-cpp.windows.template_debug.x86_64.lib"
-    if library.is_file() and godot_cpp_lib.is_file():
-        inputs = [
-            ROOT / "SConstruct",
-            godot_cpp_lib,
-            ROOT / "gen",
-            ROOT / "src" / "bytecode",
-            ROOT / "src" / "runtime",
-            *(p for p in (ROOT / "src" / "adapter").glob("*") if p.is_file()),
-        ]
-        if library.stat().st_mtime_ns >= max_mtime(inputs):
-            return True
     scons = shutil.which("scons")
     return scons is not None and subprocess.run([scons, "target=template_debug", "-q"], cwd=ROOT, capture_output=True).returncode == 0
 
