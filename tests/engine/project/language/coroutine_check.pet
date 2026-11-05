@@ -90,3 +90,14 @@ pub func start_failure() -> Task[int]:
 
 pub func emit_wrong(other: CoroutineBridge):
 	other.emit_wrong(tick)
+
+# Freeing an object on another thread waits for none of the tasks of others,
+# this running one among them.
+pub async func join_freeing_thread() -> bool:
+	var thread := Thread.new()
+	thread.start(free_ref)
+	thread.wait_to_finish()
+	return true
+
+func free_ref():
+	var r := CoroutineRef.new()

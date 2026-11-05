@@ -147,6 +147,7 @@ Ref<CoroutineTask> start_task(const std::shared_ptr<const ClassImage> &p_image, 
 	Ref<CoroutineTask> task;
 	task.instantiate();
 	task->owner_id = p_context.owner ? uint64_t(p_context.owner->get_instance_id()) : 0;
+	task->owner_storage = p_context.storage.get();
 	task->result_signature = p_result_key ? *p_result_key : p_image->types[fn.result.type].result_key;
 	task->continuation = std::make_shared<CoroutineFrame>(p_image, p_function, p_context, task.ptr());
 	for (const auto &param : fn.params) {
@@ -2423,9 +2424,9 @@ namespace tasks {
 void cancel_owner(const std::shared_ptr<InstanceStorage> &p_storage) {
 	p_storage->coroutines_cancelled = true;
 	for (const auto &task : task_snapshot()) {
-		std::unique_lock<std::recursive_mutex> lock(task->mutex);
-		if (task->continuation && task->continuation->context.storage == p_storage) {
-			lock.unlock();
+		// An ended task's object may be gone and its address reused; cancelling
+		// an ended task does nothing.
+		if (task->owner_storage == p_storage.get()) {
 			task->cancel_owner();
 		}
 	}
@@ -2433,7 +2434,12 @@ void cancel_owner(const std::shared_ptr<InstanceStorage> &p_storage) {
 void frame() {
 	++task_frame;
 	for (const auto &task : task_snapshot()) {
-		std::unique_lock<std::recursive_mutex> lock(task->mutex);
+		// A task locked on another thread may be running there, and waiting for
+		// it could deadlock; a later frame looks again.
+		std::unique_lock<std::recursive_mutex> lock(task->mutex, std::try_to_lock);
+		if (!lock.owns_lock()) {
+			continue;
+		}
 		const auto frame = task->continuation;
 		if (!frame || !frame->awaited_freed || task->ended()) {
 			continue;

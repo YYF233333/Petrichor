@@ -32,6 +32,9 @@ public:
 	std::atomic<bool> cancel_requested{ false };
 	std::atomic<bool> owner_freed{ false };
 	uint64_t owner_id = 0;
+	// Set before the task is listed and never changed, so that freeing an
+	// object finds its tasks without waiting for the locks of others.
+	const InstanceStorage *owner_storage = nullptr;
 	std::atomic<uint64_t> owner_freed_frame{ 0 };
 	godot::Variant result; // Written before the state says Finished.
 	std::string result_signature;

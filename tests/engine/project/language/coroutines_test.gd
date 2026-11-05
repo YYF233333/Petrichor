@@ -194,4 +194,8 @@ func run(p_errors: ErrorLog) -> int:
 	await get_tree().process_frame
 	check(results == [null], "same-frame sibling deletion cancels silently")
 	expect_errors([], "same-frame deletion has no error")
+	c = CoroutineCheck.new()
+	add_child(c)
+	check(await c.join_freeing_thread(), "freeing on another thread waits for no other task")
+	c.free()
 	return failures
