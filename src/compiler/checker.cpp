@@ -4998,7 +4998,8 @@ class Checker : public ClassRelation {
 			const std::string name = enum_spelling(p_to.unwrapped());
 			message += " Convert explicitly with " + name + "(x), which checks that it is one of the values (spec §3.7).";
 		}
-		if (p_to.kind == TypeKind::Variant && is_typed_container(p_from) && is_boxed(p_from)) {
+		const bool untyped_view = p_to.kind == TypeKind::Builtin && p_to.args.empty() && p_to.name == p_from.name;
+		if ((p_to.kind == TypeKind::Variant || untyped_view) && is_typed_container(p_from) && is_boxed(p_from)) {
 			message += " Its elements exist only in this language; convert it explicitly with " + p_from.name + "(x), a copy with the elements encoded (spec §3.8).";
 		}
 		if (p_from.kind == TypeKind::Variant) {

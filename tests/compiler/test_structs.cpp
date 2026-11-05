@@ -72,7 +72,8 @@ TEST_CASE("containers of structs") {
 	CHECK(contains(errors("var hits: Array[Hit] = []\nprint(hits)"), "convert it explicitly with Array(x)"));
 	// A copy keeps its boxes, so it keeps its type too.
 	CHECK(errors("var hits: Array[Hit] = []\nvar c: Array[Hit] = hits.duplicate_deep()").empty());
-	CHECK(contains(errors("var hits: Array[Hit] = []\nvar u: Array = hits.duplicate_deep()"), "of type Array[Shots.Hit] as Array"));
+	CHECK(contains(errors("var hits: Array[Hit] = []\nvar u: Array = hits.duplicate_deep()"), "as Array. Its elements exist only in this language; convert it explicitly with Array(x)"));
+	CHECK(contains(errors("var keyed: Dictionary[Hit, int] = {}\nvar u: Dictionary = keyed"), "convert it explicitly with Dictionary(x)"));
 	CHECK(contains(errors("pass", "@export var hits: Array[Settings] = []\n\n"), "cannot be exported"));
 	const compiler::CompileResult result = compile(std::string("extends Node\n\n") + HIT + "func f(a: Hit) -> int:\n\tvar hits: Array[Hit] = [a]\n\tvar keyed: Dictionary[Hit, int] = {a: 1}\n\tvar s: Array[Settings] = []\n\ts.resize(2)\n\tvar u: Array = Array(hits)\n\treturn keyed[hits[0]]\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
