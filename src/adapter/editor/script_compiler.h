@@ -31,4 +31,11 @@ int build_project(int *r_script_count = nullptr);
 // compiled script may change with it.
 void engine_classes_changed();
 
+// The errors of the script from `p_source`, as of the last change to the
+// project, for the nodes that the scene dock asks at each of its updates
+// (spec §13.2).
+std::vector<compiler::Diagnostic> scene_errors(const godot::String &p_path, const godot::String &p_source);
+// A file of the project was saved or changed: the nodes ask again.
+void project_changed();
+
 } // namespace petrichor

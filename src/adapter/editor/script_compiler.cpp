@@ -4,6 +4,7 @@
 #include "adapter/editor/project_files.h"
 #include "adapter/editor/scene_index.h"
 #include "adapter/pet_compiled.h"
+#include "adapter/pet_script.h"
 #include "compiler/analysis.h"
 #include "runtime/text.h"
 
@@ -12,6 +13,8 @@
 #include <godot_cpp/godot.hpp>
 
 #include <algorithm>
+#include <map>
+#include <mutex>
 #include <optional>
 #include <vector>
 
@@ -124,6 +127,53 @@ int build_project(int *r_script_count) {
 void engine_classes_changed() {
 	ClassDBApi::extensions_changed();
 	analysis().clear();
+	project_changed();
+}
+
+namespace {
+
+struct SceneErrors {
+	uint64_t change = 0;
+	uint64_t source_hash = 0;
+	std::vector<compiler::Diagnostic> errors;
+};
+
+std::mutex scene_errors_mutex;
+uint64_t project_change = 1;
+std::map<std::string, SceneErrors> scene_errors_of;
+
+} // namespace
+
+std::vector<compiler::Diagnostic> scene_errors(const String &p_path, const String &p_source) {
+	const std::string path = to_utf8(p_path);
+	const std::string source = to_utf8(p_source);
+	const uint64_t source_hash = bytecode::hash_source(source);
+	uint64_t change;
+	{
+		std::lock_guard<std::mutex> lock(scene_errors_mutex);
+		change = project_change;
+		const auto found = scene_errors_of.find(path);
+		if (found != scene_errors_of.end() && found->second.change == change && found->second.source_hash == source_hash) {
+			return found->second.errors;
+		}
+	}
+	std::vector<compiler::Diagnostic> errors;
+	{
+		const SceneIndex::Pass pass;
+		const compiler::Analysis::Pass analysis_pass(analysis());
+		errors = analysis().compile(path, source)->errors;
+	}
+	std::lock_guard<std::mutex> lock(scene_errors_mutex);
+	scene_errors_of[path] = { change, source_hash, errors };
+	return errors;
+}
+
+void project_changed() {
+	{
+		std::lock_guard<std::mutex> lock(scene_errors_mutex);
+		project_change++;
+	}
+	PetScript::update_warnings();
 }
 
 } // namespace petrichor

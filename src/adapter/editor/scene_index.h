@@ -69,6 +69,10 @@ public:
 	std::optional<std::string> script_source(const std::string &p_path) const override;
 	std::optional<compiler::ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override;
 
+	// The editor saved the scene: it and the scenes that instance it are read
+	// again, also within the second their modification times keep.
+	void forget(const std::string &p_path) const;
+
 	static const SceneIndex &get();
 };
 

@@ -1,6 +1,8 @@
 #include "adapter/editor/pet_editor_plugin.h"
 
+#include "adapter/editor/scene_index.h"
 #include "adapter/editor/script_compiler.h"
+#include "runtime/text.h"
 
 #include <godot_cpp/classes/editor_file_system.hpp>
 #include <godot_cpp/classes/editor_interface.hpp>
@@ -46,9 +48,29 @@ void PetExportPlugin::_export_file(const String &p_path, const String &p_type, c
 void PetEditorPlugin::_enter_tree() {
 	export_plugin.instantiate();
 	add_export_plugin(export_plugin);
+	// editor/plugins/editor_plugin.cpp:284-289 (ed1daf0).
+	connect("resource_saved", callable_mp(this, &PetEditorPlugin::resource_saved));
+	connect("scene_saved", callable_mp(this, &PetEditorPlugin::scene_saved));
+	EditorInterface::get_singleton()->get_resource_filesystem()->connect("filesystem_changed", callable_mp(this, &PetEditorPlugin::filesystem_changed));
 	if (OS::get_singleton()->get_cmdline_user_args().has("--petrichor-build")) {
 		callable_mp(this, &PetEditorPlugin::run_build_command).call_deferred();
 	}
+}
+
+void PetEditorPlugin::resource_saved(Object *p_resource) {
+	if (const Resource *resource = Object::cast_to<Resource>(p_resource)) {
+		SceneIndex::get().forget(to_utf8(resource->get_path()));
+	}
+	project_changed();
+}
+
+void PetEditorPlugin::scene_saved(const String &p_path) {
+	SceneIndex::get().forget(to_utf8(p_path));
+	project_changed();
+}
+
+void PetEditorPlugin::filesystem_changed() {
+	project_changed();
 }
 
 void PetEditorPlugin::_exit_tree() {

@@ -217,6 +217,18 @@ SceneIndex::Pass::~Pass() {
 	}
 }
 
+void SceneIndex::forget(const std::string &p_path) const {
+	std::lock_guard<std::mutex> lock(mutex);
+	for (auto entry = scenes.begin(); entry != scenes.end();) {
+		const auto &instanced = entry->second->instanced;
+		if (entry->first == p_path || std::any_of(instanced.begin(), instanced.end(), [&](const auto &p_scene) { return p_scene.first == p_path; })) {
+			entry = scenes.erase(entry);
+		} else {
+			++entry;
+		}
+	}
+}
+
 std::vector<compiler::Scene> SceneIndex::scenes_where(const std::function<bool(const compiler::SceneNode &)> &p_uses) const {
 	const Pass pass;
 	if (!snapshot->listed) {

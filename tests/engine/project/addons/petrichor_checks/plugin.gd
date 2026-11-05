@@ -45,6 +45,7 @@ func _run() -> void:
 	_check_other_defaults()
 	_check_inheritance_recovery()
 	await _check_instanced_scene_change()
+	await _check_scene_marks()
 	await _check_undo_merge()
 
 	print("editor check: %d failure(s)" % failures)
@@ -227,6 +228,54 @@ func _write(path: String, text: String) -> void:
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	file.store_string(text)
 	file.close()
+
+
+# Spec §13.2: an error in how a scene uses a script is marked on the node that
+# has it, in the scene dock, and goes once the scene is fixed and saved.
+func _check_scene_marks() -> void:
+	var scene_path := "res://editor_marks.tscn"
+	var script_path := "res://editor_marks.pet"
+	_write(script_path, "extends Node\n\nfunc show_label():\n\t$Label.text = \"shown\"\n")
+	_write(scene_path, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Marks" type="Node"]\nscript = ExtResource("1")\n' % script_path)
+	EditorInterface.open_scene_from_path(scene_path)
+	await get_tree().process_frame
+	var root := EditorInterface.get_edited_scene_root()
+	if root == null or root.name != &"Marks":
+		_check(false, "the scene with a missing node opens")
+		return
+	var mark := 'has no node at "Label"'
+	_check("\n".join(root.call("_get_configuration_warnings")).contains(mark), "the node whose script uses $Label is marked")
+	await get_tree().process_frame
+	_check(_dock_tooltips(root).contains(mark), "the scene dock shows the mark")
+
+	# Saved within the second the scene was written, which its modification
+	# time does not tell apart.
+	var label := Label.new()
+	label.name = "Label"
+	root.add_child(label)
+	label.owner = root
+	EditorInterface.save_scene()
+	await get_tree().process_frame
+	# Headless, the scene's thumbnail has no texture
+	# (servers/rendering/dummy/storage/texture_storage.h:108-111; ed1daf0).
+	_check_errors(['Parameter "t" is null.'], "saving the scene reports only its missing thumbnail")
+	_check(root.call("_get_configuration_warnings").is_empty(), "the mark goes once the scene has the node and is saved")
+	_check(not _dock_tooltips(root).contains(mark), "the scene dock no longer shows it")
+
+	EditorInterface.close_scene()
+	for file in [scene_path, script_path, script_path + ".uid", "res://.godot/petrichor/editor_marks.petc"]:
+		DirAccess.remove_absolute(file)
+
+
+# The tooltips of the buttons on the node's item in the scene dock.
+func _dock_tooltips(node: Node) -> String:
+	var dock: Node = EditorInterface.get_base_control().find_children("*", "SceneTreeDock", true, false)[0]
+	var tree: Tree = dock.get_tree_editor().find_children("*", "Tree", true, false)[0]
+	var item := _find_item(tree.get_root(), node.get_path())
+	var tooltips := PackedStringArray()
+	for i in item.get_button_count(0) if item else 0:
+		tooltips.append(item.get_button_tooltip_text(0, i))
+	return "\n".join(tooltips)
 
 
 # Spec §13.3: after the editor commits a rename or a move, an action with the

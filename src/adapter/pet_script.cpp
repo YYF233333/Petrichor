@@ -3,6 +3,7 @@
 #include "adapter/pet_compiled.h"
 #include "adapter/pet_instance.h"
 #include "adapter/pet_language.h"
+#include "adapter/pet_placeholder.h"
 #include "runtime/text.h"
 
 #ifdef TOOLS_ENABLED
@@ -16,6 +17,7 @@
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/core/class_db.hpp>
@@ -630,27 +632,31 @@ int PetScript::find_visible_function(const ClassImage &p_image, const StringName
 	return index >= 0 && is_visible(p_image.module.functions[index]) ? index : -1;
 }
 
-void PetScript::update_placeholder(void *p_placeholder) const {
-	Array properties = _get_script_property_list();
-	Dictionary values;
-	if (const std::shared_ptr<const ClassImage> current = get_image()) {
-		for (size_t i = 0; i < current->module.members.size(); i++) {
-			const bytecode::Member &member = current->module.members[i];
-			if (is_visible(member) && member.has_initial) {
-				values[current->member_names[i]] = initial_value(*current, i);
-			}
-		}
-	}
-	gdextension_interface::placeholder_script_instance_update(p_placeholder, properties._native_ptr(), values._native_ptr());
-}
-
 bool PetScript::_editor_can_reload_from_file() {
 	return true;
 }
 
-void PetScript::_placeholder_erased(void *p_placeholder) {
+void PetScript::placeholder_freed(PetPlaceholder *p_placeholder) {
 	std::lock_guard<std::mutex> lock(mutex);
 	placeholders.erase(p_placeholder);
+}
+
+void PetScript::update_warnings() {
+	std::vector<uint64_t> owners;
+	{
+		std::lock_guard<std::mutex> lock(scripts_mutex);
+		for (PetScript *script : scripts) {
+			std::lock_guard<std::mutex> placeholders_lock(script->mutex);
+			for (PetPlaceholder *placeholder : script->placeholders) {
+				owners.push_back(placeholder->owner->get_instance_id());
+			}
+		}
+	}
+	for (const uint64_t owner : owners) {
+		if (Node *node = Object::cast_to<Node>(ObjectDB::get_instance(owner))) {
+			node->update_configuration_warnings();
+		}
+	}
 }
 
 bool PetScript::_can_instantiate() const {
@@ -727,13 +733,12 @@ void *PetScript::_instance_create(Object *p_for_object) const {
 }
 
 void *PetScript::_placeholder_instance_create(Object *p_for_object) const {
-	void *placeholder = gdextension_interface::placeholder_script_instance_create(PetLanguage::get_singleton()->_owner, _owner, p_for_object->_owner);
+	PetPlaceholder *placeholder = memnew(PetPlaceholder(const_cast<PetScript *>(this), p_for_object));
 	{
 		std::lock_guard<std::mutex> lock(mutex);
 		placeholders.insert(placeholder);
 	}
-	update_placeholder(placeholder);
-	return placeholder;
+	return gdextension_interface::script_instance_create3(&PetPlaceholder::info, placeholder);
 }
 
 bool PetScript::_has_source_code() const {
@@ -936,15 +941,15 @@ void PetScript::_update_exports() {
 	if (!get_image()) {
 		return; // The placeholders keep what they have (_is_placeholder_fallback_enabled()).
 	}
-	Vector<void *> targets;
+	Vector<PetPlaceholder *> targets;
 	{
 		std::lock_guard<std::mutex> lock(mutex);
-		for (void *placeholder : placeholders) {
+		for (PetPlaceholder *placeholder : placeholders) {
 			targets.push_back(placeholder);
 		}
 	}
-	for (void *placeholder : targets) {
-		update_placeholder(placeholder);
+	for (PetPlaceholder *placeholder : targets) {
+		placeholder->update(true);
 	}
 }
 

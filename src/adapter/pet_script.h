@@ -13,6 +13,7 @@
 namespace petrichor {
 
 struct PetInstance;
+struct PetPlaceholder;
 
 // The class header: `class_name`, `extends` and `@icon`, read without
 // compiling, for the editor's global class list.
@@ -52,9 +53,8 @@ class PetScript : public godot::ScriptExtension {
 
 	mutable std::mutex mutex;
 	mutable godot::HashSet<PetInstance *> instances;
-	mutable godot::HashSet<void *> placeholders;
+	mutable godot::HashSet<PetPlaceholder *> placeholders;
 
-	void update_placeholder(void *p_placeholder) const;
 	void update_inner_scripts(const std::shared_ptr<const ClassImage> &p_image);
 
 protected:
@@ -78,6 +78,10 @@ public:
 	PetScript();
 	~PetScript();
 	void instance_freed(PetInstance *p_instance);
+	void placeholder_freed(PetPlaceholder *p_placeholder);
+	// The nodes in the editor with a script of this language ask again for the
+	// errors marked on them.
+	static void update_warnings();
 	// The instance of this script on the object; null for a placeholder.
 	PetInstance *find_instance(godot::Object *p_object) const;
 
@@ -93,7 +97,6 @@ public:
 	godot::Variant _new(const godot::Variant **p_args, GDExtensionInt p_argcount, GDExtensionCallError &r_error);
 
 	bool _editor_can_reload_from_file() override;
-	void _placeholder_erased(void *p_placeholder) override;
 	bool _can_instantiate() const override;
 	godot::Ref<godot::Script> _get_base_script() const override;
 	godot::StringName _get_global_name() const override;
