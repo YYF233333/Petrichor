@@ -1,17 +1,25 @@
 #include "adapter/editor/pet_editor_plugin.h"
 
+#include "adapter/editor/project_files.h"
 #include "adapter/editor/scene_index.h"
 #include "adapter/editor/script_compiler.h"
+#include "adapter/pet_script.h"
+#include "compiler/formatter.h"
 #include "runtime/text.h"
 
+#include <godot_cpp/classes/code_edit.hpp>
 #include <godot_cpp/classes/editor_file_system.hpp>
 #include <godot_cpp/classes/editor_interface.hpp>
+#include <godot_cpp/classes/editor_toaster.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
+#include <godot_cpp/classes/script_editor.hpp>
 #include <godot_cpp/core/error_macros.hpp>
+#include <godot_cpp/godot.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
+#include <algorithm>
 #include <cstring>
 
 using namespace godot;
@@ -45,15 +53,56 @@ void PetExportPlugin::_export_file(const String &p_path, const String &p_type, c
 	add_file(p_path.get_basename() + ".petc", bytes, true);
 }
 
+void PetFormatMenu::_popup_menu(const PackedStringArray &p_paths) {
+	// The path given is the code editor's node, not the script's
+	// (editor/script/script_text_editor.cpp:2600-2601; ed1daf0).
+	const Ref<Script> script = EditorInterface::get_singleton()->get_script_editor()->get_current_script();
+	if (Object::cast_to<PetScript>(script.ptr())) {
+		add_context_menu_item("Format", callable_mp(this, &PetFormatMenu::format));
+	}
+}
+
+void PetFormatMenu::format(Object *p_code_edit) {
+	CodeEdit *code_edit = Object::cast_to<CodeEdit>(p_code_edit);
+	ERR_FAIL_NULL(code_edit);
+	const String text = code_edit->get_text();
+	std::string error;
+	const std::optional<std::string> result = compiler::format(to_utf8(text), &error);
+	if (!result) {
+		EditorInterface::get_singleton()->get_editor_toaster()->push_toast(String::utf8(error.c_str()), EditorToaster::SEVERITY_WARNING);
+		return;
+	}
+	const String formatted = String::utf8(result->data(), int64_t(result->size()));
+	if (formatted == text) {
+		return;
+	}
+	const int line = code_edit->get_caret_line();
+	const int column = code_edit->get_caret_column();
+	const double scroll = code_edit->get_v_scroll();
+	// A single step to undo.
+	code_edit->begin_complex_operation();
+	code_edit->select_all();
+	code_edit->insert_text_at_caret(formatted);
+	code_edit->end_complex_operation();
+	code_edit->set_caret_line(std::min(line, code_edit->get_line_count() - 1));
+	code_edit->set_caret_column(column);
+	code_edit->set_v_scroll(scroll);
+}
+
 void PetEditorPlugin::_enter_tree() {
 	export_plugin.instantiate();
 	add_export_plugin(export_plugin);
+	format_menu.instantiate();
+	add_context_menu_plugin(EditorContextMenuPlugin::CONTEXT_SLOT_SCRIPT_EDITOR_CODE, format_menu);
 	// editor/plugins/editor_plugin.cpp:284-289 (ed1daf0).
 	connect("resource_saved", callable_mp(this, &PetEditorPlugin::resource_saved));
 	connect("scene_saved", callable_mp(this, &PetEditorPlugin::scene_saved));
 	EditorInterface::get_singleton()->get_resource_filesystem()->connect("filesystem_changed", callable_mp(this, &PetEditorPlugin::filesystem_changed));
-	if (OS::get_singleton()->get_cmdline_user_args().has("--petrichor-build")) {
+	const PackedStringArray args = OS::get_singleton()->get_cmdline_user_args();
+	if (args.has("--petrichor-build")) {
 		callable_mp(this, &PetEditorPlugin::run_build_command).call_deferred();
+	} else if (args.has("--petrichor-format")) {
+		callable_mp(this, &PetEditorPlugin::run_format_command).call_deferred();
 	}
 }
 
@@ -74,6 +123,8 @@ void PetEditorPlugin::filesystem_changed() {
 }
 
 void PetEditorPlugin::_exit_tree() {
+	remove_context_menu_plugin(format_menu);
+	format_menu.unref();
 	remove_export_plugin(export_plugin);
 	export_plugin.unref();
 }
@@ -83,12 +134,19 @@ bool PetEditorPlugin::_build() {
 	return build_project() == 0;
 }
 
+// The first scan imports the project, and lasts until its imports are done
+// (editor/file_system/editor_file_system.cpp:1131-1137, 1838-1840), so a
+// command on a fresh copy runs once it ends.
+bool PetEditorPlugin::waits_for_scan(void (PetEditorPlugin::*p_command)()) {
+	if (!EditorInterface::get_singleton()->get_resource_filesystem()->is_scanning()) {
+		return false;
+	}
+	get_tree()->connect("process_frame", callable_mp(this, p_command), CONNECT_ONE_SHOT);
+	return true;
+}
+
 void PetEditorPlugin::run_build_command() {
-	// The first scan imports the project, and lasts until its imports are done
-	// (editor/file_system/editor_file_system.cpp:1131-1137, 1838-1840), so a
-	// fresh copy builds in the same run.
-	if (EditorInterface::get_singleton()->get_resource_filesystem()->is_scanning()) {
-		get_tree()->connect("process_frame", callable_mp(this, &PetEditorPlugin::run_build_command), CONNECT_ONE_SHOT);
+	if (waits_for_scan(&PetEditorPlugin::run_build_command)) {
 		return;
 	}
 	int count = 0;
@@ -96,6 +154,51 @@ void PetEditorPlugin::run_build_command() {
 	UtilityFunctions::print(vformat("petrichor build: %d script(s), %d with errors", count, failed));
 	// A non-zero exit code on compile errors (spec §13.1).
 	get_tree()->quit(failed > 0 ? 1 : 0);
+}
+
+void PetEditorPlugin::run_format_command() {
+	if (waits_for_scan(&PetEditorPlugin::run_format_command)) {
+		return;
+	}
+	const bool check = OS::get_singleton()->get_cmdline_user_args().has("--check");
+	const PackedStringArray paths = project_files(PackedStringArray({ "pet" }));
+	int changed = 0;
+	int failed = 0;
+	for (const String &path : paths) {
+		// As bytes, which keeps the file's line breaks.
+		const PackedByteArray bytes = FileAccess::get_file_as_bytes(path);
+		const std::string source = bytes.is_empty() ? std::string() : std::string(reinterpret_cast<const char *>(bytes.ptr()), size_t(bytes.size()));
+		std::string error;
+		const std::optional<std::string> result = compiler::format(source, &error);
+		if (!result) {
+			failed++;
+			const CharString file = path.utf8();
+			gdextension_interface::print_script_error(error.c_str(), "", file.get_data(), 0, false);
+			continue;
+		}
+		if (*result == source) {
+			continue;
+		}
+		changed++;
+		if (check) {
+			UtilityFunctions::print(vformat("%s is not formatted.", path));
+			continue;
+		}
+		const Ref<FileAccess> file = FileAccess::open(path, FileAccess::WRITE);
+		if (file.is_null()) {
+			failed++;
+			ERR_PRINT(vformat("Cannot write %s.", path));
+			continue;
+		}
+		PackedByteArray data;
+		data.resize(int64_t(result->size()));
+		if (!result->empty()) {
+			std::memcpy(data.ptrw(), result->data(), result->size());
+		}
+		file->store_buffer(data);
+	}
+	UtilityFunctions::print(vformat("petrichor format: %d script(s), %d %s, %d with errors", int(paths.size()), changed, check ? "not formatted" : "formatted", failed));
+	get_tree()->quit(failed > 0 || (check && changed > 0) ? 1 : 0);
 }
 
 } // namespace petrichor

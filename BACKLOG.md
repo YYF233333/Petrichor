@@ -45,7 +45,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 ## Editor
 
 - References from scenes for the keys of exported properties (architecture §2.1), once the scene index reads the values scenes give properties; now only the methods of signal connections are.
-- The formatter (spec §13.2, architecture §2.1).
 - The warnings of spec §7.2 and §7.6: a literal `get_node_or_null` path that no scene has, a scene that nothing references lacking a node, and writes to a resource known to be shared.
 - Compiled bytecode is checked against its own source only, so a game run from the command line without a build keeps old bytecode after a change to a scene or to a script it uses, and only the runtime checks (signatures, `$X` classes) catch the difference; the analysis knows what each script read (architecture §2.1) but keeps it only in the editor's memory.
 - The scene index: read scenes unsaved in the editor, which are marked as last saved (architecture §2.4); check whether it handles autoloads that are scenes.

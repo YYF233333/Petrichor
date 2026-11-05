@@ -15,6 +15,7 @@ const compiler::EngineApi &fake_engine() {
 
 compiler::CompileResult compile(const std::string &p_source) {
 	check_syntax_conventions(p_source);
+	check_formatting(p_source);
 	compiler::CompileResult result = compiler::compile(p_source, fake_engine());
 	if (result.ok()) {
 		check_references(p_source, fake_engine(), compiler::CompileOptions());
@@ -132,6 +133,7 @@ compiler::CompileResult compile_in(const std::string &p_source, const FakeProjec
 	options.project = &p_project;
 	options.declarations_only = p_declarations_only;
 	check_syntax_conventions(p_source);
+	check_formatting(p_source);
 	compiler::CompileResult result = compiler::compile(p_source, fake_engine(), options);
 	if (result.ok()) {
 		check_references(p_source, fake_engine(), options);

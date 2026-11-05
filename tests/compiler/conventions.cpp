@@ -1,6 +1,7 @@
 #include "conventions.h"
 
 #include "compiler/checker.h"
+#include "compiler/formatter.h"
 #include "compiler/parser.h"
 #include "compiler/script_classes.h"
 #include "doctest.h"
@@ -498,6 +499,20 @@ void check_references(const std::string &p_source, const EngineApi &p_engine, co
 	const ResolvedNames resolved(cls, file);
 	for (const auto &[token, what] : resolved.all()) {
 		CHECK_MESSAGE(places.count({ file.tokens[token].offset, file.tokens[token].end() }), "the ", what, " has no reference in:\n", p_source);
+	}
+}
+
+void check_formatting(const std::string &p_source) {
+	std::vector<Diagnostic> errors;
+	parse(p_source, errors);
+	if (!errors.empty()) {
+		return;
+	}
+	std::string error;
+	const std::optional<std::string> formatted = format(p_source, &error);
+	CHECK_MESSAGE(formatted, error, " Formatting:\n", p_source);
+	if (formatted) {
+		CHECK_MESSAGE(format(*formatted) == formatted, "formatting again changes:\n", *formatted);
 	}
 }
 

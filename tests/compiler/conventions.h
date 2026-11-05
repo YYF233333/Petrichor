@@ -18,6 +18,10 @@ void check_syntax_conventions(const std::string &p_source);
 // in the syntax tree (architecture §3).
 void check_recovery(const std::string &p_source, const std::function<void(const std::string &)> &p_compile);
 
+// Formatting a source without syntax errors succeeds, which keeps its tokens
+// and comments, and formatting the result changes nothing (spec §13.2).
+void check_formatting(const std::string &p_source);
+
 // For a source that compiles: each reference in it spells the name of what it
 // refers to, and every name the checker resolved and every declaration has
 // one (architecture §2.1, §3).

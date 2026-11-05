@@ -1,5 +1,6 @@
 #pragma once
 
+#include <godot_cpp/classes/editor_context_menu_plugin.hpp>
 #include <godot_cpp/classes/editor_export_plugin.hpp>
 #include <godot_cpp/classes/editor_plugin.hpp>
 
@@ -17,16 +18,33 @@ public:
 	void _export_file(const godot::String &p_path, const godot::String &p_type, const godot::PackedStringArray &p_features) override;
 };
 
+// Formats the script in the script editor from its context menu (spec §13.2).
+class PetFormatMenu : public godot::EditorContextMenuPlugin {
+	GDCLASS(PetFormatMenu, godot::EditorContextMenuPlugin);
+
+	void format(godot::Object *p_code_edit);
+
+protected:
+	static void _bind_methods() {}
+
+public:
+	void _popup_menu(const godot::PackedStringArray &p_paths) override;
+};
+
 // Compiles the project before it runs (architecture §2.4), provides the
-// headless build command (spec §13.1):
+// headless commands (spec §13.1, §13.2):
 //   godot --headless -e --path <project> -- --petrichor-build
+//   godot --headless -e --path <project> -- --petrichor-format [--check]
 // and has the nodes ask again for their errors when a file changes.
 class PetEditorPlugin : public godot::EditorPlugin {
 	GDCLASS(PetEditorPlugin, godot::EditorPlugin);
 
 	godot::Ref<PetExportPlugin> export_plugin;
+	godot::Ref<PetFormatMenu> format_menu;
 
+	bool waits_for_scan(void (PetEditorPlugin::*p_command)());
 	void run_build_command();
+	void run_format_command();
 	void resource_saved(godot::Object *p_resource);
 	void scene_saved(const godot::String &p_path);
 	void filesystem_changed();
