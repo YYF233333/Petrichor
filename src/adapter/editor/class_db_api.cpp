@@ -76,6 +76,52 @@ const ClassDBApi &ClassDBApi::get() {
 	return api;
 }
 
+void ClassDBApi::extensions_changed() {
+	const ClassDBApi &api = get();
+	std::lock_guard<std::mutex> lock(api.mutex);
+	api.classes.clear();
+}
+
+std::shared_ptr<const ClassDBApi::Members> ClassDBApi::members(const std::string &p_class) const {
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		const auto found = classes.find(p_class);
+		if (found != classes.end()) {
+			return found->second;
+		}
+	}
+	ClassDBSingleton *db = ClassDBSingleton::get_singleton();
+	const StringName cls = to_godot(p_class);
+	if (p_class.empty() || !db->class_exists(cls)) {
+		return nullptr;
+	}
+	// Built without the lock: the types of members look up enums.
+	const std::shared_ptr<Members> result = std::make_shared<Members>();
+	result->parent = to_utf8(db->get_parent_class(cls));
+	const TypedArray<Dictionary> methods = db->class_get_method_list(cls, true);
+	for (int64_t i = 0; i < methods.size(); i++) {
+		const Dictionary info = methods[i];
+		result->methods.emplace(to_utf8(info.get("name", String())), method_of(info, p_class));
+	}
+	const TypedArray<Dictionary> properties = db->class_get_property_list(cls, true);
+	for (int64_t i = 0; i < properties.size(); i++) {
+		const Dictionary info = properties[i];
+		const uint32_t usage = uint32_t(int(info.get("usage", 0)));
+		if (usage & (PROPERTY_USAGE_GROUP | PROPERTY_USAGE_SUBGROUP | PROPERTY_USAGE_CATEGORY)) {
+			continue;
+		}
+		const String name = info.get("name", String());
+		EngineProperty property;
+		property.name = to_utf8(name);
+		property.owner = p_class;
+		property.type = type_of(info, false); // A property is never void.
+		property.writable = db->class_get_property_setter(cls, name) != StringName();
+		result->properties.emplace(property.name, property);
+	}
+	std::lock_guard<std::mutex> lock(mutex);
+	return classes.emplace(p_class, result).first->second;
+}
+
 bool ClassDBApi::class_exists(const std::string &p_class) const {
 	return ClassDBSingleton::get_singleton()->class_exists(to_godot(p_class));
 }
@@ -85,15 +131,10 @@ std::string ClassDBApi::parent_class(const std::string &p_class) const {
 }
 
 std::optional<EngineMethod> ClassDBApi::find_method(const std::string &p_class, const std::string &p_method) const {
-	ClassDBSingleton *db = ClassDBSingleton::get_singleton();
-	const StringName method_name = to_godot(p_method);
-	for (StringName cls = to_godot(p_class); cls != StringName(); cls = db->get_parent_class(cls)) {
-		const TypedArray<Dictionary> methods = db->class_get_method_list(cls, true);
-		for (int64_t i = 0; i < methods.size(); i++) {
-			const Dictionary info = methods[i];
-			if (StringName(info.get("name", String())) == method_name) {
-				return method_of(info, to_utf8(cls));
-			}
+	for (std::shared_ptr<const Members> cls = members(p_class); cls; cls = members(cls->parent)) {
+		const auto found = cls->methods.find(p_method);
+		if (found != cls->methods.end()) {
+			return found->second;
 		}
 	}
 	return std::nullopt;
@@ -159,25 +200,10 @@ bool ClassDBApi::is_singleton(const std::string &p_class) const {
 }
 
 std::optional<EngineProperty> ClassDBApi::find_property(const std::string &p_class, const std::string &p_property) const {
-	ClassDBSingleton *db = ClassDBSingleton::get_singleton();
-	const StringName property_name = to_godot(p_property);
-	for (StringName cls = to_godot(p_class); cls != StringName(); cls = db->get_parent_class(cls)) {
-		const TypedArray<Dictionary> properties = db->class_get_property_list(cls, true);
-		for (int64_t i = 0; i < properties.size(); i++) {
-			const Dictionary info = properties[i];
-			const uint32_t usage = uint32_t(int(info.get("usage", 0)));
-			if (usage & (PROPERTY_USAGE_GROUP | PROPERTY_USAGE_SUBGROUP | PROPERTY_USAGE_CATEGORY)) {
-				continue;
-			}
-			if (StringName(info.get("name", String())) != property_name) {
-				continue;
-			}
-			EngineProperty property;
-			property.name = p_property;
-			property.owner = to_utf8(cls);
-			property.type = type_of(info, false); // A property is never void.
-			property.writable = db->class_get_property_setter(cls, property_name) != StringName();
-			return property;
+	for (std::shared_ptr<const Members> cls = members(p_class); cls; cls = members(cls->parent)) {
+		const auto found = cls->properties.find(p_property);
+		if (found != cls->properties.end()) {
+			return found->second;
 		}
 	}
 	return std::nullopt;

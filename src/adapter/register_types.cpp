@@ -11,9 +11,11 @@
 #endif
 
 #ifdef TOOLS_ENABLED
+#include "adapter/editor/class_db_api.h"
 #include "adapter/editor/pet_editor_plugin.h"
 
 #include <godot_cpp/classes/editor_plugin_registration.hpp>
+#include <godot_cpp/classes/gd_extension_manager.hpp>
 #endif
 
 #include <gdextension_interface.h>
@@ -29,6 +31,28 @@ using namespace petrichor;
 static PetLanguage *language = nullptr;
 static Ref<PetResourceLoader> loader;
 static Ref<PetResourceSaver> saver;
+
+#ifdef TOOLS_ENABLED
+static void extension_changed(Object *p_extension) {
+	ClassDBApi::extensions_changed();
+}
+
+// core/extension/gdextension_manager.cpp:483-485 (ed1daf0).
+static void connect_extension_signals(bool p_connect) {
+	GDExtensionManager *extensions = GDExtensionManager::get_singleton();
+	const Callable changed = callable_mp_static(&extension_changed);
+	const Callable reloaded = callable_mp_static(&ClassDBApi::extensions_changed);
+	if (p_connect) {
+		extensions->connect("extension_loaded", changed);
+		extensions->connect("extension_unloading", changed);
+		extensions->connect("extensions_reloaded", reloaded);
+	} else {
+		extensions->disconnect("extension_loaded", changed);
+		extensions->disconnect("extension_unloading", changed);
+		extensions->disconnect("extensions_reloaded", reloaded);
+	}
+}
+#endif
 
 static void initialize_petrichor(ModuleInitializationLevel p_level) {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
@@ -60,11 +84,17 @@ static void initialize_petrichor(ModuleInitializationLevel p_level) {
 		GDREGISTER_INTERNAL_CLASS(PetExportPlugin);
 		GDREGISTER_INTERNAL_CLASS(PetEditorPlugin);
 		EditorPlugins::add_by_type<PetEditorPlugin>();
+		connect_extension_signals(true);
 	}
 #endif
 }
 
 static void uninitialize_petrichor(ModuleInitializationLevel p_level) {
+#ifdef TOOLS_ENABLED
+	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
+		connect_extension_signals(false);
+	}
+#endif
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
 		ResourceSaver::get_singleton()->remove_resource_format_saver(saver);
 		saver.unref();

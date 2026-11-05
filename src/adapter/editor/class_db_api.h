@@ -4,6 +4,10 @@
 
 #include <godot_cpp/variant/dictionary.hpp>
 
+#include <memory>
+#include <mutex>
+#include <unordered_map>
+
 namespace petrichor {
 
 // A property, argument or return value as the engine describes it.
@@ -14,6 +18,20 @@ compiler::EngineMethod method_of(const godot::Dictionary &p_info, const std::str
 // The compiler's view of the engine in the editor, read from ClassDB, so that
 // classes of other extensions and newer engines are included (architecture §2.1).
 class ClassDBApi : public compiler::EngineApi {
+	// A class's own methods and properties. ClassDB lists them only as
+	// Dictionaries, which a lookup by name would build for every member of every
+	// ancestor, so each class is listed once, until extensions change ClassDB.
+	struct Members {
+		std::string parent;
+		std::unordered_map<std::string, compiler::EngineMethod> methods;
+		std::unordered_map<std::string, compiler::EngineProperty> properties;
+	};
+	mutable std::mutex mutex;
+	mutable std::unordered_map<std::string, std::shared_ptr<const Members>> classes;
+
+	// Null for no class.
+	std::shared_ptr<const Members> members(const std::string &p_class) const;
+
 public:
 	bool class_exists(const std::string &p_class) const override;
 	std::string parent_class(const std::string &p_class) const override;
@@ -27,6 +45,8 @@ public:
 	compiler::Type constant_type(const std::string &p_class, const std::string &p_constant) const override;
 
 	static const ClassDBApi &get();
+	// When an extension loads, unloads or reloads, ClassDB changes.
+	static void extensions_changed();
 };
 
 } // namespace petrichor
