@@ -54,12 +54,14 @@ func max_hp_from(data: Variant) -> int?:
 - **有归属的协程。** `async func` 返回 `Task`；取消沿归属传播；等待的对象被释放时报错，而不是永远挂起（[§9](docs/language-spec.zh.md#9-协程)）。
 - **与 GDScript 共存。** 第三方插件保持 GDScript，GDScript 使用 Petrichor 类的实例时同样有静态检查（[§11](docs/language-spec.zh.md#11-与-gdscript-和-c-共存)）。
 
-每一条依赖引擎行为的规则，都注明了核对过的 Godot 源码位置（[附录 A](docs/language-spec.zh.md#附录-a引擎事实)）；能用真实代码回答的设计问题，都在 20 个 Godot 项目的代码上做了调查。
+每一条依赖引擎行为的规则，都注明了核对过的 Godot 源码位置（[引擎事实](docs/engine-facts.zh.md)）；能用真实代码回答的设计问题，都在 20 个 Godot 项目的代码上做了调查。
 
 ## 文档
 
 - [语言规范 v0.2](docs/language-spec.zh.md) · [English](docs/language-spec.en.md)
 - [实现架构](docs/architecture.zh.md) · [English](docs/architecture.en.md)
+- [设计说明与取舍](docs/design-notes.zh.md) · [English](docs/design-notes.en.md)
+- [引擎事实](docs/engine-facts.zh.md) · [English](docs/engine-facts.en.md)
 - 调查：
   - [脚本会见到不止一种场景结构吗？](docs/surveys/scene-structures.zh.md)
   - [原生基类不同造成了多少代码重复？](docs/surveys/cross-branch-duplication.zh.md)
@@ -77,7 +79,7 @@ func max_hp_from(data: Variant) -> int?:
 
 ## 下一步
 
-1. 第一个里程碑，已完成：[第二次纸面迁移](docs/surveys/paper-migration-2.zh.md)中的 FPS 项目以 Petrichor 脚本运行，运行它所需的 [§15](docs/language-spec.zh.md#15-一致性检查清单非规范性) 检查清单条目已写成测试；留待以后的部分列在 [BACKLOG.md](BACKLOG.md)。
+1. 第一个里程碑，已完成：[第二次纸面迁移](docs/surveys/paper-migration-2.zh.md)中的 FPS 项目以 Petrichor 脚本运行，运行它所需的[语言规范](docs/language-spec.zh.md)规则已写成测试；留待以后的部分列在 [BACKLOG.md](BACKLOG.md)。
 2. 已完成：偿还快速完成的第一版实现留下的技术债，分正确性、验证、代码、文档四组（[实现架构 §5](docs/architecture.zh.md#5-推进顺序)）。
 3. 第二个里程碑，已完成：同一次迁移中 Ring 的 breakout 以 Petrichor 脚本运行，包括它与 C# 往来的消息所需的 struct 和元素为 struct 的容器（[实现架构 §5](docs/architecture.zh.md#5-推进顺序)）。
 4. 接下来是[实现架构 §5](docs/architecture.zh.md#5-推进顺序) 的第 7–11 步：补齐第一版的语言；然后是工具链，包括带场景部分的重命名、语言服务器、格式化器、lint 和迁移用的快速修复；然后是相对 GDScript 的性能；再后是首次公开发布，包括全平台的预编译库；第一版之后是 Mod 和 struct、带载荷 enum 的导出。现有设计允许以后做到其中决定项目能否被选用的几项，论证见[实现架构 §6](docs/architecture.zh.md#6-以后必须能做到的事)。具体工作列在 [BACKLOG.md](BACKLOG.md)。

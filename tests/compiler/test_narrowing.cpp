@@ -3,9 +3,9 @@
 
 using namespace petrichor::tests;
 
-// Spec §5.4 and the narrowing row of §15: locals and parameters narrow after
-// `!= None`, `is` and an early return; so do the branches of a conditional
-// expression and the right side of `and` and `or`; members do not.
+// Spec §5.4: locals and parameters narrow after `!= None`, `is` and an early
+// return; so do the branches of a conditional expression and the right side of
+// `and` and `or`; members do not.
 
 namespace {
 

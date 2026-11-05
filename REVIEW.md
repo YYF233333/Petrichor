@@ -11,14 +11,14 @@ Judge by the principles of `AGENTS.md` rather than by common review taste. Where
 - **Tests clear a high bar.** A test below it is a finding as much as a bug is, and a new test is proposed only when it clears it.
 - **Rarity excuses no crash.** A crash, memory corruption or broken type guarantee on a legal script is a finding however rare; only unreasonable input is out, such as thousands of nested levels or bytecode crafted by hand (architecture §6.1). Other defects count by their actual impact, and a cheap fix is worth reporting before any script needs it.
 
-These are settled and need evidence they did not weigh to reopen: what spec §14 leaves out of the first version or keeps open, the alternatives in Appendix B, the unfinished work in `BACKLOG.md`, optimization that does not also simplify the code (step 9 of architecture §5), and the limits in architecture §6.
+These are settled and need evidence they did not weigh to reopen: what spec §14 leaves out of the first version or keeps open, the alternatives in `docs/design-notes.*`, the unfinished work in `BACKLOG.md`, optimization that does not also simplify the code (step 9 of architecture §5), and the limits in architecture §6.
 
 ## Scope
 
 Review what the message names: a commit range, an area, sections of the spec or the whole repository; without one, the commits not yet pushed (`git log origin/main..HEAD`). Implementation goes on while you review, so the scope is a range, not a snapshot: note the HEAD you start from, and before writing a finding check that it still holds at the current HEAD.
 
-- Changes: whether the code does what the spec says, including the cases its tests leave out; whether the spec (§14, §15), the architecture and `BACKLOG.md` changed with it; what it adds that could be less; a shortcut that would show users behavior the final design changes; engine behavior it repeats without a check that keeps the two in step.
-- The spec: sections that contradict each other; rules that real code runs into, shown with that code; Appendix A against the engine source; the Chinese and English versions saying different things. Its design is judged by AGENTS.md (Design) and by these leanings of the owner:
+- Changes: whether the code does what the spec says, including the cases its tests leave out; whether the spec (§14), `docs/design-notes.*`, `docs/engine-facts.*`, the architecture and `BACKLOG.md` changed with it; what it adds that could be less; a shortcut that would show users behavior the final design changes; engine behavior it repeats without a check that keeps the two in step.
+- The spec: sections that contradict each other; rules that real code runs into, shown with that code; `docs/engine-facts.*` against the engine source; the Chinese and English versions saying different things. Its design is judged by AGENTS.md (Design) and by these leanings of the owner:
   - a restriction that prevents no wrong meaning and keeps no later design open is a finding;
   - so is a concept users must learn where the compiler could handle it for them;
   - so are special cases that one rule could replace, since rules are a liability like code;

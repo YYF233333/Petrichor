@@ -84,7 +84,7 @@ TEST_CASE("@warning_ignore takes the names of warnings") {
 	CHECK(contains(joined(errors_of(in_function("@export var y := 1"))), "A statement takes only @warning_ignore."));
 }
 
-// Spec §15, numbers.
+// Spec §3.2, numbers.
 TEST_CASE("float to int needs an explicit conversion") {
 	CHECK(has_error(in_function("var hp: int = 10\nhp = 2.5"), "Convert explicitly with int(x)."));
 	CHECK(errors_of(in_function("var hp: int = int(2.5)")).empty());
@@ -100,13 +100,13 @@ TEST_CASE("% requires int operands") {
 	CHECK(has_error(in_function("var x := 5.0 % 2.0"), "fmod"));
 }
 
-// Spec §15, equality.
+// Spec §5.2, equality.
 TEST_CASE("comparisons") {
 	CHECK(errors_of(in_function("var a := 1 == 1.0")).empty());
 	CHECK(has_error(in_function("var hp := 3\nvar b := hp == \"3\""), "Cannot compare int with String"));
 }
 
-// Spec §15, narrowing: conditions must be bool.
+// Spec §5.4, narrowing: conditions must be bool.
 TEST_CASE("a condition must be bool") {
 	CHECK(has_error(in_function("if 1:\n\tpass"), "Compare explicitly, for example x != 0."));
 	CHECK(has_error(in_function("var s := \"\"\nwhile s:\n\tpass"), "x != \"\""));
@@ -114,7 +114,7 @@ TEST_CASE("a condition must be bool") {
 	CHECK(has_error(in_function("var b := 1 and true"), "requires bool operands"));
 }
 
-// Spec §15, signatures.
+// Spec §4.6, signatures.
 TEST_CASE("overrides take their types from the engine") {
 	CHECK(errors_of("extends Node\n\nfunc _process(delta):\n\tvar d: float = delta\n").empty());
 	CHECK(has_error("extends Node\n\nfunc _process(delta):\n\tvar d: int = delta\n", "Convert explicitly"));

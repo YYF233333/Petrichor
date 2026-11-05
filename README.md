@@ -54,12 +54,14 @@ func max_hp_from(data: Variant) -> int?:
 - **Coroutines with ownership.** `async func` returns a `Task`; cancellation follows ownership, and awaiting a freed object is an error instead of hanging forever ([§9](docs/language-spec.en.md#9-coroutines)).
 - **Lives next to GDScript.** Third-party plugins stay in GDScript, and GDScript's use of Petrichor instances is statically checked ([§11](docs/language-spec.en.md#11-coexisting-with-gdscript-and-c)).
 
-Every rule that depends on engine behavior cites the Godot source it was checked against ([Appendix A](docs/language-spec.en.md#appendix-a-engine-facts)), and design questions that real code can answer were answered by surveys of the code of 20 Godot projects.
+Every rule that depends on engine behavior cites the Godot source it was checked against ([engine facts](docs/engine-facts.en.md)), and design questions that real code can answer were answered by surveys of the code of 20 Godot projects.
 
 ## Documents
 
 - [Language specification v0.2](docs/language-spec.en.md) · [中文](docs/language-spec.zh.md)
 - [Implementation architecture](docs/architecture.en.md) · [中文](docs/architecture.zh.md)
+- [Design notes and trade-offs](docs/design-notes.en.md) · [中文](docs/design-notes.zh.md)
+- [Engine facts](docs/engine-facts.en.md) · [中文](docs/engine-facts.zh.md)
 - Surveys:
   - [Do scripts see more than one scene structure?](docs/surveys/scene-structures.en.md)
   - [How much code duplication do different native base classes force?](docs/surveys/cross-branch-duplication.en.md)
@@ -77,7 +79,7 @@ Each survey has a write-up in English and Chinese and a directory of scripts tha
 
 ## Next steps
 
-1. First milestone, done: the FPS starter kit of the [second paper migration](docs/surveys/paper-migration-2.en.md) runs with its scripts in Petrichor, and the rows of the checklist in [§15](docs/language-spec.en.md#15-conformance-checklist-non-normative) that running it needs became tests; what it leaves for later is listed in the [backlog](BACKLOG.md).
+1. First milestone, done: the FPS starter kit of the [second paper migration](docs/surveys/paper-migration-2.en.md) runs with its scripts in Petrichor, and the [language specification](docs/language-spec.en.md) rules that running it needs became tests; what it leaves for later is listed in the [backlog](BACKLOG.md).
 2. Done: paying down the debt the quick first implementation left, in four groups: correctness, verification, code and documents ([architecture §5](docs/architecture.en.md#5-order-of-work)).
 3. Second milestone, done: the breakout of Ring in the same migration runs with its scripts in Petrichor, with the structs and containers of them that its messages to and from C# need ([architecture §5](docs/architecture.en.md#5-order-of-work)).
 4. Next come steps 7–11 of [architecture §5](docs/architecture.en.md#5-order-of-work): the rest of the first version's language; then the tools, among them renaming with its part in scenes, the language server, the formatter, lints and quick fixes for migration; then performance against GDScript; then the first public release, with prebuilt libraries for every platform; after the first version, mods and exporting structs and enums with payloads. That the current design allows those of them on which choosing the language depends is shown in [architecture §6](docs/architecture.en.md#6-what-must-be-possible-later). The work itself is listed in the [backlog](BACKLOG.md).
