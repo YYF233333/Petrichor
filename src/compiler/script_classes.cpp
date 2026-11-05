@@ -260,10 +260,11 @@ std::unique_ptr<ScriptClasses::File> ScriptClasses::parse_file(const std::string
 	}
 	std::vector<Diagnostic> errors;
 	ClassDecl decl = parse(*source, errors);
-	if (!errors.empty()) {
-		return nullptr;
-	}
 	std::unique_ptr<File> file = std::make_unique<File>();
+	if (!errors.empty()) {
+		const auto first = std::min_element(errors.begin(), errors.end(), [](const Diagnostic &a, const Diagnostic &b) { return a.begin < b.begin; });
+		file->syntax_error_line = decl.source->position(first->begin).line;
+	}
 	file->decl = std::move(decl);
 	return file;
 }
@@ -342,6 +343,20 @@ const ClassDecl *ScriptClasses::declarations(const std::string &p_path, bool p_w
 		frames.back().second.merge(entry.reads);
 	}
 	return entry.failed ? nullptr : walk(&entry.decl, p_path);
+}
+
+std::optional<std::pair<std::string, int>> ScriptClasses::syntax_error(const std::string &p_path) {
+	std::set<std::string> seen;
+	for (std::string path = p_path; !path.empty() && seen.insert(path).second;) {
+		const std::string file = script_file(path);
+		const auto found = files.find(file);
+		if (found != files.end() && found->second && found->second->syntax_error_line) {
+			return std::make_pair(file, found->second->syntax_error_line);
+		}
+		const ClassDecl *decl = header(path);
+		path = decl ? base_path(*decl, path) : std::string();
+	}
+	return std::nullopt;
 }
 
 void ScriptClasses::enter(const std::string &p_file, ClassDecl &r_decl, std::function<const ClassDecl *(const std::string &)> p_declarations) {

@@ -84,7 +84,8 @@ pub func damage(amount: int) -> int:
 )";
 		const std::vector<Result> after = compile_all(analysis, project, paths);
 		CHECK((after[1] != before[1]));
-		CHECK_FALSE(after[1]->ok());
+		CHECK_FALSE(after[0]->ok());
+		CHECK(after[1]->ok());
 	}
 	SUBCASE("its own function body") {
 		project.sources["res://user.pet"] = R"(extends Node

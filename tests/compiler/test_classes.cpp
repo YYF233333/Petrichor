@@ -22,6 +22,7 @@ FakeProject project() {
 	project.add_script("res://enemy.pet", "extends Node3D implements Combat.Damageable\nclass_name Enemy\n\npub func damage(amount: float):\n\tpass\n", "Enemy");
 	project.add_script("res://audio.pet", "extends Node\n\npub func play(sound_path: String):\n\tpass\n");
 	project.add_script("res://broken.pet", "extends Node\nclass_name Broken\npub var x: int = \"no\"\n", "Broken");
+	project.add_script("res://typing.pet", "class_name Typing\nextends Node\npub var hp: int = 3\npub func hit(n: int) -> void:\n\thp -= n +\npub func he\n", "Typing");
 	project.add_script("res://a.pet", "class_name A\nextends Node\npub var b: B?\n", "A");
 	project.add_script("res://b.pet", "class_name B\nextends Node\npub var a: A?\n", "B");
 	project.autoloads["Audio"] = "res://audio.pet";
@@ -231,6 +232,13 @@ TEST_CASE("names that are not classes of this language") {
 	CHECK(contains(errors("var x: Legacy.Thing"), "Legacy is a class of another language, which has no interfaces."));
 	CHECK(contains(errors("var x: Broken? = None\n\tif x != None:\n\t\tprint(x.x)"), "res://broken.pet has errors"));
 	CHECK(contains(errors("var x: Combat.Nope"), "Combat declares no class, interface, struct or enum \"Nope\""));
+}
+
+TEST_CASE("other scripts see what the parser recovers of a script with syntax errors") {
+	CHECK(errors("Typing.new().hit(Typing.new().hp)").empty());
+	CHECK(contains(errors("Typing.new().heal(1)"), "Typing has no method \"heal()\"; res://typing.pet has syntax errors (line 5)."));
+	CHECK(contains(errors("print(Typing.new().armor)"), "Typing has no property \"armor\"; res://typing.pet has syntax errors (line 5)."));
+	CHECK(contains(errors("print(w.armor)"), "Weapon has no property \"armor\"."));
 }
 
 TEST_CASE("GDScript classes and autoloads as reflection shows them (spec §11.1)") {

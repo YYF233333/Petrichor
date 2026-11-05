@@ -400,6 +400,19 @@ class Checker : public ClassRelation {
 		return classes.header(p_path);
 	}
 
+	// The message for a name that the class at `p_script` lacks, which a
+	// syntax error there or in a class it extends may have lost.
+	std::string missing(std::string p_message, const std::string &p_script) const {
+		if (!is_script_path(p_script)) {
+			return p_message;
+		}
+		if (const auto broken = classes.syntax_error(p_script)) {
+			p_message.pop_back(); // The full stop.
+			p_message += "; " + broken->first + " has syntax errors (line " + std::to_string(broken->second) + ").";
+		}
+		return p_message;
+	}
+
 	// The type of the objects of a script of this language.
 	Type script_class_type(const ClassDecl &p_header, const std::string &p_path) const {
 		return Type::script_class(display_name(p_header, p_path), p_path, classes.native_base(p_header, p_path));
@@ -838,7 +851,7 @@ class Checker : public ClassRelation {
 			const std::string inner = inner_class_path(path, names[i]);
 			if (inner.empty()) {
 				if (i + 1 < names.size()) {
-					error(p_ref.range, display_name(*header, path) + " declares no class \"" + names[i] + "\".");
+					error(p_ref.range, missing(display_name(*header, path) + " declares no class \"" + names[i] + "\".", path));
 					return Type::of(TypeKind::Error);
 				}
 				break;
@@ -891,7 +904,7 @@ class Checker : public ClassRelation {
 			refer(at, script_id(found->script, inner));
 			return found->type;
 		}
-		error(p_ref.range, display_name(*header, path) + " declares no class, interface, struct or enum \"" + inner + "\".");
+		error(p_ref.range, missing(display_name(*header, path) + " declares no class, interface, struct or enum \"" + inner + "\".", path));
 		return Type::of(TypeKind::Error);
 	}
 
@@ -1738,7 +1751,7 @@ class Checker : public ClassRelation {
 	Type check_enum_value(Expr &r_expr, const EnumDecl &p_decl) {
 		const int index = p_decl.find(r_expr.text);
 		if (index < 0) {
-			return fail(r_expr, p_decl.name + " has no value \"" + r_expr.text + "\".");
+			return fail(r_expr, missing(p_decl.name + " has no value \"" + r_expr.text + "\".", p_decl.script));
 		}
 		return use_enum_value(r_expr, p_decl, index);
 	}
@@ -2317,7 +2330,7 @@ class Checker : public ClassRelation {
 			if (!inner.empty()) {
 				return class_value(r_expr, inner);
 			}
-			return fail(r_expr, named->name + " has no constant or static variable \"" + r_expr.text + "\".");
+			return fail(r_expr, missing(named->name + " has no constant or static variable \"" + r_expr.text + "\".", named->script));
 		}
 		if (names_type(base)) {
 			refer(base.name_token, engine_id(base.text));
@@ -2347,7 +2360,7 @@ class Checker : public ClassRelation {
 				return *variable;
 			}
 			const std::string inner = inner_class_path(base.owner, r_expr.text);
-			return inner.empty() ? fail(r_expr, class_name + " has no constant or static variable \"" + r_expr.text + "\".") : class_value(r_expr, inner);
+			return inner.empty() ? fail(r_expr, missing(class_name + " has no constant or static variable \"" + r_expr.text + "\".", base.owner)) : class_value(r_expr, inner);
 		}
 		if (base_type.is_optional()) {
 			return fail(r_expr, "The value may be None (" + base_type.to_string() + "); check it before reading \"" + r_expr.text + "\".");
@@ -2368,7 +2381,7 @@ class Checker : public ClassRelation {
 					return set(r_expr, decl->fields[i].type);
 				}
 			}
-			return fail(r_expr, base_type.name + " has no field \"" + r_expr.text + "\".");
+			return fail(r_expr, missing(base_type.name + " has no field \"" + r_expr.text + "\".", base_type.script));
 		}
 		const std::string builtin_name = base_type.builtin_name();
 		if (!builtin_name.empty()) {
@@ -2400,7 +2413,7 @@ class Checker : public ClassRelation {
 				if (base.target == Target::Singleton && engine.find_constant(engine_class, r_expr.text)) {
 					return check_engine_constant(r_expr, engine_class); // Such as Input.MOUSE_MODE_CAPTURED.
 				}
-				return fail(r_expr, base_type.name + " has no property \"" + r_expr.text + "\".");
+				return fail(r_expr, missing(base_type.name + " has no property \"" + r_expr.text + "\".", base_type.script));
 			}
 			r_expr.target = Target::ObjectProperty;
 			r_expr.owner = engine_class;
@@ -2741,7 +2754,7 @@ class Checker : public ClassRelation {
 		if (is_script_path(p_file)) {
 			const ClassDecl *header = script_header(p_file);
 			if (!header) {
-				error(p_preload.range, "There is no script of this language at " + p_file + ", or it has syntax errors.");
+				error(p_preload.range, "There is no script of this language at " + p_file + ".");
 				return Type::of(TypeKind::Error);
 			}
 			return script_class_type(*header, p_file);
@@ -4283,7 +4296,7 @@ class Checker : public ClassRelation {
 			if (field == decl->fields.size()) {
 				check_value(arg);
 				r_expr.param_types.push_back(Type::of(TypeKind::Error));
-				error(arg.range, name.empty() ? "A struct takes its fields by name, as in " + p_struct.name + "(" + (decl->fields.empty() ? std::string("") : decl->fields[0].name + " = ...") + ") (spec §3.6)." : p_struct.name + " has no field \"" + name + "\".");
+				error(arg.range, name.empty() ? "A struct takes its fields by name, as in " + p_struct.name + "(" + (decl->fields.empty() ? std::string("") : decl->fields[0].name + " = ...") + ") (spec §3.6)." : missing(p_struct.name + " has no field \"" + name + "\".", p_struct.script));
 				continue;
 			}
 			if (given[field]) {
@@ -4362,7 +4375,7 @@ class Checker : public ClassRelation {
 		}
 		const auto found = std::find_if(decl->all_functions.begin(), decl->all_functions.end(), [&](const FuncDecl *p_function) { return p_function->name == r_expr.text; });
 		if (found == decl->all_functions.end()) {
-			return fail_call(r_expr, class_name + " has no method \"" + r_expr.text + "()\".");
+			return fail_call(r_expr, missing(class_name + " has no method \"" + r_expr.text + "()\".", p_path));
 		}
 		const FuncDecl &callee = **found;
 		if (!callee.is_static) {
@@ -4600,7 +4613,7 @@ class Checker : public ClassRelation {
 					}
 					return result;
 				}
-				return fail(r_expr, base_type.name + " has no method \"" + name + "()\".");
+				return fail(r_expr, missing(base_type.name + " has no method \"" + name + "()\".", base_type.script));
 			}
 			return fail(r_expr, "Values of type " + base_type.to_string() + " have no methods.");
 		}

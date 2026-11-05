@@ -17,8 +17,8 @@
 namespace petrichor::compiler {
 
 // What other scripts can see of a script: its syntax tokens outside function
-// bodies; the text of one with syntax errors, which they cannot read; 0 for
-// none.
+// bodies; all its text if it has syntax errors, whose recovery may read any
+// line as a declaration; 0 for none.
 uint64_t declaration_hash(const std::optional<std::string> &p_source);
 
 // What a check read (architecture §2.1): other scripts, by declaration_hash(),
@@ -41,7 +41,8 @@ struct Reads {
 // records reads is shared by the compiles of a pass of Analysis.
 class ScriptClasses {
 	struct File {
-		ClassDecl decl;
+		ClassDecl decl; // Recovered from syntax errors, if any.
+		int syntax_error_line = 0; // The first one's; 0 for none.
 		bool checked = false; // The checker's fields of its classes are filled in.
 		bool failed = false; // Its declarations have errors or depend on themselves.
 		bool with_scenes = false; // How they were checked.
@@ -80,7 +81,7 @@ class ScriptClasses {
 	RecordedProject recorded;
 	const ProjectApi *project; // `recorded` while reads are recorded.
 	bool declarations_only;
-	// Null: it cannot be read or parsed. A file whose declarations are wanted
+	// Null: it cannot be read. A file whose declarations are wanted
 	// both with and without scenes has a second entry, its path followed by a
 	// line break and the way.
 	std::map<std::string, std::unique_ptr<File>> files;
@@ -109,11 +110,17 @@ public:
 	std::string native_base(const ClassDecl &p_decl, const std::string &p_path);
 	// The project as checks should ask it.
 	const ProjectApi *get_project() const { return project; }
-	// The parsed class, or null when it cannot be read or parsed.
+	// The parsed class, or null when it cannot be read. Other scripts see what
+	// the parser recovers of a file with syntax errors, so that an error in a
+	// function body leaves its declarations usable.
 	const ClassDecl *header(const std::string &p_path);
 	// With its declarations checked; null when they have errors or depend on
 	// themselves.
 	const ClassDecl *declarations(const std::string &p_path, bool p_with_scenes = false);
+	// The file and line of the first syntax error in the files of the class at
+	// `p_path` and of the classes of this language it extends, which may have
+	// lost a declaration that a script misses.
+	std::optional<std::pair<std::string, int>> syntax_error(const std::string &p_path);
 	// While a file is checked, its classes as its checkers have them.
 	void enter(const std::string &p_file, ClassDecl &r_decl, std::function<const ClassDecl *(const std::string &)> p_declarations);
 	void leave(const std::string &p_file);

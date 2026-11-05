@@ -175,7 +175,7 @@ TEST_CASE("preload() of a scene is a PackedScene of the scene's root") {
 	CHECK(contains(errors("var t := preload(\"res://missing.png\")"), "There is no resource at res://missing.png."));
 	CHECK(contains(errors("var t := preload(\"uid://nope\")"), "There is no resource with the uid uid://nope."));
 	CHECK(contains(errors("var t := preload(\"res://odd.bin\")"), "The file at res://odd.bin is not a resource the engine knows."));
-	CHECK(contains(errors("var t := preload(\"res://missing.pet\")"), "There is no script of this language at res://missing.pet, or it has syntax errors."));
+	CHECK(contains(errors("var t := preload(\"res://missing.pet\")"), "There is no script of this language at res://missing.pet."));
 	CHECK(contains(errors("var t := preload(\"res://missing.gd\")"), "There is no script at res://missing.gd, or it cannot be loaded."));
 	CHECK(contains(errors("var s := preload(path)"), "preload() takes one literal path, a String."));
 	CHECK(contains(errors("var s := preload(&\"res://objects/platform.tscn\")"), "preload() takes one literal path, a String."));
