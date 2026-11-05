@@ -578,8 +578,14 @@ bool PetScript::apply_image(const std::shared_ptr<const ClassImage> &p_image, co
 	{
 		std::lock_guard<std::mutex> lock(scripts_mutex);
 		for (PetScript *script : scripts) {
-			if (script != this) {
-				live.push_back(Ref<PetScript>(script));
+			if (script == this) {
+				continue;
+			}
+			// A script whose last reference went on another thread is still
+			// listed until its destructor takes the lock; it gives a null Ref.
+			Ref<PetScript> ref(script);
+			if (ref.is_valid()) {
+				live.push_back(ref);
 			}
 		}
 	}
