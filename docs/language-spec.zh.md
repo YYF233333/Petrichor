@@ -1054,7 +1054,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 场景检查：`$X`、信号连接、`PackedScene[T]`、父节点和 owner 要求、必须赋值的导出，错误标在场景编辑器中；
 - 快速修复：插入推断出的类型、补全 match 分支、为动态值加显式转换，以及本文各处提到的改写；
 - 格式化：不改变语法树，保留全部注释和字面量的写法，对已格式化的文件不再改动；有语法错误的文件不格式化。理由：GDScript 没有自带的格式化器，向引擎提交的实现停在草稿，原因之一是解析器只保留与执行有关的 token，字面量的写法和括号随之丢失（[godotengine/godot#76211](https://github.com/godotengine/godot/pull/76211)）。规则只有一套，没有选项；以 GDScript 风格指南为参照，与它不同之处依据真实代码的写法（[语料计数](surveys/corpus-counts.zh.md)）：
-  - 缩进用制表符，每层一个，与编辑器的默认设置相同（`editor/settings/editor_settings.cpp:830`）；注释行按它所属的块缩进，几个块在此结束时，按注释原来的列归入其中一个；
+  - 缩进用制表符，每层一个，与编辑器的默认设置相同（`editor/settings/editor_settings.cpp:830`）。注释行按它所属的块缩进，比块更深的保留多出的层数，因为编辑器注释代码时把 `#` 插在每行的缩进之后（`editor/gui/code_editor.cpp:1356-1371`）；块的第一行之前的注释属于这个块；几个块在此结束时，注释按原来的列归入其中一个，但不比其后的注释所属的块浅，因为编辑器注释掉的空行以行首的 `#` 开始（`scene/gui/text_edit.cpp:4194-4202`）；
   - 括号内的续行比开括号所在的行多缩进一层，独占一行的闭括号回到那一行的缩进；`\` 之后的续行比语句的首行多缩进一层；括号内 lambda 的块比其头部结束的那一行多缩进一层。编辑器在开括号后换行时同样只多缩进一层，并把闭括号放回原来的缩进（`scene/gui/code_edit.cpp:1349-1385, 4128-4131`）；风格指南要求调用的续行缩进两层，而真实代码大多只缩进一层；
   - 二元运算符两侧各一个空格，包括赋值、具名实参的 `=`、`:=` 和 `->`；逗号、分号和冒号之后一个空格，之前没有；括号内侧、一元运算符之后、调用和下标的括号之前、`.` 两侧、`?` 之前和 `$` 路径之中没有空格，单行的字典也是如此；行尾注释之前两个空格；其余的空格和行尾空白去掉；
   - 顶层的函数和类（包括 struct 和接口）前后各空两行，内部类中的函数和类前后各空一行，紧贴其上的注释和注解随之计算，块的第一个成员之前除外；没有函数体的方法不受此限；其他位置保留原有的空行，但连续的空行只留一行；文件开头没有空行，结尾只有一个换行；
@@ -1184,7 +1184,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 跨语言 | GDScript 文件继承本语言的类时，分析服务在该文件上报错并说明原因；await GDScript 协程得到按声明类型检查的结果；作为语句调用 GDScript 协程不报错，把它的结果当作值使用而不写 await 是程序错误；GDScript await 本语言的协程，在取消时得到 null 而不挂起；GDScript await 本语言中返回 Transform3D 的协程时没有警告，取消时把结果赋给 Transform3D 变量，在 debug 构建中报赋值错误而不崩溃；GDScript 持有 `p: Player` 时，属性、方法和信号的类型错误报 GDScript 编译错误；`Player.new()` 的类型为 Player，多传实参报 GDScript 编译错误；本语言持有 GDScript 类的 `b: Ball` 时，对象类型的成员为 `T?`，值类型照声明，方法和信号实参的类型错误报编译错误；以 GDScript 类为类型的参数接受其 GDScript 子类的实例，`as` 与 `is` 也认子类；没有 class_name 的 GDScript autoload 的类型为其脚本的类；`const Unit = preload("unit.gd")` 时，`Unit.new()` 的类型为 Unit 且把实参交给 `_init`，`Unit.make()` 调用静态方法，`Unit.TILE_SIZE` 读取常量，`Unit.missing()` 是编译错误，`set_script(Unit)` 传入脚本 |
 | 热重载 | 只改函数体时，运行中的实例下一次调用使用新代码，之前创建的 lambda 运行旧的函数体；修改成员或签名后，运行中的游戏不应用这次修改，此后只改函数体的修改也不应用，直到重新运行 |
 | 重构 | 导出成员改名时场景中的键同时修改；场景编辑器中给节点改名或移动节点时脚本中的 `$X` 同时修改，并在同一撤销步骤中，一次撤销同时还原场景和脚本，一次重做同时恢复；非字面量路径只报告 |
-| 格式化与 lint | 格式化后语法树不变，`0xFFFF`、`else: if` 和注释原样保留，再格式化一次不再改动；有语法错误的文件不格式化；`f(a,` 下一行的实参比 `f(` 所在的行多缩进一层，`{ "a" : 1 }` 变为 `{"a": 1}`，顶层函数之间空两行，超过 100 列的行不拆分；不再抑制任何诊断的 `@warning_ignore` 给出提示；函数前的 `@warning_ignore` 不忽略函数体中的警告，`@warning_ignore_start` 忽略到同名的 restore 为止 |
+| 格式化与 lint | 格式化后语法树不变，`0xFFFF`、`else: if` 和注释原样保留，再格式化一次不再改动；有语法错误的文件不格式化；`f(a,` 下一行的实参比 `f(` 所在的行多缩进一层，`{ "a" : 1 }` 变为 `{"a": 1}`，顶层函数之间空两行，超过 100 列的行不拆分，编辑器注释掉的嵌套代码保留其层次；不再抑制任何诊断的 `@warning_ignore` 给出提示；函数前的 `@warning_ignore` 不忽略函数体中的警告，`@warning_ignore_start` 忽略到同名的 restore 为止 |
 
 ## 16. 反馈
 
@@ -1383,6 +1383,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | GDScript 重新加载时把 lambda 换成新版本中同一位置的 lambda，lambda 的个数、捕获或参数不同时使它失效 | `modules/gdscript/gdscript_compiler.cpp:3217-3254`；`modules/gdscript/gdscript.cpp:1411-1421` |
 | GDScript 的 LSP 是编辑器插件 | `modules/gdscript/language_server/gdscript_language_server.h:35`；`modules/gdscript/register_types.cpp:167` |
 | 编辑器默认用制表符缩进；在开括号后换行时多缩进一层，闭括号紧随光标时移到下一行，回到原来的缩进 | `editor/settings/editor_settings.cpp:830`；`scene/gui/code_edit.cpp:1349-1385, 4128-4131` |
+| 编辑器注释选中的行时，把 `#` 插在每行的缩进之后，空行的插在行首 | `editor/gui/code_editor.cpp:1356-1371`；`scene/gui/text_edit.cpp:4194-4202` |
 | GDScript 导出时至多把源码转为词法单元，加载时才解析和编译 | `modules/gdscript/register_types.cpp:99-116`；`modules/gdscript/gdscript_cache.cpp:373-379, 392` |
 
 ## 附录 B：考虑过但没有采用的方案（非规范性）
