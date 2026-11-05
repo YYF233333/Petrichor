@@ -438,7 +438,9 @@ def expect_run(name, code, output, lines=(), expected_errors=()):
             errors.append(line)
     remaining = iter(line.strip() for line in output.splitlines())
     in_order = all(any(out.endswith(line) for out in remaining) for line in lines)
-    expect(name, code == 0 and not errors and not any(allowed.values()) and in_order, output)
+    ok = code == 0 and not errors and not any(allowed.values()) and in_order
+    expect(name, ok, output)
+    return ok
 
 
 def expected_errors(output, prefix):
@@ -472,10 +474,10 @@ def main():
         # the build waits for the first scan, which imports the project.
         BUILD_STAMP.unlink(missing_ok=True)
         code, output = run(godot, "-e", "--path", str(PROJECT), "--", "--petrichor-build")
-        expect_run("build", code, output)
+        build_ok = expect_run("build", code, output)
         compiled = ", 0 with errors" in output
         expect("build: every script compiles", compiled, output)
-        if code == 0 and compiled:
+        if build_ok and compiled:
             stamp = project_build_stamp(godot)
             if stamp is not None:
                 BUILD_STAMP.write_text(stamp + "\n", encoding="utf-8")
