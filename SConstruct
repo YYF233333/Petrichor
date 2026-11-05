@@ -222,8 +222,10 @@ if not only_compiler_tests:
         "tests/engine/project/bin/petrichor{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
         source=sources,
     )
+    # Not Depends: the skip path has no stamp node, and a change in the number
+    # of dependencies would relink the library.
     if godot_cpp_stamp_node is not None:
-        Depends(library, godot_cpp_stamp_node)
+        Requires(library, godot_cpp_stamp_node)
 
     env.NoCache(library)
     Default(library)
