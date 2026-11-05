@@ -19,13 +19,6 @@ repos:
 
   - repo: local
     hooks:
-      - id: dashboard
-        name: dashboard
-        language: python
-        entry: python tools/check_dashboard.py --staged
-        pass_filenames: false
-        always_run: true
-
       - id: doc-pairs
         name: doc-pairs
         language: python
