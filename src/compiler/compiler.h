@@ -40,7 +40,7 @@ struct CompileOptions {
 struct ClassDecl;
 class ScriptClasses;
 
-// Compiles one source file (UTF-8). Checking stops after syntax errors.
+// Compiles one source file (UTF-8). With syntax errors, only they are reported.
 CompileResult compile(const std::string &p_source, const EngineApi &p_engine, const CompileOptions &p_options = CompileOptions());
 // With the other scripts as `r_classes` has read them, into `r_class`, which
 // they may refer to until the compile ends (ScriptClasses::end_compile()).

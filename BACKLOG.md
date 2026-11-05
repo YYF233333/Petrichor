@@ -48,7 +48,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The warnings of spec §7.2 and §7.6: a literal `get_node_or_null` path that no scene has, a scene that nothing references lacking a node, and writes to a resource known to be shared.
 - Compiled bytecode is checked against its own source only, so a game run from the command line without a build keeps old bytecode after a change to a scene or to a script it uses, and only the runtime checks (signatures, `$X` classes) catch the difference; the analysis knows what each script read (architecture §2.1) but keeps it only in the editor's memory.
 - The scene index: read scenes unsaved in the editor, which are marked as last saved (architecture §2.4); check whether it handles autoloads that are scenes.
-- Completion and go to definition in the editor (`_complete_code`, `_lookup_code`; spec §13.2), on the recovered syntax tree (architecture §2.1): the compiler now skips the checker when parsing fails. `_can_make_function`, so that the signal connection dialog generates the callback (editor/scene/connections_dialog.cpp:505-512; ed1daf0).
+- Completion and go to definition in the editor (`_complete_code`, `_lookup_code`; spec §13.2), on the recovered syntax tree (architecture §2.1). `_can_make_function`, so that the signal connection dialog generates the callback (editor/scene/connections_dialog.cpp:505-512; ed1daf0).
 - The debugger lists all locals of a function regardless of scope, so same-named locals of blocks side by side collide; the bytecode would record the scope of each slot.
 
 ## Tests

@@ -69,6 +69,8 @@ func max_hp_from(data: Variant) -> int?:
   - [脚本成员在哪里被使用：本文件、子类、其他脚本？](docs/surveys/member-visibility.zh.md)
   - [按现行设计迁移真实代码的成本](docs/surveys/paper-migration-2.zh.md)
   - [按 v0.1 规范迁移真实代码的成本](docs/surveys/paper-migration.zh.md)
+  - [计算真实代码中的常量需要什么？](docs/surveys/constant-expressions.zh.md)
+  - [真实代码用到而实现尚不支持的写法有哪些？](docs/surveys/implementation-coverage.zh.md)
   - [语料中的零散计数](docs/surveys/corpus-counts.zh.md)
 
 每份调查都有中英文报告，以及可以复现它的脚本目录。

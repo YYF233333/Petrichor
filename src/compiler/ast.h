@@ -521,7 +521,7 @@ struct ClassDecl {
 	std::vector<SignalDecl> signals;
 	std::vector<ExportGroupDecl> groups;
 	// @warning_ignore, @warning_ignore_start and @warning_ignore_restore,
-	// wherever they are; the compiler has no warnings to suppress yet.
+	// wherever they are.
 	std::vector<Annotation> warning_ignores;
 
 	const StructDecl *find_struct(const std::string &p_name) const {

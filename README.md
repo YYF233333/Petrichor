@@ -69,6 +69,8 @@ Every rule that depends on engine behavior cites the Godot source it was checked
   - [Where are script members used: own file, subclasses, other scripts?](docs/surveys/member-visibility.en.md)
   - [What does it cost to migrate real code to the current design?](docs/surveys/paper-migration-2.en.md)
   - [What did it cost to migrate real code to spec v0.1?](docs/surveys/paper-migration.en.md)
+  - [What does computing the constants of real code take?](docs/surveys/constant-expressions.en.md)
+  - [Which constructs of real code does the implementation not support yet?](docs/surveys/implementation-coverage.en.md)
   - [One-off counts in the corpus](docs/surveys/corpus-counts.en.md)
 
 Each survey has a write-up in English and Chinese and a directory of scripts that reproduce it.
