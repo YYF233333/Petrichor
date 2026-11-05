@@ -36,7 +36,8 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 	if (result.errors.empty()) {
 		const StructLookup structs = [&](const Type &p_struct) -> const StructDecl * {
 			const ClassDecl *decl = r_classes.declarations(p_struct.script);
-			return decl ? decl->find_struct(p_struct.interface_name()) : nullptr;
+			const StructDecl *found = decl ? decl->find_struct(p_struct.interface_name()) : nullptr;
+			return found && !r_classes.errors_in(found) ? found : nullptr;
 		};
 		result.module = lower(r_class, p_options.declarations_only, result.errors, structs);
 		const uint64_t source_hash = bytecode::hash_source(p_source);

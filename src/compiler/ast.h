@@ -513,6 +513,9 @@ struct ClassDecl {
 	std::vector<const EnumDecl *> all_enums; // With those it inherits; filled by the checker.
 	std::vector<Type> implemented; // Filled by the checker.
 	bool is_node = false; // Filled by the checker: it extends Node, and becomes ready.
+	// Filled by the checker: its declarations were checked, whether or not
+	// some have errors, as they are not when its base has errors.
+	bool declared = false;
 	std::vector<ConstDecl> constants;
 	std::vector<VarDecl> members;
 	std::vector<VarDecl> static_vars; // In declaration order (spec §4.8).

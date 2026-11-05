@@ -400,6 +400,17 @@ class Checker : public ClassRelation {
 		return classes.header(p_path);
 	}
 
+	// The error of using a declaration of another file that has errors, as
+	// `p_what`, which other scripts may use only where it has none; nullopt
+	// for a declaration without.
+	std::optional<std::string> broken(const void *p_decl, const std::string &p_what) const {
+		const auto found = classes.errors_in(p_decl);
+		if (!found) {
+			return std::nullopt;
+		}
+		return p_what + " has errors (" + found->first + ", line " + std::to_string(found->second) + ").";
+	}
+
 	// The message for a name that the class at `p_script` lacks, which a
 	// syntax error there or in a class it extends may have lost.
 	std::string missing(std::string p_message, const std::string &p_script) const {
@@ -878,6 +889,10 @@ class Checker : public ClassRelation {
 					error(p_ref.range, p_ref.name + " is not pub (spec §4.2).");
 					return Type::of(TypeKind::Error);
 				}
+				if (const auto message = broken(&interface, display_name(*header, path) + "." + inner)) {
+					error(p_ref.range, *message);
+					return Type::of(TypeKind::Error);
+				}
 				refer(at, script_id(path, inner));
 				return Type::interface(display_name(*header, path) + "." + inner, path);
 			}
@@ -885,6 +900,14 @@ class Checker : public ClassRelation {
 		if (const StructDecl *found = header->find_struct(inner)) {
 			if (!found->is_pub && !in_this_file(path)) {
 				error(p_ref.range, p_ref.name + " is not pub (spec §4.2).");
+				return Type::of(TypeKind::Error);
+			}
+			// As checked, unless that check is under way, as when two files'
+			// structs name each other.
+			const ClassDecl *checked = script_decl(path);
+			const StructDecl *checked_struct = checked ? checked->find_struct(inner) : nullptr;
+			if (const auto message = broken(checked_struct ? checked_struct : found, display_name(*header, path) + "." + inner)) {
+				error(p_ref.range, *message);
 				return Type::of(TypeKind::Error);
 			}
 			refer(at, script_id(path, inner));
@@ -899,6 +922,10 @@ class Checker : public ClassRelation {
 			}
 			if (!found->is_pub && !sees(path)) {
 				error(p_ref.range, p_ref.name + " is not pub (spec §4.2).");
+				return Type::of(TypeKind::Error);
+			}
+			if (const auto message = broken(found, display_name(*header, path) + "." + inner)) {
+				error(p_ref.range, *message);
 				return Type::of(TypeKind::Error);
 			}
 			refer(at, script_id(found->script, inner));
@@ -934,9 +961,11 @@ class Checker : public ClassRelation {
 
 	// The declaration of a struct, with its fields checked; null when its
 	// script has errors.
+	// Null also when it has errors, which its type's name reports.
 	const StructDecl *struct_decl(const Type &p_struct) const {
 		const ClassDecl *decl = script_decl(p_struct.script);
-		return decl ? decl->find_struct(p_struct.interface_name()) : nullptr;
+		const StructDecl *found = decl ? decl->find_struct(p_struct.interface_name()) : nullptr;
+		return found && !classes.errors_in(found) ? found : nullptr;
 	}
 
 	// Whether a struct can start at its default value (spec §4.3); true when
@@ -1584,6 +1613,8 @@ class Checker : public ClassRelation {
 			}
 		} else if (!found->is_pub && !sees(named->script)) {
 			error(r_base.range, "The enum " + named->name + "." + found->name + " is not pub.");
+		} else if (const auto message = broken(found, named->name + "." + found->name)) {
+			error(r_base.range, *message);
 		}
 		refer(r_base.name_token, script_id(found->script, found->name));
 		return found;
@@ -1885,6 +1916,9 @@ class Checker : public ClassRelation {
 			if (!constant->is_pub && !sees(p_path)) {
 				return fail(r_expr, "The constant \"" + constant->name + "\" of " + p_class + " is not pub.");
 			}
+			if (const auto message = broken(constant, p_class + "." + constant->name)) {
+				return fail(r_expr, *message);
+			}
 			return use_constant(r_expr, *constant, declaring(*decl, *constant, &ClassDecl::constants).path);
 		}
 		// A value of an unnamed enum is a constant of the class (spec §3.7).
@@ -1895,6 +1929,9 @@ class Checker : public ClassRelation {
 			}
 			if (!entry->is_pub && !sees(p_path)) {
 				return fail(r_expr, "The constant \"" + r_expr.text + "\" of " + p_class + " is not pub.");
+			}
+			if (const auto message = broken(entry, p_class + "." + r_expr.text)) {
+				return fail(r_expr, *message);
 			}
 			return use_enum_value(r_expr, *entry, index);
 		}
@@ -1938,6 +1975,9 @@ class Checker : public ClassRelation {
 			if (!variable->is_pub && !sees(owner.path)) {
 				refer(r_expr.name_token, script_id(owner.path, variable->name));
 				return fail(r_expr, "The static variable \"" + variable->name + "\" of " + p_class + " is not pub.");
+			}
+			if (const auto message = broken(variable, p_class + "." + variable->name)) {
+				return fail(r_expr, *message);
 			}
 			return use_static(r_expr, *variable, owner);
 		}
@@ -2134,6 +2174,11 @@ class Checker : public ClassRelation {
 			return fail(r_expr, p_class.script + " has errors.");
 		}
 		if (p_class.is_interface) {
+			if (const InterfaceDecl *interface = interface_decl(p_class)) {
+				if (const auto message = broken(interface, p_class.name)) {
+					return fail(r_expr, *message);
+				}
+			}
 			// Read and written by name, whichever member or engine property provides it.
 			const InterfaceProperty *property = interface_property(p_class, r_expr.text);
 			if (!property) {
@@ -2166,6 +2211,9 @@ class Checker : public ClassRelation {
 			if (!member.is_pub) {
 				return fail(r_expr, not_pub(p_class, "\"" + member.name + "\""));
 			}
+			if (const auto message = broken(&member, p_class.name + "." + member.name)) {
+				return fail(r_expr, *message);
+			}
 			if (member.type.is_error()) {
 				// Typed from the scenes, which are not read for another script, or
 				// not checked yet.
@@ -2185,6 +2233,9 @@ class Checker : public ClassRelation {
 			// every signal a class declares, so only other classes are refused.
 			if (!signal.is_pub && !in_this_file(p_class.script)) {
 				return fail(r_expr, not_pub(p_class, "The signal \"" + signal.name + "\""));
+			}
+			if (const auto message = broken(&signal, p_class.name + "." + signal.name)) {
+				return fail(r_expr, *message);
 			}
 			r_expr.target = Target::ObjectSignal;
 			refer(r_expr.name_token, script_id(declaring(*decl, signal, &ClassDecl::signals).path, signal.name));
@@ -2240,6 +2291,9 @@ class Checker : public ClassRelation {
 		DeclId id;
 		if (p_class.is_interface) {
 			if (const InterfaceDecl *interface = interface_decl(p_class)) {
+				if (const auto message = broken(interface, p_class.name)) {
+					return fail_call(r_expr, *message);
+				}
 				for (const FuncDecl &method : interface->methods) {
 					if (method.name == r_expr.text) {
 						callee = &method;
@@ -2263,6 +2317,9 @@ class Checker : public ClassRelation {
 		}
 		if (!callee->is_pub && !callee->is_override) {
 			return fail_call(r_expr, not_pub(p_class, "\"" + callee->name + "()\""));
+		}
+		if (const auto message = broken(callee, p_class.name + "." + callee->name + "()")) {
+			return fail_call(r_expr, *message);
 		}
 		check_arguments(r_expr, param_types(callee->params), required_params(*callee), false);
 		refer(r_expr.name_token, id);
@@ -4359,6 +4416,9 @@ class Checker : public ClassRelation {
 				if (!callee.is_pub && !sees(declaring(*decl, callee, &ClassDecl::functions).path)) {
 					return fail_call(r_expr, "new() of " + class_name + " cannot be called here: its _init() is not pub (spec §4.2).");
 				}
+				if (const auto message = broken(&callee, class_name + "._init()")) {
+					return fail_call(r_expr, *message);
+				}
 				check_arguments(r_expr, param_types(callee.params), required_params(callee), false);
 				r_expr.engine_params = param_types(callee.params);
 				r_expr.index = int(callee.params.size()) - required_params(callee);
@@ -4383,6 +4443,9 @@ class Checker : public ClassRelation {
 		}
 		if (!callee.is_pub && !sees(p_path)) {
 			return fail_call(r_expr, "\"" + callee.name + "()\" of " + class_name + " is not pub.");
+		}
+		if (const auto message = broken(&callee, class_name + "." + callee.name + "()")) {
+			return fail_call(r_expr, *message);
 		}
 		check_arguments(r_expr, param_types(callee.params), required_params(callee), false);
 		refer(r_expr.name_token, script_id(declaring(*decl, callee, &ClassDecl::functions).path, callee.name));
@@ -6817,6 +6880,7 @@ public:
 		}
 		state = State::Declaring;
 		declared = declare_class();
+		cls.declared = declared;
 		state = State::Declared;
 	}
 
@@ -6879,6 +6943,11 @@ private:
 				parent = local->declared ? &local->cls : nullptr;
 			} else {
 				parent = classes.declarations(cls.base_script, !options.declarations_only);
+				// A subclass holds all of its base's members, so it needs them all.
+				if (const std::optional<int> line = parent ? classes.first_error(cls.base_script) : std::nullopt) {
+					error(cls.extends_token, "Base script " + cls.base_script + " has errors (line " + std::to_string(*line) + ").");
+					return false;
+				}
 			}
 			if (!parent) {
 				error(cls.extends_token, "Base script " + cls.base_script + " has errors or cannot be read.");

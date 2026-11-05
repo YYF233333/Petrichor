@@ -73,6 +73,66 @@ void mark_bodies(const ClassDecl &p_decl, std::vector<bool> &r_body) {
 	}
 }
 
+// Notes in `r_marked` the declarations of `p_decl` and its inner classes on
+// whose lines `p_errors` fall, with the line of the first; a function by the
+// lines of its signature, as other scripts see no body.
+void mark_errors(const ClassDecl &p_decl, const std::vector<Diagnostic> &p_errors, std::map<const void *, int> &r_marked) {
+	const SourceFile &source = *p_decl.source;
+	const auto line_of = [&](uint32_t p_offset) {
+		return source.position(p_offset).line;
+	};
+	const auto mark_lines = [&](const void *p_node, int p_first, int p_last) {
+		for (const Diagnostic &error : p_errors) {
+			const int line = line_of(error.begin);
+			if (line < p_first || line > p_last) {
+				continue;
+			}
+			const auto [entry, added] = r_marked.emplace(p_node, line);
+			if (!added) {
+				entry->second = std::min(entry->second, line);
+			}
+		}
+	};
+	const auto mark = [&](const void *p_node, const TokenRange &p_range) {
+		const uint32_t begin = source.begin(p_range);
+		const uint32_t end = source.end(p_range);
+		mark_lines(p_node, line_of(begin), line_of(end > begin ? end - 1 : begin));
+	};
+	for (const VarDecl &member : p_decl.members) {
+		mark(&member, member.range);
+	}
+	for (const VarDecl &variable : p_decl.static_vars) {
+		mark(&variable, variable.range);
+	}
+	for (const ConstDecl &constant : p_decl.constants) {
+		mark(&constant, constant.range);
+	}
+	for (const FuncDecl &function : p_decl.functions) {
+		const int first = line_of(source.begin(function.range));
+		const uint32_t end = source.end(function.range);
+		int last = line_of(end > source.begin(function.range) ? end - 1 : end);
+		if (function.has_body && !function.body.empty()) {
+			last = std::max(first, line_of(source.begin(function.body.front()->range)) - 1);
+		}
+		mark_lines(&function, first, last);
+	}
+	for (const SignalDecl &signal : p_decl.signals) {
+		mark(&signal, signal.range);
+	}
+	for (const StructDecl &decl : p_decl.structs) {
+		mark(&decl, decl.range);
+	}
+	for (const EnumDecl &decl : p_decl.enums) {
+		mark(&decl, decl.range);
+	}
+	for (const InterfaceDecl &decl : p_decl.interfaces) {
+		mark(&decl, decl.range);
+	}
+	for (const std::unique_ptr<ClassDecl> &inner : p_decl.classes) {
+		mark_errors(*inner, p_errors, r_marked);
+	}
+}
+
 } // namespace
 
 uint64_t declaration_hash(const std::optional<std::string> &p_source) {
@@ -266,6 +326,7 @@ std::unique_ptr<ScriptClasses::File> ScriptClasses::parse_file(const std::string
 		file->syntax_error_line = decl.source->position(first->begin).line;
 	}
 	file->decl = std::move(decl);
+	mark_errors(file->decl, errors, file->errors);
 	return file;
 }
 
@@ -336,13 +397,42 @@ const ClassDecl *ScriptClasses::declarations(const std::string &p_path, bool p_w
 			frames.pop_back();
 		}
 		entry.with_scenes = with_scenes;
-		entry.failed = !errors.empty();
+		entry.failed = !entry.decl.declared;
 		entry.checked = !entry.failed;
+		mark_errors(entry.decl, errors, entry.errors);
 	}
 	if (!frames.empty() && frames.back().first != file) {
 		frames.back().second.merge(entry.reads);
 	}
-	return entry.failed ? nullptr : walk(&entry.decl, p_path);
+	const ClassDecl *decl = entry.failed ? nullptr : walk(&entry.decl, p_path);
+	return decl && decl->declared ? decl : nullptr;
+}
+
+std::optional<std::pair<std::string, int>> ScriptClasses::errors_in(const void *p_decl) const {
+	for (const auto &[key, file] : files) {
+		if (!file) {
+			continue;
+		}
+		const auto found = file->errors.find(p_decl);
+		if (found != file->errors.end()) {
+			return std::make_pair(key.substr(0, key.find('\n')), found->second);
+		}
+	}
+	return std::nullopt;
+}
+
+std::optional<int> ScriptClasses::first_error(const std::string &p_path) const {
+	const std::string file = script_file(p_path);
+	std::optional<int> first;
+	for (const auto &[key, entry] : files) {
+		if (!entry || key.substr(0, key.find('\n')) != file) {
+			continue;
+		}
+		for (const auto &[decl, line] : entry->errors) {
+			first = first ? std::min(*first, line) : line;
+		}
+	}
+	return first;
 }
 
 std::optional<std::pair<std::string, int>> ScriptClasses::syntax_error(const std::string &p_path) {

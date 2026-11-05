@@ -43,8 +43,11 @@ class ScriptClasses {
 	struct File {
 		ClassDecl decl; // Recovered from syntax errors, if any.
 		int syntax_error_line = 0; // The first one's; 0 for none.
+		// The declarations with syntax errors or errors of their check, each
+		// with the line of its first.
+		std::map<const void *, int> errors;
 		bool checked = false; // The checker's fields of its classes are filled in.
-		bool failed = false; // Its declarations have errors or depend on themselves.
+		bool failed = false; // Its class could not be declared, as when its base has errors.
 		bool with_scenes = false; // How they were checked.
 		Reads reads; // Of its declarations' check.
 	};
@@ -114,9 +117,17 @@ public:
 	// the parser recovers of a file with syntax errors, so that an error in a
 	// function body leaves its declarations usable.
 	const ClassDecl *header(const std::string &p_path);
-	// With its declarations checked; null when they have errors or depend on
-	// themselves.
+	// With its declarations checked; null when the class could not be
+	// declared, as when its base has errors or it depends on itself. Each of
+	// its declarations that has errors says so through errors_in().
 	const ClassDecl *declarations(const std::string &p_path, bool p_with_scenes = false);
+	// The file and line of the first error in a declaration of a class that
+	// declarations() gave, such as a VarDecl or a FuncDecl's signature;
+	// nullopt for one without.
+	std::optional<std::pair<std::string, int>> errors_in(const void *p_decl) const;
+	// The line of the first error in a declaration of the file of the class at
+	// `p_path`; nullopt for none.
+	std::optional<int> first_error(const std::string &p_path) const;
 	// The file and line of the first syntax error in the files of the class at
 	// `p_path` and of the classes of this language it extends, which may have
 	// lost a declaration that a script misses.
