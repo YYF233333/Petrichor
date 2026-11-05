@@ -32,3 +32,4 @@ gen/
 
 # Machine-local agent notes
 /AGENTS.local.md
+.claude/*.local.*
