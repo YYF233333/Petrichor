@@ -1,0 +1,8 @@
+extends RefCounted
+
+func run(n: int) -> int:
+	var total := 0
+	for i in n:
+		var callback := func(value: int): return i + value
+		total += callback.call(1)
+	return total

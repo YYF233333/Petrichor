@@ -1,0 +1,13 @@
+pub signal tick
+var total := 0
+
+async func once():
+	await tick
+	total += 1
+
+pub func run(n: int) -> int:
+	total = 0
+	for i in n:
+		once().detach()
+		tick.emit()
+	return total

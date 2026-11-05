@@ -1,0 +1,8 @@
+pub func run(n: int) -> int:
+	var node := Node3D.new()
+	node.position = Vector3(1, 2, 3)
+	var total := 0.0
+	for i in n:
+		total += node.position.x
+	node.free()
+	return int(total)

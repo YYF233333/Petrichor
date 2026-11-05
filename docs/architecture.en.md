@@ -116,7 +116,7 @@ The sections above describe the design. How much of it runs, and which tests sho
 | Tooling substrate (§2.1) | Lossless token stream, node ranges, error nodes recovered by line, reference table; keys of exported properties in scenes are not in the table yet, and no name is left unresolved yet | convention checks and cuts in the compiler tests |
 | Headless command | `--petrichor-build` | every engine test run |
 | Export | Bytecode only, run by the library without the compiler; not yet run by the official export templates, and the release library is neither built nor tested | export: the editor binary runs the exported pack with the template_debug library |
-| Benchmarks | Six cases of pure computation (§4) | `benchmarks/run.py` |
+| Benchmarks | 14 runtime pairs (computation, engine boundary, allocation), plus cold, repeated and edited runs of a 32-script project (§4) | `benchmarks/run.py` |
 
 ## 3. Testing
 
@@ -143,16 +143,27 @@ Four groups of benchmarks compare against GDScript, measuring the virtual machin
 
 Comparisons use optimized builds, not `dev_build`. These data decide whether native code is generated and which paths to optimize.
 
-So far `benchmarks/` holds six cases of pure computation, each with a GDScript twin computing the same result, which the runner compares. On the official 4.7.2 release, on one Windows machine (2026-10-29), in milliseconds:
+`benchmarks/` now holds 14 runtime pairs and startup/compilation benchmarks for a 32-script project, covering the implemented language capabilities in all four groups. Runtime cases warm up once, then alternate language order across five samples, checking every result for equality. Startup warms up once, then alternates across three rounds, each on freshly imported copies: it times editor preparation plus the game process (`--petrichor-build` for this language; for GDScript, waiting for the editor scan, the game compiling scripts as it loads them) for the first run, a repeated run and a run after editing one script, checking the result each time. On the official 4.7.2 release on a Windows machine (2026-11-05), medians in milliseconds:
 
-| Case | GDScript | This language |
-|---|---:|---:|
-| int_loop | 34.1 | 21.8 |
-| float_loop | 25.9 | 24.4 |
-| calls | 78.2 | 18.1 |
-| members | 30.2 | 22.0 |
-| vectors | 33.9 | 29.5 |
-| arrays | 40.9 | 80.0 |
+| Group | Case | GDScript | This language |
+|---|---|---:|---:|
+| Pure computation | int_loop | 32.15 | 20.77 |
+| Pure computation | float_loop | 24.52 | 23.57 |
+| Pure computation | calls | 75.85 | 21.93 |
+| Pure computation | members | 29.95 | 20.89 |
+| Pure computation | vectors | 34.05 | 28.84 |
+| Pure computation | arrays | 39.59 | 100.32 |
+| Engine boundary | property_get | 9.77 | 12.05 |
+| Engine boundary | property_set | 8.99 | 11.79 |
+| Engine boundary | engine_method | 10.04 | 27.60 |
+| Engine boundary | callable | 23.64 | 59.03 |
+| Engine boundary | signals | 23.83 | 39.04 |
+| Allocation | objects | 10.47 | 8.45 |
+| Allocation | closures | 27.18 | 32.31 |
+| Allocation | coroutines | 25.80 | 34.07 |
+| Startup and compilation | cold | 3171.6 | 3170.0 |
+| Startup and compilation | repeat | 3062.0 | 3250.8 |
+| Startup and compilation | edit | 3071.1 | 3268.2 |
 
 ## 5. Order of work
 
