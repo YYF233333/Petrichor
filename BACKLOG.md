@@ -7,7 +7,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Coroutine helpers `Task.of`, `delay`, `any`, `all`, `settled`; async lambdas and calls of async function values, `f.call(x)` giving a `Task[T]` (spec §9, §3.11).
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
 - Of match (spec §5.6): array and dictionary patterns; a match over `T?`, with `None` and `var x` and the check that it is exhaustive; the patterns of structs, and those of enums, Result and Settled once they exist.
-- Of structs (spec §3.6): methods; the "modifies a copy" warning for a field of a struct loop variable; a struct that holds itself through a container, which the type table cannot list, a type's parts coming before it.
+- Of structs (spec §3.6): methods; a struct that holds itself through a container, which the type table cannot list, a type's parts coming before it.
 - `T.try_from(v)` (spec §5.3), as for `Array[Hit].try_from(Array(hits))`.
 - The error for a type that is not pub, such as a struct or an interface, in the signature of a pub member (spec §4.2).
 - Static checks of must-assign exports in scenes, in resources and at export (spec §7.5), of a scene used as a root whose root has a script with `@owner` (§7.3), and of a node of a scene whose script is abstract (§4.1).
@@ -45,7 +45,8 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 ## Editor
 
 - References from scenes for the keys of exported properties (architecture §2.1), once the scene index reads the values scenes give properties; now only the methods of signal connections are.
-- The formatter and lints (spec §13.2, architecture §2.1).
+- The formatter (spec §13.2, architecture §2.1).
+- The warnings of spec §7.2 and §7.6: a literal `get_node_or_null` path that no scene has, a scene that nothing references lacking a node, and writes to a resource known to be shared.
 - Compiled bytecode is checked against its own source only, so a game run from the command line without a build keeps old bytecode after a change to a scene or to a script it uses, and only the runtime checks (signatures, `$X` classes) catch the difference; the analysis knows what each script read (architecture §2.1) but keeps it only in the editor's memory.
 - The scene index: read scenes unsaved in the editor, which are marked as last saved (architecture §2.4); check whether it handles autoloads that are scenes.
 - Completion and go to definition in the editor (`_complete_code`, `_lookup_code`; spec §13.2), on the recovered syntax tree (architecture §2.1): the compiler now skips the checker when parsing fails. `_can_make_function`, so that the signal connection dialog generates the callback (editor/scene/connections_dialog.cpp:505-512; ed1daf0).

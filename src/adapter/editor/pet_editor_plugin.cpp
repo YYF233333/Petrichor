@@ -92,7 +92,7 @@ void PetEditorPlugin::run_build_command() {
 		return;
 	}
 	int count = 0;
-	const int failed = build_project(&count);
+	const int failed = build_project(&count, true);
 	UtilityFunctions::print(vformat("petrichor build: %d script(s), %d with errors", count, failed));
 	// A non-zero exit code on compile errors (spec §13.1).
 	get_tree()->quit(failed > 0 ? 1 : 0);

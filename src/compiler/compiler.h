@@ -13,6 +13,9 @@ namespace petrichor::compiler {
 
 struct CompileResult {
 	std::vector<Diagnostic> errors; // Sorted by position.
+	// Warnings that no @warning_ignore ignores, and hints; none with syntax
+	// errors. Sorted by position.
+	std::vector<Diagnostic> warnings;
 	bytecode::Module module; // Valid only without errors.
 	// Where the file resolves names (architecture §2.1), also with syntax errors.
 	std::vector<Reference> references;

@@ -166,6 +166,7 @@ class Checker : public ClassRelation {
 	ScriptClasses &classes; // The project's other scripts of this language.
 	std::vector<Scene> scenes; // The scenes that use this script.
 	std::vector<Reference> *references; // Recorded for this file only.
+	std::vector<Diagnostic> *warnings; // Likewise.
 	FileCheck *file = nullptr;
 	Checker *outer_checker = nullptr; // The checker of the class around this one, if any (spec §4.1).
 	enum class State {
@@ -241,6 +242,52 @@ class Checker : public ClassRelation {
 		error(p_range, p_message);
 		errors.back().scene = p_scene.path;
 		errors.back().node = p_node;
+	}
+	void warn(const TokenRange &p_range, const char *p_warning, const std::string &p_message) {
+		if (!warnings) {
+			return;
+		}
+		Diagnostic warning{ cls.source->begin(p_range), cls.source->end(p_range), p_message };
+		warning.severity = Severity::Warning;
+		warning.warning = p_warning;
+		warnings->push_back(std::move(warning));
+	}
+
+	// The struct loop variables being checked, with how often each is read and
+	// the assignments to its fields: one that no read follows changes a copy
+	// (spec §3.6).
+	struct LoopCopy {
+		const FuncDecl *function;
+		int local;
+		int reads = 0;
+		std::vector<std::pair<TokenRange, int>> writes; // With the reads before them.
+	};
+	std::vector<LoopCopy> loop_copies;
+
+	void note_read(int p_local) {
+		for (LoopCopy &loop : loop_copies) {
+			if (loop.function == function && loop.local == p_local) {
+				loop.reads++;
+			}
+		}
+	}
+
+	// `h.damage = 0`, through fields of value types from a struct loop
+	// variable `h`; its own name there is not a read.
+	void note_copy_write(const Expr &p_target) {
+		const Expr *at = &p_target;
+		while (at->kind == ExprKind::Member && at->base && (at->base->type.kind == TypeKind::Struct || (at->base->type.kind == TypeKind::Builtin && !is_shared(at->base->type)))) {
+			at = at->base.get();
+		}
+		if (at == &p_target || at->kind != ExprKind::Name || at->target != Target::Local) {
+			return;
+		}
+		for (LoopCopy &loop : loop_copies) {
+			if (loop.function == function && loop.local == at->index) {
+				loop.reads--;
+				loop.writes.emplace_back(p_target.range, loop.reads);
+			}
+		}
 	}
 
 	/* References (architecture §2.1) */
@@ -2007,6 +2054,7 @@ class Checker : public ClassRelation {
 			r_expr.index = local;
 			r_expr.constant = function->locals[local].constant;
 			refer(r_expr.name_token, local_id(function->locals[local].token));
+			note_read(local);
 			const Type *narrowed_to = narrowed_type(local);
 			return set(r_expr, narrowed_to ? *narrowed_to : function->locals[local].type);
 		}
@@ -5151,10 +5199,23 @@ class Checker : public ClassRelation {
 		}
 		scopes.emplace_back();
 		declare_local(r_stmt, type);
+		const bool copies = type.kind == TypeKind::Struct;
+		if (copies) {
+			loop_copies.push_back({ function, r_stmt.local });
+		}
 		loop_depth++;
 		check_block(r_stmt.body);
 		loop_depth--;
 		scopes.pop_back();
+		if (copies) {
+			const LoopCopy loop = std::move(loop_copies.back());
+			loop_copies.pop_back();
+			for (const auto &[range, reads] : loop.writes) {
+				if (reads == loop.reads) {
+					warn(range, "modified_copy", "This modifies a copy: \"" + r_stmt.name + "\" holds a copy of the element, and nothing reads it afterwards (spec §3.6).");
+				}
+			}
+		}
 	}
 
 	bool predelete_branch(const Expr &p_condition, bool p_true) const {
@@ -5255,6 +5316,9 @@ class Checker : public ClassRelation {
 				const bool formats = r_stmt.assign_op == TokenKind::PercentEqual && is_format_string(read_type);
 				Type value = check_value(*r_stmt.value, formats ? Type::builtin("Array") : (compound ? Type::of(TypeKind::Error) : target_type));
 				const bool place = !target_type.is_error() && check_place(target);
+				if (place) {
+					note_copy_write(target);
+				}
 				if (compound && place) {
 					value = binary_type(compound_operator(r_stmt.assign_op), read_type, value, r_stmt.range);
 					r_stmt.compound_result = value;
@@ -6718,8 +6782,8 @@ class Checker : public ClassRelation {
 	}
 
 public:
-	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references) :
-			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), check_bodies(p_check_bodies), classes(r_classes), references(r_references) {}
+	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, std::vector<Diagnostic> *r_warnings) :
+			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), check_bodies(p_check_bodies), classes(r_classes), references(r_references), warnings(r_warnings) {}
 
 	void attach(FileCheck &r_file, Checker *p_outer) {
 		file = &r_file;
@@ -6882,22 +6946,22 @@ Checker *FileCheck::find(const std::string &p_path) const {
 	return nullptr;
 }
 
-void add_checkers(FileCheck &r_file, ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, Checker *p_outer) {
-	r_file.checkers.push_back(std::make_unique<Checker>(r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references));
+void add_checkers(FileCheck &r_file, ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, std::vector<Diagnostic> *r_warnings, Checker *p_outer) {
+	r_file.checkers.push_back(std::make_unique<Checker>(r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references, r_warnings));
 	Checker *checker = r_file.checkers.back().get();
 	checker->attach(r_file, p_outer);
 	for (std::unique_ptr<ClassDecl> &inner : r_class.classes) {
 		CompileOptions options = p_options;
 		options.path += "::" + inner->name;
-		add_checkers(r_file, *inner, p_engine, options, r_errors, r_classes, p_check_bodies, r_references, checker);
+		add_checkers(r_file, *inner, p_engine, options, r_errors, r_classes, p_check_bodies, r_references, r_warnings, checker);
 	}
 }
 
 } // namespace
 
-void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references) {
+void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, std::vector<Diagnostic> *r_warnings) {
 	FileCheck file;
-	add_checkers(file, r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references, nullptr);
+	add_checkers(file, r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references, r_warnings, nullptr);
 	r_classes.enter(p_options.path, r_class, [&](const std::string &p_path) -> const ClassDecl * {
 		Checker *checker = file.find(p_path);
 		if (!checker) {

@@ -194,9 +194,11 @@ bool PetLanguage::_is_using_templates() {
 Dictionary PetLanguage::_validate(const String &p_script, const String &p_path, bool p_validate_functions, bool p_validate_errors, bool p_validate_warnings, bool p_validate_safe_lines) const {
 	Dictionary result;
 	Array errors;
+	Array warnings;
 #ifdef TOOLS_ENABLED
 	std::vector<compiler::Diagnostic> diagnostics;
-	compile_script(p_path, p_script, &diagnostics, false);
+	std::vector<compiler::Diagnostic> warning_diagnostics;
+	compile_script(p_path, p_script, &diagnostics, false, CompileMode::Full, &warning_diagnostics);
 	for (const compiler::Diagnostic &diagnostic : diagnostics) {
 		Dictionary error;
 		error["path"] = p_path;
@@ -205,10 +207,23 @@ Dictionary PetLanguage::_validate(const String &p_script, const String &p_path, 
 		error["message"] = to_godot(diagnostic.message);
 		errors.push_back(error);
 	}
+	// The editor's [Ignore] puts the code into a @warning_ignore above the line
+	// (editor/script/script_text_editor.cpp:380-404); a hint has none to give.
+	for (const compiler::Diagnostic &diagnostic : warning_diagnostics) {
+		Dictionary warning;
+		warning["start_line"] = diagnostic.line;
+		warning["end_line"] = diagnostic.line;
+		warning["leftmost_column"] = diagnostic.column;
+		warning["rightmost_column"] = diagnostic.column;
+		warning["code"] = 0;
+		warning["string_code"] = diagnostic.warning.empty() ? String("hint") : to_godot(diagnostic.warning);
+		warning["message"] = to_godot(diagnostic.message);
+		warnings.push_back(warning);
+	}
 #endif
 	result["valid"] = errors.is_empty();
 	result["errors"] = errors;
-	result["warnings"] = Array();
+	result["warnings"] = warnings;
 	result["functions"] = PackedStringArray();
 	result["safe_lines"] = PackedInt32Array();
 	return result;

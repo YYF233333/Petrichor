@@ -33,7 +33,7 @@ compiler::Analysis &analysis() {
 
 } // namespace
 
-std::shared_ptr<const ClassImage> compile_script(const String &p_path, const String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, CompileMode p_mode) {
+std::shared_ptr<const ClassImage> compile_script(const String &p_path, const String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, CompileMode p_mode, std::vector<compiler::Diagnostic> *r_warnings) {
 	const SceneIndex::Pass pass;
 	std::shared_ptr<const compiler::CompileResult> result;
 	// Loads, which compile declarations, take no part in the analysis, whose
@@ -59,6 +59,9 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 	}
 	if (r_errors) {
 		*r_errors = result->errors;
+	}
+	if (r_warnings) {
+		*r_warnings = result->warnings;
 	}
 	if (!result->ok()) {
 		return nullptr;
@@ -106,16 +109,22 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 	return image;
 }
 
-int build_project(int *r_script_count) {
+int build_project(int *r_script_count, bool p_warnings) {
 	const SceneIndex::Pass pass;
 	const compiler::Analysis::Pass analysis_pass(analysis());
 	const PackedStringArray paths = project_files(PackedStringArray({ "pet" }));
 	int failed = 0;
 	for (const String &path : paths) {
 		const String source = FileAccess::get_file_as_string(path);
-		const std::shared_ptr<const ClassImage> image = compile_script(path, source, nullptr, true);
+		std::vector<compiler::Diagnostic> warnings;
+		const std::shared_ptr<const ClassImage> image = compile_script(path, source, nullptr, true, CompileMode::Full, &warnings);
 		if (!image || !write_compiled(cache_path(path), *image)) {
 			failed++;
+		}
+		const CharString file = path.utf8();
+		for (size_t i = 0; p_warnings && i < warnings.size(); i++) {
+			const std::string message = warnings[i].warning.empty() ? warnings[i].message : warnings[i].message + " (" + warnings[i].warning + ")";
+			gdextension_interface::print_warning(message.c_str(), "", file.get_data(), warnings[i].line, false);
 		}
 	}
 	if (r_script_count) {

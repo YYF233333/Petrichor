@@ -5,6 +5,7 @@
 #include "compiler/lower.h"
 #include "compiler/parser.h"
 #include "compiler/script_classes.h"
+#include "compiler/warnings.h"
 
 #include <algorithm>
 
@@ -22,10 +23,16 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 	// With syntax errors only they are reported, but the checker runs on the
 	// recovered tree all the same, as the tools will (architecture §2.1).
 	std::vector<Diagnostic> unreported;
-	check(r_class, p_engine, p_options, result.errors.empty() ? result.errors : unreported, r_classes, true, &result.references);
-	std::stable_sort(result.errors.begin(), result.errors.end(), [](const Diagnostic &a, const Diagnostic &b) {
-		return a.begin < b.begin;
-	});
+	const bool parsed = result.errors.empty();
+	check(r_class, p_engine, p_options, parsed ? result.errors : unreported, r_classes, true, &result.references, parsed ? &result.warnings : nullptr);
+	if (parsed) {
+		apply_warning_ignores(r_class, result.warnings);
+	}
+	for (std::vector<Diagnostic> *diagnostics : { &result.errors, &result.warnings }) {
+		std::stable_sort(diagnostics->begin(), diagnostics->end(), [](const Diagnostic &a, const Diagnostic &b) {
+			return a.begin < b.begin;
+		});
+	}
 	if (result.errors.empty()) {
 		const StructLookup structs = [&](const Type &p_struct) -> const StructDecl * {
 			const ClassDecl *decl = r_classes.declarations(p_struct.script);
@@ -41,10 +48,12 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 		};
 		hash(result.module, hash);
 	}
-	for (Diagnostic &error : result.errors) {
-		const SourcePosition position = r_class.source->position(error.begin);
-		error.line = position.line;
-		error.column = position.column;
+	for (std::vector<Diagnostic> *diagnostics : { &result.errors, &result.warnings }) {
+		for (Diagnostic &diagnostic : *diagnostics) {
+			const SourcePosition position = r_class.source->position(diagnostic.begin);
+			diagnostic.line = position.line;
+			diagnostic.column = position.column;
+		}
 	}
 	return result;
 }
