@@ -18,8 +18,8 @@ Petrichor designs a statically typed scripting language that replaces GDScript, 
 - Compiler tests: `scons compiler_tests`, then `tests/compiler/bin/compiler_tests` (no godot-cpp, no engine).
 - Engine tests: `python tests/engine/run.py <Godot 4.7 editor binary> [group...]` (headless; groups in `run.py`, e.g. `fps`).
 - Benchmarks: `python benchmarks/run.py <Godot 4.7 editor binary>` on an optimized engine such as the official 4.7.2-stable release, not a `dev_build` (architecture §4).
-- Derive tests from the spec (§15), the engine and real code, not from the implementation (architecture §3). Test only what a change needs, and do not rerun tests; run the full engine suite when a large feature is finished, not before every commit, and bisect regressions. Test time matters only where it blocks development.
-- Write few comments, none that the code is understood without. Clean up debt in code a change touches without widening into an open-ended refactor.
+- Derive tests from the spec (§15), the engine and real code, not from the implementation (architecture §3). A test stays only when what it protects is worth its run time and upkeep: a spec rule or a real defect that no other test runs, in what this language's scripts do; remove tests of engine behavior, of implementation details or of what another test runs. Do not rerun tests; run the full engine suite when a large feature is finished, not before every commit, and bisect regressions. Test time matters only where it blocks development.
+- Code is a liability: keep only real complexity, and count fewer lines as progress. Remove dead paths, rules kept in several places, abstractions with one use, generality nothing uses and checks for states that cannot occur; refactor to remove code, not to restructure the same amount. Write few comments, none that the code is understood without. Clean up debt in code a change touches without widening into an open-ended refactor.
 
 ## Commits
 

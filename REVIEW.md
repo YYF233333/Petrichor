@@ -4,11 +4,11 @@ The owner asks for reviews from time to time, often from other vendors' models. 
 
 ## How this repository differs
 
-Judge by these principles rather than by common review taste:
+Judge by the principles of `AGENTS.md` rather than by common review taste. Where they differ most:
 
-- **The spec leads.** `docs/language-spec.*` is the source of truth. Code that disagrees with it is a code defect, unless the rule itself is wrong, in which case the finding is against the spec. Tests come from the spec (§15), the engine and real code, never from the implementation.
-- **Code is a liability.** The repository keeps only its real complexity, and fewer lines are progress. Report what can go without losing behavior: dead paths, a rule kept in several places, an abstraction with one use, generality nothing uses, checks for states that cannot occur, comments the code already says. Refactoring that removes code is welcome; restructuring that keeps as much (splitting files, adding layers) is not a finding. A fix adds no more than the problem needs.
-- **Tests clear a high bar.** A test stays only when what it protects is worth its run time and upkeep: a spec rule or a real defect that no other test runs, in what this language's scripts do. Tests of engine behavior, of implementation details or of what another test already runs are cleaned out, and reporting them is as useful as reporting a bug. A new test is proposed only when it clears the same bar.
+- **The spec leads.** Code that disagrees with the spec is a code defect, unless the rule itself is wrong, in which case the finding is against the spec.
+- **Code is a liability.** What can go without losing behavior is a finding. Refactoring that removes code is welcome; restructuring that keeps as much (splitting files, adding layers) is not a finding. A fix adds no more than the problem needs.
+- **Tests clear a high bar.** A test below it is a finding as much as a bug is, and a new test is proposed only when it clears it.
 - **Speed over hypothetical safety.** Ordinary defects are fixed by their actual impact; a risk that no plausible script runs into is not a finding.
 
 These are settled and need evidence they did not weigh to reopen: what spec §14 leaves out of the first version or keeps open, the alternatives in Appendix B, the unfinished work in `BACKLOG.md`, optimization without measurements (step 9 of architecture §5), and the limits in architecture §6, such as bytecode files crafted by hand (§6.1).
