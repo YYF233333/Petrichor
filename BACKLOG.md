@@ -72,7 +72,6 @@ Engine calls are by name with Variant arguments now, so code that calls the engi
 - Containers: the storage behind Array and Dictionary may be replaced later, keeping their public semantics (spec §3.8); the arrays benchmark loses to GDScript mostly to boxing each element into a Variant and back, and the check that a container is not read-only before each change (spec §3.8) is a call into the engine, about 7 ns of an append. Escape analysis can give containers that do not escape a private representation, the engine container being the reference semantics (architecture §2.2): a private representation supports some operations, a container that uses others keeps the engine's, and each private operation is tested against the engine's.
 - Constants and counting loops: every evaluation of a literal loads it into a new temporary with an instruction, and a counting `for` runs six instructions per iteration, where GDScript addresses constants as operands (modules/gdscript/gdscript_byte_codegen.h:366-367) and iterates with one instruction (modules/gdscript/gdscript_vm.cpp:3471-3492; ed1daf0); float_loop and vectors are no faster than GDScript now.
 - Benchmarks of real workloads, which become representative after type descriptors and ptrcall; optimizations of the IR and code generation after those.
-- Since Variant was implemented, int_loop, float_loop, calls and members run 4–10% slower against GDScript without running any of its instructions; the dispatch function's frame grew by only 48 bytes, so the cause is elsewhere in its code.
 
 ## Open questions
 

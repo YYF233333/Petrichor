@@ -220,18 +220,21 @@ thread_local FrameStack frame_stack;
 
 // A frame of a function, constructed and destroyed by its layout.
 class Frame {
+	FrameStack &stack;
 	const SlotLayout &layout;
 
 public:
 	uint8_t *const data;
 
-	explicit Frame(const SlotLayout &p_layout) :
-			layout(p_layout), data(frame_stack.push(p_layout.size)) {
+	Frame(FrameStack &p_stack, const SlotLayout &p_layout) :
+			stack(p_stack), layout(p_layout), data(stack.push(p_layout.size)) {
 		layout.construct(data);
 	}
 	~Frame() {
-		layout.destroy(data);
-		frame_stack.pop(layout.size);
+		if (!layout.destroyed.empty()) {
+			layout.destroy(data);
+		}
+		stack.pop(layout.size);
 	}
 	Frame(const Frame &) = delete;
 	Frame &operator=(const Frame &) = delete;
@@ -247,25 +250,29 @@ alignas(16) const uint8_t NOTHING[64] = {};
 // arguments.
 class Arguments {
 	static constexpr uint32_t INLINE = 8;
+	struct Heap {
+		std::vector<const void *> pointers;
+		std::vector<Variant> variants;
+		std::vector<ObjectView> views;
+	};
 	const void *inline_pointers[INLINE];
 	alignas(Variant) uint8_t inline_variants[INLINE * sizeof(Variant)];
 	uint32_t variant_count = 0;
 	alignas(ObjectView) uint8_t inline_views[INLINE * sizeof(ObjectView)];
 	uint32_t view_count = 0;
-	std::vector<const void *> heap_pointers;
-	std::vector<Variant> heap_variants;
-	std::vector<ObjectView> heap_views;
+	Heap *heap = nullptr;
 
 public:
 	const void **pointers;
 
 	Arguments(const std::vector<TypeImage> &p_types, uint8_t *p_frame, const uint32_t *p_pairs, uint32_t p_count, const std::vector<ValueType> *p_params) {
 		if (p_count > INLINE) {
-			heap_pointers.resize(p_count);
-			heap_variants.reserve(p_count); // Pointers into them stay valid.
-			heap_views.reserve(p_count);
+			heap = new Heap();
+			heap->pointers.resize(p_count);
+			heap->variants.reserve(p_count); // Pointers into them stay valid.
+			heap->views.reserve(p_count);
 		}
-		pointers = p_count > INLINE ? heap_pointers.data() : inline_pointers;
+		pointers = heap ? heap->pointers.data() : inline_pointers;
 		for (uint32_t i = 0; i < p_count; i++) {
 			const TypeImage &type = p_types[p_pairs[2 * i]];
 			uint8_t *slot = p_frame + p_pairs[2 * i + 1];
@@ -275,11 +282,11 @@ public:
 				pointers[i] = slot;
 			} else if (type.storage == ValueType::Object) {
 				// A view needs no destruction.
-				ObjectView *view = p_count > INLINE ? &heap_views.emplace_back(slot) : new (inline_views + view_count++ * sizeof(ObjectView)) ObjectView(slot);
+				ObjectView *view = heap ? &heap->views.emplace_back(slot) : new (inline_views + view_count++ * sizeof(ObjectView)) ObjectView(slot);
 				pointers[i] = &view->get();
-			} else if (p_count > INLINE) {
-				heap_variants.push_back(to_variant(type, slot));
-				pointers[i] = &heap_variants.back();
+			} else if (heap) {
+				heap->variants.push_back(to_variant(type, slot));
+				pointers[i] = &heap->variants.back();
 			} else {
 				pointers[i] = new (inline_variants + variant_count++ * sizeof(Variant)) Variant(to_variant(type, slot));
 			}
@@ -289,6 +296,7 @@ public:
 		for (uint32_t i = 0; i < variant_count; i++) {
 			reinterpret_cast<Variant *>(inline_variants)[i].~Variant();
 		}
+		delete heap;
 	}
 	Arguments(const Arguments &) = delete;
 	Arguments &operator=(const Arguments &) = delete;
@@ -621,6 +629,8 @@ class Execution {
 	// engine runs (core/debugger/engine_debugger.h:106); asked once per call
 	// from the engine, since asking is a call into the engine.
 	const bool debugging;
+	std::vector<StackFrame> &stack;
+	FrameStack &frames;
 	// self as a Variant, made when an instruction first needs it.
 	alignas(Variant) uint8_t self_storage[sizeof(Variant)] = {};
 	bool has_self = false;
@@ -631,6 +641,92 @@ class Execution {
 			has_self = true;
 		}
 		return variant_at(self_storage);
+	}
+
+	PETRICHOR_NOINLINE bool fail(const bytecode::Function &p_fn, int p_line, const String &p_message) {
+		report_error(image, p_fn, p_line, p_message);
+		return false;
+	}
+
+	PETRICHOR_NOINLINE bool fail_cstr(const bytecode::Function &p_fn, int p_line, const char *p_message) {
+		report_error(image, p_fn, p_line, String(p_message));
+		return false;
+	}
+
+	PETRICHOR_NOINLINE bool fail_helper(const bytecode::Function &p_fn, int p_line) {
+		report_error(image, p_fn, p_line, helper_error());
+		return false;
+	}
+
+	PETRICHOR_NOINLINE bool fail_stack_overflow() {
+		const StackFrame &caller = stack.back();
+		report_error(*caller.image, *caller.function, caller.line, vformat("Stack overflow: more than %d calls deep. Check for infinite recursion.", int64_t(MAX_CALL_DEPTH)));
+		return false;
+	}
+
+	PETRICHOR_NOINLINE bool fail_float_to_int(const bytecode::Function &p_fn, int p_line, double p_value) {
+		return fail(p_fn, p_line, vformat("Cannot convert %s to int: out of range.", p_value));
+	}
+
+	PETRICHOR_NOINLINE bool fail_shift(const bytecode::Function &p_fn, int p_line, int64_t p_a, int64_t p_b, bool p_left) {
+		if (p_a < 0 || p_b < 0) {
+			return fail(p_fn, p_line, vformat("Cannot compute %d %s %d: a shift takes operands that are not negative.", p_a, p_left ? "<<" : ">>", p_b));
+		}
+		return fail(p_fn, p_line, vformat("Cannot compute %d %s %d: a shift by 64 or more bits is undefined.", p_a, p_left ? "<<" : ">>", p_b));
+	}
+
+	PETRICHOR_NOINLINE bool fail_pow_int(const bytecode::Function &p_fn, int p_line, int64_t p_exp) {
+		return fail(p_fn, p_line, vformat("Cannot compute 0 ** %d: division by zero.", p_exp));
+	}
+
+	PETRICHOR_NOINLINE bool fail_check_enum(const bytecode::Function &p_fn, int p_line, uint32_t p_type, int64_t p_value) {
+		return fail(p_fn, p_line, vformat("%d is none of the values of %s.", p_value, type_description(image.types[p_type])));
+	}
+
+	PETRICHOR_NOINLINE bool fail_unassigned(const bytecode::Function &p_fn, int p_line, uint32_t p_member) {
+		// Spec §6.3; §7.5: the scene or the resource did not assign the export.
+		return fail(p_fn, p_line, vformat(image.module.members[p_member].is_onready ? "\"%s\" is read before the node is ready." : "\"%s\" has not been assigned.", image.member_names[p_member]));
+	}
+
+	PETRICHOR_NOINLINE bool fail_range(const bytecode::Function &p_fn, int p_line, bytecode::IntRange p_range, int64_t p_value) {
+		return fail(p_fn, p_line, vformat("%d is out of range for the engine's %s.", p_value, bytecode::int_range_name(p_range)));
+	}
+
+	PETRICHOR_NOINLINE bool fail_assert(const bytecode::Function &p_fn, int p_line, const uint8_t *p_frame, uint32_t p_slot) {
+		// As GDScript words it (modules/gdscript/gdscript_vm.cpp:3876-3902; ed1daf0).
+		if (p_slot == NO_SLOT || reinterpret_cast<const String *>(p_frame + p_slot)->is_empty()) {
+			return fail_cstr(p_fn, p_line, "Assertion failed.");
+		}
+		return fail(p_fn, p_line, "Assertion failed: " + *reinterpret_cast<const String *>(p_frame + p_slot));
+	}
+
+	PETRICHOR_NOINLINE bool fail_unwrap(const bytecode::Function &p_fn, int p_line, const uint8_t *p_frame, uint32_t p_slot) {
+		return p_slot == NO_SLOT ? fail_cstr(p_fn, p_line, "unwrap() found None.") : fail(p_fn, p_line, *reinterpret_cast<const String *>(p_frame + p_slot));
+	}
+
+	PETRICHOR_NOINLINE bool fail_invalid_op(const bytecode::Function &p_fn, int p_line, uint32_t p_op) {
+		return fail(p_fn, p_line, vformat("Invalid instruction %d.", p_op));
+	}
+
+	PETRICHOR_NOINLINE void step_debugger(int p_line) {
+		debugger::line(image.source, p_line);
+	}
+
+	// The object an instruction works on: self, or a live object in a slot (spec §3.3).
+	Variant *resolve_object(uint8_t *p_frame, uint32_t p_offset, const std::atomic<bool> &p_freed, ObjectView &r_view, const bytecode::Function &p_fn, int p_line) {
+		if (p_offset == NO_SLOT) {
+			if (p_freed.load(std::memory_order_relaxed)) {
+				fail_cstr(p_fn, p_line, "self was freed, or lost its script, while this method ran.");
+				return nullptr;
+			}
+			return &self();
+		}
+		if (!is_live_object(p_frame + p_offset)) {
+			fail_cstr(p_fn, p_line, is_none_object(p_frame + p_offset) ? "The value is None." : "The object was freed.");
+			return nullptr;
+		}
+		new (&r_view) ObjectView(p_frame + p_offset);
+		return &r_view.get();
 	}
 
 	// A static variable of the class at `p_class`, or of this one (spec §4.8);
@@ -671,24 +767,20 @@ class Execution {
 	// `p_call`: a program error in it ends the caller too (spec §8.1). An
 	// override or an inherited function may take and give other types than the
 	// call was compiled against (§4.6), which the arguments and result convert to.
-	bool call_function(const ClassImage &p_callee, uint32_t p_index, const InstanceContext &p_context, const uint32_t *p_call, uint8_t *frame, const bytecode::Slot &p_result, const bytecode::Function &p_caller, int p_line) {
+	PETRICHOR_NOINLINE bool call_function(const ClassImage &p_callee, uint32_t p_index, const InstanceContext &p_context, const uint32_t *p_call, uint8_t *frame, const bytecode::Slot &p_result, const bytecode::Function &p_caller, int p_line) {
 		const uint32_t dst = p_call[2], argc = p_call[4];
 		const bytecode::Function &method = p_callee.module.functions[p_index];
-		const auto fail = [&](const String &p_message) {
-			report_error(image, p_caller, p_line, p_message);
-			return false;
-		};
 		if (!method.is_static && !p_context.storage) {
-			return fail("An instance method needs a receiver. Build the project again.");
+			return fail_cstr(p_caller, p_line, "An instance method needs a receiver. Build the project again.");
 		}
 		if (method.is_abstract) {
-			return fail(vformat("%s() is abstract, and this object's class does not implement it. Build the project again.", p_callee.function_names[p_index]));
+			return fail(p_caller, p_line, vformat("%s() is abstract, and this object's class does not implement it. Build the project again.", p_callee.function_names[p_index]));
 		}
 		const size_t required = method.params.size() - method.defaults.size();
 		if (argc < required || argc > method.params.size()) {
-			return fail("Override argument count changed. Rebuild the project.");
+			return fail_cstr(p_caller, p_line, "Override argument count changed. Rebuild the project.");
 		}
-		Frame callee_frame(p_callee.frames[p_index]);
+		Frame callee_frame(frames, p_callee.frames[p_index]);
 		for (size_t i = 0; i < method.params.size(); i++) {
 			uint8_t *param = callee_frame.data + method.params[i].offset;
 			const TypeImage &param_type = p_callee.types[method.params[i].type];
@@ -702,10 +794,10 @@ class Execution {
 			if (source) {
 				value = to_variant(*source, frame + p_call[6 + 2 * i]);
 			} else if (!constant_value(p_callee, method.defaults[i - required], value, error)) {
-				return fail(error);
+				return fail(p_caller, p_line, error);
 			}
 			if (!from_variant(param_type, value, param, true)) {
-				return fail(vformat("Argument of %s(): %s.", p_callee.function_names[p_index], entry_mismatch(param_type, value)));
+				return fail(p_caller, p_line, vformat("Argument of %s(): %s.", p_callee.function_names[p_index], entry_mismatch(param_type, value)));
 			}
 		}
 		const TypeImage &result_type = image.types[p_result.type];
@@ -728,9 +820,717 @@ class Execution {
 		return run_callee(returned.data) && from_variant(result_type, outward_variant(returns, returned.data), frame + dst, true);
 	}
 
+	PETRICHOR_NOINLINE bool op_load_static(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		String error;
+		const uint8_t *variable = static_variable(p_op[3], p_op[4], p_op[1], error);
+		if (!variable) {
+			return fail(p_fn, p_line, error);
+		}
+		copy_value(image.types[p_op[1]], p_frame + p_op[2], variable);
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_store_static(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		String error;
+		uint8_t *variable = static_variable(p_op[2], p_op[3], p_op[1], error);
+		if (!variable) {
+			return fail(p_fn, p_line, error);
+		}
+		copy_value(image.types[p_op[1]], variable, p_frame + p_op[4]);
+		return true;
+	}
+
+	PETRICHOR_NOINLINE void op_init_static(const uint32_t *p_op, uint8_t *p_frame) {
+		Statics &statics = *image.statics;
+		const bytecode::Member &variable = image.module.statics[p_op[2]];
+		copy_value(image.types[p_op[1]], statics.at(variable.offset), p_frame + p_op[3]);
+		if (!variable.has_initial) {
+			statics.next = p_op[2] + 1;
+		}
+	}
+
+	PETRICHOR_NOINLINE static void op_add_string(const uint32_t *p_op, uint8_t *p_frame) {
+		*reinterpret_cast<String *>(p_frame + p_op[1]) = *reinterpret_cast<const String *>(p_frame + p_op[2]) + *reinterpret_cast<const String *>(p_frame + p_op[3]);
+	}
+
+	PETRICHOR_NOINLINE bool op_format(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		// The engine's general evaluation, which reports the error that
+		// its direct one drops (core/variant/variant_op.h:720-837; ed1daf0).
+		Variant result;
+		bool valid = false;
+		Variant::evaluate(Variant::OP_MODULE, *reinterpret_cast<const String *>(p_frame + p_op[2]), variant_at(p_frame + p_op[3]), result, valid);
+		if (!valid) {
+			return fail(p_fn, p_line, vformat("String formatting error: %s.", result));
+		}
+		*reinterpret_cast<String *>(p_frame + p_op[1]) = result;
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_get_property(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
+		const uint32_t index = p_op[1];
+		ObjectView view(nullptr);
+		Variant *object = resolve_object(p_frame, p_op[3], p_freed, view, p_fn, p_line);
+		if (!object) {
+			return false;
+		}
+		bool valid = false;
+		const Variant value = object->get_named(image.properties[index], valid);
+		if (!valid) {
+			return fail(p_fn, p_line, vformat("Cannot read the property %s.", image.properties[index]));
+		}
+		if (!from_variant(image.types[image.module.properties[index].type], value, p_frame + p_op[2], false)) {
+			return fail(p_fn, p_line, vformat("The property %s holds an unexpected %s.", image.properties[index], Variant::get_type_name(value.get_type())));
+		}
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_has_member(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
+		ObjectView view(nullptr);
+		Variant *object = resolve_object(p_frame, p_op[2], p_freed, view, p_fn, p_line);
+		if (!object) {
+			return false;
+		}
+		// As the engine's `in` (core/variant/variant_op.h:1217-1250; ed1daf0).
+		bool valid = false;
+		object->get_named(StringName(*reinterpret_cast<const String *>(p_frame + p_op[3])), valid);
+		*reinterpret_cast<uint64_t *>(p_frame + p_op[1]) = valid ? 1 : 0;
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_set_property(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
+		const uint32_t index = p_op[1];
+		ObjectView view(nullptr);
+		Variant *object = resolve_object(p_frame, p_op[2], p_freed, view, p_fn, p_line);
+		if (!object) {
+			return false;
+		}
+		bool valid = false;
+		object->set_named(image.properties[index], to_variant(image.types[image.module.properties[index].type], p_frame + p_op[3]), valid);
+		if (!valid) {
+			return fail(p_fn, p_line, vformat("Cannot write the property %s.", image.properties[index]));
+		}
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_get_script(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		const Variant script = load_resource(image.class_scripts[p_op[1]]);
+		if (script.get_type() != Variant::OBJECT || !script.booleanize()) {
+			return fail(p_fn, p_line, vformat("Cannot load the script of %s.", image.class_scripts[p_op[1]]));
+		}
+		set_object(p_frame + p_op[2], script);
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_get_owner(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
+		// Checked at every read, since code and the engine change the owner (spec §7.3).
+		if (p_freed.load(std::memory_order_relaxed)) {
+			return fail_cstr(p_fn, p_line, "self was freed, or lost its script, while this method ran.");
+		}
+		const Node *node = Object::cast_to<Node>(context.owner);
+		Node *found = node ? node->get_owner() : nullptr;
+		const uint32_t index = p_op[1];
+		if (!found || !image.fits_class(found, index)) {
+			return fail(p_fn, p_line, vformat("owner: %s (@owner).", entry_mismatch(ValueType::Object, Variant(found), class_check(image, index))));
+		}
+		set_object(p_frame + p_op[2], Variant(found));
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_get_self(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
+		if (p_freed.load(std::memory_order_relaxed)) {
+			return fail_cstr(p_fn, p_line, "self was freed, or lost its script, while this method ran.");
+		}
+		set_object(p_frame + p_op[1], self());
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_get_singleton(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		Object *singleton = Engine::get_singleton()->get_singleton(image.classes[p_op[1]]);
+		if (!singleton) {
+			return fail(p_fn, p_line, vformat("The engine has no singleton %s.", image.classes[p_op[1]]));
+		}
+		set_object(p_frame + p_op[2], Variant(singleton));
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_get_autoload(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		// An autoload is a child of the root by its name (spec §7.3).
+		const StringName name = image.values[p_op[1]];
+		SceneTree *tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop());
+		Window *root = tree ? tree->get_root() : nullptr;
+		Node *node = root ? root->get_node_or_null(NodePath(String(name))) : nullptr;
+		if (!node) {
+			return fail(p_fn, p_line, vformat("The autoload %s is not in the scene tree.", name));
+		}
+		set_object(p_frame + p_op[2], Variant(node));
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_method_value(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
+		if (p_freed.load(std::memory_order_relaxed)) {
+			return fail_cstr(p_fn, p_line, "self was freed, or lost its script, while this method ran.");
+		}
+		*reinterpret_cast<Callable *>(p_frame + p_op[2]) = Callable(memnew(MethodCallable(context.owner, image.function_names[p_op[1]])));
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_make_lambda(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
+		const uint32_t lambda = p_op[1];
+		const bool on_self = !image.module.functions[lambda].is_static;
+		if (on_self && p_freed.load(std::memory_order_relaxed)) {
+			return fail_cstr(p_fn, p_line, "self was freed, or lost its script, while this method ran.");
+		}
+		*reinterpret_cast<Callable *>(p_frame + p_op[2]) = Callable(memnew(LambdaCallable(image.shared_from_this(), lambda, on_self ? context : InstanceContext(), p_frame, p_op + 5)));
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_get_signal(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
+		ObjectView view(nullptr);
+		Variant *object = resolve_object(p_frame, p_op[3], p_freed, view, p_fn, p_line);
+		if (!object) {
+			return false;
+		}
+		*reinterpret_cast<Signal *>(p_frame + p_op[2]) = Signal(static_cast<Object *>(*object), StringName(image.values[p_op[1]]));
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_check_object(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		ObjectView view(p_frame + p_op[2]);
+		const Variant &value = view.get();
+		const Object *object = value.get_validated_object();
+		if (is_none(value) || (object && !image.fits_class(object, p_op[1]))) {
+			const String mismatch = entry_mismatch(ValueType::Object, value, class_check(image, p_op[1]));
+			return fail(p_fn, p_line, mismatch.substr(0, 1).to_upper() + mismatch.substr(1) + ".");
+		}
+		return true;
+	}
+
+	PETRICHOR_NOINLINE void op_cast_object(const uint32_t *p_op, uint8_t *p_frame) {
+		// A freed object is None for every type (spec §5.3).
+		const uint8_t *src = p_frame + p_op[3];
+		ObjectView view(src);
+		const Object *object = is_live_object(src) ? view.get().get_validated_object() : nullptr;
+		if (object && image.fits_class(object, p_op[1])) {
+			copy_value(ValueType::Object, p_frame + p_op[2], src);
+		} else {
+			destroy_value(ValueType::Object, p_frame + p_op[2]);
+		}
+	}
+
+	PETRICHOR_NOINLINE void op_is_instance(const uint32_t *p_op, uint8_t *p_frame) {
+		// A freed object is no class's instance (spec §3.3).
+		const uint8_t *src = p_frame + p_op[3];
+		ObjectView view(src);
+		const Object *object = is_live_object(src) ? view.get().get_validated_object() : nullptr;
+		*reinterpret_cast<uint64_t *>(p_frame + p_op[2]) = object && image.fits_class(object, p_op[1]) ? 1 : 0;
+	}
+
+	PETRICHOR_NOINLINE void op_new_container(const uint32_t *p_op, uint8_t *p_frame) {
+		const TypeImage &type = image.types[p_op[1]];
+		if (type.storage == ValueType::Dictionary) {
+			*reinterpret_cast<Dictionary *>(p_frame + p_op[2]) = typed_dictionary(type.check);
+		} else {
+			*reinterpret_cast<Array *>(p_frame + p_op[2]) = typed_array(type.check.element, type.check.class_name, type.check.script);
+		}
+	}
+
+	PETRICHOR_NOINLINE bool op_get_index(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		const TypeImage &base = image.types[p_op[1]];
+		const TypeImage &element = image.types[p_op[2]];
+		if (base.storage == ValueType::Dictionary) {
+			const Dictionary &dictionary = *reinterpret_cast<const Dictionary *>(p_frame + p_op[4]);
+			// Through an untyped view, a key looked up must fit (spec §3.8).
+			if (base.kind == bytecode::TypeKind::Value && !entry_fits(base, p_frame + p_op[4], p_frame + p_op[5], nullptr)) {
+				return fail_helper(p_fn, p_line);
+			}
+			const Variant key = kept(base.key, p_frame + p_op[5]);
+			if (!dictionary.has(key)) {
+				return fail(p_fn, p_line, vformat("The Dictionary has no key %s.", key_text(key)));
+			}
+			const Variant &value = dictionary[key];
+			if (!from_variant(element, value, p_frame + p_op[3], checked_when_read(element))) {
+				return fail(p_fn, p_line, read_error(element, value));
+			}
+			return true;
+		}
+		// A negative index counts from the end, as in GDScript.
+		Variant container = to_variant(base.storage, p_frame + p_op[4]);
+		const int64_t index = *reinterpret_cast<const int64_t *>(p_frame + p_op[5]);
+		bool valid = false;
+		bool out_of_bounds = false;
+		const Variant value = container.get_indexed(index, valid, out_of_bounds);
+		if (!valid || out_of_bounds) {
+			return fail(p_fn, p_line, vformat("Index %d is out of bounds (size %d).", index, int64_t(container.call("size"))));
+		}
+		if (!from_variant(element, value, p_frame + p_op[3], checked_when_read(element))) {
+			return fail(p_fn, p_line, read_error(element, value));
+		}
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_set_index(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		const TypeImage &base = image.types[p_op[1]];
+		uint8_t *container = p_frame + p_op[2];
+		const uint8_t *index = p_frame + p_op[3];
+		const uint8_t *src = p_frame + p_op[4];
+		if (is_read_only(base.storage, container)) {
+			return fail(p_fn, p_line, read_only_error(base.storage));
+		}
+		// Through an untyped view, values must fit the types the container has (spec §3.8).
+		if (base.kind == bytecode::TypeKind::Value && (base.storage == ValueType::Dictionary || base.storage == ValueType::Array) && !entry_fits(base, container, index, src)) {
+			return fail_helper(p_fn, p_line);
+		}
+		if (base.storage == ValueType::Dictionary) {
+			Dictionary &dictionary = *reinterpret_cast<Dictionary *>(container);
+			Variant key = kept(base.key, index);
+			if (keys_hold_containers(dictionary) && !dictionary.has(key)) {
+				key = frozen_copy(key);
+			}
+			dictionary.set(key, kept(base.item, src));
+			return true;
+		}
+		// A negative index counts from the end, as in GDScript.
+		const int64_t raw = *reinterpret_cast<const int64_t *>(index);
+		const int64_t size = base.storage == ValueType::Array ? reinterpret_cast<const Array *>(container)->size() : packed_array_size(base.storage, container);
+		const int64_t at = raw < 0 ? raw + size : raw;
+		if (at < 0 || at >= size) {
+			return fail(p_fn, p_line, vformat("Index %d is out of bounds (size %d).", raw, size));
+		}
+		if (base.storage == ValueType::Array) {
+			reinterpret_cast<Array *>(container)->set(at, kept(base.item, src));
+		} else {
+			// The element in its slot's layout, as the engine's setter takes it.
+			gdextension_interface::variant_get_ptr_indexed_setter(GDExtensionVariantType(base.storage))(container, at, src);
+		}
+		return true;
+	}
+
+	PETRICHOR_NOINLINE void op_to_variant(const uint32_t *p_op, uint8_t *p_frame) {
+		variant_at(p_frame + p_op[2]) = to_variant(image.types[p_op[1]], p_frame + p_op[3]);
+	}
+
+	PETRICHOR_NOINLINE void op_box(const uint32_t *p_op, uint8_t *p_frame) {
+		variant_at(p_frame + p_op[2]) = make_box(image.types[p_op[1]], p_frame + p_op[3], p_op[4] != 0);
+	}
+
+	PETRICHOR_NOINLINE void op_encode(const uint32_t *p_op, uint8_t *p_frame) {
+		const TypeImage &type = image.types[p_op[1]];
+		const Variant encoded = encode(type, p_frame + p_op[3]);
+		if (type.storage == ValueType::Array) {
+			*reinterpret_cast<Array *>(p_frame + p_op[2]) = encoded;
+		} else {
+			*reinterpret_cast<Dictionary *>(p_frame + p_op[2]) = encoded;
+		}
+	}
+
+	PETRICHOR_NOINLINE bool op_call_method(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
+		const uint32_t target = p_op[1];
+		const StringName &name = image.method_names[target];
+		const int32_t static_class = image.module.method_calls[target].static_class;
+		ScriptedObject callee;
+		if (Op(p_op[0]) == Op::CALL_SUPER) {
+			callee = { image.base, context };
+		} else if (static_class >= 0) {
+			// The class's current image, without an instance (spec §4.8).
+			callee.image = script_image(image.class_scripts[static_class]);
+		} else {
+			ObjectView view(nullptr);
+			Variant *receiver = resolve_object(p_frame, p_op[3], p_freed, view, p_fn, p_line);
+			if (!receiver) {
+				return false;
+			}
+			if (!scripted_object(static_cast<Object *>(*receiver), callee)) {
+				return fail_cstr(p_fn, p_line, "The receiver is not a Petrichor instance.");
+			}
+			if (callee.context.storage == context.storage && context.self_image) {
+				callee.image = context.self_image;
+			}
+			callee.context.self_image = callee.image;
+		}
+		// Within a run every script is compiled against the others (spec §12.4);
+		// only bytecode that was not built together can differ, and then the
+		// arguments would not fit. Whether a static method or _init() is visible
+		// is the checker's: subclasses call those that are not pub too (spec §4.2).
+		int index = callee.image ? callee.image->find_function(name) : -1;
+		const bytecode::Function *found = index >= 0 ? &callee.image->module.functions[index] : nullptr;
+		if (!found || !callee.image->has_signature(name, image.call_signatures[target]) || (static_class >= 0 && !found->is_static) || (Op(p_op[0]) == Op::CALL_METHOD && static_class < 0 && !found->is_pub && !found->is_override && index != callee.image->user_init)) {
+			return fail(p_fn, p_line, vformat("%s() is not the method this script was compiled against. Build the project again.", name));
+		}
+		ClassImage::resolve_function(callee.image, index);
+		return call_function(*callee.image, uint32_t(index), callee.context, p_op, p_frame, image.module.method_calls[target].result, p_fn, p_line);
+	}
+
+	PETRICHOR_NOINLINE bool op_call_value(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		// Through the engine, which passes the call on, also through bind(); a
+		// program error in the callee aborts this call too (spec §8.1).
+		const bytecode::MethodCall &call = image.module.method_calls[p_op[1]];
+		const uint32_t dst = p_op[2];
+		const uint32_t argc = p_op[4];
+		Variant callable = *reinterpret_cast<const Callable *>(p_frame + p_op[3]);
+		Arguments args(image.types, p_frame, p_op + 5, argc, nullptr);
+		std::vector<Variant> spread;
+		std::vector<const Variant *> spread_pointers;
+		const Variant **pointers = args.as_variants();
+		int count = int(argc);
+		if (call.method == "callv") {
+			const Array &values = *reinterpret_cast<const Array *>(p_frame + p_op[6]);
+			for (int64_t i = 0; i < values.size(); i++) {
+				spread.push_back(values[i]);
+			}
+			for (const Variant &value : spread) {
+				spread_pointers.push_back(&value);
+			}
+			pointers = spread_pointers.data();
+			count = int(spread.size());
+		}
+		ValueCall &value = value_call();
+		const ValueCall outer = value;
+		value = { true, false, false };
+		Variant result;
+		GDExtensionCallError error;
+		callable.callp(image.call_method, pointers, count, result, error);
+		const ValueCall made = value;
+		value = outer;
+		if (made.entered && made.failed) {
+			return false; // The callee reported it.
+		}
+		if (error.error == GDEXTENSION_CALL_ERROR_INSTANCE_IS_NULL) {
+			return fail_cstr(p_fn, p_line, "The function value's object was freed.");
+		}
+		if (error.error == GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS || error.error == GDEXTENSION_CALL_ERROR_TOO_FEW_ARGUMENTS) {
+			return fail(p_fn, p_line, vformat("callv() passes %d argument(s), but the function takes %d.", count, error.expected));
+		}
+		if (error.error != GDEXTENSION_CALL_OK) {
+			return fail_cstr(p_fn, p_line, "The function value cannot be called.");
+		}
+		if (dst != NO_SLOT && !from_variant(image.types[call.result.type], result, p_frame + dst, true)) {
+			return fail(p_fn, p_line, vformat("A function value returned an unexpected %s.", Variant::get_type_name(result.get_type())));
+		}
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_call_engine(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, CoroutineFrame *p_async, size_t &r_pc, bool &r_done, const bytecode::Function &p_fn, int p_line) {
+		const uint32_t target = p_op[1];
+		const uint32_t dst = p_op[2];
+		const uint32_t argc = p_op[4];
+		// By name for now; through MethodBind pointers once the compiler knows
+		// method hashes (architecture §2.2).
+		Arguments args(image.types, p_frame, p_op + 5, argc, nullptr);
+		Variant result;
+		GDExtensionCallError error;
+		if (!image.engine_static_classes[target].is_empty()) {
+			call_static(image.engine_static_classes[target], image.engine_methods[target], args.as_variants(), argc, result, error);
+			if (error.error != GDEXTENSION_CALL_OK) {
+				return fail(p_fn, p_line, vformat("Calling %s.%s() failed.", image.engine_static_classes[target], image.engine_methods[target]));
+			}
+			if (dst != NO_SLOT && !from_variant(image.types[image.module.engine_calls[target].result_type], result, p_frame + dst, false)) {
+				return fail(p_fn, p_line, vformat("%s() returned an unexpected %s.", image.engine_methods[target], Variant::get_type_name(result.get_type())));
+			}
+			r_pc += 5 + 2 * argc;
+			return true;
+		}
+		ObjectView view(nullptr);
+		Variant *object = resolve_object(p_frame, p_op[3], p_freed, view, p_fn, p_line);
+		if (!object) {
+			return false;
+		}
+		object->callp(image.engine_methods[target], args.as_variants(), int(argc), result, error);
+		if (error.error != GDEXTENSION_CALL_OK) {
+			return fail(p_fn, p_line, vformat("Calling %s() failed.", image.engine_methods[target]));
+		}
+		Object *state = result.get_type() == Variant::OBJECT ? result.get_validated_object() : nullptr;
+		if (state && state->is_class("GDScriptFunctionState")) {
+			if (Op(p_op[0]) == Op::CALL_AWAIT_ENGINE) {
+				if (p_async->task->cancel_requested) {
+					r_done = true;
+					return true;
+				}
+				p_async->held_state = result;
+				p_async->pc = r_pc + 5 + 2 * argc;
+				if (!p_async->suspend(Signal(state, "completed"), dst, object_id_of(*object), true)) {
+					return fail_cstr(p_fn, p_line, "Cannot await GDScript completion.");
+				}
+				r_done = true;
+				return true;
+			}
+			if (dst != NO_SLOT) {
+				return fail_cstr(p_fn, p_line, "The method is a GDScript coroutine and needs await.");
+			}
+		} else if (dst != NO_SLOT && !from_variant(image.types[image.module.engine_calls[target].result_type], result, p_frame + dst, false)) {
+			return fail(p_fn, p_line, vformat("%s() returned an unexpected %s.", image.engine_methods[target], Variant::get_type_name(result.get_type())));
+		}
+		r_pc += 5 + 2 * argc;
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_call_await_builtin(const uint32_t *p_op, uint8_t *p_frame, CoroutineFrame *p_async, size_t &r_pc, bool &r_done, const bytecode::Function &p_fn, int p_line) {
+		const uint32_t dst = p_op[2];
+		const uint32_t argc = p_op[4];
+		const Callable &callable = *reinterpret_cast<Callable *>(p_frame + p_op[3]);
+		Arguments args(image.types, p_frame, p_op + 5, argc, nullptr);
+		Variant base = callable;
+		Variant result;
+		GDExtensionCallError error;
+		base.callp(to_godot(image.module.builtin_methods[p_op[1]].method), args.as_variants(), int(argc), result, error);
+		if (error.error != GDEXTENSION_CALL_OK) {
+			return fail_cstr(p_fn, p_line, "Calling the awaited Callable failed.");
+		}
+		Object *state = result.get_type() == Variant::OBJECT ? result.get_validated_object() : nullptr;
+		p_async->destination = dst;
+		if (state && state->is_class("GDScriptFunctionState")) {
+			if (p_async->task->cancel_requested) {
+				r_done = true;
+				return true;
+			}
+			p_async->held_state = result;
+			p_async->pc = r_pc + 5 + 2 * argc;
+			if (!p_async->suspend(Signal(state, "completed"), dst, uint64_t(callable.get_object_id()), true)) {
+				return fail_cstr(p_fn, p_line, "Cannot await GDScript completion.");
+			}
+			r_done = true;
+			return true;
+		}
+		if (result.get_type() == Variant::SIGNAL) {
+			if (p_async->task->cancel_requested) {
+				r_done = true;
+				return true;
+			}
+			const Signal signal = result;
+			Ref<CoroutineTask> task = Object::cast_to<CoroutineTask>(signal.get_object());
+			p_async->pc = r_pc + 5 + 2 * argc;
+			if (task.is_valid() && signal.get_name() == StringName("completed")) {
+				if (!p_async->await_task(task)) {
+					return false;
+				}
+			} else if (!p_async->suspend(signal, dst, uint64_t(signal.get_object_id()))) {
+				return fail_cstr(p_fn, p_line, "Cannot await this signal.");
+			}
+			if (p_async->task->state == CoroutineTask::State::Suspended) {
+				r_done = true;
+				return true;
+			}
+		} else if (!p_async->receive(result)) {
+			return false;
+		}
+		r_pc += 5 + 2 * argc;
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_call_builtin(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		const bytecode::Module &module = image.module;
+		const bool utility = Op(p_op[0]) == Op::CALL_UTILITY;
+		const uint32_t target = p_op[1];
+		const uint32_t dst = p_op[2];
+		const uint32_t argc = p_op[4];
+		const std::vector<ValueType> &params = utility ? module.utility_calls[target].params : module.builtin_methods[target].params;
+		const ValueType returns = utility ? module.utility_calls[target].return_type : module.builtin_methods[target].return_type;
+		const TypeImage &result_type = image.types[utility ? module.utility_calls[target].result_type : module.builtin_methods[target].result_type];
+		Arguments args(image.types, p_frame, p_op + 5, argc, &params);
+		// A static method has no base, which the engine does not read
+		// (core/variant/variant_call.cpp:470-472).
+		uint8_t *base = p_op[3] == NO_SLOT ? nullptr : p_frame + p_op[3];
+		ClassImage::KeyRole keys = ClassImage::KeyRole::None;
+		ClassImage::Replaced replaced = ClassImage::Replaced::None;
+		std::optional<Variant> inserted; // A Variant is made by a call into the engine.
+		if (!utility && base) {
+			const bytecode::BuiltinMethodCall &method = module.builtin_methods[target];
+			if (!method.is_const && is_read_only(method.base, base)) {
+				return fail(p_fn, p_line, read_only_error(method.base));
+			}
+			// Through an untyped view, values must fit the types the container has (spec §3.8).
+			if (!image.element_args[target].empty() && !arguments_fit(image.element_args[target], params, args.pointers, method.base, base)) {
+				return fail_helper(p_fn, p_line);
+			}
+			if (image.needs_element[target] && reinterpret_cast<const Array *>(base)->is_empty()) {
+				// The engine returns null, after an error of its own for front() and back().
+				return fail(p_fn, p_line, vformat("%s() of an empty array.", method.method.c_str()));
+			}
+			if (image.replaced[target] != ClassImage::Replaced::None && keeps_boxes(to_variant(method.base, base))) {
+				replaced = image.replaced[target];
+			}
+			if (image.key_roles[target] != ClassImage::KeyRole::None && keys_hold_containers(*reinterpret_cast<const Dictionary *>(base))) {
+				keys = image.key_roles[target];
+			}
+			// A new key goes in as a key (spec §3.8).
+			if (keys == ClassImage::KeyRole::Inserts && !reinterpret_cast<const Dictionary *>(base)->has(*reinterpret_cast<const Variant *>(args.pointers[0]))) {
+				inserted = frozen_copy(*reinterpret_cast<const Variant *>(args.pointers[0]));
+				args.pointers[0] = &*inserted;
+			}
+		}
+		// A native result goes straight into its slot; a Variant one is checked
+		// on the way (spec §10.3). The scratch slot takes a Variant result, or
+		// one that nothing reads.
+		const bool via_variant = returns == ValueType::Variant || returns == ValueType::Void;
+		const bool unread = !via_variant && dst == NO_SLOT;
+		alignas(16) uint8_t scratch[64];
+		construct_value(via_variant ? ValueType::Variant : (unread ? returns : ValueType::Void), scratch);
+		void *result = via_variant || unread ? scratch : p_frame + dst;
+		if (utility) {
+			image.utilities[target](result, args.pointers, int(argc));
+		} else if (replaced == ClassImage::Replaced::Hash) {
+			*static_cast<int64_t *>(result) = content_hash(to_variant(module.builtin_methods[target].base, base));
+		} else if (replaced == ClassImage::Replaced::Sort && module.builtin_methods[target].base == ValueType::Array) {
+			reinterpret_cast<Array *>(base)->sort_custom(less_callable());
+		} else if (replaced == ClassImage::Replaced::Sort) {
+			// The keys in order, each with its value (spec §3.8).
+			Dictionary &dictionary = *reinterpret_cast<Dictionary *>(base);
+			Array keys_list = dictionary.keys();
+			keys_list.sort_custom(less_callable());
+			Array values;
+			for (int64_t i = 0; i < keys_list.size(); i++) {
+				values.push_back(dictionary[keys_list[i]]);
+			}
+			dictionary.clear();
+			for (int64_t i = 0; i < keys_list.size(); i++) {
+				dictionary[keys_list[i]] = values[i];
+			}
+		} else if (replaced == ClassImage::Replaced::Bsearch) {
+			const bool before = *static_cast<const uint8_t *>(args.pointers[1]);
+			*static_cast<int64_t *>(result) = reinterpret_cast<const Array *>(base)->bsearch_custom(*static_cast<const Variant *>(args.pointers[0]), less_callable(), before);
+		} else if (replaced == ClassImage::Replaced::Min || replaced == ClassImage::Replaced::Max) {
+			// The first of the least or the greatest, as the engine picks it
+			// (core/variant/array.cpp:828-868); null for an empty array.
+			const Array &array = *reinterpret_cast<const Array *>(base);
+			Variant best = array.is_empty() ? Variant() : array[0];
+			for (int64_t i = 1; i < array.size(); i++) {
+				if (replaced == ClassImage::Replaced::Min ? variant_less(array[i], best) : variant_less(best, array[i])) {
+					best = array[i];
+				}
+			}
+			variant_at(scratch) = best;
+		} else if (replaced == ClassImage::Replaced::HasAll) {
+			const Dictionary &dictionary = *reinterpret_cast<const Dictionary *>(base);
+			const Array &wanted = *static_cast<const Array *>(args.pointers[0]);
+			bool all = true;
+			for (int64_t i = 0; all && i < wanted.size(); i++) {
+				// A box made for a key is hashed.
+				const Variant key = wanted[i];
+				all = dictionary.has(type_of(key) == Variant::CALLABLE ? frozen_copy(key) : key);
+			}
+			*static_cast<uint64_t *>(result) = all ? 1 : 0;
+		} else {
+			image.builtin_methods[target](base, args.pointers, result, int(argc));
+		}
+		// A deep copy copies the boxes too (spec §3.8).
+		const bool deep = (replaced == ClassImage::Replaced::Duplicate && *static_cast<const uint8_t *>(args.pointers[0])) || replaced == ClassImage::Replaced::DuplicateDeep ||
+				(replaced == ClassImage::Replaced::Slice && *static_cast<const uint8_t *>(args.pointers[3]));
+		if (deep && !unread) {
+			const int64_t mode = replaced == ClassImage::Replaced::DuplicateDeep ? *static_cast<const int64_t *>(args.pointers[0]) : -1;
+			if (returns == ValueType::Array) {
+				Array &copy = *static_cast<Array *>(result);
+				for (int64_t i = 0; i < copy.size(); i++) {
+					copy[i] = deep_copy(copy[i], mode);
+				}
+			} else {
+				Dictionary &copy = *static_cast<Dictionary *>(result);
+				const Array copied = copy.keys();
+				for (int64_t i = 0; i < copied.size(); i++) {
+					copy[copied[i]] = deep_copy(copy[copied[i]], mode);
+				}
+			}
+		}
+		if (keys == ClassImage::KeyRole::HandsOut) {
+			// Keys this language obtains cannot be changed (spec §3.8).
+			if (returns == ValueType::Array) {
+				const Array handed = *reinterpret_cast<const Array *>(result);
+				for (int64_t i = 0; i < handed.size(); i++) {
+					freeze(handed[i]);
+				}
+			} else {
+				freeze(variant_at(scratch));
+			}
+		}
+		const bool fits = returns != ValueType::Variant || dst == NO_SLOT || from_variant(result_type, variant_at(scratch), p_frame + dst, checked_when_read(result_type));
+		const Variant::Type got = via_variant ? type_of(variant_at(scratch)) : Variant::NIL;
+		destroy_value(via_variant ? ValueType::Variant : (unread ? returns : ValueType::Void), scratch);
+		if (!fits) {
+			return fail(p_fn, p_line, vformat("A call returned an unexpected %s.", Variant::get_type_name(got)));
+		}
+		return true;
+	}
+
+	PETRICHOR_NOINLINE void op_construct(const uint32_t *p_op, uint8_t *p_frame) {
+		const uint32_t target = p_op[1];
+		const uint32_t dst = p_op[2];
+		const uint32_t argc = p_op[4];
+		const bytecode::ConstructorCall &constructor = image.module.constructors[target];
+		if (argc <= 8 && argc <= constructor.params.size()) {
+			const void *ptrs[8];
+			bool native = true;
+			for (uint32_t i = 0; i < argc; i++) {
+				if (constructor.params[i] == ValueType::Variant) {
+					native = false;
+					break;
+				}
+				ptrs[i] = p_frame + p_op[6 + 2 * i];
+			}
+			if (native) {
+				destroy_value(constructor.type, p_frame + dst);
+				image.constructors[target](p_frame + dst, ptrs);
+				return;
+			}
+		}
+		Arguments args(image.types, p_frame, p_op + 5, argc, &constructor.params);
+		// The engine constructs into memory that holds no value.
+		destroy_value(constructor.type, p_frame + dst);
+		image.constructors[target](p_frame + dst, args.pointers);
+	}
+
+	PETRICHOR_NOINLINE bool op_task_cancel(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		ObjectView view(p_frame + p_op[1]);
+		CoroutineTask *task = Object::cast_to<CoroutineTask>(static_cast<Object *>(view.get()));
+		if (!task) {
+			return fail_cstr(p_fn, p_line, "Expected a Task handle.");
+		}
+		task->cancel();
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_await_task(const uint32_t *p_op, uint8_t *p_frame, CoroutineFrame *p_async, size_t &r_pc, bool &r_done, const bytecode::Function &p_fn, int p_line) {
+		ObjectView view(p_frame + p_op[2]);
+		Ref<CoroutineTask> task = view.get();
+		if (task.is_null()) {
+			return fail_cstr(p_fn, p_line, "Expected a Task handle.");
+		}
+		if (p_op[3]) {
+			p_async->child = task;
+		}
+		if (p_async->task->cancel_requested) {
+			r_done = true;
+			return true;
+		}
+		p_async->destination = p_op[1];
+		p_async->pc = r_pc + 4;
+		if (!p_async->await_task(task)) {
+			return false;
+		}
+		if (p_async->task->state == CoroutineTask::State::Suspended) {
+			r_done = true;
+			return true;
+		}
+		r_pc += 4;
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_await_signal(const uint32_t *p_op, uint8_t *p_frame, CoroutineFrame *p_async, size_t p_pc, const bytecode::Function &p_fn, int p_line) {
+		if (p_async->task->cancel_requested) {
+			return true;
+		}
+		const Signal signal = *reinterpret_cast<Signal *>(p_frame + p_op[2]);
+		p_async->pc = p_pc + 3;
+		if (!p_async->suspend(signal, p_op[1], uint64_t(signal.get_object_id()))) {
+			return fail_cstr(p_fn, p_line, "Cannot await this signal.");
+		}
+		return true;
+	}
+
 public:
 	Execution(const ClassImage &p_image, const InstanceContext &p_context, bool p_debugging) :
-			image(p_image), context(p_context), debugging(p_debugging) {}
+			image(p_image), context(p_context), debugging(p_debugging), stack(call_stack), frames(frame_stack) {
+		if (stack.capacity() < MAX_CALL_DEPTH + 1) {
+			stack.reserve(MAX_CALL_DEPTH + 1);
+		}
+	}
 	~Execution() {
 		if (has_self) {
 			variant_at(self_storage).~Variant();
@@ -742,60 +1542,44 @@ public:
 	// Runs a function on an initialized frame. Returns false after a program
 	// error, which unwinds every frame of this language up to the engine.
 	bool run(uint32_t p_function, uint8_t *frame, uint8_t *p_result, CoroutineFrame *p_async = nullptr) {
-		const bytecode::Function &fn = image.module.functions[p_function];
 		const bytecode::Module &module = image.module;
+		const bytecode::Function &fn = module.functions[p_function];
 		const uint32_t *code = fn.code.data();
+		const bytecode::Constant *constants = module.constants.data();
+		const TypeImage *types = image.types.data();
 		uint8_t *members = context.storage ? context.storage->members : nullptr;
 		const std::atomic<bool> &freed = context.storage ? context.storage->freed : NO_INSTANCE_FREED;
-		if (call_stack.capacity() < MAX_CALL_DEPTH + 1) {
-			call_stack.reserve(MAX_CALL_DEPTH + 1);
+		if (stack.size() == MAX_CALL_DEPTH) {
+			return fail_stack_overflow();
 		}
-		if (call_stack.size() == MAX_CALL_DEPTH) {
-			const StackFrame &caller = call_stack.back();
-			report_error(*caller.image, *caller.function, caller.line, vformat("Stack overflow: more than %d calls deep. Check for infinite recursion.", int64_t(MAX_CALL_DEPTH)));
-			return false;
-		}
-		call_stack.push_back({ &image, context.self_image.get(), &fn, frame, members, p_async ? p_async->line : int(fn.line) });
-		StackFrame &record = call_stack.back();
+		stack.push_back({ &image, context.self_image.get(), &fn, frame, members, p_async ? p_async->line : int(fn.line) });
+		StackFrame &record = stack.back();
 		if (debugging) {
 			debugger::enter_function();
 		}
 		struct Pop {
+			std::vector<StackFrame> &stack;
 			bool debugging;
 			~Pop() {
 				if (debugging) {
 					debugger::exit_function();
 				}
-				call_stack.pop_back();
+				stack.pop_back();
 			}
-		} pop{ debugging };
+		} pop{ stack, debugging };
 
 #define I64(m_offset) (*reinterpret_cast<int64_t *>(frame + (m_offset)))
 #define U64(m_offset) (*reinterpret_cast<uint64_t *>(frame + (m_offset)))
 #define F64(m_offset) (*reinterpret_cast<double *>(frame + (m_offset)))
 #define STR(m_offset) (*reinterpret_cast<String *>(frame + (m_offset)))
-#define FAIL(m_message) \
-	do { \
-		report_error(image, fn, record.line, (m_message)); \
-		return false; \
-	} while (false)
 // Wrapping arithmetic on int, as in GDScript; through unsigned to stay defined.
 #define WRAP(m_op) int64_t(uint64_t(I64(code[pc + 2])) m_op uint64_t(I64(code[pc + 3])))
 // self and the members, unless the engine deleted the instance while this
 // function ran (spec §3.3).
 #define SELF_ALIVE() \
 	if (freed.load(std::memory_order_relaxed)) { \
-		FAIL("self was freed, or lost its script, while this method ran."); \
+		return fail_cstr(fn, record.line, "self was freed, or lost its script, while this method ran."); \
 	}
-// The object an instruction works on: self, or a live object in a slot (spec §3.3).
-#define OBJECT(m_name, m_offset) \
-	if ((m_offset) == NO_SLOT) { \
-		SELF_ALIVE(); \
-	} else if (!is_live_object(frame + (m_offset))) { \
-		FAIL(is_none_object(frame + (m_offset)) ? String("The value is None.") : String("The object was freed.")); \
-	} \
-	ObjectView m_name##_view((m_offset) == NO_SLOT ? nullptr : frame + (m_offset)); \
-	Variant &m_name = (m_offset) == NO_SLOT ? self() : m_name##_view.get();
 
 		size_t pc = p_async ? p_async->pc : 0;
 		while (true) {
@@ -806,16 +1590,16 @@ public:
 						p_async->line = record.line;
 					}
 					if (debugging) {
-						debugger::line(image.source, int(code[pc + 1]));
+						step_debugger(record.line);
 					}
 					pc += 2;
 					break;
 				case Op::CONST_INT:
-					I64(code[pc + 1]) = module.constants[code[pc + 2]].i;
+					I64(code[pc + 1]) = constants[code[pc + 2]].i;
 					pc += 3;
 					break;
 				case Op::CONST_FLOAT:
-					F64(code[pc + 1]) = module.constants[code[pc + 2]].f;
+					F64(code[pc + 1]) = constants[code[pc + 2]].f;
 					pc += 3;
 					break;
 				case Op::CONST_BOOL:
@@ -827,7 +1611,7 @@ public:
 					pc += 3;
 					break;
 				case Op::CONST_VALUE:
-					from_variant(image.types[code[pc + 1]], image.values[code[pc + 3]], frame + code[pc + 2], false);
+					from_variant(types[code[pc + 1]], image.values[code[pc + 3]], frame + code[pc + 2], false);
 					pc += 4;
 					break;
 				case Op::MOVE_8:
@@ -839,7 +1623,7 @@ public:
 					pc += 3;
 					break;
 				case Op::MOVE_VALUE:
-					copy_value(image.types[code[pc + 1]], frame + code[pc + 2], frame + code[pc + 3]);
+					copy_value(types[code[pc + 1]], frame + code[pc + 2], frame + code[pc + 3]);
 					pc += 4;
 					break;
 				case Op::LOAD_MEMBER_8:
@@ -854,7 +1638,7 @@ public:
 					break;
 				case Op::LOAD_MEMBER_VALUE:
 					SELF_ALIVE();
-					copy_value(image.types[code[pc + 1]], frame + code[pc + 2], members + code[pc + 3]);
+					copy_value(types[code[pc + 1]], frame + code[pc + 2], members + code[pc + 3]);
 					pc += 4;
 					break;
 				case Op::STORE_MEMBER_8:
@@ -869,39 +1653,25 @@ public:
 					break;
 				case Op::STORE_MEMBER_VALUE:
 					SELF_ALIVE();
-					copy_value(image.types[code[pc + 1]], members + code[pc + 2], frame + code[pc + 3]);
+					copy_value(types[code[pc + 1]], members + code[pc + 2], frame + code[pc + 3]);
 					pc += 4;
 					break;
-				case Op::LOAD_STATIC: {
-					String error;
-					const uint8_t *variable = static_variable(code[pc + 3], code[pc + 4], code[pc + 1], error);
-					if (!variable) {
-						FAIL(error);
+				case Op::LOAD_STATIC:
+					if (!op_load_static(code + pc, frame, fn, record.line)) {
+						return false;
 					}
-					copy_value(image.types[code[pc + 1]], frame + code[pc + 2], variable);
 					pc += 5;
 					break;
-				}
-				case Op::STORE_STATIC: {
-					String error;
-					uint8_t *variable = static_variable(code[pc + 2], code[pc + 3], code[pc + 1], error);
-					if (!variable) {
-						FAIL(error);
+				case Op::STORE_STATIC:
+					if (!op_store_static(code + pc, frame, fn, record.line)) {
+						return false;
 					}
-					copy_value(image.types[code[pc + 1]], variable, frame + code[pc + 4]);
 					pc += 5;
 					break;
-				}
-				case Op::INIT_STATIC: {
-					Statics &statics = *image.statics;
-					const bytecode::Member &variable = module.statics[code[pc + 2]];
-					copy_value(image.types[code[pc + 1]], statics.at(variable.offset), frame + code[pc + 3]);
-					if (!variable.has_initial) {
-						statics.next = code[pc + 2] + 1;
-					}
+				case Op::INIT_STATIC:
+					op_init_static(code + pc, frame);
 					pc += 4;
 					break;
-				}
 				case Op::INT_TO_FLOAT:
 					F64(code[pc + 1]) = double(I64(code[pc + 2]));
 					pc += 3;
@@ -909,7 +1679,7 @@ public:
 				case Op::FLOAT_TO_INT: {
 					const double value = F64(code[pc + 2]);
 					if (!(value >= -9223372036854775808.0 && value < 9223372036854775808.0)) {
-						FAIL(vformat("Cannot convert %s to int: out of range.", value));
+						return fail_float_to_int(fn, record.line, value);
 					}
 					I64(code[pc + 1]) = int64_t(value);
 					pc += 3;
@@ -932,7 +1702,7 @@ public:
 					const int64_t a = I64(code[pc + 2]);
 					const int64_t b = I64(code[pc + 3]);
 					if (b == 0) {
-						FAIL("Division by zero.");
+						return fail_cstr(fn, record.line, "Division by zero.");
 					}
 					const bool div = Op(code[pc]) == Op::DIV_INT;
 					// The minimum int divided by -1 wraps instead of trapping.
@@ -969,23 +1739,19 @@ public:
 					const int64_t a = I64(code[pc + 2]);
 					const int64_t b = I64(code[pc + 3]);
 					const bool left = Op(code[pc]) == Op::SHL_INT;
-					if (a < 0 || b < 0) {
-						FAIL(vformat("Cannot compute %d %s %d: a shift takes operands that are not negative.", a, left ? "<<" : ">>", b));
-					}
-					if (b >= 64) {
-						FAIL(vformat("Cannot compute %d %s %d: a shift by 64 or more bits is undefined.", a, left ? "<<" : ">>", b));
+					if (a < 0 || uint64_t(b) >= 64) {
+						return fail_shift(fn, record.line, a, b, left);
 					}
 					I64(code[pc + 1]) = left ? int64_t(uint64_t(a) << b) : a >> b;
 					pc += 4;
 					break;
 				}
-				case Op::POW_INT: {
+				case Op::POW_INT:
 					if (!bytecode::int_power(I64(code[pc + 2]), I64(code[pc + 3]), I64(code[pc + 1]))) {
-						FAIL(vformat("Cannot compute 0 ** %d: division by zero.", I64(code[pc + 3])));
+						return fail_pow_int(fn, record.line, I64(code[pc + 3]));
 					}
 					pc += 4;
 					break;
-				}
 				case Op::ADD_FLOAT:
 					F64(code[pc + 1]) = F64(code[pc + 2]) + F64(code[pc + 3]);
 					pc += 4;
@@ -1012,22 +1778,15 @@ public:
 					pc += 3;
 					break;
 				case Op::ADD_STRING:
-					STR(code[pc + 1]) = STR(code[pc + 2]) + STR(code[pc + 3]);
+					op_add_string(code + pc, frame);
 					pc += 4;
 					break;
-				case Op::FORMAT: {
-					// The engine's general evaluation, which reports the error that
-					// its direct one drops (core/variant/variant_op.h:720-837; ed1daf0).
-					Variant result;
-					bool valid = false;
-					Variant::evaluate(Variant::OP_MODULE, STR(code[pc + 2]), variant_at(frame + code[pc + 3]), result, valid);
-					if (!valid) {
-						FAIL(vformat("String formatting error: %s.", result));
+				case Op::FORMAT:
+					if (!op_format(code + pc, frame, fn, record.line)) {
+						return false;
 					}
-					STR(code[pc + 1]) = result;
 					pc += 4;
 					break;
-				}
 #define COMPARE(m_op, m_access, m_cmp) \
 	case Op::m_op: \
 		U64(code[pc + 1]) = (m_access(code[pc + 2]) m_cmp m_access(code[pc + 3])) ? 1 : 0; \
@@ -1068,163 +1827,115 @@ public:
 					image.setters[code[pc + 1]](frame + code[pc + 2], frame + code[pc + 3]);
 					pc += 4;
 					break;
-				case Op::GET_PROPERTY: {
-					const uint32_t index = code[pc + 1];
-					OBJECT(object, code[pc + 3]);
-					bool valid = false;
-					const Variant value = object.get_named(image.properties[index], valid);
-					if (!valid) {
-						FAIL(vformat("Cannot read the property %s.", image.properties[index]));
-					}
-					if (!from_variant(image.types[module.properties[index].type], value, frame + code[pc + 2], false)) {
-						FAIL(vformat("The property %s holds an unexpected %s.", image.properties[index], Variant::get_type_name(value.get_type())));
+				case Op::GET_PROPERTY:
+					if (!op_get_property(code + pc, frame, freed, fn, record.line)) {
+						return false;
 					}
 					pc += 4;
 					break;
-				}
-				case Op::CHECK_ENUM: {
-					const TypeImage &type = image.types[code[pc + 1]];
-					if (!is_enum_value(type, I64(code[pc + 2]))) {
-						FAIL(vformat("%d is none of the values of %s.", I64(code[pc + 2]), type_description(type)));
+				case Op::CHECK_ENUM:
+					if (!is_enum_value(types[code[pc + 1]], I64(code[pc + 2]))) {
+						return fail_check_enum(fn, record.line, code[pc + 1], I64(code[pc + 2]));
 					}
 					pc += 3;
 					break;
-				}
-				case Op::HAS_MEMBER: {
-					OBJECT(object, code[pc + 2]);
-					// As the engine's `in` (core/variant/variant_op.h:1217-1250; ed1daf0).
-					bool valid = false;
-					object.get_named(StringName(STR(code[pc + 3])), valid);
-					U64(code[pc + 1]) = valid ? 1 : 0;
-					pc += 4;
-					break;
-				}
-				case Op::SET_PROPERTY: {
-					const uint32_t index = code[pc + 1];
-					OBJECT(object, code[pc + 2]);
-					bool valid = false;
-					object.set_named(image.properties[index], to_variant(image.types[module.properties[index].type], frame + code[pc + 3]), valid);
-					if (!valid) {
-						FAIL(vformat("Cannot write the property %s.", image.properties[index]));
+				case Op::HAS_MEMBER:
+					if (!op_has_member(code + pc, frame, freed, fn, record.line)) {
+						return false;
 					}
 					pc += 4;
 					break;
-				}
+				case Op::SET_PROPERTY:
+					if (!op_set_property(code + pc, frame, freed, fn, record.line)) {
+						return false;
+					}
+					pc += 4;
+					break;
 				case Op::NEW_OBJECT:
 				case Op::NEW_WITHOUT_INIT: {
 					bool initialized;
-					if (!new_object(image, code[pc + 1], Op(code[pc]) == Op::NEW_WITHOUT_INIT, frame + code[pc + 2], initialized)) {
-						FAIL(helper_error());
+					const bool without_init = Op(code[pc]) == Op::NEW_WITHOUT_INIT;
+					if (!new_object(image, code[pc + 1], without_init, frame + code[pc + 2], initialized)) {
+						return fail_helper(fn, record.line);
 					}
 					pc += 3;
-					if (!initialized && Op(code[pc - 3]) == Op::NEW_WITHOUT_INIT) {
+					if (!initialized && without_init) {
 						// A program error ended the initializers: no _init() (spec §8.1).
 						pc += bytecode::instruction_length(code + pc);
 					}
 					break;
 				}
-				case Op::GET_SCRIPT: {
-					const Variant script = load_resource(image.class_scripts[code[pc + 1]]);
-					if (script.get_type() != Variant::OBJECT || !script.booleanize()) {
-						FAIL(vformat("Cannot load the script of %s.", image.class_scripts[code[pc + 1]]));
+				case Op::GET_SCRIPT:
+					if (!op_get_script(code + pc, frame, fn, record.line)) {
+						return false;
 					}
-					set_object(frame + code[pc + 2], script);
 					pc += 3;
 					break;
-				}
-				case Op::GET_OWNER: {
-					// Checked at every read, since code and the engine change the
-					// owner (spec §7.3).
-					SELF_ALIVE();
-					const Node *node = Object::cast_to<Node>(context.owner);
-					Node *found = node ? node->get_owner() : nullptr;
-					const uint32_t index = code[pc + 1];
-					if (!found || !image.fits_class(found, index)) {
-						FAIL(vformat("owner: %s (@owner).", entry_mismatch(ValueType::Object, Variant(found), class_check(image, index))));
+				case Op::GET_OWNER:
+					if (!op_get_owner(code + pc, frame, freed, fn, record.line)) {
+						return false;
 					}
-					set_object(frame + code[pc + 2], Variant(found));
 					pc += 3;
 					break;
-				}
 				case Op::GET_SELF:
-					SELF_ALIVE();
-					set_object(frame + code[pc + 1], self());
+					if (!op_get_self(code + pc, frame, freed, fn, record.line)) {
+						return false;
+					}
 					pc += 2;
 					break;
-				case Op::GET_SINGLETON: {
-					Object *singleton = Engine::get_singleton()->get_singleton(image.classes[code[pc + 1]]);
-					if (!singleton) {
-						FAIL(vformat("The engine has no singleton %s.", image.classes[code[pc + 1]]));
+				case Op::GET_SINGLETON:
+					if (!op_get_singleton(code + pc, frame, fn, record.line)) {
+						return false;
 					}
-					set_object(frame + code[pc + 2], Variant(singleton));
 					pc += 3;
 					break;
-				}
-				case Op::GET_AUTOLOAD: {
-					// An autoload is a child of the root by its name (spec §7.3).
-					const StringName name = image.values[code[pc + 1]];
-					SceneTree *tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop());
-					Window *root = tree ? tree->get_root() : nullptr;
-					Node *node = root ? root->get_node_or_null(NodePath(String(name))) : nullptr;
-					if (!node) {
-						FAIL(vformat("The autoload %s is not in the scene tree.", name));
+				case Op::GET_AUTOLOAD:
+					if (!op_get_autoload(code + pc, frame, fn, record.line)) {
+						return false;
 					}
-					set_object(frame + code[pc + 2], Variant(node));
 					pc += 3;
 					break;
-				}
 				case Op::METHOD_VALUE:
-					SELF_ALIVE();
-					*reinterpret_cast<Callable *>(frame + code[pc + 2]) = Callable(memnew(MethodCallable(context.owner, image.function_names[code[pc + 1]])));
+					if (!op_method_value(code + pc, frame, freed, fn, record.line)) {
+						return false;
+					}
 					pc += 3;
 					break;
-				case Op::MAKE_LAMBDA: {
-					const uint32_t lambda = code[pc + 1];
-					const bool on_self = !module.functions[lambda].is_static;
-					if (on_self) {
-						SELF_ALIVE();
+				case Op::MAKE_LAMBDA:
+					if (!op_make_lambda(code + pc, frame, freed, fn, record.line)) {
+						return false;
 					}
-					*reinterpret_cast<Callable *>(frame + code[pc + 2]) = Callable(memnew(LambdaCallable(image.shared_from_this(), lambda, on_self ? context : InstanceContext(), frame, code + pc + 5)));
 					pc += 5 + 2 * code[pc + 4];
 					break;
-				}
-				case Op::GET_SIGNAL: {
-					OBJECT(object, code[pc + 3]);
-					*reinterpret_cast<Signal *>(frame + code[pc + 2]) = Signal(static_cast<Object *>(object), StringName(image.values[code[pc + 1]]));
+				case Op::GET_SIGNAL:
+					if (!op_get_signal(code + pc, frame, freed, fn, record.line)) {
+						return false;
+					}
 					pc += 4;
 					break;
-				}
 				case Op::CHECK_ASSIGNED:
 					if (is_none_object(frame + code[pc + 2])) {
-						const uint32_t member = code[pc + 1];
-						// Spec §6.3; §7.5: the scene or the resource did not assign the export.
-						FAIL(vformat(module.members[member].is_onready ? "\"%s\" is read before the node is ready." : "\"%s\" has not been assigned.", image.member_names[member]));
+						return fail_unassigned(fn, record.line, code[pc + 1]);
 					}
 					pc += 3;
 					break;
 				case Op::CHECK_RANGE: {
-					// Spec §10.6: the engine would truncate or wrap it.
 					const bytecode::IntRange range = bytecode::IntRange(code[pc + 1]);
 					if (!bytecode::int_in_range(range, I64(code[pc + 2]))) {
-						FAIL(vformat("%d is out of range for the engine's %s.", I64(code[pc + 2]), bytecode::int_range_name(range)));
+						return fail_range(fn, record.line, range, I64(code[pc + 2]));
 					}
 					pc += 3;
 					break;
 				}
-				case Op::CHECK_OBJECT: {
-					ObjectView view(frame + code[pc + 2]);
-					const Variant &value = view.get();
-					const Object *object = value.get_validated_object();
-					if (is_none(value) || (object && !image.fits_class(object, code[pc + 1]))) {
-						const String mismatch = entry_mismatch(ValueType::Object, value, class_check(image, code[pc + 1]));
-						FAIL(mismatch.substr(0, 1).to_upper() + mismatch.substr(1) + ".");
+				case Op::CHECK_OBJECT:
+					if (!op_check_object(code + pc, frame, fn, record.line)) {
+						return false;
 					}
 					pc += 3;
 					break;
-				}
 				case Op::CHECK_LIVE:
 					if (!is_live_object(frame + code[pc + 1])) {
-						FAIL("The object given to the engine was freed.");
+						return fail_cstr(fn, record.line, "The object given to the engine was freed.");
 					}
 					pc += 2;
 					break;
@@ -1237,125 +1948,39 @@ public:
 					pc += 2;
 					break;
 				case Op::ASSERT_FAIL:
-					// As GDScript words it (modules/gdscript/gdscript_vm.cpp:3876-3902; ed1daf0).
-					if (code[pc + 1] == NO_SLOT || STR(code[pc + 1]).is_empty()) {
-						FAIL("Assertion failed.");
-					}
-					FAIL("Assertion failed: " + STR(code[pc + 1]));
-				case Op::CAST_OBJECT: {
-					// A freed object is None for every type (spec §5.3).
-					const uint8_t *src = frame + code[pc + 3];
-					ObjectView view(src);
-					const Object *object = is_live_object(src) ? view.get().get_validated_object() : nullptr;
-					if (object && image.fits_class(object, code[pc + 1])) {
-						copy_value(ValueType::Object, frame + code[pc + 2], src);
-					} else {
-						destroy_value(ValueType::Object, frame + code[pc + 2]);
-					}
+					return fail_assert(fn, record.line, frame, code[pc + 1]);
+				case Op::CAST_OBJECT:
+					op_cast_object(code + pc, frame);
 					pc += 4;
 					break;
-				}
-				case Op::NEW_CONTAINER: {
-					const TypeImage &type = image.types[code[pc + 1]];
-					if (type.storage == ValueType::Dictionary) {
-						*reinterpret_cast<Dictionary *>(frame + code[pc + 2]) = typed_dictionary(type.check);
-					} else {
-						*reinterpret_cast<Array *>(frame + code[pc + 2]) = typed_array(type.check.element, type.check.class_name, type.check.script);
-					}
+				case Op::NEW_CONTAINER:
+					op_new_container(code + pc, frame);
 					pc += 3;
 					break;
-				}
-				case Op::GET_INDEX: {
-					const TypeImage &base = image.types[code[pc + 1]];
-					const TypeImage &element = image.types[code[pc + 2]];
-					if (base.storage == ValueType::Dictionary) {
-						const Dictionary &dictionary = *reinterpret_cast<const Dictionary *>(frame + code[pc + 4]);
-						// Through an untyped view, a key looked up must fit (spec §3.8).
-						if (base.kind == bytecode::TypeKind::Value && !entry_fits(base, frame + code[pc + 4], frame + code[pc + 5], nullptr)) {
-							FAIL(helper_error());
-						}
-						const Variant key = kept(base.key, frame + code[pc + 5]);
-						if (!dictionary.has(key)) {
-							FAIL(vformat("The Dictionary has no key %s.", key_text(key)));
-						}
-						const Variant &value = dictionary[key];
-						if (!from_variant(element, value, frame + code[pc + 3], checked_when_read(element))) {
-							FAIL(read_error(element, value));
-						}
-						pc += 6;
-						break;
-					}
-					// A negative index counts from the end, as in GDScript.
-					Variant container = to_variant(base.storage, frame + code[pc + 4]);
-					const int64_t index = I64(code[pc + 5]);
-					bool valid = false;
-					bool out_of_bounds = false;
-					const Variant value = container.get_indexed(index, valid, out_of_bounds);
-					if (!valid || out_of_bounds) {
-						FAIL(vformat("Index %d is out of bounds (size %d).", index, int64_t(container.call("size"))));
-					}
-					if (!from_variant(element, value, frame + code[pc + 3], checked_when_read(element))) {
-						FAIL(read_error(element, value));
+				case Op::GET_INDEX:
+					if (!op_get_index(code + pc, frame, fn, record.line)) {
+						return false;
 					}
 					pc += 6;
 					break;
-				}
-				case Op::SET_INDEX: {
-					const TypeImage &base = image.types[code[pc + 1]];
-					uint8_t *container = frame + code[pc + 2];
-					const uint8_t *index = frame + code[pc + 3];
-					const uint8_t *src = frame + code[pc + 4];
-					if (is_read_only(base.storage, container)) {
-						FAIL(read_only_error(base.storage));
-					}
-					// Through an untyped view, values must fit the types the
-					// container has (spec §3.8).
-					if (base.kind == bytecode::TypeKind::Value && (base.storage == ValueType::Dictionary || base.storage == ValueType::Array) && !entry_fits(base, container, index, src)) {
-						FAIL(helper_error());
-					}
-					if (base.storage == ValueType::Dictionary) {
-						Dictionary &dictionary = *reinterpret_cast<Dictionary *>(container);
-						Variant key = kept(base.key, index);
-						if (keys_hold_containers(dictionary) && !dictionary.has(key)) {
-							key = frozen_copy(key);
-						}
-						dictionary.set(key, kept(base.item, src));
-						pc += 5;
-						break;
-					}
-					// A negative index counts from the end, as in GDScript.
-					const int64_t size = base.storage == ValueType::Array ? reinterpret_cast<const Array *>(container)->size() : packed_array_size(base.storage, container);
-					const int64_t at = I64(code[pc + 3]) < 0 ? I64(code[pc + 3]) + size : I64(code[pc + 3]);
-					if (at < 0 || at >= size) {
-						FAIL(vformat("Index %d is out of bounds (size %d).", I64(code[pc + 3]), size));
-					}
-					if (base.storage == ValueType::Array) {
-						reinterpret_cast<Array *>(container)->set(at, kept(base.item, src));
-					} else {
-						// The element in its slot's layout, as the engine's setter takes it.
-						gdextension_interface::variant_get_ptr_indexed_setter(GDExtensionVariantType(base.storage))(container, at, src);
+				case Op::SET_INDEX:
+					if (!op_set_index(code + pc, frame, fn, record.line)) {
+						return false;
 					}
 					pc += 5;
 					break;
-				}
-				case Op::IS_INSTANCE: {
-					// A freed object is no class's instance (spec §3.3).
-					const uint8_t *src = frame + code[pc + 3];
-					ObjectView view(src);
-					const Object *object = is_live_object(src) ? view.get().get_validated_object() : nullptr;
-					U64(code[pc + 2]) = object && image.fits_class(object, code[pc + 1]) ? 1 : 0;
+				case Op::IS_INSTANCE:
+					op_is_instance(code + pc, frame);
 					pc += 4;
 					break;
-				}
 				case Op::IS_NONE: {
 					const uint8_t *src = frame + code[pc + 3];
-					const TypeImage &type = image.types[code[pc + 1]];
+					const TypeImage &type = types[code[pc + 1]];
 					if (type.kind == bytecode::TypeKind::Option) {
 						U64(code[pc + 2]) = U64(code[pc + 3]) ? 0 : 1;
 					} else if (type.storage == ValueType::Object) {
 						U64(code[pc + 2]) = is_live_object(src) ? 0 : 1; // A freed object reads as None in T? (spec §3.3).
 					} else {
-						// A freed object reads as None in T? (spec §3.3).
 						const Variant &value = variant_at(src);
 						U64(code[pc + 2]) = is_none(value) || (value.get_type() == Variant::OBJECT && !value.booleanize()) ? 1 : 0;
 					}
@@ -1363,14 +1988,14 @@ public:
 					break;
 				}
 				case Op::SOME: {
-					const TypeImage &option = image.types[code[pc + 1]];
+					const TypeImage &option = types[code[pc + 1]];
 					copy_value(*option.element, frame + code[pc + 2] + 8, frame + code[pc + 3]);
 					U64(code[pc + 2]) = 1;
 					pc += 4;
 					break;
 				}
 				case Op::EQUAL:
-					U64(code[pc + 2]) = equal_values(image.types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 4]) ? 1 : 0;
+					U64(code[pc + 2]) = equal_values(types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 4]) ? 1 : 0;
 					pc += 5;
 					break;
 				case Op::SAME_OBJECT:
@@ -1378,66 +2003,56 @@ public:
 					pc += 5;
 					break;
 				case Op::LESS:
-					U64(code[pc + 2]) = less_values(image.types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 4]) ? 1 : 0;
+					U64(code[pc + 2]) = less_values(types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 4]) ? 1 : 0;
 					pc += 5;
 					break;
 				case Op::TO_VARIANT:
-					variant_at(frame + code[pc + 2]) = to_variant(image.types[code[pc + 1]], frame + code[pc + 3]);
+					op_to_variant(code + pc, frame);
 					pc += 4;
 					break;
-				case Op::FROM_VARIANT: {
-					if (!read_variant(image.types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 2])) {
-						FAIL(helper_error());
+				case Op::FROM_VARIANT:
+					if (!read_variant(types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 2])) {
+						return fail_helper(fn, record.line);
 					}
 					pc += 4;
 					break;
-				}
 				case Op::VARIANT_OBJECT:
 					set_object(frame + code[pc + 1], variant_at(frame + code[pc + 2]));
 					pc += 3;
 					break;
 				case Op::IS_TYPE:
-					U64(code[pc + 2]) = is_exactly(image.types[code[pc + 1]], variant_at(frame + code[pc + 3])) ? 1 : 0;
+					U64(code[pc + 2]) = is_exactly(types[code[pc + 1]], variant_at(frame + code[pc + 3])) ? 1 : 0;
 					pc += 4;
 					break;
-				case Op::CONSTRUCT_FROM: {
-					if (!construct_from(image.types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 2])) {
-						FAIL(helper_error());
+				case Op::CONSTRUCT_FROM:
+					if (!construct_from(types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 2])) {
+						return fail_helper(fn, record.line);
 					}
 					pc += 4;
 					break;
-				}
 				case Op::VARIANT_EQUAL:
-				case Op::MATCHES: {
+				case Op::MATCHES:
 					if (!compare_variants(frame + code[pc + 2], frame + code[pc + 3], Op(code[pc]) == Op::MATCHES, U64(code[pc + 1]))) {
-						FAIL(helper_error());
+						return fail_helper(fn, record.line);
 					}
 					pc += 4;
 					break;
-				}
 				case Op::BOX:
-					variant_at(frame + code[pc + 2]) = make_box(image.types[code[pc + 1]], frame + code[pc + 3], code[pc + 4] != 0);
+					op_box(code + pc, frame);
 					pc += 5;
 					break;
-				case Op::ENCODE: {
-					const TypeImage &type = image.types[code[pc + 1]];
-					const Variant encoded = encode(type, frame + code[pc + 3]);
-					if (type.storage == ValueType::Array) {
-						*reinterpret_cast<Array *>(frame + code[pc + 2]) = encoded;
-					} else {
-						*reinterpret_cast<Dictionary *>(frame + code[pc + 2]) = encoded;
-					}
+				case Op::ENCODE:
+					op_encode(code + pc, frame);
 					pc += 4;
 					break;
-				}
 				case Op::UNWRAP: {
-					const TypeImage &type = image.types[code[pc + 1]];
+					const TypeImage &type = types[code[pc + 1]];
 					const uint8_t *src = frame + code[pc + 3];
 					// An object's T? holds the object as T does, and a freed one reads
 					// as None (spec §3.3); T? of another type holds a tag first.
 					const bool object = type.kind == bytecode::TypeKind::Object;
 					if (object ? !is_live_object(src) : U64(code[pc + 3]) == 0) {
-						FAIL(code[pc + 4] == NO_SLOT ? String("unwrap() found None.") : STR(code[pc + 4]));
+						return fail_unwrap(fn, record.line, frame, code[pc + 4]);
 					}
 					copy_value(type, frame + code[pc + 2], object ? src : src + 8);
 					pc += 5;
@@ -1464,399 +2079,85 @@ public:
 					break;
 				}
 				case Op::CALL_SUPER:
-				case Op::CALL_METHOD: {
-					const uint32_t target = code[pc + 1];
-					const StringName &name = image.method_names[target];
-					const int32_t static_class = module.method_calls[target].static_class;
-					ScriptedObject callee;
-					if (Op(code[pc]) == Op::CALL_SUPER) {
-						callee = { image.base, context };
-					} else if (static_class >= 0) {
-						// The class's current image, without an instance (spec §4.8).
-						callee.image = script_image(image.class_scripts[static_class]);
-					} else {
-						OBJECT(receiver, code[pc + 3]);
-						if (!scripted_object(static_cast<Object *>(receiver), callee)) {
-							FAIL("The receiver is not a Petrichor instance.");
-						}
-						if (callee.context.storage == context.storage && context.self_image) {
-							callee.image = context.self_image;
-						}
-						callee.context.self_image = callee.image;
-					}
-					// Within a run every script is compiled against the others
-					// (spec §12.4); only bytecode that was not built together
-					// can differ, and then the arguments would not fit. Whether a
-					// static method or _init() is visible is the checker's:
-					// subclasses call those that are not pub too (spec §4.2).
-					int index = callee.image ? callee.image->find_function(name) : -1;
-					const bytecode::Function *found = index >= 0 ? &callee.image->module.functions[index] : nullptr;
-					if (!found || !callee.image->has_signature(name, image.call_signatures[target]) || (static_class >= 0 && !found->is_static) || (Op(code[pc]) == Op::CALL_METHOD && static_class < 0 && !found->is_pub && !found->is_override && index != callee.image->user_init)) {
-						FAIL(vformat("%s() is not the method this script was compiled against. Build the project again.", name));
-					}
-					ClassImage::resolve_function(callee.image, index);
-					if (!call_function(*callee.image, uint32_t(index), callee.context, code + pc, frame, module.method_calls[target].result, fn, record.line)) {
+				case Op::CALL_METHOD:
+					if (!op_call_method(code + pc, frame, freed, fn, record.line)) {
 						return false;
 					}
 					pc += 5 + 2 * code[pc + 4];
 					break;
-				}
-				case Op::CALL_VALUE: {
-					// Through the engine, which passes the call on, also through
-					// bind(); a program error in the callee aborts this call too
-					// (spec §8.1).
-					const bytecode::MethodCall &call = module.method_calls[code[pc + 1]];
-					const uint32_t dst = code[pc + 2];
-					const uint32_t argc = code[pc + 4];
-					Variant callable = *reinterpret_cast<const Callable *>(frame + code[pc + 3]);
-					Arguments args(image.types, frame, code + pc + 5, argc, nullptr);
-					std::vector<Variant> spread;
-					std::vector<const Variant *> spread_pointers;
-					const Variant **pointers = args.as_variants();
-					int count = int(argc);
-					if (call.method == "callv") {
-						const Array &values = *reinterpret_cast<const Array *>(frame + code[pc + 6]);
-						for (int64_t i = 0; i < values.size(); i++) {
-							spread.push_back(values[i]);
-						}
-						for (const Variant &value : spread) {
-							spread_pointers.push_back(&value);
-						}
-						pointers = spread_pointers.data();
-						count = int(spread.size());
-					}
-					ValueCall &value = value_call();
-					const ValueCall outer = value;
-					value = { true, false, false };
-					Variant result;
-					GDExtensionCallError error;
-					callable.callp(image.call_method, pointers, count, result, error);
-					const ValueCall made = value;
-					value = outer;
-					if (made.entered && made.failed) {
-						return false; // The callee reported it.
-					}
-					if (error.error == GDEXTENSION_CALL_ERROR_INSTANCE_IS_NULL) {
-						FAIL("The function value's object was freed.");
-					}
-					if (error.error == GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS || error.error == GDEXTENSION_CALL_ERROR_TOO_FEW_ARGUMENTS) {
-						FAIL(vformat("callv() passes %d argument(s), but the function takes %d.", count, error.expected));
-					}
-					if (error.error != GDEXTENSION_CALL_OK) {
-						FAIL("The function value cannot be called.");
-					}
-					if (dst != NO_SLOT && !from_variant(image.types[call.result.type], result, frame + dst, true)) {
-						FAIL(vformat("A function value returned an unexpected %s.", Variant::get_type_name(result.get_type())));
-					}
-					pc += 5 + 2 * argc;
-					break;
-				}
-				case Op::CALL_AWAIT_ENGINE:
-				case Op::CALL_ENGINE: {
-					const uint32_t target = code[pc + 1];
-					const uint32_t dst = code[pc + 2];
-					const uint32_t argc = code[pc + 4];
-					// By name for now; through MethodBind pointers once the
-					// compiler knows method hashes (architecture §2.2).
-					Arguments args(image.types, frame, code + pc + 5, argc, nullptr);
-					Variant result;
-					GDExtensionCallError error;
-					if (!image.engine_static_classes[target].is_empty()) {
-						call_static(image.engine_static_classes[target], image.engine_methods[target], args.as_variants(), argc, result, error);
-						if (error.error != GDEXTENSION_CALL_OK) {
-							FAIL(vformat("Calling %s.%s() failed.", image.engine_static_classes[target], image.engine_methods[target]));
-						}
-						if (dst != NO_SLOT && !from_variant(image.types[module.engine_calls[target].result_type], result, frame + dst, false)) {
-							FAIL(vformat("%s() returned an unexpected %s.", image.engine_methods[target], Variant::get_type_name(result.get_type())));
-						}
-						pc += 5 + 2 * argc;
-						break;
-					}
-					OBJECT(object, code[pc + 3]);
-					object.callp(image.engine_methods[target], args.as_variants(), int(argc), result, error);
-					if (error.error != GDEXTENSION_CALL_OK) {
-						FAIL(vformat("Calling %s() failed.", image.engine_methods[target]));
-					}
-					Object *state = result.get_type() == Variant::OBJECT ? result.get_validated_object() : nullptr;
-					if (state && state->is_class("GDScriptFunctionState")) {
-						if (Op(code[pc]) == Op::CALL_AWAIT_ENGINE) {
-							if (p_async->task->cancel_requested) {
-								return true;
-							}
-							p_async->held_state = result;
-							p_async->pc = pc + 5 + 2 * argc;
-							if (!p_async->suspend(Signal(state, "completed"), dst, object_id_of(object), true)) {
-								FAIL("Cannot await GDScript completion.");
-							}
-							return true;
-						}
-						if (dst != NO_SLOT) {
-							FAIL("The method is a GDScript coroutine and needs await.");
-						}
-					} else if (dst != NO_SLOT && !from_variant(image.types[module.engine_calls[target].result_type], result, frame + dst, false)) {
-						FAIL(vformat("%s() returned an unexpected %s.", image.engine_methods[target], Variant::get_type_name(result.get_type())));
-					}
-					pc += 5 + 2 * argc;
-					break;
-				}
-
-				case Op::CALL_AWAIT_BUILTIN: {
-					const uint32_t dst = code[pc + 2];
-					const uint32_t argc = code[pc + 4];
-					const Callable &callable = *reinterpret_cast<Callable *>(frame + code[pc + 3]);
-					Arguments args(image.types, frame, code + pc + 5, argc, nullptr);
-					Variant base = callable;
-					Variant result;
-					GDExtensionCallError error;
-					base.callp(to_godot(module.builtin_methods[code[pc + 1]].method), args.as_variants(), int(argc), result, error);
-					if (error.error != GDEXTENSION_CALL_OK) {
-						FAIL("Calling the awaited Callable failed.");
-					}
-					Object *state = result.get_type() == Variant::OBJECT ? result.get_validated_object() : nullptr;
-					p_async->destination = dst;
-					if (state && state->is_class("GDScriptFunctionState")) {
-						if (p_async->task->cancel_requested) {
-							return true;
-						}
-						p_async->held_state = result;
-						p_async->pc = pc + 5 + 2 * argc;
-						if (!p_async->suspend(Signal(state, "completed"), dst, uint64_t(callable.get_object_id()), true)) {
-							FAIL("Cannot await GDScript completion.");
-						}
-						return true;
-					}
-					if (result.get_type() == Variant::SIGNAL) {
-						if (p_async->task->cancel_requested) {
-							return true;
-						}
-						const Signal signal = result;
-						Ref<CoroutineTask> task = Object::cast_to<CoroutineTask>(signal.get_object());
-						p_async->pc = pc + 5 + 2 * argc;
-						if (task.is_valid() && signal.get_name() == StringName("completed")) {
-							if (!p_async->await_task(task)) {
-								return false;
-							}
-						} else if (!p_async->suspend(signal, dst, uint64_t(signal.get_object_id()))) {
-							FAIL("Cannot await this signal.");
-						}
-						if (p_async->task->state == CoroutineTask::State::Suspended) {
-							return true;
-						}
-					} else if (!p_async->receive(result)) {
+				case Op::CALL_VALUE:
+					if (!op_call_value(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 5 + 2 * argc;
+					pc += 5 + 2 * code[pc + 4];
+					break;
+				case Op::CALL_AWAIT_ENGINE:
+				case Op::CALL_ENGINE: {
+					bool done = false;
+					if (!op_call_engine(code + pc, frame, freed, p_async, pc, done, fn, record.line)) {
+						return false;
+					}
+					if (done) {
+						return true;
+					}
+					break;
+				}
+				case Op::CALL_AWAIT_BUILTIN: {
+					bool done = false;
+					if (!op_call_await_builtin(code + pc, frame, p_async, pc, done, fn, record.line)) {
+						return false;
+					}
+					if (done) {
+						return true;
+					}
 					break;
 				}
 				case Op::CALL_UTILITY:
-				case Op::CALL_BUILTIN: {
-					const bool utility = Op(code[pc]) == Op::CALL_UTILITY;
-					const uint32_t target = code[pc + 1];
-					const uint32_t dst = code[pc + 2];
-					const uint32_t argc = code[pc + 4];
-					const std::vector<ValueType> &params = utility ? module.utility_calls[target].params : module.builtin_methods[target].params;
-					const ValueType returns = utility ? module.utility_calls[target].return_type : module.builtin_methods[target].return_type;
-					const TypeImage &result_type = image.types[utility ? module.utility_calls[target].result_type : module.builtin_methods[target].result_type];
-					Arguments args(image.types, frame, code + pc + 5, argc, &params);
-					// A static method has no base, which the engine does not read
-					// (core/variant/variant_call.cpp:470-472).
-					uint8_t *base = code[pc + 3] == NO_SLOT ? nullptr : frame + code[pc + 3];
-					ClassImage::KeyRole keys = ClassImage::KeyRole::None;
-					ClassImage::Replaced replaced = ClassImage::Replaced::None;
-					std::optional<Variant> inserted; // A Variant is made by a call into the engine.
-					if (!utility && base) {
-						const bytecode::BuiltinMethodCall &method = module.builtin_methods[target];
-						if (!method.is_const && is_read_only(method.base, base)) {
-							FAIL(read_only_error(method.base));
-						}
-						// Through an untyped view, values must fit the types the
-						// container has (spec §3.8).
-						if (!image.element_args[target].empty() && !arguments_fit(image.element_args[target], params, args.pointers, method.base, base)) {
-							FAIL(helper_error());
-						}
-						if (image.needs_element[target] && reinterpret_cast<const Array *>(base)->is_empty()) {
-							// The engine returns null, after an error of its own for front() and back().
-							FAIL(vformat("%s() of an empty array.", method.method.c_str()));
-						}
-						if (image.replaced[target] != ClassImage::Replaced::None && keeps_boxes(to_variant(method.base, base))) {
-							replaced = image.replaced[target];
-						}
-						if (image.key_roles[target] != ClassImage::KeyRole::None && keys_hold_containers(*reinterpret_cast<const Dictionary *>(base))) {
-							keys = image.key_roles[target];
-						}
-						// A new key goes in as a key (spec §3.8).
-						if (keys == ClassImage::KeyRole::Inserts && !reinterpret_cast<const Dictionary *>(base)->has(*reinterpret_cast<const Variant *>(args.pointers[0]))) {
-							inserted = frozen_copy(*reinterpret_cast<const Variant *>(args.pointers[0]));
-							args.pointers[0] = &*inserted;
-						}
-					}
-					// A native result goes straight into its slot; a Variant one
-					// is checked on the way (spec §10.3). The scratch slot takes a
-					// Variant result, or one that nothing reads.
-					const bool via_variant = returns == ValueType::Variant || returns == ValueType::Void;
-					const bool unread = !via_variant && dst == NO_SLOT;
-					alignas(16) uint8_t scratch[64];
-					construct_value(via_variant ? ValueType::Variant : (unread ? returns : ValueType::Void), scratch);
-					void *result = via_variant || unread ? scratch : frame + dst;
-					if (utility) {
-						image.utilities[target](result, args.pointers, int(argc));
-					} else if (replaced == ClassImage::Replaced::Hash) {
-						*static_cast<int64_t *>(result) = content_hash(to_variant(module.builtin_methods[target].base, base));
-					} else if (replaced == ClassImage::Replaced::Sort && module.builtin_methods[target].base == ValueType::Array) {
-						reinterpret_cast<Array *>(base)->sort_custom(less_callable());
-					} else if (replaced == ClassImage::Replaced::Sort) {
-						// The keys in order, each with its value (spec §3.8).
-						Dictionary &dictionary = *reinterpret_cast<Dictionary *>(base);
-						Array keys = dictionary.keys();
-						keys.sort_custom(less_callable());
-						Array values;
-						for (int64_t i = 0; i < keys.size(); i++) {
-							values.push_back(dictionary[keys[i]]);
-						}
-						dictionary.clear();
-						for (int64_t i = 0; i < keys.size(); i++) {
-							dictionary[keys[i]] = values[i];
-						}
-					} else if (replaced == ClassImage::Replaced::Bsearch) {
-						const bool before = *static_cast<const uint8_t *>(args.pointers[1]);
-						*static_cast<int64_t *>(result) = reinterpret_cast<const Array *>(base)->bsearch_custom(*static_cast<const Variant *>(args.pointers[0]), less_callable(), before);
-					} else if (replaced == ClassImage::Replaced::Min || replaced == ClassImage::Replaced::Max) {
-						// The first of the least or the greatest, as the engine picks it
-						// (core/variant/array.cpp:828-868); null for an empty array.
-						const Array &array = *reinterpret_cast<const Array *>(base);
-						Variant best = array.is_empty() ? Variant() : array[0];
-						for (int64_t i = 1; i < array.size(); i++) {
-							if (replaced == ClassImage::Replaced::Min ? variant_less(array[i], best) : variant_less(best, array[i])) {
-								best = array[i];
-							}
-						}
-						variant_at(scratch) = best;
-					} else if (replaced == ClassImage::Replaced::HasAll) {
-						const Dictionary &dictionary = *reinterpret_cast<const Dictionary *>(base);
-						const Array &wanted = *static_cast<const Array *>(args.pointers[0]);
-						bool all = true;
-						for (int64_t i = 0; all && i < wanted.size(); i++) {
-							// A box made for a key is hashed.
-							const Variant key = wanted[i];
-							all = dictionary.has(type_of(key) == Variant::CALLABLE ? frozen_copy(key) : key);
-						}
-						*static_cast<uint64_t *>(result) = all ? 1 : 0;
-					} else {
-						image.builtin_methods[target](base, args.pointers, result, int(argc));
-					}
-					// A deep copy copies the boxes too (spec §3.8).
-					const bool deep = (replaced == ClassImage::Replaced::Duplicate && *static_cast<const uint8_t *>(args.pointers[0])) || replaced == ClassImage::Replaced::DuplicateDeep ||
-							(replaced == ClassImage::Replaced::Slice && *static_cast<const uint8_t *>(args.pointers[3]));
-					if (deep && !unread) {
-						const int64_t mode = replaced == ClassImage::Replaced::DuplicateDeep ? *static_cast<const int64_t *>(args.pointers[0]) : -1;
-						if (returns == ValueType::Array) {
-							Array &copy = *static_cast<Array *>(result);
-							for (int64_t i = 0; i < copy.size(); i++) {
-								copy[i] = deep_copy(copy[i], mode);
-							}
-						} else {
-							Dictionary &copy = *static_cast<Dictionary *>(result);
-							const Array copied = copy.keys();
-							for (int64_t i = 0; i < copied.size(); i++) {
-								copy[copied[i]] = deep_copy(copy[copied[i]], mode);
-							}
-						}
-					}
-					if (keys == ClassImage::KeyRole::HandsOut) {
-						// Keys this language obtains cannot be changed (spec §3.8).
-						if (returns == ValueType::Array) {
-							const Array handed = *reinterpret_cast<const Array *>(result);
-							for (int64_t i = 0; i < handed.size(); i++) {
-								freeze(handed[i]);
-							}
-						} else {
-							freeze(variant_at(scratch));
-						}
-					}
-					const bool fits = returns != ValueType::Variant || dst == NO_SLOT || from_variant(result_type, variant_at(scratch), frame + dst, checked_when_read(result_type));
-					const Variant::Type got = via_variant ? type_of(variant_at(scratch)) : Variant::NIL;
-					destroy_value(via_variant ? ValueType::Variant : (unread ? returns : ValueType::Void), scratch);
-					if (!fits) {
-						FAIL(vformat("A call returned an unexpected %s.", Variant::get_type_name(got)));
-					}
-					pc += 5 + 2 * argc;
-					break;
-				}
-				case Op::CONSTRUCT: {
-					const uint32_t target = code[pc + 1];
-					const uint32_t dst = code[pc + 2];
-					const uint32_t argc = code[pc + 4];
-					const bytecode::ConstructorCall &constructor = module.constructors[target];
-					Arguments args(image.types, frame, code + pc + 5, argc, &constructor.params);
-					// The engine constructs into memory that holds no value.
-					destroy_value(constructor.type, frame + dst);
-					image.constructors[target](frame + dst, args.pointers);
-					pc += 5 + 2 * argc;
-					break;
-				}
-				case Op::TASK_CANCEL: {
-					ObjectView view(frame + code[pc + 1]);
-					CoroutineTask *task = Object::cast_to<CoroutineTask>(static_cast<Object *>(view.get()));
-					if (!task) {
-						FAIL("Expected a Task handle.");
-					}
-					task->cancel();
-					pc += 2;
-					break;
-				}
-				case Op::AWAIT_TASK: {
-					ObjectView view(frame + code[pc + 2]);
-					Ref<CoroutineTask> task = view.get();
-					if (task.is_null()) {
-						FAIL("Expected a Task handle.");
-					}
-					if (code[pc + 3]) {
-						p_async->child = task;
-					}
-					if (p_async->task->cancel_requested) {
-						return true;
-					}
-					p_async->destination = code[pc + 1];
-					p_async->pc = pc + 4;
-					if (!p_async->await_task(task)) {
+				case Op::CALL_BUILTIN:
+					if (!op_call_builtin(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					if (p_async->task->state == CoroutineTask::State::Suspended) {
+					pc += 5 + 2 * code[pc + 4];
+					break;
+				case Op::CONSTRUCT:
+					op_construct(code + pc, frame);
+					pc += 5 + 2 * code[pc + 4];
+					break;
+				case Op::TASK_CANCEL:
+					if (!op_task_cancel(code + pc, frame, fn, record.line)) {
+						return false;
+					}
+					pc += 2;
+					break;
+				case Op::AWAIT_TASK: {
+					bool done = false;
+					if (!op_await_task(code + pc, frame, p_async, pc, done, fn, record.line)) {
+						return false;
+					}
+					if (done) {
 						return true;
 					}
-					pc += 4;
 					break;
 				}
-				case Op::AWAIT_SIGNAL: {
-					if (p_async->task->cancel_requested) {
-						return true;
-					}
-					const Signal signal = *reinterpret_cast<Signal *>(frame + code[pc + 2]);
-					p_async->pc = pc + 3;
-					if (!p_async->suspend(signal, code[pc + 1], uint64_t(signal.get_object_id()))) {
-						FAIL("Cannot await this signal.");
-					}
-					return true;
-				}
+				case Op::AWAIT_SIGNAL:
+					return op_await_signal(code + pc, frame, p_async, pc, fn, record.line);
 				case Op::RETURN:
 					if (p_result) {
-						copy_value(image.types[fn.result.type], p_result, frame + code[pc + 1]);
+						copy_value(types[fn.result.type], p_result, frame + code[pc + 1]);
 					}
 					return true;
 				case Op::RETURN_VOID:
 					return true;
 				default:
-					FAIL(vformat("Invalid instruction %d.", code[pc]));
+					return fail_invalid_op(fn, record.line, code[pc]);
 			}
 		}
 #undef I64
 #undef U64
 #undef F64
 #undef STR
-#undef FAIL
 #undef WRAP
 #undef SELF_ALIVE
-#undef OBJECT
 	}
 };
 
@@ -2186,7 +2487,7 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 		return Variant();
 	}
 
-	Frame frame(image->frames[p_function]);
+	Frame frame(frame_stack, image->frames[p_function]);
 	const TypeImage &result_type = image->types[fn.result.type];
 	for (size_t i = 0; i < fn.params.size(); i++) {
 		const bytecode::Slot &param = fn.params[i];
