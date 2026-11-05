@@ -13,6 +13,10 @@ struct Diagnostic {
 	std::string message;
 	int line = 0;
 	int column = 0;
+	// An error in how a scene uses the script is also marked on the node of
+	// that scene that has it (spec §7, §13.2), by its path from the root.
+	std::string scene;
+	std::string node;
 };
 
 } // namespace petrichor::compiler

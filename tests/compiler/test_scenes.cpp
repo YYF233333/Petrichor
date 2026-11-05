@@ -357,3 +357,18 @@ TEST_CASE("while loading, only declarations are compiled") {
 	REQUIRE_MESSAGE(loading.ok(), messages(loading));
 	CHECK(storage(loading.module, loading.module.members[0].type) == bytecode::ValueType::Variant);
 }
+
+TEST_CASE("an error in how a scene uses the script is marked on the script's node there") {
+	const compiler::CompileResult missing = compile_in("extends CanvasLayer\n\nfunc f():\n\tvar health = $Missing\n", hud_scene());
+	REQUIRE(missing.errors.size() == 1);
+	CHECK(missing.errors[0].scene == "res://main.tscn");
+	CHECK(missing.errors[0].node == "HUD");
+	const compiler::CompileResult connection = compile_in("extends Node3D\n", timer_scene("_on_missing"));
+	REQUIRE(connection.errors.size() == 1);
+	CHECK(connection.errors[0].scene == "res://enemy.tscn");
+	CHECK(connection.errors[0].node == ".");
+	// An error of the script alone is marked on no scene.
+	const compiler::CompileResult own = compile_in("extends CanvasLayer\n\nfunc f():\n\tvar health: int = \"full\"\n", hud_scene());
+	REQUIRE(own.errors.size() == 1);
+	CHECK(own.errors[0].scene.empty());
+}

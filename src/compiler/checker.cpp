@@ -237,6 +237,11 @@ class Checker : public ClassRelation {
 	void error(uint32_t p_token, const std::string &p_message) {
 		error(TokenRange{ p_token, p_token }, p_message);
 	}
+	void error_in_scene(const TokenRange &p_range, const Scene &p_scene, const std::string &p_node, const std::string &p_message) {
+		error(p_range, p_message);
+		errors.back().scene = p_scene.path;
+		errors.back().node = p_node;
+	}
 
 	/* References (architecture §2.1) */
 
@@ -2483,10 +2488,11 @@ class Checker : public ClassRelation {
 				attached = true;
 				const NodeWalk walk = walk_node_path(scene, node.path, path);
 				if (!walk.unsupported.empty()) {
-					return fail(r_expr, walk.unsupported);
+					error_in_scene(r_expr.range, scene, node.path, walk.unsupported);
+					return set(r_expr, Type::of(TypeKind::Error));
 				}
 				if (!walk.node) {
-					error(r_expr.range, walk.missing);
+					error_in_scene(r_expr.range, scene, node.path, walk.missing);
 					continue;
 				}
 				refer_node_path(r_expr, scene, walk);
@@ -6290,7 +6296,7 @@ class Checker : public ClassRelation {
 				const std::string where = scene.path + ": the signal \"" + connection.signal + "\" of " + connection.source + " is connected to " + connection.method + "()";
 				const auto found = function_index.find(connection.method);
 				if (found == function_index.end()) {
-					error(cls.extends_token, where + ", which this class does not declare.");
+					error_in_scene(header, scene, connection.target, where + ", which this class does not declare.");
 					continue;
 				}
 				const FuncDecl &method = *cls.all_functions[found->second];
@@ -6307,19 +6313,19 @@ class Checker : public ClassRelation {
 				bool missing = false;
 				const std::optional<std::vector<Type>> arguments = source ? signal_arguments(*source, connection.signal, missing) : std::nullopt;
 				if (missing) {
-					error(cls.extends_token, where + ", but " + connection.source + " has no such signal.");
+					error_in_scene(header, scene, connection.target, where + ", but " + connection.source + " has no such signal.");
 				}
 				if (!arguments) {
 					continue;
 				}
 				const int passed = int(arguments->size()) - connection.unbinds + connection.binds;
 				if (int(method.params.size()) != passed) {
-					error(own_name(method, cls.functions, header), where + ", which passes " + std::to_string(passed) + " argument(s); " + method.name + "() takes " + std::to_string(method.params.size()) + ".");
+					error_in_scene(own_name(method, cls.functions, header), scene, connection.target, where + ", which passes " + std::to_string(passed) + " argument(s); " + method.name + "() takes " + std::to_string(method.params.size()) + ".");
 					continue;
 				}
 				for (int i = 0; i < int(arguments->size()) - connection.unbinds; i++) {
 					if (!assignable((*arguments)[i], method.params[i].type)) {
-						error(own ? TokenRange{ method.params[i].name_token, method.params[i].name_token } : header, where + ", which passes " + (*arguments)[i].to_string() + " here.");
+						error_in_scene(own ? TokenRange{ method.params[i].name_token, method.params[i].name_token } : header, scene, connection.target, where + ", which passes " + (*arguments)[i].to_string() + " here.");
 					}
 				}
 			}
@@ -6559,7 +6565,7 @@ class Checker : public ClassRelation {
 			}
 			const Type owner = scene_node_type(at, *root, p_scene.path + ": the root");
 			if (!owner.is_error() && !assignable(owner, cls.owner_type)) {
-				error(at.range, p_scene.path + ": the owner of " + p_node.path + " is " + owner.to_string() + ", not " + cls.owner_type.to_string() + " (@owner).");
+				error_in_scene(at.range, p_scene, p_node.path, p_scene.path + ": the owner of " + p_node.path + " is " + owner.to_string() + ", not " + cls.owner_type.to_string() + " (@owner).");
 			}
 		};
 		for (const Scene &scene : scenes) {
