@@ -547,7 +547,11 @@ def run_migration_group(godot, name, prepare, migrated_scripts, *scene):
             code, output = run(godot, "-e", "--path", str(original), "--", "--petrichor-build")
             baseline.unlink()
             baseline.with_name(baseline.name + ".uid").unlink(missing_ok=True)
-            expect(f"{name} original analysis baseline", code == 0 and ", 0 with errors" in output, output)
+            # Not its exit code: the first editor run of a fresh copy can crash
+            # at exit, as import_project() explains, and does when the build is
+            # quick. The migrated build below starts from the imported copy and
+            # is checked in full.
+            expect(f"{name} original analysis baseline", ", 0 with errors" in output, output)
             known_build_errors = {line for line in output.splitlines() if "ERROR" in line}
         code, output = run(godot, "--verbose", "--path", str(original), *scene)
         expect(f"{name} original run", code == 0 and f"{name} check: 0 failure(s)" in output, output)
