@@ -125,6 +125,9 @@ class RangeChecker {
 			}
 			expr(e.args[i].get(), e.range, cursor);
 		}
+		if (e.function) {
+			function(*e.function, e.range, cursor);
+		}
 	}
 
 	void block(const Block &p_block, const TokenRange &p_parent, int64_t &r_cursor) {
@@ -229,6 +232,26 @@ public:
 			variable(member, whole, cursor);
 		}
 		cursor = -1;
+		for (const VarDecl &variable_decl : p_class.static_vars) {
+			variable(variable_decl, whole, cursor);
+		}
+		cursor = -1;
+		for (const EnumDecl &decl : p_class.enums) {
+			enter(decl.range, whole, cursor);
+			name(decl.name_token, decl.name, decl.range);
+			int64_t inner = int64_t(decl.range.first) - 1;
+			for (const EnumValueDecl &value : decl.values) {
+				enter(value.range, decl.range, inner);
+				name(value.name_token, value.name, value.range);
+				int64_t value_cursor = int64_t(value.range.first) - 1;
+				expr(value.value.get(), value.range, value_cursor);
+			}
+		}
+		cursor = -1;
+		for (const Annotation &annotation_decl : p_class.warning_ignores) {
+			annotation(annotation_decl, whole, cursor);
+		}
+		cursor = -1;
 		for (const ConstDecl &constant : p_class.constants) {
 			enter(constant.range, whole, cursor);
 			name(constant.name_token, constant.name, constant.range);
@@ -312,30 +335,70 @@ bool blank(const SourceFile &p_file, int p_line) {
 	return at >= p_file.text.size() || p_file.text[at] == '\n' || p_file.text[at] == '\r' || p_file.text[at] == '#';
 }
 
-// Where each statement begins, by line.
-void statement_starts(const Block &p_block, const SourceFile &p_file, std::vector<std::pair<int, uint32_t>> &r_starts) {
-	for (const auto &stmt : p_block) {
-		const uint32_t begin = p_file.begin(stmt->range);
-		r_starts.push_back({ p_file.position(begin).line, begin });
-		statement_starts(stmt->body, p_file, r_starts);
-		statement_starts(stmt->else_body, p_file, r_starts);
-		for (const MatchBranch &branch : stmt->branches) {
-			statement_starts(branch.body, p_file, r_starts);
+// Where a statement begins, and the lines of the lambdas around it.
+struct StatementStart {
+	int line;
+	uint32_t begin;
+	std::vector<int> lambdas;
+};
+
+// Of functions and of the lambdas in them and in members.
+class StatementStarts {
+	const SourceFile &file;
+	std::vector<int> lambdas;
+
+	void expr(const Expr *p_expr) {
+		if (!p_expr) {
+			return;
+		}
+		expr(p_expr->base.get());
+		expr(p_expr->left.get());
+		expr(p_expr->right.get());
+		for (const auto &arg : p_expr->args) {
+			expr(arg.get());
+		}
+		if (p_expr->function) {
+			lambdas.push_back(file.position(file.begin(p_expr->function->range)).line);
+			block(p_expr->function->body);
+			lambdas.pop_back();
 		}
 	}
-}
 
-std::vector<std::pair<int, uint32_t>> statement_starts(const ClassDecl &p_class) {
-	std::vector<std::pair<int, uint32_t>> starts;
-	for (const FuncDecl &function : p_class.functions) {
-		statement_starts(function.body, *p_class.source, starts);
+	void block(const Block &p_block) {
+		for (const auto &stmt : p_block) {
+			const uint32_t begin = file.begin(stmt->range);
+			starts.push_back({ file.position(begin).line, begin, lambdas });
+			expr(stmt->target.get());
+			expr(stmt->condition.get());
+			expr(stmt->value.get());
+			block(stmt->body);
+			block(stmt->else_body);
+			for (const MatchBranch &branch : stmt->branches) {
+				block(branch.body);
+			}
+		}
 	}
-	for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
-		const std::vector<std::pair<int, uint32_t>> inner_starts = statement_starts(*inner);
-		starts.insert(starts.end(), inner_starts.begin(), inner_starts.end());
+
+public:
+	std::vector<StatementStart> starts;
+
+	StatementStarts(const ClassDecl &p_class) :
+			file(*p_class.source) {
+		run(p_class);
 	}
-	return starts;
-}
+
+	void run(const ClassDecl &p_class) {
+		for (const VarDecl &member : p_class.members) {
+			expr(member.initializer.get());
+		}
+		for (const FuncDecl &function : p_class.functions) {
+			block(function.body);
+		}
+		for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
+			run(*inner);
+		}
+	}
+};
 
 // The spelling a reference must have, or "" where the declaration does not
 // say: a class of this language may be named by its global name or its path,
@@ -384,6 +447,27 @@ class ResolvedNames {
 		for (const auto &arg : p_expr->args) {
 			expr(arg.get());
 		}
+		if (p_expr->function) {
+			params(p_expr->function->params);
+			block(p_expr->function->body);
+		}
+	}
+
+	void params(const std::vector<ParamDecl> &p_params) {
+		for (const ParamDecl &param : p_params) {
+			add(param.name_token, param.name, "parameter");
+			expr(param.default_value.get());
+		}
+	}
+
+	void variable(const VarDecl &p_decl, const char *p_what) {
+		add(p_decl.name_token, p_decl.name, p_what);
+		for (const Annotation &annotation : p_decl.annotations) {
+			for (const auto &arg : annotation.args) {
+				expr(arg.get());
+			}
+		}
+		expr(p_decl.initializer.get());
 	}
 
 	void block(const Block &p_block) {
@@ -413,13 +497,17 @@ public:
 	ResolvedNames(const ClassDecl &p_class, const SourceFile &p_file) :
 			file(p_file) {
 		for (const VarDecl &member : p_class.members) {
-			add(member.name_token, member.name, "member");
-			for (const Annotation &annotation : member.annotations) {
-				for (const auto &arg : annotation.args) {
-					expr(arg.get());
-				}
+			variable(member, "member");
+		}
+		for (const VarDecl &variable_decl : p_class.static_vars) {
+			variable(variable_decl, "static variable");
+		}
+		for (const EnumDecl &decl : p_class.enums) {
+			add(decl.name_token, decl.name, "enum");
+			for (const EnumValueDecl &value : decl.values) {
+				add(value.name_token, value.name, "enum value");
+				expr(value.value.get());
 			}
-			expr(member.initializer.get());
 		}
 		for (const ExportGroupDecl &group : p_class.groups) {
 			for (const auto &arg : group.annotation.args) {
@@ -432,10 +520,7 @@ public:
 		}
 		for (const FuncDecl &function : p_class.functions) {
 			add(function.name_token, function.name, "function");
-			for (const ParamDecl &param : function.params) {
-				add(param.name_token, param.name, "parameter");
-				expr(param.default_value.get());
-			}
+			params(function.params);
 			block(function.body);
 		}
 		for (const SignalDecl &signal : p_class.signals) {
@@ -523,7 +608,7 @@ void check_recovery(const std::string &p_source, const std::function<void(const 
 		return;
 	}
 	const SourceFile &file = *original.source;
-	const std::vector<std::pair<int, uint32_t>> starts = statement_starts(original);
+	const std::vector<StatementStart> starts = StatementStarts(original).starts;
 	for (size_t line = 0; line < file.line_starts.size(); line++) {
 		const uint32_t start = file.line_starts[line];
 		uint32_t end = line + 1 < file.line_starts.size() ? file.line_starts[line + 1] - 1 : uint32_t(file.text.size());
@@ -542,8 +627,9 @@ void check_recovery(const std::string &p_source, const std::function<void(const 
 		check_syntax_conventions(truncated);
 		std::vector<Diagnostic> ignored;
 		std::set<uint32_t> found;
-		for (const auto &entry : statement_starts(parse(truncated, ignored))) {
-			found.insert(entry.second);
+		const ClassDecl recovered = parse(truncated, ignored);
+		for (const StatementStart &entry : StatementStarts(recovered).starts) {
+			found.insert(entry.begin);
 		}
 		// The lines after a bracket left open that are indented deeper than its
 		// own may be read as inside it, as the body under `func f(` is.
@@ -560,9 +646,12 @@ void check_recovery(const std::string &p_source, const std::function<void(const 
 				exempt_to++;
 			}
 		}
-		for (const auto &[statement_line, begin] : starts) {
-			if (statement_line != int(line + 1) && (statement_line < exempt_from || statement_line >= exempt_to)) {
-				CHECK_MESSAGE(found.count(begin < cut ? begin : begin - (end - cut)), "the statement of line ", statement_line, " is lost");
+		for (const StatementStart &statement : starts) {
+			// A lambda whose head is cut leaves its body to the code around it.
+			const bool headless = std::find(statement.lambdas.begin(), statement.lambdas.end(), int(line + 1)) != statement.lambdas.end();
+			if (statement.line != int(line + 1) && !headless && (statement.line < exempt_from || statement.line >= exempt_to)) {
+				const uint32_t begin = statement.begin;
+				CHECK_MESSAGE(found.count(begin < cut ? begin : begin - (end - cut)), "the statement of line ", statement.line, " is lost");
 			}
 		}
 	}
