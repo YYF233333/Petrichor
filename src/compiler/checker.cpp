@@ -3791,8 +3791,9 @@ class Checker : public ClassRelation {
 		// and change in place.
 		if (!method->is_const && !method->is_static && !is_shared(p_base)) {
 			const Expr &base = *r_expr.base;
-			const bool place = base.target == Target::Local || base.target == Target::Member || base.target == Target::StaticVar || base.target == Target::SelfProperty ||
-					base.target == Target::ObjectProperty || base.target == Target::Field || base.target == Target::StructField;
+			const bool place = base.kind == ExprKind::Subscript || base.target == Target::Local || base.target == Target::Member || base.target == Target::StaticVar ||
+					base.target == Target::Owner || base.target == Target::SelfProperty || base.target == Target::ObjectProperty || base.target == Target::Field ||
+					base.target == Target::StructField;
 			if (!place) {
 				return fail(r_expr, "\"" + r_expr.text + "()\" changes the " + base_name + " it is called on, which is a temporary value here.");
 			}

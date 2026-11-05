@@ -397,6 +397,7 @@ func _ready() -> void:
 	containers.missing_key()
 	_check_errors(["container_check.pet:26: The Dictionary has no key \"nope\"."], "the program error of a missing key")
 	_check(containers.elements() == "[10, 2, 8] (4.0, 0.0) [(0.0, 2.0), (3.0, 3.0)] [7]", "elements are assigned in place, and a packed array or a member of an element is written back")
+	_check(containers.packed_elements() == "[[1]] { \"a\": [2] }", "a method that changes a packed array in a container writes it back")
 	containers.out_of_bounds()
 	_check_errors(["container_check.pet:45: Index 1 is out of bounds (size 1)."], "the program error of assigning out of bounds")
 	_check(containers.keys_frozen() == "true false 2 true", "a key is a read-only copy, and the original stays free to change")

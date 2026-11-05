@@ -153,6 +153,7 @@ TEST_CASE("assignment writes members of built-in values back to their place") {
 TEST_CASE("a method that changes a value needs a place to write it back") {
 	CHECK(errors_of(in_function("var a := PackedInt32Array()\na.push_back(1)")).empty());
 	CHECK(has_error(in_function("PackedInt32Array().push_back(1)"), "a temporary value"));
+	CHECK(errors_of(in_function("var rows: Array[PackedInt32Array] = []\nrows[0].push_back(1)\nvar d: Dictionary[String, PackedInt32Array] = {}\nd[\"a\"].append(1)")).empty());
 	// Arrays are shared: a method changes them in place.
 	CHECK(errors_of(in_function("Array().append(1)")).empty());
 }

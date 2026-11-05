@@ -165,3 +165,11 @@ pub func formatted(n: int, maybe: int?) -> String:
 
 pub func misformatted() -> String:
 	return "%d %d" % [1]
+
+# A method that changes a packed array in a container writes it back.
+pub func packed_elements() -> String:
+	var rows: Array[PackedInt32Array] = [PackedInt32Array()]
+	rows[0].push_back(1)
+	var by_name: Dictionary[String, PackedInt32Array] = {"a": PackedInt32Array()}
+	by_name["a"].append(2)
+	return str(rows) + " " + str(by_name)
