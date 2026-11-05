@@ -18,6 +18,10 @@ struct SceneNode {
 	// attaches another.
 	std::string instance_script;
 	bool unique = false; // Reached from the scene's nodes as `%Name` (unique_name_in_owner).
+
+	bool operator==(const SceneNode &p_other) const {
+		return path == p_other.path && type == p_other.type && script == p_other.script && is_instance == p_other.is_instance && instance_script == p_other.instance_script && unique == p_other.unique;
+	}
 };
 
 // A signal connection saved in a scene (spec §7.7).
@@ -28,12 +32,18 @@ struct SceneConnection {
 	std::string method;
 	int binds = 0; // Arguments bound to the call, after the signal's.
 	int unbinds = 0; // Signal arguments dropped from the end.
+
+	bool operator==(const SceneConnection &p_other) const {
+		return signal == p_other.signal && source == p_other.source && target == p_other.target && method == p_other.method && binds == p_other.binds && unbinds == p_other.unbinds;
+	}
 };
 
 struct Scene {
 	std::string path;
 	std::vector<SceneNode> nodes;
 	std::vector<SceneConnection> connections;
+
+	bool operator==(const Scene &p_other) const { return path == p_other.path && nodes == p_other.nodes && connections == p_other.connections; }
 
 	const SceneNode *find_node(const std::string &p_path) const {
 		for (const SceneNode &node : nodes) {
@@ -58,12 +68,19 @@ struct ForeignClass {
 	std::vector<EngineMethod> methods;
 	std::vector<EngineMethod> signals;
 	std::vector<EngineProperty> constants; // Typed by their values.
+
+	bool operator==(const ForeignClass &p_other) const {
+		return name == p_other.name && native == p_other.native && base == p_other.base && members_known == p_other.members_known && properties == p_other.properties &&
+				methods == p_other.methods && signals == p_other.signals && constants == p_other.constants;
+	}
 };
 
 // A resource that is not a scene, as its file says without loading it.
 struct ResourceInfo {
 	std::string type; // The engine class it loads as, such as CompressedTexture2D for an imported image.
 	std::string script_class; // The global name of its script's class, if it has a script with one.
+
+	bool operator==(const ResourceInfo &p_other) const { return type == p_other.type && script_class == p_other.script_class; }
 };
 
 // What the compiler knows about the project (architecture §2.1). The editor

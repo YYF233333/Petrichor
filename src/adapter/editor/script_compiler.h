@@ -27,4 +27,8 @@ std::shared_ptr<const ClassImage> compile_script(const godot::String &p_path, co
 // (architecture §2.4). Returns the number of scripts with errors.
 int build_project(int *r_script_count = nullptr);
 
+// When an extension loads, unloads or reloads, ClassDB changes, and every
+// compiled script may change with it.
+void engine_classes_changed();
+
 } // namespace petrichor

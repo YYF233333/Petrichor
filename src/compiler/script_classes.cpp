@@ -4,6 +4,8 @@
 #include "compiler/lexer.h"
 #include "compiler/parser.h"
 
+#include <algorithm>
+
 namespace petrichor::compiler {
 
 namespace {
@@ -19,7 +21,155 @@ const ClassDecl *walk(const ClassDecl *p_decl, const std::string &p_path) {
 	return p_decl;
 }
 
+// FNV-1a, as bytecode::hash_source().
+struct Hash {
+	uint64_t value = 14695981039346656037ull;
+
+	void add(const void *p_data, size_t p_size) {
+		const unsigned char *data = static_cast<const unsigned char *>(p_data);
+		for (size_t i = 0; i < p_size; i++) {
+			value ^= data[i];
+			value *= 1099511628211ull;
+		}
+	}
+	template <typename T>
+	void add(const T &p_value) {
+		add(&p_value, sizeof(p_value));
+	}
+	void add(const std::string &p_text) {
+		add(uint64_t(p_text.size()));
+		add(p_text.data(), p_text.size());
+	}
+};
+
+// The tokens of each function body: from the Indent that opens a body on
+// lines of its own to the Dedent that closes it, or the statements on the
+// function's line.
+void mark_bodies(const ClassDecl &p_decl, std::vector<bool> &r_body) {
+	const std::vector<Token> &tokens = p_decl.source->tokens;
+	for (const FuncDecl &fn : p_decl.functions) {
+		if (!fn.has_body || fn.body.empty()) {
+			continue;
+		}
+		uint32_t first = fn.body.front()->range.first;
+		uint32_t last = fn.body.back()->range.last;
+		if (first > 0 && tokens[first - 1].kind == TokenKind::Indent) {
+			int depth = 0;
+			for (uint32_t i = --first; i < tokens.size(); i++) {
+				if (tokens[i].kind == TokenKind::Indent) {
+					depth++;
+				} else if (tokens[i].kind == TokenKind::Dedent && --depth == 0) {
+					last = i;
+					break;
+				}
+			}
+		}
+		for (uint32_t i = first; i <= last && i < tokens.size(); i++) {
+			r_body[i] = true;
+		}
+	}
+	for (const std::unique_ptr<ClassDecl> &inner : p_decl.classes) {
+		mark_bodies(*inner, r_body);
+	}
+}
+
 } // namespace
+
+uint64_t declaration_hash(const std::optional<std::string> &p_source) {
+	if (!p_source) {
+		return 0;
+	}
+	std::vector<Diagnostic> errors;
+	const ClassDecl decl = parse(*p_source, errors);
+	Hash hash;
+	if (!errors.empty()) {
+		hash.add(uint8_t(1));
+		hash.add(*p_source);
+		return hash.value;
+	}
+	const std::vector<Token> &tokens = decl.source->tokens;
+	std::vector<bool> body(tokens.size());
+	mark_bodies(decl, body);
+	for (size_t i = 0; i < tokens.size(); i++) {
+		if (!body[i]) {
+			hash.add(tokens[i].kind);
+			hash.add(tokens[i].text);
+			hash.add(tokens[i].int_value);
+			hash.add(tokens[i].float_value);
+			hash.add(tokens[i].int_overflows);
+		}
+	}
+	return hash.value;
+}
+
+void Reads::merge(const Reads &p_other) {
+	scripts.insert(p_other.scripts.begin(), p_other.scripts.end());
+	answers.insert(p_other.answers.begin(), p_other.answers.end());
+	partial = partial || p_other.partial;
+}
+
+template <typename T>
+T ScriptClasses::RecordedProject::ask(const std::string &p_key, std::function<T(const ProjectApi &)> p_question) const {
+	T answer = p_question(*classes.sources);
+	if (!classes.frames.empty()) {
+		classes.frames.back().second.answers.emplace(p_key, [answer, p_question](const ProjectApi &p_project) {
+			return p_question(p_project) == answer;
+		});
+	}
+	return answer;
+}
+
+std::vector<Scene> ScriptClasses::RecordedProject::scenes_with_script(const std::string &p_script_path) const {
+	return ask<std::vector<Scene>>("scenes with " + p_script_path, [p_script_path](const ProjectApi &p_project) {
+		return p_project.scenes_with_script(p_script_path);
+	});
+}
+
+std::vector<Scene> ScriptClasses::RecordedProject::scenes_instancing_script(const std::string &p_script_path) const {
+	return ask<std::vector<Scene>>("scenes instancing " + p_script_path, [p_script_path](const ProjectApi &p_project) {
+		return p_project.scenes_instancing_script(p_script_path);
+	});
+}
+
+std::optional<Scene> ScriptClasses::RecordedProject::scene(const std::string &p_path) const {
+	return ask<std::optional<Scene>>("scene " + p_path, [p_path](const ProjectApi &p_project) {
+		return p_project.scene(p_path);
+	});
+}
+
+std::optional<ResourceInfo> ScriptClasses::RecordedProject::resource(const std::string &p_path) const {
+	return ask<std::optional<ResourceInfo>>("resource " + p_path, [p_path](const ProjectApi &p_project) {
+		return p_project.resource(p_path);
+	});
+}
+
+std::string ScriptClasses::RecordedProject::uid_path(const std::string &p_uid) const {
+	return ask<std::string>("uid " + p_uid, [p_uid](const ProjectApi &p_project) {
+		return p_project.uid_path(p_uid);
+	});
+}
+
+std::string ScriptClasses::RecordedProject::global_class_path(const std::string &p_name) const {
+	return ask<std::string>("global class " + p_name, [p_name](const ProjectApi &p_project) {
+		return p_project.global_class_path(p_name);
+	});
+}
+
+std::string ScriptClasses::RecordedProject::autoload_path(const std::string &p_name) const {
+	return ask<std::string>("autoload " + p_name, [p_name](const ProjectApi &p_project) {
+		return p_project.autoload_path(p_name);
+	});
+}
+
+std::optional<std::string> ScriptClasses::RecordedProject::script_source(const std::string &p_path) const {
+	return classes.sources->script_source(p_path);
+}
+
+std::optional<ForeignClass> ScriptClasses::RecordedProject::foreign_class(const std::string &p_path, bool p_members) const {
+	return ask<std::optional<ForeignClass>>(std::string(p_members ? "foreign class with members " : "foreign class ") + p_path, [p_path, p_members](const ProjectApi &p_project) {
+		return p_project.foreign_class(p_path, p_members);
+	});
+}
 
 std::string ScriptClasses::base_path(const ClassDecl &p_decl, const std::string &p_path) {
 	if (!p_decl.extends_path) {
@@ -103,6 +253,21 @@ std::string ScriptClasses::native_base(const ClassDecl &p_decl, const std::strin
 	return std::string();
 }
 
+std::unique_ptr<ScriptClasses::File> ScriptClasses::parse_file(const std::string &p_file) const {
+	const std::optional<std::string> source = sources ? sources->script_source(p_file) : std::nullopt;
+	if (!source) {
+		return nullptr;
+	}
+	std::vector<Diagnostic> errors;
+	ClassDecl decl = parse(*source, errors);
+	if (!errors.empty()) {
+		return nullptr;
+	}
+	std::unique_ptr<File> file = std::make_unique<File>();
+	file->decl = std::move(decl);
+	return file;
+}
+
 const ClassDecl *ScriptClasses::file_header(const std::string &p_file) {
 	const auto local = checking.find(p_file);
 	if (local != checking.end()) {
@@ -113,50 +278,70 @@ const ClassDecl *ScriptClasses::file_header(const std::string &p_file) {
 		return found->second ? &found->second->decl : nullptr;
 	}
 	std::unique_ptr<File> &file = files[p_file];
-	const std::optional<std::string> source = project ? project->script_source(p_file) : std::nullopt;
-	if (!source) {
-		return nullptr;
+	file = parse_file(p_file);
+	return file ? &file->decl : nullptr;
+}
+
+void ScriptClasses::read_script(const std::string &p_file) {
+	if (frames.empty() || frames.back().first == p_file) {
+		return;
 	}
-	std::vector<Diagnostic> errors;
-	ClassDecl decl = parse(*source, errors);
-	if (!errors.empty()) {
-		return nullptr;
-	}
-	file = std::make_unique<File>();
-	file->decl = std::move(decl);
-	return &file->decl;
+	Reads &reads = frames.back().second;
+	reads.partial = reads.partial || checking.count(p_file);
+	reads.scripts.emplace(p_file, p_file == compiled.first ? compiled.second : script_hash(p_file));
 }
 
 const ClassDecl *ScriptClasses::header(const std::string &p_path) {
-	return walk(file_header(script_file(p_path)), p_path);
+	const std::string file = script_file(p_path);
+	read_script(file);
+	return walk(file_header(file), p_path);
 }
 
 const ClassDecl *ScriptClasses::declarations(const std::string &p_path, bool p_with_scenes) {
 	const std::string file = script_file(p_path);
+	read_script(file);
 	const auto local = checking.find(file);
 	if (local != checking.end()) {
 		// Null while its declarations are being checked, as when a script it
 		// uses uses it in turn.
 		return local->second.declarations ? local->second.declarations(p_path) : walk(local->second.decl, p_path);
 	}
-	if (!file_header(file) || failed.count(file)) {
+	if (!file_header(file)) {
 		return nullptr;
 	}
-	File &entry = *files[file];
-	if (!entry.checked) {
+	const bool with_scenes = !declarations_only && p_with_scenes;
+	std::unique_ptr<File> *slot = &files[file];
+	if (((*slot)->checked || (*slot)->failed) && (*slot)->with_scenes != with_scenes) {
+		slot = &files[file + (with_scenes ? "\nwith scenes" : "\nwithout scenes")];
+		if (!*slot && !(*slot = parse_file(file))) {
+			return nullptr;
+		}
+	}
+	File &entry = **slot;
+	if (!entry.checked && !entry.failed) {
 		CompileOptions options;
 		options.path = file;
 		options.project = project;
-		options.declarations_only = declarations_only || !p_with_scenes;
+		options.declarations_only = !with_scenes;
 		std::vector<Diagnostic> errors;
-		check(entry.decl, engine, options, errors, *this, false);
-		if (!errors.empty()) {
-			failed.insert(file);
-			return nullptr;
+		const bool recording = !frames.empty();
+		if (recording) {
+			frames.emplace_back(file, Reads());
 		}
-		entry.checked = true;
+		check(entry.decl, engine, options, errors, *this, false);
+		checking.erase(file);
+		if (recording) {
+			entry.reads = std::move(frames.back().second);
+			frames.pop_back();
+		}
+		entry.with_scenes = with_scenes;
+		entry.failed = !errors.empty();
+		entry.checked = !entry.failed;
 	}
-	return walk(&entry.decl, p_path);
+	if (!frames.empty() && frames.back().first != file) {
+		frames.back().second.merge(entry.reads);
+	}
+	return entry.failed ? nullptr : walk(&entry.decl, p_path);
 }
 
 void ScriptClasses::enter(const std::string &p_file, ClassDecl &r_decl, std::function<const ClassDecl *(const std::string &)> p_declarations) {
@@ -164,14 +349,47 @@ void ScriptClasses::enter(const std::string &p_file, ClassDecl &r_decl, std::fun
 }
 
 void ScriptClasses::leave(const std::string &p_file) {
-	// A file read for its declarations is kept with the others; the one being
-	// compiled stays as checked, for what is done with it next.
-	const auto found = files.find(p_file);
-	if (found != files.end() && found->second && &found->second->decl == checking[p_file].decl) {
-		checking.erase(p_file);
-	} else {
-		checking[p_file].declarations = nullptr;
+	// The file being compiled stays as checked, for what is done with it next;
+	// declarations() keeps a file read for its declarations with the others.
+	checking[p_file].declarations = nullptr;
+}
+
+uint64_t ScriptClasses::script_hash(const std::string &p_file) {
+	const auto found = hashes.find(p_file);
+	if (found != hashes.end()) {
+		return found->second;
 	}
+	return hashes[p_file] = declaration_hash(sources ? sources->script_source(p_file) : std::nullopt);
+}
+
+void ScriptClasses::begin_compile(const std::string &p_file, const std::string &p_source) {
+	compiled = { p_file, declaration_hash(p_source) };
+	frames.emplace_back(p_file, Reads());
+}
+
+Reads ScriptClasses::end_compile() {
+	Reads reads = std::move(frames.back().second);
+	frames.clear();
+	checking.erase(compiled.first);
+	// Checks that saw a file in progress, such as the compiled one, may refer
+	// to its classes, and so may checks that read theirs; they are done again
+	// when needed.
+	std::set<std::string> dropped;
+	for (bool again = true; again;) {
+		again = false;
+		for (auto entry = files.begin(); entry != files.end();) {
+			const Reads *of = entry->second ? &entry->second->reads : nullptr;
+			if (of && (of->partial || std::any_of(of->scripts.begin(), of->scripts.end(), [&](const auto &p_read) { return dropped.count(p_read.first) > 0; }))) {
+				dropped.insert(entry->first.substr(0, entry->first.find('\n')));
+				entry = files.erase(entry);
+				again = true;
+			} else {
+				++entry;
+			}
+		}
+	}
+	compiled = {};
+	return reads;
 }
 
 } // namespace petrichor::compiler

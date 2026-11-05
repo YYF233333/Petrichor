@@ -34,7 +34,13 @@ struct CompileOptions {
 	bool declarations_only = false;
 };
 
+struct ClassDecl;
+class ScriptClasses;
+
 // Compiles one source file (UTF-8). Checking stops after syntax errors.
 CompileResult compile(const std::string &p_source, const EngineApi &p_engine, const CompileOptions &p_options = CompileOptions());
+// With the other scripts as `r_classes` has read them, into `r_class`, which
+// they may refer to until the compile ends (ScriptClasses::end_compile()).
+CompileResult compile(const std::string &p_source, const EngineApi &p_engine, const CompileOptions &p_options, ScriptClasses &r_classes, ClassDecl &r_class);
 
 } // namespace petrichor::compiler

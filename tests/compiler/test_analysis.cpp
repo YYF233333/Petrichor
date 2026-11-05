@@ -1,0 +1,175 @@
+#include "bytecode/module.h"
+#include "compiler/analysis.h"
+#include "doctest.h"
+#include "helpers.h"
+
+using namespace petrichor;
+using namespace petrichor::tests;
+
+// The analysis checks a script again only when its source, the declarations of
+// the scripts it uses or the project's answers change (architecture §2.1).
+
+namespace {
+
+using Result = std::shared_ptr<const compiler::CompileResult>;
+
+const char *const BASE = R"(class_name Base
+extends Node
+pub func damage(amount: int) -> int:
+	return amount * 2
+)";
+
+const char *const USER = R"(extends Node
+func hit(base: Base) -> int:
+	return base.damage(3)
+)";
+
+// Compiles each script from the project's sources, in one pass.
+std::vector<Result> compile_all(compiler::Analysis &r_analysis, const FakeProject &p_project, const std::vector<std::string> &p_paths) {
+	const compiler::Analysis::Pass pass(r_analysis);
+	std::vector<Result> results;
+	for (const std::string &path : p_paths) {
+		results.push_back(r_analysis.compile(path, *p_project.script_source(path)));
+	}
+	return results;
+}
+
+} // namespace
+
+TEST_CASE("a script is checked again only when what it read changes") {
+	FakeProject project;
+	project.add_script("res://base.pet", BASE, "Base");
+	project.add_script("res://user.pet", USER);
+	compiler::Analysis analysis(fake_engine(), project);
+	const std::vector<std::string> paths = { "res://base.pet", "res://user.pet" };
+	const std::vector<Result> before = compile_all(analysis, project, paths);
+	REQUIRE(before[0]->ok());
+	REQUIRE(before[1]->ok());
+	REQUIRE(analysis.checks_run() == 2);
+
+	SUBCASE("nothing") {
+		const std::vector<Result> after = compile_all(analysis, project, paths);
+		CHECK((after == before));
+		CHECK(analysis.checks_run() == 2);
+	}
+	SUBCASE("a function body of a script it uses, also with a deeper block at its end") {
+		project.sources["res://base.pet"] = R"(class_name Base
+extends Node
+pub func damage(amount: int) -> int:
+	if amount > 0:
+		# Doubled.
+		return amount * 2
+	return 0
+)";
+		const std::vector<Result> after = compile_all(analysis, project, paths);
+		CHECK((after[0] != before[0]));
+		CHECK((after[1] == before[1]));
+		CHECK(analysis.checks_run() == 3);
+	}
+	SUBCASE("a declaration it uses") {
+		project.sources["res://base.pet"] = R"(class_name Base
+extends Node
+pub func damage(amount: int, scale: int) -> int:
+	return amount * scale
+)";
+		const std::vector<Result> after = compile_all(analysis, project, paths);
+		CHECK((after[1] != before[1]));
+		CHECK_FALSE(after[1]->ok());
+	}
+	SUBCASE("a syntax error in a function body of a script it uses") {
+		project.sources["res://base.pet"] = R"(class_name Base
+extends Node
+pub func damage(amount: int) -> int:
+	return amount *
+)";
+		const std::vector<Result> after = compile_all(analysis, project, paths);
+		CHECK((after[1] != before[1]));
+		CHECK_FALSE(after[1]->ok());
+	}
+	SUBCASE("its own function body") {
+		project.sources["res://user.pet"] = R"(extends Node
+func hit(base: Base) -> int:
+	return base.damage(4)
+)";
+		const std::vector<Result> after = compile_all(analysis, project, paths);
+		CHECK((after[0] == before[0]));
+		CHECK((after[1] != before[1]));
+		CHECK(analysis.checks_run() == 3);
+	}
+	SUBCASE("the class a global name refers to") {
+		project.add_script("res://other.pet", "class_name Base\nextends Node\n", "Base");
+		const std::vector<Result> after = compile_all(analysis, project, paths);
+		CHECK((after[1] != before[1]));
+		CHECK_FALSE(after[1]->ok());
+	}
+}
+
+TEST_CASE("a script is checked again when a scene that uses it changes") {
+	FakeProject project;
+	compiler::Scene scene;
+	scene.path = "res://hud.tscn";
+	scene.nodes = { { ".", "CanvasLayer", "res://hud.pet" }, { "Health", "Label", "" } };
+	project.scenes = { scene };
+	project.add_script("res://hud.pet", "extends CanvasLayer\n\nfunc show_health():\n\t$Health.text = \"full\"\n");
+	compiler::Analysis analysis(fake_engine(), project);
+	const Result before = compile_all(analysis, project, { "res://hud.pet" })[0];
+	REQUIRE(before->ok());
+	CHECK((compile_all(analysis, project, { "res://hud.pet" })[0] == before));
+
+	project.scenes[0].nodes[1].type = "Node3D";
+	const Result after = compile_all(analysis, project, { "res://hud.pet" })[0];
+	CHECK((after != before));
+	CHECK_FALSE(after->ok());
+}
+
+namespace {
+
+// Each script compiled in one pass, in order, is as it is compiled alone.
+void check_as_alone(const FakeProject &p_project, const std::vector<std::string> &p_paths) {
+	compiler::Analysis analysis(fake_engine(), p_project);
+	const std::vector<Result> together = compile_all(analysis, p_project, p_paths);
+	for (size_t i = 0; i < p_paths.size(); i++) {
+		compiler::CompileOptions options;
+		options.path = p_paths[i];
+		options.project = &p_project;
+		const compiler::CompileResult alone = compiler::compile(*p_project.script_source(p_paths[i]), fake_engine(), options);
+		INFO(p_paths[i], messages(alone));
+		CHECK(alone.ok());
+		CHECK(messages(*together[i]) == messages(alone));
+		CHECK(bytecode::serialize(together[i]->module) == bytecode::serialize(alone.module));
+	}
+}
+
+} // namespace
+
+TEST_CASE("a base class has the types its scenes give, also after a script used it without") {
+	FakeProject project;
+	compiler::Scene scene;
+	scene.path = "res://panel.tscn";
+	scene.nodes = { { ".", "Node", "res://derived.pet" }, { "Label", "Label", "" } };
+	project.scenes = { scene };
+	project.add_script("res://base.pet", "class_name Base\nextends Node\npub var count := 0\n@onready pub var label = $Label\n", "Base");
+	project.add_script("res://user.pet", "extends Node\nfunc read(base: Base):\n\tvar shown = base.count\n");
+	project.add_script("res://derived.pet", "extends Base\nfunc show():\n\tlabel.text = \"shown\"\n");
+	check_as_alone(project, { "res://user.pet", "res://derived.pet" });
+}
+
+TEST_CASE("scripts that use each other compile in one pass as each does alone") {
+	FakeProject project;
+	project.add_script("res://a.pet", R"(class_name A
+extends Node
+pub var count: int = 1
+pub func value(other: B) -> int:
+	return other.twice() + count
+)",
+			"A");
+	project.add_script("res://b.pet", R"(class_name B
+extends A
+pub func twice() -> int:
+	return count * 2
+pub func thrice() -> int:
+	return value(self)
+)",
+			"B");
+	check_as_alone(project, { "res://a.pet", "res://b.pet", "res://a.pet" });
+}

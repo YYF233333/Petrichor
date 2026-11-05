@@ -4,42 +4,102 @@
 #include "compiler/engine_api.h"
 #include "compiler/project_api.h"
 
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace petrichor::compiler {
+
+// What other scripts can see of a script: its syntax tokens outside function
+// bodies; the text of one with syntax errors, which they cannot read; 0 for
+// none.
+uint64_t declaration_hash(const std::optional<std::string> &p_source);
+
+// What a check read (architecture §2.1): other scripts, by declaration_hash(),
+// and each question asked of the project, with a test of whether the project
+// still gives the same answer.
+struct Reads {
+	std::map<std::string, uint64_t> scripts;
+	std::map<std::string, std::function<bool(const ProjectApi &)>> answers;
+	// It read a file whose check was in progress, so no later check reuses it.
+	bool partial = false;
+
+	void merge(const Reads &p_other);
+};
 
 // The other scripts that one compile looks at, each read once (architecture
 // §2.1), as their classes: a file's, or an inner class's, whose path is its
 // file's followed by "::" and the names down to it (spec §2.1). A class's
 // header is enough to name it as a type; its declarations are checked when a
-// member is used, so that two classes can refer to each other.
+// member is used, so that two classes can refer to each other. One that
+// records reads is shared by the compiles of a pass of Analysis.
 class ScriptClasses {
 	struct File {
 		ClassDecl decl;
 		bool checked = false; // The checker's fields of its classes are filled in.
+		bool failed = false; // Its declarations have errors or depend on themselves.
+		bool with_scenes = false; // How they were checked.
+		Reads reads; // Of its declarations' check.
 	};
 	// A file being checked, whose classes come from its checkers.
 	struct Checking {
 		ClassDecl *decl;
 		std::function<const ClassDecl *(const std::string &)> declarations; // Null while they are not known yet.
 	};
+	// The project as checks see it: each answer goes to the reads of the check
+	// that asked; sources are read as scripts.
+	class RecordedProject : public ProjectApi {
+		ScriptClasses &classes;
+
+		template <typename T>
+		T ask(const std::string &p_key, std::function<T(const ProjectApi &)> p_question) const;
+
+	public:
+		explicit RecordedProject(ScriptClasses &r_classes) :
+				classes(r_classes) {}
+
+		std::vector<Scene> scenes_with_script(const std::string &p_script_path) const override;
+		std::vector<Scene> scenes_instancing_script(const std::string &p_script_path) const override;
+		std::optional<Scene> scene(const std::string &p_path) const override;
+		std::optional<ResourceInfo> resource(const std::string &p_path) const override;
+		std::string uid_path(const std::string &p_uid) const override;
+		std::string global_class_path(const std::string &p_name) const override;
+		std::string autoload_path(const std::string &p_name) const override;
+		std::optional<std::string> script_source(const std::string &p_path) const override;
+		std::optional<ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override;
+	};
 
 	const EngineApi &engine;
-	const ProjectApi *project;
+	const ProjectApi *sources;
+	RecordedProject recorded;
+	const ProjectApi *project; // `recorded` while reads are recorded.
 	bool declarations_only;
-	std::map<std::string, std::unique_ptr<File>> files; // Null: it cannot be read or parsed.
+	// Null: it cannot be read or parsed. A file whose declarations are wanted
+	// both with and without scenes has a second entry, its path followed by a
+	// line break and the way.
+	std::map<std::string, std::unique_ptr<File>> files;
 	std::map<std::string, Checking> checking;
-	std::set<std::string> failed;
+	// The checks that record reads, innermost last, with their files.
+	std::vector<std::pair<std::string, Reads>> frames;
+	std::map<std::string, uint64_t> hashes; // declaration_hash() of files read.
+	std::pair<std::string, uint64_t> compiled; // The file being compiled, and its hash.
 
+	std::unique_ptr<File> parse_file(const std::string &p_file) const;
 	const ClassDecl *file_header(const std::string &p_file);
+	// Notes in the innermost check that it read `p_file`.
+	void read_script(const std::string &p_file);
 
 public:
-	ScriptClasses(const EngineApi &p_engine, const ProjectApi *p_project, bool p_declarations_only = false) :
-			engine(p_engine), project(p_project), declarations_only(p_declarations_only) {}
+	ScriptClasses(const EngineApi &p_engine, const ProjectApi *p_project, bool p_declarations_only = false, bool p_record = false) :
+			engine(p_engine), sources(p_project), recorded(*this), project(p_record ? &recorded : p_project), declarations_only(p_declarations_only) {}
+	ScriptClasses(const ScriptClasses &) = delete;
+	ScriptClasses &operator=(const ScriptClasses &) = delete;
 
 	// The class that `p_decl` at `p_path` extends, of this language or
 	// another: by its path, by a global class_name, or, for an inner class,
@@ -47,6 +107,7 @@ public:
 	// engine class or none.
 	std::string base_path(const ClassDecl &p_decl, const std::string &p_path);
 	std::string native_base(const ClassDecl &p_decl, const std::string &p_path);
+	// The project as checks should ask it.
 	const ProjectApi *get_project() const { return project; }
 	// The parsed class, or null when it cannot be read or parsed.
 	const ClassDecl *header(const std::string &p_path);
@@ -56,6 +117,13 @@ public:
 	// While a file is checked, its classes as its checkers have them.
 	void enter(const std::string &p_file, ClassDecl &r_decl, std::function<const ClassDecl *(const std::string &)> p_declarations);
 	void leave(const std::string &p_file);
+
+	// The hash of the file as the project has it now, read once.
+	uint64_t script_hash(const std::string &p_file);
+	// Records what the compile of `p_file` from `p_source` reads, until
+	// end_compile(), after which nothing refers to its classes.
+	void begin_compile(const std::string &p_file, const std::string &p_source);
+	Reads end_compile();
 };
 
 } // namespace petrichor::compiler

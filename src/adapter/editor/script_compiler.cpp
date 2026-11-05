@@ -4,7 +4,7 @@
 #include "adapter/editor/project_files.h"
 #include "adapter/editor/scene_index.h"
 #include "adapter/pet_compiled.h"
-#include "compiler/compiler.h"
+#include "compiler/analysis.h"
 #include "runtime/text.h"
 
 #include <godot_cpp/classes/dir_access.hpp>
@@ -12,31 +12,52 @@
 #include <godot_cpp/godot.hpp>
 
 #include <algorithm>
+#include <optional>
 #include <vector>
 
 using namespace godot;
 
 namespace petrichor {
 
+namespace {
+
+// The project's scripts as the editor and the headless build check them,
+// each checked again only when what it read changes (architecture §2.4).
+compiler::Analysis &analysis() {
+	static compiler::Analysis analysis(ClassDBApi::get(), SceneIndex::get());
+	return analysis;
+}
+
+} // namespace
+
 std::shared_ptr<const ClassImage> compile_script(const String &p_path, const String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, CompileMode p_mode) {
 	const SceneIndex::Pass pass;
-	compiler::CompileOptions options;
-	options.path = to_utf8(p_path);
-	options.declarations_only = p_mode == CompileMode::Declarations;
-	// While loading, the compiler asks for no scenes, only classes and sources.
-	options.project = &SceneIndex::get();
-	compiler::CompileResult result = compiler::compile(to_utf8(p_source), ClassDBApi::get(), options);
+	std::shared_ptr<const compiler::CompileResult> result;
+	// Loads, which compile declarations, take no part in the analysis, whose
+	// passes take a lock while they load scenes.
+	std::optional<compiler::Analysis::Pass> analysis_pass;
+	if (p_mode == CompileMode::Full) {
+		analysis_pass.emplace(analysis());
+		result = analysis().compile(to_utf8(p_path), to_utf8(p_source));
+	} else {
+		compiler::CompileOptions options;
+		options.path = to_utf8(p_path);
+		options.declarations_only = true;
+		// While loading, the compiler asks for no scenes, only classes and sources.
+		options.project = &SceneIndex::get();
+		result = std::make_shared<const compiler::CompileResult>(compiler::compile(to_utf8(p_source), ClassDBApi::get(), options));
+	}
 	if (p_report) {
 		const CharString file = p_path.utf8();
-		for (const compiler::Diagnostic &error : result.errors) {
+		for (const compiler::Diagnostic &error : result->errors) {
 			// The compiler's messages are UTF-8 already.
 			gdextension_interface::print_script_error(error.message.c_str(), "", file.get_data(), error.line, true);
 		}
 	}
 	if (r_errors) {
-		*r_errors = result.errors;
+		*r_errors = result->errors;
 	}
-	if (!result.ok()) {
+	if (!result->ok()) {
 		return nullptr;
 	}
 	String load_error;
@@ -44,7 +65,7 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 	// The game verifies what it reads; the editor checks the compiler's output
 	// the same way, so that a compiler error is reported instead of run.
 	std::string problem;
-	if (!bytecode::verify(result.module, problem)) {
+	if (!bytecode::verify(result->module, problem)) {
 		load_error = "internal compiler error: " + to_godot(problem);
 	} else {
 		// A class of another script, also an inner class (spec §4.1), from its
@@ -63,15 +84,15 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 			return image ? image->find_class(p_class) : nullptr;
 		};
 		std::shared_ptr<const ClassImage> base;
-		if (!result.module.base_script.empty()) {
-			const String base_path = to_godot(result.module.base_script);
+		if (!result->module.base_script.empty()) {
+			const String base_path = to_godot(result->module.base_script);
 			base = compiled(base_path);
 			if (!base) {
 				load_error = "Base script " + base_path + " could not be compiled.";
 			}
 		}
 		if (load_error.is_empty()) {
-			image = ClassImage::load(std::move(result.module), p_path, load_error, base, compiled);
+			image = ClassImage::load(bytecode::Module(result->module), p_path, load_error, base, compiled);
 		}
 	}
 	if (!image && p_report) {
@@ -84,6 +105,7 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 
 int build_project(int *r_script_count) {
 	const SceneIndex::Pass pass;
+	const compiler::Analysis::Pass analysis_pass(analysis());
 	const PackedStringArray paths = project_files(PackedStringArray({ "pet" }));
 	int failed = 0;
 	for (const String &path : paths) {
@@ -97,6 +119,11 @@ int build_project(int *r_script_count) {
 		*r_script_count = int(paths.size());
 	}
 	return failed;
+}
+
+void engine_classes_changed() {
+	ClassDBApi::extensions_changed();
+	analysis().clear();
 }
 
 } // namespace petrichor

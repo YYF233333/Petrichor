@@ -12,6 +12,8 @@ namespace petrichor::compiler {
 struct EngineParam {
 	std::string name;
 	Type type;
+
+	bool operator==(const EngineParam &p_other) const { return name == p_other.name && type == p_other.type; }
 };
 
 struct EngineMethod {
@@ -23,6 +25,11 @@ struct EngineMethod {
 	bool is_vararg = false; // Extra arguments are Variant.
 	bool is_static = false;
 	bool is_virtual = false;
+
+	bool operator==(const EngineMethod &p_other) const {
+		return name == p_other.name && owner == p_other.owner && params == p_other.params && default_count == p_other.default_count &&
+				return_type == p_other.return_type && is_vararg == p_other.is_vararg && is_static == p_other.is_static && is_virtual == p_other.is_virtual;
+	}
 };
 
 struct EngineProperty {
@@ -30,6 +37,8 @@ struct EngineProperty {
 	Type type;
 	bool writable = true;
 	std::string owner; // The class that declares it.
+
+	bool operator==(const EngineProperty &p_other) const { return name == p_other.name && type == p_other.type && writable == p_other.writable && owner == p_other.owner; }
 };
 
 // What the compiler knows about the engine's classes (architecture §2.1). The
