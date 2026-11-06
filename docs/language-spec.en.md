@@ -16,7 +16,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 1.2 Relationship to GDScript
 
 - Surface syntax follows GDScript: indentation, `func`, `var`, `extends`, `signal`, `@export`, `$X` and so on. New constructs extend it in the same style (§2).
-- **Syntax hard rule**: a construct spelled as in GDScript either behaves as in GDScript or is a compile error. The error comes with a suggested fix, and the construct is never silently different. The sole exception: GDScript failing at runtime or silently yielding a wrong result (a default value, a truncation, waiting forever). In such cases this language raises a program error (§8.1), or does what the code intended.
+- **Syntax hard rule**: a construct spelled as in GDScript either behaves as in GDScript or is a compile error. The error comes with a suggested fix, and the construct is never silently different. The sole exception is where GDScript fails at runtime or silently yields a wrong result. Examples are a default value, a truncation and waiting forever. In such cases this language raises a program error (§8.1), or does what the code intended.
 - Compiling GDScript source directly is not a goal; migration is guided by compile errors and quick fixes (§13.4).
 
 ### 1.3 Delivery
