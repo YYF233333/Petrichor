@@ -1787,7 +1787,7 @@ public:
 		return expr;
 	}
 
-	ClassDecl run() {
+	ClassDecl run(bool p_header_only) {
 		ClassDecl result;
 		bool has_class_name = false;
 		bool has_extends = false;
@@ -1799,6 +1799,9 @@ public:
 				continue;
 			}
 			if (check(TokenKind::Indent)) {
+				if (p_header_only) {
+					break;
+				}
 				result.functions.push_back(stray_function());
 				continue;
 			}
@@ -1896,6 +1899,9 @@ public:
 				end_of_statement();
 				continue;
 			}
+			if (p_header_only) {
+				break;
+			}
 			seen_member = true;
 			member(result);
 		}
@@ -1906,7 +1912,7 @@ public:
 
 } // namespace
 
-ClassDecl parse(std::string p_source, std::vector<Diagnostic> &r_errors) {
+ClassDecl parse(std::string p_source, std::vector<Diagnostic> &r_errors, bool p_header_only) {
 	const auto file = std::make_shared<SourceFile>();
 	file->text = std::move(p_source);
 	std::vector<Diagnostic> lexed;
@@ -1920,7 +1926,7 @@ ClassDecl parse(std::string p_source, std::vector<Diagnostic> &r_errors) {
 		}
 		std::vector<Diagnostic> parsed;
 		Parser parser(*file, parsed, !unclosed.empty(), resets);
-		ClassDecl result = parser.run();
+		ClassDecl result = parser.run(p_header_only);
 		if (parser.reset != NO_OFFSET) {
 			resets.insert(std::upper_bound(resets.begin(), resets.end(), parser.reset), parser.reset);
 			continue;

@@ -592,18 +592,36 @@ struct ClassDecl {
 };
 
 // Calls `p_fn` on each direct child AST node of `p_node`, in source order
-// within each list.
+// within each list. If `p_fn` accepts a second `bool` argument, it is true for
+// the first node of each separately stored sibling list.
 template <typename Node, typename Fn>
 void for_each_child(const Node &p_node, Fn &&p_fn) {
+	bool group = true;
+	const auto emit = [&](const auto &p_child) {
+		if constexpr (std::is_invocable_v<Fn, decltype(p_child), bool>) {
+			p_fn(p_child, group);
+		} else {
+			p_fn(p_child);
+		}
+		group = false;
+	};
 	const auto opt = [&](const auto &...p_ptrs) {
-		((p_ptrs ? void(p_fn(*p_ptrs)) : void()), ...);
+		((p_ptrs ? void(emit(*p_ptrs)) : void()), ...);
 	};
 	const auto list = [&](const auto &...p_vecs) {
 		(
 				[&](const auto &p_vec) {
 					for (const auto &item : p_vec) {
-						p_fn(item);
+						emit(item);
 					}
+				}(p_vecs),
+				...);
+	};
+	const auto separate = [&](const auto &...p_vecs) {
+		(
+				[&](const auto &p_vec) {
+					group = true;
+					list(p_vec);
 				}(p_vecs),
 				...);
 	};
@@ -612,20 +630,20 @@ void for_each_child(const Node &p_node, Fn &&p_fn) {
 				[&](const auto &p_vec) {
 					for (const auto &ptr : p_vec) {
 						if (ptr) {
-							p_fn(*ptr);
+							emit(*ptr);
 						}
 					}
 				}(p_vecs),
 				...);
 	};
 	if constexpr (std::is_same_v<Node, TypeRef>) {
-		list(p_node.args);
+		list(p_node.args, p_node.result);
 	} else if constexpr (std::is_same_v<Node, Expr>) {
 		if (p_node.kind == ExprKind::Conditional) {
 			opt(p_node.left, p_node.base, p_node.right);
 		} else if (p_node.kind == ExprKind::Cast || p_node.kind == ExprKind::TypeTest) {
 			opt(p_node.left);
-			p_fn(p_node.cast_type);
+			emit(p_node.cast_type);
 		} else {
 			opt(p_node.base, p_node.left, p_node.right);
 			ptrs(p_node.args);
@@ -658,7 +676,7 @@ void for_each_child(const Node &p_node, Fn &&p_fn) {
 	} else if constexpr (std::is_same_v<Node, SignalDecl>) {
 		list(p_node.params);
 	} else if constexpr (std::is_same_v<Node, InterfaceProperty>) {
-		p_fn(p_node.type_ref);
+		emit(p_node.type_ref);
 	} else if constexpr (std::is_same_v<Node, StructDecl>) {
 		list(p_node.fields);
 	} else if constexpr (std::is_same_v<Node, EnumValueDecl>) {
@@ -666,14 +684,16 @@ void for_each_child(const Node &p_node, Fn &&p_fn) {
 	} else if constexpr (std::is_same_v<Node, EnumDecl>) {
 		list(p_node.values);
 	} else if constexpr (std::is_same_v<Node, InterfaceDecl>) {
-		list(p_node.properties, p_node.methods);
+		separate(p_node.properties, p_node.methods);
 	} else if constexpr (std::is_same_v<Node, ClassDecl>) {
 		opt(p_node.owner_ref);
-		list(p_node.implements);
-		for (const ExportGroupDecl &group : p_node.groups) {
-			p_fn(group.annotation);
+		separate(p_node.implements);
+		group = true;
+		for (const ExportGroupDecl &decl : p_node.groups) {
+			emit(decl.annotation);
 		}
-		list(p_node.warning_ignores, p_node.members, p_node.static_vars, p_node.constants, p_node.functions, p_node.signals, p_node.structs, p_node.enums, p_node.interfaces);
+		separate(p_node.warning_ignores, p_node.members, p_node.static_vars, p_node.constants, p_node.functions, p_node.signals, p_node.structs, p_node.enums, p_node.interfaces);
+		group = true;
 		ptrs(p_node.classes);
 	}
 }

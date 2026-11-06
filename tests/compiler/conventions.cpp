@@ -75,17 +75,9 @@ class RangeChecker {
 	template <typename P>
 	void children(const P &p_parent, const TokenRange &p_range) {
 		int64_t cursor = int64_t(p_range.first) - 1;
-		const char *prev = nullptr;
-		bool in_classes = false;
-		for_each_child(p_parent, [&](const auto &p_child) {
-			using C = std::decay_t<decltype(p_child)>;
-			if constexpr (std::is_same_v<P, ClassDecl> || std::is_same_v<P, InterfaceDecl>) {
-				const char *at = reinterpret_cast<const char *>(&p_child);
-				if (std::is_same_v<C, ClassDecl> ? !in_classes : (at != prev + sizeof(C) && (!std::is_same_v<C, Annotation> || at != prev + sizeof(ExportGroupDecl)))) {
-					cursor = -1;
-				}
-				prev = at;
-				in_classes = std::is_same_v<C, ClassDecl>;
+		for_each_child(p_parent, [&](const auto &p_child, bool p_new_group) {
+			if (p_new_group) {
+				cursor = int64_t(p_range.first) - 1;
 			}
 			visit(p_child, p_range, cursor);
 		});

@@ -303,7 +303,7 @@ PetHeader parse_header(const String &p_source) {
 	PetHeader header;
 #ifdef TOOLS_ENABLED
 	std::vector<compiler::Diagnostic> errors;
-	const compiler::ClassDecl decl = compiler::parse(to_utf8(p_source), errors);
+	const compiler::ClassDecl decl = compiler::parse(to_utf8(p_source), errors, true);
 	header.class_name = to_godot(decl.class_name);
 	header.base = to_godot(decl.extends);
 	header.base_is_path = decl.extends_path;
@@ -791,8 +791,11 @@ bool PetScript::_is_valid() const {
 // has errors; the engine then gives no object this script
 // (core/object/object.cpp:976).
 bool PetScript::_is_abstract() const {
+	if (inner_path.is_empty() && !source.is_empty()) {
+		return header.is_abstract;
+	}
 	const std::shared_ptr<const ClassImage> current = get_image();
-	return current ? current->module.is_abstract : header.is_abstract;
+	return current && current->module.is_abstract;
 }
 
 ScriptLanguage *PetScript::_get_language() const {
