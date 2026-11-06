@@ -1,0 +1,18 @@
+# Members that must be assigned (spec §6.2, §6.4): by the creator, or by an
+# ancestor in must_assign.tscn, and checked before they are read. Driven by
+# language_test.gd.
+class_name MustAssignCheck
+extends Node
+
+pub struct Hit:
+	var damage: int
+
+pub var target: Node
+pub var hit: Hit
+pub var readied := false
+
+func _ready():
+	readied = true
+
+pub func damage() -> int:
+	return hit.damage

@@ -9,6 +9,7 @@
 
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/window.hpp>
@@ -166,6 +167,21 @@ Ref<CoroutineTask> start_task(const std::shared_ptr<const ClassImage> &p_image, 
 	}
 	task->continuation->resume();
 	return task;
+}
+
+// The members of the class that ancestors must have assigned once the owner
+// of the node is ready (spec §6.4); one an ancestor assigns after an await is
+// too late.
+void check_from_ancestors(const ClassImage &p_image, const InstanceStorage &p_storage) {
+	if (p_storage.freed) {
+		return;
+	}
+	for (uint32_t m = p_image.module.inherited_members; m < p_image.module.members.size(); m++) {
+		const bytecode::Member &member = p_image.module.members[m];
+		if (member.must_assign && !member.is_export && !p_image.assigned(p_storage.members, m)) {
+			vm::report_error(p_image, "_ready", int(member.line), vformat("\"%s\" has not been assigned by the time the scene is ready.", p_image.member_names[m]));
+		}
+	}
 }
 
 // What a static function, which has no instance, reads as its instance's state.
@@ -695,8 +711,35 @@ class Execution {
 	}
 
 	PETRICHOR_NOINLINE bool fail_unassigned(const bytecode::Function &p_fn, int p_line, uint32_t p_member) {
-		// Spec §6.3; §7.5: the scene or the resource did not assign the export.
+		// Spec §6.3; §6.2: no one assigned a member that must be.
 		return fail(p_fn, p_line, vformat(image.module.members[p_member].is_onready ? "\"%s\" is read before the node is ready." : "\"%s\" has not been assigned.", image.member_names[p_member]));
+	}
+
+	// The class's own members that must be assigned, as the node becomes ready
+	// (spec §6.4). Of a node whose owner is not ready yet, those not exported
+	// come from ancestors, and are checked when the owner is, after its _ready
+	// (scene/main/node.cpp:336-337).
+	PETRICHOR_NOINLINE bool check_provided(const bytecode::Function &p_fn, uint8_t *p_members) {
+		Node *node = Object::cast_to<Node>(context.owner);
+		Node *scene = node ? node->get_owner() : nullptr;
+		const bool later = scene && !scene->is_node_ready();
+		bool deferred = false;
+		for (uint32_t m = image.module.inherited_members; m < image.module.members.size(); m++) {
+			const bytecode::Member &member = image.module.members[m];
+			if (!member.must_assign || image.assigned(p_members, m)) {
+				continue;
+			}
+			if (later && !member.is_export) {
+				deferred = true;
+				continue;
+			}
+			return fail_unassigned(p_fn, int(member.line), m);
+		}
+		if (deferred) {
+			std::function<void(const Variant &)> check = [image = image.shared_from_this(), storage = context.storage](const Variant &) { check_from_ancestors(*image, *storage); };
+			scene->connect("ready", Callable(memnew(ResumeCallable(std::move(check)))), Object::CONNECT_ONE_SHOT);
+		}
+		return true;
 	}
 
 	PETRICHOR_NOINLINE bool fail_range(const bytecode::Function &p_fn, int p_line, bytecode::IntRange p_range, int64_t p_value) {
@@ -1936,6 +1979,25 @@ public:
 						return fail_unassigned(fn, record.line, code[pc + 1]);
 					}
 					pc += 3;
+					break;
+				case Op::CHECK_MUST:
+					SELF_ALIVE();
+					if (!image.assigned(members, code[pc + 1])) {
+						return fail_unassigned(fn, record.line, code[pc + 1]);
+					}
+					pc += 2;
+					break;
+				case Op::MARK_ASSIGNED:
+					SELF_ALIVE();
+					image.assigned(members, code[pc + 1]) = 1;
+					pc += 2;
+					break;
+				case Op::CHECK_PROVIDED:
+					SELF_ALIVE();
+					if (!check_provided(fn, members)) {
+						return false;
+					}
+					pc += 1;
 					break;
 				case Op::CHECK_RANGE: {
 					const bytecode::IntRange range = bytecode::IntRange(code[pc + 1]);

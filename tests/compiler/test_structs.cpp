@@ -46,7 +46,7 @@ TEST_CASE("structs compare field by field") {
 TEST_CASE("a struct starts at its default only when every field has one") {
 	CHECK(errors("var s: Settings\nprint(s.volume)", "var settings: Settings\n\n").empty());
 	CHECK(contains(errors("var h: Hit"), "\"h\" of type Shots.Hit needs an initial value"));
-	CHECK(contains(errors("pass", "var last: Hit\n\n"), "Members that must be assigned, such as \"last\" of type Shots.Hit"));
+	CHECK(errors("pass", "var last: Hit\n\n").empty()); // One that must be assigned (spec §6.2).
 	CHECK(contains(errors("pass", "@export var settings: Settings\n\n"), "Structs cannot be exported"));
 	CHECK(contains(errors("pass", "struct Odd:\n\tvar n: int = randi()\n\n"), "Non-constant default values are not supported yet."));
 }

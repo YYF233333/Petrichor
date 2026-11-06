@@ -1007,6 +1007,14 @@ class Checker : public ClassRelation {
 		return !decl || decl->has_default();
 	}
 
+	// Whether a variable of the type starts at a value without an initializer
+	// (spec §4.3): not a non-null object, a function, an enum without 0 or
+	// with payloads, nor a struct with a field that has no default.
+	bool has_value_without_initializer(const Type &p_type) const {
+		const bool reference = p_type.kind == TypeKind::Object || p_type.kind == TypeKind::Task;
+		return !(reference && !p_type.nullable) && p_type.kind != TypeKind::Function && has_default(p_type) && enum_has_default(p_type);
+	}
+
 	bool assignable(const Type &p_from, const Type &p_to) const {
 		return is_assignable(p_from, p_to, *this);
 	}
@@ -6849,19 +6857,10 @@ class Checker : public ClassRelation {
 			member.constant_initializer = !member.is_onready && initial && !loads(*initial);
 		} else if (!member.declared_type) {
 			error(member.name_token, "\"" + member.name + "\" needs a type or an initial value.");
-		} else if ((type.kind == TypeKind::Object || type.kind == TypeKind::Task) && !type.nullable) {
-			// An export that the scene or resource must assign (spec §7.5); a
-			// member that the creator or an ancestor must assign (§6.2) is not
-			// supported yet.
-			member.must_assign = member.is_export && type.kind == TypeKind::Object;
-			if (!member.is_export) {
-				error(member.name_token, "Members that must be assigned, such as \"" + member.name + "\" of type " + type.to_string() + (type.kind == TypeKind::Task ? ", need an initial value." : ", are not supported yet unless exported; give it an initial value."));
-			}
-		} else if (!has_default(type)) {
-			// Starts at its default only when every field has one (spec §4.3).
-			error(member.name_token, "Members that must be assigned, such as \"" + member.name + "\" of type " + type.to_string() + ", are not supported yet; give it an initial value.");
-		} else if (!enum_has_default(type)) {
-			error(member.name_token, "\"" + member.name + "\" needs an initial value: " + enum_spelling(type) + " has no value 0 to start at (spec §3.7).");
+		} else {
+			// The scene, the creator or an ancestor assigns it, which is checked
+			// before it is read (spec §4.3, §6.2).
+			member.must_assign = !has_value_without_initializer(type);
 		}
 		if (member.is_export && type.unwrapped().kind == TypeKind::Struct) {
 			error(member.name_token, "Structs cannot be exported (spec §3.6).");

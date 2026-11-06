@@ -85,6 +85,24 @@ func _ready() -> void:
 	add_child(unready)
 	_check_errors(["values_check.pet:139: \"texture\" has not been assigned."], "the program error names the export that was not assigned")
 	_check(v.readied and not unready.readied, "a node that becomes ready without an export it must be assigned stops before _ready()")
+	# Members that must be assigned and are not exported (spec §6.2, §6.4).
+	var given := MustAssignCheck.new()
+	given.target = self
+	given.hit = {"damage": 3}
+	add_child(given)
+	var unassigned := MustAssignCheck.new()
+	unassigned.target = self
+	add_child(unassigned)
+	_check_errors(["must_assign_check.pet:11: \"hit\" has not been assigned."], "a node made without a member its creator must assign stops when it becomes ready")
+	_check(given.readied and given.damage() == 3 and not unassigned.readied, "members the creator assigned are there when the node is ready")
+	var unread := MustAssignCheck.new()
+	unread.damage()
+	unread.free()
+	_check_errors(["must_assign_check.pet:18: \"hit\" has not been assigned."], "reading a member before it is assigned is a program error")
+	var ancestors: Node = load("res://language/must_assign.tscn").instantiate()
+	add_child(ancestors)
+	_check_errors(["must_assign_check.pet:11: \"hit\" has not been assigned by the time the scene is ready."], "ancestors assign members in their _ready, and one that awaits first is too late")
+	_check(ancestors.get_node("Child").damage() == 5, "a member an ancestor assigned is there once the scene is ready")
 	_check(v.ready_notifications == 1, "_notification() receives the engine's notifications, named by their bare names (spec §4.1)")
 	_check(str(v) == "ValuesCheck 1", "str() gives what _to_string() returns")
 	var made := ResourceCheck.new()

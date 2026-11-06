@@ -1,0 +1,10 @@
+# The ancestor of must_assign.tscn: it assigns the members of Child in its
+# _ready, and those of Late only after an await, too late (spec §6.4).
+extends Node
+
+async func _ready():
+	$Child.target = self
+	$Child.hit = MustAssignCheck.Hit(damage = 5)
+	$Late.target = self
+	await get_tree().process_frame
+	$Late.hit = MustAssignCheck.Hit(damage = 6)

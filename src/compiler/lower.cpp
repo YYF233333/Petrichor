@@ -712,13 +712,20 @@ class Lowerer {
 		return is_8_byte(p_type) ? p_8_byte : (p_type == ValueType::String ? p_string : p_value);
 	}
 
+	// A member that must be assigned is used only once it has been (spec §6.2).
+	void check_assigned(uint32_t p_member) {
+		if (cls.all_members[p_member]->must_assign) {
+			instr(Op::CHECK_MUST, NO_REG, NO_REG, NO_REG, p_member);
+		}
+	}
+
 	uint32_t load_member(uint32_t p_member) {
-		const uint32_t result = temp(cls.all_members[p_member]->type);
-		instr(by_storage(reg_type(result), Op::LOAD_MEMBER_8, Op::LOAD_MEMBER_STRING, Op::LOAD_MEMBER_VALUE), result, NO_REG, NO_REG, p_member, fn.regs[result].type);
-		// An export the scene did not assign (spec §7.5), or an @onready
-		// member read before the node is ready (§6.3), is still None.
 		const VarDecl &member = *cls.all_members[p_member];
-		if (member.must_assign || (member.is_onready && member.type.kind == TypeKind::Object && !member.type.nullable)) {
+		check_assigned(p_member);
+		const uint32_t result = temp(member.type);
+		instr(by_storage(reg_type(result), Op::LOAD_MEMBER_8, Op::LOAD_MEMBER_STRING, Op::LOAD_MEMBER_VALUE), result, NO_REG, NO_REG, p_member, fn.regs[result].type);
+		// An @onready member read before the node is ready is still None (spec §6.3).
+		if (member.is_onready && member.type.kind == TypeKind::Object && !member.type.nullable) {
 			instr(Op::CHECK_ASSIGNED, NO_REG, result, NO_REG, p_member);
 		}
 		return result;
@@ -726,6 +733,9 @@ class Lowerer {
 
 	void store_member(uint32_t p_member, uint32_t p_value) {
 		instr(by_storage(reg_type(p_value), Op::STORE_MEMBER_8, Op::STORE_MEMBER_STRING, Op::STORE_MEMBER_VALUE), NO_REG, p_value, NO_REG, p_member, fn.regs[p_value].type);
+		if (cls.all_members[p_member]->must_assign) {
+			instr(Op::MARK_ASSIGNED, NO_REG, NO_REG, NO_REG, p_member);
+		}
 	}
 
 	// The setter or getter that reading or writing a member calls, or -1: in
@@ -2142,6 +2152,7 @@ class Lowerer {
 				return getter >= 0 ? call_function(uint32_t(getter), {}, p_place.type) : load_member(p_place.index);
 			}
 			case Place::Kind::MemberField: {
+				check_assigned(p_place.index);
 				const uint32_t result = temp(p_place.type);
 				ir::Instr i;
 				i.op = by_storage(reg_type(result), Op::LOAD_MEMBER_8, Op::LOAD_MEMBER_STRING, Op::LOAD_MEMBER_VALUE);
@@ -2215,6 +2226,8 @@ class Lowerer {
 				return;
 			}
 			case Place::Kind::MemberField: {
+				// A field of a struct that has no value yet has none either.
+				check_assigned(p_place.index);
 				ir::Instr i;
 				i.op = by_storage(reg_type(p_value), Op::STORE_MEMBER_8, Op::STORE_MEMBER_STRING, Op::STORE_MEMBER_VALUE);
 				i.type = fn.regs[p_value].type;
@@ -2560,21 +2573,16 @@ class Lowerer {
 		bool any = false;
 		start(p_onready ? "@ready" : "@init");
 		decl = nullptr;
-		if (p_onready && cls.is_node) {
-			// A node that becomes ready without the exports the scene must
-			// assign stops there, before the @onready initializers (spec §6.4).
-			for (size_t m = module.inherited_members; m < cls.all_members.size(); m++) {
-				if (cls.all_members[m]->must_assign) {
-					any = true;
-					at = cls.all_members[m]->range;
-					instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(cls.source->line(cls.all_members[m]->name_token)));
-					load_member(uint32_t(m));
-				}
-			}
+		// A node that becomes ready without the members the scene or the creator
+		// must assign stops there, before the @onready initializers (spec §6.4).
+		const auto must_assign = [](const VarDecl *p_member) { return p_member->must_assign; };
+		if (p_onready && cls.is_node && std::any_of(cls.all_members.begin() + module.inherited_members, cls.all_members.end(), must_assign)) {
+			any = true;
+			instr(Op::CHECK_PROVIDED, NO_REG);
 		}
 		for (size_t m = module.inherited_members; m < cls.all_members.size(); m++) {
 			const VarDecl &member = *cls.all_members[m];
-			if (member.is_onready != p_onready || (!member.initializer && !is_typed_container(member.type) && member.type.kind != TypeKind::Struct)) {
+			if (member.is_onready != p_onready || member.must_assign || (!member.initializer && !is_typed_container(member.type) && member.type.kind != TypeKind::Struct)) {
 				continue;
 			}
 			any = true;
@@ -2691,6 +2699,8 @@ public:
 			member.line = uint32_t(decl_line(decl_member, &ClassDecl::members));
 			member.offset = offset;
 			offset += bytecode::type_size(module.types, member.type);
+			member.must_assign = decl_member.must_assign;
+			offset += member.must_assign ? 8 : 0; // Whether it has been assigned.
 			member.is_pub = decl_member.is_pub;
 			member.is_export = decl_member.is_export;
 			member.hint = decl_member.hint;

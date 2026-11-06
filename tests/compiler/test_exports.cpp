@@ -119,8 +119,7 @@ TEST_CASE("an export of an object type must be assigned, and is checked when rea
 	const compiler::CompileResult result = compile(source);
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	const bytecode::Function &function = function_named(result.module, "get_crosshair");
-	CHECK(contains(bytecode::disassemble(result.module, function), "CHECK_ASSIGNED"));
-	CHECK(contains(exports_errors("var crosshair: Texture2D"), "not supported yet unless exported"));
+	CHECK(contains(bytecode::disassemble(result.module, function), "CHECK_MUST"));
 	CHECK(exports_errors("@export var crosshair: Texture2D?").empty());
 	// A resource never becomes ready.
 	CHECK(result.module.ready_function < 0);
@@ -134,7 +133,7 @@ TEST_CASE("a node is checked for the exports it must be assigned when it becomes
 	REQUIRE(result.module.ready_function >= 0);
 	// Before the @onready initializers, which may read the export.
 	const std::string ready = bytecode::disassemble(result.module, result.module.functions[result.module.ready_function]);
-	const size_t check = ready.find("CHECK_ASSIGNED");
+	const size_t check = ready.find("CHECK_PROVIDED");
 	REQUIRE(check != std::string::npos);
 	CHECK(ready.find("GET_PROPERTY") > check);
 	CHECK(compile("extends Node3D\n@export var player: Node3D\n").module.ready_function >= 0);

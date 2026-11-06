@@ -100,6 +100,10 @@
 - `T.try_from(v)` 是一条指令，与 struct 字段共用解码函数，所以两者的规则由构造保持一致。
   - 解码失败时，`Err` 中的 `ConversionError` 记下入口检查的报错。
   - `ConversionError` 由编译器声明，没有脚本，字节码中名为 `::ConversionError`。
+- 必须赋值的成员（规范 §6.2）在槽位之后跟 8 字节的标记，赋值后不为零。
+  - 本语言的写入之后有一条置位指令，引擎经 `set` 写入时由运行时置位。读取之前检查标记。
+  - 标记对所有类型一致：struct 和带载荷 enum 没有可以表示"未赋值"的值。
+  - 节点就绪时由运行时按 owner 决定当场检查，还是在 owner 发出 `ready` 时检查。所以不用跨文件分析谁赋了值。
 - 元素是本语言独有类型的容器（规范 §3.8）及其嵌套的容器存为引擎容器，元素装在不可变的盒子里。
   - 盒子是用本库的 token 创建的自定义 Callable，数据是元素的类型和值，不能调用（`core/extension/gdextension_interface.cpp:1617-1631`）。
   - 引擎经盒子的 equal 回调比较 Callable，`has`、`find`、`erase`、容器的 `==` 和 Dictionary 查找都经 `hash_compare` 走到这里（`core/variant/callable.cpp:265-288`，`core/variant/variant.cpp:3351-3355`）。所以这些操作和只移动元素的操作，由构造保证按本语言的语义进行。

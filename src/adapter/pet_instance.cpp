@@ -227,11 +227,10 @@ static void instance_property_state(GDExtensionScriptInstanceDataPtr p_instance,
 		if (!member.is_export) {
 			continue;
 		}
-		const TypeImage &type = image->types[member.type];
-		const Variant value = outward_variant(type, instance->storage->members + member.offset);
-		if (type.storage == bytecode::ValueType::Object && !type.check.nullable && is_none(value)) {
+		if (member.must_assign && !image->assigned(instance->storage->members, i)) {
 			continue;
 		}
+		const Variant value = outward_variant(image->types[member.type], instance->storage->members + member.offset);
 		p_add(image->member_names[i]._native_ptr(), value._native_ptr(), p_userdata);
 	}
 }
@@ -260,6 +259,8 @@ static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance,
 	const TypeImage &type = image->types[member->type];
 	if (!from_variant(type, value, instance->storage->members + member->offset, true)) {
 		vm::report_error(*image, member->name.c_str(), int(member->line), vformat("\"%s\" was not written: %s.", image->member_names[index], entry_mismatch(type, value)));
+	} else if (member->must_assign) {
+		image->assigned(instance->storage->members, index) = 1;
 	}
 	return true;
 }
@@ -284,6 +285,13 @@ static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance,
 	if (member->getter >= 0) {
 		GDExtensionCallError error;
 		*reinterpret_cast<Variant *>(r_ret) = vm::call(image, member->getter, instance->context(), nullptr, 0, error);
+		return true;
+	}
+	// Null until assigned (spec §6.2), with no program error: the debugger's
+	// inspector reads every property (scene/debugger/scene_debugger_object.cpp:85).
+	const size_t index = size_t(member - image->module.members.data());
+	if (member->must_assign && !image->assigned(instance->storage->members, index)) {
+		*reinterpret_cast<Variant *>(r_ret) = Variant();
 		return true;
 	}
 	*reinterpret_cast<Variant *>(r_ret) = outward_variant(image->types[member->type], instance->storage->members + member->offset);

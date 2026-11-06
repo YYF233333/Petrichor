@@ -353,7 +353,7 @@ struct VarDecl {
 	int setter_index = -1; // In the class's functions.
 	int getter_index = -1;
 	bool constant_initializer = false; // Also stored as the member's initial value, the editor's default.
-	bool must_assign = false; // An export of a non-null object type without an initial value (spec §7.5).
+	bool must_assign = false; // A member without an initial value whose type has no default (spec §4.3, §6.2).
 	uint32_t hint = 0; // For the inspector: PropertyHint as the engine numbers it.
 	std::string hint_string;
 	uint32_t usage = 0; // PropertyUsageFlags as the engine numbers them, for an export.

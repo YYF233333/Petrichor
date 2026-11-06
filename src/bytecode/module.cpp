@@ -453,7 +453,7 @@ void archive(Ar &r_ar, T &r_value) {
 	} else if constexpr (std::is_same_v<V, Constant>) {
 		io(r_ar, r_value.type, r_value.b, r_value.i, r_value.f, r_value.s, r_value.builtin, r_value.constructor, r_value.op, r_value.utility, r_value.field, r_value.load, r_value.args);
 	} else if constexpr (std::is_same_v<V, Member>) {
-		io(r_ar, r_value.name, r_value.type, r_value.offset, r_value.line, r_value.is_pub, r_value.is_export, r_value.is_onready, r_value.setter, r_value.getter, r_value.hint, r_value.hint_string, r_value.usage, r_value.has_initial, r_value.initial);
+		io(r_ar, r_value.name, r_value.type, r_value.offset, r_value.line, r_value.is_pub, r_value.is_export, r_value.is_onready, r_value.must_assign, r_value.setter, r_value.getter, r_value.hint, r_value.hint_string, r_value.usage, r_value.has_initial, r_value.initial);
 	} else if constexpr (std::is_same_v<V, SignalInfo>) {
 		io(r_ar, r_value.name, r_value.is_pub, r_value.params);
 	} else if constexpr (std::is_same_v<V, ExportGroup>) {

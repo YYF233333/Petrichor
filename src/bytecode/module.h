@@ -266,6 +266,9 @@ struct Member : Slot {
 	bool is_pub = false;
 	bool is_export = false;
 	bool is_onready = false; // Set by the ready function (spec §6.3).
+	// Must be assigned (spec §6.2): the 8 bytes right after its slot are not
+	// zero once it has been.
+	bool must_assign = false;
 	// The functions that reading and writing it from outside the class call
 	// (spec §4.4); -1 without one.
 	int32_t setter = -1;

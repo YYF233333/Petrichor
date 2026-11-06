@@ -117,6 +117,13 @@ public:
 	// and its script or the interface it implements.
 	bool fits_class(const godot::Object *p_object, uint32_t p_index) const;
 
+	// Of a member that must be assigned, in an instance's storage: not zero
+	// once it has been (bytecode/module.h).
+	uint64_t &assigned(uint8_t *p_members, size_t p_member) const {
+		const bytecode::Member &member = module.members[p_member];
+		return *reinterpret_cast<uint64_t *>(p_members + member.offset + types[member.type].size);
+	}
+
 	// The base of an inner class that is not of its file.
 	using BaseLoader = std::function<std::shared_ptr<const ClassImage>(const godot::String &p_path)>;
 

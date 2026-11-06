@@ -15,6 +15,9 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The error for a type that is not pub in the signature of a pub member (spec §4.2). Such a type may be a struct or an interface.
 - Static checks of:
   - must-assign exports in scenes, in resources and at export (spec §7.5);
+  - a statically known scene's `instantiate(...)` missing an export the scene does not assign (§7.4). The scene index does not read property values yet;
+  - a child reading a member that ancestors assign in its own `_ready` (§6.2);
+  - a must-assign member that is not pub, which its file or a subclass must export or assign (§4.2). It needs every subclass;
   - a scene used as a root whose root has a script with `@owner` (§7.3);
   - a node of a scene whose script is abstract (§4.1).
 - `@parent(T)` (spec §7.3).
@@ -46,7 +49,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - one of another class, as `Class.f`.
 - Inner classes of two files that extend each other's classes, as `A.X extends B.Y` with `B.Y extends A.Z`. The checker accepts them, but neither image can be loaded before the other's. So the editor reports it, and the game cannot load the base.
 - A text form of this language's own types, such as `Hit(damage = 3, crit = false)`. It serves `str()`, `print()` and `%` together. Now these types read as their encoding (spec §5.1, §10.1).
-- Members that must be assigned and are not exported. Passing them by name to `instantiate(...)` and `new(...)` (spec §6.2, §4.6).
+- Passing members that must be assigned by name to `instantiate(...)` and `new(...)`. The compile error of `_init` reading one it has not assigned (spec §6.2, §4.6).
 - Node paths (spec §7.1):
   - into instanced scenes;
   - out of a scene from its root: `..` above the root, and `%Name` of a scene that instances it. Ring's paddle.gd uses one, `$%HealthIcon`.

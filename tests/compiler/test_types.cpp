@@ -422,8 +422,7 @@ TEST_CASE("an override may take T? where the engine passes T") {
 	CHECK(has_error("extends Node\n\nfunc _input(event: Node):\n\tpass\n", "declares this parameter as InputEvent"));
 }
 
-TEST_CASE("objects that must be assigned are not supported yet (spec §6.2)") {
-	CHECK(has_error("extends Node\nvar n: Node3D\n", "not supported yet"));
+TEST_CASE("a local of a type without a default needs an initial value (spec §4.3)") {
 	CHECK(has_error(in_function("var n: Node3D"), "needs an initial value"));
 	CHECK(errors_of(in_function("var v: Vector3\nvar s: StringName")).empty());
 }
