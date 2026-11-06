@@ -403,6 +403,8 @@ func _ready() -> void:
 	_check(containers.keys_frozen() == "true false 2 true", "a key is a read-only copy, and the original stays free to change")
 	containers.change_key()
 	_check_errors(["container_check.pet:58: The Array is read-only, as Dictionary keys and the containers of constants are; change a duplicate() of it instead."], "changing a key is a program error")
+	_check(containers.cyclic_keys() == "1 true true true false", "a key that holds itself is copied as it is, and one that holds a container twice shares its copy")
+	_check_errors(["Max recursion reached"], "the engine stops hashing a key that holds itself")
 	var untyped: Dictionary = containers.untyped()
 	_check(untyped == {&"name": 1, &"plain": 2, "v": Vector2(1, 2), "node": containers} and typeof(untyped.keys()[0]) == TYPE_STRING_NAME, "an untyped Dictionary takes any value, and a key written as a name is a StringName")
 	var typed_scores: Dictionary[String, int] = {"a": 1}

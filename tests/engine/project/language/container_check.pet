@@ -173,3 +173,17 @@ pub func packed_elements() -> String:
 	var by_name: Dictionary[String, PackedInt32Array] = {"a": PackedInt32Array()}
 	by_name["a"].append(2)
 	return str(rows) + " " + str(by_name)
+
+# The copy of a key that holds itself holds itself, and that of a key holding a
+# container twice holds one copy twice.
+pub func cyclic_keys() -> String:
+	var a: Array = []
+	a.append(a)
+	var d: Dictionary[Array, int] = {}
+	d[a] = 1
+	var k := d.keys()[0]
+	var inner: Array = []
+	var e: Dictionary[Array, int] = {}
+	e[[inner, inner]] = 1
+	var p := e.keys()[0]
+	return str(d.size()) + " " + str(k.is_read_only()) + " " + str(is_same(k[0], k)) + " " + str(is_same(p[0], p[1])) + " " + str(is_same(p[0], inner))
