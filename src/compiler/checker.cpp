@@ -3013,7 +3013,7 @@ class Checker : public ClassRelation {
 			if (!assignable(p_right, Type::of(TypeKind::Variant))) {
 				std::string message = "Cannot format a value of type " + p_right.to_string() + ".";
 				if (is_typed_container(p_right) && is_boxed(p_right)) {
-					message += " Its elements exist only in this language; convert it explicitly with " + p_right.name + "(x), a copy with the elements encoded (spec §3.8).";
+					message += " Its elements exist only in this language; convert it explicitly with " + p_right.name + "(x), a copy with the elements encoded (spec §3.14).";
 				}
 				error(p_at, message);
 				return Type::of(TypeKind::Error);
@@ -3701,7 +3701,7 @@ class Checker : public ClassRelation {
 			if (!types[2].is_numeric()) {
 				return fail(*r_expr.args[2], "The weight of lerp() must be a number.");
 			}
-			// An int weight converts to float (spec §3.2) before it goes to the engine.
+			// An int weight converts to float (spec §3.14) before it goes to the engine.
 			r_expr.param_types[2] = Type::of(TypeKind::Float);
 		} else if (!is_numeric_or_vector(result)) {
 			return fail(r_expr, r_expr.text + "() takes numbers or vectors, not " + result.to_string() + ".");
@@ -5535,16 +5535,16 @@ class Checker : public ClassRelation {
 		return type;
 	}
 
-	// What a Variant needs before it is used as a value of a type (spec §3.13).
+	// What a Variant needs before it is used as a value of a type (spec §3.14).
 	static std::string variant_hint(const Type &p_to = Type::of(TypeKind::Error)) {
 		if (p_to.kind == TypeKind::Object) {
-			return " Convert it first with v as " + p_to.name + ", or narrow it with if v is " + p_to.name + ": (spec §3.13).";
+			return " Convert it first with v as " + p_to.name + ", or narrow it with if v is " + p_to.name + ": (spec §3.14).";
 		}
 		if (is_typed_container(p_to)) {
-			return " Narrow it first with if v is " + p_to.to_string() + ": (spec §3.13).";
+			return " Narrow it first with if v is " + p_to.to_string() + ": (spec §3.14).";
 		}
 		const std::string name = p_to.kind == TypeKind::Builtin || p_to.is_primitive() ? p_to.to_string() : "T";
-		return " Convert it first with " + name + "(v), or narrow it with if v is " + name + ": (spec §3.13).";
+		return " Convert it first with " + name + "(v), or narrow it with if v is " + name + ": (spec §3.14).";
 	}
 
 	// Whether the expression is a place that can be written: a local, a
@@ -5640,7 +5640,7 @@ class Checker : public ClassRelation {
 		}
 		const bool untyped_view = p_to.kind == TypeKind::Builtin && p_to.args.empty() && p_to.name == p_from.name;
 		if ((p_to.kind == TypeKind::Variant || untyped_view) && is_typed_container(p_from) && is_boxed(p_from)) {
-			message += " Its elements exist only in this language; convert it explicitly with " + p_from.name + "(x), a copy with the elements encoded (spec §3.8).";
+			message += " Its elements exist only in this language; convert it explicitly with " + p_from.name + "(x), a copy with the elements encoded (spec §3.14).";
 		}
 		if (p_from.kind == TypeKind::Variant) {
 			message += variant_hint(p_to.unwrapped());

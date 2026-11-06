@@ -326,7 +326,7 @@ bool implements(const Variant &p_element, const String &p_interface) {
 	return p_interface.is_empty() || !p_element.booleanize() || implements_interface(p_element, p_interface);
 }
 
-// The implicit conversions of spec §3.2: int to float, the integer vectors and
+// The implicit conversions of spec §3.14: int to float, the integer vectors and
 // Rect2i to their float counterparts, String to and from StringName and
 // NodePath.
 bool converts(Variant::Type p_have, Variant::Type p_want) {
@@ -526,7 +526,7 @@ static bool is_result(const TypeImage &p_type) {
 	return is_payload_enum(p_type) && !p_type.name.contains("::");
 }
 
-// The key of an encoded PayloadEnum that names its variant (spec §3.7).
+// The key of an encoded PayloadEnum that names its variant (spec §10.1).
 static const char *const VARIANT_KEY = "$variant";
 
 static uint64_t &tag(uint8_t *p_slot) {
@@ -748,7 +748,7 @@ static bool decode_container(const TypeImage &p_type, const Variant &p_value, ui
 	return false;
 }
 
-// The variant that an encoded PayloadEnum names, or -1 (spec §3.7).
+// The variant that an encoded PayloadEnum names, or -1 (spec §10.1).
 static int64_t encoded_variant(const TypeImage &p_type, const Dictionary &p_encoded) {
 	const Variant name = p_encoded.get(VARIANT_KEY, Variant());
 	if (type_of(name) == Variant::STRING || type_of(name) == Variant::STRING_NAME) {
@@ -1606,7 +1606,7 @@ bool exactly_typed(int64_t p_builtin, const StringName &p_class, const Variant &
 }
 
 // As a value is assigned to an element of the type: converted implicitly
-// (spec §3.2); None to an object type, which the engine keeps alike for T and
+// (spec §3.14); None to an object type, which the engine keeps alike for T and
 // T?; a live object of the class and script (§3.3).
 bool fits_typed(int64_t p_builtin, const StringName &p_class, const Variant &p_script, const Variant &p_value) {
 	const Variant::Type want = Variant::Type(p_builtin);

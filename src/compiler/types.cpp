@@ -199,14 +199,14 @@ bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_
 	if (is_string_like(p_from) && is_string_like(p_to) && (p_from.kind == TypeKind::String || p_to.kind == TypeKind::String)) {
 		return true;
 	}
-	// The integer vectors and Rect2i widen to their float counterparts (spec §3.2).
+	// The integer vectors and Rect2i widen to their float counterparts (spec §3.14).
 	if (p_from.kind == TypeKind::Builtin && p_to.kind == TypeKind::Builtin && p_from.name == p_to.name + "i" && (p_to.name == "Vector2" || p_to.name == "Vector3" || p_to.name == "Vector4" || p_to.name == "Rect2")) {
 		return true;
 	}
 	if (p_from.kind == TypeKind::Object && p_to.kind == TypeKind::Object) {
 		if (!p_to.args.empty()) {
 			// PackedScene[T] is covariant in T, and a scene of unknown root is
-			// not one (spec §7.4).
+			// not one (spec §3.14, §7.4).
 			if (p_from.args.empty() || !p_classes.is_a(p_from.args[0], p_to.args[0])) {
 				return false;
 			}
@@ -214,11 +214,11 @@ bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_
 		return (p_to.nullable || !p_from.nullable) && p_classes.is_a(p_from, p_to);
 	}
 	if (p_to.kind == TypeKind::Option) {
-		// A T is wrapped implicitly; the T inside does not convert (spec §3.4).
+		// A T is wrapped implicitly; the T inside does not convert (spec §3.14).
 		return p_from.kind == TypeKind::Option ? p_from.args == p_to.args : is_assignable(p_from, p_to.args[0], p_classes);
 	}
 	if (p_from.kind == TypeKind::Function && p_to.kind == TypeKind::Function) {
-		// Parameters contravariant, the result covariant (spec §3.11).
+		// Parameters contravariant, the result covariant (spec §3.14).
 		if (p_from.is_async != p_to.is_async || p_from.args.size() != p_to.args.size()) {
 			return false;
 		}
@@ -234,7 +234,7 @@ bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_
 		return true;
 	}
 	// A typed container is the same container through an untyped view (spec
-	// §3.8), unless it keeps boxes, which leave only as an encoded copy.
+	// §3.14), unless it keeps boxes, which leave only as an encoded copy.
 	if (is_typed_container(p_from) && !is_boxed(p_from) && p_to.kind == TypeKind::Builtin && p_to.args.empty() && p_to.name == p_from.name) {
 		return true;
 	}

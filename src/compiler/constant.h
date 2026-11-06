@@ -103,7 +103,7 @@ using ConstPtr = std::shared_ptr<const ConstValue>;
 ConstPtr fold(Expr &r_expr);
 
 // The value as stored where a `p_to` is expected: int as float, an integer
-// vector as a float one (spec §3.2), a String as a StringName or a NodePath
+// vector as a float one (spec §3.14), a String as a StringName or a NodePath
 // (§10.7), the elements of a container as its element types; for a T?, the
 // value inside Some, or None.
 ConstPtr converted(const ConstPtr &p_value, const Type &p_to);

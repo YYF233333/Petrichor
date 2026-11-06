@@ -899,7 +899,7 @@ class Lowerer {
 
 	/* Conversions */
 
-	// Converts int to float and integer vectors to float ones (spec §3.2), and
+	// Converts int to float and integer vectors to float ones (spec §3.14), and
 	// between String, StringName and NodePath (§10.7), where the target type
 	// asks for it.
 	uint32_t convert(uint32_t p_reg, const Type &p_to) {

@@ -105,7 +105,7 @@ TEST_CASE("utility functions bound with Variant are typed by their arguments (sp
 	CHECK(type_of("abs(-3)") == "int");
 	CHECK(type_of("wrap(5, 0, 3)") == "int");
 	CHECK(type_of("lerp(Vector3(), Vector3(1, 1, 1), 0.5)") == "Vector3");
-	CHECK(type_of("lerp(0.0, 1.0, 1)") == "float"); // An int weight converts (spec §3.2).
+	CHECK(type_of("lerp(0.0, 1.0, 1)") == "float"); // An int weight converts (spec §3.14).
 	CHECK(contains(type_of("lerp(0.0, 1.0, \"a\")"), "must be a number"));
 	CHECK(contains(type_of("min(1.5, 1)"), "Write the int argument as a float"));
 	CHECK(contains(type_of("lerp(Vector3(), 1.0, 0.5)"), "same type"));

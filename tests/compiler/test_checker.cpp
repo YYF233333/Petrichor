@@ -84,7 +84,7 @@ TEST_CASE("@warning_ignore takes the names of warnings") {
 	CHECK(contains(joined(errors_of(in_function("@export var y := 1"))), "A statement takes only @warning_ignore."));
 }
 
-// Spec §3.2, numbers.
+// Spec §3.14, implicit conversions.
 TEST_CASE("float to int needs an explicit conversion") {
 	CHECK(has_error(in_function("var hp: int = 10\nhp = 2.5"), "Convert explicitly with int(x)."));
 	CHECK(errors_of(in_function("var hp: int = int(2.5)")).empty());

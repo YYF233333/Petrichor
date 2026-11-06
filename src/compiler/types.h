@@ -172,7 +172,7 @@ public:
 };
 
 // Whether a value of type `p_from` can be stored where `p_to` is expected:
-// the same type, int to float and integer vectors to float ones (spec §3.2),
+// the same type, int to float and integer vectors to float ones (spec §3.14),
 // String to and from StringName and NodePath (§10.7), an object to a nullable
 // or a base class, or anything to Variant.
 bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_classes);

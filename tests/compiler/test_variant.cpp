@@ -4,7 +4,7 @@ using namespace petrichor;
 using namespace petrichor::tests;
 using bytecode::Op;
 
-// Variant (spec §3.13): static values go in implicitly, and come out only
+// Variant (spec §3.13, §3.14): static values go in implicitly, and come out only
 // through as, T(v) and is; == and != compare by the engine's table.
 
 namespace {
@@ -28,8 +28,8 @@ const char *const HOLDS_INT = "var v: Variant = 1";
 
 } // namespace
 
-TEST_CASE("a Variant is used only after a conversion (spec §3.13)") {
-	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar n = v.hp"), "Cannot read \"hp\" of a Variant. Convert it first with T(v), or narrow it with if v is T: (spec §3.13)."));
+TEST_CASE("a Variant is used only after a conversion (spec §3.14)") {
+	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar n = v.hp"), "Cannot read \"hp\" of a Variant. Convert it first with T(v), or narrow it with if v is T: (spec §3.14)."));
 	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar n = v + 1"), "Cannot use \"+\" on a Variant."));
 	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar n = v[0]"), "Cannot index a Variant."));
 	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nfor x in v:\n\tpass"), "Cannot iterate over a Variant."));
@@ -38,9 +38,9 @@ TEST_CASE("a Variant is used only after a conversion (spec §3.13)") {
 	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar b = v < 2"), "Cannot use \"<\" on a Variant."));
 	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar b = 1 in v"), "Cannot look for a value in a Variant."));
 	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nif v:\n\tpass"), "A condition must be bool, found Variant. Compare explicitly, for example x != None."));
-	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar n: int = v"), "Cannot assign a value of type Variant as int. Convert it first with int(v), or narrow it with if v is int: (spec §3.13)."));
-	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar n: Node = v"), "Convert it first with v as Node, or narrow it with if v is Node: (spec §3.13)."));
-	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar a: Array[int] = v"), "Narrow it first with if v is Array[int]: (spec §3.13)."));
+	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar n: int = v"), "Cannot assign a value of type Variant as int. Convert it first with int(v), or narrow it with if v is int: (spec §3.14)."));
+	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar n: Node = v"), "Convert it first with v as Node, or narrow it with if v is Node: (spec §3.14)."));
+	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar a: Array[int] = v"), "Narrow it first with if v is Array[int]: (spec §3.14)."));
 }
 
 TEST_CASE("static values enter a Variant implicitly, and leave by as, T(v) and is") {
@@ -95,7 +95,7 @@ TEST_CASE("the elements of untyped containers are Variant (spec §3.8)") {
 	CHECK(checked);
 }
 
-TEST_CASE("a typed container goes where an untyped one is expected, the reverse explicitly (spec §3.8)") {
+TEST_CASE("a typed container goes where an untyped one is expected, the reverse explicitly (spec §3.14)") {
 	CHECK(errors_of(in_function("var ids: Array[int] = [1]\nvar any: Array = ids\nvar names: Dictionary[String, int] = {}\nvar all: Dictionary = names\nvar v: Variant = ids")).empty());
 	CHECK(errors_of(in_function("var ids: Array[int] = [1]\nids.assign(a)\nids.append_array(a)\nif a is Array[int]:\n\tids = a", "func f(a: Array) -> void:")).empty());
 	CHECK(has_error(in_function("var ids: Array[int] = a", "func f(a: Array) -> void:"), "Cannot assign a value of type Array as Array[int]. Its elements may be of any type; narrow it with if x is Array[int]:, or copy them in with assign() (spec §3.8)."));

@@ -102,7 +102,7 @@ ConstPtr fail(Expr &r_expr, const std::string &p_message, const Expr *p_at = nul
 }
 
 // The constructor of `p_to` that takes one value of `p_from`, as built-in
-// types convert (spec §3.2, §10.7); -1 if there is none.
+// types convert (spec §3.14, §10.7); -1 if there is none.
 int converting_constructor(const Type &p_from, const Type &p_to) {
 	const builtin::Class *type = builtin::find_class(p_to.builtin_name());
 	const std::string from = p_from.builtin_name();
