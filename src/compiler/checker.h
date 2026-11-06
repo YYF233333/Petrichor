@@ -20,4 +20,8 @@ struct Completion;
 // and of the function bodies checks only the one around it.
 void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies = true, std::vector<Reference> *r_references = nullptr, Completion *r_completion = nullptr);
 
+// The annotations of the @export family that a member may take (spec §2.3),
+// each with whether it takes arguments.
+std::vector<std::pair<std::string, bool>> export_annotations();
+
 } // namespace petrichor::compiler

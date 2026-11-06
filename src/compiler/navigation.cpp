@@ -406,9 +406,36 @@ Completion complete(Analysis &r_analysis, const EngineApi &p_engine, const std::
 	options.path = p_path;
 	options.project = classes.get_project();
 	std::vector<Diagnostic> errors;
-	ClassDecl decl = parse(p_source, errors);
-	std::vector<Reference> references;
+	// An annotation's name at the cursor takes those the parser accepts where
+	// it is, and at a member those of the @export family.
+	const size_t cursor = p_source.find("\xEF\xBF\xBF");
+	std::optional<AnnotationPlace> annotation;
+	ClassDecl decl = parse(p_source, errors, false, [&](const Token &p_name, AnnotationPlace p_place) {
+		if (p_name.offset <= cursor && cursor < p_name.end()) {
+			annotation = p_place;
+		}
+	});
 	Completion completion;
+	if (annotation) {
+		std::vector<std::pair<std::string, bool>> names = annotation_names(*annotation);
+		if (*annotation == AnnotationPlace::Header || *annotation == AnnotationPlace::Member) {
+			const std::vector<std::pair<std::string, bool>> exports = export_annotations();
+			names.insert(names.end(), exports.begin(), exports.end());
+		}
+		std::map<std::string, CompletionItem> found;
+		for (const auto &[name, arguments] : names) {
+			CompletionItem item;
+			item.kind = CompletionKind::PlainText;
+			item.name = name;
+			item.insert = name + (arguments ? "(" : "");
+			found.emplace(name, item);
+		}
+		for (auto &entry : found) {
+			completion.items.push_back(std::move(entry.second));
+		}
+		return completion;
+	}
+	std::vector<Reference> references;
 	classes.begin_compile(p_path, p_source);
 	check(decl, p_engine, options, errors, classes, true, &references, &completion);
 	classes.end_compile();

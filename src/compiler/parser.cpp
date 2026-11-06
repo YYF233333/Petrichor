@@ -12,6 +12,22 @@ bool is_layout(TokenKind p_kind) {
 	return p_kind == TokenKind::Newline || p_kind == TokenKind::Indent || p_kind == TokenKind::Dedent;
 }
 
+// The annotations of each kind, with whether each takes arguments. Of the
+// file's class (spec §2.1, §2.3, §4.8, §7.3); @tool and @parent are reported
+// there as not supported.
+using AnnotationNames = std::vector<std::pair<std::string, bool>>;
+const AnnotationNames CLASS_ANNOTATIONS = { { "abstract", false }, { "icon", true }, { "owner", true }, { "static_unload", false } };
+// Of a member besides the @export family, which the checker knows.
+const AnnotationNames MEMBER_ANNOTATIONS = { { "abstract", false }, { "onready", false }, { "rpc", true } };
+// Standing alone among the members, as in GDScript.
+const AnnotationNames GROUP_ANNOTATIONS = { { "export_category", true }, { "export_group", true }, { "export_subgroup", true } };
+// Before a statement or a member, and the regions they open and close.
+const AnnotationNames WARNING_ANNOTATIONS = { { "warning_ignore", true }, { "warning_ignore_restore", true }, { "warning_ignore_start", true } };
+
+bool is_named(const AnnotationNames &p_names, const std::string &p_name) {
+	return std::any_of(p_names.begin(), p_names.end(), [&](const auto &p_entry) { return p_entry.first == p_name; });
+}
+
 // Recovery works by line (architecture §2.1). An error sets `failed` and skips
 // the rest of its line; what the line parsed is kept, a missing expression or
 // type becomes an error node, and the next line break clears `failed`. Inside
@@ -1140,6 +1156,9 @@ class Parser {
 				bool is_readonly = false;
 				if (match(TokenKind::At)) {
 					const Token &annotation = expect(TokenKind::Identifier, "an annotation name");
+					if (!failed && on_annotation) {
+						on_annotation(annotation, AnnotationPlace::Interface);
+					}
 					if (!failed && annotation.text != "readonly") {
 						fail(annotation, "An interface property takes only @readonly.");
 					}
@@ -1460,12 +1479,11 @@ class Parser {
 	}
 
 	static bool is_group_annotation(const std::string &p_name) {
-		return p_name == "export_group" || p_name == "export_subgroup" || p_name == "export_category";
+		return is_named(GROUP_ANNOTATIONS, p_name);
 	}
 
-	// The annotations of a class (spec §2.3, §7.3).
 	static bool is_class_annotation(const std::string &p_name) {
-		return p_name == "tool" || p_name == "icon" || p_name == "static_unload" || p_name == "abstract" || p_name == "parent" || p_name == "owner";
+		return p_name == "tool" || p_name == "parent" || is_named(CLASS_ANNOTATIONS, p_name);
 	}
 
 	// Whether the @abstract at the cursor is the class's: it is when class_name,
@@ -1504,15 +1522,18 @@ class Parser {
 	// @warning_ignore_start and @warning_ignore_restore stand on a line of
 	// their own, as in GDScript (modules/gdscript/gdscript_parser.cpp:183-184).
 	static bool is_warning_region(const std::string &p_name) {
-		return p_name == "warning_ignore_start" || p_name == "warning_ignore_restore";
+		return p_name != "warning_ignore" && is_named(WARNING_ANNOTATIONS, p_name);
 	}
 
 	// `@name` or `@name(args)`, at the "@"; false after a syntax error.
-	bool annotation(Annotation &r_annotation) {
+	bool annotation(Annotation &r_annotation, AnnotationPlace p_place) {
 		const uint32_t at_sign = index(advance());
 		const Token &name = expect(TokenKind::Identifier, "an annotation name");
 		if (failed) {
 			return false;
+		}
+		if (on_annotation) {
+			on_annotation(name, p_place);
 		}
 		r_annotation.name = name.text;
 		r_annotation.name_token = index(name);
@@ -1536,7 +1557,7 @@ class Parser {
 	// and close (modules/gdscript/gdscript_parser.cpp:2124-2134).
 	void statement_annotation() {
 		Annotation annotation;
-		if (!this->annotation(annotation)) {
+		if (!this->annotation(annotation, AnnotationPlace::Statement)) {
 			return;
 		}
 		const Token &name = tokens[annotation.name_token];
@@ -1553,12 +1574,14 @@ class Parser {
 		}
 	}
 
-	void member(ClassDecl &r_class) {
+	// With `p_header`, the first member of the file's class, before which the
+	// class's annotations end.
+	void member(ClassDecl &r_class, bool p_header = false) {
 		const uint32_t first = uint32_t(at);
 		std::vector<Annotation> annotations;
 		while (check(TokenKind::At)) {
 			Annotation annotation;
-			if (!this->annotation(annotation)) {
+			if (!this->annotation(annotation, p_header && at == first ? AnnotationPlace::Header : AnnotationPlace::Member)) {
 				return;
 			}
 			const Token &name = tokens[annotation.name_token];
@@ -1592,7 +1615,7 @@ class Parser {
 				return;
 			}
 			// The checker knows the members of the @export family.
-			if (annotation.name.rfind("export", 0) != 0 && annotation.name != "onready" && annotation.name != "rpc") {
+			if (annotation.name.rfind("export", 0) != 0 && !is_named(MEMBER_ANNOTATIONS, annotation.name)) {
 				fail(name, "The annotation @" + annotation.name + " is not supported yet.");
 				return;
 			}
@@ -1781,6 +1804,7 @@ public:
 	// Where the lexer should take open brackets as closed before parsing
 	// again, or NO_OFFSET.
 	uint32_t reset = NO_OFFSET;
+	std::function<void(const Token &, AnnotationPlace)> on_annotation;
 
 	Parser(const SourceFile &p_file, std::vector<Diagnostic> &r_errors, bool p_unclosed, const std::vector<uint32_t> &p_resets) :
 			file(p_file), tokens(p_file.tokens), errors(r_errors), unclosed(p_unclosed), resets(p_resets) {}
@@ -1916,8 +1940,8 @@ public:
 			if (p_header_only) {
 				break;
 			}
+			member(result, !seen_member);
 			seen_member = true;
-			member(result);
 		}
 		result.warning_ignores = std::move(warning_ignores);
 		return result;
@@ -1926,7 +1950,25 @@ public:
 
 } // namespace
 
-ClassDecl parse(std::string p_source, std::vector<Diagnostic> &r_errors, bool p_header_only) {
+std::vector<std::pair<std::string, bool>> annotation_names(AnnotationPlace p_place) {
+	AnnotationNames names = WARNING_ANNOTATIONS;
+	switch (p_place) {
+		case AnnotationPlace::Header:
+			names.insert(names.end(), CLASS_ANNOTATIONS.begin(), CLASS_ANNOTATIONS.end());
+			[[fallthrough]];
+		case AnnotationPlace::Member:
+			names.insert(names.end(), MEMBER_ANNOTATIONS.begin(), MEMBER_ANNOTATIONS.end());
+			names.insert(names.end(), GROUP_ANNOTATIONS.begin(), GROUP_ANNOTATIONS.end());
+			break;
+		case AnnotationPlace::Statement:
+			break;
+		case AnnotationPlace::Interface:
+			return { { "readonly", false } };
+	}
+	return names;
+}
+
+ClassDecl parse(std::string p_source, std::vector<Diagnostic> &r_errors, bool p_header_only, const std::function<void(const Token &, AnnotationPlace)> &p_on_annotation) {
 	const auto file = std::make_shared<SourceFile>();
 	file->text = std::move(p_source);
 	std::vector<Diagnostic> lexed;
@@ -1940,6 +1982,7 @@ ClassDecl parse(std::string p_source, std::vector<Diagnostic> &r_errors, bool p_
 		}
 		std::vector<Diagnostic> parsed;
 		Parser parser(*file, parsed, !unclosed.empty(), resets);
+		parser.on_annotation = p_on_annotation;
 		ClassDecl result = parser.run(p_header_only);
 		if (p_header_only) {
 			return result;

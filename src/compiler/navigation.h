@@ -65,6 +65,7 @@ enum class CompletionKind {
 	Enum,
 	Constant,
 	NodePath,
+	PlainText, // An annotation's name, as GDScript gives it.
 	Keyword,
 };
 
@@ -99,8 +100,9 @@ struct Completion {
 
 // What can be written at the cursor, which U+FFFF marks in `p_source` as the
 // script editor marks it (scene/gui/code_edit.cpp:2390-2400): each name that
-// the checker's own lookup accepts there, so that none is an error. Only the
-// declarations and the function around the cursor are checked.
+// the checker's own lookup accepts there, so that none is an error, or an
+// annotation's that the parser does. Only the declarations and the function
+// around the cursor are checked.
 Completion complete(Analysis &r_analysis, const EngineApi &p_engine, const std::string &p_path, const std::string &p_source);
 
 // A member in the editor's documentation (core/doc_data.h).

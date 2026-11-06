@@ -118,6 +118,43 @@ const std::unordered_set<std::string> &later_option_methods() {
 	return later;
 }
 
+struct HintAnnotation {
+	const char *name;
+	uint32_t hint; // PropertyHint as the engine numbers it (core/object/property_info.h:39-85).
+	// The types it applies to, joined by " and " as errors name them; null
+	// for @export and @export_storage. GDScript also lets a float take a
+	// flags hint (modules/gdscript/gdscript_parser.cpp:4970-4971).
+	const char *target;
+	uint32_t least; // Arguments.
+	uint32_t most;
+};
+
+// As GDScript registers them (modules/gdscript/gdscript_parser.cpp:153-173).
+const HintAnnotation HINT_ANNOTATIONS[] = {
+	{ "export", 0, nullptr, 0, 0 },
+	{ "export_storage", 0, nullptr, 0, 0 },
+	{ "export_enum", 2, "int and String", 1, UINT32_MAX },
+	{ "export_file", 13, "String", 0, UINT32_MAX },
+	{ "export_file_path", 44, "String", 0, UINT32_MAX },
+	{ "export_dir", 14, "String", 0, 0 },
+	{ "export_global_file", 15, "String", 0, UINT32_MAX },
+	{ "export_global_dir", 16, "String", 0, 0 },
+	{ "export_multiline", 18, "String and Dictionary", 0, UINT32_MAX },
+	{ "export_placeholder", 20, "String", 1, 1 },
+	{ "export_range", 1, "int and float", 2, UINT32_MAX },
+	{ "export_exp_easing", 4, "int and float", 0, UINT32_MAX },
+	{ "export_color_no_alpha", 21, "Color", 0, 0 },
+	{ "export_node_path", 26, "NodePath", 0, UINT32_MAX },
+	{ "export_flags", 6, "int and float", 1, UINT32_MAX },
+	{ "export_flags_2d_render", 7, "int and float", 0, 0 },
+	{ "export_flags_2d_physics", 8, "int and float", 0, 0 },
+	{ "export_flags_2d_navigation", 9, "int and float", 0, 0 },
+	{ "export_flags_3d_render", 10, "int and float", 0, 0 },
+	{ "export_flags_3d_physics", 11, "int and float", 0, 0 },
+	{ "export_flags_3d_navigation", 12, "int and float", 0, 0 },
+	{ "export_flags_avoidance", 37, "int and float", 0, 0 },
+};
+
 // What the script editor puts at the cursor for completion, U+FFFF
 // (scene/gui/code_edit.cpp:2390-2400), which reads as part of a name.
 constexpr const char *CURSOR = "\xEF\xBF\xBF";
@@ -5604,45 +5641,8 @@ class Checker : public ClassRelation {
 		return r_arg.constant.get();
 	}
 
-	struct HintAnnotation {
-		const char *name;
-		uint32_t hint; // PropertyHint as the engine numbers it (core/object/property_info.h:39-85).
-		// The types it applies to, joined by " and " as errors name them; null
-		// for @export and @export_storage. GDScript also lets a float take a
-		// flags hint (modules/gdscript/gdscript_parser.cpp:4970-4971).
-		const char *target;
-		uint32_t least; // Arguments.
-		uint32_t most;
-	};
-
-	// As GDScript registers them (modules/gdscript/gdscript_parser.cpp:153-173).
 	static const HintAnnotation *hint_annotation(const std::string &p_name) {
-		constexpr uint32_t ANY = UINT32_MAX;
-		static const HintAnnotation annotations[] = {
-			{ "export", 0, nullptr, 0, 0 },
-			{ "export_storage", 0, nullptr, 0, 0 },
-			{ "export_enum", 2, "int and String", 1, ANY },
-			{ "export_file", 13, "String", 0, ANY },
-			{ "export_file_path", 44, "String", 0, ANY },
-			{ "export_dir", 14, "String", 0, 0 },
-			{ "export_global_file", 15, "String", 0, ANY },
-			{ "export_global_dir", 16, "String", 0, 0 },
-			{ "export_multiline", 18, "String and Dictionary", 0, ANY },
-			{ "export_placeholder", 20, "String", 1, 1 },
-			{ "export_range", 1, "int and float", 2, ANY },
-			{ "export_exp_easing", 4, "int and float", 0, ANY },
-			{ "export_color_no_alpha", 21, "Color", 0, 0 },
-			{ "export_node_path", 26, "NodePath", 0, ANY },
-			{ "export_flags", 6, "int and float", 1, ANY },
-			{ "export_flags_2d_render", 7, "int and float", 0, 0 },
-			{ "export_flags_2d_physics", 8, "int and float", 0, 0 },
-			{ "export_flags_2d_navigation", 9, "int and float", 0, 0 },
-			{ "export_flags_3d_render", 10, "int and float", 0, 0 },
-			{ "export_flags_3d_physics", 11, "int and float", 0, 0 },
-			{ "export_flags_3d_navigation", 12, "int and float", 0, 0 },
-			{ "export_flags_avoidance", 37, "int and float", 0, 0 },
-		};
-		for (const HintAnnotation &annotation : annotations) {
+		for (const HintAnnotation &annotation : HINT_ANNOTATIONS) {
 			if (p_name == annotation.name) {
 				return &annotation;
 			}
@@ -7812,6 +7812,14 @@ void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &
 		checker->check_function_bodies();
 	}
 	r_classes.leave(p_options.path);
+}
+
+std::vector<std::pair<std::string, bool>> export_annotations() {
+	std::vector<std::pair<std::string, bool>> names = { { "export_custom", true } };
+	for (const HintAnnotation &annotation : HINT_ANNOTATIONS) {
+		names.emplace_back(annotation.name, annotation.most > 0);
+	}
+	return names;
 }
 
 } // namespace petrichor::compiler

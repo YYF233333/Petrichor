@@ -208,6 +208,16 @@ TEST_CASE("after func, completion offers what the function can override, with th
 	CHECK(offers(complete("extends Node\n\nasync func ‸\n"), { "_process", "-_to_string" }));
 }
 
+TEST_CASE("after @, completion offers the annotations that the place takes") {
+	const std::vector<CompletionItem> header = complete("@‸\nextends Node\n");
+	CHECK(offers(header, { "icon", "static_unload", "abstract", "export", "export_range", "onready", "warning_ignore", "-tool", "-parent", "-readonly" }));
+	CHECK((find(header, "icon")->insert == "icon(" && find(header, "onready")->insert == "onready" && find(header, "export_range")->insert == "export_range("));
+	CHECK(offers(complete("extends Node\n\nvar a := 1\n@‸\nvar b := 2\n"), { "export", "rpc", "export_group", "-icon", "-static_unload" }));
+	CHECK(offers(complete(in_function("@‸\nvar x := 1")), { "warning_ignore", "warning_ignore_start", "-export", "-onready" }));
+	const std::vector<CompletionItem> property = complete("extends Node\n\ninterface Named:\n\t@‸\n\tvar name: String\n");
+	CHECK((property.size() == 1 && property[0].name == "readonly"));
+}
+
 TEST_CASE("completion works on the recovered syntax tree, with syntax errors elsewhere") {
 	CHECK(offers(complete(in_function("var := 1\ne.‸\nvar y := (", "func f(e: Enemy) -> void:")), { "hp" }));
 }
