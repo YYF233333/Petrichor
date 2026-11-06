@@ -78,7 +78,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 - GDScript annotations are kept: the `@export` family, `@onready`, `@icon`, `@warning_ignore`, `@rpc`, `@static_unload`, `@abstract` (§4.1).
 - [Later] `@tool`: scripts do not run in the editor in the first version, so `@tool` and `@export_tool_button` are compile errors.
-- `@warning_ignore` takes snake_case warning names of this language; a name that suppresses no diagnostic (including GDScript warning names left from migration) gets a hint (§13.2). Its line range matches GDScript: from the annotation's line to the end of the next statement or declaration header (excluding function and block bodies); `@warning_ignore_start` ignores up to the matching `@warning_ignore_restore` (or end of file).
+- `@warning_ignore` takes the snake_case names of this language's warnings and hints, each hint being named as a warning is; a name that suppresses no diagnostic (including GDScript warning names left from migration) gets the hint `unused_ignore` (§13.2). Its line range matches GDScript: from the annotation's line to the end of the next statement or declaration header (excluding function and block bodies); `@warning_ignore_start` ignores up to the matching `@warning_ignore_restore` (or end of file).
 - New class annotations: `@parent(T)` and `@owner(T)` (§7.3); new member annotation: `@readonly`, for interface properties only (§3.9).
 - Annotations precede the declaration (optionally on the same line); `pub` goes after annotations and before `static`.
 

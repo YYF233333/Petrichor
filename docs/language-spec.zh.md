@@ -78,7 +78,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 - 沿用 GDScript 注解：`@export` 系列、`@onready`、`@icon`、`@warning_ignore`、`@rpc`、`@static_unload`、`@abstract`（§4.1）。
 - 【后续】`@tool`：第一版脚本不在编辑器中运行，`@tool` 和 `@export_tool_button` 报编译错误。
-- `@warning_ignore` 接受本语言的 snake_case 警告名；不抑制任何诊断的警告名（包括迁移留下的 GDScript 警告名）给出提示（§13.2）。作用范围按行计，与 GDScript 相同：从注解行到下一条语句或声明的头部结束（不含函数体和块体）；`@warning_ignore_start` 忽略到同名的 `@warning_ignore_restore`（缺省则到文件末尾）。
+- `@warning_ignore` 接受本语言警告和提示的 snake_case 名字，提示与警告一样各有名字；不抑制任何诊断的名字（包括迁移留下的 GDScript 警告名）给出提示 `unused_ignore`（§13.2）。作用范围按行计，与 GDScript 相同：从注解行到下一条语句或声明的头部结束（不含函数体和块体）；`@warning_ignore_start` 忽略到同名的 `@warning_ignore_restore`（缺省则到文件末尾）。
 - 新增类级注解：`@parent(T)`、`@owner(T)`（§7.3）；新增成员注解：`@readonly`，仅用于接口属性（§3.9）。
 - 注解写在声明之前（可同行）；`pub` 写在注解之后、`static` 之前。
 
