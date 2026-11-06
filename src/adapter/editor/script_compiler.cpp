@@ -6,10 +6,13 @@
 #include "adapter/pet_compiled.h"
 #include "adapter/pet_script.h"
 #include "compiler/analysis.h"
+#include "compiler/ast.h"
+#include "compiler/script_classes.h"
 #include "runtime/text.h"
 
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/godot.hpp>
 
 #include <algorithm>
@@ -185,10 +188,109 @@ void project_changed() {
 	PetScript::update_warnings();
 }
 
+namespace {
+
+// The name GDScript gives the documentation of a script file's class
+// (compiler::DocName), a script of this language's too.
+std::string file_doc_name(const std::string &p_file) {
+	const String path = to_godot(p_file);
+	ProjectSettings *settings = ProjectSettings::get_singleton();
+	const TypedArray<Dictionary> classes = settings->get_global_class_list();
+	for (int64_t i = 0; i < classes.size(); i++) {
+		const Dictionary entry = classes[i];
+		if (String(entry.get("path", String())) == path) {
+			return to_utf8(entry.get("class", String()));
+		}
+	}
+	const TypedArray<Dictionary> properties = settings->get_property_list();
+	for (int64_t i = 0; i < properties.size(); i++) {
+		const String name = Dictionary(properties[i]).get("name", String());
+		if (name.begins_with("autoload/") && String(settings->get_setting(name)) == "*" + path) {
+			return to_utf8(name.trim_prefix("autoload/"));
+		}
+	}
+	return to_utf8("\"" + path.trim_prefix("res://") + "\"");
+}
+
+Dictionary doc_member(const compiler::DocMember &p_member, const char *p_type_key, const char *p_enum_key) {
+	Dictionary result;
+	result["name"] = to_godot(p_member.name);
+	result[p_type_key] = to_godot(p_member.type);
+	result[p_enum_key] = to_godot(p_member.enumeration);
+	if (!p_member.qualifiers.empty()) {
+		result["qualifiers"] = to_godot(p_member.qualifiers);
+	}
+	Array arguments;
+	for (const compiler::DocMember &argument : p_member.arguments) {
+		Dictionary documented = doc_member(argument, "type", "enumeration");
+		documented["default_value"] = to_godot(argument.value);
+		arguments.push_back(documented);
+	}
+	result["arguments"] = arguments;
+	return result;
+}
+
+} // namespace
+
 std::optional<compiler::Lookup> lookup_name(const String &p_path, const std::string &p_source, uint32_t p_offset) {
 	const SceneIndex::Pass pass;
 	const compiler::Analysis::Pass analysis_pass(analysis());
-	return compiler::lookup(analysis(), ClassDBApi::get(), SceneIndex::get(), to_utf8(p_path), p_source, p_offset);
+	return compiler::lookup(analysis(), ClassDBApi::get(), SceneIndex::get(), file_doc_name, to_utf8(p_path), p_source, p_offset);
+}
+
+String class_doc_name(const String &p_path) {
+	return to_godot(compiler::doc_class_name(file_doc_name, to_utf8(p_path)));
+}
+
+TypedArray<Dictionary> script_documentation(const String &p_path, const String &p_source) {
+	const SceneIndex::Pass pass;
+	compiler::CompileOptions options;
+	options.path = to_utf8(p_path);
+	options.declarations_only = true;
+	options.project = &SceneIndex::get();
+	compiler::ScriptClasses classes(ClassDBApi::get(), options.project, true);
+	compiler::ClassDecl decl;
+	compiler::compile(to_utf8(p_source), ClassDBApi::get(), options, classes, decl);
+	TypedArray<Dictionary> result;
+	for (const compiler::ClassDoc &doc : compiler::document(decl, options.path, file_doc_name)) {
+		Dictionary documented;
+		documented["name"] = to_godot(doc.name);
+		documented["inherits"] = to_godot(doc.inherits);
+		documented["is_script_doc"] = true;
+		documented["script_path"] = p_path;
+		Array constants;
+		for (const compiler::DocMember &constant : doc.constants) {
+			Dictionary member = doc_member(constant, "type", "enumeration");
+			member["value"] = to_godot(constant.value);
+			member["is_value_valid"] = !constant.value.empty();
+			constants.push_back(member);
+		}
+		documented["constants"] = constants;
+		Array properties;
+		for (const compiler::DocMember &property : doc.properties) {
+			Dictionary member = doc_member(property, "type", "enumeration");
+			member["default_value"] = to_godot(property.value);
+			properties.push_back(member);
+		}
+		documented["properties"] = properties;
+		Array methods;
+		for (const compiler::DocMember &method : doc.methods) {
+			methods.push_back(doc_member(method, "return_type", "return_enum"));
+		}
+		documented["methods"] = methods;
+		Array signals;
+		for (const compiler::DocMember &signal : doc.signals) {
+			signals.push_back(doc_member(signal, "return_type", "return_enum"));
+		}
+		documented["signals"] = signals;
+		Dictionary enums;
+		for (const std::string &name : doc.enums) {
+			enums[to_godot(name)] = Dictionary();
+		}
+		documented["enums"] = enums;
+		result.push_back(documented);
+	}
+	return result;
 }
 
 } // namespace petrichor

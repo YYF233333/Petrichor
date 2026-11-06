@@ -1,14 +1,29 @@
+#include "compiler/ast.h"
 #include "compiler/navigation.h"
+#include "compiler/script_classes.h"
 #include "doctest.h"
 #include "helpers.h"
 
 using namespace petrichor;
 using namespace petrichor::tests;
 
-// The script editor's lookup, which going to definitions and hover use
-// (spec §13.2).
+// The script editor's lookup, which going to definitions and hover use, and
+// the documentation hover shows (spec §13.2).
 
 namespace {
+
+// As the engine names the documentation of a script's class: by its
+// class_name, else by its quoted path.
+compiler::DocName doc_names(const FakeProject &p_project) {
+	return [&p_project](const std::string &p_file) {
+		for (const auto &[name, path] : p_project.global_classes) {
+			if (path == p_file) {
+				return name;
+			}
+		}
+		return "\"" + p_file.substr(6) + "\"";
+	};
+}
 
 FakeProject project() {
 	FakeProject project;
@@ -54,25 +69,48 @@ std::string lookup(const std::string &p_text, int p_nth = 0) {
 	const compiler::Analysis::Pass pass(analysis);
 	const auto compiled = analysis.compile("res://test.pet", SOURCE);
 	REQUIRE_MESSAGE(compiled->ok(), messages(*compiled));
-	const std::optional<compiler::Lookup> found = compiler::lookup(analysis, fake_engine(), classes, "res://test.pet", SOURCE, uint32_t(offset + 1));
+	const std::optional<compiler::Lookup> found = compiler::lookup(analysis, fake_engine(), classes, doc_names(classes), "res://test.pet", SOURCE, uint32_t(offset + 1));
 	if (!found) {
 		return "none";
 	}
-	static const char *KINDS[] = { "location", "class", "constant", "property", "method", "signal", "enum", "local", "local constant" };
+	static const char *KINDS[] = { "class", "constant", "property", "method", "signal", "enum", "local", "local constant" };
+	const std::string name = found->member.empty() ? found->class_name : found->class_name + "." + found->member;
+	const std::string where = found->path.empty() ? std::string() : found->path + ":" + std::to_string(found->line);
 	std::string text = KINDS[int(found->kind)];
-	if (!found->class_name.empty()) {
-		text += " " + found->class_name;
-	}
-	if (!found->member.empty()) {
-		text += (found->class_name.empty() ? " " : ".") + found->member;
-	}
-	if (!found->type.empty()) {
-		text += " " + found->type;
-	}
-	if (!found->path.empty()) {
-		text += " " + found->path + ":" + std::to_string(found->line);
+	for (const std::string &part : { name, found->type, where }) {
+		if (!part.empty()) {
+			text += " " + part;
+		}
 	}
 	return text;
+}
+
+// Each member as "name(arguments): type [enum] = value qualifiers".
+std::vector<std::string> described(const std::vector<compiler::DocMember> &p_members) {
+	std::vector<std::string> result;
+	for (const compiler::DocMember &member : p_members) {
+		std::string text = member.name;
+		if (!member.arguments.empty()) {
+			const std::vector<std::string> arguments = described(member.arguments);
+			text += "(";
+			for (size_t i = 0; i < arguments.size(); i++) {
+				text += (i > 0 ? ", " : "") + arguments[i];
+			}
+			text += ")";
+		}
+		text += member.type.empty() ? "" : ": " + member.type;
+		text += member.enumeration.empty() ? "" : " [" + member.enumeration + "]";
+		text += member.value.empty() ? "" : " = " + member.value;
+		text += member.qualifiers.empty() ? "" : " " + member.qualifiers;
+		result.push_back(text);
+	}
+	return result;
+}
+
+bool has(const std::vector<compiler::DocMember> &p_members, const std::string &p_described) {
+	const std::vector<std::string> all = described(p_members);
+	INFO(joined(all));
+	return std::find(all.begin(), all.end(), p_described) != all.end();
 }
 
 } // namespace
@@ -83,16 +121,72 @@ TEST_CASE("a local or parameter shows its type and leads to its declaration") {
 	CHECK(lookup("hit", 1) == "local Hit res://test.pet:5");
 }
 
-TEST_CASE("a declaration of this language leads to its file and line, also in an inner class") {
-	CHECK(lookup("LIMIT", 1) == "location res://test.pet:3");
-	CHECK(lookup("damage") == "location res://hit.pet:4");
-	CHECK(lookup("Crit") == "location res://hit.pet:6");
-	CHECK(lookup("FACTOR") == "location res://hit.pet:7");
+TEST_CASE("a declaration of this language leads to its file and line and to its documentation, also in an inner class") {
+	CHECK(lookup("LIMIT", 1) == "constant \"test.pet\".LIMIT res://test.pet:3");
+	CHECK(lookup("damage") == "property Hit.damage res://hit.pet:4");
+	CHECK(lookup("Crit") == "class Hit.Crit res://hit.pet:6");
+	CHECK(lookup("FACTOR") == "constant Hit.Crit.FACTOR res://hit.pet:7");
 }
 
 TEST_CASE("a member of a GDScript class leads to the script of its base that declares it") {
-	CHECK(lookup("speed") == "property speed res://legacy_base.gd:3");
-	CHECK(lookup("Legacy") == "class res://legacy.gd:1");
+	CHECK(lookup("speed") == "property \"legacy_base.gd\".speed res://legacy_base.gd:3");
+	CHECK(lookup("Legacy") == "class Legacy res://legacy.gd:1");
+}
+
+TEST_CASE("the documentation has every member of every class of a script, the script's class last") {
+	const std::string source = R"(class_name Doc
+extends Node
+
+pub signal hit(amount: int)
+const LIMIT := 3
+enum State { IDLE, RUN = 4 }
+@export pub var speed := 2.5
+var target: Node3D?
+var states: Array[State] = []
+static var count := 0
+var hp: int:
+	get:
+		return 1
+
+pub static func make(x: int = 1) -> Doc:
+	return null
+
+async func wait() -> int:
+	return 1
+
+struct Shot:
+	var damage := 1
+
+class Inner extends Node3D:
+	pub var depth := 2
+)";
+	FakeProject classes = project();
+	classes.add_script("res://doc.pet", source, "Doc");
+	compiler::CompileOptions options;
+	options.path = "res://doc.pet";
+	options.project = &classes;
+	options.declarations_only = true;
+	compiler::ScriptClasses scripts(fake_engine(), &classes, true);
+	compiler::ClassDecl decl;
+	const compiler::CompileResult result = compiler::compile(source, fake_engine(), options, scripts, decl);
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	const std::vector<compiler::ClassDoc> docs = compiler::document(decl, "res://doc.pet", doc_names(classes));
+	REQUIRE(docs.size() == 3);
+	CHECK((docs[0].name == "Doc.Inner" && docs[0].inherits == "Node3D" && has(docs[0].properties, "depth: int = 2")));
+	CHECK((docs[1].name == "Doc.Shot" && has(docs[1].properties, "damage: int = 1")));
+	const compiler::ClassDoc &doc = docs[2];
+	CHECK((doc.name == "Doc" && doc.inherits == "Node"));
+	CHECK(has(doc.signals, "hit(amount: int)"));
+	CHECK(has(doc.constants, "LIMIT: int = 3"));
+	CHECK(doc.enums == std::vector<std::string>{ "State" });
+	CHECK(has(doc.constants, "RUN: int [Doc.State] = 4"));
+	CHECK(has(doc.properties, "speed: float = 2.5"));
+	CHECK(has(doc.properties, "target: Node3D?"));
+	CHECK(has(doc.properties, "states: Doc.State[] = []"));
+	CHECK(has(doc.properties, "count: int = 0"));
+	CHECK(has(doc.properties, "hp: int"));
+	// Its inline getter is not a method.
+	CHECK(described(doc.methods) == std::vector<std::string>{ "make(x: int = 1): Doc static", "wait: int async" });
 }
 
 TEST_CASE("a declaration of the engine is filed as its documentation files it") {

@@ -717,10 +717,21 @@ Error PetScript::_reload(bool p_keep_state) {
 }
 
 StringName PetScript::_get_doc_class_name() const {
+#ifdef TOOLS_ENABLED
+	return class_doc_name(get_script_path());
+#else
 	return StringName();
+#endif
 }
 
 TypedArray<Dictionary> PetScript::_get_documentation() const {
+#ifdef TOOLS_ENABLED
+	// Its file's script has the documentation of the inner classes too, as
+	// GDScript's has (modules/gdscript/gdscript.cpp:472-474).
+	if (inner_path.is_empty()) {
+		return script_documentation(get_path(), source);
+	}
+#endif
 	return TypedArray<Dictionary>();
 }
 

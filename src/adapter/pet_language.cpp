@@ -13,7 +13,6 @@
 #ifdef TOOLS_ENABLED
 #include "adapter/editor/script_compiler.h"
 
-#include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #endif
 
@@ -242,7 +241,7 @@ bool PetLanguage::_supports_builtin_mode() const {
 }
 
 bool PetLanguage::_supports_documentation() const {
-	return false;
+	return true;
 }
 
 bool PetLanguage::_can_inherit_from_file() const {
@@ -282,31 +281,6 @@ Dictionary PetLanguage::_complete_code(const String &p_code, const String &p_pat
 	return result;
 }
 
-#ifdef TOOLS_ENABLED
-namespace {
-
-// What GDScript names the documentation of a script's class: its class_name,
-// else the global name of the autoload it is, else its quoted path
-// (modules/gdscript/editor/gdscript_docgen.cpp:40-46, 339-347, 594-598).
-String gdscript_doc_name(const String &p_path) {
-	const Ref<Script> script = ResourceLoader::get_singleton()->load(p_path, "Script");
-	if (script.is_valid() && !script->get_global_name().is_empty()) {
-		return script->get_global_name();
-	}
-	ProjectSettings *settings = ProjectSettings::get_singleton();
-	const TypedArray<Dictionary> properties = settings->get_property_list();
-	for (int64_t i = 0; i < properties.size(); i++) {
-		const String name = Dictionary(properties[i]).get("name", String());
-		if (name.begins_with("autoload/") && String(settings->get_setting(name)) == "*" + p_path) {
-			return name.trim_prefix("autoload/");
-		}
-	}
-	return "\"" + p_path.trim_prefix("res://") + "\"";
-}
-
-} // namespace
-#endif
-
 Dictionary PetLanguage::_lookup_code(const String &p_code, const String &p_symbol, const String &p_path, Object *p_owner) const {
 	Dictionary result;
 	result["result"] = ERR_UNAVAILABLE;
@@ -322,9 +296,8 @@ Dictionary PetLanguage::_lookup_code(const String &p_code, const String &p_symbo
 	if (!found) {
 		return result;
 	}
-	using Kind = compiler::Lookup::Kind;
+	// By compiler::SymbolKind.
 	static const LookupResultType TYPES[] = {
-		LOOKUP_RESULT_SCRIPT_LOCATION,
 		LOOKUP_RESULT_CLASS,
 		LOOKUP_RESULT_CLASS_CONSTANT,
 		LOOKUP_RESULT_CLASS_PROPERTY,
@@ -336,8 +309,7 @@ Dictionary PetLanguage::_lookup_code(const String &p_code, const String &p_symbo
 	};
 	result["result"] = OK;
 	result["type"] = TYPES[int(found->kind)];
-	const bool gdscript = found->class_name.empty() && found->kind != Kind::Location && found->kind != Kind::Local && found->kind != Kind::LocalConstant;
-	result["class_name"] = gdscript ? gdscript_doc_name(to_godot(found->path)) : to_godot(found->class_name);
+	result["class_name"] = to_godot(found->class_name);
 	result["class_member"] = to_godot(found->member);
 	result["doc_type"] = to_godot(found->type);
 	if (!found->path.empty()) {

@@ -41,17 +41,28 @@ struct DeclId {
 	}
 };
 
+// What a declaration declares, as the editor's lookup tells them apart
+// (core/object/script_language.h:365-377): a struct or an interface is a
+// class, a field a property, and a value of an enum a constant.
+enum class SymbolKind {
+	Class,
+	Constant,
+	Property,
+	Method,
+	Signal,
+	Enum,
+	Local,
+	LocalConstant,
+};
+
 // Where a name is resolved, recorded by the checker for the file it checks
 // (architecture §2.1).
 struct Reference {
 	DeclId target;
-	bool is_declaration = false;
+	std::optional<SymbolKind> declares; // For a declaration: what it declares.
 	// For a declaration that overrides or implements another: that one.
 	std::optional<DeclId> overrides;
-	// For the declaration of a local, which hover shows (spec §13.2): its
-	// type, and whether it is a constant.
-	std::string type;
-	bool is_constant = false;
+	std::string type; // For the declaration of a local: its type, which hover shows.
 	// The name's bytes in the source, or none for a reference in a scene.
 	uint32_t begin = 0;
 	uint32_t end = 0;

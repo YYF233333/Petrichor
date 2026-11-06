@@ -5,6 +5,7 @@
 #include "runtime/class_image.h"
 
 #include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/variant/typed_array.hpp>
 
 #include <memory>
 #include <optional>
@@ -45,5 +46,13 @@ void project_changed();
 // What the name at byte `p_offset` of the script's text refers to, for the
 // script editor's lookup (spec §13.2).
 std::optional<compiler::Lookup> lookup_name(const godot::String &p_path, const std::string &p_source, uint32_t p_offset);
+
+// What the documentation names a class of this language, also an inner one,
+// by its path.
+godot::String class_doc_name(const godot::String &p_path);
+
+// The documentation of a script's classes (spec §13.2), from its
+// declarations, as the engine reads it (core/doc_data.h:724-860).
+godot::TypedArray<godot::Dictionary> script_documentation(const godot::String &p_path, const godot::String &p_source);
 
 } // namespace petrichor

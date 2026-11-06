@@ -235,21 +235,24 @@ class Checker : public ClassRelation {
 
 	// A name of this file, unless the compiler made it or a syntax error left
 	// it empty; the entry, if one is recorded.
-	Reference *refer(uint32_t p_token, const DeclId &p_target, bool p_declaration = false, const std::optional<DeclId> &p_overrides = std::nullopt) {
-		if (p_token < cls.source->tokens.size() && cls.source->tokens[p_token].length > 0) {
-			return refer_bytes(cls.source->tokens[p_token].offset, cls.source->tokens[p_token].end(), p_target, p_declaration, p_overrides);
+	Reference *refer(uint32_t p_token, const DeclId &p_target, std::optional<SymbolKind> p_declares = std::nullopt, const std::optional<DeclId> &p_overrides = std::nullopt) {
+		if (p_token >= cls.source->tokens.size() || cls.source->tokens[p_token].length == 0) {
+			return nullptr;
 		}
-		return nullptr;
+		Reference *reference = refer_bytes(cls.source->tokens[p_token].offset, cls.source->tokens[p_token].end(), p_target);
+		if (reference) {
+			reference->declares = p_declares;
+			reference->overrides = p_overrides;
+		}
+		return reference;
 	}
 
-	Reference *refer_bytes(uint32_t p_begin, uint32_t p_end, const DeclId &p_target, bool p_declaration = false, const std::optional<DeclId> &p_overrides = std::nullopt) {
+	Reference *refer_bytes(uint32_t p_begin, uint32_t p_end, const DeclId &p_target) {
 		if (!references) {
 			return nullptr;
 		}
 		Reference reference;
 		reference.target = p_target;
-		reference.is_declaration = p_declaration;
-		reference.overrides = p_overrides;
 		reference.begin = p_begin;
 		reference.end = p_end;
 		references->push_back(std::move(reference));
@@ -257,9 +260,8 @@ class Checker : public ClassRelation {
 	}
 
 	void refer_local(uint32_t p_token, const Type &p_type, bool p_constant = false) {
-		if (Reference *declared = refer(p_token, local_id(p_token), true)) {
+		if (Reference *declared = refer(p_token, local_id(p_token), p_constant ? SymbolKind::LocalConstant : SymbolKind::Local)) {
 			declared->type = p_type.is_error() ? std::string() : p_type.to_string();
-			declared->is_constant = p_constant;
 		}
 	}
 
@@ -1210,7 +1212,7 @@ class Checker : public ClassRelation {
 			}
 			constant_index[constant.name] = int(cls.all_constants.size());
 			cls.all_constants.push_back(&constant);
-			refer(constant.name_token, script_id(options.path, constant.name), true);
+			refer(constant.name_token, script_id(options.path, constant.name), SymbolKind::Constant);
 		}
 	}
 
@@ -1340,10 +1342,10 @@ class Checker : public ClassRelation {
 			decl.numbers = std::make_shared<EnumValues>();
 			decl.type = decl.name.empty() ? Type::of(TypeKind::Int) : Type::enumeration(display_name(cls, options.path) + "." + decl.name, options.path, decl.numbers);
 			if (!decl.name.empty()) {
-				refer(decl.name_token, script_id(options.path, decl.name), true);
+				refer(decl.name_token, script_id(options.path, decl.name), SymbolKind::Enum);
 			}
 			for (const EnumValueDecl &value : decl.values) {
-				refer(value.name_token, script_id(options.path, enum_value_id(decl, value.name)), true);
+				refer(value.name_token, script_id(options.path, enum_value_id(decl, value.name)), SymbolKind::Constant);
 			}
 			cls.all_enums.push_back(&decl);
 		}
@@ -5433,7 +5435,7 @@ class Checker : public ClassRelation {
 			}
 			member_index[member.name] = int(cls.all_members.size());
 			cls.all_members.push_back(&member);
-			refer(member.name_token, script_id(options.path, member.name), true);
+			refer(member.name_token, script_id(options.path, member.name), SymbolKind::Property);
 		}
 		for (VarDecl &variable : cls.static_vars) {
 			if (member_index.count(variable.name) || static_index.count(variable.name) || function_index.count(variable.name) || signal_index.count(variable.name)) {
@@ -5442,7 +5444,7 @@ class Checker : public ClassRelation {
 			}
 			static_index[variable.name] = int(cls.all_static_vars.size());
 			cls.all_static_vars.push_back(&variable);
-			refer(variable.name_token, script_id(options.path, variable.name), true);
+			refer(variable.name_token, script_id(options.path, variable.name), SymbolKind::Property);
 		}
 	}
 
@@ -6124,7 +6126,7 @@ class Checker : public ClassRelation {
 	// of its own.
 	void declare_function(const FuncDecl &p_function, const std::optional<DeclId> &p_overrides) {
 		if (p_function.name.rfind('@', 0) != 0) {
-			refer(p_function.name_token, script_id(options.path, p_function.name), true, p_overrides);
+			refer(p_function.name_token, script_id(options.path, p_function.name), SymbolKind::Method, p_overrides);
 		}
 	}
 
@@ -6384,9 +6386,9 @@ class Checker : public ClassRelation {
 			if (!names.insert(interface.name).second) {
 				error(interface.name_token, "The interface \"" + interface.name + "\" is already declared.");
 			}
-			refer(interface.name_token, script_id(options.path, interface.name), true);
+			refer(interface.name_token, script_id(options.path, interface.name), SymbolKind::Class);
 			for (FuncDecl &method : interface.methods) {
-				refer(method.name_token, script_id(options.path, interface.name + "." + method.name), true);
+				refer(method.name_token, script_id(options.path, interface.name + "." + method.name), SymbolKind::Method);
 				for (ParamDecl &param : method.params) {
 					if (!param.declared_type) {
 						error(param.name_token, "Parameter \"" + param.name + "\" needs a type.");
@@ -6405,7 +6407,7 @@ class Checker : public ClassRelation {
 				if (!members.insert(property.name).second) {
 					error(property.name_token, "\"" + property.name + "\" is already declared in " + interface.name + ".");
 				}
-				refer(property.name_token, script_id(options.path, interface.name + "." + property.name), true);
+				refer(property.name_token, script_id(options.path, interface.name + "." + property.name), SymbolKind::Property);
 				property.type = resolve(property.type_ref, false);
 			}
 		}
@@ -6422,10 +6424,10 @@ class Checker : public ClassRelation {
 			if (!names.insert(decl.name).second || is_type_name(decl.name) || (options.project && !options.project->global_class_path(decl.name).empty())) {
 				error(decl.name_token, "\"" + decl.name + "\" is already declared.");
 			}
-			refer(decl.name_token, script_id(options.path, decl.name), true);
+			refer(decl.name_token, script_id(options.path, decl.name), SymbolKind::Class);
 			std::unordered_set<std::string> fields;
 			for (VarDecl &field : decl.fields) {
-				refer(field.name_token, script_id(options.path, decl.name + "." + field.name), true);
+				refer(field.name_token, script_id(options.path, decl.name + "." + field.name), SymbolKind::Property);
 				if (!fields.insert(field.name).second) {
 					error(field.name_token, "The field \"" + field.name + "\" is already declared in " + decl.name + ".");
 				}
@@ -6527,7 +6529,7 @@ class Checker : public ClassRelation {
 				}
 				const FuncDecl &function = *cls.all_functions[found->second];
 				if (is_own(function, cls.functions)) {
-					refer(function.name_token, script_id(options.path, function.name), true, script_id(type.script, interface->name + "." + method.name));
+					refer(function.name_token, script_id(options.path, function.name), SymbolKind::Method, script_id(type.script, interface->name + "." + method.name));
 				}
 				if (!function.is_pub) {
 					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + type.name + " and must be pub (spec §3.9).");
@@ -6655,7 +6657,7 @@ class Checker : public ClassRelation {
 				if (member != member_index.end()) {
 					const VarDecl &provided = *cls.all_members[member->second];
 					if (is_own(provided, cls.members)) {
-						refer(provided.name_token, script_id(options.path, provided.name), true, script_id(type.script, interface->name + "." + required.name));
+						refer(provided.name_token, script_id(options.path, provided.name), SymbolKind::Property, script_id(type.script, interface->name + "." + required.name));
 					}
 					if (!provided.is_pub) {
 						error(own_name(provided, cls.members, ref->range), "\"" + provided.name + "\" implements " + type.name + " and must be pub (spec §3.9).");
@@ -6687,7 +6689,7 @@ class Checker : public ClassRelation {
 			}
 			signal_index[signal.name] = int(cls.all_signals.size());
 			cls.all_signals.push_back(&signal);
-			refer(signal.name_token, script_id(options.path, signal.name), true);
+			refer(signal.name_token, script_id(options.path, signal.name), SymbolKind::Signal);
 			for (ParamDecl &param : signal.params) {
 				if (!param.declared_type) {
 					error(param.name_token, "The argument \"" + param.name + "\" of a signal needs a type (spec §4.7).");
@@ -6810,7 +6812,7 @@ private:
 		cls.path = options.path;
 		cls.native_base = classes.native_base(cls, options.path);
 		cls.base_script = classes.base_path(cls, options.path);
-		refer(cls.name.empty() ? cls.class_name_token : cls.name_token, script_id(options.path), true);
+		refer(cls.name.empty() ? cls.class_name_token : cls.name_token, script_id(options.path), SymbolKind::Class);
 		if (!cls.extends_path && is_script_path(cls.base_script)) {
 			// Each name of `Other.Inner` refers to its class (spec §4.1).
 			std::string path = cls.base_script;

@@ -48,6 +48,7 @@ func _run() -> void:
 	await _check_scene_marks()
 	await _check_undo_merge()
 	_check_lookup()
+	await _check_documentation()
 
 	print("editor check: %d failure(s)" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -370,6 +371,26 @@ func _check_lookup() -> void:
 	for path in [hit_path, script_path]:
 		for file in [path, path + ".uid", path.replace("res://", "res://.godot/petrichor/").replace(".pet", ".petc")]:
 			DirAccess.remove_absolute(file)
+
+
+# Spec §13.2: hover and the help show a class's declarations, also those
+# without pub, from the documentation it gives the editor, which the script
+# editor takes on saving (editor/script/script_editor_plugin.cpp:3449-3456).
+func _check_documentation() -> void:
+	var path := "res://editor_doc.pet"
+	_write(path, "extends Node\n\npub var target: Node3D?\nvar hidden := 1\n\npub async func wait(seconds: float = 1.0) -> int:\n\treturn 1\n")
+	var script: Script = load(path)
+	var script_editor := EditorInterface.get_script_editor()
+	script_editor.update_docs_from_script(script)
+	script_editor.goto_help("class_name:\"editor_doc.pet\"")
+	await get_tree().process_frame
+	var pages := script_editor.find_children("*", "EditorHelp", true, false)
+	var text: String = pages[-1].find_children("*", "RichTextLabel", true, false)[0].get_parsed_text().replace(char(0xA0), " ") if pages else ""
+	var shown := ["Node3D?", "hidden", "seconds: float = 1.0", "async"].all(func(part): return text.contains(part))
+	_check(shown, "the help of a class shows its members as declared" + ("" if shown else ": " + text))
+	_check_errors([], "documenting reports nothing")
+	for file in [path, path + ".uid"]:
+		DirAccess.remove_absolute(file)
 
 
 func _find_item(item: TreeItem, path: NodePath) -> TreeItem:
