@@ -239,8 +239,9 @@ public:
 			if (found == signals.end()) {
 				continue;
 			}
-			for (const EngineMethod &signal : found->second) {
+			for (EngineMethod signal : found->second) {
 				if (signal.name == p_signal) {
+					signal.owner = cls;
 					return signal;
 				}
 			}

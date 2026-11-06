@@ -156,12 +156,17 @@ std::optional<EngineMethod> ClassDBApi::find_signal(const std::string &p_class, 
 	if (!db->class_exists(to_godot(p_class))) {
 		return std::nullopt;
 	}
-	// ClassDB looks through the ancestors.
-	const Dictionary info = db->class_get_signal(to_godot(p_class), to_godot(p_signal));
+	// ClassDB looks through the ancestors, and so for the one that declares it.
+	const StringName signal = to_godot(p_signal);
+	StringName owner = to_godot(p_class);
+	const Dictionary info = db->class_get_signal(owner, signal);
 	if (info.is_empty()) {
 		return std::nullopt;
 	}
-	return method_of(info, std::string());
+	for (StringName up = db->get_parent_class(owner); up != StringName() && db->class_has_signal(up, signal); up = db->get_parent_class(up)) {
+		owner = up;
+	}
+	return method_of(info, to_utf8(owner));
 }
 
 bool ClassDBApi::can_instantiate(const std::string &p_class) const {
