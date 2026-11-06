@@ -253,7 +253,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   - 所有方法按元素自身运算工作（`has`/`find`/`count`/`erase`/`==` 按 §5.2，`sort`/`bsearch`/`min`/`max` 按 `<`，`resize` 填入元素默认值，内层容器填入空的带类型容器，`duplicate(true)` 深复制元素内部容器）；
   - 排序方法在元素无 `<` 时报编译错误（如 `Array[Node]` 上提示 `sort_custom`）；【已知限制】`Variant` 元素排序时不可比较的一对算作不小于，与 GDScript 相同（`min`/`max` 返回 `null`）。`resize` 在元素无默认值时报编译错误（如 `Array[Node]` 上提示 `Array[Node?]`）；
   - 标准库在原生容器上提供接受带类型 lambda 的 `map`、`filter`、`sort` 等（§3.11）。
-- **Dictionary 的键**：插入新键时存入容器逐层只读的副本，后续修改原值不影响键；`keys()`、`for k in d`、`find_key()` 交出该只读副本，修改它是程序错误（诊断建议插入修改后的 `duplicate()`）；查找操作不复制也不冻结参数；外部传入的 `Dictionary` 在本语言取得其容器键时就地设为只读。
+- **Dictionary 的键**：插入新键时存入容器逐层只读的副本，副本内容器的共享（包括容器引用自身）与原值相同，后续修改原值不影响键；`keys()`、`for k in d`、`find_key()` 交出该只读副本，修改它是程序错误（诊断建议插入修改后的 `duplicate()`）；查找操作不复制也不冻结参数；外部传入的 `Dictionary` 在本语言取得其容器键时就地设为只读。
 
 ### 3.9 接口
 
