@@ -2286,7 +2286,7 @@ class Checker : public ClassRelation {
 		if (const EnumDecl *decl = named_enum(base)) {
 			return check_enum_value(r_expr, *decl);
 		}
-		if (base.kind == ExprKind::Name && names_enum_of_class(base, r_expr.text)) {
+		if (names_enum_of_class(base, r_expr.text)) {
 			// `Player.State`, the enum's name as a value.
 			if (const EnumDecl *decl = named_enum(r_expr)) {
 				return use_enum_dictionary(r_expr, *decl, false);

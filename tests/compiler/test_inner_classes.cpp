@@ -184,7 +184,7 @@ TEST_CASE("an inner class is reached through an object of its class, as constant
 	const auto result = compile_in(R"(extends Node
 func f() -> int:
 	var player := Constants.Match.Player.new()
-	print(Constants.Match.Units.PROJECTILES, Constants.Match.Team.RED, player.team)
+	print(Constants.Match.Units.PROJECTILES, Constants.Match.Team.RED, Constants.Match.Team.keys(), player.team)
 	return Constants.Match.MAX_PLAYERS + Constants.Match.Player.limit()
 )",
 			constants_project());
