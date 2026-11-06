@@ -51,7 +51,9 @@ InstanceStorage::~InstanceStorage() {
 struct CoroutineFrame : std::enable_shared_from_this<CoroutineFrame> {
 	std::shared_ptr<const ClassImage> image;
 	InstanceContext context;
-	CoroutineTask *task;
+	// Kept by the frame, which a callback on another thread may hold after the
+	// task ended; finish() lets go of the frame.
+	Ref<CoroutineTask> task;
 	uint32_t function;
 	uint8_t *data;
 	size_t pc = 0;
@@ -72,7 +74,7 @@ struct CoroutineFrame : std::enable_shared_from_this<CoroutineFrame> {
 	Ref<CoroutineTask> waited_task;
 	Ref<CoroutineTask> child;
 
-	CoroutineFrame(const std::shared_ptr<const ClassImage> &p_image, uint32_t p_function, const InstanceContext &p_context, CoroutineTask *p_task) :
+	CoroutineFrame(const std::shared_ptr<const ClassImage> &p_image, uint32_t p_function, const InstanceContext &p_context, const Ref<CoroutineTask> &p_task) :
 			image(p_image), context(p_context), task(p_task), function(p_function), data(static_cast<uint8_t *>(::operator new(p_image->frames[p_function].size))) {
 		image->frames[function].construct(data);
 		line = int(image->module.functions[function].line);
@@ -149,7 +151,7 @@ Ref<CoroutineTask> start_task(const std::shared_ptr<const ClassImage> &p_image, 
 	task->owner_id = p_context.owner ? uint64_t(p_context.owner->get_instance_id()) : 0;
 	task->owner_storage = p_context.storage.get();
 	task->result_signature = p_result_key ? *p_result_key : p_image->types[fn.result.type].result_key;
-	task->continuation = std::make_shared<CoroutineFrame>(p_image, p_function, p_context, task.ptr());
+	task->continuation = std::make_shared<CoroutineFrame>(p_image, p_function, p_context, task);
 	for (const auto &param : fn.params) {
 		copy_value(p_image->types[param.type], task->continuation->data + param.offset, p_frame + param.offset);
 	}
@@ -2295,6 +2297,13 @@ bool CoroutineFrame::await_task(const Ref<CoroutineTask> &p_task) {
 	if (!suspend(Signal(p_task.ptr(), "completed"), destination, 0)) {
 		report_error("Cannot await task completion.");
 		return false;
+	}
+	// Ended on another thread before the connection, its signal gone; a
+	// callback that comes now finds a later generation.
+	if (p_task->ended()) {
+		disconnect();
+		task->state = CoroutineTask::State::Running;
+		return await_task(p_task);
 	}
 	return true;
 }
