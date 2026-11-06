@@ -31,13 +31,13 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - preload() inside a constant's container (spec §4.5).
 - In the editor, GDScript does not see a pub constant whose value is a preload(), such as `Spawner.SCENE`. It reports a parse error. The editor compiles the scripts it loads with declarations only, which read no scenes. So the constant is left out of the image (spec §4.5, §11.3).
 - `Array[T]?`, and nested `Option`:
-  - `T??` and `Some(...)`;
-  - the remaining `Option` methods of spec §3.4;
+  - `T??` and `Some(...)`, with `flatten()` (spec §3.4);
   - `pop_front()` and `pop_back()` of `Array[T?]` giving `T??`;
+  - `map()` of `T?` whose function returns `U?`;
   - `ok()` and `err()` of `Result[T?, E]` and `Result[T, E?]`;
   - rejecting `T??` and `Variant?` passed to `Variant` (spec §10.1).
 - The names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7).
-- `Ok(v)`, `Err(e)` and `?` in a lambda without a return type passed to `and_then()` or `or_else()`. Nothing gives their `U` or `F` yet (spec §3.5, §4.6).
+- `Ok(v)`, `Err(e)`, `None` and `?` in a lambda without a return type passed to `and_then()` or `or_else()`. Nothing gives their `U` or `F` yet (spec §3.4, §3.5, §4.6).
 - `for` over objects that define `_iter_init`, `_iter_next` and `_iter_get`, as GDScript allows; the checker reports it as not supported yet.
 - The `breakpoint` statement.
 - Rest parameters `...args: Array[T]` (spec §4.6).

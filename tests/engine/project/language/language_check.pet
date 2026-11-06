@@ -203,6 +203,10 @@ pub func results() -> Array:
 	var bad := all[1]
 	return [shown, good.unwrap(), bad.unwrap_or(-1), bad.unwrap_or_else(func(e): return e.length()), good.map(func(n): return n * 10).unwrap(), bad.map_err(func(e): return e.length()).err().unwrap(), good.and_then(func(n) -> Result[int, String]: return Err("no")) == Err("no"), bad.or_else(func(e) -> Result[int, String]: return Ok(0)) == Ok(0), good.ok() == 4, bad.ok() == None, halved(8), halved(None)]
 
+# The methods of T? (spec §3.4), ok_or() making a Result.
+pub func options(o: int?) -> Array:
+	return [o.unwrap_or(-1), o.unwrap_or_else(func(): return -2), o.map(func(x): return x * 2), o.and_then(func(x) -> int?: return None if x > 5 else x + 1), o.or(7), o.or_else(func() -> int?: return 8), o.filter(func(x): return x > 1), o.ok_or("none"), o.ok_or_else(func(): return "missing")]
+
 pub func result_or(r: Result[int, String]) -> int:
 	return r.unwrap_or(-1)
 

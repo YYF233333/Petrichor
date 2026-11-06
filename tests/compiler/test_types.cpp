@@ -173,7 +173,13 @@ TEST_CASE("T? of a value type is an Option (spec §3.4)") {
 	CHECK(contains(type_of("a + 1", "var a: int? = 5"), "may be None (int?); unwrap it first"));
 	CHECK(contains(type_of("s.length()", "var s: String? = \"x\""), "may be None (String?); check it before calling"));
 	CHECK(contains(type_of("v.y", "var v: Vector3? = Vector3.UP"), "may be None (Vector3?); check it before reading"));
-	CHECK(contains(type_of("a.unwrap_or(0)", "var a: int? = 5"), "not supported yet"));
+	CHECK(type_of("a.unwrap_or(0) + a.unwrap_or_else(func(): return 1)", "var a: int? = 5") == "int");
+	CHECK(type_of("a.map(func(x): return x * 0.5)", "var a: int? = 5") == "float?");
+	CHECK(type_of("a.filter(func(x): return x > 0).or(3)", "var a: int? = 5") == "int?");
+	// None takes its type from what the function returns.
+	CHECK(type_of("a.or_else(func(): return None)", "var a: int? = 5") == "int?");
+	CHECK(type_of("a.ok_or(\"none\")", "var a: int? = 5") == "Result[int, String]");
+	CHECK(contains(type_of("a.map(func(x): return a)", "var a: int? = 5"), "would give int??, and nested Options are not supported yet"));
 	CHECK(has_error(in_function("var a: int? = 5\nvar b: int = a"), "Cannot assign a value of type int? as int"));
 	// Only a T is converted on the way in, not the T inside.
 	CHECK(has_error(in_function("var a: int? = 5\nvar f: float? = a"), "Cannot assign a value of type int? as float?"));

@@ -111,6 +111,7 @@ TEST_CASE("formatting spaces binary operators but not unary ones, calls, subscri
 					"func g(x : int=3, cb : (func(int) -> bool)? = null)->int :\n"
 					"\tassert (x>0 && x!=1);var s := r\n"
 					"\tsuper .g(x)\n"
+					"\tvar o := r.or (1) ?+1\n"
 					"\treturn x%2+b [\"k\"] [0] if not x else g (- x) ** -2 - - x\n") ==
 			"var a: int = -1\n"
 			"var b := {\"k\": [1, 2,], \"m\": -a,}\n"
@@ -121,6 +122,7 @@ TEST_CASE("formatting spaces binary operators but not unary ones, calls, subscri
 			"func g(x: int = 3, cb: (func(int) -> bool)? = null) -> int:\n"
 			"\tassert(x > 0 && x != 1); var s := r\n"
 			"\tsuper.g(x)\n"
+			"\tvar o := r.or(1)? + 1\n"
 			"\treturn x % 2 + b[\"k\"][0] if not x else g(-x) ** -2 - -x\n");
 }
 

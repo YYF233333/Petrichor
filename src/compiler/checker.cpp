@@ -112,10 +112,17 @@ std::vector<Type> param_types(const std::vector<ParamDecl> &p_params) {
 	return types;
 }
 
-// The methods of T? that are not supported yet (spec §3.4).
-const std::unordered_set<std::string> &later_option_methods() {
-	static const std::unordered_set<std::string> later = { "unwrap_or", "unwrap_or_else", "map", "and_then", "or_else", "filter", "ok_or", "ok_or_else", "flatten" };
-	return later;
+// The methods of T? (spec §3.4), as Rust's; flatten() is of T??, which is
+// not supported yet.
+const std::unordered_set<std::string> &option_methods() {
+	static const std::unordered_set<std::string> methods = { "unwrap", "expect", "unwrap_or", "unwrap_or_else", "map", "and_then", "or", "or_else", "filter", "ok_or", "ok_or_else", "flatten" };
+	return methods;
+}
+
+// The methods of Result (spec §3.5), as Rust's.
+const std::unordered_set<std::string> &result_methods() {
+	static const std::unordered_set<std::string> methods = { "unwrap", "expect", "unwrap_or", "unwrap_or_else", "map", "map_err", "and_then", "or_else", "ok", "err" };
+	return methods;
 }
 
 struct HintAnnotation {
@@ -4137,24 +4144,72 @@ class Checker : public ClassRelation {
 		}
 	}
 
-	// The methods of T? (spec §3.4).
-	Type check_option_method(Expr &r_expr, const Type &p_base) {
+	// The methods of T? (spec §3.4), as Rust's. Those that take a function
+	// call it only when there is a value, or only when there is none. ok_or()
+	// takes the error type from the Result expected, if any.
+	Type check_option_method(Expr &r_expr, const Type &p_base, const Type &p_expected) {
 		const std::string &name = r_expr.text;
-		if (name == "unwrap" || name == "expect") {
-			std::vector<Type> params;
-			if (name == "expect") {
-				params.push_back(Type::of(TypeKind::String));
-			}
-			hint(r_expr, [&](int p_current) { return signature(name, name == "expect" ? std::vector<std::string>{ "message: String" } : std::vector<std::string>(), false, p_current, p_base.unwrapped().to_string()); });
-			check_arguments(r_expr, params, int(params.size()), false);
-			r_expr.target = Target::Unwrap;
-			refer(r_expr.name_token, language_id("Option", name));
-			return set(r_expr, p_base.unwrapped());
+		const Type value = p_base.unwrapped();
+		const std::string t = value.to_string();
+		if (!option_methods().count(name)) {
+			return fail_call(r_expr, "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
 		}
-		if (later_option_methods().count(name)) {
+		if (name == "flatten") {
 			return fail_call(r_expr, name + "() of " + p_base.to_string() + " is not supported yet.");
 		}
-		return fail_call(r_expr, "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
+		refer(r_expr.name_token, language_id("Option", name));
+		r_expr.target = name == "unwrap" || name == "expect" ? Target::Unwrap : Target::OptionMethod;
+		if (name == "unwrap" || name == "expect" || name == "unwrap_or" || name == "or") {
+			const std::vector<Type> params = name == "unwrap" ? std::vector<Type>() : std::vector<Type>{ name == "expect" ? Type::of(TypeKind::String) : (name == "or" ? p_base : value) };
+			const std::string shown = name == "expect" ? "message: String" : (name == "or" ? "other: " + p_base.to_string() : "default: " + t);
+			hint(r_expr, [&](int p_current) { return signature(name, params.empty() ? std::vector<std::string>() : std::vector<std::string>{ shown }, false, p_current, name == "or" ? p_base.to_string() : t); });
+			check_arguments(r_expr, params, int(params.size()), false);
+			return set(r_expr, name == "or" ? p_base : value);
+		}
+		if (name == "ok_or") {
+			const Type wanted = p_expected.is_result() ? p_expected.args[1] : Type::of(TypeKind::Error);
+			hint(r_expr, [&](int p_current) { return signature(name, { "error: E" }, false, p_current, "Result[" + t + ", E]"); });
+			if (r_expr.args.size() != 1) {
+				return fail_call(r_expr, "Function \"ok_or()\" takes 1 argument(s), " + std::to_string(r_expr.args.size()) + " given.");
+			}
+			Expr &arg = *r_expr.args[0];
+			Type failure = check_value(arg, wanted);
+			if (!wanted.is_error()) {
+				expect_assignable(arg, failure, wanted, "pass");
+				failure = wanted;
+			}
+			if (failure.kind == TypeKind::None) {
+				return fail(r_expr, "ok_or(None) needs the Result type it makes, from where it goes (spec §3.5).");
+			}
+			r_expr.param_types.push_back(failure);
+			return set(r_expr, failure.is_error() ? failure : Type::result(value, failure));
+		}
+		// The others take a function: of the value, or of nothing.
+		const bool of_value = name == "map" || name == "and_then" || name == "filter";
+		const std::map<std::string, std::string> returns = { { "unwrap_or_else", t }, { "map", "U" }, { "and_then", "U?" }, { "or_else", p_base.to_string() }, { "filter", "bool" }, { "ok_or_else", "E" } };
+		const std::map<std::string, std::string> results = { { "unwrap_or_else", t }, { "map", "U?" }, { "and_then", "U?" }, { "or_else", p_base.to_string() }, { "filter", p_base.to_string() }, { "ok_or_else", "Result[" + t + ", E]" } };
+		hint(r_expr, [&](int p_current) { return signature(name, { "f: func(" + (of_value ? t : std::string()) + ") -> " + returns.at(name) }, false, p_current, results.at(name)); });
+		const std::map<std::string, Type> fitting = { { "unwrap_or_else", value }, { "or_else", p_base }, { "filter", Type::of(TypeKind::Bool) } };
+		const auto fits_type = fitting.find(name);
+		const std::optional<Type> returned = check_function_argument(r_expr, of_value ? std::vector<Type>{ value } : std::vector<Type>(), fits_type != fitting.end() ? fits_type->second : Type::of(TypeKind::Error));
+		if (!returned || returned->is_error()) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		if (name == "map" && returned->is_optional()) {
+			return fail_call(r_expr, "map() of " + p_base.to_string() + " with a function that returns " + returned->to_string() + " would give " + returned->to_string() + "?, and nested Options are not supported yet.");
+		}
+		const bool fits = fits_type != fitting.end() ? assignable(*returned, fits_type->second) : (name == "and_then" ? returned->is_optional() : returned->kind != TypeKind::Void);
+		if (!fits) {
+			error(r_expr.args[0]->range, "The function passed to " + name + "() returns " + returned->to_string() + ", not " + returns.at(name) + ".");
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		if (name == "map") {
+			return set(r_expr, optional_of(*returned));
+		}
+		if (name == "and_then") {
+			return set(r_expr, *returned);
+		}
+		return set(r_expr, name == "ok_or_else" ? Type::result(value, *returned) : (name == "unwrap_or_else" ? value : p_base));
 	}
 
 	// `Ok(v)` and `Err(e)` (spec §3.5): of the Result they go to, which says
@@ -4190,8 +4245,7 @@ class Checker : public ClassRelation {
 		const Type &failure = p_base.args[1];
 		const std::string t = value.to_string();
 		const std::string e = failure.to_string();
-		static const std::unordered_set<std::string> methods = { "unwrap", "expect", "unwrap_or", "unwrap_or_else", "map", "map_err", "and_then", "or_else", "ok", "err" };
-		if (!methods.count(name)) {
+		if (!result_methods().count(name)) {
 			for (auto &arg : r_expr.args) {
 				check_value(*arg);
 			}
@@ -4219,8 +4273,8 @@ class Checker : public ClassRelation {
 		const std::map<std::string, std::string> returns = { { "unwrap_or_else", t }, { "map", "U" }, { "map_err", "F" }, { "and_then", "Result[U, " + e + "]" }, { "or_else", "Result[" + t + ", F]" } };
 		const std::map<std::string, std::string> results = { { "unwrap_or_else", t }, { "map", "Result[U, " + e + "]" }, { "map_err", "Result[" + t + ", F]" }, { "and_then", "Result[U, " + e + "]" }, { "or_else", "Result[" + t + ", F]" } };
 		hint(r_expr, [&](int p_current) { return signature(name, { "f: func(" + (on_error ? e : t) + ") -> " + returns.at(name) }, false, p_current, results.at(name)); });
-		const std::optional<Type> returned = check_function_argument(r_expr, on_error ? failure : value);
-		if (!returned) {
+		const std::optional<Type> returned = check_function_argument(r_expr, { on_error ? failure : value }, name == "unwrap_or_else" ? value : Type::of(TypeKind::Error));
+		if (!returned || returned->is_error()) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		// and_then keeps the error type, or_else the value type.
@@ -4239,10 +4293,11 @@ class Checker : public ClassRelation {
 		return set(r_expr, *returned);
 	}
 
-	// The one argument of map() and the like: a function of one parameter that
-	// takes `p_param`, which a lambda's parameter then has unless written; what
-	// it returns, or nullopt after reporting.
-	std::optional<Type> check_function_argument(Expr &r_call, const Type &p_param) {
+	// The one argument of map() and the like: a function whose parameters take
+	// `p_params`, none or one, which a lambda's parameters then have unless
+	// written, as its returned values take `p_returns` when known; what it
+	// returns, or nullopt after reporting.
+	std::optional<Type> check_function_argument(Expr &r_call, const std::vector<Type> &p_params, const Type &p_returns = Type::of(TypeKind::Error)) {
 		if (r_call.args.size() != 1) {
 			for (auto &arg : r_call.args) {
 				check_value(*arg);
@@ -4251,12 +4306,13 @@ class Checker : public ClassRelation {
 			return std::nullopt;
 		}
 		Expr &arg = *r_call.args[0];
-		const Type function = check_value(arg, Type::function(Type::of(TypeKind::Error), { p_param }));
+		const Type function = check_value(arg, Type::function(p_returns, p_params));
 		if (function.is_error()) {
 			return std::nullopt;
 		}
-		if (function.kind != TypeKind::Function || function.is_async || function.args.size() != 2 || !assignable(p_param, function.args[1])) {
-			error(arg.range, "\"" + r_call.text + "()\" takes a function of one parameter, which takes " + p_param.to_string() + "; found " + function.to_string() + ".");
+		if (function.kind != TypeKind::Function || function.is_async || function.args.size() != p_params.size() + 1 || (!p_params.empty() && !assignable(p_params[0], function.args[1]))) {
+			const std::string wanted = p_params.empty() ? "without parameters" : "of one parameter, which takes " + p_params[0].to_string();
+			error(arg.range, "\"" + r_call.text + "()\" takes a function " + wanted + "; found " + function.to_string() + ".");
 			return std::nullopt;
 		}
 		r_call.param_types.push_back(function);
@@ -4959,7 +5015,7 @@ class Checker : public ClassRelation {
 				return set(r_expr, Type::of(TypeKind::Void));
 			}
 			if (base_type.is_optional()) {
-				return check_option_method(r_expr, base_type);
+				return check_option_method(r_expr, base_type, p_expected);
 			}
 			if (base_type.is_result()) {
 				return check_result_method(r_expr, base_type);
@@ -7724,9 +7780,9 @@ class Checker : public ClassRelation {
 
 	// What may follow `value.` for a value of the type.
 	void value_candidates(const Type &p_type, Candidates &r_names) {
-		if (p_type.is_optional()) {
-			r_names.values.insert({ "unwrap", "expect" });
-			r_names.values.insert(later_option_methods().begin(), later_option_methods().end());
+		if (p_type.is_optional() || p_type.is_result()) {
+			const std::unordered_set<std::string> &methods = p_type.is_result() ? result_methods() : option_methods();
+			r_names.values.insert(methods.begin(), methods.end());
 			return;
 		}
 		if (p_type.kind == TypeKind::Task) {

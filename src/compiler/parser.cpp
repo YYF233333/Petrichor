@@ -562,7 +562,9 @@ class Parser {
 				auto member = std::make_unique<Expr>();
 				member->kind = ExprKind::Member;
 				const uint32_t name_at = uint32_t(at);
-				const Token &name = expect(TokenKind::Identifier, "a member name");
+				// A keyword names a member too, as in GDScript, such as or() of T?
+				// (modules/gdscript/gdscript_parser.cpp:3417-3419; ed1daf0).
+				const Token &name = is_node_name(peek().kind) ? advance() : expect(TokenKind::Identifier, "a member name");
 				member->text = name.text;
 				member->name_token = failed ? span(name_at).first : index(name);
 				member->range = span(expr->range.first);

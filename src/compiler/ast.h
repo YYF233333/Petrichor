@@ -97,6 +97,7 @@ enum class Target {
 	ConvertToFloat,
 	Encode, // `Array(hits)` or `Dictionary(d)` of a container that keeps boxes (spec §3.8).
 	Unwrap, // `unwrap()` or `expect(message)` of T? (spec §3.4).
+	OptionMethod, // A method of T? other than those, named by `text`.
 	ResultMethod, // A method of Result, named by `text` (spec §3.5).
 	Singleton, // An engine singleton, such as Input, by its class name.
 	Autoload, // An autoload by its global name (spec §7.3).

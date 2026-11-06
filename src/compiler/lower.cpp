@@ -372,6 +372,56 @@ class Lowerer {
 		return result;
 	}
 
+	// A method of T? (spec §3.4), as result_method() lowers those of Result.
+	// filter() goes on as None when its function says no.
+	uint32_t option_method(const Expr &p_call) {
+		const Type &type = p_call.base->type;
+		const std::string &name = p_call.text;
+		const uint32_t value = lower_expr(*p_call.base);
+		const uint32_t argument = convert(lower_expr(*p_call.args[0]), p_call.param_types[0]);
+		const uint32_t result = temp(p_call.type);
+		const uint32_t none = temp(ValueType::Bool);
+		instr(Op::IS_NONE, none, value, NO_REG, 0, fn.regs[value].type);
+		const uint32_t some_block = new_block();
+		const uint32_t none_block = new_block();
+		const uint32_t end_block = new_block();
+		branch(none, none_block, some_block);
+		const auto called = [&](const std::vector<uint32_t> &p_args) { return call_value(argument, p_call.param_types[0], p_args); };
+
+		current = some_block;
+		if (name == "or" || name == "or_else") {
+			move(result, value);
+		} else {
+			const uint32_t inner = temp(type.unwrapped());
+			instr(Op::UNWRAP, inner, value, NO_REG, 0, fn.regs[inner].type);
+			if (name == "filter") {
+				const uint32_t kept_block = new_block();
+				branch(called({ inner }), kept_block, none_block);
+				current = kept_block;
+				move(result, value);
+			} else if (name == "ok_or" || name == "ok_or_else") {
+				make_variant(result, p_call.type, 0, { inner });
+			} else {
+				move(result, name == "map" || name == "and_then" ? convert(called({ inner }), p_call.type) : inner);
+			}
+		}
+		jump(end_block);
+
+		current = none_block;
+		if (name == "ok_or" || name == "ok_or_else") {
+			make_variant(result, p_call.type, 1, { name == "ok_or" ? argument : called({}) });
+		} else if (name == "unwrap_or" || name == "or") {
+			move(result, argument);
+		} else if (name == "unwrap_or_else" || name == "or_else") {
+			move(result, convert(called({}), p_call.type));
+		} else {
+			default_value(result);
+		}
+		jump(end_block);
+		current = end_block;
+		return result;
+	}
+
 	// `x?` (spec §8.2): the value inside the Result or the T?, or a return of
 	// the Err or the None it holds.
 	uint32_t try_value(const Expr &p_expr) {
@@ -1471,6 +1521,8 @@ class Lowerer {
 				instr(Op::UNWRAP, result, value, message, 0, fn.regs[result].type);
 				return result;
 			}
+			case Target::OptionMethod:
+				return option_method(p_call);
 			case Target::ResultMethod:
 				return result_method(p_call);
 			default:

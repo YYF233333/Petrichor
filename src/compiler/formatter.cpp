@@ -236,6 +236,8 @@ class Formatter {
 			}
 			const bool after_operand = previous >= 0 && (ends_operand(tokens[previous].kind) || joined[previous]);
 			prefix[t] = is_unary(kind) && !after_operand;
+			// A keyword after "." names a member, as in `o.or(x)`.
+			joined[t] = joined[t] || (previous >= 0 && tokens[previous].kind == TokenKind::Period && is_node_name(kind));
 			if (!joined[t] && (kind == TokenKind::Dollar || (kind == TokenKind::Percent && prefix[t]))) {
 				join_path(t);
 			}
