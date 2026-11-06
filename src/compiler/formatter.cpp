@@ -138,6 +138,16 @@ class Formatter {
 	int comment_bracket = -1; // The indentation of the innermost bracket's line open at them.
 	int unit = 4; // The original width of a level.
 
+	// The width of the spaces and tabs before `p_offset`, a tab as wide as 4
+	// spaces, so that a file without a block indents its comments by tabs.
+	int width_before(uint32_t p_offset) const {
+		int width = 0;
+		for (uint32_t k = p_offset; k > 0 && (file.text[k - 1] == ' ' || file.text[k - 1] == '\t'); k--) {
+			width += file.text[k - 1] == '\t' ? 4 : 1;
+		}
+		return width;
+	}
+
 	void collect() {
 		size_t t = 0;
 		size_t v = 0;
@@ -168,11 +178,7 @@ class Formatter {
 				Line line;
 				line.first = i;
 				line.blanks = std::max(breaks - 1, 0);
-				uint32_t k = begin;
-				while (k > 0 && (file.text[k - 1] == ' ' || file.text[k - 1] == '\t')) {
-					k--;
-				}
-				line.width = int(begin - k);
+				line.width = width_before(begin);
 				if (items[i].syntax < 0 && items[i].token->kind == TokenKind::Comment) {
 					line.kind = LineKind::Comment;
 				}
@@ -186,11 +192,7 @@ class Formatter {
 		// From the first block, or 4 spaces, the editor's default.
 		for (const Token &token : tokens) {
 			if (token.kind == TokenKind::Indent) {
-				uint32_t k = token.offset;
-				while (k > 0 && (file.text[k - 1] == ' ' || file.text[k - 1] == '\t')) {
-					k--;
-				}
-				unit = file.text[k] == '\t' ? 1 : int(token.offset - k);
+				unit = width_before(token.offset);
 				break;
 			}
 		}

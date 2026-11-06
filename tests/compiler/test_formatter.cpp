@@ -258,6 +258,12 @@ TEST_CASE("comment lines keep the levels they have beyond their block, as code c
 					"            # Two levels deeper.\n") == "func f() -> void:\n"
 															 "\tpass\n"
 															 "\t\t\t# Two levels deeper.\n");
+	// Without a block to take a level's width from, a tab is one.
+	CHECK(formatted("extends Node\n"
+					"\t# a\n"
+					"\t\t# b\n") == "extends Node\n"
+									"\t# a\n"
+									"\t\t# b\n");
 }
 
 TEST_CASE("formatting keeps line breaks, literals and the file's line breaks, and leaves files with syntax errors") {
