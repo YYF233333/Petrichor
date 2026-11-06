@@ -143,7 +143,11 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 ### 3.2 Numbers
 
 - There are no narrow integer types. Fixed-width arithmetic uses wrapping methods and bit operations on `int`.
-- `int` converts implicitly to `float` in assignments, arguments and returns. Converting `float` to `int` requires `int(x)`. Without it, the conversion is a compile error.
+- Of GDScript's implicit conversions between static types, this language keeps those that lose nothing and keep the meaning:
+  - `int` to `float`, and enum values to `int` or `float`;
+  - `Vector2i`, `Vector3i`, `Vector4i` and `Rect2i` to their float counterparts;
+  - between `String` and `StringName` or `NodePath`.
+- The others need an explicit constructor, or they are compile errors whose quick fix adds it. Examples are `int(x)` from `float`, `Vector2i(v)`, `bool(n)` and `Color(s)`.
 
 ### 3.3 Objects and nullability
 

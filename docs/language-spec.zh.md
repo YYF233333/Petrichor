@@ -143,7 +143,11 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 3.2 数值
 
 - 没有窄整数类型，固定位宽运算用 `int` 上的回绕运算方法和位运算。
-- `int` 在赋值、传参和返回时隐式转为 `float`。`float` 转 `int` 须显式写 `int(x)`，否则报编译错误。
+- GDScript 在静态类型之间的隐式转换，本语言只保留不丢信息、含义不变的几种：
+  - `int` 转 `float`，enum 值转 `int` 或 `float`；
+  - `Vector2i`、`Vector3i`、`Vector4i`、`Rect2i` 转对应的浮点类型；
+  - `String` 与 `StringName`、`NodePath` 互转。
+- 其余须显式写构造，否则报编译错误，快速修复补上构造。例如 `float` 转 `int` 写 `int(x)`，还有 `Vector2i(v)`、`bool(n)`、`Color(s)`。
 
 ### 3.3 对象与可空
 

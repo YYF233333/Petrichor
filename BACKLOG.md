@@ -41,6 +41,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The `breakpoint` statement.
 - `match` value patterns that are identifiers or attribute accesses (`A.B`), compared at run time (spec §5.6). The checker now takes only constants.
 - A `match` value pattern of another type than the matched value's static type is a compile error (spec §5.6). Now it compares with `==`, so `1` matches `1.0` where GDScript compares types first.
+- Implicit conversions from `Vector2i`, `Vector3i`, `Vector4i` and `Rect2i` to their float counterparts, which the checker rejects now (spec §3.2). A quick fix adding the constructor for GDScript's other implicit conversions.
 - Rest parameters `...args: Array[T]` (spec §4.6).
 - `for` over a String (spec §5.7); no file of the coverage survey's corpus does it.
 - Static functions as values, which now can only be called (spec §3.11, §4.1):
