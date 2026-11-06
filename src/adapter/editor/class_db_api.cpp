@@ -114,7 +114,18 @@ std::shared_ptr<const ClassDBApi::Members> ClassDBApi::members(const std::string
 		EngineProperty property;
 		property.name = to_utf8(name);
 		property.owner = p_class;
-		property.type = type_of(info, false); // A property is never void.
+		// Of its getter's type, as GDScript (modules/gdscript/gdscript_analyzer.cpp:4343-4347):
+		// the property list gives a resource's hint as its class, such as
+		// "CanvasItemMaterial,ShaderMaterial" (core/object/property_info.h:152-153,
+		// scene/main/canvas_item.cpp:1601), and enums without their names
+		// (scene/main/node.cpp:4046).
+		const std::string getter = to_utf8(db->class_get_property_getter(cls, name));
+		std::optional<EngineMethod> read;
+		if (!getter.empty()) {
+			const auto own = result->methods.find(getter);
+			read = own != result->methods.end() ? own->second : find_method(result->parent, getter);
+		}
+		property.type = read ? read->return_type : type_of(info, false); // A property is never void.
 		property.writable = db->class_get_property_setter(cls, name) != StringName();
 		result->properties.emplace(property.name, property);
 	}

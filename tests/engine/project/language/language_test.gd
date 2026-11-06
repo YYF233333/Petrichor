@@ -226,6 +226,7 @@ func _ready() -> void:
 	_check(v.hit(target, 2.5) and v.hit(target, 1) and not v.hit(plain_node, 1) and v.taken_by(target) == 3.5, "is with an interface of another script, and its method")
 	var placed := TargetCheck.new()
 	_check(v.shift(placed, Vector2(2, 3)) == 1.5 and placed.position == Vector2(2, 3), "interface properties: a member of this language and an engine property")
+	_check(placed.engine_typed() == "true true", "an engine property has its getter's type, a resource's class and an enum")
 	placed.free()
 	var accessors := AccessorCheck.new()
 	_check(accessors.speed == 1.0 and accessors.writes == 0 and accessors.doubled == 6 and accessors.named == -1, "initializers write the field, and reads go through the getter")

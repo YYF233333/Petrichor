@@ -27,3 +27,11 @@ pub func half(x: int) -> int?:
 
 pub func same_node(n: Node?) -> Node?:
 	return n
+
+# Engine properties of their getters' types: the property list gives material
+# two classes and process_mode no enum.
+pub func engine_typed() -> String:
+	material = ShaderMaterial.new()
+	var mat: Material? = material
+	var mode: Node.ProcessMode = process_mode
+	return str(mat is ShaderMaterial) + " " + str(mode == Node.PROCESS_MODE_INHERIT)
