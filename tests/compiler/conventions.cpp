@@ -72,249 +72,63 @@ class RangeChecker {
 		CHECK(file.tokens[p_token].text == p_name);
 	}
 
-	void type(const TypeRef &p_type, const TokenRange &p_parent, int64_t &r_cursor) {
-		enter(p_type.range, p_parent, r_cursor);
-		name(p_type.name_token, p_type.name.substr(0, p_type.name.find('.')), p_type.range);
-		int64_t cursor = int64_t(p_type.range.first) - 1;
-		for (const TypeRef &arg : p_type.args) {
-			type(arg, p_type.range, cursor);
-		}
-	}
-
-	void expr(const Expr *p_expr, const TokenRange &p_parent, int64_t &r_cursor) {
-		if (!p_expr) {
-			return;
-		}
-		const Expr &e = *p_expr;
-		enter(e.range, p_parent, r_cursor);
-		int64_t cursor = int64_t(e.range.first) - 1;
-		switch (e.kind) {
-			case ExprKind::Name:
-			case ExprKind::Member:
-			case ExprKind::Call:
-				name(e.name_token, e.text, e.range);
-				break;
-			case ExprKind::Unary:
-			case ExprKind::Binary:
-				CHECK(e.op_token >= e.range.first);
-				CHECK(e.op_token <= e.range.last);
-				break;
-			default:
-				break;
-		}
-		switch (e.kind) {
-			case ExprKind::Conditional:
-				expr(e.left.get(), e.range, cursor);
-				expr(e.base.get(), e.range, cursor);
-				expr(e.right.get(), e.range, cursor);
-				return;
-			case ExprKind::Cast:
-			case ExprKind::TypeTest:
-				expr(e.left.get(), e.range, cursor);
-				type(e.cast_type, e.range, cursor);
-				return;
-			default:
-				break;
-		}
-		expr(e.base.get(), e.range, cursor);
-		expr(e.left.get(), e.range, cursor);
-		expr(e.right.get(), e.range, cursor);
-		for (size_t i = 0; i < e.args.size(); i++) {
-			if (i < e.arg_names.size() && !e.arg_names[i].empty()) {
-				name(e.arg_name_tokens[i], e.arg_names[i], e.range);
+	template <typename P>
+	void children(const P &p_parent, const TokenRange &p_range) {
+		int64_t cursor = int64_t(p_range.first) - 1;
+		const char *prev = nullptr;
+		bool in_classes = false;
+		for_each_child(p_parent, [&](const auto &p_child) {
+			using C = std::decay_t<decltype(p_child)>;
+			if constexpr (std::is_same_v<P, ClassDecl> || std::is_same_v<P, InterfaceDecl>) {
+				const char *at = reinterpret_cast<const char *>(&p_child);
+				if (std::is_same_v<C, ClassDecl> ? !in_classes : (at != prev + sizeof(C) && (!std::is_same_v<C, Annotation> || at != prev + sizeof(ExportGroupDecl)))) {
+					cursor = -1;
+				}
+				prev = at;
+				in_classes = std::is_same_v<C, ClassDecl>;
 			}
-			expr(e.args[i].get(), e.range, cursor);
-		}
-		if (e.function) {
-			function(*e.function, e.range, cursor);
-		}
+			visit(p_child, p_range, cursor);
+		});
 	}
 
-	void block(const Block &p_block, const TokenRange &p_parent, int64_t &r_cursor) {
-		for (const auto &stmt : p_block) {
-			statement(*stmt, p_parent, r_cursor);
-		}
-	}
-
-	void pattern(const Pattern &p_pattern, const TokenRange &p_parent, int64_t &r_cursor) {
-		enter(p_pattern.range, p_parent, r_cursor);
-		if (p_pattern.kind == PatternKind::Bind) {
-			name(p_pattern.name_token, p_pattern.name, p_pattern.range);
-		}
-		int64_t cursor = int64_t(p_pattern.range.first) - 1;
-		expr(p_pattern.value.get(), p_pattern.range, cursor);
-		for (const Pattern &item : p_pattern.items) {
-			pattern(item, p_pattern.range, cursor);
-		}
-	}
-
-	void statement(const Stmt &p_stmt, const TokenRange &p_parent, int64_t &r_cursor) {
-		enter(p_stmt.range, p_parent, r_cursor);
-		const TokenRange &range = p_stmt.range;
-		int64_t cursor = int64_t(range.first) - 1;
-		if (p_stmt.kind == StmtKind::Var || p_stmt.kind == StmtKind::Const || p_stmt.kind == StmtKind::For) {
-			name(p_stmt.name_token, p_stmt.name, range);
-		}
-		if (p_stmt.declared_type) {
-			type(*p_stmt.declared_type, range, cursor);
-		}
-		expr(p_stmt.target.get(), range, cursor);
-		expr(p_stmt.condition.get(), range, cursor);
-		expr(p_stmt.value.get(), range, cursor);
-		block(p_stmt.body, range, cursor);
-		block(p_stmt.else_body, range, cursor);
-		for (const MatchBranch &branch : p_stmt.branches) {
-			enter(branch.range, range, cursor);
-			int64_t inner = int64_t(branch.range.first) - 1;
-			for (const Pattern &item : branch.patterns) {
-				pattern(item, branch.range, inner);
+	template <typename T>
+	void visit(const T &p_node, const TokenRange &p_parent, int64_t &r_cursor) {
+		enter(p_node.range, p_parent, r_cursor);
+		if constexpr (std::is_same_v<T, TypeRef>) {
+			name(p_node.name_token, p_node.name.substr(0, p_node.name.find('.')), p_node.range);
+		} else if constexpr (std::is_same_v<T, Expr>) {
+			if (p_node.kind == ExprKind::Name || p_node.kind == ExprKind::Member || p_node.kind == ExprKind::Call) {
+				name(p_node.name_token, p_node.text, p_node.range);
+			} else if (p_node.kind == ExprKind::Unary || p_node.kind == ExprKind::Binary) {
+				CHECK(p_node.op_token >= p_node.range.first);
+				CHECK(p_node.op_token <= p_node.range.last);
 			}
-			expr(branch.guard.get(), branch.range, inner);
-			block(branch.body, branch.range, inner);
-		}
-	}
-
-	void annotation(const Annotation &p_annotation, const TokenRange &p_parent, int64_t &r_cursor) {
-		enter(p_annotation.range, p_parent, r_cursor);
-		name(p_annotation.name_token, p_annotation.name, p_annotation.range);
-		int64_t cursor = int64_t(p_annotation.range.first) - 1;
-		for (const auto &arg : p_annotation.args) {
-			expr(arg.get(), p_annotation.range, cursor);
-		}
-	}
-
-	void variable(const VarDecl &p_decl, const TokenRange &p_parent, int64_t &r_cursor) {
-		enter(p_decl.range, p_parent, r_cursor);
-		name(p_decl.name_token, p_decl.name, p_decl.range);
-		int64_t cursor = int64_t(p_decl.range.first) - 1;
-		for (const Annotation &item : p_decl.annotations) {
-			annotation(item, p_decl.range, cursor);
-		}
-		if (p_decl.declared_type) {
-			type(*p_decl.declared_type, p_decl.range, cursor);
-		}
-		expr(p_decl.initializer.get(), p_decl.range, cursor);
-	}
-
-	void params(const std::vector<ParamDecl> &p_params, const TokenRange &p_parent, int64_t &r_cursor) {
-		for (const ParamDecl &param : p_params) {
-			enter(param.range, p_parent, r_cursor);
-			name(param.name_token, param.name, param.range);
-			int64_t cursor = int64_t(param.range.first) - 1;
-			if (param.declared_type) {
-				type(*param.declared_type, param.range, cursor);
+			for (size_t i = 0; i < p_node.arg_names.size(); i++) {
+				name(p_node.arg_name_tokens[i], p_node.arg_names[i], p_node.range);
 			}
-			expr(param.default_value.get(), param.range, cursor);
+		} else if constexpr (std::is_same_v<T, Pattern>) {
+			if (p_node.kind == PatternKind::Bind) {
+				name(p_node.name_token, p_node.name, p_node.range);
+			}
+		} else if constexpr (std::is_same_v<T, Stmt>) {
+			if (p_node.kind == StmtKind::Var || p_node.kind == StmtKind::Const || p_node.kind == StmtKind::For) {
+				name(p_node.name_token, p_node.name, p_node.range);
+			}
+		} else if constexpr (std::is_same_v<T, FuncDecl>) {
+			// An inline accessor, @set_x or @get_x, is named by its keyword.
+			name(p_node.name_token, p_node.name.rfind('@', 0) == 0 ? p_node.name.substr(1, 3) : p_node.name, p_node.range);
+		} else if constexpr (!std::is_same_v<T, MatchBranch>) {
+			name(p_node.name_token, p_node.name, p_node.range);
 		}
-	}
-
-	void function(const FuncDecl &p_decl, const TokenRange &p_parent, int64_t &r_cursor) {
-		enter(p_decl.range, p_parent, r_cursor);
-		// An inline accessor, @set_x or @get_x, is named by its keyword.
-		name(p_decl.name_token, p_decl.name.rfind('@', 0) == 0 ? p_decl.name.substr(1, 3) : p_decl.name, p_decl.range);
-		int64_t cursor = int64_t(p_decl.range.first) - 1;
-		params(p_decl.params, p_decl.range, cursor);
-		if (p_decl.return_type_ref) {
-			type(*p_decl.return_type_ref, p_decl.range, cursor);
-		}
-		block(p_decl.body, p_decl.range, cursor);
+		children(p_node, p_node.range);
 	}
 
 public:
 	explicit RangeChecker(const SourceFile &p_file) :
 			file(p_file) {}
 
-	// The nodes of a class, within p_within for an inner class.
-	void run(const ClassDecl &p_class, std::optional<TokenRange> p_within = std::nullopt) {
-		const TokenRange whole = p_within ? *p_within : TokenRange{ 0, uint32_t(file.tokens.size() - 1) };
-		int64_t cursor = -1;
-		for (const VarDecl &member : p_class.members) {
-			variable(member, whole, cursor);
-		}
-		cursor = -1;
-		for (const VarDecl &variable_decl : p_class.static_vars) {
-			variable(variable_decl, whole, cursor);
-		}
-		cursor = -1;
-		for (const EnumDecl &decl : p_class.enums) {
-			enter(decl.range, whole, cursor);
-			name(decl.name_token, decl.name, decl.range);
-			int64_t inner = int64_t(decl.range.first) - 1;
-			for (const EnumValueDecl &value : decl.values) {
-				enter(value.range, decl.range, inner);
-				name(value.name_token, value.name, value.range);
-				int64_t value_cursor = int64_t(value.range.first) - 1;
-				expr(value.value.get(), value.range, value_cursor);
-			}
-		}
-		cursor = -1;
-		for (const Annotation &annotation_decl : p_class.warning_ignores) {
-			annotation(annotation_decl, whole, cursor);
-		}
-		cursor = -1;
-		for (const ConstDecl &constant : p_class.constants) {
-			enter(constant.range, whole, cursor);
-			name(constant.name_token, constant.name, constant.range);
-			int64_t inner = int64_t(constant.range.first) - 1;
-			if (constant.declared_type) {
-				type(*constant.declared_type, constant.range, inner);
-			}
-			expr(constant.initializer.get(), constant.range, inner);
-		}
-		cursor = -1;
-		for (const FuncDecl &function_decl : p_class.functions) {
-			function(function_decl, whole, cursor);
-		}
-		cursor = -1;
-		for (const SignalDecl &signal : p_class.signals) {
-			enter(signal.range, whole, cursor);
-			name(signal.name_token, signal.name, signal.range);
-			int64_t inner = int64_t(signal.range.first) - 1;
-			params(signal.params, signal.range, inner);
-		}
-		cursor = -1;
-		for (const StructDecl &decl : p_class.structs) {
-			enter(decl.range, whole, cursor);
-			name(decl.name_token, decl.name, decl.range);
-			int64_t inner = int64_t(decl.range.first) - 1;
-			for (const VarDecl &field : decl.fields) {
-				variable(field, decl.range, inner);
-			}
-		}
-		cursor = -1;
-		for (const InterfaceDecl &decl : p_class.interfaces) {
-			enter(decl.range, whole, cursor);
-			name(decl.name_token, decl.name, decl.range);
-			int64_t inner = int64_t(decl.range.first) - 1;
-			for (const InterfaceProperty &property : decl.properties) {
-				enter(property.range, decl.range, inner);
-				name(property.name_token, property.name, property.range);
-				int64_t type_cursor = int64_t(property.range.first) - 1;
-				type(property.type_ref, property.range, type_cursor);
-			}
-			inner = int64_t(decl.range.first) - 1;
-			for (const FuncDecl &method : decl.methods) {
-				function(method, decl.range, inner);
-			}
-		}
-		cursor = -1;
-		for (const TypeRef &ref : p_class.implements) {
-			type(ref, whole, cursor);
-		}
-		cursor = -1;
-		if (p_class.owner_ref) {
-			type(*p_class.owner_ref, whole, cursor);
-		}
-		cursor = -1;
-		for (const ExportGroupDecl &group : p_class.groups) {
-			annotation(group.annotation, whole, cursor);
-		}
-		cursor = -1;
-		for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
-			enter(inner->range, whole, cursor);
-			name(inner->name_token, inner->name, inner->range);
-			run(*inner, inner->range);
-		}
+	void run(const ClassDecl &p_class) {
+		children(p_class, { 0, uint32_t(file.tokens.size() - 1) });
 	}
 };
 
@@ -347,56 +161,28 @@ class StatementStarts {
 	const SourceFile &file;
 	std::vector<int> lambdas;
 
-	void expr(const Expr *p_expr) {
-		if (!p_expr) {
-			return;
-		}
-		expr(p_expr->base.get());
-		expr(p_expr->left.get());
-		expr(p_expr->right.get());
-		for (const auto &arg : p_expr->args) {
-			expr(arg.get());
-		}
-		if (p_expr->function) {
-			lambdas.push_back(file.position(file.begin(p_expr->function->range)).line);
-			block(p_expr->function->body);
-			lambdas.pop_back();
-		}
-	}
-
-	void block(const Block &p_block) {
-		for (const auto &stmt : p_block) {
-			const uint32_t begin = file.begin(stmt->range);
+	template <typename T>
+	void visit(const T &p_node) {
+		if constexpr (std::is_same_v<T, Stmt>) {
+			const uint32_t begin = file.begin(p_node.range);
 			starts.push_back({ file.position(begin).line, begin, lambdas });
-			expr(stmt->target.get());
-			expr(stmt->condition.get());
-			expr(stmt->value.get());
-			block(stmt->body);
-			block(stmt->else_body);
-			for (const MatchBranch &branch : stmt->branches) {
-				block(branch.body);
+		} else if constexpr (std::is_same_v<T, FuncDecl>) {
+			if (p_node.is_lambda) {
+				lambdas.push_back(file.position(file.begin(p_node.range)).line);
+				for_each_child(p_node, [&](const auto &p_child) { visit(p_child); });
+				lambdas.pop_back();
+				return;
 			}
 		}
+		for_each_child(p_node, [&](const auto &p_child) { visit(p_child); });
 	}
 
 public:
 	std::vector<StatementStart> starts;
 
-	StatementStarts(const ClassDecl &p_class) :
+	explicit StatementStarts(const ClassDecl &p_class) :
 			file(*p_class.source) {
-		run(p_class);
-	}
-
-	void run(const ClassDecl &p_class) {
-		for (const VarDecl &member : p_class.members) {
-			expr(member.initializer.get());
-		}
-		for (const FuncDecl &function : p_class.functions) {
-			block(function.body);
-		}
-		for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
-			run(*inner);
-		}
+		visit(p_class);
 	}
 };
 
@@ -434,119 +220,39 @@ class ResolvedNames {
 		}
 	}
 
-	void expr(const Expr *p_expr) {
-		if (!p_expr) {
-			return;
-		}
-		if ((p_expr->kind == ExprKind::Name || p_expr->kind == ExprKind::Member || p_expr->kind == ExprKind::Call) && p_expr->target != Target::None && p_expr->target != Target::NoneComparison) {
-			add(p_expr->name_token, p_expr->text, "use of");
-		}
-		expr(p_expr->left.get());
-		expr(p_expr->right.get());
-		expr(p_expr->base.get());
-		for (const auto &arg : p_expr->args) {
-			expr(arg.get());
-		}
-		if (p_expr->function) {
-			params(p_expr->function->params);
-			block(p_expr->function->body);
-		}
-	}
-
-	void params(const std::vector<ParamDecl> &p_params) {
-		for (const ParamDecl &param : p_params) {
-			add(param.name_token, param.name, "parameter");
-			expr(param.default_value.get());
-		}
-	}
-
-	void variable(const VarDecl &p_decl, const char *p_what) {
-		add(p_decl.name_token, p_decl.name, p_what);
-		for (const Annotation &annotation : p_decl.annotations) {
-			for (const auto &arg : annotation.args) {
-				expr(arg.get());
+	template <typename T>
+	void visit(const T &p_node) {
+		if constexpr (std::is_same_v<T, Expr>) {
+			if ((p_node.kind == ExprKind::Name || p_node.kind == ExprKind::Member || p_node.kind == ExprKind::Call) && p_node.target != Target::None && p_node.target != Target::NoneComparison) {
+				add(p_node.name_token, p_node.text, "use of");
 			}
-		}
-		expr(p_decl.initializer.get());
-	}
-
-	void block(const Block &p_block) {
-		for (const auto &stmt : p_block) {
-			if (stmt->kind == StmtKind::Var || stmt->kind == StmtKind::Const || stmt->kind == StmtKind::For) {
-				add(stmt->name_token, stmt->name, "local");
+		} else if constexpr (std::is_same_v<T, Stmt>) {
+			if (p_node.kind == StmtKind::Var || p_node.kind == StmtKind::Const || p_node.kind == StmtKind::For) {
+				add(p_node.name_token, p_node.name, "local");
 			}
-			expr(stmt->target.get());
-			expr(stmt->condition.get());
-			expr(stmt->value.get());
-			block(stmt->body);
-			block(stmt->else_body);
-			for (const MatchBranch &branch : stmt->branches) {
-				for (const Pattern &pattern : branch.patterns) {
-					if (pattern.kind == PatternKind::Bind) {
-						add(pattern.name_token, pattern.name, "local");
-					}
-					expr(pattern.value.get());
+		} else if constexpr (std::is_same_v<T, Pattern>) {
+			if (p_node.kind == PatternKind::Bind) {
+				add(p_node.name_token, p_node.name, "local");
+			}
+		} else if constexpr (std::is_same_v<T, FuncDecl>) {
+			if (!p_node.is_lambda) {
+				add(p_node.name_token, p_node.name, "function");
+			}
+			if (p_node.has_body || p_node.is_abstract) {
+				for (const ParamDecl &param : p_node.params) {
+					add(param.name_token, param.name, "parameter");
 				}
-				expr(branch.guard.get());
-				block(branch.body);
 			}
+		} else if constexpr (!std::is_same_v<T, TypeRef> && !std::is_same_v<T, MatchBranch> && !std::is_same_v<T, Annotation> && !std::is_same_v<T, ParamDecl>) {
+			add(p_node.name_token, p_node.name, "declaration");
 		}
+		for_each_child(p_node, [&](const auto &p_child) { visit(p_child); });
 	}
 
 public:
 	ResolvedNames(const ClassDecl &p_class, const SourceFile &p_file) :
 			file(p_file) {
-		for (const VarDecl &member : p_class.members) {
-			variable(member, "member");
-		}
-		for (const VarDecl &variable_decl : p_class.static_vars) {
-			variable(variable_decl, "static variable");
-		}
-		for (const EnumDecl &decl : p_class.enums) {
-			add(decl.name_token, decl.name, "enum");
-			for (const EnumValueDecl &value : decl.values) {
-				add(value.name_token, value.name, "enum value");
-				expr(value.value.get());
-			}
-		}
-		for (const ExportGroupDecl &group : p_class.groups) {
-			for (const auto &arg : group.annotation.args) {
-				expr(arg.get());
-			}
-		}
-		for (const ConstDecl &constant : p_class.constants) {
-			add(constant.name_token, constant.name, "constant");
-			expr(constant.initializer.get());
-		}
-		for (const FuncDecl &function : p_class.functions) {
-			add(function.name_token, function.name, "function");
-			params(function.params);
-			block(function.body);
-		}
-		for (const SignalDecl &signal : p_class.signals) {
-			add(signal.name_token, signal.name, "signal");
-		}
-		for (const StructDecl &decl : p_class.structs) {
-			add(decl.name_token, decl.name, "struct");
-			for (const VarDecl &field : decl.fields) {
-				add(field.name_token, field.name, "field");
-				expr(field.initializer.get());
-			}
-		}
-		for (const InterfaceDecl &decl : p_class.interfaces) {
-			add(decl.name_token, decl.name, "interface");
-			for (const FuncDecl &method : decl.methods) {
-				add(method.name_token, method.name, "method");
-			}
-			for (const InterfaceProperty &property : decl.properties) {
-				add(property.name_token, property.name, "property");
-			}
-		}
-		for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
-			add(inner->name_token, inner->name, "class");
-			const ResolvedNames names(*inner, p_file);
-			this->names.insert(this->names.end(), names.names.begin(), names.names.end());
-		}
+		visit(p_class);
 	}
 
 	const std::vector<std::pair<uint32_t, std::string>> &all() const { return names; }

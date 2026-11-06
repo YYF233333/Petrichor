@@ -98,39 +98,22 @@ void mark_errors(const ClassDecl &p_decl, const std::vector<Diagnostic> &p_error
 		const uint32_t end = source.end(p_range);
 		mark_lines(p_node, line_of(begin), line_of(end > begin ? end - 1 : begin));
 	};
-	for (const VarDecl &member : p_decl.members) {
-		mark(&member, member.range);
-	}
-	for (const VarDecl &variable : p_decl.static_vars) {
-		mark(&variable, variable.range);
-	}
-	for (const ConstDecl &constant : p_decl.constants) {
-		mark(&constant, constant.range);
-	}
-	for (const FuncDecl &function : p_decl.functions) {
-		const int first = line_of(source.begin(function.range));
-		const uint32_t end = source.end(function.range);
-		int last = line_of(end > source.begin(function.range) ? end - 1 : end);
-		if (function.has_body && !function.body.empty()) {
-			last = std::max(first, line_of(source.begin(function.body.front()->range)) - 1);
+	for_each_child(p_decl, [&](const auto &p_child) {
+		using T = std::decay_t<decltype(p_child)>;
+		if constexpr (std::is_same_v<T, ClassDecl>) {
+			mark_errors(p_child, p_errors, r_marked);
+		} else if constexpr (std::is_same_v<T, FuncDecl>) {
+			const int first = line_of(source.begin(p_child.range));
+			const uint32_t end = source.end(p_child.range);
+			int last = line_of(end > source.begin(p_child.range) ? end - 1 : end);
+			if (p_child.has_body && !p_child.body.empty()) {
+				last = std::max(first, line_of(source.begin(p_child.body.front()->range)) - 1);
+			}
+			mark_lines(&p_child, first, last);
+		} else {
+			mark(&p_child, p_child.range);
 		}
-		mark_lines(&function, first, last);
-	}
-	for (const SignalDecl &signal : p_decl.signals) {
-		mark(&signal, signal.range);
-	}
-	for (const StructDecl &decl : p_decl.structs) {
-		mark(&decl, decl.range);
-	}
-	for (const EnumDecl &decl : p_decl.enums) {
-		mark(&decl, decl.range);
-	}
-	for (const InterfaceDecl &decl : p_decl.interfaces) {
-		mark(&decl, decl.range);
-	}
-	for (const std::unique_ptr<ClassDecl> &inner : p_decl.classes) {
-		mark_errors(*inner, p_errors, r_marked);
-	}
+	});
 }
 
 } // namespace

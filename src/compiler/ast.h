@@ -591,4 +591,91 @@ struct ClassDecl {
 	}
 };
 
+// Calls `p_fn` on each direct child AST node of `p_node`, in source order
+// within each list.
+template <typename Node, typename Fn>
+void for_each_child(const Node &p_node, Fn &&p_fn) {
+	const auto opt = [&](const auto &...p_ptrs) {
+		((p_ptrs ? void(p_fn(*p_ptrs)) : void()), ...);
+	};
+	const auto list = [&](const auto &...p_vecs) {
+		(
+				[&](const auto &p_vec) {
+					for (const auto &item : p_vec) {
+						p_fn(item);
+					}
+				}(p_vecs),
+				...);
+	};
+	const auto ptrs = [&](const auto &...p_vecs) {
+		(
+				[&](const auto &p_vec) {
+					for (const auto &ptr : p_vec) {
+						if (ptr) {
+							p_fn(*ptr);
+						}
+					}
+				}(p_vecs),
+				...);
+	};
+	if constexpr (std::is_same_v<Node, TypeRef>) {
+		list(p_node.args);
+	} else if constexpr (std::is_same_v<Node, Expr>) {
+		if (p_node.kind == ExprKind::Conditional) {
+			opt(p_node.left, p_node.base, p_node.right);
+		} else if (p_node.kind == ExprKind::Cast || p_node.kind == ExprKind::TypeTest) {
+			opt(p_node.left);
+			p_fn(p_node.cast_type);
+		} else {
+			opt(p_node.base, p_node.left, p_node.right);
+			ptrs(p_node.args);
+			opt(p_node.function);
+		}
+	} else if constexpr (std::is_same_v<Node, Pattern>) {
+		opt(p_node.value);
+		list(p_node.items);
+	} else if constexpr (std::is_same_v<Node, MatchBranch>) {
+		list(p_node.patterns);
+		opt(p_node.guard);
+		ptrs(p_node.body);
+	} else if constexpr (std::is_same_v<Node, Stmt>) {
+		opt(p_node.declared_type, p_node.target, p_node.condition, p_node.value);
+		ptrs(p_node.body, p_node.else_body);
+		list(p_node.branches);
+	} else if constexpr (std::is_same_v<Node, Annotation>) {
+		ptrs(p_node.args);
+	} else if constexpr (std::is_same_v<Node, VarDecl>) {
+		list(p_node.annotations);
+		opt(p_node.declared_type, p_node.initializer);
+	} else if constexpr (std::is_same_v<Node, ConstDecl>) {
+		opt(p_node.declared_type, p_node.initializer);
+	} else if constexpr (std::is_same_v<Node, ParamDecl>) {
+		opt(p_node.declared_type, p_node.default_value);
+	} else if constexpr (std::is_same_v<Node, FuncDecl>) {
+		list(p_node.annotations, p_node.params);
+		opt(p_node.return_type_ref);
+		ptrs(p_node.body);
+	} else if constexpr (std::is_same_v<Node, SignalDecl>) {
+		list(p_node.params);
+	} else if constexpr (std::is_same_v<Node, InterfaceProperty>) {
+		p_fn(p_node.type_ref);
+	} else if constexpr (std::is_same_v<Node, StructDecl>) {
+		list(p_node.fields);
+	} else if constexpr (std::is_same_v<Node, EnumValueDecl>) {
+		opt(p_node.value);
+	} else if constexpr (std::is_same_v<Node, EnumDecl>) {
+		list(p_node.values);
+	} else if constexpr (std::is_same_v<Node, InterfaceDecl>) {
+		list(p_node.properties, p_node.methods);
+	} else if constexpr (std::is_same_v<Node, ClassDecl>) {
+		opt(p_node.owner_ref);
+		list(p_node.implements);
+		for (const ExportGroupDecl &group : p_node.groups) {
+			p_fn(group.annotation);
+		}
+		list(p_node.warning_ignores, p_node.members, p_node.static_vars, p_node.constants, p_node.functions, p_node.signals, p_node.structs, p_node.enums, p_node.interfaces);
+		ptrs(p_node.classes);
+	}
+}
+
 } // namespace petrichor::compiler

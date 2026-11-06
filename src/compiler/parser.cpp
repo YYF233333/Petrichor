@@ -1157,6 +1157,7 @@ class Parser {
 					fail(peek(), "Signals of interfaces are not supported yet.");
 				}
 				FuncDecl method;
+				method.has_body = false;
 				method.is_async = match(TokenKind::Async);
 				expect(TokenKind::Func, "\"func\"");
 				if (failed) {
