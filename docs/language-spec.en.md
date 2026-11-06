@@ -31,6 +31,14 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - Engine behavior relied on here was checked against Godot 4.7.2-stable (commit `ed1daf0`), with sources in [engine-facts.md](engine-facts.md).
 - Petrichor and `.pet` are provisional and will be finalized before the first release. The extension must be short and lowercase. It must not be used by Godot, GitHub Linguist or common editors.
 
+### 1.5 Guarantees
+
+Besides the syntax hard rule, this language's own operations guarantee three things everywhere. Engine APIs behave as before. The only exceptions are the [Known limitation] items, marked where they apply.
+
+- **Sound types**: a value not fitting its static type raises a program error before it is used as one. A non-null `T` is never null, though it may be a freed object.
+- **No silent failure**: a failure is a compile error, an `Option` or `Result`, or a program error. Nothing silently yields a default or a wrong result, or waits forever. Except for `assert`, debug and release builds detect and handle program errors identically.
+- **No crashes**: a legal program never crashes the process or corrupts memory, except through data races on shared objects.
+
 ## 2. Lexical structure and surface syntax
 
 ### 2.1 Files and classes
@@ -212,7 +220,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 ### 3.7 Enums
 
 - An explicit enum value must be an `int` the compiler computes. An anonymous `enum { A, B }` declares `int` constants of the class.
-- Enums of this language are closed and checked at entry. Engine enums are open: the engine produces values outside them and adds values in newer versions. So `MouseButton(x)` performs no range check, and a `match` over one requires `_`.
+- Enums of this language are closed: entry checks and reads from containers check their values. Engine enums are open: the engine produces values outside them and adds values in newer versions. So `MouseButton(x)` performs no range check, and a `match` over one requires `_`.
 - `int` converts to an enum of this language only explicitly. Write `State(x)`, a program error if out of domain, or `State.try_from(x)`:
 
   ```gdscript
@@ -468,7 +476,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
           hit()
   ```
 
-- A `match` over an enum of this language, `Result` or `Option` must be exhaustive or include `_`. One over an open engine enum must include `_`. `when` branches do not count toward coverage. Other types need not be exhaustive. An exhaustive `match` over an enum of this language covers all return paths. An invalid integer injected from the engine raises a program error at the `match`.
+- A `match` over an enum of this language, `Result` or `Option` must be exhaustive or include `_`. One over an open engine enum must include `_`. `when` branches do not count toward coverage. Other types need not be exhaustive. An exhaustive `match` over an enum of this language covers all return paths.
 - [Known limitation] No type patterns (use `if x is T`), no `match` expressions, and no bindings in comma-separated patterns in the first version.
 
 ### 5.7 Loops
@@ -600,7 +608,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 ### 8.1 Program errors
 
 - A program error aborts the entire call chain of this language back to the engine entry point. Calls to methods declared in this language share the chain, whatever the receiver's class and even through an interface. So do `f.call(x)` and `f.callv(args)` on lambdas or method values, including after `bind()`. Only engine entry points start a new chain, such as signals, engine `Callable`s and engine virtuals. Unwinding releases held references and logs the error and call stack. When running in the editor, it breaks in the debugger. The game keeps running.
-- Except for `assert`, debug and release builds detect and handle program errors identically. Debug builds only enrich diagnostics and report leaks on exit.
+- Debug builds only enrich diagnostics and report leaks on exit.
 - Engine entry points requiring a return value receive the default value of that type.
 - Every "program error" in this specification follows this rule. Examples include freed-object access, failed `unwrap`/`expect`, out-of-range indexes and integer division by zero. They also include reading unassigned members before ready, entry-check failures, mutating `Dictionary` keys and awaiting cancelled tasks.
 - Nesting calls of this language past 1024 on one thread is a program error rather than a stack-overflow crash.
