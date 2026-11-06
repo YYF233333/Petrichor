@@ -670,7 +670,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 9.3 Cancellation and ownership
 
-- On a suspended task, `cancel()` immediately disconnects its awaited signal or task. A running task, which is indirectly cancelling itself, cancels at its next `await` or `return`. It discards its return value. Ended tasks are unaffected. After `cancel()`, the outcome is always cancelled.
+- On a suspended task, `cancel()` immediately disconnects its awaited signal or task. Only code a running task runs synchronously can cancel it, such as a handler of a signal it emits. It then cancels at its next `await` or `return`, discarding its return value. Ended tasks are unaffected. After `cancel()`, the outcome is always cancelled.
 - Cancellation follows ownership. A child task started and awaited directly as `await f(...)` belongs to its parent and cancels with it. Awaiting an existing `Task` value only stops waiting, while that task runs on.
 
 ### 9.4 Release
