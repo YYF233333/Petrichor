@@ -509,7 +509,7 @@ func _ready() -> void:
 	var stray: Array[int] = [99]
 	_check(k.mode_name(angry) == "angry", "an exhaustive match over an enum of this language takes every path (spec §5.6)")
 	k.mode_name(stray)
-	_check_errors(["constant_check.pet:140: 99 is none of the values of ConstantCheck.Mode."], "a value from the engine that is none of the enum's is a program error at the match")
+	_check_errors(["constant_check.pet:140: Expected ConstantCheck.Mode, found 99, which is none of its values."], "an int that is none of the enum's values is a program error when read from a container (spec §3.7)")
 
 	var statics := StaticChild.new()
 	_check(statics.made(), "new() of classes of this language runs their initializers and _init() (spec §4.6)")

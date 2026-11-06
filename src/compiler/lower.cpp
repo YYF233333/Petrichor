@@ -2393,8 +2393,9 @@ class Lowerer {
 					current = next_block;
 				}
 				if (p_stmt.exhaustive && p_stmt.value->type.kind == TypeKind::Enum && !p_stmt.value->type.values->is_engine) {
-					// Only a value that is none of the enum's comes here, as an int that
-					// GDScript put into an Array[State]: a program error (spec §5.6).
+					// No value comes here, since values of the enum are checked where
+					// they come in (spec §1.5); a definite error all the same, rather
+					// than running off the end of a function with a return type.
 					instr(Op::CHECK_ENUM, NO_REG, matched, NO_REG, fn.regs[matched].type);
 				}
 				jump(end_block);

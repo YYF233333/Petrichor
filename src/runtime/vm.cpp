@@ -376,10 +376,14 @@ String key_text(const Variant &p_key) {
 	return type_of(p_key) == Variant::CALLABLE ? String(p_key) : UtilityFunctions::var_to_str(p_key);
 }
 
-// A container read out of another is checked against its type, which the
-// engine keeps one level deep (spec §3.8).
+// What is read out of a container is checked against its type where the
+// engine does not keep it: a container below the first level (spec §3.8), and
+// an enum of this language, which the engine holds as int (§3.7).
 bool checked_when_read(const TypeImage &p_type) {
-	return p_type.kind == bytecode::TypeKind::Array || p_type.kind == bytecode::TypeKind::Dictionary;
+	if (p_type.kind == bytecode::TypeKind::Option) {
+		return checked_when_read(*p_type.element);
+	}
+	return p_type.enum_checked || p_type.kind == bytecode::TypeKind::Array || p_type.kind == bytecode::TypeKind::Dictionary;
 }
 
 // "Expected Array[int], found Array.", as CHECK_OBJECT says it.
