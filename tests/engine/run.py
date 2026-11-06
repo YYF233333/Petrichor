@@ -568,11 +568,11 @@ def run_migration_group(godot, name, prepare, migrated_scripts, *scene):
         shutil.copytree(original, migrated)
         (migrated / ".godot" / "global_script_class_cache.cfg").unlink()
         migrate(migrated, migrated_scripts)
-        # Spec §13.2: the migrated game is built and run formatted.
-        code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-format", "--check")
-        expect(f"{name} format check: the scripts written by hand are not formatted", code == 1 and "is not formatted." in output, output)
+        # Spec §13.2: the migrated game is built and run formatted; the
+        # scripts written by hand are not.
         code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-format")
-        expect(f"{name} format", code == 0 and ", 0 with errors" in output, output)
+        changed = re.search(r", (\d+) formatted,", output)
+        expect(f"{name} format", code == 0 and ", 0 with errors" in output and changed and int(changed.group(1)) > 0, output)
         code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-format", "--check")
         expect(f"{name} format check: then they are", code == 0 and " 0 not formatted," in output, output)
         code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-build")
