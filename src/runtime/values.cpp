@@ -523,29 +523,43 @@ static uint64_t tag(const uint8_t *p_slot) {
 	return *reinterpret_cast<const uint64_t *>(p_slot);
 }
 
-void construct_value(const TypeImage &p_type, uint8_t *p_slot) {
+template <typename Fn>
+static void for_each_slot_leaf(const TypeImage &p_type, uint8_t *p_slot, bool p_clear_tags, Fn &&p_fn) {
 	if (is_option(p_type)) {
-		tag(p_slot) = 0;
-		construct_value(*p_type.element, p_slot + 8);
+		if (p_clear_tags) {
+			tag(p_slot) = 0;
+		}
+		for_each_slot_leaf(*p_type.element, p_slot + 8, p_clear_tags, p_fn);
 	} else if (is_struct(p_type)) {
 		for (const FieldImage &field : p_type.fields) {
-			construct_value(*field.type, p_slot + field.offset);
+			for_each_slot_leaf(*field.type, p_slot + field.offset, p_clear_tags, p_fn);
 		}
 	} else {
-		construct_value(p_type.storage, p_slot);
+		p_fn(p_type.storage, p_slot);
 	}
 }
 
-void destroy_value(const TypeImage &p_type, uint8_t *p_slot) {
+template <typename Ptr, typename Fn>
+static void for_each_active_leaf(const TypeImage &p_type, Ptr *p_slot, Fn &&p_fn) {
 	if (is_option(p_type)) {
-		destroy_value(*p_type.element, p_slot + 8);
+		if (tag(p_slot)) {
+			for_each_active_leaf(*p_type.element, p_slot + 8, p_fn);
+		}
 	} else if (is_struct(p_type)) {
 		for (const FieldImage &field : p_type.fields) {
-			destroy_value(*field.type, p_slot + field.offset);
+			for_each_active_leaf(*field.type, p_slot + field.offset, p_fn);
 		}
 	} else {
-		destroy_value(p_type.storage, p_slot);
+		p_fn(p_type.storage, p_slot);
 	}
+}
+
+void construct_value(const TypeImage &p_type, uint8_t *p_slot) {
+	for_each_slot_leaf(p_type, p_slot, true, [](ValueType p_storage, uint8_t *p_leaf) { construct_value(p_storage, p_leaf); });
+}
+
+void destroy_value(const TypeImage &p_type, uint8_t *p_slot) {
+	for_each_slot_leaf(p_type, p_slot, false, [](ValueType p_storage, uint8_t *p_leaf) { destroy_value(p_storage, p_leaf); });
 }
 
 void copy_value(const TypeImage &p_type, uint8_t *p_dst, const uint8_t *p_src) {
@@ -679,18 +693,10 @@ static bool decode_container(const TypeImage &p_type, const Variant &p_value, ui
 
 // The first field of the encoded struct that does not decode, or -1.
 static int64_t undecodable_field(const TypeImage &p_type, const Dictionary &p_encoded) {
-	alignas(16) uint8_t probe[80];
 	for (size_t i = 0; i < p_type.fields.size(); i++) {
 		const FieldImage &field = p_type.fields[i];
-		if (!p_encoded.has(field.name)) {
-			return int64_t(i);
-		}
-		std::vector<uint64_t> large(field.type->size > sizeof(probe) ? field.type->size / 8 + 1 : 0);
-		uint8_t *slot = large.empty() ? probe : reinterpret_cast<uint8_t *>(large.data());
-		construct_value(*field.type, slot);
-		const bool fits = decode_field(*field.type, p_encoded[field.name], slot, true);
-		destroy_value(*field.type, slot);
-		if (!fits) {
+		ValueBuffer slot(*field.type);
+		if (!p_encoded.has(field.name) || !decode_field(*field.type, p_encoded[field.name], slot.data, true)) {
 			return int64_t(i);
 		}
 	}
@@ -829,12 +835,8 @@ String entry_mismatch(const TypeImage &p_type, const Variant &p_value) {
 
 Variant default_variant(const TypeImage &p_type) {
 	if (is_struct(p_type)) {
-		std::vector<uint64_t> storage(p_type.size / 8 + 1);
-		uint8_t *slot = reinterpret_cast<uint8_t *>(storage.data());
-		construct_value(p_type, slot);
-		const Variant result = to_variant(p_type, slot);
-		destroy_value(p_type, slot);
-		return result;
+		ValueBuffer slot(p_type);
+		return to_variant(p_type, slot.data);
 	}
 	return is_option(p_type) ? Variant() : default_variant(p_type.storage);
 }
@@ -843,42 +845,52 @@ Variant::Type variant_type(const TypeImage &p_type) {
 	return is_struct(p_type) ? Variant::DICTIONARY : variant_type(p_type.storage);
 }
 
-static bool equal_values(ValueType p_type, const uint8_t *p_a, const uint8_t *p_b) {
-	switch (p_type) {
-		case ValueType::Bool:
-		case ValueType::Int:
-			return *reinterpret_cast<const uint64_t *>(p_a) == *reinterpret_cast<const uint64_t *>(p_b);
-		case ValueType::Float:
-			return *reinterpret_cast<const double *>(p_a) == *reinterpret_cast<const double *>(p_b);
-		case ValueType::Object:
-			return object_data(p_a).id == object_data(p_b).id;
-		case ValueType::Variant: {
-			Variant result;
-			bool valid = false;
-			Variant::evaluate(Variant::OP_EQUAL, variant_at(p_a), variant_at(p_b), result, valid);
-			return valid && result.booleanize();
-		}
-		default: {
-			alignas(8) uint64_t result = 0;
-			ops(p_type).equal(p_a, p_b, &result);
-			return result != 0;
-		}
-	}
-}
-
-bool equal_values(const TypeImage &p_type, const uint8_t *p_a, const uint8_t *p_b) {
+template <typename Fn>
+static bool all_leaves_match(const TypeImage &p_type, const uint8_t *p_a, const uint8_t *p_b, Fn &&p_fn) {
 	if (is_option(p_type)) {
-		return tag(p_a) == tag(p_b) && (!tag(p_a) || equal_values(*p_type.element, p_a + 8, p_b + 8));
+		return tag(p_a) == tag(p_b) && (!tag(p_a) || all_leaves_match(*p_type.element, p_a + 8, p_b + 8, p_fn));
 	}
 	if (is_struct(p_type)) {
 		for (const FieldImage &field : p_type.fields) {
-			if (!equal_values(*field.type, p_a + field.offset, p_b + field.offset)) {
+			if (!all_leaves_match(*field.type, p_a + field.offset, p_b + field.offset, p_fn)) {
 				return false;
 			}
 		}
 		return true;
 	}
-	return equal_values(p_type.storage, p_a, p_b);
+	return p_fn(p_type.storage, p_a, p_b);
+}
+
+static bool equal_leaf(ValueType p_type, const uint8_t *p_a, const uint8_t *p_b, bool p_hash_compare) {
+	switch (p_type) {
+		case ValueType::Bool:
+		case ValueType::Int:
+			return *reinterpret_cast<const uint64_t *>(p_a) == *reinterpret_cast<const uint64_t *>(p_b);
+		case ValueType::Float: {
+			const double a = *reinterpret_cast<const double *>(p_a);
+			const double b = *reinterpret_cast<const double *>(p_b);
+			return a == b || (p_hash_compare && std::isnan(a) && std::isnan(b));
+		}
+		case ValueType::Object:
+			return object_data(p_a).id == object_data(p_b).id;
+		default:
+			if (p_hash_compare) {
+				return to_variant(p_type, p_a).hash_compare(to_variant(p_type, p_b));
+			}
+			if (p_type == ValueType::Variant) {
+				Variant result;
+				bool valid = false;
+				Variant::evaluate(Variant::OP_EQUAL, variant_at(p_a), variant_at(p_b), result, valid);
+				return valid && result.booleanize();
+			}
+			alignas(8) uint64_t result = 0;
+			ops(p_type).equal(p_a, p_b, &result);
+			return result != 0;
+	}
+}
+
+bool equal_values(const TypeImage &p_type, const uint8_t *p_a, const uint8_t *p_b) {
+	return all_leaves_match(p_type, p_a, p_b, [](ValueType p_storage, const uint8_t *p_x, const uint8_t *p_y) { return equal_leaf(p_storage, p_x, p_y, false); });
 }
 
 /* What boxes do */
@@ -888,31 +900,7 @@ namespace {
 // As containers match keys and elements: no int to float, NaN matches NaN
 // (spec §5.2, core/variant/variant.cpp:3138-3139).
 bool same_values(const TypeImage &p_type, const uint8_t *p_a, const uint8_t *p_b) {
-	if (is_option(p_type)) {
-		return tag(p_a) == tag(p_b) && (!tag(p_a) || same_values(*p_type.element, p_a + 8, p_b + 8));
-	}
-	if (is_struct(p_type)) {
-		for (const FieldImage &field : p_type.fields) {
-			if (!same_values(*field.type, p_a + field.offset, p_b + field.offset)) {
-				return false;
-			}
-		}
-		return true;
-	}
-	switch (p_type.storage) {
-		case ValueType::Bool:
-		case ValueType::Int:
-			return *reinterpret_cast<const uint64_t *>(p_a) == *reinterpret_cast<const uint64_t *>(p_b);
-		case ValueType::Float: {
-			const double a = *reinterpret_cast<const double *>(p_a);
-			const double b = *reinterpret_cast<const double *>(p_b);
-			return a == b || (std::isnan(a) && std::isnan(b));
-		}
-		case ValueType::Object:
-			return object_data(p_a).id == object_data(p_b).id;
-		default:
-			return to_variant(p_type.storage, p_a).hash_compare(to_variant(p_type.storage, p_b));
-	}
+	return all_leaves_match(p_type, p_a, p_b, [](ValueType p_storage, const uint8_t *p_x, const uint8_t *p_y) { return equal_leaf(p_storage, p_x, p_y, true); });
 }
 
 // The engine stops at this depth too (core/typedefs.h:242).
@@ -986,64 +974,6 @@ String value_text(const TypeImage &p_type, const uint8_t *p_slot) {
 	return type_of(value) == Variant::STRING || type_of(value) == Variant::STRING_NAME ? vformat("\"%s\"", value) : String(value);
 }
 
-// The containers in a value, copied as deep_copy() copies them; with a mode,
-// resources in it too, as duplicate_deep() decides.
-void deep_copy_value(const TypeImage &p_type, uint8_t *p_slot, int64_t p_mode) {
-	if (is_option(p_type)) {
-		if (tag(p_slot)) {
-			deep_copy_value(*p_type.element, p_slot + 8, p_mode);
-		}
-	} else if (is_struct(p_type)) {
-		for (const FieldImage &field : p_type.fields) {
-			deep_copy_value(*field.type, p_slot + field.offset, p_mode);
-		}
-	} else if (p_type.storage == ValueType::Array) {
-		Array &array = *reinterpret_cast<Array *>(p_slot);
-		array = deep_copy(array, p_mode);
-	} else if (p_type.storage == ValueType::Dictionary) {
-		Dictionary &dictionary = *reinterpret_cast<Dictionary *>(p_slot);
-		dictionary = deep_copy(dictionary, p_mode);
-	} else if (p_type.storage == ValueType::Object && p_mode >= 0 && !is_none_object(p_slot)) {
-		ObjectView view(p_slot);
-		Array wrapped;
-		wrapped.push_back(view.get());
-		set_object(p_slot, wrapped.duplicate_deep(p_mode)[0]);
-	}
-}
-
-// The containers in a key's value replaced by frozen copies (spec §3.8).
-void frozen_value(const TypeImage &p_type, uint8_t *p_slot) {
-	if (is_option(p_type)) {
-		if (tag(p_slot)) {
-			frozen_value(*p_type.element, p_slot + 8);
-		}
-	} else if (is_struct(p_type)) {
-		for (const FieldImage &field : p_type.fields) {
-			frozen_value(*field.type, p_slot + field.offset);
-		}
-	} else if (p_type.storage == ValueType::Array) {
-		Array &array = *reinterpret_cast<Array *>(p_slot);
-		array = frozen_copy(array);
-	} else if (p_type.storage == ValueType::Dictionary) {
-		Dictionary &dictionary = *reinterpret_cast<Dictionary *>(p_slot);
-		dictionary = frozen_copy(dictionary);
-	}
-}
-
-void freeze_value(const TypeImage &p_type, const uint8_t *p_slot) {
-	if (is_option(p_type)) {
-		if (tag(p_slot)) {
-			freeze_value(*p_type.element, p_slot + 8);
-		}
-	} else if (is_struct(p_type)) {
-		for (const FieldImage &field : p_type.fields) {
-			freeze_value(*field.type, p_slot + field.offset);
-		}
-	} else if (p_type.storage == ValueType::Array || p_type.storage == ValueType::Dictionary) {
-		freeze(to_variant(p_type.storage, p_slot));
-	}
-}
-
 } // namespace
 
 Variant make_box(const TypeImage &p_type, const uint8_t *p_value, bool p_key) {
@@ -1084,7 +1014,22 @@ Variant deep_copy(const Variant &p_value, int64_t p_mode) {
 		}
 		ValueBuffer copy(type);
 		copy_value(type, copy.data, box->value());
-		deep_copy_value(type, copy.data, p_mode);
+		// The containers in a value, copied as deep_copy() copies them; with a
+		// mode, resources in it too, as duplicate_deep() decides.
+		for_each_active_leaf(type, copy.data, [&](ValueType p_storage, uint8_t *p_leaf) {
+			if (p_storage == ValueType::Array) {
+				Array &array = *reinterpret_cast<Array *>(p_leaf);
+				array = deep_copy(array, p_mode);
+			} else if (p_storage == ValueType::Dictionary) {
+				Dictionary &dictionary = *reinterpret_cast<Dictionary *>(p_leaf);
+				dictionary = deep_copy(dictionary, p_mode);
+			} else if (p_storage == ValueType::Object && p_mode >= 0 && !is_none_object(p_leaf)) {
+				ObjectView view(p_leaf);
+				Array wrapped;
+				wrapped.push_back(view.get());
+				set_object(p_leaf, wrapped.duplicate_deep(p_mode)[0]);
+			}
+		});
 		return make_box(type, copy.data, box->is_key);
 	}
 	if (type_of(p_value) == Variant::ARRAY) {
@@ -1450,7 +1395,15 @@ Variant frozen_copy(const Variant &p_key) {
 		const TypeImage &type = box->type->type();
 		ValueBuffer copy(type);
 		copy_value(type, copy.data, box->value());
-		frozen_value(type, copy.data);
+		for_each_active_leaf(type, copy.data, [](ValueType p_storage, uint8_t *p_leaf) {
+			if (p_storage == ValueType::Array) {
+				Array &array = *reinterpret_cast<Array *>(p_leaf);
+				array = frozen_copy(array);
+			} else if (p_storage == ValueType::Dictionary) {
+				Dictionary &dictionary = *reinterpret_cast<Dictionary *>(p_leaf);
+				dictionary = frozen_copy(dictionary);
+			}
+		});
 		return make_box(type, copy.data, true);
 	}
 	if (type_of(p_key) == Variant::ARRAY) {
@@ -1478,7 +1431,11 @@ Variant frozen_copy(const Variant &p_key) {
 
 void freeze(const Variant &p_key) {
 	if (const Box *box = as_box(p_key)) {
-		freeze_value(box->type->type(), box->value());
+		for_each_active_leaf(box->type->type(), box->value(), [](ValueType p_storage, const uint8_t *p_leaf) {
+			if (p_storage == ValueType::Array || p_storage == ValueType::Dictionary) {
+				freeze(to_variant(p_storage, p_leaf));
+			}
+		});
 	} else if (type_of(p_key) == Variant::ARRAY) {
 		Array array = p_key;
 		for (int64_t i = 0; i < array.size(); i++) {
