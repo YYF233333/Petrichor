@@ -1,6 +1,6 @@
 # 调查：真实代码用到而实现尚不支持的写法
 
-**2026-11-01** · 关联：[语言规范](../language-spec.zh.md)、[实现架构](../architecture.md) §2.6
+**2026-11-01** · 关联：[语言规范](../language-spec.zh.md)、[实现架构](../architecture.md)
 
 ## 问题
 
