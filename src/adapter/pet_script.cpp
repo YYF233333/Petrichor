@@ -484,6 +484,10 @@ std::shared_ptr<const ClassImage> rebased(const std::shared_ptr<const ClassImage
 
 bool PetScript::apply_image(const std::shared_ptr<const ClassImage> &p_image, const Ref<PetScript> &p_base) {
 	if (!p_image) {
+		// The editor's script has errors: its placeholders keep what scenes
+		// give them (_is_placeholder_fallback_enabled()), as GDScript's do
+		// after a failed reload (modules/gdscript/gdscript.cpp:575-576, 811).
+		set_image(nullptr);
 		return false;
 	}
 	std::vector<Ref<PetScript>> live;
@@ -679,8 +683,7 @@ Error PetScript::_reload(bool p_keep_state) {
 	const String path = get_script_path();
 #ifdef TOOLS_ENABLED
 	if (Engine::get_singleton()->is_editor_hint()) {
-		const std::shared_ptr<const ClassImage> compiled = compile_script(path, source, nullptr, true);
-		return compiled && apply_image(compiled) ? OK : ERR_PARSE_ERROR;
+		return apply_image(compile_script(path, source, nullptr, true)) ? OK : ERR_PARSE_ERROR;
 	}
 #endif
 	// In the game, the editor has already compiled the new source into the cache.

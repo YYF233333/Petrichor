@@ -128,16 +128,20 @@ func _check_placeholder_fallback() -> void:
 	var script_path := "res://editor_check_fallback.pet"
 	var scene_path := "res://editor_check_fallback.tscn"
 	var valid := "extends Node\n@export var speed: int = 1\n"
-	var broken := valid + "\nfunc f() -> int:\n\treturn missing\n"
+	var broken := valid + "@export var extra: int = 2\n\nfunc f() -> int:\n\treturn missing\n"
 	_write(script_path, valid)
-	_write(scene_path, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Root" type="Node"]\nscript = ExtResource("1")\nspeed = 7\n' % script_path)
+	_write(scene_path, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Root" type="Node"]\nscript = ExtResource("1")\nspeed = 7\nextra = 9\n' % script_path)
 
-	var root := (ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
+	var packed := ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene
+	var root := packed.instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 	var script: Script = root.get_script()
 	script.source_code = broken
 	script.reload()
 	_check(root.get("speed") == 7 and _pack_to_text(root).contains("speed = 7"), "a placeholder keeps its values once its script has errors")
-	_check_errors(["editor_check_fallback.pet:5: Identifier \"missing\" is not declared in the current scope."], "the script reports its error")
+	_check_errors(["editor_check_fallback.pet:6: Identifier \"missing\" is not declared in the current scope."], "the script reports its error")
+	root.free()
+	root = packed.instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
+	_check(root.get("extra") == 9 and _pack_to_text(root).contains("extra = 9"), "a scene instanced after its script broke keeps a value the script it had did not take")
 	root.free()
 
 	_write(script_path, "extends Node\n@export var speed: int = \n")
