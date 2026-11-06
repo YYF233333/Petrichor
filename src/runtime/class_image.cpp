@@ -166,8 +166,7 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 			continue;
 		}
 		if (call.function == "wrap") {
-			static GDExtensionPtrUtilityFunction engine_wrap = nullptr;
-			engine_wrap = pointer;
+			static const GDExtensionPtrUtilityFunction engine_wrap = pointer;
 			image->utilities.push_back([](void *r_ret, const GDExtensionConstTypePtr *p_args, int p_count) {
 				const Variant &v = *static_cast<const Variant *>(p_args[0]);
 				const Variant &lo = *static_cast<const Variant *>(p_args[1]);
