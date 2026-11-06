@@ -48,6 +48,10 @@ struct Reference {
 	bool is_declaration = false;
 	// For a declaration that overrides or implements another: that one.
 	std::optional<DeclId> overrides;
+	// For the declaration of a local, which hover shows (spec §13.2): its
+	// type, and whether it is a constant.
+	std::string type;
+	bool is_constant = false;
 	// The name's bytes in the source, or none for a reference in a scene.
 	uint32_t begin = 0;
 	uint32_t end = 0;

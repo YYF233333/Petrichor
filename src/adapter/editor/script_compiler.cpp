@@ -185,4 +185,10 @@ void project_changed() {
 	PetScript::update_warnings();
 }
 
+std::optional<compiler::Lookup> lookup_name(const String &p_path, const std::string &p_source, uint32_t p_offset) {
+	const SceneIndex::Pass pass;
+	const compiler::Analysis::Pass analysis_pass(analysis());
+	return compiler::lookup(analysis(), ClassDBApi::get(), SceneIndex::get(), to_utf8(p_path), p_source, p_offset);
+}
+
 } // namespace petrichor

@@ -234,22 +234,32 @@ class Checker : public ClassRelation {
 	}
 
 	// A name of this file, unless the compiler made it or a syntax error left
-	// it empty.
-	void refer(uint32_t p_token, const DeclId &p_target, bool p_declaration = false, const std::optional<DeclId> &p_overrides = std::nullopt) {
+	// it empty; the entry, if one is recorded.
+	Reference *refer(uint32_t p_token, const DeclId &p_target, bool p_declaration = false, const std::optional<DeclId> &p_overrides = std::nullopt) {
 		if (p_token < cls.source->tokens.size() && cls.source->tokens[p_token].length > 0) {
-			refer_bytes(cls.source->tokens[p_token].offset, cls.source->tokens[p_token].end(), p_target, p_declaration, p_overrides);
+			return refer_bytes(cls.source->tokens[p_token].offset, cls.source->tokens[p_token].end(), p_target, p_declaration, p_overrides);
 		}
+		return nullptr;
 	}
 
-	void refer_bytes(uint32_t p_begin, uint32_t p_end, const DeclId &p_target, bool p_declaration = false, const std::optional<DeclId> &p_overrides = std::nullopt) {
-		if (references) {
-			Reference reference;
-			reference.target = p_target;
-			reference.is_declaration = p_declaration;
-			reference.overrides = p_overrides;
-			reference.begin = p_begin;
-			reference.end = p_end;
-			references->push_back(std::move(reference));
+	Reference *refer_bytes(uint32_t p_begin, uint32_t p_end, const DeclId &p_target, bool p_declaration = false, const std::optional<DeclId> &p_overrides = std::nullopt) {
+		if (!references) {
+			return nullptr;
+		}
+		Reference reference;
+		reference.target = p_target;
+		reference.is_declaration = p_declaration;
+		reference.overrides = p_overrides;
+		reference.begin = p_begin;
+		reference.end = p_end;
+		references->push_back(std::move(reference));
+		return &references->back();
+	}
+
+	void refer_local(uint32_t p_token, const Type &p_type, bool p_constant = false) {
+		if (Reference *declared = refer(p_token, local_id(p_token), true)) {
+			declared->type = p_type.is_error() ? std::string() : p_type.to_string();
+			declared->is_constant = p_constant;
 		}
 	}
 
@@ -5019,7 +5029,7 @@ class Checker : public ClassRelation {
 		return facts;
 	}
 
-	int declare_local(const std::string &p_name, uint32_t p_at, const Type &p_type) {
+	int declare_local(const std::string &p_name, uint32_t p_at, const Type &p_type, bool p_constant = false) {
 		const int known = find_local(p_name);
 		if (scopes.back().count(p_name)) {
 			error(p_at, "\"" + p_name + "\" is already declared in this block.");
@@ -5032,13 +5042,13 @@ class Checker : public ClassRelation {
 		}
 		const int local = int(function->locals.size());
 		function->locals.push_back({ p_name, p_type, p_at });
-		refer(p_at, local_id(p_at), true);
+		refer_local(p_at, p_type, p_constant);
 		scopes.back()[p_name] = local;
 		return local;
 	}
 
 	void declare_local(Stmt &r_stmt, const Type &p_type) {
-		r_stmt.local = declare_local(r_stmt.name, r_stmt.name_token, p_type);
+		r_stmt.local = declare_local(r_stmt.name, r_stmt.name_token, p_type, r_stmt.kind == StmtKind::Const);
 	}
 
 	// `match` (spec §5.6). The matched value goes in a local without a name,
@@ -6284,7 +6294,7 @@ class Checker : public ClassRelation {
 			}
 			scopes.back()[param.name] = int(r_function.locals.size());
 			r_function.locals.push_back({ param.name, param.type, param.name_token });
-			refer(param.name_token, local_id(param.name_token), true);
+			refer_local(param.name_token, param.type);
 		}
 	}
 

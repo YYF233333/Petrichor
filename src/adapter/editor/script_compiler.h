@@ -1,11 +1,13 @@
 #pragma once
 
 #include "compiler/diagnostic.h"
+#include "compiler/navigation.h"
 #include "runtime/class_image.h"
 
 #include <godot_cpp/variant/string.hpp>
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace petrichor {
@@ -39,5 +41,9 @@ void engine_classes_changed();
 std::vector<compiler::Diagnostic> scene_errors(const godot::String &p_path, const godot::String &p_source);
 // A file of the project was saved or changed: the nodes ask again.
 void project_changed();
+
+// What the name at byte `p_offset` of the script's text refers to, for the
+// script editor's lookup (spec §13.2).
+std::optional<compiler::Lookup> lookup_name(const godot::String &p_path, const std::string &p_source, uint32_t p_offset);
 
 } // namespace petrichor

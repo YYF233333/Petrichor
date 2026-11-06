@@ -47,6 +47,7 @@ func _run() -> void:
 	await _check_instanced_scene_change()
 	await _check_scene_marks()
 	await _check_undo_merge()
+	_check_lookup()
 
 	print("editor check: %d failure(s)" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -345,6 +346,30 @@ func _check_undo_merge() -> void:
 	_check(b.get_parent() == a and marker.get_meta("value") == "after", "one redo restores both")
 
 	undo.history_changed.disconnect(merge)
+
+
+# Spec §13.2: Ctrl+click on a name goes to its declaration, which the script
+# editor asks the language for (editor/script/script_text_editor.cpp:1190-1291).
+func _check_lookup() -> void:
+	var hit_path := "res://editor_lookup_hit.pet"
+	var script_path := "res://editor_lookup.pet"
+	_write(hit_path, "extends RefCounted\n\npub var damage := 1\n")
+	_write(script_path, "extends Node\n\nconst Hit = preload(\"editor_lookup_hit.pet\")\n\nfunc f(hit: Hit) -> int:\n\treturn hit.damage\n")
+	var script: Script = load(script_path)
+	var script_editor := EditorInterface.get_script_editor()
+	var click := func(symbol: String) -> CodeEdit:
+		EditorInterface.edit_script(script)
+		var code: CodeEdit = script_editor.get_current_editor().get_base_editor()
+		code.symbol_lookup.emit(symbol, 5, code.get_line(5).find(symbol))
+		return script_editor.get_current_editor().get_base_editor()
+	var reached := click.call("damage")
+	_check(script_editor.get_current_script().resource_path == hit_path and reached.get_caret_line() == 2, "Ctrl+click on a member goes to its declaration in its file")
+	reached = click.call("hit")
+	_check(script_editor.get_current_script() == script and reached.get_caret_line() == 4, "Ctrl+click on a parameter goes to its declaration")
+	_check_errors([], "looking up reports nothing")
+	for path in [hit_path, script_path]:
+		for file in [path, path + ".uid", path.replace("res://", "res://.godot/petrichor/").replace(".pet", ".petc")]:
+			DirAccess.remove_absolute(file)
 
 
 func _find_item(item: TreeItem, path: NodePath) -> TreeItem:

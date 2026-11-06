@@ -12,6 +12,9 @@
 
 #ifdef TOOLS_ENABLED
 #include "adapter/editor/script_compiler.h"
+
+#include <godot_cpp/classes/project_settings.hpp>
+#include <godot_cpp/classes/resource_loader.hpp>
 #endif
 
 #include <godot_cpp/classes/file_access.hpp>
@@ -279,10 +282,71 @@ Dictionary PetLanguage::_complete_code(const String &p_code, const String &p_pat
 	return result;
 }
 
+#ifdef TOOLS_ENABLED
+namespace {
+
+// What GDScript names the documentation of a script's class: its class_name,
+// else the global name of the autoload it is, else its quoted path
+// (modules/gdscript/editor/gdscript_docgen.cpp:40-46, 339-347, 594-598).
+String gdscript_doc_name(const String &p_path) {
+	const Ref<Script> script = ResourceLoader::get_singleton()->load(p_path, "Script");
+	if (script.is_valid() && !script->get_global_name().is_empty()) {
+		return script->get_global_name();
+	}
+	ProjectSettings *settings = ProjectSettings::get_singleton();
+	const TypedArray<Dictionary> properties = settings->get_property_list();
+	for (int64_t i = 0; i < properties.size(); i++) {
+		const String name = Dictionary(properties[i]).get("name", String());
+		if (name.begins_with("autoload/") && String(settings->get_setting(name)) == "*" + p_path) {
+			return name.trim_prefix("autoload/");
+		}
+	}
+	return "\"" + p_path.trim_prefix("res://") + "\"";
+}
+
+} // namespace
+#endif
+
 Dictionary PetLanguage::_lookup_code(const String &p_code, const String &p_symbol, const String &p_path, Object *p_owner) const {
 	Dictionary result;
 	result["result"] = ERR_UNAVAILABLE;
 	result["type"] = LOOKUP_RESULT_SCRIPT_LOCATION;
+#ifdef TOOLS_ENABLED
+	// The editor marks the name with U+FFFF (scene/gui/code_edit.cpp:2702).
+	const int64_t mark = p_code.find(String::chr(0xFFFF));
+	if (mark < 0) {
+		return result;
+	}
+	const std::string before = to_utf8(p_code.substr(0, mark));
+	const std::optional<compiler::Lookup> found = lookup_name(p_path, before + to_utf8(p_code.substr(mark + 1)), uint32_t(before.size()));
+	if (!found) {
+		return result;
+	}
+	using Kind = compiler::Lookup::Kind;
+	static const LookupResultType TYPES[] = {
+		LOOKUP_RESULT_SCRIPT_LOCATION,
+		LOOKUP_RESULT_CLASS,
+		LOOKUP_RESULT_CLASS_CONSTANT,
+		LOOKUP_RESULT_CLASS_PROPERTY,
+		LOOKUP_RESULT_CLASS_METHOD,
+		LOOKUP_RESULT_CLASS_SIGNAL,
+		LOOKUP_RESULT_CLASS_ENUM,
+		LOOKUP_RESULT_LOCAL_VARIABLE,
+		LOOKUP_RESULT_LOCAL_CONSTANT,
+	};
+	result["result"] = OK;
+	result["type"] = TYPES[int(found->kind)];
+	const bool gdscript = found->class_name.empty() && found->kind != Kind::Location && found->kind != Kind::Local && found->kind != Kind::LocalConstant;
+	result["class_name"] = gdscript ? gdscript_doc_name(to_godot(found->path)) : to_godot(found->class_name);
+	result["class_member"] = to_godot(found->member);
+	result["doc_type"] = to_godot(found->type);
+	if (!found->path.empty()) {
+		const String path = to_godot(found->path);
+		result["script"] = ResourceLoader::get_singleton()->load(path, "Script");
+		result["script_path"] = path;
+		result["location"] = found->line;
+	}
+#endif
 	return result;
 }
 
