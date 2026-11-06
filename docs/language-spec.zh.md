@@ -54,7 +54,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
           body.set_script(Unit)
   ```
 
-- 类头依次可含：类级注解、`class_name`、`extends`、`implements`。后两者可与 `class_name` 同行，也可各占一行：
+- 类头可含类级注解、`class_name`、`extends` 和 `implements`，都写在成员之前。`class_name` 与 `extends` 先后不限，同 GDScript。后两者可与 `class_name` 同行，也可各占一行：
 
   ```gdscript
   class_name Player extends CharacterBody3D implements Combat.Damageable

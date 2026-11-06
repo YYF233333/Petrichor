@@ -54,7 +54,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
           body.set_script(Unit)
   ```
 
-- A class header may contain, in order: class annotations, `class_name`, `extends`, `implements`. The last two may share `class_name`'s line or take lines of their own:
+- A class header may contain class annotations, `class_name`, `extends` and `implements`, all before the members. `class_name` and `extends` come in either order, as in GDScript. The last two may share `class_name`'s line or take lines of their own:
 
   ```gdscript
   class_name Player extends CharacterBody3D implements Combat.Damageable
