@@ -17,16 +17,16 @@
 | 两个 int 的 `**` 用 double 计算再转回 int，超过 2^53 不精确，超出范围或为无穷时是 C++ 的未定义行为 | `core/variant/variant_op.h:86-95` | §4.5、§5.1 |
 | Packed 数组的 `in` 先把左运算数转为元素类型，float 因此截断为 int | `core/variant/variant_op.h:1142-1153` | §5.1 |
 | `name in obj` 在对象上查找该名字的成员，与 `obj.get(name)` 相同 | `core/variant/variant_op.h:1217-1252` | §5.1 |
-| String 或 StringName 的 `%` 格式化任何类型的值，Array 视为其中各个值；格式出错时，经验证的求值打印错误并给出格式串，直接求值给出错误文本 | `core/variant/variant_op.cpp:205-210, 408-449`；`core/variant/variant_op.h:720-837` | §5.1 |
-| 引擎归为 math 类的工具函数；它们的调用错误都是实参类型不符，`posmod` 的除数为 0 时打印错误并返回 0 | `core/variant/variant_utility.cpp:383-402, 459-470, 587-606, 653-668, 697-712, 737-751, 1632-1732`；`core/math/math_funcs.h:312-313` | §4.5、§10.3 |
-| 由字符串构造 Color 时，不是十六进制写法就按颜色名查找，找不到时打印错误并返回黑色；颜色名就是 Color 的常量名 | `core/math/color.h:274-280`；`core/math/color.cpp:396-402`；`core/variant/variant_call.cpp:3086-3089` | §4.5 |
-| debug 构建中，由轴和角构造 Basis、Quaternion 要求轴已归一化，由 Basis 构造 Quaternion 要求它是旋转，由两个向量构造 Quaternion 要求它们不为零，Quaternion 乘向量要求它已归一化 | `core/math/basis.cpp:716-717, 843-844`；`core/math/quaternion.cpp:289-290`；`core/math/quaternion.h:93-94, 139-140`；`core/math/math_defs.h:56-58` | §4.5 |
+| String 或 StringName 的 `%` 格式化任何类型的值，Array 视为其中各个值。格式出错时，经验证的求值打印错误并给出格式串，直接求值给出错误文本 | `core/variant/variant_op.cpp:205-210, 408-449`；`core/variant/variant_op.h:720-837` | §5.1 |
+| 引擎归为 math 类的工具函数。它们的调用错误都是实参类型不符，`posmod` 的除数为 0 时打印错误并返回 0 | `core/variant/variant_utility.cpp:383-402, 459-470, 587-606, 653-668, 697-712, 737-751, 1632-1732`；`core/math/math_funcs.h:312-313` | §4.5、§10.3 |
+| 由字符串构造 Color 时，不是十六进制写法就按颜色名查找，找不到时打印错误并返回黑色。颜色名就是 Color 的常量名 | `core/math/color.h:274-280`；`core/math/color.cpp:396-402`；`core/variant/variant_call.cpp:3086-3089` | §4.5 |
+| debug 构建中有四项检查：由轴和角构造 Basis、Quaternion，要求轴已归一化；由 Basis 构造 Quaternion，要求它是旋转。由两个向量构造 Quaternion，要求它们不为零；Quaternion 乘向量，要求向量已归一化 | `core/math/basis.cpp:716-717, 843-844`；`core/math/quaternion.cpp:289-290`；`core/math/quaternion.h:93-94, 139-140`；`core/math/math_defs.h:56-58` | §4.5 |
 | Array 的 `==` 逐元素用 `hash_compare`，它要求元素类型相同 | `core/variant/array.cpp:155-158`；`core/variant/variant.cpp:3176-3179` | §5.2 |
 | `hash_compare` 认为 NaN 与 NaN 匹配 | `core/variant/variant.cpp:3138-3139` | §5.2 |
 | Dictionary 的 `==` 按键查找后逐项比较值，与顺序无关 | `core/variant/dictionary.cpp:255-285` | §5.2 |
 | 已释放的对象在条件中为假：对象的 `is_zero` 检查对象是否仍然有效 | `core/variant/variant.cpp:952-953`；`core/variant/variant_op.cpp:1120-1122` | §3.3 |
-| Variant 转为对象指针时不检查对象是否存活；引擎方法的对象参数经它取出，debug 构建按类检查时就使用这个指针，release 构建直接交给方法 | `core/variant/variant.cpp:2024-2026`；`core/variant/binder_common.h:58-61`；`core/variant/variant_caster.h:139-140` | §3.3 |
-| 带类型的 Array 收到对象时，debug 构建先查 ObjectDB，拒绝已释放的对象，release 构建直接使用指针；`append`、`erase`、`has` 等都经过这一检查 | `core/variant/container_type_validate.h:89-112`；`core/variant/array.cpp:285, 350, 499` | §3.3、§3.8 |
+| Variant 转为对象指针时不检查对象是否存活。引擎方法的对象参数经它取出：debug 构建按类检查时就使用这个指针，release 构建直接交给方法 | `core/variant/variant.cpp:2024-2026`；`core/variant/binder_common.h:58-61`；`core/variant/variant_caster.h:139-140` | §3.3 |
+| 带类型的 Array 收到对象时，debug 构建先查 ObjectDB，拒绝已释放的对象。release 构建直接使用指针。`append`、`erase`、`has` 等都经过这一检查 | `core/variant/container_type_validate.h:89-112`；`core/variant/array.cpp:285, 350, 499` | §3.3、§3.8 |
 | `is_instance_valid` 先检查对象是否存活 | `core/variant/variant_utility.cpp:1133-1137` | §3.3 |
 | min、max、clamp 原样返回其中一个实参 | `core/variant/variant_utility.cpp:642-759` | §4.5、§10.3 |
 | `find_children` 只收入 `is_class` 给定类名的节点，或脚本是该全局类的节点 | `scene/main/node.cpp:2031-2042` | §10.3 |
@@ -36,9 +36,9 @@
 | `front`、`back` 在空数组上报错 | `core/variant/array.cpp:354-362` | §3.8 |
 | Dictionary 的 `get` 在缺键时返回默认值 | `core/variant/dictionary.cpp:178-187` | §3.8 |
 | 大小比较运算只有 bool、数值、String、StringName、向量、RID 和 Array 有，对象、Dictionary、Callable 没有；Array 逐元素比较 | `core/variant/variant_op.cpp:731-791`；`core/variant/array.cpp:164-179` | §3.6、§5.2 |
-| Array 的 `sort`、`bsearch`、`min`、`max` 和 Dictionary 的 `sort` 按运算表比较；`sort` 把做不了的比较当作假，`min`、`max` 返回 null，在空数组上也是，都不报错 | `core/variant/array.cpp:721-736, 756-760, 828-868`；`core/variant/dictionary.cpp:315-330` | §3.8 |
+| Array 的 `sort`、`bsearch`、`min`、`max` 和 Dictionary 的 `sort` 按运算表比较。`sort` 把做不了的比较当作假；`min`、`max` 返回 null，在空数组上也是；都不报错 | `core/variant/array.cpp:721-736, 756-760, 828-868`；`core/variant/dictionary.cpp:315-330` | §3.8 |
 | 带类型的 Array 的 `resize` 以该类型的默认值填充新元素，对象为 null | `core/variant/array.cpp:306-318` | §3.8 |
-| 带类型的容器收到不合元素类型的值时，能按 `can_convert_strict` 转换的先转换，float 因此截断为 int；不能转换的报错，不写入也不查找 | `core/variant/container_type_validate.h:55-75`；`core/variant/variant.cpp:557-566`；`core/variant/array.cpp:285, 374, 499, 520`；`core/variant/dictionary.cpp:205-207, 222` | §3.8、§5.1 |
+| 带类型的容器收到不合元素类型的值时，能按 `can_convert_strict` 转换的先转换，float 因此截断为 int。不能转换的报错，不写入也不查找 | `core/variant/container_type_validate.h:55-75`；`core/variant/variant.cpp:557-566`；`core/variant/array.cpp:285, 374, 499, 520`；`core/variant/dictionary.cpp:205-207, 222` | §3.8、§5.1 |
 | 带类型的 Array 的 `assign` 同样按 `can_convert_strict` 转换元素，转换不了时报错，数组不变 | `core/variant/array.cpp:252-266, 276` | §3.8 |
 | 引擎为容器的元素以及 Dictionary 的键和值只记录一层类型：一个内置类型、一个类和一个脚本 | `core/variant/container_type_validate.h:37-40` | §3.8 |
 | Dictionary 保存每个键插入时的哈希，扩容时也不重算，查找时先比较哈希再比较键 | `core/variant/dictionary.cpp:46`；`core/templates/hash_map.h:130, 149-151, 193-198` | §3.8 |
@@ -88,7 +88,7 @@
 | 撤销管理器按动作的上下文对象选择撤销历史，被编辑场景中的节点进入该场景的历史 | `editor/editor_undo_redo_manager.cpp:63-105, 149-156` | §13.3 |
 | Web 导出开启 Extensions Support 时使用带动态链接的模板；跨域隔离响应头只在开启线程支持时需要 | `platform/web/export/export_plugin.cpp:374`；`platform/web/export/export_plugin.h:59-73`；`platform/web/doc_classes/EditorExportPlatformWeb.xml:93-95` | §1.3 |
 | 导出插件的钩子都不能使导出失败 | `editor/export/editor_export_platform.cpp:2568-2576`；`editor/export/editor_export_plugin.h:120-122` | §7.5 |
-| 导出插件报告的错误只让导出窗口显示失败；命令行导出只在导出函数返回错误时以非零退出码结束 | `editor/export/editor_export_platform.cpp:131, 146-148`；`editor/editor_node.cpp:1408-1424` | §7.5 |
+| 导出插件报告的错误只让导出窗口显示失败。命令行导出只在导出函数返回错误时以非零退出码结束 | `editor/export/editor_export_platform.cpp:131, 146-148`；`editor/editor_node.cpp:1408-1424` | §7.5 |
 | GDScript 通过 Script 的反射接口为其他语言的全局类定型 | `modules/gdscript/gdscript_analyzer.cpp:789-804, 4278-4319, 6005-6014` | §10.1 |
 | GDScript 对 self 和内置类型以外的对象调用未知方法，只给不安全访问的警告 | `modules/gdscript/gdscript_analyzer.cpp:3750-3757` | §10.1 |
 | GDScript 解析 `extends 全局类名` 时把基类文件当作 GDScript 解析，失败时只报“Could not resolve super class” | `modules/gdscript/gdscript_analyzer.cpp:469-485`（报错在 `:477, 483`）；`modules/gdscript/gdscript_cache.cpp:83-92` | §11.2 |
@@ -96,7 +96,7 @@
 | GDScript 的覆盖检查允许返回类型协变、参数类型逆变，以及多出带默认值的参数 | `modules/gdscript/gdscript_analyzer.cpp:1895-1936` | §4.6 |
 | GDScript 的静态检查要求带类型的 Array、Dictionary 的元素类型完全相同，一边没有类型时不检查 | `modules/gdscript/gdscript_analyzer.cpp:6379-6393` | §3.8 |
 | GDScript 的单引号和双引号字符串可以跨行 | `modules/gdscript/gdscript_tokenizer.cpp:1086-1098` | §2.2 |
-| GDScript 把以 `##` 开头的注释行（含 `###`）当作文档：紧贴在声明或其注解上方的一段，或写在声明同一行之后的一条，说明该声明，局部变量和常量也是；第一个成员之前的第一段说明类 | `modules/gdscript/gdscript_parser.cpp:842-862, 1068-1101, 2195-2228, 4066-4075` | §2.2 |
+| GDScript 把以 `##` 开头的注释行（含 `###`）当作文档。紧贴在声明或其注解上方的一段，或写在声明同一行之后的一条，说明该声明。局部变量和常量也是如此。第一个成员之前的第一段说明类 | `modules/gdscript/gdscript_parser.cpp:842-862, 1068-1101, 2195-2228, 4066-4075` | §2.2 |
 | GDScript 的 `@warning_ignore` 遇到不认识的警告名时报错 | `modules/gdscript/gdscript_parser.cpp:5126-5128` | §2.3 |
 | GDScript 的 `@warning_ignore` 按行忽略警告，从注解所在行到所注语句或声明的开头部分结束；`@warning_ignore_start` 忽略到同名的 `@warning_ignore_restore` | `modules/gdscript/gdscript_parser.cpp:291-294, 5131-5189, 5199-5228` | §2.3 |
 | GDScript 的静态检查允许 String 与 StringName、NodePath 双向隐式转换，不允许 StringName 与 NodePath 之间转换 | `modules/gdscript/gdscript_analyzer.cpp:6370-6374`；`core/variant/variant.cpp:579-587, 735-750` | §10.7 |
@@ -111,7 +111,7 @@
 | GDScript 的脚本对象按名字调用静态函数，读取常量、静态变量和静态函数 | `modules/gdscript/gdscript.cpp:928-940, 957-997` | §4.8、§11.1 |
 | GDScript 实例从自己的脚本往上按名字查找方法，包括静态函数 | `modules/gdscript/gdscript.cpp:1948-1966` | §4.8、§6.3 |
 | 在实例上调用静态方法，GDScript 默认只给警告 | `modules/gdscript/gdscript_analyzer.cpp:3699-3703`；`modules/gdscript/gdscript_warning.h:131` | §4.8 |
-| GDScript 把 enum 的值转为 int 不提示，把 int 转为 enum 给出默认开启的警告，不把一个 enum 转为另一个；`as` 把 int 转为 enum 时不做检查 | `modules/gdscript/gdscript_analyzer.cpp:3826-3829, 6326-6336, 6375-6378, 6397-6406`；`modules/gdscript/gdscript_warning.h:140` | §3.7、§5.3 |
+| GDScript 把 enum 的值转为 int 不提示，把 int 转为 enum 给出默认开启的警告。它不把一个 enum 转为另一个。`as` 把 int 转为 enum 时不做检查 | `modules/gdscript/gdscript_analyzer.cpp:3826-3829, 6326-6336, 6375-6378, 6397-6406`；`modules/gdscript/gdscript_warning.h:140` | §3.7、§5.3 |
 | GDScript 把 enum 名作为从各值的名字（String）到值的只读 Dictionary，没有值 0 的 enum 的变量从 0 开始并给出警告 | `modules/gdscript/gdscript_analyzer.cpp:1159-1197, 2207-2217` | §3.7 |
 | `get_keycode_with_modifiers()` 给出带修饰键位的 Key，不在 enum 的值之中 | `core/input/input_event.cpp:394-396` | §3.7 |
 | GDScript 把作为值的脚本定型为它的类，以 preload 脚本初始化的常量可作类型 | `modules/gdscript/gdscript_analyzer.cpp:873-892, 5776-5786` | §2.1 |
@@ -132,7 +132,7 @@
 | GDScript 中内部类名、`class_name` 的名字、enum 名和函数名之后不能接 `[` | `modules/gdscript/gdscript_parser.cpp:964, 1005-1010, 1602, 1805` | §2.4 |
 | GDScript 中不写 `extends` 的内部类继承 RefCounted，`extends` 可以写在类体第一行 | `modules/gdscript/gdscript_analyzer.cpp:425-429`；`modules/gdscript/gdscript_parser.cpp:974-980` | §2.1、§4.1 |
 | GDScript 的内部类按裸名解析外层类的常量、enum 和内部类，不解析其静态函数和静态变量 | `modules/gdscript/gdscript_analyzer.cpp:4229, 4249, 4270-4271` | §4.1、§4.8 |
-| GDScript 中的裸名先在本类、脚本基类和外层类中找，再在原生基类的属性、方法、信号、enum 和整数常量中找；类型中的裸名也可以是原生基类的 enum | `modules/gdscript/gdscript_analyzer.cpp:332-343, 837-839, 4185-4275, 4333-4385` | §4.1、§4.8 |
+| GDScript 中的裸名先在本类、脚本基类和外层类中找。然后在原生基类的属性、方法、信号、enum 和整数常量中找。类型中的裸名也可以是原生基类的 enum | `modules/gdscript/gdscript_analyzer.cpp:332-343, 837-839, 4185-4275, 4333-4385` | §4.1、§4.8 |
 | GDScript 中类的变量、常量、信号、enum 和内部类与原生基类的信号、属性或整数常量同名是编译错误 | `modules/gdscript/gdscript_analyzer.cpp:255-276, 1050, 1110, 1121, 1151, 1216, 1232, 1250` | §4.1 |
 | GDScript 的内部类是单独的脚本，没有资源路径和全局名，列在外层类的常量中 | `modules/gdscript/gdscript.cpp:1082-1084`；`modules/gdscript/gdscript_parser.h:778-780`；`modules/gdscript/gdscript_compiler.cpp:3003` | §4.1、§10.5 |
 | GDScript 的内部类中不能写 `class_name`、`@tool`、`@icon` 和 `@static_unload` | `modules/gdscript/gdscript_parser.cpp:146-149, 1215, 1859-1861` | §4.1 |
@@ -150,10 +150,10 @@
 | GDScript 只在去处为带类型容器时为数组和字典字面量定型，否则它们是无类型的 | `modules/gdscript/gdscript_analyzer.cpp:2112-2121, 3647-3658` | §3.13 |
 | GDScript 对已释放的对象做 `is` 时报错并中止，release 构建也一样；做 `as` 时只在 debug 构建中报错 | `modules/gdscript/gdscript_vm.cpp:942-947, 1665-1669` | §3.3 |
 | GDScript 调用引擎方法时，debug 构建只检查基对象是否已释放，实参原样交出 | `modules/gdscript/gdscript_vm.cpp:2046-2055, 2072` | §3.3 |
-| GDScript 中，局部变量、常量、`for` 的循环变量和 match 的绑定不能与外层块的局部变量或参数同名；参数是函数体的局部变量 | `modules/gdscript/gdscript_parser.cpp:1731, 1735, 1983-1987, 1993-2002, 2345-2349, 2599-2600, 4384-4392` | §4.6、§5.6 |
+| GDScript 中，局部变量、常量、`for` 的循环变量和 match 的绑定不能与外层块的局部变量或参数同名。参数是函数体的局部变量 | `modules/gdscript/gdscript_parser.cpp:1731, 1735, 1983-1987, 1993-2002, 2345-2349, 2599-2600, 4384-4392` | §4.6、§5.6 |
 | GDScript lambda 的函数体以外面的块为父块，声明其参数时不检查外面的名字 | `modules/gdscript/gdscript_parser.cpp:1728-1735, 3758-3760` | §4.6 |
 | `as` 转为内置类型时按构造函数转换，转换失败只在 debug 构建中报错 | `modules/gdscript/gdscript_vm.cpp:1642-1650` | §5.3 |
-| GDScript 在运行时遇到运算表中没有的组合时报错；运算数类型与首次执行时不同的情况只在 debug 构建中检查，release 构建得到 null | `modules/gdscript/gdscript_vm.cpp:793-798, 821-843` | §5.2 |
+| GDScript 在运行时遇到运算表中没有的组合时报错。运算数类型与首次执行时不同的情况只在 debug 构建中检查，release 构建得到 null | `modules/gdscript/gdscript_vm.cpp:793-798, 821-843` | §5.2 |
 | `for` 可以遍历 float 和向量 | `modules/gdscript/gdscript_vm.cpp:3092-3229` | §5.7 |
 | GDScript 的 `assert` 失败时报“Assertion failed” | `modules/gdscript/gdscript_vm.cpp:3876-3902` | §8.3 |
 | GDScript 的 await 接受任意 Signal 值 | `modules/gdscript/gdscript_vm.cpp:2586-2600` | §9.8 |
@@ -191,10 +191,10 @@
 | await 多参数信号得到由实参组成的 Array | `modules/gdscript/gdscript_function.cpp:256-274` | §9.6 |
 | 被等待的对象被释放后，GDScript 的等待方永远挂起 | `modules/gdscript/gdscript.cpp:2069-2079` | §9.7 |
 | RefCounted 类中的 lambda 强引用 self | `modules/gdscript/gdscript_lambda_callable.cpp:285-291` | §3.11 |
-| GDScript 的 lambda 每次调用都把捕获作为实参接收，给捕获赋值既不改变外面的变量，也影响不到下一次调用；GDScript 对此给出警告 | `modules/gdscript/gdscript_lambda_callable.cpp:101-120`；`modules/gdscript/gdscript_analyzer.cpp:2895-2917` | §3.11 |
+| GDScript 的 lambda 每次调用都把捕获作为实参接收。给捕获赋值既不改变外面的变量，也影响不到下一次调用。GDScript 对此给出警告 | `modules/gdscript/gdscript_lambda_callable.cpp:101-120`；`modules/gdscript/gdscript_analyzer.cpp:2895-2917` | §3.11 |
 | GDScript 的 lambda 可以命名，名字用于标识它的 Callable，不在其函数体中声明 | `modules/gdscript/gdscript_parser.cpp:3731-3733`；`modules/gdscript/gdscript_lambda_callable.cpp:61-62` | §3.11 |
 | GDScript 重新加载时把 lambda 换成新版本中同一位置的 lambda，lambda 的个数、捕获或参数不同时使它失效 | `modules/gdscript/gdscript_compiler.cpp:3217-3254`；`modules/gdscript/gdscript.cpp:1411-1421` | §12.4 |
 | GDScript 的 LSP 是编辑器插件 | `modules/gdscript/language_server/gdscript_language_server.h:35`；`modules/gdscript/register_types.cpp:167` | §13.1 |
-| 编辑器默认用制表符缩进；在开括号后换行时多缩进一层，闭括号紧随光标时移到下一行，回到原来的缩进 | `editor/settings/editor_settings.cpp:830`；`scene/gui/code_edit.cpp:1349-1385, 4128-4131` | §13.2 |
+| 编辑器默认用制表符缩进。在开括号后换行时多缩进一层；闭括号紧随光标时移到下一行，回到原来的缩进 | `editor/settings/editor_settings.cpp:830`；`scene/gui/code_edit.cpp:1349-1385, 4128-4131` | §13.2 |
 | 编辑器注释选中的行时，把 `#` 插在每行的缩进之后，空行的插在行首 | `editor/gui/code_editor.cpp:1356-1371`；`scene/gui/text_edit.cpp:4194-4202` | §13.2 |
 | GDScript 导出时至多把源码转为词法单元，加载时才解析和编译 | `modules/gdscript/register_types.cpp:99-116`；`modules/gdscript/gdscript_cache.cpp:373-379, 392` | §1.3、§4.5 |
