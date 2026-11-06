@@ -126,6 +126,19 @@ bool at_cursor(const std::string &p_name) {
 	return p_name.find(CURSOR) != std::string::npos;
 }
 
+// Where the script editor's word at the cursor begins, which an option
+// replaces: after a symbol other than "/" (scene/gui/code_edit.cpp:3869-3875,
+// core/string/char_utils.h:127-129; ed1daf0).
+size_t word_start(const std::string &p_text, size_t p_cursor) {
+	const auto symbol = [](char p_char) {
+		return p_char != '_' && ((p_char >= '!' && p_char <= '/') || (p_char >= ':' && p_char <= '@') || (p_char >= '[' && p_char <= '`') || (p_char >= '{' && p_char <= '~'));
+	};
+	while (p_cursor > 0 && (p_text[p_cursor - 1] == '/' || ((unsigned char)p_text[p_cursor - 1] > ' ' && !symbol(p_text[p_cursor - 1])))) {
+		p_cursor--;
+	}
+	return p_cursor;
+}
+
 // A class of this language, by its path: a script's, or an inner class's,
 // which the tests' unnamed file has too (spec §2.1).
 bool is_script_path(const std::string &p_path) {
@@ -2457,10 +2470,19 @@ class Checker : public ClassRelation {
 		if (p_path[0] == '%') {
 			return p_path;
 		}
-		const bool plain = p_path[0] != '/' && std::all_of(p_path.begin(), p_path.end(), [](char p_char) {
-			return std::isalnum((unsigned char)p_char) || p_char == '_' || p_char == '/' || p_char == '%';
-		});
-		return plain ? "$" + p_path : "$\"" + p_path + "\"";
+		return plain_path(p_path) ? "$" + p_path : "$\"" + p_path + "\"";
+	}
+
+	// Whether `$` takes a path without quotes: names joined by "/", each
+	// possibly after "%".
+	static bool plain_path(const std::string &p_path) {
+		for (const std::string &part : path_parts(p_path)) {
+			const size_t name = !part.empty() && part[0] == '%' ? 1 : 0;
+			if (part.size() == name || std::isdigit((unsigned char)part[name]) || !std::all_of(part.begin() + name, part.end(), [](char p_char) { return std::isalnum((unsigned char)p_char) || p_char == '_'; })) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	static std::vector<std::string> path_parts(const std::string &p_path) {
@@ -4905,8 +4927,8 @@ class Checker : public ClassRelation {
 	// `p_expected` is the type the value goes to, if known; literals of arrays,
 	// dictionaries, strings and None take their type from it.
 	Type type_expr(Expr &r_expr, const Type &p_expected) {
-		if (completion && (r_expr.kind == ExprKind::Name || r_expr.kind == ExprKind::Member || r_expr.kind == ExprKind::Call) && at_cursor(r_expr.text)) {
-			complete(r_expr);
+		if (completion && (r_expr.kind == ExprKind::Name || r_expr.kind == ExprKind::Member || r_expr.kind == ExprKind::Call || r_expr.kind == ExprKind::GetNode) && at_cursor(r_expr.text)) {
+			r_expr.kind == ExprKind::GetNode ? complete_node_path(r_expr) : complete(r_expr);
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		switch (r_expr.kind) {
@@ -7429,6 +7451,70 @@ class Checker : public ClassRelation {
 			item.place = base.empty() ? CompletionItem::Place::Engine : CompletionItem::Place::Project;
 			found.emplace(name, item);
 		}
+		set_completions(found);
+	}
+
+	// After `$` or `%` at the cursor: the paths that reach a node from the
+	// nodes with this script, in the scenes that have one (spec §7.1). An
+	// option replaces the editor's word at the cursor, or in a string what
+	// follows its quote, which the editor quotes itself
+	// (scene/gui/code_edit.cpp:3858-3860, 3916-3927; ed1daf0).
+	void complete_node_path(Expr &r_site) {
+		const std::string written = r_site.text;
+		const size_t cursor = cls.source->text.find(CURSOR);
+		size_t word = word_start(cls.source->text, cursor);
+		bool quoted = false;
+		for (uint32_t i = r_site.range.first; i <= r_site.range.last && i < cls.source->tokens.size(); i++) {
+			const Token &token = cls.source->tokens[i];
+			if (token.kind == TokenKind::String && token.offset < cursor && cursor < token.end()) {
+				quoted = true;
+				word = token.offset + 1;
+			}
+		}
+		const size_t before = written.find(CURSOR);
+		const std::string prefix = written.substr(0, before - std::min(before, cursor - word));
+		std::set<std::string> paths;
+		for (const Scene &scene : scenes) {
+			const auto below = [&](const std::string &p_node, const std::string &p_written) {
+				const std::string start = p_node == "." ? std::string() : p_node + "/";
+				for (const SceneNode &node : scene.nodes) {
+					if (node.path != "." && node.path.compare(0, start.size(), start) == 0) {
+						paths.insert(p_written + node.path.substr(start.size()));
+					}
+				}
+			};
+			for (const SceneNode &node : scene.nodes) {
+				if (extends_script(node.script, options.path)) {
+					below(node.path, "");
+				}
+				if (node.unique) {
+					const std::string name = "%" + node.path.substr(node.path.rfind('/') + 1);
+					paths.insert(name);
+					below(node.path, name + "/");
+				}
+			}
+		}
+		std::map<std::string, CompletionItem> found;
+		for (const std::string &path : paths) {
+			if (path.compare(0, prefix.size(), prefix) != 0) {
+				continue;
+			}
+			r_site.text = path;
+			const size_t error_count = errors.size();
+			const size_t reference_count = references->size();
+			const bool accepted = !check_get_node(r_site).is_error() && errors.size() == error_count;
+			errors.erase(errors.begin() + error_count, errors.end());
+			references->erase(references->begin() + reference_count, references->end());
+			if (accepted) {
+				CompletionItem item;
+				item.kind = CompletionKind::NodePath;
+				item.name = path.substr(prefix.size());
+				item.insert = quoted || plain_path(item.name) ? item.name : "\"" + item.name + "\"";
+				item.place = CompletionItem::Place::Local;
+				found.emplace(item.name, item);
+			}
+		}
+		r_site.text = written;
 		set_completions(found);
 	}
 

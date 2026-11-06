@@ -83,7 +83,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The scene index: read scenes unsaved in the editor, which are marked as last saved (architecture §2.4). Check whether it handles autoloads that are scenes.
 - The rest of completion in the editor (spec §13.2):
   - the signature of a call of a function value, of `emit()` and of the methods of `T?`;
-  - node paths after `$` and `%`, annotations after `@`, and the methods to override after `func`;
+  - annotations after `@`, and the methods to override after `func`;
   - names in strings: methods, signals, input actions and resource paths;
   - an enum's values where one is expected.
 - Completing a bare name takes about 75 ms in the test project, GDScript about 21 ms. Our check takes 19 ms of it. The editor spends most of the rest on about 2550 options. GDScript's list lacks about 470 editor classes.

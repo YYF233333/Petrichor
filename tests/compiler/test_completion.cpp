@@ -39,6 +39,15 @@ pub struct Shot:
 	legacy.native = "Node";
 	project.foreign["res://legacy.gd"] = legacy;
 	project.global_classes["Legacy"] = "res://legacy.gd";
+	// res://test.pet at the root of one scene, and below it in another.
+	compiler::Scene level;
+	level.path = "res://level.tscn";
+	level.nodes = { { ".", "Node2D", "res://test.pet" }, { "Head", "Node3D" }, { "Head/Eye", "Timer" }, { "My Label", "Label" }, { "Hud", "Control" }, { "Hud/Score", "Label" } };
+	compiler::Scene arena;
+	arena.path = "res://arena.tscn";
+	arena.nodes = { { ".", "Node" }, { "Player", "Node2D", "res://test.pet" }, { "Player/Head", "Node3D" }, { "Player/Head/Eye", "Timer" }, { "Player/My Label", "Label" }, { "Player/Gun", "Node2D" }, { "Hud", "Control" }, { "Hud/Score", "Label" } };
+	level.nodes[4].unique = arena.nodes[6].unique = true;
+	project.scenes = { level, arena };
 	return project;
 }
 
@@ -169,6 +178,18 @@ TEST_CASE("among the arguments of a call, the signature of the innermost is hint
 	CHECK(hint(in_function("var s := Enemy.Shot(‸)")) == "Shot(damage: int = 1) -> Enemy.Shot");
 	// Not in the name.
 	CHECK(hint(in_function("set_pro‸(true)")).empty());
+}
+
+TEST_CASE("after $ and %, completion offers the paths that reach a node from the script in every scene, quoted where they must be") {
+	const std::vector<CompletionItem> items = complete(in_function("$‸"));
+	CHECK(offers(items, { "Head", "Head/Eye", "My Label", "%Hud", "%Hud/Score", "-Gun", "-Hud", "-Player" }));
+	CHECK((find(items, "My Label")->insert == "\"My Label\"" && find(items, "Head/Eye")->kind == CompletionKind::NodePath));
+	// The editor replaces the word back to "%", or within the string.
+	const std::vector<CompletionItem> unique = complete(in_function("%‸"));
+	CHECK((unique.size() == 2 && unique[0].name == "Hud" && unique[1].name == "Hud/Score"));
+	CHECK(find(complete(in_function("$Head/E‸")), "Head/Eye"));
+	CHECK(find(complete(in_function("$\"My‸\"")), "My Label")->insert == "My Label");
+	CHECK(complete(in_function("$‸", "static func f() -> void:")).empty());
 }
 
 TEST_CASE("completion works on the recovered syntax tree, with syntax errors elsewhere") {

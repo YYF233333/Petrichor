@@ -64,6 +64,7 @@ enum class CompletionKind {
 	Member,
 	Enum,
 	Constant,
+	NodePath,
 	Keyword,
 };
 
@@ -72,7 +73,8 @@ struct CompletionItem {
 	CompletionKind kind = CompletionKind::Keyword;
 	std::string name;
 	// What goes in: a function's name followed by "(", or by "()" when it
-	// takes no arguments; a keyword's followed by what comes next.
+	// takes no arguments; a keyword's followed by what comes next; a node
+	// path in quotes when it needs them.
 	std::string insert;
 	// Where it is declared, which orders the list: a local; a member of the
 	// class `depth` up from the one whose members are completed; elsewhere in

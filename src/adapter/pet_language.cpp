@@ -285,6 +285,7 @@ Dictionary PetLanguage::_complete_code(const String &p_code, const String &p_pat
 		CODE_COMPLETION_KIND_MEMBER,
 		CODE_COMPLETION_KIND_ENUM,
 		CODE_COMPLETION_KIND_CONSTANT,
+		CODE_COMPLETION_KIND_NODE_PATH,
 		CODE_COMPLETION_KIND_KEYWORD,
 	};
 	// By compiler::CompletionItem::Place.
