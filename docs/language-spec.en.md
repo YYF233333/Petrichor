@@ -35,7 +35,6 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 2.1 Files and classes
 
-- A source file is a class. Global class names come only from `class_name Name`; files without `class_name` are referenced through `preload`.
 - `preload` of any script yields its class. A constant initialized with it names that class where its bare name is used. That name works like a `class_name`: as a type, and with `new()`, static methods and constants. `preload(...)` followed directly by `.new()` or another member works the same way. Where a value is expected, it is the script resource itself. Its type is `GDScript` for `.gd` files, and its script resource class otherwise:
 
   ```gdscript
@@ -61,25 +60,23 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
   class_name Player extends CharacterBody3D implements Combat.Damageable
   ```
 
-- A file may declare inner classes, structs, enums and interfaces, all belonging to the file's class. An inner class is written `class Name:`, with its header on that line. Alternatively, `extends` and `implements` take lines of their own at the start of its body.
+- A file may declare inner classes, structs, enums and interfaces, all belonging to the file's class. Inner classes are written as in GDScript, and `implements` may go wherever `extends` may.
 
 ### 2.2 Lexical structure
 
 - Indentation, comments, identifiers, literals and operators follow GDScript, with these changes:
   - New keywords: `pub`, `struct`, `interface`, `implements`, `async`, `None`.
-  - New postfix operator `?` for short-circuit return; prefix `!` remains logical not.
+  - New postfix operator `?` for short-circuit return.
   - `null` is an alias of `None` everywhere, becoming NIL in a Variant. Assigning it to a non-null `T` is a compile error. Its quick fix changes the type to `T?`. A hint suggests `None` in new code.
   - Single- and double-quoted strings cannot span lines; multi-line strings use triple quotes.
-  - Documentation comments begin with `##`, as in GDScript. They also document structs and their fields, and interfaces and their members. A comment beginning with `###` is an ordinary comment.
-- Literals are integers, floats and strings, including triple quotes and the `r` prefix. Other literals are `&"…"` (StringName), `^"…"` (NodePath), arrays `[…]`, dictionaries `{k: v}` and `{k = v}`, `true`, `false` and `None`.
+  - `##` documentation comments also document structs and their fields, and interfaces and their members. A comment beginning with `###` is an ordinary comment.
 
 ### 2.3 Annotations
 
-- GDScript annotations are kept: the `@export` family, `@onready`, `@icon`, `@warning_ignore`, `@rpc`, `@static_unload`, `@abstract`.
 - [Known limitation] Scripts do not run in the editor in the first version, so `@tool` and `@export_tool_button` are compile errors.
-- `@warning_ignore` takes the snake_case names of this language's warnings and hints. Each hint is named as a warning is. A name that suppresses no diagnostic, including GDScript warning names left from migration, gets the hint `unused_ignore`. Its line range matches GDScript. It runs from the annotation's line to the end of the next statement or declaration header. It excludes function and block bodies. `@warning_ignore_start` ignores up to the matching `@warning_ignore_restore`, or to the end of the file.
+- `@warning_ignore` takes the snake_case names of this language's warnings and hints. Each hint is named as a warning is. A name that suppresses no diagnostic, including GDScript warning names left from migration, gets the hint `unused_ignore`.
 - New class annotations: `@parent(T)` and `@owner(T)`, for upward access; new member annotation: `@readonly`, for interface properties only.
-- Annotations precede the declaration (optionally on the same line); `pub` goes after annotations and before `static`.
+- `pub` goes after annotations and before `static`.
 
 ### 2.4 Declaration spellings
 
@@ -94,7 +91,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
   var h = Hit(damage = 3, point = p)
   ```
 
-- **Enums**: brace syntax where variants may carry named payload fields. Payloadless enums match GDScript, and payload variants are constructed by named arguments:
+- **Enums**: variants may carry named payload fields and are constructed by named arguments. Payloadless enums match GDScript:
 
   ```gdscript
   enum Command { IDLE, MOVE(target: Vector3), ATTACK(target: Node3D, power: int) }
@@ -127,42 +124,36 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 2.5 Statements
 
-- `var`, `const`, `if`/`elif`/`else`, `while`, `for`, `match`, `break`, `continue`, `pass` and `return` match GDScript. `assert(condition, message)` is removed in release builds.
-- `if`/`else` blocks are not expressions; the conditional expression is `a if c else b`.
+- Statements are spelled as in GDScript.
 
 ## 3. Types
 
 ### 3.1 Overview
 
-| Category | Types |
+| Category | Types this language adds or changes |
 |---|---|
-| Numbers and booleans | `int` (64-bit), `float` (64-bit), `bool` |
-| Strings | `String`, `StringName`, `NodePath` |
-| Core value types | `Vector2`, `Vector2i`, `Vector3`, `Vector3i`, `Vector4`, `Vector4i`, `Color`, `Rect2`, `Rect2i`, `Transform2D`, `Transform3D`, `Basis`, `Quaternion`, `Plane`, `AABB`, `Projection`, `RID`, `Packed*Array` |
-| Containers | `Array[T]`, `Dictionary[K, V]` |
-| Objects | engine classes, classes of this language, GDScript and C# global classes; non-null `T` and nullable `T?`; `PackedScene[T]` |
+| Objects | non-null `T` and nullable `T?`; `PackedScene[T]` |
 | Value types of this language | structs, enums |
 | Interfaces | interfaces |
 | Standard types | `T?` (Option), `Result[T, E]`, `Task[T]` and `Settled[T]`, `weak[T]`, `ConversionError` |
-| Functions | function types, `Callable`, `Signal` |
-| Dynamic | `Variant` |
+| Functions | function types |
+
+Numbers, strings, core value types, containers, `Callable`, `Signal` and `Variant` are GDScript's types. The sections below state only what differs.
 
 ### 3.2 Numbers
 
-- The only numeric types are 64-bit `int` and `float`. There are no narrow integer types. Fixed-width arithmetic uses wrapping methods and bit operations on `int`.
-- Integer literals have type `int`, float literals `float`.
+- There are no narrow integer types. Fixed-width arithmetic uses wrapping methods and bit operations on `int`.
 - `int` converts implicitly to `float` in assignments, arguments and returns. Converting `float` to `int` requires `int(x)`. Without it, the conversion is a compile error.
 
 ### 3.3 Objects and nullability
 
 - Object type `T` is non-null; `T?` is an object or `None`.
 - After an object is freed:
-  - every read of a `T?` reference checks liveness and yields `None` for a freed object. So `!= None` narrowing is also a liveness check;
+  - every read of a `T?` reference checks liveness, as `is_instance_valid` does, and yields `None` for a freed object. So `!= None` narrowing is also a liveness check;
   - a `T` reference may still hold a freed object. Reading it, comparing ObjectIDs with `==` and ordinary argument passing do not count as access. Accessing its members is a program error. For an instance of this language or an object this language freed, a debug build names where it was freed;
   - passing a freed object to an object-typed engine parameter is a program error. So is writing it to an object-typed engine property. So is passing it to a method of an object-typed `Array[T]`, such as `append`, `erase` or `has`. `Variant` parameters are unaffected (`is_instance_valid` returns `false`);
   - for every static type, `is` on a freed object is `false` and `as` yields `None`;
-  - if a running method's object is freed or loses its script of this language, the method may return normally. Accessing any member or `self` afterwards is a program error;
-  - after `queue_free()`, the object still counts as alive until the deletion queue is flushed, matching `is_instance_valid`. The queue is flushed at the end of the physics step or process frame.
+  - if a running method's object is freed or loses its script of this language, the method may return normally. Accessing any member or `self` afterwards is a program error.
 
 ### 3.4 Option
 
@@ -171,7 +162,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - Nested Options keep distinct levels (such as `T??`):
   - implicit wrapping adds levels to match the target type: a `T?` assigned to `T??` becomes `Some` holding it. Literal `None` is always the outermost `None`;
   - `?`, `unwrap`, `match` and narrowing each peel one level, and `.flatten()` merges `T??` into `T?`;
-  - `Variant?` works the same way (`None` is absent, NIL is a value).
+  - `Variant?` works the same way: `None` is absent, and NIL is a value.
 
   ```gdscript
   var r = enemies.pop_back()   # enemies: Array[Enemy?], r: Enemy??
@@ -216,9 +207,9 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 3.7 Enums
 
-- Payloadless enums are written `enum State { IDLE, RUN }`. Each value increments by 1 unless set to `= int` computed by the compiler. Unnamed `enum { A, B }` declares `int` class constants. Named enums (including engine enums such as `MouseButton` and `Node.ProcessMode`) are distinct types, while engine bitfields stay `int`.
+- An explicit enum value must be an `int` the compiler computes. An anonymous `enum { A, B }` declares `int` constants of the class.
 - Enums of this language are closed and checked at entry. Engine enums are open: the engine produces values outside them and adds values in newer versions. So `MouseButton(x)` performs no range check, and a `match` over one requires `_`.
-- Enum values convert implicitly to `int`. `int` converts to an enum of this language only explicitly. The conversion is `State(x)`, a program error if out of domain, or `State.try_from(x)`. Distinct enums do not convert to each other:
+- `int` converts to an enum of this language only explicitly. Write `State(x)`, a program error if out of domain, or `State.try_from(x)`:
 
   ```gdscript
   enum SpeedUnit { KMH, MPH }
@@ -227,7 +218,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
   unit = 1                                          # compile error; quick fix writes SpeedUnit(1)
   ```
 
-- Used as a value, an enum's name is a read-only map from variant names (`String`) to enum values. It offers `keys() -> Array[String]`, `values() -> Array[State]`, `find_key(v) -> String?`, `get(name) -> State?` and `State[name] -> State`. The last is a program error when the name is missing. A constant initialized with an enum name aliases that enum.
+- Used as a value, an enum's name has typed methods: `keys() -> Array[String]`, `values() -> Array[State]`, `find_key(v) -> String?` and `get(name) -> State?`. `State[name]` has type `State` and is a program error when the name is missing. A constant initialized with an enum name aliases that enum.
 - An enum without the value 0 has no default value, so its variables must be assigned.
 - Enums with payloads:
   - payload fields must be named (e.g. `MOVE(target: Vector3)`) and can be extracted only via `match`; `c.target` is a compile error;
@@ -237,8 +228,8 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 3.8 Containers
 
-- Users see one `Array[T]` and one `Dictionary[K, V]` with GDScript's API, including negative indices such as `pop_at(-1)`. Unparameterized `Array` and `Dictionary` have `Variant` elements. Typed containers are invariant in their type arguments (`Array[Node2D]` is not assignable to `Array[Node]`).
-- **Typed and untyped conversions**: a typed container converts implicitly to an untyped one (sharing the same container). The reverse is explicit. When the runtime container is an `Array[int]`, `a is Array[int]` is true and narrows without copying. `assign()` copies elements. Through an untyped view, writing a value incompatible with the element or key type is a program error. So is looking one up through it, with `has`, `find`, `erase` and so on. So is `assign()` encountering one. `None` written into `Array[Node]` is a program error when read.
+- Typed containers are invariant in their type arguments (`Array[Node2D]` is not assignable to `Array[Node]`).
+- **Typed and untyped conversions**: an untyped container converts to a typed one only explicitly. When the runtime container is an `Array[int]`, `a is Array[int]` is true and narrows without copying. `assign()` copies elements. Through an untyped view, writing a value incompatible with the element or key type is a program error. So is looking one up through it, with `has`, `find`, `erase` and so on. So is `assign()` encountering one. `None` written into `Array[Node]` is a program error when read.
 - **Representation and nesting**:
   - engine-representable element types use the engine's shared typed container;
   - language-only element types, such as structs and payload enums, use an internal representation. An untyped engine copy, encoded by the engine-boundary rules, requires explicit `Array(hits)` or `Dictionary(d)`. The reverse is `Array[Hit].try_from(v)`;
@@ -247,7 +238,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
   - `pop_front()` and `pop_back()` return `T?` (`T??` when `T` is nullable, outer `None` meaning empty);
   - `pop_at(i)`, `front()`, `back()`, `min()` and `max()` return `T`. On an empty array or out-of-range index they raise a program error, as subscripting does;
   - `Dictionary[K, V].get(k)` returns `V?` (`None` if missing), `get(k, default)` returns `V`, and `d[k]` on a missing key is a program error;
-  - all methods use the elements' own operations. `has`/`find`/`count`/`erase`/`==` follow `==`, and `sort`/`bsearch`/`min`/`max` follow `<`. `resize` fills element defaults, and empty typed inner containers for nested containers. `duplicate(true)` deep-copies containers inside elements;
+  - all methods use the elements' own `==` and `<`. `resize` fills element defaults, and empty typed inner containers for nested containers. `duplicate(true)` deep-copies containers inside elements;
   - ordering methods are compile errors when the element type lacks `<`. On `Array[Node]` the error offers `sort_custom`. [Known limitation] Ordering `Variant` elements treats incomparable pairs as not less, as in GDScript, with `min`/`max` returning `null`. `resize` is a compile error when the element type has no default. On `Array[Node]` it offers `Array[Node?]`;
   - the standard library adds `map`, `filter`, `sort` and similar typed-lambda helpers on native containers.
 - **Dictionary keys**: inserting a new key stores a copy, isolating the key from later mutations of the original. The copy's containers are read-only at every level. They are shared within it as in the original, a container that holds itself included. `keys()`, `for k in d` and `find_key()` hand out that read-only copy. Mutating it is a program error, suggesting a mutated `duplicate()`. Lookups neither copy nor freeze their argument. Container keys of foreign `Dictionary` values are made read-only in place when obtained.
@@ -268,7 +259,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - A function type records parameter types, return type (`void` when omitted) and `async`. Calls use `f.call(x)` and are checked statically; `f(x)` is a compile error offering `f.call(x)`.
 - Compatibility is identical for method values and lambdas: contravariant parameters, covariant return. `async` and ordinary function types do not convert implicitly to each other. Engine-invoked positions accept `async` functions and run them as root tasks. These are signal connections in code or scenes, and engine `Callable` parameters such as `tween_callback`.
 - Method values and lambdas passed to the engine become `Callable`s bound directly to the target method, not by name. `f.bind(a, b)` drops the last two parameters from `f`'s function type. An untyped `Callable` requires an explicit conversion to a function type and checks arguments and return value on every call.
-- Lambdas capture locals and parameters by value at creation (capturing `self` strongly in `RefCounted`; use `weak` for weak capture):
+- Lambdas capture by value, as in GDScript. They differ in two ways:
   - assigning to a captured variable, or to a value-type field of one, inside a lambda is a compile error. Keep shared mutable state in a member or container. Because captures cannot be reassigned, outer narrowing holds inside the lambda;
 
   ```gdscript
@@ -278,8 +269,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
   area.body_entered.connect(func(body): counter[0] += 1)  # valid: shared container
   ```
 
-  - a named lambda (`func on_timeout(): ...`) uses its name only in stack traces and `Callable` text, not in its body's scope;
-  - lambda parameters cannot have default values (a compile error).
+  - lambda parameters cannot have default values; writing one is a compile error.
 
 ### 3.12 Weak references
 
@@ -287,10 +277,9 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 3.13 Variant
 
-- Dynamic values come from `Variant` engine APIs, untyped GDScript interfaces, cross-language messages, explicit `Variant`, and untyped container elements. Constraints known to binding metadata are typed at the source.
-- **Into Variant**: static values convert implicitly to `Variant` in assignments, arguments and returns. Structs and payload enums are encoded by the engine-boundary rules. Containers of language-only types are excepted: they require `Array(hits)`. Array and dictionary literals entering `Variant` stay untyped, including elements of untyped containers. Literals without an expected type infer from their elements.
+- **Into Variant**: structs and payload enums are encoded by the engine-boundary rules. Containers of language-only types do not enter implicitly; they require `Array(hits)`. Array and dictionary literals entering `Variant` stay untyped, including elements of untyped containers. Without an expected type, they infer from their elements, as `var a = [1, 2]` is `Array[int]`.
 - **Out of Variant**: conversion is always explicit. Objects use `v as T`, yielding `T?`, and `None` when not an object. `T(v)` is constructor conversion, and `T.try_from(v)` strict conversion. `if v is T:` narrows locals and parameters.
-- `==` and `!=` use the engine's operator table. All other operations are compile errors offering conversions or `is`: arithmetic, `v.x`, `v.f()`, `v[i]`, `for x in v`. Dynamic access by name converts to `Object` first and uses `get`/`set`/`call`.
+- Only `==` and `!=` apply directly. All other operations are compile errors offering conversions or `is`: arithmetic, `v.x`, `v.f()`, `v[i]`, `for x in v`. Dynamic access by name converts to `Object` first and uses `get`/`set`/`call`.
 - `Variant` includes NIL. `v == None` is true for NIL and freed objects, `v is int` is false for NIL, and `v as Node` yields `None` for NIL. `Variant?` adds an `Option` layer (for `Dictionary[String, Variant].get("hp")`, a missing key is `None` while `{"hp": null}` is `Some(NIL)`).
 
   ```gdscript
@@ -418,22 +407,19 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 5.1 Operators
 
-- Operator result types follow the engine's operator table. For example, `Vector2i * float` yields `Vector2`, `int / int` truncates, and mixed `int` and `float` promotes to `float`. Missing combinations, such as `Vector2 + Vector2i`, are compile errors.
-- Integer division or modulo by zero is a program error.
-- Bitwise `&`, `|`, `^`, `~`, `<<`, `>>` and their compound assignments apply to `int`. A shift with a negative left operand is a program error. So is a shift count below 0 or at least 64. In constants, both are compile errors.
-- `x in c` and `x not in c` match `c.has(x)` on containers and packed arrays. On `String`/`StringName` they match `c.contains(x)`. `x` must be assignable to the element or key type. For example, `1 in scores` is valid on `Array[float]`, while `1.5 in ids` on `Array[int]` is a compile error. `name in obj`, with `name` a `String` or `StringName`, checks reflected membership. On a freed object it is a program error.
-- `**` is left-associative and binds tighter than unary `-`: `2 ** 3 ** 2` is 64, and `-2 ** 2` is -4. `int ** int` is exact and wraps on overflow like `*`. Negative exponents truncate `1 / (a ** -b)` toward zero: `2 ** -1` is 0, and `(-1) ** -3` is -1. `0` to a negative power is a program error.
-- `%` on `String` or `StringName` formats any value. An `Array` supplies multiple values. Language-only types enter as the engine boundary encodes them, and their containers need `Array(hits)`. A format mismatch, such as `"%d %d" % [1]`, is a program error.
+- A shift with a negative left operand is a program error. So is a shift count below 0 or at least 64. In constants, both are compile errors.
+- In `x in c`, `x` must be assignable to the element or key type. For example, `1 in scores` is valid on `Array[float]`, while `1.5 in ids` on `Array[int]` is a compile error. `name in obj` on a freed object is a program error.
+- `int ** int` is exact and wraps on overflow like `*`. Negative exponents truncate `1 / (a ** -b)` toward zero: `2 ** -1` is 0, and `(-1) ** -3` is -1. `0` to a negative power is a program error.
+- In `%` formatting, language-only types enter as the engine boundary encodes them, and their containers need `Array(hits)`. A format mismatch, such as `"%d %d" % [1]`, is a program error.
 
 ### 5.2 Comparison
 
-- `==` is typed by the engine's operator table; missing pairs such as `hp == "3"` are compile errors. `!=` is always its negation:
-  - `int` and `float` compare numerically (`1 == 1.0` is true); `String` and `StringName` compare contents;
+- `!=` is always the negation of `==`. `==` differs from GDScript as follows:
   - objects compare identity by ObjectID, so two distinct freed objects are unequal. Comparing two unrelated class types is a compile error; interfaces are allowed;
   - `Option`: `None == None` is true, and two `Some`s compare contents. The shallower side wraps to match levels, as for `int?` with `3` or `T?` with `T??`. Comparing a non-`Option`, non-`Variant` value with `None` is a compile error, offering `T?` or `is_instance_valid(x)`;
   - containers compare element-wise or entry-wise, requiring matching runtime element types. So `[1] == [1.0]` is false, while `NaN` matches `NaN`. Comparing statically distinct container types, such as `Array[int] == Array[float]`, is a compile error. Structs and payload enums match field by field;
-  - with a `Variant` operand, runtime lookup uses the operator table and raises a program error on unsupported pairs. `v == None` is true for NIL and freed objects.
-- Ordering (`<`, `>`, `<=`, `>=`) follows the operator table, which has none for objects, `Dictionary` and `Callable`:
+  - for a `Variant`, `v == None` is true on NIL and on freed objects.
+- Ordering:
   - `Array` orders lexicographically when its element type has `<`. At the first position where the elements do not match under container `==`, the result is their `<`. When all match, the shorter is less;
   - `T?` places `None` before `Some` when `T` has `<`, and **never** wraps implicitly: `hp < 3` on `hp: int?` is a compile error;
   - structs and payload enums order as their sections define;
@@ -457,11 +443,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 5.6 match
 
-- All GDScript patterns remain:
-  - literals and constant expressions, `var x` bindings and `_`;
-  - array and dictionary patterns with `..`;
-  - non-binding comma-separated patterns, and `when` guards.
-- Matching a `Variant` against a literal or constant checks the type first, with `String` and `StringName` counting as equal. On other types it fails to match without error: `1.0` does not match `1`, and `"a"` passes `1` without error.
+- Value patterns are literals or constant expressions. `var x`, `_`, array and dictionary patterns with `..`, comma-separated patterns and `when` guards are as in GDScript.
 - New patterns:
   - enum variants and structs: `Command.MOVE(target = pattern, ..)`, `Hit(damage = var d, ..)`; `var field` is short for `field = var field`, unlisted fields require `..`, and patterns nest;
   - built-in constructors: positional `Ok(var v)`, `Err(var e)`, `Some(var x)`, `Finished(var v)`, `Cancelled(var r)` without type prefixes;
@@ -486,14 +468,14 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 5.7 Loops
 
-- `for` iterates integer bounds, `range(...)`, containers, `String` and `Dictionary` keys. `for i in n` runs `0..n-1` with `i: int`. An optional loop-variable type annotation must be the element type or a supertype. Iterating over a `float` or vector is a compile error, offering `range(...)`. `while`, `break` and `continue` match GDScript.
+- An optional loop-variable type annotation must be the element type or a supertype. Iterating over a `float` or vector is a compile error, offering `range(...)`.
 
 ## 6. Initialization and lifecycle
 
 ### 6.1 Member initialization
 
+- `_init` signatures are unconstrained by override rules.
 - Instance and static member initializers write the backing field directly in declaration order, bypassing setters. A member with both gets a hint. Directly reading a later-declared member of the same class is a compile error. Derived state belongs in `_ready` or `_static_init`.
-- Once every class's member initializers have run, construction calls the nearest `_init` up the inheritance chain. A base `_init` runs only through `super._init(...)`. `_init` signatures are unconstrained by override rules.
 
 ### 6.2 Must-assign members
 
@@ -507,35 +489,31 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
   - ancestor-assigned members are checked once the whole scene is ready. Reading one in the child's own `_ready` is a compile error;
   - reading an unassigned member before ready is a program error naming the member.
 - `Resource` has no ready phase: `.tres` files are checked statically, and `new()` instances are checked on read.
-- Classes extending neither `Node` nor `Resource` use parameterized `_init` as usual, positional from GDScript `new`. When a script's `_init` has required parameters, attaching it without arguments, such as via `set_script`, is a program error. `_init` is then skipped.
+- When a script's `_init` has required parameters, attaching it without arguments, such as via `set_script`, is a program error. `_init` is then skipped.
 - Autoloads outlive scenes, so scene-node references on them must be `T?`. [Known limitation] There are no post-ready non-null members in the first version.
 
 ### 6.3 `@onready`
 
-- `@onready` initializers run before `_ready`, base classes first, each in declaration order.
 - Combining `@onready` with `@export` is a compile error. So are awaiting in an initializer and reading an `@onready` member directly in `_init` or `_enter_tree`. Reading an uninitialized `@onready` member indirectly through a call is a program error naming the member.
 
 ### 6.4 Ready order
 
-- Children become ready before their parent; re-entering the tree does not re-run `_ready`.
 - If a child's `_ready` reads an uninitialized member of its parent, a program error explains the cause. This is not a blanket compile error, because runtime attachment under an already-ready parent is valid. The error suggests one of two fixes:
   - configuring the child from the parent's `_ready`;
   - making the child's `_ready` `async` with `@parent(T)` and `await get_parent().ready`.
 
 ### 6.5 Setters before ready
 
-- Scene instantiation writes saved properties before parenting the node, while children and `@onready` members are still unavailable.
 - Setters run immediately. Accessing an `@onready` member or child before ready is a program error naming it. A node-syncing setter stores the value, syncs guarded by `is_node_ready()`, and syncs once in `_ready`. `await ready` in a setter is a compile error.
 - Reading a backing-field-less property whose getter reads children before ready is a program error naming the unready node. Unwritten properties do not run their setter at ready. Exported properties whose default bypasses a node-syncing setter get a hint.
 
 ### 6.6 Destruction
 
-- Destruction uses `_notification(what)` with `NOTIFICATION_PREDELETE`, and scene-tree cleanup uses `_exit_tree`.
 - During `PREDELETE`, a `RefCounted` instance may read and write its own fields and call its own methods normally. This takes no new reference. In the `PREDELETE` branch, using `self` as a value is a compile error. That covers use as an argument, storing, returning, comparing and so on, other than `self.x` and `self.f()`. Using `await` there is a compile error too. Meanwhile, `weak` references to `self` yield `None`.
 
 ### 6.7 Reference cycles and leaks
 
-- There is no tracing GC. Evident cycles get a warning with a `weak` quick fix:
+- Evident cycles get a warning with a `weak` quick fix:
   - a closure capturing `self` stored in `self`'s member, signal connection or container;
   - two `RefCounted` classes holding strong references to each other.
 - A warning flags a `Node` from `new()` / `instantiate()` that some path neither parents, returns, stores nor frees. It also flags a `remove_child` result neither stored nor freed.
@@ -716,11 +694,9 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 | This language | What the engine and GDScript see |
 |---|---|
-| `int`, `float`, `String`, classes such as `Node` | Same-named type |
 | Objects `T` and `T?` | That class in both cases; non-null enforced by entry checks |
 | Nullable value types such as `int?` | Untyped `Variant` |
 | `Array[T]` and `Dictionary[K, V]` with engine-representable elements | Engine typed containers (outer level only when nested) |
-| Payloadless enums | `int` (drop-down when exported) |
 | Structs | `Dictionary` with `String` field-name keys |
 | Payload enums | `Dictionary` with `String` field-name keys and reserved `"$variant"` variant name |
 | `async` method return values | Untyped `Variant` |
@@ -756,13 +732,12 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 10.6 Numeric boundaries
 
-- Writes to 32-bit engine float slots (such as standard-build `real_t` vector components) narrow implicitly.
 - Narrow or unsigned engine integer parameters and properties are range-checked: `int8`, `int16`, `int32`, `uint8`, `uint16`, `uint32`, `uint64` and `char32`. Out-of-bounds values raise a program error. [Known limitation] Classes from other extensions are absent from the bundled engine API description and unchecked.
+- Writes to 32-bit engine float slots (such as standard-build `real_t` vector components) narrow implicitly.
 
 ### 10.7 String and StringName
 
-- `String` converts implicitly both ways with `StringName` and `NodePath`, while `StringName` and `NodePath` do not convert to each other. `String == StringName` compares contents.
-- String literals where another string type is expected, `&"…"` and `^"…"` included, are constructed as that type at compile time. Runtime conversions on hot paths get a performance hint.
+- Runtime conversions between `String` and `StringName` or `NodePath` on hot paths get a performance hint.
 
 ### 10.8 JSON
 
