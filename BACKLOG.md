@@ -71,7 +71,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`).
 - Members of classes of this language read and written without the engine. This language now reaches members of other instances through reflection. Then a pub member whose type is a container that keeps boxes can leave reflection (spec §10.5).
 - Temporary slots reused by scope. This releases temporary references in a loop in time. A suspended coroutine then keeps only the slots still in use. Now a temporary that held self keeps a RefCounted alive while the coroutine waits, as in `f(self, await g())` (against spec §9.4).
-- Ordering of arrays of engine types as spec §5.2 says. It now takes the engine's operators, which differ when elements are unordered, such as NaN.
+- Ordering of arrays of engine types as spec §5.2 says. It differs from the engine's operators only with NaN, so it waits for the open question on NaN.
 
 ## Editor
 
@@ -151,6 +151,10 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
 
 ## Open questions
 
+- How `NaN` behaves in containers, which GDScript handles inconsistently (spec §5.2, engine facts). NaN rarely stands for a legal state in game logic. Candidates:
+  - forbid `NaN` from entering containers;
+  - warn wherever a `NaN` is detected.
+  A survey of the corpus decides. Until then, spec §5.2 marks it a known limitation.
 - Whether a setter that runs before ready should wait for ready on its own (spec §6.5). The alternative is writing the behavior in the setter. The owner suspects that the implicit suspension makes setters hard to understand. To be discussed again before §6.5 is implemented.
 - Whether an autoload's name stands for its script's class in a type, as GDScript's does (`modules/gdscript/gdscript_analyzer.cpp:806-826`). godot-open-rts writes `var p: Constants.Match.Player` 5 times, `Constants` being an autoload (`docs/surveys/corpus-counts/inner_classes.py`).
 - Whether diagnostics and semantic queries also serve programs, not only the editor's interface. They could say which declaration or scene a constraint comes from, and list the references that broke. That could let AI and tools fix errors while reading less code.

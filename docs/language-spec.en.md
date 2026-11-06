@@ -417,7 +417,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - `!=` is always the negation of `==`. `==` differs from GDScript as follows:
   - objects compare identity by ObjectID, so two distinct freed objects are unequal. Comparing two unrelated class types is a compile error; interfaces are allowed;
   - `Option`: `None == None` is true, and two `Some`s compare contents. The shallower side wraps to match levels, as for `int?` with `3` or `T?` with `T??`. Comparing a non-`Option`, non-`Variant` value with `None` is a compile error, offering `T?` or `is_instance_valid(x)`;
-  - containers compare element-wise or entry-wise, requiring matching runtime element types. So `[1] == [1.0]` is false, while `NaN` matches `NaN`. Comparing statically distinct container types, such as `Array[int] == Array[float]`, is a compile error. Structs and payload enums match field by field;
+  - containers compare element-wise or entry-wise, requiring matching runtime element types. So `[1] == [1.0]` is false. [Known limitation] The first version leaves open how `NaN` matches in containers. Under `==`, lookups and keys, it varies with the element type. Comparing statically distinct container types, such as `Array[int] == Array[float]`, is a compile error. Structs and payload enums match field by field;
   - for a `Variant`, `v == None` is true on NIL and on freed objects.
 - Ordering:
   - `Array` orders lexicographically when its element type has `<`. At the first position where the elements do not match under container `==`, the result is their `<`. When all match, the shorter is less;
