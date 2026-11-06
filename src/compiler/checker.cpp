@@ -4908,6 +4908,7 @@ class Checker : public ClassRelation {
 			}
 			refer(r_expr.name_token, script_id(p_path, "new"));
 			r_expr.target = Target::NewObject;
+			check_members(r_expr, type, false);
 			return set(r_expr, type);
 		}
 		const ClassDecl *decl = script_decl(p_path);
@@ -5045,6 +5046,90 @@ class Checker : public ClassRelation {
 	}
 
 	Type check_call(Expr &r_expr, const Type &p_expected = Type::of(TypeKind::Error)) {
+		const Type type = type_call(r_expr, p_expected);
+		if (r_expr.member_types.size() < r_expr.member_values.size()) {
+			for (size_t i = r_expr.member_types.size(); i < r_expr.member_values.size(); i++) {
+				check_value(*r_expr.member_values[i]);
+			}
+			if (!type.is_error()) {
+				return fail_call(r_expr, "Only new(...) of a class of this language and instantiate(...) of a PackedScene[T] take members by name (spec §4.6).");
+			}
+		}
+		return type;
+	}
+
+	// The members that new(...) or instantiate(...) assigns by name (spec
+	// §4.6, §6.2), which come after the arguments by position: set apart from
+	// them, to be checked once the class made is known.
+	bool split_members(Expr &r_call) {
+		size_t positional = 0;
+		while (positional < r_call.args.size() && r_call.arg_names[positional].empty()) {
+			positional++;
+		}
+		for (size_t i = positional; i < r_call.args.size(); i++) {
+			if (r_call.arg_names[i].empty()) {
+				error(r_call.args[i]->range, "Arguments by position come before those by name.");
+				return false;
+			}
+		}
+		for (size_t i = positional; i < r_call.args.size(); i++) {
+			r_call.member_names.push_back(r_call.arg_names[i]);
+			r_call.member_name_tokens.push_back(r_call.arg_name_tokens[i]);
+			r_call.member_values.push_back(std::move(r_call.args[i]));
+		}
+		r_call.args.resize(positional);
+		r_call.arg_names.clear();
+		r_call.arg_name_tokens.clear();
+		return true;
+	}
+
+	// The members by name of a call that makes an object of `p_made`: each
+	// one that must be assigned, given once (spec §4.6, §6.2). instantiate(...)
+	// must give those the scene does not export (§7.4).
+	void check_members(Expr &r_call, const Type &p_made, bool p_instantiate) {
+		r_call.member_types.clear();
+		const ClassDecl *decl = p_made.kind == TypeKind::Object && !p_made.script.empty() ? script_decl(p_made.script) : nullptr;
+		std::unordered_set<std::string> given;
+		for (size_t i = 0; i < r_call.member_values.size(); i++) {
+			Expr &value = *r_call.member_values[i];
+			const std::string &name = r_call.member_names[i];
+			const VarDecl *found = nullptr;
+			for (const VarDecl *candidate : decl ? decl->all_members : std::vector<const VarDecl *>()) {
+				found = candidate->name == name ? candidate : found;
+			}
+			if (!found) {
+				r_call.member_types.push_back(check_value(value));
+				error(value.range, missing(p_made.to_string() + " has no member \"" + name + "\".", p_made.script));
+				continue;
+			}
+			const VarDecl &member = *found;
+			const std::string declared_in = declaring(*decl, member, &ClassDecl::members).path;
+			refer(r_call.member_name_tokens[i], script_id(declared_in, name));
+			r_call.member_types.push_back(member.type);
+			const Type type = check_value(value, member.type);
+			if (!member.is_pub && !sees(declared_in)) {
+				error(value.range, "\"" + name + "\" of " + p_made.to_string() + " is not pub (spec §4.2).");
+			} else if (!member.must_assign) {
+				error(value.range, "\"" + name + "\" has a value of its own; by name, " + r_call.text + "(...) takes only members that must be assigned (spec §4.6).");
+			} else if (!given.insert(name).second) {
+				error(value.range, "\"" + name + "\" is given twice.");
+			} else {
+				expect_assignable(value, type, member.type, "assign");
+			}
+		}
+		for (const VarDecl *member : decl &&p_instantiate ? decl->all_members : std::vector<const VarDecl *>()) {
+			if (!member->must_assign || member->is_export || given.count(member->name)) {
+				continue;
+			}
+			if (!member->is_pub && !sees(declaring(*decl, *member, &ClassDecl::members).path)) {
+				error(r_call.range, "instantiate() cannot give \"" + member->name + "\", a member of " + p_made.to_string() + " that must be assigned and is not pub. Export it, make it pub or give it an initial value (spec §4.2, §7.4).");
+			} else {
+				error(r_call.range, "instantiate() needs " + member->name + " = ..., a member of " + p_made.to_string() + " that must be assigned and the scene cannot (spec §7.4).");
+			}
+		}
+	}
+
+	Type type_call(Expr &r_expr, const Type &p_expected) {
 		if (!r_expr.base && (r_expr.text == "Ok" || r_expr.text == "Err") && !declares_in_script(r_expr.text)) {
 			return check_result_construction(r_expr, p_expected);
 		}
@@ -5071,8 +5156,11 @@ class Checker : public ClassRelation {
 		if (const EnumDecl *decl = called_variant(r_expr)) {
 			return check_variant_construction(r_expr, *decl);
 		}
+		if (!r_expr.arg_names.empty() && r_expr.base && (r_expr.text == "new" || r_expr.text == "instantiate") && !split_members(r_expr)) {
+			return fail_call(r_expr);
+		}
 		if (!r_expr.arg_names.empty()) {
-			return fail_call(r_expr, "Only structs take arguments by name yet; \"" + r_expr.text + "()\" takes them by position (spec §4.6).");
+			return fail_call(r_expr, "Only structs, variants and the members that new(...) and instantiate(...) assign take arguments by name; \"" + r_expr.text + "()\" takes them by position (spec §4.6).");
 		}
 		if ((!r_expr.base && r_expr.text == "super") || (r_expr.base && r_expr.base->kind == ExprKind::Name && r_expr.base->text == "super")) {
 			return check_super(r_expr);
@@ -5168,7 +5256,9 @@ class Checker : public ClassRelation {
 				if (const auto method = engine.find_method(base_type.engine_class(), name)) {
 					const Type result = check_engine_call(r_expr, *method);
 					if (name == "instantiate" && base_type.name == "PackedScene" && !base_type.args.empty() && !result.is_error()) {
-						// The scene's root, checked as it is made (spec §7.4).
+						// The scene's root, checked as it is made, with the members it
+						// must be assigned (spec §7.4).
+						check_members(r_expr, base_type.args[0], true);
 						return set(r_expr, base_type.args[0]);
 					}
 					return result;
@@ -7721,8 +7811,104 @@ class Checker : public ClassRelation {
 		if (r_function.has_body && r_function.return_type.kind != TypeKind::Void && !r_function.return_type.is_error() && !always_ends(r_function.body, false)) {
 			error(r_function.name_token, "Not all paths of \"" + r_function.name + "()\" return a value.");
 		}
+		if (r_function.name == "_init" && !r_function.is_static) {
+			std::set<int> reported;
+			init_block(r_function.body, std::set<int>(), reported);
+		}
 		function = nullptr;
 		scopes.clear();
+	}
+
+	/* _init and members that must be assigned (spec §6.2) */
+
+	// The members that must be assigned which _init has assigned on every path
+	// so far; nullopt where no path goes on.
+	using Assigned = std::optional<std::set<int>>;
+
+	static Assigned joined(const Assigned &p_a, const Assigned &p_b) {
+		if (!p_a || !p_b) {
+			return p_a ? p_a : p_b;
+		}
+		std::set<int> both;
+		std::set_intersection(p_a->begin(), p_a->end(), p_b->begin(), p_b->end(), std::inserter(both, both.begin()));
+		return both;
+	}
+
+	Assigned init_block(const Block &p_block, Assigned p_assigned, std::set<int> &r_reported) {
+		for (const auto &stmt : p_block) {
+			p_assigned = init_stmt(*stmt, std::move(p_assigned), r_reported);
+		}
+		return p_assigned;
+	}
+
+	// The scene and the creator assign only after _init, so _init reading one
+	// it has not assigned itself is an error. A read through a call is left to
+	// the program error: methods may be overridden in other files.
+	Assigned init_stmt(const Stmt &p_stmt, Assigned p_assigned, std::set<int> &r_reported) {
+		if (!p_assigned) {
+			return p_assigned;
+		}
+		const auto reads = [&](const std::unique_ptr<Expr> &p_expr) {
+			if (p_expr) {
+				init_reads(*p_expr, *p_assigned, r_reported);
+			}
+		};
+		switch (p_stmt.kind) {
+			case StmtKind::Assign: {
+				const Expr &target = *p_stmt.target;
+				const bool whole = p_stmt.assign_op == TokenKind::Equal && target.target == Target::Member && (target.kind == ExprKind::Name || target.base->kind == ExprKind::Self);
+				if (!whole) {
+					reads(p_stmt.target);
+				}
+				reads(p_stmt.value);
+				if (whole) {
+					p_assigned->insert(target.index);
+				}
+				return p_assigned;
+			}
+			case StmtKind::If:
+				reads(p_stmt.condition);
+				return joined(init_block(p_stmt.body, p_assigned, r_reported), init_block(p_stmt.else_body, p_assigned, r_reported));
+			case StmtKind::While:
+			case StmtKind::For:
+				reads(p_stmt.condition);
+				reads(p_stmt.value);
+				init_block(p_stmt.body, p_assigned, r_reported);
+				return p_assigned;
+			case StmtKind::Match: {
+				reads(p_stmt.value);
+				Assigned after = p_stmt.exhaustive ? Assigned() : p_assigned;
+				for (const MatchBranch &branch : p_stmt.branches) {
+					reads(branch.guard);
+					after = joined(after, init_block(branch.body, p_assigned, r_reported));
+				}
+				return after;
+			}
+			case StmtKind::Return:
+				reads(p_stmt.value);
+				return std::nullopt;
+			case StmtKind::Break:
+			case StmtKind::Continue:
+				return std::nullopt;
+			default:
+				reads(p_stmt.condition);
+				reads(p_stmt.value);
+				return p_assigned;
+		}
+	}
+
+	void init_reads(const Expr &p_expr, const std::set<int> &p_assigned, std::set<int> &r_reported) {
+		if (p_expr.kind == ExprKind::Lambda) {
+			return; // It runs later.
+		}
+		if (p_expr.target == Target::Member && p_expr.index >= 0 && cls.all_members[p_expr.index]->must_assign && !p_assigned.count(p_expr.index) && r_reported.insert(p_expr.index).second) {
+			error(p_expr.range, "_init reads \"" + p_expr.text + "\" before assigning it: a member that must be assigned gets its value from the scene or the creator only after _init (spec §6.2).");
+		}
+		for_each_child(p_expr, [&](const auto &p_child) {
+			if constexpr (std::is_same_v<std::decay_t<decltype(p_child)>, Expr>) {
+				init_reads(p_child, p_assigned, r_reported);
+			}
+		});
 	}
 
 	// The names of the inner classes (spec §4.1), each once among the class's

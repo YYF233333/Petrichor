@@ -1,0 +1,13 @@
+# Creators that give the members that must be assigned by name (spec §6.2,
+# §6.4). Driven by language_test.gd.
+class_name MustAssignCreator
+extends Node
+
+const ROOT := preload("res://language/must_assign_root.tscn")
+
+pub func made() -> Array:
+	var by_new := MustAssignCheck.new(target = self, hit = MustAssignCheck.Hit(damage = 7))
+	var by_scene := ROOT.instantiate(target = self, hit = MustAssignCheck.Hit(damage = 8))
+	add_child(by_new)
+	add_child(by_scene)
+	return [by_new.damage(), by_scene.damage(), by_new.readied, by_scene.readied]

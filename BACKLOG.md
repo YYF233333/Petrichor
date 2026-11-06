@@ -49,7 +49,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - one of another class, as `Class.f`.
 - Inner classes of two files that extend each other's classes, as `A.X extends B.Y` with `B.Y extends A.Z`. The checker accepts them, but neither image can be loaded before the other's. So the editor reports it, and the game cannot load the base.
 - A text form of this language's own types, such as `Hit(damage = 3, crit = false)`. It serves `str()`, `print()` and `%` together. Now these types read as their encoding (spec §5.1, §10.1).
-- Passing members that must be assigned by name to `instantiate(...)` and `new(...)`. The compile error of `_init` reading one it has not assigned (spec §6.2, §4.6).
 - Node paths (spec §7.1):
   - into instanced scenes;
   - out of a scene from its root: `..` above the root, and `%Name` of a scene that instances it. Ring's paddle.gd uses one, `$%HealthIcon`.

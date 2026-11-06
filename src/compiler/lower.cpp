@@ -1286,6 +1286,18 @@ class Lowerer {
 		return i.base;
 	}
 
+	// The members that new(...) or instantiate(...) assigns by name, after the
+	// call, in the order written and as the engine writes them, through setters
+	// (spec §6.4).
+	uint32_t assign_members(const Expr &p_call, uint32_t p_object) {
+		for (size_t i = 0; i < p_call.member_values.size(); i++) {
+			const Type &type = p_call.member_types[i];
+			const uint32_t value = convert(outward(lower_expr(*p_call.member_values[i]), p_call.member_values[i]->type, type.kind == TypeKind::Object), type);
+			instr(Op::SET_PROPERTY, NO_REG, p_object, value, property(p_call.member_names[i], fn.regs[value].type));
+		}
+		return p_object;
+	}
+
 	// The keys of a Dictionary[K, V], as an Array[K] (spec §5.7).
 	uint32_t keys_of(uint32_t p_dictionary, const Type &p_key) {
 		const uint32_t keys = temp(Type::array(p_key));
@@ -1895,7 +1907,7 @@ class Lowerer {
 					return binary(p_expr.op, left, right, p_expr.type);
 				}
 			case ExprKind::Call:
-				return call(p_expr);
+				return p_expr.member_values.empty() ? call(p_expr) : assign_members(p_expr, call(p_expr));
 			case ExprKind::GetNode:
 				return get_node(p_expr);
 			case ExprKind::ArrayLiteral:

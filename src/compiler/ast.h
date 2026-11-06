@@ -151,6 +151,13 @@ struct Expr {
 	// empty when none is.
 	std::vector<std::string> arg_names;
 	std::vector<uint32_t> arg_name_tokens; // Beside `arg_names`; 0 for an argument by position.
+	// The members that new(...) or instantiate(...) assigns by name, after
+	// the call and in the order written (spec §6.4): their names, the tokens
+	// of the names, the values and, once checked, the members' types.
+	std::vector<std::string> member_names;
+	std::vector<uint32_t> member_name_tokens;
+	std::vector<std::unique_ptr<Expr>> member_values;
+	std::vector<Type> member_types;
 	TypeRef cast_type;
 	std::unique_ptr<FuncDecl> function; // Lambda.
 
@@ -719,7 +726,7 @@ void for_each_child(const Node &p_node, Fn &&p_fn) {
 			emit(p_node.cast_type);
 		} else {
 			opt(p_node.base, p_node.left, p_node.right);
-			ptrs(p_node.args);
+			ptrs(p_node.args, p_node.member_values);
 			opt(p_node.function);
 		}
 	} else if constexpr (std::is_same_v<Node, Pattern>) {
