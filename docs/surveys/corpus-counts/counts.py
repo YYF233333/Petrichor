@@ -38,7 +38,10 @@ Counts, in first-party .gd files (blank and comment lines excluded from the line
     class_name of the repository; `@warning_ignore("int_as_enum_without_cast")`; such enum names used as a
     Dictionary (`keys()`, `values()`, `size()`, `get()`, `find_key()`, `has()`, `Name[...]`,
     `for x in Name:`), and constants initialized with one; match statements with a branch on the engine's
-    KEY_, MOUSE_BUTTON_, JOY_BUTTON_ or JOY_AXIS_ constants and no `_` branch.
+    KEY_, MOUSE_BUTTON_, JOY_BUTTON_ or JOY_AXIS_ constants and no `_` branch;
+  - blocks of comment lines beginning with `##` directly above a declaration or the annotations on the lines
+    above it, which GDScript takes as its documentation, and the files with one; those whose lines all begin
+    with `###`, with locations for reading, and those mixing such lines with others.
 """
 import collections
 import os
@@ -369,6 +372,42 @@ def engine_enum_matches(src, c, where):
             where.append(i + 1)
 
 
+def doc_comments(src, ts, c, where):
+    """Count the blocks of `##` comment lines that document the declaration below them."""
+    by_line = collections.defaultdict(list)
+    for t in ts:
+        by_line[t.line].append(t)
+
+    def declares(line):
+        toks, i = by_line.get(line, []), 0
+        while i < len(toks) and toks[i].k == "AN":
+            i += 1
+            depth = 0
+            while i < len(toks) and (depth or toks[i].v == "("):
+                depth += (toks[i].v == "(") - (toks[i].v == ")")
+                i += 1
+        if toks and i == len(toks):
+            return declares(line + 1)
+        return i < len(toks) and toks[i].v in ("var", "const", "func", "signal", "enum", "class", "static", "class_name", "extends")
+
+    lines, k, found = src.splitlines(), 0, False
+    while k < len(lines):
+        j = k
+        while j < len(lines) and lines[j].lstrip().startswith("##") and j + 1 not in by_line:
+            j += 1
+        if j > k and declares(j + 1):
+            found = True
+            c["doc_block"] += 1
+            hashes = sum(lines[x].lstrip().startswith("###") for x in range(k, j))
+            if hashes == j - k:
+                c["doc_block_hashes"] += 1
+                where.append(k + 1)
+            elif hashes:
+                c["doc_block_mixed"] += 1
+        k = max(j, k + 1)
+    c["doc_files"] += found
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
@@ -408,6 +447,9 @@ def main():
             match_lines = []
             engine_enum_matches(src, c, match_lines)
             freeing_at["match over the engine's enums without _"] += [f"{name}/{f}:{line}" for line in match_lines]
+            hash_lines = []
+            doc_comments(src, ts, c, hash_lines)
+            freeing_at["### block above a declaration"] += [f"{name}/{f}:{line}" for line in hash_lines]
             script_preloads(ts, c, by_repo[name], files, (f"{name}/{f}", group))
             if any(t.k == "AN" and t.v == "@tool" for t in ts):
                 c["tool_" + group] += 1
@@ -597,6 +639,8 @@ def main():
     uses = ", ".join(f"{m} {c['enum_dict_' + m]}" for m in sorted(ENUM_DICT_METHODS | {"index", "for"}) if c["enum_dict_" + m])
     print(f"enum names used as a Dictionary: {c['enum_dict']} ({uses}); constants aliasing an enum: {c['enum_alias']}")
     print(f"match over the engine's enums without _: {c['engine_enum_match']}")
+    print(f"## blocks above a declaration: {c['doc_block']} in {c['doc_files']} files; all lines ###: {c['doc_block_hashes']}; "
+          f"mixing ### lines: {c['doc_block_mixed']}")
     for label, places in freeing_at.items():
         print(f"{label} at: {', '.join(places)}")
 

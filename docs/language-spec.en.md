@@ -72,6 +72,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
   - New postfix operator `?` (§8.2); prefix `!` remains logical not.
   - `null` is an alias of `None` everywhere (becoming NIL in a Variant); assigning it to a non-null `T` is a compile error whose quick fix changes the type to `T?`, and a hint suggests `None` in new code.
   - Single- and double-quoted strings cannot span lines; multi-line strings use triple quotes.
+  - Documentation comments begin with `##` as in GDScript and also document structs and their fields, interfaces and their members; a comment beginning with `###` is an ordinary comment.
 - Literals: integers, floats, strings (including triple quotes and `r` prefix), `&"…"` (StringName), `^"…"` (NodePath), arrays `[…]`, dictionaries `{k: v}` and `{k = v}`, `true`, `false`, `None` (§3.2, §3.4, §10.7).
 
 ### 2.3 Annotations

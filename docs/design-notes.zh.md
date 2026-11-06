@@ -52,6 +52,7 @@ English: [design-notes.en.md](design-notes.en.md)
 - **GDExtension 与只发字节码（§1.3）**：[暗坑清单](surveys/pitfalls.zh.md)中没有只有引擎模块才能修复的条目，GDExtension 修不了的部分需要修改引擎，模块同样修不了。`$X`、`@parent` 和 `PackedScene[T]` 的类型取决于场景（§7），若在加载时编译源码，就要在游戏进程内重新分析场景，并把分析器带到所有导出平台。
 - **preload 脚本作为类（§2.1）**：[语料计数](surveys/corpus-counts.zh.md)中，351 处 preload `.gd` 文件有 207 处初始化常量，在同一文件中用于 `new()` 54 处、其他调用 124 处、其他成员 134 处、`is` 之后 69 处、作为类型 46 处；直接跟 `.new()` 的 preload 69 处。
 - **`null` 别名与单行引号字符串（§2.2）**：[语料计数](surveys/corpus-counts.zh.md)中 `null` 每千行 22.2 处，改为编译错误只会增加机械迁移工作。单引号和双引号跨行字符串在语料中只有 97 个，其中 95 个在 `godot_dialogue_manager` 的测试中；禁止跨行可在漏写右引号时把错误报在本行，避免吞掉后续代码。
+- **`###` 注释不是文档（§2.2）**：[语料计数](surveys/corpus-counts.zh.md)中，紧贴在声明上方、全由 `###` 开头的行组成的注释有 41 段，都是 `### Public variables ###` 这样的分节标题或分隔线，GDScript 却把它们显示为该声明的文档；没有一段文档把这样的行和其他行混写。Rust 同样把 `////` 当作普通注释。
 - **第一版不支持 `@tool`（§2.3）**：在编辑器中运行脚本需要在加载时完整编译，并在编辑器中实例化和重载；[语料计数](surveys/corpus-counts.zh.md)中 326 个含 `@tool` 的文件有 211 个在插件仓库，游戏仓库中 58 个（其中 31 个集中在 `godot-open-rpg`）。
 - **`pub` 用关键字（§2.4）**：[成员可见性调查](surveys/member-visibility.zh.md)中每千行至少出现 22 处，写成 `@public` 注解过于冗长。
 
