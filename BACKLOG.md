@@ -158,6 +158,7 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
   - warn wherever a `NaN` is detected.
   A survey of the corpus decides. Until then, spec §5.2 marks it a known limitation.
 - Whether a setter that runs before ready should wait for ready on its own (spec §6.5). The alternative is writing the behavior in the setter. The owner suspects that the implicit suspension makes setters hard to understand. To be discussed again before §6.5 is implemented.
+- Exporting enums with payloads, which 0.1 needs (spec §3.7). Architecture §5 still puts it after the first version, designed in §6.2. How is settled with the toolchain (step 8).
 - What the name of an enum with payloads gives as a value (spec §3.7). Spec §3.7 gives every enum name `keys()`, `values()`, `find_key()` and `get()`. `values()` cannot list a variant with fields. The checker now rejects the name as a value.
 - Whether an autoload's name stands for its script's class in a type, as GDScript's does (`modules/gdscript/gdscript_analyzer.cpp:806-826`). godot-open-rts writes `var p: Constants.Match.Player` 5 times, `Constants` being an autoload (`docs/surveys/corpus-counts/inner_classes.py`).
 - Whether diagnostics and semantic queries also serve programs, not only the editor's interface. They could say which declaration or scene a constraint comes from, and list the references that broke. That could let AI and tools fix errors while reading less code.
