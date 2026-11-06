@@ -6137,6 +6137,10 @@ class Checker : public ClassRelation {
 				continue;
 			}
 			any = true;
+			// What a syntax error left is reported.
+			if (param.default_value->kind == ExprKind::Error) {
+				continue;
+			}
 			const size_t before = errors.size();
 			const Type value = check_value(*param.default_value, param.type);
 			expect_assignable(*param.default_value, value, param.type, "use");
@@ -7518,6 +7522,87 @@ class Checker : public ClassRelation {
 		set_completions(found);
 	}
 
+	// After `func` at the cursor, `p_site`: what a function with its modifiers
+	// can be named, with the parameters of what it overrides and without
+	// types, which come from there (spec §4.6). Each is tried by
+	// check_signature(): the methods of the classes this one extends, and
+	// _static_init(), which no class inherits (§4.8).
+	void complete_override(const FuncDecl &p_site) {
+		std::set<std::string> names = { "_static_init" };
+		for (const std::string &name : engine.member_names(cls.native_base)) {
+			names.insert(name);
+		}
+		for (size_t i = 0; cls.base && i < cls.base->all_functions.size(); i++) {
+			names.insert(cls.base->all_functions[i]->name);
+		}
+		const std::vector<std::string> chain = class_chain(script_class_type(cls, options.path));
+		std::map<std::string, CompletionItem> found;
+		for (const std::string &name : names) {
+			if (std::any_of(cls.functions.begin(), cls.functions.end(), [&](const FuncDecl &p_function) { return p_function.name == name; })) {
+				continue;
+			}
+			FuncDecl probe;
+			probe.name = name;
+			probe.name_token = p_site.name_token;
+			probe.is_pub = p_site.is_pub;
+			probe.is_static = p_site.is_static;
+			probe.is_async = p_site.is_async;
+			probe.is_abstract = p_site.is_abstract;
+			probe.has_body = p_site.has_body;
+			std::vector<std::string> params; // As they go in.
+			std::string owner;
+			const auto add_param = [&](const std::string &p_name) {
+				probe.params.emplace_back().name = p_name;
+				probe.params.back().name_token = NO_TOKEN;
+				params.push_back(p_name);
+			};
+			const std::optional<EngineMethod> method = engine.find_method(cls.native_base, name);
+			if (const FuncDecl *parent = name == "_init" ? nullptr : base_function(name)) {
+				const ClassDecl &decl = declaring(*cls.base, *parent, &ClassDecl::functions);
+				owner = decl.path;
+				for (const ParamDecl &param : parent->params) {
+					add_param(param.name);
+					if (param.default_value) {
+						// As checked where it is written.
+						probe.params.back().default_value = std::make_unique<Expr>();
+						probe.params.back().default_value->kind = ExprKind::Error;
+						const uint32_t begin = decl.source->begin(param.default_value->range);
+						params.back() += " = " + decl.source->text.substr(begin, decl.source->end(param.default_value->range) - begin);
+					}
+				}
+			} else if (method && method->is_virtual) {
+				owner = method->owner;
+				for (const EngineParam &param : method->params) {
+					add_param(param.name);
+				}
+			} else if (name != "_static_init") {
+				continue;
+			}
+			const size_t error_count = errors.size();
+			const size_t reference_count = references->size();
+			check_signature(probe);
+			const bool accepted = errors.size() == error_count;
+			errors.erase(errors.begin() + error_count, errors.end());
+			references->erase(references->begin() + reference_count, references->end());
+			if (!accepted) {
+				continue;
+			}
+			CompletionItem item;
+			item.kind = CompletionKind::Function;
+			item.name = name;
+			item.insert = name + "(";
+			for (size_t i = 0; i < params.size(); i++) {
+				item.insert += (i > 0 ? ", " : "") + params[i];
+			}
+			item.insert += "):";
+			const auto in_chain = std::find(chain.begin(), chain.end(), owner);
+			item.place = in_chain == chain.end() ? CompletionItem::Place::Local : CompletionItem::Place::Member;
+			item.depth = int(in_chain - chain.begin());
+			found.emplace(name, item);
+		}
+		set_completions(found);
+	}
+
 public:
 	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, Completion *r_completion) :
 			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), check_bodies(p_check_bodies), classes(r_classes), references(r_references), completion(r_completion) {}
@@ -7653,6 +7738,9 @@ private:
 		declare_structs();
 		declare_owner();
 		for (FuncDecl &fn : cls.functions) {
+			if (completion && at_cursor(fn.name)) {
+				complete_override(fn);
+			}
 			if (is_declared(fn)) {
 				check_signature(fn);
 			}

@@ -297,8 +297,9 @@ Dictionary PetLanguage::_complete_code(const String &p_code, const String &p_pat
 		option["kind"] = KINDS[int(item.kind)];
 		const String name = to_godot(item.name);
 		const String insert = to_godot(item.insert);
-		// As GDScript shows a function (modules/gdscript/gdscript_editor.cpp:1376-1384).
-		option["display"] = item.kind == compiler::CompletionKind::Function ? name + (insert.ends_with("()") ? "()" : String::utf8("(…)")) : name;
+		// As GDScript shows a function, and an override as it goes in
+		// (modules/gdscript/gdscript_editor.cpp:1376-1384, 3709-3711).
+		option["display"] = item.kind != compiler::CompletionKind::Function ? name : (insert.ends_with("(") ? name + String::utf8("(…)") : insert);
 		option["insert_text"] = insert;
 		option["font_color"] = Color();
 		option["icon"] = Variant();

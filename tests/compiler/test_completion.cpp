@@ -29,6 +29,9 @@ pub func hit(amount: int) -> void:
 func think() -> void:
 	pass
 
+func shove(force: int, far: bool = false) -> void:
+	pass
+
 pub struct Shot:
 	var damage := 1
 )",
@@ -90,7 +93,9 @@ bool offers(const std::vector<CompletionItem> &p_items, const std::vector<std::s
 			wrong.push_back(name);
 		}
 	}
-	INFO("wrong: " << joined(wrong));
+	if (!wrong.empty()) {
+		MESSAGE("wrong: " << joined(wrong));
+	}
 	return wrong.empty();
 }
 
@@ -190,6 +195,17 @@ TEST_CASE("after $ and %, completion offers the paths that reach a node from the
 	CHECK(find(complete(in_function("$Head/E‸")), "Head/Eye"));
 	CHECK(find(complete(in_function("$\"My‸\"")), "My Label")->insert == "My Label");
 	CHECK(complete(in_function("$‸", "static func f() -> void:")).empty());
+}
+
+TEST_CASE("after func, completion offers what the function can override, with the parameters and without types") {
+	const std::vector<CompletionItem> items = complete("extends Enemy\n\nfunc think() -> void:\n\tpass\n\nfunc ‸\n");
+	CHECK(offers(items, { "shove", "_process", "_init", "_notification", "-think", "-hit", "-get_child", "-_static_init", "-_has_point" }));
+	CHECK((find(items, "shove")->insert == "shove(force, far = false):" && find(items, "_process")->insert == "_process(delta):"));
+	CHECK((find(items, "shove")->depth == 1 && find(items, "_process")->depth == 3));
+	// With the modifiers of what it overrides.
+	CHECK(offers(complete("extends Enemy\n\npub func ‸\n"), { "hit", "-shove", "-think" }));
+	CHECK(offers(complete("extends Enemy\n\nstatic func ‸\n"), { "_static_init", "-shove", "-_process" }));
+	CHECK(offers(complete("extends Node\n\nasync func ‸\n"), { "_process", "-_to_string" }));
 }
 
 TEST_CASE("completion works on the recovered syntax tree, with syntax errors elsewhere") {
