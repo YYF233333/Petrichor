@@ -23,6 +23,8 @@
 | debug 构建中有四项检查：由轴和角构造 Basis、Quaternion，要求轴已归一化；由 Basis 构造 Quaternion，要求它是旋转。由两个向量构造 Quaternion，要求它们不为零；Quaternion 乘向量，要求向量已归一化 | `core/math/basis.cpp:716-717, 843-844`；`core/math/quaternion.cpp:289-290`；`core/math/quaternion.h:93-94, 139-140`；`core/math/math_defs.h:56-58` | §4.5 |
 | Array 的 `==` 逐元素用 `hash_compare`，它要求元素类型相同 | `core/variant/array.cpp:155-158`；`core/variant/variant.cpp:3176-3179` | §5.2 |
 | `hash_compare` 认为 NaN 与 NaN 匹配 | `core/variant/variant.cpp:3138-3139` | §5.2 |
+| Array 的 `<` 逐元素比较，比不出大小的元素当作相等，接着比下一个。元素按 `Variant::operator<` 比较：类型不同时按类型编号排序，查不到运算时为假 | `core/variant/array.cpp:164-179`；`core/variant/variant.cpp:868-876` | §5.2 |
+| Array 的 `<=` 是 `not (b < a)`，`>=` 是 `not (a < b)` | `core/variant/array.cpp:181-188` | §5.2 |
 | Dictionary 的 `==` 按键查找后逐项比较值，与顺序无关 | `core/variant/dictionary.cpp:255-285` | §5.2 |
 | 已释放的对象在条件中为假：对象的 `is_zero` 检查对象是否仍然有效 | `core/variant/variant.cpp:952-953`；`core/variant/variant_op.cpp:1120-1122` | §3.3 |
 | Variant 转为对象指针时不检查对象是否存活。引擎方法的对象参数经它取出：debug 构建按类检查时就使用这个指针，release 构建直接交给方法 | `core/variant/variant.cpp:2024-2026`；`core/variant/binder_common.h:58-61`；`core/variant/variant_caster.h:139-140` | §3.3 |

@@ -439,9 +439,10 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
   - containers compare element-wise or entry-wise, requiring matching runtime element types. So `[1] == [1.0]` is false, while `NaN` matches `NaN`. Comparing statically distinct container types, such as `Array[int] == Array[float]`, is a compile error. Structs and payload enums match field by field;
   - with a `Variant` operand, runtime lookup uses the operator table and raises a program error on unsupported pairs. `v == None` is true for NIL and freed objects (§3.13).
 - Ordering (`<`, `>`, `<=`, `>=`) follows the operator table, which has none for objects, `Dictionary` and `Callable`:
-  - `Array` orders element-wise when its element type has `<`;
+  - `Array` orders lexicographically when its element type has `<`. At the first position where the elements do not match under container `==`, the result is their `<`. When all match, the shorter is less;
   - `T?` places `None` before `Some` when `T` has `<`, and **never** wraps implicitly: `hp < 3` on `hp: int?` is a compile error;
-  - structs and payload enums follow §3.6 and §3.7, with `>`, `<=` and `>=` derived from `<` and `==`.
+  - structs and payload enums follow §3.6 and §3.7;
+  - for these three, `>`, `<=` and `>=` derive from `<` and `==`: `a > b` is `b < a`, and `a <= b` is `a < b or a == b`. Other types take all four from the operator table.
 
 ### 5.3 Conversions
 

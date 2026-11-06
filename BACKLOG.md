@@ -68,6 +68,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`).
 - Members of classes of this language read and written without the engine. This language now reaches members of other instances through reflection. Then a pub member whose type is a container that keeps boxes can leave reflection (spec §10.5).
 - Temporary slots reused by scope. This releases temporary references in a loop in time. A suspended coroutine then keeps only the slots still in use. Now a temporary that held self keeps a RefCounted alive while the coroutine waits, as in `f(self, await g())` (against spec §9.4).
+- Ordering of arrays of engine types as spec §5.2 says. It now takes the engine's operators, which differ when elements are unordered, such as NaN.
 
 ## Editor
 
@@ -77,6 +78,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - a scene that nothing references lacking a node;
   - writes to a resource known to be shared.
 - The error explaining why a GDScript file cannot extend a class of this language (spec §11.2).
+- When lints are added, consider a hint on ordering arrays whose elements can be NaN. GDScript's results differ there (spec §5.2).
 - Compiled bytecode is checked against its own source only. A game run from the command line without a build keeps old bytecode. That happens after a change to a scene or to a script it uses. Only the runtime checks (signatures, `$X` classes) then catch the difference. The analysis knows what each script read, but keeps it only in the editor's memory (architecture §2.1).
 - The scene index: read scenes unsaved in the editor, which are marked as last saved (architecture §2.4). Check whether it handles autoloads that are scenes.
 - Completion in the editor (`_complete_code`; spec §13.2), on the recovered syntax tree (architecture §2.1). `_can_make_function`, so that the signal connection dialog generates the callback (editor/scene/connections_dialog.cpp:505-512; ed1daf0).
