@@ -207,8 +207,9 @@ Dictionary PetLanguage::_validate(const String &p_script, const String &p_path, 
 		error["message"] = to_godot(diagnostic.message);
 		errors.push_back(error);
 	}
-	// The editor's [Ignore] puts the code into a @warning_ignore above the line
-	// (editor/script/script_text_editor.cpp:380-404); a hint has none to give.
+	// Hints too, the engine having no other place for them; the editor's
+	// [Ignore] puts the name into a @warning_ignore above the line
+	// (editor/script/script_text_editor.cpp:380-404).
 	for (const compiler::Diagnostic &diagnostic : warning_diagnostics) {
 		Dictionary warning;
 		warning["start_line"] = diagnostic.line;
@@ -216,7 +217,7 @@ Dictionary PetLanguage::_validate(const String &p_script, const String &p_path, 
 		warning["leftmost_column"] = diagnostic.column;
 		warning["rightmost_column"] = diagnostic.column;
 		warning["code"] = 0;
-		warning["string_code"] = diagnostic.warning.empty() ? String("hint") : to_godot(diagnostic.warning);
+		warning["string_code"] = to_godot(diagnostic.warning);
 		warning["message"] = to_godot(diagnostic.message);
 		warnings.push_back(warning);
 	}

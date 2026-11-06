@@ -10,14 +10,18 @@ namespace petrichor::compiler {
 
 namespace {
 
-// The warnings of this language (spec §2.3).
-const char *const WARNINGS[] = {
+const char *const UNUSED_IGNORE = "unused_ignore";
+
+// The warnings and hints of this language, which @warning_ignore takes by
+// name (spec §2.3).
+const char *const NAMES[] = {
 	"modified_copy", // §3.6
+	UNUSED_IGNORE,
 };
 
-bool is_warning(const std::string &p_name) {
-	for (const char *warning : WARNINGS) {
-		if (p_name == warning) {
+bool is_name(const std::string &p_name) {
+	for (const char *name : NAMES) {
+		if (p_name == name) {
 			return true;
 		}
 	}
@@ -92,28 +96,44 @@ void apply_warning_ignores(const ClassDecl &p_class, std::vector<Diagnostic> &r_
 			}
 		}
 	}
-	std::vector<Diagnostic> kept;
-	for (Diagnostic &warning : r_warnings) {
-		const int line = source.position(warning.begin).line;
-		bool ignored = false;
+	// Whether an ignore takes the diagnostic, which then counts as used.
+	const auto ignored = [&](const Diagnostic &p_diagnostic) {
+		const int line = source.position(p_diagnostic.begin).line;
+		bool taken = false;
 		for (Ignore &ignore : ignores) {
-			if (ignore.name == warning.warning && line >= ignore.first_line && line <= ignore.last_line) {
+			if (ignore.name == p_diagnostic.warning && line >= ignore.first_line && line <= ignore.last_line) {
 				ignore.used = true;
-				ignored = true;
+				taken = true;
 			}
 		}
-		if (!ignored) {
+		return taken;
+	};
+	std::vector<Diagnostic> kept;
+	for (Diagnostic &warning : r_warnings) {
+		if (!ignored(warning)) {
 			kept.push_back(std::move(warning));
 		}
 	}
-	for (const Ignore &ignore : ignores) {
-		if (ignore.used) {
-			continue;
+	// A hint for each unused ignore, those of other names first, since an
+	// ignore of unused_ignore is used once it takes one of their hints.
+	for (const bool of_hints : { false, true }) {
+		for (size_t i = 0; i < ignores.size(); i++) {
+			const Ignore &ignore = ignores[i];
+			if (ignore.used || (ignore.name == UNUSED_IGNORE) != of_hints) {
+				continue;
+			}
+			Diagnostic hint{ source.begin(ignore.arg->range), source.end(ignore.arg->range) };
+			hint.severity = Severity::Hint;
+			hint.warning = UNUSED_IGNORE;
+			if (is_name(ignore.name)) {
+				hint.message = "This ignores no \"" + ignore.name + "\" " + (of_hints ? "hint." : "warning.");
+			} else {
+				hint.message = "\"" + ignore.name + "\" is not a warning or hint of this language, so this ignores nothing (spec §2.3).";
+			}
+			if (of_hints || !ignored(hint)) {
+				kept.push_back(std::move(hint));
+			}
 		}
-		Diagnostic hint{ source.begin(ignore.arg->range), source.end(ignore.arg->range) };
-		hint.severity = Severity::Hint;
-		hint.message = is_warning(ignore.name) ? "This ignores no \"" + ignore.name + "\" warning." : "\"" + ignore.name + "\" is not a warning of this language, so this ignores nothing (spec §2.3).";
-		kept.push_back(std::move(hint));
 	}
 	r_warnings = std::move(kept);
 }

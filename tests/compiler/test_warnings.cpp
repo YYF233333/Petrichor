@@ -17,7 +17,7 @@ std::vector<std::string> warnings_of(const std::string &p_source) {
 	REQUIRE(result.ok());
 	std::vector<std::string> warnings;
 	for (const compiler::Diagnostic &warning : result.warnings) {
-		CHECK(warning.severity == (warning.warning.empty() ? compiler::Severity::Hint : compiler::Severity::Warning));
+		CHECK(warning.severity == (warning.warning == "unused_ignore" ? compiler::Severity::Hint : compiler::Severity::Warning));
 		warnings.push_back(std::to_string(warning.line) + ": " + warning.warning + ": " + warning.message);
 	}
 	return warnings;
@@ -50,7 +50,7 @@ TEST_CASE("@warning_ignore reaches the head of the next statement or declaration
 	// Not a function's body.
 	const std::vector<std::string> function = warnings_of(HIT + "@warning_ignore(\"modified_copy\")\nfunc f(hits: Array[Hit]):\n\tfor h in hits:\n\t\th.damage = 0\n");
 	REQUIRE(function.size() == 2);
-	CHECK(function[0] == "9: : This ignores no \"modified_copy\" warning.");
+	CHECK(function[0] == "9: unused_ignore: This ignores no \"modified_copy\" warning.");
 	CHECK(contains(function[1], "12: modified_copy: "));
 	// A region, to its restore or to the end of the file.
 	CHECK(warnings_of(in_loop("\t\t@warning_ignore_start(\"modified_copy\")\n\t\th.damage = 0\n\t\t@warning_ignore_restore(\"modified_copy\")\n")).empty());
@@ -60,10 +60,14 @@ TEST_CASE("@warning_ignore reaches the head of the next statement or declaration
 	CHECK(warnings_of("@warning_ignore_start(\"modified_copy\")\n" + in_loop("\t\th.damage = 0\n")).empty());
 }
 
-TEST_CASE("a name of @warning_ignore that ignores nothing gets a hint") {
-	const std::vector<std::string> gdscript = warnings_of("extends Node\n\n@warning_ignore(\"unused_parameter\")\nfunc f(x: int):\n\tpass\n");
+TEST_CASE("a name of @warning_ignore that ignores nothing gets a hint, which its own name ignores") {
+	const std::string gdscript_ignore = "@warning_ignore(\"unused_parameter\")\nfunc f(x: int):\n\tpass\n";
+	const std::vector<std::string> gdscript = warnings_of("extends Node\n\n" + gdscript_ignore);
 	REQUIRE(gdscript.size() == 1);
-	CHECK(gdscript[0] == "3: : \"unused_parameter\" is not a warning of this language, so this ignores nothing (spec §2.3).");
+	CHECK(gdscript[0] == "3: unused_ignore: \"unused_parameter\" is not a warning or hint of this language, so this ignores nothing (spec §2.3).");
+	// As the editor's [Ignore] writes it above.
+	CHECK(warnings_of("extends Node\n\n@warning_ignore(\"unused_ignore\")\n" + gdscript_ignore).empty());
+	CHECK(warnings_of("extends Node\n\n@warning_ignore(\"unused_ignore\")\nvar x := 1\n") == std::vector<std::string>{ "3: unused_ignore: This ignores no \"unused_ignore\" hint." });
 	// With syntax errors there are none.
 	compiler::CompileResult broken = compiler::compile("extends Node\n\n@warning_ignore(\"unused_parameter\")\nfunc f(:\n", fake_engine());
 	CHECK_FALSE(broken.ok());

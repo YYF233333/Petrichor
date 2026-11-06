@@ -123,7 +123,7 @@ int build_project(int *r_script_count, bool p_warnings) {
 		}
 		const CharString file = path.utf8();
 		for (size_t i = 0; p_warnings && i < warnings.size(); i++) {
-			const std::string message = warnings[i].warning.empty() ? warnings[i].message : warnings[i].message + " (" + warnings[i].warning + ")";
+			const std::string message = warnings[i].message + " (" + warnings[i].warning + ")";
 			gdextension_interface::print_warning(message.c_str(), "", file.get_data(), warnings[i].line, false);
 		}
 	}

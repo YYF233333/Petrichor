@@ -21,7 +21,7 @@ struct Diagnostic {
 	int line = 0;
 	int column = 0;
 	Severity severity = Severity::Error;
-	std::string warning; // A warning's name, which @warning_ignore takes (spec §2.3).
+	std::string warning; // A warning's or a hint's name, which @warning_ignore takes (spec §2.3).
 	// An error in how a scene uses the script is also marked on the node of
 	// that scene that has it (spec §7, §13.2), by its path from the root.
 	std::string scene;
