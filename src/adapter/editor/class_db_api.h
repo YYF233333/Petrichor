@@ -43,6 +43,9 @@ public:
 	std::optional<int64_t> find_constant(const std::string &p_class, const std::string &p_constant) const override;
 	std::optional<compiler::Type> find_enum(const std::string &p_class, const std::string &p_enum) const override;
 	compiler::Type constant_type(const std::string &p_class, const std::string &p_constant) const override;
+	std::vector<std::string> class_list() const override;
+	std::vector<std::string> member_names(const std::string &p_class) const override;
+	std::vector<std::string> enum_names(const std::string &p_class) const override;
 
 	static const ClassDBApi &get();
 	// When an extension loads, unloads or reloads, ClassDB changes.

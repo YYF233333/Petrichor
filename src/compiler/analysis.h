@@ -53,6 +53,9 @@ public:
 	// The script at `p_path` (res://) compiled from `p_source` with its scenes,
 	// as compile() does; the previous result if nothing it read has changed.
 	std::shared_ptr<const CompileResult> compile(const std::string &p_path, const std::string &p_source);
+	// The other scripts as the pass that is open reads them, for a check whose
+	// result is not kept.
+	ScriptClasses &pass_classes() { return *classes; }
 	// Forgets every result, as when the engine's classes change.
 	void clear();
 	// How many scripts have been checked, for tests.

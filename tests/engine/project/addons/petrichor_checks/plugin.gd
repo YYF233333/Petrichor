@@ -48,6 +48,7 @@ func _run() -> void:
 	await _check_scene_marks()
 	await _check_undo_merge()
 	_check_lookup()
+	_check_completion()
 	await _check_documentation()
 
 	print("editor check: %d failure(s)" % failures)
@@ -368,6 +369,30 @@ func _check_lookup() -> void:
 	reached = click.call("hit")
 	_check(script_editor.get_current_script() == script and reached.get_caret_line() == 4, "Ctrl+click on a parameter goes to its declaration")
 	_check_errors([], "looking up reports nothing")
+	for path in [hit_path, script_path]:
+		for file in [path, path + ".uid", path.replace("res://", "res://.godot/petrichor/").replace(".pet", ".petc")]:
+			DirAccess.remove_absolute(file)
+
+
+# Spec §13.2: completion offers what checks at the cursor, which the script
+# editor asks the language for (editor/gui/code_editor.cpp:1028-1055).
+func _check_completion() -> void:
+	var hit_path := "res://editor_complete_hit.pet"
+	var script_path := "res://editor_complete.pet"
+	_write(hit_path, "extends RefCounted\n\npub var damage := 1\nvar hidden := 2\n\npub func strike(times: int) -> void:\n\tpass\n")
+	_write(script_path, "extends Node\n\nconst Hit = preload(\"editor_complete_hit.pet\")\n\nfunc f(hit: Hit) -> void:\n\tprint(hit.damage)\n")
+	EditorInterface.edit_script(load(script_path))
+	var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	code.set_caret_line(5)
+	code.set_caret_column(code.get_line(5).find("damage"))
+	code.request_code_completion(true)
+	var offered := {}
+	for option in code.get_code_completion_options():
+		offered[option.display_text] = option
+	var shown: bool = offered.has("damage") and offered.damage.kind == CodeEdit.KIND_MEMBER and offered.has("strike(…)") and offered["strike(…)"].insert_text == "strike(" and not offered.has("hidden")
+	_check(shown, "completion offers the pub members of a value's class" + ("" if shown else ": " + str(offered.keys())))
+	code.cancel_code_completion()
+	_check_errors([], "completing reports nothing")
 	for path in [hit_path, script_path]:
 		for file in [path, path + ".uid", path.replace("res://", "res://.godot/petrichor/").replace(".pet", ".petc")]:
 			DirAccess.remove_absolute(file)

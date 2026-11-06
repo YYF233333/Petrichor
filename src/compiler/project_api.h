@@ -2,6 +2,7 @@
 
 #include "compiler/engine_api.h"
 
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -105,6 +106,10 @@ public:
 	virtual std::string global_class_path(const std::string &p_name) const = 0;
 	// The script of an autoload, by its global name, or "" (spec §7.3).
 	virtual std::string autoload_path(const std::string &p_name) const = 0;
+	// For completion (spec §13.2): the paths of the global classes by their
+	// names, and the global names of the autoloads.
+	virtual std::map<std::string, std::string> global_class_paths() const = 0;
+	virtual std::vector<std::string> autoload_names() const = 0;
 	// The source of a script of this language, UTF-8; nullopt if it cannot be read.
 	virtual std::optional<std::string> script_source(const std::string &p_path) const = 0;
 	// A script of another language by its res:// path, nullopt if there is

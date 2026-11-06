@@ -2,7 +2,9 @@
 
 #include "compiler/ast.h"
 #include "compiler/builtin_api.h"
+#include "compiler/checker.h"
 #include "compiler/lexer.h"
+#include "compiler/parser.h"
 
 #include <algorithm>
 #include <cctype>
@@ -395,6 +397,22 @@ std::string doc_class_name(const DocName &p_doc_name, const std::string &p_path)
 		at = next;
 	}
 	return name;
+}
+
+std::vector<CompletionItem> complete(Analysis &r_analysis, const EngineApi &p_engine, const std::string &p_path, const std::string &p_source) {
+	const Analysis::Pass pass(r_analysis);
+	ScriptClasses &classes = r_analysis.pass_classes();
+	CompileOptions options;
+	options.path = p_path;
+	options.project = classes.get_project();
+	std::vector<Diagnostic> errors;
+	ClassDecl decl = parse(p_source, errors);
+	std::vector<Reference> references;
+	std::vector<CompletionItem> items;
+	classes.begin_compile(p_path, p_source);
+	check(decl, p_engine, options, errors, classes, true, &references, &items);
+	classes.end_compile();
+	return items;
 }
 
 std::optional<Lookup> lookup(Analysis &r_analysis, const EngineApi &p_engine, const ProjectApi &p_project, const DocName &p_doc_name, const std::string &p_path, const std::string &p_source, uint32_t p_offset) {

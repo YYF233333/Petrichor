@@ -365,6 +365,28 @@ std::string SceneIndex::autoload_path(const std::string &p_name) const {
 	return value.begins_with("*") ? to_utf8(value.substr(1)) : std::string();
 }
 
+std::map<std::string, std::string> SceneIndex::global_class_paths() const {
+	std::map<std::string, std::string> paths;
+	const TypedArray<Dictionary> classes = ProjectSettings::get_singleton()->get_global_class_list();
+	for (int64_t i = 0; i < classes.size(); i++) {
+		const Dictionary entry = classes[i];
+		paths[to_utf8(entry.get("class", String()))] = to_utf8(entry.get("path", String()));
+	}
+	return paths;
+}
+
+std::vector<std::string> SceneIndex::autoload_names() const {
+	std::vector<std::string> names;
+	const TypedArray<Dictionary> properties = ProjectSettings::get_singleton()->get_property_list();
+	for (int64_t i = 0; i < properties.size(); i++) {
+		const String name = Dictionary(properties[i]).get("name", String());
+		if (name.begins_with("autoload/") && !autoload_path(to_utf8(name.trim_prefix("autoload/"))).empty()) {
+			names.push_back(to_utf8(name.trim_prefix("autoload/")));
+		}
+	}
+	return names;
+}
+
 std::optional<compiler::ForeignClass> SceneIndex::foreign_class(const std::string &p_path, bool p_members) const {
 	const String path = to_godot(p_path);
 	if (!FileAccess::file_exists(path)) {

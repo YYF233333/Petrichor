@@ -47,6 +47,10 @@ void project_changed();
 // script editor's lookup (spec §13.2).
 std::optional<compiler::Lookup> lookup_name(const godot::String &p_path, const std::string &p_source, uint32_t p_offset);
 
+// What can be written at the cursor, which U+FFFF marks in `p_source`, for
+// the script editor's completion (spec §13.2).
+std::vector<compiler::CompletionItem> completion(const godot::String &p_path, const std::string &p_source);
+
 // What the documentation names a class of this language, also an inner one,
 // by its path.
 godot::String class_doc_name(const godot::String &p_path);

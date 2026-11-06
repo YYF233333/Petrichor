@@ -1,6 +1,7 @@
 #include "compiler/checker.h"
 
 #include "compiler/builtin_api.h"
+#include "compiler/navigation.h"
 #include "compiler/parser.h"
 #include "compiler/script_classes.h"
 
@@ -8,6 +9,7 @@
 #include <cctype>
 #include <iomanip>
 #include <locale>
+#include <map>
 #include <set>
 #include <sstream>
 #include <unordered_map>
@@ -110,6 +112,20 @@ std::vector<Type> param_types(const std::vector<ParamDecl> &p_params) {
 	return types;
 }
 
+// The methods of T? that are not supported yet (spec §3.4).
+const std::unordered_set<std::string> &later_option_methods() {
+	static const std::unordered_set<std::string> later = { "unwrap_or", "unwrap_or_else", "map", "and_then", "or_else", "filter", "ok_or", "ok_or_else", "flatten" };
+	return later;
+}
+
+// What the script editor puts at the cursor for completion, U+FFFF
+// (scene/gui/code_edit.cpp:2390-2400), which reads as part of a name.
+constexpr const char *CURSOR = "\xEF\xBF\xBF";
+
+bool at_cursor(const std::string &p_name) {
+	return p_name.find(CURSOR) != std::string::npos;
+}
+
 // A class of this language, by its path: a script's, or an inner class's,
 // which the tests' unnamed file has too (spec §2.1).
 bool is_script_path(const std::string &p_path) {
@@ -137,6 +153,17 @@ class Checker : public ClassRelation {
 	ScriptClasses &classes; // The project's other scripts of this language.
 	std::vector<Scene> scenes; // The scenes that use this script.
 	std::vector<Reference> *references; // Recorded for this file only.
+	// What can be written at the cursor (spec §13.2), whose function alone has
+	// its body checked; null when not completing.
+	std::vector<CompletionItem> *completions;
+	// Trying a name where completion asks: calls are checked without their
+	// arguments, and give how many the callee takes.
+	bool probing = false;
+	int probed_params = -1;
+	// The expression of the expression statement being checked, and the
+	// statement before it in its block, for the keywords there.
+	const Expr *statement_value = nullptr;
+	const Stmt *previous_statement = nullptr;
 	FileCheck *file = nullptr;
 	Checker *outer_checker = nullptr; // The checker of the class around this one, if any (spec §4.1).
 	enum class State {
@@ -937,6 +964,10 @@ class Checker : public ClassRelation {
 	}
 
 	Type resolve_name(const TypeRef &p_ref, bool p_allow_void) {
+		if (completions && at_cursor(p_ref.name)) {
+			complete_type(p_ref, p_allow_void);
+			return Type::of(TypeKind::Error);
+		}
 		if (p_ref.is_function) {
 			// `func(int, Node) -> bool` (spec §2.4, §3.11).
 			std::vector<Type> params;
@@ -3270,7 +3301,9 @@ class Checker : public ClassRelation {
 	void check_arguments(Expr &r_call, const std::vector<Type> &p_params, int p_required, bool p_vararg) {
 		const int count = int(r_call.args.size());
 		const int max = int(p_params.size());
-		if (count < p_required || (!p_vararg && count > max)) {
+		if (probing) {
+			probed_params = max + (p_vararg ? 1 : 0);
+		} else if (count < p_required || (!p_vararg && count > max)) {
 			std::string expected = std::to_string(p_required);
 			if (p_vararg) {
 				expected = "at least " + expected;
@@ -3476,6 +3509,10 @@ class Checker : public ClassRelation {
 
 		// Typed by the arguments (spec §10.3); the engine takes them as Variant.
 		const size_t expected = rule == ArgumentTyped::Lerp ? 3 : p_utility.argument_count;
+		if (probing) {
+			probed_params = int(expected);
+			return set(r_expr, Type::of(TypeKind::Variant));
+		}
 		if (r_expr.args.size() < expected || (!p_utility.is_vararg && r_expr.args.size() > expected)) {
 			return fail_call(r_expr, "Function \"" + r_expr.text + "()\" takes " + (p_utility.is_vararg ? "at least " : "") + std::to_string(expected) + " argument(s).");
 		}
@@ -3944,8 +3981,7 @@ class Checker : public ClassRelation {
 			refer(r_expr.name_token, language_id("Option", name));
 			return set(r_expr, p_base.unwrapped());
 		}
-		static const std::unordered_set<std::string> later = { "unwrap_or", "unwrap_or_else", "map", "and_then", "or_else", "filter", "ok_or", "ok_or_else", "flatten" };
-		if (later.count(name)) {
+		if (later_option_methods().count(name)) {
 			return fail_call(r_expr, name + "() of " + p_base.to_string() + " is not supported yet.");
 		}
 		return fail_call(r_expr, "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
@@ -4701,15 +4737,24 @@ class Checker : public ClassRelation {
 		return fail_call(r_expr, "Function \"" + name + "()\" not found in the class or its base " + cls.extends + ".");
 	}
 
-	Type check_await(Expr &r_expr) {
+	// Why await cannot be written here; empty where it can.
+	std::string no_await() const {
 		if (in_assert) {
-			return fail(r_expr, "await cannot appear in an assert: it would vanish with the assertion in release builds (spec §8.3).");
+			return "await cannot appear in an assert: it would vanish with the assertion in release builds (spec §8.3).";
 		}
 		if (in_predelete) {
-			return fail(r_expr, "await is not allowed in the PREDELETE branch.");
+			return "await is not allowed in the PREDELETE branch.";
 		}
 		if (!function || !function->is_async || initializing >= 0) {
-			return fail(r_expr, "await requires an async function and cannot appear in an initializer.");
+			return "await requires an async function and cannot appear in an initializer.";
+		}
+		return std::string();
+	}
+
+	Type check_await(Expr &r_expr) {
+		const std::string refused = no_await();
+		if (!refused.empty()) {
+			return fail(r_expr, refused);
 		}
 		Expr &operand = *r_expr.left;
 		operand.awaited = true;
@@ -4816,6 +4861,10 @@ class Checker : public ClassRelation {
 	// `p_expected` is the type the value goes to, if known; literals of arrays,
 	// dictionaries, strings and None take their type from it.
 	Type type_expr(Expr &r_expr, const Type &p_expected) {
+		if (completions && (r_expr.kind == ExprKind::Name || r_expr.kind == ExprKind::Member || r_expr.kind == ExprKind::Call) && at_cursor(r_expr.text)) {
+			complete(r_expr);
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
 		switch (r_expr.kind) {
 			case ExprKind::IntLiteral:
 				if (r_expr.int_overflows) {
@@ -5022,8 +5071,11 @@ class Checker : public ClassRelation {
 	std::unordered_map<int, Type> check_block(Block &r_block, const std::unordered_map<int, Type> &p_facts = {}) {
 		scopes.emplace_back();
 		narrowed.push_back(p_facts);
+		const Stmt *previous = nullptr;
 		for (auto &stmt : r_block) {
+			previous_statement = previous;
 			check_stmt(*stmt);
+			previous = stmt.get();
 		}
 		std::unordered_map<int, Type> facts = std::move(narrowed.back());
 		narrowed.pop_back();
@@ -5411,6 +5463,7 @@ class Checker : public ClassRelation {
 				if (is_comment(*r_stmt.value)) {
 					return;
 				}
+				statement_value = r_stmt.value.get();
 				if (r_stmt.value->kind != ExprKind::Call && r_stmt.value->kind != ExprKind::Await) {
 					check_expr(*r_stmt.value);
 					error(r_stmt.value->range, "This expression has no effect.");
@@ -6711,7 +6764,8 @@ class Checker : public ClassRelation {
 		narrowed.clear();
 		narrowed.emplace_back();
 		declare_params(r_function);
-		if (options.declarations_only || !check_bodies) {
+		const size_t cursor = completions ? cls.source->text.find(CURSOR) : 0;
+		if (options.declarations_only || !check_bodies || (completions && (cursor < cls.source->begin(r_function.range) || cursor >= cls.source->end(r_function.range)))) {
 			function = nullptr;
 			scopes.clear();
 			return;
@@ -6771,9 +6825,512 @@ class Checker : public ClassRelation {
 		return found != function_index.end() && cls.all_functions[found->second] == &p_function;
 	}
 
+	/* Completion (spec §13.2) */
+
+	// Names that may be written somewhere, as types or as values: more than
+	// can, since each is tried where completion asks.
+	struct Candidates {
+		std::set<std::string> types;
+		std::set<std::string> values;
+	};
+
+	void engine_candidates(const std::string &p_class, Candidates &r_names) const {
+		for (const std::string &name : engine.member_names(p_class)) {
+			r_names.values.insert(name);
+		}
+		for (const std::string &name : engine.enum_names(p_class)) {
+			r_names.types.insert(name);
+		}
+	}
+
+	// What a class has, also through its bases: what code names in it, through
+	// it or through its objects.
+	void class_candidates(const ClassDecl &p_decl, Candidates &r_names) const {
+		const auto add = [&](const auto &p_declarations) {
+			for (const auto *declaration : p_declarations) {
+				r_names.values.insert(declaration->name);
+			}
+		};
+		add(p_decl.all_members);
+		add(p_decl.all_static_vars);
+		add(p_decl.all_constants);
+		add(p_decl.all_functions);
+		add(p_decl.all_signals);
+		for (const ClassDecl *decl = &p_decl; decl; decl = decl->base) {
+			for (const std::unique_ptr<ClassDecl> &inner : decl->classes) {
+				r_names.types.insert(inner->name);
+				r_names.values.insert(inner->name);
+			}
+			for (const StructDecl &found : decl->structs) {
+				r_names.types.insert(found.name);
+				r_names.values.insert(found.name);
+			}
+			for (const InterfaceDecl &found : decl->interfaces) {
+				r_names.types.insert(found.name);
+			}
+			for (const EnumDecl &found : decl->enums) {
+				if (!found.name.empty()) {
+					r_names.types.insert(found.name);
+					r_names.values.insert(found.name);
+				}
+				for (const EnumValueDecl &value : found.values) {
+					r_names.values.insert(value.name);
+				}
+			}
+		}
+		engine_candidates(p_decl.native_base, r_names);
+	}
+
+	// What `Class.` and `object.` reach of a class of this language, of
+	// another or of the engine.
+	void script_candidates(const Type &p_class, Candidates &r_names) {
+		if (p_class.is_interface) {
+			if (const InterfaceDecl *interface = interface_decl(p_class)) {
+				for (const FuncDecl &method : interface->methods) {
+					r_names.values.insert(method.name);
+				}
+				for (const InterfaceProperty &property : interface->properties) {
+					r_names.values.insert(property.name);
+				}
+			}
+		} else if (is_script_path(p_class.script)) {
+			if (const ClassDecl *decl = script_decl(p_class.script)) {
+				class_candidates(*decl, r_names);
+			}
+		} else if (const ForeignClass *foreign = p_class.script.empty() ? nullptr : foreign_class(p_class.script)) {
+			for (const std::vector<EngineProperty> *properties : { &foreign->properties, &foreign->constants }) {
+				for (const EngineProperty &property : *properties) {
+					r_names.values.insert(property.name);
+				}
+			}
+			for (const std::vector<EngineMethod> *methods : { &foreign->methods, &foreign->signals }) {
+				for (const EngineMethod &method : *methods) {
+					r_names.values.insert(method.name);
+				}
+			}
+		}
+		engine_candidates(p_class.engine_class(), r_names);
+	}
+
+	static void builtin_candidates(const builtin::Class &p_type, Candidates &r_names) {
+		for (uint32_t i = 0; i < p_type.member_count; i++) {
+			r_names.values.insert(p_type.members[i].name);
+		}
+		for (uint32_t i = 0; i < p_type.constant_count; i++) {
+			r_names.values.insert(p_type.constants[i].name);
+		}
+		for (uint32_t i = 0; i < p_type.method_count; i++) {
+			r_names.values.insert(p_type.methods[i].name);
+		}
+	}
+
+	// What may follow `value.` for a value of the type.
+	void value_candidates(const Type &p_type, Candidates &r_names) {
+		if (p_type.is_optional()) {
+			r_names.values.insert({ "unwrap", "expect" });
+			r_names.values.insert(later_option_methods().begin(), later_option_methods().end());
+			return;
+		}
+		if (p_type.kind == TypeKind::Task) {
+			r_names.values.insert({ "cancel", "detach" });
+		}
+		if (p_type.kind == TypeKind::Struct) {
+			if (const StructDecl *decl = struct_decl(p_type)) {
+				for (const VarDecl &field : decl->fields) {
+					r_names.values.insert(field.name);
+				}
+			}
+		}
+		if (p_type.kind == TypeKind::Object) {
+			script_candidates(p_type, r_names);
+		}
+		if (const builtin::Class *type = builtin::find_class(p_type.builtin_name())) {
+			builtin_candidates(*type, r_names);
+		}
+	}
+
+	// The names code in this class sees bare: the locals, those of the classes
+	// around it, the project's and the engine's.
+	void scope_candidates(Candidates &r_names) const {
+		const auto locals = [&](const std::vector<std::unordered_map<std::string, int>> &p_scopes) {
+			for (const auto &scope : p_scopes) {
+				for (const auto &local : scope) {
+					r_names.values.insert(local.first);
+				}
+			}
+		};
+		locals(scopes);
+		for (const Enclosing &outer : enclosing) {
+			locals(outer.scopes);
+		}
+		for (const Checker *around = this; around; around = around->outer_checker) {
+			class_candidates(around->cls, r_names);
+			if (!around->cls.class_name.empty()) {
+				r_names.types.insert(around->cls.class_name);
+			}
+		}
+		for (const std::string &name : engine.class_list()) {
+			r_names.types.insert(name);
+		}
+		std::vector<std::string> types;
+		std::vector<std::string> values;
+		builtin::global_names(types, values);
+		r_names.types.insert(types.begin(), types.end());
+		r_names.values.insert(values.begin(), values.end());
+		if (options.project) {
+			for (const std::string &name : options.project->autoload_names()) {
+				r_names.values.insert(name);
+			}
+		}
+	}
+
+	// The project's global classes, or with `p_extendable` those of this
+	// language other than this class, by the names the project lists them by:
+	// not tried, since a name in that list can only fail to resolve when its
+	// script cannot be read, and trying reads each script.
+	void add_global_classes(std::map<std::string, CompletionItem> &r_found, bool p_extendable) const {
+		if (!options.project) {
+			return;
+		}
+		for (const auto &[name, path] : options.project->global_class_paths()) {
+			if (p_extendable && (!is_script_path(path) || path == options.path)) {
+				continue;
+			}
+			CompletionItem item;
+			item.kind = CompletionKind::Class;
+			item.name = name;
+			item.insert = name;
+			item.place = CompletionItem::Place::Project;
+			r_found.emplace(name, item);
+		}
+	}
+
+	void set_completions(std::map<std::string, CompletionItem> &r_found) {
+		completions->clear();
+		for (auto &entry : r_found) {
+			completions->push_back(std::move(entry.second));
+		}
+	}
+
+	// The classes a member may be declared in, nearest first: one of this
+	// language and its bases, then the engine's; or a built-in type.
+	std::vector<std::string> class_chain(const Type &p_class) {
+		std::vector<std::string> chain;
+		for (std::string path = p_class.script; is_script_path(path) && std::find(chain.begin(), chain.end(), path) == chain.end();) {
+			chain.push_back(path);
+			const ClassDecl *header = script_header(path);
+			path = header ? classes.base_path(*header, path) : std::string();
+		}
+		if (p_class.kind == TypeKind::Object) {
+			for (std::string name = p_class.engine_class(); engine.class_exists(name); name = engine.parent_class(name)) {
+				chain.push_back(name);
+			}
+		} else if (!p_class.builtin_name().empty()) {
+			chain.push_back(p_class.builtin_name());
+		}
+		return chain;
+	}
+
+	static CompletionKind value_kind(const Expr &p_checked) {
+		switch (p_checked.target) {
+			case Target::Local:
+				return CompletionKind::Variable;
+			case Target::MethodValue:
+				return CompletionKind::Function;
+			case Target::SelfSignal:
+			case Target::ObjectSignal:
+				return CompletionKind::Signal;
+			case Target::ClassScript:
+			case Target::Singleton:
+				return CompletionKind::Class;
+			case Target::Constant:
+				return p_checked.constant && p_checked.constant->names_enum ? CompletionKind::Enum : CompletionKind::Constant;
+			case Target::EngineConstant:
+			case Target::BuiltinConstant:
+			case Target::Autoload:
+				return CompletionKind::Constant;
+			default:
+				return CompletionKind::Member;
+		}
+	}
+
+	// As what `p_name` checks in place of the name of `r_site`, the expression
+	// at the cursor: as a value, else as a call, whose arguments are not
+	// checked; nullopt if it does not. `p_chain` is class_chain() of the class
+	// whose members are completed.
+	std::optional<CompletionItem> probe(Expr &r_site, const std::string &p_name, const std::vector<std::string> &p_chain) {
+		const bool on_self = r_site.base && r_site.base->kind == ExprKind::Self;
+		const bool moves_base = r_site.base && !on_self;
+		const uint32_t at = cls.source->tokens[r_site.name_token].offset;
+		for (const bool call : { false, true }) {
+			Expr probe;
+			probe.kind = call ? ExprKind::Call : (r_site.base ? ExprKind::Member : ExprKind::Name);
+			probe.text = p_name;
+			probe.range = r_site.range;
+			probe.name_token = r_site.name_token;
+			if (on_self) {
+				// A call drops it, as `self.f()` is `f()`.
+				probe.base = std::make_unique<Expr>();
+				probe.base->kind = ExprKind::Self;
+				probe.base->range = r_site.base->range;
+			} else if (moves_base) {
+				probe.base = std::move(r_site.base);
+			}
+			const size_t error_count = errors.size();
+			const size_t reference_count = references->size();
+			probing = true;
+			probed_params = -1;
+			const Type type = type_expr(probe, Type::of(TypeKind::Error));
+			probing = false;
+			const bool accepted = errors.size() == error_count && !type.is_error();
+			const auto named = std::find_if(references->begin() + reference_count, references->end(), [&](const Reference &p_reference) {
+				return p_reference.begin == at;
+			});
+			const std::optional<DeclId> target = named == references->end() ? std::nullopt : std::optional<DeclId>(named->target);
+			errors.erase(errors.begin() + error_count, errors.end());
+			references->erase(references->begin() + reference_count, references->end());
+			if (moves_base) {
+				r_site.base = std::move(probe.base);
+			}
+			if (!accepted) {
+				continue;
+			}
+			CompletionItem item;
+			item.name = p_name;
+			item.insert = p_name;
+			item.kind = call ? CompletionKind::Function : value_kind(probe);
+			if (item.kind == CompletionKind::Function) {
+				const int params = call ? probed_params : int(type.args.size()) - 1;
+				item.insert += params == 0 ? "()" : "(";
+			}
+			const bool declared = target && (target->kind == DeclId::Kind::Script || target->kind == DeclId::Kind::Engine);
+			const auto in_chain = declared ? std::find(p_chain.begin(), p_chain.end(), target->scope) : p_chain.end();
+			if (probe.target == Target::Local) {
+				item.place = CompletionItem::Place::Local;
+			} else if (in_chain != p_chain.end()) {
+				item.place = CompletionItem::Place::Member;
+				item.depth = int(in_chain - p_chain.begin());
+			} else if (target && (target->kind == DeclId::Kind::Script || target->kind == DeclId::Kind::Foreign || target->kind == DeclId::Kind::Autoload)) {
+				item.place = CompletionItem::Place::Project;
+			}
+			return item;
+		}
+		return std::nullopt;
+	}
+
+	// As what type `p_name` resolves where `p_site` is, at the cursor.
+	std::optional<CompletionItem> probe_type(const TypeRef &p_site, const std::string &p_name, bool p_allow_void) {
+		TypeRef ref;
+		ref.name = p_name;
+		ref.range = p_site.range;
+		ref.name_token = NO_TOKEN;
+		const size_t error_count = errors.size();
+		const Type type = resolve_name(ref, p_allow_void);
+		const bool accepted = errors.size() == error_count && !type.is_error();
+		errors.erase(errors.begin() + error_count, errors.end());
+		if (!accepted) {
+			return std::nullopt;
+		}
+		CompletionItem item;
+		item.kind = type.kind == TypeKind::Enum ? CompletionKind::Enum : CompletionKind::Class;
+		item.name = p_name.substr(p_name.rfind('.') + 1);
+		item.insert = item.name;
+		item.place = type.script.empty() ? CompletionItem::Place::Engine : CompletionItem::Place::Project;
+		return item;
+	}
+
+	// The keywords that can begin what is written at `r_site`, a bare name:
+	// an expression, or a statement when it is the whole statement.
+	void add_keywords(const Expr &r_site, std::map<std::string, CompletionItem> &r_found) {
+		std::vector<std::pair<std::string, std::string>> words = { { "true", "" }, { "false", "" }, { "None", "" }, { "not", " " }, { "func", " " } };
+		Expr self;
+		self.kind = ExprKind::Self;
+		self.range = r_site.range;
+		const size_t error_count = errors.size();
+		if (!type_expr(self, Type::of(TypeKind::Error)).is_error() && errors.size() == error_count) {
+			words.insert(words.end(), { { "self", "" }, { "super", "" } });
+		}
+		errors.erase(errors.begin() + error_count, errors.end());
+		if (no_await().empty()) {
+			words.emplace_back("await", " ");
+		}
+		if (&r_site == statement_value) {
+			words.insert(words.end(), { { "var", " " }, { "const", " " }, { "if", " " }, { "for", " " }, { "while", " " }, { "match", " " }, { "return", "" }, { "pass", "" } });
+			if (loop_depth > 0) {
+				words.insert(words.end(), { { "break", "" }, { "continue", "" } });
+			}
+			// After an if whose chain of elifs has no else yet.
+			const Stmt *last = previous_statement && previous_statement->kind == StmtKind::If ? previous_statement : nullptr;
+			while (last && last->else_body.size() == 1 && last->else_body[0]->kind == StmtKind::If) {
+				last = last->else_body[0].get();
+			}
+			if (last && last->else_body.empty()) {
+				words.insert(words.end(), { { "elif", " " }, { "else", "" } });
+			}
+		}
+		for (const auto &[word, after] : words) {
+			CompletionItem item;
+			item.name = word;
+			item.insert = word + after;
+			r_found.emplace(word, item);
+		}
+		// Written as calls.
+		for (const char *word : { "preload", "assert" }) {
+			if (word == std::string("assert") && &r_site != statement_value) {
+				continue;
+			}
+			CompletionItem item;
+			item.kind = CompletionKind::Function;
+			item.name = word;
+			item.insert = item.name + "(";
+			r_found.emplace(word, item);
+		}
+	}
+
+	void complete(Expr &r_site) {
+		const size_t error_count = errors.size();
+		const size_t reference_count = references->size();
+		Candidates names;
+		// The class whose members are completed.
+		Type owner = script_class_type(cls, options.path);
+		if (!r_site.base) {
+			scope_candidates(names);
+		} else if (r_site.base->kind == ExprKind::Self) {
+			class_candidates(cls, names);
+		} else {
+			Expr &base = *r_site.base;
+			const EnumDecl *named_values = named_enum(base);
+			const std::optional<Type> named = named_values ? std::nullopt : named_class(base);
+			if (named_values) {
+				for (const EnumValueDecl &value : named_values->values) {
+					names.values.insert(value.name);
+				}
+			} else if (named && !named->is_error()) {
+				owner = *named;
+				script_candidates(owner, names);
+				names.values.insert("new");
+			} else if (names_type(base)) {
+				if (const builtin::Class *type = builtin::find_class(base.text)) {
+					owner = api_type(base.text, false);
+					builtin_candidates(*type, names);
+				} else {
+					owner = Type::object(base.text);
+					engine_candidates(base.text, names);
+					names.values.insert("new");
+				}
+			} else {
+				owner = check_value(base);
+				value_candidates(owner, names);
+				const ClassDecl *inner = base.target == Target::ClassScript ? script_header(base.owner) : nullptr;
+				if (inner) {
+					// An inner class reached through an object (spec §4.1).
+					owner = script_class_type(*inner, base.owner);
+					script_candidates(owner, names);
+				}
+			}
+		}
+		errors.erase(errors.begin() + error_count, errors.end());
+		references->erase(references->begin() + reference_count, references->end());
+		const std::vector<std::string> chain = class_chain(owner);
+		std::map<std::string, CompletionItem> found;
+		if (!r_site.base) {
+			add_global_classes(found, false);
+			for (const std::string &name : names.types) {
+				std::optional<CompletionItem> item = found.count(name) ? std::nullopt : probe_type({ name, r_site.range }, name, false);
+				if (item) {
+					found.emplace(name, *item);
+				}
+			}
+		}
+		for (const std::string &name : names.values) {
+			std::optional<CompletionItem> item = found.count(name) ? std::nullopt : probe(r_site, name, chain);
+			if (item) {
+				found.emplace(name, *item);
+			}
+		}
+		if (r_site.kind == ExprKind::Name && !r_site.base) {
+			add_keywords(r_site, found);
+		}
+		set_completions(found);
+	}
+
+	// Of the type at the cursor, `p_site`, which may follow `Class.`.
+	void complete_type(const TypeRef &p_site, bool p_allow_void) {
+		const size_t dot = p_site.name.rfind('.', p_site.name.find(CURSOR));
+		const std::string prefix = dot == std::string::npos ? std::string() : p_site.name.substr(0, dot + 1);
+		Candidates names;
+		std::map<std::string, CompletionItem> found;
+		const size_t error_count = errors.size();
+		if (prefix.empty()) {
+			scope_candidates(names);
+			names.types.insert({ "void", "Variant" });
+			add_global_classes(found, false);
+		} else {
+			TypeRef outer;
+			outer.name = prefix.substr(0, dot);
+			outer.range = p_site.range;
+			outer.name_token = NO_TOKEN;
+			const Type type = resolve_name(outer, false);
+			if (const ClassDecl *header = is_script_path(type.script) ? script_header(type.script) : nullptr) {
+				for (const std::unique_ptr<ClassDecl> &inner : header->classes) {
+					names.types.insert(inner->name);
+				}
+				for (const StructDecl &found : header->structs) {
+					names.types.insert(found.name);
+				}
+				for (const InterfaceDecl &found : header->interfaces) {
+					names.types.insert(found.name);
+				}
+				for (const EnumDecl &found : header->enums) {
+					names.types.insert(found.name);
+				}
+			} else if (type.kind == TypeKind::Object) {
+				for (const std::string &name : engine.enum_names(type.name)) {
+					names.types.insert(name);
+				}
+			}
+		}
+		errors.erase(errors.begin() + error_count, errors.end());
+		for (const std::string &name : names.types) {
+			std::optional<CompletionItem> item = found.count(name) ? std::nullopt : probe_type(p_site, prefix + name, p_allow_void);
+			if (item) {
+				found.emplace(name, *item);
+			}
+		}
+		set_completions(found);
+	}
+
+	// The classes that the class at the cursor, after `extends`, can extend:
+	// of the engine or of this language (spec §4.1).
+	void complete_extends() {
+		std::map<std::string, CompletionItem> found;
+		add_global_classes(found, true);
+		std::vector<std::string> names = engine.class_list();
+		for (const Checker *around = outer_checker; around; around = around->outer_checker) {
+			for (const std::unique_ptr<ClassDecl> &inner : around->cls.classes) {
+				names.push_back(inner->name);
+			}
+		}
+		for (const std::string &name : names) {
+			ClassDecl probe;
+			probe.extends = name;
+			const std::string base = classes.base_path(probe, options.path);
+			if (classes.native_base(probe, options.path).empty() || base == options.path) {
+				continue;
+			}
+			CompletionItem item;
+			item.kind = CompletionKind::Class;
+			item.name = name;
+			item.insert = name;
+			item.place = base.empty() ? CompletionItem::Place::Engine : CompletionItem::Place::Project;
+			found.emplace(name, item);
+		}
+		set_completions(found);
+	}
+
 public:
-	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references) :
-			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), check_bodies(p_check_bodies), classes(r_classes), references(r_references) {}
+	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, std::vector<CompletionItem> *r_completions) :
+			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), check_bodies(p_check_bodies), classes(r_classes), references(r_references), completions(r_completions) {}
 
 	void attach(FileCheck &r_file, Checker *p_outer) {
 		file = &r_file;
@@ -6809,6 +7366,9 @@ public:
 
 private:
 	bool declare_class() {
+		if (completions && at_cursor(cls.extends)) {
+			complete_extends();
+		}
 		cls.path = options.path;
 		cls.native_base = classes.native_base(cls, options.path);
 		cls.base_script = classes.base_path(cls, options.path);
@@ -6943,22 +7503,22 @@ Checker *FileCheck::find(const std::string &p_path) const {
 	return nullptr;
 }
 
-void add_checkers(FileCheck &r_file, ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, Checker *p_outer) {
-	r_file.checkers.push_back(std::make_unique<Checker>(r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references));
+void add_checkers(FileCheck &r_file, ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, std::vector<CompletionItem> *r_completions, Checker *p_outer) {
+	r_file.checkers.push_back(std::make_unique<Checker>(r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references, r_completions));
 	Checker *checker = r_file.checkers.back().get();
 	checker->attach(r_file, p_outer);
 	for (std::unique_ptr<ClassDecl> &inner : r_class.classes) {
 		CompileOptions options = p_options;
 		options.path += "::" + inner->name;
-		add_checkers(r_file, *inner, p_engine, options, r_errors, r_classes, p_check_bodies, r_references, checker);
+		add_checkers(r_file, *inner, p_engine, options, r_errors, r_classes, p_check_bodies, r_references, r_completions, checker);
 	}
 }
 
 } // namespace
 
-void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references) {
+void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, std::vector<CompletionItem> *r_completions) {
 	FileCheck file;
-	add_checkers(file, r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references, nullptr);
+	add_checkers(file, r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references, r_completions, nullptr);
 	r_classes.enter(p_options.path, r_class, [&](const std::string &p_path) -> const ClassDecl * {
 		Checker *checker = file.find(p_path);
 		if (!checker) {

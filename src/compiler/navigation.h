@@ -54,6 +54,45 @@ struct Lookup {
 // editor cannot show, such as a node of a scene.
 std::optional<Lookup> lookup(Analysis &r_analysis, const EngineApi &p_engine, const ProjectApi &p_project, const DocName &p_doc_name, const std::string &p_path, const std::string &p_source, uint32_t p_offset);
 
+// As the script editor shows a name it completes
+// (core/object/script_language.h:293-306).
+enum class CompletionKind {
+	Class,
+	Function,
+	Signal,
+	Variable,
+	Member,
+	Enum,
+	Constant,
+	Keyword,
+};
+
+// A name that completion offers (spec §13.2).
+struct CompletionItem {
+	CompletionKind kind = CompletionKind::Keyword;
+	std::string name;
+	// What goes in: a function's name followed by "(", or by "()" when it
+	// takes no arguments; a keyword's followed by what comes next.
+	std::string insert;
+	// Where it is declared, which orders the list: a local; a member of the
+	// class `depth` up from the one whose members are completed; elsewhere in
+	// the project; in the engine, as keywords are.
+	enum class Place {
+		Local,
+		Member,
+		Project,
+		Engine,
+	};
+	Place place = Place::Engine;
+	int depth = 0;
+};
+
+// What can be written at the cursor, which U+FFFF marks in `p_source` as the
+// script editor marks it (scene/gui/code_edit.cpp:2390-2400): each name that
+// the checker's own lookup accepts there, so that none is an error. Only the
+// declarations and the function around the cursor are checked.
+std::vector<CompletionItem> complete(Analysis &r_analysis, const EngineApi &p_engine, const std::string &p_path, const std::string &p_source);
+
 // A member in the editor's documentation (core/doc_data.h).
 struct DocMember {
 	std::string name;

@@ -70,6 +70,12 @@ public:
 	// The type of an integer constant of the class or an ancestor: the enum
 	// it is a value of, or int.
 	virtual Type constant_type(const std::string &p_class, const std::string &p_constant) const = 0;
+	// For completion (spec §13.2): every class, and of a class and its
+	// ancestors the names of the methods, properties, signals and constants,
+	// and of the enums.
+	virtual std::vector<std::string> class_list() const = 0;
+	virtual std::vector<std::string> member_names(const std::string &p_class) const = 0;
+	virtual std::vector<std::string> enum_names(const std::string &p_class) const = 0;
 
 	bool inherits(const std::string &p_class, const std::string &p_ancestor) const {
 		for (std::string cls = p_class; !cls.empty(); cls = parent_class(cls)) {

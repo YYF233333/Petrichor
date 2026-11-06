@@ -211,6 +211,50 @@ Type ClassDBApi::constant_type(const std::string &p_class, const std::string &p_
 	return found ? *found : Type::of(TypeKind::Int);
 }
 
+std::vector<std::string> ClassDBApi::class_list() const {
+	std::vector<std::string> names;
+	for (const String &name : ClassDBSingleton::get_singleton()->get_class_list()) {
+		names.push_back(to_utf8(name));
+	}
+	return names;
+}
+
+std::vector<std::string> ClassDBApi::member_names(const std::string &p_class) const {
+	std::vector<std::string> names;
+	for (std::shared_ptr<const Members> cls = members(p_class); cls; cls = members(cls->parent)) {
+		for (const auto &method : cls->methods) {
+			names.push_back(method.first);
+		}
+		for (const auto &property : cls->properties) {
+			names.push_back(property.first);
+		}
+	}
+	ClassDBSingleton *db = ClassDBSingleton::get_singleton();
+	const StringName cls = to_godot(p_class);
+	if (db->class_exists(cls)) {
+		const TypedArray<Dictionary> signals = db->class_get_signal_list(cls, false);
+		for (int64_t i = 0; i < signals.size(); i++) {
+			names.push_back(to_utf8(Dictionary(signals[i]).get("name", String())));
+		}
+		for (const String &constant : db->class_get_integer_constant_list(cls, false)) {
+			names.push_back(to_utf8(constant));
+		}
+	}
+	return names;
+}
+
+std::vector<std::string> ClassDBApi::enum_names(const std::string &p_class) const {
+	std::vector<std::string> names;
+	ClassDBSingleton *db = ClassDBSingleton::get_singleton();
+	const StringName cls = to_godot(p_class);
+	if (db->class_exists(cls)) {
+		for (const String &name : db->class_get_enum_list(cls, false)) {
+			names.push_back(to_utf8(name));
+		}
+	}
+	return names;
+}
+
 bool ClassDBApi::is_singleton(const std::string &p_class) const {
 	return Engine::get_singleton()->has_singleton(to_godot(p_class));
 }

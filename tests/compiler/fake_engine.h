@@ -294,6 +294,48 @@ public:
 		}
 		return Type::of(TypeKind::Int);
 	}
+
+	std::vector<std::string> class_list() const override {
+		std::vector<std::string> names;
+		for (const auto &entry : parents) {
+			names.push_back(entry.first);
+		}
+		return names;
+	}
+
+	std::vector<std::string> member_names(const std::string &p_class) const override {
+		std::vector<std::string> names;
+		for (std::string cls = p_class; !cls.empty(); cls = parent_class(cls)) {
+			for (const auto *list : { &methods, &signals }) {
+				const auto found = list->find(cls);
+				for (size_t i = 0; found != list->end() && i < found->second.size(); i++) {
+					names.push_back(found->second[i].name);
+				}
+			}
+			const auto found = properties.find(cls);
+			for (size_t i = 0; found != properties.end() && i < found->second.size(); i++) {
+				names.push_back(found->second[i].name);
+			}
+			for (const auto &[name, value] : constants) {
+				if (name.rfind(cls + ".", 0) == 0) {
+					names.push_back(name.substr(cls.size() + 1));
+				}
+			}
+		}
+		return names;
+	}
+
+	std::vector<std::string> enum_names(const std::string &p_class) const override {
+		std::vector<std::string> names;
+		for (std::string cls = p_class; !cls.empty(); cls = parent_class(cls)) {
+			for (const auto &[name, values] : enums) {
+				if (name.rfind(cls + ".", 0) == 0) {
+					names.push_back(name.substr(cls.size() + 1));
+				}
+			}
+		}
+		return names;
+	}
 };
 
 } // namespace petrichor::tests

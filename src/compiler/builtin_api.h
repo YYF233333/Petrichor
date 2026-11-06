@@ -5,7 +5,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace petrichor::compiler::builtin {
 
@@ -136,5 +138,9 @@ struct Enum {
 const Enum *find_enum(std::string_view p_name);
 // The global enum a global constant is a value of, such as Key of KEY_ESCAPE; null for another constant.
 const Enum *global_constant_enum(std::string_view p_name);
+
+// For completion (spec §13.2): the built-in types and the global enums, such
+// as Vector3 and Key, and the utility functions and the global constants.
+void global_names(std::vector<std::string> &r_types, std::vector<std::string> &r_values);
 
 } // namespace petrichor::compiler::builtin

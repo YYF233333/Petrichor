@@ -144,6 +144,23 @@ const Enum *global_constant_enum(std::string_view p_name) {
 	return found && found->enum_index >= 0 ? &ENUMS[found->enum_index] : nullptr;
 }
 
+void global_names(std::vector<std::string> &r_types, std::vector<std::string> &r_values) {
+	for (size_t i = 0; i < CLASS_COUNT; i++) {
+		r_types.push_back(CLASSES[i].name);
+	}
+	for (size_t i = 0; i < ENUM_COUNT; i++) {
+		if (std::string_view(ENUMS[i].name).find('.') == std::string_view::npos) {
+			r_types.push_back(ENUMS[i].name);
+		}
+	}
+	for (size_t i = 0; i < UTILITY_COUNT; i++) {
+		r_values.push_back(UTILITIES[i].name);
+	}
+	for (size_t i = 0; i < GLOBAL_CONSTANTS_COUNT; i++) {
+		r_values.push_back(GLOBAL_CONSTANTS[i].name);
+	}
+}
+
 int class_filter_param(std::string_view p_class, std::string_view p_method) {
 	const std::string prefix = std::string(p_class) + "." + std::string(p_method) + ":";
 	for (size_t i = 0; i < CLASS_FILTERS_COUNT; i++) {

@@ -11,10 +11,13 @@
 namespace petrichor::compiler {
 
 class ScriptClasses;
+struct CompletionItem;
 
 // Resolves names and types and fills the checker fields of the AST, and with
 // `r_references` records where each name is resolved (architecture §2.1).
-// Other scripts of this language come from `r_classes`.
-void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies = true, std::vector<Reference> *r_references = nullptr);
+// Other scripts of this language come from `r_classes`. With `r_completions`,
+// gives what can be written at the cursor that U+FFFF marks (spec §13.2),
+// and of the function bodies checks only the one around it.
+void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies = true, std::vector<Reference> *r_references = nullptr, std::vector<CompletionItem> *r_completions = nullptr);
 
 } // namespace petrichor::compiler

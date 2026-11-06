@@ -209,6 +209,18 @@ std::string ScriptClasses::RecordedProject::autoload_path(const std::string &p_n
 	});
 }
 
+std::map<std::string, std::string> ScriptClasses::RecordedProject::global_class_paths() const {
+	return ask<std::map<std::string, std::string>>("global classes", [](const ProjectApi &p_project) {
+		return p_project.global_class_paths();
+	});
+}
+
+std::vector<std::string> ScriptClasses::RecordedProject::autoload_names() const {
+	return ask<std::vector<std::string>>("autoload names", [](const ProjectApi &p_project) {
+		return p_project.autoload_names();
+	});
+}
+
 std::optional<std::string> ScriptClasses::RecordedProject::script_source(const std::string &p_path) const {
 	return classes.sources->script_source(p_path);
 }
