@@ -97,6 +97,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Tests
 
+- Engine tests on a .NET build for classes written in C# (spec §11.1). The suite runs without .NET now.
 - Run an exported game with the official export templates; build and test the release library.
 - Cross-rule checks kept from the former conformance checklist:
   - `player.last_hit.damage = 3` running `last_hit`'s setter (spec §3.6, §4.4);

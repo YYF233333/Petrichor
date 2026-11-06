@@ -751,11 +751,11 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ## 11. Coexisting with GDScript and C#
 
-### 11.1 The static view of GDScript classes
+### 11.1 The static view of classes in other languages
 
-- This language reflects GDScript classes and autoloads, honoring GDScript subclassing in parameters, `is` and `as`. Object-typed members, parameters and returns have type `T?`. Value types keep their declared types, and untyped ones are `Variant`.
+- This language reflects classes of other languages, such as GDScript and C#, and autoloads. It honors their subclassing in parameters, `is` and `as`. Object-typed members, parameters and returns have type `T?`. Value types keep their declared types, and untyped ones are `Variant`.
 - Autoload names are global identifiers typed as their script's class (including scripts without `class_name`).
-- A GDScript class named via `class_name` or `preload` is constructed with `new(...)` typed from its `_init`. It exposes static methods and value-typed constants on the class (`Unit.make()`, `Unit.TILE_SIZE`).
+- A class of another language named by its global name or `preload` is constructed with `new(...)` typed from its `_init`. It exposes static methods and value-typed constants on the class (`Unit.make()`, `Unit.TILE_SIZE`).
 
 ### 11.2 Inheritance
 
