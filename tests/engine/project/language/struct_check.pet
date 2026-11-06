@@ -15,11 +15,15 @@ struct Totals:
 	var sum: float = 0.0
 
 pub signal hit_taken(hit: Hit)
+pub signal resumed
 
 pub var last_hit := Hit(damage = 0, point = Vector2.ZERO)
 pub var maybe: Hit?
 pub var received := 0
+pub var spot := Vector2(1, 2)
+pub var assigned := ""
 var totals: Totals
+var hits: Array[Hit] = [Hit(damage = 0, point = Vector2.ZERO)]
 
 func _ready():
 	hit_taken.connect(_on_hit)
@@ -75,6 +79,25 @@ pub func remote(other: StructCheck):
 pub func defaults() -> String:
 	var t: Totals
 	return str(t.count) + " " + str(t.last == None) + " " + str(t.sum)
+
+async func later(value: int) -> int:
+	await resumed
+	return value
+
+# An assignment evaluates its place, then its value, then reads, changes and
+# writes back, so what changed during the await stays.
+pub async func assign_after():
+	hits[0].damage = await later(3)
+	spot.x += await later(4)
+	assigned = str(hits[0].damage) + " " + str(hits[0].crit) + " " + str(spot)
+
+pub func crit_meanwhile():
+	hits[0].crit = true
+	resumed.emit()
+
+pub func move_meanwhile():
+	spot = Vector2(10, 9)
+	resumed.emit()
 
 # A struct constructed in a loop has every field written anew.
 pub func loop_fresh() -> int:

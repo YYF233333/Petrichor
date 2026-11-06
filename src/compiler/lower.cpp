@@ -104,6 +104,7 @@ struct Place {
 	uint32_t at = NO_REG;
 	uint32_t offset = 0;
 	uint32_t whole = NO_REG;
+	std::vector<uint32_t> fields; // StructCopy: the fields from `whole` down to this one.
 	Type type;
 	std::optional<bytecode::IntRange> int_range; // An engine property: what its setter takes (spec §10.6).
 	std::unique_ptr<Place> parent; // Field, StructCopy and Element: where the copy goes back.
@@ -1562,6 +1563,7 @@ class Lowerer {
 			if (!p_call.is_const && !is_shared(p_call.base->type) && is_place(*p_call.base)) {
 				// A method that changes its base changes the place it came from.
 				written_back = std::make_unique<Place>(place_of(*p_call.base));
+				open(*written_back);
 				i.base = load(*written_back);
 			} else {
 				i.base = lower_expr(*p_call.base);
@@ -1812,7 +1814,9 @@ class Lowerer {
 					return result;
 				}
 				// A local, narrowed or not, a member, a property or a field.
-				return load(place_of(p_expr));
+				Place place = place_of(p_expr);
+				open(place);
+				return load(place);
 			}
 			case ExprKind::Unary: {
 				const uint32_t operand = lower_expr(*p_expr.left);
@@ -2003,18 +2007,36 @@ class Lowerer {
 				return place;
 			case Place::Kind::StructCopy:
 				place.kind = Place::Kind::StructCopy;
-				place.reg = field_view(p_base.reg, p_field);
-				place.whole = p_base.whole;
+				place.fields = std::move(p_base.fields);
+				place.fields.push_back(p_field);
 				place.parent = std::move(p_base.parent);
 				return place;
 			default:
 				break;
 		}
 		place.kind = Place::Kind::StructCopy;
-		place.whole = load(p_base);
-		place.reg = field_view(place.whole, p_field);
+		place.fields = { p_field };
 		place.parent = std::make_unique<Place>(std::move(p_base));
 		return place;
+	}
+
+	// Reads the copies that a place is changed in, outermost first. An
+	// assignment does it once the value is known, so that no suspension comes
+	// between the read and the write back (spec §3.6).
+	void open(Place &r_place) {
+		if (!r_place.parent) {
+			return;
+		}
+		open(*r_place.parent);
+		if (r_place.kind != Place::Kind::StructCopy) {
+			r_place.reg = load(*r_place.parent); // Field or Element: the value it is in.
+			return;
+		}
+		r_place.whole = load(*r_place.parent);
+		r_place.reg = r_place.whole;
+		for (const uint32_t field : r_place.fields) {
+			r_place.reg = field_view(r_place.reg, field);
+		}
 	}
 
 	Place place_of(const Expr &p_expr) {
@@ -2027,7 +2049,6 @@ class Lowerer {
 			place.kind = Place::Kind::Element;
 			if (!is_shared(p_expr.base->type) && is_place(*p_expr.base)) {
 				place.parent = std::make_unique<Place>(place_of(*p_expr.base));
-				place.reg = load(*place.parent);
 			} else {
 				place.reg = lower_expr(*p_expr.base);
 			}
@@ -2071,11 +2092,10 @@ class Lowerer {
 				place.kind = Place::Kind::Field;
 				if (is_place(*p_expr.base)) {
 					place.parent = std::make_unique<Place>(place_of(*p_expr.base));
-					place.reg = load(*place.parent);
 				} else {
 					place.reg = lower_expr(*p_expr.base); // Only read: a member of a temporary value.
 				}
-				place.index = field(reg_type(place.reg), p_expr.text, value_type(p_expr.type));
+				place.index = field(value_type(p_expr.base->type), p_expr.text, value_type(p_expr.type));
 				break;
 			case Target::StructField:
 				if (is_place(*p_expr.base)) {
@@ -2338,22 +2358,22 @@ class Lowerer {
 				return;
 			}
 			case StmtKind::Assign: {
+				// The place, then the value, then reading, changing and writing back
+				// with nothing between them (spec §3.6).
 				const Expr &target = *p_stmt.target;
-				const Place place = place_of(target);
-				uint32_t value;
+				Place place = place_of(target);
+				uint32_t value = lower_expr(*p_stmt.value);
+				open(place);
 				if (p_stmt.assign_op == TokenKind::Equal) {
-					value = lower_expr(*p_stmt.value);
 					if (place.kind == Place::Kind::SelfProperty || place.kind == Place::Kind::Owner || place.kind == Place::Kind::ObjectProperty) {
 						value = outward(value, p_stmt.value->type, target.type.kind == TypeKind::Object); // The engine keeps it.
 					} else if (place.kind == Place::Kind::Element) {
 						value = outward(value, p_stmt.value->type, true);
 					}
 				} else if (p_stmt.assign_op == TokenKind::PercentEqual && is_format_string(target.type)) {
-					const uint32_t current_value = load(place);
-					value = format(current_value, lower_expr(*p_stmt.value), p_stmt.value->type);
+					value = format(load(place), value, p_stmt.value->type);
 				} else {
-					const uint32_t current_value = load(place);
-					value = binary(compound_operator(p_stmt.assign_op), current_value, lower_expr(*p_stmt.value), p_stmt.compound_result);
+					value = binary(compound_operator(p_stmt.assign_op), load(place), value, p_stmt.compound_result);
 				}
 				store(place, convert(value, target.type));
 				return;
