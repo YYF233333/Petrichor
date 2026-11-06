@@ -110,35 +110,6 @@ std::vector<Type> param_types(const std::vector<ParamDecl> &p_params) {
 	return types;
 }
 
-// "res://a/./b/../c" as "res://a/c", as the engine's String::simplify_path()
-// leaves it, so that a path matches the one the project knows the file by.
-std::string simplify_path(const std::string &p_path) {
-	const std::string scheme = "res://";
-	const bool rooted = p_path.rfind(scheme, 0) == 0;
-	const std::string rest = rooted ? p_path.substr(scheme.size()) : p_path;
-	std::vector<std::string> parts;
-	for (size_t start = 0; start <= rest.size();) {
-		size_t end = rest.find('/', start);
-		if (end == std::string::npos) {
-			end = rest.size();
-		}
-		const std::string part = rest.substr(start, end - start);
-		if (part == "..") {
-			if (!parts.empty()) {
-				parts.pop_back();
-			}
-		} else if (!part.empty() && part != ".") {
-			parts.push_back(part);
-		}
-		start = end + 1;
-	}
-	std::string result = rooted ? scheme : std::string();
-	for (size_t i = 0; i < parts.size(); i++) {
-		result += (i > 0 ? "/" : "") + parts[i];
-	}
-	return result;
-}
-
 // A class of this language, by its path: a script's, or an inner class's,
 // which the tests' unnamed file has too (spec §2.1).
 bool is_script_path(const std::string &p_path) {

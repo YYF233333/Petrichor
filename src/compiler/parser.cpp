@@ -1843,6 +1843,8 @@ public:
 						report(name, "The class already has @icon.");
 					} else if (!failed && path.text.empty()) {
 						report(path, "@icon takes the path to the icon.");
+					} else if (!failed) {
+						result.icon = path.text;
 					}
 					has_icon = true;
 					expect(TokenKind::ParenClose, "\")\"");

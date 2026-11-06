@@ -272,27 +272,7 @@ std::string ScriptClasses::base_path(const ClassDecl &p_decl, const std::string 
 	if (path.rfind("res://", 0) != 0) {
 		path = p_path.substr(0, p_path.find_last_of('/') + 1) + path;
 	}
-	std::vector<std::string> parts;
-	for (size_t at = 6; at <= path.size();) {
-		const size_t end = path.find('/', at);
-		const std::string part = path.substr(at, end == std::string::npos ? end : end - at);
-		if (part == "..") {
-			if (!parts.empty()) {
-				parts.pop_back();
-			}
-		} else if (!part.empty() && part != ".") {
-			parts.push_back(part);
-		}
-		if (end == std::string::npos) {
-			break;
-		}
-		at = end + 1;
-	}
-	path = "res://";
-	for (size_t i = 0; i < parts.size(); ++i) {
-		path += (i ? "/" : "") + parts[i];
-	}
-	return path;
+	return simplify_path(path);
 }
 
 std::string ScriptClasses::native_base(const ClassDecl &p_decl, const std::string &p_path) {

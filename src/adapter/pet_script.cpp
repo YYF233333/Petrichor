@@ -9,6 +9,7 @@
 #ifdef TOOLS_ENABLED
 #include "adapter/editor/project_files.h"
 #include "adapter/editor/script_compiler.h"
+#include "compiler/parser.h"
 #endif
 #ifdef PETRICHOR_PROBES
 #include "probe/probe_methods.h"
@@ -299,105 +300,16 @@ Variant initial_value(const ClassImage &p_image, size_t p_member) {
 }
 
 PetHeader parse_header(const String &p_source) {
-	// The class header comes first (spec §2.1): class annotations, class_name,
-	// extends and implements. It is read up to the first member, past
-	// comments, strings and the arguments of annotations, such as @icon("…").
 	PetHeader header;
-	const int64_t length = p_source.length();
-	const auto is_word = [](char32_t p_char) {
-		return p_char == '_' || p_char == '.' || (p_char >= '0' && p_char <= '9') || (p_char >= 'a' && p_char <= 'z') || (p_char >= 'A' && p_char <= 'Z') || p_char >= 0x80;
-	};
-	// Past the string at `p_at`, which may be triple-quoted and span lines, as
-	// a string on a line of its own does as a comment.
-	const auto skip_string = [&](int64_t p_at) {
-		const char32_t quote = p_source[p_at];
-		const auto closes = [&](int64_t p_end, int p_quotes) {
-			for (int q = 0; q < p_quotes; q++) {
-				if (p_end + q >= length || p_source[p_end + q] != quote) {
-					return false;
-				}
-			}
-			return true;
-		};
-		const int quotes = closes(p_at, 3) ? 3 : 1;
-		for (p_at += quotes; p_at < length && !closes(p_at, quotes) && (quotes == 3 || p_source[p_at] != '\n');) {
-			p_at += p_source[p_at] == '\\' ? 2 : 1;
-		}
-		return p_at + quotes;
-	};
-	String keyword; // class_name or extends, whose name comes next.
-	bool has_name = false;
-	bool has_base = false;
-	// @abstract is the class's when the header goes on, as the compiler reads
-	// it; before a function, it is the function's.
-	bool abstract = false;
-	for (int64_t i = 0; i < length;) {
-		const char32_t c = p_source[i];
-		if (c == '#') {
-			while (i < length && p_source[i] != '\n') {
-				i++;
-			}
-		} else if (c == '"' || c == '\'') {
-			const int64_t start = i;
-			i = skip_string(i);
-			if (keyword == "extends" && !has_base) {
-				header.base = p_source.substr(start + 1, i - start - 2);
-				header.base_is_path = true;
-				has_base = true;
-			}
-			keyword = String();
-		} else if (c == 'r' && i + 1 < length && (p_source[i + 1] == '"' || p_source[i + 1] == '\'')) {
-			i = skip_string(i + 1); // A raw string.
-			keyword = String();
-		} else if (c == '@') {
-			const int64_t name = i + 1;
-			for (i++; i < length && is_word(p_source[i]); i++) {
-			}
-			const String annotation = p_source.substr(name, i - name);
-			const bool icon = annotation == "icon";
-			header.is_abstract = header.is_abstract || (abstract && (icon || annotation == "tool" || annotation == "static_unload"));
-			abstract = abstract || annotation == "abstract";
-			while (i < length && (p_source[i] == ' ' || p_source[i] == '\t')) {
-				i++;
-			}
-			if (i < length && p_source[i] == '(') {
-				for (int depth = 0; i < length;) {
-					if (p_source[i] == '"' || p_source[i] == '\'') {
-						const int64_t start = i;
-						i = skip_string(i);
-						if (icon && header.icon.is_empty()) {
-							header.icon = p_source.substr(start + 1, i - start - 2);
-						}
-						continue;
-					}
-					depth += p_source[i] == '(' ? 1 : (p_source[i] == ')' ? -1 : 0);
-					i++;
-					if (depth == 0) {
-						break;
-					}
-				}
-			}
-		} else if (is_word(c)) {
-			const int64_t start = i;
-			while (i < length && is_word(p_source[i])) {
-				i++;
-			}
-			const String word = p_source.substr(start, i - start);
-			if (keyword == "class_name" && !has_name) {
-				header.class_name = word;
-				has_name = true;
-			} else if (keyword == "extends" && !has_base) {
-				header.base = word;
-				has_base = true;
-			} else if (word != "class_name" && word != "extends") {
-				break; // implements, or the first member.
-			}
-			keyword = word == "class_name" || word == "extends" ? word : String();
-			header.is_abstract = header.is_abstract || (abstract && !keyword.is_empty());
-		} else {
-			i++;
-		}
-	}
+#ifdef TOOLS_ENABLED
+	std::vector<compiler::Diagnostic> errors;
+	const compiler::ClassDecl decl = compiler::parse(to_utf8(p_source), errors);
+	header.class_name = to_godot(decl.class_name);
+	header.base = to_godot(decl.extends);
+	header.base_is_path = decl.extends_path;
+	header.icon = to_godot(decl.icon);
+	header.is_abstract = decl.is_abstract;
+#endif
 	return header;
 }
 
@@ -879,7 +791,8 @@ bool PetScript::_is_valid() const {
 // has errors; the engine then gives no object this script
 // (core/object/object.cpp:976).
 bool PetScript::_is_abstract() const {
-	return header.is_abstract;
+	const std::shared_ptr<const ClassImage> current = get_image();
+	return current ? current->module.is_abstract : header.is_abstract;
 }
 
 ScriptLanguage *PetScript::_get_language() const {

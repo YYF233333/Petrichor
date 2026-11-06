@@ -478,6 +478,35 @@ inline std::string script_file(const std::string &p_path) {
 	return p_path.substr(0, p_path.find("::"));
 }
 
+// "res://a/./b/../c" as "res://a/c", as the engine's String::simplify_path()
+// leaves it, so that a path matches the one the project knows the file by.
+inline std::string simplify_path(const std::string &p_path) {
+	const std::string scheme = "res://";
+	const bool rooted = p_path.rfind(scheme, 0) == 0;
+	const std::string rest = rooted ? p_path.substr(scheme.size()) : p_path;
+	std::vector<std::string> parts;
+	for (size_t start = 0; start <= rest.size();) {
+		size_t end = rest.find('/', start);
+		if (end == std::string::npos) {
+			end = rest.size();
+		}
+		const std::string part = rest.substr(start, end - start);
+		if (part == "..") {
+			if (!parts.empty()) {
+				parts.pop_back();
+			}
+		} else if (!part.empty() && part != ".") {
+			parts.push_back(part);
+		}
+		start = end + 1;
+	}
+	std::string result = rooted ? scheme : std::string();
+	for (size_t i = 0; i < parts.size(); i++) {
+		result += (i > 0 ? "/" : "") + parts[i];
+	}
+	return result;
+}
+
 struct ClassDecl {
 	std::shared_ptr<const SourceFile> source; // What the token indices of its nodes refer to.
 	// An inner class's name, declared in the class that encloses it (spec
@@ -488,6 +517,7 @@ struct ClassDecl {
 	TokenRange range;
 	std::string class_name;
 	uint32_t class_name_token = NO_TOKEN;
+	std::string icon; // @icon("…") on the file's class.
 	bool is_abstract = false; // @abstract (spec §4.1).
 	std::string extends = "RefCounted";
 	bool extends_path = false;
