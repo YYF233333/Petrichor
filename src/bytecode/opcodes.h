@@ -224,6 +224,8 @@ inline bool int_power(int64_t p_base, int64_t p_exponent, int64_t &r_result) {
 	return true;
 }
 
+// wrapi(), as the compiler folds it and the runtime calls it: the value moved
+// into [min, max) or (max, min], computed unsigned so that no span overflows.
 inline int64_t int_wrapi(int64_t p_value, int64_t p_min, int64_t p_max) {
 	if (p_min == p_max) {
 		return p_min;

@@ -208,7 +208,10 @@ ConstPtr fold_int_binary(Expr &r_expr, int64_t p_a, int64_t p_b) {
 				return fail(r_expr, r_expr.op == TokenKind::Slash ? "Division by zero." : "Modulo by zero.");
 			}
 			// The minimum int divided by -1 wraps, as at run time.
-			return int_value(p_b == -1 ? (r_expr.op == TokenKind::Slash ? wrapping(0ull - uint64_t(p_a)) : 0) : (r_expr.op == TokenKind::Slash ? p_a / p_b : p_a % p_b));
+			if (p_b == -1) {
+				return int_value(r_expr.op == TokenKind::Slash ? wrapping(0ull - uint64_t(p_a)) : 0);
+			}
+			return int_value(r_expr.op == TokenKind::Slash ? p_a / p_b : p_a % p_b);
 		case TokenKind::ShiftLeft:
 		case TokenKind::ShiftRight:
 			if (p_a < 0 || p_b < 0) {
@@ -220,7 +223,10 @@ ConstPtr fold_int_binary(Expr &r_expr, int64_t p_a, int64_t p_b) {
 			return int_value(r_expr.op == TokenKind::ShiftLeft ? wrapping(uint64_t(p_a) << p_b) : p_a >> p_b);
 		case TokenKind::StarStar: {
 			int64_t result = 0;
-			return bytecode::int_power(p_a, p_b, result) ? int_value(result) : fail(r_expr, "0 ** " + std::to_string(p_b) + " divides by zero.");
+			if (!bytecode::int_power(p_a, p_b, result)) {
+				return fail(r_expr, "0 ** " + std::to_string(p_b) + " divides by zero.");
+			}
+			return int_value(result);
 		}
 		case TokenKind::Ampersand:
 			return int_value(p_a & p_b);
@@ -255,13 +261,18 @@ ConstPtr fold_known_binary(Expr &r_expr, const ConstValue &p_left, const ConstVa
 		}
 	}
 	if (p_left.kind == Kind::Bool && p_right.kind == Kind::Bool) {
-		if (op == TokenKind::And || op == TokenKind::Or) {
-			return bool_value(op == TokenKind::And ? (p_left.b && p_right.b) : (p_left.b || p_right.b));
+		switch (op) {
+			case TokenKind::And:
+				return bool_value(p_left.b && p_right.b);
+			case TokenKind::Or:
+				return bool_value(p_left.b || p_right.b);
+			case TokenKind::EqualEqual:
+				return bool_value(p_left.b == p_right.b);
+			case TokenKind::BangEqual:
+				return bool_value(p_left.b != p_right.b);
+			default:
+				return nullptr;
 		}
-		if (op == TokenKind::EqualEqual || op == TokenKind::BangEqual) {
-			return bool_value((p_left.b == p_right.b) == (op == TokenKind::EqualEqual));
-		}
-		return nullptr;
 	}
 	if (p_left.kind == Kind::String && p_right.kind == Kind::String) {
 		// By content, StringName and String alike (spec §10.7).
@@ -501,13 +512,23 @@ ConstPtr fold_known_math(Expr &r_expr, const std::vector<ConstPtr> &p_args) {
 	const bool ints = std::all_of(p_args.begin(), p_args.end(), [](const ConstPtr &p_arg) { return p_arg->kind == Kind::Int; });
 	if (r_expr.type.kind == TypeKind::Bool) {
 		if (name == "is_equal_approx") {
-			return bool_value(f(0) == f(1) || std::abs(f(0) - f(1)) < std::max(0.00001 * std::abs(f(0)), 0.00001));
+			if (f(0) == f(1)) {
+				return bool_value(true);
+			}
+			const double tolerance = std::max(0.00001 * std::abs(f(0)), 0.00001);
+			return bool_value(std::abs(f(0) - f(1)) < tolerance);
 		}
 		if (name == "is_zero_approx") {
 			return bool_value(std::abs(f(0)) < 0.00001);
 		}
-		if (name == "is_finite" || name == "is_inf" || name == "is_nan") {
-			return bool_value(name == "is_finite" ? std::isfinite(f(0)) : (name == "is_inf" ? std::isinf(f(0)) : std::isnan(f(0))));
+		if (name == "is_finite") {
+			return bool_value(std::isfinite(f(0)));
+		}
+		if (name == "is_inf") {
+			return bool_value(std::isinf(f(0)));
+		}
+		if (name == "is_nan") {
+			return bool_value(std::isnan(f(0)));
 		}
 		return nullptr;
 	}
@@ -527,7 +548,9 @@ ConstPtr fold_known_math(Expr &r_expr, const std::vector<ConstPtr> &p_args) {
 		const bool least = name == "mini" || name == "min";
 		int64_t best = i(0);
 		for (size_t a = 1; a < p_args.size(); a++) {
-			best = (least ? best > i(a) : best < i(a)) ? i(a) : best;
+			if (least ? best > i(a) : best < i(a)) {
+				best = i(a);
+			}
 		}
 		return int_value(best);
 	}
@@ -546,8 +569,14 @@ ConstPtr fold_known_math(Expr &r_expr, const std::vector<ConstPtr> &p_args) {
 		if (i(1) == 0) {
 			return fail(r_expr, "Modulo by zero.");
 		}
-		const int64_t value = i(1) == -1 ? 0 : i(0) % i(1);
-		return int_value((value < 0 && i(1) > 0) || (value > 0 && i(1) < 0) ? value + i(1) : value);
+		if (i(1) == -1) {
+			return int_value(0);
+		}
+		int64_t value = i(0) % i(1);
+		if ((value < 0 && i(1) > 0) || (value > 0 && i(1) < 0)) {
+			value += i(1);
+		}
+		return int_value(value);
 	}
 	if (name == "nearest_po2" && ints) {
 		uint64_t value = uint64_t(i(0)) - 1;

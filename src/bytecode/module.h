@@ -78,10 +78,18 @@ ValueType packed_element(ValueType p_type);
 enum class ElementRole : uint8_t {
 	None,
 	Element,
-	OptionalElement, // T? of Array[T], or Variant? of an untyped Array: pop_front(), pop_back().
-	Elements, // Array[T], or Array[V] for values() of Dictionary[K, V].
+	// T? of Array[T], or Variant? of an untyped Array: pop_front() and
+	// pop_back(), the engine returning null on an empty array
+	// (core/variant/array.cpp:781-800). pop_at() gives T, an index out of
+	// bounds being a program error as for a[i].
+	OptionalElement,
+	// Array[T], or Array[V] for values() of Dictionary[K, V], which the engine
+	// types (core/variant/dictionary.cpp:386-425).
+	Elements,
 	Key,
-	OptionalKey, // K? of Dictionary[K, V]: find_key().
+	// K? of Dictionary[K, V]: find_key(), the engine returning null when no
+	// key has the value (core/variant/dictionary.cpp:237-246).
+	OptionalKey,
 	Keys, // Array[K] of Dictionary[K, V].
 	Value,
 	Entries, // Another container of the same type.
@@ -102,10 +110,12 @@ enum class KeyRole : uint8_t {
 enum class Replaced : uint8_t {
 	None,
 	Hash,
-	HasAll,
-	Duplicate,
+	HasAll, // Its keys may be boxes of elements, which are not hashed.
+	Duplicate, // With deep, the boxes are copied after the engine.
 	DuplicateDeep,
 	Slice,
+	// The engine has no `<` of boxes (core/variant/variant_op.cpp:731-791):
+	// its own algorithm with this language's `<` (spec §3.8).
 	Sort,
 	Bsearch,
 	Min,

@@ -159,6 +159,10 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 			r_error = "the engine has no utility function " + to_godot(call.function) + " with this signature";
 			return nullptr;
 		}
+		// The engine's wrapi() overflows on spans beyond int64 and traps on
+		// INT64_MIN % -1 (core/math/math_funcs.h:654-656), and its wrap() cuts
+		// ints to 32 bits (core/variant/variant_utility.cpp:616); both run as
+		// the compiler folds them.
 		if (call.function == "wrapi") {
 			image->utilities.push_back([](void *r_ret, const GDExtensionConstTypePtr *p_args, int) {
 				*static_cast<int64_t *>(r_ret) = bytecode::int_wrapi(*static_cast<const int64_t *>(p_args[0]), *static_cast<const int64_t *>(p_args[1]), *static_cast<const int64_t *>(p_args[2]));

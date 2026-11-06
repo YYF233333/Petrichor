@@ -3773,11 +3773,15 @@ class Checker : public ClassRelation {
 		r_expr.engine_params = params;
 		r_expr.engine_return = result;
 		if (container && !p_base.args.empty()) {
+			// With T?, pop_front() and pop_back() give T??, which tells an empty
+			// array from a None element (spec §3.8).
 			if (container->result == bytecode::ElementRole::OptionalElement && p_base.args[0].is_optional()) {
 				return fail(r_expr, "\"" + r_expr.text + "()\" of " + p_base.to_string() + " gives " + p_base.args[0].to_string() + "?, which is not supported yet.");
 			}
 			container_typed(*container, p_base, params, result);
 		} else if (container && container->result == bytecode::ElementRole::OptionalElement) {
+			// Of an untyped Array, Variant?, which tells an empty array from a
+			// null element (spec §3.4, §3.8).
 			result = optional_of(result);
 		}
 		if (get_or_none) {
@@ -5529,7 +5533,10 @@ class Checker : public ClassRelation {
 	struct HintAnnotation {
 		const char *name;
 		uint32_t hint; // PropertyHint as the engine numbers it (core/object/property_info.h:39-85).
-		const char *target; // Null for @export and @export_storage.
+		// The types it applies to, joined by " and " as errors name them; null
+		// for @export and @export_storage. GDScript also lets a float take a
+		// flags hint (modules/gdscript/gdscript_parser.cpp:4970-4971).
+		const char *target;
 		uint32_t least; // Arguments.
 		uint32_t most;
 	};
@@ -5570,19 +5577,17 @@ class Checker : public ClassRelation {
 	}
 
 	static bool fits(std::string_view p_target, const Type &p_type) {
-		if (p_target == "int and float") {
-			return p_type.is_numeric();
+		const std::string type = p_type.to_string();
+		for (;;) {
+			const size_t end = p_target.find(" and ");
+			if (p_target.substr(0, end) == type) {
+				return true;
+			}
+			if (end == std::string_view::npos) {
+				return false;
+			}
+			p_target.remove_prefix(end + 5);
 		}
-		if (p_target == "String") {
-			return p_type.kind == TypeKind::String;
-		}
-		if (p_target == "int and String") {
-			return p_type.kind == TypeKind::Int || p_type.kind == TypeKind::String;
-		}
-		if (p_target == "String and Dictionary") {
-			return p_type.kind == TypeKind::String || p_type == Type::builtin("Dictionary");
-		}
-		return p_type.builtin_name() == p_target;
 	}
 
 	// An annotation that gives the inspector a hint, its arguments joined by
@@ -5711,7 +5716,8 @@ class Checker : public ClassRelation {
 		}
 		std::vector<const ConstValue *> values;
 		for (const auto &arg : p_annotation.args) {
-			if (!(values.push_back(annotation_argument(*arg)), values.back())) {
+			values.push_back(annotation_argument(*arg));
+			if (!values.back()) {
 				return;
 			}
 		}
