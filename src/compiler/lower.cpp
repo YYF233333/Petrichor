@@ -477,6 +477,9 @@ class Lowerer {
 	}
 
 	const StructDecl *struct_decl(const Type &p_struct) const {
+		if (p_struct == Type::conversion_error()) {
+			return &conversion_error_decl();
+		}
 		return p_struct.script == cls.path ? cls.find_struct(p_struct.interface_name()) : (structs ? structs(p_struct) : nullptr);
 	}
 
@@ -1525,6 +1528,12 @@ class Lowerer {
 				return option_method(p_call);
 			case Target::ResultMethod:
 				return result_method(p_call);
+			case Target::TryFrom: {
+				const uint32_t value = convert(lower_expr(*p_call.args[0]), Type::of(TypeKind::Variant));
+				const uint32_t result = temp(p_call.type);
+				instr(Op::TRY_FROM, result, value, NO_REG, 0, fn.regs[result].type);
+				return result;
+			}
 			default:
 				break;
 		}

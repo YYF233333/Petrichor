@@ -573,6 +573,10 @@ class Parser {
 			} else if (check(TokenKind::BracketOpen)) {
 				auto subscript = make(ExprKind::Subscript, advance());
 				subscript->right = expression();
+				// `Dictionary[K, V]` names a type, as before `.try_from(v)` (spec §5.3).
+				while (expr->kind == ExprKind::Name && expr->text == "Dictionary" && match(TokenKind::Comma)) {
+					subscript->args.push_back(expression());
+				}
 				expect(TokenKind::BracketClose, "\"]\"");
 				subscript->range = span(expr->range.first);
 				subscript->base = std::move(expr);

@@ -988,6 +988,9 @@ class Checker : public ClassRelation {
 	// script has errors.
 	// Null also when it has errors, which its type's name reports.
 	const StructDecl *struct_decl(const Type &p_struct) const {
+		if (p_struct == Type::conversion_error()) {
+			return &conversion_error_decl();
+		}
 		const ClassDecl *decl = script_decl(p_struct.script);
 		const StructDecl *found = decl ? decl->find_struct(p_struct.interface_name()) : nullptr;
 		return found && !classes.errors_in(found) ? found : nullptr;
@@ -1094,6 +1097,10 @@ class Checker : public ClassRelation {
 		if (base_enum) {
 			refer(p_ref.name_token, engine_id(base_enum->name.substr(0, base_enum->name.find('.')), p_ref.name));
 			return *base_enum;
+		}
+		if (p_ref.name == "ConversionError") {
+			refer(p_ref.name_token, language_id(p_ref.name, std::string()));
+			return Type::conversion_error();
 		}
 		error(p_ref.range, "Unknown type \"" + p_ref.name + "\".");
 		return Type::of(TypeKind::Error);
@@ -4596,6 +4603,10 @@ class Checker : public ClassRelation {
 				// One of a class around this one (spec §4.1).
 				const Checker *around = class_around(p_call.text);
 				if (!around || !around->cls.find_struct(p_call.text)) {
+					if (p_call.text == "ConversionError" && !declares_in_script(p_call.text)) {
+						refer(p_call.name_token, language_id(p_call.text, std::string()));
+						return Type::conversion_error();
+					}
 					return std::nullopt;
 				}
 			}
@@ -4616,7 +4627,91 @@ class Checker : public ClassRelation {
 	// `Command.MOVE(...)`: the enum with payloads whose variant the call
 	// makes, if any.
 	const EnumDecl *called_variant(Expr &r_call) {
-		return r_call.base && r_call.text != "try_from" ? payload_enum_named(*r_call.base) : nullptr;
+		return r_call.base ? payload_enum_named(*r_call.base) : nullptr;
+	}
+
+	// The type that the base of `T.try_from(v)` names: `int`, `Combat.Hit`,
+	// `Array[Hit]` or `Dictionary[String, int]`; nullopt for a value, with
+	// nothing referred to or reported.
+	std::optional<Type> named_type(const Expr &p_base) {
+		TypeRef ref;
+		if (!type_ref_of(p_base, ref) || (p_base.kind == ExprKind::Name && (visible_local(p_base.text) || member_index.count(p_base.text) || static_index.count(p_base.text) || constant_index.count(p_base.text)))) {
+			return std::nullopt;
+		}
+		const size_t referred = references ? references->size() : 0;
+		const size_t reported = errors.size();
+		const Type type = resolve(ref, false);
+		if (!type.is_error()) {
+			return type;
+		}
+		if (references) {
+			references->resize(referred);
+		}
+		errors.resize(reported);
+		return std::nullopt;
+	}
+
+	// An expression written as a type is: names joined by dots, `?` after one,
+	// and `Array[...]` or `Dictionary[..., ...]`.
+	static bool type_ref_of(const Expr &p_expr, TypeRef &r_ref) {
+		r_ref.range = p_expr.range;
+		switch (p_expr.kind) {
+			case ExprKind::Name:
+				r_ref.name = p_expr.text;
+				r_ref.name_token = p_expr.name_token;
+				return true;
+			case ExprKind::Member:
+				if (!type_ref_of(*p_expr.base, r_ref) || !r_ref.args.empty() || r_ref.nullable) {
+					return false;
+				}
+				r_ref.name += "." + p_expr.text;
+				r_ref.range = p_expr.range;
+				return true;
+			case ExprKind::Try:
+				if (!type_ref_of(*p_expr.left, r_ref) || r_ref.nullable) {
+					return false;
+				}
+				r_ref.nullable = true;
+				r_ref.range = p_expr.range;
+				return true;
+			case ExprKind::Subscript: {
+				if (p_expr.base->kind != ExprKind::Name || (p_expr.base->text != "Array" && p_expr.base->text != "Dictionary")) {
+					return false;
+				}
+				r_ref.name = p_expr.base->text;
+				r_ref.name_token = p_expr.base->name_token;
+				std::vector<const Expr *> args = { p_expr.right.get() };
+				for (const auto &arg : p_expr.args) {
+					args.push_back(arg.get());
+				}
+				for (const Expr *arg : args) {
+					r_ref.args.emplace_back();
+					if (!type_ref_of(*arg, r_ref.args.back())) {
+						return false;
+					}
+				}
+				return true;
+			}
+			default:
+				return false;
+		}
+	}
+
+	// `T.try_from(v)` (spec §5.3): v as a T, decoded as a struct's field is
+	// (§3.6), or Err with why not. Any value goes in as a Variant.
+	Type check_try_from(Expr &r_expr, const Type &p_type) {
+		const Type result = Type::result(p_type, Type::conversion_error());
+		hint(r_expr, [&](int p_current) { return signature("try_from", { "value: Variant" }, false, p_current, result.to_string()); });
+		refer(r_expr.name_token, language_id(p_type.to_string(), r_expr.text));
+		if (p_type.kind == TypeKind::Function || p_type.kind == TypeKind::Signal || p_type.kind == TypeKind::Task || p_type.kind == TypeKind::Unsupported) {
+			for (auto &arg : r_expr.args) {
+				check_value(*arg);
+			}
+			return fail_call(r_expr, "try_from() converts to a value or an object type, not " + p_type.to_string() + ".");
+		}
+		check_arguments(r_expr, { Type::of(TypeKind::Variant) }, 1, false);
+		r_expr.target = Target::TryFrom;
+		return set(r_expr, result);
 	}
 
 	// The enum with payloads that the base of `Command.MOVE` names, if any;
@@ -4945,6 +5040,11 @@ class Checker : public ClassRelation {
 		if (!r_expr.base && (r_expr.text == "Ok" || r_expr.text == "Err") && !declares_in_script(r_expr.text)) {
 			return check_result_construction(r_expr, p_expected);
 		}
+		if (r_expr.base && r_expr.text == "try_from") {
+			if (const std::optional<Type> named = named_type(*r_expr.base)) {
+				return check_try_from(r_expr, *named);
+			}
+		}
 		if (const std::optional<Type> constructed = constructed_struct(r_expr)) {
 			return check_struct_construction(r_expr, *constructed);
 		}
@@ -4962,12 +5062,6 @@ class Checker : public ClassRelation {
 		}
 		if (const EnumDecl *decl = called_variant(r_expr)) {
 			return check_variant_construction(r_expr, *decl);
-		}
-		if (r_expr.base && r_expr.text == "try_from" && named_enum(*r_expr.base)) {
-			for (auto &arg : r_expr.args) {
-				check_value(*arg);
-			}
-			return fail_call(r_expr, "try_from() is not supported yet; convert with " + r_expr.base->text + "(x).");
 		}
 		if (!r_expr.arg_names.empty()) {
 			return fail_call(r_expr, "Only structs take arguments by name yet; \"" + r_expr.text + "()\" takes them by position (spec §4.6).");

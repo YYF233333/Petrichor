@@ -213,6 +213,12 @@ pub func result_or(r: Result[int, String]) -> int:
 pub func unwrapped_err() -> int:
 	return parsed("x").unwrap()
 
+# T.try_from(v) (spec §5.3): v decoded as a struct's field is (§3.6), or
+# Err with the entry check's message.
+pub func converted(v: Variant) -> Array:
+	var n := int.try_from(v)
+	return [n.ok(), n.err().map(func(e): return e.message), Array[Command].try_from(v).map(func(c): return c.size()).ok(), Command.try_from(v).ok()]
+
 # The integer vectors widen to float ones (spec §3.2), also into the
 # parameter of a function value.
 pub func widened() -> Array:

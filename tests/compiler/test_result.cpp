@@ -55,6 +55,16 @@ TEST_CASE("postfix ? returns the Err or the None it finds, which the function re
 	CHECK(contains(errors("\tvar x := 3?\n\treturn r"), "? takes apart a Result or a T?, not int (spec §8.2)."));
 }
 
+TEST_CASE("T.try_from(v) gives the value as a T, or a ConversionError") {
+	const std::string body = "\tvar a: Result[int, ConversionError] = int.try_from(3.0)\n\tvar b: Result[Array[int], ConversionError] = Array[int].try_from([1])\n\tvar c: Result[Dictionary[String, int?], ConversionError] = Dictionary[String, int?].try_from({})\n\tvar d: Result[Node, ConversionError] = Node.try_from(self)\n\tvar e := ConversionError(message = \"x\")\n\tvar m: String = c.err().unwrap_or(e).message\n\treturn r";
+	const compiler::CompileResult result = compile(std::string(HEAD) + "func f(r: Result[int, String], o: int?) -> Result[int, String]:\n" + body + "\n");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	// A value named so is not a type.
+	CHECK(contains(errors("\tvar x := r.try_from(1)\n\treturn r"), "Result[int, String] has no method \"try_from()\"."));
+}
+
 TEST_CASE("a Result holds its values in its slot, and is not exported") {
 	CHECK(contains(messages(compile("extends Node\n\nstruct S:\n\tvar r: Result[S, int]\n")), "S contains itself through S.r"));
 	CHECK(contains(messages(compile("extends Node\n\n@export var r: Result[int, String] = Ok(1)\n")), "A Result cannot be exported, as enums with payloads cannot (spec §3.7, §10.1)."));

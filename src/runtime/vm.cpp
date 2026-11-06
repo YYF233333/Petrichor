@@ -2076,6 +2076,10 @@ public:
 					pc += 5;
 					break;
 				}
+				case Op::TRY_FROM:
+					try_from(types[code[pc + 1]], *reinterpret_cast<const Variant *>(frame + code[pc + 3]), frame + code[pc + 2]);
+					pc += 4;
+					break;
 				case Op::UNWRAP_OK: {
 					// The index of the variant, 0 for Ok, then Ok's value (module.h).
 					const TypeImage &type = types[code[pc + 1]];

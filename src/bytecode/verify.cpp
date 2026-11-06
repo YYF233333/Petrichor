@@ -34,6 +34,11 @@ bool is_indexable(ValueType p_type) {
 	return p_type == ValueType::Array || p_type == ValueType::Dictionary || packed_element(p_type) != ValueType::Void;
 }
 
+// Laid out as Result[T, E] is: two variants of one field each.
+bool is_result(const TypeDesc &p_type) {
+	return p_type.kind == TypeKind::PayloadEnum && p_type.values.size() == 2 && p_type.values[0].value == 1 && p_type.values[1].value == 1;
+}
+
 // The types of the slots that start at each offset: a struct and its first
 // field start at the same one.
 using Slots = std::unordered_map<uint32_t, std::vector<uint32_t>>;
@@ -748,8 +753,14 @@ class Verifier {
 			case Op::UNWRAP_OK: {
 				// Ok's value is the field after the variant's index.
 				const TypeDesc &type = module.types[o[0]];
-				const bool result = type.kind == TypeKind::PayloadEnum && type.values.size() == 2 && type.values[0].value == 1 && type.values[1].value == 1;
-				return (result || fail("UNWRAP_OK of what is not a Result")) && slot_like(o[1], type.fields[1].type);
+				return (is_result(type) || fail("UNWRAP_OK of what is not a Result")) && slot_like(o[1], type.fields[1].type);
+			}
+			case Op::TRY_FROM: {
+				// Err holds a struct whose one field is the message.
+				const TypeDesc &type = module.types[o[0]];
+				const bool error = is_result(type) && type.fields[2].type < o[0] && module.types[type.fields[2].type].kind == TypeKind::Struct;
+				const std::vector<FieldDesc> *fields = error ? &module.types[type.fields[2].type].fields : nullptr;
+				return (fields && fields->size() == 1 && storage((*fields)[0].type) == ValueType::String) || fail("TRY_FROM to what is not a Result[T, ConversionError]");
 			}
 			case Op::AWAIT_TASK:
 			case Op::AWAIT_SIGNAL:

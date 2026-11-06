@@ -863,6 +863,21 @@ bool is_enum_value(const TypeImage &p_type, int64_t p_value) {
 	return std::binary_search(p_type.enum_values.begin(), p_type.enum_values.end(), p_value);
 }
 
+void try_from(const TypeImage &p_result, const Variant &p_value, uint8_t *p_slot) {
+	destroy_value(p_result, p_slot);
+	construct_value(p_result, p_slot);
+	const FieldImage &value = p_result.fields[1];
+	if (decode_field(*value.type, p_value, p_slot + value.offset, true)) {
+		return;
+	}
+	// The value field back at its default, as the other variant's fields are.
+	destroy_value(*value.type, p_slot + value.offset);
+	construct_value(*value.type, p_slot + value.offset);
+	tag(p_slot) = 1;
+	const FieldImage &error = p_result.fields[2];
+	*reinterpret_cast<String *>(p_slot + error.offset + error.type->fields[0].offset) = entry_mismatch(*value.type, p_value);
+}
+
 String type_description(const TypeImage &p_type) {
 	if (is_result(p_type)) {
 		return "Result[" + type_description(*p_type.fields[1].type) + ", " + type_description(*p_type.fields[2].type) + "]";

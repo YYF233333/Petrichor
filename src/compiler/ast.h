@@ -99,6 +99,7 @@ enum class Target {
 	Unwrap, // `unwrap()` or `expect(message)` of T? (spec §3.4).
 	OptionMethod, // A method of T? other than those, named by `text`.
 	ResultMethod, // A method of Result, named by `text` (spec §3.5).
+	TryFrom, // `T.try_from(v)`: Result[T, ConversionError] of the call's type (spec §5.3).
 	Singleton, // An engine singleton, such as Input, by its class name.
 	Autoload, // An autoload by its global name (spec §7.3).
 	MethodValue, // A function of this class used as a value (spec §3.11).
@@ -471,6 +472,21 @@ struct StructDecl {
 		return true;
 	}
 };
+
+// The declaration of ConversionError (spec §5.3): `message: String`.
+inline const StructDecl &conversion_error_decl() {
+	static const StructDecl decl = [] {
+		StructDecl result;
+		result.name = "ConversionError";
+		result.is_pub = true;
+		VarDecl message;
+		message.name = "message";
+		message.type = Type::of(TypeKind::String);
+		result.fields.push_back(std::move(message));
+		return result;
+	}();
+	return decl;
+}
 
 // A value of an enum, with the value written for it, if any, or a variant
 // with the fields of its payload, `MOVE(target: Vector3)` (spec §3.7).

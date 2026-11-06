@@ -249,6 +249,8 @@ func _ready() -> void:
 	_check(c.parsed("4") == {"$variant": "Ok", "value": 4} and c.parsed("x") == {"$variant": "Err", "error": "not a number: x"} and c.result_or({"$variant": "Ok", "value": 5}) == 5 and c.result_or({"$variant": "Err", "error": "e"}) == -1, "Result goes through the engine as an enum with payloads")
 	c.unwrapped_err()
 	_check_errors(["language_check.pet:214: unwrap() found Err(\"not a number: x\")."], "unwrap() of Err is a program error that shows the error")
+	var listed_commands := [{"$variant": "IDLE"}, {"$variant": "MOVE", "target": Vector3(1, 2, 3)}]
+	_check(c.converted(3.0) == [3, null, null, null] and c.converted(3.5) == [null, "expected int, found float", null, null] and c.converted(listed_commands)[2] == 2 and c.converted({"$variant": "ATTACK", "power": 4.0, "label": "y"})[3] == {"$variant": "ATTACK", "power": 4, "label": "y"}, "try_from() decodes as a struct's field is, an int from a whole float too, or gives the entry check's message: %s" % [c.converted(3.5)])
 	_check(c.options(3) == [3, 3, 6, 4, 3, 3, 3, {"$variant": "Ok", "value": 3}, {"$variant": "Ok", "value": 3}] and c.options(null) == [-1, -2, null, null, 7, 8, null, {"$variant": "Err", "error": "none"}, {"$variant": "Err", "error": "missing"}], "the methods of T?, ok_or() making a Result")
 	var listed_targets: Array = v.targets(target)
 	_check(listed_targets.get_typed_script() == TargetCheck and v.as_target(target) == target and v.as_target(plain_node) == null, "an array typed with a class of this language, and as to one")

@@ -114,6 +114,10 @@ godot::Variant to_variant(const TypeImage &p_type, const uint8_t *p_slot);
 // that has each field, as `T.try_from` decodes the field (spec §3.6, §5.3),
 // containers in it into new ones when they are not of the field's type.
 bool from_variant(const TypeImage &p_type, const godot::Variant &p_value, uint8_t *p_slot, bool p_check);
+// `T.try_from(v)` into the slot of a Result[T, ConversionError] (spec §5.3):
+// Ok of the value decoded as a struct's field of type T is (§3.6), or Err
+// with the message the entry check gives.
+void try_from(const TypeImage &p_result, const godot::Variant &p_value, uint8_t *p_slot);
 // Whether an int is one of an enum's values (spec §3.7).
 bool is_enum_value(const TypeImage &p_type, int64_t p_value);
 // The value as spec §10.1 encodes it: a struct as a Dictionary, a container

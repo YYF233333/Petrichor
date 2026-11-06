@@ -89,6 +89,9 @@ struct Type {
 		type.script = p_script;
 		return type;
 	}
+	// The struct that try_from() gives in Err (spec §5.3), which the language
+	// declares; a struct of a script has a dot in its name.
+	static Type conversion_error() { return structure("ConversionError", std::string()); }
 	// An enum of a script of this language, named as a struct, or of the engine
 	// without a script.
 	static Type enumeration(const std::string &p_name, const std::string &p_script, std::shared_ptr<const EnumValues> p_values, TypeKind p_kind = TypeKind::Enum) {

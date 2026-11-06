@@ -12,7 +12,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Of structs (spec §3.6):
   - methods;
   - a struct or an enum with payloads that holds itself through a container. The type table cannot list it, since a type's parts come before it.
-- `T.try_from(v)` (spec §5.3), as for `Array[Hit].try_from(Array(hits))`.
 - The error for a type that is not pub in the signature of a pub member (spec §4.2). Such a type may be a struct or an interface.
 - Static checks of:
   - must-assign exports in scenes, in resources and at export (spec §7.5);

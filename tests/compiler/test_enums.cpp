@@ -42,8 +42,7 @@ TEST_CASE("an int becomes an enum only explicitly, and two enums do not mix (spe
 	CHECK(contains(errors("s = Other.A"), "Cannot assign a value of type Moves.Other as Moves.State."));
 	CHECK(contains(errors("var t := n as State"), "as only converts objects; convert to Moves.State with Moves.State(x) or Moves.State.try_from(x)."));
 	CHECK(contains(errors("var t := State(1.5)"), "State() converts an int, not float. Convert it with int(x) first."));
-	CHECK(contains(errors("var t := State.try_from(n)"), "try_from() is not supported yet"));
-	CHECK(errors("s = State(n)\ns = State(Other.B)\nvar t: State = State((s + 1) % State.size())").empty());
+	CHECK(errors("s = State(n)\ns = State(Other.B)\nvar t: State = State((s + 1) % State.size())\nvar u: Result[State, ConversionError] = State.try_from(n)").empty());
 	CHECK(contains(errors("var t := State.WALK"), "State has no value \"WALK\"."));
 }
 
