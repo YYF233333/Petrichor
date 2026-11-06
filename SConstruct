@@ -170,7 +170,6 @@ env.Command(
 # the header it goes into.
 def format_id():
     digest = hashlib.sha256()
-    digest.update(str(env.get("precision", "single")).encode() + b"\0")
     for node in sorted(Glob("src/bytecode/*.h") + Glob("src/bytecode/*.cpp"), key=lambda node: node.name):
         digest.update(node.name.encode() + b"\0")
         digest.update(node.get_contents().replace(b"\r\n", b"\n") + b"\0")

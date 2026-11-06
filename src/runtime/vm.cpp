@@ -408,11 +408,15 @@ PETRICHOR_NOINLINE String &helper_error() {
 
 // The arguments of a call through an untyped view that do not fit the types
 // the container has (spec §3.8).
-PETRICHOR_NOINLINE bool arguments_fit(const std::vector<std::pair<uint32_t, ElementRole>> &p_roles, const std::vector<ValueType> &p_params, const void *const *p_args, ValueType p_base, const uint8_t *p_container) {
+PETRICHOR_NOINLINE bool arguments_fit(const bytecode::BuiltinMethodCall &p_method, const bytecode::ContainerMethod &p_container, const void *const *p_args, const uint8_t *p_base) {
 	String &r_error = helper_error();
-	const Variant container = to_variant(p_base, p_container);
-	for (const auto &[index, role] : p_roles) {
-		const Variant value = p_params[index] == ValueType::Variant ? *static_cast<const Variant *>(p_args[index]) : to_variant(p_params[index], static_cast<const uint8_t *>(p_args[index]));
+	const Variant container = to_variant(p_method.base, p_base);
+	for (uint32_t i = 0; i < 2 && i < p_method.params.size(); i++) {
+		const ElementRole role = p_container.args[i];
+		if (role == ElementRole::None || (role == ElementRole::Entries && !p_container.fills) || (i == 1 && p_method.method == "get")) {
+			continue;
+		}
+		const Variant value = p_method.params[i] == ValueType::Variant ? *static_cast<const Variant *>(p_args[i]) : to_variant(p_method.params[i], static_cast<const uint8_t *>(p_args[i]));
 		r_error = untyped_misfit(container, role, value);
 		if (!r_error.is_empty()) {
 			return false;
@@ -1335,22 +1339,23 @@ class Execution {
 		std::optional<Variant> inserted; // A Variant is made by a call into the engine.
 		if (!utility && base) {
 			const bytecode::BuiltinMethodCall &method = module.builtin_methods[target];
+			const bytecode::ContainerMethod *container = image.container_methods[target];
 			if (!method.is_const && is_read_only(method.base, base)) {
 				return fail(p_fn, p_line, read_only_error(method.base));
 			}
 			// Through an untyped view, values must fit the types the container has (spec §3.8).
-			if (!image.element_args[target].empty() && !arguments_fit(image.element_args[target], params, args.pointers, method.base, base)) {
+			if (method.checks_elements && container && !arguments_fit(method, *container, args.pointers, base)) {
 				return fail_helper(p_fn, p_line);
 			}
-			if (image.needs_element[target] && reinterpret_cast<const Array *>(base)->is_empty()) {
+			if (container && container->needs_element && reinterpret_cast<const Array *>(base)->is_empty()) {
 				// The engine returns null, after an error of its own for front() and back().
 				return fail(p_fn, p_line, vformat("%s() of an empty array.", method.method.c_str()));
 			}
-			if (image.replaced[target] != ClassImage::Replaced::None && keeps_boxes(to_variant(method.base, base))) {
-				replaced = image.replaced[target];
+			if (container && container->replaced != ClassImage::Replaced::None && keeps_boxes(to_variant(method.base, base))) {
+				replaced = container->replaced;
 			}
-			if (image.key_roles[target] != ClassImage::KeyRole::None && keys_hold_containers(*reinterpret_cast<const Dictionary *>(base))) {
-				keys = image.key_roles[target];
+			if (container && container->key_role != ClassImage::KeyRole::None && keys_hold_containers(*reinterpret_cast<const Dictionary *>(base))) {
+				keys = container->key_role;
 			}
 			// A new key goes in as a key (spec §3.8).
 			if (keys == ClassImage::KeyRole::Inserts && !reinterpret_cast<const Dictionary *>(base)->has(*reinterpret_cast<const Variant *>(args.pointers[0]))) {
@@ -1363,7 +1368,7 @@ class Execution {
 		// one that nothing reads.
 		const bool via_variant = returns == ValueType::Variant || returns == ValueType::Void;
 		const bool unread = !via_variant && dst == NO_SLOT;
-		alignas(16) uint8_t scratch[MAX_VALUE_SIZE];
+		alignas(16) uint8_t scratch[64];
 		construct_value(via_variant ? ValueType::Variant : (unread ? returns : ValueType::Void), scratch);
 		void *result = via_variant || unread ? scratch : p_frame + dst;
 		if (utility) {

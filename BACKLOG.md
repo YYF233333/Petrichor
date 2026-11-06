@@ -39,6 +39,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Runtime
 
+- Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for: the bytecode lays out built-in values at their sizes in standard builds, so initialization and loading refuse them (`check_value_sizes()`).
 - Members of classes of this language read and written without the engine; then a pub member whose type is a container that keeps boxes can leave reflection (spec §10.5), through which this language now reaches members of other instances.
 - Temporary slots reused by scope, so that temporary references in a loop are released in time and a suspended coroutine keeps only the slots still in use; a temporary that held self, as in `f(self, await g())`, keeps a RefCounted alive while the coroutine waits (against spec §9.4).
 
@@ -78,5 +79,6 @@ Engine calls are by name with Variant arguments now, so code that calls the engi
 - Whether an autoload's name stands for its script's class in a type, as GDScript's does (`modules/gdscript/gdscript_analyzer.cpp:806-826`): godot-open-rts writes `var p: Constants.Match.Player` 5 times, `Constants` being an autoload (`docs/surveys/corpus-counts/inner_classes.py`).
 - Whether diagnostics and semantic queries also serve programs, not only the editor's interface: saying which declaration or scene a constraint comes from and listing the references that broke could let AI and tools fix errors while reading less code.
 - Whether the first version (spec §14) leaves out `weak[T]` (spec §3.12) and the built-in test runner (§13.2), which the FPS and Ring scripts of the second paper migration do not use.
+- How self-referential containers (`Array` or `Dictionary` that can reach themselves) behave in `deep_copy()`, `frozen_copy()` and `freeze()`, and whether a cyclic container used as a `Dictionary` key is a program error before the engine hashes it (spec §3.8; `core/variant/array.cpp:195-207`, `ed1daf0`).
 - The long-term boundary of compatibility with GDScript and Godot: which agreements are promises and which merely hold today, which Godot versions are supported, and which semantics may still change during the alpha.
 - How to test the gain in maintenance: use the language in a real project through several rounds of changing requirements, and see how many problems it points out ahead of renames, interface changes and refactorings across files; the cost of adoption includes migrating in step by step, mixing and leaving, and with cross-language inheritance restricted, the unit of migration may be an inheritance cluster or a subsystem.

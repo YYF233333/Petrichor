@@ -219,20 +219,7 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 			return nullptr;
 		}
 		image->builtin_methods.push_back(pointer);
-		const bytecode::ContainerMethod *container = bytecode::find_container_method(call.base, call.method);
-		image->key_roles.push_back(container ? container->key_role : KeyRole::None);
-		image->replaced.push_back(container ? container->replaced : Replaced::None);
-		image->needs_element.push_back(container && container->needs_element);
-		std::vector<std::pair<uint32_t, ElementRole>> roles;
-		if (call.checks_elements && container) {
-			for (uint32_t i = 0; i < 2; i++) {
-				const ElementRole role = container->args[i];
-				if (role != ElementRole::None && (role != ElementRole::Entries || container->fills) && !(i == 1 && call.method == "get")) {
-					roles.emplace_back(i, role);
-				}
-			}
-		}
-		image->element_args.push_back(std::move(roles));
+		image->container_methods.push_back(bytecode::find_container_method(call.base, call.method));
 	}
 	for (const bytecode::ClassRef &ref : module.classes) {
 		image->classes.push_back(to_godot(ref.name));
@@ -379,7 +366,7 @@ static bool construct_constant(const ClassImage &p_image, const bytecode::Consta
 	}
 	if (ok) {
 		// The engine constructs into memory that holds no value.
-		alignas(16) uint8_t result[MAX_VALUE_SIZE];
+		alignas(16) uint8_t result[64];
 		constructor(result, pointers.data());
 		r_value = to_variant(type, result);
 		destroy_value(type, result);

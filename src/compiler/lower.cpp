@@ -796,22 +796,13 @@ class Lowerer {
 		return args;
 	}
 
-	uint32_t load_text(ValueType p_type, const std::string &p_text) {
-		const uint32_t result = temp(p_type);
-		instr(Op::CONST_VALUE, result, NO_REG, NO_REG, text_constant(p_type, p_text), fn.regs[result].type);
-		return result;
-	}
-
 	// A constant of the type that has only its default value, such as 0 or None.
 	uint32_t default_constant(uint32_t p_type) {
-		bytecode::Constant constant;
-		constant.type = p_type;
-		return add_constant(constant);
+		return add_constant({ p_type });
 	}
 
 	void load_int(uint32_t p_dst, int64_t p_value) {
-		bytecode::Constant constant;
-		constant.type = type_index(ValueType::Int);
+		bytecode::Constant constant{ type_index(ValueType::Int) };
 		constant.i = p_value;
 		instr(Op::CONST_INT, p_dst, NO_REG, NO_REG, add_constant(constant));
 	}
@@ -1083,8 +1074,9 @@ class Lowerer {
 			new_container(p_dst);
 			return p_dst;
 		}
-		if (is_option_reg(p_dst)) {
-			instr(Op::CONST_VALUE, p_dst, NO_REG, NO_REG, default_constant(fn.regs[p_dst].type), fn.regs[p_dst].type); // None.
+		if (is_option_reg(p_dst) || type == ValueType::Object || type == ValueType::Variant) {
+			// None; a constant of an object type or of T? is always None.
+			instr(Op::CONST_VALUE, p_dst, NO_REG, NO_REG, default_constant(fn.regs[p_dst].type), fn.regs[p_dst].type);
 			return p_dst;
 		}
 		if (is_struct_reg(p_dst)) {
@@ -1104,11 +1096,6 @@ class Lowerer {
 				break;
 			case ValueType::String:
 				instr(Op::CONST_STRING, p_dst, NO_REG, NO_REG, default_constant(fn.regs[p_dst].type));
-				break;
-			case ValueType::Object:
-			case ValueType::Variant:
-				// None; a constant of an object type or of T? is always None.
-				instr(Op::CONST_VALUE, p_dst, NO_REG, NO_REG, default_constant(fn.regs[p_dst].type), fn.regs[p_dst].type);
 				break;
 			case ValueType::Void:
 				break;
@@ -1724,7 +1711,8 @@ class Lowerer {
 	// get_node() on self, then a check that the node is there and has the
 	// class the scenes gave it (spec §7.1), in case the tree changed since.
 	uint32_t get_node(const Expr &p_expr) {
-		const uint32_t path_reg = load_text(ValueType::NodePath, p_expr.text);
+		const uint32_t path_reg = temp(ValueType::NodePath);
+		instr(Op::CONST_VALUE, path_reg, NO_REG, NO_REG, text_constant(ValueType::NodePath, p_expr.text), fn.regs[path_reg].type);
 		ir::Instr i;
 		i.op = Op::CALL_ENGINE;
 		i.args = { path_reg };
@@ -2490,12 +2478,7 @@ public:
 
 		for (const FuncDecl *entry : cls.all_functions) {
 			const FuncDecl &function = *entry;
-			bool inherited = true;
-			for (const FuncDecl &own : cls.functions) {
-				if (&own == entry) {
-					inherited = false;
-				}
-			}
+			const bool inherited = !is_own_function(function);
 			start(function.name);
 			decl = &function;
 			at = inherited ? TokenRange{ cls.extends_token, cls.extends_token } : function.range;

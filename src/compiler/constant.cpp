@@ -233,43 +233,35 @@ ConstPtr fold_int_binary(Expr &r_expr, int64_t p_a, int64_t p_b) {
 	}
 }
 
-ConstPtr fold_float_binary(TokenKind p_op, double p_a, double p_b) {
-	switch (p_op) {
-		case TokenKind::Plus:
-			return float_value(p_a + p_b);
-		case TokenKind::Minus:
-			return float_value(p_a - p_b);
-		case TokenKind::Star:
-			return float_value(p_a * p_b);
-		case TokenKind::Slash:
-			return float_value(p_a / p_b);
-		default:
-			return fold_comparison(p_op, p_a, p_b);
-	}
-}
-
 ConstPtr fold_known_binary(Expr &r_expr, const ConstValue &p_left, const ConstValue &p_right) {
 	const TokenKind op = r_expr.op;
 	if (p_left.kind == Kind::Int && p_right.kind == Kind::Int) {
 		return fold_int_binary(r_expr, p_left.i, p_right.i);
 	}
-	const bool numeric = (p_left.kind == Kind::Int || p_left.kind == Kind::Float) && (p_right.kind == Kind::Int || p_right.kind == Kind::Float);
-	if (numeric) {
-		return fold_float_binary(op, number(p_left), number(p_right));
+	if ((p_left.kind == Kind::Int || p_left.kind == Kind::Float) && (p_right.kind == Kind::Int || p_right.kind == Kind::Float)) {
+		const double a = number(p_left);
+		const double b = number(p_right);
+		switch (op) {
+			case TokenKind::Plus:
+				return float_value(a + b);
+			case TokenKind::Minus:
+				return float_value(a - b);
+			case TokenKind::Star:
+				return float_value(a * b);
+			case TokenKind::Slash:
+				return float_value(a / b);
+			default:
+				return fold_comparison(op, a, b);
+		}
 	}
 	if (p_left.kind == Kind::Bool && p_right.kind == Kind::Bool) {
-		switch (op) {
-			case TokenKind::And:
-				return bool_value(p_left.b && p_right.b);
-			case TokenKind::Or:
-				return bool_value(p_left.b || p_right.b);
-			case TokenKind::EqualEqual:
-				return bool_value(p_left.b == p_right.b);
-			case TokenKind::BangEqual:
-				return bool_value(p_left.b != p_right.b);
-			default:
-				return nullptr;
+		if (op == TokenKind::And || op == TokenKind::Or) {
+			return bool_value(op == TokenKind::And ? (p_left.b && p_right.b) : (p_left.b || p_right.b));
 		}
+		if (op == TokenKind::EqualEqual || op == TokenKind::BangEqual) {
+			return bool_value((p_left.b == p_right.b) == (op == TokenKind::EqualEqual));
+		}
+		return nullptr;
 	}
 	if (p_left.kind == Kind::String && p_right.kind == Kind::String) {
 		// By content, StringName and String alike (spec §10.7).
