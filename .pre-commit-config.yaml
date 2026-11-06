@@ -26,6 +26,12 @@ repos:
         pass_filenames: false
         files: \.md$
 
+      - id: doc-style
+        name: doc-style
+        language: python
+        entry: python tools/check_doc_style.py
+        files: \.md$
+
       - id: commit-msg
         name: commit message
         language: python
