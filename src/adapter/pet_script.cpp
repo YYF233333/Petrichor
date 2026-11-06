@@ -401,7 +401,7 @@ std::shared_ptr<const ClassImage> PetScript::get_image() const {
 
 void PetScript::set_loaded(const String &p_source, const std::shared_ptr<const ClassImage> &p_image, const Ref<PetScript> &p_base) {
 	source = p_source;
-	header = parse_header(p_source);
+	header = Engine::get_singleton()->is_editor_hint() ? parse_header(p_source) : PetHeader();
 	set_image(p_image, p_base);
 }
 
@@ -710,7 +710,6 @@ Error PetScript::_reload(bool p_keep_state) {
 		return OK;
 	}
 	source = new_source;
-	header = parse_header(new_source);
 	return apply_image(loaded, base) ? OK : ERR_INVALID_DATA;
 }
 
@@ -791,7 +790,7 @@ bool PetScript::_is_valid() const {
 // has errors; the engine then gives no object this script
 // (core/object/object.cpp:976).
 bool PetScript::_is_abstract() const {
-	if (inner_path.is_empty() && !source.is_empty()) {
+	if (inner_path.is_empty() && Engine::get_singleton()->is_editor_hint()) {
 		return header.is_abstract;
 	}
 	const std::shared_ptr<const ClassImage> current = get_image();

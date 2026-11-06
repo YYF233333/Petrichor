@@ -1927,6 +1927,9 @@ ClassDecl parse(std::string p_source, std::vector<Diagnostic> &r_errors, bool p_
 		std::vector<Diagnostic> parsed;
 		Parser parser(*file, parsed, !unclosed.empty(), resets);
 		ClassDecl result = parser.run(p_header_only);
+		if (p_header_only) {
+			return result;
+		}
 		if (parser.reset != NO_OFFSET) {
 			resets.insert(std::upper_bound(resets.begin(), resets.end(), parser.reset), parser.reset);
 			continue;

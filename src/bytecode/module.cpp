@@ -8,13 +8,28 @@
 
 namespace petrichor::bytecode {
 
+namespace {
+
+struct OpInfo {
+	const char *name;
+	const char *emit;
+	const char *verify;
+};
+
+const OpInfo OP_INFOS[] = {
+#define PETRICHOR_OPCODE_INFO(m_name, m_emit, m_verify) { #m_name, m_emit, m_verify },
+	PETRICHOR_OPCODES(PETRICHOR_OPCODE_INFO)
+#undef PETRICHOR_OPCODE_INFO
+};
+
+} // namespace
+
 int operand_count(Op p_op) {
-	static const int counts[] = {
-#define PETRICHOR_OPCODE_COUNT(m_name, m_count) m_count,
-		PETRICHOR_OPCODES(PETRICHOR_OPCODE_COUNT)
-#undef PETRICHOR_OPCODE_COUNT
-	};
-	return uint32_t(p_op) < uint32_t(Op::COUNT) ? counts[uint32_t(p_op)] : 0;
+	if (uint32_t(p_op) >= uint32_t(Op::COUNT)) {
+		return 0;
+	}
+	const char *emit = OP_INFOS[uint32_t(p_op)].emit;
+	return emit[0] == '*' ? -1 : int(std::strlen(emit));
 }
 
 const char *int_range_name(IntRange p_range) {
@@ -24,12 +39,15 @@ const char *int_range_name(IntRange p_range) {
 }
 
 const char *op_name(Op p_op) {
-	static const char *const names[] = {
-#define PETRICHOR_OPCODE_NAME(m_name, m_count) #m_name,
-		PETRICHOR_OPCODES(PETRICHOR_OPCODE_NAME)
-#undef PETRICHOR_OPCODE_NAME
-	};
-	return uint32_t(p_op) < uint32_t(Op::COUNT) ? names[uint32_t(p_op)] : "?";
+	return uint32_t(p_op) < uint32_t(Op::COUNT) ? OP_INFOS[uint32_t(p_op)].name : "?";
+}
+
+const char *op_emit_schema(Op p_op) {
+	return uint32_t(p_op) < uint32_t(Op::COUNT) ? OP_INFOS[uint32_t(p_op)].emit : "";
+}
+
+const char *op_verify_schema(Op p_op) {
+	return uint32_t(p_op) < uint32_t(Op::COUNT) ? OP_INFOS[uint32_t(p_op)].verify : "";
 }
 
 namespace {
@@ -264,6 +282,7 @@ const uint8_t MAGIC[4] = { 'P', 'E', 'T', 'C' };
 
 class Writer {
 public:
+	static constexpr bool reading = false;
 	std::vector<uint8_t> data;
 
 	void u8(uint8_t p_value) { data.push_back(p_value); }
@@ -277,68 +296,9 @@ public:
 			data.push_back(uint8_t(p_value >> (8 * i)));
 		}
 	}
-	void f64(double p_value) {
-		uint64_t bits;
-		std::memcpy(&bits, &p_value, sizeof(bits));
-		u64(bits);
-	}
 	void str(const std::string &p_value) {
 		u32(uint32_t(p_value.size()));
 		data.insert(data.end(), p_value.begin(), p_value.end());
-	}
-	void type(ValueType p_type) { u8(uint8_t(p_type)); }
-	void types(const std::vector<ValueType> &p_types) {
-		u32(uint32_t(p_types.size()));
-		for (ValueType value : p_types) {
-			type(value);
-		}
-	}
-	void constant(const Constant &p_value) {
-		u32(p_value.type);
-		u8(p_value.b ? 1 : 0);
-		u64(uint64_t(p_value.i));
-		f64(p_value.f);
-		str(p_value.s);
-		str(p_value.builtin);
-		u32(uint32_t(p_value.constructor));
-		u32(uint32_t(p_value.op));
-		u32(uint32_t(p_value.utility));
-		str(p_value.field);
-		u8(p_value.load ? 1 : 0);
-		u32(uint32_t(p_value.args.size()));
-		for (const Constant &arg : p_value.args) {
-			constant(arg);
-		}
-	}
-	void slot(const Slot &p_slot) {
-		str(p_slot.name);
-		u32(p_slot.type);
-		u32(p_slot.offset);
-	}
-	void class_ref(const ClassRef &p_ref) {
-		str(p_ref.name);
-		str(p_ref.script);
-		str(p_ref.interface_name);
-	}
-	void type_desc(const TypeDesc &p_type) {
-		u8(uint8_t(p_type.kind));
-		type(p_type.value);
-		u32(p_type.element);
-		u32(p_type.key);
-		class_ref(p_type.object);
-		u8(p_type.nullable ? 1 : 0);
-		str(p_type.task_result);
-		str(p_type.name);
-		u32(uint32_t(p_type.fields.size()));
-		for (const FieldDesc &field : p_type.fields) {
-			str(field.name);
-			u32(field.type);
-		}
-		u32(uint32_t(p_type.values.size()));
-		for (const EnumValueDesc &value : p_type.values) {
-			str(value.name);
-			u64(uint64_t(value.value));
-		}
 	}
 };
 
@@ -348,6 +308,8 @@ class Reader {
 	size_t at = 0;
 
 public:
+	static constexpr bool reading = true;
+	int depth = 0;
 	bool failed = false;
 
 	Reader(const uint8_t *p_data, size_t p_size) :
@@ -360,10 +322,10 @@ public:
 		}
 		return true;
 	}
-	uint8_t u8() {
+	uint8_t get_u8() {
 		return take(1) ? data[at++] : 0;
 	}
-	uint32_t u32() {
+	uint32_t get_u32() {
 		if (!take(4)) {
 			return 0;
 		}
@@ -373,7 +335,7 @@ public:
 		}
 		return value;
 	}
-	uint64_t u64() {
+	uint64_t get_u64() {
 		if (!take(8)) {
 			return 0;
 		}
@@ -383,507 +345,159 @@ public:
 		}
 		return value;
 	}
-	double f64() {
-		const uint64_t bits = u64();
-		double value;
-		std::memcpy(&value, &bits, sizeof(value));
-		return value;
-	}
-	std::string str() {
-		const uint32_t length = u32();
+	void u8(uint8_t &r_value) { r_value = get_u8(); }
+	void u32(uint32_t &r_value) { r_value = get_u32(); }
+	void u64(uint64_t &r_value) { r_value = get_u64(); }
+	void str(std::string &r_value) {
+		const uint32_t length = get_u32();
 		if (!take(length)) {
-			return std::string();
+			r_value.clear();
+			return;
 		}
-		std::string value(reinterpret_cast<const char *>(data + at), length);
+		r_value.assign(reinterpret_cast<const char *>(data + at), length);
 		at += length;
-		return value;
 	}
 	// Counts are bounded by the remaining data, so corrupt input cannot
 	// request huge allocations.
 	uint32_t count() {
-		const uint32_t value = u32();
+		const uint32_t value = get_u32();
 		if (value > size - at) {
 			failed = true;
 			return 0;
 		}
 		return value;
 	}
-	ValueType type() {
-		const uint8_t value = u8();
-		if (value >= uint8_t(ValueType::Count)) {
-			failed = true;
-			return ValueType::Void;
-		}
-		return ValueType(value);
-	}
-	std::vector<ValueType> types() {
-		std::vector<ValueType> value(count());
-		for (ValueType &item : value) {
-			item = type();
-		}
-		return value;
-	}
-	Constant constant() {
-		Constant value;
-		value.type = u32();
-		value.b = u8() != 0;
-		value.i = int64_t(u64());
-		value.f = f64();
-		value.s = str();
-		value.builtin = str();
-		value.constructor = int32_t(u32());
-		value.op = int32_t(u32());
-		value.utility = int32_t(u32());
-		value.field = str();
-		value.load = u8() != 0;
-		value.args.resize(count());
-		for (Constant &arg : value.args) {
-			arg = constant();
-		}
-		return value;
-	}
-	Slot slot() {
-		Slot value;
-		value.name = str();
-		value.type = u32();
-		value.offset = u32();
-		return value;
-	}
-	ClassRef class_ref() {
-		ClassRef value;
-		value.name = str();
-		value.script = str();
-		value.interface_name = str();
-		return value;
-	}
-	TypeDesc type_desc() {
-		TypeDesc value;
-		const uint8_t kind = u8();
-		if (kind >= uint8_t(TypeKind::Count)) {
-			failed = true;
-		}
-		value.kind = TypeKind(kind);
-		value.value = type();
-		value.element = u32();
-		value.key = u32();
-		value.object = class_ref();
-		value.nullable = u8() != 0;
-		value.task_result = str();
-		value.name = str();
-		value.fields.resize(count());
-		for (FieldDesc &field : value.fields) {
-			field.name = str();
-			field.type = u32();
-		}
-		value.values.resize(count());
-		for (EnumValueDesc &entry : value.values) {
-			entry.name = str();
-			entry.value = int64_t(u64());
-		}
-		return value;
-	}
 };
 
-} // namespace
+template <typename Ar, typename... Ts>
+void io(Ar &r_ar, Ts &...r_fields);
 
-namespace {
-
-void write_member(Writer &w, const Member &p_member) {
-	w.slot(p_member);
-	w.u32(p_member.line);
-	w.u8(p_member.is_pub ? 1 : 0);
-	w.u8(p_member.is_export ? 1 : 0);
-	w.u8(p_member.is_onready ? 1 : 0);
-	w.u32(uint32_t(p_member.setter));
-	w.u32(uint32_t(p_member.getter));
-	w.u32(p_member.hint);
-	w.str(p_member.hint_string);
-	w.u32(p_member.usage);
-	w.u8(p_member.has_initial ? 1 : 0);
-	w.constant(p_member.initial);
-}
-
-void read_member(Reader &r, Member &r_member) {
-	static_cast<Slot &>(r_member) = r.slot();
-	r_member.line = r.u32();
-	r_member.is_pub = r.u8() != 0;
-	r_member.is_export = r.u8() != 0;
-	r_member.is_onready = r.u8() != 0;
-	r_member.setter = int32_t(r.u32());
-	r_member.getter = int32_t(r.u32());
-	r_member.hint = r.u32();
-	r_member.hint_string = r.str();
-	r_member.usage = r.u32();
-	r_member.has_initial = r.u8() != 0;
-	r_member.initial = r.constant();
-}
-
-void write_module(Writer &w, const Module &p_module) {
-	w.u64(p_module.source_hash);
-	w.u8(p_module.declarations_only ? 1 : 0);
-	w.u8(p_module.is_abstract ? 1 : 0);
-	w.str(p_module.global_name);
-	w.str(p_module.base_class);
-	w.str(p_module.base_script);
-	w.u32(p_module.inherited_members);
-
-	w.u32(uint32_t(p_module.types.size()));
-	for (const TypeDesc &type : p_module.types) {
-		w.type_desc(type);
-	}
-	w.u32(uint32_t(p_module.members.size()));
-	for (const Member &member : p_module.members) {
-		write_member(w, member);
-	}
-	w.u32(uint32_t(p_module.signals.size()));
-	for (const SignalInfo &signal : p_module.signals) {
-		w.str(signal.name);
-		w.u8(signal.is_pub ? 1 : 0);
-		w.u32(uint32_t(signal.params.size()));
-		for (const Slot &param : signal.params) {
-			w.slot(param);
+template <typename Ar, typename T>
+void archive(Ar &r_ar, T &r_value) {
+	using V = std::remove_const_t<T>;
+	if constexpr (std::is_same_v<V, uint8_t>) {
+		r_ar.u8(r_value);
+	} else if constexpr (std::is_same_v<V, bool>) {
+		uint8_t raw = r_value ? 1 : 0;
+		r_ar.u8(raw);
+		if constexpr (Ar::reading) {
+			r_value = raw != 0;
 		}
-	}
-	w.u32(uint32_t(p_module.groups.size()));
-	for (const ExportGroup &group : p_module.groups) {
-		w.str(group.name);
-		w.str(group.prefix);
-		w.u8(group.level);
-		w.u32(group.before_member);
-	}
-	w.u32(p_module.instance_size);
-
-	w.u32(uint32_t(p_module.functions.size()));
-	for (const Function &function : p_module.functions) {
-		w.str(function.name);
-		w.u8(function.is_inherited ? 1 : 0);
-		w.str(function.base_signature);
-		w.u32(uint32_t(function.params.size()));
-		for (const Slot &param : function.params) {
-			w.slot(param);
+	} else if constexpr (std::is_same_v<V, uint32_t>) {
+		r_ar.u32(r_value);
+	} else if constexpr (std::is_same_v<V, int32_t>) {
+		uint32_t raw = uint32_t(r_value);
+		r_ar.u32(raw);
+		if constexpr (Ar::reading) {
+			r_value = int32_t(raw);
 		}
-		w.u32(uint32_t(function.defaults.size()));
-		for (const Constant &value : function.defaults) {
-			w.constant(value);
+	} else if constexpr (std::is_same_v<V, uint64_t>) {
+		r_ar.u64(r_value);
+	} else if constexpr (std::is_same_v<V, int64_t>) {
+		uint64_t raw = uint64_t(r_value);
+		r_ar.u64(raw);
+		if constexpr (Ar::reading) {
+			r_value = int64_t(raw);
 		}
-		w.u8(function.is_async ? 1 : 0);
-		w.u8(function.is_static ? 1 : 0);
-		w.slot(function.result);
-		w.u8(function.is_pub ? 1 : 0);
-		w.u8(function.is_override ? 1 : 0);
-		w.u8(function.is_exposed ? 1 : 0);
-		w.u8(function.rpc.mode);
-		w.u8(function.rpc.transfer_mode);
-		w.u8(function.rpc.call_local ? 1 : 0);
-		w.u32(uint32_t(function.rpc.channel));
-		w.u8(function.is_abstract ? 1 : 0);
-		w.u8(function.is_lambda ? 1 : 0);
-		w.u32(function.captures);
-		w.u32(function.line);
-		w.u32(function.frame_size);
-		w.u32(uint32_t(function.slots.size()));
-		for (const Slot &slot : function.slots) {
-			w.slot(slot);
+	} else if constexpr (std::is_same_v<V, double>) {
+		uint64_t bits = 0;
+		if constexpr (!Ar::reading) {
+			std::memcpy(&bits, &r_value, sizeof(bits));
 		}
-		w.u32(uint32_t(function.code.size()));
-		for (uint32_t word : function.code) {
-			w.u32(word);
+		r_ar.u64(bits);
+		if constexpr (Ar::reading) {
+			std::memcpy(&r_value, &bits, sizeof(r_value));
 		}
-	}
-
-	w.u32(uint32_t(int32_t(p_module.init_function)));
-	w.u32(uint32_t(int32_t(p_module.ready_function)));
-	const TablePrefix &prefix = p_module.init_tables;
-	for (uint32_t count : { prefix.types, prefix.constants, prefix.engine_calls, prefix.properties, prefix.utility_calls, prefix.operators, prefix.fields, prefix.constructors, prefix.builtin_methods, prefix.classes, prefix.method_calls }) {
-		w.u32(count);
-	}
-	w.u32(uint32_t(p_module.statics.size()));
-	for (const Member &variable : p_module.statics) {
-		write_member(w, variable);
-	}
-	w.u32(p_module.statics_size);
-	w.u32(uint32_t(int32_t(p_module.static_init_function)));
-	w.u8(p_module.static_unload ? 1 : 0);
-
-	w.u32(uint32_t(p_module.named_constants.size()));
-	for (const NamedConstant &constant : p_module.named_constants) {
-		w.str(constant.name);
-		w.u32(constant.constant);
-		w.u8(constant.is_pub ? 1 : 0);
-	}
-	w.u32(uint32_t(p_module.constants.size()));
-	for (const Constant &constant : p_module.constants) {
-		w.constant(constant);
-	}
-	w.u32(uint32_t(p_module.engine_calls.size()));
-	for (const EngineCall &call : p_module.engine_calls) {
-		w.str(call.method);
-		w.u32(call.result_type);
-		w.str(call.static_class);
-	}
-	w.u32(uint32_t(p_module.properties.size()));
-	for (const PropertyAccess &property : p_module.properties) {
-		w.str(property.name);
-		w.u32(property.type);
-	}
-	w.u32(uint32_t(p_module.utility_calls.size()));
-	for (const UtilityCall &call : p_module.utility_calls) {
-		w.str(call.function);
-		w.u32(call.hash);
-		w.u8(call.is_vararg ? 1 : 0);
-		w.types(call.params);
-		w.type(call.return_type);
-		w.u32(call.result_type);
-	}
-	w.u32(uint32_t(p_module.operators.size()));
-	for (const OperatorCall &call : p_module.operators) {
-		w.u8(call.op);
-		w.type(call.left);
-		w.type(call.right);
-		w.type(call.result);
-	}
-	w.u32(uint32_t(p_module.fields.size()));
-	for (const FieldAccess &field : p_module.fields) {
-		w.type(field.base);
-		w.str(field.name);
-		w.type(field.type);
-	}
-	w.u32(uint32_t(p_module.constructors.size()));
-	for (const ConstructorCall &call : p_module.constructors) {
-		w.type(call.type);
-		w.u32(call.index);
-		w.types(call.params);
-	}
-	w.u32(uint32_t(p_module.builtin_methods.size()));
-	for (const BuiltinMethodCall &call : p_module.builtin_methods) {
-		w.type(call.base);
-		w.str(call.method);
-		w.u32(call.hash);
-		w.u8(call.is_vararg ? 1 : 0);
-		w.u8(call.is_const ? 1 : 0);
-		w.u8(call.is_static ? 1 : 0);
-		w.u8(call.checks_elements ? 1 : 0);
-		w.types(call.params);
-		w.type(call.return_type);
-		w.u32(call.result_type);
-	}
-	w.u32(uint32_t(p_module.classes.size()));
-	for (const ClassRef &ref : p_module.classes) {
-		w.class_ref(ref);
-	}
-	w.u32(uint32_t(p_module.method_calls.size()));
-	for (const MethodCall &call : p_module.method_calls) {
-		w.str(call.method);
-		w.u32(uint32_t(call.params.size()));
-		for (const Slot &param : call.params) {
-			w.slot(param);
+	} else if constexpr (std::is_same_v<V, std::string>) {
+		r_ar.str(r_value);
+	} else if constexpr (std::is_same_v<V, ValueType> || std::is_same_v<V, TypeKind>) {
+		uint8_t raw = uint8_t(r_value);
+		r_ar.u8(raw);
+		if constexpr (Ar::reading) {
+			if (raw >= uint8_t(V::Count)) {
+				r_ar.failed = true;
+				r_value = V(0);
+			} else {
+				r_value = V(raw);
+			}
 		}
-		w.u32(call.defaults);
-		w.u8(call.is_async ? 1 : 0);
-		w.slot(call.result);
-		w.u32(uint32_t(call.static_class));
-	}
-	w.u32(uint32_t(p_module.interfaces.size()));
-	for (const std::string &id : p_module.interfaces) {
-		w.str(id);
-	}
-	w.str(p_module.name);
-	w.u8(p_module.is_pub ? 1 : 0);
-	w.u32(uint32_t(p_module.inner_classes.size()));
-	for (const Module &inner : p_module.inner_classes) {
-		write_module(w, inner);
+	} else if constexpr (std::is_same_v<V, Slot>) {
+		io(r_ar, r_value.name, r_value.type, r_value.offset);
+	} else if constexpr (std::is_same_v<V, ClassRef>) {
+		io(r_ar, r_value.name, r_value.script, r_value.interface_name);
+	} else if constexpr (std::is_same_v<V, FieldDesc>) {
+		io(r_ar, r_value.name, r_value.type);
+	} else if constexpr (std::is_same_v<V, EnumValueDesc>) {
+		io(r_ar, r_value.name, r_value.value);
+	} else if constexpr (std::is_same_v<V, TypeDesc>) {
+		io(r_ar, r_value.kind, r_value.value, r_value.element, r_value.key, r_value.object, r_value.nullable, r_value.task_result, r_value.name, r_value.fields, r_value.values);
+	} else if constexpr (std::is_same_v<V, Constant>) {
+		io(r_ar, r_value.type, r_value.b, r_value.i, r_value.f, r_value.s, r_value.builtin, r_value.constructor, r_value.op, r_value.utility, r_value.field, r_value.load, r_value.args);
+	} else if constexpr (std::is_same_v<V, Member>) {
+		io(r_ar, r_value.name, r_value.type, r_value.offset, r_value.line, r_value.is_pub, r_value.is_export, r_value.is_onready, r_value.setter, r_value.getter, r_value.hint, r_value.hint_string, r_value.usage, r_value.has_initial, r_value.initial);
+	} else if constexpr (std::is_same_v<V, SignalInfo>) {
+		io(r_ar, r_value.name, r_value.is_pub, r_value.params);
+	} else if constexpr (std::is_same_v<V, ExportGroup>) {
+		io(r_ar, r_value.name, r_value.prefix, r_value.level, r_value.before_member);
+	} else if constexpr (std::is_same_v<V, Rpc>) {
+		io(r_ar, r_value.mode, r_value.transfer_mode, r_value.call_local, r_value.channel);
+	} else if constexpr (std::is_same_v<V, Function>) {
+		io(r_ar, r_value.name, r_value.is_inherited, r_value.base_signature, r_value.params, r_value.defaults, r_value.is_async, r_value.is_static, r_value.result, r_value.is_pub, r_value.is_override, r_value.is_exposed, r_value.rpc, r_value.is_abstract, r_value.is_lambda, r_value.captures, r_value.line, r_value.frame_size, r_value.slots, r_value.code);
+	} else if constexpr (std::is_same_v<V, TablePrefix>) {
+		io(r_ar, r_value.types, r_value.constants, r_value.engine_calls, r_value.properties, r_value.utility_calls, r_value.operators, r_value.fields, r_value.constructors, r_value.builtin_methods, r_value.classes, r_value.method_calls);
+	} else if constexpr (std::is_same_v<V, NamedConstant>) {
+		io(r_ar, r_value.name, r_value.constant, r_value.is_pub);
+	} else if constexpr (std::is_same_v<V, EngineCall>) {
+		io(r_ar, r_value.method, r_value.result_type, r_value.static_class);
+	} else if constexpr (std::is_same_v<V, PropertyAccess>) {
+		io(r_ar, r_value.name, r_value.type);
+	} else if constexpr (std::is_same_v<V, UtilityCall>) {
+		io(r_ar, r_value.function, r_value.hash, r_value.is_vararg, r_value.params, r_value.return_type, r_value.result_type);
+	} else if constexpr (std::is_same_v<V, OperatorCall>) {
+		io(r_ar, r_value.op, r_value.left, r_value.right, r_value.result);
+	} else if constexpr (std::is_same_v<V, FieldAccess>) {
+		io(r_ar, r_value.base, r_value.name, r_value.type);
+	} else if constexpr (std::is_same_v<V, ConstructorCall>) {
+		io(r_ar, r_value.type, r_value.index, r_value.params);
+	} else if constexpr (std::is_same_v<V, BuiltinMethodCall>) {
+		io(r_ar, r_value.base, r_value.method, r_value.hash, r_value.is_vararg, r_value.is_const, r_value.is_static, r_value.checks_elements, r_value.params, r_value.return_type, r_value.result_type);
+	} else if constexpr (std::is_same_v<V, MethodCall>) {
+		io(r_ar, r_value.method, r_value.params, r_value.defaults, r_value.is_async, r_value.result, r_value.static_class);
+	} else if constexpr (std::is_same_v<V, Module>) {
+		if constexpr (Ar::reading) {
+			if (r_ar.depth > 64) {
+				r_ar.failed = true;
+				return;
+			}
+			r_ar.depth++;
+		}
+		io(r_ar, r_value.source_hash, r_value.declarations_only, r_value.is_abstract, r_value.global_name, r_value.base_class, r_value.base_script, r_value.inherited_members,
+				r_value.types, r_value.members, r_value.signals, r_value.groups, r_value.instance_size, r_value.functions, r_value.init_function, r_value.ready_function,
+				r_value.init_tables, r_value.statics, r_value.statics_size, r_value.static_init_function, r_value.static_unload, r_value.named_constants, r_value.constants,
+				r_value.engine_calls, r_value.properties, r_value.utility_calls, r_value.operators, r_value.fields, r_value.constructors, r_value.builtin_methods,
+				r_value.classes, r_value.method_calls, r_value.interfaces, r_value.name, r_value.is_pub, r_value.inner_classes);
+		if constexpr (Ar::reading) {
+			const int32_t functions = int32_t(r_value.functions.size());
+			if (r_value.init_function < -1 || r_value.init_function >= functions || r_value.ready_function < -1 || r_value.ready_function >= functions || r_value.static_init_function < -1 || r_value.static_init_function >= functions) {
+				r_ar.failed = true;
+			}
+			r_ar.depth--;
+		}
+	} else {
+		if constexpr (Ar::reading) {
+			r_value.resize(r_ar.count());
+		} else {
+			r_ar.u32(uint32_t(r_value.size()));
+		}
+		for (auto &item : r_value) {
+			archive(r_ar, item);
+		}
 	}
 }
 
-// False when the data runs out, which the caller reports.
-bool read_module(Reader &r, Module &module, int p_depth) {
-	if (p_depth > 64) {
-		r.failed = true;
-		return false;
-	}
-	module.source_hash = r.u64();
-	module.declarations_only = r.u8() != 0;
-	module.is_abstract = r.u8() != 0;
-	module.global_name = r.str();
-	module.base_class = r.str();
-	module.base_script = r.str();
-	module.inherited_members = r.u32();
-
-	module.types.resize(r.count());
-	for (TypeDesc &type : module.types) {
-		type = r.type_desc();
-	}
-	module.members.resize(r.count());
-	for (Member &member : module.members) {
-		read_member(r, member);
-	}
-	module.signals.resize(r.count());
-	for (SignalInfo &signal : module.signals) {
-		signal.name = r.str();
-		signal.is_pub = r.u8() != 0;
-		signal.params.resize(r.count());
-		for (Slot &param : signal.params) {
-			param = r.slot();
-		}
-	}
-	module.groups.resize(r.count());
-	for (ExportGroup &group : module.groups) {
-		group.name = r.str();
-		group.prefix = r.str();
-		group.level = r.u8();
-		group.before_member = r.u32();
-	}
-	module.instance_size = r.u32();
-
-	module.functions.resize(r.count());
-	for (Function &function : module.functions) {
-		function.name = r.str();
-		function.is_inherited = r.u8() != 0;
-		function.base_signature = r.str();
-		function.params.resize(r.count());
-		for (Slot &param : function.params) {
-			param = r.slot();
-		}
-		function.defaults.resize(r.count());
-		for (Constant &value : function.defaults) {
-			value = r.constant();
-		}
-		function.is_async = r.u8() != 0;
-		function.is_static = r.u8() != 0;
-		function.result = r.slot();
-		function.is_pub = r.u8() != 0;
-		function.is_override = r.u8() != 0;
-		function.is_exposed = r.u8() != 0;
-		function.rpc.mode = r.u8();
-		function.rpc.transfer_mode = r.u8();
-		function.rpc.call_local = r.u8() != 0;
-		function.rpc.channel = int32_t(r.u32());
-		function.is_abstract = r.u8() != 0;
-		function.is_lambda = r.u8() != 0;
-		function.captures = r.u32();
-		function.line = r.u32();
-		function.frame_size = r.u32();
-		function.slots.resize(r.count());
-		for (Slot &slot : function.slots) {
-			slot = r.slot();
-		}
-		function.code.resize(r.count());
-		for (uint32_t &word : function.code) {
-			word = r.u32();
-		}
-	}
-
-	module.init_function = int32_t(r.u32());
-	module.ready_function = int32_t(r.u32());
-	if (module.init_function < -1 || module.init_function >= int32_t(module.functions.size()) || module.ready_function < -1 || module.ready_function >= int32_t(module.functions.size())) {
-		r.failed = true;
-	}
-	TablePrefix &prefix = module.init_tables;
-	for (uint32_t *count : { &prefix.types, &prefix.constants, &prefix.engine_calls, &prefix.properties, &prefix.utility_calls, &prefix.operators, &prefix.fields, &prefix.constructors, &prefix.builtin_methods, &prefix.classes, &prefix.method_calls }) {
-		*count = r.u32();
-	}
-	module.statics.resize(r.count());
-	for (Member &variable : module.statics) {
-		read_member(r, variable);
-	}
-	module.statics_size = r.u32();
-	module.static_init_function = int32_t(r.u32());
-	if (module.static_init_function < -1 || module.static_init_function >= int32_t(module.functions.size())) {
-		r.failed = true;
-	}
-	module.static_unload = r.u8() != 0;
-
-	module.named_constants.resize(r.count());
-	for (NamedConstant &constant : module.named_constants) {
-		constant.name = r.str();
-		constant.constant = r.u32();
-		constant.is_pub = r.u8() != 0;
-	}
-	module.constants.resize(r.count());
-	for (Constant &constant : module.constants) {
-		constant = r.constant();
-	}
-	module.engine_calls.resize(r.count());
-	for (EngineCall &call : module.engine_calls) {
-		call.method = r.str();
-		call.result_type = r.u32();
-		call.static_class = r.str();
-	}
-	module.properties.resize(r.count());
-	for (PropertyAccess &property : module.properties) {
-		property.name = r.str();
-		property.type = r.u32();
-	}
-	module.utility_calls.resize(r.count());
-	for (UtilityCall &call : module.utility_calls) {
-		call.function = r.str();
-		call.hash = r.u32();
-		call.is_vararg = r.u8() != 0;
-		call.params = r.types();
-		call.return_type = r.type();
-		call.result_type = r.u32();
-	}
-	module.operators.resize(r.count());
-	for (OperatorCall &call : module.operators) {
-		call.op = r.u8();
-		call.left = r.type();
-		call.right = r.type();
-		call.result = r.type();
-	}
-	module.fields.resize(r.count());
-	for (FieldAccess &field : module.fields) {
-		field.base = r.type();
-		field.name = r.str();
-		field.type = r.type();
-	}
-	module.constructors.resize(r.count());
-	for (ConstructorCall &call : module.constructors) {
-		call.type = r.type();
-		call.index = r.u32();
-		call.params = r.types();
-	}
-	module.builtin_methods.resize(r.count());
-	for (BuiltinMethodCall &call : module.builtin_methods) {
-		call.base = r.type();
-		call.method = r.str();
-		call.hash = r.u32();
-		call.is_vararg = r.u8() != 0;
-		call.is_const = r.u8() != 0;
-		call.is_static = r.u8() != 0;
-		call.checks_elements = r.u8() != 0;
-		call.params = r.types();
-		call.return_type = r.type();
-		call.result_type = r.u32();
-	}
-	module.classes.resize(r.count());
-	for (ClassRef &ref : module.classes) {
-		ref = r.class_ref();
-	}
-	module.method_calls.resize(r.count());
-	for (MethodCall &call : module.method_calls) {
-		call.method = r.str();
-		call.params.resize(r.count());
-		for (Slot &param : call.params) {
-			param = r.slot();
-		}
-		call.defaults = r.u32();
-		call.is_async = r.u8() != 0;
-		call.result = r.slot();
-		call.static_class = int32_t(r.u32());
-	}
-	module.interfaces.resize(r.count());
-	for (std::string &id : module.interfaces) {
-		id = r.str();
-	}
-	module.name = r.str();
-	module.is_pub = r.u8() != 0;
-	module.inner_classes.resize(r.count());
-	for (Module &inner : module.inner_classes) {
-		if (!read_module(r, inner, p_depth + 1)) {
-			return false;
-		}
-	}
-	return !r.failed;
+template <typename Ar, typename... Ts>
+void io(Ar &r_ar, Ts &...r_fields) {
+	(archive(r_ar, r_fields), ...);
 }
 
 } // namespace
@@ -894,24 +508,25 @@ std::vector<uint8_t> serialize(const Module &p_module) {
 		w.u8(byte);
 	}
 	w.u64(FORMAT_ID);
-	write_module(w, p_module);
+	archive(w, p_module);
 	return w.data;
 }
 
 bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::string &r_error) {
 	Reader r(p_data, p_size);
 	for (uint8_t byte : MAGIC) {
-		if (r.u8() != byte) {
+		if (r.get_u8() != byte) {
 			r_error = "not a compiled Petrichor script";
 			return false;
 		}
 	}
-	if (r.u64() != FORMAT_ID) {
+	if (r.get_u64() != FORMAT_ID) {
 		r_error = "compiled by a build of Petrichor with another bytecode format";
 		return false;
 	}
 	Module module;
-	if (!read_module(r, module, 0)) {
+	archive(r, module);
+	if (r.failed) {
 		r_error = "truncated or corrupt compiled script";
 		return false;
 	}

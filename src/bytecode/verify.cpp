@@ -328,14 +328,6 @@ class Verifier {
 		return (p_pc < starts.size() && starts[p_pc]) || fail("jump to " + std::to_string(p_pc) + ", which is not an instruction");
 	}
 
-	bool same(uint32_t p_a, uint32_t p_b, ValueType p_type) {
-		return slot(p_a, p_type) && slot(p_b, p_type);
-	}
-
-	bool three(const uint32_t *p_operands, ValueType p_result, ValueType p_operand) {
-		return slot(p_operands[0], p_result) && same(p_operands[1], p_operands[2], p_operand);
-	}
-
 	/* Calls: target, dst, base, argc, then (type, offset) pairs */
 
 	// Every argument names a slot of the type it states.
@@ -539,18 +531,10 @@ class Verifier {
 
 	// Whether the instruction needs the instance: members, or self as its base.
 	bool uses_instance(Op p_op, const uint32_t *o) const {
+		if (op_verify_schema(p_op)[0] == '@') {
+			return true;
+		}
 		switch (p_op) {
-			case Op::LOAD_MEMBER_8:
-			case Op::LOAD_MEMBER_STRING:
-			case Op::LOAD_MEMBER_VALUE:
-			case Op::STORE_MEMBER_8:
-			case Op::STORE_MEMBER_STRING:
-			case Op::STORE_MEMBER_VALUE:
-			case Op::CHECK_ASSIGNED:
-			case Op::METHOD_VALUE:
-			case Op::GET_OWNER:
-			case Op::GET_SELF:
-				return true;
 			case Op::GET_PROPERTY:
 			case Op::GET_SIGNAL:
 				return o[2] == NO_SLOT;
@@ -567,131 +551,133 @@ class Verifier {
 		}
 	}
 
+	bool check_schema(Op p_op, const uint32_t *o) {
+		const char *s = op_verify_schema(p_op);
+		if (*s == '@') {
+			s++;
+		}
+		for (size_t i = 0; s[i]; i++) {
+			bool ok = true;
+			switch (s[i]) {
+				case 'i':
+					ok = slot(o[i], ValueType::Int);
+					break;
+				case 'f':
+					ok = slot(o[i], ValueType::Float);
+					break;
+				case 'b':
+					ok = slot(o[i], ValueType::Bool);
+					break;
+				case 's':
+					ok = slot(o[i], ValueType::String);
+					break;
+				case 'S':
+					ok = slot_or_none(o[i], ValueType::String);
+					break;
+				case 'o':
+					ok = slot(o[i], ValueType::Object);
+					break;
+				case 'O':
+					ok = slot_or_none(o[i], ValueType::Object);
+					break;
+				case 'v':
+					ok = slot(o[i], ValueType::Variant);
+					break;
+				case 'c':
+					ok = slot(o[i], ValueType::Callable);
+					break;
+				case 'g':
+					ok = slot(o[i], ValueType::Signal);
+					break;
+				case 'n':
+					ok = member(o[i], ValueType::String);
+					break;
+				case 't':
+					ok = type_operand(o[i]);
+					break;
+				case 'l':
+					ok = slot_like(o[i], o[0]);
+					break;
+				case 'm':
+					ok = member_like(o[i], o[0]);
+					break;
+				case 'k':
+					ok = constant_like(o[i], o[0]);
+					break;
+				case 'C':
+					ok = index(o[i], module.classes.size(), "class");
+					break;
+				case 'M':
+					ok = index(o[i], module.members.size(), "member");
+					break;
+				case 'F':
+					ok = index(o[i], module.functions.size(), "function");
+					break;
+				case 'P':
+					ok = index(o[i], module.properties.size(), "property");
+					break;
+				case 'E':
+					ok = index(o[i], module.fields.size(), "field");
+					break;
+				case 'R':
+					ok = index(o[i], module.operators.size(), "operator");
+					break;
+				case 'j':
+					ok = target(o[i]);
+					break;
+			}
+			if (!ok) {
+				return false;
+			}
+		}
+		return true;
+	}
+
 	bool instruction(Op p_op, const uint32_t *o) {
 		// A static function runs without an instance (spec §4.8).
 		if (function->is_static && uses_instance(p_op, o)) {
 			return fail("a static function uses the instance");
 		}
+		if (!check_schema(p_op, o)) {
+			return false;
+		}
+		if (operand_count(p_op) < 0) {
+			return call(p_op, o);
+		}
 		switch (p_op) {
-			case Op::LINE:
-				return true;
 			case Op::CONST_INT:
-				return slot(o[0], ValueType::Int) && constant(o[1], ValueType::Int);
+				return constant(o[1], ValueType::Int);
 			case Op::CONST_FLOAT:
-				return slot(o[0], ValueType::Float) && constant(o[1], ValueType::Float);
+				return constant(o[1], ValueType::Float);
 			case Op::CONST_BOOL:
-				// A bool slot holds 0 or 1 in all 8 bytes.
-				return slot(o[0], ValueType::Bool) && (o[1] <= 1 || fail("a bool other than 0 and 1"));
+				return o[1] <= 1 || fail("a bool other than 0 and 1");
 			case Op::CONST_STRING:
-				return slot(o[0], ValueType::String) && constant(o[1], ValueType::String);
+				return constant(o[1], ValueType::String);
 			case Op::CONST_VALUE: {
-				if (!type_operand(o[0])) {
-					return false;
-				}
 				const ValueType value_type = storage(o[0]);
-				if (value_type == ValueType::Bool || value_type == ValueType::Int || value_type == ValueType::Float || value_type == ValueType::String) {
-					return fail("a constant of a type that has an instruction of its own");
-				}
-				return slot_like(o[1], o[0]) && constant_like(o[2], o[0]);
+				return (value_type != ValueType::Bool && value_type != ValueType::Int && value_type != ValueType::Float && value_type != ValueType::String) || fail("a constant of a type that has an instruction of its own");
 			}
 			case Op::MOVE_8:
 				return same_8_byte(frame, o[0], frame, o[1], "an 8-byte move of another type");
-			case Op::MOVE_STRING:
-				return same(o[0], o[1], ValueType::String);
-			case Op::MOVE_VALUE:
-				return type_operand(o[0]) && slot_like(o[1], o[0]) && slot_like(o[2], o[0]);
 			case Op::LOAD_MEMBER_8:
 				return same_8_byte(frame, o[0], instance, o[1], "an 8-byte load of a member of another type");
-			case Op::LOAD_MEMBER_STRING:
-				return slot(o[0], ValueType::String) && member(o[1], ValueType::String);
-			case Op::LOAD_MEMBER_VALUE:
-				return type_operand(o[0]) && slot_like(o[1], o[0]) && member_like(o[2], o[0]);
 			case Op::STORE_MEMBER_8:
 				return same_8_byte(instance, o[0], frame, o[1], "an 8-byte store into a member of another type");
-			case Op::STORE_MEMBER_STRING:
-				return member(o[0], ValueType::String) && slot(o[1], ValueType::String);
-			case Op::STORE_MEMBER_VALUE:
-				return type_operand(o[0]) && member_like(o[1], o[0]) && slot_like(o[2], o[0]);
 			case Op::LOAD_STATIC:
-				return type_operand(o[0]) && slot_like(o[1], o[0]) && static_variable(o[2], o[3], o[0]);
+				return static_variable(o[2], o[3], o[0]);
 			case Op::STORE_STATIC:
-				return type_operand(o[0]) && static_variable(o[1], o[2], o[0]) && slot_like(o[3], o[0]);
+				return static_variable(o[1], o[2], o[0]);
 			case Op::INIT_STATIC:
-				if (int32_t(function - module.functions.data()) != module.static_init_function) {
-					return fail("INIT_STATIC outside the static initializer");
-				}
-				return type_operand(o[0]) && static_variable(NO_SLOT, o[1], o[0]) && slot_like(o[2], o[0]);
-			case Op::INT_TO_FLOAT:
-				return slot(o[0], ValueType::Float) && slot(o[1], ValueType::Int);
-			case Op::FLOAT_TO_INT:
-				return slot(o[0], ValueType::Int) && slot(o[1], ValueType::Float);
-			case Op::ADD_INT:
-			case Op::SUB_INT:
-			case Op::MUL_INT:
-			case Op::DIV_INT:
-			case Op::MOD_INT:
-			case Op::AND_INT:
-			case Op::OR_INT:
-			case Op::XOR_INT:
-			case Op::SHL_INT:
-			case Op::SHR_INT:
-			case Op::POW_INT:
-				return three(o, ValueType::Int, ValueType::Int);
-			case Op::NEG_INT:
-			case Op::NOT_INT:
-				return same(o[0], o[1], ValueType::Int);
-			case Op::ADD_FLOAT:
-			case Op::SUB_FLOAT:
-			case Op::MUL_FLOAT:
-			case Op::DIV_FLOAT:
-			case Op::POW_FLOAT:
-				return three(o, ValueType::Float, ValueType::Float);
-			case Op::NEG_FLOAT:
-				return same(o[0], o[1], ValueType::Float);
-			case Op::ADD_STRING:
-				return three(o, ValueType::String, ValueType::String);
-			case Op::FORMAT:
-				return slot(o[0], ValueType::String) && slot(o[1], ValueType::String) && slot(o[2], ValueType::Variant);
-			case Op::EQ_INT:
-			case Op::NE_INT:
-			case Op::LT_INT:
-			case Op::LE_INT:
-			case Op::GT_INT:
-			case Op::GE_INT:
-				return three(o, ValueType::Bool, ValueType::Int);
-			case Op::EQ_FLOAT:
-			case Op::NE_FLOAT:
-			case Op::LT_FLOAT:
-			case Op::LE_FLOAT:
-			case Op::GT_FLOAT:
-			case Op::GE_FLOAT:
-				return three(o, ValueType::Bool, ValueType::Float);
-			case Op::EQ_BOOL:
-			case Op::NE_BOOL:
-				return three(o, ValueType::Bool, ValueType::Bool);
-			case Op::EQ_STRING:
-			case Op::NE_STRING:
-				return three(o, ValueType::Bool, ValueType::String);
-			case Op::NOT:
-				return same(o[0], o[1], ValueType::Bool);
+				return (int32_t(function - module.functions.data()) == module.static_init_function || fail("INIT_STATIC outside the static initializer")) && static_variable(NO_SLOT, o[1], o[0]);
 			case Op::EVALUATE: {
-				if (!index(o[0], module.operators.size(), "operator")) {
-					return false;
-				}
 				const OperatorCall &op = module.operators[o[0]];
 				if (op.op >= OPERATOR_COUNT || !is_native(op.left) || !is_native(op.result) || (op.right != ValueType::Void && !is_native(op.right))) {
 					return fail("an operator outside the engine's table");
 				}
-				if (!slot(o[1], op.result) || !slot(o[2], op.left)) {
-					return false;
-				}
-				return op.right == ValueType::Void ? (o[3] == NO_SLOT || fail("a unary operator has a right operand")) : slot(o[3], op.right);
+				return slot(o[1], op.result) && slot(o[2], op.left) && (op.right == ValueType::Void ? (o[3] == NO_SLOT || fail("a unary operator has a right operand")) : slot(o[3], op.right));
 			}
 			case Op::GET_FIELD:
 			case Op::SET_FIELD: {
-				if (!index(o[0], module.fields.size(), "field")) {
-					return false;
-				}
 				const FieldAccess &field = module.fields[o[0]];
 				if (!is_native(field.base) || !is_native(field.type)) {
 					return fail("a field outside the built-in types");
@@ -700,34 +686,23 @@ class Verifier {
 			}
 			case Op::GET_PROPERTY:
 			case Op::SET_PROPERTY: {
-				if (!index(o[0], module.properties.size(), "property")) {
-					return false;
-				}
 				const uint32_t property = module.properties[o[0]].type;
 				if (is_void(property)) {
 					return fail("a property without a type");
 				}
 				return p_op == Op::GET_PROPERTY ? slot_like(o[1], property) && slot_or_none(o[2], ValueType::Object) : slot_or_none(o[1], ValueType::Object) && slot_like(o[2], property);
 			}
-			case Op::HAS_MEMBER:
-				return slot(o[0], ValueType::Bool) && slot(o[1], ValueType::Object) && slot(o[2], ValueType::String);
 			case Op::CHECK_ENUM:
-				return type_operand(o[0]) && (module.types[o[0]].kind == TypeKind::Enum || fail("CHECK_ENUM of no enum")) && slot(o[1], ValueType::Int);
+				return module.types[o[0]].kind == TypeKind::Enum || fail("CHECK_ENUM of no enum");
 			case Op::NEW_OBJECT:
-				return index(o[0], module.classes.size(), "class") && (module.classes[o[0]].interface_name.empty() || fail("new() of an interface")) && slot(o[1], ValueType::Object);
+				return module.classes[o[0]].interface_name.empty() || fail("new() of an interface");
 			case Op::NEW_WITHOUT_INIT:
-				// The next instruction, which a program error in the initializers
-				// skips.
-				return index(o[0], module.classes.size(), "class") && (!module.classes[o[0]].script.empty() || fail("_init() of an engine class")) && (module.classes[o[0]].interface_name.empty() || fail("new() of an interface")) && slot(o[1], ValueType::Object) &&
+				return (!module.classes[o[0]].script.empty() || fail("_init() of an engine class")) && (module.classes[o[0]].interface_name.empty() || fail("new() of an interface")) &&
 						((function->code.size() >= at + 8 && Op(o[2]) == Op::CALL_METHOD && o[3] < module.method_calls.size() && module.method_calls[o[3]].method == "_init" && o[5] == o[1]) || fail("NEW_WITHOUT_INIT not followed by its _init()"));
 			case Op::GET_SCRIPT:
-				return index(o[0], module.classes.size(), "class") && (!module.classes[o[0]].script.empty() || fail("the script of an engine class")) && slot(o[1], ValueType::Object);
-			case Op::GET_OWNER:
-			case Op::GET_SINGLETON:
-			case Op::CHECK_OBJECT:
-				return index(o[0], module.classes.size(), "class") && slot(o[1], ValueType::Object);
+				return !module.classes[o[0]].script.empty() || fail("the script of an engine class");
 			case Op::NEW_CONTAINER:
-				return type_operand(o[0]) && (storage(o[0]) == ValueType::Array || storage(o[0]) == ValueType::Dictionary || fail("a container of a type that is not one")) && slot(o[1], storage(o[0]));
+				return (storage(o[0]) == ValueType::Array || storage(o[0]) == ValueType::Dictionary || fail("a container of a type that is not one")) && slot(o[1], storage(o[0]));
 			case Op::GET_INDEX:
 				if (o[0] >= module.types.size() || !is_indexable(storage(o[0])) || !type_operand(o[1])) {
 					return fail("an index into a value that has none");
@@ -747,102 +722,45 @@ class Verifier {
 				const ValueType element = packed_element(storage(o[0]));
 				return slot(o[3], element == ValueType::Void ? ValueType::Variant : element);
 			}
-			case Op::CAST_OBJECT:
-				return index(o[0], module.classes.size(), "class") && same(o[1], o[2], ValueType::Object);
-			case Op::IS_INSTANCE:
-				return index(o[0], module.classes.size(), "class") && slot(o[1], ValueType::Bool) && slot(o[2], ValueType::Object);
 			case Op::IS_NONE:
-				if (!type_operand(o[0]) || !(is_option(o[0]) || storage(o[0]) == ValueType::Object || storage(o[0]) == ValueType::Variant)) {
-					return fail("None is only tested on objects and options");
-				}
-				return slot(o[1], ValueType::Bool) && slot_like(o[2], o[0]);
+				return is_option(o[0]) || storage(o[0]) == ValueType::Object || storage(o[0]) == ValueType::Variant || fail("None is only tested on objects and options");
 			case Op::SOME:
-				if (!is_option(o[0])) {
-					return fail("Some of a type that is not T?");
-				}
-				return slot_like(o[1], o[0]) && slot_like(o[2], module.types[o[0]].element);
-			case Op::EQUAL:
-				return type_operand(o[0]) && slot(o[1], ValueType::Bool) && slot_like(o[2], o[0]) && slot_like(o[3], o[0]);
+				return (is_option(o[0]) || fail("Some of a type that is not T?")) && slot_like(o[2], module.types[o[0]].element);
 			case Op::LESS:
-				return (is_boxed(o[0]) || fail("LESS of a type that the engine orders")) && slot(o[1], ValueType::Bool) && slot_like(o[2], o[0]) && slot_like(o[3], o[0]);
-			case Op::CHECK_ASSIGNED:
-				return index(o[0], module.members.size(), "member") && slot(o[1], ValueType::Object);
-			case Op::CHECK_LIVE:
-			case Op::GET_SELF:
-				return slot(o[0], ValueType::Object);
-			case Op::DEBUG_BUILD:
-				return slot(o[0], ValueType::Bool);
-			case Op::ASSERT_FAIL:
-				return slot_or_none(o[0], ValueType::String);
+				return is_boxed(o[0]) || fail("LESS of a type that the engine orders");
 			case Op::CHECK_RANGE:
-				return (o[0] < uint32_t(IntRange::COUNT) || fail("no integer range")) && slot(o[1], ValueType::Int);
+				return o[0] < uint32_t(IntRange::COUNT) || fail("no integer range");
 			case Op::GET_AUTOLOAD:
-				if (!index(o[0], module.constants.size(), "constant") || storage(module.constants[o[0]].type) != ValueType::StringName) {
-					return fail("an autoload without a name");
-				}
-				return slot(o[1], ValueType::Object);
-			case Op::METHOD_VALUE:
-				return index(o[0], module.functions.size(), "function") && slot(o[1], ValueType::Callable);
 			case Op::GET_SIGNAL:
-				if (!index(o[0], module.constants.size(), "constant") || storage(module.constants[o[0]].type) != ValueType::StringName) {
-					return fail("a signal without a name");
-				}
-				return slot(o[1], ValueType::Signal) && slot_or_none(o[2], ValueType::Object);
+				return index(o[0], module.constants.size(), "constant") && (storage(module.constants[o[0]].type) == ValueType::StringName || fail(p_op == Op::GET_AUTOLOAD ? "an autoload without a name" : "a signal without a name"));
 			case Op::TO_VARIANT:
-				return (o[0] < module.types.size() && (is_option(o[0]) || is_struct(o[0]) || is_element(storage(o[0]))) || fail("no value type")) && slot(o[1], ValueType::Variant) && slot_like(o[2], o[0]);
 			case Op::FROM_VARIANT:
-				return (o[0] < module.types.size() && (is_option(o[0]) || is_struct(o[0]) || is_element(storage(o[0]))) || fail("no value type")) && slot_like(o[1], o[0]) && slot(o[2], ValueType::Variant);
+				return is_option(o[0]) || is_struct(o[0]) || is_element(storage(o[0])) || fail("no value type");
 			case Op::IS_TYPE:
 			case Op::CONSTRUCT_FROM:
-				if (o[0] >= module.types.size() || is_option(o[0]) || is_struct(o[0]) || !is_native(storage(o[0]))) {
-					return fail("no built-in type");
-				}
-				return (p_op == Op::IS_TYPE ? slot(o[1], ValueType::Bool) : slot_like(o[1], o[0])) && slot(o[2], ValueType::Variant);
-			case Op::VARIANT_OBJECT:
-				return slot(o[0], ValueType::Object) && slot(o[1], ValueType::Variant);
+				return (o[0] < module.types.size() && !is_option(o[0]) && !is_struct(o[0]) && is_native(storage(o[0]))) || fail("no built-in type");
 			case Op::SAME_OBJECT:
-				return (o[0] <= 3 || fail("SAME_OBJECT of sides beyond two")) && slot(o[1], ValueType::Bool) && same(o[2], o[3], ValueType::Object);
-			case Op::VARIANT_EQUAL:
-			case Op::MATCHES:
-				return slot(o[0], ValueType::Bool) && same(o[1], o[2], ValueType::Variant);
+				return o[0] <= 3 || fail("SAME_OBJECT of sides beyond two");
 			case Op::BOX:
-				return (is_boxed(o[0]) || fail("a box of a type that is not boxed")) && slot(o[1], ValueType::Variant) && slot_like(o[2], o[0]) && (o[3] <= 1 || fail("BOX takes 0 or 1"));
+				return (is_boxed(o[0]) || fail("a box of a type that is not boxed")) && (o[3] <= 1 || fail("BOX takes 0 or 1"));
 			case Op::ENCODE:
-				if (!is_boxed(o[0]) || (storage(o[0]) != ValueType::Array && storage(o[0]) != ValueType::Dictionary)) {
-					return fail("encoding what is not a container of boxes");
-				}
-				return slot(o[1], storage(o[0])) && slot_like(o[2], o[0]);
+				return (is_boxed(o[0]) && (storage(o[0]) == ValueType::Array || storage(o[0]) == ValueType::Dictionary) || fail("encoding what is not a container of boxes")) && slot(o[1], storage(o[0]));
 			case Op::UNWRAP: {
-				// An object's T? is an Object slot like T's; that of another type is laid out as T? is.
-				if (!type_operand(o[0]) || storage(o[0]) == ValueType::Variant) {
+				if (storage(o[0]) == ValueType::Variant) {
 					return fail("no type to unwrap to");
-				}
-				if (!slot_like(o[1], o[0]) || !slot_or_none(o[3], ValueType::String)) {
-					return false;
 				}
 				if (storage(o[0]) == ValueType::Object && !is_option(o[0])) {
 					return slot(o[2], ValueType::Object);
 				}
 				return any(frame, o[2], [&](uint32_t p_source) { return is_option(p_source) && same_layout(module.types[p_source].element, o[0]); }) || fail("unwrapping what is not T?");
 			}
-			case Op::JUMP:
-				return target(o[0]);
-			case Op::JUMP_IF_FALSE:
-			case Op::JUMP_IF_TRUE:
-				return slot(o[0], ValueType::Bool) && target(o[1]);
-			case Op::TASK_CANCEL:
-				return slot(o[0], ValueType::Object);
 			case Op::AWAIT_TASK:
 			case Op::AWAIT_SIGNAL:
-				return (function->is_async || fail("await in a synchronous function")) && slot(o[1], p_op == Op::AWAIT_TASK ? ValueType::Object : ValueType::Signal) && (o[0] == NO_SLOT || frame.count(o[0]) || fail("unknown await result slot")) && (p_op == Op::AWAIT_SIGNAL || o[2] <= 1 || fail("invalid await ownership"));
+				return (function->is_async || fail("await in a synchronous function")) && (o[0] == NO_SLOT || frame.count(o[0]) || fail("unknown await result slot")) && (p_op == Op::AWAIT_SIGNAL || o[2] <= 1 || fail("invalid await ownership"));
 			case Op::RETURN:
 				return (!is_void(function->result.type) || fail("a void function returns a value")) && slot_like(o[0], function->result.type);
-			case Op::RETURN_VOID:
-				// Also at the unreachable end of a function with a return type;
-				// the caller's slot then keeps its default value.
-				return true;
 			default:
-				return call(p_op, o);
+				return true;
 		}
 	}
 

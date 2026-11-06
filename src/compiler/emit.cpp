@@ -69,176 +69,36 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 				}
 				continue;
 			}
-			switch (instr.op) {
-				case Op::TASK_CANCEL:
-					put(offset_of(instr.a));
-					break;
-				case Op::AWAIT_TASK:
-				case Op::AWAIT_SIGNAL:
-					put(offset_of(instr.dst));
-					put(offset_of(instr.a));
-					if (instr.op == Op::AWAIT_TASK) {
-						put(instr.imm);
-					}
-					break;
-				case Op::LINE:
-					put(instr.imm);
-					break;
-				case Op::CONST_INT:
-				case Op::CONST_FLOAT:
-				case Op::CONST_BOOL:
-				case Op::CONST_STRING:
-					put(offset_of(instr.dst));
-					put(instr.imm);
-					break;
-				case Op::CONST_VALUE:
-					put(uint32_t(instr.type));
-					put(offset_of(instr.dst));
-					put(instr.imm);
-					break;
-				case Op::MOVE_VALUE:
-					put(uint32_t(instr.type));
-					put(offset_of(instr.dst));
-					put(offset_of(instr.a));
-					break;
-				case Op::LOAD_MEMBER_8:
-				case Op::LOAD_MEMBER_STRING:
-					put(offset_of(instr.dst));
-					put(member_offset(instr));
-					break;
-				case Op::LOAD_MEMBER_VALUE:
-					put(uint32_t(instr.type));
-					put(offset_of(instr.dst));
-					put(member_offset(instr));
-					break;
-				case Op::STORE_MEMBER_8:
-				case Op::STORE_MEMBER_STRING:
-					put(member_offset(instr));
-					put(offset_of(instr.a));
-					break;
-				case Op::STORE_MEMBER_VALUE:
-					put(uint32_t(instr.type));
-					put(member_offset(instr));
-					put(offset_of(instr.a));
-					break;
-				case Op::LOAD_STATIC:
-					put(uint32_t(instr.type));
-					put(offset_of(instr.dst));
-					put(instr.field);
-					put(instr.imm);
-					break;
-				case Op::STORE_STATIC:
-					put(uint32_t(instr.type));
-					put(instr.field);
-					put(instr.imm);
-					put(offset_of(instr.a));
-					break;
-				case Op::INIT_STATIC:
-					put(uint32_t(instr.type));
-					put(instr.imm);
-					put(offset_of(instr.a));
-					break;
-				case Op::EVALUATE:
-				case Op::SAME_OBJECT:
-					put(instr.imm);
-					put(offset_of(instr.dst));
-					put(offset_of(instr.a));
-					put(offset_of(instr.b));
-					break;
-				case Op::GET_FIELD:
-				case Op::GET_PROPERTY:
-					put(instr.imm);
-					put(offset_of(instr.dst));
-					put(offset_of(instr.a));
-					break;
-				case Op::SET_FIELD:
-				case Op::SET_PROPERTY:
-					put(instr.imm);
-					put(offset_of(instr.a));
-					put(offset_of(instr.b));
-					break;
-				case Op::NEW_OBJECT:
-				case Op::NEW_WITHOUT_INIT:
-				case Op::GET_SCRIPT:
-				case Op::GET_OWNER:
-				case Op::GET_SINGLETON:
-				case Op::GET_AUTOLOAD:
-				case Op::METHOD_VALUE:
-					put(instr.imm);
-					put(offset_of(instr.dst));
-					break;
-				case Op::CHECK_OBJECT:
-				case Op::CHECK_ASSIGNED:
-				case Op::CHECK_RANGE:
-				case Op::CHECK_ENUM:
-					put(instr.imm);
-					put(offset_of(instr.a));
-					break;
-				case Op::CHECK_LIVE:
-				case Op::ASSERT_FAIL:
-					put(offset_of(instr.a));
-					break;
-				case Op::GET_SELF:
-				case Op::DEBUG_BUILD:
-					put(offset_of(instr.dst));
-					break;
-				case Op::CAST_OBJECT:
-				case Op::IS_INSTANCE:
-				case Op::GET_SIGNAL:
-					put(instr.imm);
-					put(offset_of(instr.dst));
-					put(offset_of(instr.a));
-					break;
-				case Op::NEW_CONTAINER:
-					put(instr.type);
-					put(offset_of(instr.dst));
-					break;
-				case Op::SET_INDEX:
-					put(p_function.regs[instr.dst].type);
-					put(offset_of(instr.dst));
-					put(offset_of(instr.a));
-					put(offset_of(instr.b));
-					break;
-				case Op::GET_INDEX:
-					put(p_function.regs[instr.a].type);
-					put(p_function.regs[instr.dst].type);
-					put(offset_of(instr.dst));
-					put(offset_of(instr.a));
-					put(offset_of(instr.b));
-					break;
-				case Op::TO_VARIANT:
-				case Op::FROM_VARIANT:
-				case Op::IS_TYPE:
-				case Op::CONSTRUCT_FROM:
-				case Op::ENCODE:
-				case Op::IS_NONE:
-				case Op::SOME:
-					put(instr.type);
-					put(offset_of(instr.dst));
-					put(offset_of(instr.a));
-					break;
-				case Op::BOX:
-					put(instr.type);
-					put(offset_of(instr.dst));
-					put(offset_of(instr.a));
-					put(instr.imm);
-					break;
-				case Op::UNWRAP:
-				case Op::EQUAL:
-				case Op::LESS:
-					put(uint32_t(instr.type));
-					put(offset_of(instr.dst));
-					put(offset_of(instr.a));
-					put(offset_of(instr.b));
-					break;
-				default:
-					// dst, a and, for binary instructions, b.
-					put(offset_of(instr.dst));
-					put(offset_of(instr.a));
-					if (bytecode::operand_count(instr.op) == 3) {
+			for (const char *s = bytecode::op_emit_schema(instr.op); *s; s++) {
+				switch (*s) {
+					case 'D':
+						put(offset_of(instr.dst));
+						break;
+					case 'A':
+						put(offset_of(instr.a));
+						break;
+					case 'B':
 						put(offset_of(instr.b));
-					}
-					break;
+						break;
+					case 'I':
+						put(instr.imm);
+						break;
+					case 'T':
+						put(instr.type);
+						break;
+					case 'F':
+						put(instr.field);
+						break;
+					case 'M':
+						put(member_offset(instr));
+						break;
+					case 'R':
+						put(p_function.regs[instr.dst].type);
+						break;
+					case 'S':
+						put(p_function.regs[instr.a].type);
+						break;
+				}
 			}
 		}
 
