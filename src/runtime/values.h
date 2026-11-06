@@ -246,6 +246,7 @@ godot::String describe_value(const godot::Variant &p_value);
 bool is_exactly(const TypeImage &p_type, const godot::Variant &p_value);
 
 using bytecode::ElementRole;
+using bytecode::MAX_VALUE_SIZE;
 // Why the value, in the role, does not fit the types the container has, as
 // it would be assigned there; empty when it fits.
 godot::String untyped_misfit(const godot::Variant &p_container, ElementRole p_role, const godot::Variant &p_value);

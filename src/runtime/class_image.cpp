@@ -359,7 +359,7 @@ static bool construct_constant(const ClassImage &p_image, const bytecode::Consta
 	}
 	if (ok) {
 		// The engine constructs into memory that holds no value.
-		alignas(16) uint8_t result[64];
+		alignas(16) uint8_t result[MAX_VALUE_SIZE];
 		constructor(result, pointers.data());
 		r_value = to_variant(type, result);
 		destroy_value(type, result);

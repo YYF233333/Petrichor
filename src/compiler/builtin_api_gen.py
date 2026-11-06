@@ -256,5 +256,5 @@ def generate_value_types(api_path, out_path):
                 size = 8 if raw == "bool" else (16 if raw == "Object" else sizes[cfg][raw])
                 elem = packed.get(raw, "Void")
                 out.write(f'\t{{ {_c_string(name)}, {size}, ValueType::{elem} }},\n')
-            out.write("};\n")
+            out.write(f"}};\nstatic_assert(MAX_VALUE_SIZE == {max(sizes[cfg].values())}, \"MAX_VALUE_SIZE matches largest built-in type\");\n")
         out.write("#endif\n\n} // namespace petrichor::bytecode\n")

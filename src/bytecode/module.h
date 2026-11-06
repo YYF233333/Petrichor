@@ -66,6 +66,11 @@ enum class ValueType : uint8_t {
 // The bytes a slot of the type takes in a frame or an instance, for 64-bit
 // targets with single-precision `real_t` (the engine's float_64 sizes). Slots
 // are 8-byte aligned.
+#ifdef REAL_T_IS_DOUBLE
+constexpr uint32_t MAX_VALUE_SIZE = 128;
+#else
+constexpr uint32_t MAX_VALUE_SIZE = 64;
+#endif
 uint32_t value_size(ValueType p_type);
 uint32_t slot_size(ValueType p_type);
 const char *value_type_name(ValueType p_type);

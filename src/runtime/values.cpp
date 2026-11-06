@@ -362,7 +362,7 @@ void init_values() {
 		entry.from_variant = gdextension_interface::get_variant_to_type_constructor(engine_type);
 		entry.equal = gdextension_interface::variant_get_ptr_operator_evaluator(GDEXTENSION_VARIANT_OP_EQUAL, engine_type, engine_type);
 		// Asked of the engine rather than listed: Basis and Color, say, are not zero.
-		alignas(16) uint8_t probe[64] = {};
+		alignas(16) uint8_t probe[MAX_VALUE_SIZE] = {};
 		entry.construct(probe, nullptr);
 		for (uint32_t b = 0; b < entry.size; b++) {
 			entry.zero_default = entry.zero_default && probe[b] == 0;
@@ -1387,7 +1387,7 @@ Variant default_variant(ValueType p_type) {
 	if (is_variant_slot(p_type) || p_type == ValueType::Void) {
 		return Variant();
 	}
-	alignas(16) uint8_t storage[64];
+	alignas(16) uint8_t storage[MAX_VALUE_SIZE];
 	construct_value(p_type, storage);
 	Variant result = to_variant(p_type, storage);
 	destroy_value(p_type, storage);

@@ -1363,7 +1363,7 @@ class Execution {
 		// one that nothing reads.
 		const bool via_variant = returns == ValueType::Variant || returns == ValueType::Void;
 		const bool unread = !via_variant && dst == NO_SLOT;
-		alignas(16) uint8_t scratch[64];
+		alignas(16) uint8_t scratch[MAX_VALUE_SIZE];
 		construct_value(via_variant ? ValueType::Variant : (unread ? returns : ValueType::Void), scratch);
 		void *result = via_variant || unread ? scratch : p_frame + dst;
 		if (utility) {
