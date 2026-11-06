@@ -92,6 +92,10 @@ struct CompletionItem {
 
 struct Completion {
 	std::vector<CompletionItem> items;
+	// Whether the list shows also right after "(", where the editor shows none
+	// otherwise (scene/gui/code_edit.cpp:3832-3835): when it has the values of
+	// the enum the argument takes.
+	bool force = false;
 	// The signature of the call around the cursor, with the parameter at the
 	// cursor between two U+FFFF, as the script editor shows it
 	// (scene/gui/code_edit.cpp:249-275).

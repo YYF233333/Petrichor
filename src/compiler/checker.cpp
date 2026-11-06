@@ -4965,7 +4965,7 @@ class Checker : public ClassRelation {
 	// dictionaries, strings and None take their type from it.
 	Type type_expr(Expr &r_expr, const Type &p_expected) {
 		if (completion && (r_expr.kind == ExprKind::Name || r_expr.kind == ExprKind::Member || r_expr.kind == ExprKind::Call || r_expr.kind == ExprKind::GetNode) && at_cursor(r_expr.text)) {
-			r_expr.kind == ExprKind::GetNode ? complete_node_path(r_expr) : complete(r_expr);
+			r_expr.kind == ExprKind::GetNode ? complete_node_path(r_expr) : complete(r_expr, p_expected);
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		switch (r_expr.kind) {
@@ -7317,7 +7317,55 @@ class Checker : public ClassRelation {
 		}
 	}
 
-	void complete(Expr &r_site) {
+	// Where an enum is expected at `r_site`, a bare name: its values (spec
+	// §3.7), each written as the first that checks there, bare or after its
+	// class or its name, to come first.
+	void add_enum_values(const Expr &r_site, const Type &p_expected, std::map<std::string, CompletionItem> &r_found) {
+		const Type expected = p_expected.kind == TypeKind::Option ? p_expected.args[0] : p_expected;
+		if (expected.kind != TypeKind::Enum || !expected.values) {
+			return;
+		}
+		const std::string spelled = enum_spelling(expected);
+		const size_t dot = spelled.rfind('.');
+		const std::string owner = !expected.values->is_engine ? spelled : (dot == std::string::npos ? std::string() : spelled.substr(0, dot));
+		for (const auto &value : expected.values->list) {
+			for (const std::string &written : { value.first, owner.empty() ? std::string() : owner + "." + value.first }) {
+				if (written.empty()) {
+					continue;
+				}
+				std::unique_ptr<Expr> probe;
+				for (size_t start = 0; start <= written.size();) {
+					const size_t end = std::min(written.find('.', start), written.size());
+					auto part = std::make_unique<Expr>();
+					part->kind = probe ? ExprKind::Member : ExprKind::Name;
+					part->text = written.substr(start, end - start);
+					part->range = r_site.range;
+					part->name_token = r_site.name_token;
+					part->base = std::move(probe);
+					probe = std::move(part);
+					start = end + 1;
+				}
+				const size_t error_count = errors.size();
+				const size_t reference_count = references->size();
+				const Type type = type_expr(*probe, Type::of(TypeKind::Error));
+				const bool accepted = errors.size() == error_count && !type.is_error() && assignable(type, expected);
+				errors.erase(errors.begin() + error_count, errors.end());
+				references->erase(references->begin() + reference_count, references->end());
+				if (accepted) {
+					CompletionItem item;
+					item.kind = CompletionKind::Enum;
+					item.name = written;
+					item.insert = written;
+					item.place = CompletionItem::Place::Local;
+					r_found.emplace(written, item);
+					completion->force = true;
+					break;
+				}
+			}
+		}
+	}
+
+	void complete(Expr &r_site, const Type &p_expected) {
 		const size_t error_count = errors.size();
 		const size_t reference_count = references->size();
 		Candidates names;
@@ -7363,6 +7411,9 @@ class Checker : public ClassRelation {
 		references->erase(references->begin() + reference_count, references->end());
 		const std::vector<std::string> chain = class_chain(owner);
 		std::map<std::string, CompletionItem> found;
+		if (r_site.kind == ExprKind::Name && !r_site.base) {
+			add_enum_values(r_site, p_expected, found);
+		}
 		if (!r_site.base) {
 			add_global_classes(found, false);
 			for (const std::string &name : names.types) {

@@ -185,6 +185,16 @@ TEST_CASE("among the arguments of a call, the signature of the innermost is hint
 	CHECK(hint(in_function("set_pro‸(true)")).empty());
 }
 
+TEST_CASE("where an enum is expected, its values come first, each written as it checks there") {
+	const compiler::Completion argument = completion(in_function("var f := FileAccess.open(\"a\", ‸)"));
+	CHECK(offers(argument.items, { "FileAccess.READ", "FileAccess.WRITE", "-READ" }));
+	CHECK((find(argument.items, "FileAccess.READ")->kind == CompletionKind::Enum && find(argument.items, "FileAccess.READ")->place == Place::Local));
+	// So the list shows right after "(".
+	CHECK((argument.force && !completion(in_function("set_process(‸)")).force));
+	CHECK(offers(complete(in_function("Input.mouse_mode = ‸")), { "Input.MOUSE_MODE_CAPTURED" }));
+	CHECK(offers(complete("extends Node\n\nenum Gait { WALK, RUN }\n\nfunc f() -> void:\n\tvar gait: Gait = ‸\n"), { "Gait.WALK", "Gait.RUN" }));
+}
+
 TEST_CASE("after $ and %, completion offers the paths that reach a node from the script in every scene, quoted where they must be") {
 	const std::vector<CompletionItem> items = complete(in_function("$‸"));
 	CHECK(offers(items, { "Head", "Head/Eye", "My Label", "%Hud", "%Hud/Score", "-Gun", "-Hud", "-Player" }));

@@ -275,6 +275,7 @@ ScriptLanguage::ScriptNameCasing PetLanguage::_preferred_file_name_casing() cons
 Dictionary PetLanguage::_complete_code(const String &p_code, const String &p_path, Object *p_owner) const {
 	Array options;
 	String call_hint;
+	bool force = false;
 #ifdef TOOLS_ENABLED
 	// By compiler::CompletionKind.
 	static const CodeCompletionKind KINDS[] = {
@@ -293,6 +294,7 @@ Dictionary PetLanguage::_complete_code(const String &p_code, const String &p_pat
 	static const int LOCATIONS[] = { LOCATION_LOCAL, LOCATION_PARENT_MASK, LOCATION_OTHER_USER_CODE, LOCATION_OTHER };
 	const compiler::Completion found = completion(p_path, to_utf8(p_code));
 	call_hint = to_godot(found.call_hint);
+	force = found.force;
 	for (const compiler::CompletionItem &item : found.items) {
 		Dictionary option;
 		option["kind"] = KINDS[int(item.kind)];
@@ -312,7 +314,7 @@ Dictionary PetLanguage::_complete_code(const String &p_code, const String &p_pat
 	Dictionary result;
 	result["result"] = OK;
 	result["options"] = options;
-	result["force"] = false;
+	result["force"] = force;
 	result["call_hint"] = call_hint;
 	return result;
 }
