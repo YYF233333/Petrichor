@@ -188,7 +188,10 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 
 	const std::shared_ptr<Entry> entry = std::make_shared<Entry>();
 	entry->modified = modified;
-	const Ref<PackedScene> packed = ResourceLoader::get_singleton()->load(path, "PackedScene");
+	// From the file: the editor keeps the scene it loaded once, such as one in
+	// an exported property, after the file changes (core/io/resource_loader.cpp:800-803,
+	// scene/resources/packed_scene.h:256).
+	const Ref<PackedScene> packed = ResourceLoader::get_singleton()->load(path, "PackedScene", ResourceLoader::CACHE_MODE_IGNORE);
 	if (packed.is_valid() && packed->get_state().is_valid()) {
 		entry->scene = read_scene(path, packed->get_state());
 		std::set<std::string> instanced;
