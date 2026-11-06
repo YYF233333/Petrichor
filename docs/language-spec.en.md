@@ -201,7 +201,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
   - chained assignment reads, modifies and writes back along the chain (`player.last_hit.damage = 3` runs `last_hit`'s setter, and `hits[0].damage = 3` updates the array element);
   - assigning to a field of a temporary (such as `get_hit().damage = 3`) is a compile error;
   - loop variables and lambda captures are copies. Mutating a field of a struct loop variable without reading the variable afterwards triggers the `modified_copy` warning. Mutating shared state through an object or container field does not.
-- When all field types support the operation, a struct provides field-wise `==` and hashing over all fields (§5.2). Hashing takes containers by content. It also provides `<`, lexicographic in declaration order, absent if any field lacks `<` (such as an object field). Such a struct may be a `Dictionary` key (§3.8). [Later] Method overrides for these.
+- A struct provides field-wise `==` and hashing over all fields (§5.2), so any struct may be a `Dictionary` key (§3.8). Hashing takes containers by content. When every field has `<`, it also provides `<`, lexicographic in declaration order. Object fields have no `<`, so neither does a struct with one. [Later] Method overrides for these.
 - A struct or payload enum containing itself, directly or indirectly, without going through `Array` or `Dictionary` is a compile error. The error lists the cycle's fields. Recursion through a container is valid. [Later] Indirect recursion markers.
 
   ```gdscript
