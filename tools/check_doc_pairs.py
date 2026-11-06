@@ -10,14 +10,13 @@ def git(*args):
     return subprocess.run(["git", *args], capture_output=True, check=True).stdout.decode("utf-8")
 
 
+PAIRS = (SPEC, ("README.zh.md", "README.md"))
+
+
 def counterpart(path):
-    if path == "README.md":
-        return "README.zh.md"
-    if path == "README.zh.md":
-        return "README.md"
-    for a, b in ((".zh.md", ".en.md"), (".en.md", ".zh.md")):
-        if path.endswith(a):
-            return path[: -len(a)] + b
+    for pair in PAIRS:
+        if path in pair:
+            return pair[1 - pair.index(path)]
     return None
 
 

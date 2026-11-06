@@ -1,6 +1,6 @@
 # 调查：原生基类不同的脚本之间的重复代码
 
-**2026-10-23** · 关联：[语言规范](../language-spec.zh.md) §3.9、§4.1；[场景结构调查](scene-structures.zh.md)（语料相同） · English: [cross-branch-duplication.en.md](cross-branch-duplication.en.md)
+**2026-10-23** · 关联：[语言规范](../language-spec.zh.md) §3.9、§4.1；[场景结构调查](scene-structures.md)（语料相同）
 
 Godot 的脚本只能继承一个原生类。两个原生类不同的对象需要同样的行为时，例如一个 StaticBody2D 和一个 CharacterBody2D，它们无法共用一个脚本基类，代码只能复制、放进子节点或改写成别的形式。本文在 20 个仓库上测量这种限制造成的重复有多常见、重复的是什么，并逐组判断哪种机制能消除它。数字都由脚本算出；机制归类是阅读代码后的判断，文中单独标出。
 
@@ -23,7 +23,7 @@ Godot 的脚本只能继承一个原生类。两个原生类不同的对象需�
 
 ## 语料
 
-与[场景结构调查](scene-structures.zh.md)相同的 20 个仓库，提交见“各仓库”一节的表格：其中 14 个与[属性访问器调查](property-accessors.zh.md)的提交相同，另有 5 个游戏仓库取 2026-10-23 的最新提交，Ring 与[纸面迁移调查](paper-migration.zh.md)的提交相同。按用途分为三组：
+与[场景结构调查](scene-structures.md)相同的 20 个仓库，提交见“各仓库”一节的表格：其中 14 个与[属性访问器调查](property-accessors.md)的提交相同，另有 5 个游戏仓库取 2026-10-23 的最新提交，Ring 与[纸面迁移调查](paper-migration.md)的提交相同。按用途分为三组：
 
 - **游戏**（12 个）：godot-open-rpg、四个 Kenney 入门模板、tps-demo、godot-open-rts、tanks-of-freedom-ii、deck_builder_tutorial、godot-tiny-mmo、godot_open_star_fighter、Ring。
 - **示例**：godot-demo-projects，其中 132 个 Godot 项目有第一方代码。
@@ -216,7 +216,7 @@ Godot 的脚本只能继承一个原生类。两个原生类不同的对象需�
 
 - 游戏的 `static func` 集中在两个仓库：godot-tiny-mmo 446 个，godot-open-rts 35 个；其余游戏仓库合计 10 个。`is_in_group` 的 45 处中，godot-open-rts 占 35 处。
 - 游戏中继承 Node、挂在不同分支父节点下的 4 个组件是：Ring 的 HealthComponent 和 IntervalHurtComponent（父节点为 StaticBody2D 296 次、CharacterBody2D 5 次），deck_builder_tutorial 的 ModifierHandler（Area2D、Node2D、Control），godot-tiny-mmo 的 StateSynchronizer（CharacterBody2D 131 次、Area2D 1 次）。
-- Ring 同时用了组合和复制：生命值逻辑放在组件中，组件经 `owner` 读取宿主的 6 个字段（见[纸面迁移调查](paper-migration.zh.md#典型例子)的例 2）；宿主一侧的字段、信号接线和显示代码则在 Brick 与 Enemy 中各写一份。
+- Ring 同时用了组合和复制：生命值逻辑放在组件中，组件经 `owner` 读取宿主的 6 个字段（见[纸面迁移调查](paper-migration.md#典型例子)的例 2）；宿主一侧的字段、信号接线和显示代码则在 Brick 与 Enemy 中各写一份。
 
 ### Ring 的核对
 

@@ -2,7 +2,7 @@
 
 **v0.2 draft · 2026-10-25** · 中文: [language-spec.zh.md](language-spec.zh.md)
 
-Petrichor is a statically typed scripting language for medium-to-large Godot 4 projects, replacing GDScript in project code while coexisting with GDScript plugins, delivered as a GDExtension. This document is its draft specification; the implementation follows the [implementation architecture](architecture.en.md) and does not cover every rule yet. Design trade-offs, corpus evidence and post-v1 feature designs are in [design-notes.en.md](design-notes.en.md), and the engine verification baseline is in [engine-facts.en.md](engine-facts.en.md). Version v0.1 is kept at git tag `spec-v0.1`.
+Petrichor is a statically typed scripting language for medium-to-large Godot 4 projects, replacing GDScript in project code while coexisting with GDScript plugins, delivered as a GDExtension. This document is its draft specification; the implementation follows the [implementation architecture](architecture.md) and does not cover every rule yet. Design trade-offs, corpus evidence and post-v1 feature designs are in [design-notes.md](design-notes.md), and the engine verification baseline is in [engine-facts.md](engine-facts.md). Version v0.1 is kept at git tag `spec-v0.1`.
 
 ## 1. Overview
 
@@ -26,10 +26,10 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 1.4 Conventions
 
-- Rules defining legal programs and required behavior are normative; examples, [design-notes.en.md](design-notes.en.md) and [engine-facts.en.md](engine-facts.en.md) are not.
+- Rules defining legal programs and required behavior are normative; examples, [design-notes.md](design-notes.md) and [engine-facts.md](engine-facts.md) are not.
 - Status markers: **[Open]** not yet decided (§14.3); **[Known limitation]** unsupported in the first version, though its legality restrictions remain normative; **[Later]** compatible additions after the first version.
 - A **compile error** is reported before running and makes the program illegal (except missing-value errors marked on scenes, which do not block running in the editor, §7.5); **warnings** and **hints** do not affect legality; a **program error** is the runtime error defined in §8.1.
-- Engine behavior relied on here was checked against Godot 4.7.2-stable (commit `ed1daf0`), with sources in [engine-facts.en.md](engine-facts.en.md).
+- Engine behavior relied on here was checked against Godot 4.7.2-stable (commit `ed1daf0`), with sources in [engine-facts.md](engine-facts.md).
 - Petrichor and `.pet` are provisional and will be finalized before the first release: the extension must be short, lowercase, and unused by Godot, GitHub Linguist or common editors.
 
 ## 2. Lexical structure and surface syntax
@@ -118,7 +118,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 - **Implementing and extending interfaces**: classes write `implements A, B` (§2.1); interfaces write `interface Combatant extends Damageable, Healable:` (§3.9).
 - **pub**: keyword used on members, structs, enums, interfaces and inner classes (§4.2), as in `@export pub var max_hp: int` and `pub static func make() -> Player`.
 - **Placement and naming**: structs, enums, interfaces and inner classes belong to their file's class, named bare in that file and as `ClassName.Name` (e.g. `Combat.Hit`) elsewhere. [Later] Aliases or `import`.
-- **Generics**: [Later] user-defined type parameters (such as `func first[T](items: Array[T]) -> T?`) come after the first version; see [design-notes.en.md §1.1](design-notes.en.md#11-user-defined-generics-spec-24-310).
+- **Generics**: [Later] user-defined type parameters (such as `func first[T](items: Array[T]) -> T?`) come after the first version; see [design-notes.md §1.1](design-notes.md#11-用户定义的泛型规范-24310).
 - **Function types**: shaped like function declarations without function or parameter names (§3.11):
 
   ```gdscript
@@ -266,7 +266,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 3.10 Generics
 
 - The first version provides only built-in generic types (`Array[T]`, `Dictionary[K, V]`, `Result[T, E]`, `Task[T]`, `weak[T]`, `PackedScene[T]`); user code cannot declare type parameters.
-- [Later] User-defined generics on functions, structs, enums and non-`Resource` `RefCounted` classes are specified in [design-notes.en.md §1.1](design-notes.en.md#11-user-defined-generics-spec-24-310).
+- [Later] User-defined generics on functions, structs, enums and non-`Resource` `RefCounted` classes are specified in [design-notes.md §1.1](design-notes.md#11-用户定义的泛型规范-24310).
 
 ### 3.11 Function types and Callable
 
@@ -501,7 +501,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 6.5 Setters before ready
 
 - Scene instantiation writes saved properties before parenting the node, while children and `@onready` members are still unavailable.
-- Setters run immediately: accessing an `@onready` member or child before ready is a program error naming it; a node-syncing setter stores the value, syncs guarded by `is_node_ready()`, and syncs once in `_ready` (`await ready` in a setter is a compile error, §4.4). [Later] Automatic compiler suspension at the first statement needing readiness is specified in [design-notes.en.md §1.2](design-notes.en.md#12-setters-that-wait-for-ready-spec-65).
+- Setters run immediately: accessing an `@onready` member or child before ready is a program error naming it; a node-syncing setter stores the value, syncs guarded by `is_node_ready()`, and syncs once in `_ready` (`await ready` in a setter is a compile error, §4.4). [Later] Automatic compiler suspension at the first statement needing readiness is specified in [design-notes.md §1.2](design-notes.md#12-就绪前自动等待就绪的-setter规范-65).
 - Reading a backing-field-less property whose getter reads children before ready is a program error naming the unready node. Unwritten properties do not run their setter at ready; exported properties whose default bypasses a node-syncing setter get a hint.
 
 ### 6.6 Destruction
@@ -681,8 +681,8 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 9.8 Cross-language await
 
 - GDScript method calls may be `await`ed (waiting on `GDScriptFunctionState.completed` and entry-checking the declared return type). Without `await`, statement calls run past first suspension as if detached, whereas value calls receiving `GDScriptFunctionState` raise a program error saying `await` is required. [Later] `Task` handles for GDScript coroutines.
-- While awaiting `GDScriptFunctionState`, if the target object (receiver or `Callable` target) is freed or emits `script_changed`, it is handled per §9.7 and `settled()` yields `Cancelled(CancelReason.OWNER_FREED)` (retention and watching mechanics in [architecture §2.2](architecture.en.md)). [Known limitation] Reloading a GDScript script in the editor clears suspended functions without signals, leaving waiters suspended.
-- When GDScript `await`s a coroutine of this language, first suspension returns `Task.completed`, emitting `completed(value)` on finish and `completed(null)` (plus `cancelled`) on cancellation or failure. `async` methods report untyped `Variant` to the engine ([architecture §2.3](architecture.en.md)), showing declared return types only in docs and hover.
+- While awaiting `GDScriptFunctionState`, if the target object (receiver or `Callable` target) is freed or emits `script_changed`, it is handled per §9.7 and `settled()` yields `Cancelled(CancelReason.OWNER_FREED)` (retention and watching mechanics in [architecture §2.2](architecture.md)). [Known limitation] Reloading a GDScript script in the editor clears suspended functions without signals, leaving waiters suspended.
+- When GDScript `await`s a coroutine of this language, first suspension returns `Task.completed`, emitting `completed(value)` on finish and `completed(null)` (plus `cancelled`) on cancellation or failure. `async` methods report untyped `Variant` to the engine ([architecture §2.3](architecture.md)), showing declared return types only in docs and hover.
 
 ## 10. Engine boundary
 
@@ -699,7 +699,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 | Payload enums | `Dictionary` with `String` field-name keys and reserved `"$variant"` variant name (§3.7) |
 | `async` method return values | Untyped `Variant` (§9.8) |
 
-- Through script reflection, GDScript statically checks instance members (properties, methods, signals) and positional `Player.new(...)` arguments on global classes of this language; when `_init` is not `pub` (§4.2), parameterized `new` is a GDScript compile error and zero-argument `new` fails at runtime; named must-assign arguments (§6.2) are specific to this language (binding mechanics in [architecture §2.3](architecture.en.md); other class-level access in §11.3).
+- Through script reflection, GDScript statically checks instance members (properties, methods, signals) and positional `Player.new(...)` arguments on global classes of this language; when `_init` is not `pub` (§4.2), parameterized `new` is a GDScript compile error and zero-argument `new` fails at runtime; named must-assign arguments (§6.2) are specific to this language (binding mechanics in [architecture §2.3](architecture.md); other class-level access in §11.3).
 - **Entry checks**: values entering from the engine, GDScript, C# or the remote inspector (§7.5)—arguments, `set` writes, signal arguments, `await` results, decoding—are checked against declared types; failures are program errors.
 - `Option` encodes `None` as NIL, so `X?` crosses to the engine implicitly only when no `X` value encodes as NIL; when `X` is `Option` or `Variant`, it is a compile error offering `.flatten()` or `.unwrap_or(null)` (§3.4).
 
@@ -768,7 +768,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 
 ### 12.1 Adapter layer
 
-- Instance lifecycle, property access and method calls go through GDExtension's script-instance interface (internals in [architecture §2](architecture.en.md)).
+- Instance lifecycle, property access and method calls go through GDExtension's script-instance interface (internals in [architecture §2](architecture.md)).
 
 ### 12.2 Performance
 
@@ -811,7 +811,7 @@ Petrichor is a statically typed scripting language for medium-to-large Godot 4 p
 ### 13.3 Refactoring
 
 - Refactorings include their scene half: mechanical, meaning-preserving edits (export keys, signal method names, animation track paths, lossless value conversions) are previewed, applied together and undoable; judgment-dependent edits (node type changes, incompatible resources) are only reported with options.
-- Renaming or moving a node in the scene editor updates `$X`, `%X` and literal `get_node` paths in the same undo step without preview and logs changes in the output panel (undo-merging mechanism in [architecture §2.3](architecture.en.md)); non-literal paths and paths resolving elsewhere in other scenes are only reported with quick fixes.
+- Renaming or moving a node in the scene editor updates `$X`, `%X` and literal `get_node` paths in the same undo step without preview and logs changes in the output panel (undo-merging mechanism in [architecture §2.3](architecture.md)); non-literal paths and paths resolving elsewhere in other scenes are only reported with quick fixes.
 
 ### 13.4 Migration
 
@@ -833,7 +833,7 @@ Rules marked **[Known limitation]** in earlier sections are normative; key bound
 
 ### 14.2 Compatible later additions
 
-Items marked **[Later]** in earlier sections can be added compatibly (full designs for generics and pre-ready suspending setters are in [design-notes.en.md §1](design-notes.en.md)):
+Items marked **[Later]** in earlier sections can be added compatibly (full designs for generics and pre-ready suspending setters are in [design-notes.md §1](design-notes.md)):
 
 - **Language features**: user-defined generics and generic interfaces (§2.4, §3.9, §3.10); `@tool` (§2.3); aliases/`import` and cross-class `preload` access (§2.1, §2.4); stricter `private` (§4.2); positional struct construction, mutating methods, operator overrides and indirect recursion (§3.6); `@export` for structs and payload enums (§3.6, §3.7); function-type parameter names, direct `f(x)` and shared captures (§3.11); call-site spread (§4.6); field narrowing / conditional binding (§5.4); `match` extensions (§5.6); auto-suspending pre-ready setters (§6.5); always-on assertions (§8.3); reentrancy annotations, multi-arg signal destructuring and typed `Signal` (§9.5, §9.6).
 - **Interop and tooling**: optional compiler-carrying runtime library (§1.3); `Task` handles for GDScript coroutines (§9.8); GDScript enums/inner classes/static variables and static-method calls (§11.1, §11.3); advanced refactorings, doc generation and forwarding shells (§13.5).

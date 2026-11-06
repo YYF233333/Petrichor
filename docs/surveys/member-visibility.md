@@ -1,6 +1,6 @@
 # 调查：脚本成员在哪里被使用
 
-**2026-10-24** · 关联：[语言规范](../language-spec.zh.md) §2.4、§4.2 · English: [member-visibility.en.md](member-visibility.en.md)
+**2026-10-24** · 关联：[语言规范](../language-spec.zh.md) §2.4、§4.2
 
 ## 问题
 
@@ -8,7 +8,7 @@
 
 ## 语料
 
-与[跨分支重复调查](cross-branch-duplication.zh.md)相同：20 个仓库，固定提交，第一方代码的判定规则也相同（`cross-branch-duplication/gdcorpus.py`）。第一方代码共 203,720 行（不计空行和注释行），其中 12 个游戏仓库 70,646 行。
+与[跨分支重复调查](cross-branch-duplication.md)相同：20 个仓库，固定提交，第一方代码的判定规则也相同（`cross-branch-duplication/gdcorpus.py`）。第一方代码共 203,720 行（不计空行和注释行），其中 12 个游戏仓库 70,646 行。
 
 ## 方法
 
@@ -59,11 +59,11 @@
 ## 对设计的影响
 
 - `pub` 每千行至少写 22 个（游戏 30 个），所以用关键字，不用注解（规范 §2.4、附录 B）。
-- 只被子类使用的成员占跨文件使用的 7.2%（游戏 5.5%），但这个比例被低估了：按名字匹配时，`type`、`update_stat` 一类在几个脚本中各自声明的常见名字都归入“无法判定”，在继承较多的代码中尤其如此。[第二次纸面迁移](paper-migration-2.zh.md)逐个成员判断，这一比例为 28%：102 处 `pub` 中有 29 处只为子类而写。因此规范让子类可以读写、调用和覆盖不带 `pub` 的成员，覆盖时可见性不变（§4.2）。
+- 只被子类使用的成员占跨文件使用的 7.2%（游戏 5.5%），但这个比例被低估了：按名字匹配时，`type`、`update_stat` 一类在几个脚本中各自声明的常见名字都归入“无法判定”，在继承较多的代码中尤其如此。[第二次纸面迁移](paper-migration-2.md)逐个成员判断，这一比例为 28%：102 处 `pub` 中有 29 处只为子类而写。因此规范让子类可以读写、调用和覆盖不带 `pub` 的成员，覆盖时可见性不变（§4.2）。
 
 ## 复现
 
-`api.json` 的生成方法见[跨分支重复调查](cross-branch-duplication.zh.md)。
+`api.json` 的生成方法见[跨分支重复调查](cross-branch-duplication.md)。
 
 ```
 python docs/surveys/cross-branch-duplication/gdcorpus.py corpus

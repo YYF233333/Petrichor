@@ -1,6 +1,6 @@
 # 调查：常量表达式
 
-**2026-11-01** · 关联：[语言规范](../language-spec.zh.md) §4.5 · English: [constant-expressions.en.md](constant-expressions.en.md)
+**2026-11-01** · 关联：[语言规范](../language-spec.zh.md) §4.5
 
 ## 问题
 
@@ -8,7 +8,7 @@ GDScript 借引擎在编译期求出常量的值，本语言的编译器不依�
 
 ## 语料
 
-与[跨分支重复调查](cross-branch-duplication.zh.md)相同：20 个仓库，固定提交，第一方代码的判定规则也相同。第一方 `.gd` 文件 2,800 个，其中 12 个游戏仓库 1,223 个。
+与[跨分支重复调查](cross-branch-duplication.md)相同：20 个仓库，固定提交，第一方代码的判定规则也相同。第一方 `.gd` 文件 2,800 个，其中 12 个游戏仓库 1,223 个。
 
 ## 方法
 

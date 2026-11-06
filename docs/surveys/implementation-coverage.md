@@ -1,6 +1,6 @@
 # 调查：真实代码用到而实现尚不支持的写法
 
-**2026-11-01** · 关联：[语言规范](../language-spec.zh.md)、[实现架构](../architecture.zh.md) §2.6 · English: [implementation-coverage.en.md](implementation-coverage.en.md)
+**2026-11-01** · 关联：[语言规范](../language-spec.zh.md)、[实现架构](../architecture.md) §2.6
 
 ## 问题
 
@@ -8,7 +8,7 @@
 
 ## 语料
 
-与[跨分支重复调查](cross-branch-duplication.zh.md)相同：20 个仓库，固定提交，第一方代码的判定规则也相同（`cross-branch-duplication/gdcorpus.py`）。第一方 `.gd` 文件 2,800 个，共 203,720 行代码（不计空行和注释行）；其中 12 个游戏仓库有 1,223 个文件、70,646 行。
+与[跨分支重复调查](cross-branch-duplication.md)相同：20 个仓库，固定提交，第一方代码的判定规则也相同（`cross-branch-duplication/gdcorpus.py`）。第一方 `.gd` 文件 2,800 个，共 203,720 行代码（不计空行和注释行）；其中 12 个游戏仓库有 1,223 个文件、70,646 行。
 
 ## 方法
 
@@ -71,7 +71,7 @@
 ## 局限
 
 - 按词法识别，不做类型解析。经常量或变量间接调用的静态方法不计，例如 `const Utils = preload("utils.gd")` 之后的 `Utils.f()`；这类文件已经因为 `const` 和 `preload` 计入。
-- 一种都没用到，不等于文件能编译。迁移还要补类型，[第二次纸面迁移](paper-migration-2.zh.md)中每百行约 28 处修改；尚未实现、本文也不统计的还有无类型的值（规范 §3.13）、match 的数组和字典模式、字面量形式的属性名（§10.4）、不导出的必须赋值成员（§6.2）等。
+- 一种都没用到，不等于文件能编译。迁移还要补类型，[第二次纸面迁移](paper-migration-2.md)中每百行约 28 处修改；尚未实现、本文也不统计的还有无类型的值（规范 §3.13）、match 的数组和字典模式、字面量形式的属性名（§10.4）、不导出的必须赋值成员（§6.2）等。
 - 规范中本语言新增的构造，如 Result、泛型、带载荷的 enum，不在 GDScript 中出现，本文无法统计。
 
 ## 对实现的意义

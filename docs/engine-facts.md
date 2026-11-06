@@ -1,7 +1,5 @@
 # 引擎事实
 
-English: [engine-facts.en.md](engine-facts.en.md)
-
 [语言规范](language-spec.zh.md)所依据的引擎和 GDScript 行为核对表，基于 Godot 4.7.2-stable（提交 `ed1daf0`），路径相对于 Godot 仓库的根目录。升级引擎核对基线时逐条复核行号和行为。
 
 | 事实 | 出处 | 规范章节 |

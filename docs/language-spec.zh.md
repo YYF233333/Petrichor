@@ -2,7 +2,7 @@
 
 **v0.2 草案 · 2026-10-25** · English: [language-spec.en.md](language-spec.en.md)
 
-Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言，在项目代码中替代 GDScript，与 GDScript 插件共存，以 GDExtension 的形式交付。本文是它的语言规范草案；实现按[实现架构](architecture.zh.md)进行，尚未覆盖全部规则。设计取舍、语料依据与第一版之后的特性设计见[设计说明](design-notes.zh.md)，引擎核对基线见[引擎事实](engine-facts.zh.md)。上一版 v0.1 保存在 git 标签 `spec-v0.1` 中。
+Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言，在项目代码中替代 GDScript，与 GDScript 插件共存，以 GDExtension 的形式交付。本文是它的语言规范草案；实现按[实现架构](architecture.md)进行，尚未覆盖全部规则。设计取舍、语料依据与第一版之后的特性设计见[设计说明](design-notes.md)，引擎核对基线见[引擎事实](engine-facts.md)。上一版 v0.1 保存在 git 标签 `spec-v0.1` 中。
 
 ## 1. 概述
 
@@ -26,10 +26,10 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 1.4 文档约定
 
-- 定义合法程序和所需行为的规则具有规范性；例子、[设计说明](design-notes.zh.md)和[引擎事实](engine-facts.zh.md)不具规范性。
+- 定义合法程序和所需行为的规则具有规范性；例子、[设计说明](design-notes.md)和[引擎事实](engine-facts.md)不具规范性。
 - 状态标记：**【待定】**尚未决定（§14.3）；**【已知限制】**第一版不支持，其合法性限制仍具规范性；**【后续】**第一版之后可兼容加入。
 - **编译错误**由分析服务在运行前报告并使程序不合法（唯一例外是标在场景上的缺值错误不阻止编辑器内运行，§7.5）；**警告**和**提示**不影响合法性；**程序错误**是 §8.1 定义的运行时错误。
-- 文中依赖的引擎行为均对照 Godot 4.7.2-stable（提交 `ed1daf0`）核对，出处列于[引擎事实](engine-facts.zh.md)。
+- 文中依赖的引擎行为均对照 Godot 4.7.2-stable（提交 `ed1daf0`）核对，出处列于[引擎事实](engine-facts.md)。
 - Petrichor 和源文件扩展名 `.pet` 均为暂定名，首次发布前确定：扩展名须短且全小写，不与 Godot 已用扩展名及 GitHub Linguist、常用编辑器中的其他语言冲突。
 
 ## 2. 词法与表层语法
@@ -118,7 +118,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - **实现与继承接口**：类头写 `implements A, B`（§2.1）；接口继承接口写作 `interface Combatant extends Damageable, Healable:`（§3.9）。
 - **pub**：关键字，用于成员以及 struct、enum、interface 和内部类（§4.2），如 `@export pub var max_hp: int`、`pub static func make() -> Player`。
 - **放置与命名**：struct、enum、interface 和内部类属于所在文件的类；本文件内直接写名字，其他文件写 `类名.名字`（如 `Combat.Hit`）。【后续】别名或 `import`。
-- **泛型**：【后续】用户定义的类型参数（如 `func first[T](items: Array[T]) -> T?`）在第一版之后加入，完整设计见[设计说明 §1.1](design-notes.zh.md#11-用户定义的泛型规范-24310)。
+- **泛型**：【后续】用户定义的类型参数（如 `func first[T](items: Array[T]) -> T?`）在第一版之后加入，完整设计见[设计说明 §1.1](design-notes.md#11-用户定义的泛型规范-24310)。
 - **函数类型**：沿用函数声明的形状，去掉函数名和参数名（§3.11）：
 
   ```gdscript
@@ -266,7 +266,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 3.10 泛型
 
 - 第一版只有内置泛型类型（`Array[T]`、`Dictionary[K, V]`、`Result[T, E]`、`Task[T]`、`weak[T]`、`PackedScene[T]`），用户代码不能声明类型参数。
-- 【后续】函数、struct、enum 及不继承 `Resource` 的 `RefCounted` 类的泛型设计见[设计说明 §1.1](design-notes.zh.md#11-用户定义的泛型规范-24310)。
+- 【后续】函数、struct、enum 及不继承 `Resource` 的 `RefCounted` 类的泛型设计见[设计说明 §1.1](design-notes.md#11-用户定义的泛型规范-24310)。
 
 ### 3.11 函数类型与 Callable
 
@@ -501,7 +501,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 6.5 就绪前的 setter
 
 - 场景实例化在节点入树前先写入保存的属性，此时子节点和 `@onready` 成员尚不可用。
-- setter 立即执行：就绪前访问 `@onready` 成员或子节点报程序错误并写明成员或节点名；需要同步节点的 setter 应先存值、在 `is_node_ready()` 为真时同步，并在 `_ready` 中同步一次（setter 内写 `await ready` 报编译错误，§4.4）。【后续】由编译器在首个需就绪语句处自动挂起 setter 的设计见[设计说明 §1.2](design-notes.zh.md#12-就绪前自动等待就绪的-setter规范-65)。
+- setter 立即执行：就绪前访问 `@onready` 成员或子节点报程序错误并写明成员或节点名；需要同步节点的 setter 应先存值、在 `is_node_ready()` 为真时同步，并在 `_ready` 中同步一次（setter 内写 `await ready` 报编译错误，§4.4）。【后续】由编译器在首个需就绪语句处自动挂起 setter 的设计见[设计说明 §1.2](design-notes.md#12-就绪前自动等待就绪的-setter规范-65)。
 - 无存储字段、getter 直接读子节点的属性在就绪前读取报程序错误并写明未就绪节点。从未写入的属性在就绪时不跑 setter；导出属性默认值不经同步节点的 setter 时给出提示。
 
 ### 6.6 析构
@@ -681,8 +681,8 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 9.8 跨语言 await
 
 - 调用 GDScript 方法可写 `await`（等待 `GDScriptFunctionState.completed` 并按声明返回类型做入口检查）。未写 `await` 时：作语句调用不报错（运行到首次挂起后如 `detach` 继续）；作值使用而运行时得到 `GDScriptFunctionState` 报程序错误并提示补 `await`。【后续】为 GDScript 协程取得 `Task` 句柄。
-- 等待 `GDScriptFunctionState` 期间，调用目标对象（接收者或 `Callable` 目标对象）被释放或替换脚本（`script_changed`）时按 §9.7 处理，`settled()` 得 `Cancelled(CancelReason.OWNER_FREED)`（持有与监听机制见[实现架构 §2.2](architecture.zh.md)）。【已知限制】编辑器中重载 GDScript 脚本时，引擎静默清除挂起函数，等待方会一直挂起。
-- GDScript `await` 本语言协程时，首次挂起返回 `Task` 的 `completed` 信号：完成发出 `completed(值)`，取消或失败发出 `completed(null)`（另有 `cancelled` 信号区分）。本语言 `async` 方法向引擎报告无类型 `Variant` 返回值（[实现架构 §2.3](architecture.zh.md)），声明类型仅用于文档和悬停。
+- 等待 `GDScriptFunctionState` 期间，调用目标对象（接收者或 `Callable` 目标对象）被释放或替换脚本（`script_changed`）时按 §9.7 处理，`settled()` 得 `Cancelled(CancelReason.OWNER_FREED)`（持有与监听机制见[实现架构 §2.2](architecture.md)）。【已知限制】编辑器中重载 GDScript 脚本时，引擎静默清除挂起函数，等待方会一直挂起。
+- GDScript `await` 本语言协程时，首次挂起返回 `Task` 的 `completed` 信号：完成发出 `completed(值)`，取消或失败发出 `completed(null)`（另有 `cancelled` 信号区分）。本语言 `async` 方法向引擎报告无类型 `Variant` 返回值（[实现架构 §2.3](architecture.md)），声明类型仅用于文档和悬停。
 
 ## 10. 引擎边界
 
@@ -699,7 +699,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 带载荷 enum | `String` 字段名键的 `Dictionary`，保留键 `"$variant"` 存分支名（§3.7） |
 | `async` 方法返回值 | 无类型 `Variant`（§9.8） |
 
-- GDScript 通过脚本反射对本语言全局类的实例成员（属性、方法、信号）及 `Player.new(...)` 位置实参做静态检查；`_init` 不带 `pub` 时（§4.2），GDScript 调带参 `new` 报编译错误、无参 `new` 在运行时报错；具名必须赋值实参（§6.2）仅限本语言使用（绑定机制见[实现架构 §2.3](architecture.zh.md)，其余类级访问见 §11.3）。
+- GDScript 通过脚本反射对本语言全局类的实例成员（属性、方法、信号）及 `Player.new(...)` 位置实参做静态检查；`_init` 不带 `pub` 时（§4.2），GDScript 调带参 `new` 报编译错误、无参 `new` 在运行时报错；具名必须赋值实参（§6.2）仅限本语言使用（绑定机制见[实现架构 §2.3](architecture.md)，其余类级访问见 §11.3）。
 - **入口检查**：值从引擎、GDScript、C# 或远程检查器（§7.5）进入本语言时（参数、`set` 写成员、信号实参、`await` 结果、解码），按声明类型校验，失败报程序错误。
 - `Option` 交给引擎时 `None` 编码为 NIL：仅当 `X` 自身不会编码为 NIL 时，`X?` 才能隐式交给引擎；`X` 为 `Option` 或 `Variant` 时报编译错误，快速修复提供 `.flatten()` 或 `.unwrap_or(null)`（§3.4）。
 
@@ -768,7 +768,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 12.1 适配层
 
-- 实例生命周期、属性读写和方法调用均经 GDExtension 脚本实例接口接入（内部结构见[实现架构 §2](architecture.zh.md)）。
+- 实例生命周期、属性读写和方法调用均经 GDExtension 脚本实例接口接入（内部结构见[实现架构 §2](architecture.md)）。
 
 ### 12.2 性能
 
@@ -811,7 +811,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 13.3 重构
 
 - 重构包含场景中的一半：机械且保义的修改（导出属性键、信号连接方法名、动画轨道路径、无损值转换）预览后随重构自动完成并可撤销；需要判断的修改（如改节点类型、现有资源不符新类型）只报告并给出选项。
-- 在场景编辑器中改名或移动节点时，脚本中的 `$X`、`%X` 和字面量 `get_node` 路径自动更新并并入同一撤销步骤（不预览，完成后列于输出面板；撤销合并机制见[实现架构 §2.3](architecture.zh.md)）；非字面量路径及在其他场景中仍指向别处的路径只报告并提供快速修复。
+- 在场景编辑器中改名或移动节点时，脚本中的 `$X`、`%X` 和字面量 `get_node` 路径自动更新并并入同一撤销步骤（不预览，完成后列于输出面板；撤销合并机制见[实现架构 §2.3](architecture.md)）；非字面量路径及在其他场景中仍指向别处的路径只报告并提供快速修复。
 
 ### 13.4 迁移
 
@@ -833,7 +833,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 14.2 以后可以兼容地加入
 
-各节标 **【后续】** 的扩展均可兼容加入（泛型与自动挂起 setter 的完整设计见[设计说明 §1](design-notes.zh.md)）：
+各节标 **【后续】** 的扩展均可兼容加入（泛型与自动挂起 setter 的完整设计见[设计说明 §1](design-notes.md)）：
 
 - **语言特性**：用户定义泛型与泛型接口（§2.4、§3.9、§3.10）；`@tool`（§2.3）；别名/`import` 与跨类访问 `preload` 类（§2.1、§2.4）；更严的 `private`（§4.2）；struct 位置构造、可变方法、运算符重定义与间接递归（§3.6）；struct/带载荷 enum 的 `@export`（§3.6、§3.7）；函数类型参数名、直接调用 `f(x)`、可变捕获等（§3.11）；调用展开（§4.6）；字段收窄/条件绑定（§5.4）；`match` 扩展（§5.6）；就绪前自动挂起 setter（§6.5）；常驻断言（§8.3）；协程重入注解、多参信号解构与带参 `Signal`（§9.5、§9.6）。
 - **跨语言与工具**：可选带编译器的运行时库（§1.3）；GDScript 协程 `Task` 句柄（§9.8）；GDScript enum/内部类/静态变量视图及静态方法调用（§11.1、§11.3）；进阶重构、文档生成与转发外壳生成（§13.5）。

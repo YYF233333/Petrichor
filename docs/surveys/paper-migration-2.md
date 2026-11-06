@@ -1,8 +1,8 @@
 # 调查：按设计决定纸面迁移两个真实项目
 
-**2026-10-25** · 关联：设计决定（提交 `a099ad4`）、[语言规范](../language-spec.zh.md)、[第一次纸面迁移](paper-migration.zh.md) · English: [paper-migration-2.en.md](paper-migration-2.en.md)
+**2026-10-25** · 关联：设计决定（提交 `a099ad4`）、[语言规范](../language-spec.zh.md)、[第一次纸面迁移](paper-migration.md)
 
-[第一次纸面迁移](paper-migration.zh.md)评估的是规范 v0.1。项目随后重新设计，新的规则先记录为一组设计决定，再据此写成现行的[语言规范](../language-spec.zh.md)（v0.2 草案）。本文按提交 `a099ad4` 时的设计决定（当时在 `docs/decisions.zh.md`）重新迁移同一批代码，再推演五个维护场景。目的有三个：测量迁移成本；看各项规则合在一起时哪里有摩擦；找出当时的设计决定还没有写到、迁移时只能假定的地方。这些假定现在都已写入规范，见“迁移时的假定”；迁移暴露的问题和规范的处理见“迁移暴露的问题”。文中的章节号（§）指现行规范。改写没有编译器检查，所以仍称纸面迁移。
+[第一次纸面迁移](paper-migration.md)评估的是规范 v0.1。项目随后重新设计，新的规则先记录为一组设计决定，再据此写成现行的[语言规范](../language-spec.zh.md)（v0.2 草案）。本文按提交 `a099ad4` 时的设计决定（当时在 `docs/decisions.md`）重新迁移同一批代码，再推演五个维护场景。目的有三个：测量迁移成本；看各项规则合在一起时哪里有摩擦；找出当时的设计决定还没有写到、迁移时只能假定的地方。这些假定现在都已写入规范，见“迁移时的假定”；迁移暴露的问题和规范的处理见“迁移暴露的问题”。文中的章节号（§）指现行规范。改写没有编译器检查，所以仍称纸面迁移。
 
 ## 素材
 
@@ -81,7 +81,7 @@
 
 ### 只为子类而写的 `pub`
 
-Ring 的 Brick 和 Enemy 各有 2 到 5 个子类，基类有 17 个成员只是因为子类要读取或覆盖才标 `pub`，例如 `type`、`set_type`、`check_init_type`、`update_stat`；子类中覆盖它们的方法也要标 `pub`，共 29 处。[成员可见性调查](member-visibility.zh.md)估计只被子类使用的成员占跨文件使用的 7.2%，本例是 28%。那次调查按名字匹配，`type`、`check_init_type`、`update_stat` 这类在几个脚本中各自声明的名字都归入“无法判定”，所以 7.2% 低估了继承较多的代码中的这项成本。现行规范据此让子类可以读写、调用和覆盖不带 `pub` 的成员（§4.2），这 29 处都不再需要。
+Ring 的 Brick 和 Enemy 各有 2 到 5 个子类，基类有 17 个成员只是因为子类要读取或覆盖才标 `pub`，例如 `type`、`set_type`、`check_init_type`、`update_stat`；子类中覆盖它们的方法也要标 `pub`，共 29 处。[成员可见性调查](member-visibility.md)估计只被子类使用的成员占跨文件使用的 7.2%，本例是 28%。那次调查按名字匹配，`type`、`check_init_type`、`update_stat` 这类在几个脚本中各自声明的名字都归入“无法判定”，所以 7.2% 低估了继承较多的代码中的这项成本。现行规范据此让子类可以读写、调用和覆盖不带 `pub` 的成员（§4.2），这 29 处都不再需要。
 
 ### 成员不收窄，以及 Option 类型的成员
 
@@ -133,7 +133,7 @@ Ring 的 Brick 和 Enemy 各有 2 到 5 个子类，基类有 17 个成员只是
 
 ## 复现
 
-[`paper-migration-2/`](paper-migration-2/) 目录包含：`ledger.tsv`（账本）；`stats.py`（由账本算出“结果”一节中的数字，原文件只用来计行数）；`autoload_self.py`（在[跨分支重复调查](cross-branch-duplication.zh.md)的 20 个仓库中统计 `Autoload.x = self`）；`migrated/` 中迁移后的代码，每个原文件对应一个 `.pet` 文件，另有两个项目各自新增的 `combat.pet`。Kenney FPS 的许可证随附在 `migrated/fps/LICENSE.md`。Ring 的迁移代码经原作者同意，以本仓库的 MIT 许可证发布。只需要 Python 3。
+[`paper-migration-2/`](paper-migration-2/) 目录包含：`ledger.tsv`（账本）；`stats.py`（由账本算出“结果”一节中的数字，原文件只用来计行数）；`autoload_self.py`（在[跨分支重复调查](cross-branch-duplication.md)的 20 个仓库中统计 `Autoload.x = self`）；`migrated/` 中迁移后的代码，每个原文件对应一个 `.pet` 文件，另有两个项目各自新增的 `combat.pet`。Kenney FPS 的许可证随附在 `migrated/fps/LICENSE.md`。Ring 的迁移代码经原作者同意，以本仓库的 MIT 许可证发布。只需要 Python 3。
 
 ```
 git clone https://github.com/KenneyNL/Starter-Kit-FPS fps && git -C fps checkout 185fd23

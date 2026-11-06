@@ -1,8 +1,6 @@
 # 设计说明与取舍
 
-English: [design-notes.en.md](design-notes.en.md)
-
-本文为非规范性配套文档，收纳从[语言规范](language-spec.zh.md)移出的三部分内容：第一版之后的完整特性设计、各节规则背后的详细理由与语料计数，以及考虑过但没有采用的方案。语言规则以语言规范为准，引擎行为出处见[引擎事实](engine-facts.zh.md)。
+本文为非规范性配套文档，收纳从[语言规范](language-spec.zh.md)移出的三部分内容：第一版之后的完整特性设计、各节规则背后的详细理由与语料计数，以及考虑过但没有采用的方案。语言规则以语言规范为准，引擎行为出处见[引擎事实](engine-facts.md)。
 
 ## 1. 第一版之后的设计
 
@@ -10,7 +8,7 @@ English: [design-notes.en.md](design-notes.en.md)
 
 - GDScript 没有用户定义的泛型，迁移来的代码（含 FPS 和 Ring）不会用到；由于相关语法在第一版中都是编译错误，以后加入是兼容的扩展。
 - **可泛型的声明**：函数、struct、enum，以及不继承 Resource 的 RefCounted 类。Node、Resource 脚本和 autoload 不能声明类型参数，因为引擎实例化它们时不提供类型实参。泛型类不登记进引擎的全局类表，GDScript 看不到它，因为 GDScript 给不出类型实参。
-- **语法**：类型参数写在名字之后的方括号中，与 `Array[int]` 一致，写法同 Python 3.12（PEP 695）；约束写作 `T: 接口`。文件的类在 `class_name` 上声明类型参数，例如 `class_name Cache[K, V] extends RefCounted`；内部类写作 `class Cache[K, V] extends RefCounted:`。GDScript 在内部类名、`class_name` 的名字、enum 名和函数名之后遇到 `[` 都是语法错误（[引擎事实](engine-facts.zh.md)），因此不违反语法硬规则。
+- **语法**：类型参数写在名字之后的方括号中，与 `Array[int]` 一致，写法同 Python 3.12（PEP 695）；约束写作 `T: 接口`。文件的类在 `class_name` 上声明类型参数，例如 `class_name Cache[K, V] extends RefCounted`；内部类写作 `class Cache[K, V] extends RefCounted:`。GDScript 在内部类名、`class_name` 的名字、enum 名和函数名之后遇到 `[` 都是语法错误（[引擎事实](engine-facts.md)），因此不违反语法硬规则。
 
   ```gdscript
   func first[T](items: Array[T]) -> T?:
@@ -36,7 +34,7 @@ English: [design-notes.en.md](design-notes.en.md)
 
 ### 1.2 就绪前自动等待就绪的 setter（规范 §6.5）
 
-- [属性访问器调查](surveys/property-accessors.zh.md)中有 25 个 setter 用 `await ready` 等待节点就绪。第一版中 setter 立即执行，就绪前访问 `@onready` 成员或子节点是程序错误；以后可兼容地放宽为由编译器自动挂起（是否采用见 `BACKLOG.md` 待定问题）：
+- [属性访问器调查](surveys/property-accessors.md)中有 25 个 setter 用 `await ready` 等待节点就绪。第一版中 setter 立即执行，就绪前访问 `@onready` 成员或子节点是程序错误；以后可兼容地放宽为由编译器自动挂起（是否采用见 `BACKLOG.md` 待定问题）：
   - setter 执行到第一处需要节点就绪的语句时，若节点尚未就绪，在此挂起，就绪后从这里继续；
   - 需要就绪的语句由静态分析确定：访问 `@onready` 成员、`$X` 或子节点，或者调用会访问它们的本类方法（含子类覆盖）；
   - 只有在 `is_node_ready()` 为真时才能执行到的访问不算，判断规则与收窄相同（规范 §5.4）：`if is_node_ready():` 分支内、`if not is_node_ready(): return` 之后、`is_node_ready() and …` 右侧。方法中的这类访问全部受保护时，调用它也不算需要就绪。只认 `is_node_ready()`，因为 `is_inside_tree()` 为真时 `@onready` 成员仍可能尚未初始化；
@@ -49,52 +47,52 @@ English: [design-notes.en.md](design-notes.en.md)
 
 ### §1–§2 交付、词法与表层语法
 
-- **GDExtension 与只发字节码（§1.3）**：[暗坑清单](surveys/pitfalls.zh.md)中没有只有引擎模块才能修复的条目，GDExtension 修不了的部分需要修改引擎，模块同样修不了。`$X`、`@parent` 和 `PackedScene[T]` 的类型取决于场景（§7），若在加载时编译源码，就要在游戏进程内重新分析场景，并把分析器带到所有导出平台。
-- **preload 脚本作为类（§2.1）**：[语料计数](surveys/corpus-counts.zh.md)中，351 处 preload `.gd` 文件有 207 处初始化常量，在同一文件中用于 `new()` 54 处、其他调用 124 处、其他成员 134 处、`is` 之后 69 处、作为类型 46 处；直接跟 `.new()` 的 preload 69 处。
-- **`null` 别名与单行引号字符串（§2.2）**：[语料计数](surveys/corpus-counts.zh.md)中 `null` 每千行 22.2 处，改为编译错误只会增加机械迁移工作。单引号和双引号跨行字符串在语料中只有 97 个，其中 95 个在 `godot_dialogue_manager` 的测试中；禁止跨行可在漏写右引号时把错误报在本行，避免吞掉后续代码。
-- **`###` 注释不是文档（§2.2）**：[语料计数](surveys/corpus-counts.zh.md)中，紧贴在声明上方、全由 `###` 开头的行组成的注释有 41 段，都是 `### Public variables ###` 这样的分节标题或分隔线，GDScript 却把它们显示为该声明的文档；没有一段文档把这样的行和其他行混写。Rust 同样把 `////` 当作普通注释。
-- **第一版不支持 `@tool`（§2.3）**：在编辑器中运行脚本需要在加载时完整编译，并在编辑器中实例化和重载；[语料计数](surveys/corpus-counts.zh.md)中 326 个含 `@tool` 的文件有 211 个在插件仓库，游戏仓库中 58 个（其中 31 个集中在 `godot-open-rpg`）。
-- **`pub` 用关键字（§2.4）**：[成员可见性调查](surveys/member-visibility.zh.md)中每千行至少出现 22 处，写成 `@public` 注解过于冗长。
+- **GDExtension 与只发字节码（§1.3）**：[暗坑清单](surveys/pitfalls.md)中没有只有引擎模块才能修复的条目，GDExtension 修不了的部分需要修改引擎，模块同样修不了。`$X`、`@parent` 和 `PackedScene[T]` 的类型取决于场景（§7），若在加载时编译源码，就要在游戏进程内重新分析场景，并把分析器带到所有导出平台。
+- **preload 脚本作为类（§2.1）**：[语料计数](surveys/corpus-counts.md)中，351 处 preload `.gd` 文件有 207 处初始化常量，在同一文件中用于 `new()` 54 处、其他调用 124 处、其他成员 134 处、`is` 之后 69 处、作为类型 46 处；直接跟 `.new()` 的 preload 69 处。
+- **`null` 别名与单行引号字符串（§2.2）**：[语料计数](surveys/corpus-counts.md)中 `null` 每千行 22.2 处，改为编译错误只会增加机械迁移工作。单引号和双引号跨行字符串在语料中只有 97 个，其中 95 个在 `godot_dialogue_manager` 的测试中；禁止跨行可在漏写右引号时把错误报在本行，避免吞掉后续代码。
+- **`###` 注释不是文档（§2.2）**：[语料计数](surveys/corpus-counts.md)中，紧贴在声明上方、全由 `###` 开头的行组成的注释有 41 段，都是 `### Public variables ###` 这样的分节标题或分隔线，GDScript 却把它们显示为该声明的文档；没有一段文档把这样的行和其他行混写。Rust 同样把 `////` 当作普通注释。
+- **第一版不支持 `@tool`（§2.3）**：在编辑器中运行脚本需要在加载时完整编译，并在编辑器中实例化和重载；[语料计数](surveys/corpus-counts.md)中 326 个含 `@tool` 的文件有 211 个在插件仓库，游戏仓库中 58 个（其中 31 个集中在 `godot-open-rpg`）。
+- **`pub` 用关键字（§2.4）**：[成员可见性调查](surveys/member-visibility.md)中每千行至少出现 22 处，写成 `@public` 注解过于冗长。
 
 ### §3 类型
 
 - **`float` 不隐式转 `int`（§3.2）**：`var hp = 10` 在本语言中推断为 `int`（§4.3），在 GDScript 中则是无类型变量，`hp = 2.5` 后值为 `2.5`；若隐式截断，结果会悄悄不同。
-- **对象可空与已释放对象（§3.3）**：[语料计数](surveys/corpus-counts.zh.md)中 `is_instance_valid` 每千行 3.3 处，`phantom-camera` 中每千行 12.8 处；Godot 4.4 起也让已释放对象在条件中为假（[godotengine/godot#93885](https://github.com/godotengine/godot/pull/93885)）。相关问题见[暗坑清单](surveys/pitfalls.zh.md) G-07、G-08。
+- **对象可空与已释放对象（§3.3）**：[语料计数](surveys/corpus-counts.md)中 `is_instance_valid` 每千行 3.3 处，`phantom-camera` 中每千行 12.8 处；Godot 4.4 起也让已释放对象在条件中为假（[godotengine/godot#93885](https://github.com/godotengine/godot/pull/93885)）。相关问题见[暗坑清单](surveys/pitfalls.md) G-07、G-08。
 - **嵌套 Option 保留两层（§3.4）**：若合并为一层，泛型代码的行为会随 `T` 改变（如 `first[T]` 在 `T` 为 `Enemy?` 时分不清空数组和首元素为空，通用缓存会把存入的 `None` 当作未命中），JSON 中缺少的键与 `null` 也无法区分。本语言没有 `?.`，嵌套基本只出现在泛型和容器取值上。
 - **struct 方法只读与默认运算（§3.6）**：修改 `self` 的方法要求调用处可写回，在临时值、经 getter 读出的属性和循环变量上调用要么报错、要么悄悄改副本。解码忽略多余键，使较新发送方多带字段的消息或面向多读取方的 JSON 仍能解码。默认提供 `==`、`<` 和哈希以像脚本语言一样开箱即用。
-- **enum（§3.7）**：引擎 enum 开放是因为引擎会产生枚举外的值（如带修饰键位的 `Key`），且后续 4.x 小版本会新增枚举值而同一份构建须继续运行（实现架构 §6.3）。[语料计数](surveys/corpus-counts.zh.md)中：用 `as` 把 `int` 转为 enum 10 处，忽略 `INT_AS_ENUM_WITHOUT_CAST` 警告 4 处；把 enum 名当 Dictionary 用 38 处，常量作 enum 别名 3 处；258 个 enum 中有 8 个没有值 0。
-- **容器（§3.8）**：经无类型视图写入或查找不合元素类型的值报程序错误，是因为引擎在写入报错后跳过写入继续运行，查找和 `assign()` 则把 `1.5` 截断为 `1`。元素为本语言独有类型的容器交给引擎须写 `Array(hits)`，以免隐式复制造成“修改了副本”的坑。[语料计数](surveys/corpus-counts.zh.md)中 14 处 `pop_at` 都按算出的下标移出元素，没有一处判空。Dictionary 插入键时复制并逐层冻结容器，是因为引擎保存插入时的哈希且 `make_read_only` 不可撤销：不冻结会使修改后的键按新旧内容都查不到，直接冻结原值又会让调用方的容器永久只读。
-- **接口与无带状态 mixin（§3.9）**：[跨分支重复调查](surveys/cross-branch-duplication.zh.md)中，原生基类不同造成的重复在多数游戏仓库中每千行约 4–10 行；游戏中这类重复的 353 行里有 185 行可用组合或静态函数消除，适合带状态 mixin 的 102 行中 72 行来自 Ring 一个项目；同一原生基类无关脚本间和同一继承链上的重复分别是它的 4.9 倍和 8.2 倍（主要在 `tanks-of-freedom-ii`）。`gdUnit4` 中 16 个只有抽象方法的类有 14 个继承 `GdUnitAssert` 并以协变返回类型重新声明方法（如 `GdUnitAssert.gd:7` 的 `is_null() -> GdUnitAssert` 在 `GdUnitIntAssert.gd:7` 中为 `-> GdUnitIntAssert`）。第一版不支持泛型接口，以免在没有真实代码需求时过早规定型变和自引用约束。
-- **函数类型与 lambda（§3.11）**：[语料计数](surveys/corpus-counts.zh.md)中，协程方法作为值使用 91 处（其中 60 处是 `connect(名字)`）；方法里的 961 个 lambda 没有一个给外层局部变量赋值，经成员或下标赋值的 15 个改的都是对象或容器；979 个 lambda 中命名的有 18 个，带参数默认值的为 0 个。
+- **enum（§3.7）**：引擎 enum 开放是因为引擎会产生枚举外的值（如带修饰键位的 `Key`），且后续 4.x 小版本会新增枚举值而同一份构建须继续运行（实现架构 §6.3）。[语料计数](surveys/corpus-counts.md)中：用 `as` 把 `int` 转为 enum 10 处，忽略 `INT_AS_ENUM_WITHOUT_CAST` 警告 4 处；把 enum 名当 Dictionary 用 38 处，常量作 enum 别名 3 处；258 个 enum 中有 8 个没有值 0。
+- **容器（§3.8）**：经无类型视图写入或查找不合元素类型的值报程序错误，是因为引擎在写入报错后跳过写入继续运行，查找和 `assign()` 则把 `1.5` 截断为 `1`。元素为本语言独有类型的容器交给引擎须写 `Array(hits)`，以免隐式复制造成“修改了副本”的坑。[语料计数](surveys/corpus-counts.md)中 14 处 `pop_at` 都按算出的下标移出元素，没有一处判空。Dictionary 插入键时复制并逐层冻结容器，是因为引擎保存插入时的哈希且 `make_read_only` 不可撤销：不冻结会使修改后的键按新旧内容都查不到，直接冻结原值又会让调用方的容器永久只读。
+- **接口与无带状态 mixin（§3.9）**：[跨分支重复调查](surveys/cross-branch-duplication.md)中，原生基类不同造成的重复在多数游戏仓库中每千行约 4–10 行；游戏中这类重复的 353 行里有 185 行可用组合或静态函数消除，适合带状态 mixin 的 102 行中 72 行来自 Ring 一个项目；同一原生基类无关脚本间和同一继承链上的重复分别是它的 4.9 倍和 8.2 倍（主要在 `tanks-of-freedom-ii`）。`gdUnit4` 中 16 个只有抽象方法的类有 14 个继承 `GdUnitAssert` 并以协变返回类型重新声明方法（如 `GdUnitAssert.gd:7` 的 `is_null() -> GdUnitAssert` 在 `GdUnitIntAssert.gd:7` 中为 `-> GdUnitIntAssert`）。第一版不支持泛型接口，以免在没有真实代码需求时过早规定型变和自引用约束。
+- **函数类型与 lambda（§3.11）**：[语料计数](surveys/corpus-counts.md)中，协程方法作为值使用 91 处（其中 60 处是 `connect(名字)`）；方法里的 961 个 lambda 没有一个给外层局部变量赋值，经成员或下标赋值的 15 个改的都是对象或容器；979 个 lambda 中命名的有 18 个，带参数默认值的为 0 个。
 
 ### §4 声明
 
-- **类、抽象类与内部类（§4.1）**：[实现覆盖调查](surveys/implementation-coverage.zh.md)中 4.9% 的文件以裸名使用引擎基类常量。[语料计数](surveys/corpus-counts.zh.md)中：28 个 `@abstract` 类有 25 个在 `gdUnit4`，文件级抽象类中 17 个只有抽象方法（可改写为接口，而 `godot-open-rpg` 的 `BattlerAction` 同时带导出字段和抽象协程）；2,800 个文件中有 121 个含内部类（共 192 个，游戏仓库 19 个文件含 37 个），7 个嵌套在内部类中，10 个把 `extends` 写在类体开头，经 autoload 访问内部类的 175 处中有 168 处在 `godot-open-rts`（如 `Constants.Match.Units.PROJECTILES`）。内部类直接解析外层静态函数和静态变量（GDScript 因查找实现未解析），与 Java、C#、Kotlin 一致且不改变 GDScript 已解析名字的含义。
-- **可见性（§4.2）**：[成员可见性调查](surveys/member-visibility.zh.md)中，名字可判定的成员约 25% 在其他文件中被访问。[第二次纸面迁移](surveys/paper-migration-2.zh.md)中，若子类只能看到 `pub` 成员，102 处 `pub` 里有 29 处只是为了子类。
-- **常量（§4.5）**：向量分量 `real_t` 在单双精度构建中不同，`sin` 等数学函数末位随平台数学库而异，因此引擎类型和返回 `float` 的数学函数在类加载时求值一次，同时在编译期排除所有因值出错的情形。[常量表达式调查](surveys/constant-expressions.zh.md)中，3,094 个常量里 2,920 个无需计算、141 个是标量计算、33 个需引擎求值；注解参数用到的 7 个常量都是字面量，enum 值未用到常量，规范排除的写法均未出现。
-- **函数与剩余参数（§4.6）**：[第二次纸面迁移](surveys/paper-migration-2.zh.md)中引擎虚函数覆盖省略参数标注 6 处。[语料计数](surveys/corpus-counts.zh.md)中 78 个剩余参数有 76 个在 `gdUnit4` 断言接口中。缺少调用处展开写法时容易把数组整个当作单个实参传出，如 Pixelorama `src/Classes/ObjParse.gd:59-66` 的 `_debug_msg` 调 `_prefix_print`。禁止遮蔽外层块局部变量是因为 GDScript 已禁止，以后放开兼容。
-- **静态成员（§4.8）**：[语料计数](surveys/corpus-counts.zh.md)中 `static var` 188 处（其中无初始化式的类类型 29 个，如 `static var instance: DMPlugin`）、`_static_init` 4 个。GDScript 静态初始化顺序与环的相关问题见 [godotengine/godot#104161](https://github.com/godotengine/godot/issues/104161)、[#82141](https://github.com/godotengine/godot/issues/82141)、[#104588](https://github.com/godotengine/godot/issues/104588)。
+- **类、抽象类与内部类（§4.1）**：[实现覆盖调查](surveys/implementation-coverage.md)中 4.9% 的文件以裸名使用引擎基类常量。[语料计数](surveys/corpus-counts.md)中：28 个 `@abstract` 类有 25 个在 `gdUnit4`，文件级抽象类中 17 个只有抽象方法（可改写为接口，而 `godot-open-rpg` 的 `BattlerAction` 同时带导出字段和抽象协程）；2,800 个文件中有 121 个含内部类（共 192 个，游戏仓库 19 个文件含 37 个），7 个嵌套在内部类中，10 个把 `extends` 写在类体开头，经 autoload 访问内部类的 175 处中有 168 处在 `godot-open-rts`（如 `Constants.Match.Units.PROJECTILES`）。内部类直接解析外层静态函数和静态变量（GDScript 因查找实现未解析），与 Java、C#、Kotlin 一致且不改变 GDScript 已解析名字的含义。
+- **可见性（§4.2）**：[成员可见性调查](surveys/member-visibility.md)中，名字可判定的成员约 25% 在其他文件中被访问。[第二次纸面迁移](surveys/paper-migration-2.md)中，若子类只能看到 `pub` 成员，102 处 `pub` 里有 29 处只是为了子类。
+- **常量（§4.5）**：向量分量 `real_t` 在单双精度构建中不同，`sin` 等数学函数末位随平台数学库而异，因此引擎类型和返回 `float` 的数学函数在类加载时求值一次，同时在编译期排除所有因值出错的情形。[常量表达式调查](surveys/constant-expressions.md)中，3,094 个常量里 2,920 个无需计算、141 个是标量计算、33 个需引擎求值；注解参数用到的 7 个常量都是字面量，enum 值未用到常量，规范排除的写法均未出现。
+- **函数与剩余参数（§4.6）**：[第二次纸面迁移](surveys/paper-migration-2.md)中引擎虚函数覆盖省略参数标注 6 处。[语料计数](surveys/corpus-counts.md)中 78 个剩余参数有 76 个在 `gdUnit4` 断言接口中。缺少调用处展开写法时容易把数组整个当作单个实参传出，如 Pixelorama `src/Classes/ObjParse.gd:59-66` 的 `_debug_msg` 调 `_prefix_print`。禁止遮蔽外层块局部变量是因为 GDScript 已禁止，以后放开兼容。
+- **静态成员（§4.8）**：[语料计数](surveys/corpus-counts.md)中 `static var` 188 处（其中无初始化式的类类型 29 个，如 `static var instance: DMPlugin`）、`_static_init` 4 个。GDScript 静态初始化顺序与环的相关问题见 [godotengine/godot#104161](https://github.com/godotengine/godot/issues/104161)、[#82141](https://github.com/godotengine/godot/issues/82141)、[#104588](https://github.com/godotengine/godot/issues/104588)。
 
 ### §5–§7 表达式、生命周期与场景模型
 
-- **表达式与收窄（§5.1–§5.4）**：`godot-open-rts` 用 `"hp" in unit` 检查单位成员 16 次。[第二次纸面迁移](surveys/paper-migration-2.zh.md)中 `(x as T).unwrap()` 向下转型 16 处，因成员不收窄而新增的局部变量每千行 4.4 个。
-- **生命周期与析构（§6.2–§6.7）**：相关引擎暗坑见[暗坑清单](surveys/pitfalls.zh.md) G-02、G-03、G-04、G-05、G-09、G-10。[语料计数](surveys/corpus-counts.zh.md)中：在 `_ready` 里把节点登记到 autoload 成员上的写法只有 6 处（5 处在 Ring）；`NOTIFICATION_PREDELETE` 仅 40 次（32 次在 `gdUnit4`）。
-- **场景定型与差异结构（§7.1–§7.2）**：[场景结构调查](surveys/scene-structures.zh.md)的游戏仓库中，2,023 处字面量路径没有一处在不同结构中解析为不同类型；部分结构缺失的路径中，7 处是模板或占位场景缺节点（如 `tanks-of-freedom-ii` 中被 preload 作占位地块的 `base_ground.tscn` 缺少 `tile.gd` 的 `$"mesh"`），8 处用 `get_node_or_null`（如 `Starter-Kit-Racing` 两种车的尾迹）。任何场景都没有的 `$X` 也能抓出改名遗漏，如 `tps-demo` 的 `door.gd:6` 写 `$DoorModel/AnimationPlayer` 而 `door.tscn` 中叫 `DoorModel2`。
-- **向上访问与资源共享（§7.3、§7.6）**：[语料计数](surveys/corpus-counts.zh.md)中，自身的 `get_parent()` 174 处（直接访问成员 62 处、46 个文件；判空 3 处，含 `beehave` 在挂上父节点前运行的 setter），`owner` 直接访问成员 49 处（21 个文件）。不在移动节点时检查 `owner`，是因为像 Ring 的 `DeathComponent` 那样先读 `owner` 再把自己移到前景层是合法操作。共享子资源改写实例见 `godot-open-rpg` 的 `interaction_popup.tscn`（内嵌 `CircleShape2D` 未设局部于场景，`interaction_popup.gd:30` 改半径而 `main.tscn:484-486` 仅一个实例设 64）；资源环见[暗坑清单](surveys/pitfalls.zh.md) G-19、G-20、G-34。
+- **表达式与收窄（§5.1–§5.4）**：`godot-open-rts` 用 `"hp" in unit` 检查单位成员 16 次。[第二次纸面迁移](surveys/paper-migration-2.md)中 `(x as T).unwrap()` 向下转型 16 处，因成员不收窄而新增的局部变量每千行 4.4 个。
+- **生命周期与析构（§6.2–§6.7）**：相关引擎暗坑见[暗坑清单](surveys/pitfalls.md) G-02、G-03、G-04、G-05、G-09、G-10。[语料计数](surveys/corpus-counts.md)中：在 `_ready` 里把节点登记到 autoload 成员上的写法只有 6 处（5 处在 Ring）；`NOTIFICATION_PREDELETE` 仅 40 次（32 次在 `gdUnit4`）。
+- **场景定型与差异结构（§7.1–§7.2）**：[场景结构调查](surveys/scene-structures.md)的游戏仓库中，2,023 处字面量路径没有一处在不同结构中解析为不同类型；部分结构缺失的路径中，7 处是模板或占位场景缺节点（如 `tanks-of-freedom-ii` 中被 preload 作占位地块的 `base_ground.tscn` 缺少 `tile.gd` 的 `$"mesh"`），8 处用 `get_node_or_null`（如 `Starter-Kit-Racing` 两种车的尾迹）。任何场景都没有的 `$X` 也能抓出改名遗漏，如 `tps-demo` 的 `door.gd:6` 写 `$DoorModel/AnimationPlayer` 而 `door.tscn` 中叫 `DoorModel2`。
+- **向上访问与资源共享（§7.3、§7.6）**：[语料计数](surveys/corpus-counts.md)中，自身的 `get_parent()` 174 处（直接访问成员 62 处、46 个文件；判空 3 处，含 `beehave` 在挂上父节点前运行的 setter），`owner` 直接访问成员 49 处（21 个文件）。不在移动节点时检查 `owner`，是因为像 Ring 的 `DeathComponent` 那样先读 `owner` 再把自己移到前景层是合法操作。共享子资源改写实例见 `godot-open-rpg` 的 `interaction_popup.tscn`（内嵌 `CircleShape2D` 未设局部于场景，`interaction_popup.gd:30` 改半径而 `main.tscn:484-486` 仅一个实例设 64）；资源环见[暗坑清单](surveys/pitfalls.md) G-19、G-20、G-34。
 
 ### §8–§13 错误、协程、引擎边界与工具链
 
-- **程序错误与断言（§8.1–§8.3）**：GDScript 出错后在 debug 构建返回类型默认值、release 构建返回 `null` 并让调用方继续执行，在静态类型下会产生假值。`?` 短路返回不用 `?.` 伴随，以免 `x?.y` 取决于 `x` 是 Option 还是 Result。[语料计数](surveys/corpus-counts.zh.md)中 595 个 `assert` 的条件基本都是纯查询、实参含 `await` 的 0 个，539 个消息无一依赖在条件为真时求值。
-- **协程与信号（§9.1–§9.7）**：[语料计数](surveys/corpus-counts.zh.md)中 979 个 lambda 只有 35 个含 `await`（33 个在 `gdUnit4` 测试中）。重入与释放暗坑见[暗坑清单](surveys/pitfalls.zh.md) G-11、G-12、G-13 及提案 [godot-proposals#8838](https://github.com/godotengine/godot-proposals/issues/8838)、[#6243](https://github.com/godotengine/godot-proposals/issues/6243)。[await 信号结果调查](surveys/await-signal-results.zh.md)中，1,356 个 `await` 只有 1 个使用了多参数信号的结果，也只有 1 个使用了签名未知的 `Signal` 结果（`godot_dialogue_manager` `:1956` 经 `RefCounted` 接收者等待 C# 两参数信号）。
+- **程序错误与断言（§8.1–§8.3）**：GDScript 出错后在 debug 构建返回类型默认值、release 构建返回 `null` 并让调用方继续执行，在静态类型下会产生假值。`?` 短路返回不用 `?.` 伴随，以免 `x?.y` 取决于 `x` 是 Option 还是 Result。[语料计数](surveys/corpus-counts.md)中 595 个 `assert` 的条件基本都是纯查询、实参含 `await` 的 0 个，539 个消息无一依赖在条件为真时求值。
+- **协程与信号（§9.1–§9.7）**：[语料计数](surveys/corpus-counts.md)中 979 个 lambda 只有 35 个含 `await`（33 个在 `gdUnit4` 测试中）。重入与释放暗坑见[暗坑清单](surveys/pitfalls.md) G-11、G-12、G-13 及提案 [godot-proposals#8838](https://github.com/godotengine/godot-proposals/issues/8838)、[#6243](https://github.com/godotengine/godot-proposals/issues/6243)。[await 信号结果调查](surveys/await-signal-results.md)中，1,356 个 `await` 只有 1 个使用了多参数信号的结果，也只有 1 个使用了签名未知的 `Signal` 结果（`godot_dialogue_manager` `:1956` 经 `RefCounted` 接收者等待 C# 两参数信号）。
 - **引擎边界（§10.2–§10.6）**：引擎用 `RequiredResult` 标注的 API 仅约 50 处（29 处在 `Tween`）；引擎传入虚函数和信号的对象几乎总是非空，默认非空加入口检查避免每个 `_input` 和信号处理函数重复判空。引擎 API 中窄于 `int64` 或无符号的方法参数有 3,700 多个、属性约 460 个（如 `uint32` 的 `collision_layer` 写入 `-1` 会回绕为 `4294967295`）。
-- **跨语言、线程与工具链（§11.2、§12.3、§13.2–§13.4）**：跨语言继承限制见[暗坑清单](surveys/pitfalls.zh.md) C-17；[第二次纸面迁移](surveys/paper-migration-2.zh.md)中 Ring 的 `Brick` 和 `Enemy` 因此连带迁移了 5 个子类，全部 230 处迁移修改中有 197 处是机械修改。[语料计数](surveys/corpus-counts.zh.md)中 `Thread.new` 仅 5 处、`WorkerThreadPool` 2 处；括号续行在真实代码中大多只缩进一层（风格指南要求两层）。GDScript 格式化器草稿因解析器丢弃字面量写法与括号而受阻（[godotengine/godot#76211](https://github.com/godotengine/godot/pull/76211)）。自带测试运行器是因为 `gdUnit4` 和 `GUT` 要求继承其 GDScript 基类。
+- **跨语言、线程与工具链（§11.2、§12.3、§13.2–§13.4）**：跨语言继承限制见[暗坑清单](surveys/pitfalls.md) C-17；[第二次纸面迁移](surveys/paper-migration-2.md)中 Ring 的 `Brick` 和 `Enemy` 因此连带迁移了 5 个子类，全部 230 处迁移修改中有 197 处是机械修改。[语料计数](surveys/corpus-counts.md)中 `Thread.new` 仅 5 处、`WorkerThreadPool` 2 处；括号续行在真实代码中大多只缩进一层（风格指南要求两层）。GDScript 格式化器草稿因解析器丢弃字面量写法与括号而受阻（[godotengine/godot#76211](https://github.com/godotengine/godot/pull/76211)）。自带测试运行器是因为 `gdUnit4` 和 `GUT` 要求继承其 GDScript 基类。
 
 ## 3. 考虑过但没有采用的方案
 
 | 方案 | 不采用的原因 | 现行规则 |
 |---|---|---|
 | 以引擎模块交付（v0.1） | 暗坑清单中没有只有模块才能修复的条目；GDExtension 可以用官方编辑器和导出模板 | §1.3 |
-| 窄整数类型 i32、u8 等（v0.1） | 迁移成本最大的一项（[纸面迁移](surveys/paper-migration.zh.md)）；脚本很少在意数值类型的性能 | §3.2 |
+| 窄整数类型 i32、u8 等（v0.1） | 迁移成本最大的一项（[纸面迁移](surveys/paper-migration.md)）；脚本很少在意数值类型的性能 | §3.2 |
 | 推断函数签名（v0.1） | 签名是对外的约定，不应随函数体变化 | §4.6 |
 | 以 trace 为单位编译的 JIT | 类型在编译期已知，追踪运行带来的类型特化本来就有；事先生成没有可追踪的运行，两条路就不能共用一个生成模块 | §12.2 |
 | 内层块遮蔽外层的局部变量，如 C++、Rust、Swift | GDScript 禁止，迁移来的代码中不会出现；禁止以后可以兼容地放开 | §4.6 |
@@ -105,8 +103,8 @@ English: [design-notes.en.md](design-notes.en.md)
 | 在属性中另设 `apply:` 块，存放须等到节点就绪才执行的代码 | 让用户思考逻辑在何时执行、执行几次；自动挂起可以由编译器完成 | §6.5 |
 | 就绪前只记下 setter 的原始输入 | 先变换再存储的 setter（如给角色名加【】）就绪前会读到未变换的值 | §6.5 |
 | `@late`（类似 `lateinit`） | 需要它的写法很少见；父节点配置子节点已由祖先赋值的规则覆盖 | §6.2 |
-| 子类只能看到 `pub` 成员 | [第二次纸面迁移](surveys/paper-migration-2.zh.md)中 102 处 `pub` 有 29 处只是为了子类 | §4.2 |
-| 公开标记用 `@public` 注解 | 写得频繁，[成员可见性调查](surveys/member-visibility.zh.md)中每千行至少 22 处 | §2.4 |
+| 子类只能看到 `pub` 成员 | [第二次纸面迁移](surveys/paper-migration-2.md)中 102 处 `pub` 有 29 处只是为了子类 | §4.2 |
+| 公开标记用 `@public` 注解 | 写得频繁，[成员可见性调查](surveys/member-visibility.md)中每千行至少 22 处 | §2.4 |
 | 文件顶层的类型直接成为全局名 | 打破“文件就是类”，需要另一张全局名表 | §2.4 |
 | 接口的交集类型 `@owner(Node2D & Combatant)` | 新概念；允许引擎属性满足接口的属性要求即可 | §3.9 |
 | 追踪式 GC，或闭包自动弱捕获 self | 与 GDScript 的行为悄悄不同 | §3.11、§6.7 |
@@ -130,7 +128,7 @@ English: [design-notes.en.md](design-notes.en.md)
 | async 方法向引擎报告声明的返回类型 | GDScript 中每处 await 都有警告；取消时的 null 写入值类型的临时变量会使进程崩溃 | §9.8 |
 | 热重载修改声明后，让之后新建的实例使用新版本 | 同一次运行中同一个类有两个版本，按旧声明编译的代码可能调用新实例；主要用途只是调整不断新建的对象 | §12.4 |
 | 热重载修改声明后，像 GDScript 那样按成员名迁移状态 | 成员的类型可能已经改变，静态类型下搬过去的值不可信 | §12.4 |
-| 在自身上调用 `free()`、`set_script()` 是编译错误 | [语料计数](surveys/corpus-counts.zh.md)中这两种写法都没有真正出现；处理函数释放发射者、被调方释放调用方等间接情况在运行之前判断不出来，运行时的检查无论如何都需要 | §3.3 |
+| 在自身上调用 `free()`、`set_script()` 是编译错误 | [语料计数](surveys/corpus-counts.md)中这两种写法都没有真正出现；处理函数释放发射者、被调方释放调用方等间接情况在运行之前判断不出来，运行时的检查无论如何都需要 | §3.3 |
 | 解码 struct 时拒绝不是字段的键 | 较新的发送方多带字段的消息、为多个读取方写的 JSON 会在入口处失败，尽管 struct 需要的字段都在 | §3.6 |
 | 元素为本语言独有类型的容器上，`sort`、`min`、`max`、`hash` 等报编译错误 | GDScript 代码会调用它们，迁移来的代码就得改写；运行时可以用本语言的运算完成它们 | §3.8 |
 | struct 的哈希跳过容器字段，或 struct 只有 `==` 和哈希而没有 `<` | 哪些字段参与由用户决定，而不是由实现决定；开箱即用时各个默认运算应当配套，以后可以用 struct 方法重新定义 | §3.6 |

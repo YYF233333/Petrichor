@@ -1,8 +1,8 @@
 # 调查：按规范 v0.1 纸面迁移两个真实项目
 
-**2026-10-22** · 关联：规范 v0.1（提交 `7d3e718`，git 标签 `spec-v0.1`）、[第二次纸面迁移](paper-migration-2.zh.md) · English: [paper-migration.en.md](paper-migration.en.md)
+**2026-10-22** · 关联：规范 v0.1（提交 `7d3e718`，git 标签 `spec-v0.1`）、[第二次纸面迁移](paper-migration-2.md)
 
-本文评估的是早期的规范 v0.1。项目随后重新设计，现行设计是[语言规范](../language-spec.zh.md)（v0.2 草案），按它重做的评估见[第二次纸面迁移](paper-migration-2.zh.md)。除各表的“现行规范”一列外，文中的章节号（§）都指 v0.1。
+本文评估的是早期的规范 v0.1。项目随后重新设计，现行设计是[语言规范](../language-spec.zh.md)（v0.2 草案），按它重做的评估见[第二次纸面迁移](paper-migration-2.md)。除各表的“现行规范”一列外，文中的章节号（§）都指 v0.1。
 
 此前的调查各回答规范中的一个具体选择。本文测量整份规范落到真实代码上的代价：把两个项目的 GDScript 逐行改写成符合 v0.1 的代码，记下每一处额外工作；再在 14 个仓库的语料上统计其中几类写法的频率，检验这两个项目是否有代表性。改写没有编译器检查，所以称为纸面迁移。文中的修正约定、候选和假定是迁移时采用或计数的，当时不是 v0.1 的规则；它们在现行规范中的去向见各表的“现行规范”一列。
 
@@ -29,7 +29,7 @@
 
 **Ring** 是一个已停止维护的视觉小说引擎。主体用 C#（.NET）编写，附带一个用 GDScript 写的打砖块小游戏 breakout，并使用 Dialogue Manager 插件（GDScript）。C# 运行时与 breakout 之间用 Dictionary 传递消息。迁移的 9 个文件是：breakout_manager（autoload，消息入口兼信号中心）；health、death、interval_hurt 三个组件；Brick 及其 sturdy、indestructible 两个子类；Enemy 基类；Utility（autoload）。按部分迁移处理：这些文件改为本语言，Paddle、Skill、Consumables、Ball、ResourceManager、ValueManager 等仍是 GDScript，C# 和插件不动。这样能测到与 GDScript、C# 和插件共存时的代价。
 
-**频率语料**与[属性访问器调查](property-accessors.zh.md#语料)相同：14 个仓库，提交相同，只计第一方代码（`property-accessors/scope.py`）。频率的单位是逻辑行，即去掉注释和空行、合并续行之后的行，共 99,410 行，因此与其他调查的物理行数不同。另把 Ring 的整个 breakout（1,903 行）单列一行作对照。
+**频率语料**与[属性访问器调查](property-accessors.md#语料)相同：14 个仓库，提交相同，只计第一方代码（`property-accessors/scope.py`）。频率的单位是逻辑行，即去掉注释和空行、合并续行之后的行，共 99,410 行，因此与其他调查的物理行数不同。另把 Ring 的整个 breakout（1,903 行）单列一行作对照。
 
 ## 方法
 

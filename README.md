@@ -2,7 +2,7 @@
 
 A fully statically typed scripting language for medium-to-large Godot 4 projects, replacing GDScript in project code while coexisting with GDScript plugins, delivered as a GDExtension. Petrichor is a codename.
 
-**Status:** early implementation. The [language specification](docs/language-spec.en.md) (v0.2) is a draft published for feedback. A first subset of the language runs in Godot, built as described in the [implementation architecture](docs/architecture.en.md); with it, two milestones are reached: the scripts of a small FPS game run in Petrichor, and so do those of the breakout minigame of Ring, a game written mostly in C#. Engine behavior is checked against Godot 4.7.2-stable.
+**Status:** early implementation. The [language specification](docs/language-spec.en.md) (v0.2) is a draft published for feedback. A first subset of the language runs in Godot, built as described in the [implementation architecture](docs/architecture.md); with it, two milestones are reached: the scripts of a small FPS game run in Petrichor, and so do those of the breakout minigame of Ring, a game written mostly in C#. Engine behavior is checked against Godot 4.7.2-stable.
 
 中文：[README.zh.md](README.zh.md)
 
@@ -54,35 +54,35 @@ func max_hp_from(data: Variant) -> int?:
 - **Coroutines with ownership.** `async func` returns a `Task`; cancellation follows ownership, and awaiting a freed object is an error instead of hanging forever ([§9](docs/language-spec.en.md#9-coroutines)).
 - **Lives next to GDScript.** Third-party plugins stay in GDScript, and GDScript's use of Petrichor instances is statically checked ([§11](docs/language-spec.en.md#11-coexisting-with-gdscript-and-c)).
 
-Every rule that depends on engine behavior cites the Godot source it was checked against ([engine facts](docs/engine-facts.en.md)), and design questions that real code can answer were answered by surveys of the code of 20 Godot projects.
+Every rule that depends on engine behavior cites the Godot source it was checked against ([engine facts](docs/engine-facts.md)), and design questions that real code can answer were answered by surveys of the code of 20 Godot projects.
 
 ## Documents
 
 - [Language specification v0.2](docs/language-spec.en.md) · [中文](docs/language-spec.zh.md)
-- [Implementation architecture](docs/architecture.en.md) · [中文](docs/architecture.zh.md)
-- [Design notes and trade-offs](docs/design-notes.en.md) · [中文](docs/design-notes.zh.md)
-- [Engine facts](docs/engine-facts.en.md) · [中文](docs/engine-facts.zh.md)
+- [Implementation architecture](docs/architecture.md)
+- [Design notes and trade-offs](docs/design-notes.md)
+- [Engine facts](docs/engine-facts.md)
 - Surveys:
-  - [Do scripts see more than one scene structure?](docs/surveys/scene-structures.en.md)
-  - [How much code duplication do different native base classes force?](docs/surveys/cross-branch-duplication.en.md)
-  - [Pitfalls of the engine, GDScript and the C# bridge](docs/surveys/pitfalls.en.md)
-  - [How do real Godot 4 projects use property getters and setters?](docs/surveys/property-accessors.en.md)
-  - [How often is the result of awaiting a multi-parameter signal used?](docs/surveys/await-signal-results.en.md)
-  - [Where are script members used: own file, subclasses, other scripts?](docs/surveys/member-visibility.en.md)
-  - [What does it cost to migrate real code to the current design?](docs/surveys/paper-migration-2.en.md)
-  - [What did it cost to migrate real code to spec v0.1?](docs/surveys/paper-migration.en.md)
-  - [What does computing the constants of real code take?](docs/surveys/constant-expressions.en.md)
-  - [Which constructs of real code does the implementation not support yet?](docs/surveys/implementation-coverage.en.md)
-  - [One-off counts in the corpus](docs/surveys/corpus-counts.en.md)
+  - [Do scripts see more than one scene structure?](docs/surveys/scene-structures.md)
+  - [How much code duplication do different native base classes force?](docs/surveys/cross-branch-duplication.md)
+  - [Pitfalls of the engine, GDScript and the C# bridge](docs/surveys/pitfalls.md)
+  - [How do real Godot 4 projects use property getters and setters?](docs/surveys/property-accessors.md)
+  - [How often is the result of awaiting a multi-parameter signal used?](docs/surveys/await-signal-results.md)
+  - [Where are script members used: own file, subclasses, other scripts?](docs/surveys/member-visibility.md)
+  - [What does it cost to migrate real code to the current design?](docs/surveys/paper-migration-2.md)
+  - [What did it cost to migrate real code to spec v0.1?](docs/surveys/paper-migration.md)
+  - [What does computing the constants of real code take?](docs/surveys/constant-expressions.md)
+  - [Which constructs of real code does the implementation not support yet?](docs/surveys/implementation-coverage.md)
+  - [One-off counts in the corpus](docs/surveys/corpus-counts.md)
 
-Each survey has a write-up in English and Chinese and a directory of scripts that reproduce it.
+The documents other than the specification are in Chinese only. Each survey comes with a directory of scripts that reproduce it.
 
 ## Next steps
 
-1. First milestone, done: the FPS starter kit of the [second paper migration](docs/surveys/paper-migration-2.en.md) runs with its scripts in Petrichor, and the [language specification](docs/language-spec.en.md) rules that running it needs became tests; what it leaves for later is listed in the [backlog](BACKLOG.md).
-2. Done: paying down the debt the quick first implementation left, in four groups: correctness, verification, code and documents ([architecture §5](docs/architecture.en.md#5-order-of-work)).
-3. Second milestone, done: the breakout of Ring in the same migration runs with its scripts in Petrichor, with the structs and containers of them that its messages to and from C# need ([architecture §5](docs/architecture.en.md#5-order-of-work)).
-4. Next come steps 7–11 of [architecture §5](docs/architecture.en.md#5-order-of-work): the rest of the first version's language; then the tools, among them renaming with its part in scenes, the language server, the formatter, lints and quick fixes for migration; then performance against GDScript; then the first public release, with prebuilt libraries for every platform; after the first version, mods and exporting structs and enums with payloads. That the current design allows those of them on which choosing the language depends is shown in [architecture §6](docs/architecture.en.md#6-what-must-be-possible-later). The work itself is listed in the [backlog](BACKLOG.md).
+1. First milestone, done: the FPS starter kit of the [second paper migration](docs/surveys/paper-migration-2.md) runs with its scripts in Petrichor, and the [language specification](docs/language-spec.en.md) rules that running it needs became tests; what it leaves for later is listed in the [backlog](BACKLOG.md).
+2. Done: paying down the debt the quick first implementation left, in four groups: correctness, verification, code and documents ([architecture §5](docs/architecture.md#5-推进顺序)).
+3. Second milestone, done: the breakout of Ring in the same migration runs with its scripts in Petrichor, with the structs and containers of them that its messages to and from C# need ([architecture §5](docs/architecture.md#5-推进顺序)).
+4. Next come steps 7–11 of [architecture §5](docs/architecture.md#5-推进顺序): the rest of the first version's language; then the tools, among them renaming with its part in scenes, the language server, the formatter, lints and quick fixes for migration; then performance against GDScript; then the first public release, with prebuilt libraries for every platform; after the first version, mods and exporting structs and enums with payloads. That the current design allows those of them on which choosing the language depends is shown in [architecture §6](docs/architecture.md#6-以后必须能做到的事). The work itself is listed in the [backlog](BACKLOG.md).
 5. Throughout: collect feedback and narrow the specification to a testable core.
 
 ## Feedback

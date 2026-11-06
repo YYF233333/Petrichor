@@ -2,7 +2,7 @@
 
 一门面向中大型 Godot 4 项目的全静态类型脚本语言，在项目代码中替代 GDScript 并与 GDScript 插件共存，以 GDExtension 的形式交付。Petrichor 是项目代号。
 
-**状态**：早期实现阶段。[语言规范](docs/language-spec.zh.md)（v0.2）是发布出来征求意见的草案。语言的第一个子集已经能在 Godot 中运行，实现方式见[实现架构](docs/architecture.zh.md)；两个里程碑已经达成：一个小型 FPS 游戏的脚本以 Petrichor 运行，主体用 C# 写成的游戏 Ring 中打砖块小游戏的脚本也是。引擎行为按 Godot 4.7.2-stable 核对。
+**状态**：早期实现阶段。[语言规范](docs/language-spec.zh.md)（v0.2）是发布出来征求意见的草案。语言的第一个子集已经能在 Godot 中运行，实现方式见[实现架构](docs/architecture.md)；两个里程碑已经达成：一个小型 FPS 游戏的脚本以 Petrichor 运行，主体用 C# 写成的游戏 Ring 中打砖块小游戏的脚本也是。引擎行为按 Godot 4.7.2-stable 核对。
 
 English: [README.md](README.md)
 
@@ -54,35 +54,35 @@ func max_hp_from(data: Variant) -> int?:
 - **有归属的协程。** `async func` 返回 `Task`；取消沿归属传播；等待的对象被释放时报错，而不是永远挂起（[§9](docs/language-spec.zh.md#9-协程)）。
 - **与 GDScript 共存。** 第三方插件保持 GDScript，GDScript 使用 Petrichor 类的实例时同样有静态检查（[§11](docs/language-spec.zh.md#11-与-gdscript-和-c-共存)）。
 
-每一条依赖引擎行为的规则，都注明了核对过的 Godot 源码位置（[引擎事实](docs/engine-facts.zh.md)）；能用真实代码回答的设计问题，都在 20 个 Godot 项目的代码上做了调查。
+每一条依赖引擎行为的规则，都注明了核对过的 Godot 源码位置（[引擎事实](docs/engine-facts.md)）；能用真实代码回答的设计问题，都在 20 个 Godot 项目的代码上做了调查。
 
 ## 文档
 
 - [语言规范 v0.2](docs/language-spec.zh.md) · [English](docs/language-spec.en.md)
-- [实现架构](docs/architecture.zh.md) · [English](docs/architecture.en.md)
-- [设计说明与取舍](docs/design-notes.zh.md) · [English](docs/design-notes.en.md)
-- [引擎事实](docs/engine-facts.zh.md) · [English](docs/engine-facts.en.md)
+- [实现架构](docs/architecture.md)
+- [设计说明与取舍](docs/design-notes.md)
+- [引擎事实](docs/engine-facts.md)
 - 调查：
-  - [脚本会见到不止一种场景结构吗？](docs/surveys/scene-structures.zh.md)
-  - [原生基类不同造成了多少代码重复？](docs/surveys/cross-branch-duplication.zh.md)
-  - [引擎、GDScript 和 C# 桥接的暗坑](docs/surveys/pitfalls.zh.md)
-  - [真实的 Godot 4 项目怎样使用属性的 getter 和 setter？](docs/surveys/property-accessors.zh.md)
-  - [await 多参数信号的结果有多常被使用？](docs/surveys/await-signal-results.zh.md)
-  - [脚本成员在哪里被使用：本文件、子类、其他脚本？](docs/surveys/member-visibility.zh.md)
-  - [按现行设计迁移真实代码的成本](docs/surveys/paper-migration-2.zh.md)
-  - [按 v0.1 规范迁移真实代码的成本](docs/surveys/paper-migration.zh.md)
-  - [计算真实代码中的常量需要什么？](docs/surveys/constant-expressions.zh.md)
-  - [真实代码用到而实现尚不支持的写法有哪些？](docs/surveys/implementation-coverage.zh.md)
-  - [语料中的零散计数](docs/surveys/corpus-counts.zh.md)
+  - [脚本会见到不止一种场景结构吗？](docs/surveys/scene-structures.md)
+  - [原生基类不同造成了多少代码重复？](docs/surveys/cross-branch-duplication.md)
+  - [引擎、GDScript 和 C# 桥接的暗坑](docs/surveys/pitfalls.md)
+  - [真实的 Godot 4 项目怎样使用属性的 getter 和 setter？](docs/surveys/property-accessors.md)
+  - [await 多参数信号的结果有多常被使用？](docs/surveys/await-signal-results.md)
+  - [脚本成员在哪里被使用：本文件、子类、其他脚本？](docs/surveys/member-visibility.md)
+  - [按现行设计迁移真实代码的成本](docs/surveys/paper-migration-2.md)
+  - [按 v0.1 规范迁移真实代码的成本](docs/surveys/paper-migration.md)
+  - [计算真实代码中的常量需要什么？](docs/surveys/constant-expressions.md)
+  - [真实代码用到而实现尚不支持的写法有哪些？](docs/surveys/implementation-coverage.md)
+  - [语料中的零散计数](docs/surveys/corpus-counts.md)
 
-每份调查都有中英文报告，以及可以复现它的脚本目录。
+除语言规范外，文档只有中文版。每份调查都附有可以复现它的脚本目录。
 
 ## 下一步
 
-1. 第一个里程碑，已完成：[第二次纸面迁移](docs/surveys/paper-migration-2.zh.md)中的 FPS 项目以 Petrichor 脚本运行，运行它所需的[语言规范](docs/language-spec.zh.md)规则已写成测试；留待以后的部分列在 [BACKLOG.md](BACKLOG.md)。
-2. 已完成：偿还快速完成的第一版实现留下的技术债，分正确性、验证、代码、文档四组（[实现架构 §5](docs/architecture.zh.md#5-推进顺序)）。
-3. 第二个里程碑，已完成：同一次迁移中 Ring 的 breakout 以 Petrichor 脚本运行，包括它与 C# 往来的消息所需的 struct 和元素为 struct 的容器（[实现架构 §5](docs/architecture.zh.md#5-推进顺序)）。
-4. 接下来是[实现架构 §5](docs/architecture.zh.md#5-推进顺序) 的第 7–11 步：补齐第一版的语言；然后是工具链，包括带场景部分的重命名、语言服务器、格式化器、lint 和迁移用的快速修复；然后是相对 GDScript 的性能；再后是首次公开发布，包括全平台的预编译库；第一版之后是 Mod 和 struct、带载荷 enum 的导出。现有设计允许以后做到其中决定项目能否被选用的几项，论证见[实现架构 §6](docs/architecture.zh.md#6-以后必须能做到的事)。具体工作列在 [BACKLOG.md](BACKLOG.md)。
+1. 第一个里程碑，已完成：[第二次纸面迁移](docs/surveys/paper-migration-2.md)中的 FPS 项目以 Petrichor 脚本运行，运行它所需的[语言规范](docs/language-spec.zh.md)规则已写成测试；留待以后的部分列在 [BACKLOG.md](BACKLOG.md)。
+2. 已完成：偿还快速完成的第一版实现留下的技术债，分正确性、验证、代码、文档四组（[实现架构 §5](docs/architecture.md#5-推进顺序)）。
+3. 第二个里程碑，已完成：同一次迁移中 Ring 的 breakout 以 Petrichor 脚本运行，包括它与 C# 往来的消息所需的 struct 和元素为 struct 的容器（[实现架构 §5](docs/architecture.md#5-推进顺序)）。
+4. 接下来是[实现架构 §5](docs/architecture.md#5-推进顺序) 的第 7–11 步：补齐第一版的语言；然后是工具链，包括带场景部分的重命名、语言服务器、格式化器、lint 和迁移用的快速修复；然后是相对 GDScript 的性能；再后是首次公开发布，包括全平台的预编译库；第一版之后是 Mod 和 struct、带载荷 enum 的导出。现有设计允许以后做到其中决定项目能否被选用的几项，论证见[实现架构 §6](docs/architecture.md#6-以后必须能做到的事)。具体工作列在 [BACKLOG.md](BACKLOG.md)。
 5. 贯穿始终：收集反馈，把规范收敛到可测试的核心。
 
 ## 反馈

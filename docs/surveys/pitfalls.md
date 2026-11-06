@@ -1,6 +1,6 @@
 # 调查：Godot 4 脚本的暗坑清单
 
-**2026-10-23** · 引擎：Godot 提交 `469659e` · 关联：[语言规范](../language-spec.zh.md) · English: [pitfalls.en.md](pitfalls.en.md)
+**2026-10-23** · 引擎：Godot 提交 `469659e` · 关联：[语言规范](../language-spec.zh.md)
 
 本文整理写 Godot 4 脚本时会踩到的暗坑，分引擎与 GDScript、C#（.NET）桥接两组，共 80 条，并逐条判断：一门新的静态类型脚本语言及其工具链能否消除它，靠什么消除，修复是否需要只对引擎模块开放、不对 GDExtension 开放的 C++ 接口。清单本身在 [`pitfalls/catalog.md`](pitfalls/catalog.md)，数据在 `pitfalls/catalog.tsv`；本文说明它的来源和做法，并汇总结果。文中的修复类别都是推断，不是决定；规范按编号引用条目，引用处列在文末。
 
