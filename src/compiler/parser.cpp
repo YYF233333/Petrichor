@@ -1814,6 +1814,12 @@ public:
 				}
 				continue;
 			}
+			// A region of ignored warnings also opens or closes in the header,
+			// as in GDScript (modules/gdscript/gdscript_parser.cpp:741-743).
+			if (check(TokenKind::At) && is_warning_region(peek(1).text)) {
+				statement_annotation();
+				continue;
+			}
 			// Class annotations open the header (spec §2.1, §2.3).
 			if (!seen_member && check(TokenKind::At) && is_class_annotation(peek(1).text) && (peek(1).text != "abstract" || abstract_heads_class())) {
 				advance();

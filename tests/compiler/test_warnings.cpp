@@ -56,6 +56,8 @@ TEST_CASE("@warning_ignore reaches the head of the next statement or declaration
 	CHECK(warnings_of(in_loop("\t\t@warning_ignore_start(\"modified_copy\")\n\t\th.damage = 0\n\t\t@warning_ignore_restore(\"modified_copy\")\n")).empty());
 	CHECK(warnings_of(in_loop("\t\t@warning_ignore_start(\"modified_copy\")\n\t\th.damage = 0\n")).empty());
 	CHECK(warnings_of(in_loop("\t\t@warning_ignore_start(\"modified_copy\")\n\t\t@warning_ignore_restore(\"modified_copy\")\n\t\th.damage = 0\n")).size() == 2);
+	// Also from before the class header.
+	CHECK(warnings_of("@warning_ignore_start(\"modified_copy\")\n" + in_loop("\t\th.damage = 0\n")).empty());
 }
 
 TEST_CASE("a name of @warning_ignore that ignores nothing gets a hint") {
