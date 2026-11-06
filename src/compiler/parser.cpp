@@ -948,14 +948,18 @@ class Parser {
 					}
 					// A value on a line without a colon is a statement where a
 					// pattern should be, as a line cut short leaves a branch's body.
-					const bool statement_line = !failed && check(TokenKind::Newline) && branch.patterns.size() == 1 && branch.patterns[0].kind == PatternKind::Value && !branch.guard;
+					std::unique_ptr<Expr> statement_value;
+					if (!failed && check(TokenKind::Newline) && branch.patterns.size() == 1 && !branch.guard) {
+						Pattern &only = branch.patterns[0];
+						statement_value = only.kind == PatternKind::Value ? std::move(only.value) : (only.kind == PatternKind::Constructor ? pattern_call(only) : nullptr);
+					}
 					expect(TokenKind::Colon, "\":\"");
 					branch.body = block();
-					if (statement_line) {
+					if (statement_value) {
 						auto stmt = std::make_unique<Stmt>();
 						stmt->kind = StmtKind::Expression;
-						stmt->range = branch.patterns[0].value->range;
-						stmt->value = std::move(branch.patterns[0].value);
+						stmt->range = statement_value->range;
+						stmt->value = std::move(statement_value);
 						branch.patterns.clear();
 						branch.body.insert(branch.body.begin(), std::move(stmt));
 					}
@@ -985,14 +989,69 @@ class Parser {
 			const Token &name = expect(TokenKind::Identifier, "a variable name");
 			result.name = name.text;
 			result.name_token = index(name);
-		} else if (check(TokenKind::BracketOpen)) {
+		} else if (check(TokenKind::BracketOpen) || check(TokenKind::BraceOpen)) {
 			fail(peek(), "Array and dictionary patterns are not supported yet.");
+		} else if (const int names = called_names()) {
+			// `A.B(...)`, a constructor or a call, which the checker tells apart.
+			result.kind = PatternKind::Constructor;
+			for (int i = 0; i < names; i++) {
+				if (i > 0) {
+					advance();
+				}
+				const Token &name = advance();
+				auto callee = make(i == 0 ? ExprKind::Name : ExprKind::Member, name);
+				callee->text = name.text;
+				callee->name_token = index(name);
+				callee->base = std::move(result.value);
+				callee->range = span(first);
+				result.value = std::move(callee);
+			}
+			advance();
+			while (!failed && !check(TokenKind::ParenClose)) {
+				if (check(TokenKind::Period) && peek(1).kind == TokenKind::Period) {
+					advance();
+					advance();
+					result.rest = true;
+				} else {
+					uint32_t field_token = 0;
+					std::string field;
+					if (check(TokenKind::Identifier) && peek(1).kind == TokenKind::Equal) {
+						field_token = uint32_t(at);
+						field = advance().text;
+						advance();
+					}
+					result.items.push_back(pattern());
+					result.items.back().field = field;
+					result.items.back().field_token = field_token;
+				}
+				if (!match(TokenKind::Comma)) {
+					break;
+				}
+			}
+			expect(TokenKind::ParenClose, "\")\"");
 		} else {
 			result.kind = PatternKind::Value;
 			result.value = expression();
 		}
 		result.range = span(first);
 		return result;
+	}
+
+	// How many names `A.B.C(` has before its parenthesis, or 0 if it is not one.
+	int called_names() const {
+		int names = 0;
+		size_t k = 0;
+		while (peek(k).kind == TokenKind::Identifier) {
+			names++;
+			if (peek(k + 1).kind == TokenKind::ParenOpen) {
+				return names;
+			}
+			if (peek(k + 1).kind != TokenKind::Period) {
+				return 0;
+			}
+			k += 2;
+		}
+		return 0;
 	}
 
 	std::unique_ptr<Stmt> statement() {
@@ -1214,7 +1273,7 @@ class Parser {
 	}
 
 	// After "enum": the name, if any, and the values in braces, each `NAME` or
-	// `NAME = value`, as in GDScript (spec §3.7).
+	// `NAME = value`, as in GDScript, or `NAME(field: Type, ...)` (spec §3.7).
 	EnumDecl enumeration(bool p_is_pub, uint32_t p_first) {
 		EnumDecl decl;
 		decl.is_pub = p_is_pub;
@@ -1230,13 +1289,25 @@ class Parser {
 			if (failed) {
 				break;
 			}
-			if (check(TokenKind::ParenOpen)) {
-				fail(peek(), "Enums with payloads are not supported yet.");
-				break;
-			}
 			EnumValueDecl value;
 			value.name = name.text;
 			value.name_token = index(name);
+			if (match(TokenKind::ParenOpen)) {
+				decl.has_payloads = true;
+				do {
+					VarDecl field;
+					const Token &field_name = expect(TokenKind::Identifier, "the name of a field");
+					field.name = field_name.text;
+					field.name_token = index(field_name);
+					expect(TokenKind::Colon, "\":\" and the field's type");
+					if (!failed) {
+						field.declared_type = type_ref();
+					}
+					field.range = span(index(field_name));
+					value.fields.push_back(std::move(field));
+				} while (!failed && match(TokenKind::Comma) && !check(TokenKind::ParenClose));
+				expect(TokenKind::ParenClose, "\")\"");
+			}
 			if (match(TokenKind::Equal)) {
 				value.value = expression();
 			}

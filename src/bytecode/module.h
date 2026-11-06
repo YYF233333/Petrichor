@@ -157,6 +157,10 @@ enum class TypeKind : uint8_t {
 	Struct, // A struct of this language, `name`, with its `fields` (spec §3.6).
 	Dictionary, // Dictionary[K, V], K being the type `key` and V the type `element` (spec §3.8); an untyped Dictionary is a Value.
 	Enum, // An int that is one of the `values` of the enum `name` (spec §3.7).
+	// An enum with payloads, `name` (spec §3.7), laid out as a struct: the int
+	// index of the variant, then the `fields` of every variant one after
+	// another; its `values` give each variant's name and how many fields it has.
+	PayloadEnum,
 	Count,
 };
 
@@ -182,9 +186,9 @@ struct TypeDesc {
 	ClassRef object;
 	bool nullable = false;
 	std::string task_result; // Object: a Task[T] handle, with T's signature key.
-	std::string name; // Struct and Enum: "script::Name", as interfaces are named; the engine's enum as it names it, such as "Node.ProcessMode".
-	std::vector<FieldDesc> fields; // Struct.
-	std::vector<EnumValueDesc> values; // Enum, in declaration order.
+	std::string name; // Struct and the enums: "script::Name", as interfaces are named; the engine's enum as it names it, such as "Node.ProcessMode".
+	std::vector<FieldDesc> fields; // Struct and PayloadEnum.
+	std::vector<EnumValueDesc> values; // The enums, in declaration order.
 
 	bool operator==(const TypeDesc &p_other) const {
 		return kind == p_other.kind && value == p_other.value && element == p_other.element && key == p_other.key && object == p_other.object && nullable == p_other.nullable &&
@@ -196,8 +200,12 @@ struct TypeDesc {
 // no such layout: the slot of T? is an 8-byte tag, 1 for Some, then the value,
 // which is there also for None; that of a struct holds its fields one after
 // another, each in its own slot's layout, so that a field is a slot inside it.
+// A PayloadEnum is laid out as a struct, the fields of variants other than
+// its own holding their defaults.
 ValueType storage_of(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 uint32_t type_size(const std::vector<TypeDesc> &p_types, uint32_t p_type);
+// A struct or a PayloadEnum, whose fields are slots inside its slot.
+bool has_fields(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 // Where each field of a struct starts in its slot.
 std::vector<uint32_t> field_offsets(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 // The type as text, equal exactly for equal types in any module.
@@ -206,12 +214,13 @@ std::string type_key(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 // be copied from one slot to the other as they are.
 std::string layout_key(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 // Whether a container keeps values of the type boxed, each in a Callable of
-// this library (architecture §2.2): a struct, a T?, or a container that keeps
-// its elements or keys boxed, which is then boxed in turn.
+// this library (architecture §2.2): a struct, a PayloadEnum, a T?, or a
+// container that keeps its elements or keys boxed, which is then boxed in turn.
 bool is_boxed(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 
 // A constant of a type of the table; one of an Object type or of T? is None,
-// unless it loads a resource. The runtime computes it once, when the class
+// unless it loads a resource; one of a PayloadEnum is the variant `i` with
+// its fields at their defaults. The runtime computes it once, when the class
 // loads (spec §4.5): the engine's computations below cannot fail on the values
 // the compiler lets through.
 struct Constant {

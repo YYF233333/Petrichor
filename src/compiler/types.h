@@ -23,6 +23,7 @@ enum class TypeKind {
 	Option, // T? of a value type T, which is `args[0]` (spec §3.4); objects carry `nullable` instead.
 	Struct, // A struct (spec §3.6), named and declared as an interface is.
 	Enum, // An enum without payloads (spec §3.7), named as a struct is, or as the engine names it; an int with `values`.
+	PayloadEnum, // An enum with payloads (spec §3.7), named as a struct is; its variants in `values`.
 	Function, // A function value (spec §3.11): `args` holds the return type, then the parameter types.
 	Signal, // A signal of an object: `args` holds the types of its arguments.
 	None, // The literal None where nothing says which T? it is.
@@ -30,20 +31,7 @@ enum class TypeKind {
 	Unsupported, // An engine type this compiler cannot handle yet.
 };
 
-// The values of an enum without payloads, in declaration order (spec §3.7).
-struct EnumValues {
-	std::vector<std::pair<std::string, int64_t>> list;
-	bool is_engine = false; // An enum of the engine, named as it names it.
-
-	bool has(int64_t p_value) const {
-		for (const auto &[name, value] : list) {
-			if (value == p_value) {
-				return true;
-			}
-		}
-		return false;
-	}
-};
+struct EnumValues;
 
 struct Type {
 	TypeKind kind = TypeKind::Error;
@@ -57,13 +45,13 @@ struct Type {
 	// the scene's root, if known.
 	std::vector<Type> args;
 	// Object: a class or interface of this language, declared in this script
-	// (its res:// path), and the engine class its objects have. Struct: the
-	// script that declares it.
+	// (its res:// path), and the engine class its objects have. Struct and the
+	// enums: the script that declares it.
 	std::string script;
 	std::string base;
 	bool is_interface = false;
 	bool is_async = false;
-	std::shared_ptr<const EnumValues> values; // Enum; the name and the script say which enum it is.
+	std::shared_ptr<const EnumValues> values; // Enum and PayloadEnum; the name and the script say which enum it is.
 	static Type task(const Type &p_result) { return Type{ TypeKind::Task, std::string(), false, { p_result } }; }
 
 	static Type of(TypeKind p_kind) { return Type{ p_kind }; }
@@ -101,8 +89,8 @@ struct Type {
 	}
 	// An enum of a script of this language, named as a struct, or of the engine
 	// without a script.
-	static Type enumeration(const std::string &p_name, const std::string &p_script, std::shared_ptr<const EnumValues> p_values) {
-		Type type{ TypeKind::Enum, p_name };
+	static Type enumeration(const std::string &p_name, const std::string &p_script, std::shared_ptr<const EnumValues> p_values, TypeKind p_kind = TypeKind::Enum) {
+		Type type{ p_kind, p_name };
 		type.script = p_script;
 		type.values = std::move(p_values);
 		return type;
@@ -131,6 +119,24 @@ struct Type {
 	// An interface's or a struct's name in its script: Damageable of Combat.Damageable.
 	std::string interface_name() const { return name.substr(name.find_last_of('.') + 1); }
 	std::string to_string() const;
+};
+
+// The values of an enum in declaration order (spec §3.7): without payloads,
+// each name and int; with payloads, each variant's name and index, and the
+// names and types of its fields.
+struct EnumValues {
+	std::vector<std::pair<std::string, int64_t>> list;
+	std::vector<std::vector<std::pair<std::string, Type>>> fields; // PayloadEnum, of each variant.
+	bool is_engine = false; // An enum of the engine, named as it names it.
+
+	bool has(int64_t p_value) const {
+		for (const auto &[name, value] : list) {
+			if (value == p_value) {
+				return true;
+			}
+		}
+		return false;
+	}
 };
 
 // A type named as godot-cpp's extension API names it: "float", "Vector3",
@@ -181,7 +187,7 @@ bool is_typed_container(const Type &p_type);
 bool is_format_string(const Type &p_type);
 
 // Whether a container keeps values of the type boxed (architecture §2.2): a
-// struct, a T? of a value type, or a container that keeps its elements or keys
+// struct, an enum with payloads, a T? of a value type, or a container that keeps its elements or keys
 // boxed, which then enters a Variant only through `Array(hits)` or
 // `Dictionary(d)` (spec §3.8).
 bool is_boxed(const Type &p_type);

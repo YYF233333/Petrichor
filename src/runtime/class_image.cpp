@@ -435,7 +435,10 @@ bool pub_constant(const ClassImage &p_image, const StringName &p_name, Variant &
 			continue;
 		}
 		if (!p_image.module.constants[constant.constant].load) {
-			r_value = p_image.values[constant.constant];
+			// A value in a box crosses encoded (spec §10.1).
+			const TypeImage &type = p_image.types[p_image.module.constants[constant.constant].type];
+			const uint8_t *boxed = opened(type, p_image.values[constant.constant]);
+			r_value = boxed ? to_variant(type, boxed) : p_image.values[constant.constant];
 			return true;
 		}
 		String error;
@@ -497,6 +500,14 @@ bool constant_value(const ClassImage &p_image, const bytecode::Constant &p_const
 	}
 	if (p_constant.constructor >= 0) {
 		return construct_constant(p_image, p_constant, r_value, r_error);
+	}
+	if (p_types[p_constant.type].kind == bytecode::TypeKind::PayloadEnum) {
+		// The variant with its fields at their defaults, in the box that
+		// CONST_VALUE copies it out of.
+		ValueBuffer value(p_types[p_constant.type]);
+		*reinterpret_cast<int64_t *>(value.data) = p_constant.i;
+		r_value = make_box(p_types[p_constant.type], value.data, false);
+		return true;
 	}
 	if (type == ValueType::Array) {
 		const ValueCheck &check = p_types[p_constant.type].check;

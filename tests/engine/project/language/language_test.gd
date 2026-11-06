@@ -241,6 +241,10 @@ func _ready() -> void:
 	c.bounds = Vector2i(50, 0)
 	_check(bound_before == "bound" and c.classify("x", 7) == "other" and c.classify("x", 50) == "bound", "match: a pattern read when the match runs")
 	_check(c.widened() == [3.0, 3.0], "the integer vectors widen to float ones, also into a function value's parameter")
+	_check(c.commands() == [["idle", "move (1.0, 2.0, 3.0)", "x 2", "attack"], true, true, true, true], "enums with payloads: made, matched, compared, ordered and kept in containers")
+	var attack := {"$variant": "ATTACK", "power": 4, "label": "y", "extra": 0}
+	_check(c.passed(attack) == {"$variant": "ATTACK", "power": 4, "label": "y"} and c.passed({"$variant": "IDLE"}) == {"$variant": "IDLE"}, "an enum with payloads goes through the engine as a Dictionary with \"$variant\"")
+	_check(c.doubled(null) == -1 and c.doubled(0) == 0 and c.doubled(5) == 10, "match over T?: None, Some(value) and var bound to the value inside")
 	var listed_targets: Array = v.targets(target)
 	_check(listed_targets.get_typed_script() == TargetCheck and v.as_target(target) == target and v.as_target(plain_node) == null, "an array typed with a class of this language, and as to one")
 	var refused_target = v.callv("taken_by", [plain_node])

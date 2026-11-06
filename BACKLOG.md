@@ -8,11 +8,10 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
 - Of match (spec §5.6):
   - array and dictionary patterns;
-  - a match over `T?`, with `None`, `Some(var x)` and `var x`, and the check that it is exhaustive;
-  - the patterns of structs, and those of enums, Result and Settled once they exist.
+  - the patterns of Result and Settled once they exist.
 - Of structs (spec §3.6):
   - methods;
-  - a struct that holds itself through a container. The type table cannot list it, since a type's parts come before it.
+  - a struct or an enum with payloads that holds itself through a container. The type table cannot list it, since a type's parts come before it.
 - `T.try_from(v)` (spec §5.3), as for `Array[Hit].try_from(Array(hits))`.
 - The error for a type that is not pub in the signature of a pub member (spec §4.2). Such a type may be a struct or an interface.
 - Static checks of:
@@ -36,7 +35,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - the remaining `Option` methods of spec §3.4;
   - `pop_front()` and `pop_back()` of `Array[T?]` giving `T??`;
   - rejecting `T??` and `Variant?` passed to `Variant` (spec §10.1).
-- `Result[T, E]` with `Ok`, `Err`, the non-discardable check and its methods, and postfix `?` (spec §3.5, §8.2). Enums with payloads, and the names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7). `T.try_from(x)` (spec §5.3).
+- `Result[T, E]` with `Ok`, `Err`, the non-discardable check and its methods, and postfix `?` (spec §3.5, §8.2). The names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7). `T.try_from(x)` (spec §5.3).
 - `for` over objects that define `_iter_init`, `_iter_next` and `_iter_get`, as GDScript allows; the checker reports it as not supported yet.
 - The `breakpoint` statement.
 - Rest parameters `...args: Array[T]` (spec §4.6).
@@ -157,6 +156,7 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
   - warn wherever a `NaN` is detected.
   A survey of the corpus decides. Until then, spec §5.2 marks it a known limitation.
 - Whether a setter that runs before ready should wait for ready on its own (spec §6.5). The alternative is writing the behavior in the setter. The owner suspects that the implicit suspension makes setters hard to understand. To be discussed again before §6.5 is implemented.
+- What the name of an enum with payloads gives as a value (spec §3.7). Spec §3.7 gives every enum name `keys()`, `values()`, `find_key()` and `get()`. `values()` cannot list a variant with fields. The checker now rejects the name as a value.
 - Whether an autoload's name stands for its script's class in a type, as GDScript's does (`modules/gdscript/gdscript_analyzer.cpp:806-826`). godot-open-rts writes `var p: Constants.Match.Player` 5 times, `Constants` being an autoload (`docs/surveys/corpus-counts/inner_classes.py`).
 - Whether diagnostics and semantic queries also serve programs, not only the editor's interface. They could say which declaration or scene a constraint comes from, and list the references that broke. That could let AI and tools fix errors while reading less code.
 - Whether the first version (spec §14) leaves out `weak[T]` (spec §3.12) and the built-in test runner (§13.2). The FPS and Ring scripts of the second paper migration use neither.

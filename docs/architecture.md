@@ -88,7 +88,12 @@
 
 ### 2.2 runtime
 
-- 值：int、float 各 8 字节；引擎的内置值类型就地存放，按引擎的规则复制和析构；String、Array、Dictionary 用引擎的类型。Option 和带载荷的 enum 有带判别字段的布局。struct 依次存放各字段，字段就是 struct 槽位内的槽位，verifier 从类型表得出它们。struct 的 `==` 是一条按类型表逐字段比较的指令。
+- 值：int、float 各 8 字节；引擎的内置值类型就地存放，按引擎的规则复制和析构；String、Array、Dictionary 用引擎的类型。Option 有带判别字段的布局。struct 依次存放各字段，字段就是 struct 槽位内的槽位，verifier 从类型表得出它们。struct 的 `==` 是一条按类型表逐字段比较的指令。
+- 带载荷的 enum 按 struct 存放：先是分支的序号，再依次是每个分支的字段。
+  - 其他分支的字段保持默认值，所以复制和析构与 struct 相同。
+  - 构造先读入该分支的常量，各字段都是默认值，再写入实参。
+  - 相等、排序、哈希和编码只看序号和该分支的字段。
+  - 不重叠存放的代价是槽位更大，可以以后再改为按最大分支共用。
 - 元素是本语言独有类型的容器（规范 §3.8）及其嵌套的容器存为引擎容器，元素装在不可变的盒子里。
   - 盒子是用本库的 token 创建的自定义 Callable，数据是元素的类型和值，不能调用（`core/extension/gdextension_interface.cpp:1617-1631`）。
   - 引擎经盒子的 equal 回调比较 Callable，`has`、`find`、`erase`、容器的 `==` 和 Dictionary 查找都经 `hash_compare` 走到这里（`core/variant/callable.cpp:265-288`，`core/variant/variant.cpp:3351-3355`）。所以这些操作和只移动元素的操作，由构造保证按本语言的语义进行。

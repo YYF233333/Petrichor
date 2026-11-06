@@ -139,6 +139,43 @@ pub func classify(s: String, n: int) -> String:
 			pass
 	return "other"
 
+# Enums with payloads (spec §3.7), and the patterns that take them and T?
+# apart (§5.6).
+enum Command { IDLE, MOVE(target: Vector3), ATTACK(power: int, label: String) }
+
+pub func commands() -> Array:
+	var move := Command.MOVE(target = Vector3(1, 2, 3))
+	var all: Array[Command] = [Command.IDLE, move, Command.ATTACK(power = 2, label = "x"), Command.ATTACK(label = "y", power = 3)]
+	var seen: Dictionary[Command, int] = { move: 1 }
+	var described: Array[String] = []
+	for command in all:
+		described.append(command_text(command))
+	return [described, move == Command.MOVE(target = Vector3(1, 2, 3)), move != Command.MOVE(target = Vector3.ZERO), Command.IDLE < move, seen.has(Command.MOVE(target = Vector3(1, 2, 3)))]
+
+func command_text(c: Command) -> String:
+	match c:
+		Command.IDLE:
+			return "idle"
+		Command.MOVE(var target):
+			return "move %s" % target
+		Command.ATTACK(power = var p, label = "x"):
+			return "x %d" % p
+		Command.ATTACK(..):
+			return "attack"
+
+# Through the engine, as a Dictionary with "$variant" (spec §10.1).
+pub func passed(c: Command) -> Command:
+	return c
+
+pub func doubled(o: int?) -> int:
+	match o:
+		None:
+			return -1
+		Some(0):
+			return 0
+		var x:
+			return x * 2
+
 # The integer vectors widen to float ones (spec §3.2), also into the
 # parameter of a function value.
 pub func widened() -> Array:

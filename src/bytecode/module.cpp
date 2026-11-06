@@ -162,15 +162,15 @@ ValueType storage_of(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 
 // The types inside a type come before it, which the verifier checks; until
 // then, sizes and keys do not follow a type that does not.
-static bool is_struct(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
-	return p_type < p_types.size() && p_types[p_type].kind == TypeKind::Struct;
+bool has_fields(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
+	return p_type < p_types.size() && (p_types[p_type].kind == TypeKind::Struct || p_types[p_type].kind == TypeKind::PayloadEnum);
 }
 
 uint32_t type_size(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 	if (p_type < p_types.size() && p_types[p_type].kind == TypeKind::Option && p_types[p_type].element < p_type) {
 		return 8 + type_size(p_types, p_types[p_type].element);
 	}
-	if (is_struct(p_types, p_type)) {
+	if (has_fields(p_types, p_type)) {
 		uint32_t size = 0;
 		for (const FieldDesc &field : p_types[p_type].fields) {
 			size += field.type < p_type ? type_size(p_types, field.type) : 0;
@@ -194,7 +194,7 @@ std::string layout_key(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 	if (p_type < p_types.size() && p_types[p_type].kind == TypeKind::Option && p_types[p_type].element < p_type) {
 		return "?(" + layout_key(p_types, p_types[p_type].element) + ")";
 	}
-	if (is_struct(p_types, p_type)) {
+	if (has_fields(p_types, p_type)) {
 		std::string key = "s(";
 		for (const FieldDesc &field : p_types[p_type].fields) {
 			key += (field.type < p_type ? layout_key(p_types, field.type) : "!") + ",";
@@ -212,6 +212,7 @@ bool is_boxed(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 	switch (type.kind) {
 		case TypeKind::Option:
 		case TypeKind::Struct:
+		case TypeKind::PayloadEnum:
 			return true;
 		case TypeKind::Array:
 			return type.element < p_type && is_boxed(p_types, type.element);
@@ -239,10 +240,14 @@ std::string type_key(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 			return "a(" + type_key(p_types, type.element) + ")";
 		case TypeKind::Dictionary:
 			return "d(" + type_key(p_types, type.key) + "," + type_key(p_types, type.element) + ")";
-		case TypeKind::Struct: {
+		case TypeKind::Struct:
+		case TypeKind::PayloadEnum: {
 			// With its fields, so that a struct changed in one module is not taken
-			// for the old one by another.
-			std::string key = "s" + text(type.name) + "(";
+			// for the old one by another; an enum with its variants too.
+			std::string key = (type.kind == TypeKind::Struct ? "s" : "p") + text(type.name) + "(";
+			for (const EnumValueDesc &value : type.values) {
+				key += text(value.name) + std::to_string(value.value) + ",";
+			}
 			for (const FieldDesc &field : type.fields) {
 				key += text(field.name) + (field.type < p_type ? type_key(p_types, field.type) : "!") + ",";
 			}

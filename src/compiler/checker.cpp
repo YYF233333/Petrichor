@@ -984,9 +984,13 @@ class Checker : public ClassRelation {
 	}
 
 	// Whether a struct can start at its default value (spec §4.3); true when
-	// that is not known, which is reported elsewhere.
-	bool has_default(const Type &p_struct) const {
-		const StructDecl *decl = struct_decl(p_struct);
+	// that is not known, which is reported elsewhere. An enum with payloads
+	// never can (§3.7); other types are left to the caller.
+	bool has_default(const Type &p_type) const {
+		if (p_type.kind == TypeKind::PayloadEnum) {
+			return false;
+		}
+		const StructDecl *decl = p_type.kind == TypeKind::Struct ? struct_decl(p_type) : nullptr;
 		return !decl || decl->has_default();
 	}
 
@@ -1423,12 +1427,15 @@ class Checker : public ClassRelation {
 		for (EnumDecl &decl : cls.enums) {
 			decl.script = options.path;
 			decl.numbers = std::make_shared<EnumValues>();
-			decl.type = decl.name.empty() ? Type::of(TypeKind::Int) : Type::enumeration(display_name(cls, options.path) + "." + decl.name, options.path, decl.numbers);
+			decl.type = decl.name.empty() ? Type::of(TypeKind::Int) : Type::enumeration(display_name(cls, options.path) + "." + decl.name, options.path, decl.numbers, decl.has_payloads ? TypeKind::PayloadEnum : TypeKind::Enum);
 			if (!decl.name.empty()) {
 				refer(decl.name_token, script_id(options.path, decl.name), SymbolKind::Enum);
 			}
 			for (const EnumValueDecl &value : decl.values) {
 				refer(value.name_token, script_id(options.path, enum_value_id(decl, value.name)), SymbolKind::Constant);
+				for (const VarDecl &field : value.fields) {
+					refer(field.name_token, script_id(options.path, enum_value_id(decl, value.name) + "." + field.name), SymbolKind::Property);
+				}
 			}
 			cls.all_enums.push_back(&decl);
 		}
@@ -1495,12 +1502,24 @@ class Checker : public ClassRelation {
 			current_enum = &r_decl;
 			std::unordered_set<std::string> names;
 			int64_t next = 0;
+			if (r_decl.has_payloads && r_decl.name.empty()) {
+				error(r_decl.range, "An enum with payloads needs a name: its variants are not int constants (spec §3.7).");
+			}
 			for (size_t i = 0; i < r_decl.values.size(); i++) {
 				EnumValueDecl &value = r_decl.values[i];
 				if (!r_decl.name.empty() && !names.insert(value.name).second) {
 					error(value.name_token, "\"" + value.name + "\" is already a value of " + r_decl.name + ".");
 				}
 				current_value = i;
+				if (r_decl.has_payloads) {
+					if (value.value) {
+						error(value.value->range, "The variants of an enum with payloads have no int values (spec §3.7).");
+					}
+					check_variant_fields(r_decl, value);
+					r_decl.numbers->list.push_back({ value.name, int64_t(i) });
+					r_decl.constants.push_back(enum_constant(int64_t(i), r_decl.type));
+					continue;
+				}
 				if (value.value) {
 					const Type type = check_value(*value.value, Type::of(TypeKind::Int));
 					if (type.is_error()) {
@@ -1516,7 +1535,7 @@ class Checker : public ClassRelation {
 				r_decl.constants.push_back(enum_constant(next, r_decl.type));
 				next = int64_t(uint64_t(next) + 1);
 			}
-			if (!r_decl.name.empty()) {
+			if (!r_decl.name.empty() && !r_decl.has_payloads) {
 				r_decl.dictionary = enum_dictionary(*r_decl.numbers, r_decl.type);
 			}
 			in_constant = was_in_constant;
@@ -1524,6 +1543,19 @@ class Checker : public ClassRelation {
 			current_value = was_value;
 		}
 		r_decl.state = EnumDecl::State::Checked;
+	}
+
+	// The fields of a variant: named and typed, each once (spec §3.7).
+	void check_variant_fields(EnumDecl &r_decl, EnumValueDecl &r_value) {
+		std::unordered_set<std::string> names;
+		std::vector<std::pair<std::string, Type>> &fields = r_decl.numbers->fields.emplace_back();
+		for (VarDecl &field : r_value.fields) {
+			if (!names.insert(field.name).second) {
+				error(field.name_token, "The field \"" + field.name + "\" is already declared in " + r_value.name + ".");
+			}
+			field.type = field.declared_type ? resolve(*field.declared_type, false) : Type::of(TypeKind::Error);
+			fields.push_back({ field.name, field.type });
+		}
 	}
 
 	// A named enum this class declares or inherits, checked; null if none.
@@ -1570,9 +1602,13 @@ class Checker : public ClassRelation {
 
 	// A value of an enum as a constant of it, or an int for an unnamed one.
 	Type use_enum_value(Expr &r_expr, const EnumDecl &p_decl, int p_index) {
-		refer(r_expr.name_token, script_id(p_decl.script, enum_value_id(p_decl, p_decl.values[p_index].name)));
+		const EnumValueDecl &value = p_decl.values[p_index];
+		refer(r_expr.name_token, script_id(p_decl.script, enum_value_id(p_decl, value.name)));
+		if (!value.fields.empty()) {
+			return fail(r_expr, p_decl.name + "." + value.name + " has a payload; make it with " + p_decl.name + "." + value.name + "(" + value.fields[0].name + " = ...) (spec §3.7).");
+		}
 		if (size_t(p_index) >= p_decl.constants.size()) {
-			return fail(r_expr, "The value \"" + p_decl.values[p_index].name + "\" depends on its own value.");
+			return fail(r_expr, "The value \"" + value.name + "\" depends on its own value.");
 		}
 		r_expr.target = Target::Constant;
 		r_expr.constant = p_decl.constants[p_index];
@@ -1583,6 +1619,9 @@ class Checker : public ClassRelation {
 	Type use_enum_dictionary(Expr &r_expr, const EnumDecl &p_decl, bool p_refer = true) {
 		if (p_refer) {
 			refer(r_expr.name_token, script_id(p_decl.script, p_decl.name));
+		}
+		if (p_decl.has_payloads) {
+			return fail(r_expr, p_decl.name + " is an enum with payloads, whose name is no value; its variants are, as " + p_decl.name + "." + p_decl.values[0].name + " (spec §3.7).");
 		}
 		if (!p_decl.dictionary) {
 			return fail(r_expr, "The enum " + p_decl.name + " depends on its own values.");
@@ -2499,6 +2538,18 @@ class Checker : public ClassRelation {
 			refer(r_expr.name_token, engine_id(property->owner, r_expr.text));
 			return set(r_expr, property_type(*property, r_expr));
 		}
+		if (base_type.kind == TypeKind::PayloadEnum) {
+			// As the variant that has such a field writes it.
+			std::string example;
+			for (size_t v = 0; v < base_type.values->fields.size() && example.empty(); v++) {
+				for (const auto &[name, type] : base_type.values->fields[v]) {
+					if (name == r_expr.text) {
+						example = ", as in " + enum_spelling(base_type) + "." + base_type.values->list[v].first + "(var " + name + ", ..)";
+					}
+				}
+			}
+			return fail(r_expr, "The fields of a variant are read by match" + example + " (spec §3.7).");
+		}
 		return fail(r_expr, "Values of type " + base_type.to_string() + " have no members.");
 	}
 
@@ -2946,9 +2997,9 @@ class Checker : public ClassRelation {
 		const bool ordering = p_op == TokenKind::Less || p_op == TokenKind::LessEqual || p_op == TokenKind::Greater || p_op == TokenKind::GreaterEqual;
 		// Ordered by LESS (spec §3.6, §5.2), the types of both sides being one:
 		// `<` does not wrap a T into T?.
-		if (ordering && p_left == p_right && (p_left.kind == TypeKind::Struct || p_left.kind == TypeKind::Option || (is_typed_container(p_left) && p_left.name == "Array"))) {
+		if (ordering && p_left == p_right && (p_left.kind == TypeKind::Struct || p_left.kind == TypeKind::PayloadEnum || p_left.kind == TypeKind::Option || (is_typed_container(p_left) && p_left.name == "Array"))) {
 			if (!has_less(p_left)) {
-				error(p_at, "Values of type " + p_left.to_string() + " are not ordered: a struct is when all its fields are, T? and Array[T] when T is (spec §5.2).");
+				error(p_at, "Values of type " + p_left.to_string() + " are not ordered: a struct or an enum with payloads is when all its fields are, T? and Array[T] when T is (spec §5.2).");
 				return Type::of(TypeKind::Error);
 			}
 			return Type::of(TypeKind::Bool);
@@ -3002,8 +3053,9 @@ class Checker : public ClassRelation {
 			return primitive_binary_type(p_op, p_left, p_right, p_at);
 		}
 		const bool equality = p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual;
-		// Structs compare field by field (spec §3.6).
-		if ((p_left.kind == TypeKind::Struct || p_right.kind == TypeKind::Struct) && equality && p_left == p_right) {
+		// Structs compare field by field (spec §3.6), enums with payloads by
+		// variant and then so (§3.7).
+		if ((p_left.kind == TypeKind::Struct || p_left.kind == TypeKind::PayloadEnum) && equality && p_left == p_right) {
 			return Type::of(TypeKind::Bool);
 		}
 		// Other value types follow the engine's operator table.
@@ -3352,16 +3404,12 @@ class Checker : public ClassRelation {
 		}
 		if (last.kind == StmtKind::Match) {
 			// Some branch takes every value, and every branch leaves.
-			bool total = false;
 			for (const MatchBranch &branch : last.branches) {
-				for (const Pattern &pattern : branch.patterns) {
-					total = total || (!branch.guard && pattern.kind != PatternKind::Value) || last.exhaustive;
-				}
 				if (!always_ends(branch.body, p_or_jump)) {
 					return false;
 				}
 			}
-			return total;
+			return last.exhaustive;
 		}
 		return last.kind == StmtKind::If && always_ends(last.body, p_or_jump) && always_ends(last.else_body, p_or_jump);
 	}
@@ -3765,6 +3813,7 @@ class Checker : public ClassRelation {
 		static const std::unordered_set<std::string> ordered = { "StringName", "Vector2", "Vector2i", "Vector3", "Vector3i", "Vector4", "Vector4i", "RID" };
 		switch (p_type.kind) {
 			case TypeKind::Int:
+			case TypeKind::Enum:
 			case TypeKind::Float:
 			case TypeKind::Bool:
 			case TypeKind::String:
@@ -3776,6 +3825,15 @@ class Checker : public ClassRelation {
 				const StructDecl *decl = struct_decl(p_type);
 				return !decl || std::all_of(decl->fields.begin(), decl->fields.end(), [&](const VarDecl &p_field) { return has_less(p_field.type); });
 			}
+			case TypeKind::PayloadEnum:
+				for (const auto &fields : p_type.values->fields) {
+					for (const auto &[name, type] : fields) {
+						if (!has_less(type)) {
+							return false;
+						}
+					}
+				}
+				return true;
 			case TypeKind::Builtin:
 				if (p_type.name == "Array") {
 					return p_type.args.empty() || has_less(p_type.args[0]);
@@ -3812,7 +3870,7 @@ class Checker : public ClassRelation {
 			}
 		}
 		const Type &element = array ? p_base.args[0] : Type::of(TypeKind::Error);
-		if (method == "resize" && ((element.kind == TypeKind::Object && !element.nullable) || (element.kind == TypeKind::Struct && !has_default(element)) || !enum_has_default(element))) {
+		if (method == "resize" && ((element.kind == TypeKind::Object && !element.nullable) || !has_default(element) || !enum_has_default(element))) {
 			const std::string fix = element.kind == TypeKind::Struct ? "give every field of " + element.to_string() + " a default value, or " : "";
 			error(p_call.range, "\"resize()\" fills new elements with a default value, which " + element.to_string() + " does not have (spec §3.8); " + fix + "declare the array as Array[" + element.to_string() + "?].");
 			return false;
@@ -4376,6 +4434,89 @@ class Checker : public ClassRelation {
 		return script_type(ref);
 	}
 
+	// `Command.MOVE(...)`: the enum with payloads whose variant the call
+	// makes, if any.
+	const EnumDecl *called_variant(Expr &r_call) {
+		return r_call.base && r_call.text != "try_from" ? payload_enum_named(*r_call.base) : nullptr;
+	}
+
+	// The enum with payloads that the base of `Command.MOVE` names, if any;
+	// for any other base, nothing is referred to or reported, as it is then
+	// checked as what it is.
+	const EnumDecl *payload_enum_named(Expr &r_base) {
+		const size_t referred = references ? references->size() : 0;
+		const size_t reported = errors.size();
+		const EnumDecl *decl = named_enum(r_base);
+		if (decl && decl->has_payloads) {
+			return decl;
+		}
+		if (references) {
+			references->resize(referred);
+		}
+		errors.resize(reported);
+		return nullptr;
+	}
+
+	// The fields of a variant, by name (spec §3.7), in a call that the
+	// arguments' names map to them.
+	Type check_variant_construction(Expr &r_expr, const EnumDecl &p_decl) {
+		const Type &type = p_decl.type;
+		const int index = p_decl.find(r_expr.text);
+		if (index < 0) {
+			for (auto &arg : r_expr.args) {
+				check_value(*arg);
+			}
+			return fail_call(r_expr, missing(p_decl.name + " has no variant \"" + r_expr.text + "\".", p_decl.script));
+		}
+		const EnumValueDecl &variant = p_decl.values[index];
+		refer(r_expr.name_token, script_id(p_decl.script, enum_value_id(p_decl, variant.name)));
+		const std::string written = enum_spelling(type) + "." + variant.name;
+		hint(r_expr, [&](int) {
+			std::vector<std::string> fields;
+			for (const VarDecl &field : variant.fields) {
+				fields.push_back(field.name + ": " + field.type.to_string());
+			}
+			return signature(variant.name, fields, false, -1, type.to_string());
+		});
+		if (variant.fields.empty()) {
+			for (auto &arg : r_expr.args) {
+				check_value(*arg);
+			}
+			return fail_call(r_expr, written + " has no payload; write it without parentheses (spec §3.7).");
+		}
+		std::vector<bool> given(variant.fields.size(), false);
+		for (size_t i = 0; i < r_expr.args.size(); i++) {
+			Expr &arg = *r_expr.args[i];
+			const std::string name = i < r_expr.arg_names.size() ? r_expr.arg_names[i] : std::string();
+			size_t field = 0;
+			while (field < variant.fields.size() && variant.fields[field].name != name) {
+				field++;
+			}
+			if (field == variant.fields.size()) {
+				check_value(arg);
+				r_expr.param_types.push_back(Type::of(TypeKind::Error));
+				error(arg.range, name.empty() ? "A variant takes its fields by name, as in " + written + "(" + variant.fields[0].name + " = ...) (spec §3.7)." : missing(written + " has no field \"" + name + "\".", p_decl.script));
+				continue;
+			}
+			if (given[field]) {
+				error(arg.range, "\"" + name + "\" is given twice.");
+			}
+			given[field] = true;
+			refer(r_expr.arg_name_tokens[i], script_id(p_decl.script, enum_value_id(p_decl, variant.name) + "." + name));
+			const Type &field_type = variant.fields[field].type;
+			r_expr.param_types.push_back(field_type);
+			expect_assignable(arg, check_value(arg, field_type), field_type, "pass");
+		}
+		for (size_t field = 0; field < variant.fields.size(); field++) {
+			if (!given[field]) {
+				error(r_expr.range, written + "() needs \"" + variant.fields[field].name + "\".");
+			}
+		}
+		r_expr.target = Target::VariantConstructor;
+		r_expr.index = index;
+		return set(r_expr, type);
+	}
+
 	// Fields by name, each once; those with a default may be left out (spec §3.6).
 	Type check_struct_construction(Expr &r_expr, const Type &p_struct) {
 		if (p_struct.is_error()) {
@@ -4626,10 +4767,19 @@ class Checker : public ClassRelation {
 			return check_struct_construction(r_expr, *constructed);
 		}
 		if (const EnumDecl *decl = called_enum(r_expr)) {
+			if (decl->has_payloads) {
+				for (auto &arg : r_expr.args) {
+					check_value(*arg);
+				}
+				return fail_call(r_expr, "No int converts to " + enum_spelling(decl->type) + ", an enum with payloads (spec §3.7).");
+			}
 			return check_enum_conversion(r_expr, decl->type);
 		}
 		if (const std::optional<Type> found = called_engine_enum(r_expr)) {
 			return check_enum_conversion(r_expr, *found);
+		}
+		if (const EnumDecl *decl = called_variant(r_expr)) {
+			return check_variant_construction(r_expr, *decl);
 		}
 		if (r_expr.base && r_expr.text == "try_from" && named_enum(*r_expr.base)) {
 			for (auto &arg : r_expr.args) {
@@ -5219,25 +5369,24 @@ class Checker : public ClassRelation {
 	}
 
 	// `match` (spec §5.6). The matched value goes in a local without a name,
-	// which the debugger shows as a temporary, and a value pattern becomes the
-	// comparison of that local with the pattern, checked as == is.
+	// which the debugger shows as a temporary.
 	void check_match(Stmt &r_stmt) {
 		const Type matched = check_value(*r_stmt.value);
-		if (matched.is_optional()) {
-			error(r_stmt.value->range, "A match over " + matched.to_string() + " is not supported yet; compare it with None, or unwrap it first.");
-		}
 		scopes.emplace_back();
 		r_stmt.local = int(function->locals.size());
 		function->locals.push_back({ std::string(), matched });
 		scopes.back()[std::string()] = r_stmt.local;
 		const bool was_predelete = in_predelete;
+		// After a branch for None, `var x` of a T? binds the T inside.
+		bool none_handled = false;
 		for (MatchBranch &branch : r_stmt.branches) {
 			scopes.emplace_back();
 			for (Pattern &pattern : branch.patterns) {
-				if (pattern.kind == PatternKind::Bind && branch.patterns.size() > 1) {
+				if (branch.patterns.size() > 1 && binds(pattern)) {
 					error(pattern.range, "Patterns separated by commas cannot bind (spec §5.6).");
 				}
-				check_pattern(pattern, matched);
+				check_pattern(pattern, pattern.kind == PatternKind::Bind && none_handled ? matched.unwrapped() : matched, r_stmt.local);
+				none_handled = none_handled || (!branch.guard && pattern.kind == PatternKind::Constructor && matched.is_optional() && pattern.variant == 0);
 			}
 			in_predelete = was_predelete || predelete_branch(*r_stmt.value, branch);
 			if (branch.guard) {
@@ -5248,61 +5397,32 @@ class Checker : public ClassRelation {
 			scopes.pop_back();
 		}
 		scopes.pop_back();
-		if (matched.kind == TypeKind::Enum && matched.values) {
-			check_exhaustive(r_stmt, matched);
-		}
+		check_exhaustive(r_stmt, matched);
 	}
 
-	// A match over an enum handles every value or has `_`; branches with
-	// `when` do not count (spec §3.7, §5.6).
-	void check_exhaustive(Stmt &r_match, const Type &p_enum) {
-		std::set<int64_t> handled;
-		for (const MatchBranch &branch : r_match.branches) {
-			for (const Pattern &pattern : branch.patterns) {
-				if (branch.guard) {
-					continue;
-				}
-				if (pattern.kind != PatternKind::Value) {
-					return;
-				}
-				const Expr *value = pattern.value && pattern.value->right ? pattern.value->right.get() : nullptr;
-				if (value && value->constant && value->constant->kind == ConstValue::Kind::Int) {
-					handled.insert(value->constant->i);
-				}
-			}
-		}
-		if (p_enum.values->is_engine) {
-			error(r_match.value->range, "A match over " + enum_spelling(p_enum) + " needs a `_` branch: the engine's enums are open, it gives values outside them and later versions add more (spec §3.7).");
-			return;
-		}
-		std::vector<std::string> missing;
-		for (const auto &[name, value] : p_enum.values->list) {
-			if (!handled.count(value)) {
-				missing.push_back(name);
-			}
-		}
-		if (missing.empty()) {
-			r_match.exhaustive = true;
-			return;
-		}
-		std::string names;
-		for (size_t i = 0; i < missing.size() && i < 8; i++) {
-			names += (i == 0 ? "" : (i + 1 == missing.size() ? " and " : ", ")) + missing[i];
-		}
-		if (missing.size() > 8) {
-			names += " and " + std::to_string(missing.size() - 8) + " more";
-		}
-		error(r_match.value->range, "This match over " + enum_spelling(p_enum) + " does not handle " + names + "; handle them or add a `_` branch (spec §5.6).");
+	static bool binds(const Pattern &p_pattern) {
+		return p_pattern.kind == PatternKind::Bind || std::any_of(p_pattern.items.begin(), p_pattern.items.end(), [](const Pattern &p_item) { return binds(p_item); });
 	}
 
-	void check_pattern(Pattern &r_pattern, const Type &p_matched) {
+	// A pattern of the value in the local `p_local`, which a value pattern
+	// becomes the comparison of with the pattern, checked as == is.
+	void check_pattern(Pattern &r_pattern, const Type &p_matched, int p_local) {
 		switch (r_pattern.kind) {
 			case PatternKind::Wildcard:
 				return;
 			case PatternKind::Bind:
 				r_pattern.local = declare_local(r_pattern.name, r_pattern.name_token, p_matched);
 				return;
+			case PatternKind::Constructor:
+				check_constructor_pattern(r_pattern, p_matched, p_local);
+				return;
 			case PatternKind::Value: {
+				if (r_pattern.value->kind == ExprKind::NoneLiteral && p_matched.is_optional()) {
+					r_pattern.kind = PatternKind::Constructor;
+					r_pattern.type = p_matched;
+					return;
+				}
+				r_pattern.local = p_local;
 				auto compare = std::make_unique<Expr>();
 				compare->kind = ExprKind::Binary;
 				compare->op = TokenKind::EqualEqual;
@@ -5313,7 +5433,16 @@ class Checker : public ClassRelation {
 				compare->left->name_token = NO_TOKEN;
 				compare->right = std::move(r_pattern.value);
 				r_pattern.value = std::move(compare);
+				// The nameless local is the one that holds what the pattern matches.
+				const auto outer = scopes.back().find(std::string());
+				const int was = outer == scopes.back().end() ? -1 : outer->second;
+				scopes.back()[std::string()] = p_local;
 				check_expr(*r_pattern.value);
+				if (was < 0) {
+					scopes.back().erase(std::string());
+				} else {
+					scopes.back()[std::string()] = was;
+				}
 				const Expr &value = *r_pattern.value->right;
 				const Expr *named = &value;
 				while (named->kind == ExprKind::Member) {
@@ -5327,6 +5456,348 @@ class Checker : public ClassRelation {
 				return;
 			}
 		}
+	}
+
+	// `Command.MOVE(target = var t, ..)`, `Hit(var damage)` or `Some(var x)`
+	// (spec §5.6); otherwise a call, as `Vector2(1, 2)`, which is a value.
+	void check_constructor_pattern(Pattern &r_pattern, const Type &p_matched, int p_local) {
+		Expr &callee = *r_pattern.value;
+		const auto fits = [&](const Type &p_type) {
+			if (!p_matched.is_error() && p_type != p_matched) {
+				error(r_pattern.range, "The pattern is " + p_type.to_string() + ", but the value matched is " + p_matched.to_string() + " (spec §5.6).");
+				return false;
+			}
+			return true;
+		};
+		if (callee.kind == ExprKind::Name && (callee.text == "Some" || callee.text == "Ok" || callee.text == "Err") && !visible_local(callee.text) && !member_index.count(callee.text) && !function_index.count(callee.text) && !constant_index.count(callee.text)) {
+			if (callee.text != "Some") {
+				error(callee.range, "Result is not supported yet.");
+			} else if (!p_matched.is_optional()) {
+				error(r_pattern.range, "Some(...) matches a value of a type T?, not " + p_matched.to_string() + " (spec §5.6).");
+			} else {
+				r_pattern.type = p_matched;
+				r_pattern.variant = 1;
+				check_items(r_pattern, {}, { p_matched.unwrapped() }, std::string(), std::string());
+				return;
+			}
+			check_items(r_pattern, {}, {}, std::string(), std::string());
+			return;
+		}
+		if (callee.kind == ExprKind::Member) {
+			if (const EnumDecl *decl = payload_enum_named(*callee.base)) {
+				const int index = decl->find(callee.text);
+				const std::string written = enum_spelling(decl->type) + "." + callee.text;
+				if (index < 0) {
+					error(callee.range, missing(decl->name + " has no variant \"" + callee.text + "\".", decl->script));
+				} else if (decl->values[index].fields.empty()) {
+					error(r_pattern.range, written + " has no payload; match it without parentheses (spec §5.6).");
+				} else if (fits(decl->type)) {
+					const EnumValueDecl &variant = decl->values[index];
+					refer(callee.name_token, script_id(decl->script, enum_value_id(*decl, variant.name)));
+					r_pattern.type = decl->type;
+					r_pattern.variant = index;
+					std::vector<std::string> names;
+					std::vector<Type> types;
+					for (const VarDecl &field : variant.fields) {
+						names.push_back(field.name);
+						types.push_back(field.type);
+					}
+					check_items(r_pattern, names, types, written, enum_value_id(*decl, variant.name) + ".");
+					return;
+				}
+				check_items(r_pattern, {}, {}, std::string(), std::string());
+				return;
+			}
+		}
+		Expr probe;
+		probe.text = callee.text;
+		probe.name_token = callee.name_token;
+		probe.range = callee.range;
+		probe.base = std::move(callee.base);
+		const std::optional<Type> constructed = constructed_struct(probe);
+		callee.base = std::move(probe.base);
+		if (constructed) {
+			const StructDecl *decl = constructed->is_error() ? nullptr : struct_decl(*constructed);
+			if (decl && fits(*constructed)) {
+				r_pattern.type = *constructed;
+				std::vector<std::string> names;
+				std::vector<Type> types;
+				for (const VarDecl &field : decl->fields) {
+					names.push_back(field.name);
+					types.push_back(field.type);
+				}
+				check_items(r_pattern, names, types, constructed->interface_name(), decl->name + ".");
+				return;
+			}
+			check_items(r_pattern, {}, {}, std::string(), std::string());
+			return;
+		}
+		if (std::unique_ptr<Expr> call = pattern_call(r_pattern)) {
+			r_pattern.kind = PatternKind::Value;
+			r_pattern.value = std::move(call);
+			check_pattern(r_pattern, p_matched, p_local);
+			return;
+		}
+		error(callee.range, "\"" + callee.text + "\" names no variant, struct or Some(...) whose fields a pattern could match (spec §5.6).");
+		check_items(r_pattern, {}, {}, std::string(), std::string());
+	}
+
+	// The patterns of a constructor's fields: of a variant or a struct, which
+	// `p_written` names, by name; of Some(...) by position. They are put in
+	// their fields' order, `_` for one left out, which needs `..` (spec §5.6).
+	// Without fields or a name, the constructor is unknown, and only the
+	// patterns' binds are declared.
+	void check_items(Pattern &r_pattern, const std::vector<std::string> &p_names, const std::vector<Type> &p_types, const std::string &p_written, const std::string &p_field_id) {
+		const bool named = !p_written.empty();
+		const bool known = named || !p_types.empty();
+		std::vector<Pattern> ordered(p_types.size());
+		std::vector<bool> given(p_types.size(), false);
+		size_t position = 0;
+		for (Pattern &item : r_pattern.items) {
+			std::string field = item.field;
+			uint32_t field_token = item.field_token;
+			if (named && field.empty() && item.kind == PatternKind::Bind) {
+				field = item.name; // `var target` is `target = var target`.
+				field_token = item.name_token;
+			}
+			size_t index = p_types.size();
+			if (!known) {
+			} else if (named) {
+				const size_t found = std::find(p_names.begin(), p_names.end(), field) - p_names.begin();
+				if (field.empty()) {
+					error(item.range, "The fields of " + p_written + " are matched by name, as in " + (p_names.empty() ? std::string("field") : p_names[0]) + " = pattern (spec §5.6).");
+				} else if (found == p_names.size()) {
+					error(item.range, p_written + " has no field \"" + field + "\".");
+				} else if (given[found]) {
+					error(item.range, "\"" + field + "\" is matched twice.");
+				} else {
+					index = found;
+					refer(field_token, script_id(r_pattern.type.script, p_field_id + field));
+				}
+			} else if (!field.empty()) {
+				error(item.range, "Some(...) takes the pattern of the value inside, without a name (spec §5.6).");
+			} else if (position >= p_types.size()) {
+				error(item.range, "Some(...) takes one pattern (spec §5.6).");
+			} else {
+				index = position++;
+			}
+			const Type type = index < p_types.size() ? p_types[index] : Type::of(TypeKind::Error);
+			int local = -1;
+			if (item.kind == PatternKind::Value || item.kind == PatternKind::Constructor) {
+				local = int(function->locals.size());
+				function->locals.push_back({ std::string(), type });
+			}
+			check_pattern(item, type, local);
+			if (index < p_types.size()) {
+				given[index] = true;
+				ordered[index] = std::move(item);
+			}
+		}
+		if (known && !named && (r_pattern.rest || position < p_types.size())) {
+			error(r_pattern.range, "Some(...) takes one pattern, of the value inside (spec §5.6).");
+		}
+		for (size_t i = 0; known && named && !r_pattern.rest && i < p_types.size(); i++) {
+			if (!given[i]) {
+				error(r_pattern.range, p_written + "(...) leaves out \"" + p_names[i] + "\"; match it, or end with `..` (spec §5.6).");
+			}
+		}
+		r_pattern.items = std::move(ordered);
+	}
+
+	/* Exhaustiveness (spec §5.6) */
+
+	// A pattern as the exhaustiveness check sees it: one that matches every
+	// value, those of one constructor, whose fields' patterns are `args`, or
+	// some other values.
+	struct Shape {
+		enum class Kind {
+			Any,
+			Constructor,
+			Other,
+		};
+		Kind kind = Kind::Any;
+		int64_t constructor = 0;
+		std::vector<Shape> args;
+	};
+
+	// The constructors of a type whose values they all make: its variants,
+	// None and Some, the values of an enum of this language, false and true,
+	// a struct's one; nullopt when there are too many to list.
+	std::optional<std::vector<int64_t>> constructors(const Type &p_type) const {
+		if (p_type.kind == TypeKind::Bool || p_type.is_optional()) {
+			return std::vector<int64_t>{ 0, 1 };
+		}
+		if (p_type.kind == TypeKind::Struct) {
+			return std::vector<int64_t>{ 0 };
+		}
+		if (p_type.kind == TypeKind::PayloadEnum || (p_type.kind == TypeKind::Enum && p_type.values && !p_type.values->is_engine)) {
+			std::vector<int64_t> list;
+			for (const auto &[name, value] : p_type.values->list) {
+				if (std::find(list.begin(), list.end(), value) == list.end()) {
+					list.push_back(value);
+				}
+			}
+			return list;
+		}
+		return std::nullopt;
+	}
+
+	// The types of a constructor's fields.
+	std::vector<Type> constructor_fields(const Type &p_type, int64_t p_constructor) const {
+		std::vector<Type> fields;
+		if (p_type.kind == TypeKind::PayloadEnum) {
+			for (const auto &[name, type] : p_type.values->fields[p_constructor]) {
+				fields.push_back(type);
+			}
+		} else if (p_type.is_optional() && p_constructor == 1) {
+			fields.push_back(p_type.unwrapped());
+		} else if (p_type.kind == TypeKind::Struct) {
+			if (const StructDecl *decl = struct_decl(p_type)) {
+				for (const VarDecl &field : decl->fields) {
+					fields.push_back(field.type);
+				}
+			}
+		}
+		return fields;
+	}
+
+	Shape shape_of(const Pattern &p_pattern, const Type &p_type) const {
+		Shape shape;
+		if (p_pattern.kind == PatternKind::Wildcard || p_pattern.kind == PatternKind::Bind) {
+			return shape;
+		}
+		shape.kind = Shape::Kind::Other;
+		if (p_pattern.kind == PatternKind::Constructor) {
+			const std::vector<Type> fields = constructor_fields(p_type, p_pattern.variant);
+			if (p_pattern.type.is_error() || p_pattern.type != p_type || fields.size() != p_pattern.items.size()) {
+				return shape;
+			}
+			shape.kind = Shape::Kind::Constructor;
+			shape.constructor = p_pattern.variant;
+			for (size_t i = 0; i < fields.size(); i++) {
+				shape.args.push_back(shape_of(p_pattern.items[i], fields[i]));
+			}
+			return shape;
+		}
+		// A constant of a bool, of an enum or of a variant without fields.
+		const Expr *value = p_pattern.value && p_pattern.value->right ? p_pattern.value->right.get() : nullptr;
+		const bool listed = p_type.kind == TypeKind::Bool || p_type.kind == TypeKind::Enum || p_type.kind == TypeKind::PayloadEnum;
+		if (listed && value && value->constant && value->type == p_type && constructors(p_type)) {
+			if (value->constant->kind == ConstValue::Kind::Int || value->constant->kind == ConstValue::Kind::Bool) {
+				shape.kind = Shape::Kind::Constructor;
+				shape.constructor = value->constant->kind == ConstValue::Kind::Bool ? int64_t(value->constant->b) : value->constant->i;
+			}
+		}
+		return shape;
+	}
+
+	// The rows that match the constructor, each with its fields' patterns in
+	// place of its first: `_` for each field after one that matches anything.
+	static std::vector<std::vector<Shape>> specialized(const std::vector<std::vector<Shape>> &p_rows, int64_t p_constructor, size_t p_arity) {
+		std::vector<std::vector<Shape>> rows;
+		for (const std::vector<Shape> &row : p_rows) {
+			const Shape &head = row[0];
+			if (head.kind == Shape::Kind::Any) {
+				rows.emplace_back(p_arity);
+			} else if (head.kind == Shape::Kind::Constructor && head.constructor == p_constructor) {
+				rows.push_back(head.args);
+			} else {
+				continue;
+			}
+			rows.back().insert(rows.back().end(), row.begin() + 1, row.end());
+		}
+		return rows;
+	}
+
+	// Whether some values that `p_query` matches match none of the rows, the
+	// columns being of `p_types` (Maranget, "Warnings for pattern matching",
+	// 2007); the query is made only of `_` and constructors.
+	bool useful(const std::vector<std::vector<Shape>> &p_rows, const std::vector<Shape> &p_query, const std::vector<Type> &p_types) const {
+		if (p_query.empty()) {
+			return p_rows.empty();
+		}
+		const std::vector<Type> rest_types(p_types.begin() + 1, p_types.end());
+		const std::vector<Shape> rest(p_query.begin() + 1, p_query.end());
+		const auto specialize = [&](int64_t p_constructor, const std::vector<Shape> &p_args) {
+			std::vector<Type> types = constructor_fields(p_types[0], p_constructor);
+			std::vector<Shape> query = p_args;
+			query.resize(types.size());
+			types.insert(types.end(), rest_types.begin(), rest_types.end());
+			query.insert(query.end(), rest.begin(), rest.end());
+			return useful(specialized(p_rows, p_constructor, types.size() - rest_types.size()), query, types);
+		};
+		if (p_query[0].kind == Shape::Kind::Constructor) {
+			return specialize(p_query[0].constructor, p_query[0].args);
+		}
+		const std::optional<std::vector<int64_t>> all = constructors(p_types[0]);
+		const bool complete = all && std::all_of(all->begin(), all->end(), [&](int64_t p_constructor) {
+			return std::any_of(p_rows.begin(), p_rows.end(), [&](const std::vector<Shape> &p_row) { return p_row[0].kind == Shape::Kind::Constructor && p_row[0].constructor == p_constructor; });
+		});
+		if (complete) {
+			return std::any_of(all->begin(), all->end(), [&](int64_t p_constructor) { return specialize(p_constructor, {}); });
+		}
+		std::vector<std::vector<Shape>> defaults;
+		for (const std::vector<Shape> &row : p_rows) {
+			if (row[0].kind == Shape::Kind::Any) {
+				defaults.emplace_back(row.begin() + 1, row.end());
+			}
+		}
+		return useful(defaults, rest, rest_types);
+	}
+
+	// A match over an enum of this language, an enum with payloads or T?
+	// handles every value or has `_`, as one over an enum of the engine must;
+	// branches with `when` do not count (spec §3.7, §5.6). One that handles
+	// every value ends a function when each branch does.
+	void check_exhaustive(Stmt &r_match, const Type &p_matched) {
+		std::vector<std::vector<Shape>> rows;
+		for (const MatchBranch &branch : r_match.branches) {
+			for (const Pattern &pattern : branch.patterns) {
+				if (!branch.guard) {
+					rows.push_back({ shape_of(pattern, p_matched) });
+				}
+			}
+		}
+		r_match.exhaustive = !useful(rows, { Shape() }, { p_matched });
+		const bool own_enum = (p_matched.kind == TypeKind::Enum && p_matched.values && !p_matched.values->is_engine) || p_matched.kind == TypeKind::PayloadEnum;
+		if (r_match.exhaustive || !(own_enum || p_matched.is_optional() || p_matched.kind == TypeKind::Enum)) {
+			return;
+		}
+		if (p_matched.kind == TypeKind::Enum && (!p_matched.values || p_matched.values->is_engine)) {
+			error(r_match.value->range, "A match over " + enum_spelling(p_matched) + " needs a `_` branch: the engine's enums are open, it gives values outside them and later versions add more (spec §3.7).");
+			return;
+		}
+		// What is left of each constructor: all, or only some values.
+		std::vector<std::string> missing;
+		const std::vector<int64_t> all = *constructors(p_matched);
+		for (int64_t constructor : all) {
+			const size_t arity = constructor_fields(p_matched, constructor).size();
+			if (!useful(specialized(rows, constructor, arity), std::vector<Shape>(arity), constructor_fields(p_matched, constructor))) {
+				continue;
+			}
+			const bool partly = std::any_of(rows.begin(), rows.end(), [&](const std::vector<Shape> &p_row) { return p_row[0].kind == Shape::Kind::Constructor && p_row[0].constructor == constructor; });
+			std::vector<std::string> names;
+			if (p_matched.is_optional()) {
+				names.push_back(constructor == 0 ? "None" : "Some(..)");
+			} else {
+				for (const auto &[name, value] : p_matched.values->list) {
+					if (value == constructor) {
+						names.push_back(arity > 0 ? name + "(..)" : name);
+					}
+				}
+			}
+			for (const std::string &name : names) {
+				missing.push_back(partly ? "other " + name : name);
+			}
+		}
+		std::string names;
+		for (size_t i = 0; i < missing.size() && i < 8; i++) {
+			names += (i == 0 ? "" : (i + 1 == missing.size() ? " and " : ", ")) + missing[i];
+		}
+		if (missing.size() > 8) {
+			names += " and " + std::to_string(missing.size() - 8) + " more";
+		}
+		error(r_match.value->range, "This match over " + (own_enum ? enum_spelling(p_matched) : p_matched.to_string()) + " does not handle " + names + "; handle them or add a `_` branch (spec §5.6).");
 	}
 
 	// GDScript compares the types first, String and StringName alike, so a
@@ -5437,7 +5908,7 @@ class Checker : public ClassRelation {
 					}
 				} else if (!r_stmt.declared_type) {
 					error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs a type or an initial value.");
-				} else if (((type.kind == TypeKind::Object || type.kind == TypeKind::Task) && !type.nullable) || (type.kind == TypeKind::Struct && !has_default(type))) {
+				} else if (((type.kind == TypeKind::Object || type.kind == TypeKind::Task) && !type.nullable) || !has_default(type)) {
 					error(r_stmt.name_token, "\"" + r_stmt.name + "\" of type " + type.to_string() + " needs an initial value.");
 				} else if (!enum_has_default(type)) {
 					error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs an initial value: " + enum_spelling(type) + " has no value 0 to start at (spec §3.7).");
@@ -6056,7 +6527,7 @@ class Checker : public ClassRelation {
 			if (!member.is_export) {
 				error(member.name_token, "Members that must be assigned, such as \"" + member.name + "\" of type " + type.to_string() + (type.kind == TypeKind::Task ? ", need an initial value." : ", are not supported yet unless exported; give it an initial value."));
 			}
-		} else if (type.kind == TypeKind::Struct && !has_default(type)) {
+		} else if (!has_default(type)) {
 			// Starts at its default only when every field has one (spec §4.3).
 			error(member.name_token, "Members that must be assigned, such as \"" + member.name + "\" of type " + type.to_string() + ", are not supported yet; give it an initial value.");
 		} else if (!enum_has_default(type)) {
@@ -6064,6 +6535,8 @@ class Checker : public ClassRelation {
 		}
 		if (member.is_export && type.unwrapped().kind == TypeKind::Struct) {
 			error(member.name_token, "Structs cannot be exported (spec §3.6).");
+		} else if (member.is_export && type.unwrapped().kind == TypeKind::PayloadEnum) {
+			error(member.name_token, "Enums with payloads cannot be exported (spec §3.7).");
 		} else if (member.is_export && is_typed_container(type) && is_boxed(type)) {
 			error(member.name_token, "Containers whose elements exist only in this language, such as " + type.to_string() + ", cannot be exported (spec §3.6, §3.8).");
 		}
@@ -6100,7 +6573,7 @@ class Checker : public ClassRelation {
 			}
 		} else if (!variable.declared_type) {
 			error(variable.name_token, "\"" + variable.name + "\" needs a type or an initial value.");
-		} else if (!variable.initializer && (((type.kind == TypeKind::Object || type.kind == TypeKind::Task) && !type.nullable) || type.kind == TypeKind::Function || (type.kind == TypeKind::Struct && !has_default(type)))) {
+		} else if (!variable.initializer && (((type.kind == TypeKind::Object || type.kind == TypeKind::Task) && !type.nullable) || type.kind == TypeKind::Function || !has_default(type))) {
 			error(variable.name_token, "The static variable \"" + variable.name + "\" needs an initial value: " + type.to_string() + " has no default value. Give it one, or the type " + type.to_string() + "? (spec §4.8).");
 		} else if (!variable.initializer && !enum_has_default(type)) {
 			error(variable.name_token, "\"" + variable.name + "\" needs an initial value: " + enum_spelling(type) + " has no value 0 to start at (spec §3.7).");
@@ -6605,33 +7078,61 @@ class Checker : public ClassRelation {
 				field.type = type;
 			}
 		}
+		std::vector<std::string> held;
 		for (const StructDecl &decl : cls.structs) {
+			held.push_back(decl.name);
+		}
+		for (const EnumDecl &decl : cls.enums) {
+			if (decl.has_payloads && !decl.name.empty()) {
+				held.push_back(decl.name);
+			}
+		}
+		for (const std::string &name : held) {
 			std::vector<std::string> cycle;
 			std::unordered_set<std::string> seen;
-			if (holds(cls, options.path, decl, options.path + "::" + decl.name, cycle, seen)) {
+			if (holds(cls, options.path, name, options.path + "::" + name, cycle, seen)) {
 				std::string fields;
 				for (const std::string &field : cycle) {
 					fields += (fields.empty() ? "" : ", ") + field;
 				}
-				error(decl.name_token, decl.name + " contains itself through " + fields + ", so it has no finite size; hold it in a container or a RefCounted class (spec §3.6).");
+				const StructDecl *found = cls.find_struct(name);
+				error(found ? found->name_token : cls.find_enum(name)->name_token, name + " contains itself through " + fields + ", so it has no finite size; hold it in a container or a RefCounted class (spec §3.6).");
 			}
 		}
 	}
 
-	// Whether the struct holds the struct `p_target` ("script::Name") in its
-	// slot, directly or through other structs, whose fields are read as
-	// declared, so that this does not wait for their scripts to be checked;
-	// `r_cycle` lists the fields on the way.
-	bool holds(const ClassDecl &p_header, const std::string &p_path, const StructDecl &p_struct, const std::string &p_target, std::vector<std::string> &r_cycle, std::unordered_set<std::string> &r_seen) {
-		if (!r_seen.insert(p_path + "::" + p_struct.name).second) {
+	// The fields of the struct, or of the variants of the enum with payloads,
+	// that the header declares by that name, each as an error names it.
+	static std::vector<std::pair<std::string, const VarDecl *>> value_fields(const ClassDecl &p_header, const std::string &p_name) {
+		std::vector<std::pair<std::string, const VarDecl *>> fields;
+		if (const StructDecl *found = p_header.find_struct(p_name)) {
+			for (const VarDecl &field : found->fields) {
+				fields.push_back({ p_name + "." + field.name, &field });
+			}
+		} else if (const EnumDecl *found = p_header.find_enum(p_name)) {
+			for (const EnumValueDecl &value : found->values) {
+				for (const VarDecl &field : value.fields) {
+					fields.push_back({ p_name + "." + value.name + "." + field.name, &field });
+				}
+			}
+		}
+		return fields;
+	}
+
+	// Whether the struct or the enum with payloads holds `p_target`
+	// ("script::Name") in its slot, directly or through other ones, whose
+	// fields are read as declared, so that this does not wait for their
+	// scripts to be checked; `r_cycle` lists the fields on the way.
+	bool holds(const ClassDecl &p_header, const std::string &p_path, const std::string &p_name, const std::string &p_target, std::vector<std::string> &r_cycle, std::unordered_set<std::string> &r_seen) {
+		if (!r_seen.insert(p_path + "::" + p_name).second) {
 			return false;
 		}
-		for (const VarDecl &field : p_struct.fields) {
+		for (const auto &[label, field] : value_fields(p_header, p_name)) {
 			// T and T? hold a T; a container holds a reference.
-			if (!field.declared_type || !field.declared_type->args.empty()) {
+			if (!field->declared_type || !field->declared_type->args.empty()) {
 				continue;
 			}
-			const std::string &name = field.declared_type->name;
+			const std::string &name = field->declared_type->name;
 			const size_t dot = name.find('.');
 			std::string path = p_path;
 			const ClassDecl *header = &p_header;
@@ -6640,12 +7141,12 @@ class Checker : public ClassRelation {
 				path = head == p_header.class_name ? p_path : (options.project ? options.project->global_class_path(head) : std::string());
 				header = is_script_path(path) ? script_header(path) : nullptr;
 			}
-			const StructDecl *inner = header ? header->find_struct(name.substr(dot == std::string::npos ? 0 : dot + 1)) : nullptr;
-			if (!inner) {
+			const std::string inner = name.substr(dot == std::string::npos ? 0 : dot + 1);
+			if (!header || value_fields(*header, inner).empty()) {
 				continue;
 			}
-			r_cycle.push_back(p_struct.name + "." + field.name);
-			if (path + "::" + inner->name == p_target || holds(*header, path, *inner, p_target, r_cycle, r_seen)) {
+			r_cycle.push_back(label);
+			if (path + "::" + inner == p_target || holds(*header, path, inner, p_target, r_cycle, r_seen)) {
 				return true;
 			}
 			r_cycle.pop_back();

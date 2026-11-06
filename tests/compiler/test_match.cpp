@@ -49,6 +49,5 @@ TEST_CASE("print_debug() prints where it is called, as GDScript's does") {
 }
 
 TEST_CASE("patterns that are not supported yet are refused") {
-	CHECK(contains(messages(compile("func f(o: int?):\n\tmatch o:\n\t\t_:\n\t\t\tpass\n")), "A match over int? is not supported yet"));
 	CHECK(contains(messages(compile("func f(a: Array[int]):\n\tmatch a:\n\t\t[1]:\n\t\t\tpass\n")), "Array and dictionary patterns are not supported yet."));
 }

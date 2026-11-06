@@ -85,11 +85,13 @@ struct TypeImage {
 	uint32_t layout = 0; // Equal for types laid out alike, in every image.
 	ValueCheck check;
 	std::string result_key; // The signature key of a Task[T] whose T it is.
-	godot::String name; // Struct and Enum: "script::Name"; an engine enum as the engine names it.
-	std::vector<FieldImage> fields; // Struct.
-	std::vector<int64_t> enum_values; // Enum, sorted.
+	godot::String name; // Struct and the enums: "script::Name"; an engine enum as the engine names it.
+	std::vector<FieldImage> fields; // Struct and PayloadEnum, whose first field is the variant's index.
+	std::vector<int64_t> enum_values; // Enum, sorted; PayloadEnum: each variant's first field.
 	bool enum_checked = false; // An enum of this language, whose values entry checks check.
-	std::vector<std::pair<godot::String, int64_t>> enum_declared; // Enum, the names and values in declaration order.
+	// Enum: the names and values in declaration order; PayloadEnum: the names
+	// of the variants and how many fields each has.
+	std::vector<std::pair<godot::String, int64_t>> enum_declared;
 	// A type that containers keep boxed (bytecode::is_boxed): its boxes' type,
 	// the same for the same type in every image.
 	const BoxType *box = nullptr;

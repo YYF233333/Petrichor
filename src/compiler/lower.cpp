@@ -230,6 +230,8 @@ class Lowerer {
 			type.element = type_index(p_type.args[1]);
 		} else if (p_type.kind == TypeKind::Struct) {
 			return struct_index(p_type);
+		} else if (p_type.kind == TypeKind::PayloadEnum) {
+			return payload_enum_index(p_type);
 		} else if (p_type.kind == TypeKind::Enum) {
 			// "script::Name" for an enum of this language, as for a struct.
 			type.kind = bytecode::TypeKind::Enum;
@@ -265,11 +267,69 @@ class Lowerer {
 		return index;
 	}
 
+	// An enum with payloads, "script::Name", laid out as a struct whose first
+	// field is the variant's index (bytecode/module.h).
+	uint32_t payload_enum_index(const Type &p_enum) {
+		bytecode::TypeDesc type;
+		type.kind = bytecode::TypeKind::PayloadEnum;
+		type.name = p_enum.script + "::" + p_enum.interface_name();
+		// The checker refuses one that holds itself (spec §3.6).
+		if (!interning.insert(type.name).second) {
+			error(p_enum.name + " cannot be compiled: it contains itself.");
+			return type_index(ValueType::Void);
+		}
+		type.fields.push_back({ std::string(), type_index(ValueType::Int) });
+		for (size_t v = 0; v < p_enum.values->list.size(); v++) {
+			const auto &fields = p_enum.values->fields[v];
+			type.values.push_back({ p_enum.values->list[v].first, int64_t(fields.size()) });
+			for (const auto &[name, field_type] : fields) {
+				type.fields.push_back({ name, type_index(field_type) });
+			}
+		}
+		interning.erase(type.name);
+		return type_index(type);
+	}
+
+	// The field of a variant in the slot of an enum with payloads: after the
+	// variant's index and the fields of the variants before it.
+	static uint32_t variant_field(const Type &p_enum, int p_variant, size_t p_field) {
+		size_t index = 1;
+		for (int v = 0; v < p_variant; v++) {
+			index += p_enum.values->fields[v].size();
+		}
+		return uint32_t(index + p_field);
+	}
+
+	// `Command.MOVE(target = p)`: the variant with every field at its default,
+	// so that a register reused by a loop holds nothing of before, then the
+	// arguments in the order written, each into its field once all are
+	// evaluated (spec §3.7).
+	uint32_t construct_variant(const Expr &p_call) {
+		const uint32_t result = temp(p_call.type);
+		bytecode::Constant blank{ fn.regs[result].type };
+		blank.i = p_call.index;
+		instr(Op::CONST_VALUE, result, NO_REG, NO_REG, add_constant(blank), fn.regs[result].type);
+		const auto &fields = p_call.type.values->fields[p_call.index];
+		std::vector<std::pair<uint32_t, uint32_t>> values;
+		for (size_t i = 0; i < p_call.args.size(); i++) {
+			for (size_t f = 0; f < fields.size(); f++) {
+				if (fields[f].first == p_call.arg_names[i]) {
+					values.push_back({ variant_field(p_call.type, p_call.index, f), argument(*p_call.args[i], p_call.param_types[i], false, false) });
+				}
+			}
+		}
+		for (const auto &[field, value] : values) {
+			move(field_view(result, field), value);
+		}
+		return result;
+	}
+
 	const StructDecl *struct_decl(const Type &p_struct) const {
 		return p_struct.script == cls.path ? cls.find_struct(p_struct.interface_name()) : (structs ? structs(p_struct) : nullptr);
 	}
 
-	bool is_struct_reg(uint32_t p_reg) const { return module.types[fn.regs[p_reg].type].kind == bytecode::TypeKind::Struct; }
+	// A struct or an enum with payloads, whose fields are registers over its bytes.
+	bool is_struct_reg(uint32_t p_reg) const { return bytecode::has_fields(module.types, fn.regs[p_reg].type); }
 
 	// A field of the struct in a register, as a register over its bytes.
 	uint32_t field_view(uint32_t p_struct, uint32_t p_field) {
@@ -1075,8 +1135,10 @@ class Lowerer {
 			new_container(p_dst);
 			return p_dst;
 		}
-		if (is_option_reg(p_dst) || type == ValueType::Object || type == ValueType::Variant) {
-			// None; a constant of an object type or of T? is always None.
+		if (is_option_reg(p_dst) || type == ValueType::Object || type == ValueType::Variant || module.types[fn.regs[p_dst].type].kind == bytecode::TypeKind::PayloadEnum) {
+			// None; a constant of an object type or of T? is always None. An enum
+			// with payloads has no default (spec §3.7); where one is needed, its
+			// first variant.
 			instr(Op::CONST_VALUE, p_dst, NO_REG, NO_REG, default_constant(fn.regs[p_dst].type), fn.regs[p_dst].type);
 			return p_dst;
 		}
@@ -1298,6 +1360,8 @@ class Lowerer {
 			}
 			case Target::StructConstructor:
 				return construct_struct(p_call.type, &p_call);
+			case Target::VariantConstructor:
+				return construct_variant(p_call);
 			case Target::Unwrap: {
 				const uint32_t value = lower_expr(*p_call.base);
 				const uint32_t message = p_call.args.empty() ? NO_REG : convert(lower_expr(*p_call.args[0]), Type::of(TypeKind::String));
@@ -2021,25 +2085,74 @@ class Lowerer {
 		}
 	}
 
-	// Jumps to `p_matched` when the matched value fits the pattern, and goes on
-	// in a new block when it does not.
-	void lower_pattern(const Pattern &p_pattern, uint32_t p_matched) {
-		if (p_pattern.kind != PatternKind::Value) {
-			jump(p_matched);
-			current = new_block();
-			return;
-		}
+	// Goes on in the current block when the value in `p_value` fits the
+	// pattern, its names bound, and jumps to `p_fail` when it does not (spec
+	// §5.6).
+	void lower_pattern(const Pattern &p_pattern, uint32_t p_value, uint32_t p_fail) {
 		const uint32_t next_block = new_block();
-		const Expr &compare = *p_pattern.value;
-		if (compare.target != Target::NoneComparison && compare.left->type.kind == TypeKind::Variant) {
-			// Of the pattern's type first, as in GDScript (spec §5.6).
-			const uint32_t matches = temp(ValueType::Bool);
-			const uint32_t value = lower_expr(*compare.left);
-			instr(Op::MATCHES, matches, value, as_variant(lower_expr(*compare.right)));
-			branch(matches, p_matched, next_block);
-		} else {
-			branch(lower_expr(compare), p_matched, next_block);
+		switch (p_pattern.kind) {
+			case PatternKind::Wildcard:
+				break;
+			case PatternKind::Bind: {
+				const uint32_t local = reg_of(p_pattern.local);
+				if (fn.regs[local].type == fn.regs[p_value].type) {
+					move(local, p_value);
+				} else {
+					// The T inside a T? that a branch before took None of.
+					instr(Op::UNWRAP, local, p_value, NO_REG, 0, fn.regs[local].type);
+				}
+				break;
+			}
+			case PatternKind::Value: {
+				const uint32_t local = reg_of(p_pattern.local);
+				if (local != p_value) {
+					move(local, p_value);
+				}
+				const Expr &compare = *p_pattern.value;
+				if (compare.target != Target::NoneComparison && compare.left->type.kind == TypeKind::Variant) {
+					// Of the pattern's type first, as in GDScript.
+					const uint32_t matches = temp(ValueType::Bool);
+					const uint32_t value = lower_expr(*compare.left);
+					instr(Op::MATCHES, matches, value, as_variant(lower_expr(*compare.right)));
+					branch(matches, next_block, p_fail);
+				} else {
+					branch(lower_expr(compare), next_block, p_fail);
+				}
+				current = next_block;
+				return;
+			}
+			case PatternKind::Constructor: {
+				const Type &type = p_pattern.type;
+				if (type.is_optional()) {
+					const uint32_t none = temp(ValueType::Bool);
+					instr(Op::IS_NONE, none, p_value, NO_REG, 0, fn.regs[p_value].type);
+					branch(none, p_pattern.variant == 0 ? next_block : p_fail, p_pattern.variant == 0 ? p_fail : next_block);
+					current = next_block;
+					if (p_pattern.variant == 1) {
+						const uint32_t inner = temp(type.unwrapped());
+						instr(Op::UNWRAP, inner, p_value, NO_REG, 0, fn.regs[inner].type);
+						lower_pattern(p_pattern.items[0], inner, p_fail);
+					}
+					return;
+				}
+				if (type.kind == TypeKind::PayloadEnum) {
+					const uint32_t variant = temp(ValueType::Int);
+					load_int(variant, p_pattern.variant);
+					const uint32_t same = temp(ValueType::Bool);
+					instr(Op::EQ_INT, same, field_view(p_value, 0), variant);
+					branch(same, next_block, p_fail);
+				} else {
+					jump(next_block);
+				}
+				current = next_block;
+				for (size_t i = 0; i < p_pattern.items.size(); i++) {
+					const uint32_t field = type.kind == TypeKind::PayloadEnum ? variant_field(type, p_pattern.variant, i) : uint32_t(i);
+					lower_pattern(p_pattern.items[i], field_view(p_value, field), p_fail);
+				}
+				return;
+			}
 		}
+		jump(next_block);
 		current = next_block;
 	}
 
@@ -2105,15 +2218,13 @@ class Lowerer {
 					const uint32_t body_block = new_block();
 					const uint32_t next_block = new_block();
 					for (const Pattern &pattern : arm.patterns) {
-						lower_pattern(pattern, body_block);
+						const uint32_t fail_block = new_block();
+						lower_pattern(pattern, matched, fail_block);
+						jump(body_block);
+						current = fail_block;
 					}
 					jump(next_block);
 					current = body_block;
-					for (const Pattern &pattern : arm.patterns) {
-						if (pattern.kind == PatternKind::Bind) {
-							move(reg_of(pattern.local), matched);
-						}
-					}
 					if (arm.guard) {
 						const uint32_t guarded_block = new_block();
 						branch(lower_expr(*arm.guard), guarded_block, next_block);
@@ -2123,7 +2234,7 @@ class Lowerer {
 					jump(end_block);
 					current = next_block;
 				}
-				if (p_stmt.exhaustive) {
+				if (p_stmt.exhaustive && p_stmt.value->type.kind == TypeKind::Enum && !p_stmt.value->type.values->is_engine) {
 					// Only a value that is none of the enum's comes here, as an int that
 					// GDScript put into an Array[State]: a program error (spec §5.6).
 					instr(Op::CHECK_ENUM, NO_REG, matched, NO_REG, fn.regs[matched].type);

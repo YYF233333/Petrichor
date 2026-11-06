@@ -78,6 +78,7 @@ std::string Type::to_string() const {
 		case TypeKind::Unsupported:
 		case TypeKind::Struct:
 		case TypeKind::Enum:
+		case TypeKind::PayloadEnum:
 			return name;
 		default:
 			return builtin_name();
@@ -269,7 +270,7 @@ bool is_format_string(const Type &p_type) {
 }
 
 bool is_boxed(const Type &p_type) {
-	if (p_type.kind == TypeKind::Option || p_type.kind == TypeKind::Struct) {
+	if (p_type.kind == TypeKind::Option || p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum) {
 		return true;
 	}
 	return is_typed_container(p_type) && std::any_of(p_type.args.begin(), p_type.args.end(), is_boxed);

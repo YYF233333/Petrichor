@@ -194,7 +194,7 @@ bool holds_containers(const TypeImage &p_type) {
 	if (p_type.kind == bytecode::TypeKind::Option) {
 		return holds_containers(*p_type.element);
 	}
-	if (p_type.kind == bytecode::TypeKind::Struct) {
+	if (!p_type.fields.empty()) {
 		return std::any_of(p_type.fields.begin(), p_type.fields.end(), [](const FieldImage &p_field) { return holds_containers(*p_field.type); });
 	}
 	return p_type.storage == ValueType::Array || p_type.storage == ValueType::Dictionary;
@@ -476,11 +476,19 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 		if (bytecode::is_boxed(p_types, i)) {
 			image.box = box_type(p_types, i);
 		}
-		if (type.kind == bytecode::TypeKind::Struct) {
+		if (bytecode::has_fields(p_types, i)) {
 			image.name = to_godot(type.name);
 			const std::vector<uint32_t> offsets = bytecode::field_offsets(p_types, i);
 			for (size_t f = 0; f < type.fields.size(); f++) {
 				image.fields.push_back({ to_godot(type.fields[f].name), &images[type.fields[f].type], offsets[f] });
+			}
+		}
+		if (type.kind == bytecode::TypeKind::PayloadEnum) {
+			int64_t first = 1;
+			for (const bytecode::EnumValueDesc &value : type.values) {
+				image.enum_values.push_back(first);
+				image.enum_declared.push_back({ to_godot(value.name), value.value });
+				first += value.value;
 			}
 		}
 		if (type.kind == bytecode::TypeKind::Enum) {
@@ -505,9 +513,17 @@ static bool is_option(const TypeImage &p_type) {
 	return p_type.kind == bytecode::TypeKind::Option;
 }
 
+// A struct or a PayloadEnum, whose fields are slots inside its slot.
 static bool is_struct(const TypeImage &p_type) {
-	return p_type.kind == bytecode::TypeKind::Struct;
+	return p_type.kind == bytecode::TypeKind::Struct || p_type.kind == bytecode::TypeKind::PayloadEnum;
 }
+
+static bool is_payload_enum(const TypeImage &p_type) {
+	return p_type.kind == bytecode::TypeKind::PayloadEnum;
+}
+
+// The key of an encoded PayloadEnum that names its variant (spec §3.7).
+static const char *const VARIANT_KEY = "$variant";
 
 static uint64_t &tag(uint8_t *p_slot) {
 	return *reinterpret_cast<uint64_t *>(p_slot);
@@ -515,6 +531,29 @@ static uint64_t &tag(uint8_t *p_slot) {
 
 static uint64_t tag(const uint8_t *p_slot) {
 	return *reinterpret_cast<const uint64_t *>(p_slot);
+}
+
+// Calls `p_fn` on the fields that the value of a struct or a PayloadEnum
+// holds, while it returns true: a struct's every field, a PayloadEnum's index
+// of its variant and that variant's fields; the others hold their defaults.
+template <typename Fn>
+static bool all_held_fields(const TypeImage &p_type, const uint8_t *p_slot, Fn &&p_fn) {
+	size_t first = 0;
+	size_t end = p_type.fields.size();
+	if (is_payload_enum(p_type)) {
+		if (!p_fn(p_type.fields[0])) {
+			return false;
+		}
+		const size_t variant = size_t(tag(p_slot));
+		first = size_t(p_type.enum_values[variant]);
+		end = first + size_t(p_type.enum_declared[variant].second);
+	}
+	for (size_t i = first; i < end; i++) {
+		if (!p_fn(p_type.fields[i])) {
+			return false;
+		}
+	}
+	return true;
 }
 
 template <typename Fn>
@@ -537,9 +576,10 @@ static void for_each_active_leaf(const TypeImage &p_type, Ptr *p_slot, Fn &&p_fn
 			for_each_active_leaf(*p_type.element, p_slot + 8, p_fn);
 		}
 	} else if (is_struct(p_type)) {
-		for (const FieldImage &field : p_type.fields) {
-			for_each_active_leaf(*field.type, p_slot + field.offset, p_fn);
-		}
+		all_held_fields(p_type, p_slot, [&](const FieldImage &p_field) {
+			for_each_active_leaf(*p_field.type, p_slot + p_field.offset, p_fn);
+			return true;
+		});
 	} else {
 		p_fn(p_type.storage, p_slot);
 	}
@@ -600,10 +640,16 @@ Variant encode(const TypeImage &p_type, const uint8_t *p_slot) {
 		return tag(p_slot) ? encode(*p_type.element, p_slot + 8) : Variant();
 	}
 	if (is_struct(p_type)) {
+		// A PayloadEnum names its variant by the reserved key (spec §3.7).
 		Dictionary encoded;
-		for (const FieldImage &field : p_type.fields) {
-			encoded[field.name] = encode(*field.type, p_slot + field.offset);
-		}
+		all_held_fields(p_type, p_slot, [&](const FieldImage &p_field) {
+			if (is_payload_enum(p_type) && &p_field == &p_type.fields[0]) {
+				encoded[VARIANT_KEY] = p_type.enum_declared[tag(p_slot)].first;
+			} else {
+				encoded[p_field.name] = encode(*p_field.type, p_slot + p_field.offset);
+			}
+			return true;
+		});
 		return encoded;
 	}
 	if (p_type.box && p_type.storage == ValueType::Array) {
@@ -698,16 +744,35 @@ static bool decode_container(const TypeImage &p_type, const Variant &p_value, ui
 	return false;
 }
 
-// The first field of the encoded struct that does not decode, or -1.
-static int64_t undecodable_field(const TypeImage &p_type, const Dictionary &p_encoded) {
-	for (size_t i = 0; i < p_type.fields.size(); i++) {
-		const FieldImage &field = p_type.fields[i];
-		ValueBuffer slot(*field.type);
-		if (!p_encoded.has(field.name) || !decode_field(*field.type, p_encoded[field.name], slot.data, true)) {
-			return int64_t(i);
+// The variant that an encoded PayloadEnum names, or -1 (spec §3.7).
+static int64_t encoded_variant(const TypeImage &p_type, const Dictionary &p_encoded) {
+	const Variant name = p_encoded.get(VARIANT_KEY, Variant());
+	if (type_of(name) == Variant::STRING || type_of(name) == Variant::STRING_NAME) {
+		for (size_t i = 0; i < p_type.enum_declared.size(); i++) {
+			if (p_type.enum_declared[i].first == String(name)) {
+				return int64_t(i);
+			}
 		}
 	}
 	return -1;
+}
+
+// Decodes the fields that the encoded struct, or the variant whose index is
+// already in the slot, holds; false at the first that does not decode, which
+// goes in `r_failed`.
+static bool decode_fields(const TypeImage &p_type, const Dictionary &p_encoded, uint8_t *p_slot, bool p_check, const FieldImage **r_failed = nullptr) {
+	return all_held_fields(p_type, p_slot, [&](const FieldImage &p_field) {
+		if (is_payload_enum(p_type) && &p_field == &p_type.fields[0]) {
+			return true;
+		}
+		if (p_encoded.has(p_field.name) && decode_field(*p_field.type, p_encoded[p_field.name], p_slot + p_field.offset, p_check)) {
+			return true;
+		}
+		if (r_failed) {
+			*r_failed = &p_field;
+		}
+		return false;
+	});
 }
 
 // Whether the type of the keys or elements of a container needs a look at
@@ -769,12 +834,17 @@ bool from_variant(const TypeImage &p_type, const Variant &p_value, uint8_t *p_sl
 			return false;
 		}
 		const Dictionary encoded = p_value;
-		for (const FieldImage &field : p_type.fields) {
-			if (!encoded.has(field.name) || !decode_field(*field.type, encoded[field.name], p_slot + field.offset, p_check)) {
+		if (is_payload_enum(p_type)) {
+			const int64_t variant = encoded_variant(p_type, encoded);
+			if (variant < 0) {
 				return false;
 			}
+			// The fields of the other variants back at their defaults.
+			destroy_value(p_type, p_slot);
+			construct_value(p_type, p_slot);
+			tag(p_slot) = uint64_t(variant);
 		}
-		return true;
+		return decode_fields(p_type, encoded, p_slot, p_check);
 	}
 	if (!from_variant(p_type.storage, p_value, p_slot, p_check ? &p_type.check : nullptr)) {
 		return false;
@@ -825,13 +895,23 @@ String entry_mismatch(const TypeImage &p_type, const Variant &p_value) {
 		return vformat("expected %s, found %d, which is none of its values", type_description(p_type), int64_t(p_value));
 	}
 	if (is_struct(p_type) && type_of(p_value) == Variant::DICTIONARY) {
-		// Which field: "Hit.damage: expected int, found String".
+		// Which field: "Hit.damage: expected int, found String", or of a
+		// variant: "Command.MOVE.target is missing".
 		const Dictionary encoded = p_value;
-		const int64_t index = undecodable_field(p_type, encoded);
-		if (index >= 0) {
-			const FieldImage &field = p_type.fields[index];
-			const String where = vformat("%s.%s", type_description(p_type), field.name);
-			return encoded.has(field.name) ? vformat("%s: %s", where, entry_mismatch(*field.type, encoded[field.name])) : vformat("%s is missing", where);
+		ValueBuffer slot(p_type);
+		String where = type_description(p_type);
+		if (is_payload_enum(p_type)) {
+			const int64_t variant = encoded_variant(p_type, encoded);
+			if (variant < 0) {
+				return vformat("expected %s, found a Dictionary whose \"%s\" names none of its variants", where, VARIANT_KEY);
+			}
+			tag(slot.data) = uint64_t(variant);
+			where += "." + p_type.enum_declared[variant].first;
+		}
+		const FieldImage *field = nullptr;
+		if (!decode_fields(p_type, encoded, slot.data, true, &field)) {
+			where += "." + field->name;
+			return encoded.has(field->name) ? vformat("%s: %s", where, entry_mismatch(*field->type, encoded[field->name])) : vformat("%s is missing", where);
 		}
 	}
 	if (is_option(p_type) || is_struct(p_type)) {
@@ -858,12 +938,8 @@ static bool all_leaves_match(const TypeImage &p_type, const uint8_t *p_a, const 
 		return tag(p_a) == tag(p_b) && (!tag(p_a) || all_leaves_match(*p_type.element, p_a + 8, p_b + 8, p_fn));
 	}
 	if (is_struct(p_type)) {
-		for (const FieldImage &field : p_type.fields) {
-			if (!all_leaves_match(*field.type, p_a + field.offset, p_b + field.offset, p_fn)) {
-				return false;
-			}
-		}
-		return true;
+		// A PayloadEnum's index of its variant first.
+		return all_held_fields(p_type, p_a, [&](const FieldImage &p_field) { return all_leaves_match(*p_field.type, p_a + p_field.offset, p_b + p_field.offset, p_fn); });
 	}
 	return p_fn(p_type.storage, p_a, p_b);
 }
@@ -922,9 +998,10 @@ uint32_t hash_of(const TypeImage &p_type, const uint8_t *p_slot) {
 	}
 	if (is_struct(p_type)) {
 		uint32_t hash = HASH_MURMUR3_SEED;
-		for (const FieldImage &field : p_type.fields) {
-			hash = hash_murmur3_one_32(hash_of(*field.type, p_slot + field.offset), hash);
-		}
+		all_held_fields(p_type, p_slot, [&](const FieldImage &p_field) {
+			hash = hash_murmur3_one_32(hash_of(*p_field.type, p_slot + p_field.offset), hash);
+			return true;
+		});
 		return hash_fmix32(hash);
 	}
 	if (p_type.storage == ValueType::Object) {
@@ -961,18 +1038,24 @@ uint32_t hash_contents(const Variant &p_value, int p_depth) {
 	return p_value.hash();
 }
 
-// "Hit(damage = 3, crit = false)".
+// "Hit(damage = 3, crit = false)", "Command.MOVE(target = (1, 0, 0))",
+// "Command.IDLE".
 String value_text(const TypeImage &p_type, const uint8_t *p_slot) {
 	if (is_option(p_type)) {
 		return tag(p_slot) ? value_text(*p_type.element, p_slot + 8) : String("None");
 	}
 	if (is_struct(p_type)) {
-		String text = type_description(p_type) + "(";
-		for (size_t i = 0; i < p_type.fields.size(); i++) {
-			const FieldImage &field = p_type.fields[i];
-			text += (i > 0 ? ", " : "") + field.name + " = " + value_text(*field.type, p_slot + field.offset);
-		}
-		return text + ")";
+		String text = type_description(p_type);
+		String fields;
+		all_held_fields(p_type, p_slot, [&](const FieldImage &p_field) {
+			if (is_payload_enum(p_type) && &p_field == &p_type.fields[0]) {
+				text += "." + p_type.enum_declared[tag(p_slot)].first;
+			} else {
+				fields += (fields.is_empty() ? "" : ", ") + p_field.name + " = " + value_text(*p_field.type, p_slot + p_field.offset);
+			}
+			return true;
+		});
+		return is_payload_enum(p_type) && fields.is_empty() ? text : text + "(" + fields + ")";
 	}
 	const Variant value = outward_variant(p_type, p_slot);
 	if (is_none(value)) {
@@ -1116,16 +1199,14 @@ bool less_values(const TypeImage &p_type, const uint8_t *p_a, const uint8_t *p_b
 	}
 	if (is_struct(p_type)) {
 		// The first field in which one is less decides, as in Array's `<`
-		// (core/variant/array.cpp:164-179).
-		for (const FieldImage &field : p_type.fields) {
-			if (less_values(*field.type, p_a + field.offset, p_b + field.offset)) {
-				return true;
-			}
-			if (less_values(*field.type, p_b + field.offset, p_a + field.offset)) {
-				return false;
-			}
-		}
-		return false;
+		// (core/variant/array.cpp:164-179); a PayloadEnum's index of its
+		// variant first (spec §3.7).
+		bool less = false;
+		all_held_fields(p_type, p_a, [&](const FieldImage &p_field) {
+			less = less_values(*p_field.type, p_a + p_field.offset, p_b + p_field.offset);
+			return !less && !less_values(*p_field.type, p_b + p_field.offset, p_a + p_field.offset);
+		});
+		return less;
 	}
 	switch (p_type.storage) {
 		case ValueType::Bool:

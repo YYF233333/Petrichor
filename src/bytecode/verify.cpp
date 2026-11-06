@@ -60,7 +60,7 @@ class Verifier {
 
 	ValueType storage(uint32_t p_type) const { return storage_of(module.types, p_type); }
 	bool is_option(uint32_t p_type) const { return p_type < module.types.size() && module.types[p_type].kind == TypeKind::Option; }
-	bool is_struct(uint32_t p_type) const { return p_type < module.types.size() && module.types[p_type].kind == TypeKind::Struct; }
+	bool is_struct(uint32_t p_type) const { return has_fields(module.types, p_type); }
 	// A type of the table that values have.
 	bool has_values(uint32_t p_type) const { return is_option(p_type) || is_struct(p_type) || (p_type < module.types.size() && is_type(uint32_t(storage(p_type)))); }
 	// No value: the result of a function that gives none.
@@ -87,6 +87,7 @@ class Verifier {
 				return "Dictionary[" + type_name(type.key) + ", " + type_name(type.element) + "]";
 			case TypeKind::Struct:
 			case TypeKind::Enum:
+			case TypeKind::PayloadEnum:
 				return type.name.substr(type.name.rfind(':') + 1);
 			default:
 				return value_type_name(type.value);
@@ -114,15 +115,25 @@ class Verifier {
 				return fail("a dictionary of no key or value type");
 			}
 			for (const FieldDesc &field : type.fields) {
-				if (type.kind != TypeKind::Struct || field.type >= i || !has_values(field.type)) {
+				if (!is_struct(i) || field.type >= i || !has_values(field.type)) {
 					return fail("a field of type " + std::to_string(i) + " has no type");
 				}
 			}
-			if (type.kind == TypeKind::Enum && type.name.empty()) {
+			if ((type.kind == TypeKind::Enum || type.kind == TypeKind::PayloadEnum) && type.name.empty()) {
 				return fail("an enum without a name");
 			}
-			if (!type.values.empty() && type.kind != TypeKind::Enum) {
+			if (!type.values.empty() && type.kind != TypeKind::Enum && type.kind != TypeKind::PayloadEnum) {
 				return fail("values of type " + std::to_string(i) + ", which is no enum");
+			}
+			if (type.kind == TypeKind::PayloadEnum) {
+				// The variant's index, then each variant's fields.
+				uint64_t fields = 1;
+				for (const EnumValueDesc &value : type.values) {
+					fields += value.value >= 0 ? uint64_t(value.value) : uint64_t(1) << 32;
+				}
+				if (type.values.empty() || fields != type.fields.size() || storage(type.fields[0].type) != ValueType::Int) {
+					return fail("an enum with payloads whose variants do not have its fields");
+				}
 			}
 		}
 		return true;
@@ -262,6 +273,11 @@ class Verifier {
 	bool typed_constant(const Constant &p_constant) {
 		if (p_constant.type >= module.types.size()) {
 			return fail("a constant has no type");
+		}
+		// A variant by its index, with its fields at their defaults.
+		const TypeDesc &type = module.types[p_constant.type];
+		if (type.kind == TypeKind::PayloadEnum && (p_constant.i < 0 || uint64_t(p_constant.i) >= type.values.size())) {
+			return fail("a constant of an enum with payloads names no variant");
 		}
 		if (p_constant.op >= 0 && (p_constant.op > 24 || p_constant.args.empty() || p_constant.args.size() > 2)) {
 			return fail("a constant applies an invalid operator");

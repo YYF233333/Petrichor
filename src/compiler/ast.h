@@ -75,6 +75,9 @@ enum class Target {
 	Field, // A member of a built-in value, such as x of Vector3.
 	StructField, // A field of a struct, by its index in `index` (spec §3.6).
 	StructConstructor, // `Hit(damage = 3)`, the struct being the call's type.
+	// `Command.MOVE(target = p)`: the variant `index` of the call's type, an
+	// enum with payloads (spec §3.7).
+	VariantConstructor,
 	BuiltinConstant, // Such as Vector3.UP.
 	ScriptFunction,
 	// A method of a class of this language on `base`, of another class or
@@ -239,8 +242,8 @@ struct Stmt {
 	int local = -1; // Var, Const and For: the declared local; Match: the matched value.
 	Type compound_result; // Assign with a compound operator: the type of `target op value`.
 	Type element; // For: the type of what is iterated over, before it goes into the variable.
-	// Match: over an enum of this language, handling every value without `_`,
-	// so that it takes every path (spec §3.7, §5.6).
+	// Match: some branch without `when` takes each value, so that the match
+	// takes every path (spec §3.7, §5.6).
 	bool exhaustive = false;
 };
 
@@ -249,21 +252,62 @@ using Block = std::vector<std::unique_ptr<Stmt>>;
 enum class PatternKind {
 	Wildcard, // `_`
 	Bind, // `var name`
-	Value, // A literal or a constant expression, compared with ==.
+	Value, // A literal, a constant expression, a name or an attribute access, compared with ==.
+	// `Command.MOVE(target = var t, ..)`, `Hit(var damage)`, `Some(var x)` or
+	// `None`: a variant, a struct or a built-in constructor, with patterns of
+	// its fields (spec §5.6).
+	Constructor,
 };
 
-// A pattern of match (spec §5.6); patterns that nest, such as those of
-// arrays, keep theirs in `items`.
+// A pattern of match (spec §5.6); patterns that nest keep theirs in `items`.
 struct Pattern {
 	PatternKind kind = PatternKind::Wildcard;
 	TokenRange range;
 	std::string name; // Bind.
 	uint32_t name_token = 0;
-	// Value: the expression, which the checker makes into `matched == value`.
+	// Value: the expression, which the checker makes into `value == pattern`;
+	// Constructor: what names it, such as `Command.MOVE`, or None.
 	std::unique_ptr<Expr> value;
+	// Constructor: the patterns of its fields, each written `field = pattern`
+	// with the name in `field`, or by position; `..` leaves out the rest.
 	std::vector<Pattern> items;
-	int local = -1; // Bind: filled by the checker.
+	std::string field;
+	uint32_t field_token = 0;
+	bool rest = false;
+	// Filled by the checker. Bind: its local; Value: the local that holds the
+	// value compared; Constructor: what it matches, `type`, and of an enum
+	// with payloads the variant, of T? 0 for None and 1 for Some, with
+	// `items` then one for each field in order, `_` for those left out.
+	int local = -1;
+	Type type;
+	int variant = 0;
 };
+
+// The call that a constructor pattern reads as, such as `Vector2(1, 2)`, its
+// items' values moved into it; null, and the pattern left as it is, when an
+// item is no value or names a field, or `..` follows them.
+inline std::unique_ptr<Expr> pattern_call(Pattern &r_pattern) {
+	for (const Pattern &item : r_pattern.items) {
+		if (item.kind != PatternKind::Value || !item.field.empty()) {
+			return nullptr;
+		}
+	}
+	if (r_pattern.rest) {
+		return nullptr;
+	}
+	auto call = std::make_unique<Expr>();
+	call->kind = ExprKind::Call;
+	call->range = r_pattern.range;
+	call->text = r_pattern.value->text;
+	call->name_token = r_pattern.value->name_token;
+	call->base = std::move(r_pattern.value->base);
+	for (Pattern &item : r_pattern.items) {
+		call->args.push_back(std::move(item.value));
+	}
+	r_pattern.items.clear();
+	r_pattern.value.reset();
+	return call;
+}
 
 struct MatchBranch {
 	TokenRange range;
@@ -423,21 +467,25 @@ struct StructDecl {
 	}
 };
 
-// A value of an enum without payloads, with the value written for it, if any.
+// A value of an enum, with the value written for it, if any, or a variant
+// with the fields of its payload, `MOVE(target: Vector3)` (spec §3.7).
 struct EnumValueDecl {
 	std::string name;
 	TokenRange range;
 	uint32_t name_token = 0;
 	std::unique_ptr<Expr> value;
+	std::vector<VarDecl> fields;
 };
 
 // `enum Name { A, B = 2 }`, or an unnamed one, whose values are int constants
-// of the class (spec §3.7).
+// of the class; or one with payloads, `enum Command { IDLE, MOVE(target:
+// Vector3) }` (spec §3.7).
 struct EnumDecl {
 	std::string name; // Empty when unnamed.
 	TokenRange range;
 	uint32_t name_token = 0;
 	bool is_pub = false;
+	bool has_payloads = false; // Some variant has fields.
 	std::vector<EnumValueDecl> values;
 	// Filled by the checker when the enum is first needed.
 	enum class State {
@@ -685,6 +733,7 @@ void for_each_child(const Node &p_node, Fn &&p_fn) {
 		list(p_node.fields);
 	} else if constexpr (std::is_same_v<Node, EnumValueDecl>) {
 		opt(p_node.value);
+		list(p_node.fields);
 	} else if constexpr (std::is_same_v<Node, EnumDecl>) {
 		list(p_node.values);
 	} else if constexpr (std::is_same_v<Node, InterfaceDecl>) {

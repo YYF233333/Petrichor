@@ -185,7 +185,8 @@ std::string spelling(const DeclId &p_id) {
 	switch (p_id.kind) {
 		case DeclId::Kind::Script:
 		case DeclId::Kind::Foreign:
-			return p_id.name.substr(p_id.name.find('.') + 1);
+			// The last name, as the field target of Command.MOVE.target.
+			return p_id.name.substr(p_id.name.find_last_of('.') + 1);
 		case DeclId::Kind::Engine:
 		case DeclId::Kind::Language:
 			return p_id.name.empty() ? p_id.scope : p_id.name;
