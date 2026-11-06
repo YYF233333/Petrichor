@@ -31,6 +31,7 @@ Review what the message names: a commit range, an area, sections of the spec or 
   - engine behavior it repeats without a check that keeps the two in step.
 - The spec:
   - sections that contradict each other;
+  - rules that break one of the guarantees in spec §1;
   - rules that real code runs into, shown with that code;
   - `docs/engine-facts.md` against the engine source;
   - its design, judged by `AGENTS.md` (Design) and by these leanings of the owner:

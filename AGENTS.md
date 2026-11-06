@@ -16,6 +16,7 @@ The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable`
   - what GDScript does, with engine citations, giving bugs of GDScript or the engine sane semantics instead of copying them;
   - for tools and the runtime, also what mature implementations do, without assuming GDScript's is best;
   - whether it stays consistent with the defaults around it and allows what GDScript allows;
+  - where it crosses freed objects, the time before ready, `await` and cancellation, the engine boundary, scene inheritance and hot reload. Each case with no obvious result is a script of five lines or fewer, checked against the spec's guarantees. The owner decides it, and it becomes a test;
   - the cost of doing it now against later.
 - Each stage is part of the final design. A shortcut taken now must not show users behavior that the final design changes.
 - When real code can answer a design question, survey real Godot projects first. A survey in `docs/surveys/` is a write-up plus the scripts that reproduce it. A single count backing one rule goes into `corpus-counts`. A survey records the design it evaluated. When the design changes, point to the current rule rather than rewriting the data.
