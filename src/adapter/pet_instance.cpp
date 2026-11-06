@@ -443,6 +443,8 @@ static void instance_to_string(GDExtensionScriptInstanceDataPtr p_instance, GDEx
 static void instance_refcount_incremented(GDExtensionScriptInstanceDataPtr p_instance) {
 }
 
+// Without this callback the engine answers false, and a RefCounted owner is
+// never freed (core/object/script_language_extension.h:888-891; ed1daf0).
 static GDExtensionBool instance_refcount_decremented(GDExtensionScriptInstanceDataPtr p_instance) {
 	return true;
 }
