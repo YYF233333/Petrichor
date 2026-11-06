@@ -37,6 +37,8 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - `pop_front()` and `pop_back()` of `Array[T?]` giving `T??`;
   - rejecting `T??` and `Variant?` passed to `Variant` (spec §10.1).
 - `Result[T, E]` with `Ok`, `Err`, the non-discardable check and its methods, and postfix `?` (spec §3.5, §8.2). Enums with payloads, and the names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7). `T.try_from(x)` (spec §5.3).
+- `for` over objects that define `_iter_init`, `_iter_next` and `_iter_get`, as GDScript allows; the checker reports it as not supported yet.
+- The `breakpoint` statement.
 - Rest parameters `...args: Array[T]` (spec §4.6).
 - `for` over a String (spec §5.7); no file of the coverage survey's corpus does it.
 - Static functions as values, which now can only be called (spec §3.11, §4.1):
