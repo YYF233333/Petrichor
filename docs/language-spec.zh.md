@@ -704,6 +704,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 元素可由引擎表示的 `Array[T]`、`Dictionary[K, V]` | 引擎带类型容器（嵌套容器只带外层一层类型） |
 | struct | `String` 字段名键的 `Dictionary` |
 | 带载荷 enum | `String` 字段名键的 `Dictionary`，保留键 `"$variant"` 存分支名 |
+| `Result[T, E]` | 同带载荷 enum：`{"$variant": "Ok", "value": v}` 或 `{"$variant": "Err", "error": e}` |
 | `async` 方法返回值 | 无类型 `Variant` |
 
 - GDScript 通过脚本反射对本语言全局类做静态检查。检查的是实例成员（属性、方法、信号）及 `Player.new(...)` 的位置实参。`_init` 不带 `pub` 时，GDScript 调带参 `new` 报编译错误，无参 `new` 在运行时报错。具名必须赋值实参仅限本语言使用。其余类级访问见“跨语言调用与消息”一节。

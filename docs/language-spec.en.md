@@ -704,6 +704,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 | `Array[T]` and `Dictionary[K, V]` with engine-representable elements | Engine typed containers (outer level only when nested) |
 | Structs | `Dictionary` with `String` field-name keys |
 | Payload enums | `Dictionary` with `String` field-name keys and reserved `"$variant"` variant name |
+| `Result[T, E]` | As a payload enum: `{"$variant": "Ok", "value": v}` or `{"$variant": "Err", "error": e}` |
 | `async` method return values | Untyped `Variant` |
 
 - Through script reflection, GDScript statically checks global classes of this language. It checks instance members (properties, methods, signals) and positional `Player.new(...)` arguments. When `_init` is not `pub`, parameterized `new` is a GDScript compile error, and zero-argument `new` fails at runtime. Named must-assign arguments are specific to this language. Other class-level access is in the section on cross-language calls.
