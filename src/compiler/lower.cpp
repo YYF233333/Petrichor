@@ -2562,7 +2562,7 @@ class Lowerer {
 		decl = nullptr;
 		if (p_onready && cls.is_node) {
 			// A node that becomes ready without the exports the scene must
-			// assign stops there, before the @onready initializers (spec §7.5).
+			// assign stops there, before the @onready initializers (spec §6.4).
 			for (size_t m = module.inherited_members; m < cls.all_members.size(); m++) {
 				if (cls.all_members[m]->must_assign) {
 					any = true;
