@@ -828,7 +828,8 @@ class Lowerer {
 			args.push_back(argument(*p_call.args[i], param, outward, !as_variant && param.kind == TypeKind::Object));
 			// A key or an element of a container that keeps it boxed.
 			if (p_call.target == Target::BuiltinMethod && i < p_call.engine_params.size() && p_call.engine_params[i].kind == TypeKind::Variant && is_boxed(param)) {
-				args.back() = box(args.back(), is_key_argument(p_call, i));
+				const bytecode::ContainerMethod *m = p_call.owner == "Dictionary" ? bytecode::find_container_method(ValueType::Dictionary, p_call.text) : nullptr;
+				args.back() = box(args.back(), m && i < 2 && m->args[i] == bytecode::ElementRole::Key);
 			}
 		}
 		return args;
@@ -959,13 +960,6 @@ class Lowerer {
 		const uint32_t result = temp(ValueType::Variant);
 		instr(Op::BOX, result, p_reg, NO_REG, p_key ? 1 : 0, fn.regs[p_reg].type);
 		return result;
-	}
-
-	// Whether the argument goes to a Dictionary as a key.
-	static bool is_key_argument(const Expr &p_call, size_t p_index) {
-		const builtin::Class *type = p_call.owner == "Dictionary" ? builtin::find_class("Dictionary") : nullptr;
-		const builtin::Method *method = type ? builtin::find_method(*type, p_call.text) : nullptr;
-		return method && p_index < method->argument_count && std::string(method->arguments[p_index].name) == "key";
 	}
 
 	// resize() of an array whose elements' default the engine does not know,

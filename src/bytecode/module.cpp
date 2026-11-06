@@ -2,6 +2,7 @@
 
 #include "bytecode/opcodes.h"
 #include "format_id.gen.h"
+#include "value_types.gen.h"
 
 #include <cstring>
 #include <sstream>
@@ -50,60 +51,7 @@ const char *op_verify_schema(Op p_op) {
 	return uint32_t(p_op) < uint32_t(Op::COUNT) ? OP_INFOS[uint32_t(p_op)].verify : "";
 }
 
-namespace {
-
-struct TypeInfo {
-	const char *name;
-	uint32_t size;
-};
-
-// In ValueType order. Sizes are the engine's float_64 builtin_class_sizes,
-// except Bool (8, like Int) and Object (a Variant's data: ObjectID and pointer).
-const TypeInfo TYPES[] = {
-	{ "void", 0 },
-	{ "bool", 8 },
-	{ "int", 8 },
-	{ "float", 8 },
-	{ "String", 8 },
-	{ "Vector2", 8 },
-	{ "Vector2i", 8 },
-	{ "Rect2", 16 },
-	{ "Rect2i", 16 },
-	{ "Vector3", 12 },
-	{ "Vector3i", 12 },
-	{ "Transform2D", 24 },
-	{ "Vector4", 16 },
-	{ "Vector4i", 16 },
-	{ "Plane", 16 },
-	{ "Quaternion", 16 },
-	{ "AABB", 24 },
-	{ "Basis", 36 },
-	{ "Transform3D", 48 },
-	{ "Projection", 64 },
-	{ "Color", 16 },
-	{ "StringName", 8 },
-	{ "NodePath", 8 },
-	{ "RID", 8 },
-	{ "Object", 16 },
-	{ "Callable", 16 },
-	{ "Signal", 16 },
-	{ "Dictionary", 8 },
-	{ "Array", 8 },
-	{ "PackedByteArray", 16 },
-	{ "PackedInt32Array", 16 },
-	{ "PackedInt64Array", 16 },
-	{ "PackedFloat32Array", 16 },
-	{ "PackedFloat64Array", 16 },
-	{ "PackedStringArray", 16 },
-	{ "PackedVector2Array", 16 },
-	{ "PackedVector3Array", 16 },
-	{ "PackedColorArray", 16 },
-	{ "PackedVector4Array", 16 },
-	{ "Variant", 24 },
-};
 static_assert(sizeof(TYPES) / sizeof(TYPES[0]) == size_t(ValueType::Count), "one entry per value type");
-
-} // namespace
 
 uint32_t value_size(ValueType p_type) {
 	return p_type < ValueType::Count ? TYPES[uint32_t(p_type)].size : 0;
@@ -124,6 +72,72 @@ ValueType value_type_from_name(const std::string &p_name) {
 		}
 	}
 	return ValueType::Count;
+}
+
+ValueType packed_element(ValueType p_type) {
+	return p_type < ValueType::Count ? TYPES[uint32_t(p_type)].packed_element : ValueType::Void;
+}
+
+const ContainerMethod *find_container_method(ValueType p_base, std::string_view p_name) {
+	using R = ElementRole;
+	static const ContainerMethod methods[] = {
+		{ ValueType::Array, "append", { R::Element, R::None } },
+		{ ValueType::Array, "push_back", { R::Element, R::None } },
+		{ ValueType::Array, "push_front", { R::Element, R::None } },
+		{ ValueType::Array, "insert", { R::None, R::Element } },
+		{ ValueType::Array, "set", { R::None, R::Element } },
+		{ ValueType::Array, "fill", { R::Element, R::None } },
+		{ ValueType::Array, "erase", { R::Element, R::None } },
+		{ ValueType::Array, "has", { R::Element, R::None } },
+		{ ValueType::Array, "count", { R::Element, R::None } },
+		{ ValueType::Array, "find", { R::Element, R::None } },
+		{ ValueType::Array, "rfind", { R::Element, R::None } },
+		{ ValueType::Array, "bsearch", { R::Element, R::None }, R::None, KeyRole::None, Replaced::Bsearch, false, true, false },
+		{ ValueType::Array, "bsearch_custom", { R::Element, R::None } },
+		{ ValueType::Array, "append_array", { R::Elements, R::None }, R::None, KeyRole::None, Replaced::None, true },
+		{ ValueType::Array, "assign", { R::Elements, R::None }, R::None, KeyRole::None, Replaced::None, true },
+		{ ValueType::Array, "get", {}, R::Element },
+		{ ValueType::Array, "front", {}, R::Element, KeyRole::None, Replaced::None, false, false, true },
+		{ ValueType::Array, "back", {}, R::Element, KeyRole::None, Replaced::None, false, false, true },
+		{ ValueType::Array, "pick_random", {}, R::Element },
+		{ ValueType::Array, "pop_at", {}, R::Element },
+		{ ValueType::Array, "pop_front", {}, R::OptionalElement },
+		{ ValueType::Array, "pop_back", {}, R::OptionalElement },
+		{ ValueType::Array, "min", {}, R::Element, KeyRole::None, Replaced::Min, false, true, true },
+		{ ValueType::Array, "max", {}, R::Element, KeyRole::None, Replaced::Max, false, true, true },
+		{ ValueType::Array, "sort", {}, R::None, KeyRole::None, Replaced::Sort, false, true, false },
+		{ ValueType::Array, "duplicate", {}, R::Entries, KeyRole::None, Replaced::Duplicate },
+		{ ValueType::Array, "duplicate_deep", {}, R::Entries, KeyRole::None, Replaced::DuplicateDeep },
+		{ ValueType::Array, "slice", {}, R::Entries, KeyRole::None, Replaced::Slice },
+		{ ValueType::Array, "filter", {}, R::Entries },
+		{ ValueType::Array, "hash", {}, R::None, KeyRole::None, Replaced::Hash },
+		{ ValueType::Dictionary, "has", { R::Key, R::None } },
+		{ ValueType::Dictionary, "erase", { R::Key, R::None } },
+		{ ValueType::Dictionary, "get", { R::Key, R::Value }, R::Value },
+		{ ValueType::Dictionary, "set", { R::Key, R::Value }, R::None, KeyRole::Inserts },
+		{ ValueType::Dictionary, "get_or_add", { R::Key, R::Value }, R::Value, KeyRole::Inserts },
+		{ ValueType::Dictionary, "find_key", { R::Value, R::None }, R::OptionalKey, KeyRole::HandsOut },
+		{ ValueType::Dictionary, "has_all", { R::Keys, R::None }, R::None, KeyRole::None, Replaced::HasAll },
+		{ ValueType::Dictionary, "merge", { R::Entries, R::None }, R::None, KeyRole::None, Replaced::None, true },
+		{ ValueType::Dictionary, "merged", { R::Entries, R::None }, R::Entries, KeyRole::None, Replaced::None, true },
+		{ ValueType::Dictionary, "assign", { R::Entries, R::None }, R::None, KeyRole::None, Replaced::None, true },
+		{ ValueType::Dictionary, "keys", {}, R::Keys, KeyRole::HandsOut },
+		{ ValueType::Dictionary, "values", {}, R::Elements },
+		{ ValueType::Dictionary, "duplicate", {}, R::Entries, KeyRole::None, Replaced::Duplicate },
+		{ ValueType::Dictionary, "duplicate_deep", {}, R::Entries, KeyRole::None, Replaced::DuplicateDeep },
+		{ ValueType::Dictionary, "sort", {}, R::None, KeyRole::None, Replaced::Sort, false, true, false },
+		{ ValueType::Dictionary, "hash", {}, R::None, KeyRole::None, Replaced::Hash },
+		{ ValueType::Dictionary, "is_same_typed", { R::Entries, R::None } },
+		{ ValueType::Dictionary, "is_same_typed_key", { R::Entries, R::None } },
+		{ ValueType::Dictionary, "is_same_typed_value", { R::Entries, R::None } },
+		{ ValueType::Dictionary, "recursive_equal", { R::Entries, R::None } },
+	};
+	for (const ContainerMethod &m : methods) {
+		if (m.base == p_base && p_name == m.name) {
+			return &m;
+		}
+	}
+	return nullptr;
 }
 
 ValueType storage_of(const std::vector<TypeDesc> &p_types, uint32_t p_type) {

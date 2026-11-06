@@ -1,5 +1,6 @@
 #include "compiler/types.h"
 
+#include "bytecode/module.h"
 #include "compiler/builtin_api.h"
 
 #include <algorithm>
@@ -238,20 +239,11 @@ std::optional<Type> element_of(const Type &p_type) {
 	if (p_type.name == "Array") {
 		return p_type.args.empty() ? Type::of(TypeKind::Variant) : p_type.args[0];
 	}
-	static const std::unordered_map<std::string, Type> packed = {
-		{ "PackedByteArray", Type::of(TypeKind::Int) },
-		{ "PackedInt32Array", Type::of(TypeKind::Int) },
-		{ "PackedInt64Array", Type::of(TypeKind::Int) },
-		{ "PackedFloat32Array", Type::of(TypeKind::Float) },
-		{ "PackedFloat64Array", Type::of(TypeKind::Float) },
-		{ "PackedStringArray", Type::of(TypeKind::String) },
-		{ "PackedVector2Array", Type::builtin("Vector2") },
-		{ "PackedVector3Array", Type::builtin("Vector3") },
-		{ "PackedColorArray", Type::builtin("Color") },
-		{ "PackedVector4Array", Type::builtin("Vector4") },
-	};
-	const auto found = packed.find(p_type.name);
-	return found == packed.end() ? std::nullopt : std::optional<Type>(found->second);
+	const bytecode::ValueType elem = bytecode::packed_element(bytecode::value_type_from_name(p_type.name));
+	if (elem == bytecode::ValueType::Void) {
+		return std::nullopt;
+	}
+	return elem == bytecode::ValueType::Int ? Type::of(TypeKind::Int) : (elem == bytecode::ValueType::Float ? Type::of(TypeKind::Float) : (elem == bytecode::ValueType::String ? Type::of(TypeKind::String) : Type::builtin(bytecode::value_type_name(elem))));
 }
 
 std::optional<std::pair<Type, Type>> entries_of(const Type &p_type) {

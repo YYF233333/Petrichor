@@ -96,32 +96,9 @@ public:
 	std::vector<GDExtensionPtrSetter> setters;
 	std::vector<GDExtensionPtrConstructor> constructors;
 	std::vector<GDExtensionPtrBuiltInMethod> builtin_methods;
-	// What a method of Dictionary does with keys (spec §3.8): set() and
-	// get_or_add() may insert their first argument, keys() and find_key()
-	// hand keys out.
-	enum class KeyRole : uint8_t {
-		None,
-		Inserts,
-		HandsOut,
-	};
+	using KeyRole = bytecode::KeyRole;
 	std::vector<KeyRole> key_roles; // By built-in method index.
-	// A method of Array or Dictionary that, on a container that keeps boxes,
-	// the runtime carries out itself, or finishes, since the engine would hash
-	// the boxes or leave them shared (architecture §2.2).
-	enum class Replaced : uint8_t {
-		None,
-		Hash,
-		HasAll, // Its keys may be boxes of elements, which are not hashed.
-		Duplicate, // With deep, the boxes are copied after the engine.
-		DuplicateDeep,
-		Slice,
-		// The engine has no `<` of boxes (core/variant/variant_op.cpp:731-791):
-		// its own algorithm with this language's `<` (spec §3.8).
-		Sort,
-		Bsearch,
-		Min,
-		Max,
-	};
+	using Replaced = bytecode::Replaced;
 	std::vector<Replaced> replaced; // By built-in method index.
 	// front(), back(), min() and max() of an Array, a program error on an
 	// empty one (spec §3.8).

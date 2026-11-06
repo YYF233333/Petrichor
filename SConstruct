@@ -145,12 +145,21 @@ def generate_builtin_api(target, source, env):
     builtin_api_gen.generate(str(source[0]), str(source[1]), str(target[0]))
 
 
+def generate_value_types(target, source, env):
+    builtin_api_gen.generate_value_types(str(source[0]), str(target[0]))
+
+
 # Generated where it is compiled, so that the object depends on the generator's
 # inputs: a source the variant directory below reads from gen/ is never rebuilt.
 env.Command(
     "build/gen/builtin_api.gen.cpp",
     ["thirdparty/godot-cpp/gdextension/extension_api-4-7.json", "src/compiler/binding_metadata.txt", "src/compiler/builtin_api_gen.py"],
     Action(generate_builtin_api, "Generating $TARGET"),
+)
+env.Command(
+    "gen/value_types.gen.h",
+    ["thirdparty/godot-cpp/gdextension/extension_api-4-7.json", "src/compiler/builtin_api_gen.py"],
+    Action(generate_value_types, "Generating $TARGET"),
 )
 
 

@@ -245,17 +245,7 @@ godot::String describe_value(const godot::Variant &p_value);
 // untyped container's (spec §3.8, §5.4).
 bool is_exactly(const TypeImage &p_type, const godot::Variant &p_value);
 
-// What an argument of a method of a container is to it, through an untyped
-// view (spec §3.8): a value that goes in or is looked up as an element, a key
-// or a value, or a container of them.
-enum class ElementRole : uint8_t {
-	Element,
-	Elements, // An Array of elements.
-	Key,
-	Keys, // An Array of keys.
-	Value,
-	Entries, // A Dictionary of keys and values.
-};
+using bytecode::ElementRole;
 // Why the value, in the role, does not fit the types the container has, as
 // it would be assigned there; empty when it fits.
 godot::String untyped_misfit(const godot::Variant &p_container, ElementRole p_role, const godot::Variant &p_value);

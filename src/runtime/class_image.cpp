@@ -49,43 +49,6 @@ std::string script_file(const std::string &p_path) {
 	return p_path.substr(0, p_path.find("::"));
 }
 
-// The arguments of a method of Array or Dictionary that go in, or are looked
-// up, as its elements, keys or values (spec §3.8), as the engine declares them.
-std::vector<std::pair<uint32_t, ElementRole>> element_arguments(ValueType p_base, const std::string &p_method) {
-	using Role = ElementRole;
-	static const std::unordered_map<std::string, std::vector<std::pair<uint32_t, Role>>> array = {
-		{ "append", { { 0, Role::Element } } },
-		{ "push_back", { { 0, Role::Element } } },
-		{ "push_front", { { 0, Role::Element } } },
-		{ "insert", { { 1, Role::Element } } },
-		{ "fill", { { 0, Role::Element } } },
-		{ "erase", { { 0, Role::Element } } },
-		{ "has", { { 0, Role::Element } } },
-		{ "count", { { 0, Role::Element } } },
-		{ "find", { { 0, Role::Element } } },
-		{ "rfind", { { 0, Role::Element } } },
-		{ "bsearch", { { 0, Role::Element } } },
-		{ "bsearch_custom", { { 0, Role::Element } } },
-		{ "append_array", { { 0, Role::Elements } } },
-		{ "assign", { { 0, Role::Elements } } },
-	};
-	static const std::unordered_map<std::string, std::vector<std::pair<uint32_t, Role>>> dictionary = {
-		{ "has", { { 0, Role::Key } } },
-		{ "erase", { { 0, Role::Key } } },
-		{ "get", { { 0, Role::Key } } },
-		{ "set", { { 0, Role::Key }, { 1, Role::Value } } },
-		{ "get_or_add", { { 0, Role::Key }, { 1, Role::Value } } },
-		{ "find_key", { { 0, Role::Value } } },
-		{ "has_all", { { 0, Role::Keys } } },
-		{ "merge", { { 0, Role::Entries } } },
-		{ "merged", { { 0, Role::Entries } } },
-		{ "assign", { { 0, Role::Entries } } },
-	};
-	const auto &table = p_base == ValueType::Array ? array : dictionary;
-	const auto found = table.find(p_method);
-	return found == table.end() ? std::vector<std::pair<uint32_t, Role>>() : found->second;
-}
-
 } // namespace
 
 std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, const String &p_path, String &r_error, const std::shared_ptr<const ClassImage> &p_base) {
@@ -236,30 +199,20 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 			return nullptr;
 		}
 		image->builtin_methods.push_back(pointer);
-		const bool dictionary = call.base == ValueType::Dictionary;
-		const bool inserts = dictionary && (call.method == "set" || call.method == "get_or_add");
-		const bool hands_out = dictionary && (call.method == "keys" || call.method == "find_key");
-		image->key_roles.push_back(inserts ? KeyRole::Inserts : (hands_out ? KeyRole::HandsOut : KeyRole::None));
-		Replaced replaced = Replaced::None;
-		if (dictionary || call.base == ValueType::Array) {
-			static const std::pair<const char *, Replaced> methods[] = {
-				{ "hash", Replaced::Hash },
-				{ "has_all", Replaced::HasAll },
-				{ "duplicate", Replaced::Duplicate },
-				{ "duplicate_deep", Replaced::DuplicateDeep },
-				{ "slice", Replaced::Slice },
-				{ "sort", Replaced::Sort },
-				{ "bsearch", Replaced::Bsearch },
-				{ "min", Replaced::Min },
-				{ "max", Replaced::Max },
-			};
-			for (const auto &[method, role] : methods) {
-				replaced = call.method == method ? role : replaced;
+		const bytecode::ContainerMethod *container = bytecode::find_container_method(call.base, call.method);
+		image->key_roles.push_back(container ? container->key_role : KeyRole::None);
+		image->replaced.push_back(container ? container->replaced : Replaced::None);
+		image->needs_element.push_back(container && container->needs_element);
+		std::vector<std::pair<uint32_t, ElementRole>> roles;
+		if (call.checks_elements && container) {
+			for (uint32_t i = 0; i < 2; i++) {
+				const ElementRole role = container->args[i];
+				if (role != ElementRole::None && (role != ElementRole::Entries || container->fills) && !(i == 1 && call.method == "get")) {
+					roles.emplace_back(i, role);
+				}
 			}
 		}
-		image->replaced.push_back(replaced);
-		image->needs_element.push_back(call.base == ValueType::Array && (call.method == "front" || call.method == "back" || call.method == "min" || call.method == "max"));
-		image->element_args.push_back(call.checks_elements ? element_arguments(call.base, call.method) : std::vector<std::pair<uint32_t, ElementRole>>());
+		image->element_args.push_back(std::move(roles));
 	}
 	for (const bytecode::ClassRef &ref : module.classes) {
 		image->classes.push_back(to_godot(ref.name));

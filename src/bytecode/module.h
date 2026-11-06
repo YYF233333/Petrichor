@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace petrichor::bytecode {
@@ -70,6 +71,61 @@ uint32_t slot_size(ValueType p_type);
 const char *value_type_name(ValueType p_type);
 // ValueType::Count when the name is not a value type.
 ValueType value_type_from_name(const std::string &p_name);
+// The elements of a packed array, as a slot holds them, or Void.
+ValueType packed_element(ValueType p_type);
+
+// What an argument or the return value of a method of Array or Dictionary is
+// to the container (spec §3.8).
+enum class ElementRole : uint8_t {
+	None,
+	Element,
+	OptionalElement, // T? of Array[T], or Variant? of an untyped Array: pop_front(), pop_back().
+	Elements, // Array[T], or Array[V] for values() of Dictionary[K, V].
+	Key,
+	OptionalKey, // K? of Dictionary[K, V]: find_key().
+	Keys, // Array[K] of Dictionary[K, V].
+	Value,
+	Entries, // Another container of the same type.
+};
+
+// What a method of Dictionary does with keys (spec §3.8): set() and
+// get_or_add() may insert their first argument, keys() and find_key()
+// hand keys out.
+enum class KeyRole : uint8_t {
+	None,
+	Inserts,
+	HandsOut,
+};
+
+// A method of Array or Dictionary that, on a container that keeps boxes,
+// the runtime carries out itself, or finishes, since the engine would hash
+// the boxes or leave them shared (architecture §2.2).
+enum class Replaced : uint8_t {
+	None,
+	Hash,
+	HasAll,
+	Duplicate,
+	DuplicateDeep,
+	Slice,
+	Sort,
+	Bsearch,
+	Min,
+	Max,
+};
+
+struct ContainerMethod {
+	ValueType base = ValueType::Void;
+	const char *name = "";
+	ElementRole args[2] = { ElementRole::None, ElementRole::None };
+	ElementRole result = ElementRole::None;
+	KeyRole key_role = KeyRole::None;
+	Replaced replaced = Replaced::None;
+	bool fills = false; // Takes an untyped container whose elements are checked as it runs.
+	bool orders = false; // Orders elements or keys by `<`.
+	bool needs_element = false; // A program error on an empty Array: front(), back(), min(), max().
+};
+
+const ContainerMethod *find_container_method(ValueType p_base, std::string_view p_name);
 
 // A class that code constructs, tests or casts to: an engine class, a class
 // of this language (spec §11.1), or an interface (§3.9).

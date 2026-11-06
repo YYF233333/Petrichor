@@ -31,32 +31,7 @@ bool is_element(ValueType p_type) {
 
 // What GET_INDEX reads from and SET_INDEX writes to.
 bool is_indexable(ValueType p_type) {
-	return p_type == ValueType::Array || p_type == ValueType::Dictionary || (p_type >= ValueType::PackedByteArray && p_type <= ValueType::PackedVector4Array);
-}
-
-// The elements of a packed array, as a slot holds them.
-ValueType packed_element(ValueType p_type) {
-	switch (p_type) {
-		case ValueType::PackedByteArray:
-		case ValueType::PackedInt32Array:
-		case ValueType::PackedInt64Array:
-			return ValueType::Int;
-		case ValueType::PackedFloat32Array:
-		case ValueType::PackedFloat64Array:
-			return ValueType::Float;
-		case ValueType::PackedStringArray:
-			return ValueType::String;
-		case ValueType::PackedVector2Array:
-			return ValueType::Vector2;
-		case ValueType::PackedVector3Array:
-			return ValueType::Vector3;
-		case ValueType::PackedColorArray:
-			return ValueType::Color;
-		case ValueType::PackedVector4Array:
-			return ValueType::Vector4;
-		default:
-			return ValueType::Void;
-	}
+	return p_type == ValueType::Array || p_type == ValueType::Dictionary || packed_element(p_type) != ValueType::Void;
 }
 
 // The types of the slots that start at each offset: a struct and its first

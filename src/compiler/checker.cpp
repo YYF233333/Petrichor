@@ -3627,64 +3627,40 @@ class Checker : public ClassRelation {
 		return set(r_expr, api_type(p_type.name, false));
 	}
 
-	// A method that fills a container from another of its kind.
-	static bool fills(const std::string &p_method, const Type &p_container) {
-		const bool array = p_container.name == "Array";
-		return array ? p_method == "append_array" || p_method == "assign" : p_method == "merge" || p_method == "merged" || p_method == "assign";
+	static Type role_type(bytecode::ElementRole p_role, const Type &p_container) {
+		using R = bytecode::ElementRole;
+		switch (p_role) {
+			case R::Element:
+			case R::Key:
+				return p_container.args[0];
+			case R::OptionalElement:
+			case R::OptionalKey:
+				return optional_of(p_container.args[0]);
+			case R::Elements:
+				return Type::array(p_container.args.back());
+			case R::Keys:
+				return Type::array(p_container.args[0]);
+			case R::Value:
+				return p_container.args[1];
+			case R::Entries:
+				return p_container;
+			case R::None:
+				break;
+		}
+		return Type::of(TypeKind::Void);
 	}
 
-	// The engine binds Array's methods with Variant; for Array[T], the values
-	// are elements of type T (spec §3.8). pop_front() and pop_back() give T?,
-	// since the engine returns null on an empty array
-	// (core/variant/array.cpp:781-800); pop_at() gives T, an index out of
-	// bounds being a program error as for a[i].
-	static void element_typed(const std::string &p_method, const Type &p_array, std::vector<Type> &r_params, Type &r_result) {
-		const Type &element = p_array.args[0];
-		if (p_method == "reduce") {
-			return; // The accumulator is not an element.
-		}
-		for (Type &param : r_params) {
-			if (param.kind == TypeKind::Variant) {
-				param = element;
-			} else if (param == Type::builtin("Array") && fills(p_method, p_array)) {
-				param = p_array;
+	// The engine binds Array's and Dictionary's methods with Variant; for
+	// Array[T] and Dictionary[K, V], the arguments and return values take
+	// their roles in the container (spec §3.8).
+	static void container_typed(const bytecode::ContainerMethod &p_method, const Type &p_container, std::vector<Type> &r_params, Type &r_result) {
+		for (size_t i = 0; i < r_params.size() && i < 2; i++) {
+			if (p_method.args[i] != bytecode::ElementRole::None) {
+				r_params[i] = role_type(p_method.args[i], p_container);
 			}
 		}
-		if (r_result.kind == TypeKind::Variant) {
-			const bool pops = p_method == "pop_front" || p_method == "pop_back";
-			r_result = pops ? optional_of(element) : element;
-		} else if (r_result == Type::builtin("Array") && (p_method == "duplicate" || p_method == "duplicate_deep" || p_method == "slice" || p_method == "filter")) {
-			r_result = p_array;
-		}
-	}
-
-	// Dictionary's methods take and give keys and values as Variant; for
-	// Dictionary[K, V] they are K and V (spec §3.8). find_key() gives K?, the
-	// engine returning null when no key has the value
-	// (core/variant/dictionary.cpp:237-246).
-	static void entry_typed(const builtin::Method &p_method, const Type &p_dictionary, std::vector<Type> &r_params, Type &r_result) {
-		const Type &key = p_dictionary.args[0];
-		const Type &value = p_dictionary.args[1];
-		for (size_t i = 0; i < r_params.size(); i++) {
-			const std::string name = p_method.arguments[i].name;
-			if (name == "key") {
-				r_params[i] = key;
-			} else if (name == "value" || name == "default") {
-				r_params[i] = value;
-			} else if (name == "keys") {
-				r_params[i] = Type::array(key);
-			} else if (name == "dictionary") {
-				r_params[i] = p_dictionary;
-			}
-		}
-		const std::string method = p_method.name;
-		if (r_result.kind == TypeKind::Variant) {
-			r_result = method == "find_key" ? optional_of(key) : value;
-		} else if (r_result == Type::builtin("Array") && (method == "keys" || method == "values")) {
-			// The engine gives typed arrays (core/variant/dictionary.cpp:386-425).
-			r_result = Type::array(method == "keys" ? key : value);
-		} else if (r_result == Type::builtin("Dictionary")) {
-			r_result = p_dictionary;
+		if (p_method.result != bytecode::ElementRole::None) {
+			r_result = role_type(p_method.result, p_container);
 		}
 	}
 
@@ -3732,11 +3708,10 @@ class Checker : public ClassRelation {
 
 	// Methods that order a container's elements, or a Dictionary's keys, need
 	// `<` on them, and resize() a default value for the elements (spec §3.8).
-	bool check_container_method(const Expr &p_call, const Type &p_base) {
+	bool check_container_method(const Expr &p_call, const Type &p_base, const bytecode::ContainerMethod *p_container) {
 		const std::string &method = p_call.text;
 		const bool array = p_base.name == "Array" && !p_base.args.empty();
-		const bool orders = array ? (method == "sort" || method == "bsearch" || method == "min" || method == "max") : (p_base.name == "Dictionary" && method == "sort");
-		if (orders) {
+		if (p_container && p_container->orders && (array || p_base.name == "Dictionary")) {
 			const Type &ordered = p_base.args.empty() ? Type::of(TypeKind::Variant) : p_base.args[0];
 			if (!has_less(ordered)) {
 				error(p_call.range, "\"" + method + "()\" orders the " + (array ? "elements" : "keys") + " by <, which " + ordered.to_string() + " does not have (spec §3.8); use " + (array ? "sort_custom() or bsearch_custom() with a comparison" : "a sorted Array of its keys") + ".");
@@ -3766,6 +3741,7 @@ class Checker : public ClassRelation {
 		if (!method->is_static && p_static) {
 			return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + base_name + " is not static; call it on a value.");
 		}
+		const bytecode::ContainerMethod *container = (base_name == "Array" || base_name == "Dictionary") ? bytecode::find_container_method(bytecode::value_type_from_name(base_name), r_expr.text) : nullptr;
 		const bool typed_dictionary = base_name == "Dictionary" && !p_base.args.empty();
 		// get(k) of Dictionary[K, V] gives V?, None for a missing key, and of an
 		// untyped one Variant? (spec §3.8).
@@ -3796,22 +3772,13 @@ class Checker : public ClassRelation {
 		}
 		r_expr.engine_params = params;
 		r_expr.engine_return = result;
-		if (base_name == "Array" && !p_base.args.empty()) {
-			// With T?, pop_front() and pop_back() give T??, which tells an empty
-			// array from a None element (spec §3.8).
-			const bool pops = r_expr.text == "pop_front" || r_expr.text == "pop_back";
-			if (pops && p_base.args[0].is_optional()) {
+		if (container && !p_base.args.empty()) {
+			if (container->result == bytecode::ElementRole::OptionalElement && p_base.args[0].is_optional()) {
 				return fail(r_expr, "\"" + r_expr.text + "()\" of " + p_base.to_string() + " gives " + p_base.args[0].to_string() + "?, which is not supported yet.");
 			}
-			element_typed(r_expr.text, p_base, params, result);
-		}
-		// pop_front() and pop_back() of an untyped Array give Variant?, which
-		// tells an empty array from a null element (spec §3.4, §3.8).
-		if (base_name == "Array" && p_base.args.empty() && (r_expr.text == "pop_front" || r_expr.text == "pop_back")) {
+			container_typed(*container, p_base, params, result);
+		} else if (container && container->result == bytecode::ElementRole::OptionalElement) {
 			result = optional_of(result);
-		}
-		if (typed_dictionary) {
-			entry_typed(*method, p_base, params, result);
 		}
 		if (get_or_none) {
 			result = optional_of(typed_dictionary ? p_base.args[1] : Type::of(TypeKind::Variant));
@@ -3820,11 +3787,11 @@ class Checker : public ClassRelation {
 		// program runs (spec §3.8); a container that keeps boxes only from one of
 		// its type, and a literal is of the container's type.
 		const bool literal = !r_expr.args.empty() && (r_expr.args[0]->kind == ExprKind::ArrayLiteral || r_expr.args[0]->kind == ExprKind::DictionaryLiteral);
-		const bool filled = is_typed_container(p_base) && !is_boxed(p_base) && fills(r_expr.text, p_base) && !params.empty() && !literal;
+		const bool filled = is_typed_container(p_base) && !is_boxed(p_base) && container && container->fills && !params.empty() && !literal;
 		if (filled) {
 			params[0] = Type::builtin(base_name);
 		}
-		if (!check_container_method(r_expr, p_base)) {
+		if (!check_container_method(r_expr, p_base, container)) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		// A method that changes a value changes it where it came from, which
@@ -5559,21 +5526,10 @@ class Checker : public ClassRelation {
 		return r_arg.constant.get();
 	}
 
-	// What an annotation of the @export family that gives a hint applies to.
-	enum class HintTarget {
-		Number,
-		Int, // GDScript also lets a float take it (modules/gdscript/gdscript_parser.cpp:4970-4971).
-		String,
-		IntOrString,
-		StringOrDictionary,
-		Color,
-		NodePath,
-	};
-
 	struct HintAnnotation {
 		const char *name;
 		uint32_t hint; // PropertyHint as the engine numbers it (core/object/property_info.h:39-85).
-		HintTarget target;
+		const char *target; // Null for @export and @export_storage.
 		uint32_t least; // Arguments.
 		uint32_t most;
 	};
@@ -5582,26 +5538,28 @@ class Checker : public ClassRelation {
 	static const HintAnnotation *hint_annotation(const std::string &p_name) {
 		constexpr uint32_t ANY = UINT32_MAX;
 		static const HintAnnotation annotations[] = {
-			{ "export_enum", 2, HintTarget::IntOrString, 1, ANY },
-			{ "export_file", 13, HintTarget::String, 0, ANY },
-			{ "export_file_path", 44, HintTarget::String, 0, ANY },
-			{ "export_dir", 14, HintTarget::String, 0, 0 },
-			{ "export_global_file", 15, HintTarget::String, 0, ANY },
-			{ "export_global_dir", 16, HintTarget::String, 0, 0 },
-			{ "export_multiline", 18, HintTarget::StringOrDictionary, 0, ANY },
-			{ "export_placeholder", 20, HintTarget::String, 1, 1 },
-			{ "export_range", 1, HintTarget::Number, 2, ANY },
-			{ "export_exp_easing", 4, HintTarget::Number, 0, ANY },
-			{ "export_color_no_alpha", 21, HintTarget::Color, 0, 0 },
-			{ "export_node_path", 26, HintTarget::NodePath, 0, ANY },
-			{ "export_flags", 6, HintTarget::Int, 1, ANY },
-			{ "export_flags_2d_render", 7, HintTarget::Int, 0, 0 },
-			{ "export_flags_2d_physics", 8, HintTarget::Int, 0, 0 },
-			{ "export_flags_2d_navigation", 9, HintTarget::Int, 0, 0 },
-			{ "export_flags_3d_render", 10, HintTarget::Int, 0, 0 },
-			{ "export_flags_3d_physics", 11, HintTarget::Int, 0, 0 },
-			{ "export_flags_3d_navigation", 12, HintTarget::Int, 0, 0 },
-			{ "export_flags_avoidance", 37, HintTarget::Int, 0, 0 },
+			{ "export", 0, nullptr, 0, 0 },
+			{ "export_storage", 0, nullptr, 0, 0 },
+			{ "export_enum", 2, "int and String", 1, ANY },
+			{ "export_file", 13, "String", 0, ANY },
+			{ "export_file_path", 44, "String", 0, ANY },
+			{ "export_dir", 14, "String", 0, 0 },
+			{ "export_global_file", 15, "String", 0, ANY },
+			{ "export_global_dir", 16, "String", 0, 0 },
+			{ "export_multiline", 18, "String and Dictionary", 0, ANY },
+			{ "export_placeholder", 20, "String", 1, 1 },
+			{ "export_range", 1, "int and float", 2, ANY },
+			{ "export_exp_easing", 4, "int and float", 0, ANY },
+			{ "export_color_no_alpha", 21, "Color", 0, 0 },
+			{ "export_node_path", 26, "NodePath", 0, ANY },
+			{ "export_flags", 6, "int and float", 1, ANY },
+			{ "export_flags_2d_render", 7, "int and float", 0, 0 },
+			{ "export_flags_2d_physics", 8, "int and float", 0, 0 },
+			{ "export_flags_2d_navigation", 9, "int and float", 0, 0 },
+			{ "export_flags_3d_render", 10, "int and float", 0, 0 },
+			{ "export_flags_3d_physics", 11, "int and float", 0, 0 },
+			{ "export_flags_3d_navigation", 12, "int and float", 0, 0 },
+			{ "export_flags_avoidance", 37, "int and float", 0, 0 },
 		};
 		for (const HintAnnotation &annotation : annotations) {
 			if (p_name == annotation.name) {
@@ -5611,42 +5569,20 @@ class Checker : public ClassRelation {
 		return nullptr;
 	}
 
-	static bool fits(HintTarget p_target, const Type &p_type) {
-		switch (p_target) {
-			case HintTarget::Number:
-			case HintTarget::Int:
-				return p_type.is_numeric();
-			case HintTarget::String:
-				return p_type.kind == TypeKind::String;
-			case HintTarget::IntOrString:
-				return p_type.kind == TypeKind::Int || p_type.kind == TypeKind::String;
-			case HintTarget::StringOrDictionary:
-				return p_type.kind == TypeKind::String || p_type == Type::builtin("Dictionary");
-			case HintTarget::Color:
-				return p_type.builtin_name() == "Color";
-			case HintTarget::NodePath:
-				return p_type.builtin_name() == "NodePath";
+	static bool fits(std::string_view p_target, const Type &p_type) {
+		if (p_target == "int and float") {
+			return p_type.is_numeric();
 		}
-		return false;
-	}
-
-	static const char *target_text(HintTarget p_target) {
-		switch (p_target) {
-			case HintTarget::Number:
-			case HintTarget::Int:
-				return "int and float";
-			case HintTarget::String:
-				return "String";
-			case HintTarget::IntOrString:
-				return "int and String";
-			case HintTarget::StringOrDictionary:
-				return "String and Dictionary";
-			case HintTarget::Color:
-				return "Color";
-			case HintTarget::NodePath:
-				return "NodePath";
+		if (p_target == "String") {
+			return p_type.kind == TypeKind::String;
 		}
-		return "";
+		if (p_target == "int and String") {
+			return p_type.kind == TypeKind::Int || p_type.kind == TypeKind::String;
+		}
+		if (p_target == "String and Dictionary") {
+			return p_type.kind == TypeKind::String || p_type == Type::builtin("Dictionary");
+		}
+		return p_type.builtin_name() == p_target;
 	}
 
 	// An annotation that gives the inspector a hint, its arguments joined by
@@ -5656,16 +5592,25 @@ class Checker : public ClassRelation {
 	// 4752-4761, 4979-4989).
 	void check_hint(VarDecl &r_member, const Annotation &p_annotation, const HintAnnotation &p_hint) {
 		const std::string name = "@" + p_annotation.name;
+		if (!p_hint.target) {
+			if (!p_annotation.args.empty()) {
+				error(p_annotation.range, name + " takes no arguments.");
+			}
+			if (p_annotation.name == "export_storage") {
+				r_member.usage = 2; // PROPERTY_USAGE_STORAGE
+			}
+			return;
+		}
 		const std::optional<Type> element = element_of(r_member.type);
 		const bool of_elements = element && element->kind != TypeKind::Variant;
 		const Type &target = of_elements ? *element : r_member.type;
 		if (!fits(p_hint.target, target)) {
-			error(p_annotation.range, name + " applies to " + target_text(p_hint.target) + ", not " + r_member.type.to_string() + ".");
+			error(p_annotation.range, name + " applies to " + p_hint.target + ", not " + r_member.type.to_string() + ".");
 			return;
 		}
 		const size_t count = p_annotation.args.size();
 		if (count < p_hint.least || count > p_hint.most) {
-			if (p_hint.target == HintTarget::Number && p_hint.hint == 1) {
+			if (p_hint.hint == 1) {
 				error(p_annotation.range, "@export_range takes a minimum, a maximum and an optional step.");
 			} else if (p_hint.least == 1 && p_hint.most == UINT32_MAX) {
 				error(p_annotation.range, name + (p_hint.hint == 2 ? " takes the names of the values." : " takes at least one argument."));
@@ -5766,8 +5711,7 @@ class Checker : public ClassRelation {
 		}
 		std::vector<const ConstValue *> values;
 		for (const auto &arg : p_annotation.args) {
-			values.push_back(annotation_argument(*arg));
-			if (!values.back()) {
+			if (!(values.push_back(annotation_argument(*arg)), values.back())) {
 				return;
 			}
 		}
@@ -5808,13 +5752,6 @@ class Checker : public ClassRelation {
 				check_hint(r_member, annotation, *hint);
 			} else if (annotation.name == "export_custom") {
 				check_export_custom(r_member, annotation);
-			} else if (annotation.name == "export" || annotation.name == "export_storage") {
-				if (!annotation.args.empty()) {
-					error(annotation.range, "@" + annotation.name + " takes no arguments.");
-				}
-				if (annotation.name == "export_storage") {
-					r_member.usage = 2; // PROPERTY_USAGE_STORAGE
-				}
 			} else if (annotation.name == "export_tool_button") {
 				error(annotation.range, "@export_tool_button needs @tool, which is not in the first version (spec §2.3).");
 			} else {
@@ -5837,9 +5774,7 @@ class Checker : public ClassRelation {
 		}
 		bytecode::Rpc rpc;
 		rpc.mode = 2; // RPC_MODE_AUTHORITY
-		int locality = 0;
-		int permission = 0;
-		int transfer = 0;
+		int seen[3] = {};
 		for (size_t i = 0; i < p_annotation.args.size(); i++) {
 			const Expr &arg = *p_annotation.args[i];
 			const ConstValue *value = annotation_argument(*p_annotation.args[i]);
@@ -5854,35 +5789,44 @@ class Checker : public ClassRelation {
 				rpc.channel = int32_t(value->i);
 				continue;
 			}
+			static const struct {
+				const char *name;
+				int group;
+				uint8_t val;
+			} options[] = {
+				{ "call_remote", 0, 0 },
+				{ "call_local", 0, 1 },
+				{ "any_peer", 1, 1 },
+				{ "authority", 1, 2 },
+				{ "unreliable", 2, 0 },
+				{ "unreliable_ordered", 2, 1 },
+				{ "reliable", 2, 2 },
+			};
 			const std::string text = value->kind == ConstValue::Kind::String ? value->text : std::string();
-			if (text == "call_local" || text == "call_remote") {
-				locality++;
-				rpc.call_local = text == "call_local";
-			} else if (text == "any_peer" || text == "authority") {
-				permission++;
-				rpc.mode = text == "any_peer" ? 1 : 2;
-			} else if (text == "unreliable" || text == "unreliable_ordered" || text == "reliable") {
-				transfer++;
-				rpc.transfer_mode = 2; // TRANSFER_MODE_RELIABLE
-				if (text != "reliable") {
-					rpc.transfer_mode = text == "unreliable" ? 0 : 1;
-				}
-			} else {
+			const auto it = std::find_if(std::begin(options), std::end(options), [&](const auto &p_opt) { return text == p_opt.name; });
+			if (it == std::end(options)) {
 				error(arg.range, "@rpc takes \"call_local\" or \"call_remote\", \"any_peer\" or \"authority\", and \"reliable\", \"unreliable\" or \"unreliable_ordered\", then the channel.");
 				return;
 			}
+			seen[it->group]++;
+			if (it->group == 0) {
+				rpc.call_local = it->val != 0;
+			} else if (it->group == 1) {
+				rpc.mode = it->val;
+			} else {
+				rpc.transfer_mode = it->val;
+			}
 		}
-		if (locality > 1) {
-			error(p_annotation.range, "@rpc takes one of \"call_local\" and \"call_remote\".");
-			return;
-		}
-		if (permission > 1) {
-			error(p_annotation.range, "@rpc takes one of \"any_peer\" and \"authority\".");
-			return;
-		}
-		if (transfer > 1) {
-			error(p_annotation.range, "@rpc takes one transfer mode.");
-			return;
+		static const char *const duplicate_messages[] = {
+			"@rpc takes one of \"call_local\" and \"call_remote\".",
+			"@rpc takes one of \"any_peer\" and \"authority\".",
+			"@rpc takes one transfer mode.",
+		};
+		for (int g = 0; g < 3; g++) {
+			if (seen[g] > 1) {
+				error(p_annotation.range, duplicate_messages[g]);
+				return;
+			}
 		}
 		r_function.rpc = rpc;
 		cls.exposed_methods.insert(r_function.name);
