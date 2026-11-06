@@ -181,6 +181,10 @@ TEST_CASE("among the arguments of a call, the signature of the innermost is hint
 	CHECK(hint(in_function("var v := Vector2(1.0, ‸)")) == "Vector2(x: float, [y: float]) -> Vector2");
 	// A struct's fields go by name.
 	CHECK(hint(in_function("var s := Enemy.Shot(‸)")) == "Shot(damage: int = 1) -> Enemy.Shot");
+	// A function value and a signal have types only.
+	CHECK(hint(in_function("print(f.call(1, ‸))", "func g(f: func(int, String) -> bool) -> void:")) == "call(int, [String]) -> bool");
+	CHECK(hint("extends Node\n\nsignal hit(amount: int, crit: bool)\n\nfunc f() -> void:\n\thit.emit(‸)\n") == "emit([int], bool) -> void");
+	CHECK(hint(in_function("var n := t.expect(‸)", "func g(t: Node2D?) -> void:")) == "expect([message: String]) -> Node2D");
 	// Not in the name.
 	CHECK(hint(in_function("set_pro‸(true)")).empty());
 }

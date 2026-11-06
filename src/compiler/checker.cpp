@@ -3947,6 +3947,7 @@ class Checker : public ClassRelation {
 		}
 		const bool spread = r_expr.text == "callv";
 		const std::vector<Type> params(p_function.args.begin() + 1, p_function.args.end());
+		hint(r_expr, [&](int p_current) { return signature(r_expr.text, spread ? std::vector<std::string>{ "arguments: Array" } : type_names(params), false, p_current, p_function.args[0].to_string()); });
 		check_arguments(r_expr, spread ? std::vector<Type>{ Type::builtin("Array") } : params, spread ? 1 : int(params.size()), false);
 		r_expr.target = Target::CallValue;
 		refer(r_expr.name_token, engine_id("Callable", r_expr.text));
@@ -4062,6 +4063,7 @@ class Checker : public ClassRelation {
 			if (name == "expect") {
 				params.push_back(Type::of(TypeKind::String));
 			}
+			hint(r_expr, [&](int p_current) { return signature(name, name == "expect" ? std::vector<std::string>{ "message: String" } : std::vector<std::string>(), false, p_current, p_base.unwrapped().to_string()); });
 			check_arguments(r_expr, params, int(params.size()), false);
 			r_expr.target = Target::Unwrap;
 			refer(r_expr.name_token, language_id("Option", name));
@@ -4687,6 +4689,7 @@ class Checker : public ClassRelation {
 			}
 			if (base_type.kind == TypeKind::Signal && name == "emit") {
 				// What the connected functions take (spec §4.7).
+				hint(r_expr, [&](int p_current) { return signature(name, type_names(base_type.args), false, p_current, "void"); });
 				check_arguments(r_expr, base_type.args, int(base_type.args.size()), false);
 				r_expr.target = Target::EmitSignal;
 				refer(r_expr.name_token, engine_id("Signal", "emit"));
@@ -7115,6 +7118,15 @@ class Checker : public ClassRelation {
 			text += (i > 0 ? ", " : "") + mark + p_params[i] + mark;
 		}
 		return text + ") -> " + p_result;
+	}
+
+	// The parameters of a function value or a signal, which have no names.
+	static std::vector<std::string> type_names(const std::vector<Type> &p_types) {
+		std::vector<std::string> names;
+		for (const Type &type : p_types) {
+			names.push_back(type.to_string());
+		}
+		return names;
 	}
 
 	// A function of this language's, its defaults as written in `p_source`.
