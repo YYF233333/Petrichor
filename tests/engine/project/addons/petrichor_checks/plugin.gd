@@ -380,22 +380,37 @@ func _check_completion() -> void:
 	var hit_path := "res://editor_complete_hit.pet"
 	var script_path := "res://editor_complete.pet"
 	_write(hit_path, "extends RefCounted\n\npub var damage := 1\nvar hidden := 2\n\npub func strike(times: int) -> void:\n\tpass\n")
-	_write(script_path, "extends Node\n\nconst Hit = preload(\"editor_complete_hit.pet\")\n\nfunc f(hit: Hit) -> void:\n\tprint(hit.damage)\n")
+	_write(script_path, "extends Node\n\nconst Hit = preload(\"editor_complete_hit.pet\")\n\nfunc f(hit: Hit) -> void:\n\tprint(hit.damage)\n\tvar r := load(\"res://\")\n\tprint(Input.is_action_pressed(\"ui_\"))\n")
 	EditorInterface.edit_script(load(script_path))
 	var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
-	code.set_caret_line(5)
-	code.set_caret_column(code.get_line(5).find("damage"))
-	code.request_code_completion(true)
-	var offered := {}
-	for option in code.get_code_completion_options():
-		offered[option.display_text] = option
+	var offered := _complete(code, 5, code.get_line(5).find("damage"))
 	var shown: bool = offered.has("damage") and offered.damage.kind == CodeEdit.KIND_MEMBER and offered.has("strike(…)") and offered["strike(…)"].insert_text == "strike(" and not offered.has("hidden")
 	_check(shown, "completion offers the pub members of a value's class" + ("" if shown else ": " + str(offered.keys())))
+	# In a string, which the editor quotes.
+	offered = _complete(code, 6, code.get_line(6).find("res://") + 6)
+	var listed: bool = offered.has("\"res://main.tscn\"") and offered["\"res://main.tscn\""].kind == CodeEdit.KIND_FILE_PATH
+	_check(listed, "completion offers the project's files for a path" + ("" if listed else ": " + str(offered.keys())))
+	offered = _complete(code, 7, code.get_line(7).find("ui_") + 3)
+	_check(offered.has("\"ui_accept\""), "completion offers the input actions for an action" + ("" if offered.has("\"ui_accept\"") else ": " + str(offered.keys())))
 	code.cancel_code_completion()
 	_check_errors([], "completing reports nothing")
 	for path in [hit_path, script_path]:
 		for file in [path, path + ".uid", path.replace("res://", "res://.godot/petrichor/").replace(".pet", ".petc")]:
 			DirAccess.remove_absolute(file)
+
+
+# The options completion offers at a line and column, by what they show. A
+# list of paths open still would keep the editor from asking again
+# (scene/gui/code_edit.cpp:2417-2438).
+func _complete(code: CodeEdit, line: int, column: int) -> Dictionary:
+	code.cancel_code_completion()
+	code.set_caret_line(line)
+	code.set_caret_column(column)
+	code.request_code_completion(true)
+	var offered := {}
+	for option in code.get_code_completion_options():
+		offered[option.display_text] = option
+	return offered
 
 
 # Spec §13.2: hover and the help show a class's declarations, also those

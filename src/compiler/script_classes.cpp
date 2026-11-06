@@ -221,6 +221,18 @@ std::vector<std::string> ScriptClasses::RecordedProject::autoload_names() const 
 	});
 }
 
+std::vector<std::string> ScriptClasses::RecordedProject::resource_files() const {
+	return ask<std::vector<std::string>>("resource files", [](const ProjectApi &p_project) {
+		return p_project.resource_files();
+	});
+}
+
+std::vector<std::string> ScriptClasses::RecordedProject::input_actions() const {
+	return ask<std::vector<std::string>>("input actions", [](const ProjectApi &p_project) {
+		return p_project.input_actions();
+	});
+}
+
 std::optional<std::string> ScriptClasses::RecordedProject::script_source(const std::string &p_path) const {
 	return classes.sources->script_source(p_path);
 }

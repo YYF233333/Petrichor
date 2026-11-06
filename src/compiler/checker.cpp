@@ -2765,6 +2765,10 @@ class Checker : public ClassRelation {
 	// engine's resource cache, as load() does, and the result is checked to be
 	// of that type.
 	Type check_preload(Expr &r_expr) {
+		if (completion && r_expr.args.size() == 1 && r_expr.args[0]->kind == ExprKind::StringLiteral && at_cursor(r_expr.args[0]->text)) {
+			complete_string(nullptr, 0, false);
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
 		const std::string path = preload_path(r_expr);
 		if (path.empty()) {
 			return fail_call(r_expr, "preload() takes one literal path, a String.");
@@ -3466,6 +3470,9 @@ class Checker : public ClassRelation {
 		check_arguments(r_expr, params, int(params.size()) - p_method.default_count, p_method.is_vararg);
 		for (size_t i = 0; i < params.size(); i++) {
 			r_expr.arg_ranges.push_back(params[i].kind == TypeKind::Int ? builtin::param_int_range(p_method.owner, p_method.name, uint32_t(i)) : std::nullopt);
+			if (completion && i < r_expr.args.size() && r_expr.args[i]->kind == ExprKind::StringLiteral && at_cursor(r_expr.args[i]->text)) {
+				complete_string(&p_method, i, !r_expr.base);
+			}
 		}
 		// A method of this class that the engine is to call by a literal name,
 		// as in call_deferred("reset"), is one it must find (spec §10.5).
@@ -7662,6 +7669,58 @@ class Checker : public ClassRelation {
 			item.place = in_chain == chain.end() ? CompletionItem::Place::Local : CompletionItem::Place::Member;
 			item.depth = int(in_chain - chain.begin());
 			found.emplace(name, item);
+		}
+		set_completions(found);
+	}
+
+	// A string at the cursor that names something by where it is (spec §10.4):
+	// a file by its path, as preload() and an engine method's String `path`
+	// take; an input action, as a StringName `action` names one, and the four
+	// of Input.get_vector() (core/input/input.cpp:246-248); a method or signal
+	// of this class, as `method` and `signal` name them in a call on self.
+	// Only preload() checks what its string names, and a file the editor
+	// lists loads, so each name goes in unquoted, which the editor quotes
+	// (scene/gui/code_edit.cpp:3916-3927; ed1daf0).
+	void complete_string(const EngineMethod *p_method, size_t p_index, bool p_on_self) {
+		const EngineParam *param = p_method ? &p_method->params[p_index] : nullptr;
+		const std::string name = param ? param->name : "path";
+		const bool string_name = param && param->type.builtin_name() == "StringName";
+		std::map<std::string, CompletionItem> found;
+		const auto add = [&](const std::string &p_name, CompletionKind p_kind, CompletionItem::Place p_place) {
+			CompletionItem item;
+			item.kind = p_kind;
+			item.name = p_name;
+			item.insert = p_name;
+			item.place = p_place;
+			found.emplace(p_name, item);
+		};
+		if (name == "path" && (!param || param->type.kind == TypeKind::String) && options.project) {
+			for (const std::string &file : options.project->resource_files()) {
+				add(file, CompletionKind::FilePath, CompletionItem::Place::Project);
+			}
+		} else if (string_name && (name == "action" || (name.size() > 7 && name.compare(name.size() - 7, 7, "_action") == 0) || (p_method->owner == "Input" && p_method->name == "get_vector" && p_index < 4)) && options.project) {
+			for (const std::string &action : options.project->input_actions()) {
+				add(action, CompletionKind::PlainText, CompletionItem::Place::Project);
+			}
+		} else if (string_name && p_on_self && (name == "method" || name == "signal")) {
+			if (name == "method") {
+				for (const FuncDecl *function : cls.all_functions) {
+					add(function->name, CompletionKind::Function, CompletionItem::Place::Member);
+				}
+			} else {
+				for (const SignalDecl *signal : cls.all_signals) {
+					add(signal->name, CompletionKind::Signal, CompletionItem::Place::Member);
+				}
+			}
+			// As the engine lists them (core/object/object.cpp:2396-2413).
+			for (const std::string &member : engine.member_names(cls.native_base)) {
+				const std::optional<EngineMethod> method = name == "method" ? engine.find_method(cls.native_base, member) : std::nullopt;
+				if (method && (member[0] != '_' || method->is_virtual)) {
+					add(member, CompletionKind::Function, CompletionItem::Place::Engine);
+				} else if (name == "signal" && engine.find_signal(cls.native_base, member)) {
+					add(member, CompletionKind::Signal, CompletionItem::Place::Engine);
+				}
+			}
 		}
 		set_completions(found);
 	}

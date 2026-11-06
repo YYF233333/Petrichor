@@ -8,6 +8,7 @@
 
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/editor_file_system.hpp>
+#include <godot_cpp/classes/editor_file_system_directory.hpp>
 #include <godot_cpp/classes/editor_interface.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/packed_scene.hpp>
@@ -382,6 +383,37 @@ std::vector<std::string> SceneIndex::autoload_names() const {
 		const String name = Dictionary(properties[i]).get("name", String());
 		if (name.begins_with("autoload/") && !autoload_path(to_utf8(name.trim_prefix("autoload/"))).empty()) {
 			names.push_back(to_utf8(name.trim_prefix("autoload/")));
+		}
+	}
+	return names;
+}
+
+// As GDScript lists the paths it completes
+// (modules/gdscript/gdscript_editor.cpp:954-970).
+std::vector<std::string> SceneIndex::resource_files() const {
+	std::vector<std::string> paths;
+	const auto collect = [&](EditorFileSystemDirectory *p_dir, const auto &p_self) -> void {
+		for (int64_t i = 0; i < p_dir->get_file_count(); i++) {
+			paths.push_back(to_utf8(p_dir->get_file_path(i)));
+		}
+		for (int64_t i = 0; i < p_dir->get_subdir_count(); i++) {
+			p_self(p_dir->get_subdir(i), p_self);
+		}
+	};
+	EditorInterface *editor = EditorInterface::get_singleton();
+	if (EditorFileSystemDirectory *root = editor && editor->get_resource_filesystem() ? editor->get_resource_filesystem()->get_filesystem() : nullptr) {
+		collect(root, collect);
+	}
+	return paths;
+}
+
+std::vector<std::string> SceneIndex::input_actions() const {
+	std::vector<std::string> names;
+	const TypedArray<Dictionary> properties = ProjectSettings::get_singleton()->get_property_list();
+	for (int64_t i = 0; i < properties.size(); i++) {
+		const String name = Dictionary(properties[i]).get("name", String());
+		if (name.begins_with("input/")) {
+			names.push_back(to_utf8(name.trim_prefix("input/")));
 		}
 	}
 	return names;

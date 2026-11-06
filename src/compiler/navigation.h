@@ -65,7 +65,8 @@ enum class CompletionKind {
 	Enum,
 	Constant,
 	NodePath,
-	PlainText, // An annotation's name, as GDScript gives it.
+	FilePath,
+	PlainText, // An annotation's or an input action's name, as GDScript gives them.
 	Keyword,
 };
 

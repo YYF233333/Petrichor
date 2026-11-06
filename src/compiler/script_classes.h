@@ -77,6 +77,8 @@ class ScriptClasses {
 		std::string autoload_path(const std::string &p_name) const override;
 		std::map<std::string, std::string> global_class_paths() const override;
 		std::vector<std::string> autoload_names() const override;
+		std::vector<std::string> resource_files() const override;
+		std::vector<std::string> input_actions() const override;
 		std::optional<std::string> script_source(const std::string &p_path) const override;
 		std::optional<ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override;
 	};

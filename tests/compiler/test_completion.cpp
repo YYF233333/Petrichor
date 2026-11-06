@@ -51,6 +51,8 @@ pub struct Shot:
 	arena.nodes = { { ".", "Node" }, { "Player", "Node2D", "res://test.pet" }, { "Player/Head", "Node3D" }, { "Player/Head/Eye", "Timer" }, { "Player/My Label", "Label" }, { "Player/Gun", "Node2D" }, { "Hud", "Control" }, { "Hud/Score", "Label" } };
 	level.nodes[4].unique = arena.nodes[6].unique = true;
 	project.scenes = { level, arena };
+	project.files = { "res://enemy.pet", "res://level.tscn", "res://icon.png" };
+	project.actions = { "jump", "ui_accept" };
 	return project;
 }
 
@@ -197,6 +199,18 @@ TEST_CASE("where an enum is expected, its values come first, each written as it 
 	CHECK((argument.force && !completion(in_function("set_process(‸)")).force));
 	CHECK(offers(complete(in_function("Input.mouse_mode = ‸")), { "Input.MOUSE_MODE_CAPTURED" }));
 	CHECK(offers(complete("extends Node\n\nenum Gait { WALK, RUN }\n\nfunc f() -> void:\n\tvar gait: Gait = ‸\n"), { "Gait.WALK", "Gait.RUN" }));
+}
+
+TEST_CASE("in a string, completion offers what the parameter names: files, input actions, and methods and signals of the class") {
+	CHECK(offers(complete(in_function("var s := preload(\"res://‸\")")), { "res://level.tscn", "res://icon.png" }));
+	const std::vector<CompletionItem> loaded = complete(in_function("var r := load(\"‸\")"));
+	CHECK((find(loaded, "res://icon.png") && find(loaded, "res://icon.png")->kind == CompletionKind::FilePath));
+	CHECK(offers(complete(in_function("print(Input.is_action_pressed(\"ui_‸\"))")), { "jump", "ui_accept" }));
+	const std::string own = "extends Node\n\nsignal died\n\nfunc reset() -> void:\n\tpass\n\nfunc f() -> void:\n\t";
+	CHECK(offers(complete(own + "call_deferred(\"‸\")\n"), { "reset", "f", "queue_free", "_ready", "-died" }));
+	CHECK(offers(complete(own + "emit_signal(\"‸\")\n"), { "died", "-reset" }));
+	// What the parameter does not name stays plain text.
+	CHECK(complete(in_function("print(\"‸\")")).empty());
 }
 
 TEST_CASE("after $ and %, completion offers the paths that reach a node from the script in every scene, quoted where they must be") {

@@ -107,9 +107,12 @@ public:
 	// The script of an autoload, by its global name, or "" (spec §7.3).
 	virtual std::string autoload_path(const std::string &p_name) const = 0;
 	// For completion (spec §13.2): the paths of the global classes by their
-	// names, and the global names of the autoloads.
+	// names, the global names of the autoloads, the res:// paths of the files
+	// the editor knows as resources and scripts, and the input actions.
 	virtual std::map<std::string, std::string> global_class_paths() const = 0;
 	virtual std::vector<std::string> autoload_names() const = 0;
+	virtual std::vector<std::string> resource_files() const = 0;
+	virtual std::vector<std::string> input_actions() const = 0;
 	// The source of a script of this language, UTF-8; nullopt if it cannot be read.
 	virtual std::optional<std::string> script_source(const std::string &p_path) const = 0;
 	// A script of another language by its res:// path, nullopt if there is

@@ -28,6 +28,8 @@ public:
 	std::map<std::string, compiler::ForeignClass> foreign; // Scripts of other languages, by path.
 	std::map<std::string, compiler::ResourceInfo> resources; // Resources other than scenes, by path.
 	std::map<std::string, std::string> uids; // uid:// to res://.
+	std::vector<std::string> files; // What resource_files() lists.
+	std::vector<std::string> actions; // Input actions.
 
 	// Adds a script of this language, with its class_name if it has one.
 	void add_script(const std::string &p_path, const std::string &p_source, const std::string &p_class_name = std::string());
@@ -46,6 +48,8 @@ public:
 	std::string autoload_path(const std::string &p_name) const override;
 	std::map<std::string, std::string> global_class_paths() const override { return global_classes; }
 	std::vector<std::string> autoload_names() const override;
+	std::vector<std::string> resource_files() const override { return files; }
+	std::vector<std::string> input_actions() const override { return actions; }
 	std::optional<std::string> script_source(const std::string &p_path) const override;
 	std::optional<compiler::ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override;
 };
