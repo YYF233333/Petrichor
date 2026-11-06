@@ -442,6 +442,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - `x as T` 只用于对象类型，返回 `T?`。不匹配、已释放或 `Variant` 内非对象时均得 `None`。`x` 静态类型已是 `T` 时返回 `T` 并提示多余。向下转型断言写 `(x as T).unwrap()`。先 `is_in_group` 再转型的代码，快速修复建议改用 `is`。
 - `as` 转为内置类型或 enum 均报编译错误。快速修复提供两种改法：保留构造/显式转换的 `T(x)`（如 `int("5")`、`int(2.7)`、`State(x)`），以及严格转换 `T.try_from(x)`。
 - `T.try_from(v)` 返回 `Result[T, ConversionError]`，规则与 struct 字段解码一致。运行时类型须与 `T` 相符。转 `int` 时接受恰为整数且在 `int64` 范围内的 `float`。转本语言 enum 时在值域外返回 `Err`。
+- `ConversionError` 是内置 struct，只有字段 `message: String`。内容与该值未通过入口检查时的报错相同，如 `Hit.damage: expected int, found String`。
 
 ### 5.4 收窄
 
