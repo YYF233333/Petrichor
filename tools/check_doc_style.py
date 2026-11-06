@@ -8,6 +8,7 @@ WORD = re.compile(r"[A-Za-z0-9_]+(?:['.\-][A-Za-z0-9_]+)*")
 ZH_END = re.compile(r"(?<=[。！？])")
 EN_END = re.compile(r"(?<=[.!?])\s+")
 ABBREVIATIONS = re.compile(r"\b(e\.g|i\.e|etc|vs|cf)\.")
+SECTION = re.compile(r"§\d")
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
 
@@ -61,6 +62,8 @@ def check(path, everything):
             continue
         if wanted is not None and number not in wanted:
             continue
+        if "language-spec" in path and SECTION.search(line):
+            errors.append(f"{path}:{number}: names a section by number; name its concept instead.")
         for sentence in sentences(line):
             reason = too_long(sentence)
             if reason:
