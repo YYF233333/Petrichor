@@ -96,6 +96,12 @@ TEST_CASE("an int argument is accepted for a float parameter") {
 	CHECK(errors_of(source).empty());
 }
 
+TEST_CASE("the integer vectors and Rect2i widen to their float counterparts, and nothing narrows") {
+	CHECK(errors_of(in_function("var p: Vector2 = Vector2i(1, 2)\nvar q: Vector3 = Vector3i.ONE\nvar r: Rect2 = Rect2i()\nvar s: Vector4 = Vector4i()")).empty());
+	CHECK(has_error(in_function("var p: Vector2i = Vector2(1, 2)"), "Cannot assign a value of type Vector2 as Vector2i."));
+	CHECK(has_error(in_function("var p: Vector2 = Vector3i()"), "Cannot assign a value of type Vector3i as Vector2."));
+}
+
 TEST_CASE("% requires int operands") {
 	CHECK(has_error(in_function("var x := 5.0 % 2.0"), "fmod"));
 }

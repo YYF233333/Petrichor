@@ -39,9 +39,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - `Result[T, E]` with `Ok`, `Err`, the non-discardable check and its methods, and postfix `?` (spec §3.5, §8.2). Enums with payloads, and the names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7). `T.try_from(x)` (spec §5.3).
 - `for` over objects that define `_iter_init`, `_iter_next` and `_iter_get`, as GDScript allows; the checker reports it as not supported yet.
 - The `breakpoint` statement.
-- `match` value patterns that are identifiers or attribute accesses (`A.B`), compared at run time (spec §5.6). The checker now takes only constants.
-- A `match` value pattern of another type than the matched value's static type is a compile error (spec §5.6). Now it compares with `==`, so `1` matches `1.0` where GDScript compares types first.
-- Implicit conversions from `Vector2i`, `Vector3i`, `Vector4i` and `Rect2i` to their float counterparts, which the checker rejects now (spec §3.2). A quick fix adding the constructor for GDScript's other implicit conversions.
 - Rest parameters `...args: Array[T]` (spec §4.6).
 - `for` over a String (spec §5.7); no file of the coverage survey's corpus does it.
 - Static functions as values, which now can only be called (spec §3.11, §4.1):
@@ -83,6 +80,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - a scene that nothing references lacking a node;
   - writes to a resource known to be shared.
 - The error explaining why a GDScript file cannot extend a class of this language (spec §11.2).
+- A quick fix adding the constructor for the implicit conversions of GDScript that this language drops (spec §3.2).
 - When lints are added, consider a hint on ordering arrays whose elements can be NaN. GDScript's results differ there (spec §5.2).
 - Compiled bytecode is checked against its own source only. A game run from the command line without a build keeps old bytecode. That happens after a change to a scene or to a script it uses. Only the runtime checks (signatures, `$X` classes) then catch the difference. The analysis knows what each script read, but keeps it only in the editor's memory (architecture §2.1).
 - The scene index: read scenes unsaved in the editor, which are marked as last saved (architecture §2.4). Check whether it handles autoloads that are scenes.

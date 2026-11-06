@@ -5315,12 +5315,32 @@ class Checker : public ClassRelation {
 				r_pattern.value = std::move(compare);
 				check_expr(*r_pattern.value);
 				const Expr &value = *r_pattern.value->right;
-				if (!value.type.is_error() && !value.constant) {
-					error(value.range, "A pattern is a literal or a constant expression (spec §5.6).");
+				const Expr *named = &value;
+				while (named->kind == ExprKind::Member) {
+					named = named->base.get();
+				}
+				if (!value.type.is_error() && !value.constant && named->kind != ExprKind::Name) {
+					error(value.range, "A pattern is a literal, a constant expression, an identifier or an attribute access (spec §5.6).");
+				} else if (!r_pattern.value->type.is_error() && !pattern_fits(value.type, p_matched)) {
+					error(value.range, "The pattern is " + value.type.to_string() + ", but the value matched is " + p_matched.to_string() + "; a value pattern must have its type (spec §5.6).");
 				}
 				return;
 			}
 		}
+	}
+
+	// GDScript compares the types first, String and StringName alike, so a
+	// pattern that only converts to the value's type never matches there
+	// (modules/gdscript/gdscript_compiler.cpp:1441-1477, 1543-1569; ed1daf0).
+	bool pattern_fits(const Type &p_pattern, const Type &p_matched) const {
+		const auto text = [](const Type &p_type) {
+			return p_type.kind == TypeKind::String || p_type == Type::builtin("StringName");
+		};
+		if (p_matched.kind == TypeKind::Variant || p_pattern == p_matched || (text(p_pattern) && text(p_matched))) {
+			return true;
+		}
+		const bool subtype = (p_pattern.kind == TypeKind::Object && p_matched.kind == TypeKind::Object) || (p_pattern.kind == TypeKind::Enum && p_matched.kind == TypeKind::Int);
+		return subtype && assignable(p_pattern, p_matched);
 	}
 
 	// `for i in n`, over the elements of an array and over the keys of a

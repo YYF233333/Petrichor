@@ -118,6 +118,8 @@ func _process(delta):
 	frames += 1
 
 # match (spec §5.6).
+pub var bounds := Vector2i(7, 9)
+
 pub func classify(s: String, n: int) -> String:
 	match s:
 		"center", "middle":
@@ -129,11 +131,20 @@ pub func classify(s: String, n: int) -> String:
 			return "zero"
 		1, 2:
 			return "small"
+		bounds.x:
+			return "bound"
 		var big when big > 100:
 			return "big"
 		_:
 			pass
 	return "other"
+
+# The integer vectors widen to float ones (spec §3.2), also into the
+# parameter of a function value.
+pub func widened() -> Array:
+	var sum: func(Vector2i) -> float = func(v: Vector2) -> float: return v.x + v.y
+	var area: Rect2 = Rect2i(1, 2, 3, 4)
+	return [sum.call(Vector2i(1, 2)), area.size.x]
 
 # A built-in method that takes any number of arguments.
 pub var deferred := 0

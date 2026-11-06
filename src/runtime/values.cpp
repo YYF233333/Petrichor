@@ -327,18 +327,25 @@ bool implements(const Variant &p_element, const String &p_interface) {
 	return p_interface.is_empty() || !p_element.booleanize() || implements_interface(p_element, p_interface);
 }
 
-// A Variant converts String and StringName into each other, like GDScript (spec §10.7).
-bool fits(ValueType p_type, Variant::Type p_have) {
-	const Variant::Type want = variant_type(p_type);
-	if (p_have == want) {
-		return true;
-	}
-	switch (p_type) {
-		case ValueType::Float:
-			return p_have == Variant::INT; // Spec §3.2.
-		case ValueType::String:
-			return p_have == Variant::STRING_NAME;
-		case ValueType::StringName:
+// The implicit conversions of spec §3.2: int to float, the integer vectors and
+// Rect2i to their float counterparts, String to and from StringName and
+// NodePath.
+bool converts(Variant::Type p_have, Variant::Type p_want) {
+	switch (p_want) {
+		case Variant::FLOAT:
+			return p_have == Variant::INT;
+		case Variant::VECTOR2:
+			return p_have == Variant::VECTOR2I;
+		case Variant::VECTOR3:
+			return p_have == Variant::VECTOR3I;
+		case Variant::VECTOR4:
+			return p_have == Variant::VECTOR4I;
+		case Variant::RECT2:
+			return p_have == Variant::RECT2I;
+		case Variant::STRING:
+			return p_have == Variant::STRING_NAME || p_have == Variant::NODE_PATH;
+		case Variant::STRING_NAME:
+		case Variant::NODE_PATH:
 			return p_have == Variant::STRING;
 		default:
 			return false;
@@ -1331,20 +1338,14 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 		default:
 			break;
 	}
-	if (!fits(p_type, have)) {
+	if (have != variant_type(p_type) && !converts(have, variant_type(p_type))) {
 		return false;
 	}
-	// The engine constructs into memory that holds no value
-	// (core/variant/variant_internal.h:1009-1012).
+	// The engine constructs into memory that holds no value, converting as
+	// the Variant's operator to the type does (core/variant/variant_internal.h:1009-1012).
 	const TypeOps &type = ops(p_type);
 	if (type.destroy) {
 		type.destroy(p_slot);
-	}
-	if (have != variant_type(p_type)) {
-		// String to StringName or back: the engine's conversion.
-		const Variant converted = p_type == ValueType::String ? Variant(String(p_value)) : Variant(StringName(p_value));
-		type.from_variant(p_slot, const_cast<GDExtensionVariantPtr>(converted._native_ptr()));
-		return true;
 	}
 	type.from_variant(p_slot, const_cast<GDExtensionVariantPtr>(p_value._native_ptr()));
 	return true;
@@ -1499,10 +1500,9 @@ bool exactly_typed(int64_t p_builtin, const StringName &p_class, const Variant &
 	return p_builtin == int64_t(variant_type(p_type)) && (p_type != ValueType::Object || (p_class == p_want_class && script_path(p_script) == p_want_script));
 }
 
-// As a value is assigned to an element of the type: int to float (spec §3.2),
-// String to StringName or NodePath and back (§10.7); None to an object type,
-// which the engine keeps alike for T and T?; a live object of the class and
-// script (§3.3).
+// As a value is assigned to an element of the type: converted implicitly
+// (spec §3.2); None to an object type, which the engine keeps alike for T and
+// T?; a live object of the class and script (§3.3).
 bool fits_typed(int64_t p_builtin, const StringName &p_class, const Variant &p_script, const Variant &p_value) {
 	const Variant::Type want = Variant::Type(p_builtin);
 	const Variant::Type have = type_of(p_value);
@@ -1516,17 +1516,7 @@ bool fits_typed(int64_t p_builtin, const StringName &p_class, const Variant &p_s
 		const Object *object = have == Variant::OBJECT ? p_value.get_validated_object() : nullptr;
 		return object && (p_class.is_empty() || object->is_class(p_class)) && has_script(object->get_script(), script_path(p_script));
 	}
-	switch (want) {
-		case Variant::FLOAT:
-			return have == want || have == Variant::INT;
-		case Variant::STRING:
-			return have == want || have == Variant::STRING_NAME || have == Variant::NODE_PATH;
-		case Variant::STRING_NAME:
-		case Variant::NODE_PATH:
-			return have == want || have == Variant::STRING;
-		default:
-			return have == want;
-	}
+	return have == want || converts(have, want);
 }
 
 } // namespace
