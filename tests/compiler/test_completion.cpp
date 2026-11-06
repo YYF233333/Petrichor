@@ -42,8 +42,8 @@ pub struct Shot:
 	return project;
 }
 
-// What completion offers at ‸ in `p_source`, the script res://test.pet.
-std::vector<CompletionItem> complete(const std::string &p_source) {
+// Completion at ‸ in `p_source`, the script res://test.pet.
+compiler::Completion completion(const std::string &p_source) {
 	const std::string mark = "‸";
 	std::string source = p_source;
 	const size_t at = source.find(mark);
@@ -52,6 +52,19 @@ std::vector<CompletionItem> complete(const std::string &p_source) {
 	const FakeProject classes = project();
 	compiler::Analysis analysis(fake_engine(), classes);
 	return compiler::complete(analysis, fake_engine(), "res://test.pet", source);
+}
+
+std::vector<CompletionItem> complete(const std::string &p_source) {
+	return completion(p_source).items;
+}
+
+// The signature hinted at ‸, the parameter at it in [brackets].
+std::string hint(const std::string &p_source) {
+	std::string text = completion(p_source).call_hint;
+	for (size_t at = text.find("\xEF\xBF\xBF"), count = 0; at != std::string::npos; at = text.find("\xEF\xBF\xBF"), count++) {
+		text.replace(at, 3, count % 2 == 0 ? "[" : "]");
+	}
+	return text;
 }
 
 const CompletionItem *find(const std::vector<CompletionItem> &p_items, const std::string &p_name) {
@@ -143,6 +156,19 @@ TEST_CASE("a type is completed with types only, also after a class's name and af
 	const std::vector<CompletionItem> inner = complete(in_function("var s: Enemy.‸"));
 	CHECK((inner.size() == 1 && inner[0].name == "Shot"));
 	CHECK(offers(complete("extends ‸\n"), { "Node2D", "Enemy", "-Legacy", "-Key" }));
+}
+
+TEST_CASE("among the arguments of a call, the signature of the innermost is hinted, with the parameter at the cursor marked") {
+	CHECK(hint("extends Node\n\nfunc hit(amount: int, crit: bool = false) -> void:\n\tpass\n\nfunc f() -> void:\n\thit(1, ‸)\n") == "hit(amount: int, [crit: bool = false]) -> void");
+	CHECK(hint(in_function("e.hit(‸)", "func f(e: Enemy) -> void:")) == "hit([amount: int]) -> void");
+	CHECK(hint(in_function("set_process(‸)")) == "set_process([enable: bool]) -> void");
+	CHECK(hint(in_function("print(lerpf(1.0, ‸))")) == "lerpf(from: float, [to: float], weight: float) -> float");
+	// Of the constructors, those that take an argument there.
+	CHECK(hint(in_function("var v := Vector2(1.0, ‸)")) == "Vector2(x: float, [y: float]) -> Vector2");
+	// A struct's fields go by name.
+	CHECK(hint(in_function("var s := Enemy.Shot(‸)")) == "Shot(damage: int = 1) -> Enemy.Shot");
+	// Not in the name.
+	CHECK(hint(in_function("set_pro‸(true)")).empty());
 }
 
 TEST_CASE("completion works on the recovered syntax tree, with syntax errors elsewhere") {

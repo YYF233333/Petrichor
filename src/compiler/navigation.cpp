@@ -399,7 +399,7 @@ std::string doc_class_name(const DocName &p_doc_name, const std::string &p_path)
 	return name;
 }
 
-std::vector<CompletionItem> complete(Analysis &r_analysis, const EngineApi &p_engine, const std::string &p_path, const std::string &p_source) {
+Completion complete(Analysis &r_analysis, const EngineApi &p_engine, const std::string &p_path, const std::string &p_source) {
 	const Analysis::Pass pass(r_analysis);
 	ScriptClasses &classes = r_analysis.pass_classes();
 	CompileOptions options;
@@ -408,11 +408,11 @@ std::vector<CompletionItem> complete(Analysis &r_analysis, const EngineApi &p_en
 	std::vector<Diagnostic> errors;
 	ClassDecl decl = parse(p_source, errors);
 	std::vector<Reference> references;
-	std::vector<CompletionItem> items;
+	Completion completion;
 	classes.begin_compile(p_path, p_source);
-	check(decl, p_engine, options, errors, classes, true, &references, &items);
+	check(decl, p_engine, options, errors, classes, true, &references, &completion);
 	classes.end_compile();
-	return items;
+	return completion;
 }
 
 std::optional<Lookup> lookup(Analysis &r_analysis, const EngineApi &p_engine, const ProjectApi &p_project, const DocName &p_doc_name, const std::string &p_path, const std::string &p_source, uint32_t p_offset) {

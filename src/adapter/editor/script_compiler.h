@@ -49,7 +49,7 @@ std::optional<compiler::Lookup> lookup_name(const godot::String &p_path, const s
 
 // What can be written at the cursor, which U+FFFF marks in `p_source`, for
 // the script editor's completion (spec §13.2).
-std::vector<compiler::CompletionItem> completion(const godot::String &p_path, const std::string &p_source);
+compiler::Completion completion(const godot::String &p_path, const std::string &p_source);
 
 // What the documentation names a class of this language, also an inner one,
 // by its path.

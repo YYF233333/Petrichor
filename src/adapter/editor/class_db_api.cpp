@@ -5,6 +5,7 @@
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/variant/typed_array.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
 
 using namespace godot;
 
@@ -66,7 +67,13 @@ EngineMethod method_of(const Dictionary &p_info, const std::string &p_owner) {
 		const Dictionary arg = args[a];
 		method.params.push_back({ to_utf8(arg.get("name", String())), type_of(arg, false) });
 	}
-	method.default_count = int(Array(p_info.get("default_args", Array())).size());
+	// The values of the last parameters, written as this language writes them.
+	const Array defaults = p_info.get("default_args", Array());
+	method.default_count = int(defaults.size());
+	for (int64_t d = 0; d < defaults.size() && d < int64_t(method.params.size()); d++) {
+		const Variant &value = defaults[d];
+		method.params[method.params.size() - defaults.size() + d].default_value = value.get_type() == Variant::NIL ? "None" : to_utf8(UtilityFunctions::var_to_str(value));
+	}
 	method.return_type = type_of(p_info.get("return", Dictionary()), true);
 	return method;
 }

@@ -12,8 +12,9 @@ namespace petrichor::compiler {
 struct EngineParam {
 	std::string name;
 	Type type;
+	std::string default_value; // As source, for completion's hint; empty for none.
 
-	bool operator==(const EngineParam &p_other) const { return name == p_other.name && type == p_other.type; }
+	bool operator==(const EngineParam &p_other) const { return name == p_other.name && type == p_other.type && default_value == p_other.default_value; }
 };
 
 struct EngineMethod {

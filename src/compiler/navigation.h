@@ -87,11 +87,19 @@ struct CompletionItem {
 	int depth = 0;
 };
 
+struct Completion {
+	std::vector<CompletionItem> items;
+	// The signature of the call around the cursor, with the parameter at the
+	// cursor between two U+FFFF, as the script editor shows it
+	// (scene/gui/code_edit.cpp:249-275).
+	std::string call_hint;
+};
+
 // What can be written at the cursor, which U+FFFF marks in `p_source` as the
 // script editor marks it (scene/gui/code_edit.cpp:2390-2400): each name that
 // the checker's own lookup accepts there, so that none is an error. Only the
 // declarations and the function around the cursor are checked.
-std::vector<CompletionItem> complete(Analysis &r_analysis, const EngineApi &p_engine, const std::string &p_path, const std::string &p_source);
+Completion complete(Analysis &r_analysis, const EngineApi &p_engine, const std::string &p_path, const std::string &p_source);
 
 // A member in the editor's documentation (core/doc_data.h).
 struct DocMember {

@@ -251,7 +251,7 @@ std::optional<compiler::Lookup> lookup_name(const String &p_path, const std::str
 	return compiler::lookup(analysis(), ClassDBApi::get(), SceneIndex::get(), file_doc_name, to_utf8(p_path), p_source, p_offset);
 }
 
-std::vector<compiler::CompletionItem> completion(const String &p_path, const std::string &p_source) {
+compiler::Completion completion(const String &p_path, const std::string &p_source) {
 	const SceneIndex::Pass pass;
 	return compiler::complete(analysis(), ClassDBApi::get(), to_utf8(p_path), p_source);
 }

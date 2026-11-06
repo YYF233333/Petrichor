@@ -155,11 +155,13 @@ class Checker : public ClassRelation {
 	std::vector<Reference> *references; // Recorded for this file only.
 	// What can be written at the cursor (spec §13.2), whose function alone has
 	// its body checked; null when not completing.
-	std::vector<CompletionItem> *completions;
+	Completion *completion;
 	// Trying a name where completion asks: calls are checked without their
 	// arguments, and give how many the callee takes.
 	bool probing = false;
 	int probed_params = -1;
+	// Where the name of the call whose signature completion shows ends.
+	uint32_t hint_at = 0;
 	// The expression of the expression statement being checked, and the
 	// statement before it in its block, for the keywords there.
 	const Expr *statement_value = nullptr;
@@ -964,7 +966,7 @@ class Checker : public ClassRelation {
 	}
 
 	Type resolve_name(const TypeRef &p_ref, bool p_allow_void) {
-		if (completions && at_cursor(p_ref.name)) {
+		if (completion && at_cursor(p_ref.name)) {
 			complete_type(p_ref, p_allow_void);
 			return Type::of(TypeKind::Error);
 		}
@@ -2254,6 +2256,7 @@ class Checker : public ClassRelation {
 			return foreign_method(r_expr, p_class);
 		}
 		const FuncDecl *callee = nullptr;
+		const SourceFile *source = nullptr; // Of the callee.
 		DeclId id;
 		if (p_class.is_interface) {
 			if (const InterfaceDecl *interface = interface_decl(p_class)) {
@@ -2263,6 +2266,7 @@ class Checker : public ClassRelation {
 				for (const FuncDecl &method : interface->methods) {
 					if (method.name == r_expr.text) {
 						callee = &method;
+						source = script_decl(p_class.script)->source.get();
 						id = script_id(p_class.script, interface->name + "." + method.name);
 					}
 				}
@@ -2272,6 +2276,7 @@ class Checker : public ClassRelation {
 				const FuncDecl &function = *entry;
 				if (function.name == r_expr.text) {
 					callee = &function;
+					source = declaring(*decl, function, &ClassDecl::functions).source.get();
 					id = script_id(declaring(*decl, function, &ClassDecl::functions).path, function.name);
 				}
 			}
@@ -2287,6 +2292,7 @@ class Checker : public ClassRelation {
 		if (const auto message = broken(callee, p_class.name + "." + callee->name + "()")) {
 			return fail_call(r_expr, *message);
 		}
+		hint(r_expr, [&](int p_current) { return declared_signature(callee->name, *callee, *source, p_current, callee->return_type); });
 		check_arguments(r_expr, param_types(callee->params), required_params(*callee), false);
 		refer(r_expr.name_token, id);
 		if (callee->is_override && !callee->is_async) {
@@ -3390,6 +3396,14 @@ class Checker : public ClassRelation {
 		if (!ok) {
 			return fail_call(r_expr);
 		}
+		hint(r_expr, [&](int p_current) {
+			std::vector<std::string> texts;
+			for (size_t i = 0; i < params.size(); i++) {
+				const std::string &value = p_method.params[i].default_value;
+				texts.push_back(p_method.params[i].name + ": " + params[i].to_string() + (value.empty() ? "" : " = " + value));
+			}
+			return signature(r_expr.text, texts, p_method.is_vararg, p_current, engine_result(p_method).to_string());
+		});
 		check_arguments(r_expr, params, int(params.size()) - p_method.default_count, p_method.is_vararg);
 		for (size_t i = 0; i < params.size(); i++) {
 			r_expr.arg_ranges.push_back(params[i].kind == TypeKind::Int ? builtin::param_int_range(p_method.owner, p_method.name, uint32_t(i)) : std::nullopt);
@@ -3488,6 +3502,7 @@ class Checker : public ClassRelation {
 	}
 
 	Type check_utility(Expr &r_expr, const builtin::Utility &p_utility) {
+		hint(r_expr, [&](int p_current) { return api_signature(r_expr.text, p_utility.arguments, p_utility.argument_count, p_utility.is_vararg, p_utility.return_type, p_current); });
 		r_expr.target = Target::Utility;
 		refer(r_expr.name_token, engine_id("@GlobalScope", r_expr.text));
 		r_expr.hash = p_utility.hash;
@@ -3561,6 +3576,17 @@ class Checker : public ClassRelation {
 	}
 
 	Type check_constructor(Expr &r_expr, const builtin::Class &p_type) {
+		// Each constructor that takes the argument at the cursor, as GDScript
+		// shows them (modules/gdscript/gdscript_editor.cpp:3400-3415).
+		hint(r_expr, [&](int p_current) {
+			std::string hints;
+			for (uint32_t i = 0; i < p_type.constructor_count; i++) {
+				if (p_current < int(p_type.constructors[i].argument_count)) {
+					hints += (hints.empty() ? "" : "\n") + api_signature(p_type.name, p_type.constructors[i].arguments, p_type.constructors[i].argument_count, false, p_type.name, p_current);
+				}
+			}
+			return hints;
+		});
 		refer(r_expr.name_token, engine_id(p_type.name));
 		std::vector<Type> args;
 		for (auto &arg : r_expr.args) {
@@ -3737,6 +3763,7 @@ class Checker : public ClassRelation {
 		if (!method) {
 			return fail_call(r_expr, p_base.to_string() + " has no method \"" + r_expr.text + "()\".");
 		}
+		hint(r_expr, [&](int p_current) { return api_signature(r_expr.text, method->arguments, method->argument_count, method->is_vararg, method->return_type, p_current); });
 		// On a value, the type's own (spec §4.8).
 		r_expr.static_on_value = method->is_static && !p_static;
 		if (!method->is_static && p_static) {
@@ -4290,6 +4317,19 @@ class Checker : public ClassRelation {
 		if (!decl) {
 			return fail_call(r_expr, p_struct.script + " has errors.");
 		}
+		// Its fields, which are given by name, so none is marked.
+		hint(r_expr, [&](int) {
+			const SourceFile &source = *script_header(p_struct.script)->source;
+			std::vector<std::string> fields;
+			for (const VarDecl &field : decl->fields) {
+				fields.push_back(field.name + ": " + field.type.to_string());
+				if (field.initializer) {
+					const uint32_t begin = source.begin(field.initializer->range);
+					fields.back() += " = " + source.text.substr(begin, source.end(field.initializer->range) - begin);
+				}
+			}
+			return signature(p_struct.interface_name(), fields, false, -1, p_struct.to_string());
+		});
 		std::vector<bool> given(decl->fields.size(), false);
 		for (size_t i = 0; i < r_expr.args.size(); i++) {
 			Expr &arg = *r_expr.args[i];
@@ -4367,10 +4407,12 @@ class Checker : public ClassRelation {
 				if (const auto message = broken(&callee, class_name + "._init()")) {
 					return fail_call(r_expr, *message);
 				}
+				hint(r_expr, [&](int p_current) { return declared_signature("new", callee, *declaring(*decl, callee, &ClassDecl::functions).source, p_current, type); });
 				check_arguments(r_expr, param_types(callee.params), required_params(callee), false);
 				r_expr.engine_params = param_types(callee.params);
 				r_expr.index = int(callee.params.size()) - required_params(callee);
 			} else {
+				hint(r_expr, [&](int p_current) { return signature("new", {}, false, p_current, type.to_string()); });
 				check_arguments(r_expr, {}, 0, false);
 			}
 			refer(r_expr.name_token, script_id(p_path, "new"));
@@ -4395,6 +4437,7 @@ class Checker : public ClassRelation {
 		if (const auto message = broken(&callee, class_name + "." + callee.name + "()")) {
 			return fail_call(r_expr, *message);
 		}
+		hint(r_expr, [&](int p_current) { return declared_signature(callee.name, callee, *declaring(*decl, callee, &ClassDecl::functions).source, p_current, callee.return_type); });
 		check_arguments(r_expr, param_types(callee.params), required_params(callee), false);
 		refer(r_expr.name_token, script_id(declaring(*decl, callee, &ClassDecl::functions).path, callee.name));
 		if (p_path == options.path) {
@@ -4644,6 +4687,7 @@ class Checker : public ClassRelation {
 			if (!callee.is_static && refuse_in_static(r_expr, name + "()")) {
 				return fail_call(r_expr);
 			}
+			hint(r_expr, [&](int p_current) { return declared_signature(callee.name, callee, *declaring(cls, callee, &ClassDecl::functions).source, p_current, callee.return_type); });
 			check_arguments(r_expr, param_types(callee.params), required_params(callee), false);
 			r_expr.target = Target::ScriptFunction;
 			r_expr.index = script->second;
@@ -4861,7 +4905,7 @@ class Checker : public ClassRelation {
 	// `p_expected` is the type the value goes to, if known; literals of arrays,
 	// dictionaries, strings and None take their type from it.
 	Type type_expr(Expr &r_expr, const Type &p_expected) {
-		if (completions && (r_expr.kind == ExprKind::Name || r_expr.kind == ExprKind::Member || r_expr.kind == ExprKind::Call) && at_cursor(r_expr.text)) {
+		if (completion && (r_expr.kind == ExprKind::Name || r_expr.kind == ExprKind::Member || r_expr.kind == ExprKind::Call) && at_cursor(r_expr.text)) {
 			complete(r_expr);
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
@@ -6764,8 +6808,8 @@ class Checker : public ClassRelation {
 		narrowed.clear();
 		narrowed.emplace_back();
 		declare_params(r_function);
-		const size_t cursor = completions ? cls.source->text.find(CURSOR) : 0;
-		if (options.declarations_only || !check_bodies || (completions && (cursor < cls.source->begin(r_function.range) || cursor >= cls.source->end(r_function.range)))) {
+		const size_t cursor = completion ? cls.source->text.find(CURSOR) : 0;
+		if (options.declarations_only || !check_bodies || (completion && (cursor < cls.source->begin(r_function.range) || cursor >= cls.source->end(r_function.range)))) {
 			function = nullptr;
 			scopes.clear();
 			return;
@@ -7006,10 +7050,70 @@ class Checker : public ClassRelation {
 	}
 
 	void set_completions(std::map<std::string, CompletionItem> &r_found) {
-		completions->clear();
+		completion->items.clear();
 		for (auto &entry : r_found) {
-			completions->push_back(std::move(entry.second));
+			completion->items.push_back(std::move(entry.second));
 		}
+	}
+
+	// Gives completion the signature of `p_call` when the cursor is among its
+	// arguments and not among those of a call within them. `p_signature` makes
+	// it with the parameter at the cursor marked.
+	void hint(const Expr &p_call, const std::function<std::string(int)> &p_signature) {
+		if (!completion || probing || p_call.name_token >= cls.source->tokens.size()) {
+			return;
+		}
+		const size_t cursor = cls.source->text.find(CURSOR);
+		const uint32_t name_end = cls.source->tokens[p_call.name_token].end();
+		if (cursor < name_end || cursor >= cls.source->end(p_call.range) || name_end < hint_at) {
+			return;
+		}
+		int current = 0;
+		for (const auto &arg : p_call.args) {
+			current += cls.source->end(arg->range) < cursor ? 1 : 0;
+		}
+		hint_at = name_end;
+		completion->call_hint = p_signature(current);
+	}
+
+	// `name(a: T, b: U = 1) -> R`, the parameter at `p_current` between two
+	// U+FFFF; with `p_vararg`, a last `...args` takes the rest.
+	static std::string signature(const std::string &p_name, std::vector<std::string> p_params, bool p_vararg, int p_current, const std::string &p_result) {
+		if (p_vararg) {
+			p_params.push_back("...args");
+			p_current = std::min(p_current, int(p_params.size()) - 1);
+		}
+		std::string text = p_name + "(";
+		for (size_t i = 0; i < p_params.size(); i++) {
+			const std::string mark = int(i) == p_current ? CURSOR : "";
+			text += (i > 0 ? ", " : "") + mark + p_params[i] + mark;
+		}
+		return text + ") -> " + p_result;
+	}
+
+	// A function of this language's, its defaults as written in `p_source`.
+	static std::string declared_signature(const std::string &p_name, const FuncDecl &p_function, const SourceFile &p_source, int p_current, const Type &p_result) {
+		std::vector<std::string> params;
+		for (const ParamDecl &param : p_function.params) {
+			params.push_back(param.name + ": " + param.type.to_string());
+			if (param.default_value) {
+				const uint32_t begin = p_source.begin(param.default_value->range);
+				params.back() += " = " + p_source.text.substr(begin, p_source.end(param.default_value->range) - begin);
+			}
+		}
+		return signature(p_name, params, false, p_current, p_result.to_string());
+	}
+
+	// A function of the engine's API (builtin_api.h).
+	static std::string api_signature(const std::string &p_name, const builtin::Argument *p_args, uint32_t p_count, bool p_vararg, const char *p_result, int p_current) {
+		std::vector<std::string> params;
+		for (uint32_t i = 0; i < p_count; i++) {
+			params.push_back(std::string(p_args[i].name) + ": " + api_type(p_args[i].type, true).to_string());
+			if (p_args[i].has_default) {
+				params.back() += std::string(" = ") + p_args[i].default_value;
+			}
+		}
+		return signature(p_name, params, p_vararg, p_current, *p_result ? api_type(p_result, true).to_string() : "void");
 	}
 
 	// The classes a member may be declared in, nearest first: one of this
@@ -7329,8 +7433,8 @@ class Checker : public ClassRelation {
 	}
 
 public:
-	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, std::vector<CompletionItem> *r_completions) :
-			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), check_bodies(p_check_bodies), classes(r_classes), references(r_references), completions(r_completions) {}
+	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, Completion *r_completion) :
+			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), check_bodies(p_check_bodies), classes(r_classes), references(r_references), completion(r_completion) {}
 
 	void attach(FileCheck &r_file, Checker *p_outer) {
 		file = &r_file;
@@ -7366,7 +7470,7 @@ public:
 
 private:
 	bool declare_class() {
-		if (completions && at_cursor(cls.extends)) {
+		if (completion && at_cursor(cls.extends)) {
 			complete_extends();
 		}
 		cls.path = options.path;
@@ -7503,22 +7607,22 @@ Checker *FileCheck::find(const std::string &p_path) const {
 	return nullptr;
 }
 
-void add_checkers(FileCheck &r_file, ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, std::vector<CompletionItem> *r_completions, Checker *p_outer) {
-	r_file.checkers.push_back(std::make_unique<Checker>(r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references, r_completions));
+void add_checkers(FileCheck &r_file, ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, Completion *r_completion, Checker *p_outer) {
+	r_file.checkers.push_back(std::make_unique<Checker>(r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references, r_completion));
 	Checker *checker = r_file.checkers.back().get();
 	checker->attach(r_file, p_outer);
 	for (std::unique_ptr<ClassDecl> &inner : r_class.classes) {
 		CompileOptions options = p_options;
 		options.path += "::" + inner->name;
-		add_checkers(r_file, *inner, p_engine, options, r_errors, r_classes, p_check_bodies, r_references, r_completions, checker);
+		add_checkers(r_file, *inner, p_engine, options, r_errors, r_classes, p_check_bodies, r_references, r_completion, checker);
 	}
 }
 
 } // namespace
 
-void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, std::vector<CompletionItem> *r_completions) {
+void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, Completion *r_completion) {
 	FileCheck file;
-	add_checkers(file, r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references, r_completions, nullptr);
+	add_checkers(file, r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references, r_completion, nullptr);
 	r_classes.enter(p_options.path, r_class, [&](const std::string &p_path) -> const ClassDecl * {
 		Checker *checker = file.find(p_path);
 		if (!checker) {
