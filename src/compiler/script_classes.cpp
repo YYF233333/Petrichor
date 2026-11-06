@@ -42,30 +42,34 @@ struct Hash {
 	}
 };
 
-// The tokens of each function body: from the Indent that opens a body on
-// lines of its own to the Dedent that closes it, or the statements on the
-// function's line.
-void mark_bodies(const ClassDecl &p_decl, std::vector<bool> &r_body) {
-	const std::vector<Token> &tokens = p_decl.source->tokens;
-	for (const FuncDecl &fn : p_decl.functions) {
-		if (!fn.has_body || fn.body.empty()) {
-			continue;
-		}
-		uint32_t first = fn.body.front()->range.first;
-		uint32_t last = fn.body.back()->range.last;
-		if (first > 0 && tokens[first - 1].kind == TokenKind::Indent) {
-			int depth = 0;
-			for (uint32_t i = --first; i < tokens.size(); i++) {
-				if (tokens[i].kind == TokenKind::Indent) {
-					depth++;
-				} else if (tokens[i].kind == TokenKind::Dedent && --depth == 0) {
-					last = i;
-					break;
-				}
+// The tokens of a function's body, which other scripts do not see: from the
+// Indent that opens a body on lines of its own to the Dedent that closes it,
+// or the statements on the function's line.
+std::optional<TokenRange> body_of(const FuncDecl &p_function, const std::vector<Token> &p_tokens) {
+	if (!p_function.has_body || p_function.body.empty()) {
+		return std::nullopt;
+	}
+	TokenRange body = { p_function.body.front()->range.first, p_function.body.back()->range.last };
+	if (body.first > 0 && p_tokens[body.first - 1].kind == TokenKind::Indent) {
+		int depth = 0;
+		for (uint32_t i = --body.first; i < p_tokens.size(); i++) {
+			if (p_tokens[i].kind == TokenKind::Indent) {
+				depth++;
+			} else if (p_tokens[i].kind == TokenKind::Dedent && --depth == 0) {
+				body.last = i;
+				break;
 			}
 		}
-		for (uint32_t i = first; i <= last && i < tokens.size(); i++) {
-			r_body[i] = true;
+	}
+	return body;
+}
+
+void mark_bodies(const ClassDecl &p_decl, std::vector<bool> &r_body) {
+	for (const FuncDecl &fn : p_decl.functions) {
+		if (const std::optional<TokenRange> body = body_of(fn, p_decl.source->tokens)) {
+			for (uint32_t i = body->first; i <= body->last; i++) {
+				r_body[i] = true;
+			}
 		}
 	}
 	for (const std::unique_ptr<ClassDecl> &inner : p_decl.classes) {
@@ -74,17 +78,32 @@ void mark_bodies(const ClassDecl &p_decl, std::vector<bool> &r_body) {
 }
 
 // Notes in `r_marked` the declarations of `p_decl` and its inner classes on
-// whose lines `p_errors` fall, with the line of the first; a function by the
-// lines of its signature, as other scripts see no body.
+// whose lines `p_errors` fall, with the line of the first. Errors in function
+// bodies, those of inline setters and getters included, mark none.
 void mark_errors(const ClassDecl &p_decl, const std::vector<Diagnostic> &p_errors, std::map<const void *, int> &r_marked) {
 	const SourceFile &source = *p_decl.source;
+	std::vector<TokenRange> bodies;
+	for (const FuncDecl &fn : p_decl.functions) {
+		if (const std::optional<TokenRange> body = body_of(fn, source.tokens)) {
+			bodies.push_back(*body);
+		}
+	}
+	const auto in_body = [&](uint32_t p_offset) {
+		return std::any_of(bodies.begin(), bodies.end(), [&](const TokenRange &p_body) {
+			return p_offset >= source.begin(p_body) && p_offset < source.end(p_body);
+		});
+	};
 	const auto line_of = [&](uint32_t p_offset) {
 		return source.position(p_offset).line;
 	};
-	const auto mark_lines = [&](const void *p_node, int p_first, int p_last) {
+	const auto mark = [&](const void *p_node, const TokenRange &p_range) {
+		const uint32_t begin = source.begin(p_range);
+		const uint32_t end = source.end(p_range);
+		const int first = line_of(begin);
+		const int last = line_of(end > begin ? end - 1 : begin);
 		for (const Diagnostic &error : p_errors) {
 			const int line = line_of(error.begin);
-			if (line < p_first || line > p_last) {
+			if (line < first || line > last || in_body(error.begin)) {
 				continue;
 			}
 			const auto [entry, added] = r_marked.emplace(p_node, line);
@@ -93,23 +112,9 @@ void mark_errors(const ClassDecl &p_decl, const std::vector<Diagnostic> &p_error
 			}
 		}
 	};
-	const auto mark = [&](const void *p_node, const TokenRange &p_range) {
-		const uint32_t begin = source.begin(p_range);
-		const uint32_t end = source.end(p_range);
-		mark_lines(p_node, line_of(begin), line_of(end > begin ? end - 1 : begin));
-	};
 	for_each_child(p_decl, [&](const auto &p_child) {
-		using T = std::decay_t<decltype(p_child)>;
-		if constexpr (std::is_same_v<T, ClassDecl>) {
+		if constexpr (std::is_same_v<std::decay_t<decltype(p_child)>, ClassDecl>) {
 			mark_errors(p_child, p_errors, r_marked);
-		} else if constexpr (std::is_same_v<T, FuncDecl>) {
-			const int first = line_of(source.begin(p_child.range));
-			const uint32_t end = source.end(p_child.range);
-			int last = line_of(end > source.begin(p_child.range) ? end - 1 : end);
-			if (p_child.has_body && !p_child.body.empty()) {
-				last = std::max(first, line_of(source.begin(p_child.body.front()->range)) - 1);
-			}
-			mark_lines(&p_child, first, last);
 		} else {
 			mark(&p_child, p_child.range);
 		}

@@ -22,7 +22,9 @@ FakeProject project() {
 	project.add_script("res://enemy.pet", "extends Node3D implements Combat.Damageable\nclass_name Enemy\n\npub func damage(amount: float):\n\tpass\n", "Enemy");
 	project.add_script("res://audio.pet", "extends Node\n\npub func play(sound_path: String):\n\tpass\n");
 	project.add_script("res://broken.pet", "extends Node\nclass_name Broken\npub var x: int = \"no\"\n", "Broken");
-	project.add_script("res://typing.pet", "class_name Typing\nextends Node\npub var hp: int = 3\npub func hit(n: int) -> void:\n\thp -= n +\npub func he\npub var x:\n", "Typing");
+	project.add_script("res://typing.pet", "class_name Typing\nextends Node\npub var hp: int = 3\npub func hit(n: int) -> void:\n\thp -= n +\npub func he\npub var x:\n"
+										   "pub func empty() -> void:\npub var after: int = 2:\n\tget:\n\t\treturn after +\n",
+			"Typing");
 	project.add_script("res://partly.pet",
 			"class_name Partly\nextends Node\npub var good: int = 1\npub var bad: Missing\npub func ok() -> int:\n\treturn good\npub func takes(m: Missing) -> void:\n\tpass\n"
 			"pub const LIMIT: int = \"many\"\npub struct Hit:\n\tvar what: Missing\n",
@@ -245,6 +247,9 @@ TEST_CASE("other scripts see what the parser recovers of a script with syntax er
 	CHECK(contains(errors("print(Typing.new().armor)"), "Typing has no property \"armor\"; res://typing.pet has syntax errors (line 5)."));
 	CHECK(contains(errors("print(w.armor)"), "Weapon has no property \"armor\"."));
 	CHECK(contains(errors("print(Typing.new().x)"), "Typing.x has errors (res://typing.pet, line 7)."));
+	// A missing block is an error of its header, a getter's body is not the property's.
+	CHECK(contains(errors("Typing.new().empty()"), "Typing.empty() has errors (res://typing.pet, line 8)."));
+	CHECK(errors("print(Typing.new().after)").empty());
 }
 
 TEST_CASE("other scripts use the declarations of a script that have no errors") {

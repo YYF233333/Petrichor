@@ -782,7 +782,7 @@ class Parser {
 		if (!check(TokenKind::Indent)) {
 			// A line that failed may have lost the colon that wanted a block.
 			if (!line_failed) {
-				report(peek(), std::string("Expected an indented block, found ") + token_name(peek().kind) + ".");
+				missing_block("an indented block");
 			}
 			return body;
 		}
@@ -871,9 +871,17 @@ class Parser {
 			return true;
 		}
 		if (!line_failed) {
-			report(peek(), std::string("Expected ") + p_what + ", found " + token_name(peek().kind) + ".");
+			missing_block(p_what);
 		}
 		return false;
+	}
+
+	// At the colon, as GDScript reports it after the line break
+	// (modules/gdscript/gdscript_parser.cpp:238-240, 610, 1956), so that the
+	// error is that of the declaration or statement without its block, which
+	// other scripts then cannot use (architecture §2.1).
+	void missing_block(const char *p_what) {
+		report(tokens[last], std::string("Expected ") + p_what + ", found " + token_name(peek().kind) + ".");
 	}
 
 	std::unique_ptr<Stmt> make_stmt(StmtKind p_kind, const Token &p_at) {
