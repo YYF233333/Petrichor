@@ -13,7 +13,7 @@ Input: the review file the caller names, or else the newest `review-*.md` in the
 
 Check each finding in this order and stop at the first step it fails:
 
-1. Real. Does it hold in the working tree as it is now? Reviews often describe an older commit: read the current code and look in `git log` for a fix. Check engine claims against the Godot source at `4.7.2-stable` (`ed1daf0`, path in `AGENTS.local.md` when present), not from memory. Drop misreadings, duplicates and what is already fixed.
+1. Real. Does it hold in the working tree as it is now? Reviews often describe an older commit: read the current code and look in `git log` for a fix. Check engine claims against the Godot source at `4.7.2-stable` (`ed1daf0`), not from memory. Drop misreadings, duplicates and what is already fixed.
 2. Relevant now. Drop trade-offs already decided (the spec and `docs/design-notes.*`, the architecture, the caller's list), features recorded as not supported yet (`BACKLOG.md`, spec §14), style preferences (code or tests that can go without losing behavior or coverage are debt, not style), risks that no plausible script would run into, and low-value optimizations.
 3. Worth it. The benefit of the fix must exceed what it costs now.
 

@@ -4,83 +4,153 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Language
 
-- Coroutine helpers `Task.of`, `delay`, `any`, `all`, `settled`; async lambdas and calls of async function values, `f.call(x)` giving a `Task[T]` (spec §9, §3.11).
+- Coroutine helpers `Task.of`, `delay`, `any`, `all` and `settled` (spec §9). Async lambdas, and calls of async function values, `f.call(x)` giving a `Task[T]` (spec §9, §3.11).
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
-- Of match (spec §5.6): array and dictionary patterns; a match over `T?`, with `None`, `Some(var x)` and `var x` and the check that it is exhaustive; the patterns of structs, and those of enums, Result and Settled once they exist.
-- Of structs (spec §3.6): methods; a struct that holds itself through a container, which the type table cannot list, a type's parts coming before it.
+- Of match (spec §5.6):
+  - array and dictionary patterns;
+  - a match over `T?`, with `None`, `Some(var x)` and `var x`, and the check that it is exhaustive;
+  - the patterns of structs, and those of enums, Result and Settled once they exist.
+- Of structs (spec §3.6):
+  - methods;
+  - a struct that holds itself through a container. The type table cannot list it, since a type's parts come before it.
 - `T.try_from(v)` (spec §5.3), as for `Array[Hit].try_from(Array(hits))`.
-- The error for a type that is not pub, such as a struct or an interface, in the signature of a pub member (spec §4.2).
-- Static checks of must-assign exports in scenes, in resources and at export (spec §7.5), of a scene used as a root whose root has a script with `@owner` (§7.3), and of a node of a scene whose script is abstract (§4.1).
+- The error for a type that is not pub in the signature of a pub member (spec §4.2). Such a type may be a struct or an interface.
+- Static checks of:
+  - must-assign exports in scenes, in resources and at export (spec §7.5);
+  - a scene used as a root whose root has a script with `@owner` (§7.3);
+  - a node of a scene whose script is abstract (§4.1).
 - `@parent(T)` (spec §7.3).
-- Setters that wait for ready on their own (spec §6.5, after the first version), once the open question below is settled.
-- A warning for removed nodes that are neither stored nor freed, and one with a `weak` quick fix for a lambda capturing self stored in a member of self (spec §6.7); `weak[T]` (§3.12).
+- Setters that wait for ready on their own (spec §6.5, after the first version). They come once the open question below is settled.
+- A warning for removed nodes that are neither stored nor freed (spec §6.7). Another, with a `weak` quick fix, for a lambda capturing self stored in a member of self (§6.7). `weak[T]` (§3.12).
 - Preload cycles (spec §7.6); a literal path of `load` typed as preload types it (§7.4).
-- Of GDScript classes (spec §11.1): enums, inner classes and static variables; nodes in scenes typed by their GDScript class rather than its engine class.
-- The declarations of other scripts are checked as while the editor loads a script, which loads no script of another language, so a member typed by a preloaded GDScript class without a class_name, as `pub var unit: Unit?`, is not known to other classes (spec §2.1).
-- Members that are not pub of another instance of the same class, which the engine reaches by name while reflection lists only pub ones.
+- Of GDScript classes (spec §11.1):
+  - enums, inner classes and static variables;
+  - nodes in scenes typed by their GDScript class rather than its engine class.
+- The declarations of other scripts are checked as while the editor loads a script. That load loads no script of another language. So other classes do not know a member typed by a preloaded GDScript class lacking a class_name (spec §2.1). An example is `pub var unit: Unit?`.
+- Members that are not pub of another instance of the same class. The engine reaches them by name, while reflection lists only pub ones.
 - The check of `@onready` members of value types read before ready.
 - preload() inside a constant's container (spec §4.5).
-- In the editor, GDScript does not see a pub constant whose value is a preload(), such as `Spawner.SCENE`, and reports a parse error: the editor compiles the scripts it loads with declarations only, which read no scenes, so the constant is left out of the image (spec §4.5, §11.3).
-- `Array[T]?`; nested `Option` (`T??`, `Some(...)`, the remaining `Option` methods of spec §3.4, `pop_front()` and `pop_back()` of `Array[T?]` giving `T??`, and rejecting `T??` and `Variant?` passed to `Variant` per spec §10.1).
-- `Result[T, E]` (`Ok`, `Err`, non-discardable check, methods) and postfix `?` (spec §3.5, §8.2); enums with payloads, and the names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7); `T.try_from(x)` (spec §5.3).
+- In the editor, GDScript does not see a pub constant whose value is a preload(), such as `Spawner.SCENE`. It reports a parse error. The editor compiles the scripts it loads with declarations only, which read no scenes. So the constant is left out of the image (spec §4.5, §11.3).
+- `Array[T]?`, and nested `Option`:
+  - `T??` and `Some(...)`;
+  - the remaining `Option` methods of spec §3.4;
+  - `pop_front()` and `pop_back()` of `Array[T?]` giving `T??`;
+  - rejecting `T??` and `Variant?` passed to `Variant` (spec §10.1).
+- `Result[T, E]` with `Ok`, `Err`, the non-discardable check and its methods, and postfix `?` (spec §3.5, §8.2). Enums with payloads, and the names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7). `T.try_from(x)` (spec §5.3).
 - Rest parameters `...args: Array[T]` (spec §4.6).
 - `for` over a String (spec §5.7); no file of the coverage survey's corpus does it.
-- Static functions as values: one of a class around an inner class by its bare name, or one of another class as `Class.f`; now they can only be called (spec §3.11, §4.1).
-- Inner classes of two files that extend each other's classes, as `A.X extends B.Y` with `B.Y extends A.Z`: the checker accepts them, but no image can be loaded before the other's, so the editor reports it and the game cannot load the base.
-- A text form of this language's own types, such as `Hit(damage = 3, crit = false)`, for `str()`, `print()` and `%` together; now they read as their encoding (spec §5.1, §10.1).
-- Members that must be assigned and are not exported, and passing them by name to `instantiate(...)` and `new(...)` (spec §6.2, §4.6).
-- Node paths into instanced scenes, and out of a scene from its root: `..` above the root, and `%Name` of a scene that instances it, as Ring's paddle.gd uses `$%HealthIcon` (spec §7.1); `get_node` and `get_node_or_null` typed from literal paths, exempting base scenes used only for inheritance, `/root/X` offering the autoload name, and `Resource.duplicate()` keeping the static type (spec §7.1–§7.3, §7.6); type-specific fix hints on `not x` (spec §5.4).
-- Property names as literals, as in `tween_property(self, "speed", ...)` and `set_deferred("speed", v)`: checked, and visible to the engine (spec §10.4, §10.5); only method names are.
+- Static functions as values, which now can only be called (spec §3.11, §4.1):
+  - one of a class around an inner class, by its bare name;
+  - one of another class, as `Class.f`.
+- Inner classes of two files that extend each other's classes, as `A.X extends B.Y` with `B.Y extends A.Z`. The checker accepts them, but neither image can be loaded before the other's. So the editor reports it, and the game cannot load the base.
+- A text form of this language's own types, such as `Hit(damage = 3, crit = false)`. It serves `str()`, `print()` and `%` together. Now these types read as their encoding (spec §5.1, §10.1).
+- Members that must be assigned and are not exported. Passing them by name to `instantiate(...)` and `new(...)` (spec §6.2, §4.6).
+- Node paths (spec §7.1):
+  - into instanced scenes;
+  - out of a scene from its root: `..` above the root, and `%Name` of a scene that instances it. Ring's paddle.gd uses one, `$%HealthIcon`.
+- Static types (spec §7.1–§7.3, §7.6):
+  - `get_node` and `get_node_or_null` typed from literal paths, exempting base scenes used only for inheritance;
+  - `/root/X` offering the autoload name;
+  - `Resource.duplicate()` keeping the static type.
+- Type-specific fix hints on `not x` (spec §5.4).
+- Property names as literals, checked and visible to the engine (spec §10.4, §10.5). Examples are `tween_property(self, "speed", ...)` and `set_deferred("speed", v)`. Only method names are now.
 - The audit of the most frequently called engine APIs for null (spec §10.2); `binding_metadata.txt` has two entries.
-- Overriding Object's `_get`, `_set`, `_get_property_list`, `_validate_property`, `_property_can_revert` and `_property_get_revert`, which the engine reaches through the script instance and GDScript's instance calls (modules/gdscript/gdscript.cpp:1590, 1677, 1714, 1739, 1857, 1879; ed1daf0); now a compile error, since the runtime does not call them.
+- Overriding Object's `_get`, `_set`, `_get_property_list`, `_validate_property`, `_property_can_revert` and `_property_get_revert`. The engine reaches them through the script instance, and GDScript's instance calls them (`modules/gdscript/gdscript.cpp:1590, 1677, 1714, 1739, 1857, 1879`, `ed1daf0`). Now they are a compile error, since the runtime does not call them.
 - Non-constant default values, of parameters and of struct fields.
 - A `Callable` of unknown signature converted to a function type and checked on every call (spec §3.11).
-- In debug builds, reporting where a freed instance was freed and where the instances still alive at exit were made (spec §3.3, §6.7, §12.5).
+- In debug builds, reporting two places (spec §3.3, §6.7, §12.5):
+  - where a freed instance was freed;
+  - where the instances still alive at exit were made.
+- `Vector3.AXIS_X`: the checker rejects it.
 
 ## Runtime
 
-- Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for: the bytecode lays out built-in values at their sizes in standard builds, so initialization and loading refuse them (`check_value_sizes()`).
-- Members of classes of this language read and written without the engine; then a pub member whose type is a container that keeps boxes can leave reflection (spec §10.5), through which this language now reaches members of other instances.
-- Temporary slots reused by scope, so that temporary references in a loop are released in time and a suspended coroutine keeps only the slots still in use; a temporary that held self, as in `f(self, await g())`, keeps a RefCounted alive while the coroutine waits (against spec §9.4).
+- Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`).
+- Members of classes of this language read and written without the engine. This language now reaches members of other instances through reflection. Then a pub member whose type is a container that keeps boxes can leave reflection (spec §10.5).
+- Temporary slots reused by scope. This releases temporary references in a loop in time. A suspended coroutine then keeps only the slots still in use. Now a temporary that held self keeps a RefCounted alive while the coroutine waits, as in `f(self, await g())` (against spec §9.4).
 
 ## Editor
 
-- References from scenes for the keys of exported properties (architecture §2.1), once the scene index reads the values scenes give properties; now only the methods of signal connections are.
-- The warnings of spec §7.2 and §7.6: a literal `get_node_or_null` path that no scene has, a scene that nothing references lacking a node, and writes to a resource known to be shared; the error explaining why a GDScript file cannot extend a class of this language (spec §11.2).
-- Compiled bytecode is checked against its own source only, so a game run from the command line without a build keeps old bytecode after a change to a scene or to a script it uses, and only the runtime checks (signatures, `$X` classes) catch the difference; the analysis knows what each script read (architecture §2.1) but keeps it only in the editor's memory.
-- The scene index: read scenes unsaved in the editor, which are marked as last saved (architecture §2.4); check whether it handles autoloads that are scenes.
+- References from scenes for the keys of exported properties (architecture §2.1). They come once the scene index reads the values scenes give properties. Now only the methods of signal connections are references.
+- The warnings of spec §7.2 and §7.6:
+  - a literal `get_node_or_null` path that no scene has;
+  - a scene that nothing references lacking a node;
+  - writes to a resource known to be shared.
+- The error explaining why a GDScript file cannot extend a class of this language (spec §11.2).
+- Compiled bytecode is checked against its own source only. A game run from the command line without a build keeps old bytecode. That happens after a change to a scene or to a script it uses. Only the runtime checks (signatures, `$X` classes) then catch the difference. The analysis knows what each script read, but keeps it only in the editor's memory (architecture §2.1).
+- The scene index: read scenes unsaved in the editor, which are marked as last saved (architecture §2.4). Check whether it handles autoloads that are scenes.
 - Completion in the editor (`_complete_code`; spec §13.2), on the recovered syntax tree (architecture §2.1). `_can_make_function`, so that the signal connection dialog generates the callback (editor/scene/connections_dialog.cpp:505-512; ed1daf0).
-- Structs, interfaces and inner classes that are not pub have documentation classes of their own in the editor's help, which the whole project searches (editor/doc/editor_help_search.cpp:113), and enums and members that are not pub are listed on their class's page: the engine's documentation has no visibility (core/doc_data.h:698-720; ed1daf0), so keeping them to their own file needs support from the engine, to be sought later.
-- The debugger lists all locals of a function regardless of scope, so same-named locals of blocks side by side collide; the bytecode would record the scope of each slot.
+- A `Foreign` `DeclId` names the script accessed, not the one that declares the member. Finding references (step 8) needs the declaring one.
+- Declarations that are not pub show in the editor's help beyond their own file. The engine's documentation has no visibility (`core/doc_data.h:698-720`, `ed1daf0`). Keeping them to their own file needs support from the engine, to be sought later.
+  - Structs, interfaces and inner classes have documentation classes of their own, which the whole project searches (`editor/doc/editor_help_search.cpp:113`).
+  - Enums and members are listed on their class's page.
+- The debugger lists all locals of a function regardless of scope. So same-named locals of blocks side by side collide. The bytecode would record the scope of each slot.
 
 ## Tests
 
 - Run an exported game with the official export templates; build and test the release library.
-- Cross-rule checks kept from the former conformance checklist: `player.last_hit.damage = 3` running `last_hit`'s setter (spec §3.6, §4.4); function-type parameter contravariance, `await` in a non-`async` lambda, rejecting `async` for an ordinary function parameter, and connecting an `async` method to a signal (§3.11, §9.1); awaiting a `Signal` variable with two parameters yielding `Array` in `Variant` (§9.6); a scene-saved value triggering a pre-ready setter error and `if is_node_ready():` guarding it (§6.5); `RefCounted` `PREDELETE` self field/method access plus `self == x` and `await` errors (§6.6); GDScript assigning a cancelled `Transform3D` coroutine result (§9.8); a lambda created before a body-only hot reload running its old body (§12.4).
+- Cross-rule checks kept from the former conformance checklist:
+  - `player.last_hit.damage = 3` running `last_hit`'s setter (spec §3.6, §4.4);
+  - for §3.11 and §9.1:
+    - function-type parameter contravariance;
+    - `await` in a non-`async` lambda;
+    - rejecting `async` for an ordinary function parameter;
+    - connecting an `async` method to a signal;
+  - awaiting a `Signal` variable with two parameters yielding `Array` in `Variant` (§9.6);
+  - a scene-saved value triggering a pre-ready setter error, and `if is_node_ready():` guarding it (§6.5);
+  - `RefCounted` `PREDELETE` self field/method access, plus `self == x` and `await` errors (§6.6);
+  - GDScript assigning a cancelled `Transform3D` coroutine result (§9.8);
+  - a lambda created before a body-only hot reload running its old body (§12.4).
+
 ## Performance
 
-Engine calls are by name with Variant arguments now, so code that calls the engine a lot is likely slower than typed GDScript, which resolves the MethodBind at compile time and makes a validated call with Variant arguments (modules/gdscript/gdscript_compiler.cpp:647-652, 705-710; ed1daf0).
+Engine calls now go by name with Variant arguments. So code that calls the engine a lot is likely slower than typed GDScript. Typed GDScript resolves the MethodBind at compile time and makes a validated call with Variant arguments (`modules/gdscript/gdscript_compiler.cpp:647-652, 705-710`, `ed1daf0`).
 
-- Engine methods: the MethodBind resolved when the class image loads (the bytecode records the class and the method's hash), and ptrcall with pointers to the registers, which already hold native values (gdextension_interface.h:2499 of godot-cpp); no boxing. GDScript cannot, its registers being Variants; it is as safe as GDScript's call of the MethodBind, since scripts cannot override engine methods that are not virtual.
-- Engine properties: through their setter and getter by ptrcall. GDScript reads and writes them by name, with validated access only to members of built-in types (modules/gdscript/gdscript_byte_codegen.cpp:848-883). A script's `_set` or `_get` can take engine property names, so the fast path needs a check, such as whether the object's script defines them, cached per script.
-- Engine singletons and autoloads resolved once: GET_SINGLETON looks the name up at every run, GET_AUTOLOAD calls get_node_or_null; a singleton's pointer can be kept, an autoload's ObjectID with a liveness check.
+- Engine methods without boxing. GDScript cannot do this, its registers being Variants.
+  - The MethodBind is resolved when the class image loads. The bytecode records the class and the method's hash.
+  - ptrcall takes pointers to the registers, which already hold native values (`gdextension_interface.h:2499` of godot-cpp).
+  - This is as safe as GDScript's call of the MethodBind. Scripts cannot override engine methods that are not virtual.
+- Engine properties: through their setter and getter by ptrcall. GDScript reads and writes them by name, with validated access only to members of built-in types (`modules/gdscript/gdscript_byte_codegen.cpp:848-883`). A script's `_set` or `_get` can take engine property names. So the fast path needs a check, cached per script, such as whether the object's script defines them.
+- Engine singletons and autoloads resolved once. Now GET_SINGLETON looks the name up at every run, and GET_AUTOLOAD calls get_node_or_null. A singleton's pointer can be kept, and an autoload's ObjectID with a liveness check.
 - Engine callbacks such as `_process(delta)`: no entry check of value-type arguments, whose types the engine guarantees.
-- Calls between classes of this language: the method found by name once per call site, since a run keeps one version of each class (spec §12.4); a static method's script, the script `Class.new()` sets and the class of a static variable that another class or an inner class uses (spec §4.8) are now loaded through ResourceLoader at every use.
-- Calls within a class: since inheritance they pass arguments the general way of calls between classes and repeat checks that loading made; the calls benchmark went from 18 to 22 ms (architecture §4).
-- Function values: `f.call(x)` goes through the engine's `Callable.call` with Variant arguments, a struct encoded and decoded on the way; a lambda or method value of this language could be called directly, its arguments in their slots' layout.
-- Engine calls: whether the result is a `GDScriptFunctionState`, which only methods of GDScript classes return (spec §9.8), is asked of every object result, by a call into the engine.
-- Coroutines: freeing an instance, and every frame, walk all active tasks; tasks listed by their owner would walk only the owner's.
-- Containers: the storage behind Array and Dictionary may be replaced later, keeping their public semantics (spec §3.8); the arrays benchmark loses to GDScript mostly to boxing each element into a Variant and back, and the check that a container is not read-only before each change (spec §3.8) is a call into the engine, about 7 ns of an append. Escape analysis can give containers that do not escape a private representation, the engine container being the reference semantics (architecture §2.2): a private representation supports some operations, a container that uses others keeps the engine's, and each private operation is tested against the engine's.
-- Constants and counting loops: every evaluation of a literal loads it into a new temporary with an instruction, and a counting `for` runs six instructions per iteration, where GDScript addresses constants as operands (modules/gdscript/gdscript_byte_codegen.h:366-367) and iterates with one instruction (modules/gdscript/gdscript_vm.cpp:3471-3492; ed1daf0); float_loop has little margin over GDScript and vectors only a modest one (architecture §4).
+- Calls between classes of this language: the method found by name once per call site. A run keeps one version of each class, which allows this (spec §12.4). Now these are loaded through ResourceLoader at every use:
+  - a static method's script;
+  - the script `Class.new()` sets;
+  - the class of a static variable that another class or an inner class uses (spec §4.8).
+- Calls within a class: since inheritance, they pass arguments the general way of calls between classes. They also repeat checks that loading made. The calls benchmark went from 18 to 22 ms (architecture §4).
+- Function values: `f.call(x)` goes through the engine's `Callable.call` with Variant arguments. A struct is encoded and decoded on the way. A lambda or method value of this language could be called directly, its arguments in their slots' layout.
+- Engine calls: every object result is asked whether it is a `GDScriptFunctionState`, by a call into the engine. Only methods of GDScript classes return one (spec §9.8).
+- Coroutines: freeing an instance, and every frame, walk all active tasks. Tasks listed by their owner would walk only the owner's.
+- Containers:
+  - The storage behind Array and Dictionary may be replaced later, keeping their public semantics (spec §3.8).
+  - The arrays benchmark loses to GDScript mostly to boxing each element into a Variant and back.
+  - The check that a container is not read-only before each change is a call into the engine (spec §3.8). It takes about 7 ns of an append.
+  - Escape analysis can give containers that do not escape a private representation (architecture §2.2). The engine container stays the reference semantics.
+  - A private representation supports some operations. A container that uses others keeps the engine's. Each private operation is tested against the engine's.
+- Constants and counting loops:
+  - Every evaluation of a literal loads it into a new temporary with an instruction. GDScript addresses constants as operands (`modules/gdscript/gdscript_byte_codegen.h:366-367`).
+  - A counting `for` runs six instructions per iteration. GDScript iterates with one (`modules/gdscript/gdscript_vm.cpp:3471-3492`, `ed1daf0`).
+  - float_loop has little margin over GDScript, and vectors only a modest one (architecture §4).
+- In the init function, instructions that can run other code are barriers to optimization.
 - Benchmarks of real workloads after ptrcall; optimizations of the IR and code generation after those.
-- Liveness of the IR's registers (`src/compiler/ir.h`), one analysis on the IR before any optimization, for the warning `modified_copy` (spec §3.6), off until then, and for what a suspended coroutine keeps (the Runtime item on temporary slots). Each instruction's reads and writes go in the opcode table beside its schemas; writing a View writes part of its root. The warning takes a write to a field of a struct loop variable, also through a value type's subscript as `h.pos[0] = 1.0`, after which the variable is not live: a read in an inner loop's next iteration, as `while h.count > 0: h.count -= 1`, or a lambda's capture keeps it live, while `continue`, `break` and `return` end its paths. It shows only for files without errors, which have IR; the checker's former cases are in `git show 3e63b1c:tests/compiler/test_warnings.cpp`.
+- Liveness of the IR's registers (`src/compiler/ir.h`), one analysis on the IR before any optimization.
+  - It serves the warning `modified_copy` (spec §3.6), which is off until then.
+  - It also serves what a suspended coroutine keeps (the Runtime item on temporary slots).
+  - Each instruction's reads and writes go in the opcode table beside its schemas. Writing a View writes part of its root.
+  - The warning takes a write to a field of a struct loop variable, after which the variable is not live. The write may also go through a value type's subscript, as `h.pos[0] = 1.0`.
+  - A read in an inner loop's next iteration keeps the variable live, as `while h.count > 0: h.count -= 1`. So does a lambda's capture.
+  - `continue`, `break` and `return` end its paths.
+  - The warning shows only for files without errors, which have IR. The checker's former cases are in `git show 3e63b1c:tests/compiler/test_warnings.cpp`.
 
 ## Open questions
 
-- Whether a setter that runs before ready should wait for ready on its own (spec §6.5), or the behavior should be written in the setter: the owner suspects that the implicit suspension makes setters hard to understand. To be discussed again before §6.5 is implemented.
-- Whether an autoload's name stands for its script's class in a type, as GDScript's does (`modules/gdscript/gdscript_analyzer.cpp:806-826`): godot-open-rts writes `var p: Constants.Match.Player` 5 times, `Constants` being an autoload (`docs/surveys/corpus-counts/inner_classes.py`).
-- Whether diagnostics and semantic queries also serve programs, not only the editor's interface: saying which declaration or scene a constraint comes from and listing the references that broke could let AI and tools fix errors while reading less code.
-- Whether the first version (spec §14) leaves out `weak[T]` (spec §3.12) and the built-in test runner (§13.2), which the FPS and Ring scripts of the second paper migration do not use.
-- Whether a container that holds itself is a program error as a `Dictionary` key (spec §3.8): the engine stops hashing it at a depth of 100 with an error, and one that holds itself twice takes about 2^100 steps, in GDScript too (`core/variant/array.cpp:195-208`, `ed1daf0`).
-- The long-term boundary of compatibility with GDScript and Godot: which agreements are promises and which merely hold today, which Godot versions are supported, and which semantics may still change during the alpha.
-- How to test the gain in maintenance: use the language in a real project through several rounds of changing requirements, and see how many problems it points out ahead of renames, interface changes and refactorings across files; the cost of adoption includes migrating in step by step, mixing and leaving, and with cross-language inheritance restricted, the unit of migration may be an inheritance cluster or a subsystem.
+- Whether a setter that runs before ready should wait for ready on its own (spec §6.5). The alternative is writing the behavior in the setter. The owner suspects that the implicit suspension makes setters hard to understand. To be discussed again before §6.5 is implemented.
+- Whether an autoload's name stands for its script's class in a type, as GDScript's does (`modules/gdscript/gdscript_analyzer.cpp:806-826`). godot-open-rts writes `var p: Constants.Match.Player` 5 times, `Constants` being an autoload (`docs/surveys/corpus-counts/inner_classes.py`).
+- Whether diagnostics and semantic queries also serve programs, not only the editor's interface. They could say which declaration or scene a constraint comes from, and list the references that broke. That could let AI and tools fix errors while reading less code.
+- Whether the first version (spec §14) leaves out `weak[T]` (spec §3.12) and the built-in test runner (§13.2). The FPS and Ring scripts of the second paper migration use neither.
+- Whether a container that holds itself is a program error as a `Dictionary` key (spec §3.8). The engine stops hashing it at a depth of 100 with an error. One that holds itself twice takes about 2^100 steps, in GDScript too (`core/variant/array.cpp:195-208`, `ed1daf0`).
+- The long-term boundary of compatibility with GDScript and Godot:
+  - which agreements are promises and which merely hold today;
+  - which Godot versions are supported;
+  - which semantics may still change during the alpha.
+- How to test the gain in maintenance. Use the language in a real project through several rounds of changing requirements. See how many problems it points out ahead of renames, interface changes and refactorings across files. The cost of adoption includes migrating in step by step, mixing and leaving. With cross-language inheritance restricted, the unit of migration may be an inheritance cluster or a subsystem.

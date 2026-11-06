@@ -1,16 +1,16 @@
 # Petrichor
 
-A fully statically typed scripting language for medium-to-large Godot 4 projects, replacing GDScript in project code while coexisting with GDScript plugins, delivered as a GDExtension. Petrichor is a codename.
+A fully statically typed scripting language for medium-to-large Godot 4 projects, delivered as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. Petrichor is a codename.
 
-**Status:** early implementation. The [language specification](docs/language-spec.en.md) (v0.2) is a draft published for feedback. A first subset of the language runs in Godot, built as described in the [implementation architecture](docs/architecture.md); with it, two milestones are reached: the scripts of a small FPS game run in Petrichor, and so do those of the breakout minigame of Ring, a game written mostly in C#. Engine behavior is checked against Godot 4.7.2-stable.
+**Status:** early implementation. The [language specification](docs/language-spec.en.md) (v0.2) is a draft published for feedback. A first subset of the language runs in Godot, built as the [implementation architecture](docs/architecture.md) describes. With it, two milestones are reached. The scripts of a small FPS game run in Petrichor. So do those of the breakout minigame in Ring, a game written mostly in C#. Engine behavior is checked against Godot 4.7.2-stable.
 
 中文：[README.zh.md](README.zh.md)
 
 ## Why
 
-Large projects written in a dynamic language are hard to manage. GDScript cannot leave dynamic typing behind because of compatibility: object references cannot become non-null by default, nor can callers stop receiving a fake value and carrying on after a runtime error. Even fully typed scripts leave node paths, signals connected in the editor, animation tracks and resource property names dynamic: what the scenes know never reaches the scripts. C# has second-class language support in Godot and a bridge with its own pitfalls.
+Large projects written in a dynamic language are hard to manage. GDScript cannot leave dynamic typing behind, because it must stay compatible. Object references cannot become non-null by default. Nor can callers stop receiving a fake value and carrying on after a runtime error. Fully typed scripts still leave node paths, editor signal connections, animation tracks and resource property names dynamic. What the scenes know never reaches the scripts. C# has second-class language support in Godot, and its bridge has pitfalls of its own.
 
-Petrichor is statically typed throughout, and the checking extends into scenes. It keeps GDScript's surface syntax, with one hard rule: **a construct spelled as in GDScript either behaves as in GDScript or is a compile error with a suggested fix**, never silently different. The exception is where GDScript fails at run time or silently gives a wrong result: there Petrichor raises an error instead, or does what the code meant ([§1.2](docs/language-spec.en.md#12-relationship-to-gdscript)).
+Petrichor is statically typed throughout, and the checking extends into scenes. It keeps GDScript's surface syntax, with one hard rule. **A construct spelled as in GDScript either behaves as in GDScript or is a compile error with a suggested fix.** It is never silently different. The exception is where GDScript fails at run time or silently gives a wrong result. There Petrichor raises an error instead, or does what the code meant ([§1.2](docs/language-spec.en.md#12-relationship-to-gdscript)).
 
 ## A taste
 
@@ -48,13 +48,13 @@ func max_hp_from(data: Variant) -> int?:
 
 ## Design highlights
 
-- **Scenes are typed.** `$X`, `%X` and literal `get_node` paths are typed from the scenes that use the script; signal connections, animation tracks and exported properties made in the editor are checked; renaming a member updates the scenes too, and renaming a node in the scene editor updates the scripts ([§7](docs/language-spec.en.md#7-scene-model), [§13.3](docs/language-spec.en.md#133-refactoring)).
-- **No null surprises.** Object types are non-null unless written `T?`; Option and Result follow Rust, and postfix `?` is the only special syntax ([§3.3–§3.5](docs/language-spec.en.md#33-objects-and-nullability), [§8.2](docs/language-spec.en.md#82-expected-failures)).
+- **Scenes are typed.** `$X`, `%X` and literal `get_node` paths are typed from the scenes that use the script. Signal connections, animation tracks and exported properties made in the editor are checked. Renaming a member updates the scenes too. Renaming a node in the scene editor updates the scripts ([§7](docs/language-spec.en.md#7-scene-model), [§13.3](docs/language-spec.en.md#133-refactoring)).
+- **No null surprises.** Object types are non-null unless written `T?`. Option and Result follow Rust, and postfix `?` is the only special syntax ([§3.3–§3.5](docs/language-spec.en.md#33-objects-and-nullability), [§8.2](docs/language-spec.en.md#82-expected-failures)).
 - **Data types.** Structs with value semantics, enums with named payloads, exhaustive `match`, interfaces and generics ([§2.4](docs/language-spec.en.md#24-declaration-spellings), [§3](docs/language-spec.en.md#3-types)).
-- **Coroutines with ownership.** `async func` returns a `Task`; cancellation follows ownership, and awaiting a freed object is an error instead of hanging forever ([§9](docs/language-spec.en.md#9-coroutines)).
-- **Lives next to GDScript.** Third-party plugins stay in GDScript, and GDScript's use of Petrichor instances is statically checked ([§11](docs/language-spec.en.md#11-coexisting-with-gdscript-and-c)).
+- **Coroutines with ownership.** `async func` returns a `Task`. Cancellation follows ownership. Awaiting a freed object is an error instead of hanging forever ([§9](docs/language-spec.en.md#9-coroutines)).
+- **Lives next to GDScript.** Third-party plugins stay in GDScript. GDScript's use of Petrichor instances is statically checked ([§11](docs/language-spec.en.md#11-coexisting-with-gdscript-and-c)).
 
-Every rule that depends on engine behavior cites the Godot source it was checked against ([engine facts](docs/engine-facts.md)), and design questions that real code can answer were answered by surveys of the code of 20 Godot projects.
+Every rule that depends on engine behavior cites the Godot source it was checked against ([engine facts](docs/engine-facts.md)). Design questions that real code can answer were answered by surveys of 20 Godot projects.
 
 ## Documents
 
@@ -79,15 +79,11 @@ The documents other than the specification are in Chinese only. Each survey come
 
 ## Next steps
 
-1. First milestone, done: the FPS starter kit of the [second paper migration](docs/surveys/paper-migration-2.md) runs with its scripts in Petrichor, and the [language specification](docs/language-spec.en.md) rules that running it needs became tests; what it leaves for later is listed in the [backlog](BACKLOG.md).
-2. Done: paying down the debt the quick first implementation left, in four groups: correctness, verification, code and documents ([architecture §5](docs/architecture.md#5-推进顺序)).
-3. Second milestone, done: the breakout of Ring in the same migration runs with its scripts in Petrichor, with the structs and containers of them that its messages to and from C# need ([architecture §5](docs/architecture.md#5-推进顺序)).
-4. Next come steps 7–11 of [architecture §5](docs/architecture.md#5-推进顺序): the rest of the first version's language; then the tools, among them renaming with its part in scenes, the language server, the formatter, lints and quick fixes for migration; then performance against GDScript; then the first public release, with prebuilt libraries for every platform; after the first version, mods and exporting structs and enums with payloads. That the current design allows those of them on which choosing the language depends is shown in [architecture §6](docs/architecture.md#6-以后必须能做到的事). The work itself is listed in the [backlog](BACKLOG.md).
+1. First milestone, done: the FPS starter kit of the [second paper migration](docs/surveys/paper-migration-2.md) runs with its scripts in Petrichor.
+2. Done: paying down the debt the quick first implementation left ([architecture §5](docs/architecture.md#5-推进顺序)).
+3. Second milestone, done: the breakout minigame of Ring in the same migration runs with its scripts in Petrichor.
+4. Next come steps 7–11 of [architecture §5](docs/architecture.md#5-推进顺序): the rest of the language, tools, performance and the first public release. That the current design allows the later ones that adoption depends on is shown in [architecture §6](docs/architecture.md#6-以后必须能做到的事). The [backlog](BACKLOG.md) lists the work itself.
 5. Throughout: collect feedback and narrow the specification to a testable core.
-
-## Feedback
-
-Feedback is welcome as [GitHub issues](https://github.com/YYF233333/Petrichor/issues). A suggested format: problem → minimal counterexample → section → severity → minimal revision → test.
 
 ## License
 

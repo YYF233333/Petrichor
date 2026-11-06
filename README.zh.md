@@ -1,16 +1,16 @@
 # Petrichor
 
-一门面向中大型 Godot 4 项目的全静态类型脚本语言，在项目代码中替代 GDScript 并与 GDScript 插件共存，以 GDExtension 的形式交付。Petrichor 是项目代号。
+一门面向中大型 Godot 4 项目的全静态类型脚本语言，以 GDExtension 的形式交付。它在项目代码中替代 GDScript，并与 GDScript 插件共存。Petrichor 是项目代号。
 
-**状态**：早期实现阶段。[语言规范](docs/language-spec.zh.md)（v0.2）是发布出来征求意见的草案。语言的第一个子集已经能在 Godot 中运行，实现方式见[实现架构](docs/architecture.md)；两个里程碑已经达成：一个小型 FPS 游戏的脚本以 Petrichor 运行，主体用 C# 写成的游戏 Ring 中打砖块小游戏的脚本也是。引擎行为按 Godot 4.7.2-stable 核对。
+**状态**：早期实现阶段。[语言规范](docs/language-spec.zh.md)（v0.2）是发布出来征求意见的草案。语言的第一个子集已经能在 Godot 中运行，实现方式见[实现架构](docs/architecture.md)。靠它已经达成两个里程碑。一个小型 FPS 游戏的脚本以 Petrichor 运行。主体用 C# 写成的游戏 Ring 中，打砖块小游戏的脚本也是。引擎行为按 Godot 4.7.2-stable 核对。
 
 English: [README.md](README.md)
 
 ## 为什么
 
-用动态语言写的大型项目难以管理。GDScript 受兼容性约束，摆脱不了动态类型：对象引用无法改为默认非空，运行时出错后调用方拿到一个假值继续执行的行为也改不掉。即使脚本全部写成静态类型，节点路径、编辑器中连接的信号、动画轨道和资源的属性名仍然是动态的：场景里的信息到不了脚本里。C# 在 Godot 中是二等的语言支持，跨语言桥接也有自己的暗坑。
+用动态语言写的大型项目难以管理。GDScript 受兼容性约束，摆脱不了动态类型。对象引用无法改为默认非空。运行时出错后，调用方拿到一个假值继续执行，这一行为也改不掉。即使脚本全部写成静态类型，节点路径、编辑器中连接的信号、动画轨道和资源属性名仍是动态的。场景里的信息到不了脚本里。C# 在 Godot 中是二等的语言支持，跨语言桥接也有自己的暗坑。
 
-Petrichor 从头到尾是静态类型的，检查一直延伸到场景。它沿用 GDScript 的表层语法，并守一条硬规则：**与 GDScript 写法相同的构造，行为要么与 GDScript 一致，要么是编译错误并给出改法**，不会悄悄不同。例外是 GDScript 在运行时出错或悄悄给出错误结果的地方：Petrichor 在那里改为报错，或者给出代码本来的意图（[§1.2](docs/language-spec.zh.md#12-与-gdscript-的关系)）。
+Petrichor 从头到尾是静态类型的，检查一直延伸到场景。它沿用 GDScript 的表层语法，并守一条硬规则。**与 GDScript 写法相同的构造，行为要么与 GDScript 一致，要么是编译错误并给出改法。** 它不会悄悄不同。例外是 GDScript 在运行时出错或悄悄给出错误结果的地方。Petrichor 在那里改为报错，或者给出代码本来的意图（[§1.2](docs/language-spec.zh.md#12-与-gdscript-的关系)）。
 
 ## 一瞥
 
@@ -48,13 +48,13 @@ func max_hp_from(data: Variant) -> int?:
 
 ## 设计要点
 
-- **场景有类型。** `$X`、`%X` 和字面量路径的 `get_node` 按使用该脚本的场景定型；编辑器中做的信号连接、动画轨道和导出属性都受检查；给成员改名时连同场景一起修改，在场景编辑器中给节点改名时连同脚本一起修改（[§7](docs/language-spec.zh.md#7-场景模型)、[§13.3](docs/language-spec.zh.md#133-重构)）。
-- **不会意外遇到 null。** 对象类型默认非空，可空的写作 `T?`；Option 和 Result 采用 Rust 的模型，唯一的特殊语法是后缀 `?`（[§3.3–§3.5](docs/language-spec.zh.md#33-对象与可空)、[§8.2](docs/language-spec.zh.md#82-预期之内的失败)）。
+- **场景有类型。** `$X`、`%X` 和字面量路径的 `get_node` 按使用该脚本的场景定型。编辑器中做的信号连接、动画轨道和导出属性都受检查。给成员改名时，连同场景一起修改。在场景编辑器中给节点改名时，连同脚本一起修改（[§7](docs/language-spec.zh.md#7-场景模型)、[§13.3](docs/language-spec.zh.md#133-重构)）。
+- **不会意外遇到 null。** 对象类型默认非空，可空的写作 `T?`。Option 和 Result 采用 Rust 的模型，唯一的特殊语法是后缀 `?`（[§3.3–§3.5](docs/language-spec.zh.md#33-对象与可空)、[§8.2](docs/language-spec.zh.md#82-预期之内的失败)）。
 - **数据类型。** 值语义的 struct、带命名载荷的 enum、穷尽的 `match`、接口和泛型（[§2.4](docs/language-spec.zh.md#24-声明的写法)、[§3](docs/language-spec.zh.md#3-类型)）。
-- **有归属的协程。** `async func` 返回 `Task`；取消沿归属传播；等待的对象被释放时报错，而不是永远挂起（[§9](docs/language-spec.zh.md#9-协程)）。
-- **与 GDScript 共存。** 第三方插件保持 GDScript，GDScript 使用 Petrichor 类的实例时同样有静态检查（[§11](docs/language-spec.zh.md#11-与-gdscript-和-c-共存)）。
+- **有归属的协程。** `async func` 返回 `Task`。取消沿归属传播。等待的对象被释放时报错，而不是永远挂起（[§9](docs/language-spec.zh.md#9-协程)）。
+- **与 GDScript 共存。** 第三方插件保持 GDScript。GDScript 使用 Petrichor 类的实例时，同样有静态检查（[§11](docs/language-spec.zh.md#11-与-gdscript-和-c-共存)）。
 
-每一条依赖引擎行为的规则，都注明了核对过的 Godot 源码位置（[引擎事实](docs/engine-facts.md)）；能用真实代码回答的设计问题，都在 20 个 Godot 项目的代码上做了调查。
+每一条依赖引擎行为的规则，都注明了核对过的 Godot 源码位置（[引擎事实](docs/engine-facts.md)）。能用真实代码回答的设计问题，都在 20 个 Godot 项目的代码上做了调查。
 
 ## 文档
 
@@ -79,15 +79,11 @@ func max_hp_from(data: Variant) -> int?:
 
 ## 下一步
 
-1. 第一个里程碑，已完成：[第二次纸面迁移](docs/surveys/paper-migration-2.md)中的 FPS 项目以 Petrichor 脚本运行，运行它所需的[语言规范](docs/language-spec.zh.md)规则已写成测试；留待以后的部分列在 [BACKLOG.md](BACKLOG.md)。
-2. 已完成：偿还快速完成的第一版实现留下的技术债，分正确性、验证、代码、文档四组（[实现架构 §5](docs/architecture.md#5-推进顺序)）。
-3. 第二个里程碑，已完成：同一次迁移中 Ring 的 breakout 以 Petrichor 脚本运行，包括它与 C# 往来的消息所需的 struct 和元素为 struct 的容器（[实现架构 §5](docs/architecture.md#5-推进顺序)）。
-4. 接下来是[实现架构 §5](docs/architecture.md#5-推进顺序) 的第 7–11 步：补齐第一版的语言；然后是工具链，包括带场景部分的重命名、语言服务器、格式化器、lint 和迁移用的快速修复；然后是相对 GDScript 的性能；再后是首次公开发布，包括全平台的预编译库；第一版之后是 Mod 和 struct、带载荷 enum 的导出。现有设计允许以后做到其中决定项目能否被选用的几项，论证见[实现架构 §6](docs/architecture.md#6-以后必须能做到的事)。具体工作列在 [BACKLOG.md](BACKLOG.md)。
+1. 第一个里程碑，已完成：[第二次纸面迁移](docs/surveys/paper-migration-2.md)中的 FPS 项目以 Petrichor 脚本运行。
+2. 已完成：偿还快速完成的第一版实现留下的技术债（[实现架构 §5](docs/architecture.md#5-推进顺序)）。
+3. 第二个里程碑，已完成：同一次迁移中 Ring 的打砖块小游戏以 Petrichor 脚本运行。
+4. 接下来是[实现架构 §5](docs/architecture.md#5-推进顺序) 的第 7–11 步：补齐语言、工具链、性能和首次公开发布。现有设计允许以后做到其中决定项目能否被选用的几项，论证见[实现架构 §6](docs/architecture.md#6-以后必须能做到的事)。具体工作列在 [BACKLOG.md](BACKLOG.md)。
 5. 贯穿始终：收集反馈，把规范收敛到可测试的核心。
-
-## 反馈
-
-欢迎通过 [GitHub issue](https://github.com/YYF233333/Petrichor/issues) 反馈。建议的格式：问题 → 最小反例 → 章节 → 严重程度 → 最小修改 → 测试。
 
 ## 许可证
 
