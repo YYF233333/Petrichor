@@ -1,0 +1,94 @@
+Assignments counted once per distinct classification; `_ready` / other functions.
+Sites found: 3030; classified differently in different scenes: 0.
+
+                                                same scene    into sub-scene    outer scene
+resolved target, any property                  295 / 2563          3 / 7             0 / 1
+(a) script member                               26 / 196           0 / 0             0 / 0
+    of (a), the target is an instance root      15 / 136           0 / 0             0 / 0
+(b) script member without initializer           11 / 74            0 / 0             0 / 0
+    of (b), the target is an instance root      10 / 46            0 / 0             0 / 0
+    typed as a class or object                   7 / 32            0 / 0             0 / 0
+    typed as a built-in or enum                  4 / 42            0 / 0             0 / 0
+    untyped                                      0 / 0             0 / 0             0 / 0
+    of (b), exported                             4 / 55            0 / 0             0 / 0
+of (a), through an exported reference            0 / 6             0 / 0             0 / 0
+
+Not classified (sites): engine 2647, nonliteral 10, notfound 22, unknown 22, upward 46, absolute 44, self 0, exported 10, nocontext 7
+  engine: the target resolves, but no script of it declares the property.
+
+By repository: (a) script member and (b) without initializer, `_ready` / other; not classified.
+                             (a) same   (a) sub   (b) same   (b) sub    engine nonliter notfound  unknown   upward absolute     self exported nocontex
+beehave                           0/0       0/0        0/0       0/0         5        4        0        0        0        0        0        0        0
+gdUnit4                           0/1       0/0        0/0       0/0        73        0        0        0        0        0        0        0        0
+godot_dialogue_manager           4/17       0/0        2/8       0/0       166        0        0        0        0        0        0        0        0
+godot-demo-projects              0/24       0/0        0/7       0/0       903        5        3       10       21        0        0        0        3
+Godot-Game-Template              1/21       0/0        1/8       0/0       104        0        0        0        0        0        0        0        0
+godot-open-rpg                    2/9       0/0        1/2       0/0        40        0        0        0        3        0        0        0        0
+godot-statecharts                 0/0       0/0        0/0       0/0        40        0        0        0        0        0        0        0        0
+phantom-camera                    1/9       0/0        1/1       0/0        71        0        0        0        0        0        0        0        0
+Pixelorama                      12/82       0/0       1/23       0/0       726        1        0        0       14        0        0        0        0
+Starter-Kit-3D-Platformer         0/0       0/0        0/0       0/0        11        0        0        5        0        0        0        0        0
+Starter-Kit-City-Builder          0/0       0/0        0/0       0/0         2        0        0        0        2        0        0        0        0
+Starter-Kit-FPS                   0/0       0/0        0/0       0/0         9        0        0        0        1        0        0        0        0
+Starter-Kit-Racing                0/0       0/0        0/0       0/0        11        0        0        2        0        0        0        0        0
+tps-demo                          0/1       0/0        0/0       0/0        14        0        0        5        0        0        0        0        0
+godot-open-rts                    0/0       0/0        0/0       0/0         0        0        0        0        0        0        0        0        0
+tanks-of-freedom-ii               0/2       0/0        0/0       0/0        21        0        0        0        0       43        0        0        2
+deck_builder_tutorial            4/16       0/0       4/16       0/0        78        0        0        0        2        0        0        9        2
+godot-tiny-mmo                    1/8       0/0        0/6       0/0       269        0       14        0        3        0        0        0        0
+godot_open_star_fighter           1/1       0/0        1/1       0/0        51        0        0        0        0        0        0        1        0
+Ring                              0/5       0/0        0/2       0/0        53        0        5        0        0        1        0        0        0
+
+Into a sub-scene, member without initializer: 0 (site, kind)
+
+Into a sub-scene, member with an initializer: 0 (site, kind)
+
+Into a sub-scene, engine property: 10 (site, kind)
+  [ready] godot-demo-projects/3d/graphics_settings/settings.gd:39  $Node3D/OmniLight3D.light_energy = 0.5
+      -> 3d/graphics_settings/control.tscn :: Node3D/OmniLight3D (instance of 3d/graphics_settings/3d_scene.tscn); engine property
+  [ready] godot-demo-projects/3d/graphics_settings/settings.gd:40  $Node3D/SpotLight3D.light_energy = 0.5
+      -> 3d/graphics_settings/control.tscn :: Node3D/SpotLight3D (instance of 3d/graphics_settings/3d_scene.tscn); engine property
+  [ready] godot-demo-projects/3d/graphics_settings/settings.gd:41  $Node3D/DirectionalLight3D.sky_mode = DirectionalLight3D.SKY_MODE_SKY_ONLY
+      -> 3d/graphics_settings/control.tscn :: Node3D/DirectionalLight3D (instance of 3d/graphics_settings/3d_scene.tscn); engine property
+  [other] godot-demo-projects/3d/graphics_settings/settings.gd:190  camera.fov = value
+      -> 3d/graphics_settings/control.tscn :: Node3D/Camera3D (instance of 3d/graphics_settings/3d_scene.tscn); engine property
+  [other] godot-demo-projects/3d/graphics_settings/settings.gd:199  directional_light.shadow_bias = 0.06
+      -> 3d/graphics_settings/control.tscn :: Node3D/DirectionalLight3D (instance of 3d/graphics_settings/3d_scene.tscn); engine property
+  [other] godot-demo-projects/3d/graphics_settings/settings.gd:212  directional_light.shadow_bias = 0.04
+      -> 3d/graphics_settings/control.tscn :: Node3D/DirectionalLight3D (instance of 3d/graphics_settings/3d_scene.tscn); engine property
+  [other] godot-demo-projects/3d/graphics_settings/settings.gd:216  directional_light.shadow_bias = 0.03
+      -> 3d/graphics_settings/control.tscn :: Node3D/DirectionalLight3D (instance of 3d/graphics_settings/3d_scene.tscn); engine property
+  [other] godot-demo-projects/3d/graphics_settings/settings.gd:220  directional_light.shadow_bias = 0.02
+      -> 3d/graphics_settings/control.tscn :: Node3D/DirectionalLight3D (instance of 3d/graphics_settings/3d_scene.tscn); engine property
+  [other] godot-demo-projects/3d/graphics_settings/settings.gd:224  directional_light.shadow_bias = 0.01
+      -> 3d/graphics_settings/control.tscn :: Node3D/DirectionalLight3D (instance of 3d/graphics_settings/3d_scene.tscn); engine property
+  [other] godot-demo-projects/3d/graphics_settings/settings.gd:228  directional_light.shadow_bias = 0.005
+      -> 3d/graphics_settings/control.tscn :: Node3D/DirectionalLight3D (instance of 3d/graphics_settings/3d_scene.tscn); engine property
+
+Outer scene: 1 (site, kind)
+  [other] deck_builder_tutorial/scenes/ui/card_pile_opener.gd:17  counter.text = str(cards_amount)
+      -> scenes/battle/battle.tscn :: BattleUI/DrawPileButton/Counter; engine property
+
+Same scene, in `_ready`, member without initializer: 11 (site, kind)
+  [ready] Godot-Game-Template/addons/maaacks_game_template/installer/kenney_input_prompts_installer.gd:289  _download_and_extract_node.extract_path = get_full_path()
+      -> addons/maaacks_game_template/installer/kenney_input_prompts_installer.tscn :: DownloadAndExtract; member addons/plugin_updater/utilities/download_and_extract.gd:42 (default exported, type String)
+  [ready] Pixelorama/src/UI/Dialogs/ImageEffects/ColorCurvesDialog.gd:23  curve_edit.curve = curves[Channel.RGB]
+      -> src/UI/Dialogs/ImageEffects/ColorCurvesDialog.tscn :: VBoxContainer/CurveEdit; member src/UI/Nodes/CurveEditor/CurveEdit.gd:68 (object exported, type Curve)
+  [ready] deck_builder_tutorial/scenes/enemy/enemy.gd:21  status_handler.status_owner = self
+      -> battles/tier_0_bats2.tscn :: Enemy/StatusHandler; member scenes/status_handler/status_handler.gd:9 (object exported, type Node2D)
+  [ready] deck_builder_tutorial/scenes/event_rooms/helpful_boi_event.gd:9  duplicate_last_card_button.event_button_callback = duplicate_last_card
+      -> scenes/event_rooms/helpful_boi_event.tscn :: VBoxContainer/DuplicateLastCardButton; member scenes/event_rooms/event_room_button.gd:4 (default, type Callable)
+  [ready] deck_builder_tutorial/scenes/event_rooms/helpful_boi_event.gd:10  plus_max_hp_button.event_button_callback = plus_max_hp
+      -> scenes/event_rooms/helpful_boi_event.tscn :: VBoxContainer/PlusMaxHPButton; member scenes/event_rooms/event_room_button.gd:4 (default, type Callable)
+  [ready] deck_builder_tutorial/scenes/player/player.gd:15  status_handler.status_owner = self
+      -> scenes/battle/battle.tscn :: Player/StatusHandler; member scenes/status_handler/status_handler.gd:9 (object exported, type Node2D)
+  [ready] godot-open-rpg/src/field/cutscenes/templates/treasure_chests/treasure_chest.gd:14  interaction.item_type = item_type
+      -> src/main.tscn :: Field/Map/House/Gamepieces/TreasureChest/Interaction; member src/field/cutscenes/templates/treasure_chests/treasure_chest_interaction.gd:9 (default, type Inventory.ItemTypes)
+  [ready] godot_dialogue_manager/addons/dialogue_manager/views/main_view.gd:140  search_and_replace.code_edit = code_edit
+      -> addons/dialogue_manager/views/main_view.tscn :: Margin/Content/CodePanel/SearchAndReplace; member addons/dialogue_manager/components/search_and_replace.gd:21 (object, type CodeEdit)
+  [ready] godot_dialogue_manager/addons/dialogue_manager/views/main_view.gd:145  code_edit.main_view = self
+      -> addons/dialogue_manager/views/main_view.tscn :: Margin/Content/CodePanel/CodeEdit; member addons/dialogue_manager/components/code_edit.gd:14 (object, type Control)
+  [ready] godot_open_star_fighter/src/ship_controllers/player/player.gd:23  _hud.player_ship = _ship
+      -> src/ship_controllers/player/player.tscn :: Hud; member src/ship_controllers/player/hud/hud.gd:5 (object, type Ship)
+  [ready] phantom-camera/addons/phantom_camera/scripts/panel/editor.gd:21  updater.editor_plugin = editor_plugin
+      -> addons/phantom_camera/panel/editor.tscn :: UpdateButton; member addons/phantom_camera/scripts/panel/updater/update_button.gd:31 (object, type EditorPlugin)
