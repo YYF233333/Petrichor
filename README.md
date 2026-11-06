@@ -2,7 +2,7 @@
 
 A fully statically typed scripting language for medium-to-large Godot 4 projects, delivered as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. Petrichor is a codename.
 
-**Status:** early implementation. The [language specification](docs/language-spec.en.md) (v0.2) is a draft published for feedback. A first subset of the language runs in Godot, built as the [implementation architecture](docs/architecture.md) describes. With it, two milestones are reached. The scripts of a small FPS game run in Petrichor. So do those of the breakout minigame in Ring, a game written mostly in C#. Engine behavior is checked against Godot 4.7.2-stable.
+**Status:** early implementation. The [language specification](docs/language-spec.zh.md) (v0.2, in Chinese) is a draft published for feedback. A first subset of the language runs in Godot, built as the [implementation architecture](docs/architecture.md) describes. With it, two milestones are reached. The scripts of a small FPS game run in Petrichor. So do those of the breakout minigame in Ring, a game written mostly in C#. Engine behavior is checked against Godot 4.7.2-stable.
 
 中文：[README.zh.md](README.zh.md)
 
@@ -10,7 +10,7 @@ A fully statically typed scripting language for medium-to-large Godot 4 projects
 
 Large projects written in a dynamic language are hard to manage. GDScript cannot leave dynamic typing behind, because it must stay compatible. Object references cannot become non-null by default. Nor can callers stop receiving a fake value and carrying on after a runtime error. Fully typed scripts still leave node paths, editor signal connections, animation tracks and resource property names dynamic. What the scenes know never reaches the scripts. C# has second-class language support in Godot, and its bridge has pitfalls of its own.
 
-Petrichor is statically typed throughout, and the checking extends into scenes. It keeps GDScript's surface syntax, with one hard rule. **A construct spelled as in GDScript either behaves as in GDScript or is a compile error with a suggested fix.** It is never silently different. The exception is where GDScript fails at run time or silently gives a wrong result. There Petrichor raises an error instead, or does what the code meant ([§1.2](docs/language-spec.en.md#12-relationship-to-gdscript)).
+Petrichor is statically typed throughout, and the checking extends into scenes. It keeps GDScript's surface syntax, with one hard rule. **A construct spelled as in GDScript either behaves as in GDScript or is a compile error with a suggested fix.** It is never silently different. The exception is where GDScript fails at run time or silently gives a wrong result. There Petrichor raises an error instead, or does what the code meant ([§1.2](docs/language-spec.zh.md#12-与-gdscript-的关系)).
 
 ## A taste
 
@@ -48,17 +48,17 @@ func max_hp_from(data: Variant) -> int?:
 
 ## Design highlights
 
-- **Scenes are typed.** `$X`, `%X` and literal `get_node` paths are typed from the scenes that use the script. Signal connections, animation tracks and exported properties made in the editor are checked. Renaming a member updates the scenes too. Renaming a node in the scene editor updates the scripts ([§7](docs/language-spec.en.md#7-scene-model), [§13.3](docs/language-spec.en.md#133-refactoring)).
-- **No null surprises.** Object types are non-null unless written `T?`. Option and Result follow Rust, and postfix `?` is the only special syntax ([§3.3–§3.5](docs/language-spec.en.md#33-objects-and-nullability), [§8.2](docs/language-spec.en.md#82-expected-failures)).
-- **Data types.** Structs with value semantics, enums with named payloads, exhaustive `match`, interfaces and generics ([§2.4](docs/language-spec.en.md#24-declaration-spellings), [§3](docs/language-spec.en.md#3-types)).
-- **Coroutines with ownership.** `async func` returns a `Task`. Cancellation follows ownership. Awaiting a freed object is an error instead of hanging forever ([§9](docs/language-spec.en.md#9-coroutines)).
-- **Lives next to GDScript.** Third-party plugins stay in GDScript. GDScript's use of Petrichor instances is statically checked ([§11](docs/language-spec.en.md#11-coexisting-with-gdscript-and-c)).
+- **Scenes are typed.** `$X`, `%X` and literal `get_node` paths are typed from the scenes that use the script. Signal connections, animation tracks and exported properties made in the editor are checked. Renaming a member updates the scenes too. Renaming a node in the scene editor updates the scripts ([§7](docs/language-spec.zh.md#7-场景模型), [§13.3](docs/language-spec.zh.md#133-重构)).
+- **No null surprises.** Object types are non-null unless written `T?`. Option and Result follow Rust, and postfix `?` is the only special syntax ([§3.3–§3.5](docs/language-spec.zh.md#33-对象与可空), [§8.2](docs/language-spec.zh.md#82-预期之内的失败)).
+- **Data types.** Structs with value semantics, enums with named payloads, exhaustive `match`, interfaces and generics ([§2.4](docs/language-spec.zh.md#24-声明的写法), [§3](docs/language-spec.zh.md#3-类型)).
+- **Coroutines with ownership.** `async func` returns a `Task`. Cancellation follows ownership. Awaiting a freed object is an error instead of hanging forever ([§9](docs/language-spec.zh.md#9-协程)).
+- **Lives next to GDScript.** Third-party plugins stay in GDScript. GDScript's use of Petrichor instances is statically checked ([§11](docs/language-spec.zh.md#11-与-gdscript-和-c-共存)).
 
 Every rule that depends on engine behavior cites the Godot source it was checked against ([engine facts](docs/engine-facts.md)). Design questions that real code can answer were answered by surveys of 20 Godot projects.
 
 ## Documents
 
-- [Language specification v0.2](docs/language-spec.en.md) · [中文](docs/language-spec.zh.md)
+- [Language specification v0.2](docs/language-spec.zh.md)
 - [Implementation architecture](docs/architecture.md)
 - [Design notes and trade-offs](docs/design-notes.md)
 - [Engine facts](docs/engine-facts.md)
@@ -75,7 +75,7 @@ Every rule that depends on engine behavior cites the Godot source it was checked
   - [Which constructs of real code does the implementation not support yet?](docs/surveys/implementation-coverage.md)
   - [One-off counts in the corpus](docs/surveys/corpus-counts.md)
 
-The documents other than the specification are in Chinese only. Each survey comes with a directory of scripts that reproduce it.
+The documents are in Chinese only. An English specification will come before the first release. Each survey comes with a directory of scripts that reproduce it.
 
 ## Next steps
 

@@ -33,7 +33,6 @@ Review what the message names: a commit range, an area, sections of the spec or 
   - sections that contradict each other;
   - rules that real code runs into, shown with that code;
   - `docs/engine-facts.md` against the engine source;
-  - the Chinese and English versions of the spec saying different things;
   - its design, judged by `AGENTS.md` (Design) and by these leanings of the owner:
     - a restriction that prevents no wrong meaning and keeps no later design open is a finding;
     - so is a concept users must learn where the compiler could handle it for them;

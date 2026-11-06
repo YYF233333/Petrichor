@@ -58,7 +58,7 @@ func max_hp_from(data: Variant) -> int?:
 
 ## 文档
 
-- [语言规范 v0.2](docs/language-spec.zh.md) · [English](docs/language-spec.en.md)
+- [语言规范 v0.2](docs/language-spec.zh.md)
 - [实现架构](docs/architecture.md)
 - [设计说明与取舍](docs/design-notes.md)
 - [引擎事实](docs/engine-facts.md)
@@ -75,7 +75,7 @@ func max_hp_from(data: Variant) -> int?:
   - [真实代码用到而实现尚不支持的写法有哪些？](docs/surveys/implementation-coverage.md)
   - [语料中的零散计数](docs/surveys/corpus-counts.md)
 
-除语言规范外，文档只有中文版。每份调查都附有可以复现它的脚本目录。
+文档只有中文版。英文版语言规范在首次发布前提供。每份调查都附有可以复现它的脚本目录。
 
 ## 下一步
 

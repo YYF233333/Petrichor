@@ -4,7 +4,7 @@
 
 Petrichor designs a statically typed scripting language that replaces GDScript, delivered as a GDExtension. The compiler and the bytecode format do not depend on Godot. The runtime uses godot-cpp directly.
 
-`docs/language-spec.{zh,en}.md` (v0.2 draft) is the single source of truth for language rules. When the implementation runs into a problem with a rule, change the spec in a separate commit. Do not relax the rule in code. `docs/architecture.md` holds the implementation, the source tree (§2.5) and the roadmap (§5).
+`docs/language-spec.zh.md` (v0.2 draft) is the single source of truth for language rules. When the implementation runs into a problem with a rule, change the spec in a separate commit. Do not relax the rule in code. `docs/architecture.md` holds the implementation, the source tree (§2.5) and the roadmap (§5).
 
 The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable` source (commit `ed1daf0`), never from memory. Cite the commit and `path:line` for every engine fact recorded. `docs/engine-facts.md` lists the spec's engine facts. Re-verify their line numbers when moving to a newer engine commit.
 
@@ -22,7 +22,7 @@ The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable`
 
 ## Documentation
 
-- The spec and the README are in Chinese and English. Both versions say the same thing and change in the same commit. The two versions of the spec stay line-aligned. The other documents under `docs/` are in Chinese only.
+- The README is in Chinese and English. Both versions say the same thing and change in the same commit. The documents under `docs/` are in Chinese only. The English spec is generated before the first release.
 - Each document holds one kind of content:
   - the spec: concise normative rules, without engine `path:line` citations or review history;
   - `docs/design-notes.md`: detailed rationales, corpus counts, post-v1 designs and rejected alternatives;
