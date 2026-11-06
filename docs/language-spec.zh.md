@@ -75,7 +75,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 缩进、注释、标识符、字面量和运算符沿用 GDScript，增减如下：
   - 新增关键字：`pub`、`struct`、`interface`、`implements`、`async`、`None`。
   - 新增短路返回的后缀运算符 `?`。
-  - `null` 是 `None` 的别名，语义与 `None` 相同，传给 Variant 时为 NIL。赋给非空 `T` 报编译错误，快速修复把类型改为 `T?`。提示建议新代码写 `None`。
+  - `null` 是 `None` 的别名，语义与 `None` 相同。提示建议新代码写 `None`。
   - 单引号和双引号字符串不能跨行，跨行须用三引号。
   - `##` 文档注释也用于 struct 及其字段、interface 及其成员。以 `###` 开头的注释是普通注释。
 
@@ -151,11 +151,6 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 3.2 数值
 
 - 没有窄整数类型，固定位宽运算用 `int` 上的回绕运算方法和位运算。
-- GDScript 在静态类型之间的隐式转换，本语言只保留不丢信息、含义不变的几种：
-  - `int` 转 `float`，enum 值转 `int` 或 `float`；
-  - `Vector2i`、`Vector3i`、`Vector4i`、`Rect2i` 转对应的浮点类型；
-  - `String` 与 `StringName`、`NodePath` 互转。
-- 其余须显式写构造，否则报编译错误，快速修复补上构造。例如 `float` 转 `int` 写 `int(x)`，还有 `Vector2i(v)`、`bool(n)`、`Color(s)`。
 
 ### 3.3 对象与可空
 
@@ -169,10 +164,10 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 3.4 Option
 
-- `T?` 即 Option，值为 `Some(v)` 或 `None`。`T` 的值隐式包装为 `Some`；显式包装写 `Some(v)`（如 `T??` 中的 `Some(None)`）。对子类型或实现接口的 `S`，`S?` 可用于期望 `T?` 之处。
+- `T?` 即 Option，值为 `Some(v)` 或 `None`。显式包装写 `Some(v)`（如 `T??` 中的 `Some(None)`）。
 - 操作均为方法，名字同 Rust：`unwrap`、`expect(消息)`（失败均为程序错误）、`unwrap_or`、`unwrap_or_else`、`map`、`and_then`、`or`、`or_else`、`filter`、`ok_or`、`ok_or_else`。没有 `!`、`??`、`?.` 运算符；唯一特殊语法是短路返回的后缀 `?`。判空用 `!= None` 与收窄。
 - 嵌套 Option 保留多层（如 `T??`）：
-  - 隐式包装按目标类型补层（`T?` 赋给 `T??` 得包含它的 `Some`）。字面量 `None` 总是最外层的 `None`；
+  - 字面量 `None` 总是最外层的 `None`；
   - `?`、`unwrap`、`match` 和收窄每次剥一层，`.flatten()` 把 `T??` 合为 `T?`；
   - `Variant?` 同理：`None` 表示无值，NIL 是一个值。
 
@@ -192,7 +187,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 3.6 struct
 
 - 值语义：赋值、传参、返回均浅复制，对象与容器字段复制引用。只存在于本语言内部。构造只接受具名实参。
-- 跨引擎边界时自动编码为 String 键的字段名 `Dictionary`。解码按 `T.try_from` 的规则递归检查各字段及嵌套容器/struct，多余的键忽略。
+- 跨引擎边界时按引擎边界的规则编码。解码按 `T.try_from` 的规则递归检查各字段及嵌套容器/struct，多余的键忽略。
 - 【已知限制】第一版 struct 不能 `@export` 或存入 `.tres`（编辑器数据用 `Resource`）。
 - 可声明 `func` 和 `static func`。实例方法中 `self` 只读，给 `self` 字段赋值报编译错误。
 - 字段和方法在 struct 可见处均可见。
@@ -234,17 +229,15 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 没有值 0 的 enum 没有默认值，其变量必须赋值。
 - 带载荷的 enum：
   - 载荷字段必须命名（如 `MOVE(target: Vector3)`），只能经 `match` 解构，写 `c.target` 报编译错误；
-  - 跨引擎边界编码为字段名 `Dictionary`，以保留键 `"$variant"` 存分支名字符串（如 `{"$variant": "MOVE", "target": p}`、无载荷分支 `{"$variant": "IDLE"}`）；
   - `==`、`<` 和哈希按 struct 的规则，先按分支（`<` 按声明顺序），同分支再按字段；
   - 【已知限制】第一版不能声明方法，也不能 `@export`。
 
 ### 3.8 容器
 
-- 带类型容器对类型参数不变（`Array[Node2D]` 不能赋给 `Array[Node]`）。
-- **与无类型容器转换**：无类型转为带类型须显式。容器运行时类型恰为 `Array[int]` 时，`a is Array[int]` 为真并收窄（不复制）；`assign()` 则复制元素。经无类型视图向带类型容器写入不能赋给元素/键类型的值，是程序错误。经无类型视图用 `has`、`find`、`erase` 等查找这样的值，或 `assign()` 遇到此类元素，也是程序错误。写入 `Array[Node]` 的 `None` 在读出时也是程序错误。
+- **与无类型容器转换**：容器运行时类型恰为 `Array[int]` 时，`a is Array[int]` 为真并收窄（不复制）；`assign()` 则复制元素。经无类型视图向带类型容器写入不能赋给元素/键类型的值，是程序错误。经无类型视图用 `has`、`find`、`erase` 等查找这样的值，或 `assign()` 遇到此类元素，也是程序错误。写入 `Array[Node]` 的 `None` 在读出时也是程序错误。
 - **表示与嵌套**：
   - 元素可由引擎表示时直接共享引擎的带类型容器；
-  - 元素为本语言独有类型（struct、带载荷 enum 等）时使用自有表示。交给引擎须显式写 `Array(hits)`、`Dictionary(d)`，生成按引擎边界规则编码的无类型副本。反向用 `Array[Hit].try_from(v)`；
+  - 元素为本语言独有类型（struct、带载荷 enum 等）时使用自有表示。`Array(hits)`、`Dictionary(d)` 生成按引擎边界规则编码的无类型副本。反向用 `Array[Hit].try_from(v)`；
   - 嵌套容器（如 `Array[Array[int]]`）保留内层类型，在入口检查和读出内层容器时校验。
 - **取值与方法**：
   - `pop_front()`、`pop_back()` 返回 `T?`（`T` 本身可空时返回 `T??`，空数组得外层 `None`）；
@@ -259,7 +252,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 - 名义接口：类须以 `implements` 显式声明，且只有本语言的类能实现接口。实现接口的成员须标 `pub`。
 - 可声明方法（含默认方法）、属性和信号。继承来的引擎属性可满足同类型的属性要求。未标 `@readonly` 的属性要求可读写。可读写的成员可满足 `@readonly`，而无 setter 的引擎属性只能满足 `@readonly`。默认方法写 `@readonly` 属性，或在接口外使用 `@readonly`，均报编译错误。
-- 接口可 `extends` 多个父接口。子接口值可用于期望父接口处。子接口可以协变返回类型重声明父接口方法。父接口同名成员签名不兼容，或继承成环，报编译错误。多个父接口对同名方法都有默认实现时，子接口或实现类必须覆盖。
+- 接口可 `extends` 多个父接口。子接口可以协变返回类型重声明父接口方法。父接口同名成员签名不兼容，或继承成环，报编译错误。多个父接口对同名方法都有默认实现时，子接口或实现类必须覆盖。
 - 【已知限制】第一版没有带状态的 mixin，接口也不能是泛型。声明 `interface Source[T]:` 报编译错误。
 
 ### 3.10 泛型
@@ -269,7 +262,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 3.11 函数类型与 Callable
 
 - 函数类型包含参数类型、返回类型（省略为 `void`）及是否 `async`。调用写作 `f.call(x)` 并静态检查；写 `f(x)` 报编译错误并给出 `f.call(x)`。
-- 函数值（方法值与 lambda 一致）的兼容规则：参数逆变、返回协变。`async` 与普通函数类型互不隐式转换。引擎调用的位置接受 `async` 函数，并作为根任务运行。这些位置是代码和场景中的信号连接，以及 `tween_callback` 等引擎 `Callable` 参数。
+- 引擎调用的位置接受 `async` 函数，并作为根任务运行。这些位置是代码和场景中的信号连接，以及 `tween_callback` 等引擎 `Callable` 参数。
 - 方法值和 lambda 交给引擎时成为直接指向目标方法的 `Callable`，不按名字查找。`f.bind(a, b)` 的类型为去掉末尾两个参数后的函数类型。未知签名的 `Callable` 须显式转为函数类型，每次调用检查实参和返回值。
 - lambda 按值捕获，与 GDScript 相同。不同之处有两点：
   - 在 lambda 内给捕获的变量或其值类型字段赋值，报编译错误。共享可变状态须放在成员或容器中。因捕获不可重赋值，外层已收窄的类型在 lambda 内保持收窄；
@@ -289,8 +282,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 3.13 Variant
 
-- **进入 Variant**：struct 和带载荷 enum 按引擎边界的规则编码。元素为本语言独有类型的容器不能隐式进入，须显式写 `Array(hits)`。进入 `Variant` 位置（含无类型容器元素）的数组和字典字面量保持无类型。无目标类型的数组和字典字面量由元素定型，如 `var a = [1, 2]` 得 `Array[int]`。
-- **离开 Variant**：必须显式转换。对象用 `v as T`，得 `T?`，非对象也为 `None`。构造转换用 `T(v)`，严格转换用 `T.try_from(v)`。局部变量或参数收窄用 `if v is T:`。
+- **字面量**：进入 `Variant` 位置（含无类型容器元素）的数组和字典字面量保持无类型。无目标类型的数组和字典字面量由元素定型，如 `var a = [1, 2]` 得 `Array[int]`。
 - 只能直接做 `==` 和 `!=`。其余操作（算术、`v.x`、`v.f()`、`v[i]`、`for x in v`）均报编译错误，并给出转换或 `is` 的快速修复。按名字动态访问须先转为 `Object`，再调 `get`/`set`/`call`。
 - `Variant` 含 NIL：`v == None` 对 NIL 和已释放对象为真，`v is int` 对 NIL 为假，`v as Node` 对 NIL 得 `None`。`Variant?` 多一层 `Option`（如 `Dictionary[String, Variant].get("hp")` 缺键得 `None`，值为 `null` 得 `Some(NIL)`）。
 
@@ -301,6 +293,29 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
       var hp = int.try_from(data.get("hp", 100)).unwrap_or(100)
   var n = data as Node                 # Node?
   ```
+
+### 3.14 可赋值
+
+- 期望类型 `T` 的位置只接受可赋给 `T` 的值。这些位置包括赋值、传参、返回值和容器元素。
+- 可赋给 `T` 的值只有以下几类：
+  - 同一类型的值；
+  - 对象：子类赋给基类，实现接口的类和子接口赋给接口。非空可赋给可空，反之不行；
+  - `None` 赋给 `T?` 或 `Variant`，后者得 NIL。`null` 赋给非空 `T` 时，快速修复把类型改为 `T?`；
+  - 可赋给 `T` 的值也可赋给 `T?`，隐式包装为 `Some`，并按目标类型补层（`T?` 赋给 `T??` 得 `Some`）；
+  - 隐式转换，只保留 GDScript 中不丢信息、含义不变的几种：
+    - `int` 转 `float`，enum 值转 `int` 或 `float`；
+    - `Vector2i`、`Vector3i`、`Vector4i`、`Rect2i` 转对应的浮点类型；
+    - `String` 与 `StringName`、`NodePath` 互转；
+  - 函数值：同为 `async` 或同为普通函数，参数逆变、返回协变。函数值也可赋给 `Callable`；
+  - `PackedScene[S]` 赋给 `PackedScene[T]`，其中 `S` 可赋给 `T`；
+  - 元素可由引擎表示的带类型容器，赋给同种无类型容器，得到同一容器的无类型视图；
+  - 任何值赋给 `Variant`，struct 和带载荷 enum 按引擎边界的规则编码。例外有两种：
+    - 元素为本语言独有类型的容器，须显式写 `Array(hits)`、`Dictionary(d)`；
+    - `T??` 和 `Variant?`，因为 `None` 和内层的 NIL 无法区分。快速修复提供 `.flatten()` 或 `.unwrap_or(null)`。
+- 其余情况须显式转换，否则报编译错误，快速修复补上转换。例如：
+  - 带类型容器、`Result` 和 `Task` 对类型参数不变，`Array[Node2D]` 不能赋给 `Array[Node]`；
+  - `float` 转 `int` 写 `int(x)`，还有 `Vector2i(v)`、`bool(n)`、`Color(s)`；
+  - 无类型容器和 `Variant` 赋给带类型的位置，须显式转换或经 `is` 收窄。
 
 ## 4. 声明
 
@@ -422,7 +437,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 移位左操作数为负、移位量为负或达到 64 是程序错误。常量中为编译错误。
 - `x in c` 的 `x` 须可赋给元素或键类型。如 `1 in scores` 对 `Array[float]` 合法，`1.5 in ids` 对 `Array[int]` 报编译错误。`name in obj` 在已释放对象上是程序错误。
 - 两个 `int` 的 `**` 精确计算，溢出同 `*` 回绕。负指数按 `1 / (a ** -b)` 向零截断（`2 ** -1` 得 0，`(-1) ** -3` 得 -1）。`0` 的负指数次方是程序错误。
-- `%` 格式化时，本语言自有类型按引擎边界的编码进入引擎，其容器须写 `Array(hits)`。格式串与值不符（如 `"%d %d" % [1]`）是程序错误。
+- `%` 格式化时，格式串与值不符（如 `"%d %d" % [1]`）是程序错误。
 
 ### 5.2 比较
 
@@ -572,7 +587,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 7.4 场景资源
 
 - `preload` 和字面量路径 `load` 按资源实际内容定型。场景得 `PackedScene[T]`，`T` 为根节点类型或根节点脚本的类。`preload` 脚本得其类。
-- 导出场景写作 `PackedScene[T]`，由编辑器检查所填场景，`instantiate()` 得 `T`。`PackedScene[T]` 对 `T` 协变。
+- 导出场景写作 `PackedScene[T]`，由编辑器检查所填场景，`instantiate()` 得 `T`。
 - `instantiate(...)` 必须传入的成员取决于场景是否静态已知：
   - 静态已知（`preload`、字面量路径 `load` 及以它们初始化的常量）：须传入该场景未提供的必须赋值成员；
   - 其余 `PackedScene[T]`（导出、变量、参数、返回值）：须传入 `T` 中未导出的必须赋值成员（导出的由场景自身提供）；
@@ -709,16 +724,15 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 | 本语言 | 引擎和 GDScript 看到的 |
 |---|---|
 | 对象 `T` 和 `T?` | 均为该类；非空由入口检查保证 |
-| `int?` 等可空值类型 | 无类型 `Variant` |
+| `int?` 等可空值类型 | 无类型 `Variant`，`None` 为 NIL |
 | 元素可由引擎表示的 `Array[T]`、`Dictionary[K, V]` | 引擎带类型容器（嵌套容器只带外层一层类型） |
 | struct | `String` 字段名键的 `Dictionary` |
-| 带载荷 enum | `String` 字段名键的 `Dictionary`，保留键 `"$variant"` 存分支名 |
+| 带载荷 enum | `String` 字段名键的 `Dictionary`，保留键 `"$variant"` 存分支名：`{"$variant": "MOVE", "target": p}`，无载荷分支 `{"$variant": "IDLE"}` |
 | `Result[T, E]` | 同带载荷 enum：`{"$variant": "Ok", "value": v}` 或 `{"$variant": "Err", "error": e}` |
 | `async` 方法返回值 | 无类型 `Variant` |
 
 - GDScript 通过脚本反射对本语言全局类做静态检查。检查的是实例成员（属性、方法、信号）及 `Player.new(...)` 的位置实参。`_init` 不带 `pub` 时，GDScript 调带参 `new` 报编译错误，无参 `new` 在运行时报错。具名必须赋值实参仅限本语言使用。其余类级访问见“跨语言调用与消息”一节。
 - **入口检查**：值从引擎、GDScript、C# 或远程检查器进入本语言时，按声明类型校验。进入的途径包括参数、`set` 写成员、信号实参、`await` 结果和解码。校验失败报程序错误。
-- `Option` 交给引擎时 `None` 编码为 NIL。因此仅当 `X` 自身不会编码为 NIL 时，`X?` 才能隐式交给引擎。`X` 为 `Option` 或 `Variant` 时报编译错误，快速修复提供 `.flatten()` 或 `.unwrap_or(null)`。
 
 ### 10.2 引擎 API 中对象的可空性
 
