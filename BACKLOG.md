@@ -39,6 +39,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - `Result[T, E]` with `Ok`, `Err`, the non-discardable check and its methods, and postfix `?` (spec §3.5, §8.2). Enums with payloads, and the names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7). `T.try_from(x)` (spec §5.3).
 - `for` over objects that define `_iter_init`, `_iter_next` and `_iter_get`, as GDScript allows; the checker reports it as not supported yet.
 - The `breakpoint` statement.
+- `match` value patterns that are identifiers or attribute accesses (`A.B`), compared at run time (spec §5.6). The checker now takes only constants.
 - A `match` value pattern of another type than the matched value's static type is a compile error (spec §5.6). Now it compares with `==`, so `1` matches `1.0` where GDScript compares types first.
 - Rest parameters `...args: Array[T]` (spec §4.6).
 - `for` over a String (spec §5.7); no file of the coverage survey's corpus does it.
