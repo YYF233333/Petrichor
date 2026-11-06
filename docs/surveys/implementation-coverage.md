@@ -105,10 +105,52 @@
 - FPS、Starter-Kit-3D-Platformer 和 Starter-Kit-Racing 的全部文件，以及 Ring 的 66 个文件中的 58 个，一种都没用到；比例最低的是 godot_dialogue_manager（31.6%）、godot-tiny-mmo（32.5%）和 Pixelorama（38.6%）。各仓库的计数见 `implementation-coverage/results/remaining.txt`。
 - 未计入：进入实例化场景的路径和实例化它的场景中的唯一名称（§7.1），这要读场景；对 `T?` 的 match；把内部类外层类的静态函数作为值；迁移时必须补上类型的无类型值。
 - 剩下的主要缺口是 Variant（§3.13）：28.2% 的文件把无类型的容器或 Variant 写作类型，9.4% 调用返回 Variant 的引擎方法。其次是带参数的 `_init()`、对象之间的 `==` 和以裸名使用引擎的常量，各占 5–8% 的文件；其余每种不到 1%。
+
+## 第二次重跑（`602ee60`，2026-11-07）
+
+上一次重跑表中最常见的五种写法，此后都已实现：
+- Variant 和无类型的容器；
+- 返回 Variant 的引擎方法；
+- 带参数的 `_init()`；
+- 对象之间的 `==`；
+- 以裸名使用引擎类的常量。
+
+这次用 `implementation-coverage/remaining2.py` 统计其余七种，并加入四种：
+- 剩余参数 `...args`（§4.6）；
+- `breakpoint` 语句；
+- 定义 `_iter_init` 的类，供 `for` 遍历它的对象（§5.7）；
+- 本文件的类的另一个实例的成员，如 `parent.children`（§4.2）。
+
+最后一种按文件写出的类型识别：名字标注为本文件的 `class_name`，成员由本文件的 `var` 或 `func` 声明。本语言中这样的成员不带 `pub`，在本文件中可见，而实现报告尚不支持。
+
+| 写法 | 规范 | 全部：文件 | 全部：每千行 | 游戏：文件 | 游戏：每千行 |
+|---|---|---:|---:|---:|---:|
+| 一种都没用到的文件 | | 96.1% | | 97.5% | |
+| 剩余参数 `...args` | §4.6 | 1.1% | 0.4 | 0 | 0 |
+| 同一个类的另一个实例的成员 | §4.2 | 1.0% | 1.2 | 0.7% | 0.5 |
+| 不是常量的参数默认值 | §4.6 | 0.8% | 0.2 | 0.7% | 0.2 |
+| 含 await 的 lambda | §9.1 | 0.3% | 0.2 | 0.1% | 0.0 |
+| 常量的容器中的 `preload()` | §4.5 | 0.2% | 0.0 | 0.4% | 0.1 |
+| 静态函数作为值 | §3.11 | 0.2% | 0.1 | 0.3% | 0.1 |
+| 在自身上以字面量指名本文件的成员 | §10.4、§10.5 | 0.2% | 0.0 | 0.1% | 0.0 |
+| match 的数组和字典模式 | §5.6 | 0.1% | 0.0 | 0.2% | 0.1 |
+| 定义 `_iter_init` 的类 | §5.7 | 0 | 0 | 0 | 0 |
+| `breakpoint` | | 0 | 0 | 0 | 0 |
+| 遍历 String 的 `for` | §5.7 | 0 | 0 | 0 | 0 |
+
+- 剩余参数只出现在 gdUnit4 中，它是测试框架。
+- 每种写法都不超过 1.1% 的文件，各仓库中一种都没用到的文件占 89.4%–100%。各仓库的计数见 `implementation-coverage/results/remaining2.txt`。
+- 未计入的写法：
+  - 进入实例化场景的路径，这要读场景；
+  - 对 `T?` 的 match 和不导出的必须赋值成员，迁移时才写出；
+  - 内部类以裸名把外层类的静态函数作为值。
+- 所以 GDScript 代码用到的写法已经基本实现。语言剩下的工作主要是本语言新增的构造，如 Result、带载荷的 enum 和结构体的方法。GDScript 中没有它们，本调查无法为其排序。
+
 ## 复现
 
 ```
 python docs/surveys/cross-branch-duplication/gdcorpus.py corpus
 python docs/surveys/implementation-coverage/coverage.py corpus thirdparty/godot-cpp/gdextension/extension_api-4-7.json > docs/surveys/implementation-coverage/results/coverage.txt
 python docs/surveys/implementation-coverage/remaining.py corpus thirdparty/godot-cpp/gdextension/extension_api-4-7.json > docs/surveys/implementation-coverage/results/remaining.txt
+python docs/surveys/implementation-coverage/remaining2.py corpus thirdparty/godot-cpp/gdextension/extension_api-4-7.json > docs/surveys/implementation-coverage/results/remaining2.txt
 ```
