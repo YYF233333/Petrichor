@@ -24,7 +24,7 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 	// recovered tree all the same, as the tools will (architecture §2.1).
 	std::vector<Diagnostic> unreported;
 	const bool parsed = result.errors.empty();
-	check(r_class, p_engine, p_options, parsed ? result.errors : unreported, r_classes, true, &result.references, parsed ? &result.warnings : nullptr);
+	check(r_class, p_engine, p_options, parsed ? result.errors : unreported, r_classes, true, &result.references);
 	if (parsed) {
 		apply_warning_ignores(r_class, result.warnings);
 	}
