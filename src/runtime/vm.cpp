@@ -711,6 +711,12 @@ class Execution {
 		return p_slot == NO_SLOT ? fail_cstr(p_fn, p_line, "unwrap() found None.") : fail(p_fn, p_line, *reinterpret_cast<const String *>(p_frame + p_slot));
 	}
 
+	// unwrap() or expect(message) of Err(e), which it shows, as Rust's does.
+	PETRICHOR_NOINLINE bool fail_unwrap_err(const bytecode::Function &p_fn, int p_line, const uint8_t *p_frame, const TypeImage &p_type, const uint8_t *p_value, uint32_t p_message) {
+		const String found = value_text(p_type, p_value);
+		return fail(p_fn, p_line, p_message == NO_SLOT ? vformat("unwrap() found %s.", found) : vformat("%s: %s", *reinterpret_cast<const String *>(p_frame + p_message), found));
+	}
+
 	PETRICHOR_NOINLINE bool fail_invalid_op(const bytecode::Function &p_fn, int p_line, uint32_t p_op) {
 		return fail(p_fn, p_line, vformat("Invalid instruction %d.", p_op));
 	}
@@ -2063,6 +2069,17 @@ public:
 						return fail_unwrap(fn, record.line, frame, code[pc + 4]);
 					}
 					copy_value(type, frame + code[pc + 2], object ? src : src + 8);
+					pc += 5;
+					break;
+				}
+				case Op::UNWRAP_OK: {
+					// The index of the variant, 0 for Ok, then Ok's value (module.h).
+					const TypeImage &type = types[code[pc + 1]];
+					const uint8_t *src = frame + code[pc + 3];
+					if (U64(code[pc + 3]) != 0) {
+						return fail_unwrap_err(fn, record.line, frame, type, src, code[pc + 4]);
+					}
+					copy_value(*type.fields[1].type, frame + code[pc + 2], src + type.fields[1].offset);
 					pc += 5;
 					break;
 				}

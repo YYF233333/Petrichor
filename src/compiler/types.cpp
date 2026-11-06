@@ -67,6 +67,7 @@ std::string Type::to_string() const {
 		case TypeKind::Signal:
 			return "Signal" + signature(args, 0);
 		case TypeKind::Builtin:
+		case TypeKind::PayloadEnum:
 			if (!args.empty()) {
 				std::string text = name + "[";
 				for (size_t i = 0; i < args.size(); i++) {
@@ -78,11 +79,19 @@ std::string Type::to_string() const {
 		case TypeKind::Unsupported:
 		case TypeKind::Struct:
 		case TypeKind::Enum:
-		case TypeKind::PayloadEnum:
 			return name;
 		default:
 			return builtin_name();
 	}
+}
+
+Type Type::result(const Type &p_value, const Type &p_error) {
+	auto values = std::make_shared<EnumValues>();
+	values->list = { { "Ok", 0 }, { "Err", 1 } };
+	values->fields = { { { "value", p_value } }, { { "error", p_error } } };
+	Type type = enumeration("Result", std::string(), std::move(values), TypeKind::PayloadEnum);
+	type.args = { p_value, p_error };
+	return type;
 }
 
 Type Type::unwrapped() const {

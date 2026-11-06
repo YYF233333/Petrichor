@@ -268,6 +268,9 @@ class Checker : public ClassRelation {
 	struct Returns {
 		std::optional<Type> type;
 		bool bare = false; // A return without a value.
+		// What the function type the lambda goes to returns, if known, which the
+		// values it returns take their type from, as Ok(v) and None do.
+		Type expected;
 	};
 	Returns *returns = nullptr;
 
@@ -1091,10 +1094,19 @@ class Checker : public ClassRelation {
 
 	// `Array[T]`, the engine's typed array (spec §3.8).
 	Type resolve_generic(const TypeRef &p_ref) {
-		refer(p_ref.name_token, p_ref.name == "Task" ? language_id("Task", std::string()) : engine_id(p_ref.name));
+		refer(p_ref.name_token, p_ref.name == "Task" || p_ref.name == "Result" ? language_id(p_ref.name, std::string()) : engine_id(p_ref.name));
 		if (p_ref.name == "Task" && p_ref.args.size() == 1) {
 			const Type result = resolve(p_ref.args[0], true);
 			return result.is_error() ? result : Type::task(result);
+		}
+		if (p_ref.name == "Result") {
+			if (p_ref.args.size() != 2) {
+				error(p_ref.range, "Result takes a value type and an error type, as in Result[int, String].");
+				return Type::of(TypeKind::Error);
+			}
+			const Type value = resolve(p_ref.args[0], false);
+			const Type failure = resolve(p_ref.args[1], false);
+			return value.is_error() || failure.is_error() ? Type::of(TypeKind::Error) : Type::result(value, failure);
 		}
 		if (p_ref.name == "Dictionary") {
 			if (p_ref.args.size() != 2) {
@@ -1734,7 +1746,7 @@ class Checker : public ClassRelation {
 
 	// How this file writes an enum: State for its own, Player.State for another class's.
 	std::string enum_spelling(const Type &p_enum) const {
-		return p_enum.values && !p_enum.values->is_engine && p_enum.script == options.path ? p_enum.interface_name() : p_enum.name;
+		return p_enum.values && !p_enum.values->is_engine && !p_enum.is_result() && p_enum.script == options.path ? p_enum.interface_name() : p_enum.to_string();
 	}
 
 	// `State(x)` or `Player.State(x)`: the enum the call names, if any.
@@ -2538,7 +2550,7 @@ class Checker : public ClassRelation {
 			refer(r_expr.name_token, engine_id(property->owner, r_expr.text));
 			return set(r_expr, property_type(*property, r_expr));
 		}
-		if (base_type.kind == TypeKind::PayloadEnum) {
+		if (base_type.kind == TypeKind::PayloadEnum && !base_type.is_result()) {
 			// As the variant that has such a field writes it.
 			std::string example;
 			for (size_t v = 0; v < base_type.values->fields.size() && example.empty(); v++) {
@@ -3163,7 +3175,9 @@ class Checker : public ClassRelation {
 			// The values to format, of any types (spec §5.1).
 			right = check_value(*r_expr.right, Type::builtin("Array"));
 		} else {
-			right = check_value(*r_expr.right);
+			// Ok(v) and Err(e) take their type from the Result they are compared
+			// with (spec §3.5).
+			right = check_value(*r_expr.right, left.is_result() ? left : Type::of(TypeKind::Error));
 		}
 		return set(r_expr, binary_type(r_expr.op, left, right, r_expr.range));
 	}
@@ -4052,6 +4066,9 @@ class Checker : public ClassRelation {
 			}
 		}
 		Returns inferred;
+		if (typed_by_expected) {
+			inferred.expected = p_expected.args[0];
+		}
 		Returns *const outer_returns = returns;
 		if (lambda.return_type_ref) {
 			lambda.return_type = resolve(*lambda.return_type_ref, true);
@@ -4138,6 +4155,112 @@ class Checker : public ClassRelation {
 			return fail_call(r_expr, name + "() of " + p_base.to_string() + " is not supported yet.");
 		}
 		return fail_call(r_expr, "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
+	}
+
+	// `Ok(v)` and `Err(e)` (spec §3.5): of the Result they go to, which says
+	// what v or e is.
+	Type check_result_construction(Expr &r_expr, const Type &p_expected) {
+		const Type result = p_expected.kind == TypeKind::Option ? p_expected.args[0] : p_expected;
+		if (!result.is_result() || !r_expr.arg_names.empty()) {
+			for (auto &arg : r_expr.args) {
+				check_value(*arg);
+			}
+			if (!r_expr.arg_names.empty()) {
+				return fail_call(r_expr, r_expr.text + "(...) takes its value by position, as in " + r_expr.text + "(x).");
+			}
+			if (!result.is_error()) {
+				return fail_call(r_expr, r_expr.text + "(...) makes a Result, but a value of type " + result.to_string() + " goes here (spec §3.5).");
+			}
+			return fail_call(r_expr, r_expr.text + "(...) takes its type from where it goes, as in `var r: Result[int, String] = " + r_expr.text + "(...)`; nothing here gives one (spec §3.5).");
+		}
+		const int variant = r_expr.text == "Ok" ? 0 : 1;
+		refer(r_expr.name_token, language_id("Result", r_expr.text));
+		hint(r_expr, [&](int p_current) { return signature(r_expr.text, { (variant == 0 ? "value: " : "error: ") + result.args[variant].to_string() }, false, p_current, result.to_string()); });
+		check_arguments(r_expr, { result.args[variant] }, 1, false);
+		r_expr.target = Target::VariantConstructor;
+		r_expr.index = variant;
+		return set(r_expr, result);
+	}
+
+	// The methods of Result[T, E] (spec §3.5), as Rust's. Those that take a
+	// function call it only on the variant they are for.
+	Type check_result_method(Expr &r_expr, const Type &p_base) {
+		const std::string &name = r_expr.text;
+		const Type &value = p_base.args[0];
+		const Type &failure = p_base.args[1];
+		const std::string t = value.to_string();
+		const std::string e = failure.to_string();
+		static const std::unordered_set<std::string> methods = { "unwrap", "expect", "unwrap_or", "unwrap_or_else", "map", "map_err", "and_then", "or_else", "ok", "err" };
+		if (!methods.count(name)) {
+			for (auto &arg : r_expr.args) {
+				check_value(*arg);
+			}
+			return fail_call(r_expr, p_base.to_string() + " has no method \"" + name + "()\".");
+		}
+		refer(r_expr.name_token, language_id("Result", name));
+		r_expr.target = Target::ResultMethod;
+		if (name == "unwrap" || name == "expect" || name == "unwrap_or") {
+			const std::vector<Type> params = name == "unwrap" ? std::vector<Type>() : std::vector<Type>{ name == "expect" ? Type::of(TypeKind::String) : value };
+			hint(r_expr, [&](int p_current) { return signature(name, params.empty() ? std::vector<std::string>() : std::vector<std::string>{ name == "expect" ? "message: String" : "default: " + t }, false, p_current, t); });
+			check_arguments(r_expr, params, int(params.size()), false);
+			return set(r_expr, value);
+		}
+		if (name == "ok" || name == "err") {
+			const Type &inner = name == "ok" ? value : failure;
+			hint(r_expr, [&](int p_current) { return signature(name, {}, false, p_current, optional_of(inner).to_string()); });
+			check_arguments(r_expr, {}, 0, false);
+			if (inner.is_optional()) {
+				return fail_call(r_expr, name + "() of " + p_base.to_string() + " would give " + inner.to_string() + "?, and nested Options are not supported yet.");
+			}
+			return set(r_expr, optional_of(inner));
+		}
+		// The function's parameter, and what it returns as the hint shows it.
+		const bool on_error = name == "unwrap_or_else" || name == "map_err" || name == "or_else";
+		const std::map<std::string, std::string> returns = { { "unwrap_or_else", t }, { "map", "U" }, { "map_err", "F" }, { "and_then", "Result[U, " + e + "]" }, { "or_else", "Result[" + t + ", F]" } };
+		const std::map<std::string, std::string> results = { { "unwrap_or_else", t }, { "map", "Result[U, " + e + "]" }, { "map_err", "Result[" + t + ", F]" }, { "and_then", "Result[U, " + e + "]" }, { "or_else", "Result[" + t + ", F]" } };
+		hint(r_expr, [&](int p_current) { return signature(name, { "f: func(" + (on_error ? e : t) + ") -> " + returns.at(name) }, false, p_current, results.at(name)); });
+		const std::optional<Type> returned = check_function_argument(r_expr, on_error ? failure : value);
+		if (!returned) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		// and_then keeps the error type, or_else the value type.
+		const size_t kept = name == "and_then" ? 1 : 0;
+		const bool fits = name == "unwrap_or_else" ? assignable(*returned, value) : (name == "map" || name == "map_err" ? returned->kind != TypeKind::Void : returned->is_result() && returned->args[kept] == p_base.args[kept]);
+		if (!fits) {
+			error(r_expr.args[0]->range, "The function passed to " + name + "() returns " + returned->to_string() + ", not " + returns.at(name) + ".");
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		if (name == "unwrap_or_else") {
+			return set(r_expr, value);
+		}
+		if (name == "map" || name == "map_err") {
+			return set(r_expr, name == "map" ? Type::result(*returned, failure) : Type::result(value, *returned));
+		}
+		return set(r_expr, *returned);
+	}
+
+	// The one argument of map() and the like: a function of one parameter that
+	// takes `p_param`, which a lambda's parameter then has unless written; what
+	// it returns, or nullopt after reporting.
+	std::optional<Type> check_function_argument(Expr &r_call, const Type &p_param) {
+		if (r_call.args.size() != 1) {
+			for (auto &arg : r_call.args) {
+				check_value(*arg);
+			}
+			error(r_call.range, "Function \"" + r_call.text + "()\" takes 1 argument(s), " + std::to_string(r_call.args.size()) + " given.");
+			return std::nullopt;
+		}
+		Expr &arg = *r_call.args[0];
+		const Type function = check_value(arg, Type::function(Type::of(TypeKind::Error), { p_param }));
+		if (function.is_error()) {
+			return std::nullopt;
+		}
+		if (function.kind != TypeKind::Function || function.is_async || function.args.size() != 2 || !assignable(p_param, function.args[1])) {
+			error(arg.range, "\"" + r_call.text + "()\" takes a function of one parameter, which takes " + p_param.to_string() + "; found " + function.to_string() + ".");
+			return std::nullopt;
+		}
+		r_call.param_types.push_back(function);
+		return function.args[0];
 	}
 
 	// The type both branches fit: one of them, or for objects the nearest
@@ -4762,7 +4885,10 @@ class Checker : public ClassRelation {
 		return fail(r_expr, p_class.name + " has no constant \"" + r_expr.text + "\".");
 	}
 
-	Type check_call(Expr &r_expr) {
+	Type check_call(Expr &r_expr, const Type &p_expected = Type::of(TypeKind::Error)) {
+		if (!r_expr.base && (r_expr.text == "Ok" || r_expr.text == "Err") && !declares_in_script(r_expr.text)) {
+			return check_result_construction(r_expr, p_expected);
+		}
 		if (const std::optional<Type> constructed = constructed_struct(r_expr)) {
 			return check_struct_construction(r_expr, *constructed);
 		}
@@ -4834,6 +4960,9 @@ class Checker : public ClassRelation {
 			}
 			if (base_type.is_optional()) {
 				return check_option_method(r_expr, base_type);
+			}
+			if (base_type.is_result()) {
+				return check_result_method(r_expr, base_type);
 			}
 			if (base_type.kind == TypeKind::Variant) {
 				for (auto &arg : r_expr.args) {
@@ -5043,6 +5172,64 @@ class Checker : public ClassRelation {
 		return fail(r_expr, "await expects a Task, a signal or a call to GDScript.");
 	}
 
+	// A type that a lambda without a return type returns, whose return type is
+	// the type all of them fit (spec §4.6).
+	void add_returned(Type p_value, const TokenRange &p_at) {
+		if (p_value.kind == TypeKind::None) {
+			error(p_at, function_label() + " needs a return type: None does not say which T? it returns.");
+			p_value = Type::of(TypeKind::Error);
+		}
+		if (!returns->type || p_value.is_error() || returns->type->is_error()) {
+			returns->type = returns->type ? Type::of(TypeKind::Error) : p_value;
+			return;
+		}
+		const Type common = common_type(*returns->type, p_value);
+		if (common.is_error()) {
+			error(p_at, function_label() + " returns " + returns->type->to_string() + " and " + p_value.to_string() + "; declare its return type.");
+		}
+		returns->type = common;
+	}
+
+	// `x?` (spec §8.2): the value inside x, or the function returns the Err or
+	// the None x holds. So it returns a Result with the same error type, or a
+	// T?; between the two, ok() and ok_or() convert.
+	Type check_try(Expr &r_expr) {
+		const Type type = check_value(*r_expr.left);
+		if (type.is_error()) {
+			return set(r_expr, type);
+		}
+		const bool result = type.is_result();
+		if (!result && !type.is_optional()) {
+			return fail(r_expr, "? takes apart a Result or a T?, not " + type.to_string() + " (spec §8.2).");
+		}
+		const std::string found = result ? "the Err(...) of " + type.to_string() : "the None of " + type.to_string();
+		if (in_assert) {
+			return fail(r_expr, "? cannot appear in an assert: it would vanish with the assertion in release builds (spec §8.3).");
+		}
+		if (!function || initializing >= 0 || static_initializing >= 0) {
+			return fail(r_expr, "? returns " + found + " from the function, and cannot appear in an initializer (spec §8.2).");
+		}
+		if (returns && returns->expected.is_error()) {
+			return fail(r_expr, "? returns " + found + " from the lambda, whose return type is then needed; write it, as in func(x) -> " + (result ? "Result[int, " + type.args[1].to_string() + "]" : std::string("int?")) + ": (spec §8.2).");
+		}
+		// A lambda returns what the function type it goes to does.
+		const Type to = returns ? returns->expected : function->return_type;
+		if (to.is_error()) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		if (result && to.is_result() && to.args[1] != type.args[1]) {
+			return fail(r_expr, "? returns " + found + ", but " + function_label() + " returns " + to.to_string() + "; convert the error with map_err() (spec §8.2).");
+		}
+		if (result ? !to.is_result() : !to.is_optional()) {
+			const std::string convert = to.is_optional() ? "; convert it with ok()" : (to.is_result() ? "; convert it with ok_or()" : "");
+			return fail(r_expr, "? returns " + found + ", but " + function_label() + " returns " + to.to_string() + convert + " (spec §8.2).");
+		}
+		if (returns) {
+			add_returned(to, r_expr.range);
+		}
+		return set(r_expr, result ? type.args[0] : type.unwrapped());
+	}
+
 	// Types an expression and computes its value when it is a constant
 	// expression (spec §4.5).
 	Type check_expr(Expr &r_expr, const Type &p_expected = Type::of(TypeKind::Error)) {
@@ -5151,7 +5338,7 @@ class Checker : public ClassRelation {
 			case ExprKind::Binary:
 				return check_binary(r_expr);
 			case ExprKind::Call:
-				return check_call(r_expr);
+				return check_call(r_expr, p_expected);
 			case ExprKind::Member:
 				return check_member_access(r_expr);
 			case ExprKind::GetNode:
@@ -5176,6 +5363,8 @@ class Checker : public ClassRelation {
 				return check_type_test(r_expr);
 			case ExprKind::Lambda:
 				return check_lambda(r_expr, p_expected);
+			case ExprKind::Try:
+				return check_try(r_expr);
 			case ExprKind::Error:
 				break;
 		}
@@ -5469,15 +5658,17 @@ class Checker : public ClassRelation {
 			}
 			return true;
 		};
-		if (callee.kind == ExprKind::Name && (callee.text == "Some" || callee.text == "Ok" || callee.text == "Err") && !visible_local(callee.text) && !member_index.count(callee.text) && !function_index.count(callee.text) && !constant_index.count(callee.text)) {
-			if (callee.text != "Some") {
-				error(callee.range, "Result is not supported yet.");
-			} else if (!p_matched.is_optional()) {
-				error(r_pattern.range, "Some(...) matches a value of a type T?, not " + p_matched.to_string() + " (spec §5.6).");
-			} else {
+		if (callee.kind == ExprKind::Name && (callee.text == "Some" || callee.text == "Ok" || callee.text == "Err") && !declares_in_script(callee.text)) {
+			const bool some = callee.text == "Some";
+			if (!p_matched.is_error() && (some ? !p_matched.is_optional() : !p_matched.is_result())) {
+				error(r_pattern.range, callee.text + "(...) matches a value of a type " + (some ? "T?" : "Result[T, E]") + ", not " + p_matched.to_string() + " (spec §5.6).");
+			} else if (!p_matched.is_error()) {
 				r_pattern.type = p_matched;
-				r_pattern.variant = 1;
-				check_items(r_pattern, {}, { p_matched.unwrapped() }, std::string(), std::string());
+				r_pattern.variant = callee.text == "Ok" ? 0 : 1;
+				if (!some) {
+					refer(callee.name_token, language_id("Result", callee.text));
+				}
+				check_items(r_pattern, {}, { some ? p_matched.unwrapped() : p_matched.args[r_pattern.variant] }, std::string(), std::string());
 				return;
 			}
 			check_items(r_pattern, {}, {}, std::string(), std::string());
@@ -6008,20 +6199,7 @@ class Checker : public ClassRelation {
 						returns->bare = true;
 						return;
 					}
-					Type value = check_value(*r_stmt.value);
-					if (value.kind == TypeKind::None) {
-						error(r_stmt.value->range, function_label() + " needs a return type: None does not say which T? it returns.");
-						value = Type::of(TypeKind::Error);
-					}
-					if (!returns->type || value.is_error() || returns->type->is_error()) {
-						returns->type = returns->type ? Type::of(TypeKind::Error) : value;
-						return;
-					}
-					const Type common = common_type(*returns->type, value);
-					if (common.is_error()) {
-						error(r_stmt.value->range, function_label() + " returns " + returns->type->to_string() + " and " + value.to_string() + "; declare its return type.");
-					}
-					returns->type = common;
+					add_returned(check_value(*r_stmt.value, returns->expected), r_stmt.value->range);
 					return;
 				}
 				const Type expected = function->return_type;
@@ -6068,14 +6246,16 @@ class Checker : public ClassRelation {
 					return;
 				}
 				statement_value = r_stmt.value.get();
-				if (r_stmt.value->kind != ExprKind::Call && r_stmt.value->kind != ExprKind::Await) {
+				if (r_stmt.value->kind != ExprKind::Call && r_stmt.value->kind != ExprKind::Await && r_stmt.value->kind != ExprKind::Try) {
 					check_expr(*r_stmt.value);
 					error(r_stmt.value->range, "This expression has no effect.");
 					return;
 				}
-				r_stmt.value->discarded = true;
+				r_stmt.value->discarded = r_stmt.value->kind != ExprKind::Try;
 				if (check_expr(*r_stmt.value).kind == TypeKind::Task) {
 					error(r_stmt.range, "An async call must be awaited, stored or explicitly detached with detach().");
+				} else if (r_stmt.value->type.is_result()) {
+					error(r_stmt.range, "A Result cannot be discarded: handle its error, or ignore it with .ok() (spec §3.5).");
 				}
 				return;
 		}
@@ -6536,7 +6716,7 @@ class Checker : public ClassRelation {
 		if (member.is_export && type.unwrapped().kind == TypeKind::Struct) {
 			error(member.name_token, "Structs cannot be exported (spec §3.6).");
 		} else if (member.is_export && type.unwrapped().kind == TypeKind::PayloadEnum) {
-			error(member.name_token, "Enums with payloads cannot be exported (spec §3.7).");
+			error(member.name_token, type.unwrapped().is_result() ? "A Result cannot be exported, as enums with payloads cannot (spec §3.7, §10.1)." : "Enums with payloads cannot be exported (spec §3.7).");
 		} else if (member.is_export && is_typed_container(type) && is_boxed(type)) {
 			error(member.name_token, "Containers whose elements exist only in this language, such as " + type.to_string() + ", cannot be exported (spec §3.6, §3.8).");
 		}
@@ -7128,30 +7308,47 @@ class Checker : public ClassRelation {
 			return false;
 		}
 		for (const auto &[label, field] : value_fields(p_header, p_name)) {
-			// T and T? hold a T; a container holds a reference.
-			if (!field->declared_type || !field->declared_type->args.empty()) {
+			if (!field->declared_type) {
 				continue;
 			}
-			const std::string &name = field->declared_type->name;
-			const size_t dot = name.find('.');
-			std::string path = p_path;
-			const ClassDecl *header = &p_header;
-			if (dot != std::string::npos) {
-				const std::string head = name.substr(0, dot);
-				path = head == p_header.class_name ? p_path : (options.project ? options.project->global_class_path(head) : std::string());
-				header = is_script_path(path) ? script_header(path) : nullptr;
+			for (const std::string &name : held_types(*field->declared_type)) {
+				const size_t dot = name.find('.');
+				std::string path = p_path;
+				const ClassDecl *header = &p_header;
+				if (dot != std::string::npos) {
+					const std::string head = name.substr(0, dot);
+					path = head == p_header.class_name ? p_path : (options.project ? options.project->global_class_path(head) : std::string());
+					header = is_script_path(path) ? script_header(path) : nullptr;
+				}
+				const std::string inner = name.substr(dot == std::string::npos ? 0 : dot + 1);
+				if (!header || value_fields(*header, inner).empty()) {
+					continue;
+				}
+				r_cycle.push_back(label);
+				if (path + "::" + inner == p_target || holds(*header, path, inner, p_target, r_cycle, r_seen)) {
+					return true;
+				}
+				r_cycle.pop_back();
 			}
-			const std::string inner = name.substr(dot == std::string::npos ? 0 : dot + 1);
-			if (!header || value_fields(*header, inner).empty()) {
-				continue;
-			}
-			r_cycle.push_back(label);
-			if (path + "::" + inner == p_target || holds(*header, path, inner, p_target, r_cycle, r_seen)) {
-				return true;
-			}
-			r_cycle.pop_back();
 		}
 		return false;
+	}
+
+	// The names of the types whose values a value of the type holds in its
+	// slot: T holds a T, as T? does, and Result[T, E] holds both; a container
+	// holds a reference.
+	static std::vector<std::string> held_types(const TypeRef &p_ref) {
+		if (p_ref.args.empty()) {
+			return { p_ref.name };
+		}
+		std::vector<std::string> names;
+		if (p_ref.name == "Result" && !p_ref.is_function) {
+			for (const TypeRef &arg : p_ref.args) {
+				const std::vector<std::string> held = held_types(arg);
+				names.insert(names.end(), held.begin(), held.end());
+			}
+		}
+		return names;
 	}
 
 	// `implements I`: the class has every method of I, pub and with the same

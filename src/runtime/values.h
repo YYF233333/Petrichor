@@ -148,6 +148,9 @@ godot::String entry_mismatch(const TypeImage &p_type, const godot::Variant &p_va
 godot::Variant default_variant(const TypeImage &p_type);
 // The type as the source writes it: "int?", "Array[Enemy]"…
 godot::String type_description(const TypeImage &p_type);
+// A value as a program error shows it: "Hit(damage = 3, crit = false)",
+// "Command.IDLE", "Err(\"missing\")".
+godot::String value_text(const TypeImage &p_type, const uint8_t *p_slot);
 // What the engine sees: NIL for T?, Dictionary for a struct (spec §10.1).
 godot::Variant::Type variant_type(const TypeImage &p_type);
 // `==` of the type: of a struct, field by field (spec §3.6); of an object, by

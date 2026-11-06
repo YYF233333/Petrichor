@@ -54,6 +54,9 @@ class Parser {
 	// cleared when that statement ends.
 	uint32_t block_end = NO_OFFSET;
 	int block_end_stops = 0;
+	// In the operand of `await`, outside brackets: `await f()?` is
+	// `(await f())?` (spec §8.2), so `?` ends the operand.
+	bool awaiting = false;
 
 	const Token &peek(size_t p_offset = 0) const {
 		const size_t index = at + p_offset;
@@ -291,6 +294,8 @@ class Parser {
 	// `as` binds loosest, then `a if c else b`, as in GDScript
 	// (gdscript_parser.h:1435-1436).
 	std::unique_ptr<Expr> expression() {
+		const bool was_awaiting = awaiting;
+		awaiting = false;
 		auto expr = conditional();
 		while (check(TokenKind::As)) {
 			auto cast = make(ExprKind::Cast, advance());
@@ -299,6 +304,7 @@ class Parser {
 			cast->left = std::move(expr);
 			expr = std::move(cast);
 		}
+		awaiting = was_awaiting;
 		return expr;
 	}
 
@@ -448,9 +454,12 @@ class Parser {
 	std::unique_ptr<Expr> unary() {
 		if (check(TokenKind::Await)) {
 			auto expr = make(ExprKind::Await, advance());
+			const bool was_awaiting = awaiting;
+			awaiting = true;
 			expr->left = unary();
+			awaiting = was_awaiting;
 			expr->range = span(expr->range.first);
-			return expr;
+			return awaiting ? std::move(expr) : postfix(std::move(expr));
 		}
 		if (check(TokenKind::Minus)) {
 			const Token &op = advance();
@@ -533,7 +542,11 @@ class Parser {
 	}
 
 	std::unique_ptr<Expr> postfix() {
-		auto expr = primary();
+		return postfix(primary());
+	}
+
+	std::unique_ptr<Expr> postfix(std::unique_ptr<Expr> p_expr) {
+		auto expr = std::move(p_expr);
 		while (true) {
 			if (check(TokenKind::ParenOpen) && (expr->kind == ExprKind::Name || expr->kind == ExprKind::Member)) {
 				// `f(...)` or `base.f(...)`.
@@ -562,6 +575,11 @@ class Parser {
 				subscript->range = span(expr->range.first);
 				subscript->base = std::move(expr);
 				expr = std::move(subscript);
+			} else if (check(TokenKind::Question) && !awaiting) {
+				auto tried = make(ExprKind::Try, advance());
+				tried->range = span(expr->range.first);
+				tried->left = std::move(expr);
+				expr = std::move(tried);
 			} else {
 				return expr;
 			}

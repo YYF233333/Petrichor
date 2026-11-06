@@ -131,6 +131,7 @@ namespace petrichor::bytecode {
 	X(BOX, "TDAI", ".vl") /* type, dst (Variant), src, key (0 or 1): src in a box, as a container keeps a boxed type (module.h); a key's box hashes the value */ \
 	X(ENCODE, "TDA", "..l") /* type of src, dst, src: a container that keeps boxes as the untyped container of its kind, a copy with every key and element encoded (spec §3.8, §10.1) */ \
 	X(UNWRAP, "TDAB", "tl.S") /* type of dst, dst, src (T?), message (NO_SLOT: default) */ \
+	X(UNWRAP_OK, "SDAB", "t.lS") /* type of src (Result[T, E]), dst (T), src, message (NO_SLOT: none): the value of Ok(v); Err(e) a program error that shows e (spec §3.5) */ \
 	X(NEW_CONTAINER, "TD", "t") /* type, dst: an empty Array or Dictionary, typed as the type says, a boxed type as Callable */ \
 	X(GET_INDEX, "SRDAB", "") /* type of base, type of dst, dst, base, index (an int, or a Dictionary's key, a Variant when boxed): a box is opened, a container read is checked against its type (spec §3.8) */ \
 	X(SET_INDEX, "RDAB", "") /* type of base, base, index, src (a Variant when boxed): a read-only base, an index out of bounds is a program error; a new Dictionary key is stored as a key (spec §3.8) */ \

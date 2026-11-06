@@ -8,7 +8,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
 - Of match (spec §5.6):
   - array and dictionary patterns;
-  - the patterns of Result and Settled once they exist.
+  - the patterns of Settled once it exists.
 - Of structs (spec §3.6):
   - methods;
   - a struct or an enum with payloads that holds itself through a container. The type table cannot list it, since a type's parts come before it.
@@ -34,8 +34,10 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - `T??` and `Some(...)`;
   - the remaining `Option` methods of spec §3.4;
   - `pop_front()` and `pop_back()` of `Array[T?]` giving `T??`;
+  - `ok()` and `err()` of `Result[T?, E]` and `Result[T, E?]`;
   - rejecting `T??` and `Variant?` passed to `Variant` (spec §10.1).
-- `Result[T, E]` with `Ok`, `Err`, the non-discardable check and its methods, and postfix `?` (spec §3.5, §8.2). The names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7). `T.try_from(x)` (spec §5.3).
+- The names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7).
+- `Ok(v)`, `Err(e)` and `?` in a lambda without a return type passed to `and_then()` or `or_else()`. Nothing gives their `U` or `F` yet (spec §3.5, §4.6).
 - `for` over objects that define `_iter_init`, `_iter_next` and `_iter_get`, as GDScript allows; the checker reports it as not supported yet.
 - The `breakpoint` statement.
 - Rest parameters `...args: Array[T]` (spec §4.6).

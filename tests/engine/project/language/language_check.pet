@@ -176,6 +176,39 @@ pub func doubled(o: int?) -> int:
 		var x:
 			return x * 2
 
+# Result (spec §3.5): made, taken apart by match and by its methods, and
+# returned early by ? (§8.2); through the engine as an enum with payloads
+# (§10.1).
+pub func parsed(text: String) -> Result[int, String]:
+	if text.is_valid_int():
+		return Ok(text.to_int())
+	return Err("not a number: " + text)
+
+func summed(a: String, b: String) -> Result[int, String]:
+	return Ok(parsed(a)? + parsed(b)?)
+
+func halved(o: int?) -> int?:
+	return o? / 2
+
+pub func results() -> Array:
+	var all: Array[Result[int, String]] = [parsed("4"), parsed("x"), summed("1", "2"), summed("1", "y")]
+	var shown: Array[String] = []
+	for r in all:
+		match r:
+			Ok(var n):
+				shown.append("ok %d" % n)
+			Err(var e):
+				shown.append(e)
+	var good := all[0]
+	var bad := all[1]
+	return [shown, good.unwrap(), bad.unwrap_or(-1), bad.unwrap_or_else(func(e): return e.length()), good.map(func(n): return n * 10).unwrap(), bad.map_err(func(e): return e.length()).err().unwrap(), good.and_then(func(n) -> Result[int, String]: return Err("no")) == Err("no"), bad.or_else(func(e) -> Result[int, String]: return Ok(0)) == Ok(0), good.ok() == 4, bad.ok() == None, halved(8), halved(None)]
+
+pub func result_or(r: Result[int, String]) -> int:
+	return r.unwrap_or(-1)
+
+pub func unwrapped_err() -> int:
+	return parsed("x").unwrap()
+
 # The integer vectors widen to float ones (spec §3.2), also into the
 # parameter of a function value.
 pub func widened() -> Array:

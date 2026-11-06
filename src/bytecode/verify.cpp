@@ -745,6 +745,12 @@ class Verifier {
 				}
 				return any(frame, o[2], [&](uint32_t p_source) { return is_option(p_source) && same_layout(module.types[p_source].element, o[0]); }) || fail("unwrapping what is not T?");
 			}
+			case Op::UNWRAP_OK: {
+				// Ok's value is the field after the variant's index.
+				const TypeDesc &type = module.types[o[0]];
+				const bool result = type.kind == TypeKind::PayloadEnum && type.values.size() == 2 && type.values[0].value == 1 && type.values[1].value == 1;
+				return (result || fail("UNWRAP_OK of what is not a Result")) && slot_like(o[1], type.fields[1].type);
+			}
 			case Op::AWAIT_TASK:
 			case Op::AWAIT_SIGNAL:
 				return (function->is_async || fail("await in a synchronous function")) && (o[0] == NO_SLOT || frame.count(o[0]) || fail("unknown await result slot")) && (p_op == Op::AWAIT_SIGNAL || o[2] <= 1 || fail("invalid await ownership"));

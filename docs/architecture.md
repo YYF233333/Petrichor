@@ -94,6 +94,9 @@
   - 构造先读入该分支的常量，各字段都是默认值，再写入实参。
   - 相等、排序、哈希和编码只看序号和该分支的字段。
   - 不重叠存放的代价是槽位更大，可以以后再改为按最大分支共用。
+- `Result[T, E]` 是名为 `Result` 的带载荷 enum，分支为 `Ok(value: T)` 和 `Err(error: E)`。
+  - 类型键含字段的类型，所以不同的 T、E 是不同的类型。
+  - 它的方法和后缀 `?` 编译为按序号的跳转。`unwrap` 和 `expect` 另有一条指令，失败时报出错误值。
 - 元素是本语言独有类型的容器（规范 §3.8）及其嵌套的容器存为引擎容器，元素装在不可变的盒子里。
   - 盒子是用本库的 token 创建的自定义 Callable，数据是元素的类型和值，不能调用（`core/extension/gdextension_interface.cpp:1617-1631`）。
   - 引擎经盒子的 equal 回调比较 Callable，`has`、`find`、`erase`、容器的 `==` 和 Dictionary 查找都经 `hash_compare` 走到这里（`core/variant/callable.cpp:265-288`，`core/variant/variant.cpp:3351-3355`）。所以这些操作和只移动元素的操作，由构造保证按本语言的语义进行。

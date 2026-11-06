@@ -245,6 +245,10 @@ func _ready() -> void:
 	var attack := {"$variant": "ATTACK", "power": 4, "label": "y", "extra": 0}
 	_check(c.passed(attack) == {"$variant": "ATTACK", "power": 4, "label": "y"} and c.passed({"$variant": "IDLE"}) == {"$variant": "IDLE"}, "an enum with payloads goes through the engine as a Dictionary with \"$variant\"")
 	_check(c.doubled(null) == -1 and c.doubled(0) == 0 and c.doubled(5) == 10, "match over T?: None, Some(value) and var bound to the value inside")
+	_check(c.results() == [["ok 4", "not a number: x", "ok 3", "not a number: y"], 4, -1, 15, 40, 15, true, true, true, true, 4, null], "Result: matched, taken apart by its methods, and returned early by ?, as T? is")
+	_check(c.parsed("4") == {"$variant": "Ok", "value": 4} and c.parsed("x") == {"$variant": "Err", "error": "not a number: x"} and c.result_or({"$variant": "Ok", "value": 5}) == 5 and c.result_or({"$variant": "Err", "error": "e"}) == -1, "Result goes through the engine as an enum with payloads")
+	c.unwrapped_err()
+	_check_errors(["language_check.pet:210: unwrap() found Err(\"not a number: x\")."], "unwrap() of Err is a program error that shows the error")
 	var listed_targets: Array = v.targets(target)
 	_check(listed_targets.get_typed_script() == TargetCheck and v.as_target(target) == target and v.as_target(plain_node) == null, "an array typed with a class of this language, and as to one")
 	var refused_target = v.callv("taken_by", [plain_node])

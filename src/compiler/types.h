@@ -23,7 +23,9 @@ enum class TypeKind {
 	Option, // T? of a value type T, which is `args[0]` (spec §3.4); objects carry `nullable` instead.
 	Struct, // A struct (spec §3.6), named and declared as an interface is.
 	Enum, // An enum without payloads (spec §3.7), named as a struct is, or as the engine names it; an int with `values`.
-	PayloadEnum, // An enum with payloads (spec §3.7), named as a struct is; its variants in `values`.
+	// An enum with payloads (spec §3.7), named as a struct is; its variants in
+	// `values`. Result[T, E] is one whose `args` hold T and E (§3.5).
+	PayloadEnum,
 	Function, // A function value (spec §3.11): `args` holds the return type, then the parameter types.
 	Signal, // A signal of an object: `args` holds the types of its arguments.
 	None, // The literal None where nothing says which T? it is.
@@ -95,6 +97,9 @@ struct Type {
 		type.values = std::move(p_values);
 		return type;
 	}
+	// Result[T, E], whose variants are Ok(value: T) and Err(error: E) (spec
+	// §3.5, §10.1).
+	static Type result(const Type &p_value, const Type &p_error);
 
 	bool operator==(const Type &p_other) const {
 		return kind == p_other.kind && name == p_other.name && nullable == p_other.nullable && args == p_other.args && script == p_other.script && is_interface == p_other.is_interface && is_async == p_other.is_async;
@@ -107,6 +112,7 @@ struct Type {
 	// value types go through the engine's functions for each type.
 	bool is_primitive() const { return kind == TypeKind::Bool || is_numeric() || kind == TypeKind::String; }
 	bool is_storable() const { return kind != TypeKind::Error && kind != TypeKind::Void && kind != TypeKind::Unsupported; }
+	bool is_result() const { return kind == TypeKind::PayloadEnum && !args.empty(); }
 	// May be None: T? of an object or of a value type.
 	bool is_optional() const { return kind == TypeKind::Option || ((kind == TypeKind::Object || kind == TypeKind::Task) && nullable); }
 	// The type inside T?, which unwrap() gives.

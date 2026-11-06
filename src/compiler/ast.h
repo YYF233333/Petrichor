@@ -56,6 +56,9 @@ enum class ExprKind {
 	Conditional, // `left if base else right` (spec §5.5).
 	NoneLiteral, // `None`, or `null` (spec §2.2).
 	TypeTest, // `left is cast_type`, or `left is not cast_type` when `bool_value`.
+	// `left?` (spec §8.2): the value inside the Result or the T? in `left`, or a
+	// return of its Err or None from the function.
+	Try,
 	// `func(x): body` (spec §3.11), in `function`; the checker puts what it
 	// captures, as read where it is made, in `args`.
 	Lambda,
@@ -94,6 +97,7 @@ enum class Target {
 	ConvertToFloat,
 	Encode, // `Array(hits)` or `Dictionary(d)` of a container that keeps boxes (spec §3.8).
 	Unwrap, // `unwrap()` or `expect(message)` of T? (spec §3.4).
+	ResultMethod, // A method of Result, named by `text` (spec §3.5).
 	Singleton, // An engine singleton, such as Input, by its class name.
 	Autoload, // An autoload by its global name (spec §7.3).
 	MethodValue, // A function of this class used as a value (spec §3.11).

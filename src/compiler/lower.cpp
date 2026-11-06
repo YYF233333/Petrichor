@@ -267,14 +267,15 @@ class Lowerer {
 		return index;
 	}
 
-	// An enum with payloads, "script::Name", laid out as a struct whose first
-	// field is the variant's index (bytecode/module.h).
+	// An enum with payloads, "script::Name", or "Result", laid out as a struct
+	// whose first field is the variant's index (bytecode/module.h).
 	uint32_t payload_enum_index(const Type &p_enum) {
 		bytecode::TypeDesc type;
 		type.kind = bytecode::TypeKind::PayloadEnum;
-		type.name = p_enum.script + "::" + p_enum.interface_name();
-		// The checker refuses one that holds itself (spec §3.6).
-		if (!interning.insert(type.name).second) {
+		type.name = p_enum.is_result() ? p_enum.name : p_enum.script + "::" + p_enum.interface_name();
+		// The checker refuses one that holds itself (spec §3.6); a Result holds
+		// itself only through a struct or an enum, which is interned.
+		if (!p_enum.is_result() && !interning.insert(type.name).second) {
 			error(p_enum.name + " cannot be compiled: it contains itself.");
 			return type_index(ValueType::Void);
 		}
@@ -300,28 +301,129 @@ class Lowerer {
 		return uint32_t(index + p_field);
 	}
 
-	// `Command.MOVE(target = p)`: the variant with every field at its default,
-	// so that a register reused by a loop holds nothing of before, then the
+	// `Command.MOVE(target = p)`, or `Ok(v)` by position (spec §3.5): the
 	// arguments in the order written, each into its field once all are
-	// evaluated (spec §3.7).
+	// evaluated (§3.7).
 	uint32_t construct_variant(const Expr &p_call) {
-		const uint32_t result = temp(p_call.type);
-		bytecode::Constant blank{ fn.regs[result].type };
-		blank.i = p_call.index;
-		instr(Op::CONST_VALUE, result, NO_REG, NO_REG, add_constant(blank), fn.regs[result].type);
 		const auto &fields = p_call.type.values->fields[p_call.index];
-		std::vector<std::pair<uint32_t, uint32_t>> values;
+		std::vector<uint32_t> values(fields.size(), NO_REG);
 		for (size_t i = 0; i < p_call.args.size(); i++) {
-			for (size_t f = 0; f < fields.size(); f++) {
-				if (fields[f].first == p_call.arg_names[i]) {
-					values.push_back({ variant_field(p_call.type, p_call.index, f), argument(*p_call.args[i], p_call.param_types[i], false, false) });
-				}
+			size_t f = p_call.arg_names.empty() ? i : 0;
+			while (!p_call.arg_names.empty() && fields[f].first != p_call.arg_names[i]) {
+				f++;
 			}
+			values[f] = argument(*p_call.args[i], p_call.param_types[i], false, false);
 		}
-		for (const auto &[field, value] : values) {
-			move(field_view(result, field), value);
+		const uint32_t result = temp(p_call.type);
+		make_variant(result, p_call.type, p_call.index, values);
+		return result;
+	}
+
+	// The variant `p_variant` in `p_dst`, with every field at its default, so
+	// that a register reused by a loop holds nothing of before, then the fields
+	// of the variant from `p_fields`.
+	void make_variant(uint32_t p_dst, const Type &p_enum, int p_variant, const std::vector<uint32_t> &p_fields) {
+		bytecode::Constant blank{ fn.regs[p_dst].type };
+		blank.i = p_variant;
+		instr(Op::CONST_VALUE, p_dst, NO_REG, NO_REG, add_constant(blank), fn.regs[p_dst].type);
+		for (size_t f = 0; f < p_fields.size(); f++) {
+			move(field_view(p_dst, variant_field(p_enum, p_variant, f)), p_fields[f]);
+		}
+	}
+
+	// A method of Result (spec §3.5): its argument evaluated first, as a call's
+	// are, then the variant decides, a function passed being called only on
+	// the variant it is for.
+	uint32_t result_method(const Expr &p_call) {
+		const Type &type = p_call.base->type;
+		const std::string &name = p_call.text;
+		const uint32_t value = lower_expr(*p_call.base);
+		const uint32_t argument = p_call.args.empty() ? NO_REG : convert(lower_expr(*p_call.args[0]), p_call.param_types[0]);
+		const uint32_t result = temp(p_call.type);
+		if (name == "unwrap" || name == "expect") {
+			instr(Op::UNWRAP_OK, result, value, argument);
+			return result;
+		}
+		const uint32_t ok = temp(ValueType::Bool);
+		const uint32_t zero = temp(ValueType::Int);
+		load_int(zero, 0);
+		instr(Op::EQ_INT, ok, field_view(value, 0), zero);
+		const uint32_t blocks[2] = { new_block(), new_block() };
+		const uint32_t end_block = new_block();
+		branch(ok, blocks[0], blocks[1]);
+		const bool on_error = name == "err" || name == "unwrap_or" || name == "unwrap_or_else" || name == "map_err" || name == "or_else";
+		for (int variant = 0; variant < 2; variant++) {
+			current = blocks[variant];
+			const uint32_t inner = field_view(value, variant_field(type, variant, 0));
+			const bool applies = (variant == 1) == on_error;
+			const auto called = [&]() { return call_value(argument, p_call.param_types[0], { inner }); };
+			if (name == "unwrap_or" || name == "unwrap_or_else") {
+				move(result, !applies ? inner : convert(name == "unwrap_or" ? argument : called(), p_call.type));
+			} else if (name == "ok" || name == "err") {
+				applies ? move(result, convert(inner, p_call.type)) : (void)default_value(result);
+			} else if (applies && (name == "and_then" || name == "or_else")) {
+				move(result, called());
+			} else {
+				make_variant(result, p_call.type, variant, { applies ? called() : inner });
+			}
+			jump(end_block);
+		}
+		current = end_block;
+		return result;
+	}
+
+	// `x?` (spec §8.2): the value inside the Result or the T?, or a return of
+	// the Err or the None it holds.
+	uint32_t try_value(const Expr &p_expr) {
+		const Type &type = p_expr.left->type;
+		const uint32_t value = lower_expr(*p_expr.left);
+		const uint32_t failed = temp(ValueType::Bool);
+		if (type.is_result()) {
+			const uint32_t zero = temp(ValueType::Int);
+			load_int(zero, 0);
+			instr(Op::NE_INT, failed, field_view(value, 0), zero);
+		} else {
+			instr(Op::IS_NONE, failed, value, NO_REG, 0, fn.regs[value].type);
+		}
+		const uint32_t fail_block = new_block();
+		const uint32_t next_block = new_block();
+		branch(failed, fail_block, next_block);
+		current = fail_block;
+		const uint32_t returned = temp(decl->return_type);
+		if (type.is_result()) {
+			make_variant(returned, decl->return_type, 1, { field_view(value, variant_field(type, 1, 0)) });
+		} else {
+			default_value(returned);
+		}
+		fn.blocks[current].terminator = ir::Terminator::Return;
+		fn.blocks[current].value = returned;
+		current = next_block;
+		const uint32_t result = temp(p_expr.type);
+		if (type.is_result()) {
+			move(result, field_view(value, variant_field(type, 0, 0)));
+		} else {
+			instr(Op::UNWRAP, result, value, NO_REG, 0, fn.regs[result].type);
 		}
 		return result;
+	}
+
+	// `f.call(...)` of a function value of the type `p_function` (spec §3.11),
+	// with the arguments converted to its parameters.
+	uint32_t call_value(uint32_t p_value, const Type &p_function, const std::vector<uint32_t> &p_args) {
+		ir::Instr i;
+		i.op = Op::CALL_VALUE;
+		i.base = p_value;
+		bytecode::MethodCall method;
+		method.method = "call";
+		for (size_t a = 0; a < p_args.size(); a++) {
+			method.params.push_back(slot(std::string(), p_function.args[a + 1]));
+			i.args.push_back(convert(p_args[a], p_function.args[a + 1]));
+		}
+		method.result = slot(std::string(), p_function.args[0]);
+		i.dst = temp(p_function.args[0]);
+		i.imm = method_call(method);
+		add(i);
+		return i.dst;
 	}
 
 	const StructDecl *struct_decl(const Type &p_struct) const {
@@ -1369,6 +1471,8 @@ class Lowerer {
 				instr(Op::UNWRAP, result, value, message, 0, fn.regs[result].type);
 				return result;
 			}
+			case Target::ResultMethod:
+				return result_method(p_call);
 			default:
 				break;
 		}
@@ -1604,6 +1708,8 @@ class Lowerer {
 		switch (p_expr.kind) {
 			case ExprKind::Lambda:
 				return make_lambda(p_expr);
+			case ExprKind::Try:
+				return try_value(p_expr);
 			case ExprKind::Await: {
 				const Expr &operand = *p_expr.left;
 				const uint32_t src = lower_expr(operand);

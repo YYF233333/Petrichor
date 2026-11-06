@@ -116,7 +116,6 @@ namespace {
 
 bool same_values(const TypeImage &p_type, const uint8_t *p_a, const uint8_t *p_b);
 uint32_t hash_of(const TypeImage &p_type, const uint8_t *p_slot);
-String value_text(const TypeImage &p_type, const uint8_t *p_slot);
 
 class Box : public CallableCustom {
 	std::unique_ptr<uint64_t[]> storage;
@@ -522,6 +521,11 @@ static bool is_payload_enum(const TypeImage &p_type) {
 	return p_type.kind == bytecode::TypeKind::PayloadEnum;
 }
 
+// Result[T, E], which has no script (spec §3.5).
+static bool is_result(const TypeImage &p_type) {
+	return is_payload_enum(p_type) && !p_type.name.contains("::");
+}
+
 // The key of an encoded PayloadEnum that names its variant (spec §3.7).
 static const char *const VARIANT_KEY = "$variant";
 
@@ -860,6 +864,9 @@ bool is_enum_value(const TypeImage &p_type, int64_t p_value) {
 }
 
 String type_description(const TypeImage &p_type) {
+	if (is_result(p_type)) {
+		return "Result[" + type_description(*p_type.fields[1].type) + ", " + type_description(*p_type.fields[2].type) + "]";
+	}
 	if (is_struct(p_type) || (p_type.kind == bytecode::TypeKind::Enum && p_type.name.contains("::"))) {
 		return class_description(StringName(), String(), p_type.name);
 	}
@@ -1038,11 +1045,15 @@ uint32_t hash_contents(const Variant &p_value, int p_depth) {
 	return p_value.hash();
 }
 
-// "Hit(damage = 3, crit = false)", "Command.MOVE(target = (1, 0, 0))",
-// "Command.IDLE".
+} // namespace
+
 String value_text(const TypeImage &p_type, const uint8_t *p_slot) {
 	if (is_option(p_type)) {
 		return tag(p_slot) ? value_text(*p_type.element, p_slot + 8) : String("None");
+	}
+	if (is_result(p_type)) {
+		const FieldImage &field = p_type.fields[1 + tag(p_slot)];
+		return vformat("%s(%s)", p_type.enum_declared[tag(p_slot)].first, value_text(*field.type, p_slot + field.offset));
 	}
 	if (is_struct(p_type)) {
 		String text = type_description(p_type);
@@ -1063,8 +1074,6 @@ String value_text(const TypeImage &p_type, const uint8_t *p_slot) {
 	}
 	return type_of(value) == Variant::STRING || type_of(value) == Variant::STRING_NAME ? vformat("\"%s\"", value) : String(value);
 }
-
-} // namespace
 
 Variant make_box(const TypeImage &p_type, const uint8_t *p_value, bool p_key) {
 	return Callable(memnew(Box(p_type.box, p_value, p_key)));
