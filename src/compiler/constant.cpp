@@ -548,14 +548,7 @@ ConstPtr fold_known_math(Expr &r_expr, const std::vector<ConstPtr> &p_args) {
 		return int_value(value > i(2) ? i(2) : value);
 	}
 	if ((name == "wrapi" || name == "wrap") && ints) {
-		if (i(1) == i(2)) {
-			return int_value(i(1));
-		}
-		const bool up = i(1) < i(2);
-		const uint64_t span = up ? uint64_t(i(2)) - uint64_t(i(1)) : uint64_t(i(1)) - uint64_t(i(2));
-		const uint64_t rem = (i(0) >= i(1) ? uint64_t(i(0)) - uint64_t(i(1)) : uint64_t(i(1)) - uint64_t(i(0))) % span;
-		const uint64_t step = (up == (i(0) >= i(1)) || rem == 0) ? rem : span - rem;
-		return int_value(wrapping(up ? uint64_t(i(1)) + step : uint64_t(i(1)) - step));
+		return int_value(bytecode::int_wrapi(i(0), i(1), i(2)));
 	}
 	if (name == "posmod" && ints) {
 		if (i(1) == 0) {

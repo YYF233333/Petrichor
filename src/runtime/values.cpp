@@ -1006,7 +1006,10 @@ uint32_t content_hash(const Variant &p_value) {
 	return hash_contents(p_value, 0);
 }
 
-Variant deep_copy(const Variant &p_value, int64_t p_mode) {
+static Variant deep_copy_at(const Variant &p_value, int64_t p_mode, int p_depth) {
+	if (p_depth > MAX_DEPTH) {
+		return p_value;
+	}
 	if (const Box *box = as_box(p_value)) {
 		const TypeImage &type = box->type->type();
 		if (!box->type->holds_containers && p_mode < 0) {
@@ -1019,10 +1022,10 @@ Variant deep_copy(const Variant &p_value, int64_t p_mode) {
 		for_each_active_leaf(type, copy.data, [&](ValueType p_storage, uint8_t *p_leaf) {
 			if (p_storage == ValueType::Array) {
 				Array &array = *reinterpret_cast<Array *>(p_leaf);
-				array = deep_copy(array, p_mode);
+				array = deep_copy_at(array, p_mode, p_depth + 1);
 			} else if (p_storage == ValueType::Dictionary) {
 				Dictionary &dictionary = *reinterpret_cast<Dictionary *>(p_leaf);
-				dictionary = deep_copy(dictionary, p_mode);
+				dictionary = deep_copy_at(dictionary, p_mode, p_depth + 1);
 			} else if (p_storage == ValueType::Object && p_mode >= 0 && !is_none_object(p_leaf)) {
 				ObjectView view(p_leaf);
 				Array wrapped;
@@ -1039,7 +1042,7 @@ Variant deep_copy(const Variant &p_value, int64_t p_mode) {
 		}
 		Array copy = source.duplicate(false);
 		for (int64_t i = 0; i < source.size(); i++) {
-			copy[i] = deep_copy(source[i], p_mode);
+			copy[i] = deep_copy_at(source[i], p_mode, p_depth + 1);
 		}
 		return copy;
 	}
@@ -1052,11 +1055,15 @@ Variant deep_copy(const Variant &p_value, int64_t p_mode) {
 		Dictionary copy = source.duplicate(false);
 		const Array keys = source.keys();
 		for (int64_t i = 0; i < keys.size(); i++) {
-			copy[keys[i]] = deep_copy(source[keys[i]], p_mode);
+			copy[keys[i]] = deep_copy_at(source[keys[i]], p_mode, p_depth + 1);
 		}
 		return copy;
 	}
 	return p_value;
+}
+
+Variant deep_copy(const Variant &p_value, int64_t p_mode) {
+	return deep_copy_at(p_value, p_mode, 0);
 }
 
 bool less_values(const TypeImage &p_type, const uint8_t *p_a, const uint8_t *p_b) {
@@ -1387,7 +1394,10 @@ Dictionary typed_dictionary(const ValueCheck &p_check) {
 // make_read_only() leaves the containers inside alone and cannot be undone
 // (core/variant/array.cpp:938-942, core/variant/dictionary.cpp:599-603), so a
 // key is copied and frozen level by level.
-Variant frozen_copy(const Variant &p_key) {
+static Variant frozen_copy_at(const Variant &p_key, int p_depth) {
+	if (p_depth > MAX_DEPTH) {
+		return p_key;
+	}
 	if (const Box *box = as_box(p_key)) {
 		if (!box->type->holds_containers && box->is_key) {
 			return p_key;
@@ -1395,13 +1405,13 @@ Variant frozen_copy(const Variant &p_key) {
 		const TypeImage &type = box->type->type();
 		ValueBuffer copy(type);
 		copy_value(type, copy.data, box->value());
-		for_each_active_leaf(type, copy.data, [](ValueType p_storage, uint8_t *p_leaf) {
+		for_each_active_leaf(type, copy.data, [&](ValueType p_storage, uint8_t *p_leaf) {
 			if (p_storage == ValueType::Array) {
 				Array &array = *reinterpret_cast<Array *>(p_leaf);
-				array = frozen_copy(array);
+				array = frozen_copy_at(array, p_depth + 1);
 			} else if (p_storage == ValueType::Dictionary) {
 				Dictionary &dictionary = *reinterpret_cast<Dictionary *>(p_leaf);
-				dictionary = frozen_copy(dictionary);
+				dictionary = frozen_copy_at(dictionary, p_depth + 1);
 			}
 		});
 		return make_box(type, copy.data, true);
@@ -1410,7 +1420,7 @@ Variant frozen_copy(const Variant &p_key) {
 		const Array original = p_key;
 		Array copy = original.duplicate(false);
 		for (int64_t i = 0; i < copy.size(); i++) {
-			copy[i] = frozen_copy(original[i]);
+			copy[i] = frozen_copy_at(original[i], p_depth + 1);
 		}
 		copy.make_read_only();
 		return copy;
@@ -1421,7 +1431,7 @@ Variant frozen_copy(const Variant &p_key) {
 		copy.clear();
 		const Array keys = original.keys();
 		for (int64_t i = 0; i < keys.size(); i++) {
-			copy[frozen_copy(keys[i])] = frozen_copy(original[keys[i]]);
+			copy[frozen_copy_at(keys[i], p_depth + 1)] = frozen_copy_at(original[keys[i]], p_depth + 1);
 		}
 		copy.make_read_only();
 		return copy;
@@ -1429,28 +1439,39 @@ Variant frozen_copy(const Variant &p_key) {
 	return p_key;
 }
 
-void freeze(const Variant &p_key) {
+Variant frozen_copy(const Variant &p_key) {
+	return frozen_copy_at(p_key, 0);
+}
+
+static void freeze_at(const Variant &p_key, int p_depth) {
+	if (p_depth > MAX_DEPTH) {
+		return;
+	}
 	if (const Box *box = as_box(p_key)) {
-		for_each_active_leaf(box->type->type(), box->value(), [](ValueType p_storage, const uint8_t *p_leaf) {
+		for_each_active_leaf(box->type->type(), box->value(), [&](ValueType p_storage, const uint8_t *p_leaf) {
 			if (p_storage == ValueType::Array || p_storage == ValueType::Dictionary) {
-				freeze(to_variant(p_storage, p_leaf));
+				freeze_at(to_variant(p_storage, p_leaf), p_depth + 1);
 			}
 		});
 	} else if (type_of(p_key) == Variant::ARRAY) {
 		Array array = p_key;
 		for (int64_t i = 0; i < array.size(); i++) {
-			freeze(array[i]);
+			freeze_at(array[i], p_depth + 1);
 		}
 		array.make_read_only();
 	} else if (type_of(p_key) == Variant::DICTIONARY) {
 		Dictionary dictionary = p_key;
 		const Array keys = dictionary.keys();
 		for (int64_t i = 0; i < keys.size(); i++) {
-			freeze(keys[i]);
-			freeze(dictionary[keys[i]]);
+			freeze_at(keys[i], p_depth + 1);
+			freeze_at(dictionary[keys[i]], p_depth + 1);
 		}
 		dictionary.make_read_only();
 	}
+}
+
+void freeze(const Variant &p_key) {
+	freeze_at(p_key, 0);
 }
 
 bool keys_hold_containers(const Dictionary &p_dictionary) {

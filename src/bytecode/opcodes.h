@@ -224,6 +224,17 @@ inline bool int_power(int64_t p_base, int64_t p_exponent, int64_t &r_result) {
 	return true;
 }
 
+inline int64_t int_wrapi(int64_t p_value, int64_t p_min, int64_t p_max) {
+	if (p_min == p_max) {
+		return p_min;
+	}
+	const bool up = p_min < p_max;
+	const uint64_t span = up ? uint64_t(p_max) - uint64_t(p_min) : uint64_t(p_min) - uint64_t(p_max);
+	const uint64_t rem = (p_value >= p_min ? uint64_t(p_value) - uint64_t(p_min) : uint64_t(p_min) - uint64_t(p_value)) % span;
+	const uint64_t step = (up == (p_value >= p_min) || rem == 0) ? rem : span - rem;
+	return int64_t(up ? uint64_t(p_min) + step : uint64_t(p_min) - step);
+}
+
 // As the engine API names it: "int8", "uint32", "char32"…
 const char *int_range_name(IntRange p_range);
 

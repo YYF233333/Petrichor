@@ -153,6 +153,12 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 		image->properties.push_back(to_godot(property.name));
 	}
 	for (const bytecode::UtilityCall &call : module.utility_calls) {
+		if (call.function == "wrapi") {
+			image->utilities.push_back([](void *r_ret, const GDExtensionConstTypePtr *p_args, int) {
+				*static_cast<int64_t *>(r_ret) = bytecode::int_wrapi(*static_cast<const int64_t *>(p_args[0]), *static_cast<const int64_t *>(p_args[1]), *static_cast<const int64_t *>(p_args[2]));
+			});
+			continue;
+		}
 		const StringName name = to_godot(call.function);
 		const GDExtensionPtrUtilityFunction pointer = gdextension_interface::variant_get_ptr_utility_function(name._native_ptr(), call.hash);
 		if (!pointer) {
