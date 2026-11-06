@@ -54,11 +54,13 @@ func f(hit: Hit, l: Legacy, timer: Timer) -> void:
 	var e: Tween.EaseType = Tween.EASE_IN
 	var a: Vector3.Axis = Vector3.Axis(0)
 	var k: Key = KEY_ESCAPE
+	## Which way.
+	@warning_ignore("unused_variable")
+	var along := a
 )";
 
-// The lookup at the second byte of the nth `p_text` of SOURCE, as
-// "kind class.member type path:line".
-std::string lookup(const std::string &p_text, int p_nth = 0) {
+// The lookup at the second byte of the nth `p_text` of SOURCE.
+std::optional<compiler::Lookup> find(const std::string &p_text, int p_nth = 0) {
 	size_t offset = SOURCE.find(p_text);
 	for (int i = 0; i < p_nth; i++) {
 		offset = SOURCE.find(p_text, offset + 1);
@@ -69,7 +71,12 @@ std::string lookup(const std::string &p_text, int p_nth = 0) {
 	const compiler::Analysis::Pass pass(analysis);
 	const auto compiled = analysis.compile("res://test.pet", SOURCE);
 	REQUIRE_MESSAGE(compiled->ok(), messages(*compiled));
-	const std::optional<compiler::Lookup> found = compiler::lookup(analysis, fake_engine(), classes, doc_names(classes), "res://test.pet", SOURCE, uint32_t(offset + 1));
+	return compiler::lookup(analysis, fake_engine(), classes, doc_names(classes), "res://test.pet", SOURCE, uint32_t(offset + 1));
+}
+
+// The lookup as "kind class.member type path:line".
+std::string lookup(const std::string &p_text, int p_nth = 0) {
+	const std::optional<compiler::Lookup> found = find(p_text, p_nth);
 	if (!found) {
 		return "none";
 	}
@@ -113,12 +120,38 @@ bool has(const std::vector<compiler::DocMember> &p_members, const std::string &p
 	return std::find(all.begin(), all.end(), p_described) != all.end();
 }
 
+// The documentation of the script res://doc.pet of `p_source`, whose
+// declarations have no errors.
+std::vector<compiler::ClassDoc> documentation(const std::string &p_source, const std::string &p_class_name = std::string()) {
+	FakeProject classes = project();
+	classes.add_script("res://doc.pet", p_source, p_class_name);
+	compiler::CompileOptions options;
+	options.path = "res://doc.pet";
+	options.project = &classes;
+	options.declarations_only = true;
+	compiler::ScriptClasses scripts(fake_engine(), &classes, true);
+	compiler::ClassDecl decl;
+	const compiler::CompileResult result = compiler::compile(p_source, fake_engine(), options, scripts, decl);
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	return compiler::document(decl, "res://doc.pet", doc_names(classes));
+}
+
+const compiler::DocComment &comment_of(const std::vector<compiler::DocMember> &p_members, const std::string &p_name) {
+	const auto member = std::find_if(p_members.begin(), p_members.end(), [&](const compiler::DocMember &p_member) {
+		return p_member.name == p_name;
+	});
+	REQUIRE(member != p_members.end());
+	return member->comment;
+}
+
 } // namespace
 
 TEST_CASE("a local or parameter shows its type and leads to its declaration") {
 	CHECK(lookup("total", 1) == "local int res://test.pet:7");
 	CHECK(lookup("MAX", 1) == "local constant int res://test.pet:6");
 	CHECK(lookup("hit", 1) == "local Hit res://test.pet:5");
+	// With its comment, which may be above its annotations (spec §2.2).
+	CHECK(find("along")->comment.description == "Which way.");
 }
 
 TEST_CASE("a declaration of this language leads to its file and line and to its documentation, also in an inner class") {
@@ -160,17 +193,7 @@ struct Shot:
 class Inner extends Node3D:
 	pub var depth := 2
 )";
-	FakeProject classes = project();
-	classes.add_script("res://doc.pet", source, "Doc");
-	compiler::CompileOptions options;
-	options.path = "res://doc.pet";
-	options.project = &classes;
-	options.declarations_only = true;
-	compiler::ScriptClasses scripts(fake_engine(), &classes, true);
-	compiler::ClassDecl decl;
-	const compiler::CompileResult result = compiler::compile(source, fake_engine(), options, scripts, decl);
-	REQUIRE_MESSAGE(result.ok(), messages(result));
-	const std::vector<compiler::ClassDoc> docs = compiler::document(decl, "res://doc.pet", doc_names(classes));
+	const std::vector<compiler::ClassDoc> docs = documentation(source, "Doc");
 	REQUIRE(docs.size() == 3);
 	CHECK((docs[0].name == "Doc.Inner" && docs[0].inherits == "Node3D" && has(docs[0].properties, "depth: int = 2")));
 	CHECK((docs[1].name == "Doc.Shot" && has(docs[1].properties, "damage: int = 1")));
@@ -178,7 +201,7 @@ class Inner extends Node3D:
 	CHECK((doc.name == "Doc" && doc.inherits == "Node"));
 	CHECK(has(doc.signals, "hit(amount: int)"));
 	CHECK(has(doc.constants, "LIMIT: int = 3"));
-	CHECK(doc.enums == std::vector<std::string>{ "State" });
+	CHECK(described(doc.enums) == std::vector<std::string>{ "State" });
 	CHECK(has(doc.constants, "RUN: int [Doc.State] = 4"));
 	CHECK(has(doc.properties, "speed: float = 2.5"));
 	CHECK(has(doc.properties, "target: Node3D?"));
@@ -187,6 +210,80 @@ class Inner extends Node3D:
 	CHECK(has(doc.properties, "hp: int"));
 	// Its inline getter is not a method.
 	CHECK(described(doc.methods) == std::vector<std::string>{ "make(x: int = 1): Doc static", "wait: int async" });
+}
+
+TEST_CASE("a ## comment documents the declaration it is on or directly above, read as GDScript reads it, and one of ### is ordinary") {
+	const std::string source = R"(## A unit.
+##
+## Moves and [b]fights[/b].
+## @tutorial(Moving): https://example.com/move
+## @experimental
+extends Node
+
+### Signals ###
+signal hit
+signal died  ## When it dies.
+
+## Its speed,
+## in meters.[br][br]Per second.
+## @deprecated: Use [member pace].
+@export var speed := 2.5
+
+## Not of pace.
+### Section
+var pace := 1.0
+
+## Usage:
+## [codeblock]
+## if x:
+##     go()
+## [/codeblock]
+func go() -> void:
+	pass
+
+## States.
+enum State {
+	IDLE,  ## Waiting.
+	## Moving.
+	RUN,
+	A, B,  ## Of B only.
+}
+
+## A hit.
+struct Shot:
+	var damage := 1  ## Before armor.
+
+## Inner.
+class Inner:
+	pass
+)";
+	const std::vector<compiler::ClassDoc> docs = documentation(source);
+	REQUIRE(docs.size() == 3);
+	CHECK(docs[0].comment.brief == "Inner.");
+	CHECK(docs[1].comment.brief == "A hit.");
+	CHECK(comment_of(docs[1].properties, "damage").description == "Before armor.");
+	const compiler::ClassDoc &doc = docs[2];
+	CHECK(doc.comment.brief == "A unit.");
+	CHECK(doc.comment.description == "Moves and [b]fights[/b].");
+	CHECK(doc.comment.tutorials == std::vector<std::pair<std::string, std::string>>{ { "Moving", "https://example.com/move" } });
+	CHECK(doc.comment.experimental == std::string());
+	CHECK(comment_of(doc.signals, "hit").description.empty());
+	CHECK(comment_of(doc.signals, "died").description == "When it dies.");
+	const compiler::DocComment &speed = comment_of(doc.properties, "speed");
+	CHECK(speed.description == "Its speed, in meters.\nPer second.");
+	CHECK(speed.deprecated == std::string("Use [member pace]."));
+	CHECK(comment_of(doc.properties, "pace").description.empty());
+	CHECK(comment_of(doc.methods, "go").description == "Usage:\n[codeblock]\nif x:\n    go()\n[/codeblock]");
+	CHECK(comment_of(doc.enums, "State").description == "States.");
+	CHECK(comment_of(doc.constants, "IDLE").description == "Waiting.");
+	CHECK(comment_of(doc.constants, "RUN").description == "Moving.");
+	CHECK(comment_of(doc.constants, "A").description.empty());
+	CHECK(comment_of(doc.constants, "B").description == "Of B only.");
+	// The first comment documents the class only when it is not directly
+	// above the first member.
+	const std::vector<compiler::ClassDoc> member = documentation("extends Node\n## Of x.\nvar x := 1\n");
+	CHECK(member[0].comment.brief.empty());
+	CHECK(comment_of(member[0].properties, "x").description == "Of x.");
 }
 
 TEST_CASE("a declaration of the engine is filed as its documentation files it") {

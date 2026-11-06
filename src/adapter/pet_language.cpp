@@ -312,6 +312,11 @@ Dictionary PetLanguage::_lookup_code(const String &p_code, const String &p_symbo
 	result["class_name"] = to_godot(found->class_name);
 	result["class_member"] = to_godot(found->member);
 	result["doc_type"] = to_godot(found->type);
+	result["description"] = to_godot(found->comment.description);
+	result["is_deprecated"] = found->comment.deprecated.has_value();
+	result["deprecated_message"] = to_godot(found->comment.deprecated.value_or(std::string()));
+	result["is_experimental"] = found->comment.experimental.has_value();
+	result["experimental_message"] = to_godot(found->comment.experimental.value_or(std::string()));
 	if (!found->path.empty()) {
 		const String path = to_godot(found->path);
 		result["script"] = ResourceLoader::get_singleton()->load(path, "Script");

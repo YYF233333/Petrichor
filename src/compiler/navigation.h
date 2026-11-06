@@ -22,6 +22,17 @@ using DocName = std::function<std::string(const std::string &p_file)>;
 // "res://combat.pet::Shot" is Combat.Shot.
 std::string doc_class_name(const DocName &p_doc_name, const std::string &p_path);
 
+// The `##` comment of a declaration (spec §2.2), as the documentation shows
+// it.
+struct DocComment {
+	std::string brief; // A class's first paragraph.
+	std::string description;
+	std::vector<std::pair<std::string, std::string>> tutorials; // A class's, as title and link.
+	// With the tag's message, which may be empty.
+	std::optional<std::string> deprecated;
+	std::optional<std::string> experimental;
+};
+
 // What a name refers to, as the script editor's lookup shows it (spec §13.2):
 // where going to its definition leads, and what hover shows.
 struct Lookup {
@@ -30,7 +41,9 @@ struct Lookup {
 	// or a class of a script, and its name there.
 	std::string class_name;
 	std::string member;
-	std::string type; // Of a local.
+	// Of a local, which has no documentation.
+	std::string type;
+	DocComment comment;
 	// The file that declares it and the line, from 1; none for the engine's.
 	std::string path;
 	int line = 0;
@@ -51,17 +64,19 @@ struct DocMember {
 	std::string value; // A constant's value, or the default of a property or an argument, as written.
 	std::string qualifiers; // A method's: "static", "async", "abstract".
 	std::vector<DocMember> arguments; // A method's or a signal's.
+	DocComment comment;
 };
 
 // The documentation of a class, also of a struct or an interface.
 struct ClassDoc {
 	std::string name;
 	std::string inherits;
+	DocComment comment;
 	std::vector<DocMember> constants;
 	std::vector<DocMember> properties;
 	std::vector<DocMember> methods;
 	std::vector<DocMember> signals;
-	std::vector<std::string> enums; // Their values are among the constants.
+	std::vector<DocMember> enums; // Their names and comments; their values are among the constants.
 };
 
 // The documentation of the classes of the script at `p_path`, whose

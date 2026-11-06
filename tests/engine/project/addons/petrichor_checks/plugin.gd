@@ -374,11 +374,12 @@ func _check_lookup() -> void:
 
 
 # Spec §13.2: hover and the help show a class's declarations, also those
-# without pub, from the documentation it gives the editor, which the script
-# editor takes on saving (editor/script/script_editor_plugin.cpp:3449-3456).
+# without pub, and their ## comments (§2.2), from the documentation it gives
+# the editor, which the script editor takes on saving
+# (editor/script/script_editor_plugin.cpp:3449-3456).
 func _check_documentation() -> void:
 	var path := "res://editor_doc.pet"
-	_write(path, "extends Node\n\npub var target: Node3D?\nvar hidden := 1\n\npub async func wait(seconds: float = 1.0) -> int:\n\treturn 1\n")
+	_write(path, "## Waits for its target.\nextends Node\n\n## The node it [b]follows[/b].\npub var target: Node3D?\nvar hidden := 1\n\npub async func wait(seconds: float = 1.0) -> int:\n\treturn 1\n")
 	var script: Script = load(path)
 	var script_editor := EditorInterface.get_script_editor()
 	script_editor.update_docs_from_script(script)
@@ -386,8 +387,8 @@ func _check_documentation() -> void:
 	await get_tree().process_frame
 	var pages := script_editor.find_children("*", "EditorHelp", true, false)
 	var text: String = pages[-1].find_children("*", "RichTextLabel", true, false)[0].get_parsed_text().replace(char(0xA0), " ") if pages else ""
-	var shown := ["Node3D?", "hidden", "seconds: float = 1.0", "async"].all(func(part): return text.contains(part))
-	_check(shown, "the help of a class shows its members as declared" + ("" if shown else ": " + text))
+	var shown := ["Waits for its target.", "Node3D?", "The node it follows.", "hidden", "seconds: float = 1.0", "async"].all(func(part): return text.contains(part))
+	_check(shown, "the help of a class shows its members as declared, with their comments" + ("" if shown else ": " + text))
 	_check_errors([], "documenting reports nothing")
 	for file in [path, path + ".uid"]:
 		DirAccess.remove_absolute(file)

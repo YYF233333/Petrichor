@@ -212,8 +212,21 @@ std::string file_doc_name(const std::string &p_file) {
 	return to_utf8("\"" + path.trim_prefix("res://") + "\"");
 }
 
+// As the documentation takes a comment (core/doc_data.h:163-185): a tag is
+// there when its key is.
+void add_comment(Dictionary &r_doc, const compiler::DocComment &p_comment) {
+	r_doc["description"] = to_godot(p_comment.description);
+	if (p_comment.deprecated) {
+		r_doc["deprecated"] = to_godot(*p_comment.deprecated);
+	}
+	if (p_comment.experimental) {
+		r_doc["experimental"] = to_godot(*p_comment.experimental);
+	}
+}
+
 Dictionary doc_member(const compiler::DocMember &p_member, const char *p_type_key, const char *p_enum_key) {
 	Dictionary result;
+	add_comment(result, p_member.comment);
 	result["name"] = to_godot(p_member.name);
 	result[p_type_key] = to_godot(p_member.type);
 	result[p_enum_key] = to_godot(p_member.enumeration);
@@ -258,6 +271,16 @@ TypedArray<Dictionary> script_documentation(const String &p_path, const String &
 		documented["inherits"] = to_godot(doc.inherits);
 		documented["is_script_doc"] = true;
 		documented["script_path"] = p_path;
+		add_comment(documented, doc.comment);
+		documented["brief_description"] = to_godot(doc.comment.brief);
+		Array tutorials;
+		for (const auto &[title, link] : doc.comment.tutorials) {
+			Dictionary tutorial;
+			tutorial["title"] = to_godot(title);
+			tutorial["link"] = to_godot(link);
+			tutorials.push_back(tutorial);
+		}
+		documented["tutorials"] = tutorials;
 		Array constants;
 		for (const compiler::DocMember &constant : doc.constants) {
 			Dictionary member = doc_member(constant, "type", "enumeration");
@@ -284,8 +307,10 @@ TypedArray<Dictionary> script_documentation(const String &p_path, const String &
 		}
 		documented["signals"] = signals;
 		Dictionary enums;
-		for (const std::string &name : doc.enums) {
-			enums[to_godot(name)] = Dictionary();
+		for (const compiler::DocMember &documented_enum : doc.enums) {
+			Dictionary comment;
+			add_comment(comment, documented_enum.comment);
+			enums[to_godot(documented_enum.name)] = comment;
 		}
 		documented["enums"] = enums;
 		result.push_back(documented);
