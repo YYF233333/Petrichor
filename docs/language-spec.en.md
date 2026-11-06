@@ -443,7 +443,8 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 5.6 match
 
-- Value patterns are literals or constant expressions. `var x`, `_`, array and dictionary patterns with `..`, comma-separated patterns and `when` guards are as in GDScript.
+- Value patterns are literals or constant expressions of the matched value's static type; any other type is a compile error. A `Variant` value takes patterns of any type.
+- `var x`, `_`, array and dictionary patterns with `..`, comma-separated patterns and `when` guards are as in GDScript.
 - New patterns:
   - enum variants and structs: `Command.MOVE(target = pattern, ..)`, `Hit(damage = var d, ..)`; `var field` is short for `field = var field`, unlisted fields require `..`, and patterns nest;
   - built-in constructors: positional `Ok(var v)`, `Err(var e)`, `Some(var x)`, `Finished(var v)`, `Cancelled(var r)` without type prefixes;
