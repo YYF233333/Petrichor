@@ -1561,15 +1561,18 @@ class Lowerer {
 			i.base = lower_expr(*p_call.base);
 		} else if (p_call.target == Target::BuiltinMethod) {
 			if (!p_call.is_const && !is_shared(p_call.base->type) && is_place(*p_call.base)) {
-				// A method that changes its base changes the place it came from.
+				// A method that changes its base changes the place it came from,
+				// read once the arguments are known (spec §3.6).
 				written_back = std::make_unique<Place>(place_of(*p_call.base));
-				open(*written_back);
-				i.base = load(*written_back);
 			} else {
 				i.base = lower_expr(*p_call.base);
 			}
 		}
 		i.args = arguments(p_call);
+		if (written_back) {
+			open(*written_back);
+			i.base = load(*written_back);
+		}
 		// A value the engine would truncate or wrap is a program error (spec §10.6).
 		for (size_t a = 0; a < p_call.arg_ranges.size() && a < i.args.size(); a++) {
 			if (p_call.arg_ranges[a]) {
