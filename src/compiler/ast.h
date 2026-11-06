@@ -542,6 +542,10 @@ struct ClassDecl {
 	std::vector<EnumDecl> enums;
 	std::vector<const EnumDecl *> all_enums; // With those it inherits; filled by the checker.
 	std::vector<Type> implemented; // Filled by the checker.
+	// Filled by the checker: the interfaces of `implemented` it has errors in
+	// implementing, with the line of their `implements`, which other scripts
+	// report where they use the class as one (architecture §2.1).
+	std::vector<std::pair<Type, int>> implemented_with_errors;
 	bool is_node = false; // Filled by the checker: it extends Node, and becomes ready.
 	// Filled by the checker: its declarations were checked, whether or not
 	// some have errors, as they are not when its base has errors.

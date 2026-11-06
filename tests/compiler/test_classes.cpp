@@ -27,6 +27,7 @@ FakeProject project() {
 			"class_name Partly\nextends Node\npub var good: int = 1\npub var bad: Missing\npub func ok() -> int:\n\treturn good\npub func takes(m: Missing) -> void:\n\tpass\n"
 			"pub const LIMIT: int = \"many\"\npub struct Hit:\n\tvar what: Missing\n",
 			"Partly");
+	project.add_script("res://half.pet", "extends Node3D implements Combat.Damageable\nclass_name Half\n", "Half");
 	project.add_script("res://a.pet", "class_name A\nextends Node\npub var b: B?\n", "A");
 	project.add_script("res://b.pet", "class_name B\nextends Node\npub var a: A?\n", "B");
 	project.autoloads["Audio"] = "res://audio.pet";
@@ -252,6 +253,10 @@ TEST_CASE("other scripts use the declarations of a script that have no errors") 
 	CHECK(contains(errors("Partly.new().takes(null)"), "Partly.takes() has errors (res://partly.pet, line 7)."));
 	CHECK(contains(errors("print(Partly.LIMIT)"), "Partly.LIMIT has errors (res://partly.pet, line 9)."));
 	CHECK(contains(errors("var h: Partly.Hit"), "Partly.Hit has errors (res://partly.pet, line 11)."));
+	// Implementing an interface is one: the class is usable but not as it.
+	CHECK(errors("var h: Node3D = Half.new()").empty());
+	CHECK(contains(errors("var d: Combat.Damageable? = Half.new()"), "Half implements Combat.Damageable with errors (res://half.pet, line 1)."));
+	CHECK(contains(errors("var all: Array[Combat.Damageable] = [Half.new()]"), "Half implements Combat.Damageable with errors (res://half.pet, line 1)."));
 	// A subclass holds all of its base's members.
 	CHECK(contains(errors("pass", "extends Partly"), "Base script res://partly.pet has errors (line 4)."));
 }

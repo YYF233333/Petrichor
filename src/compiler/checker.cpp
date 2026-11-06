@@ -4091,6 +4091,8 @@ class Checker : public ClassRelation {
 			r_expr.param_types.push_back(element);
 			if (!assignable(type, element)) {
 				error(arg->range, "Cannot put a value of type " + type.to_string() + " in " + expected.to_string() + ".");
+			} else {
+				expect_implemented(*arg, type, element);
 			}
 		}
 		return set(r_expr, expected);
@@ -4159,9 +4161,13 @@ class Checker : public ClassRelation {
 			r_expr.param_types.push_back(entries->second);
 			if (!assignable(key, want_key)) {
 				error(r_expr.args[i]->range, "The keys of " + expected.to_string() + " are " + entries->first.to_string() + ", not " + key.to_string() + ".");
+			} else {
+				expect_implemented(*r_expr.args[i], key, want_key);
 			}
 			if (!assignable(value, entries->second)) {
 				error(r_expr.args[i + 1]->range, "Cannot put a value of type " + value.to_string() + " in " + expected.to_string() + ".");
+			} else {
+				expect_implemented(*r_expr.args[i + 1], value, entries->second);
 			}
 		}
 		return set(r_expr, expected);
@@ -5006,6 +5012,7 @@ class Checker : public ClassRelation {
 
 	void expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action) {
 		if (assignable(p_from, p_to)) {
+			expect_implemented(p_value, p_from, p_to);
 			return;
 		}
 		std::string message = std::string("Cannot ") + p_action + " a value of type " + p_from.to_string() + " as " + p_to.to_string() + ".";
@@ -6559,9 +6566,11 @@ class Checker : public ClassRelation {
 			}
 			cls.implemented.push_back(type);
 			own_interfaces.push_back({ type, &ref });
+			const size_t reported = errors.size();
 			const InterfaceDecl *interface = interface_decl(type);
 			if (!interface) {
 				error(ref.range, type.script + " has errors.");
+				note_implementation(type, ref, reported);
 				continue;
 			}
 			for (const FuncDecl &method : interface->methods) {
@@ -6584,6 +6593,38 @@ class Checker : public ClassRelation {
 				if (!same) {
 					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" does not have the signature that " + type.name + " declares, " + function_type(method).to_string() + ".");
 				}
+			}
+			note_implementation(type, ref, reported);
+		}
+	}
+
+	// That the class has errors in implementing the interface, when some were
+	// reported since `p_reported`.
+	void note_implementation(const Type &p_interface, const TypeRef &p_ref, size_t p_reported) {
+		const auto &noted = cls.implemented_with_errors;
+		if (errors.size() == p_reported || std::any_of(noted.begin(), noted.end(), [&](const auto &p_noted) { return p_noted.first == p_interface; })) {
+			return;
+		}
+		cls.implemented_with_errors.push_back({ p_interface, cls.source->position(cls.source->begin(p_ref.range)).line });
+	}
+
+	// A class of another file used as an interface it has errors in
+	// implementing, as other declarations with errors are (architecture §2.1).
+	void expect_implemented(const Expr &p_value, const Type &p_from, const Type &p_to) {
+		if (!p_to.is_interface || p_from.is_interface || !is_script_path(p_from.script) || in_this_file(p_from.script)) {
+			return;
+		}
+		const ClassDecl *decl = script_decl(p_from.script);
+		if (!decl) {
+			return;
+		}
+		Type interface = p_to;
+		interface.nullable = false;
+		for (const auto &[type, line] : decl->implemented_with_errors) {
+			if (type == interface) {
+				Type from = p_from;
+				from.nullable = false;
+				error(p_value.range, from.to_string() + " implements " + interface.to_string() + " with errors (" + script_file(p_from.script) + ", line " + std::to_string(line) + ").");
 			}
 		}
 	}
@@ -6659,6 +6700,7 @@ class Checker : public ClassRelation {
 			if (!interface) {
 				continue;
 			}
+			const size_t reported = errors.size();
 			for (const InterfaceProperty &required : interface->properties) {
 				if (required.type.is_error()) {
 					continue;
@@ -6685,6 +6727,7 @@ class Checker : public ClassRelation {
 					error(ref->range, "The engine property \"" + required.name + "\" is read-only, so it satisfies only a @readonly property of " + type.name + ".");
 				}
 			}
+			note_implementation(type, *ref, reported);
 		}
 	}
 
@@ -6880,6 +6923,7 @@ private:
 			cls.all_functions = cls.base->all_functions;
 			cls.all_signals = cls.base->all_signals;
 			cls.implemented = cls.base->implemented;
+			cls.implemented_with_errors = cls.base->implemented_with_errors;
 			cls.exposed_methods = cls.base->exposed_methods;
 			for (size_t i = 0; i < cls.all_members.size(); ++i) {
 				member_index[cls.all_members[i]->name] = int(i);
