@@ -323,28 +323,6 @@ class Lowerer {
 		return slot;
 	}
 
-	// A literal, or a constant of a built-in type, as its own type.
-	bytecode::Constant constant_of(const Expr &p_expr) {
-		bytecode::Constant constant;
-		constant.type = type_index(p_expr.type);
-		switch (p_expr.kind) {
-			case ExprKind::IntLiteral:
-				constant.i = p_expr.int_value;
-				constant.f = double(constant.i);
-				break;
-			case ExprKind::FloatLiteral:
-				constant.f = p_expr.float_value;
-				break;
-			case ExprKind::StringLiteral:
-				constant.s = p_expr.text;
-				break;
-			default:
-				constant.builtin = p_expr.text;
-				break;
-		}
-		return constant;
-	}
-
 	// The table entry of a constant expression's value (spec §4.5): what the
 	// compiler knows, and what the engine computes when the class loads.
 	bytecode::Constant constant_of(const ConstValue &p_value) {
@@ -363,7 +341,9 @@ class Lowerer {
 				constant.b = p_value.b;
 				return constant;
 			case Kind::String:
+			case Kind::Preload:
 				constant.s = p_value.text;
+				constant.load = p_value.kind == Kind::Preload;
 				return constant;
 			case Kind::None:
 				return constant;
@@ -377,25 +357,15 @@ class Lowerer {
 				constant.op = p_value.index;
 				break;
 			case Kind::Utility: {
-				bytecode::UtilityCall call;
-				call.function = p_value.text;
-				call.hash = p_value.hash;
-				call.is_vararg = p_value.b;
 				// A utility typed by its arguments takes them all as Variant (spec §10.3).
 				const bool argument_typed = p_value.returns.kind == TypeKind::Variant && p_value.type.kind != TypeKind::Variant;
-				call.params = argument_typed ? std::vector<ValueType>(p_value.items.size(), ValueType::Variant) : value_types(p_value.params);
-				call.return_type = value_type(p_value.returns);
-				call.result_type = type_index(p_value.type);
-				constant.utility = int32_t(utility(call));
+				const std::vector<ValueType> params = argument_typed ? std::vector<ValueType>(p_value.items.size(), ValueType::Variant) : value_types(p_value.params);
+				constant.utility = int32_t(utility({ p_value.text, p_value.hash, p_value.b, params, value_type(p_value.returns), type_index(p_value.type) }));
 				break;
 			}
 			case Kind::Field:
 				constant.field = p_value.text;
 				break;
-			case Kind::Preload:
-				constant.s = p_value.text;
-				constant.load = true;
-				return constant;
 			case Kind::Array:
 			case Kind::Dictionary:
 				break;
@@ -463,19 +433,10 @@ class Lowerer {
 		if (!p_expr.constant) {
 			return false;
 		}
-		if (p_expr.target == Target::Constant) {
+		if (p_expr.target == Target::Constant || p_expr.target == Target::EngineConstant || p_expr.target == Target::BuiltinConstant) {
 			return true;
 		}
-		switch (p_expr.kind) {
-			case ExprKind::Unary:
-			case ExprKind::Binary:
-			case ExprKind::Conditional:
-			case ExprKind::Subscript:
-			case ExprKind::Call:
-				return p_expr.constant->is_known();
-			default:
-				return false;
-		}
+		return p_expr.kind != ExprKind::Name && p_expr.kind != ExprKind::Member && p_expr.constant->is_known();
 	}
 
 	void error(const std::string &p_message) {
@@ -1601,30 +1562,8 @@ class Lowerer {
 				instr(operand.type.kind == TypeKind::Task ? Op::AWAIT_TASK : Op::AWAIT_SIGNAL, dst, src, NO_REG, operand.kind == ExprKind::Call && operand.is_async ? 1 : 0);
 				return dst;
 			}
-			case ExprKind::IntLiteral:
-			case ExprKind::FloatLiteral:
-			case ExprKind::StringLiteral: {
-				const ValueType type = value_type(p_expr.type);
-				if (type == ValueType::StringName || type == ValueType::NodePath) {
-					return load_text(type, p_expr.text);
-				}
-				const uint32_t result = temp(type);
-				const Op op = type == ValueType::Int ? Op::CONST_INT : (type == ValueType::Float ? Op::CONST_FLOAT : Op::CONST_STRING);
-				instr(op, result, NO_REG, NO_REG, add_constant(constant_of(p_expr)));
-				return result;
-			}
-			case ExprKind::BoolLiteral: {
-				const uint32_t result = temp(ValueType::Bool);
-				instr(Op::CONST_BOOL, result, NO_REG, NO_REG, p_expr.bool_value ? 1 : 0);
-				return result;
-			}
 			case ExprKind::Name:
 			case ExprKind::Member: {
-				if (p_expr.target == Target::EngineConstant) {
-					const uint32_t result = temp(ValueType::Int);
-					load_int(result, p_expr.int_value);
-					return result;
-				}
 				if (p_expr.target == Target::Autoload) {
 					const uint32_t result = temp(p_expr.type);
 					instr(Op::GET_AUTOLOAD, result, NO_REG, NO_REG, text_constant(ValueType::StringName, p_expr.text));
@@ -1651,11 +1590,6 @@ class Lowerer {
 					const uint32_t object = p_expr.target == Target::ObjectSignal ? lower_expr(*p_expr.base) : NO_REG;
 					const uint32_t result = temp(p_expr.type);
 					instr(Op::GET_SIGNAL, result, object, NO_REG, text_constant(ValueType::StringName, p_expr.text));
-					return result;
-				}
-				if (p_expr.target == Target::BuiltinConstant) {
-					const uint32_t result = temp(value_type(p_expr.type));
-					instr(Op::CONST_VALUE, result, NO_REG, NO_REG, add_constant(constant_of(p_expr)), fn.regs[result].type);
 					return result;
 				}
 				// A local, narrowed or not, a member, a property or a field.
@@ -1732,8 +1666,6 @@ class Lowerer {
 				return array_literal(p_expr);
 			case ExprKind::DictionaryLiteral:
 				return dictionary_literal(p_expr);
-			case ExprKind::NoneLiteral:
-				return default_value(temp(p_expr.type));
 			case ExprKind::TypeTest: {
 				uint32_t source = lower_expr(*p_expr.left);
 				const uint32_t result = temp(ValueType::Bool);

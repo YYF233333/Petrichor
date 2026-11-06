@@ -16,48 +16,33 @@
 namespace petrichor::compiler {
 
 uint8_t engine_operator(TokenKind p_op) {
-	switch (p_op) {
-		case TokenKind::EqualEqual:
-			return OP_EQUAL;
-		case TokenKind::BangEqual:
-			return OP_NOT_EQUAL;
-		case TokenKind::Less:
-			return OP_LESS;
-		case TokenKind::LessEqual:
-			return OP_LESS_EQUAL;
-		case TokenKind::Greater:
-			return OP_GREATER;
-		case TokenKind::GreaterEqual:
-			return OP_GREATER_EQUAL;
-		case TokenKind::Plus:
-			return OP_ADD;
-		case TokenKind::Minus:
-			return OP_SUBTRACT;
-		case TokenKind::Star:
-			return OP_MULTIPLY;
-		case TokenKind::Slash:
-			return OP_DIVIDE;
-		case TokenKind::Percent:
-			return OP_MODULE;
-		case TokenKind::StarStar:
-			return OP_POWER;
-		case TokenKind::ShiftLeft:
-			return OP_SHIFT_LEFT;
-		case TokenKind::ShiftRight:
-			return OP_SHIFT_RIGHT;
-		case TokenKind::Ampersand:
-			return OP_BIT_AND;
-		case TokenKind::Pipe:
-			return OP_BIT_OR;
-		case TokenKind::Caret:
-			return OP_BIT_XOR;
-		case TokenKind::And:
-			return OP_AND;
-		case TokenKind::Or:
-			return OP_OR;
-		default:
-			return OP_UNKNOWN;
+	static const std::pair<TokenKind, uint8_t> ops[] = {
+		{ TokenKind::EqualEqual, OP_EQUAL },
+		{ TokenKind::BangEqual, OP_NOT_EQUAL },
+		{ TokenKind::Less, OP_LESS },
+		{ TokenKind::LessEqual, OP_LESS_EQUAL },
+		{ TokenKind::Greater, OP_GREATER },
+		{ TokenKind::GreaterEqual, OP_GREATER_EQUAL },
+		{ TokenKind::Plus, OP_ADD },
+		{ TokenKind::Minus, OP_SUBTRACT },
+		{ TokenKind::Star, OP_MULTIPLY },
+		{ TokenKind::Slash, OP_DIVIDE },
+		{ TokenKind::Percent, OP_MODULE },
+		{ TokenKind::StarStar, OP_POWER },
+		{ TokenKind::ShiftLeft, OP_SHIFT_LEFT },
+		{ TokenKind::ShiftRight, OP_SHIFT_RIGHT },
+		{ TokenKind::Ampersand, OP_BIT_AND },
+		{ TokenKind::Pipe, OP_BIT_OR },
+		{ TokenKind::Caret, OP_BIT_XOR },
+		{ TokenKind::And, OP_AND },
+		{ TokenKind::Or, OP_OR },
+	};
+	for (const auto &[token, op] : ops) {
+		if (token == p_op) {
+			return op;
+		}
 	}
+	return OP_UNKNOWN;
 }
 
 namespace {
@@ -189,46 +174,9 @@ bool known_nonzero(const ConstValue &p_divisor) {
 	return false;
 }
 
-ConstPtr fold_int_binary(Expr &r_expr, int64_t p_a, int64_t p_b) {
-	switch (r_expr.op) {
-		case TokenKind::Plus:
-			return int_value(wrapping(uint64_t(p_a) + uint64_t(p_b)));
-		case TokenKind::Minus:
-			return int_value(wrapping(uint64_t(p_a) - uint64_t(p_b)));
-		case TokenKind::Star:
-			return int_value(wrapping(uint64_t(p_a) * uint64_t(p_b)));
-		case TokenKind::Slash:
-		case TokenKind::Percent:
-			if (p_b == 0) {
-				return fail(r_expr, r_expr.op == TokenKind::Slash ? "Division by zero." : "Modulo by zero.");
-			}
-			// The minimum int divided by -1 wraps, as at run time.
-			if (p_b == -1) {
-				return int_value(r_expr.op == TokenKind::Slash ? wrapping(0ull - uint64_t(p_a)) : 0);
-			}
-			return int_value(r_expr.op == TokenKind::Slash ? p_a / p_b : p_a % p_b);
-		case TokenKind::ShiftLeft:
-		case TokenKind::ShiftRight:
-			if (p_a < 0 || p_b < 0) {
-				return fail(r_expr, "A shift takes operands that are not negative (spec §4.5).");
-			}
-			if (p_b >= 64) {
-				return fail(r_expr, "A shift by 64 or more bits is undefined (spec §4.5).");
-			}
-			return int_value(r_expr.op == TokenKind::ShiftLeft ? wrapping(uint64_t(p_a) << p_b) : p_a >> p_b);
-		case TokenKind::StarStar: {
-			int64_t result = 0;
-			if (!bytecode::int_power(p_a, p_b, result)) {
-				return fail(r_expr, "0 ** " + std::to_string(p_b) + " divides by zero.");
-			}
-			return int_value(result);
-		}
-		case TokenKind::Ampersand:
-			return int_value(p_a & p_b);
-		case TokenKind::Pipe:
-			return int_value(p_a | p_b);
-		case TokenKind::Caret:
-			return int_value(p_a ^ p_b);
+template <typename T>
+ConstPtr fold_comparison(TokenKind p_op, T p_a, T p_b) {
+	switch (p_op) {
 		case TokenKind::EqualEqual:
 			return bool_value(p_a == p_b);
 		case TokenKind::BangEqual:
@@ -246,6 +194,45 @@ ConstPtr fold_int_binary(Expr &r_expr, int64_t p_a, int64_t p_b) {
 	}
 }
 
+ConstPtr fold_int_binary(Expr &r_expr, int64_t p_a, int64_t p_b) {
+	switch (r_expr.op) {
+		case TokenKind::Plus:
+			return int_value(wrapping(uint64_t(p_a) + uint64_t(p_b)));
+		case TokenKind::Minus:
+			return int_value(wrapping(uint64_t(p_a) - uint64_t(p_b)));
+		case TokenKind::Star:
+			return int_value(wrapping(uint64_t(p_a) * uint64_t(p_b)));
+		case TokenKind::Slash:
+		case TokenKind::Percent:
+			if (p_b == 0) {
+				return fail(r_expr, r_expr.op == TokenKind::Slash ? "Division by zero." : "Modulo by zero.");
+			}
+			// The minimum int divided by -1 wraps, as at run time.
+			return int_value(p_b == -1 ? (r_expr.op == TokenKind::Slash ? wrapping(0ull - uint64_t(p_a)) : 0) : (r_expr.op == TokenKind::Slash ? p_a / p_b : p_a % p_b));
+		case TokenKind::ShiftLeft:
+		case TokenKind::ShiftRight:
+			if (p_a < 0 || p_b < 0) {
+				return fail(r_expr, "A shift takes operands that are not negative (spec §4.5).");
+			}
+			if (p_b >= 64) {
+				return fail(r_expr, "A shift by 64 or more bits is undefined (spec §4.5).");
+			}
+			return int_value(r_expr.op == TokenKind::ShiftLeft ? wrapping(uint64_t(p_a) << p_b) : p_a >> p_b);
+		case TokenKind::StarStar: {
+			int64_t result = 0;
+			return bytecode::int_power(p_a, p_b, result) ? int_value(result) : fail(r_expr, "0 ** " + std::to_string(p_b) + " divides by zero.");
+		}
+		case TokenKind::Ampersand:
+			return int_value(p_a & p_b);
+		case TokenKind::Pipe:
+			return int_value(p_a | p_b);
+		case TokenKind::Caret:
+			return int_value(p_a ^ p_b);
+		default:
+			return fold_comparison(r_expr.op, p_a, p_b);
+	}
+}
+
 ConstPtr fold_float_binary(TokenKind p_op, double p_a, double p_b) {
 	switch (p_op) {
 		case TokenKind::Plus:
@@ -256,20 +243,8 @@ ConstPtr fold_float_binary(TokenKind p_op, double p_a, double p_b) {
 			return float_value(p_a * p_b);
 		case TokenKind::Slash:
 			return float_value(p_a / p_b);
-		case TokenKind::EqualEqual:
-			return bool_value(p_a == p_b);
-		case TokenKind::BangEqual:
-			return bool_value(p_a != p_b);
-		case TokenKind::Less:
-			return bool_value(p_a < p_b);
-		case TokenKind::LessEqual:
-			return bool_value(p_a <= p_b);
-		case TokenKind::Greater:
-			return bool_value(p_a > p_b);
-		case TokenKind::GreaterEqual:
-			return bool_value(p_a >= p_b);
 		default:
-			return nullptr;
+			return fold_comparison(p_op, p_a, p_b);
 	}
 }
 
@@ -506,6 +481,11 @@ ConstPtr fold_constructor(Expr &r_expr) {
 	return value;
 }
 
+// float to int, checked as int(x) is.
+ConstPtr rounded(Expr &r_expr, double p_value) {
+	return fits_int(p_value) ? int_value(int64_t(p_value)) : fail(r_expr, "Cannot convert " + number_text(p_value) + " to int: out of range.");
+}
+
 ConstPtr fold_conversion(Expr &r_expr) {
 	const ConstPtr &arg = r_expr.args.empty() ? nullptr : r_expr.args[0]->constant;
 	if (!arg || arg->kind == Kind::Preload) {
@@ -517,22 +497,7 @@ ConstPtr fold_conversion(Expr &r_expr) {
 	if (arg->kind == Kind::Int) {
 		return arg;
 	}
-	if (arg->kind != Kind::Float) {
-		return fail(r_expr, "The float converted to int must be known at compile time (spec §4.5).");
-	}
-	if (!fits_int(arg->f)) {
-		return fail(r_expr, "Cannot convert " + number_text(arg->f) + " to int: out of range.");
-	}
-	return int_value(int64_t(arg->f));
-}
-
-// float to int inside a math function, checked as int(x) is.
-std::optional<int64_t> rounded(Expr &r_expr, double p_value) {
-	if (!fits_int(p_value)) {
-		fail(r_expr, "Cannot convert " + number_text(p_value) + " to int: out of range.");
-		return std::nullopt;
-	}
-	return int64_t(p_value);
+	return arg->kind == Kind::Float ? rounded(r_expr, arg->f) : fail(r_expr, "The float converted to int must be known at compile time (spec §4.5).");
 }
 
 // Math functions whose result is an int or a bool, of known arguments, as the
@@ -544,23 +509,13 @@ ConstPtr fold_known_math(Expr &r_expr, const std::vector<ConstPtr> &p_args) {
 	const bool ints = std::all_of(p_args.begin(), p_args.end(), [](const ConstPtr &p_arg) { return p_arg->kind == Kind::Int; });
 	if (r_expr.type.kind == TypeKind::Bool) {
 		if (name == "is_equal_approx") {
-			if (f(0) == f(1)) {
-				return bool_value(true);
-			}
-			const double tolerance = std::max(0.00001 * std::abs(f(0)), 0.00001);
-			return bool_value(std::abs(f(0) - f(1)) < tolerance);
+			return bool_value(f(0) == f(1) || std::abs(f(0) - f(1)) < std::max(0.00001 * std::abs(f(0)), 0.00001));
 		}
 		if (name == "is_zero_approx") {
 			return bool_value(std::abs(f(0)) < 0.00001);
 		}
-		if (name == "is_finite") {
-			return bool_value(std::isfinite(f(0)));
-		}
-		if (name == "is_inf") {
-			return bool_value(std::isinf(f(0)));
-		}
-		if (name == "is_nan") {
-			return bool_value(std::isnan(f(0)));
+		if (name == "is_finite" || name == "is_inf" || name == "is_nan") {
+			return bool_value(name == "is_finite" ? std::isfinite(f(0)) : (name == "is_inf" ? std::isinf(f(0)) : std::isnan(f(0))));
 		}
 		return nullptr;
 	}
@@ -571,7 +526,7 @@ ConstPtr fold_known_math(Expr &r_expr, const std::vector<ConstPtr> &p_args) {
 		return int_value(i(0) < 0 ? wrapping(0ull - uint64_t(i(0))) : i(0));
 	}
 	if ((name == "signi" || name == "sign") && ints) {
-		return int_value(i(0) == 0 ? 0 : (i(0) < 0 ? -1 : 1));
+		return int_value((i(0) > 0) - (i(0) < 0));
 	}
 	if ((name == "floor" || name == "ceil" || name == "round") && ints) {
 		return p_args[0];
@@ -580,9 +535,7 @@ ConstPtr fold_known_math(Expr &r_expr, const std::vector<ConstPtr> &p_args) {
 		const bool least = name == "mini" || name == "min";
 		int64_t best = i(0);
 		for (size_t a = 1; a < p_args.size(); a++) {
-			if (least ? best > i(a) : best < i(a)) {
-				best = i(a);
-			}
+			best = (least ? best > i(a) : best < i(a)) ? i(a) : best;
 		}
 		return int_value(best);
 	}
@@ -591,29 +544,20 @@ ConstPtr fold_known_math(Expr &r_expr, const std::vector<ConstPtr> &p_args) {
 	}
 	if (name == "clamp" && ints) {
 		// Against the minimum, then the result against the maximum.
-		int64_t value = i(0) < i(1) ? i(1) : i(0);
+		const int64_t value = i(0) < i(1) ? i(1) : i(0);
 		return int_value(value > i(2) ? i(2) : value);
 	}
 	if ((name == "wrapi" || name == "wrap") && ints) {
 		const int64_t range = wrapping(uint64_t(i(2)) - uint64_t(i(1)));
-		if (range == 0) {
-			return int_value(i(1));
-		}
 		const int64_t offset = wrapping(uint64_t(i(0)) - uint64_t(i(1)));
-		return int_value(wrapping(uint64_t(i(1)) + uint64_t(((offset % range) + range) % range)));
+		return int_value(range == 0 ? i(1) : wrapping(uint64_t(i(1)) + uint64_t(((offset % range) + range) % range)));
 	}
 	if (name == "posmod" && ints) {
 		if (i(1) == 0) {
 			return fail(r_expr, "Modulo by zero.");
 		}
-		if (i(1) == -1) {
-			return int_value(0);
-		}
-		int64_t value = i(0) % i(1);
-		if ((value < 0 && i(1) > 0) || (value > 0 && i(1) < 0)) {
-			value += i(1);
-		}
-		return int_value(value);
+		const int64_t value = i(1) == -1 ? 0 : i(0) % i(1);
+		return int_value((value < 0 && i(1) > 0) || (value > 0 && i(1) < 0) ? value + i(1) : value);
 	}
 	if (name == "nearest_po2" && ints) {
 		uint64_t value = uint64_t(i(0)) - 1;
@@ -623,15 +567,11 @@ ConstPtr fold_known_math(Expr &r_expr, const std::vector<ConstPtr> &p_args) {
 		return int_value(wrapping(value + 1));
 	}
 	if (name == "floori" || name == "ceili" || name == "roundi") {
-		const double value = name == "floori" ? std::floor(f(0)) : (name == "ceili" ? std::ceil(f(0)) : std::round(f(0)));
-		const std::optional<int64_t> result = rounded(r_expr, value);
-		return result ? int_value(*result) : nullptr;
+		return rounded(r_expr, name == "floori" ? std::floor(f(0)) : (name == "ceili" ? std::ceil(f(0)) : std::round(f(0))));
 	}
 	if (name == "snappedi" || (name == "snapped" && ints)) {
 		const double step = double(i(1));
-		const double value = step != 0 ? std::floor(f(0) / step + 0.5) * step : f(0);
-		const std::optional<int64_t> result = rounded(r_expr, value);
-		return result ? int_value(*result) : nullptr;
+		return rounded(r_expr, step != 0 ? std::floor(f(0) / step + 0.5) * step : f(0));
 	}
 	if (name == "step_decimals") {
 		const double magnitude = std::abs(f(0));
