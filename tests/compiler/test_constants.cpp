@@ -44,6 +44,7 @@ const HALF = 3
 const ROUNDED = roundi(2.5) + posmod(-7, 3) + clampi(9, 0, 5)
 const SMALL = -9223372036854775807 - 1
 const WRAPPED = SMALL - 1
+const WRAP_WIDE = wrapi(0, SMALL, 9223372036854775807) + wrapi(1, 0, 9223372036854775807)
 const CHOSEN = 1 if DAY_MS > 0 else 2
 const LIMITS = [10, 20, 30]
 const SECOND = LIMITS[1] + LIMITS[-1]
@@ -59,6 +60,7 @@ const WRAPS = 2 ** 64
 	CHECK(named(module, "TWICE").i == 6);
 	CHECK(named(module, "ROUNDED").i == 3 + 2 + 5);
 	CHECK(named(module, "WRAPPED").i == INT64_MAX);
+	CHECK(named(module, "WRAP_WIDE").i == 1);
 	CHECK(named(module, "CHOSEN").i == 1);
 	CHECK(named(module, "SECOND").i == 50);
 	// ** is left-associative and binds tighter than the signs, as in GDScript;

@@ -1621,7 +1621,7 @@ Variant outward_variant(const TypeImage &p_type, const uint8_t *p_data) {
 }
 
 bool check_value_sizes(String &r_error) {
-	// The engine's sizes for this build against the compiler's float_64 sizes.
+	// The engine's sizes for this build against the bytecode's size table.
 	static const struct {
 		ValueType type;
 		size_t size;
