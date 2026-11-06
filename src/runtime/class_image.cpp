@@ -153,17 +153,32 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 		image->properties.push_back(to_godot(property.name));
 	}
 	for (const bytecode::UtilityCall &call : module.utility_calls) {
+		const StringName name = to_godot(call.function);
+		const GDExtensionPtrUtilityFunction pointer = gdextension_interface::variant_get_ptr_utility_function(name._native_ptr(), call.hash);
+		if (!pointer) {
+			r_error = "the engine has no utility function " + to_godot(call.function) + " with this signature";
+			return nullptr;
+		}
 		if (call.function == "wrapi") {
 			image->utilities.push_back([](void *r_ret, const GDExtensionConstTypePtr *p_args, int) {
 				*static_cast<int64_t *>(r_ret) = bytecode::int_wrapi(*static_cast<const int64_t *>(p_args[0]), *static_cast<const int64_t *>(p_args[1]), *static_cast<const int64_t *>(p_args[2]));
 			});
 			continue;
 		}
-		const StringName name = to_godot(call.function);
-		const GDExtensionPtrUtilityFunction pointer = gdextension_interface::variant_get_ptr_utility_function(name._native_ptr(), call.hash);
-		if (!pointer) {
-			r_error = "the engine has no utility function " + to_godot(call.function) + " with this signature";
-			return nullptr;
+		if (call.function == "wrap") {
+			static GDExtensionPtrUtilityFunction engine_wrap = nullptr;
+			engine_wrap = pointer;
+			image->utilities.push_back([](void *r_ret, const GDExtensionConstTypePtr *p_args, int p_count) {
+				const Variant &v = *static_cast<const Variant *>(p_args[0]);
+				const Variant &lo = *static_cast<const Variant *>(p_args[1]);
+				const Variant &hi = *static_cast<const Variant *>(p_args[2]);
+				if (type_of(v) == Variant::INT && type_of(lo) == Variant::INT && type_of(hi) == Variant::INT) {
+					*static_cast<Variant *>(r_ret) = bytecode::int_wrapi(int64_t(v), int64_t(lo), int64_t(hi));
+					return;
+				}
+				engine_wrap(r_ret, p_args, p_count);
+			});
+			continue;
 		}
 		image->utilities.push_back(pointer);
 	}
@@ -379,11 +394,7 @@ static bool construct_constant(const ClassImage &p_image, const bytecode::Consta
 static bool call_utility_constant(const ClassImage &p_image, const bytecode::Constant &p_constant, Variant &r_value, String &r_error) {
 	const bytecode::UtilityCall &call = p_image.module.utility_calls[p_constant.utility];
 	const StringName name = to_godot(call.function);
-	const GDExtensionPtrUtilityFunction function = gdextension_interface::variant_get_ptr_utility_function(name._native_ptr(), call.hash);
-	if (!function) {
-		r_error = "the engine has no utility function " + name + " with this signature";
-		return false;
-	}
+	const GDExtensionPtrUtilityFunction function = p_image.utilities[p_constant.utility];
 	const size_t count = p_constant.args.size();
 	std::vector<Variant> variants(count);
 	std::vector<uint64_t> words(count);

@@ -19,6 +19,7 @@
 #include <mutex>
 #include <new>
 #include <unordered_map>
+#include <unordered_set>
 
 using namespace godot;
 
@@ -1006,10 +1007,7 @@ uint32_t content_hash(const Variant &p_value) {
 	return hash_contents(p_value, 0);
 }
 
-static Variant deep_copy_at(const Variant &p_value, int64_t p_mode, int p_depth) {
-	if (p_depth > MAX_DEPTH) {
-		return p_value;
-	}
+static Variant deep_copy_at(const Variant &p_value, int64_t p_mode, std::unordered_map<uint64_t, Variant> &r_seen) {
 	if (const Box *box = as_box(p_value)) {
 		const TypeImage &type = box->type->type();
 		if (!box->type->holds_containers && p_mode < 0) {
@@ -1022,10 +1020,10 @@ static Variant deep_copy_at(const Variant &p_value, int64_t p_mode, int p_depth)
 		for_each_active_leaf(type, copy.data, [&](ValueType p_storage, uint8_t *p_leaf) {
 			if (p_storage == ValueType::Array) {
 				Array &array = *reinterpret_cast<Array *>(p_leaf);
-				array = deep_copy_at(array, p_mode, p_depth + 1);
+				array = deep_copy_at(array, p_mode, r_seen);
 			} else if (p_storage == ValueType::Dictionary) {
 				Dictionary &dictionary = *reinterpret_cast<Dictionary *>(p_leaf);
-				dictionary = deep_copy_at(dictionary, p_mode, p_depth + 1);
+				dictionary = deep_copy_at(dictionary, p_mode, r_seen);
 			} else if (p_storage == ValueType::Object && p_mode >= 0 && !is_none_object(p_leaf)) {
 				ObjectView view(p_leaf);
 				Array wrapped;
@@ -1040,9 +1038,14 @@ static Variant deep_copy_at(const Variant &p_value, int64_t p_mode, int p_depth)
 		if (!keeps_boxes(p_value)) {
 			return p_mode < 0 ? source.duplicate(true) : source.duplicate_deep(p_mode);
 		}
+		const uint64_t id = object_id_of(p_value);
+		if (const auto found = r_seen.find(id); found != r_seen.end()) {
+			return found->second;
+		}
 		Array copy = source.duplicate(false);
+		r_seen.emplace(id, copy);
 		for (int64_t i = 0; i < source.size(); i++) {
-			copy[i] = deep_copy_at(source[i], p_mode, p_depth + 1);
+			copy[i] = deep_copy_at(source[i], p_mode, r_seen);
 		}
 		return copy;
 	}
@@ -1051,11 +1054,16 @@ static Variant deep_copy_at(const Variant &p_value, int64_t p_mode, int p_depth)
 		if (!keeps_boxes(p_value)) {
 			return p_mode < 0 ? source.duplicate(true) : source.duplicate_deep(p_mode);
 		}
+		const uint64_t id = object_id_of(p_value);
+		if (const auto found = r_seen.find(id); found != r_seen.end()) {
+			return found->second;
+		}
 		// Keys are read-only (spec §3.8), so the copy shares them.
 		Dictionary copy = source.duplicate(false);
+		r_seen.emplace(id, copy);
 		const Array keys = source.keys();
 		for (int64_t i = 0; i < keys.size(); i++) {
-			copy[keys[i]] = deep_copy_at(source[keys[i]], p_mode, p_depth + 1);
+			copy[keys[i]] = deep_copy_at(source[keys[i]], p_mode, r_seen);
 		}
 		return copy;
 	}
@@ -1063,7 +1071,8 @@ static Variant deep_copy_at(const Variant &p_value, int64_t p_mode, int p_depth)
 }
 
 Variant deep_copy(const Variant &p_value, int64_t p_mode) {
-	return deep_copy_at(p_value, p_mode, 0);
+	std::unordered_map<uint64_t, Variant> seen;
+	return deep_copy_at(p_value, p_mode, seen);
 }
 
 bool less_values(const TypeImage &p_type, const uint8_t *p_a, const uint8_t *p_b) {
@@ -1394,10 +1403,7 @@ Dictionary typed_dictionary(const ValueCheck &p_check) {
 // make_read_only() leaves the containers inside alone and cannot be undone
 // (core/variant/array.cpp:938-942, core/variant/dictionary.cpp:599-603), so a
 // key is copied and frozen level by level.
-static Variant frozen_copy_at(const Variant &p_key, int p_depth) {
-	if (p_depth > MAX_DEPTH) {
-		return p_key;
-	}
+static Variant frozen_copy_at(const Variant &p_key, std::unordered_map<uint64_t, Variant> &r_seen) {
 	if (const Box *box = as_box(p_key)) {
 		if (!box->type->holds_containers && box->is_key) {
 			return p_key;
@@ -1408,30 +1414,41 @@ static Variant frozen_copy_at(const Variant &p_key, int p_depth) {
 		for_each_active_leaf(type, copy.data, [&](ValueType p_storage, uint8_t *p_leaf) {
 			if (p_storage == ValueType::Array) {
 				Array &array = *reinterpret_cast<Array *>(p_leaf);
-				array = frozen_copy_at(array, p_depth + 1);
+				array = frozen_copy_at(array, r_seen);
 			} else if (p_storage == ValueType::Dictionary) {
 				Dictionary &dictionary = *reinterpret_cast<Dictionary *>(p_leaf);
-				dictionary = frozen_copy_at(dictionary, p_depth + 1);
+				dictionary = frozen_copy_at(dictionary, r_seen);
 			}
 		});
 		return make_box(type, copy.data, true);
 	}
 	if (type_of(p_key) == Variant::ARRAY) {
+		const uint64_t id = object_id_of(p_key);
+		if (const auto found = r_seen.find(id); found != r_seen.end()) {
+			return found->second;
+		}
 		const Array original = p_key;
 		Array copy = original.duplicate(false);
+		r_seen.emplace(id, copy);
 		for (int64_t i = 0; i < copy.size(); i++) {
-			copy[i] = frozen_copy_at(original[i], p_depth + 1);
+			copy[i] = frozen_copy_at(original[i], r_seen);
 		}
 		copy.make_read_only();
 		return copy;
 	}
 	if (type_of(p_key) == Variant::DICTIONARY) {
+		const uint64_t id = object_id_of(p_key);
+		if (const auto found = r_seen.find(id); found != r_seen.end()) {
+			return found->second;
+		}
 		const Dictionary original = p_key;
 		Dictionary copy = original.duplicate(false);
 		copy.clear();
+		r_seen.emplace(id, copy);
 		const Array keys = original.keys();
 		for (int64_t i = 0; i < keys.size(); i++) {
-			copy[frozen_copy_at(keys[i], p_depth + 1)] = frozen_copy_at(original[keys[i]], p_depth + 1);
+			const Variant k = frozen_copy_at(keys[i], r_seen);
+			copy[k] = frozen_copy_at(original[keys[i]], r_seen);
 		}
 		copy.make_read_only();
 		return copy;
@@ -1440,38 +1457,37 @@ static Variant frozen_copy_at(const Variant &p_key, int p_depth) {
 }
 
 Variant frozen_copy(const Variant &p_key) {
-	return frozen_copy_at(p_key, 0);
+	std::unordered_map<uint64_t, Variant> seen;
+	return frozen_copy_at(p_key, seen);
 }
 
-static void freeze_at(const Variant &p_key, int p_depth) {
-	if (p_depth > MAX_DEPTH) {
-		return;
-	}
+static void freeze_at(const Variant &p_key, std::unordered_set<uint64_t> &r_seen) {
 	if (const Box *box = as_box(p_key)) {
 		for_each_active_leaf(box->type->type(), box->value(), [&](ValueType p_storage, const uint8_t *p_leaf) {
 			if (p_storage == ValueType::Array || p_storage == ValueType::Dictionary) {
-				freeze_at(to_variant(p_storage, p_leaf), p_depth + 1);
+				freeze_at(to_variant(p_storage, p_leaf), r_seen);
 			}
 		});
-	} else if (type_of(p_key) == Variant::ARRAY) {
+	} else if (type_of(p_key) == Variant::ARRAY && r_seen.insert(object_id_of(p_key)).second) {
 		Array array = p_key;
 		for (int64_t i = 0; i < array.size(); i++) {
-			freeze_at(array[i], p_depth + 1);
+			freeze_at(array[i], r_seen);
 		}
 		array.make_read_only();
-	} else if (type_of(p_key) == Variant::DICTIONARY) {
+	} else if (type_of(p_key) == Variant::DICTIONARY && r_seen.insert(object_id_of(p_key)).second) {
 		Dictionary dictionary = p_key;
 		const Array keys = dictionary.keys();
 		for (int64_t i = 0; i < keys.size(); i++) {
-			freeze_at(keys[i], p_depth + 1);
-			freeze_at(dictionary[keys[i]], p_depth + 1);
+			freeze_at(keys[i], r_seen);
+			freeze_at(dictionary[keys[i]], r_seen);
 		}
 		dictionary.make_read_only();
 	}
 }
 
 void freeze(const Variant &p_key) {
-	freeze_at(p_key, 0);
+	std::unordered_set<uint64_t> seen;
+	freeze_at(p_key, seen);
 }
 
 bool keys_hold_containers(const Dictionary &p_dictionary) {
