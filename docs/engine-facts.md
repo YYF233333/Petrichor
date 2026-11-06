@@ -169,6 +169,7 @@
 | GDScript 的 `assert` 只在 debug 构建中编译 | `modules/gdscript/gdscript_compiler.cpp:2181-2207` | §8.3 |
 | GDScript 在判断 `assert` 的条件之前求值其消息，并要求消息是 String | `modules/gdscript/gdscript_compiler.cpp:2185-2198`；`modules/gdscript/gdscript_analyzer.cpp:2399-2405` | §8.3 |
 | GDScript 的链式赋值沿链读出、修改，再把值类型写回，共享类型原地修改 | `modules/gdscript/gdscript_compiler.cpp:1172-1190` | §3.6 |
+| GDScript 的链式赋值先求基对象并沿链读出中间值，再求右边，然后求最后一个下标，最后写入并写回 | `modules/gdscript/gdscript_compiler.cpp:1069, 1097-1121, 1124, 1134, 1157-1162` | §3.6 |
 | 成员的初始化式不经过 setter | `modules/gdscript/gdscript_compiler.cpp:2414-2430, 2603-2626` | §4.8、§6.1 |
 | 构造调用不等待 `_init` 的返回值；带返回值的引擎虚函数同步读取并转换脚本返回值 | `modules/gdscript/gdscript.cpp:194`；`core/object/make_virtuals.py:1-10, 173-174` | §9.1 |
 | 静态成员初始化之后调用 `_static_init` | `modules/gdscript/gdscript_compiler.cpp:2629-2632` | §4.8 |
