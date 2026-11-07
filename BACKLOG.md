@@ -5,6 +5,9 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 ## Language
 
 - Contextual keywords (spec §2.2). The tokenizer still reserves `pub`, `struct`, `interface`, `implements`, `async` and `None`. A `.pet` file cannot write dialogue_manager's `TranslationSource.None`.
+- `_init` with parameters on Node and Resource scripts (spec §6.2). The checker still refuses them (`checker.cpp`, "cannot take parameters").
+  - `_init` assigning a member that must be assigned provides it.
+  - A scene or `.tres` using a script whose `_init` has required parameters is a compile error.
 - The last subscript of an assignment's target is evaluated after the right side (spec §3.6). `lower.cpp` still evaluates it before.
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
 - Array and dictionary patterns of match (spec §5.6).
@@ -177,6 +180,5 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
   - which agreements are promises and which merely hold today;
   - which Godot versions are supported;
   - which semantics may still change during the alpha.
-- A rule that breaks the reversibility rule (spec §1.2): Node and Resource scripts cannot give `_init` parameters (§6.2). Every `Item.new("Sword")` changes.
 - Tuples, to be discussed after the first version. `await Task.all([...])` gives nothing (spec §9.5). With tuples it could give the results of tasks of different types, which an array cannot type.
 - How to test the gain in maintenance. Use the language in a real project through several rounds of changing requirements. See how many problems it points out ahead of renames, interface changes and refactorings across files. The cost of adoption includes migrating in step by step, mixing and leaving. With cross-language inheritance restricted, the unit of migration may be an inheritance cluster or a subsystem.
