@@ -188,8 +188,16 @@ TEST_CASE("preload() of a scene is a PackedScene of the scene's root") {
 	REQUIRE(result.module.classes.size() >= 1);
 	CHECK(result.module.classes.back().name == "PackedScene");
 
-	// Scenes are not read while loading.
+	// Scenes are not read while loading; a constant still holds the preload,
+	// which GDScript reads by name (spec §11.3).
 	CHECK(compile_in("extends Node\nvar s = preload(\"res://missing.tscn\")\n", project, true).ok());
+	const compiler::CompileResult loading = compile_in("extends Node\npub const SCENE = preload(\"res://objects/platform.tscn\")\n", project, true);
+	REQUIRE_MESSAGE(loading.ok(), messages(loading));
+	REQUIRE(loading.module.named_constants.size() == 1);
+	const bytecode::Constant &scene = loading.module.constants[loading.module.named_constants[0].constant];
+	CHECK((scene.load && scene.s == "res://objects/platform.tscn"));
+	std::string problem;
+	CHECK_MESSAGE(bytecode::verify(loading.module, problem), problem);
 }
 
 TEST_CASE("a path that a scene using the script lacks is an error marked with that scene (spec §7.1, §7.2)") {

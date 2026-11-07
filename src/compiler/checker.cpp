@@ -1395,7 +1395,7 @@ class Checker : public ClassRelation {
 		}
 		const Type value = check_value(r_initializer, r_type);
 		if (value.is_error()) {
-			return nullptr;
+			return options.declarations_only ? r_initializer.constant : nullptr; // A preload's, while loading.
 		}
 		if (p_declared) {
 			if (r_type.is_error()) {
@@ -2951,6 +2951,15 @@ class Checker : public ClassRelation {
 			return fail_call(r_expr, "preload() takes one literal path, a String.");
 		}
 		r_expr.args[0]->text = path;
+		// A constant expression, loaded where it is used (spec §4.5, §7.4).
+		const auto loaded = [&](const Type &p_type) {
+			auto value = std::make_shared<ConstValue>();
+			value->kind = ConstValue::Kind::Preload;
+			value->type = p_type;
+			value->text = path;
+			value->source = &r_expr;
+			return value;
+		};
 		// A uid stays what is loaded, so that the file can move.
 		const std::string file = preload_file(path);
 		if (file.empty() && !options.declarations_only) {
@@ -2967,7 +2976,10 @@ class Checker : public ClassRelation {
 			}
 			type = script_value_type(file);
 		} else if (options.declarations_only) {
-			return set(r_expr, Type::of(TypeKind::Error)); // Resources are not read while loading.
+			// Resources are not read while loading, so its type is unknown here;
+			// a constant still holds it, for GDScript to read (spec §11.3).
+			r_expr.constant = loaded(Type::object("Resource"));
+			return set(r_expr, Type::of(TypeKind::Error));
 		} else if (has_extension(file, { ".tscn", ".scn" })) {
 			const std::optional<Scene> scene = options.project ? options.project->scene(file) : std::nullopt;
 			const SceneNode *root = scene ? scene->find_node(".") : nullptr;
@@ -3000,12 +3012,7 @@ class Checker : public ClassRelation {
 		if (check_call(r_expr).is_error()) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
-		// A constant expression, loaded where it is used (spec §4.5, §7.4).
-		auto value = std::make_shared<ConstValue>();
-		value->kind = ConstValue::Kind::Preload;
-		value->type = type;
-		value->text = path;
-		value->source = &r_expr;
+		const auto value = loaded(type);
 		if (is_script_file(file)) {
 			value->script = file;
 			value->script_class = script_class;
