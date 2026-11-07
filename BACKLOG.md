@@ -59,7 +59,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 - Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`).
 - Temporary slots reused by scope. This releases temporary references in a loop in time. A suspended coroutine then keeps only the slots still in use.
-- A temporary that holds self keeps a RefCounted alive while the coroutine waits, as in `f(self, await g())` (against spec §9.4). Self is needed after the await there, so reusing slots does not help.
+- A temporary that holds self keeps a RefCounted alive while the coroutine waits, as in `f(self, await g())` (against spec §9.4). Self is needed after the await there, so reusing slots does not help. With the liveness of registers, such a register can drop self before the await and read it again after.
 - Ordering of arrays of engine types as spec §5.2 says. It differs from the engine's operators only with NaN, so it waits for the open question on NaN.
 
 ## Editor
