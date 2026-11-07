@@ -2507,6 +2507,101 @@ class Lowerer {
 		scopes.pop_back();
 	}
 
+	// Whether the instruction has read its operands when it stores its result,
+	// so that the result can go to one of them. The engine's operators and
+	// constructors compute a value of its math types before storing it
+	// (core/variant/variant_op.h:50-83), but not an Array's (:659-673).
+	bool stores_last(const ir::Instr &p_instr) const {
+		switch (p_instr.op) {
+			case Op::EVALUATE:
+			case Op::CONSTRUCT: {
+				const ValueType type = reg_type(p_instr.dst);
+				return is_8_byte(type) || (type >= ValueType::Vector2 && type <= ValueType::Color);
+			}
+			case Op::CONST_STRING:
+			case Op::CONST_VALUE:
+			case Op::MOVE_8:
+			case Op::MOVE_STRING:
+			case Op::MOVE_VALUE:
+			case Op::LOAD_MEMBER_8:
+			case Op::LOAD_MEMBER_STRING:
+			case Op::LOAD_MEMBER_VALUE:
+			case Op::GET_FIELD:
+			case Op::INT_TO_FLOAT:
+			case Op::FLOAT_TO_INT:
+			case Op::ADD_INT:
+			case Op::SUB_INT:
+			case Op::MUL_INT:
+			case Op::DIV_INT:
+			case Op::MOD_INT:
+			case Op::NEG_INT:
+			case Op::AND_INT:
+			case Op::OR_INT:
+			case Op::XOR_INT:
+			case Op::NOT_INT:
+			case Op::SHL_INT:
+			case Op::SHR_INT:
+			case Op::POW_INT:
+			case Op::ADD_FLOAT:
+			case Op::SUB_FLOAT:
+			case Op::MUL_FLOAT:
+			case Op::DIV_FLOAT:
+			case Op::POW_FLOAT:
+			case Op::NEG_FLOAT:
+			case Op::ADD_STRING:
+			case Op::EQ_INT:
+			case Op::NE_INT:
+			case Op::LT_INT:
+			case Op::LE_INT:
+			case Op::GT_INT:
+			case Op::GE_INT:
+			case Op::EQ_FLOAT:
+			case Op::NE_FLOAT:
+			case Op::LT_FLOAT:
+			case Op::LE_FLOAT:
+			case Op::GT_FLOAT:
+			case Op::GE_FLOAT:
+			case Op::EQ_BOOL:
+			case Op::NE_BOOL:
+			case Op::EQ_STRING:
+			case Op::NE_STRING:
+			case Op::NOT:
+				return true;
+			default:
+				return false;
+		}
+	}
+
+	// `p_local = p_value`, where the value is a temporary that the statement
+	// made from `p_first` on for this: the instruction that computed it stores
+	// it in the local instead, when it can, without a copy.
+	void assign_local(uint32_t p_local, uint32_t p_value, uint32_t p_first) {
+		std::vector<ir::Instr> &instrs = fn.blocks[current].instrs;
+		if (!terminated() && !instrs.empty() && instrs.back().dst == p_value && p_value >= p_first && !fn.views.count(p_value) && fn.regs[p_value].type == fn.regs[p_local].type && stores_last(instrs.back())) {
+			instrs.back().dst = p_local;
+			return;
+		}
+		move(p_local, p_value);
+	}
+
+	// Whether a statement in the block assigns the local.
+	static bool assigns(const Block &p_block, int p_local) {
+		for (const auto &stmt : p_block) {
+			if (stmt->kind == StmtKind::Assign && stmt->target->kind == ExprKind::Name && stmt->target->target == Target::Local && stmt->target->index == p_local) {
+				return true;
+			}
+			if (assigns(stmt->body, p_local) || assigns(stmt->else_body, p_local)) {
+				return true;
+			}
+			for (const MatchBranch &arm : stmt->branches) {
+				if (assigns(arm.body, p_local)) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
 	// The locals that the pattern binds, or with `p_values`, those that hold
 	// what its value patterns compare.
 	static void pattern_locals(const Pattern &p_pattern, bool p_values, std::vector<int> &r_locals) {
@@ -2607,7 +2702,7 @@ class Lowerer {
 			case StmtKind::Const: {
 				const uint32_t local = reg_of(p_stmt.local);
 				if (p_stmt.value) {
-					move(local, convert(lower_expr(*p_stmt.value), p_stmt.value->type, decl->locals[p_stmt.local].type));
+					assign_local(local, convert(lower_expr(*p_stmt.value), p_stmt.value->type, decl->locals[p_stmt.local].type), first);
 				} else {
 					default_value(local);
 				}
@@ -2635,7 +2730,12 @@ class Lowerer {
 					value = binary(compound_operator(p_stmt.assign_op), load(place), value, p_stmt.compound_result);
 					type = p_stmt.compound_result;
 				}
-				store(place, convert(value, type, target.type));
+				value = convert(value, type, target.type);
+				if (place.kind == Place::Kind::Local) {
+					assign_local(place.reg, value, first);
+				} else {
+					store(place, value);
+				}
 				return;
 			}
 			case StmtKind::If: {
@@ -2744,7 +2844,10 @@ class Lowerer {
 				// A Dictionary is iterated over its keys as they were on entry.
 				move(source, entries ? keys_of(lower_expr(*p_stmt.value), entries->first) : lower_expr(*p_stmt.value));
 				release(temps_since(first, source));
-				const uint32_t counter = temp(ValueType::Int);
+				// A loop variable that the body does not assign is the count itself.
+				const uint32_t local = reg_of(p_stmt.local);
+				const bool counts_in_local = counting && fn.regs[local].type == type_index(ValueType::Int) && !assigns(p_stmt.body, p_stmt.local);
+				const uint32_t counter = counts_in_local ? local : temp(ValueType::Int);
 				load_int(counter, 0);
 				const uint32_t condition_block = new_block();
 				const uint32_t body_block = new_block();
@@ -2757,11 +2860,13 @@ class Lowerer {
 				instr(Op::LT_INT, more, counter, limit);
 				branch(more, body_block, end_block);
 				current = body_block;
-				const uint32_t element_first = uint32_t(fn.regs.size());
-				move(reg_of(p_stmt.local), counting ? counter : get_index(source, counter, p_stmt.element));
-				release(temps_since(element_first));
+				if (!counts_in_local) {
+					const uint32_t element_first = uint32_t(fn.regs.size());
+					move(local, counting ? counter : get_index(source, counter, p_stmt.element));
+					release(temps_since(element_first));
+				}
 				loops.push_back({ step_block, end_block, scopes.size() });
-				lower_block(p_stmt.body, { reg_of(p_stmt.local) });
+				lower_block(p_stmt.body, { local });
 				loops.pop_back();
 				jump(step_block);
 				current = step_block;
