@@ -752,7 +752,10 @@ class Verifier {
 			case Op::GET_SIGNAL:
 			case Op::METHOD_VALUE:
 			case Op::ENGINE_METHOD_VALUE:
-				return index(o[0], module.constants.size(), "constant") && (storage(module.constants[o[0]].type) == ValueType::StringName || fail("a name that is not a StringName"));
+			case Op::STATIC_VALUE: {
+				const uint32_t name = o[p_op == Op::STATIC_VALUE ? 2 : 0];
+				return index(name, module.constants.size(), "constant") && (storage(module.constants[name].type) == ValueType::StringName || fail("a name that is not a StringName"));
+			}
 			case Op::TO_VARIANT:
 			case Op::FROM_VARIANT:
 				return is_option(o[0]) || is_struct(o[0]) || is_element(storage(o[0])) || fail("no value type");

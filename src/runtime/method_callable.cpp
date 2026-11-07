@@ -2,6 +2,7 @@
 
 #include "runtime/text.h"
 
+#include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/core/object.hpp>
 #include <godot_cpp/templates/hashfuncs.hpp>
 
@@ -153,6 +154,63 @@ void MethodCallable::call(const Variant **p_arguments, int p_argcount, Variant &
 		return;
 	}
 	r_return_value = call_value(instance.image, function, instance.context, p_arguments, p_argcount, r_call_error, nullptr);
+}
+
+void call_static(const StringName &p_class, const StringName &p_method, const Variant **p_args, uint32_t p_count, Variant &r_result, GDExtensionCallError &r_error) {
+	const Variant names[2] = { p_class, p_method };
+	std::vector<const Variant *> args = { &names[0], &names[1] };
+	args.insert(args.end(), p_args, p_args + p_count);
+	Variant(ClassDBSingleton::get_singleton()).callp("class_call_static", args.data(), int(args.size()), r_result, r_error);
+}
+
+StaticCallable::StaticCallable(const String &p_owner, const StringName &p_method, bool p_of_engine) :
+		owner(p_owner), method(p_method), of_engine(p_of_engine) {}
+
+bool StaticCallable::compare_equal(const CallableCustom *p_a, const CallableCustom *p_b) {
+	const StaticCallable *a = static_cast<const StaticCallable *>(p_a);
+	const StaticCallable *b = static_cast<const StaticCallable *>(p_b);
+	return a->of_engine == b->of_engine && a->owner == b->owner && a->method == b->method;
+}
+
+bool StaticCallable::compare_less(const CallableCustom *p_a, const CallableCustom *p_b) {
+	const StaticCallable *a = static_cast<const StaticCallable *>(p_a);
+	const StaticCallable *b = static_cast<const StaticCallable *>(p_b);
+	if (a->of_engine != b->of_engine) {
+		return a->of_engine < b->of_engine;
+	}
+	if (a->owner != b->owner) {
+		return a->owner < b->owner;
+	}
+	return a->method < b->method;
+}
+
+uint32_t StaticCallable::hash() const {
+	return hash_murmur3_one_32(method.hash(), owner.hash());
+}
+
+String StaticCallable::get_as_text() const {
+	return owner + String("::") + String(method);
+}
+
+int StaticCallable::get_argument_count(bool &r_is_valid) const {
+	std::shared_ptr<const ClassImage> image = of_engine ? nullptr : script_image(owner);
+	const int function = image ? image->find_function(method) : -1;
+	r_is_valid = function >= 0;
+	return r_is_valid ? int(image->module.functions[function].params.size()) : 0;
+}
+
+void StaticCallable::call(const Variant **p_arguments, int p_argcount, Variant &r_return_value, GDExtensionCallError &r_call_error) const {
+	if (of_engine) {
+		call_static(owner, method, p_arguments, uint32_t(p_argcount), r_return_value, r_call_error);
+		return;
+	}
+	std::shared_ptr<const ClassImage> image = script_image(owner);
+	const int function = image ? image->find_function(method) : -1;
+	if (function < 0 || !image->module.functions[function].is_static) {
+		r_call_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
+		return;
+	}
+	r_return_value = call_value(image, function, InstanceContext(), p_arguments, p_argcount, r_call_error, nullptr);
 }
 
 LambdaCallable::LambdaCallable(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const uint8_t *p_frame, const uint32_t *p_captures) :

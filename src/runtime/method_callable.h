@@ -81,6 +81,34 @@ public:
 	void call(const godot::Variant **p_arguments, int p_argcount, godot::Variant &r_return_value, GDExtensionCallError &r_call_error) const override;
 };
 
+// A static method of an engine class, by name (core/core_bind.cpp:1722-1737).
+void call_static(const godot::StringName &p_class, const godot::StringName &p_method, const godot::Variant **p_args, uint32_t p_count, godot::Variant &r_result, GDExtensionCallError &r_error);
+
+// A static function as a value (spec §3.11): of a class of this language,
+// found by name on its current image at each call (§12.4), or of an engine
+// class. Without an object it is valid, which connect() and emit() ask
+// (core/object/object.cpp:1255, 1528-1530; ed1daf0).
+class StaticCallable : public godot::CallableCustom {
+	godot::String owner; // The script's path, or the engine class.
+	godot::StringName method;
+	bool of_engine;
+
+	static bool compare_equal(const godot::CallableCustom *p_a, const godot::CallableCustom *p_b);
+	static bool compare_less(const godot::CallableCustom *p_a, const godot::CallableCustom *p_b);
+
+public:
+	StaticCallable(const godot::String &p_owner, const godot::StringName &p_method, bool p_of_engine);
+
+	uint32_t hash() const override;
+	godot::String get_as_text() const override;
+	CompareEqualFunc get_compare_equal_func() const override { return compare_equal; }
+	CompareLessFunc get_compare_less_func() const override { return compare_less; }
+	bool is_valid() const override { return true; }
+	godot::ObjectID get_object() const override { return godot::ObjectID(); }
+	int get_argument_count(bool &r_is_valid) const override;
+	void call(const godot::Variant **p_arguments, int p_argcount, godot::Variant &r_return_value, GDExtensionCallError &r_call_error) const override;
+};
+
 // A lambda (spec §3.11): a Callable that runs the lambda's function in the
 // image that made it, also after a hot reload (§12.4), with copies of what it
 // captured, and on the instance it was made on when it uses self, which it

@@ -655,8 +655,10 @@ class Checker : public ClassRelation {
 		}
 		const auto function = r_around.function_index.find(name);
 		if (function != r_around.function_index.end() && r_around.cls.all_functions[function->second]->is_static) {
-			refer(r_expr.name_token, script_id(declaring(r_around.cls, *r_around.cls.all_functions[function->second], &ClassDecl::functions).path, name));
-			return fail(r_expr, "A static function as a value is not supported yet; call \"" + name + "()\".");
+			const FuncDecl &found = *r_around.cls.all_functions[function->second];
+			const std::string &owner = declaring(r_around.cls, found, &ClassDecl::functions).path;
+			refer(r_expr.name_token, script_id(owner, name));
+			return static_value(r_expr, found, owner);
 		}
 		if (r_around.member_index.count(name) || r_around.signal_index.count(name) || function != r_around.function_index.end() || engine.find_property(r_around.cls.native_base, name) ||
 				engine.find_method(r_around.cls.native_base, name) || engine.find_signal(r_around.cls.native_base, name)) {
@@ -2197,13 +2199,17 @@ class Checker : public ClassRelation {
 		}
 		const auto function_found = function_index.find(r_expr.text);
 		if (function_found != function_index.end()) {
+			const FuncDecl &method = *cls.all_functions[function_found->second];
+			const std::string &owner = declaring(cls, method, &ClassDecl::functions).path;
+			refer(r_expr.name_token, script_id(owner, method.name));
+			if (method.is_static) {
+				return static_value(r_expr, method, owner);
+			}
 			// A method value (spec §3.11), which calls the function on this instance.
 			if (refuse_in_static(r_expr, r_expr.text)) {
 				return set(r_expr, Type::of(TypeKind::Error));
 			}
 			r_expr.target = Target::MethodValue;
-			const FuncDecl &method = *cls.all_functions[function_found->second];
-			refer(r_expr.name_token, script_id(declaring(cls, method, &ClassDecl::functions).path, method.name));
 			return set(r_expr, function_type(method));
 		}
 		const auto own_signal = signal_index.find(r_expr.text);
@@ -2461,11 +2467,50 @@ class Checker : public ClassRelation {
 			}
 			refer(r_expr.name_token, script_id(owner, function.name));
 			if (function.is_static) {
-				return fail(r_expr, "A static function as a value is not supported yet; call \"" + function.name + "()\".");
+				// Through an object, which is evaluated first, as for a call (spec §4.8).
+				r_expr.static_on_value = true;
+				return static_value(r_expr, function, owner);
 			}
 			return method_value(r_expr, function);
 		}
 		return std::nullopt;
+	}
+
+	// A static function of the class of this language at `p_path` as a value,
+	// written `Class.f` (spec §3.11); nullopt when the class has no function
+	// of that name.
+	std::optional<Type> class_function_value(Expr &r_expr, const std::string &p_path, const std::string &p_class) {
+		const ClassDecl *decl = script_decl(p_path);
+		if (!decl) {
+			return fail(r_expr, p_class + " has errors.");
+		}
+		for (const FuncDecl *entry : decl->all_functions) {
+			const FuncDecl &function = *entry;
+			if (function.name != r_expr.text) {
+				continue;
+			}
+			const std::string &owner = declaring(*decl, function, &ClassDecl::functions).path;
+			if (!function.is_static) {
+				return fail(r_expr, "\"" + function.name + "()\" of " + p_class + " is not static; take it from an object.");
+			}
+			if (!function.is_pub && !sees(owner)) {
+				return fail(r_expr, "\"" + function.name + "()\" of " + p_class + " is not pub.");
+			}
+			if (const auto message = broken(&function, p_class + "." + function.name + "()")) {
+				return fail(r_expr, *message);
+			}
+			refer(r_expr.name_token, script_id(owner, function.name));
+			return static_value(r_expr, function, owner);
+		}
+		return std::nullopt;
+	}
+
+	// A static function of this language as a value (spec §3.11), called on the
+	// current image of the class at `p_owner` (§12.4).
+	Type static_value(Expr &r_expr, const FuncDecl &p_function, const std::string &p_owner) {
+		r_expr.target = Target::StaticValue;
+		r_expr.owner = p_owner;
+		return set(r_expr, function_type(p_function));
 	}
 
 	// A method of this language as a value (spec §3.11), found by name on the
@@ -2618,7 +2663,10 @@ class Checker : public ClassRelation {
 			if (!inner.empty()) {
 				return class_value(r_expr, inner);
 			}
-			return fail(r_expr, missing(named->name + " has no constant or static variable \"" + r_expr.text + "\".", named->script));
+			if (const std::optional<Type> function = class_function_value(r_expr, named->script, named->name)) {
+				return *function;
+			}
+			return fail(r_expr, missing(named->name + " has no constant, static variable or static function \"" + r_expr.text + "\".", named->script));
 		}
 		if (names_type(base)) {
 			refer(base.name_token, engine_id(base.text));
@@ -2630,6 +2678,12 @@ class Checker : public ClassRelation {
 					return set(r_expr, api_type(constant->type, false));
 				}
 				return fail(r_expr, base.text + " has no constant \"" + r_expr.text + "\".");
+			}
+			if (const auto method = engine.find_method(base.text, r_expr.text)) {
+				if (!method->is_static) {
+					return fail(r_expr, "\"" + r_expr.text + "()\" of " + base.text + " is not static; take it from an object.");
+				}
+				return engine_method_value(r_expr, *method);
 			}
 			return check_engine_constant(r_expr, base.text);
 		}
@@ -2648,7 +2702,13 @@ class Checker : public ClassRelation {
 				return *variable;
 			}
 			const std::string inner = inner_class_path(base.owner, r_expr.text);
-			return inner.empty() ? fail(r_expr, missing(class_name + " has no constant or static variable \"" + r_expr.text + "\".", base.owner)) : class_value(r_expr, inner);
+			if (!inner.empty()) {
+				return class_value(r_expr, inner);
+			}
+			if (const std::optional<Type> function = class_function_value(r_expr, base.owner, class_name)) {
+				return *function;
+			}
+			return fail(r_expr, missing(class_name + " has no constant, static variable or static function \"" + r_expr.text + "\".", base.owner));
 		}
 		if (base_type.is_optional()) {
 			return fail(r_expr, "The value may be None (" + base_type.to_string() + "); check it before reading \"" + r_expr.text + "\".");
@@ -3683,18 +3743,17 @@ class Checker : public ClassRelation {
 	}
 
 	// An engine method as a value (spec §3.11): the engine's Callable, which
-	// finds the method by name on the object.
+	// finds the method by name on the object, or for a static one through its
+	// class, after the object if there is one (§4.8).
 	Type engine_method_value(Expr &r_expr, const EngineMethod &p_method) {
 		if (p_method.is_virtual) {
 			return fail(r_expr, "\"" + r_expr.text + "()\" is a virtual engine method.");
 		}
-		if (p_method.is_static) {
-			return fail(r_expr, "A static function as a value is not supported yet; call \"" + r_expr.text + "()\".");
-		}
 		if (p_method.return_type.kind == TypeKind::Unsupported) {
 			return fail(r_expr, "\"" + r_expr.text + "()\" returns " + p_method.return_type.to_string() + ", which is not supported yet.");
 		}
-		if (!receiver_kept(r_expr)) {
+		const bool through_class = p_method.is_static && !r_expr.is_foreign;
+		if (!through_class && !receiver_kept(r_expr)) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		bool ok = false;
@@ -3705,7 +3764,11 @@ class Checker : public ClassRelation {
 		if (!r_expr.is_foreign) {
 			refer(r_expr.name_token, engine_id(p_method.owner, r_expr.text));
 		}
-		r_expr.target = Target::EngineMethodValue;
+		r_expr.target = through_class ? Target::EngineStaticValue : Target::EngineMethodValue;
+		if (through_class) {
+			r_expr.owner = p_method.owner;
+			r_expr.static_on_value = r_expr.base && !names_type(*r_expr.base);
+		}
 		// Of a method that takes any number of arguments, a Callable of unknown signature.
 		return set(r_expr, p_method.is_vararg ? Type::builtin("Callable") : Type::function(engine_result(p_method), params));
 	}
@@ -8749,6 +8812,8 @@ class Checker : public ClassRelation {
 				return CompletionKind::Variable;
 			case Target::MethodValue:
 			case Target::EngineMethodValue:
+			case Target::StaticValue:
+			case Target::EngineStaticValue:
 				return CompletionKind::Function;
 			case Target::SelfSignal:
 			case Target::ObjectSignal:

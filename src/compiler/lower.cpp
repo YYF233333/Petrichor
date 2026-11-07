@@ -1899,6 +1899,20 @@ class Lowerer {
 					instr(p_expr.target == Target::MethodValue ? Op::METHOD_VALUE : Op::ENGINE_METHOD_VALUE, result, object, NO_REG, text_constant(ValueType::StringName, p_expr.text));
 					return result;
 				}
+				if (p_expr.target == Target::StaticValue || p_expr.target == Target::EngineStaticValue) {
+					if (p_expr.static_on_value) {
+						lower_expr(*p_expr.base);
+					}
+					bytecode::ClassRef owner;
+					(p_expr.target == Target::StaticValue ? owner.script : owner.name) = p_expr.owner;
+					ir::Instr i;
+					i.op = Op::STATIC_VALUE;
+					i.field = class_index(owner);
+					i.dst = temp(p_expr.type);
+					i.imm = text_constant(ValueType::StringName, p_expr.text);
+					add(i);
+					return i.dst;
+				}
 				if (p_expr.target == Target::SelfSignal || p_expr.target == Target::ObjectSignal) {
 					const uint32_t object = p_expr.target == Target::ObjectSignal ? lower_expr(*p_expr.base) : NO_REG;
 					const uint32_t result = temp(p_expr.type);

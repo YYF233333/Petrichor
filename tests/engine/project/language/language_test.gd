@@ -458,6 +458,7 @@ func _ready() -> void:
 	_check(containers.method_values(peer) == "5 0", "methods of another instance are values, one without pub and one of the engine (spec §3.11)")
 	containers.freed_receiver()
 	_check_errors(["container_check.pet:225: The function value's object was freed."], "a method value whose object was freed is not called (spec §3.11)")
+	_check(containers.static_values() == "[3, 2, 1] true 1", "static functions are values, of this language and of the engine, which the engine calls and compares (spec §3.11)")
 	peer.free()
 	containers.out_of_bounds()
 	_check_errors(["container_check.pet:45: Index 1 is out of bounds (size 1)."], "the program error of assigning out of bounds")

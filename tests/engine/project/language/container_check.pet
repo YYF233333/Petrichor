@@ -223,3 +223,25 @@ pub func freed_receiver() -> int:
 	var plus := peer.secret_plus
 	peer.free()
 	return plus.call(1)
+
+# Static functions as values (spec §3.11): the engine calls one without an
+# object, and finds an equal one to disconnect.
+static var ticks := 0
+
+static func descending(a: int, b: int) -> bool:
+	return a > b
+
+static func tick() -> void:
+	ticks += 1
+
+pub func static_values() -> String:
+	var numbers: Array[int] = [1, 3, 2]
+	numbers.sort_custom(descending)
+	var exists := FileAccess.file_exists
+	var timer := Timer.new()
+	timer.timeout.connect(ContainerCheck.tick)
+	timer.timeout.emit()
+	timer.timeout.disconnect(tick)
+	timer.timeout.emit()
+	timer.free()
+	return str(numbers) + " " + str(exists.call("res://project.godot")) + " " + str(ticks)

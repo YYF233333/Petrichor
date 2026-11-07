@@ -104,6 +104,19 @@ TEST_CASE("a member inherited without pub is seen as where it is declared, which
 	CHECK(contains(leak, "The enum Other.Sub.Mode is not pub."));
 }
 
+TEST_CASE("a static function is a value, of this language or of the engine (spec §3.11)") {
+	const FakeProject project = spawner_project();
+	const compiler::CompileResult result = compile_in("extends Node\nstatic func twice(n: int) -> int:\n\treturn n * 2\nstatic func f(s: Spawner) -> int:\n\tvar own := twice\n\tvar other := Spawner.make\n\tvar on_object := s.make\n\tvar open := FileAccess.open\n\treturn own.call(1) + other.call(2) + on_object.call(3)\nclass Inner:\n\tfunc g() -> int:\n\t\tvar around := twice\n\t\treturn around.call(4)\n", project);
+	require_verified(result);
+	find_instruction(function_named(result.module, "f"), Op::STATIC_VALUE);
+	CHECK(std::any_of(result.module.classes.begin(), result.module.classes.end(), [](const bytecode::ClassRef &p_class) { return p_class.script == "res://spawner.pet"; }));
+	CHECK(type_of("FileAccess.open") == "func(String, FileAccess.ModeFlags) -> FileAccess?");
+	const auto errors = [&](const std::string &p_body) { return messages(compile_in("extends Node\nfunc f() -> void:\n\t" + p_body + "\n", project)); };
+	CHECK(contains(errors("var x := Spawner.hidden"), "\"hidden()\" of Spawner is not pub."));
+	CHECK(contains(errors("var x := Spawner.tick"), "\"tick()\" of Spawner is not static; take it from an object."));
+	CHECK(contains(errors("var x := FileAccess.get_as_text"), "\"get_as_text()\" of FileAccess is not static; take it from an object."));
+}
+
 TEST_CASE("a class calls its own static methods through its class_name") {
 	const compiler::CompileResult result = compile_in("class_name Grid extends Node\nstatic func cell() -> int:\n\treturn 8\nfunc f() -> int:\n\treturn Grid.cell()\n", FakeProject());
 	require_verified(result);

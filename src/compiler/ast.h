@@ -122,6 +122,11 @@ enum class Target {
 	// self, or of the object in `base` unless it is self.
 	MethodValue,
 	EngineMethodValue, // As MethodValue, a method of an engine class.
+	// A static function as a value, of the class of this language at `owner`
+	// or of the engine class `owner`; `base`, when `static_on_value`, is an
+	// object evaluated first (spec §3.11, §4.8).
+	StaticValue,
+	EngineStaticValue,
 	SelfSignal, // A signal of the engine class this class extends, as a value.
 	ObjectSignal, // A signal of an engine object.
 	BindArguments, // `f.bind(...)` of a function value.

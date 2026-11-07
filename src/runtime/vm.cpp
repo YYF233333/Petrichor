@@ -394,14 +394,6 @@ public:
 	const Variant **as_variants() { return reinterpret_cast<const Variant **>(pointers); }
 };
 
-// A static method of an engine class, by name (core/core_bind.cpp:1722-1737).
-void call_static(const StringName &p_class, const StringName &p_method, const Variant **p_args, uint32_t p_count, Variant &r_result, GDExtensionCallError &r_error) {
-	const Variant names[2] = { p_class, p_method };
-	std::vector<const Variant *> args = { &names[0], &names[1] };
-	args.insert(args.end(), p_args, p_args + p_count);
-	Variant(ClassDBSingleton::get_singleton()).callp("class_call_static", args.data(), int(args.size()), r_result, r_error);
-}
-
 void report_error(const ClassImage &p_image, const bytecode::Function &p_function, int p_line, const String &p_message) {
 	vm::report_error(p_image, p_function.name.c_str(), p_line, p_message);
 }
@@ -1161,6 +1153,12 @@ class Execution {
 		Object *owner = static_cast<Object *>(*object);
 		*reinterpret_cast<Callable *>(p_frame + p_op[2]) = Op(p_op[0]) == Op::METHOD_VALUE ? Callable(memnew(MethodCallable(owner, name))) : Callable(owner, name);
 		return true;
+	}
+
+	PETRICHOR_NOINLINE void op_static_value(const uint32_t *p_op, uint8_t *p_frame) {
+		const String &script = image.class_scripts[p_op[1]];
+		const bool of_engine = script.is_empty();
+		*reinterpret_cast<Callable *>(p_frame + p_op[2]) = Callable(memnew(StaticCallable(of_engine ? String(image.classes[p_op[1]]) : script, image.values[p_op[3]], of_engine)));
 	}
 
 	PETRICHOR_NOINLINE bool op_make_lambda(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
@@ -2150,6 +2148,10 @@ public:
 					if (!op_method_value(code + pc, frame, freed, fn, record.line)) {
 						return false;
 					}
+					pc += 4;
+					break;
+				case Op::STATIC_VALUE:
+					op_static_value(code + pc, frame);
 					pc += 4;
 					break;
 				case Op::MAKE_LAMBDA:

@@ -156,7 +156,7 @@ func f(r: Registry) -> void:
 	CHECK(uses(f, Op::LOAD_STATIC));
 	CHECK(uses(f, Op::CALL_METHOD)); // Registry's setter of label.
 	CHECK(has(errors_in("extends Node\nfunc f() -> void:\n\tprint(Registry.hidden)\n"), "The static variable \"hidden\" of Registry is not pub."));
-	CHECK(has(errors_in("extends Node\nfunc f() -> void:\n\tprint(Registry.nothing)\n"), "Registry has no constant or static variable \"nothing\"."));
+	CHECK(has(errors_in("extends Node\nfunc f() -> void:\n\tprint(Registry.nothing)\n"), "Registry has no constant, static variable or static function \"nothing\"."));
 }
 
 TEST_CASE("a cycle between the static initializations of classes is found when they run, and both compile (spec §4.8)") {
