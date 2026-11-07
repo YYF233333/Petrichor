@@ -1,2 +1,4 @@
 #!/bin/sh
-exec pre-commit run --hook-stage commit-msg --commit-msg-filename "$1"
+# --files only keeps pre-commit from stashing the tree, as in pre-commit;
+# a commit-msg hook gets the message file either way.
+exec pre-commit run --hook-stage commit-msg --commit-msg-filename "$1" --files "$1"
