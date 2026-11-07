@@ -366,13 +366,14 @@ TEST_CASE("the declarations do not load scripts of other languages (spec §11.1)
 	CHECK_MESSAGE(result.ok(), messages(result));
 }
 
-TEST_CASE("implements: the class has every method of the interface, pub and with its signature (spec §3.9)") {
+TEST_CASE("implements: the class has every method of the interface, pub, not static and with its signature (spec §3.9)") {
 	const auto header = [](const std::string &p_methods) {
 		return messages(compile_in("extends Node3D implements Combat.Damageable\n" + p_methods + "\n", project()));
 	};
 	CHECK(header("\npub func damage(amount: float):\n\tpass").empty());
 	CHECK(contains(header(""), "The class does not implement damage() of Combat.Damageable."));
 	CHECK(contains(header("\nfunc damage(amount: float):\n\tpass"), "implements Combat.Damageable and must be pub"));
+	CHECK(contains(header("\npub static func damage(amount: float):\n\tpass"), "\"damage()\" implements Combat.Damageable, so it cannot be static (spec §3.9)."));
 	CHECK(contains(header("\npub func damage(amount: int):\n\tpass"), "does not have the signature that Combat.Damageable declares, func(float)."));
 	CHECK(contains(messages(compile_in("extends Node implements Weapon\n", project())), "Weapon is not an interface."));
 }

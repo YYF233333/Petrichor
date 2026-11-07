@@ -7912,6 +7912,9 @@ class Checker : public ClassRelation {
 				if (!function.is_pub) {
 					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + type.name + " and must be pub (spec §3.9).");
 				}
+				if (function.is_static) {
+					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + type.name + ", so it cannot be static (spec §3.9).");
+				}
 				bool same = function.params.size() == method.params.size() && function.return_type == method.return_type && function.is_async == method.is_async;
 				for (size_t i = 0; same && i < method.params.size(); i++) {
 					same = function.params[i].type == method.params[i].type;
