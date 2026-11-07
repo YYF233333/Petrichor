@@ -57,27 +57,32 @@ failures = []
 
 TIMEOUT = 120
 PROMPT = b"debug> "
+# A scene whose GDScript failed to load never quits, and no run expects it.
+GDSCRIPT_NOT_LOADED = re.compile(rb'Failed to load script "[^"]*\.gd"')
 
 
 def run(godot, *args):
-    # A script error can keep a scene from quitting; the timeout ends it.
-    try:
-        result = subprocess.run(
-            [godot, "--headless", *args],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=TIMEOUT,
-        )
-    except subprocess.TimeoutExpired as timeout:
-        # Captured output is bytes here despite text=True, and a stream with
-        # nothing captured is None.
-        def text(stream):
-            return stream.decode("utf-8", "replace") if isinstance(stream, bytes) else stream or ""
+    """Runs to the end. A scene is stopped early when a GDScript file fails to
+    load, and by the timeout when another script error keeps it from quitting.
+    The editor (-e) quits by itself."""
+    running = Running(godot, *args)
+    scanned = 0
+    found = None
 
-        return -1, text(timeout.stdout) + text(timeout.stderr) + "\n(timed out)"
-    return result.returncode, result.stdout + result.stderr
+    def ended_or_broken():
+        nonlocal scanned, found
+        if "-e" not in args and not found:
+            found = GDSCRIPT_NOT_LOADED.search(running.output, max(0, scanned - 256))
+        scanned = len(running.output)
+        return running.ended or found
+
+    with running.changed:
+        running.changed.wait_for(ended_or_broken, timeout=running._remaining())
+        broken = found and not running.ended
+    if broken:
+        running.process.kill()
+    code, output = running.finish()
+    return (-1, output + "\n(stopped: a GDScript file failed to load)") if broken else (code, output)
 
 
 class Running:
