@@ -114,6 +114,11 @@
 - **程序错误与断言（§8.1–§8.3）**：GDScript 出错后让调用方继续执行。此时 debug 构建返回类型默认值，release 构建返回 `null`。在静态类型下，这会产生假值。`?` 短路返回不用 `?.` 伴随，以免 `x?.y` 取决于 `x` 是 Option 还是 Result。[语料计数](surveys/corpus-counts.md)中，595 个 `assert` 的条件基本都是纯查询，实参含 `await` 的 0 个。539 个消息无一依赖在条件为真时求值。
 - **协程与信号（§9.1–§9.7）**：[语料计数](surveys/corpus-counts.md)中 979 个 lambda 只有 35 个含 `await`（33 个在 `gdUnit4` 测试中）。重入与释放暗坑见[暗坑清单](surveys/pitfalls.md) G-11、G-12、G-13，及提案 [godot-proposals#8838](https://github.com/godotengine/godot-proposals/issues/8838)、[#6243](https://github.com/godotengine/godot-proposals/issues/6243)。[await 信号结果调查](surveys/await-signal-results.md)中，1,356 个 `await` 只有 1 个使用了多参数信号的结果。也只有 1 个使用了签名未知的 `Signal` 结果（`godot_dialogue_manager` `:1956` 经 `RefCounted` 接收者等待 C# 两参数信号）。
 - **引擎边界（§10.2–§10.6）**：引擎用 `RequiredResult` 标注的 API 仅约 50 处（29 处在 `Tween`）。引擎传入虚函数和信号的对象几乎总是非空。默认非空加入口检查，避免每个 `_input` 和信号处理函数重复判空。引擎 API 中窄于 `int64` 或无符号的方法参数有 3,700 多个、属性约 460 个。例如 `uint32` 的 `collision_layer` 写入 `-1` 会回绕为 `4294967295`。
+- **按名访问（§10.4、§10.5）**：引擎分不清按名访问的调用方。只对引擎暴露私有成员，GDScript 的无类型访问也就能读写它，私有成员的不变量因此要防外部修改。[按名访问调查](surveys/by-name-access.md)中：
+  - 引擎按名访问的脚本成员几乎都来自场景信号连接、导出和 `@rpc`，编译器都已读取；
+  - 代码中指向本脚本的字面量名字每千行仅 0.5 处，多数可改用方法值；
+  - 要求它们带 `pub`，每千行多写约 16 个，几乎都能由编译器找出并给出快速修复；
+  - 本语言的 `connect` 和 `emit` 也经引擎按名核对信号，所以私有信号改名注册。
 - **跨语言、线程与工具链（§11.2、§12.3、§13.2–§13.4）**：跨语言继承限制见[暗坑清单](surveys/pitfalls.md) C-17。[第二次纸面迁移](surveys/paper-migration-2.md)中，Ring 的 `Brick` 和 `Enemy` 因此连带迁移了 5 个子类。全部 230 处迁移修改中，有 197 处是机械修改。[语料计数](surveys/corpus-counts.md)中 `Thread.new` 仅 5 处、`WorkerThreadPool` 2 处。括号续行在真实代码中大多只缩进一层，风格指南要求两层。GDScript 格式化器草稿因解析器丢弃字面量写法与括号而受阻（[godotengine/godot#76211](https://github.com/godotengine/godot/pull/76211)）。自带测试运行器，是因为 `gdUnit4` 和 `GUT` 要求继承其 GDScript 基类。
 
 ## 3. 考虑过但没有采用的方案
@@ -180,3 +185,9 @@
 | 热重载时重新运行静态初始化，再按名字搬回旧值，与 GDScript 相同 | `_static_init` 的副作用（如登记）会再发生一次；只修改函数体时，正在运行的程序只换之后的调用（§12.4） | §4.8 |
 | `new(...)` 跟随类的可见性，不看 `_init` 是否 `pub`，与 GDScript 相同 | 与其他成员不一致：不带 `pub` 的 `_init` 改签名时，调用方不只在本文件和子类中。类也无法只经自己的方法构造 | §4.2 |
 | 引擎基类的常量必须写出类名，如 `Object.NOTIFICATION_PREDELETE`，快速修复补上类名 | 引擎基类的属性、方法和信号都用裸名，只有常量例外；GDScript 代码中 4.9% 的文件要逐处改写 | §4.1 |
+| 引擎按名找到的成员不带 `pub` 也暴露，由编译器收集（v0.2 草案） | 暴露后任何调用方都能按名读写，私有成员的不变量要防外部修改 | §10.5 |
+| 全部成员对按名查找可见（C# 的做法） | 同上；GDScript 的无类型访问就是按名访问 | §10.5 |
+| 导出变量和 `@rpc` 函数隐含 `pub` | 看不出成员是否对外可见。正式公开后视语料和反馈再定，放开是兼容的 | §4.3、§14.2 |
+| 信号一律须带 `pub` | 只在文件内使用的信号也得公开，外部就能发出它们 | §10.5 |
+| 私有信号由本语言自行派发 | 要重写连接语义（deferred、one-shot、释放时断开），还要与 `await` 和 `Signal` 值配合 | §10.5 |
+| 读取私有信号的名字时去掉 `@` | 真实代码读名字多是为了按名用回去，如 gdUnit4 先 `has_signal(s.get_name())` 再断开。去掉后连接被悄悄留下。引擎打印 `Signal` 时也不经本语言 | §10.5 |

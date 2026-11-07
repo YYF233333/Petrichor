@@ -340,7 +340,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   @abstract
   class_name BattlerAction extends Resource
 
-  @export var label: String
+  @export pub var label: String
   @abstract pub async func execute()
   ```
 
@@ -357,7 +357,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 不带 `pub` 的成员在声明文件内和子类中可见，其他类不可见。struct、enum、interface 和内部类同样适用。声明文件包括其中的内部类。子类可以读写、调用和覆盖这些成员。带 `pub` 的成员对所有代码可见。
 - 覆盖须保持可见性不变；实现接口的成员须为 `pub`；`pub` 成员签名中出现非 `pub` 类型报编译错误。
 - `new(...)` 的可见性取继承链上最近的 `_init`。无 `_init` 时随处可 `new()`。`_init` 不带 `pub` 时，仅本文件和子类可调用 `new(...)`。
-- 不带 `pub` 的必须赋值成员须导出由场景赋值，或在本文件或子类中赋值。否则在声明处报编译错误。按名字反射能看到哪些成员，见“反射暴露的成员”一节。
+- 不带 `pub` 的必须赋值成员须在本文件或子类中赋值，否则在声明处报编译错误。按名字反射能看到哪些成员，见“反射暴露的成员”一节。
 
 ### 4.3 成员变量
 
@@ -365,7 +365,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 无初始化式的成员：
   - 数值、`bool`、字符串、core 值类型、容器、`Callable`、`Signal` 和含值 0 的无载荷 enum 取各自默认值。`T?` 取 `None`，`Variant` 取 NIL，`weak[T]` 取空弱引用；
   - struct 在所有字段均有默认值时取默认值，否则属于必须赋值的成员。非空对象引用、带载荷 enum、不含 0 的 enum 和函数类型也是必须赋值的成员。
-- `@export` 沿用 GDScript，但有三点不同。禁止导出 struct 和带载荷 enum。导出场景写 `PackedScene[T]`。非空对象导出必须赋值。
+- `@export` 沿用 GDScript，但有四点不同。导出的变量须带 `pub`。禁止导出 struct 和带载荷 enum。导出场景写 `PackedScene[T]`。非空对象导出必须赋值。
 
 ### 4.4 属性访问器
 
@@ -774,12 +774,18 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 10.4 字符串形式的成员名
 
 - 目标类型已知时，以下位置的字面量名字按静态引用解析。位置包括 `connect`、`emit_signal`、`call`、`call_deferred`、`set_deferred`、`has_method`、`Callable(obj, "m")`、`tween_property` 及 `"position:x"` 类属性路径，由绑定元数据标注参数位置。这些名字检查存在性与值类型，并参与重命名和查找引用。非字面量名字为显式动态访问。
+- 名字指向不带 `pub` 的本语言成员时报编译错误，因为引擎按名找不到它。方法名的快速修复改用方法值，如 `call_deferred("reset")` 改为 `reset.call_deferred()`。
 
 ### 10.5 反射暴露的成员
 
-- 引擎、GDScript 和 C# 经按名反射（`get_property_list`、`has_method`、`call`、`get`、`set`）只能访问两类成员：`pub` 成员，以及引擎必须按名找到的成员。后者包括导出属性、信号、引擎虚函数覆盖和场景信号连接方法。编译器收集的本语言字面量成员名也属于后者。其余成员对按名访问不可见：GDScript 报编译错误，动态访问在运行时报找不到成员。
+- 引擎、GDScript 和 C# 经按名反射（`get_property_list`、`has_method`、`call`、`get`、`set`、`connect`）只能访问 `pub` 成员。引擎虚函数的覆盖除外，引擎按约定的名字调用它们。其余成员对按名访问不可见：GDScript 报编译错误，动态访问在运行时报找不到成员。
+- 引擎按名字访问的以下成员须带 `pub`，否则报编译错误，快速修复补上 `pub`：
+  - 导出的变量和 `@rpc` 函数；
+  - 场景中信号连接的信号和方法；
+  - 动画的属性轨道和方法轨道所指的成员，`MultiplayerSynchronizer` 同步的属性。
+- 不带 `pub` 的信号以改写的名字 `@名字` 注册到引擎。本语言中照常写原名，`Signal` 值的 `get_name()` 返回改写的名字。【已知限制】其他语言拼出改写的名字，仍能按名访问这类信号。
 - 元素为本语言独有类型的容器即便是 `pub` 也不经反射暴露。`struct` 成员照常按复制编码/解码暴露。
-- 方法值形成的 `Callable`（如 `tween_callback(change_weapon)`）直接绑定目标方法，不按名查找。`pub` 内部类作为值为其脚本的类常量暴露。调试器可见全部成员。
+- 方法值形成的 `Callable`（如 `tween_callback(change_weapon)`）直接绑定目标方法，不按名查找，所以可以指向不带 `pub` 的方法。`pub` 内部类作为值为其脚本的类常量暴露。调试器可见全部成员。
 
 ### 10.6 数值边界
 
@@ -881,6 +887,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   - 别名/`import` 与跨类访问 `preload` 类；
   - 两个文件互相继承对方的类；
   - 更严的 `private`；
+  - 导出变量和 `@rpc` 函数隐含 `pub`；
   - struct 位置构造、可变方法、运算符重定义与间接递归；
   - struct/带载荷 enum 的 `@export`；
   - 函数类型参数名、直接调用 `f(x)` 和共享捕获；
