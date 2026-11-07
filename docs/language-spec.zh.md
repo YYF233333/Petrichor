@@ -787,8 +787,13 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 ### 10.4 字符串形式的成员名
 
-- 目标类型已知时，以下位置的字面量名字按静态引用解析。位置包括 `connect`、`emit_signal`、`call`、`call_deferred`、`set_deferred`、`has_method`、`Callable(obj, "m")`、`tween_property` 及 `"position:x"` 类属性路径，由绑定元数据标注参数位置。这些名字检查存在性与值类型，并参与重命名和查找引用。非字面量名字为显式动态访问。
+- 以下位置的字面量名字按静态引用解析，与写成 `目标.名字` 相同。位置包括 `connect`、`emit_signal`、`call`、`call_deferred`、`set_deferred`、`has_method`、`Callable(obj, "m")`、`tween_property` 及 `"position:x"` 类属性路径，由绑定元数据标注参数位置。这些名字检查存在性与值类型，并参与重命名和查找引用。非字面量名字为显式动态访问。
+- 目标上没有该名字时报编译错误，以下三种情况除外：
+  - 目标的静态类型是 `Object` 或 `Variant`，即动态访问；
+  - `has_method`、`has_signal`、`has_user_signal` 等运行时查询；
+  - 名字含 `/`，如 `"theme_override_colors/font_color"`，引擎按实例列出这类属性。
 - 名字指向不带 `pub` 的本语言成员时报编译错误，因为引擎按名找不到它。方法名的快速修复改用方法值，如 `call_deferred("reset")` 改为 `reset.call_deferred()`。
+- 以 `@` 开头的名字报编译错误，目标为 `Object` 时也是。这种名字只能是改写后的私有信号名。
 
 ### 10.5 反射暴露的成员
 

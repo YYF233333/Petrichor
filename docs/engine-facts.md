@@ -60,6 +60,7 @@
 | 一个对象可以同时持有多个标识不同的实例绑定 | `core/object/object.cpp:2167-2201` | §9.7 |
 | 对象析构时静默断开它的所有信号连接 | `core/object/object.cpp:2327-2342` | §9.7 |
 | 连接信号和 debug 构建发出信号时，引擎按名字向脚本核对信号是否存在 | `core/object/object.cpp:1197-1201, 1533-1537` | §10.5 |
+| 按实例列出的属性族名字带 `/`，如元数据、主题覆盖和着色器参数。ClassDB 注册的属性名都不带 `/`（由 `extension_api.json` 核对） | `core/object/object.cpp:525`；`scene/gui/control.cpp:444-479`；`scene/resources/material.cpp:340` | §10.4 |
 | 对象设置脚本后发出 `script_changed` | `core/object/object.cpp:995` | §9.8 |
 | 引擎不给对象设置抽象脚本 | `core/object/object.cpp:976` | §4.1 |
 | PREDELETE 按逆序发出，先通知脚本实例，再通知原生类 | `core/object/object.cpp:173, 928-931` | §9.7 |
