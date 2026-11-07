@@ -85,6 +85,8 @@ TEST_CASE("the elements of untyped containers are Variant (spec §3.8)") {
 	CHECK(type_of("u.front()", "var u: Array = [1]") == "Variant");
 	CHECK(type_of("d.get(\"a\")", "var d: Dictionary = {}") == "Variant?");
 	CHECK(type_of("d.get(\"a\", 0)", "var d: Dictionary = {}") == "Variant");
+	// Its None would be null in a Variant (spec §3.14).
+	CHECK(has_error(in_function("var d: Dictionary = {}\nprint(d.get(\"a\"))"), "Cannot pass a value of type Variant? as Variant. A Variant cannot tell its None from null; pass x.unwrap_or(null)"));
 	CHECK(errors_of(in_function("var u: Array = [1, \"a\"]\nu.append(Node.new())\nvar d: Dictionary = {1: \"a\"}\nd[Vector2()] = []\nfor k in d:\n\tprint(k)\nd[1] = {}\nvar w: Variant = [1, \"a\"]")).empty());
 	const compiler::CompileResult result = compile(in_function("var u: Array = [1]\nvar x = u.pop_back()\nu.append(2)\nprint(3 in u)"));
 	require_verified(result);

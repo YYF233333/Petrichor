@@ -5979,6 +5979,9 @@ class Checker : public ClassRelation {
 		if (p_from.kind == TypeKind::Variant) {
 			message += variant_hint(p_to.unwrapped());
 		}
+		if (p_to.kind == TypeKind::Variant && p_from == Type::option(Type::of(TypeKind::Variant))) {
+			message += " A Variant cannot tell its None from null; pass x.unwrap_or(null) (spec §3.14).";
+		}
 		if (is_typed_container(p_to) && p_from.kind == TypeKind::Builtin && p_from.args.empty() && p_from.name == p_to.name) {
 			message += " Its elements may be of any type; narrow it with if x is " + p_to.to_string() + ":, or copy them in with assign() (spec §3.8).";
 		}

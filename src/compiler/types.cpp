@@ -260,7 +260,9 @@ Conversion conversion(const Type &p_from, const Type &p_to, const ClassRelation 
 	if (is_typed_container(p_from) && !is_boxed(p_from) && p_to.kind == TypeKind::Builtin && p_to.args.empty() && p_to.name == p_from.name) {
 		return C::Same;
 	}
-	return p_to.kind == TypeKind::Variant && p_from.is_storable() && !(is_typed_container(p_from) && is_boxed(p_from)) ? C::ToVariant : C::None;
+	// Not T?? nor Variant?, whose None a Variant cannot tell from the null inside.
+	const bool nested = p_from.kind == TypeKind::Option && (p_from.args[0].kind == TypeKind::Option || p_from.args[0].kind == TypeKind::Variant);
+	return p_to.kind == TypeKind::Variant && p_from.is_storable() && !nested && !(is_typed_container(p_from) && is_boxed(p_from)) ? C::ToVariant : C::None;
 }
 
 bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_classes) {
