@@ -128,6 +128,7 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
 - Default values built anew. Each call constructs every slot whose default is not zero, such as an Array's. CLEAR builds such a default again for each register it clears (spec §6.8). Two remedies:
   - registers whose scopes do not overlap share slots, as GDScript pools its temporaries (`modules/gdscript/gdscript_byte_codegen.cpp:122-131`, `ed1daf0`);
   - CLEAR copies one shared empty container instead of making one.
+- Optimizations from what static analysis knows, keeping the meaning. Lowering does not know which classes are RefCounted, so CLEAR clears every object register (spec §6.8). An object whose static type is not RefCounted, such as a Node, holds no reference, and its clear can go.
 - Containers. The arrays benchmark loses to GDScript mostly to boxing each element into a Variant and back.
   - The check that a container is not read-only before each change is a call into the engine (spec §3.8). It takes about 7 ns of an append.
   - Escape analysis can give containers that do not escape a private representation (architecture §2.2). The engine container stays the reference semantics.
