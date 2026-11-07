@@ -723,7 +723,10 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 
 - 调用 GDScript 方法可写 `await`（等待 `GDScriptFunctionState.completed` 并按声明返回类型做入口检查）。未写 `await` 时，作语句调用不报错，运行到首次挂起后如 `detach` 继续。未写 `await` 时，作值使用而运行时得到 `GDScriptFunctionState`，报程序错误并提示补 `await`。
 - 等待 `GDScriptFunctionState` 期间，调用目标对象指接收者或 `Callable` 目标对象。它被释放或替换脚本（`script_changed`）时，按上一节被等待对象释放的规则处理，`settled()` 得 `Cancelled(CancelReason.OWNER_FREED)`。【已知限制】编辑器中重载 GDScript 脚本时，引擎静默清除挂起函数，等待方会一直挂起。
-- GDScript `await` 本语言协程时，首次挂起返回 `Task` 的 `completed` 信号：完成发出 `completed(值)`，取消或失败发出 `completed(null)`（另有 `cancelled` 信号区分）。本语言 `async` 方法向引擎报告无类型 `Variant` 返回值，声明类型仅用于文档和悬停。
+- GDScript `await` 本语言协程时，首次挂起返回 `Task` 的 `completed` 信号。本语言 `async` 方法向引擎报告无类型 `Variant` 返回值，声明类型仅用于文档和悬停。任务结束时：
+  - 完成发出 `completed(值)`；
+  - 取消先发出 `cancelled(原因)`，再发出 `completed(null)`，原因是 `CancelReason` 的值；
+  - 失败只发出 `completed(null)`。失败已报告为程序错误，与本语言中一样不可拦截。
 
 ## 10. 引擎边界
 
