@@ -90,6 +90,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The two-way migration tool (spec §1.2, §13.4), wanted in 0.2 or 0.3.
   - Reverse conversion writes types GDScript can express. A nested typed container becomes `Array[Array]`, and a narrower result such as `map`'s goes through `assign()`.
   - It drops this language's names from `@warning_ignore`, which GDScript rejects (`modules/gdscript/gdscript_parser.cpp:5126-5128`, `ed1daf0`).
+  - The report lists by-name access with names that are not literals, and `get_name()` on signals. Their members may need `pub` (spec §10.5).
 - The debugger lists all locals of a function regardless of scope. So same-named locals of blocks side by side collide. The bytecode would record the scope of each slot.
 
 ## Tests
@@ -170,7 +171,6 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
   - `await f()` owns the child task and cancels it with the parent. GDScript runs `f` on (spec §9.3).
   - Assignment evaluates subscripts before the right side. So `arr[i] = next()` differs when `next()` changes `i` (§3.6).
   - Loop-body locals are released every iteration, GDScript's after the loop (§6.8).
-  - A signal without `pub` registers as `@hit`, so `hit.get_name()` differs (§10.5).
 
   Meanings of GDScript code that this language cannot write:
   - `_init` with parameters on Node and Resource scripts (§6.2). Every `Item.new("Sword")` changes.
