@@ -25,7 +25,7 @@ Variant call_value(const std::shared_ptr<const ClassImage> &p_image, int p_funct
 	value.pending = false;
 	value.entered = value.entered || callee;
 	bool failed = false;
-	Variant result = vm::call(p_image, p_function, p_context, p_args, p_argc, r_error, &failed, p_captures);
+	Variant result = vm::call(p_image, p_function, p_context, p_args, p_argc, r_error, &failed, p_captures, callee && value.task);
 	if (callee) {
 		value.failed = failed;
 	}

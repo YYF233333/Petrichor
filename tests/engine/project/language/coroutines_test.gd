@@ -197,5 +197,14 @@ func run(p_errors: ErrorLog) -> int:
 	c = CoroutineCheck.new()
 	add_child(c)
 	check(await c.join_freeing_thread(), "freeing on another thread waits for no other task")
+	results.clear()
+	collect(c.through_value(), results)
+	c.tick.emit(10)
+	check(results == [23], "an async function value's call gives its Task")
+	var before_connect: int = c.count
+	c.connect_async()
+	c.tick.emit(1)
+	c.tick.emit(5)
+	check(c.count == before_connect + 6, "a signal runs an async lambda as a root task")
 	c.free()
 	return failures

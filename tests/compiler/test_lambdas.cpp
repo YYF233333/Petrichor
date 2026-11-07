@@ -43,7 +43,6 @@ TEST_CASE("a lambda's types: parameters written or from where it goes, the retur
 	CHECK(has_error(in_function("var f := func(up: bool):\n\tif up:\n\t\treturn 1"), "Not all paths of the lambda return a value."));
 	CHECK(has_error(in_function("var f := func(up: bool):\n\tif up:\n\t\treturn 1\n\treturn"), "The lambda returns a value on some paths and none on others."));
 	CHECK(has_error(in_function("var f := func(x: int = 1): return x"), "Lambda parameters have no default values (spec §3.11)."));
-	CHECK(has_error(in_function("var f := async func(): pass"), "Async lambdas are not supported yet."));
 	CHECK(has_error("extends Node\nconst F = func(): pass\n", "A lambda is not a constant expression (spec §4.5)."));
 }
 

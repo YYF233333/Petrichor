@@ -1780,6 +1780,7 @@ class Lowerer {
 		at = lambda.range;
 		fn.param_count = uint32_t(lambda.params.size() + lambda.captures.size());
 		fn.result = slot(std::string(), lambda.return_type);
+		fn.is_async = lambda.is_async;
 		fn.line = uint32_t(cls.source->line(lambda.name_token));
 		// The parameters, then the captures, then the other locals.
 		std::vector<int> order;

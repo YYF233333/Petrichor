@@ -54,6 +54,7 @@ struct ValueCall {
 	bool pending = false; // Made, and no callee has run yet.
 	bool entered = false;
 	bool failed = false;
+	bool task = false; // The caller takes an async callee's Task (spec §3.11).
 };
 ValueCall &value_call();
 

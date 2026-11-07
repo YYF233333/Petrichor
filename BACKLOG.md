@@ -4,7 +4,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Language
 
-- Coroutine helpers `Task.of`, `delay`, `any`, `all` and `settled` (spec §9). Async lambdas, and calls of async function values, `f.call(x)` giving a `Task[T]` (spec §9, §3.11).
+- Coroutine helpers `Task.of`, `delay`, `any`, `all` and `settled` (spec §9).
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
 - Of match (spec §5.6):
   - array and dictionary patterns;
@@ -102,7 +102,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - `player.last_hit.damage = 3` running `last_hit`'s setter (spec §3.6, §4.4);
   - for §3.11 and §9.1:
     - function-type parameter contravariance;
-    - `await` in a non-`async` lambda;
     - rejecting `async` for an ordinary function parameter;
     - connecting an `async` method to a signal;
   - awaiting a `Signal` variable with two parameters yielding `Array` in `Variant` (§9.6);

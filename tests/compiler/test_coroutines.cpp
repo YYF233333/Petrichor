@@ -50,6 +50,23 @@ TEST_CASE("coroutine declarations enforce their public contracts") {
 	CHECK(bytecode::signature_key(result.module.types, fn.params, 0, fn.result, true) != bytecode::signature_key(result.module.types, fn.params, 0, fn.result, false));
 }
 
+// Spec §3.11, §9.1: an async lambda is an async function value, whose call
+// gives its Task, owned when awaited at once.
+TEST_CASE("an async function value is called for its Task") {
+	const auto result = compile("extends Node\nsignal tick(value: int)\nasync func f() -> int:\n\tvar g := async func(x: int) -> int: return x + await tick\n\tvar t: Task[int] = g.call(1)\n\ttick.connect(async func(value): await t)\n\treturn await g.call(2) + await t\n");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	REQUIRE_MESSAGE(bytecode::verify(result.module, error), error);
+	const auto &f = function_named(result.module, "f");
+	size_t pc = find_instruction(f, Op::AWAIT_TASK);
+	CHECK(f.code[pc + 3] == 1);
+	CHECK(type_of("g.call(1)", "var g := async func(x: int) -> int: return x") == "Task[int]");
+	CHECK(type_of("g", "var g := async func(x: int) -> int: return x") == "async func(int) -> int");
+	CHECK(has_error(in_function("var g := func(): await get_tree().process_frame"), "async"));
+	CHECK(has_error(in_function("var g: func() = async func(): pass"), "Cannot assign"));
+	CHECK(has_error(in_function("var g := async func() -> int: return 1\ng.call()"), "detach"));
+}
+
 TEST_CASE("nullable Task handles require unwrap before waiting") {
 	CHECK(has_error("async func f(t: Task[int]?):\n\treturn await t\n", "Unwrap"));
 	const auto result = compile("async func f(t: Task[int]?) -> int:\n\treturn await t.unwrap()\n");

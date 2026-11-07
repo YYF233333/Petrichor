@@ -91,6 +91,16 @@ pub func start_failure() -> Task[int]:
 pub func emit_wrong(other: CoroutineBridge):
 	other.emit_wrong(tick)
 
+# An async lambda is an async function value, whose call gives its Task; a
+# signal runs it as a root task (spec §3.11, §9.1).
+pub async func through_value() -> int:
+	var add := async func(x: int) -> int: return x + await tick
+	var later: Task[int] = add.call(1)
+	return await add.call(2) + await later
+
+pub func connect_async():
+	tick.connect(async func(value: int): count += value + await tick, CONNECT_ONE_SHOT)
+
 # Freeing an object on another thread waits for none of the tasks of others,
 # this running one among them.
 pub async func join_freeing_thread() -> bool:

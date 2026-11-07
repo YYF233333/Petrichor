@@ -4099,18 +4099,17 @@ class Checker : public ClassRelation {
 
 	// `f.call(x)`, checked against f's type, and `f.callv(args)`, whose
 	// arguments the function checks as it is called (spec §3.11). A program
-	// error in it aborts the caller too (§8.1).
+	// error in it aborts the caller too (§8.1). An async one gives its Task
+	// (§9.1).
 	Type check_function_call(Expr &r_expr, const Type &p_function) {
-		if (p_function.is_async) {
-			return fail_call(r_expr, "Calling an async function value is not supported yet.");
-		}
 		const bool spread = r_expr.text == "callv";
 		const std::vector<Type> params(p_function.args.begin() + 1, p_function.args.end());
 		hint(r_expr, [&](int p_current) { return signature(r_expr.text, spread ? std::vector<std::string>{ "arguments: Array" } : type_names(params), false, p_current, p_function.args[0].to_string()); });
 		check_arguments(r_expr, spread ? std::vector<Type>{ Type::builtin("Array") } : params, spread ? 1 : int(params.size()), false);
 		r_expr.target = Target::CallValue;
 		refer(r_expr.name_token, engine_id("Callable", r_expr.text));
-		return set(r_expr, p_function.args[0]);
+		r_expr.is_async = p_function.is_async;
+		return set(r_expr, p_function.is_async ? Type::task(p_function.args[0]) : p_function.args[0]);
 	}
 
 	// `func(x): body` (spec §3.11): code of the function around it, checked
@@ -4123,9 +4122,6 @@ class Checker : public ClassRelation {
 			return r_expr.type;
 		}
 		lambda.checked = true;
-		if (lambda.is_async) {
-			return fail(r_expr, "Async lambdas are not supported yet.");
-		}
 		if (in_constant) {
 			return fail(r_expr, "A lambda is not a constant expression (spec §4.5).");
 		}
@@ -4192,6 +4188,7 @@ class Checker : public ClassRelation {
 		returns = outer_returns;
 
 		Type type = Type::function(lambda.return_type, param_types(lambda.params));
+		type.is_async = lambda.is_async;
 		return set(r_expr, type);
 	}
 

@@ -1245,7 +1245,7 @@ class Execution {
 		}
 		ValueCall &value = value_call();
 		const ValueCall outer = value;
-		value = { true, false, false };
+		value = { true, false, false, !image.types[call.result.type].check.task_result.empty() };
 		Variant result;
 		GDExtensionCallError error;
 		callable.callp(image.call_method, pointers, count, result, error);
@@ -2564,7 +2564,7 @@ void clear() {
 
 namespace vm {
 
-Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const Variant **p_args, int64_t p_argc, GDExtensionCallError &r_error, bool *r_failed, const uint8_t *const *p_captures) {
+Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const Variant **p_args, int64_t p_argc, GDExtensionCallError &r_error, bool *r_failed, const uint8_t *const *p_captures, bool p_task) {
 	// Old code stays alive until this call returns, even if a hot reload
 	// replaces the image meanwhile (spec §12.4).
 	std::shared_ptr<const ClassImage> image = p_image;
@@ -2624,6 +2624,9 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 
 	if (fn.is_async) {
 		const Ref<CoroutineTask> task = start_task(image, uint32_t(p_function), context, frame.data);
+		if (p_task) {
+			return task;
+		}
 		if (r_failed) {
 			*r_failed = task->state == CoroutineTask::State::Failed;
 		}
