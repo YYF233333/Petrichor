@@ -5,6 +5,7 @@
 #include "runtime/text.h"
 
 #include <godot_cpp/classes/script.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
 
 #include <algorithm>
 #include <cstring>
@@ -148,8 +149,34 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 	image->statics = std::make_shared<Statics>(SlotLayout::of(std::max<uint32_t>(module.statics_size, 8), module.statics, types));
 
 	for (const bytecode::EngineCall &call : module.engine_calls) {
-		image->engine_methods.push_back(to_godot(call.method));
+		const StringName method = to_godot(call.method);
+		image->engine_methods.push_back(method);
 		image->engine_static_classes.push_back(call.static_class.empty() ? StringName() : StringName(to_godot(call.static_class)));
+		ClassImage::NativeCall &native = image->native_calls.emplace_back();
+		if (call.owner.empty()) {
+			continue;
+		}
+		const StringName owner = to_godot(call.owner);
+		native.bind = gdextension_interface::classdb_get_method_bind(owner._native_ptr(), method._native_ptr(), call.hash);
+		if (!native.bind) {
+			r_error = vformat("the engine has no method %s.%s() with this signature", owner, method);
+			return nullptr;
+		}
+		native.direct = std::find(call.params.begin(), call.params.end(), ValueType::Variant) == call.params.end();
+		for (size_t d = 0; d < call.defaults.size(); d++) {
+			const ValueType type = call.params[call.params.size() - call.defaults.size() + d];
+			Variant value = UtilityFunctions::str_to_var(to_godot(call.defaults[d]));
+			// The engine converts a default of another type, such as 0 for a float.
+			if (type != ValueType::Variant && type != ValueType::Object) {
+				value = UtilityFunctions::type_convert(value, variant_type(type));
+			}
+			const NativeValue &stored = image->natives.emplace_back(type);
+			if (!from_variant(type, value, stored.data())) {
+				r_error = vformat("a default value of %s.%s() does not fit its parameter", owner, method);
+				return nullptr;
+			}
+			native.defaults.push_back(stored.data());
+		}
 	}
 	for (const bytecode::PropertyAccess &property : module.properties) {
 		image->properties.push_back(to_godot(property.name));
@@ -257,6 +284,15 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 		}
 		image->strings.push_back(storage == ValueType::String ? to_godot(constant.s) : String());
 		freeze(value);
+		const bytecode::TypeKind kind = types[constant.type].kind;
+		const bool own_layout = kind == bytecode::TypeKind::Value || kind == bytecode::TypeKind::Array || kind == bytecode::TypeKind::Dictionary;
+		if (constant.load || !own_layout || storage == ValueType::Void || storage == ValueType::Object || storage == ValueType::Variant) {
+			image->native_values.push_back(nullptr);
+			continue;
+		}
+		const NativeValue &stored = image->natives.emplace_back(storage);
+		from_variant(types[constant.type], value, stored.data(), false);
+		image->native_values.push_back(stored.data());
 	}
 	return image;
 }
@@ -697,7 +733,7 @@ bool same_initializers(const bytecode::Module &p_a, const bytecode::Module &p_b)
 	const ModulePair pair{ p_a, p_b };
 	return same_prefix(p_a.types, p_b.types, x.types, [](const auto &a, const auto &b) { return a == b; }) &&
 			same_prefix(p_a.constants, p_b.constants, x.constants, [&](const auto &a, const auto &b) { return pair.same_constant(a, b); }) &&
-			same_prefix(p_a.engine_calls, p_b.engine_calls, x.engine_calls, [](const auto &a, const auto &b) { return a.method == b.method && a.result_type == b.result_type && a.static_class == b.static_class; }) &&
+			same_prefix(p_a.engine_calls, p_b.engine_calls, x.engine_calls, [](const auto &a, const auto &b) { return a == b; }) &&
 			same_prefix(p_a.properties, p_b.properties, x.properties, [](const auto &a, const auto &b) { return a.name == b.name && a.type == b.type; }) &&
 			same_prefix(p_a.utility_calls, p_b.utility_calls, x.utility_calls, [](const auto &a, const auto &b) { return a.function == b.function && a.hash == b.hash && a.is_vararg == b.is_vararg && a.params == b.params && a.return_type == b.return_type && a.result_type == b.result_type; }) &&
 			same_prefix(p_a.operators, p_b.operators, x.operators, [](const auto &a, const auto &b) { return a.op == b.op && a.left == b.left && a.right == b.right && a.result == b.result; }) &&

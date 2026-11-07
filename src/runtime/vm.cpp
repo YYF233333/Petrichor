@@ -357,19 +357,25 @@ class Arguments {
 public:
 	const void **pointers;
 
-	Arguments(const std::vector<TypeImage> &p_types, uint8_t *p_frame, const uint32_t *p_pairs, uint32_t p_count, const std::vector<ValueType> *p_params) {
-		if (p_count > INLINE) {
+	// With `p_defaults`, those of the last parameters follow the arguments.
+	Arguments(const std::vector<TypeImage> &p_types, uint8_t *p_frame, const uint32_t *p_pairs, uint32_t p_count, const std::vector<ValueType> *p_params, const std::vector<const void *> *p_defaults = nullptr) {
+		const uint32_t total = p_defaults ? uint32_t(p_params->size()) : p_count;
+		if (total > INLINE) {
 			heap = new Heap();
-			heap->pointers.resize(p_count);
+			heap->pointers.resize(total);
 			heap->variants.reserve(p_count); // Pointers into them stay valid.
 			heap->views.reserve(p_count);
 		}
 		pointers = heap ? heap->pointers.data() : inline_pointers;
+		for (uint32_t i = p_count; i < total; i++) {
+			pointers[i] = (*p_defaults)[i - (total - p_defaults->size())];
+		}
 		for (uint32_t i = 0; i < p_count; i++) {
 			const TypeImage &type = p_types[p_pairs[2 * i]];
 			uint8_t *slot = p_frame + p_pairs[2 * i + 1];
 			if (p_params && i < p_params->size() && (*p_params)[i] != ValueType::Variant) {
-				pointers[i] = slot;
+				// The engine reads an object as its pointer (core/variant/method_ptrcall.h:251-260).
+				pointers[i] = (*p_params)[i] == ValueType::Object ? slot + 8 : slot;
 			} else if (type.storage == ValueType::Variant) {
 				pointers[i] = slot;
 			} else if (type.storage == ValueType::Object) {
@@ -1411,12 +1417,65 @@ class Execution {
 		return true;
 	}
 
+	// Through the method's MethodBind, with pointers to the values, as GDScript
+	// calls a method of a class it knows (modules/gdscript/gdscript_vm.cpp:2273-2313).
+	PETRICHOR_NOINLINE bool op_call_native(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
+		const ClassImage::NativeCall &native = image.native_calls[p_op[1]];
+		const bytecode::EngineCall &call = image.module.engine_calls[p_op[1]];
+		const uint32_t dst = p_op[2];
+		void *object = nullptr; // None for a static method.
+		if (call.static_class.empty()) {
+			const uint8_t *slot = p_op[3] == NO_SLOT ? data_of(self()) : p_frame + p_op[3];
+			if (p_op[3] == NO_SLOT ? p_freed.load(std::memory_order_relaxed) : !is_live_object(slot)) {
+				ObjectView view(nullptr);
+				return resolve_object(p_frame, p_op[3], p_freed, view, p_fn, p_line); // Reports why.
+			}
+			object = *reinterpret_cast<void *const *>(slot + 8);
+		}
+		const uint32_t argc = p_op[4];
+		const void *direct[8];
+		std::optional<Arguments> args;
+		const void **pointers = direct;
+		if (native.direct && call.params.size() <= 8) {
+			for (uint32_t i = 0; i < argc; i++) {
+				// The engine reads an object as its pointer (core/variant/method_ptrcall.h:251-260).
+				direct[i] = p_frame + p_op[6 + 2 * i] + (call.params[i] == ValueType::Object ? 8 : 0);
+			}
+			std::copy(native.defaults.end() - (call.params.size() - argc), native.defaults.end(), direct + argc);
+		} else {
+			pointers = args.emplace(image.types, p_frame, p_op + 5, argc, &call.params, &native.defaults).pointers;
+		}
+		const auto ptrcall = [&](void *r_result) { gdextension_interface::object_method_bind_ptrcall(native.bind, object, pointers, r_result); };
+		if (call.return_type == ValueType::Void) {
+			ptrcall(nullptr);
+		} else if (call.return_type == ValueType::Object) {
+			void *returned = nullptr;
+			ptrcall(&returned);
+			alignas(16) uint8_t unread[16] = {};
+			uint8_t *slot = dst == NO_SLOT ? unread : p_frame + dst;
+			take_returned_object(slot, returned, call.returns_reference);
+			if (slot == unread) {
+				destroy_value(ValueType::Object, unread);
+			}
+		} else if (dst != NO_SLOT && call.return_type != ValueType::Array) {
+			ptrcall(p_frame + dst);
+		} else {
+			// Some methods fill the Array they are given, which a slot may share
+			// (core/variant/method_ptrcall.h:116-123).
+			const TypeImage &type = image.types[call.result_type];
+			ValueBuffer result(type);
+			ptrcall(result.data);
+			if (dst != NO_SLOT) {
+				copy_value(type, p_frame + dst, result.data);
+			}
+		}
+		return true;
+	}
+
 	PETRICHOR_NOINLINE bool op_call_engine(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, CoroutineFrame *p_async, size_t &r_pc, bool &r_done, const bytecode::Function &p_fn, int p_line) {
 		const uint32_t target = p_op[1];
 		const uint32_t dst = p_op[2];
 		const uint32_t argc = p_op[4];
-		// By name for now; through MethodBind pointers once the compiler knows
-		// method hashes (architecture §2.2).
 		Arguments args(image.types, p_frame, p_op + 5, argc, nullptr);
 		Variant result;
 		GDExtensionCallError error;
@@ -1862,7 +1921,11 @@ public:
 					pc += 3;
 					break;
 				case Op::CONST_VALUE:
-					from_variant(types[code[pc + 1]], image.values[code[pc + 3]], frame + code[pc + 2], false);
+					if (const uint8_t *native = image.native_values[code[pc + 3]]) {
+						copy_value(types[code[pc + 1]].storage, frame + code[pc + 2], native);
+					} else {
+						from_variant(types[code[pc + 1]], image.values[code[pc + 3]], frame + code[pc + 2], false);
+					}
 					pc += 4;
 					break;
 				case Op::MOVE_8:
@@ -2408,6 +2471,13 @@ public:
 					break;
 				case Op::CALL_AWAIT_ENGINE:
 				case Op::CALL_ENGINE: {
+					if (image.native_calls[code[pc + 1]].bind) {
+						if (!op_call_native(code + pc, frame, freed, fn, record.line)) {
+							return false;
+						}
+						pc += 5 + 2 * code[pc + 4];
+						break;
+					}
 					bool done = false;
 					if (!op_call_engine(code + pc, frame, freed, p_async, pc, done, fn, record.line)) {
 						return false;

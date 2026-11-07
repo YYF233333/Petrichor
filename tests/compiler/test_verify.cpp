@@ -19,7 +19,7 @@ var label := "x"
 func pick(s: String, a: int, flag: bool) -> int:
 	if flag:
 		return a + a
-	return get_child_count()
+	return get_child_count(flag)
 
 func touch():
 	var fresh: int
@@ -122,6 +122,10 @@ TEST_CASE("operands must name slots of the instruction's type") {
 		const size_t call = find_instruction(touch, Op::CALL);
 		touch.code[call + 2] = touch.code[call + 6]; // The String argument's slot.
 		CHECK(rejected(module, "is not a slot of type int"));
+	}
+	SUBCASE("an argument the engine would read as another type") {
+		module.engine_calls[pick.code[find_instruction(pick, Op::CALL_ENGINE) + 1]].params[0] = bytecode::ValueType::Int;
+		CHECK(rejected(module, "does not have the parameter's type"));
 	}
 }
 

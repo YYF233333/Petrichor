@@ -915,10 +915,8 @@ class Lowerer {
 		return add_constant(constant);
 	}
 
-	uint32_t engine_call(const std::string &p_method, uint32_t p_result_type, const std::string &p_static_class = std::string()) {
-		return intern(module.engine_calls, bytecode::EngineCall{ p_method, p_result_type, p_static_class }, [](const auto &a, const auto &b) {
-			return a.method == b.method && a.result_type == b.result_type && a.static_class == b.static_class;
-		});
+	uint32_t engine_call(const bytecode::EngineCall &p_call) {
+		return intern(module.engine_calls, p_call, [](const auto &a, const auto &b) { return a == b; });
 	}
 
 	uint32_t method_call(const bytecode::MethodCall &p_call) {
@@ -1738,10 +1736,20 @@ class Lowerer {
 				i.imm = struct_method_call(*p_call.callee, p_call.owner, p_call.base ? p_call.base->type : Type());
 				break;
 			}
-			case Target::EngineMethod:
+			case Target::EngineMethod: {
 				i.op = Op::CALL_ENGINE;
-				i.imm = engine_call(p_call.text, type_index(filtered ? p_call.engine_return : p_call.type), p_call.is_static ? p_call.owner : std::string());
+				bytecode::EngineCall call{ p_call.text, type_index(filtered ? p_call.engine_return : p_call.type), p_call.is_static ? p_call.owner : std::string() };
+				if (p_call.hash) {
+					call.owner = p_call.owner;
+					call.hash = p_call.hash;
+					call.params = value_types(p_call.engine_params);
+					call.defaults = p_call.engine_defaults;
+					call.return_type = value_type(p_call.engine_return);
+					call.returns_reference = p_call.returns_reference;
+				}
+				i.imm = engine_call(call);
 				break;
+			}
 			case Target::Utility: {
 				i.op = Op::CALL_UTILITY;
 				bytecode::UtilityCall utility_call;
@@ -2130,7 +2138,14 @@ class Lowerer {
 		i.op = Op::CALL_ENGINE;
 		i.args = { path_reg };
 		i.dst = temp(p_expr.type);
-		i.imm = engine_call("get_node", fn.regs[i.dst].type);
+		bytecode::EngineCall call{ "get_node", fn.regs[i.dst].type };
+		if (p_expr.hash) {
+			call.owner = "Node";
+			call.hash = p_expr.hash;
+			call.params = { ValueType::NodePath };
+			call.return_type = ValueType::Object;
+		}
+		i.imm = engine_call(call);
 		add(i);
 		check_object(i.dst, p_expr.type);
 		return i.dst;

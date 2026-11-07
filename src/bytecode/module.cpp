@@ -489,7 +489,7 @@ void archive(Ar &r_ar, T &r_value) {
 	} else if constexpr (std::is_same_v<V, NamedConstant>) {
 		io(r_ar, r_value.name, r_value.constant, r_value.is_pub);
 	} else if constexpr (std::is_same_v<V, EngineCall>) {
-		io(r_ar, r_value.method, r_value.result_type, r_value.static_class);
+		io(r_ar, r_value.method, r_value.result_type, r_value.static_class, r_value.owner, r_value.hash, r_value.params, r_value.defaults, r_value.return_type, r_value.returns_reference);
 	} else if constexpr (std::is_same_v<V, PropertyAccess>) {
 		io(r_ar, r_value.name, r_value.type);
 	} else if constexpr (std::is_same_v<V, UtilityCall>) {

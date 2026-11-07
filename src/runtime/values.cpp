@@ -421,6 +421,20 @@ void set_object(uint8_t *p_slot, const Variant &p_value) {
 	}
 }
 
+void take_returned_object(uint8_t *p_slot, void *p_object, bool p_with_reference) {
+	const ObjectData old = object_data(p_slot);
+	if (p_with_reference || !p_object) {
+		object_data(p_slot) = p_object ? ObjectData{ uint64_t(gdextension_interface::object_get_instance_id(p_object)), p_object } : ObjectData();
+	} else {
+		// As a Variant holds it (core/variant/variant.cpp:1094-1114).
+		static const GDExtensionVariantFromTypeConstructorFunc from_object = gdextension_interface::get_variant_from_type_constructor(GDEXTENSION_VARIANT_TYPE_OBJECT);
+		alignas(Variant) uint8_t value[sizeof(Variant)];
+		from_object(value, &p_object);
+		std::memcpy(p_slot, value + 8, sizeof(ObjectData));
+	}
+	release(old);
+}
+
 bool is_none_object(const uint8_t *p_slot) {
 	return !object_data(p_slot).object;
 }

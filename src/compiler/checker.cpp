@@ -2955,6 +2955,10 @@ class Checker : public ClassRelation {
 		if (refuse_in_static(r_expr, shown_path(path))) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
+		// Through the MethodBind, as GDScript calls it (modules/gdscript/gdscript_compiler.cpp:742-753).
+		if (const std::optional<EngineMethod> get_node = engine.find_method("Node", "get_node")) {
+			r_expr.hash = get_node->hash;
+		}
 		if (path == "..") {
 			r_expr.owner = "Node";
 			return set(r_expr, Type::object("Node"));
@@ -3863,7 +3867,7 @@ class Checker : public ClassRelation {
 			std::vector<std::string> texts;
 			for (size_t i = 0; i < params.size(); i++) {
 				const std::string &value = p_method.params[i].default_value;
-				texts.push_back(p_method.params[i].name + ": " + params[i].to_string() + (value.empty() ? "" : " = " + value));
+				texts.push_back(p_method.params[i].name + ": " + params[i].to_string() + (value.empty() ? "" : " = " + (value == "null" ? "None" : value)));
 			}
 			return signature(r_expr.text, texts, p_method.is_vararg, p_current, engine_result(p_method).to_string());
 		});
@@ -3885,6 +3889,18 @@ class Checker : public ClassRelation {
 		if (!p_static_class.empty()) {
 			r_expr.is_static = true;
 			r_expr.owner = p_static_class;
+		}
+		if (p_method.hash && !r_expr.is_foreign && !p_method.is_vararg) {
+			// Called through its MethodBind (architecture §2.2).
+			r_expr.hash = p_method.hash;
+			if (p_static_class.empty()) {
+				r_expr.owner = p_method.owner;
+			}
+			r_expr.engine_params = params;
+			for (size_t i = params.size() - p_method.default_count; i < params.size(); i++) {
+				r_expr.engine_defaults.push_back(p_method.params[i].default_value);
+			}
+			r_expr.returns_reference = p_method.return_type.kind == TypeKind::Object && engine.inherits(p_method.return_type.engine_class(), "RefCounted");
 		}
 		r_expr.engine_return = engine_result(p_method);
 		return set(r_expr, filtered_result(r_expr, p_method));

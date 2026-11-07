@@ -206,8 +206,8 @@ struct Expr {
 	// For calls: the type each argument converts to; for comparisons of T? with
 	// T, the type each side converts to (spec §5.2).
 	std::vector<Type> param_types;
-	// Built-in methods and utility functions: the engine's signature, which
-	// the runtime needs to pass arguments in the right layout.
+	// Built-in methods, utility functions and engine methods: the engine's
+	// signature, which the runtime needs to pass arguments in the right layout.
 	uint32_t hash = 0;
 	bool is_async = false;
 	// A static method called through the name of its class or type in `owner`,
@@ -226,9 +226,14 @@ struct Expr {
 	// program runs (spec §3.8).
 	bool checks_elements = false;
 	Type engine_return; // Variant where the engine returns a Variant.
-	// Built-in methods: the engine's parameter types; script methods: all the
-	// method's parameters, also those a call leaves out.
+	// Built-in methods and engine methods: the engine's parameter types; script
+	// methods: all the method's parameters, also those a call leaves out.
 	std::vector<Type> engine_params;
+	// Engine methods bound natively: the defaults of the last parameters, as
+	// var_to_str() writes them, and whether the engine hands the result over
+	// with a reference, as it does a RefCounted object.
+	std::vector<std::string> engine_defaults;
+	bool returns_reference = false;
 	// Engine methods: for each argument, the range of an engine integer
 	// narrower than int64 or unsigned that it goes to (spec §10.6); engine
 	// properties: the range of the value their setter takes.

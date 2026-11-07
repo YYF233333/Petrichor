@@ -117,12 +117,8 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Performance
 
-Engine calls now go by name with Variant arguments. So code that calls the engine a lot is likely slower than typed GDScript. Typed GDScript resolves the MethodBind at compile time and makes a validated call with Variant arguments (`modules/gdscript/gdscript_compiler.cpp:647-652, 705-710`, `ed1daf0`).
+Engine methods with a MethodBind are called through its ptrcall (architecture §2.2). Properties, vararg methods and other languages' methods still go by name with Variant arguments.
 
-- Engine methods without boxing. GDScript cannot do this, its registers being Variants.
-  - The MethodBind is resolved when the class image loads. The bytecode records the class and the method's hash.
-  - ptrcall takes pointers to the registers, which already hold native values (`gdextension_interface.h:2499` of godot-cpp).
-  - This is as safe as GDScript's call of the MethodBind. Scripts cannot override engine methods that are not virtual.
 - Engine properties: through their setter and getter by ptrcall. GDScript reads and writes them by name, with validated access only to members of built-in types (`modules/gdscript/gdscript_byte_codegen.cpp:848-883`). A script's `_set` or `_get` can take engine property names. So the fast path needs a check, cached per script, such as whether the object's script defines them.
 - Engine singletons and autoloads resolved once. Now GET_SINGLETON looks the name up at every run, and GET_AUTOLOAD calls get_node_or_null. A singleton's pointer can be kept, and an autoload's ObjectID with a liveness check.
 - Engine callbacks such as `_process(delta)`: no entry check of value-type arguments, whose types the engine guarantees.
@@ -132,7 +128,7 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
   - the class of a static variable that another class or an inner class uses (spec §4.8).
 - Calls within a class: since inheritance, they pass arguments the general way of calls between classes. They also repeat checks that loading made. The calls benchmark went from 18 to 22 ms (architecture §4).
 - Function values: `f.call(x)` goes through the engine's `Callable.call` with Variant arguments. A struct is encoded and decoded on the way. A lambda or method value of this language could be called directly, its arguments in their slots' layout.
-- Engine calls: every object result is asked whether it is a `GDScriptFunctionState`, by a call into the engine. Only methods of GDScript classes return one (spec §9.8).
+- Calls by name: every object result is asked whether it is a `GDScriptFunctionState`, by a call into the engine. Only methods of GDScript classes return one (spec §9.8).
 - Coroutines: freeing an instance, and every frame, walk all active tasks. Tasks listed by their owner would walk only the owner's.
 - Default values built anew. Each call constructs every slot whose default is not zero, such as an Array's. CLEAR builds such a default again for each register it clears (spec §6.8). Two remedies:
   - registers whose scopes do not overlap share slots, as GDScript pools its temporaries (`modules/gdscript/gdscript_byte_codegen.cpp:122-131`, `ed1daf0`);
@@ -149,7 +145,7 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
     - A table from code positions to lines would replace it.
     - An error would look its line up by position. The 52 handler calls that pass a line would drop it.
     - Breakpoints and stepping would need another mechanism, such as patching the instruction at a breakpoint.
-- Benchmarks of real workloads after ptrcall; optimizations of the IR and code generation after those. In the init function, instructions that can run other code are barriers to them.
+- Benchmarks of real workloads; optimizations of the IR and code generation after those. In the init function, instructions that can run other code are barriers to them.
 - Liveness of the IR's registers (`src/compiler/ir.h`), one analysis on the IR before any optimization.
   - It serves the warning `modified_copy` (spec §3.6), which is off until then.
   - It also serves native code's register allocation (architecture §5).

@@ -377,6 +377,28 @@ class Verifier {
 		return result(p_dst, p_result);
 	}
 
+	// A call through a MethodBind: the engine reads each argument and writes
+	// the result in the layout the table gives, an object as its pointer; the
+	// arguments a call leaves out have defaults.
+	bool native_call(const uint32_t *p_call, const EngineCall &p_method) {
+		const auto passes = [&](ValueType p_type) { return p_type == ValueType::Variant || p_type == ValueType::Object || is_native(p_type); };
+		const uint32_t argc = p_call[3];
+		if (p_method.defaults.size() > p_method.params.size() || argc > p_method.params.size() || argc + p_method.defaults.size() < p_method.params.size()) {
+			return fail("wrong number of arguments");
+		}
+		for (size_t i = 0; i < p_method.params.size(); i++) {
+			const ValueType param = p_method.params[i];
+			if (!passes(param) || (i < argc && param != ValueType::Variant && (is_option(p_call[4 + 2 * i]) || storage(p_call[4 + 2 * i]) != param))) {
+				return fail("argument " + std::to_string(i) + " does not have the parameter's type");
+			}
+		}
+		const uint32_t dst = p_call[1];
+		if (p_method.return_type == ValueType::Void ? dst != NO_SLOT : !passes(p_method.return_type) || is_option(p_method.result_type) || storage(p_method.result_type) != p_method.return_type) {
+			return fail("the result slot does not have the return type");
+		}
+		return true;
+	}
+
 	// The result of a call of a coroutine, its Task handle (spec §9.1), or of
 	// another function.
 	bool call_result(uint32_t p_dst, bool p_async, uint32_t p_result) {
@@ -412,10 +434,11 @@ class Verifier {
 				if (!index(callee, module.engine_calls.size(), "engine call") || !slot_or_none(base, ValueType::Object)) {
 					return false;
 				}
-				if (!module.engine_calls[callee].static_class.empty() && base != NO_SLOT) {
+				const EngineCall &call = module.engine_calls[callee];
+				if (!call.static_class.empty() && base != NO_SLOT) {
 					return fail("a static engine call has a base");
 				}
-				return arguments(p_call) && result(dst, module.engine_calls[callee].result_type);
+				return (call.owner.empty() || native_call(p_call, call)) && arguments(p_call) && result(dst, call.result_type);
 			}
 			case Op::CALL_SUPER:
 			case Op::CALL_METHOD: {

@@ -12,7 +12,7 @@ namespace petrichor::compiler {
 struct EngineParam {
 	std::string name;
 	Type type;
-	std::string default_value; // As source, for completion's hint; empty for none.
+	std::string default_value; // As the engine's var_to_str() writes it; empty for none.
 
 	bool operator==(const EngineParam &p_other) const { return name == p_other.name && type == p_other.type && default_value == p_other.default_value; }
 };
@@ -26,10 +26,14 @@ struct EngineMethod {
 	bool is_vararg = false; // Extra arguments are Variant.
 	bool is_static = false;
 	bool is_virtual = false;
+	// The hash of the signature, by which the engine finds the method's
+	// MethodBind. 0 for a method without one: of another language's class, or
+	// Object.free(), which Object::callp() handles (core/object/object.cpp:768-790).
+	uint32_t hash = 0;
 
 	bool operator==(const EngineMethod &p_other) const {
 		return name == p_other.name && owner == p_other.owner && params == p_other.params && default_count == p_other.default_count &&
-				return_type == p_other.return_type && is_vararg == p_other.is_vararg && is_static == p_other.is_static && is_virtual == p_other.is_virtual;
+				return_type == p_other.return_type && is_vararg == p_other.is_vararg && is_static == p_other.is_static && is_virtual == p_other.is_virtual && hash == p_other.hash;
 	}
 };
 

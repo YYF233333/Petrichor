@@ -95,6 +95,7 @@ class FakeEngine : public compiler::EngineApi {
 		m.return_type = p_return;
 		m.is_virtual = p_virtual;
 		m.default_count = p_defaults;
+		m.hash = 1; // Each has a MethodBind.
 		return m;
 	}
 

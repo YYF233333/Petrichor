@@ -185,6 +185,23 @@ public:
 	ValueBuffer &operator=(const ValueBuffer &) = delete;
 };
 
+// A value in its type's own layout outside any frame, such as the default of
+// an engine method's parameter.
+class NativeValue {
+	const bytecode::ValueType type;
+	std::unique_ptr<uint64_t[]> storage;
+
+public:
+	explicit NativeValue(bytecode::ValueType p_type) :
+			type(p_type), storage(new uint64_t[bytecode::slot_size(p_type) / 8 + 1]) {
+		construct_value(type, data());
+	}
+	~NativeValue() { destroy_value(type, data()); }
+	NativeValue(const NativeValue &) = delete;
+	NativeValue &operator=(const NativeValue &) = delete;
+	uint8_t *data() const { return reinterpret_cast<uint8_t *>(storage.get()); }
+};
+
 // The slots of a frame or of an instance's members: zeroed as a whole, then
 // those whose default value is not all zero bytes, such as Basis or Array, are
 // constructed, and only those that own something are destroyed.
@@ -294,6 +311,10 @@ public:
 
 // Holds the object of the Variant in the slot, or None for any other value.
 void set_object(uint8_t *p_slot, const godot::Variant &p_value);
+// Holds the object an engine method returned by its pointer, taking over the
+// reference that came with a RefCounted result (core/variant/method_ptrcall.h:285-290),
+// or taking one as a Variant would.
+void take_returned_object(uint8_t *p_slot, void *p_object, bool p_with_reference);
 bool is_none_object(const uint8_t *p_slot);
 // An object slot that holds a live object; freed objects read as None (spec §3.3).
 bool is_live_object(const uint8_t *p_slot);

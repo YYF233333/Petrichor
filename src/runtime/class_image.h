@@ -10,6 +10,7 @@
 #include <godot_cpp/variant/variant.hpp>
 
 #include <atomic>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <thread>
@@ -87,8 +88,21 @@ public:
 
 	std::vector<godot::String> strings; // String constants, by constant index.
 	std::vector<godot::Variant> values; // Other constants, by constant index.
+	// By constant index: one of a built-in type in that type's own layout, as
+	// CONST_VALUE copies it; null for others.
+	std::vector<const uint8_t *> native_values;
 	std::vector<godot::StringName> engine_methods;
 	std::vector<godot::StringName> engine_static_classes; // Empty for a method called on an object.
+	// By engine call index: the MethodBind of a method called through it, with
+	// the defaults of its last parameters in their own layouts; null for one
+	// called by name.
+	struct NativeCall {
+		GDExtensionMethodBindPtr bind = nullptr;
+		std::vector<const void *> defaults;
+		bool direct = false; // No parameter takes a Variant, so each argument is read where it is.
+	};
+	std::vector<NativeCall> native_calls;
+	std::deque<NativeValue> natives; // What native_values and NativeCall::defaults point to.
 	std::vector<godot::StringName> properties;
 	std::vector<GDExtensionPtrUtilityFunction> utilities;
 	std::vector<GDExtensionPtrOperatorEvaluator> evaluators;

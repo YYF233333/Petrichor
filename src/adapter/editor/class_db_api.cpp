@@ -4,6 +4,7 @@
 
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/templates/hashfuncs.hpp>
 #include <godot_cpp/variant/typed_array.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
@@ -67,15 +68,46 @@ EngineMethod method_of(const Dictionary &p_info, const std::string &p_owner) {
 		const Dictionary arg = args[a];
 		method.params.push_back({ to_utf8(arg.get("name", String())), type_of(arg, false) });
 	}
-	// The values of the last parameters, written as this language writes them.
 	const Array defaults = p_info.get("default_args", Array());
 	method.default_count = int(defaults.size());
 	for (int64_t d = 0; d < defaults.size() && d < int64_t(method.params.size()); d++) {
-		const Variant &value = defaults[d];
-		method.params[method.params.size() - defaults.size() + d].default_value = value.get_type() == Variant::NIL ? "None" : to_utf8(UtilityFunctions::var_to_str(value));
+		method.params[method.params.size() - defaults.size() + d].default_value = to_utf8(UtilityFunctions::var_to_str(defaults[d]));
 	}
 	method.return_type = type_of(p_info.get("return", Dictionary()), true);
 	return method;
+}
+
+// The hash the engine finds a MethodBind by, from what ClassDB tells of it
+// (core/object/method_info.cpp:87-116, core/object/class_db.cpp:955-974). A
+// change in the engine's hash makes every native call fail to load.
+static uint32_t method_hash(const Dictionary &p_info) {
+	const Dictionary result = p_info.get("return", Dictionary());
+	const Array args = p_info.get("args", Array());
+	const Array defaults = p_info.get("default_args", Array());
+	const uint32_t flags = uint32_t(int(p_info.get("flags", 0)));
+	const bool has_return = int(result.get("type", 0)) != Variant::NIL || (uint32_t(int(result.get("usage", 0))) & PROPERTY_USAGE_NIL_IS_VARIANT);
+	uint32_t hash = hash_murmur3_one_32(has_return);
+	hash = hash_murmur3_one_32(uint32_t(args.size()), hash);
+	const auto add_type = [&](const Dictionary &p_property) {
+		hash = hash_murmur3_one_32(uint32_t(int(p_property.get("type", 0))), hash);
+		const StringName class_name = p_property.get("class_name", StringName());
+		if (class_name != StringName()) {
+			hash = hash_murmur3_one_32(uint32_t(class_name.hash()), hash);
+		}
+	};
+	if (has_return) {
+		add_type(result);
+	}
+	for (int64_t a = 0; a < args.size(); a++) {
+		add_type(args[a]);
+	}
+	hash = hash_murmur3_one_32(uint32_t(defaults.size()), hash);
+	for (int64_t d = 0; d < defaults.size(); d++) {
+		hash = hash_murmur3_one_32(defaults[d].hash(), hash);
+	}
+	hash = hash_murmur3_one_32(flags & METHOD_FLAG_CONST ? 1 : 0, hash);
+	hash = hash_murmur3_one_32(flags & METHOD_FLAG_VARARG ? 1 : 0, hash);
+	return hash_fmix32(hash);
 }
 
 const ClassDBApi &ClassDBApi::get() {
@@ -108,7 +140,11 @@ std::shared_ptr<const ClassDBApi::Members> ClassDBApi::members(const std::string
 	const TypedArray<Dictionary> methods = db->class_get_method_list(cls, true);
 	for (int64_t i = 0; i < methods.size(); i++) {
 		const Dictionary info = methods[i];
-		result->methods.emplace(to_utf8(info.get("name", String())), method_of(info, p_class));
+		EngineMethod method = method_of(info, p_class);
+		if (db->class_has_method(cls, info.get("name", StringName()), true)) {
+			method.hash = method_hash(info);
+		}
+		result->methods.emplace(method.name, method);
 	}
 	const TypedArray<Dictionary> properties = db->class_get_property_list(cls, true);
 	for (int64_t i = 0; i < properties.size(); i++) {

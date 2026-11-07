@@ -372,11 +372,27 @@ struct ExportGroup {
 	uint32_t before_member = 0;
 };
 
-// A method of an engine class, called by name.
+// A method of an engine class, or of another language's class, called by name
+// with Variants. One with an `owner` is called through the MethodBind the
+// engine finds by the hash, with pointers to the arguments and the result in
+// the layouts of `params` and `return_type` (an object by its pointer).
 struct EngineCall {
 	std::string method;
 	uint32_t result_type = 0; // The slot that receives the result, by type.
 	std::string static_class; // A static method: the class it is called through, with no base.
+	std::string owner; // The class whose MethodBind it is, or one that extends it.
+	uint32_t hash = 0;
+	std::vector<ValueType> params;
+	// Of the last parameters, which a call can leave out, as the engine's
+	// var_to_str() writes them.
+	std::vector<std::string> defaults;
+	ValueType return_type = ValueType::Void;
+	bool returns_reference = false; // A RefCounted object, which the engine hands over with a reference.
+
+	bool operator==(const EngineCall &p_other) const {
+		return method == p_other.method && result_type == p_other.result_type && static_class == p_other.static_class && owner == p_other.owner && hash == p_other.hash && params == p_other.params &&
+				defaults == p_other.defaults && return_type == p_other.return_type && returns_reference == p_other.returns_reference;
+	}
 };
 
 // A method of a class of this language, called on an object of that class or
