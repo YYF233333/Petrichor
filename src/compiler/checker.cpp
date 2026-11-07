@@ -7519,7 +7519,17 @@ class Checker : public ClassRelation {
 		}
 	}
 
+	// new() constructs the class (spec §4.1).
+	void refuse_new(const FuncDecl &p_function) {
+		if (p_function.name == "new") {
+			error(p_function.name_token, "A function cannot be named \"new\": new() constructs the class (spec §4.1).");
+		}
+	}
+
 	void check_signature(FuncDecl &r_function) {
+		if (!r_function.of_struct) {
+			refuse_new(r_function);
+		}
 		check_abstract(r_function);
 		// Each class's _init() has its own signature (spec §6.1).
 		if (const FuncDecl *parent = r_function.name == "_init" ? nullptr : base_function(r_function.name)) {
@@ -7717,6 +7727,7 @@ class Checker : public ClassRelation {
 			}
 			refer(interface.name_token, script_id(options.path, interface.name), SymbolKind::Class);
 			for (FuncDecl &method : interface.methods) {
+				refuse_new(method);
 				refer(method.name_token, script_id(options.path, interface.name + "." + method.name), SymbolKind::Method);
 				for (ParamDecl &param : method.params) {
 					if (!param.declared_type) {

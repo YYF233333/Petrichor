@@ -124,6 +124,13 @@ TEST_CASE("new() of a class of this language makes the engine object with the sc
 	CHECK(contains(messages(compile_in("extends Node\nfunc f() -> void:\n\tprint(Plain.new())\n", project)), "Plain cannot be instantiated: the engine cannot instantiate Object, which it extends."));
 }
 
+TEST_CASE("no function of a class or an interface is named new, which constructs the class (spec §4.1)") {
+	const std::string refused = "A function cannot be named \"new\"";
+	CHECK(contains(messages(compile("extends RefCounted\nstatic func new() -> int:\n\treturn 1\n")), refused));
+	CHECK(contains(messages(compile("extends RefCounted\nfunc new() -> void:\n\tpass\n")), refused));
+	CHECK(contains(messages(compile("extends RefCounted\ninterface Maker:\n\tfunc new()\n")), refused));
+}
+
 TEST_CASE("new(...) passes its arguments to the nearest _init(), whose visibility it has (spec §4.2, §6.1)") {
 	FakeProject project;
 	project.add_script("res://pair.pet", "class_name Pair extends RefCounted\npub var left := 0\npub var right := \"\"\npub func _init(a: int, b: String = \"b\"):\n\tleft = a\n\tright = b\n", "Pair");
