@@ -4,7 +4,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Language
 
-- `Task.any` and `Task.all` (spec §9.5).
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
 - Array and dictionary patterns of match (spec §5.6).
 - A struct or an enum with payloads that holds itself through a container (spec §3.6). The type table cannot list it, since a type's parts come before it.
@@ -165,4 +164,5 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
   - which agreements are promises and which merely hold today;
   - which Godot versions are supported;
   - which semantics may still change during the alpha.
+- Tuples, to be discussed after the first version. `await Task.all([...])` gives nothing (spec §9.5). With tuples it could give the results of tasks of different types, which an array cannot type.
 - How to test the gain in maintenance. Use the language in a real project through several rounds of changing requirements. See how many problems it points out ahead of renames, interface changes and refactorings across files. The cost of adoption includes migrating in step by step, mixing and leaving. With cross-language inheritance restricted, the unit of migration may be an inheritance cluster or a subsystem.

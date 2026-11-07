@@ -5539,17 +5539,22 @@ class Checker : public ClassRelation {
 		return std::string();
 	}
 
-	// `Task.of(signal)` and `Task.delay(seconds)` (spec §9.5): tasks the
-	// runtime makes, which an await owns when it starts them, as a call. A
-	// signal gives what an await of it gives as a value (§9.6).
+	// `Task.of(signal)`, `Task.delay(seconds)`, `Task.any([...])` and
+	// `Task.all([...])` (spec §9.5): tasks the runtime makes, which an await
+	// owns when it starts them, as a call. A signal gives what an await of it
+	// gives as a value (§9.6).
 	Type check_task_function(Expr &r_expr) {
 		refer(r_expr.base->name_token, language_id("Task", std::string()));
-		if (r_expr.text != "of" && r_expr.text != "delay") {
-			return fail_call(r_expr, "Task has no function \"" + r_expr.text + "()\" (spec §9.5).");
+		const std::string &name = r_expr.text;
+		if (name != "of" && name != "delay" && name != "any" && name != "all") {
+			return fail_call(r_expr, "Task has no function \"" + name + "()\" (spec §9.5).");
 		}
-		refer(r_expr.name_token, language_id("Task", r_expr.text));
+		refer(r_expr.name_token, language_id("Task", name));
 		r_expr.is_async = true;
-		if (r_expr.text == "delay") {
+		if (name == "any" || name == "all") {
+			return check_task_join(r_expr);
+		}
+		if (name == "delay") {
 			check_arguments(r_expr, { Type::of(TypeKind::Float) }, 1, false);
 			r_expr.target = Target::TaskDelay;
 			return set(r_expr, Type::task(Type::of(TypeKind::Void)));
@@ -5572,6 +5577,32 @@ class Checker : public ClassRelation {
 		r_expr.param_types.push_back(signal);
 		r_expr.target = Target::TaskOf;
 		return set(r_expr, Type::task(*result));
+	}
+
+	// The tasks of Task.any() or Task.all(), listed in brackets: a task started
+	// there is the join's own (spec §9.5). any gives the index of the first to
+	// finish; all gives nothing, as tuples could give the results (BACKLOG).
+	Type check_task_join(Expr &r_expr) {
+		const bool any = r_expr.text == "any";
+		if (r_expr.args.size() != 1 || r_expr.args[0]->kind != ExprKind::ArrayLiteral) {
+			for (auto &arg : r_expr.args) {
+				check_value(*arg);
+			}
+			return fail_call(r_expr, "Task." + r_expr.text + "() takes the tasks in brackets, as Task." + r_expr.text + "([a, f()]); arrays of Task are not supported yet.");
+		}
+		Expr &list = *r_expr.args[0];
+		if (any && list.args.empty()) {
+			error(list.range, "Task.any() needs a task to wait for.");
+		}
+		for (auto &member : list.args) {
+			const Type type = check_value(*member);
+			if (!type.is_error() && (type.kind != TypeKind::Task || type.nullable)) {
+				error(member->range, "Task." + r_expr.text + "() takes tasks, not " + type.to_string() + ".");
+			}
+		}
+		set(list, Type::builtin("Array"));
+		r_expr.target = any ? Target::TaskAny : Target::TaskAll;
+		return set(r_expr, Type::task(Type::of(any ? TypeKind::Int : TypeKind::Void)));
 	}
 
 	Type check_await(Expr &r_expr) {

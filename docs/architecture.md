@@ -129,7 +129,7 @@
   - 等待、取消和释放监听与其他协程共用，所以规则一致。
   - 信号源被释放时，同样推迟到每帧回调判定，再取消该任务。
   - `Task.delay` 就是 `SceneTree.create_timer` 的 `timeout`，暂停和时间缩放按引擎的默认值。
-- `t.settled()` 的任务也不运行函数，只等所等任务发出 `completed`（§9.2）。
+- `t.settled()`、`Task.any` 和 `Task.all` 的任务也不运行函数，只等所等任务发出 `completed`（§9.2、§9.5）。
   - 它拥有为它启动的任务，自己结束时取消它；对已有的任务只停止等待。
   - 所等任务因所属对象释放而取消时，同样推迟到每帧回调判定。
   - `Settled` 与 `Result` 一样是没有脚本的带载荷 enum，`CancelReason` 是没有脚本的 enum。

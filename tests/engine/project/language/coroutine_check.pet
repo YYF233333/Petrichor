@@ -141,6 +141,17 @@ pub async func settle_owned() -> String:
 pub func start_settle_owned() -> Task[String]:
 	return settle_owned()
 
+# The first of several tasks to finish, or all of them (spec §9.5).
+pub async func first_of(t: Task[int]) -> int:
+	return await Task.any([Task.of(tick), twice(), t])
+
+pub async func all_of(t: Task[int]) -> int:
+	await Task.all([Task.of(tick), t])
+	return await t
+
+pub async func any_cancelled(t: Task[int]) -> int:
+	return await Task.any([t, Task.of(tick)])
+
 # Freeing an object on another thread waits for none of the tasks of others,
 # this running one among them.
 pub async func join_freeing_thread() -> bool:

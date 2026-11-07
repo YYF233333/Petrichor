@@ -24,7 +24,9 @@ namespace petrichor::bytecode {
 // its one argument; a program error in the function aborts the caller (spec
 // §8.1). MAKE_LAMBDA has this form too: the lambda's function, the Callable it
 // makes, no base, and the values it captures, each of the type of its capture
-// parameter (spec §3.11).
+// parameter (spec §3.11). So do TASK_ANY and TASK_ALL: the type T of the
+// Task[T] they make, int for any and void for all, the task, no base, and each
+// task waited for with an int, 1 when it is owned (spec §9.5).
 //
 // In emit_schema, each character encodes one operand word from ir::Instr:
 // D=dst, A=a, B=b, I=imm, T=type, F=field, M=member_offset, R=regs[dst].type,
@@ -160,6 +162,8 @@ namespace petrichor::bytecode {
 	X(CALL_BUILTIN, "*", "") \
 	X(CONSTRUCT, "*", "") \
 	X(MAKE_LAMBDA, "*", "") \
+	X(TASK_ANY, "*", "") \
+	X(TASK_ALL, "*", "") \
 	X(CALL_VALUE, "*", "") \
 	X(RETURN, "A", "") \
 	X(RETURN_VOID, "", "")

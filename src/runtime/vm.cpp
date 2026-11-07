@@ -102,16 +102,27 @@ struct CoroutineFrame : std::enable_shared_from_this<CoroutineFrame> {
 };
 
 // What a task does that waits for other tasks, its members, instead of
-// running a function (spec §9.2): t.settled(). It cancels the members it owns
-// once it ends, and lets go of the others.
+// running a function: t.settled() (spec §9.2), Task.any() and Task.all()
+// (§9.5). It cancels the members it owns once it ends, and lets go of the
+// others.
 struct TaskJoin : std::enable_shared_from_this<TaskJoin> {
+	enum class Kind {
+		Settled,
+		Any,
+		All,
+	};
+	Kind kind = Kind::Settled;
 	Ref<CoroutineTask> task; // Its own, which keeps it until it ends.
 	InstanceContext context;
 	std::shared_ptr<const ClassImage> image; // That holds `result_type`.
-	const TypeImage *result_type = nullptr; // Settled[T].
+	const TypeImage *result_type = nullptr; // The T of its Task[T]: Settled[T], int or void.
+	// Where it was made, where awaiting a cancelled member is reported.
+	std::string function;
+	int line = 0;
 	std::vector<Ref<CoroutineTask>> members;
 	std::vector<bool> owned;
 	std::vector<bool> seen;
+	size_t finished = 0;
 	std::vector<Callable> callbacks;
 	std::atomic<uint64_t> generation{ 0 };
 	// A member cancelled as its object was freed in this frame: tasks::frame()
@@ -119,10 +130,11 @@ struct TaskJoin : std::enable_shared_from_this<TaskJoin> {
 	std::atomic<bool> awaited_freed{ false };
 	size_t freed_member = 0;
 
-	static Ref<CoroutineTask> settled(const InstanceContext &p_context, const std::shared_ptr<const ClassImage> &p_image, const TypeImage &p_type, const Ref<CoroutineTask> &p_member, bool p_owned);
+	static Ref<CoroutineTask> make(Kind p_kind, const std::vector<Ref<CoroutineTask>> &p_members, const std::vector<bool> &p_owned, const TypeImage &p_result, const InstanceContext &p_context, const std::shared_ptr<const ClassImage> &p_image, const bytecode::Function &p_function, int p_line);
 	void start();
 	void member_ended(size_t p_member);
 	Variant cancelled(const CoroutineTask &p_member) const;
+	void report_error(const String &p_message) const;
 	std::vector<Ref<CoroutineTask>> stop();
 };
 
@@ -1632,7 +1644,25 @@ class Execution {
 		if (!member) {
 			return fail_cstr(p_fn, p_line, "Expected a Task handle.");
 		}
-		set_object(p_frame + p_op[2], TaskJoin::settled(context, image.shared_from_this(), image.types[p_op[1]], Ref<CoroutineTask>(member), p_op[4] != 0));
+		set_object(p_frame + p_op[2], TaskJoin::make(TaskJoin::Kind::Settled, { Ref<CoroutineTask>(member) }, { p_op[4] != 0 }, image.types[p_op[1]], context, image.shared_from_this(), p_fn, p_line));
+		return true;
+	}
+
+	// TASK_ANY and TASK_ALL (spec §9.5).
+	PETRICHOR_NOINLINE bool op_task_join(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		std::vector<Ref<CoroutineTask>> members;
+		std::vector<bool> owned;
+		for (uint32_t i = 0; i < p_op[4]; i += 2) {
+			ObjectView view(p_frame + p_op[6 + 2 * i]);
+			CoroutineTask *member = Object::cast_to<CoroutineTask>(static_cast<Object *>(view.get()));
+			if (!member) {
+				return fail_cstr(p_fn, p_line, "Expected a Task handle.");
+			}
+			members.push_back(Ref<CoroutineTask>(member));
+			owned.push_back(*reinterpret_cast<const int64_t *>(p_frame + p_op[8 + 2 * i]) != 0);
+		}
+		const TaskJoin::Kind kind = Op(p_op[0]) == Op::TASK_ANY ? TaskJoin::Kind::Any : TaskJoin::Kind::All;
+		set_object(p_frame + p_op[2], TaskJoin::make(kind, members, owned, image.types[p_op[1]], context, image.shared_from_this(), p_fn, p_line));
 		return true;
 	}
 
@@ -2275,6 +2305,13 @@ public:
 					}
 					pc += 5 + 2 * code[pc + 4];
 					break;
+				case Op::TASK_ANY:
+				case Op::TASK_ALL:
+					if (!op_task_join(code + pc, frame, fn, record.line)) {
+						return false;
+					}
+					pc += 5 + 2 * code[pc + 4];
+					break;
 				case Op::CALL_AWAIT_ENGINE:
 				case Op::CALL_ENGINE: {
 					bool done = false;
@@ -2634,20 +2671,23 @@ void CoroutineFrame::resume() {
 	}
 }
 
-Ref<CoroutineTask> TaskJoin::settled(const InstanceContext &p_context, const std::shared_ptr<const ClassImage> &p_image, const TypeImage &p_type, const Ref<CoroutineTask> &p_member, bool p_owned) {
+Ref<CoroutineTask> TaskJoin::make(Kind p_kind, const std::vector<Ref<CoroutineTask>> &p_members, const std::vector<bool> &p_owned, const TypeImage &p_result, const InstanceContext &p_context, const std::shared_ptr<const ClassImage> &p_image, const bytecode::Function &p_function, int p_line) {
 	Ref<CoroutineTask> task;
 	task.instantiate();
 	task->owner_id = p_context.owner ? uint64_t(p_context.owner->get_instance_id()) : 0;
 	task->owner_storage = p_context.storage.get();
-	task->result_signature = p_type.result_key;
+	task->result_signature = p_result.result_key;
 	const auto join = std::make_shared<TaskJoin>();
+	join->kind = p_kind;
 	join->task = task;
 	join->context = p_context;
 	join->image = p_image;
-	join->result_type = &p_type;
-	join->members = { p_member };
-	join->owned = { p_owned };
-	join->seen = { false };
+	join->result_type = &p_result;
+	join->function = p_function.name;
+	join->line = p_line;
+	join->members = p_members;
+	join->owned = p_owned;
+	join->seen.assign(p_members.size(), false);
 	task->join = join;
 	{
 		std::lock_guard<std::mutex> lock(tasks_mutex);
@@ -2679,11 +2719,15 @@ void TaskJoin::start() {
 			Signal(members[i].ptr(), "completed").connect(callbacks.back());
 		}
 	}
-	// Those that ended before the connection, their signals gone.
+	// Those that ended before the connection, their signals gone; Task.all()
+	// of none has none to wait for.
 	for (size_t i = 0; i < members.size(); i++) {
 		if (members[i]->ended()) {
 			member_ended(i);
 		}
+	}
+	if (members.empty()) {
+		task->finish(CoroutineTask::State::Finished);
 	}
 }
 
@@ -2702,16 +2746,30 @@ void TaskJoin::member_ended(size_t p_member) {
 		if (member->state == CoroutineTask::State::Failed) {
 			ends = CoroutineTask::State::Failed;
 		} else if (member->state == CoroutineTask::State::Finished) {
-			value = encode_variant(*result_type, 0, result_type->enum_declared[0].second ? std::vector<Variant>{ member->result } : std::vector<Variant>());
+			if (kind == Kind::Settled) {
+				value = encode_variant(*result_type, 0, result_type->enum_declared[0].second ? std::vector<Variant>{ member->result } : std::vector<Variant>());
+			} else if (kind == Kind::Any) {
+				value = int64_t(p_member);
+			} else if (++finished < members.size()) {
+				return;
+			}
 		} else if (member->owner_freed && member->owner_freed_frame == task_frame.load()) {
 			awaited_freed = true;
 			freed_member = p_member;
 			return;
-		} else {
+		} else if (kind == Kind::Settled) {
 			value = cancelled(*member.ptr());
+		} else {
+			// As awaiting it would be (spec §9.2).
+			report_error(member->owner_freed ? vformat("The awaited object %d was freed or lost its script.", int64_t(member->owner_id)) : String("The awaited task was cancelled."));
+			ends = CoroutineTask::State::Failed;
 		}
 	}
 	own->finish(ends, value);
+}
+
+void TaskJoin::report_error(const String &p_message) const {
+	vm::report_error(*image, function.c_str(), line, p_message);
 }
 
 // Cancelled(reason), as Settled[T] holds it (spec §9.2).
@@ -2758,12 +2816,17 @@ void frame() {
 		}
 		if (const auto join = task->join; join && join->awaited_freed && !task->ended()) {
 			const bool owner_gone = join->context.storage && join->context.storage->coroutines_cancelled;
-			const Variant value = owner_gone ? Variant() : join->cancelled(*join->members[join->freed_member].ptr());
+			const CoroutineTask &member = *join->members[join->freed_member].ptr();
+			const bool settled = join->kind == TaskJoin::Kind::Settled;
+			const Variant value = owner_gone || !settled ? Variant() : join->cancelled(member);
+			if (!owner_gone && !settled) {
+				join->report_error(vformat("The awaited object %d was freed or lost its script.", int64_t(member.owner_id)));
+			}
 			lock.unlock();
 			if (owner_gone) {
 				task->cancel_owner();
 			} else {
-				task->finish(CoroutineTask::State::Finished, value);
+				task->finish(settled ? CoroutineTask::State::Finished : CoroutineTask::State::Failed, value);
 			}
 			continue;
 		}

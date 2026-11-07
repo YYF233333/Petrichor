@@ -1579,6 +1579,25 @@ class Lowerer {
 			instr(Op::TASK_SETTLED, task, member, NO_REG, owned ? 1 : 0, type_index(p_call.type.args[0]));
 			return task;
 		}
+		if (p_call.target == Target::TaskAny || p_call.target == Target::TaskAll) {
+			// Each task, with whether it was started for the join, which owns it then (spec §9.5).
+			ir::Instr i;
+			i.op = p_call.target == Target::TaskAny ? Op::TASK_ANY : Op::TASK_ALL;
+			uint32_t flags[2] = { NO_REG, NO_REG };
+			for (const auto &member : p_call.args[0]->args) {
+				const bool owned = member->kind == ExprKind::Call && member->is_async;
+				i.args.push_back(lower_expr(*member));
+				if (flags[owned] == NO_REG) {
+					flags[owned] = temp(ValueType::Int);
+					load_int(flags[owned], owned);
+				}
+				i.args.push_back(flags[owned]);
+			}
+			i.dst = temp(p_call.type);
+			i.imm = type_index(p_call.type.args[0]);
+			add(i);
+			return i.dst;
+		}
 		if (p_call.target == Target::TaskOf || p_call.target == Target::TaskDelay) {
 			const uint32_t made = arguments(p_call)[0];
 			const uint32_t task = temp(p_call.type);
