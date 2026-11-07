@@ -1,6 +1,6 @@
 # Petrichor
 
-一门面向中大型 Godot 4 项目的全静态类型脚本语言，以 GDExtension 的形式交付。它在项目代码中替代 GDScript，并与 GDScript 插件共存。Petrichor 是项目代号。
+一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的形式交付。它在项目代码中替代 GDScript，并与 GDScript 插件共存。Petrichor 是项目代号。
 
 **状态**：早期实现阶段。[语言规范](docs/language-spec.zh.md)（v0.2）是发布出来征求意见的草案。语言的第一个子集已经能在 Godot 中运行，实现方式见[实现架构](docs/architecture.md)。靠它已经达成两个里程碑。一个小型 FPS 游戏的脚本以 Petrichor 运行。主体用 C# 写成的游戏 Ring 中，打砖块小游戏的脚本也是。引擎行为按 Godot 4.7.2-stable 核对。
 

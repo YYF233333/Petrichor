@@ -1,6 +1,6 @@
 # Petrichor
 
-A fully statically typed scripting language for medium-to-large Godot 4 projects, delivered as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. Petrichor is a codename.
+A fully statically typed scripting language for Godot 4, delivered as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. Petrichor is a codename.
 
 **Status:** early implementation. The [language specification](docs/language-spec.zh.md) (v0.2, in Chinese) is a draft published for feedback. A first subset of the language runs in Godot, built as the [implementation architecture](docs/architecture.md) describes. With it, two milestones are reached. The scripts of a small FPS game run in Petrichor. So do those of the breakout minigame in Ring, a game written mostly in C#. Engine behavior is checked against Godot 4.7.2-stable.
 
