@@ -703,7 +703,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 ### 8.3 断言
 
 - `assert(条件, 消息)` 只在 debug 构建（编辑器内运行与 debug 导出）中求值，失败报程序错误。release 构建中移除，条件和消息均不求值。
-- 消息为 `String`，仅在条件为假时求值。条件或消息中含 `await` 或后缀 `?` 报编译错误。条件须为 `bool`。例如 `assert(save_data, "...")` 报编译错误，并提示 `save_data != None`。release 构建也需检查的用 `expect` 或显式 `if`。
+- 消息为 `String`，仅在条件为假时求值。这属于语法硬规则的例外：GDScript 在 debug 构建中总是求值，release 构建中不求值。条件或消息中含 `await` 或后缀 `?` 报编译错误。条件须为 `bool`。例如 `assert(save_data, "...")` 报编译错误，并提示 `save_data != None`。release 构建也需检查的用 `expect` 或显式 `if`。
 
 ### 8.4 诊断
 

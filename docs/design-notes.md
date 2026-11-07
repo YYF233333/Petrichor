@@ -119,7 +119,7 @@
 
 ### §8–§13 错误、协程、引擎边界与工具链
 
-- **程序错误与断言（§8.1–§8.3）**：GDScript 出错后让调用方继续执行。此时 debug 构建返回类型默认值，release 构建返回 `null`。在静态类型下，这会产生假值。`?` 短路返回不用 `?.` 伴随，以免 `x?.y` 取决于 `x` 是 Option 还是 Result。[语料计数](surveys/corpus-counts.md)中，595 个 `assert` 的条件基本都是纯查询，实参含 `await` 的 0 个。539 个消息无一依赖在条件为真时求值。
+- **程序错误与断言（§8.1–§8.3）**：GDScript 出错后让调用方继续执行。此时 debug 构建返回类型默认值，release 构建返回 `null`。在静态类型下，这会产生假值。`?` 短路返回不用 `?.` 伴随，以免 `x?.y` 取决于 `x` 是 Option 还是 Result。[语料计数](surveys/corpus-counts.md)中，595 个 `assert` 的条件基本都是纯查询，实参含 `await` 的 0 个。539 个消息无一依赖在条件为真时求值。GDScript 的消息副作用只在 debug 构建中发生，依赖它的代码在两种构建下结果不同。Python、Java 和 Rust 的消息也只在失败时求值。
 - **协程与信号（§9.1–§9.7）**：[语料计数](surveys/corpus-counts.md)中 979 个 lambda 只有 35 个含 `await`（33 个在 `gdUnit4` 测试中）。重入与释放暗坑见[暗坑清单](surveys/pitfalls.md) G-11、G-12、G-13，及提案 [godot-proposals#8838](https://github.com/godotengine/godot-proposals/issues/8838)、[#6243](https://github.com/godotengine/godot-proposals/issues/6243)。[await 信号结果调查](surveys/await-signal-results.md)中，1,356 个 `await` 只有 1 个使用了多参数信号的结果。也只有 1 个使用了签名未知的 `Signal` 结果（`godot_dialogue_manager` `:1956` 经 `RefCounted` 接收者等待 C# 两参数信号）。
 - **引擎边界（§10.2–§10.6）**：引擎用 `RequiredResult` 标注的 API 仅约 50 处（29 处在 `Tween`）。引擎传入虚函数和信号的对象几乎总是非空。默认非空加入口检查，避免每个 `_input` 和信号处理函数重复判空。引擎 API 中窄于 `int64` 或无符号的方法参数有 3,700 多个、属性约 460 个。例如 `uint32` 的 `collision_layer` 写入 `-1` 会回绕为 `4294967295`。
 - **按名访问（§10.4、§10.5）**：引擎分不清按名访问的调用方。只对引擎暴露私有成员，GDScript 的无类型访问也就能读写它，私有成员的不变量因此要防外部修改。[按名访问调查](surveys/by-name-access.md)中：

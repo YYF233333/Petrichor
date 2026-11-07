@@ -170,7 +170,6 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
   - `await f()` owns the child task and cancels it with the parent. GDScript runs `f` on (spec §9.3).
   - Assignment evaluates subscripts before the right side. So `arr[i] = next()` differs when `next()` changes `i` (§3.6).
   - Loop-body locals are released every iteration, GDScript's after the loop (§6.8).
-  - `assert` evaluates its message only on failure. GDScript's debug build evaluates it every time.
   - A signal without `pub` registers as `@hit`, so `hit.get_name()` differs (§10.5).
 
   Meanings of GDScript code that this language cannot write:
