@@ -9225,6 +9225,29 @@ public:
 	}
 
 private:
+	// Whether a class of `p_file` extends one of this file, directly or
+	// through the classes of the other files `r_files` lists after it. Each
+	// file loads its classes together, so neither file could load first.
+	bool extends_back(const std::string &p_file, std::vector<std::string> &r_files, std::unordered_set<std::string> &r_seen) {
+		if (!r_seen.insert(p_file).second) {
+			return false;
+		}
+		r_files.push_back(p_file);
+		std::vector<std::pair<const ClassDecl *, std::string>> in_file{ { script_header(p_file), p_file } };
+		for (size_t i = 0; i < in_file.size() && in_file[i].first; ++i) {
+			const auto [decl, path] = in_file[i];
+			for (const std::unique_ptr<ClassDecl> &inner : decl->classes) {
+				in_file.push_back({ inner.get(), path + "::" + inner->name });
+			}
+			const std::string base = script_file(classes.base_path(*decl, path));
+			if (is_script_path(base) && (base == script_file(options.path) || (base != p_file && extends_back(base, r_files, r_seen)))) {
+				return true;
+			}
+		}
+		r_files.pop_back();
+		return false;
+	}
+
 	bool declare_class() {
 		if (completion && at_cursor(cls.extends)) {
 			complete_extends();
@@ -9264,6 +9287,15 @@ private:
 					break;
 				}
 				path = classes.base_path(*header, path);
+			}
+			std::vector<std::string> files;
+			std::unordered_set<std::string> seen_files;
+			if (script_file(cls.base_script) != script_file(options.path) && extends_back(script_file(cls.base_script), files, seen_files)) {
+				std::string through;
+				for (size_t i = 1; i < files.size(); ++i) {
+					through += (i == 1 ? " through " : ", ") + files[i];
+				}
+				error(cls.extends_token, "A class of " + files[0] + " extends one of this file" + through + "; files extending each other's classes are not supported (spec §4.1).");
 			}
 			const ClassDecl *parent = nullptr;
 			if (Checker *local = file->find(cls.base_script)) {

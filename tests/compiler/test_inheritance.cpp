@@ -112,6 +112,11 @@ TEST_CASE("inheritance rejects cycles foreign bases and missing super implementa
 	p.add_script("res://a.pet", "class_name A\nextends B\n", "A");
 	p.add_script("res://b.pet", "class_name B\nextends A\n", "B");
 	CHECK(contains(messages(compile_in("extends A\n", p)), "Inheritance cycle"));
+	const std::string front = "class_name Front\nclass Z:\n\tpass\nclass X extends Back.Y:\n\tpass\n";
+	p.add_script("res://test.pet", front, "Front");
+	p.add_script("res://back.pet", "class_name Back\nclass Y extends Side.W:\n\tpass\n", "Back");
+	p.add_script("res://side.pet", "class_name Side\nclass W extends Front.Z:\n\tpass\n", "Side");
+	CHECK(contains(messages(compile_in(front, p)), "A class of res://back.pet extends one of this file through res://side.pet;"));
 	p.global_classes["Foreign"] = "res://foreign.gd";
 	CHECK(contains(messages(compile_in("extends Foreign\n", p)), "another language"));
 	CHECK(contains(messages(compile_in("extends Node\nfunc _ready():\n\tsuper()\n", p)), "No base implementation"));
