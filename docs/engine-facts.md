@@ -109,7 +109,9 @@
 | GDScript 的 `new` 构造原生对象，运行各类的成员初始化式，再把实参交给继承链上最近的 `_init` | `modules/gdscript/gdscript.cpp:125-152, 176-194, 210-254` | §6.1、§11.1 |
 | GDScript 不按覆盖规则检查 `_init` 的签名 | `modules/gdscript/gdscript_analyzer.cpp:1830-1875` | §4.8、§6.1 |
 | 引擎附加 GDScript 脚本时不带实参调用 `_init`，调用失败则不创建脚本实例 | `modules/gdscript/gdscript.cpp:192-203, 406-424` | §6.2 |
-| GDScript 把没有报告 `_init` 的其他语言的脚本当作只有无参的构造 | `modules/gdscript/gdscript_analyzer.cpp:6005-6031` | §10.1 |
+| GDScript 把没有报告 `_init` 的其他语言的脚本当作只有无参的构造 | `modules/gdscript/gdscript_analyzer.cpp:6005-6031` | §10.1、§11.1 |
+| C# 脚本的方法列表只有普通方法，不含构造器 | `modules/mono/editor/Godot.NET.Sdk/Godot.SourceGenerators/ScriptMethodsGenerator.cs:129-131`；`modules/mono/csharp_script.cpp:2509-2522` | §11.1 |
+| C# 脚本不提供常量：`get_constants` 用基类的空实现，`_get` 只认 `script/source` | `core/object/script_language.h:192`；`modules/mono/csharp_script.cpp:2197-2203` | §11.1 |
 | GDScript 的脚本对象按名字调用静态函数，读取常量、静态变量和静态函数 | `modules/gdscript/gdscript.cpp:928-940, 957-997` | §4.8、§11.1 |
 | GDScript 实例从自己的脚本往上按名字查找方法，包括静态函数 | `modules/gdscript/gdscript.cpp:1948-1966` | §4.8、§6.3 |
 | 在实例上调用静态方法，GDScript 默认只给警告 | `modules/gdscript/gdscript_analyzer.cpp:3699-3703`；`modules/gdscript/gdscript_warning.h:131` | §4.8 |
