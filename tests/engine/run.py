@@ -54,7 +54,7 @@ GROUPS = ["game", "editor", "language", "debugger", "export", "fps", "ring"]
 failures = []
 
 
-TIMEOUT = 120
+TIMEOUT = 60
 PROMPT = b"debug> "
 # A scene whose GDScript failed to load never quits, and no run expects it.
 GDSCRIPT_NOT_LOADED = re.compile(rb'Failed to load script "[^"]*\.gd"')
