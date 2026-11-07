@@ -109,6 +109,31 @@ public:
 	void call(const godot::Variant **p_arguments, int p_argcount, godot::Variant &r_return_value, GDExtensionCallError &r_call_error) const override;
 };
 
+// A method of a struct as a value (spec §3.11): a Callable that runs the
+// method, found as the value is made, with a copy of the struct, as a lambda
+// runs with its captures. Equal only to itself.
+class StructMethodCallable : public godot::CallableCustom {
+	std::shared_ptr<const ClassImage> image;
+	int function;
+	ValueBuffer self;
+
+	static bool compare_equal(const godot::CallableCustom *p_a, const godot::CallableCustom *p_b) { return p_a == p_b; }
+	static bool compare_less(const godot::CallableCustom *p_a, const godot::CallableCustom *p_b) { return std::less<const godot::CallableCustom *>()(p_a, p_b); }
+
+public:
+	// `p_self` is the struct in the layout of the method's first parameter.
+	StructMethodCallable(const std::shared_ptr<const ClassImage> &p_image, int p_function, const uint8_t *p_self);
+
+	uint32_t hash() const override;
+	godot::String get_as_text() const override;
+	CompareEqualFunc get_compare_equal_func() const override { return compare_equal; }
+	CompareLessFunc get_compare_less_func() const override { return compare_less; }
+	bool is_valid() const override { return true; }
+	godot::ObjectID get_object() const override { return godot::ObjectID(); }
+	int get_argument_count(bool &r_is_valid) const override;
+	void call(const godot::Variant **p_arguments, int p_argcount, godot::Variant &r_return_value, GDExtensionCallError &r_call_error) const override;
+};
+
 // A lambda (spec §3.11): a Callable that runs the lambda's function in the
 // image that made it, also after a hot reload (§12.4), with copies of what it
 // captured, and on the instance it was made on when it uses self, which it

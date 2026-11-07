@@ -245,3 +245,21 @@ pub func static_values() -> String:
 	timer.timeout.emit()
 	timer.free()
 	return str(numbers) + " " + str(exists.call("res://project.godot")) + " " + str(ticks)
+
+# A struct's methods as values (spec §3.11): an instance method keeps the copy
+# it was taken from.
+struct Tally:
+	var count: int = 0
+
+	func plus(n: int) -> int:
+		return count + n
+
+	static func of(n: int) -> Tally:
+		return Tally(count = n)
+
+pub func struct_method_values() -> String:
+	var tally := Tally(count = 2)
+	var plus := tally.plus
+	tally = Tally.of(10)
+	var make := Tally.of
+	return str(plus.call(3)) + " " + str(make.call(4).count) + " " + str(tally.count)

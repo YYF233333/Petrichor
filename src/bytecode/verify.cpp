@@ -756,6 +756,13 @@ class Verifier {
 				const uint32_t name = o[p_op == Op::STATIC_VALUE ? 2 : 0];
 				return index(name, module.constants.size(), "constant") && (storage(module.constants[name].type) == ValueType::StringName || fail("a name that is not a StringName"));
 			}
+			case Op::STRUCT_METHOD_VALUE: {
+				if (!index(o[0], module.method_calls.size(), "method call")) {
+					return false;
+				}
+				const MethodCall &method = module.method_calls[o[0]];
+				return ((method.static_class >= 0 && !method.params.empty()) || fail("a struct method without its class or self")) && slot_like(o[2], method.params[0].type);
+			}
 			case Op::TO_VARIANT:
 			case Op::FROM_VARIANT:
 				return is_option(o[0]) || is_struct(o[0]) || is_element(storage(o[0])) || fail("no value type");

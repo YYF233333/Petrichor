@@ -1680,23 +1680,8 @@ class Lowerer {
 					i.imm = uint32_t(own - cls.all_functions.begin());
 					break;
 				}
-				// Of a struct of another class, on its current image (spec §12.4).
 				i.op = Op::CALL_METHOD;
-				bytecode::MethodCall method;
-				method.method = p_call.callee->name;
-				if (!p_call.callee->is_static) {
-					method.params.push_back(slot(std::string(), p_call.base->type));
-				}
-				for (const Type &param : p_call.engine_params) {
-					method.params.push_back(slot(std::string(), param));
-				}
-				method.defaults = uint32_t(p_call.index);
-				method.is_async = p_call.is_async;
-				method.result = slot(std::string(), p_call.is_async ? p_call.type.args[0] : p_call.type);
-				bytecode::ClassRef declaring; // Only its script matters.
-				declaring.script = p_call.owner;
-				method.static_class = int32_t(class_index(declaring));
-				i.imm = method_call(method);
+				i.imm = struct_method_call(*p_call.callee, p_call.owner, p_call.base ? p_call.base->type : Type());
 				break;
 			}
 			case Target::EngineMethod:
@@ -1786,6 +1771,26 @@ class Lowerer {
 			check_object(i.dst, p_call.type);
 		}
 		return i.dst;
+	}
+
+	// A method of a struct of the class at `p_owner`, called on that class's
+	// current image (spec §12.4), self first for an instance method.
+	uint32_t struct_method_call(const FuncDecl &p_method, const std::string &p_owner, const Type &p_self) {
+		bytecode::MethodCall method;
+		method.method = p_method.name;
+		if (!p_method.is_static) {
+			method.params.push_back(slot(std::string(), p_self));
+		}
+		for (const ParamDecl &param : p_method.params) {
+			method.params.push_back(slot(std::string(), param.type));
+			method.defaults += param.default_value ? 1 : 0;
+		}
+		method.is_async = p_method.is_async;
+		method.result = slot(std::string(), p_method.return_type);
+		bytecode::ClassRef declaring; // Only its script matters.
+		declaring.script = p_owner;
+		method.static_class = int32_t(class_index(declaring));
+		return method_call(method);
 	}
 
 	// A lambda (spec §3.11): its function, lowered here, and the Callable that
@@ -1909,9 +1914,16 @@ class Lowerer {
 					i.op = Op::STATIC_VALUE;
 					i.field = class_index(owner);
 					i.dst = temp(p_expr.type);
-					i.imm = text_constant(ValueType::StringName, p_expr.text);
+					// A struct's is named after it, as `Hit.make`.
+					i.imm = text_constant(ValueType::StringName, p_expr.target == Target::StaticValue ? p_expr.callee->name : p_expr.text);
 					add(i);
 					return i.dst;
+				}
+				if (p_expr.target == Target::StructMethodValue) {
+					const uint32_t self = lower_expr(*p_expr.base);
+					const uint32_t result = temp(p_expr.type);
+					instr(Op::STRUCT_METHOD_VALUE, result, self, NO_REG, struct_method_call(*p_expr.callee, p_expr.owner, p_expr.base->type));
+					return result;
 				}
 				if (p_expr.target == Target::SelfSignal || p_expr.target == Target::ObjectSignal) {
 					const uint32_t object = p_expr.target == Target::ObjectSignal ? lower_expr(*p_expr.base) : NO_REG;

@@ -2291,11 +2291,42 @@ class Checker : public ClassRelation {
 			r_expr.kind = ExprKind::Member;
 			return check_member_access(r_expr);
 		}
-		if (const FuncDecl *method = structure->find_method(name)) {
-			refer(r_expr.name_token, script_id(options.path, method->name));
-			return fail(r_expr, "A method of a struct as a value is not supported yet; call \"" + name + "()\".");
+		if (structure->find_method(name)) {
+			return struct_method_value(r_expr, structure_type, false);
 		}
 		return std::nullopt;
+	}
+
+	// A method of a struct as a value (spec §3.11), found as check_struct_call()
+	// finds a call's; an instance method keeps a copy of the struct.
+	Type struct_method_value(Expr &r_expr, const Type &p_struct, bool p_on_value) {
+		const StructDecl *decl = struct_decl(p_struct);
+		if (!decl) {
+			return fail(r_expr, p_struct.script + " has errors.");
+		}
+		const FuncDecl *method = decl->find_method(r_expr.text);
+		if (!method) {
+			return fail(r_expr, missing(p_struct.name + " has no method \"" + r_expr.text + "()\".", p_struct.script));
+		}
+		refer(r_expr.name_token, script_id(p_struct.script, method->name));
+		if (method->is_static) {
+			r_expr.static_on_value = p_on_value;
+			return static_value(r_expr, *method, p_struct.script);
+		}
+		if (!p_on_value) {
+			if (r_expr.base) {
+				return fail(r_expr, "\"" + r_expr.text + "()\" of " + p_struct.name + " is not static; take it from a value.");
+			}
+			if (!has_struct_self()) {
+				return fail(r_expr, "\"" + r_expr.text + "()\" needs self, which the static function \"" + outermost()->name + "()\" does not have.");
+			}
+			r_expr.base = struct_self(r_expr);
+			check_value(*r_expr.base);
+		}
+		r_expr.target = Target::StructMethodValue;
+		r_expr.callee = method;
+		r_expr.owner = p_struct.script;
+		return set(r_expr, function_type(*method));
 	}
 
 	Type check_name(Expr &r_expr) {
@@ -2509,6 +2540,7 @@ class Checker : public ClassRelation {
 	// current image of the class at `p_owner` (§12.4).
 	Type static_value(Expr &r_expr, const FuncDecl &p_function, const std::string &p_owner) {
 		r_expr.target = Target::StaticValue;
+		r_expr.callee = &p_function;
 		r_expr.owner = p_owner;
 		return set(r_expr, function_type(p_function));
 	}
@@ -2687,6 +2719,11 @@ class Checker : public ClassRelation {
 			}
 			return check_engine_constant(r_expr, base.text);
 		}
+		if ((base.kind == ExprKind::Member || base.kind == ExprKind::Name) && !visible_local(base.text)) {
+			if (const std::optional<Type> named = constructed_struct(base)) {
+				return named->is_error() ? set(r_expr, *named) : struct_method_value(r_expr, *named, false);
+			}
+		}
 
 		const Type base_type = check_value(base);
 		if (base_type.is_error()) {
@@ -2729,9 +2766,8 @@ class Checker : public ClassRelation {
 					return set(r_expr, decl->fields[i].type);
 				}
 			}
-			if (const FuncDecl *method = decl->find_method(r_expr.text)) {
-				refer(r_expr.name_token, script_id(base_type.script, method->name));
-				return fail(r_expr, "A method of a struct as a value is not supported yet; call \"" + r_expr.text + "()\".");
+			if (decl->find_method(r_expr.text)) {
+				return struct_method_value(r_expr, base_type, true);
 			}
 			return fail(r_expr, missing(base_type.name + " has no field \"" + r_expr.text + "\".", base_type.script));
 		}
@@ -8814,6 +8850,7 @@ class Checker : public ClassRelation {
 			case Target::EngineMethodValue:
 			case Target::StaticValue:
 			case Target::EngineStaticValue:
+			case Target::StructMethodValue:
 				return CompletionKind::Function;
 			case Target::SelfSignal:
 			case Target::ObjectSignal:

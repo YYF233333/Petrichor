@@ -114,6 +114,18 @@ TEST_CASE("a struct's methods read its fields bare or through self, and are call
 	find_instruction(function_named(result.module, "f"), bytecode::Op::CALL);
 }
 
+TEST_CASE("a struct's methods are values, an instance method with a copy of the struct (spec §3.11)") {
+	const compiler::CompileResult result = compile_in(std::string("extends Node\n\n") + SCORE + "func f(s: Score) -> int:\n\tvar total := s.total\n\tvar zero := Score.zero\n\tvar inside := s.later\n\treturn total.call(2) + zero.call().points\n", FakeProject());
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	const bytecode::Function &f = function_named(result.module, "f");
+	CHECK(result.module.method_calls[f.code[find_instruction(f, bytecode::Op::STRUCT_METHOD_VALUE) + 1]].method == "Score.total");
+	find_instruction(f, bytecode::Op::STATIC_VALUE);
+	// Bare in a method, on self.
+	CHECK(errors("pass", std::string(SCORE) + "\tfunc each() -> func(int) -> int:\n\t\treturn total\n\n").empty());
+}
+
 // Score with only its fields and `p_head`, a method with the lines of `p_body`.
 static std::string score_with(const std::string &p_head, const std::string &p_body) {
 	const std::string score = SCORE;
@@ -145,7 +157,7 @@ TEST_CASE("a struct's methods reach of the class only what needs no object") {
 	CHECK(contains(method("print(points)", "static func check() -> void"), "\"points\" is a field of self, which the static function \"Score.check()\" does not have."));
 	CHECK(contains(method("print(self)", "static func check() -> void"), "has no self"));
 	CHECK(contains(errors("print(Score.total())", SCORE), "\"total()\" of Shots.Score is not static; call it on a value."));
-	CHECK(contains(errors("var s := Score.zero()\nvar f := s.total", SCORE), "A method of a struct as a value is not supported yet; call \"total()\"."));
+	CHECK(contains(errors("var f := Score.total", SCORE), "\"total()\" of Shots.Score is not static; take it from a value."));
 	CHECK(contains(errors("print(Score.zero().missing())", SCORE), "Shots.Score has no method \"missing()\"."));
 	CHECK(contains(errors("pass", "struct Open:\n\tpub func f() -> void:\n\t\tpass\n\n"), "they take no pub"));
 }

@@ -1155,6 +1155,19 @@ class Execution {
 		return true;
 	}
 
+	PETRICHOR_NOINLINE bool op_struct_method_value(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		const uint32_t target = p_op[1];
+		const StringName &name = image.method_names[target];
+		std::shared_ptr<const ClassImage> owner = script_image(image.class_scripts[image.module.method_calls[target].static_class]);
+		const int index = owner ? owner->find_function(name) : -1;
+		// Its struct is copied in the layout this script was compiled against.
+		if (index < 0 || !owner->has_signature(name, image.call_signatures[target])) {
+			return fail(p_fn, p_line, vformat("%s() is not the method this script was compiled against. Build the project again.", name));
+		}
+		*reinterpret_cast<Callable *>(p_frame + p_op[2]) = Callable(memnew(StructMethodCallable(owner, index, p_frame + p_op[3])));
+		return true;
+	}
+
 	PETRICHOR_NOINLINE void op_static_value(const uint32_t *p_op, uint8_t *p_frame) {
 		const String &script = image.class_scripts[p_op[1]];
 		const bool of_engine = script.is_empty();
@@ -2154,6 +2167,12 @@ public:
 					op_static_value(code + pc, frame);
 					pc += 4;
 					break;
+				case Op::STRUCT_METHOD_VALUE:
+					if (!op_struct_method_value(code + pc, frame, fn, record.line)) {
+						return false;
+					}
+					pc += 4;
+					break;
 				case Op::MAKE_LAMBDA:
 					if (!op_make_lambda(code + pc, frame, freed, fn, record.line)) {
 						return false;
@@ -2927,7 +2946,7 @@ void clear() {
 
 namespace vm {
 
-Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const Variant **p_args, int64_t p_argc, GDExtensionCallError &r_error, bool *r_failed, const uint8_t *const *p_captures, bool p_task) {
+Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const Variant **p_args, int64_t p_argc, GDExtensionCallError &r_error, bool *r_failed, const uint8_t *const *p_captures, bool p_task, const uint8_t *p_bound_self) {
 	// Old code stays alive until this call returns, even if a hot reload
 	// replaces the image meanwhile (spec §12.4).
 	std::shared_ptr<const ClassImage> image = p_image;
@@ -2949,7 +2968,8 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 		return Variant();
 	}
 	// The last parameters may be left out when they have default values.
-	const size_t given = fn.params.size() - fn.captures;
+	const size_t bound = p_bound_self ? 1 : 0;
+	const size_t given = fn.params.size() - fn.captures - bound;
 	const size_t required = given - fn.defaults.size();
 	if (size_t(p_argc) < required || size_t(p_argc) > given) {
 		r_error.error = size_t(p_argc) > given ? GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS : GDEXTENSION_CALL_ERROR_TOO_FEW_ARGUMENTS;
@@ -2962,14 +2982,15 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 	for (size_t i = 0; i < fn.params.size(); i++) {
 		const bytecode::Slot &param = fn.params[i];
 		const TypeImage &type = image->types[param.type];
-		if (i >= given) {
-			copy_value(type, frame.data + param.offset, p_captures[i - given]);
+		const size_t arg = i - bound;
+		if (i < bound || arg >= given) {
+			copy_value(type, frame.data + param.offset, i < bound ? p_bound_self : p_captures[arg - given]);
 			continue;
 		}
 		// Like member initializers, defaults are built late, after script types load.
-		Variant value = i < size_t(p_argc) ? *p_args[i] : Variant();
+		Variant value = arg < size_t(p_argc) ? *p_args[arg] : Variant();
 		String error;
-		bool valid = i < size_t(p_argc) || constant_value(*image, fn.defaults[i - required], value, error);
+		bool valid = arg < size_t(p_argc) || constant_value(*image, fn.defaults[arg - required], value, error);
 		if (valid && !from_variant(type, value, frame.data + param.offset, true)) {
 			error = entry_mismatch(type, value);
 			valid = false;

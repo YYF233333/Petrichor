@@ -127,6 +127,9 @@ enum class Target {
 	// object evaluated first (spec §3.11, §4.8).
 	StaticValue,
 	EngineStaticValue,
+	// An instance method of a struct as a value: `callee`, of the struct in
+	// `base`, declared in the class at `owner` (spec §3.11).
+	StructMethodValue,
 	SelfSignal, // A signal of the engine class this class extends, as a value.
 	ObjectSignal, // A signal of an engine object.
 	BindArguments, // `f.bind(...)` of a function value.

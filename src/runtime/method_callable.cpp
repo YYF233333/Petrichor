@@ -20,13 +20,13 @@ thread_local bool without_init = false;
 thread_local bool last_initialized = true;
 
 // Calls the function, as the callee of a call of a function value when one is pending.
-Variant call_value(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const Variant **p_args, int p_argc, GDExtensionCallError &r_error, const uint8_t *const *p_captures) {
+Variant call_value(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const Variant **p_args, int p_argc, GDExtensionCallError &r_error, const uint8_t *const *p_captures, const uint8_t *p_bound_self = nullptr) {
 	ValueCall &value = current_value_call;
 	const bool callee = value.pending;
 	value.pending = false;
 	value.entered = value.entered || callee;
 	bool failed = false;
-	Variant result = vm::call(p_image, p_function, p_context, p_args, p_argc, r_error, &failed, p_captures, callee && value.task);
+	Variant result = vm::call(p_image, p_function, p_context, p_args, p_argc, r_error, &failed, p_captures, callee && value.task, p_bound_self);
 	if (callee) {
 		value.failed = failed;
 	}
@@ -211,6 +211,28 @@ void StaticCallable::call(const Variant **p_arguments, int p_argcount, Variant &
 		return;
 	}
 	r_return_value = call_value(image, function, InstanceContext(), p_arguments, p_argcount, r_call_error, nullptr);
+}
+
+StructMethodCallable::StructMethodCallable(const std::shared_ptr<const ClassImage> &p_image, int p_function, const uint8_t *p_self) :
+		image(p_image), function(p_function), self(p_image->types[p_image->module.functions[p_function].params[0].type]) {
+	copy_value(image->types[image->module.functions[function].params[0].type], self.data, p_self);
+}
+
+uint32_t StructMethodCallable::hash() const {
+	return hash_murmur3_one_64(uint64_t(this));
+}
+
+String StructMethodCallable::get_as_text() const {
+	return String(image->function_names[function]);
+}
+
+int StructMethodCallable::get_argument_count(bool &r_is_valid) const {
+	r_is_valid = true;
+	return int(image->module.functions[function].params.size()) - 1;
+}
+
+void StructMethodCallable::call(const Variant **p_arguments, int p_argcount, Variant &r_return_value, GDExtensionCallError &r_call_error) const {
+	r_return_value = call_value(image, function, InstanceContext(), p_arguments, p_argcount, r_call_error, nullptr, self.data);
 }
 
 LambdaCallable::LambdaCallable(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const uint8_t *p_frame, const uint32_t *p_captures) :
