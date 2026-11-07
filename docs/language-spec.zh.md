@@ -675,6 +675,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 任务有三种结束状态。**完成**指得到返回值。**取消**指调用了 `t.cancel()`、所属对象释放，或 `Task.of(信号)` 的信号源释放。**失败**指内部发生程序错误，含 `await` 到已取消任务或已释放信号源。
 - `await` 被取消的任务是程序错误。失败沿 `await` 链传播到根任务，即 `detach` 或引擎调用的任务。失败不可拦截。
 - `await t.settled()` 把取消作为值返回 `Settled[T]`：`Finished(v)` 或 `Cancelled(r)`。`r` 为 `enum CancelReason`：`REQUESTED`、`OWNER_FREED`、`AWAITED_FREED`。任务失败时照常向等待方传播。
+- `Task[void]` 的 `Finished` 不带值，模式写作 `Finished`。
 
 ### 9.3 取消与归属
 
@@ -689,6 +690,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 ### 9.5 组合与重入
 
 - `Task.of(信号)` 将信号包装为任务。`Task.delay(秒)` 计时。`Task.any(列表)` 返回首个完成任务的下标，并按归属规则取消其余任务。`Task.all(列表)` 等待全部完成。在 `any`/`all` 实参中直接启动的任务归其所有，已有任务仅停止等待。
+- `await Task.all(列表)` 不产生值。需要结果时，先把任务存入变量，完成后逐个 `await`。
 - 重入无自动策略，需要时经句柄取消旧调用。
 
 ### 9.6 await 信号
