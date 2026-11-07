@@ -107,8 +107,10 @@ class RangeChecker {
 				name(p_node.name_token, p_node.name, p_node.range);
 			}
 		} else if constexpr (std::is_same_v<T, FuncDecl>) {
-			// An inline accessor, @set_x or @get_x, is named by its keyword.
-			name(p_node.name_token, p_node.name.rfind('@', 0) == 0 ? p_node.name.substr(1, 3) : p_node.name, p_node.range);
+			// An inline accessor, @set_x or @get_x, is named by its keyword; a
+			// struct's method, Hit.total, after its struct.
+			const std::string &own = p_node.name;
+			name(p_node.name_token, own.rfind('@', 0) == 0 ? own.substr(1, 3) : (p_node.of_struct ? own.substr(own.find('.') + 1) : own), p_node.range);
 		} else if constexpr (!std::is_same_v<T, MatchBranch>) {
 			name(p_node.name_token, p_node.name, p_node.range);
 		}

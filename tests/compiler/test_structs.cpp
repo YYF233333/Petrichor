@@ -93,6 +93,71 @@ TEST_CASE("structs and T? are ordered") {
 	CHECK(contains(errors("var ns: Array[Node] = []\nvar x: bool = ns < ns"), "Values of type Array[Node] are not ordered"));
 }
 
+// Spec §3.6: methods read the fields bare or through self, and change none.
+const char *const SCORE = "struct Score:\n\tvar points: int\n\tvar bonus: bool = false\n\tvar marks: PackedInt32Array = PackedInt32Array()\n\tvar log: Array[int] = []\n\n"
+						  "\tfunc total(times: int = 1) -> int:\n\t\treturn (points * 2 if bonus else points) * times\n\n"
+						  "\tfunc doubled() -> Score:\n\t\treturn Score(points = self.points * 2, bonus = bonus)\n\n"
+						  "\tfunc later() -> func() -> int:\n\t\treturn func(): return total() + points\n\n"
+						  "\tstatic func zero() -> Score:\n\t\treturn Score(points = 0)\n\n";
+
+TEST_CASE("a struct's methods read its fields bare or through self, and are called on its values") {
+	const compiler::CompileResult result = compile(std::string("extends Node\n\n") + SCORE + "func f(s: Score) -> int:\n\treturn s.total() + s.doubled().total(3) + Score.zero().total() + s.zero().points + s.later().call()\n");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	const bytecode::Function &total = function_named(result.module, "Score.total");
+	CHECK(total.is_static);
+	CHECK(total.params.size() == 2);
+	CHECK(function_named(result.module, "Score.zero").params.empty());
+	find_instruction(function_named(result.module, "f"), bytecode::Op::CALL);
+}
+
+// Score with only its fields and `p_head`, a method with the lines of `p_body`.
+static std::string score_with(const std::string &p_head, const std::string &p_body) {
+	const std::string score = SCORE;
+	std::string method = "\t" + p_head + ":\n";
+	for (size_t start = 0; start <= p_body.size();) {
+		const size_t end = std::min(p_body.find('\n', start), p_body.size());
+		method += "\t\t" + p_body.substr(start, end - start) + "\n";
+		start = end + 1;
+	}
+	return score.substr(0, score.find("\n\n") + 2) + method + "\n";
+}
+
+TEST_CASE("a struct's methods do not change self") {
+	for (const std::string body : { "points = 3", "self.points += 1", "marks.append(1)", "self.marks[0] = 2", "var f := func(): points = 1" }) {
+		const std::string found = errors("pass", score_with("func change() -> void", body));
+		CHECK_MESSAGE(contains(found, "A struct's methods do not change self (spec §3.6)."), body, ": ", found);
+	}
+	CHECK(errors("pass", score_with("func change() -> void", "log.append(1)\nvar copy := self\ncopy.points = 2")).empty());
+}
+
+TEST_CASE("a struct's methods reach of the class only what needs no object") {
+	const std::string around = "var hp := 3\nconst MAX = 9\n\nstatic func cap() -> int:\n\treturn MAX\n\n";
+	const auto method = [&](const std::string &p_body, const std::string &p_head = "func check() -> void") {
+		return errors("pass", around + score_with(p_head, p_body));
+	};
+	CHECK(method("print(MAX + cap())").empty());
+	CHECK(contains(method("print(hp)"), "\"hp\" belongs to an object of Shots, which Score does not have"));
+	CHECK(contains(method("print(get_child_count())"), "which Score does not have"));
+	CHECK(contains(method("print(points)", "static func check() -> void"), "\"points\" is a field of self, which the static function \"Score.check()\" does not have."));
+	CHECK(contains(method("print(self)", "static func check() -> void"), "has no self"));
+	CHECK(contains(errors("print(Score.total())", SCORE), "\"total()\" of Shots.Score is not static; call it on a value."));
+	CHECK(contains(errors("var s := Score.zero()\nvar f := s.total", SCORE), "A method of a struct as a value is not supported yet; call \"total()\"."));
+	CHECK(contains(errors("print(Score.zero().missing())", SCORE), "Shots.Score has no method \"missing()\"."));
+	CHECK(contains(errors("pass", "struct Open:\n\tpub func f() -> void:\n\t\tpass\n\n"), "they take no pub"));
+}
+
+TEST_CASE("another class's struct has its methods called on that class's image") {
+	FakeProject project;
+	project.add_script("res://tally.pet", std::string("class_name Tally\n\npub ") + SCORE, "Tally");
+	const compiler::CompileResult result = compile_in("extends Node\n\nfunc f() -> int:\n\tvar s := Tally.Score.zero()\n\treturn s.total(2)\n", project);
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	find_instruction(function_named(result.module, "f"), bytecode::Op::CALL_METHOD);
+}
+
 TEST_CASE("a field of a struct in a register is a slot inside it, which the verifier accepts") {
 	const compiler::CompileResult result = compile(std::string("extends Node\n\n") + HIT + "func f(a: Hit) -> bool:\n\tvar h := a\n\th.crit = h.damage > 2\n\th.point.y = 1.0\n\treturn h == a\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));

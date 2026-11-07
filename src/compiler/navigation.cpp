@@ -643,6 +643,10 @@ struct Documenter {
 				doc.properties.push_back(member(field, field.type));
 				doc.properties.back().value = text(field.initializer);
 			}
+			for (const FuncDecl &method : decl.methods) {
+				doc.methods.push_back(function(method));
+				doc.methods.back().name = method.name.substr(decl.name.size() + 1);
+			}
 			docs.push_back(std::move(doc));
 		}
 		for (const InterfaceDecl &decl : p_class.interfaces) {

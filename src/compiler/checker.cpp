@@ -257,6 +257,9 @@ class Checker : public ClassRelation {
 	// `current_value` its own may name (spec §3.7).
 	const EnumDecl *current_enum = nullptr;
 	size_t current_value = 0;
+	// The struct whose method is being checked (spec §3.6), and its type.
+	const StructDecl *structure = nullptr;
+	Type structure_type;
 	// The functions around the lambda being checked (spec §3.11), outermost
 	// first, each as it was where its lambda is.
 	struct Enclosing {
@@ -1308,6 +1311,12 @@ class Checker : public ClassRelation {
 		return enclosing.empty() ? function : enclosing.front().function;
 	}
 
+	// Whether the code is in an instance method of a struct, whose self is the
+	// struct (spec §3.6).
+	bool has_struct_self() const {
+		return structure && !outermost()->is_static;
+	}
+
 	// The type a name refers to when it is the base of `Name.x` or
 	// `Name.f()`: not when a local, a member or a property has that name.
 	bool names_type(const Expr &p_expr) const {
@@ -2180,6 +2189,19 @@ class Checker : public ClassRelation {
 	}
 
 	Type check_self(Expr &r_expr) {
+		if (has_struct_self()) {
+			// A local, which lambdas capture as a copy (spec §3.11).
+			int local = find_local("self");
+			if (local < 0) {
+				local = capture("self");
+			}
+			r_expr.target = Target::Local;
+			r_expr.index = local;
+			return set(r_expr, structure_type);
+		}
+		if (structure) {
+			return fail(r_expr, "The static function \"" + outermost()->name + "()\" has no self.");
+		}
 		if (refuse_in_static(r_expr, "self")) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
@@ -2187,6 +2209,35 @@ class Checker : public ClassRelation {
 			return fail(r_expr, "self cannot be used as a value in the PREDELETE branch (spec §6.6).");
 		}
 		return set(r_expr, script_class_type(cls, options.path));
+	}
+
+	// Self, unchecked, as the base that a field or a method of the struct
+	// named bare in its methods is on.
+	static std::unique_ptr<Expr> struct_self(const Expr &p_at) {
+		auto self = std::make_unique<Expr>();
+		self->kind = ExprKind::Self;
+		self->range = p_at.range;
+		self->name_token = NO_TOKEN;
+		return self;
+	}
+
+	// A field or a method of the struct whose method is being checked, by its
+	// bare name (spec §3.6): a field of self.
+	std::optional<Type> struct_name(Expr &r_expr) {
+		const std::string &name = r_expr.text;
+		if (std::any_of(structure->fields.begin(), structure->fields.end(), [&](const VarDecl &p_field) { return p_field.name == name; })) {
+			if (!has_struct_self()) {
+				return fail(r_expr, "\"" + name + "\" is a field of self, which the static function \"" + outermost()->name + "()\" does not have.");
+			}
+			r_expr.base = struct_self(r_expr);
+			r_expr.kind = ExprKind::Member;
+			return check_member_access(r_expr);
+		}
+		if (const FuncDecl *method = structure->find_method(name)) {
+			refer(r_expr.name_token, script_id(options.path, method->name));
+			return fail(r_expr, "A method of a struct as a value is not supported yet; call \"" + name + "()\".");
+		}
+		return std::nullopt;
 	}
 
 	Type check_name(Expr &r_expr) {
@@ -2201,6 +2252,9 @@ class Checker : public ClassRelation {
 			refer(r_expr.name_token, local_id(function->locals[local].token));
 			const Type *narrowed_to = narrowed_type(local);
 			return set(r_expr, narrowed_to ? *narrowed_to : function->locals[local].type);
+		}
+		if (const std::optional<Type> found = structure ? struct_name(r_expr) : std::nullopt) {
+			return *found;
 		}
 		if (const std::optional<Type> found = check_self_name(r_expr)) {
 			return *found;
@@ -2449,7 +2503,7 @@ class Checker : public ClassRelation {
 
 	Type check_member_access(Expr &r_expr) {
 		Expr &base = *r_expr.base;
-		if (base.kind == ExprKind::Self) {
+		if (base.kind == ExprKind::Self && !structure) {
 			if (const std::optional<Type> found = check_self_name(r_expr)) {
 				return *found;
 			}
@@ -2532,6 +2586,10 @@ class Checker : public ClassRelation {
 					refer(r_expr.name_token, script_id(base_type.script, decl->name + "." + decl->fields[i].name));
 					return set(r_expr, decl->fields[i].type);
 				}
+			}
+			if (const FuncDecl *method = decl->find_method(r_expr.text)) {
+				refer(r_expr.name_token, script_id(base_type.script, method->name));
+				return fail(r_expr, "A method of a struct as a value is not supported yet; call \"" + r_expr.text + "()\".");
 			}
 			return fail(r_expr, missing(base_type.name + " has no field \"" + r_expr.text + "\".", base_type.script));
 		}
@@ -4947,6 +5005,43 @@ class Checker : public ClassRelation {
 		return set(r_expr, callee.is_async ? Type::task(callee.return_type) : callee.return_type);
 	}
 
+	// A method of a struct (spec §3.6): on a value; static through the
+	// struct's name; or either bare in the struct's methods, an instance
+	// method then on self.
+	Type check_struct_call(Expr &r_expr, const Type &p_struct, bool p_on_value) {
+		const StructDecl *decl = struct_decl(p_struct);
+		if (!decl) {
+			return fail_call(r_expr, p_struct.script + " has errors.");
+		}
+		const FuncDecl *callee = decl->find_method(r_expr.text);
+		if (!callee) {
+			return fail_call(r_expr, missing(p_struct.name + " has no method \"" + r_expr.text + "()\".", p_struct.script));
+		}
+		refer(r_expr.name_token, script_id(p_struct.script, callee->name));
+		if (!callee->is_static && !p_on_value) {
+			if (r_expr.base) {
+				return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + p_struct.name + " is not static; call it on a value.");
+			}
+			if (!has_struct_self()) {
+				return fail_call(r_expr, "\"" + r_expr.text + "()\" needs self, which the static function \"" + outermost()->name + "()\" does not have.");
+			}
+			r_expr.base = struct_self(r_expr);
+			check_value(*r_expr.base);
+		}
+		r_expr.is_static = callee->is_static;
+		r_expr.static_on_value = callee->is_static && p_on_value;
+		const ClassDecl *declaring = p_struct.script == options.path ? &cls : script_decl(p_struct.script);
+		hint(r_expr, [&](int p_current) { return declared_signature(r_expr.text, *callee, *declaring->source, p_current, callee->return_type); });
+		check_arguments(r_expr, param_types(callee->params), required_params(*callee), false);
+		r_expr.target = Target::StructMethod;
+		r_expr.callee = callee;
+		r_expr.owner = p_struct.script;
+		r_expr.engine_params = param_types(callee->params);
+		r_expr.index = int(callee->params.size()) - required_params(*callee);
+		r_expr.is_async = callee->is_async;
+		return set(r_expr, callee->is_async ? Type::task(callee->return_type) : callee->return_type);
+	}
+
 	// The script of a class of another language as the base of `r_access`,
 	// which its static methods are called and its constants read on (spec
 	// §11.1): a constant or a preload of it is the script already; a
@@ -5167,7 +5262,7 @@ class Checker : public ClassRelation {
 		}
 		const std::string &name = r_expr.text;
 
-		if (r_expr.base && r_expr.base->kind != ExprKind::Self) {
+		if (r_expr.base && (r_expr.base->kind != ExprKind::Self || structure)) {
 			Expr &base = *r_expr.base;
 			if (names_type(base)) {
 				if (name == "new" && engine.class_exists(base.text) && !builtin::find_class(base.text)) {
@@ -5190,6 +5285,11 @@ class Checker : public ClassRelation {
 					return fail_call(r_expr);
 				}
 				return is_script_path(named->script) ? check_class_call(r_expr, named->script) : check_foreign_class_call(r_expr, *named);
+			}
+			if ((base.kind == ExprKind::Member || base.kind == ExprKind::Name) && !visible_local(base.text)) {
+				if (const std::optional<Type> named = constructed_struct(base)) {
+					return named->is_error() ? fail_call(r_expr) : check_struct_call(r_expr, *named, false);
+				}
 			}
 			const Type base_type = check_value(base);
 			if (base_type.is_error()) {
@@ -5265,6 +5365,9 @@ class Checker : public ClassRelation {
 				}
 				return fail(r_expr, missing(base_type.name + " has no method \"" + name + "()\".", base_type.script));
 			}
+			if (base_type.kind == TypeKind::Struct) {
+				return check_struct_call(r_expr, base_type, true);
+			}
 			return fail(r_expr, "Values of type " + base_type.to_string() + " have no methods.");
 		}
 
@@ -5275,6 +5378,9 @@ class Checker : public ClassRelation {
 			const Type *value = local ? &local->type : (member != member_index.end() ? &cls.all_members[member->second]->type : nullptr);
 			if (value && value->unwrapped().kind == TypeKind::Function) {
 				return fail_call(r_expr, "\"" + name + "\" is a function value; call it as " + name + ".call(...) (spec §3.11).");
+			}
+			if (structure && structure->find_method(name)) {
+				return check_struct_call(r_expr, structure_type, false);
 			}
 		}
 		const auto script = function_index.find(name);
@@ -5662,6 +5768,10 @@ class Checker : public ClassRelation {
 		}
 		switch (p_target.target) {
 			case Target::Local:
+				if (p_target.kind == ExprKind::Self) {
+					error(p_target.range, "A struct's methods do not change self (spec §3.6).");
+					return false;
+				}
 				if (is_capture(p_target.index)) {
 					// It would change neither the variable outside nor the next call (spec §3.11).
 					error(p_target.range, "Cannot assign to \"" + p_target.text + "\", which the lambda captures as a copy; keep what it shares in a member or a container (spec §3.11).");
@@ -5716,7 +5826,7 @@ class Checker : public ClassRelation {
 	// A part of a value, changed in a copy written back along the chain (spec §3.6).
 	bool check_written_back(const Expr &p_target) {
 		const ExprKind base = p_target.base->kind;
-		if (base == ExprKind::Name || base == ExprKind::Member || base == ExprKind::Subscript) {
+		if (base == ExprKind::Name || base == ExprKind::Member || base == ExprKind::Subscript || base == ExprKind::Self) {
 			return check_place(*p_target.base);
 		}
 		error(p_target.range, p_target.kind == ExprKind::Subscript ? "Cannot assign to an element of a temporary value." : "Cannot assign to a member of a temporary value.");
@@ -7083,6 +7193,10 @@ class Checker : public ClassRelation {
 
 	// A static function has no instance (spec §4.8).
 	bool refuse_in_static(const Expr &p_expr, const std::string &p_name) {
+		if (structure) {
+			error(p_expr.range, "\"" + p_name + "\" belongs to an object of " + display_name(cls, options.path) + ", which " + structure->name + " does not have: a struct's methods have no object of the class around it.");
+			return true;
+		}
 		if (function ? !function->is_static : static_initializing < 0) {
 			// A lambda that uses self holds it, and so do those it is in (spec §3.11).
 			for (size_t i = 0; function && function->is_lambda && i <= enclosing.size(); i++) {
@@ -7496,6 +7610,15 @@ class Checker : public ClassRelation {
 				}
 				field.type = type;
 			}
+			for (FuncDecl &method : decl.methods) {
+				const std::string name = method.name.substr(decl.name.size() + 1);
+				if (fields.count(name) || function_index.count(method.name)) {
+					error(method.name_token, "\"" + name + "\" is already declared in " + decl.name + ".");
+					continue;
+				}
+				function_index[method.name] = int(cls.all_functions.size());
+				cls.all_functions.push_back(&method);
+			}
 		}
 		std::vector<std::string> held;
 		for (const StructDecl &decl : cls.structs) {
@@ -7800,6 +7923,10 @@ class Checker : public ClassRelation {
 		scopes.emplace_back();
 		narrowed.clear();
 		narrowed.emplace_back();
+		if (r_function.of_struct && !r_function.is_static) {
+			scopes.back()["self"] = 0;
+			r_function.locals.push_back({ "self", structure_type, r_function.name_token });
+		}
 		declare_params(r_function);
 		const size_t cursor = completion ? cls.source->text.find(CURSOR) : 0;
 		if (options.declarations_only || !check_bodies || (completion && (cursor < cls.source->begin(r_function.range) || cursor >= cls.source->end(r_function.range)))) {
@@ -8069,9 +8196,7 @@ class Checker : public ClassRelation {
 		}
 		if (p_type.kind == TypeKind::Struct) {
 			if (const StructDecl *decl = struct_decl(p_type)) {
-				for (const VarDecl &field : decl->fields) {
-					r_names.values.insert(field.name);
-				}
+				struct_candidates(*decl, r_names);
 			}
 		}
 		if (p_type.kind == TypeKind::Object) {
@@ -8079,6 +8204,15 @@ class Checker : public ClassRelation {
 		}
 		if (const builtin::Class *type = builtin::find_class(p_type.builtin_name())) {
 			builtin_candidates(*type, r_names);
+		}
+	}
+
+	static void struct_candidates(const StructDecl &p_decl, Candidates &r_names) {
+		for (const VarDecl &field : p_decl.fields) {
+			r_names.values.insert(field.name);
+		}
+		for (const FuncDecl &method : p_decl.methods) {
+			r_names.values.insert(method.name.substr(p_decl.name.size() + 1));
 		}
 	}
 
@@ -8095,6 +8229,9 @@ class Checker : public ClassRelation {
 		locals(scopes);
 		for (const Enclosing &outer : enclosing) {
 			locals(outer.scopes);
+		}
+		if (structure) {
+			struct_candidates(*structure, r_names);
 		}
 		for (const Checker *around = this; around; around = around->outer_checker) {
 			class_candidates(around->cls, r_names);
@@ -8656,7 +8793,9 @@ class Checker : public ClassRelation {
 			names.insert(name);
 		}
 		for (size_t i = 0; cls.base && i < cls.base->all_functions.size(); i++) {
-			names.insert(cls.base->all_functions[i]->name);
+			if (!cls.base->all_functions[i]->of_struct) {
+				names.insert(cls.base->all_functions[i]->name);
+			}
 		}
 		const std::vector<std::string> chain = class_chain(script_class_type(cls, options.path));
 		std::map<std::string, CompletionItem> found;
@@ -8758,7 +8897,9 @@ class Checker : public ClassRelation {
 		} else if (string_name && p_on_self && (name == "method" || name == "signal")) {
 			if (name == "method") {
 				for (const FuncDecl *function : cls.all_functions) {
-					add(function->name, CompletionKind::Function, CompletionItem::Place::Member);
+					if (!function->of_struct) {
+						add(function->name, CompletionKind::Function, CompletionItem::Place::Member);
+					}
 				}
 			} else {
 				for (const SignalDecl *signal : cls.all_signals) {
@@ -8812,6 +8953,16 @@ public:
 				check_body(fn);
 			}
 		}
+		for (StructDecl &decl : cls.structs) {
+			structure = &decl;
+			structure_type = Type::structure(display_name(cls, options.path) + "." + decl.name, options.path);
+			for (FuncDecl &method : decl.methods) {
+				if (is_declared(method)) {
+					check_body(method);
+				}
+			}
+		}
+		structure = nullptr;
 	}
 
 private:
@@ -8918,6 +9069,13 @@ private:
 			}
 			if (is_declared(fn)) {
 				check_signature(fn);
+			}
+		}
+		for (StructDecl &decl : cls.structs) {
+			for (FuncDecl &method : decl.methods) {
+				if (is_declared(method)) {
+					check_signature(method);
+				}
 			}
 		}
 		check_implemented();

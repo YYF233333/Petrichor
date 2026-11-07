@@ -9,6 +9,19 @@ pub struct Hit:
 	var source: Node? = None
 	var tag: String = "hit"
 
+	func scaled(times: int = 2) -> int:
+		return damage * times * (2 if crit else 1)
+
+	static func at(x: float) -> Hit:
+		return Hit(damage = 1, point = Vector2(x, 0))
+
+	func reader() -> func() -> int:
+		return func(): return damage + scaled(1)
+
+	async func after(s: Signal) -> int:
+		await s
+		return damage
+
 struct Totals:
 	var count: int = 0
 	var last: Hit? = None
@@ -17,11 +30,25 @@ struct Totals:
 pub signal hit_taken(hit: Hit)
 pub signal resumed
 
+
+# The inner classes call the methods on this class's image; Child also as
+# functions it inherits.
+pub class Child extends StructCheck:
+	pub func inherited(damage: int) -> int:
+		return make(damage).scaled() + Hit.at(3.0).damage
+
+
+class Reader:
+	static func total(h: Hit) -> int:
+		return h.scaled(3)
+
+
 pub var last_hit := Hit(damage = 0, point = Vector2.ZERO)
 pub var maybe: Hit?
 pub var received := 0
 pub var spot := Vector2(1, 2)
 pub var assigned := ""
+pub var awaited := -1
 var totals: Totals
 var hits: Array[Hit] = [Hit(damage = 0, point = Vector2.ZERO)]
 var marks := PackedInt32Array()
@@ -104,6 +131,26 @@ pub func move_meanwhile():
 pub func mark_meanwhile():
 	marks.append(1)
 	resumed.emit()
+
+# A method runs on a copy of the value it is called on (spec §3.6).
+pub func methods() -> String:
+	var h := make(3)
+	var read := h.reader()
+	h.damage = 5
+	last_hit = Hit.at(2.0)
+	return str(h.scaled()) + " " + str(h.scaled(3)) + " " + str(read.call()) + " " + str(last_hit.point) + " " + str(h.at(1.0).damage) + " " + str(last_hit.scaled()) + " " + str(Reader.total(h))
+
+pub func inherited(damage: int) -> int:
+	var child := Child.new()
+	var total := child.inherited(damage)
+	child.free()
+	return total
+
+pub async func await_method():
+	var h := make(4)
+	var task := h.after(resumed)
+	h.damage = 9
+	awaited = await task
 
 # A struct constructed in a loop has every field written anew.
 pub func loop_fresh() -> int:

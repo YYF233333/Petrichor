@@ -1452,13 +1452,34 @@ class Parser {
 					end_of_statement();
 					continue;
 				}
-				if (check(TokenKind::Func) || check(TokenKind::Static)) {
-					fail(peek(), "Methods of structs are not supported yet.");
+				if (check(TokenKind::Func) || check(TokenKind::Static) || check(TokenKind::Async)) {
+					const uint32_t first = uint32_t(at);
+					FuncDecl method;
+					method.of_struct = true;
+					method.is_static = match(TokenKind::Static);
+					method.is_async = match(TokenKind::Async);
+					expect(TokenKind::Func, "\"func\"");
+					const Token &method_name = expect(TokenKind::Identifier, "a method name");
+					method.name = decl.name + "." + method_name.text;
+					method.name_token = index(method_name);
+					expect(TokenKind::ParenOpen, "\"(\"");
+					method.params = params();
+					if (match(TokenKind::Arrow)) {
+						method.return_type_ref = type_ref();
+					}
+					expect(TokenKind::Colon, "\":\"");
+					method.body = block();
+					method.range = span(first);
+					decl.methods.push_back(std::move(method));
+					continue;
+				}
+				if (check(TokenKind::Pub)) {
+					fail(peek(), "A struct's fields and methods are visible wherever it is, so they take no pub (spec §3.6).");
 					end_of_statement();
 					continue;
 				}
 				if (!check(TokenKind::Var)) {
-					fail(peek(), std::string("Expected a field, declared with var, found ") + token_name(peek().kind) + ".");
+					fail(peek(), std::string("Expected a field or a method, found ") + token_name(peek().kind) + ".");
 					end_of_statement();
 					continue;
 				}

@@ -86,6 +86,9 @@ enum class Target {
 	// A method of a class of this language on `base`, of another class or
 	// another instance, or of an interface (spec §3.9, §8.1).
 	ScriptMethod,
+	// `callee`, a method of a struct of the class of this language at
+	// `owner`, on `base` unless static (spec §3.6).
+	StructMethod,
 	SuperMethod,
 	Noop,
 	EngineMethod, // On self, or on `base` when there is one.
@@ -199,6 +202,7 @@ struct Expr {
 	std::string owner; // The type a field, constant, method or constructor belongs to.
 	Type tested; // TypeTest and Cast: the class after is or as.
 	const VarDecl *variable = nullptr; // StaticVar.
+	const FuncDecl *callee = nullptr; // StructMethod.
 	// Its value when it is a constant expression (spec §4.5); otherwise null,
 	// and when that is because computing it would fail, why, and at which of
 	// its parts if not at itself.
@@ -420,6 +424,9 @@ struct FuncDecl {
 	bool is_async = false;
 	bool is_abstract = false; // @abstract, without a body (spec §4.1).
 	bool has_body = true;
+	// A method of a struct (spec §3.6); unless static, its first local is the
+	// struct, self, which it does not change.
+	bool of_struct = false;
 	std::vector<Annotation> annotations; // @rpc.
 	std::vector<ParamDecl> params;
 	std::optional<TypeRef> return_type_ref;
@@ -462,13 +469,25 @@ struct InterfaceProperty {
 };
 
 // `struct Name:` with its fields (spec §3.6), whose initializers are their
-// default values.
+// default values, and its methods. A method is named after the struct,
+// `Hit.total`, as it goes among the class's functions; an instance method
+// takes the struct as its first local, `self`.
 struct StructDecl {
 	std::string name;
 	TokenRange range;
 	uint32_t name_token = 0;
 	bool is_pub = false;
 	std::vector<VarDecl> fields;
+	std::vector<FuncDecl> methods;
+
+	const FuncDecl *find_method(const std::string &p_name) const {
+		for (const FuncDecl &method : methods) {
+			if (method.name.size() == name.size() + 1 + p_name.size() && method.name.compare(name.size() + 1, std::string::npos, p_name) == 0) {
+				return &method;
+			}
+		}
+		return nullptr;
+	}
 
 	bool has_default() const {
 		for (const VarDecl &field : fields) {
@@ -758,7 +777,7 @@ void for_each_child(const Node &p_node, Fn &&p_fn) {
 	} else if constexpr (std::is_same_v<Node, InterfaceProperty>) {
 		emit(p_node.type_ref);
 	} else if constexpr (std::is_same_v<Node, StructDecl>) {
-		list(p_node.fields);
+		separate(p_node.fields, p_node.methods);
 	} else if constexpr (std::is_same_v<Node, EnumValueDecl>) {
 		opt(p_node.value);
 		list(p_node.fields);

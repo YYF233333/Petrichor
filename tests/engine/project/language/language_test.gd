@@ -406,7 +406,7 @@ func _ready() -> void:
 	_check(s.damage_of(hit) == 7, "a Dictionary decodes into a struct at the entry, an int field also from a float that is an integer")
 	var fractional = s.damage_of({"damage": 7.5, "point": Vector2(), "crit": true, "source": null, "tag": "gd"})
 	var missing = s.damage_of({"damage": 7})
-	_check_errors(["struct_check.pet:63: Argument \"hit\" of damage_of(): StructCheck.Hit.damage: expected int, found float.", "struct_check.pet:63: Argument \"hit\" of damage_of(): StructCheck.Hit.point is missing."], "the program errors name the field that does not decode")
+	_check_errors(["struct_check.pet:90: Argument \"hit\" of damage_of(): StructCheck.Hit.damage: expected int, found float.", "struct_check.pet:90: Argument \"hit\" of damage_of(): StructCheck.Hit.point is missing."], "the program errors name the field that does not decode")
 	_check(fractional == 0 and missing == 0, "a Dictionary without a field or with a field of another type is refused")
 	_check(s.maybe_damage() == -1, "a struct T? starts at None")
 	s.maybe = hit
@@ -423,6 +423,10 @@ func _ready() -> void:
 	s.move_meanwhile()
 	s.mark_meanwhile()
 	_check(s.assigned == "3 true (14.0, 9.0) [1, 5]", "an assignment, or a method that changes its base, evaluates the place, then the value, then reads, changes and writes back: what changed during an await stays (spec §3.6)")
+	_check(s.methods() == "10 15 6 (2.0, 0.0) 1 2 15", "a struct's method runs on a copy of the value it is called on, and a lambda in it captures that copy")
+	s.await_method()
+	s.resumed.emit()
+	_check(s.awaited == 4 and s.inherited(4) == 9, "an async method of a struct keeps its copy across an await; a subclass calls the methods it inherits")
 	s.free()
 	other.free()
 

@@ -64,14 +64,28 @@ std::optional<TokenRange> body_of(const FuncDecl &p_function, const std::vector<
 	return body;
 }
 
-void mark_bodies(const ClassDecl &p_decl, std::vector<bool> &r_body) {
+// Calls `p_fn` on each function the class declares, its structs' methods
+// included.
+template <typename Fn>
+void for_each_function(const ClassDecl &p_decl, Fn &&p_fn) {
 	for (const FuncDecl &fn : p_decl.functions) {
-		if (const std::optional<TokenRange> body = body_of(fn, p_decl.source->tokens)) {
+		p_fn(fn);
+	}
+	for (const StructDecl &decl : p_decl.structs) {
+		for (const FuncDecl &method : decl.methods) {
+			p_fn(method);
+		}
+	}
+}
+
+void mark_bodies(const ClassDecl &p_decl, std::vector<bool> &r_body) {
+	for_each_function(p_decl, [&](const FuncDecl &p_fn) {
+		if (const std::optional<TokenRange> body = body_of(p_fn, p_decl.source->tokens)) {
 			for (uint32_t i = body->first; i <= body->last; i++) {
 				r_body[i] = true;
 			}
 		}
-	}
+	});
 	for (const std::unique_ptr<ClassDecl> &inner : p_decl.classes) {
 		mark_bodies(*inner, r_body);
 	}
@@ -83,11 +97,11 @@ void mark_bodies(const ClassDecl &p_decl, std::vector<bool> &r_body) {
 void mark_errors(const ClassDecl &p_decl, const std::vector<Diagnostic> &p_errors, std::map<const void *, int> &r_marked) {
 	const SourceFile &source = *p_decl.source;
 	std::vector<TokenRange> bodies;
-	for (const FuncDecl &fn : p_decl.functions) {
-		if (const std::optional<TokenRange> body = body_of(fn, source.tokens)) {
+	for_each_function(p_decl, [&](const FuncDecl &p_fn) {
+		if (const std::optional<TokenRange> body = body_of(p_fn, source.tokens)) {
 			bodies.push_back(*body);
 		}
-	}
+	});
 	const auto in_body = [&](uint32_t p_offset) {
 		return std::any_of(bodies.begin(), bodies.end(), [&](const TokenRange &p_body) {
 			return p_offset >= source.begin(p_body) && p_offset < source.end(p_body);

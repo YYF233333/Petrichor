@@ -1007,7 +1007,7 @@ class Lowerer {
 
 	std::vector<uint32_t> arguments(const Expr &p_call) {
 		// A function of this language reads its T? parameters itself.
-		const bool outward = p_call.target != Target::ScriptFunction && p_call.target != Target::ScriptMethod && p_call.target != Target::SuperMethod && p_call.target != Target::CallValue && p_call.target != Target::NewObject;
+		const bool outward = p_call.target != Target::ScriptFunction && p_call.target != Target::ScriptMethod && p_call.target != Target::StructMethod && p_call.target != Target::SuperMethod && p_call.target != Target::CallValue && p_call.target != Target::NewObject;
 		// Callable.bind() and Signal.emit() take Variant, whatever the types here.
 		const bool as_variant = p_call.target == Target::BindArguments || p_call.target == Target::EmitSignal;
 		std::vector<uint32_t> args;
@@ -1579,7 +1579,7 @@ class Lowerer {
 			if (p_call.static_on_value) {
 				lower_expr(*p_call.base);
 			}
-		} else if ((p_call.target == Target::EngineMethod && p_call.base) || p_call.target == Target::ScriptMethod || p_call.target == Target::BindArguments || p_call.target == Target::EmitSignal || p_call.target == Target::CallValue) {
+		} else if ((p_call.target == Target::EngineMethod && p_call.base) || p_call.target == Target::ScriptMethod || p_call.target == Target::StructMethod || p_call.target == Target::BindArguments || p_call.target == Target::EmitSignal || p_call.target == Target::CallValue) {
 			i.base = lower_expr(*p_call.base);
 		} else if (p_call.target == Target::BuiltinMethod) {
 			if (!p_call.is_const && !is_shared(p_call.base->type) && is_place(*p_call.base)) {
@@ -1594,6 +1594,10 @@ class Lowerer {
 		if (written_back) {
 			open(*written_back);
 			i.base = load(*written_back);
+		}
+		if (p_call.target == Target::StructMethod && i.base != NO_REG) {
+			i.args.insert(i.args.begin(), i.base); // Self, the first parameter.
+			i.base = NO_REG;
 		}
 		// A value the engine would truncate or wrap is a program error (spec §10.6).
 		for (size_t a = 0; a < p_call.arg_ranges.size() && a < i.args.size(); a++) {
@@ -1631,6 +1635,32 @@ class Lowerer {
 					declaring.script = p_call.owner;
 					method.static_class = int32_t(class_index(declaring));
 				}
+				i.imm = method_call(method);
+				break;
+			}
+			case Target::StructMethod: {
+				const auto own = std::find(cls.all_functions.begin(), cls.all_functions.end(), p_call.callee);
+				if (own != cls.all_functions.end()) {
+					i.op = Op::CALL;
+					i.imm = uint32_t(own - cls.all_functions.begin());
+					break;
+				}
+				// Of a struct of another class, on its current image (spec §12.4).
+				i.op = Op::CALL_METHOD;
+				bytecode::MethodCall method;
+				method.method = p_call.callee->name;
+				if (!p_call.callee->is_static) {
+					method.params.push_back(slot(std::string(), p_call.base->type));
+				}
+				for (const Type &param : p_call.engine_params) {
+					method.params.push_back(slot(std::string(), param));
+				}
+				method.defaults = uint32_t(p_call.index);
+				method.is_async = p_call.is_async;
+				method.result = slot(std::string(), p_call.is_async ? p_call.type.args[0] : p_call.type);
+				bytecode::ClassRef declaring; // Only its script matters.
+				declaring.script = p_call.owner;
+				method.static_class = int32_t(class_index(declaring));
 				i.imm = method_call(method);
 				break;
 			}
@@ -1961,6 +1991,9 @@ class Lowerer {
 				return result;
 			}
 			case ExprKind::Self: {
+				if (p_expr.target == Target::Local) {
+					return reg_of(p_expr.index); // A struct's, in its methods (spec §3.6).
+				}
 				const uint32_t result = temp(p_expr.type);
 				instr(Op::GET_SELF, result);
 				return result;
@@ -2661,7 +2694,16 @@ class Lowerer {
 	}
 
 	bool is_own_function(const FuncDecl &p_function) const {
-		return std::any_of(cls.functions.begin(), cls.functions.end(), [&](const FuncDecl &p_own) { return &p_own == &p_function; });
+		return declares(cls, p_function);
+	}
+
+	// Whether the class declares the function, as one of its own or a method
+	// of one of its structs.
+	static bool declares(const ClassDecl &p_class, const FuncDecl &p_function) {
+		const auto is = [&](const FuncDecl &p_own) { return &p_own == &p_function; };
+		return std::any_of(p_class.functions.begin(), p_class.functions.end(), is) || std::any_of(p_class.structs.begin(), p_class.structs.end(), [&](const StructDecl &p_struct) {
+			return std::any_of(p_struct.methods.begin(), p_struct.methods.end(), is);
+		});
 	}
 
 	void record_init_tables() {
@@ -2807,13 +2849,19 @@ public:
 			start(function.name);
 			decl = &function;
 			at = inherited ? TokenRange{ cls.extends_token, cls.extends_token } : function.range;
-			fn.param_count = uint32_t(function.params.size());
+			// An instance method of a struct takes self first.
+			fn.param_count = uint32_t(function.params.size()) + (function.of_struct && !function.is_static ? 1 : 0);
 			fn.result = slot(std::string(), function.return_type);
 			fn.is_async = function.is_async;
 			fn.is_pub = function.is_pub;
 			fn.is_override = function.is_override;
 			fn.is_exposed = cls.exposed_methods.count(function.name);
-			fn.line = uint32_t(decl_line(function, &ClassDecl::functions));
+			for (const ClassDecl *owner = &cls; owner; owner = owner->base) {
+				if (declares(*owner, function)) {
+					fn.line = uint32_t(owner->source->line(function.name_token));
+					break;
+				}
+			}
 			for (const LocalInfo &local : function.locals) {
 				fn.regs.push_back(slot(local.name, local.type));
 			}
@@ -2822,7 +2870,7 @@ public:
 			}
 			finish();
 			bytecode::Function out = ir::emit(fn, module);
-			out.is_static = function.is_static;
+			out.is_static = function.is_static || function.of_struct; // A struct's methods have no object.
 			out.rpc = function.rpc;
 			out.is_abstract = function.is_abstract;
 			out.is_inherited = inherited;
@@ -2835,6 +2883,9 @@ public:
 						continue;
 					}
 					std::vector<bytecode::Slot> params;
+					if (parent->of_struct && !parent->is_static) {
+						params.push_back(slot("self", parent->locals[0].type));
+					}
 					size_t defaults = 0;
 					for (const ParamDecl &param : parent->params) {
 						params.push_back(slot(param.name, param.type));
