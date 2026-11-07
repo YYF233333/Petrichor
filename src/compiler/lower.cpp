@@ -1893,9 +1893,10 @@ class Lowerer {
 					instr(Op::GET_SINGLETON, result, NO_REG, NO_REG, class_index(p_expr.text));
 					return result;
 				}
-				if (p_expr.target == Target::MethodValue) {
+				if (p_expr.target == Target::MethodValue || p_expr.target == Target::EngineMethodValue) {
+					const uint32_t object = p_expr.base && p_expr.base->kind != ExprKind::Self ? lower_expr(*p_expr.base) : NO_REG;
 					const uint32_t result = temp(p_expr.type);
-					instr(Op::METHOD_VALUE, result, NO_REG, NO_REG, uint32_t(p_expr.index));
+					instr(p_expr.target == Target::MethodValue ? Op::METHOD_VALUE : Op::ENGINE_METHOD_VALUE, result, object, NO_REG, text_constant(ValueType::StringName, p_expr.text));
 					return result;
 				}
 				if (p_expr.target == Target::SelfSignal || p_expr.target == Target::ObjectSignal) {

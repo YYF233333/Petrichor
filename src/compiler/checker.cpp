@@ -748,6 +748,9 @@ class Checker : public ClassRelation {
 				return localized(signal_type(signal));
 			}
 		}
+		if (const std::optional<EngineMethod> method = foreign_method_named(r_expr, p_class, *foreign)) {
+			return engine_method_value(r_expr, *method);
+		}
 		return std::nullopt;
 	}
 
@@ -756,7 +759,16 @@ class Checker : public ClassRelation {
 		if (!foreign || !foreign->members_known) {
 			return unknown_foreign(r_expr, p_class);
 		}
-		for (const EngineMethod &method : foreign->methods) {
+		if (const std::optional<EngineMethod> method = foreign_method_named(r_expr, p_class, *foreign)) {
+			return check_engine_call(r_expr, *method);
+		}
+		return std::nullopt;
+	}
+
+	// The method `r_expr` names, with types of this language; the engine runs
+	// it through the object.
+	std::optional<EngineMethod> foreign_method_named(Expr &r_expr, const Type &p_class, const ForeignClass &p_foreign) {
+		for (const EngineMethod &method : p_foreign.methods) {
 			if (method.name == r_expr.text) {
 				EngineMethod local = method;
 				for (EngineParam &param : local.params) {
@@ -765,7 +777,7 @@ class Checker : public ClassRelation {
 				local.return_type = localized(local.return_type);
 				r_expr.is_foreign = true;
 				refer(r_expr.name_token, foreign_id(p_class.script, r_expr.text));
-				return check_engine_call(r_expr, local);
+				return local;
 			}
 		}
 		return std::nullopt;
@@ -2190,10 +2202,9 @@ class Checker : public ClassRelation {
 				return set(r_expr, Type::of(TypeKind::Error));
 			}
 			r_expr.target = Target::MethodValue;
-			r_expr.index = function_found->second;
 			const FuncDecl &method = *cls.all_functions[function_found->second];
 			refer(r_expr.name_token, script_id(declaring(cls, method, &ClassDecl::functions).path, method.name));
-			return set(r_expr, function_type(*cls.all_functions[function_found->second]));
+			return set(r_expr, function_type(method));
 		}
 		const auto own_signal = signal_index.find(r_expr.text);
 		if (own_signal != signal_index.end()) {
@@ -2212,6 +2223,12 @@ class Checker : public ClassRelation {
 			r_expr.target = Target::SelfSignal;
 			refer(r_expr.name_token, engine_id(signal->owner, r_expr.text));
 			return set(r_expr, signal_type(*signal));
+		}
+		if (const auto method = engine.find_method(cls.native_base, r_expr.text)) {
+			if (!method->is_static && refuse_in_static(r_expr, r_expr.text)) {
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
+			return engine_method_value(r_expr, *method);
 		}
 		// Such as NOTIFICATION_PREDELETE (spec §4.1).
 		if (engine.find_constant(cls.native_base, r_expr.text)) {
@@ -2362,6 +2379,14 @@ class Checker : public ClassRelation {
 			// Read and written by name, whichever member or engine property provides it.
 			const InterfaceProperty *property = interface_property(p_class, r_expr.text);
 			if (!property) {
+				if (const InterfaceDecl *interface = interface_decl(p_class)) {
+					for (const FuncDecl &method : interface->methods) {
+						if (method.name == r_expr.text) {
+							refer(r_expr.name_token, script_id(p_class.script, interface->name + "." + method.name));
+							return method_value(r_expr, method);
+						}
+					}
+				}
 				return std::nullopt;
 			}
 			r_expr.target = Target::ObjectProperty;
@@ -2422,7 +2447,35 @@ class Checker : public ClassRelation {
 			refer(r_expr.name_token, script_id(declaring(*decl, signal, &ClassDecl::signals).path, signal.name));
 			return Type::signal(param_types(signal.params));
 		}
+		for (const FuncDecl *entry : decl->all_functions) {
+			const FuncDecl &function = *entry;
+			if (function.name != r_expr.text) {
+				continue;
+			}
+			const std::string &owner = declaring(*decl, function, &ClassDecl::functions).path;
+			if (!function.is_pub && !function.is_override && !sees(owner)) {
+				return fail(r_expr, "\"" + function.name + "()\" of " + p_class.name + " is not pub.");
+			}
+			if (const auto message = broken(&function, p_class.name + "." + function.name + "()")) {
+				return fail(r_expr, *message);
+			}
+			refer(r_expr.name_token, script_id(owner, function.name));
+			if (function.is_static) {
+				return fail(r_expr, "A static function as a value is not supported yet; call \"" + function.name + "()\".");
+			}
+			return method_value(r_expr, function);
+		}
 		return std::nullopt;
+	}
+
+	// A method of this language as a value (spec §3.11), found by name on the
+	// object's script when it is called.
+	Type method_value(Expr &r_expr, const FuncDecl &p_method) {
+		if (!receiver_kept(r_expr)) {
+			return Type::of(TypeKind::Error);
+		}
+		r_expr.target = Target::MethodValue;
+		return function_type(p_method);
 	}
 
 	// The methods an interface declares (spec §3.9).
@@ -2651,6 +2704,9 @@ class Checker : public ClassRelation {
 				}
 				if (base.target == Target::Singleton && engine.find_constant(engine_class, r_expr.text)) {
 					return check_engine_constant(r_expr, engine_class); // Such as Input.MOUSE_MODE_CAPTURED.
+				}
+				if (const auto method = engine.find_method(engine_class, r_expr.text)) {
+					return engine_method_value(r_expr, *method);
 				}
 				return fail(r_expr, missing(base_type.name + " has no property \"" + r_expr.text + "\".", base_type.script));
 			}
@@ -3624,6 +3680,45 @@ class Checker : public ClassRelation {
 			r_expr.int_range = builtin::property_int_range(p_property.owner, p_property.name);
 		}
 		return type;
+	}
+
+	// An engine method as a value (spec §3.11): the engine's Callable, which
+	// finds the method by name on the object.
+	Type engine_method_value(Expr &r_expr, const EngineMethod &p_method) {
+		if (p_method.is_virtual) {
+			return fail(r_expr, "\"" + r_expr.text + "()\" is a virtual engine method.");
+		}
+		if (p_method.is_static) {
+			return fail(r_expr, "A static function as a value is not supported yet; call \"" + r_expr.text + "()\".");
+		}
+		if (p_method.return_type.kind == TypeKind::Unsupported) {
+			return fail(r_expr, "\"" + r_expr.text + "()\" returns " + p_method.return_type.to_string() + ", which is not supported yet.");
+		}
+		if (!receiver_kept(r_expr)) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		bool ok = false;
+		const std::vector<Type> params = engine_params(p_method, r_expr, ok);
+		if (!ok) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		if (!r_expr.is_foreign) {
+			refer(r_expr.name_token, engine_id(p_method.owner, r_expr.text));
+		}
+		r_expr.target = Target::EngineMethodValue;
+		// Of a method that takes any number of arguments, a Callable of unknown signature.
+		return set(r_expr, p_method.is_vararg ? Type::builtin("Callable") : Type::function(engine_result(p_method), params));
+	}
+
+	// A method value keeps no reference to its object (spec §3.11), so one of
+	// a new RefCounted, which nothing else holds, is refused.
+	bool receiver_kept(Expr &r_expr) {
+		const Expr *base = r_expr.base.get();
+		if (base && base->kind == ExprKind::Call && base->target == Target::NewObject && engine.inherits(base->type.engine_class(), "RefCounted")) {
+			error(r_expr.range, "A method value does not keep its object, and nothing else holds this new " + base->type.to_string() + " (spec §3.11).");
+			return false;
+		}
+		return true;
 	}
 
 	// A method of an engine class, or with `p_static_class` a static one called
@@ -8653,6 +8748,7 @@ class Checker : public ClassRelation {
 			case Target::Local:
 				return CompletionKind::Variable;
 			case Target::MethodValue:
+			case Target::EngineMethodValue:
 				return CompletionKind::Function;
 			case Target::SelfSignal:
 			case Target::ObjectSignal:

@@ -146,6 +146,17 @@ TEST_CASE("members without pub are visible in their own file and subclasses (spe
 	CHECK_MESSAGE(sub.ok(), messages(sub));
 }
 
+TEST_CASE("a method of another object is a value, which does not keep the object (spec §3.11)") {
+	const compiler::CompileResult result = compile_in("extends Node\n\nfunc f(w: Weapon, e: Enemy) -> String:\n\tvar hit: Combat.Damageable = e\n\tvar a := e.damage\n\tvar b := hit.damage\n\tvar c := e.rotate_y\n\tvar describe := w.describe\n\treturn describe.call()\n", project());
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	CHECK(contains(errors("var x := w.hidden"), "\"hidden()\" of Weapon is not pub."));
+	CHECK(contains(errors("var x := Weapon.new().describe"), "nothing else holds this new Weapon (spec §3.11)."));
+	CHECK(contains(errors("var x := RandomNumberGenerator.new().randi"), "nothing else holds this new RandomNumberGenerator"));
+	CHECK(!contains(errors("var x := Node.new().queue_free"), "nothing else holds"));
+}
+
 TEST_CASE("a pub declaration shows only pub types (spec §4.2)") {
 	const auto errors_of_class = [](const std::string &p_members) {
 		return messages(compile_in("class_name Vault\nextends Node\n\nstruct Coin:\n\tvar value: int = 1\n\nenum Hidden { A, B }\n\ninterface Lock:\n\tfunc open()\n\nclass Badge:\n\tvar rank := 3\n\n" + p_members, FakeProject()));

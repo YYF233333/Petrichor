@@ -549,6 +549,8 @@ class Verifier {
 		switch (p_op) {
 			case Op::GET_PROPERTY:
 			case Op::GET_SIGNAL:
+			case Op::METHOD_VALUE:
+			case Op::ENGINE_METHOD_VALUE:
 				return o[2] == NO_SLOT;
 			case Op::SET_PROPERTY:
 				return o[1] == NO_SLOT;
@@ -748,7 +750,9 @@ class Verifier {
 				return o[0] < uint32_t(IntRange::COUNT) || fail("no integer range");
 			case Op::GET_AUTOLOAD:
 			case Op::GET_SIGNAL:
-				return index(o[0], module.constants.size(), "constant") && (storage(module.constants[o[0]].type) == ValueType::StringName || fail(p_op == Op::GET_AUTOLOAD ? "an autoload without a name" : "a signal without a name"));
+			case Op::METHOD_VALUE:
+			case Op::ENGINE_METHOD_VALUE:
+				return index(o[0], module.constants.size(), "constant") && (storage(module.constants[o[0]].type) == ValueType::StringName || fail("a name that is not a StringName"));
 			case Op::TO_VARIANT:
 			case Op::FROM_VARIANT:
 				return is_option(o[0]) || is_struct(o[0]) || is_element(storage(o[0])) || fail("no value type");

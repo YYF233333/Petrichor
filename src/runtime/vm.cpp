@@ -1152,10 +1152,14 @@ class Execution {
 	}
 
 	PETRICHOR_NOINLINE bool op_method_value(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
-		if (p_freed.load(std::memory_order_relaxed)) {
-			return fail_cstr(p_fn, p_line, "self was freed, or lost its script, while this method ran.");
+		ObjectView view(nullptr);
+		Variant *object = resolve_object(p_frame, p_op[3], p_freed, view, p_fn, p_line);
+		if (!object) {
+			return false;
 		}
-		*reinterpret_cast<Callable *>(p_frame + p_op[2]) = Callable(memnew(MethodCallable(context.owner, image.function_names[p_op[1]])));
+		const StringName name = image.values[p_op[1]];
+		Object *owner = static_cast<Object *>(*object);
+		*reinterpret_cast<Callable *>(p_frame + p_op[2]) = Op(p_op[0]) == Op::METHOD_VALUE ? Callable(memnew(MethodCallable(owner, name))) : Callable(owner, name);
 		return true;
 	}
 
@@ -2142,10 +2146,11 @@ public:
 					pc += 3;
 					break;
 				case Op::METHOD_VALUE:
+				case Op::ENGINE_METHOD_VALUE:
 					if (!op_method_value(code + pc, frame, freed, fn, record.line)) {
 						return false;
 					}
-					pc += 3;
+					pc += 4;
 					break;
 				case Op::MAKE_LAMBDA:
 					if (!op_make_lambda(code + pc, frame, freed, fn, record.line)) {

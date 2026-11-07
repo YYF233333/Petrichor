@@ -206,3 +206,20 @@ pub func other_members(peer: ContainerCheck) -> String:
 
 pub func early_member(peer: ContainerCheck) -> int:
 	return peer.children_at_ready
+
+# Method values of another instance, which do not keep it (spec §3.11): one
+# without pub and one of the engine.
+func secret_plus(n: int) -> int:
+	return secret + n
+
+pub func method_values(peer: ContainerCheck) -> String:
+	peer.secret = 2
+	var plus := peer.secret_plus
+	var count := peer.get_child_count
+	return str(plus.call(3)) + " " + str(count.call(false))
+
+pub func freed_receiver() -> int:
+	var peer := ContainerCheck.new()
+	var plus := peer.secret_plus
+	peer.free()
+	return plus.call(1)

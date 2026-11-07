@@ -118,7 +118,10 @@ enum class Target {
 	TryFrom, // `T.try_from(v)`: Result[T, ConversionError] of the call's type (spec §5.3).
 	Singleton, // An engine singleton, such as Input, by its class name.
 	Autoload, // An autoload by its global name (spec §7.3).
-	MethodValue, // A function of this class used as a value (spec §3.11).
+	// A method of this language as a value (spec §3.11), named by `text`: of
+	// self, or of the object in `base` unless it is self.
+	MethodValue,
+	EngineMethodValue, // As MethodValue, a method of an engine class.
 	SelfSignal, // A signal of the engine class this class extends, as a value.
 	ObjectSignal, // A signal of an engine object.
 	BindArguments, // `f.bind(...)` of a function value.

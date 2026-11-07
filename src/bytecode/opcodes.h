@@ -110,7 +110,8 @@ namespace petrichor::bytecode {
 	X(GET_SCRIPT, "ID", "Co") /* class, dst: the script of a class of this language, also of an inner class (spec §4.1) */ \
 	X(GET_SINGLETON, "ID", "Co") /* class, dst */ \
 	X(GET_AUTOLOAD, "ID", ".o") /* name constant, dst */ \
-	X(METHOD_VALUE, "ID", "@Fc") /* function, dst (Callable) */ \
+	X(METHOD_VALUE, "IDA", ".cO") /* name constant, dst (Callable), object (NO_SLOT: self): calls the method of this language by name on the object's script, which it does not keep (spec §3.11) */ \
+	X(ENGINE_METHOD_VALUE, "IDA", ".cO") /* as METHOD_VALUE, the engine's Callable of the object's method */ \
 	X(GET_SIGNAL, "IDA", ".gO") /* name constant, dst, object (NO_SLOT: self) */ \
 	X(CHECK_OBJECT, "IA", "Co") /* class, slot: not None, of the class */ \
 	X(CHECK_LIVE, "A", "o") /* slot: an object the engine takes is not freed */ \

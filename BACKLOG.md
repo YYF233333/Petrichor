@@ -7,10 +7,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
 - Array and dictionary patterns of match (spec §5.6).
 - A struct or an enum with payloads that holds itself through a container (spec §3.6). The type table cannot list it, since a type's parts come before it.
-- Method values other than of the class's own instance methods (spec §3.11, §4.1):
-  - of static functions, now only called: an outer class's by its bare name, and `Class.f`;
-  - of other objects, and of structs;
-  - of engine methods, as in `connect(queue_free)`, which now reads as an undeclared name.
+- Method values of static functions and of structs (spec §3.11, §4.1). Static functions are now only called: an outer class's by its bare name, `Class.f` and the engine's, such as `FileAccess.open`.
 - Static checks of:
   - must-assign exports in scenes, in resources and at export (spec §7.5);
   - a statically known scene's `instantiate(...)` missing an export the scene does not assign (§7.4). The scene index does not read property values yet;

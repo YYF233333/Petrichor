@@ -380,6 +380,10 @@ TEST_CASE("method values, signals and connect") {
 	CHECK(errors_of(handler + "p.finished.connect(handle.bind(p))\n").empty());
 	CHECK(errors_of(handler + "child_entered_tree.connect(on_child)\n").empty());
 	CHECK(errors_of(handler + "var c: Callable = handle\n\tvar s: Signal = p.finished\n").empty());
+	// A method of the engine, of self or of another object.
+	CHECK(errors_of(handler + "p.finished.connect(queue_free)\n\tp.finished.connect(p.queue_free)\n").empty());
+	CHECK(type_of("get_child_count") == "func(bool) -> int");
+	CHECK(type_of("call_deferred") == "Callable");
 	CHECK(has_error(handler + "p.finished.connect(handle)\n", "Signal() passes 0 argument(s), but func(AudioStreamPlayer) takes 1."));
 	CHECK(has_error(handler + "child_entered_tree.connect(handle)\n", "Signal(Node) passes Node as argument 1, which func(AudioStreamPlayer) does not take."));
 	CHECK(has_error(handler + "p.finished.connect(handle.bind(p, p))\n", "bind() binds 2 argument(s), but func(AudioStreamPlayer) takes 1."));
