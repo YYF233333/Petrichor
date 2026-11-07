@@ -102,6 +102,10 @@
 
 - **表达式与收窄（§5.1–§5.4）**：`godot-open-rts` 用 `"hp" in unit` 检查单位成员 16 次。[第二次纸面迁移](surveys/paper-migration-2.md)中 `(x as T).unwrap()` 向下转型 16 处。因成员不收窄而新增的局部变量每千行 4.4 个。
 - **生命周期与析构（§6.2–§6.7）**：相关引擎暗坑见[暗坑清单](surveys/pitfalls.md) G-02、G-03、G-04、G-05、G-09、G-10。[语料计数](surveys/corpus-counts.md)中，在 `_ready` 里把节点登记到 autoload 成员上的写法只有 6 处（5 处在 Ring）。`NOTIFICATION_PREDELETE` 仅 40 次（32 次在 `gdUnit4`）。
+- **释放时机（§6.8）**：释放时机用户看得到，所以按作用域释放，与 C++、Rust 一致。
+  - Swift 原先允许在最后一次使用后释放。5.7 改为锚定在作用域结束，优化器只在析构屏障之间提前（[Swift 论坛](https://forums.swift.org/t/what-is-the-current-status-of-lexical-lifetimes/76587)）。
+  - Rust 2021 的 `if let` 把头部的临时值带入 else 块，锁在其中一直持有。2024 版改为进入 else 之前释放（[LWN](https://lwn.net/Articles/1002456)）。
+  - GDScript 循环体的局部变量到循环结束才清空，源码留有 TODO。本语言每轮释放，不让上一轮的值留到下一轮。
 - **场景定型与差异结构（§7.1–§7.2）**：数据来自[场景结构调查](surveys/scene-structures.md)的游戏仓库。2,023 处字面量路径中，没有一处在不同结构中解析为不同类型。任何场景都没有的 `$X` 也能抓出改名遗漏。例如 `tps-demo` 的 `door.gd:6` 写 `$DoorModel/AnimationPlayer`，而 `door.tscn` 中叫 `DoorModel2`。部分结构缺失的路径中：
   - 7 处是模板或占位场景缺节点。如 `tanks-of-freedom-ii` 的 `base_ground.tscn` 被 preload 作占位地块，却缺少 `tile.gd` 的 `$"mesh"`；
   - 8 处用 `get_node_or_null`，如 `Starter-Kit-Racing` 两种车的尾迹。
@@ -143,6 +147,9 @@
 | 在属性中另设 `apply:` 块，存放须等到节点就绪才执行的代码 | 让用户思考逻辑在何时执行、执行几次；自动挂起可以由编译器完成 | §6.5 |
 | 就绪前只记下 setter 的原始输入 | 先变换再存储的 setter（如给角色名加【】）就绪前会读到未变换的值 | §6.5 |
 | `@late`（类似 `lateinit`） | 需要它的写法很少见；父节点配置子节点已由祖先赋值的规则覆盖 | §6.2 |
+| 在最后一次使用后释放，如 Objective-C ARC 和 5.7 之前的 Swift | 守卫写法失效，要另给延长寿命的写法，如 `objc_precise_lifetime` | §6.8 |
+| 不规定释放时机 | 挂起的协程和长循环会一直持有用过的临时值 | §6.8 |
+| `match` 的被匹配值保留到分支结束，如 GDScript | 与 `if` 的条件不一致；分支要用的部分已由绑定持有 | §6.8 |
 | 子类只能看到 `pub` 成员 | [第二次纸面迁移](surveys/paper-migration-2.md)中 102 处 `pub` 有 29 处只是为了子类 | §4.2 |
 | 公开标记用 `@public` 注解 | 写得频繁，[成员可见性调查](surveys/member-visibility.md)中每千行至少 22 处 | §2.4 |
 | 文件顶层的类型直接成为全局名 | 打破“文件就是类”，需要另一张全局名表 | §2.4 |

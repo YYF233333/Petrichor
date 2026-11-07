@@ -168,6 +168,9 @@
 | Variant 赋给有类型的变量时，只在 debug 构建中检查类型 | `modules/gdscript/gdscript_vm.cpp:1433-1444` | §9.8 |
 | 挂起的 GDScript 函数状态不复制 self，只以裸指针指向实例 | `modules/gdscript/gdscript_vm.cpp:2609-2625` | §9.4 |
 | GDScript 每次调用把实例装进 Variant 作为 self，RefCounted 在 PREDELETE 中因此得到 null；调用自己的方法以它为接收者 | `modules/gdscript/gdscript_vm.cpp:656-657`；`modules/gdscript/gdscript_byte_codegen.cpp:1345-1355` | §6.6 |
+| GDScript 在每条语句结束和每个块开始时，清空可能含对象的临时值 | `modules/gdscript/gdscript_byte_codegen.cpp:135-147, 1911-1920`；`modules/gdscript/gdscript_compiler.cpp:1893, 2276` | §6.8 |
+| GDScript 离开块时清空其中可能含对象的局部变量；循环体的局部变量到循环结束才清空 | `modules/gdscript/gdscript_compiler.cpp:1879-1886, 2103-2115` | §6.8 |
+| GDScript 把 `match` 的被匹配值和 `for` 遍历的值存入局部变量，在分支和循环执行期间一直持有 | `modules/gdscript/gdscript_compiler.cpp:1909-1924`；`modules/gdscript/gdscript_byte_codegen.cpp:1568, 1575-1582` | §6.8 |
 | GDScript 出错后，debug 构建按返回类型构造默认值返回，release 构建返回 null | `modules/gdscript/gdscript_vm.cpp:3963-3993`（debug）；`:535, 3995`（release） | §8.1 |
 | GDScript 的调用栈深度上限由 `debug/settings/gdscript/max_call_stack` 设置，默认 1024，超过时报告栈溢出 | `modules/gdscript/gdscript.cpp:2870`；`modules/gdscript/gdscript.h:489-490` | §8.1 |
 | GDScript 的 `assert` 只在 debug 构建中编译 | `modules/gdscript/gdscript_compiler.cpp:2181-2207` | §8.3 |
