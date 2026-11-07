@@ -480,8 +480,10 @@ void archive(Ar &r_ar, T &r_value) {
 		io(r_ar, r_value.name, r_value.prefix, r_value.level, r_value.before_member);
 	} else if constexpr (std::is_same_v<V, Rpc>) {
 		io(r_ar, r_value.mode, r_value.transfer_mode, r_value.call_local, r_value.channel);
+	} else if constexpr (std::is_same_v<V, Preset>) {
+		io(r_ar, r_value.offset, r_value.bits);
 	} else if constexpr (std::is_same_v<V, Function>) {
-		io(r_ar, r_value.name, r_value.is_inherited, r_value.base_signature, r_value.params, r_value.defaults, r_value.is_async, r_value.is_static, r_value.result, r_value.is_pub, r_value.is_override, r_value.rpc, r_value.is_abstract, r_value.is_lambda, r_value.captures, r_value.line, r_value.frame_size, r_value.slots, r_value.code);
+		io(r_ar, r_value.name, r_value.is_inherited, r_value.base_signature, r_value.params, r_value.defaults, r_value.is_async, r_value.is_static, r_value.result, r_value.is_pub, r_value.is_override, r_value.rpc, r_value.is_abstract, r_value.is_lambda, r_value.captures, r_value.line, r_value.frame_size, r_value.slots, r_value.presets, r_value.code);
 	} else if constexpr (std::is_same_v<V, TablePrefix>) {
 		io(r_ar, r_value.types, r_value.constants, r_value.engine_calls, r_value.properties, r_value.utility_calls, r_value.operators, r_value.fields, r_value.constructors, r_value.builtin_methods, r_value.classes, r_value.method_calls);
 	} else if constexpr (std::is_same_v<V, NamedConstant>) {
@@ -580,6 +582,9 @@ bool deserialize(const uint8_t *p_data, size_t p_size, Module &r_module, std::st
 
 std::string disassemble(const Module &p_module, const Function &p_function) {
 	std::ostringstream out;
+	for (const Preset &preset : p_function.presets) {
+		out << "preset " << preset.offset << ' ' << preset.bits << '\n';
+	}
 	const std::vector<uint32_t> &code = p_function.code;
 	size_t pc = 0;
 	while (pc < code.size()) {

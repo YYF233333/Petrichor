@@ -36,6 +36,13 @@ static std::string signature_key(const bytecode::Module &p_module, const bytecod
 	return bytecode::signature_key(p_module.types, p_function.params, p_function.defaults.size(), p_function.result, p_function.is_async);
 }
 
+// A function's frame: its slots, and the constants it starts with.
+static SlotLayout frame_layout(const bytecode::Function &p_function, const std::vector<TypeImage> &p_types) {
+	SlotLayout layout = SlotLayout::of(p_function.frame_size, p_function.slots, p_types);
+	layout.presets = p_function.presets;
+	return layout;
+}
+
 // Whether two slots of two modules have the same type.
 static bool same_type(const bytecode::Module &p_a, uint32_t p_type_a, const bytecode::Module &p_b, uint32_t p_type_b) {
 	return bytecode::type_key(p_a.types, p_type_a) == bytecode::type_key(p_b.types, p_type_b);
@@ -93,7 +100,7 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 		if (function.is_lambda) {
 			image->function_origins.emplace_back();
 			image->function_signatures.push_back(signature_id(module.types, function.params, function.defaults.size(), function.result, function.is_async));
-			image->frames.push_back(SlotLayout::of(function.frame_size, function.slots, types));
+			image->frames.push_back(frame_layout(function, types));
 			continue;
 		}
 		image->function_lookup.insert(name, int(i));
@@ -127,7 +134,7 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 			image->to_string_function = int(i);
 		}
 		image->function_signatures.push_back(signature_id(module.types, function.params, function.defaults.size(), function.result, function.is_async));
-		image->frames.push_back(SlotLayout::of(function.frame_size, function.slots, types));
+		image->frames.push_back(frame_layout(function, types));
 	}
 	for (size_t i = 0; i < module.members.size(); i++) {
 		const StringName name = to_godot(module.members[i].name);
@@ -651,8 +658,8 @@ bool same_prefix(const std::vector<T> &p_a, const std::vector<T> &p_b, uint32_t 
 	return true;
 }
 
-// The same instructions, apart from the lines LINE records, which change when a
-// line is added above the members.
+// The same instructions and constants, apart from the lines LINE records,
+// which change when a line is added above the members.
 bool same_code(const bytecode::Module &p_a, int32_t p_function_a, const bytecode::Module &p_b, int32_t p_function_b) {
 	if ((p_function_a < 0) != (p_function_b < 0)) {
 		return false;
@@ -662,7 +669,7 @@ bool same_code(const bytecode::Module &p_a, int32_t p_function_a, const bytecode
 	}
 	const std::vector<uint32_t> &a = p_a.functions[p_function_a].code;
 	const std::vector<uint32_t> &b = p_b.functions[p_function_b].code;
-	if (a.size() != b.size()) {
+	if (a.size() != b.size() || p_a.functions[p_function_a].presets != p_b.functions[p_function_b].presets) {
 		return false;
 	}
 	for (size_t pc = 0; pc < a.size();) {

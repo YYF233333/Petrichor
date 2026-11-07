@@ -1340,6 +1340,9 @@ void SlotLayout::construct(uint8_t *p_base) const {
 	for (const auto &[offset, type] : constructed) {
 		ops(type).construct(p_base + offset, nullptr);
 	}
+	for (const bytecode::Preset &preset : presets) {
+		std::memcpy(p_base + preset.offset, &preset.bits, sizeof(preset.bits));
+	}
 }
 
 void SlotLayout::destroy(uint8_t *p_base) const {

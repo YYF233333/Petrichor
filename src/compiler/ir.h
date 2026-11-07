@@ -4,6 +4,7 @@
 #include "bytecode/opcodes.h"
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -61,6 +62,7 @@ struct Function {
 	std::string name;
 	std::vector<bytecode::Slot> regs; // Parameters, then locals, then temporaries.
 	std::unordered_map<uint32_t, View> views; // By register; a root comes before its views.
+	std::map<uint32_t, uint64_t> presets; // By register: constants that the frame starts with (bytecode::Preset).
 	uint32_t param_count = 0;
 	bytecode::Slot result; // As bytecode::Function::result.
 	bool is_async = false;

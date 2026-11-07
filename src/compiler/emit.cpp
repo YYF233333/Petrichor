@@ -36,6 +36,9 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 	auto offset_of = [&](uint32_t p_reg) {
 		return p_reg == NO_REG ? bytecode::NO_SLOT : offsets[p_reg];
 	};
+	for (const auto &[reg, bits] : p_function.presets) {
+		out.presets.push_back({ offsets[reg], bits });
+	}
 	auto member_offset = [&](const Instr &p_instr) {
 		return p_module.members[p_instr.imm].offset + p_instr.field;
 	};

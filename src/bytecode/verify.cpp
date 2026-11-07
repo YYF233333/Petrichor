@@ -998,6 +998,13 @@ public:
 					return fail("parameter " + std::to_string(i) + " is not its slot");
 				}
 			}
+			for (const Preset &preset : each.presets) {
+				const auto slot = std::find_if(each.slots.begin() + each.params.size(), each.slots.end(), [&](const Slot &p_slot) { return p_slot.offset == preset.offset; });
+				const ValueType type = slot == each.slots.end() ? ValueType::Void : storage(slot->type);
+				if ((type != ValueType::Int && type != ValueType::Float && type != ValueType::Bool) || (type == ValueType::Bool && preset.bits > 1) || is_option(slot->type)) {
+					return fail("a preset value of what is not an int, a float or a bool slot");
+				}
+			}
 			if (each.is_abstract && !each.code.empty()) {
 				return fail("an abstract function with code");
 			}

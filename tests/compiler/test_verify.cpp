@@ -22,8 +22,12 @@ func pick(s: String, a: int, flag: bool) -> int:
 	return get_child_count()
 
 func touch():
-	count += 1
-	pick(label, count, true)
+	var fresh: int
+	var unset: bool
+	var text := label
+	count += fresh + 1
+	pick(text, count, unset)
+	pick(text, count, true)
 )";
 
 bytecode::Module compiled() {
@@ -131,6 +135,15 @@ TEST_CASE("constants must have the type their instruction stores") {
 	SUBCASE("an int instruction with a float constant") {
 		module.constants[touch.code[find_instruction(touch, Op::CONST_INT) + 2]].type = value_type_index(module, bytecode::ValueType::Float);
 		CHECK(rejected(module, "the constant does not have the slot's type"));
+	}
+	SUBCASE("a preset written over a String") {
+		REQUIRE(!touch.presets.empty());
+		for (const bytecode::Slot &slot : touch.slots) {
+			if (storage(module, slot.type) == bytecode::ValueType::String) {
+				touch.presets[0].offset = slot.offset;
+			}
+		}
+		CHECK(rejected(module, "a preset value of what is not an int, a float or a bool slot"));
 	}
 }
 

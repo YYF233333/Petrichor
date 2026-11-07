@@ -26,6 +26,14 @@ std::string listing(const bytecode::Module &p_module, const std::string &p_funct
 	return bytecode::disassemble(p_module, function_named(p_module, p_function));
 }
 
+// The numbers in a constant and in those it is computed from.
+void flatten(const bytecode::Constant &p_constant, std::vector<double> &r_values) {
+	r_values.push_back(double(p_constant.i) + p_constant.f);
+	for (const bytecode::Constant &arg : p_constant.args) {
+		flatten(arg, r_values);
+	}
+}
+
 } // namespace
 
 TEST_CASE("class metadata") {
@@ -144,9 +152,9 @@ TEST_CASE("the init function and its table entries do not change with a function
 	REQUIRE(a.init_function >= 0);
 	auto init_code = [](const bytecode::Module &p_module) { return p_module.functions[p_module.init_function].code; };
 	auto init_constants = [](const bytecode::Module &p_module) {
-		std::vector<int64_t> values;
+		std::vector<double> values;
 		for (uint32_t i = 0; i < p_module.init_tables.constants; i++) {
-			values.push_back(p_module.constants[i].i);
+			flatten(p_module.constants[i], values);
 		}
 		return values;
 	};

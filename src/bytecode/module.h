@@ -307,6 +307,16 @@ struct Rpc {
 	}
 };
 
+// A slot of an int, a float or a bool that the frame starts with a value in:
+// a constant that no instruction writes, read without an instruction of its
+// own. `bits` are its 8 bytes.
+struct Preset {
+	uint32_t offset = 0;
+	uint64_t bits = 0;
+
+	bool operator==(const Preset &p_other) const { return offset == p_other.offset && bits == p_other.bits; }
+};
+
 struct Function {
 	bool is_inherited = false;
 	std::string base_signature;
@@ -335,6 +345,7 @@ struct Function {
 	uint32_t line = 0;
 	uint32_t frame_size = 0;
 	std::vector<Slot> slots; // All slots with their types, params first.
+	std::vector<Preset> presets;
 	std::vector<uint32_t> code;
 };
 

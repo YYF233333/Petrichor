@@ -4,6 +4,8 @@
 #include "compiler/ir.h"
 
 #include <algorithm>
+#include <cstring>
+#include <map>
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
@@ -137,6 +139,8 @@ class Lowerer {
 	// The locals of each block being lowered, innermost last, released when
 	// the block is left (spec §6.8).
 	std::vector<std::vector<uint32_t>> scopes;
+	// The function's registers of preset() by their type and value.
+	std::map<std::pair<uint32_t, uint64_t>, uint32_t> presets;
 	// A lambda's register for each of its locals, whose captures come right
 	// after the parameters; empty where a local is its register.
 	std::vector<uint32_t> local_regs;
@@ -160,6 +164,9 @@ class Lowerer {
 	void add(const ir::Instr &p_instr) {
 		if (terminated()) {
 			current = new_block(); // Unreachable code after a return or jump.
+		}
+		if (fn.presets.count(p_instr.dst)) {
+			internal_error("an instruction writes a preset constant");
 		}
 		fn.blocks[current].instrs.push_back(p_instr);
 	}
@@ -192,6 +199,26 @@ class Lowerer {
 		slot.type = type_index(p_type);
 		fn.regs.push_back(slot);
 		return uint32_t(fn.regs.size() - 1);
+	}
+
+	// An int, float or bool constant in a register that the frame starts with
+	// it (bytecode::Preset): one register for each value of each type.
+	uint32_t preset(uint32_t p_type, uint64_t p_bits) {
+		const auto found = presets.find({ p_type, p_bits });
+		if (found != presets.end()) {
+			return found->second;
+		}
+		bytecode::Slot slot;
+		slot.type = p_type;
+		fn.regs.push_back(slot);
+		const uint32_t reg = uint32_t(fn.regs.size() - 1);
+		fn.presets.emplace(reg, p_bits);
+		presets.emplace(std::make_pair(p_type, p_bits), reg);
+		return reg;
+	}
+
+	uint32_t int_constant(int64_t p_value) {
+		return preset(type_index(ValueType::Int), uint64_t(p_value));
 	}
 
 	// How the register holds its value in the engine's layout; Void for T?.
@@ -351,8 +378,7 @@ class Lowerer {
 			return result;
 		}
 		const uint32_t ok = temp(ValueType::Bool);
-		const uint32_t zero = temp(ValueType::Int);
-		load_int(zero, 0);
+		const uint32_t zero = int_constant(0);
 		instr(Op::EQ_INT, ok, field_view(value, 0), zero);
 		const uint32_t blocks[2] = { new_block(), new_block() };
 		const uint32_t end_block = new_block();
@@ -439,8 +465,7 @@ class Lowerer {
 		const uint32_t value = lower_expr(*p_expr.left);
 		const uint32_t failed = temp(ValueType::Bool);
 		if (type.is_result()) {
-			const uint32_t zero = temp(ValueType::Int);
-			load_int(zero, 0);
+			const uint32_t zero = int_constant(0);
 			instr(Op::NE_INT, failed, field_view(value, 0), zero);
 		} else {
 			instr(Op::IS_NONE, failed, value, NO_REG, 0, fn.regs[value].type);
@@ -619,6 +644,18 @@ class Lowerer {
 		if (p_value->kind == Kind::Preload) {
 			return lower_expr(*p_value->source);
 		}
+		const ValueType stored = value_type(p_value->type);
+		if (stored == ValueType::Int && p_value->kind == Kind::Int) {
+			return preset(type_index(p_value->type), uint64_t(p_value->i));
+		}
+		if (stored == ValueType::Float && p_value->kind == Kind::Float) {
+			uint64_t bits = 0;
+			std::memcpy(&bits, &p_value->f, sizeof(bits));
+			return preset(type_index(p_value->type), bits);
+		}
+		if (stored == ValueType::Bool && p_value->kind == Kind::Bool) {
+			return preset(type_index(p_value->type), p_value->b ? 1 : 0);
+		}
 		const uint32_t result = temp(p_value->type);
 		const ValueType type = reg_type(result);
 		const auto entry = [&]() { return p_value->is_known() ? add_constant(constant_of(*p_value)) : shared_constant(*p_value); };
@@ -629,8 +666,7 @@ class Lowerer {
 				} else {
 					// Read as an int, bool having no constant instruction.
 					const uint32_t number = load_constant(converted(p_value, Type::of(TypeKind::Int)));
-					const uint32_t zero = temp(ValueType::Int);
-					load_int(zero, 0);
+					const uint32_t zero = int_constant(0);
 					instr(Op::NE_INT, result, number, zero);
 				}
 				return result;
@@ -652,8 +688,10 @@ class Lowerer {
 		}
 	}
 
-	// Whether an expression is lowered as its value: a constant, or a scalar
-	// the compiler computed, such as `1 << 4` (spec §4.5).
+	// Whether an expression is lowered as its value: a constant, a scalar the
+	// compiler computed, such as `1 << 4`, or an engine value such as
+	// `Vector2(1, 2)` that the class computes as it loads (spec §4.5). A
+	// container's literal is not, each evaluation making a new one.
 	static bool lowered_as_constant(const Expr &p_expr) {
 		if (!p_expr.constant) {
 			return false;
@@ -661,7 +699,11 @@ class Lowerer {
 		if (p_expr.target == Target::Constant || p_expr.target == Target::EngineConstant || p_expr.target == Target::BuiltinConstant) {
 			return true;
 		}
-		return p_expr.kind != ExprKind::Name && p_expr.kind != ExprKind::Member && p_expr.constant->is_known();
+		if (p_expr.kind == ExprKind::Name || p_expr.kind == ExprKind::Member) {
+			return false;
+		}
+		const ValueType type = value_type(p_expr.type);
+		return p_expr.constant->is_known() || (type >= ValueType::Vector2 && type <= ValueType::RID);
 	}
 
 	void error(const std::string &p_message) {
@@ -1159,8 +1201,7 @@ class Lowerer {
 		const uint32_t index = temp(ValueType::Int);
 		move(index, size_of(array));
 		const uint32_t result = call_builtin(engine_builtin_method(ValueType::Array, "resize", { ValueType::Int }, ValueType::Int), array, { size }, temp(ValueType::Int));
-		const uint32_t one = temp(ValueType::Int);
-		load_int(one, 1);
+		const uint32_t one = int_constant(1);
 		const uint32_t condition = new_block();
 		const uint32_t body = new_block();
 		const uint32_t end = new_block();
@@ -1603,8 +1644,7 @@ class Lowerer {
 				const bool owned = member->kind == ExprKind::Call && member->is_async;
 				i.args.push_back(lower_expr(*member));
 				if (flags[owned] == NO_REG) {
-					flags[owned] = temp(ValueType::Int);
-					load_int(flags[owned], owned);
+					flags[owned] = int_constant(owned);
 				}
 				i.args.push_back(flags[owned]);
 			}
@@ -1828,6 +1868,7 @@ class Lowerer {
 		const TokenRange outer_at = at;
 		std::vector<Loop> outer_loops = std::move(loops);
 		std::vector<std::vector<uint32_t>> outer_scopes = std::move(scopes);
+		std::map<std::pair<uint32_t, uint64_t>, uint32_t> outer_presets = std::move(presets);
 		std::vector<uint32_t> outer_regs = std::move(local_regs);
 
 		start(lambda.name.empty() ? "<lambda>" : lambda.name);
@@ -1867,6 +1908,7 @@ class Lowerer {
 		at = outer_at;
 		loops = std::move(outer_loops);
 		scopes = std::move(outer_scopes);
+		presets = std::move(outer_presets);
 		local_regs = std::move(outer_regs);
 		return i.dst;
 	}
@@ -2518,8 +2560,7 @@ class Lowerer {
 					return;
 				}
 				if (type.kind == TypeKind::PayloadEnum) {
-					const uint32_t variant = temp(ValueType::Int);
-					load_int(variant, p_pattern.variant);
+					const uint32_t variant = int_constant(p_pattern.variant);
 					const uint32_t same = temp(ValueType::Bool);
 					instr(Op::EQ_INT, same, field_view(p_value, 0), variant);
 					branch(same, next_block, p_fail);
@@ -2724,8 +2765,7 @@ class Lowerer {
 				loops.pop_back();
 				jump(step_block);
 				current = step_block;
-				const uint32_t step = temp(ValueType::Int);
-				load_int(step, 1);
+				const uint32_t step = int_constant(1);
 				instr(Op::ADD_INT, counter, counter, step);
 				jump(condition_block);
 				current = end_block;
@@ -2799,6 +2839,7 @@ class Lowerer {
 		fn.name = p_name;
 		loops.clear();
 		scopes.clear();
+		presets.clear();
 		current = new_block();
 	}
 

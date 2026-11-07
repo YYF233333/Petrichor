@@ -192,6 +192,7 @@ struct SlotLayout {
 	uint32_t size = 0;
 	std::vector<std::pair<uint32_t, bytecode::ValueType>> constructed; // Offset and type.
 	std::vector<std::pair<uint32_t, bytecode::ValueType>> destroyed;
+	std::vector<bytecode::Preset> presets; // A frame's constants.
 
 	template <typename T>
 	static SlotLayout of(uint32_t p_size, const std::vector<T> &p_slots, const std::vector<TypeImage> &p_types);
