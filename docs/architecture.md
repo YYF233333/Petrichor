@@ -129,6 +129,10 @@
   - 等待、取消和释放监听与其他协程共用，所以规则一致。
   - 信号源被释放时，同样推迟到每帧回调判定，再取消该任务。
   - `Task.delay` 就是 `SceneTree.create_timer` 的 `timeout`，暂停和时间缩放按引擎的默认值。
+- `t.settled()` 的任务也不运行函数，只等所等任务发出 `completed`（§9.2）。
+  - 它拥有为它启动的任务，自己结束时取消它；对已有的任务只停止等待。
+  - 所等任务因所属对象释放而取消时，同样推迟到每帧回调判定。
+  - `Settled` 与 `Result` 一样是没有脚本的带载荷 enum，`CancelReason` 是没有脚本的 enum。
 - 等待 `GDScriptFunctionState` 时，运行时持有第一个状态直到 `completed` 发出，并监听接收者或 Callable 目标的释放和 `script_changed`（§9.8）。
   - 协程再次挂起后，内层状态只以 ObjectID 记住第一个状态，后者又已离开待处理列表（`modules/gdscript/gdscript_vm.cpp:2634-2639`，`modules/gdscript/gdscript_function.cpp:329-330`）。
   - 实例析构时引擎不发出 `completed`（`modules/gdscript/gdscript.cpp:2069-2079`，`gdscript_function.cpp:343-362`），状态也不暴露所属实例（`gdscript_function.cpp:288-307, 337, 364-370`，`modules/gdscript/register_types.cpp:140`，`object.cpp:995`）。

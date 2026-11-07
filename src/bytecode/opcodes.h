@@ -149,6 +149,7 @@ namespace petrichor::bytecode {
 	X(TASK_CANCEL, "A", "o") /* task */ \
 	X(TASK_OF, "RDA", "tlg") /* type of dst (Task[T]), dst, signal: a task that finishes with what the signal passes, cancelled once the signal's object is freed (spec §9.5) */ \
 	X(TASK_DELAY, "RDA", "tlf") /* type of dst (Task[void]), dst, seconds: TASK_OF of the timeout of SceneTree.create_timer(seconds) */ \
+	X(TASK_SETTLED, "TDAI", "too.") /* Settled[T], dst (its Task), task, owned (0 or 1): a task that finishes with how the task ended, owning it when owned (spec §9.2) */ \
 	X(GET_OWNER, "ID", "@Co") /* class, dst: the owner that @owner requires (spec §7.3) */ \
 	X(GET_SELF, "D", "@o") /* dst */ \
 	X(CALL_AWAIT_ENGINE, "*", "") \

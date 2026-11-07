@@ -1113,16 +1113,20 @@ class Checker : public ClassRelation {
 			refer(p_ref.name_token, language_id(p_ref.name, std::string()));
 			return Type::conversion_error();
 		}
+		if (p_ref.name == "CancelReason") {
+			refer(p_ref.name_token, language_id(p_ref.name, std::string()));
+			return Type::cancel_reason();
+		}
 		error(p_ref.range, "Unknown type \"" + p_ref.name + "\".");
 		return Type::of(TypeKind::Error);
 	}
 
 	// `Array[T]`, the engine's typed array (spec §3.8).
 	Type resolve_generic(const TypeRef &p_ref) {
-		refer(p_ref.name_token, p_ref.name == "Task" || p_ref.name == "Result" ? language_id(p_ref.name, std::string()) : engine_id(p_ref.name));
-		if (p_ref.name == "Task" && p_ref.args.size() == 1) {
+		refer(p_ref.name_token, p_ref.name == "Task" || p_ref.name == "Result" || p_ref.name == "Settled" ? language_id(p_ref.name, std::string()) : engine_id(p_ref.name));
+		if ((p_ref.name == "Task" || p_ref.name == "Settled") && p_ref.args.size() == 1) {
 			const Type result = resolve(p_ref.args[0], true);
-			return result.is_error() ? result : Type::task(result);
+			return result.is_error() ? result : (p_ref.name == "Task" ? Type::task(result) : Type::settled(result));
 		}
 		if (p_ref.name == "Result") {
 			if (p_ref.args.size() != 2) {
@@ -1646,7 +1650,7 @@ class Checker : public ClassRelation {
 	// A value of an enum as a constant of it, or an int for an unnamed one.
 	Type use_enum_value(Expr &r_expr, const EnumDecl &p_decl, int p_index) {
 		const EnumValueDecl &value = p_decl.values[p_index];
-		refer(r_expr.name_token, script_id(p_decl.script, enum_value_id(p_decl, value.name)));
+		refer(r_expr.name_token, enum_id(p_decl, value.name));
 		if (!value.fields.empty()) {
 			return fail(r_expr, p_decl.name + "." + value.name + " has a payload; make it with " + p_decl.name + "." + value.name + "(" + value.fields[0].name + " = ...) (spec §3.7).");
 		}
@@ -1661,7 +1665,7 @@ class Checker : public ClassRelation {
 	// The name of a named enum as a value: its names and values (spec §3.7).
 	Type use_enum_dictionary(Expr &r_expr, const EnumDecl &p_decl, bool p_refer = true) {
 		if (p_refer) {
-			refer(r_expr.name_token, script_id(p_decl.script, p_decl.name));
+			refer(r_expr.name_token, enum_id(p_decl));
 		}
 		if (p_decl.has_payloads) {
 			return fail(r_expr, p_decl.name + " is an enum with payloads, whose name is no value; its variants are, as " + p_decl.name + "." + p_decl.values[0].name + " (spec §3.7).");
@@ -1691,7 +1695,7 @@ class Checker : public ClassRelation {
 			}
 			const EnumDecl *decl = scope_enum(r_base.text);
 			if (decl) {
-				refer(r_base.name_token, script_id(decl->script, decl->name));
+				refer(r_base.name_token, enum_id(*decl));
 			}
 			return decl;
 		}
@@ -1761,7 +1765,37 @@ class Checker : public ClassRelation {
 			return own;
 		}
 		Checker *around = class_around(p_name);
+		if (!around && p_name == "CancelReason" && !declares_in_script(p_name)) {
+			return &cancel_reason_decl();
+		}
 		return around ? around->own_enum(p_name) : nullptr;
+	}
+
+	// CancelReason (spec §9.2), the enum that the language declares.
+	static const EnumDecl &cancel_reason_decl() {
+		static const EnumDecl decl = [] {
+			EnumDecl result;
+			result.name = "CancelReason";
+			result.is_pub = true;
+			result.state = EnumDecl::State::Checked;
+			result.type = Type::cancel_reason();
+			result.numbers = std::make_shared<EnumValues>(*result.type.values);
+			for (const auto &[name, number] : result.numbers->list) {
+				result.values.emplace_back().name = name;
+				result.constants.push_back(enum_constant(number, result.type));
+			}
+			result.dictionary = enum_dictionary(*result.numbers, result.type);
+			return result;
+		}();
+		return decl;
+	}
+
+	// What a use of a named enum, or of one of its values, refers to.
+	static DeclId enum_id(const EnumDecl &p_decl, const std::string &p_value = std::string()) {
+		if (&p_decl == &cancel_reason_decl()) {
+			return language_id(p_decl.name, p_value);
+		}
+		return script_id(p_decl.script, p_value.empty() ? p_decl.name : enum_value_id(p_decl, p_value));
 	}
 
 	// An enum of the engine by the name code writes: a global one, such as
@@ -1795,7 +1829,7 @@ class Checker : public ClassRelation {
 			}
 			const EnumDecl *decl = scope_enum(r_call.text);
 			if (decl) {
-				refer(r_call.name_token, script_id(decl->script, decl->name));
+				refer(r_call.name_token, enum_id(*decl));
 			}
 			return decl;
 		}
@@ -5304,6 +5338,14 @@ class Checker : public ClassRelation {
 				refer(r_expr.name_token, language_id("Task", name));
 				return set(r_expr, Type::of(TypeKind::Void));
 			}
+			if (base_type.kind == TypeKind::Task && !base_type.nullable && name == "settled") {
+				// A task of its own, which owns a task started for it, as an await does (spec §9.2, §9.3).
+				check_arguments(r_expr, {}, 0, false);
+				r_expr.target = Target::TaskSettled;
+				r_expr.is_async = true;
+				refer(r_expr.name_token, language_id("Task", name));
+				return set(r_expr, Type::task(Type::settled(base_type.args[0])));
+			}
 			if (base_type.is_optional()) {
 				return check_option_method(r_expr, base_type, p_expected);
 			}
@@ -6004,6 +6046,13 @@ class Checker : public ClassRelation {
 					r_pattern.type = p_matched;
 					return;
 				}
+				// Finished of a Task[void], which has no value (spec §9.2).
+				if (r_pattern.value->kind == ExprKind::Name && r_pattern.value->text == "Finished" && p_matched.is_settled() && p_matched.values->fields[0].empty() && !declares_in_script("Finished")) {
+					refer(r_pattern.value->name_token, language_id("Settled", "Finished"));
+					r_pattern.kind = PatternKind::Constructor;
+					r_pattern.type = p_matched;
+					return;
+				}
 				r_pattern.local = p_local;
 				auto compare = std::make_unique<Expr>();
 				compare->kind = ExprKind::Binary;
@@ -6051,6 +6100,22 @@ class Checker : public ClassRelation {
 			}
 			return true;
 		};
+		if (callee.kind == ExprKind::Name && (callee.text == "Finished" || callee.text == "Cancelled") && !declares_in_script(callee.text)) {
+			const int variant = callee.text == "Finished" ? 0 : 1;
+			if (!p_matched.is_error() && !p_matched.is_settled()) {
+				error(r_pattern.range, callee.text + "(...) matches a value of a type Settled[T], not " + p_matched.to_string() + " (spec §5.6).");
+			} else if (!p_matched.is_error() && p_matched.values->fields[variant].empty()) {
+				error(r_pattern.range, "Finished of " + p_matched.to_string() + " has no value; match it without parentheses (spec §5.6).");
+			} else if (!p_matched.is_error()) {
+				refer(callee.name_token, language_id("Settled", callee.text));
+				r_pattern.type = p_matched;
+				r_pattern.variant = variant;
+				check_items(r_pattern, {}, { p_matched.values->fields[variant][0].second }, std::string(), std::string());
+				return;
+			}
+			check_items(r_pattern, {}, {}, std::string(), std::string());
+			return;
+		}
 		if (callee.kind == ExprKind::Name && (callee.text == "Some" || callee.text == "Ok" || callee.text == "Err") && !declares_in_script(callee.text)) {
 			const bool some = callee.text == "Some";
 			if (!p_matched.is_error() && (some ? !p_matched.is_optional() : !p_matched.is_result())) {
@@ -7732,14 +7797,14 @@ class Checker : public ClassRelation {
 	}
 
 	// The names of the types whose values a value of the type holds in its
-	// slot: T holds a T, as T? does, and Result[T, E] holds both; a container
-	// holds a reference.
+	// slot: T holds a T, as T? and Settled[T] do, and Result[T, E] holds
+	// both; a container holds a reference.
 	static std::vector<std::string> held_types(const TypeRef &p_ref) {
 		if (p_ref.args.empty()) {
 			return { p_ref.name };
 		}
 		std::vector<std::string> names;
-		if (p_ref.name == "Result" && !p_ref.is_function) {
+		if ((p_ref.name == "Result" || p_ref.name == "Settled") && !p_ref.is_function) {
 			for (const TypeRef &arg : p_ref.args) {
 				const std::vector<std::string> held = held_types(arg);
 				names.insert(names.end(), held.begin(), held.end());
@@ -8227,7 +8292,7 @@ class Checker : public ClassRelation {
 			return;
 		}
 		if (p_type.kind == TypeKind::Task) {
-			r_names.values.insert({ "cancel", "detach" });
+			r_names.values.insert({ "cancel", "detach", "settled" });
 		}
 		if (p_type.kind == TypeKind::Struct) {
 			if (const StructDecl *decl = struct_decl(p_type)) {

@@ -94,6 +94,27 @@ Type Type::result(const Type &p_value, const Type &p_error) {
 	return type;
 }
 
+Type Type::settled(const Type &p_value) {
+	auto values = std::make_shared<EnumValues>();
+	values->list = { { "Finished", 0 }, { "Cancelled", 1 } };
+	values->fields = { {}, { { "reason", cancel_reason() } } };
+	if (p_value.kind != TypeKind::Void) {
+		values->fields[0].push_back({ "value", p_value });
+	}
+	Type type = enumeration("Settled", std::string(), std::move(values), TypeKind::PayloadEnum);
+	type.args = { p_value };
+	return type;
+}
+
+Type Type::cancel_reason() {
+	static const std::shared_ptr<const EnumValues> values = [] {
+		auto list = std::make_shared<EnumValues>();
+		list->list = { { "REQUESTED", 0 }, { "OWNER_FREED", 1 }, { "AWAITED_FREED", 2 } };
+		return list;
+	}();
+	return enumeration("CancelReason", std::string(), values);
+}
+
 Type Type::unwrapped() const {
 	if (kind == TypeKind::Option) {
 		return args.empty() ? of(TypeKind::Error) : args[0];

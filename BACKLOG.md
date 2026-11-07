@@ -4,11 +4,9 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Language
 
-- Coroutine helpers `Task.of`, `delay`, `any`, `all` and `settled` (spec §9).
+- `Task.any` and `Task.all` (spec §9.5).
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
-- Of match (spec §5.6):
-  - array and dictionary patterns;
-  - the patterns of Settled once it exists.
+- Array and dictionary patterns of match (spec §5.6).
 - A struct or an enum with payloads that holds itself through a container (spec §3.6). The type table cannot list it, since a type's parts come before it.
 - Method values other than of the class's own instance methods (spec §3.11). They are of static functions, of other objects and of structs.
 - The error for a type that is not pub in the signature of a pub member (spec §4.2). Such a type may be a struct or an interface.

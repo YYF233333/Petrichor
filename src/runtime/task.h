@@ -10,6 +10,7 @@
 
 namespace petrichor {
 struct CoroutineFrame;
+struct TaskJoin;
 
 class CoroutineTask : public godot::RefCounted {
 	GDCLASS(CoroutineTask, godot::RefCounted);
@@ -40,6 +41,7 @@ public:
 	godot::Variant result; // Written before the state says Finished.
 	std::string result_signature;
 	std::shared_ptr<CoroutineFrame> continuation;
+	std::shared_ptr<TaskJoin> join; // Instead of a continuation, for a task that waits for others.
 
 	void cancel();
 	void cancel_owner();

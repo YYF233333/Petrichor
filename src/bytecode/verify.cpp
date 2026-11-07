@@ -771,6 +771,10 @@ class Verifier {
 			case Op::TASK_OF:
 			case Op::TASK_DELAY:
 				return !module.types[o[0]].task_result.empty() || fail("a task made of what is not a Task");
+			case Op::TASK_SETTLED: {
+				const TypeDesc &settled = module.types[o[0]];
+				return (settled.kind == TypeKind::PayloadEnum && settled.name == "Settled" && o[3] <= 1) || fail("TASK_SETTLED of what is not a Settled[T]");
+			}
 			case Op::AWAIT_TASK:
 			case Op::AWAIT_SIGNAL:
 				return (function->is_async || fail("await in a synchronous function")) && (o[0] == NO_SLOT || frame.count(o[0]) || fail("unknown await result slot")) && (p_op == Op::AWAIT_SIGNAL || o[2] <= 1 || fail("invalid await ownership"));

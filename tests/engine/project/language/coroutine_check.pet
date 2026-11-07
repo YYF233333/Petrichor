@@ -116,6 +116,31 @@ pub func of_source(source: Node) -> Task[void]:
 pub async func wait_void(t: Task[void]):
 	await t
 
+# How a task ended, as a value (spec §9.2).
+pub async func settle(t: Task[int]) -> String:
+	match await t.settled():
+		Finished(var value):
+			return "finished " + str(value)
+		Cancelled(var reason):
+			return "cancelled " + str(reason)
+
+pub async func settle_void(t: Task[void]) -> String:
+	match await t.settled():
+		Finished:
+			return "finished"
+		Cancelled(var reason):
+			return "cancelled " + str(reason)
+
+pub async func settle_owned() -> String:
+	match await twice().settled():
+		Finished(var value):
+			return "finished " + str(value)
+		Cancelled(var reason):
+			return "cancelled " + str(reason)
+
+pub func start_settle_owned() -> Task[String]:
+	return settle_owned()
+
 # Freeing an object on another thread waits for none of the tasks of others,
 # this running one among them.
 pub async func join_freeing_thread() -> bool:

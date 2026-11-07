@@ -103,6 +103,11 @@ struct Type {
 	// Result[T, E], whose variants are Ok(value: T) and Err(error: E) (spec
 	// §3.5, §10.1).
 	static Type result(const Type &p_value, const Type &p_error);
+	// How a task ended, which t.settled() gives (spec §9.2): Settled[T], whose
+	// variants are Finished(value: T), without a field for void, and
+	// Cancelled(reason: CancelReason).
+	static Type settled(const Type &p_value);
+	static Type cancel_reason();
 
 	bool operator==(const Type &p_other) const {
 		return kind == p_other.kind && name == p_other.name && nullable == p_other.nullable && args == p_other.args && script == p_other.script && is_interface == p_other.is_interface && is_async == p_other.is_async;
@@ -115,7 +120,9 @@ struct Type {
 	// value types go through the engine's functions for each type.
 	bool is_primitive() const { return kind == TypeKind::Bool || is_numeric() || kind == TypeKind::String; }
 	bool is_storable() const { return kind != TypeKind::Error && kind != TypeKind::Void && kind != TypeKind::Unsupported; }
-	bool is_result() const { return kind == TypeKind::PayloadEnum && !args.empty(); }
+	// Of the language's generic enums, which no script declares.
+	bool is_result() const { return kind == TypeKind::PayloadEnum && args.size() == 2 && name == "Result"; }
+	bool is_settled() const { return kind == TypeKind::PayloadEnum && args.size() == 1 && name == "Settled"; }
 	// May be None: T? of an object or of a value type.
 	bool is_optional() const { return kind == TypeKind::Option || ((kind == TypeKind::Object || kind == TypeKind::Task) && nullable); }
 	// The type inside T?, which unwrap() gives.

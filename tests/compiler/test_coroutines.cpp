@@ -86,6 +86,42 @@ TEST_CASE("Task.of() and Task.delay() make tasks, owned when awaited at once") {
 	CHECK(f.code[pc + 3] == 1);
 }
 
+// Spec §9.2: settled() gives how a task ended, which match takes apart; it
+// owns a task started for it, as an await does (§9.3).
+TEST_CASE("settled() gives a Settled[T], matched by Finished and Cancelled") {
+	CHECK(type_of("t.unwrap().settled()", "var t: Task[int]? = None") == "Task[Settled[int]]");
+	CHECK(type_of("CancelReason.OWNER_FREED") == "CancelReason");
+	const auto result = compile(R"(extends Node
+signal tick(value: int)
+async func work() -> int:
+	return await tick
+async func nothing():
+	await tick
+async func f() -> int:
+	var kept: Settled[int] = await work().settled()
+	match await nothing().settled():
+		Finished:
+			pass
+		Cancelled(_):
+			pass
+	match kept:
+		Finished(var v):
+			return v
+		Cancelled(CancelReason.OWNER_FREED):
+			return -1
+		Cancelled(var reason):
+			return reason
+)");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	REQUIRE_MESSAGE(bytecode::verify(result.module, error), error);
+	const auto &f = function_named(result.module, "f");
+	const size_t pc = find_instruction(f, Op::TASK_SETTLED);
+	CHECK(f.code[pc + 4] == 1);
+	CHECK(has_error("async func f(t: Task[void]):\n\tmatch await t.settled():\n\t\tFinished(var v):\n\t\t\tpass\n\t\t_:\n\t\t\tpass\n", "Finished of Settled[void] has no value; match it without parentheses"));
+	CHECK(has_error("func f(x: int):\n\tmatch x:\n\t\tCancelled(var r):\n\t\t\tpass\n\t\t_:\n\t\t\tpass\n", "Cancelled(...) matches a value of a type Settled[T], not int"));
+}
+
 TEST_CASE("nullable Task handles require unwrap before waiting") {
 	CHECK(has_error("async func f(t: Task[int]?):\n\treturn await t\n", "Unwrap"));
 	const auto result = compile("async func f(t: Task[int]?) -> int:\n\treturn await t.unwrap()\n");

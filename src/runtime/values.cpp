@@ -521,9 +521,13 @@ static bool is_payload_enum(const TypeImage &p_type) {
 	return p_type.kind == bytecode::TypeKind::PayloadEnum;
 }
 
-// Result[T, E], which has no script (spec §3.5).
+// Result[T, E] (spec §3.5) and Settled[T] (§9.2), which no script declares.
 static bool is_result(const TypeImage &p_type) {
-	return is_payload_enum(p_type) && !p_type.name.contains("::");
+	return is_payload_enum(p_type) && p_type.name == "Result";
+}
+
+static bool is_settled(const TypeImage &p_type) {
+	return is_payload_enum(p_type) && p_type.name == "Settled";
 }
 
 // The key of an encoded PayloadEnum that names its variant (spec §10.1).
@@ -631,6 +635,19 @@ Variant to_variant(const TypeImage &p_type, const uint8_t *p_slot) {
 		return tag(p_slot) ? to_variant(*p_type.element, p_slot + 8) : Variant(); // None is NIL (spec §10.1).
 	}
 	return is_struct(p_type) ? encode(p_type, p_slot) : to_variant(p_type.storage, p_slot);
+}
+
+Variant encode_variant(const TypeImage &p_type, size_t p_variant, const std::vector<Variant> &p_fields) {
+	Dictionary encoded;
+	encoded[VARIANT_KEY] = p_type.enum_declared[p_variant].first;
+	size_t field = 1;
+	for (size_t v = 0; v < p_variant; v++) {
+		field += size_t(p_type.enum_declared[v].second);
+	}
+	for (const Variant &value : p_fields) {
+		encoded[p_type.fields[field++].name] = value;
+	}
+	return encoded;
 }
 
 // A key or an element as spec §10.1 encodes it, out of its box.
@@ -881,6 +898,9 @@ void try_from(const TypeImage &p_result, const Variant &p_value, uint8_t *p_slot
 String type_description(const TypeImage &p_type) {
 	if (is_result(p_type)) {
 		return "Result[" + type_description(*p_type.fields[1].type) + ", " + type_description(*p_type.fields[2].type) + "]";
+	}
+	if (is_settled(p_type)) {
+		return "Settled[" + (p_type.enum_declared[0].second ? type_description(*p_type.fields[1].type) : String("void")) + "]";
 	}
 	if (is_struct(p_type) || (p_type.kind == bytecode::TypeKind::Enum && p_type.name.contains("::"))) {
 		return class_description(StringName(), String(), p_type.name);

@@ -223,5 +223,33 @@ func run(p_errors: ErrorLog) -> int:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	expect_errors(["coroutine_check.pet:117: The awaited task was cancelled."], "Task.of() is cancelled once the signal's object is freed")
+	results.clear()
+	var settling = c.start()
+	collect(c.settle(settling), results)
+	c.tick.emit(1)
+	c.tick.emit(2)
+	settling = c.start()
+	collect(c.settle(settling), results)
+	settling.cancel()
+	check(results == ["finished 3", "cancelled 0"], "settled() gives Finished(value) or Cancelled(REQUESTED)")
+	results.clear()
+	var freed_worker := CoroutineCheck.new()
+	add_child(freed_worker)
+	collect(c.settle(freed_worker.start()), results)
+	freed_worker.free()
+	var freed_source := Node.new()
+	collect(c.settle_void(c.of_source(freed_source)), results)
+	freed_source.free()
+	check(results.is_empty(), "settled() decides on a freed object once the frame's deletions are done")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(results == ["cancelled 1", "cancelled 2"], "settled() gives Cancelled(OWNER_FREED) and Cancelled(AWAITED_FREED), without an error")
+	expect_errors([], "settled() reports no error")
+	var count_before: int = c.count
+	var owning = c.start_settle_owned()
+	owning.cancel()
+	c.tick.emit(1)
+	c.tick.emit(2)
+	check(c.count == count_before, "settled() owns a task started for it")
 	c.free()
 	return failures

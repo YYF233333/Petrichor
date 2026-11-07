@@ -123,6 +123,9 @@ bool is_enum_value(const TypeImage &p_type, int64_t p_value);
 // The value as spec §10.1 encodes it: a struct as a Dictionary, a container
 // that keeps boxes as an untyped copy with its keys and elements encoded.
 godot::Variant encode(const TypeImage &p_type, const uint8_t *p_slot);
+// A variant of an enum with payloads as encode() gives it, from its fields
+// encoded so.
+godot::Variant encode_variant(const TypeImage &p_type, size_t p_variant, const std::vector<godot::Variant> &p_fields);
 
 // Boxes (architecture §2.2): a container keeps a value of a boxed type in a
 // Callable of this library that cannot be called, compared by the value as

@@ -72,6 +72,7 @@ enum class Target {
 	TaskDetach,
 	TaskOf, // `Task.of(signal)` (spec §9.5).
 	TaskDelay, // `Task.delay(seconds)`.
+	TaskSettled, // `t.settled()` (spec §9.2).
 	Local,
 	Member,
 	SelfProperty, // A property of the engine class this class extends.

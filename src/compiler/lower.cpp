@@ -268,15 +268,16 @@ class Lowerer {
 		return index;
 	}
 
-	// An enum with payloads, "script::Name", or "Result", laid out as a struct
-	// whose first field is the variant's index (bytecode/module.h).
+	// An enum with payloads, "script::Name", or "Result" or "Settled", laid out
+	// as a struct whose first field is the variant's index (bytecode/module.h).
 	uint32_t payload_enum_index(const Type &p_enum) {
 		bytecode::TypeDesc type;
 		type.kind = bytecode::TypeKind::PayloadEnum;
-		type.name = p_enum.is_result() ? p_enum.name : p_enum.script + "::" + p_enum.interface_name();
-		// The checker refuses one that holds itself (spec §3.6); a Result holds
-		// itself only through a struct or an enum, which is interned.
-		if (!p_enum.is_result() && !interning.insert(type.name).second) {
+		const bool generic = p_enum.is_result() || p_enum.is_settled();
+		type.name = generic ? p_enum.name : p_enum.script + "::" + p_enum.interface_name();
+		// The checker refuses one that holds itself (spec §3.6); a generic one
+		// holds itself only through a struct or an enum, which is interned.
+		if (!generic && !interning.insert(type.name).second) {
 			error(p_enum.name + " cannot be compiled: it contains itself.");
 			return type_index(ValueType::Void);
 		}
@@ -1569,6 +1570,14 @@ class Lowerer {
 			// Only says that the task is not awaited (spec §9.1); it runs either way.
 			lower_expr(*p_call.base);
 			return NO_REG;
+		}
+		if (p_call.target == Target::TaskSettled) {
+			// It owns a task started for it, as an await does (spec §9.3).
+			const bool owned = p_call.base->kind == ExprKind::Call && p_call.base->is_async;
+			const uint32_t member = lower_expr(*p_call.base);
+			const uint32_t task = temp(p_call.type);
+			instr(Op::TASK_SETTLED, task, member, NO_REG, owned ? 1 : 0, type_index(p_call.type.args[0]));
+			return task;
 		}
 		if (p_call.target == Target::TaskOf || p_call.target == Target::TaskDelay) {
 			const uint32_t made = arguments(p_call)[0];
