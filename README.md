@@ -82,7 +82,7 @@ The documents are in Chinese only. An English specification will come before the
 1. First milestone, done: the FPS starter kit of the [second paper migration](docs/surveys/paper-migration-2.md) runs with its scripts in Petrichor.
 2. Done: paying down the debt the quick first implementation left ([architecture §5](docs/architecture.md#5-推进顺序)).
 3. Second milestone, done: the breakout minigame of Ring in the same migration runs with its scripts in Petrichor.
-4. Next come steps 7–11 of [architecture §5](docs/architecture.md#5-推进顺序): the rest of the language, tools, performance and the first public release. That the current design allows the later ones that adoption depends on is shown in [architecture §6](docs/architecture.md#6-以后必须能做到的事). The [backlog](BACKLOG.md) lists the work itself.
+4. Next come steps 7–13 of [architecture §5](docs/architecture.md#5-推进顺序). Release 0.1 follows the rest of the language and performance. Then 0.2–0.3 add refactoring and two-way migration, and 1.0 makes it stable. That the current design allows the later ones that adoption depends on is shown in [architecture §6](docs/architecture.md#6-以后必须能做到的事). The [backlog](BACKLOG.md) lists the work itself.
 5. Throughout: collect feedback and narrow the specification to a testable core.
 
 ## License

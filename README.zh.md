@@ -82,7 +82,7 @@ func max_hp_from(data: Variant) -> int?:
 1. 第一个里程碑，已完成：[第二次纸面迁移](docs/surveys/paper-migration-2.md)中的 FPS 项目以 Petrichor 脚本运行。
 2. 已完成：偿还快速完成的第一版实现留下的技术债（[实现架构 §5](docs/architecture.md#5-推进顺序)）。
 3. 第二个里程碑，已完成：同一次迁移中 Ring 的打砖块小游戏以 Petrichor 脚本运行。
-4. 接下来是[实现架构 §5](docs/architecture.md#5-推进顺序) 的第 7–11 步：补齐语言、工具链、性能和首次公开发布。现有设计允许以后做到其中决定项目能否被选用的几项，论证见[实现架构 §6](docs/architecture.md#6-以后必须能做到的事)。具体工作列在 [BACKLOG.md](BACKLOG.md)。
+4. 接下来是[实现架构 §5](docs/architecture.md#5-推进顺序) 的第 7–13 步。补齐语言和性能后发布 0.1，0.2–0.3 加入重构和双向迁移，然后稳定到 1.0。现有设计允许以后做到其中决定项目能否被选用的几项，论证见[实现架构 §6](docs/architecture.md#6-以后必须能做到的事)。具体工作列在 [BACKLOG.md](BACKLOG.md)。
 5. 贯穿始终：收集反馈，把规范收敛到可测试的核心。
 
 ## 许可证
