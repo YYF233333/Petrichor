@@ -2394,6 +2394,7 @@ public:
 void CoroutineTask::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("cancel"), &CoroutineTask::cancel);
 	ADD_SIGNAL(MethodInfo("completed", PropertyInfo(Variant::NIL, "result", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NIL_IS_VARIANT)));
+	ADD_SIGNAL(MethodInfo("cancelled", PropertyInfo(Variant::INT, "reason"))); // Spec §9.8.
 }
 
 void CoroutineTask::finish(State p_state, const Variant &p_result) {
@@ -2432,6 +2433,9 @@ void CoroutineTask::finish(State p_state, const Variant &p_result) {
 	{
 		std::lock_guard<std::mutex> lock(tasks_mutex);
 		active_tasks.erase(uint64_t(get_instance_id()));
+	}
+	if (p_state == State::Cancelled) {
+		emit_signal("cancelled", cancel_reason());
 	}
 	emit_signal("completed", result);
 }
@@ -2768,8 +2772,7 @@ void TaskJoin::report_error(const String &p_message) const {
 
 // Cancelled(reason), as Settled[T] holds it (spec §9.2).
 Variant TaskJoin::cancelled(const CoroutineTask &p_member) const {
-	const int64_t reason = p_member.owner_freed ? 1 : (p_member.source_freed ? 2 : 0);
-	return encode_variant(*result_type, 1, { reason });
+	return encode_variant(*result_type, 1, { p_member.cancel_reason() });
 }
 
 // Lets go of the members, and gives those it owns that run on, to cancel.

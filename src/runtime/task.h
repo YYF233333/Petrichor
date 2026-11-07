@@ -46,6 +46,8 @@ public:
 	void cancel();
 	void cancel_owner();
 	bool ended() const { return state == State::Finished || state == State::Cancelled || state == State::Failed; }
+	// Why it was cancelled, as CancelReason numbers it (spec §9.2).
+	int64_t cancel_reason() const { return owner_freed ? 1 : (source_freed ? 2 : 0); }
 	void finish(State p_state, const godot::Variant &p_result = godot::Variant());
 };
 
