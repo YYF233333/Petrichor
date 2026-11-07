@@ -406,6 +406,11 @@ void report_error(const ClassImage &p_image, const bytecode::Function &p_functio
 	vm::report_error(p_image, p_function.name.c_str(), p_line, p_message);
 }
 
+// An argument of a call from the engine that fails its entry check (spec §8.1, §10.1).
+void report_argument(const ClassImage &p_image, const bytecode::Function &p_function, size_t p_param, const String &p_error) {
+	report_error(p_image, p_function, int(p_function.line), vformat("Argument \"%s\" of %s(): %s.", to_godot(p_function.params[p_param].name), to_godot(p_function.name), p_error));
+}
+
 template <typename T>
 int64_t packed_size(const uint8_t *p_slot) {
 	return reinterpret_cast<const T *>(p_slot)->size();
@@ -898,8 +903,9 @@ class Execution {
 	// `p_call`: a program error in it ends the caller too (spec §8.1). An
 	// override or an inherited function may take and give other types than the
 	// call was compiled against (§4.6), which the arguments and result convert to.
-	// A lambda's captures follow the arguments.
-	PETRICHOR_NOINLINE bool call_function(const ClassImage &p_callee, uint32_t p_index, const InstanceContext &p_context, const uint32_t *p_call, uint8_t *frame, const bytecode::Slot &p_result, const bytecode::Function &p_caller, int p_line, const uint8_t *const *p_captures = nullptr) {
+	// A lambda's captures follow the arguments. As an engine entry, an argument
+	// that fails the entry check is reported as the engine's call reports it.
+	PETRICHOR_NOINLINE bool call_function(const ClassImage &p_callee, uint32_t p_index, const InstanceContext &p_context, const uint32_t *p_call, uint8_t *frame, const bytecode::Slot &p_result, const bytecode::Function &p_caller, int p_line, const uint8_t *const *p_captures = nullptr, bool p_entry = false) {
 		const uint32_t dst = p_call[2], argc = p_call[4];
 		const bytecode::Function &method = p_callee.module.functions[p_index];
 		if (!method.is_static && !method.is_lambda && !p_context.storage) {
@@ -934,6 +940,10 @@ class Execution {
 				return fail(p_caller, p_line, error);
 			}
 			if (!from_variant(param_type, value, param, true)) {
+				if (p_entry) {
+					report_argument(p_callee, method, i, entry_mismatch(param_type, value));
+					return false;
+				}
 				return fail(p_caller, p_line, vformat("Argument of %s(): %s.", p_callee.function_names[p_index], entry_mismatch(param_type, value)));
 			}
 		}
@@ -1376,43 +1386,55 @@ class Execution {
 
 	// A lambda or a method value of this language, run as a method of another
 	// object is (spec §3.11); none for another Callable, or one whose function
-	// does not take the call as it is, which the engine passes on.
-	std::optional<bool> call_directly(const uint32_t *p_op, uint8_t *p_frame, const bytecode::MethodCall &p_call, const bytecode::Function &p_fn, int p_line) {
+	// does not take the call as it is, which the engine passes on. As an
+	// engine entry, which the call() of an untyped Callable is (§8.1), a
+	// program error in it gives the default result and this call goes on.
+	std::optional<bool> call_directly(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Slot &p_result, bool p_entry, const bytecode::Function &p_fn, int p_line) {
 		const CallableCustom *custom = reinterpret_cast<const Callable *>(p_frame + p_op[3])->get_custom();
-		if (const auto *lambda = dynamic_cast<const LambdaCallable *>(custom)) {
-			const bytecode::Function &function = lambda->get_image()->module.functions[lambda->get_function()];
-			if (function.is_async || p_op[4] != function.params.size() - function.captures || !lambda->is_valid()) {
-				return std::nullopt;
-			}
-			InstanceContext callee = lambda->get_context();
-			if (!callee.self_image) {
-				callee.self_image = lambda->get_image();
-			}
-			return call_function(*lambda->get_image(), uint32_t(lambda->get_function()), callee, p_op, p_frame, p_call.result, p_fn, p_line, lambda->get_captures());
-		}
-		const auto *method = dynamic_cast<const MethodCallable *>(custom);
+		const auto *lambda = dynamic_cast<const LambdaCallable *>(custom);
+		const auto *method = lambda ? nullptr : dynamic_cast<const MethodCallable *>(custom);
 		ScriptedObject callee;
 		int index = -1;
-		if (!method || !method->resolve(callee, index)) {
+		const uint8_t *const *captures = nullptr;
+		if (lambda && lambda->is_valid()) {
+			callee = { lambda->get_image(), lambda->get_context() };
+			index = lambda->get_function();
+			captures = lambda->get_captures();
+		} else if (method && method->resolve(callee, index)) {
+			// As op_call_method() finds it.
+			if (callee.context.storage == context.storage && context.self_image) {
+				callee.image = context.self_image;
+			}
+			index = callee.image->find_function(method->get_method());
+			if (index < 0 || (!p_entry && !callee.image->has_signature(method->get_method(), image.call_signatures[p_op[1]]))) {
+				return std::nullopt;
+			}
+		} else {
 			return std::nullopt;
 		}
-		// As op_call_method() finds it.
-		if (callee.context.storage == context.storage && context.self_image) {
-			callee.image = context.self_image;
-		}
-		callee.context.self_image = callee.image;
-		index = callee.image->find_function(method->get_method());
-		if (index < 0 || callee.image->module.functions[index].is_async || !callee.image->has_signature(method->get_method(), image.call_signatures[p_op[1]])) {
-			return std::nullopt;
+		if (!callee.context.self_image) {
+			callee.context.self_image = callee.image;
 		}
 		ClassImage::resolve_function(callee.image, index);
-		return call_function(*callee.image, uint32_t(index), callee.context, p_op, p_frame, p_call.result, p_fn, p_line);
+		const bytecode::Function &function = callee.image->module.functions[index];
+		const size_t given = function.params.size() - function.captures;
+		if (function.is_async || p_op[4] > given || p_op[4] < given - function.defaults.size()) {
+			return std::nullopt;
+		}
+		const bool ok = call_function(*callee.image, uint32_t(index), callee.context, p_op, p_frame, p_result, p_fn, p_line, captures, p_entry);
+		if (ok || !p_entry) {
+			return ok;
+		}
+		if (p_op[2] != NO_SLOT) {
+			from_variant(image.types[p_result.type], default_variant(callee.image->types[function.result.type]), p_frame + p_op[2], false);
+		}
+		return true;
 	}
 
 	PETRICHOR_NOINLINE bool op_call_value(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
 		const bytecode::MethodCall &call = image.module.method_calls[p_op[1]];
 		if (call.method == "call") {
-			if (const std::optional<bool> done = call_directly(p_op, p_frame, call, p_fn, p_line)) {
+			if (const std::optional<bool> done = call_directly(p_op, p_frame, call.result, false, p_fn, p_line)) {
 				return *done;
 			}
 		}
@@ -1629,6 +1651,13 @@ class Execution {
 		const uint32_t target = p_op[1];
 		const uint32_t dst = p_op[2];
 		const uint32_t argc = p_op[4];
+		if (!utility && image.callable_calls[target]) {
+			bytecode::Slot result;
+			result.type = module.builtin_methods[target].result_type;
+			if (const std::optional<bool> done = call_directly(p_op, p_frame, result, true, p_fn, p_line)) {
+				return *done;
+			}
+		}
 		const std::vector<ValueType> &params = utility ? module.utility_calls[target].params : module.builtin_methods[target].params;
 		const ValueType returns = utility ? module.utility_calls[target].return_type : module.builtin_methods[target].return_type;
 		const TypeImage &result_type = image.types[utility ? module.utility_calls[target].result_type : module.builtin_methods[target].result_type];
@@ -3141,7 +3170,7 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 			}
 			// A program error at the entry, and the engine gets the default value
 			// (spec §8.1, §10.1); the engine's backtrace of the caller goes with it.
-			report_error(*image, fn.name.c_str(), int(fn.line), vformat("Argument \"%s\" of %s(): %s.", to_godot(param.name), to_godot(fn.name), error));
+			report_argument(*image, fn, i, error);
 			if (r_failed) {
 				*r_failed = true;
 			}
