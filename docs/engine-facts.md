@@ -6,6 +6,7 @@
 |---|---|---|
 | Variant 的整数是 int64_t，浮点数是 double | `core/variant/variant.h:252-253` | §3.2 |
 | Variant 转为比 int64 窄或无符号的整数时直接截断或回绕 | `core/variant/variant.h:336-353, 411-424` | §10.6 |
+| RefCounted 对象的实例 ID 最高位为 1，按 int64 读出为负数 | `core/object/object.h:876-880`；`core/object/object.cpp:2485` | §10.6 |
 | `real_t` 在标准构建中是 float，在双精度构建中是 double | `core/math/math_defs.h:143-147` | §4.5、§10.6 |
 | 引擎的运算符表 | `core/variant/variant_op.cpp:212-1033` | §5.1、§5.2 |
 | int 与 float 的 `==` 按数值比较；对象的 `==` 比较同一性，但先把已释放的对象取为 null | `core/variant/variant_op.cpp:490-491, 514`；`core/variant/variant_op.h:471-477` | §5.1、§5.2 |
