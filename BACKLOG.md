@@ -5,6 +5,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 ## Language
 
 - Contextual keywords (spec §2.2). The tokenizer still reserves `pub`, `struct`, `interface`, `implements`, `async` and `None`. A `.pet` file cannot write dialogue_manager's `TranslationSource.None`.
+- The last subscript of an assignment's target is evaluated after the right side (spec §3.6). `lower.cpp` still evaluates it before.
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
 - Array and dictionary patterns of match (spec §5.6).
 - A struct or an enum with payloads that holds itself through a container (spec §3.6). The type table cannot list it, since a type's parts come before it.
@@ -78,6 +79,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The error explaining why a GDScript file cannot extend a class of this language (spec §11.2).
 - A quick fix adding the constructor for the implicit conversions of GDScript that this language drops (spec §3.14).
 - When lints are added, consider a hint on ordering arrays whose elements can be NaN. GDScript's results differ there (spec §5.2).
+- When lints are added, consider a warning on code that relies on the order of assignment (spec §3.6). An example is `arr[i] = next()` with `next()` assigning `i`. The owner considers such code harmful.
 - Compiled bytecode is checked against its own source only. A game run from the command line without a build keeps old bytecode. That happens after a change to a scene or to a script it uses. Only the runtime checks (signatures, `$X` classes) then catch the difference. The analysis knows what each script read, but keeps it only in the editor's memory (architecture §2.1).
 - The scene index: read scenes unsaved in the editor, which are marked as last saved (architecture §2.4). Check whether it handles autoloads that are scenes.
 - Completion of the names in strings that wait on their checks (spec §10.4, §13.2). They are property names, as in `set_deferred("speed", v)`, members of other objects, as in `other.connect("hit", f)`, and the paths of `get_node("...")`.
@@ -176,7 +178,6 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
   - which semantics may still change during the alpha.
 - Rules that break the reversibility rule (spec §1.2), to be settled one by one. Same spelling, different meaning:
   - `await f()` owns the child task and cancels it with the parent. GDScript runs `f` on (spec §9.3).
-  - Assignment evaluates subscripts before the right side. So `arr[i] = next()` differs when `next()` changes `i` (§3.6).
 
   Meanings of GDScript code that this language cannot write:
   - `_init` with parameters on Node and Resource scripts (§6.2). Every `Item.new("Sword")` changes.
