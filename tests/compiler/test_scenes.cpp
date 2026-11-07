@@ -60,9 +60,11 @@ TEST_CASE("a method connected in a scene is visible to the engine (spec §10.5)"
 }
 
 TEST_CASE("a method the engine is to call by a literal name is visible to it (spec §10.5)") {
-	const compiler::CompileResult result = compile("extends Node\n\nfunc _ready():\n\tcall_deferred(\"reset\")\n\tother.call_deferred()\n\nfunc reset():\n\tpass\n\nfunc other():\n\tpass\n");
+	const compiler::CompileResult result = compile_in("extends Node\n\nfunc _ready():\n\tcall_deferred(\"reset\")\n\tvar me := self\n\tme.call_deferred(\"stop\")\n\tother.call_deferred()\n\nfunc reset():\n\tpass\n\nfunc stop():\n\tpass\n\nfunc other():\n\tpass\n", FakeProject());
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	CHECK(function_named(result.module, "reset").is_exposed);
+	// Through an object of this class too.
+	CHECK(function_named(result.module, "stop").is_exposed);
 	CHECK(!function_named(result.module, "other").is_exposed);
 }
 

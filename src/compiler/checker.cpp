@@ -3659,15 +3659,16 @@ class Checker : public ClassRelation {
 			return signature(r_expr.text, texts, p_method.is_vararg, p_current, engine_result(p_method).to_string());
 		});
 		check_arguments(r_expr, params, int(params.size()) - p_method.default_count, p_method.is_vararg);
+		const bool on_self = !r_expr.base || extends_script(r_expr.base->type.script, options.path);
 		for (size_t i = 0; i < params.size(); i++) {
 			r_expr.arg_ranges.push_back(params[i].kind == TypeKind::Int ? builtin::param_int_range(p_method.owner, p_method.name, uint32_t(i)) : std::nullopt);
 			if (completion && i < r_expr.args.size() && r_expr.args[i]->kind == ExprKind::StringLiteral && at_cursor(r_expr.args[i]->text)) {
-				complete_string(&p_method, i, !r_expr.base);
+				complete_string(&p_method, i, on_self);
 			}
 		}
 		// A method of this class that the engine is to call by a literal name,
 		// as in call_deferred("reset"), is one it must find (spec §10.5).
-		for (size_t i = 0; !r_expr.base && i < p_method.params.size() && i < r_expr.args.size(); i++) {
+		for (size_t i = 0; on_self && i < p_method.params.size() && i < r_expr.args.size(); i++) {
 			const Expr &arg = *r_expr.args[i];
 			const auto named = arg.kind == ExprKind::StringLiteral ? function_index.find(arg.text) : function_index.end();
 			if (p_method.params[i].name == "method" && named != function_index.end()) {
