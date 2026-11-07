@@ -135,6 +135,7 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
 - Liveness of the IR's registers (`src/compiler/ir.h`), one analysis on the IR before any optimization.
   - It serves the warning `modified_copy` (spec §3.6), which is off until then.
   - It also serves what a suspended coroutine keeps (the Runtime item on temporary slots).
+  - The receiver of a method value in a temporary stays until its statement ends (spec §3.11).
   - Each instruction's reads and writes go in the opcode table beside its schemas. Writing a View writes part of its root.
   - The warning takes a write to a field of a struct loop variable, after which the variable is not live. The write may also go through a value type's subscript, as `h.pos[0] = 1.0`.
   - A read in an inner loop's next iteration keeps the variable live, as `while h.count > 0: h.count -= 1`. So does a lambda's capture.
