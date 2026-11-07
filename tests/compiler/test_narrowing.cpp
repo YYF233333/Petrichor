@@ -5,7 +5,8 @@ using namespace petrichor::tests;
 
 // Spec §5.4: locals and parameters narrow after `!= None`, `is` and an early
 // return; so do the branches of a conditional expression and the right side of
-// `and` and `or`; members do not.
+// `and` and `or`, and a Callable after a function value goes into it; members
+// do not.
 
 namespace {
 
@@ -78,6 +79,17 @@ TEST_CASE("an assignment narrows by the new value, also in loops") {
 	// The second iteration sees the None that the first one assigned.
 	CHECK(contains(narrowing("if p != None:\n\twhile true:\n\t\tp.queue_free()\n\t\tp = None"), "may be None"));
 	CHECK(contains(narrowing("var q: Node? = get_parent()\nif q != None:\n\tq = None\nq.queue_free()"), "may be None"));
+}
+
+TEST_CASE("a Callable that a function value goes into narrows to the function's type") {
+	const char *signature = "func f(c: Callable) -> void:";
+	const std::string lambda = "func(i: int) -> int: return i";
+	CHECK(narrowing("var g: Callable = " + lambda + "\nvar n: int = g.call(1)", signature).empty());
+	CHECK(narrowing("c = " + lambda + "\nvar n: int = c.call(1)", signature).empty());
+	CHECK(contains(narrowing("var g: Callable = " + lambda + "\ng.call(\"x\")", signature), "Cannot pass a value of type String as int"));
+	// Assigned again, it is what the new value is.
+	CHECK(narrowing("var g: Callable = " + lambda + "\ng = c\ng.call(\"x\")", signature).empty());
+	CHECK(contains(narrowing("var n: int = c.call(1)", signature), "Cannot assign a value of type Variant as int"));
 }
 
 TEST_CASE("an option of a value narrows too") {

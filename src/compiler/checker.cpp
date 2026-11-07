@@ -3680,6 +3680,13 @@ class Checker : public ClassRelation {
 		}
 	}
 
+	// A Callable that a function value goes into is of that function's type.
+	void narrow_by_value(int p_local, const Type &p_value) {
+		if (p_value.kind == TypeKind::Function && function->locals[p_local].type == Type::builtin("Callable")) {
+			narrowed.back()[p_local] = p_value;
+		}
+	}
+
 	void add_facts(const std::unordered_map<int, Type> &p_facts) {
 		for (const auto &fact : p_facts) {
 			narrowed.back()[fact.first] = fact.second;
@@ -7113,8 +7120,9 @@ class Checker : public ClassRelation {
 				if (r_stmt.declared_type) {
 					type = resolve(*r_stmt.declared_type, false);
 				}
+				Type value;
 				if (r_stmt.value) {
-					const Type value = check_value(*r_stmt.value, type);
+					value = check_value(*r_stmt.value, type);
 					if (r_stmt.declared_type) {
 						expect_assignable(*r_stmt.value, value, type, "assign");
 					} else if (value.kind == TypeKind::None) {
@@ -7131,6 +7139,7 @@ class Checker : public ClassRelation {
 					error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs an initial value: " + enum_spelling(type) + " has no value 0 to start at (spec §3.7).");
 				}
 				declare_local(r_stmt, type);
+				narrow_by_value(r_stmt.local, value);
 				return;
 			}
 			case StmtKind::Const: {
@@ -7176,6 +7185,9 @@ class Checker : public ClassRelation {
 					// Narrowing follows the new value (spec §5.4).
 					if (target_type.is_optional() && !value.is_error() && !value.is_optional() && value.kind != TypeKind::None) {
 						narrowed.back()[local] = target_type.unwrapped();
+					}
+					if (!compound) {
+						narrow_by_value(local, value);
 					}
 				}
 				if (!place) {

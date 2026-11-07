@@ -95,3 +95,20 @@ pub func failing_call() -> void:
 pub func failing_bound() -> void:
 	var at := func(items: Array[int], i: int): return items[i]
 	after_error = at.bind(7).call([1])
+
+
+# So does one in a Callable that it narrows to the lambda's type (spec §5.4).
+pub func failing_narrowed() -> void:
+	var at: Callable = func(items: Array[int], i: int): return items[i]
+	after_error = at.call([1], 3)
+
+
+# A Callable that does not narrow is called as the engine calls it: the
+# caller goes on with the default result.
+pub func failing_untyped() -> void:
+	call_untyped(func(items: Array[int], i: int) -> int: return items[i])
+
+
+func call_untyped(p_at: Callable) -> void:
+	var items: Array[int] = [1]
+	after_error = int(p_at.call(items, 4)) + 1
