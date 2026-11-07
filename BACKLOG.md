@@ -46,6 +46,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The audit of the most frequently called engine APIs for null (spec §10.2); `binding_metadata.txt` has two entries.
 - Overriding Object's `_get`, `_set`, `_get_property_list`, `_validate_property`, `_property_can_revert` and `_property_get_revert`. The engine reaches them through the script instance, and GDScript's instance calls them (`modules/gdscript/gdscript.cpp:1590, 1677, 1714, 1739, 1857, 1879`, `ed1daf0`). Now they are a compile error, since the runtime does not call them.
 - Non-constant default values, of parameters and of struct fields.
+  - Each comes after step 9, so it is evaluated outside the function body. The IR of the body keeps one entry.
 - A `Callable` of unknown signature converted to a function type and checked on every call (spec §3.11).
 - In debug builds, reporting two places (spec §3.3, §6.7, §12.5):
   - where a freed instance was freed;
