@@ -119,3 +119,21 @@ pub func array_of(v: Variant) -> int:
 	var a := Array(v)
 	a.append(9)
 	return a.size()
+
+
+# The None literal, typed by the other branch, and v compared with it.
+pub func none_or(v: Variant, empty: bool) -> Array[bool]:
+	var given: Variant? = v
+	var x := None if empty else given
+	return [x == None, x == v]
+
+
+pub func matches_freed(v: Variant) -> bool:
+	var made := Node.new()
+	var node: Node? = made
+	made.free()
+	match v:
+		node:
+			return true
+		_:
+			return false

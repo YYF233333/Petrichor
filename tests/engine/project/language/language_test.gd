@@ -646,6 +646,8 @@ func _ready() -> void:
 	variants.assign_from([1, 1.5])
 	_check_errors(["variant_check.pet:95: Array[int] holds int, not float, which the Array given has at index 1."], "assign() of an element that does not fit is a program error")
 	_check(variants.pop_kind([]) == "empty" and variants.pop_kind([null]) == "some" and variants.get_kind({}, "hp") == "missing" and variants.get_kind({"hp": null}, "hp") == "found", "Variant? tells an empty array and a missing key from null (spec §3.4)")
+	_check(variants.none_or(null, true) == [true, false] and variants.none_or(null, false) == [false, true], "the None literal is None of Variant?, and a Variant compared with a Variant? is wrapped first, so null is not None (spec §3.4, §5.2)")
+	_check(variants.matches_freed(null), "a freed object in a pattern over a Variant is None, as wherever it is read (spec §3.3, §5.6)")
 	var shared := [1]
 	_check(variants.hit_as_variant() == {"damage": 3} and not variants.literal().is_typed() and variants.array_of(shared) == 2 and shared.size() == 2, "a struct is encoded in a Variant, a literal there is untyped, and Array(v) is the same array")
 

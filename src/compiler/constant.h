@@ -102,6 +102,10 @@ using ConstPtr = std::shared_ptr<const ConstValue>;
 // reason in `constant_error` when computing it would fail or is not allowed.
 ConstPtr fold(Expr &r_expr);
 
+// The constructor of `p_to` that takes one value of `p_from`, as built-in
+// types convert (spec §3.14, §10.7); -1 if there is none.
+int converting_constructor(const Type &p_from, const Type &p_to);
+
 // The value as stored where a `p_to` is expected: int as float, an integer
 // vector as a float one (spec §3.14), a String as a StringName or a NodePath
 // (§10.7), the elements of a container as its element types; for a T?, the

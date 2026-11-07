@@ -98,6 +98,14 @@ enum class Target {
 	Noop,
 	EngineMethod, // On self, or on `base` when there is one.
 	BuiltinMethod,
+	GetOrNone, // get(k) of a Dictionary: V?, None for a missing key (spec §3.8).
+	// pop_front() or pop_back() of an untyped Array: Variant?, None only for
+	// an empty one, since the engine gives null also for a null element (spec
+	// §3.4, §3.8).
+	PopOrNone,
+	// resize() of an Array[T] whose T has a default the engine does not know,
+	// boxed or a typed container (spec §3.8).
+	ResizeWithDefaults,
 	BuiltinConstructor,
 	NewObject, // `Class.new()`, the class being the call's type.
 	Utility,
@@ -118,6 +126,8 @@ enum class Target {
 	EmitSignal, // `s.emit(...)` of a signal value.
 	EngineConstant, // An integer constant of an engine class, or a global one, in `int_value`.
 	NoneComparison, // `x == None` or `x != None`: `left` or `right` is the None literal.
+	VariantEqual, // `==` or `!=` with a Variant, by the engine's operator table (spec §5.2).
+	VariantMatch, // A value pattern matching a Variant, of the pattern's type first, as GDScript matches (§5.6).
 	Contains, // `x in c`: the method `text` of the built-in type `owner`, has or contains, taking `param_types[0]`.
 	HasMember, // `name in obj`: whether the engine finds a member by that name.
 	Constant, // A constant of a class (spec §4.5), whose value is `constant`.
@@ -175,7 +185,9 @@ struct Expr {
 	// Local, member, script function or constructor; for a script method, how
 	// many of its last parameters have default values.
 	int index = -1;
-	std::vector<Type> param_types; // For calls: the type each argument converts to.
+	// For calls: the type each argument converts to; for comparisons of T? with
+	// T, the type each side converts to (spec §5.2).
+	std::vector<Type> param_types;
 	// Built-in methods and utility functions: the engine's signature, which
 	// the runtime needs to pass arguments in the right layout.
 	uint32_t hash = 0;

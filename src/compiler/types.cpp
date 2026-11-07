@@ -199,67 +199,72 @@ static bool is_string_like(const Type &p_type) {
 	return p_type.kind == TypeKind::String || (p_type.kind == TypeKind::Builtin && (p_type.name == "StringName" || p_type.name == "NodePath"));
 }
 
-bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_classes) {
-	if (p_from.is_error() || p_to.is_error()) {
-		return true;
-	}
-	if (p_from == p_to) {
-		return true;
+Conversion conversion(const Type &p_from, const Type &p_to, const ClassRelation &p_classes) {
+	using C = Conversion;
+	const auto allowed = [](bool p_allowed) { return p_allowed ? C::Same : C::None; };
+	if (p_from.is_error() || p_to.is_error() || p_from == p_to) {
+		return C::Same;
 	}
 	if (p_from.kind == TypeKind::Task && p_to.kind == TypeKind::Task) {
-		return p_from.args == p_to.args && (!p_from.nullable || p_to.nullable);
+		return allowed(p_from.args == p_to.args && (!p_from.nullable || p_to.nullable));
 	}
 	if (p_from.kind == TypeKind::None) {
-		return p_to.is_optional() || p_to.kind == TypeKind::Variant;
+		return p_to.is_optional() || p_to.kind == TypeKind::Variant ? C::Nothing : C::None;
 	}
 	// An enum's value is an int, but an int is one of its values only explicitly (spec §3.7).
-	if ((p_from.kind == TypeKind::Int || p_from.kind == TypeKind::Enum) && (p_to.kind == TypeKind::Float || (p_to.kind == TypeKind::Int && p_from.kind == TypeKind::Enum))) {
-		return true;
+	if ((p_from.kind == TypeKind::Int || p_from.kind == TypeKind::Enum) && p_to.kind == TypeKind::Float) {
+		return C::IntToFloat;
+	}
+	if (p_from.kind == TypeKind::Enum && p_to.kind == TypeKind::Int) {
+		return C::Same;
 	}
 	// Converted where needed, as in GDScript (spec §10.7).
 	if (is_string_like(p_from) && is_string_like(p_to) && (p_from.kind == TypeKind::String || p_to.kind == TypeKind::String)) {
-		return true;
+		return C::Construct;
 	}
 	// The integer vectors and Rect2i widen to their float counterparts (spec §3.14).
 	if (p_from.kind == TypeKind::Builtin && p_to.kind == TypeKind::Builtin && p_from.name == p_to.name + "i" && (p_to.name == "Vector2" || p_to.name == "Vector3" || p_to.name == "Vector4" || p_to.name == "Rect2")) {
-		return true;
+		return C::Construct;
 	}
 	if (p_from.kind == TypeKind::Object && p_to.kind == TypeKind::Object) {
-		if (!p_to.args.empty()) {
-			// PackedScene[T] is covariant in T, and a scene of unknown root is
-			// not one (spec §3.14, §7.4).
-			if (p_from.args.empty() || !p_classes.is_a(p_from.args[0], p_to.args[0])) {
-				return false;
-			}
-		}
-		return (p_to.nullable || !p_from.nullable) && p_classes.is_a(p_from, p_to);
+		// PackedScene[T] is covariant in T, and a scene of unknown root is
+		// not one (spec §3.14, §7.4).
+		const bool scene = p_to.args.empty() || (!p_from.args.empty() && p_classes.is_a(p_from.args[0], p_to.args[0]));
+		return allowed(scene && (p_to.nullable || !p_from.nullable) && p_classes.is_a(p_from, p_to));
 	}
 	if (p_to.kind == TypeKind::Option) {
 		// A T is wrapped implicitly; the T inside does not convert (spec §3.14).
-		return p_from.kind == TypeKind::Option ? p_from.args == p_to.args : is_assignable(p_from, p_to.args[0], p_classes);
+		if (p_from.kind == TypeKind::Option) {
+			return C::None;
+		}
+		return conversion(p_from, p_to.args[0], p_classes) == C::None ? C::None : C::Wrap;
 	}
 	if (p_from.kind == TypeKind::Function && p_to.kind == TypeKind::Function) {
 		// Parameters contravariant, the result covariant (spec §3.14).
 		if (p_from.is_async != p_to.is_async || p_from.args.size() != p_to.args.size()) {
-			return false;
+			return C::None;
 		}
 		for (size_t i = 1; i < p_to.args.size(); i++) {
 			if (!is_assignable(p_to.args[i], p_from.args[i], p_classes)) {
-				return false;
+				return C::None;
 			}
 		}
-		return p_to.args[0].kind == TypeKind::Void ? p_from.args[0].kind == TypeKind::Void : is_assignable(p_from.args[0], p_to.args[0], p_classes);
+		return allowed(p_to.args[0].kind == TypeKind::Void ? p_from.args[0].kind == TypeKind::Void : is_assignable(p_from.args[0], p_to.args[0], p_classes));
 	}
 	// The engine takes them as its Callable and Signal.
 	if ((p_from.kind == TypeKind::Function || p_from.kind == TypeKind::Signal) && p_to.kind == TypeKind::Builtin && p_to.name == p_from.builtin_name()) {
-		return true;
+		return C::Same;
 	}
 	// A typed container is the same container through an untyped view (spec
 	// §3.14), unless it keeps boxes, which leave only as an encoded copy.
 	if (is_typed_container(p_from) && !is_boxed(p_from) && p_to.kind == TypeKind::Builtin && p_to.args.empty() && p_to.name == p_from.name) {
-		return true;
+		return C::Same;
 	}
-	return p_to.kind == TypeKind::Variant && p_from.is_storable() && !(is_typed_container(p_from) && is_boxed(p_from));
+	return p_to.kind == TypeKind::Variant && p_from.is_storable() && !(is_typed_container(p_from) && is_boxed(p_from)) ? C::ToVariant : C::None;
+}
+
+bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_classes) {
+	return conversion(p_from, p_to, p_classes) != Conversion::None;
 }
 
 bool is_shared(const Type &p_type) {

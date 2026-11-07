@@ -178,10 +178,23 @@ public:
 	virtual bool is_a(const Type &p_from, const Type &p_to) const = 0;
 };
 
-// Whether a value of type `p_from` can be stored where `p_to` is expected:
-// the same type, int to float and integer vectors to float ones (spec §3.14),
-// String to and from StringName and NodePath (§10.7), an object to a nullable
-// or a base class, or anything to Variant.
+// How a value of one type becomes one of another where it is expected (spec
+// §3.14), which the checker allows and lowering does.
+enum class Conversion {
+	None, // It cannot.
+	Same, // As it is, such as an object to a base class or an enum to int.
+	IntToFloat,
+	// By the engine's constructor that takes the value: String to and from
+	// StringName and NodePath (§10.7), integer vectors to float ones.
+	Construct,
+	Wrap, // A T into T?, as Some of it converted to the T (§3.4).
+	Nothing, // The None literal, as None of a T? or null of a Variant.
+	ToVariant,
+};
+
+Conversion conversion(const Type &p_from, const Type &p_to, const ClassRelation &p_classes);
+
+// Whether a value of type `p_from` can be stored where `p_to` is expected.
 bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_classes);
 
 // Values that refer to shared engine storage: changing one through a method

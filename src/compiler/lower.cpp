@@ -340,7 +340,7 @@ class Lowerer {
 		const Type &type = p_call.base->type;
 		const std::string &name = p_call.text;
 		const uint32_t value = lower_expr(*p_call.base);
-		const uint32_t argument = p_call.args.empty() ? NO_REG : convert(lower_expr(*p_call.args[0]), p_call.param_types[0]);
+		const uint32_t argument = p_call.args.empty() ? NO_REG : convert(lower_expr(*p_call.args[0]), p_call.args[0]->type, p_call.param_types[0]);
 		const uint32_t result = temp(p_call.type);
 		if (name == "unwrap" || name == "expect") {
 			instr(Op::UNWRAP_OK, result, value, argument);
@@ -358,11 +358,13 @@ class Lowerer {
 			current = blocks[variant];
 			const uint32_t inner = field_view(value, variant_field(type, variant, 0));
 			const bool applies = (variant == 1) == on_error;
-			const auto called = [&]() { return call_value(argument, p_call.param_types[0], { inner }); };
-			if (name == "unwrap_or" || name == "unwrap_or_else") {
-				move(result, !applies ? inner : convert(name == "unwrap_or" ? argument : called(), p_call.type));
+			const auto called = [&]() { return call_value(argument, p_call.param_types[0], inner, type.args[variant]); };
+			if (name == "unwrap_or") {
+				move(result, applies ? argument : inner);
+			} else if (name == "unwrap_or_else") {
+				move(result, applies ? convert(called(), p_call.param_types[0].args[0], p_call.type) : inner);
 			} else if (name == "ok" || name == "err") {
-				applies ? move(result, convert(inner, p_call.type)) : (void)default_value(result);
+				applies ? move(result, convert(inner, type.args[variant], p_call.type)) : (void)default_value(result);
 			} else if (applies && (name == "and_then" || name == "or_else")) {
 				move(result, called());
 			} else {
@@ -380,7 +382,7 @@ class Lowerer {
 		const Type &type = p_call.base->type;
 		const std::string &name = p_call.text;
 		const uint32_t value = lower_expr(*p_call.base);
-		const uint32_t argument = convert(lower_expr(*p_call.args[0]), p_call.param_types[0]);
+		const uint32_t argument = convert(lower_expr(*p_call.args[0]), p_call.args[0]->type, p_call.param_types[0]);
 		const uint32_t result = temp(p_call.type);
 		const uint32_t none = temp(ValueType::Bool);
 		instr(Op::IS_NONE, none, value, NO_REG, 0, fn.regs[value].type);
@@ -388,7 +390,9 @@ class Lowerer {
 		const uint32_t none_block = new_block();
 		const uint32_t end_block = new_block();
 		branch(none, none_block, some_block);
-		const auto called = [&](const std::vector<uint32_t> &p_args) { return call_value(argument, p_call.param_types[0], p_args); };
+		const auto called = [&](uint32_t p_inner) { return call_value(argument, p_call.param_types[0], p_inner, type.unwrapped()); };
+		// What the function returns, as the method gives it.
+		const auto returned = [&](uint32_t p_value) { return convert(p_value, p_call.param_types[0].args[0], p_call.type); };
 
 		current = some_block;
 		if (name == "or" || name == "or_else") {
@@ -398,24 +402,24 @@ class Lowerer {
 			instr(Op::UNWRAP, inner, value, NO_REG, 0, fn.regs[inner].type);
 			if (name == "filter") {
 				const uint32_t kept_block = new_block();
-				branch(called({ inner }), kept_block, none_block);
+				branch(called(inner), kept_block, none_block);
 				current = kept_block;
 				move(result, value);
 			} else if (name == "ok_or" || name == "ok_or_else") {
 				make_variant(result, p_call.type, 0, { inner });
 			} else {
-				move(result, name == "map" || name == "and_then" ? convert(called({ inner }), p_call.type) : inner);
+				move(result, name == "map" || name == "and_then" ? returned(called(inner)) : inner);
 			}
 		}
 		jump(end_block);
 
 		current = none_block;
 		if (name == "ok_or" || name == "ok_or_else") {
-			make_variant(result, p_call.type, 1, { name == "ok_or" ? argument : called({}) });
+			make_variant(result, p_call.type, 1, { name == "ok_or" ? argument : called(NO_REG) });
 		} else if (name == "unwrap_or" || name == "or") {
 			move(result, argument);
 		} else if (name == "unwrap_or_else" || name == "or_else") {
-			move(result, convert(called({}), p_call.type));
+			move(result, returned(called(NO_REG)));
 		} else {
 			default_value(result);
 		}
@@ -459,17 +463,17 @@ class Lowerer {
 		return result;
 	}
 
-	// `f.call(...)` of a function value of the type `p_function` (spec §3.11),
-	// with the arguments converted to its parameters.
-	uint32_t call_value(uint32_t p_value, const Type &p_function, const std::vector<uint32_t> &p_args) {
+	// `f.call(x)` of a function value of the type `p_function` (spec §3.11),
+	// with x, if any, converted to its parameter.
+	uint32_t call_value(uint32_t p_value, const Type &p_function, uint32_t p_arg, const Type &p_arg_type) {
 		ir::Instr i;
 		i.op = Op::CALL_VALUE;
 		i.base = p_value;
 		bytecode::MethodCall method;
 		method.method = "call";
-		for (size_t a = 0; a < p_args.size(); a++) {
-			method.params.push_back(slot(std::string(), p_function.args[a + 1]));
-			i.args.push_back(convert(p_args[a], p_function.args[a + 1]));
+		if (p_arg != NO_REG) {
+			method.params.push_back(slot(std::string(), p_function.args[1]));
+			i.args.push_back(convert(p_arg, p_arg_type, p_function.args[1]));
 		}
 		method.result = slot(std::string(), p_function.args[0]);
 		i.dst = temp(p_function.args[0]);
@@ -911,71 +915,46 @@ class Lowerer {
 
 	/* Conversions */
 
-	// Converts int to float and integer vectors to float ones (spec §3.14), and
-	// between String, StringName and NodePath (§10.7), where the target type
-	// asks for it.
-	uint32_t convert(uint32_t p_reg, const Type &p_to) {
+	// A value of `p_from` as a `p_to`, as the checker allowed (spec §3.14).
+	uint32_t convert(uint32_t p_reg, const Type &p_from, const Type &p_to) {
+		// The checker has made sure that the classes fit.
+		struct Checked final : ClassRelation {
+			bool is_a(const Type &, const Type &) const override { return true; }
+		};
 		if (p_reg == NO_REG) {
 			return p_reg;
 		}
-		const ValueType from = reg_type(p_reg);
-		const ValueType to = value_type(p_to);
-		if (p_to.kind == TypeKind::Option && !is_option_reg(p_reg)) {
-			// Only a Variant goes into Variant?; another T? takes a Variant only
-			// as the None literal.
-			if (from == ValueType::Variant && p_to.args[0].kind != TypeKind::Variant) {
-				return default_value(temp(p_to));
-			}
-			// T becomes Some(T) (spec §3.4).
-			const uint32_t inner = convert(p_reg, p_to.args[0]);
-			const uint32_t result = temp(p_to);
-			instr(Op::SOME, result, inner, NO_REG, 0, fn.regs[result].type);
-			return result;
-		}
-		if (from == to || to == ValueType::Void) {
-			return p_reg;
-		}
-		if (to == ValueType::Variant) {
-			return as_variant(p_reg); // A struct encoded (spec §3.13, §10.1).
-		}
-		if (from == ValueType::Int && to == ValueType::Float) {
-			const uint32_t result = temp(ValueType::Float);
-			instr(Op::INT_TO_FLOAT, result, p_reg);
-			return result;
-		}
-		const builtin::Class *target = builtin::find_class(bytecode::value_type_name(to));
-		for (uint32_t i = 0; target && i < target->constructor_count; i++) {
-			const builtin::Constructor &candidate = target->constructors[i];
-			if (candidate.argument_count == 1 && std::string(candidate.arguments[0].type) == bytecode::value_type_name(from)) {
-				const uint32_t result = temp(to);
-				ir::Instr i_construct;
-				i_construct.op = Op::CONSTRUCT;
-				i_construct.imm = constructor(to, i, { from });
-				i_construct.dst = result;
-				i_construct.args = { p_reg };
-				add(i_construct);
+		switch (conversion(p_from, p_to, Checked())) {
+			case Conversion::Same:
+				return p_reg;
+			case Conversion::IntToFloat: {
+				const uint32_t result = temp(ValueType::Float);
+				instr(Op::INT_TO_FLOAT, result, p_reg);
 				return result;
 			}
+			case Conversion::Construct: {
+				ir::Instr i;
+				i.op = Op::CONSTRUCT;
+				i.imm = constructor(value_type(p_to), uint32_t(converting_constructor(p_from, p_to)), { value_type(p_from) });
+				i.dst = temp(p_to);
+				i.args = { p_reg };
+				add(i);
+				return i.dst;
+			}
+			case Conversion::Wrap: {
+				const uint32_t inner = convert(p_reg, p_from, p_to.args[0]);
+				const uint32_t result = temp(p_to);
+				instr(Op::SOME, result, inner, NO_REG, 0, fn.regs[result].type);
+				return result;
+			}
+			case Conversion::Nothing:
+				return default_value(temp(p_to));
+			case Conversion::ToVariant:
+				return as_variant(p_reg); // A struct encoded (spec §3.13, §10.1).
+			case Conversion::None:
+				break;
 		}
-		return p_reg; // The checker has made sure the types fit.
-	}
-
-	static int option_depth(const Type &p_type) {
-		return p_type.kind == TypeKind::Option ? 1 + option_depth(p_type.args[0]) : 0;
-	}
-
-	// The value as a `p_type`, wrapped in Some as many times as it takes (spec §5.2).
-	uint32_t wrapped(uint32_t p_reg, const Type &p_type) {
-		if (fn.regs[p_reg].type == type_index(p_type)) {
-			return p_reg;
-		}
-		if (p_type.kind != TypeKind::Option) {
-			return convert(p_reg, p_type);
-		}
-		const uint32_t inner = wrapped(p_reg, p_type.args[0]);
-		const uint32_t result = temp(p_type);
-		instr(Op::SOME, result, inner, NO_REG, 0, fn.regs[result].type);
-		return result;
+		return internal_error("no conversion from " + p_from.to_string() + " to " + p_to.to_string());
 	}
 
 	// A T? that goes where this language no longer follows it, to the engine
@@ -1003,7 +982,7 @@ class Lowerer {
 			// The call makes the Variant from the slot and its type.
 			return outward(value, p_arg.type, p_takes_object);
 		}
-		return convert(p_outward ? outward(value, p_arg.type, p_takes_object) : value, p_param);
+		return convert(p_outward ? outward(value, p_arg.type, p_takes_object) : value, p_arg.type, p_param);
 	}
 
 	std::vector<uint32_t> arguments(const Expr &p_call) {
@@ -1126,11 +1105,8 @@ class Lowerer {
 	// so a T must hold a live object, and a T? whose object was freed is None
 	// (§3.3).
 	uint32_t stored(const Expr &p_value, const Type &p_as, const Type &p_element, bool p_key) {
-		const uint32_t value = argument(p_value, p_as, true, true);
-		if (p_element.kind == TypeKind::Variant) {
-			return as_variant(value);
-		}
-		const uint32_t converted = convert(value, p_element);
+		const uint32_t value = convert(outward(lower_expr(p_value), p_value.type, true), p_value.type, p_as);
+		const uint32_t converted = convert(value, p_as, p_element);
 		return is_boxed(p_element) ? box(converted, p_key) : converted;
 	}
 
@@ -1142,9 +1118,8 @@ class Lowerer {
 		return result;
 	}
 
-	// resize() of an array whose elements' default the engine does not know,
-	// boxed or a typed container: the engine's, then each new element set to
-	// its own default value (spec §3.8).
+	// The engine's resize(), then each new element set to its own default
+	// value (spec §3.8).
 	uint32_t resize(const Expr &p_call) {
 		const uint32_t array = lower_expr(*p_call.base);
 		const Type &element = p_call.base->type.args[0];
@@ -1173,11 +1148,10 @@ class Lowerer {
 
 	// `text % value` (spec §5.1): the value enters the engine as an argument
 	// does (§10.1).
-	uint32_t format(uint32_t p_text, uint32_t p_value, const Type &p_type) {
-		const uint32_t text = convert(p_text, Type::of(TypeKind::String));
-		const uint32_t value = as_variant(outward(p_value, p_type, false));
+	uint32_t format(uint32_t p_text, const Type &p_text_type, uint32_t p_value, const Type &p_type) {
+		const uint32_t text = convert(p_text, p_text_type, Type::of(TypeKind::String));
 		const uint32_t result = temp(ValueType::String);
-		instr(Op::FORMAT, result, text, value);
+		instr(Op::FORMAT, result, text, engine_variant(p_value, p_type));
 		return result;
 	}
 
@@ -1205,6 +1179,11 @@ class Lowerer {
 		return result;
 	}
 
+	// A value as a Variant that the engine works on (spec §5.1, §5.2).
+	uint32_t engine_variant(uint32_t p_reg, const Type &p_type) {
+		return as_variant(outward(p_reg, p_type, false));
+	}
+
 	// The index of `a[i]`, or the key of `d[k]`.
 	uint32_t index_of(const Expr &p_subscript) {
 		if (p_subscript.param_types.empty()) {
@@ -1222,7 +1201,6 @@ class Lowerer {
 		return call_builtin(method, container, { value }, temp(ValueType::Bool));
 	}
 
-	// get(k) of Dictionary[K, V]: V?, None for a missing key (spec §3.8).
 	uint32_t get_or_none(const Expr &p_call) {
 		const uint32_t dictionary = lower_expr(*p_call.base);
 		const auto [key_type, value_type] = *entries_of(p_call.base->type);
@@ -1235,7 +1213,7 @@ class Lowerer {
 		const uint32_t end = new_block();
 		branch(has, found, missing);
 		current = found;
-		move(result, convert(get_index(dictionary, key, value_type), p_call.type));
+		move(result, convert(get_index(dictionary, key, value_type), value_type, p_call.type));
 		jump(end);
 		current = missing;
 		default_value(result);
@@ -1244,9 +1222,6 @@ class Lowerer {
 		return result;
 	}
 
-	// pop_front() and pop_back() of an untyped Array: Variant?, None only for
-	// an empty one, since the engine gives null for an empty array and for a
-	// null element (spec §3.4, §3.8).
 	uint32_t pop_or_none(const Expr &p_call) {
 		const uint32_t array = lower_expr(*p_call.base);
 		const uint32_t empty = call_builtin(engine_builtin_method(ValueType::Array, "is_empty", {}, ValueType::Bool), array, {}, temp(ValueType::Bool));
@@ -1293,7 +1268,8 @@ class Lowerer {
 	uint32_t assign_members(const Expr &p_call, uint32_t p_object) {
 		for (size_t i = 0; i < p_call.member_values.size(); i++) {
 			const Type &type = p_call.member_types[i];
-			const uint32_t value = convert(outward(lower_expr(*p_call.member_values[i]), p_call.member_values[i]->type, type.kind == TypeKind::Object), type);
+			const Type &given = p_call.member_values[i]->type;
+			const uint32_t value = convert(outward(lower_expr(*p_call.member_values[i]), given, type.kind == TypeKind::Object), given, type);
 			instr(Op::SET_PROPERTY, NO_REG, p_object, value, property(p_call.member_names[i], fn.regs[value].type));
 		}
 		return p_object;
@@ -1393,8 +1369,9 @@ class Lowerer {
 		ValueType operand = left_type;
 		if (left_type == ValueType::Float || right_type == ValueType::Float) {
 			operand = ValueType::Float;
-			p_left = convert(p_left, Type::of(TypeKind::Float));
-			p_right = convert(p_right, Type::of(TypeKind::Float));
+			const Type number = Type::of(TypeKind::Float);
+			p_left = convert(p_left, left_type == ValueType::Int ? Type::of(TypeKind::Int) : number, number);
+			p_right = convert(p_right, right_type == ValueType::Int ? Type::of(TypeKind::Int) : number, number);
 		}
 		const bool f = operand == ValueType::Float;
 		Op op;
@@ -1483,19 +1460,15 @@ class Lowerer {
 	}
 
 	uint32_t call(const Expr &p_call) {
-		if (p_call.target == Target::Noop) {
-			return NO_REG;
-		}
-		if (p_call.target == Target::BuiltinMethod && p_call.owner == "Dictionary" && p_call.text == "get" && p_call.args.size() == 1 && p_call.type.is_optional()) {
-			return get_or_none(p_call);
-		}
-		if (p_call.target == Target::BuiltinMethod && p_call.text == "resize" && is_typed_array(p_call.base->type) && (is_boxed(p_call.base->type) || is_typed_container(p_call.base->type.args[0]))) {
-			return resize(p_call);
-		}
-		if (p_call.target == Target::BuiltinMethod && p_call.owner == "Array" && (p_call.text == "pop_front" || p_call.text == "pop_back") && p_call.base->type.args.empty()) {
-			return pop_or_none(p_call);
-		}
 		switch (p_call.target) {
+			case Target::Noop:
+				return NO_REG;
+			case Target::GetOrNone:
+				return get_or_none(p_call);
+			case Target::PopOrNone:
+				return pop_or_none(p_call);
+			case Target::ResizeWithDefaults:
+				return resize(p_call);
 			case Target::Encode: {
 				const uint32_t value = lower_expr(*p_call.args[0]);
 				const uint32_t result = temp(p_call.type);
@@ -1512,7 +1485,7 @@ class Lowerer {
 				return result;
 			}
 			case Target::ConvertToFloat:
-				return convert(lower_expr(*p_call.args[0]), Type::of(TypeKind::Float));
+				return convert(lower_expr(*p_call.args[0]), p_call.args[0]->type, Type::of(TypeKind::Float));
 			case Target::ConstructFromVariant: {
 				const uint32_t value = lower_expr(*p_call.args[0]);
 				const uint32_t result = temp(p_call.type);
@@ -1543,7 +1516,7 @@ class Lowerer {
 				return construct_variant(p_call);
 			case Target::Unwrap: {
 				const uint32_t value = lower_expr(*p_call.base);
-				const uint32_t message = p_call.args.empty() ? NO_REG : convert(lower_expr(*p_call.args[0]), Type::of(TypeKind::String));
+				const uint32_t message = p_call.args.empty() ? NO_REG : convert(lower_expr(*p_call.args[0]), p_call.args[0]->type, Type::of(TypeKind::String));
 				const uint32_t result = temp(p_call.type);
 				instr(Op::UNWRAP, result, value, message, 0, fn.regs[result].type);
 				return result;
@@ -1553,7 +1526,7 @@ class Lowerer {
 			case Target::ResultMethod:
 				return result_method(p_call);
 			case Target::TryFrom: {
-				const uint32_t value = convert(lower_expr(*p_call.args[0]), Type::of(TypeKind::Variant));
+				const uint32_t value = convert(lower_expr(*p_call.args[0]), p_call.args[0]->type, Type::of(TypeKind::Variant));
 				const uint32_t result = temp(p_call.type);
 				instr(Op::TRY_FROM, result, value, NO_REG, 0, fn.regs[result].type);
 				return result;
@@ -1856,7 +1829,7 @@ class Lowerer {
 			}
 			// A constant of T? keeps the value inside Some (converted()).
 			const uint32_t value = load_constant(p_expr.constant);
-			return p_expr.type.kind == TypeKind::Option ? wrapped(value, p_expr.type) : value;
+			return p_expr.type.kind == TypeKind::Option ? convert(value, p_expr.constant->type, p_expr.type) : value;
 		}
 		switch (p_expr.kind) {
 			case ExprKind::Lambda:
@@ -1935,7 +1908,7 @@ class Lowerer {
 					return contains(p_expr);
 				}
 				if (p_expr.target == Target::HasMember) {
-					const uint32_t name = convert(lower_expr(*p_expr.left), Type::of(TypeKind::String));
+					const uint32_t name = convert(lower_expr(*p_expr.left), p_expr.left->type, Type::of(TypeKind::String));
 					const uint32_t object = lower_expr(*p_expr.right);
 					const uint32_t result = temp(ValueType::Bool);
 					instr(Op::HAS_MEMBER, result, object, name);
@@ -1943,17 +1916,16 @@ class Lowerer {
 				}
 				if (p_expr.op == TokenKind::Percent && is_format_string(p_expr.left->type)) {
 					const uint32_t text = lower_expr(*p_expr.left);
-					return format(text, lower_expr(*p_expr.right), p_expr.right->type);
+					return format(text, p_expr.left->type, lower_expr(*p_expr.right), p_expr.right->type);
 				}
 				if (p_expr.op == TokenKind::And || p_expr.op == TokenKind::Or) {
 					return short_circuit(p_expr);
 				} else {
 					uint32_t left = lower_expr(*p_expr.left);
 					uint32_t right = lower_expr(*p_expr.right);
-					if (p_expr.left->type.kind == TypeKind::Variant || p_expr.right->type.kind == TypeKind::Variant) {
-						// By the engine's operator table (spec §5.2).
+					if (p_expr.target == Target::VariantEqual || p_expr.target == Target::VariantMatch) {
 						const uint32_t result = temp(ValueType::Bool);
-						instr(Op::VARIANT_EQUAL, result, as_variant(outward(left, p_expr.left->type, false)), as_variant(outward(right, p_expr.right->type, false)));
+						instr(p_expr.target == Target::VariantMatch ? Op::MATCHES : Op::VARIANT_EQUAL, result, engine_variant(left, p_expr.left->type), engine_variant(right, p_expr.right->type));
 						return p_expr.op == TokenKind::BangEqual ? negate(result) : result;
 					}
 					if (p_expr.left->type.kind == TypeKind::Object && p_expr.right->type.kind == TypeKind::Object) {
@@ -1963,11 +1935,9 @@ class Lowerer {
 						instr(Op::SAME_OBJECT, result, left, right, (p_expr.left->type.nullable ? 1u : 0u) | (p_expr.right->type.nullable ? 2u : 0u));
 						return p_expr.op == TokenKind::BangEqual ? negate(result) : result;
 					}
-					if (p_expr.left->type.kind == TypeKind::Option || p_expr.right->type.kind == TypeKind::Option) {
-						// The side with fewer levels of T? is wrapped (spec §5.2).
-						const Type &deeper = option_depth(p_expr.left->type) >= option_depth(p_expr.right->type) ? p_expr.left->type : p_expr.right->type;
-						left = wrapped(left, deeper);
-						right = wrapped(right, deeper);
+					if (!p_expr.param_types.empty()) {
+						left = convert(left, p_expr.left->type, p_expr.param_types[0]);
+						right = convert(right, p_expr.right->type, p_expr.param_types[1]);
 					}
 					return binary(p_expr.op, left, right, p_expr.type);
 				}
@@ -2002,10 +1972,10 @@ class Lowerer {
 				const uint32_t end_block = new_block();
 				branch(lower_expr(*p_expr.base), then_block, else_block);
 				current = then_block;
-				move(result, convert(lower_expr(*p_expr.left), p_expr.type));
+				move(result, convert(lower_expr(*p_expr.left), p_expr.left->type, p_expr.type));
 				jump(end_block);
 				current = else_block;
-				move(result, convert(lower_expr(*p_expr.right), p_expr.type));
+				move(result, convert(lower_expr(*p_expr.right), p_expr.right->type, p_expr.type));
 				jump(end_block);
 				current = end_block;
 				return result;
@@ -2149,13 +2119,17 @@ class Lowerer {
 			return place;
 		}
 		switch (p_expr.target) {
-			case Target::Local:
+			case Target::Local: {
 				place.reg = reg_of(p_expr.index);
-				place.kind = is_option_reg(place.reg) && p_expr.type.kind != TypeKind::Option ? Place::Kind::NarrowedLocal : Place::Kind::Local;
-				if (place.kind == Place::Kind::Local && fn.regs[place.reg].type != type_index(p_expr.type) && (reg_type(place.reg) == ValueType::Variant || (!is_typed_container_reg(place.reg) && is_typed_container(p_expr.type)))) {
+				// Narrowed where the checker typed it otherwise than declared (spec §5.4).
+				const Type &declared = decl->locals[p_expr.index].type;
+				if (declared.kind == TypeKind::Option && p_expr.type != declared) {
+					place.kind = Place::Kind::NarrowedLocal;
+				} else if (p_expr.type != declared && (declared.kind == TypeKind::Variant || (!is_typed_container(declared) && is_typed_container(p_expr.type)))) {
 					place.kind = Place::Kind::Retyped;
 				}
 				break;
+			}
 			case Target::Member:
 				place.kind = Place::Kind::Member;
 				place.index = uint32_t(p_expr.index);
@@ -2391,16 +2365,7 @@ class Lowerer {
 				if (local != p_value) {
 					move(local, p_value);
 				}
-				const Expr &compare = *p_pattern.value;
-				if (compare.target != Target::NoneComparison && compare.left->type.kind == TypeKind::Variant) {
-					// Of the pattern's type first, as in GDScript.
-					const uint32_t matches = temp(ValueType::Bool);
-					const uint32_t value = lower_expr(*compare.left);
-					instr(Op::MATCHES, matches, value, as_variant(lower_expr(*compare.right)));
-					branch(matches, next_block, p_fail);
-				} else {
-					branch(lower_expr(compare), next_block, p_fail);
-				}
+				branch(lower_expr(*p_pattern.value), next_block, p_fail);
 				current = next_block;
 				return;
 			}
@@ -2447,7 +2412,7 @@ class Lowerer {
 			case StmtKind::Const: {
 				const uint32_t local = reg_of(p_stmt.local);
 				if (p_stmt.value) {
-					move(local, convert(lower_expr(*p_stmt.value), decl->locals[p_stmt.local].type));
+					move(local, convert(lower_expr(*p_stmt.value), p_stmt.value->type, decl->locals[p_stmt.local].type));
 				} else {
 					default_value(local);
 				}
@@ -2459,19 +2424,22 @@ class Lowerer {
 				const Expr &target = *p_stmt.target;
 				Place place = place_of(target);
 				uint32_t value = lower_expr(*p_stmt.value);
+				Type type = p_stmt.value->type;
 				open(place);
 				if (p_stmt.assign_op == TokenKind::Equal) {
 					if (place.kind == Place::Kind::SelfProperty || place.kind == Place::Kind::Owner || place.kind == Place::Kind::ObjectProperty) {
-						value = outward(value, p_stmt.value->type, target.type.kind == TypeKind::Object); // The engine keeps it.
+						value = outward(value, type, target.type.kind == TypeKind::Object); // The engine keeps it.
 					} else if (place.kind == Place::Kind::Element) {
-						value = outward(value, p_stmt.value->type, true);
+						value = outward(value, type, true);
 					}
 				} else if (p_stmt.assign_op == TokenKind::PercentEqual && is_format_string(target.type)) {
-					value = format(load(place), value, p_stmt.value->type);
+					value = format(load(place), target.type, value, type);
+					type = Type::of(TypeKind::String);
 				} else {
 					value = binary(compound_operator(p_stmt.assign_op), load(place), value, p_stmt.compound_result);
+					type = p_stmt.compound_result;
 				}
-				store(place, convert(value, target.type));
+				store(place, convert(value, type, target.type));
 				return;
 			}
 			case StmtKind::If: {
@@ -2583,7 +2551,7 @@ class Lowerer {
 					current = new_block();
 				}
 				if (p_stmt.value) {
-					const uint32_t value = convert(lower_expr(*p_stmt.value), decl->return_type);
+					const uint32_t value = convert(lower_expr(*p_stmt.value), p_stmt.value->type, decl->return_type);
 					if (terminated()) {
 						current = new_block();
 					}
@@ -2674,7 +2642,7 @@ class Lowerer {
 				store_member(uint32_t(m), default_value(temp(member.type)));
 				continue;
 			}
-			store_member(uint32_t(m), convert(lower_expr(*member.initializer), member.type));
+			store_member(uint32_t(m), convert(lower_expr(*member.initializer), member.initializer->type, member.type));
 		}
 		finish();
 		if (any) {
@@ -2708,7 +2676,7 @@ class Lowerer {
 				any = true;
 				at = variable.range;
 				instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(cls.source->line(variable.name_token)));
-				init_static(v, with_initializer ? convert(lower_expr(*variable.initializer), variable.type) : default_value(temp(variable.type)));
+				init_static(v, with_initializer ? convert(lower_expr(*variable.initializer), variable.initializer->type, variable.type) : default_value(temp(variable.type)));
 			}
 		}
 		for (size_t f = 0; f < cls.all_functions.size(); f++) {

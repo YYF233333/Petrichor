@@ -101,19 +101,6 @@ ConstPtr fail(Expr &r_expr, const std::string &p_message, const Expr *p_at = nul
 	return nullptr;
 }
 
-// The constructor of `p_to` that takes one value of `p_from`, as built-in
-// types convert (spec §3.14, §10.7); -1 if there is none.
-int converting_constructor(const Type &p_from, const Type &p_to) {
-	const builtin::Class *type = builtin::find_class(p_to.builtin_name());
-	const std::string from = p_from.builtin_name();
-	for (uint32_t i = 0; type && i < type->constructor_count; i++) {
-		if (type->constructors[i].argument_count == 1 && from == type->constructors[i].arguments[0].type) {
-			return int(i);
-		}
-	}
-	return -1;
-}
-
 bool is_text(const Type &p_type) {
 	return p_type.kind == TypeKind::String || p_type.builtin_name() == "StringName" || p_type.builtin_name() == "NodePath";
 }
@@ -732,6 +719,17 @@ ConstPtr fold_subscript(Expr &r_expr) {
 }
 
 } // namespace
+
+int converting_constructor(const Type &p_from, const Type &p_to) {
+	const builtin::Class *type = builtin::find_class(p_to.builtin_name());
+	const std::string from = p_from.builtin_name();
+	for (uint32_t i = 0; type && i < type->constructor_count; i++) {
+		if (type->constructors[i].argument_count == 1 && from == type->constructors[i].arguments[0].type) {
+			return int(i);
+		}
+	}
+	return -1;
+}
 
 ConstPtr converted(const ConstPtr &p_value, const Type &p_to) {
 	if (!p_value || p_to.is_error() || p_to.kind == TypeKind::Variant || p_value->type == p_to) {

@@ -3102,8 +3102,10 @@ class Checker : public ClassRelation {
 		return fail(r_expr, "\"not\" requires bool, found " + operand.to_string() + ". Compare explicitly, for example x == 0.");
 	}
 
-	// The result of `p_left op p_right` (spec §5.1), or Error after reporting.
-	Type binary_type(TokenKind p_op, const Type &p_left, const Type &p_right, const TokenRange &p_at) {
+	// The result of `p_left op p_right` (spec §5.1), or Error after reporting;
+	// with `r_compared`, the type both sides of == are compared as, where they
+	// convert to it: Variant, or the deeper T? (§5.2).
+	Type binary_type(TokenKind p_op, const Type &p_left, const Type &p_right, const TokenRange &p_at, Type *r_compared = nullptr) {
 		if (p_left.is_error() || p_right.is_error()) {
 			return Type::of(TypeKind::Error);
 		}
@@ -3134,6 +3136,9 @@ class Checker : public ClassRelation {
 		if ((p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual) && (p_left.kind == TypeKind::Option || p_right.kind == TypeKind::Option)) {
 			const bool left_deeper = option_depth(p_left) >= option_depth(p_right);
 			if (wraps_to(left_deeper ? p_right : p_left, left_deeper ? p_left : p_right)) {
+				if (r_compared) {
+					*r_compared = left_deeper ? p_left : p_right;
+				}
 				return Type::of(TypeKind::Bool);
 			}
 		}
@@ -3155,6 +3160,9 @@ class Checker : public ClassRelation {
 			const Type &other = p_left.kind == TypeKind::Variant ? p_right : p_left;
 			const bool compares = p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual;
 			if (compares && assignable(other, Type::of(TypeKind::Variant))) {
+				if (r_compared) {
+					*r_compared = Type::of(TypeKind::Variant);
+				}
 				return Type::of(TypeKind::Bool);
 			}
 			error(p_at, compares ? "Cannot compare a Variant with " + other.to_string() + "." : std::string("Cannot use ") + token_name(p_op) + " on a Variant." + variant_hint());
@@ -3293,7 +3301,12 @@ class Checker : public ClassRelation {
 			// with (spec §3.5).
 			right = check_value(*r_expr.right, left.is_result() ? left : Type::of(TypeKind::Error));
 		}
-		return set(r_expr, binary_type(r_expr.op, left, right, r_expr.range));
+		Type compared = Type::of(TypeKind::Error);
+		const Type type = binary_type(r_expr.op, left, right, r_expr.range, &compared);
+		const bool variant = compared.kind == TypeKind::Variant;
+		r_expr.target = variant ? Target::VariantEqual : Target::None;
+		r_expr.param_types = variant || compared.is_error() ? std::vector<Type>() : std::vector<Type>{ compared, compared };
+		return set(r_expr, type);
 	}
 
 	// `x == None` and `x != None` (spec §5.2), which narrow x (§5.4).
@@ -4026,6 +4039,7 @@ class Checker : public ClassRelation {
 		// get(k) of Dictionary[K, V] gives V?, None for a missing key, and of an
 		// untyped one Variant? (spec §3.8).
 		const bool get_or_none = base_name == "Dictionary" && r_expr.text == "get" && r_expr.args.size() == 1;
+		bool pop_or_none = false;
 		int required = 0;
 		std::optional<std::vector<Type>> api = api_params(r_expr, method->arguments, method->argument_count, required);
 		if (!api) {
@@ -4063,6 +4077,7 @@ class Checker : public ClassRelation {
 			// Of an untyped Array, Variant?, which tells an empty array from a
 			// null element (spec §3.4, §3.8).
 			result = optional_of(result);
+			pop_or_none = true;
 		}
 		if (get_or_none) {
 			result = optional_of(typed_dictionary ? p_base.args[1] : Type::of(TypeKind::Variant));
@@ -4103,7 +4118,10 @@ class Checker : public ClassRelation {
 			r_expr.checks_elements = !is_typed_container(given);
 		}
 		r_expr.is_vararg = method->is_vararg;
-		r_expr.target = Target::BuiltinMethod;
+		// resize() sets the elements that the engine fills with null or an empty
+		// untyped container to their defaults (spec §3.8).
+		const bool resize = r_expr.text == "resize" && base_name == "Array" && !p_base.args.empty() && (is_boxed(p_base) || is_typed_container(p_base.args[0]));
+		r_expr.target = get_or_none ? Target::GetOrNone : (pop_or_none ? Target::PopOrNone : (resize ? Target::ResizeWithDefaults : Target::BuiltinMethod));
 		r_expr.owner = base_name;
 		refer(r_expr.name_token, engine_id(base_name, r_expr.text));
 		r_expr.hash = method->hash;
@@ -6100,6 +6118,9 @@ class Checker : public ClassRelation {
 				const int was = outer == scopes.back().end() ? -1 : outer->second;
 				scopes.back()[std::string()] = p_local;
 				check_expr(*r_pattern.value);
+				if (r_pattern.value->target == Target::VariantEqual && r_pattern.value->left->type.kind == TypeKind::Variant) {
+					r_pattern.value->target = Target::VariantMatch;
+				}
 				if (was < 0) {
 					scopes.back().erase(std::string());
 				} else {
