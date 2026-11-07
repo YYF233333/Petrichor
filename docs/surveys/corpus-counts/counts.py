@@ -553,6 +553,18 @@ def main():
                         c["thread_new"] += 1
                     elif t.v == "WorkerThreadPool":
                         c["worker_pool"] += 1
+                    elif t.v == "create_timer" and nxt == "(" and ts[i - 1].v == ".":
+                        c["create_timer"] += 1
+                        j, depth, commas = i + 1, 0, 0
+                        while j < len(ts):
+                            depth += (ts[j].v in OPEN) - (ts[j].v in CLOSE)
+                            commas += depth == 1 and ts[j].v == ","
+                            if depth == 0:
+                                break
+                            j += 1
+                        c["create_timer_time_only"] += commas == 0
+                        c["create_timer_tree"] += i > 3 and ts[i - 4].v == "get_tree"
+                        c["create_timer_main_loop"] += any(x.v == "get_main_loop" for x in ts[max(0, i - 8):i])
                     if i == 0 or ts[i - 1].v != ".":
                         if t.v == "get_parent" and nxt == "(" and i + 2 < len(ts) and ts[i + 2].v == ")":
                             parent_owner(ts, i, "parent", c, files, (f"{name}/{f}", tested_at))
@@ -611,6 +623,8 @@ def main():
           f"{c['static_var_untyped']}, of a built-in type {c['static_var_builtin']}, of another type {c['static_var_other']}); "
           f"_static_init: {c['static_init']}; "
           f"Thread.new: {c['thread_new']}; WorkerThreadPool: {c['worker_pool']}")
+    print(f"create_timer calls: {c['create_timer']}; passing only the time {c['create_timer_time_only']}; "
+          f"on get_tree() {c['create_timer_tree']}, on Engine.get_main_loop() {c['create_timer_main_loop']}")
     for key, label in (("parent", "get_parent() on self"), ("owner", "owner on self")):
         print(f"{label}: {c[key]}; member accesses {c[key + '_member']} in {len(files[key])} files; "
               f"tested for null {c[key + '_tested']}")

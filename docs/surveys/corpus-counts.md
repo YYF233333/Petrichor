@@ -19,6 +19,7 @@
 | `static var` 与 `_static_init` | `static var` 188 处，有初始化式的 134 处；没有初始化式的：内置类型 24 处，其他类型 29 处，经阅读都是类，如 RegEx、Shader 和单例 `static var instance: DMPlugin`，无类型 1 处；`_static_init` 4 个 | §4.8：静态成员沿用 GDScript 的写法和时机；没有默认值的类型的静态变量须有初始化式或写作 `T?` |
 | `NOTIFICATION_PREDELETE` | 40 处，其中 32 处在 gdUnit4 | §6.6：析构不新增语法 |
 | `Thread.new` 与 `WorkerThreadPool` | `Thread.new` 5 处，`WorkerThreadPool` 2 处 | §12.3：第一版不新增线程 API |
+| `create_timer(...)` 的调用 | 260 处，只传时间的 251 处；经 `get_tree()` 252 处，经 `Engine.get_main_loop()` 6 处 | §9.5：`Task.delay` 按引擎的默认值计时，不需要节点在树中 |
 | 自身的 `get_parent()` 与 `owner` | `get_parent()` 174 处，其中直接访问成员 62 处，分布在 46 个文件；判断为空 3 处，经阅读都在处理没有父节点的情况，其中 beehave 的 `beehave_tree.gd:91` 在节点挂到父节点之前执行的 setter 中调用 `get_parent()`。`owner` 直接访问成员 49 处，分布在 21 个文件；判断为空 0 处 | §7.3：未声明 `@parent`、`@owner` 时，`get_parent()` 和 `owner` 的类型为 `Node?` |
 | 在自身上的 `free()` 与 `set_script(...)`，以及对照的 `queue_free()` | `free()` 0 处；`set_script` 1 处，即 gdUnit4 `GdUnitMockImpl.gd:19` 的 `super.set_script(__script)`，经阅读，调用之前已设为同一个脚本，引擎遇到同一个脚本直接返回；在 `_on_` 开头的方法中对其他对象调用 `.free()` 6 处，经阅读释放的都是子节点或 TreeItem，没有释放信号的发射者；`queue_free()` 532 处 | 附录 B：不把在自身上的 `free()`、`set_script()` 定为编译错误；§3.3：方法运行中实例被删除后访问成员是程序错误 |
 | `pop_at`、`pop_back` 与 `pop_front` | `pop_at` 14 处：Pixelorama 9 处，tanks-of-freedom-ii 5 处，经阅读都按程序算出的下标移出元素，结果直接使用或丢弃，没有一处判断为空；`pop_back` 28 处，`pop_front` 48 处 | §3.8：`pop_at(i)` 返回 T，越界是程序错误 |
@@ -32,6 +33,8 @@
 | 紧贴在声明上方、以 `##` 开头的注释，GDScript 把它当作该声明的文档 | 755 个文件中 5,084 段；其中只由 `###` 开头的行组成的 41 段，godot_open_star_fighter 38 段，经阅读都是 `### Signals ###` 这样的分节标题或由 `#` 组成的分隔线；没有一段把这样的行和其他行混写 | §2.2：以 `###` 开头的注释不是文档 |
 
 计数基于词法分析，不做类型解析；`!` 只计不紧跟 `=` 的。`...` 在 GDScript 中只出现在函数签名里（Godot `469659e` 的 `modules/gdscript/gdscript_parser.cpp:1714, 4336`），所以紧跟名字的 `...` 都是剩余参数。协程指函数体中有 await 的方法，只在同一文件中查找对它的引用，不计场景中的信号连接。lambda 的捕获指所在方法在它之前声明的参数和局部变量，lambda 自己的参数和局部变量除外。`get_parent()` 和 `owner` 只计在自身上的使用，即前面没有 `.` 的；判断为空包括与 null 比较、用作条件和传给 `is_instance_valid`，以及在其后 25 行内对赋得其值的变量做这些判断。`free()` 和 `set_script(...)` 在自身上，指前面没有 `.`，或写作 `self.`、`super.`。字符串由扫描注释以外的文本找出，反斜杠转义和 `r` 前缀按 GDScript 的读法处理。preload 的常量的用法只在声明它的文件中查找：作为类型指出现在 `:`、`->`、`as` 之后或 `Array[...]` 中，不计节点路径 `$名字`、`%名字`。enum 的用法只计单独写出它的名字或写在同一仓库的 class_name 之后的，经 preload 的常量的用法不计；每个值都是 int 字面量或从字面量顺延时，才算知道它的值。内部类指行首（注解之后）的 `class`，类体是其后缩进更深的行；在内部类中以裸名使用外层类声明的名字才计入，内部类自己、其局部变量或其引擎基类声明了同名的除外；其他文件中的 `名字.Inner` 经 class_name、preload 的常量和 autoload（`project.godot`）解析。没有初始化式的 `static var` 按类型的写法归类：内置类型即 Variant 的类型名。排版的计数中制表符按 4 列计，即编辑器默认的缩进宽度（Godot `ed1daf0` 的 `editor/settings/editor_settings.cpp:831`）；续行的缩进相对于最内层未闭合的开括号所在的行；函数或类之前的空行不计紧贴其上的注解和注释行。文档注释指连续若干只含以 `##` 开头的注释的行，其下一行（跳过只有注解的行）以 `var`、`const`、`func`、`signal`、`enum`、`class`、`static`、`class_name` 或 `extends` 开头。
+
+`create_timer` 只计写作 `.create_timer(` 的方法调用。参数个数按括号内顶层的逗号计。
 
 ## 复现
 
