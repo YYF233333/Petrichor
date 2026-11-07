@@ -60,6 +60,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 - Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`).
 - Ordering of arrays of engine types as spec §5.2 says. It differs from the engine's operators only with NaN, so it waits for the open question on NaN.
+- A task cancelled because its owner was freed does not cancel its owned tasks (spec §9.3). `CoroutineTask::finish` still cancels `child` and `owned` for every reason.
 - `uint64` passes bitwise without a range check (spec §10.6). Drop it from `NARROW_INTS` in `builtin_api_gen.py` and from `IntRange`.
 - Range checks of ints passed through an engine method's value, as `f.call(x)` (spec §10.6). The value is the engine's Callable, which converts without them.
 
@@ -176,10 +177,6 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
   - which agreements are promises and which merely hold today;
   - which Godot versions are supported;
   - which semantics may still change during the alpha.
-- Rules that break the reversibility rule (spec §1.2), to be settled one by one. Same spelling, different meaning:
-  - `await f()` owns the child task and cancels it with the parent. GDScript runs `f` on (spec §9.3).
-
-  Meanings of GDScript code that this language cannot write:
-  - `_init` with parameters on Node and Resource scripts (§6.2). Every `Item.new("Sword")` changes.
+- A rule that breaks the reversibility rule (spec §1.2): Node and Resource scripts cannot give `_init` parameters (§6.2). Every `Item.new("Sword")` changes.
 - Tuples, to be discussed after the first version. `await Task.all([...])` gives nothing (spec §9.5). With tuples it could give the results of tasks of different types, which an array cannot type.
 - How to test the gain in maintenance. Use the language in a real project through several rounds of changing requirements. See how many problems it points out ahead of renames, interface changes and refactorings across files. The cost of adoption includes migrating in step by step, mixing and leaving. With cross-language inheritance restricted, the unit of migration may be an inheritance cluster or a subsystem.
