@@ -24,7 +24,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Of GDScript classes (spec §11.1):
   - enums, inner classes and static variables;
   - nodes in scenes typed by their GDScript class rather than its engine class.
-- The declarations of other scripts are checked as while the editor loads a script. That load loads no script of another language. So other classes do not know a member typed by a preloaded GDScript class lacking a class_name (spec §2.1). An example is `pub var unit: Unit?`.
 - Members that are not pub of another instance of the same class. The engine reaches them by name, while reflection lists only pub ones. They come with the Runtime item on members read without the engine.
 - preload() inside a constant's container (spec §4.5).
 - `Array[T]?`, and nested `Option`:

@@ -438,8 +438,21 @@ std::optional<compiler::ForeignClass> SceneIndex::foreign_class(const std::strin
 			}
 			return Dictionary();
 		};
-		result.name = to_utf8(entry_where("path", path).get("class", String()));
-		for (Dictionary entry = entry_where("path", path); !entry.is_empty();) {
+		Dictionary entry = entry_where("path", path);
+		result.name = to_utf8(entry.get("class", String()));
+		if (entry.is_empty()) {
+			// A script without a class_name: the editor's file system read what
+			// it extends from the file, a native or a global class, as for global
+			// classes (editor/file_system/editor_file_system.cpp:2102-2110; ed1daf0).
+			EditorInterface *editor = EditorInterface::get_singleton();
+			EditorFileSystem *files = editor ? editor->get_resource_filesystem() : nullptr;
+			EditorFileSystemDirectory *dir = files ? files->get_filesystem_path(path.get_base_dir()) : nullptr;
+			const int64_t index = dir ? dir->find_file_index(path.get_file()) : -1;
+			if (index >= 0) {
+				entry["base"] = StringName(dir->get_file_script_class_extends(index));
+			}
+		}
+		while (!entry.is_empty()) {
 			const StringName base = entry.get("base", StringName());
 			if (ClassDBSingleton::get_singleton()->class_exists(base)) {
 				result.native = to_utf8(base);

@@ -251,3 +251,9 @@ pub func state_of(name: StringName) -> String:
 		&"run", "walk":
 			return "moving"
 	return "other"
+
+pub func unit_level(view: GdViewCheck) -> int:
+	var unit := view.unit
+	if unit == None:
+		return -1
+	return unit.level
