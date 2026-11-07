@@ -128,7 +128,10 @@ Engine methods with a MethodBind are called through its ptrcall (architecture §
   - the script `Class.new()` sets;
   - the class of a static variable that another class or an inner class uses (spec §4.8).
 - Calls within a class: since inheritance, they pass arguments the general way of calls between classes. They also repeat checks that loading made. The calls benchmark went from 18 to 22 ms (architecture §4).
-- Function values: `f.call(x)` goes through the engine's `Callable.call` with Variant arguments. A struct is encoded and decoded on the way. A lambda or method value of this language could be called directly, its arguments in their slots' layout.
+- Function values that still go through the engine, with Variant arguments. A struct is encoded and decoded on the way.
+  - struct method values;
+  - `async` functions;
+  - any value called through an untyped `Callable`.
 - Calls by name: every object result is asked whether it is a `GDScriptFunctionState`, by a call into the engine. Only methods of GDScript classes return one (spec §9.8).
 - Coroutines: freeing an instance, and every frame, walk all active tasks. Tasks listed by their owner would walk only the owner's.
 - Default values built anew. Each call constructs every slot whose default is not zero, such as an Array's. CLEAR builds such a default again for each register it clears (spec §6.8). Two remedies:

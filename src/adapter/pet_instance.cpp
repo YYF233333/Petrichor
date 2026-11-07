@@ -165,16 +165,18 @@ PetInstance::~PetInstance() {
 	tasks::cancel_owner(storage);
 }
 
-bool resolve_instance(Object *p_object, ScriptedObject &r_instance) {
+bool resolve_instance(GDExtensionObjectPtr p_object, ScriptedObject &r_instance) {
+	static const bool editor = Engine::get_singleton()->is_editor_hint();
 	PetInstance *instance = nullptr;
-	if (Engine::get_singleton()->is_editor_hint()) {
+	if (editor) {
 		// The engine's lookup would read a placeholder as an instance of this
 		// language (core/extension/gdextension_interface.cpp:1589-1599), and the
 		// editor has placeholders.
-		const Ref<PetScript> script = p_object->get_script();
-		instance = script.is_valid() ? script->find_instance(p_object) : nullptr;
+		Object *object = internal::get_object_instance_binding(p_object);
+		const Ref<PetScript> script = object->get_script();
+		instance = script.is_valid() ? script->find_instance(object) : nullptr;
 	} else {
-		instance = static_cast<PetInstance *>(gdextension_interface::object_get_script_instance(p_object->_owner, PetLanguage::get_singleton()->_owner));
+		instance = static_cast<PetInstance *>(gdextension_interface::object_get_script_instance(p_object, PetLanguage::get_singleton()->_owner));
 	}
 	if (!instance) {
 		return false;

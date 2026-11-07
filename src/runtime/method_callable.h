@@ -14,11 +14,12 @@ struct ScriptedObject {
 	InstanceContext context;
 };
 
-// The adapter finds the script instance on an object, since only it knows how
-// instances are stored; false when the object has none of this language.
-using InstanceResolver = bool (*)(godot::Object *p_object, ScriptedObject &r_instance);
+// The adapter finds the script instance on an object, by the engine's pointer
+// to it, since only it knows how instances are stored; false when the object
+// has none of this language.
+using InstanceResolver = bool (*)(GDExtensionObjectPtr p_object, ScriptedObject &r_instance);
 void set_instance_resolver(InstanceResolver p_resolver);
-bool scripted_object(godot::Object *p_object, ScriptedObject &r_instance);
+bool scripted_object(GDExtensionObjectPtr p_object, ScriptedObject &r_instance);
 
 // Sets the script of this language on a new object, whose instance runs the
 // member initializers and then _init() without arguments; with
@@ -79,6 +80,11 @@ public:
 	godot::ObjectID get_object() const override { return owner; }
 	int get_argument_count(bool &r_is_valid) const override;
 	void call(const godot::Variant **p_arguments, int p_argcount, godot::Variant &r_return_value, GDExtensionCallError &r_call_error) const override;
+
+	const godot::StringName &get_method() const { return method; }
+	// The script instance on the object and the function's index in its image;
+	// false when the object or the function is gone.
+	bool resolve(ScriptedObject &r_instance, int &r_function) const;
 };
 
 // A static method of an engine class, by name (core/core_bind.cpp:1722-1737).
@@ -164,6 +170,11 @@ public:
 	godot::ObjectID get_object() const override { return owner; }
 	int get_argument_count(bool &r_is_valid) const override;
 	void call(const godot::Variant **p_arguments, int p_argcount, godot::Variant &r_return_value, GDExtensionCallError &r_call_error) const override;
+
+	const std::shared_ptr<const ClassImage> &get_image() const { return image; }
+	int get_function() const { return function; }
+	const InstanceContext &get_context() const { return context; }
+	const uint8_t *const *get_captures() const { return capture_data.data(); }
 };
 
 } // namespace petrichor

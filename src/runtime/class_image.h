@@ -113,6 +113,7 @@ public:
 	using KeyRole = bytecode::KeyRole;
 	using Replaced = bytecode::Replaced;
 	std::vector<const bytecode::ContainerMethod *> container_methods; // By built-in method index.
+	std::vector<bool> callable_calls; // By built-in method index: Callable.call().
 	std::vector<godot::StringName> classes; // Engine classes, by class index.
 	std::vector<godot::String> class_scripts; // Classes of this language: their scripts.
 	std::vector<godot::String> class_interfaces; // Interfaces: "script::Name".

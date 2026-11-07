@@ -37,6 +37,11 @@ inline const uint8_t *data_of(const godot::Variant &p_value) {
 inline uint64_t object_id_of(const godot::Variant &p_value) {
 	return *reinterpret_cast<const uint64_t *>(data_of(p_value));
 }
+// The engine's pointer to the object, without the wrapper godot-cpp would
+// look up for it.
+inline GDExtensionObjectPtr object_pointer(const godot::Variant &p_value) {
+	return *reinterpret_cast<const GDExtensionObjectPtr *>(data_of(p_value) + 8);
+}
 
 void construct_value(bytecode::ValueType p_type, uint8_t *p_slot);
 void destroy_value(bytecode::ValueType p_type, uint8_t *p_slot);

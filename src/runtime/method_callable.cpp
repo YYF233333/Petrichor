@@ -35,7 +35,7 @@ Variant call_value(const std::shared_ptr<const ClassImage> &p_image, int p_funct
 
 // The object's script instance and the function's index in its image.
 bool resolve(ObjectID p_owner, const StringName &p_method, ScriptedObject &r_instance, int &r_function) {
-	Object *object = ObjectDB::get_instance(p_owner);
+	const GDExtensionObjectPtr object = gdextension_interface::object_get_instance_from_id(uint64_t(p_owner));
 	if (!object || !scripted_object(object, r_instance)) {
 		return false;
 	}
@@ -53,7 +53,7 @@ void set_instance_resolver(InstanceResolver p_resolver) {
 	resolver = p_resolver;
 }
 
-bool scripted_object(Object *p_object, ScriptedObject &r_instance) {
+bool scripted_object(GDExtensionObjectPtr p_object, ScriptedObject &r_instance) {
 	return resolver && resolver(p_object, r_instance);
 }
 
@@ -65,7 +65,7 @@ bool attach_script(Object *p_object, const Variant &p_script, bool p_without_ini
 	p_object->set_script(p_script);
 	without_init = false;
 	r_initialized = last_initialized;
-	return scripted_object(p_object, r_instance);
+	return scripted_object(p_object->_owner, r_instance);
 }
 
 bool init_left_to_caller() {
@@ -101,7 +101,7 @@ void end_loading() {
 
 bool implements_interface(Object *p_object, const String &p_interface) {
 	ScriptedObject instance;
-	if (!scripted_object(p_object, instance)) {
+	if (!scripted_object(p_object->_owner, instance)) {
 		return false;
 	}
 	const std::string id = to_utf8(p_interface);
@@ -139,17 +139,21 @@ String MethodCallable::get_as_text() const {
 	return String(method);
 }
 
+bool MethodCallable::resolve(ScriptedObject &r_instance, int &r_function) const {
+	return petrichor::resolve(owner, method, r_instance, r_function);
+}
+
 int MethodCallable::get_argument_count(bool &r_is_valid) const {
 	ScriptedObject instance;
 	int function = -1;
-	r_is_valid = resolve(owner, method, instance, function);
+	r_is_valid = resolve(instance, function);
 	return r_is_valid ? int(instance.image->module.functions[function].params.size()) : 0;
 }
 
 void MethodCallable::call(const Variant **p_arguments, int p_argcount, Variant &r_return_value, GDExtensionCallError &r_call_error) const {
 	ScriptedObject instance;
 	int function = -1;
-	if (!resolve(owner, method, instance, function)) {
+	if (!resolve(instance, function)) {
 		r_call_error.error = ObjectDB::get_instance(owner) ? GDEXTENSION_CALL_ERROR_INVALID_METHOD : GDEXTENSION_CALL_ERROR_INSTANCE_IS_NULL;
 		return;
 	}

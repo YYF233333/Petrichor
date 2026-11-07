@@ -35,8 +35,9 @@ void set_language(ScriptLanguage *p_language) {
 }
 
 bool is_active() {
-	EngineDebugger *engine_debugger = EngineDebugger::get_singleton();
-	return engine_debugger && engine_debugger->is_active();
+	// Set before any script runs and kept until scripts stop (main/main.cpp:2300, 3792, 5296, 5319).
+	static const bool active = EngineDebugger::get_singleton() && EngineDebugger::get_singleton()->is_active();
+	return active;
 }
 
 void enter_function() {

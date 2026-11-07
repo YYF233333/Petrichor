@@ -898,23 +898,29 @@ class Execution {
 	// `p_call`: a program error in it ends the caller too (spec §8.1). An
 	// override or an inherited function may take and give other types than the
 	// call was compiled against (§4.6), which the arguments and result convert to.
-	PETRICHOR_NOINLINE bool call_function(const ClassImage &p_callee, uint32_t p_index, const InstanceContext &p_context, const uint32_t *p_call, uint8_t *frame, const bytecode::Slot &p_result, const bytecode::Function &p_caller, int p_line) {
+	// A lambda's captures follow the arguments.
+	PETRICHOR_NOINLINE bool call_function(const ClassImage &p_callee, uint32_t p_index, const InstanceContext &p_context, const uint32_t *p_call, uint8_t *frame, const bytecode::Slot &p_result, const bytecode::Function &p_caller, int p_line, const uint8_t *const *p_captures = nullptr) {
 		const uint32_t dst = p_call[2], argc = p_call[4];
 		const bytecode::Function &method = p_callee.module.functions[p_index];
-		if (!method.is_static && !p_context.storage) {
+		if (!method.is_static && !method.is_lambda && !p_context.storage) {
 			return fail_cstr(p_caller, p_line, "An instance method needs a receiver. Build the project again.");
 		}
 		if (method.is_abstract) {
 			return fail(p_caller, p_line, vformat("%s() is abstract, and this object's class does not implement it. Build the project again.", p_callee.function_names[p_index]));
 		}
-		const size_t required = method.params.size() - method.defaults.size();
-		if (argc < required || argc > method.params.size()) {
+		const size_t given = method.params.size() - method.captures;
+		const size_t required = given - method.defaults.size();
+		if (argc < required || argc > given) {
 			return fail_cstr(p_caller, p_line, "Override argument count changed. Rebuild the project.");
 		}
 		Frame callee_frame(frames, p_callee.frames[p_index]);
 		for (size_t i = 0; i < method.params.size(); i++) {
 			uint8_t *param = callee_frame.data + method.params[i].offset;
 			const TypeImage &param_type = p_callee.types[method.params[i].type];
+			if (i >= given) {
+				copy_value(param_type, param, p_captures[i - given]);
+				continue;
+			}
 			const TypeImage *source = i < argc ? &image.types[p_call[5 + 2 * i]] : nullptr;
 			if (source && source->layout == param_type.layout) {
 				copy_value(param_type, param, frame + p_call[6 + 2 * i]);
@@ -1052,7 +1058,7 @@ class Execution {
 		if (!receiver) {
 			return nullptr;
 		}
-		if (!scripted_object(static_cast<Object *>(*receiver), r_object)) {
+		if (!scripted_object(object_pointer(*receiver), r_object)) {
 			fail_cstr(p_fn, p_line, "The receiver is not a Petrichor instance.");
 			return nullptr;
 		}
@@ -1347,7 +1353,7 @@ class Execution {
 			if (!receiver) {
 				return false;
 			}
-			if (!scripted_object(static_cast<Object *>(*receiver), callee)) {
+			if (!scripted_object(object_pointer(*receiver), callee)) {
 				return fail_cstr(p_fn, p_line, "The receiver is not a Petrichor instance.");
 			}
 			if (callee.context.storage == context.storage && context.self_image) {
@@ -1368,10 +1374,50 @@ class Execution {
 		return call_function(*callee.image, uint32_t(index), callee.context, p_op, p_frame, image.module.method_calls[target].result, p_fn, p_line);
 	}
 
+	// A lambda or a method value of this language, run as a method of another
+	// object is (spec §3.11); none for another Callable, or one whose function
+	// does not take the call as it is, which the engine passes on.
+	std::optional<bool> call_directly(const uint32_t *p_op, uint8_t *p_frame, const bytecode::MethodCall &p_call, const bytecode::Function &p_fn, int p_line) {
+		const CallableCustom *custom = reinterpret_cast<const Callable *>(p_frame + p_op[3])->get_custom();
+		if (const auto *lambda = dynamic_cast<const LambdaCallable *>(custom)) {
+			const bytecode::Function &function = lambda->get_image()->module.functions[lambda->get_function()];
+			if (function.is_async || p_op[4] != function.params.size() - function.captures || !lambda->is_valid()) {
+				return std::nullopt;
+			}
+			InstanceContext callee = lambda->get_context();
+			if (!callee.self_image) {
+				callee.self_image = lambda->get_image();
+			}
+			return call_function(*lambda->get_image(), uint32_t(lambda->get_function()), callee, p_op, p_frame, p_call.result, p_fn, p_line, lambda->get_captures());
+		}
+		const auto *method = dynamic_cast<const MethodCallable *>(custom);
+		ScriptedObject callee;
+		int index = -1;
+		if (!method || !method->resolve(callee, index)) {
+			return std::nullopt;
+		}
+		// As op_call_method() finds it.
+		if (callee.context.storage == context.storage && context.self_image) {
+			callee.image = context.self_image;
+		}
+		callee.context.self_image = callee.image;
+		index = callee.image->find_function(method->get_method());
+		if (index < 0 || callee.image->module.functions[index].is_async || !callee.image->has_signature(method->get_method(), image.call_signatures[p_op[1]])) {
+			return std::nullopt;
+		}
+		ClassImage::resolve_function(callee.image, index);
+		return call_function(*callee.image, uint32_t(index), callee.context, p_op, p_frame, p_call.result, p_fn, p_line);
+	}
+
 	PETRICHOR_NOINLINE bool op_call_value(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		const bytecode::MethodCall &call = image.module.method_calls[p_op[1]];
+		if (call.method == "call") {
+			if (const std::optional<bool> done = call_directly(p_op, p_frame, call, p_fn, p_line)) {
+				return *done;
+			}
+		}
 		// Through the engine, which passes the call on, also through bind(); a
 		// program error in the callee aborts this call too (spec §8.1).
-		const bytecode::MethodCall &call = image.module.method_calls[p_op[1]];
 		const uint32_t dst = p_op[2];
 		const uint32_t argc = p_op[4];
 		Variant callable = *reinterpret_cast<const Callable *>(p_frame + p_op[3]);
@@ -1430,7 +1476,7 @@ class Execution {
 				ObjectView view(nullptr);
 				return resolve_object(p_frame, p_op[3], p_freed, view, p_fn, p_line); // Reports why.
 			}
-			object = *reinterpret_cast<void *const *>(slot + 8);
+			object = *reinterpret_cast<const GDExtensionObjectPtr *>(slot + 8);
 		}
 		const uint32_t argc = p_op[4];
 		const void *direct[8];
@@ -1670,6 +1716,13 @@ class Execution {
 				all = dictionary.has(type_of(key) == Variant::CALLABLE ? frozen_copy(key) : key);
 			}
 			*static_cast<uint64_t *>(result) = all ? 1 : 0;
+		} else if (const CallableCustom *custom = image.callable_calls[target] ? reinterpret_cast<const Callable *>(base)->get_custom() : nullptr) {
+			// A Callable of this library: what the engine's Callable.call() runs,
+			// without its dispatch, which drops the error too (core/variant/callable.cpp:44-58).
+			if (custom->is_valid()) {
+				GDExtensionCallError error;
+				custom->call(args.as_variants(), int(argc), variant_at(scratch), error);
+			}
 		} else {
 			image.builtin_methods[target](base, args.pointers, result, int(argc));
 		}
@@ -3074,15 +3127,18 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 			copy_value(type, frame.data + param.offset, i < bound ? p_bound_self : p_captures[arg - given]);
 			continue;
 		}
-		// Like member initializers, defaults are built late, after script types load.
-		Variant value = arg < size_t(p_argc) ? *p_args[arg] : Variant();
-		String error;
-		bool valid = arg < size_t(p_argc) || constant_value(*image, fn.defaults[arg - required], value, error);
-		if (valid && !from_variant(type, value, frame.data + param.offset, true)) {
-			error = entry_mismatch(type, value);
-			valid = false;
+		const Variant *argument = arg < size_t(p_argc) ? p_args[arg] : nullptr;
+		if (argument && from_variant(type, *argument, frame.data + param.offset, true)) {
+			continue;
 		}
+		// Like member initializers, defaults are built late, after script types load.
+		Variant value;
+		String error;
+		const bool valid = !argument && constant_value(*image, fn.defaults[arg - required], value, error) && from_variant(type, value, frame.data + param.offset, true);
 		if (!valid) {
+			if (error.is_empty()) {
+				error = entry_mismatch(type, argument ? *argument : value);
+			}
 			// A program error at the entry, and the engine gets the default value
 			// (spec §8.1, §10.1); the engine's backtrace of the caller goes with it.
 			report_error(*image, fn.name.c_str(), int(fn.line), vformat("Argument \"%s\" of %s(): %s.", to_godot(param.name), to_godot(fn.name), error));
