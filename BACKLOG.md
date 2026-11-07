@@ -39,6 +39,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The `breakpoint` statement.
 - Rest parameters `...args: Array[T]` (spec §4.6).
 - `for` over a String (spec §5.7); no file of the coverage survey's corpus does it.
+- An inner class named as an engine enum, such as `Key`. A type reads the name as the engine's enum, an expression as the inner class (spec §4.1). So `func make() -> Key: return Key.new()` is an error.
 - Inner classes of two files that extend each other's classes, as `A.X extends B.Y` with `B.Y extends A.Z`. The checker accepts them, but neither image can be loaded before the other's. So the editor reports it, and the game cannot load the base.
 - A text form of this language's own types, such as `Hit(damage = 3, crit = false)`. It serves `str()`, `print()` and `%` together. Now these types read as their encoding (spec §5.1, §10.1).
 - Node paths (spec §7.1):
