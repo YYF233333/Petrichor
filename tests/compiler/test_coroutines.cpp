@@ -67,6 +67,25 @@ TEST_CASE("an async function value is called for its Task") {
 	CHECK(has_error(in_function("var g := async func() -> int: return 1\ng.call()"), "detach"));
 }
 
+// Spec §9.5: a signal's task gives what an await of the signal gives (§9.6).
+TEST_CASE("Task.of() and Task.delay() make tasks, owned when awaited at once") {
+	CHECK(type_of("Task.of(child_entered_tree)") == "Task[Node]");
+	CHECK(type_of("Task.of(ready)") == "Task[void]");
+	CHECK(type_of("Task.of(s)", "var s: Signal = ready") == "Task[Variant]");
+	CHECK(type_of("Task.delay(1)") == "Task[void]");
+	CHECK(has_error(in_function("Task.delay(1.0)"), "detach"));
+	CHECK(has_error(in_function("var t := Task.of(3)"), "Task.of() takes a signal, not int."));
+	CHECK(has_error(in_function("var t := Task.wait(1.0)"), "Task has no function \"wait()\" (spec §9.5)."));
+	const auto result = compile("extends Node\nsignal moved(x: int, y: int)\nasync func f():\n\tvar t: Task[void] = Task.of(moved)\n\tawait Task.of(moved)\n\tawait Task.delay(0.5)\n\tawait t\n");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	REQUIRE_MESSAGE(bytecode::verify(result.module, error), error);
+	const auto &f = function_named(result.module, "f");
+	find_instruction(f, Op::TASK_DELAY);
+	const size_t pc = find_instruction(f, Op::AWAIT_TASK);
+	CHECK(f.code[pc + 3] == 1);
+}
+
 TEST_CASE("nullable Task handles require unwrap before waiting") {
 	CHECK(has_error("async func f(t: Task[int]?):\n\treturn await t\n", "Unwrap"));
 	const auto result = compile("async func f(t: Task[int]?) -> int:\n\treturn await t.unwrap()\n");

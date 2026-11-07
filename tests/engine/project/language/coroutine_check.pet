@@ -101,6 +101,21 @@ pub async func through_value() -> int:
 pub func connect_async():
 	tick.connect(async func(value: int): count += value + await tick, CONNECT_ONE_SHOT)
 
+# Tasks of a signal and of a timer (spec §9.5).
+pub async func of_signal() -> int:
+	var first := Task.of(tick)
+	return await first + await Task.of(tick)
+
+pub async func delayed() -> int:
+	await Task.delay(0)
+	return 5
+
+pub func of_source(source: Node) -> Task[void]:
+	return Task.of(source.renamed)
+
+pub async func wait_void(t: Task[void]):
+	await t
+
 # Freeing an object on another thread waits for none of the tasks of others,
 # this running one among them.
 pub async func join_freeing_thread() -> bool:

@@ -12,6 +12,7 @@
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
+#include <godot_cpp/classes/scene_tree_timer.hpp>
 #include <godot_cpp/classes/window.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/error_macros.hpp>
@@ -49,6 +50,8 @@ InstanceStorage::~InstanceStorage() {
 	::operator delete(members);
 }
 
+// What a task runs: a function of this language, or for a task of a signal
+// (spec §9.5) no function, with no image and no data, only the wait.
 struct CoroutineFrame : std::enable_shared_from_this<CoroutineFrame> {
 	std::shared_ptr<const ClassImage> image;
 	InstanceContext context;
@@ -80,6 +83,8 @@ struct CoroutineFrame : std::enable_shared_from_this<CoroutineFrame> {
 		image->frames[function].construct(data);
 		line = int(image->module.functions[function].line);
 	}
+	CoroutineFrame(const InstanceContext &p_context, const Ref<CoroutineTask> &p_task) :
+			context(p_context), task(p_task), function(0), data(nullptr) {}
 	~CoroutineFrame() {
 		disconnect();
 		if (data) {
@@ -166,6 +171,35 @@ Ref<CoroutineTask> start_task(const std::shared_ptr<const ClassImage> &p_image, 
 		task->owner_freed_frame = task_frame.load();
 	}
 	task->continuation->resume();
+	return task;
+}
+
+// A task that finishes with what the signal passes (spec §9.5), as an await
+// of it would receive it, and is cancelled once the signal's object is freed
+// (§9.2); tasks::frame() decides that, as for other awaits (§9.7). Null when
+// the signal cannot be connected to.
+Ref<CoroutineTask> signal_task(const InstanceContext &p_context, const Signal &p_signal, const std::string &p_result_key) {
+	Ref<CoroutineTask> task;
+	task.instantiate();
+	task->owner_id = p_context.owner ? uint64_t(p_context.owner->get_instance_id()) : 0;
+	task->owner_storage = p_context.storage.get();
+	task->result_signature = p_result_key;
+	task->continuation = std::make_shared<CoroutineFrame>(p_context, task);
+	{
+		std::lock_guard<std::mutex> lock(tasks_mutex);
+		active_tasks.emplace(uint64_t(task->get_instance_id()), task);
+	}
+	if (p_context.storage && p_context.storage->coroutines_cancelled) {
+		task->owner_freed = true;
+		task->owner_freed_frame = task_frame.load();
+		task->finish(CoroutineTask::State::Cancelled);
+		return task;
+	}
+	std::lock_guard<std::recursive_mutex> lock(task->mutex);
+	if (!task->continuation->suspend(p_signal, NO_SLOT, uint64_t(p_signal.get_object_id()))) {
+		task->finish(CoroutineTask::State::Failed);
+		return Ref<CoroutineTask>();
+	}
 	return task;
 }
 
@@ -1547,6 +1581,26 @@ class Execution {
 		return true;
 	}
 
+	// TASK_OF and TASK_DELAY (spec §9.5).
+	PETRICHOR_NOINLINE bool op_signal_task(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		Signal signal;
+		if (Op(p_op[0]) == Op::TASK_DELAY) {
+			SceneTree *tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop());
+			if (!tree) {
+				return fail_cstr(p_fn, p_line, "Task.delay() needs the SceneTree as the main loop.");
+			}
+			signal = Signal(tree->create_timer(*reinterpret_cast<const double *>(p_frame + p_op[3])).ptr(), "timeout");
+		} else {
+			signal = *reinterpret_cast<const Signal *>(p_frame + p_op[3]);
+		}
+		const Ref<CoroutineTask> task = signal_task(context, signal, image.types[p_op[1]].check.task_result);
+		if (task.is_null()) {
+			return fail_cstr(p_fn, p_line, "Task.of() cannot connect to the signal.");
+		}
+		set_object(p_frame + p_op[2], task);
+		return true;
+	}
+
 	PETRICHOR_NOINLINE bool op_await_task(const uint32_t *p_op, uint8_t *p_frame, CoroutineFrame *p_async, size_t &r_pc, bool &r_done, const bytecode::Function &p_fn, int p_line) {
 		ObjectView view(p_frame + p_op[2]);
 		Ref<CoroutineTask> task = view.get();
@@ -2224,6 +2278,13 @@ public:
 					}
 					pc += 2;
 					break;
+				case Op::TASK_OF:
+				case Op::TASK_DELAY:
+					if (!op_signal_task(code + pc, frame, fn, record.line)) {
+						return false;
+					}
+					pc += 4;
+					break;
 				case Op::AWAIT_TASK: {
 					bool done = false;
 					if (!op_await_task(code + pc, frame, p_async, pc, done, fn, record.line)) {
@@ -2473,14 +2534,18 @@ void CoroutineFrame::complete_wait(uint64_t p_generation, const Variant &p_value
 		const Ref<CoroutineTask> completed = waited_task;
 		disconnect();
 		child.unref();
-		if (completed.is_valid()) {
+		if (image && completed.is_valid()) {
 			failed = !await_task(completed);
 			if (!failed && awaited_freed) {
 				return;
 			}
-		} else {
+		} else if (image) {
 			failed = !receive(p_value);
 		}
+	}
+	if (!image) {
+		task->finish(CoroutineTask::State::Finished, p_value); // A task of a signal.
+		return;
 	}
 	if (failed) {
 		task->finish(CoroutineTask::State::Failed);
@@ -2548,6 +2613,10 @@ void frame() {
 		if (frame->context.storage && frame->context.storage->coroutines_cancelled) {
 			lock.unlock();
 			task->cancel_owner();
+		} else if (!frame->image) {
+			task->source_freed = true; // A task of a signal (spec §9.2).
+			lock.unlock();
+			task->cancel();
 		} else {
 			frame->report_error(vformat("The awaited object %d was freed or lost its script.", int64_t(frame->lost_object)));
 			lock.unlock();

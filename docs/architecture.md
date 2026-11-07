@@ -125,6 +125,10 @@
   - 使用未初始化的静态变量和初始化之间的环，都由初始化状态和本线程上进行中的初始化发现。
   - 有静态变量的脚本整个运行中保持加载，除非带 `@static_unload`。
 - 协程的栈帧在堆上，按归属成树，取消沿树传递（§9.3）。释放通知来自运行时自己的实例绑定，它与 godot-cpp 的绑定并存（`core/object/object.cpp:2167-2201`）；是否报错在每帧回调中判定（§9.7）。
+- `Task.of` 和 `Task.delay` 的任务不运行函数，只等一个信号（§9.5）。
+  - 等待、取消和释放监听与其他协程共用，所以规则一致。
+  - 信号源被释放时，同样推迟到每帧回调判定，再取消该任务。
+  - `Task.delay` 就是 `SceneTree.create_timer` 的 `timeout`，暂停和时间缩放按引擎的默认值。
 - 等待 `GDScriptFunctionState` 时，运行时持有第一个状态直到 `completed` 发出，并监听接收者或 Callable 目标的释放和 `script_changed`（§9.8）。
   - 协程再次挂起后，内层状态只以 ObjectID 记住第一个状态，后者又已离开待处理列表（`modules/gdscript/gdscript_vm.cpp:2634-2639`，`modules/gdscript/gdscript_function.cpp:329-330`）。
   - 实例析构时引擎不发出 `completed`（`modules/gdscript/gdscript.cpp:2069-2079`，`gdscript_function.cpp:343-362`），状态也不暴露所属实例（`gdscript_function.cpp:288-307, 337, 364-370`，`modules/gdscript/register_types.cpp:140`，`object.cpp:995`）。

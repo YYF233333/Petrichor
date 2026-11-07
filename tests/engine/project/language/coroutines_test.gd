@@ -206,5 +206,22 @@ func run(p_errors: ErrorLog) -> int:
 	c.tick.emit(1)
 	c.tick.emit(5)
 	check(c.count == before_connect + 6, "a signal runs an async lambda as a root task")
+	results.clear()
+	collect(c.of_signal(), results)
+	c.tick.emit(3)
+	c.tick.emit(4)
+	check(results == [7], "Task.of() finishes with what the signal passes")
+	results.clear()
+	collect(c.delayed(), results)
+	check(results.is_empty(), "Task.delay() waits")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(results == [5], "Task.delay() finishes once the timer times out")
+	var gone := Node.new()
+	c.wait_void(c.of_source(gone))
+	gone.free()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	expect_errors(["coroutine_check.pet:117: The awaited task was cancelled."], "Task.of() is cancelled once the signal's object is freed")
 	c.free()
 	return failures

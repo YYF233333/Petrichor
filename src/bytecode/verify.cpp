@@ -768,6 +768,9 @@ class Verifier {
 				const std::vector<FieldDesc> *fields = error ? &module.types[type.fields[2].type].fields : nullptr;
 				return (fields && fields->size() == 1 && storage((*fields)[0].type) == ValueType::String) || fail("TRY_FROM to what is not a Result[T, ConversionError]");
 			}
+			case Op::TASK_OF:
+			case Op::TASK_DELAY:
+				return !module.types[o[0]].task_result.empty() || fail("a task made of what is not a Task");
 			case Op::AWAIT_TASK:
 			case Op::AWAIT_SIGNAL:
 				return (function->is_async || fail("await in a synchronous function")) && (o[0] == NO_SLOT || frame.count(o[0]) || fail("unknown await result slot")) && (p_op == Op::AWAIT_SIGNAL || o[2] <= 1 || fail("invalid await ownership"));

@@ -1570,6 +1570,12 @@ class Lowerer {
 			lower_expr(*p_call.base);
 			return NO_REG;
 		}
+		if (p_call.target == Target::TaskOf || p_call.target == Target::TaskDelay) {
+			const uint32_t made = arguments(p_call)[0];
+			const uint32_t task = temp(p_call.type);
+			instr(p_call.target == Target::TaskOf ? Op::TASK_OF : Op::TASK_DELAY, task, made);
+			return task;
+		}
 		ir::Instr i;
 		std::unique_ptr<Place> written_back;
 		// The base before the arguments, as it reads in the source.

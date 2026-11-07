@@ -31,6 +31,7 @@ public:
 	std::atomic<State> state{ State::Running };
 	std::atomic<bool> cancel_requested{ false };
 	std::atomic<bool> owner_freed{ false };
+	std::atomic<bool> source_freed{ false }; // A task of a signal, whose object was freed (spec §9.2).
 	uint64_t owner_id = 0;
 	// Set before the task is listed and never changed, so that freeing an
 	// object finds its tasks without waiting for the locks of others.

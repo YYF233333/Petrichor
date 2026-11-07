@@ -5230,6 +5230,9 @@ class Checker : public ClassRelation {
 				return check_try_from(r_expr, *named);
 			}
 		}
+		if (r_expr.base && r_expr.base->kind == ExprKind::Name && r_expr.base->text == "Task" && !declares_in_script("Task") && !visible_local("Task")) {
+			return check_task_function(r_expr);
+		}
 		if (const std::optional<Type> constructed = constructed_struct(r_expr)) {
 			return check_struct_construction(r_expr, *constructed);
 		}
@@ -5492,6 +5495,41 @@ class Checker : public ClassRelation {
 			return "await requires an async function and cannot appear in an initializer.";
 		}
 		return std::string();
+	}
+
+	// `Task.of(signal)` and `Task.delay(seconds)` (spec §9.5): tasks the
+	// runtime makes, which an await owns when it starts them, as a call. A
+	// signal gives what an await of it gives as a value (§9.6).
+	Type check_task_function(Expr &r_expr) {
+		refer(r_expr.base->name_token, language_id("Task", std::string()));
+		if (r_expr.text != "of" && r_expr.text != "delay") {
+			return fail_call(r_expr, "Task has no function \"" + r_expr.text + "()\" (spec §9.5).");
+		}
+		refer(r_expr.name_token, language_id("Task", r_expr.text));
+		r_expr.is_async = true;
+		if (r_expr.text == "delay") {
+			check_arguments(r_expr, { Type::of(TypeKind::Float) }, 1, false);
+			r_expr.target = Target::TaskDelay;
+			return set(r_expr, Type::task(Type::of(TypeKind::Void)));
+		}
+		if (r_expr.args.size() != 1) {
+			return fail_call(r_expr, "Task.of() takes one signal.");
+		}
+		const Type signal = check_value(*r_expr.args[0]);
+		std::optional<Type> result;
+		if (signal.kind == TypeKind::Signal) {
+			result = signal.args.size() == 1 ? signal.args[0] : Type::of(TypeKind::Void);
+		} else if (signal.builtin_name() == "Signal") {
+			result = Type::of(TypeKind::Variant);
+		} else if (!signal.is_error()) {
+			error(r_expr.args[0]->range, "Task.of() takes a signal, not " + signal.to_string() + ".");
+		}
+		if (!result) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		r_expr.param_types.push_back(signal);
+		r_expr.target = Target::TaskOf;
+		return set(r_expr, Type::task(*result));
 	}
 
 	Type check_await(Expr &r_expr) {
