@@ -7,6 +7,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
 - Array and dictionary patterns of match (spec §5.6).
 - A struct or an enum with payloads that holds itself through a container (spec §3.6). The type table cannot list it, since a type's parts come before it.
+- `Class.new` as a value (spec §3.11), as gdUnit4 passes `GdUnitTuple.new` to `callv`. It must construct as `new(...)` does. PetScript's `new` refuses a non-pub `_init` that the caller sees, so the two share the construction.
 - Static checks of:
   - must-assign exports in scenes, in resources and at export (spec §7.5);
   - a statically known scene's `instantiate(...)` missing an export the scene does not assign (§7.4). The scene index does not read property values yet;

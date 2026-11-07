@@ -115,6 +115,7 @@ TEST_CASE("a static function is a value, of this language or of the engine (spec
 	CHECK(contains(errors("var x := Spawner.hidden"), "\"hidden()\" of Spawner is not pub."));
 	CHECK(contains(errors("var x := Spawner.tick"), "\"tick()\" of Spawner is not static; take it from an object."));
 	CHECK(contains(errors("var x := FileAccess.get_as_text"), "\"get_as_text()\" of FileAccess is not static; take it from an object."));
+	CHECK(contains(errors("var x := Spawner.new"), "new() as a value is not supported yet"));
 }
 
 TEST_CASE("a class calls its own static methods through its class_name") {

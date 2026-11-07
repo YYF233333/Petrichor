@@ -2511,6 +2511,9 @@ class Checker : public ClassRelation {
 	// written `Class.f` (spec §3.11); nullopt when the class has no function
 	// of that name.
 	std::optional<Type> class_function_value(Expr &r_expr, const std::string &p_path, const std::string &p_class) {
+		if (r_expr.text == "new") {
+			return refuse_new_value(r_expr, p_class);
+		}
 		const ClassDecl *decl = script_decl(p_path);
 		if (!decl) {
 			return fail(r_expr, p_class + " has errors.");
@@ -2534,6 +2537,10 @@ class Checker : public ClassRelation {
 			return static_value(r_expr, function, owner);
 		}
 		return std::nullopt;
+	}
+
+	Type refuse_new_value(Expr &r_expr, const std::string &p_class) {
+		return fail(r_expr, "new() as a value is not supported yet; write a lambda, as func(): return " + p_class + ".new().");
 	}
 
 	// A static function of this language as a value (spec §3.11), called on the
@@ -2710,6 +2717,9 @@ class Checker : public ClassRelation {
 					return set(r_expr, api_type(constant->type, false));
 				}
 				return fail(r_expr, base.text + " has no constant \"" + r_expr.text + "\".");
+			}
+			if (r_expr.text == "new") {
+				return refuse_new_value(r_expr, base.text);
 			}
 			if (const auto method = engine.find_method(base.text, r_expr.text)) {
 				if (!method->is_static) {
