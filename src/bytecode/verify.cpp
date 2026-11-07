@@ -534,6 +534,8 @@ class Verifier {
 				}
 				return arguments(p_call) && slot(dst, ValueType::Callable);
 			}
+			case Op::CLEAR:
+				return (callee == 0 && dst == NO_SLOT && base == NO_SLOT && arguments(p_call)) || fail("CLEAR with a target, a dst or a base");
 			default:
 				return fail("not a call");
 		}

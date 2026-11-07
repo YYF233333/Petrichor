@@ -436,6 +436,13 @@ func _ready() -> void:
 	s.free()
 	other.free()
 
+	# Spec §6.8: references released by scope, not after their last use.
+	var releases := ReleaseCheck.new()
+	_check(releases.statement() == "a,next", "a temporary is released at the end of its statement")
+	_check(releases.block() == "in,b,out", "a local is released when its block is left, not after its last use")
+	_check(releases.iterations() == "end0,l0,end1,l1,k,after", "a loop's locals are released at the end of each iteration and at break")
+	_check(releases.headers() == "c,if,w,m,arm,bound,n,it,it,i0,i1,after", "a header's temporaries are released before its block, and a for loop keeps what it iterates over")
+
 	# Spec §3.8: Dictionary[K, V], elements assigned in place, keys that cannot change.
 	var containers := ContainerCheck.new()
 	_check(containers.counted() == "16 11 true 2 3 b", "a Dictionary[K, V] is indexed, assigned, iterated over its keys, and get(k) gives None for a missing key")

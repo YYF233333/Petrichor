@@ -4,6 +4,7 @@
 #include "format_id.gen.h"
 #include "value_types.gen.h"
 
+#include <algorithm>
 #include <cstring>
 #include <sstream>
 
@@ -218,6 +219,25 @@ bool is_boxed(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 			return type.element < p_type && is_boxed(p_types, type.element);
 		case TypeKind::Dictionary:
 			return (type.key < p_type && is_boxed(p_types, type.key)) || (type.element < p_type && is_boxed(p_types, type.element));
+		default:
+			return false;
+	}
+}
+
+bool holds_references(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
+	if (p_type < p_types.size() && p_types[p_type].kind == TypeKind::Option && p_types[p_type].element < p_type) {
+		return holds_references(p_types, p_types[p_type].element);
+	}
+	if (has_fields(p_types, p_type)) {
+		return std::any_of(p_types[p_type].fields.begin(), p_types[p_type].fields.end(), [&](const FieldDesc &p_field) { return p_field.type < p_type && holds_references(p_types, p_field.type); });
+	}
+	switch (storage_of(p_types, p_type)) {
+		case ValueType::Object:
+		case ValueType::Variant:
+		case ValueType::Array:
+		case ValueType::Dictionary:
+		case ValueType::Callable:
+			return true;
 		default:
 			return false;
 	}

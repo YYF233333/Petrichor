@@ -103,6 +103,8 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 
 void construct_value(const TypeImage &p_type, uint8_t *p_slot);
 void destroy_value(const TypeImage &p_type, uint8_t *p_slot);
+// The type's default in the slot, releasing what it held (spec §6.8).
+void clear_value(const TypeImage &p_type, uint8_t *p_slot);
 void copy_value(const TypeImage &p_type, uint8_t *p_dst, const uint8_t *p_src);
 // A struct is encoded (spec §3.6, §10.1); a container is itself, also one
 // that keeps boxes.
@@ -195,6 +197,10 @@ struct SlotLayout {
 	static SlotLayout of(uint32_t p_size, const std::vector<T> &p_slots, const std::vector<TypeImage> &p_types);
 	void construct(uint8_t *p_base) const;
 	void destroy(uint8_t *p_base) const;
+	// Lets go of the references the slots hold to the RefCounted object with
+	// the ObjectID, noting where; hold_again() puts the object back there.
+	void let_go(uint8_t *p_base, uint64_t p_id, std::vector<std::pair<uint32_t, bytecode::ValueType>> &r_slots) const;
+	static void hold_again(uint8_t *p_base, const godot::Variant &p_object, const std::vector<std::pair<uint32_t, bytecode::ValueType>> &p_slots);
 
 private:
 	void add(uint32_t p_offset, const TypeImage &p_type);

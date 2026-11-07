@@ -57,8 +57,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 ## Runtime
 
 - Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`).
-- Temporary slots reused by scope. This releases temporary references in a loop in time. A suspended coroutine then keeps only the slots still in use.
-- A temporary that holds self keeps a RefCounted alive while the coroutine waits, as in `f(self, await g())` (against spec §9.4). Self is needed after the await there, so reusing slots does not help. With the liveness of registers, such a register can drop self before the await and read it again after.
 - Ordering of arrays of engine types as spec §5.2 says. It differs from the engine's operators only with NaN, so it waits for the open question on NaN.
 - Range checks of ints passed through an engine method's value, as `f.call(x)` (spec §10.6). The value is the engine's Callable, which converts without them.
 
@@ -127,6 +125,9 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
 - Function values: `f.call(x)` goes through the engine's `Callable.call` with Variant arguments. A struct is encoded and decoded on the way. A lambda or method value of this language could be called directly, its arguments in their slots' layout.
 - Engine calls: every object result is asked whether it is a `GDScriptFunctionState`, by a call into the engine. Only methods of GDScript classes return one (spec §9.8).
 - Coroutines: freeing an instance, and every frame, walk all active tasks. Tasks listed by their owner would walk only the owner's.
+- Default values built anew. Each call constructs every slot whose default is not zero, such as an Array's. CLEAR builds such a default again for each register it clears (spec §6.8). Two remedies:
+  - registers whose scopes do not overlap share slots, as GDScript pools its temporaries (`modules/gdscript/gdscript_byte_codegen.cpp:122-131`, `ed1daf0`);
+  - CLEAR copies one shared empty container instead of making one.
 - Containers. The arrays benchmark loses to GDScript mostly to boxing each element into a Variant and back.
   - The check that a container is not read-only before each change is a call into the engine (spec §3.8). It takes about 7 ns of an append.
   - Escape analysis can give containers that do not escape a private representation (architecture §2.2). The engine container stays the reference semantics.

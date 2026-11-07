@@ -87,6 +87,15 @@ func run(p_errors: ErrorLog) -> int:
 	collect(ref_task.completed, results)
 	r = null
 	check(weak.get_ref() == null and results == [null], "suspended frame does not retain implicit self")
+	r = CoroutineRef.new()
+	weak = weakref(r)
+	r.start_with_self()
+	r = null
+	check(weak.get_ref() == null, "suspended frame lets go of self in a temporary and a local (spec §9.4)")
+	r = CoroutineRef.new()
+	r.start_with_self()
+	r.ticked.emit(5)
+	check(r.seen == 6, "self is held again when the frame resumes")
 	c = CoroutineCheck.new()
 	add_child(c)
 	check(await c.immediate() == Transform3D(), "async reflection accepts immediate typed result")

@@ -217,6 +217,10 @@ std::string layout_key(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 // this library (architecture §2.2): a struct, a PayloadEnum, a T?, or a
 // container that keeps its elements or keys boxed, which is then boxed in turn.
 bool is_boxed(const std::vector<TypeDesc> &p_types, uint32_t p_type);
+// Whether a value of the type can hold a reference to an object, so that
+// releasing it can be seen (spec §6.8): an object, a Variant, a container or a
+// Callable, or a T?, a struct or an enum with payloads that holds one.
+bool holds_references(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 
 // A constant of a type of the table; one of an Object type or of T? is None,
 // unless it loads a resource; one of a PayloadEnum is the variant `i` with

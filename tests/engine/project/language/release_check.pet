@@ -1,0 +1,80 @@
+class_name ReleaseCheck
+extends RefCounted
+
+# When temporaries and locals let go of what they hold (spec §6.8): each
+# probe notes its name as it is freed. Driven by language_test.gd.
+
+var notes: Array[String] = []
+
+
+class Probe extends RefCounted:
+	var name: String
+	var notes: Array[String]
+
+	func _init(p_name: String, p_notes: Array[String]):
+		name = p_name
+		notes = p_notes
+
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_PREDELETE:
+			notes.append(name)
+
+	pub func touch() -> int:
+		return 1
+
+
+func probe(name: String) -> Probe:
+	return Probe.new(name, notes)
+
+
+func noted() -> String:
+	var text := ",".join(PackedStringArray(notes))
+	notes.clear()
+	return text
+
+
+pub func statement() -> String:
+	probe("a").touch()
+	notes.append("next")
+	return noted()
+
+
+pub func block() -> String:
+	if notes.is_empty():
+		var kept := probe("b")
+		kept.touch()
+		notes.append("in")
+	notes.append("out")
+	return noted()
+
+
+pub func iterations() -> String:
+	for i in 2:
+		var each := probe("l%d" % i)
+		each.touch()
+		notes.append("end%d" % i)
+	while notes.size() < 10:
+		var held := probe("k")
+		held.touch()
+		break
+	notes.append("after")
+	return noted()
+
+
+pub func headers() -> String:
+	if probe("c").touch() == 1:
+		notes.append("if")
+	while probe("w").touch() == 0:
+		pass
+	match probe("m").touch():
+		1:
+			notes.append("arm")
+	match probe("n"):
+		var bound:
+			bound.touch()
+			notes.append("bound")
+	for p in [probe("i0"), probe("i1")]:
+		p.touch()
+		notes.append("it")
+	notes.append("after")
+	return noted()

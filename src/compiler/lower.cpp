@@ -131,8 +131,12 @@ class Lowerer {
 	struct Loop {
 		uint32_t continue_block;
 		uint32_t break_block;
+		size_t scope; // Of its body in `scopes`, the first that break and continue leave.
 	};
 	std::vector<Loop> loops;
+	// The locals of each block being lowered, innermost last, released when
+	// the block is left (spec §6.8).
+	std::vector<std::vector<uint32_t>> scopes;
 	// A lambda's register for each of its locals, whose captures come right
 	// after the parameters; empty where a local is its register.
 	std::vector<uint32_t> local_regs;
@@ -1823,6 +1827,7 @@ class Lowerer {
 		const uint32_t outer_current = current;
 		const TokenRange outer_at = at;
 		std::vector<Loop> outer_loops = std::move(loops);
+		std::vector<std::vector<uint32_t>> outer_scopes = std::move(scopes);
 		std::vector<uint32_t> outer_regs = std::move(local_regs);
 
 		start(lambda.name.empty() ? "<lambda>" : lambda.name);
@@ -1861,6 +1866,7 @@ class Lowerer {
 		current = outer_current;
 		at = outer_at;
 		loops = std::move(outer_loops);
+		scopes = std::move(outer_scopes);
 		local_regs = std::move(outer_regs);
 		return i.dst;
 	}
@@ -2410,9 +2416,63 @@ class Lowerer {
 
 	/* Statements */
 
-	void lower_block(const Block &p_block) {
+	// Releases what the registers hold, of those that can hold a reference
+	// (spec §6.8); a view goes with its root.
+	void release(const std::vector<uint32_t> &p_regs) {
+		ir::Instr i;
+		i.op = Op::CLEAR;
+		for (uint32_t reg : p_regs) {
+			if (!fn.views.count(reg) && bytecode::holds_references(module.types, fn.regs[reg].type) && std::find(i.args.begin(), i.args.end(), reg) == i.args.end()) {
+				i.args.push_back(reg);
+			}
+		}
+		if (!i.args.empty() && !terminated()) {
+			add(i);
+		}
+	}
+
+	// The temporaries made since the register `p_first`, but `p_kept`.
+	std::vector<uint32_t> temps_since(uint32_t p_first, uint32_t p_kept = NO_REG) const {
+		std::vector<uint32_t> regs;
+		for (uint32_t reg = p_first; reg < fn.regs.size(); reg++) {
+			if (reg != p_kept) {
+				regs.push_back(reg);
+			}
+		}
+		return regs;
+	}
+
+	// The locals of the blocks from `p_scope` in, which a jump out leaves.
+	void release_scopes(size_t p_scope) {
+		std::vector<uint32_t> locals;
+		for (size_t s = p_scope; s < scopes.size(); s++) {
+			locals.insert(locals.end(), scopes[s].begin(), scopes[s].end());
+		}
+		release(locals);
+	}
+
+	// A block, its locals released at its end; those of a function's body go
+	// with its frame. `p_locals` are the block's from its header, such as a
+	// loop's variable.
+	void lower_block(const Block &p_block, std::vector<uint32_t> p_locals = {}) {
+		scopes.push_back(std::move(p_locals));
 		for (const auto &stmt : p_block) {
 			lower_stmt(*stmt);
+		}
+		if (scopes.size() > 1) {
+			release(scopes.back());
+		}
+		scopes.pop_back();
+	}
+
+	// The locals that the pattern binds, or with `p_values`, those that hold
+	// what its value patterns compare.
+	static void pattern_locals(const Pattern &p_pattern, bool p_values, std::vector<int> &r_locals) {
+		if (p_pattern.local >= 0 && (p_pattern.kind == PatternKind::Value) == p_values) {
+			r_locals.push_back(p_pattern.local);
+		}
+		for (const Pattern &item : p_pattern.items) {
+			pattern_locals(item, p_values, r_locals);
 		}
 	}
 
@@ -2478,9 +2538,29 @@ class Lowerer {
 		current = next_block;
 	}
 
+	// A statement, its temporaries released at its end; those of a compound
+	// statement's header once it has decided, that of a for loop's value at
+	// the loop's end (spec §6.8).
 	void lower_stmt(const Stmt &p_stmt) {
+		const uint32_t first = uint32_t(fn.regs.size());
+		lower_stmt_code(p_stmt);
+		switch (p_stmt.kind) {
+			case StmtKind::Var:
+			case StmtKind::Const:
+			case StmtKind::Assign:
+			case StmtKind::Assert:
+			case StmtKind::Expression:
+				release(temps_since(first));
+				break;
+			default:
+				break;
+		}
+	}
+
+	void lower_stmt_code(const Stmt &p_stmt) {
 		at = p_stmt.range;
 		instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(cls.source->line(p_stmt.range.first)));
+		const uint32_t first = uint32_t(fn.regs.size());
 		switch (p_stmt.kind) {
 			case StmtKind::Var:
 			case StmtKind::Const: {
@@ -2490,6 +2570,7 @@ class Lowerer {
 				} else {
 					default_value(local);
 				}
+				scopes.back().push_back(local);
 				return;
 			}
 			case StmtKind::Assign: {
@@ -2518,6 +2599,7 @@ class Lowerer {
 			}
 			case StmtKind::If: {
 				const uint32_t condition = lower_expr(*p_stmt.condition);
+				release(temps_since(first));
 				const uint32_t then_block = new_block();
 				const uint32_t end_block = new_block();
 				const uint32_t else_block = p_stmt.else_body.empty() ? end_block : new_block();
@@ -2536,10 +2618,29 @@ class Lowerer {
 			case StmtKind::Match: {
 				// The first branch with a pattern that matches and a guard that
 				// holds runs, and no other (spec §5.6).
+				// The value matched and what the patterns and guards compute are
+				// released once a branch is chosen; a branch's bindings belong to
+				// its block, or are released when it fails.
 				const uint32_t matched = reg_of(p_stmt.local);
 				move(matched, lower_expr(*p_stmt.value));
+				release(temps_since(first));
+				std::vector<uint32_t> decision = { matched };
 				const uint32_t end_block = new_block();
 				for (const MatchBranch &arm : p_stmt.branches) {
+					const uint32_t arm_first = uint32_t(fn.regs.size());
+					std::vector<int> values;
+					std::vector<int> bound;
+					for (const Pattern &pattern : arm.patterns) {
+						pattern_locals(pattern, true, values);
+						pattern_locals(pattern, false, bound);
+					}
+					std::vector<uint32_t> bindings;
+					for (int local : bound) {
+						bindings.push_back(reg_of(local));
+					}
+					for (int local : values) {
+						decision.push_back(reg_of(local));
+					}
 					const uint32_t body_block = new_block();
 					const uint32_t next_block = new_block();
 					for (const Pattern &pattern : arm.patterns) {
@@ -2555,9 +2656,13 @@ class Lowerer {
 						branch(lower_expr(*arm.guard), guarded_block, next_block);
 						current = guarded_block;
 					}
-					lower_block(arm.body);
+					const std::vector<uint32_t> computed = temps_since(arm_first);
+					decision.insert(decision.end(), computed.begin(), computed.end());
+					release(decision);
+					lower_block(arm.body, bindings);
 					jump(end_block);
 					current = next_block;
+					release(bindings);
 				}
 				if (p_stmt.exhaustive && p_stmt.value->type.kind == TypeKind::Enum && !p_stmt.value->type.values->is_engine) {
 					// No value comes here, since values of the enum are checked where
@@ -2565,6 +2670,7 @@ class Lowerer {
 					// than running off the end of a function with a return type.
 					instr(Op::CHECK_ENUM, NO_REG, matched, NO_REG, fn.regs[matched].type);
 				}
+				release(decision);
 				jump(end_block);
 				current = end_block;
 				return;
@@ -2575,9 +2681,11 @@ class Lowerer {
 				const uint32_t end_block = new_block();
 				jump(condition_block);
 				current = condition_block;
-				branch(lower_expr(*p_stmt.condition), body_block, end_block);
+				const uint32_t condition = lower_expr(*p_stmt.condition);
+				release(temps_since(first));
+				branch(condition, body_block, end_block);
 				current = body_block;
-				loops.push_back({ condition_block, end_block });
+				loops.push_back({ condition_block, end_block, scopes.size() });
 				lower_block(p_stmt.body);
 				loops.pop_back();
 				jump(condition_block);
@@ -2594,6 +2702,7 @@ class Lowerer {
 				const uint32_t source = temp(entries ? Type::array(entries->first) : p_stmt.value->type);
 				// A Dictionary is iterated over its keys as they were on entry.
 				move(source, entries ? keys_of(lower_expr(*p_stmt.value), entries->first) : lower_expr(*p_stmt.value));
+				release(temps_since(first, source));
 				const uint32_t counter = temp(ValueType::Int);
 				load_int(counter, 0);
 				const uint32_t condition_block = new_block();
@@ -2607,9 +2716,11 @@ class Lowerer {
 				instr(Op::LT_INT, more, counter, limit);
 				branch(more, body_block, end_block);
 				current = body_block;
+				const uint32_t element_first = uint32_t(fn.regs.size());
 				move(reg_of(p_stmt.local), counting ? counter : get_index(source, counter, p_stmt.element));
-				loops.push_back({ step_block, end_block });
-				lower_block(p_stmt.body);
+				release(temps_since(element_first));
+				loops.push_back({ step_block, end_block, scopes.size() });
+				lower_block(p_stmt.body, { reg_of(p_stmt.local) });
 				loops.pop_back();
 				jump(step_block);
 				current = step_block;
@@ -2618,6 +2729,7 @@ class Lowerer {
 				instr(Op::ADD_INT, counter, counter, step);
 				jump(condition_block);
 				current = end_block;
+				release({ source });
 				return;
 			}
 			case StmtKind::Return: {
@@ -2637,9 +2749,11 @@ class Lowerer {
 				return;
 			}
 			case StmtKind::Break:
+				release_scopes(loops.back().scope);
 				jump(loops.back().break_block);
 				return;
 			case StmtKind::Continue:
+				release_scopes(loops.back().scope);
 				jump(loops.back().continue_block);
 				return;
 			case StmtKind::Assert: {
@@ -2684,6 +2798,7 @@ class Lowerer {
 		fn = ir::Function();
 		fn.name = p_name;
 		loops.clear();
+		scopes.clear();
 		current = new_block();
 	}
 

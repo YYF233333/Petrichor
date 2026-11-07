@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <memory>
 #include <mutex>
 #include <new>
 #include <optional>
@@ -615,6 +616,18 @@ void construct_value(const TypeImage &p_type, uint8_t *p_slot) {
 
 void destroy_value(const TypeImage &p_type, uint8_t *p_slot) {
 	for_each_slot_leaf(p_type, 0, [&](ValueType p_storage, uint32_t p_offset) { destroy_value(p_storage, p_slot + p_offset); });
+}
+
+void clear_value(const TypeImage &p_type, uint8_t *p_slot) {
+	// The value moves out first, as the engine's values can be moved by their
+	// bytes. A destructor that stops at a breakpoint then shows the slot
+	// already cleared, not half destroyed.
+	alignas(16) uint8_t small[64];
+	std::unique_ptr<uint8_t[]> large(p_type.size > sizeof(small) ? new uint8_t[p_type.size] : nullptr);
+	uint8_t *old = large ? large.get() : small;
+	std::memcpy(old, p_slot, p_type.size);
+	construct_value(p_type, p_slot);
+	destroy_value(p_type, old);
 }
 
 void copy_value(const TypeImage &p_type, uint8_t *p_dst, const uint8_t *p_src) {
@@ -1332,6 +1345,30 @@ void SlotLayout::construct(uint8_t *p_base) const {
 void SlotLayout::destroy(uint8_t *p_base) const {
 	for (const auto &[offset, type] : destroyed) {
 		destroy_value(type, p_base + offset);
+	}
+}
+
+void SlotLayout::let_go(uint8_t *p_base, uint64_t p_id, std::vector<std::pair<uint32_t, ValueType>> &r_slots) const {
+	for (const auto &[offset, type] : destroyed) {
+		uint8_t *slot = p_base + offset;
+		if (type == ValueType::Object && holds_reference(object_data(slot)) && object_data(slot).id == p_id) {
+			destroy_value(type, slot);
+			r_slots.emplace_back(offset, type);
+		} else if (type == ValueType::Variant && type_of(variant_at(slot)) == Variant::OBJECT && object_data(slot + 8).id == p_id) {
+			// An OBJECT Variant holds the object's ObjectID and pointer after its type.
+			variant_at(slot) = Variant();
+			r_slots.emplace_back(offset, type);
+		}
+	}
+}
+
+void SlotLayout::hold_again(uint8_t *p_base, const Variant &p_object, const std::vector<std::pair<uint32_t, ValueType>> &p_slots) {
+	for (const auto &[offset, type] : p_slots) {
+		if (type == ValueType::Object) {
+			set_object(p_base + offset, p_object);
+		} else {
+			variant_at(p_base + offset) = p_object;
+		}
 	}
 }
 

@@ -26,7 +26,9 @@ namespace petrichor::bytecode {
 // makes, no base, and the values it captures, each of the type of its capture
 // parameter (spec §3.11). So do TASK_ANY and TASK_ALL: the type T of the
 // Task[T] they make, int for any and void for all, the task, no base, and each
-// task waited for with an int, 1 when it is owned (spec §9.5).
+// task waited for with an int, 1 when it is owned (spec §9.5). So does CLEAR:
+// no target, dst or base, and the slots it puts back to their types' defaults,
+// releasing what they held (spec §6.8).
 //
 // In emit_schema, each character encodes one operand word from ir::Instr:
 // D=dst, A=a, B=b, I=imm, T=type, F=field, M=member_offset, R=regs[dst].type,
@@ -169,6 +171,7 @@ namespace petrichor::bytecode {
 	X(TASK_ANY, "*", "") \
 	X(TASK_ALL, "*", "") \
 	X(CALL_VALUE, "*", "") \
+	X(CLEAR, "*", "") \
 	X(RETURN, "A", "") \
 	X(RETURN_VOID, "", "")
 

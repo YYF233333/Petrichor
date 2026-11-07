@@ -1,7 +1,20 @@
 class_name CoroutineRef
 extends RefCounted
 pub signal tick
+pub signal ticked(value: int)
+pub var seen := 0
 pub async func wait():
 	await tick
 pub func start() -> Task[void]:
 	return wait()
+
+# self in a temporary and in a local while the frame waits: let go of, and
+# held again when it resumes (spec §9.4).
+pub async func wait_with_self():
+	var me := self
+	keep(self, await ticked)
+	me.seen += 1
+func keep(who: CoroutineRef, value: int) -> void:
+	who.seen = value
+pub func start_with_self() -> Task[void]:
+	return wait_with_self()

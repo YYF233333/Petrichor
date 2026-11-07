@@ -77,6 +77,8 @@ struct CoroutineFrame : std::enable_shared_from_this<CoroutineFrame> {
 	Variant held_state;
 	Ref<CoroutineTask> waited_task;
 	Ref<CoroutineTask> child;
+	// The slots that held self when the frame was suspended.
+	std::vector<std::pair<uint32_t, ValueType>> let_go_of_self;
 
 	CoroutineFrame(const std::shared_ptr<const ClassImage> &p_image, uint32_t p_function, const InstanceContext &p_context, const Ref<CoroutineTask> &p_task) :
 			image(p_image), context(p_context), task(p_task), function(p_function), data(static_cast<uint8_t *>(::operator new(p_image->frames[p_function].size))) {
@@ -2391,6 +2393,12 @@ public:
 					}
 					pc += 5 + 2 * code[pc + 4];
 					break;
+				case Op::CLEAR:
+					for (uint32_t i = 0; i < code[pc + 4]; i++) {
+						clear_value(image.types[code[pc + 5 + 2 * i]], frame + code[pc + 6 + 2 * i]);
+					}
+					pc += 5 + 2 * code[pc + 4];
+					break;
 				case Op::TASK_ANY:
 				case Op::TASK_ALL:
 					if (!op_task_join(code + pc, frame, fn, record.line)) {
@@ -2745,6 +2753,10 @@ void CoroutineFrame::resume() {
 			task->state = CoroutineTask::State::Running;
 			const TypeImage &result_type = image->types[image->module.functions[function].result.type];
 			ValueBuffer result(result_type);
+			if (!let_go_of_self.empty()) {
+				SlotLayout::hold_again(data, Variant(context.owner), let_go_of_self);
+				let_go_of_self.clear();
+			}
 			const bool ok = Execution(*image, context, debugger::is_active()).run(function, data, result.data, this);
 			if (task->cancel_requested) {
 				ends = CoroutineTask::State::Cancelled;
@@ -2753,6 +2765,11 @@ void CoroutineFrame::resume() {
 			} else if (task->state == CoroutineTask::State::Running) {
 				ends = CoroutineTask::State::Finished;
 				value = outward_variant(result_type, result.data);
+			} else if (context.storage && context.owner) {
+				// A suspended coroutine does not keep self alive (spec §9.4). It is
+				// cancelled if self goes meanwhile (§9.7), so self is there again
+				// when it resumes.
+				image->frames[function].let_go(data, uint64_t(context.owner->get_instance_id()), let_go_of_self);
 			}
 		}
 	}
