@@ -91,6 +91,8 @@ TEST_CASE("structs and T? are ordered") {
 	CHECK(contains(errors("var t := Tagged(node = self)\nvar x: bool = t < t", tagged), "Values of type Shots.Tagged are not ordered"));
 	CHECK(contains(errors("var ts: Array[Tagged] = []\nts.sort()", tagged), "orders the elements by <, which Shots.Tagged does not have"));
 	CHECK(contains(errors("var ns: Array[Node] = []\nvar x: bool = ns < ns"), "Values of type Array[Node] are not ordered"));
+	// One that holds itself through a container is ordered when the rest is (spec §3.6).
+	CHECK_FALSE(contains(errors("var ts: Array[Tree] = []\nts.sort()", "struct Tree:\n\tvar size: int = 0\n\tvar children: Array[Tree] = []\n\n"), "orders the elements"));
 }
 
 // Spec §3.6: methods read the fields bare or through self, and change none.

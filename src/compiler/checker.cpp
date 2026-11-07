@@ -3949,9 +3949,19 @@ class Checker : public ClassRelation {
 	// Whether values of the type have `<` (spec §5.2): those the engine's
 	// operator table orders (core/variant/variant_op.cpp:731-791), and Variant,
 	// ordered when the program runs; a struct when all its fields have it, T?
-	// and Array[T] when T has it.
+	// and Array[T] when T has it. A type met again inside itself, through a
+	// container (spec §3.6), has it when the rest has.
 	bool has_less(const Type &p_type) const {
+		std::set<std::string> visiting;
+		return has_less(p_type, visiting);
+	}
+
+	bool has_less(const Type &p_type, std::set<std::string> &r_visiting) const {
 		static const std::unordered_set<std::string> ordered = { "StringName", "Vector2", "Vector2i", "Vector3", "Vector3i", "Vector4", "Vector4i", "RID" };
+		const auto has = [&](const Type &p_part) { return has_less(p_part, r_visiting); };
+		if ((p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum) && !r_visiting.insert(p_type.script + "::" + p_type.to_string()).second) {
+			return true;
+		}
 		switch (p_type.kind) {
 			case TypeKind::Int:
 			case TypeKind::Enum:
@@ -3961,15 +3971,15 @@ class Checker : public ClassRelation {
 			case TypeKind::Variant:
 				return true;
 			case TypeKind::Option:
-				return has_less(p_type.args[0]);
+				return has(p_type.args[0]);
 			case TypeKind::Struct: {
 				const StructDecl *decl = struct_decl(p_type);
-				return !decl || std::all_of(decl->fields.begin(), decl->fields.end(), [&](const VarDecl &p_field) { return has_less(p_field.type); });
+				return !decl || std::all_of(decl->fields.begin(), decl->fields.end(), [&](const VarDecl &p_field) { return has(p_field.type); });
 			}
 			case TypeKind::PayloadEnum:
 				for (const auto &fields : p_type.values->fields) {
 					for (const auto &[name, type] : fields) {
-						if (!has_less(type)) {
+						if (!has(type)) {
 							return false;
 						}
 					}
@@ -3977,7 +3987,7 @@ class Checker : public ClassRelation {
 				return true;
 			case TypeKind::Builtin:
 				if (p_type.name == "Array") {
-					return p_type.args.empty() || has_less(p_type.args[0]);
+					return p_type.args.empty() || has(p_type.args[0]);
 				}
 				return ordered.count(p_type.name) > 0;
 			default:
