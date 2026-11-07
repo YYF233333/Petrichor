@@ -76,6 +76,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - two RefCounted classes referring to each other through strong fields;
   - a node from `new()` or `instantiate()` that some path neither adds to the tree, returns, stores nor frees;
   - the result of `remove_child` neither stored nor freed.
+- The hint of spec §6.5 on an exported property whose setter syncs a node. Its default value never passes the setter, so `_ready` should sync it once.
 - The warnings of spec §7.2 and §7.6:
   - a literal `get_node_or_null` path that no scene has;
   - a scene that nothing references lacking a node;
