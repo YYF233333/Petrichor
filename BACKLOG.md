@@ -87,6 +87,9 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Declarations that are not pub show in the editor's help beyond their own file. The engine's documentation has no visibility (`core/doc_data.h:698-720`, `ed1daf0`). Keeping them to their own file needs support from the engine, to be sought later.
   - Structs, interfaces and inner classes have documentation classes of their own, which the whole project searches (`editor/doc/editor_help_search.cpp:113`).
   - Enums and members are listed on their class's page.
+- The two-way migration tool (spec §1.2, §13.4), wanted in 0.2 or 0.3.
+  - Reverse conversion writes types GDScript can express. A nested typed container becomes `Array[Array]`, and a narrower result such as `map`'s goes through `assign()`.
+  - It drops this language's names from `@warning_ignore`, which GDScript rejects (`modules/gdscript/gdscript_parser.cpp:5126-5128`, `ed1daf0`).
 - The debugger lists all locals of a function regardless of scope. So same-named locals of blocks side by side collide. The bytecode would record the scope of each slot.
 
 ## Tests
@@ -159,5 +162,16 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
   - which agreements are promises and which merely hold today;
   - which Godot versions are supported;
   - which semantics may still change during the alpha.
+- Rules that break the reversibility rule (spec §1.2), to be settled one by one. Same spelling, different meaning:
+  - `await f()` owns the child task and cancels it with the parent. GDScript runs `f` on (spec §9.3).
+  - Assignment evaluates subscripts before the right side. So `arr[i] = next()` differs when `next()` changes `i` (§3.6).
+  - Loop-body locals are released every iteration, GDScript's after the loop (§6.8).
+  - `assert` evaluates its message only on failure. GDScript's debug build evaluates it every time.
+  - A signal without `pub` registers as `@hit`, so `hit.get_name()` differs (§10.5).
+
+  Meanings of GDScript code that this language cannot write:
+  - `pub`, `struct`, `interface`, `implements`, `async` and `None` are identifiers in GDScript, as in `enum Filter { None, Blur }`. Contextual keywords would keep most of them.
+  - `_init` with parameters on Node and Resource scripts (§6.2). Every `Item.new("Sword")` changes.
+  - A `uint64` read with the top bit set is negative. Writing it back fails the range check, as with `rng.state` (§10.6).
 - Tuples, to be discussed after the first version. `await Task.all([...])` gives nothing (spec §9.5). With tuples it could give the results of tasks of different types, which an array cannot type.
 - How to test the gain in maintenance. Use the language in a real project through several rounds of changing requirements. See how many problems it points out ahead of renames, interface changes and refactorings across files. The cost of adoption includes migrating in step by step, mixing and leaving. With cross-language inheritance restricted, the unit of migration may be an inheritance cluster or a subsystem.
