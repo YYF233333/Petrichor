@@ -136,14 +136,17 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
   - The check that a container is not read-only before each change is a call into the engine (spec §3.8). It takes about 7 ns of an append.
   - Escape analysis can give containers that do not escape a private representation (architecture §2.2). The engine container stays the reference semantics.
   - A private representation supports some operations. A container that uses others keeps the engine's. Each private operation is tested against the engine's.
-- Constants and counting loops. float_loop has little margin over GDScript, and vectors only a modest one (architecture §4).
-  - Every evaluation of a literal loads it into a new temporary with an instruction. GDScript addresses constants as operands (`modules/gdscript/gdscript_byte_codegen.h:366-367`).
-  - A counting `for` runs six instructions per iteration. GDScript iterates with one (`modules/gdscript/gdscript_vm.cpp:3471-3492`, `ed1daf0`).
+- Instructions left in compute code, which already beats GDScript by 1.7 to 3.5 times.
+  - A counting `for` runs four instructions of its own per iteration. GDScript runs two, ITERATE_INT and a JUMP (`modules/gdscript/gdscript_vm.cpp:3471-3492`, `ed1daf0`).
+  - Each evaluation of a String literal copies it with an instruction. Other literals are preset in the frame or read from the constant table.
+  - Each statement starts with a LINE instruction, one of eight per iteration of int_loop. GDScript debug builds also emit one per statement (`modules/gdscript/gdscript.cpp:2871-2875`, `ed1daf0`). Release builds emit none.
+    - A table from code positions to lines would replace it.
+    - An error would look its line up by position. The 52 handler calls that pass a line would drop it.
+    - Breakpoints and stepping would need another mechanism, such as patching the instruction at a breakpoint.
 - Benchmarks of real workloads after ptrcall; optimizations of the IR and code generation after those. In the init function, instructions that can run other code are barriers to them.
 - Liveness of the IR's registers (`src/compiler/ir.h`), one analysis on the IR before any optimization.
   - It serves the warning `modified_copy` (spec §3.6), which is off until then.
-  - It also serves what a suspended coroutine keeps (the Runtime item on temporary slots).
-  - The receiver of a method value in a temporary stays until its statement ends (spec §3.11).
+  - It also serves native code's register allocation (architecture §5).
   - Each instruction's reads and writes go in the opcode table beside its schemas. Writing a View writes part of its root.
   - The warning takes a write to a field of a struct loop variable, after which the variable is not live. The write may also go through a value type's subscript, as `h.pos[0] = 1.0`.
   - A read in an inner loop's next iteration keeps the variable live, as `while h.count > 0: h.count -= 1`. So does a lambda's capture.
