@@ -19,6 +19,8 @@ extern const char *const NON_NULL_PARAMS[];
 extern const size_t NON_NULL_PARAMS_COUNT;
 extern const char *const CLASS_FILTERS[];
 extern const size_t CLASS_FILTERS_COUNT;
+extern const MemberNameEntry MEMBER_NAMES[];
+extern const size_t MEMBER_NAMES_COUNT;
 extern const Keyed INT_PARAMS[];
 extern const size_t INT_PARAMS_COUNT;
 extern const Keyed INT_PROPERTIES[];
@@ -174,6 +176,16 @@ int class_filter_param(std::string_view p_class, std::string_view p_method) {
 		}
 	}
 	return -1;
+}
+
+std::optional<MemberName> member_name_param(std::string_view p_class, std::string_view p_method) {
+	const std::string key = std::string(p_class) + "." + std::string(p_method);
+	const MemberNameEntry *end = MEMBER_NAMES + MEMBER_NAMES_COUNT;
+	const MemberNameEntry *found = std::lower_bound(MEMBER_NAMES, end, key, [](const MemberNameEntry &a, const std::string &b) { return std::string_view(a.method) < b; });
+	if (found == end || key != found->method) {
+		return std::nullopt;
+	}
+	return found->name;
 }
 
 } // namespace petrichor::compiler::builtin

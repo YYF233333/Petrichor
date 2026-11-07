@@ -135,6 +135,10 @@ enum class Target {
 	// of this language declares it.
 	SelfSignal,
 	ObjectSignal,
+	// Callable(object, "m") with a literal name: `index` 1 for a method of
+	// this language, its method value; 0 for the engine's Callable (spec §10.4).
+	NamedCallable,
+	NamedSignal, // Signal(object, "s") with a literal name.
 	BindArguments, // `f.bind(...)` of a function value.
 	CallValue, // `f.call(...)` or `f.callv(args)` of a function value (spec §3.11, §8.1).
 	EmitSignal, // `s.emit(...)` of a signal value.

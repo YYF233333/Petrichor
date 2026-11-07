@@ -206,9 +206,10 @@ TEST_CASE("in a string, completion offers what the parameter names: files, input
 	const std::vector<CompletionItem> loaded = complete(in_function("var r := load(\"‸\")"));
 	CHECK((find(loaded, "res://icon.png") && find(loaded, "res://icon.png")->kind == CompletionKind::FilePath));
 	CHECK(offers(complete(in_function("print(Input.is_action_pressed(\"ui_‸\"))")), { "jump", "ui_accept" }));
-	const std::string own = "extends Node\n\nsignal died\n\nfunc reset() -> void:\n\tpass\n\nfunc f() -> void:\n\t";
-	CHECK(offers(complete(own + "call_deferred(\"‸\")\n"), { "reset", "f", "queue_free", "_ready", "-died" }));
-	CHECK(offers(complete(own + "emit_signal(\"‸\")\n"), { "died", "-reset" }));
+	// Only what the engine finds by name (spec §10.5).
+	const std::string own = "extends Node\n\npub signal died\nsignal hurt\n\npub func reset() -> void:\n\tpass\n\nfunc f() -> void:\n\t";
+	CHECK(offers(complete(own + "call_deferred(\"‸\")\n"), { "reset", "-f", "queue_free", "_ready", "-died" }));
+	CHECK(offers(complete(own + "emit_signal(\"‸\")\n"), { "died", "-hurt", "-reset" }));
 	// What the parameter does not name stays plain text.
 	CHECK(complete(in_function("print(\"‸\")")).empty());
 }

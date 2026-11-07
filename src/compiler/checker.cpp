@@ -3824,9 +3824,12 @@ class Checker : public ClassRelation {
 	// A method value keeps no reference to its object (spec §3.11), so one of
 	// a new RefCounted, which nothing else holds, is refused.
 	bool receiver_kept(Expr &r_expr) {
-		const Expr *base = r_expr.base.get();
-		if (base && base->kind == ExprKind::Call && base->target == Target::NewObject && engine.inherits(base->type.engine_class(), "RefCounted")) {
-			error(r_expr.range, "A method value does not keep its object, and nothing else holds this new " + base->type.to_string() + " (spec §3.11).");
+		return receiver_kept(r_expr.base.get(), r_expr.range);
+	}
+
+	bool receiver_kept(const Expr *p_base, const TokenRange &p_range) {
+		if (p_base && p_base->kind == ExprKind::Call && p_base->target == Target::NewObject && engine.inherits(p_base->type.engine_class(), "RefCounted")) {
+			error(p_range, "A method value does not keep its object, and nothing else holds this new " + p_base->type.to_string() + " (spec §3.11).");
 			return false;
 		}
 		return true;
@@ -3872,19 +3875,8 @@ class Checker : public ClassRelation {
 				complete_string(&p_method, i, on_self);
 			}
 		}
-		// A method of this class that the engine is to call by a literal name,
-		// as in call_deferred("reset"), must be pub: the engine finds no other
-		// (spec §10.4, §10.5).
-		for (size_t i = 0; on_self && i < p_method.params.size() && i < r_expr.args.size(); i++) {
-			const Expr &arg = *r_expr.args[i];
-			const auto named = arg.kind == ExprKind::StringLiteral ? function_index.find(arg.text) : function_index.end();
-			if (p_method.params[i].name == "method" && named != function_index.end()) {
-				const FuncDecl &method = *cls.all_functions[named->second];
-				if (!method.is_pub) {
-					error(arg.range, "\"" + arg.text + "()\" is not pub, so the engine cannot find it by name; pass the method itself, as " + arg.text + " (spec §10.4).");
-				}
-				refer_string(arg, script_id(declaring(cls, method, &ClassDecl::functions).path, method.name));
-			}
+		if (const std::optional<builtin::MemberName> named = builtin::member_name_param(p_method.owner, p_method.name)) {
+			check_member_name(r_expr, p_method, *named);
 		}
 		if (!r_expr.is_foreign) {
 			refer(r_expr.name_token, engine_id(p_method.owner, r_expr.text));
@@ -3896,6 +3888,255 @@ class Checker : public ClassRelation {
 		}
 		r_expr.engine_return = engine_result(p_method);
 		return set(r_expr, filtered_result(r_expr, p_method));
+	}
+
+	// The member of a class a literal name refers to (spec §10.4).
+	struct NamedMember {
+		bool found = false;
+		bool unknown = false; // Of another language's class whose members are not known here.
+		bool hidden = false; // Of this language and not pub.
+		DeclId id;
+		Type type = Type::of(TypeKind::Error); // A property's, or Error.
+		std::vector<Type> params; // A method's or a signal's.
+		int required = 0; // A method's.
+	};
+
+	// The member of the kind named `p_name` that `p_class` has, as `object.name`
+	// finds it: a member of a class of this language, of an interface, of
+	// another language's class, or of the engine class.
+	NamedMember named_member(const Type &p_class, builtin::MemberName::Kind p_kind, const std::string &p_name) {
+		using Kind = builtin::MemberName::Kind;
+		NamedMember out;
+		const auto from_function = [&](const FuncDecl &p_function, const std::string &p_owner) {
+			out.found = true;
+			out.hidden = !p_function.is_pub && !p_function.is_override;
+			out.id = script_id(p_owner, p_function.name);
+			out.params = param_types(p_function.params);
+			out.required = required_params(p_function);
+		};
+		const auto from_engine = [&](const EngineMethod &p_method, const DeclId &p_id) {
+			out.found = true;
+			out.id = p_id;
+			for (const EngineParam &param : p_method.params) {
+				out.params.push_back(localized(param.type));
+			}
+			out.required = int(p_method.params.size()) - p_method.default_count;
+		};
+		if (p_class.is_interface) {
+			if (const InterfaceProperty *property = p_kind == Kind::Property ? interface_property(p_class, p_name) : nullptr) {
+				out.found = true;
+				out.id = script_id(p_class.script, p_class.interface_name() + "." + property->name);
+				out.type = property->type;
+				return out;
+			}
+			if (const InterfaceDecl *interface = p_kind == Kind::Method ? interface_decl(p_class) : nullptr) {
+				for (const FuncDecl &method : interface->methods) {
+					if (method.name == p_name) {
+						from_function(method, p_class.script);
+						out.id = script_id(p_class.script, interface->name + "." + method.name);
+						out.hidden = false;
+						return out;
+					}
+				}
+			}
+		} else if (is_script_path(p_class.script)) {
+			if (const ClassDecl *decl = script_decl(p_class.script)) {
+				if (p_kind == Kind::Property) {
+					for (const VarDecl *member : decl->all_members) {
+						if (member->name == p_name) {
+							out.found = true;
+							out.hidden = !member->is_pub;
+							out.id = script_id(declaring(*decl, *member, &ClassDecl::members).path, member->name);
+							out.type = member->type;
+							return out;
+						}
+					}
+				} else if (p_kind == Kind::Method) {
+					for (const FuncDecl *function : decl->all_functions) {
+						if (function->name == p_name) {
+							from_function(*function, declaring(*decl, *function, &ClassDecl::functions).path);
+							return out;
+						}
+					}
+				} else {
+					for (const SignalDecl *signal : decl->all_signals) {
+						if (signal->name == p_name) {
+							out.found = true;
+							out.hidden = !signal->is_pub;
+							out.id = script_id(declaring(*decl, *signal, &ClassDecl::signals).path, signal->name);
+							out.params = param_types(signal->params);
+							return out;
+						}
+					}
+				}
+			}
+		} else if (!p_class.script.empty()) {
+			const ForeignClass *foreign = foreign_class(p_class.script);
+			if (!foreign || !foreign->members_known) {
+				out.found = out.unknown = true;
+				return out;
+			}
+			if (p_kind == Kind::Property) {
+				for (const EngineProperty &property : foreign->properties) {
+					if (property.name == p_name) {
+						out.found = true;
+						out.id = foreign_id(p_class.script, p_name);
+						out.type = property.type.is_storable() ? localized(property.type) : Type::of(TypeKind::Error);
+						return out;
+					}
+				}
+			}
+			for (const EngineMethod &method : p_kind == Kind::Method ? foreign->methods : p_kind == Kind::Signal ? foreign->signals
+																												 : std::vector<EngineMethod>()) {
+				if (method.name == p_name) {
+					from_engine(method, foreign_id(p_class.script, p_name));
+					return out;
+				}
+			}
+		}
+		const std::string &engine_class = p_class.engine_class();
+		if (p_kind == Kind::Property) {
+			if (const auto property = engine.find_property(engine_class, p_name)) {
+				out.found = true;
+				out.id = engine_id(property->owner, p_name);
+				out.type = property->type.is_storable() ? property->type : Type::of(TypeKind::Error);
+			}
+		} else if (const auto member = p_kind == Kind::Method ? engine.find_method(engine_class, p_name) : engine.find_signal(engine_class, p_name)) {
+			from_engine(*member, engine_id(member->owner, p_name));
+		}
+		return out;
+	}
+
+	// The member a literal name at a position the binding metadata lists
+	// refers to (spec §10.4): a static reference, which the object's static
+	// type must have, as for `object.name`, unless the type is Object or
+	// Variant, the method only asks, or the name is of a property the engine
+	// lists per instance. A non-pub member is one the engine cannot find
+	// (§10.5). nullopt when the name is not a static reference or is wrong;
+	// `r_path` has the name and, of a property path as "position:x", the
+	// subnames that index the property's value.
+	std::optional<NamedMember> literal_member(Expr &r_call, const builtin::MemberName &p_named, std::vector<std::string> &r_path) {
+		using Kind = builtin::MemberName::Kind;
+		if (p_named.index >= r_call.args.size() || r_call.args[p_named.index]->kind != ExprKind::StringLiteral) {
+			return std::nullopt;
+		}
+		Expr &literal = *r_call.args[p_named.index];
+		const std::string &text = literal.text;
+		if (!text.empty() && text[0] == '@') {
+			error(literal.range, "\"" + text + "\" is how the engine knows a signal that is not pub; only its class reaches it, by the signal itself (spec §10.4).");
+			return std::nullopt;
+		}
+		Type object;
+		if (p_named.target < 0) {
+			object = r_call.base ? r_call.base->type : script_class_type(cls, options.path);
+		} else if (size_t(p_named.target) < r_call.args.size()) {
+			object = r_call.args[p_named.target]->type;
+		}
+		object.nullable = false;
+		if (object.kind != TypeKind::Object || (object.name == "Object" && object.script.empty()) || text.find('/') != std::string::npos) {
+			return std::nullopt;
+		}
+		size_t start = p_named.path && !text.empty() && text[0] == ':' ? 1 : 0;
+		while (true) {
+			const size_t colon = p_named.path ? text.find(':', start) : std::string::npos;
+			r_path.push_back(text.substr(start, colon == std::string::npos ? std::string::npos : colon - start));
+			if (colon == std::string::npos) {
+				break;
+			}
+			start = colon + 1;
+		}
+		const std::string &name = r_path[0];
+		const NamedMember member = named_member(object, p_named.kind, name);
+		const char *kind = p_named.kind == Kind::Method ? "method" : p_named.kind == Kind::Property ? "property"
+																									: "signal";
+		if (!member.found) {
+			if (!p_named.query) {
+				error(literal.range, object.to_string() + " has no " + kind + " \"" + name + "\" (spec §10.4).");
+			}
+			return std::nullopt;
+		}
+		if (member.unknown) {
+			return std::nullopt;
+		}
+		if (member.hidden) {
+			const std::string fix = p_named.kind == Kind::Method ? "pass the method itself, as " + name : p_named.kind == Kind::Signal ? "use the signal itself, as " + name
+																																	   : "make it pub";
+			error(literal.range, "\"" + name + (p_named.kind == Kind::Method ? "()" : "") + "\" is not pub, so the engine cannot find it by name; " + fix + " (spec §10.4).");
+			return std::nullopt;
+		}
+		if (r_path.size() == 1) {
+			refer_string(literal, member.id);
+		}
+		return member;
+	}
+
+	// A literal member name passed to the engine, and what the call gives the
+	// member: the value of a property, the arguments of a method or a signal,
+	// or the function connected to a signal (spec §10.4).
+	void check_member_name(Expr &r_call, const EngineMethod &p_method, const builtin::MemberName &p_named) {
+		using Kind = builtin::MemberName::Kind;
+		std::vector<std::string> path;
+		const std::optional<NamedMember> found = literal_member(r_call, p_named, path);
+		if (!found || p_named.query) {
+			return;
+		}
+		const NamedMember &member = *found;
+		const Expr &literal = *r_call.args[p_named.index];
+		const std::string &text = literal.text;
+		const std::string &name = path[0];
+		const size_t first = p_named.index + 1;
+		if (p_named.kind == Kind::Property) {
+			std::optional<Type> type = member.type;
+			for (size_t i = 1; i < path.size() && type && !type->is_error(); i++) {
+				type = indexed_type(*type, path[i]);
+				if (type && type->is_error()) {
+					error(literal.range, "\"" + path[i - 1] + "\" has no member \"" + path[i] + "\" (spec §10.4).");
+				}
+			}
+			if (p_named.value >= 0 && size_t(p_named.value) < r_call.args.size() && type && !type->is_error()) {
+				const Expr &value = *r_call.args[p_named.value];
+				if (!value.type.is_error() && !assignable(value.type, *type)) {
+					error(value.range, "\"" + text + "\" is " + type->to_string() + ", which takes no " + value.type.to_string() + " (spec §10.4).");
+				}
+			}
+		} else if (p_method.is_vararg) {
+			// The arguments that follow are passed on: to the method, or with the
+			// signal as it is emitted.
+			const size_t given = r_call.args.size() - first;
+			const size_t required = p_named.kind == Kind::Method ? size_t(member.required) : member.params.size();
+			if (given < required || given > member.params.size()) {
+				error(literal.range, "\"" + name + "\" takes " + std::to_string(member.params.size()) + " argument(s); " + std::to_string(given) + " follow (spec §10.4).");
+				return;
+			}
+			for (size_t i = 0; i < given; i++) {
+				const Expr &arg = *r_call.args[first + i];
+				if (!arg.type.is_error() && !assignable(arg.type, member.params[i])) {
+					error(arg.range, "\"" + name + "\" takes " + member.params[i].to_string() + " as argument " + std::to_string(i + 1) + "; found " + arg.type.to_string() + " (spec §10.4).");
+				}
+			}
+		} else if (p_named.kind == Kind::Signal && first < r_call.args.size() && r_call.args[first]->type.kind == TypeKind::Function) {
+			check_handler(*r_call.args[first], Type::signal(member.params));
+		}
+	}
+
+	// The type of `p_name` in a value of `p_type`, as a property path indexes
+	// it: a member of a built-in type, such as Vector2's x, or a property of an
+	// object; Error when it has none of that name, nullopt for a key or a type
+	// not known here.
+	std::optional<Type> indexed_type(const Type &p_type, const std::string &p_name) {
+		if (p_type.kind == TypeKind::Object) {
+			const NamedMember member = named_member(p_type, builtin::MemberName::Kind::Property, p_name);
+			if (member.unknown) {
+				return std::nullopt;
+			}
+			return member.found && !member.hidden ? member.type : Type::of(TypeKind::Error);
+		}
+		const builtin::Class *type = p_type.builtin_name().empty() ? nullptr : builtin::find_class(p_type.builtin_name());
+		if (!type || type->member_count == 0) {
+			return std::nullopt;
+		}
+		const builtin::Member *member = builtin::find_member(*type, p_name);
+		return member ? api_type(member->type, false) : Type::of(TypeKind::Error);
 	}
 
 	// An array that the engine fills with objects of a class named by an
@@ -4065,6 +4306,9 @@ class Checker : public ClassRelation {
 			}
 		}
 		const std::string name = p_type.name;
+		if ((name == "Callable" || name == "Signal") && args.size() == 2 && args[0].kind == TypeKind::Object) {
+			return check_named_value(r_expr, name == "Signal");
+		}
 		if (args.size() == 1 && args[0].kind == TypeKind::Variant) {
 			return construct_from_variant(r_expr, api_type(name, false));
 		}
@@ -4119,6 +4363,35 @@ class Checker : public ClassRelation {
 		r_expr.index = chosen;
 		r_expr.owner = p_type.name;
 		return set(r_expr, api_type(p_type.name, false));
+	}
+
+	// Callable(object, "m") and Signal(object, "s"): with a literal name, the
+	// method value or the signal of the object, as object.m and object.s are
+	// (spec §10.4). A name known only at run time goes through the methods
+	// that take names, or Callable.create().
+	Type check_named_value(Expr &r_expr, bool p_signal) {
+		const Expr &object = *r_expr.args[0];
+		if (object.type.is_optional()) {
+			return fail(r_expr, "The value may be None (" + object.type.to_string() + "); check it before taking its " + (p_signal ? "signal." : "method."));
+		}
+		if (r_expr.args[1]->kind != ExprKind::StringLiteral) {
+			return fail(r_expr, std::string(p_signal ? "Signal" : "Callable") + "(object, name) takes a literal name, a static reference (spec §10.4)" + (p_signal ? "." : "; for a name known only at run time, use Callable.create(object, name)."));
+		}
+		if (!p_signal && !receiver_kept(&object, r_expr.range)) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		const builtin::MemberName named{ 1, 0, p_signal ? builtin::MemberName::Kind::Signal : builtin::MemberName::Kind::Method, false, -1, false };
+		std::vector<std::string> path;
+		const size_t before = errors.size();
+		const std::optional<NamedMember> member = literal_member(r_expr, named, path);
+		if (errors.size() != before) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		r_expr.target = p_signal ? Target::NamedSignal : Target::NamedCallable;
+		// A method of this language as its method value; any other as the
+		// engine's Callable, which finds it by name.
+		r_expr.index = member && member->id.kind == DeclId::Kind::Script ? 1 : 0;
+		return set(r_expr, p_signal && member ? Type::signal(member->params) : Type::builtin(p_signal ? "Signal" : "Callable"));
 	}
 
 	static Type role_type(bytecode::ElementRole p_role, const Type &p_container) {
@@ -9373,10 +9646,10 @@ class Checker : public ClassRelation {
 	// A string at the cursor that names something by where it is (spec §10.4):
 	// a file by its path, as preload() and an engine method's String `path`
 	// take; an input action, as a StringName `action` names one, and the four
-	// of Input.get_vector() (core/input/input.cpp:246-248); a method or signal
-	// of this class, as `method` and `signal` name them in a call on self.
-	// Only preload() checks what its string names, and a file the editor
-	// lists loads, so each name goes in unquoted, which the editor quotes
+	// of Input.get_vector() (core/input/input.cpp:246-248); a pub method or
+	// signal of this class, as `method` and `signal` name them in a call on
+	// self, the engine finding no other (§10.5). A file the editor lists
+	// loads, so each name goes in unquoted, which the editor quotes
 	// (scene/gui/code_edit.cpp:3916-3927; ed1daf0).
 	void complete_string(const EngineMethod *p_method, size_t p_index, bool p_on_self) {
 		const EngineParam *param = p_method ? &p_method->params[p_index] : nullptr;
@@ -9402,13 +9675,15 @@ class Checker : public ClassRelation {
 		} else if (string_name && p_on_self && (name == "method" || name == "signal")) {
 			if (name == "method") {
 				for (const FuncDecl *function : cls.all_functions) {
-					if (!function->of_struct) {
+					if (!function->of_struct && (function->is_pub || function->is_override)) {
 						add(function->name, CompletionKind::Function, CompletionItem::Place::Member);
 					}
 				}
 			} else {
 				for (const SignalDecl *signal : cls.all_signals) {
-					add(signal->name, CompletionKind::Signal, CompletionItem::Place::Member);
+					if (signal->is_pub) {
+						add(signal->name, CompletionKind::Signal, CompletionItem::Place::Member);
+					}
 				}
 			}
 			// As the engine lists them (core/object/object.cpp:2396-2413).

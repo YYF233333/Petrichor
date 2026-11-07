@@ -101,6 +101,28 @@ bool param_non_null(std::string_view p_class, std::string_view p_method, uint32_
 // (spec §10.3), or -1.
 int class_filter_param(std::string_view p_class, std::string_view p_method);
 
+// A parameter that names a member of an object (spec §10.4).
+struct MemberName {
+	enum class Kind {
+		Method,
+		Property,
+		Signal,
+	};
+	uint32_t index;
+	int target; // The argument that holds the object, or -1 for the receiver.
+	Kind kind;
+	bool query; // Whether the member exists is what the method asks.
+	int value; // The argument the property is given, or -1.
+	bool path; // A NodePath, whose subnames after ":" index the property.
+};
+
+struct MemberNameEntry {
+	const char *method; // "Class.method".
+	MemberName name;
+};
+
+std::optional<MemberName> member_name_param(std::string_view p_class, std::string_view p_method);
+
 // An entry of the generated metadata that has a value.
 struct Keyed {
 	const char *key; // "Class.method:index" or "Class.property".

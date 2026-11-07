@@ -271,3 +271,15 @@ pub func private_signals() -> String:
 	_done.connect(func(value: int): got.append(value))
 	_done.emit(3)
 	return str(got) + " " + str(_done.get_name())
+
+pub signal pinged
+pub var tally := 0
+
+pub func bump(n: int):
+	tally += n
+
+pub func literal_names() -> String:
+	set("tally", 5)
+	var c := Callable(self, "bump")
+	c.call(2)
+	return str(tally) + " " + str(c == bump) + " " + str(Signal(self, "pinged") == pinged)

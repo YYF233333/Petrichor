@@ -43,7 +43,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - `Resource.duplicate()` keeping the static type.
 - Type-specific fix hints on `not x` (spec §5.4).
 - `pub` required on the members that animation tracks and synchronized properties name (spec §10.5). The compiler does not read them yet (spec §7.7).
-- Literal member names checked (spec §10.4): existence and value types, rename and find references. Only method names on self resolve now. `Callable(self, "m")` and `Signal(self, "s")` are refused as if no constructor took them.
+- `Callable(object, name)` and `Signal(object, name)` with a name known only at run time (spec §10.4). `Callable.create()` serves the first.
 - The audit of the most frequently called engine APIs for null (spec §10.2); `binding_metadata.txt` has two entries.
 - Overriding Object's `_get`, `_set`, `_get_property_list`, `_validate_property`, `_property_can_revert` and `_property_get_revert`. The engine reaches them through the script instance, and GDScript's instance calls them (`modules/gdscript/gdscript.cpp:1590, 1677, 1714, 1739, 1857, 1879`, `ed1daf0`). Now they are a compile error, since the runtime does not call them.
 - Non-constant default values, of parameters and of struct fields.

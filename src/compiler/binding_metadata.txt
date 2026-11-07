@@ -12,6 +12,37 @@
 #   filters-by-class  The argument at the given index names a class, and the
 #                     returned array holds only objects of it; with a literal
 #                     class name the result is Array[that class] (spec §10.3).
+#   names-member      The argument at the first index names a member of the
+#                     object at the second, or of the receiver for "-": the
+#                     method, property or signal its parameter's name says.
+#                     A literal name is a static reference (spec §10.4).
+#   queries-member    As names-member, for a method that asks whether the
+#                     member exists, so a name the type lacks is no error.
 
 returns-non-null Node.get_tree scene/main/node.h:558-561
 filters-by-class Node.find_children 1 scene/main/node.cpp:2031-2042
+
+names-member Object.call 0 - core/object/object.cpp:613
+names-member Object.call_deferred 0 - core/object/object.cpp:632
+names-member Object.callv 0 - core/object/object.cpp:750
+names-member Object.get_method_argument_count 0 - core/object/object.cpp:681
+names-member Node.rpc 0 - scene/main/node.cpp:823
+names-member Node.rpc_id 1 - scene/main/node.cpp:844
+names-member Node.rpc_config 0 - scene/main/node.cpp:803
+names-member Object.set 0 - core/object/object.cpp:233
+names-member Object.get 0 - core/object/object.cpp:316
+names-member Object.set_deferred 0 - core/object/object.cpp:2003
+names-member Object.set_indexed 0 - core/object/object.cpp:392
+names-member Object.get_indexed 0 - core/object/object.cpp:451
+names-member Tween.tween_property 1 0 scene/animation/tween.cpp:100-108
+names-member UndoRedo.add_do_property 1 0 core/object/undo_redo.cpp:204
+names-member UndoRedo.add_undo_property 1 0 core/object/undo_redo.cpp:220
+names-member Object.emit_signal 0 - core/object/object.cpp:1151
+names-member Object.connect 0 - core/object/object.cpp:1518
+names-member Object.disconnect 0 - core/object/object.cpp:1627
+names-member Object.is_connected 0 - core/object/object.cpp:1586
+names-member Object.has_connections 0 - core/object/object.cpp:1607
+names-member Object.get_signal_connection_list 0 - core/object/object.cpp:1396
+queries-member Object.has_method 0 - core/object/object.cpp:655
+queries-member Object.has_signal 0 - core/object/object.cpp:1422
+queries-member Object.has_user_signal 0 - core/object/object.cpp:1119

@@ -1491,6 +1491,16 @@ class Lowerer {
 		switch (p_call.target) {
 			case Target::Noop:
 				return NO_REG;
+			case Target::NamedCallable:
+			case Target::NamedSignal: {
+				const Expr &object = *p_call.args[0];
+				const uint32_t base = object.kind == ExprKind::Self ? NO_REG : lower_expr(object);
+				const uint32_t result = temp(p_call.type);
+				const Op op = p_call.target == Target::NamedSignal ? Op::GET_SIGNAL : p_call.index ? Op::METHOD_VALUE
+																								   : Op::ENGINE_METHOD_VALUE;
+				instr(op, result, base, NO_REG, text_constant(ValueType::StringName, p_call.args[1]->text));
+				return result;
+			}
 			case Target::GetOrNone:
 				return get_or_none(p_call);
 			case Target::PopOrNone:

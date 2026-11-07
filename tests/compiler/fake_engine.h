@@ -44,6 +44,7 @@ class FakeEngine : public compiler::EngineApi {
 		{ "Viewport", "Node" },
 		{ "Window", "Viewport" },
 		{ "Tween", "RefCounted" },
+		{ "PropertyTweener", "RefCounted" },
 		{ "InputEventMouseMotion", "InputEvent" },
 		{ "MeshInstance3D", "Node3D" },
 		{ "FileAccess", "RefCounted" },
@@ -107,11 +108,17 @@ public:
 			method("_to_string", {}, t(TypeKind::String), true),
 			method("_notification", { { "what", t(TypeKind::Int) } }, t(TypeKind::Void), true),
 			method("set_script", { { "script", t(TypeKind::Variant) } }, t(TypeKind::Void)),
+			method("set_deferred", { { "property", Type::builtin("StringName") }, { "value", t(TypeKind::Variant) } }, t(TypeKind::Void)),
+			method("has_method", { { "method", Type::builtin("StringName") } }, t(TypeKind::Bool)),
+			method("connect", { { "signal", Type::builtin("StringName") }, { "callable", Type::builtin("Callable") }, { "flags", t(TypeKind::Int) } }, t(TypeKind::Int), false, 1),
 			method("emit_signal", { { "signal", Type::builtin("StringName") } }, t(TypeKind::Int)),
 			method("call_deferred", { { "method", Type::builtin("StringName") } }, t(TypeKind::Void)),
 		};
 		methods["Object"][methods["Object"].size() - 2].is_vararg = true;
 		methods["Object"].back().is_vararg = true;
+		methods["Tween"] = {
+			method("tween_property", { { "object", Type::object("Object") }, { "property", Type::builtin("NodePath") }, { "final_val", t(TypeKind::Variant) }, { "duration", t(TypeKind::Float) } }, Type::object("PropertyTweener", true)),
+		};
 		methods["Control"] = { method("_has_point", { { "point", Type::builtin("Vector2") } }, t(TypeKind::Bool), true) };
 		methods["Node"] = {
 			method("_ready", {}, t(TypeKind::Void), true),

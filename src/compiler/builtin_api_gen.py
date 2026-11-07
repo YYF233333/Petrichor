@@ -37,12 +37,30 @@ class _Pool:
         return f"static const {self.c_type} {self.name}[] = {{\n{lines}}};\n"
 
 
+MEMBER_KINDS = {"method": "Method", "property": "Property", "property_path": "Property", "signal": "Signal"}
+
+
+def _member_name(where, arguments, index, target, query):
+    """A row of MEMBER_NAMES: the name's index, the object's (-1 for the
+    receiver), the member's kind from the parameter's name, whether it is a
+    query, the index of the value a property is given (-1 for none), and
+    whether the name is a property path."""
+    assert index < len(arguments), f"{where}: no argument {index}"
+    named = arguments[index]
+    assert named["type"] in ("StringName", "NodePath") and named["name"] in MEMBER_KINDS, f"{where}: argument {index} names no member"
+    assert target == -1 or arguments[target]["type"] == "Object", f"{where}: argument {target} is not an object"
+    value = next((i for i, a in enumerate(arguments) if i > index and a["name"] in ("value", "final_val")), -1)
+    path = named["type"] == "NodePath"
+    return f"{index}, {target}, MemberName::Kind::{MEMBER_KINDS[named['name']]}, {_bool(query)}, {value}, {_bool(path)}"
+
+
 def _binding_metadata(api, metadata_path):
     """The engine's RequiredResult and RequiredParam metadata, merged with the
     audit in binding_metadata.txt (spec §10.2, §10.3). Returns sorted lists of
     what is never null, "Class.method", "Class.property" and
-    "Class.method:index", and of the parameters that filter by class,
-    "Class.method:index"."""
+    "Class.method:index", of the parameters that filter by class,
+    "Class.method:index", and of those that name a member, ("Class.method",
+    row)."""
     methods = {(c["name"], m["name"]): m for c in api["classes"] for m in c.get("methods", [])}
     returns = {f"{c}.{m}" for (c, m), info in methods.items() if info.get("return_value", {}).get("meta") == "required"}
     params = {
@@ -52,6 +70,7 @@ def _binding_metadata(api, metadata_path):
         if a.get("meta") == "required"
     }
     filters = set()
+    names = {}
     with open(metadata_path, encoding="utf-8") as file:
         for number, line in enumerate(file, 1):
             words = line.split("#", 1)[0].split()
@@ -71,6 +90,11 @@ def _binding_metadata(api, metadata_path):
                 assert index < len(arguments) and arguments[index]["type"] in ("String", "StringName"), f"{where}: argument {index} is not a class name"
                 assert methods[(cls, method)].get("return_value", {}).get("type", "").startswith("typedarray::"), f"{where}: {words[1]} does not return a typed array"
                 filters.add(f"{words[1]}:{index}")
+            elif words[0] in ("names-member", "queries-member"):
+                assert len(words) == 5 and words[2].isdigit() and (words[3] == "-" or words[3].isdigit()), f"{where}: expected '{words[0]} Class.method index object path:line'"
+                assert words[1] not in names, f"{where}: {words[1]} is listed twice"
+                target = -1 if words[3] == "-" else int(words[3])
+                names[words[1]] = _member_name(where, methods[(cls, method)].get("arguments", []), int(words[2]), target, words[0] == "queries-member")
             else:
                 assert False, f"{where}: unknown kind {words[0]}"
     # A property reads through its getter.
@@ -80,7 +104,7 @@ def _binding_metadata(api, metadata_path):
         for p in c.get("properties", [])
         if p.get("getter") and f"{c['name']}.{p['getter']}" in returns
     }
-    return sorted(returns), sorted(properties), sorted(params), sorted(filters)
+    return sorted(returns), sorted(properties), sorted(params), sorted(filters), sorted(names.items())
 
 
 # Integer widths the engine truncates or wraps a value to (spec §10.6).
@@ -216,6 +240,10 @@ def generate(json_path, metadata_path, out_path):
             out.write(f"extern const char *const {name}[];\nextern const size_t {name}_COUNT;\n")
             out.write(f"const char *const {name}[] = {{\n" + "".join(f"\t{_c_string(row)},\n" for row in rows) + "};\n")
             out.write(f"const size_t {name}_COUNT = {len(rows)};\n\n")
+        rows = metadata[4]
+        out.write("extern const MemberNameEntry MEMBER_NAMES[];\nextern const size_t MEMBER_NAMES_COUNT;\n")
+        out.write("const MemberNameEntry MEMBER_NAMES[] = {\n" + "".join(f"\t{{ {_c_string(key)}, {{ {row} }} }},\n" for key, row in rows) + "};\n")
+        out.write(f"const size_t MEMBER_NAMES_COUNT = {len(rows)};\n\n")
         for name, rows in zip(("INT_PARAMS", "INT_PROPERTIES"), _int_ranges(api)):
             out.write(f"extern const Keyed {name}[];\nextern const size_t {name}_COUNT;\n")
             out.write(f"const Keyed {name}[] = {{\n" + "".join(f"\t{{ {_c_string(key)}, {_c_string(width)} }},\n" for key, width in rows) + "};\n")
