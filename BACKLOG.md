@@ -150,6 +150,10 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
   - `continue`, `break` and `return` end its paths.
   - The warning shows only for files without errors, which have IR. The checker's former cases are in `git show 3e63b1c:tests/compiler/test_warnings.cpp`.
 
+## Upstream
+
+- GDScript's per-iteration clearing of loop-body locals, left as commented-out TODOs (`modules/gdscript/gdscript_compiler.cpp:2106, 2140`, `ed1daf0`). It would match spec §6.8. The owner may contribute it.
+
 ## Open questions
 
 - How `NaN` behaves in containers, which GDScript handles inconsistently (spec §5.2, engine facts). NaN rarely stands for a legal state in game logic. Candidates:
@@ -170,7 +174,6 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
 - Rules that break the reversibility rule (spec §1.2), to be settled one by one. Same spelling, different meaning:
   - `await f()` owns the child task and cancels it with the parent. GDScript runs `f` on (spec §9.3).
   - Assignment evaluates subscripts before the right side. So `arr[i] = next()` differs when `next()` changes `i` (§3.6).
-  - Loop-body locals are released every iteration, GDScript's after the loop (§6.8).
 
   Meanings of GDScript code that this language cannot write:
   - `_init` with parameters on Node and Resource scripts (§6.2). Every `Item.new("Sword")` changes.

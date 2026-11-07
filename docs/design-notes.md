@@ -107,6 +107,7 @@
 - **表达式与收窄（§5.1–§5.4）**：`godot-open-rts` 用 `"hp" in unit` 检查单位成员 16 次。[第二次纸面迁移](surveys/paper-migration-2.md)中 `(x as T).unwrap()` 向下转型 16 处。因成员不收窄而新增的局部变量每千行 4.4 个。
 - **生命周期与析构（§6.2–§6.7）**：相关引擎暗坑见[暗坑清单](surveys/pitfalls.md) G-02、G-03、G-04、G-05、G-09、G-10。[语料计数](surveys/corpus-counts.md)中，在 `_ready` 里把节点登记到 autoload 成员上的写法只有 6 处（5 处在 Ring）。`NOTIFICATION_PREDELETE` 仅 40 次（32 次在 `gdUnit4`）。
 - **释放时机（§6.8）**：释放时机用户看得到，所以按作用域释放，与 C++、Rust 一致。
+  - GDScript 晚释放的值，代码都已访问不到，只有析构副作用和 WeakRef 看得出区别。它自己在循环内逐轮清空的代码留为 TODO（[引擎事实](engine-facts.md)），所以晚释放是未完成的实现。
   - Swift 原先允许在最后一次使用后释放。5.7 改为锚定在作用域结束，优化器只在析构屏障之间提前（[Swift 论坛](https://forums.swift.org/t/what-is-the-current-status-of-lexical-lifetimes/76587)）。
   - Rust 2021 的 `if let` 把头部的临时值带入 else 块，锁在其中一直持有。2024 版改为进入 else 之前释放（[LWN](https://lwn.net/Articles/1002456)）。
   - GDScript 循环体的局部变量到循环结束才清空，源码留有 TODO。本语言每轮释放，不让上一轮的值留到下一轮。
