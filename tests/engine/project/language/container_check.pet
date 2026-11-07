@@ -68,11 +68,11 @@ pub func typed_entry(d: Dictionary[String, int]) -> int:
 
 # Containers keep structs and T? boxed (architecture §2.2), and type
 # containers one level deep (spec §3.8).
-struct Hit:
+pub struct Hit:
 	var damage: int
 	var tags: Array[String] = []
 
-struct Message:
+pub struct Message:
 	var states: Dictionary[String, Hit]
 	var name: String
 

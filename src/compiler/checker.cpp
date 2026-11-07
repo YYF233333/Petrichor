@@ -8017,6 +8017,100 @@ class Checker : public ClassRelation {
 		}
 	}
 
+	// The part of a type that is not seen everywhere: a struct, an enum, an
+	// interface or an inner class without pub, or one inside a class without
+	// it (spec §4.2); nullopt when there is none.
+	std::optional<Type> hidden_part(const Type &p_type) const {
+		for (const Type &arg : p_type.args) {
+			if (std::optional<Type> part = hidden_part(arg)) {
+				return part;
+			}
+		}
+		if (p_type.values && p_type.values->is_engine) {
+			return std::nullopt;
+		}
+		const ClassDecl *header = script_header(p_type.script);
+		const std::string name = p_type.interface_name();
+		bool pub = true;
+		if (header && p_type.kind == TypeKind::Struct) {
+			const StructDecl *decl = header->find_struct(name);
+			pub = !decl || decl->is_pub;
+		} else if (header && (p_type.kind == TypeKind::Enum || p_type.kind == TypeKind::PayloadEnum)) {
+			const EnumDecl *decl = header->find_enum(name);
+			pub = !decl || decl->is_pub;
+		} else if (header && p_type.is_interface) {
+			const auto decl = std::find_if(header->interfaces.begin(), header->interfaces.end(), [&](const InterfaceDecl &p_decl) { return p_decl.name == name; });
+			pub = decl == header->interfaces.end() || decl->is_pub;
+		}
+		for (std::string path = p_type.script; pub && path.find("::") != std::string::npos; path = path.substr(0, path.rfind("::"))) {
+			const ClassDecl *inner = script_header(path);
+			pub = !inner || inner->is_pub;
+		}
+		Type shown = p_type;
+		shown.nullable = false;
+		return pub ? std::nullopt : std::optional<Type>(shown);
+	}
+
+	// A pub declaration shows the types of its signature wherever it is seen,
+	// so each of them must be seen there too (spec §4.2).
+	void check_pub_signatures() {
+		const auto check = [&](bool p_pub, uint32_t p_token, const std::string &p_what, const std::vector<Type> &p_types) {
+			for (const Type &type : p_types) {
+				const std::optional<Type> part = p_pub ? hidden_part(type) : std::nullopt;
+				if (part) {
+					error(p_token, part->to_string() + " is not pub, but " + p_what + " shows it (spec §4.2).");
+					return;
+				}
+			}
+		};
+		const auto signature = [](const FuncDecl &p_function) {
+			std::vector<Type> types = { p_function.return_type };
+			for (const ParamDecl &param : p_function.params) {
+				types.push_back(param.type);
+			}
+			return types;
+		};
+		for (const std::vector<VarDecl> *variables : { &cls.members, &cls.static_vars }) {
+			for (const VarDecl &variable : *variables) {
+				check(variable.is_pub, variable.name_token, "the pub \"" + variable.name + "\"", { variable.type });
+			}
+		}
+		for (const ConstDecl &constant : cls.constants) {
+			check(constant.is_pub, constant.name_token, "the pub \"" + constant.name + "\"", { constant.type });
+		}
+		for (const FuncDecl &function : cls.functions) {
+			check(function.is_pub, function.name_token, "the pub \"" + function.name + "()\"", signature(function));
+		}
+		for (const SignalDecl &signal : cls.signals) {
+			check(signal.is_pub, signal.name_token, "the pub signal \"" + signal.name + "\"", param_types(signal.params));
+		}
+		for (const StructDecl &decl : cls.structs) {
+			for (const VarDecl &field : decl.fields) {
+				check(decl.is_pub, field.name_token, "the field \"" + field.name + "\" of the pub " + decl.name, { field.type });
+			}
+			for (const FuncDecl &method : decl.methods) {
+				check(decl.is_pub, method.name_token, "the method \"" + method.name.substr(decl.name.size() + 1) + "()\" of the pub " + decl.name, signature(method));
+			}
+		}
+		for (const EnumDecl &decl : cls.enums) {
+			for (size_t v = 0; decl.has_payloads && decl.type.values && v < decl.values.size(); v++) {
+				std::vector<Type> fields;
+				for (const auto &[name, type] : decl.type.values->fields[v]) {
+					fields.push_back(type);
+				}
+				check(decl.is_pub, decl.values[v].name_token, "the variant " + decl.values[v].name + " of the pub " + decl.name, fields);
+			}
+		}
+		for (const InterfaceDecl &decl : cls.interfaces) {
+			for (const FuncDecl &method : decl.methods) {
+				check(decl.is_pub, method.name_token, "the method \"" + method.name + "()\" of the pub " + decl.name, signature(method));
+			}
+			for (const InterfaceProperty &property : decl.properties) {
+				check(decl.is_pub, property.name_token, "the property \"" + property.name + "\" of the pub " + decl.name, { property.type });
+			}
+		}
+	}
+
 	// The properties the class's interfaces require, after the members' types
 	// are known: a pub member of the same type, or an inherited engine property,
 	// which must have a setter unless the requirement is @readonly (spec §3.9).
@@ -9256,6 +9350,7 @@ private:
 			}
 		}
 		check_members();
+		check_pub_signatures();
 		check_interface_properties();
 		check_groups();
 		for (FuncDecl &fn : cls.functions) {

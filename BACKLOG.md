@@ -11,7 +11,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - of static functions, now only called: an outer class's by its bare name, and `Class.f`;
   - of other objects, and of structs;
   - of engine methods, as in `connect(queue_free)`, which now reads as an undeclared name.
-- The error for a type that is not pub in the signature of a pub member (spec §4.2). Such a type may be a struct or an interface.
 - Static checks of:
   - must-assign exports in scenes, in resources and at export (spec §7.5);
   - a statically known scene's `instantiate(...)` missing an export the scene does not assign (§7.4). The scene index does not read property values yet;

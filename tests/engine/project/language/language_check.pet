@@ -141,7 +141,7 @@ pub func classify(s: String, n: int) -> String:
 
 # Enums with payloads (spec §3.7), and the patterns that take them and T?
 # apart (§5.6).
-enum Command { IDLE, MOVE(target: Vector3), ATTACK(power: int, label: String) }
+pub enum Command { IDLE, MOVE(target: Vector3), ATTACK(power: int, label: String) }
 
 pub func commands() -> Array:
 	var move := Command.MOVE(target = Vector3(1, 2, 3))

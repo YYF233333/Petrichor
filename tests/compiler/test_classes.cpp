@@ -146,6 +146,19 @@ TEST_CASE("members without pub are visible in their own file only (spec §4.2)")
 	CHECK(contains(own, "\"hp\" is not pub, and members that are not pub of other instances of this class are not supported yet."));
 }
 
+TEST_CASE("a pub declaration shows only pub types (spec §4.2)") {
+	const auto errors_of_class = [](const std::string &p_members) {
+		return messages(compile_in("class_name Vault\nextends Node\n\nstruct Coin:\n\tvar value: int = 1\n\nenum Hidden { A, B }\n\ninterface Lock:\n\tfunc open()\n\nclass Badge:\n\tvar rank := 3\n\n" + p_members, FakeProject()));
+	};
+	CHECK(errors_of_class("var coins: Array[Coin] = []\n\nfunc take(lock: Lock) -> Coin:\n\treturn Coin()\n").empty());
+	CHECK(contains(errors_of_class("pub var coins: Array[Coin] = []\n"), "Vault.Coin is not pub, but the pub \"coins\" shows it (spec §4.2)."));
+	CHECK(contains(errors_of_class("pub func pick(lock: Lock?) -> void:\n\tpass\n"), "Vault.Lock is not pub, but the pub \"pick()\" shows it"));
+	CHECK(contains(errors_of_class("pub signal turned(state: Hidden)\n"), "is not pub, but the pub signal \"turned\" shows it"));
+	CHECK(contains(errors_of_class("pub func make() -> Badge:\n\treturn Badge.new()\n"), "Vault.Badge is not pub, but the pub \"make()\" shows it"));
+	CHECK(contains(errors_of_class("pub struct Purse:\n\tvar coin: Coin\n"), "Vault.Coin is not pub, but the field \"coin\" of the pub Purse shows it"));
+	CHECK(contains(errors_of_class("pub var count := Coin()\n"), "the pub \"count\" shows it"));
+}
+
 TEST_CASE("a member typed from scenes is not known to other scripts") {
 	FakeProject classes = project();
 	classes.add_script("res://spawner.pet", "class_name Spawner\nextends Node\n\npub var enemy_scene = preload(\"res://enemy.tscn\")\n", "Spawner");
