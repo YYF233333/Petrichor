@@ -11,9 +11,6 @@
 #include "adapter/editor/script_compiler.h"
 #include "compiler/parser.h"
 #endif
-#ifdef PETRICHOR_PROBES
-#include "probe/probe_methods.h"
-#endif
 
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/engine.hpp>
@@ -741,14 +738,7 @@ String PetScript::_get_class_icon_path() const {
 
 bool PetScript::_has_method(const StringName &p_method) const {
 	const std::shared_ptr<const ClassImage> current = get_image();
-	if (current && (find_visible_function(*current, p_method) >= 0 || (p_method == init_name() && constructible(*current)))) {
-		return true;
-	}
-#ifdef PETRICHOR_PROBES
-	return probe_methods::has(get_path(), p_method);
-#else
-	return false;
-#endif
+	return current && (find_visible_function(*current, p_method) >= 0 || (p_method == init_name() && constructible(*current)));
 }
 
 bool PetScript::_has_static_method(const StringName &p_method) const {
@@ -767,11 +757,6 @@ Variant PetScript::_get_script_method_argument_count(const StringName &p_method)
 }
 
 Dictionary PetScript::_get_method_info(const StringName &p_method) const {
-#ifdef PETRICHOR_PROBES
-	if (probe_methods::has(get_path(), p_method)) {
-		return probe_methods::info(get_path(), p_method);
-	}
-#endif
 	const std::shared_ptr<const ClassImage> current = get_image();
 	if (!current) {
 		return Dictionary();
@@ -889,14 +874,8 @@ void PetScript::_update_exports() {
 }
 
 TypedArray<Dictionary> PetScript::_get_script_method_list() const {
-	TypedArray<Dictionary> list;
-	if (const std::shared_ptr<const ClassImage> current = get_image()) {
-		list = visible_methods(*current);
-	}
-#ifdef PETRICHOR_PROBES
-	probe_methods::append_to(get_path(), list);
-#endif
-	return list;
+	const std::shared_ptr<const ClassImage> current = get_image();
+	return current ? visible_methods(*current) : TypedArray<Dictionary>();
 }
 
 TypedArray<Dictionary> PetScript::_get_script_property_list() const {

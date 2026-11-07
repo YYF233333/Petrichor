@@ -5,12 +5,11 @@ Usage:
     scons target=template_debug    (for the export group)
     python tests/engine/run.py <godot editor binary> [group...]    (or set GODOT)
 
-Checks the game run, the editor side (placeholders, saving, the undo probe), the
-other step-2 probes of the architecture, the language, the debugger, hot reload,
-an exported pack run in a directory without sources with the library of export
-templates, and the FPS starter kit and Ring's breakout with their migrated scripts. Naming groups runs
-only those, after the build; the groups are those of GROUPS, hot reload being
-part of debugger.
+Checks the game run, the editor side (placeholders, saving), the language, the
+debugger, hot reload, an exported pack run in a directory without sources with
+the library of export templates, and the FPS starter kit and Ring's breakout
+with their migrated scripts. Naming groups runs only those, after the build;
+the groups are those of GROUPS, hot reload being part of debugger.
 """
 
 import hashlib
@@ -50,7 +49,7 @@ GAME_OUTPUT = [
     "greeter: _ready, message = set from GDScript",
 ]
 
-GROUPS = ["game", "editor", "probes", "language", "debugger", "export", "fps", "ring"]
+GROUPS = ["game", "editor", "language", "debugger", "export", "fps", "ring"]
 
 failures = []
 
@@ -494,10 +493,6 @@ def main():
     if wanted("editor"):
         code, output = run(godot, "-e", "--path", str(PROJECT), "--", "--editor-checks")
         expect_run("editor checks", code, output, ["editor check: 0 failure(s)"], expected_errors(output, "editor check"))
-
-    if wanted("probes"):
-        code, output = run(godot, "--path", str(PROJECT), "res://probes/probes.tscn")
-        expect_run("probes", code, output, ["probe: 0 failure(s)"], expected_errors(output, "probe"))
 
     if wanted("language"):
         # Verbose, so that StringNames still referenced at exit are listed.

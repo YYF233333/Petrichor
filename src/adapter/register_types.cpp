@@ -5,11 +5,6 @@
 #include "runtime/task.h"
 #include "runtime/values.h"
 
-#ifdef PETRICHOR_PROBES
-#include "probe/probe.h"
-#include "probe/task.h"
-#endif
-
 #ifdef TOOLS_ENABLED
 #include "adapter/editor/pet_editor_plugin.h"
 #include "adapter/editor/script_compiler.h"
@@ -62,10 +57,6 @@ static void initialize_petrichor(ModuleInitializationLevel p_level) {
 		GDREGISTER_CLASS(PetScript);
 		GDREGISTER_INTERNAL_CLASS(PetResourceLoader);
 		GDREGISTER_INTERNAL_CLASS(PetResourceSaver);
-#ifdef PETRICHOR_PROBES
-		GDREGISTER_INTERNAL_CLASS(PetTask);
-		GDREGISTER_CLASS(PetrichorProbe);
-#endif
 
 		language = memnew(PetLanguage);
 		Engine::get_singleton()->register_script_language(language);

@@ -710,6 +710,8 @@ func _ready() -> void:
 	Resource.new().set_script(action_script)
 	_check_errors(["Cannot set object script. Script 'res://language/abstract_action.pet' should not be abstract."], "the engine gives no object an abstract script")
 
+	_gdscript_static_view()
+
 	for test: GDScript in [preload("res://language/coroutines_test.gd"), preload("res://language/defaults_test.gd"), preload("res://language/inheritance_test.gd")]:
 		var part: Node = test.new()
 		add_child(part)
@@ -720,3 +722,39 @@ func _ready() -> void:
 	OS.remove_logger(errors)
 	print("language: %d failure(s)" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
+
+
+# Spec §10.1: GDScript checks the members and new() of this language's classes.
+func _gdscript_static_view() -> void:
+	var classes := ProjectSettings.get_global_class_list().filter(func(c): return c["class"] == &"TypedGreeter")
+	_check(classes.size() == 1 and classes[0]["language"] == &"Petrichor", "class_name registers a global class")
+	_check(_compiles("""
+var g: TypedGreeter = TypedGreeter.new()
+var s: String = g.greet()
+var m: String = g.message
+g.message = "x"
+var r = await g.echo_later(1, 1)
+g.free()"""), "a typed use of the class compiles, and awaits an async method, whose result the engine sees untyped")
+	_check(not _compiles("var i: int = TypedGreeter.new().greet()"), "a method's return type is checked")
+	_check_errors(["Parse Error: Cannot assign a value of type String to variable \"i\" with specified type int."], "GDScript reports the return type")
+	_check(not _compiles("TypedGreeter.new().message = 1"), "a property's type is checked")
+	_check_errors(["Parse Error: Cannot assign a value of type \"int\" as \"String\".", "Parse Error: Value of type \"int\" cannot be assigned to a variable of type \"String\"."], "GDScript reports the property's type")
+	# GDScript treats an unknown method on any object type as an unsafe access
+	# (a warning), not an error (modules/gdscript/gdscript_analyzer.cpp:3750-3757).
+	_check(_compiles("TypedGreeter.new().nope()") == _compiles("Node.new().nope()"), "an unknown method is treated as on a native class")
+	_check(not _compiles("TypedGreeter.new().echo_later(1)"), "a method's argument count is checked")
+	_check_errors(["Parse Error: Too few arguments for \"echo_later()\" call. Expected at least 2 but received 1."], "GDScript reports the argument count")
+	_check(not _compiles("TypedGreeter.new(1)"), "new() checks its arguments")
+	_check_errors(["Parse Error: Too many arguments for \"new()\" call. Expected at most 0 but received 1."], "GDScript reports the arguments of new()")
+	_check(not _compiles("var n: Node2D = TypedGreeter.new()"), "new() has the type of the class")
+	_check_errors(["Parse Error: Cannot assign a value of type res://language/typed_greeter.pet to variable \"n\" with specified type Node2D."], "GDScript reports the type of new()")
+	# With redundant_await raised to an error in this project, awaiting a call
+	# typed String fails.
+	_check(not _compiles("var r = await TypedGreeter.new().greet()"), "awaiting a typed result is a redundant await")
+	_check_errors(["Parse Error: \"await\" keyword is unnecessary because the expression isn't a coroutine nor a signal. (Warning treated as error.)"], "GDScript reports the redundant await")
+
+
+func _compiles(body: String) -> bool:
+	var script := GDScript.new()
+	script.source_code = "extends Node\n\nfunc f() -> void:\n\t" + body.strip_edges().replace("\n", "\n\t") + "\n"
+	return script.reload() == OK

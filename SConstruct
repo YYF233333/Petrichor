@@ -193,9 +193,9 @@ VariantDir("build/src", "src", duplicate=0)
 VariantDir("build/gen", "gen", duplicate=0)
 VariantDir("build/tests", "tests", duplicate=0)
 
-# Neither bytecode, compiler nor runtime checks TOOLS_ENABLED or
-# PETRICHOR_PROBES: editor, template_debug and compiler_tests share their
-# objects, while template_release keeps its own non-DEBUG_ENABLED suffix.
+# Neither bytecode, compiler nor runtime checks TOOLS_ENABLED: editor,
+# template_debug and compiler_tests share their objects, while
+# template_release keeps its own non-DEBUG_ENABLED suffix.
 shared_suffix = env["suffix"].replace(".editor.", ".debug.").replace(".template_debug.", ".debug.")
 shared_env = env.Clone()
 shared_env["CPPDEFINES"] = [d for d in shared_env["CPPDEFINES"] if d != "TOOLS_ENABLED"]
@@ -219,12 +219,6 @@ if not only_compiler_tests:
     if env["target"] == "editor":
         sources += Glob("build/src/adapter/editor/*.cpp")
         libraries.insert(0, compiler_library)
-
-    # The step-2 probes (architecture §5) are driven by the engine tests, which load
-    # only the editor library.
-    if env["target"] == "editor":
-        env.Append(CPPDEFINES=["PETRICHOR_PROBES"])
-        sources += Glob("build/src/probe/*.cpp")
 
     env.Prepend(LIBS=libraries)
     library = env.SharedLibrary(

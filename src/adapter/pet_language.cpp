@@ -6,10 +6,6 @@
 #include "runtime/text.h"
 #include "runtime/vm.h"
 
-#ifdef PETRICHOR_PROBES
-#include "probe/task.h"
-#endif
-
 #ifdef TOOLS_ENABLED
 #include "adapter/editor/script_compiler.h"
 
@@ -53,9 +49,6 @@ String PetLanguage::_get_extension() const {
 }
 
 void PetLanguage::_finish() {
-#ifdef PETRICHOR_PROBES
-	task_queue::clear();
-#endif
 	debugger::set_language(nullptr);
 	std::lock_guard<std::mutex> lock(kept_mutex);
 	kept_scripts.clear();
@@ -546,9 +539,6 @@ int32_t PetLanguage::_profiling_get_frame_data(ScriptLanguageExtensionProfilingI
 
 void PetLanguage::_frame() {
 	tasks::frame();
-#ifdef PETRICHOR_PROBES
-	task_queue::frame();
-#endif
 }
 
 /* Global classes */

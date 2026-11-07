@@ -1,0 +1,14 @@
+# A class that GDScript checks through reflection (spec §10.1). Driven by
+# language_test.gd.
+class_name TypedGreeter
+extends Node
+
+@export pub var message: String = "hello"
+
+pub func greet() -> String:
+	return "Hello, " + message
+
+pub async func echo_later(value: int, frames: int) -> int:
+	for i in frames:
+		await get_tree().process_frame
+	return value

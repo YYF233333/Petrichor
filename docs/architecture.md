@@ -201,7 +201,6 @@ src/compiler/          不依赖 Godot
 src/bytecode/          不依赖 Godot，compiler 与 runtime 共用
 src/runtime/
 src/adapter/           编辑器部分在 src/adapter/editor/
-src/probe/             第 2 步的探针，只进入编辑器用的库
 gen/                   生成的源码：内置类型的表、格式标识
 build/                 目标文件和静态库
 tests/compiler/        doctest，与引擎的单元测试相同
