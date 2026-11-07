@@ -299,6 +299,20 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
   var n = data as Node                 # Node?
   ```
 
+- 结构固定的数据解码为 struct。整棵树在入口处一次检查，出错时写明字段：
+
+  ```gdscript
+  struct Consumable:
+      var rest_times: int
+      var transformed: bool
+
+  struct InitMessage:
+      var consumables: Dictionary[String, Consumable]
+      var level: int = 1
+
+  var message = InitMessage.try_from(JSON.parse_string(text))   # Result[InitMessage, ConversionError]
+  ```
+
 ### 3.14 可赋值
 
 - 期望类型 `T` 的位置只接受可赋给 `T` 的值。这些位置包括赋值、传参、返回值和容器元素。
