@@ -411,7 +411,9 @@ class Formatter {
 			} else if (statement_start) {
 				line.indent = levels.back().indent;
 				statement_indent = line.indent;
-				read_statement(l);
+				if (items[line.first].syntax >= 0) { // Not a line of only `\`, before the statement's first token.
+					read_statement(l);
+				}
 			} else {
 				line.kind = LineKind::Continuation;
 				line.indent = statement_indent + 1;

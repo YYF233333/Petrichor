@@ -69,6 +69,7 @@ TEST_CASE("a continuation line is one level deeper than its bracket's line or it
 									"\tvar b := 1 + \\\n"
 									"\t\t2 + \\\n"
 									"\t\t3\n");
+	CHECK(formatted("\\\nvar c := 1\n") == "\\\nvar c := 1\n");
 }
 
 TEST_CASE("the block of a lambda inside brackets is one level deeper than its header's line") {
