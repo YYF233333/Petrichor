@@ -41,7 +41,9 @@ Counts, in first-party .gd files (blank and comment lines excluded from the line
     KEY_, MOUSE_BUTTON_, JOY_BUTTON_ or JOY_AXIS_ constants and no `_` branch;
   - blocks of comment lines beginning with `##` directly above a declaration or the annotations on the lines
     above it, which GDScript takes as its documentation, and the files with one; those whose lines all begin
-    with `###`, with locations for reading, and those mixing such lines with others.
+    with `###`, with locations for reading, and those mixing such lines with others;
+  - the keywords this language adds (`pub`, `struct`, `interface`, `implements`, `async`, `None`) used as
+    names, after `.` or elsewhere, with locations for reading.
 """
 import collections
 import os
@@ -59,6 +61,7 @@ BUILTIN_TYPES = {"bool", "int", "float", "String", "StringName", "NodePath", "Ve
                  "Transform3D", "Projection", "Color", "RID", "Callable", "Signal", "Dictionary", "Array", "Variant",
                  "PackedByteArray", "PackedInt32Array", "PackedInt64Array", "PackedFloat32Array", "PackedFloat64Array",
                  "PackedStringArray", "PackedVector2Array", "PackedVector3Array", "PackedColorArray", "PackedVector4Array"}
+NEW_KEYWORDS = {"pub", "struct", "interface", "implements", "async", "None"}
 
 
 def static_var_kind(ts, i):
@@ -570,6 +573,9 @@ def main():
                             parent_owner(ts, i, "parent", c, files, (f"{name}/{f}", tested_at))
                         elif t.v == "owner" and nxt not in ("=", ":") and ts[i - 1].v not in ("var", "func", "(", ","):
                             parent_owner(ts, i, "owner", c, files, (f"{name}/{f}", tested_at))
+                if t.k == "ID" and t.v in NEW_KEYWORDS:
+                    c["keyword_after_dot" if i > 0 and ts[i - 1].v == "." else "keyword_elsewhere"] += 1
+                    freeing_at["a keyword of this language as a name"].append(f"{name}/{f}:{t.line} {t.v}")
                 if t.k == "ID" and t.v == "null":
                     comparing = i > 1 and ts[i - 1].v == "=" and ts[i - 2].v in ("=", "!")
                     c["null_compare" if comparing else "null_other"] += 1
@@ -655,6 +661,7 @@ def main():
     print(f"match over the engine's enums without _: {c['engine_enum_match']}")
     print(f"## blocks above a declaration: {c['doc_block']} in {c['doc_files']} files; all lines ###: {c['doc_block_hashes']}; "
           f"mixing ### lines: {c['doc_block_mixed']}")
+    print(f"keywords of this language as names: after . {c['keyword_after_dot']}, elsewhere {c['keyword_elsewhere']}")
     for label, places in freeing_at.items():
         print(f"{label} at: {', '.join(places)}")
 

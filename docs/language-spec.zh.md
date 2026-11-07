@@ -79,7 +79,8 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 ### 2.2 词法
 
 - 缩进、注释、标识符、字面量和运算符沿用 GDScript，增减如下：
-  - 新增关键字：`pub`、`struct`、`interface`、`implements`、`async`、`None`。
+  - 新增上下文关键字：`pub`、`struct`、`interface`、`implements`、`async`、`None`。它们只在各自的语法位置上是关键字，在点号之后和其他位置是普通名字。
+  - 单独出现的 `None` 总是空的 Option。【已知限制】以 `None` 为名、可用裸名访问的声明报编译错误，如变量、函数和匿名 enum 的值。
   - 新增短路返回的后缀运算符 `?`。
   - `null` 是 `None` 的别名，语义与 `None` 相同。提示建议新代码写 `None`。
   - 单引号和双引号字符串不能跨行，跨行须用三引号。

@@ -4,6 +4,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Language
 
+- Contextual keywords (spec §2.2). The tokenizer still reserves `pub`, `struct`, `interface`, `implements`, `async` and `None`. A `.pet` file cannot write dialogue_manager's `TranslationSource.None`.
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
 - Array and dictionary patterns of match (spec §5.6).
 - A struct or an enum with payloads that holds itself through a container (spec §3.6). The type table cannot list it, since a type's parts come before it.
@@ -172,7 +173,6 @@ Engine calls now go by name with Variant arguments. So code that calls the engin
   - A signal without `pub` registers as `@hit`, so `hit.get_name()` differs (§10.5).
 
   Meanings of GDScript code that this language cannot write:
-  - `pub`, `struct`, `interface`, `implements`, `async` and `None` are identifiers in GDScript, as in `enum Filter { None, Blur }`. Contextual keywords would keep most of them.
   - `_init` with parameters on Node and Resource scripts (§6.2). Every `Item.new("Sword")` changes.
   - A `uint64` read with the top bit set is negative. Writing it back fails the range check, as with `rng.state` (§10.6).
 - Tuples, to be discussed after the first version. `await Task.all([...])` gives nothing (spec §9.5). With tuples it could give the results of tasks of different types, which an array cannot type.
