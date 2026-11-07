@@ -190,6 +190,7 @@ Petrichor 是一门面向中大型 Godot 4 项目的全静态类型脚本语言�
 - 跨引擎边界时按引擎边界的规则编码。解码按 `T.try_from` 的规则递归检查各字段及嵌套容器/struct，多余的键忽略。
 - 【已知限制】第一版 struct 不能 `@export` 或存入 `.tres`（编辑器数据用 `Resource`）。
 - 可声明 `func` 和 `static func`。实例方法中 `self` 只读，给 `self` 字段赋值报编译错误。
+- 方法中的名字先查 struct 自身，再按内部类的规则查外层类的无实例声明。
 - 字段和方法在 struct 可见处均可见。
 - 修改 `s.x = 1` 作用于 `s` 所在存储位置：
   - 链式赋值沿链读出、修改并写回（`player.last_hit.damage = 3` 触发 `last_hit` 的 setter，`hits[0].damage = 3` 更新数组元素）；
