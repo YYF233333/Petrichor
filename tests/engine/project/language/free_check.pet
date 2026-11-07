@@ -4,7 +4,7 @@
 class_name FreeCheck
 extends Node
 
-signal fired
+pub signal fired
 pub var count := 7
 
 # Called by another object of this language, without the lock that keeps an

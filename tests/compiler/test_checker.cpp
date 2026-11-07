@@ -46,7 +46,7 @@ TEST_CASE("a class annotation is reported once, and the header after it still re
 	CHECK(contains(joined(errors_of("const ICON := \"a.svg\"\n@icon(ICON)\nextends Node\n")), "belongs to the class header"));
 	CHECK(contains(joined(errors_of("@icon(\"a.svg\")\n@icon(\"b.svg\")\nextends Node\n")), "The class already has @icon."));
 	CHECK(joined(errors_of("@static_unload\nextends Node\n")) == "");
-	CHECK(joined(errors_of("extends Node\n@export var x := 1\n")) == "");
+	CHECK(joined(errors_of("extends Node\n@export pub var x := 1\n")) == "");
 }
 
 // modules/gdscript/gdscript_parser.cpp:798-806, 1182-1190, 2177-2182.
@@ -57,10 +57,10 @@ TEST_CASE("a string on a line of its own is a comment") {
 
 // modules/gdscript/gdscript_parser.cpp:187, 5238-5298.
 TEST_CASE("@rpc configures how other peers call a method, which they find by name") {
-	const compiler::CompileResult result = compile("extends Node\n@rpc(\"any_peer\", \"call_local\", \"unreliable\", 1)\nfunc hit(amount: int):\n\tpass\n\n@rpc\nfunc sync_state():\n\tpass\n");
+	const compiler::CompileResult result = compile("extends Node\n@rpc(\"any_peer\", \"call_local\", \"unreliable\", 1)\npub func hit(amount: int):\n\tpass\n\n@rpc\npub func sync_state():\n\tpass\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	const bytecode::Function &hit = function_named(result.module, "hit");
-	CHECK((hit.rpc.mode == 1 && hit.rpc.call_local && hit.rpc.transfer_mode == 0 && hit.rpc.channel == 1 && hit.is_exposed));
+	CHECK((hit.rpc.mode == 1 && hit.rpc.call_local && hit.rpc.transfer_mode == 0 && hit.rpc.channel == 1));
 	const bytecode::Function &sync = function_named(result.module, "sync_state");
 	CHECK((sync.rpc.mode == 2 && !sync.rpc.call_local && sync.rpc.transfer_mode == 2 && sync.rpc.channel == 0));
 	CHECK(function_named(compile("extends Node\nfunc f():\n\tpass\n").module, "f").rpc.mode == 0);
@@ -70,6 +70,7 @@ TEST_CASE("@rpc configures how other peers call a method, which they find by nam
 	CHECK(contains(rpc_errors("@rpc(\"any_peer\", \"authority\")"), "@rpc takes one of \"any_peer\" and \"authority\"."));
 	CHECK(contains(rpc_errors("@rpc(\"any_peer\", \"call_local\", \"reliable\", \"x\")"), "the channel, an int"));
 	CHECK(contains(rpc_errors("@rpc\n@rpc"), "A function takes @rpc once."));
+	CHECK(contains(rpc_errors("@rpc"), "An @rpc function must be pub: other peers call it by name (spec §10.5)."));
 	CHECK(contains(joined(errors_of("extends Node\n@rpc\nvar x := 1\n")), "@rpc applies to functions."));
 	CHECK(contains(rpc_errors("@export"), "@export applies to variables."));
 }
@@ -81,7 +82,7 @@ TEST_CASE("@warning_ignore takes the names of warnings") {
 	CHECK(errors_of("extends Node\n@warning_ignore_start(\"unused_variable\")\n@warning_ignore(\"unused_parameter\")\nfunc f(x: int):\n\t@warning_ignore(\"integer_division\")\n\tvar y := x / 2\n\t@warning_ignore_start(\"narrowing_conversion\")\n\tprint(y)\n\t@warning_ignore_restore(\"narrowing_conversion\")\n@warning_ignore_restore(\"unused_variable\")\n@warning_ignore(\"x\")\nvar z := 1\n").empty());
 	CHECK(contains(joined(errors_of(in_function("@warning_ignore\nprint(1)"))), "@warning_ignore takes the names of warnings."));
 	CHECK(contains(joined(errors_of(in_function("@warning_ignore(1)\nprint(1)"))), "takes the names of warnings, as strings"));
-	CHECK(contains(joined(errors_of(in_function("@export var y := 1"))), "A statement takes only @warning_ignore."));
+	CHECK(contains(joined(errors_of(in_function("@export pub var y := 1"))), "A statement takes only @warning_ignore."));
 }
 
 // Spec §3.14, implicit conversions.

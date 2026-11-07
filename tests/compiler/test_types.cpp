@@ -222,7 +222,7 @@ TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec Â
 	CHECK(has_error(in_function("var a: Array[int]? = None"), "Array[int]? is not supported yet"));
 	CHECK(has_error("extends Node\n\nfunc f(a: Array[Node]?):\n\tpass\n", "Array[Node]? is not supported yet"));
 	CHECK(has_error("extends Node\n\nfunc f() -> Array[int]?:\n\treturn None\n", "Array[int]? is not supported yet"));
-	CHECK(has_error("extends Node\n@export var a: Array[int]?\n", "Array[int]? is not supported yet"));
+	CHECK(has_error("extends Node\n@export pub var a: Array[int]?\n", "Array[int]? is not supported yet"));
 	CHECK(errors_of("extends Node\n\nfunc f(a: Array[int], b: int?, c: Array?):\n\tpass\n").empty());
 }
 

@@ -2,21 +2,21 @@ class_name Brick
 extends StaticBody2D implements Combat.Combatant
 
 @export_group("Info")
-@export var brick_id: int
-@export var brick_name: String
-@export_multiline var brick_description: String
+@export pub var brick_id: int
+@export pub var brick_name: String
+@export_multiline pub var brick_description: String
 
 @export_group("Basic")
-@export var init_type: int
+@export pub var init_type: int
 @export pub var max_health: int
 @export pub var init_health: int
-@export var sprites : Array[Texture2D]
-@export var hit_flash : bool = true
+@export pub var sprites : Array[Texture2D]
+@export pub var hit_flash : bool = true
 
 @export_group("Bonus")
 @export pub var point: int
 @export pub var drop_percent_scale: float = 1.0 #1.0表示正常掉率
-@export var hit_by_ball_player_charge: int = 1 #被球击中时玩家获得多少充能
+@export pub var hit_by_ball_player_charge: int = 1 #被球击中时玩家获得多少充能
 
 @export pub var lucky_drop: bool = false #会进行lucky drop
 @export pub var unique_drop_name: String

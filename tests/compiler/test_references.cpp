@@ -103,7 +103,7 @@ TEST_CASE("a method a scene connects is referred to from the scene, and one name
 	scene.nodes = { { ".", "Node3D", "res://test.pet" }, { "Timer", "Timer", "" } };
 	scene.connections = { { "timeout", "Timer", ".", "_on_timeout", 0, 0 } };
 	project.scenes = { scene };
-	const std::string source = "extends Node3D\n\nfunc _on_timeout():\n\tcall_deferred(\"reset\")\n\tcall_deferred(&'''reset''')\n\nfunc reset():\n\tpass\n";
+	const std::string source = "extends Node3D\n\npub func _on_timeout():\n\tcall_deferred(\"reset\")\n\tcall_deferred(&'''reset''')\n\npub func reset():\n\tpass\n";
 	const auto result = compile_in(source, project);
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	bool connected = false;

@@ -7,7 +7,7 @@ pub signal died
 
 pub var current_health: int
 
-@export var show_floating_text: bool = true
+@export pub var show_floating_text: bool = true
 var floating_text_scene = preload("res://breakout/scenes/ui/floating_text.tscn")
 
 # Called when the node enters the scene tree for the first time.

@@ -1,12 +1,12 @@
 extends CharacterBody3D implements Combat.Damageable
 
 @export_subgroup("Properties")
-@export var movement_speed = 5
-@export_range(0, 100) var number_of_jumps: int = 2
-@export var jump_strength = 8
+@export pub var movement_speed = 5
+@export_range(0, 100) pub var number_of_jumps: int = 2
+@export pub var jump_strength = 8
 
 @export_subgroup("Weapons")
-@export var weapons: Array[Weapon] = []
+@export pub var weapons: Array[Weapon] = []
 
 @onready var weapon = weapons[weapon_index]
 var weapon_index := 0
@@ -31,7 +31,7 @@ var container_offset = Vector3(1.2, -1.1, -2.75)
 
 var tween: Tween?
 
-signal health_updated(health: int)
+pub signal health_updated(health: int)
 
 @onready var camera = $Head/Camera
 @onready var raycast = $Head/Camera/RayCast
@@ -40,7 +40,7 @@ signal health_updated(health: int)
 @onready var sound_footsteps = $SoundFootsteps
 @onready var blaster_cooldown = $Cooldown
 
-@export var crosshair: TextureRect
+@export pub var crosshair: TextureRect
 
 # Functions
 

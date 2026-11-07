@@ -179,13 +179,13 @@ TEST_CASE("annotations take constants the compiler knows") {
 const MAX = 100
 const STEP = MAX / 50
 const LABEL = "Insert an expression..."
-@export_range(0, MAX, STEP) var amount: int
-@export_multiline(LABEL) var text: String
+@export_range(0, MAX, STEP) pub var amount: int
+@export_multiline(LABEL) pub var text: String
 )");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	CHECK(member_named(result.module, "amount").hint_string == "0.0,100.0,2.0");
 	CHECK(member_named(result.module, "text").hint_string == "Insert an expression...");
-	CHECK(has_error("const ANGLE = deg_to_rad(30)\n@export_range(0, ANGLE) var a: float\n", "An annotation argument must be known at compile time"));
+	CHECK(has_error("const ANGLE = deg_to_rad(30)\n@export_range(0, ANGLE) pub var a: float\n", "An annotation argument must be known at compile time"));
 }
 
 TEST_CASE("bitwise operators and their assignments take ints at run time") {

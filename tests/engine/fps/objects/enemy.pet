@@ -1,6 +1,6 @@
 extends Node3D implements Combat.Damageable
 
-@export var player: Node3D
+@export pub var player: Node3D
 
 @onready var raycast = $RayCast
 @onready var muzzle_a = $MuzzleA
@@ -45,7 +45,7 @@ func destroy():
 
 # Shoot when timer hits 0
 
-func _on_timer_timeout():
+pub func _on_timer_timeout():
 	raycast.force_raycast_update()
 
 	if raycast.is_colliding():

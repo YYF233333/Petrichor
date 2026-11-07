@@ -3,9 +3,9 @@
 class_name AbstractAction
 extends Resource
 
-@export var label := "strike"
+@export pub var label := "strike"
 
-@abstract func cost() -> int
+@abstract pub func cost() -> int
 
 pub func describe() -> String:
 	return label + " " + str(cost())

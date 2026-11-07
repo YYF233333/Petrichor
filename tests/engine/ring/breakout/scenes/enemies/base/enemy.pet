@@ -2,26 +2,26 @@ class_name Enemy
 extends CharacterBody2D implements Combat.Combatant
 
 @export_group("Info")
-@export var enemy_id: int
-@export var enemy_name: String
-@export_multiline var enemy_description: String
+@export pub var enemy_id: int
+@export pub var enemy_name: String
+@export_multiline pub var enemy_description: String
 
 @export_group("Basic")
 @export pub var max_health: int
 @export pub var init_health: int
 @export pub var basic_speed: float
 @export pub var basic_acceleration: float
-@export var basic_damage: float = 1.0
+@export pub var basic_damage: float = 1.0
 
-@export var init_type: int
-@export var sprites : Array[Texture2D]
+@export pub var init_type: int
+@export pub var sprites : Array[Texture2D]
 
-@export var unstoppable: bool = false #TODO: 能否被击退。现在还不好用，没knockback和板贴贴会卡球
+@export pub var unstoppable: bool = false #TODO: 能否被击退。现在还不好用，没knockback和板贴贴会卡球
 
 @export_group("Bonus")
 @export pub var point: int
 @export pub var drop_percent_scale: float = 1.0 #1.0表示正常掉率
-@export var hit_by_ball_player_charge: int = 1 #被球击中时玩家获得多少充能
+@export pub var hit_by_ball_player_charge: int = 1 #被球击中时玩家获得多少充能
 
 @export pub var lucky_drop: bool = false #会进行lucky drop
 @export pub var unique_drop_name: String
@@ -44,7 +44,7 @@ extends CharacterBody2D implements Combat.Combatant
 @export_group("Basic")
 #stat
 pub var type: int
-@export var direction: Vector2 = Vector2(1.0, 0.0):
+@export pub var direction: Vector2 = Vector2(1.0, 0.0):
 	set(value):
 		direction = value
 		if direction.is_zero_approx():

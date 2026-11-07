@@ -549,7 +549,7 @@ void PetScript::instance_freed(PetInstance *p_instance) {
 bool PetScript::is_visible(const ClassImage &p_image, const bytecode::Member &p_member) {
 	const bytecode::TypeKind kind = p_image.module.types[p_member.type].kind;
 	const bool container = kind == bytecode::TypeKind::Array || kind == bytecode::TypeKind::Dictionary;
-	return (p_member.is_pub || p_member.is_export) && !(container && bytecode::is_boxed(p_image.module.types, p_member.type));
+	return p_member.is_pub && !(container && bytecode::is_boxed(p_image.module.types, p_member.type));
 }
 
 int PetScript::find_visible_function(const ClassImage &p_image, const StringName &p_name) {
@@ -806,15 +806,16 @@ ScriptLanguage *PetScript::_get_language() const {
 	return PetLanguage::get_singleton();
 }
 
-// Signals are always visible: the engine connects and emits them by name
-// (spec §10.5).
+// The engine checks a script's signal by name when this language connects or
+// emits it too, so a non-pub one is found by the name only it uses, and is
+// not listed (spec §10.5).
 bool PetScript::_has_script_signal(const StringName &p_signal) const {
 	const std::shared_ptr<const ClassImage> current = get_image();
 	if (!current) {
 		return false;
 	}
 	for (const bytecode::SignalInfo &signal : current->module.signals) {
-		if (p_signal == StringName(to_godot(signal.name))) {
+		if (p_signal == StringName(to_godot(bytecode::engine_signal_name(signal.name, signal.is_pub)))) {
 			return true;
 		}
 	}
@@ -825,6 +826,9 @@ TypedArray<Dictionary> PetScript::_get_script_signal_list() const {
 	TypedArray<Dictionary> list;
 	if (const std::shared_ptr<const ClassImage> current = get_image()) {
 		for (const bytecode::SignalInfo &signal : current->module.signals) {
+			if (!signal.is_pub) {
+				continue;
+			}
 			Array args;
 			for (const bytecode::Slot &param : signal.params) {
 				args.push_back(typed(value_dict(current->types[param.type], to_godot(param.name), PROPERTY_USAGE_DEFAULT), current->types[param.type]));

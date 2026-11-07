@@ -5,33 +5,33 @@
 extends Node
 
 @warning_ignore_start("unused_private_class_variable")
-@export_file("*.json", "*.txt") var data_file: String
-@export var anything: Variant
-@export_file_path var any_file: String
-@export_dir var folder: String
-@export_global_file("*.png") var image_file: String
-@export_global_dir var global_folder: String
-@export_placeholder("Name") var title: String
-@export_multiline("Hint") var notes: String
-@export_exp_easing("attenuation") var easing: float
-@export_color_no_alpha var tint: Color
-@export_node_path("Node3D", "Label") var target: NodePath
-@export_flags("Fire", "Water:4", "Earth") var elements: int
-@export_flags_2d_render var render_layers: int
-@export_flags_3d_physics var physics_layers: int
-@export_flags_avoidance var avoidance_layers: int
-@export_file("*.png") var images: Array[String]
-@export_range(0, 1, 0.1) var weights: PackedFloat32Array
-@export_enum("Low", "High") var levels: Array[int]
-@export_storage var saved := 3
-@export_custom(PROPERTY_HINT_LINK, "suffix:m/s") var speed := Vector2.ONE
-@export_custom(PROPERTY_HINT_NONE, "suffix:s", PROPERTY_USAGE_EDITOR) var delay := 0.5
+@export_file("*.json", "*.txt") pub var data_file: String
+@export pub var anything: Variant
+@export_file_path pub var any_file: String
+@export_dir pub var folder: String
+@export_global_file("*.png") pub var image_file: String
+@export_global_dir pub var global_folder: String
+@export_placeholder("Name") pub var title: String
+@export_multiline("Hint") pub var notes: String
+@export_exp_easing("attenuation") pub var easing: float
+@export_color_no_alpha pub var tint: Color
+@export_node_path("Node3D", "Label") pub var target: NodePath
+@export_flags("Fire", "Water:4", "Earth") pub var elements: int
+@export_flags_2d_render pub var render_layers: int
+@export_flags_3d_physics pub var physics_layers: int
+@export_flags_avoidance pub var avoidance_layers: int
+@export_file("*.png") pub var images: Array[String]
+@export_range(0, 1, 0.1) pub var weights: PackedFloat32Array
+@export_enum("Low", "High") pub var levels: Array[int]
+@export_storage pub var saved := 3
+@export_custom(PROPERTY_HINT_LINK, "suffix:m/s") pub var speed := Vector2.ONE
+@export_custom(PROPERTY_HINT_NONE, "suffix:s", PROPERTY_USAGE_EDITOR) pub var delay := 0.5
 @warning_ignore_restore("unused_private_class_variable")
 
 var hits := 0
 
 @rpc("any_peer", "call_local", "unreliable_ordered", 2)
-func hit(amount: int):
+pub func hit(amount: int):
 	@warning_ignore("narrowing_conversion")
 	hits += amount
 
@@ -40,7 +40,7 @@ pub func sync_state():
 	pass
 
 @rpc("call_remote", "reliable")
-func confirm():
+pub func confirm():
 	pass
 
 pub func hit_count() -> int:

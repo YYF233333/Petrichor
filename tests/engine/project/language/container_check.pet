@@ -263,3 +263,11 @@ pub func struct_method_values() -> String:
 	tally = Tally.of(10)
 	var make := Tally.of
 	return str(plus.call(3)) + " " + str(make.call(4).count) + " " + str(tally.count)
+
+signal _done(value: int)
+
+pub func private_signals() -> String:
+	var got: Array[int] = []
+	_done.connect(func(value: int): got.append(value))
+	_done.emit(3)
+	return str(got) + " " + str(_done.get_name())

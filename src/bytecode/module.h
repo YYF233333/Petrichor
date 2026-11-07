@@ -319,8 +319,6 @@ struct Function {
 	Slot result;
 	bool is_pub = false;
 	bool is_override = false; // Overrides an engine virtual method.
-	// The engine must find it by name: a method connected in a scene (spec §10.5).
-	bool is_exposed = false;
 	Rpc rpc;
 	// @abstract: no code, which a class that extends this one provides (spec §4.1).
 	bool is_abstract = false;
@@ -342,6 +340,13 @@ struct SignalInfo {
 	std::vector<Slot> params; // Types and names; the offsets mean nothing.
 	bool is_pub = false;
 };
+
+// The name the engine knows a signal by. A non-pub one gets a name no
+// identifier has, since this language's connect and emit also pass through
+// the engine's lookup by name (spec §10.5).
+inline std::string engine_signal_name(const std::string &p_name, bool p_is_pub) {
+	return p_is_pub ? p_name : "@" + p_name;
+}
 
 // `@export_category`, `@export_group` or `@export_subgroup`: a heading the
 // inspector shows before a member.

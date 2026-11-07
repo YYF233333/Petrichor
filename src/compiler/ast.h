@@ -32,6 +32,7 @@ struct TypeRef {
 };
 
 struct FuncDecl;
+struct SignalDecl;
 struct VarDecl;
 
 enum class ExprKind {
@@ -130,8 +131,10 @@ enum class Target {
 	// An instance method of a struct as a value: `callee`, of the struct in
 	// `base`, declared in the class at `owner` (spec §3.11).
 	StructMethodValue,
-	SelfSignal, // A signal of the engine class this class extends, as a value.
-	ObjectSignal, // A signal of an engine object.
+	// A signal of this object or of another, as a value; `signal` when a class
+	// of this language declares it.
+	SelfSignal,
+	ObjectSignal,
 	BindArguments, // `f.bind(...)` of a function value.
 	CallValue, // `f.call(...)` or `f.callv(args)` of a function value (spec §3.11, §8.1).
 	EmitSignal, // `s.emit(...)` of a signal value.
@@ -233,6 +236,7 @@ struct Expr {
 	// the object holds in a slot (spec §10.5).
 	const VarDecl *variable = nullptr;
 	const FuncDecl *callee = nullptr; // StructMethod.
+	const SignalDecl *signal = nullptr;
 	// Its value when it is a constant expression (spec §4.5); otherwise null,
 	// and when that is because computing it would fail, why, and at which of
 	// its parts if not at itself.
@@ -656,7 +660,6 @@ struct ClassDecl {
 	std::vector<const ConstDecl *> all_constants;
 	std::vector<const FuncDecl *> all_functions;
 	std::vector<const SignalDecl *> all_signals;
-	std::set<std::string> exposed_methods;
 	uint32_t extends_token = NO_TOKEN; // The base's name or path, if written.
 	std::vector<TypeRef> implements;
 	std::optional<TypeRef> owner_ref; // @owner(T) (spec §7.3).

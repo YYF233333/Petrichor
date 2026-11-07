@@ -108,7 +108,7 @@ TEST_CASE("a typed container goes where an untyped one is expected, the reverse 
 }
 
 TEST_CASE("members, parameters and results may be Variant") {
-	CHECK(errors_of("extends Control\n@export var any: Variant\nvar kept: Variant\nsignal changed(value: Variant)\n\nfunc pick(v: Variant) -> Variant:\n\tchanged.emit(v)\n\treturn v\n\nfunc _can_drop_data(at: Vector2, data: Variant) -> bool:\n\treturn data is Dictionary\n").empty());
+	CHECK(errors_of("extends Control\n@export pub var any: Variant\nvar kept: Variant\nsignal changed(value: Variant)\n\nfunc pick(v: Variant) -> Variant:\n\tchanged.emit(v)\n\treturn v\n\nfunc _can_drop_data(at: Vector2, data: Variant) -> bool:\n\treturn data is Dictionary\n").empty());
 	CHECK(has_error("extends Node\n\nfunc _get(property: StringName) -> Variant:\n\treturn null\n", "Overriding _get() is not supported yet."));
 	CHECK(has_error("extends Node\n\nfunc _set(property: StringName, value: Variant) -> bool:\n\treturn false\n", "Overriding _set() is not supported yet."));
 	CHECK(has_error(in_function("var n: Nil"), "Unknown type \"Nil\"."));

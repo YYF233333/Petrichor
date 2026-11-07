@@ -98,11 +98,6 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 		}
 		image->function_lookup.insert(name, int(i));
 		const int parent = p_base ? p_base->find_function(name) : -1;
-		// The base's bodies may name the method to the engine, as in
-		// call_deferred("m"); compiling this class does not check them.
-		if (parent >= 0 && p_base->module.functions[parent].is_exposed) {
-			image->module.functions[i].is_exposed = true;
-		}
 		if (!function.name.empty() && function.name[0] != '@') {
 			const std::string expected = parent < 0 ? std::string() : signature_key(p_base->module, p_base->module.functions[parent]);
 			// Each class's _init() has its own visibility (spec §6.1).
@@ -791,7 +786,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	for (size_t i = 0; i < declared(a); i++) {
 		const bytecode::Function &x = a.functions[i];
 		const bytecode::Function &y = b.functions[i];
-		if (x.is_inherited != y.is_inherited || x.base_signature != y.base_signature || x.name != y.name || !pair.same_slot(x.result, y.result) || x.is_pub != y.is_pub || x.is_override != y.is_override || x.is_exposed != y.is_exposed ||
+		if (x.is_inherited != y.is_inherited || x.base_signature != y.base_signature || x.name != y.name || !pair.same_slot(x.result, y.result) || x.is_pub != y.is_pub || x.is_override != y.is_override ||
 				x.is_async != y.is_async || x.is_static != y.is_static || !(x.rpc == y.rpc) || x.is_abstract != y.is_abstract || x.params.size() != y.params.size() || x.defaults.size() != y.defaults.size()) {
 			return false;
 		}

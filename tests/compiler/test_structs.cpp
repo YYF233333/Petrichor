@@ -47,7 +47,7 @@ TEST_CASE("a struct starts at its default only when every field has one") {
 	CHECK(errors("var s: Settings\nprint(s.volume)", "var settings: Settings\n\n").empty());
 	CHECK(contains(errors("var h: Hit"), "\"h\" of type Shots.Hit needs an initial value"));
 	CHECK(errors("pass", "var last: Hit\n\n").empty()); // One that must be assigned (spec §6.2).
-	CHECK(contains(errors("pass", "@export var settings: Settings\n\n"), "Structs cannot be exported"));
+	CHECK(contains(errors("pass", "@export pub var settings: Settings\n\n"), "Structs cannot be exported"));
 	CHECK(contains(errors("pass", "struct Odd:\n\tvar n: int = randi()\n\n"), "Non-constant default values are not supported yet."));
 }
 
@@ -74,7 +74,7 @@ TEST_CASE("containers of structs") {
 	CHECK(errors("var hits: Array[Hit] = []\nvar c: Array[Hit] = hits.duplicate_deep()").empty());
 	CHECK(contains(errors("var hits: Array[Hit] = []\nvar u: Array = hits.duplicate_deep()"), "as Array. Its elements exist only in this language; convert it explicitly with Array(x)"));
 	CHECK(contains(errors("var keyed: Dictionary[Hit, int] = {}\nvar u: Dictionary = keyed"), "convert it explicitly with Dictionary(x)"));
-	CHECK(contains(errors("pass", "@export var hits: Array[Settings] = []\n\n"), "cannot be exported"));
+	CHECK(contains(errors("pass", "@export pub var hits: Array[Settings] = []\n\n"), "cannot be exported"));
 	const compiler::CompileResult result = compile(std::string("extends Node\n\n") + HIT + "func f(a: Hit) -> int:\n\tvar hits: Array[Hit] = [a]\n\tvar keyed: Dictionary[Hit, int] = {a: 1}\n\tvar s: Array[Settings] = []\n\ts.resize(2)\n\tvar u: Array = Array(hits)\n\treturn keyed[hits[0]]\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	std::string error;

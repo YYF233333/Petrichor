@@ -4,7 +4,7 @@ pub signal tick()
 pub var trace: String = "B"
 var hidden: int = 4
 pub var frames: int = 0
-@export var target: Node3D
+@export pub var target: Node3D
 @onready var base_ready: int = mark("R")
 
 func mark(text: String) -> int:
@@ -19,7 +19,7 @@ func _process(delta):
 func _notification(what: int):
 	if what == 777:
 		trace += "N"
-func _entered():
+pub func _entered():
 	trace += "E"
 func secret() -> int:
 	return hidden
@@ -42,6 +42,6 @@ pub async func object_later(value: Node3D) -> Node:
 func alive(value: Node) -> bool:
 	return is_instance_valid(value)
 pub func defer():
-	call_deferred("note_deferred")
+	note_deferred.call_deferred()
 func note_deferred():
 	trace += "D"

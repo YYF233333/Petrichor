@@ -67,5 +67,5 @@ TEST_CASE("T.try_from(v) gives the value as a T, or a ConversionError") {
 
 TEST_CASE("a Result holds its values in its slot, and is not exported") {
 	CHECK(contains(messages(compile("extends Node\n\nstruct S:\n\tvar r: Result[S, int]\n")), "S contains itself through S.r"));
-	CHECK(contains(messages(compile("extends Node\n\n@export var r: Result[int, String] = Ok(1)\n")), "A Result cannot be exported, as enums with payloads cannot (spec §3.7, §10.1)."));
+	CHECK(contains(messages(compile("extends Node\n\n@export pub var r: Result[int, String] = Ok(1)\n")), "A Result cannot be exported, as enums with payloads cannot (spec §3.7, §10.1)."));
 }

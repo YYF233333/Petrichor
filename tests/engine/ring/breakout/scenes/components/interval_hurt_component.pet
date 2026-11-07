@@ -2,7 +2,7 @@
 class_name IntervalHurtComponent
 extends Node
 
-@export var health_component: HealthComponent
+@export pub var health_component: HealthComponent
 
 # timer
 @onready var fire_hurt_timer = $FireHurtTimer as Timer

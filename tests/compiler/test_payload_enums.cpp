@@ -37,7 +37,7 @@ TEST_CASE("an enum with payloads is named, without int values, has no default an
 	CHECK(contains(messages(compile("extends Node\n\nenum E { A = 1, B(x: int) }\n")), "The variants of an enum with payloads have no int values (spec §3.7)."));
 	CHECK(contains(messages(compile("extends Node\n\nenum Tree { LEAF, NODE(left: Tree) }\n")), "Tree contains itself through Tree.NODE.left"));
 	CHECK(contains(errors("\tvar a: Command\n\treturn 0"), "\"a\" of type Moves.Command needs an initial value."));
-	CHECK(contains(messages(compile("extends Node\n\nenum Command { IDLE, MOVE(target: Vector3) }\n@export var c: Command = Command.IDLE\n")), "Enums with payloads cannot be exported (spec §3.7)."));
+	CHECK(contains(messages(compile("extends Node\n\nenum Command { IDLE, MOVE(target: Vector3) }\n@export pub var c: Command = Command.IDLE\n")), "Enums with payloads cannot be exported (spec §3.7)."));
 }
 
 TEST_CASE("a pattern takes a variant, a struct or a T? apart, and binds its fields") {

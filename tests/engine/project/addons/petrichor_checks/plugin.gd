@@ -82,7 +82,7 @@ func _pack_to_text(root: Node) -> String:
 
 func _check_new_script() -> void:
 	var script: Script = ClassDB.instantiate("PetScript")
-	script.source_code = "extends Node2D\n@export var message: String = \"hello\"\n"
+	script.source_code = "extends Node2D\n@export pub var message: String = \"hello\"\n"
 	script.reload()
 	_check(script.get_instance_base_type() == &"Node2D", "a new script reads its base class")
 
@@ -105,7 +105,7 @@ func _check_new_script() -> void:
 	DirAccess.remove_absolute(bytecode)
 	ResourceSaver.save(script, saved)
 	_check(FileAccess.get_file_as_bytes(bytecode).slice(0, 4).get_string_from_ascii() == "PETC", "saving under res:// writes the bytecode")
-	script.source_code += "@export var count: int = 3\n"
+	script.source_code += "@export pub var count: int = 3\n"
 	ResourceSaver.save(script, saved)
 	_check(script.get_script_property_list().any(func(p): return p.name == "count"), "a saved script takes the class compiled from what was saved")
 	for file in [saved, saved + ".uid", bytecode]:
@@ -128,8 +128,8 @@ func _check_header() -> void:
 func _check_placeholder_fallback() -> void:
 	var script_path := "res://editor_check_fallback.pet"
 	var scene_path := "res://editor_check_fallback.tscn"
-	var valid := "extends Node\n@export var speed: int = 1\n"
-	var broken := valid + "@export var extra: int = 2\n\nfunc f() -> int:\n\treturn missing\n"
+	var valid := "extends Node\n@export pub var speed: int = 1\n"
+	var broken := valid + "@export pub var extra: int = 2\n\nfunc f() -> int:\n\treturn missing\n"
 	_write(script_path, valid)
 	_write(scene_path, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Root" type="Node"]\nscript = ExtResource("1")\nspeed = 7\nextra = 9\n' % script_path)
 
@@ -145,7 +145,7 @@ func _check_placeholder_fallback() -> void:
 	_check(root.get("extra") == 9 and _pack_to_text(root).contains("extra = 9"), "a scene instanced after its script broke keeps a value the script it had did not take")
 	root.free()
 
-	_write(script_path, "extends Node\n@export var speed: int = \n")
+	_write(script_path, "extends Node\n@export pub var speed: int = \n")
 	root = (ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 	_check(root.get("speed") == 7 and _pack_to_text(root).contains("speed = 7"), "a scene whose script has errors keeps its values")
 	_check_errors(["editor_check_fallback.pet:2: Expected an expression, found line break."], "the script loaded with the scene reports its error")
@@ -160,7 +160,7 @@ func _check_placeholder_fallback() -> void:
 func _check_constant_defaults() -> void:
 	var script_path := "res://editor_check_defaults.pet"
 	var scene_path := "res://editor_check_defaults.tscn"
-	_write(script_path, "extends Node\n@export var offset := Vector2(400.0, 0.0)\n@export var tint := Color(\"000000b0\")\n@export var up: Vector3 = Vector3.UP\n@export var placed := Transform2D(0.5, Vector2(-1, 2))\n@export var items: Array[float] = [1, 2.5]\n@export var checks: Array[LanguageCheck] = []\n")
+	_write(script_path, "extends Node\n@export pub var offset := Vector2(400.0, 0.0)\n@export pub var tint := Color(\"000000b0\")\n@export pub var up: Vector3 = Vector3.UP\n@export pub var placed := Transform2D(0.5, Vector2(-1, 2))\n@export pub var items: Array[float] = [1, 2.5]\n@export pub var checks: Array[LanguageCheck] = []\n")
 	_write(scene_path, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Root" type="Node"]\nscript = ExtResource("1")\n' % script_path)
 	var root := (ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 	var expected := { "offset": Vector2(400, 0), "tint": Color("000000b0"), "up": Vector3.UP, "placed": Transform2D(0.5, Vector2(-1, 2)), "items": [1.0, 2.5], "checks": [] }
@@ -183,7 +183,7 @@ func _check_constant_defaults() -> void:
 func _check_other_defaults() -> void:
 	var script_path := "res://editor_check_other_defaults.pet"
 	var scene_path := "res://editor_check_other_defaults.tscn"
-	_write(script_path, "extends Node\n@export var count: int\n@export var checks: Array[LanguageCheck]\n@export var computed := Vector2(1.0, 2.0) * 2.0\n@export var target: Node\n")
+	_write(script_path, "extends Node\n@export pub var count: int\n@export pub var checks: Array[LanguageCheck]\n@export pub var computed := Vector2(1.0, 2.0) * 2.0\n@export pub var target: Node\n")
 	_write(scene_path, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Root" type="Node"]\nscript = ExtResource("1")\n\n[node name="Child" type="Node" parent="."]\n' % script_path)
 	var root := (ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 	var names := ["count", "checks", "computed", "target"]
@@ -380,9 +380,9 @@ func _find_item(item: TreeItem, path: NodePath) -> TreeItem:
 func _check_inheritance_recovery() -> void:
 	var base_path := "res://editor_inherit_base.pet"
 	var child_path := "res://editor_inherit_child.pet"
-	var valid := "extends Node\n@export var speed: int = 1\npub func read() -> int:\n\treturn 1\n"
+	var valid := "extends Node\n@export pub var speed: int = 1\npub func read() -> int:\n\treturn 1\n"
 	_write(base_path, valid)
-	_write(child_path, 'extends "editor_inherit_base.pet"\n@export var own: int = 2\npub func read() -> int:\n\treturn 7\n')
+	_write(child_path, 'extends "editor_inherit_base.pet"\n@export pub var own: int = 2\npub func read() -> int:\n\treturn 7\n')
 	var base: Script = load(base_path)
 	var child: Script = load(child_path)
 	_check(child.reload() == OK, "the derived script initially compiles")

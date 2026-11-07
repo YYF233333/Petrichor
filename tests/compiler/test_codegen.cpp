@@ -124,7 +124,7 @@ var mixed: Array[float] = [1, randf()]
 // Spec §4.3: a member without an initializer starts at its type's default,
 // which is then its initial value; one the scene must assign has none (§7.5).
 TEST_CASE("a member without an initializer starts at its type's default") {
-	const bytecode::Module module = module_of("extends Node\n@export var count: int\n@export var nodes: Array[Node]\n@export var target: Node\nvar maybe: Node?\n");
+	const bytecode::Module module = module_of("extends Node\n@export pub var count: int\n@export pub var nodes: Array[Node]\n@export pub var target: Node\nvar maybe: Node?\n");
 	const bytecode::Member &count = member_named(module, "count");
 	CHECK((count.has_initial && storage(module, count.initial.type) == ValueType::Int && count.initial.i == 0));
 	const bytecode::Member &nodes = member_named(module, "nodes");

@@ -11,7 +11,6 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 	out.is_async = p_function.is_async;
 	out.is_pub = p_function.is_pub;
 	out.is_override = p_function.is_override;
-	out.is_exposed = p_function.is_exposed;
 	out.line = p_function.line;
 
 	// Registers in order, each at an 8-byte aligned offset of its own size,

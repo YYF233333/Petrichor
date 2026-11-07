@@ -1928,7 +1928,8 @@ class Lowerer {
 				if (p_expr.target == Target::SelfSignal || p_expr.target == Target::ObjectSignal) {
 					const uint32_t object = p_expr.target == Target::ObjectSignal ? lower_expr(*p_expr.base) : NO_REG;
 					const uint32_t result = temp(p_expr.type);
-					instr(Op::GET_SIGNAL, result, object, NO_REG, text_constant(ValueType::StringName, p_expr.text));
+					const std::string name = p_expr.signal ? bytecode::engine_signal_name(p_expr.text, p_expr.signal->is_pub) : p_expr.text;
+					instr(Op::GET_SIGNAL, result, object, NO_REG, text_constant(ValueType::StringName, name));
 					return result;
 				}
 				// A local, narrowed or not, a member, a property or a field.
@@ -2921,7 +2922,6 @@ public:
 			fn.is_async = function.is_async;
 			fn.is_pub = function.is_pub;
 			fn.is_override = function.is_override;
-			fn.is_exposed = cls.exposed_methods.count(function.name);
 			for (const ClassDecl *owner = &cls; owner; owner = owner->base) {
 				if (declares(*owner, function)) {
 					fn.line = uint32_t(owner->source->line(function.name_token));

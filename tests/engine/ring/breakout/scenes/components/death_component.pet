@@ -3,10 +3,10 @@ class_name DeathComponent
 extends Node2D
 
 #TODO: 多种掉落物随机抽
-@export_enum("basic_enemy","basic_brick"," ") var death_type: String = " "
+@export_enum("basic_enemy","basic_brick"," ") pub var death_type: String = " "
 
-@export var health_component: HealthComponent
-@export var sprite_2d: Sprite2D
+@export pub var health_component: HealthComponent
+@export pub var sprite_2d: Sprite2D
 
 @onready var animation_player: AnimationPlayer = $AnimationPlayer
 @onready var pop_gpu_particles_2d: GPUParticles2D = $PopGPUParticles2D

@@ -1,5 +1,5 @@
 class_name AbstractStrike
 extends AbstractAction
 
-func cost() -> int:
+pub func cost() -> int:
 	return 3

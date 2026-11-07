@@ -268,7 +268,7 @@ static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance,
 	if (!member) {
 		// A signal reads as a Signal, as in GDScript (modules/gdscript/gdscript.cpp:1648-1651).
 		for (const bytecode::SignalInfo &signal : image->module.signals) {
-			if (as_name(p_name) == StringName(to_godot(signal.name))) {
+			if (as_name(p_name) == StringName(to_godot(bytecode::engine_signal_name(signal.name, signal.is_pub)))) {
 				*reinterpret_cast<Variant *>(r_ret) = Signal(instance->owner_object, as_name(p_name));
 				return true;
 			}

@@ -1005,7 +1005,7 @@ public:
 			if (each.is_abstract && (!module.is_abstract || each.is_static)) {
 				return fail("an abstract function of a class that is not abstract, or a static one");
 			}
-			if (each.is_lambda ? each.captures > each.params.size() || !each.defaults.empty() || each.is_pub || each.is_override || each.is_exposed || each.is_abstract || each.is_inherited : each.captures != 0) {
+			if (each.is_lambda ? each.captures > each.params.size() || !each.defaults.empty() || each.is_pub || each.is_override || each.is_abstract || each.is_inherited : each.captures != 0) {
 				return fail("a lambda with more captures than parameters, or declared as a method");
 			}
 		}

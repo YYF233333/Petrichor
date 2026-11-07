@@ -3,9 +3,9 @@ class_name LanguageCheck
 extends Node
 
 @export pub var speed: float = 2.0
-@export var offset := Vector2(400.0, 0.0)
-@export var items: Array[int] = [1, 2]
-@export var level: int
+@export pub var offset := Vector2(400.0, 0.0)
+@export pub var items: Array[int] = [1, 2]
+@export pub var level: int
 pub var frames := 0
 pub var from_init := 0
 
@@ -62,7 +62,7 @@ pub func neither(a: bool, b: bool) -> bool:
 	return !a and !b
 
 # A signal of the class (spec §4.7), which GDScript connects to by name.
-signal counted(total: int)
+pub signal counted(total: int)
 
 pub func emit_count(total: int):
 	counted.emit(total)

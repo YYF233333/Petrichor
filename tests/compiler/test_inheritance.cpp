@@ -126,8 +126,8 @@ TEST_CASE("inheritance rejects cycles foreign bases and missing super implementa
 
 TEST_CASE("inheritance scene connections belong to their attached class") {
 	FakeProject p;
-	p.add_script("res://base.pet", "class_name Base\nextends Node\nsignal tick\nfunc base_connected():\n\tpass\n", "Base");
-	p.add_script("res://child.pet", "extends Base\nfunc child_connected():\n\tpass\n");
+	p.add_script("res://base.pet", "class_name Base\nextends Node\npub signal tick\npub func base_connected():\n\tpass\n", "Base");
+	p.add_script("res://child.pet", "extends Base\npub func child_connected():\n\tpass\n");
 	compiler::Scene base;
 	base.path = "res://base.tscn";
 	base.nodes = { { ".", "Node", "res://base.pet" } };
@@ -143,11 +143,7 @@ TEST_CASE("inheritance scene connections belong to their attached class") {
 		options.project = &p;
 		const auto r = compiler::compile(p.sources.at(path), fake_engine(), options);
 		INFO(messages(r));
-		REQUIRE(r.ok());
-		CHECK(function_named(r.module, "base_connected").is_exposed);
-		if (path == "res://child.pet") {
-			CHECK(function_named(r.module, "child_connected").is_exposed);
-		}
+		CHECK(r.ok());
 	}
 }
 
@@ -155,11 +151,13 @@ TEST_CASE("inheritance scene connections belong to their attached class") {
 // 2008-2022, 3630-3644; modules/gdscript/gdscript_parser.cpp:715-754, 1773-1774, 4500-4524).
 TEST_CASE("an abstract class declares methods its subclasses implement") {
 	FakeProject p;
-	p.add_script("res://action.pet", "@abstract\nclass_name Action\nextends Resource\n@export var label: String\n\n@abstract pub async func execute() -> int\n\n@abstract\nfunc cost() -> int\n\npub func describe() -> String:\n\treturn label + str(cost())\n", "Action");
+	p.add_script("res://action.pet", "@abstract\nclass_name Action\nextends Resource\n@export pub var label: String\n\n@abstract pub async func execute() -> int\n\n@abstract\nfunc cost() -> int\n\npub func describe() -> String:\n\treturn label + str(cost())\n", "Action");
 	const auto action = compile_in(p.sources.at("res://action.pet"), p);
 	REQUIRE_MESSAGE(action.ok(), messages(action));
 	CHECK(action.module.is_abstract);
 	CHECK((function_named(action.module, "cost").is_abstract && function_named(action.module, "cost").code.empty()));
+	// @abstract on its own line was once taken for @rpc.
+	CHECK(function_named(action.module, "cost").rpc.mode == 0);
 	CHECK(!function_named(action.module, "describe").is_abstract);
 
 	const auto child = compile_in("extends Action\npub async func execute() -> int:\n\treturn 1\n\nfunc cost() -> int:\n\treturn 2\n", p);

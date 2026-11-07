@@ -51,28 +51,26 @@ std::string hud_errors(const std::string &p_body, const FakeProject &p_project =
 
 } // namespace
 
-TEST_CASE("a method connected in a scene is visible to the engine (spec §10.5)") {
-	const char *source = "extends Node3D\n\nfunc _on_timer_timeout():\n\tpass\n\nfunc other():\n\tpass\n";
-	const compiler::CompileResult result = compile_in(source, timer_scene("_on_timer_timeout"));
-	REQUIRE_MESSAGE(result.ok(), messages(result));
-	CHECK(function_named(result.module, "_on_timer_timeout").is_exposed);
-	CHECK(!function_named(result.module, "other").is_exposed);
+TEST_CASE("a method connected in a scene must be pub, since the engine finds it by name (spec §10.5)") {
+	CHECK(compile_in("extends Node3D\n\npub func _on_timer_timeout():\n\tpass\n", timer_scene("_on_timer_timeout")).ok());
+	CHECK(contains(messages(compile_in("extends Node3D\n\nfunc _on_timer_timeout():\n\tpass\n", timer_scene("_on_timer_timeout"))), "is connected to _on_timer_timeout(), which is not pub; the engine calls only pub methods by name (spec §10.5)."));
 }
 
-TEST_CASE("a method the engine is to call by a literal name is visible to it (spec §10.5)") {
-	const compiler::CompileResult result = compile_in("extends Node\n\nfunc _ready():\n\tcall_deferred(\"reset\")\n\tvar me := self\n\tme.call_deferred(\"stop\")\n\tother.call_deferred()\n\nfunc reset():\n\tpass\n\nfunc stop():\n\tpass\n\nfunc other():\n\tpass\n", FakeProject());
-	REQUIRE_MESSAGE(result.ok(), messages(result));
-	CHECK(function_named(result.module, "reset").is_exposed);
+TEST_CASE("a method the engine is to call by a literal name must be pub (spec §10.4)") {
+	const auto errors = [](const std::string &p_visibility) {
+		return messages(compile_in("extends Node\n\nfunc _ready():\n\tcall_deferred(\"reset\")\n\tvar me := self\n\tme.call_deferred(\"stop\")\n\n" + p_visibility + "func reset():\n\tpass\n\n" + p_visibility + "func stop():\n\tpass\n", FakeProject()));
+	};
+	CHECK(errors("pub ").empty());
+	CHECK(contains(errors(""), "\"reset()\" is not pub, so the engine cannot find it by name; pass the method itself, as reset (spec §10.4)."));
 	// Through an object of this class too.
-	CHECK(function_named(result.module, "stop").is_exposed);
-	CHECK(!function_named(result.module, "other").is_exposed);
+	CHECK(contains(errors(""), "\"stop()\" is not pub"));
 }
 
 TEST_CASE("scene connections are checked against the class (spec §7.7)") {
-	const char *source = "extends Node3D\n\nfunc _on_timer_timeout():\n\tpass\n";
+	const char *source = "extends Node3D\n\npub func _on_timer_timeout():\n\tpass\n";
 	CHECK(contains(messages(compile_in(source, timer_scene("_on_missing"))), "res://enemy.tscn: the signal \"timeout\" of Timer is connected to _on_missing(), which this class does not declare."));
 	CHECK(contains(messages(compile_in(source, timer_scene("_on_timer_timeout", 1))), "which passes 1 argument(s); _on_timer_timeout() takes 0."));
-	CHECK(compile_in("extends Node3D\n\nfunc _on_timer_timeout(extra: int):\n\tpass\n", timer_scene("_on_timer_timeout", 1)).ok());
+	CHECK(compile_in("extends Node3D\n\npub func _on_timer_timeout(extra: int):\n\tpass\n", timer_scene("_on_timer_timeout", 1)).ok());
 }
 
 TEST_CASE("signal arguments must fit the connected method's parameters") {
@@ -82,28 +80,30 @@ TEST_CASE("signal arguments must fit the connected method's parameters") {
 	scene.nodes = { { ".", "Node", "res://test.pet" } };
 	scene.connections = { { "child_entered_tree", ".", ".", "_on_child", 0, 0 } };
 	project.scenes = { scene };
-	CHECK(compile_in("extends Node\n\nfunc _on_child(node: Node):\n\tpass\n", project).ok());
+	CHECK(compile_in("extends Node\n\npub func _on_child(node: Node):\n\tpass\n", project).ok());
 	// A handler may accept None where the engine might pass it (spec §10.2).
-	CHECK(compile_in("extends Node\n\nfunc _on_child(node: Node?):\n\tpass\n", project).ok());
-	CHECK(contains(messages(compile_in("extends Node\n\nfunc _on_child(node: int):\n\tpass\n", project)), "which passes Node here"));
+	CHECK(compile_in("extends Node\n\npub func _on_child(node: Node?):\n\tpass\n", project).ok());
+	CHECK(contains(messages(compile_in("extends Node\n\npub func _on_child(node: int):\n\tpass\n", project)), "which passes Node here"));
 }
 
 TEST_CASE("a signal declared by a script of this language is checked like the engine's (spec §4.7, §7.7)") {
 	// main.tscn of the FPS starter kit connects the player's health_updated to the HUD.
-	const auto connected = [](const std::string &p_signal, const std::string &p_handler) {
+	const auto connected = [](const std::string &p_signal, const std::string &p_handler, const std::string &p_visibility = "pub ") {
 		FakeProject project = hud_scene();
-		project.add_script("res://player.pet", "extends Node3D\nsignal health_updated(health: int)\n");
+		project.add_script("res://player.pet", "extends Node3D\n" + p_visibility + "signal health_updated(health: int)\n");
 		project.scenes[0].nodes[1].instance_script = "res://player.pet";
 		project.scenes[0].connections = { { p_signal, "Player", "HUD", "_on_health_updated", 0, 0 } };
-		return messages(compile_in("extends CanvasLayer\n\nfunc _on_health_updated(" + p_handler + "):\n\tpass\n", project));
+		return messages(compile_in("extends CanvasLayer\n\npub func _on_health_updated(" + p_handler + "):\n\tpass\n", project));
 	};
 	CHECK(connected("health_updated", "health: int").empty());
+	// The engine connects it by name (spec §10.5).
+	CHECK(contains(connected("health_updated", "health: int", ""), "is connected to _on_health_updated(), but that signal is not pub; the engine connects only pub signals by name (spec §10.5)."));
 	CHECK(contains(connected("health_updated", "health: String"), "which passes int here"));
 	CHECK(contains(connected("health_updated", ""), "which passes 1 argument(s); _on_health_updated() takes 0."));
 	CHECK(contains(connected("health_changed", "health: int"), "res://main.tscn: the signal \"health_changed\" of Player is connected to _on_health_updated(), but Player has no such signal."));
 	// The engine class's own signals.
 	CHECK(connected("ready", "").empty());
-	CHECK(contains(messages(compile_in("extends Node3D\n\nfunc _on_timer_timeout():\n\tpass\n", [] {
+	CHECK(contains(messages(compile_in("extends Node3D\n\npub func _on_timer_timeout():\n\tpass\n", [] {
 		FakeProject project = timer_scene("_on_timer_timeout");
 		project.scenes[0].connections[0].signal = "timed_out";
 		return project;
@@ -342,7 +342,7 @@ TEST_CASE("@onready members are set when the node is ready, from the scene") {
 	CHECK(storage(later.module, later.module.members[0].type) == bytecode::ValueType::String);
 	CHECK(contains(errors("@onready var a := 1\nvar b := a"), "\"a\" is set when the node is ready, after this initializer runs"));
 	CHECK(contains(errors("@onready var b := a\n@onready var a := 1"), "\"a\" is not initialized yet"));
-	CHECK(contains(errors("@onready @export var a := 1"), "@onready and @export do not go together"));
+	CHECK(contains(errors("@onready @export pub var a := 1"), "@onready and @export do not go together"));
 	CHECK(contains(errors("@onready var a := 1\n\nfunc _init():\n\tprint(a)"), "after _init() runs"));
 	CHECK(contains(errors("@onready var a := 1\n\nfunc _enter_tree():\n\tprint(a)"), "after _enter_tree() runs"));
 	CHECK(contains(messages(compile("extends Resource\n@onready var a := 1\n")), "@onready is for Node scripts"));
@@ -351,7 +351,7 @@ TEST_CASE("@onready members are set when the node is ready, from the scene") {
 TEST_CASE("while loading, only declarations are compiled") {
 	// The body has a type error, and the scene's method does not exist; neither
 	// is checked without bodies and scenes.
-	const char *source = "extends Node3D\n@export var speed := 2.0\n\npub func f(x: int) -> String:\n\tvar s: String = x\n\treturn s\n";
+	const char *source = "extends Node3D\n@export pub var speed := 2.0\n\npub func f(x: int) -> String:\n\tvar s: String = x\n\treturn s\n";
 	const compiler::CompileResult result = compile_in(source, timer_scene("_on_missing"), true);
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	CHECK(result.module.declarations_only);

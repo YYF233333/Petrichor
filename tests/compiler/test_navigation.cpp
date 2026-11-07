@@ -227,7 +227,7 @@ signal died  ## When it dies.
 ## Its speed,
 ## in meters.[br][br]Per second.
 ## @deprecated: Use [member pace].
-@export var speed := 2.5
+@export pub var speed := 2.5
 
 ## Not of pace.
 ### Section

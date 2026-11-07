@@ -164,9 +164,9 @@ TEST_CASE("async engine overrides and Task exports obey their contracts") {
 	CHECK(has_error("extends Control\nasync func _has_point(point):\n\treturn true\n", "cannot be async"));
 	const auto valid = compile("extends Node\nfunc _init():\n\tpass\nfunc _to_string():\n\treturn \"ok\"\nasync func _ready():\n\tpass\nasync func ordinary() -> int:\n\treturn 1\n");
 	REQUIRE_MESSAGE(valid.ok(), messages(valid));
-	CHECK(has_error("@export var t: Task[int]\n", "cannot be exported"));
-	CHECK(has_error("@export var t: Task[int]?\n", "cannot be exported"));
-	CHECK_FALSE(compile("@export var t: Array[Task[int]]\n").ok());
+	CHECK(has_error("@export pub var t: Task[int]\n", "cannot be exported"));
+	CHECK(has_error("@export pub var t: Task[int]?\n", "cannot be exported"));
+	CHECK_FALSE(compile("@export pub var t: Array[Task[int]]\n").ok());
 	CHECK_FALSE(contains(joined(errors_of("var t: Task[int]\n")), "unless exported"));
 	CHECK(has_error("async func f(cb: Callable):\n\tawait cb.get_argument_count()\n", "await expects"));
 	CHECK(has_error("async func f(cb: Callable):\n\tawait cb.is_valid()\n", "await expects"));

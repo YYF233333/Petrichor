@@ -2219,6 +2219,7 @@ class Checker : public ClassRelation {
 			}
 			r_expr.target = Target::SelfSignal;
 			const SignalDecl &signal = *cls.all_signals[own_signal->second];
+			r_expr.signal = &signal;
 			refer(r_expr.name_token, script_id(declaring(cls, signal, &ClassDecl::signals).path, signal.name));
 			return set(r_expr, Type::signal(param_types(signal.params)));
 		}
@@ -2481,6 +2482,7 @@ class Checker : public ClassRelation {
 				return fail(r_expr, *message);
 			}
 			r_expr.target = Target::ObjectSignal;
+			r_expr.signal = &signal;
 			refer(r_expr.name_token, script_id(declaring(*decl, signal, &ClassDecl::signals).path, signal.name));
 			return Type::signal(param_types(signal.params));
 		}
@@ -3871,13 +3873,16 @@ class Checker : public ClassRelation {
 			}
 		}
 		// A method of this class that the engine is to call by a literal name,
-		// as in call_deferred("reset"), is one it must find (spec §10.5).
+		// as in call_deferred("reset"), must be pub: the engine finds no other
+		// (spec §10.4, §10.5).
 		for (size_t i = 0; on_self && i < p_method.params.size() && i < r_expr.args.size(); i++) {
 			const Expr &arg = *r_expr.args[i];
 			const auto named = arg.kind == ExprKind::StringLiteral ? function_index.find(arg.text) : function_index.end();
 			if (p_method.params[i].name == "method" && named != function_index.end()) {
-				cls.exposed_methods.insert(arg.text);
 				const FuncDecl &method = *cls.all_functions[named->second];
+				if (!method.is_pub) {
+					error(arg.range, "\"" + arg.text + "()\" is not pub, so the engine cannot find it by name; pass the method itself, as " + arg.text + " (spec §10.4).");
+				}
 				refer_string(arg, script_id(declaring(cls, method, &ClassDecl::functions).path, method.name));
 			}
 		}
@@ -7223,7 +7228,8 @@ class Checker : public ClassRelation {
 	// The inspector's view of an export (spec §2.3): @export alone shows it as
 	// its type, an annotation of the family adds a hint, @export_storage stores
 	// it without showing it. PropertyUsageFlags as the engine numbers them
-	// (core/object/property_info.h:90-91, 120).
+	// (core/object/property_info.h:90-91, 120). The editor and scenes set an
+	// export by name, so it must be pub (spec §10.5).
 	void check_annotations(VarDecl &r_member) {
 		const Annotation *exported = nullptr;
 		if (r_member.is_export) {
@@ -7241,6 +7247,9 @@ class Checker : public ClassRelation {
 				continue;
 			}
 			exported = &annotation;
+			if (!r_member.is_pub) {
+				error(annotation.range, "An exported variable must be pub: the editor and scenes set it by name (spec §10.5).");
+			}
 			if (const HintAnnotation *hint = hint_annotation(annotation.name)) {
 				check_hint(r_member, annotation, *hint);
 			} else if (annotation.name == "export_custom") {
@@ -7255,11 +7264,15 @@ class Checker : public ClassRelation {
 
 	// @rpc(mode, sync, transfer_mode, channel): the strings in any order, the
 	// channel fourth, as in GDScript (modules/gdscript/gdscript_parser.cpp:187,
-	// 5238-5298). The peers call the method by name (spec §10.5).
+	// 5238-5298). The peers call the method by name, so it must be pub (spec
+	// §10.5).
 	void check_rpc(FuncDecl &r_function, const Annotation &p_annotation) {
 		if (r_function.rpc.mode != 0) {
 			error(p_annotation.range, "A function takes @rpc once.");
 			return;
+		}
+		if (!r_function.is_pub) {
+			error(p_annotation.range, "An @rpc function must be pub: other peers call it by name (spec §10.5).");
 		}
 		if (p_annotation.args.size() > 4) {
 			error(p_annotation.range, "@rpc takes at most four arguments.");
@@ -7322,7 +7335,6 @@ class Checker : public ClassRelation {
 			}
 		}
 		r_function.rpc = rpc;
-		cls.exposed_methods.insert(r_function.name);
 	}
 
 	// Their arguments name warnings, as strings; which names suppress anything
@@ -7844,8 +7856,8 @@ class Checker : public ClassRelation {
 	}
 
 	// Connections saved in scenes to methods of this class (spec §7.7): the
-	// method must exist and take what the signal passes; the engine finds it
-	// by name (§10.5).
+	// method must exist and take what the signal passes. The engine finds the
+	// method and the signal by name, so both must be pub (§10.5).
 	void check_connections() {
 		const TokenRange header{ cls.extends_token, cls.extends_token };
 		for (const Scene &scene : scenes) {
@@ -7862,7 +7874,9 @@ class Checker : public ClassRelation {
 				}
 				const FuncDecl &method = *cls.all_functions[found->second];
 				const bool own = is_own(method, cls.functions);
-				cls.exposed_methods.insert(method.name);
+				if (!method.is_pub) {
+					error_in_scene(own_name(method, cls.functions, header), scene, connection.target, where + ", which is not pub; the engine calls only pub methods by name (spec §10.5).");
+				}
 				if (references) {
 					Reference reference;
 					reference.target = script_id(declaring(cls, method, &ClassDecl::functions).path, method.name);
@@ -7872,9 +7886,12 @@ class Checker : public ClassRelation {
 				}
 				const SceneNode *source = scene.find_node(connection.source);
 				bool missing = false;
-				const std::optional<std::vector<Type>> arguments = source ? signal_arguments(*source, connection.signal, missing) : std::nullopt;
+				bool hidden = false;
+				const std::optional<std::vector<Type>> arguments = source ? signal_arguments(*source, connection.signal, missing, hidden) : std::nullopt;
 				if (missing) {
 					error_in_scene(header, scene, connection.target, where + ", but " + connection.source + " has no such signal.");
+				} else if (hidden) {
+					error_in_scene(header, scene, connection.target, where + ", but that signal is not pub; the engine connects only pub signals by name (spec §10.5).");
 				}
 				if (!arguments) {
 					continue;
@@ -7896,8 +7913,9 @@ class Checker : public ClassRelation {
 	// What a signal of a node in a scene passes: one its script of this
 	// language declares (spec §4.7), or one of its engine class. nullopt when
 	// that is not known: a script of another language, or one with errors;
-	// `r_missing` when the node certainly has no such signal.
-	std::optional<std::vector<Type>> signal_arguments(const SceneNode &p_node, const std::string &p_signal, bool &r_missing) {
+	// `r_missing` when the node certainly has no such signal, `r_hidden` when
+	// it is not pub.
+	std::optional<std::vector<Type>> signal_arguments(const SceneNode &p_node, const std::string &p_signal, bool &r_missing, bool &r_hidden) {
 		const std::string &script = p_node.script.empty() ? p_node.instance_script : p_node.script;
 		if (!script.empty() && !is_script_path(script)) {
 			return std::nullopt;
@@ -7910,6 +7928,7 @@ class Checker : public ClassRelation {
 			for (const SignalDecl *entry : decl->all_signals) {
 				const SignalDecl &signal = *entry;
 				if (signal.name == p_signal) {
+					r_hidden = !signal.is_pub;
 					return param_types(signal.params);
 				}
 			}
@@ -9551,7 +9570,6 @@ private:
 			cls.all_signals = cls.base->all_signals;
 			cls.implemented = cls.base->implemented;
 			cls.implemented_with_errors = cls.base->implemented_with_errors;
-			cls.exposed_methods = cls.base->exposed_methods;
 			for (size_t i = 0; i < cls.all_members.size(); ++i) {
 				member_index[cls.all_members[i]->name] = int(i);
 			}
@@ -9614,7 +9632,9 @@ private:
 		check_groups();
 		for (FuncDecl &fn : cls.functions) {
 			for (const Annotation &annotation : fn.annotations) {
-				check_rpc(fn, annotation);
+				if (annotation.name == "rpc") {
+					check_rpc(fn, annotation);
+				}
 			}
 		}
 		check_warning_ignores();

@@ -133,7 +133,7 @@ pub func send_message() -> Dictionary:   # [rewrite] Root.cs still receives a Di
 	return ret_message
 
 
-func reset():
+pub func reset():   # [pub] breakout.gd calls it by name
 	var msg = init_message   # [narrow]
 	if msg != None:   # [rewrite] was `if init_message:`
 		print_debug(msg)
