@@ -2093,12 +2093,6 @@ public:
 					}
 					pc += 4;
 					break;
-				case Op::CHECK_ASSIGNED:
-					if (is_none_object(frame + code[pc + 2])) {
-						return fail_unassigned(fn, record.line, code[pc + 1]);
-					}
-					pc += 3;
-					break;
 				case Op::CHECK_MUST:
 					SELF_ALIVE();
 					if (!image.assigned(members, code[pc + 1])) {

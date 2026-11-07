@@ -117,8 +117,8 @@ public:
 	// and its script or the interface it implements.
 	bool fits_class(const godot::Object *p_object, uint32_t p_index) const;
 
-	// Of a member that must be assigned, in an instance's storage: not zero
-	// once it has been (bytecode/module.h).
+	// Of a member that tracks whether it has been assigned, in an instance's
+	// storage (bytecode/module.h).
 	uint64_t &assigned(uint8_t *p_members, size_t p_member) const {
 		const bytecode::Member &member = module.members[p_member];
 		return *reinterpret_cast<uint64_t *>(p_members + member.offset + types[member.type].size);

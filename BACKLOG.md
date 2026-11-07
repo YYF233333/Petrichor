@@ -27,7 +27,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - nodes in scenes typed by their GDScript class rather than its engine class.
 - The declarations of other scripts are checked as while the editor loads a script. That load loads no script of another language. So other classes do not know a member typed by a preloaded GDScript class lacking a class_name (spec §2.1). An example is `pub var unit: Unit?`.
 - Members that are not pub of another instance of the same class. The engine reaches them by name, while reflection lists only pub ones. They come with the Runtime item on members read without the engine.
-- The check of `@onready` members of value types read before ready.
 - preload() inside a constant's container (spec §4.5).
 - In the editor, GDScript does not see a pub constant whose value is a preload(), such as `Spawner.SCENE`. It reports a parse error. The editor compiles the scripts it loads with declarations only, which read no scenes. So the constant is left out of the image (spec §4.5, §11.3).
 - `Array[T]?`, and nested `Option`:

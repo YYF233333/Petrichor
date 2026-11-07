@@ -26,3 +26,8 @@ pub func caption_node() -> Label:
 
 pub func title() -> String:
 	return %Title.text
+
+@onready var caption_length: int = caption_label.text.length()
+
+pub func early_length() -> int:
+	return caption_length

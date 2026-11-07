@@ -717,28 +717,28 @@ class Lowerer {
 		return is_8_byte(p_type) ? p_8_byte : (p_type == ValueType::String ? p_string : p_value);
 	}
 
-	// A member that must be assigned is used only once it has been (spec §6.2).
+	bool tracks_assignment(uint32_t p_member) const {
+		return cls.all_members[p_member]->must_assign || cls.all_members[p_member]->is_onready;
+	}
+
+	// A member that must be assigned is used only once it has been (spec
+	// §6.2), an @onready one once its initializer has run (§6.3).
 	void check_assigned(uint32_t p_member) {
-		if (cls.all_members[p_member]->must_assign) {
+		if (tracks_assignment(p_member)) {
 			instr(Op::CHECK_MUST, NO_REG, NO_REG, NO_REG, p_member);
 		}
 	}
 
 	uint32_t load_member(uint32_t p_member) {
-		const VarDecl &member = *cls.all_members[p_member];
 		check_assigned(p_member);
-		const uint32_t result = temp(member.type);
+		const uint32_t result = temp(cls.all_members[p_member]->type);
 		instr(by_storage(reg_type(result), Op::LOAD_MEMBER_8, Op::LOAD_MEMBER_STRING, Op::LOAD_MEMBER_VALUE), result, NO_REG, NO_REG, p_member, fn.regs[result].type);
-		// An @onready member read before the node is ready is still None (spec §6.3).
-		if (member.is_onready && member.type.kind == TypeKind::Object && !member.type.nullable) {
-			instr(Op::CHECK_ASSIGNED, NO_REG, result, NO_REG, p_member);
-		}
 		return result;
 	}
 
 	void store_member(uint32_t p_member, uint32_t p_value) {
 		instr(by_storage(reg_type(p_value), Op::STORE_MEMBER_8, Op::STORE_MEMBER_STRING, Op::STORE_MEMBER_VALUE), NO_REG, p_value, NO_REG, p_member, fn.regs[p_value].type);
-		if (cls.all_members[p_member]->must_assign) {
+		if (tracks_assignment(p_member)) {
 			instr(Op::MARK_ASSIGNED, NO_REG, NO_REG, NO_REG, p_member);
 		}
 	}
@@ -2757,7 +2757,7 @@ public:
 			member.offset = offset;
 			offset += bytecode::type_size(module.types, member.type);
 			member.must_assign = decl_member.must_assign;
-			offset += member.must_assign ? 8 : 0; // Whether it has been assigned.
+			offset += member.tracks_assignment() ? 8 : 0;
 			member.is_pub = decl_member.is_pub;
 			member.is_export = decl_member.is_export;
 			member.hint = decl_member.hint;

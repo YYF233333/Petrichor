@@ -175,7 +175,7 @@ class Verifier {
 			}
 			uint64_t end = uint64_t(slot.offset) + type_size(module.types, slot.type);
 			if constexpr (std::is_same_v<T, Member>) {
-				end += slot.must_assign ? 8 : 0; // Whether it has been assigned.
+				end += slot.tracks_assignment() ? 8 : 0;
 			}
 			if (slot.offset % 8 != 0 || end > p_size) {
 				return fail("slot " + slot.name + " does not fit");
@@ -768,7 +768,7 @@ class Verifier {
 			}
 			case Op::CHECK_MUST:
 			case Op::MARK_ASSIGNED:
-				return (o[0] < module.members.size() && module.members[o[0]].must_assign) || fail("a member that need not be assigned");
+				return (o[0] < module.members.size() && module.members[o[0]].tracks_assignment()) || fail("a member that does not track whether it is assigned");
 			case Op::UNWRAP_OK: {
 				// Ok's value is the field after the variant's index.
 				const TypeDesc &type = module.types[o[0]];
