@@ -697,12 +697,16 @@ class Verifier {
 				return p_op == Op::GET_FIELD ? slot(o[1], field.type) && slot(o[2], field.base) : slot(o[1], field.base) && slot(o[2], field.type);
 			}
 			case Op::GET_PROPERTY:
-			case Op::SET_PROPERTY: {
+			case Op::SET_PROPERTY:
+			case Op::GET_MEMBER_OF:
+			case Op::SET_MEMBER_OF: {
 				const uint32_t property = module.properties[o[0]].type;
 				if (is_void(property)) {
 					return fail("a property without a type");
 				}
-				return p_op == Op::GET_PROPERTY ? slot_like(o[1], property) && slot_or_none(o[2], ValueType::Object) : slot_or_none(o[1], ValueType::Object) && slot_like(o[2], property);
+				// A property may be self's, NO_SLOT; a member is another object's.
+				const auto object = [&](uint32_t p_slot) { return p_op == Op::GET_PROPERTY || p_op == Op::SET_PROPERTY ? slot_or_none(p_slot, ValueType::Object) : slot(p_slot, ValueType::Object); };
+				return p_op == Op::GET_PROPERTY || p_op == Op::GET_MEMBER_OF ? slot_like(o[1], property) && object(o[2]) : object(o[1]) && slot_like(o[2], property);
 			}
 			case Op::CHECK_ENUM:
 				return module.types[o[0]].kind == TypeKind::Enum || fail("CHECK_ENUM of no enum");

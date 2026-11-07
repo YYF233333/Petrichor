@@ -39,7 +39,7 @@ void PetPlaceholder::update(bool p_notify) {
 	if (const std::shared_ptr<const ClassImage> current = script->get_image()) {
 		for (size_t i = 0; i < current->module.members.size(); i++) {
 			const bytecode::Member &member = current->module.members[i];
-			if (PetScript::is_visible(member) && member.has_initial) {
+			if (PetScript::is_visible(*current, member) && member.has_initial) {
 				initial[current->member_names[i]] = initial_value(*current, i);
 			}
 		}

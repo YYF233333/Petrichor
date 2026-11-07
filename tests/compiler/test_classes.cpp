@@ -131,19 +131,19 @@ TEST_CASE("a class_name names a class of another script") {
 	CHECK(contains(errors("var x: Enemy = w"), "Cannot assign a value of type Weapon as Enemy"));
 }
 
-TEST_CASE("members without pub are visible in their own file only (spec §4.2)") {
+TEST_CASE("members without pub are visible in their own file and subclasses (spec §4.2)") {
 	FakeProject classes = project();
-	classes.add_script("res://door.pet", "class_name Door\nextends Node\n\nsignal opened\npub signal closed\n\ninterface Lock:\n\tfunc open()\n", "Door");
+	classes.add_script("res://door.pet", "class_name Door\nextends Node\n\nsignal opened\npub signal closed\nvar code := 1\n\nfunc knock() -> void:\n\tpass\n\ninterface Lock:\n\tfunc open()\n", "Door");
 	const auto with_door = [&](const std::string &p_body) {
 		return messages(compile_in("extends Node\n\nfunc f(d: Door) -> void:\n\t" + p_body + "\n", classes));
 	};
 	CHECK(with_door("var s: Signal = d.closed").empty());
 	CHECK(contains(with_door("var s: Signal = d.opened"), "The signal \"opened\" of Door is not pub."));
 	CHECK(contains(with_door("var l: Door.Lock"), "Door.Lock is not pub"));
-	// Other instances of the same class are reached through the engine, which
-	// sees only pub members (spec §10.5).
-	const std::string own = messages(compile_in("class_name Gate\nextends Node\nvar hp := 1\n\nfunc f(other: Gate) -> int:\n\treturn other.hp\n", classes));
-	CHECK(contains(own, "\"hp\" is not pub, and members that are not pub of other instances of this class are not supported yet."));
+	CHECK(contains(with_door("print(d.code)"), "\"code\" of Door is not pub."));
+	// Of other instances too, here in a subclass.
+	const compiler::CompileResult sub = compile_in("extends Door\n\nfunc f(other: Door) -> int:\n\tother.knock()\n\tvar s: Signal = other.opened\n\treturn other.code\n", classes);
+	CHECK_MESSAGE(sub.ok(), messages(sub));
 }
 
 TEST_CASE("a pub declaration shows only pub types (spec §4.2)") {

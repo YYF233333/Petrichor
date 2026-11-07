@@ -103,6 +103,8 @@ namespace petrichor::bytecode {
 	X(HAS_MEMBER, "DAB", "bos") /* dst (bool), object, name (String): whether the object's get() finds it (spec §5.1) */ \
 	X(CHECK_ENUM, "IA", "ti") /* type, src: a program error unless the int in src is one of the enum's values (spec §3.7) */ \
 	X(SET_PROPERTY, "IAB", "P") /* property, object (NO_SLOT: self), value */ \
+	X(GET_MEMBER_OF, "IDA", "P") /* property (the member's name and type), dst, object of a class of this language: the member in its slot, without the engine (spec §10.5) */ \
+	X(SET_MEMBER_OF, "IAB", "P") /* property, object, value: as GET_MEMBER_OF */ \
 	X(NEW_OBJECT, "ID", "Co") /* class, dst: of a class of this language, the engine class with the script */ \
 	X(NEW_WITHOUT_INIT, "ID", "Co") /* class (of this language), dst: as NEW_OBJECT, but _init() is left to the CALL_METHOD on dst that follows, skipped when the initializers fail (spec §6.1, §8.1) */ \
 	X(GET_SCRIPT, "ID", "Co") /* class, dst: the script of a class of this language, also of an inner class (spec §4.1) */ \

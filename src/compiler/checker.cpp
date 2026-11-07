@@ -2341,9 +2341,9 @@ class Checker : public ClassRelation {
 		return fail(r_expr, "Identifier \"" + r_expr.text + "\" is not declared in the current scope.");
 	}
 
-	// A member or signal of an object of a class of this language, which other
-	// code reaches by name, so only when it is pub (spec §10.5); nullopt when
-	// the class has no such member, so that the engine class's are looked at.
+	// A member or signal of an object of a class of this language, seen where
+	// its class's declarations are (spec §4.2); nullopt when the class has no
+	// such member, so that the engine class's are looked at.
 	std::optional<Type> script_member(Expr &r_expr, const Type &p_class) {
 		if (!is_script_path(p_class.script)) {
 			return foreign_member(r_expr, p_class);
@@ -2387,8 +2387,9 @@ class Checker : public ClassRelation {
 			if (member.name != r_expr.text) {
 				continue;
 			}
-			if (!member.is_pub) {
-				return fail(r_expr, not_pub(p_class, "\"" + member.name + "\""));
+			const std::string &owner = declaring(*decl, member, &ClassDecl::members).path;
+			if (!member.is_pub && !sees(owner)) {
+				return fail(r_expr, "\"" + member.name + "\" of " + p_class.name + " is not pub.");
 			}
 			if (const auto message = broken(&member, p_class.name + "." + member.name)) {
 				return fail(r_expr, *message);
@@ -2400,7 +2401,8 @@ class Checker : public ClassRelation {
 			}
 			r_expr.target = Target::ObjectProperty;
 			r_expr.owner = p_class.engine_class();
-			refer(r_expr.name_token, script_id(declaring(*decl, member, &ClassDecl::members).path, member.name));
+			r_expr.variable = &member;
+			refer(r_expr.name_token, script_id(owner, member.name));
 			return member.type;
 		}
 		for (const SignalDecl *entry : decl->all_signals) {
@@ -2408,10 +2410,9 @@ class Checker : public ClassRelation {
 			if (signal.name != r_expr.text) {
 				continue;
 			}
-			// A signal is reached by name like a method, and the engine knows
-			// every signal a class declares, so only other classes are refused.
-			if (!signal.is_pub && !in_this_file(p_class.script)) {
-				return fail(r_expr, not_pub(p_class, "The signal \"" + signal.name + "\""));
+			// The engine knows every signal a class declares.
+			if (!signal.is_pub && !sees(declaring(*decl, signal, &ClassDecl::signals).path)) {
+				return fail(r_expr, "The signal \"" + signal.name + "\" of " + p_class.name + " is not pub.");
 			}
 			if (const auto message = broken(&signal, p_class.name + "." + signal.name)) {
 				return fail(r_expr, *message);
@@ -2421,16 +2422,6 @@ class Checker : public ClassRelation {
 			return Type::signal(param_types(signal.params));
 		}
 		return std::nullopt;
-	}
-
-	// Members without pub are visible in their own file (spec §4.2), but other
-	// instances are reached by name through the engine, which sees only pub
-	// members (§10.5).
-	std::string not_pub(const Type &p_class, const std::string &p_what) const {
-		if (p_class.script == options.path) {
-			return p_what + " is not pub, and members that are not pub of other instances of this class are not supported yet.";
-		}
-		return p_what + " of " + p_class.name + " is not pub.";
 	}
 
 	// The methods an interface declares (spec §3.9).
@@ -2469,6 +2460,7 @@ class Checker : public ClassRelation {
 		const FuncDecl *callee = nullptr;
 		const SourceFile *source = nullptr; // Of the callee.
 		DeclId id;
+		std::string owner = p_class.script; // The class that declares it.
 		if (p_class.is_interface) {
 			if (const InterfaceDecl *interface = interface_decl(p_class)) {
 				if (const auto message = broken(interface, p_class.name)) {
@@ -2486,9 +2478,11 @@ class Checker : public ClassRelation {
 			for (const FuncDecl *entry : decl->all_functions) {
 				const FuncDecl &function = *entry;
 				if (function.name == r_expr.text) {
+					const ClassDecl &declarer = declaring(*decl, function, &ClassDecl::functions);
 					callee = &function;
-					source = declaring(*decl, function, &ClassDecl::functions).source.get();
-					id = script_id(declaring(*decl, function, &ClassDecl::functions).path, function.name);
+					source = declarer.source.get();
+					owner = declarer.path;
+					id = script_id(owner, function.name);
 				}
 			}
 		} else {
@@ -2497,8 +2491,8 @@ class Checker : public ClassRelation {
 		if (!callee) {
 			return std::nullopt;
 		}
-		if (!callee->is_pub && !callee->is_override) {
-			return fail_call(r_expr, not_pub(p_class, "\"" + callee->name + "()\""));
+		if (!callee->is_pub && !callee->is_override && !sees(owner)) {
+			return fail_call(r_expr, "\"" + callee->name + "()\" of " + p_class.name + " is not pub.");
 		}
 		if (const auto message = broken(callee, p_class.name + "." + callee->name + "()")) {
 			return fail_call(r_expr, *message);

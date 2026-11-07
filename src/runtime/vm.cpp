@@ -781,9 +781,9 @@ class Execution {
 		return fail(p_fn, p_line, vformat("%d is none of the values of %s.", p_value, type_description(image.types[p_type])));
 	}
 
-	PETRICHOR_NOINLINE bool fail_unassigned(const bytecode::Function &p_fn, int p_line, uint32_t p_member) {
+	PETRICHOR_NOINLINE bool fail_unassigned(const bytecode::Function &p_fn, int p_line, const ClassImage &p_owner, uint32_t p_member) {
 		// Spec §6.3; §6.2: no one assigned a member that must be.
-		return fail(p_fn, p_line, vformat(image.module.members[p_member].is_onready ? "\"%s\" is read before the node is ready." : "\"%s\" has not been assigned.", image.member_names[p_member]));
+		return fail(p_fn, p_line, vformat(p_owner.module.members[p_member].is_onready ? "\"%s\" is read before the node is ready." : "\"%s\" has not been assigned.", p_owner.member_names[p_member]));
 	}
 
 	// The class's own members that must be assigned, as the node becomes ready
@@ -804,7 +804,7 @@ class Execution {
 				deferred = true;
 				continue;
 			}
-			return fail_unassigned(p_fn, int(member.line), m);
+			return fail_unassigned(p_fn, int(member.line), image, m);
 		}
 		if (deferred) {
 			std::function<void(const Variant &)> check = [image = image.shared_from_this(), storage = context.storage](const Variant &) { check_from_ancestors(*image, *storage); };
@@ -1039,6 +1039,60 @@ class Execution {
 		object->set_named(image.properties[index], to_variant(image.types[image.module.properties[index].type], p_frame + p_op[3]), valid);
 		if (!valid) {
 			return fail(p_fn, p_line, vformat("Cannot write the property %s.", image.properties[index]));
+		}
+		return true;
+	}
+
+	// The slot of the member that GET_MEMBER_OF or SET_MEMBER_OF names, of
+	// the object in `p_object`, found by name in its current image (spec
+	// §10.5); null after a program error.
+	PETRICHOR_NOINLINE uint8_t *member_slot(const uint32_t *p_op, uint32_t p_object, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line, ScriptedObject &r_object, int &r_member) {
+		ObjectView view(nullptr);
+		Variant *receiver = resolve_object(p_frame, p_object, p_freed, view, p_fn, p_line);
+		if (!receiver) {
+			return nullptr;
+		}
+		if (!scripted_object(static_cast<Object *>(*receiver), r_object)) {
+			fail_cstr(p_fn, p_line, "The receiver is not a Petrichor instance.");
+			return nullptr;
+		}
+		// Within a run every script is compiled against the others (spec §12.4).
+		const StringName &name = image.properties[p_op[1]];
+		r_member = r_object.image->find_member(name);
+		const bytecode::Member *member = r_member >= 0 ? &r_object.image->module.members[r_member] : nullptr;
+		if (!member || r_object.image->types[member->type].layout != image.types[image.module.properties[p_op[1]].type].layout) {
+			fail(p_fn, p_line, vformat("\"%s\" is not the member this script was compiled against. Build the project again.", name));
+			return nullptr;
+		}
+		return r_object.context.storage->members + member->offset;
+	}
+
+	PETRICHOR_NOINLINE bool op_get_member_of(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
+		ScriptedObject object;
+		int member = -1;
+		const uint8_t *slot = member_slot(p_op, p_op[3], p_frame, p_freed, p_fn, p_line, object, member);
+		if (!slot) {
+			return false;
+		}
+		const ClassImage &owner = *object.image;
+		if (owner.module.members[member].tracks_assignment() && !owner.assigned(object.context.storage->members, uint32_t(member))) {
+			return fail_unassigned(p_fn, p_line, owner, uint32_t(member));
+		}
+		copy_value(image.types[image.module.properties[p_op[1]].type], p_frame + p_op[2], slot);
+		return true;
+	}
+
+	PETRICHOR_NOINLINE bool op_set_member_of(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
+		ScriptedObject object;
+		int member = -1;
+		uint8_t *slot = member_slot(p_op, p_op[2], p_frame, p_freed, p_fn, p_line, object, member);
+		if (!slot) {
+			return false;
+		}
+		copy_value(image.types[image.module.properties[p_op[1]].type], slot, p_frame + p_op[3]);
+		const ClassImage &owner = *object.image;
+		if (owner.module.members[member].tracks_assignment()) {
+			owner.assigned(object.context.storage->members, uint32_t(member)) = 1;
 		}
 		return true;
 	}
@@ -1280,11 +1334,11 @@ class Execution {
 		}
 		// Within a run every script is compiled against the others (spec §12.4);
 		// only bytecode that was not built together can differ, and then the
-		// arguments would not fit. Whether a static method or _init() is visible
-		// is the checker's: subclasses call those that are not pub too (spec §4.2).
+		// arguments would not fit. Whether a method is visible is the checker's:
+		// its file and subclasses call those that are not pub too (spec §4.2).
 		int index = callee.image ? callee.image->find_function(name) : -1;
 		const bytecode::Function *found = index >= 0 ? &callee.image->module.functions[index] : nullptr;
-		if (!found || !callee.image->has_signature(name, image.call_signatures[target]) || (static_class >= 0 && !found->is_static) || (Op(p_op[0]) == Op::CALL_METHOD && static_class < 0 && !found->is_pub && !found->is_override && index != callee.image->user_init)) {
+		if (!found || !callee.image->has_signature(name, image.call_signatures[target]) || (static_class >= 0 && !found->is_static)) {
 			return fail(p_fn, p_line, vformat("%s() is not the method this script was compiled against. Build the project again.", name));
 		}
 		ClassImage::resolve_function(callee.image, index);
@@ -2031,6 +2085,18 @@ public:
 					}
 					pc += 4;
 					break;
+				case Op::GET_MEMBER_OF:
+					if (!op_get_member_of(code + pc, frame, freed, fn, record.line)) {
+						return false;
+					}
+					pc += 4;
+					break;
+				case Op::SET_MEMBER_OF:
+					if (!op_set_member_of(code + pc, frame, freed, fn, record.line)) {
+						return false;
+					}
+					pc += 4;
+					break;
 				case Op::NEW_OBJECT:
 				case Op::NEW_WITHOUT_INIT: {
 					bool initialized;
@@ -2096,7 +2162,7 @@ public:
 				case Op::CHECK_MUST:
 					SELF_ALIVE();
 					if (!image.assigned(members, code[pc + 1])) {
-						return fail_unassigned(fn, record.line, code[pc + 1]);
+						return fail_unassigned(fn, record.line, image, code[pc + 1]);
 					}
 					pc += 2;
 					break;

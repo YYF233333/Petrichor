@@ -24,7 +24,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Of GDScript classes (spec §11.1):
   - enums, inner classes and static variables;
   - nodes in scenes typed by their GDScript class rather than its engine class.
-- Members that are not pub of another instance of the same class. The engine reaches them by name, while reflection lists only pub ones. They come with the Runtime item on members read without the engine.
 - preload() inside a constant's container (spec §4.5).
 - `Array[T]?`, and nested `Option`:
   - `T??` and `Some(...)`, with `flatten()` (spec §3.4);
@@ -59,7 +58,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 ## Runtime
 
 - Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`).
-- Members of classes of this language read and written without the engine. This language now reaches members of other instances through reflection. Then a pub member whose type is a container that keeps boxes can leave reflection (spec §10.5).
 - Temporary slots reused by scope. This releases temporary references in a loop in time. A suspended coroutine then keeps only the slots still in use.
 - A temporary that holds self keeps a RefCounted alive while the coroutine waits, as in `f(self, await g())` (against spec §9.4). Self is needed after the await there, so reusing slots does not help.
 - Ordering of arrays of engine types as spec §5.2 says. It differs from the engine's operators only with NaN, so it waits for the open question on NaN.

@@ -187,3 +187,22 @@ pub func cyclic_keys() -> String:
 	e[[inner, inner]] = 1
 	var p := e.keys()[0]
 	return str(d.size()) + " " + str(k.is_read_only()) + " " + str(is_same(k[0], k)) + " " + str(is_same(p[0], p[1])) + " " + str(is_same(p[0], inner))
+
+# Members of another instance, in their slots (spec §4.2, §10.5): one that is
+# not pub, one through its setter, and a container that keeps boxes, which
+# reflection does not list.
+pub var kept_hits: Array[Hit] = []
+var secret := 0
+var doubled := 0:
+	set(value):
+		doubled = value * 2
+@onready var children_at_ready: int = get_child_count()
+
+pub func other_members(peer: ContainerCheck) -> String:
+	peer.secret = 5
+	peer.doubled = 4
+	peer.kept_hits.append(Hit(damage = 6))
+	return str(peer.secret) + " " + str(peer.doubled) + " " + str(peer.kept_hits[0].damage)
+
+pub func early_member(peer: ContainerCheck) -> int:
+	return peer.children_at_ready

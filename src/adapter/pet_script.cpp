@@ -263,7 +263,7 @@ TypedArray<Dictionary> visible_properties(const ClassImage &p_image) {
 				list.push_back(group_info(group));
 			}
 		}
-		if (i < module.members.size() && PetScript::is_visible(module.members[i])) {
+		if (i < module.members.size() && PetScript::is_visible(p_image, module.members[i])) {
 			list.push_back(property_info(p_image, module.members[i]));
 		}
 	}
@@ -544,6 +544,12 @@ bool PetScript::apply_image(const std::shared_ptr<const ClassImage> &p_image, co
 void PetScript::instance_freed(PetInstance *p_instance) {
 	std::lock_guard<std::mutex> lock(mutex);
 	instances.erase(p_instance);
+}
+
+bool PetScript::is_visible(const ClassImage &p_image, const bytecode::Member &p_member) {
+	const bytecode::TypeKind kind = p_image.module.types[p_member.type].kind;
+	const bool container = kind == bytecode::TypeKind::Array || kind == bytecode::TypeKind::Dictionary;
+	return (p_member.is_pub || p_member.is_export) && !(container && bytecode::is_boxed(p_image.module.types, p_member.type));
 }
 
 int PetScript::find_visible_function(const ClassImage &p_image, const StringName &p_name) {
@@ -841,7 +847,7 @@ bool PetScript::_has_property_default_value(const StringName &p_property) const 
 	// value or the scene must assign it, so that the scene stores only what was
 	// set (spec §6.1, §7.5).
 	const int index = current->find_member(p_property);
-	if (index < 0 || !is_visible(current->module.members[index])) {
+	if (index < 0 || !is_visible(*current, current->module.members[index])) {
 		return false;
 	}
 	const bytecode::Member &member = current->module.members[index];
@@ -944,7 +950,7 @@ TypedArray<StringName> PetScript::_get_members() const {
 	TypedArray<StringName> members;
 	if (const std::shared_ptr<const ClassImage> current = get_image()) {
 		for (size_t i = 0; i < current->module.members.size(); i++) {
-			if (is_visible(current->module.members[i])) {
+			if (is_visible(*current, current->module.members[i])) {
 				members.push_back(current->member_names[i]);
 			}
 		}

@@ -86,9 +86,9 @@ public:
 	PetInstance *find_instance(godot::Object *p_object) const;
 
 	// Members and functions visible to the engine and other languages (spec
-	// §10.5): public or exported members; public functions, engine overrides
-	// and methods connected in scenes.
-	static bool is_visible(const bytecode::Member &p_member) { return p_member.is_pub || p_member.is_export; }
+	// §10.5): public or exported members, but no container that keeps boxes;
+	// public functions, engine overrides and methods connected in scenes.
+	static bool is_visible(const ClassImage &p_image, const bytecode::Member &p_member);
 	static bool is_visible(const bytecode::Function &p_function) { return p_function.is_pub || p_function.is_override || p_function.is_exposed; }
 	static int find_visible_function(const ClassImage &p_image, const godot::StringName &p_name);
 

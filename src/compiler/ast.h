@@ -218,7 +218,9 @@ struct Expr {
 	std::optional<bytecode::IntRange> int_range;
 	std::string owner; // The type a field, constant, method or constructor belongs to.
 	Type tested; // TypeTest and Cast: the class after is or as.
-	const VarDecl *variable = nullptr; // StaticVar.
+	// StaticVar; ObjectProperty: the member of a class of this language, which
+	// the object holds in a slot (spec §10.5).
+	const VarDecl *variable = nullptr;
 	const FuncDecl *callee = nullptr; // StructMethod.
 	// Its value when it is a constant expression (spec §4.5); otherwise null,
 	// and when that is because computing it would fail, why, and at which of

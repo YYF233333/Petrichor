@@ -805,6 +805,34 @@ class Lowerer {
 		return i.dst;
 	}
 
+	// Reads, or with `p_value` writes, the member `p_place.variable` of the
+	// object in `p_place.reg`: in its slot, or through its accessor called on
+	// that object (spec §4.4, §10.5).
+	uint32_t member_of(const Place &p_place, uint32_t p_value) {
+		const VarDecl &member = *p_place.variable;
+		const bool writes = p_value != NO_REG;
+		const std::string &accessor = writes ? member.setter : member.getter;
+		if (accessor.empty()) {
+			const uint32_t result = writes ? NO_REG : temp(p_place.type);
+			instr(writes ? Op::SET_MEMBER_OF : Op::GET_MEMBER_OF, result, p_place.reg, p_value, p_place.index);
+			return result;
+		}
+		ir::Instr i;
+		i.op = Op::CALL_METHOD;
+		bytecode::MethodCall method;
+		method.method = accessor;
+		if (writes) {
+			method.params.push_back(slot(std::string(), member.type));
+			i.args.push_back(p_value);
+		}
+		method.result = slot(std::string(), writes ? Type::of(TypeKind::Void) : member.type);
+		i.imm = method_call(method);
+		i.base = p_place.reg;
+		i.dst = writes ? NO_REG : temp(member.type);
+		add(i);
+		return i.dst;
+	}
+
 	uint32_t call_function(uint32_t p_function, std::vector<uint32_t> p_args, const Type &p_result) {
 		ir::Instr i;
 		i.op = Op::CALL;
@@ -2154,6 +2182,7 @@ class Lowerer {
 				place.kind = Place::Kind::ObjectProperty;
 				place.reg = lower_expr(*p_expr.base);
 				place.index = property(p_expr.text, type_index(p_expr.type));
+				place.variable = p_expr.variable;
 				break;
 			case Target::Field:
 				place.kind = Place::Kind::Field;
@@ -2234,6 +2263,9 @@ class Lowerer {
 			}
 			case Place::Kind::SelfProperty:
 			case Place::Kind::ObjectProperty: {
+				if (p_place.variable) {
+					return member_of(p_place, NO_REG);
+				}
 				const uint32_t result = temp(p_place.type);
 				instr(Op::GET_PROPERTY, result, p_place.kind == Place::Kind::SelfProperty ? NO_REG : p_place.reg, NO_REG, p_place.index);
 				// The binding metadata says whether it may be None (spec §10.2).
@@ -2311,6 +2343,10 @@ class Lowerer {
 			}
 			case Place::Kind::SelfProperty:
 			case Place::Kind::ObjectProperty:
+				if (p_place.variable) {
+					member_of(p_place, p_value);
+					return;
+				}
 				if (p_place.int_range) {
 					instr(Op::CHECK_RANGE, NO_REG, p_value, NO_REG, uint32_t(*p_place.int_range));
 				}

@@ -209,7 +209,7 @@ static const StringName &as_name(GDExtensionConstStringNamePtr p_name) {
 
 static const bytecode::Member *visible_member(const ClassImage &p_image, const StringName &p_name) {
 	const int index = p_image.find_member(p_name);
-	if (index < 0 || !PetScript::is_visible(p_image.module.members[index])) {
+	if (index < 0 || !PetScript::is_visible(p_image, p_image.module.members[index])) {
 		return nullptr;
 	}
 	return &p_image.module.members[index];
