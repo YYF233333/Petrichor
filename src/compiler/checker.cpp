@@ -1711,14 +1711,14 @@ class Checker : public ClassRelation {
 		if (!found) {
 			return nullptr;
 		}
-		if (Checker *local = file->find(named->script)) {
-			// Checked when first used, also while that class is declared.
-			if (const EnumDecl *checked = local->own_enum(r_base.text)) {
-				found = checked;
-			}
-		} else if (!found->is_pub && !sees(named->script)) {
+		Checker *local = file->find(named->script);
+		// Checked when first used, also while that class is declared.
+		if (const EnumDecl *checked = local ? local->own_enum(r_base.text) : nullptr) {
+			found = checked;
+		}
+		if (!found->is_pub && !sees(found->script)) {
 			error(r_base.range, "The enum " + named->name + "." + found->name + " is not pub.");
-		} else if (const auto message = broken(found, named->name + "." + found->name)) {
+		} else if (const auto message = local ? std::nullopt : broken(found, named->name + "." + found->name)) {
 			error(r_base.range, *message);
 		}
 		refer(r_base.name_token, script_id(found->script, found->name));
@@ -2048,13 +2048,14 @@ class Checker : public ClassRelation {
 			if (constant->name != r_expr.text) {
 				continue;
 			}
-			if (!constant->is_pub && !sees(p_path)) {
+			const std::string &owner = declaring(*decl, *constant, &ClassDecl::constants).path;
+			if (!constant->is_pub && !sees(owner)) {
 				return fail(r_expr, "The constant \"" + constant->name + "\" of " + p_class + " is not pub.");
 			}
 			if (const auto message = broken(constant, p_class + "." + constant->name)) {
 				return fail(r_expr, *message);
 			}
-			return use_constant(r_expr, *constant, declaring(*decl, *constant, &ClassDecl::constants).path);
+			return use_constant(r_expr, *constant, owner);
 		}
 		// A value of an unnamed enum is a constant of the class (spec §3.7).
 		for (const EnumDecl *entry : decl->all_enums) {
@@ -2062,7 +2063,7 @@ class Checker : public ClassRelation {
 			if (index < 0) {
 				continue;
 			}
-			if (!entry->is_pub && !sees(p_path)) {
+			if (!entry->is_pub && !sees(entry->script)) {
 				return fail(r_expr, "The constant \"" + r_expr.text + "\" of " + p_class + " is not pub.");
 			}
 			if (const auto message = broken(entry, p_class + "." + r_expr.text)) {
@@ -5041,15 +5042,17 @@ class Checker : public ClassRelation {
 		if (!callee.is_static) {
 			return fail_call(r_expr, "\"" + callee.name + "()\" of " + class_name + " is not static; call it on an object.");
 		}
-		if (!callee.is_pub && !sees(p_path)) {
+		const ClassDecl &owner = declaring(*decl, callee, &ClassDecl::functions);
+		// A bare name is one the class around this one sees (spec §4.1).
+		if (!callee.is_pub && r_expr.base && !sees(owner.path)) {
 			return fail_call(r_expr, "\"" + callee.name + "()\" of " + class_name + " is not pub.");
 		}
 		if (const auto message = broken(&callee, class_name + "." + callee.name + "()")) {
 			return fail_call(r_expr, *message);
 		}
-		hint(r_expr, [&](int p_current) { return declared_signature(callee.name, callee, *declaring(*decl, callee, &ClassDecl::functions).source, p_current, callee.return_type); });
+		hint(r_expr, [&](int p_current) { return declared_signature(callee.name, callee, *owner.source, p_current, callee.return_type); });
 		check_arguments(r_expr, param_types(callee.params), required_params(callee), false);
-		refer(r_expr.name_token, script_id(declaring(*decl, callee, &ClassDecl::functions).path, callee.name));
+		refer(r_expr.name_token, script_id(owner.path, callee.name));
 		if (p_path == options.path) {
 			r_expr.target = Target::ScriptFunction;
 			r_expr.index = int(found - decl->all_functions.begin());

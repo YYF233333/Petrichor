@@ -87,6 +87,23 @@ TEST_CASE("a static method of a class of this language is called on the class") 
 	CHECK(on_object.module.method_calls[0].static_class < 0);
 }
 
+TEST_CASE("a member inherited without pub is seen as where it is declared, whichever class names it") {
+	FakeProject project;
+	project.add_script("res://base.pet", "class_name Base extends RefCounted\nconst SECRET := 1\nenum { HIDDEN }\nenum Mode { A }\nstatic func secret() -> int:\n\treturn SECRET\n", "Base");
+	project.add_script("res://heir.pet", "class_name Heir extends Base\n", "Heir");
+	const auto through = [](const std::string &p_class) {
+		return "func f() -> void:\n\tprint(" + p_class + ".secret(), " + p_class + ".SECRET, " + p_class + ".HIDDEN, " + p_class + ".Mode.A)\n";
+	};
+	// A subclass of the declaring class, through another subclass (spec §4.2).
+	require_verified(compile_in("extends Base\n" + through("Heir"), project));
+	// Not a subclass, through a subclass of its own file.
+	const std::string leak = messages(compile_in("class_name Other extends RefCounted\nclass Sub extends Base:\n\tpass\n" + through("Sub"), project));
+	CHECK(contains(leak, "\"secret()\" of Other.Sub is not pub."));
+	CHECK(contains(leak, "The constant \"SECRET\" of Other.Sub is not pub."));
+	CHECK(contains(leak, "The constant \"HIDDEN\" of Other.Sub is not pub."));
+	CHECK(contains(leak, "The enum Other.Sub.Mode is not pub."));
+}
+
 TEST_CASE("a class calls its own static methods through its class_name") {
 	const compiler::CompileResult result = compile_in("class_name Grid extends Node\nstatic func cell() -> int:\n\treturn 8\nfunc f() -> int:\n\treturn Grid.cell()\n", FakeProject());
 	require_verified(result);
