@@ -2,13 +2,51 @@
 
 In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow).
 
+## Debt
+
+Paid before the remaining features of step 7 (architecture §5).
+
+- Behavior that differs from the spec:
+  - The last subscript of an assignment's target is evaluated after the right side (spec §3.6). `lower.cpp` still evaluates it before.
+  - A task cancelled because its owner was freed does not cancel its owned tasks (spec §9.3). `CoroutineTask::finish` still cancels `child` and `owned` for every reason.
+  - `uint64` passes bitwise without a range check (spec §10.6). Drop it from `NARROW_INTS` in `builtin_api_gen.py` and from `IntRange`.
+  - The explicit conversions of spec §3.14 and §5.3 are refused: `bool(n)`, `int("5")`, `String(&"a")` and `int()`. The quick fixes of §5.3 write them.
+    - The forms without a numeric argument can go to `check_constructor`.
+    - Numeric arguments keep `ConvertToInt` and `ConvertToFloat`, whose checks the engine's constructors lack.
+  - A local of a function type without an initializer compiles (spec §4.3). So does `resize()` of `Array[func…]` or `Array[Task[T]]` (§3.8).
+    - The local `var`, `resize()` and static variables each repeat `has_value_without_initializer` in part.
+  - A class can declare one name as a value and as a type, as `var Item` with `struct Item`.
+    - Structs, interfaces and enums each check for taken names their own way.
+    - Inner classes check the whole class scope. One such check would serve them all.
+  - A `.pet` with compile errors is left out of an export that reports success.
+    - The export plugin skips it with an error print (`pet_editor_plugin.cpp`).
+    - `get_export_platform()->add_message()` at error level would fail the export, as spec §7.5 asks for missing values.
+  - Editing a base scene leaves its inherited scenes stale in the scene index until the editor restarts.
+    - `instanced_scenes` records instanced scenes but not the base scene, so neither `read()` nor `forget()` sees it.
+    - Nearby, an inherited or instanced node with `script = null` keeps the base's script.
+  - `PetScript::property_info` loads each member's script with `ResourceLoader::load`. For an inner class, as `res://x.pet::Slot`, the engine reports a missing file. `load_resource` handles the path.
+  - The adapter parses the base in a class header itself (`header_base_path`, `header_native_base`, `header_extends`).
+    - It takes `extends Outer.Inner` as a global class, so the editor lists the class under `RefCounted`.
+    - `ScriptClasses::base_path` and `native_base` already do this.
+- Rules kept in several places, mainly in `checker.cpp`. Known ones:
+  - finding a class function by name with its visibility, `broken` and `refer`: `script_member`, `class_function_value` and `check_class_call`;
+  - finishing a call to a declared function: `script_method`, `check_class_call`, bare calls, `check_struct_call` and `new`. The visibility rule drifted here once (00c42b7);
+  - the named fields of a struct's construction and of an enum variant with payloads;
+  - the checks of interface elements in `values.cpp` beside `checked_one_by_one`. First list the callers that check containers without them.
+- Untrue tests, surveys and documents:
+  - The implementation coverage survey does not count GDScript's own constants and utility functions (`@GDScript`). So it missed `range()` and `PI`.
+  - Engine facts: `Quaternion` times a vector requires the quaternion to be normalized, not the vector (`core/math/quaternion.h:91-94`, `ed1daf0`).
+  - Architecture §6 cites lines of this repository that have moved. Name functions or types instead.
+  - Architecture §4 lists benchmarks of generics and of enums with payloads, which `benchmarks/project/cases/` lacks.
+  - The example of `instantiate(...)` in spec §6.2 passes `speed`, which has a default. By name, it takes only members that must be assigned (§4.6).
+  - Spec §3.14 converts enum values to `int` or `float`. Only enums without payloads convert.
+
 ## Language
 
 - Contextual keywords (spec §2.2). The tokenizer still reserves `pub`, `struct`, `interface`, `implements`, `async` and `None`. A `.pet` file cannot write dialogue_manager's `TranslationSource.None`.
 - `_init` with parameters on Node and Resource scripts (spec §6.2). The checker still refuses them (`checker.cpp`, "cannot take parameters").
   - `_init` assigning a member that must be assigned provides it.
   - A scene or `.tres` using a script whose `_init` has required parameters is a compile error.
-- The last subscript of an assignment's target is evaluated after the right side (spec §3.6). `lower.cpp` still evaluates it before.
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
 - A struct or an enum with payloads that holds itself through a container (spec §3.6). The type table cannot list it, since a type's parts come before it.
 - `Class.new` as a value (spec §3.11), as gdUnit4 passes `GdUnitTuple.new` to `callv`. It must construct as `new(...)` does. PetScript's `new` refuses a non-pub `_init` that the caller sees, so the two share the construction.
@@ -35,6 +73,11 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The `breakpoint` statement.
 - Rest parameters `...args: Array[T]` (spec §4.6).
 - `for` over a String (spec §5.7); no file of the coverage survey's corpus does it.
+- GDScript's own constants and utility functions (`@GDScript`), which the compiler does not know:
+  - `PI`, `TAU`, `INF` and `NAN`;
+  - `range()`, which spec §5.7 and a diagnostic already suggest. GDScript lowers `for` over it to a counting loop (`modules/gdscript/gdscript_compiler.cpp:2044-2079`, `ed1daf0`);
+  - `len()`, `char()`, `ord()`, `Color8()`, `type_exists()`, `print_stack()` and `get_stack()`.
+  - Whether to refuse `inst_to_dict()`, `dict_to_inst()`, `convert()` and `is_instance_of()` is to be decided.
 - An inner class named as an engine enum, such as `Key`. A type reads the name as the engine's enum, an expression as the inner class (spec §4.1). So `func make() -> Key: return Key.new()` is an error.
 - Node paths (spec §7.1):
   - into instanced scenes;
@@ -60,8 +103,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 - Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`).
 - Ordering of arrays of engine types as spec §5.2 says. It differs from the engine's operators only with NaN, so it waits for the open question on NaN.
-- A task cancelled because its owner was freed does not cancel its owned tasks (spec §9.3). `CoroutineTask::finish` still cancels `child` and `owned` for every reason.
-- `uint64` passes bitwise without a range check (spec §10.6). Drop it from `NARROW_INTS` in `builtin_api_gen.py` and from `IntRange`.
 - Range checks of ints passed through an engine method's value, as `f.call(x)` (spec §10.6). The value is the engine's Callable, which converts without them.
 
 ## Editor
