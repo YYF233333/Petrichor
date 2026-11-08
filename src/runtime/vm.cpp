@@ -69,6 +69,11 @@ struct CoroutineFrame : std::enable_shared_from_this<CoroutineFrame> {
 	// frame's deletions are done, unless the waiter's own object went too (spec §9.7).
 	std::atomic<bool> awaited_freed{ false };
 	std::atomic<uint64_t> lost_object{ 0 };
+	// suspend() set what disconnect() lets go of.
+	bool waits = false;
+	// To `waiting`, one-shot as GDScript's (modules/gdscript/gdscript_vm.cpp:2643),
+	// so it is gone once the signal came.
+	bool connected = false;
 	Signal waiting;
 	Callable callback;
 	Signal script_changed;
@@ -193,7 +198,7 @@ Ref<CoroutineTask> start_task(const std::shared_ptr<const ClassImage> &p_image, 
 	const bytecode::Function &fn = p_image->module.functions[p_function];
 	Ref<CoroutineTask> task;
 	task.instantiate();
-	task->owner_id = p_context.owner ? uint64_t(p_context.owner->get_instance_id()) : 0;
+	task->owner_id = p_context.owner ? instance_id(p_context.owner) : 0;
 	task->owner_storage = p_context.storage.get();
 	task->result_signature = p_result_key ? *p_result_key : p_image->types[fn.result.type].result_key;
 	task->continuation = std::make_shared<CoroutineFrame>(p_image, p_function, p_context, task);
@@ -202,7 +207,7 @@ Ref<CoroutineTask> start_task(const std::shared_ptr<const ClassImage> &p_image, 
 	}
 	{
 		std::lock_guard<std::mutex> lock(tasks_mutex);
-		active_tasks.emplace(uint64_t(task->get_instance_id()), task);
+		active_tasks.emplace(instance_id(task.ptr()), task);
 	}
 	if (p_context.storage && p_context.storage->coroutines_cancelled) {
 		task->cancel_requested = true;
@@ -220,13 +225,13 @@ Ref<CoroutineTask> start_task(const std::shared_ptr<const ClassImage> &p_image, 
 Ref<CoroutineTask> signal_task(const InstanceContext &p_context, const Signal &p_signal, const std::string &p_result_key) {
 	Ref<CoroutineTask> task;
 	task.instantiate();
-	task->owner_id = p_context.owner ? uint64_t(p_context.owner->get_instance_id()) : 0;
+	task->owner_id = p_context.owner ? instance_id(p_context.owner) : 0;
 	task->owner_storage = p_context.storage.get();
 	task->result_signature = p_result_key;
 	task->continuation = std::make_shared<CoroutineFrame>(p_context, task);
 	{
 		std::lock_guard<std::mutex> lock(tasks_mutex);
-		active_tasks.emplace(uint64_t(task->get_instance_id()), task);
+		active_tasks.emplace(instance_id(task.ptr()), task);
 	}
 	if (p_context.storage && p_context.storage->coroutines_cancelled) {
 		task->owner_freed = true;
@@ -1472,7 +1477,7 @@ class Execution {
 		const auto *method = custom && typeid(*custom) == typeid(MethodCallable) ? static_cast<const MethodCallable *>(custom) : nullptr;
 		// For a method of self, resolving would end with the image and the
 		// context this call holds already.
-		const bool on_self = method && context.storage && context.self_image && !context.storage->freed.load(std::memory_order_relaxed) && uint64_t(method->get_object()) == gdextension_interface::object_get_instance_id(context.owner->_owner);
+		const bool on_self = method && context.storage && context.self_image && !context.storage->freed.load(std::memory_order_relaxed) && uint64_t(method->get_object()) == instance_id(context.owner);
 		ScriptedObject callee;
 		int index = -1;
 		const uint8_t *const *captures = nullptr;
@@ -2044,7 +2049,7 @@ class Execution {
 		if (p_async->task->cancel_requested) {
 			return true;
 		}
-		const Signal signal = *reinterpret_cast<Signal *>(p_frame + p_op[2]);
+		const Signal &signal = *reinterpret_cast<const Signal *>(p_frame + p_op[2]);
 		p_async->pc = p_pc + 3;
 		if (!p_async->suspend(signal, p_op[1], uint64_t(signal.get_object_id()))) {
 			return fail_cstr(p_fn, p_line, "Cannot await this signal.");
@@ -2830,7 +2835,7 @@ void CoroutineTask::finish(State p_state, const Variant &p_result) {
 	}
 	{
 		std::lock_guard<std::mutex> lock(tasks_mutex);
-		active_tasks.erase(uint64_t(get_instance_id()));
+		active_tasks.erase(instance_id(this));
 	}
 	if (p_state == State::Cancelled) {
 		emit_signal("cancelled", cancel_reason());
@@ -2865,9 +2870,15 @@ void CoroutineTask::cancel_owner() {
 
 void CoroutineFrame::disconnect() {
 	++generation;
-	if (!waiting.is_null() && waiting.get_object() && waiting.is_connected(callback)) {
+	if (!waits) {
+		lost_object = 0;
+		return;
+	}
+	waits = false;
+	if (connected && waiting.get_object() && waiting.is_connected(callback)) {
 		waiting.disconnect(callback);
 	}
+	connected = false;
 	if (!script_changed.is_null() && script_changed.get_object() && script_changed.is_connected(changed_callback)) {
 		script_changed.disconnect(changed_callback);
 	}
@@ -2956,6 +2967,7 @@ bool CoroutineFrame::receive(const Variant &p_value) {
 }
 
 bool CoroutineFrame::suspend(const Signal &p_signal, uint32_t p_dst, uint64_t p_watch, bool p_script) {
+	waits = true;
 	destination = p_dst;
 	waiting = p_signal;
 	task->state = CoroutineTask::State::Suspended;
@@ -2972,9 +2984,10 @@ bool CoroutineFrame::suspend(const Signal &p_signal, uint32_t p_dst, uint64_t p_
 		lost_object = p_watch;
 		return true;
 	}
-	if (waiting.connect(callback) != OK) {
+	if (waiting.connect(callback, Object::CONNECT_ONE_SHOT) != OK) {
 		return false;
 	}
+	connected = true;
 	if (p_watch) {
 		Object *object = ObjectDB::get_instance(ObjectID(p_watch));
 		if (!object) {
@@ -3004,14 +3017,15 @@ bool CoroutineFrame::suspend(const Signal &p_signal, uint32_t p_dst, uint64_t p_
 }
 
 void CoroutineFrame::complete_wait(uint64_t p_generation, const Variant &p_value) {
+	// The frame keeps its task.
 	const auto keep_frame = shared_from_this();
-	Ref<CoroutineTask> keep(task);
 	bool failed = false;
 	{
 		std::lock_guard<std::recursive_mutex> lock(task->mutex);
 		if (p_generation != generation || task->ended() || awaited_freed) {
 			return;
 		}
+		connected = false; // The engine has dropped the one-shot connection.
 		const Ref<CoroutineTask> completed = waited_task;
 		disconnect();
 		child.unref();
@@ -3036,8 +3050,8 @@ void CoroutineFrame::complete_wait(uint64_t p_generation, const Variant &p_value
 }
 
 void CoroutineFrame::resume() {
+	// The frame keeps its task.
 	const auto keep_frame = shared_from_this();
-	Ref<CoroutineTask> keep_task(task);
 	CoroutineTask::State ends = CoroutineTask::State::Running;
 	Variant value;
 	{
@@ -3067,7 +3081,7 @@ void CoroutineFrame::resume() {
 				// A suspended coroutine does not keep self alive (spec §9.4). It is
 				// cancelled if self goes meanwhile (§9.7), so self is there again
 				// when it resumes.
-				image->frames[function].let_go(data, uint64_t(context.owner->get_instance_id()), let_go_of_self);
+				image->frames[function].let_go(data, instance_id(context.owner), let_go_of_self);
 			}
 		}
 	}
@@ -3079,7 +3093,7 @@ void CoroutineFrame::resume() {
 Ref<CoroutineTask> TaskJoin::make(Kind p_kind, const std::vector<Ref<CoroutineTask>> &p_members, const std::vector<bool> &p_owned, const TypeImage &p_result, const InstanceContext &p_context, const std::shared_ptr<const ClassImage> &p_image, const bytecode::Function &p_function, int p_line) {
 	Ref<CoroutineTask> task;
 	task.instantiate();
-	task->owner_id = p_context.owner ? uint64_t(p_context.owner->get_instance_id()) : 0;
+	task->owner_id = p_context.owner ? instance_id(p_context.owner) : 0;
 	task->owner_storage = p_context.storage.get();
 	task->result_signature = p_result.result_key;
 	const auto join = std::make_shared<TaskJoin>();
@@ -3096,7 +3110,7 @@ Ref<CoroutineTask> TaskJoin::make(Kind p_kind, const std::vector<Ref<CoroutineTa
 	task->join = join;
 	{
 		std::lock_guard<std::mutex> lock(tasks_mutex);
-		active_tasks.emplace(uint64_t(task->get_instance_id()), task);
+		active_tasks.emplace(instance_id(task.ptr()), task);
 	}
 	if (p_context.storage && p_context.storage->coroutines_cancelled) {
 		task->owner_freed = true;

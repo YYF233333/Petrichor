@@ -42,6 +42,10 @@ inline uint64_t object_id_of(const godot::Variant &p_value) {
 inline GDExtensionObjectPtr object_pointer(const godot::Variant &p_value) {
 	return *reinterpret_cast<const GDExtensionObjectPtr *>(data_of(p_value) + 8);
 }
+// Without the call through a MethodBind that godot-cpp's get_instance_id() makes.
+inline uint64_t instance_id(const godot::Object *p_object) {
+	return uint64_t(godot::gdextension_interface::object_get_instance_id(p_object->_owner));
+}
 
 void construct_value(bytecode::ValueType p_type, uint8_t *p_slot);
 void destroy_value(bytecode::ValueType p_type, uint8_t *p_slot);

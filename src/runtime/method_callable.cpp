@@ -121,7 +121,7 @@ bool implements_interface(Object *p_object, const String &p_interface) {
 }
 
 MethodCallable::MethodCallable(Object *p_owner, const StringName &p_method) :
-		owner(p_owner->get_instance_id()), method(p_method) {}
+		owner(instance_id(p_owner)), method(p_method) {}
 
 bool MethodCallable::compare_equal(const CallableCustom *p_a, const CallableCustom *p_b) {
 	const MethodCallable *a = static_cast<const MethodCallable *>(p_a);
@@ -253,7 +253,7 @@ void StructMethodCallable::call(const Variant **p_arguments, int p_argcount, Var
 LambdaCallable::LambdaCallable(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const uint8_t *p_frame, const uint32_t *p_captures) :
 		image(p_image), function(p_function), context(p_context) {
 	if (context.owner) {
-		owner = context.owner->get_instance_id();
+		owner = ObjectID(instance_id(context.owner));
 		kept = Variant(context.owner);
 	}
 	const bytecode::Function &fn = image->module.functions[function];
