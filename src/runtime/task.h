@@ -19,6 +19,12 @@ struct TaskJoin;
 class CoroutineTask;
 class TaskRef;
 
+// A task's neighbours in a TaskList.
+struct TaskLinks {
+	TaskState *previous = nullptr;
+	TaskState *next = nullptr;
+};
+
 // A task of this language (spec §9), which Task values refer to. The engine
 // sees it as a CoroutineTask, made only once the task crosses into the engine,
 // so that calling a coroutine makes no engine object (architecture §2.2).
@@ -39,15 +45,18 @@ struct TaskState {
 	std::atomic<bool> owner_freed{ false };
 	std::atomic<bool> source_freed{ false }; // A task of a signal, whose object was freed (spec §9.2).
 	uint64_t owner_id = 0;
-	// Set before the task is listed and never changed, so that freeing an
-	// object finds its tasks without waiting for the locks of others.
-	const InstanceStorage *owner_storage = nullptr;
+	// Set before the task is listed and never changed.
+	InstanceStorage *owner_storage = nullptr;
 	std::atomic<uint64_t> owner_freed_frame{ 0 };
 	godot::Variant result; // Written before the state says Finished.
 	std::string result_signature;
 	std::shared_ptr<CoroutineFrame> continuation;
 	std::shared_ptr<TaskJoin> join; // Instead of a continuation, for a task that waits for others.
-	uint64_t serial = 0; // Lists the active tasks in the order they started.
+	uint64_t serial = 0; // Orders tasks as they started.
+	// Until it ends, among all active tasks and among its owner's; its frame or
+	// join keeps it until then.
+	TaskLinks among_all;
+	TaskLinks among_owners;
 
 	TaskState();
 	~TaskState();

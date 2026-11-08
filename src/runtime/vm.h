@@ -12,6 +12,15 @@
 
 namespace petrichor {
 
+struct TaskState;
+
+// Active tasks in the order they started, under the lock of the active tasks
+// (vm.cpp).
+struct TaskList {
+	TaskState *first = nullptr;
+	TaskState *last = nullptr;
+};
+
 // The members of an instance of this language. The instance and every call
 // running on it share them, so that they outlive an instance that the engine
 // deletes while one of its methods runs: the deletion marks them freed, and
@@ -24,6 +33,8 @@ public:
 	uint8_t *const members;
 	std::atomic<bool> freed{ false };
 	std::atomic<bool> coroutines_cancelled{ false };
+	// Those of its tasks that have not ended, whose frames keep it until they do.
+	TaskList tasks;
 
 	explicit InstanceStorage(const std::shared_ptr<const ClassImage> &p_image);
 	~InstanceStorage();

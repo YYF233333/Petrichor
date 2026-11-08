@@ -25,7 +25,6 @@
 #include <cmath>
 #include <condition_variable>
 #include <cstring>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -107,6 +106,8 @@ struct CoroutineFrame : std::enable_shared_from_this<CoroutineFrame> {
 	void resume();
 	void complete_wait(uint64_t p_generation, const Variant &p_value);
 	bool suspend(const Signal &p_signal, uint32_t p_dst, uint64_t p_watch, bool p_script = false);
+	// The awaited object with the ObjectID was freed.
+	void lose(uint64_t p_object);
 };
 
 // What a task does that waits for other tasks, its members, instead of
@@ -147,24 +148,59 @@ struct TaskJoin : std::enable_shared_from_this<TaskJoin> {
 };
 
 namespace {
+// The lock of the active tasks: all of them, for clear(), each owner's, for
+// cancel_owner(), and those whose awaited object was freed, for frame().
 std::mutex tasks_mutex;
 std::atomic<uint64_t> task_frame{ 0 };
 uint64_t last_serial = 0;
-std::map<uint64_t, TaskRef> active_tasks;
+TaskList all_tasks;
+std::vector<TaskRef> undecided;
+
+void append_task(TaskList &r_list, TaskLinks TaskState::*p_links, TaskState *p_task) {
+	(p_task->*p_links).previous = r_list.last;
+	(r_list.last ? (r_list.last->*p_links).next : r_list.first) = p_task;
+	r_list.last = p_task;
+}
+
+void remove_task(TaskList &r_list, TaskLinks TaskState::*p_links, TaskState *p_task) {
+	const TaskLinks links = p_task->*p_links;
+	(links.previous ? (links.previous->*p_links).next : r_list.first) = links.next;
+	(links.next ? (links.next->*p_links).previous : r_list.last) = links.previous;
+	p_task->*p_links = TaskLinks();
+}
 
 void list_task(const TaskRef &p_task) {
 	std::lock_guard<std::mutex> lock(tasks_mutex);
 	p_task->serial = ++last_serial;
-	active_tasks.emplace(p_task->serial, p_task);
+	append_task(all_tasks, &TaskState::among_all, p_task.get());
+	if (p_task->owner_storage) {
+		append_task(p_task->owner_storage->tasks, &TaskState::among_owners, p_task.get());
+	}
 }
 
-std::vector<TaskRef> task_snapshot() {
+// While its frame or join still keeps the owner's storage.
+void unlist_task(TaskState *p_task) {
+	std::lock_guard<std::mutex> lock(tasks_mutex);
+	remove_task(all_tasks, &TaskState::among_all, p_task);
+	if (p_task->owner_storage) {
+		remove_task(p_task->owner_storage->tasks, &TaskState::among_owners, p_task);
+	}
+}
+
+std::vector<TaskRef> listed_tasks(const TaskList &p_list, TaskLinks TaskState::*p_links) {
 	std::lock_guard<std::mutex> lock(tasks_mutex);
 	std::vector<TaskRef> tasks;
-	for (const auto &entry : active_tasks) {
-		tasks.push_back(entry.second);
+	for (TaskState *task = p_list.first; task; task = (task->*p_links).next) {
+		tasks.emplace_back(task);
 	}
 	return tasks;
+}
+
+// The task's awaited object was freed: tasks::frame() decides on it once the
+// frame's deletions are done (spec §9.7).
+void decide_later(const TaskRef &p_task) {
+	std::lock_guard<std::mutex> lock(tasks_mutex);
+	undecided.push_back(p_task);
 }
 
 class ResumeCallable : public CallableCustom {
@@ -2867,6 +2903,7 @@ void TaskState::finish(State p_state, const Variant &p_result) {
 		}
 		result = p_state == State::Finished ? p_result : Variant();
 		state = p_state;
+		unlist_task(this);
 		if (continuation) {
 			const auto frame = std::move(continuation);
 			frame->disconnect();
@@ -2887,10 +2924,6 @@ void TaskState::finish(State p_state, const Variant &p_result) {
 	}
 	for (const TaskRef &member : owned) {
 		member->cancel();
-	}
-	{
-		std::lock_guard<std::mutex> lock(tasks_mutex);
-		active_tasks.erase(serial);
 	}
 	// The state says ended before these are taken, so no waiter comes after.
 	std::vector<std::pair<uint64_t, std::function<void()>>> ended;
@@ -3000,8 +3033,7 @@ bool CoroutineFrame::await_task(const TaskRef &p_task) {
 			return false;
 		}
 		child = TaskRef();
-		awaited_freed = true;
-		lost_object = id;
+		lose(id);
 		task->state = TaskState::State::Suspended;
 		return true;
 	}
@@ -3060,8 +3092,7 @@ bool CoroutineFrame::suspend(const Signal &p_signal, uint32_t p_dst, uint64_t p_
 	};
 	callback = Callable(memnew(ResumeCallable(resume)));
 	if (!gdextension_interface::object_get_instance_from_id(uint64_t(waiting.get_object_id()))) {
-		awaited_freed = true;
-		lost_object = p_watch;
+		lose(p_watch);
 		return true;
 	}
 	if (waiting.connect(callback, Object::CONNECT_ONE_SHOT) != OK) {
@@ -3071,21 +3102,18 @@ bool CoroutineFrame::suspend(const Signal &p_signal, uint32_t p_dst, uint64_t p_
 	if (p_watch) {
 		const GDExtensionObjectPtr watched = gdextension_interface::object_get_instance_from_id(p_watch);
 		if (!watched) {
-			awaited_freed = true;
-			lost_object = p_watch;
+			lose(p_watch);
 		} else {
 			watch = object_watch::watch(watched, [weak, ticket](uint64_t id) {
 				if (const auto frame = weak.lock(); frame && frame->generation == ticket) {
-					frame->awaited_freed = true;
-					frame->lost_object = id;
+					frame->lose(id);
 				}
 			});
 			if (p_script) {
 				script_changed = Signal(ObjectDB::get_instance(ObjectID(p_watch)), "script_changed");
 				const std::function<void(const Variant &)> changed = [weak, ticket, p_watch](const Variant &) {
 					if (const auto frame = weak.lock(); frame && frame->generation == ticket) {
-						frame->awaited_freed = true;
-						frame->lost_object = p_watch;
+						frame->lose(p_watch);
 					}
 				};
 				changed_callback = Callable(memnew(ResumeCallable(changed)));
@@ -3094,6 +3122,12 @@ bool CoroutineFrame::suspend(const Signal &p_signal, uint32_t p_dst, uint64_t p_
 		}
 	}
 	return true;
+}
+
+void CoroutineFrame::lose(uint64_t p_object) {
+	awaited_freed = true;
+	lost_object = p_object;
+	decide_later(task);
 }
 
 void CoroutineFrame::complete_wait(uint64_t p_generation, const Variant &p_value) {
@@ -3248,6 +3282,7 @@ void TaskJoin::member_ended(size_t p_member) {
 		} else if (member->owner_freed && member->owner_freed_frame == task_frame.load()) {
 			awaited_freed = true;
 			freed_member = p_member;
+			decide_later(own);
 			return;
 		} else if (kind == Kind::Settled) {
 			value = cancelled(*member.get());
@@ -3287,21 +3322,25 @@ std::vector<TaskRef> TaskJoin::stop() {
 namespace tasks {
 void cancel_owner(const std::shared_ptr<InstanceStorage> &p_storage) {
 	p_storage->coroutines_cancelled = true;
-	for (const auto &task : task_snapshot()) {
-		// An ended task's object may be gone and its address reused; cancelling
-		// an ended task does nothing.
-		if (task->owner_storage == p_storage.get()) {
-			task->cancel_owner();
-		}
+	for (const auto &task : listed_tasks(p_storage->tasks, &TaskState::among_owners)) {
+		task->cancel_owner();
 	}
 }
 void frame() {
 	++task_frame;
-	for (const auto &task : task_snapshot()) {
+	std::vector<TaskRef> tasks;
+	{
+		std::lock_guard<std::mutex> lock(tasks_mutex);
+		tasks.swap(undecided);
+	}
+	// In the order they started, as their errors are reported.
+	std::sort(tasks.begin(), tasks.end(), [](const TaskRef &p_a, const TaskRef &p_b) { return p_a->serial < p_b->serial; });
+	for (const auto &task : tasks) {
 		// A task locked on another thread may be running there, and waiting for
 		// it could deadlock; a later frame looks again.
 		std::unique_lock<std::recursive_mutex> lock(task->mutex, std::try_to_lock);
 		if (!lock.owns_lock()) {
+			decide_later(task);
 			continue;
 		}
 		if (const auto join = task->join; join && join->awaited_freed && !task->ended()) {
@@ -3339,9 +3378,12 @@ void frame() {
 	}
 }
 void clear() {
-	for (const auto &task : task_snapshot()) {
+	for (const auto &task : listed_tasks(all_tasks, &TaskState::among_all)) {
 		task->cancel();
 	}
+	std::vector<TaskRef> decided;
+	std::lock_guard<std::mutex> lock(tasks_mutex);
+	decided.swap(undecided); // Let go of after the lock, which their freeing may take.
 }
 } // namespace tasks
 

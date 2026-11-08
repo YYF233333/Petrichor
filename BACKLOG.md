@@ -129,7 +129,6 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Calls within a class: since inheritance, they pass arguments the general way of calls between classes. They also repeat checks that loading made. The calls benchmark went from 18 to 22 ms (architecture §4).
 - Function values that still go through the engine, with Variant arguments: struct method values and `async` functions. A struct is encoded and decoded on the way.
 - Calls by name: every object result is asked whether it is a `GDScriptFunctionState`, by a call into the engine. Only methods of GDScript classes return one (spec §9.8).
-- Coroutines: freeing an instance, and every frame, walk all active tasks. Tasks listed by their owner would walk only the owner's.
 - Default values built anew. Each call constructs every slot whose default is not zero, such as an Array's. CLEAR builds such a default again for each register it clears (spec §6.8). Two remedies:
   - registers whose scopes do not overlap share slots, as GDScript pools its temporaries (`modules/gdscript/gdscript_byte_codegen.cpp:122-131`, `ed1daf0`);
   - CLEAR copies one shared empty container instead of making one.
