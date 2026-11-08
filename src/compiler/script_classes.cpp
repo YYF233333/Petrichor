@@ -211,6 +211,12 @@ std::string ScriptClasses::RecordedProject::uid_path(const std::string &p_uid) c
 	});
 }
 
+std::vector<std::string> ScriptClasses::RecordedProject::dependencies(const std::string &p_path) const {
+	return ask<std::vector<std::string>>("dependencies " + p_path, [p_path](const ProjectApi &p_project) {
+		return p_project.dependencies(p_path);
+	});
+}
+
 std::string ScriptClasses::RecordedProject::global_class_path(const std::string &p_name) const {
 	return ask<std::string>("global class " + p_name, [p_name](const ProjectApi &p_project) {
 		return p_project.global_class_path(p_name);

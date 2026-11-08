@@ -28,6 +28,7 @@ public:
 	std::map<std::string, compiler::ForeignClass> foreign; // Scripts of other languages, by path.
 	std::map<std::string, compiler::ResourceInfo> resources; // Resources other than scenes, by path.
 	std::map<std::string, std::string> uids; // uid:// to res://.
+	std::map<std::string, std::vector<std::string>> loads; // What dependencies() lists, by path.
 	std::vector<std::string> files; // What resource_files() lists.
 	std::vector<std::string> actions; // Input actions.
 
@@ -44,6 +45,10 @@ public:
 	std::optional<compiler::Scene> scene(const std::string &p_path) const override;
 	std::optional<compiler::ResourceInfo> resource(const std::string &p_path) const override;
 	std::string uid_path(const std::string &p_uid) const override;
+	std::vector<std::string> dependencies(const std::string &p_path) const override {
+		const auto found = loads.find(p_path);
+		return found == loads.end() ? std::vector<std::string>() : found->second;
+	}
 	std::string global_class_path(const std::string &p_name) const override;
 	std::string autoload_path(const std::string &p_name) const override;
 	std::map<std::string, std::string> global_class_paths() const override { return global_classes; }

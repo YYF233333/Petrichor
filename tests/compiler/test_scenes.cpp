@@ -202,6 +202,33 @@ TEST_CASE("preload() of a scene is a PackedScene of the scene's root") {
 	CHECK_MESSAGE(bytecode::verify(loading.module, problem), problem);
 }
 
+// Spec §7.6.
+TEST_CASE("a preload whose file loads the script again is an error") {
+	FakeProject project;
+	compiler::Scene own;
+	own.path = "res://own.tscn";
+	own.nodes = { { ".", "Node", "res://test.pet" } };
+	compiler::Scene other;
+	other.path = "res://other.tscn";
+	other.nodes = { { ".", "Node", "res://other.gd" } };
+	compiler::Scene plain;
+	plain.path = "res://plain.tscn";
+	plain.nodes = { { ".", "Node", "" } };
+	project.scenes = { own, other, plain };
+	project.loads["res://own.tscn"] = { "res://test.pet" };
+	project.loads["res://other.tscn"] = { "res://other.gd", "res://plain.tscn" };
+	project.sources["res://other.gd"] = "extends Node\n\nconst BACK = preload(\"own.tscn\")\n";
+	project.add_script("res://child.pet", "extends \"res://test.pet\"\n");
+	const auto errors = [&](const std::string &p_preload) {
+		return messages(compile_in("extends Node\n\nconst S = preload(\"" + p_preload + "\")\n", project));
+	};
+	CHECK(errors("res://plain.tscn").empty());
+	CHECK(contains(errors("res://own.tscn"), "This preload loads this script again (res://own.tscn -> res://test.pet); load one of them with load() where it is used (spec §7.6)."));
+	CHECK(contains(errors("res://other.tscn"), "(res://other.tscn -> res://other.gd -> res://own.tscn -> res://test.pet)"));
+	CHECK(contains(errors("res://child.pet"), "(res://child.pet -> res://test.pet)"));
+	CHECK(contains(errors("res://test.pet"), "(res://test.pet)"));
+}
+
 TEST_CASE("a path that a scene using the script lacks is an error marked with that scene (spec §7.1, §7.2)") {
 	CHECK(contains(hud_errors("$Score.text = \"\""), "res://main.tscn: HUD has no node at \"Score\""));
 

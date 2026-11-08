@@ -21,7 +21,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - a node of a scene whose script is abstract (§4.1).
 - `@parent(T)` (spec §7.3).
 - `weak[T]` (spec §3.12).
-- Preload cycles (spec §7.6); a literal path of `load` typed as preload types it (§7.4).
+- A literal path of `load` typed as preload types it (spec §7.4).
 - Of GDScript classes (spec §11.1):
   - enums, inner classes and static variables;
   - nodes in scenes typed by their GDScript class rather than its engine class.

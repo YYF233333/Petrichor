@@ -101,6 +101,9 @@ public:
 	virtual std::optional<ResourceInfo> resource(const std::string &p_path) const = 0;
 	// The res:// path a uid:// path names, or "".
 	virtual std::string uid_path(const std::string &p_uid) const = 0;
+	// The res:// paths of what the engine loads with a scene or a resource,
+	// its ext_resources, as its file lists them (spec §7.6).
+	virtual std::vector<std::string> dependencies(const std::string &p_path) const = 0;
 
 	// The script that a global class name (class_name) refers to, or "".
 	virtual std::string global_class_path(const std::string &p_name) const = 0;

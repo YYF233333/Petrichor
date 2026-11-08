@@ -209,6 +209,7 @@ class Checker : public ClassRelation {
 	bool check_bodies;
 	ScriptClasses &classes; // The project's other scripts of this language.
 	std::vector<Scene> scenes; // The scenes that use this script.
+	std::map<std::string, std::vector<std::string>> loaded_files; // loaded_with(), as found.
 	std::vector<Reference> *references; // Recorded for this file only.
 	// What can be written at the cursor (spec §13.2), whose function alone has
 	// its body checked; null when not completing.
@@ -3083,11 +3084,80 @@ class Checker : public ClassRelation {
 		if (p_call.args.size() != 1 || p_call.args[0]->kind != ExprKind::StringLiteral || p_call.args[0]->op != TokenKind::String) {
 			return std::string();
 		}
-		const std::string &path = p_call.args[0]->text;
-		if (path.rfind("uid://", 0) == 0) {
-			return path;
+		return resolved_path(p_call.args[0]->text, options.path);
+	}
+
+	// A path as a file at `p_from` names it: from its directory when it is
+	// relative; a uid:// path as written.
+	static std::string resolved_path(const std::string &p_path, const std::string &p_from) {
+		if (p_path.rfind("uid://", 0) == 0) {
+			return p_path;
 		}
-		return simplify_path(path.rfind("res://", 0) == 0 ? path : options.path.substr(0, options.path.find_last_of('/') + 1) + path);
+		return simplify_path(p_path.rfind("res://", 0) == 0 ? p_path : p_from.substr(0, p_from.find_last_of('/') + 1) + p_path);
+	}
+
+	// A preload whose file loads this script again is a compile error: the
+	// class loads its preloads as it loads, which that file would wait for
+	// (spec §7.6).
+	void check_load_cycle(const Expr &p_preload, const std::string &p_file) {
+		std::set<std::string> seen;
+		std::vector<std::string> chain;
+		if (!loads_this_script(p_file, seen, chain)) {
+			return;
+		}
+		std::string cycle;
+		for (const std::string &file : chain) {
+			cycle += file + " -> ";
+		}
+		error(p_preload.range, "This preload loads this script again (" + cycle + script_file(options.path) + "); load one of them with load() where it is used (spec §7.6).");
+	}
+
+	bool loads_this_script(const std::string &p_file, std::set<std::string> &r_seen, std::vector<std::string> &r_chain) {
+		if (p_file == script_file(options.path)) {
+			return true;
+		}
+		if (p_file.empty() || !r_seen.insert(p_file).second) {
+			return false;
+		}
+		r_chain.push_back(p_file);
+		for (const std::string &next : loaded_with(p_file)) {
+			if (loads_this_script(next, r_seen, r_chain)) {
+				return true;
+			}
+		}
+		r_chain.pop_back();
+		return false;
+	}
+
+	// What loading a file loads with it: a scene's or a resource's
+	// ext_resources; a script's base and the files it preloads, which GDScript
+	// loads as it compiles the script and this language as the class loads.
+	const std::vector<std::string> &loaded_with(const std::string &p_file) {
+		const auto known = loaded_files.find(p_file);
+		if (known != loaded_files.end()) {
+			return known->second;
+		}
+		std::vector<std::string> files;
+		if (!is_script_file(p_file)) {
+			files = options.project->dependencies(p_file);
+		} else {
+			if (has_extension(p_file, { ".pet" })) {
+				if (const ClassDecl *header = classes.header(p_file)) {
+					files.push_back(script_file(classes.base_path(*header, p_file)));
+				}
+			} else if (const std::optional<ForeignClass> foreign = options.project->foreign_class(p_file, false)) {
+				files.push_back(foreign->base);
+			}
+			std::vector<Diagnostic> ignored;
+			const std::shared_ptr<const SourceFile> source = tokenize(options.project->script_source(p_file).value_or(std::string()), ignored);
+			const std::vector<Token> &tokens = source->tokens;
+			for (size_t i = 0; i + 3 < tokens.size(); i++) {
+				if (tokens[i].kind == TokenKind::Identifier && tokens[i].text == "preload" && tokens[i + 1].kind == TokenKind::ParenOpen && tokens[i + 2].kind == TokenKind::String && tokens[i + 3].kind == TokenKind::ParenClose) {
+					files.push_back(preload_file(resolved_path(tokens[i + 2].text, p_file)));
+				}
+			}
+		}
+		return loaded_files.emplace(p_file, std::move(files)).first->second;
 	}
 
 	// The file at a preload's path: the file a uid names; empty when there is none.
@@ -3169,6 +3239,9 @@ class Checker : public ClassRelation {
 		}
 		if (!engine.is_singleton("ResourceLoader")) {
 			return fail(r_expr, "preload() needs the engine's ResourceLoader.");
+		}
+		if (options.project && !options.declarations_only) {
+			check_load_cycle(r_expr, file);
 		}
 		refer(r_expr.name_token, language_id("@GlobalScope", "preload"));
 		// A call of ResourceLoader.load(), as written nowhere.

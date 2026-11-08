@@ -73,6 +73,7 @@ class ScriptClasses {
 		std::optional<Scene> scene(const std::string &p_path) const override;
 		std::optional<ResourceInfo> resource(const std::string &p_path) const override;
 		std::string uid_path(const std::string &p_uid) const override;
+		std::vector<std::string> dependencies(const std::string &p_path) const override;
 		std::string global_class_path(const std::string &p_name) const override;
 		std::string autoload_path(const std::string &p_name) const override;
 		std::map<std::string, std::string> global_class_paths() const override;

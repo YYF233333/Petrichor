@@ -343,6 +343,23 @@ std::string SceneIndex::uid_path(const std::string &p_uid) const {
 	return to_utf8(ResourceUID::uid_to_path(to_godot(p_uid)));
 }
 
+std::vector<std::string> SceneIndex::dependencies(const std::string &p_path) const {
+	std::vector<std::string> paths;
+	// A path, or "uid::::path" with the path as it was saved, which the uid
+	// overrides when the file moved (doc/classes/ResourceLoader.xml, get_dependencies).
+	const PackedStringArray listed = ResourceLoader::get_singleton()->get_dependencies(to_godot(p_path));
+	for (int64_t i = 0; i < listed.size(); i++) {
+		const String &dependency = listed[i];
+		const bool with_uid = dependency.contains("::");
+		String path = with_uid ? dependency.get_slice("::", 2) : dependency;
+		if (with_uid && !FileAccess::file_exists(path)) {
+			path = ResourceUID::uid_to_path(dependency.get_slice("::", 0));
+		}
+		paths.push_back(to_utf8(path));
+	}
+	return paths;
+}
+
 std::string SceneIndex::global_class_path(const std::string &p_name) const {
 	const StringName name = to_godot(p_name);
 	const TypedArray<Dictionary> classes = ProjectSettings::get_singleton()->get_global_class_list();
