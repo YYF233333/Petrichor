@@ -153,8 +153,11 @@ class LambdaCallable : public godot::CallableCustom {
 	InstanceContext context; // Without storage when it does not use self.
 	godot::ObjectID owner;
 	godot::Variant kept; // Holds a RefCounted owner.
-	std::vector<std::unique_ptr<ValueBuffer>> captures;
-	std::vector<const uint8_t *> capture_data;
+	// The captures, each in its parameter's layout, one after another; in the
+	// object itself when they fit, so that making a lambda allocates no more.
+	alignas(16) uint8_t inline_captures[64];
+	std::unique_ptr<uint64_t[]> large_captures;
+	uint8_t *captures;
 
 	static bool compare_equal(const godot::CallableCustom *p_a, const godot::CallableCustom *p_b) { return p_a == p_b; }
 	static bool compare_less(const godot::CallableCustom *p_a, const godot::CallableCustom *p_b) { return std::less<const godot::CallableCustom *>()(p_a, p_b); }
@@ -162,6 +165,9 @@ class LambdaCallable : public godot::CallableCustom {
 public:
 	// The captures are the (type, offset) pairs of MAKE_LAMBDA in `p_frame`.
 	LambdaCallable(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const uint8_t *p_frame, const uint32_t *p_captures);
+	~LambdaCallable() override;
+	LambdaCallable(const LambdaCallable &) = delete;
+	LambdaCallable &operator=(const LambdaCallable &) = delete;
 
 	uint32_t hash() const override;
 	godot::String get_as_text() const override;
@@ -175,7 +181,7 @@ public:
 	const std::shared_ptr<const ClassImage> &get_image() const { return image; }
 	int get_function() const { return function; }
 	const InstanceContext &get_context() const { return context; }
-	const uint8_t *const *get_captures() const { return capture_data.data(); }
+	const uint8_t *get_captures() const { return captures; }
 };
 
 } // namespace petrichor

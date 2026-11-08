@@ -983,7 +983,7 @@ class Execution {
 	// call was compiled against (§4.6), which the arguments and result convert to.
 	// A lambda's captures follow the arguments. As an engine entry, an argument
 	// that fails the entry check is reported as the engine's call reports it.
-	PETRICHOR_NOINLINE bool call_function(const ClassImage &p_callee, uint32_t p_index, const InstanceContext &p_context, const uint32_t *p_call, uint8_t *frame, const bytecode::Slot &p_result, const bytecode::Function &p_caller, int p_line, const uint8_t *const *p_captures = nullptr, bool p_entry = false) {
+	PETRICHOR_NOINLINE bool call_function(const ClassImage &p_callee, uint32_t p_index, const InstanceContext &p_context, const uint32_t *p_call, uint8_t *frame, const bytecode::Slot &p_result, const bytecode::Function &p_caller, int p_line, const uint8_t *p_captures = nullptr, bool p_entry = false) {
 		const uint32_t dst = p_call[2], argc = p_call[4];
 		const bytecode::Function &method = p_callee.module.functions[p_index];
 		if (!method.is_static && !method.is_lambda && !p_context.storage) {
@@ -998,11 +998,13 @@ class Execution {
 			return fail_cstr(p_caller, p_line, "Override argument count changed. Rebuild the project.");
 		}
 		Frame callee_frame(frames, p_callee.frames[p_index]);
+		const uint8_t *capture = p_captures;
 		for (size_t i = 0; i < method.params.size(); i++) {
 			uint8_t *param = callee_frame.data + method.params[i].offset;
 			const TypeImage &param_type = p_callee.types[method.params[i].type];
 			if (i >= given) {
-				copy_value(param_type, param, p_captures[i - given]);
+				copy_value(param_type, param, capture);
+				capture += param_type.size;
 				continue;
 			}
 			const TypeImage *source = i < argc ? &image.types[p_call[5 + 2 * i]] : nullptr;
@@ -1514,39 +1516,44 @@ class Execution {
 		// For a method of self, resolving would end with the image and the
 		// context this call holds already.
 		const bool on_self = method && context.storage && context.self_image && !context.storage->freed.load(std::memory_order_relaxed) && uint64_t(method->get_object()) == instance_id(context.owner);
-		ScriptedObject callee;
+		// A lambda is used as it is: the caller's register keeps it until the
+		// call returns. A method value's object is resolved into `resolved`.
+		ScriptedObject resolved;
+		const ClassImage *found = nullptr;
+		const InstanceContext *callee_context = nullptr;
 		int index = -1;
-		const uint8_t *const *captures = nullptr;
+		const uint8_t *captures = nullptr;
 		if (lambda && lambda->is_valid()) {
-			callee = { lambda->get_image(), lambda->get_context() };
+			found = lambda->get_image().get();
+			callee_context = &lambda->get_context();
 			index = lambda->get_function();
 			captures = lambda->get_captures();
-		} else if (on_self || (method && method->resolve(callee, index))) {
+		} else if (on_self || (method && method->resolve(resolved, index))) {
 			// As op_call_method() finds it.
-			if (!on_self && callee.context.storage == context.storage && context.self_image) {
-				callee.image = context.self_image;
+			if (!on_self && resolved.context.storage == context.storage && context.self_image) {
+				resolved.image = context.self_image;
 			}
-			const ClassImage &found = on_self ? *context.self_image : *callee.image;
-			index = found.find_function(method->get_method());
-			if (index < 0 || (!p_entry && !found.has_signature(method->get_method(), image.call_signatures[p_op[1]]))) {
+			if (!on_self && !resolved.context.self_image) {
+				resolved.context.self_image = resolved.image;
+			}
+			found = on_self ? context.self_image.get() : resolved.image.get();
+			callee_context = on_self ? &context : &resolved.context;
+			index = found->find_function(method->get_method());
+			if (index < 0 || (!p_entry && !found->has_signature(method->get_method(), image.call_signatures[p_op[1]]))) {
 				return std::nullopt;
 			}
 		} else {
 			return std::nullopt;
 		}
-		if (!on_self && !callee.context.self_image) {
-			callee.context.self_image = callee.image;
-		}
-		const ClassImage &found = on_self ? *context.self_image : *callee.image;
-		const ClassImage::FunctionOrigin &origin = found.function_origins[index];
-		const ClassImage &target = origin.image ? *origin.image : found;
+		const ClassImage::FunctionOrigin &origin = found->function_origins[index];
+		const ClassImage &target = origin.image ? *origin.image : *found;
 		index = origin.image ? origin.index : index;
 		const bytecode::Function &function = target.module.functions[index];
 		const size_t given = function.params.size() - function.captures;
 		if (function.is_async || p_op[4] > given || p_op[4] < given - function.defaults.size()) {
 			return std::nullopt;
 		}
-		const bool ok = call_function(target, uint32_t(index), on_self ? context : callee.context, p_op, p_frame, p_result, p_fn, p_line, captures, p_entry);
+		const bool ok = call_function(target, uint32_t(index), *callee_context, p_op, p_frame, p_result, p_fn, p_line, captures, p_entry);
 		if (ok || !p_entry) {
 			return ok;
 		}
@@ -3389,7 +3396,7 @@ void clear() {
 
 namespace vm {
 
-Variant call(std::shared_ptr<const ClassImage> p_image, int p_function, InstanceContext p_context, const Variant **p_args, int64_t p_argc, GDExtensionCallError &r_error, bool *r_failed, const uint8_t *const *p_captures, bool p_task, const uint8_t *p_bound_self) {
+Variant call(std::shared_ptr<const ClassImage> p_image, int p_function, InstanceContext p_context, const Variant **p_args, int64_t p_argc, GDExtensionCallError &r_error, bool *r_failed, const uint8_t *p_captures, bool p_task, const uint8_t *p_bound_self) {
 	// Old code stays alive until this call returns, even if a hot reload
 	// replaces the image meanwhile (spec §12.4).
 	std::shared_ptr<const ClassImage> image = std::move(p_image);
@@ -3422,12 +3429,18 @@ Variant call(std::shared_ptr<const ClassImage> p_image, int p_function, Instance
 
 	Frame frame(frame_stack, image->frames[p_function]);
 	const TypeImage &result_type = image->types[fn.result.type];
+	const uint8_t *capture = p_captures;
 	for (size_t i = 0; i < fn.params.size(); i++) {
 		const bytecode::Slot &param = fn.params[i];
 		const TypeImage &type = image->types[param.type];
 		const size_t arg = i - bound;
-		if (i < bound || arg >= given) {
-			copy_value(type, frame.data + param.offset, i < bound ? p_bound_self : p_captures[arg - given]);
+		if (i < bound) {
+			copy_value(type, frame.data + param.offset, p_bound_self);
+			continue;
+		}
+		if (arg >= given) {
+			copy_value(type, frame.data + param.offset, capture);
+			capture += type.size;
 			continue;
 		}
 		const Variant *argument = arg < size_t(p_argc) ? p_args[arg] : nullptr;

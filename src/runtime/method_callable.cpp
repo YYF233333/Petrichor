@@ -20,7 +20,7 @@ thread_local bool without_init = false;
 thread_local bool last_initialized = true;
 
 // Calls the function, as the callee of a call of a function value when one is pending.
-Variant call_value(std::shared_ptr<const ClassImage> p_image, int p_function, InstanceContext p_context, const Variant **p_args, int p_argc, GDExtensionCallError &r_error, const uint8_t *const *p_captures, const uint8_t *p_bound_self = nullptr) {
+Variant call_value(std::shared_ptr<const ClassImage> p_image, int p_function, InstanceContext p_context, const Variant **p_args, int p_argc, GDExtensionCallError &r_error, const uint8_t *p_captures, const uint8_t *p_bound_self = nullptr) {
 	ValueCall &value = current_value_call;
 	const bool callee = value.pending;
 	value.pending = false;
@@ -256,13 +256,34 @@ LambdaCallable::LambdaCallable(const std::shared_ptr<const ClassImage> &p_image,
 		owner = ObjectID(instance_id(context.owner));
 		kept = Variant(context.owner);
 	}
+	// As a call would complete it, so that a direct call can use it as it is.
+	if (!context.self_image) {
+		context.self_image = image;
+	}
 	const bytecode::Function &fn = image->module.functions[function];
 	const size_t first = fn.params.size() - fn.captures;
+	size_t size = 0;
+	for (size_t i = first; i < fn.params.size(); i++) {
+		size += image->types[fn.params[i].type].size;
+	}
+	large_captures.reset(size > sizeof(inline_captures) ? new uint64_t[size / 8 + 1] : nullptr);
+	captures = large_captures ? reinterpret_cast<uint8_t *>(large_captures.get()) : inline_captures;
+	uint8_t *capture = captures;
 	for (size_t i = 0; i < fn.captures; i++) {
 		const TypeImage &type = image->types[fn.params[first + i].type];
-		captures.push_back(std::make_unique<ValueBuffer>(type));
-		copy_value(type, captures.back()->data, p_frame + p_captures[2 * i + 1]);
-		capture_data.push_back(captures.back()->data);
+		construct_value(type, capture);
+		copy_value(type, capture, p_frame + p_captures[2 * i + 1]);
+		capture += type.size;
+	}
+}
+
+LambdaCallable::~LambdaCallable() {
+	const bytecode::Function &fn = image->module.functions[function];
+	uint8_t *capture = captures;
+	for (size_t i = fn.params.size() - fn.captures; i < fn.params.size(); i++) {
+		const TypeImage &type = image->types[fn.params[i].type];
+		destroy_value(type, capture);
+		capture += type.size;
 	}
 }
 
@@ -290,7 +311,7 @@ void LambdaCallable::call(const Variant **p_arguments, int p_argcount, Variant &
 		r_call_error.error = GDEXTENSION_CALL_ERROR_INSTANCE_IS_NULL;
 		return;
 	}
-	r_return_value = call_value(image, function, context, p_arguments, p_argcount, r_call_error, capture_data.data());
+	r_return_value = call_value(image, function, context, p_arguments, p_argcount, r_call_error, captures);
 }
 
 } // namespace petrichor
