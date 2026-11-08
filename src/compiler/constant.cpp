@@ -202,10 +202,10 @@ ConstPtr fold_int_binary(Expr &r_expr, int64_t p_a, int64_t p_b) {
 		case TokenKind::ShiftLeft:
 		case TokenKind::ShiftRight:
 			if (p_a < 0 || p_b < 0) {
-				return fail(r_expr, "A shift takes operands that are not negative (spec §4.5).");
+				return fail(r_expr, "A shift takes operands that are not negative.");
 			}
 			if (p_b >= 64) {
-				return fail(r_expr, "A shift by 64 or more bits is undefined (spec §4.5).");
+				return fail(r_expr, "A shift by 64 or more bits is undefined.");
 			}
 			return int_value(r_expr.op == TokenKind::ShiftLeft ? wrapping(uint64_t(p_a) << p_b) : p_a >> p_b);
 		case TokenKind::StarStar: {
@@ -296,7 +296,7 @@ ConstPtr fold_binary(Expr &r_expr) {
 		return nullptr;
 	}
 	if (r_expr.op == TokenKind::Percent && is_format_string(left->type)) {
-		return fail(r_expr, "Formatting with % is not supported in constant expressions (spec §4.5).");
+		return fail(r_expr, "Formatting with % is not supported in constant expressions.");
 	}
 	if (r_expr.op == TokenKind::Plus && left->kind == Kind::Array && right->kind == Kind::Array) {
 		auto value = make(Kind::Array, r_expr.type);
@@ -307,19 +307,19 @@ ConstPtr fold_binary(Expr &r_expr) {
 	const std::string left_name = left->type.builtin_name();
 	const std::string right_name = right->type.builtin_name();
 	if (r_expr.op == TokenKind::Star && ((left_name == "Quaternion" && right_name == "Vector3") || (left_name == "Vector3" && right_name == "Quaternion"))) {
-		return fail(r_expr, "Quaternion times a vector checks the value in debug builds, so constant expressions cannot use it (spec §4.5).");
+		return fail(r_expr, "Quaternion times a vector checks the value in debug builds, so constant expressions cannot use it.");
 	}
 	if ((r_expr.op == TokenKind::Slash || r_expr.op == TokenKind::Percent) && is_integer_vector(left->type) && !known_nonzero(*right)) {
-		return fail(r_expr, "The divisor of an integer vector must be known at compile time and not zero (spec §4.5).");
+		return fail(r_expr, "The divisor of an integer vector must be known at compile time and not zero.");
 	}
 	if ((r_expr.op == TokenKind::Slash || r_expr.op == TokenKind::Percent) && left->type.kind == TypeKind::Int && right->type.kind == TypeKind::Int && !known_nonzero(*right)) {
-		return fail(r_expr, "The divisor of an int must be known at compile time (spec §4.5).");
+		return fail(r_expr, "The divisor of an int must be known at compile time.");
 	}
 	if ((r_expr.op == TokenKind::ShiftLeft || r_expr.op == TokenKind::ShiftRight)) {
-		return fail(r_expr, "Both sides of a shift must be known at compile time (spec §4.5).");
+		return fail(r_expr, "Both sides of a shift must be known at compile time.");
 	}
 	if (r_expr.op == TokenKind::StarStar && left->type.kind == TypeKind::Int && right->type.kind == TypeKind::Int) {
-		return fail(r_expr, "Both sides of ** of two ints must be known at compile time (spec §4.5).");
+		return fail(r_expr, "Both sides of ** of two ints must be known at compile time.");
 	}
 	const uint8_t op = engine_operator(r_expr.op);
 	if (op == OP_UNKNOWN) {
@@ -370,7 +370,7 @@ ConstPtr fold_conditional(Expr &r_expr) {
 		return nullptr;
 	}
 	if (condition->kind != Kind::Bool) {
-		return fail(r_expr, "The condition must be known at compile time (spec §4.5).");
+		return fail(r_expr, "The condition must be known at compile time.");
 	}
 	return converted(condition->b ? r_expr.left->constant : r_expr.right->constant, r_expr.type);
 }
@@ -405,7 +405,7 @@ ConstPtr fold_name(Expr &r_expr) {
 // normalizes them (core/math/color.cpp:412-432).
 ConstPtr check_color_string(Expr &r_expr, const ConstValue &p_string) {
 	if (p_string.kind != Kind::String) {
-		return fail(r_expr, "The string of Color(s) must be known at compile time in a constant (spec §4.5).");
+		return fail(r_expr, "The string of Color(s) must be known at compile time in a constant.");
 	}
 	const std::string &text = p_string.text;
 	const size_t start = !text.empty() && text[0] == '#' ? 1 : 0;
@@ -429,10 +429,10 @@ ConstPtr check_color_string(Expr &r_expr, const ConstValue &p_string) {
 	const builtin::Class *color = builtin::find_class("Color");
 	for (uint32_t i = 0; color && i < color->constant_count; i++) {
 		if (normalized(color->constants[i].name) == normalized(text)) {
-			return fail(r_expr, "A color name is looked up when the class loads, so constants write the constant instead: Color." + std::string(color->constants[i].name) + " (spec §4.5).");
+			return fail(r_expr, "A color name is looked up when the class loads, so constants write the constant instead: Color." + std::string(color->constants[i].name) + ".");
 		}
 	}
-	return fail(r_expr, "\"" + text + "\" is neither a hexadecimal color nor the name of one (spec §4.5).");
+	return fail(r_expr, "\"" + text + "\" is neither a hexadecimal color nor the name of one.");
 }
 
 ConstPtr fold_constructor(Expr &r_expr) {
@@ -455,7 +455,7 @@ ConstPtr fold_constructor(Expr &r_expr) {
 	const bool checks_value = (type == "Basis" && params == std::vector<std::string>{ "Vector3", "float" }) ||
 			(type == "Quaternion" && (params == std::vector<std::string>{ "Vector3", "float" } || params == std::vector<std::string>{ "Basis" } || params == std::vector<std::string>{ "Vector3", "Vector3" }));
 	if (checks_value) {
-		return fail(r_expr, "This constructor of " + type + " checks its arguments in debug builds, so constant expressions cannot use it (spec §4.5).");
+		return fail(r_expr, "This constructor of " + type + " checks its arguments in debug builds, so constant expressions cannot use it.");
 	}
 	if (is_text(r_expr.type) && params.size() == 1 && is_text(r_expr.param_types[0]) && r_expr.args[0]->constant->kind == Kind::String) {
 		auto value = make(Kind::String, r_expr.type);
@@ -487,7 +487,7 @@ ConstPtr fold_conversion(Expr &r_expr) {
 	if (arg->kind == Kind::Int) {
 		return arg;
 	}
-	return arg->kind == Kind::Float ? rounded(r_expr, arg->f) : fail(r_expr, "The float converted to int must be known at compile time (spec §4.5).");
+	return arg->kind == Kind::Float ? rounded(r_expr, arg->f) : fail(r_expr, "The float converted to int must be known at compile time.");
 }
 
 // Math functions whose result is an int or a bool, of known arguments, as the
@@ -617,10 +617,10 @@ ConstPtr fold_utility(Expr &r_expr) {
 		known = known && arg->constant->is_known();
 	}
 	if (rounds_float(r_expr.text) && !args.empty() && !args[0]->is_known()) {
-		return fail(r_expr, "The float that " + r_expr.text + "() rounds to an int must be known at compile time (spec §4.5).");
+		return fail(r_expr, "The float that " + r_expr.text + "() rounds to an int must be known at compile time.");
 	}
 	if (r_expr.text == "posmod" && args.size() == 2 && !args[1]->is_known()) {
-		return fail(r_expr, "The divisor of posmod() must be known at compile time (spec §4.5).");
+		return fail(r_expr, "The divisor of posmod() must be known at compile time.");
 	}
 	if (known) {
 		if (ConstPtr value = fold_known_math(r_expr, args)) {
@@ -670,7 +670,7 @@ ConstPtr fold_dictionary(Expr &r_expr) {
 			return nullptr;
 		}
 		if (!key->is_known()) {
-			return fail(r_expr, "The keys of a dictionary in a constant must be known at compile time (spec §4.5).", r_expr.args[i].get());
+			return fail(r_expr, "The keys of a dictionary in a constant must be known at compile time.", r_expr.args[i].get());
 		}
 		const ConstPtr stored = converted(key, entries ? entries->first : key->type);
 		for (size_t k = 0; k < value->items.size(); k += 2) {
@@ -691,7 +691,7 @@ ConstPtr fold_subscript(Expr &r_expr) {
 		return nullptr;
 	}
 	if (!index->is_known()) {
-		return fail(r_expr, "The index of a constant must be known at compile time (spec §4.5).");
+		return fail(r_expr, "The index of a constant must be known at compile time.");
 	}
 	if (base->kind == Kind::Array) {
 		const int64_t size = int64_t(base->items.size());

@@ -141,7 +141,7 @@ static std::string score_with(const std::string &p_head, const std::string &p_bo
 TEST_CASE("a struct's methods do not change self") {
 	for (const std::string body : { "points = 3", "self.points += 1", "marks.append(1)", "self.marks[0] = 2", "var f := func(): points = 1" }) {
 		const std::string found = errors("pass", score_with("func change() -> void", body));
-		CHECK_MESSAGE(contains(found, "A struct's methods do not change self (spec §3.6)."), body, ": ", found);
+		CHECK_MESSAGE(contains(found, "self is read-only in a struct's methods; return a changed copy instead."), body, ": ", found);
 	}
 	CHECK(errors("pass", score_with("func change() -> void", "log.append(1)\nvar copy := self\ncopy.points = 2")).empty());
 }

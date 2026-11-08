@@ -16,7 +16,7 @@ std::string exports_errors(const std::string &p_members) {
 } // namespace
 
 TEST_CASE("an export is pub, since the editor and scenes set it by name (spec §10.5)") {
-	CHECK(exports_errors("@export_range(0, 10) var speed := 2.0") == "2:1: An exported variable must be pub: the editor and scenes set it by name (spec §10.5).\n");
+	CHECK(exports_errors("@export_range(0, 10) var speed := 2.0") == "2:1: An exported variable must be pub: the editor and scenes set it by name.\n");
 }
 
 TEST_CASE("@export_range gives the inspector GDScript's range hint") {

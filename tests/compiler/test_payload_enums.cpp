@@ -23,21 +23,21 @@ std::string errors(const std::string &p_body) {
 
 TEST_CASE("a variant is made with its fields by name, and compares and orders as a struct does") {
 	CHECK(errors("\tvar a := Command.IDLE\n\tvar b := Command.MOVE(target = Vector3.ZERO)\n\tvar d := Command.ATTACK(power = 2, target = n)\n\tprint(a == b, b != d, s < s)\n\treturn 0").empty());
-	CHECK(contains(errors("\tvar a := Command.MOVE\n\treturn 0"), "Command.MOVE has a payload; make it with Command.MOVE(target = ...) (spec §3.7)."));
-	CHECK(contains(errors("\tvar a := Command.IDLE()\n\treturn 0"), "Command.IDLE has no payload; write it without parentheses (spec §3.7)."));
-	CHECK(contains(errors("\tvar a := Command.MOVE(Vector3.ZERO)\n\treturn 0"), "A variant takes its fields by name, as in Command.MOVE(target = ...) (spec §3.7)."));
+	CHECK(contains(errors("\tvar a := Command.MOVE\n\treturn 0"), "Command.MOVE has a payload; make it with Command.MOVE(target = ...)."));
+	CHECK(contains(errors("\tvar a := Command.IDLE()\n\treturn 0"), "Command.IDLE has no payload; write it without parentheses."));
+	CHECK(contains(errors("\tvar a := Command.MOVE(Vector3.ZERO)\n\treturn 0"), "A variant takes its fields by name, as in Command.MOVE(target = ...)."));
 	CHECK(contains(errors("\tvar a := Command.ATTACK(power = 1)\n\treturn 0"), "Command.ATTACK() needs \"target\"."));
-	CHECK(contains(errors("\tvar a := Command(1)\n\treturn 0"), "No int converts to Command, an enum with payloads (spec §3.7)."));
-	CHECK(contains(errors("\tprint(c.target)\n\treturn 0"), "The fields of a variant are read by match, as in Command.MOVE(var target, ..) (spec §3.7)."));
+	CHECK(contains(errors("\tvar a := Command(1)\n\treturn 0"), "No int converts to Command, an enum with payloads."));
+	CHECK(contains(errors("\tprint(c.target)\n\treturn 0"), "The fields of a variant are read by match, as in Command.MOVE(var target, ..)."));
 	CHECK(contains(errors("\tprint(c < c)\n\treturn 0"), "Values of type Moves.Command are not ordered"));
 }
 
 TEST_CASE("an enum with payloads is named, without int values, has no default and is not exported") {
 	CHECK(contains(messages(compile("extends Node\n\nenum { A(x: int) }\n")), "An enum with payloads needs a name"));
-	CHECK(contains(messages(compile("extends Node\n\nenum E { A = 1, B(x: int) }\n")), "The variants of an enum with payloads have no int values (spec §3.7)."));
+	CHECK(contains(messages(compile("extends Node\n\nenum E { A = 1, B(x: int) }\n")), "The variants of an enum with payloads have no int values."));
 	CHECK(contains(messages(compile("extends Node\n\nenum Tree { LEAF, NODE(left: Tree) }\n")), "Tree contains itself through Tree.NODE.left"));
 	CHECK(contains(errors("\tvar a: Command\n\treturn 0"), "\"a\" of type Moves.Command needs an initial value."));
-	CHECK(contains(messages(compile("extends Node\n\nenum Command { IDLE, MOVE(target: Vector3) }\n@export pub var c: Command = Command.IDLE\n")), "Enums with payloads cannot be exported (spec §3.7)."));
+	CHECK(contains(messages(compile("extends Node\n\nenum Command { IDLE, MOVE(target: Vector3) }\n@export pub var c: Command = Command.IDLE\n")), "Enums with payloads cannot be exported in the first version."));
 }
 
 TEST_CASE("a pattern takes a variant, a struct or a T? apart, and binds its fields") {
@@ -46,16 +46,16 @@ TEST_CASE("a pattern takes a variant, a struct or a T? apart, and binds its fiel
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	std::string error;
 	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
-	CHECK(contains(errors("\tmatch h:\n\t\tHit(damage = 3):\n\t\t\treturn 1\n\treturn 0"), "Hit(...) leaves out \"crit\"; match it, or end with `..` (spec §5.6)."));
-	CHECK(contains(errors("\tmatch c:\n\t\tCommand.MOVE(Vector3.ZERO):\n\t\t\treturn 1\n\t\t_:\n\t\t\treturn 0"), "The fields of Command.MOVE are matched by name, as in target = pattern (spec §5.6)."));
-	CHECK(contains(errors("\tmatch c:\n\t\tCommand.MOVE(var target), Command.IDLE:\n\t\t\treturn 1\n\t\t_:\n\t\t\treturn 0"), "Patterns separated by commas cannot bind (spec §5.6)."));
-	CHECK(contains(errors("\tmatch 3:\n\t\tSome(var x):\n\t\t\treturn x\n\treturn 0"), "Some(...) matches a value of a type T?, not int (spec §5.6)."));
+	CHECK(contains(errors("\tmatch h:\n\t\tHit(damage = 3):\n\t\t\treturn 1\n\treturn 0"), "Hit(...) leaves out \"crit\"; match it, or end with `..`."));
+	CHECK(contains(errors("\tmatch c:\n\t\tCommand.MOVE(Vector3.ZERO):\n\t\t\treturn 1\n\t\t_:\n\t\t\treturn 0"), "The fields of Command.MOVE are matched by name, as in target = pattern."));
+	CHECK(contains(errors("\tmatch c:\n\t\tCommand.MOVE(var target), Command.IDLE:\n\t\t\treturn 1\n\t\t_:\n\t\t\treturn 0"), "Patterns separated by commas cannot bind."));
+	CHECK(contains(errors("\tmatch 3:\n\t\tSome(var x):\n\t\t\treturn x\n\treturn 0"), "Some(...) matches a value of a type T?, not int."));
 	// A call is a value, as in GDScript.
 	CHECK(errors("\tmatch Vector2(1, 2):\n\t\tVector2(1, 2):\n\t\t\treturn 1\n\treturn 0").empty());
 }
 
 TEST_CASE("a match over an enum with payloads or a T? handles every value, also inside the fields") {
-	CHECK(contains(errors("\tmatch c:\n\t\tCommand.IDLE:\n\t\t\treturn 0\n\t\tCommand.MOVE(var target):\n\t\t\treturn 1\n\treturn 2"), "This match over Command does not handle ATTACK(..); handle them or add a `_` branch (spec §5.6)."));
+	CHECK(contains(errors("\tmatch c:\n\t\tCommand.IDLE:\n\t\t\treturn 0\n\t\tCommand.MOVE(var target):\n\t\t\treturn 1\n\treturn 2"), "This match over Command does not handle ATTACK(..); handle them or add a `_` branch."));
 	CHECK(contains(errors("\tmatch c:\n\t\tCommand.IDLE, Command.ATTACK(..):\n\t\t\treturn 0\n\t\tCommand.MOVE(target = Vector3.ZERO):\n\t\t\treturn 1\n\treturn 2"), "does not handle other MOVE(..);"));
 	CHECK(contains(errors("\tmatch o:\n\t\tSome(var x):\n\t\t\treturn x\n\treturn 0"), "This match over int? does not handle None;"));
 	// Each Gait and each bool of WALK: every value, so the match ends the function.

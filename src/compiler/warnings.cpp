@@ -128,7 +128,7 @@ void apply_warning_ignores(const ClassDecl &p_class, std::vector<Diagnostic> &r_
 			if (is_name(ignore.name)) {
 				hint.message = "This ignores no \"" + ignore.name + "\" " + (of_hints ? "hint." : "warning.");
 			} else {
-				hint.message = "\"" + ignore.name + "\" is not a warning or hint of this language, so this ignores nothing (spec §2.3).";
+				hint.message = "\"" + ignore.name + "\" is not a warning or hint of this language, so this ignores nothing.";
 			}
 			if (of_hints || !ignored(hint)) {
 				kept.push_back(std::move(hint));

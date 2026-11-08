@@ -18,9 +18,9 @@ std::string errors(const std::string &p_body, const std::string &p_signature = "
 
 TEST_CASE("Ok and Err take their Result type from where they go, and a Result is not discarded") {
 	CHECK(errors("\tvar a: Result[int, String] = Ok(1)\n\tvar b: Array[Result[int, String]] = [a, Err(\"x\")]\n\tprint(a == Ok(1), a != b[1])\n\tparsed(\"1\").ok()\n\treturn Ok(2) if a == b[0] else Err(\"y\")").empty());
-	CHECK(contains(errors("\tvar a := Ok(1)\n\treturn r"), "Ok(...) takes its type from where it goes, as in `var r: Result[int, String] = Ok(...)`; nothing here gives one (spec §3.5)."));
-	CHECK(contains(errors("\tvar a: int = Err(\"x\")\n\treturn r"), "Err(...) makes a Result, but a value of type int goes here (spec §3.5)."));
-	CHECK(contains(errors("\tparsed(\"1\")\n\treturn r"), "A Result cannot be discarded: handle its error, or ignore it with .ok() (spec §3.5)."));
+	CHECK(contains(errors("\tvar a := Ok(1)\n\treturn r"), "Ok(...) takes its type from where it goes, as in `var r: Result[int, String] = Ok(...)`; nothing here gives one."));
+	CHECK(contains(errors("\tvar a: int = Err(\"x\")\n\treturn r"), "Err(...) makes a Result, but a value of type int goes here."));
+	CHECK(contains(errors("\tparsed(\"1\")\n\treturn r"), "A Result cannot be discarded: handle its error, or ignore it with .ok()."));
 	CHECK(contains(errors("\tpass", "func g(r: Result[int]) -> void:"), "Result takes a value type and an error type, as in Result[int, String]."));
 }
 
@@ -40,19 +40,19 @@ TEST_CASE("Ok(...) and Err(...) take a Result apart, and a match over one handle
 	CHECK(errors("\tmatch r:\n\t\tOk(var v):\n\t\t\treturn Ok(v + 1)\n\t\tErr(var e):\n\t\t\treturn Err(e)").empty());
 	CHECK(contains(errors("\tmatch r:\n\t\tOk(var v):\n\t\t\treturn Ok(v)\n\treturn r"), "This match over Result[int, String] does not handle Err(..);"));
 	CHECK(contains(errors("\tmatch r:\n\t\tOk(0), Err(_):\n\t\t\treturn r\n\treturn r"), "does not handle other Ok(..);"));
-	CHECK(contains(errors("\tmatch o:\n\t\tOk(var v):\n\t\t\treturn r\n\treturn r"), "Ok(...) matches a value of a type Result[T, E], not int? (spec §5.6)."));
+	CHECK(contains(errors("\tmatch o:\n\t\tOk(var v):\n\t\t\treturn r\n\treturn r"), "Ok(...) matches a value of a type Result[T, E], not int?."));
 }
 
 TEST_CASE("postfix ? returns the Err or the None it finds, which the function returns") {
 	// A lambda returns what the function type it goes to returns.
 	CHECK(errors("\tvar l: func(int?) -> int? = func(p): return p? + 1\n\tvar m: func() -> Result[int, String] = func(): return Ok(1)\n\tparsed(\"1\")?\n\treturn Ok(parsed(\"2\")? + r?)\n\nfunc g(o: int?) -> int?:\n\treturn -o? + 1\n\nasync func h() -> Result[int, String]:\n\treturn Ok(1)\n\nasync func i() -> Result[int, String]:\n\treturn Ok(await h()? + 1)").empty());
-	CHECK(contains(errors("\treturn Ok(q?)", "func g(q: Result[int, int]) -> Result[int, String]:"), "convert the error with map_err() (spec §8.2)."));
-	CHECK(contains(errors("\treturn Ok(o?)"), "convert it with ok_or() (spec §8.2)."));
-	CHECK(contains(errors("\treturn r?", "func g(r: Result[int, String]) -> int?:"), "convert it with ok() (spec §8.2)."));
-	CHECK(contains(errors("\tprint(r?)", "func g(r: Result[int, String]) -> void:"), "returns void (spec §8.2)."));
+	CHECK(contains(errors("\treturn Ok(q?)", "func g(q: Result[int, int]) -> Result[int, String]:"), "convert the error with map_err()."));
+	CHECK(contains(errors("\treturn Ok(o?)"), "convert it with ok_or()."));
+	CHECK(contains(errors("\treturn r?", "func g(r: Result[int, String]) -> int?:"), "convert it with ok()."));
+	CHECK(contains(errors("\tprint(r?)", "func g(r: Result[int, String]) -> void:"), "returns void."));
 	CHECK(contains(errors("\tvar l := func(): return r?\n\treturn r"), "from the lambda, whose return type is then needed"));
 	CHECK(contains(errors("\tassert(o? > 0)\n\treturn r"), "? cannot appear in an assert"));
-	CHECK(contains(errors("\tvar x := 3?\n\treturn r"), "? takes apart a Result or a T?, not int (spec §8.2)."));
+	CHECK(contains(errors("\tvar x := 3?\n\treturn r"), "? takes apart a Result or a T?, not int."));
 }
 
 TEST_CASE("T.try_from(v) gives the value as a T, or a ConversionError") {
@@ -67,5 +67,5 @@ TEST_CASE("T.try_from(v) gives the value as a T, or a ConversionError") {
 
 TEST_CASE("a Result holds its values in its slot, and is not exported") {
 	CHECK(contains(messages(compile("extends Node\n\nstruct S:\n\tvar r: Result[S, int]\n")), "S contains itself through S.r"));
-	CHECK(contains(messages(compile("extends Node\n\n@export pub var r: Result[int, String] = Ok(1)\n")), "A Result cannot be exported, as enums with payloads cannot (spec §3.7, §10.1)."));
+	CHECK(contains(messages(compile("extends Node\n\n@export pub var r: Result[int, String] = Ok(1)\n")), "A Result is an enum with payloads, which cannot be exported in the first version."));
 }

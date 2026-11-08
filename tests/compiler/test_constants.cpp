@@ -86,7 +86,7 @@ const ROOT = 2.0 ** 0.5
 )");
 	CHECK(named(module, "SPLIT").op == compiler::OP_DIVIDE);
 	CHECK(named(module, "ROOT").op == compiler::OP_POWER);
-	CHECK(has_error("const SPLIT = 4 / Vector2i(4, 2).x\n", "The divisor of an int must be known at compile time (spec §4.5)."));
+	CHECK(has_error("const SPLIT = 4 / Vector2i(4, 2).x\n", "The divisor of an int must be known at compile time."));
 	const bytecode::Constant &extents = named(module, "EXTENTS");
 	CHECK(extents.op == compiler::OP_DIVIDE);
 	REQUIRE(extents.args.size() == 2);
@@ -108,23 +108,23 @@ TEST_CASE("what loading could fail on is a compile error, where it is") {
 	CHECK(errors_of("const N = 10 / 0\n") == Errors{ "1:14: Division by zero." });
 	CHECK(errors_of("const N = 10 % (5 - 5)\n") == Errors{ "1:14: Modulo by zero." });
 	CHECK(errors_of("const N = posmod(10, 0)\n") == Errors{ "1:11: Modulo by zero." });
-	CHECK(errors_of("const N = 1 << -1\n") == Errors{ "1:13: A shift takes operands that are not negative (spec §4.5)." });
-	CHECK(errors_of("const N = 1 << 64\n") == Errors{ "1:13: A shift by 64 or more bits is undefined (spec §4.5)." });
+	CHECK(errors_of("const N = 1 << -1\n") == Errors{ "1:13: A shift takes operands that are not negative." });
+	CHECK(errors_of("const N = 1 << 64\n") == Errors{ "1:13: A shift by 64 or more bits is undefined." });
 	CHECK(errors_of("const N = 0 ** -1\n") == Errors{ "1:13: 0 ** -1 divides by zero." });
-	CHECK(errors_of("const N = Vector2i(4, 2).x ** 2\n") == Errors{ "1:28: Both sides of ** of two ints must be known at compile time (spec §4.5)." });
+	CHECK(errors_of("const N = Vector2i(4, 2).x ** 2\n") == Errors{ "1:28: Both sides of ** of two ints must be known at compile time." });
 	CHECK(errors_of("const N = int(1e300)\n") == Errors{ "1:11: Cannot convert 1.0000000000000001e+300 to int: out of range." });
 	CHECK(errors_of("const L = [1, 2]\nconst E = L[5]\n") == Errors{ "2:11: Index 5 is out of bounds (size 2)." });
 	CHECK(errors_of("const D = {\"a\": 1, \"a\": 2}\n") == Errors{ "1:20: The key \"a\" is already in this dictionary." });
-	CHECK(errors_of("const V = Vector2i(4, 4) / Vector2i(1, 0)\n") == Errors{ "1:26: The divisor of an integer vector must be known at compile time and not zero (spec §4.5)." });
-	CHECK(errors_of("const C = Color(\"dark green\")\n") == Errors{ "1:11: A color name is looked up when the class loads, so constants write the constant instead: Color.DARK_GREEN (spec §4.5)." });
-	CHECK(errors_of("const Q = Quaternion(Vector3.UP, 1.0)\n") == Errors{ "1:11: This constructor of Quaternion checks its arguments in debug builds, so constant expressions cannot use it (spec §4.5)." });
-	CHECK(errors_of("const S = \"%d\" % [3]\n") == Errors{ "1:16: Formatting with % is not supported in constant expressions (spec §4.5)." });
-	CHECK(errors_of("const K = 100 / roundi(sin(0.5))\n") == Errors{ "1:17: The float that roundi() rounds to an int must be known at compile time (spec §4.5)." });
+	CHECK(errors_of("const V = Vector2i(4, 4) / Vector2i(1, 0)\n") == Errors{ "1:26: The divisor of an integer vector must be known at compile time and not zero." });
+	CHECK(errors_of("const C = Color(\"dark green\")\n") == Errors{ "1:11: A color name is looked up when the class loads, so constants write the constant instead: Color.DARK_GREEN." });
+	CHECK(errors_of("const Q = Quaternion(Vector3.UP, 1.0)\n") == Errors{ "1:11: This constructor of Quaternion checks its arguments in debug builds, so constant expressions cannot use it." });
+	CHECK(errors_of("const S = \"%d\" % [3]\n") == Errors{ "1:16: Formatting with % is not supported in constant expressions." });
+	CHECK(errors_of("const K = 100 / roundi(sin(0.5))\n") == Errors{ "1:17: The float that roundi() rounds to an int must be known at compile time." });
 }
 
 TEST_CASE("an initializer that is not a constant expression is reported at what is not") {
-	CHECK(errors_of("const R = randi() + 1\n") == Errors{ "1:11: \"randi()\" is not a constant expression: of calls, only constructors of built-in types and math functions are (spec §4.5)." });
-	CHECK_MESSAGE(errors_of("var hp = 3\nconst H = hp * 2\n") == Errors{ "2:11: \"hp\" is a variable, not a constant (spec §4.5)." }, joined(errors_of("var hp = 3\nconst H = hp * 2\n")));
+	CHECK(errors_of("const R = randi() + 1\n") == Errors{ "1:11: \"randi()\" is not a constant expression: of calls, only constructors of built-in types and math functions are." });
+	CHECK_MESSAGE(errors_of("var hp = 3\nconst H = hp * 2\n") == Errors{ "2:11: \"hp\" is a variable, not a constant." }, joined(errors_of("var hp = 3\nconst H = hp * 2\n")));
 	CHECK(errors_of("const A = B\nconst B = A\n") == Errors{ "2:11: The constant \"A\" depends on its own value." });
 }
 
@@ -147,13 +147,13 @@ func f() -> float:
 	CHECK(named(result.module, "LIMIT").i == 3);
 	CHECK(named(result.module, "RATE").f == 2.0);
 	find_instruction(function_named(result.module, "f"), bytecode::Op::SOME);
-	CHECK(errors_of("const N = None\n") == Errors{ "1:11: The constant needs a type: None does not say which T? it is (spec §4.5)." });
+	CHECK(errors_of("const N = None\n") == Errors{ "1:11: The constant needs a type: None does not say which T? it is." });
 }
 
 TEST_CASE("constants are read-only") {
 	CHECK(errors_of(in_function("MAX = 3", "func f() -> void:") + "const MAX = 1\n") == Errors{ "4:2: Cannot assign to the constant \"MAX\"." });
-	CHECK(has_error("const L: Array[int] = [1]\nfunc f() -> void:\n\tL.append(2)\n", "\"L\" is a constant, whose containers are read-only (spec §4.5)."));
-	CHECK(has_error("const L: Array[int] = [1]\nfunc f() -> void:\n\tL[0] = 2\n", "\"L\" is a constant, whose containers are read-only (spec §4.5)."));
+	CHECK(has_error("const L: Array[int] = [1]\nfunc f() -> void:\n\tL.append(2)\n", "\"L\" is a constant, whose containers are read-only."));
+	CHECK(has_error("const L: Array[int] = [1]\nfunc f() -> void:\n\tL[0] = 2\n", "\"L\" is a constant, whose containers are read-only."));
 	CHECK(has_error("func f() -> void:\n\tconst X = 3\n\tX = 4\n", "Cannot assign to the constant \"X\"."));
 	CHECK(compile("const L: Array[int] = [1]\nfunc f() -> int:\n\treturn L.size() + L[0]\n").ok());
 }

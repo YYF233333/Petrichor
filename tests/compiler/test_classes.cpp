@@ -152,7 +152,7 @@ TEST_CASE("a method of another object is a value, which does not keep the object
 	std::string error;
 	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	CHECK(contains(errors("var x := w.hidden"), "\"hidden()\" of Weapon is not pub."));
-	CHECK(contains(errors("var x := Weapon.new().describe"), "nothing else holds this new Weapon (spec §3.11)."));
+	CHECK(contains(errors("var x := Weapon.new().describe"), "nothing else holds this new Weapon."));
 	CHECK(contains(errors("var x := RandomNumberGenerator.new().randi"), "nothing else holds this new RandomNumberGenerator"));
 	CHECK(!contains(errors("var x := Node.new().queue_free"), "nothing else holds"));
 }
@@ -162,7 +162,7 @@ TEST_CASE("a pub declaration shows only pub types (spec §4.2)") {
 		return messages(compile_in("class_name Vault\nextends Node\n\nstruct Coin:\n\tvar value: int = 1\n\nenum Hidden { A, B }\n\ninterface Lock:\n\tfunc open()\n\nclass Badge:\n\tvar rank := 3\n\n" + p_members, FakeProject()));
 	};
 	CHECK(errors_of_class("var coins: Array[Coin] = []\n\nfunc take(lock: Lock) -> Coin:\n\treturn Coin()\n").empty());
-	CHECK(contains(errors_of_class("pub var coins: Array[Coin] = []\n"), "Vault.Coin is not pub, but the pub \"coins\" shows it (spec §4.2)."));
+	CHECK(contains(errors_of_class("pub var coins: Array[Coin] = []\n"), "Vault.Coin is not pub, but the pub \"coins\" shows it."));
 	CHECK(contains(errors_of_class("pub func pick(lock: Lock?) -> void:\n\tpass\n"), "Vault.Lock is not pub, but the pub \"pick()\" shows it"));
 	CHECK(contains(errors_of_class("pub signal turned(state: Hidden)\n"), "is not pub, but the pub signal \"turned\" shows it"));
 	CHECK(contains(errors_of_class("pub func make() -> Badge:\n\treturn Badge.new()\n"), "Vault.Badge is not pub, but the pub \"make()\" shows it"));
@@ -385,7 +385,7 @@ TEST_CASE("implements: the class has every method of the interface, pub, not sta
 	CHECK(header("\npub func damage(amount: float):\n\tpass").empty());
 	CHECK(contains(header(""), "The class does not implement damage() of Combat.Damageable."));
 	CHECK(contains(header("\nfunc damage(amount: float):\n\tpass"), "implements Combat.Damageable and must be pub"));
-	CHECK(contains(header("\npub static func damage(amount: float):\n\tpass"), "\"damage()\" implements Combat.Damageable, so it cannot be static (spec §3.9)."));
+	CHECK(contains(header("\npub static func damage(amount: float):\n\tpass"), "\"damage()\" implements Combat.Damageable, so it cannot be static."));
 	CHECK(contains(header("\npub func damage(amount: int):\n\tpass"), "does not have the signature that Combat.Damageable declares, func(float)."));
 	CHECK(contains(messages(compile_in("extends Node implements Weapon\n", project())), "Weapon is not an interface."));
 }
@@ -410,7 +410,7 @@ TEST_CASE("implements: interface properties, by a pub member of the same type or
 	CHECK(body("s.health += 1\n\tvar at: Vector3 = s.position\n\tvar w: Window? = r.root").empty());
 	CHECK(contains(body("r.root = None"), "The property \"root\" of Placed.Rooted is @readonly."));
 	CHECK(contains(body("var h: String = s.health"), "Cannot assign a value of type int as String"));
-	CHECK(contains(messages(compile_in("extends Node\n@readonly\nvar x: int = 1\n", p)), "@readonly is only for interface properties (spec §3.9)."));
+	CHECK(contains(messages(compile_in("extends Node\n@readonly\nvar x: int = 1\n", p)), "@readonly is only for interface properties."));
 	CHECK(contains(messages(compile_in("pub interface Twice:\n\tfunc a()\n\tvar a: int\n", p)), "\"a\" is already declared in Twice."));
 	CHECK(contains(messages(compile_in("pub interface Loud:\n\tsignal hit\n", p)), "Signals of interfaces are not supported yet."));
 	CHECK(contains(messages(compile_in("pub interface Kind:\n\tfunc a():\n\t\tpass\n", p)), "Default methods of interfaces are not supported yet."));
@@ -438,5 +438,5 @@ TEST_CASE("self is a value of this class, except in the PREDELETE branch (spec �
 	CHECK(contains(check("static func s() -> void:\n\tvar me := self\n"), "\"self\" belongs to an instance"));
 	CHECK(contains(check("func f() -> void:\n\tvar x = self.nope\n"), "Turret has no member \"nope\"."));
 	const std::string predelete = check("func _notification(what: int) -> void:\n\tif what == Object.NOTIFICATION_PREDELETE:\n\t\tprint(self.hp)\n\t\tprint(self)\n\tmatch what:\n\t\tObject.NOTIFICATION_PREDELETE:\n\t\t\tvar me: Turret = self\n\t\t_:\n\t\t\tprint(self)\n");
-	CHECK(predelete == "12:9: self cannot be used as a value in the PREDELETE branch (spec §6.6).\n15:21: self cannot be used as a value in the PREDELETE branch (spec §6.6).\n");
+	CHECK(predelete == "12:9: self cannot be used as a value in the PREDELETE branch: the object is being freed, so nothing may keep it.\n15:21: self cannot be used as a value in the PREDELETE branch: the object is being freed, so nothing may keep it.\n");
 }

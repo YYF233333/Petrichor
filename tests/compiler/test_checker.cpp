@@ -39,7 +39,7 @@ func _ready():
 }
 
 TEST_CASE("a class annotation is reported once, and the header after it still reads") {
-	CHECK(joined(errors_of("@tool\nclass_name X\nextends Node\n")) == "1:2: @tool is not in the first version: scripts of this language do not run in the editor (spec §2.3).\n");
+	CHECK(joined(errors_of("@tool\nclass_name X\nextends Node\n")) == "1:2: @tool is not in the first version: scripts of this language do not run in the editor.\n");
 	CHECK(joined(errors_of("@icon(\"res://a#b.svg\") class_name X extends Node\n")) == "");
 	// GDScript takes a string literal, and only once (modules/gdscript/gdscript_parser.cpp:4422-4440, 4465-4473).
 	CHECK(joined(errors_of("@icon(\"\")\nextends Node\n")) == "1:7: @icon takes the path to the icon.\n");
@@ -70,7 +70,7 @@ TEST_CASE("@rpc configures how other peers call a method, which they find by nam
 	CHECK(contains(rpc_errors("@rpc(\"any_peer\", \"authority\")"), "@rpc takes one of \"any_peer\" and \"authority\"."));
 	CHECK(contains(rpc_errors("@rpc(\"any_peer\", \"call_local\", \"reliable\", \"x\")"), "the channel, an int"));
 	CHECK(contains(rpc_errors("@rpc\n@rpc"), "A function takes @rpc once."));
-	CHECK(contains(rpc_errors("@rpc"), "An @rpc function must be pub: other peers call it by name (spec §10.5)."));
+	CHECK(contains(rpc_errors("@rpc"), "An @rpc function must be pub: other peers call it by name."));
 	CHECK(contains(joined(errors_of("extends Node\n@rpc\nvar x := 1\n")), "@rpc applies to functions."));
 	CHECK(contains(rpc_errors("@export"), "@export applies to variables."));
 }
@@ -178,8 +178,8 @@ TEST_CASE("for over an object whose class defines _iter_init, _iter_next and _it
 	const auto errors = [&](const std::string &p_source) { return messages(compile_in(p_source, project)); };
 	CHECK(errors(in_function("for n in Countdown.new():\n\tvar m: int = n")) == "");
 	CHECK(contains(errors(in_function("for n in Countdown.new():\n\tvar s: String = n")), "Cannot assign a value of type int as String."));
-	CHECK(contains(errors("extends Node\n\nfunc _iter_get(iter) -> int:\n\treturn 0\n\nfunc f() -> void:\n\tfor n in self:\n\t\tpass\n"), "whose class lacks _iter_init() and _iter_next() (spec §5.7)."));
-	CHECK(has_error(in_function("for x in Node.new():\n\tpass"), "Cannot iterate over Node, whose class lacks _iter_init(), _iter_next() and _iter_get() (spec §5.7)."));
+	CHECK(contains(errors("extends Node\n\nfunc _iter_get(iter) -> int:\n\treturn 0\n\nfunc f() -> void:\n\tfor n in self:\n\t\tpass\n"), "whose class lacks _iter_init() and _iter_next()."));
+	CHECK(has_error(in_function("for x in Node.new():\n\tpass"), "Cannot iterate over Node, whose class lacks _iter_init(), _iter_next() and _iter_get()."));
 	CHECK(has_error(in_function("var n: Node? = None\nfor x in n:\n\tpass"), "The value may be None (Node?); check it before iterating over it."));
 	CHECK(has_error("extends RefCounted\n\nfunc _iter_init(iter) -> int:\n\treturn 0\n", "The overridden method returns bool."));
 
@@ -206,7 +206,7 @@ TEST_CASE("assert takes a bool condition and a String message, and does not narr
 	CHECK(has_error(in_function("assert(true, 3)"), "The message of an assert must be a String, found int. Convert it with str(x)."));
 	CHECK(has_error(in_function("assert true"), "Expected \"(\", found \"true\"."));
 	CHECK(has_error(in_function("var r: Resource? = None\nassert(r != None)\nvar s: Resource = r"), "Cannot assign a value of type Resource? as Resource."));
-	CHECK(has_error("signal done(ok: bool)\nasync func f() -> void:\n\tassert(await done)\n", "await cannot appear in an assert: it would vanish with the assertion in release builds (spec §8.3)."));
+	CHECK(has_error("signal done(ok: bool)\nasync func f() -> void:\n\tassert(await done)\n", "await cannot appear in an assert: it would vanish with the assertion in release builds."));
 	CHECK(has_error("signal done(ok: bool)\nasync func f() -> void:\n\tassert(true, str(await done))\n", "await cannot appear in an assert"));
 }
 

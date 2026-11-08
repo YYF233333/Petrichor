@@ -119,7 +119,7 @@ func _check_header() -> void:
 	script.source_code = "# A comment.\n\"\"\"\nA comment in a string, \"class_name Wrong\".\nclass_name Wrong\n\"\"\"\n@tool\n@icon(\"res://icon#1.svg\") class_name HeaderCheck\nextends Node2D implements Combat.Damageable\nvar x := 1\n"
 	script.reload()
 	_check(script.get_global_name() == &"HeaderCheck" and script.get_instance_base_type() == &"Node2D", "the header is read past class annotations, their arguments and comments")
-	_check_errors(["@tool is not in the first version: scripts of this language do not run in the editor (spec §2.3)."], "the script reports only its class annotation")
+	_check_errors(["@tool is not in the first version: scripts of this language do not run in the editor."], "the script reports only its class annotation")
 
 
 # While a script has errors, a scene that uses it keeps its exported values,
@@ -392,7 +392,7 @@ func _check_inheritance_recovery() -> void:
 	base.source_code = valid.replace("-> int:", "-> String:").replace("return 1", 'return "bad"')
 	_check(ResourceSaver.save(base, base_path) == OK, "saving a changed base recompiles its child")
 	_check(not child.has_script_method("read"), "incompatible override invalidates the child")
-	_check_errors(["editor_inherit_child.pet:3: The override widens its base return type (spec §4.6)."], "the child reports the incompatible override")
+	_check_errors(["editor_inherit_child.pet:3: The override widens its base return type."], "the child reports the incompatible override")
 	base.source_code = valid
 	_check(ResourceSaver.save(base, base_path) == OK, "the repaired base saves")
 	_check(child.has_script_method("read") and node.get("speed") == 1 and node.get("own") == 9, "repairing only the base recovers the failed child and its placeholder")

@@ -1019,7 +1019,7 @@ class Parser {
 			const TokenKind close = array ? TokenKind::BracketClose : TokenKind::BraceClose;
 			while (!failed && !check(close)) {
 				if (result.rest) {
-					report(peek(), std::string("`..` ends ") + (array ? "an array" : "a dictionary") + " pattern (spec §5.6).");
+					report(peek(), std::string("`..` ends ") + (array ? "an array" : "a dictionary") + " pattern.");
 				}
 				if (check(TokenKind::Period) && peek(1).kind == TokenKind::Period) {
 					advance();
@@ -1287,7 +1287,7 @@ class Parser {
 					continue;
 				}
 				if (is_readonly) {
-					fail(peek(), "@readonly is only for interface properties (spec §3.9).");
+					fail(peek(), "@readonly is only for interface properties.");
 				} else if (check(TokenKind::Signal)) {
 					fail(peek(), "Signals of interfaces are not supported yet.");
 				}
@@ -1438,7 +1438,7 @@ class Parser {
 					continue;
 				}
 				if (check(TokenKind::ClassName)) {
-					fail(peek(), "class_name belongs to the file's class (spec §4.1).");
+					fail(peek(), "class_name belongs to the file's class.");
 					continue;
 				}
 				if (check(TokenKind::Extends) || check(TokenKind::Implements)) {
@@ -1499,7 +1499,7 @@ class Parser {
 					continue;
 				}
 				if (check(TokenKind::Pub)) {
-					fail(peek(), "A struct's fields and methods are visible wherever it is, so they take no pub (spec §3.6).");
+					fail(peek(), "A struct's fields and methods are visible wherever it is, so they take no pub.");
 					end_of_statement();
 					continue;
 				}
@@ -1743,7 +1743,7 @@ class Parser {
 				continue;
 			}
 			if (annotation.name == "readonly") {
-				fail(name, "@readonly is only for interface properties (spec §3.9).");
+				fail(name, "@readonly is only for interface properties.");
 				return;
 			}
 			if (annotation.name == "abstract") {
@@ -1752,7 +1752,7 @@ class Parser {
 				continue;
 			}
 			if (is_class_annotation(annotation.name)) {
-				fail(name, "@" + annotation.name + (r_class.name.empty() ? " belongs to the class header, before the members." : " belongs to the file's class (spec §4.1)."));
+				fail(name, "@" + annotation.name + (r_class.name.empty() ? " belongs to the class header, before the members." : " belongs to the file's class."));
 				return;
 			}
 			// The checker knows the members of the @export family.
@@ -1781,7 +1781,7 @@ class Parser {
 			return;
 		}
 		if (is_static && (is_export || is_onready)) {
-			fail(peek(), std::string("@") + (is_onready ? "onready" : "export") + " cannot be applied to a static variable (spec §4.8).");
+			fail(peek(), std::string("@") + (is_onready ? "onready" : "export") + " cannot be applied to a static variable.");
 			return;
 		}
 
@@ -2042,7 +2042,7 @@ public:
 					continue;
 				}
 				if (name.text == "tool") {
-					report(name, "@tool is not in the first version: scripts of this language do not run in the editor (spec §2.3).");
+					report(name, "@tool is not in the first version: scripts of this language do not run in the editor.");
 				} else {
 					report(name, "The class annotation @" + name.text + " is not supported yet.");
 				}

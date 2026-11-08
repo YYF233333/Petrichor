@@ -59,7 +59,7 @@ TEST_CASE("static variables get their first values in declaration order, then _s
 	CHECK(has_error(R"(extends Node
 static var instance: Node
 )",
-			"needs an initial value: Node has no default value. Give it one, or the type Node? (spec §4.8)."));
+			"needs an initial value: Node has no default value. Give it one, or the type Node?."));
 	const auto valid = compile(R"(extends Node
 static var names: Array[String]
 static var total := 3
@@ -94,12 +94,12 @@ static func _static_init() -> void:
 }
 
 TEST_CASE("a static initializer reads only static variables declared before it, and no instance (spec §4.8)") {
-	CHECK(has_error("extends Node\nstatic var a := b\nstatic var b := 1\n", "\"b\" is not initialized yet: static variables are initialized in declaration order (spec §4.8)."));
+	CHECK(has_error("extends Node\nstatic var a := b\nstatic var b := 1\n", "\"b\" is not initialized yet: static variables are initialized in declaration order."));
 	CHECK(has_error("extends Node\nstatic var a := a\n", "\"a\" is not initialized yet"));
 	CHECK(has_error("extends Node\nvar hp := 3\nstatic var a := hp\n", "\"hp\" belongs to an instance, which a static variable's initializer does not have."));
 	CHECK(has_error("extends Node\nstatic var a := self\n", "\"self\" belongs to an instance, which a static variable's initializer does not have."));
 	CHECK(has_error("extends Node\nstatic var a := func(): return name\n", "\"name\" belongs to an instance, which a static variable's initializer does not have."));
-	CHECK(has_error("extends Node\nconst C := count\nstatic var count := 1\n", "\"count\" is a variable, not a constant (spec §4.5)."));
+	CHECK(has_error("extends Node\nconst C := count\nstatic var count := 1\n", "\"count\" is a variable, not a constant."));
 	// A function the initializer calls runs then, and is checked when it runs.
 	require_verified(compile("extends Node\nstatic var a := read_b()\nstatic var b := 1\nstatic func read_b() -> int:\n\treturn b\n"));
 	// A lambda runs later; the type of a later variable is known when written.
@@ -108,14 +108,14 @@ TEST_CASE("a static initializer reads only static variables declared before it, 
 }
 
 TEST_CASE("static variables are declared as GDScript's, with accessors and without exports") {
-	CHECK(has_error("extends Node\n@export static var a := 1\n", "@export cannot be applied to a static variable (spec §4.8)."));
-	CHECK(has_error("extends Node\n@onready static var a := 1\n", "@onready cannot be applied to a static variable (spec §4.8)."));
+	CHECK(has_error("extends Node\n@export static var a := 1\n", "@export cannot be applied to a static variable."));
+	CHECK(has_error("extends Node\n@onready static var a := 1\n", "@onready cannot be applied to a static variable."));
 	CHECK(has_error("extends Node\nvar a := 1\nstatic var a := 2\n", "The member \"a\" is already declared."));
 	CHECK(has_error("extends Node\nstatic var a := 2\nfunc a() -> void:\n\tpass\n", "\"a\" is already declared."));
 	CHECK(has_error("extends Node\nstatic var a\n", "\"a\" needs a type or an initial value."));
 	CHECK(has_error("extends Node\nstatic const A := 1\n", "Only variables and functions can be static."));
-	CHECK(has_error("extends Node\nstatic var a := 1:\n\tset = put\nfunc put(value: int) -> void:\n\tpass\n", "A setter of a static variable is static and not async (spec §4.4, §4.8)."));
-	CHECK(has_error("extends Node\nfunc _static_init() -> void:\n\tpass\n", "_static_init() is static, takes no parameters, returns nothing and cannot await (spec §4.8)."));
+	CHECK(has_error("extends Node\nstatic var a := 1:\n\tset = put\nfunc put(value: int) -> void:\n\tpass\n", "A setter of a static variable is static, and not async: writing the variable does not wait for it."));
+	CHECK(has_error("extends Node\nfunc _static_init() -> void:\n\tpass\n", "_static_init() is static, takes no parameters, returns nothing and cannot await."));
 	CHECK(has_error("extends Node\nstatic func _static_init(x: int) -> void:\n\tpass\n", "_static_init() is static"));
 	const auto result = compile(R"(extends Node
 static var label := "a":

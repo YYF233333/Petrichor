@@ -69,7 +69,7 @@ TEST_CASE("a name of @warning_ignore that ignores nothing gets a hint, which its
 	const std::string gdscript_ignore = "@warning_ignore(\"unused_parameter\")\nfunc f(x: int):\n\tpass\n";
 	const std::vector<std::string> gdscript = warnings_of("extends Node\n\n" + gdscript_ignore);
 	REQUIRE(gdscript.size() == 1);
-	CHECK(gdscript[0] == "3: unused_ignore: \"unused_parameter\" is not a warning or hint of this language, so this ignores nothing (spec §2.3).");
+	CHECK(gdscript[0] == "3: unused_ignore: \"unused_parameter\" is not a warning or hint of this language, so this ignores nothing.");
 	CHECK(warnings_of("extends Node\n\n@warning_ignore(\"modified_copy\")\nvar x := 1\n") == std::vector<std::string>{ "3: unused_ignore: This ignores no \"modified_copy\" warning." });
 	// As the editor's [Ignore] writes it above.
 	CHECK(warnings_of("extends Node\n\n@warning_ignore(\"unused_ignore\")\n" + gdscript_ignore).empty());

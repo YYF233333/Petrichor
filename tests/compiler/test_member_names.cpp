@@ -17,14 +17,14 @@ std::string errors_in(const std::string &p_body) {
 
 TEST_CASE("a literal member name is checked on the object's static type, as object.name is") {
 	CHECK(errors_in("set_deferred(\"speed\", 2.0)").empty());
-	CHECK(contains(errors_in("set_deferred(\"sped\", 2.0)"), "has no property \"sped\" (spec §10.4)."));
+	CHECK(contains(errors_in("set_deferred(\"sped\", 2.0)"), "has no property \"sped\"."));
 	CHECK(errors_in("other.set_deferred(\"position\", Vector2.ZERO)").empty());
-	CHECK(contains(errors_in("other.set_deferred(\"speed\", 2.0)"), "Node2D has no property \"speed\" (spec §10.4)."));
-	CHECK(contains(errors_in("call_deferred(\"rest\")"), "has no method \"rest\" (spec §10.4)."));
-	CHECK(contains(errors_in("other.emit_signal(\"done\")"), "Node2D has no signal \"done\" (spec §10.4)."));
+	CHECK(contains(errors_in("other.set_deferred(\"speed\", 2.0)"), "Node2D has no property \"speed\"."));
+	CHECK(contains(errors_in("call_deferred(\"rest\")"), "has no method \"rest\"."));
+	CHECK(contains(errors_in("other.emit_signal(\"done\")"), "Node2D has no signal \"done\"."));
 	// The engine finds no member that is not pub (spec §10.5).
-	CHECK(contains(errors_in("set_deferred(\"secret\", 3)"), "\"secret\" is not pub, so the engine cannot find it by name; make it pub (spec §10.4)."));
-	CHECK(contains(errors_in("emit_signal(\"hit\", 1)"), "\"hit\" is not pub, so the engine cannot find it by name; use the signal itself, as hit (spec §10.4)."));
+	CHECK(contains(errors_in("set_deferred(\"secret\", 3)"), "\"secret\" is not pub, so the engine cannot find it by name; make it pub."));
+	CHECK(contains(errors_in("emit_signal(\"hit\", 1)"), "\"hit\" is not pub, so the engine cannot find it by name; use the signal itself, as hit."));
 }
 
 TEST_CASE("a literal member name is dynamic on Object, in a query, and for a property the engine lists per instance") {
@@ -36,22 +36,22 @@ TEST_CASE("a literal member name is dynamic on Object, in a query, and for a pro
 }
 
 TEST_CASE("a literal member name checks what the call gives the member") {
-	CHECK(contains(errors_in("set_deferred(\"speed\", \"fast\")"), "\"speed\" is float, which takes no String (spec §10.4)."));
+	CHECK(contains(errors_in("set_deferred(\"speed\", \"fast\")"), "\"speed\" is float, which takes no String."));
 	CHECK(errors_in("tween.tween_property(self, \"position:x\", 2.0, 1.0)").empty());
-	CHECK(contains(errors_in("tween.tween_property(self, \"position\", 2.0, 1.0)"), "\"position\" is Vector2, which takes no float (spec §10.4)."));
-	CHECK(contains(errors_in("tween.tween_property(self, \"position:z\", 2.0, 1.0)"), "\"position\" has no member \"z\" (spec §10.4)."));
+	CHECK(contains(errors_in("tween.tween_property(self, \"position\", 2.0, 1.0)"), "\"position\" is Vector2, which takes no float."));
+	CHECK(contains(errors_in("tween.tween_property(self, \"position:z\", 2.0, 1.0)"), "\"position\" has no member \"z\"."));
 	CHECK(contains(errors_in("tween.tween_property(other, \"speed\", 2.0, 1.0)"), "Node2D has no property \"speed\""));
-	CHECK(contains(errors_in("call_deferred(\"reset\", 1)"), "\"reset\" takes 0 argument(s); 1 follow (spec §10.4)."));
-	CHECK(contains(errors_in("emit_signal(\"done\", 1)"), "\"done\" takes 0 argument(s); 1 follow (spec §10.4)."));
+	CHECK(contains(errors_in("call_deferred(\"reset\", 1)"), "\"reset\" takes 0 argument(s); 1 follow."));
+	CHECK(contains(errors_in("emit_signal(\"done\", 1)"), "\"done\" takes 0 argument(s); 1 follow."));
 	CHECK(errors_in("connect(\"done\", reset)").empty());
 	CHECK(contains(errors_in("connect(\"done\", func(amount: int): pass)"), "passes 0 argument(s)"));
 }
 
 TEST_CASE("Callable(object, name) and Signal(object, name) take a literal name, a static reference") {
 	CHECK(errors_in("var c := Callable(self, \"reset\")\n\tc.call()\n\tvar s := Signal(self, \"done\")\n\ts.emit()").empty());
-	CHECK(contains(errors_in("var c := Callable(self, \"missing\")"), "has no method \"missing\" (spec §10.4)."));
+	CHECK(contains(errors_in("var c := Callable(self, \"missing\")"), "has no method \"missing\"."));
 	CHECK(contains(errors_in("var s := Signal(self, \"hit\")"), "\"hit\" is not pub"));
-	CHECK(contains(errors_in("var n := \"reset\"\n\tvar c := Callable(other, n)"), "Callable(object, name) takes a literal name, a static reference (spec §10.4); for a name known only at run time, use Callable.create(object, name)."));
+	CHECK(contains(errors_in("var n := \"reset\"\n\tvar c := Callable(other, n)"), "Callable(object, name) takes a literal name, a static reference; for a name known only at run time, use Callable.create(object, name)."));
 	// Typed by the signal it names.
 	CHECK(contains(errors_in("Signal(self, \"done\").emit(1)"), "argument"));
 }

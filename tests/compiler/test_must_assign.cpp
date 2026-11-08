@@ -29,7 +29,7 @@ TEST_CASE("a member whose type has no default must be assigned, which is checked
 TEST_CASE("_init reads a member that must be assigned only once it has assigned it on every path") {
 	const auto init = [](const std::string &p_body) { return messages(compile("extends Node\n\nvar target: Node3D\n\nfunc _init():\n" + p_body + "\n\nfunc helper() -> void:\n\tprint(target)\n")); };
 	const std::string read_first = init("\tprint(target)");
-	CHECK(contains(read_first, "_init reads \"target\" before assigning it: a member that must be assigned gets its value from the scene or the creator only after _init (spec §6.2)."));
+	CHECK(contains(read_first, "_init reads \"target\" before assigning it: a member that must be assigned gets its value from the scene or the creator only after _init."));
 	// After both branches assign it; in a lambda, which runs later; through a call, at run time.
 	CHECK(init("\tif randi() > 0:\n\t\ttarget = Node3D.new()\n\telse:\n\t\ttarget = Node3D.new()\n\tprint(target.position)").empty());
 	CHECK(init("\tvar later := func(): print(target)\n\thelper()\n\ttarget = Node3D.new()").empty());
@@ -53,11 +53,11 @@ TEST_CASE("new(...) and instantiate(...) take the members that must be assigned 
 	const std::string made = made_errors("\tvar a := Bullet.new(target = Node3D.new())\n\tvar b := scene.instantiate(target = Node3D.new(), trail = a)\n\tadd_child(a)\n\tadd_child(b)");
 	CHECK_MESSAGE(made.empty(), made);
 	// The scene may assign an export, but nothing else.
-	CHECK(contains(made_errors("\tadd_child(scene.instantiate())"), "instantiate() needs target = ..., a member of Bullet that must be assigned and the scene cannot (spec §7.4)."));
+	CHECK(contains(made_errors("\tadd_child(scene.instantiate())"), "instantiate() needs target = ..., a member of Bullet that must be assigned and the scene cannot."));
 	CHECK(contains(made_errors("\tadd_child(hidden.instantiate())"), "instantiate() cannot give \"secret\", a member of Hidden that must be assigned and is not pub."));
-	CHECK(contains(made_errors("\tadd_child(Bullet.new(speed = 2.0))"), "\"speed\" has a value of its own; by name, new(...) takes only members that must be assigned (spec §4.6)."));
-	CHECK(contains(made_errors("\tadd_child(Hidden.new(secret = Node3D.new()))"), "\"secret\" of Hidden is not pub (spec §4.2)."));
+	CHECK(contains(made_errors("\tadd_child(Bullet.new(speed = 2.0))"), "\"speed\" has a value of its own; by name, new(...) takes only members that must be assigned."));
+	CHECK(contains(made_errors("\tadd_child(Hidden.new(secret = Node3D.new()))"), "\"secret\" of Hidden is not pub."));
 	CHECK(contains(made_errors("\tadd_child(Bullet.new(nope = 1))"), "Bullet has no member \"nope\"."));
 	CHECK(contains(made_errors("\tadd_child(Bullet.new(target = Node3D.new(), 1))"), "Arguments by position come before those by name."));
-	CHECK(contains(made_errors("\tadd_child(Node.new(name = &\"x\"))"), "Only new(...) of a class of this language and instantiate(...) of a PackedScene[T] take members by name (spec §4.6)."));
+	CHECK(contains(made_errors("\tadd_child(Node.new(name = &\"x\"))"), "Only new(...) of a class of this language and instantiate(...) of a PackedScene[T] take members by name."));
 }

@@ -75,7 +75,7 @@ TEST_CASE("Task.of() and Task.delay() make tasks, owned when awaited at once") {
 	CHECK(type_of("Task.delay(1)") == "Task[void]");
 	CHECK(has_error(in_function("Task.delay(1.0)"), "detach"));
 	CHECK(has_error(in_function("var t := Task.of(3)"), "Task.of() takes a signal, not int."));
-	CHECK(has_error(in_function("var t := Task.wait(1.0)"), "Task has no function \"wait()\" (spec §9.5)."));
+	CHECK(has_error(in_function("var t := Task.wait(1.0)"), "Task has no function \"wait()\"."));
 	const auto result = compile("extends Node\nsignal moved(x: int, y: int)\nasync func f():\n\tvar t: Task[void] = Task.of(moved)\n\tawait Task.of(moved)\n\tawait Task.delay(0.5)\n\tawait t\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	std::string error;

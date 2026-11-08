@@ -720,7 +720,7 @@ class Lexer {
 				break;
 			}
 			if (peek() == '\n' && !triple) {
-				error(start, at, "Unterminated string; a string that spans lines is written in triple quotes (spec §2.2).");
+				error(start, at, "Unterminated string; a string that spans lines is written in triple quotes.");
 				break;
 			}
 			const unsigned char c = peek();

@@ -19,7 +19,7 @@ TEST_CASE("operators follow the engine's table (spec §5.1)") {
 TEST_CASE("objects compare by identity, never when neither class extends the other (spec §5.2)") {
 	const std::string setup = "var node := Node.new()\nvar node2d := Node2D.new()\nvar label := Label.new()\nvar maybe: Node? = None";
 	CHECK(type_of("node == node2d and node2d != node and maybe == node and node2d != maybe and maybe == maybe", setup) == "bool");
-	CHECK(contains(type_of("label == node2d", setup), "Label and Node2D are never the same object, since neither class extends the other (spec §5.2)."));
+	CHECK(contains(type_of("label == node2d", setup), "Label and Node2D are never the same object, since neither class extends the other."));
 	const auto result = compile("interface Hit:\n\tfunc hit()\n\nfunc f(h: Hit, l: Label, m: Node?) -> bool:\n\treturn h == l and l != m\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	std::string error;
@@ -40,7 +40,7 @@ TEST_CASE("a class names the constants and enums of its engine base by bare name
 	const auto typed = compile(in_function("var mode: ProcessMode = PROCESS_MODE_ALWAYS\nvar again := ProcessMode(0)\nprint(mode == again)\nvar NOTIFICATION_PREDELETE := \"a local first\"\nprint(NOTIFICATION_PREDELETE.length())"));
 	REQUIRE_MESSAGE(typed.ok(), messages(typed));
 	CHECK(!errors_of(in_function("print(PROCESS_MODE_ALWAYS)", "func f() -> void:", "RefCounted")).empty());
-	const std::string taken = "is already a constant of Node, which this class extends (spec §4.1).";
+	const std::string taken = "is already a constant of Node, which this class extends.";
 	CHECK(has_error("extends Node\nconst NOTIFICATION_PREDELETE = 2\n", "\"NOTIFICATION_PREDELETE\" " + taken));
 	CHECK(has_error("extends Node\nvar PROCESS_MODE_ALWAYS := 1\n", taken));
 	CHECK(has_error("extends Node\nenum { PROCESS_MODE_INHERIT }\n", taken));
@@ -230,7 +230,7 @@ TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec �
 // element type alike.
 TEST_CASE("ordering needs < on the elements, and resize() a default value") {
 	CHECK(errors_of(in_function("var a: Array[int] = [2, 1]\na.sort()\nvar i := a.bsearch(1)\nvar s: Array[String] = []\ns.sort()\nvar u: Array = []\nu.sort()")).empty());
-	CHECK(has_error(in_function("var n: Array[Node] = []\nn.sort()"), "\"sort()\" orders the elements by <, which Node does not have (spec §3.8); use sort_custom()"));
+	CHECK(has_error(in_function("var n: Array[Node] = []\nn.sort()"), "\"sort()\" orders the elements by <, which Node does not have; use sort_custom()"));
 	CHECK(has_error(in_function("var n: Array[Node] = []\nvar m = n.max()"), "\"max()\" orders the elements by <"));
 	CHECK(has_error(in_function("var d: Dictionary[Node, int] = {}\nd.sort()"), "\"sort()\" orders the keys by <, which Node does not have"));
 	CHECK(has_error(in_function("var n: Array[Node] = []\nn.resize(3)"), "declare the array as Array[Node?]"));

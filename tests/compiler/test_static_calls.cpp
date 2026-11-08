@@ -168,7 +168,7 @@ TEST_CASE("new(...) passes its arguments to the nearest _init(), whose visibilit
 	const auto errors = [&](const std::string &p_source) { return messages(compile_in(p_source, project)); };
 	CHECK(contains(errors("extends Node\nfunc f() -> void:\n\tprint(Pair.new())\n"), "Function \"new()\" takes 1 to 2 argument(s), 0 given."));
 	CHECK(contains(errors("extends Node\nfunc f() -> void:\n\tprint(Pair.new(\"x\"))\n"), "Cannot pass a value of type String as int"));
-	CHECK(contains(errors("extends Node\nfunc f() -> void:\n\tprint(Pool.new(1))\n"), "new() of Pool cannot be called here: its _init() is not pub (spec §4.2)."));
+	CHECK(contains(errors("extends Node\nfunc f() -> void:\n\tprint(Pool.new(1))\n"), "new() of Pool cannot be called here: its _init() is not pub."));
 	CHECK(contains(errors("extends Node\nfunc f() -> void:\n\tprint(Quiet.new())\n"), "new() of Quiet cannot be called here"));
 	CHECK(compile_in("extends Node\nfunc f() -> void:\n\tprint(Pool.make())\n", project).ok());
 	CHECK(compile_in("extends Pool\nfunc f() -> void:\n\tprint(Pool.new(1))\n", project).ok());

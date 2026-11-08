@@ -32,6 +32,12 @@ repos:
         entry: python tools/check_doc_style.py
         files: \.md$
 
+      - id: diagnostic-text
+        name: diagnostic text
+        language: python
+        entry: python tools/check_diagnostics.py
+        files: ^src/.*\.(cpp|h)$
+
       - id: commit-msg
         name: commit message
         language: python

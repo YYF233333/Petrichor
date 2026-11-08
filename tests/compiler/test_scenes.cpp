@@ -53,7 +53,7 @@ std::string hud_errors(const std::string &p_body, const FakeProject &p_project =
 
 TEST_CASE("a method connected in a scene must be pub, since the engine finds it by name (spec §10.5)") {
 	CHECK(compile_in("extends Node3D\n\npub func _on_timer_timeout():\n\tpass\n", timer_scene("_on_timer_timeout")).ok());
-	CHECK(contains(messages(compile_in("extends Node3D\n\nfunc _on_timer_timeout():\n\tpass\n", timer_scene("_on_timer_timeout"))), "is connected to _on_timer_timeout(), which is not pub; the engine calls only pub methods by name (spec §10.5)."));
+	CHECK(contains(messages(compile_in("extends Node3D\n\nfunc _on_timer_timeout():\n\tpass\n", timer_scene("_on_timer_timeout"))), "is connected to _on_timer_timeout(), which is not pub; the engine calls only pub methods by name."));
 }
 
 TEST_CASE("a method the engine is to call by a literal name must be pub (spec §10.4)") {
@@ -61,7 +61,7 @@ TEST_CASE("a method the engine is to call by a literal name must be pub (spec §
 		return messages(compile_in("extends Node\n\nfunc _ready():\n\tcall_deferred(\"reset\")\n\tvar me := self\n\tme.call_deferred(\"stop\")\n\n" + p_visibility + "func reset():\n\tpass\n\n" + p_visibility + "func stop():\n\tpass\n", FakeProject()));
 	};
 	CHECK(errors("pub ").empty());
-	CHECK(contains(errors(""), "\"reset()\" is not pub, so the engine cannot find it by name; pass the method itself, as reset (spec §10.4)."));
+	CHECK(contains(errors(""), "\"reset()\" is not pub, so the engine cannot find it by name; pass the method itself, as reset."));
 	// Through an object of this class too.
 	CHECK(contains(errors(""), "\"stop()\" is not pub"));
 }
@@ -97,7 +97,7 @@ TEST_CASE("a signal declared by a script of this language is checked like the en
 	};
 	CHECK(connected("health_updated", "health: int").empty());
 	// The engine connects it by name (spec §10.5).
-	CHECK(contains(connected("health_updated", "health: int", ""), "is connected to _on_health_updated(), but that signal is not pub; the engine connects only pub signals by name (spec §10.5)."));
+	CHECK(contains(connected("health_updated", "health: int", ""), "is connected to _on_health_updated(), but that signal is not pub; the engine connects only pub signals by name."));
 	CHECK(contains(connected("health_updated", "health: String"), "which passes int here"));
 	CHECK(contains(connected("health_updated", ""), "which passes 1 argument(s); _on_health_updated() takes 0."));
 	CHECK(contains(connected("health_changed", "health: int"), "res://main.tscn: the signal \"health_changed\" of Player is connected to _on_health_updated(), but Player has no such signal."));
@@ -231,7 +231,7 @@ TEST_CASE("a preload whose file loads the script again is an error") {
 		return messages(compile_in("extends Node\n\nconst S = preload(\"" + p_preload + "\")\n", project));
 	};
 	CHECK(errors("res://plain.tscn").empty());
-	CHECK(contains(errors("res://own.tscn"), "This preload loads this script again (res://own.tscn -> res://test.pet); load one of them with load() where it is used (spec §7.6)."));
+	CHECK(contains(errors("res://own.tscn"), "This preload loads this script again (res://own.tscn -> res://test.pet); load one of them with load() where it is used."));
 	CHECK(contains(errors("res://other.tscn"), "(res://other.tscn -> res://other.gd -> res://own.tscn -> res://test.pet)"));
 	CHECK(contains(errors("res://child.pet"), "(res://child.pet -> res://test.pet)"));
 	CHECK(contains(errors("res://test.pet"), "(res://test.pet)"));

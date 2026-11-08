@@ -540,7 +540,7 @@ class Checker : public ClassRelation {
 	bool refuse_ambiguous_engine_name(const std::string &p_name, const TokenRange &p_at) {
 		for (Checker *around = outer_checker; around; around = around->outer_checker) {
 			if (around->declares_in_script(p_name)) {
-				error(p_at, "\"" + p_name + "\" is both a name of " + cls.native_base + ", which " + display_name(cls, options.path) + " extends, and one of " + display_name(around->cls, around->path()) + "; write " + cls.native_base + "." + p_name + " or " + display_name(around->cls, around->path()) + "." + p_name + " (spec §4.1).");
+				error(p_at, "\"" + p_name + "\" is both a name of " + cls.native_base + ", which " + display_name(cls, options.path) + " extends, and one of " + display_name(around->cls, around->path()) + "; write " + cls.native_base + "." + p_name + " or " + display_name(around->cls, around->path()) + "." + p_name + ".");
 				return true;
 			}
 		}
@@ -625,7 +625,7 @@ class Checker : public ClassRelation {
 		}
 		refer(r_expr.name_token, script_id(p_path));
 		if (!header->is_pub && !sees(p_path.substr(0, p_path.rfind("::")))) {
-			return fail(r_expr, display_name(*header, p_path) + " is not pub (spec §4.2).");
+			return fail(r_expr, display_name(*header, p_path) + " is not pub.");
 		}
 		r_expr.target = Target::ClassScript;
 		r_expr.owner = p_path;
@@ -669,7 +669,7 @@ class Checker : public ClassRelation {
 	}
 
 	std::string no_instance(const std::string &p_name, const Checker &p_around) const {
-		return "\"" + p_name + "\" belongs to an object of " + display_name(p_around.cls, p_around.path()) + ", which " + display_name(cls, options.path) + " does not have: an inner class has no object of the class around it (spec §4.1).";
+		return "\"" + p_name + "\" belongs to an object of " + display_name(p_around.cls, p_around.path()) + ", which " + display_name(cls, options.path) + " does not have: an inner class has no object of the class around it.";
 	}
 
 	static std::string file_name(const std::string &p_path) {
@@ -914,7 +914,7 @@ class Checker : public ClassRelation {
 			header = script_header(path);
 			refer(token(i), script_id(path));
 			if (!header->is_pub && !sees(path.substr(0, path.rfind("::")))) {
-				error(p_ref.range, p_ref.name + " is not pub (spec §4.2).");
+				error(p_ref.range, p_ref.name + " is not pub.");
 				return Type::of(TypeKind::Error);
 			}
 			if (i + 1 == names.size()) {
@@ -929,7 +929,7 @@ class Checker : public ClassRelation {
 		for (const InterfaceDecl &interface : header->interfaces) {
 			if (interface.name == inner) {
 				if (!interface.is_pub && !in_this_file(path)) {
-					error(p_ref.range, p_ref.name + " is not pub (spec §4.2).");
+					error(p_ref.range, p_ref.name + " is not pub.");
 					return Type::of(TypeKind::Error);
 				}
 				if (const auto message = broken(&interface, display_name(*header, path) + "." + inner)) {
@@ -942,7 +942,7 @@ class Checker : public ClassRelation {
 		}
 		if (const StructDecl *found = header->find_struct(inner)) {
 			if (!found->is_pub && !in_this_file(path)) {
-				error(p_ref.range, p_ref.name + " is not pub (spec §4.2).");
+				error(p_ref.range, p_ref.name + " is not pub.");
 				return Type::of(TypeKind::Error);
 			}
 			// As checked, unless that check is under way, as when two files'
@@ -964,7 +964,7 @@ class Checker : public ClassRelation {
 				return Type::of(TypeKind::Error);
 			}
 			if (!found->is_pub && !sees(path)) {
-				error(p_ref.range, p_ref.name + " is not pub (spec §4.2).");
+				error(p_ref.range, p_ref.name + " is not pub.");
 				return Type::of(TypeKind::Error);
 			}
 			if (const auto message = broken(found, display_name(*header, path) + "." + inner)) {
@@ -1445,7 +1445,7 @@ class Checker : public ClassRelation {
 				return nullptr;
 			}
 		} else if (value.kind == TypeKind::None) {
-			error(r_initializer.range, "The constant needs a type: None does not say which T? it is (spec §4.5).");
+			error(r_initializer.range, "The constant needs a type: None does not say which T? it is.");
 			r_type = Type::of(TypeKind::Error);
 			return nullptr;
 		} else {
@@ -1589,7 +1589,7 @@ class Checker : public ClassRelation {
 			std::unordered_set<std::string> names;
 			int64_t next = 0;
 			if (r_decl.has_payloads && r_decl.name.empty()) {
-				error(r_decl.range, "An enum with payloads needs a name: its variants are not int constants (spec §3.7).");
+				error(r_decl.range, "An enum with payloads needs a name: its variants are not int constants.");
 			}
 			for (size_t i = 0; i < r_decl.values.size(); i++) {
 				EnumValueDecl &value = r_decl.values[i];
@@ -1599,7 +1599,7 @@ class Checker : public ClassRelation {
 				current_value = i;
 				if (r_decl.has_payloads) {
 					if (value.value) {
-						error(value.value->range, "The variants of an enum with payloads have no int values (spec §3.7).");
+						error(value.value->range, "The variants of an enum with payloads have no int values.");
 					}
 					check_variant_fields(r_decl, value);
 					r_decl.numbers->list.push_back({ value.name, int64_t(i) });
@@ -1612,7 +1612,7 @@ class Checker : public ClassRelation {
 					} else if (type.kind != TypeKind::Int && type.kind != TypeKind::Enum) {
 						error(value.value->range, "The values of an enum are ints, not " + type.to_string() + ".");
 					} else if (!value.value->constant || value.value->constant->kind != ConstValue::Kind::Int) {
-						error(value.value->range, "The values of an enum must be known at compile time (spec §4.5).");
+						error(value.value->range, "The values of an enum must be known at compile time.");
 					} else {
 						next = value.value->constant->i;
 					}
@@ -1691,7 +1691,7 @@ class Checker : public ClassRelation {
 		const EnumValueDecl &value = p_decl.values[p_index];
 		refer(r_expr.name_token, enum_id(p_decl, value.name));
 		if (!value.fields.empty()) {
-			return fail(r_expr, p_decl.name + "." + value.name + " has a payload; make it with " + p_decl.name + "." + value.name + "(" + value.fields[0].name + " = ...) (spec §3.7).");
+			return fail(r_expr, p_decl.name + "." + value.name + " has a payload; make it with " + p_decl.name + "." + value.name + "(" + value.fields[0].name + " = ...).");
 		}
 		if (size_t(p_index) >= p_decl.constants.size()) {
 			return fail(r_expr, "The value \"" + value.name + "\" depends on its own value.");
@@ -1707,7 +1707,7 @@ class Checker : public ClassRelation {
 			refer(r_expr.name_token, enum_id(p_decl));
 		}
 		if (p_decl.has_payloads) {
-			return fail(r_expr, p_decl.name + " is an enum with payloads, whose name is no value; its variants are, as " + p_decl.name + "." + p_decl.values[0].name + " (spec §3.7).");
+			return fail(r_expr, p_decl.name + " is an enum with payloads, whose name is no value; its variants are, as " + p_decl.name + "." + p_decl.values[0].name + ".");
 		}
 		if (!p_decl.dictionary) {
 			return fail(r_expr, "The enum " + p_decl.name + " depends on its own values.");
@@ -2023,7 +2023,7 @@ class Checker : public ClassRelation {
 			const ClassDecl *header = script_header(path);
 			refer(r_base.name_token, script_id(path));
 			if (!header->is_pub && !sees(path.substr(0, path.rfind("::")))) {
-				error(r_base.range, display_name(*header, path) + " is not pub (spec §4.2).");
+				error(r_base.range, display_name(*header, path) + " is not pub.");
 				return Type::of(TypeKind::Error);
 			}
 			return script_class_type(*header, path);
@@ -2118,11 +2118,11 @@ class Checker : public ClassRelation {
 	Type use_static(Expr &r_expr, const VarDecl &p_variable, const ClassDecl &p_owner) {
 		refer(r_expr.name_token, script_id(p_owner.path, p_variable.name));
 		if (in_constant) {
-			return fail(r_expr, "\"" + p_variable.name + "\" is a variable, not a constant (spec §4.5).");
+			return fail(r_expr, "\"" + p_variable.name + "\" is a variable, not a constant.");
 		}
 		const int index = int(&p_variable - p_owner.static_vars.data());
 		if (static_initializing >= 0 && p_owner.path == options.path && index >= static_initializing) {
-			return fail(r_expr, "\"" + p_variable.name + "\" is not initialized yet: static variables are initialized in declaration order (spec §4.8).");
+			return fail(r_expr, "\"" + p_variable.name + "\" is not initialized yet: static variables are initialized in declaration order.");
 		}
 		if (p_variable.type.is_error()) {
 			return fail(r_expr, "The type of " + display_name(p_owner, p_owner.path) + "." + p_variable.name + " is not known here" + (p_variable.declared_type ? std::string(".") : "; declare it, as in `static var " + p_variable.name + ": T`."));
@@ -2176,7 +2176,7 @@ class Checker : public ClassRelation {
 			const VarDecl &read = *cls.all_members[member->second];
 			if (in_constant) {
 				refer(r_expr.name_token, script_id(declaring(cls, read, &ClassDecl::members).path, read.name));
-				return fail(r_expr, "\"" + r_expr.text + "\" is a variable, not a constant (spec §4.5).");
+				return fail(r_expr, "\"" + r_expr.text + "\" is a variable, not a constant.");
 			}
 			if (initializing >= 0) {
 				// @onready initializers run when the node is ready, after the
@@ -2184,14 +2184,14 @@ class Checker : public ClassRelation {
 				const bool earlier = member->second < initializing;
 				const bool ready = read.is_onready ? initializing_onready && earlier : initializing_onready || earlier;
 				if (!ready && read.is_onready && !initializing_onready) {
-					return fail(r_expr, "\"" + r_expr.text + "\" is set when the node is ready, after this initializer runs (spec §6.3).");
+					return fail(r_expr, "\"" + r_expr.text + "\" is set when the node is ready, after this initializer runs.");
 				}
 				if (!ready) {
-					return fail(r_expr, "\"" + r_expr.text + "\" is not initialized yet: initializers run in declaration order (spec §6.1).");
+					return fail(r_expr, "\"" + r_expr.text + "\" is not initialized yet: initializers run in declaration order.");
 				}
 			}
 			if (read.is_onready && function && (function->name == "_init" || function->name == "_enter_tree")) {
-				return fail(r_expr, "\"" + r_expr.text + "\" is set when the node is ready, after " + function->name + "() runs (spec §6.3).");
+				return fail(r_expr, "\"" + r_expr.text + "\" is set when the node is ready, after " + function->name + "() runs.");
 			}
 			if (refuse_in_static(r_expr, r_expr.text)) {
 				return set(r_expr, Type::of(TypeKind::Error));
@@ -2293,7 +2293,7 @@ class Checker : public ClassRelation {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		if (in_predelete) {
-			return fail(r_expr, "self cannot be used as a value in the PREDELETE branch (spec §6.6).");
+			return fail(r_expr, "self cannot be used as a value in the PREDELETE branch: the object is being freed, so nothing may keep it.");
 		}
 		return set(r_expr, script_class_type(cls, options.path));
 	}
@@ -2857,7 +2857,7 @@ class Checker : public ClassRelation {
 					}
 				}
 			}
-			return fail(r_expr, "The fields of a variant are read by match" + example + " (spec §3.7).");
+			return fail(r_expr, "The fields of a variant are read by match" + example + ".");
 		}
 		return fail(r_expr, "Values of type " + base_type.to_string() + " have no members.");
 	}
@@ -2947,7 +2947,7 @@ class Checker : public ClassRelation {
 						// The root's owner is the root of a scene that instances this one.
 						walk.unsupported = p_scene.path + ": the scene has no node with the unique name " + part + "; unique names of the scenes that instance it are not supported yet.";
 					} else {
-						walk.missing = p_scene.path + ": no node has the unique name " + part + " (spec §7.1).";
+						walk.missing = p_scene.path + ": no node has the unique name " + part + ".";
 					}
 					return walk;
 				}
@@ -2956,7 +2956,7 @@ class Checker : public ClassRelation {
 				const std::string child = at == "." ? part : at + "/" + part;
 				if (!p_scene.find_node(child)) {
 					if (!into_instance()) {
-						walk.missing = p_scene.path + ": " + (p_from == "." ? std::string("the root") : p_from) + " has no node at \"" + p_path + "\" (spec §7.1).";
+						walk.missing = p_scene.path + ": " + (p_from == "." ? std::string("the root") : p_from) + " has no node at \"" + p_path + "\".";
 					}
 					return walk;
 				}
@@ -3017,12 +3017,12 @@ class Checker : public ClassRelation {
 					type = found_type;
 					type_scene = scene.path;
 				} else if (found_type != *type) {
-					return fail(r_expr, shown_path(path) + " is a " + type->to_string() + " in " + type_scene + " but a " + found_type.to_string() + " in " + scene.path + "; assign it to a variable typed with a class both extend (spec §7.1).");
+					return fail(r_expr, shown_path(path) + " is a " + type->to_string() + " in " + type_scene + " but a " + found_type.to_string() + " in " + scene.path + "; assign it to a variable typed with a class both extend.");
 				}
 			}
 		}
 		if (!attached) {
-			return fail(r_expr, shown_path(path) + " is typed from the scenes that use this script, and no scene does (spec §7.2).");
+			return fail(r_expr, shown_path(path) + " is typed from the scenes that use this script, and no scene does.");
 		}
 		if (!type) {
 			return set(r_expr, Type::of(TypeKind::Error)); // Reported for each scene above.
@@ -3129,7 +3129,7 @@ class Checker : public ClassRelation {
 		for (const std::string &file : chain) {
 			cycle += file + " -> ";
 		}
-		error(p_preload.range, "This preload loads this script again (" + cycle + script_file(options.path) + "); load one of them with load() where it is used (spec §7.6).");
+		error(p_preload.range, "This preload loads this script again (" + cycle + script_file(options.path) + "); load one of them with load() where it is used.");
 	}
 
 	bool loads_this_script(const std::string &p_file, std::set<std::string> &r_seen, std::vector<std::string> &r_chain) {
@@ -3371,7 +3371,7 @@ class Checker : public ClassRelation {
 			if (!assignable(p_right, Type::of(TypeKind::Variant))) {
 				std::string message = "Cannot format a value of type " + p_right.to_string() + ".";
 				if (is_typed_container(p_right) && is_boxed(p_right)) {
-					message += " Its elements exist only in this language; convert it explicitly with " + p_right.name + "(x), a copy with the elements encoded (spec §3.14).";
+					message += " Its elements exist only in this language; convert it explicitly with " + p_right.name + "(x), a copy with the elements encoded.";
 				}
 				error(p_at, message);
 				return Type::of(TypeKind::Error);
@@ -3383,7 +3383,7 @@ class Checker : public ClassRelation {
 		// `<` does not wrap a T into T?.
 		if (ordering && p_left == p_right && (p_left.kind == TypeKind::Struct || p_left.kind == TypeKind::PayloadEnum || p_left.kind == TypeKind::Option || (is_typed_container(p_left) && p_left.name == "Array"))) {
 			if (!has_less(p_left)) {
-				error(p_at, "Values of type " + p_left.to_string() + " are not ordered: a struct or an enum with payloads is when all its fields are, T? and Array[T] when T is (spec §5.2).");
+				error(p_at, "Values of type " + p_left.to_string() + " are not ordered: a struct or an enum with payloads is when all its fields are, T? and Array[T] when T is.");
 				return Type::of(TypeKind::Error);
 			}
 			return Type::of(TypeKind::Bool);
@@ -3431,7 +3431,7 @@ class Checker : public ClassRelation {
 			Type right = p_right;
 			left.nullable = right.nullable = false;
 			if (!left.is_interface && !right.is_interface && !assignable(left, right) && !assignable(right, left)) {
-				error(p_at, left.to_string() + " and " + right.to_string() + " are never the same object, since neither class extends the other (spec §5.2).");
+				error(p_at, left.to_string() + " and " + right.to_string() + " are never the same object, since neither class extends the other.");
 				return Type::of(TypeKind::Error);
 			}
 			return Type::of(TypeKind::Bool);
@@ -3930,7 +3930,7 @@ class Checker : public ClassRelation {
 
 	bool receiver_kept(const Expr *p_base, const TokenRange &p_range) {
 		if (p_base && p_base->kind == ExprKind::Call && p_base->target == Target::NewObject && engine.inherits(p_base->type.engine_class(), "RefCounted")) {
-			error(p_range, "A method value does not keep its object, and nothing else holds this new " + p_base->type.to_string() + " (spec §3.11).");
+			error(p_range, "A method value does not keep its object, and nothing else holds this new " + p_base->type.to_string() + ".");
 			return false;
 		}
 		return true;
@@ -4136,7 +4136,7 @@ class Checker : public ClassRelation {
 		Expr &literal = *r_call.args[p_named.index];
 		const std::string &text = literal.text;
 		if (!text.empty() && text[0] == '@') {
-			error(literal.range, "\"" + text + "\" is how the engine knows a signal that is not pub; only its class reaches it, by the signal itself (spec §10.4).");
+			error(literal.range, "\"" + text + "\" is how the engine knows a signal that is not pub; only its class reaches it, by the signal itself.");
 			return std::nullopt;
 		}
 		Type object;
@@ -4164,7 +4164,7 @@ class Checker : public ClassRelation {
 																									: "signal";
 		if (!member.found) {
 			if (!p_named.query) {
-				error(literal.range, object.to_string() + " has no " + kind + " \"" + name + "\" (spec §10.4).");
+				error(literal.range, object.to_string() + " has no " + kind + " \"" + name + "\".");
 			}
 			return std::nullopt;
 		}
@@ -4174,7 +4174,7 @@ class Checker : public ClassRelation {
 		if (member.hidden) {
 			const std::string fix = p_named.kind == Kind::Method ? "pass the method itself, as " + name : p_named.kind == Kind::Signal ? "use the signal itself, as " + name
 																																	   : "make it pub";
-			error(literal.range, "\"" + name + (p_named.kind == Kind::Method ? "()" : "") + "\" is not pub, so the engine cannot find it by name; " + fix + " (spec §10.4).");
+			error(literal.range, "\"" + name + (p_named.kind == Kind::Method ? "()" : "") + "\" is not pub, so the engine cannot find it by name; " + fix + ".");
 			return std::nullopt;
 		}
 		if (r_path.size() == 1) {
@@ -4203,13 +4203,13 @@ class Checker : public ClassRelation {
 			for (size_t i = 1; i < path.size() && type && !type->is_error(); i++) {
 				type = indexed_type(*type, path[i]);
 				if (type && type->is_error()) {
-					error(literal.range, "\"" + path[i - 1] + "\" has no member \"" + path[i] + "\" (spec §10.4).");
+					error(literal.range, "\"" + path[i - 1] + "\" has no member \"" + path[i] + "\".");
 				}
 			}
 			if (p_named.value >= 0 && size_t(p_named.value) < r_call.args.size() && type && !type->is_error()) {
 				const Expr &value = *r_call.args[p_named.value];
 				if (!value.type.is_error() && !assignable(value.type, *type)) {
-					error(value.range, "\"" + text + "\" is " + type->to_string() + ", which takes no " + value.type.to_string() + " (spec §10.4).");
+					error(value.range, "\"" + text + "\" is " + type->to_string() + ", which takes no " + value.type.to_string() + ".");
 				}
 			}
 		} else if (p_method.is_vararg) {
@@ -4218,13 +4218,13 @@ class Checker : public ClassRelation {
 			const size_t given = r_call.args.size() - first;
 			const size_t required = p_named.kind == Kind::Method ? size_t(member.required) : member.params.size();
 			if (given < required || given > member.params.size()) {
-				error(literal.range, "\"" + name + "\" takes " + std::to_string(member.params.size()) + " argument(s); " + std::to_string(given) + " follow (spec §10.4).");
+				error(literal.range, "\"" + name + "\" takes " + std::to_string(member.params.size()) + " argument(s); " + std::to_string(given) + " follow.");
 				return;
 			}
 			for (size_t i = 0; i < given; i++) {
 				const Expr &arg = *r_call.args[first + i];
 				if (!arg.type.is_error() && !assignable(arg.type, member.params[i])) {
-					error(arg.range, "\"" + name + "\" takes " + member.params[i].to_string() + " as argument " + std::to_string(i + 1) + "; found " + arg.type.to_string() + " (spec §10.4).");
+					error(arg.range, "\"" + name + "\" takes " + member.params[i].to_string() + " as argument " + std::to_string(i + 1) + "; found " + arg.type.to_string() + ".");
 				}
 			}
 		} else if (p_named.kind == Kind::Signal && first < r_call.args.size() && r_call.args[first]->type.kind == TypeKind::Function) {
@@ -4488,7 +4488,7 @@ class Checker : public ClassRelation {
 			return fail(r_expr, "The value may be None (" + object.type.to_string() + "); check it before taking its " + (p_signal ? "signal." : "method."));
 		}
 		if (r_expr.args[1]->kind != ExprKind::StringLiteral) {
-			return fail(r_expr, std::string(p_signal ? "Signal" : "Callable") + "(object, name) takes a literal name, a static reference (spec §10.4)" + (p_signal ? "." : "; for a name known only at run time, use Callable.create(object, name)."));
+			return fail(r_expr, std::string(p_signal ? "Signal" : "Callable") + "(object, name) takes a literal name, a static reference" + (p_signal ? "." : "; for a name known only at run time, use Callable.create(object, name)."));
 		}
 		if (!p_signal && !receiver_kept(&object, r_expr.range)) {
 			return set(r_expr, Type::of(TypeKind::Error));
@@ -4614,14 +4614,14 @@ class Checker : public ClassRelation {
 		if (p_container && p_container->orders && (array || p_base.name == "Dictionary")) {
 			const Type &ordered = p_base.args.empty() ? Type::of(TypeKind::Variant) : p_base.args[0];
 			if (!has_less(ordered)) {
-				error(p_call.range, "\"" + method + "()\" orders the " + (array ? "elements" : "keys") + " by <, which " + ordered.to_string() + " does not have (spec §3.8); use " + (array ? "sort_custom() or bsearch_custom() with a comparison" : "a sorted Array of its keys") + ".");
+				error(p_call.range, "\"" + method + "()\" orders the " + (array ? "elements" : "keys") + " by <, which " + ordered.to_string() + " does not have; use " + (array ? "sort_custom() or bsearch_custom() with a comparison" : "a sorted Array of its keys") + ".");
 				return false;
 			}
 		}
 		const Type &element = array ? p_base.args[0] : Type::of(TypeKind::Error);
 		if (method == "resize" && ((element.kind == TypeKind::Object && !element.nullable) || !has_default(element) || !enum_has_default(element))) {
 			const std::string fix = element.kind == TypeKind::Struct ? "give every field of " + element.to_string() + " a default value, or " : "";
-			error(p_call.range, "\"resize()\" fills new elements with a default value, which " + element.to_string() + " does not have (spec §3.8); " + fix + "declare the array as Array[" + element.to_string() + "?].");
+			error(p_call.range, "\"resize()\" fills new elements with a default value, which " + element.to_string() + " does not have; " + fix + "declare the array as Array[" + element.to_string() + "?].");
 			return false;
 		}
 		return true;
@@ -4783,21 +4783,21 @@ class Checker : public ClassRelation {
 		}
 		lambda.checked = true;
 		if (in_constant) {
-			return fail(r_expr, "A lambda is not a constant expression (spec §4.5).");
+			return fail(r_expr, "A lambda is not a constant expression.");
 		}
 		lambda.is_static = function ? function->is_static : static_initializing >= 0;
 		const bool typed_by_expected = p_expected.kind == TypeKind::Function && p_expected.args.size() == lambda.params.size() + 1;
 		for (size_t i = 0; i < lambda.params.size(); i++) {
 			ParamDecl &param = lambda.params[i];
 			if (param.default_value) {
-				error(param.default_value->range, "Lambda parameters have no default values (spec §3.11).");
+				error(param.default_value->range, "Lambda parameters have no default values.");
 			}
 			if (param.declared_type) {
 				param.type = resolve(*param.declared_type, false);
 			} else if (typed_by_expected) {
 				param.type = p_expected.args[i + 1];
 			} else {
-				error(param.name_token, "Parameter \"" + param.name + "\" needs a type: nothing the lambda goes to gives one (spec §4.6).");
+				error(param.name_token, "Parameter \"" + param.name + "\" needs a type: nothing the lambda goes to gives one.");
 				param.type = Type::of(TypeKind::Error);
 			}
 		}
@@ -4909,7 +4909,7 @@ class Checker : public ClassRelation {
 				failure = wanted;
 			}
 			if (failure.kind == TypeKind::None) {
-				return fail(r_expr, "ok_or(None) needs the Result type it makes, from where it goes (spec §3.5).");
+				return fail(r_expr, "ok_or(None) needs the Result type it makes, from where it goes.");
 			}
 			r_expr.param_types.push_back(failure);
 			return set(r_expr, failure.is_error() ? failure : Type::result(value, failure));
@@ -4954,9 +4954,9 @@ class Checker : public ClassRelation {
 				return fail_call(r_expr, r_expr.text + "(...) takes its value by position, as in " + r_expr.text + "(x).");
 			}
 			if (!result.is_error()) {
-				return fail_call(r_expr, r_expr.text + "(...) makes a Result, but a value of type " + result.to_string() + " goes here (spec §3.5).");
+				return fail_call(r_expr, r_expr.text + "(...) makes a Result, but a value of type " + result.to_string() + " goes here.");
 			}
-			return fail_call(r_expr, r_expr.text + "(...) takes its type from where it goes, as in `var r: Result[int, String] = " + r_expr.text + "(...)`; nothing here gives one (spec §3.5).");
+			return fail_call(r_expr, r_expr.text + "(...) takes its type from where it goes, as in `var r: Result[int, String] = " + r_expr.text + "(...)`; nothing here gives one.");
 		}
 		const int variant = r_expr.text == "Ok" ? 0 : 1;
 		refer(r_expr.name_token, language_id("Result", r_expr.text));
@@ -5277,7 +5277,7 @@ class Checker : public ClassRelation {
 		}
 		const FuncDecl *callee = base_function(r_expr.text);
 		if (callee && callee->is_abstract) {
-			return fail_call(r_expr, "\"" + callee->name + "()\" is abstract in the base class, which has no body to call (spec §4.1).");
+			return fail_call(r_expr, "\"" + callee->name + "()\" is abstract in the base class, which has no body to call.");
 		}
 		if (callee) {
 			refer(r_expr.name_token, script_id(declaring(*cls.base, *callee, &ClassDecl::functions).path, callee->name));
@@ -5479,7 +5479,7 @@ class Checker : public ClassRelation {
 			for (auto &arg : r_expr.args) {
 				check_value(*arg);
 			}
-			return fail_call(r_expr, written + " has no payload; write it without parentheses (spec §3.7).");
+			return fail_call(r_expr, written + " has no payload; write it without parentheses.");
 		}
 		std::vector<bool> given(variant.fields.size(), false);
 		for (size_t i = 0; i < r_expr.args.size(); i++) {
@@ -5492,7 +5492,7 @@ class Checker : public ClassRelation {
 			if (field == variant.fields.size()) {
 				check_value(arg);
 				r_expr.param_types.push_back(Type::of(TypeKind::Error));
-				error(arg.range, name.empty() ? "A variant takes its fields by name, as in " + written + "(" + variant.fields[0].name + " = ...) (spec §3.7)." : missing(written + " has no field \"" + name + "\".", p_decl.script));
+				error(arg.range, name.empty() ? "A variant takes its fields by name, as in " + written + "(" + variant.fields[0].name + " = ...)." : missing(written + " has no field \"" + name + "\".", p_decl.script));
 				continue;
 			}
 			if (given[field]) {
@@ -5547,7 +5547,7 @@ class Checker : public ClassRelation {
 			if (field == decl->fields.size()) {
 				check_value(arg);
 				r_expr.param_types.push_back(Type::of(TypeKind::Error));
-				error(arg.range, name.empty() ? "A struct takes its fields by name, as in " + p_struct.name + "(" + (decl->fields.empty() ? std::string("") : decl->fields[0].name + " = ...") + ") (spec §3.6)." : missing(p_struct.name + " has no field \"" + name + "\".", p_struct.script));
+				error(arg.range, name.empty() ? "A struct takes its fields by name, as in " + p_struct.name + "(" + (decl->fields.empty() ? std::string("") : decl->fields[0].name + " = ...") + ")." : missing(p_struct.name + " has no field \"" + name + "\".", p_struct.script));
 				continue;
 			}
 			if (given[field]) {
@@ -5593,7 +5593,7 @@ class Checker : public ClassRelation {
 		if (r_expr.text == "new") {
 			const Type type = script_class_type(*header, p_path);
 			if (header->is_abstract) {
-				return fail_call(r_expr, class_name + " is abstract and cannot be instantiated (spec §4.1).");
+				return fail_call(r_expr, class_name + " is abstract and cannot be instantiated.");
 			}
 			if (!engine.can_instantiate(type.engine_class())) {
 				return fail_call(r_expr, class_name + " cannot be instantiated: the engine cannot instantiate " + type.engine_class() + ", which it extends.");
@@ -5608,7 +5608,7 @@ class Checker : public ClassRelation {
 			if (init != decl->all_functions.end()) {
 				const FuncDecl &callee = **init;
 				if (!callee.is_pub && !sees(declaring(*decl, callee, &ClassDecl::functions).path)) {
-					return fail_call(r_expr, "new() of " + class_name + " cannot be called here: its _init() is not pub (spec §4.2).");
+					return fail_call(r_expr, "new() of " + class_name + " cannot be called here: its _init() is not pub.");
 				}
 				if (const auto message = broken(&callee, class_name + "._init()")) {
 					return fail_call(r_expr, *message);
@@ -5806,7 +5806,7 @@ class Checker : public ClassRelation {
 				check_value(*r_expr.member_values[i]);
 			}
 			if (!type.is_error()) {
-				return fail_call(r_expr, "Only new(...) of a class of this language and instantiate(...) of a PackedScene[T] take members by name (spec §4.6).");
+				return fail_call(r_expr, "Only new(...) of a class of this language and instantiate(...) of a PackedScene[T] take members by name.");
 			}
 		}
 		return type;
@@ -5862,9 +5862,9 @@ class Checker : public ClassRelation {
 			r_call.member_types.push_back(member.type);
 			const Type type = check_value(value, member.type);
 			if (!member.is_pub && !sees(declared_in)) {
-				error(value.range, "\"" + name + "\" of " + p_made.to_string() + " is not pub (spec §4.2).");
+				error(value.range, "\"" + name + "\" of " + p_made.to_string() + " is not pub.");
 			} else if (!member.must_assign) {
-				error(value.range, "\"" + name + "\" has a value of its own; by name, " + r_call.text + "(...) takes only members that must be assigned (spec §4.6).");
+				error(value.range, "\"" + name + "\" has a value of its own; by name, " + r_call.text + "(...) takes only members that must be assigned.");
 			} else if (!given.insert(name).second) {
 				error(value.range, "\"" + name + "\" is given twice.");
 			} else {
@@ -5876,9 +5876,9 @@ class Checker : public ClassRelation {
 				continue;
 			}
 			if (!member->is_pub && !sees(declaring(*decl, *member, &ClassDecl::members).path)) {
-				error(r_call.range, "instantiate() cannot give \"" + member->name + "\", a member of " + p_made.to_string() + " that must be assigned and is not pub. Export it, make it pub or give it an initial value (spec §4.2, §7.4).");
+				error(r_call.range, "instantiate() cannot give \"" + member->name + "\", a member of " + p_made.to_string() + " that must be assigned and is not pub. Export it, make it pub or give it an initial value.");
 			} else {
-				error(r_call.range, "instantiate() needs " + member->name + " = ..., a member of " + p_made.to_string() + " that must be assigned and the scene cannot (spec §7.4).");
+				error(r_call.range, "instantiate() needs " + member->name + " = ..., a member of " + p_made.to_string() + " that must be assigned and the scene cannot.");
 			}
 		}
 	}
@@ -5903,7 +5903,7 @@ class Checker : public ClassRelation {
 				for (auto &arg : r_expr.args) {
 					check_value(*arg);
 				}
-				return fail_call(r_expr, "No int converts to " + enum_spelling(decl->type) + ", an enum with payloads (spec §3.7).");
+				return fail_call(r_expr, "No int converts to " + enum_spelling(decl->type) + ", an enum with payloads.");
 			}
 			return check_enum_conversion(r_expr, decl->type);
 		}
@@ -5917,7 +5917,7 @@ class Checker : public ClassRelation {
 			return fail_call(r_expr);
 		}
 		if (!r_expr.arg_names.empty()) {
-			return fail_call(r_expr, "Only structs, variants and the members that new(...) and instantiate(...) assign take arguments by name; \"" + r_expr.text + "()\" takes them by position (spec §4.6).");
+			return fail_call(r_expr, "Only structs, variants and the members that new(...) and instantiate(...) assign take arguments by name; \"" + r_expr.text + "()\" takes them by position.");
 		}
 		if ((!r_expr.base && r_expr.text == "super") || (r_expr.base && r_expr.base->kind == ExprKind::Name && r_expr.base->text == "super")) {
 			return check_super(r_expr);
@@ -5984,7 +5984,7 @@ class Checker : public ClassRelation {
 				for (auto &arg : r_expr.args) {
 					check_value(*arg);
 				}
-				return fail_call(r_expr, "Cannot call \"" + name + "()\" on a Variant." + variant_hint() + " To call a method by name, convert it to Object and use call() (spec §10.4).");
+				return fail_call(r_expr, "Cannot call \"" + name + "()\" on a Variant." + variant_hint() + " To call a method by name, convert it to Object and use call().");
 			}
 			if (base_type.kind == TypeKind::Function && (name == "bind" || name == "call" || name == "callv")) {
 				return name == "bind" ? check_bind(r_expr, base_type) : check_function_call(r_expr, base_type);
@@ -6012,7 +6012,7 @@ class Checker : public ClassRelation {
 				const Type result = check_builtin_method(r_expr, base_type);
 				const std::string constant = result.is_error() || r_expr.is_const ? std::string() : constant_root(base);
 				if (!constant.empty()) {
-					return fail(r_expr, "\"" + constant + "\" is a constant, whose containers are read-only (spec §4.5).");
+					return fail(r_expr, "\"" + constant + "\" is a constant, whose containers are read-only.");
 				}
 				return result;
 			}
@@ -6047,7 +6047,7 @@ class Checker : public ClassRelation {
 			const auto member = member_index.find(name);
 			const Type *value = local ? &local->type : (member != member_index.end() ? &cls.all_members[member->second]->type : nullptr);
 			if (value && value->unwrapped().kind == TypeKind::Function) {
-				return fail_call(r_expr, "\"" + name + "\" is a function value; call it as " + name + ".call(...) (spec §3.11).");
+				return fail_call(r_expr, "\"" + name + "\" is a function value; call it as " + name + ".call(...).");
 			}
 			if (structure && structure->find_method(name)) {
 				return check_struct_call(r_expr, structure_type, false);
@@ -6156,7 +6156,7 @@ class Checker : public ClassRelation {
 	// Why await cannot be written here; empty where it can.
 	std::string no_await() const {
 		if (in_assert) {
-			return "await cannot appear in an assert: it would vanish with the assertion in release builds (spec §8.3).";
+			return "await cannot appear in an assert: it would vanish with the assertion in release builds.";
 		}
 		if (in_predelete) {
 			return "await is not allowed in the PREDELETE branch.";
@@ -6175,7 +6175,7 @@ class Checker : public ClassRelation {
 		refer(r_expr.base->name_token, language_id("Task", std::string()));
 		const std::string &name = r_expr.text;
 		if (name != "of" && name != "delay" && name != "any" && name != "all") {
-			return fail_call(r_expr, "Task has no function \"" + name + "()\" (spec §9.5).");
+			return fail_call(r_expr, "Task has no function \"" + name + "()\".");
 		}
 		refer(r_expr.name_token, language_id("Task", name));
 		r_expr.is_async = true;
@@ -6290,17 +6290,17 @@ class Checker : public ClassRelation {
 		}
 		const bool result = type.is_result();
 		if (!result && !type.is_optional()) {
-			return fail(r_expr, "? takes apart a Result or a T?, not " + type.to_string() + " (spec §8.2).");
+			return fail(r_expr, "? takes apart a Result or a T?, not " + type.to_string() + ".");
 		}
 		const std::string found = result ? "the Err(...) of " + type.to_string() : "the None of " + type.to_string();
 		if (in_assert) {
-			return fail(r_expr, "? cannot appear in an assert: it would vanish with the assertion in release builds (spec §8.3).");
+			return fail(r_expr, "? cannot appear in an assert: it would vanish with the assertion in release builds.");
 		}
 		if (!function || initializing >= 0 || static_initializing >= 0) {
-			return fail(r_expr, "? returns " + found + " from the function, and cannot appear in an initializer (spec §8.2).");
+			return fail(r_expr, "? returns " + found + " from the function, and cannot appear in an initializer.");
 		}
 		if (returns && returns->expected.is_error()) {
-			return fail(r_expr, "? returns " + found + " from the lambda, whose return type is then needed; write it, as in func(x) -> " + (result ? "Result[int, " + type.args[1].to_string() + "]" : std::string("int?")) + ": (spec §8.2).");
+			return fail(r_expr, "? returns " + found + " from the lambda, whose return type is then needed; write it, as in `func(x) -> " + (result ? "Result[int, " + type.args[1].to_string() + "]" : std::string("int?")) + ":`.");
 		}
 		// A lambda returns what the function type it goes to does.
 		const Type to = returns ? returns->expected : function->return_type;
@@ -6308,11 +6308,11 @@ class Checker : public ClassRelation {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		if (result && to.is_result() && to.args[1] != type.args[1]) {
-			return fail(r_expr, "? returns " + found + ", but " + function_label() + " returns " + to.to_string() + "; convert the error with map_err() (spec §8.2).");
+			return fail(r_expr, "? returns " + found + ", but " + function_label() + " returns " + to.to_string() + "; convert the error with map_err().");
 		}
 		if (result ? !to.is_result() : !to.is_optional()) {
 			const std::string convert = to.is_optional() ? "; convert it with ok()" : (to.is_result() ? "; convert it with ok_or()" : "");
-			return fail(r_expr, "? returns " + found + ", but " + function_label() + " returns " + to.to_string() + convert + " (spec §8.2).");
+			return fail(r_expr, "? returns " + found + ", but " + function_label() + " returns " + to.to_string() + convert + ".");
 		}
 		if (returns) {
 			add_returned(to, r_expr.range);
@@ -6386,7 +6386,7 @@ class Checker : public ClassRelation {
 			default:
 				break;
 		}
-		error(part.range, what + " (spec §4.5).");
+		error(part.range, what + ".");
 	}
 
 	// The string type a string literal is built as: the one it goes to, when
@@ -6478,13 +6478,13 @@ class Checker : public ClassRelation {
 	// What a Variant needs before it is used as a value of a type (spec §3.14).
 	static std::string variant_hint(const Type &p_to = Type::of(TypeKind::Error)) {
 		if (p_to.kind == TypeKind::Object) {
-			return " Convert it first with v as " + p_to.name + ", or narrow it with if v is " + p_to.name + ": (spec §3.14).";
+			return " Convert it first with v as " + p_to.name + ", or narrow it with `if v is " + p_to.name + ":`.";
 		}
 		if (is_typed_container(p_to)) {
-			return " Narrow it first with if v is " + p_to.to_string() + ": (spec §3.14).";
+			return " Narrow it first with `if v is " + p_to.to_string() + ":`.";
 		}
 		const std::string name = p_to.kind == TypeKind::Builtin || p_to.is_primitive() ? p_to.to_string() : "T";
-		return " Convert it first with " + name + "(v), or narrow it with if v is " + name + ": (spec §3.14).";
+		return " Convert it first with " + name + "(v), or narrow it with `if v is " + name + ":`.";
 	}
 
 	// Whether the expression is a place that can be written: a local, a
@@ -6494,7 +6494,7 @@ class Checker : public ClassRelation {
 		const std::string constant = constant_root(p_target);
 		if (!constant.empty()) {
 			const bool whole = p_target.kind != ExprKind::Subscript && p_target.target != Target::Field && p_target.target != Target::StructField;
-			error(p_target.range, whole ? "Cannot assign to the constant \"" + constant + "\"." : "\"" + constant + "\" is a constant, whose containers are read-only (spec §4.5).");
+			error(p_target.range, whole ? "Cannot assign to the constant \"" + constant + "\"." : "\"" + constant + "\" is a constant, whose containers are read-only.");
 			return false;
 		}
 		if (p_target.kind == ExprKind::Subscript) {
@@ -6505,12 +6505,12 @@ class Checker : public ClassRelation {
 		switch (p_target.target) {
 			case Target::Local:
 				if (p_target.kind == ExprKind::Self) {
-					error(p_target.range, "A struct's methods do not change self (spec §3.6).");
+					error(p_target.range, "self is read-only in a struct's methods; return a changed copy instead.");
 					return false;
 				}
 				if (is_capture(p_target.index)) {
 					// It would change neither the variable outside nor the next call (spec §3.11).
-					error(p_target.range, "Cannot assign to \"" + p_target.text + "\", which the lambda captures as a copy; keep what it shares in a member or a container (spec §3.11).");
+					error(p_target.range, "Cannot assign to \"" + p_target.text + "\", which the lambda captures as a copy; keep what it shares in a member or a container.");
 					return false;
 				}
 				return true;
@@ -6580,20 +6580,20 @@ class Checker : public ClassRelation {
 		}
 		if (p_to.unwrapped().kind == TypeKind::Enum && (p_from.kind == TypeKind::Int || p_from.kind == TypeKind::Enum)) {
 			const std::string name = enum_spelling(p_to.unwrapped());
-			message += " Convert explicitly with " + name + "(x), which checks that it is one of the values (spec §3.7).";
+			message += " Convert explicitly with " + name + "(x), which checks that it is one of the values.";
 		}
 		const bool untyped_view = p_to.kind == TypeKind::Builtin && p_to.args.empty() && p_to.name == p_from.name;
 		if ((p_to.kind == TypeKind::Variant || untyped_view) && is_typed_container(p_from) && is_boxed(p_from)) {
-			message += " Its elements exist only in this language; convert it explicitly with " + p_from.name + "(x), a copy with the elements encoded (spec §3.14).";
+			message += " Its elements exist only in this language; convert it explicitly with " + p_from.name + "(x), a copy with the elements encoded.";
 		}
 		if (p_from.kind == TypeKind::Variant) {
 			message += variant_hint(p_to.unwrapped());
 		}
 		if (p_to.kind == TypeKind::Variant && p_from == Type::option(Type::of(TypeKind::Variant))) {
-			message += " A Variant cannot tell its None from null; pass x.unwrap_or(null) (spec §3.14).";
+			message += " A Variant cannot tell its None from null; pass x.unwrap_or(null).";
 		}
 		if (is_typed_container(p_to) && p_from.kind == TypeKind::Builtin && p_from.args.empty() && p_from.name == p_to.name) {
-			message += " Its elements may be of any type; narrow it with if x is " + p_to.to_string() + ":, or copy them in with assign() (spec §3.8).";
+			message += " Its elements may be of any type; narrow it with `if x is " + p_to.to_string() + ":`, or copy them in with assign().";
 		}
 		error(p_value.range, message);
 	}
@@ -6637,11 +6637,11 @@ class Checker : public ClassRelation {
 		if (scopes.back().count(p_name)) {
 			error(p_at, "\"" + p_name + "\" is already declared in this block.");
 		} else if (known >= 0 ? is_capture(known) : visible_local(p_name) != nullptr) {
-			error(p_at, "\"" + p_name + "\" is already declared in the function around this lambda (spec §4.6).");
+			error(p_at, "\"" + p_name + "\" is already declared in the function around this lambda.");
 		} else if (scopes.front().count(p_name)) {
-			error(p_at, "\"" + p_name + "\" is already a parameter of this function (spec §4.6).");
+			error(p_at, "\"" + p_name + "\" is already a parameter of this function.");
 		} else if (known >= 0) {
-			error(p_at, "\"" + p_name + "\" is already declared in an enclosing block (spec §4.6).");
+			error(p_at, "\"" + p_name + "\" is already declared in an enclosing block.");
 		}
 		const int local = int(function->locals.size());
 		function->locals.push_back({ p_name, p_type, p_at });
@@ -6669,7 +6669,7 @@ class Checker : public ClassRelation {
 			scopes.emplace_back();
 			for (Pattern &pattern : branch.patterns) {
 				if (branch.patterns.size() > 1 && binds(pattern)) {
-					error(pattern.range, "Patterns separated by commas cannot bind (spec §5.6).");
+					error(pattern.range, "Patterns separated by commas cannot bind.");
 				}
 				check_pattern(pattern, pattern.kind == PatternKind::Bind && none_handled ? matched.unwrapped() : matched, r_stmt.local);
 				none_handled = none_handled || (!branch.guard && pattern.kind == PatternKind::Constructor && matched.is_optional() && pattern.variant == 0);
@@ -6749,9 +6749,9 @@ class Checker : public ClassRelation {
 					named = named->base.get();
 				}
 				if (!value.type.is_error() && !value.constant && named->kind != ExprKind::Name) {
-					error(value.range, "A pattern is a literal, a constant expression, an identifier or an attribute access (spec §5.6).");
+					error(value.range, "A pattern is a literal, a constant expression, an identifier or an attribute access.");
 				} else if (!r_pattern.value->type.is_error() && !pattern_fits(value.type, p_matched)) {
-					error(value.range, "The pattern is " + value.type.to_string() + ", but the value matched is " + p_matched.to_string() + "; a value pattern must have its type (spec §5.6).");
+					error(value.range, "The pattern is " + value.type.to_string() + ", but the value matched is " + p_matched.to_string() + "; a value pattern must have its type.");
 				}
 				return;
 			}
@@ -6764,7 +6764,7 @@ class Checker : public ClassRelation {
 		Expr &callee = *r_pattern.value;
 		const auto fits = [&](const Type &p_type) {
 			if (!p_matched.is_error() && p_type != p_matched) {
-				error(r_pattern.range, "The pattern is " + p_type.to_string() + ", but the value matched is " + p_matched.to_string() + " (spec §5.6).");
+				error(r_pattern.range, "The pattern is " + p_type.to_string() + ", but the value matched is " + p_matched.to_string() + ".");
 				return false;
 			}
 			return true;
@@ -6772,9 +6772,9 @@ class Checker : public ClassRelation {
 		if (callee.kind == ExprKind::Name && (callee.text == "Finished" || callee.text == "Cancelled") && !declares_in_script(callee.text)) {
 			const int variant = callee.text == "Finished" ? 0 : 1;
 			if (!p_matched.is_error() && !p_matched.is_settled()) {
-				error(r_pattern.range, callee.text + "(...) matches a value of a type Settled[T], not " + p_matched.to_string() + " (spec §5.6).");
+				error(r_pattern.range, callee.text + "(...) matches a value of a type Settled[T], not " + p_matched.to_string() + ".");
 			} else if (!p_matched.is_error() && p_matched.values->fields[variant].empty()) {
-				error(r_pattern.range, "Finished of " + p_matched.to_string() + " has no value; match it without parentheses (spec §5.6).");
+				error(r_pattern.range, "Finished of " + p_matched.to_string() + " has no value; match it without parentheses.");
 			} else if (!p_matched.is_error()) {
 				refer(callee.name_token, language_id("Settled", callee.text));
 				r_pattern.type = p_matched;
@@ -6788,7 +6788,7 @@ class Checker : public ClassRelation {
 		if (callee.kind == ExprKind::Name && (callee.text == "Some" || callee.text == "Ok" || callee.text == "Err") && !declares_in_script(callee.text)) {
 			const bool some = callee.text == "Some";
 			if (!p_matched.is_error() && (some ? !p_matched.is_optional() : !p_matched.is_result())) {
-				error(r_pattern.range, callee.text + "(...) matches a value of a type " + (some ? "T?" : "Result[T, E]") + ", not " + p_matched.to_string() + " (spec §5.6).");
+				error(r_pattern.range, callee.text + "(...) matches a value of a type " + (some ? "T?" : "Result[T, E]") + ", not " + p_matched.to_string() + ".");
 			} else if (!p_matched.is_error()) {
 				r_pattern.type = p_matched;
 				r_pattern.variant = callee.text == "Ok" ? 0 : 1;
@@ -6808,7 +6808,7 @@ class Checker : public ClassRelation {
 				if (index < 0) {
 					error(callee.range, missing(decl->name + " has no variant \"" + callee.text + "\".", decl->script));
 				} else if (decl->values[index].fields.empty()) {
-					error(r_pattern.range, written + " has no payload; match it without parentheses (spec §5.6).");
+					error(r_pattern.range, written + " has no payload; match it without parentheses.");
 				} else if (fits(decl->type)) {
 					const EnumValueDecl &variant = decl->values[index];
 					refer(callee.name_token, script_id(decl->script, enum_value_id(*decl, variant.name)));
@@ -6856,7 +6856,7 @@ class Checker : public ClassRelation {
 			check_pattern(r_pattern, p_matched, p_local);
 			return;
 		}
-		error(callee.range, "\"" + callee.text + "\" names no variant, struct or Some(...) whose fields a pattern could match (spec §5.6).");
+		error(callee.range, "\"" + callee.text + "\" names no variant, struct or Some(...) whose fields a pattern could match.");
 		check_items(r_pattern, {}, {}, std::string(), std::string());
 	}
 
@@ -6875,7 +6875,7 @@ class Checker : public ClassRelation {
 		} else if (p_matched.kind == TypeKind::Builtin && p_matched.name == kind) {
 			entries = array ? std::make_pair(Type::of(TypeKind::Int), *element_of(p_matched)) : *entries_of(p_matched);
 		} else if (!p_matched.is_error()) {
-			error(r_pattern.range, std::string(array ? "An array pattern matches an Array" : "A dictionary pattern matches a Dictionary") + " or a Variant, not " + p_matched.to_string() + " (spec §5.6).");
+			error(r_pattern.range, std::string(array ? "An array pattern matches an Array" : "A dictionary pattern matches a Dictionary") + " or a Variant, not " + p_matched.to_string() + ".");
 		}
 		const Type key = entries ? entries->first : Type::of(TypeKind::Error);
 		const Type element = entries ? entries->second : Type::of(TypeKind::Error);
@@ -6885,9 +6885,9 @@ class Checker : public ClassRelation {
 				const Type type = check_value(*item.key, key);
 				if (type.is_error() || key.is_error()) {
 				} else if (!item.key->constant) {
-					error(item.key->range, "A key of a dictionary pattern is a constant expression (spec §5.6).");
+					error(item.key->range, "A key of a dictionary pattern is a constant expression.");
 				} else if (!assignable(type, key)) {
-					error(item.key->range, "The keys of " + p_matched.to_string() + " are " + key.to_string() + ", not " + type.to_string() + " (spec §5.6).");
+					error(item.key->range, "The keys of " + p_matched.to_string() + " are " + key.to_string() + ", not " + type.to_string() + ".");
 				} else if (const ConstPtr value = converted(item.key->constant, key); value && value->is_known()) {
 					const auto same = [&](const ConstPtr &p_other) {
 						return p_other->kind == value->kind && p_other->type == value->type && p_other->i == value->i && p_other->f == value->f && p_other->b == value->b && p_other->text == value->text;
@@ -6930,7 +6930,7 @@ class Checker : public ClassRelation {
 			} else if (named) {
 				const size_t found = std::find(p_names.begin(), p_names.end(), field) - p_names.begin();
 				if (field.empty()) {
-					error(item.range, "The fields of " + p_written + " are matched by name, as in " + (p_names.empty() ? std::string("field") : p_names[0]) + " = pattern (spec §5.6).");
+					error(item.range, "The fields of " + p_written + " are matched by name, as in " + (p_names.empty() ? std::string("field") : p_names[0]) + " = pattern.");
 				} else if (found == p_names.size()) {
 					error(item.range, p_written + " has no field \"" + field + "\".");
 				} else if (given[found]) {
@@ -6940,9 +6940,9 @@ class Checker : public ClassRelation {
 					refer(field_token, script_id(r_pattern.type.script, p_field_id + field));
 				}
 			} else if (!field.empty()) {
-				error(item.range, "Some(...) takes the pattern of the value inside, without a name (spec §5.6).");
+				error(item.range, "Some(...) takes the pattern of the value inside, without a name.");
 			} else if (position >= p_types.size()) {
-				error(item.range, "Some(...) takes one pattern (spec §5.6).");
+				error(item.range, "Some(...) takes one pattern.");
 			} else {
 				index = position++;
 			}
@@ -6959,11 +6959,11 @@ class Checker : public ClassRelation {
 			}
 		}
 		if (known && !named && (r_pattern.rest || position < p_types.size())) {
-			error(r_pattern.range, "Some(...) takes one pattern, of the value inside (spec §5.6).");
+			error(r_pattern.range, "Some(...) takes one pattern, of the value inside.");
 		}
 		for (size_t i = 0; known && named && !r_pattern.rest && i < p_types.size(); i++) {
 			if (!given[i]) {
-				error(r_pattern.range, p_written + "(...) leaves out \"" + p_names[i] + "\"; match it, or end with `..` (spec §5.6).");
+				error(r_pattern.range, p_written + "(...) leaves out \"" + p_names[i] + "\"; match it, or end with `..`.");
 			}
 		}
 		r_pattern.items = std::move(ordered);
@@ -7129,7 +7129,7 @@ class Checker : public ClassRelation {
 			return;
 		}
 		if (p_matched.kind == TypeKind::Enum && (!p_matched.values || p_matched.values->is_engine)) {
-			error(r_match.value->range, "A match over " + enum_spelling(p_matched) + " needs a `_` branch: the engine's enums are open, it gives values outside them and later versions add more (spec §3.7).");
+			error(r_match.value->range, "A match over " + enum_spelling(p_matched) + " needs a `_` branch: the engine's enums are open, it gives values outside them and later versions add more.");
 			return;
 		}
 		// What is left of each constructor: all, or only some values.
@@ -7162,7 +7162,7 @@ class Checker : public ClassRelation {
 		if (missing.size() > 8) {
 			names += " and " + std::to_string(missing.size() - 8) + " more";
 		}
-		error(r_match.value->range, "This match over " + (own_enum ? enum_spelling(p_matched) : p_matched.to_string()) + " does not handle " + names + "; handle them or add a `_` branch (spec §5.6).");
+		error(r_match.value->range, "This match over " + (own_enum ? enum_spelling(p_matched) : p_matched.to_string()) + " does not handle " + names + "; handle them or add a `_` branch.");
 	}
 
 	// GDScript compares the types first, String and StringName alike, so a
@@ -7242,7 +7242,7 @@ class Checker : public ClassRelation {
 			for (size_t i = 0; i < missing.size(); i++) {
 				names += (i == 0 ? "" : (i + 1 == missing.size() ? " and " : ", ")) + missing[i];
 			}
-			error(r_stmt.value->range, "Cannot iterate over " + p_object.to_string() + ", whose class lacks " + names + " (spec §5.7).");
+			error(r_stmt.value->range, "Cannot iterate over " + p_object.to_string() + ", whose class lacks " + names + ".");
 			return Type::of(TypeKind::Error);
 		}
 		static const char *const holders[] = { "@object", "@iter", "@state" };
@@ -7266,7 +7266,7 @@ class Checker : public ClassRelation {
 			check_value(*call);
 			// Another language's may declare another type.
 			if (method != methods[2] && !call->type.is_error() && call->type.kind != TypeKind::Bool) {
-				error(r_stmt.value->range, std::string(method) + "() of " + p_object.to_string() + " returns " + call->type.to_string() + ", where for needs a bool (spec §5.7).");
+				error(r_stmt.value->range, std::string(method) + "() of " + p_object.to_string() + " returns " + call->type.to_string() + ", where for needs a bool.");
 			}
 			r_stmt.iteration.push_back(std::move(call));
 		}
@@ -7326,7 +7326,7 @@ class Checker : public ClassRelation {
 					if (r_stmt.declared_type) {
 						expect_assignable(*r_stmt.value, value, type, "assign");
 					} else if (value.kind == TypeKind::None) {
-						error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs a type: None does not say which T? it is (spec §4.3).");
+						error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs a type: None does not say which T? it is.");
 						type = Type::of(TypeKind::Error);
 					} else {
 						type = value;
@@ -7336,7 +7336,7 @@ class Checker : public ClassRelation {
 				} else if (((type.kind == TypeKind::Object || type.kind == TypeKind::Task) && !type.nullable) || !has_default(type)) {
 					error(r_stmt.name_token, "\"" + r_stmt.name + "\" of type " + type.to_string() + " needs an initial value.");
 				} else if (!enum_has_default(type)) {
-					error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs an initial value: " + enum_spelling(type) + " has no value 0 to start at (spec §3.7).");
+					error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs an initial value: " + enum_spelling(type) + " has no value 0 to start at.");
 				}
 				declare_local(r_stmt, type);
 				narrow_by_value(r_stmt.local, value);
@@ -7493,7 +7493,7 @@ class Checker : public ClassRelation {
 				if (check_expr(*r_stmt.value).kind == TypeKind::Task) {
 					error(r_stmt.range, "An async call must be awaited, stored or explicitly detached with detach().");
 				} else if (r_stmt.value->type.is_result()) {
-					error(r_stmt.range, "A Result cannot be discarded: handle its error, or ignore it with .ok() (spec §3.5).");
+					error(r_stmt.range, "A Result cannot be discarded: handle its error, or ignore it with .ok().");
 				}
 				return;
 		}
@@ -7554,7 +7554,7 @@ class Checker : public ClassRelation {
 			return nullptr;
 		}
 		if (!r_arg.constant->is_known()) {
-			error(r_arg.range, "An annotation argument must be known at compile time, and this one is computed when the class loads (spec §4.5).");
+			error(r_arg.range, "An annotation argument must be known at compile time, and this one is computed when the class loads.");
 			return nullptr;
 		}
 		return r_arg.constant.get();
@@ -7749,14 +7749,14 @@ class Checker : public ClassRelation {
 			}
 			exported = &annotation;
 			if (!r_member.is_pub) {
-				error(annotation.range, "An exported variable must be pub: the editor and scenes set it by name (spec §10.5).");
+				error(annotation.range, "An exported variable must be pub: the editor and scenes set it by name.");
 			}
 			if (const HintAnnotation *hint = hint_annotation(annotation.name)) {
 				check_hint(r_member, annotation, *hint);
 			} else if (annotation.name == "export_custom") {
 				check_export_custom(r_member, annotation);
 			} else if (annotation.name == "export_tool_button") {
-				error(annotation.range, "@export_tool_button needs @tool, which is not in the first version (spec §2.3).");
+				error(annotation.range, "@export_tool_button needs @tool, which is not in the first version.");
 			} else {
 				error(annotation.range, "The annotation @" + annotation.name + " is not supported yet.");
 			}
@@ -7773,7 +7773,7 @@ class Checker : public ClassRelation {
 			return;
 		}
 		if (!r_function.is_pub) {
-			error(p_annotation.range, "An @rpc function must be pub: other peers call it by name (spec §10.5).");
+			error(p_annotation.range, "An @rpc function must be pub: other peers call it by name.");
 		}
 		if (p_annotation.args.size() > 4) {
 			error(p_annotation.range, "@rpc takes at most four arguments.");
@@ -7919,10 +7919,10 @@ class Checker : public ClassRelation {
 		}
 		if (member.is_onready) {
 			if (!cls.is_node) {
-				error(member.name_token, "@onready is for Node scripts; a " + cls.extends + " is never ready (spec §6.3).");
+				error(member.name_token, "@onready is for Node scripts; a " + cls.extends + " is never ready.");
 			}
 			if (member.is_export) {
-				error(member.name_token, "@onready and @export do not go together: the node's ready would overwrite what the scene assigned (spec §6.3).");
+				error(member.name_token, "@onready and @export do not go together: the node's ready would overwrite what the scene assigned.");
 			}
 			if (!member.initializer) {
 				error(member.name_token, "An @onready member needs an initializer.");
@@ -7950,17 +7950,17 @@ class Checker : public ClassRelation {
 			member.must_assign = !has_value_without_initializer(type);
 		}
 		if (member.is_export && type.unwrapped().kind == TypeKind::Struct) {
-			error(member.name_token, "Structs cannot be exported (spec §3.6).");
+			error(member.name_token, "Structs cannot be exported in the first version.");
 		} else if (member.is_export && type.unwrapped().kind == TypeKind::PayloadEnum) {
-			error(member.name_token, type.unwrapped().is_result() ? "A Result cannot be exported, as enums with payloads cannot (spec §3.7, §10.1)." : "Enums with payloads cannot be exported (spec §3.7).");
+			error(member.name_token, type.unwrapped().is_result() ? "A Result is an enum with payloads, which cannot be exported in the first version." : "Enums with payloads cannot be exported in the first version.");
 		} else if (member.is_export && is_typed_container(type) && is_boxed(type)) {
-			error(member.name_token, "Containers whose elements exist only in this language, such as " + type.to_string() + ", cannot be exported (spec §3.6, §3.8).");
+			error(member.name_token, "Containers whose elements exist only in this language, such as " + type.to_string() + ", cannot be exported: exports go through reflection, which does not list them.");
 		}
 		if (member.is_export && type.kind == TypeKind::Object && type.name == "PackedScene" && type.args.empty()) {
-			error(member.name_token, "An exported scene is written PackedScene[T], with the type of its root (spec §7.4).");
+			error(member.name_token, "An exported scene is written PackedScene[T], with the type of its root.");
 		}
 		if (member.is_export && type.kind == TypeKind::Task) {
-			error(member.name_token, "Task handles cannot be exported (spec §4.4, §9.4).");
+			error(member.name_token, "Task handles cannot be exported: a scene cannot save a running coroutine.");
 		}
 		member.type = type;
 		check_annotations(member);
@@ -7990,9 +7990,9 @@ class Checker : public ClassRelation {
 		} else if (!variable.declared_type) {
 			error(variable.name_token, "\"" + variable.name + "\" needs a type or an initial value.");
 		} else if (!variable.initializer && (((type.kind == TypeKind::Object || type.kind == TypeKind::Task) && !type.nullable) || type.kind == TypeKind::Function || !has_default(type))) {
-			error(variable.name_token, "The static variable \"" + variable.name + "\" needs an initial value: " + type.to_string() + " has no default value. Give it one, or the type " + type.to_string() + "? (spec §4.8).");
+			error(variable.name_token, "The static variable \"" + variable.name + "\" needs an initial value: " + type.to_string() + " has no default value. Give it one, or the type " + type.to_string() + "?.");
 		} else if (!variable.initializer && !enum_has_default(type)) {
-			error(variable.name_token, "\"" + variable.name + "\" needs an initial value: " + enum_spelling(type) + " has no value 0 to start at (spec §3.7).");
+			error(variable.name_token, "\"" + variable.name + "\" needs an initial value: " + enum_spelling(type) + " has no value 0 to start at.");
 		}
 		variable.type = type;
 		check_accessors(variable);
@@ -8030,13 +8030,13 @@ class Checker : public ClassRelation {
 				refer(p_setter ? r_member.setter_token : r_member.getter_token, script_id(options.path, p_name));
 				const bool fits = p_setter ? function->params.size() == 1 && function->params[0].type == r_member.type && function->return_type.kind == TypeKind::Void : function->params.empty() && function->return_type == r_member.type;
 				if (!fits && !r_member.type.is_error()) {
-					error(function->name_token, "As the " + kind + " of \"" + r_member.name + "\", " + p_name + "() " + (p_setter ? "takes one argument of type " + r_member.type.to_string() + " and returns nothing" : "takes no argument and returns " + r_member.type.to_string()) + " (spec §4.4).");
+					error(function->name_token, "As the " + kind + " of \"" + r_member.name + "\", " + p_name + "() " + (p_setter ? "takes one argument of type " + r_member.type.to_string() + " and returns nothing" : "takes no argument and returns " + r_member.type.to_string()) + ".");
 				}
 			}
 			if (r_member.is_static && (function->is_async || !function->is_static)) {
-				error(function->name_token, "A " + kind + " of a static variable is static and not async (spec §4.4, §4.8).");
+				error(function->name_token, "A " + kind + " of a static variable is static, and not async: " + (p_setter ? "writing" : "reading") + " the variable does not wait for it.");
 			} else if (!r_member.is_static && (function->is_async || function->is_static)) {
-				error(function->name_token, "A " + kind + " cannot be async or static (spec §4.4).");
+				error(function->name_token, "A " + kind + " runs on the object, so it is not static, and not async: " + (p_setter ? "writing" : "reading") + " the member does not wait for it.");
 			}
 			const auto found = function_index.find(p_name);
 			return found == function_index.end() ? -1 : found->second;
@@ -8140,10 +8140,10 @@ class Checker : public ClassRelation {
 	void check_script_override(FuncDecl &r_fn, const FuncDecl &p_base) {
 		r_fn.is_override = p_base.is_override;
 		if (r_fn.is_pub != p_base.is_pub) {
-			error(r_fn.name_token, "An override must preserve its base method's visibility (spec §4.2).");
+			error(r_fn.name_token, "An override must preserve its base method's visibility.");
 		}
 		if (r_fn.is_static != p_base.is_static || r_fn.is_async != p_base.is_async) {
-			error(r_fn.name_token, "An override must preserve static and async (spec §4.6).");
+			error(r_fn.name_token, "An override must preserve static and async.");
 		}
 		for (size_t i = 0; i < r_fn.params.size(); ++i) {
 			ParamDecl &param = r_fn.params[i];
@@ -8155,16 +8155,16 @@ class Checker : public ClassRelation {
 				error(param.name_token, "Parameter \"" + param.name + "\" needs a type.");
 			}
 			if (i < p_base.params.size() && !override_assignable(p_base.params[i].type, param.type)) {
-				error(param.name_token, "The override narrows its base parameter type (spec §4.6).");
+				error(param.name_token, "The override narrows its base parameter type.");
 			}
 		}
 		check_defaults(r_fn);
 		if (r_fn.params.size() < p_base.params.size() || required_params(r_fn) > required_params(p_base)) {
-			error(r_fn.name_token, "The override must accept every argument count of its base method (spec §4.6).");
+			error(r_fn.name_token, "The override must accept every argument count of its base method.");
 		}
 		r_fn.return_type = r_fn.return_type_ref ? resolve(*r_fn.return_type_ref, true) : p_base.return_type;
 		if (!override_assignable(r_fn.return_type, p_base.return_type)) {
-			error(r_fn.name_token, "The override widens its base return type (spec §4.6).");
+			error(r_fn.name_token, "The override widens its base return type.");
 		}
 	}
 
@@ -8208,7 +8208,7 @@ class Checker : public ClassRelation {
 	void check_engine_constant_names() {
 		const auto check = [&](const std::string &p_name, uint32_t p_token) {
 			if (!p_name.empty() && engine.find_constant(cls.native_base, p_name)) {
-				error(p_token, "\"" + p_name + "\" is already a constant of " + cls.native_base + ", which this class extends (spec §4.1).");
+				error(p_token, "\"" + p_name + "\" is already a constant of " + cls.native_base + ", which this class extends.");
 			}
 		};
 		for (const VarDecl &member : cls.members) {
@@ -8239,7 +8239,7 @@ class Checker : public ClassRelation {
 	// new() constructs the class (spec §4.1).
 	void refuse_new(const FuncDecl &p_function) {
 		if (p_function.name == "new") {
-			error(p_function.name_token, "A function cannot be named \"new\": new() constructs the class (spec §4.1).");
+			error(p_function.name_token, "A function cannot be named \"new\": new() constructs the class.");
 		}
 	}
 
@@ -8264,9 +8264,9 @@ class Checker : public ClassRelation {
 		r_function.is_override = engine_method && engine_method->is_virtual;
 		if (r_function.is_async) {
 			if (r_function.name == "_init") {
-				error(r_function.name_token, "_init() cannot be async (spec §9.1).");
+				error(r_function.name_token, "_init() cannot be async: construction does not wait for it.");
 			} else if (r_function.is_override && !engine_method->return_type.is_error() && engine_method->return_type.kind != TypeKind::Void) {
-				error(r_function.name_token, "An engine virtual method returning " + engine_method->return_type.to_string() + " cannot be async (spec §9.1).");
+				error(r_function.name_token, "An engine virtual method returning " + engine_method->return_type.to_string() + " cannot be async: the engine takes the result at once, without waiting.");
 			}
 		}
 
@@ -8318,7 +8318,7 @@ class Checker : public ClassRelation {
 		// The engine constructs Node and Resource scripts with no arguments
 		// (spec §6.2); others take them through new(...).
 		if (r_function.name == "_init" && !r_function.params.empty() && (engine.inherits(cls.native_base, "Node") || engine.inherits(cls.native_base, "Resource"))) {
-			error(r_function.name_token, "_init() of a " + cls.extends + " script cannot take parameters: the engine constructs it with none. Use members that must be assigned instead (spec §6.2).");
+			error(r_function.name_token, "_init() of a " + cls.extends + " script cannot take parameters: the engine constructs it with none. Use members that must be assigned instead.");
 		}
 		if (r_function.name == "_init" && r_function.return_type_ref && r_function.return_type_ref->name != "void") {
 			error(r_function.return_type_ref->range, "_init() returns nothing.");
@@ -8326,7 +8326,7 @@ class Checker : public ClassRelation {
 		// Called once when the class loads, as GDScript's
 		// (modules/gdscript/gdscript_parser.cpp:1751-1757; spec §4.8).
 		if (r_function.name == "_static_init" && (!r_function.is_static || !r_function.params.empty() || r_function.is_async || (r_function.return_type_ref && r_function.return_type_ref->name != "void"))) {
-			error(r_function.name_token, "_static_init() is static, takes no parameters, returns nothing and cannot await (spec §4.8).");
+			error(r_function.name_token, "_static_init() is static, takes no parameters, returns nothing and cannot await.");
 		}
 
 		if (r_function.return_type_ref) {
@@ -8379,7 +8379,7 @@ class Checker : public ClassRelation {
 				const FuncDecl &method = *cls.all_functions[found->second];
 				const bool own = is_own(method, cls.functions);
 				if (!method.is_pub) {
-					error_in_scene(own_name(method, cls.functions, header), scene, connection.target, where + ", which is not pub; the engine calls only pub methods by name (spec §10.5).");
+					error_in_scene(own_name(method, cls.functions, header), scene, connection.target, where + ", which is not pub; the engine calls only pub methods by name.");
 				}
 				if (references) {
 					Reference reference;
@@ -8395,7 +8395,7 @@ class Checker : public ClassRelation {
 				if (missing) {
 					error_in_scene(header, scene, connection.target, where + ", but " + connection.source + " has no such signal.");
 				} else if (hidden) {
-					error_in_scene(header, scene, connection.target, where + ", but that signal is not pub; the engine connects only pub signals by name (spec §10.5).");
+					error_in_scene(header, scene, connection.target, where + ", but that signal is not pub; the engine connects only pub signals by name.");
 				}
 				if (!arguments) {
 					continue;
@@ -8505,7 +8505,7 @@ class Checker : public ClassRelation {
 					if (field.declared_type) {
 						expect_assignable(*field.initializer, value, type, "assign");
 					} else if (value.kind == TypeKind::None) {
-						error(field.name_token, "\"" + field.name + "\" needs a type: None does not say which T? it is (spec §4.3).");
+						error(field.name_token, "\"" + field.name + "\" needs a type: None does not say which T? it is.");
 					} else {
 						type = value;
 					}
@@ -8546,7 +8546,7 @@ class Checker : public ClassRelation {
 					fields += (fields.empty() ? "" : ", ") + field;
 				}
 				const StructDecl *found = cls.find_struct(name);
-				error(found ? found->name_token : cls.find_enum(name)->name_token, name + " contains itself through " + fields + ", so it has no finite size; hold it in a container or a RefCounted class (spec §3.6).");
+				error(found ? found->name_token : cls.find_enum(name)->name_token, name + " contains itself through " + fields + ", so it has no finite size; hold it in a container or a RefCounted class.");
 			}
 		}
 	}
@@ -8653,10 +8653,10 @@ class Checker : public ClassRelation {
 					refer(function.name_token, script_id(options.path, function.name), SymbolKind::Method, script_id(type.script, interface->name + "." + method.name));
 				}
 				if (!function.is_pub) {
-					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + type.name + " and must be pub (spec §3.9).");
+					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + type.name + " and must be pub.");
 				}
 				if (function.is_static) {
-					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + type.name + ", so it cannot be static (spec §3.9).");
+					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + type.name + ", so it cannot be static.");
 				}
 				bool same = function.params.size() == method.params.size() && function.return_type == method.return_type && function.is_async == method.is_async;
 				for (size_t i = 0; same && i < method.params.size(); i++) {
@@ -8804,7 +8804,7 @@ class Checker : public ClassRelation {
 			for (const Type &type : p_types) {
 				const std::optional<Type> part = p_pub ? hidden_part(type) : std::nullopt;
 				if (part) {
-					error(p_token, part->to_string() + " is not pub, but " + p_what + " shows it (spec §4.2).");
+					error(p_token, part->to_string() + " is not pub, but " + p_what + " shows it.");
 					return;
 				}
 			}
@@ -8878,7 +8878,7 @@ class Checker : public ClassRelation {
 						refer(provided.name_token, script_id(options.path, provided.name), SymbolKind::Property, script_id(type.script, interface->name + "." + required.name));
 					}
 					if (!provided.is_pub) {
-						error(own_name(provided, cls.members, ref->range), "\"" + provided.name + "\" implements " + type.name + " and must be pub (spec §3.9).");
+						error(own_name(provided, cls.members, ref->range), "\"" + provided.name + "\" implements " + type.name + " and must be pub.");
 					} else if (!provided.type.is_error() && provided.type != required.type) {
 						error(own_name(provided, cls.members, ref->range), "\"" + provided.name + "\" has type " + provided.type.to_string() + ", but " + type.name + " requires " + required.type.to_string() + ".");
 					}
@@ -8910,7 +8910,7 @@ class Checker : public ClassRelation {
 			refer(signal.name_token, script_id(options.path, signal.name), SymbolKind::Signal);
 			for (ParamDecl &param : signal.params) {
 				if (!param.declared_type) {
-					error(param.name_token, "The argument \"" + param.name + "\" of a signal needs a type (spec §4.7).");
+					error(param.name_token, "The argument \"" + param.name + "\" of a signal needs a type.");
 					param.type = Type::of(TypeKind::Error);
 					continue;
 				}
@@ -9034,7 +9034,7 @@ class Checker : public ClassRelation {
 			return; // It runs later.
 		}
 		if (p_expr.target == Target::Member && p_expr.index >= 0 && cls.all_members[p_expr.index]->must_assign && !p_assigned.count(p_expr.index) && r_reported.insert(p_expr.index).second) {
-			error(p_expr.range, "_init reads \"" + p_expr.text + "\" before assigning it: a member that must be assigned gets its value from the scene or the creator only after _init (spec §6.2).");
+			error(p_expr.range, "_init reads \"" + p_expr.text + "\" before assigning it: a member that must be assigned gets its value from the scene or the creator only after _init.");
 		}
 		for_each_child(p_expr, [&](const auto &p_child) {
 			if constexpr (std::is_same_v<std::decay_t<decltype(p_child)>, Expr>) {
@@ -10025,7 +10025,7 @@ private:
 		}
 		if (!cls.base_script.empty()) {
 			if (!is_script_path(cls.base_script)) {
-				error(cls.extends_token, "Inheritance from a script of another language is not supported (spec §4.1).");
+				error(cls.extends_token, "Inheritance from a script of another language is not supported.");
 				return false;
 			}
 			std::unordered_set<std::string> seen{ options.path };
@@ -10047,7 +10047,7 @@ private:
 				for (size_t i = 1; i < files.size(); ++i) {
 					through += (i == 1 ? " through " : ", ") + files[i];
 				}
-				error(cls.extends_token, "A class of " + files[0] + " extends one of this file" + through + "; files extending each other's classes are not supported (spec §4.1).");
+				error(cls.extends_token, "A class of " + files[0] + " extends one of this file" + through + "; files extending each other's classes are not supported.");
 			}
 			const ClassDecl *parent = nullptr;
 			if (Checker *local = file->find(cls.base_script)) {

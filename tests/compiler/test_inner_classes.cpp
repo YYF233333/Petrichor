@@ -145,7 +145,7 @@ class Trail:
 
 TEST_CASE("an inner class has no object of the class around it (spec §4.1)") {
 	const std::string around = "extends Node\nvar hp := 3\nsignal hurt\nfunc heal() -> void:\n\tpass\nclass Shot:\n\tfunc f() -> void:\n";
-	CHECK(has(errors_in(around + "\t\tprint(hp)\n"), "\"hp\" belongs to an object of test.pet, which test.pet.Shot does not have: an inner class has no object of the class around it (spec §4.1)."));
+	CHECK(has(errors_in(around + "\t\tprint(hp)\n"), "\"hp\" belongs to an object of test.pet, which test.pet.Shot does not have: an inner class has no object of the class around it."));
 	CHECK(has(errors_in(around + "\t\theal()\n"), "\"heal()\" belongs to an object of test.pet"));
 	CHECK(has(errors_in(around + "\t\thurt.emit()\n"), "\"hurt\" belongs to an object of test.pet"));
 	CHECK(has(errors_in(around + "\t\tprint(name)\n"), "\"name\" belongs to an object of test.pet"));
@@ -175,8 +175,8 @@ func f() -> void:
 	print(shot.damage + other.damage, Combat.Shot.SPEED, Combat.Shot.Trail.LENGTH, trail is Combat.Shot.Trail)
 )",
 			constants_project()));
-	CHECK(has(errors_in("extends Node\nfunc f() -> void:\n\tvar s := Combat.Secret.new()\n"), "Combat.Secret is not pub (spec §4.2)."));
-	CHECK(has(errors_in("extends Node\nvar s: Combat.Secret\n"), "Combat.Secret is not pub (spec §4.2)."));
+	CHECK(has(errors_in("extends Node\nfunc f() -> void:\n\tvar s := Combat.Secret.new()\n"), "Combat.Secret is not pub."));
+	CHECK(has(errors_in("extends Node\nvar s: Combat.Secret\n"), "Combat.Secret is not pub."));
 	CHECK(has(errors_in("extends Node\nvar s: Combat.Nope.X\n"), "Combat declares no class \"Nope\"."));
 }
 
@@ -191,7 +191,7 @@ func f() -> int:
 	require_verified(result);
 	// Nothing is read from the autoload: it only leads to the class.
 	CHECK_FALSE(uses(function_named(result.module, "f"), Op::GET_AUTOLOAD));
-	CHECK(has(errors_in("extends Node\nfunc f() -> void:\n\tprint(Constants.Hidden)\n"), "constants.pet.Hidden is not pub (spec §4.2)."));
+	CHECK(has(errors_in("extends Node\nfunc f() -> void:\n\tprint(Constants.Hidden)\n"), "constants.pet.Hidden is not pub."));
 }
 
 TEST_CASE("an inner class is a script as a value") {
@@ -222,8 +222,8 @@ class Copy extends Weapon:
 TEST_CASE("an inner class's name is declared once, and class_name and the file's annotations stay with the file") {
 	CHECK(has(errors_in("extends Node\nvar Shot := 1\nclass Shot:\n\tpass\n"), "\"Shot\" is already declared."));
 	CHECK(has(errors_in("extends Node\nclass Node3D:\n\tpass\n"), "\"Node3D\" is already declared."));
-	CHECK(has(errors_in("extends Node\nclass Shot:\n\tclass_name Shot\n"), "class_name belongs to the file's class (spec §4.1)."));
-	CHECK(has(errors_in("extends Node\nclass Shot:\n\t@icon(\"res://a.svg\")\n\tvar x := 1\n"), "@icon belongs to the file's class (spec §4.1)."));
+	CHECK(has(errors_in("extends Node\nclass Shot:\n\tclass_name Shot\n"), "class_name belongs to the file's class."));
+	CHECK(has(errors_in("extends Node\nclass Shot:\n\t@icon(\"res://a.svg\")\n\tvar x := 1\n"), "@icon belongs to the file's class."));
 	CHECK(has(errors_in("extends Node\nclass Shot:\n\tvar x := 1\n\textends Node\n"), "\"extends\" belongs to the class header, before the members."));
 	require_verified(compile_in("extends Node\n@abstract class Shape:\n\t@abstract func area() -> float\nclass Square extends Shape:\n\tfunc area() -> float:\n\t\treturn 1.0\n", FakeProject()));
 	CHECK(has(errors_in("extends Node\n@abstract class Shape:\n\tpass\nfunc f() -> void:\n\tvar s := Shape.new()\n"), "is abstract and cannot be instantiated"));

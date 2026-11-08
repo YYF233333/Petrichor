@@ -38,16 +38,16 @@ TEST_CASE("a lambda's types: parameters written or from where it goes, the retur
 	CHECK(type_of("h", "var h: (func(int) -> bool)? = None") == "(func(int) -> bool)?");
 	CHECK(type_of("f.call(2)", "var f := func(x: int) -> float: return x") == "float");
 
-	CHECK(has_error(in_function("var f := func(x): return x"), "Parameter \"x\" needs a type: nothing the lambda goes to gives one (spec §4.6)."));
+	CHECK(has_error(in_function("var f := func(x): return x"), "Parameter \"x\" needs a type: nothing the lambda goes to gives one."));
 	CHECK(has_error(in_function("var f := func(up: bool):\n\tif up:\n\t\treturn 1\n\treturn \"a\""), "The lambda returns int and String; declare its return type."));
 	CHECK(has_error(in_function("var f := func(up: bool):\n\tif up:\n\t\treturn 1"), "Not all paths of the lambda return a value."));
 	CHECK(has_error(in_function("var f := func(up: bool):\n\tif up:\n\t\treturn 1\n\treturn"), "The lambda returns a value on some paths and none on others."));
-	CHECK(has_error(in_function("var f := func(x: int = 1): return x"), "Lambda parameters have no default values (spec §3.11)."));
-	CHECK(has_error("extends Node\nconst F = func(): pass\n", "A lambda is not a constant expression (spec §4.5)."));
+	CHECK(has_error(in_function("var f := func(x: int = 1): return x"), "Lambda parameters have no default values."));
+	CHECK(has_error("extends Node\nconst F = func(): pass\n", "A lambda is not a constant expression."));
 }
 
 TEST_CASE("function values are called with call(), checked against their types (spec §3.11)") {
-	CHECK(has_error(in_function("var f := func(x: int): return x\nprint(f(1))"), "\"f\" is a function value; call it as f.call(...) (spec §3.11)."));
+	CHECK(has_error(in_function("var f := func(x: int): return x\nprint(f(1))"), "\"f\" is a function value; call it as f.call(...)."));
 	CHECK(has_error(in_function("var f := func(x: int): return x\nprint(f.call(\"a\"))"), "Cannot pass a value of type String as int."));
 	CHECK(has_error(in_function("var f := func(x: int): return x\nprint(f.call())"), "takes 1 argument(s), 0 given."));
 	CHECK(type_of("f.callv([1])", "var f := func(x: int): return x") == "int");
@@ -64,7 +64,7 @@ TEST_CASE("function values are called with call(), checked against their types (
 }
 
 TEST_CASE("a lambda captures by value: assigning a capture is a compile error, a container it shares is not (spec §3.11)") {
-	CHECK(has_error(in_function("var hits := 0\nchild_entered_tree.connect(func(node): hits += 1)"), "Cannot assign to \"hits\", which the lambda captures as a copy; keep what it shares in a member or a container (spec §3.11)."));
+	CHECK(has_error(in_function("var hits := 0\nchild_entered_tree.connect(func(node): hits += 1)"), "Cannot assign to \"hits\", which the lambda captures as a copy; keep what it shares in a member or a container."));
 	CHECK(has_error(in_function("var v := Vector2()\nvar f := func(): v.x = 1"), "Cannot assign to \"v\", which the lambda captures as a copy"));
 	CHECK(has_error(in_function("const K = 3\nvar f := func(): K = 4"), "Cannot assign to the constant \"K\"."));
 	require_verified(compile(in_function("var counter: Array[int] = [0]\nchild_entered_tree.connect(func(node): counter[0] += 1)")));
@@ -84,7 +84,7 @@ TEST_CASE("a lambda's parameters take what the signal it is connected to passes 
 }
 
 TEST_CASE("the names of lambdas: locals of the function around it are taken, parameters may reuse them, and a lambda's name is not in its body (spec §3.11, §4.6)") {
-	CHECK(has_error(in_function("var n := 1\nvar f := func():\n\tvar n := 2\n\treturn n"), "\"n\" is already declared in the function around this lambda (spec §4.6)."));
+	CHECK(has_error(in_function("var n := 1\nvar f := func():\n\tvar n := 2\n\treturn n"), "\"n\" is already declared in the function around this lambda."));
 	require_verified(compile(in_function("var node := get_parent()\nchild_entered_tree.connect(func(node): print(node.name))")));
 	CHECK(has_error(in_function("var f := func fact(n: int) -> int: return n * fact.call(n - 1)"), "Identifier \"fact\" is not declared in the current scope."));
 	const compiler::CompileResult named = compile(in_function("var f := func on_timeout(): pass\nf.call()"));

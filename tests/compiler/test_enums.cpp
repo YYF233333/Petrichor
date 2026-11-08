@@ -37,7 +37,7 @@ TEST_CASE("an enum's values count on from the one before, and its values are int
 }
 
 TEST_CASE("an int becomes an enum only explicitly, and two enums do not mix (spec §3.7)") {
-	CHECK(contains(errors("s = 1"), "Cannot assign a value of type int as Moves.State. Convert explicitly with State(x), which checks that it is one of the values (spec §3.7)."));
+	CHECK(contains(errors("s = 1"), "Cannot assign a value of type int as Moves.State. Convert explicitly with State(x), which checks that it is one of the values."));
 	CHECK(contains(errors("s += 1"), "Cannot assign a value of type int as Moves.State."));
 	CHECK(contains(errors("s = Other.A"), "Cannot assign a value of type Moves.Other as Moves.State."));
 	CHECK(contains(errors("var t := n as State"), "as only converts objects; convert to Moves.State with Moves.State(x) or Moves.State.try_from(x)."));
@@ -57,7 +57,7 @@ TEST_CASE("an enum's name as a value is a read-only Dictionary typed by the enum
 
 TEST_CASE("an enum without the value 0 has no default value (spec §3.7, §4.3)") {
 	CHECK(errors("var t: State\nvar o: Other", "var state: State\n\n").empty());
-	CHECK(contains(errors("var l: Level"), "\"l\" needs an initial value: Level has no value 0 to start at (spec §3.7)."));
+	CHECK(contains(errors("var l: Level"), "\"l\" needs an initial value: Level has no value 0 to start at."));
 	CHECK(errors("pass", "var level: Level\n\n").empty()); // A member that must be assigned (spec §6.2).
 	CHECK(errors("pass", "var level := Level.EASY\n\n").empty());
 }
@@ -65,7 +65,7 @@ TEST_CASE("an enum without the value 0 has no default value (spec §3.7, §4.3)"
 TEST_CASE("a match over an enum handles every value or has _ (spec §5.6)") {
 	CHECK(errors("match s:\n\tState.IDLE, State.RUN:\n\t\tpass\n\tState.JUMP:\n\t\tpass\n\tState.FALL:\n\t\tpass").empty());
 	CHECK(errors("match s:\n\tState.IDLE:\n\t\tpass\n\t_:\n\t\tpass").empty());
-	CHECK(contains(errors("match s:\n\tState.IDLE:\n\t\tpass\n\tState.RUN:\n\t\tpass"), "This match over State does not handle JUMP and FALL; handle them or add a `_` branch (spec §5.6)."));
+	CHECK(contains(errors("match s:\n\tState.IDLE:\n\t\tpass\n\tState.RUN:\n\t\tpass"), "This match over State does not handle JUMP and FALL; handle them or add a `_` branch."));
 	// Branches with `when` do not count.
 	CHECK(contains(errors("match s:\n\tState.IDLE, State.RUN, State.JUMP:\n\t\tpass\n\tState.FALL when n > 0:\n\t\tpass"), "does not handle FALL;"));
 	CHECK(errors("match n:\n\t1:\n\t\tpass").empty());
@@ -84,7 +84,7 @@ TEST_CASE("an enum of another class is written through its class, if pub (spec �
 	};
 	CHECK(errors_in("var lives: int = Player.MAX_LIVES\nvar names: Array[String] = Player.State.keys()\nreturn Player.State.RUN if p == Player.State.IDLE else Player.State(0)").empty());
 	CHECK(contains(errors_in("return 1"), "Cannot return a value of type int as Player.State."));
-	CHECK(contains(errors_in("var s: Player.Secret = Player.Secret.HIDDEN\nreturn p"), "Player.Secret is not pub (spec §4.2)."));
+	CHECK(contains(errors_in("var s: Player.Secret = Player.Secret.HIDDEN\nreturn p"), "Player.Secret is not pub."));
 }
 
 TEST_CASE("a constant initialized with an enum's name names the same enum (spec §3.7)") {
