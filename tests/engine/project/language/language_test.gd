@@ -268,6 +268,14 @@ func _ready() -> void:
 	var bound_before: String = c.classify("x", 7)
 	c.bounds = Vector2i(50, 0)
 	_check(bound_before == "bound" and c.classify("x", 7) == "other" and c.classify("x", 50) == "bound", "match: a pattern read when the match runs")
+	var touch: Array[StringName] = [&"touch", &"zoom"]
+	var pad: Array[StringName] = [&"pad", &"a", &"b"]
+	var alone: Array[StringName] = [&"touch"]
+	var alive: Dictionary[String, int] = {"hp": 3, "mp": 1}
+	var dead: Dictionary[String, int] = {"hp": 0, "mp": 1, "sp": 2}
+	var without_mp: Dictionary[String, int] = {"hp": 3, "sp": 1}
+	var always := ["move (1.0, 2.0, 3.0)", "one"]
+	_check(c.shapes(touch, alive) == ["touch zoom", "hp 3, mp"] + always and c.shapes(pad, dead) == ["pad", "dead"] + always and c.shapes(alone, without_mp) == always, "array and dictionary patterns: of the size unless .., item by item, and a key alone")
 	_check(c.widened() == [3.0, 3.0], "the integer vectors widen to float ones, also into a function value's parameter")
 	_check(c.commands() == [["idle", "move (1.0, 2.0, 3.0)", "x 2", "attack"], true, true, true, true], "enums with payloads: made, matched, compared, ordered and kept in containers")
 	var attack := {"$variant": "ATTACK", "power": 4, "label": "y", "extra": 0}
@@ -670,6 +678,8 @@ func _ready() -> void:
 	_check(variants.kept == Vector2(1, 2), "a member of type Variant holds any value")
 	_check(variants.same(3, 3) and variants.same(3.0, 3) and not variants.same(4, 3), "== of a Variant follows the engine's operator table (spec §5.2)")
 	_check([variants.matched(1), variants.matched(1.0), variants.matched("a"), variants.matched(&"a"), variants.matched(2.5), variants.matched([1])] == [1, 0, 2, 2, 3, 0], "a match over a Variant compares the type first, String and StringName alike (spec §5.6)")
+	var counted: Array[int] = [1, 2, 3]
+	_check([variants.shape_of([1, "a"]), variants.shape_of(counted), variants.shape_of([1.0, 2]), variants.shape_of([]), variants.shape_of({"type": "move", "x": 3}), variants.shape_of({"type": "jump"}), variants.shape_of({"type": "move", "x": 3, "y": 4}), variants.shape_of(PackedInt32Array([1, 2])), variants.shape_of("x")] == ["one then a", "one then 2", "other", "empty", "move 3", "typed", "other", "other", "other"], "array and dictionary patterns over a Variant: any Array or Dictionary, its items compared type first")
 	variants.to_int(Vector2())
 	variants.same("3", 3)
 	_check_errors(["variant_check.pet:48: int() cannot convert Vector2.", "variant_check.pet:52: Cannot compare String with int."], "a conversion the engine cannot make, and a comparison not in its table, are program errors")

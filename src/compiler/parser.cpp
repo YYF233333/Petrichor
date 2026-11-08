@@ -1014,7 +1014,32 @@ class Parser {
 			result.name = name.text;
 			result.name_token = index(name);
 		} else if (check(TokenKind::BracketOpen) || check(TokenKind::BraceOpen)) {
-			fail(peek(), "Array and dictionary patterns are not supported yet.");
+			const bool array = advance().kind == TokenKind::BracketOpen;
+			result.kind = array ? PatternKind::Array : PatternKind::Dictionary;
+			const TokenKind close = array ? TokenKind::BracketClose : TokenKind::BraceClose;
+			while (!failed && !check(close)) {
+				if (result.rest) {
+					report(peek(), std::string("`..` ends ") + (array ? "an array" : "a dictionary") + " pattern (spec §5.6).");
+				}
+				if (check(TokenKind::Period) && peek(1).kind == TokenKind::Period) {
+					advance();
+					advance();
+					result.rest = true;
+				} else if (array) {
+					result.items.push_back(pattern());
+				} else {
+					const uint32_t entry = uint32_t(at);
+					std::unique_ptr<Expr> key = expression();
+					Pattern item = match(TokenKind::Colon) ? pattern() : Pattern();
+					item.key = std::move(key);
+					item.range = span(entry);
+					result.items.push_back(std::move(item));
+				}
+				if (!match(TokenKind::Comma)) {
+					break;
+				}
+			}
+			expect(close, array ? "\"]\"" : "\"}\"");
 		} else if (const int names = called_names()) {
 			// `A.B(...)`, a constructor or a call, which the checker tells apart.
 			result.kind = PatternKind::Constructor;

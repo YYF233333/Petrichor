@@ -257,3 +257,27 @@ pub func unit_level(view: GdViewCheck) -> int:
 	if unit == None:
 		return -1
 	return unit.level
+
+# Array and dictionary patterns, whose items match values of the containers'
+# types, and whose keys are converted to the key type.
+pub func shapes(pair: Array[StringName], scores: Dictionary[String, int]) -> Array[String]:
+	var seen: Array[String] = []
+	match pair:
+		[&"touch", var which]:
+			seen.append("touch %s" % which)
+		[&"pad", ..]:
+			seen.append("pad")
+	match scores:
+		{"hp": 0, ..}:
+			seen.append("dead")
+		{"hp": var hp, "mp"}:
+			seen.append("hp %d, mp" % hp)
+	var commands: Array[Command] = [Command.MOVE(target = Vector3(1, 2, 3))]
+	match commands:
+		[Command.MOVE(var target)]:
+			seen.append("move %s" % target)
+	var names: Dictionary[float, String] = { 1.0: "one" }
+	match names:
+		{1: var text}:
+			seen.append(text)
+	return seen

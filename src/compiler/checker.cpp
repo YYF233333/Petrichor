@@ -6619,6 +6619,10 @@ class Checker : public ClassRelation {
 			case PatternKind::Constructor:
 				check_constructor_pattern(r_pattern, p_matched, p_local);
 				return;
+			case PatternKind::Array:
+			case PatternKind::Dictionary:
+				check_container_pattern(r_pattern, p_matched);
+				return;
 			case PatternKind::Value: {
 				if (r_pattern.value->kind == ExprKind::NoneLiteral && p_matched.is_optional()) {
 					r_pattern.kind = PatternKind::Constructor;
@@ -6636,10 +6640,10 @@ class Checker : public ClassRelation {
 				auto compare = std::make_unique<Expr>();
 				compare->kind = ExprKind::Binary;
 				compare->op = TokenKind::EqualEqual;
-				compare->range = r_pattern.range;
+				compare->range = r_pattern.value->range;
 				compare->left = std::make_unique<Expr>();
 				compare->left->kind = ExprKind::Name;
-				compare->left->range = r_pattern.range;
+				compare->left->range = r_pattern.value->range;
 				compare->left->name_token = NO_TOKEN;
 				compare->right = std::move(r_pattern.value);
 				r_pattern.value = std::move(compare);
@@ -6771,6 +6775,53 @@ class Checker : public ClassRelation {
 		}
 		error(callee.range, "\"" + callee.text + "\" names no variant, struct or Some(...) whose fields a pattern could match (spec §5.6).");
 		check_items(r_pattern, {}, {}, std::string(), std::string());
+	}
+
+	// `[1, var x, ..]` of an Array[T], or `{"name": var n, ..}` of a
+	// Dictionary[K, V], whose items match values of T or V, and whose keys are
+	// constants that `in` would take; of a Variant, one that holds a container
+	// of the kind, of any type, its items matching Variants (spec §5.6).
+	void check_container_pattern(Pattern &r_pattern, const Type &p_matched) {
+		const bool array = r_pattern.kind == PatternKind::Array;
+		const std::string kind = array ? "Array" : "Dictionary";
+		std::optional<std::pair<Type, Type>> entries;
+		r_pattern.type = p_matched;
+		if (p_matched.kind == TypeKind::Variant) {
+			r_pattern.type = Type::builtin(kind);
+			entries = std::make_pair(p_matched, p_matched);
+		} else if (p_matched.kind == TypeKind::Builtin && p_matched.name == kind) {
+			entries = array ? std::make_pair(Type::of(TypeKind::Int), *element_of(p_matched)) : *entries_of(p_matched);
+		} else if (!p_matched.is_error()) {
+			error(r_pattern.range, std::string(array ? "An array pattern matches an Array" : "A dictionary pattern matches a Dictionary") + " or a Variant, not " + p_matched.to_string() + " (spec §5.6).");
+		}
+		const Type key = entries ? entries->first : Type::of(TypeKind::Error);
+		const Type element = entries ? entries->second : Type::of(TypeKind::Error);
+		std::vector<ConstPtr> keys;
+		for (Pattern &item : r_pattern.items) {
+			if (item.key) {
+				const Type type = check_value(*item.key, key);
+				if (type.is_error() || key.is_error()) {
+				} else if (!item.key->constant) {
+					error(item.key->range, "A key of a dictionary pattern is a constant expression (spec §5.6).");
+				} else if (!assignable(type, key)) {
+					error(item.key->range, "The keys of " + p_matched.to_string() + " are " + key.to_string() + ", not " + type.to_string() + " (spec §5.6).");
+				} else if (const ConstPtr value = converted(item.key->constant, key); value && value->is_known()) {
+					const auto same = [&](const ConstPtr &p_other) {
+						return p_other->kind == value->kind && p_other->type == value->type && p_other->i == value->i && p_other->f == value->f && p_other->b == value->b && p_other->text == value->text;
+					};
+					if (std::any_of(keys.begin(), keys.end(), same)) {
+						error(item.key->range, "This key is matched twice.");
+					}
+					keys.push_back(value);
+				}
+			}
+			int local = -1;
+			if (item.kind == PatternKind::Value || item.kind == PatternKind::Constructor) {
+				local = int(function->locals.size());
+				function->locals.push_back({ std::string(), element });
+			}
+			check_pattern(item, element, local);
+		}
 	}
 
 	// The patterns of a constructor's fields: of a variant or a struct, which

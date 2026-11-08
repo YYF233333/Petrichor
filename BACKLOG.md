@@ -10,7 +10,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - A scene or `.tres` using a script whose `_init` has required parameters is a compile error.
 - The last subscript of an assignment's target is evaluated after the right side (spec §3.6). `lower.cpp` still evaluates it before.
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
-- Array and dictionary patterns of match (spec §5.6).
 - A struct or an enum with payloads that holds itself through a container (spec §3.6). The type table cannot list it, since a type's parts come before it.
 - `Class.new` as a value (spec §3.11), as gdUnit4 passes `GdUnitTuple.new` to `callv`. It must construct as `new(...)` does. PetScript's `new` refuses a non-pub `_init` that the caller sees, so the two share the construction.
 - Static checks of:

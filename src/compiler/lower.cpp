@@ -2734,6 +2734,43 @@ class Lowerer {
 				}
 				return;
 			}
+			case PatternKind::Array:
+			case PatternKind::Dictionary: {
+				// Of the kind, then of the size, then item by item; a key is
+				// looked up before its value is read.
+				uint32_t container = p_value;
+				const Type &type = p_pattern.type;
+				if (reg_type(p_value) == ValueType::Variant) {
+					const uint32_t held = temp(ValueType::Bool);
+					instr(Op::IS_TYPE, held, p_value, NO_REG, 0, type_index(type));
+					const uint32_t held_block = new_block();
+					branch(held, held_block, p_fail);
+					current = held_block;
+					container = from_variant(p_value, type);
+				}
+				const uint32_t fits = temp(ValueType::Bool);
+				instr(p_pattern.rest ? Op::GE_INT : Op::EQ_INT, fits, size_of(container), int_constant(int64_t(p_pattern.items.size())));
+				branch(fits, next_block, p_fail);
+				current = next_block;
+				const bool array = p_pattern.kind == PatternKind::Array;
+				const auto [key_type, element] = array ? std::make_pair(Type::of(TypeKind::Int), *element_of(type)) : *entries_of(type);
+				for (size_t i = 0; i < p_pattern.items.size(); i++) {
+					const Pattern &item = p_pattern.items[i];
+					if (array) {
+						lower_pattern(item, get_index(container, int_constant(int64_t(i)), element), p_fail);
+						continue;
+					}
+					const uint32_t key = stored(*item.key, key_type, key_type, true);
+					const uint32_t has = call_builtin(engine_builtin_method(ValueType::Dictionary, "has", { ValueType::Variant }, ValueType::Bool, false, NO_REG, type.args.empty()), container, { key }, temp(ValueType::Bool));
+					const uint32_t found = new_block();
+					branch(has, found, p_fail);
+					current = found;
+					if (item.kind != PatternKind::Wildcard) {
+						lower_pattern(item, get_index(container, key, element), p_fail);
+					}
+				}
+				return;
+			}
 		}
 		jump(next_block);
 		current = next_block;

@@ -48,6 +48,16 @@ TEST_CASE("print_debug() prints where it is called, as GDScript's does") {
 	CHECK(where);
 }
 
-TEST_CASE("patterns that are not supported yet are refused") {
-	CHECK(contains(messages(compile("func f(a: Array[int]):\n\tmatch a:\n\t\t[1]:\n\t\t\tpass\n")), "Array and dictionary patterns are not supported yet."));
+TEST_CASE("array and dictionary patterns match their containers' items, keys as `in` takes them") {
+	const auto errors = [](const std::string &p_body) {
+		return messages(compile("func f(a: Array[int], d: Dictionary[String, int], h: Dictionary[float, String], p: PackedStringArray, s: String) -> int:\n" + p_body + "\n\treturn 0\n"));
+	};
+	CHECK(errors("\tmatch a:\n\t\t[1, var x, ..]:\n\t\t\treturn x\n\tmatch d:\n\t\t{\"hp\": var hp, \"mp\"}:\n\t\t\treturn hp\n\tmatch h:\n\t\t{1: var name}:\n\t\t\treturn name.length()").empty());
+	CHECK(contains(errors("\tmatch a:\n\t\t[1, \"a\"]:\n\t\t\tpass"), "Cannot compare int with String."));
+	CHECK(contains(errors("\tmatch p:\n\t\t[\"a\"]:\n\t\t\tpass"), "An array pattern matches an Array or a Variant, not PackedStringArray (spec §5.6)."));
+	CHECK(contains(errors("\tmatch a:\n\t\t{1: 2}:\n\t\t\tpass"), "A dictionary pattern matches a Dictionary or a Variant, not Array[int] (spec §5.6)."));
+	CHECK(contains(errors("\tmatch d:\n\t\t{s: 1}:\n\t\t\tpass"), "A key of a dictionary pattern is a constant expression (spec §5.6)."));
+	CHECK(contains(errors("\tmatch d:\n\t\t{1: 1}:\n\t\t\tpass"), "The keys of Dictionary[String, int] are String, not int (spec §5.6)."));
+	CHECK(contains(errors("\tmatch d:\n\t\t{\"hp\": 1, \"hp\"}:\n\t\t\tpass"), "This key is matched twice."));
+	CHECK(contains(errors("\tmatch a:\n\t\t[.., 1]:\n\t\t\tpass"), "`..` ends an array pattern (spec §5.6)."));
 }

@@ -325,6 +325,8 @@ enum class PatternKind {
 	// `None`: a variant, a struct or a built-in constructor, with patterns of
 	// its fields (spec §5.6).
 	Constructor,
+	Array, // `[1, var x, ..]`
+	Dictionary, // `{"name": var n, "hp", ..}`
 };
 
 // A pattern of match (spec §5.6); patterns that nest keep theirs in `items`.
@@ -337,15 +339,19 @@ struct Pattern {
 	// Constructor: what names it, such as `Command.MOVE`, or None.
 	std::unique_ptr<Expr> value;
 	// Constructor: the patterns of its fields, each written `field = pattern`
-	// with the name in `field`, or by position; `..` leaves out the rest.
+	// with the name in `field`, or by position; Array: of its elements;
+	// Dictionary: of its values, each with its `key`, `_` for a key alone.
+	// `..` leaves out the rest.
 	std::vector<Pattern> items;
 	std::string field;
 	uint32_t field_token = 0;
+	std::unique_ptr<Expr> key;
 	bool rest = false;
 	// Filled by the checker. Bind: its local; Value: the local that holds the
 	// value compared; Constructor: what it matches, `type`, and of an enum
 	// with payloads the variant, of T? 0 for None and 1 for Some, with
-	// `items` then one for each field in order, `_` for those left out.
+	// `items` then one for each field in order, `_` for those left out;
+	// Array and Dictionary: the container read, `type`.
 	int local = -1;
 	Type type;
 	int variant = 0;
@@ -799,7 +805,7 @@ void for_each_child(const Node &p_node, Fn &&p_fn) {
 			opt(p_node.function);
 		}
 	} else if constexpr (std::is_same_v<Node, Pattern>) {
-		opt(p_node.value);
+		opt(p_node.key, p_node.value);
 		list(p_node.items);
 	} else if constexpr (std::is_same_v<Node, MatchBranch>) {
 		list(p_node.patterns);

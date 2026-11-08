@@ -137,3 +137,18 @@ pub func matches_freed(v: Variant) -> bool:
 			return true
 		_:
 			return false
+
+
+# Of an Array or a Dictionary of any type, as in GDScript.
+pub func shape_of(v: Variant) -> String:
+	match v:
+		[1, var second, ..]:
+			return "one then %s" % second
+		[]:
+			return "empty"
+		{"type": "move", "x": var x}:
+			return "move %s" % x
+		{"type"}:
+			return "typed"
+		_:
+			return "other"
