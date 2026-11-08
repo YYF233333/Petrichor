@@ -22,12 +22,23 @@ TESTS = HERE.parent / "tests" / "engine" / "project"
 STARTUP_SCRIPTS = 32
 STARTUP_SAMPLES = 3
 GROUPS = ("compute", "boundary", "allocation", "startup")
+# The logical CPU the runtime cases run on. On a CPU with two kinds of cores,
+# such as Zen 5 with Zen 5c, a case's time otherwise falls into two modes.
+RUNTIME_CPU = 2
 
 
-def run(godot, *args):
+def run(godot, *args, cpu=None):
     command = [str(godot), "--headless", *map(str, args)]
+    launched, preexec = command, None
+    if cpu is not None and os.name == "nt":
+        # `start` sets the affinity, which the engine process that the console
+        # executable starts inherits; cmd exits with the engine's exit code.
+        line = subprocess.list2cmdline(["start", "/wait", "/b", "/affinity", format(1 << cpu, "X"), "", *command])
+        launched = f'cmd /v:on /c "{line} & exit !errorlevel!"'
+    elif cpu is not None and hasattr(os, "sched_setaffinity"):
+        preexec = lambda: os.sched_setaffinity(0, {cpu})
     start = time.perf_counter_ns()
-    result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
+    result = subprocess.run(launched, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600, preexec_fn=preexec)
     elapsed = (time.perf_counter_ns() - start) / 1_000_000
     output = result.stdout + result.stderr
     if result.returncode != 0 or re.search(r"\bERROR\b|leaked at exit", output):
@@ -59,7 +70,7 @@ def runtime(godot, root, groups):
     import_project(godot, project)
     cases = sorted((project / "cases").glob("*.pet"))
     build(godot, project, len(cases))
-    output, _ = run(godot, "--path", project, "--", *groups)
+    output, _ = run(godot, "--path", project, "--", *groups, cpu=RUNTIME_CPU)
     rows = [json.loads(line.removeprefix("bench: ")) for line in output.splitlines() if line.startswith("bench: ")]
     # The manifest and files must agree even when only one group is selected.
     manifest = dict(re.findall(r'"(\w+)": \[[\d_]+, "(\w+)"\]', (project / "bench.gd").read_text(encoding="utf-8")))
