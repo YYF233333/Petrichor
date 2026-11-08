@@ -148,7 +148,9 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - Each statement starts with a LINE instruction, one of six per iteration of int_loop. GDScript debug builds also emit one per statement (`modules/gdscript/gdscript.cpp:2871-2875`, `ed1daf0`). Release builds emit none.
     - A table from code positions to lines would replace it.
     - An error would look its line up by position. The 52 handler calls that pass a line would drop it.
-    - Breakpoints and stepping would need another mechanism, such as patching the instruction at a breakpoint.
+    - Every engine error captures the backtraces of all languages (`core/error/error_macros.cpp:126`, `ed1daf0`). So a frame would save its position before each instruction that can call the engine. Lua saves it only before such instructions. CPython 3.11 and later save it at every instruction.
+    - Under the debugger, breakpoints, stepping and the editor's break button need a call at each line (`core/debugger/engine_debugger.h:128-134`, `ed1daf0`). The debugger is on or off for the whole process. When it is off, the runtime would drop LINE as it loads the code.
+    - The compiler could record each instruction's statement in the table. Such a table would also fix a wrong line. From the second pass on, an error in a `while` condition is reported at the body's last statement. GDScript does the same (`modules/gdscript/gdscript_compiler.cpp:1903`, `ed1daf0`).
 - Benchmarks of real workloads; optimizations of the IR and code generation after those. In the init function, instructions that can run other code are barriers to them.
 - Liveness of the IR's registers (`src/compiler/ir.h`), one analysis on the IR before any optimization.
   - It serves the warning `modified_copy` (spec §3.6), which is off until then.
