@@ -182,13 +182,13 @@ TEST_CASE("preload() of a scene is a PackedScene of the scene's root") {
 	CHECK(contains(errors("var s := preload(path)"), "preload() takes one literal path, a String."));
 	CHECK(contains(errors("var s := preload(&\"res://objects/platform.tscn\")"), "preload() takes one literal path, a String."));
 
-	// It loads as load() does, and checks that it got a scene.
+	// A constant that the class loads as it loads, also in a function body.
 	const compiler::CompileResult result = compile_in("extends Node\n\nfunc f():\n\tvar s := preload(\"res://objects/platform.tscn\")\n", project);
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	REQUIRE(result.module.engine_calls.size() == 1);
-	CHECK(result.module.engine_calls[0].method == "load");
-	REQUIRE(result.module.classes.size() >= 1);
-	CHECK(result.module.classes.back().name == "PackedScene");
+	CHECK(result.module.engine_calls.empty());
+	REQUIRE(result.module.constants.size() == 1);
+	CHECK((result.module.constants[0].load && result.module.constants[0].s == "res://objects/platform.tscn"));
+	find_instruction(function_named(result.module, "f"), bytecode::Op::CONST_VALUE);
 
 	// Scenes are not read while loading; a constant still holds the preload,
 	// which GDScript reads by name (spec §11.3).

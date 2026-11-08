@@ -65,8 +65,7 @@ struct ConstValue {
 		Operator, // The engine's operator `index` (Variant::Operator) on `items`, one or two.
 		Utility, // The math utility function `text`, with `hash`, of `items`.
 		Field, // The member `text` of the built-in value `items[0]`.
-		// The resource at the path `text`, loaded where it is used, by `source`.
-		Preload,
+		Preload, // The resource at the path `text`.
 	};
 	Kind kind = Kind::None;
 	Type type;
@@ -81,7 +80,6 @@ struct ConstValue {
 	// engine takes as a Variant; Utility: what the engine declares it returns.
 	std::vector<Type> params;
 	Type returns;
-	const Expr *source = nullptr;
 	// Preload of a script: its file, and the class it names (spec §2.1),
 	// which is Error when it cannot be known while only the declarations are
 	// checked.
@@ -112,8 +110,8 @@ int converting_constructor(const Type &p_from, const Type &p_to);
 // value inside Some, or None.
 ConstPtr converted(const ConstPtr &p_value, const Type &p_to);
 
-// Whether a preload is in the value, which the runtime computes only when it
-// is read.
+// Whether a preload is in the value, which loads a resource when the class
+// loads.
 bool loads(const ConstValue &p_value);
 
 // A value of an enum (spec §3.7), an int typed as the enum, and its name as a

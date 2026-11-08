@@ -639,13 +639,10 @@ class Lowerer {
 	}
 
 	// A constant's value in a new register: what the compiler knows as a
-	// literal is, a preload where it is used, the rest from its table entry,
-	// which the runtime computes when the class loads.
+	// literal is, the rest from its table entry, which the runtime computes
+	// when the class loads.
 	uint32_t load_constant(const ConstPtr &p_value) {
 		using Kind = ConstValue::Kind;
-		if (p_value->kind == Kind::Preload) {
-			return lower_expr(*p_value->source);
-		}
 		const ValueType stored = value_type(p_value->type);
 		if (stored == ValueType::Int && p_value->kind == Kind::Int) {
 			return preset(type_index(p_value->type), uint64_t(p_value->i));
@@ -692,13 +689,13 @@ class Lowerer {
 
 	// Whether an expression is lowered as its value: a constant, a scalar the
 	// compiler computed, such as `1 << 4`, or an engine value such as
-	// `Vector2(1, 2)` that the class computes as it loads (spec §4.5). A
-	// container's literal is not, each evaluation making a new one.
+	// `Vector2(1, 2)` or a preload that the class computes as it loads (spec
+	// §4.5). A container's literal is not, each evaluation making a new one.
 	static bool lowered_as_constant(const Expr &p_expr) {
 		if (!p_expr.constant) {
 			return false;
 		}
-		if (p_expr.target == Target::Constant || p_expr.target == Target::EngineConstant || p_expr.target == Target::BuiltinConstant) {
+		if (p_expr.target == Target::Constant || p_expr.target == Target::EngineConstant || p_expr.target == Target::BuiltinConstant || p_expr.constant->kind == ConstValue::Kind::Preload) {
 			return true;
 		}
 		if (p_expr.kind == ExprKind::Name || p_expr.kind == ExprKind::Member) {

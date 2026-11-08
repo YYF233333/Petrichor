@@ -1,0 +1,7 @@
+# A preload in a function body loads with the class (spec §7.6), checked by
+# language_test.gd.
+extends RefCounted
+
+
+pub func gradient() -> Gradient:
+	return preload("eager.tres")

@@ -55,7 +55,7 @@ pub func on_objects(other: StaticCheck) -> Array:
 	return [other.label(), StaticCheck.label(), file != None and file.file_exists("res://project.godot"), red.from_hsv(0.5, 1.0, 1.0) == Color.from_hsv(0.5, 1.0, 1.0)]
 
 
-# Containers of preloads (spec §4.5), computed when first read.
+# Containers of preloads (spec §4.5).
 pub const SCENES := [preload("res://language/nodes.tscn"), NODES]
 pub const BY_NAME := {"nodes": NODES}
 

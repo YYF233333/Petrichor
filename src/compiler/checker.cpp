@@ -3174,9 +3174,9 @@ class Checker : public ClassRelation {
 
 	// preload() of a resource (spec §7.4): a scene is PackedScene[T], T its
 	// root's type; a script its class (§2.1); any other resource the class its
-	// file loads as, or its script's class. It loads when it runs, through the
-	// engine's resource cache, as load() does, and the result is checked to be
-	// of that type.
+	// file loads as, or its script's class. It is a constant, which the class
+	// loads as it loads, as GDScript loads it as it compiles the script
+	// (modules/gdscript/gdscript_analyzer.cpp:4723-4780).
 	Type check_preload(Expr &r_expr) {
 		if (completion && r_expr.args.size() == 1 && r_expr.args[0]->kind == ExprKind::StringLiteral && at_cursor(r_expr.args[0]->text)) {
 			complete_string(nullptr, 0, false);
@@ -3187,13 +3187,12 @@ class Checker : public ClassRelation {
 			return fail_call(r_expr, "preload() takes one literal path, a String.");
 		}
 		r_expr.args[0]->text = path;
-		// A constant expression, loaded where it is used (spec §4.5, §7.4).
+		// A constant expression (spec §4.5, §7.4).
 		const auto loaded = [&](const Type &p_type) {
 			auto value = std::make_shared<ConstValue>();
 			value->kind = ConstValue::Kind::Preload;
 			value->type = p_type;
 			value->text = path;
-			value->source = &r_expr;
 			return value;
 		};
 		// A uid stays what is loaded, so that the file can move.
@@ -3237,20 +3236,11 @@ class Checker : public ClassRelation {
 				return set(r_expr, type);
 			}
 		}
-		if (!engine.is_singleton("ResourceLoader")) {
-			return fail(r_expr, "preload() needs the engine's ResourceLoader.");
-		}
 		if (options.project && !options.declarations_only) {
 			check_load_cycle(r_expr, file);
 		}
 		refer(r_expr.name_token, language_id("@GlobalScope", "preload"));
-		// A call of ResourceLoader.load(), as written nowhere.
-		on_resource_loader(r_expr);
-		r_expr.text = "load";
-		r_expr.name_token = NO_TOKEN;
-		if (check_call(r_expr).is_error()) {
-			return set(r_expr, Type::of(TypeKind::Error));
-		}
+		check_value(*r_expr.args[0]);
 		const auto value = loaded(type);
 		if (is_script_file(file)) {
 			value->script = file;

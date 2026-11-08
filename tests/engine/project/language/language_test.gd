@@ -594,8 +594,12 @@ func _ready() -> void:
 	var scenes := statics.scenes()
 	var nodes_scene: PackedScene = load("res://language/nodes.tscn")
 	var by_name: Script = load("res://language/static_check.pet")
-	_check(scenes[0] == [nodes_scene, nodes_scene] and scenes[1] == nodes_scene and scenes[2] and scenes[3] and is_same(by_name.get("SCENES"), scenes[0]) and by_name.get("BY_NAME") == {"nodes": nodes_scene}, "a constant's containers of preloads load when first read, the same read-only container for every reader (spec §4.5)")
+	_check(scenes[0] == [nodes_scene, nodes_scene] and scenes[1] == nodes_scene and scenes[2] and scenes[3] and is_same(by_name.get("SCENES"), scenes[0]) and by_name.get("BY_NAME") == {"nodes": nodes_scene}, "a constant's containers of preloads, the same read-only container for every reader (spec §4.5)")
 	statics.free()
+	var eager_path := "res://language/eager.tres"
+	var cached_before := ResourceLoader.has_cached(eager_path)
+	var eager = load("res://language/eager_check.pet").new()
+	_check(not cached_before and ResourceLoader.has_cached(eager_path) and eager.gradient() == load(eager_path), "a preload in a function body loads with the class, before the function runs (spec §7.6)")
 
 	# Lambdas (spec §3.11).
 	var lambdas := LambdaCheck.new()

@@ -277,14 +277,15 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 	// Each constant once (spec §4.5), its containers read-only at every level,
 	// as GDScript makes them (modules/gdscript/gdscript_analyzer.cpp:5318-5367).
 	// A scalar the engine computed is written into the constant, which the
-	// instructions for scalars read; one that loads a resource, only when it is
-	// read (loaded_value()).
+	// instructions for scalars read. Resources load with the class, except in
+	// a class that describes a script the editor is loading, which reads none
+	// (pub_constant()).
 	for (size_t i = 0; i < module.constants.size(); i++) {
 		bytecode::Constant &constant = image->module.constants[i];
 		const ValueType storage = types[constant.type].storage;
 		image->values.emplace_back();
-		image->loads.push_back(loads_resource(constant));
-		if (!image->loads.back() && !constant_value(*image, constant, image->values.back(), r_error)) {
+		const bool deferred = module.declarations_only && loads_resource(constant);
+		if (!deferred && !constant_value(*image, constant, image->values.back(), r_error)) {
 			return nullptr;
 		}
 		const Variant &value = image->values.back();
@@ -299,7 +300,7 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 		freeze(value);
 		const bytecode::TypeKind kind = types[constant.type].kind;
 		const bool own_layout = kind == bytecode::TypeKind::Value || kind == bytecode::TypeKind::Array || kind == bytecode::TypeKind::Dictionary;
-		if (image->loads.back() || !own_layout || storage == ValueType::Void || storage == ValueType::Object || storage == ValueType::Variant) {
+		if (deferred || !own_layout || storage == ValueType::Void || storage == ValueType::Object || storage == ValueType::Variant) {
 			image->native_values.push_back(nullptr);
 			continue;
 		}
@@ -485,48 +486,34 @@ bool pub_constant(const ClassImage &p_image, const StringName &p_name, Variant &
 		if (!constant.is_pub || to_godot(constant.name) != String(p_name)) {
 			continue;
 		}
-		if (!p_image.loads[constant.constant]) {
-			// A value in a box crosses encoded (spec §10.1).
-			const TypeImage &type = p_image.types[p_image.module.constants[constant.constant].type];
-			const uint8_t *boxed = opened(type, p_image.values[constant.constant]);
-			r_value = boxed ? to_variant(type, boxed) : p_image.values[constant.constant];
+		const bytecode::Constant &value = p_image.module.constants[constant.constant];
+		if (p_image.module.declarations_only && loads_resource(value)) {
+			String error;
+			if (!constant_value(p_image, value, r_value, error)) {
+				ERR_PRINT(vformat("%s: the constant %s: %s", p_image.path, p_name, error));
+			}
 			return true;
 		}
-		String error;
-		if (!p_image.loaded_value(constant.constant, r_value, error)) {
-			ERR_PRINT(vformat("%s: the constant %s: %s", p_image.path, p_name, error));
-		}
+		// A value in a box crosses encoded (spec §10.1).
+		const TypeImage &type = p_image.types[value.type];
+		const uint8_t *boxed = opened(type, p_image.values[constant.constant]);
+		r_value = boxed ? to_variant(type, boxed) : p_image.values[constant.constant];
 		return true;
 	}
 	return false;
-}
-
-bool ClassImage::loaded_value(uint32_t p_constant, Variant &r_value, String &r_error) const {
-	{
-		const std::lock_guard<std::mutex> lock(loading);
-		const auto found = loaded.find(p_constant);
-		if (found != loaded.end()) {
-			r_value = found->second;
-			return true;
-		}
-	}
-	// Computed without the lock, since loading may run code that reads it; of
-	// two threads that compute it, both keep the first.
-	Variant value;
-	if (!constant_value(*this, module.constants[p_constant], value, r_error)) {
-		return false;
-	}
-	freeze(value);
-	const std::lock_guard<std::mutex> lock(loading);
-	r_value = loaded.emplace(p_constant, value).first->second;
-	return true;
 }
 
 bool constant_value(const ClassImage &p_image, const bytecode::Constant &p_constant, Variant &r_value, String &r_error) {
 	const std::vector<TypeImage> &p_types = p_image.types;
 	const ValueType type = p_types[p_constant.type].storage;
 	if (p_constant.load) {
+		// Of the type the compiler found, unless the file changed since.
 		r_value = load_resource(to_godot(p_constant.s));
+		ValueBuffer loaded(p_types[p_constant.type]);
+		if (!from_variant(p_types[p_constant.type], r_value, loaded.data, true)) {
+			r_error = vformat("preload(\"%s\"): %s", to_godot(p_constant.s), entry_mismatch(p_types[p_constant.type], r_value));
+			return false;
+		}
 		return true;
 	}
 	if (p_constant.op >= 0) {
