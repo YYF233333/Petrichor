@@ -5,7 +5,9 @@
 
 #include <gdextension_interface.h>
 
+#include <atomic>
 #include <memory>
+#include <thread>
 
 namespace petrichor {
 
@@ -25,12 +27,30 @@ struct PetInstance {
 	InstanceContext context() const { return InstanceContext{ storage, owner_object }; }
 
 	// A hot reload replaces the image on the main thread while other threads
-	// may run the instance (spec §12.3), so each use takes one snapshot.
-	std::shared_ptr<const ClassImage> current_image() const { return std::atomic_load(&image); }
-	void replace_image(const std::shared_ptr<const ClassImage> &p_image) { std::atomic_store(&image, p_image); }
+	// may run the instance (spec §12.3), so each use takes one snapshot. The
+	// lock is the instance's own: MSVC's std::atomic_load() of a shared_ptr
+	// takes one lock for the whole process (MSVC 14.44, crt/src/stl/atomic.cpp:10-18).
+	std::shared_ptr<const ClassImage> current_image() const {
+		lock_image();
+		std::shared_ptr<const ClassImage> snapshot = image;
+		image_lock.clear(std::memory_order_release);
+		return snapshot;
+	}
+	void replace_image(std::shared_ptr<const ClassImage> p_image) {
+		lock_image();
+		image.swap(p_image); // The old image goes with `p_image`, after the lock.
+		image_lock.clear(std::memory_order_release);
+	}
 
 private:
 	std::shared_ptr<const ClassImage> image; // Replaced on hot reload when only function bodies change.
+	mutable std::atomic_flag image_lock = ATOMIC_FLAG_INIT; // Held only to copy or swap `image`.
+
+	void lock_image() const {
+		while (image_lock.test_and_set(std::memory_order_acquire)) {
+			std::this_thread::yield();
+		}
+	}
 
 public:
 	static const GDExtensionScriptInstanceInfo3 info;
