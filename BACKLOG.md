@@ -178,6 +178,11 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Godot: a script's `_get` and `_set` take engine property names in GDScript's `.` access, not in calls of their methods. On 4.7.2, `label.text = s` goes to a `_set` that takes `text`, and `label.set_text(s)` does not. Object's docs say these methods are not called for built-in properties (`doc/classes/Object.xml:39, 303`, `29a3f56701`). The owner may report it as an issue, or contribute a PR that makes the docs and the behavior agree.
   - The order comes from the first public commit (`core/object/object.cpp:233-259, 316-338`, `0b806ee0fc9`). GDScript instances call `_set` and `_get` for every name that is not a member (`modules/gdscript/gdscript.cpp:1589-1600, 1676-1685`, `ed1daf0`).
   - [#99828](https://github.com/godotengine/godot/issues/99828) is about a script's own properties, which these methods do not see. It likely led to the note in the docs.
+- Godot: in the official Windows builds, each read of a `thread_local` goes through GCC's emulated TLS. The owner may report it as an issue.
+  - Each read calls winpthreads' `pthread_getspecific`, as disassembly of the official 4.7.2 binary shows. That call saves the last error, takes a spin lock and restores the error.
+  - Node's thread guards make such reads in each guarded method of debug builds (`scene/main/node.h:694-716, 934-948`, `core/os/thread_safe.cpp:36-38`, `ed1daf0`).
+  - In the engine_method benchmark, each `Node3D.translate()` makes about four such reads. They take about two thirds of each iteration, in GDScript as in this language.
+  - Candidate fixes: native TLS in the official builds, or guards that read fewer thread-locals.
 
 ## Open questions
 
