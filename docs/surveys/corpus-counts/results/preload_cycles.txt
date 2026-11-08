@@ -1,5 +1,8 @@
+cycles of scripts only: 1
+cycles of scripts only, files: 1
 first-party scenes and resources: 2678
 first-party scripts: 2800
 preloads of a scene, a resource or a script: 1004
 preloads of one not found: 18
 scripts with a preload: 375
+script cycle: gdUnit4 (plugin): addons/gdUnit4/src/doubler/CallableDoubler.gd

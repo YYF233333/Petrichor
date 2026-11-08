@@ -7,8 +7,8 @@ Usage: python preload_cycles.py CORPUS_DIR
 Edges start at first-party .tscn, .tres and .gd files: each ext_resource of a scene or a resource (a script, a
 subscene or an exported resource), each preload() of a script with a literal path, and a script's base script (extends
 by path or by class_name). Paths resolve as res:// in the file's project, relative to the file, or by uid. A cycle is a
-strongly connected component of more than one file, reported with whether a scene or a resource is in it. The
-shortest kind, a script that preloads a scene which has it as an ext_resource, is also counted on its own.
+strongly connected component of more than one file, or a file that loads itself, reported with whether a scene or a
+resource is in it. A script that preloads a scene which has it as an ext_resource is also counted on its own.
 """
 import collections
 import os
@@ -121,7 +121,7 @@ def main():
                     totals["a script preloads a scene that has it"] += 1
                     listed.append(f"self: {name}/{script} -> {scene} ({group})")
         for component in components(edges):
-            if len(component) < 2:
+            if len(component) < 2 and component[0] not in edges.get(component[0], ()):
                 continue
             with_resource = any(not f.endswith(".gd") for f in component)
             key = "cycles through a scene or a resource" if with_resource else "cycles of scripts only"
