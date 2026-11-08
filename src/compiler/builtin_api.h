@@ -134,6 +134,16 @@ struct Keyed {
 std::optional<bytecode::IntRange> param_int_range(std::string_view p_class, std::string_view p_method, uint32_t p_index);
 std::optional<bytecode::IntRange> property_int_range(std::string_view p_class, std::string_view p_property);
 
+struct KeyedIndex {
+	const char *key; // "Class.property".
+	int32_t index;
+};
+
+// The index that an engine property of a family passes its getter and setter
+// first, such as a BaseMaterial3D texture, or -1; the class is the one that
+// declares it.
+int property_index(std::string_view p_class, std::string_view p_property);
+
 struct GlobalConstant {
 	const char *name;
 	int64_t value;

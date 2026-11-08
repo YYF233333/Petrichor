@@ -130,6 +130,13 @@ def _int_ranges(api):
     return sorted(params.items()), sorted(properties.items())
 
 
+def _property_indices(api):
+    """The index that a property of a family, such as a BaseMaterial3D texture,
+    passes its getter and setter first, as sorted ("Class.property", index)
+    pairs; ClassDB does not tell it to scripts."""
+    return sorted((f"{c['name']}.{p['name']}", p["index"]) for c in api["classes"] for p in c.get("properties", []) if "index" in p)
+
+
 def _enums(api):
     """The engine's global enums, such as Key and Variant.Type, and those of its
     built-in types, such as Vector3.Axis, as sorted (name, is_bitfield, values)."""
@@ -248,6 +255,10 @@ def generate(json_path, metadata_path, out_path):
             out.write(f"extern const Keyed {name}[];\nextern const size_t {name}_COUNT;\n")
             out.write(f"const Keyed {name}[] = {{\n" + "".join(f"\t{{ {_c_string(key)}, {_c_string(width)} }},\n" for key, width in rows) + "};\n")
             out.write(f"const size_t {name}_COUNT = {len(rows)};\n\n")
+        rows = _property_indices(api)
+        out.write("extern const KeyedIndex PROPERTY_INDICES[];\nextern const size_t PROPERTY_INDICES_COUNT;\n")
+        out.write("const KeyedIndex PROPERTY_INDICES[] = {\n" + "".join(f"\t{{ {_c_string(key)}, {index} }},\n" for key, index in rows) + "};\n")
+        out.write(f"const size_t PROPERTY_INDICES_COUNT = {len(rows)};\n\n")
         enums = _enums(api)
         values, enum_rows = [], []
         for name, is_bitfield, entries in enums:

@@ -109,6 +109,7 @@ struct Place {
 	std::vector<uint32_t> fields; // StructCopy: the fields from `whole` down to this one.
 	Type type;
 	std::optional<bytecode::IntRange> int_range; // An engine property: what its setter takes (spec §10.6).
+	const Expr *access = nullptr; // SelfProperty, ObjectProperty and Owner: the access, which may name a getter and setter.
 	std::unique_ptr<Place> parent; // Field, StructCopy and Element: where the copy goes back.
 	const VarDecl *variable = nullptr;
 	std::string owner;
@@ -875,6 +876,37 @@ class Lowerer {
 		i.imm = method_call(method);
 		i.base = p_place.reg;
 		i.dst = writes ? NO_REG : temp(member.type);
+		add(i);
+		return i.dst;
+	}
+
+	// The getter of an engine property, or its setter with `p_value`, called
+	// through its MethodBind (spec §10.5); one of a family passes its index first.
+	uint32_t property_accessor(const Place &p_place, uint32_t p_value) {
+		const Expr &access = *p_place.access;
+		const bool writes = p_value != NO_REG;
+		const EngineMethod &method = writes ? *access.setter : *access.getter;
+		ir::Instr i;
+		i.op = Op::CALL_ENGINE;
+		i.base = p_place.kind == Place::Kind::ObjectProperty ? p_place.reg : NO_REG;
+		if (access.property_index >= 0) {
+			const uint32_t index = temp(ValueType::Int);
+			load_int(index, access.property_index);
+			i.args.push_back(index);
+		}
+		if (writes) {
+			i.args.push_back(p_value);
+		}
+		i.dst = writes ? NO_REG : temp(p_place.type);
+		bytecode::EngineCall call{ method.name, writes ? type_index(Type::of(TypeKind::Void)) : fn.regs[i.dst].type };
+		call.owner = method.owner;
+		call.hash = method.hash;
+		for (const EngineParam &param : method.params) {
+			call.params.push_back(value_type(param.type));
+		}
+		call.return_type = value_type(method.return_type);
+		call.returns_reference = !writes && access.returns_reference;
+		i.imm = engine_call(call);
 		add(i);
 		return i.dst;
 	}
@@ -2274,15 +2306,19 @@ class Lowerer {
 				break;
 			case Target::SelfProperty:
 				place.kind = Place::Kind::SelfProperty;
-				place.index = property(p_expr.text, type_index(p_expr.type));
+				place.access = &p_expr;
 				break;
 			case Target::Owner:
 				place.kind = Place::Kind::Owner;
+				place.access = &p_expr;
 				break;
 			case Target::ObjectProperty:
 				place.kind = Place::Kind::ObjectProperty;
 				place.reg = lower_expr(*p_expr.base);
-				place.index = property(p_expr.text, type_index(p_expr.type));
+				place.access = &p_expr;
+				if (p_expr.variable) {
+					place.index = property(p_expr.text, type_index(p_expr.type));
+				}
 				place.variable = p_expr.variable;
 				break;
 			case Target::Field:
@@ -2367,8 +2403,13 @@ class Lowerer {
 				if (p_place.variable) {
 					return member_of(p_place, NO_REG);
 				}
-				const uint32_t result = temp(p_place.type);
-				instr(Op::GET_PROPERTY, result, p_place.kind == Place::Kind::SelfProperty ? NO_REG : p_place.reg, NO_REG, p_place.index);
+				uint32_t result = NO_REG;
+				if (p_place.access->getter) {
+					result = property_accessor(p_place, NO_REG);
+				} else {
+					result = temp(p_place.type);
+					instr(Op::GET_PROPERTY, result, p_place.kind == Place::Kind::SelfProperty ? NO_REG : p_place.reg, NO_REG, property(p_place.access->text, type_index(p_place.type)));
+				}
 				// The binding metadata says whether it may be None (spec §10.2).
 				check_object(result, p_place.type);
 				return result;
@@ -2451,10 +2492,18 @@ class Lowerer {
 				if (p_place.int_range) {
 					instr(Op::CHECK_RANGE, NO_REG, p_value, NO_REG, uint32_t(*p_place.int_range));
 				}
-				instr(Op::SET_PROPERTY, NO_REG, p_place.kind == Place::Kind::SelfProperty ? NO_REG : p_place.reg, p_value, p_place.index);
+				if (p_place.access->setter) {
+					property_accessor(p_place, p_value);
+				} else {
+					instr(Op::SET_PROPERTY, NO_REG, p_place.kind == Place::Kind::SelfProperty ? NO_REG : p_place.reg, p_value, property(p_place.access->text, type_index(p_place.type)));
+				}
 				return;
 			case Place::Kind::Owner:
-				instr(Op::SET_PROPERTY, NO_REG, NO_REG, p_value, property("owner", fn.regs[p_value].type));
+				if (p_place.access->setter) {
+					property_accessor(p_place, p_value);
+				} else {
+					instr(Op::SET_PROPERTY, NO_REG, NO_REG, p_value, property("owner", fn.regs[p_value].type));
+				}
 				return;
 			case Place::Kind::Field:
 				instr(Op::SET_FIELD, NO_REG, p_place.reg, p_value, p_place.index);

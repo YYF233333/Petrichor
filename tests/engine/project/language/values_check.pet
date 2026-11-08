@@ -310,3 +310,14 @@ pub func asserted(ok: bool, with_message: bool) -> int:
 func message() -> String:
 	messages += 1
 	return "not ok"
+
+# Spec §10.5: engine properties go through their getter and setter, also one
+# of a family and one holding a RefCounted; a script's _set and _get on the
+# object take only by-name access.
+pub func property_accessors(label: Label, control: Control, holder: MeshInstance3D) -> String:
+	label.text = "direct"
+	var read := label.text
+	label.set("text", "by name")
+	control.offset_left = 4.0
+	holder.mesh = BoxMesh.new()
+	return read + " " + str(control.offset_left) + " " + str(holder.mesh is BoxMesh)

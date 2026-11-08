@@ -2187,6 +2187,9 @@ class Checker : public ClassRelation {
 			}
 			r_expr.target = Target::Owner;
 			refer(r_expr.name_token, engine_id("Node", "owner"));
+			if (const auto property = engine.find_property("Node", "owner")) {
+				r_expr.setter = property->setter; // Spec §10.5.
+			}
 			return set(r_expr, cls.owner_type);
 		}
 		if (const auto property = engine.find_property(cls.native_base, r_expr.text)) {
@@ -3798,6 +3801,10 @@ class Checker : public ClassRelation {
 		if (type.kind == TypeKind::Int) {
 			r_expr.int_range = builtin::property_int_range(p_property.owner, p_property.name);
 		}
+		r_expr.getter = p_property.getter;
+		r_expr.setter = p_property.setter;
+		r_expr.property_index = p_property.index;
+		r_expr.returns_reference = p_property.getter && type.kind == TypeKind::Object && engine.inherits(type.engine_class(), "RefCounted");
 		return type;
 	}
 

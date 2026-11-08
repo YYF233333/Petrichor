@@ -42,8 +42,16 @@ struct EngineProperty {
 	Type type;
 	bool writable = true;
 	std::string owner; // The class that declares it.
+	// Of an engine class: the methods this language reads and writes it through
+	// (spec §10.5), and the index that one of a family passes them first, such
+	// as a BaseMaterial3D texture; -1 for none.
+	std::optional<EngineMethod> getter;
+	std::optional<EngineMethod> setter;
+	int index = -1;
 
-	bool operator==(const EngineProperty &p_other) const { return name == p_other.name && type == p_other.type && writable == p_other.writable && owner == p_other.owner; }
+	bool operator==(const EngineProperty &p_other) const {
+		return name == p_other.name && type == p_other.type && writable == p_other.writable && owner == p_other.owner && getter == p_other.getter && setter == p_other.setter && index == p_other.index;
+	}
 };
 
 // What the compiler knows about the engine's classes (architecture §2.1). The

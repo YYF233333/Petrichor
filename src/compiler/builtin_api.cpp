@@ -25,6 +25,8 @@ extern const Keyed INT_PARAMS[];
 extern const size_t INT_PARAMS_COUNT;
 extern const Keyed INT_PROPERTIES[];
 extern const size_t INT_PROPERTIES_COUNT;
+extern const KeyedIndex PROPERTY_INDICES[];
+extern const size_t PROPERTY_INDICES_COUNT;
 extern const GlobalConstant GLOBAL_CONSTANTS[];
 extern const size_t GLOBAL_CONSTANTS_COUNT;
 extern const EnumValue ENUM_VALUES[];
@@ -121,6 +123,13 @@ std::optional<bytecode::IntRange> param_int_range(std::string_view p_class, std:
 
 std::optional<bytecode::IntRange> property_int_range(std::string_view p_class, std::string_view p_property) {
 	return int_range(INT_PROPERTIES, INT_PROPERTIES_COUNT, std::string(p_class) + "." + std::string(p_property));
+}
+
+int property_index(std::string_view p_class, std::string_view p_property) {
+	const std::string key = std::string(p_class) + "." + std::string(p_property);
+	const KeyedIndex *end = PROPERTY_INDICES + PROPERTY_INDICES_COUNT;
+	const KeyedIndex *found = std::lower_bound(PROPERTY_INDICES, end, key, [](const KeyedIndex &a, const std::string &b) { return std::string_view(a.key) < b; });
+	return found != end && key == found->key ? found->index : -1;
 }
 
 // The generator sorts them by name.

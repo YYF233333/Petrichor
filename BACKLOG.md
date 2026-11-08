@@ -118,9 +118,8 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Performance
 
-Engine methods with a MethodBind are called through its ptrcall (architecture §2.2). Properties, vararg methods and other languages' methods still go by name with Variant arguments.
+Engine methods with a MethodBind, also the accessors of engine properties, are called through its ptrcall (architecture §2.2). Vararg methods and other languages' methods and properties still go by name with Variant arguments.
 
-- Engine properties: through their getter and setter by ptrcall, as spec §10.5 says. The compiler's engine API needs each property's getter, setter and index for this.
 - Engine singletons and autoloads resolved once. Now GET_SINGLETON looks the name up at every run, and GET_AUTOLOAD calls get_node_or_null. A singleton's pointer can be kept, and an autoload's ObjectID with a liveness check.
 - Engine callbacks such as `_process(delta)`: no entry check of value-type arguments, whose types the engine guarantees.
 - Calls between classes of this language: the method found by name once per call site. A run keeps one version of each class, which allows this (spec §12.4). Now these are loaded through ResourceLoader at every use:

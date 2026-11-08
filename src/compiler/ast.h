@@ -3,6 +3,7 @@
 #include "bytecode/module.h"
 #include "bytecode/opcodes.h"
 #include "compiler/constant.h"
+#include "compiler/engine_api.h"
 #include "compiler/lexer.h"
 #include "compiler/types.h"
 
@@ -231,9 +232,16 @@ struct Expr {
 	std::vector<Type> engine_params;
 	// Engine methods bound natively: the defaults of the last parameters, as
 	// var_to_str() writes them, and whether the engine hands the result over
-	// with a reference, as it does a RefCounted object.
+	// with a reference, as it does a RefCounted object; for an engine
+	// property, whether its getter does.
 	std::vector<std::string> engine_defaults;
 	bool returns_reference = false;
+	// An engine property: the getter and setter it is read and written through
+	// (spec §10.5), and the index that one of a family passes them first, or
+	// -1. Without them it goes by name.
+	std::optional<EngineMethod> getter;
+	std::optional<EngineMethod> setter;
+	int property_index = -1;
 	// Engine methods: for each argument, the range of an engine integer
 	// narrower than int64 or unsigned that it goes to (spec §10.6); engine
 	// properties: the range of the value their setter takes.

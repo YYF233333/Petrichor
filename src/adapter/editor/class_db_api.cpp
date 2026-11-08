@@ -1,5 +1,6 @@
 #include "adapter/editor/class_db_api.h"
 
+#include "compiler/builtin_api.h"
 #include "runtime/text.h"
 
 #include <godot_cpp/classes/class_db_singleton.hpp>
@@ -162,14 +163,28 @@ std::shared_ptr<const ClassDBApi::Members> ClassDBApi::members(const std::string
 		// "CanvasItemMaterial,ShaderMaterial" (core/object/property_info.h:152-153,
 		// scene/main/canvas_item.cpp:1601), and enums without their names
 		// (scene/main/node.cpp:4046).
-		const std::string getter = to_utf8(db->class_get_property_getter(cls, name));
-		std::optional<EngineMethod> read;
-		if (!getter.empty()) {
-			const auto own = result->methods.find(getter);
-			read = own != result->methods.end() ? own->second : find_method(result->parent, getter);
-		}
+		const auto accessor = [&](const StringName &p_method) -> std::optional<EngineMethod> {
+			const std::string method = to_utf8(p_method);
+			if (method.empty()) {
+				return std::nullopt;
+			}
+			const auto own = result->methods.find(method);
+			return own != result->methods.end() ? own->second : find_method(result->parent, method);
+		};
+		const std::optional<EngineMethod> read = accessor(db->class_get_property_getter(cls, name));
+		const std::optional<EngineMethod> write = accessor(db->class_get_property_setter(cls, name));
 		property.type = read ? read->return_type : type_of(info, false); // A property is never void.
-		property.writable = db->class_get_property_setter(cls, name) != StringName();
+		property.writable = write.has_value();
+		// The index of a family of another extension's class is unknown here, and
+		// such a property is read and written by name.
+		property.index = compiler::builtin::property_index(p_class, property.name);
+		const size_t indexed = property.index >= 0 ? 1 : 0;
+		if (read && read->hash && read->params.size() == indexed) {
+			property.getter = read;
+		}
+		if (write && write->hash && write->params.size() == indexed + 1) {
+			property.setter = write;
+		}
 		result->properties.emplace(property.name, property);
 	}
 	std::lock_guard<std::mutex> lock(mutex);
