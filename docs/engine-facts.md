@@ -166,6 +166,10 @@
 | `as` 转为内置类型时按构造函数转换，转换失败只在 debug 构建中报错 | `modules/gdscript/gdscript_vm.cpp:1642-1650` | §5.3 |
 | GDScript 在运行时遇到运算表中没有的组合时报错。运算数类型与首次执行时不同的情况只在 debug 构建中检查，release 构建得到 null | `modules/gdscript/gdscript_vm.cpp:793-798, 821-843` | §5.2 |
 | `for` 可以遍历 float 和向量 | `modules/gdscript/gdscript_vm.cpp:3092-3229` | §5.7 |
+| 遍历对象时，`_iter_init` 和 `_iter_next` 收到装着状态的单元素 Array，返回真时继续。`_iter_get` 收到状态本身。调用后 Array 的长度不为 1 即为出错 | `core/variant/variant_setget.cpp:1368-1396, 1602-1631, 1798-1823`；`modules/gdscript/gdscript_vm.cpp:3355-3403, 3720-3770` | §5.7 |
+| Object 在编辑器构建中把 `_iter_init`、`_iter_next`、`_iter_get` 登记为虚函数 | `core/object/object.cpp:1947, 1974-1985` | §5.7 |
+| GDScript 编译遍历对象的 `for` 时只查找 `_iter_get`，以它的返回类型为循环变量的类型。编辑器构建中 Object 的虚函数也算找到 | `modules/gdscript/gdscript_analyzer.cpp:2326-2338, 6034-6047`；`core/object/class_db.cpp:1105-1109` | §5.7 |
+| PackedDataContainer 是引擎中唯一定义 `_iter_*` 的类，已标为弃用 | `core/io/packed_data_container.cpp:359-361, 386-388`；`doc/classes/PackedDataContainer.xml:2` | §5.7 |
 | GDScript 的 `assert` 失败时报“Assertion failed” | `modules/gdscript/gdscript_vm.cpp:3876-3902` | §8.3 |
 | GDScript 的 await 接受任意 Signal 值 | `modules/gdscript/gdscript_vm.cpp:2586-2600` | §9.8 |
 | GDScript 对返回类型既不是协程、也不是 Variant 或 Signal 的调用的 await 给出“多余的 await”警告 | `modules/gdscript/gdscript_analyzer.cpp:3102-3107` | §9.8 |

@@ -105,6 +105,9 @@
 ### §5–§7 表达式、生命周期与场景模型
 
 - **表达式与收窄（§5.1–§5.4）**：`godot-open-rts` 用 `"hp" in unit` 检查单位成员 16 次。[第二次纸面迁移](surveys/paper-migration-2.md)中 `(x as T).unwrap()` 向下转型 16 处。因成员不收窄而新增的局部变量每千行 4.4 个。
+- **遍历对象（§5.7）**：[覆盖率调查](surveys/implementation-coverage.md)的语料中，定义 `_iter_init` 的类为 0。
+  - GDScript 编译时只查 `_iter_get`，缺另外两个要到运行时才报错。编辑器中 Object 自带这三个虚函数，`for x in node` 因此也能编译（[引擎事实](engine-facts.md)）。本语言要求类自己定义三者。
+  - 引擎类中只有 PackedDataContainer 定义它们。引擎已弃用该类，所以不支持遍历它。
 - **生命周期与析构（§6.2–§6.7）**：相关引擎暗坑见[暗坑清单](surveys/pitfalls.md) G-02、G-03、G-04、G-05、G-09、G-10。[语料计数](surveys/corpus-counts.md)中，在 `_ready` 里把节点登记到 autoload 成员上的写法只有 6 处（5 处在 Ring）。`NOTIFICATION_PREDELETE` 仅 40 次（32 次在 `gdUnit4`）。
 - **`_init` 参数（§6.2）**：[语料计数](surveys/corpus-counts.md)中，`_init` 带参数的 `Node` 脚本 28 个，`Resource` 脚本 2 个，多数有必填参数。godot-open-rts 的 11 个动作节点由代码以 `Moving.new(p)` 构造。引擎经无参途径创建时，通用规则已报程序错误，场景中的用法在编译期报错。所以不为 `Node` 和 `Resource` 另设无参特例。
 - **释放时机（§6.8）**：释放时机用户看得到，所以按作用域释放，与 C++、Rust 一致。
