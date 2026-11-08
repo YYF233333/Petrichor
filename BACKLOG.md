@@ -120,7 +120,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 Engine methods with a MethodBind are called through its ptrcall (architecture §2.2). Properties, vararg methods and other languages' methods still go by name with Variant arguments.
 
-- Engine properties: through their setter and getter by ptrcall. GDScript reads and writes them by name, with validated access only to members of built-in types (`modules/gdscript/gdscript_byte_codegen.cpp:848-883`). A script's `_set` or `_get` can take engine property names. So the fast path needs a check, cached per script, such as whether the object's script defines them.
+- Engine properties: through their getter and setter by ptrcall, as spec §10.5 says. The compiler's engine API needs each property's getter, setter and index for this.
 - Engine singletons and autoloads resolved once. Now GET_SINGLETON looks the name up at every run, and GET_AUTOLOAD calls get_node_or_null. A singleton's pointer can be kept, and an autoload's ObjectID with a liveness check.
 - Engine callbacks such as `_process(delta)`: no entry check of value-type arguments, whose types the engine guarantees.
 - Calls between classes of this language: the method found by name once per call site. A run keeps one version of each class, which allows this (spec §12.4). Now these are loaded through ResourceLoader at every use:
@@ -170,6 +170,9 @@ Engine methods with a MethodBind are called through its ptrcall (architecture §
     - GDScript spends 54% of a loop writing `Array[int]` elements stalled there. `push_back()` has the same shape (`core/variant/array.cpp:282-287`, `ed1daf0`).
     - A candidate fix: `reference()` copies the whole `_data` for types that need no deinit.
   - Each patch needs a benchmark that shows its gain. `docs/development.md` describes the profiling.
+- Godot: a script's `_get` and `_set` take engine property names in GDScript's `.` access, not in calls of their methods. On 4.7.2, `label.text = s` goes to a `_set` that takes `text`, and `label.set_text(s)` does not. Object's docs say these methods are not called for built-in properties (`doc/classes/Object.xml:39, 303`, `29a3f56701`). The owner may report it as an issue, or contribute a PR that makes the docs and the behavior agree.
+  - The order comes from the first public commit (`core/object/object.cpp:233-259, 316-338`, `0b806ee0fc9`). GDScript instances call `_set` and `_get` for every name that is not a member (`modules/gdscript/gdscript.cpp:1589-1600, 1676-1685`, `ed1daf0`).
+  - [#99828](https://github.com/godotengine/godot/issues/99828) is about a script's own properties, which these methods do not see. It likely led to the note in the docs.
 
 ## Open questions
 

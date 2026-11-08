@@ -25,6 +25,7 @@ Counts, in first-party .gd files (blank and comment lines excluded from the line
     on another object within a method whose name starts with `_on_`, with their locations for reading,
     and `queue_free()` for comparison;
   - `.pop_at(`, with locations for reading, `.pop_back(` and `.pop_front(`;
+  - methods named `_get` and `_set`, with locations for reading;
   - strings in single or double quotes, not tripled, that contain a line break, by repository,
     with locations for reading;
   - files with `@tool`, by group of repository and by game repository, and those of them that name
@@ -466,6 +467,9 @@ def main():
                 if (t.k == "ID" and t.v == "func" and i + 1 < len(ts) and ts[i + 1].k == "ID"
                         and (i == 0 or ts[i - 1].line != t.line or ts[i - 1].v == "static" or ts[i - 1].k == "AN")):
                     method = (ts[i + 1].v, *func_body(ts, i), i)
+                    if ts[i + 1].v in ("_get", "_set"):
+                        c[ts[i + 1].v] += 1
+                        freeing_at["_get or _set"].append(f"{name}/{f}:{t.line} {ts[i + 1].v}")
                 if t.k == "ID" and t.v in ("pop_at", "pop_back", "pop_front") and i > 0 and ts[i - 1].v == "." and i + 1 < len(ts) and ts[i + 1].v == "(":
                     c[t.v] += 1
                     if t.v == "pop_at":
@@ -638,6 +642,7 @@ def main():
     print(f"free() on self: {c['free_self']}; set_script on self: {c['set_script_self']}; "
           f".free() in an _on_ method: {c['free_in_handler']}; queue_free(): {c['queue_free']}")
     print(f"pop_at: {c['pop_at']}; pop_back: {c['pop_back']}; pop_front: {c['pop_front']}")
+    print(f"_get: {c['_get']}; _set: {c['_set']}")
     games = {name for name, _, _, group in G.REPOS if group == "game"}
     tool_games = ", ".join(f"{r} {n['tool']}" for r, n in sorted(by_repo.items(), key=lambda x: -x[1]["tool"]) if n["tool"] and r in games)
     tool_total = sum(n["tool"] for n in by_repo.values())

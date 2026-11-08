@@ -62,6 +62,10 @@
 | 对象析构时静默断开它的所有信号连接 | `core/object/object.cpp:2327-2342` | §9.7 |
 | 连接信号和 debug 构建发出信号时，引擎按名字向脚本核对信号是否存在 | `core/object/object.cpp:1197-1201, 1533-1537` | §10.5 |
 | 按实例列出的属性族名字带 `/`，如元数据、主题覆盖和着色器参数。ClassDB 注册的属性名都不带 `/`（由 `extension_api.json` 核对） | `core/object/object.cpp:525`；`scene/gui/control.cpp:444-479`；`scene/resources/material.cpp:340` | §10.4 |
+| 按名读写对象时，先交给脚本实例，再交给扩展类，最后才按 ClassDB 调 getter 和 setter。这个顺序出自开源时的第一个提交（`0b806ee0fc9`） | `core/object/object.cpp:233-259, 316-338` | §10.5 |
+| GDScript 实例对不是自身成员的名字都先调 `_set`、`_get`，引擎类的属性名也是。Object 的文档却说它们不处理内置属性（`29a3f56701`） | `modules/gdscript/gdscript.cpp:1589-1600, 1676-1685`；`doc/classes/Object.xml:39, 303` | §10.5 |
+| GDScript 的 `obj.prop` 按名读写，只对内置类型的成员用 validated 访问。对已知类的方法则直接调用 MethodBind，所以 `label.set_text(s)` 不经 `_set` | `modules/gdscript/gdscript_byte_codegen.cpp:848-883`；`modules/gdscript/gdscript_vm.cpp:1220, 1277, 2273-2313` | §10.5 |
+| C# 绑定的引擎属性调用 getter 和 setter 方法 | `modules/mono/editor/bindings_generator.cpp:2816, 2834` | §10.5 |
 | 对象设置脚本后发出 `script_changed` | `core/object/object.cpp:995` | §9.8 |
 | 引擎不给对象设置抽象脚本 | `core/object/object.cpp:976` | §4.1 |
 | PREDELETE 按逆序发出，先通知脚本实例，再通知原生类 | `core/object/object.cpp:173, 928-931` | §9.7 |
