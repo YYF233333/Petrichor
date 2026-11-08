@@ -200,6 +200,14 @@ TEST_CASE("preload() of a scene is a PackedScene of the scene's root") {
 	CHECK((scene.load && scene.s == "res://objects/platform.tscn"));
 	std::string problem;
 	CHECK_MESSAGE(bytecode::verify(loading.module, problem), problem);
+	// So does one of a container of preloads, untyped there.
+	const compiler::CompileResult containers = compile_in("extends Node\npub const SCENES = [preload(\"res://objects/platform.tscn\"), 1]\npub const BY_NAME = {\"p\": preload(\"res://objects/platform.tscn\")}\n", project, true);
+	REQUIRE_MESSAGE(containers.ok(), messages(containers));
+	REQUIRE(containers.module.named_constants.size() == 2);
+	const bytecode::Constant &list = containers.module.constants[containers.module.named_constants[0].constant];
+	CHECK((list.args.size() == 2 && list.args[0].load && list.args[0].s == "res://objects/platform.tscn"));
+	CHECK(containers.module.constants[containers.module.named_constants[1].constant].args.size() == 2);
+	CHECK_MESSAGE(bytecode::verify(containers.module, problem), problem);
 }
 
 // Spec §7.6.

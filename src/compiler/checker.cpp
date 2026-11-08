@@ -1401,6 +1401,27 @@ class Checker : public ClassRelation {
 		}
 	};
 
+	// The value of an expression whose type is unknown while loading because
+	// of the preloads in it: a preload, or the literal of an untyped container
+	// of such values and of known ones.
+	static ConstPtr loading_value(const Expr &p_expr) {
+		const bool array = p_expr.kind == ExprKind::ArrayLiteral;
+		if (p_expr.constant || (!array && p_expr.kind != ExprKind::DictionaryLiteral)) {
+			return p_expr.constant;
+		}
+		auto value = std::make_shared<ConstValue>();
+		value->kind = array ? ConstValue::Kind::Array : ConstValue::Kind::Dictionary;
+		value->type = Type::builtin(array ? "Array" : "Dictionary");
+		for (size_t i = 0; i < p_expr.args.size(); i++) {
+			ConstPtr item = loading_value(*p_expr.args[i]);
+			if (!item || (!array && i % 2 == 0 && !item->is_known())) {
+				return nullptr;
+			}
+			value->items.push_back(std::move(item));
+		}
+		return value;
+	}
+
 	// A value whose type is `p_type`, from the initializer as written: the
 	// type is inferred from it when not declared (spec §4.3, §4.5).
 	ConstPtr constant_value(Expr &r_initializer, const std::optional<TypeRef> &p_declared, Type &r_type) {
@@ -1410,7 +1431,10 @@ class Checker : public ClassRelation {
 		}
 		const Type value = check_value(r_initializer, r_type);
 		if (value.is_error()) {
-			return options.declarations_only ? r_initializer.constant : nullptr; // A preload's, while loading.
+			// While loading, a preload's type is unknown, and so is that of a
+			// container of them; the constant still holds its value, for
+			// GDScript to read (spec §11.3).
+			return options.declarations_only ? loading_value(r_initializer) : nullptr;
 		}
 		if (p_declared) {
 			if (r_type.is_error()) {
