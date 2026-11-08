@@ -51,6 +51,10 @@
 - 只跑改动涉及的测试组。FPS 和 Ring 迁移组占了套件的大部分时间。
 - 计时前先确认接着交流电源（`Get-CimInstance Win32_Battery`，BatteryStatus 为 2）。用电池时测得的数字偏差很大。
 - 优化之前先测时间花在哪里（`scons --debug=time`，或在 `tests/engine/run.py` 的 `run.run` 外包一层计时）。
+- 跑基准用普通的 `scons` 构建。`debug_symbols=yes` 让链接器带上 `/DEBUG`，它改变 `/OPT` 的默认值和代码布局。
+- 纯计算组的数字随代码布局变化，无关的改动也会让它变化 20% 以上，只作记录（architecture §4）。
+  - 要比较两个提交时，在 `git worktree` 中构建另一个提交，不要在共享的工作区里切换。
+  - 判断一个变化是否来自布局：改动解释器之前无关的代码再测一次。
 - 运行时的热点用 samply 采样，它需要管理员权限。
   - 先用 `scons debug_symbols=yes` 构建，DLL 才有 PDB。
   - 只跑一个用例的项目，用 `samply record --save-only --unstable-presymbolicate -o <名字>.json.gz -- <godot> --headless --path <项目>` 运行。

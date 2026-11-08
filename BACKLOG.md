@@ -140,6 +140,12 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - The check that a container is not read-only before each change is a call into the engine (spec §3.8).
   - Escape analysis can give containers that do not escape a private representation (architecture §2.2). The engine container stays the reference semantics.
   - A private representation supports some operations. A container that uses others keeps the engine's. Each private operation is tested against the engine's.
+- An interpreter whose speed does not depend on code layout. The compute benchmarks could then gate changes again (architecture §4).
+  - Changing unrelated functions before `Execution::run` slowed int_loop by 24% on AMD Zen 5.
+  - Placing `run` first in `.text` (`__declspec(code_seg(".text$a"))`) steadied float_loop, members and vectors, but not int_loop.
+  - Candidates:
+    - dispatch without one shared indirect jump, as computed goto or tail calls do (architecture §2.2);
+    - placing the hot handlers.
 - Instructions left in compute code, which already beats GDScript by 2 to 3.5 times.
   - Each evaluation of a String literal copies it with an instruction. Other literals are preset in the frame or read from the constant table.
   - Each statement starts with a LINE instruction, one of six per iteration of int_loop. GDScript debug builds also emit one per statement (`modules/gdscript/gdscript.cpp:2871-2875`, `ed1daf0`). Release builds emit none.
