@@ -507,7 +507,10 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
   - `String` 与 `StringName` 互相匹配；
   - 被匹配值为对象时，模式的类型可以是其子类；
   - 被匹配值为 `int` 时，模式可以是不带载荷的 enum 值。
-- `var x`、`_`、带 `..` 的数组和字典模式、逗号多模式和 `when` 守卫同 GDScript。
+- `var x`、`_`、带 `..` 的数组和字典模式、逗号多模式和 `when` 守卫同 GDScript。数组和字典模式另有以下规则：
+  - 数组模式只用于 `Array[T]` 和 `Variant`，字典模式只用于 `Dictionary[K, V]` 和 `Variant`。用于其他类型报编译错误；
+  - 其中元素和值的模式以元素类型和值类型为被匹配值的类型。如 `Array[int]` 上 `[var x]` 的 `x` 为 `int`；
+  - 字典模式的键须为常量表达式，且同 `in` 一样须可赋给键类型。
 - 新增模式：
   - enum 分支与 struct：`Command.MOVE(target = 模式, ..)`、`Hit(damage = var d, ..)`；`var 字段` 为 `字段 = var 字段` 的简写，未列出的字段须写 `..`，可嵌套；
   - 内置构造：`Ok(var v)`、`Err(var e)`、`Some(var x)`、`Finished(var v)`、`Cancelled(var r)`，按位置书写，不带类型前缀；
