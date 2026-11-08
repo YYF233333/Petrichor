@@ -364,8 +364,8 @@ static void instance_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensi
 	r_error->error = GDEXTENSION_CALL_OK;
 
 	// One snapshot for the lookup and the call.
-	const std::shared_ptr<const ClassImage> image = instance->current_image();
-	const InstanceContext context = instance->context();
+	std::shared_ptr<const ClassImage> image = instance->current_image();
+	InstanceContext context = instance->context();
 	// The @onready initializers run first, base class first, as in GDScript
 	// (modules/gdscript/gdscript.cpp:1937-1953); the engine calls _ready()
 	// whether or not the class defines it (core/object/make_virtuals.py:1-10).
@@ -379,7 +379,7 @@ static void instance_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensi
 		r_error->error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
 		return;
 	}
-	result = vm::call(image, index, context, args, p_argument_count, *r_error);
+	result = vm::call(std::move(image), index, std::move(context), args, p_argument_count, *r_error);
 }
 
 // The engine sends notifications to the script instance instead of calling

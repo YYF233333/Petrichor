@@ -255,6 +255,9 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 		entry.method = pointer;
 		entry.container = bytecode::find_container_method(call.base, call.method);
 		entry.calls_callable = call.base == ValueType::Callable && call.method == "call";
+		if (call.is_vararg) {
+			entry.vararg = name;
+		}
 		const bool special = entry.container && (entry.container->needs_element || entry.container->replaced != ClassImage::Replaced::None || entry.container->key_role != ClassImage::KeyRole::None);
 		entry.plain = !call.is_vararg && !entry.calls_callable && !call.checks_elements && !special && call.return_type != ValueType::Variant && call.return_type != ValueType::Object;
 	}

@@ -1251,7 +1251,15 @@ class Execution {
 		if (!object) {
 			return false;
 		}
-		*reinterpret_cast<Signal *>(p_frame + p_op[2]) = Signal(static_cast<Object *>(*object), StringName(image.values[p_op[1]]));
+		// The engine's Signal(object, name), which takes the object's pointer
+		// (core/variant/variant_construct.h:375-377), not the wrapper godot-cpp
+		// finds under a lock of the object's.
+		static const GDExtensionPtrConstructor construct = gdextension_interface::variant_get_ptr_constructor(GDEXTENSION_VARIANT_TYPE_SIGNAL, 2);
+		const GDExtensionObjectPtr pointer = object_pointer(*object);
+		const void *args[] = { &pointer, image.native_values[p_op[1]] };
+		uint8_t *dst = p_frame + p_op[2];
+		destroy_value(ValueType::Signal, dst);
+		construct(dst, args);
 		return true;
 	}
 
@@ -1456,9 +1464,15 @@ class Execution {
 	// engine entry, which the call() of an untyped Callable is (§8.1), a
 	// program error in it gives the default result and this call goes on.
 	std::optional<bool> call_directly(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Slot &p_result, bool p_entry, const bytecode::Function &p_fn, int p_line) {
-		const CallableCustom *custom = reinterpret_cast<const Callable *>(p_frame + p_op[3])->get_custom();
-		const auto *lambda = dynamic_cast<const LambdaCallable *>(custom);
-		const auto *method = lambda ? nullptr : dynamic_cast<const MethodCallable *>(custom);
+		// A Callable of this library by its exact type: neither type has
+		// subclasses, and comparing types costs less than the casts of
+		// get_custom() (thirdparty/godot-cpp/src/variant/callable_custom.cpp:122-125).
+		const auto *custom = static_cast<const CallableCustomBase *>(gdextension_interface::callable_custom_get_userdata(reinterpret_cast<const Callable *>(p_frame + p_op[3])->_native_ptr(), gdextension_interface::token));
+		const auto *lambda = custom && typeid(*custom) == typeid(LambdaCallable) ? static_cast<const LambdaCallable *>(custom) : nullptr;
+		const auto *method = custom && typeid(*custom) == typeid(MethodCallable) ? static_cast<const MethodCallable *>(custom) : nullptr;
+		// For a method of self, resolving would end with the image and the
+		// context this call holds already.
+		const bool on_self = method && context.storage && context.self_image && !context.storage->freed.load(std::memory_order_relaxed) && uint64_t(method->get_object()) == gdextension_interface::object_get_instance_id(context.owner->_owner);
 		ScriptedObject callee;
 		int index = -1;
 		const uint8_t *const *captures = nullptr;
@@ -1466,33 +1480,37 @@ class Execution {
 			callee = { lambda->get_image(), lambda->get_context() };
 			index = lambda->get_function();
 			captures = lambda->get_captures();
-		} else if (method && method->resolve(callee, index)) {
+		} else if (on_self || (method && method->resolve(callee, index))) {
 			// As op_call_method() finds it.
-			if (callee.context.storage == context.storage && context.self_image) {
+			if (!on_self && callee.context.storage == context.storage && context.self_image) {
 				callee.image = context.self_image;
 			}
-			index = callee.image->find_function(method->get_method());
-			if (index < 0 || (!p_entry && !callee.image->has_signature(method->get_method(), image.call_signatures[p_op[1]]))) {
+			const ClassImage &found = on_self ? *context.self_image : *callee.image;
+			index = found.find_function(method->get_method());
+			if (index < 0 || (!p_entry && !found.has_signature(method->get_method(), image.call_signatures[p_op[1]]))) {
 				return std::nullopt;
 			}
 		} else {
 			return std::nullopt;
 		}
-		if (!callee.context.self_image) {
+		if (!on_self && !callee.context.self_image) {
 			callee.context.self_image = callee.image;
 		}
-		ClassImage::resolve_function(callee.image, index);
-		const bytecode::Function &function = callee.image->module.functions[index];
+		const ClassImage &found = on_self ? *context.self_image : *callee.image;
+		const ClassImage::FunctionOrigin &origin = found.function_origins[index];
+		const ClassImage &target = origin.image ? *origin.image : found;
+		index = origin.image ? origin.index : index;
+		const bytecode::Function &function = target.module.functions[index];
 		const size_t given = function.params.size() - function.captures;
 		if (function.is_async || p_op[4] > given || p_op[4] < given - function.defaults.size()) {
 			return std::nullopt;
 		}
-		const bool ok = call_function(*callee.image, uint32_t(index), callee.context, p_op, p_frame, p_result, p_fn, p_line, captures, p_entry);
+		const bool ok = call_function(target, uint32_t(index), on_self ? context : callee.context, p_op, p_frame, p_result, p_fn, p_line, captures, p_entry);
 		if (ok || !p_entry) {
 			return ok;
 		}
 		if (p_op[2] != NO_SLOT) {
-			from_variant(image.types[p_result.type], default_variant(callee.image->types[function.result.type]), p_frame + p_op[2], false);
+			from_variant(image.types[p_result.type], default_variant(target.types[function.result.type]), p_frame + p_op[2], false);
 		}
 		return true;
 	}
@@ -1856,6 +1874,19 @@ class Execution {
 			if (custom->is_valid()) {
 				GDExtensionCallError error;
 				custom->call(args.as_variants(), int(argc), variant_at(scratch), error);
+			}
+		} else if (const std::optional<StringName> &vararg = image.builtin_calls[target].vararg) {
+			// A Variant that holds the Callable or Signal without a reference:
+			// these methods only read it (core/variant/variant_call.cpp:1170-1211).
+			alignas(Variant) uint8_t view[sizeof(Variant)] = {};
+			*reinterpret_cast<int32_t *>(view) = int32_t(module.builtin_methods[target].base);
+			std::memcpy(view + 8, base, 16);
+			alignas(Variant) uint8_t returned[sizeof(Variant)];
+			GDExtensionCallError error;
+			gdextension_interface::variant_call(view, vararg->_native_ptr(), args.pointers, argc, via_variant ? scratch : returned, &error);
+			if (!via_variant) {
+				from_variant(result_type, variant_at(returned), static_cast<uint8_t *>(result), false);
+				destroy_value(ValueType::Variant, returned);
 			}
 		} else {
 			image.builtin_calls[target].method(base, args.pointers, result, int(argc));
@@ -3230,13 +3261,13 @@ void clear() {
 
 namespace vm {
 
-Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const Variant **p_args, int64_t p_argc, GDExtensionCallError &r_error, bool *r_failed, const uint8_t *const *p_captures, bool p_task, const uint8_t *p_bound_self) {
+Variant call(std::shared_ptr<const ClassImage> p_image, int p_function, InstanceContext p_context, const Variant **p_args, int64_t p_argc, GDExtensionCallError &r_error, bool *r_failed, const uint8_t *const *p_captures, bool p_task, const uint8_t *p_bound_self) {
 	// Old code stays alive until this call returns, even if a hot reload
 	// replaces the image meanwhile (spec §12.4).
-	std::shared_ptr<const ClassImage> image = p_image;
-	InstanceContext context = p_context;
+	std::shared_ptr<const ClassImage> image = std::move(p_image);
+	InstanceContext context = std::move(p_context);
 	if (!context.self_image) {
-		context.self_image = p_image;
+		context.self_image = image;
 	}
 	ClassImage::resolve_function(image, p_function);
 	const bytecode::Function &fn = image->module.functions[p_function];
@@ -3308,7 +3339,10 @@ Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, c
 	if (r_failed) {
 		*r_failed = !ok;
 	}
-	return ok ? outward_variant(result_type, result.data) : default_variant(result_type);
+	if (!ok) {
+		return default_variant(result_type);
+	}
+	return outward_variant(result_type, result.data);
 }
 
 const std::vector<StackFrame> &stack() {

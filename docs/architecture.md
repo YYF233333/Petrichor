@@ -165,6 +165,8 @@
 - 内置类型的方法同样以 ptrcall 调用。
   - 有的方法签名固定，结果不是 Variant，也不处理元素和键。这样的调用只做只读检查，参数直接取槽位。
   - 其余方法经通用的调用，由它检查元素、键和结果（规范 §3.8）。
+  - 可变参数的方法，如 `emit()` 和 `bind()`，经 Variant 按名字调用，与 GDScript 相同（`modules/gdscript/gdscript_byte_codegen.cpp:1191-1192`）。
+  - 它们的 ptrcall 每次在堆上复制参数（`core/variant/variant_call.cpp:561-578`）。
 - Array 元素的读、写和 `for` 的每次迭代都只调用引擎一次。
   - 读取越界时，引擎给出空指针而不报错（`core/extension/gdextension_interface.cpp:1289-1295`）。
   - 标量的类型化 Array 中，元素都是该类型的 Variant，不持有资源。引擎的写入检查保证这一点（`core/variant/variant.h:268-272`）。

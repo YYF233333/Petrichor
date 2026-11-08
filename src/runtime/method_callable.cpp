@@ -20,17 +20,24 @@ thread_local bool without_init = false;
 thread_local bool last_initialized = true;
 
 // Calls the function, as the callee of a call of a function value when one is pending.
-Variant call_value(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const Variant **p_args, int p_argc, GDExtensionCallError &r_error, const uint8_t *const *p_captures, const uint8_t *p_bound_self = nullptr) {
+Variant call_value(std::shared_ptr<const ClassImage> p_image, int p_function, InstanceContext p_context, const Variant **p_args, int p_argc, GDExtensionCallError &r_error, const uint8_t *const *p_captures, const uint8_t *p_bound_self = nullptr) {
 	ValueCall &value = current_value_call;
 	const bool callee = value.pending;
 	value.pending = false;
 	value.entered = value.entered || callee;
 	bool failed = false;
-	Variant result = vm::call(p_image, p_function, p_context, p_args, p_argc, r_error, &failed, p_captures, callee && value.task, p_bound_self);
+	Variant result = vm::call(std::move(p_image), p_function, std::move(p_context), p_args, p_argc, r_error, &failed, p_captures, callee && value.task, p_bound_self);
 	if (callee) {
 		value.failed = failed;
 	}
 	return result;
+}
+
+// Whether the object exists, without the wrapper that ObjectDB::get_instance()
+// finds or makes under a lock of the object's
+// (thirdparty/godot-cpp/include/godot_cpp/core/object.hpp:110-116; core/object/object.cpp:2167-2169).
+bool alive(ObjectID p_object) {
+	return gdextension_interface::object_get_instance_from_id(uint64_t(p_object)) != nullptr;
 }
 
 // The object's script instance and the function's index in its image.
@@ -143,6 +150,10 @@ bool MethodCallable::resolve(ScriptedObject &r_instance, int &r_function) const 
 	return petrichor::resolve(owner, method, r_instance, r_function);
 }
 
+bool MethodCallable::is_valid() const {
+	return alive(owner);
+}
+
 int MethodCallable::get_argument_count(bool &r_is_valid) const {
 	ScriptedObject instance;
 	int function = -1;
@@ -154,10 +165,10 @@ void MethodCallable::call(const Variant **p_arguments, int p_argcount, Variant &
 	ScriptedObject instance;
 	int function = -1;
 	if (!resolve(instance, function)) {
-		r_call_error.error = ObjectDB::get_instance(owner) ? GDEXTENSION_CALL_ERROR_INVALID_METHOD : GDEXTENSION_CALL_ERROR_INSTANCE_IS_NULL;
+		r_call_error.error = alive(owner) ? GDEXTENSION_CALL_ERROR_INVALID_METHOD : GDEXTENSION_CALL_ERROR_INSTANCE_IS_NULL;
 		return;
 	}
-	r_return_value = call_value(instance.image, function, instance.context, p_arguments, p_argcount, r_call_error, nullptr);
+	r_return_value = call_value(std::move(instance.image), function, std::move(instance.context), p_arguments, p_argcount, r_call_error, nullptr);
 }
 
 void call_static(const StringName &p_class, const StringName &p_method, const Variant **p_args, uint32_t p_count, Variant &r_result, GDExtensionCallError &r_error) {
@@ -214,7 +225,7 @@ void StaticCallable::call(const Variant **p_arguments, int p_argcount, Variant &
 		r_call_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
 		return;
 	}
-	r_return_value = call_value(image, function, InstanceContext(), p_arguments, p_argcount, r_call_error, nullptr);
+	r_return_value = call_value(std::move(image), function, InstanceContext(), p_arguments, p_argcount, r_call_error, nullptr);
 }
 
 StructMethodCallable::StructMethodCallable(const std::shared_ptr<const ClassImage> &p_image, int p_function, const uint8_t *p_self) :
@@ -265,7 +276,7 @@ String LambdaCallable::get_as_text() const {
 }
 
 bool LambdaCallable::is_valid() const {
-	return !context.storage || (!context.storage->freed && ObjectDB::get_instance(owner));
+	return !context.storage || (!context.storage->freed && alive(owner));
 }
 
 int LambdaCallable::get_argument_count(bool &r_is_valid) const {

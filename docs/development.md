@@ -23,6 +23,12 @@
   - 刚分字段写好的 Variant 一被移动，读取就因存储转发失败而停顿。
   - 热路径上按值返回 Variant 时，写成 if/return，让复制消除生效。
   - 返回带名字的 Variant 的函数只留这一个 return，NRVO 才会生效。
+- godot-cpp 的一些便捷接口放在热路径上很贵：
+  - `StringName::is_empty()` 和 `Object::get_instance_id()` 各是一次对引擎的调用。
+  - `ObjectDB::get_instance()` 和 Variant 转 `Object *` 都要找到或建出包装对象，并持有对象的锁（`thirdparty/godot-cpp/include/godot_cpp/core/object.hpp:110-116`）。
+  - 只要引擎的指针或 ID 时，用 `object_pointer()`、`object_id_of()` 或 `object_get_instance_from_id()`。
+  - `CallableCustom` 默认的 `is_valid()` 也经过包装对象，本库的 Callable 都覆盖它。
+  - `Callable::get_custom()` 带一次 `dynamic_cast`（`thirdparty/godot-cpp/src/variant/callable_custom.cpp:122-125`）。
 - checker 给出 Error 类型而没有诊断时，lowering 拿到 `NO_REG` 会崩溃。
 - clang-format 按 Godot 的 `.clang-format`（ColumnLimit 0）会把以下写法排得难以阅读：
   - 不加括号的嵌套三元表达式，如 `a ? 1 : b ? -1 : 0`；

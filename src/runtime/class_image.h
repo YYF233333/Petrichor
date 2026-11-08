@@ -13,6 +13,7 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -115,6 +116,11 @@ public:
 		GDExtensionPtrBuiltInMethod method = nullptr;
 		const bytecode::ContainerMethod *container = nullptr;
 		bool calls_callable = false; // Callable.call().
+		// Of a vararg method, which the engine's pointer call runs on copies of
+		// the arguments in vectors it allocates (core/variant/variant_call.cpp:561-578):
+		// the name to call it by through a Variant, as GDScript does
+		// (modules/gdscript/gdscript_byte_codegen.cpp:1191-1192).
+		std::optional<godot::StringName> vararg;
 		// The engine's call and the read-only check are all it needs: a method
 		// with a fixed signature, its result in its slot, nothing to handle of
 		// elements or keys (spec §3.8).

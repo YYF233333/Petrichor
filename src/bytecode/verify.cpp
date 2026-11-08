@@ -296,6 +296,9 @@ class Verifier {
 		if (!p_constant.field.empty() && p_constant.args.size() != 1) {
 			return fail("a constant reads a field of no value");
 		}
+		if (p_constant.load && storage(p_constant.type) != ValueType::Object) {
+			return fail("a constant loads a resource into a type that holds no object");
+		}
 		for (const Constant &arg : p_constant.args) {
 			if (!typed_constant(arg)) {
 				return false;

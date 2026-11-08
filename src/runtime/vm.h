@@ -61,7 +61,7 @@ namespace vm {
 // `p_task`, a caller of this language gets the Task, whose failure is not the
 // caller's (§9.1). A struct's method value passes its copy of the struct,
 // the first parameter, as `p_bound_self` in that parameter's layout.
-godot::Variant call(const std::shared_ptr<const ClassImage> &p_image, int p_function, const InstanceContext &p_context, const godot::Variant **p_args, int64_t p_argc, GDExtensionCallError &r_error, bool *r_failed = nullptr, const uint8_t *const *p_captures = nullptr, bool p_task = false, const uint8_t *p_bound_self = nullptr);
+godot::Variant call(std::shared_ptr<const ClassImage> p_image, int p_function, InstanceContext p_context, const godot::Variant **p_args, int64_t p_argc, GDExtensionCallError &r_error, bool *r_failed = nullptr, const uint8_t *const *p_captures = nullptr, bool p_task = false, const uint8_t *p_bound_self = nullptr);
 
 // Initializes the static variables of a class that has loaded (spec §4.8):
 // its base's first, unless done, then its own and its inner classes'. False
