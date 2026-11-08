@@ -46,6 +46,7 @@ enum class Terminator {
 	None, // Still open. Lowering closes every block, so none reaches emit.
 	Jump,
 	Branch, // To `target` if `value` is true, else to `else_target`.
+	Iterate, // `step`, an ITERATE or ITERATE_INT, to `target`, or past the end to `else_target`.
 	Return,
 	ReturnVoid,
 };
@@ -56,6 +57,7 @@ struct Block {
 	uint32_t target = 0;
 	uint32_t else_target = 0;
 	uint32_t value = NO_REG;
+	Instr step;
 };
 
 struct Function {

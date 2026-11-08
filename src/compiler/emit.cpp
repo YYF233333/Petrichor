@@ -55,53 +55,62 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 		put(0);
 	};
 
+	// `p_jump`: the block that a J operand jumps to.
+	auto put_instr = [&](const Instr &p_instr, uint32_t p_jump) {
+		put(uint32_t(p_instr.op));
+		if (bytecode::operand_count(p_instr.op) < 0) {
+			put(p_instr.imm);
+			put(offset_of(p_instr.dst));
+			put(offset_of(p_instr.base));
+			put(uint32_t(p_instr.args.size()));
+			for (uint32_t arg : p_instr.args) {
+				put(p_function.regs[arg].type);
+				put(offset_of(arg));
+			}
+			return;
+		}
+		for (const char *s = bytecode::op_emit_schema(p_instr.op); *s; s++) {
+			switch (*s) {
+				case 'D':
+					put(offset_of(p_instr.dst));
+					break;
+				case 'A':
+					put(offset_of(p_instr.a));
+					break;
+				case 'B':
+					put(offset_of(p_instr.b));
+					break;
+				case 'I':
+					put(p_instr.imm);
+					break;
+				case 'T':
+					put(p_instr.type);
+					break;
+				case 'F':
+					put(p_instr.field);
+					break;
+				case 'M':
+					put(member_offset(p_instr));
+					break;
+				case 'R':
+					put(p_function.regs[p_instr.dst].type);
+					break;
+				case 'S':
+					put(p_function.regs[p_instr.a].type);
+					break;
+				case 'J':
+					fixups.push_back({ code.size(), p_jump });
+					put(0);
+					break;
+			}
+		}
+	};
+
 	for (uint32_t b = 0; b < p_function.blocks.size(); b++) {
 		const Block &block = p_function.blocks[b];
 		block_start[b] = uint32_t(code.size());
 		for (const Instr &instr : block.instrs) {
-			put(uint32_t(instr.op));
-			if (bytecode::operand_count(instr.op) < 0) {
-				put(instr.imm);
-				put(offset_of(instr.dst));
-				put(offset_of(instr.base));
-				put(uint32_t(instr.args.size()));
-				for (uint32_t arg : instr.args) {
-					put(p_function.regs[arg].type);
-					put(offset_of(arg));
-				}
-				continue;
-			}
-			for (const char *s = bytecode::op_emit_schema(instr.op); *s; s++) {
-				switch (*s) {
-					case 'D':
-						put(offset_of(instr.dst));
-						break;
-					case 'A':
-						put(offset_of(instr.a));
-						break;
-					case 'B':
-						put(offset_of(instr.b));
-						break;
-					case 'I':
-						put(instr.imm);
-						break;
-					case 'T':
-						put(instr.type);
-						break;
-					case 'F':
-						put(instr.field);
-						break;
-					case 'M':
-						put(member_offset(instr));
-						break;
-					case 'R':
-						put(p_function.regs[instr.dst].type);
-						break;
-					case 'S':
-						put(p_function.regs[instr.a].type);
-						break;
-				}
-			}
+			put_instr(instr, 0);
 		}
 
 		const uint32_t next = b + 1;
@@ -130,6 +139,12 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 					if (block.else_target != next) {
 						jump(Op::JUMP, block.else_target);
 					}
+				}
+				break;
+			case Terminator::Iterate:
+				put_instr(block.step, block.else_target);
+				if (block.target != next) {
+					jump(Op::JUMP, block.target);
 				}
 				break;
 			case Terminator::Return:

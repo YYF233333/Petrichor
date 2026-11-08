@@ -162,6 +162,15 @@
   - 类加载时按 hash 取得 MethodBind。算法与引擎不一致时，加载即失败。
   - 调用可省略的参数，默认值按引擎 `var_to_str` 的文本记下，加载时转成原生值。
   - `free()` 没有 MethodBind，可变参数的方法不支持 ptrcall。它们和其他语言的类的方法仍按名字、以 Variant 调用。
+- 内置类型的方法同样以 ptrcall 调用。
+  - 有的方法签名固定，结果不是 Variant，也不处理元素和键。这样的调用只做只读检查，参数直接取槽位。
+  - 其余方法经通用的调用，由它检查元素、键和结果（规范 §3.8）。
+- Array 元素的读、写和 `for` 的每次迭代都只调用引擎一次。
+  - 读取越界时，引擎给出空指针而不报错（`core/extension/gdextension_interface.cpp:1289-1295`）。
+  - 标量的类型化 Array 中，元素都是该类型的 Variant，不持有资源。引擎的写入检查保证这一点（`core/variant/variant.h:268-272`）。
+  - 所以写入只替换元素的数据，不经 `Array::set` 的复制和检查（`core/variant/array.cpp:517-523`）。
+  - Packed 数组的元素经引擎的指针 getter 和 setter，按元素槽位的布局读写（`core/variant/variant_setget.cpp:348-354, 421-428`）。
+- `for` 的每次迭代是一条 ITERATE 和一条 JUMP，与 GDScript 相同（`modules/gdscript/gdscript_vm.cpp:3471-3492, 3661-3681`）。计数的 `for` 用 ITERATE_INT。
 - 从引擎进入的调用做入口检查（§10.1）。
 - 虚拟机可以在任意线程上运行，不使用没有锁保护的全局可变状态（§12.3）。
 - 运行时直接用 godot-cpp 的类型，它们对应引擎内部的同名类型。改为引擎模块时，运行时换用引擎的头文件，adapter 重写，编译器和字节码原样使用（§2.1、§2.3）。

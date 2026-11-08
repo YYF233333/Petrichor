@@ -283,3 +283,23 @@ pub func literal_names() -> String:
 	var c := Callable(self, "bump")
 	c.call(2)
 	return str(tally) + " " + str(c == bump) + " " + str(Signal(self, "pinged") == pinged)
+
+# Elements of packed arrays read in their slots' types, bytes and 32-bit
+# floats widened.
+pub func packed_reads() -> String:
+	var bytes := PackedByteArray()
+	bytes.append(200)
+	bytes.append(7)
+	var halves := PackedFloat32Array()
+	halves.append(1.5)
+	halves.append(-2.0)
+	var names := PackedStringArray()
+	names.append("a")
+	names.append("b")
+	var total := 0.0
+	for h in halves:
+		total += h
+	var text := ""
+	for n in names:
+		text += n
+	return str(bytes[0] + bytes[-1]) + " " + str(total) + " " + text + names[1]

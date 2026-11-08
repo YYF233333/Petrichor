@@ -323,6 +323,16 @@ class Verifier {
 		return slot(p_index, storage(p_base) == ValueType::Dictionary ? ValueType::Variant : ValueType::Int);
 	}
 
+	// What GET_INDEX and ITERATE read into: from a packed array, its element in
+	// the element's own layout, which the engine's getter writes there.
+	bool element_operand(uint32_t p_base, uint32_t p_type, uint32_t p_dst) {
+		const ValueType packed = packed_element(storage(p_base));
+		if (!type_operand(p_type) || !slot_like(p_dst, p_type)) {
+			return false;
+		}
+		return packed == ValueType::Void || storage(p_type) == packed || fail("an element of a packed array read as another type");
+	}
+
 	bool target(uint32_t p_pc) {
 		return (p_pc < starts.size() && starts[p_pc]) || fail("jump to " + std::to_string(p_pc) + ", which is not an instruction");
 	}
@@ -747,10 +757,15 @@ class Verifier {
 			case Op::NEW_CONTAINER:
 				return (storage(o[0]) == ValueType::Array || storage(o[0]) == ValueType::Dictionary || fail("a container of a type that is not one")) && slot(o[1], storage(o[0]));
 			case Op::GET_INDEX:
-				if (o[0] >= module.types.size() || !is_indexable(storage(o[0])) || !type_operand(o[1])) {
+				if (o[0] >= module.types.size() || !is_indexable(storage(o[0]))) {
 					return fail("an index into a value that has none");
 				}
-				return slot_like(o[2], o[1]) && slot(o[3], storage(o[0])) && index_operand(o[0], o[4]);
+				return element_operand(o[0], o[1], o[2]) && slot(o[3], storage(o[0])) && index_operand(o[0], o[4]);
+			case Op::ITERATE:
+				if (o[0] >= module.types.size() || !is_indexable(storage(o[0])) || storage(o[0]) == ValueType::Dictionary) {
+					return fail("iterating over a value that has no elements");
+				}
+				return element_operand(o[0], o[1], o[2]) && slot(o[3], storage(o[0]));
 			case Op::SET_INDEX: {
 				if (o[0] >= module.types.size() || !is_indexable(storage(o[0]))) {
 					return fail("an index into a value that has none");

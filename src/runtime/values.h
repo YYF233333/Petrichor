@@ -46,8 +46,44 @@ inline GDExtensionObjectPtr object_pointer(const godot::Variant &p_value) {
 void construct_value(bytecode::ValueType p_type, uint8_t *p_slot);
 void destroy_value(bytecode::ValueType p_type, uint8_t *p_slot);
 
+inline bool is_scalar(bytecode::ValueType p_type) {
+	return p_type == bytecode::ValueType::Bool || p_type == bytecode::ValueType::Int || p_type == bytecode::ValueType::Float;
+}
+// A Variant of a scalar's slot, made in place as the engine lays it out,
+// with the engine's number of the type; it owns nothing to destroy
+// (core/variant/variant.h:268-272).
+inline void make_scalar_variant(bytecode::ValueType p_type, const uint8_t *p_slot, uint8_t *r_variant) {
+	std::memset(r_variant, 0, sizeof(godot::Variant));
+	*reinterpret_cast<int32_t *>(r_variant) = int32_t(p_type);
+	std::memcpy(r_variant + 8, p_slot, 8);
+}
+// A scalar's slot from a Variant as from_variant() fills it: an int also
+// into a float. False when the Variant holds another type.
+inline bool scalar_from_variant(bytecode::ValueType p_type, const godot::Variant &p_value, uint8_t *p_slot) {
+	const godot::Variant::Type have = type_of(p_value);
+	if (p_type == bytecode::ValueType::Bool && have == godot::Variant::BOOL) {
+		// The 8-byte slot stays 0 or 1 above the byte the engine keeps.
+		*reinterpret_cast<uint64_t *>(p_slot) = *data_of(p_value) ? 1 : 0;
+		return true;
+	}
+	if (p_type == bytecode::ValueType::Float && have == godot::Variant::INT) {
+		*reinterpret_cast<double *>(p_slot) = double(*reinterpret_cast<const int64_t *>(data_of(p_value)));
+		return true;
+	}
+	if ((p_type == bytecode::ValueType::Int && have == godot::Variant::INT) || (p_type == bytecode::ValueType::Float && have == godot::Variant::FLOAT)) {
+		std::memcpy(p_slot, data_of(p_value), 8);
+		return true;
+	}
+	return false;
+}
+
 void copy_value(bytecode::ValueType p_type, uint8_t *p_dst, const uint8_t *p_src);
 godot::Variant to_variant(bytecode::ValueType p_type, const uint8_t *p_slot);
+// An element of a packed array, by an index within its size, in the layout of
+// the element's slot, as the engine's pointer getter and setter take it
+// (core/variant/variant_setget.cpp:348-354, 387-394, 421-428, 465-472).
+void get_packed_element(bytecode::ValueType p_type, const uint8_t *p_array, int64_t p_index, uint8_t *p_element);
+void set_packed_element(bytecode::ValueType p_type, uint8_t *p_array, int64_t p_index, const uint8_t *p_element);
 
 // What an entry check asks of a value beyond how its slot holds it (spec §10.1).
 struct ValueCheck {

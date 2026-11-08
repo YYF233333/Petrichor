@@ -251,9 +251,12 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 			r_error = vformat("%s has no method %s with this signature", bytecode::value_type_name(call.base), name);
 			return nullptr;
 		}
-		image->builtin_methods.push_back(pointer);
-		image->container_methods.push_back(bytecode::find_container_method(call.base, call.method));
-		image->callable_calls.push_back(call.base == ValueType::Callable && call.method == "call");
+		ClassImage::BuiltinCall &entry = image->builtin_calls.emplace_back();
+		entry.method = pointer;
+		entry.container = bytecode::find_container_method(call.base, call.method);
+		entry.calls_callable = call.base == ValueType::Callable && call.method == "call";
+		const bool special = entry.container && (entry.container->needs_element || entry.container->replaced != ClassImage::Replaced::None || entry.container->key_role != ClassImage::KeyRole::None);
+		entry.plain = !call.is_vararg && !entry.calls_callable && !call.checks_elements && !special && call.return_type != ValueType::Variant && call.return_type != ValueType::Object;
 	}
 	for (const bytecode::ClassRef &ref : module.classes) {
 		image->classes.push_back(to_godot(ref.name));

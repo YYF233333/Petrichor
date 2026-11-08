@@ -19,6 +19,10 @@
   - 全局状态改用 std 类型或函数内的 static。扩展突然加载不了时，先查新加的全局变量。
 - 按路径加载资源只用 `load_resource()`（`src/runtime/values.h`），不要自己把 `load()` 的结果装进 Variant。
 - godot-cpp 的 String 没有 `quote()` 和 `find_char()`。
+- godot-cpp 移动 Variant 时整块交换字节，函数不在头文件中（`thirdparty/godot-cpp/src/variant/variant.cpp:90-92`）。
+  - 刚分字段写好的 Variant 一被移动，读取就因存储转发失败而停顿。
+  - 热路径上按值返回 Variant 时，写成 if/return，让复制消除生效。
+  - 返回带名字的 Variant 的函数只留这一个 return，NRVO 才会生效。
 - checker 给出 Error 类型而没有诊断时，lowering 拿到 `NO_REG` 会崩溃。
 - clang-format 按 Godot 的 `.clang-format`（ColumnLimit 0）会把以下写法排得难以阅读：
   - 不加括号的嵌套三元表达式，如 `a ? 1 : b ? -1 : 0`；
@@ -41,6 +45,12 @@
 - 只跑改动涉及的测试组。FPS 和 Ring 迁移组占了套件的大部分时间。
 - 计时前先确认接着交流电源（`Get-CimInstance Win32_Battery`，BatteryStatus 为 2）。用电池时测得的数字偏差很大。
 - 优化之前先测时间花在哪里（`scons --debug=time`，或在 `tests/engine/run.py` 的 `run.run` 外包一层计时）。
+- 运行时的热点用 samply 采样，它需要管理员权限。
+  - 先用 `scons debug_symbols=yes` 构建，DLL 才有 PDB。
+  - 只跑一个用例的项目，用 `samply record --save-only --unstable-presymbolicate -o <名字>.json.gz -- <godot> --headless --path <项目>` 运行。
+  - 符号在旁边的 `.syms.json` 中，按帧地址查表即得函数名；`llvm-symbolizer` 给出行号。
+  - 官方的 Godot 没有符号。用 `llvm-objdump -d` 按 ImageBase 加地址反汇编，看是哪个函数。
+  - 停顿的样本常落在停顿指令的下一条上。
 
 ## 调试
 

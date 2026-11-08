@@ -109,11 +109,18 @@ public:
 	std::vector<GDExtensionPtrGetter> getters;
 	std::vector<GDExtensionPtrSetter> setters;
 	std::vector<GDExtensionPtrConstructor> constructors;
-	std::vector<GDExtensionPtrBuiltInMethod> builtin_methods;
 	using KeyRole = bytecode::KeyRole;
 	using Replaced = bytecode::Replaced;
-	std::vector<const bytecode::ContainerMethod *> container_methods; // By built-in method index.
-	std::vector<bool> callable_calls; // By built-in method index: Callable.call().
+	struct BuiltinCall {
+		GDExtensionPtrBuiltInMethod method = nullptr;
+		const bytecode::ContainerMethod *container = nullptr;
+		bool calls_callable = false; // Callable.call().
+		// The engine's call and the read-only check are all it needs: a method
+		// with a fixed signature, its result in its slot, nothing to handle of
+		// elements or keys (spec §3.8).
+		bool plain = false;
+	};
+	std::vector<BuiltinCall> builtin_calls; // By built-in method index.
 	std::vector<godot::StringName> classes; // Engine classes, by class index.
 	std::vector<godot::String> class_scripts; // Classes of this language: their scripts.
 	std::vector<godot::String> class_interfaces; // Interfaces: "script::Name".

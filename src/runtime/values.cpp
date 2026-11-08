@@ -92,6 +92,8 @@ struct TypeOps {
 	GDExtensionVariantFromTypeConstructorFunc to_variant = nullptr;
 	GDExtensionTypeFromVariantConstructorFunc from_variant = nullptr;
 	GDExtensionPtrOperatorEvaluator equal = nullptr; // With a value of the same type.
+	GDExtensionPtrIndexedGetter get_indexed = nullptr;
+	GDExtensionPtrIndexedSetter set_indexed = nullptr;
 	uint32_t size = 0;
 	bool zero_default = true; // The default value is all zero bytes.
 };
@@ -374,6 +376,8 @@ void init_values() {
 		entry.to_variant = gdextension_interface::get_variant_from_type_constructor(engine_type);
 		entry.from_variant = gdextension_interface::get_variant_to_type_constructor(engine_type);
 		entry.equal = gdextension_interface::variant_get_ptr_operator_evaluator(GDEXTENSION_VARIANT_OP_EQUAL, engine_type, engine_type);
+		entry.get_indexed = gdextension_interface::variant_get_ptr_indexed_getter(engine_type);
+		entry.set_indexed = gdextension_interface::variant_get_ptr_indexed_setter(engine_type);
 		// Asked of the engine rather than listed: Basis and Color, say, are not zero.
 		alignas(16) uint8_t probe[64] = {};
 		entry.construct(probe, nullptr);
@@ -398,7 +402,8 @@ void destroy_value(ValueType p_type, uint8_t *p_slot) {
 		release(object_data(p_slot));
 		object_data(p_slot) = ObjectData();
 	} else if (p_type == ValueType::Variant) {
-		if (type_of(variant_at(p_slot)) != Variant::NIL) {
+		// The engine destroys nothing of these (core/variant/variant.h:268-272, 314-319).
+		if (type_of(variant_at(p_slot)) > Variant::FLOAT) {
 			variant_at(p_slot).~Variant();
 		}
 	} else if (ops(p_type).destroy) {
@@ -657,11 +662,20 @@ void copy_value(const TypeImage &p_type, uint8_t *p_dst, const uint8_t *p_src) {
 	}
 }
 
+// Each value is returned as it is made, not moved: godot-cpp's move swaps
+// the bytes in wide pieces, which stall on a Variant just written field by
+// field (thirdparty/godot-cpp/src/variant/variant.cpp:90-92).
 Variant to_variant(const TypeImage &p_type, const uint8_t *p_slot) {
-	if (is_option(p_type)) {
-		return tag(p_slot) ? to_variant(*p_type.element, p_slot + 8) : Variant(); // None is NIL (spec §10.1).
+	if (is_option(p_type) && !tag(p_slot)) {
+		return Variant(); // None is NIL (spec §10.1).
 	}
-	return is_struct(p_type) ? encode(p_type, p_slot) : to_variant(p_type.storage, p_slot);
+	if (is_option(p_type)) {
+		return to_variant(*p_type.element, p_slot + 8);
+	}
+	if (is_struct(p_type)) {
+		return encode(p_type, p_slot);
+	}
+	return to_variant(p_type.storage, p_slot);
 }
 
 Variant encode_variant(const TypeImage &p_type, size_t p_variant, const std::vector<Variant> &p_fields) {
@@ -1411,6 +1425,26 @@ void copy_value(ValueType p_type, uint8_t *p_dst, const uint8_t *p_src) {
 	type.copy(p_dst, args);
 }
 
+void get_packed_element(ValueType p_type, const uint8_t *p_array, int64_t p_index, uint8_t *p_element) {
+	ops(p_type).get_indexed(p_array, p_index, p_element);
+}
+
+void set_packed_element(ValueType p_type, uint8_t *p_array, int64_t p_index, const uint8_t *p_element) {
+	ops(p_type).set_indexed(p_array, p_index, p_element);
+}
+
+// A value of a built-in type, by its one return as the named Variant.
+static Variant builtin_variant(ValueType p_type, const uint8_t *p_slot) {
+	Variant result;
+	// Written into the still empty Variant, a scalar without the engine.
+	if (is_scalar(p_type)) {
+		make_scalar_variant(p_type, p_slot, reinterpret_cast<uint8_t *>(&result));
+	} else if (p_type != ValueType::Void) {
+		ops(p_type).to_variant(result._native_ptr(), const_cast<uint8_t *>(p_slot));
+	}
+	return result;
+}
+
 Variant to_variant(ValueType p_type, const uint8_t *p_slot) {
 	if (p_type == ValueType::Object) {
 		ObjectView view(p_slot);
@@ -1419,12 +1453,7 @@ Variant to_variant(ValueType p_type, const uint8_t *p_slot) {
 	if (p_type == ValueType::Variant) {
 		return variant_at(p_slot);
 	}
-	Variant result;
-	if (p_type != ValueType::Void) {
-		// Writes into the still empty Variant.
-		ops(p_type).to_variant(result._native_ptr(), const_cast<uint8_t *>(p_slot));
-	}
-	return result;
+	return builtin_variant(p_type, p_slot);
 }
 
 bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, const ValueCheck *p_check) {
@@ -1492,28 +1521,9 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 			}
 			break;
 		case ValueType::Bool:
-			if (have != Variant::BOOL) {
-				return false;
-			}
-			// The 8-byte slot stays 0 or 1 above the byte the engine keeps.
-			*reinterpret_cast<uint64_t *>(p_slot) = *data_of(p_value) ? 1 : 0;
-			return true;
 		case ValueType::Int:
-			if (have != Variant::INT) {
-				return false;
-			}
-			std::memcpy(p_slot, data_of(p_value), 8);
-			return true;
 		case ValueType::Float:
-			if (have == Variant::FLOAT) {
-				std::memcpy(p_slot, data_of(p_value), 8);
-				return true;
-			}
-			if (have == Variant::INT) {
-				*reinterpret_cast<double *>(p_slot) = double(*reinterpret_cast<const int64_t *>(data_of(p_value)));
-				return true;
-			}
-			return false;
+			return scalar_from_variant(p_type, p_value, p_slot);
 		default:
 			break;
 	}

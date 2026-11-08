@@ -135,14 +135,15 @@ Engine methods with a MethodBind are called through its ptrcall (architecture §
   - registers whose scopes do not overlap share slots, as GDScript pools its temporaries (`modules/gdscript/gdscript_byte_codegen.cpp:122-131`, `ed1daf0`);
   - CLEAR copies one shared empty container instead of making one.
 - Optimizations from what static analysis knows, keeping the meaning. Lowering does not know which classes are RefCounted, so CLEAR clears every object register (spec §6.8). An object whose static type is not RefCounted, such as a Node, holds no reference, and its clear can go.
-- Containers. The arrays benchmark loses to GDScript mostly to boxing each element into a Variant and back.
-  - The check that a container is not read-only before each change is a call into the engine (spec §3.8). It takes about 7 ns of an append.
+- Containers. Reading, writing and iterating over an Array's elements call the engine once each (architecture §2.2).
+  - Built-in methods with a Variant result, such as `pop_back()`, take the general way of a call. So do methods that handle elements or keys. It costs about 11 ns more than a plain call.
+  - A Dictionary read calls the engine twice, for `has()` and the lookup, after the key is made a Variant.
+  - The check that a container is not read-only before each change is a call into the engine (spec §3.8).
   - Escape analysis can give containers that do not escape a private representation (architecture §2.2). The engine container stays the reference semantics.
   - A private representation supports some operations. A container that uses others keeps the engine's. Each private operation is tested against the engine's.
-- Instructions left in compute code, which already beats GDScript by 1.7 to 3.5 times.
-  - A counting `for` runs four instructions of its own per iteration. GDScript runs two, ITERATE_INT and a JUMP (`modules/gdscript/gdscript_vm.cpp:3471-3492`, `ed1daf0`).
+- Instructions left in compute code, which already beats GDScript by 2 to 3.5 times.
   - Each evaluation of a String literal copies it with an instruction. Other literals are preset in the frame or read from the constant table.
-  - Each statement starts with a LINE instruction, one of eight per iteration of int_loop. GDScript debug builds also emit one per statement (`modules/gdscript/gdscript.cpp:2871-2875`, `ed1daf0`). Release builds emit none.
+  - Each statement starts with a LINE instruction, one of six per iteration of int_loop. GDScript debug builds also emit one per statement (`modules/gdscript/gdscript.cpp:2871-2875`, `ed1daf0`). Release builds emit none.
     - A table from code positions to lines would replace it.
     - An error would look its line up by position. The 52 handler calls that pass a line would drop it.
     - Breakpoints and stepping would need another mechanism, such as patching the instruction at a breakpoint.

@@ -32,7 +32,7 @@ namespace petrichor::bytecode {
 //
 // In emit_schema, each character encodes one operand word from ir::Instr:
 // D=dst, A=a, B=b, I=imm, T=type, F=field, M=member_offset, R=regs[dst].type,
-// S=regs[a].type. In verify_schema, a leading '@' marks an instruction that
+// S=regs[a].type, J=the jump of a block's Iterate terminator. In verify_schema, a leading '@' marks an instruction that
 // always uses the instance, and each following character checks the operand at
 // that position: i/f/b/s/o/v/c/g (slot of Int/Float/Bool/String/Object/Variant/
 // Callable/Signal), S/O (slot_or_none of String/Object), n (String member),
@@ -150,6 +150,8 @@ namespace petrichor::bytecode {
 	X(JUMP, "I", "j") \
 	X(JUMP_IF_FALSE, "AI", "bj") \
 	X(JUMP_IF_TRUE, "AI", "bj") \
+	X(ITERATE_INT, "DAJ", "iij") /* counter, limit, end: steps the counter, which starts at -1, and jumps to end once it reaches the limit */ \
+	X(ITERATE, "SRDABJ", "....ij") /* type of container (an Array or a packed array), type of dst, dst, container, counter, end: steps the counter, which starts at -1, and reads the element there as GET_INDEX does, or jumps to end past the container's current size */ \
 	X(CALL, "*", "") \
 	X(CALL_SUPER, "*", "") \
 	X(AWAIT_TASK, "DAI", ".o") /* dst, task, owned (0 or 1) */ \

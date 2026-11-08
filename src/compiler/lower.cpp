@@ -2863,31 +2863,30 @@ class Lowerer {
 				const uint32_t local = reg_of(p_stmt.local);
 				const bool counts_in_local = counting && fn.regs[local].type == type_index(ValueType::Int) && !assigns(p_stmt.body, p_stmt.local);
 				const uint32_t counter = counts_in_local ? local : temp(ValueType::Int);
-				load_int(counter, 0);
-				const uint32_t condition_block = new_block();
-				const uint32_t body_block = new_block();
+				load_int(counter, -1);
 				const uint32_t step_block = new_block();
+				const uint32_t body_block = new_block();
 				const uint32_t end_block = new_block();
-				jump(condition_block);
-				current = condition_block;
-				const uint32_t limit = counting ? source : size_of(source);
-				const uint32_t more = temp(ValueType::Bool);
-				instr(Op::LT_INT, more, counter, limit);
-				branch(more, body_block, end_block);
+				jump(step_block);
+				ir::Block &step = fn.blocks[step_block];
+				step.terminator = ir::Terminator::Iterate;
+				step.target = body_block;
+				step.else_target = end_block;
+				step.step.op = counting ? Op::ITERATE_INT : Op::ITERATE;
+				step.step.dst = counting ? counter : local;
+				step.step.a = source;
+				step.step.b = counting ? NO_REG : counter;
 				current = body_block;
-				if (!counts_in_local) {
-					const uint32_t element_first = uint32_t(fn.regs.size());
-					move(local, counting ? counter : get_index(source, counter, p_stmt.element));
-					release(temps_since(element_first));
+				if (counting && !counts_in_local) {
+					move(local, counter);
+				}
+				if (!counting) {
+					check_object(local, p_stmt.element);
 				}
 				loops.push_back({ step_block, end_block, scopes.size() });
 				lower_block(p_stmt.body, { local });
 				loops.pop_back();
 				jump(step_block);
-				current = step_block;
-				const uint32_t step = int_constant(1);
-				instr(Op::ADD_INT, counter, counter, step);
-				jump(condition_block);
 				current = end_block;
 				release({ source });
 				return;

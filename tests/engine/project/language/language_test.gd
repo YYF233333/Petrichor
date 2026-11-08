@@ -457,6 +457,7 @@ func _ready() -> void:
 	_check_errors(["container_check.pet:26: The Dictionary has no key \"nope\"."], "the program error of a missing key")
 	_check(containers.elements() == "[10, 2, 8] (4.0, 0.0) [(0.0, 2.0), (3.0, 3.0)] [7]", "elements are assigned in place, and a packed array or a member of an element is written back")
 	_check(containers.packed_elements() == "[[1]] { \"a\": [2] }", "a method that changes a packed array in a container writes it back")
+	_check(containers.packed_reads() == "207 -0.5 abb", "elements of packed arrays are read and iterated in their slots' types")
 	var peer := ContainerCheck.new()
 	_check(containers.other_members(peer) == "5 8 6", "members of another instance are read and written in their slots, through a setter, also those that are not pub (spec §4.2)")
 	_check(peer.get("kept_hits") == null and not peer.get_property_list().any(func(p): return p["name"] == "kept_hits"), "a container that keeps boxes is not listed by reflection, even when pub (spec §10.5)")

@@ -172,16 +172,31 @@ TEST_CASE("a constructor does not write over its arguments") {
 	CHECK(rejected(result.module, "a constructor writes over one of its arguments"));
 }
 
-TEST_CASE("only arrays are indexed") {
+TEST_CASE("only arrays are indexed and iterated, a packed one in its element's type") {
 	// The language does not index strings (spec §3.8), and the runtime's
-	// GET_INDEX does not handle them.
-	compiler::CompileResult result = compile("extends Node\n\nfunc g(s: String, a: Array[int]) -> int:\n\treturn a[0]\n");
+	// GET_INDEX and ITERATE do not handle them. The engine's getter writes a
+	// packed array's element in its own layout.
+	compiler::CompileResult result = compile("extends Node\n\nfunc g(s: String, a: Array[int]) -> int:\n\treturn a[0]\n\nfunc h(s: String, p: PackedVector3Array) -> int:\n\tfor v in p:\n\t\tpass\n\treturn 0\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	bytecode::Function &g = function_named(result.module, "g");
+	bytecode::Function &h = function_named(result.module, "h");
 	const size_t index = find_instruction(g, Op::GET_INDEX);
-	g.code[index + 1] = value_type_index(result.module, bytecode::ValueType::String);
-	g.code[index + 4] = g.params[0].offset; // The String as the container.
-	CHECK(rejected(result.module, "an index into a value that has none"));
+	const size_t iterate = find_instruction(h, Op::ITERATE);
+	SUBCASE("indexing a String") {
+		g.code[index + 1] = value_type_index(result.module, bytecode::ValueType::String);
+		g.code[index + 4] = g.params[0].offset; // The String as the container.
+		CHECK(rejected(result.module, "an index into a value that has none"));
+	}
+	SUBCASE("iterating over a String") {
+		h.code[iterate + 1] = value_type_index(result.module, bytecode::ValueType::String);
+		h.code[iterate + 4] = h.params[0].offset;
+		CHECK(rejected(result.module, "iterating over a value that has no elements"));
+	}
+	SUBCASE("a Vector3 element read into a String") {
+		h.code[iterate + 2] = value_type_index(result.module, bytecode::ValueType::String);
+		h.code[iterate + 3] = h.params[0].offset;
+		CHECK(rejected(result.module, "an element of a packed array read as another type"));
+	}
 }
 
 TEST_CASE("a call to a method of this language passes what the call table says") {

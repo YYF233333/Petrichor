@@ -392,7 +392,7 @@ public:
 	}
 	~Arguments() {
 		for (uint32_t i = 0; i < variant_count; i++) {
-			reinterpret_cast<Variant *>(inline_variants)[i].~Variant();
+			destroy_value(ValueType::Variant, inline_variants + i * sizeof(Variant));
 		}
 		delete heap;
 	}
@@ -416,8 +416,11 @@ int64_t packed_size(const uint8_t *p_slot) {
 	return reinterpret_cast<const T *>(p_slot)->size();
 }
 
-int64_t packed_array_size(ValueType p_type, const uint8_t *p_slot) {
+// Of an Array or a packed array.
+int64_t array_size(ValueType p_type, const uint8_t *p_slot) {
 	switch (p_type) {
+		case ValueType::Array:
+			return reinterpret_cast<const Array *>(p_slot)->size();
 		case ValueType::PackedByteArray:
 			return packed_size<PackedByteArray>(p_slot);
 		case ValueType::PackedInt32Array:
@@ -460,7 +463,10 @@ String read_only_error(ValueType p_type) {
 // A key or an element as GET_INDEX and SET_INDEX take it: a Variant in a
 // container without types or as a box, otherwise in its slot's layout.
 Variant kept(const TypeImage *p_type, const uint8_t *p_slot) {
-	return !p_type || p_type->box ? variant_at(p_slot) : to_variant(*p_type, p_slot);
+	if (!p_type || p_type->box) {
+		return variant_at(p_slot);
+	}
+	return to_variant(*p_type, p_slot);
 }
 
 // A key as a diagnostic shows it, a box as its value.
@@ -482,6 +488,37 @@ bool checked_when_read(const TypeImage &p_type) {
 String read_error(const TypeImage &p_type, const Variant &p_value) {
 	const String mismatch = entry_mismatch(p_type, p_value);
 	return mismatch.substr(0, 1).to_upper() + mismatch.substr(1) + ".";
+}
+
+enum class ElementRead {
+	Done,
+	Past, // The index is past the end.
+	Misfit, // An element of the Array does not fit the type.
+};
+
+// The element at a non-negative index of an Array or a packed array, into its
+// slot as GET_INDEX reads it (spec §3.8).
+ElementRead read_element(const TypeImage &p_base, const TypeImage &p_element, const uint8_t *p_container, int64_t p_index, uint8_t *p_dst) {
+	if (p_base.storage != ValueType::Array) {
+		if (p_index >= array_size(p_base.storage, p_container)) {
+			return ElementRead::Past;
+		}
+		get_packed_element(p_base.storage, p_container, p_index, p_dst);
+		return ElementRead::Done;
+	}
+	// Null past the end, without an error (core/extension/gdextension_interface.cpp:1289-1295).
+	const Variant *value = static_cast<const Variant *>(gdextension_interface::array_operator_index_const(p_container, p_index));
+	if (!value) {
+		return ElementRead::Past;
+	}
+	// As from_variant() reads a scalar, without its calls.
+	const bool fits = p_element.kind == bytecode::TypeKind::Value && is_scalar(p_element.storage) ? scalar_from_variant(p_element.storage, *value, p_dst) : from_variant(p_element, *value, p_dst, checked_when_read(p_element));
+	return fits ? ElementRead::Done : ElementRead::Misfit;
+}
+
+// The program error of an element that does not fit, read again.
+String misfit_error(const TypeImage &p_element, const uint8_t *p_array, int64_t p_index) {
+	return read_error(p_element, (*reinterpret_cast<const Array *>(p_array))[p_index]);
 }
 
 // The instructions below make values of their own here, out of run(), whose
@@ -1278,18 +1315,35 @@ class Execution {
 			return true;
 		}
 		// A negative index counts from the end, as in GDScript.
-		Variant container = to_variant(base.storage, p_frame + p_op[4]);
-		const int64_t index = *reinterpret_cast<const int64_t *>(p_frame + p_op[5]);
-		bool valid = false;
-		bool out_of_bounds = false;
-		const Variant value = container.get_indexed(index, valid, out_of_bounds);
-		if (!valid || out_of_bounds) {
-			return fail(p_fn, p_line, vformat("Index %d is out of bounds (size %d).", index, int64_t(container.call("size"))));
+		const uint8_t *container = p_frame + p_op[4];
+		const int64_t raw = *reinterpret_cast<const int64_t *>(p_frame + p_op[5]);
+		const int64_t at = raw < 0 ? raw + array_size(base.storage, container) : raw;
+		switch (at < 0 ? ElementRead::Past : read_element(base, element, container, at, p_frame + p_op[3])) {
+			case ElementRead::Done:
+				return true;
+			case ElementRead::Past:
+				return fail(p_fn, p_line, vformat("Index %d is out of bounds (size %d).", raw, array_size(base.storage, container)));
+			case ElementRead::Misfit:
+				break;
 		}
-		if (!from_variant(element, value, p_frame + p_op[3], checked_when_read(element))) {
-			return fail(p_fn, p_line, read_error(element, value));
+		return fail(p_fn, p_line, misfit_error(element, container, at));
+	}
+
+	// The next element, or past the end the jump out of the loop.
+	PETRICHOR_NOINLINE bool op_iterate(const uint32_t *p_op, uint8_t *p_frame, size_t &r_pc, const bytecode::Function &p_fn, int p_line) {
+		const TypeImage &element = image.types[p_op[2]];
+		const int64_t counter = ++*reinterpret_cast<int64_t *>(p_frame + p_op[5]);
+		switch (read_element(image.types[p_op[1]], element, p_frame + p_op[4], counter, p_frame + p_op[3])) {
+			case ElementRead::Done:
+				r_pc += 7;
+				return true;
+			case ElementRead::Past:
+				r_pc = p_op[6];
+				return true;
+			case ElementRead::Misfit:
+				break;
 		}
-		return true;
+		return fail(p_fn, p_line, misfit_error(element, p_frame + p_op[4], counter));
 	}
 
 	PETRICHOR_NOINLINE bool op_set_index(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
@@ -1315,18 +1369,30 @@ class Execution {
 		}
 		// A negative index counts from the end, as in GDScript.
 		const int64_t raw = *reinterpret_cast<const int64_t *>(index);
-		const int64_t size = base.storage == ValueType::Array ? reinterpret_cast<const Array *>(container)->size() : packed_array_size(base.storage, container);
-		const int64_t at = raw < 0 ? raw + size : raw;
-		if (at < 0 || at >= size) {
-			return fail(p_fn, p_line, vformat("Index %d is out of bounds (size %d).", raw, size));
+		const int64_t at = raw < 0 ? raw + array_size(base.storage, container) : raw;
+		if (base.kind == bytecode::TypeKind::Array && is_scalar(base.item->storage)) {
+			// The typed Array's element is a Variant of the scalar's type, which
+			// owns nothing (core/variant/variant.h:268-272): the value replaces
+			// its data, without the copy and the check of Array::set() (core/variant/array.cpp:517-523).
+			// The element is the Array's own, its shared data copied first, and
+			// null past the end (core/extension/gdextension_interface.cpp:1281-1287, core/variant/array.cpp:104-110).
+			uint8_t *element = at < 0 ? nullptr : static_cast<uint8_t *>(gdextension_interface::array_operator_index(container, at));
+			if (element) {
+				std::memcpy(element + 8, src, 8);
+				return true;
+			}
+		} else if (at >= 0 && at < array_size(base.storage, container)) {
+			if (base.storage == ValueType::Array) {
+				alignas(Variant) uint8_t value[sizeof(Variant)];
+				new (value) Variant(kept(base.item, src));
+				reinterpret_cast<Array *>(container)->set(at, variant_at(value));
+				destroy_value(ValueType::Variant, value);
+			} else {
+				set_packed_element(base.storage, container, at, src);
+			}
+			return true;
 		}
-		if (base.storage == ValueType::Array) {
-			reinterpret_cast<Array *>(container)->set(at, kept(base.item, src));
-		} else {
-			// The element in its slot's layout, as the engine's setter takes it.
-			gdextension_interface::variant_get_ptr_indexed_setter(GDExtensionVariantType(base.storage))(container, at, src);
-		}
-		return true;
+		return fail(p_fn, p_line, vformat("Index %d is out of bounds (size %d).", raw, array_size(base.storage, container)));
 	}
 
 	PETRICHOR_NOINLINE void op_to_variant(const uint32_t *p_op, uint8_t *p_frame) {
@@ -1645,13 +1711,52 @@ class Execution {
 		return true;
 	}
 
+	// A plain built-in method (ClassImage::BuiltinCall) with its arguments in
+	// their slots, a Variant made only of a scalar; others as op_call_builtin
+	// calls them.
+	PETRICHOR_NOINLINE bool op_call_plain(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		constexpr uint32_t PLAIN_ARGS = 4;
+		const bytecode::BuiltinMethodCall &method = image.module.builtin_methods[p_op[1]];
+		const uint32_t dst = p_op[2];
+		const uint32_t argc = p_op[4];
+		if (argc > PLAIN_ARGS || (dst == NO_SLOT && method.return_type != ValueType::Void)) {
+			return op_call_builtin(p_op, p_frame, p_fn, p_line);
+		}
+		const void *args[PLAIN_ARGS];
+		alignas(Variant) uint8_t variants[PLAIN_ARGS][sizeof(Variant)];
+		for (uint32_t i = 0; i < argc; i++) {
+			const ValueType type = image.types[p_op[5 + 2 * i]].storage;
+			uint8_t *slot = p_frame + p_op[6 + 2 * i];
+			if (method.params[i] != ValueType::Variant) {
+				// The engine reads an object as its pointer (core/variant/method_ptrcall.h:251-260).
+				args[i] = method.params[i] == ValueType::Object ? slot + 8 : slot;
+			} else if (type == ValueType::Variant) {
+				args[i] = slot;
+			} else if (is_scalar(type)) {
+				make_scalar_variant(type, slot, variants[i]);
+				args[i] = variants[i];
+			} else {
+				return op_call_builtin(p_op, p_frame, p_fn, p_line);
+			}
+		}
+		// A static method has no base, which the engine does not read
+		// (core/variant/variant_call.cpp:470-472).
+		uint8_t *base = p_op[3] == NO_SLOT ? nullptr : p_frame + p_op[3];
+		if (!method.is_const && base && is_read_only(method.base, base)) {
+			return fail(p_fn, p_line, read_only_error(method.base));
+		}
+		// A method without a result does not write it (core/variant/variant_call.cpp:184-191, 508-510).
+		image.builtin_calls[p_op[1]].method(base, args, dst == NO_SLOT ? nullptr : p_frame + dst, int(argc));
+		return true;
+	}
+
 	PETRICHOR_NOINLINE bool op_call_builtin(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
 		const bytecode::Module &module = image.module;
 		const bool utility = Op(p_op[0]) == Op::CALL_UTILITY;
 		const uint32_t target = p_op[1];
 		const uint32_t dst = p_op[2];
 		const uint32_t argc = p_op[4];
-		if (!utility && image.callable_calls[target]) {
+		if (!utility && image.builtin_calls[target].calls_callable) {
 			bytecode::Slot result;
 			result.type = module.builtin_methods[target].result_type;
 			if (const std::optional<bool> done = call_directly(p_op, p_frame, result, true, p_fn, p_line)) {
@@ -1670,7 +1775,7 @@ class Execution {
 		std::optional<Variant> inserted; // A Variant is made by a call into the engine.
 		if (!utility && base) {
 			const bytecode::BuiltinMethodCall &method = module.builtin_methods[target];
-			const bytecode::ContainerMethod *container = image.container_methods[target];
+			const bytecode::ContainerMethod *container = image.builtin_calls[target].container;
 			if (!method.is_const && is_read_only(method.base, base)) {
 				return fail(p_fn, p_line, read_only_error(method.base));
 			}
@@ -1745,7 +1850,7 @@ class Execution {
 				all = dictionary.has(type_of(key) == Variant::CALLABLE ? frozen_copy(key) : key);
 			}
 			*static_cast<uint64_t *>(result) = all ? 1 : 0;
-		} else if (const CallableCustom *custom = image.callable_calls[target] ? reinterpret_cast<const Callable *>(base)->get_custom() : nullptr) {
+		} else if (const CallableCustom *custom = image.builtin_calls[target].calls_callable ? reinterpret_cast<const Callable *>(base)->get_custom() : nullptr) {
 			// A Callable of this library: what the engine's Callable.call() runs,
 			// without its dispatch, which drops the error too (core/variant/callable.cpp:44-58).
 			if (custom->is_valid()) {
@@ -1753,7 +1858,7 @@ class Execution {
 				custom->call(args.as_variants(), int(argc), variant_at(scratch), error);
 			}
 		} else {
-			image.builtin_methods[target](base, args.pointers, result, int(argc));
+			image.builtin_calls[target].method(base, args.pointers, result, int(argc));
 		}
 		// A deep copy copies the boxes too (spec §3.8).
 		const bool deep = (replaced == ClassImage::Replaced::Duplicate && *static_cast<const uint8_t *>(args.pointers[0])) || replaced == ClassImage::Replaced::DuplicateDeep ||
@@ -2514,6 +2619,14 @@ public:
 				case Op::JUMP_IF_TRUE:
 					pc = U64(code[pc + 1]) ? code[pc + 2] : pc + 3;
 					break;
+				case Op::ITERATE_INT:
+					pc = ++I64(code[pc + 1]) < I64(code[pc + 2]) ? pc + 4 : code[pc + 3];
+					break;
+				case Op::ITERATE:
+					if (!op_iterate(code + pc, frame, pc, fn, record.line)) {
+						return false;
+					}
+					break;
 				// Calls: target, dst, base, argc, then (type, offset) per argument.
 				case Op::CALL: {
 					const uint32_t target = code[pc + 1];
@@ -2580,12 +2693,14 @@ public:
 					break;
 				}
 				case Op::CALL_UTILITY:
-				case Op::CALL_BUILTIN:
-					if (!op_call_builtin(code + pc, frame, fn, record.line)) {
+				case Op::CALL_BUILTIN: {
+					const bool plain = Op(code[pc]) == Op::CALL_BUILTIN && image.builtin_calls[code[pc + 1]].plain;
+					if (!(plain ? op_call_plain(code + pc, frame, fn, record.line) : op_call_builtin(code + pc, frame, fn, record.line))) {
 						return false;
 					}
 					pc += 5 + 2 * code[pc + 4];
 					break;
+				}
 				case Op::CONSTRUCT:
 					op_construct(code + pc, frame);
 					pc += 5 + 2 * code[pc + 4];
