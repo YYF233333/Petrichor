@@ -160,6 +160,16 @@ Engine methods with a MethodBind are called through its ptrcall (architecture §
 ## Upstream
 
 - GDScript's per-iteration clearing of loop-body locals, left as commented-out TODOs (`modules/gdscript/gdscript_compiler.cpp:2106, 2140`, `ed1daf0`). It would match spec §6.8. The owner may contribute it.
+- Store-forwarding stalls in moves of Variant, found while profiling arrays (d516c08). A wide load reads a Variant just written by narrower stores. It then waits for those stores to reach the cache. The owner may contribute both fixes once the current work is done.
+  - godot-cpp: the move constructor and assignment are out of line and swap the bytes (`src/variant/variant.cpp:90-92, 551-554`, `8070599`).
+    - MSVC builds have no LTO by default, so no caller can inline them (`tools/windows.py:214-217`).
+    - Every moved Variant therefore goes through memory. In one profile of Array element writes, 38% of the time was in the move.
+    - Inline in the header, they could copy the bytes and set the source to NIL.
+  - Godot: `Array::set()` copies the value, validates the copy and moves it into place (`core/variant/array.cpp:517-523`, `ed1daf0`).
+    - For an int, the copy writes 8 bytes of `_data`, and the move reads all 16 (`core/variant/variant.cpp:1148-1150`, `core/variant/variant.h:853-861`, `ed1daf0`).
+    - GDScript spends 54% of a loop writing `Array[int]` elements stalled there. `push_back()` has the same shape (`core/variant/array.cpp:282-287`, `ed1daf0`).
+    - A candidate fix: `reference()` copies the whole `_data` for types that need no deinit.
+  - Each patch needs a benchmark that shows its gain. `docs/development.md` describes the profiling.
 
 ## Open questions
 
