@@ -13,8 +13,10 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace petrichor {
@@ -92,6 +94,13 @@ public:
 	// By constant index: one of a built-in type in that type's own layout, as
 	// CONST_VALUE copies it; null for others.
 	std::vector<const uint8_t *> native_values;
+	// By constant index: whether it loads a resource (bytecode::Constant::load),
+	// which loaded_value() reads.
+	std::vector<bool> loads;
+	// A constant that loads a resource, computed when it is first read and
+	// then kept, so that each read gets the same container (spec §4.5); false
+	// with the error when the engine cannot compute it.
+	bool loaded_value(uint32_t p_constant, godot::Variant &r_value, godot::String &r_error) const;
 	std::vector<godot::StringName> engine_methods;
 	std::vector<godot::StringName> engine_static_classes; // Empty for a method called on an object.
 	// By engine call index: the MethodBind of a method called through it, with
@@ -174,6 +183,9 @@ public:
 	bool same_declarations(const ClassImage &p_other) const;
 
 private:
+	mutable std::mutex loading;
+	mutable std::unordered_map<uint32_t, godot::Variant> loaded;
+
 	static std::shared_ptr<ClassImage> load_class(bytecode::Module &&p_module, const godot::String &p_path, godot::String &r_error, const std::shared_ptr<const ClassImage> &p_base);
 };
 

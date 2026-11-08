@@ -53,3 +53,12 @@ pub func on_objects(other: StaticCheck) -> Array:
 	var file: FileAccess? = FileAccess.open("res://project.godot", FileAccess.READ)
 	var red := Color.RED
 	return [other.label(), StaticCheck.label(), file != None and file.file_exists("res://project.godot"), red.from_hsv(0.5, 1.0, 1.0) == Color.from_hsv(0.5, 1.0, 1.0)]
+
+
+# Containers of preloads (spec §4.5), computed when first read.
+pub const SCENES := [preload("res://language/nodes.tscn"), NODES]
+pub const BY_NAME := {"nodes": NODES}
+
+
+pub func scenes() -> Array:
+	return [SCENES, BY_NAME["nodes"], is_same(SCENES, SCENES), SCENES.is_read_only()]

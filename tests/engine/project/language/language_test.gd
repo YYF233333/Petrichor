@@ -591,6 +591,10 @@ func _ready() -> void:
 	_check(statics.own_static() == 8 and statics.through_base() == 7, "static methods of classes of this language, through the class's name (spec §4.8)")
 	_check(statics.engine_static() and statics.builtin_static(), "static methods of engine classes and built-in types")
 	_check(statics.on_objects(statics) == ["child", "check", true, true], "a static method called on an object is found from its class up, and one of an engine class or a built-in type is that type's (spec §4.8)")
+	var scenes := statics.scenes()
+	var nodes_scene: PackedScene = load("res://language/nodes.tscn")
+	var by_name: Script = load("res://language/static_check.pet")
+	_check(scenes[0] == [nodes_scene, nodes_scene] and scenes[1] == nodes_scene and scenes[2] and scenes[3] and is_same(by_name.get("SCENES"), scenes[0]) and by_name.get("BY_NAME") == {"nodes": nodes_scene}, "a constant's containers of preloads load when first read, the same read-only container for every reader (spec §4.5)")
 	statics.free()
 
 	# Lambdas (spec §3.11).

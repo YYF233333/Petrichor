@@ -652,9 +652,6 @@ ConstPtr fold_array(Expr &r_expr) {
 		if (!item) {
 			return nullptr;
 		}
-		if (loads(*item)) {
-			return fail(r_expr, "preload() in a container in a constant is not supported yet.");
-		}
 		value->items.push_back(converted(item, stored_element_type(r_expr, i)));
 	}
 	return value;
@@ -674,9 +671,6 @@ ConstPtr fold_dictionary(Expr &r_expr) {
 		}
 		if (!key->is_known()) {
 			return fail(r_expr, "The keys of a dictionary in a constant must be known at compile time (spec §4.5).", r_expr.args[i].get());
-		}
-		if (loads(*item)) {
-			return fail(r_expr, "preload() in a container in a constant is not supported yet.");
 		}
 		const ConstPtr stored = converted(key, entries ? entries->first : key->type);
 		for (size_t k = 0; k < value->items.size(); k += 2) {

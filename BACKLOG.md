@@ -25,7 +25,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Of GDScript classes (spec §11.1):
   - enums, inner classes and static variables;
   - nodes in scenes typed by their GDScript class rather than its engine class.
-- preload() inside a constant's container (spec §4.5).
 - `Array[T]?`, and nested `Option`:
   - `T??` and `Some(...)`, with `flatten()` (spec §3.4);
   - `pop_front()` and `pop_back()` of `Array[T?]` giving `T??`;

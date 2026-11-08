@@ -57,6 +57,10 @@ std::string script_file(const std::string &p_path) {
 	return p_path.substr(0, p_path.find("::"));
 }
 
+bool loads_resource(const bytecode::Constant &p_constant) {
+	return p_constant.load || std::any_of(p_constant.args.begin(), p_constant.args.end(), loads_resource);
+}
+
 } // namespace
 
 std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, const String &p_path, String &r_error, const std::shared_ptr<const ClassImage> &p_base) {
@@ -273,12 +277,14 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 	// Each constant once (spec §4.5), its containers read-only at every level,
 	// as GDScript makes them (modules/gdscript/gdscript_analyzer.cpp:5318-5367).
 	// A scalar the engine computed is written into the constant, which the
-	// instructions for scalars read; a resource loads only when asked for.
+	// instructions for scalars read; one that loads a resource, only when it is
+	// read (loaded_value()).
 	for (size_t i = 0; i < module.constants.size(); i++) {
 		bytecode::Constant &constant = image->module.constants[i];
 		const ValueType storage = types[constant.type].storage;
 		image->values.emplace_back();
-		if (!constant.load && !constant_value(*image, constant, image->values.back(), r_error)) {
+		image->loads.push_back(loads_resource(constant));
+		if (!image->loads.back() && !constant_value(*image, constant, image->values.back(), r_error)) {
 			return nullptr;
 		}
 		const Variant &value = image->values.back();
@@ -293,7 +299,7 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 		freeze(value);
 		const bytecode::TypeKind kind = types[constant.type].kind;
 		const bool own_layout = kind == bytecode::TypeKind::Value || kind == bytecode::TypeKind::Array || kind == bytecode::TypeKind::Dictionary;
-		if (constant.load || !own_layout || storage == ValueType::Void || storage == ValueType::Object || storage == ValueType::Variant) {
+		if (image->loads.back() || !own_layout || storage == ValueType::Void || storage == ValueType::Object || storage == ValueType::Variant) {
 			image->native_values.push_back(nullptr);
 			continue;
 		}
@@ -479,7 +485,7 @@ bool pub_constant(const ClassImage &p_image, const StringName &p_name, Variant &
 		if (!constant.is_pub || to_godot(constant.name) != String(p_name)) {
 			continue;
 		}
-		if (!p_image.module.constants[constant.constant].load) {
+		if (!p_image.loads[constant.constant]) {
 			// A value in a box crosses encoded (spec §10.1).
 			const TypeImage &type = p_image.types[p_image.module.constants[constant.constant].type];
 			const uint8_t *boxed = opened(type, p_image.values[constant.constant]);
@@ -487,12 +493,33 @@ bool pub_constant(const ClassImage &p_image, const StringName &p_name, Variant &
 			return true;
 		}
 		String error;
-		if (!constant_value(p_image, p_image.module.constants[constant.constant], r_value, error)) {
+		if (!p_image.loaded_value(constant.constant, r_value, error)) {
 			ERR_PRINT(vformat("%s: the constant %s: %s", p_image.path, p_name, error));
 		}
 		return true;
 	}
 	return false;
+}
+
+bool ClassImage::loaded_value(uint32_t p_constant, Variant &r_value, String &r_error) const {
+	{
+		const std::lock_guard<std::mutex> lock(loading);
+		const auto found = loaded.find(p_constant);
+		if (found != loaded.end()) {
+			r_value = found->second;
+			return true;
+		}
+	}
+	// Computed without the lock, since loading may run code that reads it; of
+	// two threads that compute it, both keep the first.
+	Variant value;
+	if (!constant_value(*this, module.constants[p_constant], value, r_error)) {
+		return false;
+	}
+	freeze(value);
+	const std::lock_guard<std::mutex> lock(loading);
+	r_value = loaded.emplace(p_constant, value).first->second;
+	return true;
 }
 
 bool constant_value(const ClassImage &p_image, const bytecode::Constant &p_constant, Variant &r_value, String &r_error) {

@@ -112,7 +112,8 @@ int converting_constructor(const Type &p_from, const Type &p_to);
 // value inside Some, or None.
 ConstPtr converted(const ConstPtr &p_value, const Type &p_to);
 
-// Whether a preload is in the value, which no table of constants can hold.
+// Whether a preload is in the value, which the runtime computes only when it
+// is read.
 bool loads(const ConstValue &p_value);
 
 // A value of an enum (spec §3.7), an int typed as the enum, and its name as a

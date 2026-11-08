@@ -244,8 +244,8 @@ struct Constant {
 	int32_t op = -1; // The engine's operator (Variant::Operator) on `args`, one or two; -1 for none.
 	int32_t utility = -1; // A utility function of the table, called with `args`; -1 for none.
 	std::string field; // The member of the built-in value `args[0]`, such as x of Vector3.
-	// The resource at `s`, which the runtime loads only when asked for it: only
-	// the class's own constants (`Module::named_constants`) refer to one.
+	// The resource at `s`. A constant with one in it is computed only when it
+	// is read, since the class may load as part of a scene it preloads.
 	bool load = false;
 	// The constructor's arguments, the operands, the utility function's
 	// arguments, the elements of an Array, or each key of a Dictionary and its

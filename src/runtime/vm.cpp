@@ -1217,6 +1217,16 @@ class Execution {
 		return true;
 	}
 
+	PETRICHOR_NOINLINE bool op_loaded_constant(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		Variant value;
+		String error;
+		if (!image.loaded_value(p_op[3], value, error)) {
+			return fail(p_fn, p_line, error);
+		}
+		from_variant(image.types[p_op[1]], value, p_frame + p_op[2], false);
+		return true;
+	}
+
 	PETRICHOR_NOINLINE bool op_get_self(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
 		if (p_freed.load(std::memory_order_relaxed)) {
 			return fail_cstr(p_fn, p_line, "self was freed, or lost its script, while this method ran.");
@@ -2185,6 +2195,10 @@ public:
 				case Op::CONST_VALUE:
 					if (const uint8_t *native = image.native_values[code[pc + 3]]) {
 						copy_value(types[code[pc + 1]].storage, frame + code[pc + 2], native);
+					} else if (image.loads[code[pc + 3]]) {
+						if (!op_loaded_constant(code + pc, frame, fn, record.line)) {
+							return false;
+						}
 					} else {
 						from_variant(types[code[pc + 1]], image.values[code[pc + 3]], frame + code[pc + 2], false);
 					}
