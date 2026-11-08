@@ -17,3 +17,18 @@ func hit(amount: int) -> int:
 
 static func scaled(amount: int) -> int:
 	return amount * BONUS
+
+
+# Yields 1 and 2 to a for loop (spec §5.7).
+func _iter_init(iter: Array) -> bool:
+	iter[0] = 1
+	return true
+
+
+func _iter_next(iter: Array) -> bool:
+	iter[0] += 1
+	return iter[0] < 3
+
+
+func _iter_get(iter: Variant) -> int:
+	return iter

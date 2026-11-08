@@ -2646,6 +2646,48 @@ class Lowerer {
 		move(p_local, p_value);
 	}
 
+	// Over an object through its _iter_init(), _iter_next() and _iter_get(),
+	// as the engine calls them: each of the first two gets a new Array that
+	// holds the state, and leaves the state there (spec §5.7).
+	void lower_iteration(const Stmt &p_stmt, uint32_t p_first) {
+		const Expr &get = *p_stmt.iteration[2];
+		const uint32_t object = reg_of(get.base->index);
+		const uint32_t iter = reg_of(p_stmt.iteration[0]->args[0]->index);
+		const uint32_t state = reg_of(get.args[0]->index);
+		move(object, lower_expr(*p_stmt.value));
+		release(temps_since(p_first));
+		const uint32_t append = engine_builtin_method(ValueType::Array, "append", { ValueType::Variant }, ValueType::Void);
+		const uint32_t body_block = new_block();
+		const uint32_t step_block = new_block();
+		const uint32_t end_block = new_block();
+		// _iter_init() or _iter_next(), then the body or the end.
+		const auto step = [&](uint32_t p_which) {
+			const uint32_t first = uint32_t(fn.regs.size());
+			new_container(iter);
+			call_builtin(append, iter, { state });
+			const uint32_t more = lower_expr(*p_stmt.iteration[p_which]);
+			instr(Op::ITER_STATE, state, iter, NO_REG, p_which);
+			release(temps_since(first));
+			branch(more, body_block, end_block);
+		};
+		step(0);
+		current = body_block;
+		const uint32_t local = reg_of(p_stmt.local);
+		const uint32_t got = uint32_t(fn.regs.size());
+		move(local, convert(lower_expr(get), get.type, decl->locals[p_stmt.local].type));
+		release(temps_since(got));
+		loops.push_back({ step_block, end_block, scopes.size() });
+		lower_block(p_stmt.body, { local });
+		loops.pop_back();
+		jump(step_block);
+		current = step_block;
+		// An error in _iter_next() is the for's.
+		instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(cls.source->line(p_stmt.range.first)));
+		step(1);
+		current = end_block;
+		release({ object, iter, state });
+	}
+
 	// Whether a statement in the block assigns the local.
 	static bool assigns(const Block &p_block, int p_local) {
 		for (const auto &stmt : p_block) {
@@ -2933,6 +2975,10 @@ class Lowerer {
 				return;
 			}
 			case StmtKind::For: {
+				if (!p_stmt.iteration.empty()) {
+					lower_iteration(p_stmt, first);
+					return;
+				}
 				// Counts from 0 up to the int as it was on entry, or over the
 				// container as it was on entry, by index and up to its current
 				// size, as GDScript does. The loop variable gets the count or the

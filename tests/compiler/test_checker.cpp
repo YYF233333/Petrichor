@@ -162,7 +162,41 @@ TEST_CASE("for loops") {
 	CHECK(has_error(in_function("for i in 3:\n\tpass\nvar j := i"), "\"i\" is not declared"));
 	CHECK(has_error(in_function("for x in 2.5:\n\tpass"), "iterate over range(...) instead"));
 	CHECK(has_error(in_function("for x in Vector2(2, 3):\n\tpass"), "iterate over range(...) instead"));
-	CHECK(has_error(in_function("for x in true:\n\tpass"), "Iterating over bool is not supported yet."));
+	CHECK(has_error(in_function("for x in true:\n\tpass"), "Cannot iterate over bool."));
+}
+
+// The countdown of the documentation of _iter_init (doc/classes/Object.xml:217-240; ed1daf0).
+static const char *const COUNTDOWN = "extends RefCounted\n\nvar from := 3\n\n"
+									 "func _iter_init(iter):\n\titer[0] = from\n\treturn from > 0\n\n"
+									 "func _iter_next(iter):\n\tvar n := int(iter[0]) - 1\n\titer[0] = n\n\treturn n > 0\n\n"
+									 "func _iter_get(iter) -> int:\n\treturn int(iter)\n\n";
+
+// Spec §5.7.
+TEST_CASE("for over an object whose class defines _iter_init, _iter_next and _iter_get") {
+	FakeProject project;
+	project.add_script("res://countdown.pet", COUNTDOWN, "Countdown");
+	const auto errors = [&](const std::string &p_source) { return messages(compile_in(p_source, project)); };
+	CHECK(errors(in_function("for n in Countdown.new():\n\tvar m: int = n")) == "");
+	CHECK(contains(errors(in_function("for n in Countdown.new():\n\tvar s: String = n")), "Cannot assign a value of type int as String."));
+	CHECK(contains(errors("extends Node\n\nfunc _iter_get(iter) -> int:\n\treturn 0\n\nfunc f() -> void:\n\tfor n in self:\n\t\tpass\n"), "whose class lacks _iter_init() and _iter_next() (spec §5.7)."));
+	CHECK(has_error(in_function("for x in Node.new():\n\tpass"), "Cannot iterate over Node, whose class lacks _iter_init(), _iter_next() and _iter_get() (spec §5.7)."));
+	CHECK(has_error(in_function("var n: Node? = None\nfor x in n:\n\tpass"), "The value may be None (Node?); check it before iterating over it."));
+	CHECK(has_error("extends RefCounted\n\nfunc _iter_init(iter) -> int:\n\treturn 0\n", "The overridden method returns bool."));
+
+	// Called directly, in the loop's chain (spec §8.1).
+	const compiler::CompileResult result = compile_in(in_function("for n in Countdown.new():\n\tprint(n)"), project);
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	const std::string code = bytecode::disassemble(result.module, function_named(result.module, "f"));
+	INFO(code);
+	const auto count = [&](const char *p_op) {
+		size_t found = 0;
+		for (size_t at = code.find(p_op); at != std::string::npos; at = code.find(p_op, at + 1)) {
+			found++;
+		}
+		return found;
+	};
+	CHECK(count("CALL_METHOD") == 3);
+	CHECK(count("ITER_STATE") == 2);
 }
 
 // Spec §8.3.

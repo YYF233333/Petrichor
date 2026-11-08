@@ -2619,8 +2619,8 @@ class Checker : public ClassRelation {
 	}
 
 	// A pub method of an object of a class of this language, or a method of an
-	// interface, which this language calls directly (spec §8.1); an override
-	// of an engine virtual method is called through the engine, which runs it.
+	// interface, which this language calls directly (spec §8.1), also when it
+	// overrides an engine virtual method.
 	std::optional<Type> script_method(Expr &r_expr, const Type &p_class) {
 		if (!p_class.is_interface && !is_script_path(p_class.script)) {
 			return foreign_method(r_expr, p_class);
@@ -2668,13 +2668,9 @@ class Checker : public ClassRelation {
 		hint(r_expr, [&](int p_current) { return declared_signature(callee->name, *callee, *source, p_current, callee->return_type); });
 		check_arguments(r_expr, param_types(callee->params), required_params(*callee), false);
 		refer(r_expr.name_token, id);
-		if (callee->is_override && !callee->is_async) {
-			r_expr.target = Target::EngineMethod;
-		} else {
-			r_expr.target = Target::ScriptMethod;
-			r_expr.engine_params = param_types(callee->params);
-			r_expr.index = int(callee->params.size()) - required_params(*callee);
-		}
+		r_expr.target = Target::ScriptMethod;
+		r_expr.engine_params = param_types(callee->params);
+		r_expr.index = int(callee->params.size()) - required_params(*callee);
 		r_expr.is_async = callee->is_async;
 		return set(r_expr, callee->is_async ? Type::task(callee->return_type) : callee->return_type);
 	}
@@ -7183,12 +7179,13 @@ class Checker : public ClassRelation {
 		return subtype && assignable(p_pattern, p_matched);
 	}
 
-	// `for i in n`, over the elements of an array and over the keys of a
-	// Dictionary (spec §5.7).
+	// `for i in n`, over the elements of an array, over the keys of a
+	// Dictionary, or over an object (spec §5.7).
 	void check_for(Stmt &r_stmt) {
 		const Type iterated = check_value(*r_stmt.value);
 		Type element = Type::of(TypeKind::Error);
 		const std::string &name = iterated.name;
+		scopes.emplace_back();
 		if (iterated.kind == TypeKind::Int) {
 			element = iterated;
 		} else if (iterated.kind == TypeKind::Float || (iterated.kind == TypeKind::Builtin && (name == "Vector2" || name == "Vector2i" || name == "Vector3" || name == "Vector3i"))) {
@@ -7197,10 +7194,16 @@ class Checker : public ClassRelation {
 			element = entries->first;
 		} else if (const std::optional<Type> elements = element_of(iterated)) {
 			element = *elements;
+		} else if (iterated.is_optional()) {
+			error(r_stmt.value->range, "The value may be None (" + iterated.to_string() + "); check it before iterating over it.");
+		} else if (iterated.kind == TypeKind::Object) {
+			element = check_iteration(r_stmt, iterated);
 		} else if (iterated.kind == TypeKind::Variant) {
 			error(r_stmt.value->range, "Cannot iterate over a Variant." + variant_hint());
+		} else if (iterated.kind == TypeKind::String) {
+			error(r_stmt.value->range, "Iterating over a String is not supported yet.");
 		} else if (!iterated.is_error()) {
-			error(r_stmt.value->range, "Iterating over " + iterated.to_string() + " is not supported yet.");
+			error(r_stmt.value->range, "Cannot iterate over " + iterated.to_string() + ".");
 		}
 		r_stmt.element = element;
 		Type type = element;
@@ -7213,12 +7216,64 @@ class Checker : public ClassRelation {
 			}
 			type = declared;
 		}
-		scopes.emplace_back();
 		declare_local(r_stmt, type);
 		loop_depth++;
 		check_block(r_stmt.body);
 		loop_depth--;
 		scopes.pop_back();
+	}
+
+	// The type of the elements of an object whose class of this or another
+	// language defines the three methods, and their calls, on locals without
+	// names that the body does not see (spec §5.7). Object's own virtual
+	// methods, which ClassDB lists in the editor (core/object/class_db.cpp:991-994;
+	// ed1daf0), do not count.
+	Type check_iteration(Stmt &r_stmt, const Type &p_object) {
+		static const char *const methods[] = { "_iter_init", "_iter_next", "_iter_get" };
+		std::vector<std::string> missing;
+		for (const char *method : methods) {
+			const NamedMember found = named_member(p_object, builtin::MemberName::Kind::Method, method);
+			if (!found.found || found.id.kind == DeclId::Kind::Engine) {
+				missing.push_back(std::string(method) + "()");
+			}
+		}
+		if (!missing.empty()) {
+			std::string names;
+			for (size_t i = 0; i < missing.size(); i++) {
+				names += (i == 0 ? "" : (i + 1 == missing.size() ? " and " : ", ")) + missing[i];
+			}
+			error(r_stmt.value->range, "Cannot iterate over " + p_object.to_string() + ", whose class lacks " + names + " (spec §5.7).");
+			return Type::of(TypeKind::Error);
+		}
+		static const char *const holders[] = { "@object", "@iter", "@state" };
+		const Type types[] = { p_object, Type::builtin("Array"), Type::of(TypeKind::Variant) };
+		for (int i = 0; i < 3; i++) {
+			scopes.back()[holders[i]] = int(function->locals.size());
+			function->locals.push_back({ std::string(), types[i] });
+		}
+		const auto expr = [&](ExprKind p_kind, const char *p_text) {
+			auto made = std::make_unique<Expr>();
+			made->kind = p_kind;
+			made->text = p_text;
+			made->range = r_stmt.value->range;
+			made->name_token = NO_TOKEN;
+			return made;
+		};
+		for (const char *method : methods) {
+			auto call = expr(ExprKind::Call, method);
+			call->base = expr(ExprKind::Name, holders[0]);
+			call->args.push_back(expr(ExprKind::Name, method == methods[2] ? holders[2] : holders[1]));
+			check_value(*call);
+			// Another language's may declare another type.
+			if (method != methods[2] && !call->type.is_error() && call->type.kind != TypeKind::Bool) {
+				error(r_stmt.value->range, std::string(method) + "() of " + p_object.to_string() + " returns " + call->type.to_string() + ", where for needs a bool (spec §5.7).");
+			}
+			r_stmt.iteration.push_back(std::move(call));
+		}
+		for (const char *holder : holders) {
+			scopes.back().erase(holder);
+		}
+		return r_stmt.iteration[2]->type;
 	}
 
 	bool predelete_branch(const Expr &p_condition, bool p_true) const {
@@ -8276,7 +8331,10 @@ class Checker : public ClassRelation {
 
 		if (r_function.return_type_ref) {
 			r_function.return_type = resolve(*r_function.return_type_ref, true);
-			if (r_function.is_override && !engine_method->return_type.is_error() && r_function.return_type != engine_method->return_type) {
+			// Covariant (spec §4.6): the engine takes any value where it declares
+			// a Variant, as for _iter_get() (§5.7).
+			const Type &overridden = r_function.is_override ? engine_method->return_type : Type::of(TypeKind::Error);
+			if (!override_assignable(r_function.return_type, overridden) && (overridden.kind != TypeKind::Variant || r_function.return_type.kind == TypeKind::Void)) {
 				error(r_function.return_type_ref->range, "The overridden method returns " + engine_method->return_type.to_string() + ".");
 			}
 		} else if (r_function.is_override) {

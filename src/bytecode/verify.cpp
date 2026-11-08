@@ -795,6 +795,8 @@ class Verifier {
 				return is_boxed(o[0]) || fail("LESS of a type that the engine orders");
 			case Op::CHECK_RANGE:
 				return o[0] < uint32_t(IntRange::COUNT) || fail("no integer range");
+			case Op::ITER_STATE:
+				return (o[0] <= 1 || fail("no such iteration method")) && slot(o[2], ValueType::Array);
 			case Op::GET_AUTOLOAD:
 			case Op::GET_SIGNAL:
 			case Op::METHOD_VALUE:

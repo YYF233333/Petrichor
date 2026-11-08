@@ -1346,6 +1346,16 @@ class Execution {
 		}
 	}
 
+	// As the engine takes the state back (core/variant/variant_setget.cpp:1389-1394, 1623-1628; ed1daf0).
+	PETRICHOR_NOINLINE bool op_iter_state(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		const Array &iter = *reinterpret_cast<const Array *>(p_frame + p_op[3]);
+		if (iter.size() != 1) {
+			return fail(p_fn, p_line, vformat("%s() left %d elements in the Array it got, which must hold the iteration state as its one element.", p_op[1] == 0 ? "_iter_init" : "_iter_next", iter.size()));
+		}
+		variant_at(p_frame + p_op[2]) = iter[0];
+		return true;
+	}
+
 	PETRICHOR_NOINLINE bool op_get_index(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
 		const TypeImage &base = image.types[p_op[1]];
 		const TypeImage &element = image.types[p_op[2]];
@@ -2580,6 +2590,12 @@ public:
 						return false;
 					}
 					pc += 5;
+					break;
+				case Op::ITER_STATE:
+					if (!op_iter_state(code + pc, frame, fn, record.line)) {
+						return false;
+					}
+					pc += 4;
 					break;
 				case Op::IS_INSTANCE:
 					op_is_instance(code + pc, frame);

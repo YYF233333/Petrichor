@@ -408,6 +408,7 @@ func _ready() -> void:
 	_check(view.buddy_is_child(base), "a member typed by a GDScript class holds an instance of a subclass, which is tests")
 	_check(view.as_child(child) == child and view.as_child(base) == null and view.as_base(child) == child, "as names GDScript classes, and an instance of a subclass is one of its base")
 	_check(view.through_classes() == [2, 10, 15, 5, 3, 1, true, 16.0, true, "res://language/preload_unit.gd", 2, 2, 16, true], "new() with the arguments of _init, static methods and constants through a class_name and a preload, of GDScript and of this language")
+	_check(view.counted(base) == [1, 2], "for over an object of a GDScript class that defines _iter_* (spec §5.7)")
 	view.unit = load("res://language/preload_unit.gd").new(5)
 	_check(c.unit_level(view) == 5, "another class reads a member typed by a preloaded GDScript class without a class_name (spec §2.1)")
 	view.unit.free()
@@ -600,6 +601,17 @@ func _ready() -> void:
 	var cached_before := ResourceLoader.has_cached(eager_path)
 	var eager = load("res://language/eager_check.pet").new()
 	_check(not cached_before and ResourceLoader.has_cached(eager_path) and eager.gradient() == load(eager_path), "a preload in a function body loads with the class, before the function runs (spec §7.6)")
+
+	# for over objects whose class defines _iter_* (spec §5.7).
+	var iteration = load("res://language/iteration_check.pet").new()
+	var down := []
+	for n in iteration.countdown(3):
+		down.append(n)
+	_check(down == [3, 2, 1] and iteration.counted(3) == [3, 2, 1] and iteration.counted(0) == [], "for over an object of this language, also from GDScript, whose _iter_* are not pub")
+	_check(iteration.pairs(3) == 36, "each loop over an object keeps its own state")
+	var spoiled = iteration.spoiled()
+	_check_errors(["iteration_check.pet:58: _iter_next() left 2 elements in the Array it got, which must hold the iteration state as its one element."], "the program error of an Array of the state that does not hold one element")
+	_check(spoiled == [] and not iteration.finished, "a program error in _iter_next() ends the loop's caller too (spec §8.1)")
 
 	# Lambdas (spec §3.11).
 	var lambdas := LambdaCheck.new()

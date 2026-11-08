@@ -48,3 +48,10 @@ pub func through_classes() -> Array:
 # A member typed by a preloaded GDScript class without a class_name, which
 # other classes read (spec §2.1).
 pub var unit: Unit?
+
+# A GDScript class that defines _iter_init, _iter_next and _iter_get (spec §5.7).
+pub func counted(base: GdViewBase) -> Array[int]:
+	var all: Array[int] = []
+	for n in base:
+		all.append(n)
+	return all

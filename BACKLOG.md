@@ -32,7 +32,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - `ok()` and `err()` of `Result[T?, E]` and `Result[T, E?]`.
 - The names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7).
 - `Ok(v)`, `Err(e)`, `None` and `?` in a lambda without a return type passed to `and_then()` or `or_else()`. Nothing gives their `U` or `F` yet (spec §3.4, §3.5, §4.6).
-- `for` over objects that define `_iter_init`, `_iter_next` and `_iter_get`, as GDScript allows; the checker reports it as not supported yet.
 - The `breakpoint` statement.
 - Rest parameters `...args: Array[T]` (spec §4.6).
 - `for` over a String (spec §5.7); no file of the coverage survey's corpus does it.

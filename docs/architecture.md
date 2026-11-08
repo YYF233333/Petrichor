@@ -187,6 +187,9 @@
   - 所以写入只替换元素的数据，不经 `Array::set` 的复制和检查（`core/variant/array.cpp:517-523`）。
   - Packed 数组的元素经引擎的指针 getter 和 setter，按元素槽位的布局读写（`core/variant/variant_setget.cpp:348-354, 421-428`）。
 - `for` 的每次迭代是一条 ITERATE 和一条 JUMP，与 GDScript 相同（`modules/gdscript/gdscript_vm.cpp:3471-3492, 3661-3681`）。计数的 `for` 用 ITERATE_INT。
+- 遍历对象的 `for` 由检查器写成对 `_iter_*` 的三个普通调用，本语言的类因此直接调用（§8.1）。
+  - 调用的对象、Array 和状态放在没有名字的局部变量中，调试器不显示它们。
+  - 每次调用 `_iter_init` 或 `_iter_next` 前新建单元素 Array，调用后由 ITER_STATE 核对长度并取回状态（规范 §5.7）。
 - 从引擎进入的调用做入口检查（§10.1）。
 - 虚拟机可以在任意线程上运行，不使用没有锁保护的全局可变状态（§12.3）。
 - 运行时直接用 godot-cpp 的类型，它们对应引擎内部的同名类型。改为引擎模块时，运行时换用引擎的头文件，adapter 重写，编译器和字节码原样使用（§2.1、§2.3）。

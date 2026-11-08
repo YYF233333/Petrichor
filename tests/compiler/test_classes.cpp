@@ -212,7 +212,7 @@ TEST_CASE("a method of another class, another instance or an interface is called
 		}
 		engine_calls += bytecode::Op(f.code[pc]) == bytecode::Op::CALL_ENGINE ? 1 : 0;
 	}
-	REQUIRE(methods.size() == 4);
+	REQUIRE(methods.size() == 5);
 	const auto method = [&](size_t p_call) -> const bytecode::MethodCall & { return module.method_calls[methods[p_call]]; };
 	CHECK(method(0).method == "describe");
 	CHECK(storage(module, method(0).result.type) == bytecode::ValueType::String);
@@ -225,8 +225,9 @@ TEST_CASE("a method of another class, another instance or an interface is called
 	CHECK(storage(module, method(2).result.type) == bytecode::ValueType::Void);
 	CHECK(method(3).method == "id");
 	CHECK(bytecode::type_key(module.types, method(3).result.type) == "?(v" + std::to_string(int(bytecode::ValueType::Int)) + ")");
-	// An override of an engine virtual method is the engine's to run.
-	CHECK(engine_calls == 1);
+	// Also an override of an engine virtual method.
+	CHECK(method(4).method == "_ready");
+	CHECK(engine_calls == 0);
 }
 
 TEST_CASE("an interface is described in slots, for the entry checks and signatures (spec §3.9, §10.1)") {

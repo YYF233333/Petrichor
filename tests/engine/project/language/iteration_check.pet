@@ -1,0 +1,61 @@
+# for over objects whose class defines _iter_init, _iter_next and _iter_get
+# (spec §5.7), checked by language_test.gd.
+extends RefCounted
+
+
+# The countdown of the documentation of _iter_init (doc/classes/Object.xml:217-240).
+pub class Countdown:
+	pub var from := 3
+	# Where _iter_next() leaves a second element in the Array of the state.
+	pub var spoil_at := -1
+
+	func _iter_init(iter):
+		iter[0] = from
+		return from > 0
+
+	func _iter_next(iter):
+		var n := int(iter[0]) - 1
+		iter[0] = n
+		if n == spoil_at:
+			iter.append(n)
+		return n > 0
+
+	func _iter_get(iter) -> int:
+		return int(iter)
+
+
+pub var finished := false
+
+
+pub func countdown(from: int) -> Countdown:
+	var made := Countdown.new()
+	made.from = from
+	return made
+
+
+pub func counted(from: int) -> Array[int]:
+	var all: Array[int] = []
+	for n in countdown(from):
+		all.append(n)
+	return all
+
+
+# Each loop over the object keeps its own state.
+pub func pairs(from: int) -> int:
+	var c := countdown(from)
+	var total := 0
+	for a in c:
+		for b in c:
+			total += a * b
+	return total
+
+
+# A program error in _iter_next() ends the caller too (spec §8.1).
+pub func spoiled() -> Array[int]:
+	var c := countdown(3)
+	c.spoil_at = 2
+	var all: Array[int] = []
+	for n in c:
+		all.append(n)
+	finished = true
+	return all
