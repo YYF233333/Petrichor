@@ -34,6 +34,7 @@ ValueType value_type(const Type &p_type) {
 			return type == ValueType::Count ? ValueType::Void : type;
 		}
 		case TypeKind::Task:
+			return ValueType::Task;
 		case TypeKind::Object:
 			return ValueType::Object;
 		case TypeKind::None:
@@ -1393,7 +1394,7 @@ class Lowerer {
 			new_container(p_dst);
 			return p_dst;
 		}
-		if (is_option_reg(p_dst) || type == ValueType::Object || type == ValueType::Variant || module.types[fn.regs[p_dst].type].kind == bytecode::TypeKind::PayloadEnum) {
+		if (is_option_reg(p_dst) || type == ValueType::Object || type == ValueType::Task || type == ValueType::Variant || module.types[fn.regs[p_dst].type].kind == bytecode::TypeKind::PayloadEnum) {
 			// None; a constant of an object type or of T? is always None. An enum
 			// with payloads has no default (spec §3.7); where one is needed, its
 			// first variant.

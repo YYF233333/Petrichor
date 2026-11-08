@@ -33,7 +33,7 @@ namespace {
 
 // Slots that the engine's functions for each type do not handle.
 bool is_variant_slot(ValueType p_type) {
-	return p_type == ValueType::Object || p_type == ValueType::Variant;
+	return p_type == ValueType::Object || p_type == ValueType::Variant || p_type == ValueType::Task;
 }
 
 /* Objects */
@@ -251,7 +251,8 @@ String element_description(ValueType p_type, const StringName &p_class, const St
 
 String type_description(ValueType p_type, const ValueCheck &p_check) {
 	switch (p_type) {
-		case ValueType::Object: {
+		case ValueType::Object:
+		case ValueType::Task: {
 			const String name = class_description(p_check.class_name, p_check.script, p_check.interface);
 			return p_check.nullable ? name + String("?") : name;
 		}
@@ -406,6 +407,8 @@ void destroy_value(ValueType p_type, uint8_t *p_slot) {
 		if (type_of(variant_at(p_slot)) > Variant::FLOAT) {
 			variant_at(p_slot).~Variant();
 		}
+	} else if (p_type == ValueType::Task) {
+		task_at(p_slot) = TaskRef();
 	} else if (ops(p_type).destroy) {
 		ops(p_type).destroy(p_slot);
 	}
@@ -481,8 +484,12 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 		class_of(container ? p_types[type.element] : type, check.class_name, check.script, check.interface);
 		check.task_result = type.task_result;
 		check.nullable = type.kind != bytecode::TypeKind::Object || type.nullable;
-		// How the engine types a container's elements or keys: Callable for boxes.
-		const auto kept_as = [&](uint32_t p_type) { return bytecode::is_boxed(p_types, p_type) ? ValueType::Callable : bytecode::storage_of(p_types, p_type); };
+		// How the engine types a container's elements or keys: Callable for boxes,
+		// and a task as its CoroutineTask.
+		const auto kept_as = [&](uint32_t p_type) {
+			const ValueType storage = bytecode::storage_of(p_types, p_type);
+			return bytecode::is_boxed(p_types, p_type) ? ValueType::Callable : (storage == ValueType::Task ? ValueType::Object : storage);
+		};
 		if (container) {
 			check.element = kept_as(type.element);
 			image.item = &images[type.element];
@@ -1039,6 +1046,8 @@ static bool equal_leaf(ValueType p_type, const uint8_t *p_a, const uint8_t *p_b,
 		}
 		case ValueType::Object:
 			return object_data(p_a).id == object_data(p_b).id;
+		case ValueType::Task:
+			return task_at(p_a).get() == task_at(p_b).get();
 		default:
 			if (p_hash_compare) {
 				return to_variant(p_type, p_a).hash_compare(to_variant(p_type, p_b));
@@ -1089,6 +1098,9 @@ uint32_t hash_of(const TypeImage &p_type, const uint8_t *p_slot) {
 	}
 	if (p_type.storage == ValueType::Object) {
 		return hash_one_uint64(object_data(p_slot).id);
+	}
+	if (p_type.storage == ValueType::Task) {
+		return hash_one_uint64(uint64_t(uintptr_t(task_at(p_slot).get())));
 	}
 	return hash_contents(to_variant(p_type.storage, p_slot), 0);
 }
@@ -1415,6 +1427,10 @@ void copy_value(ValueType p_type, uint8_t *p_dst, const uint8_t *p_src) {
 		variant_at(p_dst) = variant_at(p_src);
 		return;
 	}
+	if (p_type == ValueType::Task) {
+		task_at(p_dst) = task_at(p_src);
+		return;
+	}
 	const TypeOps &type = ops(p_type);
 	if (!type.destroy) {
 		std::memcpy(p_dst, p_src, type.size);
@@ -1453,6 +1469,10 @@ Variant to_variant(ValueType p_type, const uint8_t *p_slot) {
 	if (p_type == ValueType::Variant) {
 		return variant_at(p_slot);
 	}
+	if (p_type == ValueType::Task) {
+		const TaskRef &task = task_at(p_slot);
+		return task ? Variant(task->object()) : Variant();
+	}
 	return builtin_variant(p_type, p_slot);
 }
 
@@ -1482,14 +1502,23 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 					return false;
 				}
 			}
-			if (p_check && !p_check->task_result.empty()) {
-				const CoroutineTask *task = Object::cast_to<CoroutineTask>(p_value.get_validated_object());
-				if (!task || task->result_signature != p_check->task_result) {
-					return false;
-				}
-			}
 			take_object(p_slot, p_value);
 			return true;
+		case ValueType::Task: {
+			if (is_none(p_value)) {
+				if (p_check && !p_check->nullable) {
+					return false;
+				}
+				destroy_value(ValueType::Task, p_slot);
+				return true;
+			}
+			TaskRef task = task_of(p_value);
+			if (!task || (p_check && task->result_signature != p_check->task_result)) {
+				return false;
+			}
+			task_at(p_slot) = std::move(task);
+			return true;
+		}
 		case ValueType::Array:
 			if (p_check && p_check->element != ValueType::Void && have == Variant::ARRAY) {
 				const Array array = p_value;
@@ -1665,6 +1694,9 @@ bool keys_hold_containers(const Dictionary &p_dictionary) {
 }
 
 Variant::Type variant_type(ValueType p_type) {
+	if (p_type == ValueType::Task) {
+		return Variant::OBJECT;
+	}
 	if (p_type == ValueType::Variant || p_type >= ValueType::Count) {
 		return Variant::NIL;
 	}

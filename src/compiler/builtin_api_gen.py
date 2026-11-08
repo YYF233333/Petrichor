@@ -292,4 +292,4 @@ def generate_value_types(api_path, out_path):
             name = "void" if raw == "Nil" else raw
             size = 8 if raw == "bool" else (16 if raw == "Object" else size)
             out.write(f'\t{{ {_c_string(name)}, {size}, ValueType::{packed.get(raw, "Void")} }},\n')
-        out.write("};\n\n} // namespace petrichor::bytecode\n")
+        out.write('\t{ "Task", 8, ValueType::Void },\n};\n\n} // namespace petrichor::bytecode\n')

@@ -149,7 +149,7 @@ ValueType storage_of(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 		case TypeKind::Value:
 			return p_types[p_type].value;
 		case TypeKind::Object:
-			return ValueType::Object;
+			return p_types[p_type].task_result.empty() ? ValueType::Object : ValueType::Task;
 		case TypeKind::Array:
 			return ValueType::Array;
 		case TypeKind::Dictionary:
@@ -237,6 +237,7 @@ bool holds_references(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 		case ValueType::Array:
 		case ValueType::Dictionary:
 		case ValueType::Callable:
+		case ValueType::Task:
 			return true;
 		default:
 			return false;

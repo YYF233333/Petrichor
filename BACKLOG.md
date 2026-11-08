@@ -183,6 +183,11 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - Node's thread guards make such reads in each guarded method of debug builds (`scene/main/node.h:694-716, 934-948`, `core/os/thread_safe.cpp:36-38`, `ed1daf0`).
   - In the engine_method benchmark, each `Node3D.translate()` makes about four such reads. They take about two thirds of each iteration, in GDScript as in this language.
   - Candidate fixes: native TLS in the official builds, or guards that read fewer thread-locals.
+- godot-cpp: each object an extension constructs makes a StringName from its engine class's name. The owner may contribute a fix.
+  - The default constructor of an engine class passes its name as a C string (`include/godot_cpp/classes/wrapped.hpp:436, 516`, `8070599`).
+  - Wrapped's constructor takes a StringName, so each construction converts it (`wrapped.hpp:133`, `8070599`). The engine then looks the name up under a lock.
+  - In coroutines.pet, when each call made a CoroutineTask, this took 1.8% of the loop. The whole construction took 14.5%.
+  - A candidate fix: pass the class's cached `get_class_static()` instead.
 
 ## Open questions
 

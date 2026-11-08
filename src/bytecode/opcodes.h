@@ -34,8 +34,8 @@ namespace petrichor::bytecode {
 // D=dst, A=a, B=b, I=imm, T=type, F=field, M=member_offset, R=regs[dst].type,
 // S=regs[a].type, J=the jump of a block's Iterate terminator. In verify_schema, a leading '@' marks an instruction that
 // always uses the instance, and each following character checks the operand at
-// that position: i/f/b/s/o/v/c/g (slot of Int/Float/Bool/String/Object/Variant/
-// Callable/Signal), S/O (slot_or_none of String/Object), n (String member),
+// that position: i/f/b/s/o/v/c/g/a (slot of Int/Float/Bool/String/Object/Variant/
+// Callable/Signal/Task), S/O (slot_or_none of String/Object), n (String member),
 // t (type_operand), l/m/k (slot_like/member_like/constant_like of o[0]),
 // C/M/F/P/E/R (index in classes/members/functions/properties/fields/operators),
 // j (jump target), or '.' (checked by the instruction's own rule).
@@ -154,12 +154,12 @@ namespace petrichor::bytecode {
 	X(ITERATE, "SRDABJ", "....ij") /* type of container (an Array or a packed array), type of dst, dst, container, counter, end: steps the counter, which starts at -1, and reads the element there as GET_INDEX does, or jumps to end past the container's current size */ \
 	X(CALL, "*", "") \
 	X(CALL_SUPER, "*", "") \
-	X(AWAIT_TASK, "DAI", ".o") /* dst, task, owned (0 or 1) */ \
+	X(AWAIT_TASK, "DAI", ".a") /* dst, task, owned (0 or 1) */ \
 	X(AWAIT_SIGNAL, "DA", ".g") /* dst, signal */ \
-	X(TASK_CANCEL, "A", "o") /* task */ \
+	X(TASK_CANCEL, "A", "a") /* task */ \
 	X(TASK_OF, "RDA", "tlg") /* type of dst (Task[T]), dst, signal: a task that finishes with what the signal passes, cancelled once the signal's object is freed (spec §9.5) */ \
 	X(TASK_DELAY, "RDA", "tlf") /* type of dst (Task[void]), dst, seconds: TASK_OF of the timeout of SceneTree.create_timer(seconds) */ \
-	X(TASK_SETTLED, "TDAI", "too.") /* Settled[T], dst (its Task), task, owned (0 or 1): a task that finishes with how the task ended, owning it when owned (spec §9.2) */ \
+	X(TASK_SETTLED, "TDAI", "taa.") /* Settled[T], dst (its Task), task, owned (0 or 1): a task that finishes with how the task ended, owning it when owned (spec §9.2) */ \
 	X(GET_OWNER, "ID", "@Co") /* class, dst: the owner that @owner requires (spec §7.3) */ \
 	X(GET_SELF, "D", "@o") /* dst */ \
 	X(CALL_AWAIT_ENGINE, "*", "") \

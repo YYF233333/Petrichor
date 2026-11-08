@@ -19,14 +19,15 @@ bool is_type(uint32_t p_word) {
 }
 
 // Values the engine reads and writes in their own layout: everything except
-// Object, which a slot holds in a Variant, and Variant itself.
+// Object, which a slot holds in a Variant, Variant itself and Task, which is
+// the runtime's.
 bool is_native(ValueType p_type) {
-	return p_type != ValueType::Void && p_type != ValueType::Object && p_type != ValueType::Variant && p_type < ValueType::Count;
+	return p_type != ValueType::Void && p_type != ValueType::Object && p_type != ValueType::Variant && p_type < ValueType::Variant;
 }
 
 // What a typed array can hold.
 bool is_element(ValueType p_type) {
-	return p_type == ValueType::Object || is_native(p_type);
+	return p_type == ValueType::Object || p_type == ValueType::Task || is_native(p_type);
 }
 
 // What GET_INDEX reads from and SET_INDEX writes to.
@@ -415,7 +416,7 @@ class Verifier {
 	// The result of a call of a coroutine, its Task handle (spec §9.1), or of
 	// another function.
 	bool call_result(uint32_t p_dst, bool p_async, uint32_t p_result) {
-		return p_async ? slot_or_none(p_dst, ValueType::Object) : result(p_dst, p_result);
+		return p_async ? slot_or_none(p_dst, ValueType::Task) : result(p_dst, p_result);
 	}
 
 	bool call(Op p_op, const uint32_t *p_call) {
@@ -548,11 +549,11 @@ class Verifier {
 					return fail("a task of other tasks that is not Task.any() or Task.all()");
 				}
 				for (uint32_t i = 0; i < p_call[3]; i++) {
-					if (storage(p_call[4 + 2 * i]) != (i % 2 ? ValueType::Int : ValueType::Object)) {
+					if (storage(p_call[4 + 2 * i]) != (i % 2 ? ValueType::Int : ValueType::Task)) {
 						return fail("Task.any() or Task.all() of what is not a task and whether it is owned");
 					}
 				}
-				return arguments(p_call) && slot(dst, ValueType::Object);
+				return arguments(p_call) && slot(dst, ValueType::Task);
 			}
 			case Op::MAKE_LAMBDA: {
 				if (!index(callee, module.functions.size(), "function")) {
@@ -631,6 +632,9 @@ class Verifier {
 					break;
 				case 'O':
 					ok = slot_or_none(o[i], ValueType::Object);
+					break;
+				case 'a':
+					ok = slot(o[i], ValueType::Task);
 					break;
 				case 'v':
 					ok = slot(o[i], ValueType::Variant);
@@ -784,7 +788,7 @@ class Verifier {
 				return slot(o[3], element == ValueType::Void ? ValueType::Variant : element);
 			}
 			case Op::IS_NONE:
-				return is_option(o[0]) || storage(o[0]) == ValueType::Object || storage(o[0]) == ValueType::Variant || fail("None is only tested on objects and options");
+				return is_option(o[0]) || storage(o[0]) == ValueType::Object || storage(o[0]) == ValueType::Task || storage(o[0]) == ValueType::Variant || fail("None is only tested on objects, tasks and options");
 			case Op::SOME:
 				return (is_option(o[0]) || fail("Some of a type that is not T?")) && slot_like(o[2], module.types[o[0]].element);
 			case Op::LESS:
@@ -822,8 +826,8 @@ class Verifier {
 				if (storage(o[0]) == ValueType::Variant) {
 					return fail("no type to unwrap to");
 				}
-				if (storage(o[0]) == ValueType::Object && !is_option(o[0])) {
-					return slot(o[2], ValueType::Object);
+				if ((storage(o[0]) == ValueType::Object || storage(o[0]) == ValueType::Task) && !is_option(o[0])) {
+					return slot(o[2], storage(o[0]));
 				}
 				return any(frame, o[2], [&](uint32_t p_source) { return is_option(p_source) && same_layout(module.types[p_source].element, o[0]); }) || fail("unwrapping what is not T?");
 			}

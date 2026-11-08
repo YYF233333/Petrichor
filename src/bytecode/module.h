@@ -18,7 +18,9 @@ namespace petrichor::bytecode {
 // functions for each type; values are stored in the engine's own layout, except
 // Bool, which takes 8 bytes like Int and Float, and Object, which is held as
 // the data of a Variant with it, its ObjectID and the engine's pointer
-// (architecture §2.2). Variant is a slot that holds any engine value.
+// (architecture §2.2). Variant is a slot that holds any engine value. Task,
+// after the engine's types, holds a Task[T] as the runtime's own handle, which
+// the engine sees as a CoroutineTask object (spec §9.1).
 enum class ValueType : uint8_t {
 	Void,
 	Bool,
@@ -60,6 +62,7 @@ enum class ValueType : uint8_t {
 	PackedColorArray,
 	PackedVector4Array,
 	Variant,
+	Task,
 	Count,
 };
 
@@ -185,7 +188,7 @@ struct TypeDesc {
 	uint32_t key = 0; // Dictionary.
 	ClassRef object;
 	bool nullable = false;
-	std::string task_result; // Object: a Task[T] handle, with T's signature key.
+	std::string task_result; // Object: a Task[T], stored as a Task, with T's signature key.
 	std::string name; // Struct and the enums: "script::Name", as interfaces are named; the engine's enum as it names it, such as "Node.ProcessMode".
 	std::vector<FieldDesc> fields; // Struct and PayloadEnum.
 	std::vector<EnumValueDesc> values; // The enums, in declaration order.

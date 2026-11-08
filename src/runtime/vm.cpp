@@ -57,7 +57,7 @@ struct CoroutineFrame : std::enable_shared_from_this<CoroutineFrame> {
 	InstanceContext context;
 	// Kept by the frame, which a callback on another thread may hold after the
 	// task ended; finish() lets go of the frame.
-	Ref<CoroutineTask> task;
+	TaskRef task;
 	uint32_t function;
 	uint8_t *data;
 	size_t pc = 0;
@@ -80,17 +80,18 @@ struct CoroutineFrame : std::enable_shared_from_this<CoroutineFrame> {
 	Callable changed_callback;
 	object_watch::Subscription watch;
 	Variant held_state;
-	Ref<CoroutineTask> waited_task;
-	Ref<CoroutineTask> child;
+	TaskRef waited_task;
+	uint64_t waiter = 0; // What waited_task calls once it ends.
+	TaskRef child;
 	// The slots that held self when the frame was suspended.
 	std::vector<std::pair<uint32_t, ValueType>> let_go_of_self;
 
-	CoroutineFrame(const std::shared_ptr<const ClassImage> &p_image, uint32_t p_function, const InstanceContext &p_context, const Ref<CoroutineTask> &p_task) :
+	CoroutineFrame(const std::shared_ptr<const ClassImage> &p_image, uint32_t p_function, const InstanceContext &p_context, const TaskRef &p_task) :
 			image(p_image), context(p_context), task(p_task), function(p_function), data(static_cast<uint8_t *>(::operator new(p_image->frames[p_function].size))) {
 		image->frames[function].construct(data);
 		line = int(image->module.functions[function].line);
 	}
-	CoroutineFrame(const InstanceContext &p_context, const Ref<CoroutineTask> &p_task) :
+	CoroutineFrame(const InstanceContext &p_context, const TaskRef &p_task) :
 			context(p_context), task(p_task), function(0), data(nullptr) {}
 	~CoroutineFrame() {
 		disconnect();
@@ -101,7 +102,7 @@ struct CoroutineFrame : std::enable_shared_from_this<CoroutineFrame> {
 	}
 	void disconnect();
 	bool receive(const Variant &p_value);
-	bool await_task(const Ref<CoroutineTask> &p_task);
+	bool await_task(const TaskRef &p_task);
 	void report_error(const String &p_message);
 	void resume();
 	void complete_wait(uint64_t p_generation, const Variant &p_value);
@@ -119,40 +120,47 @@ struct TaskJoin : std::enable_shared_from_this<TaskJoin> {
 		All,
 	};
 	Kind kind = Kind::Settled;
-	Ref<CoroutineTask> task; // Its own, which keeps it until it ends.
+	TaskRef task; // Its own, which keeps it until it ends.
 	InstanceContext context;
 	std::shared_ptr<const ClassImage> image; // That holds `result_type`.
 	const TypeImage *result_type = nullptr; // The T of its Task[T]: Settled[T], int or void.
 	// Where it was made, where awaiting a cancelled member is reported.
 	std::string function;
 	int line = 0;
-	std::vector<Ref<CoroutineTask>> members;
+	std::vector<TaskRef> members;
 	std::vector<bool> owned;
 	std::vector<bool> seen;
 	size_t finished = 0;
-	std::vector<Callable> callbacks;
+	std::vector<uint64_t> waiters; // Each member's on_end().
 	std::atomic<uint64_t> generation{ 0 };
 	// A member cancelled as its object was freed in this frame: tasks::frame()
 	// decides once the frame's deletions are done (§9.7).
 	std::atomic<bool> awaited_freed{ false };
 	size_t freed_member = 0;
 
-	static Ref<CoroutineTask> make(Kind p_kind, const std::vector<Ref<CoroutineTask>> &p_members, const std::vector<bool> &p_owned, const TypeImage &p_result, const InstanceContext &p_context, const std::shared_ptr<const ClassImage> &p_image, const bytecode::Function &p_function, int p_line);
+	static TaskRef make(Kind p_kind, const std::vector<TaskRef> &p_members, const std::vector<bool> &p_owned, const TypeImage &p_result, const InstanceContext &p_context, const std::shared_ptr<const ClassImage> &p_image, const bytecode::Function &p_function, int p_line);
 	void start();
 	void member_ended(size_t p_member);
-	Variant cancelled(const CoroutineTask &p_member) const;
+	Variant cancelled(const TaskState &p_member) const;
 	void report_error(const String &p_message) const;
-	std::vector<Ref<CoroutineTask>> stop();
+	std::vector<TaskRef> stop();
 };
 
 namespace {
 std::mutex tasks_mutex;
 std::atomic<uint64_t> task_frame{ 0 };
-std::map<uint64_t, Ref<CoroutineTask>> active_tasks;
+uint64_t last_serial = 0;
+std::map<uint64_t, TaskRef> active_tasks;
 
-std::vector<Ref<CoroutineTask>> task_snapshot() {
+void list_task(const TaskRef &p_task) {
 	std::lock_guard<std::mutex> lock(tasks_mutex);
-	std::vector<Ref<CoroutineTask>> tasks;
+	p_task->serial = ++last_serial;
+	active_tasks.emplace(p_task->serial, p_task);
+}
+
+std::vector<TaskRef> task_snapshot() {
+	std::lock_guard<std::mutex> lock(tasks_mutex);
+	std::vector<TaskRef> tasks;
 	for (const auto &entry : active_tasks) {
 		tasks.push_back(entry.second);
 	}
@@ -194,10 +202,9 @@ public:
 
 // `p_result_key` is the result as the caller sees it, which an override may
 // give as another type (spec §4.6).
-Ref<CoroutineTask> start_task(const std::shared_ptr<const ClassImage> &p_image, uint32_t p_function, const InstanceContext &p_context, uint8_t *p_frame, const std::string *p_result_key = nullptr) {
+TaskRef start_task(const std::shared_ptr<const ClassImage> &p_image, uint32_t p_function, const InstanceContext &p_context, uint8_t *p_frame, const std::string *p_result_key = nullptr) {
 	const bytecode::Function &fn = p_image->module.functions[p_function];
-	Ref<CoroutineTask> task;
-	task.instantiate();
+	const TaskRef task = TaskRef::make();
 	task->owner_id = p_context.owner ? instance_id(p_context.owner) : 0;
 	task->owner_storage = p_context.storage.get();
 	task->result_signature = p_result_key ? *p_result_key : p_image->types[fn.result.type].result_key;
@@ -205,10 +212,7 @@ Ref<CoroutineTask> start_task(const std::shared_ptr<const ClassImage> &p_image, 
 	for (const auto &param : fn.params) {
 		copy_value(p_image->types[param.type], task->continuation->data + param.offset, p_frame + param.offset);
 	}
-	{
-		std::lock_guard<std::mutex> lock(tasks_mutex);
-		active_tasks.emplace(instance_id(task.ptr()), task);
-	}
+	list_task(task);
 	if (p_context.storage && p_context.storage->coroutines_cancelled) {
 		task->cancel_requested = true;
 		task->owner_freed = true;
@@ -222,27 +226,23 @@ Ref<CoroutineTask> start_task(const std::shared_ptr<const ClassImage> &p_image, 
 // of it would receive it, and is cancelled once the signal's object is freed
 // (§9.2); tasks::frame() decides that, as for other awaits (§9.7). Null when
 // the signal cannot be connected to.
-Ref<CoroutineTask> signal_task(const InstanceContext &p_context, const Signal &p_signal, const std::string &p_result_key) {
-	Ref<CoroutineTask> task;
-	task.instantiate();
+TaskRef signal_task(const InstanceContext &p_context, const Signal &p_signal, const std::string &p_result_key) {
+	const TaskRef task = TaskRef::make();
 	task->owner_id = p_context.owner ? instance_id(p_context.owner) : 0;
 	task->owner_storage = p_context.storage.get();
 	task->result_signature = p_result_key;
 	task->continuation = std::make_shared<CoroutineFrame>(p_context, task);
-	{
-		std::lock_guard<std::mutex> lock(tasks_mutex);
-		active_tasks.emplace(instance_id(task.ptr()), task);
-	}
+	list_task(task);
 	if (p_context.storage && p_context.storage->coroutines_cancelled) {
 		task->owner_freed = true;
 		task->owner_freed_frame = task_frame.load();
-		task->finish(CoroutineTask::State::Cancelled);
+		task->finish(TaskState::State::Cancelled);
 		return task;
 	}
 	std::lock_guard<std::recursive_mutex> lock(task->mutex);
 	if (!task->continuation->suspend(p_signal, NO_SLOT, uint64_t(p_signal.get_object_id()))) {
-		task->finish(CoroutineTask::State::Failed);
-		return Ref<CoroutineTask>();
+		task->finish(TaskState::State::Failed);
+		return TaskRef();
 	}
 	return task;
 }
@@ -991,9 +991,9 @@ class Execution {
 		}
 		const TypeImage &result_type = image.types[p_result.type];
 		if (method.is_async) {
-			const Ref<CoroutineTask> task = start_task(p_callee.shared_from_this(), p_index, p_context, callee_frame.data, &result_type.result_key);
+			TaskRef task = start_task(p_callee.shared_from_this(), p_index, p_context, callee_frame.data, &result_type.result_key);
 			if (dst != NO_SLOT) {
-				set_object(frame + dst, task);
+				task_at(frame + dst) = std::move(task);
 			}
 			return true;
 		}
@@ -1714,16 +1714,16 @@ class Execution {
 				return true;
 			}
 			const Signal signal = result;
-			Ref<CoroutineTask> task = Object::cast_to<CoroutineTask>(signal.get_object());
+			const TaskRef task = task_of(signal.get_object());
 			p_async->pc = r_pc + 5 + 2 * argc;
-			if (task.is_valid() && signal.get_name() == StringName("completed")) {
+			if (task && signal.get_name() == StringName("completed")) {
 				if (!p_async->await_task(task)) {
 					return false;
 				}
 			} else if (!p_async->suspend(signal, dst, uint64_t(signal.get_object_id()))) {
 				return fail_cstr(p_fn, p_line, "Cannot await this signal.");
 			}
-			if (p_async->task->state == CoroutineTask::State::Suspended) {
+			if (p_async->task->state == TaskState::State::Suspended) {
 				r_done = true;
 				return true;
 			}
@@ -1962,8 +1962,7 @@ class Execution {
 	}
 
 	PETRICHOR_NOINLINE bool op_task_cancel(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
-		ObjectView view(p_frame + p_op[1]);
-		CoroutineTask *task = Object::cast_to<CoroutineTask>(static_cast<Object *>(view.get()));
+		const TaskRef task = task_at(p_frame + p_op[1]);
 		if (!task) {
 			return fail_cstr(p_fn, p_line, "Expected a Task handle.");
 		}
@@ -1983,46 +1982,43 @@ class Execution {
 		} else {
 			signal = *reinterpret_cast<const Signal *>(p_frame + p_op[3]);
 		}
-		const Ref<CoroutineTask> task = signal_task(context, signal, image.types[p_op[1]].check.task_result);
-		if (task.is_null()) {
+		TaskRef task = signal_task(context, signal, image.types[p_op[1]].check.task_result);
+		if (!task) {
 			return fail_cstr(p_fn, p_line, "Task.of() cannot connect to the signal.");
 		}
-		set_object(p_frame + p_op[2], task);
+		task_at(p_frame + p_op[2]) = std::move(task);
 		return true;
 	}
 
 	PETRICHOR_NOINLINE bool op_task_settled(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
-		ObjectView view(p_frame + p_op[3]);
-		CoroutineTask *member = Object::cast_to<CoroutineTask>(static_cast<Object *>(view.get()));
+		const TaskRef &member = task_at(p_frame + p_op[3]);
 		if (!member) {
 			return fail_cstr(p_fn, p_line, "Expected a Task handle.");
 		}
-		set_object(p_frame + p_op[2], TaskJoin::make(TaskJoin::Kind::Settled, { Ref<CoroutineTask>(member) }, { p_op[4] != 0 }, image.types[p_op[1]], context, image.shared_from_this(), p_fn, p_line));
+		task_at(p_frame + p_op[2]) = TaskJoin::make(TaskJoin::Kind::Settled, { member }, { p_op[4] != 0 }, image.types[p_op[1]], context, image.shared_from_this(), p_fn, p_line);
 		return true;
 	}
 
 	// TASK_ANY and TASK_ALL (spec §9.5).
 	PETRICHOR_NOINLINE bool op_task_join(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
-		std::vector<Ref<CoroutineTask>> members;
+		std::vector<TaskRef> members;
 		std::vector<bool> owned;
 		for (uint32_t i = 0; i < p_op[4]; i += 2) {
-			ObjectView view(p_frame + p_op[6 + 2 * i]);
-			CoroutineTask *member = Object::cast_to<CoroutineTask>(static_cast<Object *>(view.get()));
+			const TaskRef &member = task_at(p_frame + p_op[6 + 2 * i]);
 			if (!member) {
 				return fail_cstr(p_fn, p_line, "Expected a Task handle.");
 			}
-			members.push_back(Ref<CoroutineTask>(member));
+			members.push_back(member);
 			owned.push_back(*reinterpret_cast<const int64_t *>(p_frame + p_op[8 + 2 * i]) != 0);
 		}
 		const TaskJoin::Kind kind = Op(p_op[0]) == Op::TASK_ANY ? TaskJoin::Kind::Any : TaskJoin::Kind::All;
-		set_object(p_frame + p_op[2], TaskJoin::make(kind, members, owned, image.types[p_op[1]], context, image.shared_from_this(), p_fn, p_line));
+		task_at(p_frame + p_op[2]) = TaskJoin::make(kind, members, owned, image.types[p_op[1]], context, image.shared_from_this(), p_fn, p_line);
 		return true;
 	}
 
 	PETRICHOR_NOINLINE bool op_await_task(const uint32_t *p_op, uint8_t *p_frame, CoroutineFrame *p_async, size_t &r_pc, bool &r_done, const bytecode::Function &p_fn, int p_line) {
-		ObjectView view(p_frame + p_op[2]);
-		Ref<CoroutineTask> task = view.get();
-		if (task.is_null()) {
+		const TaskRef task = task_at(p_frame + p_op[2]);
+		if (!task) {
 			return fail_cstr(p_fn, p_line, "Expected a Task handle.");
 		}
 		if (p_op[3]) {
@@ -2037,7 +2033,7 @@ class Execution {
 		if (!p_async->await_task(task)) {
 			return false;
 		}
-		if (p_async->task->state == CoroutineTask::State::Suspended) {
+		if (p_async->task->state == TaskState::State::Suspended) {
 			r_done = true;
 			return true;
 		}
@@ -2553,6 +2549,8 @@ public:
 						U64(code[pc + 2]) = U64(code[pc + 3]) ? 0 : 1;
 					} else if (type.storage == ValueType::Object) {
 						U64(code[pc + 2]) = is_live_object(src) ? 0 : 1; // A freed object reads as None in T? (spec §3.3).
+					} else if (type.storage == ValueType::Task) {
+						U64(code[pc + 2]) = task_at(src) ? 0 : 1;
 					} else {
 						const Variant &value = variant_at(src);
 						U64(code[pc + 2]) = is_none(value) || (value.get_type() == Variant::OBJECT && !value.booleanize()) ? 1 : 0;
@@ -2622,9 +2620,11 @@ public:
 					const TypeImage &type = types[code[pc + 1]];
 					const uint8_t *src = frame + code[pc + 3];
 					// An object's T? holds the object as T does, and a freed one reads
-					// as None (spec §3.3); T? of another type holds a tag first.
+					// as None (spec §3.3), a task's T? as T does too; T? of another
+					// type holds a tag first.
 					const bool object = type.kind == bytecode::TypeKind::Object;
-					if (object ? !is_live_object(src) : U64(code[pc + 3]) == 0) {
+					const bool none = type.storage == ValueType::Task ? !task_at(src) : (object ? !is_live_object(src) : U64(code[pc + 3]) == 0);
+					if (none) {
 						return fail_unwrap(fn, record.line, frame, code[pc + 4]);
 					}
 					copy_value(type, frame + code[pc + 2], object ? src : src + 8);
@@ -2800,10 +2800,66 @@ void CoroutineTask::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("cancelled", PropertyInfo(Variant::INT, "reason"))); // Spec §9.8.
 }
 
-void CoroutineTask::finish(State p_state, const Variant &p_result) {
-	Ref<CoroutineTask> keep(this);
-	Ref<CoroutineTask> child;
-	std::vector<Ref<CoroutineTask>> owned;
+void CoroutineTask::_notification(int p_what) {
+	// Before the engine frees it, while object() can still find it gone by
+	// its count of references.
+	if (p_what == NOTIFICATION_PREDELETE && task) {
+		std::lock_guard<std::mutex> lock(task->links_mutex);
+		if (task->engine_object == this) {
+			task->engine_object = nullptr;
+		}
+	}
+}
+
+void CoroutineTask::cancel() {
+	if (task) {
+		task->cancel();
+	}
+}
+
+TaskRef task_of(const Variant &p_value) {
+	const CoroutineTask *object = type_of(p_value) == Variant::OBJECT ? Object::cast_to<CoroutineTask>(p_value.get_validated_object()) : nullptr;
+	return object ? object->task : TaskRef();
+}
+
+TaskState::TaskState() = default;
+TaskState::~TaskState() = default;
+
+Ref<CoroutineTask> TaskState::object() {
+	Ref<CoroutineTask> found;
+	std::lock_guard<std::mutex> lock(links_mutex);
+	if (engine_object) {
+		found.reference_ptr(engine_object); // None once its count is 0.
+	}
+	if (found.is_null()) {
+		found.instantiate();
+		found->task = TaskRef(this);
+		engine_object = found.ptr();
+		if (!ended()) {
+			held = found;
+		}
+	}
+	return found;
+}
+
+uint64_t TaskState::on_end(std::function<void()> p_ended) {
+	std::lock_guard<std::mutex> lock(links_mutex);
+	if (ended()) {
+		return 0;
+	}
+	waiters.emplace_back(++next_waiter, std::move(p_ended));
+	return next_waiter;
+}
+
+void TaskState::forget(uint64_t p_waiter) {
+	std::lock_guard<std::mutex> lock(links_mutex);
+	waiters.erase(std::remove_if(waiters.begin(), waiters.end(), [&](const auto &p_entry) { return p_entry.first == p_waiter; }), waiters.end());
+}
+
+void TaskState::finish(State p_state, const Variant &p_result) {
+	const TaskRef keep(this);
+	TaskRef child;
+	std::vector<TaskRef> owned;
 	{
 		std::lock_guard<std::recursive_mutex> lock(mutex);
 		if (ended()) {
@@ -2814,8 +2870,7 @@ void CoroutineTask::finish(State p_state, const Variant &p_result) {
 		if (continuation) {
 			const auto frame = std::move(continuation);
 			frame->disconnect();
-			child = frame->child;
-			frame->child.unref();
+			child = std::move(frame->child);
 			if (frame->data) {
 				uint8_t *data = frame->data;
 				frame->data = nullptr;
@@ -2827,25 +2882,39 @@ void CoroutineTask::finish(State p_state, const Variant &p_result) {
 			owned = stopped->stop();
 		}
 	}
-	if (p_state == State::Cancelled && child.is_valid()) {
+	if (p_state == State::Cancelled && child) {
 		child->cancel();
 	}
-	for (const Ref<CoroutineTask> &member : owned) {
+	for (const TaskRef &member : owned) {
 		member->cancel();
 	}
 	{
 		std::lock_guard<std::mutex> lock(tasks_mutex);
-		active_tasks.erase(instance_id(this));
+		active_tasks.erase(serial);
+	}
+	// The state says ended before these are taken, so no waiter comes after.
+	std::vector<std::pair<uint64_t, std::function<void()>>> ended;
+	Ref<CoroutineTask> seen;
+	{
+		std::lock_guard<std::mutex> lock(links_mutex);
+		ended.swap(waiters);
+		seen = held;
+		held.unref();
 	}
 	static const StringName cancelled_name("cancelled");
 	static const StringName completed_name("completed");
-	if (p_state == State::Cancelled) {
-		emit_signal(cancelled_name, cancel_reason());
+	if (seen.is_valid() && p_state == State::Cancelled) {
+		seen->emit_signal(cancelled_name, cancel_reason());
 	}
-	emit_signal(completed_name, result);
+	for (const auto &waiter : ended) {
+		waiter.second();
+	}
+	if (seen.is_valid()) {
+		seen->emit_signal(completed_name, result);
+	}
 }
 
-void CoroutineTask::cancel() {
+void TaskState::cancel() {
 	{
 		std::lock_guard<std::recursive_mutex> lock(mutex);
 		if (ended()) {
@@ -2858,7 +2927,7 @@ void CoroutineTask::cancel() {
 	}
 	finish(State::Cancelled);
 }
-void CoroutineTask::cancel_owner() {
+void TaskState::cancel_owner() {
 	{
 		std::lock_guard<std::recursive_mutex> lock(mutex);
 		if (ended()) {
@@ -2872,11 +2941,18 @@ void CoroutineTask::cancel_owner() {
 
 void CoroutineFrame::disconnect() {
 	++generation;
+	lost_object = 0;
 	if (!waits) {
-		lost_object = 0;
 		return;
 	}
 	waits = false;
+	if (waited_task) {
+		// A wait for a task holds nothing of the engine.
+		waited_task->forget(waiter);
+		waiter = 0;
+		waited_task = TaskRef();
+		return;
+	}
 	if (connected && waiting.get_object() && waiting.is_connected(callback)) {
 		waiting.disconnect(callback);
 	}
@@ -2891,8 +2967,6 @@ void CoroutineFrame::disconnect() {
 	script_changed = Signal();
 	changed_callback = Callable();
 	held_state = Variant();
-	waited_task.unref();
-	lost_object = 0;
 }
 
 void CoroutineFrame::report_error(const String &p_message) {
@@ -2911,12 +2985,12 @@ void CoroutineFrame::report_error(const String &p_message) {
 	}
 }
 
-bool CoroutineFrame::await_task(const Ref<CoroutineTask> &p_task) {
-	if (p_task->state == CoroutineTask::State::Finished) {
-		child.unref();
+bool CoroutineFrame::await_task(const TaskRef &p_task) {
+	if (p_task->state == TaskState::State::Finished) {
+		child = TaskRef();
 		return receive(p_task->result);
 	}
-	if (p_task->state == CoroutineTask::State::Failed) {
+	if (p_task->state == TaskState::State::Failed) {
 		return false;
 	}
 	if (p_task->owner_freed) {
@@ -2925,28 +2999,32 @@ bool CoroutineFrame::await_task(const Ref<CoroutineTask> &p_task) {
 			report_error(vformat("The awaited object %d was freed or lost its script.", int64_t(id)));
 			return false;
 		}
-		child.unref();
+		child = TaskRef();
 		awaited_freed = true;
 		lost_object = id;
-		task->state = CoroutineTask::State::Suspended;
+		task->state = TaskState::State::Suspended;
 		return true;
 	}
-	if (p_task->state == CoroutineTask::State::Cancelled) {
+	if (p_task->state == TaskState::State::Cancelled) {
 		report_error("The awaited task was cancelled.");
 		return false;
 	}
+	// The callback waits for this task's lock, which the caller holds, so it
+	// finds the wait set up.
+	const uint64_t ticket = ++generation;
+	const std::weak_ptr<CoroutineFrame> weak = shared_from_this();
+	const uint64_t id = p_task->on_end([weak, ticket] {
+		if (const auto frame = weak.lock()) {
+			frame->complete_wait(ticket, Variant());
+		}
+	});
+	if (!id) {
+		return await_task(p_task); // Ended meanwhile on another thread.
+	}
+	waits = true;
+	waiter = id;
 	waited_task = p_task;
-	if (!suspend(Signal(p_task.ptr(), "completed"), destination, 0)) {
-		report_error("Cannot await task completion.");
-		return false;
-	}
-	// Ended on another thread before the connection, its signal gone; a
-	// callback that comes now finds a later generation.
-	if (p_task->ended()) {
-		disconnect();
-		task->state = CoroutineTask::State::Running;
-		return await_task(p_task);
-	}
+	task->state = TaskState::State::Suspended;
 	return true;
 }
 
@@ -2972,7 +3050,7 @@ bool CoroutineFrame::suspend(const Signal &p_signal, uint32_t p_dst, uint64_t p_
 	waits = true;
 	destination = p_dst;
 	waiting = p_signal;
-	task->state = CoroutineTask::State::Suspended;
+	task->state = TaskState::State::Suspended;
 	const uint64_t ticket = ++generation;
 	const std::weak_ptr<CoroutineFrame> weak = shared_from_this();
 	const std::function<void(const Variant &)> resume = [weak, ticket](const Variant &value) {
@@ -3028,10 +3106,10 @@ void CoroutineFrame::complete_wait(uint64_t p_generation, const Variant &p_value
 			return;
 		}
 		connected = false; // The engine has dropped the one-shot connection.
-		const Ref<CoroutineTask> completed = waited_task;
+		const TaskRef completed = waited_task;
 		disconnect();
-		child.unref();
-		if (image && completed.is_valid()) {
+		child = TaskRef();
+		if (image && completed) {
 			failed = !await_task(completed);
 			if (!failed && awaited_freed) {
 				return;
@@ -3041,11 +3119,11 @@ void CoroutineFrame::complete_wait(uint64_t p_generation, const Variant &p_value
 		}
 	}
 	if (!image) {
-		task->finish(CoroutineTask::State::Finished, p_value); // A task of a signal.
+		task->finish(TaskState::State::Finished, p_value); // A task of a signal.
 		return;
 	}
 	if (failed) {
-		task->finish(CoroutineTask::State::Failed);
+		task->finish(TaskState::State::Failed);
 		return;
 	}
 	resume();
@@ -3054,7 +3132,7 @@ void CoroutineFrame::complete_wait(uint64_t p_generation, const Variant &p_value
 void CoroutineFrame::resume() {
 	// The frame keeps its task.
 	const auto keep_frame = shared_from_this();
-	CoroutineTask::State ends = CoroutineTask::State::Running;
+	TaskState::State ends = TaskState::State::Running;
 	Variant value;
 	{
 		std::lock_guard<std::recursive_mutex> lock(task->mutex);
@@ -3062,9 +3140,9 @@ void CoroutineFrame::resume() {
 			return; // Cancelled on another thread meanwhile.
 		}
 		if (task->cancel_requested && pc != 0) {
-			ends = CoroutineTask::State::Cancelled;
+			ends = TaskState::State::Cancelled;
 		} else {
-			task->state = CoroutineTask::State::Running;
+			task->state = TaskState::State::Running;
 			const TypeImage &result_type = image->types[image->module.functions[function].result.type];
 			ValueBuffer result(result_type);
 			if (!let_go_of_self.empty()) {
@@ -3073,11 +3151,11 @@ void CoroutineFrame::resume() {
 			}
 			const bool ok = Execution(*image, context, debugger::is_active()).run(function, data, result.data, this);
 			if (task->cancel_requested) {
-				ends = CoroutineTask::State::Cancelled;
+				ends = TaskState::State::Cancelled;
 			} else if (!ok) {
-				ends = CoroutineTask::State::Failed;
-			} else if (task->state == CoroutineTask::State::Running) {
-				ends = CoroutineTask::State::Finished;
+				ends = TaskState::State::Failed;
+			} else if (task->state == TaskState::State::Running) {
+				ends = TaskState::State::Finished;
 				value = outward_variant(result_type, result.data);
 			} else if (context.storage && context.owner) {
 				// A suspended coroutine does not keep self alive (spec §9.4). It is
@@ -3087,14 +3165,13 @@ void CoroutineFrame::resume() {
 			}
 		}
 	}
-	if (ends != CoroutineTask::State::Running) {
+	if (ends != TaskState::State::Running) {
 		task->finish(ends, value);
 	}
 }
 
-Ref<CoroutineTask> TaskJoin::make(Kind p_kind, const std::vector<Ref<CoroutineTask>> &p_members, const std::vector<bool> &p_owned, const TypeImage &p_result, const InstanceContext &p_context, const std::shared_ptr<const ClassImage> &p_image, const bytecode::Function &p_function, int p_line) {
-	Ref<CoroutineTask> task;
-	task.instantiate();
+TaskRef TaskJoin::make(Kind p_kind, const std::vector<TaskRef> &p_members, const std::vector<bool> &p_owned, const TypeImage &p_result, const InstanceContext &p_context, const std::shared_ptr<const ClassImage> &p_image, const bytecode::Function &p_function, int p_line) {
+	const TaskRef task = TaskRef::make();
 	task->owner_id = p_context.owner ? instance_id(p_context.owner) : 0;
 	task->owner_storage = p_context.storage.get();
 	task->result_signature = p_result.result_key;
@@ -3110,14 +3187,11 @@ Ref<CoroutineTask> TaskJoin::make(Kind p_kind, const std::vector<Ref<CoroutineTa
 	join->owned = p_owned;
 	join->seen.assign(p_members.size(), false);
 	task->join = join;
-	{
-		std::lock_guard<std::mutex> lock(tasks_mutex);
-		active_tasks.emplace(instance_id(task.ptr()), task);
-	}
+	list_task(task);
 	if (p_context.storage && p_context.storage->coroutines_cancelled) {
 		task->owner_freed = true;
 		task->owner_freed_frame = task_frame.load();
-		task->finish(CoroutineTask::State::Cancelled);
+		task->finish(TaskState::State::Cancelled);
 		return task;
 	}
 	join->start();
@@ -3127,46 +3201,43 @@ Ref<CoroutineTask> TaskJoin::make(Kind p_kind, const std::vector<Ref<CoroutineTa
 void TaskJoin::start() {
 	{
 		std::lock_guard<std::recursive_mutex> lock(task->mutex);
-		task->state = CoroutineTask::State::Suspended;
+		task->state = TaskState::State::Suspended;
 		const uint64_t ticket = ++generation;
 		const std::weak_ptr<TaskJoin> weak = shared_from_this();
 		for (size_t i = 0; i < members.size(); i++) {
-			const std::function<void(const Variant &)> ended = [weak, ticket, i](const Variant &) {
+			waiters.push_back(members[i]->on_end([weak, ticket, i] {
 				if (const auto join = weak.lock(); join && join->generation == ticket) {
 					join->member_ended(i);
 				}
-			};
-			callbacks.push_back(Callable(memnew(ResumeCallable(ended))));
-			Signal(members[i].ptr(), "completed").connect(callbacks.back());
+			}));
 		}
 	}
-	// Those that ended before the connection, their signals gone; Task.all()
-	// of none has none to wait for.
+	// Those that ended already; Task.all() of none has none to wait for.
 	for (size_t i = 0; i < members.size(); i++) {
 		if (members[i]->ended()) {
 			member_ended(i);
 		}
 	}
 	if (members.empty()) {
-		task->finish(CoroutineTask::State::Finished);
+		task->finish(TaskState::State::Finished);
 	}
 }
 
 void TaskJoin::member_ended(size_t p_member) {
 	const auto keep = shared_from_this();
-	const Ref<CoroutineTask> own = task;
-	CoroutineTask::State ends = CoroutineTask::State::Finished;
+	const TaskRef own = task;
+	TaskState::State ends = TaskState::State::Finished;
 	Variant value;
 	{
 		std::lock_guard<std::recursive_mutex> lock(own->mutex);
-		const Ref<CoroutineTask> &member = members[p_member];
+		const TaskRef &member = members[p_member];
 		if (own->ended() || seen[p_member] || !member->ended()) {
 			return;
 		}
 		seen[p_member] = true;
-		if (member->state == CoroutineTask::State::Failed) {
-			ends = CoroutineTask::State::Failed;
-		} else if (member->state == CoroutineTask::State::Finished) {
+		if (member->state == TaskState::State::Failed) {
+			ends = TaskState::State::Failed;
+		} else if (member->state == TaskState::State::Finished) {
 			if (kind == Kind::Settled) {
 				value = encode_variant(*result_type, 0, result_type->enum_declared[0].second ? std::vector<Variant>{ member->result } : std::vector<Variant>());
 			} else if (kind == Kind::Any) {
@@ -3179,11 +3250,11 @@ void TaskJoin::member_ended(size_t p_member) {
 			freed_member = p_member;
 			return;
 		} else if (kind == Kind::Settled) {
-			value = cancelled(*member.ptr());
+			value = cancelled(*member.get());
 		} else {
 			// As awaiting it would be (spec §9.2).
 			report_error(member->owner_freed ? vformat("The awaited object %d was freed or lost its script.", int64_t(member->owner_id)) : String("The awaited task was cancelled."));
-			ends = CoroutineTask::State::Failed;
+			ends = TaskState::State::Failed;
 		}
 	}
 	own->finish(ends, value);
@@ -3194,18 +3265,17 @@ void TaskJoin::report_error(const String &p_message) const {
 }
 
 // Cancelled(reason), as Settled[T] holds it (spec §9.2).
-Variant TaskJoin::cancelled(const CoroutineTask &p_member) const {
+Variant TaskJoin::cancelled(const TaskState &p_member) const {
 	return encode_variant(*result_type, 1, { p_member.cancel_reason() });
 }
 
 // Lets go of the members, and gives those it owns that run on, to cancel.
-std::vector<Ref<CoroutineTask>> TaskJoin::stop() {
+std::vector<TaskRef> TaskJoin::stop() {
 	++generation;
-	std::vector<Ref<CoroutineTask>> running;
+	std::vector<TaskRef> running;
 	for (size_t i = 0; i < members.size(); i++) {
-		Signal completed(members[i].ptr(), "completed");
-		if (i < callbacks.size() && completed.is_connected(callbacks[i])) {
-			completed.disconnect(callbacks[i]);
+		if (i < waiters.size()) {
+			members[i]->forget(waiters[i]);
 		}
 		if (owned[i] && !members[i]->ended()) {
 			running.push_back(members[i]);
@@ -3236,7 +3306,7 @@ void frame() {
 		}
 		if (const auto join = task->join; join && join->awaited_freed && !task->ended()) {
 			const bool owner_gone = join->context.storage && join->context.storage->coroutines_cancelled;
-			const CoroutineTask &member = *join->members[join->freed_member].ptr();
+			const TaskState &member = *join->members[join->freed_member].get();
 			const bool settled = join->kind == TaskJoin::Kind::Settled;
 			const Variant value = owner_gone || !settled ? Variant() : join->cancelled(member);
 			if (!owner_gone && !settled) {
@@ -3246,7 +3316,7 @@ void frame() {
 			if (owner_gone) {
 				task->cancel_owner();
 			} else {
-				task->finish(settled ? CoroutineTask::State::Finished : CoroutineTask::State::Failed, value);
+				task->finish(settled ? TaskState::State::Finished : TaskState::State::Failed, value);
 			}
 			continue;
 		}
@@ -3264,7 +3334,7 @@ void frame() {
 		} else {
 			frame->report_error(vformat("The awaited object %d was freed or lost its script.", int64_t(frame->lost_object)));
 			lock.unlock();
-			task->finish(CoroutineTask::State::Failed);
+			task->finish(TaskState::State::Failed);
 		}
 	}
 }
@@ -3341,14 +3411,14 @@ Variant call(std::shared_ptr<const ClassImage> p_image, int p_function, Instance
 	}
 
 	if (fn.is_async) {
-		const Ref<CoroutineTask> task = start_task(image, uint32_t(p_function), context, frame.data);
+		const TaskRef task = start_task(image, uint32_t(p_function), context, frame.data);
 		if (p_task) {
-			return task;
+			return task->object();
 		}
 		if (r_failed) {
-			*r_failed = task->state == CoroutineTask::State::Failed;
+			*r_failed = task->state == TaskState::State::Failed;
 		}
-		return task->ended() ? task->result : Variant(Signal(task.ptr(), "completed"));
+		return task->ended() ? task->result : Variant(Signal(task->object().ptr(), "completed"));
 	}
 	ValueBuffer result(result_type);
 	const bool ok = Execution(*image, context, debugger::is_active()).run(uint32_t(p_function), frame.data, result.data);
