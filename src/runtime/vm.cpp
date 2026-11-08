@@ -2837,10 +2837,12 @@ void CoroutineTask::finish(State p_state, const Variant &p_result) {
 		std::lock_guard<std::mutex> lock(tasks_mutex);
 		active_tasks.erase(instance_id(this));
 	}
+	static const StringName cancelled_name("cancelled");
+	static const StringName completed_name("completed");
 	if (p_state == State::Cancelled) {
-		emit_signal("cancelled", cancel_reason());
+		emit_signal(cancelled_name, cancel_reason());
 	}
-	emit_signal("completed", result);
+	emit_signal(completed_name, result);
 }
 
 void CoroutineTask::cancel() {
@@ -2979,7 +2981,7 @@ bool CoroutineFrame::suspend(const Signal &p_signal, uint32_t p_dst, uint64_t p_
 		}
 	};
 	callback = Callable(memnew(ResumeCallable(resume)));
-	if (!waiting.get_object()) {
+	if (!gdextension_interface::object_get_instance_from_id(uint64_t(waiting.get_object_id()))) {
 		awaited_freed = true;
 		lost_object = p_watch;
 		return true;
@@ -2989,19 +2991,19 @@ bool CoroutineFrame::suspend(const Signal &p_signal, uint32_t p_dst, uint64_t p_
 	}
 	connected = true;
 	if (p_watch) {
-		Object *object = ObjectDB::get_instance(ObjectID(p_watch));
-		if (!object) {
+		const GDExtensionObjectPtr watched = gdextension_interface::object_get_instance_from_id(p_watch);
+		if (!watched) {
 			awaited_freed = true;
 			lost_object = p_watch;
 		} else {
-			watch = object_watch::watch(object->_owner, [weak, ticket](uint64_t id) {
+			watch = object_watch::watch(watched, [weak, ticket](uint64_t id) {
 				if (const auto frame = weak.lock(); frame && frame->generation == ticket) {
 					frame->awaited_freed = true;
 					frame->lost_object = id;
 				}
 			});
 			if (p_script) {
-				script_changed = Signal(object, "script_changed");
+				script_changed = Signal(ObjectDB::get_instance(ObjectID(p_watch)), "script_changed");
 				const std::function<void(const Variant &)> changed = [weak, ticket, p_watch](const Variant &) {
 					if (const auto frame = weak.lock(); frame && frame->generation == ticket) {
 						frame->awaited_freed = true;
