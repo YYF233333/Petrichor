@@ -836,6 +836,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 - 方法值形成的 `Callable`（如 `tween_callback(change_weapon)`）直接绑定目标方法，不按名查找，所以可以指向不带 `pub` 的方法。`pub` 内部类作为值为其脚本的类常量暴露。调试器可见全部成员。
 - 读写引擎类的属性即调用它的 getter 和 setter，不经按名访问。`label.text = s` 与 `label.set_text(s)` 相同。
 - 所以对象脚本的 `_get`、`_set` 只拦截按名字的访问，如 `get`、`set`、检查器和动画。
+- 【已知限制】引擎不向脚本提供带下标的属性的下标，如 `BaseMaterial3D` 的各张贴图共用一对方法。其他扩展的类中的这类属性因此仍按名读写。
 
 ### 10.6 数值边界
 
