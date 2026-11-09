@@ -99,7 +99,7 @@ The author decides the language design and every rule of the specification. AI c
 - Each engine behavior relied on cites the Godot source, with commit and line.
 - The migrated scripts of two real projects run in the engine.
 
-The author is responsible for fixing what goes wrong. During 0.1, the project takes issues but not pull requests. Development moves fast, so a pull request is usually stale by the time it is reviewed. Please report problems as issues instead. Pull requests open as 1.0 approaches.
+The author is responsible for fixing what goes wrong. During 0.1, the project takes issues but not pull requests. Development moves fast, so a pull request is usually stale by the time it is reviewed. Report defects as issues and opinions on the language rules in Discussions; both get a reply within 48 hours. Pull requests open as 1.0 approaches.
 
 ## Documentation
 
