@@ -5502,37 +5502,41 @@ class Checker : public ClassRelation {
 			}
 			return fail_call(r_expr, written + " has no payload; write it without parentheses.");
 		}
-		std::vector<bool> given(variant.fields.size(), false);
-		for (size_t i = 0; i < r_expr.args.size(); i++) {
-			Expr &arg = *r_expr.args[i];
-			const std::string name = i < r_expr.arg_names.size() ? r_expr.arg_names[i] : std::string();
-			size_t field = 0;
-			while (field < variant.fields.size() && variant.fields[field].name != name) {
-				field++;
-			}
-			if (field == variant.fields.size()) {
-				check_value(arg);
-				r_expr.param_types.push_back(Type::of(TypeKind::Error));
-				error(arg.range, name.empty() ? "A variant takes its fields by name, as in " + written + "(" + variant.fields[0].name + " = ...)." : missing(written + " has no field \"" + name + "\".", p_decl.script));
-				continue;
-			}
-			if (given[field]) {
-				error(arg.range, "\"" + name + "\" is given twice.");
-			}
-			given[field] = true;
-			refer(r_expr.arg_name_tokens[i], script_id(p_decl.script, enum_value_id(p_decl, variant.name) + "." + name));
-			const Type &field_type = variant.fields[field].type;
-			r_expr.param_types.push_back(field_type);
-			expect_assignable(arg, check_value(arg, field_type), field_type, "pass");
-		}
-		for (size_t field = 0; field < variant.fields.size(); field++) {
-			if (!given[field]) {
-				error(r_expr.range, written + "() needs \"" + variant.fields[field].name + "\".");
-			}
-		}
+		check_named_fields(r_expr, variant.fields, "variant", written, p_decl.script, enum_value_id(p_decl, variant.name));
 		r_expr.target = Target::VariantConstructor;
 		r_expr.index = index;
 		return set(r_expr, type);
+	}
+
+	// The arguments of a struct's or a variant's construction (`p_kind`), each
+	// given by the name of a field, once; a field without a default must be
+	// (spec §3.6, §3.7). `p_id` is what the fields' references are under.
+	void check_named_fields(Expr &r_expr, const std::vector<VarDecl> &p_fields, const std::string &p_kind, const std::string &p_written, const std::string &p_script, const std::string &p_id) {
+		std::vector<bool> given(p_fields.size(), false);
+		for (size_t i = 0; i < r_expr.args.size(); i++) {
+			Expr &arg = *r_expr.args[i];
+			const std::string name = i < r_expr.arg_names.size() ? r_expr.arg_names[i] : std::string();
+			const auto field = std::find_if(p_fields.begin(), p_fields.end(), [&](const VarDecl &p_field) { return p_field.name == name; });
+			if (field == p_fields.end()) {
+				check_value(arg);
+				r_expr.param_types.push_back(Type::of(TypeKind::Error));
+				error(arg.range, name.empty() ? "A " + p_kind + " takes its fields by name, as in " + p_written + "(" + (p_fields.empty() ? std::string() : p_fields[0].name + " = ...") + ")." : missing(p_written + " has no field \"" + name + "\".", p_script));
+				continue;
+			}
+			if (given[field - p_fields.begin()]) {
+				error(arg.range, "\"" + name + "\" is given twice.");
+			}
+			given[field - p_fields.begin()] = true;
+			refer(r_expr.arg_name_tokens[i], script_id(p_script, p_id + "." + name));
+			r_expr.param_types.push_back(field->type);
+			expect_assignable(arg, check_value(arg, field->type), field->type, "pass");
+		}
+		for (size_t field = 0; field < p_fields.size(); field++) {
+			if (!given[field] && !p_fields[field].initializer) {
+				// A variant's fields have no defaults.
+				error(r_expr.range, p_written + "() needs \"" + p_fields[field].name + "\"" + (p_kind == "struct" ? ", which has no default value." : "."));
+			}
+		}
 	}
 
 	// Fields by name, each once; those with a default may be left out (spec §3.6).
@@ -5557,34 +5561,7 @@ class Checker : public ClassRelation {
 			}
 			return signature(p_struct.interface_name(), fields, false, -1, p_struct.to_string());
 		});
-		std::vector<bool> given(decl->fields.size(), false);
-		for (size_t i = 0; i < r_expr.args.size(); i++) {
-			Expr &arg = *r_expr.args[i];
-			const std::string name = i < r_expr.arg_names.size() ? r_expr.arg_names[i] : std::string();
-			size_t field = 0;
-			while (field < decl->fields.size() && decl->fields[field].name != name) {
-				field++;
-			}
-			if (field == decl->fields.size()) {
-				check_value(arg);
-				r_expr.param_types.push_back(Type::of(TypeKind::Error));
-				error(arg.range, name.empty() ? "A struct takes its fields by name, as in " + p_struct.name + "(" + (decl->fields.empty() ? std::string("") : decl->fields[0].name + " = ...") + ")." : missing(p_struct.name + " has no field \"" + name + "\".", p_struct.script));
-				continue;
-			}
-			if (given[field]) {
-				error(arg.range, "\"" + name + "\" is given twice.");
-			}
-			given[field] = true;
-			refer(r_expr.arg_name_tokens[i], script_id(p_struct.script, decl->name + "." + name));
-			const Type &type = decl->fields[field].type;
-			r_expr.param_types.push_back(type);
-			expect_assignable(arg, check_value(arg, type), type, "pass");
-		}
-		for (size_t field = 0; field < decl->fields.size(); field++) {
-			if (!given[field] && !decl->fields[field].initializer) {
-				error(r_expr.range, p_struct.name + "() needs \"" + decl->fields[field].name + "\", which has no default value.");
-			}
-		}
+		check_named_fields(r_expr, decl->fields, "struct", p_struct.name, p_struct.script, decl->name);
 		r_expr.target = Target::StructConstructor;
 		return set(r_expr, p_struct);
 	}
