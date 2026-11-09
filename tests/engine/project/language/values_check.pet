@@ -281,8 +281,8 @@ pub func shift(target: CombatCheck.Placed, by: Vector2) -> float:
 pub func itself() -> Node3D:
 	return self
 
-# A compound assignment checks what it writes, and RandomNumberGenerator.seed is
-# a uint64 (spec §10.6).
+# A compound assignment checks what it writes; RandomNumberGenerator.seed is a
+# uint64, which an int passes to bitwise (spec §10.6).
 pub func raise_z(n: Node2D, by: int):
 	n.z_index += by
 

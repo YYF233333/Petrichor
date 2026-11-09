@@ -9,7 +9,6 @@ Paid before the remaining features of step 7 (architecture §5).
 - Behavior that differs from the spec:
   - The last subscript of an assignment's target is evaluated after the right side (spec §3.6). `lower.cpp` still evaluates it before.
   - A task cancelled because its owner was freed does not cancel its owned tasks (spec §9.3). `CoroutineTask::finish` still cancels `child` and `owned` for every reason.
-  - `uint64` passes bitwise without a range check (spec §10.6). Drop it from `NARROW_INTS` in `builtin_api_gen.py` and from `IntRange`.
   - A `.pet` with compile errors is left out of an export that reports success.
     - The export plugin skips it with an error print (`pet_editor_plugin.cpp`).
     - `get_export_platform()->add_message()` at error level would fail the export, as spec §7.5 asks for missing values.

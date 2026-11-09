@@ -187,8 +187,8 @@ enum class Op : uint32_t {
 
 constexpr uint32_t NO_SLOT = 0xFFFFFFFF;
 
-// An engine integer narrower than int64 or unsigned, which the engine would
-// truncate or wrap (spec §10.6): the first operand of CHECK_RANGE.
+// An engine integer narrower than int64, which the engine would truncate or
+// wrap (spec §10.6): the first operand of CHECK_RANGE.
 enum class IntRange : uint32_t {
 	INT8,
 	INT16,
@@ -196,7 +196,6 @@ enum class IntRange : uint32_t {
 	UINT8,
 	UINT16,
 	UINT32,
-	UINT64,
 	CHAR32, // A char32_t, unsigned 32 bits.
 	COUNT,
 };
@@ -216,8 +215,6 @@ inline bool int_in_range(IntRange p_range, int64_t p_value) {
 		case IntRange::UINT32:
 		case IntRange::CHAR32:
 			return p_value >= 0 && p_value <= int64_t(UINT32_MAX);
-		case IntRange::UINT64:
-			return p_value >= 0;
 		default:
 			return false;
 	}

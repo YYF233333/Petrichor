@@ -209,11 +209,10 @@ TEST_CASE("what lowering has no code for is an internal error, not wrong code") 
 
 // Spec §10.6: the engine's integer types, which the runtime checks values
 // against before they go to the engine.
-TEST_CASE("the ranges of engine integers narrower than int64 or unsigned") {
+TEST_CASE("the ranges of engine integers narrower than int64") {
 	CHECK(bytecode::int_in_range(bytecode::IntRange::INT32, 2147483647));
 	CHECK(!bytecode::int_in_range(bytecode::IntRange::INT32, 2147483648));
 	CHECK(!bytecode::int_in_range(bytecode::IntRange::UINT32, -1));
 	CHECK(bytecode::int_in_range(bytecode::IntRange::UINT32, 4294967295));
-	CHECK(!bytecode::int_in_range(bytecode::IntRange::UINT64, -1));
 	CHECK(!bytecode::int_in_range(bytecode::IntRange::INT8, 128));
 }

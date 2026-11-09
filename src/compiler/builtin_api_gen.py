@@ -107,12 +107,13 @@ def _binding_metadata(api, metadata_path):
     return sorted(returns), sorted(properties), sorted(params), sorted(filters), sorted(names.items())
 
 
-# Integer widths the engine truncates or wraps a value to (spec §10.6).
-NARROW_INTS = ("int8", "int16", "int32", "uint8", "uint16", "uint32", "uint64", "char32")
+# Integer widths the engine truncates or wraps a value to (spec §10.6). A
+# uint64 holds the same bits as an int, so it passes them unchecked.
+NARROW_INTS = ("int8", "int16", "int32", "uint8", "uint16", "uint32", "char32")
 
 
 def _int_ranges(api):
-    """The engine's integer parameters narrower than int64 or unsigned, as
+    """The engine's integer parameters narrower than int64, as
     sorted (key, width) pairs: "Class.method:index", and "Class.property" for
     the value a property's setter takes, its last argument."""
     params = {}

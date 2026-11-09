@@ -35,7 +35,7 @@ int operand_count(Op p_op) {
 }
 
 const char *int_range_name(IntRange p_range) {
-	static const char *const names[] = { "int8", "int16", "int32", "uint8", "uint16", "uint32", "uint64", "char32" };
+	static const char *const names[] = { "int8", "int16", "int32", "uint8", "uint16", "uint32", "char32" };
 	static_assert(sizeof(names) / sizeof(names[0]) == size_t(IntRange::COUNT), "one name per range");
 	return p_range < IntRange::COUNT ? names[uint32_t(p_range)] : "?";
 }
