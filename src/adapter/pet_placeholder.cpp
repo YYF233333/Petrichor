@@ -196,7 +196,10 @@ static PackedStringArray node_errors(const PetPlaceholder &p_placeholder) {
 	for (const compiler::Diagnostic &error : scene_errors(path, p_placeholder.script->_get_source_code())) {
 		for (const auto &[scene, at] : places) {
 			if (error.scene == scene && error.node == at) {
-				errors.push_back(to_godot(error.message));
+				// The message names the scene for the script editor; the dock shows it already.
+				const std::string prefix = scene + ": ";
+				const bool named = error.message.compare(0, prefix.size(), prefix) == 0;
+				errors.push_back(to_godot(named ? error.message.substr(prefix.size()) : error.message));
 			}
 		}
 	}

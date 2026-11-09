@@ -295,7 +295,8 @@ func _check_scene_marks() -> void:
 		_check(false, "the scene with a missing node opens")
 		return
 	var mark := 'has no node at "Label"'
-	_check("\n".join(root.call("_get_configuration_warnings")).contains(mark), "the node whose script uses $Label is marked")
+	var warnings := "\n".join(root.call("_get_configuration_warnings"))
+	_check(warnings.contains(mark) and not warnings.contains(scene_path), "the node whose script uses $Label is marked, without the scene's own path")
 	await get_tree().process_frame
 	_check(_dock_tooltips(root).contains(mark), "the scene dock shows the mark")
 
