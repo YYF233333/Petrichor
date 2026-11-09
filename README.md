@@ -85,7 +85,7 @@ Until then, build from source with a C++17 toolchain and SCons. Run `git submodu
 - Before 0.9, the language semantics may change, and release notes list every incompatible change. From 0.9, a change in what code means shows as a compile error. Fixes that change only runtime behavior are listed apart in release notes.
 - Bytecode is not compatible across builds. After upgrading the extension, rebuild the project once.
 - The editor lacks find references, rename, quick fixes, lints and LSP. They are planned for 0.2–0.3.
-- There is no GDScript migration tool yet, so 0.1 needs manual migration. The tool is planned for 0.2–0.3.
+- There is no GDScript migration tool yet, so 0.1 needs manual migration. The tool is planned for 0.2–0.3 and works both ways. Even if this project stops, it converts a project back to GDScript.
 - Godot 4.7 and later are supported.
 
 The full roadmap is in the [architecture](docs/architecture.md#5-推进顺序), and unfinished work in [BACKLOG.md](BACKLOG.md).
