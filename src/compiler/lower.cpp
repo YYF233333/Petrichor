@@ -2261,7 +2261,8 @@ class Lowerer {
 		}
 	}
 
-	Place place_of(const Expr &p_expr) {
+	// With `p_index` false, an element's own index is left for the caller.
+	Place place_of(const Expr &p_expr, bool p_index = true) {
 		Place place;
 		place.type = p_expr.type;
 		place.int_range = p_expr.int_range;
@@ -2274,7 +2275,9 @@ class Lowerer {
 			} else {
 				place.reg = lower_expr(*p_expr.base);
 			}
-			place.at = index_of(p_expr);
+			if (p_index) {
+				place.at = index_of(p_expr);
+			}
 			return place;
 		}
 		switch (p_expr.target) {
@@ -2851,11 +2854,15 @@ class Lowerer {
 				return;
 			}
 			case StmtKind::Assign: {
-				// The place, then the value, then reading, changing and writing back
-				// with nothing between them (spec §3.6).
+				// The place, then the value and the place's last index, as GDScript
+				// does, then reading, changing and writing back with nothing between
+				// them (spec §3.6).
 				const Expr &target = *p_stmt.target;
-				Place place = place_of(target);
+				Place place = place_of(target, false);
 				uint32_t value = lower_expr(*p_stmt.value);
+				if (target.kind == ExprKind::Subscript) {
+					place.at = index_of(target);
+				}
 				Type type = p_stmt.value->type;
 				open(place);
 				if (p_stmt.assign_op == TokenKind::Equal) {

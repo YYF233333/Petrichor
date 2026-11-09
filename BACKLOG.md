@@ -7,7 +7,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 Paid before the remaining features of step 7 (architecture §5).
 
 - Behavior that differs from the spec:
-  - The last subscript of an assignment's target is evaluated after the right side (spec §3.6). `lower.cpp` still evaluates it before.
   - A `.pet` with compile errors is left out of an export that reports success.
     - The export plugin skips it with an error print (`pet_editor_plugin.cpp`).
     - `get_export_platform()->add_message()` at error level would fail the export, as spec §7.5 asks for missing values.

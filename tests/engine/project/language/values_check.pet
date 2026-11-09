@@ -328,3 +328,20 @@ const PARSED := int("5")
 
 pub func conversions(n: int, text: String, name: StringName) -> String:
 	return str([bool(n), bool(0), int(text), int(), float("1.5"), String(name), PARSED])
+
+# Spec §3.6: an assignment evaluates the last subscript of its target after the
+# right side, as GDScript does, and the subscripts before it first.
+var slot := 0
+
+func next_slot() -> int:
+	slot += 1
+	return 10
+
+pub func assignment_order() -> String:
+	var flat: Array[int] = [0, 0, 0]
+	slot = 0
+	flat[slot] = next_slot()
+	var grid: Array[Array[int]] = [[0, 0], [0, 0]]
+	slot = 0
+	grid[slot][slot] += next_slot()
+	return str(flat) + " " + str(grid)

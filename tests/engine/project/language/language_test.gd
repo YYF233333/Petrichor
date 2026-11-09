@@ -242,6 +242,7 @@ func _ready() -> void:
 	control.free()
 	mesh_holder.free()
 	_check(v.conversions(2, "42", &"name") == "[true, false, 42, 0, 1.5, \"name\", 5]", "bool(), int() and String() of other than a number are the engine's constructors (spec §3.14)")
+	_check(v.assignment_order() == "[0, 10, 0] [[0, 10], [0, 0]]", "an assignment evaluates its last subscript after the right side, as GDScript does (spec §3.6)")
 	var gone_node := Node.new()
 	gone_node.free()
 	_check(v.name_or_dash(null) == "-" and v.name_or_dash(v) == str(v.name) and v.callv("name_or_dash", [gone_node]) == "-", "== None narrows, and a freed object is None in T?")
