@@ -102,7 +102,7 @@
 | GDScript 对 self 和内置类型以外的对象调用未知方法，只给不安全访问的警告 | `modules/gdscript/gdscript_analyzer.cpp:3750-3757` | §10.1 |
 | GDScript 解析 `extends 全局类名` 时把基类文件当作 GDScript 解析，失败时只报“Could not resolve super class” | `modules/gdscript/gdscript_analyzer.cpp:469-485`（报错在 `:477, 483`）；`modules/gdscript/gdscript_cache.cpp:83-92` | §11.2 |
 | GDScript 要求具体子类实现抽象方法，禁止构造抽象类和经 `super` 调用抽象方法 | `modules/gdscript/gdscript_analyzer.cpp:1533-1552, 3630-3643` | §4.1 |
-| GDScript 的覆盖检查允许返回类型协变、参数类型逆变，以及多出带默认值的参数 | `modules/gdscript/gdscript_analyzer.cpp:1895-1936` | §4.6 |
+| GDScript 的覆盖检查允许返回类型协变、参数类型逆变。覆盖接受的实参个数须包含被覆盖方法接受的，因此可多出带默认值的参数或剩余参数 | `modules/gdscript/gdscript_analyzer.cpp:1895-1936` | §4.6 |
 | GDScript 的静态检查要求带类型的 Array、Dictionary 的元素类型完全相同，一边没有类型时不检查 | `modules/gdscript/gdscript_analyzer.cpp:6379-6393` | §3.8 |
 | GDScript 的单引号和双引号字符串可以跨行 | `modules/gdscript/gdscript_tokenizer.cpp:1086-1098` | §2.2 |
 | GDScript 把以 `##` 开头的注释行（含 `###`）当作文档。紧贴在声明或其注解上方的一段，或写在声明同一行之后的一条，说明该声明。局部变量和常量也是如此。第一个成员之前的第一段说明类 | `modules/gdscript/gdscript_parser.cpp:842-862, 1068-1101, 2195-2228, 4066-4075` | §2.2 |
@@ -115,6 +115,8 @@
 | GDScript 不允许元素类型本身是带类型容器的带类型容器 | `modules/gdscript/gdscript_parser.cpp:3903-3904` | §3.8 |
 | GDScript 的剩余参数只能是元素为 Variant 的 Array | `modules/gdscript/gdscript_analyzer.cpp:1803-1810` | §4.6 |
 | GDScript 从其他语言的方法信息中读取 `METHOD_FLAG_VARARG` | `modules/gdscript/gdscript_analyzer.cpp:6052-6055` | §4.6 |
+| GDScript 的方法信息不列剩余参数，只带 `METHOD_FLAG_VARARG`。函数入口把多出的实参装进新的 Array | `modules/gdscript/gdscript_compiler.cpp:2352-2355`；`modules/gdscript/gdscript_vm.cpp:634-643` | §4.6 |
+| GDScript 的函数和 lambda 可以有剩余参数，信号不能 | `modules/gdscript/gdscript_parser.cpp:1555-1578, 1690-1737, 3765` | §4.6 |
 | GDScript 把 `new` 当作静态的 `_init` 检查；`new` 由 GDScript 自己绑定，Script 基类没有 | `modules/gdscript/gdscript_analyzer.cpp:5958-5961`；`modules/gdscript/gdscript.cpp:1078` | §10.1 |
 | GDScript 的 `new` 构造原生对象，运行各类的成员初始化式，再把实参交给继承链上最近的 `_init` | `modules/gdscript/gdscript.cpp:125-152, 176-194, 210-254` | §6.1、§11.1 |
 | GDScript 不按覆盖规则检查 `_init` 的签名 | `modules/gdscript/gdscript_analyzer.cpp:1830-1875` | §4.8、§6.1 |

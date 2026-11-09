@@ -99,7 +99,9 @@
   - 经 autoload 访问内部类的 175 处中，有 168 处在 `godot-open-rts`（如 `Constants.Match.Units.PROJECTILES`）。
 - **可见性（§4.2）**：[成员可见性调查](surveys/member-visibility.md)中，名字可判定的成员约 25% 在其他文件中被访问。[第二次纸面迁移](surveys/paper-migration-2.md)中，若子类只能看到 `pub` 成员，102 处 `pub` 里有 29 处只是为了子类。
 - **常量（§4.5）**：向量分量 `real_t` 在单双精度构建中不同。`sin` 等数学函数的末位随平台数学库而异。因此引擎类型和返回 `float` 的数学函数在类加载时求值一次。同时，编译期排除所有因值出错的情形。[常量表达式调查](surveys/constant-expressions.md)中，3,094 个常量里 2,920 个无需计算、141 个是标量计算、33 个需引擎求值。注解参数用到的 7 个常量都是字面量，enum 值未用到常量，规范排除的写法均未出现。
-- **函数与剩余参数（§4.6）**：[第二次纸面迁移](surveys/paper-migration-2.md)中，引擎虚函数覆盖省略参数标注 6 处。[语料计数](surveys/corpus-counts.md)中 78 个剩余参数有 76 个在 `gdUnit4` 断言接口中。缺少调用处展开写法时，容易把数组整个当作单个实参传出。例如 Pixelorama 的 `_debug_msg` 调 `_prefix_print`（`src/Classes/ObjParse.gd:59-66`）。禁止遮蔽外层块局部变量是因为 GDScript 已禁止，以后放开也兼容。
+- **函数与剩余参数（§4.6）**：[第二次纸面迁移](surveys/paper-migration-2.md)中，引擎虚函数覆盖省略参数标注 6 处。[语料计数](surveys/corpus-counts.md)中 78 个剩余参数有 76 个在 `gdUnit4` 断言接口中。缺少调用处展开写法时，容易把数组整个当作单个实参传出。例如 Pixelorama 的 `_debug_msg` 调 `_prefix_print`（`src/Classes/ObjParse.gd:59-66`）。
+  - 带剩余参数的方法值暂为 `Callable`，与引擎的变参方法作值时相同。GDScript 的 Callable 都没有签名。若函数类型加入剩余参数，须先定 `func(...Array[int])` 能否当作 `func(int, int)`。
+  - 禁止遮蔽外层块局部变量是因为 GDScript 已禁止，以后放开也兼容。
 - **静态成员（§4.8）**：[语料计数](surveys/corpus-counts.md)中 `static var` 188 处，其中无初始化式的类类型 29 个（如 `static var instance: DMPlugin`）。`_static_init` 有 4 个。GDScript 静态初始化顺序与环的相关问题见 [godotengine/godot#104161](https://github.com/godotengine/godot/issues/104161)、[#82141](https://github.com/godotengine/godot/issues/82141)、[#104588](https://github.com/godotengine/godot/issues/104588)。
 
 ### §5–§7 表达式、生命周期与场景模型
