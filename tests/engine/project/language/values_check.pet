@@ -321,3 +321,10 @@ pub func property_accessors(label: Label, control: Control, holder: MeshInstance
 	control.offset_left = 4.0
 	holder.mesh = BoxMesh.new()
 	return read + " " + str(control.offset_left) + " " + str(holder.mesh is BoxMesh)
+
+# Spec §3.14: the explicit conversions not of a number are the engine's
+# constructors, also in a constant.
+const PARSED := int("5")
+
+pub func conversions(n: int, text: String, name: StringName) -> String:
+	return str([bool(n), bool(0), int(text), int(), float("1.5"), String(name), PARSED])

@@ -90,6 +90,9 @@ TEST_CASE("float to int needs an explicit conversion") {
 	CHECK(has_error(in_function("var hp: int = 10\nhp = 2.5"), "Convert explicitly with int(x)."));
 	CHECK(errors_of(in_function("var hp: int = int(2.5)")).empty());
 	CHECK(errors_of(in_function("var x: float = 1")).empty());
+	// The other explicit conversions are the engine's constructors.
+	CHECK(errors_of(in_function("var b := bool(2)\nvar i: int = int(\"5\") + int()\nvar f := float(\"1.5\")\nvar s := String(&\"a\")")).empty());
+	CHECK(has_error(in_function("var s := String(5)"), "No constructor of String takes (int)."));
 }
 
 TEST_CASE("an int argument is accepted for a float parameter") {
@@ -249,7 +252,7 @@ TEST_CASE("conditional expressions") {
 
 TEST_CASE("a call that fails still reports the errors of its arguments") {
 	const std::string undeclared = "Identifier \"nope\" is not declared in the current scope.";
-	for (const std::string call : { "Node.new(nope)", "Node.instantiate(nope)", "int(nope, 1)", "Vector3().missing(nope)", "_process(nope)", "missing(nope)" }) {
+	for (const std::string call : { "Node.new(nope)", "Node.instantiate(nope)", "Vector3().missing(nope)", "_process(nope)", "missing(nope)" }) {
 		const std::string reported = joined(errors_of(in_function("var x = " + call)));
 		INFO(call);
 		INFO(reported);

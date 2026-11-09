@@ -4426,6 +4426,13 @@ class Checker : public ClassRelation {
 			}
 		}
 		const std::string name = p_type.name;
+		// Of a number, int() and float() check NaN and the range as the program
+		// runs (spec §3.14), which the engine's constructors do not.
+		if ((name == "int" || name == "float") && args.size() == 1 && args[0].is_numeric()) {
+			r_expr.target = name == "int" ? Target::ConvertToInt : Target::ConvertToFloat;
+			r_expr.param_types.push_back(args[0]);
+			return set(r_expr, Type::of(name == "int" ? TypeKind::Int : TypeKind::Float));
+		}
 		if ((name == "Callable" || name == "Signal") && args.size() == 2 && args[0].kind == TypeKind::Object) {
 			return check_named_value(r_expr, name == "Signal");
 		}
@@ -6099,23 +6106,6 @@ class Checker : public ClassRelation {
 		}
 
 		if (!r_expr.base) {
-			if (name == "int" || name == "float") {
-				const TypeKind result = name == "int" ? TypeKind::Int : TypeKind::Float;
-				r_expr.target = name == "int" ? Target::ConvertToInt : Target::ConvertToFloat;
-				refer(r_expr.name_token, engine_id(name));
-				if (r_expr.args.size() != 1) {
-					return fail_call(r_expr, name + "() takes one argument.");
-				}
-				const Type arg = check_value(*r_expr.args[0]);
-				if (arg.kind == TypeKind::Variant) {
-					return construct_from_variant(r_expr, Type::of(result));
-				}
-				if (!arg.is_error() && !arg.is_numeric()) {
-					return fail(*r_expr.args[0], name + "() of " + arg.to_string() + " is not supported yet.");
-				}
-				r_expr.param_types.push_back(arg);
-				return set(r_expr, Type::of(result));
-			}
 			if (name == "print_debug" && outermost()) {
 				// GDScript's own: print() of the arguments and where it is called
 				// (modules/gdscript/gdscript_utility_functions.cpp:349-362), which is
@@ -6133,18 +6123,8 @@ class Checker : public ClassRelation {
 			if (const builtin::Utility *utility = builtin::find_utility(r_expr.text)) {
 				return check_utility(r_expr, *utility);
 			}
-			if ((name == "bool" || name == "String") && r_expr.args.size() == 1) {
-				const Type arg = check_value(*r_expr.args[0]);
-				if (arg.kind == TypeKind::Variant) {
-					refer(r_expr.name_token, engine_id(name));
-					return construct_from_variant(r_expr, Type::of(name == "bool" ? TypeKind::Bool : TypeKind::String));
-				}
-				return arg.is_error() ? fail_call(r_expr) : fail_call(r_expr, "Function \"" + name + "()\" not found in the class or its base " + cls.extends + ".");
-			}
-			if (name != "bool" && name != "String") {
-				if (const builtin::Class *type = builtin::find_class(name)) {
-					return check_constructor(r_expr, *type);
-				}
+			if (const builtin::Class *type = builtin::find_class(name)) {
+				return check_constructor(r_expr, *type);
 			}
 			if (name == "preload") {
 				return check_preload(r_expr);
