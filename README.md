@@ -6,7 +6,7 @@ Petrichor is a statically typed scripting language for Godot 4, delivered as a G
 
 ## Why Petrichor
 
-Dynamic languages make growing Godot projects hard to maintain and refactor. GDScript must stay compatible, so it cannot leave dynamic typing behind. Object references remain nullable by default, and runtime errors still hand callers a fallback value. Even in typed GDScript, node paths, signal connections and exported properties stay dynamic in scenes. C# brings static types, but its Godot support is second-class and its bridge has pitfalls ([survey](docs/surveys/pitfalls.md)).
+As Godot projects grow, refactoring depends more and more on errors that only show at run time. GDScript's typing is gradual. Even in fully typed GDScript, node paths, signal connections and exported properties stay dynamic in scenes. Object references are nullable by default, and runtime errors still hand callers a fallback value. C# brings static types, but its bridge has many pitfalls ([survey](docs/surveys/pitfalls.md)).
 
 Petrichor is statically typed from scripts into scenes, without modifying the engine. It keeps GDScript's surface syntax under one hard rule ([§1.2](docs/language-spec.zh.md#12-与-gdscript-的关系)). **A construct spelled as in GDScript either behaves identically or fails at compile time with a suggested fix.** It is never silently different. Where GDScript fails at run time or silently miscomputes, Petrichor raises an error or preserves the intended meaning.
 
