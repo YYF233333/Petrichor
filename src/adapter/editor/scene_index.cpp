@@ -19,6 +19,7 @@
 #include <godot_cpp/classes/script.hpp>
 
 #include <algorithm>
+#include <optional>
 #include <set>
 
 using namespace godot;
@@ -49,33 +50,45 @@ String node_type(const Ref<SceneState> &p_state, int32_t p_index) {
 	return String();
 }
 
-// The value a scene gives a property of the node, or nil.
-Variant node_property(const Ref<SceneState> &p_state, int32_t p_index, const char *p_name) {
+// The value a scene gives a property of the node, or nil, also when it gives
+// none; `r_given` tells the two apart.
+Variant node_property(const Ref<SceneState> &p_state, int32_t p_index, const char *p_name, bool *r_given = nullptr) {
 	for (int32_t p = 0; p < p_state->get_node_property_count(p_index); p++) {
 		if (p_state->get_node_property_name(p_index, p) == StringName(p_name)) {
+			if (r_given) {
+				*r_given = true;
+			}
 			return p_state->get_node_property_value(p_index, p);
 		}
 	}
 	return Variant();
 }
 
-// The script a scene attaches to the node, if any.
-String attached_script(const Ref<SceneState> &p_state, int32_t p_index) {
-	const Ref<Script> script = node_property(p_state, p_index, "script");
-	return script.is_valid() ? script->get_path() : String();
+// The script a scene sets on the node, if it sets one: an empty path when it
+// takes away the one the node has from a base or an instanced scene
+// (scene/resources/packed_scene.cpp:423-426; ed1daf0).
+std::optional<std::string> attached_script(const Ref<SceneState> &p_state, int32_t p_index) {
+	bool given = false;
+	const Ref<Script> script = node_property(p_state, p_index, "script", &given);
+	if (!given) {
+		return std::nullopt;
+	}
+	return script.is_valid() ? to_utf8(script->get_path()) : std::string();
 }
 
 // The script an instanced scene's root has, through instances of instances.
-String instanced_script(const Ref<SceneState> &p_state, int32_t p_index) {
+std::string instanced_script(const Ref<SceneState> &p_state, int32_t p_index) {
 	const Ref<PackedScene> instance = p_state->get_node_instance(p_index);
 	if (instance.is_null() || instance->get_state().is_null() || instance->get_state()->get_node_count() == 0) {
-		return String();
+		return std::string();
 	}
-	const String script = attached_script(instance->get_state(), 0);
-	return script.is_empty() ? instanced_script(instance->get_state(), 0) : script;
+	const std::optional<std::string> script = attached_script(instance->get_state(), 0);
+	return script ? *script : instanced_script(instance->get_state(), 0);
 }
 
 // The paths of the scenes a scene instances, through instances of instances.
+// An inherited scene's root is an instance of its base
+// (scene/resources/packed_scene.cpp:1921-1924; ed1daf0).
 void instanced_scenes(const Ref<SceneState> &p_state, std::set<std::string> &r_paths) {
 	for (int32_t i = 0; i < p_state->get_node_count(); i++) {
 		const Ref<PackedScene> instance = p_state->get_node_instance(i);
@@ -94,11 +107,11 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state)
 	scene.path = to_utf8(p_path);
 	for (int32_t i = 0; i < p_state->get_node_count(); i++) {
 		const std::string path = node_path(p_state->get_node_path(i));
-		const std::string script = to_utf8(attached_script(p_state, i));
+		const std::optional<std::string> script = attached_script(p_state, i);
 		const auto inherited = std::find_if(scene.nodes.begin(), scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return p_node.path == path; });
 		if (inherited != scene.nodes.end()) {
-			if (!script.empty()) {
-				inherited->script = script;
+			if (script) {
+				inherited->script = *script;
 				inherited->instance_script.clear();
 			}
 			const Variant unique = node_property(p_state, i, "unique_name_in_owner");
@@ -111,13 +124,13 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state)
 		node.path = path;
 		node.type = to_utf8(node_type(p_state, i));
 		node.is_instance = p_state->get_node_instance(i).is_valid();
-		node.script = script;
+		node.script = script.value_or(std::string());
 		// A node of an instanced scene that this scene only changes has the
 		// instance's root as its owner, and its unique name is that root's
 		// (scene/resources/packed_scene.cpp:567-573, 1888-1894; ed1daf0).
 		node.unique = (node.is_instance || !p_state->get_node_type(i).is_empty()) && bool(node_property(p_state, i, "unique_name_in_owner"));
-		if (node.is_instance && node.script.empty()) {
-			node.instance_script = to_utf8(instanced_script(p_state, i));
+		if (node.is_instance && !script) {
+			node.instance_script = instanced_script(p_state, i);
 		}
 		scene.nodes.push_back(node);
 	}

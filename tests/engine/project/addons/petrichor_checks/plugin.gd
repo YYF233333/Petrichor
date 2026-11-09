@@ -201,32 +201,48 @@ func _check_other_defaults() -> void:
 		DirAccess.remove_absolute(file)
 
 
-# Spec §7.1: $X of an instanced scene has the class of that scene's root. When
-# only the instanced scene changes, the next analysis in the same editor sees
-# the change, though the scene that instances it did not change.
+# Spec §7.1: $X of an instanced scene has the class of that scene's root, and
+# a node from a base scene the class it has there. When only the instanced or
+# the base scene changes, the next analysis in the same editor sees the
+# change, though the scene that uses it did not change.
 func _check_instanced_scene_change() -> void:
 	var inner := "res://editor_check_inner.tscn"
-	var outer := "res://editor_check_outer.tscn"
-	var script_path := "res://editor_check_outer.pet"
-	var bytecode := "res://.godot/petrichor/editor_check_outer.petc"
+	var base := "res://editor_check_base.tscn"
+	var outer := "res://editor_check_outer.pet"
+	var derived := "res://editor_check_derived.pet"
 	_write(inner, '[gd_scene format=3]\n\n[node name="Inner" type="Node3D"]\n')
-	_write(script_path, "extends Node\n\nfunc f() -> Vector3:\n\treturn $X.position\n")
-	_write(outer, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n[ext_resource type="PackedScene" path="%s" id="2"]\n\n[node name="Outer" type="Node"]\nscript = ExtResource("1")\n\n[node name="X" parent="." instance=ExtResource("2")]\n' % [script_path, inner])
-	var script: Script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_IGNORE)
-	DirAccess.remove_absolute(bytecode)
-	ResourceSaver.save(script, script_path)
-	_check(FileAccess.file_exists(bytecode), "$X of an instanced scene has the class of its root")
+	_write(base, '[gd_scene format=3]\n\n[node name="Base" type="Node"]\n\n[node name="X" type="Node3D" parent="."]\n')
+	for path in [outer, derived]:
+		_write(path, "extends Node\n\nfunc f() -> Vector3:\n\treturn $X.position\n")
+	_write(outer.get_basename() + ".tscn", '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n[ext_resource type="PackedScene" path="%s" id="2"]\n\n[node name="Outer" type="Node"]\nscript = ExtResource("1")\n\n[node name="X" parent="." instance=ExtResource("2")]\n' % [outer, inner])
+	_write(derived.get_basename() + ".tscn", '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n[ext_resource type="PackedScene" path="%s" id="2"]\n\n[node name="Derived" instance=ExtResource("2")]\nscript = ExtResource("1")\n' % [derived, base])
+	var scripts := {}
+	for path in [outer, derived]:
+		scripts[path] = ResourceLoader.load(path, "", ResourceLoader.CACHE_MODE_IGNORE)
+	_check(_compiles(scripts[outer], outer), "$X of an instanced scene has the class of its root")
+	_check(_compiles(scripts[derived], derived), "$X of a base scene's node has the class it has there")
 
 	# Modification times count whole seconds.
-	var written := FileAccess.get_modified_time(inner)
+	var written := maxi(FileAccess.get_modified_time(inner), FileAccess.get_modified_time(base))
 	while int(Time.get_unix_time_from_system()) <= written:
 		await get_tree().process_frame
 	_write(inner, '[gd_scene format=3]\n\n[node name="Inner" type="Node2D"]\n')
-	DirAccess.remove_absolute(bytecode)
-	ResourceSaver.save(script, script_path)
-	_check(not FileAccess.file_exists(bytecode), "a change to the instanced scene alone reaches the next analysis ($X.position is now a Vector2)")
-	for file in [inner, outer, script_path, script_path + ".uid", bytecode]:
+	_write(base, '[gd_scene format=3]\n\n[node name="Base" type="Node"]\n\n[node name="X" type="Node2D" parent="."]\n')
+	_check(not _compiles(scripts[outer], outer), "a change to the instanced scene alone reaches the next analysis ($X.position is now a Vector2)")
+	_check(not _compiles(scripts[derived], derived), "a change to the base scene alone reaches the next analysis")
+	for path in [outer, derived]:
+		for file in [path, path + ".uid", path.get_basename() + ".tscn", "res://.godot/petrichor/%s.petc" % path.get_file().get_basename()]:
+			DirAccess.remove_absolute(file)
+	for file in [inner, base]:
 		DirAccess.remove_absolute(file)
+
+
+# Whether saving the script compiles it, which writes its bytecode.
+func _compiles(script: Script, path: String) -> bool:
+	var bytecode := "res://.godot/petrichor/%s.petc" % path.get_file().get_basename()
+	DirAccess.remove_absolute(bytecode)
+	ResourceSaver.save(script, path)
+	return FileAccess.file_exists(bytecode)
 
 
 func _write(path: String, text: String) -> void:

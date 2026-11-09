@@ -7,9 +7,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 Paid before the remaining features of step 7 (architecture §5).
 
 - Behavior that differs from the spec:
-  - Editing a base scene leaves its inherited scenes stale in the scene index until the editor restarts.
-    - `instanced_scenes` records instanced scenes but not the base scene, so neither `read()` nor `forget()` sees it.
-    - Nearby, an inherited or instanced node with `script = null` keeps the base's script.
   - The adapter parses the base in a class header itself (`header_base_path`, `header_native_base`, `header_extends`).
     - It takes `extends Outer.Inner` as a global class, so the editor lists the class under `RefCounted`.
     - `ScriptClasses::base_path` and `native_base` already do this.
