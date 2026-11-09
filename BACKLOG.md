@@ -13,8 +13,6 @@ Paid before the remaining features of step 7 (architecture §5).
     - A global class's base is its native base here. GDScript gives the direct base's name (`modules/gdscript/gdscript.cpp:2810-2812`, `ed1daf0`). So the create dialog skips global classes between them.
 - Rules kept in several places, mainly in `checker.cpp`. Known ones:
   - the checks of interface elements in `values.cpp` beside `checked_one_by_one`. First list the callers that check containers without them.
-- Untrue tests, surveys and documents:
-  - The implementation coverage survey does not count GDScript's own constants and utility functions (`@GDScript`). So it missed `range()` and `PI`.
 
 ## Language
 

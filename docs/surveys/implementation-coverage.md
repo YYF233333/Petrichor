@@ -146,6 +146,30 @@
   - 内部类以裸名把外层类的静态函数作为值。
 - 所以 GDScript 代码用到的写法已经基本实现。语言剩下的工作主要是本语言新增的构造，如 Result、带载荷的 enum 和结构体的方法。GDScript 中没有它们，本调查无法为其排序。
 
+## 补充：GDScript 自有的常量和工具函数（`c92c643`，2026-11-09）
+
+前三次统计只数了引擎 API 描述中的全局符号，漏掉了 GDScript 自己定义的一层：
+- 常量 `PI`、`TAU`、`INF`、`NAN`，由分词器给出（`modules/gdscript/gdscript_tokenizer.cpp:540-546`）；
+- `range()`、`len()` 等工具函数（`modules/gdscript/gdscript_utility_functions.cpp:572-590`）。
+
+`c92c643` 的实现只支持其中的 `load()`、`preload()` 和 `print_debug()`。`implementation-coverage/gdscript_builtins.py` 统计其余各个：
+
+| 写法 | 全部：文件 | 全部：每千行 | 游戏：文件 | 游戏：每千行 |
+|---|---:|---:|---:|---:|
+| 用到其中任何一个的文件 | 10.5% | | 7.0% | |
+| `range()` | 7.4% | 2.3 | 4.7% | 1.5 |
+| `TAU` | 1.3% | 0.4 | 1.5% | 0.4 |
+| `PI` | 1.1% | 0.4 | 0.9% | 0.4 |
+| `INF` | 0.6% | 0.2 | 0.4% | 0.1 |
+| `is_instance_of()` | 0.4% | 0.1 | 0.1% | 0.0 |
+| `len()`、`Color8()` | 各 0.2% | 0.1 以下 | 0.1% 以下 | 0.0 |
+| `char()`、`ord()`、`get_stack()`、`print_stack()`、`inst_to_dict()`、`dict_to_inst()` | 各 0.1% 以下 | 0.0 | 0 | 0 |
+| `NAN`、`type_exists()`、`convert()` | 0 | 0 | 0 | 0 |
+
+- 用到其中任何一个的文件占 10.5%，多于第二次重跑中其余写法的总和（3.9%）。所以那里“已经基本实现”的结论不成立。
+- `range()` 占了大半。它和 `PI`、`TAU` 一样，是 GDScript 代码中的日常写法。
+- 一种都没用到的文件，在 Pixelorama 中最少（64.8%），在 godot_dialogue_manager 中其次（74.7%）。各仓库的计数见 `implementation-coverage/results/gdscript_builtins.txt`。
+
 ## 复现
 
 ```
@@ -153,4 +177,5 @@ python docs/surveys/cross-branch-duplication/gdcorpus.py corpus
 python docs/surveys/implementation-coverage/coverage.py corpus thirdparty/godot-cpp/gdextension/extension_api-4-7.json > docs/surveys/implementation-coverage/results/coverage.txt
 python docs/surveys/implementation-coverage/remaining.py corpus thirdparty/godot-cpp/gdextension/extension_api-4-7.json > docs/surveys/implementation-coverage/results/remaining.txt
 python docs/surveys/implementation-coverage/remaining2.py corpus thirdparty/godot-cpp/gdextension/extension_api-4-7.json > docs/surveys/implementation-coverage/results/remaining2.txt
+python docs/surveys/implementation-coverage/gdscript_builtins.py corpus > docs/surveys/implementation-coverage/results/gdscript_builtins.txt
 ```
