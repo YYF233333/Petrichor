@@ -2541,17 +2541,24 @@ class Checker : public ClassRelation {
 		return std::nullopt;
 	}
 
-	// A static function of the class of this language at `p_path` as a value,
-	// written `Class.f` (spec §3.11); nullopt when the class has no function
-	// of that name.
-	std::optional<Type> class_function_value(Expr &r_expr, const std::string &p_path, const std::string &p_class) {
+	// `Class.name` of the class of this language at `p_path`: a constant, a
+	// static variable, an inner class, or a static function as a value
+	// (spec §3.11, §4.1, §4.8).
+	Type class_member_value(Expr &r_expr, const std::string &p_path, const std::string &p_class) {
+		if (const std::optional<Type> constant = class_constant(r_expr, p_path, p_class)) {
+			return *constant;
+		}
+		if (const std::optional<Type> variable = class_static(r_expr, p_path, p_class)) {
+			return *variable;
+		}
+		const std::string inner = inner_class_path(p_path, r_expr.text);
+		if (!inner.empty()) {
+			return class_value(r_expr, inner);
+		}
 		if (r_expr.text == "new") {
 			return refuse_new_value(r_expr, p_class);
 		}
-		const ClassDecl *decl = script_decl(p_path);
-		if (!decl) {
-			return fail(r_expr, p_class + " has errors.");
-		}
+		const ClassDecl *decl = script_decl(p_path); // class_static() reports one with errors.
 		for (const FuncDecl *entry : decl->all_functions) {
 			const FuncDecl &function = *entry;
 			if (function.name != r_expr.text) {
@@ -2570,7 +2577,7 @@ class Checker : public ClassRelation {
 			refer(r_expr.name_token, script_id(owner, function.name));
 			return static_value(r_expr, function, owner);
 		}
-		return std::nullopt;
+		return fail(r_expr, missing(p_class + " has no constant, static variable or static function \"" + r_expr.text + "\".", p_path));
 	}
 
 	Type refuse_new_value(Expr &r_expr, const std::string &p_class) {
@@ -2731,20 +2738,7 @@ class Checker : public ClassRelation {
 			if (!is_script_path(named->script)) {
 				return check_foreign_constant(r_expr, *named);
 			}
-			if (const std::optional<Type> constant = class_constant(r_expr, named->script, named->name)) {
-				return *constant;
-			}
-			if (const std::optional<Type> variable = class_static(r_expr, named->script, named->name)) {
-				return *variable;
-			}
-			const std::string inner = inner_class_path(named->script, r_expr.text);
-			if (!inner.empty()) {
-				return class_value(r_expr, inner);
-			}
-			if (const std::optional<Type> function = class_function_value(r_expr, named->script, named->name)) {
-				return *function;
-			}
-			return fail(r_expr, missing(named->name + " has no constant, static variable or static function \"" + r_expr.text + "\".", named->script));
+			return class_member_value(r_expr, named->script, named->name);
 		}
 		if (names_type(base)) {
 			refer(base.name_token, engine_id(base.text));
@@ -2780,21 +2774,7 @@ class Checker : public ClassRelation {
 		}
 		if (base.target == Target::ClassScript) {
 			// An inner class reached through an object (spec §4.1).
-			const std::string class_name = display_name(*script_header(base.owner), base.owner);
-			if (const std::optional<Type> constant = class_constant(r_expr, base.owner, class_name)) {
-				return *constant;
-			}
-			if (const std::optional<Type> variable = class_static(r_expr, base.owner, class_name)) {
-				return *variable;
-			}
-			const std::string inner = inner_class_path(base.owner, r_expr.text);
-			if (!inner.empty()) {
-				return class_value(r_expr, inner);
-			}
-			if (const std::optional<Type> function = class_function_value(r_expr, base.owner, class_name)) {
-				return *function;
-			}
-			return fail(r_expr, missing(class_name + " has no constant, static variable or static function \"" + r_expr.text + "\".", base.owner));
+			return class_member_value(r_expr, base.owner, display_name(*script_header(base.owner), base.owner));
 		}
 		if (base_type.is_optional()) {
 			return fail(r_expr, "The value may be None (" + base_type.to_string() + "); check it before reading \"" + r_expr.text + "\".");
