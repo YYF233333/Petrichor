@@ -108,6 +108,7 @@ Paid before the remaining features of step 7 (architecture §5).
 
 - Engine tests on a .NET build for classes written in C# (spec §11.1). The suite runs without .NET now.
 - Run an exported game with the official export templates; build and test the release library.
+- Before 0.1, run the suites on Godot 4.8's release candidate and check its changes one by one. One known: 4.8 rejects an extension class that binds a method its ancestor has ([godot-cpp#2083](https://github.com/godotengine/godot-cpp/issues/2083)).
 - Cross-rule checks kept from the former conformance checklist:
   - `player.last_hit.damage = 3` running `last_hit`'s setter (spec §3.6, §4.4);
   - for §3.11 and §9.1:
@@ -209,7 +210,6 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Whether a container that holds itself is a program error as a `Dictionary` key (spec §3.8). The engine stops hashing it at a depth of 100 with an error. One that holds itself twice takes about 2^100 steps, in GDScript too (`core/variant/array.cpp:195-208`, `ed1daf0`).
 - The long-term boundary of compatibility with GDScript and Godot:
   - which agreements are promises and which merely hold today;
-  - which Godot versions are supported;
   - which semantics may still change during the alpha.
 - Tuples, to be discussed after the first version. `await Task.all([...])` gives nothing (spec §9.5). With tuples it could give the results of tasks of different types, which an array cannot type.
 - How to test the gain in maintenance. Use the language in a real project through several rounds of changing requirements. See how many problems it points out ahead of renames, interface changes and refactorings across files. The cost of adoption includes migrating in step by step, mixing and leaving. With cross-language inheritance restricted, the unit of migration may be an inheritance cluster or a subsystem.

@@ -91,9 +91,9 @@ godot --headless -e --path <project> -- --petrichor-format --check
 
 ## 路线图
 
-- **0.1（首次公开发布，进行中）。** 补齐第一版语言覆盖面、场景检查、编辑器工具及三大桌面平台预编译库，收集真实项目反馈。
-- **0.2–0.3。** 加入跨场景重命名、快速修复、lint、LSP、GDScript 双向迁移工具及英文版语言规范。
-- **1.0。** 稳定语言语义与字节码格式版本号，并提供 Android、iOS 和 Web 的预编译导出库。
+- **0.1（首次公开发布，进行中）。** 补齐第一版语言覆盖面、场景检查与编辑器工具，提供英文版语言规范。发布三大桌面平台预编译库，收集真实项目反馈。
+- **0.2–0.3。** 加入跨场景重命名、快速修复、lint、LSP 及 GDScript 双向迁移工具。
+- **1.0。** 稳定语言语义与字节码格式版本号，支持 Godot 4.4 及之后的版本。提供 Android、iOS 和 Web 的预编译导出库。
 - **1.0 之后。** 加入原生代码生成、带检查的 Mod 加载、`struct` 与带载荷 `enum` 的导出，以及泛型（[§14.2](docs/language-spec.zh.md#142-以后可以兼容地加入)）。
 
 里程碑顺序，以及为 Mod、全平台导出和多人重构保留的设计约束，见[实现架构 §5–§6](docs/architecture.md#5-推进顺序)。未完成的工作与待定问题记录在 [BACKLOG.md](BACKLOG.md)。
@@ -118,7 +118,7 @@ godot --headless -e --path <project> -- --petrichor-format --check
   - [真实代码用到而实现尚不支持的写法有哪些？](docs/surveys/implementation-coverage.md)
   - [语料中的零散计数](docs/surveys/corpus-counts.md)
 
-`docs/` 下的文档目前为中文。英文版语言规范排在 0.2 版本提供。
+`docs/` 下的文档目前为中文。英文版语言规范随 0.1 提供。
 
 ## 许可证
 

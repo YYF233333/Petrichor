@@ -91,9 +91,9 @@ godot --headless -e --path <project> -- --petrichor-format --check
 
 ## Roadmap
 
-- **0.1 (Initial public release, in progress).** Complete first-version language coverage, scene checking, editor tools and prebuilt desktop binaries to gather real-project feedback.
-- **0.2–0.3.** Add cross-scene renaming, quick fixes, lints, LSP support, two-way GDScript migration and the English language specification.
-- **1.0.** Stabilize language semantics and bytecode versioning, and ship prebuilt export libraries for Android, iOS and Web.
+- **0.1 (Initial public release, in progress).** Complete first-version language coverage, scene checking and editor tools, and provide the English language specification. Ship prebuilt desktop binaries to gather real-project feedback.
+- **0.2–0.3.** Add cross-scene renaming, quick fixes, lints, LSP support and two-way GDScript migration.
+- **1.0.** Stabilize language semantics and bytecode versioning, and support Godot 4.4 and later. Ship prebuilt export libraries for Android, iOS and Web.
 - **Post-1.0.** Add native code generation, checked mod loading, inspector export for `struct` and payload `enum`, and generics ([§14.2](docs/language-spec.zh.md#142-以后可以兼容地加入)).
 
 [Architecture §5–§6](docs/architecture.md#5-推进顺序) details the milestone order and invariants for mods, exports and team refactoring. Unfinished work and open questions are tracked in [BACKLOG.md](BACKLOG.md).
@@ -118,7 +118,7 @@ godot --headless -e --path <project> -- --petrichor-format --check
   - [Which constructs of real code does the implementation not support yet?](docs/surveys/implementation-coverage.md)
   - [One-off counts in the corpus](docs/surveys/corpus-counts.md)
 
-Documents under `docs/` are currently in Chinese. The English language specification is scheduled for 0.2.
+Documents under `docs/` are currently in Chinese. The English language specification comes with 0.1.
 
 ## License
 
