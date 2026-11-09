@@ -39,6 +39,7 @@ func _run() -> void:
 	_check_scene()
 	_check_new_script()
 	_check_header()
+	await _check_global_bases()
 	_check_placeholder_fallback()
 	_check_constant_defaults()
 	_check_other_defaults()
@@ -110,6 +111,35 @@ func _check_new_script() -> void:
 	_check(script.get_script_property_list().any(func(p): return p.name == "count"), "a saved script takes the class compiled from what was saved")
 	for file in [saved, saved + ".uid", bytecode]:
 		DirAccess.remove_absolute(file)
+
+
+# The global class list gives a class the one it names as its base, as for
+# GDScript, so that the inspector offers a subclass for an exported resource
+# of its base's type; through an inner class, the engine class it extends.
+func _check_global_bases() -> void:
+	var bases := {
+		"res://editor_check_weapon.pet": "class_name EditorCheckWeapon extends Resource\n",
+		"res://editor_check_holder.pet": "class_name EditorCheckHolder extends Node\n\npub class Inner extends Node2D:\n\tpass\n",
+	}
+	var subclasses := {
+		"res://editor_check_sword.pet": "class_name EditorCheckSword extends EditorCheckWeapon\n",
+		"res://editor_check_inner_child.pet": "class_name EditorCheckInnerChild extends EditorCheckHolder.Inner\n",
+	}
+	for files in [bases, subclasses]:
+		for path in files:
+			_write(path, files[path])
+			EditorInterface.get_resource_filesystem().update_file(path)
+		await get_tree().process_frame
+	var listed := {}
+	for entry in ProjectSettings.get_global_class_list():
+		listed[String(entry["class"])] = String(entry["base"])
+	_check(listed.get("EditorCheckSword") == "EditorCheckWeapon", "a global class's base is the class it names")
+	_check(listed.get("EditorCheckInnerChild") == "Node2D", "through an inner class, a global class's base is the engine class that one extends")
+	for files in [subclasses, bases]:
+		for path in files:
+			DirAccess.remove_absolute(path)
+			DirAccess.remove_absolute(path + ".uid")
+			EditorInterface.get_resource_filesystem().update_file(path)
 
 
 # The editor learns a script's global class from its header (spec §2.1), also

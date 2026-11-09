@@ -7,6 +7,7 @@
 #include "adapter/pet_script.h"
 #include "compiler/analysis.h"
 #include "compiler/ast.h"
+#include "compiler/parser.h"
 #include "compiler/script_classes.h"
 #include "runtime/text.h"
 
@@ -19,6 +20,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <vector>
 
 using namespace godot;
@@ -254,6 +256,69 @@ std::optional<compiler::Lookup> lookup_name(const String &p_path, const std::str
 compiler::Completion completion(const String &p_path, const std::string &p_source) {
 	const SceneIndex::Pass pass;
 	return compiler::complete(analysis(), ClassDBApi::get(), to_utf8(p_path), p_source);
+}
+
+namespace {
+
+// The headers of a script and of its bases. A file's own is read from its
+// source, also unsaved; an inner class's from its file.
+struct Header {
+	compiler::ScriptClasses classes{ ClassDBApi::get(), &SceneIndex::get(), true };
+	std::string path;
+	compiler::ClassDecl own;
+	const compiler::ClassDecl *decl = &own;
+
+	Header(const String &p_path, const String &p_source) :
+			path(to_utf8(p_path)) {
+		if (path != compiler::script_file(path)) {
+			decl = classes.header(path);
+			return;
+		}
+		std::vector<compiler::Diagnostic> errors;
+		own = compiler::parse(to_utf8(p_source), errors, true);
+	}
+};
+
+} // namespace
+
+String script_base_path(const String &p_path, const String &p_source) {
+	Header header(p_path, p_source);
+	return header.decl ? to_godot(header.classes.base_path(*header.decl, header.path)) : String();
+}
+
+String script_native_base(const String &p_path, const String &p_source) {
+	Header header(p_path, p_source);
+	const std::string native = header.decl ? header.classes.native_base(*header.decl, header.path) : std::string();
+	return native.empty() ? String("RefCounted") : to_godot(native);
+}
+
+String script_global_base(const String &p_path, const String &p_source) {
+	Header header(p_path, p_source);
+	std::set<std::string> seen;
+	for (std::string path = header.path; header.decl && seen.insert(path).second;) {
+		if (!header.decl->extends_path && header.decl->extends.find('.') == std::string::npos) {
+			return to_godot(header.decl->extends);
+		}
+		path = header.classes.base_path(*header.decl, path);
+		header.decl = path.empty() ? nullptr : header.classes.header(path);
+		if (header.decl && !header.decl->class_name.empty() && path == compiler::script_file(path)) {
+			return to_godot(header.decl->class_name);
+		}
+	}
+	return "RefCounted";
+}
+
+bool script_extends(const String &p_path, const String &p_source, const String &p_base) {
+	Header header(p_path, p_source);
+	const std::string base = to_utf8(p_base);
+	std::set<std::string> seen;
+	for (std::string path = header.path; header.decl && seen.insert(path).second; header.decl = header.classes.header(path)) {
+		path = header.classes.base_path(*header.decl, path);
+		if (path.empty() || path == base) {
+			return !path.empty();
+		}
+	}
+	return false;
 }
 
 String class_doc_name(const String &p_path) {

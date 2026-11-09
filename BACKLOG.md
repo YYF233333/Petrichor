@@ -6,11 +6,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 Paid before the remaining features of step 7 (architecture §5).
 
-- Behavior that differs from the spec:
-  - The adapter parses the base in a class header itself (`header_base_path`, `header_native_base`, `header_extends`).
-    - It takes `extends Outer.Inner` as a global class, so the editor lists the class under `RefCounted`.
-    - `ScriptClasses::base_path` and `native_base` already do this, but lack the adapter's search for a `class_name` the project does not list yet.
-    - A global class's base is its native base here. GDScript gives the direct base's name (`modules/gdscript/gdscript.cpp:2810-2812`, `ed1daf0`). So the create dialog skips global classes between them.
 
 ## Language
 

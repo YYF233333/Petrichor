@@ -2,6 +2,7 @@
 
 #include "adapter/editor/class_db_api.h"
 #include "adapter/editor/project_files.h"
+#include "adapter/editor/script_compiler.h"
 #include "adapter/pet_compiled.h"
 #include "adapter/pet_script.h"
 #include "runtime/text.h"
@@ -277,7 +278,7 @@ bool SceneIndex::is_or_extends(const std::string &p_script, const std::string &p
 			continue;
 		}
 		const String script = to_godot(path);
-		const std::string base = script.get_extension() == "pet" ? to_utf8(header_base_path(parse_header(FileAccess::get_file_as_string(script)), script)) : std::string();
+		const std::string base = script.get_extension() == "pet" ? to_utf8(script_base_path(script, FileAccess::get_file_as_string(script))) : std::string();
 		snapshot->bases.emplace(path, base);
 		path = base;
 	}

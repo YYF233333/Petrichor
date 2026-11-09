@@ -547,18 +547,21 @@ bool PetLanguage::_handles_global_class_type(const String &p_type) const {
 	return p_type == PetScript::get_class_static();
 }
 
+// Only the editor asks; exported games read the list it saved.
 Dictionary PetLanguage::_get_global_class_name(const String &p_path) const {
+	Dictionary result;
+#ifdef TOOLS_ENABLED
 	const String source = FileAccess::get_file_as_string(p_path);
 	const PetHeader header = parse_header(source);
-	Dictionary result;
 	if (header.class_name.is_empty()) {
 		return result;
 	}
 	result["name"] = header.class_name;
-	result["base_type"] = header_native_base(header, p_path);
+	result["base_type"] = script_global_base(p_path, source);
 	result["icon_path"] = header_icon_path(header, p_path);
 	result["is_abstract"] = header.is_abstract;
 	result["is_tool"] = false;
+#endif
 	return result;
 }
 

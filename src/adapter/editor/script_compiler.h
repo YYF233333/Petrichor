@@ -51,6 +51,20 @@ std::optional<compiler::Lookup> lookup_name(const godot::String &p_path, const s
 // the script editor's completion (spec §13.2).
 compiler::Completion completion(const godot::String &p_path, const std::string &p_source);
 
+// The class header of the script at `p_path`, read from `p_source` as the
+// compiler reads it (spec §4.1): the path of the script it extends, empty for
+// an engine class or none.
+godot::String script_base_path(const godot::String &p_path, const godot::String &p_source);
+// The engine class it extends, through its bases.
+godot::String script_native_base(const godot::String &p_path, const godot::String &p_source);
+// Its base in the global class list: the class it names, or else its nearest
+// base with a global name. GDScript gives the class it names
+// (modules/gdscript/gdscript.cpp:2810-2812; ed1daf0), and the editor lists a
+// global class's subclasses by it (core/object/script_language.cpp:439-454).
+godot::String script_global_base(const godot::String &p_path, const godot::String &p_source);
+// Whether it extends the script at `p_base`, through its bases.
+bool script_extends(const godot::String &p_path, const godot::String &p_source, const godot::String &p_base);
+
 // What the documentation names a class of this language, also an inner one,
 // by its path.
 godot::String class_doc_name(const godot::String &p_path);

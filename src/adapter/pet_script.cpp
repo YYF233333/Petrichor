@@ -7,7 +7,6 @@
 #include "runtime/text.h"
 
 #ifdef TOOLS_ENABLED
-#include "adapter/editor/project_files.h"
 #include "adapter/editor/script_compiler.h"
 #include "compiler/parser.h"
 #endif
@@ -16,7 +15,6 @@
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/node.hpp>
-#include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/error_macros.hpp>
@@ -42,63 +40,6 @@ PetScript::PetScript() {
 PetScript::~PetScript() {
 	std::lock_guard<std::mutex> lock(scripts_mutex);
 	scripts.erase(this);
-}
-
-String header_base_path(const PetHeader &p_header, const String &p_path) {
-	if (p_header.base_is_path) {
-		return (p_header.base.begins_with("res://") ? p_header.base : p_path.get_base_dir().path_join(p_header.base)).simplify_path();
-	}
-	if (ClassDBSingleton::get_singleton()->class_exists(p_header.base)) {
-		return String();
-	}
-	const TypedArray<Dictionary> classes = ProjectSettings::get_singleton()->get_global_class_list();
-	for (int64_t i = 0; i < classes.size(); ++i) {
-		const Dictionary entry = classes[i];
-		if (String(entry.get("class", String())) == p_header.base) {
-			return entry.get("path", String());
-		}
-	}
-#ifdef TOOLS_ENABLED
-	if (Engine::get_singleton()->is_editor_hint()) {
-		for (const String &path : project_files(PackedStringArray({ "pet" }))) {
-			if (parse_header(FileAccess::get_file_as_string(path)).class_name == p_header.base) {
-				return path;
-			}
-		}
-	}
-#endif
-	return String();
-}
-
-String header_native_base(const PetHeader &p_header, const String &p_path) {
-	PetHeader header = p_header;
-	String path = p_path;
-	std::set<String> seen;
-	while (seen.insert(path).second) {
-		if (!header.base_is_path && ClassDBSingleton::get_singleton()->class_exists(header.base)) {
-			return header.base;
-		}
-		path = header_base_path(header, path);
-		if (path.is_empty() || path.get_extension() != "pet") {
-			break;
-		}
-		header = parse_header(FileAccess::get_file_as_string(path));
-	}
-	return "RefCounted";
-}
-
-bool header_extends(const PetHeader &p_header, const String &p_path, const String &p_base) {
-	std::set<String> seen;
-	for (String path = header_base_path(p_header, p_path); !path.is_empty() && seen.insert(path).second;) {
-		if (path == p_base) {
-			return true;
-		}
-		if (path.get_extension() != "pet") {
-			return false;
-		}
-		path = header_base_path(parse_header(FileAccess::get_file_as_string(path)), path);
-	}
-	return false;
 }
 
 static StringName init_name() {
@@ -303,8 +244,6 @@ PetHeader parse_header(const String &p_source) {
 	std::vector<compiler::Diagnostic> errors;
 	const compiler::ClassDecl decl = compiler::parse(to_utf8(p_source), errors, true);
 	header.class_name = to_godot(decl.class_name);
-	header.base = to_godot(decl.extends);
-	header.base_is_path = decl.extends_path;
 	header.icon = to_godot(decl.icon);
 	header.is_abstract = decl.is_abstract;
 #endif
@@ -513,7 +452,7 @@ bool PetScript::apply_image(const std::shared_ptr<const ClassImage> &p_image, co
 		bool dependent = old && depends_on(*old, p_image->path);
 #ifdef TOOLS_ENABLED
 		if (!old && Engine::get_singleton()->is_editor_hint()) {
-			dependent = header_extends(script->header, script->get_script_path(), p_image->path);
+			dependent = script_extends(script->get_script_path(), script->_get_source_code(), p_image->path);
 		}
 #endif
 		if (!dependent) {
@@ -598,7 +537,12 @@ Ref<Script> PetScript::_get_base_script() const {
 		}
 	}
 	const auto current = get_image();
-	const String path = current ? to_godot(current->module.base_script) : header_base_path(header, get_script_path());
+	String path = current ? to_godot(current->module.base_script) : String();
+#ifdef TOOLS_ENABLED
+	if (!current && Engine::get_singleton()->is_editor_hint()) {
+		path = script_base_path(get_script_path(), _get_source_code());
+	}
+#endif
 	if (path.is_empty()) {
 		return Ref<Script>();
 	}
@@ -639,7 +583,12 @@ bool PetScript::_inherits_script(const Ref<Script> &p_script) const {
 
 StringName PetScript::_get_instance_base_type() const {
 	const std::shared_ptr<const ClassImage> current = get_image();
-	return current ? current->base_class : StringName(header_native_base(header, get_script_path()));
+#ifdef TOOLS_ENABLED
+	if (!current && Engine::get_singleton()->is_editor_hint()) {
+		return StringName(script_native_base(get_script_path(), _get_source_code()));
+	}
+#endif
+	return current ? current->base_class : StringName("RefCounted");
 }
 
 void *PetScript::_instance_create(Object *p_for_object) const {
