@@ -440,6 +440,16 @@ class Checker : public ClassRelation {
 		return p_what + " has errors (" + found->first + ", line " + std::to_string(found->second) + ").";
 	}
 
+	// Why the declaration `p_name` of the class `p_class` cannot be used here:
+	// not pub where it is not seen (spec §4.2), named as `p_kind` and its
+	// name, or with errors.
+	std::optional<std::string> refused(const void *p_decl, bool p_visible, const std::string &p_kind, const std::string &p_class, const std::string &p_name) const {
+		if (!p_visible) {
+			return p_kind + "\"" + p_name + "\" of " + p_class + " is not pub.";
+		}
+		return broken(p_decl, p_class + "." + p_name);
+	}
+
 	// The message for a name that the class at `p_script` lacks, which a
 	// syntax error there or in a class it extends may have lost.
 	std::string missing(std::string p_message, const std::string &p_script) const {
@@ -2092,10 +2102,7 @@ class Checker : public ClassRelation {
 				continue;
 			}
 			const std::string &owner = declaring(*decl, *constant, &ClassDecl::constants).path;
-			if (!constant->is_pub && !sees(owner)) {
-				return fail(r_expr, "The constant \"" + constant->name + "\" of " + p_class + " is not pub.");
-			}
-			if (const auto message = broken(constant, p_class + "." + constant->name)) {
+			if (const auto message = refused(constant, constant->is_pub || sees(owner), "The constant ", p_class, constant->name)) {
 				return fail(r_expr, *message);
 			}
 			return use_constant(r_expr, *constant, owner);
@@ -2106,10 +2113,7 @@ class Checker : public ClassRelation {
 			if (index < 0) {
 				continue;
 			}
-			if (!entry->is_pub && !sees(entry->script)) {
-				return fail(r_expr, "The constant \"" + r_expr.text + "\" of " + p_class + " is not pub.");
-			}
-			if (const auto message = broken(entry, p_class + "." + r_expr.text)) {
+			if (const auto message = refused(entry, entry->is_pub || sees(entry->script), "The constant ", p_class, r_expr.text)) {
 				return fail(r_expr, *message);
 			}
 			return use_enum_value(r_expr, *entry, index);
@@ -2484,10 +2488,7 @@ class Checker : public ClassRelation {
 				continue;
 			}
 			const std::string &owner = declaring(*decl, member, &ClassDecl::members).path;
-			if (!member.is_pub && !sees(owner)) {
-				return fail(r_expr, "\"" + member.name + "\" of " + p_class.name + " is not pub.");
-			}
-			if (const auto message = broken(&member, p_class.name + "." + member.name)) {
+			if (const auto message = refused(&member, member.is_pub || sees(owner), "", p_class.name, member.name)) {
 				return fail(r_expr, *message);
 			}
 			if (member.type.is_error()) {
@@ -2507,10 +2508,7 @@ class Checker : public ClassRelation {
 				continue;
 			}
 			// The engine knows every signal a class declares.
-			if (!signal.is_pub && !sees(declaring(*decl, signal, &ClassDecl::signals).path)) {
-				return fail(r_expr, "The signal \"" + signal.name + "\" of " + p_class.name + " is not pub.");
-			}
-			if (const auto message = broken(&signal, p_class.name + "." + signal.name)) {
+			if (const auto message = refused(&signal, signal.is_pub || sees(declaring(*decl, signal, &ClassDecl::signals).path), "The signal ", p_class.name, signal.name)) {
 				return fail(r_expr, *message);
 			}
 			r_expr.target = Target::ObjectSignal;
@@ -2524,10 +2522,7 @@ class Checker : public ClassRelation {
 				continue;
 			}
 			const std::string &owner = declaring(*decl, function, &ClassDecl::functions).path;
-			if (!function.is_pub && !function.is_override && !sees(owner)) {
-				return fail(r_expr, "\"" + function.name + "()\" of " + p_class.name + " is not pub.");
-			}
-			if (const auto message = broken(&function, p_class.name + "." + function.name + "()")) {
+			if (const auto message = refused(&function, function.is_pub || function.is_override || sees(owner), "", p_class.name, function.name + "()")) {
 				return fail(r_expr, *message);
 			}
 			refer(r_expr.name_token, script_id(owner, function.name));
@@ -2568,10 +2563,7 @@ class Checker : public ClassRelation {
 			if (!function.is_static) {
 				return fail(r_expr, "\"" + function.name + "()\" of " + p_class + " is not static; take it from an object.");
 			}
-			if (!function.is_pub && !sees(owner)) {
-				return fail(r_expr, "\"" + function.name + "()\" of " + p_class + " is not pub.");
-			}
-			if (const auto message = broken(&function, p_class + "." + function.name + "()")) {
+			if (const auto message = refused(&function, function.is_pub || sees(owner), "", p_class, function.name + "()")) {
 				return fail(r_expr, *message);
 			}
 			refer(r_expr.name_token, script_id(owner, function.name));
@@ -2670,10 +2662,7 @@ class Checker : public ClassRelation {
 		if (!callee) {
 			return std::nullopt;
 		}
-		if (!callee->is_pub && !callee->is_override && !sees(owner)) {
-			return fail_call(r_expr, "\"" + callee->name + "()\" of " + p_class.name + " is not pub.");
-		}
-		if (const auto message = broken(callee, p_class.name + "." + callee->name + "()")) {
+		if (const auto message = refused(callee, callee->is_pub || callee->is_override || sees(owner), "", p_class.name, callee->name + "()")) {
 			return fail_call(r_expr, *message);
 		}
 		const Type result = call_declared(r_expr, *callee, *source, callee->return_type);
@@ -5597,10 +5586,7 @@ class Checker : public ClassRelation {
 		}
 		const ClassDecl &owner = declaring(*decl, callee, &ClassDecl::functions);
 		// A bare name is one the class around this one sees (spec §4.1).
-		if (!callee.is_pub && r_expr.base && !sees(owner.path)) {
-			return fail_call(r_expr, "\"" + callee.name + "()\" of " + class_name + " is not pub.");
-		}
-		if (const auto message = broken(&callee, class_name + "." + callee.name + "()")) {
+		if (const auto message = refused(&callee, callee.is_pub || !r_expr.base || sees(owner.path), "", class_name, callee.name + "()")) {
 			return fail_call(r_expr, *message);
 		}
 		const Type result = call_declared(r_expr, callee, *owner.source, callee.return_type);
