@@ -30,6 +30,6 @@ gen/
 # MSVC writes it next to SConstruct when debug symbols are on
 /vc*.pdb
 
-# Machine-local agent notes
+# Machine-local agent notes and the owner's own agent setup
 /AGENTS.local.md
-.claude/*.local.*
+/.claude/

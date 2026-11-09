@@ -83,6 +83,6 @@ The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable`
 - Decide the details of an agreed design yourself, such as format fields, opcodes, test helpers and file splits. List them in the report.
 - Asked what comes next, choose from the roadmap and the backlog. Do not close a step or propose a milestone instead.
 - The owner starts reviews when needed. Reviewers follow `REVIEW.md` and leave their findings as files in the repository root.
-  - Findings are not tasks: they go through the `review-filter` subagent first. The implementer does not argue them one by one.
+  - Findings are not tasks: they are first checked against the tree, the spec and the engine source. The implementer does not argue them one by one.
   - When a findings file has nothing left to act on, propose deleting it.
 - `BACKLOG.md` lists unfinished work and open questions in no fixed order. Remove an item as soon as it is done or settled, leaving no trace. Record decisions in the spec or the architecture, and leave history to git.
