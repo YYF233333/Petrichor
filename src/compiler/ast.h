@@ -469,6 +469,9 @@ struct ParamDecl {
 	uint32_t name_token = 0;
 	std::optional<TypeRef> declared_type;
 	std::unique_ptr<Expr> default_value;
+	// `...args`, the last parameter, which takes the arguments after the
+	// others as an Array (spec §4.6).
+	bool is_rest = false;
 	Type type; // Filled by the checker.
 };
 
@@ -510,6 +513,8 @@ struct FuncDecl {
 	std::vector<int> captures;
 	bool uses_self = false;
 	bool checked = false;
+
+	bool has_rest() const { return !params.empty() && params.back().is_rest; }
 };
 
 // `signal name(params)` (spec §4.7).

@@ -706,6 +706,10 @@ class Parser {
 				expr->range = span(index(token));
 				return expr;
 			}
+			// Spread arguments wait for a later version (spec §4.6, §14.2).
+			case TokenKind::Ellipsis:
+				fail(token, "Arguments cannot be spread with \"...\"; to pass those of an Array, use callv().");
+				return error_expr(index(token));
 			default:
 				fail(token, std::string("Expected an expression, found ") + token_name(token.kind) + ".");
 				return error_expr(index(token));
@@ -1217,17 +1221,31 @@ class Parser {
 
 	/* Declarations */
 
-	// After "(": parameters up to the ")".
-	std::vector<ParamDecl> params() {
+	// After "(": parameters up to the ")". Those of a signal have no rest
+	// parameter, as in GDScript.
+	std::vector<ParamDecl> params(bool p_signal = false) {
 		std::vector<ParamDecl> result;
 		while (!failed && !check(TokenKind::ParenClose)) {
 			ParamDecl param;
 			const uint32_t first = uint32_t(at);
+			if (!result.empty() && result.back().is_rest) {
+				report(peek(), "The rest parameter must be the last.");
+			}
+			if (check(TokenKind::Ellipsis)) {
+				if (p_signal) {
+					report(peek(), "A signal cannot have a rest parameter.");
+				}
+				advance();
+				param.is_rest = !p_signal;
+			}
 			const Token &param_name = expect(TokenKind::Identifier, "a parameter name");
 			param.name = param_name.text;
 			param.name_token = index(param_name);
 			if (match(TokenKind::Colon)) {
 				param.declared_type = type_ref();
+			}
+			if (check(TokenKind::Equal) && param.is_rest) {
+				report(peek(), "The rest parameter cannot have a default value.");
 			}
 			if (match(TokenKind::Equal)) {
 				param.default_value = expression();
@@ -1891,7 +1909,7 @@ class Parser {
 			decl.is_pub = is_pub;
 			// `signal died` has no arguments, as in GDScript.
 			if (match(TokenKind::ParenOpen)) {
-				decl.params = params();
+				decl.params = params(true);
 			}
 			decl.range = span(first);
 			end_of_statement();

@@ -26,15 +26,15 @@ static GDExtensionVariantType engine_type(ValueType p_type) {
 // A signature as a number that is the same for the same signature in every
 // image, so that a call compares the one it was compiled against with the
 // callee's by comparing two numbers.
-static uint32_t signature_id(const std::vector<bytecode::TypeDesc> &p_types, const std::vector<bytecode::Slot> &p_params, size_t p_defaults, const bytecode::Slot &p_result, bool p_async) {
+static uint32_t signature_id(const std::vector<bytecode::TypeDesc> &p_types, const std::vector<bytecode::Slot> &p_params, size_t p_defaults, const bytecode::Slot &p_result, bool p_async, bool p_vararg) {
 	static std::mutex mutex;
 	static std::unordered_map<std::string, uint32_t> ids;
 	std::lock_guard<std::mutex> lock(mutex);
-	return ids.emplace(bytecode::signature_key(p_types, p_params, p_defaults, p_result, p_async), uint32_t(ids.size())).first->second;
+	return ids.emplace(bytecode::signature_key(p_types, p_params, p_defaults, p_result, p_async, p_vararg), uint32_t(ids.size())).first->second;
 }
 
 static std::string signature_key(const bytecode::Module &p_module, const bytecode::Function &p_function) {
-	return bytecode::signature_key(p_module.types, p_function.params, p_function.defaults.size(), p_function.result, p_function.is_async);
+	return bytecode::signature_key(p_module.types, p_function.params, p_function.defaults.size(), p_function.result, p_function.is_async, p_function.is_vararg);
 }
 
 // A function's frame: its slots, and the constants it starts with.
@@ -104,7 +104,7 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 		// A lambda is no method of the class (spec §3.11).
 		if (function.is_lambda) {
 			image->function_origins.emplace_back();
-			image->function_signatures.push_back(signature_id(module.types, function.params, function.defaults.size(), function.result, function.is_async));
+			image->function_signatures.push_back(signature_id(module.types, function.params, function.defaults.size(), function.result, function.is_async, function.is_vararg));
 			image->frames.push_back(frame_layout(function, types));
 			continue;
 		}
@@ -132,13 +132,15 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 		if (function.name == "_init") {
 			image->user_init = int(i);
 		}
-		if (function.name == "_notification" && function.params.size() == 1 && types[function.params[0].type].storage == ValueType::Int) {
+		// The checker gave them the engine's signatures, taking more parameters
+		// with defaults or a rest parameter (spec §4.6).
+		if (function.name == "_notification" && function.takes(1)) {
 			image->notification_function = int(i);
 		}
-		if (function.name == "_to_string" && function.params.empty() && types[function.result.type].storage == ValueType::String) {
+		if (function.name == "_to_string" && function.takes(0) && types[function.result.type].storage == ValueType::String) {
 			image->to_string_function = int(i);
 		}
-		image->function_signatures.push_back(signature_id(module.types, function.params, function.defaults.size(), function.result, function.is_async));
+		image->function_signatures.push_back(signature_id(module.types, function.params, function.defaults.size(), function.result, function.is_async, function.is_vararg));
 		image->frames.push_back(frame_layout(function, types));
 	}
 	for (size_t i = 0; i < module.members.size(); i++) {
@@ -272,7 +274,7 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 	}
 	for (const bytecode::MethodCall &call : module.method_calls) {
 		image->method_names.push_back(to_godot(call.method));
-		image->call_signatures.push_back(signature_id(module.types, call.params, call.defaults, call.result, call.is_async));
+		image->call_signatures.push_back(signature_id(module.types, call.params, call.defaults, call.result, call.is_async, call.is_vararg));
 	}
 	// Each constant once (spec §4.5), its containers read-only at every level,
 	// as GDScript makes them (modules/gdscript/gdscript_analyzer.cpp:5318-5367).
@@ -762,7 +764,7 @@ bool same_initializers(const bytecode::Module &p_a, const bytecode::Module &p_b)
 			same_prefix(p_a.constructors, p_b.constructors, x.constructors, [](const auto &a, const auto &b) { return a.type == b.type && a.index == b.index && a.params == b.params; }) &&
 			same_prefix(p_a.builtin_methods, p_b.builtin_methods, x.builtin_methods, [](const auto &a, const auto &b) { return a.base == b.base && a.method == b.method && a.hash == b.hash && a.is_vararg == b.is_vararg && a.is_const == b.is_const && a.is_static == b.is_static && a.params == b.params && a.return_type == b.return_type && a.result_type == b.result_type; }) &&
 			same_prefix(p_a.classes, p_b.classes, x.classes, [](const auto &a, const auto &b) { return a == b; }) &&
-			same_prefix(p_a.method_calls, p_b.method_calls, x.method_calls, [&](const auto &a, const auto &b) { return a.method == b.method && a.static_class == b.static_class && bytecode::signature_key(p_a.types, a.params, a.defaults, a.result, a.is_async) == bytecode::signature_key(p_b.types, b.params, b.defaults, b.result, b.is_async); });
+			same_prefix(p_a.method_calls, p_b.method_calls, x.method_calls, [&](const auto &a, const auto &b) { return a.method == b.method && a.static_class == b.static_class && bytecode::signature_key(p_a.types, a.params, a.defaults, a.result, a.is_async, a.is_vararg) == bytecode::signature_key(p_b.types, b.params, b.defaults, b.result, b.is_async, b.is_vararg); });
 }
 
 } // namespace
@@ -851,7 +853,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 		const bytecode::Function &x = a.functions[i];
 		const bytecode::Function &y = b.functions[i];
 		if (x.is_inherited != y.is_inherited || x.base_signature != y.base_signature || x.name != y.name || !pair.same_slot(x.result, y.result) || x.is_pub != y.is_pub || x.is_override != y.is_override ||
-				x.is_async != y.is_async || x.is_static != y.is_static || !(x.rpc == y.rpc) || x.is_abstract != y.is_abstract || x.params.size() != y.params.size() || x.defaults.size() != y.defaults.size()) {
+				x.is_async != y.is_async || x.is_static != y.is_static || !(x.rpc == y.rpc) || x.is_abstract != y.is_abstract || x.params.size() != y.params.size() || x.defaults.size() != y.defaults.size() || x.is_vararg != y.is_vararg) {
 			return false;
 		}
 		for (size_t d = 0; d < x.defaults.size(); d++) {

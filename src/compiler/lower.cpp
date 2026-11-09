@@ -951,7 +951,7 @@ class Lowerer {
 
 	uint32_t method_call(const bytecode::MethodCall &p_call) {
 		return intern(module.method_calls, p_call, [&](const auto &a, const auto &b) {
-			return a.method == b.method && a.static_class == b.static_class && bytecode::signature_key(module.types, a.params, a.defaults, a.result, a.is_async) == bytecode::signature_key(module.types, b.params, b.defaults, b.result, b.is_async);
+			return a.method == b.method && a.static_class == b.static_class && bytecode::signature_key(module.types, a.params, a.defaults, a.result, a.is_async, a.is_vararg) == bytecode::signature_key(module.types, b.params, b.defaults, b.result, b.is_async, b.is_vararg);
 		});
 	}
 
@@ -1380,6 +1380,7 @@ class Lowerer {
 			method.params.push_back(slot(std::string(), param));
 		}
 		method.defaults = uint32_t(p_call.index);
+		method.is_vararg = p_call.is_vararg;
 		method.result = slot(std::string(), Type::of(TypeKind::Void));
 		i.imm = method_call(method);
 		add(i);
@@ -1791,6 +1792,7 @@ class Lowerer {
 					method.params.push_back(slot(std::string(), param));
 				}
 				method.defaults = uint32_t(p_call.index);
+				method.is_vararg = p_call.is_vararg;
 				method.is_async = p_call.is_async;
 				method.result = slot(std::string(), p_call.is_async ? p_call.type.args[0] : p_call.type);
 				if (p_call.is_static) {
@@ -1923,6 +1925,7 @@ class Lowerer {
 			method.params.push_back(slot(std::string(), param.type));
 			method.defaults += param.default_value ? 1 : 0;
 		}
+		method.is_vararg = p_method.has_rest();
 		method.is_async = p_method.is_async;
 		method.result = slot(std::string(), p_method.return_type);
 		bytecode::ClassRef declaring; // Only its script matters.
@@ -1982,6 +1985,7 @@ class Lowerer {
 		finish();
 		bytecode::Function out = ir::emit(fn, module);
 		out.is_lambda = true;
+		out.is_vararg = lambda.has_rest();
 		out.captures = uint32_t(lambda.captures.size());
 		out.is_static = !lambda.uses_self;
 		lambdas[own] = std::move(out);
@@ -3459,9 +3463,10 @@ public:
 							++defaults;
 						}
 					}
-					out.base_signature = bytecode::signature_key(module.types, params, defaults, slot("", parent->return_type), parent->is_async);
+					out.base_signature = bytecode::signature_key(module.types, params, defaults, slot("", parent->return_type), parent->is_async, parent->has_rest());
 				}
 			}
+			out.is_vararg = function.has_rest();
 			for (const ParamDecl &param : function.params) {
 				if (param.default_value) {
 					const ConstPtr value = converted(param.default_value->constant, param.type);

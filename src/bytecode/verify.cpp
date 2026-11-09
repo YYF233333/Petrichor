@@ -435,10 +435,11 @@ class Verifier {
 					return false;
 				}
 				const Function &target_function = module.functions[callee];
-				if (p_call[3] > target_function.params.size() || p_call[3] < target_function.params.size() - target_function.defaults.size()) {
+				if (!target_function.takes(p_call[3])) {
 					return fail("wrong number of arguments");
 				}
-				for (size_t i = 0; i < p_call[3]; i++) {
+				// Those that go into a rest parameter take any value.
+				for (size_t i = 0; i < std::min<size_t>(p_call[3], target_function.fixed_params()); i++) {
 					if (!argument_fits(p_call, i, target_function.params[i].type)) {
 						return false;
 					}
@@ -475,10 +476,11 @@ class Verifier {
 					return false;
 				}
 				const uint32_t argc = p_call[3];
-				if (argc > method.params.size() || argc < method.params.size() - method.defaults) {
+				const size_t fixed = method.params.size() - (method.is_vararg ? 1 : 0);
+				if ((!method.is_vararg && argc > fixed) || argc + method.defaults < fixed) {
 					return fail("wrong number of arguments");
 				}
-				for (uint32_t i = 0; i < argc; i++) {
+				for (uint32_t i = 0; i < std::min<size_t>(argc, fixed); i++) {
 					if (!argument_fits(p_call, i, method.params[i].type)) {
 						return false;
 					}
@@ -1030,8 +1032,8 @@ public:
 					return false;
 				}
 			}
-			if (call.defaults > call.params.size()) {
-				return fail("more default values than parameters in a method call");
+			if (call.defaults + (call.is_vararg ? 1 : 0) > call.params.size() || (call.is_vararg && storage(call.params.back().type) != ValueType::Array)) {
+				return fail("more default values than parameters in a method call, or a rest parameter that is no Array");
 			}
 			if (call.static_class >= 0 && (uint32_t(call.static_class) >= module.classes.size() || module.classes[call.static_class].script.empty() || !module.classes[call.static_class].interface_name.empty())) {
 				return fail("a static method call of no class of this language");
@@ -1065,6 +1067,9 @@ public:
 				if (each.params[i].offset != each.slots[i].offset || each.params[i].type != each.slots[i].type) {
 					return fail("parameter " + std::to_string(i) + " is not its slot");
 				}
+			}
+			if (each.is_vararg && (each.captures + each.defaults.size() >= each.params.size() || storage(each.params[each.fixed_params()].type) != ValueType::Array)) {
+				return fail("a rest parameter that is no Array");
 			}
 			for (const Preset &preset : each.presets) {
 				const auto slot = std::find_if(each.slots.begin() + each.params.size(), each.slots.end(), [&](const Slot &p_slot) { return p_slot.offset == preset.offset; });

@@ -148,7 +148,7 @@ PetInstance::PetInstance(PetScript *p_script, const std::shared_ptr<const ClassI
 	// initializers; new(...) calls it itself with its arguments.
 	if (initialized && image->user_init >= 0 && !init_later) {
 		const bytecode::Function &init = image->module.functions[image->user_init];
-		if (init.params.size() > init.defaults.size()) {
+		if (!init.takes(0)) {
 			// GDScript creates no instance then (modules/gdscript/gdscript.cpp:192-203, 406-424).
 			vm::report_error(*image, "_init", int(init.line), vformat("%s was constructed without arguments, but its _init() requires them; construct it with new(...).", image->global_name == StringName() ? String(image->path) : String(image->global_name)));
 		} else {
@@ -353,7 +353,7 @@ static GDExtensionInt instance_get_method_argument_count(GDExtensionScriptInstan
 	const std::shared_ptr<const ClassImage> image = self(p_instance)->current_image();
 	const int index = PetScript::find_visible_function(*image, as_name(p_name));
 	*r_is_valid = index >= 0;
-	return index >= 0 ? GDExtensionInt(image->module.functions[index].params.size()) : 0;
+	return index >= 0 ? GDExtensionInt(image->module.functions[index].fixed_params()) : 0;
 }
 
 static void instance_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_method, const GDExtensionConstVariantPtr *p_args, GDExtensionInt p_argument_count, GDExtensionVariantPtr r_return, GDExtensionCallError *r_error) {

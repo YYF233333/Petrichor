@@ -1208,10 +1208,27 @@ class Checker : public ClassRelation {
 		return element;
 	}
 
+	// Of a function with a rest parameter, a Callable of unknown signature
+	// (spec §4.6).
 	static Type function_type(const FuncDecl &p_function) {
+		if (p_function.has_rest()) {
+			return Type::builtin("Callable");
+		}
 		Type type = Type::function(p_function.return_type, param_types(p_function.params));
 		type.is_async = p_function.is_async;
 		return type;
+	}
+
+	// The signature as a function type writes it, a rest parameter as
+	// `...Array[T]`.
+	static std::string signature_text(const FuncDecl &p_function) {
+		std::vector<Type> params = param_types(p_function.params);
+		if (p_function.has_rest()) {
+			params.back() = Type::builtin("..." + params.back().to_string()); // Only written out.
+		}
+		Type type = Type::function(p_function.return_type, params);
+		type.is_async = p_function.is_async;
+		return type.to_string();
 	}
 
 	// The engine passes what its signals declare (spec §4.7, §10.2).
@@ -2247,6 +2264,7 @@ class Checker : public ClassRelation {
 				return set(r_expr, Type::of(TypeKind::Error));
 			}
 			r_expr.target = Target::MethodValue;
+			r_expr.callee = &method;
 			return set(r_expr, function_type(method));
 		}
 		const auto own_signal = signal_index.find(r_expr.text);
@@ -2609,6 +2627,7 @@ class Checker : public ClassRelation {
 			return Type::of(TypeKind::Error);
 		}
 		r_expr.target = Target::MethodValue;
+		r_expr.callee = &p_method;
 		return function_type(p_method);
 	}
 
@@ -2694,9 +2713,12 @@ class Checker : public ClassRelation {
 	Type call_declared(Expr &r_expr, const FuncDecl &p_callee, const SourceFile &p_source, const Type &p_result) {
 		hint(r_expr, [&](int p_current) { return declared_signature(r_expr.text, p_callee, p_source, p_current, p_result); });
 		const std::vector<Type> params = param_types(p_callee.params);
-		check_arguments(r_expr, params, required_params(p_callee), false);
+		const bool rest = p_callee.has_rest();
+		const std::vector<Type> fixed(params.begin(), params.end() - (rest ? 1 : 0));
+		check_arguments(r_expr, fixed, required_params(p_callee), rest, rest ? rest_element(params.back()) : Type::of(TypeKind::Variant));
 		r_expr.engine_params = params;
-		r_expr.index = int(p_callee.params.size()) - required_params(p_callee);
+		r_expr.index = int(fixed.size()) - required_params(p_callee);
+		r_expr.is_vararg = rest;
 		r_expr.is_async = p_callee.is_async;
 		return set(r_expr, p_callee.is_async ? Type::task(p_result) : p_result);
 	}
@@ -3817,24 +3839,31 @@ class Checker : public ClassRelation {
 		return last.kind == StmtKind::If && always_ends(last.body, p_or_jump) && always_ends(last.else_body, p_or_jump);
 	}
 
+	// "2", "1 to 3" or "at least 1".
+	static std::string argument_count(int p_required, int p_max, bool p_vararg) {
+		if (p_vararg) {
+			return "at least " + std::to_string(p_required);
+		}
+		return (p_required == p_max ? std::string() : std::to_string(p_required) + " to ") + std::to_string(p_max);
+	}
+
+	static std::string argument_count(const FuncDecl &p_function) {
+		return argument_count(required_params(p_function), int(p_function.params.size()), p_function.has_rest());
+	}
+
 	// Checks the arguments of a call against parameter types.
-	void check_arguments(Expr &r_call, const std::vector<Type> &p_params, int p_required, bool p_vararg) {
+	// With `p_vararg`, those after `p_params` are of type `p_rest`.
+	void check_arguments(Expr &r_call, const std::vector<Type> &p_params, int p_required, bool p_vararg, const Type &p_rest = Type::of(TypeKind::Variant)) {
 		const int count = int(r_call.args.size());
 		const int max = int(p_params.size());
 		if (probing) {
 			probed_params = max + (p_vararg ? 1 : 0);
 		} else if (count < p_required || (!p_vararg && count > max)) {
-			std::string expected = std::to_string(p_required);
-			if (p_vararg) {
-				expected = "at least " + expected;
-			} else if (p_required != max) {
-				expected += " to " + std::to_string(max);
-			}
-			error(r_call.range, "Function \"" + r_call.text + "()\" takes " + expected + " argument(s), " + std::to_string(count) + " given.");
+			error(r_call.range, "Function \"" + r_call.text + "()\" takes " + argument_count(p_required, max, p_vararg) + " argument(s), " + std::to_string(count) + " given.");
 		}
 		for (int i = 0; i < count; i++) {
 			Expr &arg = *r_call.args[i];
-			const Type param = i < max ? p_params[i] : Type::of(TypeKind::Variant);
+			const Type param = i < max ? p_params[i] : p_rest;
 			const Type arg_type = check_value(arg, param);
 			r_call.param_types.push_back(param);
 			expect_assignable(arg, arg_type, param, "pass");
@@ -4011,6 +4040,7 @@ class Checker : public ClassRelation {
 		Type type = Type::of(TypeKind::Error); // A property's, or Error.
 		std::vector<Type> params; // A method's or a signal's.
 		int required = 0; // A method's.
+		std::optional<Type> rest; // What a method takes after `params`, when it takes more.
 	};
 
 	// The member of the kind named `p_name` that `p_class` has, as `object.name`
@@ -4025,6 +4055,10 @@ class Checker : public ClassRelation {
 			out.id = script_id(p_owner, p_function.name);
 			out.params = param_types(p_function.params);
 			out.required = required_params(p_function);
+			if (p_function.has_rest()) {
+				out.rest = rest_element(out.params.back());
+				out.params.pop_back();
+			}
 		};
 		const auto from_engine = [&](const EngineMethod &p_method, const DeclId &p_id) {
 			out.found = true;
@@ -4033,6 +4067,9 @@ class Checker : public ClassRelation {
 				out.params.push_back(localized(param.type));
 			}
 			out.required = int(p_method.params.size()) - p_method.default_count;
+			if (p_method.is_vararg) {
+				out.rest = Type::of(TypeKind::Variant);
+			}
 		};
 		if (p_class.is_interface) {
 			if (const InterfaceProperty *property = p_kind == Kind::Property ? interface_property(p_class, p_name) : nullptr) {
@@ -4216,17 +4253,18 @@ class Checker : public ClassRelation {
 			// signal as it is emitted.
 			const size_t given = r_call.args.size() - first;
 			const size_t required = p_named.kind == Kind::Method ? size_t(member.required) : member.params.size();
-			if (given < required || given > member.params.size()) {
-				error(literal.range, "\"" + name + "\" takes " + std::to_string(member.params.size()) + " argument(s); " + std::to_string(given) + " follow.");
+			if (given < required || (!member.rest && given > member.params.size())) {
+				error(literal.range, "\"" + name + "\" takes " + argument_count(int(required), int(member.params.size()), member.rest.has_value()) + " argument(s); " + std::to_string(given) + " follow.");
 				return;
 			}
 			for (size_t i = 0; i < given; i++) {
 				const Expr &arg = *r_call.args[first + i];
-				if (!arg.type.is_error() && !assignable(arg.type, member.params[i])) {
-					error(arg.range, "\"" + name + "\" takes " + member.params[i].to_string() + " as argument " + std::to_string(i + 1) + "; found " + arg.type.to_string() + ".");
+				const Type &param = i < member.params.size() ? member.params[i] : *member.rest;
+				if (!arg.type.is_error() && !assignable(arg.type, param)) {
+					error(arg.range, "\"" + name + "\" takes " + param.to_string() + " as argument " + std::to_string(i + 1) + "; found " + arg.type.to_string() + ".");
 				}
 			}
-		} else if (p_named.kind == Kind::Signal && first < r_call.args.size() && r_call.args[first]->type.kind == TypeKind::Function) {
+		} else if (p_named.kind == Kind::Signal && first < r_call.args.size() && (r_call.args[first]->type.kind == TypeKind::Function || rest_function(*r_call.args[first]))) {
 			check_handler(*r_call.args[first], Type::signal(member.params));
 		}
 	}
@@ -4792,7 +4830,8 @@ class Checker : public ClassRelation {
 			return fail(r_expr, "A lambda is not a constant expression.");
 		}
 		lambda.is_static = function ? function->is_static : static_initializing >= 0;
-		const bool typed_by_expected = p_expected.kind == TypeKind::Function && p_expected.args.size() == lambda.params.size() + 1;
+		// A function type has no rest parameter (spec §4.6).
+		const bool typed_by_expected = p_expected.kind == TypeKind::Function && p_expected.args.size() == lambda.params.size() + 1 && !lambda.has_rest();
 		for (size_t i = 0; i < lambda.params.size(); i++) {
 			ParamDecl &param = lambda.params[i];
 			if (param.default_value) {
@@ -4803,10 +4842,10 @@ class Checker : public ClassRelation {
 			} else if (typed_by_expected) {
 				param.type = p_expected.args[i + 1];
 			} else {
-				error(param.name_token, "Parameter \"" + param.name + "\" needs a type: nothing the lambda goes to gives one.");
-				param.type = Type::of(TypeKind::Error);
+				untyped(param, ": nothing the lambda goes to gives one");
 			}
 		}
+		check_rest(lambda);
 		Returns inferred;
 		if (typed_by_expected) {
 			inferred.expected = p_expected.args[0];
@@ -4853,15 +4892,35 @@ class Checker : public ClassRelation {
 		enclosing.pop_back();
 		returns = outer_returns;
 
-		Type type = Type::function(lambda.return_type, param_types(lambda.params));
-		type.is_async = lambda.is_async;
-		return set(r_expr, type);
+		return set(r_expr, function_type(lambda));
+	}
+
+	// The lambda or method value with a rest parameter that the value is, a
+	// Callable (spec §4.6).
+	static const FuncDecl *rest_function(const Expr &p_value) {
+		const bool method = p_value.target == Target::MethodValue || p_value.target == Target::StaticValue || p_value.target == Target::StructMethodValue;
+		const FuncDecl *declared = p_value.kind == ExprKind::Lambda ? p_value.function.get() : (method ? p_value.callee : nullptr);
+		return declared && declared->has_rest() ? declared : nullptr;
 	}
 
 	// A function connected to a signal takes what the signal passes (spec §4.7).
 	void check_handler(const Expr &p_handler, const Type &p_signal) {
 		const Type &handler = p_handler.type;
 		if (handler.is_error()) {
+			return;
+		}
+		// A Callable, checked by its declaration.
+		if (const FuncDecl *declared = rest_function(p_handler)) {
+			if (!takes(*declared, p_signal.args.size())) {
+				error(p_handler.range, p_signal.to_string() + " passes " + std::to_string(p_signal.args.size()) + " argument(s), but " + signature_text(*declared) + " takes " + argument_count(*declared) + ".");
+				return;
+			}
+			for (size_t i = 0; i < p_signal.args.size(); i++) {
+				if (!assignable(p_signal.args[i], *argument_type(*declared, i))) {
+					error(p_handler.range, p_signal.to_string() + " passes " + p_signal.args[i].to_string() + " as argument " + std::to_string(i + 1) + ", which " + signature_text(*declared) + " does not take.");
+					return;
+				}
+			}
 			return;
 		}
 		if (handler.kind != TypeKind::Function) {
@@ -8058,7 +8117,7 @@ class Checker : public ClassRelation {
 				}
 				function->accessor_of = r_member.name;
 				refer(p_setter ? r_member.setter_token : r_member.getter_token, script_id(options.path, p_name));
-				const bool fits = p_setter ? function->params.size() == 1 && function->params[0].type == r_member.type && function->return_type.kind == TypeKind::Void : function->params.empty() && function->return_type == r_member.type;
+				const bool fits = p_setter ? function->params.size() == 1 && !function->has_rest() && function->params[0].type == r_member.type && function->return_type.kind == TypeKind::Void : function->params.empty() && function->return_type == r_member.type;
 				if (!fits && !r_member.type.is_error()) {
 					error(function->name_token, "As the " + kind + " of \"" + r_member.name + "\", " + p_name + "() " + (p_setter ? "takes one argument of type " + r_member.type.to_string() + " and returns nothing" : "takes no argument and returns " + r_member.type.to_string()) + ".");
 				}
@@ -8080,7 +8139,7 @@ class Checker : public ClassRelation {
 		bool any = false;
 		for (ParamDecl &param : r_function.params) {
 			if (!param.default_value) {
-				if (any) {
+				if (any && !param.is_rest) {
 					error(param.name_token, "Parameter \"" + param.name + "\" follows one with a default value and needs one too.");
 				}
 				continue;
@@ -8102,10 +8161,45 @@ class Checker : public ClassRelation {
 
 	static int required_params(const FuncDecl &p_function) {
 		int count = 0;
-		while (count < int(p_function.params.size()) && !p_function.params[count].default_value) {
+		while (count < int(p_function.params.size()) && !p_function.params[count].default_value && !p_function.params[count].is_rest) {
 			count++;
 		}
 		return count;
+	}
+
+	// What a rest parameter of type Array or Array[T] takes as each argument
+	// (spec §4.6).
+	static Type rest_element(const Type &p_rest) {
+		if (!p_rest.args.empty()) {
+			return p_rest.args[0];
+		}
+		return p_rest.is_error() ? p_rest : Type::of(TypeKind::Variant);
+	}
+
+	// What the function takes as argument `p_index`, nullopt when it takes none.
+	static std::optional<Type> argument_type(const FuncDecl &p_function, size_t p_index) {
+		const size_t fixed = p_function.params.size() - (p_function.has_rest() ? 1 : 0);
+		if (p_index < fixed) {
+			return p_function.params[p_index].type;
+		}
+		return p_function.has_rest() ? std::optional<Type>(rest_element(p_function.params.back().type)) : std::nullopt;
+	}
+
+	static bool takes(const FuncDecl &p_function, size_t p_count) {
+		return p_count >= size_t(required_params(p_function)) && (p_function.has_rest() || p_count <= p_function.params.size());
+	}
+
+	// A parameter whose type nothing gives (spec §4.6).
+	void untyped(ParamDecl &r_param, const std::string &p_why = std::string()) {
+		error(r_param.name_token, r_param.is_rest ? "The rest parameter \"" + r_param.name + "\" needs a type: Array, or Array[T] for arguments of type T." : "Parameter \"" + r_param.name + "\" needs a type" + p_why + ".");
+		r_param.type = Type::of(TypeKind::Error);
+	}
+
+	void check_rest(const FuncDecl &p_function) {
+		const ParamDecl *rest = p_function.has_rest() ? &p_function.params.back() : nullptr;
+		if (rest && !rest->type.is_error() && rest->type.builtin_name() != "Array") {
+			error(rest->declared_type ? rest->declared_type->range : rest->range, "The rest parameter takes the arguments as an Array or an Array[T], not as " + rest->type.to_string() + ".");
+		}
 	}
 
 	// A static function has no instance (spec §4.8).
@@ -8175,21 +8269,35 @@ class Checker : public ClassRelation {
 		if (r_fn.is_static != p_base.is_static || r_fn.is_async != p_base.is_async) {
 			error(r_fn.name_token, "An override must preserve static and async.");
 		}
+		const size_t base_fixed = p_base.params.size() - (p_base.has_rest() ? 1 : 0);
 		for (size_t i = 0; i < r_fn.params.size(); ++i) {
 			ParamDecl &param = r_fn.params[i];
+			const std::optional<Type> base = argument_type(p_base, i);
 			if (param.declared_type) {
 				param.type = resolve(*param.declared_type, false);
-			} else if (i < p_base.params.size()) {
-				param.type = p_base.params[i].type;
+			} else if (param.is_rest ? p_base.has_rest() : base.has_value()) {
+				param.type = param.is_rest ? p_base.params.back().type : *base;
 			} else {
-				error(param.name_token, "Parameter \"" + param.name + "\" needs a type.");
+				untyped(param);
 			}
-			if (i < p_base.params.size() && !override_assignable(p_base.params[i].type, param.type)) {
+			// A rest parameter takes each argument of the base from here on, which
+			// it holds as an Array of it.
+			bool narrows = !param.is_rest && base && !override_assignable(*base, param.type);
+			for (size_t j = i; param.is_rest && j < base_fixed; j++) {
+				narrows = narrows || !override_assignable(Type::array(p_base.params[j].type), param.type);
+			}
+			if (param.is_rest && p_base.has_rest()) {
+				narrows = narrows || !override_assignable(p_base.params.back().type, param.type);
+			}
+			if (narrows) {
 				error(param.name_token, "The override narrows its base parameter type.");
 			}
 		}
+		check_rest(r_fn);
 		check_defaults(r_fn);
-		if (r_fn.params.size() < p_base.params.size() || required_params(r_fn) > required_params(p_base)) {
+		if (p_base.has_rest() && !r_fn.has_rest()) {
+			error(r_fn.name_token, "The override must keep the rest parameter of its base method.");
+		} else if (!takes(r_fn, base_fixed) || required_params(r_fn) > required_params(p_base)) {
 			error(r_fn.name_token, "The override must accept every argument count of its base method.");
 		}
 		r_fn.return_type = r_fn.return_type_ref ? resolve(*r_fn.return_type_ref, true) : p_base.return_type;
@@ -8306,40 +8414,44 @@ class Checker : public ClassRelation {
 		if (by_instance.count(r_function.name) && !r_function.is_static) {
 			error(r_function.name_token, "Overriding " + r_function.name + "() is not supported yet.");
 		}
-		if (r_function.is_override) {
-			if (r_function.params.size() != engine_method->params.size()) {
-				error(r_function.name_token, "\"" + r_function.name + "()\" overrides an engine method with " + std::to_string(engine_method->params.size()) + " parameter(s).");
-			}
+		// It takes as many arguments as the engine passes (spec §4.6).
+		if (r_function.is_override && !takes(r_function, engine_method->params.size())) {
+			error(r_function.name_token, "\"" + r_function.name + "()\" overrides an engine method with " + std::to_string(engine_method->params.size()) + " parameter(s).");
 		}
 		for (size_t i = 0; i < r_function.params.size(); i++) {
 			ParamDecl &param = r_function.params[i];
-			Type engine_type = Type::of(TypeKind::Error);
-			if (r_function.is_override && i < engine_method->params.size()) {
-				engine_type = engine_method->params[i].type;
+			// What the engine passes in it: an argument, or each from here on.
+			std::vector<Type> engine_types;
+			for (size_t j = i; r_function.is_override && j < engine_method->params.size() && (j == i || param.is_rest); j++) {
+				Type engine_type = engine_method->params[j].type;
 				// The engine passes its own objects to virtual methods.
 				engine_type.nullable = false;
 				if (!engine_type.is_storable()) {
 					error(param.name_token, "Parameters of type " + engine_type.to_string() + " are not supported yet.");
 					engine_type = Type::of(TypeKind::Error);
 				}
+				engine_types.push_back(engine_type);
 			}
 			if (param.declared_type) {
 				param.type = resolve(*param.declared_type, false);
 				// A parameter may accept more than the overridden one does, such as
 				// T? for T (spec §4.6).
-				if (r_function.is_override && !engine_type.is_error() && !param.type.is_error() && !assignable(engine_type, param.type)) {
-					error(param.declared_type->range, "The overridden method declares this parameter as " + engine_type.to_string() + ".");
+				const Type taken = param.is_rest ? rest_element(param.type) : param.type;
+				for (const Type &engine_type : engine_types) {
+					if (!engine_type.is_error() && !taken.is_error() && !assignable(engine_type, taken)) {
+						error(param.declared_type->range, param.is_rest ? "The overridden method passes " + engine_type.to_string() + " in this rest parameter." : "The overridden method declares this parameter as " + engine_type.to_string() + ".");
+					}
 				}
-			} else if (r_function.is_override) {
+			} else if (!param.is_rest && !engine_types.empty()) {
 				// The type comes from the overridden declaration (spec §4.6).
-				param.type = engine_type;
+				param.type = engine_types[0];
 			} else if (!r_function.accessor_of.empty()) {
 				// An inline setter takes the member's type (check_accessors()).
 			} else {
-				error(param.name_token, "Parameter \"" + param.name + "\" needs a type.");
-				param.type = Type::of(TypeKind::Error);
+				untyped(param);
 			}
 		}
+		check_rest(r_function);
 		check_defaults(r_function);
 		if (r_function.is_static && r_function.is_override) {
 			error(r_function.name_token, "\"" + r_function.name + "()\" overrides an engine method and cannot be static.");
@@ -8431,13 +8543,14 @@ class Checker : public ClassRelation {
 					continue;
 				}
 				const int passed = int(arguments->size()) - connection.unbinds + connection.binds;
-				if (int(method.params.size()) != passed) {
-					error_in_scene(own_name(method, cls.functions, header), scene, connection.target, where + ", which passes " + std::to_string(passed) + " argument(s); " + method.name + "() takes " + std::to_string(method.params.size()) + ".");
+				if (passed < 0 || !takes(method, size_t(passed))) {
+					error_in_scene(own_name(method, cls.functions, header), scene, connection.target, where + ", which passes " + std::to_string(passed) + " argument(s); " + method.name + "() takes " + argument_count(method) + ".");
 					continue;
 				}
 				for (int i = 0; i < int(arguments->size()) - connection.unbinds; i++) {
-					if (!assignable((*arguments)[i], method.params[i].type)) {
-						error_in_scene(own ? TokenRange{ method.params[i].name_token, method.params[i].name_token } : header, scene, connection.target, where + ", which passes " + (*arguments)[i].to_string() + " here.");
+					if (!assignable((*arguments)[i], *argument_type(method, size_t(i)))) {
+						const ParamDecl &param = method.params[std::min(size_t(i), method.params.size() - 1)];
+						error_in_scene(own ? TokenRange{ param.name_token, param.name_token } : header, scene, connection.target, where + ", which passes " + (*arguments)[i].to_string() + " here.");
 					}
 				}
 			}
@@ -8484,12 +8597,12 @@ class Checker : public ClassRelation {
 				refer(method.name_token, script_id(options.path, interface.name + "." + method.name), SymbolKind::Method);
 				for (ParamDecl &param : method.params) {
 					if (!param.declared_type) {
-						error(param.name_token, "Parameter \"" + param.name + "\" needs a type.");
-						param.type = Type::of(TypeKind::Error);
+						untyped(param);
 						continue;
 					}
 					param.type = resolve(*param.declared_type, false);
 				}
+				check_rest(method);
 				method.return_type = method.return_type_ref ? resolve(*method.return_type_ref, true) : Type::of(TypeKind::Void);
 			}
 			std::unordered_set<std::string> members;
@@ -8679,10 +8792,10 @@ class Checker : public ClassRelation {
 				}
 				bool same = function.params.size() == method.params.size() && function.return_type == method.return_type && function.is_async == method.is_async;
 				for (size_t i = 0; same && i < method.params.size(); i++) {
-					same = function.params[i].type == method.params[i].type;
+					same = function.params[i].type == method.params[i].type && function.params[i].is_rest == method.params[i].is_rest;
 				}
 				if (!same) {
-					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" does not have the signature that " + type.name + " declares, " + function_type(method).to_string() + ".");
+					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" does not have the signature that " + type.name + " declares, " + signature_text(method) + ".");
 				}
 			}
 			note_implementation(type, ref, reported);
@@ -9332,11 +9445,15 @@ class Checker : public ClassRelation {
 	static std::string declared_signature(const std::string &p_name, const FuncDecl &p_function, const SourceFile &p_source, int p_current, const Type &p_result) {
 		std::vector<std::string> params;
 		for (const ParamDecl &param : p_function.params) {
-			params.push_back(param.name + ": " + param.type.to_string());
+			params.push_back((param.is_rest ? "..." : "") + param.name + ": " + param.type.to_string());
 			if (param.default_value) {
 				const uint32_t begin = p_source.begin(param.default_value->range);
 				params.back() += " = " + p_source.text.substr(begin, p_source.end(param.default_value->range) - begin);
 			}
+		}
+		// A rest parameter takes the arguments after the others.
+		if (p_function.has_rest()) {
+			p_current = std::min(p_current, int(params.size()) - 1);
 		}
 		return signature(p_name, params, false, p_current, p_result.to_string());
 	}
@@ -9830,6 +9947,10 @@ class Checker : public ClassRelation {
 				owner = decl.path;
 				for (const ParamDecl &param : parent->params) {
 					add_param(param.name);
+					if (param.is_rest) {
+						probe.params.back().is_rest = true;
+						params.back() = "..." + params.back();
+					}
 					if (param.default_value) {
 						// As checked where it is written.
 						probe.params.back().default_value = std::make_unique<Expr>();

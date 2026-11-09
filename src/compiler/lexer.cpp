@@ -128,6 +128,8 @@ const char *token_name(TokenKind p_kind) {
 			return "\",\"";
 		case TokenKind::Period:
 			return "\".\"";
+		case TokenKind::Ellipsis:
+			return "\"...\"";
 		case TokenKind::ParenOpen:
 			return "\"(\"";
 		case TokenKind::ParenClose:
@@ -906,7 +908,7 @@ class Lexer {
 				one(TokenKind::Comma);
 				return;
 			case '.':
-				one(TokenKind::Period);
+				next == '.' && peek(2) == '.' ? three(TokenKind::Ellipsis) : one(TokenKind::Period);
 				return;
 			case '(':
 				open_bracket();

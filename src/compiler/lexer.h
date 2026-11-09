@@ -74,6 +74,7 @@ enum class TokenKind {
 	Semicolon,
 	Comma,
 	Period,
+	Ellipsis,
 	ParenOpen,
 	ParenClose,
 	BracketOpen,

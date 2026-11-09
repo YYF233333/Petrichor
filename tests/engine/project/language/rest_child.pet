@@ -1,0 +1,12 @@
+# Overrides that take the arguments of RestCheck's methods otherwise
+# (spec §4.6).
+class_name RestChild
+extends RestCheck
+
+
+pub func joined(sep: String, first: String = "<", ...parts: Array[String]) -> String:
+	return first + sep + ",".join(PackedStringArray(parts))
+
+
+pub func plain(a: int, ...more: Array[int]) -> int:
+	return a + more.size()

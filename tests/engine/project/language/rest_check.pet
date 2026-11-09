@@ -1,0 +1,74 @@
+# Rest parameters (spec §4.6), driven by rest_test.gd.
+class_name RestCheck
+extends Node
+
+pub signal told(level: int, text: String)
+pub var heard: Array = []
+
+
+pub func joined(sep: String, ...parts: Array[String]) -> String:
+	return sep + ",".join(PackedStringArray(parts))
+
+
+pub func count(...values: Array) -> int:
+	return values.size()
+
+
+pub func plain(a: int) -> int:
+	return a
+
+
+pub func local_calls() -> Array:
+	return [joined("-"), joined("-", "a"), joined("-", "a", "b", "c"), count(), count(1, "x", null)]
+
+
+# On another object, compiled against this class's signatures.
+pub func calls_on(other: RestCheck) -> Array:
+	return [other.joined("/", "a", "b", "c"), other.plain(5)]
+
+
+pub func through_values() -> Array:
+	var f := joined
+	var g := func(...xs: Array[int]) -> int: return xs.size()
+	return [f.call("+", "a", "b"), g.call(1, 2, 3), callv("joined", ["=", "x", "y"])]
+
+
+pub func hear(level: int, ...rest: Array) -> void:
+	heard.append([level, rest])
+
+
+pub func connected() -> Array:
+	heard.clear()
+	told.connect(hear)
+	told.emit(2, "loud")
+	told.disconnect(hear)
+	return heard
+
+
+pub func bag() -> Array:
+	return Bag.new(1, 2, 3).items
+
+
+pub func tally() -> int:
+	return Tally(base = 10).plus(1, 2, 3)
+
+
+func _to_string(...parts: Array) -> String:
+	return "rest %d" % parts.size()
+
+
+class Bag:
+	pub var items: Array = []
+
+	func _init(...given: Array) -> void:
+		items = given
+
+
+struct Tally:
+	var base: int
+
+	func plus(...more: Array[int]) -> int:
+		var total := base
+		for m in more:
+			total += m
+		return total

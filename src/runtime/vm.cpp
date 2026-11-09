@@ -452,6 +452,30 @@ void report_argument(const ClassImage &p_image, const bytecode::Function &p_func
 	report_error(p_image, p_function, int(p_function.line), vformat("Argument \"%s\" of %s(): %s.", to_godot(p_function.params[p_param].name), to_godot(p_function.name), p_error));
 }
 
+// A rest parameter of type `p_type` (spec §4.6): the `p_count` arguments that
+// `p_argument(i)` gives, each checked as a parameter of the element type is
+// (§8.1). On a mismatch, false with what was found in `r_error`.
+template <typename Argument>
+bool fill_rest(const TypeImage &p_type, uint8_t *p_slot, size_t p_count, Argument p_argument, String &r_error) {
+	Array rest = typed_array(p_type.check.element, p_type.check.class_name, p_type.check.script);
+	for (size_t i = 0; i < p_count; i++) {
+		const Variant value = p_argument(i);
+		if (!p_type.item) {
+			rest.push_back(value);
+			continue;
+		}
+		const TypeImage &item = *p_type.item;
+		ValueBuffer element(item);
+		if (!from_variant(item, value, element.data, true)) {
+			r_error = vformat("%s at index %d", entry_mismatch(item, value), int64_t(i));
+			return false;
+		}
+		rest.push_back(item.box ? make_box(item, element.data, false) : to_variant(item, element.data));
+	}
+	*reinterpret_cast<Array *>(p_slot) = rest;
+	return true;
+}
+
 template <typename T>
 int64_t packed_size(const uint8_t *p_slot) {
 	return reinterpret_cast<const T *>(p_slot)->size();
@@ -994,11 +1018,12 @@ class Execution {
 		if (method.is_abstract) {
 			return fail(p_caller, p_line, vformat("%s() is abstract, and this object's class does not implement it. Build the project again.", p_callee.function_names[p_index]));
 		}
-		const size_t given = method.params.size() - method.captures;
-		const size_t required = given - method.defaults.size();
-		if (argc < required || argc > given) {
+		if (!method.takes(argc)) {
 			return fail_cstr(p_caller, p_line, "Override argument count changed. Rebuild the project.");
 		}
+		const size_t given = method.params.size() - method.captures;
+		const size_t fixed = method.fixed_params();
+		const size_t required = fixed - method.defaults.size();
 		Frame callee_frame(frames, p_callee.frames[p_index]);
 		const uint8_t *capture = p_captures;
 		for (size_t i = 0; i < method.params.size(); i++) {
@@ -1008,6 +1033,21 @@ class Execution {
 				copy_value(param_type, param, capture);
 				capture += param_type.size;
 				continue;
+			}
+			if (i == fixed) {
+				const auto argument = [&](size_t p_rest) {
+					const uint32_t *pair = p_call + 5 + 2 * (fixed + p_rest);
+					return to_variant(image.types[pair[0]], frame + pair[1]);
+				};
+				String error;
+				if (fill_rest(param_type, param, argc > fixed ? argc - fixed : 0, argument, error)) {
+					continue;
+				}
+				if (p_entry) {
+					report_argument(p_callee, method, i, error);
+					return false;
+				}
+				return fail(p_caller, p_line, vformat("Argument of %s(): %s.", p_callee.function_names[p_index], error));
 			}
 			const TypeImage *source = i < argc ? &image.types[p_call[5 + 2 * i]] : nullptr;
 			if (source && source->layout == param_type.layout) {
@@ -1599,8 +1639,7 @@ class Execution {
 		const ClassImage &target = origin.image ? *origin.image : *found;
 		index = origin.image ? origin.index : index;
 		const bytecode::Function &function = target.module.functions[index];
-		const size_t given = function.params.size() - function.captures;
-		if (function.is_async || p_op[4] > given || p_op[4] < given - function.defaults.size()) {
+		if (function.is_async || !function.takes(p_op[4])) {
 			return std::nullopt;
 		}
 		const bool ok = call_function(target, uint32_t(index), *callee_context, p_op, p_frame, p_result, p_fn, p_line, captures, p_entry);
@@ -3538,13 +3577,16 @@ Variant call(std::shared_ptr<const ClassImage> p_image, int p_function, Instance
 		r_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
 		return Variant();
 	}
-	// The last parameters may be left out when they have default values.
+	// The last parameters may be left out when they have default values, and a
+	// rest parameter takes any number more.
 	const size_t bound = p_bound_self ? 1 : 0;
 	const size_t given = fn.params.size() - fn.captures - bound;
-	const size_t required = given - fn.defaults.size();
-	if (size_t(p_argc) < required || size_t(p_argc) > given) {
-		r_error.error = size_t(p_argc) > given ? GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS : GDEXTENSION_CALL_ERROR_TOO_FEW_ARGUMENTS;
-		r_error.expected = int32_t(size_t(p_argc) > given ? given : required);
+	const size_t fixed = fn.fixed_params() - bound;
+	const size_t required = fixed - fn.defaults.size();
+	if (!fn.takes(size_t(p_argc) + bound)) {
+		const bool many = size_t(p_argc) > fixed;
+		r_error.error = many ? GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS : GDEXTENSION_CALL_ERROR_TOO_FEW_ARGUMENTS;
+		r_error.expected = int32_t(many ? fixed : required);
 		return Variant();
 	}
 
@@ -3563,6 +3605,17 @@ Variant call(std::shared_ptr<const ClassImage> p_image, int p_function, Instance
 			copy_value(type, frame.data + param.offset, capture);
 			capture += type.size;
 			continue;
+		}
+		if (arg == fixed) {
+			String error;
+			if (fill_rest(type, frame.data + param.offset, size_t(p_argc) > fixed ? size_t(p_argc) - fixed : 0, [&](size_t p_rest) { return *p_args[fixed + p_rest]; }, error)) {
+				continue;
+			}
+			report_argument(*image, fn, i, error);
+			if (r_failed) {
+				*r_failed = true;
+			}
+			return default_variant(result_type);
 		}
 		const Variant *argument = arg < size_t(p_argc) ? p_args[arg] : nullptr;
 		if (argument && from_variant(type, *argument, frame.data + param.offset, true)) {

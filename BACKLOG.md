@@ -34,7 +34,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - `ok()` and `err()` of `Result[T?, E]` and `Result[T, E?]`.
 - The names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7).
 - `Ok(v)`, `Err(e)`, `None` and `?` in a lambda without a return type passed to `and_then()` or `or_else()`. Nothing gives their `U` or `F` yet (spec §3.4, §3.5, §4.6).
-- Rest parameters `...args: Array[T]` (spec §4.6).
 - Assigning to a character of a String, as `s[i] = c`. GDScript keeps only the first character of `c`, and an empty `c` removes the character (`core/variant/variant_setget.cpp:785-809`, `ed1daf0`).
 - `is_instance_of(v, T)` with `T` held in a variable, which needs classes as values (spec §2.6). gdUnit4 does it.
 - An inner class named as an engine enum, such as `Key`. A type reads the name as the engine's enum, an expression as the inner class (spec §4.1). So `func make() -> Key: return Key.new()` is an error.

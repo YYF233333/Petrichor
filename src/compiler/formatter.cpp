@@ -475,7 +475,7 @@ class Formatter {
 		const size_t tb = size_t(b.syntax);
 		const TokenKind left = tokens[ta].kind;
 		const TokenKind right = tokens[tb].kind;
-		if (is_opening(left) || is_closing(right) || right == TokenKind::Comma || right == TokenKind::Semicolon || left == TokenKind::Period || right == TokenKind::Period || right == TokenKind::Question || left == TokenKind::At || left == TokenKind::Dollar || joined[tb] || prefix[ta]) {
+		if (is_opening(left) || is_closing(right) || right == TokenKind::Comma || right == TokenKind::Semicolon || left == TokenKind::Period || right == TokenKind::Period || left == TokenKind::Ellipsis || right == TokenKind::Question || left == TokenKind::At || left == TokenKind::Dollar || joined[tb] || prefix[ta]) {
 			return 0;
 		}
 		if (right == TokenKind::Colon) {

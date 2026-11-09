@@ -158,7 +158,7 @@ int MethodCallable::get_argument_count(bool &r_is_valid) const {
 	ScriptedObject instance;
 	int function = -1;
 	r_is_valid = resolve(instance, function);
-	return r_is_valid ? int(instance.image->module.functions[function].params.size()) : 0;
+	return r_is_valid ? int(instance.image->module.functions[function].fixed_params()) : 0;
 }
 
 void MethodCallable::call(const Variant **p_arguments, int p_argcount, Variant &r_return_value, GDExtensionCallError &r_call_error) const {
@@ -211,7 +211,7 @@ int StaticCallable::get_argument_count(bool &r_is_valid) const {
 	std::shared_ptr<const ClassImage> image = of_engine ? nullptr : script_image(owner);
 	const int function = image ? image->find_function(method) : -1;
 	r_is_valid = function >= 0;
-	return r_is_valid ? int(image->module.functions[function].params.size()) : 0;
+	return r_is_valid ? int(image->module.functions[function].fixed_params()) : 0;
 }
 
 void StaticCallable::call(const Variant **p_arguments, int p_argcount, Variant &r_return_value, GDExtensionCallError &r_call_error) const {
@@ -243,7 +243,7 @@ String StructMethodCallable::get_as_text() const {
 
 int StructMethodCallable::get_argument_count(bool &r_is_valid) const {
 	r_is_valid = true;
-	return int(image->module.functions[function].params.size()) - 1;
+	return int(image->module.functions[function].fixed_params()) - 1;
 }
 
 void StructMethodCallable::call(const Variant **p_arguments, int p_argcount, Variant &r_return_value, GDExtensionCallError &r_call_error) const {
@@ -302,8 +302,7 @@ bool LambdaCallable::is_valid() const {
 
 int LambdaCallable::get_argument_count(bool &r_is_valid) const {
 	r_is_valid = true;
-	const bytecode::Function &fn = image->module.functions[function];
-	return int(fn.params.size() - fn.captures);
+	return int(image->module.functions[function].fixed_params());
 }
 
 void LambdaCallable::call(const Variant **p_arguments, int p_argcount, Variant &r_return_value, GDExtensionCallError &r_call_error) const {

@@ -329,6 +329,9 @@ struct Function {
 	// the engine, or from another class of this language (CALL_METHOD). A call
 	// within the class passes every argument.
 	std::vector<Constant> defaults;
+	// The last parameter before a lambda's captures is a rest parameter, an
+	// Array of the arguments after the others (spec §4.6).
+	bool is_vararg = false;
 	bool is_static = false;
 	// The return value's type, Void when there is none; name and offset mean
 	// nothing.
@@ -349,6 +352,11 @@ struct Function {
 	std::vector<Slot> slots; // All slots with their types, params first.
 	std::vector<Preset> presets;
 	std::vector<uint32_t> code;
+
+	// The parameters a call fills one argument each, and whether it may pass
+	// `p_argc` arguments.
+	size_t fixed_params() const { return params.size() - captures - (is_vararg ? 1 : 0); }
+	bool takes(size_t p_argc) const { return p_argc + defaults.size() >= fixed_params() && (is_vararg || p_argc <= fixed_params()); }
 };
 
 // A signal the class declares (spec §4.7); the engine finds it by name.
@@ -407,6 +415,9 @@ struct MethodCall {
 	std::string method;
 	std::vector<Slot> params; // Names and offsets mean nothing.
 	uint32_t defaults = 0; // How many of the last parameters have default values, which a call may leave out.
+	// The last parameter is a rest parameter, which the arguments after the
+	// others go into.
+	bool is_vararg = false;
 	Slot result; // As Function::result.
 	// A static method (spec §4.8): the class whose script declares it, an index
 	// into the classes; called with no base.
@@ -415,8 +426,9 @@ struct MethodCall {
 
 // A signature of a method as text that is equal exactly for equal signatures
 // in any module: the parameters' and the result's types (`p_types` being the
-// table they refer to), and how many parameters have defaults.
-std::string signature_key(const std::vector<TypeDesc> &p_types, const std::vector<Slot> &p_params, size_t p_defaults, const Slot &p_result, bool p_async = false);
+// table they refer to), how many parameters have defaults and whether the last
+// is a rest parameter.
+std::string signature_key(const std::vector<TypeDesc> &p_types, const std::vector<Slot> &p_params, size_t p_defaults, const Slot &p_result, bool p_async = false, bool p_vararg = false);
 // The signature key of a Task[T] handle's T.
 std::string task_result_key(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 

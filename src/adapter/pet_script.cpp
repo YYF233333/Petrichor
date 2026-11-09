@@ -105,12 +105,15 @@ static Dictionary typed(Dictionary p_dict, const TypeImage &p_type) {
 static Dictionary function_info(const ClassImage &p_image, int p_index) {
 	const bytecode::Function &function = p_image.module.functions[p_index];
 	Array args;
-	for (const bytecode::Slot &param : function.params) {
+	// A rest parameter is no argument of the list, as GDScript reports one
+	// (modules/gdscript/gdscript_compiler.cpp:2352-2355).
+	for (size_t i = 0; i < function.fixed_params(); i++) {
+		const bytecode::Slot &param = function.params[i];
 		args.push_back(typed(value_dict(p_image.types[param.type], to_godot(param.name), PROPERTY_USAGE_DEFAULT), p_image.types[param.type]));
 	}
 	const Dictionary result = function.is_async ? property_dict(Variant::NIL, StringName(), PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_NIL_IS_VARIANT, StringName()) : value_dict(p_image.types[function.result.type], StringName(), PROPERTY_USAGE_DEFAULT);
 	// An abstract method as GDScript reports one (modules/gdscript/gdscript_compiler.cpp:2327-2329).
-	const uint32_t flags = METHOD_FLAGS_DEFAULT | (function.is_static ? METHOD_FLAG_STATIC : 0) | (function.is_abstract ? METHOD_FLAG_VIRTUAL_REQUIRED : 0);
+	const uint32_t flags = METHOD_FLAGS_DEFAULT | (function.is_static ? METHOD_FLAG_STATIC : 0) | (function.is_abstract ? METHOD_FLAG_VIRTUAL_REQUIRED : 0) | (function.is_vararg ? METHOD_FLAG_VARARG : 0);
 	Dictionary method = method_dict(p_image.function_names[p_index], args, result, flags);
 	Array defaults;
 	for (const bytecode::Constant &constant : function.defaults) {
@@ -709,7 +712,7 @@ Variant PetScript::_get_script_method_argument_count(const StringName &p_method)
 	if (index < 0) {
 		return Variant();
 	}
-	return int64_t(current->module.functions[index].params.size());
+	return int64_t(current->module.functions[index].fixed_params());
 }
 
 Dictionary PetScript::_get_method_info(const StringName &p_method) const {

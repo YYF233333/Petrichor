@@ -796,7 +796,7 @@ func _ready() -> void:
 
 	_gdscript_static_view()
 
-	for test: GDScript in [preload("res://language/coroutines_test.gd"), preload("res://language/defaults_test.gd"), preload("res://language/inheritance_test.gd")]:
+	for test: GDScript in [preload("res://language/coroutines_test.gd"), preload("res://language/defaults_test.gd"), preload("res://language/inheritance_test.gd"), preload("res://language/rest_test.gd")]:
 		var part: Node = test.new()
 		add_child(part)
 		failures += await part.run(errors)
