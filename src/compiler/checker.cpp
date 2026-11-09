@@ -1935,9 +1935,6 @@ class Checker : public ClassRelation {
 	// the engine is open, and the int is only marked as one of it.
 	Type check_enum_conversion(Expr &r_expr, const Type &p_enum) {
 		if (r_expr.args.size() != 1 || !r_expr.arg_names.empty()) {
-			for (auto &arg : r_expr.args) {
-				check_value(*arg);
-			}
 			return fail_call(r_expr, enum_spelling(p_enum) + "() takes one int.");
 		}
 		Expr &arg = *r_expr.args[0];
@@ -4970,9 +4967,6 @@ class Checker : public ClassRelation {
 	Type check_result_construction(Expr &r_expr, const Type &p_expected) {
 		const Type result = p_expected.kind == TypeKind::Option ? p_expected.args[0] : p_expected;
 		if (!result.is_result() || !r_expr.arg_names.empty()) {
-			for (auto &arg : r_expr.args) {
-				check_value(*arg);
-			}
 			if (!r_expr.arg_names.empty()) {
 				return fail_call(r_expr, r_expr.text + "(...) takes its value by position, as in " + r_expr.text + "(x).");
 			}
@@ -4999,9 +4993,6 @@ class Checker : public ClassRelation {
 		const std::string t = value.to_string();
 		const std::string e = failure.to_string();
 		if (!result_methods().count(name)) {
-			for (auto &arg : r_expr.args) {
-				check_value(*arg);
-			}
 			return fail_call(r_expr, p_base.to_string() + " has no method \"" + name + "()\".");
 		}
 		refer(r_expr.name_token, language_id("Result", name));
@@ -5448,9 +5439,6 @@ class Checker : public ClassRelation {
 		hint(r_expr, [&](int p_current) { return signature("try_from", { "value: Variant" }, false, p_current, result.to_string()); });
 		refer(r_expr.name_token, language_id(p_type.to_string(), r_expr.text));
 		if (p_type.kind == TypeKind::Function || p_type.kind == TypeKind::Signal || p_type.kind == TypeKind::Task || p_type.kind == TypeKind::Unsupported) {
-			for (auto &arg : r_expr.args) {
-				check_value(*arg);
-			}
 			return fail_call(r_expr, "try_from() converts to a value or an object type, not " + p_type.to_string() + ".");
 		}
 		check_arguments(r_expr, { Type::of(TypeKind::Variant) }, 1, false);
@@ -5481,9 +5469,6 @@ class Checker : public ClassRelation {
 		const Type &type = p_decl.type;
 		const int index = p_decl.find(r_expr.text);
 		if (index < 0) {
-			for (auto &arg : r_expr.args) {
-				check_value(*arg);
-			}
 			return fail_call(r_expr, missing(p_decl.name + " has no variant \"" + r_expr.text + "\".", p_decl.script));
 		}
 		const EnumValueDecl &variant = p_decl.values[index];
@@ -5497,9 +5482,6 @@ class Checker : public ClassRelation {
 			return signature(variant.name, fields, false, -1, type.to_string());
 		});
 		if (variant.fields.empty()) {
-			for (auto &arg : r_expr.args) {
-				check_value(*arg);
-			}
 			return fail_call(r_expr, written + " has no payload; write it without parentheses.");
 		}
 		check_named_fields(r_expr, variant.fields, "variant", written, p_decl.script, enum_value_id(p_decl, variant.name));
@@ -5887,9 +5869,6 @@ class Checker : public ClassRelation {
 		}
 		if (const EnumDecl *decl = called_enum(r_expr)) {
 			if (decl->has_payloads) {
-				for (auto &arg : r_expr.args) {
-					check_value(*arg);
-				}
 				return fail_call(r_expr, "No int converts to " + enum_spelling(decl->type) + ", an enum with payloads.");
 			}
 			return check_enum_conversion(r_expr, decl->type);
@@ -5968,9 +5947,6 @@ class Checker : public ClassRelation {
 				return check_result_method(r_expr, base_type);
 			}
 			if (base_type.kind == TypeKind::Variant) {
-				for (auto &arg : r_expr.args) {
-					check_value(*arg);
-				}
 				return fail_call(r_expr, "Cannot call \"" + name + "()\" on a Variant." + variant_hint() + " To call a method by name, convert it to Object and use call().");
 			}
 			if (base_type.kind == TypeKind::Function && (name == "bind" || name == "call" || name == "callv")) {
@@ -6172,9 +6148,6 @@ class Checker : public ClassRelation {
 	Type check_task_join(Expr &r_expr) {
 		const bool any = r_expr.text == "any";
 		if (r_expr.args.size() != 1 || r_expr.args[0]->kind != ExprKind::ArrayLiteral) {
-			for (auto &arg : r_expr.args) {
-				check_value(*arg);
-			}
 			return fail_call(r_expr, "Task." + r_expr.text + "() takes the tasks in brackets, as Task." + r_expr.text + "([a, f()]); arrays of Task are not supported yet.");
 		}
 		Expr &list = *r_expr.args[0];

@@ -252,11 +252,12 @@ TEST_CASE("conditional expressions") {
 
 TEST_CASE("a call that fails still reports the errors of its arguments") {
 	const std::string undeclared = "Identifier \"nope\" is not declared in the current scope.";
-	for (const std::string call : { "Node.new(nope)", "Node.instantiate(nope)", "Vector3().missing(nope)", "_process(nope)", "missing(nope)" }) {
+	for (const std::string call : { "Node.new(nope)", "Node.instantiate(nope)", "Vector3().missing(nope)", "_process(nope)", "missing(nope)", "Ok(nope)", "Task.any(nope)" }) {
 		const std::string reported = joined(errors_of(in_function("var x = " + call)));
 		INFO(call);
 		INFO(reported);
 		CHECK(contains(reported, undeclared));
+		CHECK(reported.find(undeclared) == reported.rfind(undeclared)); // Once.
 		CHECK(reported.find('\n') + 1 < reported.size()); // A second error, the call's.
 	}
 }
