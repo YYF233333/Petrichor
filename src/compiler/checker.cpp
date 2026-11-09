@@ -2672,14 +2672,23 @@ class Checker : public ClassRelation {
 		if (const auto message = broken(callee, p_class.name + "." + callee->name + "()")) {
 			return fail_call(r_expr, *message);
 		}
-		hint(r_expr, [&](int p_current) { return declared_signature(callee->name, *callee, *source, p_current, callee->return_type); });
-		check_arguments(r_expr, param_types(callee->params), required_params(*callee), false);
+		const Type result = call_declared(r_expr, *callee, *source, callee->return_type);
 		refer(r_expr.name_token, id);
 		r_expr.target = Target::ScriptMethod;
-		r_expr.engine_params = param_types(callee->params);
-		r_expr.index = int(callee->params.size()) - required_params(*callee);
-		r_expr.is_async = callee->is_async;
-		return set(r_expr, callee->is_async ? Type::task(callee->return_type) : callee->return_type);
+		return result;
+	}
+
+	// A call to a function of this language once it is found (spec §4.6): its
+	// hint, showing `p_result`, its arguments, and the defaults it is left to
+	// fill when called by name.
+	Type call_declared(Expr &r_expr, const FuncDecl &p_callee, const SourceFile &p_source, const Type &p_result) {
+		hint(r_expr, [&](int p_current) { return declared_signature(r_expr.text, p_callee, p_source, p_current, p_result); });
+		const std::vector<Type> params = param_types(p_callee.params);
+		check_arguments(r_expr, params, required_params(p_callee), false);
+		r_expr.engine_params = params;
+		r_expr.index = int(p_callee.params.size()) - required_params(p_callee);
+		r_expr.is_async = p_callee.is_async;
+		return set(r_expr, p_callee.is_async ? Type::task(p_result) : p_result);
 	}
 
 	// An integer constant of an engine class, such as an enum value, which is
@@ -5294,16 +5303,14 @@ class Checker : public ClassRelation {
 			return fail_call(r_expr, "\"" + callee->name + "()\" is abstract in the base class, which has no body to call.");
 		}
 		if (callee) {
-			refer(r_expr.name_token, script_id(declaring(*cls.base, *callee, &ClassDecl::functions).path, callee->name));
+			const ClassDecl &owner = declaring(*cls.base, *callee, &ClassDecl::functions);
+			refer(r_expr.name_token, script_id(owner.path, callee->name));
 			if (!callee->is_static && refuse_in_static(r_expr, "super." + r_expr.text)) {
 				return fail_call(r_expr);
 			}
-			check_arguments(r_expr, param_types(callee->params), required_params(*callee), false);
+			const Type result = call_declared(r_expr, *callee, *owner.source, callee->return_type);
 			r_expr.target = Target::SuperMethod;
-			r_expr.engine_params = param_types(callee->params);
-			r_expr.index = int(callee->params.size()) - required_params(*callee);
-			r_expr.is_async = callee->is_async;
-			return set(r_expr, callee->is_async ? Type::task(callee->return_type) : callee->return_type);
+			return result;
 		}
 		if (r_expr.text == "_init") {
 			if (refuse_in_static(r_expr, "super._init")) {
@@ -5627,10 +5634,7 @@ class Checker : public ClassRelation {
 				if (const auto message = broken(&callee, class_name + "._init()")) {
 					return fail_call(r_expr, *message);
 				}
-				hint(r_expr, [&](int p_current) { return declared_signature("new", callee, *declaring(*decl, callee, &ClassDecl::functions).source, p_current, type); });
-				check_arguments(r_expr, param_types(callee.params), required_params(callee), false);
-				r_expr.engine_params = param_types(callee.params);
-				r_expr.index = int(callee.params.size()) - required_params(callee);
+				call_declared(r_expr, callee, *declaring(*decl, callee, &ClassDecl::functions).source, type);
 			} else {
 				hint(r_expr, [&](int p_current) { return signature("new", {}, false, p_current, type.to_string()); });
 				check_arguments(r_expr, {}, 0, false);
@@ -5660,8 +5664,7 @@ class Checker : public ClassRelation {
 		if (const auto message = broken(&callee, class_name + "." + callee.name + "()")) {
 			return fail_call(r_expr, *message);
 		}
-		hint(r_expr, [&](int p_current) { return declared_signature(callee.name, callee, *owner.source, p_current, callee.return_type); });
-		check_arguments(r_expr, param_types(callee.params), required_params(callee), false);
+		const Type result = call_declared(r_expr, callee, *owner.source, callee.return_type);
 		refer(r_expr.name_token, script_id(owner.path, callee.name));
 		if (p_path == options.path) {
 			r_expr.target = Target::ScriptFunction;
@@ -5671,11 +5674,8 @@ class Checker : public ClassRelation {
 			r_expr.target = Target::ScriptMethod;
 			r_expr.is_static = true;
 			r_expr.owner = p_path;
-			r_expr.engine_params = param_types(callee.params);
-			r_expr.index = int(callee.params.size()) - required_params(callee);
 		}
-		r_expr.is_async = callee.is_async;
-		return set(r_expr, callee.is_async ? Type::task(callee.return_type) : callee.return_type);
+		return result;
 	}
 
 	// A method of a struct (spec §3.6): on a value; static through the
@@ -5704,15 +5704,11 @@ class Checker : public ClassRelation {
 		r_expr.is_static = callee->is_static;
 		r_expr.static_on_value = callee->is_static && p_on_value;
 		const ClassDecl *declaring = p_struct.script == options.path ? &cls : script_decl(p_struct.script);
-		hint(r_expr, [&](int p_current) { return declared_signature(r_expr.text, *callee, *declaring->source, p_current, callee->return_type); });
-		check_arguments(r_expr, param_types(callee->params), required_params(*callee), false);
+		const Type result = call_declared(r_expr, *callee, *declaring->source, callee->return_type);
 		r_expr.target = Target::StructMethod;
 		r_expr.callee = callee;
 		r_expr.owner = p_struct.script;
-		r_expr.engine_params = param_types(callee->params);
-		r_expr.index = int(callee->params.size()) - required_params(*callee);
-		r_expr.is_async = callee->is_async;
-		return set(r_expr, callee->is_async ? Type::task(callee->return_type) : callee->return_type);
+		return result;
 	}
 
 	// The script of a class of another language as the base of `r_access`,
@@ -6073,13 +6069,12 @@ class Checker : public ClassRelation {
 			if (!callee.is_static && refuse_in_static(r_expr, name + "()")) {
 				return fail_call(r_expr);
 			}
-			hint(r_expr, [&](int p_current) { return declared_signature(callee.name, callee, *declaring(cls, callee, &ClassDecl::functions).source, p_current, callee.return_type); });
-			check_arguments(r_expr, param_types(callee.params), required_params(callee), false);
+			const ClassDecl &owner = declaring(cls, callee, &ClassDecl::functions);
+			const Type result = call_declared(r_expr, callee, *owner.source, callee.return_type);
 			r_expr.target = Target::ScriptFunction;
 			r_expr.index = script->second;
-			refer(r_expr.name_token, script_id(declaring(cls, callee, &ClassDecl::functions).path, callee.name));
-			r_expr.is_async = callee.is_async;
-			return set(r_expr, callee.is_async ? Type::task(callee.return_type) : callee.return_type);
+			refer(r_expr.name_token, script_id(owner.path, callee.name));
+			return result;
 		}
 
 		if (const auto method = engine.find_method(cls.native_base, name)) {

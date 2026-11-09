@@ -9,10 +9,9 @@ Paid before the remaining features of step 7 (architecture §5).
 - Behavior that differs from the spec:
   - The adapter parses the base in a class header itself (`header_base_path`, `header_native_base`, `header_extends`).
     - It takes `extends Outer.Inner` as a global class, so the editor lists the class under `RefCounted`.
-    - `ScriptClasses::base_path` and `native_base` already do this.
+    - `ScriptClasses::base_path` and `native_base` already do this, but lack the adapter's search for a `class_name` the project does not list yet.
+    - A global class's base is its native base here. GDScript gives the direct base's name (`modules/gdscript/gdscript.cpp:2810-2812`, `ed1daf0`). So the create dialog skips global classes between them.
 - Rules kept in several places, mainly in `checker.cpp`. Known ones:
-  - finding a class function by name with its visibility, `broken` and `refer`: `script_member`, `class_function_value` and `check_class_call`;
-  - finishing a call to a declared function: `script_method`, `check_class_call`, bare calls, `check_struct_call` and `new`. The visibility rule drifted here once (00c42b7);
   - the named fields of a struct's construction and of an enum variant with payloads;
   - the checks of interface elements in `values.cpp` beside `checked_one_by_one`. First list the callers that check containers without them.
 - Untrue tests, surveys and documents:
