@@ -6061,6 +6061,9 @@ class Checker : public ClassRelation {
 			if (name == "preload") {
 				return check_preload(r_expr);
 			}
+			if (name == "range") {
+				return check_range(r_expr);
+			}
 			if (name == "load" && engine.is_singleton("ResourceLoader")) {
 				// GDScript's load() is ResourceLoader.load(), whose result may be
 				// None (spec §7.4, §10.2).
@@ -6070,6 +6073,19 @@ class Checker : public ClassRelation {
 		}
 
 		return fail_call(r_expr, "Function \"" + name + "()\" not found in the class or its base " + cls.extends + ".");
+	}
+
+	// GDScript's range(to), range(from, to) and range(from, to, step) of ints,
+	// without converting floats as GDScript does (spec §3.14).
+	Type check_range(Expr &r_expr) {
+		refer(r_expr.name_token, engine_id("@GDScript", "range"));
+		check_arguments(r_expr, std::vector<Type>(3, Type::of(TypeKind::Int)), 1, false);
+		const ConstPtr &step = r_expr.args.size() == 3 ? r_expr.args[2]->constant : nullptr;
+		if (step && step->kind == ConstValue::Kind::Int && step->i == 0) {
+			error(r_expr.args[2]->range, "The step of range() is 0.");
+		}
+		r_expr.target = Target::Range;
+		return set(r_expr, Type::array(Type::of(TypeKind::Int)));
 	}
 
 	// Why await cannot be written here; empty where it can.

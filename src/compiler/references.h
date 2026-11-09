@@ -20,7 +20,7 @@ struct DeclId {
 		Foreign, // The same of a class of another language, such as GDScript.
 		// An engine class or built-in type; with a name, one of its members.
 		// Utility functions belong to "@GlobalScope", GDScript's own
-		// constants to "@GDScript".
+		// constants and functions to "@GDScript".
 		Engine,
 		Language, // A member of a type of this language, such as unwrap of T?.
 		Local, // A local or a parameter: the file's path and the offset of its declaration.

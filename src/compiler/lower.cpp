@@ -1165,6 +1165,29 @@ class Lowerer {
 		return p_dst;
 	}
 
+	// range(to), range(from, to) or range(from, to, step) into `p_dst`: an
+	// Array[int] of its values, or an int of how many there are.
+	uint32_t range(const Expr &p_call, uint32_t p_dst, std::vector<uint32_t> p_bounds = {}) {
+		if (p_bounds.empty()) {
+			for (const auto &arg : p_call.args) {
+				p_bounds.push_back(lower_expr(*arg));
+			}
+		}
+		if (p_bounds.size() == 1) {
+			p_bounds.insert(p_bounds.begin(), int_constant(0));
+		}
+		if (p_bounds.size() == 2) {
+			p_bounds.push_back(int_constant(1));
+		}
+		ir::Instr i;
+		i.op = Op::RANGE;
+		i.imm = fn.regs[p_dst].type;
+		i.dst = p_dst;
+		i.args = std::move(p_bounds);
+		add(i);
+		return p_dst;
+	}
+
 	uint32_t size_of(uint32_t p_container) {
 		return call_builtin(engine_builtin_method(reg_type(p_container), "size", {}, ValueType::Int), p_container, {}, temp(ValueType::Int));
 	}
@@ -1662,6 +1685,9 @@ class Lowerer {
 			const uint32_t task = temp(p_call.type);
 			instr(Op::TASK_SETTLED, task, member, NO_REG, owned ? 1 : 0, type_index(p_call.type.args[0]));
 			return task;
+		}
+		if (p_call.target == Target::Range) {
+			return range(p_call, temp(p_call.type));
 		}
 		if (p_call.target == Target::TaskAny || p_call.target == Target::TaskAll) {
 			// Each task, with whether it was started for the join, which owns it then (spec §9.5).
@@ -2990,15 +3016,37 @@ class Lowerer {
 				// container as it was on entry, by index and up to its current
 				// size, as GDScript does. The loop variable gets the count or the
 				// element afresh on each iteration.
-				const bool counting = p_stmt.value->type.kind == TypeKind::Int;
+				// Over range(...), it counts without making the array, as GDScript
+				// does (modules/gdscript/gdscript_compiler.cpp:2044-2079; ed1daf0),
+				// the variable being from + count * step, as they were on entry.
+				const Expr *ranged = p_stmt.value->target == Target::Range ? p_stmt.value.get() : nullptr;
+				const bool counting = ranged || p_stmt.value->type.kind == TypeKind::Int;
 				const std::optional<std::pair<Type, Type>> entries = entries_of(p_stmt.value->type);
-				const uint32_t source = temp(entries ? Type::array(entries->first) : p_stmt.value->type);
-				// A Dictionary is iterated over its keys as they were on entry.
-				move(source, entries ? keys_of(lower_expr(*p_stmt.value), entries->first) : lower_expr(*p_stmt.value));
+				const uint32_t source = counting ? temp(ValueType::Int) : temp(entries ? Type::array(entries->first) : p_stmt.value->type);
+				uint32_t from = NO_REG;
+				uint32_t by = NO_REG;
+				if (ranged && ranged->args.size() > 1) {
+					std::vector<uint32_t> bounds;
+					for (const auto &arg : ranged->args) {
+						bounds.push_back(lower_expr(*arg));
+					}
+					from = temp(ValueType::Int);
+					move(from, bounds[0]);
+					if (bounds.size() == 3) {
+						by = temp(ValueType::Int);
+						move(by, bounds[2]);
+					}
+					range(*ranged, source, bounds);
+				} else if (ranged) {
+					move(source, lower_expr(*ranged->args[0]));
+				} else {
+					// A Dictionary is iterated over its keys as they were on entry.
+					move(source, entries ? keys_of(lower_expr(*p_stmt.value), entries->first) : lower_expr(*p_stmt.value));
+				}
 				release(temps_since(first, source));
 				// A loop variable that the body does not assign is the count itself.
 				const uint32_t local = reg_of(p_stmt.local);
-				const bool counts_in_local = counting && fn.regs[local].type == type_index(ValueType::Int) && !assigns(p_stmt.body, p_stmt.local);
+				const bool counts_in_local = counting && from == NO_REG && fn.regs[local].type == type_index(ValueType::Int) && !assigns(p_stmt.body, p_stmt.local);
 				const uint32_t counter = counts_in_local ? local : temp(ValueType::Int);
 				load_int(counter, -1);
 				const uint32_t step_block = new_block();
@@ -3014,7 +3062,14 @@ class Lowerer {
 				step.step.a = source;
 				step.step.b = counting ? NO_REG : counter;
 				current = body_block;
-				if (counting && !counts_in_local) {
+				if (from != NO_REG) {
+					uint32_t offset = counter;
+					if (by != NO_REG) {
+						offset = temp(ValueType::Int);
+						instr(Op::MUL_INT, offset, counter, by);
+					}
+					instr(Op::ADD_INT, local, from, offset);
+				} else if (counting && !counts_in_local) {
 					move(local, counter);
 				}
 				if (!counting) {

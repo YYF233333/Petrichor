@@ -561,6 +561,19 @@ class Verifier {
 				}
 				return arguments(p_call) && slot(dst, ValueType::Task);
 			}
+			case Op::RANGE: {
+				const bool counts = callee < module.types.size() && storage(callee) == ValueType::Int;
+				const bool lists = callee < module.types.size() && module.types[callee].kind == TypeKind::Array && storage(module.types[callee].element) == ValueType::Int;
+				if ((!counts && !lists) || base != NO_SLOT || p_call[3] != 3) {
+					return fail("RANGE of other than three ints into an int or an Array[int]");
+				}
+				for (uint32_t i = 0; i < 3; i++) {
+					if (storage(p_call[4 + 2 * i]) != ValueType::Int) {
+						return fail("RANGE of other than three ints into an int or an Array[int]");
+					}
+				}
+				return arguments(p_call) && slot(dst, storage(callee));
+			}
 			case Op::MAKE_LAMBDA: {
 				if (!index(callee, module.functions.size(), "function")) {
 					return false;

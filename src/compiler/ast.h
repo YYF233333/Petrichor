@@ -111,6 +111,7 @@ enum class Target {
 	BuiltinConstructor,
 	NewObject, // `Class.new()`, the class being the call's type.
 	Utility,
+	Range, // GDScript's `range(...)`, an Array[int] that `for` counts over without making.
 	ConvertToInt,
 	ConvertToFloat,
 	Encode, // `Array(hits)` or `Dictionary(d)` of a container that keeps boxes (spec §3.8).

@@ -2071,6 +2071,42 @@ class Execution {
 		return true;
 	}
 
+	PETRICHOR_NOINLINE bool op_range(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		const int64_t from = *reinterpret_cast<const int64_t *>(p_frame + p_op[6]);
+		const int64_t to = *reinterpret_cast<const int64_t *>(p_frame + p_op[8]);
+		const int64_t step = *reinterpret_cast<const int64_t *>(p_frame + p_op[10]);
+		if (step == 0) {
+			return fail_cstr(p_fn, p_line, "The step of range() is 0.");
+		}
+		// Unsigned, so that no span overflows.
+		uint64_t count = 0;
+		if (step > 0 ? from < to : from > to) {
+			const uint64_t span = step > 0 ? uint64_t(to) - uint64_t(from) : uint64_t(from) - uint64_t(to);
+			const uint64_t by = step > 0 ? uint64_t(step) : 0 - uint64_t(step);
+			count = span / by + (span % by != 0 ? 1 : 0);
+		}
+		const TypeImage &type = image.types[p_op[1]];
+		if (type.storage == ValueType::Int) {
+			// More than INT64_MAX is a loop that no program sees finish.
+			*reinterpret_cast<int64_t *>(p_frame + p_op[2]) = int64_t(std::min<uint64_t>(count, INT64_MAX));
+			return true;
+		}
+		// GDScript's limit (modules/gdscript/gdscript_utility_functions.cpp:150, 173, 212; ed1daf0).
+		if (count > uint64_t(INT32_MAX)) {
+			return fail(p_fn, p_line, vformat("range() would make an Array of %s ints, more than 2147483647.", String::num_uint64(count)));
+		}
+		PackedInt64Array values;
+		values.resize(int64_t(count));
+		int64_t *write = values.ptrw();
+		for (uint64_t i = 0; i < count; i++) {
+			write[i] = int64_t(uint64_t(from) + i * uint64_t(step));
+		}
+		Array &result = *reinterpret_cast<Array *>(p_frame + p_op[2]);
+		result = typed_array(type.check.element, type.check.class_name, type.check.script);
+		result.assign(Array(values));
+		return true;
+	}
+
 	PETRICHOR_NOINLINE bool op_await_task(const uint32_t *p_op, uint8_t *p_frame, CoroutineFrame *p_async, size_t &r_pc, bool &r_done, const bytecode::Function &p_fn, int p_line) {
 		const TaskRef task = task_at(p_frame + p_op[2]);
 		if (!task) {
@@ -2766,6 +2802,12 @@ public:
 						return false;
 					}
 					pc += 5 + 2 * code[pc + 4];
+					break;
+				case Op::RANGE:
+					if (!op_range(code + pc, frame, fn, record.line)) {
+						return false;
+					}
+					pc += 11;
 					break;
 				case Op::CALL_AWAIT_ENGINE:
 				case Op::CALL_ENGINE: {

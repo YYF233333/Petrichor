@@ -47,8 +47,10 @@ std::optional<Lookup> engine_lookup(const EngineApi &p_engine, const DeclId &p_t
 		}
 	} else if (name.empty()) {
 		found.kind = Kind::Class;
-	} else if (owner == "@GlobalScope" || owner == "@GDScript") {
+	} else if (owner == "@GlobalScope") {
 		found.kind = builtin::find_utility(name) ? Kind::Method : Kind::Constant;
+	} else if (owner == "@GDScript") {
+		found.kind = name == "PI" || name == "TAU" || name == "INF" || name == "NAN" ? Kind::Constant : Kind::Method;
 	} else if (type && builtin::find_member(*type, name)) {
 		found.kind = Kind::Property;
 	} else if (type && builtin::find_method(*type, name)) {

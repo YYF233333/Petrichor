@@ -618,6 +618,12 @@ func _ready() -> void:
 	_check(spoiled == [] and not iteration.finished, "a program error in _iter_next() ends the loop's caller too (spec §8.1)")
 	_check(iteration.characters("aé😀") == ["a", "é", "😀"] and iteration.characters("") == [], "for over a String gives its characters, each a String")
 	_check(iteration.character("aé😀", 1) == "é" and iteration.character("aé😀", -1) == "😀", "a String's index gives a character, a negative one counting from the end")
+	var ranges: Array = iteration.ranges()
+	_check(ranges[0] == [2, 5, 8, 11, 5, 3, 1, 0, 1, 2, 9223372036854775805] and ranges[1] == [0, 1, 2] and ranges[2] == [-1, -3, -5] and ranges[3] == [], "range() gives what GDScript's gives, for counting from its bounds and step as they were on entry")
+	_check(ranges[1].get_typed_builtin() == TYPE_INT, "range() gives an Array[int]")
+	var by_zero = [iteration.counted_by(0), iteration.listed_by(0)]
+	_check_errors(["iteration_check.pet:100: The step of range() is 0.", "iteration_check.pet:106: The step of range() is 0."], "a step of 0 is a program error, also in a for, which GDScript runs zero times")
+	_check(by_zero == [[], []], "a program error in range() ends the caller")
 
 	# Lambdas (spec §3.11).
 	var lambdas := LambdaCheck.new()

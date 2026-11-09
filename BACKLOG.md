@@ -37,7 +37,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Rest parameters `...args: Array[T]` (spec §4.6).
 - Assigning to a character of a String, as `s[i] = c`. GDScript keeps only the first character of `c`, and an empty `c` removes the character (`core/variant/variant_setget.cpp:785-809`, `ed1daf0`).
 - GDScript's own utility functions (`@GDScript`), which the compiler does not know:
-  - `range()`, which spec §5.7 and a diagnostic already suggest. GDScript lowers `for` over it to a counting loop (`modules/gdscript/gdscript_compiler.cpp:2044-2079`, `ed1daf0`);
   - `len()`, `char()`, `ord()`, `Color8()`, `type_exists()`, `print_stack()` and `get_stack()`.
   - Whether to refuse `inst_to_dict()`, `dict_to_inst()`, `convert()` and `is_instance_of()` is to be decided.
 - An inner class named as an engine enum, such as `Key`. A type reads the name as the engine's enum, an expression as the inner class (spec §4.1). So `func make() -> Key: return Key.new()` is an error.

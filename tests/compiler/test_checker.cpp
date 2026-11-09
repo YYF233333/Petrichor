@@ -166,6 +166,11 @@ TEST_CASE("for loops") {
 	CHECK(has_error(in_function("for x in 2.5:\n\tpass"), "iterate over range(...) instead"));
 	CHECK(has_error(in_function("for x in Vector2(2, 3):\n\tpass"), "iterate over range(...) instead"));
 	CHECK(has_error(in_function("for x in true:\n\tpass"), "Cannot iterate over bool."));
+	// GDScript's range(), of ints only, whose step is not 0.
+	CHECK(errors_of(in_function("for i: int in range(1, 9, 2):\n\tpass\nvar all: Array[int] = range(3)")).empty());
+	CHECK(has_error(in_function("for i in range(2.5):\n\tpass"), "Cannot pass a value of type float as int"));
+	CHECK(has_error(in_function("for i in range(0, 9, 0):\n\tpass"), "The step of range() is 0."));
+	CHECK(has_error(in_function("var r := range()"), "takes 1 to 3 argument(s), 0 given"));
 }
 
 // The countdown of the documentation of _iter_init (doc/classes/Object.xml:217-240; ed1daf0).
