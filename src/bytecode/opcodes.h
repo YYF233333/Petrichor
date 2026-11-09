@@ -156,6 +156,9 @@ namespace petrichor::bytecode {
 	X(JUMP_IF_TRUE, "AI", "bj") \
 	X(ITERATE_INT, "DAJ", "iij") /* counter, limit, end: steps the counter, which starts at -1, and jumps to end once it reaches the limit */ \
 	X(ITERATE, "SRDABJ", "....ij") /* type of container (an Array, a packed array or a String, whose elements are one-character Strings), type of dst, dst, container, counter, end: steps the counter, which starts at -1, and reads the element there as GET_INDEX does, or jumps to end past the container's current size */ \
+	X(ORD, "DA", "is") /* dst, src: the code of the one character of src, any other length a program error, as GDScript's ord() */ \
+	X(PRINT_STACK, "", "") /* prints this language's call stack as GDScript's print_stack() prints its own */ \
+	X(GET_STACK, "TD", "t") /* type (Array[Dictionary]), dst: this language's call stack as GDScript's get_stack() gives its own */ \
 	X(ITER_STATE, "IDA", ".v.") /* method (0: _iter_init, 1: _iter_next), dst (Variant), Array: the state the method left as the Array's one element, which the engine requires (spec §5.7) */ \
 	X(CALL, "*", "") \
 	X(CALL_SUPER, "*", "") \

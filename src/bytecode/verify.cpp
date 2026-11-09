@@ -782,6 +782,8 @@ class Verifier {
 				return !module.classes[o[0]].script.empty() || fail("the script of an engine class");
 			case Op::NEW_CONTAINER:
 				return (storage(o[0]) == ValueType::Array || storage(o[0]) == ValueType::Dictionary || fail("a container of a type that is not one")) && slot(o[1], storage(o[0]));
+			case Op::GET_STACK:
+				return ((module.types[o[0]].kind == TypeKind::Array && storage(module.types[o[0]].element) == ValueType::Dictionary) || fail("the call stack into other than an Array[Dictionary]")) && slot(o[1], ValueType::Array);
 			case Op::GET_INDEX:
 				if (o[0] >= module.types.size() || (!is_indexable(storage(o[0])) && storage(o[0]) != ValueType::String)) {
 					return fail("an index into a value that has none");

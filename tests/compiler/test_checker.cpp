@@ -173,6 +173,19 @@ TEST_CASE("for loops") {
 	CHECK(has_error(in_function("var r := range()"), "takes 1 to 3 argument(s), 0 given"));
 }
 
+// Spec §2.6.
+TEST_CASE("GDScript's own functions") {
+	CHECK(type_of("len(s) + len(a) + len(d) + len(p) + ord(s)", "var s := \"a\"\nvar a: Array[Node] = []\nvar d := {}\nvar p := PackedVector2Array()") == "int");
+	CHECK(type_of("char(65)") == "String");
+	CHECK(type_of("get_stack()") == "Array[Dictionary]");
+	CHECK(has_error(in_function("var n := len(3)"), "len() takes a String, a StringName, an Array, a Dictionary or a packed array, not int."));
+	CHECK(has_error(in_function("var c := Color8(1, 2, 3)"), "use Color.from_rgba8() instead"));
+	// As `v is T`, which narrows.
+	CHECK(errors_of(in_function("var n: Node = Node.new()\nif is_instance_of(n, Node3D):\n\tvar m: Node3D = n")).empty());
+	CHECK(type_of("is_instance_of(v, TYPE_INT)", "var v: Variant = 1") == "bool");
+	CHECK(has_error(in_function("var t := 3\nvar b := is_instance_of(t, t)"), "a type held in a variable is not supported"));
+}
+
 // The countdown of the documentation of _iter_init (doc/classes/Object.xml:217-240; ed1daf0).
 static const char *const COUNTDOWN = "extends RefCounted\n\nvar from := 3\n\n"
 									 "func _iter_init(iter):\n\titer[0] = from\n\treturn from > 0\n\n"

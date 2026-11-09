@@ -1358,6 +1358,44 @@ class Execution {
 		return true;
 	}
 
+	// As GDScript's ord() checks it (modules/gdscript/gdscript_utility_functions.cpp:128-134; ed1daf0).
+	PETRICHOR_NOINLINE bool op_ord(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		const String &text = *reinterpret_cast<const String *>(p_frame + p_op[2]);
+		if (text.length() != 1) {
+			return fail(p_fn, p_line, vformat("ord() takes one character, found a String of length %d.", text.length()));
+		}
+		*reinterpret_cast<int64_t *>(p_frame + p_op[1]) = text.unicode_at(0);
+		return true;
+	}
+
+	// The frames of this language innermost first, as GDScript's print_stack()
+	// and get_stack() give its own (modules/gdscript/gdscript_utility_functions.cpp:364-387; ed1daf0).
+	PETRICHOR_NOINLINE void op_stack(const uint32_t *p_op, uint8_t *p_frame) {
+		const bool printed = Op(p_op[0]) == Op::PRINT_STACK;
+		Array frames;
+		if (!printed) {
+			const TypeImage &type = image.types[p_op[1]];
+			frames = typed_array(type.check.element, type.check.class_name, type.check.script);
+		}
+		for (size_t level = 0; level < stack.size(); level++) {
+			const StackFrame &frame = stack[stack.size() - 1 - level];
+			const String source = frame.image->source;
+			const String function = to_godot(frame.function->name);
+			if (printed) {
+				UtilityFunctions::print(vformat("Frame %d - %s:%d in function '%s'", int64_t(level), source, frame.line, function));
+				continue;
+			}
+			Dictionary info;
+			info["source"] = source;
+			info["function"] = function;
+			info["line"] = frame.line;
+			frames.push_back(info);
+		}
+		if (!printed) {
+			*reinterpret_cast<Array *>(p_frame + p_op[2]) = frames;
+		}
+	}
+
 	PETRICHOR_NOINLINE bool op_get_index(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
 		const TypeImage &base = image.types[p_op[1]];
 		const TypeImage &element = image.types[p_op[2]];
@@ -2640,6 +2678,17 @@ public:
 						return false;
 					}
 					pc += 4;
+					break;
+				case Op::ORD:
+					if (!op_ord(code + pc, frame, fn, record.line)) {
+						return false;
+					}
+					pc += 3;
+					break;
+				case Op::PRINT_STACK:
+				case Op::GET_STACK:
+					op_stack(code + pc, frame);
+					pc += Op(code[pc]) == Op::GET_STACK ? 3 : 1;
 					break;
 				case Op::IS_INSTANCE:
 					op_is_instance(code + pc, frame);

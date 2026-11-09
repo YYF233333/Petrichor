@@ -353,3 +353,16 @@ pub func gdscript_constants() -> Array[float]:
 pub func hidden_pi() -> int:
 	var PI := 3
 	return PI
+
+# GDScript's own functions (spec §2.6).
+pub func gdscript_functions() -> Array:
+	var stack := get_stack()
+	print_stack()
+	var v: Variant = 3
+	return [len("aé"), len(&"name"), len([1, 2]), len({1: 2}), len(PackedInt32Array([1, 2, 3])), char(233), ord("é"), stack[0]["function"], stack[0]["line"], is_instance_of(v, TYPE_INT), is_instance_of(v, TYPE_STRING)]
+
+pub func ord_of(s: String) -> int:
+	return ord(s)
+
+pub func char_of(code: int) -> String:
+	return char(code)

@@ -245,6 +245,10 @@ func _ready() -> void:
 	_check(v.assignment_order() == "[0, 10, 0] [[0, 10], [0, 0]]", "an assignment evaluates its last subscript after the right side, as GDScript does (spec §3.6)")
 	var constants: Array[float] = v.gdscript_constants()
 	_check(constants.slice(0, 3) == [PI, TAU, INF] and is_nan(constants[3]) and v.hidden_pi() == 3, "PI, TAU, INF and NAN are GDScript's, and a declaration hides them")
+	_check(v.gdscript_functions() == [2, 4, 2, 1, 3, "é", 233, "gdscript_functions", 359, true, false], "len(), char(), ord(), get_stack() and is_instance_of() give what GDScript's give (spec §2.6)")
+	var misused := [v.ord_of("ab"), v.char_of(-1)]
+	_check_errors(["values_check.pet:365: ord() takes one character, found a String of length 2.", "values_check.pet:368: -1 is out of range for the engine's char32."], "ord() of other than one character and char() of a code that is no char32 are program errors")
+	_check(misused == [0, ""], "the program errors end the callers")
 	var gone_node := Node.new()
 	gone_node.free()
 	_check(v.name_or_dash(null) == "-" and v.name_or_dash(v) == str(v.name) and v.callv("name_or_dash", [gone_node]) == "-", "== None narrows, and a freed object is None in T?")

@@ -6064,6 +6064,26 @@ class Checker : public ClassRelation {
 			if (name == "range") {
 				return check_range(r_expr);
 			}
+			if (name == "len" || name == "char" || name == "ord" || name == "print_stack" || name == "get_stack") {
+				return check_gdscript_utility(r_expr);
+			}
+			if (name == "is_instance_of") {
+				return check_is_instance_of(r_expr);
+			}
+			// What Godot's documentation says to use instead
+			// (modules/gdscript/doc_classes/@GDScript.xml:14, 61, 77, 106, 269; ed1daf0).
+			static const std::pair<const char *, const char *> deprecated[] = {
+				{ "Color8", "Color.from_rgba8()" },
+				{ "convert", "type_convert()" },
+				{ "dict_to_inst", "JSON.to_native() or Object.get_property_list()" },
+				{ "inst_to_dict", "JSON.from_native() or Object.get_property_list()" },
+				{ "type_exists", "ClassDB.class_exists()" },
+			};
+			for (const auto &[old, instead] : deprecated) {
+				if (name == old) {
+					return fail_call(r_expr, name + "() is deprecated in GDScript and left out of this language; use " + instead + " instead.");
+				}
+			}
 			if (name == "load" && engine.is_singleton("ResourceLoader")) {
 				// GDScript's load() is ResourceLoader.load(), whose result may be
 				// None (spec §7.4, §10.2).
@@ -6086,6 +6106,79 @@ class Checker : public ClassRelation {
 		}
 		r_expr.target = Target::Range;
 		return set(r_expr, Type::array(Type::of(TypeKind::Int)));
+	}
+
+	// GDScript's own len(), char(), ord(), print_stack() and get_stack()
+	// (modules/gdscript/gdscript_utility_functions.cpp:120-134, 364-452; ed1daf0).
+	Type check_gdscript_utility(Expr &r_expr) {
+		const std::string &name = r_expr.text;
+		refer(r_expr.name_token, engine_id("@GDScript", name));
+		if (name == "char") {
+			// String.chr() of a code that fits a char32, as GDScript checks it.
+			auto type = std::make_unique<Expr>();
+			type->kind = ExprKind::Name;
+			type->text = "String";
+			type->range = r_expr.range;
+			type->name_token = NO_TOKEN;
+			r_expr.base = std::move(type);
+			r_expr.text = "chr";
+			r_expr.name_token = NO_TOKEN;
+			const Type result = check_call(r_expr);
+			r_expr.arg_ranges.assign(1, bytecode::IntRange::CHAR32);
+			return result;
+		}
+		r_expr.target = Target::GDScriptUtility;
+		if (name == "len") {
+			if (r_expr.args.size() != 1) {
+				return fail_call(r_expr, "Function \"len()\" takes 1 argument(s), " + std::to_string(r_expr.args.size()) + " given.");
+			}
+			const Type value = check_value(*r_expr.args[0]);
+			const bool text = value.kind == TypeKind::String || value == Type::builtin("StringName");
+			if (!value.is_error() && !text && !element_of(value) && !entries_of(value)) {
+				return fail(r_expr, "len() takes a String, a StringName, an Array, a Dictionary or a packed array, not " + value.to_string() + ".");
+			}
+			return set(r_expr, Type::of(TypeKind::Int));
+		}
+		if (name == "ord") {
+			check_arguments(r_expr, { Type::of(TypeKind::String) }, 1, false);
+			return set(r_expr, Type::of(TypeKind::Int));
+		}
+		check_arguments(r_expr, {}, 0, false);
+		return set(r_expr, name == "get_stack" ? Type::array(Type::builtin("Dictionary")) : Type::of(TypeKind::Void));
+	}
+
+	// is_instance_of(v, T) of a class name or a TYPE_* constant, as `v is T`.
+	// A type held in a variable would need classes as values.
+	Type check_is_instance_of(Expr &r_expr) {
+		refer(r_expr.name_token, engine_id("@GDScript", "is_instance_of"));
+		if (r_expr.args.size() != 2) {
+			return fail_call(r_expr, "Function \"is_instance_of()\" takes 2 argument(s), " + std::to_string(r_expr.args.size()) + " given.");
+		}
+		const Expr &type = *r_expr.args[1];
+		TypeRef tested;
+		tested.range = type.range;
+		tested.name_token = type.name_token;
+		const bool named = type.kind == ExprKind::Name && !visible_local(type.text) && !member_index.count(type.text);
+		const builtin::Enum *of = named ? builtin::global_constant_enum(type.text) : nullptr;
+		const int64_t variant_type = of && std::string(of->name) == "Variant.Type" ? *builtin::global_constant(type.text) : 0;
+		// TYPE_NIL and TYPE_MAX name no type.
+		if (variant_type > 0 && variant_type < int64_t(bytecode::ValueType::Variant)) {
+			tested.name = bytecode::value_type_name(bytecode::ValueType(variant_type));
+			tested.name_token = NO_TOKEN;
+			refer(type.name_token, engine_id("@GlobalScope", type.text));
+		} else if (named) {
+			tested.name = type.text;
+		} else if (type.kind == ExprKind::Member && type.base->kind == ExprKind::Name) {
+			tested.name = type.base->text + "." + type.text;
+			tested.name_token = type.base->name_token;
+		} else {
+			return fail_call(r_expr, "is_instance_of() takes a class name or a TYPE_* constant; a type held in a variable is not supported.");
+		}
+		r_expr.kind = ExprKind::TypeTest;
+		r_expr.left = std::move(r_expr.args[0]);
+		r_expr.cast_type = tested;
+		r_expr.args.clear();
+		return check_type_test(r_expr);
 	}
 
 	// Why await cannot be written here; empty where it can.

@@ -1689,6 +1689,26 @@ class Lowerer {
 		if (p_call.target == Target::Range) {
 			return range(p_call, temp(p_call.type));
 		}
+		if (p_call.target == Target::GDScriptUtility) {
+			if (p_call.text == "print_stack") {
+				instr(Op::PRINT_STACK, NO_REG);
+				return NO_REG;
+			}
+			const uint32_t result = temp(p_call.type);
+			if (p_call.text == "get_stack") {
+				instr(Op::GET_STACK, result, NO_REG, NO_REG, 0, fn.regs[result].type);
+				return result;
+			}
+			const uint32_t value = lower_expr(*p_call.args[0]);
+			if (p_call.text == "ord") {
+				instr(Op::ORD, result, value);
+				return result;
+			}
+			// len()
+			const ValueType type = reg_type(value);
+			const bool text = type == ValueType::String || type == ValueType::StringName;
+			return call_builtin(engine_builtin_method(type, text ? "length" : "size", {}, ValueType::Int), value, {}, result);
+		}
 		if (p_call.target == Target::TaskAny || p_call.target == Target::TaskAll) {
 			// Each task, with whether it was started for the join, which owns it then (spec §9.5).
 			ir::Instr i;
