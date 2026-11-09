@@ -2942,6 +2942,12 @@ void TaskState::finish(State p_state, const Variant &p_result) {
 			owned = stopped->stop();
 		}
 	}
+	// Cancelled as its owner is freed, it leaves the tasks it owns running, as
+	// GDScript does; those on the same owner are cancelled with it (spec §9.3).
+	if (p_state == State::Cancelled && owner_freed) {
+		child = TaskRef();
+		owned.clear();
+	}
 	if (p_state == State::Cancelled && child) {
 		child->cancel();
 	}
