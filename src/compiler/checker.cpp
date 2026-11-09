@@ -1536,39 +1536,46 @@ class Checker : public ClassRelation {
 		return &p_decl >= cls.enums.data() && &p_decl < cls.enums.data() + cls.enums.size();
 	}
 
-	// Each name once among the class's types, constants and members, after
-	// they are declared; then the values, which the declarations of other
-	// scripts need too.
-	void check_enums() {
+	// The names of the types the class declares and of its unnamed enums'
+	// values (spec §4.1), after everything else is declared: each once among
+	// the class's declarations, and no type a built-in, engine or global class.
+	void check_type_names() {
 		std::unordered_set<std::string> names;
-		for (const InterfaceDecl &interface : cls.interfaces) {
-			names.insert(interface.name);
-		}
-		for (const StructDecl &decl : cls.structs) {
-			names.insert(decl.name);
-		}
-		const auto taken = [&](const std::string &p_name) {
-			return constant_index.count(p_name) || member_index.count(p_name) || function_index.count(p_name) || signal_index.count(p_name);
+		const auto declare = [&](const std::string &p_name, uint32_t p_at, bool p_type) {
+			const bool taken = !names.insert(p_name).second || constant_index.count(p_name) || member_index.count(p_name) || static_index.count(p_name) || function_index.count(p_name) || signal_index.count(p_name);
+			if (taken || (p_type && (is_type_name(p_name) || (options.project && !options.project->global_class_path(p_name).empty())))) {
+				error(p_at, "\"" + p_name + "\" is already declared.");
+			}
 		};
 		for (const EnumDecl *decl : cls.all_enums) {
-			const bool own = is_own(*decl);
+			if (is_own(*decl)) {
+				continue;
+			}
 			if (!decl->name.empty()) {
-				const bool twice = !names.insert(decl->name).second;
-				if (own && (twice || taken(decl->name) || is_type_name(decl->name) || (options.project && !options.project->global_class_path(decl->name).empty()))) {
-					error(decl->name_token, "\"" + decl->name + "\" is already declared.");
-				}
+				names.insert(decl->name);
 				continue;
 			}
 			for (const EnumValueDecl &value : decl->values) {
-				if (!names.insert(value.name).second || taken(value.name)) {
-					if (own) {
-						error(value.name_token, "\"" + value.name + "\" is already declared.");
-					}
-				}
+				names.insert(value.name);
 			}
 		}
-		for (EnumDecl &decl : cls.enums) {
-			check_enum(decl);
+		for (const InterfaceDecl &interface : cls.interfaces) {
+			declare(interface.name, interface.name_token, true);
+		}
+		for (const StructDecl &decl : cls.structs) {
+			declare(decl.name, decl.name_token, true);
+		}
+		for (const EnumDecl &decl : cls.enums) {
+			if (!decl.name.empty()) {
+				declare(decl.name, decl.name_token, true);
+				continue;
+			}
+			for (const EnumValueDecl &value : decl.values) {
+				declare(value.name, value.name_token, false);
+			}
+		}
+		for (const std::unique_ptr<ClassDecl> &inner : cls.classes) {
+			declare(inner->name, inner->name_token, true);
 		}
 	}
 
@@ -8447,11 +8454,7 @@ class Checker : public ClassRelation {
 
 	// The signatures of the interfaces the class declares (spec §3.9).
 	void declare_interfaces() {
-		std::unordered_set<std::string> names;
 		for (InterfaceDecl &interface : cls.interfaces) {
-			if (!names.insert(interface.name).second) {
-				error(interface.name_token, "The interface \"" + interface.name + "\" is already declared.");
-			}
 			refer(interface.name_token, script_id(options.path, interface.name), SymbolKind::Class);
 			for (FuncDecl &method : interface.methods) {
 				refuse_new(method);
@@ -8483,14 +8486,7 @@ class Checker : public ClassRelation {
 	// The fields of the structs the class declares (spec §3.6), whose defaults
 	// are constants for now, as default parameters are.
 	void declare_structs() {
-		std::unordered_set<std::string> names;
-		for (const InterfaceDecl &interface : cls.interfaces) {
-			names.insert(interface.name);
-		}
 		for (StructDecl &decl : cls.structs) {
-			if (!names.insert(decl.name).second || is_type_name(decl.name) || (options.project && !options.project->global_class_path(decl.name).empty())) {
-				error(decl.name_token, "\"" + decl.name + "\" is already declared.");
-			}
 			refer(decl.name_token, script_id(options.path, decl.name), SymbolKind::Class);
 			std::unordered_set<std::string> fields;
 			for (VarDecl &field : decl.fields) {
@@ -9041,28 +9037,6 @@ class Checker : public ClassRelation {
 				init_reads(p_child, p_assigned, r_reported);
 			}
 		});
-	}
-
-	// The names of the inner classes (spec §4.1), each once among the class's
-	// declarations, and none a type's or a global class's.
-	void declare_classes() {
-		std::unordered_set<std::string> names;
-		for (const InterfaceDecl &interface : cls.interfaces) {
-			names.insert(interface.name);
-		}
-		for (const StructDecl &decl : cls.structs) {
-			names.insert(decl.name);
-		}
-		for (const EnumDecl &decl : cls.enums) {
-			names.insert(decl.name);
-		}
-		for (const std::unique_ptr<ClassDecl> &inner : cls.classes) {
-			const std::string &name = inner->name;
-			if (!names.insert(name).second || constant_index.count(name) || member_index.count(name) || static_index.count(name) || function_index.count(name) || signal_index.count(name) || is_type_name(name) ||
-					(options.project && !options.project->global_class_path(name).empty())) {
-				error(inner->name_token, "\"" + name + "\" is already declared.");
-			}
-		}
 	}
 
 	// Every function's name, before any type is resolved, which may need a
@@ -10123,8 +10097,10 @@ private:
 		check_implemented();
 		check_implements();
 		declare_signals();
-		check_enums();
-		declare_classes();
+		check_type_names();
+		for (EnumDecl &decl : cls.enums) {
+			check_enum(decl);
+		}
 		check_engine_constant_names();
 		for (ConstDecl &constant : cls.constants) {
 			const auto registered = constant_index.find(constant.name);
