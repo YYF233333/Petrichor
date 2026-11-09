@@ -6,7 +6,7 @@ Petrichor 是一门面向 Godot 4 的静态类型脚本语言，沿用 GDScript 
 
 English: [README.md](README.md)
 
-<!-- 截图：在 player.tscn 中给 Camera 改名后，场景面板在节点上标出错误。 -->
+![节点改名后，场景面板在用到它的节点上标出错误](docs/images/scene-error.png)
 
 ## 为什么
 

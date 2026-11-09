@@ -6,7 +6,7 @@ The project is in development toward 0.1. Semantics may still change before 1.0;
 
 中文：[README.zh.md](README.zh.md)
 
-<!-- Screenshot: after renaming Camera in player.tscn, the scene dock marks the error on the node. -->
+![After a node is renamed, the scene dock marks the error on the node that uses it](docs/images/scene-error.png)
 
 ## Why
 
