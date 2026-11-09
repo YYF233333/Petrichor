@@ -428,5 +428,6 @@ TEST_CASE("an override may take T? where the engine passes T") {
 
 TEST_CASE("a local of a type without a default needs an initial value (spec §4.3)") {
 	CHECK(has_error(in_function("var n: Node3D"), "needs an initial value"));
+	CHECK(has_error(in_function("var g: func(int) -> int"), "\"g\" of type func(int) -> int needs an initial value."));
 	CHECK(errors_of(in_function("var v: Vector3\nvar s: StringName")).empty());
 }

@@ -4619,9 +4619,9 @@ class Checker : public ClassRelation {
 			}
 		}
 		const Type &element = array ? p_base.args[0] : Type::of(TypeKind::Error);
-		if (method == "resize" && ((element.kind == TypeKind::Object && !element.nullable) || !has_default(element) || !enum_has_default(element))) {
+		if (method == "resize" && !has_value_without_initializer(element)) {
 			const std::string fix = element.kind == TypeKind::Struct ? "give every field of " + element.to_string() + " a default value, or " : "";
-			error(p_call.range, "\"resize()\" fills new elements with a default value, which " + element.to_string() + " does not have; " + fix + "declare the array as Array[" + element.to_string() + "?].");
+			error(p_call.range, "\"resize()\" fills new elements with a default value, which " + element.to_string() + " does not have; " + fix + "declare the array as Array[" + optional_of(element).to_string() + "].");
 			return false;
 		}
 		return true;
@@ -7333,10 +7333,10 @@ class Checker : public ClassRelation {
 					}
 				} else if (!r_stmt.declared_type) {
 					error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs a type or an initial value.");
-				} else if (((type.kind == TypeKind::Object || type.kind == TypeKind::Task) && !type.nullable) || !has_default(type)) {
-					error(r_stmt.name_token, "\"" + r_stmt.name + "\" of type " + type.to_string() + " needs an initial value.");
 				} else if (!enum_has_default(type)) {
 					error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs an initial value: " + enum_spelling(type) + " has no value 0 to start at.");
+				} else if (!has_value_without_initializer(type)) {
+					error(r_stmt.name_token, "\"" + r_stmt.name + "\" of type " + type.to_string() + " needs an initial value.");
 				}
 				declare_local(r_stmt, type);
 				narrow_by_value(r_stmt.local, value);
@@ -7989,10 +7989,10 @@ class Checker : public ClassRelation {
 			}
 		} else if (!variable.declared_type) {
 			error(variable.name_token, "\"" + variable.name + "\" needs a type or an initial value.");
-		} else if (!variable.initializer && (((type.kind == TypeKind::Object || type.kind == TypeKind::Task) && !type.nullable) || type.kind == TypeKind::Function || !has_default(type))) {
-			error(variable.name_token, "The static variable \"" + variable.name + "\" needs an initial value: " + type.to_string() + " has no default value. Give it one, or the type " + type.to_string() + "?.");
 		} else if (!variable.initializer && !enum_has_default(type)) {
 			error(variable.name_token, "\"" + variable.name + "\" needs an initial value: " + enum_spelling(type) + " has no value 0 to start at.");
+		} else if (!variable.initializer && !has_value_without_initializer(type)) {
+			error(variable.name_token, "The static variable \"" + variable.name + "\" needs an initial value: " + type.to_string() + " has no default value. Give it one, or the type " + optional_of(type).to_string() + ".");
 		}
 		variable.type = type;
 		check_accessors(variable);

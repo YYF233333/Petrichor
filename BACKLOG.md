@@ -13,8 +13,6 @@ Paid before the remaining features of step 7 (architecture §5).
   - The explicit conversions of spec §3.14 and §5.3 are refused: `bool(n)`, `int("5")`, `String(&"a")` and `int()`. The quick fixes of §5.3 write them.
     - The forms without a numeric argument can go to `check_constructor`.
     - Numeric arguments keep `ConvertToInt` and `ConvertToFloat`, whose checks the engine's constructors lack.
-  - A local of a function type without an initializer compiles (spec §4.3). So does `resize()` of `Array[func…]` or `Array[Task[T]]` (§3.8).
-    - The local `var`, `resize()` and static variables each repeat `has_value_without_initializer` in part.
   - A class can declare one name as a value and as a type, as `var Item` with `struct Item`.
     - Structs, interfaces and enums each check for taken names their own way.
     - Inner classes check the whole class scope. One such check would serve them all.
