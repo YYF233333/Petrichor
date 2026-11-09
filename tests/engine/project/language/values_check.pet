@@ -345,3 +345,11 @@ pub func assignment_order() -> String:
 	slot = 0
 	grid[slot][slot] += next_slot()
 	return str(flat) + " " + str(grid)
+
+# GDScript's own constants, which a declaration hides, as in GDScript.
+pub func gdscript_constants() -> Array[float]:
+	return [PI, TAU, INF, NAN]
+
+pub func hidden_pi() -> int:
+	var PI := 3
+	return PI

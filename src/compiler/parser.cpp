@@ -999,7 +999,7 @@ class Parser {
 
 	static bool begins_statement_only(TokenKind p_kind) {
 		return p_kind == TokenKind::Return || p_kind == TokenKind::If || p_kind == TokenKind::While || p_kind == TokenKind::For ||
-				p_kind == TokenKind::Match || p_kind == TokenKind::Pass || p_kind == TokenKind::Break || p_kind == TokenKind::Continue || p_kind == TokenKind::Const ||
+				p_kind == TokenKind::Match || p_kind == TokenKind::Pass || p_kind == TokenKind::Break || p_kind == TokenKind::Breakpoint || p_kind == TokenKind::Continue || p_kind == TokenKind::Const ||
 				p_kind == TokenKind::Assert;
 	}
 
@@ -1184,9 +1184,10 @@ class Parser {
 			}
 			case TokenKind::Pass:
 			case TokenKind::Break:
+			case TokenKind::Breakpoint:
 			case TokenKind::Continue: {
 				advance();
-				const StmtKind kind = token.kind == TokenKind::Pass ? StmtKind::Pass : (token.kind == TokenKind::Break ? StmtKind::Break : StmtKind::Continue);
+				const StmtKind kind = token.kind == TokenKind::Pass ? StmtKind::Pass : (token.kind == TokenKind::Break ? StmtKind::Break : (token.kind == TokenKind::Breakpoint ? StmtKind::Breakpoint : StmtKind::Continue));
 				auto stmt = make_stmt(kind, token);
 				end_of_statement();
 				return stmt;

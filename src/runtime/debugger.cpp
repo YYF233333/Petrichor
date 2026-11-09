@@ -80,6 +80,16 @@ void line(const StringName &p_source, int p_line) {
 	engine_debugger->line_poll();
 }
 
+void breakpoint() {
+	// A breakpoint, unlike GDScript's statement, which the engine takes for an
+	// error break (modules/gdscript/gdscript_vm.cpp:3905-3910,
+	// modules/gdscript/gdscript_editor.cpp:278): "Skip Breakpoints" skips it,
+	// and "Ignore Error Breaks" does not (core/debugger/remote_debugger.cpp:403-409; ed1daf0).
+	if (!EngineDebugger::get_singleton()->is_skipping_breakpoints()) {
+		debug_break("Breakpoint", true);
+	}
+}
+
 void error(const String &p_message) {
 	if (is_active()) {
 		debug_break(p_message, false);

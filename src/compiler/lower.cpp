@@ -3071,6 +3071,9 @@ class Lowerer {
 			}
 			case StmtKind::Pass:
 				return;
+			case StmtKind::Breakpoint:
+				instr(Op::BREAKPOINT, NO_REG);
+				return;
 			case StmtKind::Expression:
 				// A string on a line of its own is a comment, with no code.
 				if (p_stmt.value->kind != ExprKind::StringLiteral) {

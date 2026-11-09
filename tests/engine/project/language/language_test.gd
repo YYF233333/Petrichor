@@ -243,6 +243,8 @@ func _ready() -> void:
 	mesh_holder.free()
 	_check(v.conversions(2, "42", &"name") == "[true, false, 42, 0, 1.5, \"name\", 5]", "bool(), int() and String() of other than a number are the engine's constructors (spec §3.14)")
 	_check(v.assignment_order() == "[0, 10, 0] [[0, 10], [0, 0]]", "an assignment evaluates its last subscript after the right side, as GDScript does (spec §3.6)")
+	var constants: Array[float] = v.gdscript_constants()
+	_check(constants.slice(0, 3) == [PI, TAU, INF] and is_nan(constants[3]) and v.hidden_pi() == 3, "PI, TAU, INF and NAN are GDScript's, and a declaration hides them")
 	var gone_node := Node.new()
 	gone_node.free()
 	_check(v.name_or_dash(null) == "-" and v.name_or_dash(v) == str(v.name) and v.callv("name_or_dash", [gone_node]) == "-", "== None narrows, and a freed object is None in T?")
@@ -614,6 +616,8 @@ func _ready() -> void:
 	var spoiled = iteration.spoiled()
 	_check_errors(["iteration_check.pet:58: _iter_next() left 2 elements in the Array it got, which must hold the iteration state as its one element."], "the program error of an Array of the state that does not hold one element")
 	_check(spoiled == [] and not iteration.finished, "a program error in _iter_next() ends the loop's caller too (spec §8.1)")
+	_check(iteration.characters("aé😀") == ["a", "é", "😀"] and iteration.characters("") == [], "for over a String gives its characters, each a String")
+	_check(iteration.character("aé😀", 1) == "é" and iteration.character("aé😀", -1) == "😀", "a String's index gives a character, a negative one counting from the end")
 
 	# Lambdas (spec §3.11).
 	var lambdas := LambdaCheck.new()

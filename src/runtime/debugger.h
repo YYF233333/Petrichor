@@ -21,6 +21,9 @@ void exit_function();
 // At the start of each line.
 void line(const godot::StringName &p_source, int p_line);
 
+// At a breakpoint statement.
+void breakpoint();
+
 // Before a program error unwinds the stack.
 void error(const godot::String &p_message);
 

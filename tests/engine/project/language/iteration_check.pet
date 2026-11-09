@@ -59,3 +59,15 @@ pub func spoiled() -> Array[int]:
 		all.append(n)
 	finished = true
 	return all
+
+
+# A String's elements are its characters, each a String, as in GDScript.
+pub func characters(s: String) -> Array[String]:
+	var all: Array[String] = []
+	for c in s:
+		all.append(c)
+	return all
+
+
+pub func character(s: String, i: int) -> String:
+	return s[i]

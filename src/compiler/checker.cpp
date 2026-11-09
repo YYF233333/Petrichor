@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cctype>
 #include <iomanip>
+#include <limits>
 #include <locale>
 #include <map>
 #include <set>
@@ -2417,6 +2418,22 @@ class Checker : public ClassRelation {
 			r_expr.target = Target::Autoload;
 			refer(r_expr.name_token, { DeclId::Kind::Autoload, std::string(), r_expr.text });
 			return set(r_expr, script_class_type(*header, autoload));
+		}
+		// GDScript's own constants, which declarations can hide, as in GDScript
+		// (modules/gdscript/gdscript.cpp:2154-2157, gdscript_tokenizer.cpp:202-207; ed1daf0).
+		static const std::pair<const char *, double> gdscript_constants[] = {
+			{ "PI", 3.1415926535897932384626433833 },
+			{ "TAU", 6.2831853071795864769252867666 },
+			{ "INF", std::numeric_limits<double>::infinity() },
+			{ "NAN", std::numeric_limits<double>::quiet_NaN() },
+		};
+		for (const auto &[name, value] : gdscript_constants) {
+			if (r_expr.text == name) {
+				r_expr.target = Target::EngineConstant;
+				r_expr.float_value = value;
+				refer(r_expr.name_token, engine_id("@GDScript", name));
+				return set(r_expr, Type::of(TypeKind::Float));
+			}
 		}
 		if (const std::optional<int64_t> value = builtin::global_constant(r_expr.text)) {
 			r_expr.target = Target::EngineConstant;
@@ -5103,9 +5120,10 @@ class Checker : public ClassRelation {
 			r_expr.param_types = { entries->first };
 			return set(r_expr, entries->second);
 		}
-		const std::optional<Type> element = element_of(base);
+		// A String's elements are its characters, each a String.
+		const std::optional<Type> element = base.kind == TypeKind::String ? Type::of(TypeKind::String) : element_of(base);
 		if (!element) {
-			return fail(r_expr, "Values of type " + base.to_string() + " cannot be indexed" + (base.kind == TypeKind::String ? " yet." : "."));
+			return fail(r_expr, "Values of type " + base.to_string() + " cannot be indexed.");
 		}
 		if (index.kind != TypeKind::Int) {
 			return fail(*r_expr.right, "An index must be int, found " + index.to_string() + ".");
@@ -6396,6 +6414,10 @@ class Checker : public ClassRelation {
 			return false;
 		}
 		if (p_target.kind == ExprKind::Subscript) {
+			if (p_target.base->type.kind == TypeKind::String) {
+				error(p_target.range, "Assigning to a character of a String is not supported yet.");
+				return false;
+			}
 			// An Array or a Dictionary changes in place; a packed array is a value,
 			// written back along the chain.
 			return is_shared(p_target.base->type) || check_written_back(p_target);
@@ -7078,7 +7100,7 @@ class Checker : public ClassRelation {
 	}
 
 	// `for i in n`, over the elements of an array, over the keys of a
-	// Dictionary, or over an object (spec §5.7).
+	// Dictionary, over the characters of a String, or over an object (spec §5.7).
 	void check_for(Stmt &r_stmt) {
 		const Type iterated = check_value(*r_stmt.value);
 		Type element = Type::of(TypeKind::Error);
@@ -7099,7 +7121,7 @@ class Checker : public ClassRelation {
 		} else if (iterated.kind == TypeKind::Variant) {
 			error(r_stmt.value->range, "Cannot iterate over a Variant." + variant_hint());
 		} else if (iterated.kind == TypeKind::String) {
-			error(r_stmt.value->range, "Iterating over a String is not supported yet.");
+			element = Type::of(TypeKind::String);
 		} else if (!iterated.is_error()) {
 			error(r_stmt.value->range, "Cannot iterate over " + iterated.to_string() + ".");
 		}
@@ -7367,6 +7389,7 @@ class Checker : public ClassRelation {
 				return;
 			}
 			case StmtKind::Pass:
+			case StmtKind::Breakpoint:
 				return;
 			case StmtKind::Error:
 				check_block(r_stmt.body);

@@ -15,4 +15,5 @@ func _ready() -> void:
 	var thread := Thread.new()
 	thread.start(Callable(target, "step").bind(3))
 	print("breakpoint: step on a thread returned ", thread.wait_to_finish())
+	print("breakpoint: pause returned ", target.pause())
 	get_tree().quit()

@@ -34,11 +34,9 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - `ok()` and `err()` of `Result[T?, E]` and `Result[T, E?]`.
 - The names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7).
 - `Ok(v)`, `Err(e)`, `None` and `?` in a lambda without a return type passed to `and_then()` or `or_else()`. Nothing gives their `U` or `F` yet (spec §3.4, §3.5, §4.6).
-- The `breakpoint` statement.
 - Rest parameters `...args: Array[T]` (spec §4.6).
-- `for` over a String (spec §5.7); no file of the coverage survey's corpus does it.
-- GDScript's own constants and utility functions (`@GDScript`), which the compiler does not know:
-  - `PI`, `TAU`, `INF` and `NAN`;
+- Assigning to a character of a String, as `s[i] = c`. GDScript keeps only the first character of `c`, and an empty `c` removes the character (`core/variant/variant_setget.cpp:785-809`, `ed1daf0`).
+- GDScript's own utility functions (`@GDScript`), which the compiler does not know:
   - `range()`, which spec §5.7 and a diagnostic already suggest. GDScript lowers `for` over it to a counting loop (`modules/gdscript/gdscript_compiler.cpp:2044-2079`, `ed1daf0`);
   - `len()`, `char()`, `ord()`, `Color8()`, `type_exists()`, `print_stack()` and `get_stack()`.
   - Whether to refuse `inst_to_dict()`, `dict_to_inst()`, `convert()` and `is_instance_of()` is to be decided.

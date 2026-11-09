@@ -35,6 +35,12 @@ bool is_indexable(ValueType p_type) {
 	return p_type == ValueType::Array || p_type == ValueType::Dictionary || packed_element(p_type) != ValueType::Void;
 }
 
+// The elements that GET_INDEX and ITERATE read, besides an Array's: a packed
+// array's, or a String's characters, each a String; Void for other values.
+ValueType read_element(ValueType p_type) {
+	return p_type == ValueType::String ? ValueType::String : packed_element(p_type);
+}
+
 // Laid out as Result[T, E] is: two variants of one field each.
 bool is_result(const TypeDesc &p_type) {
 	return p_type.kind == TypeKind::PayloadEnum && p_type.values.size() == 2 && p_type.values[0].value == 1 && p_type.values[1].value == 1;
@@ -327,14 +333,14 @@ class Verifier {
 		return slot(p_index, storage(p_base) == ValueType::Dictionary ? ValueType::Variant : ValueType::Int);
 	}
 
-	// What GET_INDEX and ITERATE read into: from a packed array, its element in
-	// the element's own layout, which the engine's getter writes there.
+	// What GET_INDEX and ITERATE read into: from a packed array or a String,
+	// its element in the element's own layout, which the engine's getter writes there.
 	bool element_operand(uint32_t p_base, uint32_t p_type, uint32_t p_dst) {
-		const ValueType packed = packed_element(storage(p_base));
+		const ValueType packed = read_element(storage(p_base));
 		if (!type_operand(p_type) || !slot_like(p_dst, p_type)) {
 			return false;
 		}
-		return packed == ValueType::Void || storage(p_type) == packed || fail("an element of a packed array read as another type");
+		return packed == ValueType::Void || storage(p_type) == packed || fail("an element read as another type");
 	}
 
 	bool target(uint32_t p_pc) {
@@ -764,12 +770,12 @@ class Verifier {
 			case Op::NEW_CONTAINER:
 				return (storage(o[0]) == ValueType::Array || storage(o[0]) == ValueType::Dictionary || fail("a container of a type that is not one")) && slot(o[1], storage(o[0]));
 			case Op::GET_INDEX:
-				if (o[0] >= module.types.size() || !is_indexable(storage(o[0]))) {
+				if (o[0] >= module.types.size() || (!is_indexable(storage(o[0])) && storage(o[0]) != ValueType::String)) {
 					return fail("an index into a value that has none");
 				}
 				return element_operand(o[0], o[1], o[2]) && slot(o[3], storage(o[0])) && index_operand(o[0], o[4]);
 			case Op::ITERATE:
-				if (o[0] >= module.types.size() || !is_indexable(storage(o[0])) || storage(o[0]) == ValueType::Dictionary) {
+				if (o[0] >= module.types.size() || storage(o[0]) == ValueType::Dictionary || (!is_indexable(storage(o[0])) && storage(o[0]) != ValueType::String)) {
 					return fail("iterating over a value that has no elements");
 				}
 				return element_operand(o[0], o[1], o[2]) && slot(o[3], storage(o[0]));

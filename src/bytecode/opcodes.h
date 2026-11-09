@@ -41,6 +41,7 @@ namespace petrichor::bytecode {
 // j (jump target), or '.' (checked by the instruction's own rule).
 #define PETRICHOR_OPCODES(X) \
 	X(LINE, "I", "") \
+	X(BREAKPOINT, "", "") /* the breakpoint statement: under the debugger, a break as at a breakpoint */ \
 	X(CONST_INT, "DI", "i.") \
 	X(CONST_FLOAT, "DI", "f.") \
 	X(CONST_BOOL, "DI", "b.") \
@@ -151,7 +152,7 @@ namespace petrichor::bytecode {
 	X(JUMP_IF_FALSE, "AI", "bj") \
 	X(JUMP_IF_TRUE, "AI", "bj") \
 	X(ITERATE_INT, "DAJ", "iij") /* counter, limit, end: steps the counter, which starts at -1, and jumps to end once it reaches the limit */ \
-	X(ITERATE, "SRDABJ", "....ij") /* type of container (an Array or a packed array), type of dst, dst, container, counter, end: steps the counter, which starts at -1, and reads the element there as GET_INDEX does, or jumps to end past the container's current size */ \
+	X(ITERATE, "SRDABJ", "....ij") /* type of container (an Array, a packed array or a String, whose elements are one-character Strings), type of dst, dst, container, counter, end: steps the counter, which starts at -1, and reads the element there as GET_INDEX does, or jumps to end past the container's current size */ \
 	X(ITER_STATE, "IDA", ".v.") /* method (0: _iter_init, 1: _iter_next), dst (Variant), Array: the state the method left as the Array's one element, which the engine requires (spec §5.7) */ \
 	X(CALL, "*", "") \
 	X(CALL_SUPER, "*", "") \

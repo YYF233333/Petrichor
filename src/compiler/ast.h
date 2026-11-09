@@ -279,6 +279,7 @@ enum class StmtKind {
 	Pass,
 	Break,
 	Continue,
+	Breakpoint, // A break under the debugger, as at a breakpoint.
 	Expression,
 	Match,
 	Const, // `const name = value`: a local whose value is a constant expression (spec §4.5).

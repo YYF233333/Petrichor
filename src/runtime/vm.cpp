@@ -457,11 +457,13 @@ int64_t packed_size(const uint8_t *p_slot) {
 	return reinterpret_cast<const T *>(p_slot)->size();
 }
 
-// Of an Array or a packed array.
+// Of an Array, a packed array or a String, whose elements are its characters.
 int64_t array_size(ValueType p_type, const uint8_t *p_slot) {
 	switch (p_type) {
 		case ValueType::Array:
 			return reinterpret_cast<const Array *>(p_slot)->size();
+		case ValueType::String:
+			return reinterpret_cast<const String *>(p_slot)->length();
 		case ValueType::PackedByteArray:
 			return packed_size<PackedByteArray>(p_slot);
 		case ValueType::PackedInt32Array:
@@ -2175,6 +2177,12 @@ public:
 						step_debugger(record.line);
 					}
 					pc += 2;
+					break;
+				case Op::BREAKPOINT:
+					if (debugging) {
+						debugger::breakpoint();
+					}
+					pc += 1;
 					break;
 				case Op::CONST_INT:
 					I64(code[pc + 1]) = constants[code[pc + 2]].i;

@@ -47,7 +47,7 @@ std::optional<Lookup> engine_lookup(const EngineApi &p_engine, const DeclId &p_t
 		}
 	} else if (name.empty()) {
 		found.kind = Kind::Class;
-	} else if (owner == "@GlobalScope") {
+	} else if (owner == "@GlobalScope" || owner == "@GDScript") {
 		found.kind = builtin::find_utility(name) ? Kind::Method : Kind::Constant;
 	} else if (type && builtin::find_member(*type, name)) {
 		found.kind = Kind::Property;
