@@ -104,7 +104,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Tests
 
-- Engine tests on a .NET build for classes written in C# (spec §11.1). The suite runs without .NET now.
+- Before 0.1, engine tests on a .NET build for classes written in C# (spec §11.1). The suite runs without .NET now, and the README says C# code works alongside.
 - Run an exported game with the official export templates; build and test the release library.
 - Before 0.1, run the suites on Godot 4.8's release candidate and check its changes one by one. One known: 4.8 rejects an extension class that binds a method its ancestor has ([godot-cpp#2083](https://github.com/godotengine/godot-cpp/issues/2083)).
 - Cross-rule checks kept from the former conformance checklist:

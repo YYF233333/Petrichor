@@ -71,6 +71,18 @@ The VM stores scalars, engine math values, `struct` values and payload `enum` va
 | Allocation | `coroutines` | 25.94 | 20.47 |
 | 32-script startup | `cold` (build + run) | 3069.6 | 3078.6 |
 
+## Status and Limitations
+
+0.1 is the first public release. It gathers feedback on the semantics from real projects before 1.0.
+
+- Suited to: projects that already use typed GDScript heavily and accept code changes during 0.x.
+- Not yet suited to: projects that export to Android, iOS or Web. Their libraries come with 1.0.
+- The language semantics may change before 1.0. Release notes list every incompatible change.
+- Bytecode is not compatible across builds. After upgrading the extension, rebuild the project once.
+- The editor lacks find references, rename, quick fixes, lints and LSP. They are planned for 0.2–0.3.
+- There is no GDScript migration tool yet, so 0.1 needs manual migration. The tool is planned for 0.2–0.3.
+- Godot 4.7 and later are supported.
+
 ## How It Is Built
 
 The author decides the language design and every rule of the specification. AI coding agents write most of the implementation, tests, documentation and corpus surveys. The author does not review the code line by line. The agents follow [AGENTS.md](AGENTS.md) in this repository. Correctness rests on these:
