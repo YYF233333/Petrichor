@@ -71,6 +71,17 @@ The VM stores scalars, engine math values, `struct` values and payload `enum` va
 | Allocation | `coroutines` | 25.94 | 20.47 |
 | 32-script startup | `cold` (build + run) | 3069.6 | 3078.6 |
 
+## How It Is Built
+
+The author decides the language design and every rule of the specification. AI coding agents write most of the implementation, tests, documentation and corpus surveys. The author does not review the code line by line. The agents follow [AGENTS.md](AGENTS.md) in this repository. Correctness rests on these:
+
+- The specification is the only source of rules. Where the implementation disagrees with it, the implementation changes.
+- Tests are derived from the specification and the engine's behavior, not from the implementation.
+- Each engine behavior relied on cites the Godot source, with commit and line.
+- The migrated scripts of two real projects run in the engine.
+
+The author is responsible for fixing what goes wrong. During 0.1, the project takes issues but not pull requests. Development moves fast, so a pull request is usually stale by the time it is reviewed. Please report problems as issues instead. Pull requests open as 1.0 approaches.
+
 ## Building and CLI
 
 Release 0.1 will provide prebuilt GDExtension binaries for Windows, Linux and macOS. To build from source with SCons and a C++17 toolchain, initialize submodules first:
