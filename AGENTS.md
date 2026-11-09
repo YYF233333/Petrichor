@@ -85,4 +85,5 @@ The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable`
 - The owner starts reviews when needed. Reviewers follow `REVIEW.md` and leave their findings as files in the repository root.
   - Findings are not tasks: they are first checked against the tree, the spec and the engine source. The implementer does not argue them one by one.
   - When a findings file has nothing left to act on, propose deleting it.
+- At Godot's pre-releases and releases, the owner starts a scan of upstream changes. Scanners follow `WATCH.md`, and their reports are handled as findings.
 - `BACKLOG.md` lists unfinished work and open questions in no fixed order. Remove an item as soon as it is done or settled, leaving no trace. Record decisions in the spec or the architecture, and leave history to git.
