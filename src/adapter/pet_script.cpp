@@ -212,12 +212,12 @@ Dictionary property_info(const ClassImage &p_image, const bytecode::Member &p_me
 	// their annotation says; public ones are only visible to other code.
 	const TypeImage &type = p_image.types[p_member.type];
 	Dictionary dict = value_dict(type, to_godot(p_member.name), PROPERTY_USAGE_SCRIPT_VARIABLE | p_member.usage);
-	// The inspector picks a class of this language by its global name.
+	// The inspector picks a class of this language by its global name, which
+	// an inner class does not have.
 	const auto global_name = [](const StringName &p_class, const String &p_script) {
-		const Ref<Script> script = p_script.is_empty() ? Ref<Script>() : ResourceLoader::get_singleton()->load(p_script);
+		const Ref<Script> script = load_resource(p_script);
 		return script.is_valid() && !script->get_global_name().is_empty() ? String(script->get_global_name()) : String(p_class);
 	};
-	const String class_name = global_name(type.check.class_name, type.check.script);
 	// An exported element: "type/hint:class", as GDScript writes it.
 	const auto exported = [](ValueType p_element, const String &p_class) {
 		return p_element == ValueType::Object ? vformat("%d/%d:%s", Variant::OBJECT, picker_of(p_class), p_class) : vformat("%d:", variant_type(p_element));
@@ -233,12 +233,13 @@ Dictionary property_info(const ClassImage &p_image, const bytecode::Member &p_me
 		dict["hint"] = PROPERTY_HINT_TYPE_STRING;
 		dict["hint_string"] = vformat("%d/%d:%s", Variant::INT, PROPERTY_HINT_ENUM, enum_hint(*type.item));
 	} else if (p_member.is_export && type.storage == ValueType::Object) {
+		const String class_name = global_name(type.check.class_name, type.check.script);
 		dict["hint"] = picker_of(class_name);
 		dict["hint_string"] = class_name;
 	} else if (p_member.is_export && element != ValueType::Void) {
 		// A typed array, or a typed Dictionary with its key first.
 		dict["hint"] = PROPERTY_HINT_TYPE_STRING;
-		const String elements = exported(element, class_name);
+		const String elements = exported(element, global_name(type.check.class_name, type.check.script));
 		dict["hint_string"] = type.check.key == ValueType::Void ? elements : exported(type.check.key, global_name(type.check.key_class_name, type.check.key_script)) + ";" + elements;
 	} else {
 		dict = typed(dict, type);

@@ -654,6 +654,7 @@ func _ready() -> void:
 	add_child(inner)
 	var shots := inner.shots()
 	_check(shots == [6, 16, 24, true, false], "inner classes run, using the static functions and constants of the classes around them: %s" % [shots])
+	_check(inner.get_property_list().any(func(p): return p.name == "held"), "a member typed by an inner class is listed without loading a file")
 	var shot_script: Script = inner.shot_script()
 	_check(shot_script.resource_path == "" and shot_script.get_global_name() == &"" and shot_script.get_instance_base_type() == &"RefCounted", "an inner class is a script of its own, without a path or a global name")
 	var shot = shot_script.new()

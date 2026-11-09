@@ -64,3 +64,7 @@ pub func copy_label() -> String:
 
 pub func failing() -> int:
 	return Shot.new().failing()
+
+
+# Listed with its inner class's name, which no file has.
+pub var held: Shot? = None
