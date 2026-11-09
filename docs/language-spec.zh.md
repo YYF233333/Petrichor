@@ -88,7 +88,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 2.3 注解
 
-- 【已知限制】第一版脚本不在编辑器中运行，`@tool` 和 `@export_tool_button` 报编译错误。
+- 【待定】`@tool` 和 `@export_tool_button` 让脚本在编辑器中运行。它们属于第一版，规则尚未定下。定下之前，它们报编译错误。
 - `@warning_ignore` 接受本语言警告和提示的 snake_case 名字，提示与警告一样各有名字。不抑制任何诊断的名字给出提示 `unused_ignore`，包括迁移留下的 GDScript 警告名。
 - 新增类级注解：`@parent(T)`、`@owner(T)`，用于向上访问；新增成员注解：`@readonly`，仅用于接口属性。
 - `pub` 写在注解之后、`static` 之前。
@@ -960,7 +960,6 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 - **语言特性**：
   - 用户定义泛型与泛型接口；
-  - `@tool`；
   - 别名/`import` 与跨类访问 `preload` 类；
   - 两个文件互相继承对方的类；
   - 更严的 `private`；
@@ -987,3 +986,4 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 ### 14.3 待定问题
 
 - 原生代码的生成时机：运行时、导出时，或两者都有。
+- `@tool` 脚本在编辑器中运行的规则。
