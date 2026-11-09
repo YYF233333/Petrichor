@@ -81,8 +81,8 @@ Until then, build from source with a C++17 toolchain and SCons. Run `git submodu
 0.1 is the first public release. It gathers feedback on the semantics from real projects before 1.0.
 
 - Suited to: projects that already use typed GDScript heavily and accept code changes during 0.x.
-- Not yet suited to: projects that export to Android, iOS or Web. Their libraries come with 1.0.
-- The language semantics may change before 1.0. Release notes list every incompatible change.
+- Not yet suited to: projects that export to Android, iOS or Web. Their libraries come with 0.9.
+- Before 0.9, the language semantics may change, and release notes list every incompatible change. From 0.9, a change in what code means shows as a compile error. Fixes that change only runtime behavior are listed apart in release notes.
 - Bytecode is not compatible across builds. After upgrading the extension, rebuild the project once.
 - The editor lacks find references, rename, quick fixes, lints and LSP. They are planned for 0.2–0.3.
 - There is no GDScript migration tool yet, so 0.1 needs manual migration. The tool is planned for 0.2–0.3.
