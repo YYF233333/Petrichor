@@ -21,7 +21,7 @@
 | String 或 StringName 的 `%` 格式化任何类型的值，Array 视为其中各个值。格式出错时，经验证的求值打印错误并给出格式串，直接求值给出错误文本 | `core/variant/variant_op.cpp:205-210, 408-449`；`core/variant/variant_op.h:720-837` | §5.1 |
 | 引擎归为 math 类的工具函数。它们的调用错误都是实参类型不符，`posmod` 的除数为 0 时打印错误并返回 0 | `core/variant/variant_utility.cpp:383-402, 459-470, 587-606, 653-668, 697-712, 737-751, 1632-1732`；`core/math/math_funcs.h:312-313` | §4.5、§10.3 |
 | 由字符串构造 Color 时，不是十六进制写法就按颜色名查找，找不到时打印错误并返回黑色。颜色名就是 Color 的常量名 | `core/math/color.h:274-280`；`core/math/color.cpp:396-402`；`core/variant/variant_call.cpp:3086-3089` | §4.5 |
-| debug 构建中有四项检查：由轴和角构造 Basis、Quaternion，要求轴已归一化；由 Basis 构造 Quaternion，要求它是旋转。由两个向量构造 Quaternion，要求它们不为零；Quaternion 乘向量，要求向量已归一化 | `core/math/basis.cpp:716-717, 843-844`；`core/math/quaternion.cpp:289-290`；`core/math/quaternion.h:93-94, 139-140`；`core/math/math_defs.h:56-58` | §4.5 |
+| debug 构建中有四项检查：由轴和角构造 Basis、Quaternion，要求轴已归一化；由 Basis 构造 Quaternion，要求它是旋转。由两个向量构造 Quaternion，要求它们不为零；Quaternion 乘向量，要求四元数已归一化 | `core/math/basis.cpp:716-717, 843-844`；`core/math/quaternion.cpp:289-290`；`core/math/quaternion.h:91-94, 139-140`；`core/math/math_defs.h:56-58` | §4.5 |
 | Array 的 `==` 逐元素用 `hash_compare`，它要求元素类型相同 | `core/variant/array.cpp:155-158`；`core/variant/variant.cpp:3176-3179` | §5.2 |
 | `hash_compare` 只在语义比较时认为 float 的 NaN 与 NaN 匹配。Array 的 `==` 不做语义比较，float 元素的 NaN 因此不匹配；Dictionary 查键做语义比较。向量、Color、Quaternion 按 `is_same` 比较，NaN 总是匹配 | `core/variant/variant.cpp:3138-3155, 3186-3187, 3399-3401`；`core/variant/variant.h:829`；`core/variant/array.cpp:155` | §5.2 |
 | Array 的 `<` 逐元素比较，比不出大小的元素当作相等，接着比下一个。元素按 `Variant::operator<` 比较：类型不同时按类型编号排序，查不到运算时为假 | `core/variant/array.cpp:164-179`；`core/variant/variant.cpp:868-876` | §5.2 |

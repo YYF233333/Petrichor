@@ -36,7 +36,7 @@
   - 写在一行的 `enum class E { A, B } field = E::A;` 成员。
 - 遇到这些写法，改用 if/else、具名临时变量或辅助函数；enum 单独声明，成员另起一行。
 - 提交新 C++ 之前，在新文件里搜 `\?[^;]*:[^;]*\?`，把命中的改掉。
-- Godot 的 pre-commit 检查中，这些没有采用：ruff 和 mypy、codespell、clang-tidy、版权、头文件守卫和 include 检查。没有新理由不再提。
+- Godot 的 pre-commit 检查中，这些没有采用：ruff 和 mypy、codespell、clang-tidy、版权、头文件守卫和 include 检查。
 
 ## 测试
 
@@ -90,7 +90,6 @@
   - 调试崩溃用未优化的 dev 编辑器；
   - 基准用官方 4.7.2-stable 发布版，dev 构建会扭曲与 GDScript 的比较；
   - 带 C# 运行 Ring 用官方 .NET 版。
-- 没有要求时不要重建引擎。
 
 ## 语料
 

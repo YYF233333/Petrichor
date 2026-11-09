@@ -35,9 +35,6 @@ Paid before the remaining features of step 7 (architecture §5).
   - the checks of interface elements in `values.cpp` beside `checked_one_by_one`. First list the callers that check containers without them.
 - Untrue tests, surveys and documents:
   - The implementation coverage survey does not count GDScript's own constants and utility functions (`@GDScript`). So it missed `range()` and `PI`.
-  - Engine facts: `Quaternion` times a vector requires the quaternion to be normalized, not the vector (`core/math/quaternion.h:91-94`, `ed1daf0`).
-  - Architecture §6 cites lines of this repository that have moved. Name functions or types instead.
-  - Architecture §4 lists benchmarks of generics and of enums with payloads, which `benchmarks/project/cases/` lacks.
 
 ## Language
 
