@@ -2,11 +2,6 @@
 
 In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow).
 
-## Debt
-
-Paid before the remaining features of step 7 (architecture §5).
-
-
 ## Language
 
 - Contextual keywords (spec §2.2). The tokenizer still reserves `pub`, `struct`, `interface`, `implements`, `async` and `None`. A `.pet` file cannot write dialogue_manager's `TranslationSource.None`.
