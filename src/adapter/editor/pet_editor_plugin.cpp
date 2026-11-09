@@ -8,6 +8,7 @@
 #include "runtime/text.h"
 
 #include <godot_cpp/classes/code_edit.hpp>
+#include <godot_cpp/classes/editor_export_platform.hpp>
 #include <godot_cpp/classes/editor_file_system.hpp>
 #include <godot_cpp/classes/editor_interface.hpp>
 #include <godot_cpp/classes/editor_toaster.hpp>
@@ -34,14 +35,21 @@ void PetExportPlugin::_export_file(const String &p_path, const String &p_type, c
 	if (p_path.get_extension().to_lower() != "pet") {
 		return;
 	}
+	// Without skip(), the engine would export the source as it is; exported
+	// games contain only bytecode (spec §1.3). An error message fails the
+	// export in the editor's window (editor/export/editor_export_platform.cpp:
+	// 131-148; ed1daf0).
 	const String source = FileAccess::get_file_as_string(p_path);
-	ERR_FAIL_COND_MSG(FileAccess::get_open_error() != OK, vformat("Cannot read %s for export.", p_path));
+	if (FileAccess::get_open_error() != OK) {
+		skip();
+		get_export_platform()->add_message(EditorExportPlatform::EXPORT_MESSAGE_ERROR, "Petrichor", vformat("Cannot read %s for export.", p_path));
+		return;
+	}
 	const std::shared_ptr<const ClassImage> image = compile_script(p_path, source, nullptr, true);
 	if (!image) {
-		// Without skip(), the engine would export the source as it is; exported
-		// games contain only bytecode (spec §1.3).
 		skip();
-		ERR_FAIL_MSG(vformat("%s has errors and is left out of the export.", p_path));
+		get_export_platform()->add_message(EditorExportPlatform::EXPORT_MESSAGE_ERROR, "Petrichor", vformat("%s has errors and is left out of the export.", p_path));
+		return;
 	}
 
 	const std::vector<uint8_t> data = bytecode::serialize(image->module);

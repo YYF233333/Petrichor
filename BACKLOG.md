@@ -7,9 +7,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 Paid before the remaining features of step 7 (architecture §5).
 
 - Behavior that differs from the spec:
-  - A `.pet` with compile errors is left out of an export that reports success.
-    - The export plugin skips it with an error print (`pet_editor_plugin.cpp`).
-    - `get_export_platform()->add_message()` at error level would fail the export, as spec §7.5 asks for missing values.
   - Editing a base scene leaves its inherited scenes stale in the scene index until the editor restarts.
     - `instanced_scenes` records instanced scenes but not the base scene, so neither `read()` nor `forget()` sees it.
     - Nearby, an inherited or instanced node with `script = null` keeps the base's script.

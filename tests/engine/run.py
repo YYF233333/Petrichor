@@ -674,6 +674,8 @@ def run_export_groups(godot):
         unexpected = [line for line in output.splitlines() if "ERROR" in line and not any(part in line for part in expected)]
         expect("export", code == 0 and not unexpected, output)
         expect("export: a script with errors is left out", "broken_export_check.pet has errors and is left out of the export." in output, output)
+        # The editor's window says it failed; the command line, as a warning.
+        expect("export: a script with errors is an export error", "completed with warnings" in output, output)
 
         # A project directory without sources, whose only library is the one
         # exported games load, without the compiler: without the editor's
