@@ -2,7 +2,7 @@
 
 **v0.2 草案 · 2026-10-25**
 
-Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的形式交付。它在项目代码中替代 GDScript，与 GDScript 插件共存。本文是它的语言规范草案，[实现](architecture.md)尚未覆盖全部规则。设计取舍与语料依据见[设计说明](design-notes.md)，引擎核对基线见[引擎事实](engine-facts.md)。上一版 v0.1 保存在 git 标签 `spec-v0.1` 中。
+Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的形式交付。它在项目代码中替代 GDScript，与 GDScript 插件共存。本文是它的语言规范草案，[实现](architecture.md)尚未覆盖全部规则。设计取舍与语料依据见[设计说明](design-notes.md)，引擎核对基线见[引擎事实](engine-facts.md)。上一版规范 v0.1 保存在 git 标签 `spec-v0.1` 中。
 
 ## 1. 概述
 
@@ -35,7 +35,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 - 状态标记：**【待定】**表示尚未决定。**【已知限制】**表示第一版不支持，但其合法性限制仍具规范性。待定问题和第一版之后可兼容加入的特性，汇总在“第一版范围与待定问题”一章。
 - **编译错误**由分析服务在运行前报告，并使程序不合法。唯一的例外是标在场景上的缺值错误，它不阻止编辑器内运行。**警告**和**提示**不影响合法性。**程序错误**是运行时错误，其处理见错误一章。
 - 文中依赖的引擎行为均对照 Godot 4.7.2-stable（提交 `ed1daf0`）核对，出处列于[引擎事实](engine-facts.md)。
-- Petrichor 和源文件扩展名 `.pet` 均为暂定名，首次发布前确定。扩展名须短且全小写，不与 Godot 已用扩展名冲突，也不与 GitHub Linguist、常用编辑器中的其他语言冲突。
+- 源文件扩展名为 `.pet`。
 
 ### 1.5 保证
 
@@ -329,7 +329,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
   - `None` 赋给 `T?` 或 `Variant`，后者得 NIL。`null` 赋给非空 `T` 时，快速修复把类型改为 `T?`；
   - 可赋给 `T` 的值也可赋给 `T?`，隐式包装为 `Some`，并按目标类型补层（`T?` 赋给 `T??` 得 `Some`）；
   - 隐式转换，只保留 GDScript 中不丢信息、含义不变的几种：
-    - `int` 转 `float`，enum 值转 `int` 或 `float`；
+    - `int` 转 `float`，无载荷 enum 的值转 `int` 或 `float`；
     - `Vector2i`、`Vector3i`、`Vector4i`、`Rect2i` 转对应的浮点类型；
     - `String` 与 `StringName`、`NodePath` 互转；
   - 函数值：同为 `async` 或同为普通函数，参数逆变、返回协变。函数值也可赋给 `Callable`；
@@ -555,7 +555,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 - `Node` 的必须赋值成员须在所在场景就绪完毕前由以下之一提供：
   - **`_init`**：在每条路径上给它赋值，如由参数赋值；
   - **场景**：导出的成员由场景提供；
-  - **创建者**：`instantiate(...)` 和 `new(...)` 按名字接收成员并在返回前赋值，如 `BulletScene.instantiate(speed = 300.0, target = enemy)`。`PackedScene[T].instantiate(...)` 漏传场景资源规则要求的成员报编译错误。`new(...)` 漏传在运行时检查；
+  - **创建者**：`instantiate(...)` 和 `new(...)` 按名字接收成员并在返回前赋值，如 `BulletScene.instantiate(shooter = self, target = enemy)`。`PackedScene[T].instantiate(...)` 漏传场景资源规则要求的成员报编译错误。`new(...)` 漏传在运行时检查；
   - **祖先**：同一场景中的祖先节点在自身 `_ready` 中赋值。赋值经场景模型可见的 `$Child.target = v` 或 `@onready` 引用进行。不可见的动态配置须标为 `T?`。
 - 检查的时机见就绪顺序。子节点在自身 `_ready` 中读取由祖先赋值的成员报编译错误。就绪前读取尚未赋值的成员报程序错误并写明成员名。
 - `_init` 直接读取必须赋值的成员，而此前 `_init` 未在每条路径上给它赋值时，报编译错误。经调用间接读取报程序错误。

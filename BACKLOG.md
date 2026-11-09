@@ -38,8 +38,6 @@ Paid before the remaining features of step 7 (architecture §5).
   - Engine facts: `Quaternion` times a vector requires the quaternion to be normalized, not the vector (`core/math/quaternion.h:91-94`, `ed1daf0`).
   - Architecture §6 cites lines of this repository that have moved. Name functions or types instead.
   - Architecture §4 lists benchmarks of generics and of enums with payloads, which `benchmarks/project/cases/` lacks.
-  - The example of `instantiate(...)` in spec §6.2 passes `speed`, which has a default. By name, it takes only members that must be assigned (§4.6).
-  - Spec §3.14 converts enum values to `int` or `float`. Only enums without payloads convert.
 
 ## Language
 
