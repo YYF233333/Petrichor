@@ -117,7 +117,7 @@ void mark_errors(const ClassDecl &p_decl, const std::vector<Diagnostic> &p_error
 		const int last = line_of(end > begin ? end - 1 : begin);
 		for (const Diagnostic &error : p_errors) {
 			const int line = line_of(error.begin);
-			if (line < first || line > last || in_body(error.begin)) {
+			if (line < first || line > last || in_body(error.begin) || error.runs) {
 				continue;
 			}
 			const auto [entry, added] = r_marked.emplace(p_node, line);

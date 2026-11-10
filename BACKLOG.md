@@ -8,11 +8,10 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - `instantiate(...)` still asks by name for a member that the root's `_init` assigns. The checker does not check that body, which is in another file.
   - A scene or `.tres` using a script whose `_init` has required parameters is a compile error. Now the engine's construction gives the program error.
 - Static checks of:
-  - must-assign exports in scenes, in resources and at export (spec §7.5);
   - a statically known scene's `instantiate(...)` missing an export the scene does not assign (§7.4). The scene index reads only what each scene itself stores on nodes with this language's scripts;
   - a child reading a member that ancestors assign in its own `_ready` (§6.2);
   - a must-assign member that is not pub, which its file or a subclass must export or assign (§4.2). It needs every subclass.
-- Checking at compile time what resources store in exported structs and enums with payloads (spec §4.3). They are `.tres` files and resources inside scenes, which the scene index does not read. Nor does it read a node of an instanced scene that the outer scene changes.
+- Checking at compile time what resources store in exported structs and enums with payloads (spec §4.3). Also their must-assign exports (§7.5). They are `.tres` files and resources inside scenes, which the scene index does not read. Nor is a struct checked that a scene stores on a node of an instanced scene it changes.
 - How `T??` crosses the engine boundary (spec §10.1), where `None` and `Some(None)` would both be null. Until then, pub members and parameters, signal parameters and coroutine results of `T??` are refused. These still lose `Some(None)`:
   - `Variant?` in those places;
   - `T??` in a struct or `Result` that crosses, and in `Array(a)`;
@@ -40,9 +39,9 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - a node from `new()` or `instantiate()` that some path neither adds to the tree, returns, stores nor frees;
   - the result of `remove_child` neither stored nor freed.
 - The hint of spec §6.5 on an exported property whose setter syncs a node. Its default value never passes the setter, so `_ready` should sync it once.
-- The warnings of spec §7.2 and §7.6:
+- The warnings of spec §7.2, §7.5 and §7.6:
   - a literal `get_node_or_null` path that no scene has;
-  - a scene that nothing references lacking a node;
+  - a scene that nothing references lacking a node, or a value for a must-assign export below its root. Now each is an error, as for a scene used as a root. Telling the two apart needs the scenes used as roots (Language);
   - writes to a resource known to be shared.
 - The error explaining why a GDScript file cannot extend a class of this language (spec §11.2).
 - A quick fix adding the constructor for the implicit conversions of GDScript that this language drops (spec §3.14).

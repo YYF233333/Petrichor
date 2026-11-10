@@ -45,6 +45,7 @@ func _run() -> void:
 	_check_other_defaults()
 	_check_struct_exports()
 	await _check_stored_exports()
+	_check_scene_exports()
 	_check_inheritance_recovery()
 	await _check_instanced_scene_change()
 	await _check_scene_marks()
@@ -502,4 +503,23 @@ func _check_stored_exports() -> void:
 	_write(derived, inherit % [base, '{"damage": 7}'])
 	_check(_compiles(script, script_path), "a field left out that has a default decodes")
 	for file in [script_path, script_path + ".uid", base, derived, "res://.godot/petrichor/editor_check_stored.petc"]:
+		DirAccess.remove_absolute(file)
+
+
+# Spec §7.5: an export that must be assigned gets its value from any scene the
+# node is built from, here from one that changes the node inside the scene it
+# instances.
+func _check_scene_exports() -> void:
+	var script_path := "res://editor_check_exports.pet"
+	var inner := "res://editor_check_exports_inner.tscn"
+	var level := "res://editor_check_exports_level.tscn"
+	var game := "res://editor_check_exports_game.tscn"
+	var instance := '[gd_scene format=3]\n\n[ext_resource type="PackedScene" path="%s" id="1"]\n\n[node name="%s" type="Node"]\n\n[node name="%s" parent="." instance=ExtResource("1")]\n'
+	_write(script_path, "extends Node\n\n@export pub var target: Node\n")
+	_write(inner, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Inner" type="Node"]\nscript = ExtResource("1")\n' % script_path)
+	_write(level, instance % [inner, "Level", "Far"])
+	_write(game, instance % [level, "Game", "Level"] + '\n[node name="Far" parent="Level" node_paths=PackedStringArray("target")]\ntarget = NodePath("..")\n')
+	var script: Script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_IGNORE)
+	_check(_compiles(script, script_path), "a scene gives the value to a node of the scene it instances")
+	for file in [script_path, script_path + ".uid", inner, level, game, "res://.godot/petrichor/editor_check_exports.petc"]:
 		DirAccess.remove_absolute(file)

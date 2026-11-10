@@ -33,7 +33,7 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 			return a.begin < b.begin;
 		});
 	}
-	if (result.errors.empty()) {
+	if (result.ok()) {
 		const StructLookup structs = [&](const Type &p_struct) -> const StructDecl * {
 			const ClassDecl *decl = r_classes.declarations(p_struct.script);
 			const StructDecl *found = decl ? decl->find_struct(p_struct.interface_name()) : nullptr;

@@ -38,7 +38,8 @@ struct SceneNode {
 	std::string instance_script;
 	bool unique = false; // Reached from the scene's nodes as `%Name` (unique_name_in_owner).
 	// What this scene itself stores for the properties of a node with a script
-	// of this language, by name; a base or an instanced scene stores the rest.
+	// of this language, or of an instanced scene's node it changes, by name; a
+	// base or an instanced scene stores the rest.
 	std::vector<std::pair<std::string, SceneValue>> properties;
 	std::string instance; // For an instanced scene: its res:// path.
 

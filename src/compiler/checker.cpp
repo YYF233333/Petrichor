@@ -3368,12 +3368,17 @@ class Checker : public ClassRelation {
 		if (walk.leaves) {
 			missing = p_scene.path + ": " + p_shown + " leads out of the scene, and no scene instances it.";
 		}
-		const bool only_inherited = !outers.empty() && p_scene.path != options.project->main_scene() && std::all_of(outers.begin(), outers.end(), [&](const Scene &p_outer) {
-			return p_outer.base == p_scene.path && std::none_of(p_outer.nodes.begin(), p_outer.nodes.end(), [&](const SceneNode &p_node) { return p_node.instance == p_scene.path; });
-		});
-		if (!instanced && !p_optional && !only_inherited) {
+		if (!instanced && !p_optional && !only_inherited(p_scene, outers)) {
 			error_in_scene(p_at.range, p_scene, p_marked, missing);
 		}
+	}
+
+	// Whether a scene is used only as the base of the scenes that inherit it
+	// (spec §7.2), given those that instance or inherit it.
+	bool only_inherited(const Scene &p_scene, const std::vector<Scene> &p_outers) const {
+		return !p_outers.empty() && p_scene.path != options.project->main_scene() && std::all_of(p_outers.begin(), p_outers.end(), [&](const Scene &p_outer) {
+			return p_outer.base == p_scene.path && std::none_of(p_outer.nodes.begin(), p_outer.nodes.end(), [&](const SceneNode &p_node) { return p_node.instance == p_scene.path; });
+		});
 	}
 
 	// Why a literal path from the root into an autoload is a compile error:
@@ -9958,6 +9963,79 @@ class Checker : public ClassRelation {
 		});
 	}
 
+	// Where scenes place the script, its exports that must be assigned have
+	// values (spec §7.5). The script runs all the same: a node without one
+	// fails the check as it becomes ready.
+	void check_scene_exports() {
+		std::vector<const VarDecl *> exports;
+		for (const VarDecl &member : cls.members) {
+			if (member.is_export && member.must_assign) {
+				exports.push_back(&member);
+			}
+		}
+		if (exports.empty()) {
+			return;
+		}
+		std::set<std::string> reported;
+		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
+			for (const VarDecl *member : exports) {
+				require_export(*member, p_scene, p_node.path, p_node.path, reported);
+			}
+		});
+	}
+
+	// That the node at `p_path` of a scene gets a value for an export, from
+	// any of the scenes it is built from. Each instance of the scene is checked
+	// in the scene that has it, at the instance `p_marked` names. The scene
+	// itself is checked where it is used as a root. Who instantiates a scene
+	// gives its root the rest, except for the main scene (spec §7.4).
+	void require_export(const VarDecl &p_member, const Scene &p_scene, const std::string &p_path, const std::string &p_marked, std::set<std::string> &r_reported, int p_depth = 0) {
+		const std::vector<Scene> outers = p_depth > 32 ? std::vector<Scene>() : options.project->scenes_instancing(p_scene.path);
+		bool instanced = false;
+		for (const Scene &outer : outers) {
+			for (const SceneNode &node : outer.nodes) {
+				if (node.instance == p_scene.path) {
+					instanced = true;
+					require_export(p_member, outer, p_path == "." ? node.path : node.path + "/" + p_path, node.path, r_reported, p_depth + 1);
+				}
+			}
+		}
+		if (p_scene.path != options.project->main_scene() && (instanced || p_path == "." || only_inherited(p_scene, outers))) {
+			return;
+		}
+		if (!stored_value(p_scene, p_path, p_member.name).value_or(false) && r_reported.insert(p_member.name + "\n" + p_scene.path + "\n" + p_path).second) {
+			error_in_scene(TokenRange{ p_member.name_token, p_member.name_token }, p_scene, p_marked, p_scene.path + ": " + (p_path == "." ? std::string("the root") : p_path) + " has no value for \"" + p_member.name + "\", an export that must be assigned.");
+			errors.back().runs = true;
+		}
+	}
+
+	// Whether the node at `p_path` of a scene has a value other than null for
+	// a member, as the last scene to set one gives it; nullopt if none does.
+	// The engine sets an instanced or inherited scene's values first, then the
+	// outer scene's (scene/resources/packed_scene.cpp:263-266, 494; ed1daf0).
+	std::optional<bool> stored_value(const Scene &p_scene, const std::string &p_path, const std::string &p_name, int p_depth = 0) {
+		const SceneNode *node = p_scene.find_node(p_path);
+		for (const auto &[name, value] : node ? node->properties : std::vector<std::pair<std::string, SceneValue>>()) {
+			if (name == p_name) {
+				return value.type != "Nil";
+			}
+		}
+		const std::optional<Scene> base = p_scene.base.empty() || p_depth > 32 ? std::nullopt : options.project->scene(p_scene.base);
+		const std::optional<bool> inherited = base ? stored_value(*base, p_path, p_name, p_depth + 1) : std::nullopt;
+		if (inherited) {
+			return inherited;
+		}
+		// The innermost instance on the path.
+		const SceneNode *instance = nullptr;
+		for (const SceneNode &each : p_scene.nodes) {
+			if (!each.instance.empty() && (each.path == p_path || p_path.rfind(each.path + "/", 0) == 0) && (!instance || each.path.size() > instance->path.size())) {
+				instance = &each;
+			}
+		}
+		const std::optional<Scene> inner = !instance || p_depth > 32 ? std::nullopt : options.project->scene(instance->instance);
+		return inner ? stored_value(*inner, instance->path == p_path ? std::string(".") : p_path.substr(instance->path.size() + 1), p_name, p_depth + 1) : std::nullopt;
+	}
+
 	// Why a value that a scene stores does not decode as the type, as the
 	// entry check says (spec §3.6, §10.1), after `p_at`, the path to where it
 	// lies, such as "Combat.Hit.damage"; "" when it decodes.
@@ -11516,6 +11594,7 @@ private:
 		check_owner_scenes();
 		check_parent_scenes();
 		check_stored_exports();
+		check_scene_exports();
 		return true;
 	}
 };

@@ -6,6 +6,7 @@
 #include "compiler/project_api.h"
 #include "compiler/references.h"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -16,11 +17,14 @@ struct CompileResult {
 	// Warnings that no @warning_ignore ignores, and hints; none with syntax
 	// errors. Sorted by position.
 	std::vector<Diagnostic> warnings;
-	bytecode::Module module; // Valid only without errors.
+	bytecode::Module module; // Valid when ok().
 	// Where the file resolves names (architecture §2.1), also with syntax errors.
 	std::vector<Reference> references;
 
-	bool ok() const { return errors.empty(); }
+	// Without errors, or with only those after which the script runs.
+	bool ok() const {
+		return std::all_of(errors.begin(), errors.end(), [](const Diagnostic &p_error) { return p_error.runs; });
+	}
 };
 
 struct CompileOptions {

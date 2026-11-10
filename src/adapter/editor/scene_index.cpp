@@ -175,10 +175,12 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state)
 		const std::string path = node_path(p_state->get_node_path(i));
 		const std::optional<std::string> script = attached_script(p_state, i);
 		const auto inherited = std::find_if(scene.nodes.begin(), scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return p_node.path == path; });
-		// Only for a script of this language, whose exports the check reads.
+		// Only for a script of this language, whose exports the check reads, and
+		// for a change of an instanced scene's node, whose script that scene gives.
 		const auto store = [&](compiler::SceneNode &r_node) {
 			const std::string &attached = r_node.script.empty() ? r_node.instance_script : r_node.script;
-			r_node.properties = to_godot(attached).get_extension() == "pet" ? stored_properties(p_state, i) : std::vector<std::pair<std::string, compiler::SceneValue>>();
+			const bool change = r_node.type.empty() && !r_node.is_instance;
+			r_node.properties = change || to_godot(attached).get_extension() == "pet" ? stored_properties(p_state, i) : std::vector<std::pair<std::string, compiler::SceneValue>>();
 		};
 		if (inherited != scene.nodes.end()) {
 			if (script) {

@@ -114,20 +114,21 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 	return image;
 }
 
-int build_project(int *r_script_count, bool p_warnings) {
+int build_project(int *r_script_count, bool p_command) {
 	const SceneIndex::Pass pass;
 	const compiler::Analysis::Pass analysis_pass(analysis());
 	const PackedStringArray paths = project_files(PackedStringArray({ "pet" }));
 	int failed = 0;
 	for (const String &path : paths) {
 		const String source = FileAccess::get_file_as_string(path);
+		std::vector<compiler::Diagnostic> errors;
 		std::vector<compiler::Diagnostic> warnings;
-		const std::shared_ptr<const ClassImage> image = compile_script(path, source, nullptr, true, CompileMode::Full, &warnings);
-		if (!image || !write_compiled(cache_path(path), *image)) {
+		const std::shared_ptr<const ClassImage> image = compile_script(path, source, &errors, true, CompileMode::Full, &warnings);
+		if (!image || !write_compiled(cache_path(path), *image) || (p_command && !errors.empty())) {
 			failed++;
 		}
 		const CharString file = path.utf8();
-		for (size_t i = 0; p_warnings && i < warnings.size(); i++) {
+		for (size_t i = 0; p_command && i < warnings.size(); i++) {
 			const std::string message = warnings[i].message + " (" + warnings[i].warning + ")";
 			gdextension_interface::print_warning(message.c_str(), "", file.get_data(), warnings[i].line, false);
 		}

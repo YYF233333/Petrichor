@@ -22,15 +22,16 @@ enum class CompileMode {
 	Declarations,
 };
 
-// Compiles a script in the editor. Returns null when there are errors; with
-// `p_report`, each error is printed as a script error at its line.
+// Compiles a script in the editor. Returns null when there are errors other
+// than those after which it runs; with `p_report`, each error is printed as a
+// script error at its line.
 std::shared_ptr<const ClassImage> compile_script(const godot::String &p_path, const godot::String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, CompileMode p_mode = CompileMode::Full, std::vector<compiler::Diagnostic> *r_warnings = nullptr);
 
 // Compiles every .pet file of the project and writes the bytecode cache
-// (architecture §2.4). Returns the number of scripts with errors. With
-// `p_warnings`, prints the warnings and hints too, as the headless command
-// does (spec §13.1).
-int build_project(int *r_script_count = nullptr, bool p_warnings = false);
+// (architecture §2.4). Returns the number of scripts with errors that keep
+// them from running. For the headless command (spec §13.1, §7.5), `p_command`
+// counts every error and prints the warnings and hints too.
+int build_project(int *r_script_count = nullptr, bool p_command = false);
 
 // When an extension loads, unloads or reloads, ClassDB changes, and every
 // compiled script may change with it.

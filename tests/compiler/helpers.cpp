@@ -153,7 +153,7 @@ compiler::CompileResult compile_in(const std::string &p_source, const FakeProjec
 	check_syntax_conventions(p_source);
 	check_formatting(p_source);
 	compiler::CompileResult result = compiler::compile(p_source, fake_engine(), options);
-	if (result.ok()) {
+	if (result.errors.empty()) {
 		check_references(p_source, fake_engine(), options);
 		check_recovery(p_source, [&](const std::string &p_cut) { compiler::compile(p_cut, fake_engine(), options); });
 	}
