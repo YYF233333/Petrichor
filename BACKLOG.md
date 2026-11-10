@@ -27,7 +27,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - In debug builds, reporting two places (spec §3.3, §6.7, §12.5):
   - where a freed instance was freed;
   - where the instances still alive at exit were made.
-- The `try_` versions of engine APIs as function values, as `FileAccess.try_open` without a call (spec §10.3). They are lowered at each call, so a value needs a function made for it.
 
 ## Runtime
 

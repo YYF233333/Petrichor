@@ -3113,8 +3113,12 @@ class Checker : public ClassRelation {
 			if (r_expr.text == "new") {
 				return fail(r_expr, base.text + ".new is not a value until engine classes are values; write a lambda, as func(): return " + base.text + ".new().");
 			}
-			if (builtin::error_getter(base.text, r_expr.text)) {
-				return fail(r_expr, base.text + "." + r_expr.text + " as a value is not supported yet; write a lambda that calls it.");
+			if (const char *getter = builtin::error_getter(base.text, r_expr.text)) {
+				const auto method = engine.find_method(base.text, std::string(builtin::tried_method(r_expr.text)));
+				const auto error_getter = engine.find_method(base.text, getter);
+				if (method && error_getter) {
+					return tried_value(r_expr, *method, *error_getter);
+				}
 			}
 			if (const auto method = engine.find_method(base.text, r_expr.text)) {
 				if (!method->is_static) {
@@ -4464,6 +4468,53 @@ class Checker : public ClassRelation {
 		}
 		// Of a method that takes any number of arguments, a Callable of unknown signature.
 		return set(r_expr, p_method.is_vararg ? Type::builtin("Callable") : Type::function(engine_result(p_method), params));
+	}
+
+	// A try_ version as a value (spec §3.11, §10.3), which is lowered at each
+	// call: the lambda that calls it, as func(path, flags): return
+	// FileAccess.try_open(path, flags), checked in place of the name.
+	Type tried_value(Expr &r_expr, const EngineMethod &p_method, const EngineMethod &p_getter) {
+		bool ok = false;
+		const std::vector<Type> params = engine_params(p_method, r_expr, ok);
+		if (!ok) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		const Type type = Type::function(tried_result(p_method, p_getter), params);
+		if (in_constant) {
+			return set(r_expr, type); // No constant, as no other function value is (spec §4.5).
+		}
+		const auto made = [&](ExprKind p_kind, const std::string &p_text) {
+			auto expr = std::make_unique<Expr>();
+			expr->kind = p_kind;
+			expr->text = p_text;
+			expr->range = r_expr.range;
+			expr->name_token = NO_TOKEN;
+			return expr;
+		};
+		std::unique_ptr<Expr> call = made(ExprKind::Call, r_expr.text);
+		call->name_token = r_expr.name_token;
+		call->base = made(ExprKind::Name, r_expr.base->text);
+		auto lambda = std::make_unique<FuncDecl>();
+		lambda->is_lambda = true;
+		lambda->name = r_expr.base->text + "." + r_expr.text;
+		lambda->range = r_expr.range;
+		lambda->name_token = r_expr.name_token;
+		for (const EngineParam &engine_param : p_method.params) {
+			ParamDecl &param = lambda->params.emplace_back();
+			param.name = engine_param.name;
+			param.range = r_expr.range;
+			param.name_token = NO_TOKEN;
+			call->args.push_back(made(ExprKind::Name, param.name));
+		}
+		auto body = std::make_unique<Stmt>();
+		body->kind = StmtKind::Return;
+		body->range = r_expr.range;
+		body->value = std::move(call);
+		lambda->body.push_back(std::move(body));
+		r_expr.kind = ExprKind::Lambda;
+		r_expr.base.reset();
+		r_expr.function = std::move(lambda);
+		return check_lambda(r_expr, type);
 	}
 
 	// A method value keeps no reference to its object (spec §3.11), so one of

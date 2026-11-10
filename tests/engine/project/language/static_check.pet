@@ -65,9 +65,10 @@ pub func scenes() -> Array:
 
 
 # The try_ versions of the engine methods that leave their error for a getter
-# (spec §10.3).
+# (spec §10.3), also as values, called directly and through the engine (§3.11).
 pub func tried() -> Array:
 	FileAccess.open("user://try_empty.txt", FileAccess.WRITE).unwrap().close()
+	var open := FileAccess.try_open
 	return [
 		FileAccess.try_open("res://project.godot", FileAccess.READ).ok() != None,
 		FileAccess.try_open("res://missing.txt", FileAccess.READ).err(),
@@ -75,6 +76,8 @@ pub func tried() -> Array:
 		first_line("res://project.godot").ok(),
 		FileAccess.try_get_file_as_string("user://try_empty.txt").ok(),
 		DirAccess.try_open("res://language").ok() != None,
+		open.call("res://missing.txt", FileAccess.READ).err(),
+		open.callv(["res://project.godot", FileAccess.READ]).ok() != None,
 	]
 
 

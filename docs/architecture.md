@@ -110,6 +110,9 @@
 - `T.try_from(v)` 是一条指令，与 struct 字段共用解码函数，所以两者的规则由构造保持一致。
   - 解码失败时，`Err` 中的 `ConversionError` 记下入口检查的报错。
   - `ConversionError` 由编译器声明，没有脚本，字节码中名为 `::ConversionError`。
+- 引擎 API 的 `try_` 版本在每个调用处展开：先调用原方法，再调用读取错误的 getter（规范 §10.3）。
+  - 作为值时，检查器把它改写成调用它的 lambda，如 `func(path, flags): return FileAccess.try_open(path, flags)`。
+  - 降级和运行时因此没有新路径。
 - struct 的方法是声明它的类的静态函数，名为 `Hit.total`。
   - 实例方法的第一个参数是 struct 本身，即 `self`。lambda 像捕获局部变量一样捕获它的副本。
   - 名字中的点使它们不与类的函数同名。它们不是 pub，引擎找不到。

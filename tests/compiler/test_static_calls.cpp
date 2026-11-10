@@ -54,8 +54,13 @@ TEST_CASE("an engine method that leaves its error for a getter has a try_ versio
 	};
 	CHECK(calls("open"));
 	CHECK(calls("get_open_error"));
-	CHECK(has_error(in_function("var read := FileAccess.try_open"), "FileAccess.try_open as a value is not supported yet"));
 	CHECK(has_error(in_function("FileAccess.try_get_as_text()"), "FileAccess has no method \"try_get_as_text()\"."));
+	// As a value, the lambda that calls it (spec §3.11).
+	CHECK(type_of("FileAccess.try_open") == "func(String, FileAccess.ModeFlags) -> Result[FileAccess, Error]");
+	const compiler::CompileResult value = compile(in_function("var read := FileAccess.try_open\nprint(read.call(\"res://a.txt\", FileAccess.READ).ok() != None)"));
+	require_verified(value);
+	CHECK(function_named(value.module, "FileAccess.try_open").is_lambda);
+	CHECK(has_error("extends Node\nconst READ = FileAccess.try_open\n", "This is not a constant expression."));
 }
 
 TEST_CASE("a static engine method called on an object is its class's, after the object (spec §4.8)") {

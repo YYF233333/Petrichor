@@ -640,7 +640,7 @@ func _ready() -> void:
 	_check(statics.engine_static() and statics.builtin_static(), "static methods of engine classes and built-in types")
 	_check(statics.on_objects(statics) == ["child", "check", true, true], "a static method called on an object is found from its class up, and one of an engine class or a built-in type is that type's (spec §4.8)")
 	var tried := statics.tried()
-	_check(tried == [true, ERR_FILE_NOT_FOUND, ERR_FILE_NOT_FOUND, "; Engine configuration file.", "", true], "the try_ version of an engine method gives Ok, or Err of the error the engine set, which ? passes on (spec §10.3): %s" % [tried])
+	_check(tried == [true, ERR_FILE_NOT_FOUND, ERR_FILE_NOT_FOUND, "; Engine configuration file.", "", true, ERR_FILE_NOT_FOUND, true], "the try_ version of an engine method gives Ok, or Err of the error the engine set, which ? passes on (spec §10.3): %s" % [tried])
 	var scenes := statics.scenes()
 	var nodes_scene: PackedScene = load("res://language/nodes.tscn")
 	var by_name: Script = load("res://language/static_check.pet")
