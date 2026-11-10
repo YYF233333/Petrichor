@@ -5,9 +5,9 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 ## Language
 
 - Contextual keywords (spec §2.2). The tokenizer still reserves `pub`, `struct`, `interface`, `implements`, `async` and `None`. A `.pet` file cannot write dialogue_manager's `TranslationSource.None`.
-- `_init` with parameters on Node and Resource scripts (spec §6.2). The checker still refuses them (`checker.cpp`, "cannot take parameters").
-  - `_init` assigning a member that must be assigned provides it.
-  - A scene or `.tres` using a script whose `_init` has required parameters is a compile error.
+- Of `_init` on Node and Resource scripts (spec §6.2):
+  - `instantiate(...)` still asks by name for a member that the root's `_init` assigns. The checker does not check that body, which is in another file.
+  - A scene or `.tres` using a script whose `_init` has required parameters is a compile error. Now the engine's construction gives the program error.
 - Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
 - A struct or an enum with payloads that holds itself through a container (spec §3.6). The type table cannot list it, since a type's parts come before it.
 - `Class.new` as a value (spec §3.11), as gdUnit4 passes `GdUnitTuple.new` to `callv`. It must construct as `new(...)` does. PetScript's `new` refuses a non-pub `_init` that the caller sees, so the two share the construction.

@@ -1,0 +1,13 @@
+# A Resource whose _init() has parameters with defaults (spec §6.2), driven by
+# language_test.gd: new(...) passes them, and loading construct_resource.tres
+# passes none.
+class_name ConstructResource
+extends Resource
+
+@export pub var health := 0
+pub var size := 0
+
+
+pub func _init(p_health: int = 10, p_size: int = 4):
+	health = p_health
+	size = p_size

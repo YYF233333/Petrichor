@@ -1,0 +1,18 @@
+# _init() with parameters on a Node (spec §6.2), driven by language_test.gd:
+# new(...) passes them, and a member that must be assigned which _init()
+# assigns is there when the node becomes ready.
+class_name ConstructNode
+extends Node
+
+pub var target: Node
+pub var size := 0
+pub var readied := false
+
+
+pub func _init(p_target: Node, p_size: int = 3):
+	target = p_target
+	size = p_size
+
+
+func _ready():
+	readied = true

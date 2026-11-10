@@ -329,10 +329,11 @@ TEST_CASE("the class header comes before the members") {
 	CHECK(has_error("extends Node\n\nfunc f():\n\tpass\n\nextends Node2D\n", "class header"));
 }
 
-// Spec §6.2: the engine constructs Node and Resource scripts with no arguments.
+// Spec §6.2: Node and Resource scripts take parameters through new(...) too.
 TEST_CASE("_init") {
 	CHECK(errors_of("extends Node\nvar ready_count := 0\n\nfunc _init():\n\tready_count = 1\n").empty());
-	CHECK(has_error("extends Node\n\nfunc _init(a: int):\n\tpass\n", "cannot take parameters"));
+	CHECK(errors_of("extends Node\nvar target: Node\n\nfunc _init(a: Node, b: int = 1):\n\ttarget = a\n").empty());
+	CHECK(errors_of("extends Resource\nvar size := 0\n\nfunc _init(a: int = 4):\n\tsize = a\n").empty());
 	CHECK(has_error("extends Node\n\nfunc _init() -> int:\n\treturn 1\n", "returns nothing"));
 }
 

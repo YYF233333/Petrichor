@@ -8450,11 +8450,6 @@ class Checker : public ClassRelation {
 			error(r_function.name_token, "\"" + r_function.name + "()\" overrides an engine method and cannot be static.");
 		}
 
-		// The engine constructs Node and Resource scripts with no arguments
-		// (spec §6.2); others take them through new(...).
-		if (r_function.name == "_init" && !r_function.params.empty() && (engine.inherits(cls.native_base, "Node") || engine.inherits(cls.native_base, "Resource"))) {
-			error(r_function.name_token, "_init() of a " + cls.extends + " script cannot take parameters: the engine constructs it with none. Use members that must be assigned instead.");
-		}
 		if (r_function.name == "_init" && r_function.return_type_ref && r_function.return_type_ref->name != "void") {
 			error(r_function.return_type_ref->range, "_init() returns nothing.");
 		}

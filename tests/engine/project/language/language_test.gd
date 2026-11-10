@@ -750,6 +750,12 @@ func _ready() -> void:
 	_check_errors(["res://language/construct_private.pet cannot be constructed here: its _init() is not pub.", "Error calling method from 'callv': 'PetScript::new': Method not found."], "GDScript cannot construct a class whose _init() is not pub")
 	RefCounted.new().set_script(load("res://language/construct_check.pet"))
 	_check_errors(["construct_check.pet:12: ConstructCheck was constructed without arguments, but its _init() requires them; construct it with new(...)."], "the engine constructing a class whose _init() has required parameters is a program error")
+	var node_made := ConstructNode.new(self)
+	add_child(node_made)
+	_check(node_made.readied and node_made.target == self and node_made.size == 3, "new(...) passes its arguments to a Node's _init(), which provides a member that must be assigned")
+	node_made.queue_free()
+	var loaded: ConstructResource = load("res://language/construct_resource.tres")
+	_check(ConstructResource.new(7, 8).size == 8 and loaded.size == 4 and loaded.health == 25, "loading a Resource runs its _init() with the defaults, before the values the file saved")
 
 	# Annotations describe a class to the engine as GDScript's do (spec §2.3).
 	var annotated := AnnotationCheck.new()
