@@ -1762,6 +1762,14 @@ class Checker : public ClassRelation {
 		return set(r_expr, p_decl.dictionary->type);
 	}
 
+	// The name of an enum of the engine as a value, as for one of this
+	// language: its names and values (spec §3.7).
+	Type use_engine_enum_dictionary(Expr &r_expr, const Type &p_enum) {
+		r_expr.target = Target::Constant;
+		r_expr.constant = enum_dictionary(*p_enum.values, p_enum);
+		return set(r_expr, r_expr.constant->type);
+	}
+
 	// The enum that the base of `State.IDLE`, `State(x)` or `State.try_from(x)`
 	// names: one of this class by its bare name, when nothing closer has it, or
 	// a pub one of another class, as in `Player.State`; null for any other base.
@@ -2309,6 +2317,14 @@ class Checker : public ClassRelation {
 			}
 			return check_engine_constant(r_expr, cls.native_base);
 		}
+		// Such as ProcessMode, an enum's name as a value (spec §3.7, §4.1).
+		if (const std::optional<Type> found = engine.find_enum(cls.native_base, r_expr.text)) {
+			if (refuse_ambiguous_engine_name(r_expr.text, r_expr.range)) {
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
+			refer(r_expr.name_token, engine_id(found->name.substr(0, found->name.find('.')), r_expr.text));
+			return use_engine_enum_dictionary(r_expr, *found);
+		}
 		return std::nullopt;
 	}
 
@@ -2471,6 +2487,11 @@ class Checker : public ClassRelation {
 			const builtin::Enum *of = builtin::global_constant_enum(r_expr.text);
 			const std::optional<Type> type = of ? builtin_enum(of->name) : std::nullopt;
 			return set(r_expr, type ? *type : Type::of(TypeKind::Int));
+		}
+		// Such as MouseButton, a global enum's name as a value (spec §3.7).
+		if (const std::optional<Type> found = builtin_enum(r_expr.text)) {
+			refer(r_expr.name_token, engine_id(r_expr.text));
+			return use_engine_enum_dictionary(r_expr, *found);
 		}
 		if (is_type_name(r_expr.text)) {
 			return fail(r_expr, "\"" + r_expr.text + "\" is a type, not a value.");
@@ -2780,6 +2801,11 @@ class Checker : public ClassRelation {
 		}
 		if (names_type(base)) {
 			refer(base.name_token, engine_id(base.text));
+			// Such as Tween.TransitionType or Vector3.Axis, an enum's name as a value (spec §3.7).
+			if (const std::optional<Type> found = named_engine_enum(base.text + "." + r_expr.text)) {
+				refer(r_expr.name_token, engine_id(base.text, r_expr.text));
+				return use_engine_enum_dictionary(r_expr, *found);
+			}
 			if (const builtin::Class *type = builtin::find_class(base.text)) {
 				if (const builtin::Constant *constant = builtin::find_constant(*type, r_expr.text)) {
 					r_expr.target = Target::BuiltinConstant;

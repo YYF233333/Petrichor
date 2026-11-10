@@ -112,6 +112,14 @@ TEST_CASE("the engine's enums are enum types too, and its bitfields stay int (sp
 	CHECK(!contains(bytecode::disassemble(result.module, function_named(result.module, "f")), "CHECK_ENUM"));
 }
 
+TEST_CASE("the name of an engine's enum as a value is typed as one of this language's (spec §3.7)") {
+	const auto errors_in = [](const std::string &p_body) { return joined(errors_of(in_function(p_body))); };
+	CHECK(errors_in("var names: Array[String] = Tween.EaseType.keys()\nvar values: Array[Tween.EaseType] = Tween.EaseType.values()\n"
+					"var b: MouseButton? = MouseButton.get(\"MOUSE_BUTTON_LEFT\")\nvar axes: int = Vector3.Axis.size()\nvar mode: ProcessMode = ProcessMode[\"PROCESS_MODE_ALWAYS\"]")
+					.empty());
+	CHECK(contains(errors_in("var values: Array[int] = Tween.EaseType.values()"), "Cannot assign a value of type Array[Tween.EaseType] as Array[int]."));
+}
+
 TEST_CASE("an enum compiles to an int checked where it is made from one") {
 	const compiler::CompileResult result = compile_in(std::string("extends Node\n\n") + STATE + "func f(n: int) -> State:\n\treturn State(n)\n", FakeProject());
 	REQUIRE_MESSAGE(result.ok(), messages(result));

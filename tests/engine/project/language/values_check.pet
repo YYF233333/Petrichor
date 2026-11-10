@@ -395,3 +395,8 @@ pub func loaded_scene() -> String:
 	var caption := made.caption()
 	made.free()
 	return caption
+
+# The name of an engine's enum as a value: its names and values (spec §3.7).
+pub func engine_enum_names() -> Array:
+	var eases: Array[Tween.EaseType] = Tween.EaseType.values()
+	return [Tween.EaseType.keys()[1], eases[2], MouseButton.get("MOUSE_BUTTON_RIGHT").unwrap(), Vector3.Axis.size()]
