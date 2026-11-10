@@ -1381,6 +1381,12 @@ class Execution {
 		*reinterpret_cast<uint64_t *>(p_frame + p_op[2]) = object && image.fits_class(object, p_op[1]) ? 1 : 0;
 	}
 
+	PETRICHOR_NOINLINE void op_is_script(const uint32_t *p_op, uint8_t *p_frame) {
+		const uint8_t *src = p_frame + p_op[2];
+		const Object *object = is_live_object(src) ? ObjectView(src).get().get_validated_object() : nullptr;
+		*reinterpret_cast<uint64_t *>(p_frame + p_op[1]) = object && extends_script(object->get_script(), ObjectView(p_frame + p_op[3]).get()) ? 1 : 0;
+	}
+
 	PETRICHOR_NOINLINE void op_new_container(const uint32_t *p_op, uint8_t *p_frame) {
 		const TypeImage &type = image.types[p_op[1]];
 		if (type.storage == ValueType::Dictionary) {
@@ -2733,6 +2739,10 @@ public:
 					break;
 				case Op::IS_INSTANCE:
 					op_is_instance(code + pc, frame);
+					pc += 4;
+					break;
+				case Op::IS_SCRIPT:
+					op_is_script(code + pc, frame);
 					pc += 4;
 					break;
 				case Op::IS_NONE: {

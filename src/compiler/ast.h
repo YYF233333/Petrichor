@@ -112,7 +112,7 @@ enum class Target {
 	NewObject, // `Class.new()`, the class being the call's type.
 	Utility,
 	Range, // GDScript's `range(...)`, an Array[int] that `for` counts over without making.
-	GDScriptUtility, // GDScript's len(), ord(), print_stack() or get_stack(), named by `text`.
+	GDScriptUtility, // GDScript's len(), ord(), print_stack(), get_stack() or is_instance_of() of a Script, named by `text`.
 	ConvertToInt,
 	ConvertToFloat,
 	Encode, // `Array(hits)` or `Dictionary(d)` of a container that keeps boxes (spec §3.8).

@@ -33,7 +33,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - `ok()` and `err()` of `Result[T?, E]` and `Result[T, E?]`.
 - The names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7).
 - `Ok(v)`, `Err(e)`, `None` and `?` in a lambda without a return type passed to `and_then()` or `or_else()`. Nothing gives their `U` or `F` yet (spec §3.4, §3.5, §4.6).
-- `is_instance_of(v, T)` with `T` a value of static type `Script` (spec §2.6). Native classes held in variables wait for classes as values. gdUnit4 passes them.
+- `is_instance_of(v, T)` with a native class held in a variable, which waits for classes as values (spec §2.6). gdUnit4 passes them.
 - An inner class named as an engine enum, such as `Key`. A type reads the name as the engine's enum, an expression as the inner class (spec §4.1). So `func make() -> Key: return Key.new()` is an error.
 - Node paths (spec §7.1):
   - into instanced scenes;

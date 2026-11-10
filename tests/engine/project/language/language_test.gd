@@ -249,6 +249,11 @@ func _ready() -> void:
 	var misused := [v.ord_of("ab"), v.char_of(-1)]
 	_check_errors(["values_check.pet:365: ord() takes one character, found a String of length 2.", "values_check.pet:368: -1 is out of range for the engine's char32."], "ord() of other than one character and char() of a code that is no char32 are program errors")
 	_check(misused == [0, ""], "the program errors end the callers")
+	var heir := RestChild.new()
+	var heir_base: Script = load("res://language/rest_check.pet")
+	_check(v.instance_of([heir, RefCounted.new(), null, 3], heir_base) == [false, true, false, false, false] and v.instance_of([heir], heir.get_script()) == [false, true], "is_instance_of() of a Script value: the script or one it extends, never of a freed object, None or other values (spec §2.6)")
+	_check(v.instance_of([self, heir], get_script()) == [false, true, false] and v.instance_of([heir, self], GDScript.new()) == [false, false, false], "is_instance_of() of a GDScript script, and of a script without a path, which is only itself")
+	heir.free()
 	var gone_node := Node.new()
 	gone_node.free()
 	_check(v.name_or_dash(null) == "-" and v.name_or_dash(v) == str(v.name) and v.callv("name_or_dash", [gone_node]) == "-", "== None narrows, and a freed object is None in T?")

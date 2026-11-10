@@ -1715,6 +1715,16 @@ bool has_script(const Variant &p_script, const String &p_path) {
 	return false;
 }
 
+bool extends_script(const Variant &p_script, const Variant &p_base) {
+	const Object *base = p_base.get_validated_object();
+	for (Ref<Script> script = p_script; script.is_valid(); script = script->get_base_script()) {
+		if (script.ptr() == base) {
+			return true;
+		}
+	}
+	return false;
+}
+
 namespace {
 
 bool exactly_typed(int64_t p_builtin, const StringName &p_class, const Variant &p_script, ValueType p_type, const StringName &p_want_class, const String &p_want_script) {

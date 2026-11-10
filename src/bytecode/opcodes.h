@@ -131,6 +131,7 @@ namespace petrichor::bytecode {
 	X(ASSERT_FAIL, "A", "S") /* message (String, NO_SLOT: none): the program error of a failed assert */ \
 	X(CAST_OBJECT, "IDA", "Coo") /* class, dst, src: `as`, None if it fails */ \
 	X(IS_INSTANCE, "IDA", "Cbo") /* class, dst (bool), src: `is` */ \
+	X(IS_SCRIPT, "DAB", "boo") /* dst (bool), src, script: is_instance_of() of a Script, which src's script or one of its bases is (spec §2.6) */ \
 	X(IS_NONE, "TDA", "tbl") /* type of src, dst (bool), src (an object or T?) */ \
 	X(SOME, "TDA", ".l") /* type of dst (T?), dst, src (T): Some(src) (spec §3.4) */ \
 	X(EQUAL, "TDAB", "tbll") /* type, dst (bool), a, b: a == b, a struct field by field (spec §3.6) */ \

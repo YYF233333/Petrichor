@@ -1374,8 +1374,11 @@ class Checker : public ClassRelation {
 	// The type a name refers to when it is the base of `Name.x` or
 	// `Name.f()`: not when a local, a member or a property has that name.
 	bool names_type(const Expr &p_expr) const {
-		return p_expr.kind == ExprKind::Name && !visible_local(p_expr.text) && !member_index.count(p_expr.text) && !static_index.count(p_expr.text) &&
-				!engine.find_property(cls.native_base, p_expr.text) && is_type_name(p_expr.text) && !engine.is_singleton(p_expr.text);
+		return p_expr.kind == ExprKind::Name && !names_variable(p_expr.text) && is_type_name(p_expr.text) && !engine.is_singleton(p_expr.text);
+	}
+
+	bool names_variable(const std::string &p_name) const {
+		return visible_local(p_name) || member_index.count(p_name) || static_index.count(p_name) || engine.find_property(cls.native_base, p_name);
 	}
 
 	/* Constants (spec §4.5) */
@@ -6213,38 +6216,65 @@ class Checker : public ClassRelation {
 		return set(r_expr, name == "get_stack" ? Type::array(Type::builtin("Dictionary")) : Type::of(TypeKind::Void));
 	}
 
-	// is_instance_of(v, T) of a class name or a TYPE_* constant, as `v is T`.
-	// A type held in a variable would need classes as values.
+	// is_instance_of(v, T) of a class name or a TYPE_* constant, as `v is T`;
+	// of a Script value, by the rules of `is` without narrowing (spec §2.6).
 	Type check_is_instance_of(Expr &r_expr) {
 		refer(r_expr.name_token, engine_id("@GDScript", "is_instance_of"));
 		if (r_expr.args.size() != 2) {
 			return fail_call(r_expr, "Function \"is_instance_of()\" takes 2 argument(s), " + std::to_string(r_expr.args.size()) + " given.");
 		}
 		const Expr &type = *r_expr.args[1];
+		if (!written_type(type)) {
+			return check_script_test(r_expr);
+		}
 		TypeRef tested;
 		tested.range = type.range;
-		tested.name_token = type.name_token;
-		const bool named = type.kind == ExprKind::Name && !visible_local(type.text) && !member_index.count(type.text);
-		const builtin::Enum *of = named ? builtin::global_constant_enum(type.text) : nullptr;
+		tested.name_token = first_name_token(type);
+		tested.name = dotted_name(type);
+		const builtin::Enum *of = type.kind == ExprKind::Name ? builtin::global_constant_enum(type.text) : nullptr;
 		const int64_t variant_type = of && std::string(of->name) == "Variant.Type" ? *builtin::global_constant(type.text) : 0;
 		// TYPE_NIL and TYPE_MAX name no type.
 		if (variant_type > 0 && variant_type < int64_t(bytecode::ValueType::Variant)) {
 			tested.name = bytecode::value_type_name(bytecode::ValueType(variant_type));
 			tested.name_token = NO_TOKEN;
 			refer(type.name_token, engine_id("@GlobalScope", type.text));
-		} else if (named) {
-			tested.name = type.text;
-		} else if (type.kind == ExprKind::Member && type.base->kind == ExprKind::Name) {
-			tested.name = type.base->text + "." + type.text;
-			tested.name_token = type.base->name_token;
-		} else {
-			return fail_call(r_expr, "is_instance_of() takes a class name or a TYPE_* constant; a type held in a variable is not supported.");
 		}
 		r_expr.kind = ExprKind::TypeTest;
 		r_expr.left = std::move(r_expr.args[0]);
 		r_expr.cast_type = tested;
 		r_expr.args.clear();
 		return check_type_test(r_expr);
+	}
+
+	// Whether T of is_instance_of() is written as a type: names, as A.B, the
+	// first of which no variable or autoload hides.
+	bool written_type(const Expr &p_expr) const {
+		if (p_expr.kind == ExprKind::Member) {
+			return p_expr.base && written_type(*p_expr.base);
+		}
+		return p_expr.kind == ExprKind::Name && !names_variable(p_expr.text) && !(options.project && !options.project->autoload_path(p_expr.text).empty());
+	}
+
+	Type check_script_test(Expr &r_expr) {
+		const Type value = check_value(*r_expr.args[0]);
+		const Type script = check_value(*r_expr.args[1]);
+		if (value.is_error() || script.is_error()) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		const Type wanted = Type::object("Script");
+		const bool of_script = script.kind == TypeKind::Object && is_a(script, wanted);
+		if (of_script && script.nullable) {
+			error(r_expr.args[1]->range, "The value may be None (" + script.to_string() + "); unwrap it first.");
+		} else if (!of_script) {
+			const bool may_be = script.kind == TypeKind::Variant || (script.kind == TypeKind::Object && related(script, wanted));
+			error(r_expr.args[1]->range, "is_instance_of() takes a class name, a TYPE_* constant or a Script, not " + script.to_string() + (may_be ? "; test it with is Script first." : "."));
+		} else if (value.kind != TypeKind::Object && value.kind != TypeKind::Variant) {
+			error(r_expr.args[0]->range, "is_instance_of() tests objects against a Script, not " + value.to_string() + ".");
+		} else {
+			r_expr.target = Target::GDScriptUtility;
+			return set(r_expr, Type::of(TypeKind::Bool));
+		}
+		return set(r_expr, Type::of(TypeKind::Error));
 	}
 
 	// Why await cannot be written here; empty where it can.

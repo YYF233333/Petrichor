@@ -1732,6 +1732,14 @@ class Lowerer {
 				return NO_REG;
 			}
 			const uint32_t result = temp(p_call.type);
+			if (p_call.text == "is_instance_of") {
+				uint32_t value = lower_expr(*p_call.args[0]);
+				if (reg_type(value) == ValueType::Variant) {
+					value = variant_object(value, Type::object("Object"));
+				}
+				instr(Op::IS_SCRIPT, result, value, lower_expr(*p_call.args[1]));
+				return result;
+			}
 			if (p_call.text == "get_stack") {
 				instr(Op::GET_STACK, result, NO_REG, NO_REG, 0, fn.regs[result].type);
 				return result;

@@ -109,6 +109,8 @@
 | GDScript 的 `PI`、`TAU`、`INF`、`NAN` 是可被声明遮蔽的全局常量 | `modules/gdscript/gdscript.cpp:2154-2157`；`modules/gdscript/gdscript_tokenizer.cpp:202-207` | §2.6 |
 | GDScript 的 `Color8`、`convert`、`type_exists`、`inst_to_dict`、`dict_to_inst` 在禁用弃用功能的构建中不存在，文档给出替代写法 | `modules/gdscript/gdscript_utility_functions.cpp:572-585`；`modules/gdscript/doc_classes/@GDScript.xml:14, 61, 77, 106, 269` | §2.6 |
 | GDScript 的 `is_instance_of` 的第二个参数可以是 `TYPE_*` 常量、原生类或脚本，三者都可以是变量中的值 | `modules/gdscript/gdscript_utility_functions.cpp:454-506` | §2.6 |
+| GDScript 的 `is_instance_of` 对已释放的值报错。值为 null 或不是对象时得到假，此前不查第二个参数是不是类或脚本 | `modules/gdscript/gdscript_utility_functions.cpp:471-477, 479-505` | §2.6 |
+| GDScript 中作为值的原生类是 `GDScriptNativeClass` 对象，这个类不登记也不暴露给扩展 | `modules/gdscript/gdscript_compiler.cpp:109-113` | §2.6 |
 | GDScript 的 `@warning_ignore` 遇到不认识的警告名时报错 | `modules/gdscript/gdscript_parser.cpp:5126-5128` | §2.3 |
 | GDScript 的 `@warning_ignore` 按行忽略警告，从注解所在行到所注语句或声明的开头部分结束；`@warning_ignore_start` 忽略到同名的 `@warning_ignore_restore` | `modules/gdscript/gdscript_parser.cpp:291-294, 5131-5189, 5199-5228` | §2.3 |
 | GDScript 的静态检查允许 String 与 StringName、NodePath 双向隐式转换，不允许 StringName 与 NodePath 之间转换 | `modules/gdscript/gdscript_analyzer.cpp:6370-6374`；`core/variant/variant.cpp:579-587, 735-750` | §10.7 |

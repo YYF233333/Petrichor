@@ -195,7 +195,13 @@ TEST_CASE("GDScript's own functions") {
 	// As `v is T`, which narrows.
 	CHECK(errors_of(in_function("var n: Node = Node.new()\nif is_instance_of(n, Node3D):\n\tvar m: Node3D = n")).empty());
 	CHECK(type_of("is_instance_of(v, TYPE_INT)", "var v: Variant = 1") == "bool");
-	CHECK(has_error(in_function("var t := 3\nvar b := is_instance_of(t, t)"), "a type held in a variable is not supported"));
+	// Of a Script value, a bool that does not narrow.
+	CHECK(type_of("is_instance_of(n, s) and is_instance_of(v, s) and is_instance_of(n, g)", "var n: Node = Node.new()\nvar v: Variant = n\nvar s: Script = GDScript.new()\nvar g := GDScript.new()") == "bool");
+	CHECK(has_error(in_function("var n: Node = Node.new()\nvar s: Script = GDScript.new()\nif is_instance_of(n, s):\n\tvar m: Node3D = n"), "Cannot assign a value of type Node as Node3D"));
+	CHECK(has_error(in_function("var s: Script? = null\nvar b := is_instance_of(self, s)"), "The value may be None (Script?); unwrap it first."));
+	CHECK(has_error(in_function("var t: Variant = 3\nvar b := is_instance_of(self, t)"), "is_instance_of() takes a class name, a TYPE_* constant or a Script, not Variant; test it with is Script first."));
+	CHECK(has_error(in_function("var t := 3\nvar b := is_instance_of(self, t)"), "is_instance_of() takes a class name, a TYPE_* constant or a Script, not int."));
+	CHECK(has_error(in_function("var b := is_instance_of(3, GDScript.new())"), "is_instance_of() tests objects against a Script, not int."));
 }
 
 // The countdown of the documentation of _iter_init (doc/classes/Object.xml:217-240; ed1daf0).

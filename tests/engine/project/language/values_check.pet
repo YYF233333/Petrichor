@@ -366,3 +366,13 @@ pub func ord_of(s: String) -> int:
 
 pub func char_of(code: int) -> String:
 	return char(code)
+
+# is_instance_of() of a Script value, by the rules of `is` (spec §2.6): first of
+# a freed object, then of each value.
+pub func instance_of(values: Array, s: Script) -> Array[bool]:
+	var freed := RestChild.new()
+	freed.free()
+	var results: Array[bool] = [is_instance_of(freed, s)]
+	for value in values:
+		results.append(is_instance_of(value, s))
+	return results

@@ -369,6 +369,9 @@ bool same_object(const uint8_t *p_a, bool p_a_optional, const uint8_t *p_b, bool
 // A class of a script is the script and those that extend it; with no script
 // asked for, any will do.
 bool has_script(const godot::Variant &p_script, const godot::String &p_path);
+// Whether the script is the base script itself or extends it, by identity, so
+// that a script without a path is only itself (spec §2.6).
+bool extends_script(const godot::Variant &p_script, const godot::Variant &p_base);
 // The value of a slot as it leaves this language: a T? whose object was
 // freed reads as None (spec §3.3).
 godot::Variant outward_variant(const TypeImage &p_type, const uint8_t *p_data);
