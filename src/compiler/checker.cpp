@@ -9894,7 +9894,8 @@ class Checker : public ClassRelation {
 
 	// Where scenes place the script, its owner satisfies @owner(T) (spec §7.3):
 	// that of a node is the root of the scene that stores it, and that of a
-	// scene's root the root of each scene that instances it.
+	// scene's root the root of each scene that instances it. The main scene's
+	// root has none.
 	void check_owner_scenes() {
 		if (!cls.owner_ref || cls.owner_type.is_error()) {
 			return;
@@ -9904,6 +9905,8 @@ class Checker : public ClassRelation {
 			const ViewNode *owner = placed && !placed->owner.empty() ? view_node(p_scene, placed->owner) : nullptr;
 			if (owner) {
 				check_required(cls.owner_ref->range, p_scene, p_node, owner->node, cls.owner_type, "the owner of " + p_node.path, "@owner");
+			} else if (placed && p_scene.path == options.project->main_scene()) {
+				error_in_scene(cls.owner_ref->range, p_scene, p_node.path, p_scene.path + ": the main scene's root has no owner (@owner).");
 			}
 		});
 	}

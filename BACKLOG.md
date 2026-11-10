@@ -11,8 +11,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - must-assign exports in scenes, in resources and at export (spec §7.5);
   - a statically known scene's `instantiate(...)` missing an export the scene does not assign (§7.4). The scene index reads only what each scene itself stores on nodes with this language's scripts;
   - a child reading a member that ancestors assign in its own `_ready` (§6.2);
-  - a must-assign member that is not pub, which its file or a subclass must export or assign (§4.2). It needs every subclass;
-  - a scene used as a root whose root has a script with `@owner` (§7.3).
+  - a must-assign member that is not pub, which its file or a subclass must export or assign (§4.2). It needs every subclass.
 - Checking at compile time what resources store in exported structs and enums with payloads (spec §4.3). They are `.tres` files and resources inside scenes, which the scene index does not read. Nor does it read a node of an instanced scene that the outer scene changes.
 - How `T??` crosses the engine boundary (spec §10.1), where `None` and `Some(None)` would both be null. Until then, pub members and parameters, signal parameters and coroutine results of `T??` are refused. These still lose `Some(None)`:
   - `Variant?` in those places;
@@ -20,7 +19,9 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - the result of an async lambda, and the arguments of `bind()`.
 - `find_key()` of `Dictionary[T?, V]` for an object `T`. The engine gives null for a missing key and for a None key.
 - `is_instance_of(v, T)` with a native class held in a variable, which waits for classes as values (spec §2.6). gdUnit4 passes them.
-- A scene used as a root through `load`, `preload` or an exported `PackedScene` (spec §7.2). The node paths of a script take a scene that is also inherited for a base used only for inheritance. It may then lack a node without an error, which the run-time check catches.
+- A scene used as a root through `load`, `preload` or an exported `PackedScene` (spec §7.2, §7.3). Only the main scene is known as one. Finding the others reads every script and every scene, beyond a check's inputs now (architecture §6.4). Until then:
+  - the node paths of a script take a scene that is also inherited for a base used only for inheritance. It may then lack a node without an error, which the run-time check catches;
+  - a root with an `@owner` script is a compile error on the main scene only. Elsewhere reading `owner` gives the program error.
 - `pub` required on the members that animation tracks and synchronized properties name (spec §10.5). The compiler does not read them yet (spec §7.7).
 - In debug builds, listing where the instances still alive at exit were made (spec §6.7, §12.5).
 

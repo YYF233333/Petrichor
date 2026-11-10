@@ -320,6 +320,9 @@ TEST_CASE("@owner(T): owner has type T, and scenes give the script such an owner
 	const std::string errors = messages(compile_in(source, project));
 	CHECK(contains(errors, "res://plain.tscn: the owner of Component is Node3D, not Combat.Combatant (@owner)."));
 	CHECK(contains(errors, "res://plain.tscn: the owner of Direct is Node3D, not Combat.Combatant (@owner)."));
+	// The root of a scene used as the root has no owner.
+	project.main = "res://component.tscn";
+	CHECK(contains(messages(compile_in(source, project)), "res://component.tscn: the main scene's root has no owner (@owner)."));
 
 	CHECK(contains(messages(compile_in("extends Node\n\nfunc f():\n\tprint(owner.name)\n", project)), "The value may be None (Node?)"));
 	CHECK(contains(messages(compile_in("@owner(Node?)\nextends Node\n", FakeProject())), "@owner takes a class or an interface, not Node?."));
