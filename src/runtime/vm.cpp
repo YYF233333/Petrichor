@@ -546,11 +546,13 @@ String key_text(const Variant &p_key) {
 	return type_of(p_key) == Variant::CALLABLE ? String(p_key) : UtilityFunctions::var_to_str(p_key);
 }
 
-// Whether calling the Callable would reach an object that was freed, or none:
-// the engine checks that of a Callable that is not custom only in debug
-// builds (core/variant/callable.cpp:60-70, ed1daf0), and a custom one itself.
+// Whether calling the Callable would reach an object that was freed, or none,
+// which is a program error of the caller (spec §3.3, §3.11): the engine checks
+// that of a Callable that is not custom only in debug builds, and of a custom
+// one tells no caller that sees only the result
+// (core/variant/callable.cpp:44-70, ed1daf0).
 bool target_freed(const Callable &p_callable) {
-	return !p_callable.is_custom() && !p_callable.get_object();
+	return p_callable.is_custom() ? !p_callable.is_valid() : !p_callable.get_object();
 }
 
 // What is read out of a container is checked against its type where the
@@ -1955,12 +1957,8 @@ class Execution {
 				return *done;
 			}
 		}
-		// Nothing is called, as with a custom Callable whose object was freed.
 		if (!utility && image.builtin_calls[target].runs_callable && target_freed(*reinterpret_cast<const Callable *>(p_frame + p_op[3]))) {
-			if (dst != NO_SLOT) {
-				clear_value(image.types[module.builtin_methods[target].result_type], p_frame + dst);
-			}
-			return true;
+			return fail_cstr(p_fn, p_line, "The function value's object was freed.");
 		}
 		const std::vector<ValueType> &params = utility ? module.utility_calls[target].params : module.builtin_methods[target].params;
 		const ValueType returns = utility ? module.utility_calls[target].return_type : module.builtin_methods[target].return_type;
