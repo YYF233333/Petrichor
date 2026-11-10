@@ -175,6 +175,9 @@ struct Enum {
 
 // One of the engine's global enums, or an enum of a built-in type; null if none.
 const Enum *find_enum(std::string_view p_name);
+// The enum of a built-in type that has a value of this name, such as
+// Vector3.Axis of AXIS_X, and in `r_value` the value; null if none.
+const Enum *find_class_enum(std::string_view p_class, std::string_view p_value, int64_t &r_value);
 // The global enum a global constant is a value of, such as Key of KEY_ESCAPE; null for another constant.
 const Enum *global_constant_enum(std::string_view p_name);
 

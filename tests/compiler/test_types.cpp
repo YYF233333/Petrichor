@@ -128,6 +128,9 @@ TEST_CASE("members, constants and constructors of built-in types") {
 	CHECK(type_of("Vector3().lerp(Vector3.ONE, 0.5)") == "Vector3");
 	CHECK(contains(type_of("v.w", "var v := Vector3()"), "Vector3 has no member \"w\""));
 	CHECK(contains(type_of("Vector3.NOPE"), "no constant"));
+	// The values of their enums (spec §3.7), also in constants.
+	CHECK(type_of("Vector3.AXIS_Z") == "Vector3.Axis");
+	CHECK(type_of("v", "const v: int = Vector2i.AXIS_Y") == "int");
 	CHECK(contains(type_of("Vector3(\"a\")"), "No constructor of Vector3 takes (String)"));
 }
 

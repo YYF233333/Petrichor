@@ -175,6 +175,20 @@ const Enum *find_enum(std::string_view p_name) {
 	return found == end || p_name != found->name ? nullptr : found;
 }
 
+const Enum *find_class_enum(std::string_view p_class, std::string_view p_value, int64_t &r_value) {
+	const std::string prefix = std::string(p_class) + ".";
+	const Enum *end = ENUMS + ENUM_COUNT;
+	for (const Enum *e = std::lower_bound(ENUMS, end, prefix, [](const Enum &a, const std::string &b) { return std::string_view(a.name) < b; }); e != end && std::string_view(e->name).rfind(prefix, 0) == 0; e++) {
+		for (uint32_t i = 0; i < e->value_count; i++) {
+			if (p_value == e->values[i].name) {
+				r_value = e->values[i].value;
+				return e;
+			}
+		}
+	}
+	return nullptr;
+}
+
 const Enum *global_constant_enum(std::string_view p_name) {
 	const GlobalConstant *found = find_global_constant(p_name);
 	return found && found->enum_index >= 0 ? &ENUMS[found->enum_index] : nullptr;

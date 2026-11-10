@@ -2787,6 +2787,13 @@ class Checker : public ClassRelation {
 					refer(r_expr.name_token, engine_id(base.text, r_expr.text));
 					return set(r_expr, api_type(constant->type, false));
 				}
+				// A value of one of its enums, such as Vector3.AXIS_X (spec §3.7).
+				if (const builtin::Enum *of = builtin::find_class_enum(base.text, r_expr.text, r_expr.int_value)) {
+					r_expr.target = Target::EngineConstant;
+					refer(r_expr.name_token, engine_id(base.text, r_expr.text));
+					const std::optional<Type> type = builtin_enum(of->name);
+					return set(r_expr, type ? *type : Type::of(TypeKind::Int));
+				}
 				return fail(r_expr, base.text + " has no constant \"" + r_expr.text + "\".");
 			}
 			if (r_expr.text == "new") {
