@@ -186,6 +186,11 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - Wrapped's constructor takes a StringName, so each construction converts it (`wrapped.hpp:133`, `8070599`). The engine then looks the name up under a lock.
   - In coroutines.pet, when each call made a CoroutineTask, this took 1.8% of the loop. The whole construction took 14.5%.
   - A candidate fix: pass the class's cached `get_class_static()` instead.
+- Godot: the open [#124220](https://github.com/godotengine/godot/pull/124220) changes how the script editor takes an extension's errors and warnings. The owner may comment before it merges; nothing here changes until then.
+  - It groups every error that names a path into one diagnostic on the last line. The editor does not underline it (`core/object/script_language_extension.h:425-436`, `editor/script/script_text_editor.cpp:756-758`, `05ee117`).
+  - On 4.7 an extension must name its own script there, as this one does (`editor/script/script_text_editor.cpp:859-860`, `ed1daf0`; `src/adapter/pet_language.cpp:199`).
+  - It also puts the extension's one-based lines into zero-based ranges, so warnings move down a line. GDScript's own conversion subtracts one (`modules/gdscript/gdscript_editor.cpp:160-164`, `05ee117`).
+  - Once it merges, one build would need different output per engine version. A fix in the wrapper keeps the contract: take the script's own path as its own, and subtract one.
 
 ## Open questions
 
