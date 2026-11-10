@@ -7,7 +7,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Of `_init` on Node and Resource scripts (spec §6.2):
   - `instantiate(...)` still asks by name for a member that the root's `_init` assigns. The checker does not check that body, which is in another file.
   - A scene or `.tres` using a script whose `_init` has required parameters is a compile error. Now the engine's construction gives the program error.
-- `Class.new` as a value (spec §3.11), as gdUnit4 passes `GdUnitTuple.new` to `callv`. It must construct as `new(...)` does. PetScript's `new` refuses a non-pub `_init` that the caller sees, so the two share the construction.
 - Static checks of:
   - must-assign exports in scenes, in resources and at export (spec §7.5);
   - a statically known scene's `instantiate(...)` missing an export the scene does not assign (§7.4). The scene index reads only what each scene itself stores on nodes with this language's scripts;

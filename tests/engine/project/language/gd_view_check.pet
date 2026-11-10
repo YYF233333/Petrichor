@@ -45,6 +45,14 @@ pub func through_classes() -> Array:
 		node.free()
 	return result
 
+# new of a GDScript class as a value, its script's Callable (spec §3.11, §11.1).
+pub func made_by_value() -> int:
+	var make := Unit.new
+	var made: Unit = make.call(4)
+	var level := made.level
+	made.free()
+	return level
+
 # A member typed by a preloaded GDScript class without a class_name, which
 # other classes read (spec §2.1).
 pub var unit: Unit?

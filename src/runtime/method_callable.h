@@ -32,6 +32,12 @@ bool attach_script(godot::Object *p_object, const godot::Variant &p_script, bool
 bool init_left_to_caller();
 void constructed(bool p_initialized);
 
+// An object of the class of `p_image`, whose script is `p_script`, made as
+// new(...) makes it: the member initializers, then _init() with the arguments
+// (spec §6.1). Null when they do not fit or _init() ends in a program error,
+// which is then the error of a pending call of a function value (§8.1).
+godot::Variant construct(const std::shared_ptr<const ClassImage> &p_image, const godot::Variant &p_script, const godot::Variant **p_args, int p_argcount, GDExtensionCallError &r_error);
+
 // Likewise the current image of a script of this language by its path, which
 // a static method is called on (spec §4.8); null when it has none.
 using ScriptResolver = std::shared_ptr<const ClassImage> (*)(const godot::String &p_path);
@@ -101,11 +107,13 @@ godot::Variant held_script(const ClassImage &p_image);
 // A static function as a value (spec §3.11): of a class of this language,
 // found by name on its current image at each call (§12.4), or of an engine
 // class. Without an object it is valid, which connect() and emit() ask
-// (core/object/object.cpp:1255, 1528-1530; ed1daf0).
+// (core/object/object.cpp:1255, 1528-1530; ed1daf0). `new` of a class of this
+// language constructs it with its current image.
 class StaticCallable : public godot::CallableCustom {
 	godot::String owner; // The script's path, or the engine class.
 	godot::StringName method;
 	bool of_engine;
+	bool constructs;
 	godot::Variant script; // held_script(), for one of this language.
 
 	static bool compare_equal(const godot::CallableCustom *p_a, const godot::CallableCustom *p_b);

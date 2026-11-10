@@ -276,30 +276,7 @@ Variant PetScript::_new(const Variant **p_args, GDExtensionInt p_argcount, GDExt
 		r_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
 		ERR_FAIL_V_MSG(Variant(), get_script_path() + " cannot be constructed here: its _init() is not pub.");
 	}
-	if (current->user_init < 0 && p_argcount > 0) {
-		r_error.error = GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS;
-		r_error.expected = 0;
-		return Variant();
-	}
-	Variant object = ClassDBSingleton::get_singleton()->instantiate(_get_instance_base_type());
-	Object *made = object;
-	ERR_FAIL_NULL_V(made, Variant());
-	ScriptedObject instance;
-	bool initialized;
-	if (!attach_script(made, Ref<PetScript>(this), current->user_init >= 0, instance, initialized) || !initialized || instance.image->user_init < 0) {
-		return object;
-	}
-	// _init() with the arguments, after the initializers (spec §6.1); the
-	// object is not handed out when they do not fit.
-	bool failed = false;
-	vm::call(instance.image, instance.image->user_init, instance.context, p_args, p_argcount, r_error, &failed);
-	if (failed || r_error.error != GDEXTENSION_CALL_OK) {
-		if (!Object::cast_to<RefCounted>(made)) {
-			memdelete(made);
-		}
-		return Variant();
-	}
-	return object;
+	return construct(current, Ref<PetScript>(this), p_args, int(p_argcount), r_error);
 }
 
 String PetScript::get_script_path() const {

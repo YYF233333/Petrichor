@@ -11,3 +11,7 @@ func _init(n: int):
 
 pub static func make() -> ConstructPrivate:
 	return ConstructPrivate.new(8)
+
+
+pub static func maker() -> func(int) -> ConstructPrivate:
+	return ConstructPrivate.new

@@ -204,6 +204,7 @@
 
 - 实现 ScriptLanguageExtension、ScriptExtension 和 ScriptInstanceExtension，把实例的属性读写、方法调用和通知转给 runtime。
 - Script 类绑定 `new`，并把 `pub` 的 `_init` 报告为返回该类的静态方法，供 GDScript 检查 `Player.new(...)`（`modules/gdscript/gdscript.cpp:1078`，`modules/gdscript/gdscript_analyzer.cpp:5958-5961`）。不带 `pub` 的 `_init` 不报告，GDScript 视其为无参构造（`:6005-6031`，规范 §10.1）。
+- `Class.new` 作为值是名为 `new` 的静态函数值（规范 §3.11）。它与 Script 的 `new` 共用构造，但不查 `_init` 的可见性。可见性由检查器在取值处检查（§4.2）。
 - async 方法在反射中报告为无类型的 Variant（`PROPERTY_USAGE_NIL_IS_VARIANT`，§9.8）。反射没有协程标记（`core/object/method_info.h:37-44`），而报告为 T 有两个问题：
   - GDScript 会给出多余 await 的警告（`gdscript_analyzer.cpp:3102-3107`）；
   - 取消时的 `completed(null)` 不经检查写进 T 类型的临时变量，Transform3D 等值类型因此崩溃（`modules/gdscript/gdscript_vm.cpp:2667-2668`，`modules/gdscript/gdscript_byte_codegen.cpp:998-1001`）。

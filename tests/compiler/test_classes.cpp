@@ -384,6 +384,8 @@ TEST_CASE("a constant of a preloaded script names its class (spec §2.1)") {
 	CHECK(in("const Squad = preload(\"res://units/squad.gd\")\n\tvar s: Squad = Squad.new(3)\n\tvar u := preload(\"res://units/unit.gd\").new()\n\tvar c := preload(\"res://tools/grid.pet\").cell(1)").empty());
 	// new() takes what _init does.
 	CHECK(contains(in("var s := preload(\"res://units/squad.gd\").new()"), "takes 1 argument(s), 0 given"));
+	// new as a value, the script's (spec §3.11).
+	CHECK(in("const Squad = preload(\"res://units/squad.gd\")\n\tvar make: func(int) -> Squad = Squad.new\n\tvar s: Squad = make.call(3)").empty());
 }
 
 TEST_CASE("GDScript classes by class_name: new(), static methods and constants (spec §11.1)") {

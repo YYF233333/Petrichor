@@ -131,6 +131,9 @@ enum class Target {
 	// object evaluated first (spec §3.11, §4.8).
 	StaticValue,
 	EngineStaticValue,
+	// `Class.new` as a value (spec §3.11), of the class of this language at
+	// `owner`, whose nearest _init() is `callee` if it has one.
+	NewValue,
 	// An instance method of a struct as a value: `callee`, of the struct in
 	// `base`, declared in the class at `owner` (spec §3.11).
 	StructMethodValue,

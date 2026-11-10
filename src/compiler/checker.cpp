@@ -2810,7 +2810,7 @@ class Checker : public ClassRelation {
 			return class_value(r_expr, inner);
 		}
 		if (r_expr.text == "new") {
-			return refuse_new_value(r_expr, p_class);
+			return new_value(r_expr, p_path);
 		}
 		const ClassDecl *decl = script_decl(p_path); // class_static() reports one with errors.
 		for (const FuncDecl *entry : decl->all_functions) {
@@ -2831,8 +2831,23 @@ class Checker : public ClassRelation {
 		return fail(r_expr, missing(p_class + " has no constant, static variable or static function \"" + r_expr.text + "\".", p_path));
 	}
 
-	Type refuse_new_value(Expr &r_expr, const std::string &p_class) {
-		return fail(r_expr, "new() as a value is not supported yet; write a lambda, as func(): return " + p_class + ".new().");
+	// `Class.new` as a value (spec §3.11), which constructs as new(...) does,
+	// with the arguments of the nearest _init() and its visibility (§4.2).
+	Type new_value(Expr &r_expr, const std::string &p_path) {
+		const ClassDecl &header = *script_header(p_path); // class_static() found its declarations.
+		const FuncDecl *init = nullptr;
+		if (!find_init(r_expr, header, p_path, init)) {
+			return r_expr.type;
+		}
+		refer(r_expr.name_token, script_id(p_path, "new"));
+		r_expr.target = Target::NewValue;
+		r_expr.callee = init;
+		r_expr.owner = p_path;
+		Type type = init ? function_type(*init) : Type::function(Type::of(TypeKind::Void), {});
+		if (type.kind == TypeKind::Function) {
+			type.args[0] = script_class_type(header, p_path);
+		}
+		return set(r_expr, type);
 	}
 
 	// A static function of this language as a value (spec §3.11), called on the
@@ -3068,7 +3083,7 @@ class Checker : public ClassRelation {
 				return set(r_expr, *named);
 			}
 			if (!is_script_path(named->script)) {
-				return check_foreign_constant(r_expr, *named);
+				return r_expr.text == "new" ? check_foreign_class_call(r_expr, *named, true) : check_foreign_constant(r_expr, *named);
 			}
 			return class_member_value(r_expr, named->script, named->name);
 		}
@@ -3096,7 +3111,7 @@ class Checker : public ClassRelation {
 				return fail(r_expr, base.text + " has no constant \"" + r_expr.text + "\".");
 			}
 			if (r_expr.text == "new") {
-				return refuse_new_value(r_expr, base.text);
+				return fail(r_expr, base.text + ".new is not a value until engine classes are values; write a lambda, as func(): return " + base.text + ".new().");
 			}
 			if (builtin::error_getter(base.text, r_expr.text)) {
 				return fail(r_expr, base.text + "." + r_expr.text + " as a value is not supported yet; write a lambda that calls it.");
@@ -5429,7 +5444,7 @@ class Checker : public ClassRelation {
 	// The lambda or method value with a rest parameter that the value is, a
 	// Callable (spec §4.6).
 	static const FuncDecl *rest_function(const Expr &p_value) {
-		const bool method = p_value.target == Target::MethodValue || p_value.target == Target::StaticValue || p_value.target == Target::StructMethodValue;
+		const bool method = p_value.target == Target::MethodValue || p_value.target == Target::StaticValue || p_value.target == Target::StructMethodValue || p_value.target == Target::NewValue;
 		const FuncDecl *declared = p_value.kind == ExprKind::Lambda ? p_value.function.get() : (method ? p_value.callee : nullptr);
 		return declared && declared->has_rest() ? declared : nullptr;
 	}
@@ -6193,6 +6208,35 @@ class Checker : public ClassRelation {
 		return Type::result(value, p_getter.return_type);
 	}
 
+	// What new(...) of the class at `p_path` calls: the nearest _init(), whose
+	// arguments it takes and whose visibility it has, or null for none (spec
+	// §4.2, §6.1). False after reporting why the class cannot be made here.
+	bool find_init(Expr &r_expr, const ClassDecl &p_header, const std::string &p_path, const FuncDecl *&r_init) {
+		const std::string class_name = display_name(p_header, p_path);
+		const std::string native = script_class_type(p_header, p_path).engine_class();
+		std::string refused;
+		const ClassDecl *decl = script_decl(p_path);
+		if (p_header.is_abstract) {
+			refused = class_name + " is abstract and cannot be instantiated.";
+		} else if (!engine.can_instantiate(native)) {
+			refused = class_name + " cannot be instantiated: the engine cannot instantiate " + native + ", which it extends.";
+		} else if (!decl) {
+			refused = class_name + " has errors.";
+		} else {
+			const auto init = std::find_if(decl->all_functions.begin(), decl->all_functions.end(), [](const FuncDecl *p_function) { return p_function->name == "_init"; });
+			r_init = init == decl->all_functions.end() ? nullptr : *init;
+			if (r_init && !r_init->is_pub && !sees(declaring(*decl, *r_init, &ClassDecl::functions).path)) {
+				refused = "new() of " + class_name + " cannot be called here: its _init() is not pub.";
+			} else if (const auto message = r_init ? broken(r_init, class_name + "._init()") : std::nullopt) {
+				refused = *message;
+			}
+		}
+		if (!refused.empty()) {
+			fail_call(r_expr, refused);
+		}
+		return refused.empty();
+	}
+
 	// `Class.new()` or a static method of a class of this language, through its
 	// class_name or a preload (spec §2.1, §4.6, §4.8).
 	Type check_class_call(Expr &r_expr, const std::string &p_path) {
@@ -6203,28 +6247,12 @@ class Checker : public ClassRelation {
 		const std::string class_name = display_name(*header, p_path);
 		if (r_expr.text == "new") {
 			const Type type = script_class_type(*header, p_path);
-			if (header->is_abstract) {
-				return fail_call(r_expr, class_name + " is abstract and cannot be instantiated.");
+			const FuncDecl *init = nullptr;
+			if (!find_init(r_expr, *header, p_path, init)) {
+				return r_expr.type;
 			}
-			if (!engine.can_instantiate(type.engine_class())) {
-				return fail_call(r_expr, class_name + " cannot be instantiated: the engine cannot instantiate " + type.engine_class() + ", which it extends.");
-			}
-			// new(...) takes the arguments of the nearest _init() and has its
-			// visibility (spec §4.2, §6.1).
-			const ClassDecl *decl = script_decl(p_path);
-			if (!decl) {
-				return fail_call(r_expr, class_name + " has errors.");
-			}
-			const auto init = std::find_if(decl->all_functions.begin(), decl->all_functions.end(), [](const FuncDecl *p_function) { return p_function->name == "_init"; });
-			if (init != decl->all_functions.end()) {
-				const FuncDecl &callee = **init;
-				if (!callee.is_pub && !sees(declaring(*decl, callee, &ClassDecl::functions).path)) {
-					return fail_call(r_expr, "new() of " + class_name + " cannot be called here: its _init() is not pub.");
-				}
-				if (const auto message = broken(&callee, class_name + "._init()")) {
-					return fail_call(r_expr, *message);
-				}
-				call_declared(r_expr, callee, *declaring(*decl, callee, &ClassDecl::functions).source, type);
+			if (init) {
+				call_declared(r_expr, *init, *declaring(*script_decl(p_path), *init, &ClassDecl::functions).source, type);
 			} else {
 				hint(r_expr, [&](int p_current) { return signature("new", {}, false, p_current, type.to_string()); });
 				check_arguments(r_expr, {}, 0, false);
@@ -6322,8 +6350,10 @@ class Checker : public ClassRelation {
 	}
 
 	// `Class.new(...)` or a static method of a class of another language,
-	// called on its script; new() takes what its _init does (spec §11.1).
-	Type check_foreign_class_call(Expr &r_expr, const Type &p_class) {
+	// called on its script; new() takes what its _init does (spec §11.1). With
+	// `p_value`, the method as a value (§3.11), as GDScript's `Class.new` is the
+	// script's Callable (core/object/class_db.cpp:1655-1657).
+	Type check_foreign_class_call(Expr &r_expr, const Type &p_class, bool p_value = false) {
 		const ForeignClass *foreign = foreign_class(p_class.script);
 		if (!foreign || !foreign->members_known) {
 			fail_call(r_expr);
@@ -6366,7 +6396,7 @@ class Checker : public ClassRelation {
 		}
 		r_expr.is_foreign = true;
 		refer(r_expr.name_token, foreign_id(p_class.script, r_expr.text));
-		return check_engine_call(r_expr, method);
+		return p_value ? engine_method_value(r_expr, method) : check_engine_call(r_expr, method);
 	}
 
 	// A constant of a class of another language, read on its script (spec
@@ -10590,6 +10620,7 @@ class Checker : public ClassRelation {
 			case Target::StaticValue:
 			case Target::EngineStaticValue:
 			case Target::StructMethodValue:
+			case Target::NewValue:
 				return CompletionKind::Function;
 			case Target::SelfSignal:
 			case Target::ObjectSignal:

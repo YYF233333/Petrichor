@@ -130,7 +130,20 @@ TEST_CASE("a static function is a value, of this language or of the engine (spec
 	CHECK(contains(errors("var x := Spawner.hidden"), "\"hidden()\" of Spawner is not pub."));
 	CHECK(contains(errors("var x := Spawner.tick"), "\"tick()\" of Spawner is not static; take it from an object."));
 	CHECK(contains(errors("var x := FileAccess.get_as_text"), "\"get_as_text()\" of FileAccess is not static; take it from an object."));
-	CHECK(contains(errors("var x := Spawner.new"), "new() as a value is not supported yet"));
+}
+
+TEST_CASE("new of a class of this language is a value, with the arguments and the visibility of its _init() (spec §3.11, §4.2)") {
+	FakeProject project;
+	project.add_script("res://pair.pet", "class_name Pair extends RefCounted\npub func _init(a: int, b: String = \"b\"):\n\tpass\npub class Inner:\n\tpass\n", "Pair");
+	project.add_script("res://pool.pet", "class_name Pool extends RefCounted\nfunc _init(n: int):\n\tpass\n", "Pool");
+	const compiler::CompileResult result = compile_in("extends Node\nconst P = preload(\"res://pair.pet\")\nfunc f() -> Pair:\n\tvar inner: func() -> Pair.Inner = P.Inner.new\n\tinner.call()\n\tvar make: func(int, String) -> Pair = Pair.new\n\treturn make.call(1, \"x\")\n", project);
+	require_verified(result);
+	const bytecode::Function &f = function_named(result.module, "f");
+	CHECK(result.module.constants[f.code[find_instruction(f, Op::STATIC_VALUE) + 3]].s == "new");
+	const auto errors = [&](const std::string &p_source) { return messages(compile_in(p_source, project)); };
+	CHECK(contains(errors("extends Node\nfunc f() -> void:\n\tvar x := Pool.new\n"), "new() of Pool cannot be called here: its _init() is not pub."));
+	CHECK(compile_in("extends Pool\nfunc f() -> void:\n\tvar x: func(int) -> Pool = Pool.new\n", project).ok());
+	CHECK(contains(errors("extends Node\nfunc f() -> void:\n\tvar x := Node.new\n"), "Node.new is not a value until engine classes are values"));
 }
 
 TEST_CASE("a class calls its own static methods through its class_name") {

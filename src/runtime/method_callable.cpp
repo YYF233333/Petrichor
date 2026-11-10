@@ -3,6 +3,7 @@
 #include "runtime/text.h"
 
 #include <godot_cpp/classes/class_db_singleton.hpp>
+#include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/core/object.hpp>
 #include <godot_cpp/templates/hashfuncs.hpp>
 
@@ -20,7 +21,7 @@ thread_local bool without_init = false;
 thread_local bool last_initialized = true;
 
 // Calls the function, as the callee of a call of a function value when one is pending.
-Variant call_value(std::shared_ptr<const ClassImage> p_image, int p_function, InstanceContext p_context, const Variant **p_args, int p_argc, GDExtensionCallError &r_error, const uint8_t *p_captures, const uint8_t *p_bound_self = nullptr) {
+Variant call_value(std::shared_ptr<const ClassImage> p_image, int p_function, InstanceContext p_context, const Variant **p_args, int p_argc, GDExtensionCallError &r_error, const uint8_t *p_captures, const uint8_t *p_bound_self = nullptr, bool *r_failed = nullptr) {
 	ValueCall &value = current_value_call;
 	const bool callee = value.pending;
 	value.pending = false;
@@ -29,6 +30,9 @@ Variant call_value(std::shared_ptr<const ClassImage> p_image, int p_function, In
 	Variant result = vm::call(std::move(p_image), p_function, std::move(p_context), p_args, p_argc, r_error, &failed, p_captures, callee && value.task, p_bound_self);
 	if (callee) {
 		value.failed = failed;
+	}
+	if (r_failed) {
+		*r_failed = failed;
 	}
 	return result;
 }
@@ -83,6 +87,37 @@ bool init_left_to_caller() {
 
 void constructed(bool p_initialized) {
 	last_initialized = p_initialized;
+}
+
+Variant construct(const std::shared_ptr<const ClassImage> &p_image, const Variant &p_script, const Variant **p_args, int p_argcount, GDExtensionCallError &r_error) {
+	r_error.error = GDEXTENSION_CALL_OK;
+	if (p_image->user_init < 0 && p_argcount > 0) {
+		r_error.error = GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS;
+		r_error.expected = 0;
+		return Variant();
+	}
+	// _init() is the callee of a pending call, not what the initializers call.
+	const bool callee = current_value_call.pending;
+	current_value_call.pending = false;
+	Variant object = ClassDBSingleton::get_singleton()->instantiate(p_image->base_class);
+	Object *made = object;
+	ERR_FAIL_NULL_V(made, Variant());
+	ScriptedObject instance;
+	bool initialized;
+	if (!attach_script(made, p_script, p_image->user_init >= 0, instance, initialized) || !initialized || instance.image->user_init < 0) {
+		return object;
+	}
+	// The object is not handed out when the arguments do not fit.
+	current_value_call.pending = callee;
+	bool failed = false;
+	call_value(instance.image, instance.image->user_init, instance.context, p_args, p_argcount, r_error, nullptr, nullptr, &failed);
+	if (failed || r_error.error != GDEXTENSION_CALL_OK) {
+		if (!Object::cast_to<RefCounted>(made)) {
+			memdelete(made);
+		}
+		return Variant();
+	}
+	return object;
 }
 
 void set_script_resolver(ScriptResolver p_resolver) {
@@ -189,7 +224,7 @@ Variant held_script(const ClassImage &p_image) {
 }
 
 StaticCallable::StaticCallable(const String &p_owner, const StringName &p_method, bool p_of_engine) :
-		owner(p_owner), method(p_method), of_engine(p_of_engine) {
+		owner(p_owner), method(p_method), of_engine(p_of_engine), constructs(!p_of_engine && p_method == StringName("new")) {
 	const std::shared_ptr<const ClassImage> image = of_engine ? nullptr : script_image(owner);
 	if (image) {
 		script = held_script(*image);
@@ -228,9 +263,9 @@ String StaticCallable::get_as_text() const {
 
 int StaticCallable::get_argument_count(bool &r_is_valid) const {
 	std::shared_ptr<const ClassImage> image = of_engine ? nullptr : script_image(owner);
-	const int function = image ? image->find_function(method) : -1;
-	r_is_valid = function >= 0;
-	return r_is_valid ? int(image->module.functions[function].fixed_params()) : 0;
+	const int function = image ? (constructs ? image->user_init : image->find_function(method)) : -1;
+	r_is_valid = function >= 0 || (image && constructs);
+	return function >= 0 ? int(image->module.functions[function].fixed_params()) : 0;
 }
 
 void StaticCallable::call(const Variant **p_arguments, int p_argcount, Variant &r_return_value, GDExtensionCallError &r_call_error) const {
@@ -238,7 +273,13 @@ void StaticCallable::call(const Variant **p_arguments, int p_argcount, Variant &
 		call_static(owner, method, p_arguments, uint32_t(p_argcount), r_return_value, r_call_error);
 		return;
 	}
+	// Loaded as new_object() loads it, so that it is held while it constructs.
+	const Variant loaded = constructs ? load_resource(owner) : Variant();
 	std::shared_ptr<const ClassImage> image = script_image(owner);
+	if (image && constructs) {
+		r_return_value = construct(image, loaded, p_arguments, p_argcount, r_call_error);
+		return;
+	}
 	const int function = image ? image->find_function(method) : -1;
 	if (function < 0 || !image->module.functions[function].is_static) {
 		r_call_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;

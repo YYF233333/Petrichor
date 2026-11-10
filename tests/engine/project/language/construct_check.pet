@@ -35,3 +35,12 @@ pub func made_in_order() -> Array[String]:
 
 pub func private_size() -> int:
 	return ConstructPrivate.make().size
+
+
+# new as a value constructs as new(...) does, through this language and the
+# engine, also where _init() is not pub (spec §3.11, §4.2).
+pub func made_by_value() -> String:
+	var make := ConstructCheck.new
+	var made := make.call(4, "c")
+	var spread: ConstructCheck = make.callv([5])
+	return "%d %s %s %d %s %d" % [made.left, made.right, made.steps, spread.left, spread.right, ConstructPrivate.maker().call(9).size]
