@@ -144,7 +144,7 @@ TEST_CASE("a node is checked for the exports it must be assigned when it becomes
 	CHECK(compile("extends Node3D\n@export pub var player: Node3D?\n").module.ready_function < 0);
 }
 
-TEST_CASE("an export that must be assigned gets a value from a scene the node is built from, checked where the scene is used (spec §7.5)") {
+TEST_CASE("an export that must be assigned gets a value from a scene the node is built from, checked on the main scene (spec §7.5)") {
 	const char *source = "extends Node3D\n@export pub var player: Node3D\n";
 	compiler::SceneValue path;
 	path.type = "NodePath";
@@ -160,8 +160,11 @@ TEST_CASE("an export that must be assigned gets a value from a scene the node is
 	level.nodes[1].instance = level.nodes[2].instance = enemy.path;
 	level.nodes[1].properties = { { "player", path } };
 	project.scenes = { enemy, level };
+	// A scene that nothing references only warns.
+	CHECK(compile_in(source, project).errors.empty());
 	// Each instance in the scene that has it; whoever instantiates a scene
 	// gives its root the rest.
+	project.main = level.path;
 	const compiler::CompileResult result = compile_in(source, project);
 	REQUIRE(result.errors.size() == 1);
 	CHECK(result.errors[0].message == "res://level.tscn: Far has no value for \"player\", an export that must be assigned.");
@@ -179,6 +182,7 @@ TEST_CASE("an export that must be assigned gets a value from a scene the node is
 	game.nodes = { { ".", "Node", "" }, { "Level", "Node3D", "", true }, { "Level/Far", "", "" } };
 	game.nodes[1].instance = level.path;
 	project.scenes.push_back(game);
+	project.main = game.path;
 	CHECK(contains(messages(compile_in(source, project)), "res://game.tscn: Level/Far has no value for \"player\""));
 	project.scenes[2].nodes[2].properties = { { "player", path } };
 	CHECK(compile_in(source, project).errors.empty());

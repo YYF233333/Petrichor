@@ -17,9 +17,10 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - the result of an async lambda, and the arguments of `bind()`.
 - `find_key()` of `Dictionary[T?, V]` for an object `T`. The engine gives null for a missing key and for a None key.
 - `is_instance_of(v, T)` with a native class held in a variable, which waits for classes as values (spec §2.6). gdUnit4 passes them.
-- A scene used as a root through `load`, `preload` or an exported `PackedScene` (spec §7.2, §7.3). Only the main scene is known as one. Finding the others reads every script and every scene, beyond a check's inputs now (architecture §6.4). Until then:
+- A scene used as a root through `load`, `preload` or an exported `PackedScene` (spec §7.2, §7.3, §7.5). Only the main scene is known as one. Finding the others reads every script and every scene, beyond a check's inputs now (architecture §6.4). Until then:
   - the node paths of a script take a scene that is also inherited for a base used only for inheritance. It may then lack a node without an error, which the run-time check catches;
-  - a root with an `@owner` script is a compile error on the main scene only. Elsewhere reading `owner` gives the program error.
+  - a root with an `@owner` script is a compile error on the main scene only. Elsewhere reading `owner` gives the program error;
+  - a must-assign export without a value is a compile error only in what the main scene is built from. Elsewhere the node's check at ready gives the program error.
 - `pub` required on the members that animation tracks and synchronized properties name (spec §10.5). The compiler does not read them yet (spec §7.7).
 - In debug builds, listing where the instances still alive at exit were made (spec §6.7, §12.5).
 
@@ -40,7 +41,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The hint of spec §6.5 on an exported property whose setter syncs a node. Its default value never passes the setter, so `_ready` should sync it once.
 - The warnings of spec §7.2, §7.5 and §7.6:
   - a literal `get_node_or_null` path that no scene has;
-  - a scene that nothing references lacking a node, or a value for a must-assign export below its root. Now each is an error, as for a scene used as a root. Telling the two apart needs the scenes used as roots (Language);
+  - a scene that nothing references lacking a node or a value for a must-assign export. A lacking node is now an error, as for a scene used as a root (Language);
   - writes to a resource known to be shared.
 - The error explaining why a GDScript file cannot extend a class of this language (spec §11.2).
 - A quick fix adding the constructor for the implicit conversions of GDScript that this language drops (spec §3.14).

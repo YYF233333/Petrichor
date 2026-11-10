@@ -3370,17 +3370,12 @@ class Checker : public ClassRelation {
 		if (walk.leaves) {
 			missing = p_scene.path + ": " + p_shown + " leads out of the scene, and no scene instances it.";
 		}
-		if (!instanced && !p_optional && !only_inherited(p_scene, outers)) {
-			error_in_scene(p_at.range, p_scene, p_marked, missing);
-		}
-	}
-
-	// Whether a scene is used only as the base of the scenes that inherit it
-	// (spec §7.2), given those that instance or inherit it.
-	bool only_inherited(const Scene &p_scene, const std::vector<Scene> &p_outers) const {
-		return !p_outers.empty() && p_scene.path != options.project->main_scene() && std::all_of(p_outers.begin(), p_outers.end(), [&](const Scene &p_outer) {
+		const bool only_inherited = !outers.empty() && p_scene.path != options.project->main_scene() && std::all_of(outers.begin(), outers.end(), [&](const Scene &p_outer) {
 			return p_outer.base == p_scene.path && std::none_of(p_outer.nodes.begin(), p_outer.nodes.end(), [&](const SceneNode &p_node) { return p_node.instance == p_scene.path; });
 		});
+		if (!instanced && !p_optional && !only_inherited) {
+			error_in_scene(p_at.range, p_scene, p_marked, missing);
+		}
 	}
 
 	// Why a literal path from the root into an autoload is a compile error:
@@ -10065,20 +10060,18 @@ class Checker : public ClassRelation {
 	// That the node at `p_path` of a scene gets a value for an export, from
 	// any of the scenes it is built from. Each instance of the scene is checked
 	// in the scene that has it, at the instance `p_marked` names. The scene
-	// itself is checked where it is used as a root. Who instantiates a scene
-	// gives its root the rest, except for the main scene (spec §7.4).
+	// itself is checked where it is used as a root, which only the main scene
+	// is known to be. Who instantiates another scene gives its root the rest
+	// (spec §7.4), and one that nothing references only warns.
 	void require_export(const VarDecl &p_member, const Scene &p_scene, const std::string &p_path, const std::string &p_marked, std::set<std::string> &r_reported, int p_depth = 0) {
-		const std::vector<Scene> outers = p_depth > 32 ? std::vector<Scene>() : options.project->scenes_instancing(p_scene.path);
-		bool instanced = false;
-		for (const Scene &outer : outers) {
+		for (const Scene &outer : p_depth > 32 ? std::vector<Scene>() : options.project->scenes_instancing(p_scene.path)) {
 			for (const SceneNode &node : outer.nodes) {
 				if (node.instance == p_scene.path) {
-					instanced = true;
 					require_export(p_member, outer, p_path == "." ? node.path : node.path + "/" + p_path, node.path, r_reported, p_depth + 1);
 				}
 			}
 		}
-		if (p_scene.path != options.project->main_scene() && (instanced || p_path == "." || only_inherited(p_scene, outers))) {
+		if (p_scene.path != options.project->main_scene()) {
 			return;
 		}
 		if (!stored_value(p_scene, p_path, p_member.name).value_or(false) && r_reported.insert(p_member.name + "\n" + p_scene.path + "\n" + p_path).second) {

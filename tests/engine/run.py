@@ -665,33 +665,42 @@ def run_export_groups(godot):
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         pack = tmp / "game.pck"
-        # A value that a scene lacks fails the headless build and the export,
-        # but the script runs, and is exported (spec §7.5).
-        unassigned = PROJECT / "unassigned_export_check.pet"
-        unassigned.write_text("extends Node\n\n@export pub var target: Node\n", encoding="utf-8")
-        scene = PROJECT / "unassigned_export_check.tscn"
-        scene.write_text('[gd_scene format=3]\n\n[ext_resource type="Script" path="res://unassigned_export_check.pet" id="1"]\n\n[node name="Root" type="Node"]\n\n[node name="Child" type="Node" parent="."]\nscript = ExtResource("1")\n', encoding="utf-8")
-        lacking = 'res://unassigned_export_check.tscn: Child has no value for "target", an export that must be assigned.'
         # A script with errors is left out, not exported as source (spec §1.3).
         broken = PROJECT / "broken_export_check.pet"
         broken.write_text('extends Node\n\nfunc f() -> int:\n\treturn "not an int"\n', encoding="utf-8")
         try:
-            code, built = run(godot, "-e", "--path", str(PROJECT), "--", "--petrichor-build")
-            code_export, output = run(godot, "--path", str(PROJECT), "--export-pack", "Windows Desktop", str(pack))
+            code, output = run(godot, "--path", str(PROJECT), "--export-pack", "Windows Desktop", str(pack))
         finally:
-            for file in (broken, unassigned, scene):
-                file.unlink(missing_ok=True)
-                file.with_name(file.name + ".uid").unlink(missing_ok=True)
-            for file in ("broken_export_check", "unassigned_export_check"):
-                (PROJECT / ".godot" / "petrichor" / f"{file}.petc").unlink(missing_ok=True)
-        expect("export: the headless build fails on a value that a scene lacks", code != 0 and ", 2 with errors" in built and lacking in built, built)
-        expected = ("broken_export_check.pet", "Cannot return a value of type String as int.", lacking)
+            broken.unlink(missing_ok=True)
+            broken.with_name(broken.name + ".uid").unlink(missing_ok=True)
+        expected = ("broken_export_check.pet", "Cannot return a value of type String as int.")
         unexpected = [line for line in output.splitlines() if "ERROR" in line and not any(part in line for part in expected)]
-        expect("export", code_export == 0 and not unexpected, output)
+        expect("export", code == 0 and not unexpected, output)
         expect("export: a script with errors is left out", "broken_export_check.pet has errors and is left out of the export." in output, output)
-        expect("export: a value that a scene lacks is an export error", lacking in output and "unassigned_export_check.pet has errors" not in output, output)
         # The editor's window says it failed; the command line, as a warning.
         expect("export: a script with errors is an export error", "completed with warnings" in output, output)
+
+        # A value that the main scene lacks fails the headless build and the
+        # export, but the script compiles, and is exported (spec §7.5). The
+        # editor takes no override.cfg, so project.godot names the scene.
+        unassigned = PROJECT / "unassigned_export_check.pet"
+        unassigned.write_text("extends Node\n\n@export pub var target: Node\n", encoding="utf-8")
+        scene = PROJECT / "unassigned_export_check.tscn"
+        scene.write_text('[gd_scene format=3]\n\n[ext_resource type="Script" path="res://unassigned_export_check.pet" id="1"]\n\n[node name="Root" type="Node"]\n\n[node name="Child" type="Node" parent="."]\nscript = ExtResource("1")\n', encoding="utf-8")
+        settings = (PROJECT / "project.godot").read_bytes()
+        (PROJECT / "project.godot").write_bytes(settings.replace(b'run/main_scene="res://main.tscn"', b'run/main_scene="res://unassigned_export_check.tscn"'))
+        try:
+            code, built = run(godot, "-e", "--path", str(PROJECT), "--", "--petrichor-build")
+            code_export, output = run(godot, "--path", str(PROJECT), "--export-pack", "Windows Desktop", str(tmp / "unassigned.pck"))
+        finally:
+            for file in (unassigned, scene):
+                file.unlink(missing_ok=True)
+                file.with_name(file.name + ".uid").unlink(missing_ok=True)
+            (PROJECT / ".godot" / "petrichor" / "unassigned_export_check.petc").unlink(missing_ok=True)
+            (PROJECT / "project.godot").write_bytes(settings)
+        lacking = 'res://unassigned_export_check.tscn: Child has no value for "target", an export that must be assigned.'
+        expect("export: the headless build fails on a value that a scene lacks", code != 0 and ", 1 with errors" in built and lacking in built, built)
+        expect("export: a value that a scene lacks is an export error", code_export == 0 and lacking in output and "has errors and is left out" not in output, output)
 
         # A project directory without sources, whose only library is the one
         # exported games load, without the compiler: without the editor's

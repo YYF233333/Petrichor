@@ -507,8 +507,8 @@ func _check_stored_exports() -> void:
 
 
 # Spec §7.5: an export that must be assigned gets its value from any scene the
-# node is built from, here from one that changes the node inside the scene it
-# instances.
+# node is built from, here from the main scene, which changes the node inside
+# the scene it instances.
 func _check_scene_exports() -> void:
 	var script_path := "res://editor_check_exports.pet"
 	var inner := "res://editor_check_exports_inner.tscn"
@@ -519,8 +519,11 @@ func _check_scene_exports() -> void:
 	_write(inner, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Inner" type="Node"]\nscript = ExtResource("1")\n' % script_path)
 	_write(level, instance % [inner, "Level", "Far"])
 	_write(game, instance % [level, "Game", "Level"] + '\n[node name="Far" parent="Level" node_paths=PackedStringArray("target")]\ntarget = NodePath("..")\n')
+	var main: String = ProjectSettings.get_setting("application/run/main_scene")
+	ProjectSettings.set_setting("application/run/main_scene", game)
 	var script: Script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_IGNORE)
 	_check(_compiles(script, script_path), "a scene gives the value to a node of the scene it instances")
+	ProjectSettings.set_setting("application/run/main_scene", main)
 	# Spec §7.4: a scene stored for an exported PackedScene[T] leaves to
 	# instantiate() only what it asks for.
 	var spawner_path := "res://editor_check_spawner.pet"
