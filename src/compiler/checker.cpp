@@ -1563,10 +1563,12 @@ class Checker : public ClassRelation {
 			if (r_type.is_error()) {
 				return nullptr;
 			}
-			expect_assignable(r_initializer, value, r_type, "assign");
+			// A constant keeps a scene statically known (spec §7.4).
 			if (!assignable(value, r_type)) {
+				expect_assignable(r_initializer, value, r_type, "assign");
 				return nullptr;
 			}
+			expect_implemented(r_initializer, value, r_type);
 		} else if (value.kind == TypeKind::None) {
 			error(r_initializer.range, "The constant needs a type: None does not say which T? it is.");
 			r_type = Type::of(TypeKind::Error);
@@ -3692,6 +3694,31 @@ class Checker : public ClassRelation {
 		return resource_type(p_at, p_file, *resource);
 	}
 
+	// The file that load() of one literal path names; "" for another path.
+	std::string literal_load_file(const Expr &p_call) const {
+		if (p_call.args.size() != 1 || p_call.args[0]->kind != ExprKind::StringLiteral || p_call.args[0]->op != TokenKind::String) {
+			return std::string();
+		}
+		const std::string &written = p_call.args[0]->text;
+		if (written.find("://") != std::string::npos && written.rfind("res://", 0) != 0 && written.rfind("uid://", 0) != 0) {
+			return std::string(); // Such as user://.
+		}
+		return preload_file(resolved_path(written, "res://"));
+	}
+
+	// The scene that a PackedScene[T] is statically known to be (spec §7.4):
+	// that of preload(), of load() of a literal path, or of a constant one of
+	// them initializes; nullopt for another.
+	std::optional<Scene> known_scene(const Expr &p_value) {
+		std::string file;
+		if (p_value.constant && p_value.constant->kind == ConstValue::Kind::Preload) {
+			file = preload_file(p_value.constant->text);
+		} else if (p_value.kind == ExprKind::Call && p_value.text == "load" && p_value.base && p_value.base->text == "ResourceLoader") {
+			file = literal_load_file(p_value); // load(), checked as ResourceLoader.load().
+		}
+		return is_scene_file(file) && options.project && !options.declarations_only ? options.project->scene(file) : std::nullopt;
+	}
+
 	// load() of one literal path in the project, typed as preload() types it
 	// (spec §7.4), but a script as the resource it is, not its class (§2.1).
 	// A relative path is from res://, as the engine resolves it
@@ -3699,14 +3726,7 @@ class Checker : public ClassRelation {
 	// path, and for a file the project does not have, which the engine's
 	// Resource? types.
 	std::optional<Type> literal_load(const Expr &p_call) {
-		if (p_call.args.size() != 1 || p_call.args[0]->kind != ExprKind::StringLiteral || p_call.args[0]->op != TokenKind::String) {
-			return std::nullopt;
-		}
-		const std::string &written = p_call.args[0]->text;
-		if (written.find("://") != std::string::npos && written.rfind("res://", 0) != 0 && written.rfind("uid://", 0) != 0) {
-			return std::nullopt; // Such as user://.
-		}
-		const std::string file = preload_file(resolved_path(written, "res://"));
+		const std::string file = literal_load_file(p_call);
 		if (file.empty()) {
 			return std::nullopt;
 		}
@@ -6535,8 +6555,9 @@ class Checker : public ClassRelation {
 
 	// The members by name of a call that makes an object of `p_made`: each
 	// one that must be assigned, given once (spec §4.6, §6.2). instantiate(...)
-	// must give those the scene does not export (§7.4).
-	void check_members(Expr &r_call, const Type &p_made, bool p_instantiate) {
+	// must give those the scene does not export, and of a scene statically
+	// known, `p_scene`, the exports it does not assign (§7.4).
+	void check_members(Expr &r_call, const Type &p_made, bool p_instantiate, const Scene *p_scene = nullptr) {
 		r_call.member_types.clear();
 		const ClassDecl *decl = p_made.kind == TypeKind::Object && !p_made.script.empty() ? script_decl(p_made.script) : nullptr;
 		std::unordered_set<std::string> given;
@@ -6568,10 +6589,12 @@ class Checker : public ClassRelation {
 			}
 		}
 		for (const VarDecl *member : decl &&p_instantiate ? decl->all_members : std::vector<const VarDecl *>()) {
-			if (!member->must_assign || member->is_export || given.count(member->name)) {
+			if (!member->must_assign || given.count(member->name) || (member->is_export && (!p_scene || stored_value(*p_scene, ".", member->name).value_or(false)))) {
 				continue;
 			}
-			if (!member->is_pub && !sees(declaring(*decl, *member, &ClassDecl::members).path)) {
+			if (member->is_export) {
+				error(r_call.range, "instantiate() needs " + member->name + " = ..., an export of " + p_made.to_string() + " that must be assigned and " + p_scene->path + " does not assign.");
+			} else if (!member->is_pub && !sees(declaring(*decl, *member, &ClassDecl::members).path)) {
 				error(r_call.range, "instantiate() cannot give \"" + member->name + "\", a member of " + p_made.to_string() + " that must be assigned and is not pub. Export it, make it pub or give it an initial value.");
 			} else {
 				error(r_call.range, "instantiate() needs " + member->name + " = ..., a member of " + p_made.to_string() + " that must be assigned and the scene cannot.");
@@ -6721,7 +6744,8 @@ class Checker : public ClassRelation {
 					if (name == "instantiate" && base_type.name == "PackedScene" && !base_type.args.empty() && !result.is_error()) {
 						// The scene's root, checked as it is made, with the members it
 						// must be assigned (spec §7.4).
-						check_members(r_expr, base_type.args[0], true);
+						const std::optional<Scene> scene = known_scene(*r_expr.base);
+						check_members(r_expr, base_type.args[0], true, scene ? &*scene : nullptr);
 						return set(r_expr, base_type.args[0]);
 					}
 					return result;
@@ -7409,9 +7433,46 @@ class Checker : public ClassRelation {
 		return false;
 	}
 
+	// A scene statically known that a variable or a parameter of a
+	// PackedScene[T] takes (spec §7.4), whose instantiate(...) then asks only
+	// for the members of T that must be assigned and are not exported. The
+	// scene may leave no other member to it.
+	void expect_scene_fits(const Expr &p_value, const Type &p_to) {
+		const std::optional<Scene> scene = is_typed_scene(p_to) ? known_scene(p_value) : std::nullopt;
+		const std::string unfit = scene ? unfit_scene(*scene, p_to) : std::string();
+		if (!unfit.empty()) {
+			error(p_value.range, scene->path + " " + unfit);
+		}
+	}
+
+	static bool is_typed_scene(const Type &p_type) {
+		return p_type.kind == TypeKind::Object && p_type.name == "PackedScene" && !p_type.args.empty();
+	}
+
+	// What a scene leaves to instantiate(...) that a PackedScene[T] does not
+	// ask for, as the error says it after the scene; "" for nothing.
+	std::string unfit_scene(const Scene &p_scene, const Type &p_to) {
+		const SceneNode *root = p_scene.find_node(".");
+		const std::string script = !root ? std::string() : root->script.empty() ? root->instance_script
+																				: root->script;
+		const ClassDecl *made = is_script_path(script) ? script_decl(script) : nullptr;
+		const Type &taken = p_to.args[0];
+		const ClassDecl *asks = taken.kind == TypeKind::Object && !taken.is_interface && !taken.script.empty() ? script_decl(taken.script) : nullptr;
+		for (const VarDecl *member : made ? made->all_members : std::vector<const VarDecl *>()) {
+			const bool asked = !member->is_export && asks && std::any_of(asks->all_members.begin(), asks->all_members.end(), [&](const VarDecl *p_member) { return p_member->name == member->name; });
+			if (member->must_assign && !asked && (!member->is_export || !stored_value(p_scene, ".", member->name).value_or(false))) {
+				return "leaves \"" + member->name + "\" to instantiate(), but a " + p_to.to_string() + " does not ask for it.";
+			}
+		}
+		return std::string();
+	}
+
 	void expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action) {
 		if (assignable(p_from, p_to)) {
 			expect_implemented(p_value, p_from, p_to);
+			if (std::strcmp(p_action, "assign") == 0 || std::strcmp(p_action, "pass") == 0) {
+				expect_scene_fits(p_value, p_to);
+			}
 			return;
 		}
 		std::string message = std::string("Cannot ") + p_action + " a value of type " + p_from.to_string() + " as " + p_to.to_string() + ".";
@@ -8165,6 +8226,7 @@ class Checker : public ClassRelation {
 						type = Type::of(TypeKind::Error);
 					} else {
 						type = value;
+						expect_scene_fits(*r_stmt.value, type);
 					}
 				} else if (!r_stmt.declared_type) {
 					error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs a type or an initial value.");
@@ -8778,6 +8840,7 @@ class Checker : public ClassRelation {
 				expect_assignable(*member.initializer, value, type, "assign");
 			} else {
 				type = value;
+				expect_scene_fits(*member.initializer, type);
 			}
 			// An @onready member gets even a constant when the node is ready.
 			if (!member.is_onready) {
@@ -8975,6 +9038,7 @@ class Checker : public ClassRelation {
 				expect_assignable(*variable.initializer, value, type, "assign");
 			} else {
 				type = value;
+				expect_scene_fits(*variable.initializer, type);
 			}
 		} else if (!variable.declared_type) {
 			error(variable.name_token, "\"" + variable.name + "\" needs a type or an initial value.");
@@ -9938,13 +10002,15 @@ class Checker : public ClassRelation {
 
 	// The values that scenes store for this class's exported structs and
 	// enums with payloads, which the entry check decodes as the scene is
-	// instantiated (spec §4.3): each scene's own, on the nodes with the class,
-	// and on the instances of scenes whose root has it.
+	// instantiated (spec §4.3), and for its exported scenes, which may leave
+	// to instantiate(...) only what PackedScene[T] asks for (§7.4). Each
+	// scene's own, on the nodes with the class, and on the instances of scenes
+	// whose root has it.
 	void check_stored_exports() {
 		std::vector<const VarDecl *> exports;
 		for (const VarDecl &member : cls.members) {
 			const TypeKind kind = member.type.unwrapped().kind;
-			if (member.is_export && (kind == TypeKind::Struct || kind == TypeKind::PayloadEnum)) {
+			if (member.is_export && (kind == TypeKind::Struct || kind == TypeKind::PayloadEnum || is_typed_scene(member.type))) {
 				exports.push_back(&member);
 			}
 		}
@@ -9954,9 +10020,21 @@ class Checker : public ClassRelation {
 		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
 			for (const VarDecl *member : exports) {
 				for (const auto &[name, value] : p_node.properties) {
-					const std::string why = name == member->name ? undecodable(member->type, value, std::string()) : std::string();
+					if (name != member->name) {
+						continue;
+					}
+					const TokenRange at{ member->name_token, member->name_token };
+					if (is_typed_scene(member->type)) {
+						const std::optional<Scene> scene = is_scene_file(value.path) ? options.project->scene(value.path) : std::nullopt;
+						const std::string unfit = scene ? unfit_scene(*scene, member->type) : std::string();
+						if (!unfit.empty()) {
+							error_in_scene(at, p_scene, p_node.path, p_scene.path + ": \"" + name + "\" of " + p_node.path + " holds " + scene->path + ", which " + unfit);
+						}
+						continue;
+					}
+					const std::string why = undecodable(member->type, value, std::string());
 					if (!why.empty()) {
-						error_in_scene(TokenRange{ member->name_token, member->name_token }, p_scene, p_node.path, p_scene.path + ": the value stored for \"" + name + "\" of " + p_node.path + " does not decode: " + why + ".");
+						error_in_scene(at, p_scene, p_node.path, p_scene.path + ": the value stored for \"" + name + "\" of " + p_node.path + " does not decode: " + why + ".");
 					}
 				}
 			}

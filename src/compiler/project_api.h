@@ -11,8 +11,8 @@
 
 namespace petrichor::compiler {
 
-// A value that a scene stores for a property, as the check of exported
-// structs and enums with payloads reads it (spec §4.3).
+// A value that a scene stores for a property, as the checks of exports read
+// it (spec §4.3, §7.4, §7.5).
 struct SceneValue {
 	std::string type; // The engine's name of its type: "int", "Dictionary", "Nil"…
 	std::string class_name; // An object's class, and its script if it has one.
@@ -21,9 +21,11 @@ struct SceneValue {
 	bool whole = false;
 	std::string text; // A String or a StringName.
 	std::vector<SceneValue> items; // An Array's elements, or a Dictionary's keys and values one after another.
+	std::string path; // A resource's res:// path, such as a scene's, if it has one.
 
 	bool operator==(const SceneValue &p_other) const {
-		return type == p_other.type && class_name == p_other.class_name && script == p_other.script && integer == p_other.integer && whole == p_other.whole && text == p_other.text && items == p_other.items;
+		return type == p_other.type && class_name == p_other.class_name && script == p_other.script && path == p_other.path && integer == p_other.integer && whole == p_other.whole && text == p_other.text &&
+				items == p_other.items;
 	}
 };
 

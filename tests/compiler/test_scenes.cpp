@@ -253,6 +253,47 @@ TEST_CASE("load() of a literal path in the project is typed as preload() types i
 	find_instruction(function_named(result.module, "f"), bytecode::Op::CHECK_OBJECT);
 }
 
+TEST_CASE("instantiate() of a scene known statically takes the exports it does not assign; so may no PackedScene[T] it converts to (spec §7.4)") {
+	FakeProject project;
+	project.add_script("res://enemy.pet", "class_name Enemy\nextends Node3D\n@export pub var player: Node3D\n@export pub var camera: Node3D\npub var target: Node\n", "Enemy");
+	compiler::Scene enemy;
+	enemy.path = "res://enemy.tscn";
+	enemy.nodes = { { ".", "Node3D", "res://enemy.pet" } };
+	compiler::SceneValue path;
+	path.type = "NodePath";
+	enemy.nodes[0].properties = { { "camera", path } };
+	project.scenes = { enemy };
+	const auto errors = [&](const std::string &p_body) {
+		return messages(compile_in("extends Node\nconst ENEMY := preload(\"res://enemy.tscn\")\n\nfunc f(p: Node3D):\n\t" + p_body + "\n", project));
+	};
+	CHECK(errors("var e := ENEMY.instantiate(player = p, target = self)").empty());
+	const char *needs = "instantiate() needs player = ..., an export of Enemy that must be assigned and res://enemy.tscn does not assign.";
+	CHECK(contains(errors("var e := ENEMY.instantiate(target = self)"), needs));
+	CHECK(contains(errors("var e := preload(\"res://enemy.tscn\").instantiate(target = self)"), needs));
+	CHECK(contains(errors("var e := load(\"res://enemy.tscn\").instantiate(target = self)"), needs));
+	// A variable or a parameter is not known statically: instantiate()
+	// asks only for the members of T that are not exported.
+	CHECK(contains(errors("var s := ENEMY"), "res://enemy.tscn leaves \"player\" to instantiate(), but a PackedScene[Enemy] does not ask for it."));
+	project.scenes[0].nodes[0].properties.push_back({ "player", path });
+	CHECK(errors("var s: PackedScene[Enemy] = ENEMY\n\tvar e := s.instantiate(target = self)").empty());
+	CHECK(contains(errors("g(ENEMY)\n\nfunc g(s: PackedScene[Node3D]):\n\tpass"), "res://enemy.tscn leaves \"target\" to instantiate(), but a PackedScene[Node3D] does not ask for it."));
+	// Nor may a scene that a scene stores for an export, marked there.
+	compiler::Scene level;
+	level.path = "res://level.tscn";
+	level.nodes = { { ".", "Node", "" }, { "Spawner", "Node", "res://test.pet" } };
+	compiler::SceneValue stored;
+	stored.type = "Object";
+	stored.class_name = "PackedScene";
+	stored.path = enemy.path;
+	level.nodes[1].properties = { { "wave", stored } };
+	project.scenes.push_back(level);
+	const compiler::CompileResult spawner = compile_in("extends Node\n@export pub var wave: PackedScene[Node3D]\n", project);
+	REQUIRE(spawner.errors.size() == 1);
+	CHECK(spawner.errors[0].message == "res://level.tscn: \"wave\" of Spawner holds res://enemy.tscn, which leaves \"target\" to instantiate(), but a PackedScene[Node3D] does not ask for it.");
+	CHECK((spawner.errors[0].scene == level.path && spawner.errors[0].node == "Spawner"));
+	CHECK(compile_in("extends Node\n@export pub var wave: PackedScene[Enemy]\n", project).errors.empty());
+}
+
 // Spec §7.6.
 TEST_CASE("a preload whose file loads the script again is an error") {
 	FakeProject project;

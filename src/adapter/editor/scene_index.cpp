@@ -87,8 +87,8 @@ std::string instanced_script(const Ref<SceneState> &p_state, int32_t p_index) {
 	return script ? *script : instanced_script(instance->get_state(), 0);
 }
 
-// A value as the check of exported structs and enums with payloads reads it
-// (spec §4.3); a float is whole as spec §10.8 says.
+// A value as the checks of exports read it (spec §4.3, §7.4); a float is
+// whole as spec §10.8 says.
 compiler::SceneValue scene_value(const Variant &p_value) {
 	compiler::SceneValue value;
 	const Object *object = p_value.get_type() == Variant::OBJECT ? p_value.get_validated_object() : nullptr;
@@ -110,8 +110,10 @@ compiler::SceneValue scene_value(const Variant &p_value) {
 		case Variant::OBJECT:
 			if (object) {
 				const Ref<Script> script = object->get_script();
+				const Resource *resource = Object::cast_to<Resource>(object);
 				value.class_name = to_utf8(object->get_class());
 				value.script = script.is_valid() ? to_utf8(script->get_path()) : std::string();
+				value.path = resource ? to_utf8(resource->get_path()) : std::string();
 			}
 			break;
 		case Variant::ARRAY: {

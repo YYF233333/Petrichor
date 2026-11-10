@@ -8,10 +8,9 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - `instantiate(...)` still asks by name for a member that the root's `_init` assigns. The checker does not check that body, which is in another file.
   - A scene or `.tres` using a script whose `_init` has required parameters is a compile error. Now the engine's construction gives the program error.
 - Static checks of:
-  - a statically known scene's `instantiate(...)` missing an export the scene does not assign (§7.4). The scene index reads only what each scene itself stores on nodes with this language's scripts;
   - a child reading a member that ancestors assign in its own `_ready` (§6.2);
   - a must-assign member that is not pub, which its file or a subclass must export or assign (§4.2). It needs every subclass.
-- Checking at compile time what resources store in exported structs and enums with payloads (spec §4.3). Also their must-assign exports (§7.5). They are `.tres` files and resources inside scenes, which the scene index does not read. Nor is a struct checked that a scene stores on a node of an instanced scene it changes.
+- Checking at compile time what resources store in exported structs and enums with payloads (spec §4.3). Also their exported scenes and must-assign exports (§7.4, §7.5). They are `.tres` files and resources inside scenes, which the scene index does not read. Nor is a struct checked that a scene stores on a node of an instanced scene it changes.
 - How `T??` crosses the engine boundary (spec §10.1), where `None` and `Some(None)` would both be null. Until then, pub members and parameters, signal parameters and coroutine results of `T??` are refused. These still lose `Some(None)`:
   - `Variant?` in those places;
   - `T??` in a struct or `Result` that crosses, and in `Array(a)`;
@@ -174,6 +173,10 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 
 ## Open questions
 
+- Whether a scene known statically converts as an assignment does where spec §7.4 does not list it. Its `instantiate(...)` then skips the exports the scene does not assign, which the node's ready check catches. Unchecked now:
+  - a function returning it as `PackedScene[T]`;
+  - an element of a container, as `[preload("enemy.tscn")]`;
+  - a parameter's default value.
 - Before 0.9: how `NaN` behaves in containers, which GDScript handles inconsistently (spec §5.2, engine facts). NaN rarely stands for a legal state in game logic. Candidates:
   - forbid `NaN` from entering containers;
   - warn wherever a `NaN` is detected.
