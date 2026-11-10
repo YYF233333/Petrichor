@@ -414,3 +414,12 @@ pub func dynamic_names(method: String, signal_name: StringName) -> Array:
 	c.call(2)
 	var s := Signal(self, signal_name)
 	return [dynamic_hits, s.get_name(), c.get_method()]
+
+
+# A signal an interface requires, through it, and an interface it extends (spec §3.9).
+pub func mortal_signal(target: CombatCheck.Mortal) -> String:
+	var heard: Array[String] = []
+	target.died.connect(func(by: String): heard.append(by))
+	target.died.emit("fall")
+	var damageable: CombatCheck.Damageable = target
+	return str(heard) + " " + str(damageable is CombatCheck.Mortal)

@@ -1,6 +1,6 @@
-# A class that implements CombatCheck.Damageable and CombatCheck.Placed (spec §3.9).
+# A class that implements CombatCheck.Mortal, and so Damageable, and CombatCheck.Placed (spec §3.9).
 class_name TargetCheck
-extends Node2D implements CombatCheck.Damageable, CombatCheck.Placed
+extends Node2D implements CombatCheck.Mortal, CombatCheck.Placed
 
 pub var taken := 0.0
 
@@ -35,3 +35,6 @@ pub func engine_typed() -> String:
 	var mat: Material? = material
 	var mode: Node.ProcessMode = process_mode
 	return str(mat is ShaderMaterial) + " " + str(mode == Node.PROCESS_MODE_INHERIT)
+
+
+pub signal died(by: String)

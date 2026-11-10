@@ -1281,14 +1281,19 @@ class Parser {
 		return result;
 	}
 
-	// After "interface": the name and a block of method signatures and
-	// properties (spec §3.9).
+	// After "interface": the name, the interfaces it extends, and a block of
+	// method signatures, properties and signals (spec §3.9).
 	InterfaceDecl interface(bool p_is_pub, uint32_t p_first, ClassDecl &r_class) {
 		InterfaceDecl decl;
 		const Token &name = declared_name("an interface name");
 		decl.name = name.text;
 		decl.name_token = index(name);
 		decl.is_pub = p_is_pub;
+		if (match(TokenKind::Extends)) {
+			do {
+				decl.extends.push_back(type_ref());
+			} while (match(TokenKind::Comma));
+		}
 		expect(TokenKind::Colon, "\":\"");
 		if (open_block("an indented block")) {
 			while (!check(TokenKind::Dedent) && !check(TokenKind::EndOfFile)) {
@@ -1328,8 +1333,19 @@ class Parser {
 				}
 				if (is_readonly) {
 					fail(peek(), "@readonly is only for interface properties.");
-				} else if (check(TokenKind::Signal)) {
-					fail(peek(), "Signals of interfaces are not supported yet.");
+				} else if (match(TokenKind::Signal)) {
+					SignalDecl signal;
+					const Token &signal_name = declared_name("a signal name");
+					signal.name = signal_name.text;
+					signal.name_token = index(signal_name);
+					signal.is_pub = true;
+					if (match(TokenKind::ParenOpen)) {
+						signal.params = params(true);
+					}
+					signal.range = span(first);
+					end_of_statement();
+					decl.signals.push_back(std::move(signal));
+					continue;
 				}
 				FuncDecl method;
 				method.has_body = false;

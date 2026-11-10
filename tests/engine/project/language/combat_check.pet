@@ -9,3 +9,7 @@ pub interface Damageable:
 pub interface Placed:
 	var taken: float
 	var position: Vector2
+
+# One that extends another, with a signal its implementers declare (spec §3.9).
+pub interface Mortal extends Damageable:
+	signal died(by: String)

@@ -844,7 +844,12 @@ class Checker : public ClassRelation {
 
 	bool is_a(const Type &p_from, const Type &p_to) const override {
 		if (p_to.is_interface) {
-			return p_from.is_interface ? p_from.script == p_to.script && p_from.name == p_to.name : implements(p_from, p_to);
+			if (!p_from.is_interface) {
+				return implements(p_from, p_to);
+			}
+			// The interface or one it extends (spec §3.13).
+			const std::vector<Type> up = interface_order({ p_from });
+			return std::any_of(up.begin(), up.end(), [&](const Type &p_interface) { return p_interface.script == p_to.script && p_interface.name == p_to.name; });
 		}
 		if (p_from.is_interface) {
 			return p_to.script.empty() && p_to.name == "Object";
@@ -2643,23 +2648,24 @@ class Checker : public ClassRelation {
 					return fail(r_expr, *message);
 				}
 			}
-			// Read and written by name, whichever member or engine property provides it.
-			const InterfaceProperty *property = interface_property(p_class, r_expr.text);
-			if (!property) {
-				if (const InterfaceDecl *interface = interface_decl(p_class)) {
-					for (const FuncDecl &method : interface->methods) {
-						if (method.name == r_expr.text) {
-							refer(r_expr.name_token, script_id(p_class.script, interface->name + "." + method.name));
-							return method_value(r_expr, method);
-						}
-					}
-				}
+			const std::optional<InterfaceMember> member = interface_member(p_class, r_expr.text);
+			if (!member) {
 				return std::nullopt;
 			}
+			refer(r_expr.name_token, interface_member_id(*member));
+			if (member->method) {
+				return method_value(r_expr, *member->method);
+			}
+			if (member->signal) {
+				// Of the class, which must declare it pub (spec §3.9, §10.5).
+				r_expr.target = Target::ObjectSignal;
+				r_expr.signal = member->signal;
+				return Type::signal(param_types(member->signal->params));
+			}
+			// Read and written by name, whichever member or engine property provides it.
 			r_expr.target = Target::ObjectProperty;
 			r_expr.owner = p_class.engine_class();
-			refer(r_expr.name_token, script_id(p_class.script, p_class.interface_name() + "." + property->name));
-			return property->type;
+			return member->property->type;
 		}
 		if (const std::optional<Type> constant = class_constant(r_expr, p_class.script, p_class.name)) {
 			return constant;
@@ -2804,15 +2810,93 @@ class Checker : public ClassRelation {
 		return nullptr;
 	}
 
-	const InterfaceProperty *interface_property(const Type &p_interface, const std::string &p_name) const {
-		if (const InterfaceDecl *interface = interface_decl(p_interface)) {
-			for (const InterfaceProperty &property : interface->properties) {
-				if (property.name == p_name) {
-					return &property;
+	// A method, property or signal of an interface, its own or one it
+	// inherits, and the interface that declares it (spec §3.9).
+	struct InterfaceMember {
+		const FuncDecl *method = nullptr;
+		const InterfaceProperty *property = nullptr;
+		const SignalDecl *signal = nullptr;
+		Type owner;
+
+		const std::string &name() const { return method ? method->name : property ? property->name
+																				  : signal->name; }
+	};
+
+	// The interfaces from `p_roots` up through those they extend, each once
+	// and before those it extends.
+	std::vector<Type> interface_order(const std::vector<Type> &p_roots) const {
+		std::vector<Type> order;
+		std::unordered_set<std::string> seen;
+		const std::function<void(const Type &)> visit = [&](const Type &p_interface) {
+			if (!seen.insert(p_interface.script + "\n" + p_interface.name).second) {
+				return;
+			}
+			if (const InterfaceDecl *decl = interface_decl(p_interface)) {
+				for (const Type &parent : decl->parents) {
+					visit(parent);
 				}
 			}
+			order.push_back(p_interface);
+		};
+		for (const Type &root : p_roots) {
+			visit(root);
 		}
-		return nullptr;
+		std::reverse(order.begin(), order.end());
+		return order;
+	}
+
+	// The members of the interfaces, each name once: as the interface nearest
+	// the roots declares it, so that a redeclaration with a narrower return
+	// type comes first; of two properties, the one that must be writable.
+	std::vector<InterfaceMember> interface_members(const std::vector<Type> &p_roots) const {
+		std::vector<InterfaceMember> members;
+		for (const Type &owner : interface_order(p_roots)) {
+			const InterfaceDecl *decl = interface_decl(owner);
+			if (!decl) {
+				continue;
+			}
+			const auto add = [&](InterfaceMember p_member) {
+				p_member.owner = owner;
+				for (InterfaceMember &known : members) {
+					if (known.name() == p_member.name()) {
+						if (known.property && p_member.property && known.property->is_readonly && !p_member.property->is_readonly) {
+							known = p_member;
+						}
+						return;
+					}
+				}
+				members.push_back(p_member);
+			};
+			for (const FuncDecl &method : decl->methods) {
+				add({ &method });
+			}
+			for (const InterfaceProperty &property : decl->properties) {
+				add({ nullptr, &property });
+			}
+			for (const SignalDecl &signal : decl->signals) {
+				add({ nullptr, nullptr, &signal });
+			}
+		}
+		return members;
+	}
+
+	std::optional<InterfaceMember> interface_member(const Type &p_interface, const std::string &p_name) const {
+		for (const InterfaceMember &member : interface_members({ p_interface })) {
+			if (member.name() == p_name) {
+				return member;
+			}
+		}
+		return std::nullopt;
+	}
+
+	// The id of an interface's member, at the interface that declares it.
+	static DeclId interface_member_id(const InterfaceMember &p_member) {
+		return script_id(p_member.owner.script, p_member.owner.interface_name() + "." + p_member.name());
+	}
+
+	const InterfaceProperty *interface_property(const Type &p_interface, const std::string &p_name) const {
+		const std::optional<InterfaceMember> member = interface_member(p_interface, p_name);
+		return member ? member->property : nullptr;
 	}
 
 	// A pub method of an object of a class of this language, or a method of an
@@ -2831,12 +2915,11 @@ class Checker : public ClassRelation {
 				if (const auto message = broken(interface, p_class.name)) {
 					return fail_call(r_expr, *message);
 				}
-				for (const FuncDecl &method : interface->methods) {
-					if (method.name == r_expr.text) {
-						callee = &method;
-						source = script_decl(p_class.script)->source.get();
-						id = script_id(p_class.script, interface->name + "." + method.name);
-					}
+				const std::optional<InterfaceMember> member = interface_member(p_class, r_expr.text);
+				if (member && member->method) {
+					callee = member->method;
+					source = script_decl(member->owner.script)->source.get();
+					id = interface_member_id(*member);
 				}
 			}
 		} else if (const ClassDecl *decl = script_decl(p_class.script)) {
@@ -4348,21 +4431,24 @@ class Checker : public ClassRelation {
 			}
 		};
 		if (p_class.is_interface) {
-			if (const InterfaceProperty *property = p_kind == Kind::Property ? interface_property(p_class, p_name) : nullptr) {
+			const std::optional<InterfaceMember> member = interface_member(p_class, p_name);
+			if (member && member->property && p_kind == Kind::Property) {
 				out.found = true;
-				out.id = script_id(p_class.script, p_class.interface_name() + "." + property->name);
-				out.type = property->type;
+				out.id = interface_member_id(*member);
+				out.type = member->property->type;
 				return out;
 			}
-			if (const InterfaceDecl *interface = p_kind == Kind::Method ? interface_decl(p_class) : nullptr) {
-				for (const FuncDecl &method : interface->methods) {
-					if (method.name == p_name) {
-						from_function(method, p_class.script);
-						out.id = script_id(p_class.script, interface->name + "." + method.name);
-						out.hidden = false;
-						return out;
-					}
-				}
+			if (member && member->method && p_kind == Kind::Method) {
+				from_function(*member->method, member->owner.script);
+				out.id = interface_member_id(*member);
+				out.hidden = false;
+				return out;
+			}
+			if (member && member->signal && p_kind == Kind::Signal) {
+				out.found = true;
+				out.id = interface_member_id(*member);
+				out.params = param_types(member->signal->params);
+				return out;
 			}
 		} else if (is_script_path(p_class.script)) {
 			if (const ClassDecl *decl = script_decl(p_class.script)) {
@@ -8974,7 +9060,96 @@ class Checker : public ClassRelation {
 				refer(property.name_token, script_id(options.path, interface.name + "." + property.name), SymbolKind::Property);
 				property.type = resolve(property.type_ref, false);
 			}
+			for (SignalDecl &signal : interface.signals) {
+				if (!members.insert(signal.name).second) {
+					error(signal.name_token, "\"" + signal.name + "\" is already declared in " + interface.name + ".");
+				}
+				refer(signal.name_token, script_id(options.path, interface.name + "." + signal.name), SymbolKind::Signal);
+				type_signal_params(signal);
+			}
+			for (const TypeRef &ref : interface.extends) {
+				const Type parent = resolve(ref, false);
+				if (!parent.is_error() && !parent.is_interface) {
+					error(ref.range, parent.to_string() + " is not an interface.");
+				} else if (!parent.is_error()) {
+					interface.parents.push_back(parent);
+				}
+			}
 		}
+		for (const InterfaceDecl &interface : cls.interfaces) {
+			check_interface_parents(interface);
+		}
+	}
+
+	// What an interface extends (spec §3.9): no cycle, and each name with one
+	// signature, or a method redeclared with a narrower return type.
+	void check_interface_parents(const InterfaceDecl &p_interface) {
+		const Type self = Type::interface(display_name(cls, options.path) + "." + p_interface.name, options.path);
+		const std::vector<Type> up = interface_order(p_interface.parents);
+		if (std::any_of(up.begin(), up.end(), [&](const Type &p_up) { return p_up == self; })) {
+			error(p_interface.name_token, p_interface.name + " extends itself.");
+			return;
+		}
+		const std::vector<InterfaceMember> all = interface_members({ self });
+		for (const Type &parent : p_interface.parents) {
+			for (const InterfaceMember &inherited : interface_members({ parent })) {
+				if (const std::optional<std::pair<InterfaceMember, uint32_t>> mine = own_interface_member(p_interface, self, inherited.name())) {
+					if (!fits_inherited(mine->first, inherited, true)) {
+						error(mine->second, "\"" + inherited.name() + "\" does not fit \"" + inherited.name() + "\" of " + inherited.owner.name + ".");
+					}
+					continue;
+				}
+				// Another parent's must agree, unless one extends the other.
+				const auto found = std::find_if(all.begin(), all.end(), [&](const InterfaceMember &p_known) { return p_known.name() == inherited.name(); });
+				if (found != all.end() && !(found->owner == inherited.owner) && !is_a(found->owner, inherited.owner) && !fits_inherited(*found, inherited, false)) {
+					error(p_interface.name_token, found->owner.name + " and " + inherited.owner.name + " declare \"" + inherited.name() + "\" differently; redeclare it in " + p_interface.name + ".");
+				}
+			}
+		}
+	}
+
+	// A member the interface itself declares, and its name's token.
+	static std::optional<std::pair<InterfaceMember, uint32_t>> own_interface_member(const InterfaceDecl &p_interface, const Type &p_self, const std::string &p_name) {
+		for (const FuncDecl &method : p_interface.methods) {
+			if (method.name == p_name) {
+				return std::pair(InterfaceMember{ &method, nullptr, nullptr, p_self }, method.name_token);
+			}
+		}
+		for (const InterfaceProperty &property : p_interface.properties) {
+			if (property.name == p_name) {
+				return std::pair(InterfaceMember{ nullptr, &property, nullptr, p_self }, property.name_token);
+			}
+		}
+		for (const SignalDecl &signal : p_interface.signals) {
+			if (signal.name == p_name) {
+				return std::pair(InterfaceMember{ nullptr, nullptr, &signal, p_self }, signal.name_token);
+			}
+		}
+		return std::nullopt;
+	}
+
+	// Whether a member stands for one an interface inherits: a method with the
+	// same parameters and a return type that is the same or narrower, when it
+	// redeclares it; otherwise the same signature, the same property type, or
+	// the same signal arguments. A property that must be writable stands for
+	// one that need only be readable, not the other way.
+	bool fits_inherited(const InterfaceMember &p_member, const InterfaceMember &p_inherited, bool p_redeclared) const {
+		if (p_member.method && p_inherited.method) {
+			const FuncDecl &a = *p_member.method;
+			const FuncDecl &b = *p_inherited.method;
+			bool same = a.params.size() == b.params.size() && a.is_async == b.is_async && (p_redeclared ? assignable(a.return_type, b.return_type) : a.return_type == b.return_type);
+			for (size_t i = 0; same && i < a.params.size(); i++) {
+				same = a.params[i].type == b.params[i].type && a.params[i].is_rest == b.params[i].is_rest;
+			}
+			return same;
+		}
+		if (p_member.property && p_inherited.property) {
+			return p_member.property->type == p_inherited.property->type && (!p_member.property->is_readonly || p_inherited.property->is_readonly || !p_redeclared);
+		}
+		if (p_member.signal && p_inherited.signal) {
+			return param_types(p_member.signal->params) == param_types(p_inherited.signal->params);
+		}
+		return false;
 	}
 
 	// The fields of the structs the class declares (spec §3.6); the types that
@@ -9121,9 +9296,11 @@ class Checker : public ClassRelation {
 		return names;
 	}
 
-	// `implements I`: the class has every method of I, pub and with the same
-	// signature (spec §3.9).
+	// `implements I`: the class has every method of I and of the interfaces I
+	// extends, pub and with the same signature, and is each of those
+	// interfaces (spec §3.9).
 	void check_implements() {
+		std::vector<std::pair<Type, const TypeRef *>> named;
 		for (const TypeRef &ref : cls.implements) {
 			const Type type = resolve(ref, false);
 			if (type.is_error()) {
@@ -9133,7 +9310,20 @@ class Checker : public ClassRelation {
 				error(ref.range, type.to_string() + " is not an interface.");
 				continue;
 			}
-			cls.implemented.push_back(type);
+			named.push_back({ type, &ref });
+			for (const Type &interface : interface_order({ type })) {
+				if (std::find(cls.implemented.begin(), cls.implemented.end(), interface) == cls.implemented.end()) {
+					cls.implemented.push_back(interface);
+				}
+			}
+		}
+		for (const auto &entry : named) {
+			const Type &type = entry.first;
+			const TypeRef &ref = *entry.second;
+			// One that another named interface extends is checked with it.
+			if (std::any_of(named.begin(), named.end(), [&](const auto &p_other) { return !(p_other.first == type) && is_a(p_other.first, type); })) {
+				continue;
+			}
 			own_interfaces.push_back({ type, &ref });
 			const size_t reported = errors.size();
 			const InterfaceDecl *interface = interface_decl(type);
@@ -9142,28 +9332,32 @@ class Checker : public ClassRelation {
 				note_implementation(type, ref, reported);
 				continue;
 			}
-			for (const FuncDecl &method : interface->methods) {
+			for (const InterfaceMember &member : interface_members({ type })) {
+				if (!member.method) {
+					continue;
+				}
+				const FuncDecl &method = *member.method;
 				const auto found = function_index.find(method.name);
 				if (found == function_index.end()) {
-					error(ref.range, "The class does not implement " + method.name + "() of " + type.name + ".");
+					error(ref.range, "The class does not implement " + method.name + "() of " + member.owner.name + ".");
 					continue;
 				}
 				const FuncDecl &function = *cls.all_functions[found->second];
 				if (is_own(function, cls.functions)) {
-					refer(function.name_token, script_id(options.path, function.name), SymbolKind::Method, script_id(type.script, interface->name + "." + method.name));
+					refer(function.name_token, script_id(options.path, function.name), SymbolKind::Method, interface_member_id(member));
 				}
 				if (!function.is_pub) {
-					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + type.name + " and must be pub.");
+					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + member.owner.name + " and must be pub.");
 				}
 				if (function.is_static) {
-					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + type.name + ", so it cannot be static.");
+					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + member.owner.name + ", so it cannot be static.");
 				}
 				bool same = function.params.size() == method.params.size() && function.return_type == method.return_type && function.is_async == method.is_async;
 				for (size_t i = 0; same && i < method.params.size(); i++) {
 					same = function.params[i].type == method.params[i].type && function.params[i].is_rest == method.params[i].is_rest;
 				}
 				if (!same) {
-					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" does not have the signature that " + type.name + " declares, " + signature_text(method) + ".");
+					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" does not have the signature that " + member.owner.name + " declares, " + signature_text(method) + ".");
 				}
 			}
 			note_implementation(type, ref, reported);
@@ -9354,46 +9548,81 @@ class Checker : public ClassRelation {
 			for (const InterfaceProperty &property : decl.properties) {
 				check(decl.is_pub, property.name_token, "the property \"" + property.name + "\" of the pub " + decl.name, { property.type });
 			}
+			for (const SignalDecl &signal : decl.signals) {
+				check(decl.is_pub, signal.name_token, "the signal \"" + signal.name + "\" of the pub " + decl.name, param_types(signal.params));
+			}
 		}
 	}
 
-	// The properties the class's interfaces require, after the members' types
-	// are known: a pub member of the same type, or an inherited engine property,
-	// which must have a setter unless the requirement is @readonly (spec §3.9).
+	// The properties and signals the class's interfaces require, after the
+	// members' types and the signals are known (spec §3.9): a pub member of the
+	// same type, or an inherited engine property, which must have a setter
+	// unless the requirement is @readonly; a pub signal with the same arguments,
+	// its own, inherited or of the engine class.
 	void check_interface_properties() {
 		for (const auto &[type, ref] : own_interfaces) {
-			const InterfaceDecl *interface = interface_decl(type);
-			if (!interface) {
-				continue;
-			}
 			const size_t reported = errors.size();
-			for (const InterfaceProperty &required : interface->properties) {
-				if (required.type.is_error()) {
+			for (const InterfaceMember &member : interface_members({ type })) {
+				if (member.signal) {
+					check_interface_signal(member, *ref);
+				}
+				if (!member.property || member.property->type.is_error()) {
 					continue;
 				}
-				const auto member = member_index.find(required.name);
-				if (member != member_index.end()) {
-					const VarDecl &provided = *cls.all_members[member->second];
+				const InterfaceProperty &required = *member.property;
+				const std::string &owner = member.owner.name;
+				const auto found = member_index.find(required.name);
+				if (found != member_index.end()) {
+					const VarDecl &provided = *cls.all_members[found->second];
 					if (is_own(provided, cls.members)) {
-						refer(provided.name_token, script_id(options.path, provided.name), SymbolKind::Property, script_id(type.script, interface->name + "." + required.name));
+						refer(provided.name_token, script_id(options.path, provided.name), SymbolKind::Property, interface_member_id(member));
 					}
 					if (!provided.is_pub) {
-						error(own_name(provided, cls.members, ref->range), "\"" + provided.name + "\" implements " + type.name + " and must be pub.");
+						error(own_name(provided, cls.members, ref->range), "\"" + provided.name + "\" implements " + owner + " and must be pub.");
 					} else if (!provided.type.is_error() && provided.type != required.type) {
-						error(own_name(provided, cls.members, ref->range), "\"" + provided.name + "\" has type " + provided.type.to_string() + ", but " + type.name + " requires " + required.type.to_string() + ".");
+						error(own_name(provided, cls.members, ref->range), "\"" + provided.name + "\" has type " + provided.type.to_string() + ", but " + owner + " requires " + required.type.to_string() + ".");
 					}
 					continue;
 				}
 				const auto property = engine.find_property(cls.native_base, required.name);
 				if (!property) {
-					error(ref->range, "The class does not implement the property \"" + required.name + "\" of " + type.name + ".");
+					error(ref->range, "The class does not implement the property \"" + required.name + "\" of " + owner + ".");
 				} else if (property->type != required.type) {
-					error(ref->range, "The engine property \"" + required.name + "\" has type " + property->type.to_string() + ", but " + type.name + " requires " + required.type.to_string() + ".");
+					error(ref->range, "The engine property \"" + required.name + "\" has type " + property->type.to_string() + ", but " + owner + " requires " + required.type.to_string() + ".");
 				} else if (!property->writable && !required.is_readonly) {
-					error(ref->range, "The engine property \"" + required.name + "\" is read-only, so it satisfies only a @readonly property of " + type.name + ".");
+					error(ref->range, "The engine property \"" + required.name + "\" is read-only, so it satisfies only a @readonly property of " + owner + ".");
 				}
 			}
 			note_implementation(type, *ref, reported);
+		}
+	}
+
+	void check_interface_signal(const InterfaceMember &p_member, const TypeRef &p_ref) {
+		const SignalDecl &required = *p_member.signal;
+		const std::vector<Type> wanted = param_types(required.params);
+		if (std::any_of(wanted.begin(), wanted.end(), [](const Type &p_type) { return p_type.is_error(); })) {
+			return;
+		}
+		const std::string &owner = p_member.owner.name;
+		const auto found = signal_index.find(required.name);
+		if (found != signal_index.end()) {
+			const SignalDecl &provided = *cls.all_signals[found->second];
+			if (is_own(provided, cls.signals)) {
+				refer(provided.name_token, script_id(options.path, provided.name), SymbolKind::Signal, interface_member_id(p_member));
+			}
+			const std::vector<Type> given = param_types(provided.params);
+			if (!provided.is_pub) {
+				error(own_name(provided, cls.signals, p_ref.range), "\"" + provided.name + "\" implements " + owner + " and must be pub.");
+			} else if (std::none_of(given.begin(), given.end(), [](const Type &p_type) { return p_type.is_error(); }) && given != wanted) {
+				error(own_name(provided, cls.signals, p_ref.range), "\"" + provided.name + "\" is " + Type::signal(given).to_string() + ", but " + owner + " requires " + Type::signal(wanted).to_string() + ".");
+			}
+			return;
+		}
+		const auto signal = engine.find_signal(cls.native_base, required.name);
+		if (!signal) {
+			error(p_ref.range, "The class does not implement the signal \"" + required.name + "\" of " + owner + ".");
+		} else if (signal_type(*signal).args != wanted) {
+			error(p_ref.range, "The engine signal \"" + required.name + "\" is " + signal_type(*signal).to_string() + ", but " + owner + " requires " + Type::signal(wanted).to_string() + ".");
 		}
 	}
 
@@ -9408,17 +9637,21 @@ class Checker : public ClassRelation {
 			signal_index[signal.name] = int(cls.all_signals.size());
 			cls.all_signals.push_back(&signal);
 			refer(signal.name_token, script_id(options.path, signal.name), SymbolKind::Signal);
-			for (ParamDecl &param : signal.params) {
-				if (!param.declared_type) {
-					error(param.name_token, "The argument \"" + param.name + "\" of a signal needs a type.");
-					param.type = Type::of(TypeKind::Error);
-					continue;
-				}
-				if (param.default_value) {
-					error(param.default_value->range, "The arguments of a signal have no default values.");
-				}
-				param.type = resolve(*param.declared_type, false);
+			type_signal_params(signal);
+		}
+	}
+
+	void type_signal_params(SignalDecl &r_signal) {
+		for (ParamDecl &param : r_signal.params) {
+			if (!param.declared_type) {
+				error(param.name_token, "The argument \"" + param.name + "\" of a signal needs a type.");
+				param.type = Type::of(TypeKind::Error);
+				continue;
 			}
+			if (param.default_value) {
+				error(param.default_value->range, "The arguments of a signal have no default values.");
+			}
+			param.type = resolve(*param.declared_type, false);
 		}
 	}
 
@@ -9631,13 +9864,8 @@ class Checker : public ClassRelation {
 	// another or of the engine.
 	void script_candidates(const Type &p_class, Candidates &r_names) {
 		if (p_class.is_interface) {
-			if (const InterfaceDecl *interface = interface_decl(p_class)) {
-				for (const FuncDecl &method : interface->methods) {
-					r_names.values.insert(method.name);
-				}
-				for (const InterfaceProperty &property : interface->properties) {
-					r_names.values.insert(property.name);
-				}
+			for (const InterfaceMember &member : interface_members({ p_class })) {
+				r_names.values.insert(member.name());
 			}
 		} else if (is_script_path(p_class.script)) {
 			if (const ClassDecl *decl = script_decl(p_class.script)) {

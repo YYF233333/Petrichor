@@ -7,7 +7,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Of `_init` on Node and Resource scripts (spec §6.2):
   - `instantiate(...)` still asks by name for a member that the root's `_init` assigns. The checker does not check that body, which is in another file.
   - A scene or `.tres` using a script whose `_init` has required parameters is a compile error. Now the engine's construction gives the program error.
-- Signals of interfaces, and interfaces that extend others (spec §3.9).
 - A struct or an enum with payloads that holds itself through a container (spec §3.6). The type table cannot list it, since a type's parts come before it.
 - `Class.new` as a value (spec §3.11), as gdUnit4 passes `GdUnitTuple.new` to `callv`. It must construct as `new(...)` does. PetScript's `new` refuses a non-pub `_init` that the caller sees, so the two share the construction.
 - Static checks of:

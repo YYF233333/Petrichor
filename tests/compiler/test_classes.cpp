@@ -412,8 +412,51 @@ TEST_CASE("implements: interface properties, by a pub member of the same type or
 	CHECK(contains(body("var h: String = s.health"), "Cannot assign a value of type int as String"));
 	CHECK(contains(messages(compile_in("extends Node\n@readonly\nvar x: int = 1\n", p)), "@readonly is only for interface properties."));
 	CHECK(contains(messages(compile_in("pub interface Twice:\n\tfunc a()\n\tvar a: int\n", p)), "\"a\" is already declared in Twice."));
-	CHECK(contains(messages(compile_in("pub interface Loud:\n\tsignal hit\n", p)), "Signals of interfaces are not supported yet."));
 	CHECK(contains(messages(compile_in("pub interface Kind:\n\tfunc a():\n\t\tpass\n", p)), "Default methods of interfaces are not supported yet."));
+}
+
+TEST_CASE("implements: interface signals, by a pub signal with the same arguments, also inherited or of the engine (spec §3.9)") {
+	FakeProject p = project();
+	p.add_script("res://loud.pet", "class_name Loud\n\npub interface Mortal:\n\tsignal died\n\tsignal hurt(amount: int)\n\npub interface Timed:\n\tsignal timeout\n\npub interface Ready:\n\tsignal ready(x: int)\n\npub interface Fallen:\n\tsignal died(by: Node)\n", "Loud");
+	p.add_script("res://unit.pet", "class_name Unit\nextends Node\n\npub signal died\n", "Unit");
+	const auto mortal = [&](const std::string &p_header, const std::string &p_members) {
+		return messages(compile_in(p_header + " implements Loud.Mortal\n" + p_members + "\n", p));
+	};
+	CHECK(mortal("extends Node", "pub signal died\npub signal hurt(amount: int)").empty());
+	CHECK(mortal("extends Unit", "pub signal hurt(amount: int)").empty());
+	CHECK(contains(mortal("extends Node", "pub signal died"), "The class does not implement the signal \"hurt\" of Loud.Mortal."));
+	CHECK(contains(mortal("extends Node", "signal died\npub signal hurt(amount: int)"), "\"died\" implements Loud.Mortal and must be pub"));
+	CHECK(contains(mortal("extends Node", "pub signal died\npub signal hurt(amount: float)"), "but Loud.Mortal requires Signal(int)"));
+	CHECK(messages(compile_in("extends Timer implements Loud.Timed\n", p)).empty());
+	CHECK(contains(messages(compile_in("extends Node implements Loud.Ready\n", p)), "The engine signal \"ready\" is Signal(), but Loud.Ready requires Signal(int)."));
+	// The engine keeps one signal of a name on an object.
+	CHECK(contains(messages(compile_in("extends Node implements Loud.Mortal, Loud.Fallen\npub signal died\npub signal hurt(amount: int)\n", p)), "but Loud.Fallen requires Signal(Node)"));
+
+	const auto body = [&](const std::string &p_body) {
+		return messages(compile_in("extends Node\n\nasync func f(m: Loud.Mortal) -> void:\n\t" + p_body + "\n", p));
+	};
+	CHECK(body("m.died.connect(func(): pass)\n\tm.hurt.emit(3)\n\tawait m.died\n\tvar amount: int = await m.hurt").empty());
+	CHECK(contains(body("m.hurt.emit(\"x\")"), "Cannot pass a value of type String as int"));
+}
+
+TEST_CASE("an interface extends others: their members, one signature each, and their values (spec §3.9, §3.13)") {
+	FakeProject p = project();
+	p.add_script("res://kinds.pet", "class_name Kinds\n\npub interface Named:\n\tfunc label() -> Node\n\tvar tag: int\n\npub interface Shown extends Named:\n\tfunc label() -> Node2D\n\tfunc show_up()\n\tsignal shown\n", "Kinds");
+	p.add_script("res://shown_node.pet", "class_name ShownNode\nextends Node2D implements Kinds.Shown\n\npub var tag: int = 0\npub signal shown\n\npub func label() -> Node2D:\n\treturn self\n\npub func show_up():\n\tpass\n", "ShownNode");
+	CHECK(messages(compile_in("extends Node\n\nfunc f(s: Kinds.Shown, n: ShownNode) -> void:\n\tvar named: Kinds.Named = s\n\tnamed = n\n\tvar l: Node2D = s.label()\n\tvar t: int = s.tag\n\ts.shown.connect(func(): pass)\n\tif named is Kinds.Shown:\n\t\tnamed.label()\n", p)).empty());
+	CHECK(contains(messages(compile_in("extends Node\n\nfunc f(s: Kinds.Named) -> void:\n\tvar shown: Kinds.Shown = s\n", p)), "Cannot assign a value of type Kinds.Named as Kinds.Shown"));
+	// The class implements what Shown inherits too, with Shown's narrower label().
+	CHECK(contains(messages(compile_in("extends Node2D implements Kinds.Shown\npub signal shown\n\npub func label() -> Node2D:\n\treturn self\n\npub func show_up():\n\tpass\n", p)), "The class does not implement the property \"tag\" of Kinds.Named."));
+	CHECK(contains(messages(compile_in("extends Node2D implements Kinds.Shown\npub var tag: int = 0\npub signal shown\n\npub func label() -> Node:\n\treturn self\n\npub func show_up():\n\tpass\n", p)), "does not have the signature that Kinds.Shown declares, func() -> Node2D."));
+	CHECK(messages(compile_in("extends Node2D implements Kinds.Named, Kinds.Shown\npub var tag: int = 0\npub signal shown\n\npub func label() -> Node2D:\n\treturn self\n\npub func show_up():\n\tpass\n", p)).empty());
+
+	const auto declared = [&](const std::string &p_interfaces) { return messages(compile_in(p_interfaces, p)); };
+	CHECK(contains(declared("pub interface Ping extends Pong:\n\tpass\n\npub interface Pong extends Ping:\n\tpass\n"), "Ping extends itself."));
+	CHECK(contains(declared("pub interface Bad extends Kinds.Named:\n\tfunc label() -> int\n"), "\"label\" does not fit \"label\" of Kinds.Named."));
+	CHECK(contains(declared("pub interface Loose extends Kinds.Named:\n\t@readonly\n\tvar tag: int\n"), "\"tag\" does not fit \"tag\" of Kinds.Named."));
+	CHECK(contains(declared("pub interface P:\n\tfunc f(a: int)\n\npub interface Q:\n\tfunc f(a: String)\n\npub interface R extends P, Q:\n\tpass\n"), "declare \"f\" differently; redeclare it in R."));
+	CHECK(declared("pub interface P:\n\tfunc f() -> Node\n\npub interface Q:\n\tfunc f() -> Node\n\npub interface R extends P, Q, Kinds.Shown, Kinds.Named:\n\tpass\n").empty());
+	CHECK(contains(declared("pub interface S extends Node:\n\tpass\n"), "Node is not an interface."));
 }
 
 TEST_CASE("values of an interface type") {

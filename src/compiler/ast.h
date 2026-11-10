@@ -633,8 +633,12 @@ struct InterfaceDecl {
 	TokenRange range;
 	uint32_t name_token = 0;
 	bool is_pub = false;
+	std::vector<TypeRef> extends;
 	std::vector<FuncDecl> methods; // Without bodies.
 	std::vector<InterfaceProperty> properties;
+	std::vector<SignalDecl> signals;
+	// Filled by the checker: the interfaces it extends.
+	std::vector<Type> parents;
 };
 
 // The path of an inner class is its file's followed by "::" and the names of
@@ -853,7 +857,7 @@ void for_each_child(const Node &p_node, Fn &&p_fn) {
 	} else if constexpr (std::is_same_v<Node, EnumDecl>) {
 		list(p_node.values);
 	} else if constexpr (std::is_same_v<Node, InterfaceDecl>) {
-		separate(p_node.properties, p_node.methods);
+		separate(p_node.extends, p_node.properties, p_node.methods, p_node.signals);
 	} else if constexpr (std::is_same_v<Node, ClassDecl>) {
 		opt(p_node.owner_ref);
 		separate(p_node.implements);

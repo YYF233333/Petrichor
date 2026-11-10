@@ -632,6 +632,16 @@ struct Documenter {
 		return method;
 	}
 
+	DocMember signal(const SignalDecl &p_signal) const {
+		DocMember documented;
+		documented.name = p_signal.name;
+		documented.comment = comments.of(p_signal.range.first, p_signal.name_token, false);
+		for (const ParamDecl &param : p_signal.params) {
+			documented.arguments.push_back(typed(param.name, param.type));
+		}
+		return documented;
+	}
+
 	void document(const ClassDecl &p_class, const std::string &p_path) {
 		for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
 			document(*inner, p_path + "::" + inner->name);
@@ -660,6 +670,9 @@ struct Documenter {
 			}
 			for (const InterfaceProperty &property : decl.properties) {
 				doc.properties.push_back(member(property, property.type));
+			}
+			for (const SignalDecl &declared : decl.signals) {
+				doc.signals.push_back(signal(declared));
 			}
 			docs.push_back(std::move(doc));
 		}
@@ -707,14 +720,8 @@ struct Documenter {
 				doc.methods.push_back(function(method));
 			}
 		}
-		for (const SignalDecl &signal : p_class.signals) {
-			DocMember documented;
-			documented.name = signal.name;
-			documented.comment = comments.of(signal.range.first, signal.name_token, false);
-			for (const ParamDecl &param : signal.params) {
-				documented.arguments.push_back(typed(param.name, param.type));
-			}
-			doc.signals.push_back(std::move(documented));
+		for (const SignalDecl &declared : p_class.signals) {
+			doc.signals.push_back(signal(declared));
 		}
 		docs.push_back(std::move(doc));
 	}

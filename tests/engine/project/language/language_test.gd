@@ -322,6 +322,7 @@ func _ready() -> void:
 	_check_errors(["values_check.pet:233: \"damageable\" was not written: expected CombatCheck.Damageable?, found Node."], "the program error of a write names the member, its type and what came")
 	_check(refused_interface == false and v.damage_through(target, 0.0), "a parameter of an interface takes only an object that implements it")
 	_check(refused_array == 0 and v.count_damageable(with_target) == 1, "an array of an interface takes only objects that implement it")
+	_check(v.mortal_signal(target) == "[\"fall\"] true", "a signal an interface requires connects and emits through it, and an object of an interface is one of those it extends")
 	_check(v.damageable == null, "a member of an interface refuses an object that does not implement it")
 	v.damageable = target
 	_check(v.damageable == target, "a member of an interface takes an object that implements it")
