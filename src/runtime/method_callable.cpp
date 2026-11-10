@@ -178,8 +178,27 @@ void call_static(const StringName &p_class, const StringName &p_method, const Va
 	Variant(ClassDBSingleton::get_singleton()).callp("class_call_static", args.data(), int(args.size()), r_result, r_error);
 }
 
+Variant held_script(const ClassImage &p_image) {
+	GDExtensionObjectPtr script = gdextension_interface::object_get_instance_from_id(uint64_t(p_image.script));
+	Variant held;
+	if (script) {
+		static const GDExtensionVariantFromTypeConstructorFunc from_object = gdextension_interface::get_variant_from_type_constructor(GDEXTENSION_VARIANT_TYPE_OBJECT);
+		from_object(held._native_ptr(), &script);
+	}
+	return held;
+}
+
 StaticCallable::StaticCallable(const String &p_owner, const StringName &p_method, bool p_of_engine) :
-		owner(p_owner), method(p_method), of_engine(p_of_engine) {}
+		owner(p_owner), method(p_method), of_engine(p_of_engine) {
+	const std::shared_ptr<const ClassImage> image = of_engine ? nullptr : script_image(owner);
+	if (image) {
+		script = held_script(*image);
+	}
+}
+
+ObjectID StaticCallable::get_object() const {
+	return script;
+}
 
 bool StaticCallable::compare_equal(const CallableCustom *p_a, const CallableCustom *p_b) {
 	const StaticCallable *a = static_cast<const StaticCallable *>(p_a);
@@ -229,8 +248,12 @@ void StaticCallable::call(const Variant **p_arguments, int p_argcount, Variant &
 }
 
 StructMethodCallable::StructMethodCallable(const std::shared_ptr<const ClassImage> &p_image, int p_function, const uint8_t *p_self) :
-		image(p_image), function(p_function), self(p_image->types[p_image->module.functions[p_function].params[0].type]) {
+		image(p_image), function(p_function), self(p_image->types[p_image->module.functions[p_function].params[0].type]), script(held_script(*p_image)) {
 	copy_value(image->types[image->module.functions[function].params[0].type], self.data, p_self);
+}
+
+ObjectID StructMethodCallable::get_object() const {
+	return script;
 }
 
 uint32_t StructMethodCallable::hash() const {
@@ -255,6 +278,9 @@ LambdaCallable::LambdaCallable(const std::shared_ptr<const ClassImage> &p_image,
 	if (context.owner) {
 		owner = ObjectID(instance_id(context.owner));
 		kept = Variant(context.owner);
+	} else {
+		kept = held_script(*image);
+		owner = kept.operator ObjectID();
 	}
 	// As a call would complete it, so that a direct call can use it as it is.
 	if (!context.self_image) {

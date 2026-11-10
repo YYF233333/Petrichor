@@ -654,6 +654,7 @@ func _ready() -> void:
 	lambdas.failing_untyped()
 	_check_errors(["lambda_check.pet:102: Index 3 is out of bounds (size 1).", "lambda_check.pet:109: Index 4 is out of bounds (size 1)."], "a program error in a lambda reports where it is, also through a Callable")
 	_check(lambdas.after_error == 1, "through a Callable that is not narrowed, the caller goes on with the default result (spec §8.1)")
+	_check(lambdas.undo_redo() == [1, 2, 3, -1, 1, 2, 3], "UndoRedo runs a lambda without self, a static function and a struct's method, whose object is the script as in GDScript")
 	var on_self: Callable = lambdas.bound_to_self()
 	_check(on_self.is_valid() and on_self.get_object() == lambdas and on_self.call() == 5, "a lambda that uses self is bound to it")
 	lambdas.free()

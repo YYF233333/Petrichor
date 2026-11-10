@@ -91,6 +91,13 @@ public:
 // A static method of an engine class, by name (core/core_bind.cpp:1722-1737).
 void call_static(const godot::StringName &p_class, const godot::StringName &p_method, const godot::Variant **p_args, uint32_t p_count, godot::Variant &r_result, GDExtensionCallError &r_error);
 
+// The script of the image's class, held, as GDScript's lambdas and static
+// function values hold theirs as their object
+// (modules/gdscript/gdscript_lambda_callable.h:45, gdscript_lambda_callable.cpp:75-77,
+// gdscript.cpp:993; ed1daf0). UndoRedo of 4.7 runs a Callable only when its
+// object is alive (core/object/undo_redo.cpp:357-360). NIL once it is gone.
+godot::Variant held_script(const ClassImage &p_image);
+
 // A static function as a value (spec §3.11): of a class of this language,
 // found by name on its current image at each call (§12.4), or of an engine
 // class. Without an object it is valid, which connect() and emit() ask
@@ -99,6 +106,7 @@ class StaticCallable : public godot::CallableCustom {
 	godot::String owner; // The script's path, or the engine class.
 	godot::StringName method;
 	bool of_engine;
+	godot::Variant script; // held_script(), for one of this language.
 
 	static bool compare_equal(const godot::CallableCustom *p_a, const godot::CallableCustom *p_b);
 	static bool compare_less(const godot::CallableCustom *p_a, const godot::CallableCustom *p_b);
@@ -111,7 +119,7 @@ public:
 	CompareEqualFunc get_compare_equal_func() const override { return compare_equal; }
 	CompareLessFunc get_compare_less_func() const override { return compare_less; }
 	bool is_valid() const override { return true; }
-	godot::ObjectID get_object() const override { return godot::ObjectID(); }
+	godot::ObjectID get_object() const override;
 	int get_argument_count(bool &r_is_valid) const override;
 	void call(const godot::Variant **p_arguments, int p_argcount, godot::Variant &r_return_value, GDExtensionCallError &r_call_error) const override;
 };
@@ -123,6 +131,7 @@ class StructMethodCallable : public godot::CallableCustom {
 	std::shared_ptr<const ClassImage> image;
 	int function;
 	ValueBuffer self;
+	godot::Variant script; // held_script()
 
 	static bool compare_equal(const godot::CallableCustom *p_a, const godot::CallableCustom *p_b) { return p_a == p_b; }
 	static bool compare_less(const godot::CallableCustom *p_a, const godot::CallableCustom *p_b) { return std::less<const godot::CallableCustom *>()(p_a, p_b); }
@@ -136,7 +145,7 @@ public:
 	CompareEqualFunc get_compare_equal_func() const override { return compare_equal; }
 	CompareLessFunc get_compare_less_func() const override { return compare_less; }
 	bool is_valid() const override { return true; }
-	godot::ObjectID get_object() const override { return godot::ObjectID(); }
+	godot::ObjectID get_object() const override;
 	int get_argument_count(bool &r_is_valid) const override;
 	void call(const godot::Variant **p_arguments, int p_argcount, godot::Variant &r_return_value, GDExtensionCallError &r_call_error) const override;
 };
@@ -151,8 +160,8 @@ class LambdaCallable : public godot::CallableCustom {
 	std::shared_ptr<const ClassImage> image;
 	int function;
 	InstanceContext context; // Without storage when it does not use self.
-	godot::ObjectID owner;
-	godot::Variant kept; // Holds a RefCounted owner.
+	godot::ObjectID owner; // The instance, or without self the script.
+	godot::Variant kept; // Holds a RefCounted owner, or the script (held_script()).
 	// The captures, each in its parameter's layout, one after another; in the
 	// object itself when they fit, so that making a lambda allocates no more.
 	alignas(16) uint8_t inline_captures[64];

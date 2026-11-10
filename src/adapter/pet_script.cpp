@@ -353,6 +353,9 @@ void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image, cons
 		if (p_image && image && p_image != image && !Engine::get_singleton()->is_editor_hint()) {
 			p_image->adopt_statics(*image);
 		}
+		if (p_image) {
+			p_image->script = ObjectID(get_instance_id());
+		}
 		image = p_image;
 		if (p_base.is_valid()) {
 			base_script = p_base;

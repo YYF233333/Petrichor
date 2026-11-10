@@ -219,6 +219,7 @@
 | await 多参数信号得到由实参组成的 Array | `modules/gdscript/gdscript_function.cpp:256-274` | §9.6 |
 | 被等待的对象被释放后，GDScript 的等待方永远挂起 | `modules/gdscript/gdscript.cpp:2069-2079` | §9.7 |
 | RefCounted 类中的 lambda 强引用 self | `modules/gdscript/gdscript_lambda_callable.cpp:285-291` | §3.11 |
+| GDScript 不用 self 的 lambda 和静态函数值以脚本为对象，lambda 还持有脚本。4.7 的 UndoRedo 跳过对象已不存在的 Callable | `modules/gdscript/gdscript_lambda_callable.h:45`；`modules/gdscript/gdscript_lambda_callable.cpp:75-77`；`modules/gdscript/gdscript.cpp:993`；`core/object/undo_redo.cpp:357-360` | §3.11 |
 | GDScript 的 lambda 每次调用都把捕获作为实参接收。给捕获赋值既不改变外面的变量，也影响不到下一次调用。GDScript 对此给出警告 | `modules/gdscript/gdscript_lambda_callable.cpp:101-120`；`modules/gdscript/gdscript_analyzer.cpp:2895-2917` | §3.11 |
 | GDScript 的 lambda 可以命名，名字用于标识它的 Callable，不在其函数体中声明 | `modules/gdscript/gdscript_parser.cpp:3731-3733`；`modules/gdscript/gdscript_lambda_callable.cpp:61-62` | §3.11 |
 | GDScript 重新加载时把 lambda 换成新版本中同一位置的 lambda，lambda 的个数、捕获或参数不同时使它失效 | `modules/gdscript/gdscript_compiler.cpp:3217-3254`；`modules/gdscript/gdscript.cpp:1411-1421` | §12.4 |

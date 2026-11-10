@@ -63,6 +63,9 @@ public:
 	static void resolve_function(std::shared_ptr<const ClassImage> &r_image, int &r_index);
 	bool has_signature(const godot::StringName &p_name, uint32_t p_signature) const;
 	godot::String path;
+	// The script that holds the image, which the adapter sets: the object of
+	// the lambdas and function values that need no instance.
+	mutable godot::ObjectID script;
 	godot::StringName source; // The path as the debugger names breakpoints.
 	godot::StringName global_name;
 	godot::StringName base_class;

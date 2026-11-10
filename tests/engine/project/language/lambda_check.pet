@@ -112,3 +112,32 @@ pub func failing_untyped() -> void:
 func call_untyped(p_at: Callable) -> void:
 	var items: Array[int] = [1]
 	after_error = int(p_at.call(items, 4)) + 1
+
+
+struct Mark:
+	var n: int
+
+	func add_to(trail: Array[int]) -> void:
+		trail.append(n)
+
+
+static func add_two(trail: Array[int]) -> void:
+	trail.append(2)
+
+
+# A lambda without self, a static function and a struct's method as values
+# have the script as their object, as GDScript's do: UndoRedo runs only the
+# Callables whose object is alive.
+pub func undo_redo() -> Array[int]:
+	var trail: Array[int] = []
+	var history := UndoRedo.new()
+	history.create_action("a")
+	history.add_do_method(func(): trail.append(1))
+	history.add_do_method(add_two.bind(trail))
+	history.add_do_method(Mark(n = 3).add_to.bind(trail))
+	history.add_undo_method(func(): trail.append(-1))
+	history.commit_action()
+	history.undo()
+	history.redo()
+	history.free()
+	return trail
