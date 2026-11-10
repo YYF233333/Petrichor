@@ -23,9 +23,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - `is_instance_of(v, T)` with a native class held in a variable, which waits for classes as values (spec §2.6). gdUnit4 passes them.
 - A scene used as a root through `load`, `preload` or an exported `PackedScene` (spec §7.2). The node paths of a script take a scene that is also inherited for a base used only for inheritance. It may then lack a node without an error, which the run-time check catches.
 - `pub` required on the members that animation tracks and synchronized properties name (spec §10.5). The compiler does not read them yet (spec §7.7).
-- In debug builds, reporting two places (spec §3.3, §6.7, §12.5):
-  - where a freed instance was freed;
-  - where the instances still alive at exit were made.
+- In debug builds, listing where the instances still alive at exit were made (spec §6.7, §12.5).
 
 ## Runtime
 

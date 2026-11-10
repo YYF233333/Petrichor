@@ -160,6 +160,8 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 		image->engine_methods.push_back(method);
 		image->engine_static_classes.push_back(call.static_class.empty() ? StringName() : StringName(to_godot(call.static_class)));
 		ClassImage::NativeCall &native = image->native_calls.emplace_back();
+		native.frees = call.method == "free";
+		native.queues_free = call.method == "queue_free";
 		if (call.owner.empty()) {
 			continue;
 		}

@@ -143,7 +143,7 @@ PetInstance::PetInstance(PetScript *p_script, const std::shared_ptr<const ClassI
 	// A program error in them ends the engine's call, as in the ready function,
 	// so _init() does not run either (§8.1).
 	const bool init_later = init_left_to_caller();
-	storage = std::make_shared<InstanceStorage>(image);
+	storage = std::make_shared<InstanceStorage>(image, p_owner->get_instance_id());
 	const bool initialized = run_initializers(image, context(), false);
 	// Then the nearest _init(), as GDScript runs it after the member
 	// initializers; new(...) calls it itself with its arguments.
@@ -522,6 +522,7 @@ static void instance_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensi
 static void instance_notification(GDExtensionScriptInstanceDataPtr p_instance, int32_t p_what, GDExtensionBool p_reversed) {
 	PetInstance *instance = self(p_instance);
 	if (p_what == Object::NOTIFICATION_PREDELETE) {
+		vm::record_free(instance->storage->owner_id);
 		tasks::cancel_owner(instance->storage);
 	}
 	const std::shared_ptr<const ClassImage> image = instance->current_image();

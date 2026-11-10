@@ -116,6 +116,9 @@ public:
 		GDExtensionMethodBindPtr bind = nullptr;
 		std::vector<const void *> defaults;
 		bool direct = false; // No parameter takes a Variant, so each argument is read where it is.
+		// free() and queue_free(), whose places debug builds keep (spec §3.3).
+		bool frees = false;
+		bool queues_free = false;
 	};
 	std::vector<NativeCall> native_calls;
 	std::deque<NativeValue> natives; // What native_values and NativeCall::defaults point to.

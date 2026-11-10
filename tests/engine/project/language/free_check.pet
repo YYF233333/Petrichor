@@ -35,3 +35,14 @@ pub func fire_and_read() -> int:
 
 pub func free_other(other: FreeCheck) -> int:
 	return other.free_and_read()
+
+# The engine deletes the queued object at the end of the frame, and the place
+# shown is the call of queue_free() (spec §3.3).
+var queued := Callable()
+
+pub func queue(other: FreeCheck):
+	queued = other.free_and_read
+	other.queue_free()
+
+pub func call_queued():
+	queued.call()

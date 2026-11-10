@@ -31,12 +31,13 @@ class InstanceStorage {
 
 public:
 	uint8_t *const members;
+	const uint64_t owner_id;
 	std::atomic<bool> freed{ false };
 	std::atomic<bool> coroutines_cancelled{ false };
 	// Those of its tasks that have not ended, whose frames keep it until they do.
 	TaskList tasks;
 
-	explicit InstanceStorage(const std::shared_ptr<const ClassImage> &p_image);
+	InstanceStorage(const std::shared_ptr<const ClassImage> &p_image, uint64_t p_owner_id);
 	~InstanceStorage();
 	InstanceStorage(const InstanceStorage &) = delete;
 	InstanceStorage &operator=(const InstanceStorage &) = delete;
@@ -91,6 +92,12 @@ bool set_static(const std::shared_ptr<const ClassImage> &p_image, const godot::S
 
 // The call stack of the current thread, innermost last.
 const std::vector<StackFrame> &stack();
+
+// In debug builds, keeps the statement of this language running on this
+// thread as where the object was freed, or queued for deletion (spec §3.3).
+void record_free(uint64_t p_object, bool p_queued = false);
+// " It was freed at ...", or empty when no such place is kept.
+godot::String freed_site(uint64_t p_object);
 
 // Reports a program error at a line of the module's source (spec §8.1): the
 // debugger breaks, and the engine logs it with the call stack.

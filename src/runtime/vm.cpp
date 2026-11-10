@@ -22,6 +22,7 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <condition_variable>
 #include <cstring>
@@ -39,8 +40,8 @@ using bytecode::NO_SLOT;
 using bytecode::Op;
 using bytecode::ValueType;
 
-InstanceStorage::InstanceStorage(const std::shared_ptr<const ClassImage> &p_image) :
-		image(p_image), members(static_cast<uint8_t *>(::operator new(p_image->members_layout.size))) {
+InstanceStorage::InstanceStorage(const std::shared_ptr<const ClassImage> &p_image, uint64_t p_owner_id) :
+		image(p_image), members(static_cast<uint8_t *>(::operator new(p_image->members_layout.size))), owner_id(p_owner_id) {
 	image->members_layout.construct(members);
 }
 
@@ -874,6 +875,15 @@ class Execution {
 		return false;
 	}
 
+	// With where this language freed the object, in debug builds (spec §3.3).
+	PETRICHOR_NOINLINE bool fail_freed(const bytecode::Function &p_fn, int p_line, const char *p_message, uint64_t p_object) {
+		return fail(p_fn, p_line, p_message + vm::freed_site(p_object));
+	}
+
+	PETRICHOR_NOINLINE bool fail_self_freed(const bytecode::Function &p_fn, int p_line) {
+		return fail_freed(p_fn, p_line, "self was freed, or lost its script, while this method ran.", context.storage->owner_id);
+	}
+
 	PETRICHOR_NOINLINE bool fail_helper(const bytecode::Function &p_fn, int p_line) {
 		report_error(image, p_fn, p_line, helper_error());
 		return false;
@@ -970,13 +980,17 @@ class Execution {
 	Variant *resolve_object(uint8_t *p_frame, uint32_t p_offset, const std::atomic<bool> &p_freed, ObjectView &r_view, const bytecode::Function &p_fn, int p_line) {
 		if (p_offset == NO_SLOT) {
 			if (p_freed.load(std::memory_order_relaxed)) {
-				fail_cstr(p_fn, p_line, "self was freed, or lost its script, while this method ran.");
+				fail_self_freed(p_fn, p_line);
 				return nullptr;
 			}
 			return &self();
 		}
 		if (!is_live_object(p_frame + p_offset)) {
-			fail_cstr(p_fn, p_line, is_none_object(p_frame + p_offset) ? "The value is None." : "The object was freed.");
+			if (is_none_object(p_frame + p_offset)) {
+				fail_cstr(p_fn, p_line, "The value is None.");
+			} else {
+				fail_freed(p_fn, p_line, "The object was freed.", *reinterpret_cast<const uint64_t *>(p_frame + p_offset));
+			}
 			return nullptr;
 		}
 		new (&r_view) ObjectView(p_frame + p_offset);
@@ -1267,7 +1281,7 @@ class Execution {
 	PETRICHOR_NOINLINE bool op_get_owner(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
 		// Checked at every read, since code and the engine change the owner (spec §7.3).
 		if (p_freed.load(std::memory_order_relaxed)) {
-			return fail_cstr(p_fn, p_line, "self was freed, or lost its script, while this method ran.");
+			return fail_self_freed(p_fn, p_line);
 		}
 		const Node *node = Object::cast_to<Node>(context.owner);
 		Node *found = node ? node->get_owner() : nullptr;
@@ -1281,7 +1295,7 @@ class Execution {
 
 	PETRICHOR_NOINLINE bool op_get_self(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
 		if (p_freed.load(std::memory_order_relaxed)) {
-			return fail_cstr(p_fn, p_line, "self was freed, or lost its script, while this method ran.");
+			return fail_self_freed(p_fn, p_line);
 		}
 		set_object(p_frame + p_op[1], self());
 		return true;
@@ -1344,7 +1358,7 @@ class Execution {
 		const uint32_t lambda = p_op[1];
 		const bool on_self = !image.module.functions[lambda].is_static;
 		if (on_self && p_freed.load(std::memory_order_relaxed)) {
-			return fail_cstr(p_fn, p_line, "self was freed, or lost its script, while this method ran.");
+			return fail_self_freed(p_fn, p_line);
 		}
 		*reinterpret_cast<Callable *>(p_frame + p_op[2]) = Callable(memnew(LambdaCallable(image.shared_from_this(), lambda, on_self ? context : InstanceContext(), p_frame, p_op + 5)));
 		return true;
@@ -1696,7 +1710,7 @@ class Execution {
 		const uint32_t dst = p_op[2];
 		const uint32_t argc = p_op[4];
 		if (target_freed(*reinterpret_cast<const Callable *>(p_frame + p_op[3]))) {
-			return fail_cstr(p_fn, p_line, "The function value's object was freed.");
+			return fail_freed(p_fn, p_line, "The function value's object was freed.", reinterpret_cast<const Callable *>(p_frame + p_op[3])->get_object_id());
 		}
 		Variant callable = *reinterpret_cast<const Callable *>(p_frame + p_op[3]);
 		Arguments args(image.types, p_frame, p_op + 5, argc, nullptr);
@@ -1727,7 +1741,7 @@ class Execution {
 			return false; // The callee reported it.
 		}
 		if (error.error == GDEXTENSION_CALL_ERROR_INSTANCE_IS_NULL) {
-			return fail_cstr(p_fn, p_line, "The function value's object was freed.");
+			return fail_freed(p_fn, p_line, "The function value's object was freed.", Callable(callable).get_object_id());
 		}
 		if (error.error == GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS || error.error == GDEXTENSION_CALL_ERROR_TOO_FEW_ARGUMENTS) {
 			return fail(p_fn, p_line, vformat("%s() passes %d argument(s), but the function takes %d.", call.method.c_str(), count, error.expected));
@@ -1756,6 +1770,11 @@ class Execution {
 				return resolve_object(p_frame, p_op[3], p_freed, view, p_fn, p_line); // Reports why.
 			}
 			object = *reinterpret_cast<const GDExtensionObjectPtr *>(slot + 8);
+#ifdef DEBUG_ENABLED
+			if (native.queues_free) {
+				vm::record_free(*reinterpret_cast<const uint64_t *>(slot), true);
+			}
+#endif
 		}
 		const uint32_t argc = p_op[4];
 		const void *direct[8];
@@ -1824,6 +1843,12 @@ class Execution {
 		if (error.error != GDEXTENSION_CALL_OK) {
 			return fail(p_fn, p_line, vformat("Calling %s() failed.", image.engine_methods[target]));
 		}
+#ifdef DEBUG_ENABLED
+		const ClassImage::NativeCall &native = image.native_calls[target];
+		if (native.frees || native.queues_free) {
+			vm::record_free(object_id_of(*object), native.queues_free);
+		}
+#endif
 		Object *state = result.get_type() == Variant::OBJECT ? result.get_validated_object() : nullptr;
 		if (state && state->is_class("GDScriptFunctionState")) {
 			if (Op(p_op[0]) == Op::CALL_AWAIT_ENGINE) {
@@ -1958,7 +1983,7 @@ class Execution {
 			}
 		}
 		if (!utility && image.builtin_calls[target].runs_callable && target_freed(*reinterpret_cast<const Callable *>(p_frame + p_op[3]))) {
-			return fail_cstr(p_fn, p_line, "The function value's object was freed.");
+			return fail_freed(p_fn, p_line, "The function value's object was freed.", reinterpret_cast<const Callable *>(p_frame + p_op[3])->get_object_id());
 		}
 		const std::vector<ValueType> &params = utility ? module.utility_calls[target].params : module.builtin_methods[target].params;
 		const ValueType returns = utility ? module.utility_calls[target].return_type : module.builtin_methods[target].return_type;
@@ -2334,7 +2359,7 @@ public:
 // function ran (spec §3.3).
 #define SELF_ALIVE() \
 	if (freed.load(std::memory_order_relaxed)) { \
-		return fail_cstr(fn, record.line, "self was freed, or lost its script, while this method ran."); \
+		return fail_self_freed(fn, record.line); \
 	}
 
 		size_t pc = p_async ? p_async->pc : 0;
@@ -2737,7 +2762,7 @@ public:
 					break;
 				case Op::CHECK_LIVE:
 					if (!is_live_object(frame + code[pc + 1])) {
-						return fail_cstr(fn, record.line, "The object given to the engine was freed.");
+						return fail_freed(fn, record.line, "The object given to the engine was freed.", *reinterpret_cast<const uint64_t *>(frame + code[pc + 1]));
 					}
 					pc += 2;
 					break;
@@ -3261,7 +3286,7 @@ bool CoroutineFrame::await_task(const TaskRef &p_task) {
 	if (p_task->owner_freed) {
 		const uint64_t id = p_task->owner_id;
 		if (p_task->owner_freed_frame != task_frame.load()) {
-			report_error(vformat("The awaited object %d was freed or lost its script.", int64_t(id)));
+			report_error(vformat("The awaited object %d was freed or lost its script.", int64_t(id)) + vm::freed_site(id));
 			return false;
 		}
 		child = TaskRef();
@@ -3522,7 +3547,7 @@ void TaskJoin::member_ended(size_t p_member) {
 			value = cancelled(*member.get());
 		} else {
 			// As awaiting it would be (spec §9.2).
-			report_error(member->owner_freed ? vformat("The awaited object %d was freed or lost its script.", int64_t(member->owner_id)) : String("The awaited task was cancelled."));
+			report_error(member->owner_freed ? vformat("The awaited object %d was freed or lost its script.", int64_t(member->owner_id)) + vm::freed_site(member->owner_id) : String("The awaited task was cancelled."));
 			ends = TaskState::State::Failed;
 		}
 	}
@@ -3583,7 +3608,7 @@ void frame() {
 			const bool settled = join->kind == TaskJoin::Kind::Settled;
 			const Variant value = owner_gone || !settled ? Variant() : join->cancelled(member);
 			if (!owner_gone && !settled) {
-				join->report_error(vformat("The awaited object %d was freed or lost its script.", int64_t(member.owner_id)));
+				join->report_error(vformat("The awaited object %d was freed or lost its script.", int64_t(member.owner_id)) + vm::freed_site(member.owner_id));
 			}
 			lock.unlock();
 			if (owner_gone) {
@@ -3605,7 +3630,7 @@ void frame() {
 			lock.unlock();
 			task->cancel();
 		} else {
-			frame->report_error(vformat("The awaited object %d was freed or lost its script.", int64_t(frame->lost_object)));
+			frame->report_error(vformat("The awaited object %d was freed or lost its script.", int64_t(frame->lost_object)) + vm::freed_site(frame->lost_object));
 			lock.unlock();
 			task->finish(TaskState::State::Failed);
 		}
@@ -3715,6 +3740,56 @@ Variant call(std::shared_ptr<const ClassImage> p_image, int p_function, Instance
 
 const std::vector<StackFrame> &stack() {
 	return call_stack;
+}
+
+#ifdef DEBUG_ENABLED
+// The latest frees of each thread, in a ring that allocates nothing to record
+// one. A free older than it holds, or on another thread, shows no place, as
+// AddressSanitizer forgets frees that left its quarantine.
+struct FreeSite {
+	uint64_t object = 0;
+	std::weak_ptr<const ClassImage> image; // Of the function.
+	const bytecode::Function *function = nullptr;
+	int line = 0;
+	bool queued = false;
+};
+struct FreeSites {
+	static constexpr size_t SIZE = 4096;
+	std::array<FreeSite, SIZE> sites;
+	size_t recorded = 0;
+};
+thread_local std::unique_ptr<FreeSites> free_sites;
+#endif
+
+void record_free(uint64_t p_object, bool p_queued) {
+#ifdef DEBUG_ENABLED
+	if (call_stack.empty()) {
+		return;
+	}
+	if (!free_sites) {
+		free_sites = std::make_unique<FreeSites>();
+	}
+	const StackFrame &frame = call_stack.back();
+	free_sites->sites[free_sites->recorded++ % FreeSites::SIZE] = { p_object, frame.image->weak_from_this(), frame.function, frame.line, p_queued };
+#endif
+}
+
+String freed_site(uint64_t p_object) {
+#ifdef DEBUG_ENABLED
+	const size_t recorded = free_sites ? free_sites->recorded : 0;
+	for (size_t i = 1; i <= std::min(recorded, FreeSites::SIZE); i++) {
+		const FreeSite &site = free_sites->sites[(recorded - i) % FreeSites::SIZE];
+		if (site.object != p_object) {
+			continue;
+		}
+		const std::shared_ptr<const ClassImage> image = site.image.lock();
+		if (!image) {
+			break;
+		}
+		return vformat(site.queued ? " queue_free() was called on it at %s:%d in function '%s'." : " It was freed at %s:%d in function '%s'.", image->path, site.line, to_godot(site.function->name));
+	}
+#endif
+	return String();
 }
 
 namespace {
