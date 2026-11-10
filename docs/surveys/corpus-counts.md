@@ -40,10 +40,13 @@
 | 失败时返回空值、错误可在事后读取的引擎 API 的调用，及其后 3 行内对失败的检查 | `FileAccess.open` 125 处，分布在 8 个仓库，其中游戏仓库只有 7 处。其后调用 `get_open_error()` 的 21 处，判断为空的 20 处。`DirAccess.open` 53 处，分布在 6 个仓库：调用 `get_open_error()` 的 4 处，判断为空的 27 处。`get_file_as_string` 17 处，分布在 6 个仓库：调用 `get_open_error()` 的 1 处，判断为空的 2 处。`open_encrypted_with_pass` 2 处，`open_compressed` 和 `FileAccess.create_temp` 各 1 处，`get_file_as_bytes` 和 `DirAccess.create_temp` 0 处 | §10.3：`try_` 版本另加，原 API 不变（脚本见 `corpus-counts/null_failures.py`） |
 | 弱引用：`weakref(...)`、`WeakRef` 与 `.get_ref()` | `weakref(...)` 3 处，都在插件仓库，游戏仓库 0 处。gdUnit4 的测试 2 处，确认对象已释放。dialogue_manager 1 处，是 `DMTreeLine` 的父指针，写了从不读。`WeakRef` 3 处，`.get_ref()` 4 处，都在这几处 | §3.12：带类型的弱引用在第一版之后（脚本见 `corpus-counts/weak_refs.py`） |
 | 写在类型中的 autoload 名：裸名，或其脚本中的 enum、内部类 | 35 处：Pixelorama 33 处，godot-demo-projects 2 处，游戏仓库 0 处。形如 `Export.FileFormat` 的 enum 15 处，形如 `Keychain.MouseMovementInputAction` 的内部类 12 处，裸名 8 处。裸名都是 Pixelorama `ExtensionsApi.gd` 的返回类型，如 `-> Global`。按位置分：参数 11 处，返回类型 8 处，`as` 8 处，变量声明 4 处，容器元素 4 处。89 个 autoload 中，脚本写 `class_name` 的 8 个 | §11.1：autoload 名可写在类型中（脚本见 `corpus-counts/autoload_types.py`） |
+| 对象经过的引擎 API：返回对象的方法、对象属性、带对象参数的信号和虚函数 | 返回对象的方法调用 7,164 处。最多的是 `get_tree` 917 处，`load` 571 处，`get_node` 400 处，`get_parent` 397 处。其后是 `get_child` 340 处，`instantiate` 335 处，`get_viewport` 328 处。对象属性的读取 824 处，最多的是 `environment` 124 处。带对象参数的信号连接 176 处，最多的是 `gui_input` 48 处和 `body_entered` 46 处。`body_shape_entered` 与 `body_shape_exited` 各 2 处。带对象参数的虚函数覆盖 277 处，其中 `_input` 137 处 | §10.2：按高频 API 审核可空性，结果在 `src/compiler/binding_metadata.txt`（脚本见 `corpus-counts/engine_objects.py`） |
 
 计数基于词法分析，不做类型解析；`!` 只计不紧跟 `=` 的。`...` 在 GDScript 中只出现在函数签名里（Godot `469659e` 的 `modules/gdscript/gdscript_parser.cpp:1714, 4336`），所以紧跟名字的 `...` 都是剩余参数。协程指函数体中有 await 的方法，只在同一文件中查找对它的引用，不计场景中的信号连接。lambda 的捕获指所在方法在它之前声明的参数和局部变量，lambda 自己的参数和局部变量除外。`get_parent()` 和 `owner` 只计在自身上的使用，即前面没有 `.` 的；判断为空包括与 null 比较、用作条件和传给 `is_instance_valid`，以及在其后 25 行内对赋得其值的变量做这些判断。`free()` 和 `set_script(...)` 在自身上，指前面没有 `.`，或写作 `self.`、`super.`。字符串由扫描注释以外的文本找出，反斜杠转义和 `r` 前缀按 GDScript 的读法处理。preload 的常量的用法只在声明它的文件中查找：作为类型指出现在 `:`、`->`、`as` 之后或 `Array[...]` 中，不计节点路径 `$名字`、`%名字`。enum 的用法只计单独写出它的名字或写在同一仓库的 class_name 之后的，经 preload 的常量的用法不计；每个值都是 int 字面量或从字面量顺延时，才算知道它的值。内部类指行首（注解之后）的 `class`，类体是其后缩进更深的行；在内部类中以裸名使用外层类声明的名字才计入，内部类自己、其局部变量或其引擎基类声明了同名的除外；其他文件中的 `名字.Inner` 经 class_name、preload 的常量和 autoload（`project.godot`）解析。没有初始化式的 `static var` 按类型的写法归类：内置类型即 Variant 的类型名。排版的计数中制表符按 4 列计，即编辑器默认的缩进宽度（Godot `ed1daf0` 的 `editor/settings/editor_settings.cpp:831`）；续行的缩进相对于最内层未闭合的开括号所在的行；函数或类之前的空行不计紧贴其上的注解和注释行。文档注释指连续若干只含以 `##` 开头的注释的行，其下一行（跳过只有注解的行）以 `var`、`const`、`func`、`signal`、`enum`、`class`、`static`、`class_name` 或 `extends` 开头。
 
 `create_timer` 只计写作 `.create_timer(` 的方法调用。参数个数按括号内顶层的逗号计。
+
+对象经过的引擎 API 按名字计数，每个名字计入声明它的所有引擎类。脚本自己的同名成员也计入，所以 `get_item` 这类名字偏多。按名字的调用（如 `call("名字")`）、方法值和不写 `self.` 的属性读取不计入。某个引擎类的同名信号没有对象参数时，该名字不计，如 BaseButton 的 `pressed`。
 
 ## 复现
 
@@ -61,4 +64,5 @@ python docs/surveys/corpus-counts/string_index.py corpus > docs/surveys/corpus-c
 python docs/surveys/corpus-counts/null_failures.py corpus > docs/surveys/corpus-counts/results/null_failures.txt
 python docs/surveys/corpus-counts/weak_refs.py corpus > docs/surveys/corpus-counts/results/weak_refs.txt
 python docs/surveys/corpus-counts/autoload_types.py corpus > docs/surveys/corpus-counts/results/autoload_types.txt
+python docs/surveys/corpus-counts/engine_objects.py corpus thirdparty/godot-cpp/gdextension/extension_api-4-7.json > docs/surveys/corpus-counts/results/engine_objects.txt
 ```
