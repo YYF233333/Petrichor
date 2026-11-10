@@ -1315,7 +1315,7 @@ class Parser {
 				}
 				if (match(TokenKind::Var)) {
 					InterfaceProperty property;
-					const Token &property_name = expect(TokenKind::Identifier, "a property name");
+					const Token &property_name = declared_name("a property name");
 					property.name = property_name.text;
 					property.name_token = index(property_name);
 					property.is_readonly = is_readonly;
@@ -1339,7 +1339,7 @@ class Parser {
 					end_of_statement();
 					continue;
 				}
-				const Token &method_name = expect(TokenKind::Identifier, "a method name");
+				const Token &method_name = declared_name("a method name");
 				method.name = method_name.text;
 				method.name_token = index(method_name);
 				method.is_pub = true;

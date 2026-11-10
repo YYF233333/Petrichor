@@ -65,6 +65,8 @@ TEST_CASE("pub, struct, interface, implements, async and None are names elsewher
 	CHECK(has_error("extends Node\n\n\nfunc None():\n\tpass\n", "None cannot be a function name"));
 	CHECK(has_error("extends Node\nenum { None, Guess }\n", "None cannot be the name of a value"));
 	CHECK(has_error("extends Node\n\n\nstruct Hit:\n\tvar None := 0\n", "None cannot be a field name"));
+	// No class could implement an interface member named None.
+	CHECK(has_error("extends Node\n\n\ninterface Named:\n\tfunc None() -> void\n", "None cannot be a method name"));
 }
 
 // modules/gdscript/gdscript_parser.cpp:187, 5238-5298.
