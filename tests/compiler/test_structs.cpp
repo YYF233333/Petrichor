@@ -60,6 +60,12 @@ TEST_CASE("a field's default value sees what a static method of the struct sees"
 TEST_CASE("a struct that contains itself without a container has no size") {
 	CHECK(contains(errors("pass", "struct Chain:\n\tvar next: Chain?\n\n"), "Chain contains itself through Chain.next"));
 	CHECK(contains(errors("pass", "struct Outer:\n\tvar inner: Inner\n\nstruct Inner:\n\tvar outer: Outer\n\n"), "Outer contains itself through Outer.inner, Inner.outer"));
+	// The other struct named through a constant that preloads its script.
+	FakeProject p;
+	const std::string board = "class_name Board\nextends Node\n\nconst P = preload(\"res://piece.pet\")\n\npub struct Cell:\n\tvar piece: P.Slot\n";
+	p.add_script("res://test.pet", board, "Board");
+	p.add_script("res://piece.pet", "extends Node\n\npub struct Slot:\n\tvar cell: Board.Cell\n");
+	CHECK(contains(messages(compile_in(board, p)), "Cell contains itself through Cell.piece, Slot.cell"));
 }
 
 TEST_CASE("another class's struct is written ClassName.Name, and must be pub") {

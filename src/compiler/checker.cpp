@@ -9395,6 +9395,11 @@ class Checker : public ClassRelation {
 				cls.all_functions.push_back(&method);
 			}
 		}
+	}
+
+	// A struct or an enum with payloads that holds itself without a container
+	// has no finite size (spec §3.6). Once the fields of both are resolved.
+	void check_held_cycles() {
 		std::vector<std::string> held;
 		for (const StructDecl &decl : cls.structs) {
 			held.push_back(decl.name);
@@ -9462,33 +9467,22 @@ class Checker : public ClassRelation {
 	}
 
 	// Whether the struct or the enum with payloads holds `p_target`
-	// ("script::Name") in its slot, directly or through other ones, whose
-	// fields are read as declared, so that this does not wait for their
-	// scripts to be checked; `r_cycle` lists the fields on the way.
-	bool holds(const ClassDecl &p_header, const std::string &p_path, const std::string &p_name, const std::string &p_target, std::vector<std::string> &r_cycle, std::unordered_set<std::string> &r_seen) {
+	// ("script::Name") in its slot, directly or through other ones, with the
+	// field types their classes resolved; `r_cycle` lists the fields on the
+	// way. A class whose declarations are being checked is not followed: the
+	// check of the cycle's first class sees all the others.
+	bool holds(const ClassDecl &p_decl, const std::string &p_path, const std::string &p_name, const std::string &p_target, std::vector<std::string> &r_cycle, std::unordered_set<std::string> &r_seen) {
 		if (!r_seen.insert(p_path + "::" + p_name).second) {
 			return false;
 		}
-		for (const auto &[label, field] : value_fields(p_header, p_name)) {
-			if (!field->declared_type) {
-				continue;
-			}
-			for (const std::string &name : held_types(*field->declared_type)) {
-				const size_t dot = name.find('.');
-				std::string path = p_path;
-				const ClassDecl *header = &p_header;
-				if (dot != std::string::npos) {
-					const std::string head = name.substr(0, dot);
-					path = head == p_header.class_name ? p_path : (options.project ? options.project->global_class_path(head) : std::string());
-					path = path.empty() ? autoload_script(head) : path;
-					header = is_script_path(path) ? script_header(path) : nullptr;
-				}
-				const std::string inner = name.substr(dot == std::string::npos ? 0 : dot + 1);
-				if (!header || value_fields(*header, inner).empty()) {
+		for (const auto &[label, field] : value_fields(p_decl, p_name)) {
+			for (const Type &type : held_types(field->type)) {
+				const ClassDecl *decl = type == Type::conversion_error() ? nullptr : script_decl(type.script);
+				if (!decl) {
 					continue;
 				}
 				r_cycle.push_back(label);
-				if (path + "::" + inner == p_target || holds(*header, path, inner, p_target, r_cycle, r_seen)) {
+				if (type.script + "::" + type.interface_name() == p_target || holds(*decl, type.script, type.interface_name(), p_target, r_cycle, r_seen)) {
 					return true;
 				}
 				r_cycle.pop_back();
@@ -9497,21 +9491,19 @@ class Checker : public ClassRelation {
 		return false;
 	}
 
-	// The names of the types whose values a value of the type holds in its
-	// slot: T holds a T, as T? and Settled[T] do, and Result[T, E] holds
-	// both; a container holds a reference.
-	static std::vector<std::string> held_types(const TypeRef &p_ref) {
-		if (p_ref.args.empty()) {
-			return { p_ref.name };
-		}
-		std::vector<std::string> names;
-		if ((p_ref.name == "Result" || p_ref.name == "Settled") && !p_ref.is_function) {
-			for (const TypeRef &arg : p_ref.args) {
-				const std::vector<std::string> held = held_types(arg);
-				names.insert(names.end(), held.begin(), held.end());
+	// The structs and enums with payloads whose values a value of the type
+	// holds in its slot: T holds a T, as T? and Settled[T] do, and
+	// Result[T, E] holds both; a container holds a reference.
+	static std::vector<Type> held_types(const Type &p_type) {
+		if (p_type.kind == TypeKind::Option || p_type.is_result() || p_type.is_settled()) {
+			std::vector<Type> held;
+			for (const Type &arg : p_type.args) {
+				const std::vector<Type> inner = held_types(arg);
+				held.insert(held.end(), inner.begin(), inner.end());
 			}
+			return held;
 		}
-		return names;
+		return p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum ? std::vector<Type>{ p_type } : std::vector<Type>();
 	}
 
 	// `implements I`: the class has every method of I and of the interfaces I
@@ -11214,6 +11206,7 @@ private:
 		for (EnumDecl &decl : cls.enums) {
 			check_enum(decl);
 		}
+		check_held_cycles();
 		check_engine_constant_names();
 		for (ConstDecl &constant : cls.constants) {
 			const auto registered = constant_index.find(constant.name);
