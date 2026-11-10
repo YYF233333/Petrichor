@@ -163,14 +163,14 @@ pub func reset():   # [pub] breakout.gd calls it by name
 		var current_level_scene = ResourceManager.get_level_scene_by_name(current_level) as PackedScene   # PackedScene?
 		if current_level_scene != None:   # [rewrite]
 			var previous_level = (get_tree().get_first_node_in_group("levels") as Node2D).unwrap()   # [conv]
-			previous_level.add_sibling(current_level_scene.instantiate().unwrap())   # [conv] instantiate() gives Node?
+			previous_level.add_sibling(current_level_scene.instantiate())
 			previous_level.queue_free()
 
 		var current_level_manager_name: String = msg.current_level_manager
 		var current_level_manager = ResourceManager.get_level_manager_by_name(current_level_manager_name) as PackedScene
 		if current_level_manager != None:   # [rewrite]
 			var previous_level_manager = (get_tree().get_first_node_in_group("level_managers") as Node2D).unwrap()   # [conv]
-			previous_level_manager.add_sibling(current_level_manager.instantiate().unwrap())   # [conv]
+			previous_level_manager.add_sibling(current_level_manager.instantiate())
 			previous_level_manager.queue_free()
 
 

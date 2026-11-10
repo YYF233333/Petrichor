@@ -1329,12 +1329,13 @@ class Checker : public ClassRelation {
 		return type.to_string();
 	}
 
-	// The engine passes what its signals declare (spec §4.7, §10.2).
+	// The engine passes what its signals declare, an object only where the
+	// audit says it may pass null being T? (spec §4.7, §10.2).
 	static Type signal_type(const EngineMethod &p_signal) {
 		std::vector<Type> params;
 		for (const EngineParam &param : p_signal.params) {
 			Type type = param.type;
-			type.nullable = false;
+			type.nullable = type.kind == TypeKind::Object && builtin::signal_param_nullable(p_signal.owner, p_signal.name, uint32_t(params.size()));
 			params.push_back(type);
 		}
 		return Type::signal(params);

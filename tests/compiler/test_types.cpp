@@ -314,6 +314,10 @@ TEST_CASE("for over an array, and over a Dictionary's keys") {
 TEST_CASE("the binding metadata says which objects are never None") {
 	CHECK(type_of("get_parent()") == "Node?");
 	CHECK(type_of("get_tree()") == "SceneTree"); // Audited: null only when misused.
+	CHECK(type_of("get_child(0)") == "Node");
+	const std::string area = "extends Area3D\n\nfunc _ready():\n\tbody_shape_entered.connect(hit)\n\n";
+	CHECK(errors_of(area + "func hit(rid: RID, body: Node3D?, shape: int, local: int):\n\tpass\n").empty());
+	CHECK(has_error(area + "func hit(rid: RID, body: Node3D, shape: int, local: int):\n\tpass\n", "passes Node3D? as argument 2"));
 	CHECK(type_of("create_tween()") == "Tween"); // RequiredResult.
 	CHECK(type_of("get_tree().root") == "Window"); // Its getter is a RequiredResult.
 	CHECK(type_of("get_tree().get_root()") == "Window");

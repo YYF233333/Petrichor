@@ -7,8 +7,10 @@
 # the engine source at 4.7.2-stable.
 #
 #   returns-non-null  The method returns null only when it is misused, and
-#                     then the engine reports an error; the result is T, and
-#                     a null is a program error (spec §10.2).
+#                     then the engine reports an error, or never; the result
+#                     is T, and a null is a program error (spec §10.2).
+#   emits-null        The engine passes null as the signal's argument at the
+#                     given index in normal use; it is T? (spec §10.2).
 #   filters-by-class  The argument at the given index names a class, and the
 #                     returned array holds only objects of it; with a literal
 #                     class name the result is Array[that class] (spec §10.3).
@@ -23,7 +25,43 @@
 #                     Error the call set. Its try_ version returns
 #                     Result[T, Error] (spec §10.3).
 
+# The audit of null (spec §10.2), by use in real code
+# (docs/surveys/corpus-counts/results/engine_objects.txt).
 returns-non-null Node.get_tree scene/main/node.h:558-561
+returns-non-null Node.get_node scene/main/node.cpp:1966-1978
+returns-non-null Node.get_child scene/main/node.cpp:1847-1865
+returns-non-null Node.duplicate scene/main/node.cpp:2929-2933
+returns-non-null PackedScene.instantiate scene/resources/packed_scene.cpp:155-701,2507-2514
+returns-non-null Image.create core/io/image.cpp:2384-2389,3872
+returns-non-null Image.create_empty core/io/image.cpp:2384-2389
+returns-non-null Image.create_from_data core/io/image.cpp:2391-2396
+returns-non-null Image.get_region core/io/image.cpp:3084-3087
+returns-non-null ImageTexture.create_from_image scene/resources/image_texture.cpp:58-60
+returns-non-null PhysicsRayQueryParameters2D.create servers/physics_2d/physics_server_2d.cpp:162-169
+returns-non-null PhysicsRayQueryParameters3D.create servers/physics_3d/physics_server_3d.cpp:241-248
+returns-non-null Tree.create_item scene/gui/tree.cpp:5613-5634
+returns-non-null TreeItem.create_child scene/gui/tree.cpp:917-975
+returns-non-null TreeItem.get_child scene/gui/tree.cpp:1148-1156
+returns-non-null RegEx.create_from_string modules/regex/regex.cpp:166-171
+returns-non-null Engine.get_singleton core/config/engine.cpp:338-346
+returns-non-null GDExtensionManager.get_extension core/extension/gdextension_manager.cpp:244-248
+returns-non-null MenuButton.get_popup scene/gui/menu_button.cpp:77-79,251
+returns-non-null OptionButton.get_popup scene/gui/option_button.cpp:553-555,712
+returns-non-null AcceptDialog.get_ok_button scene/gui/dialogs.cpp:493
+returns-non-null AcceptDialog.add_button scene/gui/dialogs.cpp:343-344
+returns-non-null AnimationNodeBlendTree.get_node scene/animation/animation_blend_tree.cpp:1524-1527
+returns-non-null AnimationNodeStateMachine.get_node scene/animation/animation_node_state_machine.cpp:1374-1377
+returns-non-null MultiplayerSpawner.spawn modules/multiplayer/multiplayer_spawner.cpp:322-333
+returns-non-null SurfaceTool.commit scene/resources/surface_tool.cpp:713-746
+emits-null Area2D.body_shape_entered 1 scene/2d/physics/area_2d.cpp:177
+emits-null Area2D.body_shape_exited 1 scene/2d/physics/area_2d.cpp:179
+emits-null Area2D.area_shape_entered 1 scene/2d/physics/area_2d.cpp:288
+emits-null Area2D.area_shape_exited 1 scene/2d/physics/area_2d.cpp:290
+emits-null Area3D.body_shape_entered 1 scene/3d/physics/area_3d.cpp:234
+emits-null Area3D.body_shape_exited 1 scene/3d/physics/area_3d.cpp:236
+emits-null Area3D.area_shape_entered 1 scene/3d/physics/area_3d.cpp:440
+emits-null Area3D.area_shape_exited 1 scene/3d/physics/area_3d.cpp:442
+
 filters-by-class Node.find_children 1 scene/main/node.cpp:2031-2042
 
 reports-error FileAccess.open get_open_error core/io/file_access.cpp:187-195

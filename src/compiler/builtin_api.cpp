@@ -19,6 +19,8 @@ extern const char *const NON_NULL_PARAMS[];
 extern const size_t NON_NULL_PARAMS_COUNT;
 extern const char *const CLASS_FILTERS[];
 extern const size_t CLASS_FILTERS_COUNT;
+extern const char *const NULLABLE_SIGNAL_PARAMS[];
+extern const size_t NULLABLE_SIGNAL_PARAMS_COUNT;
 extern const MemberNameEntry MEMBER_NAMES[];
 extern const size_t MEMBER_NAMES_COUNT;
 extern const Keyed INT_PARAMS[];
@@ -124,6 +126,10 @@ bool property_non_null(std::string_view p_class, std::string_view p_property) {
 
 bool param_non_null(std::string_view p_class, std::string_view p_method, uint32_t p_index) {
 	return listed(NON_NULL_PARAMS, NON_NULL_PARAMS_COUNT, std::string(p_class) + "." + std::string(p_method) + ":" + std::to_string(p_index));
+}
+
+bool signal_param_nullable(std::string_view p_class, std::string_view p_signal, uint32_t p_index) {
+	return listed(NULLABLE_SIGNAL_PARAMS, NULLABLE_SIGNAL_PARAMS_COUNT, std::string(p_class) + "." + std::string(p_signal) + ":" + std::to_string(p_index));
 }
 
 std::optional<bytecode::IntRange> param_int_range(std::string_view p_class, std::string_view p_method, uint32_t p_index) {

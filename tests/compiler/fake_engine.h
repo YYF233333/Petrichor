@@ -48,6 +48,7 @@ class FakeEngine : public compiler::EngineApi {
 		{ "InputEventMouseMotion", "InputEvent" },
 		{ "MeshInstance3D", "Node3D" },
 		{ "FileAccess", "RefCounted" },
+		{ "Area3D", "Node3D" },
 	};
 	std::vector<std::string> singletons = { "Input", "ResourceLoader" };
 	std::map<std::string, int64_t> constants = {
@@ -230,6 +231,9 @@ public:
 		};
 		signals["Timer"] = {
 			method("timeout", {}, t(TypeKind::Void)),
+		};
+		signals["Area3D"] = {
+			method("body_shape_entered", { { "body_rid", Type::builtin("RID") }, { "body", Type::object("Node3D", true) }, { "body_shape_index", t(TypeKind::Int) }, { "local_shape_index", t(TypeKind::Int) } }, t(TypeKind::Void)),
 		};
 	}
 

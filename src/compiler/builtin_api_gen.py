@@ -72,8 +72,11 @@ def _binding_metadata(api, metadata_path):
     what is never null, "Class.method", "Class.property" and
     "Class.method:index", of the parameters that filter by class,
     "Class.method:index", of those that name a member, ("Class.method",
-    row), and of the methods with a try_ version, ("Class.method", getter)."""
+    row), of the methods with a try_ version, ("Class.method", getter), and
+    of the signal parameters that may be null, "Class.signal:index"."""
     methods = {(c["name"], m["name"]): m for c in api["classes"] for m in c.get("methods", [])}
+    signals = {(c["name"], s["name"]): s for c in api["classes"] for s in c.get("signals", [])}
+    objects = {c["name"] for c in api["classes"]}
     returns = {f"{c}.{m}" for (c, m), info in methods.items() if info.get("return_value", {}).get("meta") == "required"}
     params = {
         f"{c}.{m}:{i}"
@@ -84,6 +87,7 @@ def _binding_metadata(api, metadata_path):
     filters = set()
     names = {}
     getters = {}
+    nullable = set()
     with open(metadata_path, encoding="utf-8") as file:
         for number, line in enumerate(file, 1):
             words = line.split("#", 1)[0].split()
@@ -92,6 +96,12 @@ def _binding_metadata(api, metadata_path):
             where = f"{metadata_path}:{number}"
             assert len(words) >= 2, f"{where}: expected a kind and Class.method"
             cls, _, method = words[1].partition(".")
+            if words[0] == "emits-null":
+                assert len(words) == 4 and words[2].isdigit(), f"{where}: expected 'emits-null Class.signal index path:line'"
+                arguments = signals.get((cls, method), {}).get("arguments", [])
+                assert int(words[2]) < len(arguments) and arguments[int(words[2])]["type"] in objects, f"{where}: {words[1]} has no object argument {words[2]}"
+                nullable.add(f"{words[1]}:{words[2]}")
+                continue
             assert (cls, method) in methods, f"{where}: the engine has no method {words[1]}"
             if words[0] == "returns-non-null":
                 assert len(words) == 3, f"{where}: expected 'returns-non-null Class.method path:line'"
@@ -125,7 +135,7 @@ def _binding_metadata(api, metadata_path):
         for p in c.get("properties", [])
         if p.get("getter") and f"{c['name']}.{p['getter']}" in returns
     }
-    return sorted(returns), sorted(properties), sorted(params), sorted(filters), sorted(names.items()), sorted(getters.items())
+    return sorted(returns), sorted(properties), sorted(params), sorted(filters), sorted(names.items()), sorted(getters.items()), sorted(nullable)
 
 
 # Integer widths the engine truncates or wraps a value to (spec §10.6). A
@@ -265,7 +275,7 @@ def generate(json_path, metadata_path, out_path):
         out.write(f"const size_t CLASS_COUNT = {len(classes)};\n\n")
         out.write("const Utility UTILITIES[] = {\n" + "".join(f"\t{{ {row} }},\n" for row in utilities) + "};\n")
         out.write(f"const size_t UTILITY_COUNT = {len(utilities)};\n\n")
-        for name, rows in zip(("NON_NULL_RETURNS", "NON_NULL_PROPERTIES", "NON_NULL_PARAMS", "CLASS_FILTERS"), metadata):
+        for name, rows in zip(("NON_NULL_RETURNS", "NON_NULL_PROPERTIES", "NON_NULL_PARAMS", "CLASS_FILTERS", "NULLABLE_SIGNAL_PARAMS"), (*metadata[:4], metadata[6])):
             out.write(f"extern const char *const {name}[];\nextern const size_t {name}_COUNT;\n")
             out.write(f"const char *const {name}[] = {{\n" + "".join(f"\t{_c_string(row)},\n" for row in rows) + "};\n")
             out.write(f"const size_t {name}_COUNT = {len(rows)};\n\n")
