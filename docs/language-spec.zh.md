@@ -868,6 +868,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 - 方法值形成的 `Callable`（如 `tween_callback(change_weapon)`）直接绑定目标方法，不按名查找，所以可以指向不带 `pub` 的方法。`pub` 内部类作为值为其脚本的类常量暴露。调试器可见全部成员。
 - 读写引擎类的属性即调用它的 getter 和 setter，不经按名访问。`label.text = s` 与 `label.set_text(s)` 相同。
 - 所以对象脚本的 `_get`、`_set` 只拦截按名字的访问，如 `get`、`set`、检查器和动画。
+- `_get_property_list()` 加入的属性也经过 `_validate_property()`，与 GDScript 相同。
 - 【已知限制】引擎不向脚本提供带下标的属性的下标，如 `BaseMaterial3D` 的各张贴图共用一对方法。其他扩展的类中的这类属性因此仍按名读写。
 
 ### 10.6 数值边界
@@ -884,7 +885,10 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 - JSON 数字解码到 `int` 或无载荷的 enum 时，只接受恰为整数且在 `int64` 范围内的浮点数，否则报错而不截断。
 - struct 和 enum 赋给 `Variant` 时已按引擎边界的规则编码。所以 `JSON.stringify`、`var_to_str` 和 `ConfigFile` 直接存取它们，读回时用 `T.try_from`。它们的容器先以 `Array(hits)`、`Dictionary(d)` 转换。
-- 【已知限制】JSON 把 `Vector2`、`Color` 等引擎值写成字符串，读回时类型不符。绝对值超过 2^53 的整数也会失去精度。存这些值时用 `var_to_str` 或 `ConfigFile`。
+- 【已知限制】JSON 把 `Vector2`、`Color` 等引擎值写成字符串，读回时类型不符。绝对值超过 2^53 的整数也会失去精度。存这些值有三种办法：
+  - `var_to_str`；
+  - `ConfigFile`；
+  - 经 `JSON.from_native` 和 `JSON.to_native` 转换，仍存为 JSON。
 
 ## 11. 与 GDScript 和 C# 共存
 

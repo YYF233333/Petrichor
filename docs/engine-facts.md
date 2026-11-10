@@ -49,6 +49,7 @@
 | `bind` 把绑定的实参接在调用实参之后 | `core/variant/callable_bind.cpp:141-150` | §3.11 |
 | 从 String 构造 StringName 需要在全局表的互斥锁下查找 | `core/string/string_name.cpp:263-285` | §10.7 |
 | JSON 中的数字都解析为浮点数 | `core/io/json.cpp:390-396` | §10.8 |
+| `JSON.stringify` 把 `Vector2` 等引擎值写成字符串。`JSON.from_native` 按类型编码，`to_native` 能还原 | `core/io/json.cpp:193-197, 675-720` | §10.8 |
 | 资源按路径缓存，`load` 默认复用缓存 | `core/io/resource_loader.cpp:800-810` | §7.6 |
 | 资源的循环加载返回 null | `core/io/resource_loader.cpp:1049-1056` | §7.6 |
 | 方法的反射信息中没有协程性 | `core/object/method_info.h:37-44` | §9.8 |
@@ -64,6 +65,7 @@
 | 按实例列出的属性族名字带 `/`，如元数据、主题覆盖和着色器参数。ClassDB 注册的属性名都不带 `/`（由 `extension_api.json` 核对） | `core/object/object.cpp:525`；`scene/gui/control.cpp:444-479`；`scene/resources/material.cpp:340` | §10.4 |
 | 按名读写对象时，先交给脚本实例，再交给扩展类，最后才按 ClassDB 调 getter 和 setter。这个顺序出自开源时的第一个提交（`0b806ee0fc9`） | `core/object/object.cpp:233-259, 316-338` | §10.5 |
 | GDScript 实例对不是自身成员的名字都先调 `_set`、`_get`，引擎类的属性名也是。Object 的文档却说它们不处理内置属性（`29a3f56701`） | `modules/gdscript/gdscript.cpp:1589-1600, 1676-1685`；`doc/classes/Object.xml:39, 303` | §10.5 |
+| Object 的文档说 `_get_property_list` 加入的属性不经过 `_validate_property`。GDScript 实例却让它们经过 | `doc/classes/Object.xml:369`；`modules/gdscript/gdscript.cpp:1810, 1840` | §10.5 |
 | GDScript 的 `obj.prop` 按名读写，只对内置类型的成员用 validated 访问。对已知类的方法则直接调用 MethodBind，所以 `label.set_text(s)` 不经 `_set` | `modules/gdscript/gdscript_byte_codegen.cpp:848-883`；`modules/gdscript/gdscript_vm.cpp:1220, 1277, 2273-2313` | §10.5 |
 | C# 绑定的引擎属性调用 getter 和 setter 方法 | `modules/mono/editor/bindings_generator.cpp:2816, 2834` | §10.5 |
 | 对象设置脚本后发出 `script_changed` | `core/object/object.cpp:995` | §9.8 |
