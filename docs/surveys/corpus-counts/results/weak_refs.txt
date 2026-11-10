@@ -1,0 +1,13 @@
+weakref(       3  plugin 3
+WeakRef        3  plugin 3
+.get_ref(      4  plugin 4
+gdUnit4/addons/gdUnit4/test/asserts/GdUnitGodotErrorAssertImplTest.gd:139 (plugin): WeakRef
+gdUnit4/addons/gdUnit4/test/asserts/GdUnitGodotErrorAssertImplTest.gd:139 (plugin): weakref(
+gdUnit4/addons/gdUnit4/test/asserts/GdUnitGodotErrorAssertImplTest.gd:140 (plugin): .get_ref(
+gdUnit4/addons/gdUnit4/test/asserts/GdUnitGodotErrorAssertImplTest.gd:145 (plugin): .get_ref(
+gdUnit4/addons/gdUnit4/test/core/execution/GdUnitExecutionContextTest.gd:348 (plugin): WeakRef
+gdUnit4/addons/gdUnit4/test/core/execution/GdUnitExecutionContextTest.gd:348 (plugin): weakref(
+gdUnit4/addons/gdUnit4/test/core/execution/GdUnitExecutionContextTest.gd:349 (plugin): .get_ref(
+gdUnit4/addons/gdUnit4/test/core/execution/GdUnitExecutionContextTest.gd:354 (plugin): .get_ref(
+godot_dialogue_manager/addons/dialogue_manager/compiler/compilation.gd:222 (plugin): weakref(
+godot_dialogue_manager/addons/dialogue_manager/compiler/tree_line.gd:10 (plugin): WeakRef
