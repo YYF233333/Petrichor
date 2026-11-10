@@ -18,10 +18,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - a node of a scene whose script is abstract (§4.1).
 - `@parent(T)` (spec §7.3).
 - An autoload's name in a type, as `-> Export` and `Export.FileFormat` (spec §11.1). The checker resolves `Export.Inner` only as a value now (`script_type()`).
-- Exporting structs and enums with payloads (spec §4.3, architecture §6.2). The checker refuses them now.
-  - The type in the hint string, and the encoded initial value as the default.
-  - The values that scenes and `.tres` files store, checked at compile time against the type.
-  - A compile error for a `Node` field at any depth.
+- Checking at compile time what scenes and `.tres` files store in exported structs and enums with payloads (spec §4.3).
 - Containers of function types and of `Task[T]`, which the checker says are not supported yet (`container_element`).
   - Spec §3.8 gives elements of this language's own types its own representation, as for structs.
   - Until then, `Task.all()` and `Task.any()` take only tasks written in brackets.

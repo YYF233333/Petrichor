@@ -292,10 +292,11 @@ struct Member : Slot {
 	// For the inspector and scenes: PropertyUsageFlags as the engine numbers
 	// them, without SCRIPT_VARIABLE, which every member has.
 	uint32_t usage = 0;
-	// The value the member starts at, when it is a constant: a constant
-	// initializer, or its type's default without one (spec §4.3). The editor
-	// shows it as the default; the module's init function writes it, with the
-	// other initializers.
+	// The value the member starts at, when the compiler knows it: a constant
+	// initializer, or its type's default without one (spec §4.3); a struct or
+	// an enum with payloads encoded as the engine sees it (§10.1). The editor
+	// shows it as the default; the module's init function writes the member,
+	// with the other initializers.
 	bool has_initial = false;
 	Constant initial;
 };

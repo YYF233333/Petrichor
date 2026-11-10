@@ -857,6 +857,7 @@ func _ready() -> void:
 	_check_errors(["Cannot set object script. Script 'res://language/abstract_action.pet' should not be abstract."], "the engine gives no object an abstract script")
 
 	_gdscript_static_view()
+	_struct_exports()
 
 	for test: GDScript in [preload("res://language/coroutines_test.gd"), preload("res://language/defaults_test.gd"), preload("res://language/inheritance_test.gd"), preload("res://language/rest_test.gd")]:
 		var part: Node = test.new()
@@ -904,3 +905,17 @@ func _compiles(body: String) -> bool:
 	var script := GDScript.new()
 	script.source_code = "extends Node\n\nfunc f() -> void:\n\t" + body.strip_edges().replace("\n", "\n\t") + "\n"
 	return script.reload() == OK
+
+
+# Spec §4.3: a scene stores an exported struct or enum with payloads as the
+# Dictionary that encodes it (§10.1), which the entry check decodes.
+func _struct_exports() -> void:
+	var base: ExportCheck = load("res://language/export_base.tscn").instantiate()
+	var derived: ExportCheck = load("res://language/export_derived.tscn").instantiate()
+	_check(base.hit == {"damage": 5, "crit": true} and base.order == {"$variant": "MOVE", "target": Vector3(1, 2, 3)} and base.described() == "5 true (1.0, 2.0, 3.0)", "a scene sets an exported struct and enum with payloads, which GDScript reads encoded")
+	_check(derived.hit == {"damage": 7, "crit": false} and derived.described() == "7 false (1.0, 2.0, 3.0)", "a scene inheriting another replaces the whole value, and a field it leaves out takes its default")
+	add_child(derived)
+	_check(derived.later == {"$variant": "WAIT"}, "an export that must be assigned, which the base scene assigns")
+	derived.free()
+	base.free()
+	_check_errors([], "the scenes' values decode without errors")

@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://language/export_base.tscn" id="1"]
+
+[node name="Exported" instance=ExtResource("1")]
+hit = {"damage": 7}

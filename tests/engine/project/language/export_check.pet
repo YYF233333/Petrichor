@@ -1,0 +1,24 @@
+# Exported structs and enums with payloads (spec §4.3), driven by
+# language_test.gd through export_base.tscn and export_derived.tscn.
+class_name ExportCheck
+extends Node
+
+pub struct Hit:
+	var damage: int
+	var crit: bool = false
+
+pub enum Order { WAIT, MOVE(target: Vector3) }
+
+@export pub var hit := Hit(damage = 1)
+@export pub var order := Order.WAIT
+@export pub var later: Order
+
+
+pub func described() -> String:
+	var where := "waits"
+	match order:
+		Order.MOVE(var target):
+			where = str(target)
+		Order.WAIT:
+			pass
+	return "%d %s %s" % [hit.damage, hit.crit, where]

@@ -8493,21 +8493,26 @@ class Checker : public ClassRelation {
 				type = value;
 			}
 			// An @onready member gets even a constant when the node is ready.
-			const ConstPtr initial = converted(member.initializer->constant, type);
-			member.constant_initializer = !member.is_onready && initial && !loads(*initial);
+			if (!member.is_onready) {
+				member.initial = reflected_initial(member.initializer.get(), type);
+			}
 		} else if (!member.declared_type) {
 			error(member.name_token, "\"" + member.name + "\" needs a type or an initial value.");
 		} else {
 			// The scene, the creator or an ancestor assigns it, which is checked
 			// before it is read (spec §4.3, §6.2).
 			member.must_assign = !has_value_without_initializer(type);
+			member.initial = member.must_assign ? nullptr : reflected_initial(nullptr, type);
 		}
-		if (member.is_export && type.unwrapped().kind == TypeKind::Struct) {
-			error(member.name_token, "Structs cannot be exported in the first version.");
-		} else if (member.is_export && type.unwrapped().kind == TypeKind::PayloadEnum) {
-			error(member.name_token, type.unwrapped().is_result() ? "A Result is an enum with payloads, which cannot be exported in the first version." : "Enums with payloads cannot be exported in the first version.");
-		} else if (member.is_export && is_typed_container(type) && is_boxed(type)) {
+		const TypeKind kind = type.unwrapped().kind;
+		if (member.is_export && is_typed_container(type) && is_boxed(type)) {
 			error(member.name_token, "Containers whose elements exist only in this language, such as " + type.to_string() + ", cannot be exported: exports go through reflection, which does not list them.");
+		} else if (member.is_export && (kind == TypeKind::Struct || kind == TypeKind::PayloadEnum)) {
+			std::unordered_set<std::string> seen;
+			const std::string field = node_field(type.unwrapped(), std::string(), seen);
+			if (!field.empty()) {
+				error(member.name_token, field + " holds a node, which a scene does not store inside an exported value; export the node as a member of its own.");
+			}
 		}
 		if (member.is_export && type.kind == TypeKind::Object && type.name == "PackedScene" && type.args.empty()) {
 			error(member.name_token, "An exported scene is written PackedScene[T], with the type of its root.");
@@ -8517,7 +8522,151 @@ class Checker : public ClassRelation {
 		}
 		member.type = type;
 		check_annotations(member);
+		// The inspector's Dictionary editor reads any hint string as the types
+		// of the keys and the values; "0:" keeps the keys untyped, and names the
+		// type after it (architecture §6.2).
+		if (member.is_export && member.hint == 0 && member.hint_string.empty() && (kind == TypeKind::Struct || kind == TypeKind::PayloadEnum)) {
+			member.hint_string = "0:" + type.to_string();
+		}
 		check_accessors(member);
+	}
+
+	// A member's first value as reflection shows it, when the compiler knows
+	// it: the editor's default (spec §10.1). A constant, or a struct or a
+	// variant built of constants and the defaults of the fields left out;
+	// without an initializer, a struct's defaults. Null where code computes
+	// it, or a part of it loads a resource.
+	ConstPtr reflected_initial(const Expr *p_value, const Type &p_type) const {
+		if (!p_value) {
+			return p_type.kind == TypeKind::Struct ? encoded_fields(p_type, nullptr) : nullptr;
+		}
+		if (p_value->constant) {
+			const ConstPtr value = converted(p_value->constant, p_type);
+			return value && !loads(*value) ? encoded(value, p_type) : nullptr;
+		}
+		const bool constructed = p_value->target == Target::StructConstructor || p_value->target == Target::VariantConstructor;
+		return constructed ? encoded_fields(p_value->type, p_value) : nullptr;
+	}
+
+	// The struct, or the variant of the enum with payloads, that `p_call`
+	// constructs, as a Dictionary by field name (spec §10.1); without a call,
+	// the struct's defaults.
+	ConstPtr encoded_fields(const Type &p_type, const Expr *p_call) const {
+		auto encoded = std::make_shared<ConstValue>();
+		encoded->kind = ConstValue::Kind::Dictionary;
+		encoded->type = Type::builtin("Dictionary");
+		const auto add = [&](const std::string &p_key, const ConstPtr &p_value) {
+			auto key = std::make_shared<ConstValue>();
+			key->kind = ConstValue::Kind::String;
+			key->type = Type::of(TypeKind::String);
+			key->text = p_key;
+			encoded->items.push_back(key);
+			encoded->items.push_back(p_value);
+		};
+		std::vector<std::pair<std::string, Type>> fields;
+		std::vector<const Expr *> values;
+		if (const StructDecl *decl = p_type.kind == TypeKind::Struct ? struct_decl(p_type) : nullptr) {
+			for (const VarDecl &field : decl->fields) {
+				fields.emplace_back(field.name, field.type);
+				values.push_back(field.initializer.get());
+			}
+		} else if (p_type.kind == TypeKind::PayloadEnum && p_call && p_type.values) {
+			auto name = std::make_shared<ConstValue>();
+			name->kind = ConstValue::Kind::String;
+			name->type = Type::of(TypeKind::String);
+			name->text = p_type.values->list[p_call->index].first;
+			add("$variant", name);
+			fields = p_type.values->fields[p_call->index];
+			values.resize(fields.size());
+		} else {
+			return nullptr;
+		}
+		for (size_t i = 0; p_call && i < p_call->args.size(); i++) {
+			// By name, or Ok(v) and Err(e) by position.
+			for (size_t f = 0; f < fields.size(); f++) {
+				if (p_call->arg_names.empty() ? f == i : fields[f].first == p_call->arg_names[i]) {
+					values[f] = p_call->args[i].get();
+				}
+			}
+		}
+		for (size_t f = 0; f < fields.size(); f++) {
+			const ConstPtr value = values[f] ? reflected_initial(values[f], fields[f].second) : nullptr;
+			if (!value) {
+				return nullptr;
+			}
+			add(fields[f].first, value);
+		}
+		return encoded;
+	}
+
+	// A constant as the engine sees a value of the type (spec §10.1): a
+	// variant of an enum with payloads as a Dictionary, and a container that
+	// keeps its elements boxed untyped, with them encoded.
+	static ConstPtr encoded(const ConstPtr &p_value, const Type &p_type) {
+		const Type &type = p_type.kind == TypeKind::Option ? p_type.args[0] : p_type;
+		if (type.kind == TypeKind::PayloadEnum && p_value->kind == ConstValue::Kind::Int && type.values) {
+			auto value = std::make_shared<ConstValue>();
+			value->kind = ConstValue::Kind::Dictionary;
+			value->type = Type::builtin("Dictionary");
+			auto key = std::make_shared<ConstValue>();
+			key->kind = ConstValue::Kind::String;
+			key->type = Type::of(TypeKind::String);
+			key->text = "$variant";
+			auto name = std::make_shared<ConstValue>(*key);
+			name->text = type.values->list[size_t(p_value->i)].first;
+			value->items = { key, name };
+			return value;
+		}
+		if (!p_value->is_container() || !is_boxed(type)) {
+			return p_value;
+		}
+		auto value = std::make_shared<ConstValue>(*p_value);
+		value->type = Type::builtin(type.builtin_name());
+		const std::optional<Type> element = element_of(type);
+		const std::optional<std::pair<Type, Type>> entries = entries_of(type);
+		for (size_t i = 0; i < value->items.size(); i++) {
+			const bool key = value->kind == ConstValue::Kind::Dictionary && i % 2 == 0;
+			const Type item = value->kind == ConstValue::Kind::Array ? *element : (key ? entries->first : entries->second);
+			value->items[i] = encoded(value->items[i], item);
+		}
+		return value;
+	}
+
+	// The field of an exported struct or enum with payloads that holds a
+	// node at any depth, such as "Hit.source"; "" for none. The engine stores
+	// as paths only the nodes of an exported member and of the typed
+	// container in it (architecture §6.2).
+	std::string node_field(const Type &p_type, const std::string &p_field, std::unordered_set<std::string> &r_seen) const {
+		if (p_type.kind == TypeKind::Object) {
+			const std::string &native = p_type.engine_class();
+			return native == "Node" || engine.inherits(native, "Node") ? p_field : std::string();
+		}
+		// The type inside T?, or the keys and elements of a container.
+		std::vector<std::pair<std::string, Type>> parts;
+		const bool held = p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum;
+		for (size_t i = 0; (p_type.kind == TypeKind::Option || p_type.kind == TypeKind::Builtin) && i < p_type.args.size(); i++) {
+			parts.emplace_back(p_field, p_type.args[i]);
+		}
+		if (held && r_seen.insert(p_type.script + "::" + p_type.to_string()).second) {
+			const std::string name = p_type.interface_name() + ".";
+			if (const StructDecl *decl = p_type.kind == TypeKind::Struct ? struct_decl(p_type) : nullptr) {
+				for (const VarDecl &field : decl->fields) {
+					parts.emplace_back(name + field.name, field.type);
+				}
+			}
+			for (size_t v = 0; p_type.kind == TypeKind::PayloadEnum && p_type.values && v < p_type.values->fields.size(); v++) {
+				for (const auto &[field, type] : p_type.values->fields[v]) {
+					parts.emplace_back(name + p_type.values->list[v].first + "." + field, type);
+				}
+			}
+		}
+		for (const auto &[field, type] : parts) {
+			const std::string found = node_field(type, field, r_seen);
+			if (!found.empty()) {
+				return found;
+			}
+		}
+		return std::string();
 	}
 
 	// A static variable (spec §4.8): typed as a member is (§4.3), but one of

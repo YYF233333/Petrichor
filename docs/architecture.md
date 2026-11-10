@@ -420,6 +420,11 @@ struct 和带载荷 enum 的成员可以 `@export`，存进场景和 `.tres`（�
 
 - 存储：两者在引擎边界上编码为按字段名的 Dictionary，带载荷的 enum 以 `"$variant"` 记分支名（规范 §10.1）。场景保存时经 `get` 读出它们，实例化时经 `set` 先交给脚本实例的入口检查解码，引擎无需改动（`scene/resources/packed_scene.cpp:494, 861-883`，`core/object/object.cpp:239-246`）。
 - 编辑：第一版用检查器的通用字典编辑器，它能编辑，只是不按类型（`editor/inspector/editor_properties.cpp:4280-4287`）。按类型的面板随第 8 步的后一段，由本扩展注册的 EditorInspectorPlugin 提供，属性的提示字符串写明类型（`editor/inspector/editor_inspector.h:356, 360`，`editor/plugins/editor_plugin.cpp:674`）。
+  - 通用字典编辑器总把提示字符串读作键和值的类型（`editor/inspector/editor_properties_array_dict.cpp:1203-1226`）。
+  - 所以提示字符串写作 `0:类型名`，`0` 使键保持无类型。
+- 默认值：编译器知道成员的初始值时，把它的编码写进字节码，作为检查器的默认值和还原值。
+  - 初始值由常量、构造和字段的常量默认值组成时，编译器知道它。
+  - 由代码算出的初始值没有默认值，与 GDScript 相同（`modules/gdscript/gdscript_analyzer.cpp:5652-5661`）。
 - 检查：场景和 `.tres` 中存的值在编译时按类型检查。缺字段、分支名不存在和类型不符都报在节点上。
 - `Node` 字段：引擎只把顶层属性和带类型容器中的节点引用存为路径。它等场景的节点都建好后再解析（`scene/resources/packed_scene.cpp:390-394, 597-630`）。嵌套在编码中的节点引用会丢失，所以第一版报编译错误。以后有两条路：
   - 运行时把它们存为相对路径，在节点入树或首次读取时解析；

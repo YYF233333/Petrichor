@@ -43,6 +43,7 @@ func _run() -> void:
 	_check_placeholder_fallback()
 	_check_constant_defaults()
 	_check_other_defaults()
+	_check_struct_exports()
 	_check_inheritance_recovery()
 	await _check_instanced_scene_change()
 	await _check_scene_marks()
@@ -448,3 +449,28 @@ func _check_inheritance_recovery() -> void:
 	for path in [base_path, child_path]:
 		for file in [path, path + ".uid", path.replace("res://", "res://.godot/petrichor/").replace(".pet", ".petc")]:
 			DirAccess.remove_absolute(file)
+
+
+# Spec §4.3: the inspector edits an exported struct or enum with payloads as
+# the Dictionary that encodes it (§10.1), with the engine's untyped editor,
+# and takes its encoded initial value as the default.
+func _check_struct_exports() -> void:
+	var script_path := "res://editor_check_structs.pet"
+	var scene_path := "res://editor_check_structs.tscn"
+	_write(script_path, "extends Node\n\npub struct Hit:\n\tvar damage: int = 3\n\tvar crit := false\n\npub enum Order { WAIT, MOVE(target: Vector3) }\n\n@export pub var hit: Hit\n@export pub var order := Order.MOVE(target = Vector3(1, 2, 3))\n@export pub var rolled := Hit(damage = randi())\n")
+	_write(scene_path, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Root" type="Node"]\nscript = ExtResource("1")\n' % script_path)
+	var root := (ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
+	_check(root.get("hit") == {"damage": 3, "crit": false} and root.get("order") == {"$variant": "MOVE", "target": Vector3(1, 2, 3)} and root.get("rolled") == null, "a placeholder shows the encoded initial value, and none that code computes")
+	var hit: Dictionary = root.get_property_list().filter(func(p): return p.name == "hit")[0]
+	var editor := EditorInspector.instantiate_property_editor(root, hit.type, hit.name, hit.hint, hit.hint_string, hit.usage)
+	editor.set_object_and_property(root, &"hit")
+	editor.update_property()
+	var shown: String = editor.find_children("*", "Button", true, false)[0].text
+	_check(hit.hint_string == "0:editor_check_structs.pet.Hit" and shown == "Dictionary (size 2)", "the hint string names the type, and the inspector edits the value as an untyped Dictionary: %s, %s" % [hit.hint_string, shown])
+	editor.free()
+	_check(not _pack_to_text(root).contains(" = {"), "a scene stores no value left at its default")
+	root.set("hit", {"damage": 4})
+	_check(_pack_to_text(root).contains('hit = {\n"damage": 4\n}'), "an edited value is stored as the Dictionary")
+	root.free()
+	for file in [script_path, script_path + ".uid", scene_path]:
+		DirAccess.remove_absolute(file)

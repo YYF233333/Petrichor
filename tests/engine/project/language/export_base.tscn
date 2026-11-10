@@ -1,0 +1,9 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://language/export_check.pet" id="1"]
+
+[node name="Exported" type="Node"]
+script = ExtResource("1")
+hit = {"crit": true, "damage": 5}
+order = {"$variant": "MOVE", "target": Vector3(1, 2, 3)}
+later = {"$variant": "WAIT"}

@@ -41,12 +41,11 @@ TEST_CASE("the name of an enum with payloads is no value, but a constant initial
 	CHECK(contains(aliased("\tvar d = C\n\treturn 0"), "C names an enum with payloads, whose name is no value; its variants are."));
 }
 
-TEST_CASE("an enum with payloads is named, without int values, has no default and is not exported") {
+TEST_CASE("an enum with payloads is named, without int values, and has no default") {
 	CHECK(contains(messages(compile("extends Node\n\nenum { A(x: int) }\n")), "An enum with payloads needs a name"));
 	CHECK(contains(messages(compile("extends Node\n\nenum E { A = 1, B(x: int) }\n")), "The variants of an enum with payloads have no int values."));
 	CHECK(contains(messages(compile("extends Node\n\nenum Tree { LEAF, NODE(left: Tree) }\n")), "Tree contains itself through Tree.NODE.left"));
 	CHECK(contains(errors("\tvar a: Command\n\treturn 0"), "\"a\" of type Moves.Command needs an initial value."));
-	CHECK(contains(messages(compile("extends Node\n\nenum Command { IDLE, MOVE(target: Vector3) }\n@export pub var c: Command = Command.IDLE\n")), "Enums with payloads cannot be exported in the first version."));
 }
 
 TEST_CASE("a pattern takes a variant, a struct or a T? apart, and binds its fields") {

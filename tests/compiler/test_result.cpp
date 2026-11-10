@@ -82,7 +82,6 @@ TEST_CASE("T.try_from(v) gives the value as a T, or a ConversionError") {
 	CHECK(contains(errors("\tvar x := r.try_from(1)\n\treturn r"), "Result[int, String] has no method \"try_from()\"."));
 }
 
-TEST_CASE("a Result holds its values in its slot, and is not exported") {
+TEST_CASE("a Result holds its values in its slot") {
 	CHECK(contains(messages(compile("extends Node\n\nstruct S:\n\tvar r: Result[S, int]\n")), "S contains itself through S.r"));
-	CHECK(contains(messages(compile("extends Node\n\n@export pub var r: Result[int, String] = Ok(1)\n")), "A Result is an enum with payloads, which cannot be exported in the first version."));
 }

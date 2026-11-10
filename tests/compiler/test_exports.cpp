@@ -153,3 +153,82 @@ TEST_CASE("an exported scene is written PackedScene[T] (spec §7.4)") {
 	CHECK(exports_errors(scenes + "var s: PackedScene[Node] = model").empty()); // Covariant in T.
 	CHECK(contains(exports_errors(scenes + "var s: PackedScene[Timer] = model"), "Cannot assign a value of type PackedScene[Node3D] as PackedScene[Timer]"));
 }
+
+// A constant as text, a Dictionary of the encoding (spec §10.1) with its
+// keys in order, a constructed value as C(arguments).
+static std::string shown(const bytecode::Module &p_module, const bytecode::Constant &p_constant) {
+	std::string text;
+	for (size_t i = 0; i < p_constant.args.size(); i++) {
+		text += (i ? ", " : "") + shown(p_module, p_constant.args[i]);
+	}
+	switch (storage(p_module, p_constant.type)) {
+		case bytecode::ValueType::Dictionary: {
+			std::string entries;
+			for (size_t i = 0; i + 1 < p_constant.args.size(); i += 2) {
+				entries += (i ? ", " : "") + p_constant.args[i].s + ": " + shown(p_module, p_constant.args[i + 1]);
+			}
+			return "{" + entries + "}";
+		}
+		case bytecode::ValueType::Array:
+			return "[" + text + "]";
+		case bytecode::ValueType::Int:
+			return std::to_string(p_constant.i);
+		case bytecode::ValueType::Float:
+			return std::to_string(int(p_constant.f)) + ".0";
+		case bytecode::ValueType::Bool:
+			return p_constant.b ? "true" : "false";
+		case bytecode::ValueType::String:
+			return p_constant.s;
+		default:
+			return p_constant.constructor >= 0 ? "C(" + text + ")" : "null";
+	}
+}
+
+TEST_CASE("a struct or an enum with payloads is exported encoded, its default known when built of constants (spec §4.3, §10.1)") {
+	const compiler::CompileResult result = compile(
+			"class_name Loadout\n"
+			"extends Resource\n\n"
+			"pub struct Hit:\n"
+			"\tvar damage: int = 3\n"
+			"\tvar crit := false\n"
+			"\tvar tags: Array[String] = []\n\n"
+			"pub enum Order { WAIT, MOVE(target: Vector3, speed: float) }\n\n"
+			"@export pub var hit: Hit\n"
+			"@export pub var strong := Hit(damage = 9)\n"
+			"@export pub var order := Order.MOVE(target = Vector3(1, 2, 3), speed = 2)\n"
+			"@export pub var idle: Order = Order.WAIT\n"
+			"@export pub var maybe: Hit? = Hit(crit = true)\n"
+			"@export pub var result: Result[int, String] = Ok(2)\n"
+			"@export pub var rolled := Hit(damage = randi())\n"
+			"@export pub var next: Order\n");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	const auto initial = [&](const char *p_name) {
+		const bytecode::Member &member = member_named(result.module, p_name);
+		return member.has_initial ? shown(result.module, member.initial) : std::string("none");
+	};
+	CHECK(initial("hit") == "{damage: 3, crit: false, tags: []}");
+	CHECK(initial("strong") == "{damage: 9, crit: false, tags: []}");
+	CHECK(initial("order") == "{$variant: MOVE, target: C(1.0, 2.0, 3.0), speed: 2.0}");
+	CHECK(initial("idle") == "{$variant: WAIT}");
+	CHECK(initial("maybe") == "{damage: 3, crit: true, tags: []}");
+	CHECK(initial("result") == "{$variant: Ok, value: 2}");
+	// Code computes it, or the scene must assign it (spec §7.5).
+	CHECK(initial("rolled") == "none");
+	CHECK(initial("next") == "none");
+	CHECK(member_named(result.module, "next").must_assign);
+	// The hint string names the type, after keys that the inspector's
+	// Dictionary editor leaves untyped (architecture §6.2).
+	CHECK(member_named(result.module, "hit").hint_string == "0:Loadout.Hit");
+	CHECK(member_named(result.module, "maybe").hint_string == "0:Loadout.Hit?");
+	CHECK(member_named(result.module, "result").hint_string == "0:Result[int, String]");
+	CHECK(member_named(result.module, "hit").hint == 0);
+}
+
+TEST_CASE("an exported value holds no node at any depth, which a scene would not store (architecture §6.2)") {
+	const std::string types = "pub struct Shot:\n\tvar source: Node3D?\n\npub struct Volley:\n\tvar shots: Array[Shot]\n\npub enum Aim { NONE, AT(targets: Array[Node]) }\n\npub struct Cost:\n\tvar icon: Texture2D? = None\n\n";
+	CHECK(contains(exports_errors(types + "@export pub var shot: Shot?"), "Shot.source holds a node, which a scene does not store inside an exported value; export the node as a member of its own."));
+	CHECK(contains(exports_errors(types + "@export pub var volley: Volley"), "Shot.source holds a node"));
+	CHECK(contains(exports_errors(types + "@export pub var aim: Aim = Aim.NONE"), "Aim.AT.targets holds a node"));
+	CHECK(exports_errors(types + "@export pub var cost: Cost = Cost()").empty());
+	CHECK(exports_errors(types + "pub var shot: Shot?").empty());
+}

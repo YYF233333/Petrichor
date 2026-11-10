@@ -3469,9 +3469,9 @@ public:
 			// Its type's default (spec §4.3) when it has no initializer; an empty
 			// Array[T] is typed too.
 			member.initial.type = member.type;
-			if (decl_member.constant_initializer) {
+			if (decl_member.initial) {
 				member.has_initial = true;
-				member.initial = constant_of(*converted(decl_member.initializer->constant, decl_member.type));
+				member.initial = constant_of(*decl_member.initial);
 			} else if (!decl_member.initializer && !decl_member.must_assign && decl_member.type.kind != TypeKind::Struct) {
 				member.has_initial = true;
 			}
