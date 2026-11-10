@@ -463,7 +463,12 @@ struct 和带载荷 enum 的成员可以 `@export`，存进场景和 `.tres`（�
   - 场景下次保存时写成新名字，于是在有人本来就要编辑时迁移。引用表列出仍用旧名的场景（§2.1），都迁移后删去旧名。
   - 占位实例已是本语言自己的（§2.4）。它像引擎的一样拒绝属性列表之外的名字，接受旧名也在这里处理（`core/object/script_language.cpp:680-707`）。
   - 写明旧名是语言规则，在第 8 步做重命名时提出。
-- 响应：检查一个脚本只依赖它的源码、所用脚本的声明、挂载它的场景，以及 `@owner` 涉及的场景（`ScriptClasses::declarations`、`ProjectApi::scenes_with_script` 与 `scenes_instancing_script`）。只改函数体时声明不变，依赖它的脚本无需重新检查（热重载同样比较声明，`src/runtime/class_image.cpp` 的 `ClassImage::same_declarations`）。分析按这些依赖保留结果（§2.1）。
+- 响应：检查一个脚本只依赖以下输入（`ScriptClasses::declarations` 与 `ProjectApi`）：
+  - 它的源码和所用脚本的声明；
+  - 挂载它的场景，以及这些场景实例化的场景；
+  - 实例化这些场景的场景和主场景，供 `@owner`、`@parent` 和离开场景的路径使用。
+
+  只改函数体时声明不变，依赖它的脚本无需重新检查（热重载同样比较声明，`src/runtime/class_image.cpp` 的 `ClassImage::same_declarations`）。分析按这些依赖保留结果（§2.1）。
 - 在此之前要守住：检查只依赖经接口传入的输入，不读接口之外的状态；引用表按文件（§2.1）。
 
 ## 7. 暂不决定

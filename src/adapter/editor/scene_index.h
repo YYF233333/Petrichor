@@ -41,8 +41,8 @@ class SceneIndex : public compiler::ProjectApi {
 
 	// The scene, read again unless it is up to date.
 	std::shared_ptr<const Entry> read(const std::string &p_path) const;
-	// The scenes with a node for which `p_uses` holds.
-	std::vector<compiler::Scene> scenes_where(const std::function<bool(const compiler::SceneNode &)> &p_uses) const;
+	// The scenes for which `p_uses` holds.
+	std::vector<compiler::Scene> scenes_where(const std::function<bool(const compiler::Scene &)> &p_uses) const;
 	// Whether the script is `p_base` or extends it, as the headers say.
 	bool is_or_extends(const std::string &p_script, const std::string &p_base) const;
 
@@ -61,6 +61,7 @@ public:
 
 	std::vector<compiler::Scene> scenes_with_script(const std::string &p_script_path) const override;
 	std::vector<compiler::Scene> scenes_instancing_script(const std::string &p_script_path) const override;
+	std::vector<compiler::Scene> scenes_instancing(const std::string &p_scene_path) const override;
 	std::optional<compiler::Scene> scene(const std::string &p_path) const override;
 	std::string main_scene() const override;
 	std::optional<compiler::ResourceInfo> resource(const std::string &p_path) const override;

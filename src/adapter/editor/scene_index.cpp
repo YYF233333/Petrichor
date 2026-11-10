@@ -165,7 +165,8 @@ void instanced_scenes(const Ref<SceneState> &p_state, std::set<std::string> &r_p
 // 1888-1894, 1912-1928; ed1daf0).
 compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state) {
 	const Ref<SceneState> base = p_state->get_base_scene_state();
-	compiler::Scene scene = base.is_valid() ? read_scene(p_path, base) : compiler::Scene();
+	compiler::Scene scene = base.is_valid() ? read_scene(p_state->get_node_instance(0)->get_path(), base) : compiler::Scene();
+	scene.base = base.is_valid() ? scene.path : std::string();
 	scene.path = to_utf8(p_path);
 	for (compiler::SceneNode &node : scene.nodes) {
 		node.properties.clear(); // The base stores them, and the check reads them there.
@@ -195,6 +196,7 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state)
 		node.path = path;
 		node.type = to_utf8(node_type(p_state, i));
 		node.is_instance = p_state->get_node_instance(i).is_valid();
+		node.instance = node.is_instance ? to_utf8(p_state->get_node_instance(i)->get_path()) : std::string();
 		node.script = script.value_or(std::string());
 		// A node of an instanced scene that this scene only changes has the
 		// instance's root as its owner, and its unique name is that root's
@@ -318,7 +320,7 @@ void SceneIndex::forget(const std::string &p_path) const {
 	}
 }
 
-std::vector<compiler::Scene> SceneIndex::scenes_where(const std::function<bool(const compiler::SceneNode &)> &p_uses) const {
+std::vector<compiler::Scene> SceneIndex::scenes_where(const std::function<bool(const compiler::Scene &)> &p_uses) const {
 	const Pass pass;
 	if (!snapshot->listed) {
 		for (const String &path : project_files(PackedStringArray({ "tscn", "scn" }))) {
@@ -328,7 +330,7 @@ std::vector<compiler::Scene> SceneIndex::scenes_where(const std::function<bool(c
 	}
 	std::vector<compiler::Scene> result;
 	for (const std::shared_ptr<const Entry> &entry : snapshot->scenes) {
-		if (std::any_of(entry->scene.nodes.begin(), entry->scene.nodes.end(), p_uses)) {
+		if (p_uses(entry->scene)) {
 			result.push_back(entry->scene);
 		}
 	}
@@ -357,14 +359,22 @@ bool SceneIndex::is_or_extends(const std::string &p_script, const std::string &p
 }
 
 std::vector<compiler::Scene> SceneIndex::scenes_with_script(const std::string &p_script_path) const {
-	return scenes_where([&](const compiler::SceneNode &p_node) {
-		return is_or_extends(p_node.script, p_script_path);
+	return scenes_where([&](const compiler::Scene &p_scene) {
+		return std::any_of(p_scene.nodes.begin(), p_scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return is_or_extends(p_node.script, p_script_path); });
 	});
 }
 
 std::vector<compiler::Scene> SceneIndex::scenes_instancing_script(const std::string &p_script_path) const {
-	return scenes_where([&](const compiler::SceneNode &p_node) {
-		return p_node.is_instance && p_node.script.empty() && is_or_extends(p_node.instance_script, p_script_path);
+	return scenes_where([&](const compiler::Scene &p_scene) {
+		return std::any_of(p_scene.nodes.begin(), p_scene.nodes.end(), [&](const compiler::SceneNode &p_node) {
+			return p_node.is_instance && p_node.script.empty() && is_or_extends(p_node.instance_script, p_script_path);
+		});
+	});
+}
+
+std::vector<compiler::Scene> SceneIndex::scenes_instancing(const std::string &p_scene_path) const {
+	return scenes_where([&](const compiler::Scene &p_scene) {
+		return p_scene.base == p_scene_path || std::any_of(p_scene.nodes.begin(), p_scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return p_node.instance == p_scene_path; });
 	});
 }
 

@@ -40,9 +40,11 @@ struct SceneNode {
 	// What this scene itself stores for the properties of a node with a script
 	// of this language, by name; a base or an instanced scene stores the rest.
 	std::vector<std::pair<std::string, SceneValue>> properties;
+	std::string instance; // For an instanced scene: its res:// path.
 
 	bool operator==(const SceneNode &p_other) const {
-		return path == p_other.path && type == p_other.type && script == p_other.script && is_instance == p_other.is_instance && instance_script == p_other.instance_script && unique == p_other.unique && properties == p_other.properties;
+		return path == p_other.path && type == p_other.type && script == p_other.script && is_instance == p_other.is_instance && instance_script == p_other.instance_script && unique == p_other.unique &&
+				properties == p_other.properties && instance == p_other.instance;
 	}
 };
 
@@ -62,10 +64,11 @@ struct SceneConnection {
 
 struct Scene {
 	std::string path;
-	std::vector<SceneNode> nodes;
+	std::vector<SceneNode> nodes; // With those of the scene it inherits.
 	std::vector<SceneConnection> connections;
+	std::string base; // The scene it inherits, if any.
 
-	bool operator==(const Scene &p_other) const { return path == p_other.path && nodes == p_other.nodes && connections == p_other.connections; }
+	bool operator==(const Scene &p_other) const { return path == p_other.path && nodes == p_other.nodes && connections == p_other.connections && base == p_other.base; }
 
 	const SceneNode *find_node(const std::string &p_path) const {
 		for (const SceneNode &node : nodes) {
@@ -116,6 +119,8 @@ public:
 	// The scenes that instance a scene whose root has the script, without
 	// attaching another to it there.
 	virtual std::vector<Scene> scenes_instancing_script(const std::string &p_script_path) const = 0;
+	// The scenes that instance the scene at the path, or inherit it.
+	virtual std::vector<Scene> scenes_instancing(const std::string &p_scene_path) const = 0;
 	// A scene by its res:// path, for preload (spec §7.4); nullopt if there is none.
 	virtual std::optional<Scene> scene(const std::string &p_path) const = 0;
 	// The res:// path of the main scene, or "" (spec §7.3).

@@ -210,6 +210,15 @@ class Checker : public ClassRelation {
 	bool check_bodies;
 	ScriptClasses &classes; // The project's other scripts of this language.
 	std::vector<Scene> scenes; // The scenes that use this script.
+	// A node of a scene as the engine builds the scene (spec §7.1), with those
+	// of the scenes it instances.
+	struct ViewNode {
+		std::string path; // From the root of the scene built.
+		SceneNode node; // As the scene that stores it has it, with the changes of the scenes that instance that one.
+		std::string scene; // The scene that stores it.
+		std::string owner; // The path of its owner; "" for the root.
+	};
+	std::map<std::string, std::vector<ViewNode>> views; // view_of(), by the scene's path.
 	std::map<std::string, std::vector<std::string>> loaded_files; // loaded_with(), as found.
 	std::vector<Reference> *references; // Recorded for this file only.
 	// What can be written at the cursor (spec §13.2), whose function alone has
@@ -3230,73 +3239,128 @@ class Checker : public ClassRelation {
 		return slash == std::string::npos ? std::string(".") : p_path.substr(0, slash);
 	}
 
-	// Where a path leads from the node at `p_from` of a scene, part by part, as
-	// the engine resolves it (scene/main/node.cpp:1924-1961; ed1daf0). `%Name`
-	// is a node the current node owns, or else one its owner does: the scene's
-	// root owns the scene's nodes, and an instanced scene's root those of that
-	// scene (scene/resources/packed_scene.cpp:567-573).
-	struct NodeWalk {
-		std::vector<std::string> reached; // The node after each part.
-		const SceneNode *node = nullptr; // Where it ends, unless:
-		std::string missing; // the scene has no such node;
-		std::string unsupported; // or the scene's own nodes do not tell.
-	};
-
-	static NodeWalk walk_node_path(const Scene &p_scene, const std::string &p_from, const std::string &p_path) {
-		NodeWalk walk;
-		std::string at = p_from;
-		const auto into_instance = [&]() {
-			for (std::string path = at;; path = parent_path(path)) {
-				const SceneNode *node = p_scene.find_node(path);
-				if (node && node->is_instance) {
-					walk.unsupported = p_scene.path + ": paths into an instanced scene, such as " + node->path + ", are not supported yet.";
-					return true;
-				}
-				if (path == ".") {
-					return false;
+	// The nodes of a scene as the engine builds it (spec §7.1): its own, with
+	// the nodes of each scene it instances under the instance, whose root owns
+	// them, and the changes it stores for those
+	// (scene/resources/packed_scene.cpp:282-300, 567-573; ed1daf0).
+	const std::vector<ViewNode> &view_of(const Scene &p_scene, int p_depth = 0) {
+		const auto known = views.find(p_scene.path);
+		if (known != views.end()) {
+			return known->second;
+		}
+		std::vector<ViewNode> nodes;
+		for (const SceneNode &node : p_scene.nodes) {
+			if (node.type.empty() && !node.is_instance) {
+				continue; // A change of an instanced scene's node, applied below.
+			}
+			nodes.push_back({ node.path, node, p_scene.path, node.path == "." ? std::string() : std::string(".") });
+			// A scene cannot instance itself; the depth stops a project that says so.
+			const std::optional<Scene> inner = node.instance.empty() || p_depth > 32 ? std::nullopt : options.project->scene(node.instance);
+			for (const ViewNode &each : inner ? view_of(*inner, p_depth + 1) : std::vector<ViewNode>()) {
+				if (each.path != ".") {
+					nodes.push_back({ node.path + "/" + each.path, each.node, each.scene, each.owner == "." ? node.path : node.path + "/" + each.owner });
 				}
 			}
-		};
+		}
+		for (const SceneNode &change : p_scene.nodes) {
+			const auto changed = std::find_if(nodes.begin(), nodes.end(), [&](const ViewNode &p_node) { return p_node.path == change.path; });
+			if (change.type.empty() && !change.is_instance && !change.script.empty() && changed != nodes.end()) {
+				changed->node.script = change.script;
+				changed->node.instance_script.clear();
+			}
+		}
+		return views.emplace(p_scene.path, std::move(nodes)).first->second;
+	}
+
+	// Where a path leads from the node at `p_from` of a scene, part by part, as
+	// the engine resolves it (scene/main/node.cpp:1924-1961; ed1daf0). `%Name`
+	// is a node the current node owns, or else one its owner does.
+	struct NodeWalk {
+		std::string scene;
+		std::vector<const ViewNode *> reached; // The node after each part.
+		const ViewNode *node = nullptr; // Where it ends, unless:
+		std::string missing; // the scene has no such node;
+		// or it leads past the root, out to the scenes that instance this one:
+		// above it, or to a unique name that the root's owner gives.
+		bool leaves = false;
+	};
+
+	const ViewNode *view_node(const Scene &p_scene, const std::function<bool(const ViewNode &)> &p_is) {
+		const std::vector<ViewNode> &view = view_of(p_scene);
+		const auto found = std::find_if(view.begin(), view.end(), p_is);
+		return found == view.end() ? nullptr : &*found;
+	}
+
+	const ViewNode *view_node(const Scene &p_scene, const std::string &p_path) {
+		return view_node(p_scene, [&](const ViewNode &p_node) { return p_node.path == p_path; });
+	}
+
+	NodeWalk walk_node_path(const Scene &p_scene, const std::string &p_from, const std::string &p_path) {
+		const auto find = [&](const std::function<bool(const ViewNode &)> &p_is) { return view_node(p_scene, p_is); };
+		const auto at_path = [&](const std::string &p_at) { return view_node(p_scene, p_at); };
+		NodeWalk walk;
+		walk.scene = p_scene.path;
+		walk.missing = p_scene.path + ": " + (p_from == "." ? std::string("the root") : p_from) + " has no node at \"" + p_path + "\".";
+		const ViewNode *at = at_path(p_from);
 		for (const std::string &part : path_parts(p_path)) {
+			if (!at) {
+				return walk;
+			}
 			if (part == "..") {
-				if (at == ".") {
-					walk.unsupported = p_scene.path + ": " + shown_path(p_path) + " goes above the root of the scene, which is not supported yet.";
+				if (at->path == ".") {
+					walk.leaves = true;
 					return walk;
 				}
-				at = parent_path(at);
+				at = at_path(parent_path(at->path));
 			} else if (!part.empty() && part[0] == '%') {
-				const SceneNode *current = p_scene.find_node(at);
-				if (current && (current->is_instance || current->type.empty()) && into_instance()) {
-					return walk;
-				}
 				const std::string name = part.substr(1);
-				const auto unique = std::find_if(p_scene.nodes.begin(), p_scene.nodes.end(), [&](const SceneNode &p_node) {
-					return p_node.unique && p_node.path.substr(p_node.path.rfind('/') + 1) == name;
-				});
-				if (unique == p_scene.nodes.end()) {
-					if (at == ".") {
-						// The root's owner is the root of a scene that instances this one.
-						walk.unsupported = p_scene.path + ": the scene has no node with the unique name " + part + "; unique names of the scenes that instance it are not supported yet.";
-					} else {
-						walk.missing = p_scene.path + ": no node has the unique name " + part + ".";
-					}
+				const auto owned_by = [&](const std::string &p_owner) {
+					return find([&](const ViewNode &p_node) { return p_node.node.unique && p_node.owner == p_owner && p_node.path.substr(p_node.path.rfind('/') + 1) == name; });
+				};
+				const ViewNode *unique = owned_by(at->path);
+				if (!unique && at->owner.empty()) {
+					walk.leaves = true;
 					return walk;
 				}
-				at = unique->path;
+				at = unique ? unique : owned_by(at->owner);
+				if (!at) {
+					walk.missing = p_scene.path + ": no node has the unique name " + part + ".";
+				}
 			} else if (!part.empty() && part != ".") {
-				const std::string child = at == "." ? part : at + "/" + part;
-				if (!p_scene.find_node(child)) {
-					if (!into_instance()) {
-						walk.missing = p_scene.path + ": " + (p_from == "." ? std::string("the root") : p_from) + " has no node at \"" + p_path + "\".";
-					}
-					return walk;
-				}
-				at = child;
+				at = at_path(at->path == "." ? part : at->path + "/" + part);
 			}
 			walk.reached.push_back(at);
 		}
-		walk.node = p_scene.find_node(at);
+		walk.node = at;
 		return walk;
+	}
+
+	// Each node a path leads to from a node of a scene that has the script
+	// (spec §7.1): in that scene, or, past its root, in each scene that
+	// instances it, as it is there. A scene that lacks the node has the error
+	// marked on it, at `p_marked`.
+	void walk_from(const Expr &p_at, const Scene &p_scene, const std::string &p_from, const std::string &p_marked, const std::string &p_path, std::vector<NodeWalk> &r_found, int p_depth = 0) {
+		NodeWalk walk = walk_node_path(p_scene, p_from, p_path);
+		if (!walk.leaves) {
+			if (walk.node) {
+				r_found.push_back(std::move(walk));
+			} else {
+				error_in_scene(p_at.range, p_scene, p_marked, walk.missing);
+			}
+			return;
+		}
+		bool instanced = false;
+		for (const Scene &outer : p_depth > 32 ? std::vector<Scene>() : options.project->scenes_instancing(p_scene.path)) {
+			for (const SceneNode &node : outer.nodes) {
+				if (node.instance == p_scene.path) {
+					instanced = true;
+					walk_from(p_at, outer, p_from == "." ? node.path : node.path + "/" + p_from, node.path, p_path, r_found, p_depth + 1);
+				}
+			}
+		}
+		if (!instanced) {
+			error_in_scene(p_at.range, p_scene, p_marked, p_scene.path + ": " + shown_path(p_path) + " leads out of the scene, and no scene instances it.");
+		}
 	}
 
 	// Why a literal path from the root into an autoload is a compile error:
@@ -3345,34 +3409,28 @@ class Checker : public ClassRelation {
 			return fail(r_expr, "Only paths from this node, such as $Head/Camera, are supported yet.");
 		}
 		bool attached = false;
-		std::optional<Type> type;
-		std::string type_scene;
+		std::vector<NodeWalk> found;
 		for (const Scene &scene : scenes) {
 			for (const SceneNode &node : scene.nodes) {
-				if (!extends_script(node.script, options.path)) {
-					continue;
+				if (extends_script(node.script, options.path)) {
+					attached = true;
+					walk_from(r_expr, scene, node.path, node.path, path, found);
 				}
-				attached = true;
-				const NodeWalk walk = walk_node_path(scene, node.path, path);
-				if (!walk.unsupported.empty()) {
-					error_in_scene(r_expr.range, scene, node.path, walk.unsupported);
-					return set(r_expr, Type::of(TypeKind::Error));
-				}
-				if (!walk.node) {
-					error_in_scene(r_expr.range, scene, node.path, walk.missing);
-					continue;
-				}
-				refer_node_path(r_expr, scene, walk);
-				const Type found_type = scene_node_type(r_expr.range, *walk.node, shown_path(path));
-				if (found_type.is_error()) {
-					return set(r_expr, found_type);
-				}
-				if (!type) {
-					type = found_type;
-					type_scene = scene.path;
-				} else if (found_type != *type) {
-					return fail(r_expr, shown_path(path) + " is a " + type->to_string() + " in " + type_scene + " but a " + found_type.to_string() + " in " + scene.path + "; assign it to a variable typed with a class both extend.");
-				}
+			}
+		}
+		std::optional<Type> type;
+		std::string type_scene;
+		for (const NodeWalk &walk : found) {
+			refer_node_path(r_expr, walk);
+			const Type found_type = scene_node_type(r_expr.range, walk.node->node, shown_path(path));
+			if (found_type.is_error()) {
+				return set(r_expr, found_type);
+			}
+			if (!type) {
+				type = found_type;
+				type_scene = walk.scene;
+			} else if (found_type != *type) {
+				return fail(r_expr, shown_path(path) + " is a " + type->to_string() + " in " + type_scene + " but a " + found_type.to_string() + " in " + walk.scene + "; assign it to a variable typed with a class both extend.");
 			}
 		}
 		if (!attached) {
@@ -3388,7 +3446,7 @@ class Checker : public ClassRelation {
 	// Each name in the path of `$X` refers to the node it reaches in a scene;
 	// the name of `%Name` without the "%". Not the parts of a string written
 	// with escapes.
-	void refer_node_path(const Expr &p_get_node, const Scene &p_scene, const NodeWalk &p_walk) {
+	void refer_node_path(const Expr &p_get_node, const NodeWalk &p_walk) {
 		const std::vector<Token> &tokens = cls.source->tokens;
 		using Bytes = std::optional<std::pair<uint32_t, uint32_t>>;
 		std::vector<Bytes> parts;
@@ -3418,7 +3476,7 @@ class Checker : public ClassRelation {
 		}
 		for (size_t i = 0; i < names.size(); i++) {
 			if (parts[i] && !names[i].empty() && names[i] != "." && names[i] != "..") {
-				refer_bytes(parts[i]->first, parts[i]->second, { DeclId::Kind::Node, p_scene.path, p_walk.reached[i] });
+				refer_bytes(parts[i]->first, parts[i]->second, { DeclId::Kind::Node, p_walk.reached[i]->scene, p_walk.reached[i]->node.path });
 			}
 		}
 	}
@@ -9676,16 +9734,17 @@ class Checker : public ClassRelation {
 	}
 
 	// Where scenes place the script, its owner satisfies @owner(T) (spec §7.3):
-	// that of a node is the root of its scene, and that of a scene's root the
-	// root of each scene that instances it.
+	// that of a node is the root of the scene that stores it, and that of a
+	// scene's root the root of each scene that instances it.
 	void check_owner_scenes() {
 		if (!cls.owner_ref || cls.owner_type.is_error()) {
 			return;
 		}
 		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
-			const SceneNode *root = p_scene.find_node(".");
-			if (p_node.path != "." && root) {
-				check_required(cls.owner_ref->range, p_scene, p_node, *root, cls.owner_type, "the owner of " + p_node.path, "@owner");
+			const ViewNode *placed = view_node(p_scene, p_node.path);
+			const ViewNode *owner = placed && !placed->owner.empty() ? view_node(p_scene, placed->owner) : nullptr;
+			if (owner) {
+				check_required(cls.owner_ref->range, p_scene, p_node, owner->node, cls.owner_type, "the owner of " + p_node.path, "@owner");
 			}
 		});
 	}
@@ -9701,11 +9760,10 @@ class Checker : public ClassRelation {
 		}
 		const TokenRange &at = cls.parent_ref->range;
 		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
-			if (p_node.path != ".") {
-				if (const SceneNode *parent = p_scene.find_node(parent_path(p_node.path))) {
-					check_required(at, p_scene, p_node, *parent, cls.parent_type, "the parent of " + p_node.path, "@parent");
-				}
-			} else if (p_scene.path == options.project->main_scene()) {
+			const NodeWalk walk = walk_node_path(p_scene, p_node.path, "..");
+			if (walk.node) {
+				check_required(at, p_scene, p_node, walk.node->node, cls.parent_type, "the parent of " + p_node.path, "@parent");
+			} else if (walk.leaves && p_scene.path == options.project->main_scene()) {
 				check_required_type(at, p_scene, p_node, Type::object("Window"), cls.parent_type, "the parent of the main scene's root", "@parent");
 			}
 		});

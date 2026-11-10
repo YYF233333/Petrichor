@@ -381,7 +381,13 @@ TEST_CASE("%Name is the node with that unique name, which the scene's root owns 
 	CHECK(contains(hud_errors("var n: Node3D = %Ammo/%Health", project), "Cannot assign a value of type Label as Node3D"));
 	CHECK(hud_errors("var n := 7 % 2\n\tn %= 2", project).empty());
 	// The names an instanced scene's root owns are that scene's.
-	CHECK(contains(hud_errors("var n = $\"../Player\"/%Gun", project), "paths into an instanced scene, such as Player, are not supported yet"));
+	compiler::Scene player;
+	player.path = "res://player.tscn";
+	player.nodes = { { ".", "Node3D", "" }, { "Head", "Node3D", "" }, { "Head/Gun", "MeshInstance3D", "", false, "", true } };
+	project.scenes.push_back(player);
+	project.scenes[0].nodes[1].instance = "res://player.tscn";
+	CHECK(contains(hud_errors("var n: Label = $\"../Player\"/%Gun", project), "Cannot assign a value of type MeshInstance3D as Label"));
+	CHECK(contains(hud_errors("var n = %Gun", project), "res://main.tscn: no node has the unique name %Gun."));
 
 	// Ring's paddle.gd uses $%HealthIcon, which breakout.tscn has: the root of
 	// paddle.tscn has breakout's root as its owner once instanced there.
@@ -390,7 +396,35 @@ TEST_CASE("%Name is the node with that unique name, which the scene's root owns 
 	scene.path = "res://paddle.tscn";
 	scene.nodes = { { ".", "Node2D", "res://test.pet" } };
 	paddle.scenes = { scene };
-	CHECK(contains(messages(compile_in("extends Node2D\n\nfunc f():\n\t$%HealthIcon.visible = false\n", paddle)), "res://paddle.tscn: the scene has no node with the unique name %HealthIcon; unique names of the scenes that instance it are not supported yet."));
+	const char *source = "extends Node2D\n\nfunc f():\n\tvar icon: Label = $%HealthIcon\n";
+	CHECK(contains(messages(compile_in(source, paddle)), "res://paddle.tscn: %HealthIcon leads out of the scene, and no scene instances it."));
+	compiler::Scene breakout;
+	breakout.path = "res://breakout.tscn";
+	breakout.nodes = { { ".", "Node2D", "" }, { "Paddle", "Node2D", "", true, "res://test.pet" }, { "UI/HealthIcon", "TextureRect", "", false, "", true } };
+	breakout.nodes[1].instance = "res://paddle.tscn";
+	paddle.scenes.push_back(breakout);
+	CHECK(contains(messages(compile_in(source, paddle)), "Cannot assign a value of type TextureRect as Label"));
+	paddle.scenes[1].nodes[2].unique = false;
+	const compiler::CompileResult lacking = compile_in(source, paddle);
+	REQUIRE(lacking.errors.size() == 1);
+	CHECK(lacking.errors[0].message == "res://breakout.tscn: no node has the unique name %HealthIcon.");
+	CHECK((lacking.errors[0].scene == "res://breakout.tscn" && lacking.errors[0].node == "Paddle"));
+}
+
+TEST_CASE("a path goes into instanced scenes, with the changes the scene stores for them (spec §7.1)") {
+	FakeProject project = hud_scene();
+	compiler::Scene player;
+	player.path = "res://player.tscn";
+	player.nodes = { { ".", "Node3D", "" }, { "Head", "Node3D", "" }, { "Head/Mesh", "MeshInstance3D", "" } };
+	project.scenes.push_back(player);
+	project.add_script("res://bar.pet", "extends Node3D\n\npub func fill(x: float):\n\tpass\n");
+	project.scenes[0].nodes[1].instance = "res://player.tscn";
+	// The scene gives the instance's Head a script, and adds a node under it.
+	project.scenes[0].nodes.push_back({ "Player/Head", "", "res://bar.pet" });
+	project.scenes[0].nodes.push_back({ "Player/Head/Sound", "AudioStreamPlayer", "" });
+	CHECK(contains(hud_errors("var m: Label = $\"../Player/Head/Mesh\"", project), "Cannot assign a value of type MeshInstance3D as Label"));
+	CHECK(hud_errors("$\"../Player/Head\".fill(0.5)\n\tvar s: AudioStreamPlayer = $\"../Player/Head/Sound\"", project).empty());
+	CHECK(contains(hud_errors("var n = $\"../Player/Head/Gun\"", project), "res://main.tscn: HUD has no node at \"../Player/Head/Gun\"."));
 }
 
 TEST_CASE("a path with .. goes up to the parent in the scene, and $\"..\" is a Node (spec §7.1, §7.3)") {
@@ -407,7 +441,15 @@ TEST_CASE("a path with .. goes up to the parent in the scene, and $\"..\" is a N
 	CHECK(errors("var bricks: Node2D = $\"../Level/Bricks\"\n\tvar root: Node2D = $\"../Level/..\"").empty());
 	CHECK(contains(errors("var n: Label = $\"../Level\""), "Cannot assign a value of type Node2D as Label"));
 	CHECK(contains(errors("var n = $\"../Lvl\""), "res://goal_test_level.tscn: Manager has no node at \"../Lvl\""));
-	CHECK(contains(errors("var n = $\"../..\""), "res://goal_test_level.tscn: $\"../..\" goes above the root of the scene, which is not supported yet."));
+	CHECK(contains(errors("var n = $\"../..\""), "res://goal_test_level.tscn: $\"../..\" leads out of the scene, and no scene instances it."));
+	// Above the root, in each scene that instances it.
+	compiler::Scene game;
+	game.path = "res://game.tscn";
+	game.nodes = { { ".", "Node", "" }, { "Level", "Node2D", "", true }, { "Score", "Label", "" } };
+	game.nodes[1].instance = "res://goal_test_level.tscn";
+	project.scenes.push_back(game);
+	CHECK(contains(errors("var n: Node2D = $\"../../Score\""), "Cannot assign a value of type Label as Node2D"));
+	CHECK(errors("var n: Label = $\"../../Score\"").empty());
 	// The parent is any node, as in GDScript, with or without scenes.
 	CHECK(errors("var n: Node = $\"..\"").empty());
 	CHECK(contains(errors("var n: Node2D = $\"..\""), "Cannot assign a value of type Node as Node2D"));
@@ -415,9 +457,6 @@ TEST_CASE("a path with .. goes up to the parent in the scene, and $\"..\" is a N
 }
 
 TEST_CASE("paths that are not typed yet are refused rather than guessed") {
-	FakeProject project = hud_scene();
-	project.scenes[0].nodes.push_back({ "HUD/Bar", "Control", "", true });
-	CHECK(contains(hud_errors("var n: Node = $Bar/Fill", project), "paths into an instanced scene, such as HUD/Bar, are not supported yet"));
 	CHECK(contains(hud_errors("var n: Node = $\"/root/Main\""), "are supported yet"));
 	CHECK(contains(hud_errors("var n: Node = $/root/Main"), "are supported yet"));
 }

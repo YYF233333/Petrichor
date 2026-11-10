@@ -22,9 +22,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - `map()` of `T?` whose function returns `U?`;
   - `ok()` and `err()` of `Result[T?, E]` and `Result[T, E?]`.
 - `is_instance_of(v, T)` with a native class held in a variable, which waits for classes as values (spec §2.6). gdUnit4 passes them.
-- Node paths (spec §7.1):
-  - into instanced scenes;
-  - out of a scene from its root: `..` above the root, and `%Name` of a scene that instances it. Ring's paddle.gd uses one, `$%HealthIcon`.
 - `get_node` and `get_node_or_null` typed from literal paths, exempting base scenes used only for inheritance (spec §7.1, §7.2).
 - `pub` required on the members that animation tracks and synchronized properties name (spec §10.5). The compiler does not read them yet (spec §7.7).
 - The audit of the most frequently called engine APIs for null (spec §10.2); `binding_metadata.txt` has two entries.

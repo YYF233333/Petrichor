@@ -193,6 +193,12 @@ std::vector<Scene> ScriptClasses::RecordedProject::scenes_instancing_script(cons
 	});
 }
 
+std::vector<Scene> ScriptClasses::RecordedProject::scenes_instancing(const std::string &p_scene_path) const {
+	return ask<std::vector<Scene>>("scenes instancing the scene " + p_scene_path, [p_scene_path](const ProjectApi &p_project) {
+		return p_project.scenes_instancing(p_scene_path);
+	});
+}
+
 std::optional<Scene> ScriptClasses::RecordedProject::scene(const std::string &p_path) const {
 	return ask<std::optional<Scene>>("scene " + p_path, [p_path](const ProjectApi &p_project) {
 		return p_project.scene(p_path);

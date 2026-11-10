@@ -68,6 +68,16 @@ std::vector<compiler::Scene> FakeProject::scenes_instancing_script(const std::st
 			p_script_path);
 }
 
+std::vector<compiler::Scene> FakeProject::scenes_instancing(const std::string &p_scene_path) const {
+	std::vector<compiler::Scene> result;
+	for (const compiler::Scene &scene : scenes) {
+		if (scene.base == p_scene_path || std::any_of(scene.nodes.begin(), scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return p_node.instance == p_scene_path; })) {
+			result.push_back(scene);
+		}
+	}
+	return result;
+}
+
 std::optional<compiler::Scene> FakeProject::scene(const std::string &p_path) const {
 	for (const compiler::Scene &scene : scenes) {
 		if (scene.path == p_path) {
