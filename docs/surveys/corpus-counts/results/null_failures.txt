@@ -1,0 +1,18 @@
+api                                  calls repos error  null  none
+FileAccess.open                        125     8    21    20    84
+FileAccess.open_encrypted                0     0     0     0     0
+FileAccess.open_encrypted_with_pass      2     1     1     1     0
+FileAccess.open_compressed               1     1     1     0     0
+FileAccess.create_temp                   1     1     0     0     1
+FileAccess.get_file_as_string           17     6     1     2    14
+FileAccess.get_file_as_bytes             0     0     0     0     0
+DirAccess.open                          53     6     4    27    22
+DirAccess.create_temp                    0     0     0     0     0
+
+by group (calls: error/null/none)
+FileAccess.open                      demos 11: 0/3/8, game 7: 0/4/3, plugin 70: 10/10/50, tool 37: 11/3/23
+FileAccess.open_encrypted_with_pass  game 2: 1/1/0
+FileAccess.open_compressed           tool 1: 1/0/0
+FileAccess.create_temp               tool 1: 0/0/1
+FileAccess.get_file_as_string        demos 1: 0/1/0, game 1: 0/1/0, plugin 14: 1/0/13, tool 1: 0/0/1
+DirAccess.open                       game 6: 1/5/0, plugin 28: 0/18/10, tool 19: 3/4/12
