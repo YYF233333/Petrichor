@@ -111,6 +111,45 @@ TEST_CASE("a signal declared by a script of this language is checked like the en
 			"but Timer has no such signal."));
 }
 
+TEST_CASE("the members that animation tracks and synchronized properties name must be pub (spec §7.7, §10.5)") {
+	// The player and the synchronizer start from their parent, the root.
+	FakeProject project;
+	compiler::Scene scene;
+	scene.path = "res://enemy.tscn";
+	scene.nodes = { { ".", "Node2D", "res://test.pet" }, { "AnimationPlayer", "AnimationPlayer", "" }, { "MultiplayerSynchronizer", "MultiplayerSynchronizer", "" } };
+	scene.named_members = {
+		{ "AnimationPlayer", "hit", "..", "flash_amount", false },
+		{ "AnimationPlayer", "hit", "..", "flash", true },
+		{ "MultiplayerSynchronizer", "", "../.", "health", false },
+		// The engine's own property, and an override, which it finds by name.
+		{ "AnimationPlayer", "hit", "..", "position", false },
+		{ "AnimationPlayer", "hit", "..", "_process", true },
+	};
+	project.scenes = { scene };
+	const auto compiled = [&](const std::string &p_visibility) {
+		return compile_in("extends Node2D\n\n" + p_visibility + "var flash_amount := 0.0\n" + p_visibility + "var health := 3\n\n" + p_visibility + "func flash():\n\tpass\n\nfunc _process(delta: float):\n\tpass\n", project);
+	};
+	CHECK(compiled("pub ").ok());
+	const compiler::CompileResult hidden = compiled("");
+	REQUIRE(hidden.errors.size() == 3);
+	CHECK(hidden.errors[0].message == "res://enemy.tscn: the animation \"hit\" of AnimationPlayer animates \"flash_amount\" of the root, which is not pub; the engine finds only pub properties by name.");
+	CHECK(hidden.errors[1].message == "res://enemy.tscn: MultiplayerSynchronizer synchronizes \"health\" of the root, which is not pub; the engine finds only pub properties by name.");
+	CHECK(hidden.errors[2].message == "res://enemy.tscn: the animation \"hit\" of AnimationPlayer calls flash() on the root, which is not pub; the engine calls only pub methods by name.");
+	CHECK((hidden.errors[0].scene == "res://enemy.tscn" && hidden.errors[0].node == "."));
+
+	// A scene that instances the script's scene animates it from outside.
+	compiler::Scene level;
+	level.path = "res://level.tscn";
+	level.nodes = { { ".", "Node2D", "" }, { "Enemy", "Node2D", "", true, "res://test.pet" }, { "Cutscene", "AnimationPlayer", "" } };
+	level.nodes[1].instance = "res://enemy.tscn";
+	level.named_members = { { "Cutscene", "intro", "../Enemy", "speed", false } };
+	project.scenes = { { "res://enemy.tscn", { { ".", "Node2D", "res://test.pet" } } }, level };
+	const compiler::CompileResult outer = compile_in("extends Node2D\n\nvar speed := 1.0\n", project);
+	REQUIRE(outer.errors.size() == 1);
+	CHECK(outer.errors[0].message == "res://level.tscn: the animation \"intro\" of Cutscene animates \"speed\" of Enemy, which is not pub; the engine finds only pub properties by name.");
+	CHECK((outer.errors[0].scene == "res://level.tscn" && outer.errors[0].node == "Enemy"));
+}
+
 TEST_CASE("$X has the class of the node at that path in the scenes that use the script (spec §7.1)") {
 	// scripts/hud.gd of the FPS starter kit, with the parameter annotated.
 	const char *hud = "extends CanvasLayer\n\nfunc _on_health_updated(health: int):\n\t$Health.text = str(health) + \"%\"\n";

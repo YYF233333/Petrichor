@@ -7,6 +7,8 @@
 #include "adapter/pet_script.h"
 #include "runtime/text.h"
 
+#include <godot_cpp/classes/animation.hpp>
+#include <godot_cpp/classes/animation_library.hpp>
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/editor_file_system.hpp>
 #include <godot_cpp/classes/editor_file_system_directory.hpp>
@@ -16,6 +18,7 @@
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/resource_uid.hpp>
+#include <godot_cpp/classes/scene_replication_config.hpp>
 #include <godot_cpp/classes/scene_state.hpp>
 #include <godot_cpp/classes/script.hpp>
 
@@ -150,6 +153,101 @@ std::vector<std::pair<std::string, compiler::SceneValue>> stored_properties(cons
 	return properties;
 }
 
+// The path from a node to the node that `p_path` names from `p_root`, itself
+// a path from that node; nullopt from an empty root, which finds no node
+// (scene/main/node.cpp:1906-1908; ed1daf0), and for an absolute path.
+std::optional<std::string> joined(const NodePath &p_root, const NodePath &p_path) {
+	if (p_root.is_empty() || p_root.is_absolute() || p_path.is_absolute()) {
+		return std::nullopt;
+	}
+	const String names = p_path.get_concatenated_names();
+	return to_utf8(String(p_root.get_concatenated_names()) + (names.is_empty() ? String() : "/" + names));
+}
+
+// What a node of a scene names for the engine to find by name (spec §7.7):
+// the members that the tracks of an AnimationMixer's animations name from
+// its root node, and the properties that a MultiplayerSynchronizer
+// synchronizes from its root path, both ".." unless set. A property track
+// or a synchronized property names the node's property by its first
+// subname (scene/animation/animation_mixer.cpp:74-91, 722, 2077-2093, 2547;
+// scene/main/node.cpp:3317-3340; modules/multiplayer/multiplayer_synchronizer.cpp:37-44,
+// 164-180; multiplayer_synchronizer.h:55; ed1daf0). The files of libraries,
+// animations and configurations stored apart go to `r_files`.
+void read_named_members(const Ref<SceneState> &p_state, int32_t p_index, compiler::Scene &r_scene, std::set<std::string> &r_files) {
+	const auto root = [&](const char *p_property) {
+		bool given = false;
+		const Variant path = node_property(p_state, p_index, p_property, &given);
+		return given ? NodePath(path) : NodePath("..");
+	};
+	const NodePath root_node = root("root_node");
+	const auto add = [&](const std::string &p_animation, const NodePath &p_root, const NodePath &p_path, const StringName &p_name, bool p_method) {
+		const std::optional<std::string> node = joined(p_root, p_path);
+		if (!node) {
+			return;
+		}
+		const compiler::SceneNamedMember named{ node_path(p_state->get_node_path(p_index)), p_animation, *node, to_utf8(p_name), p_method };
+		if (std::find(r_scene.named_members.begin(), r_scene.named_members.end(), named) == r_scene.named_members.end()) {
+			r_scene.named_members.push_back(named);
+		}
+	};
+	const auto watch = [&](const Ref<Resource> &p_resource) {
+		const String path = p_resource->get_path();
+		if (path.begins_with("res://") && !path.contains("::")) {
+			r_files.insert(to_utf8(path));
+		}
+	};
+	const auto read_library = [&](const String &p_name, const Ref<AnimationLibrary> &p_library) {
+		if (p_library.is_null()) {
+			return;
+		}
+		watch(p_library);
+		const TypedArray<StringName> animations = p_library->get_animation_list();
+		for (int64_t a = 0; a < animations.size(); a++) {
+			const Ref<Animation> animation = p_library->get_animation(animations[a]);
+			const String name = animations[a];
+			const std::string shown = to_utf8(p_name.is_empty() ? name : p_name + String("/") + name);
+			watch(animation);
+			for (int32_t t = 0; t < animation->get_track_count(); t++) {
+				const NodePath path = animation->track_get_path(t);
+				const Animation::TrackType type = animation->track_get_type(t);
+				if ((type == Animation::TYPE_VALUE || type == Animation::TYPE_BEZIER) && path.get_subname_count() > 0) {
+					add(shown, root_node, path, path.get_subname(0), false);
+				}
+				for (int32_t k = 0; type == Animation::TYPE_METHOD && k < animation->track_get_key_count(t); k++) {
+					add(shown, root_node, path, animation->method_track_get_name(t, k), true);
+				}
+			}
+		}
+	};
+	for (int32_t p = 0; p < p_state->get_node_property_count(p_index); p++) {
+		const String name = p_state->get_node_property_name(p_index, p);
+		const Variant value = p_state->get_node_property_value(p_index, p);
+		if (name == "libraries") {
+			const Dictionary libraries = value;
+			const Array keys = libraries.keys();
+			for (int64_t k = 0; k < keys.size(); k++) {
+				read_library(keys[k], libraries[keys[k]]);
+			}
+		} else if (name.begins_with("libraries/")) {
+			read_library(name.trim_prefix("libraries/"), value);
+		} else if (name == "replication_config") {
+			const Ref<SceneReplicationConfig> config = value;
+			if (config.is_null()) {
+				continue;
+			}
+			watch(config);
+			const NodePath root_path = root("root_path");
+			const TypedArray<NodePath> properties = config->get_properties();
+			for (int64_t q = 0; q < properties.size(); q++) {
+				const NodePath property = properties[q];
+				if (property.get_subname_count() > 0) {
+					add(std::string(), root_path, property, property.get_subname(0), false);
+				}
+			}
+		}
+	}
+}
+
 // The paths of the scenes a scene instances, through instances of instances.
 // An inherited scene's root is an instance of its base
 // (scene/resources/packed_scene.cpp:1921-1924; ed1daf0).
@@ -165,15 +263,16 @@ void instanced_scenes(const Ref<SceneState> &p_state, std::set<std::string> &r_p
 // An inherited scene stores only the nodes it adds or changes and the
 // connections it adds; the rest are in its base (scene/resources/packed_scene.cpp:1483-1490,
 // 1888-1894, 1912-1928; ed1daf0).
-compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state) {
+compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state, std::set<std::string> &r_files) {
 	const Ref<SceneState> base = p_state->get_base_scene_state();
-	compiler::Scene scene = base.is_valid() ? read_scene(p_state->get_node_instance(0)->get_path(), base) : compiler::Scene();
+	compiler::Scene scene = base.is_valid() ? read_scene(p_state->get_node_instance(0)->get_path(), base, r_files) : compiler::Scene();
 	scene.base = base.is_valid() ? scene.path : std::string();
 	scene.path = to_utf8(p_path);
 	for (compiler::SceneNode &node : scene.nodes) {
 		node.properties.clear(); // The base stores them, and the check reads them there.
 	}
 	for (int32_t i = 0; i < p_state->get_node_count(); i++) {
+		read_named_members(p_state, i, scene, r_files);
 		const std::string path = node_path(p_state->get_node_path(i));
 		const std::optional<std::string> script = attached_script(p_state, i);
 		const auto inherited = std::find_if(scene.nodes.begin(), scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return p_node.path == path; });
@@ -272,8 +371,8 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 			cached = found->second;
 		}
 	}
-	if (cached && cached->modified == modified && std::all_of(cached->instanced.begin(), cached->instanced.end(), [](const auto &p_instanced) {
-			return FileAccess::get_modified_time(to_godot(p_instanced.first)) == p_instanced.second;
+	if (cached && cached->modified == modified && std::all_of(cached->files.begin(), cached->files.end(), [](const auto &p_file) {
+			return FileAccess::get_modified_time(to_godot(p_file.first)) == p_file.second;
 		})) {
 		return cached;
 	}
@@ -285,11 +384,11 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 	// scene/resources/packed_scene.h:256).
 	const Ref<PackedScene> packed = ResourceLoader::get_singleton()->load(path, "PackedScene", ResourceLoader::CACHE_MODE_IGNORE);
 	if (packed.is_valid() && packed->get_state().is_valid()) {
-		entry->scene = read_scene(path, packed->get_state());
-		std::set<std::string> instanced;
-		instanced_scenes(packed->get_state(), instanced);
-		for (const std::string &instanced_path : instanced) {
-			entry->instanced.emplace_back(instanced_path, FileAccess::get_modified_time(to_godot(instanced_path)));
+		std::set<std::string> files;
+		entry->scene = read_scene(path, packed->get_state(), files);
+		instanced_scenes(packed->get_state(), files);
+		for (const std::string &file : files) {
+			entry->files.emplace_back(file, FileAccess::get_modified_time(to_godot(file)));
 		}
 	}
 	std::lock_guard<std::mutex> lock(mutex);
@@ -315,8 +414,8 @@ SceneIndex::Pass::~Pass() {
 void SceneIndex::forget(const std::string &p_path) const {
 	std::lock_guard<std::mutex> lock(mutex);
 	for (auto entry = scenes.begin(); entry != scenes.end();) {
-		const auto &instanced = entry->second->instanced;
-		if (entry->first == p_path || std::any_of(instanced.begin(), instanced.end(), [&](const auto &p_scene) { return p_scene.first == p_path; })) {
+		const auto &files = entry->second->files;
+		if (entry->first == p_path || std::any_of(files.begin(), files.end(), [&](const auto &p_file) { return p_file.first == p_path; })) {
 			entry = scenes.erase(entry);
 		} else {
 			++entry;

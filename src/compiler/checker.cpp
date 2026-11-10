@@ -9445,6 +9445,55 @@ class Checker : public ClassRelation {
 		}
 	}
 
+	// Why a member that a scene names must be pub (spec §10.5).
+	static std::string not_pub(bool p_method) {
+		return p_method ? ", which is not pub; the engine calls only pub methods by name." : ", which is not pub; the engine finds only pub properties by name.";
+	}
+
+	// The members of this class that animation tracks and synchronized
+	// properties name (spec §7.7), which the engine finds by name, so they
+	// must be pub (§10.5). Each is resolved as $X is, in the scene that
+	// stores it: one that places the class, or one that instances such a
+	// scene. A path that leads to no node, and a member that the class
+	// lacks, are left to the engine at run time.
+	void check_named_members() {
+		const TokenRange header{ cls.extends_token, cls.extends_token };
+		std::set<std::string> seen;
+		std::vector<Scene> pending = scenes;
+		while (!pending.empty()) {
+			const Scene scene = std::move(pending.back());
+			pending.pop_back();
+			if (!seen.insert(scene.path).second) {
+				continue;
+			}
+			for (Scene &outer : options.project->scenes_instancing(scene.path)) {
+				pending.push_back(std::move(outer));
+			}
+			for (const SceneNamedMember &named : scene.named_members) {
+				const ViewNode *node = walk_node_path(scene, named.from, named.node).node;
+				if (!node || (node->node.script.empty() ? node->node.instance_script : node->node.script) != options.path) {
+					continue;
+				}
+				const auto shown = [](const std::string &p_path) { return p_path == "." ? std::string("the root") : p_path; };
+				const std::string what = named.method ? "calls " + named.name + "() on " + shown(node->path) : (named.animation.empty() ? "synchronizes \"" : "animates \"") + named.name + "\" of " + shown(node->path);
+				const std::string where = scene.path + ": " + (named.animation.empty() ? shown(named.from) : "the animation \"" + named.animation + "\" of " + shown(named.from)) + " " + what;
+				if (named.method) {
+					const auto found = function_index.find(named.name);
+					const FuncDecl *method = found == function_index.end() ? nullptr : cls.all_functions[found->second];
+					if (method && !method->is_pub && !method->is_override) {
+						error_in_scene(own_name(*method, cls.functions, header), scene, node->path, where + not_pub(true));
+					}
+					continue;
+				}
+				const auto found = member_index.find(named.name);
+				const VarDecl *member = found == member_index.end() ? nullptr : cls.all_members[found->second];
+				if (member && !member->is_pub) {
+					error_in_scene(own_name(*member, cls.members, header), scene, node->path, where + not_pub(false));
+				}
+			}
+		}
+	}
+
 	// Connections saved in scenes to methods of this class (spec §7.7): the
 	// method must exist and take what the signal passes. The engine finds the
 	// method and the signal by name, so both must be pub (§10.5).
@@ -9465,7 +9514,7 @@ class Checker : public ClassRelation {
 				const FuncDecl &method = *cls.all_functions[found->second];
 				const bool own = is_own(method, cls.functions);
 				if (!method.is_pub) {
-					error_in_scene(own_name(method, cls.functions, header), scene, connection.target, where + ", which is not pub; the engine calls only pub methods by name.");
+					error_in_scene(own_name(method, cls.functions, header), scene, connection.target, where + not_pub(true));
 				}
 				if (references) {
 					Reference reference;
@@ -11712,6 +11761,7 @@ private:
 		}
 		check_warning_ignores();
 		check_connections();
+		check_named_members();
 		check_abstract_scenes();
 		check_owner_scenes();
 		check_parent_scenes();

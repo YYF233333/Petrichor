@@ -65,13 +65,31 @@ struct SceneConnection {
 	}
 };
 
+// A member that a scene names for the engine to find by name (spec §7.7,
+// §10.5): a property or a method that a track of an animation names, or a
+// property that a MultiplayerSynchronizer synchronizes.
+struct SceneNamedMember {
+	std::string from; // The node that names it, from the scene's root.
+	std::string animation; // The track's animation; "" for a synchronized property.
+	std::string node; // The path from `from` to the node that has the member.
+	std::string name;
+	bool method = false;
+
+	bool operator==(const SceneNamedMember &p_other) const {
+		return from == p_other.from && animation == p_other.animation && node == p_other.node && name == p_other.name && method == p_other.method;
+	}
+};
+
 struct Scene {
 	std::string path;
 	std::vector<SceneNode> nodes; // With those of the scene it inherits.
 	std::vector<SceneConnection> connections;
 	std::string base; // The scene it inherits, if any.
+	std::vector<SceneNamedMember> named_members; // With those of the scene it inherits.
 
-	bool operator==(const Scene &p_other) const { return path == p_other.path && nodes == p_other.nodes && connections == p_other.connections && base == p_other.base; }
+	bool operator==(const Scene &p_other) const {
+		return path == p_other.path && nodes == p_other.nodes && connections == p_other.connections && base == p_other.base && named_members == p_other.named_members;
+	}
 
 	const SceneNode *find_node(const std::string &p_path) const {
 		for (const SceneNode &node : nodes) {

@@ -20,7 +20,9 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - the node paths of a script take a scene that is also inherited for a base used only for inheritance. It may then lack a node without an error, which the run-time check catches;
   - a root with an `@owner` script is a compile error on the main scene only. Elsewhere reading `owner` gives the program error;
   - a must-assign export without a value is a compile error only in what the main scene is built from. Elsewhere the node's check at ready gives the program error.
-- `pub` required on the members that animation tracks and synchronized properties name (spec §10.5). The compiler does not read them yet (spec §7.7).
+- Members that animation tracks and synchronized properties name, unchecked for `pub` (spec §10.5):
+  - through a path that leaves the scene storing it, as from an AnimationPlayer at its root;
+  - after the first subname, on a resource of this language, as `health` in `Body:stats:health`.
 - In debug builds, listing where the instances still alive at exit were made (spec §6.7, §12.5).
 
 ## Runtime
@@ -31,7 +33,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Editor
 
-- References from scenes for the keys of exported properties (architecture §2.1). Now only the methods of signal connections are references.
+- References from scenes for the keys of exported properties (architecture §2.1). Also for the members that animation tracks and synchronized properties name (spec §7.7). Now only the methods of signal connections are references.
 - The warnings of spec §6.7:
   - a lambda capturing self stored in a member of self, a signal connection or a container;
   - two RefCounted classes referring to each other through strong fields;
@@ -173,6 +175,9 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 
 ## Open questions
 
+- Whether a scene's track or synchronized property is a compile error in these cases (spec §7.7). The engine reports them only as the scene runs (`scene/animation/animation_mixer.cpp:724-727`, `modules/multiplayer/multiplayer_synchronizer.cpp:42`, `ed1daf0`).
+  - Its path leads to no node.
+  - It names a member that the node's class of this language lacks.
 - Whether a scene known statically converts as an assignment does where spec §7.4 does not list it. Its `instantiate(...)` then skips the exports the scene does not assign, which the node's ready check catches. Unchecked now:
   - a function returning it as `PackedScene[T]`;
   - an element of a container, as `[preload("enemy.tscn")]`;
