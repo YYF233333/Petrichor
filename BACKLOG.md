@@ -38,7 +38,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - `pub` required on the members that animation tracks and synchronized properties name (spec §10.5). The compiler does not read them yet (spec §7.7).
 - `Callable(object, name)` and `Signal(object, name)` with a name known only at run time (spec §10.4). `Callable.create()` serves the first.
 - The audit of the most frequently called engine APIs for null (spec §10.2); `binding_metadata.txt` has two entries.
-- A `Callable` of unknown signature converted to a function type and checked on every call (spec §3.11).
 - In debug builds, reporting two places (spec §3.3, §6.7, §12.5):
   - where a freed instance was freed;
   - where the instances still alive at exit were made.
