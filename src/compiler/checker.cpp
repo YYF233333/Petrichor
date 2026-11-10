@@ -3123,6 +3123,12 @@ class Checker : public ClassRelation {
 			}
 			return script_class_type(*header, script);
 		}
+		// A script of another language, by its class as reflection shows it
+		// (spec §11.1); by the engine class when it cannot be read.
+		const ForeignClass *foreign = script.empty() ? nullptr : foreign_class(script);
+		if (foreign && foreign->members_known && !foreign->native.empty()) {
+			return foreign_class_type(script, *foreign);
+		}
 		if (!engine.class_exists(p_node.type)) {
 			error(p_at.range, p_what + " is a " + p_node.type + ", which is not supported yet.");
 			return Type::of(TypeKind::Error);

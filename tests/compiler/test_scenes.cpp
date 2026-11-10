@@ -136,6 +136,26 @@ TEST_CASE("$X of a node with a script of this language has the script's class") 
 	CHECK(contains(hud_errors("$Bar.fill(\"full\")", project), "Cannot pass a value of type String as float"));
 }
 
+TEST_CASE("$X of a node with a GDScript script has the script's class (spec §11.1)") {
+	FakeProject project = hud_scene();
+	compiler::ForeignClass meter;
+	meter.native = "Control";
+	compiler::EngineMethod fill;
+	fill.name = "fill";
+	fill.owner = "res://meter.gd";
+	fill.params = { { "amount", compiler::Type::of(compiler::TypeKind::Float) } };
+	fill.return_type = compiler::Type::of(compiler::TypeKind::Void);
+	meter.methods = { fill };
+	project.foreign["res://meter.gd"] = meter;
+	project.global_classes["Meter"] = "res://meter.gd";
+	project.scenes[0].nodes.push_back({ "HUD/Meter", "Control", "res://meter.gd" });
+	CHECK(hud_errors("$Meter.fill(0.5)\n\tvar m: Meter = $Meter\n\tvar c: Control = $Meter", project).empty());
+	CHECK(contains(hud_errors("$Meter.fill(\"full\")", project), "Cannot pass a value of type String as float"));
+	// One that cannot be read keeps its engine class.
+	project.scenes[0].nodes.push_back({ "HUD/Broken", "Label", "res://broken.gd" });
+	CHECK(hud_errors("$Broken.text = \"\"", project).empty());
+}
+
 // Spec §7.4.
 TEST_CASE("preload() of a scene is a PackedScene of the scene's root") {
 	FakeProject project;
