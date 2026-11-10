@@ -502,6 +502,19 @@ TEST_CASE("an interface extends others: their members, one signature each, and t
 	CHECK(contains(declared("pub interface P:\n\tfunc f(a: int)\n\npub interface Q:\n\tfunc f(a: String)\n\npub interface R extends P, Q:\n\tpass\n"), "declare \"f\" differently; redeclare it in R."));
 	CHECK(declared("pub interface P:\n\tfunc f() -> Node\n\npub interface Q:\n\tfunc f() -> Node\n\npub interface R extends P, Q, Kinds.Shown, Kinds.Named:\n\tpass\n").empty());
 	CHECK(contains(declared("pub interface S extends Node:\n\tpass\n"), "Node is not an interface."));
+	// A pub interface shows its parents' members wherever it is seen (spec §4.2).
+	CHECK(declared("interface Base:\n\tfunc f()\n\ninterface Api extends Base:\n\tpass\n").empty());
+	CHECK(declared("interface Base:\n\tfunc f()\n\npub interface Api extends Base:\n\tpass\n") == "4:27: test.pet.Base is not pub, but the pub Api extends it.\n");
+	CHECK(contains(declared("class Hidden:\n\tpub interface Base:\n\t\tfunc f()\n\npub interface Api extends Hidden.Base:\n\tpass\n"), "test.pet.Hidden.Base is not pub, but the pub Api extends it."));
+}
+
+TEST_CASE("two classes that implement an interface are one only where it is expected (spec §5.5)") {
+	FakeProject p = project();
+	p.add_script("res://turret.pet", "class_name Turret\nextends Node implements Combat.Damageable\n\npub func damage(amount: float):\n\tpass\n", "Turret");
+	const auto in = [&](const std::string &p_body) { return messages(compile_in("extends Node\n\nfunc f(e: Enemy, t: Turret, c: bool) -> void:\n\t" + p_body + "\n", p)); };
+	CHECK(in("var d: Combat.Damageable = e if c else t\n\td = t if c else e").empty());
+	CHECK(contains(in("var x := e if c else t\n\tvar d: Combat.Damageable = x"), "Cannot assign a value of type Node as Combat.Damageable"));
+	CHECK(contains(in("var d: Combat.Damageable = Half.new() if c else t"), "Half implements Combat.Damageable with errors"));
 }
 
 TEST_CASE("values of an interface type") {

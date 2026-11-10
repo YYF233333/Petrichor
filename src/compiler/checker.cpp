@@ -1134,14 +1134,20 @@ class Checker : public ClassRelation {
 				error(p_ref.range, "void cannot be optional.");
 				return Type::of(TypeKind::Error);
 			}
-			// The entry checks would not see its elements' type.
-			if (type.kind == TypeKind::Builtin && !type.args.empty()) {
-				error(p_ref.range, type.to_string() + "? is not supported yet; an empty array can stand for none.");
+			const std::string unsupported = unsupported_optional(type);
+			if (!unsupported.empty()) {
+				error(p_ref.range, unsupported);
 				return Type::of(TypeKind::Error);
 			}
 			type = optional_of(type);
 		}
 		return type;
+	}
+
+	// Why T? of the type is not supported yet, or empty: the entry checks
+	// would not see its elements' type.
+	static std::string unsupported_optional(const Type &p_type) {
+		return p_type.kind == TypeKind::Builtin && !p_type.args.empty() ? p_type.to_string() + "? is not supported yet; an empty array can stand for none." : std::string();
 	}
 
 	Type resolve_name(const TypeRef &p_ref, bool p_allow_void) {
@@ -5590,9 +5596,22 @@ class Checker : public ClassRelation {
 		} else if (b.is_result() && partial(b) && !partial(a)) {
 			b = set(*r_expr.right, completed(b, a));
 		}
-		const Type result = common_type(a, b);
+		if (!p_expected.is_error() && !partial(p_expected) && assignable(a, p_expected) && assignable(b, p_expected)) {
+			expect_implemented(*r_expr.left, a, p_expected);
+			expect_implemented(*r_expr.right, b, p_expected);
+			return set(r_expr, p_expected);
+		}
+		Type result = common_type(a, b);
+		if (result.is_error() && (a.kind == TypeKind::None) != (b.kind == TypeKind::None)) {
+			const Type &value = a.kind == TypeKind::None ? b : a;
+			const std::string unsupported = unsupported_optional(value);
+			if (!unsupported.empty()) {
+				return fail(r_expr, unsupported);
+			}
+			result = optional_of(value);
+		}
 		if (result.is_error()) {
-			return fail(r_expr, "The branches have types " + a.to_string() + " and " + b.to_string() + ", which have no common type.");
+			return fail(r_expr, "The branches have types " + a.to_string() + " and " + b.to_string() + ", which have no common type; declare the type.");
 		}
 		return set(r_expr, result);
 	}
@@ -9266,6 +9285,10 @@ class Checker : public ClassRelation {
 				if (!parent.is_error() && !parent.is_interface) {
 					error(ref.range, parent.to_string() + " is not an interface.");
 				} else if (!parent.is_error()) {
+					// It shows the parent's members wherever it is seen (spec §4.2).
+					if (const std::optional<Type> hidden = interface.is_pub ? hidden_part(parent) : std::nullopt) {
+						error(ref.range, hidden->to_string() + " is not pub, but the pub " + interface.name + " extends it.");
+					}
 					interface.parents.push_back(parent);
 				}
 			}

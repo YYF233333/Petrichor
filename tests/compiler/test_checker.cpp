@@ -290,8 +290,20 @@ TEST_CASE("conditional expressions") {
 	CHECK(type_of("1 if true else 2.5") == "float");
 	CHECK(type_of("Node3D.new() if true else Node.new()") == "Node");
 	CHECK(type_of("Node3D.new() if true else Timer.new()") == "Node");
-	CHECK(contains(type_of("\"a\" if true else 1"), "no common type"));
+	CHECK(contains(type_of("\"a\" if true else 1"), "which have no common type; declare the type."));
 	CHECK(has_error(in_function("var x := 1 if 0 else 2"), "A condition must be bool"));
+	// None and a T give T?, unless one fits the other.
+	CHECK(type_of("None if true else 1") == "int?");
+	CHECK(type_of("Node.new() if true else None") == "Node?");
+	CHECK(type_of("None if true else maybe", "var maybe: int? = 2") == "int?");
+	CHECK(type_of("None if true else v", "var v: Variant = 2") == "Variant");
+	CHECK(contains(type_of("None if true else [1]"), "Array[int]? is not supported yet"));
+	// With a type to go to, both branches go to it.
+	CHECK(errors_of(in_function("var v: Variant = 1 if randf() > 0.5 else \"a\"")).empty());
+	const compiler::CompileResult result = compile(in_function("var x := None if randf() > 0.5 else 1"));
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 }
 
 TEST_CASE("a call that fails still reports the errors of its arguments") {
