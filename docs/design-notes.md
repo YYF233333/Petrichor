@@ -134,6 +134,10 @@
   - GDScript 中这时子任务照常跑完，同一写法须与它一致。归属的用处都来自主动取消，所以对象释放引起的取消不传播。
 - **协程与信号（§9.1–§9.7）**：[语料计数](surveys/corpus-counts.md)中 979 个 lambda 只有 35 个含 `await`（33 个在 `gdUnit4` 测试中）。重入与释放暗坑见[暗坑清单](surveys/pitfalls.md) G-11、G-12、G-13，及提案 [godot-proposals#8838](https://github.com/godotengine/godot-proposals/issues/8838)、[#6243](https://github.com/godotengine/godot-proposals/issues/6243)。[await 信号结果调查](surveys/await-signal-results.md)中，1,356 个 `await` 只有 1 个使用了多参数信号的结果。也只有 1 个使用了签名未知的 `Signal` 结果（`godot_dialogue_manager` `:1956` 经 `RefCounted` 接收者等待 C# 两参数信号）。
 - **引擎边界（§10.2–§10.6）**：引擎用 `RequiredResult` 标注的 API 仅约 50 处（29 处在 `Tween`）。引擎传入虚函数和信号的对象几乎总是非空。默认非空加入口检查，避免每个 `_input` 和信号处理函数重复判空。引擎 API 中窄于 `int64` 或无符号的方法参数有 3,700 多个、属性约 460 个。例如 `uint32` 的 `collision_layer` 写入 `-1` 会回绕为 `4294967295`。
+- **引擎 API 的 `Result` 版本（§10.3）**：[语料计数](surveys/corpus-counts.md)中 `FileAccess.open` 有 125 处调用，只有 21 处随后读取错误。改变原 API 的返回类型，迁移来的每处调用都要改写。所以 `try_` 版本另加，原 API 不变。独立的模块多一个全局名字，用户在 `FileAccess` 下也找不到。
+  - 引擎类上只加按固定前缀从引擎成员派生的名字，如 `try_from` 和 `try_open`。4.7 的引擎 API 中只有 `Mutex.try_lock` 和 `Semaphore.try_wait` 用这个前缀。
+  - 引擎几乎每个 4.x 版本都给 `FileAccess` 和 `DirAccess` 加方法，但没有一个以 `try_` 开头。生成的名字与新版引擎的成员重名时，构建失败。
+  - 其他新功能放进本语言自己的模块，或先提交上游（架构 §5）。
 - **按名访问（§10.4、§10.5）**：引擎分不清按名访问的调用方。只对引擎暴露私有成员，GDScript 的无类型访问也就能读写它，私有成员的不变量因此要防外部修改。[按名访问调查](surveys/by-name-access.md)中：
   - 引擎按名访问的脚本成员几乎都来自场景信号连接、导出和 `@rpc`，编译器都已读取；
   - 代码中指向本脚本的字面量名字每千行仅 0.5 处，多数可改用方法值；
