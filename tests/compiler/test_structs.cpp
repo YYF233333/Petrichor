@@ -68,6 +68,16 @@ TEST_CASE("a struct that contains itself without a container has no size") {
 	CHECK(contains(messages(compile_in(board, p)), "Cell contains itself through Cell.piece, Slot.cell"));
 }
 
+TEST_CASE("a struct or an enum with payloads holds itself through a container (spec §3.6)") {
+	const compiler::CompileResult result = compile("extends Node\n\nstruct Twig:\n\tvar children: Array[Twig]\n\tvar parent: Dictionary[String, Twig?] = {}\n\n"
+												   "enum Expr { NUM(v: int), ADD(items: Array[Expr]), LET(names: Dictionary[Expr, Result[Expr, int]]) }\n\n"
+												   "func f(t: Twig, e: Expr) -> bool:\n\tvar u := Twig(children = [t])\n\tvar sum := Expr.ADD(items = [e, Expr.NUM(v = 1)])\n"
+												   "\treturn u.children[0] == t and Array(u.children).size() == 1 and Array[Twig].try_from(Array(u.children)).unwrap()[0] == t and sum != e\n");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+}
+
 TEST_CASE("another class's struct is written ClassName.Name, and must be pub") {
 	const compiler::CompileResult ok = compile_in("extends Node\n\nfunc f() -> Combat.Hit:\n\tvar h := Combat.Hit(damage = 2)\n\th.crit = true\n\treturn h\n", project());
 	CHECK_MESSAGE(ok.ok(), messages(ok));
@@ -104,7 +114,7 @@ TEST_CASE("structs and T? are ordered") {
 	CHECK(contains(errors("var ts: Array[Tagged] = []\nts.sort()", tagged), "orders the elements by <, which Shots.Tagged does not have"));
 	CHECK(contains(errors("var ns: Array[Node] = []\nvar x: bool = ns < ns"), "Values of type Array[Node] are not ordered"));
 	// One that holds itself through a container is ordered when the rest is (spec §3.6).
-	CHECK_FALSE(contains(errors("var ts: Array[Tree] = []\nts.sort()", "struct Tree:\n\tvar size: int = 0\n\tvar children: Array[Tree] = []\n\n"), "orders the elements"));
+	CHECK_FALSE(contains(errors("var ts: Array[Twig] = []\nts.sort()", "struct Twig:\n\tvar size: int = 0\n\tvar children: Array[Twig] = []\n\n"), "orders the elements"));
 }
 
 // Spec §3.6: methods read the fields bare or through self, and change none.

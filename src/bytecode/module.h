@@ -153,7 +153,9 @@ struct ClassRef {
 
 // What a type is (architecture §2.2). A module lists each type that its slots,
 // members, signatures, constants and instructions use once, and they refer to
-// it by its index; a type inside another comes before it.
+// it by its index. A type inside another comes before it, except the element
+// and the key of a container, through which a struct may hold itself (spec
+// §3.6); every cycle passes through a struct's or an enum's field.
 enum class TypeKind : uint8_t {
 	Value, // An engine value type in its own layout, or Variant: `value`.
 	Object, // An object of the class `object`, or also None when `nullable` (spec §3.3).

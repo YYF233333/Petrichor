@@ -161,8 +161,9 @@ ValueType storage_of(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 	}
 }
 
-// The types inside a type come before it, which the verifier checks; until
-// then, sizes and keys do not follow a type that does not.
+// The fields of a type and the T of T? come before it, which the verifier
+// checks; until then, sizes and layouts do not follow one that does not.
+// is_boxed() follows containers, whose cycles it checks first.
 bool has_fields(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 	return p_type < p_types.size() && (p_types[p_type].kind == TypeKind::Struct || p_types[p_type].kind == TypeKind::PayloadEnum);
 }
@@ -216,9 +217,9 @@ bool is_boxed(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 		case TypeKind::PayloadEnum:
 			return true;
 		case TypeKind::Array:
-			return type.element < p_type && is_boxed(p_types, type.element);
+			return is_boxed(p_types, type.element);
 		case TypeKind::Dictionary:
-			return (type.key < p_type && is_boxed(p_types, type.key)) || (type.element < p_type && is_boxed(p_types, type.element));
+			return is_boxed(p_types, type.key) || is_boxed(p_types, type.element);
 		default:
 			return false;
 	}
@@ -244,50 +245,72 @@ bool holds_references(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 	}
 }
 
-std::string type_key(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
+// A type met again inside itself is keyed by how many types out it is.
+static std::string type_key(const std::vector<TypeDesc> &p_types, uint32_t p_type, std::vector<uint32_t> &r_path) {
 	if (p_type >= p_types.size()) {
 		return "!";
 	}
+	const auto outer = std::find(r_path.begin(), r_path.end(), p_type);
+	if (outer != r_path.end()) {
+		return "^" + std::to_string(r_path.end() - outer - 1);
+	}
+	r_path.push_back(p_type);
 	const TypeDesc &type = p_types[p_type];
+	const auto inner = [&](uint32_t p_inner) { return type_key(p_types, p_inner, r_path); };
 	const auto text = [](const std::string &p_text) { return std::to_string(p_text.size()) + ":" + p_text; };
+	std::string key;
 	switch (type.kind) {
 		case TypeKind::Value:
-			return "v" + std::to_string(int(type.value));
+			key = "v" + std::to_string(int(type.value));
+			break;
 		case TypeKind::Object:
-			return std::string(type.nullable ? "o?" : "o") + text(type.object.name) + text(type.object.script) + text(type.object.interface_name) + text(type.task_result);
+			key = std::string(type.nullable ? "o?" : "o") + text(type.object.name) + text(type.object.script) + text(type.object.interface_name) + text(type.task_result);
+			break;
 		case TypeKind::Option:
-			return "?(" + type_key(p_types, type.element) + ")";
+			key = "?(" + inner(type.element) + ")";
+			break;
 		case TypeKind::Array:
-			return "a(" + type_key(p_types, type.element) + ")";
+			key = "a(" + inner(type.element) + ")";
+			break;
 		case TypeKind::Dictionary:
-			return "d(" + type_key(p_types, type.key) + "," + type_key(p_types, type.element) + ")";
+			key = "d(" + inner(type.key) + "," + inner(type.element) + ")";
+			break;
 		case TypeKind::Struct:
 		case TypeKind::PayloadEnum: {
 			// With its fields, so that a struct changed in one module is not taken
 			// for the old one by another; an enum with its variants too.
-			std::string key = (type.kind == TypeKind::Struct ? "s" : "p") + text(type.name) + "(";
+			key = (type.kind == TypeKind::Struct ? "s" : "p") + text(type.name) + "(";
 			for (const EnumValueDesc &value : type.values) {
 				key += text(value.name) + std::to_string(value.value) + ",";
 			}
 			for (const FieldDesc &field : type.fields) {
-				key += text(field.name) + (field.type < p_type ? type_key(p_types, field.type) : "!") + ",";
+				key += text(field.name) + inner(field.type) + ",";
 			}
-			return key + ")";
+			key += ")";
+			break;
 		}
 		case TypeKind::Enum: {
 			// With its values, as a struct with its fields; an enum of the engine,
 			// named without "::", is open, and later versions add values (spec §3.7).
-			std::string key = "e" + text(type.name) + "(";
+			key = "e" + text(type.name) + "(";
 			for (const EnumValueDesc &value : type.values) {
 				if (type.name.find("::") != std::string::npos) {
 					key += text(value.name) + std::to_string(value.value) + ",";
 				}
 			}
-			return key + ")";
+			key += ")";
+			break;
 		}
 		default:
-			return "!";
+			key = "!";
 	}
+	r_path.pop_back();
+	return key;
+}
+
+std::string type_key(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
+	std::vector<uint32_t> path;
+	return type_key(p_types, p_type, path);
 }
 
 std::string signature_key(const std::vector<TypeDesc> &p_types, const std::vector<Slot> &p_params, size_t p_defaults, const Slot &p_result, bool p_async, bool p_vararg) {

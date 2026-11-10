@@ -303,3 +303,38 @@ pub func packed_reads() -> String:
 	for n in names:
 		text += n
 	return str(bytes[0] + bytes[-1]) + " " + str(total) + " " + text + names[1]
+
+
+# A struct and an enum with payloads hold themselves through containers
+# (spec §3.6), also across the engine boundary (§10.1).
+pub struct Twig:
+	var name: String
+	var children: Array[Twig] = []
+
+pub enum Expr { NUM(v: int), ADD(items: Array[Expr]) }
+
+pub func recursive() -> String:
+	var leaf := Twig(name = "leaf")
+	var root := Twig(name = "root", children = [leaf, Twig(name = "b", children = [leaf])])
+	var encoded: Variant = root
+	var back := Twig.try_from(encoded).unwrap()
+	var keyed: Dictionary[Twig, int] = {root: 1}
+	var sum := Expr.ADD(items = [Expr.NUM(v = 1), Expr.NUM(v = 2)])
+	var untyped := Array(root.children)
+	var expected: Variant = {"name": "b", "children": [{"name": "leaf", "children": []}]}
+	return root.children[1].children[0].name + " " + str(back == root) + " " + str(keyed[back]) + " " + str(sum == Expr.ADD(items = [Expr.NUM(v = 1), Expr.NUM(v = 2)])) + " " + str(Array[Twig].try_from(untyped).unwrap() == root.children) + " " + str(untyped[1] == expected)
+
+
+# One that holds itself through a container it shares has no end; walks into
+# it stop as the engine's do.
+pub func endless() -> String:
+	var a := Twig(name = "c")
+	a.children.append(a)
+	var b := Twig(name = "c")
+	b.children.append(b)
+	var same := a == b
+	var text := str(a)
+	var encoded := Array(a.children)
+	a.children.clear()
+	b.children.clear()
+	return str(same) + " " + str(text.begins_with("{ \"name\": \"c\"")) + " " + str(encoded.size())

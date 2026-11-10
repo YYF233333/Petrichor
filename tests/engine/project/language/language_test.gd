@@ -549,6 +549,9 @@ func _ready() -> void:
 	containers.least(no_ints)
 	containers.first(no_ints)
 	_check_errors(["container_check.pet:145: min() of an empty array.", "container_check.pet:148: front() of an empty array."], "min() and front() of an empty array are program errors")
+	_check(containers.recursive() == "leaf true 1 true true true", "a struct and an enum with payloads hold themselves through containers, which encode and decode")
+	_check(containers.endless() == "true true 1", "a struct that holds itself through a shared container is compared, printed and encoded down to the engine's depth")
+	_check_errors(["Max recursion reached", "Max recursion reached", "Maximum array recursion reached!", "Max recursion reached"], "walking a struct that holds itself stops with the engine's error")
 	containers.free()
 
 	var frames_before: int = c.frames

@@ -106,14 +106,65 @@ class Verifier {
 		}
 	}
 
-	// Each type is whole, and refers only to types before it.
+	// The element and the key of a container, and the T of T?.
+	std::vector<uint32_t> inner_types(const TypeDesc &p_type) const {
+		std::vector<uint32_t> inner;
+		if (p_type.kind == TypeKind::Option || p_type.kind == TypeKind::Array || p_type.kind == TypeKind::Dictionary) {
+			inner.push_back(p_type.element);
+		}
+		if (p_type.kind == TypeKind::Dictionary) {
+			inner.push_back(p_type.key);
+		}
+		return inner;
+	}
+
+	// Whether following elements, keys and the T of T? comes back to a type,
+	// which only a field may: the type would have no end.
+	bool has_cycle() const {
+		std::vector<uint8_t> state(module.types.size()); // 1 while followed, 2 once done.
+		std::vector<std::pair<uint32_t, size_t>> path;
+		for (uint32_t root = 0; root < module.types.size(); root++) {
+			if (state[root]) {
+				continue;
+			}
+			state[root] = 1;
+			path.push_back({ root, 0 });
+			while (!path.empty()) {
+				const uint32_t type = path.back().first;
+				const std::vector<uint32_t> inner = inner_types(module.types[type]);
+				if (path.back().second == inner.size()) {
+					state[type] = 2;
+					path.pop_back();
+					continue;
+				}
+				const uint32_t next = inner[path.back().second++];
+				if (state[next] == 1) {
+					return true;
+				}
+				if (!state[next]) {
+					state[next] = 1;
+					path.push_back({ next, 0 });
+				}
+			}
+		}
+		return false;
+	}
+
+	// Each type is whole. Its fields and the T of T? come before it.
 	bool types() {
 		for (uint32_t i = 0; i < module.types.size(); i++) {
 			const TypeDesc &type = module.types[i];
-			const bool inner = type.kind == TypeKind::Option || type.kind == TypeKind::Array || type.kind == TypeKind::Dictionary;
-			if (type.kind >= TypeKind::Count || type.value >= ValueType::Count || (inner && type.element >= i) || (type.kind == TypeKind::Dictionary && type.key >= i)) {
+			const std::vector<uint32_t> inner = inner_types(type);
+			const bool outside = std::any_of(inner.begin(), inner.end(), [&](uint32_t p_inner) { return p_inner >= module.types.size(); });
+			if (type.kind >= TypeKind::Count || type.value >= ValueType::Count || outside || (type.kind == TypeKind::Option && type.element >= i)) {
 				return fail("type " + std::to_string(i) + " is not a type");
 			}
+		}
+		if (has_cycle()) {
+			return fail("a type that holds itself without a field");
+		}
+		for (uint32_t i = 0; i < module.types.size(); i++) {
+			const TypeDesc &type = module.types[i];
 			if (!type.task_result.empty() && (type.kind != TypeKind::Object || type.object.name != "CoroutineTask")) {
 				return fail("Task descriptor without a task handle");
 			}

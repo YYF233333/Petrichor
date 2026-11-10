@@ -122,7 +122,15 @@ class Lowerer {
 	std::vector<Diagnostic> &errors;
 	const StructLookup &structs;
 	std::unordered_map<uint32_t, Type> struct_types; // By their index in the type table.
-	std::unordered_set<std::string> interning;
+	// The structs and enums with payloads whose fields are being interned,
+	// and those interned, by "script::Name".
+	std::vector<std::string> interning;
+	std::unordered_map<std::string, uint32_t> named_types;
+	// The elements and keys of containers that hold one being interned, as
+	// Array[Tree] in Tree (spec §3.6). Each comes once that one has: until
+	// then, the container holds DEFERRED less its place here.
+	std::vector<std::pair<Type, bool>> deferred;
+	static constexpr uint32_t DEFERRED = 0xFFFFFFFFu;
 	// The entry of each constant value that is not a scalar, so that every use
 	// of a constant reads the same container (spec §4.5).
 	std::unordered_map<const ConstValue *, uint32_t> constant_entries;
@@ -260,11 +268,11 @@ class Lowerer {
 			type.element = type_index(p_type.args[0]);
 		} else if (is_typed_array(p_type)) {
 			type.kind = bytecode::TypeKind::Array;
-			type.element = type_index(p_type.args[0]);
+			type.element = element_index(p_type.args[0]);
 		} else if (is_typed_container(p_type)) {
 			type.kind = bytecode::TypeKind::Dictionary;
-			type.key = type_index(p_type.args[0]);
-			type.element = type_index(p_type.args[1]);
+			type.key = element_index(p_type.args[0]);
+			type.element = element_index(p_type.args[1]);
 		} else if (p_type.kind == TypeKind::Struct) {
 			return struct_index(p_type);
 		} else if (p_type.kind == TypeKind::PayloadEnum) {
@@ -292,20 +300,77 @@ class Lowerer {
 		bytecode::TypeDesc type;
 		type.kind = bytecode::TypeKind::Struct;
 		type.name = p_struct.script + "::" + p_struct.interface_name();
+		if (const auto found = named_types.find(type.name); found != named_types.end()) {
+			return found->second;
+		}
 		const StructDecl *decl = struct_decl(p_struct);
 		// The checker refuses a struct that holds itself (spec §3.6), unless its
 		// script failed to be checked.
-		if (!decl || !interning.insert(type.name).second) {
+		if (!decl || !begin_interning(type.name)) {
 			error(p_struct.name + " cannot be compiled: " + p_struct.script + " has errors.");
 			return type_index(ValueType::Void);
 		}
 		for (const VarDecl &field : decl->fields) {
 			type.fields.push_back({ field.name, type_index(field.type) });
 		}
-		interning.erase(type.name);
-		const uint32_t index = type_index(type);
+		const uint32_t index = end_interning(type);
 		struct_types.emplace(index, p_struct);
 		return index;
+	}
+
+	bool begin_interning(const std::string &p_name) {
+		if (std::find(interning.begin(), interning.end(), p_name) != interning.end()) {
+			return false;
+		}
+		interning.push_back(p_name);
+		return true;
+	}
+
+	// Interns the struct or enum whose fields are in, then the deferred types
+	// that waited for it.
+	uint32_t end_interning(const bytecode::TypeDesc &p_type) {
+		interning.pop_back();
+		const uint32_t index = type_index(p_type);
+		named_types.emplace(p_type.name, index);
+		for (size_t k = 0; k < deferred.size(); k++) {
+			if (deferred[k].second || holds_interning(deferred[k].first)) {
+				continue;
+			}
+			deferred[k].second = true;
+			const uint32_t mark = DEFERRED - uint32_t(k);
+			const uint32_t resolved = type_index(Type(deferred[k].first));
+			for (bytecode::TypeDesc &type : module.types) {
+				const bool container = type.kind == bytecode::TypeKind::Array || type.kind == bytecode::TypeKind::Dictionary;
+				type.element = container && type.element == mark ? resolved : type.element;
+				type.key = container && type.key == mark ? resolved : type.key;
+			}
+		}
+		return index;
+	}
+
+	// A container's element or key, deferred while it holds a struct or an
+	// enum being interned.
+	uint32_t element_index(const Type &p_type) {
+		if (!holds_interning(p_type)) {
+			return type_index(p_type);
+		}
+		for (size_t k = 0; k < deferred.size(); k++) {
+			if (!deferred[k].second && deferred[k].first == p_type) {
+				return DEFERRED - uint32_t(k);
+			}
+		}
+		deferred.push_back({ p_type, false });
+		return DEFERRED - uint32_t(deferred.size() - 1);
+	}
+
+	// Whether a value of the type holds in its slot a struct or an enum with
+	// payloads whose fields are being interned.
+	bool holds_interning(const Type &p_type) const {
+		if (p_type.kind == TypeKind::Option || p_type.is_result() || p_type.is_settled()) {
+			return std::any_of(p_type.args.begin(), p_type.args.end(), [&](const Type &p_arg) { return holds_interning(p_arg); });
+		}
+		const std::string name = p_type.script + "::" + p_type.interface_name();
+		return (p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum) && std::find(interning.begin(), interning.end(), name) != interning.end();
 	}
 
 	// An enum with payloads, "script::Name", or "Result" or "Settled", laid out
@@ -315,9 +380,12 @@ class Lowerer {
 		type.kind = bytecode::TypeKind::PayloadEnum;
 		const bool generic = p_enum.is_result() || p_enum.is_settled();
 		type.name = generic ? p_enum.name : p_enum.script + "::" + p_enum.interface_name();
+		if (const auto found = generic ? named_types.end() : named_types.find(type.name); found != named_types.end()) {
+			return found->second;
+		}
 		// The checker refuses one that holds itself (spec §3.6); a generic one
 		// holds itself only through a struct or an enum, which is interned.
-		if (!generic && !interning.insert(type.name).second) {
+		if (!generic && !begin_interning(type.name)) {
 			error(p_enum.name + " cannot be compiled: it contains itself.");
 			return type_index(ValueType::Void);
 		}
@@ -329,8 +397,7 @@ class Lowerer {
 				type.fields.push_back({ name, type_index(field_type) });
 			}
 		}
-		interning.erase(type.name);
-		return type_index(type);
+		return generic ? type_index(type) : end_interning(type);
 	}
 
 	// The field of a variant in the slot of an enum with payloads: after the

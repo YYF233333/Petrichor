@@ -111,15 +111,39 @@ const TypeOps &ops(ValueType p_type) {
 /* Boxes */
 
 struct BoxType : std::enable_shared_from_this<BoxType> {
-	std::vector<TypeImage> images; // The types inside the type, then the type.
+	std::vector<TypeImage> images; // The type and the types inside it, in their module's order.
+	uint32_t index = 0; // Of the type.
 	bool holds_containers = false; // Its values can hold an Array or a Dictionary.
-	const TypeImage &type() const { return images.back(); }
+	const TypeImage &type() const { return images[index]; }
 };
 
 namespace {
 
 bool same_values(const TypeImage &p_type, const uint8_t *p_a, const uint8_t *p_b);
 uint32_t hash_of(const TypeImage &p_type, const uint8_t *p_slot);
+
+// The engine stops at this depth too (core/typedefs.h:242).
+constexpr int MAX_DEPTH = 100;
+
+// A value that holds itself through a container (spec §3.6) has no end to
+// walk. Each walk into a box counts, and stops past the depth at which the
+// engine stops its own walks, with the engine's error and the result it
+// gives there (core/variant/array.cpp:149-153, 195-199).
+thread_local int box_depth = 0;
+
+class BoxLevel {
+public:
+	const bool too_deep;
+	BoxLevel() :
+			too_deep(++box_depth > MAX_DEPTH) {
+		if (too_deep) {
+			ERR_PRINT("Max recursion reached");
+		}
+	}
+	~BoxLevel() { box_depth--; }
+	BoxLevel(const BoxLevel &) = delete;
+	BoxLevel &operator=(const BoxLevel &) = delete;
+};
 
 class Box : public CallableCustom {
 	std::unique_ptr<uint64_t[]> storage;
@@ -130,7 +154,8 @@ class Box : public CallableCustom {
 	static bool equal(const CallableCustom *p_a, const CallableCustom *p_b) {
 		const Box *a = static_cast<const Box *>(p_a);
 		const Box *b = static_cast<const Box *>(p_b);
-		return a->type == b->type && same_values(a->type->type(), a->value(), b->value());
+		const BoxLevel level;
+		return a->type == b->type && (level.too_deep || same_values(a->type->type(), a->value(), b->value()));
 	}
 	static bool less(const CallableCustom *p_a, const CallableCustom *p_b) { return p_a < p_b; }
 
@@ -151,7 +176,10 @@ public:
 	uint8_t *value() const { return reinterpret_cast<uint8_t *>(storage.get()); }
 
 	uint32_t hash() const override { return hash_value; }
-	String get_as_text() const override { return value_text(type->type(), value()); }
+	String get_as_text() const override {
+		const BoxLevel level;
+		return level.too_deep ? String("...") : value_text(type->type(), value());
+	}
 	CompareEqualFunc get_compare_equal_func() const override { return equal; }
 	CompareLessFunc get_compare_less_func() const override { return less; }
 	bool is_valid() const override { return false; }
@@ -172,25 +200,46 @@ const Box *as_box(const Variant &p_value) {
 std::recursive_mutex box_mutex;
 std::unordered_map<std::string, std::shared_ptr<BoxType>> *box_types = nullptr;
 
-// The type and the types inside it, in a table of their own.
-uint32_t copy_type(const std::vector<bytecode::TypeDesc> &p_from, uint32_t p_type, std::vector<bytecode::TypeDesc> &r_to, std::unordered_map<uint32_t, uint32_t> &r_copied) {
-	const auto found = r_copied.find(p_type);
-	if (found != r_copied.end()) {
-		return found->second;
+// Calls `p_fn` on each index of a type inside the type.
+template <typename Fn>
+void for_each_inner(bytecode::TypeDesc &r_type, Fn &&p_fn) {
+	for (bytecode::FieldDesc &field : r_type.fields) {
+		p_fn(field.type);
 	}
-	bytecode::TypeDesc type = p_from[p_type];
-	if (type.kind == bytecode::TypeKind::Dictionary) {
-		type.key = copy_type(p_from, type.key, r_to, r_copied);
+	if (r_type.kind == bytecode::TypeKind::Option || r_type.kind == bytecode::TypeKind::Array || r_type.kind == bytecode::TypeKind::Dictionary) {
+		p_fn(r_type.element);
 	}
-	if (type.kind == bytecode::TypeKind::Option || type.kind == bytecode::TypeKind::Array || type.kind == bytecode::TypeKind::Dictionary) {
-		type.element = copy_type(p_from, type.element, r_to, r_copied);
+	if (r_type.kind == bytecode::TypeKind::Dictionary) {
+		p_fn(r_type.key);
 	}
-	for (bytecode::FieldDesc &field : type.fields) {
-		field.type = copy_type(p_from, field.type, r_to, r_copied);
+}
+
+// The type and the types inside it, in a table of their own in their order,
+// which keeps the order the verifier checked; the type's index there.
+uint32_t copy_types(const std::vector<bytecode::TypeDesc> &p_from, uint32_t p_type, std::vector<bytecode::TypeDesc> &r_to) {
+	std::vector<uint32_t> copied(p_from.size(), UINT32_MAX);
+	std::vector<uint32_t> pending = { p_type };
+	copied[p_type] = 0;
+	while (!pending.empty()) {
+		bytecode::TypeDesc type = p_from[pending.back()];
+		pending.pop_back();
+		for_each_inner(type, [&](uint32_t p_inner) {
+			if (copied[p_inner] == UINT32_MAX) {
+				copied[p_inner] = 0;
+				pending.push_back(p_inner);
+			}
+		});
 	}
-	r_to.push_back(type);
-	r_copied.emplace(p_type, uint32_t(r_to.size() - 1));
-	return uint32_t(r_to.size() - 1);
+	for (uint32_t i = 0; i < p_from.size(); i++) {
+		if (copied[i] != UINT32_MAX) {
+			copied[i] = uint32_t(r_to.size());
+			r_to.push_back(p_from[i]);
+		}
+	}
+	for (bytecode::TypeDesc &type : r_to) {
+		for_each_inner(type, [&](uint32_t &r_inner) { r_inner = copied[r_inner]; });
+	}
+	return copied[p_type];
 }
 
 bool holds_containers(const TypeImage &p_type) {
@@ -213,11 +262,10 @@ const BoxType *box_type(const std::vector<bytecode::TypeDesc> &p_types, uint32_t
 	if (found != box_types->end()) {
 		return found->second.get();
 	}
-	// Registered before its images, the last of which is the type itself.
+	// Registered before its images, which may hold boxes of it.
 	BoxType *box = box_types->emplace(key, std::make_shared<BoxType>()).first->second.get();
 	std::vector<bytecode::TypeDesc> closure;
-	std::unordered_map<uint32_t, uint32_t> copied;
-	copy_type(p_types, p_type, closure, copied);
+	box->index = copy_types(p_types, p_type, closure);
 	box->images = type_images(closure);
 	box->holds_containers = holds_containers(box->type());
 	return box;
@@ -460,14 +508,13 @@ static uint32_t layout_id(const std::string &p_key) {
 }
 
 std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_types) {
-	std::vector<TypeImage> images;
-	images.reserve(p_types.size());
+	// A container's element may come after it (bytecode/module.h).
+	std::vector<TypeImage> images(p_types.size());
 	for (uint32_t i = 0; i < p_types.size(); i++) {
 		const bytecode::TypeDesc &type = p_types[i];
-		TypeImage image;
+		TypeImage &image = images[i];
 		image.kind = type.kind;
 		image.storage = bytecode::storage_of(p_types, i);
-		// The verifier has checked that a type inside another comes before it.
 		image.element = type.kind == bytecode::TypeKind::Option ? &images[type.element] : nullptr;
 		image.size = bytecode::type_size(p_types, i);
 		image.layout = layout_id(bytecode::layout_key(p_types, i));
@@ -536,7 +583,6 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 			}
 			std::sort(image.enum_values.begin(), image.enum_values.end());
 		}
-		images.push_back(std::move(image));
 	}
 	return images;
 }
@@ -709,7 +755,8 @@ Variant encode_variant(const TypeImage &p_type, size_t p_variant, const std::vec
 // A key or an element as spec §10.1 encodes it, out of its box.
 static Variant encode_kept(const TypeImage &p_type, const Variant &p_value) {
 	const uint8_t *value = opened(p_type, p_value);
-	return value ? encode(p_type, value) : p_value;
+	const BoxLevel level;
+	return value ? (level.too_deep ? Variant() : encode(p_type, value)) : p_value;
 }
 
 Variant encode(const TypeImage &p_type, const uint8_t *p_slot) {
@@ -790,7 +837,8 @@ static bool decode_field(const TypeImage &p_type, const Variant &p_value, uint8_
 // A key or an element decoded as a container keeps it.
 static bool decode_kept(const TypeImage &p_type, const Variant &p_value, bool p_key, Variant &r_kept) {
 	ValueBuffer value(p_type);
-	if (!decode_field(p_type, p_value, value.data, true)) {
+	const BoxLevel level;
+	if (level.too_deep || !decode_field(p_type, p_value, value.data, true)) {
 		return false;
 	}
 	r_kept = p_type.box ? make_box(p_type, value.data, p_key) : to_variant(p_type, value.data);
@@ -1026,6 +1074,10 @@ String type_description(const TypeImage &p_type) {
 static String mismatch(const TypeImage &p_type, const Variant &p_value, const String &p_path, bool p_decoding) {
 	const String at = p_path.is_empty() ? String() : p_path + String(": ");
 	const String where = p_path.is_empty() ? type_description(p_type) : p_path;
+	const BoxLevel level;
+	if (level.too_deep) {
+		return vformat("%sthe value nests more than %d levels deep", at, MAX_DEPTH);
+	}
 	if (p_decoding && is_option(p_type) && !is_none(p_value)) {
 		return mismatch(*p_type.element, p_value, p_path, true);
 	}
@@ -1189,9 +1241,6 @@ bool same_values(const TypeImage &p_type, const uint8_t *p_a, const uint8_t *p_b
 	return all_leaves_match(p_type, p_a, p_b, [](ValueType p_storage, const uint8_t *p_x, const uint8_t *p_y) { return equal_leaf(p_storage, p_x, p_y, true); });
 }
 
-// The engine stops at this depth too (core/typedefs.h:242).
-constexpr int MAX_DEPTH = 100;
-
 uint32_t hash_contents(const Variant &p_value, int p_depth);
 
 // Every field, containers by their contents (spec §3.6).
@@ -1222,7 +1271,8 @@ uint32_t hash_contents(const Variant &p_value, int p_depth) {
 		return 0;
 	}
 	if (const Box *box = as_box(p_value)) {
-		return box->is_key ? box->hash_value : hash_of(box->type->type(), box->value());
+		const BoxLevel level;
+		return box->is_key ? box->hash_value : (level.too_deep ? 0 : hash_of(box->type->type(), box->value()));
 	}
 	if (type_of(p_value) == Variant::ARRAY) {
 		const Array &array = *reinterpret_cast<const Array *>(data_of(p_value));
@@ -1319,7 +1369,8 @@ using Copies = std::optional<std::unordered_map<uint64_t, Variant>>;
 static Variant copy_containers(const Variant &p_value, int64_t p_mode, bool p_freeze, Copies &r_copies) {
 	if (const Box *box = as_box(p_value)) {
 		const TypeImage &type = box->type->type();
-		if (!box->type->holds_containers && (p_freeze ? box->is_key : p_mode < 0)) {
+		const BoxLevel level;
+		if (level.too_deep || (!box->type->holds_containers && (p_freeze ? box->is_key : p_mode < 0))) {
 			return p_value;
 		}
 		ValueBuffer copy(type);
@@ -1431,7 +1482,8 @@ bool variant_less(const Variant &p_a, const Variant &p_b) {
 	const Box *a = as_box(p_a);
 	const Box *b = as_box(p_b);
 	if (a && b) {
-		return a->type == b->type && less_values(a->type->type(), a->value(), b->value());
+		const BoxLevel level;
+		return a->type == b->type && !level.too_deep && less_values(a->type->type(), a->value(), b->value());
 	}
 	if (type_of(p_a) == Variant::ARRAY && type_of(p_b) == Variant::ARRAY && (keeps_boxes(p_a) || keeps_boxes(p_b))) {
 		const Array &x = *reinterpret_cast<const Array *>(data_of(p_a));
