@@ -223,7 +223,7 @@ static func broken() -> int:
 	var zero := 0
 	return 1 / zero
 
-struct Fragile:
+pub struct Fragile:
 	var n: int = broken()
 
 pub var after_fragile := false
@@ -231,3 +231,7 @@ pub var after_fragile := false
 pub func decode_fragile():
 	Fragile.try_from({}).ok()
 	after_fragile = true
+
+# Written by name, a value whose default fails reports that program error
+# alone (spec §3.6, §8.1).
+pub static var fragile := Fragile(n = 1)

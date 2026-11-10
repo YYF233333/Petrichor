@@ -457,7 +457,7 @@ void report_argument(const ClassImage &p_image, const bytecode::Function &p_func
 
 // A rest parameter of type `p_type` (spec §4.6): the `p_count` arguments that
 // `p_argument(i)` gives, each checked as a parameter of the element type is
-// (§8.1). On a mismatch, false with what was found in `r_error`.
+// (§8.1). False with what entry_check() gives on a mismatch in `r_error`.
 template <typename Argument>
 bool fill_rest(const TypeImage &p_type, uint8_t *p_slot, size_t p_count, Argument p_argument, String &r_error) {
 	Array rest = typed_array(p_type.check.element, p_type.check.class_name, p_type.check.script);
@@ -469,8 +469,10 @@ bool fill_rest(const TypeImage &p_type, uint8_t *p_slot, size_t p_count, Argumen
 		}
 		const TypeImage &item = *p_type.item;
 		ValueBuffer element(item);
-		if (!from_variant(item, value, element.data, true)) {
-			r_error = vformat("%s at index %d", entry_mismatch(item, value), int64_t(i));
+		if (!entry_check(item, value, element.data, r_error)) {
+			if (!r_error.is_empty()) {
+				r_error = vformat("%s at index %d", r_error, int64_t(i));
+			}
 			return false;
 		}
 		rest.push_back(item.box ? make_box(item, element.data, false) : to_variant(item, element.data));
@@ -1039,41 +1041,31 @@ class Execution {
 				capture += param_type.size;
 				continue;
 			}
+			String error;
 			if (i == fixed) {
 				const auto argument = [&](size_t p_rest) {
 					const uint32_t *pair = p_call + 5 + 2 * (fixed + p_rest);
 					return to_variant(image.types[pair[0]], frame + pair[1]);
 				};
-				String error;
 				if (fill_rest(param_type, param, argc > fixed ? argc - fixed : 0, argument, error)) {
 					continue;
 				}
-				if (p_entry) {
-					report_argument(p_callee, method, i, error);
-					return false;
-				}
-				return fail(p_caller, p_line, vformat("Argument of %s(): %s.", p_callee.function_names[p_index], error));
-			}
-			if (i >= argc) {
+			} else if (i >= argc) {
 				continue; // The callee computes its default.
-			}
-			const TypeImage &source = image.types[p_call[5 + 2 * i]];
-			if (source.layout == param_type.layout) {
+			} else if (image.types[p_call[5 + 2 * i]].layout == param_type.layout) {
 				copy_value(param_type, param, frame + p_call[6 + 2 * i]);
 				continue;
+			} else if (entry_check(param_type, to_variant(image.types[p_call[5 + 2 * i]], frame + p_call[6 + 2 * i]), param, error)) {
+				continue;
 			}
-			const Variant value = to_variant(source, frame + p_call[6 + 2 * i]);
-			const uint64_t failures = failed_defaults();
-			if (!from_variant(param_type, value, param, true)) {
-				if (failed_defaults() != failures) {
-					return false;
-				}
-				if (p_entry) {
-					report_argument(p_callee, method, i, entry_mismatch(param_type, value));
-					return false;
-				}
-				return fail(p_caller, p_line, vformat("Argument of %s(): %s.", p_callee.function_names[p_index], entry_mismatch(param_type, value)));
+			if (error.is_empty()) {
+				return false; // A default's program error, which was reported.
 			}
+			if (p_entry) {
+				report_argument(p_callee, method, i, error);
+				return false;
+			}
+			return fail(p_caller, p_line, vformat("Argument of %s(): %s.", p_callee.function_names[p_index], error));
 		}
 		const TypeImage &result_type = image.types[p_result.type];
 		if (method.is_async) {
@@ -1712,8 +1704,9 @@ class Execution {
 		if (error.error != GDEXTENSION_CALL_OK) {
 			return fail_cstr(p_fn, p_line, "The function value cannot be called.");
 		}
-		if (dst != NO_SLOT && !from_variant(image.types[call.result.type], result, p_frame + dst, true)) {
-			return fail(p_fn, p_line, vformat("A function value returned an unexpected %s.", Variant::get_type_name(result.get_type())));
+		String mismatch;
+		if (dst != NO_SLOT && !entry_check(image.types[call.result.type], result, p_frame + dst, mismatch)) {
+			return !mismatch.is_empty() && fail(p_fn, p_line, vformat("A function value returned an unexpected %s.", Variant::get_type_name(result.get_type())));
 		}
 		return true;
 	}
@@ -3253,11 +3246,13 @@ bool CoroutineFrame::receive(const Variant &p_value) {
 		if (slot.offset != destination) {
 			continue;
 		}
-		const TypeImage &type = image->types[slot.type];
-		if (from_variant(type, p_value, data + destination, true)) {
+		String mismatch;
+		if (entry_check(image->types[slot.type], p_value, data + destination, mismatch)) {
 			return true;
 		}
-		report_error("Await result: " + entry_mismatch(type, p_value));
+		if (!mismatch.is_empty()) {
+			report_error("Await result: " + mismatch);
+		}
 		return false;
 	}
 	return false;
@@ -3627,26 +3622,15 @@ Variant call(std::shared_ptr<const ClassImage> p_image, int p_function, Instance
 			capture += type.size;
 			continue;
 		}
-		if (arg == fixed) {
-			String error;
-			if (fill_rest(type, frame.data + param.offset, size_t(p_argc) > fixed ? size_t(p_argc) - fixed : 0, [&](size_t p_rest) { return *p_args[fixed + p_rest]; }, error)) {
-				continue;
-			}
-			report_argument(*image, fn, i, error);
-			if (r_failed) {
-				*r_failed = true;
-			}
-			return default_variant(result_type);
-		}
 		// The function computes the default of an argument left out.
-		const uint64_t failures = failed_defaults();
-		if (arg >= size_t(p_argc) || from_variant(type, *p_args[arg], frame.data + param.offset, true)) {
+		String error;
+		if (arg == fixed ? fill_rest(type, frame.data + param.offset, size_t(p_argc) > fixed ? size_t(p_argc) - fixed : 0, [&](size_t p_rest) { return *p_args[fixed + p_rest]; }, error) : arg >= size_t(p_argc) || entry_check(type, *p_args[arg], frame.data + param.offset, error)) {
 			continue;
 		}
 		// A program error at the entry, and the engine gets the default value
 		// (spec §8.1, §10.1); the engine's backtrace of the caller goes with it.
-		if (failed_defaults() == failures) {
-			report_argument(*image, fn, i, entry_mismatch(type, *p_args[arg]));
+		if (!error.is_empty()) {
+			report_argument(*image, fn, i, error);
 		}
 		if (r_failed) {
 			*r_failed = true;
@@ -3741,9 +3725,9 @@ bool set_static(const std::shared_ptr<const ClassImage> &p_image, const StringNa
 		call(owner, variable.setter, InstanceContext(), args, 1, error);
 		return true;
 	}
-	const TypeImage &type = owner->types[variable.type];
-	if (!from_variant(type, p_value, owner->statics->at(variable.offset), true)) {
-		report_error(*owner, variable.name.c_str(), int(variable.line), vformat("\"%s\" was not written: %s.", p_name, entry_mismatch(type, p_value)));
+	String mismatch;
+	if (!entry_check(owner->types[variable.type], p_value, owner->statics->at(variable.offset), mismatch) && !mismatch.is_empty()) {
+		report_error(*owner, variable.name.c_str(), int(variable.line), vformat("\"%s\" was not written: %s.", p_name, mismatch));
 	}
 	return true;
 }

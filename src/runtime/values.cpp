@@ -838,13 +838,11 @@ static int64_t encoded_variant(const TypeImage &p_type, const Dictionary &p_enco
 }
 
 // While a mismatch is described by decoding again, a field left out only has
-// to have a default, so that no default runs twice.
+// to have a default, so that no default runs twice. The defaults computed on
+// this thread that ended in a program error tell such a decoding from a
+// mismatch.
 static thread_local bool describing = false;
 static thread_local uint64_t defaults_failed = 0;
-
-uint64_t failed_defaults() {
-	return defaults_failed;
-}
 
 // A struct's field left out takes its default, which the function
 // "@Struct.field" of the struct's class computes, as for a construction that
@@ -1104,6 +1102,15 @@ static String described(const TypeImage &p_type, const Variant &p_value, bool p_
 
 String entry_mismatch(const TypeImage &p_type, const Variant &p_value) {
 	return described(p_type, p_value, false);
+}
+
+bool entry_check(const TypeImage &p_type, const Variant &p_value, uint8_t *p_slot, String &r_mismatch) {
+	const uint64_t failures = defaults_failed;
+	if (from_variant(p_type, p_value, p_slot, true)) {
+		return true;
+	}
+	r_mismatch = defaults_failed == failures ? entry_mismatch(p_type, p_value) : String();
+	return false;
 }
 
 Variant default_variant(const TypeImage &p_type) {

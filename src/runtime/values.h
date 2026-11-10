@@ -162,10 +162,11 @@ godot::Variant to_variant(const TypeImage &p_type, const uint8_t *p_slot);
 // (spec §3.6, §5.3), containers in it into new ones when they are not of the
 // field's type.
 bool from_variant(const TypeImage &p_type, const godot::Variant &p_value, uint8_t *p_slot, bool p_check);
-// The defaults of fields left out that decoding computed on this thread and
-// that ended in a program error, which was reported (spec §3.6, §8.1). A
-// decoding that failed so is no mismatch to report.
-uint64_t failed_defaults();
+// from_variant() with the entry check, for a value whose mismatch is a
+// program error (spec §8.1): false with why in `r_mismatch`. That stays empty
+// when a default computed for a field left out ended in a program error
+// instead, which was reported (§3.6).
+bool entry_check(const TypeImage &p_type, const godot::Variant &p_value, uint8_t *p_slot, godot::String &r_mismatch);
 // `T.try_from(v)` into the slot of a Result[T, ConversionError] (spec §5.3):
 // Ok of the value decoded as a struct's field of type T is (§3.6), or Err
 // naming where it does not fit. False after a default's program error.

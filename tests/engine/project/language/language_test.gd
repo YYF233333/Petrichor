@@ -470,6 +470,9 @@ func _ready() -> void:
 	s.decode_fragile()
 	_check_errors(["struct_check.pet:224: Division by zero."], "a default that fails while decoding is a program error")
 	_check(not s.after_fragile, "a default that fails while decoding ends the function that decodes (spec §8.1)")
+	var struct_script: Script = load("res://language/struct_check.pet")
+	struct_script.set("fragile", {})
+	_check_errors(["struct_check.pet:224: Division by zero."], "a default that fails while a static variable is written by name is the only program error")
 	s.free()
 	other.free()
 
