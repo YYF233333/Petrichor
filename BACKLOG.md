@@ -18,7 +18,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - a scene used as a root whose root has a script with `@owner` (§7.3);
   - a node of a scene whose script is abstract (§4.1).
 - `@parent(T)` (spec §7.3).
-- `weak[T]` (spec §3.12).
 - Containers of function types and of `Task[T]`, which the checker says are not supported yet (`container_element`).
   - Spec §3.8 gives elements of this language's own types its own representation, as for structs.
   - Until then, `Task.all()` and `Task.any()` take only tasks written in brackets.
@@ -55,7 +54,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 ## Editor
 
 - References from scenes for the keys of exported properties (architecture §2.1). They come once the scene index reads the values scenes give properties. Now only the methods of signal connections are references.
-- The warnings of spec §6.7, with a `weak` quick fix where they break a cycle:
+- The warnings of spec §6.7:
   - a lambda capturing self stored in a member of self, a signal connection or a container;
   - two RefCounted classes referring to each other through strong fields;
   - a node from `new()` or `instantiate()` that some path neither adds to the tree, returns, stores nor frees;
@@ -203,7 +202,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Exporting enums with payloads, which 0.1 needs (spec §3.7). Architecture §5 still puts it after the first version, designed in §6.2. How is settled with the toolchain (step 8).
 - What the name of an enum with payloads gives as a value (spec §3.7). Spec §3.7 gives every enum name `keys()`, `values()`, `find_key()` and `get()`. `values()` cannot list a variant with fields. The checker now rejects the name as a value.
 - Whether an autoload's name stands for its script's class in a type, as GDScript's does (`modules/gdscript/gdscript_analyzer.cpp:806-826`). The corpus has 35 such type uses, 33 of them in Pixelorama, a tool, and none in games. Most are `Autoload.Enum` and `Autoload.Inner`.
-- Whether the first version (spec §14) leaves out `weak[T]` (spec §3.12) and the built-in test runner (§13.2). The FPS and Ring scripts of the second paper migration use neither.
+- Whether the first version (spec §14) leaves out the built-in test runner (§13.2). The FPS and Ring scripts of the second paper migration do not use it.
 - Before 0.9: whether a container that holds itself is a program error as a `Dictionary` key (spec §3.8). The engine stops hashing it at a depth of 100 with an error. One that holds itself twice takes about 2^100 steps, in GDScript too (`core/variant/array.cpp:195-208`, `ed1daf0`).
 - The long-term boundary of compatibility with GDScript and Godot: which agreements are promises and which merely hold today. How semantics may change is settled (architecture §5, 0.9).
 - Tuples, to be discussed after the first version. `await Task.all([...])` gives nothing (spec §9.5). With tuples it could give the results of tasks of different types, which an array cannot type.

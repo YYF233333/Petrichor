@@ -159,7 +159,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 | 对象 | 非空 `T` 与可空 `T?`；`PackedScene[T]` |
 | 本语言值类型 | struct、enum |
 | 接口 | interface |
-| 标准类型 | `T?`（Option）、`Result[T, E]`、`Task[T]` 与 `Settled[T]`、`weak[T]`、`ConversionError` |
+| 标准类型 | `T?`（Option）、`Result[T, E]`、`Task[T]` 与 `Settled[T]`、`ConversionError` |
 | 函数 | 函数类型 |
 
 数值、字符串、core 值类型、容器、`Callable`、`Signal` 和 `Variant` 沿用 GDScript 的类型，下面只写不同之处。
@@ -277,7 +277,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 3.10 泛型
 
-- 第一版只有内置泛型类型（`Array[T]`、`Dictionary[K, V]`、`Result[T, E]`、`Task[T]`、`weak[T]`、`PackedScene[T]`），用户代码不能声明类型参数。
+- 第一版只有内置泛型类型（`Array[T]`、`Dictionary[K, V]`、`Result[T, E]`、`Task[T]`、`PackedScene[T]`），用户代码不能声明类型参数。
 
 ### 3.11 函数类型与 Callable
 
@@ -301,7 +301,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 3.12 弱引用
 
-- `weak[T]` 由 `weak(x)` 创建，`.get()` 返回 `T?`。闭包弱捕获 `self` 时在外层写 `var me = weak(self)`，闭包内用 `me.get()`。
+- 【已知限制】第一版没有带类型的弱引用。需要时用引擎的 `weakref()` 和 `WeakRef`，与 GDScript 相同。
 
 ### 3.13 Variant
 
@@ -395,7 +395,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 - 有初始化式的 `var` 可按局部变量规则推断类型。如 `var speed = 5.0` 为 `float`，`@onready var label = $Label` 按场景推断。推断结果用于悬停、补全和反射。无初始化式，或初始化式为空容器、`None` 等无法确定类型时，必须标注类型。
 - 无初始化式的成员：
-  - 数值、`bool`、字符串、core 值类型、容器、`Callable`、`Signal` 和含值 0 的无载荷 enum 取各自默认值。`T?` 取 `None`，`Variant` 取 NIL，`weak[T]` 取空弱引用；
+  - 数值、`bool`、字符串、core 值类型、容器、`Callable`、`Signal` 和含值 0 的无载荷 enum 取各自默认值。`T?` 取 `None`，`Variant` 取 NIL；
   - struct 在所有字段均有默认值时取默认值，否则属于必须赋值的成员。非空对象引用、带载荷 enum、不含 0 的 enum 和函数类型也是必须赋值的成员。
 - `@export` 沿用 GDScript，但有四点不同。导出的变量须带 `pub`。禁止导出 struct 和带载荷 enum。导出场景写 `PackedScene[T]`。非空对象导出必须赋值。
 
@@ -606,11 +606,11 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 6.6 析构
 
-- `RefCounted` 在 `PREDELETE` 期间可正常读写自身字段、调用自身方法，不重加引用。处理 `PREDELETE` 的分支中，把 `self` 当作值使用报编译错误。当作值使用指传参、存储、返回、比较等，`self.x` 和 `self.f()` 除外。在该分支中使用 `await` 也报编译错误。期间指向 `self` 的 `weak` 返回 `None`。
+- `RefCounted` 在 `PREDELETE` 期间可正常读写自身字段、调用自身方法，不重加引用。处理 `PREDELETE` 的分支中，把 `self` 当作值使用报编译错误。当作值使用指传参、存储、返回、比较等，`self.x` 和 `self.f()` 除外。在该分支中使用 `await` 也报编译错误。
 
 ### 6.7 引用环与泄漏
 
-- 编译器对明显引用环给出警告与改用 `weak` 的快速修复：
+- 编译器对明显引用环给出警告：
   - 捕获 `self` 的闭包存入 `self` 的成员、信号连接或容器；
   - 两个 `RefCounted` 类以强引用字段互指。
 - `Node` 由 `new()` / `instantiate()` 创建后，在某路径上未入树、未返回、未保存也未释放时，给出警告。`remove_child` 的结果未保存也未释放时，也给出警告。
@@ -977,6 +977,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 - **语言特性**：
   - 用户定义泛型与泛型接口；
   - 接口的默认方法；
+  - 带类型的弱引用 `weak[T]`，及引用环警告中改用它的快速修复；
   - 别名/`import` 与跨类访问 `preload` 类；
   - 两个文件互相继承对方的类；
   - 更严的 `private`；
