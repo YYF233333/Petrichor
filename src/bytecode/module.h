@@ -191,7 +191,10 @@ struct TypeDesc {
 	ClassRef object;
 	bool nullable = false;
 	std::string task_result; // Object: a Task[T], stored as a Task, with T's signature key.
-	std::string name; // Struct and the enums: "script::Name", as interfaces are named; the engine's enum as it names it, such as "Node.ProcessMode".
+	// Struct and the enums: "script::Name", as interfaces are named; the
+	// engine's enum as it names it, such as "Node.ProcessMode". A Callable of a
+	// function type, which is never null: the type as written.
+	std::string name;
 	std::vector<FieldDesc> fields; // Struct and PayloadEnum.
 	std::vector<EnumValueDesc> values; // The enums, in declaration order.
 

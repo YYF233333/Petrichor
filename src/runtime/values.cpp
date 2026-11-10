@@ -288,6 +288,9 @@ String value_description(const Variant &p_value) {
 	if (is_none(p_value)) {
 		return "None";
 	}
+	if (type_of(p_value) == Variant::CALLABLE && Callable(p_value).is_null()) {
+		return "a null Callable";
+	}
 	if (const Box *box = as_box(p_value)) {
 		return type_description(box->type->type());
 	}
@@ -484,7 +487,11 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 		};
 		class_of(container ? p_types[type.element] : type, check.class_name, check.script, check.interface);
 		check.task_result = type.task_result;
-		check.nullable = type.kind != bytecode::TypeKind::Object || type.nullable;
+		const bool function = type.kind == bytecode::TypeKind::Value && type.value == ValueType::Callable && !type.name.empty();
+		check.nullable = (type.kind != bytecode::TypeKind::Object && !function) || type.nullable;
+		if (function) {
+			image.name = to_godot(type.name);
+		}
 		// How the engine types a container's elements or keys: Callable for boxes,
 		// and a task as its CoroutineTask.
 		const auto kept_as = [&](uint32_t p_type) {
@@ -999,7 +1006,8 @@ String type_description(const TypeImage &p_type) {
 	if (is_struct(p_type) || (p_type.kind == bytecode::TypeKind::Enum && p_type.name.contains("::"))) {
 		return class_description(StringName(), String(), p_type.name);
 	}
-	if (p_type.kind == bytecode::TypeKind::Enum) {
+	// An enum, or a function type as written.
+	if (p_type.kind == bytecode::TypeKind::Enum || (p_type.storage == ValueType::Callable && !p_type.name.is_empty())) {
 		return p_type.name;
 	}
 	if (p_type.kind == bytecode::TypeKind::Array) {
@@ -1085,7 +1093,7 @@ static String mismatch(const TypeImage &p_type, const Variant &p_value, const St
 			return encoded.has(field->name) ? mismatch(*field->type, encoded[field->name], field_path, true) : field_path + " is missing";
 		}
 	}
-	if (is_option(p_type) || is_struct(p_type)) {
+	if (is_option(p_type) || is_struct(p_type) || (p_type.storage == ValueType::Callable && !p_type.name.is_empty())) {
 		return vformat("%sexpected %s, found %s", at, type_description(p_type), value_description(p_value));
 	}
 	return at + entry_mismatch(p_type.storage, p_value, p_type.check);
@@ -1656,6 +1664,11 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 		case ValueType::Int:
 		case ValueType::Float:
 			return scalar_from_variant(p_type, p_value, p_slot);
+		case ValueType::Callable:
+			if (p_check && !p_check->nullable && have == Variant::CALLABLE && Callable(p_value).is_null()) {
+				return false;
+			}
+			break;
 		default:
 			break;
 	}

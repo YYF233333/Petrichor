@@ -262,6 +262,7 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 		entry.method = pointer;
 		entry.container = bytecode::find_container_method(call.base, call.method);
 		entry.calls_callable = call.base == ValueType::Callable && call.method == "call";
+		entry.runs_callable = entry.calls_callable || (call.base == ValueType::Callable && call.method == "callv");
 		if (call.is_vararg) {
 			entry.vararg = name;
 		}

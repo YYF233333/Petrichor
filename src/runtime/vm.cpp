@@ -546,6 +546,13 @@ String key_text(const Variant &p_key) {
 	return type_of(p_key) == Variant::CALLABLE ? String(p_key) : UtilityFunctions::var_to_str(p_key);
 }
 
+// Whether calling the Callable would reach an object that was freed, or none:
+// the engine checks that of a Callable that is not custom only in debug
+// builds (core/variant/callable.cpp:60-70, ed1daf0), and a custom one itself.
+bool target_freed(const Callable &p_callable) {
+	return !p_callable.is_custom() && !p_callable.get_object();
+}
+
 // What is read out of a container is checked against its type where the
 // engine does not keep it: a container below the first level (spec §3.8), and
 // an enum of this language, which the engine holds as int (§3.7).
@@ -1012,9 +1019,15 @@ class Execution {
 	// `p_call`: a program error in it ends the caller too (spec §8.1). An
 	// override or an inherited function may take and give other types than the
 	// call was compiled against (§4.6), which the arguments and result convert to.
+	// Unless `p_typed`, the call's types are not the function's at all: what is
+	// laid out alike is checked too, unless its layout says all its type does:
+	// an engine value type, but no function type, which is never null.
 	// A lambda's captures follow the arguments. As an engine entry, an argument
 	// that fails the entry check is reported as the engine's call reports it.
-	PETRICHOR_NOINLINE bool call_function(const ClassImage &p_callee, uint32_t p_index, const InstanceContext &p_context, const uint32_t *p_call, uint8_t *frame, const bytecode::Slot &p_result, const bytecode::Function &p_caller, int p_line, const uint8_t *p_captures = nullptr, bool p_entry = false) {
+	PETRICHOR_NOINLINE bool call_function(const ClassImage &p_callee, uint32_t p_index, const InstanceContext &p_context, const uint32_t *p_call, uint8_t *frame, const bytecode::Slot &p_result, const bytecode::Function &p_caller, int p_line, const uint8_t *p_captures = nullptr, bool p_entry = false, bool p_typed = true) {
+		const auto copies = [&](const TypeImage &p_from, const TypeImage &p_to) {
+			return p_from.layout == p_to.layout && (p_typed || (p_to.kind == bytecode::TypeKind::Value && p_to.check.nullable));
+		};
 		const uint32_t dst = p_call[2], argc = p_call[4];
 		const bytecode::Function &method = p_callee.module.functions[p_index];
 		if (!method.is_static && !method.is_lambda && !p_context.storage) {
@@ -1052,7 +1065,7 @@ class Execution {
 				}
 			} else if (i >= argc) {
 				continue; // The callee computes its default.
-			} else if (image.types[p_call[5 + 2 * i]].layout == param_type.layout) {
+			} else if (copies(image.types[p_call[5 + 2 * i]], param_type)) {
 				copy_value(param_type, param, frame + p_call[6 + 2 * i]);
 				continue;
 			} else if (entry_check(param_type, to_variant(image.types[p_call[5 + 2 * i]], frame + p_call[6 + 2 * i]), param, error)) {
@@ -1065,7 +1078,7 @@ class Execution {
 				report_argument(p_callee, method, i, error);
 				return false;
 			}
-			return fail(p_caller, p_line, vformat("Argument of %s(): %s.", p_callee.function_names[p_index], error));
+			return fail(p_caller, p_line, vformat("Argument \"%s\" of %s(): %s.", to_godot(method.params[i].name), p_callee.function_names[p_index], error));
 		}
 		const TypeImage &result_type = image.types[p_result.type];
 		if (method.is_async) {
@@ -1080,11 +1093,18 @@ class Execution {
 			return here ? run(p_index, callee_frame.data, p_returned) : Execution(p_callee, p_context, debugging).run(p_index, callee_frame.data, p_returned);
 		};
 		const TypeImage &returns = p_callee.types[method.result.type];
-		if (dst == NO_SLOT || returns.layout == result_type.layout) {
+		if (dst == NO_SLOT || copies(returns, result_type)) {
 			return run_callee(dst == NO_SLOT ? nullptr : frame + dst);
 		}
 		ValueBuffer returned(returns);
-		return run_callee(returned.data) && from_variant(result_type, outward_variant(returns, returned.data), frame + dst, true);
+		if (!run_callee(returned.data)) {
+			return false;
+		}
+		String error;
+		if (entry_check(result_type, outward_variant(returns, returned.data), frame + dst, error)) {
+			return true;
+		}
+		return !error.is_empty() && fail(p_caller, p_line, vformat("Result of %s(): %s.", p_callee.function_names[p_index], error));
 	}
 
 	PETRICHOR_NOINLINE bool op_load_static(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
@@ -1597,9 +1617,12 @@ class Execution {
 
 	// A lambda or a method value of this language, run as a method of another
 	// object is (spec §3.11); none for another Callable, or one whose function
-	// does not take the call as it is, which the engine passes on. As an
-	// engine entry, which the call() of an untyped Callable is (§8.1), a
-	// program error in it gives the default result and this call goes on.
+	// does not take as many arguments, which the engine passes on. The
+	// arguments and the result are checked unless the call's signature is the
+	// function's, or one it overrides: a function value came in as any Callable
+	// from the engine, and an untyped Callable's call() passes anything. As an
+	// engine entry, which that call() is (§8.1), a program error in it gives the
+	// default result and this call goes on.
 	std::optional<bool> call_directly(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Slot &p_result, bool p_entry, const bytecode::Function &p_fn, int p_line) {
 		// A Callable of this library by its exact type: neither type has
 		// subclasses, and comparing types costs less than the casts of
@@ -1617,11 +1640,13 @@ class Execution {
 		const InstanceContext *callee_context = nullptr;
 		int index = -1;
 		const uint8_t *captures = nullptr;
+		bool typed = false;
 		if (lambda && lambda->is_valid()) {
 			found = lambda->get_image().get();
 			callee_context = &lambda->get_context();
 			index = lambda->get_function();
 			captures = lambda->get_captures();
+			typed = !p_entry && found->function_signatures[index] == image.call_signatures[p_op[1]];
 		} else if (on_self || (method && method->resolve(resolved, index))) {
 			// As op_call_method() finds it.
 			if (!on_self && resolved.context.storage == context.storage && context.self_image) {
@@ -1633,9 +1658,10 @@ class Execution {
 			found = on_self ? context.self_image.get() : resolved.image.get();
 			callee_context = on_self ? &context : &resolved.context;
 			index = found->find_function(method->get_method());
-			if (index < 0 || (!p_entry && !found->has_signature(method->get_method(), image.call_signatures[p_op[1]]))) {
+			if (index < 0) {
 				return std::nullopt;
 			}
+			typed = !p_entry && found->has_signature(method->get_method(), image.call_signatures[p_op[1]]);
 		} else {
 			return std::nullopt;
 		}
@@ -1646,7 +1672,7 @@ class Execution {
 		if (function.is_async || !function.takes(p_op[4])) {
 			return std::nullopt;
 		}
-		const bool ok = call_function(target, uint32_t(index), *callee_context, p_op, p_frame, p_result, p_fn, p_line, captures, p_entry);
+		const bool ok = call_function(target, uint32_t(index), *callee_context, p_op, p_frame, p_result, p_fn, p_line, captures, p_entry, typed);
 		if (ok || !p_entry) {
 			return ok;
 		}
@@ -1667,6 +1693,9 @@ class Execution {
 		// program error in the callee aborts this call too (spec §8.1).
 		const uint32_t dst = p_op[2];
 		const uint32_t argc = p_op[4];
+		if (target_freed(*reinterpret_cast<const Callable *>(p_frame + p_op[3]))) {
+			return fail_cstr(p_fn, p_line, "The function value's object was freed.");
+		}
 		Variant callable = *reinterpret_cast<const Callable *>(p_frame + p_op[3]);
 		Arguments args(image.types, p_frame, p_op + 5, argc, nullptr);
 		std::vector<Variant> spread;
@@ -1699,7 +1728,7 @@ class Execution {
 			return fail_cstr(p_fn, p_line, "The function value's object was freed.");
 		}
 		if (error.error == GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS || error.error == GDEXTENSION_CALL_ERROR_TOO_FEW_ARGUMENTS) {
-			return fail(p_fn, p_line, vformat("callv() passes %d argument(s), but the function takes %d.", count, error.expected));
+			return fail(p_fn, p_line, vformat("%s() passes %d argument(s), but the function takes %d.", call.method.c_str(), count, error.expected));
 		}
 		if (error.error != GDEXTENSION_CALL_OK) {
 			return fail_cstr(p_fn, p_line, "The function value cannot be called.");
@@ -1826,8 +1855,11 @@ class Execution {
 		Variant base = callable;
 		Variant result;
 		GDExtensionCallError error;
-		base.callp(to_godot(image.module.builtin_methods[p_op[1]].method), args.as_variants(), int(argc), result, error);
-		if (error.error != GDEXTENSION_CALL_OK) {
+		const bool freed = target_freed(callable);
+		if (!freed) {
+			base.callp(to_godot(image.module.builtin_methods[p_op[1]].method), args.as_variants(), int(argc), result, error);
+		}
+		if (freed || error.error != GDEXTENSION_CALL_OK) {
 			return fail_cstr(p_fn, p_line, "Calling the awaited Callable failed.");
 		}
 		Object *state = result.get_type() == Variant::OBJECT ? result.get_validated_object() : nullptr;
@@ -1922,6 +1954,13 @@ class Execution {
 			if (const std::optional<bool> done = call_directly(p_op, p_frame, result, true, p_fn, p_line)) {
 				return *done;
 			}
+		}
+		// Nothing is called, as with a custom Callable whose object was freed.
+		if (!utility && image.builtin_calls[target].runs_callable && target_freed(*reinterpret_cast<const Callable *>(p_frame + p_op[3]))) {
+			if (dst != NO_SLOT) {
+				clear_value(image.types[module.builtin_methods[target].result_type], p_frame + dst);
+			}
+			return true;
 		}
 		const std::vector<ValueType> &params = utility ? module.utility_calls[target].params : module.builtin_methods[target].params;
 		const ValueType returns = utility ? module.utility_calls[target].return_type : module.builtin_methods[target].return_type;

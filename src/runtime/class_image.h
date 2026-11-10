@@ -131,6 +131,7 @@ public:
 		GDExtensionPtrBuiltInMethod method = nullptr;
 		const bytecode::ContainerMethod *container = nullptr;
 		bool calls_callable = false; // Callable.call().
+		bool runs_callable = false; // Callable.call() and callv(), which reach its object.
 		// Of a vararg method, which the engine's pointer call runs on copies of
 		// the arguments in vectors it allocates (core/variant/variant_call.cpp:561-578):
 		// the name to call it by through a Variant, as GDScript does

@@ -141,3 +141,60 @@ pub func undo_redo() -> Array[int]:
 	history.redo()
 	history.free()
 	return trail
+
+# A function value runs only on arguments its own parameters take, however it
+# came in (spec §3.11): GDScript passes any Callable as a function type, and a
+# Callable's call() any arguments.
+pub func node_namer() -> Callable:
+	return func(n: Node2D) -> String: return n.get_class()
+
+
+func name_node(n: Node2D) -> String:
+	return n.get_class()
+
+
+pub func call_typed(f: func(Object) -> String) -> String:
+	return f.call(Resource.new())
+
+
+pub func call_resource(f: Callable) -> String:
+	return str(f.call(Resource.new()))
+
+
+pub func method_untyped() -> String:
+	return call_resource(name_node)
+
+
+enum Level { LOW = 1, HIGH = 2 }
+
+
+func call_with_int(f: Callable) -> String:
+	return str(f.call(7))
+
+
+func call_with_names(f: Callable) -> String:
+	var names: Array[String] = ["x"]
+	return str(f.call(names))
+
+
+pub func untyped_misfits() -> Array[String]:
+	return [call_with_int(func(l: Level) -> String: return str(l)), call_with_names(func(a: Array[int]) -> String: return str(a)), call_with_null(func(g: func() -> int) -> String: return "called")]
+
+
+pub func returns_resource() -> Callable:
+	return func() -> Resource: return Resource.new()
+
+
+pub func node_from(f: func() -> Node) -> String:
+	return f.call().get_class()
+
+pub func call_given(f: func() -> int) -> int:
+	return f.call()
+
+
+pub func call_any(f: Callable) -> String:
+	return str(f.call())
+
+
+func call_with_null(f: Callable) -> String:
+	return str(f.call(Callable()))

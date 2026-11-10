@@ -279,6 +279,10 @@ class Lowerer {
 			}
 		} else {
 			type.value = value_type(p_type);
+			// A function type, which takes no null Callable (spec §4.3).
+			if (p_type.kind == TypeKind::Function) {
+				type.name = p_type.to_string();
+			}
 		}
 		return type_index(type);
 	}
