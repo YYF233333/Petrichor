@@ -189,9 +189,10 @@ pub func cyclic_keys() -> String:
 	return str(d.size()) + " " + str(k.is_read_only()) + " " + str(is_same(k[0], k)) + " " + str(is_same(p[0], p[1])) + " " + str(is_same(p[0], inner))
 
 # Members of another instance, in their slots (spec §4.2, §10.5): one that is
-# not pub, one through its setter, and a container that keeps boxes, which
+# not pub, one through its setter, and containers that keep boxes, which
 # reflection does not list.
 pub var kept_hits: Array[Hit] = []
+pub var kept_calls: Array[func() -> void] = []
 var secret := 0
 var doubled := 0:
 	set(value):
@@ -233,6 +234,22 @@ static func descending(a: int, b: int) -> bool:
 
 static func tick() -> void:
 	ticks += 1
+
+static func is_even(n: int) -> bool:
+	return n % 2 == 0
+
+# Containers keep function values boxed as well, and Array(x) gives their
+# Callables (spec §3.8, §3.11).
+pub func function_elements() -> String:
+	var checks: Array[func(int) -> bool] = [is_even, func(n): return n > 2]
+	checks.append(func(n): return n < 10)
+	var passed := 0
+	for check in checks:
+		if check.call(4):
+			passed += 1
+	var named: Dictionary[String, func(int) -> bool] = {"even": checks[0]}
+	var held := checks.filter(func(c: func(int) -> bool) -> bool: return c.call(1))
+	return str(passed) + " " + str(named["even"].call(3)) + " " + str(checks.has(is_even)) + " " + str(held.size()) + " " + str(Array(checks)[0] == is_even)
 
 pub func static_values() -> String:
 	var numbers: Array[int] = [1, 3, 2]

@@ -233,7 +233,6 @@ TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec ย
 	// Kept boxed, and typed one level deep (spec ยง3.8).
 	CHECK(type_of("a[0]", "var a: Array[int?] = [1, None]") == "int?");
 	CHECK(type_of("a[0][1] + a.front().size()", "var a: Array[Array[int]] = [[1, 2]]\na.resize(3)") == "int");
-	CHECK(has_error(in_function("var a: Array[Task[int]] = []"), "Arrays of Task[int] are not supported yet"));
 	// The entry checks would take any array for it.
 	CHECK(has_error(in_function("var a: Array[int]? = None"), "Array[int]? is not supported yet"));
 	CHECK(has_error("extends Node\n\nfunc f(a: Array[Node]?):\n\tpass\n", "Array[Node]? is not supported yet"));

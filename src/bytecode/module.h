@@ -224,8 +224,9 @@ std::string type_key(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 // be copied from one slot to the other as they are.
 std::string layout_key(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 // Whether a container keeps values of the type boxed, each in a Callable of
-// this library (architecture §2.2): a struct, a PayloadEnum, a T?, or a
-// container that keeps its elements or keys boxed, which is then boxed in turn.
+// this library (architecture §2.2): a struct, a PayloadEnum, a T?, a Callable
+// of a function type, a Task[T], or a container that keeps its elements or
+// keys boxed, which is then boxed in turn.
 bool is_boxed(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 // Whether a value of the type can hold a reference to an object, so that
 // releasing it can be seen (spec §6.8): an object, a Variant, a container or a

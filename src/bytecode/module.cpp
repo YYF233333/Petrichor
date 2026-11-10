@@ -216,6 +216,10 @@ bool is_boxed(const std::vector<TypeDesc> &p_types, uint32_t p_type) {
 		case TypeKind::Struct:
 		case TypeKind::PayloadEnum:
 			return true;
+		case TypeKind::Value:
+			return type.value == ValueType::Callable && !type.name.empty();
+		case TypeKind::Object:
+			return !type.task_result.empty();
 		case TypeKind::Array:
 			return is_boxed(p_types, type.element);
 		case TypeKind::Dictionary:

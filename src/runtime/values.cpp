@@ -521,29 +521,29 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 		image.result_key = bytecode::task_result_key(p_types, i);
 		ValueCheck &check = image.check;
 		const bool container = type.kind == bytecode::TypeKind::Array || type.kind == bytecode::TypeKind::Dictionary;
-		// The class of an object, or of the objects in a container.
-		const auto class_of = [&](const bytecode::TypeDesc &p_object, StringName &r_class, String &r_script, String &r_interface) {
-			if (p_object.kind == bytecode::TypeKind::Object) {
-				r_class = to_godot(p_object.object.name);
-				if (p_object.object.interface_name.empty()) {
-					r_script = to_godot(p_object.object.script);
+		// The class of an object, or of the objects in a container, whose tasks
+		// are boxes.
+		const auto class_of = [&](uint32_t p_object, StringName &r_class, String &r_script, String &r_interface) {
+			const bytecode::TypeDesc &object = p_types[p_object];
+			if (object.kind == bytecode::TypeKind::Object && !(container && bytecode::is_boxed(p_types, p_object))) {
+				r_class = to_godot(object.object.name);
+				if (object.object.interface_name.empty()) {
+					r_script = to_godot(object.object.script);
 				} else {
-					r_interface = to_godot(p_object.object.script + "::" + p_object.object.interface_name);
+					r_interface = to_godot(object.object.script + "::" + object.object.interface_name);
 				}
 			}
 		};
-		class_of(container ? p_types[type.element] : type, check.class_name, check.script, check.interface);
+		class_of(container ? type.element : i, check.class_name, check.script, check.interface);
 		check.task_result = type.task_result;
 		const bool function = type.kind == bytecode::TypeKind::Value && type.value == ValueType::Callable && !type.name.empty();
 		check.nullable = (type.kind != bytecode::TypeKind::Object && !function) || type.nullable;
 		if (function) {
 			image.name = to_godot(type.name);
 		}
-		// How the engine types a container's elements or keys: Callable for boxes,
-		// and a task as its CoroutineTask.
+		// How the engine types a container's elements or keys: Callable for boxes.
 		const auto kept_as = [&](uint32_t p_type) {
-			const ValueType storage = bytecode::storage_of(p_types, p_type);
-			return bytecode::is_boxed(p_types, p_type) ? ValueType::Callable : (storage == ValueType::Task ? ValueType::Object : storage);
+			return bytecode::is_boxed(p_types, p_type) ? ValueType::Callable : bytecode::storage_of(p_types, p_type);
 		};
 		if (container) {
 			check.element = kept_as(type.element);
@@ -551,7 +551,7 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 		}
 		if (type.kind == bytecode::TypeKind::Dictionary) {
 			check.key = kept_as(type.key);
-			class_of(p_types[type.key], check.key_class_name, check.key_script, check.key_interface);
+			class_of(type.key, check.key_class_name, check.key_script, check.key_interface);
 			image.key = &images[type.key];
 		}
 		if (bytecode::is_boxed(p_types, i)) {
@@ -1330,7 +1330,12 @@ Variant make_box(const TypeImage &p_type, const uint8_t *p_value, bool p_key) {
 
 const uint8_t *opened(const TypeImage &p_type, const Variant &p_value) {
 	const Box *box = p_type.box ? as_box(p_value) : nullptr;
-	return box && box->type == p_type.box ? box->value() : nullptr;
+	if (!box || box->type == p_type.box) {
+		return box ? box->value() : nullptr;
+	}
+	// Task[T]? is Task[T] that may be None, as pop_back() gives it.
+	const TypeImage &kept = box->type->type();
+	return p_type.storage == ValueType::Task && p_type.check.nullable && kept.storage == ValueType::Task && kept.check.task_result == p_type.check.task_result ? box->value() : nullptr;
 }
 
 bool keeps_boxes(const Variant &p_container) {

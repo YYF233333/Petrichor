@@ -185,7 +185,8 @@ godot::Variant encode_variant(const TypeImage &p_type, size_t p_variant, const s
 // containers match keys (spec §5.2), and printed as the value. A key's box
 // hashes the value when it is made.
 godot::Variant make_box(const TypeImage &p_type, const uint8_t *p_value, bool p_key);
-// The value in a box of exactly the type, or null.
+// The value in a box of exactly the type, or for Task[T]? also of Task[T]; or
+// null.
 const uint8_t *opened(const TypeImage &p_type, const godot::Variant &p_value);
 // Whether the container keeps boxes, as its elements, keys or values.
 bool keeps_boxes(const godot::Variant &p_container);

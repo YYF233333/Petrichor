@@ -307,8 +307,15 @@ bool is_format_string(const Type &p_type) {
 }
 
 bool is_boxed(const Type &p_type) {
-	if (p_type.kind == TypeKind::Option || p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum) {
-		return true;
+	switch (p_type.kind) {
+		case TypeKind::Option:
+		case TypeKind::Struct:
+		case TypeKind::PayloadEnum:
+		case TypeKind::Function:
+		case TypeKind::Task:
+			return true;
+		default:
+			break;
 	}
 	return is_typed_container(p_type) && std::any_of(p_type.args.begin(), p_type.args.end(), is_boxed);
 }
