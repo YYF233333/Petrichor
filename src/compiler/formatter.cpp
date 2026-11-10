@@ -43,7 +43,6 @@ bool ends_operand(TokenKind p_kind) {
 		case TokenKind::NodePath:
 		case TokenKind::True:
 		case TokenKind::False:
-		case TokenKind::None:
 		case TokenKind::Null:
 		case TokenKind::Self:
 		case TokenKind::Super:
@@ -319,11 +318,11 @@ class Formatter {
 			}
 		}
 		line.annotations = t > first && (tokens[t].kind == TokenKind::Newline || tokens[t].kind == TokenKind::EndOfFile);
-		while (tokens[t].kind == TokenKind::Pub || tokens[t].kind == TokenKind::Static || tokens[t].kind == TokenKind::Async) {
+		while (is_word(tokens[t], "pub") || tokens[t].kind == TokenKind::Static || is_word(tokens[t], "async")) {
 			t++;
 		}
 		const TokenKind kind = tokens[t].kind;
-		header_class = kind == TokenKind::Class || kind == TokenKind::Struct || kind == TokenKind::Interface;
+		header_class = kind == TokenKind::Class || is_word(tokens[t], "struct") || is_word(tokens[t], "interface");
 		bool spaced = header_class;
 		if (kind == TokenKind::Func) {
 			// A method without a body has no colon outside its brackets.

@@ -23,8 +23,7 @@ enum class TokenKind {
 	StringName, // `&"…"`
 	NodePath, // `^"…"`
 
-	// Keywords.
-	Async,
+	// Keywords. Those this language adds are identifiers (is_word()).
 	Await,
 	And,
 	As,
@@ -43,23 +42,18 @@ enum class TokenKind {
 	For,
 	Func,
 	If,
-	Implements,
 	In,
-	Interface,
 	Is,
 	Match,
-	None,
 	Not,
 	Null,
 	Or,
 	Pass,
-	Pub,
 	Return,
 	Self,
 	Super,
 	Signal,
 	Static,
-	Struct,
 	True,
 	Var,
 	When,
@@ -136,6 +130,12 @@ struct Token {
 
 	uint32_t end() const { return offset + length; }
 };
+
+// `pub`, `struct`, `interface`, `implements`, `async` and `None` are keywords
+// only where their syntax begins, and names elsewhere (spec §2.2).
+inline bool is_word(const Token &p_token, const char *p_word) {
+	return p_token.kind == TokenKind::Identifier && p_token.text == p_word;
+}
 
 // The first and last syntax token of a node, by index in SourceFile::tokens;
 // parentheses around the node are included (architecture §2.1).

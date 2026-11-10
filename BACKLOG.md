@@ -4,7 +4,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Language
 
-- Contextual keywords (spec §2.2). The tokenizer still reserves `pub`, `struct`, `interface`, `implements`, `async` and `None`. A `.pet` file cannot write dialogue_manager's `TranslationSource.None`.
 - Of `_init` on Node and Resource scripts (spec §6.2):
   - `instantiate(...)` still asks by name for a member that the root's `_init` assigns. The checker does not check that body, which is in another file.
   - A scene or `.tres` using a script whose `_init` has required parameters is a compile error. Now the engine's construction gives the program error.
@@ -77,6 +76,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - A quick fix adding the constructor for the implicit conversions of GDScript that this language drops (spec §3.14).
 - When lints are added, consider a hint on ordering arrays whose elements can be NaN. GDScript's results differ there (spec §5.2).
 - When lints are added, consider a warning on code that relies on the order of assignment (spec §3.6). An example is `arr[i] = next()` with `next()` assigning `i`. The owner considers such code harmful.
+- When lints are added, consider a warning on names spelled as this language's keywords, such as `None` (spec §2.2). They are legal but not recommended.
 - Compiled bytecode is checked against its own source only. A game run from the command line without a build keeps old bytecode. That happens after a change to a scene or to a script it uses. Only the runtime checks (signatures, `$X` classes) then catch the difference. The analysis knows what each script read, but keeps it only in the editor's memory (architecture §2.1).
 - The scene index: read scenes unsaved in the editor, which are marked as last saved (architecture §2.4). Check whether it handles autoloads that are scenes.
 - Completion of the names in strings that wait on their checks (spec §10.4, §13.2). They are property names, as in `set_deferred("speed", v)`, members of other objects, as in `other.connect("hit", f)`, and the paths of `get_node("...")`.

@@ -55,6 +55,18 @@ TEST_CASE("a string on a line of its own is a comment") {
 	CHECK(contains(joined(errors_of("extends Node\n\"a\" var x := 1\n")), "Expected a line break after a comment string."));
 }
 
+// Spec §2.2: the keywords this language adds are keywords only where their syntax begins.
+TEST_CASE("pub, struct, interface, implements, async and None are names elsewhere") {
+	CHECK(errors_of("extends Node\nenum TranslationSource { None, Guess }\npub var pub := 1\nvar interface := TranslationSource.None\n\n\n"
+					"pub func struct(implements: int) -> int:\n\tvar async := implements + pub\n\treturn async\n")
+					.empty());
+	// A bare None is always the empty Option, so nothing its bare name reaches is named None.
+	CHECK(has_error("extends Node\nvar None := 1\n", "None cannot be a variable name: a bare None is always the empty Option."));
+	CHECK(has_error("extends Node\n\n\nfunc None():\n\tpass\n", "None cannot be a function name"));
+	CHECK(has_error("extends Node\nenum { None, Guess }\n", "None cannot be the name of a value"));
+	CHECK(has_error("extends Node\n\n\nstruct Hit:\n\tvar None := 0\n", "None cannot be a field name"));
+}
+
 // modules/gdscript/gdscript_parser.cpp:187, 5238-5298.
 TEST_CASE("@rpc configures how other peers call a method, which they find by name") {
 	const compiler::CompileResult result = compile("extends Node\n@rpc(\"any_peer\", \"call_local\", \"unreliable\", 1)\npub func hit(amount: int):\n\tpass\n\n@rpc\npub func sync_state():\n\tpass\n");

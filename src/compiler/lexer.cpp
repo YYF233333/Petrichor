@@ -32,8 +32,6 @@ const char *token_name(TokenKind p_kind) {
 			return "StringName";
 		case TokenKind::NodePath:
 			return "NodePath";
-		case TokenKind::Async:
-			return "async";
 		case TokenKind::Await:
 			return "await";
 		case TokenKind::And:
@@ -70,18 +68,12 @@ const char *token_name(TokenKind p_kind) {
 			return "\"func\"";
 		case TokenKind::If:
 			return "\"if\"";
-		case TokenKind::Implements:
-			return "\"implements\"";
 		case TokenKind::In:
 			return "\"in\"";
-		case TokenKind::Interface:
-			return "\"interface\"";
 		case TokenKind::Is:
 			return "\"is\"";
 		case TokenKind::Match:
 			return "\"match\"";
-		case TokenKind::None:
-			return "\"None\"";
 		case TokenKind::Null:
 			return "\"null\"";
 		case TokenKind::Not:
@@ -90,8 +82,6 @@ const char *token_name(TokenKind p_kind) {
 			return "\"or\"";
 		case TokenKind::Pass:
 			return "\"pass\"";
-		case TokenKind::Pub:
-			return "\"pub\"";
 		case TokenKind::Return:
 			return "\"return\"";
 		case TokenKind::Super:
@@ -102,8 +92,6 @@ const char *token_name(TokenKind p_kind) {
 			return "\"signal\"";
 		case TokenKind::Static:
 			return "\"static\"";
-		case TokenKind::Struct:
-			return "\"struct\"";
 		case TokenKind::True:
 			return "\"true\"";
 		case TokenKind::Var:
@@ -260,7 +248,6 @@ namespace {
 
 const std::unordered_map<std::string, TokenKind> &keywords() {
 	static const std::unordered_map<std::string, TokenKind> table = {
-		{ "async", TokenKind::Async },
 		{ "await", TokenKind::Await },
 		{ "and", TokenKind::And },
 		{ "as", TokenKind::As },
@@ -279,23 +266,18 @@ const std::unordered_map<std::string, TokenKind> &keywords() {
 		{ "for", TokenKind::For },
 		{ "func", TokenKind::Func },
 		{ "if", TokenKind::If },
-		{ "implements", TokenKind::Implements },
 		{ "in", TokenKind::In },
-		{ "interface", TokenKind::Interface },
 		{ "is", TokenKind::Is },
 		{ "match", TokenKind::Match },
-		{ "None", TokenKind::None },
 		{ "null", TokenKind::Null },
 		{ "not", TokenKind::Not },
 		{ "or", TokenKind::Or },
 		{ "pass", TokenKind::Pass },
-		{ "pub", TokenKind::Pub },
 		{ "return", TokenKind::Return },
 		{ "self", TokenKind::Self },
 		{ "super", TokenKind::Super },
 		{ "signal", TokenKind::Signal },
 		{ "static", TokenKind::Static },
-		{ "struct", TokenKind::Struct },
 		{ "true", TokenKind::True },
 		{ "var", TokenKind::Var },
 		{ "when", TokenKind::When },

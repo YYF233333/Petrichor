@@ -93,6 +93,14 @@ class Parser {
 		}
 		return false;
 	}
+	bool check_word(const char *p_word, size_t p_offset = 0) const { return is_word(peek(p_offset), p_word); }
+	bool match_word(const char *p_word) {
+		if (check_word(p_word)) {
+			advance();
+			return true;
+		}
+		return false;
+	}
 
 	void report(const Token &p_token, const std::string &p_message) {
 		errors.push_back({ p_token.offset, p_token.end(), p_message });
@@ -112,6 +120,15 @@ class Parser {
 		}
 		fail(peek(), std::string("Expected ") + p_what + ", found " + token_name(peek().kind) + ".");
 		return peek();
+	}
+	// The name of a declaration that its bare name reaches, which a bare None
+	// cannot, since it is always the empty Option (spec §2.2).
+	const Token &declared_name(const char *p_what) {
+		const Token &name = expect(TokenKind::Identifier, p_what);
+		if (is_word(name, "None")) {
+			report(name, std::string("None cannot be ") + p_what + ": a bare None is always the empty Option.");
+		}
+		return name;
 	}
 
 	// After an element of a list: takes the comma. When another element
@@ -139,7 +156,6 @@ class Parser {
 			case TokenKind::NodePath:
 			case TokenKind::True:
 			case TokenKind::False:
-			case TokenKind::None:
 			case TokenKind::Null:
 			case TokenKind::Self:
 			case TokenKind::Super:
@@ -154,7 +170,6 @@ class Parser {
 			case TokenKind::BracketOpen:
 			case TokenKind::BraceOpen:
 			case TokenKind::Func:
-			case TokenKind::Async:
 				return true;
 			default:
 				return false;
@@ -218,9 +233,9 @@ class Parser {
 			ref.range = span(first);
 			return ref;
 		}
-		if (check(TokenKind::Func) || (check(TokenKind::Async) && peek(1).kind == TokenKind::Func)) {
+		if (check(TokenKind::Func) || (check_word("async") && peek(1).kind == TokenKind::Func)) {
 			ref.is_function = true;
-			ref.is_async = match(TokenKind::Async);
+			ref.is_async = match_word("async");
 			ref.name = "func";
 			ref.name_token = uint32_t(at);
 			advance();
@@ -664,8 +679,16 @@ class Parser {
 				expr->bool_value = token.kind == TokenKind::True;
 				return expr;
 			}
-			case TokenKind::Super:
-			case TokenKind::Identifier: {
+			case TokenKind::Identifier:
+				if (is_word(token, "None")) {
+					advance();
+					return make(ExprKind::NoneLiteral, token);
+				}
+				if (is_word(token, "async") && peek(1).kind == TokenKind::Func) {
+					return lambda();
+				}
+				[[fallthrough]];
+			case TokenKind::Super: {
 				advance();
 				auto expr = make(ExprKind::Name, token);
 				expr->text = token.text;
@@ -675,7 +698,6 @@ class Parser {
 			case TokenKind::Self:
 				advance();
 				return make(ExprKind::Self, token);
-			case TokenKind::None:
 			case TokenKind::Null:
 				advance();
 				return make(ExprKind::NoneLiteral, token);
@@ -697,7 +719,6 @@ class Parser {
 			case TokenKind::BraceOpen:
 				return dictionary_literal();
 			case TokenKind::Func:
-			case TokenKind::Async:
 				return lambda();
 			case TokenKind::ParenOpen: {
 				advance();
@@ -724,7 +745,7 @@ class Parser {
 		auto expr = make(ExprKind::Lambda, peek());
 		auto function = std::make_unique<FuncDecl>();
 		function->is_lambda = true;
-		function->is_async = match(TokenKind::Async);
+		function->is_async = match_word("async");
 		function->name_token = uint32_t(at);
 		expect(TokenKind::Func, "\"func\"");
 		if (check(TokenKind::Identifier)) {
@@ -1014,7 +1035,7 @@ class Parser {
 			advance();
 		} else if (match(TokenKind::Var)) {
 			result.kind = PatternKind::Bind;
-			const Token &name = expect(TokenKind::Identifier, "a variable name");
+			const Token &name = declared_name("a variable name");
 			result.name = name.text;
 			result.name_token = index(name);
 		} else if (check(TokenKind::BracketOpen) || check(TokenKind::BraceOpen)) {
@@ -1118,7 +1139,7 @@ class Parser {
 				advance();
 				const bool is_const = token.kind == TokenKind::Const;
 				auto stmt = make_stmt(is_const ? StmtKind::Const : StmtKind::Var, token);
-				const Token &name = expect(TokenKind::Identifier, is_const ? "a constant name" : "a variable name");
+				const Token &name = declared_name(is_const ? "a constant name" : "a variable name");
 				stmt->name = name.text;
 				stmt->name_token = index(name);
 				if (match(TokenKind::Colon) && !check(TokenKind::Equal)) {
@@ -1149,7 +1170,7 @@ class Parser {
 			case TokenKind::For: {
 				advance();
 				auto stmt = make_stmt(StmtKind::For, token);
-				const Token &name = expect(TokenKind::Identifier, "a variable name");
+				const Token &name = declared_name("a variable name");
 				stmt->name = name.text;
 				stmt->name_token = index(name);
 				if (match(TokenKind::Colon)) {
@@ -1238,7 +1259,7 @@ class Parser {
 				advance();
 				param.is_rest = !p_signal;
 			}
-			const Token &param_name = expect(TokenKind::Identifier, "a parameter name");
+			const Token &param_name = p_signal ? expect(TokenKind::Identifier, "a parameter name") : declared_name("a parameter name");
 			param.name = param_name.text;
 			param.name_token = index(param_name);
 			if (match(TokenKind::Colon)) {
@@ -1264,7 +1285,7 @@ class Parser {
 	// properties (spec §3.9).
 	InterfaceDecl interface(bool p_is_pub, uint32_t p_first, ClassDecl &r_class) {
 		InterfaceDecl decl;
-		const Token &name = expect(TokenKind::Identifier, "an interface name");
+		const Token &name = declared_name("an interface name");
 		decl.name = name.text;
 		decl.name_token = index(name);
 		decl.is_pub = p_is_pub;
@@ -1312,7 +1333,7 @@ class Parser {
 				}
 				FuncDecl method;
 				method.has_body = false;
-				method.is_async = match(TokenKind::Async);
+				method.is_async = match_word("async");
 				expect(TokenKind::Func, "\"func\"");
 				if (failed) {
 					end_of_statement();
@@ -1346,14 +1367,15 @@ class Parser {
 		EnumDecl decl;
 		decl.is_pub = p_is_pub;
 		if (check(TokenKind::Identifier)) {
-			const Token &name = advance();
+			const Token &name = declared_name("an enum name");
 			decl.name = name.text;
 			decl.name_token = index(name);
 		}
 		expect(TokenKind::BraceOpen, "\"{\"");
 		while (!failed && !check(TokenKind::BraceClose)) {
 			const uint32_t first = uint32_t(at);
-			const Token &name = expect(TokenKind::Identifier, "the name of a value");
+			// Only the values of an enum without a name have bare names.
+			const Token &name = decl.name.empty() ? declared_name("the name of a value") : expect(TokenKind::Identifier, "the name of a value");
 			if (failed) {
 				break;
 			}
@@ -1411,7 +1433,7 @@ class Parser {
 				r_class.extends += "." + advance().text;
 			}
 		}
-		if (check(TokenKind::Implements)) {
+		if (check_word("implements")) {
 			const Token &keyword = advance();
 			if (!r_class.implements.empty()) {
 				fail(keyword, "The class already names the interfaces it implements.");
@@ -1427,7 +1449,7 @@ class Parser {
 	// begin with `extends` and `implements` lines (spec §2.1, §4.1).
 	std::unique_ptr<ClassDecl> inner_class(bool p_is_pub, bool p_is_abstract, uint32_t p_first) {
 		auto decl = std::make_unique<ClassDecl>();
-		const Token &name = expect(TokenKind::Identifier, "a class name");
+		const Token &name = declared_name("a class name");
 		decl->name = name.text;
 		decl->name_token = index(name);
 		decl->is_pub = p_is_pub;
@@ -1460,9 +1482,9 @@ class Parser {
 					fail(peek(), "class_name belongs to the file's class.");
 					continue;
 				}
-				if (check(TokenKind::Extends) || check(TokenKind::Implements)) {
+				if (check(TokenKind::Extends) || check_word("implements")) {
 					if (seen_member) {
-						fail(peek(), std::string(token_name(peek().kind)) + " belongs to the class header, before the members.");
+						fail(peek(), "\"" + peek().text + "\" belongs to the class header, before the members.");
 						continue;
 					}
 					class_header(*decl, has_extends);
@@ -1481,7 +1503,7 @@ class Parser {
 	// After "struct": the name and a block of fields (spec §2.4, §3.6).
 	StructDecl structure(bool p_is_pub, uint32_t p_first, ClassDecl &r_class) {
 		StructDecl decl;
-		const Token &name = expect(TokenKind::Identifier, "a struct name");
+		const Token &name = declared_name("a struct name");
 		decl.name = name.text;
 		decl.name_token = index(name);
 		decl.is_pub = p_is_pub;
@@ -1496,14 +1518,15 @@ class Parser {
 					end_of_statement();
 					continue;
 				}
-				if (check(TokenKind::Func) || check(TokenKind::Static) || check(TokenKind::Async)) {
+				if (check(TokenKind::Func) || check(TokenKind::Static) || check_word("async")) {
 					const uint32_t first = uint32_t(at);
 					FuncDecl method;
 					method.of_struct = true;
 					method.is_static = match(TokenKind::Static);
-					method.is_async = match(TokenKind::Async);
+					method.is_async = match_word("async");
 					expect(TokenKind::Func, "\"func\"");
-					const Token &method_name = expect(TokenKind::Identifier, "a method name");
+					// The names in its methods find the struct's own first (spec §3.6).
+					const Token &method_name = declared_name("a method name");
 					method.name = decl.name + "." + method_name.text;
 					method.name_token = index(method_name);
 					expect(TokenKind::ParenOpen, "\"(\"");
@@ -1517,7 +1540,7 @@ class Parser {
 					decl.methods.push_back(std::move(method));
 					continue;
 				}
-				if (check(TokenKind::Pub)) {
+				if (check_word("pub")) {
 					fail(peek(), "A struct's fields and methods are visible wherever it is, so they take no pub.");
 					end_of_statement();
 					continue;
@@ -1530,7 +1553,7 @@ class Parser {
 				const uint32_t first = uint32_t(at);
 				advance();
 				VarDecl field;
-				const Token &field_name = expect(TokenKind::Identifier, "a field name");
+				const Token &field_name = declared_name("a field name");
 				field.name = field_name.text;
 				field.name_token = index(field_name);
 				if (match(TokenKind::Colon) && !check(TokenKind::Equal)) {
@@ -1590,7 +1613,7 @@ class Parser {
 			function.is_static = r_decl.is_static;
 			if (keyword.text == "set") {
 				expect(TokenKind::ParenOpen, "\"(\"");
-				const Token &param = expect(TokenKind::Identifier, "the parameter's name");
+				const Token &param = declared_name("the parameter's name");
 				ParamDecl value;
 				value.name = param.text;
 				value.name_token = index(param);
@@ -1788,9 +1811,9 @@ class Parser {
 			is_export = is_export || annotation.name.rfind("export", 0) == 0;
 			is_onready = is_onready || annotation.name == "onready";
 		}
-		const bool is_pub = match(TokenKind::Pub);
+		const bool is_pub = match_word("pub");
 		const bool is_static = match(TokenKind::Static);
-		const bool is_async = match(TokenKind::Async);
+		const bool is_async = match_word("async");
 		if (is_async && !check(TokenKind::Func)) {
 			fail(peek(), "async must precede func.");
 			return;
@@ -1824,7 +1847,7 @@ class Parser {
 
 		if (match(TokenKind::Var)) {
 			VarDecl decl;
-			const Token &name = expect(TokenKind::Identifier, "a variable name");
+			const Token &name = declared_name("a variable name");
 			decl.name = name.text;
 			decl.name_token = index(name);
 			decl.is_pub = is_pub;
@@ -1855,7 +1878,7 @@ class Parser {
 				return;
 			}
 			ConstDecl decl;
-			const Token &name = expect(TokenKind::Identifier, "a constant name");
+			const Token &name = declared_name("a constant name");
 			decl.name = name.text;
 			decl.name_token = index(name);
 			decl.is_pub = is_pub;
@@ -1870,7 +1893,7 @@ class Parser {
 			return;
 		}
 
-		if (match(TokenKind::Interface)) {
+		if (match_word("interface")) {
 			if (!annotations.empty() || is_static) {
 				fail(peek(), "An interface takes no annotations and is not static.");
 				return;
@@ -1879,7 +1902,7 @@ class Parser {
 			return;
 		}
 
-		if (match(TokenKind::Struct)) {
+		if (match_word("struct")) {
 			if (!annotations.empty() || is_static) {
 				fail(peek(), "A struct takes no annotations and is not static.");
 				return;
@@ -1903,7 +1926,7 @@ class Parser {
 				return;
 			}
 			SignalDecl decl;
-			const Token &name = expect(TokenKind::Identifier, "a signal name");
+			const Token &name = declared_name("a signal name");
 			decl.name = name.text;
 			decl.name_token = index(name);
 			decl.is_pub = is_pub;
@@ -1928,7 +1951,7 @@ class Parser {
 			}
 			advance();
 			FuncDecl decl;
-			const Token &name = expect(TokenKind::Identifier, "a function name");
+			const Token &name = declared_name("a function name");
 			decl.name = name.text;
 			decl.name_token = index(name);
 			decl.is_pub = is_pub;
@@ -2073,8 +2096,8 @@ public:
 				continue;
 			}
 			// The class header comes before the members (spec §2.1).
-			if ((check(TokenKind::ClassName) || check(TokenKind::Extends) || check(TokenKind::Implements)) && seen_member) {
-				fail(peek(), std::string(token_name(peek().kind)) + " belongs to the class header, before the members.");
+			if ((check(TokenKind::ClassName) || check(TokenKind::Extends) || check_word("implements")) && seen_member) {
+				fail(peek(), "\"" + peek().text + "\" belongs to the class header, before the members.");
 				continue;
 			}
 			if (check(TokenKind::ClassName)) {
@@ -2083,16 +2106,16 @@ public:
 					fail(keyword, "The class already has a name.");
 					continue;
 				}
-				const Token &name = expect(TokenKind::Identifier, "a class name");
+				const Token &name = declared_name("a class name");
 				result.class_name = name.text;
 				result.class_name_token = index(name);
 				has_class_name = true;
-				if (!check(TokenKind::Extends) && !check(TokenKind::Implements)) {
+				if (!check(TokenKind::Extends) && !check_word("implements")) {
 					end_of_statement();
 					continue;
 				}
 			}
-			if (check(TokenKind::Extends) || check(TokenKind::Implements)) {
+			if (check(TokenKind::Extends) || check_word("implements")) {
 				class_header(result, has_extends);
 				end_of_statement();
 				continue;

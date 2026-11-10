@@ -35,7 +35,7 @@ void check_lossless(const SourceFile &p_file) {
 		}
 		at = token->end();
 		// A word; && and || spell and and or without text.
-		if (token->kind == TokenKind::Identifier || (token->kind >= TokenKind::Async && token->kind <= TokenKind::While && !token->text.empty())) {
+		if (token->kind == TokenKind::Identifier || (token->kind >= TokenKind::Await && token->kind <= TokenKind::While && !token->text.empty())) {
 			CHECK(p_file.text.substr(token->offset, token->length) == token->text);
 		}
 	}
