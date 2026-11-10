@@ -3009,6 +3009,24 @@ class Checker : public ClassRelation {
 		return walk;
 	}
 
+	// Why a literal path from the root into an autoload is a compile error:
+	// the autoload is reached by its name (spec §7.3). Empty for another path.
+	std::string through_autoload(const std::string &p_path, const std::string &p_written) const {
+		const std::string root = "/root/";
+		if (p_path.rfind(root, 0) != 0 || !options.project) {
+			return std::string();
+		}
+		const size_t end = p_path.find('/', root.size());
+		const std::string name = p_path.substr(root.size(), end == std::string::npos ? std::string::npos : end - root.size());
+		if (name.empty() || options.project->autoload_path(name).empty()) {
+			return std::string();
+		}
+		if (end == std::string::npos) {
+			return p_written + " is the autoload " + name + "; write " + name + ".";
+		}
+		return p_written + " is in the autoload " + name + "; write " + name + ".get_node(\"" + p_path.substr(end + 1) + "\").";
+	}
+
 	// `$X` (spec §7.1): the node at the path from every node that has this
 	// script, in every scene; they must agree on its class. `$".."` is any
 	// Node (spec §7.3).
@@ -3027,6 +3045,10 @@ class Checker : public ClassRelation {
 		if (path == "..") {
 			r_expr.owner = "Node";
 			return set(r_expr, Type::object("Node"));
+		}
+		const std::string autoload = through_autoload(path, shown_path(path));
+		if (!autoload.empty()) {
+			return fail(r_expr, autoload);
 		}
 		if (path.empty() || path[0] == '/') {
 			return fail(r_expr, "Only paths from this node, such as $Head/Camera, are supported yet.");
@@ -4064,6 +4086,12 @@ class Checker : public ClassRelation {
 			return signature(r_expr.text, texts, p_method.is_vararg, p_current, (r_expr.getter ? tried_result(p_method, *r_expr.getter) : engine_result(p_method)).to_string());
 		});
 		check_arguments(r_expr, params, int(params.size()) - p_method.default_count, p_method.is_vararg);
+		if (p_method.owner == "Node" && (p_method.name == "get_node" || p_method.name == "get_node_or_null") && !r_expr.args.empty() && r_expr.args[0]->kind == ExprKind::StringLiteral) {
+			const std::string autoload = through_autoload(r_expr.args[0]->text, r_expr.text + "(\"" + r_expr.args[0]->text + "\")");
+			if (!autoload.empty()) {
+				return fail_call(r_expr, autoload);
+			}
+		}
 		const bool on_self = !r_expr.base || extends_script(r_expr.base->type.script, options.path);
 		for (size_t i = 0; i < params.size(); i++) {
 			r_expr.arg_ranges.push_back(params[i].kind == TypeKind::Int ? builtin::param_int_range(p_method.owner, p_method.name, uint32_t(i)) : std::nullopt);

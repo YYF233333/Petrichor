@@ -385,6 +385,15 @@ TEST_CASE("paths that are not typed yet are refused rather than guessed") {
 	CHECK(contains(hud_errors("var n: Node = $/root/Main"), "are supported yet"));
 }
 
+TEST_CASE("a literal path from the root into an autoload names the autoload instead (spec §7.3)") {
+	FakeProject project = hud_scene();
+	project.autoloads["Music"] = "res://music.pet";
+	CHECK(contains(hud_errors("var n: Node = $\"/root/Music\"", project), "$\"/root/Music\" is the autoload Music; write Music."));
+	CHECK(contains(hud_errors("var n: Node = $/root/Music/Player", project), "$\"/root/Music/Player\" is in the autoload Music; write Music.get_node(\"Player\")."));
+	CHECK(contains(hud_errors("var n := get_node_or_null(\"/root/Music\")", project), "get_node_or_null(\"/root/Music\") is the autoload Music; write Music."));
+	CHECK(hud_errors("var n := get_node(\"/root/Main\")", project).empty());
+}
+
 // Spec §6.3.
 TEST_CASE("@onready members are set when the node is ready, from the scene") {
 	const char *source = "extends CanvasLayer\n@onready var health = $Health\nvar shown := \"\"\n\nfunc _ready():\n\tshown = health.text\n";

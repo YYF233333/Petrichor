@@ -138,6 +138,8 @@ public:
 			method("get_child", { { "idx", t(TypeKind::Int) }, { "include_internal", t(TypeKind::Bool) } }, node, false, 1),
 			method("set_process", { { "enable", t(TypeKind::Bool) } }, t(TypeKind::Void)),
 			method("get_parent", {}, node),
+			method("get_node", { { "path", Type::builtin("NodePath") } }, node),
+			method("get_node_or_null", { { "path", Type::builtin("NodePath") } }, Type::object("Node", true)),
 			method("get_tree", {}, Type::object("SceneTree", true)),
 			method("create_tween", {}, Type::object("Tween", true)),
 			method("add_child", { { "node", node } }, t(TypeKind::Void)),

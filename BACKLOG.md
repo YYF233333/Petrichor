@@ -34,9 +34,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Node paths (spec §7.1):
   - into instanced scenes;
   - out of a scene from its root: `..` above the root, and `%Name` of a scene that instances it. Ring's paddle.gd uses one, `$%HealthIcon`.
-- Static types (spec §7.1–§7.3, §7.6):
-  - `get_node` and `get_node_or_null` typed from literal paths, exempting base scenes used only for inheritance;
-  - `/root/X` offering the autoload name.
+- `get_node` and `get_node_or_null` typed from literal paths, exempting base scenes used only for inheritance (spec §7.1, §7.2).
 - Type-specific fix hints on `not x` (spec §5.4).
 - `pub` required on the members that animation tracks and synchronized properties name (spec §10.5). The compiler does not read them yet (spec §7.7).
 - `Callable(object, name)` and `Signal(object, name)` with a name known only at run time (spec §10.4). `Callable.create()` serves the first.
