@@ -254,6 +254,51 @@ TEST_CASE("an autoload is a value of its script's class (spec §7.3)") {
 	CHECK(contains(errors("Audio.play(1)"), "Cannot pass a value of type int as String"));
 }
 
+// Pixelorama's Export, cut down.
+TEST_CASE("an autoload's name stands for its class in a type, after nearer names (spec §11.1)") {
+	FakeProject p = project();
+	p.add_script("res://export.pet", "extends Node\n\npub enum FileFormat { PNG, GIF }\n\npub class Action:\n\tpub var key := 1\n\npub struct Frame:\n\tvar index: int = 0\n");
+	p.autoloads["Export"] = "res://export.pet";
+	const auto in = [&](const std::string &p_members) { return compile_in("extends Node\n\n" + p_members, p); };
+	// Also where a type stands in an expression.
+	const compiler::CompileResult result = in("func get_export() -> Export:\n\treturn Export\n\n"
+											  "func f(n: Node, actions: Array[Export.Action]) -> void:\n\tvar format: Export.FileFormat = Export.FileFormat(1)\n\tformat = Export.FileFormat.PNG\n"
+											  "\tvar frame: Export.Frame = Export.Frame()\n\tvar e := n as Export\n\tvar v: ValueManager = ValueManager\n");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	CHECK(contains(messages(in("var x: ValueManager.Thing\n")), "ValueManager is a class of another language, which has no interfaces."));
+	// A type this class declares by the name comes first.
+	CHECK(in("enum Export { CSV }\n\nfunc f() -> Export:\n\treturn Export.CSV\n").ok());
+	// Only the declarations are checked while a script loads.
+	CHECK(compile_in("extends Node\n\npub var format: Export.FileFormat\npub var values: ValueManager?\n", p, true).ok());
+	// A struct that holds itself through one is seen.
+	const std::string game = "class_name Game\nextends Node\n\npub struct Piece:\n\tvar cell: Board.Cell\n";
+	p.add_script("res://test.pet", game, "Game");
+	p.add_script("res://board.pet", "extends Node\n\npub struct Cell:\n\tvar piece: Game.Piece\n");
+	p.autoloads["Board"] = "res://board.pet";
+	CHECK(contains(messages(compile_in(game, p)), "Piece contains itself through Piece.cell, Cell.piece"));
+}
+
+TEST_CASE("a scene autoload's name stands for its root's class (spec §11.1)") {
+	FakeProject p = project();
+	p.add_script("res://hud.pet", "extends CanvasLayer\n\npub class Bar:\n\tpass\n\npub func flash() -> void:\n\tpass\n");
+	compiler::Scene hud;
+	hud.path = "res://hud.tscn";
+	hud.nodes = { { ".", "CanvasLayer", "res://hud.pet" } };
+	compiler::Scene music;
+	music.path = "res://music.tscn";
+	music.nodes = { { ".", "Node", "" } };
+	p.scenes = { hud, music };
+	p.autoloads["Hud"] = "res://hud.tscn";
+	p.autoloads["Music"] = "res://music.tscn";
+	const auto in = [&](const std::string &p_body) { return messages(compile_in("extends Node\n\nfunc f() -> void:\n\t" + p_body + "\n", p)); };
+	CHECK(in("var h: Hud = Hud\n\th.flash()\n\tvar b: Hud.Bar = Hud.Bar.new()\n\tvar m: Music = Music\n\tvar mode: Music.ProcessMode = Node.PROCESS_MODE_ALWAYS").empty());
+	// A root without a script is of its engine class.
+	CHECK(contains(in("Music.flash()"), "\"flash()\""));
+	CHECK(contains(in("var x: Music.Nope"), "Unknown type \"Music.Nope\"."));
+}
+
 TEST_CASE("classes may refer to each other") {
 	const compiler::CompileResult result = compile_in("extends Node\n\nfunc f(a: A) -> void:\n\tvar b: B? = a.b\n\tif b != None:\n\t\tvar back: A? = b.a\n", project());
 	CHECK_MESSAGE(result.ok(), messages(result));

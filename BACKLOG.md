@@ -17,7 +17,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - a scene used as a root whose root has a script with `@owner` (§7.3);
   - a node of a scene whose script is abstract (§4.1).
 - `@parent(T)` (spec §7.3).
-- An autoload's name in a type, as `-> Export` and `Export.FileFormat` (spec §11.1). The checker resolves `Export.Inner` only as a value now (`script_type()`).
 - Checking at compile time what resources store in exported structs and enums with payloads (spec §4.3). They are `.tres` files and resources inside scenes, which the scene index does not read. Nor does it read a node of an instanced scene that the outer scene changes.
 - Containers of function types and of `Task[T]`, which the checker says are not supported yet (`container_element`).
   - Spec §3.8 gives elements of this language's own types its own representation, as for structs.

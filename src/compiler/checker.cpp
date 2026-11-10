@@ -327,6 +327,9 @@ class Checker : public ClassRelation {
 	static DeclId language_id(const std::string &p_type, const std::string &p_name) {
 		return { DeclId::Kind::Language, p_type, p_name };
 	}
+	static DeclId autoload_id(const std::string &p_name) {
+		return { DeclId::Kind::Autoload, std::string(), p_name };
+	}
 	// By the name token of its declaration.
 	DeclId local_id(uint32_t p_token) const {
 		return { DeclId::Kind::Local, options.path, p_token < cls.source->tokens.size() ? std::to_string(cls.source->tokens[p_token].offset) : std::string() };
@@ -623,7 +626,7 @@ class Checker : public ClassRelation {
 		if (path.empty() && options.project) {
 			path = options.project->global_class_path(p_expr.text);
 			if (path.empty() && p_object) {
-				path = options.project->autoload_path(p_expr.text);
+				path = autoload_script(p_expr.text);
 			}
 		}
 		return is_script_path(path) ? path : std::string();
@@ -714,6 +717,45 @@ class Checker : public ClassRelation {
 			found = foreign_classes.emplace(p_path, options.project ? options.project->foreign_class(p_path, !options.declarations_only) : std::nullopt).first;
 		}
 		return found->second ? &*found->second : nullptr;
+	}
+
+	// The class an autoload's name stands for, as a value and in a type (spec
+	// §11.1): its script's, or for a scene its root's; nullopt for a name that
+	// is no autoload, Error after reporting one that cannot be read.
+	std::optional<Type> autoload_class(const std::string &p_name, const TokenRange &p_at) {
+		const std::string path = options.project ? options.project->autoload_path(p_name) : std::string();
+		if (path.empty()) {
+			return std::nullopt;
+		}
+		if (is_script_path(path)) {
+			if (const ClassDecl *header = script_header(path)) {
+				return script_class_type(*header, path);
+			}
+		} else if (is_scene_file(path)) {
+			if (options.declarations_only) {
+				return Type::of(TypeKind::Error); // Scenes are not read while loading.
+			}
+			const std::optional<Scene> scene = options.project->scene(path);
+			if (const SceneNode *root = scene ? scene->find_node(".") : nullptr) {
+				return scene_node_type(p_at, *root, "The root of the autoload " + p_name);
+			}
+		} else if (const ForeignClass *foreign = foreign_class(path); foreign && !foreign->native.empty()) {
+			return Type::script_class(p_name, path, foreign->native);
+		} else if (options.declarations_only) {
+			// Without loading it, which only the declarations do not, a script without a global name is not known.
+			return Type::of(TypeKind::Error);
+		}
+		error(p_at, "The autoload " + p_name + " (" + path + ") cannot be read.");
+		return Type::of(TypeKind::Error);
+	}
+
+	// The script of this language whose class an autoload's name stands for,
+	// found without reporting; empty for any other name.
+	std::string autoload_script(const std::string &p_name) {
+		const size_t reported = errors.size();
+		const std::optional<Type> found = autoload_class(p_name, TokenRange{ 0, 0 });
+		errors.resize(reported);
+		return found && is_script_path(found->script) ? found->script : std::string();
 	}
 
 	// A class reflection names: an engine class, or a script's class by its
@@ -892,18 +934,34 @@ class Checker : public ClassRelation {
 			path = options.project->global_class_path(head);
 		}
 		if (path.empty()) {
-			// A type of this class or of one around it, by its own name.
-			if (names.size() == 1) {
-				if (const std::optional<Type> own = own_type(p_ref.name, p_ref.name_token)) {
-					return own;
-				}
-				if (Checker *around = class_around(p_ref.name)) {
-					return around->own_type(p_ref.name, p_ref.name_token);
-				}
+			// A type of this class or of one around it, by its own name, and an
+			// enum of the engine class this one extends, come before an
+			// autoload's name (spec §4.1, §11.1).
+			std::optional<Type> own = own_type(head, p_ref.name_token);
+			if (Checker *around = own ? nullptr : class_around(head)) {
+				own = around->own_type(head, p_ref.name_token);
 			}
-			return std::nullopt;
-		}
-		if (!alias) {
+			const bool nearer = own || (names.size() == 1 && engine.find_enum(cls.native_base, head));
+			const std::optional<Type> autoload = nearer ? std::nullopt : autoload_class(head, p_ref.range);
+			if (!autoload) {
+				return names.size() == 1 ? own : std::nullopt;
+			}
+			refer(p_ref.name_token, autoload_id(head));
+			if (names.size() == 1 || autoload->is_error()) {
+				return autoload;
+			}
+			if (autoload->script.empty()) {
+				// The engine class of a scene's root: its enums.
+				const std::optional<Type> found = names.size() == 2 ? engine.find_enum(autoload->name, names[1]) : std::nullopt;
+				if (!found) {
+					error(p_ref.range, "Unknown type \"" + p_ref.name + "\".");
+					return Type::of(TypeKind::Error);
+				}
+				refer(token(1), engine_id(autoload->name, names[1]));
+				return found;
+			}
+			path = autoload->script;
+		} else if (!alias) {
 			refer(p_ref.name_token, is_script_path(path) ? script_id(path) : foreign_id(path, std::string()));
 		}
 		const size_t dot = p_ref.name.find('.');
@@ -1849,7 +1907,10 @@ class Checker : public ClassRelation {
 		if (r_base.kind != ExprKind::Member || !r_base.base || !names_enum_of_class(*r_base.base, r_base.text)) {
 			return nullptr;
 		}
-		const std::optional<Type> named = named_class(*r_base.base);
+		std::optional<Type> named = named_class(*r_base.base);
+		if (!named && r_base.base->kind == ExprKind::Name) {
+			named = check_value(*r_base.base); // An autoload, which leads to its class (spec §11.1).
+		}
 		if (!named || named->is_error() || !is_script_path(named->script)) {
 			return nullptr;
 		}
@@ -1962,7 +2023,7 @@ class Checker : public ClassRelation {
 		}
 		// Declared or inherited, as the headers say.
 		std::unordered_set<std::string> seen;
-		for (std::string path = class_path_of(p_class); is_script_path(path) && seen.insert(path).second;) {
+		for (std::string path = class_path_of(p_class, true); is_script_path(path) && seen.insert(path).second;) {
 			const ClassDecl *decl = script_header(path);
 			if (!decl) {
 				return false;
@@ -2574,26 +2635,10 @@ class Checker : public ClassRelation {
 			refer(r_expr.name_token, engine_id(r_expr.text));
 			return set(r_expr, Type::object(r_expr.text));
 		}
-		const std::string autoload = options.project ? options.project->autoload_path(r_expr.text) : std::string();
-		if (!autoload.empty()) {
-			// Its type is its script's class (spec §7.3).
-			if (!is_script_path(autoload)) {
-				const ForeignClass *foreign = foreign_class(autoload);
-				if (!foreign || foreign->native.empty()) {
-					// Without loading it, which only the declarations do not, a script without a global name is not known.
-					return options.declarations_only ? set(r_expr, Type::of(TypeKind::Error)) : fail(r_expr, "The autoload " + r_expr.text + " (" + autoload + ") cannot be read.");
-				}
-				r_expr.target = Target::Autoload;
-				refer(r_expr.name_token, { DeclId::Kind::Autoload, std::string(), r_expr.text });
-				return set(r_expr, Type::script_class(r_expr.text, autoload, foreign->native));
-			}
-			const ClassDecl *header = script_header(autoload);
-			if (!header) {
-				return fail(r_expr, "The autoload " + r_expr.text + " (" + autoload + ") cannot be read.");
-			}
+		if (const std::optional<Type> autoload = autoload_class(r_expr.text, r_expr.range)) {
 			r_expr.target = Target::Autoload;
-			refer(r_expr.name_token, { DeclId::Kind::Autoload, std::string(), r_expr.text });
-			return set(r_expr, script_class_type(*header, autoload));
+			refer(r_expr.name_token, autoload_id(r_expr.text));
+			return set(r_expr, *autoload);
 		}
 		// GDScript's own constants, which declarations can hide, as in GDScript
 		// (modules/gdscript/gdscript.cpp:2154-2157, gdscript_tokenizer.cpp:202-207; ed1daf0).
@@ -3311,7 +3356,7 @@ class Checker : public ClassRelation {
 					continue;
 				}
 				refer_node_path(r_expr, scene, walk);
-				const Type found_type = scene_node_type(r_expr, *walk.node, shown_path(path));
+				const Type found_type = scene_node_type(r_expr.range, *walk.node, shown_path(path));
 				if (found_type.is_error()) {
 					return set(r_expr, found_type);
 				}
@@ -3374,12 +3419,12 @@ class Checker : public ClassRelation {
 	// The type of a node of a scene (spec §7.1, §7.4): the class of its script
 	// when that is a script of this language, or else its engine class; Error
 	// after reporting. `p_what` names the node in messages.
-	Type scene_node_type(const Expr &p_at, const SceneNode &p_node, const std::string &p_what) {
+	Type scene_node_type(const TokenRange &p_at, const SceneNode &p_node, const std::string &p_what) {
 		const std::string &script = p_node.script.empty() ? p_node.instance_script : p_node.script;
 		if (is_script_path(script)) {
 			const ClassDecl *header = script_header(script);
 			if (!header) {
-				error(p_at.range, p_what + " has the script " + script + ", which cannot be read.");
+				error(p_at, p_what + " has the script " + script + ", which cannot be read.");
 				return Type::of(TypeKind::Error);
 			}
 			return script_class_type(*header, script);
@@ -3391,7 +3436,7 @@ class Checker : public ClassRelation {
 			return foreign_class_type(script, *foreign);
 		}
 		if (!engine.class_exists(p_node.type)) {
-			error(p_at.range, p_what + " is a " + p_node.type + ", which is not supported yet.");
+			error(p_at, p_what + " is a " + p_node.type + ", which is not supported yet.");
 			return Type::of(TypeKind::Error);
 		}
 		return Type::object(p_node.type);
@@ -3515,7 +3560,7 @@ class Checker : public ClassRelation {
 			if (!root) {
 				return std::nullopt;
 			}
-			const Type root_type = scene_node_type(p_at, *root, "The root of " + p_file);
+			const Type root_type = scene_node_type(p_at.range, *root, "The root of " + p_file);
 			return root_type.is_error() ? root_type : Type::scene(root_type);
 		}
 		const std::optional<ResourceInfo> resource = options.project ? options.project->resource(p_file) : std::nullopt;
@@ -5788,7 +5833,7 @@ class Checker : public ClassRelation {
 			ref.name = p_call.text;
 		} else {
 			const Expr &base = *p_call.base;
-			const std::string path = class_path_of(base);
+			const std::string path = class_path_of(base, true);
 			const ClassDecl *header = path.empty() ? nullptr : script_header(path);
 			if (!header || !header->find_struct(p_call.text)) {
 				return std::nullopt;
@@ -9412,6 +9457,7 @@ class Checker : public ClassRelation {
 				if (dot != std::string::npos) {
 					const std::string head = name.substr(0, dot);
 					path = head == p_header.class_name ? p_path : (options.project ? options.project->global_class_path(head) : std::string());
+					path = path.empty() ? autoload_script(head) : path;
 					header = is_script_path(path) ? script_header(path) : nullptr;
 				}
 				const std::string inner = name.substr(dot == std::string::npos ? 0 : dot + 1);
@@ -9571,8 +9617,7 @@ class Checker : public ClassRelation {
 		if (!cls.owner_ref || cls.owner_type.is_error()) {
 			return;
 		}
-		Expr at;
-		at.range = cls.owner_ref->range;
+		const TokenRange &at = cls.owner_ref->range;
 		const auto check_owner = [&](const Scene &p_scene, const SceneNode &p_node) {
 			const SceneNode *root = p_scene.find_node(".");
 			if (p_node.path == "." || !root) {
@@ -9584,7 +9629,7 @@ class Checker : public ClassRelation {
 			}
 			const Type owner = scene_node_type(at, *root, p_scene.path + ": the root");
 			if (!owner.is_error() && !assignable(owner, cls.owner_type)) {
-				error_in_scene(at.range, p_scene, p_node.path, p_scene.path + ": the owner of " + p_node.path + " is " + owner.to_string() + ", not " + cls.owner_type.to_string() + " (@owner).");
+				error_in_scene(at, p_scene, p_node.path, p_scene.path + ": the owner of " + p_node.path + " is " + owner.to_string() + ", not " + cls.owner_type.to_string() + " (@owner).");
 			}
 		};
 		for (const Scene &scene : scenes) {
@@ -10674,6 +10719,10 @@ class Checker : public ClassRelation {
 			scope_candidates(names);
 			names.types.insert({ "void", "Variant" });
 			add_global_classes(found, false);
+			if (options.project) {
+				const std::vector<std::string> autoloads = options.project->autoload_names();
+				names.types.insert(autoloads.begin(), autoloads.end());
+			}
 		} else {
 			TypeRef outer;
 			outer.name = prefix.substr(0, dot);
