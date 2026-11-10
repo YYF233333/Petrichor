@@ -146,7 +146,10 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 - GDScript 自有的常量和工具函数沿用 GDScript，如 `PI`、`range()`、`len()`。同名的声明遮蔽它们。
 - GDScript 已弃用的 `Color8`、`convert`、`type_exists`、`inst_to_dict` 和 `dict_to_inst` 报编译错误。诊断给出 Godot 文档建议的替代写法。
-- `is_instance_of(v, T)` 的 `T` 须为写出的类名或 `TYPE_*` 常量，含义与 `v is T` 相同。【已知限制】存在变量中的类型不能这样检测。
+- `is_instance_of(v, T)` 的 `T` 有两种：
+  - 写出的类名或 `TYPE_*` 常量，含义与 `v is T` 相同；
+  - 静态类型为 `Script` 的值，按 `is` 的规则检测，但不收窄 `v` 的类型。
+- 【已知限制】存在变量中的引擎类不能这样检测。
 
 ## 3. 类型
 
