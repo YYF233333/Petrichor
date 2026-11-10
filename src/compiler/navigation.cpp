@@ -664,6 +664,12 @@ struct Documenter {
 		for (const InterfaceDecl &decl : p_class.interfaces) {
 			ClassDoc doc;
 			doc.name = name + "." + decl.name;
+			// The engine's documentation follows one parent (core/doc_data.h:700,
+			// editor/doc/editor_help.cpp:1032-1044; ed1daf0), so an interface
+			// with several shows none.
+			if (decl.parents.size() == 1) {
+				doc.inherits = doc_class_name(doc_name, decl.parents[0].script) + "." + decl.parents[0].interface_name();
+			}
 			doc.comment = comments.of(decl.range.first, decl.name_token, true);
 			for (const FuncDecl &method : decl.methods) {
 				doc.methods.push_back(function(method));

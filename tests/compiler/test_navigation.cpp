@@ -212,6 +212,13 @@ class Inner extends Node3D:
 	CHECK(described(doc.methods) == std::vector<std::string>{ "make(x: int = 1): Doc static", "wait: int async" });
 }
 
+TEST_CASE("an interface's documentation inherits its parent, as the engine shows one parent") {
+	const std::vector<compiler::ClassDoc> docs = documentation("class_name Doc\nextends Node\n\npub interface Named:\n\tsignal named\n\npub interface Timed:\n\tsignal timeout\n\npub interface Mortal extends Named:\n\tsignal died\n\npub interface Both extends Named, Timed:\n\tpass\n", "Doc");
+	REQUIRE(docs.size() == 5);
+	CHECK((docs[2].name == "Doc.Mortal" && docs[2].inherits == "Doc.Named"));
+	CHECK((docs[3].name == "Doc.Both" && docs[3].inherits.empty()));
+}
+
 TEST_CASE("a ## comment documents the declaration it is on or directly above, read as GDScript reads it, and one of ### is ordinary") {
 	const std::string source = R"(## A unit.
 ##
