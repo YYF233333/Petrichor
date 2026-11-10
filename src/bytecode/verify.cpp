@@ -369,14 +369,16 @@ class Verifier {
 	// Arguments passed to an engine function: Variant parameters and extra
 	// vararg arguments take any value; others need exactly the parameter's
 	// layout.
-	bool engine_arguments(const uint32_t *p_call, const std::vector<ValueType> &p_params, bool p_vararg) {
+	// With `p_objects`, an object parameter takes an object that is no T?.
+	bool engine_arguments(const uint32_t *p_call, const std::vector<ValueType> &p_params, bool p_vararg, bool p_objects = false) {
 		const uint32_t argc = p_call[3];
 		if (argc < p_params.size() || (!p_vararg && argc != p_params.size())) {
 			return fail("wrong number of arguments");
 		}
 		for (size_t i = 0; i < p_params.size(); i++) {
 			const ValueType param = p_params[i];
-			if (param != ValueType::Variant && (!is_native(param) || is_option(p_call[4 + 2 * i]) || storage(p_call[4 + 2 * i]) != param)) {
+			const bool takes = is_native(param) || (p_objects && param == ValueType::Object);
+			if (param != ValueType::Variant && (!takes || is_option(p_call[4 + 2 * i]) || storage(p_call[4 + 2 * i]) != param)) {
 				return fail("argument " + std::to_string(i) + " does not have the parameter's type");
 			}
 		}
@@ -520,9 +522,10 @@ class Verifier {
 				if (!is_native(constructor.type) || !slot(dst, constructor.type)) {
 					return false;
 				}
+				// An object goes as its pointer, as for Signal(object, name).
 				for (ValueType param : constructor.params) {
-					if (!is_native(param)) {
-						return fail("a constructor takes an object in its own layout");
+					if (!is_native(param) && param != ValueType::Object) {
+						return fail("a constructor takes a value the engine has no layout for");
 					}
 				}
 				// The old value of dst is destroyed before the engine reads the arguments.
@@ -531,7 +534,7 @@ class Verifier {
 						return fail("a constructor writes over one of its arguments");
 					}
 				}
-				return engine_arguments(p_call, constructor.params, false);
+				return engine_arguments(p_call, constructor.params, false, true);
 			}
 			case Op::CALL_VALUE: {
 				if (!index(callee, module.method_calls.size(), "method call") || !slot(base, ValueType::Callable)) {

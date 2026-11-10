@@ -4627,7 +4627,17 @@ class Checker : public ClassRelation {
 			return set(r_expr, Type::of(name == "int" ? TypeKind::Int : TypeKind::Float));
 		}
 		if ((name == "Callable" || name == "Signal") && args.size() == 2 && args[0].kind == TypeKind::Object) {
-			return check_named_value(r_expr, name == "Signal");
+			if (args[0].is_optional()) {
+				return fail(r_expr, "The value may be None (" + args[0].to_string() + "); check it before taking its " + (name == "Signal" ? "signal." : "method."));
+			}
+			if (name == "Callable" && !receiver_kept(r_expr.args[0].get(), r_expr.range)) {
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
+			// A name known only at run time is explicit dynamic access, which
+			// the engine's constructor makes (spec §10.4).
+			if (r_expr.args[1]->kind == ExprKind::StringLiteral) {
+				return check_named_value(r_expr, name == "Signal");
+			}
 		}
 		if (args.size() == 1 && args[0].kind == TypeKind::Variant) {
 			return construct_from_variant(r_expr, api_type(name, false));
@@ -4650,7 +4660,7 @@ class Checker : public ClassRelation {
 			bool exact = true;
 			for (uint32_t a = 0; a < constructor.argument_count; a++) {
 				const Type param = api_type(constructor.arguments[a].type, false);
-				viable = viable && param.kind != TypeKind::Object && assignable(args[a], param);
+				viable = viable && assignable(args[a], param);
 				exact = exact && param == args[a];
 			}
 			if (viable && exact) {
@@ -4687,19 +4697,8 @@ class Checker : public ClassRelation {
 
 	// Callable(object, "m") and Signal(object, "s"): with a literal name, the
 	// method value or the signal of the object, as object.m and object.s are
-	// (spec §10.4). A name known only at run time goes through the methods
-	// that take names, or Callable.create().
+	// (spec §10.4).
 	Type check_named_value(Expr &r_expr, bool p_signal) {
-		const Expr &object = *r_expr.args[0];
-		if (object.type.is_optional()) {
-			return fail(r_expr, "The value may be None (" + object.type.to_string() + "); check it before taking its " + (p_signal ? "signal." : "method."));
-		}
-		if (r_expr.args[1]->kind != ExprKind::StringLiteral) {
-			return fail(r_expr, std::string(p_signal ? "Signal" : "Callable") + "(object, name) takes a literal name, a static reference" + (p_signal ? "." : "; for a name known only at run time, use Callable.create(object, name)."));
-		}
-		if (!p_signal && !receiver_kept(&object, r_expr.range)) {
-			return set(r_expr, Type::of(TypeKind::Error));
-		}
 		const builtin::MemberName named{ 1, 0, p_signal ? builtin::MemberName::Kind::Signal : builtin::MemberName::Kind::Method, false, -1, false };
 		std::vector<std::string> path;
 		const size_t before = errors.size();

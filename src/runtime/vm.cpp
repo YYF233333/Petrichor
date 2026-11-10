@@ -2119,7 +2119,8 @@ class Execution {
 			const void *ptrs[8];
 			bool native = true;
 			for (uint32_t i = 0; i < argc; i++) {
-				if (constructor.params[i] == ValueType::Variant) {
+				// Arguments gives an object as its pointer, as Signal(object, name) takes it.
+				if (constructor.params[i] == ValueType::Variant || constructor.params[i] == ValueType::Object) {
 					native = false;
 					break;
 				}

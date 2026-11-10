@@ -47,11 +47,13 @@ TEST_CASE("a literal member name checks what the call gives the member") {
 	CHECK(contains(errors_in("connect(\"done\", func(amount: int): pass)"), "passes 0 argument(s)"));
 }
 
-TEST_CASE("Callable(object, name) and Signal(object, name) take a literal name, a static reference") {
+TEST_CASE("Callable(object, name) and Signal(object, name) take a literal name as a static reference, any other dynamically") {
 	CHECK(errors_in("var c := Callable(self, \"reset\")\n\tc.call()\n\tvar s := Signal(self, \"done\")\n\ts.emit()").empty());
 	CHECK(contains(errors_in("var c := Callable(self, \"missing\")"), "has no method \"missing\"."));
 	CHECK(contains(errors_in("var s := Signal(self, \"hit\")"), "\"hit\" is not pub"));
-	CHECK(contains(errors_in("var n := \"reset\"\n\tvar c := Callable(other, n)"), "Callable(object, name) takes a literal name, a static reference; for a name known only at run time, use Callable.create(object, name)."));
 	// Typed by the signal it names.
 	CHECK(contains(errors_in("Signal(self, \"done\").emit(1)"), "argument"));
+	// A name known only at run time (spec §10.4).
+	CHECK(errors_in("var n := \"reset\"\n\tvar c: Callable = Callable(other, n)\n\tvar s: Signal = Signal(other, &\"visibility_changed\" if n.is_empty() else StringName(n))\n\ts.emit(1, 2)").empty());
+	CHECK(contains(errors_in("var n := \"reset\"\n\tvar maybe: Node? = None\n\tvar c := Callable(maybe, n)"), "The value may be None (Node?); check it before taking its method."));
 }

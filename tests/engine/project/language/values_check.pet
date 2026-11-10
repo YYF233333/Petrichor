@@ -400,3 +400,17 @@ pub func loaded_scene() -> String:
 pub func engine_enum_names() -> Array:
 	var eases: Array[Tween.EaseType] = Tween.EaseType.values()
 	return [Tween.EaseType.keys()[1], eases[2], MouseButton.get("MOUSE_BUTTON_RIGHT").unwrap(), Vector3.Axis.size()]
+
+# Callable(object, name) and Signal(object, name) with a name known only at
+# run time, which the engine looks up then (spec §10.4).
+pub signal dynamic_done
+pub var dynamic_hits := 0
+
+pub func add_dynamic(n: int) -> void:
+	dynamic_hits += n
+
+pub func dynamic_names(method: String, signal_name: StringName) -> Array:
+	var c := Callable(self, method)
+	c.call(2)
+	var s := Signal(self, signal_name)
+	return [dynamic_hits, s.get_name(), c.get_method()]

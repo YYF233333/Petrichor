@@ -257,6 +257,7 @@ func _ready() -> void:
 	heir.free()
 	_check(v.variant_sides() == [TYPE_STRING_NAME, TYPE_NIL, "a", 3, false], "a typed container keeps Variant as its keys or values, which the engine leaves untyped (spec §3.13)")
 	_check(v.engine_enum_names() == ["EASE_OUT", Tween.EASE_IN_OUT, MOUSE_BUTTON_RIGHT, 3], "the name of an engine's enum as a value gives its names and values (spec §3.7)")
+	_check(v.dynamic_names("add_dynamic", &"dynamic_done") == [2, &"dynamic_done", &"add_dynamic"], "Callable(object, name) and Signal(object, name) with a name known only at run time (spec §10.4)")
 	var gone_node := Node.new()
 	gone_node.free()
 	_check(v.name_or_dash(null) == "-" and v.name_or_dash(v) == str(v.name) and v.callv("name_or_dash", [gone_node]) == "-", "== None narrows, and a freed object is None in T?")
