@@ -117,6 +117,7 @@
 | GDScript 从其他语言的方法信息中读取 `METHOD_FLAG_VARARG` | `modules/gdscript/gdscript_analyzer.cpp:6052-6055` | §4.6 |
 | GDScript 的方法信息不列剩余参数，只带 `METHOD_FLAG_VARARG`。函数入口把多出的实参装进新的 Array | `modules/gdscript/gdscript_compiler.cpp:2352-2355`；`modules/gdscript/gdscript_vm.cpp:634-643` | §4.6 |
 | GDScript 的函数和 lambda 可以有剩余参数，信号不能 | `modules/gdscript/gdscript_parser.cpp:1555-1578, 1690-1737, 3765` | §4.6 |
+| GDScript 把默认值编进被调函数的开头，每次调用从第一个省略的参数处求值。默认值可读前面的参数。方法信息中，不是常量的默认值记为 null | `modules/gdscript/gdscript_compiler.cpp:2438-2456`；`modules/gdscript/gdscript_vm.cpp:2781-2784`；`modules/gdscript/gdscript_parser.cpp:1704-1735`；`modules/gdscript/gdscript_analyzer.cpp:1795-1798` | §4.6 |
 | GDScript 把 `new` 当作静态的 `_init` 检查；`new` 由 GDScript 自己绑定，Script 基类没有 | `modules/gdscript/gdscript_analyzer.cpp:5958-5961`；`modules/gdscript/gdscript.cpp:1078` | §10.1 |
 | GDScript 的 `new` 构造原生对象，运行各类的成员初始化式，再把实参交给继承链上最近的 `_init` | `modules/gdscript/gdscript.cpp:125-152, 176-194, 210-254` | §6.1、§11.1 |
 | GDScript 不按覆盖规则检查 `_init` 的签名 | `modules/gdscript/gdscript_analyzer.cpp:1830-1875` | §4.8、§6.1 |
