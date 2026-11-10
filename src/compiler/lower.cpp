@@ -3529,7 +3529,8 @@ public:
 
 		// The constants the engine and GDScript read by name (spec §10.5, §11.3).
 		for (const ConstDecl *constant : cls.all_constants) {
-			if (constant->value) {
+			// One naming an enum with payloads has no value (spec §3.7).
+			if (constant->value && !(constant->value->names_enum && constant->type.kind == TypeKind::PayloadEnum)) {
 				module.named_constants.push_back({ constant->name, shared_constant(*constant->value), constant->is_pub });
 			}
 		}

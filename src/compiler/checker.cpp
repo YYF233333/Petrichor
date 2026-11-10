@@ -1003,9 +1003,10 @@ class Checker : public ClassRelation {
 	// A type this class declares, by its bare name: an interface, a struct or
 	// an enum, or an enum that a constant names.
 	std::optional<Type> own_type(const std::string &p_name, uint32_t p_token) {
-		if (const EnumDecl *aliased = constant_index.count(p_name) ? aliased_enum(p_name) : nullptr) {
+		if (const std::optional<Type> aliased = constant_index.count(p_name) ? aliased_enum_type(p_name) : std::nullopt) {
+			const EnumDecl *decl = aliased_enum(p_name);
 			refer(p_token, alias_id(p_name));
-			return aliased->type;
+			return decl ? decl->type : *aliased;
 		}
 		for (const InterfaceDecl &interface : cls.interfaces) {
 			if (interface.name == p_name) {
@@ -1525,7 +1526,17 @@ class Checker : public ClassRelation {
 			const ClassScope scope(*this);
 			const bool was_in_constant = in_constant;
 			in_constant = true;
-			r_decl.value = constant_value(*r_decl.initializer, r_decl.declared_type, r_decl.type);
+			// One initialized with the name of an enum with payloads names the
+			// enum, but has no value, as the name has none (spec §3.7).
+			if (const EnumDecl *payload = r_decl.declared_type ? nullptr : initializer_payload_enum(*r_decl.initializer)) {
+				auto alias = std::make_shared<ConstValue>();
+				alias->type = payload->type;
+				alias->names_enum = true;
+				r_decl.type = payload->type;
+				r_decl.value = alias;
+			} else {
+				r_decl.value = constant_value(*r_decl.initializer, r_decl.declared_type, r_decl.type);
+			}
 			in_constant = was_in_constant;
 		}
 		r_decl.state = ConstDecl::State::Checked;
@@ -1541,8 +1552,30 @@ class Checker : public ClassRelation {
 		if (p_decl.type.is_error()) {
 			return set(r_expr, p_decl.type);
 		}
+		if (names_payload_enum(p_decl)) {
+			return fail(r_expr, p_decl.name + " names an enum with payloads, whose name is no value; its variants are.");
+		}
 		r_expr.constant = p_decl.value;
 		return set(r_expr, p_decl.type);
+	}
+
+	// The enum with payloads that a constant's initializer names, also through
+	// another constant, which is checked as any use of it checks it.
+	const EnumDecl *initializer_payload_enum(Expr &r_initializer) {
+		if (r_initializer.kind == ExprKind::Name && !visible_local(r_initializer.text) && constant_index.count(r_initializer.text)) {
+			const EnumDecl *decl = aliased_enum(r_initializer.text);
+			if (!decl || !decl->has_payloads) {
+				return nullptr;
+			}
+			refer(r_initializer.name_token, alias_id(r_initializer.text));
+			return decl;
+		}
+		return payload_enum_named(r_initializer);
+	}
+
+	// A constant initialized with the name of an enum with payloads.
+	static bool names_payload_enum(const ConstDecl &p_decl) {
+		return p_decl.value && p_decl.value->names_enum && p_decl.type.kind == TypeKind::PayloadEnum;
 	}
 
 	// A constant this class declares or inherits, checked; null if none.
@@ -1837,13 +1870,83 @@ class Checker : public ClassRelation {
 	// The enum that a constant of this class names, being initialized with
 	// the enum's name, as in `const STATE = Inspector.STATE` (spec §3.7).
 	const EnumDecl *aliased_enum(const std::string &p_name) {
-		const ConstDecl *constant = own_constant(p_name);
-		if (!constant || !constant->value || !constant->value->names_enum || constant->type.args.size() != 2 || constant->type.args[1].kind != TypeKind::Enum) {
+		const std::optional<Type> type = aliased_enum_type(p_name);
+		if (!type || type->values->is_engine) {
 			return nullptr;
 		}
-		const Type &type = constant->type.args[1];
-		const ClassDecl *decl = type.script == options.path ? &cls : script_decl(type.script);
-		return decl ? decl->find_enum(type.interface_name()) : nullptr;
+		const ClassDecl *decl = type->script == options.path ? &cls : script_decl(type->script);
+		return decl ? decl->find_enum(type->interface_name()) : nullptr;
+	}
+
+	// The enum, of this language or of the engine, that a constant of this
+	// class names, as `const EASE = Tween.EaseType`: its Dictionary's values,
+	// or for an enum with payloads, which has none, its own type.
+	std::optional<Type> aliased_enum_type(const std::string &p_name) {
+		const ConstDecl *constant = own_constant(p_name);
+		if (!constant || !constant->value || !constant->value->names_enum) {
+			return std::nullopt;
+		}
+		const Type &type = names_payload_enum(*constant) ? constant->type : constant->type.args.size() == 2 ? constant->type.args[1]
+																											: constant->type;
+		if (type.kind != TypeKind::Enum && type.kind != TypeKind::PayloadEnum) {
+			return std::nullopt;
+		}
+		return type.values ? std::optional<Type>(type) : std::nullopt;
+	}
+
+	// The engine's enum that the base of `Tween.EaseType.EASE_IN` or
+	// `EASE.EASE_IN` names: by the engine's name, unless a closer one hides
+	// it, or by a constant that names it (spec §3.7).
+	std::optional<Type> named_engine_enum_base(const Expr &p_base) {
+		if (p_base.kind == ExprKind::Name) {
+			if (visible_local(p_base.text) || member_index.count(p_base.text) || engine.find_property(cls.native_base, p_base.text)) {
+				return std::nullopt;
+			}
+			if (constant_index.count(p_base.text)) {
+				const std::optional<Type> aliased = aliased_enum_type(p_base.text);
+				if (aliased && aliased->values->is_engine) {
+					refer(p_base.name_token, alias_id(p_base.text));
+					return aliased;
+				}
+				return std::nullopt;
+			}
+			if (declared_in_scope(p_base.text)) {
+				return std::nullopt;
+			}
+			if (const std::optional<Type> found = named_engine_enum(p_base.text)) {
+				refer_engine_enum(p_base.text, p_base.name_token, p_base.name_token);
+				return found;
+			}
+			// One of the engine class this one extends, such as ProcessMode (spec §4.1).
+			const std::optional<Type> found = engine.find_enum(cls.native_base, p_base.text);
+			if (found) {
+				refer(p_base.name_token, engine_id(found->name.substr(0, found->name.find('.')), p_base.text));
+			}
+			return found;
+		}
+		if (p_base.kind != ExprKind::Member || !p_base.base || !names_type(*p_base.base)) {
+			return std::nullopt;
+		}
+		const std::string name = p_base.base->text + "." + p_base.text;
+		const std::optional<Type> found = named_engine_enum(name);
+		if (found) {
+			refer_engine_enum(name, p_base.base->name_token, p_base.name_token);
+		}
+		return found;
+	}
+
+	// A value of the engine's enum by its name, as `Tween.EaseType.EASE_IN`.
+	Type check_engine_enum_value(Expr &r_expr, const Type &p_enum) {
+		for (const auto &[name, number] : p_enum.values->list) {
+			if (name == r_expr.text) {
+				r_expr.target = Target::Constant;
+				r_expr.constant = enum_constant(number, p_enum);
+				const size_t dot = p_enum.name.find('.');
+				refer(r_expr.name_token, engine_id(dot == std::string::npos ? "@GlobalScope" : p_enum.name.substr(0, dot), name));
+				return set(r_expr, p_enum);
+			}
+		}
+		return fail(r_expr, p_enum.name + " has no value \"" + r_expr.text + "\".");
 	}
 
 	// Whether `Class.Name` names an enum of a class of this language, found
@@ -1965,6 +2068,13 @@ class Checker : public ClassRelation {
 				return std::nullopt;
 			}
 			name = r_call.base->text + "." + r_call.text;
+		} else if (constant_index.count(name) && !visible_local(name)) {
+			const std::optional<Type> aliased = aliased_enum_type(name);
+			if (!aliased || !aliased->values->is_engine) {
+				return std::nullopt;
+			}
+			refer(r_call.name_token, alias_id(name));
+			return aliased;
 		} else if (declared_in_scope(name)) {
 			return std::nullopt;
 		}
@@ -2799,6 +2909,9 @@ class Checker : public ClassRelation {
 		}
 		if (const EnumDecl *decl = named_enum(base)) {
 			return check_enum_value(r_expr, *decl);
+		}
+		if (const std::optional<Type> engine_enum = named_engine_enum_base(base)) {
+			return check_engine_enum_value(r_expr, *engine_enum);
 		}
 		if (names_enum_of_class(base, r_expr.text)) {
 			// `Player.State`, the enum's name as a value.

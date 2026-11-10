@@ -92,6 +92,13 @@ TEST_CASE("a constant initialized with an enum's name names the same enum (spec 
 	// gdUnit4's `const STATE = GdUnitInspectorTreeConstants.STATE`.
 	const compiler::CompileResult result = compile_in("extends Node\nconst STATE = Player.State\n\nfunc f(s: STATE) -> Player.State:\n\treturn STATE.RUN if s == STATE.IDLE else STATE(0)\n", project());
 	CHECK_MESSAGE(result.ok(), messages(result));
+	// An engine's enum too, whose values its name also qualifies.
+	const char *const ease = "const EASE = Tween.EaseType\n\n";
+	CHECK(errors("var e: EASE = EASE.EASE_IN\ne = EASE(n)\nvar t: Tween.EaseType = e\nvar names: Array[String] = EASE.keys()\n"
+				 "var o := Tween.EaseType.EASE_OUT\nt = o\nvar b: MouseButton = MouseButton.MOUSE_BUTTON_LEFT\nvar a: Vector3.Axis = Vector3.Axis.AXIS_Y",
+			ease)
+					.empty());
+	CHECK(contains(errors("var e := EASE.EASE_SIDEWAYS", ease), "Tween.EaseType has no value \"EASE_SIDEWAYS\"."));
 }
 
 TEST_CASE("the engine's enums are enum types too, and its bitfields stay int (spec §3.7)") {

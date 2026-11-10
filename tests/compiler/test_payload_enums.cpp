@@ -32,6 +32,15 @@ TEST_CASE("a variant is made with its fields by name, and compares and orders as
 	CHECK(contains(errors("\tprint(c < c)\n\treturn 0"), "Values of type Moves.Command are not ordered"));
 }
 
+TEST_CASE("the name of an enum with payloads is no value, but a constant initialized with it names it (spec §3.7)") {
+	const auto aliased = [](const std::string &p_body) {
+		return messages(compile(std::string(HEAD) + "const C = Command\n\nfunc f(c: Command) -> int:\n" + p_body + "\n"));
+	};
+	CHECK(aliased("\tvar a: C = C.MOVE(target = Vector3.ZERO)\n\tvar b: Command = a\n\tvar d := C.IDLE\n\tc = d\n\tmatch b:\n\t\tC.MOVE(var target):\n\t\t\treturn int(target.x)\n\t\t_:\n\t\t\treturn 0").empty());
+	CHECK(contains(aliased("\tprint(C.keys())\n\treturn 0"), "Command has no variant \"keys\"."));
+	CHECK(contains(aliased("\tvar d = C\n\treturn 0"), "C names an enum with payloads, whose name is no value; its variants are."));
+}
+
 TEST_CASE("an enum with payloads is named, without int values, has no default and is not exported") {
 	CHECK(contains(messages(compile("extends Node\n\nenum { A(x: int) }\n")), "An enum with payloads needs a name"));
 	CHECK(contains(messages(compile("extends Node\n\nenum E { A = 1, B(x: int) }\n")), "The variants of an enum with payloads have no int values."));
