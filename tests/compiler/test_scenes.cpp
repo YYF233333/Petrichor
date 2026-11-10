@@ -210,6 +210,29 @@ TEST_CASE("preload() of a scene is a PackedScene of the scene's root") {
 	CHECK_MESSAGE(bytecode::verify(containers.module, problem), problem);
 }
 
+TEST_CASE("load() of a literal path in the project is typed as preload() types it (spec §7.4)") {
+	FakeProject project;
+	project.add_script("res://objects/impact.pet", "extends Node3D\n\npub func play_shot():\n\tpass\n");
+	compiler::Scene impact;
+	impact.path = "res://objects/impact.tscn";
+	impact.nodes = { { ".", "Node3D", "res://objects/impact.pet" } };
+	project.scenes = { impact };
+	project.resources["res://icon.png"] = { "Texture2D", "" };
+	project.resources["res://units/unit.gd"] = { "GDScript", "" };
+	const auto errors = [&](const std::string &p_body) {
+		return messages(compile_in("extends Node\n\nfunc f(path: String):\n\t" + p_body + "\n", project));
+	};
+	CHECK(errors("load(\"res://objects/impact.tscn\").instantiate().play_shot()\n\tvar t: Texture2D = load(\"icon.png\")\n\tvar s: GDScript = load(\"res://units/unit.gd\")").empty());
+	// A path the project does not have, or outside it, or known at run time.
+	CHECK(contains(errors("var s: PackedScene = load(\"res://missing.tscn\")"), "Cannot assign a value of type Resource? as PackedScene"));
+	CHECK(contains(errors("var s: Resource = load(\"user://save.tres\")"), "Cannot assign a value of type Resource? as Resource"));
+	CHECK(contains(errors("var s: PackedScene = load(path)"), "Cannot assign a value of type Resource? as PackedScene"));
+	// Checked at run time, which a failed load does not pass.
+	const compiler::CompileResult result = compile_in("extends Node\n\nfunc f():\n\tvar t := load(\"res://icon.png\")\n", project);
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	find_instruction(function_named(result.module, "f"), bytecode::Op::CHECK_OBJECT);
+}
+
 // Spec §7.6.
 TEST_CASE("a preload whose file loads the script again is an error") {
 	FakeProject project;

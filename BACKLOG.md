@@ -19,7 +19,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - a node of a scene whose script is abstract (§4.1).
 - `@parent(T)` (spec §7.3).
 - `weak[T]` (spec §3.12).
-- A literal path of `load` typed as preload types it (spec §7.4).
 - Nodes in scenes typed by their GDScript class rather than its engine class (spec §11.1).
 - Containers of function types and of `Task[T]`, which the checker says are not supported yet (`container_element`).
   - Spec §3.8 gives elements of this language's own types its own representation, as for structs.

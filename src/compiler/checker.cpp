@@ -3233,6 +3233,58 @@ class Checker : public ClassRelation {
 		return has_extension(p_file, { ".pet", ".gd", ".cs" });
 	}
 
+	static bool is_scene_file(const std::string &p_file) {
+		return has_extension(p_file, { ".tscn", ".scn" });
+	}
+
+	// The type of the resource in a file other than a script, by what it holds
+	// (spec §7.4): a scene is PackedScene[T], T its root's type; any other
+	// resource the class its file loads as, or its script's class. nullopt
+	// when the project has no such file.
+	std::optional<Type> content_type(const Expr &p_at, const std::string &p_file) {
+		if (is_scene_file(p_file)) {
+			const std::optional<Scene> scene = options.project ? options.project->scene(p_file) : std::nullopt;
+			const SceneNode *root = scene ? scene->find_node(".") : nullptr;
+			if (!root) {
+				return std::nullopt;
+			}
+			const Type root_type = scene_node_type(p_at, *root, "The root of " + p_file);
+			return root_type.is_error() ? root_type : Type::scene(root_type);
+		}
+		const std::optional<ResourceInfo> resource = options.project ? options.project->resource(p_file) : std::nullopt;
+		if (!resource) {
+			return std::nullopt;
+		}
+		return resource_type(p_at, p_file, *resource);
+	}
+
+	// load() of one literal path in the project, typed as preload() types it
+	// (spec §7.4), but a script as the resource it is, not its class (§2.1).
+	// A relative path is from res://, as the engine resolves it
+	// (core/io/resource_loader.cpp:693-694, ed1daf0). nullopt for any other
+	// path, and for a file the project does not have, which the engine's
+	// Resource? types.
+	std::optional<Type> literal_load(const Expr &p_call) {
+		if (p_call.args.size() != 1 || p_call.args[0]->kind != ExprKind::StringLiteral || p_call.args[0]->op != TokenKind::String) {
+			return std::nullopt;
+		}
+		const std::string &written = p_call.args[0]->text;
+		if (written.find("://") != std::string::npos && written.rfind("res://", 0) != 0 && written.rfind("uid://", 0) != 0) {
+			return std::nullopt; // Such as user://.
+		}
+		const std::string file = preload_file(resolved_path(written, "res://"));
+		if (file.empty()) {
+			return std::nullopt;
+		}
+		if (is_script_file(file)) {
+			return options.project && options.project->resource(file) ? std::optional<Type>(script_value_type(file)) : std::nullopt;
+		}
+		if (options.declarations_only) {
+			return Type::of(TypeKind::Error); // Resources are not read while loading.
+		}
+		return content_type(p_call, file);
+	}
+
 	// preload() of a resource (spec §7.4): a scene is PackedScene[T], T its
 	// root's type; a script its class (§2.1); any other resource the class its
 	// file loads as, or its script's class. It is a constant, which the class
@@ -3276,26 +3328,15 @@ class Checker : public ClassRelation {
 			// a constant still holds it, for GDScript to read (spec §11.3).
 			r_expr.constant = loaded(Type::object("Resource"));
 			return set(r_expr, Type::of(TypeKind::Error));
-		} else if (has_extension(file, { ".tscn", ".scn" })) {
-			const std::optional<Scene> scene = options.project ? options.project->scene(file) : std::nullopt;
-			const SceneNode *root = scene ? scene->find_node(".") : nullptr;
-			if (!root) {
-				return fail(r_expr, "There is no scene at " + file + ".");
-			}
-			const Type root_type = scene_node_type(r_expr, *root, "The root of " + file);
-			if (root_type.is_error()) {
-				return set(r_expr, root_type);
-			}
-			type = Type::scene(root_type);
 		} else {
-			const std::optional<ResourceInfo> resource = options.project ? options.project->resource(file) : std::nullopt;
-			if (!resource) {
-				return fail(r_expr, "There is no resource at " + file + ".");
+			const std::optional<Type> content = content_type(r_expr, file);
+			if (!content) {
+				return fail(r_expr, std::string(is_scene_file(file) ? "There is no scene at " : "There is no resource at ") + file + ".");
 			}
-			type = resource_type(r_expr, file, *resource);
-			if (type.is_error()) {
-				return set(r_expr, type);
+			if (content->is_error()) {
+				return set(r_expr, *content);
 			}
+			type = *content;
 		}
 		if (options.project && !options.declarations_only) {
 			check_load_cycle(r_expr, file);
@@ -6182,9 +6223,11 @@ class Checker : public ClassRelation {
 			}
 			if (name == "load" && engine.is_singleton("ResourceLoader")) {
 				// GDScript's load() is ResourceLoader.load(), whose result may be
-				// None (spec §7.4, §10.2).
+				// None (spec §7.4, §10.2), but of a literal path as preload().
 				on_resource_loader(r_expr);
-				return check_call(r_expr);
+				const Type result = check_call(r_expr);
+				const std::optional<Type> loaded = result.is_error() ? std::nullopt : literal_load(r_expr);
+				return loaded ? set(r_expr, *loaded) : result;
 			}
 		}
 

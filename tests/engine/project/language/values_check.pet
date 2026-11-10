@@ -387,3 +387,11 @@ pub func variant_sides() -> Array:
 	var list: Array[Variant] = [1, "b"]
 	list.append(Vector2())
 	return [props.get_typed_key_builtin(), props.get_typed_value_builtin(), props[&"tag"], list.size(), list.is_typed()]
+
+# load() of a literal path, typed by what the file holds as preload() types it
+# (spec §7.4): the root of nodes.tscn has nodes_check.pet.
+pub func loaded_scene() -> String:
+	var made := load("res://language/nodes.tscn").instantiate()
+	var caption := made.caption()
+	made.free()
+	return caption

@@ -208,6 +208,7 @@ func _ready() -> void:
 	var missing_resource = v.loaded("res://language/missing.tres")
 	_check_errors(["Cannot open file 'res://language/missing.tres'.", "Failed loading resource: res://language/missing.tres.", "Error loading resource: 'res://language/missing.tres'."], "a resource that does not exist is the engine's to report")
 	_check(v.loaded("res://language/nodes.tscn") is PackedScene and missing_resource == null, "load() with a path known at run time")
+	_check(v.loaded_scene() == "from the scene", "load() of a literal path is typed by the scene it loads")
 	_check(v.pressed() == false, "a method of the Input singleton")
 	var listed_properties := {}
 	for property in v.get_property_list():
