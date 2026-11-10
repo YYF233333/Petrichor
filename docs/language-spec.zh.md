@@ -115,15 +115,14 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
   var c = Command.MOVE(target = Vector3.ZERO)
   ```
 
-- **interface**：缩进块，可声明 `var`、`signal` 和 `func`。无函数体的方法不写冒号，有函数体的是默认方法。属性默认要求可读写，只要求可读的标 `@readonly`；接口成员均为公开：
+- **interface**：缩进块，可声明 `var`、`signal` 和无函数体的 `func`，方法不写冒号。属性默认要求可读写，只要求可读的标 `@readonly`；接口成员均为公开：
 
   ```gdscript
   pub interface Damageable:
       var hp: int
       signal died
       func take_damage(amount: int)
-      func is_dead() -> bool:
-          return hp <= 0
+      func is_dead() -> bool
   ```
 
 - **实现与继承接口**：类头写 `implements A, B`；接口继承接口写作 `interface Combatant extends Damageable, Healable:`。
@@ -271,10 +270,10 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 ### 3.9 接口
 
 - 名义接口：类须以 `implements` 显式声明，且只有本语言的类能实现接口。实现接口的成员须标 `pub`，方法不能是 `static`。
-- 可声明方法（含默认方法）、属性和信号。继承来的引擎属性可满足同类型的属性要求。未标 `@readonly` 的属性要求可读写。可读写的成员可满足 `@readonly`，而无 setter 的引擎属性只能满足 `@readonly`。默认方法写 `@readonly` 属性，或在接口外使用 `@readonly`，均报编译错误。
+- 可声明方法、属性和信号，都是对实现类的要求。继承来的引擎属性可满足同类型的属性要求。未标 `@readonly` 的属性要求可读写。可读写的成员可满足 `@readonly`，而无 setter 的引擎属性只能满足 `@readonly`。在接口外使用 `@readonly` 报编译错误。
 - 接口的信号是要求，与属性相同。类自己声明的、继承来的和引擎类的同名信号都能满足它。它须带 `pub`，参数类型须完全一致。
-- 接口可 `extends` 多个父接口。子接口可以协变返回类型重声明父接口方法。父接口同名成员签名不兼容，或继承成环，报编译错误。多个父接口对同名方法都有默认实现时，子接口或实现类必须覆盖。
-- 【已知限制】第一版没有带状态的 mixin，接口也不能是泛型。声明 `interface Source[T]:` 报编译错误。
+- 接口可 `extends` 多个父接口。子接口可以协变返回类型重声明父接口方法。父接口同名成员签名不兼容，或继承成环，报编译错误。
+- 【已知限制】第一版的接口没有默认方法和带状态的 mixin，也不能是泛型。声明 `interface Source[T]:` 报编译错误。
 
 ### 3.10 泛型
 
@@ -977,6 +976,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 - **语言特性**：
   - 用户定义泛型与泛型接口；
+  - 接口的默认方法；
   - 别名/`import` 与跨类访问 `preload` 类；
   - 两个文件互相继承对方的类；
   - 更严的 `private`；

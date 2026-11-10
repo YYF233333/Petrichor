@@ -7,7 +7,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Of `_init` on Node and Resource scripts (spec §6.2):
   - `instantiate(...)` still asks by name for a member that the root's `_init` assigns. The checker does not check that body, which is in another file.
   - A scene or `.tres` using a script whose `_init` has required parameters is a compile error. Now the engine's construction gives the program error.
-- Signals and default methods of interfaces, and interfaces that extend others (spec §3.9).
+- Signals of interfaces, and interfaces that extend others (spec §3.9).
 - A struct or an enum with payloads that holds itself through a container (spec §3.6). The type table cannot list it, since a type's parts come before it.
 - `Class.new` as a value (spec §3.11), as gdUnit4 passes `GdUnitTuple.new` to `callv`. It must construct as `new(...)` does. PetScript's `new` refuses a non-pub `_init` that the caller sees, so the two share the construction.
 - Static checks of:
@@ -19,7 +19,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - a node of a scene whose script is abstract (§4.1).
 - `@parent(T)` (spec §7.3).
 - `weak[T]` (spec §3.12).
-- Nodes in scenes typed by their GDScript class rather than its engine class (spec §11.1).
 - Containers of function types and of `Task[T]`, which the checker says are not supported yet (`container_element`).
   - Spec §3.8 gives elements of this language's own types its own representation, as for structs.
   - Until then, `Task.all()` and `Task.any()` take only tasks written in brackets.
