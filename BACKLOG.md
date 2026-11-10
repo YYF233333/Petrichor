@@ -57,6 +57,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Runtime
 
+- The saved state of an instance lists only its exported members. The engine's default lists every property stored, those of `_get_property_list()` included (`core/object/script_instance.cpp:61-73`, `ed1daf0`). The inspector keeps that state across a reload of the script (`editor/docks/inspector_dock.cpp:631-637`, `ed1daf0`).
 - Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`).
 - Ordering of arrays of engine types as spec §5.2 says. It differs from the engine's operators only with NaN, so it waits for the open question on NaN.
 - Range checks of ints passed through an engine method's value, as `f.call(x)` (spec §10.6). The value is the engine's Callable, which converts without them.
