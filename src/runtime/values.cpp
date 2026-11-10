@@ -1298,7 +1298,11 @@ uint32_t hash_contents(const Variant &p_value, int p_depth) {
 
 String value_text(const TypeImage &p_type, const uint8_t *p_slot) {
 	if (is_option(p_type)) {
-		return tag(p_slot) ? value_text(*p_type.element, p_slot + 8) : String("None");
+		if (!tag(p_slot)) {
+			return "None";
+		}
+		const String inner = value_text(*p_type.element, p_slot + 8);
+		return inner == "None" ? String("Some(None)") : inner; // Of T?? (spec §3.4).
 	}
 	if (is_result(p_type)) {
 		const FieldImage &field = p_type.fields[1 + tag(p_slot)];

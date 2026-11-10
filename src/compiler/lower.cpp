@@ -103,7 +103,7 @@ struct Place {
 	};
 	Kind kind = Kind::Local;
 	uint32_t reg = NO_REG; // Local: the register; ObjectProperty: the object; Field: the copy of the base; StructCopy: the field in the copy; Element: the container.
-	uint32_t index = 0; // Member, property table or field table.
+	uint32_t index = 0; // Member, property table or field table; NarrowedLocal: the local.
 	uint32_t at = NO_REG;
 	uint32_t offset = 0;
 	uint32_t whole = NO_REG;
@@ -483,12 +483,13 @@ class Lowerer {
 	}
 
 	// A method of T? (spec §3.4), as result_method() lowers those of Result.
-	// filter() goes on as None when its function says no.
+	// filter() goes on as None when its function says no; flatten() gives the
+	// T? inside.
 	uint32_t option_method(const Expr &p_call) {
 		const Type &type = p_call.base->type;
 		const std::string &name = p_call.text;
 		const uint32_t value = lower_expr(*p_call.base);
-		const uint32_t argument = convert(lower_expr(*p_call.args[0]), p_call.args[0]->type, p_call.param_types[0]);
+		const uint32_t argument = p_call.args.empty() ? NO_REG : convert(lower_expr(*p_call.args[0]), p_call.args[0]->type, p_call.param_types[0]);
 		const uint32_t result = temp(p_call.type);
 		const uint32_t none = temp(ValueType::Bool);
 		instr(Op::IS_NONE, none, value, NO_REG, 0, fn.regs[value].type);
@@ -505,7 +506,7 @@ class Lowerer {
 			move(result, value);
 		} else {
 			const uint32_t inner = temp(type.unwrapped());
-			instr(Op::UNWRAP, inner, value, NO_REG, 0, fn.regs[inner].type);
+			instr(Op::UNWRAP, inner, value);
 			if (name == "filter") {
 				const uint32_t kept_block = new_block();
 				branch(called(inner), kept_block, none_block);
@@ -563,7 +564,7 @@ class Lowerer {
 		if (type.is_result()) {
 			move(result, field_view(value, variant_field(type, 0, 0)));
 		} else {
-			instr(Op::UNWRAP, result, value, NO_REG, 0, fn.regs[result].type);
+			instr(Op::UNWRAP, result, value);
 		}
 		return result;
 	}
@@ -1040,7 +1041,7 @@ class Lowerer {
 		uint32_t value = p_value;
 		if (p_call.engine_return.nullable) {
 			value = temp(p_call.type.args[0]);
-			instr(Op::UNWRAP, value, p_value, NO_REG, 0, fn.regs[value].type);
+			instr(Op::UNWRAP, value, p_value);
 		}
 		make_variant(result, p_call.type, 0, { value });
 		jump(end_block);
@@ -1498,7 +1499,8 @@ class Lowerer {
 		branch(empty, missing, found);
 		current = found;
 		const uint32_t value = call_builtin(engine_builtin_method(ValueType::Array, p_call.text.c_str(), {}, ValueType::Variant), array, {}, temp(ValueType::Variant));
-		instr(Op::SOME, result, value, NO_REG, 0, fn.regs[result].type);
+		const std::vector<Type> &element = p_call.base->type.args;
+		instr(Op::SOME, result, element.empty() ? value : from_variant(value, element[0]), NO_REG, 0, fn.regs[result].type);
 		jump(end);
 		current = missing;
 		default_value(result);
@@ -1791,11 +1793,15 @@ class Lowerer {
 				return construct_struct(p_call.type, &p_call);
 			case Target::VariantConstructor:
 				return construct_variant(p_call);
+			case Target::Some: {
+				const Type &value = p_call.param_types[0];
+				return convert(convert(lower_expr(*p_call.args[0]), p_call.args[0]->type, value), value, p_call.type);
+			}
 			case Target::Unwrap: {
 				const uint32_t value = lower_expr(*p_call.base);
 				const uint32_t message = p_call.args.empty() ? NO_REG : convert(lower_expr(*p_call.args[0]), p_call.args[0]->type, Type::of(TypeKind::String));
 				const uint32_t result = temp(p_call.type);
-				instr(Op::UNWRAP, result, value, message, 0, fn.regs[result].type);
+				instr(Op::UNWRAP, result, value, message);
 				return result;
 			}
 			case Target::OptionMethod:
@@ -2512,6 +2518,7 @@ class Lowerer {
 				const Type &declared = decl->locals[p_expr.index].type;
 				if (declared.kind == TypeKind::Option && p_expr.type != declared) {
 					place.kind = Place::Kind::NarrowedLocal;
+					place.index = uint32_t(p_expr.index);
 				} else if (p_expr.type != declared && (declared.kind == TypeKind::Variant || (!is_typed_container(declared) && is_typed_container(p_expr.type)))) {
 					place.kind = Place::Kind::Retyped;
 				}
@@ -2574,16 +2581,17 @@ class Lowerer {
 			case Place::Kind::Local:
 				return p_place.reg;
 			case Place::Kind::NarrowedLocal: {
-				const uint32_t element = module.types[fn.regs[p_place.reg].type].element;
-				if (module.types[element].kind == bytecode::TypeKind::Value && module.types[element].value == ValueType::Variant && p_place.type.kind != TypeKind::Variant) {
-					// A Variant? known to hold a T (spec §5.4).
-					const uint32_t variant = temp(ValueType::Variant);
-					instr(Op::UNWRAP, variant, p_place.reg, NO_REG, 0, fn.regs[variant].type);
-					return from_variant(variant, p_place.type);
+				// A level of T? at a time, down to the type it is known to have; a
+				// Variant? known to hold a T, as that T (spec §5.4).
+				Type type = decl->locals[p_place.index].type;
+				uint32_t value = p_place.reg;
+				while (type.kind == TypeKind::Option && type != p_place.type) {
+					type = Type(type.args[0]); // A copy: assigning would free what it reads.
+					const uint32_t inner = temp(type);
+					instr(Op::UNWRAP, inner, value);
+					value = inner;
 				}
-				const uint32_t result = temp(p_place.type);
-				instr(Op::UNWRAP, result, p_place.reg, NO_REG, 0, fn.regs[result].type);
-				return result;
+				return type.kind == TypeKind::Variant && p_place.type.kind != TypeKind::Variant ? from_variant(value, p_place.type) : value;
 			}
 			case Place::Kind::Retyped: {
 				if (reg_type(p_place.reg) == ValueType::Variant) {
@@ -2662,9 +2670,8 @@ class Lowerer {
 				move(p_place.reg, p_value);
 				return;
 			case Place::Kind::NarrowedLocal: {
-				const bytecode::TypeDesc &element = module.types[module.types[fn.regs[p_place.reg].type].element];
-				const bool variant = element.kind == bytecode::TypeKind::Value && element.value == ValueType::Variant;
-				instr(Op::SOME, p_place.reg, variant ? as_variant(p_value) : p_value, NO_REG, 0, fn.regs[p_place.reg].type);
+				const Type &inner = decl->locals[p_place.index].type.args[0];
+				instr(Op::SOME, p_place.reg, convert(p_value, p_place.type, inner), NO_REG, 0, fn.regs[p_place.reg].type);
 				return;
 			}
 			case Place::Kind::Retyped:
@@ -2959,7 +2966,7 @@ class Lowerer {
 					move(local, p_value);
 				} else {
 					// The T inside a T? that a branch before took None of.
-					instr(Op::UNWRAP, local, p_value, NO_REG, 0, fn.regs[local].type);
+					instr(Op::UNWRAP, local, p_value);
 				}
 				break;
 			}
@@ -2981,7 +2988,7 @@ class Lowerer {
 					current = next_block;
 					if (p_pattern.variant == 1) {
 						const uint32_t inner = temp(type.unwrapped());
-						instr(Op::UNWRAP, inner, p_value, NO_REG, 0, fn.regs[inner].type);
+						instr(Op::UNWRAP, inner, p_value);
 						lower_pattern(p_pattern.items[0], inner, p_fail);
 					}
 					return;

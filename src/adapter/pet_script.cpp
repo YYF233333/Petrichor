@@ -470,9 +470,13 @@ void PetScript::instance_freed(PetInstance *p_instance) {
 }
 
 bool PetScript::is_visible(const ClassImage &p_image, const bytecode::Member &p_member) {
-	const bytecode::TypeKind kind = p_image.module.types[p_member.type].kind;
+	uint32_t type = p_member.type;
+	while (p_image.module.types[type].kind == bytecode::TypeKind::Option) {
+		type = p_image.module.types[type].element;
+	}
+	const bytecode::TypeKind kind = p_image.module.types[type].kind;
 	const bool container = kind == bytecode::TypeKind::Array || kind == bytecode::TypeKind::Dictionary;
-	return p_member.is_pub && !(container && bytecode::is_boxed(p_image.module.types, p_member.type));
+	return p_member.is_pub && !(container && bytecode::is_boxed(p_image.module.types, type));
 }
 
 int PetScript::find_visible_function(const ClassImage &p_image, const StringName &p_name) {

@@ -15,11 +15,11 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - a scene used as a root whose root has a script with `@owner` (§7.3);
   - a node of a scene whose script is abstract (§4.1).
 - Checking at compile time what resources store in exported structs and enums with payloads (spec §4.3). They are `.tres` files and resources inside scenes, which the scene index does not read. Nor does it read a node of an instanced scene that the outer scene changes.
-- `Array[T]?`, and nested `Option`:
-  - `T??` and `Some(...)`, with `flatten()` (spec §3.4);
-  - `pop_front()` and `pop_back()` of `Array[T?]` giving `T??`;
-  - `map()` of `T?` whose function returns `U?`;
-  - `ok()` and `err()` of `Result[T?, E]` and `Result[T, E?]`.
+- How `T??` crosses the engine boundary (spec §10.1), where `None` and `Some(None)` would both be null. Until then, pub members and parameters, signal parameters and coroutine results of `T??` are refused. These still lose `Some(None)`:
+  - `Variant?` in those places;
+  - `T??` in a struct or `Result` that crosses, and in `Array(a)`;
+  - the result of an async lambda, and the arguments of `bind()`.
+- `find_key()` of `Dictionary[T?, V]` for an object `T`. The engine gives null for a missing key and for a None key.
 - `is_instance_of(v, T)` with a native class held in a variable, which waits for classes as values (spec §2.6). gdUnit4 passes them.
 - A scene used as a root through `load`, `preload` or an exported `PackedScene` (spec §7.2). The node paths of a script take a scene that is also inherited for a base used only for inheritance. It may then lack a node without an error, which the run-time check catches.
 - `pub` required on the members that animation tracks and synchronized properties name (spec §10.5). The compiler does not read them yet (spec §7.7).

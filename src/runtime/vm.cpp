@@ -2901,12 +2901,12 @@ public:
 					// An object's T? holds the object as T does, and a freed one reads
 					// as None (spec §3.3), a task's T? as T does too; T? of another
 					// type holds a tag first.
-					const bool object = type.kind == bytecode::TypeKind::Object;
-					const bool none = type.storage == ValueType::Task ? !task_at(src) : (object ? !is_live_object(src) : U64(code[pc + 3]) == 0);
+					const bool option = type.kind == bytecode::TypeKind::Option;
+					const bool none = option ? U64(code[pc + 3]) == 0 : (type.storage == ValueType::Task ? !task_at(src) : !is_live_object(src));
 					if (none) {
 						return fail_unwrap(fn, record.line, frame, code[pc + 4]);
 					}
-					copy_value(type, frame + code[pc + 2], object ? src : src + 8);
+					copy_value(option ? *type.element : type, frame + code[pc + 2], option ? src + 8 : src);
 					pc += 5;
 					break;
 				}

@@ -229,7 +229,7 @@ class Parser {
 			advance();
 			ref = type_ref();
 			expect(TokenKind::ParenClose, "\")\"");
-			ref.nullable = match(TokenKind::Question) || ref.nullable;
+			ref.optional += questions();
 			ref.range = span(first);
 			return ref;
 		}
@@ -275,9 +275,18 @@ class Parser {
 			} while (comma());
 			expect(TokenKind::BracketClose, "\"]\"");
 		}
-		ref.nullable = match(TokenKind::Question);
+		ref.optional = questions();
 		ref.range = span(first);
 		return ref;
+	}
+
+	// The ?s after a type: T? or the nested T?? (spec §3.4).
+	uint32_t questions() {
+		uint32_t count = 0;
+		while (match(TokenKind::Question)) {
+			count++;
+		}
+		return count;
 	}
 
 	/* Expressions */

@@ -113,8 +113,7 @@ std::vector<Type> param_types(const std::vector<ParamDecl> &p_params) {
 	return types;
 }
 
-// The methods of T? (spec §3.4), as Rust's; flatten() is of T??, which is
-// not supported yet.
+// The methods of T? (spec §3.4), as Rust's; flatten() only of T??.
 const std::unordered_set<std::string> &option_methods() {
 	static const std::unordered_set<std::string> methods = { "unwrap", "expect", "unwrap_or", "unwrap_or_else", "map", "and_then", "or", "or_else", "filter", "ok_or", "ok_or_else", "flatten" };
 	return methods;
@@ -1138,25 +1137,14 @@ class Checker : public ClassRelation {
 
 	Type resolve(const TypeRef &p_ref, bool p_allow_void) {
 		Type type = resolve_name(p_ref, p_allow_void);
-		if (p_ref.nullable && !type.is_error()) {
-			if (type.kind == TypeKind::Void) {
-				error(p_ref.range, "void cannot be optional.");
-				return Type::of(TypeKind::Error);
-			}
-			const std::string unsupported = unsupported_optional(type);
-			if (!unsupported.empty()) {
-				error(p_ref.range, unsupported);
-				return Type::of(TypeKind::Error);
-			}
+		if (p_ref.optional > 0 && type.kind == TypeKind::Void) {
+			error(p_ref.range, "void cannot be optional.");
+			return Type::of(TypeKind::Error);
+		}
+		for (uint32_t i = 0; i < p_ref.optional && !type.is_error(); i++) {
 			type = optional_of(type);
 		}
 		return type;
-	}
-
-	// Why T? of the type is not supported yet, or empty: the entry checks
-	// would not see its elements' type.
-	static std::string unsupported_optional(const Type &p_type) {
-		return p_type.kind == TypeKind::Builtin && !p_type.args.empty() ? p_type.to_string() + "? is not supported yet; an empty array can stand for none." : std::string();
 	}
 
 	Type resolve_name(const TypeRef &p_ref, bool p_allow_void) {
@@ -5308,12 +5296,14 @@ class Checker : public ClassRelation {
 		r_expr.engine_params = params;
 		r_expr.engine_return = result;
 		if (container && !p_base.args.empty()) {
-			// With T?, pop_front() and pop_back() give T??, which tells an empty
-			// array from a None element (spec §3.8).
-			if (container->result == bytecode::ElementRole::OptionalElement && p_base.args[0].is_optional()) {
+			// The engine's null of a missing key is also that of a None key.
+			if (container->result == bytecode::ElementRole::OptionalKey && p_base.args[0].kind == TypeKind::Object && p_base.args[0].nullable) {
 				return fail(r_expr, "\"" + r_expr.text + "()\" of " + p_base.to_string() + " gives " + p_base.args[0].to_string() + "?, which is not supported yet.");
 			}
 			container_typed(*container, p_base, params, result);
+			// With T?, pop_front() and pop_back() give T??, which tells an empty
+			// array from a None element (spec §3.8), as the engine's null does not.
+			pop_or_none = container->result == bytecode::ElementRole::OptionalElement && p_base.args[0].is_optional();
 		} else if (container && container->result == bytecode::ElementRole::OptionalElement) {
 			// Of an untyped Array, Variant?, which tells an empty array from a
 			// null element (spec §3.4, §3.8).
@@ -5547,11 +5537,16 @@ class Checker : public ClassRelation {
 		if (!option_methods().count(name)) {
 			return fail_call(r_expr, "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
 		}
-		if (name == "flatten") {
-			return fail_call(r_expr, name + "() of " + p_base.to_string() + " is not supported yet.");
-		}
 		refer(r_expr.name_token, language_id("Option", name));
 		r_expr.target = name == "unwrap" || name == "expect" ? Target::Unwrap : Target::OptionMethod;
+		if (name == "flatten") {
+			hint(r_expr, [&](int p_current) { return signature(name, {}, false, p_current, t); });
+			check_arguments(r_expr, {}, 0, false);
+			if (!value.is_optional()) {
+				return fail_call(r_expr, p_base.to_string() + " has no method \"flatten()\", which makes a T?? into a T?.");
+			}
+			return set(r_expr, value);
+		}
 		if (name == "unwrap" || name == "expect" || name == "unwrap_or" || name == "or") {
 			const std::vector<Type> params = name == "unwrap" ? std::vector<Type>() : std::vector<Type>{ name == "expect" ? Type::of(TypeKind::String) : (name == "or" ? p_base : value) };
 			const std::string shown = name == "expect" ? "message: String" : (name == "or" ? "other: " + p_base.to_string() : "default: " + t);
@@ -5590,9 +5585,6 @@ class Checker : public ClassRelation {
 		if (!returned || returned->is_error()) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
-		if (name == "map" && returned->is_optional()) {
-			return fail_call(r_expr, "map() of " + p_base.to_string() + " with a function that returns " + returned->to_string() + " would give " + returned->to_string() + "?, and nested Options are not supported yet.");
-		}
 		const bool fits = fits_type != fitting.end() ? assignable(*returned, fits_type->second) : (name == "and_then" ? returned->is_optional() : returned->kind != TypeKind::Void);
 		if (!fits) {
 			error(r_expr.args[0]->range, "The function passed to " + name + "() returns " + returned->to_string() + ", not " + returns.at(name) + ".");
@@ -5605,6 +5597,34 @@ class Checker : public ClassRelation {
 			return set(r_expr, *returned);
 		}
 		return set(r_expr, name == "ok_or_else" ? Type::result(value, *returned) : (name == "unwrap_or_else" ? value : p_base));
+	}
+
+	// `Some(v)` (spec §3.4): of the T? it goes to, which says what v is, or of
+	// v's type.
+	Type check_some(Expr &r_expr, const Type &p_expected) {
+		const Type inner = p_expected.is_optional() ? p_expected.unwrapped() : Type::of(TypeKind::Error);
+		hint(r_expr, [&](int p_current) { return signature("Some", { "value: " + (inner.is_error() ? std::string("T") : inner.to_string()) }, false, p_current, inner.is_error() ? std::string("T?") : p_expected.to_string()); });
+		if (!r_expr.arg_names.empty() || r_expr.args.size() != 1) {
+			for (auto &arg : r_expr.args) {
+				check_value(*arg);
+			}
+			return fail_call(r_expr, "Some(...) takes one value by position, as in Some(x).");
+		}
+		refer(r_expr.name_token, language_id("Option", "Some"));
+		Expr &arg = *r_expr.args[0];
+		const Type given = check_value(arg, inner);
+		if (given.is_error()) {
+			return set(r_expr, given);
+		}
+		if (!inner.is_error()) {
+			expect_assignable(arg, given, inner, "pass");
+		} else if (given.kind == TypeKind::None || given.kind == TypeKind::Void) {
+			return fail_call(r_expr, std::string("Some(") + (given.kind == TypeKind::None ? "None" : "...") + ") does not say which type it holds; declare the type it goes to.");
+		}
+		const Type value = inner.is_error() ? given : inner;
+		r_expr.target = Target::Some;
+		r_expr.param_types = { value };
+		return set(r_expr, optional_of(value));
 	}
 
 	// `Ok(v)` and `Err(e)` (spec §3.5): of the Result they go to, which says
@@ -5664,9 +5684,6 @@ class Checker : public ClassRelation {
 			const Type &inner = name == "ok" ? value : failure;
 			hint(r_expr, [&](int p_current) { return signature(name, {}, false, p_current, optional_of(inner).to_string()); });
 			check_arguments(r_expr, {}, 0, false);
-			if (inner.is_optional()) {
-				return fail_call(r_expr, name + "() of " + p_base.to_string() + " would give " + inner.to_string() + "?, and nested Options are not supported yet.");
-			}
 			return set(r_expr, optional_of(inner));
 		}
 		// The function's parameter, and what it returns as the hint shows it.
@@ -5780,12 +5797,7 @@ class Checker : public ClassRelation {
 		}
 		Type result = common_type(a, b);
 		if (result.is_error() && (a.kind == TypeKind::None) != (b.kind == TypeKind::None)) {
-			const Type &value = a.kind == TypeKind::None ? b : a;
-			const std::string unsupported = unsupported_optional(value);
-			if (!unsupported.empty()) {
-				return fail(r_expr, unsupported);
-			}
-			result = optional_of(value);
+			result = optional_of(a.kind == TypeKind::None ? b : a);
 		}
 		if (result.is_error()) {
 			return fail(r_expr, "The branches have types " + a.to_string() + " and " + b.to_string() + ", which have no common type; declare the type.");
@@ -6077,17 +6089,17 @@ class Checker : public ClassRelation {
 				r_ref.name_token = p_expr.name_token;
 				return true;
 			case ExprKind::Member:
-				if (!type_ref_of(*p_expr.base, r_ref) || !r_ref.args.empty() || r_ref.nullable) {
+				if (!type_ref_of(*p_expr.base, r_ref) || !r_ref.args.empty() || r_ref.optional > 0) {
 					return false;
 				}
 				r_ref.name += "." + p_expr.text;
 				r_ref.range = p_expr.range;
 				return true;
 			case ExprKind::Try:
-				if (!type_ref_of(*p_expr.left, r_ref) || r_ref.nullable) {
+				if (!type_ref_of(*p_expr.left, r_ref)) {
 					return false;
 				}
-				r_ref.nullable = true;
+				r_ref.optional++;
 				r_ref.range = p_expr.range;
 				return true;
 			case ExprKind::Subscript: {
@@ -6565,6 +6577,9 @@ class Checker : public ClassRelation {
 	Type type_call(Expr &r_expr, const Type &p_expected) {
 		if (!r_expr.base && (r_expr.text == "Ok" || r_expr.text == "Err") && !declares_in_script(r_expr.text)) {
 			return check_result_construction(r_expr, p_expected);
+		}
+		if (!r_expr.base && r_expr.text == "Some" && !declares_in_script(r_expr.text)) {
+			return check_some(r_expr, p_expected);
 		}
 		if (r_expr.base && r_expr.text == "try_from") {
 			if (const std::optional<Type> named = named_type(*r_expr.base)) {
@@ -7411,6 +7426,9 @@ class Checker : public ClassRelation {
 		}
 		if (p_to.kind == TypeKind::Variant && p_from == Type::option(Type::of(TypeKind::Variant))) {
 			message += " A Variant cannot tell its None from null; pass x.unwrap_or(null).";
+		}
+		if (p_to.kind == TypeKind::Variant && p_from.kind == TypeKind::Option && p_from.args[0].is_optional()) {
+			message += " A Variant cannot tell its None from Some(None); pass x.flatten().";
 		}
 		if (is_typed_container(p_to) && p_from.kind == TypeKind::Builtin && p_from.args.empty() && p_from.name == p_to.name) {
 			message += " Its elements may be of any type; narrow it with `if x is " + p_to.to_string() + ":`, or copy them in with assign().";
@@ -8769,7 +8787,7 @@ class Checker : public ClassRelation {
 			member.initial = member.must_assign ? nullptr : reflected_initial(nullptr, type);
 		}
 		const TypeKind kind = type.unwrapped().kind;
-		if (member.is_export && is_typed_container(type) && is_boxed(type)) {
+		if (member.is_export && is_typed_container(type.unwrapped()) && is_boxed(type.unwrapped())) {
 			error(member.name_token, "Containers whose elements exist only in this language, such as " + type.to_string() + ", cannot be exported: exports go through reflection, which does not list them.");
 		} else if (member.is_export && (kind == TypeKind::Struct || kind == TypeKind::PayloadEnum)) {
 			std::unordered_set<std::string> seen;
@@ -10129,6 +10147,37 @@ class Checker : public ClassRelation {
 		}
 	}
 
+	// T?? where the engine sees the value (spec §10.1): None and Some(None)
+	// would both be null there. Pub members and functions, signals, which
+	// always pass through the engine, and what coroutines return (§9.8).
+	void check_engine_options() {
+		const auto check = [&](uint32_t p_token, const std::string &p_what, const Type &p_type) {
+			if (p_type.kind == TypeKind::Option && p_type.args[0].is_optional()) {
+				error(p_token, p_what + " " + p_type.to_string() + ", which cannot cross to the engine yet: None and Some(None) would both be null there.");
+			}
+		};
+		for (const std::vector<VarDecl> *variables : { &cls.members, &cls.static_vars }) {
+			for (const VarDecl &variable : *variables) {
+				if (variable.is_pub) {
+					check(variable.name_token, "The pub \"" + variable.name + "\" has type", variable.type);
+				}
+			}
+		}
+		for (const FuncDecl &function : cls.functions) {
+			if (function.is_pub || function.is_async) {
+				check(function.name_token, "\"" + function.name + "()\" returns", function.return_type);
+			}
+			for (size_t i = 0; function.is_pub && i < function.params.size(); i++) {
+				check(function.params[i].name_token, "The parameter \"" + function.params[i].name + "\" of the pub \"" + function.name + "()\" has type", function.params[i].type);
+			}
+		}
+		for (const SignalDecl &signal : cls.signals) {
+			for (const ParamDecl &param : signal.params) {
+				check(param.name_token, "The parameter \"" + param.name + "\" of the signal \"" + signal.name + "\" has type", param.type);
+			}
+		}
+	}
+
 	// The properties and signals the class's interfaces require, after the
 	// members' types and the signals are known (spec §3.9): a pub member of the
 	// same type, or an inherited engine property, which must have a setter
@@ -11436,6 +11485,7 @@ private:
 		}
 		check_members();
 		check_pub_signatures();
+		check_engine_options();
 		check_interface_properties();
 		check_groups();
 		for (FuncDecl &fn : cls.functions) {

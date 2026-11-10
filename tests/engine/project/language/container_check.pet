@@ -355,3 +355,44 @@ pub func endless() -> String:
 	a.children.clear()
 	b.children.clear()
 	return str(same) + " " + str(text.begins_with("{ \"name\": \"c\"")) + " " + str(encoded.size())
+
+
+# T?? (spec §3.4): an empty array is told from a None element (§3.8), and a
+# missing key from a None value. Each level is peeled once.
+pub func nested_options() -> String:
+	var nodes: Array[Node?] = [None]
+	var first := nodes.pop_back()
+	var empty := nodes.pop_back()
+	var ints: Array[int?] = [None, 2]
+	var none_first := ints.pop_front()
+	var two := ints.pop_front().flatten()
+	var found: Dictionary[String, Node?] = {"a": None}
+	var deep: int?? = 3
+	if deep != None:
+		if deep != None:
+			deep += 1
+	var mapped := deep.unwrap().map(func(x): return None if x > 3 else x)
+	var r: Result[int?, String] = Ok(None)
+	var s: int?? = Some(None)
+	return told(first) + " " + told(empty) + " " + str(none_first.flatten() == None and none_first != None) + " " + str(two == 2) + " " + str(found.get("a") != None and found.get("b") == None) + " " + str(deep.unwrap().unwrap()) + " " + str(mapped.flatten() == None and mapped != None) + " " + str(r.ok() == s) + " " + peeled(s).unwrap() + " " + str(peeled(None) == None)
+
+
+func told(r: Node??) -> String:
+	match r:
+		None:
+			return "empty"
+		var e:
+			return "none" if e == None else "node"
+
+
+func peeled(x: int??) -> String?:
+	return str(x?)
+
+
+# T? of a container, whose elements the entry check sees (spec §3.4).
+pub func maybe_sum(values: Array[int]?) -> int:
+	var total := 0
+	if values != None:
+		for v in values:
+			total += v
+	return total

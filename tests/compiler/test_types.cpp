@@ -195,11 +195,30 @@ TEST_CASE("T? of a value type is an Option (spec §3.4)") {
 	// None takes its type from what the function returns.
 	CHECK(type_of("a.or_else(func(): return None)", "var a: int? = 5") == "int?");
 	CHECK(type_of("a.ok_or(\"none\")", "var a: int? = 5") == "Result[int, String]");
-	CHECK(contains(type_of("a.map(func(x): return a)", "var a: int? = 5"), "would give int??, and nested Options are not supported yet"));
+	CHECK(type_of("a.map(func(x): return a)", "var a: int? = 5") == "int??");
 	CHECK(has_error(in_function("var a: int? = 5\nvar b: int = a"), "Cannot assign a value of type int? as int"));
 	// Only a T is converted on the way in, not the T inside.
 	CHECK(has_error(in_function("var a: int? = 5\nvar f: float? = a"), "Cannot assign a value of type int? as float?"));
 	CHECK(has_error("extends Node\n\nfunc f() -> void?:\n\tpass\n", "void cannot be optional"));
+}
+
+TEST_CASE("T?? keeps both levels, and each step peels one (spec §3.4)") {
+	const std::string body = "var a: int?? = None\nvar b: int?? = 3\nvar c: int? = 2\nvar d: int?? = c\nvar n: Node?? = Some(None)\nvar r: int?? = Some(None)\nprint(a == b, a == c, b == 3, n.flatten() == None)\n"
+							 "if r != None:\n\tvar x: int? = r\n\tif r != None:\n\t\tvar y: int = r\n\t\tr += 1\nmatch n:\n\tNone:\n\t\tpass\n\tvar e:\n\t\tvar m: Node? = e";
+	const compiler::CompileResult result = compile(in_function(body));
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	CHECK(type_of("r.unwrap()", "var r: int?? = Some(None)") == "int?");
+	CHECK(type_of("Some(3)") == "int?");
+	CHECK(contains(type_of("Some(None)"), "Some(None) does not say which type it holds"));
+	CHECK(contains(type_of("c.flatten()", "var c: int? = 2"), "int? has no method \"flatten()\", which makes a T?? into a T?."));
+	CHECK(has_error(in_function("var r: int?? = 1\nvar v: Variant = r"), "A Variant cannot tell its None from Some(None); pass x.flatten()."));
+	// The engine would see None and Some(None) alike (spec §10.1).
+	CHECK(has_error("extends Node\npub var r: int??\n", "The pub \"r\" has type int??, which cannot cross to the engine yet"));
+	CHECK(has_error("extends Node\nsignal hit(r: Node??)\n", "The parameter \"r\" of the signal \"hit\" has type Node??"));
+	CHECK(has_error("extends Node\n\nasync func f() -> int??:\n\treturn None\n", "\"f()\" returns int??"));
+	CHECK(errors_of("extends Node\nvar r: int??\n\nfunc f(x: Node??) -> int??:\n\treturn r\n").empty());
 }
 
 TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec §3.8)") {
@@ -214,9 +233,9 @@ TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec �
 	CHECK(type_of("n[0]", "var n: Array[Node] = []") == "Node");
 	CHECK(type_of("n.pop_back()", "var n: Array[Node] = []") == "Node?");
 	CHECK(type_of("n[0]", "var n: Array[Node?] = []") == "Node?");
-	// Node?? would tell an empty array from a None element (spec §3.8).
-	CHECK(contains(type_of("n.pop_back()", "var n: Array[Node?] = []"), "gives Node??, which is not supported yet"));
-	CHECK(contains(type_of("n.pop_front()", "var n: Array[Node?] = []"), "not supported yet"));
+	// Node?? tells an empty array from a None element (spec §3.8).
+	CHECK(type_of("n.pop_back()", "var n: Array[Node?] = []") == "Node??");
+	CHECK(type_of("a.pop_front()", "var a: Array[int?] = []") == "int??");
 	// pop_at() gives T: an index out of bounds is a program error, as for a[i].
 	CHECK(type_of("a.pop_at(0)", ints) == "int");
 	CHECK(type_of("n.pop_at(0)", "var n: Array[Node?] = []") == "Node?");
@@ -233,12 +252,8 @@ TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec �
 	// Kept boxed, and typed one level deep (spec §3.8).
 	CHECK(type_of("a[0]", "var a: Array[int?] = [1, None]") == "int?");
 	CHECK(type_of("a[0][1] + a.front().size()", "var a: Array[Array[int]] = [[1, 2]]\na.resize(3)") == "int");
-	// The entry checks would take any array for it.
-	CHECK(has_error(in_function("var a: Array[int]? = None"), "Array[int]? is not supported yet"));
-	CHECK(has_error("extends Node\n\nfunc f(a: Array[Node]?):\n\tpass\n", "Array[Node]? is not supported yet"));
-	CHECK(has_error("extends Node\n\nfunc f() -> Array[int]?:\n\treturn None\n", "Array[int]? is not supported yet"));
-	CHECK(has_error("extends Node\n@export pub var a: Array[int]?\n", "Array[int]? is not supported yet"));
-	CHECK(errors_of("extends Node\n\nfunc f(a: Array[int], b: int?, c: Array?):\n\tpass\n").empty());
+	CHECK(errors_of("extends Node\n@export pub var e: Array[int]?\n\nfunc f(a: Array[int], b: int?, c: Array?, d: Array[Node]?) -> Array[int]?:\n\treturn None if d == None else [1]\n").empty());
+	CHECK(has_error("extends Node\n\npub struct Hit:\n\tvar damage: int\n\n@export pub var hits: Array[Hit]?\n", "Containers whose elements exist only in this language, such as Array[.Hit]?, cannot be exported"));
 }
 
 // Spec §3.8: what the engine cannot order, or fill in, is an error for every

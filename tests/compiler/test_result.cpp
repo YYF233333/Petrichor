@@ -33,7 +33,8 @@ TEST_CASE("the methods of Result take the value or the error apart") {
 	CHECK(contains(errors("\tvar x := r.and_then(func(v) -> Result[int, bool]: return Ok(v))\n\treturn r"), "The function passed to and_then() returns Result[int, bool], not Result[U, String]."));
 	CHECK(contains(errors("\tvar x := r.map(func(v: String): return v)\n\treturn r"), "\"map()\" takes a function of one parameter, which takes int; found func(String) -> String."));
 	CHECK(contains(errors("\tvar x := r.flatten()\n\treturn r"), "Result[int, String] has no method \"flatten()\"."));
-	CHECK(contains(errors("\tprint(q.ok())", "func g(q: Result[int?, String]) -> void:"), "ok() of Result[int?, String] would give int??, and nested Options are not supported yet."));
+	// The None of the value stays apart from that of an Err (spec §3.4).
+	CHECK(errors("\tvar v: int?? = q.ok()\n\tvar e: String?? = p.err()", "func g(q: Result[int?, String], p: Result[int, String?]) -> void:").empty());
 }
 
 // Spec §4.6: a lambda's return type is what its body returns, also the side

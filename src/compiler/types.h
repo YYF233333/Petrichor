@@ -20,7 +20,7 @@ enum class TypeKind {
 	String,
 	Builtin, // Another built-in value type of the engine, named by `name`.
 	Object, // An engine class named by `name`.
-	Option, // T? of a value type T, which is `args[0]` (spec §3.4); objects carry `nullable` instead.
+	Option, // T? of a value type or of a T? (spec §3.4), T being `args[0]`; objects carry `nullable` instead.
 	Struct, // A struct (spec §3.6), named and declared as an interface is.
 	Enum, // An enum without payloads (spec §3.7), named as a struct is, or as the engine names it; an int with `values`.
 	// An enum with payloads (spec §3.7), named as a struct is; its variants in
@@ -221,7 +221,8 @@ bool is_format_string(const Type &p_type);
 // enters a Variant only through `Array(hits)` or `Dictionary(d)` (spec §3.8).
 bool is_boxed(const Type &p_type);
 
-// T? of a type: nullable for an object, an Option otherwise.
+// T? of a type: nullable for an object, an Option otherwise, as of T? (spec
+// §3.4).
 Type optional_of(const Type &p_type);
 
 } // namespace petrichor::compiler

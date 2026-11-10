@@ -159,7 +159,7 @@ struct ClassRef {
 enum class TypeKind : uint8_t {
 	Value, // An engine value type in its own layout, or Variant: `value`.
 	Object, // An object of the class `object`, or also None when `nullable` (spec §3.3).
-	Option, // T? of a value type: None or a value of the type `element` (spec §3.4).
+	Option, // T? of a value type or of a T?: None or a value of the type `element` (spec §3.4).
 	Array, // Array[T], T being the type `element` (spec §3.8); an untyped Array is a Value.
 	Struct, // A struct of this language, `name`, with its `fields` (spec §3.6).
 	Dictionary, // Dictionary[K, V], K being the type `key` and V the type `element` (spec §3.8); an untyped Dictionary is a Value.

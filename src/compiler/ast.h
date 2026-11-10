@@ -24,7 +24,7 @@ struct TypeRef {
 	// Of the first part of the name; each further part of Combat.Damageable
 	// is two tokens on.
 	uint32_t name_token = 0;
-	bool nullable = false; // `T?` (spec §3.3, §3.4).
+	uint32_t optional = 0; // The ?s of `T?` (spec §3.3, §3.4) or `T??`.
 	std::vector<TypeRef> args; // `Array[T]`; a function type's parameters.
 	// `func(T) -> R` (spec §2.4), with its return type in `result` when written.
 	bool is_function = false;
@@ -116,6 +116,7 @@ enum class Target {
 	ConvertToInt,
 	ConvertToFloat,
 	Encode, // `Array(hits)` or `Dictionary(d)` of a container that keeps boxes (spec §3.8).
+	Some, // `Some(v)`: v, as the T of the call's type T?, wrapped once (spec §3.4).
 	Unwrap, // `unwrap()` or `expect(message)` of T? (spec §3.4).
 	OptionMethod, // A method of T? other than those, named by `text`.
 	ResultMethod, // A method of Result, named by `text` (spec §3.5).

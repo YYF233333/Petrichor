@@ -148,7 +148,7 @@ namespace petrichor::bytecode {
 	X(MATCHES, "DAB", "bvv") /* dst (bool), value, pattern (Variant): of the pattern's type, String and StringName alike, and equal to it (spec §5.6) */ \
 	X(BOX, "TDAI", ".vl") /* type, dst (Variant), src, key (0 or 1): src in a box, as a container keeps a boxed type (module.h); a key's box hashes the value */ \
 	X(ENCODE, "TDA", "..l") /* type of src, dst, src: a container that keeps boxes as the untyped container of its kind, a copy with every key and element encoded (spec §3.8, §10.1) */ \
-	X(UNWRAP, "TDAB", "tl.S") /* type of dst, dst, src (T?), message (NO_SLOT: default) */ \
+	X(UNWRAP, "SDAB", "t.lS") /* type of src (T?), dst (T), src, message (NO_SLOT: default) */ \
 	X(UNWRAP_OK, "SDAB", "t.lS") /* type of src (Result[T, E]), dst (T), src, message (NO_SLOT: none): the value of Ok(v); Err(e) a program error that shows e (spec §3.5) */ \
 	X(TRY_FROM, "TDA", "tlv") /* type of dst (Result[T, ConversionError]), dst, src (Variant): Ok of src decoded as a struct's field of type T is, or Err with why not (spec §3.6, §5.3) */ \
 	X(NEW_CONTAINER, "TD", "t") /* type, dst: an empty Array or Dictionary, typed as the type says, a boxed type as Callable */ \

@@ -233,11 +233,10 @@ Conversion conversion(const Type &p_from, const Type &p_to, const ClassRelation 
 		return allowed(scene && (p_to.nullable || !p_from.nullable) && p_classes.is_a(p_from, p_to));
 	}
 	if (p_to.kind == TypeKind::Option) {
-		// A T is wrapped implicitly; the T inside does not convert (spec §3.14).
-		if (p_from.kind == TypeKind::Option) {
-			return C::None;
-		}
-		return conversion(p_from, p_to.args[0], p_classes) == C::None ? C::None : C::Wrap;
+		// A T is wrapped implicitly, as many times as T?? takes; the T inside a
+		// T? does not convert (spec §3.14).
+		const C inner = conversion(p_from, p_to.args[0], p_classes);
+		return inner == C::None || (p_from.kind == TypeKind::Option && inner != C::Same && inner != C::Wrap) ? C::None : C::Wrap;
 	}
 	if (p_from.kind == TypeKind::Function && p_to.kind == TypeKind::Function) {
 		// Parameters contravariant, the result covariant (spec §3.14).
@@ -261,7 +260,7 @@ Conversion conversion(const Type &p_from, const Type &p_to, const ClassRelation 
 		return C::Same;
 	}
 	// Not T?? nor Variant?, whose None a Variant cannot tell from the null inside.
-	const bool nested = p_from.kind == TypeKind::Option && (p_from.args[0].kind == TypeKind::Option || p_from.args[0].kind == TypeKind::Variant);
+	const bool nested = p_from.kind == TypeKind::Option && (p_from.args[0].is_optional() || p_from.args[0].kind == TypeKind::Variant);
 	return p_to.kind == TypeKind::Variant && p_from.is_storable() && !nested && !(is_typed_container(p_from) && is_boxed(p_from)) ? C::ToVariant : C::None;
 }
 
@@ -321,7 +320,7 @@ bool is_boxed(const Type &p_type) {
 }
 
 Type optional_of(const Type &p_type) {
-	if (p_type.kind == TypeKind::Object || p_type.kind == TypeKind::Task) {
+	if ((p_type.kind == TypeKind::Object || p_type.kind == TypeKind::Task) && !p_type.nullable) {
 		Type type = p_type;
 		type.nullable = true;
 		return type;

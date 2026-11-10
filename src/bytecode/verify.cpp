@@ -168,8 +168,13 @@ class Verifier {
 			if (!type.task_result.empty() && (type.kind != TypeKind::Object || type.object.name != "CoroutineTask")) {
 				return fail("Task descriptor without a task handle");
 			}
-			if (type.kind == TypeKind::Option && !is_native(storage(type.element)) && storage(type.element) != ValueType::Variant && !is_option(type.element) && !is_struct(type.element)) {
-				return fail("an option of no value type");
+			if (type.kind == TypeKind::Option) {
+				const ValueType inner = storage(type.element);
+				// An object's T? is its nullable type, which only T?? wraps.
+				const bool object = (inner == ValueType::Object || inner == ValueType::Task) && module.types[type.element].nullable;
+				if (!is_native(inner) && inner != ValueType::Variant && !is_option(type.element) && !is_struct(type.element) && !object) {
+					return fail("an option of no value type");
+				}
 			}
 			if (type.kind == TypeKind::Array && !kept(type.element)) {
 				return fail("an array of no element type");
@@ -903,15 +908,11 @@ class Verifier {
 				return (is_boxed(o[0]) || fail("a box of a type that is not boxed")) && (o[3] <= 1 || fail("BOX takes 0 or 1"));
 			case Op::ENCODE:
 				return (is_boxed(o[0]) && (storage(o[0]) == ValueType::Array || storage(o[0]) == ValueType::Dictionary) || fail("encoding what is not a container of boxes")) && slot(o[1], storage(o[0]));
-			case Op::UNWRAP: {
-				if (storage(o[0]) == ValueType::Variant) {
-					return fail("no type to unwrap to");
+			case Op::UNWRAP:
+				if (is_option(o[0])) {
+					return slot_like(o[1], module.types[o[0]].element);
 				}
-				if ((storage(o[0]) == ValueType::Object || storage(o[0]) == ValueType::Task) && !is_option(o[0])) {
-					return slot(o[2], storage(o[0]));
-				}
-				return any(frame, o[2], [&](uint32_t p_source) { return is_option(p_source) && same_layout(module.types[p_source].element, o[0]); }) || fail("unwrapping what is not T?");
-			}
+				return storage(o[0]) == ValueType::Object || storage(o[0]) == ValueType::Task ? slot(o[1], storage(o[0])) : fail("unwrapping what is not T?");
 			case Op::CHECK_MUST:
 			case Op::MARK_ASSIGNED:
 				return (o[0] < module.members.size() && module.members[o[0]].tracks_assignment()) || fail("a member that does not track whether it is assigned");
