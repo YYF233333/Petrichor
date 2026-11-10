@@ -204,7 +204,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 ### 3.6 struct
 
 - 值语义：赋值、传参、返回均浅复制，对象与容器字段复制引用。只存在于本语言内部。构造只接受具名实参。
-- 跨引擎边界时按引擎边界的规则编码。解码按 `T.try_from` 的规则递归检查各字段及嵌套容器/struct，多余的键忽略。
+- 跨引擎边界时按引擎边界的规则编码。解码按 `T.try_from` 的规则递归检查各字段及嵌套容器/struct，多余的键忽略。缺少的键取字段的默认值。字段没有默认值时解码失败。
 - 【已知限制】第一版 struct 不能 `@export` 或存入 `.tres`（编辑器数据用 `Resource`）。
 - 可声明 `func` 和 `static func`。实例方法中 `self` 只读，给 `self` 字段赋值报编译错误。
 - 方法中的名字先查 struct 自身，再按内部类的规则查外层类的无实例声明。
@@ -882,8 +882,9 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 10.8 JSON
 
-- JSON 数字解码到 `int` 时只接受恰为整数且在 `int64` 范围内的浮点数，否则报错而不截断。
-- 标准库提供 struct 和 enum 与 JSON、`var_to_str`、`ConfigFile` 之间的编解码（其容器先以 `Array(hits)`、`Dictionary(d)` 转换）。
+- JSON 数字解码到 `int` 或无载荷的 enum 时，只接受恰为整数且在 `int64` 范围内的浮点数，否则报错而不截断。
+- struct 和 enum 赋给 `Variant` 时已按引擎边界的规则编码。所以 `JSON.stringify`、`var_to_str` 和 `ConfigFile` 直接存取它们，读回时用 `T.try_from`。它们的容器先以 `Array(hits)`、`Dictionary(d)` 转换。
+- 【已知限制】JSON 把 `Vector2`、`Color` 等引擎值写成字符串，读回时类型不符。绝对值超过 2^53 的整数也会失去精度。存这些值时用 `var_to_str` 或 `ConfigFile`。
 
 ## 11. 与 GDScript 和 C# 共存
 
