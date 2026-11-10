@@ -285,6 +285,9 @@ class Checker : public ClassRelation {
 		// What the function type the lambda goes to returns, if known, which the
 		// values it returns take their type from, as Ok(v) and None do.
 		Type expected;
+		// Returned values that leave part of their type to the others, typed
+		// as the lambda's return type once that is known.
+		std::vector<Expr *> partial;
 	};
 	Returns *returns = nullptr;
 
@@ -5003,6 +5006,15 @@ class Checker : public ClassRelation {
 			if (inferred.type && inferred.bare) {
 				error(r_expr.range, function_label() + " returns a value on some paths and none on others.");
 			}
+			if (partial(lambda.return_type)) {
+				const Type &left = lambda.return_type;
+				const std::string missing = !left.is_result() ? "which T? None is" : (left.args[0].is_error() ? "what Ok(...) holds" : "what Err(...) holds");
+				error(r_expr.range, function_label() + " needs a return type: what it returns does not say " + missing + ".");
+				lambda.return_type = Type::of(TypeKind::Error);
+			}
+			for (Expr *value : inferred.partial) {
+				set(*value, lambda.return_type);
+			}
 		}
 		if (lambda.return_type.kind != TypeKind::Void && !lambda.return_type.is_error() && !always_ends(lambda.body, false)) {
 			error(r_expr.range, "Not all paths of " + (lambda.name.empty() ? std::string("the lambda") : "the lambda \"" + lambda.name + "\"") + " return a value.");
@@ -5113,7 +5125,9 @@ class Checker : public ClassRelation {
 		hint(r_expr, [&](int p_current) { return signature(name, { "f: func(" + (of_value ? t : std::string()) + ") -> " + returns.at(name) }, false, p_current, results.at(name)); });
 		const std::map<std::string, Type> fitting = { { "unwrap_or_else", value }, { "or_else", p_base }, { "filter", Type::of(TypeKind::Bool) } };
 		const auto fits_type = fitting.find(name);
-		const std::optional<Type> returned = check_function_argument(r_expr, of_value ? std::vector<Type>{ value } : std::vector<Type>(), fits_type != fitting.end() ? fits_type->second : Type::of(TypeKind::Error));
+		// and_then()'s function returns some U?, which its returns say.
+		const Type wanted = fits_type != fitting.end() ? fits_type->second : (name == "and_then" ? Type::option(Type::of(TypeKind::Error)) : Type::of(TypeKind::Error));
+		const std::optional<Type> returned = check_function_argument(r_expr, of_value ? std::vector<Type>{ value } : std::vector<Type>(), wanted);
 		if (!returned || returned->is_error()) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
@@ -5149,10 +5163,22 @@ class Checker : public ClassRelation {
 		}
 		const int variant = r_expr.text == "Ok" ? 0 : 1;
 		refer(r_expr.name_token, language_id("Result", r_expr.text));
-		hint(r_expr, [&](int p_current) { return signature(r_expr.text, { (variant == 0 ? "value: " : "error: ") + result.args[variant].to_string() }, false, p_current, result.to_string()); });
-		check_arguments(r_expr, { result.args[variant] }, 1, false);
 		r_expr.target = Target::VariantConstructor;
 		r_expr.index = variant;
+		// Returned by a lambda going to and_then() or or_else(), whose Result
+		// leaves this side to what the lambda returns (spec §4.6).
+		if (result.args[variant].is_error() && r_expr.args.size() == 1) {
+			const Type given = check_value(*r_expr.args[0]);
+			if (given.kind == TypeKind::None || given.kind == TypeKind::Void) {
+				return fail_call(r_expr, r_expr.text + "(" + (given.kind == TypeKind::None ? "None" : "...") + ") does not say which type it holds; declare the lambda's return type.");
+			}
+			r_expr.param_types.push_back(given);
+			Type made = result;
+			made.args[variant] = given;
+			return given.is_error() ? set(r_expr, given) : set(r_expr, Type::result(made.args[0], made.args[1]));
+		}
+		hint(r_expr, [&](int p_current) { return signature(r_expr.text, { (variant == 0 ? "value: " : "error: ") + result.args[variant].to_string() }, false, p_current, result.to_string()); });
+		check_arguments(r_expr, { result.args[variant] }, 1, false);
 		return set(r_expr, result);
 	}
 
@@ -5189,7 +5215,11 @@ class Checker : public ClassRelation {
 		const std::map<std::string, std::string> returns = { { "unwrap_or_else", t }, { "map", "U" }, { "map_err", "F" }, { "and_then", "Result[U, " + e + "]" }, { "or_else", "Result[" + t + ", F]" } };
 		const std::map<std::string, std::string> results = { { "unwrap_or_else", t }, { "map", "Result[U, " + e + "]" }, { "map_err", "Result[" + t + ", F]" }, { "and_then", "Result[U, " + e + "]" }, { "or_else", "Result[" + t + ", F]" } };
 		hint(r_expr, [&](int p_current) { return signature(name, { "f: func(" + (on_error ? e : t) + ") -> " + returns.at(name) }, false, p_current, results.at(name)); });
-		const std::optional<Type> returned = check_function_argument(r_expr, { on_error ? failure : value }, name == "unwrap_or_else" ? value : Type::of(TypeKind::Error));
+		// and_then()'s function returns some Result[U, E], or_else()'s some
+		// Result[T, F], which its returns say.
+		const std::map<std::string, Type> wanted = { { "unwrap_or_else", value }, { "and_then", Type::result(Type::of(TypeKind::Error), failure) }, { "or_else", Type::result(value, Type::of(TypeKind::Error)) } };
+		const auto known = wanted.find(name);
+		const std::optional<Type> returned = check_function_argument(r_expr, { on_error ? failure : value }, known != wanted.end() ? known->second : Type::of(TypeKind::Error));
 		if (!returned || returned->is_error()) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
@@ -5271,12 +5301,18 @@ class Checker : public ClassRelation {
 		expect_condition(*r_expr.base);
 		const Facts facts = facts_of(*r_expr.base);
 		narrowed.push_back(facts.when_true);
-		const Type a = check_value(*r_expr.left, p_expected);
+		Type a = check_value(*r_expr.left, p_expected);
 		narrowed.back() = facts.when_false;
-		const Type b = check_value(*r_expr.right, p_expected);
+		Type b = check_value(*r_expr.right, p_expected);
 		narrowed.pop_back();
 		if (a.is_error() || b.is_error()) {
 			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		// As Ok(x) if c else Err(e), returned by a lambda going to and_then().
+		if (a.is_result() && partial(a) && !partial(b)) {
+			a = set(*r_expr.left, completed(a, b));
+		} else if (b.is_result() && partial(b) && !partial(a)) {
+			b = set(*r_expr.right, completed(b, a));
 		}
 		const Type result = common_type(a, b);
 		if (result.is_error()) {
@@ -6519,22 +6555,50 @@ class Checker : public ClassRelation {
 		return fail(r_expr, "await expects a Task, a signal or a call to GDScript.");
 	}
 
+	// Whether a type a lambda returns leaves out what its T? or Result holds,
+	// as None does, or Ok(v) going to and_then() (spec §4.6).
+	static bool partial(const Type &p_type) {
+		return p_type.kind == TypeKind::None || (p_type.kind == TypeKind::Option && p_type.args[0].is_error()) || (p_type.is_result() && (p_type.args[0].is_error() || p_type.args[1].is_error()));
+	}
+
+	// A partial type that a lambda returns, completed by another it returns.
+	static Type completed(const Type &p_partial, const Type &p_other) {
+		if (p_partial.is_result()) {
+			return p_other.is_result() ? Type::result(p_partial.args[0].is_error() ? p_other.args[0] : p_partial.args[0], p_partial.args[1].is_error() ? p_other.args[1] : p_partial.args[1]) : p_partial;
+		}
+		if (p_other.kind == TypeKind::None || (p_other.kind == TypeKind::Option && p_other.args[0].is_error())) {
+			return p_partial;
+		}
+		return p_other.is_optional() ? p_other : optional_of(p_other);
+	}
+
 	// A type that a lambda without a return type returns, whose return type is
 	// the type all of them fit (spec §4.6).
 	void add_returned(Type p_value, const TokenRange &p_at) {
-		if (p_value.kind == TypeKind::None) {
-			error(p_at, function_label() + " needs a return type: None does not say which T? it returns.");
-			p_value = Type::of(TypeKind::Error);
-		}
 		if (!returns->type || p_value.is_error() || returns->type->is_error()) {
 			returns->type = returns->type ? Type::of(TypeKind::Error) : p_value;
 			return;
 		}
-		const Type common = common_type(*returns->type, p_value);
+		Type known = *returns->type;
+		if (partial(known)) {
+			known = completed(known, p_value);
+		}
+		if (partial(p_value)) {
+			p_value = completed(p_value, known);
+		}
+		const Type common = common_type(known, p_value);
 		if (common.is_error()) {
-			error(p_at, function_label() + " returns " + returns->type->to_string() + " and " + p_value.to_string() + "; declare its return type.");
+			error(p_at, function_label() + " returns " + returned_text(*returns->type) + " and " + returned_text(p_value) + "; declare its return type.");
 		}
 		returns->type = common;
+	}
+
+	// A type a lambda returns, as a diagnostic shows it, even if partial.
+	static std::string returned_text(const Type &p_type) {
+		if (p_type.kind == TypeKind::None || p_type.kind == TypeKind::Option) {
+			return p_type.kind == TypeKind::None || p_type.args[0].is_error() ? std::string("None") : p_type.to_string();
+		}
+		return p_type.is_result() && partial(p_type) ? (p_type.args[0].is_error() ? "Err(" + p_type.args[1].to_string() + ")" : "Ok(" + p_type.args[0].to_string() + ")") : p_type.to_string();
 	}
 
 	// `x?` (spec §8.2): the value inside x, or the function returns the Err or
@@ -6702,7 +6766,7 @@ class Checker : public ClassRelation {
 				return check_conditional(r_expr, p_expected);
 			case ExprKind::NoneLiteral:
 				// The T? it goes to, where that is known.
-				if (p_expected.is_optional() || p_expected.kind == TypeKind::Variant) {
+				if ((p_expected.is_optional() && !partial(p_expected)) || p_expected.kind == TypeKind::Variant) {
 					return set(r_expr, p_expected);
 				}
 				return set(r_expr, Type::of(TypeKind::None));
@@ -7698,7 +7762,11 @@ class Checker : public ClassRelation {
 						returns->bare = true;
 						return;
 					}
-					add_returned(check_value(*r_stmt.value, returns->expected), r_stmt.value->range);
+					const Type value = check_value(*r_stmt.value, returns->expected);
+					if (partial(value)) {
+						returns->partial.push_back(r_stmt.value.get());
+					}
+					add_returned(value, r_stmt.value->range);
 					return;
 				}
 				const Type expected = function->return_type;

@@ -201,7 +201,7 @@ pub func results() -> Array:
 				shown.append(e)
 	var good := all[0]
 	var bad := all[1]
-	return [shown, good.unwrap(), bad.unwrap_or(-1), bad.unwrap_or_else(func(e): return e.length()), good.map(func(n): return n * 10).unwrap(), bad.map_err(func(e): return e.length()).err().unwrap(), good.and_then(func(n) -> Result[int, String]: return Err("no")) == Err("no"), bad.or_else(func(e) -> Result[int, String]: return Ok(0)) == Ok(0), good.ok() == 4, bad.ok() == None, halved(8), halved(None)]
+	return [shown, good.unwrap(), bad.unwrap_or(-1), bad.unwrap_or_else(func(e): return e.length()), good.map(func(n): return n * 10).unwrap(), bad.map_err(func(e): return e.length()).err().unwrap(), good.and_then(func(n): return Err("no") if n > 0 else Ok(n)) == Err("no"), bad.or_else(func(e): return Ok(0) if not e.is_empty() else Err(e)) == Ok(0), good.ok() == 4, bad.ok() == None, halved(8), halved(None)]
 
 # The methods of T? (spec §3.4), ok_or() making a Result.
 pub func options(o: int?) -> Array:
@@ -281,3 +281,11 @@ pub func shapes(pair: Array[StringName], scores: Dictionary[String, int]) -> Arr
 		{1: var text}:
 			seen.append(text)
 	return seen
+
+# A lambda without a return type returning None on one path and an int on
+# another returns int? (spec §4.6), as and_then() takes it.
+pub func and_then_none(o: int?) -> int?:
+	return o.and_then(func(x):
+		if x > 5:
+			return None
+		return x + 1)

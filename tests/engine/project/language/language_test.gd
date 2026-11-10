@@ -304,6 +304,7 @@ func _ready() -> void:
 	var listed_commands := [{"$variant": "IDLE"}, {"$variant": "MOVE", "target": Vector3(1, 2, 3)}]
 	_check(c.converted(3.0) == [3, null, null, null] and c.converted(3.5) == [null, "expected int, found float", null, null] and c.converted(listed_commands)[2] == 2 and c.converted({"$variant": "ATTACK", "power": 4.0, "label": "y"})[3] == {"$variant": "ATTACK", "power": 4, "label": "y"}, "try_from() decodes as a struct's field is, an int from a whole float too, or gives the entry check's message: %s" % [c.converted(3.5)])
 	_check(c.options(3) == [3, 3, 6, 4, 3, 3, 3, {"$variant": "Ok", "value": 3}, {"$variant": "Ok", "value": 3}] and c.options(null) == [-1, -2, null, null, 7, 8, null, {"$variant": "Err", "error": "none"}, {"$variant": "Err", "error": "missing"}], "the methods of T?, ok_or() making a Result")
+	_check(c.and_then_none(3) == 4 and c.and_then_none(9) == null and c.and_then_none(null) == null, "a lambda returning None and an int returns int? (spec §4.6)")
 	var listed_targets: Array = v.targets(target)
 	_check(listed_targets.get_typed_script() == TargetCheck and v.as_target(target) == target and v.as_target(plain_node) == null, "an array typed with a class of this language, and as to one")
 	var refused_target = v.callv("taken_by", [plain_node])

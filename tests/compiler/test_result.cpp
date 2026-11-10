@@ -36,6 +36,23 @@ TEST_CASE("the methods of Result take the value or the error apart") {
 	CHECK(contains(errors("\tprint(q.ok())", "func g(q: Result[int?, String]) -> void:"), "ok() of Result[int?, String] would give int??, and nested Options are not supported yet."));
 }
 
+// Spec §4.6: a lambda's return type is what its body returns, also the side
+// of a Result that and_then() or or_else() leaves open, and a None.
+TEST_CASE("a lambda passed to and_then() or or_else() returns Ok, Err, None and ? without a return type") {
+	const std::string body = "\tvar a: Result[float, String] = r.and_then(func(v): return Ok(v * 0.5) if v > 0 else Err(\"neg\"))\n"
+							 "\tvar b: Result[int, bool] = r.or_else(func(e):\n\t\tif e.is_empty():\n\t\t\treturn Err(true)\n\t\treturn Ok(0))\n"
+							 "\tvar c: Result[int, String] = r.and_then(func(v): return Ok(parsed(str(v))? + 1))\n"
+							 "\tvar d: int? = o.and_then(func(x):\n\t\tif x > 5:\n\t\t\treturn None\n\t\treturn x + 1)\n"
+							 "\tvar e: String? = o.and_then(func(x): return str(o?))\n\treturn r";
+	const compiler::CompileResult result = compile(std::string(HEAD) + "func f(r: Result[int, String], o: int?) -> Result[int, String]:\n" + body + "\n");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	CHECK(contains(errors("\tvar x := r.and_then(func(v): return Err(\"no\"))\n\treturn r"), "needs a return type: what it returns does not say what Ok(...) holds."));
+	CHECK(contains(errors("\tvar x := o.and_then(func(v): return None)\n\treturn r"), "needs a return type: what it returns does not say which T? None is."));
+	CHECK(contains(errors("\tvar x := r.or_else(func(e): return Ok(1))\n\treturn r"), "what Err(...) holds."));
+}
+
 TEST_CASE("Ok(...) and Err(...) take a Result apart, and a match over one handles both") {
 	CHECK(errors("\tmatch r:\n\t\tOk(var v):\n\t\t\treturn Ok(v + 1)\n\t\tErr(var e):\n\t\t\treturn Err(e)").empty());
 	CHECK(contains(errors("\tmatch r:\n\t\tOk(var v):\n\t\t\treturn Ok(v)\n\treturn r"), "This match over Result[int, String] does not handle Err(..);"));
