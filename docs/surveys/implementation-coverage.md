@@ -170,6 +170,57 @@
 - `range()` 占了大半。它和 `PI`、`TAU` 一样，是 GDScript 代码中的日常写法。
 - 一种都没用到的文件，在 Pixelorama 中最少（64.8%），在 godot_dialogue_manager 中其次（74.7%）。各仓库的计数见 `implementation-coverage/results/gdscript_builtins.txt`。
 
+## 第三次重跑（`3f61379`，2026-11-11）
+
+第二次重跑表中的写法，此后都已实现。补充表中的函数除 5 个已弃用的外也都已实现。这 5 个按规范报编译错误，诊断给出替代写法（§2.6）。
+
+此外实现的还有：
+- Node 和 Resource 脚本的 `_init()` 参数（§6.2）；
+- 覆盖 Object 的属性方法，如 `_get()`、`_set()`、`_get_property_list()`；
+- 作为值的 `Class.new`，以及对 Script 值的 `is_instance_of()`（§2.6）；
+- enum 名作为值，如 `State.keys()`（§3.7）；
+- 名字在运行时给出的 `Callable(o, name)`；
+- 进入实例化场景和走出根节点的路径，以及字面量路径的 `get_node()`（§7.1）。
+
+这次先从编译器的诊断中，找出实现报告尚不支持的写法。再为每种写几行的 `.pet` 片段，用无界面构建（`--petrichor-build`）编译。上面已实现的写法也这样确认。实现拒绝的写法由 `implementation-coverage/remaining3.py` 在同一语料上统计，它的文档字符串列出各自的诊断：
+- `class_name` 作为值，如 `mock(Player)`（§2.1）；
+- 引擎类作为值，如 `[InputEventMouseButton, InputEventScreenTouch]`；
+- 直接传给 Array 方法的 lambda 中无类型的参数，如 `filter(func(x): ...)`（§3.8、§4.6）；
+- `instance_from_id()`，以及 Callable 和 Signal 的 `get_object()`，它们返回 `Object?`；
+- 不经 autoload 的绝对路径 `$"/root/..."`（§7.1）；
+- 常量初始化式中的 `%` 格式化（§4.5）；
+- 带类型容器的构造，如 `Array[String](a)`。
+
+| 写法 | 规范 | 全部：文件 | 全部：每千行 | 游戏：文件 | 游戏：每千行 |
+|---|---|---:|---:|---:|---:|
+| 一种都没用到的文件 | | 96.0% | | 97.4% | |
+| `class_name` 作为值 | §2.1 | 1.6% | 1.4 | 0 | 0 |
+| 传给 Array 方法的 lambda 的无类型参数 | §3.8、§4.6 | 1.5% | 0.5 | 2.1% | 1.0 |
+| 引擎类作为值 | §2.6 | 0.7% | 0.8 | 0.1% | 0.0 |
+| `instance_from_id()`、`get_object()` | | 0.3% | 0.1 | 0.2% | 0.1 |
+| 不经 autoload 的绝对路径 `$` | §7.1 | 0.1% | 0.1 | 0.2% | 0.1 |
+| 常量中的 `%` 格式化 | §4.5 | 0 | 0 | 0 | 0 |
+| `Array[T](a)`、`Dictionary[K, V](d)` | | 0 | 0 | 0 | 0 |
+
+- 两种作为值的写法几乎都在 gdUnit4 中。用到 `class_name` 作为值的 45 个文件中它占 43 个，用到引擎类作为值的 20 个中占 18 个。它们多是测试把类传给 `mock()` 和 `is_instanceof()`。
+- 引擎类作为值还没有设计。规范只把存在变量中的引擎类记为 `is_instance_of()` 的已知限制（§2.6）。[设计说明](../design-notes.md)把它留给类作为值一并设计。
+- `class_name` 作为值则是实现的缺口：内部类和 preload 的常量已能作为值，它却被报为未声明的名字。
+- 游戏仓库中最常见的是 lambda 的参数，26 个文件中 20 个在 godot-open-rts。规范的标准库让 `map`、`filter`、`sort` 等接受带类型的 lambda（§3.8）。有期望类型时，lambda 的参数取自它（§4.6）。实现还没给出这个期望类型，所以迁移时要写出参数的类型。
+- 绝对路径的 `$` 有 3 个文件在 Ring 中，如 `$/root/Main`，另一个是 gdUnit4 的测试。
+- 常量中的 `%` 格式化和带类型容器的构造，语料中都没有用到。后者只出现在 Godot-Game-Template 写在字符串中的配置文本里。规范没有提到 `Array[T](a)`，实现把它当作语法错误。
+- 各仓库中一种都没用到的文件占 83.1%–100%，最低的是 godot-open-rts。各仓库的计数见 `implementation-coverage/results/remaining3.txt`。
+- 按词法识别，有遗漏也有多计：
+  - 名字只在 `=`、`(`、`,`、`[`、`return` 或 `in` 之后，且在 `)`、`,`、`]`、`}` 或行尾之前，才算作值。所以 `x == Node and y` 这类不计，两种作为值的写法是下限；
+  - lambda 只计直接写在实参中的。方法与 Array 的同名时，接收者不是 Array 也计入；
+  - `get_object()` 按方法名计，gdUnit4 测试中对 mock 的调用也计入。
+- 按规范报编译错误的写法不是实现的缺口，未计入。例如：
+  - 给 String 的字符赋值（§5.1）；
+  - 非 bool 的条件（§5.4）；
+  - 已弃用的工具函数（§2.6）；
+  - 经 `/root/X` 访问 autoload（§7.3）。
+- 表中只有找到的缺口，它们来自诊断和逐个编译的片段。诊断没有说明、片段也没有试到的写法，本文无法统计。
+- 所以在找到的缺口中，每种都不超过 1.6% 的文件。超过 1% 的只有两种：`class_name` 作为值集中在一个测试框架中；lambda 的参数写出类型即可编译。
+
 ## 复现
 
 ```
@@ -178,4 +229,5 @@ python docs/surveys/implementation-coverage/coverage.py corpus thirdparty/godot-
 python docs/surveys/implementation-coverage/remaining.py corpus thirdparty/godot-cpp/gdextension/extension_api-4-7.json > docs/surveys/implementation-coverage/results/remaining.txt
 python docs/surveys/implementation-coverage/remaining2.py corpus thirdparty/godot-cpp/gdextension/extension_api-4-7.json > docs/surveys/implementation-coverage/results/remaining2.txt
 python docs/surveys/implementation-coverage/gdscript_builtins.py corpus > docs/surveys/implementation-coverage/results/gdscript_builtins.txt
+python docs/surveys/implementation-coverage/remaining3.py corpus thirdparty/godot-cpp/gdextension/extension_api-4-7.json > docs/surveys/implementation-coverage/results/remaining3.txt
 ```
