@@ -11,14 +11,14 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - `Class.new` as a value (spec §3.11), as gdUnit4 passes `GdUnitTuple.new` to `callv`. It must construct as `new(...)` does. PetScript's `new` refuses a non-pub `_init` that the caller sees, so the two share the construction.
 - Static checks of:
   - must-assign exports in scenes, in resources and at export (spec §7.5);
-  - a statically known scene's `instantiate(...)` missing an export the scene does not assign (§7.4). The scene index does not read property values yet;
+  - a statically known scene's `instantiate(...)` missing an export the scene does not assign (§7.4). The scene index reads only what each scene itself stores on nodes with this language's scripts;
   - a child reading a member that ancestors assign in its own `_ready` (§6.2);
   - a must-assign member that is not pub, which its file or a subclass must export or assign (§4.2). It needs every subclass;
   - a scene used as a root whose root has a script with `@owner` (§7.3);
   - a node of a scene whose script is abstract (§4.1).
 - `@parent(T)` (spec §7.3).
 - An autoload's name in a type, as `-> Export` and `Export.FileFormat` (spec §11.1). The checker resolves `Export.Inner` only as a value now (`script_type()`).
-- Checking at compile time what scenes and `.tres` files store in exported structs and enums with payloads (spec §4.3).
+- Checking at compile time what resources store in exported structs and enums with payloads (spec §4.3). They are `.tres` files and resources inside scenes, which the scene index does not read. Nor does it read a node of an instanced scene that the outer scene changes.
 - Containers of function types and of `Task[T]`, which the checker says are not supported yet (`container_element`).
   - Spec §3.8 gives elements of this language's own types its own representation, as for structs.
   - Until then, `Task.all()` and `Task.any()` take only tasks written in brackets.
@@ -48,7 +48,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Editor
 
-- References from scenes for the keys of exported properties (architecture §2.1). They come once the scene index reads the values scenes give properties. Now only the methods of signal connections are references.
+- References from scenes for the keys of exported properties (architecture §2.1). Now only the methods of signal connections are references.
 - The warnings of spec §6.7:
   - a lambda capturing self stored in a member of self, a signal connection or a container;
   - two RefCounted classes referring to each other through strong fields;

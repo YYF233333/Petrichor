@@ -9606,6 +9606,154 @@ class Checker : public ClassRelation {
 		}
 	}
 
+	// The values that scenes store for this class's exported structs and
+	// enums with payloads, which the entry check decodes as the scene is
+	// instantiated (spec §4.3): each scene's own, on the nodes with the class,
+	// and on the instances of scenes whose root has it.
+	void check_stored_exports() {
+		std::vector<const VarDecl *> exports;
+		for (const VarDecl &member : cls.members) {
+			const TypeKind kind = member.type.unwrapped().kind;
+			if (member.is_export && (kind == TypeKind::Struct || kind == TypeKind::PayloadEnum)) {
+				exports.push_back(&member);
+			}
+		}
+		if (exports.empty() || !options.project || options.declarations_only || options.path.empty()) {
+			return;
+		}
+		const auto check = [&](const Scene &p_scene, const SceneNode &p_node) {
+			for (const VarDecl *member : exports) {
+				for (const auto &[name, value] : p_node.properties) {
+					const std::string why = name == member->name ? undecodable(member->type, value, std::string()) : std::string();
+					if (!why.empty()) {
+						error_in_scene(TokenRange{ member->name_token, member->name_token }, p_scene, p_node.path, p_scene.path + ": the value stored for \"" + name + "\" of " + p_node.path + " does not decode: " + why + ".");
+					}
+				}
+			}
+		};
+		for (const Scene &scene : scenes) {
+			for (const SceneNode &node : scene.nodes) {
+				if (extends_script(node.script, options.path)) {
+					check(scene, node);
+				}
+			}
+		}
+		for (const Scene &scene : options.project->scenes_instancing_script(options.path)) {
+			for (const SceneNode &node : scene.nodes) {
+				if (node.is_instance && node.script.empty() && extends_script(node.instance_script, options.path)) {
+					check(scene, node);
+				}
+			}
+		}
+	}
+
+	// Why a value that a scene stores does not decode as the type, as the
+	// entry check says (spec §3.6, §10.1), after `p_at`, the path to where it
+	// lies, such as "Combat.Hit.damage"; "" when it decodes.
+	std::string undecodable(const Type &p_type, const SceneValue &p_value, const std::string &p_at) {
+		const std::string at = p_at.empty() ? std::string() : p_at + ": ";
+		const auto mismatch = [&]() {
+			const std::string found = p_value.type == "Nil" ? std::string("null") : stored_type(p_value).to_string();
+			return at + "expected " + p_type.to_string() + ", found " + found;
+		};
+		if (p_type.kind == TypeKind::Option && p_value.type != "Nil") {
+			return undecodable(p_type.args[0], p_value, p_at);
+		}
+		if (p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum) {
+			return p_value.type == "Dictionary" ? undecodable_fields(p_type, p_value, p_at.empty() ? p_type.to_string() : p_at) : mismatch();
+		}
+		// A container by its elements, as decoding builds a new one of them.
+		if (is_typed_container(p_type)) {
+			const bool array = p_type.args.size() == 1;
+			if (p_value.type != (array ? "Array" : "Dictionary")) {
+				return mismatch();
+			}
+			const std::string where = p_at.empty() ? p_type.to_string() : p_at;
+			for (size_t i = 0; i < p_value.items.size(); i++) {
+				const bool key = !array && i % 2 == 0;
+				const std::string why = undecodable(p_type.args[key || array ? 0 : 1], p_value.items[i], where + (key ? " (a key)" : "[" + std::to_string(array ? i : i / 2) + "]"));
+				if (!why.empty()) {
+					return why;
+				}
+			}
+			return std::string();
+		}
+		// An int also from a whole float, and an enum of this language only one
+		// of its values (spec §3.7, §10.8).
+		const bool integer = p_value.type == "int" || (p_value.type == "float" && p_value.whole);
+		if (p_type.kind == TypeKind::Enum && integer) {
+			const bool closed = p_type.values && !p_type.values->is_engine;
+			return closed && !p_type.values->has(p_value.integer) ? at + "expected " + p_type.to_string() + ", found " + std::to_string(p_value.integer) + ", which is none of its values" : std::string();
+		}
+		if (p_type.kind == TypeKind::Int && integer) {
+			return std::string();
+		}
+		return assignable(stored_type(p_value), p_type) ? std::string() : mismatch();
+	}
+
+	// The fields of a stored struct, or of the variant that "$variant" names,
+	// each by its name as a key; a struct's field with a default may be left
+	// out (spec §3.6, §10.1).
+	std::string undecodable_fields(const Type &p_type, const SceneValue &p_value, const std::string &p_at) {
+		const auto entry = [&](const std::string &p_key) -> const SceneValue * {
+			for (size_t i = 0; i + 1 < p_value.items.size(); i += 2) {
+				const SceneValue &key = p_value.items[i];
+				if ((key.type == "String" || key.type == "StringName") && key.text == p_key) {
+					return &p_value.items[i + 1];
+				}
+			}
+			return nullptr;
+		};
+		std::vector<std::pair<std::string, Type>> fields;
+		std::vector<bool> defaults;
+		std::string at = p_at;
+		if (p_type.kind == TypeKind::Struct) {
+			const StructDecl *decl = struct_decl(p_type);
+			for (size_t f = 0; decl && f < decl->fields.size(); f++) {
+				fields.emplace_back(decl->fields[f].name, decl->fields[f].type);
+				defaults.push_back(bool(decl->fields[f].initializer));
+			}
+		} else if (p_type.values) {
+			const SceneValue *name = entry("$variant");
+			const auto &variants = p_type.values->list;
+			const auto named = std::find_if(variants.begin(), variants.end(), [&](const auto &p_variant) { return name && (name->type == "String" || name->type == "StringName") && name->text == p_variant.first; });
+			if (named == variants.end()) {
+				return p_at + ": expected " + p_type.to_string() + ", found a Dictionary whose \"$variant\" names none of its variants";
+			}
+			at += "." + named->first;
+			fields = p_type.values->fields[named - variants.begin()];
+			defaults.resize(fields.size(), false);
+		}
+		for (size_t f = 0; f < fields.size(); f++) {
+			const SceneValue *value = entry(fields[f].first);
+			const std::string why = value ? undecodable(fields[f].second, *value, at + "." + fields[f].first) : std::string();
+			if (!value && !defaults[f]) {
+				return at + "." + fields[f].first + " is missing";
+			}
+			if (!why.empty()) {
+				return why;
+			}
+		}
+		return std::string();
+	}
+
+	// The type of a value that a scene stores: an object of the class of its
+	// script, as a node's (spec §7.1, §11.1).
+	Type stored_type(const SceneValue &p_value) {
+		if (p_value.type == "Nil") {
+			return Type::of(TypeKind::None);
+		}
+		if (p_value.type != "Object") {
+			return api_type(p_value.type, false);
+		}
+		if (is_script_path(p_value.script)) {
+			const ClassDecl *header = script_header(p_value.script);
+			return header ? script_class_type(*header, p_value.script) : Type::object(p_value.class_name);
+		}
+		const ForeignClass *foreign = p_value.script.empty() ? nullptr : foreign_class(p_value.script);
+		return foreign && foreign->members_known && !foreign->native.empty() ? foreign_class_type(p_value.script, *foreign) : Type::object(p_value.class_name);
+	}
+
 	// The part of a type that is not seen everywhere: a struct, an enum, an
 	// interface or an inner class without pub, or one inside a class without
 	// it (spec §4.2); nullopt when there is none.
@@ -11015,6 +11163,7 @@ private:
 		check_warning_ignores();
 		check_connections();
 		check_owner_scenes();
+		check_stored_exports();
 		return true;
 	}
 };

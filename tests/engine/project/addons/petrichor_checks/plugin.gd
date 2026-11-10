@@ -44,6 +44,7 @@ func _run() -> void:
 	_check_constant_defaults()
 	_check_other_defaults()
 	_check_struct_exports()
+	await _check_stored_exports()
 	_check_inheritance_recovery()
 	await _check_instanced_scene_change()
 	await _check_scene_marks()
@@ -473,4 +474,32 @@ func _check_struct_exports() -> void:
 	_check(_pack_to_text(root).contains('hit = {\n"damage": 4\n}'), "an edited value is stored as the Dictionary")
 	root.free()
 	for file in [script_path, script_path + ".uid", scene_path]:
+		DirAccess.remove_absolute(file)
+
+
+# Spec §4.3: the values that scenes store for an exported struct are checked
+# as the script compiles, each scene's own, and an error is marked on the
+# node. A scene that inherits another replaces the whole value.
+func _check_stored_exports() -> void:
+	var script_path := "res://editor_check_stored.pet"
+	var base := "res://editor_check_stored_base.tscn"
+	var derived := "res://editor_check_stored_derived.tscn"
+	var inherit := '[gd_scene format=3]\n\n[ext_resource type="PackedScene" path="%s" id="1"]\n\n[node name="Base" instance=ExtResource("1")]\nhit = %s\n'
+	_write(script_path, "extends Node\n\npub struct Hit:\n\tvar damage: int\n\tvar crit := false\n\n@export pub var hit := Hit(damage = 1)\n")
+	_write(base, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Base" type="Node"]\nscript = ExtResource("1")\nhit = {"crit": true, "damage": 5}\n' % script_path)
+	_write(derived, inherit % [base, '{"crit": false}'])
+	var script: Script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_IGNORE)
+	_check(not _compiles(script, script_path), "a scene that inherits another replaces the whole value, here without a field that has no default")
+	var root := (ResourceLoader.load(derived, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
+	var warnings := "\n".join(root.call("_get_configuration_warnings"))
+	_check(warnings.contains("the value stored for \"hit\" of . does not decode: editor_check_stored.pet.Hit.damage is missing."), "the error is marked on the node of the scene that stores the value: " + warnings)
+	root.free()
+
+	# Modification times count whole seconds.
+	var written := FileAccess.get_modified_time(derived)
+	while int(Time.get_unix_time_from_system()) <= written:
+		await get_tree().process_frame
+	_write(derived, inherit % [base, '{"damage": 7}'])
+	_check(_compiles(script, script_path), "a field left out that has a default decodes")
+	for file in [script_path, script_path + ".uid", base, derived, "res://.godot/petrichor/editor_check_stored.petc"]:
 		DirAccess.remove_absolute(file)

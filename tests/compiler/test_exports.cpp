@@ -232,3 +232,62 @@ TEST_CASE("an exported value holds no node at any depth, which a scene would not
 	CHECK(exports_errors(types + "@export pub var cost: Cost = Cost()").empty());
 	CHECK(exports_errors(types + "pub var shot: Shot?").empty());
 }
+
+TEST_CASE("the values that scenes store for an exported struct or enum with payloads are checked as the entry check decodes them (spec §4.3)") {
+	const std::string source = "class_name Loadout\nextends Node\n\npub struct Hit:\n\tvar damage: int\n\tvar crit := false\n\tvar tags: Array[String] = []\n\npub enum Order { WAIT, MOVE(target: Vector3) }\n\n@export pub var hit: Hit?\n@export pub var order := Order.WAIT\n";
+	using Value = compiler::SceneValue;
+	const auto of = [](const std::string &p_type, int64_t p_integer = 0) {
+		Value value;
+		value.type = p_type;
+		value.integer = p_integer;
+		value.whole = p_type == "float";
+		return value;
+	};
+	const auto text = [](const std::string &p_text) {
+		Value value;
+		value.type = "String";
+		value.text = p_text;
+		return value;
+	};
+	const auto entries = [&](const std::vector<std::pair<std::string, Value>> &p_entries) {
+		Value value;
+		value.type = "Dictionary";
+		for (const auto &[key, item] : p_entries) {
+			value.items.push_back(text(key));
+			value.items.push_back(item);
+		}
+		return value;
+	};
+	// On the root of a scene with the class, or on an instance of one.
+	const auto stored = [&](const std::string &p_name, const Value &p_value, bool p_instance = false) {
+		FakeProject project;
+		compiler::Scene scene;
+		scene.path = "res://enemy.tscn";
+		compiler::SceneNode node{ ".", "Node", "res://test.pet" };
+		if (p_instance) {
+			node = { "Enemy", "Node", "", true, "res://test.pet" };
+		}
+		node.properties = { { p_name, p_value } };
+		scene.nodes = { node };
+		project.scenes = { scene };
+		return compile_in(source, project);
+	};
+	const auto errors = [&](const std::string &p_name, const Value &p_value) { return messages(stored(p_name, p_value)); };
+	// A field with a default may be left out, as by a scene saved before it
+	// was added; an int also comes from a whole float.
+	CHECK(errors("hit", entries({ { "damage", of("int", 5) } })).empty());
+	CHECK(errors("hit", entries({ { "damage", of("float", 5) }, { "tags", Value{ "Array", "", "", 0, false, "", { text("a") } } } })).empty());
+	CHECK(errors("hit", of("Nil")).empty());
+	CHECK(errors("order", entries({ { "$variant", text("MOVE") }, { "target", of("Vector3i") } })).empty());
+	// One without a default may not, as when it was added after the scene.
+	const compiler::CompileResult missing = stored("hit", entries({ { "crit", of("bool") } }));
+	CHECK(contains(messages(missing), "res://enemy.tscn: the value stored for \"hit\" of . does not decode: Loadout.Hit.damage is missing."));
+	REQUIRE(!missing.errors.empty());
+	CHECK((missing.errors[0].scene == "res://enemy.tscn" && missing.errors[0].node == "."));
+	CHECK(contains(errors("hit", entries({ { "damage", text("5") } })), "Loadout.Hit.damage: expected int, found String."));
+	CHECK(contains(errors("hit", entries({ { "damage", of("int", 1) }, { "tags", Value{ "Array", "", "", 0, false, "", { of("int", 2) } } } })), "Loadout.Hit.tags[0]: expected String, found int."));
+	CHECK(contains(errors("order", entries({ { "$variant", text("RUN") } })), "Loadout.Order: expected Loadout.Order, found a Dictionary whose \"$variant\" names none of its variants."));
+	CHECK(contains(errors("order", entries({ { "$variant", text("MOVE") } })), "Loadout.Order.MOVE.target is missing."));
+	CHECK(contains(errors("order", of("int", 1)), "does not decode: expected Loadout.Order, found int."));
+	CHECK(contains(messages(stored("hit", entries({ { "crit", of("bool") } }), true)), "the value stored for \"hit\" of Enemy does not decode: Loadout.Hit.damage is missing."));
+}

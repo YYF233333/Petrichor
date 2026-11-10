@@ -2,12 +2,30 @@
 
 #include "compiler/engine_api.h"
 
+#include <cstdint>
 #include <map>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace petrichor::compiler {
+
+// A value that a scene stores for a property, as the check of exported
+// structs and enums with payloads reads it (spec §4.3).
+struct SceneValue {
+	std::string type; // The engine's name of its type: "int", "Dictionary", "Nil"…
+	std::string class_name; // An object's class, and its script if it has one.
+	std::string script;
+	int64_t integer = 0; // An int, or a float that is exactly one (`whole`).
+	bool whole = false;
+	std::string text; // A String or a StringName.
+	std::vector<SceneValue> items; // An Array's elements, or a Dictionary's keys and values one after another.
+
+	bool operator==(const SceneValue &p_other) const {
+		return type == p_other.type && class_name == p_other.class_name && script == p_other.script && integer == p_other.integer && whole == p_other.whole && text == p_other.text && items == p_other.items;
+	}
+};
 
 // A node of a scene, as the scene model sees it (spec §7.1).
 struct SceneNode {
@@ -19,9 +37,12 @@ struct SceneNode {
 	// attaches another.
 	std::string instance_script;
 	bool unique = false; // Reached from the scene's nodes as `%Name` (unique_name_in_owner).
+	// What this scene itself stores for the properties of a node with a script
+	// of this language, by name; a base or an instanced scene stores the rest.
+	std::vector<std::pair<std::string, SceneValue>> properties;
 
 	bool operator==(const SceneNode &p_other) const {
-		return path == p_other.path && type == p_other.type && script == p_other.script && is_instance == p_other.is_instance && instance_script == p_other.instance_script && unique == p_other.unique;
+		return path == p_other.path && type == p_other.type && script == p_other.script && is_instance == p_other.is_instance && instance_script == p_other.instance_script && unique == p_other.unique && properties == p_other.properties;
 	}
 };
 

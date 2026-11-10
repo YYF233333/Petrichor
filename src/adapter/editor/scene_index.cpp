@@ -87,6 +87,67 @@ std::string instanced_script(const Ref<SceneState> &p_state, int32_t p_index) {
 	return script ? *script : instanced_script(instance->get_state(), 0);
 }
 
+// A value as the check of exported structs and enums with payloads reads it
+// (spec §4.3); a float is whole as spec §10.8 says.
+compiler::SceneValue scene_value(const Variant &p_value) {
+	compiler::SceneValue value;
+	const Object *object = p_value.get_type() == Variant::OBJECT ? p_value.get_validated_object() : nullptr;
+	value.type = to_utf8(Variant::get_type_name(p_value.get_type() == Variant::OBJECT && !object ? Variant::NIL : p_value.get_type()));
+	switch (p_value.get_type()) {
+		case Variant::INT:
+			value.integer = p_value;
+			break;
+		case Variant::FLOAT: {
+			const double number = p_value;
+			value.whole = number >= -9223372036854775808.0 && number < 9223372036854775808.0 && number == double(int64_t(number));
+			value.integer = value.whole ? int64_t(number) : 0;
+			break;
+		}
+		case Variant::STRING:
+		case Variant::STRING_NAME:
+			value.text = to_utf8(String(p_value));
+			break;
+		case Variant::OBJECT:
+			if (object) {
+				const Ref<Script> script = object->get_script();
+				value.class_name = to_utf8(object->get_class());
+				value.script = script.is_valid() ? to_utf8(script->get_path()) : std::string();
+			}
+			break;
+		case Variant::ARRAY: {
+			const Array array = p_value;
+			for (int64_t i = 0; i < array.size(); i++) {
+				value.items.push_back(scene_value(array[i]));
+			}
+			break;
+		}
+		case Variant::DICTIONARY: {
+			const Dictionary dictionary = p_value;
+			const Array keys = dictionary.keys();
+			for (int64_t i = 0; i < keys.size(); i++) {
+				value.items.push_back(scene_value(keys[i]));
+				value.items.push_back(scene_value(dictionary[keys[i]]));
+			}
+			break;
+		}
+		default:
+			break;
+	}
+	return value;
+}
+
+// What the scene itself stores for the properties of the node.
+std::vector<std::pair<std::string, compiler::SceneValue>> stored_properties(const Ref<SceneState> &p_state, int32_t p_index) {
+	std::vector<std::pair<std::string, compiler::SceneValue>> properties;
+	for (int32_t p = 0; p < p_state->get_node_property_count(p_index); p++) {
+		const StringName name = p_state->get_node_property_name(p_index, p);
+		if (name != StringName("script")) {
+			properties.emplace_back(to_utf8(name), scene_value(p_state->get_node_property_value(p_index, p)));
+		}
+	}
+	return properties;
+}
+
 // The paths of the scenes a scene instances, through instances of instances.
 // An inherited scene's root is an instance of its base
 // (scene/resources/packed_scene.cpp:1921-1924; ed1daf0).
@@ -106,10 +167,18 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state)
 	const Ref<SceneState> base = p_state->get_base_scene_state();
 	compiler::Scene scene = base.is_valid() ? read_scene(p_path, base) : compiler::Scene();
 	scene.path = to_utf8(p_path);
+	for (compiler::SceneNode &node : scene.nodes) {
+		node.properties.clear(); // The base stores them, and the check reads them there.
+	}
 	for (int32_t i = 0; i < p_state->get_node_count(); i++) {
 		const std::string path = node_path(p_state->get_node_path(i));
 		const std::optional<std::string> script = attached_script(p_state, i);
 		const auto inherited = std::find_if(scene.nodes.begin(), scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return p_node.path == path; });
+		// Only for a script of this language, whose exports the check reads.
+		const auto store = [&](compiler::SceneNode &r_node) {
+			const std::string &attached = r_node.script.empty() ? r_node.instance_script : r_node.script;
+			r_node.properties = to_godot(attached).get_extension() == "pet" ? stored_properties(p_state, i) : std::vector<std::pair<std::string, compiler::SceneValue>>();
+		};
 		if (inherited != scene.nodes.end()) {
 			if (script) {
 				inherited->script = *script;
@@ -119,6 +188,7 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state)
 			if (unique.get_type() == Variant::BOOL) {
 				inherited->unique = unique;
 			}
+			store(*inherited);
 			continue;
 		}
 		compiler::SceneNode node;
@@ -133,6 +203,7 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state)
 		if (node.is_instance && !script) {
 			node.instance_script = instanced_script(p_state, i);
 		}
+		store(node);
 		scene.nodes.push_back(node);
 	}
 	for (int32_t i = 0; i < p_state->get_connection_count(); i++) {
