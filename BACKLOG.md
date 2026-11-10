@@ -27,7 +27,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - `map()` of `T?` whose function returns `U?`;
   - `ok()` and `err()` of `Result[T?, E]` and `Result[T, E?]`.
 - `is_instance_of(v, T)` with a native class held in a variable, which waits for classes as values (spec §2.6). gdUnit4 passes them.
-- An inner class named as an engine enum, such as `Key`. A type reads the name as the engine's enum, an expression as the inner class (spec §4.1). So `func make() -> Key: return Key.new()` is an error.
 - Node paths (spec §7.1):
   - into instanced scenes;
   - out of a scene from its root: `..` above the root, and `%Name` of a scene that instances it. Ring's paddle.gd uses one, `$%HealthIcon`.

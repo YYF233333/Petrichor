@@ -54,6 +54,13 @@ TEST_CASE("a class names the constants and enums of its engine base by bare name
 	CHECK(errors_of("extends RefCounted\nclass Inner extends Node:\n\tfunc f() -> bool:\n\t\treturn PROCESS_MODE_ALWAYS == ProcessMode(3)\n").empty());
 }
 
+TEST_CASE("an inner class named as a global enum of the engine is that class, in types too (spec §4.1)") {
+	const auto errors = [](const std::string &p_source) { return messages(compile_in("extends Node\n\n" + p_source, FakeProject())); };
+	CHECK(errors("class Key:\n\tvar code := 1\n\nfunc make() -> Key:\n\treturn Key.new()\n\nfunc code(k: Key) -> int:\n\treturn k.code\n").empty());
+	CHECK(contains(errors("class Key:\n\tpass\n\nfunc f() -> void:\n\tvar k: Key = KEY_ESCAPE\n"), "Cannot assign a value of type Key as test.pet.Key."));
+	CHECK(errors("class Inner:\n\tfunc f() -> Key:\n\t\treturn KEY_ESCAPE\n").empty());
+}
+
 TEST_CASE("** is int for two ints and float otherwise (spec §5.1)") {
 	CHECK(type_of("2 ** 3") == "int");
 	CHECK(type_of("2 ** 0.5") == "float");

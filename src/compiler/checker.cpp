@@ -550,6 +550,12 @@ class Checker : public ClassRelation {
 		return false;
 	}
 
+	// Whether a bare name is declared by this class or one around it, which
+	// then comes before the engine's global names (spec §4.1).
+	bool declared_in_scope(const std::string &p_name) const {
+		return p_name.find('.') == std::string::npos && (declares_in_script(p_name) || class_around(p_name));
+	}
+
 	// A name of the engine class this one extends, used bare in an inner class
 	// whose classes around it declare it too: GDScript would take theirs, this
 	// language the inherited one, so it is an error (spec §4.1).
@@ -1123,9 +1129,13 @@ class Checker : public ClassRelation {
 			refer(p_ref.name_token, engine_id(p_ref.name));
 			return Type::object(p_ref.name);
 		}
-		if (const std::optional<Type> found = named_engine_enum(p_ref.name)) {
+		// Such as Node.ProcessMode or Key, but a type this class or one around
+		// it declares comes first, as an inner class named Key (spec §4.1).
+		const std::optional<Type> engine_enum = named_engine_enum(p_ref.name);
+		const bool engine_enum_later = engine_enum && declared_in_scope(p_ref.name);
+		if (engine_enum && !engine_enum_later) {
 			refer_engine_enum(p_ref.name, p_ref.name_token, p_ref.name_token == NO_TOKEN ? NO_TOKEN : p_ref.name_token + 2);
-			return *found;
+			return *engine_enum;
 		}
 		// An enum of the engine class this one extends, such as ProcessMode
 		// (spec §4.1), after what the class declares and the global classes.
@@ -1139,6 +1149,10 @@ class Checker : public ClassRelation {
 		if (base_enum) {
 			refer(p_ref.name_token, engine_id(base_enum->name.substr(0, base_enum->name.find('.')), p_ref.name));
 			return *base_enum;
+		}
+		if (engine_enum_later) {
+			refer(p_ref.name_token, engine_id(p_ref.name));
+			return *engine_enum;
 		}
 		if (p_ref.name == "ConversionError") {
 			refer(p_ref.name_token, language_id(p_ref.name, std::string()));
@@ -1951,13 +1965,13 @@ class Checker : public ClassRelation {
 				return std::nullopt;
 			}
 			name = r_call.base->text + "." + r_call.text;
-		} else if (function_index.count(name) || visible_local(name) || member_index.count(name) || constant_index.count(name)) {
+		} else if (declared_in_scope(name)) {
 			return std::nullopt;
 		}
 		const std::optional<Type> found = named_engine_enum(name);
 		if (found) {
 			refer_engine_enum(name, r_call.base ? r_call.base->name_token : r_call.name_token, r_call.name_token);
-		} else if (!r_call.base && !declares_in_script(name)) {
+		} else if (!r_call.base) {
 			// One of the engine class this one extends (spec §4.1).
 			const std::optional<Type> base_enum = engine.find_enum(cls.native_base, name);
 			if (base_enum) {
