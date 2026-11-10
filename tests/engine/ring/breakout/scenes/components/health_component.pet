@@ -24,7 +24,7 @@ pub func take_damage(value: int):
 
 	if show_floating_text:
 		#加载伤害 UI 组件
-		var floating_text = (floating_text_scene.instantiate() as FloatingText).unwrap()
+		var floating_text = floating_text_scene.instantiate()
 		get_tree().get_first_node_in_group("foregrounds").unwrap().add_child(floating_text)
 
 		floating_text.global_position = owner.global_position + \
