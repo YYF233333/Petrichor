@@ -1,5 +1,7 @@
 #pragma once
 
+#include "bytecode/opcodes.h"
+
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -325,10 +327,12 @@ struct Function {
 	bool is_async = false;
 	std::string name;
 	std::vector<Slot> params;
-	// The values of the last parameters when a call leaves them out: one from
-	// the engine, or from another class of this language (CALL_METHOD). A call
-	// within the class passes every argument.
+	// The last parameters' default values as the engine's method list shows
+	// them, NIL for one that is no constant (spec §4.6). The code computes
+	// those a call leaves out first, from the count of arguments the call
+	// writes into the int slot at `given`.
 	std::vector<Constant> defaults;
+	uint32_t given = NO_SLOT;
 	// The last parameter before a lambda's captures is a rest parameter, an
 	// Array of the arguments after the others (spec §4.6).
 	bool is_vararg = false;

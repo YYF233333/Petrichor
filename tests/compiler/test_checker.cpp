@@ -286,8 +286,11 @@ TEST_CASE("default values of parameters") {
 	CHECK(errors_of(source + "var x := add(1)\n\tvar y := add(1, 2, 3)\n").empty());
 	CHECK(has_error(source + "var x := add()\n", "takes 1 to 3 argument(s), 0 given"));
 	CHECK(has_error("extends Node\n\nfunc g(a: int = 1, b: int):\n\tpass\n", "needs one too"));
-	CHECK(has_error("extends Node\n\nfunc g(a: int = randi()):\n\tpass\n", "Non-constant default values are not supported yet"));
 	CHECK(has_error("extends Node\n\nfunc g(a: int = \"x\"):\n\tpass\n", "Cannot use a value of type String as int"));
+	// Each sees self and the parameters before it, as in GDScript.
+	CHECK(errors_of("extends Node\n\nvar hp := 1\n\nfunc g(a: int, b: int = a + hp, c: int = randi() + b) -> void:\n\tpass\n").empty());
+	CHECK(has_error("extends Node\n\nfunc g(a: int = b, b: int = 1) -> void:\n\tpass\n", "Identifier \"b\" is not declared"));
+	CHECK(has_error("extends Node\n\nvar hp := 1\n\nstatic func g(a: int = hp) -> void:\n\tpass\n", "\"hp\" belongs to an instance, which the static function \"g()\" does not have."));
 }
 
 // Spec §4.8.

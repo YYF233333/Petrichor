@@ -15,3 +15,9 @@ pub func arrays(other: DefaultValues) -> Array[Array]:
 
 pub async func later(other: DefaultValues) -> Array:
 	return await other.later()
+
+pub func computed(other: DefaultValues) -> Array:
+	return other.computed(2, 5)
+
+pub func label_of(other: DefaultValues) -> String:
+	return other.label()

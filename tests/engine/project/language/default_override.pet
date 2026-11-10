@@ -1,0 +1,5 @@
+extends DefaultValues
+
+# An override called through its base computes its own default (spec §4.6).
+pub func label(text: String = "louder " + str(hp)) -> String:
+	return text

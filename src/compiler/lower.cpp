@@ -149,6 +149,9 @@ class Lowerer {
 	// Lambdas, which come after the class's functions (spec §3.11), in the order
 	// they are made in.
 	std::vector<bytecode::Function> lambdas;
+	// The index of the function that computes each default of this class's
+	// struct fields that is no constant; they follow the class's functions.
+	std::unordered_map<const VarDecl *, uint32_t> field_defaults;
 
 	uint32_t reg_of(int p_local) const {
 		return local_regs.empty() ? uint32_t(p_local) : local_regs[p_local];
@@ -559,13 +562,46 @@ class Lowerer {
 		}
 		for (size_t f = 0; f < decl->fields.size(); f++) {
 			if (values[f] == NO_REG) {
-				values[f] = argument(*decl->fields[f].initializer, decl->fields[f].type, false, false);
+				const VarDecl &field = decl->fields[f];
+				values[f] = computed(field) ? field_default(p_struct, *decl, field) : argument(*field.initializer, field.type, false, false);
 			}
 		}
 		for (size_t f = 0; f < decl->fields.size(); f++) {
 			move(field_view(result, uint32_t(f)), values[f]);
 		}
 		return result;
+	}
+
+	// A field's default that is no constant, which a function of the struct's
+	// class computes, so that it runs as that class's code (spec §3.6).
+	static bool computed(const VarDecl &p_field) {
+		const ConstPtr value = p_field.initializer ? converted(p_field.initializer->constant, p_field.type) : nullptr;
+		return p_field.initializer && (!value || loads(*value));
+	}
+
+	static std::string field_default_name(const StructDecl &p_decl, const VarDecl &p_field) {
+		return "@" + p_decl.name + "." + p_field.name;
+	}
+
+	uint32_t field_default(const Type &p_struct, const StructDecl &p_decl, const VarDecl &p_field) {
+		ir::Instr i;
+		i.dst = temp(p_field.type);
+		const auto own = field_defaults.find(&p_field);
+		if (own != field_defaults.end()) {
+			i.op = Op::CALL;
+			i.imm = own->second;
+		} else {
+			i.op = Op::CALL_METHOD;
+			bytecode::MethodCall method;
+			method.method = field_default_name(p_decl, p_field);
+			method.result = slot(std::string(), p_field.type);
+			bytecode::ClassRef declaring; // Only its script matters.
+			declaring.script = p_struct.script;
+			method.static_class = int32_t(class_index(declaring));
+			i.imm = method_call(method);
+		}
+		add(i);
+		return i.dst;
 	}
 
 	bytecode::Slot slot(const std::string &p_name, const Type &p_type) {
@@ -1945,7 +1981,7 @@ class Lowerer {
 		}
 		i.dst = temp(p_expr.type);
 		const size_t own = lambdas.size();
-		i.imm = uint32_t(cls.all_functions.size() + own);
+		i.imm = uint32_t(cls.all_functions.size() + field_defaults.size() + own);
 		add(i);
 
 		lambdas.emplace_back();
@@ -3181,6 +3217,53 @@ class Lowerer {
 		current = new_block();
 	}
 
+	// The defaults of the arguments a call left out, first in the function (spec
+	// §4.6): the call wrote into `fn.given` how many it passed.
+	void lower_defaults(const FuncDecl &p_function) {
+		const uint32_t self = p_function.of_struct && !p_function.is_static ? 1 : 0;
+		for (size_t p = 0; p < p_function.params.size(); p++) {
+			const ParamDecl &param = p_function.params[p];
+			if (!param.default_value) {
+				continue;
+			}
+			const uint32_t local = reg_of(int(self + p));
+			const uint32_t passed = temp(ValueType::Bool);
+			instr(Op::LT_INT, passed, int_constant(self + p), fn.given);
+			const uint32_t compute = new_block();
+			const uint32_t next = new_block();
+			branch(passed, next, compute);
+			current = compute;
+			at = param.default_value->range;
+			instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(cls.source->line(param.default_value->range.first)));
+			const uint32_t first = uint32_t(fn.regs.size());
+			assign_local(local, convert(lower_expr(*param.default_value), param.default_value->type, param.type), first);
+			release(temps_since(first));
+			jump(next);
+			current = next;
+		}
+	}
+
+	void lower_field_default(const StructDecl &p_struct, const VarDecl &p_field, bool p_declarations_only) {
+		start(field_default_name(p_struct, p_field));
+		decl = nullptr;
+		at = p_field.range;
+		fn.result = slot(std::string(), p_field.type);
+		fn.line = uint32_t(cls.source->line(p_field.name_token));
+		if (!p_declarations_only) {
+			instr(Op::LINE, NO_REG, NO_REG, NO_REG, fn.line);
+			const uint32_t value = convert(lower_expr(*p_field.initializer), p_field.initializer->type, p_field.type);
+			if (terminated()) {
+				current = new_block();
+			}
+			fn.blocks[current].terminator = ir::Terminator::Return;
+			fn.blocks[current].value = value;
+		}
+		finish();
+		bytecode::Function out = ir::emit(fn, module);
+		out.is_static = true;
+		module.functions.push_back(std::move(out));
+	}
+
 	// The member initializers in declaration order (spec §6.1): those that run
 	// on a new instance, or the @onready ones (§6.3). Lowered before the
 	// functions, so that their code and the table
@@ -3408,6 +3491,13 @@ public:
 			}
 		}
 
+		for (const StructDecl &structure : cls.structs) {
+			for (const VarDecl &field : structure.fields) {
+				if (computed(field)) {
+					field_defaults.emplace(&field, uint32_t(cls.all_functions.size() + field_defaults.size()));
+				}
+			}
+		}
 		bytecode::Function initializers;
 		bytecode::Function ready_initializers;
 		const bool has_initializers = !p_declarations_only && lower_initializers(false, initializers);
@@ -3435,7 +3525,11 @@ public:
 			for (const LocalInfo &local : function.locals) {
 				fn.regs.push_back(slot(local.name, local.type));
 			}
+			if (std::any_of(function.params.begin(), function.params.end(), [](const ParamDecl &p_param) { return bool(p_param.default_value); })) {
+				fn.given = temp(ValueType::Int);
+			}
 			if (!p_declarations_only && !inherited) {
+				lower_defaults(function);
 				lower_block(function.body);
 			}
 			finish();
@@ -3469,11 +3563,20 @@ public:
 			out.is_vararg = function.has_rest();
 			for (const ParamDecl &param : function.params) {
 				if (param.default_value) {
+					// NIL for one that is no constant, as GDScript lists it
+					// (modules/gdscript/gdscript_analyzer.cpp:1795-1798).
 					const ConstPtr value = converted(param.default_value->constant, param.type);
-					out.defaults.push_back(value ? constant_of(*value) : bytecode::Constant{ type_index(param.type) });
+					out.defaults.push_back(value && !loads(*value) ? constant_of(*value) : bytecode::Constant{ type_index(Type::of(TypeKind::Variant)) });
 				}
 			}
 			module.functions.push_back(std::move(out));
+		}
+		for (const StructDecl &structure : cls.structs) {
+			for (const VarDecl &field : structure.fields) {
+				if (field_defaults.count(&field)) {
+					lower_field_default(structure, field, p_declarations_only);
+				}
+			}
 		}
 		bytecode::Function static_initializer;
 		const bool has_static_initializer = !p_declarations_only && lower_static_initializer(static_initializer);

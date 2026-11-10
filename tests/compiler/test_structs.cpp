@@ -48,7 +48,14 @@ TEST_CASE("a struct starts at its default only when every field has one") {
 	CHECK(contains(errors("var h: Hit"), "\"h\" of type Shots.Hit needs an initial value"));
 	CHECK(errors("pass", "var last: Hit\n\n").empty()); // One that must be assigned (spec §6.2).
 	CHECK(contains(errors("pass", "@export pub var settings: Settings\n\n"), "Structs cannot be exported"));
-	CHECK(contains(errors("pass", "struct Odd:\n\tvar n: int = randi()\n\n"), "Non-constant default values are not supported yet."));
+}
+
+TEST_CASE("a field's default value sees what a static method of the struct sees") {
+	const std::string members = "var hp := 10\n\nstatic func next_id() -> int:\n\treturn 1\n\n";
+	const std::string computed = errors("var t := Ticket()\nvar n: int = t.made + t.id", members + "struct Ticket:\n\tvar id: int = next_id()\n\tvar made = randi()\n\n");
+	CHECK_MESSAGE(computed.empty(), computed);
+	CHECK(contains(errors("pass", members + "struct Ticket:\n\tvar id: int = 1\n\tvar copy: int = id\n\n"), "\"id\" is a field of self, which the default value of \"copy\" does not have."));
+	CHECK(contains(errors("pass", members + "struct Ticket:\n\tvar id: int = hp\n\n"), "\"hp\" belongs to an object of Shots"));
 }
 
 TEST_CASE("a struct that contains itself without a container has no size") {

@@ -27,22 +27,8 @@ func local_call():
 	}
 }
 
-TEST_CASE("unsupported defaults cannot hide behind unresolved member types") {
-	FakeProject project;
-	for (const bool declarations : { false, true }) {
-		for (const std::string expression : { "hp", "randi()" }) {
-			const auto result = compile_in("extends Node\nvar hp: int = 10\nfunc f(value: int = " + expression + "):\n\tpass\n", project, declarations);
-			CHECK_MESSAGE(!result.ok(), expression);
-			CHECK(contains(messages(result), "Non-constant default values"));
-		}
-		CHECK_FALSE(compile_in("extends Node\nfunc f(value: Node = $Child):\n\tpass\n", project, declarations).ok());
-	}
-	CHECK(has_error("func f(value: int = None):\n\tpass\n", "Cannot use"));
-}
-
-// Constant expressions (spec §4.5), made again for each call that leaves the
-// argument out.
-TEST_CASE("defaults are constant expressions") {
+// Constant expressions (spec §4.5), which the engine's method list shows.
+TEST_CASE("constant defaults are listed with their values") {
 	const auto result = compile("extends Node\nconst LIMIT = 10\nfunc f(value: int = LIMIT * 2 + 1, bytes: PackedByteArray = PackedByteArray(), mask: int = 1 << 4):\n\tpass\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	const auto &defaults = function_named(result.module, "f").defaults;

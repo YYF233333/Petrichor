@@ -457,6 +457,7 @@ func _ready() -> void:
 	s.await_method()
 	s.resumed.emit()
 	_check(s.awaited == 4 and s.inherited(4) == 9, "an async method of a struct keeps its copy across an await; a subclass calls the methods it inherits")
+	_check(s.tickets() == "1 0 2 3 4 5", "a field's default that is no constant is computed for each construction that leaves the field out, also from another class")
 	s.free()
 	other.free()
 

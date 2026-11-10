@@ -36,3 +36,21 @@ pub async func later(values: Array[int] = [1], none: Color? = None) -> Array:
 
 pub async func local_later() -> Array:
 	return await later()
+
+pub var hp := 10
+var made := 0
+
+func next() -> int:
+	made += 1
+	return made
+
+# Defaults that are no constants, each seeing self and the parameters before
+# it, computed for each call that leaves them out (spec §4.6).
+pub func computed(a: int, b: int = a + hp, c: int = next()) -> Array:
+	return [a, b, c]
+
+pub func local_computed() -> Array:
+	return computed(1)
+
+pub func label(text: String = "plain") -> String:
+	return text

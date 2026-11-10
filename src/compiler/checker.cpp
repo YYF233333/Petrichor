@@ -259,9 +259,11 @@ class Checker : public ClassRelation {
 	// `current_value` its own may name (spec §3.7).
 	const EnumDecl *current_enum = nullptr;
 	size_t current_value = 0;
-	// The struct whose method is being checked (spec §3.6), and its type.
+	// The struct whose method or field's default value is being checked (spec
+	// §3.6), and its type.
 	const StructDecl *structure = nullptr;
 	Type structure_type;
+	const VarDecl *field_default = nullptr;
 	// The functions around the lambda being checked (spec §3.11), outermost
 	// first, each as it was where its lambda is.
 	struct Enclosing {
@@ -1361,7 +1363,12 @@ class Checker : public ClassRelation {
 	// Whether the code is in an instance method of a struct, whose self is the
 	// struct (spec §3.6).
 	bool has_struct_self() const {
-		return structure && !outermost()->is_static;
+		return structure && !field_default && !outermost()->is_static;
+	}
+
+	// The code of a struct without self, as messages name it after "the".
+	std::string selfless() const {
+		return field_default ? "default value of \"" + field_default->name + "\"" : "static function \"" + outermost()->name + "()\"";
 	}
 
 	// The type a name refers to when it is the base of `Name.x` or
@@ -2314,7 +2321,7 @@ class Checker : public ClassRelation {
 			return set(r_expr, structure_type);
 		}
 		if (structure) {
-			return fail(r_expr, "The static function \"" + outermost()->name + "()\" has no self.");
+			return fail(r_expr, "The " + selfless() + " has no self.");
 		}
 		if (refuse_in_static(r_expr, "self")) {
 			return set(r_expr, Type::of(TypeKind::Error));
@@ -2341,7 +2348,7 @@ class Checker : public ClassRelation {
 		const std::string &name = r_expr.text;
 		if (std::any_of(structure->fields.begin(), structure->fields.end(), [&](const VarDecl &p_field) { return p_field.name == name; })) {
 			if (!has_struct_self()) {
-				return fail(r_expr, "\"" + name + "\" is a field of self, which the static function \"" + outermost()->name + "()\" does not have.");
+				return fail(r_expr, "\"" + name + "\" is a field of self, which the " + selfless() + " does not have.");
 			}
 			r_expr.base = struct_self(r_expr);
 			r_expr.kind = ExprKind::Member;
@@ -2374,7 +2381,7 @@ class Checker : public ClassRelation {
 				return fail(r_expr, "\"" + r_expr.text + "()\" of " + p_struct.name + " is not static; take it from a value.");
 			}
 			if (!has_struct_self()) {
-				return fail(r_expr, "\"" + r_expr.text + "()\" needs self, which the static function \"" + outermost()->name + "()\" does not have.");
+				return fail(r_expr, "\"" + r_expr.text + "()\" needs self, which the " + selfless() + " does not have.");
 			}
 			r_expr.base = struct_self(r_expr);
 			check_value(*r_expr.base);
@@ -5698,7 +5705,7 @@ class Checker : public ClassRelation {
 				return fail_call(r_expr, "\"" + r_expr.text + "()\" of " + p_struct.name + " is not static; call it on a value.");
 			}
 			if (!has_struct_self()) {
-				return fail_call(r_expr, "\"" + r_expr.text + "()\" needs self, which the static function \"" + outermost()->name + "()\" does not have.");
+				return fail_call(r_expr, "\"" + r_expr.text + "()\" needs self, which the " + selfless() + " does not have.");
 			}
 			r_expr.base = struct_self(r_expr);
 			check_value(*r_expr.base);
@@ -8134,27 +8141,13 @@ class Checker : public ClassRelation {
 		r_member.getter_index = accessor(r_member.getter, false);
 	}
 
-	// Default parameters use the same constants as member initializers (spec §4.6).
-	void check_defaults(FuncDecl &r_function) {
+	// The values themselves are checked with the body (declare_params()).
+	void check_defaults(const FuncDecl &p_function) {
 		bool any = false;
-		for (ParamDecl &param : r_function.params) {
-			if (!param.default_value) {
-				if (any && !param.is_rest) {
-					error(param.name_token, "Parameter \"" + param.name + "\" follows one with a default value and needs one too.");
-				}
-				continue;
-			}
-			any = true;
-			// What a syntax error left is reported.
-			if (param.default_value->kind == ExprKind::Error) {
-				continue;
-			}
-			const size_t before = errors.size();
-			const Type value = check_value(*param.default_value, param.type);
-			expect_assignable(*param.default_value, value, param.type, "use");
-			const ConstPtr constant = converted(param.default_value->constant, param.type);
-			if (errors.size() == before && (!constant || loads(*constant))) {
-				error(param.default_value->range, "Non-constant default values are not supported yet; pass the argument explicitly.");
+		for (const ParamDecl &param : p_function.params) {
+			any = any || param.default_value;
+			if (any && !param.default_value && !param.is_rest) {
+				error(param.name_token, "Parameter \"" + param.name + "\" follows one with a default value and needs one too.");
 			}
 		}
 	}
@@ -8490,8 +8483,14 @@ class Checker : public ClassRelation {
 		}
 	}
 
-	void declare_params(FuncDecl &r_function) {
+	// A function's default values see self and the parameters before them
+	// (spec §4.6).
+	void declare_params(FuncDecl &r_function, bool p_defaults = false) {
 		for (const ParamDecl &param : r_function.params) {
+			// What a syntax error left is reported.
+			if (p_defaults && param.default_value && param.default_value->kind != ExprKind::Error) {
+				expect_assignable(*param.default_value, check_value(*param.default_value, param.type), param.type, "use");
+			}
 			if (scopes.back().count(param.name)) {
 				error(param.name_token, "Parameter \"" + param.name + "\" is declared twice.");
 			}
@@ -8619,8 +8618,8 @@ class Checker : public ClassRelation {
 		}
 	}
 
-	// The fields of the structs the class declares (spec §3.6), whose defaults
-	// are constants for now, as default parameters are.
+	// The fields of the structs the class declares (spec §3.6); the types that
+	// only default values give come with check_field_defaults().
 	void declare_structs() {
 		for (StructDecl &decl : cls.structs) {
 			refer(decl.name_token, script_id(options.path, decl.name), SymbolKind::Class);
@@ -8630,25 +8629,10 @@ class Checker : public ClassRelation {
 				if (!fields.insert(field.name).second) {
 					error(field.name_token, "The field \"" + field.name + "\" is already declared in " + decl.name + ".");
 				}
-				Type type = field.declared_type ? resolve(*field.declared_type, false) : Type::of(TypeKind::Error);
-				if (field.initializer) {
-					const size_t before = errors.size();
-					const Type value = check_value(*field.initializer, type);
-					if (field.declared_type) {
-						expect_assignable(*field.initializer, value, type, "assign");
-					} else if (value.kind == TypeKind::None) {
-						error(field.name_token, "\"" + field.name + "\" needs a type: None does not say which T? it is.");
-					} else {
-						type = value;
-					}
-					const ConstPtr constant = converted(field.initializer->constant, type);
-					if (errors.size() == before && (!constant || loads(*constant))) {
-						error(field.initializer->range, "Non-constant default values are not supported yet.");
-					}
-				} else if (!field.declared_type) {
+				field.type = field.declared_type ? resolve(*field.declared_type, false) : Type::of(TypeKind::Error);
+				if (!field.initializer && !field.declared_type) {
 					error(field.name_token, "\"" + field.name + "\" needs a type or a default value.");
 				}
-				field.type = type;
 			}
 			for (FuncDecl &method : decl.methods) {
 				const std::string name = method.name.substr(decl.name.size() + 1);
@@ -8681,6 +8665,31 @@ class Checker : public ClassRelation {
 				error(found ? found->name_token : cls.find_enum(name)->name_token, name + " contains itself through " + fields + ", so it has no finite size; hold it in a container or a RefCounted class.");
 			}
 		}
+	}
+
+	// Once the signatures are known, as for member initializers. A default
+	// value sees what a static method of the struct sees, which is no field.
+	void check_field_defaults() {
+		for (StructDecl &decl : cls.structs) {
+			structure = &decl;
+			structure_type = Type::structure(display_name(cls, options.path) + "." + decl.name, options.path);
+			for (VarDecl &field : decl.fields) {
+				if (!field.initializer) {
+					continue;
+				}
+				field_default = &field;
+				const Type value = check_value(*field.initializer, field.type);
+				field_default = nullptr;
+				if (field.declared_type) {
+					expect_assignable(*field.initializer, value, field.type, "assign");
+				} else if (value.kind == TypeKind::None) {
+					error(field.name_token, "\"" + field.name + "\" needs a type: None does not say which T? it is.");
+				} else {
+					field.type = value;
+				}
+			}
+		}
+		structure = nullptr;
 	}
 
 	// The fields of the struct, or of the variants of the enum with payloads,
@@ -9064,7 +9073,7 @@ class Checker : public ClassRelation {
 			scopes.back()["self"] = 0;
 			r_function.locals.push_back({ "self", structure_type, r_function.name_token });
 		}
-		declare_params(r_function);
+		declare_params(r_function, true);
 		const size_t cursor = completion ? cls.source->text.find(CURSOR) : 0;
 		if (options.declarations_only || !check_bodies || (completion && (cursor < cls.source->begin(r_function.range) || cursor >= cls.source->end(r_function.range)))) {
 			function = nullptr;
@@ -10238,6 +10247,7 @@ private:
 				}
 			}
 		}
+		check_field_defaults();
 		check_implemented();
 		check_implements();
 		declare_signals();

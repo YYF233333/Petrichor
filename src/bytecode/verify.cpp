@@ -1055,6 +1055,12 @@ public:
 			if (each.defaults.size() > each.params.size()) {
 				return fail("more default values than parameters");
 			}
+			if ((each.given == NO_SLOT) != each.defaults.empty()) {
+				return fail("default values without the slot of the argument count, or that slot without them");
+			}
+			if (each.given != NO_SLOT && !slot(each.given, ValueType::Int)) {
+				return false;
+			}
 			if (each.rpc.mode > 2 || each.rpc.transfer_mode > 2) {
 				return fail("an RPC mode the engine does not have");
 			}

@@ -856,11 +856,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 				x.is_async != y.is_async || x.is_static != y.is_static || !(x.rpc == y.rpc) || x.is_abstract != y.is_abstract || x.params.size() != y.params.size() || x.defaults.size() != y.defaults.size() || x.is_vararg != y.is_vararg) {
 			return false;
 		}
-		for (size_t d = 0; d < x.defaults.size(); d++) {
-			if (!pair.same_constant(x.defaults[d], y.defaults[d])) {
-				return false;
-			}
-		}
+		// Default values are code, which belongs to the body (spec §4.6).
 		for (size_t p = 0; p < x.params.size(); p++) {
 			if (!pair.same_slot(x.params[p], y.params[p])) {
 				return false;

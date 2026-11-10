@@ -248,6 +248,9 @@ TaskRef start_task(const std::shared_ptr<const ClassImage> &p_image, uint32_t p_
 	for (const auto &param : fn.params) {
 		copy_value(p_image->types[param.type], task->continuation->data + param.offset, p_frame + param.offset);
 	}
+	if (fn.given != bytecode::NO_SLOT) {
+		std::memcpy(task->continuation->data + fn.given, p_frame + fn.given, sizeof(int64_t));
+	}
 	list_task(task);
 	if (p_context.storage && p_context.storage->coroutines_cancelled) {
 		task->cancel_requested = true;
@@ -1023,8 +1026,10 @@ class Execution {
 		}
 		const size_t given = method.params.size() - method.captures;
 		const size_t fixed = method.fixed_params();
-		const size_t required = fixed - method.defaults.size();
 		Frame callee_frame(frames, p_callee.frames[p_index]);
+		if (method.given != NO_SLOT) {
+			*reinterpret_cast<int64_t *>(callee_frame.data + method.given) = int64_t(argc);
+		}
 		const uint8_t *capture = p_captures;
 		for (size_t i = 0; i < method.params.size(); i++) {
 			uint8_t *param = callee_frame.data + method.params[i].offset;
@@ -1049,18 +1054,15 @@ class Execution {
 				}
 				return fail(p_caller, p_line, vformat("Argument of %s(): %s.", p_callee.function_names[p_index], error));
 			}
-			const TypeImage *source = i < argc ? &image.types[p_call[5 + 2 * i]] : nullptr;
-			if (source && source->layout == param_type.layout) {
+			if (i >= argc) {
+				continue; // The callee computes its default.
+			}
+			const TypeImage &source = image.types[p_call[5 + 2 * i]];
+			if (source.layout == param_type.layout) {
 				copy_value(param_type, param, frame + p_call[6 + 2 * i]);
 				continue;
 			}
-			Variant value;
-			String error;
-			if (source) {
-				value = to_variant(*source, frame + p_call[6 + 2 * i]);
-			} else if (!constant_value(p_callee, method.defaults[i - required], value, error)) {
-				return fail(p_caller, p_line, error);
-			}
+			const Variant value = to_variant(source, frame + p_call[6 + 2 * i]);
 			if (!from_variant(param_type, value, param, true)) {
 				if (p_entry) {
 					report_argument(p_callee, method, i, entry_mismatch(param_type, value));
@@ -3591,6 +3593,9 @@ Variant call(std::shared_ptr<const ClassImage> p_image, int p_function, Instance
 	}
 
 	Frame frame(frame_stack, image->frames[p_function]);
+	if (fn.given != bytecode::NO_SLOT) {
+		*reinterpret_cast<int64_t *>(frame.data + fn.given) = p_argc + int64_t(bound);
+	}
 	const TypeImage &result_type = image->types[fn.result.type];
 	const uint8_t *capture = p_captures;
 	for (size_t i = 0; i < fn.params.size(); i++) {
@@ -3617,26 +3622,17 @@ Variant call(std::shared_ptr<const ClassImage> p_image, int p_function, Instance
 			}
 			return default_variant(result_type);
 		}
-		const Variant *argument = arg < size_t(p_argc) ? p_args[arg] : nullptr;
-		if (argument && from_variant(type, *argument, frame.data + param.offset, true)) {
+		// The function computes the default of an argument left out.
+		if (arg >= size_t(p_argc) || from_variant(type, *p_args[arg], frame.data + param.offset, true)) {
 			continue;
 		}
-		// Like member initializers, defaults are built late, after script types load.
-		Variant value;
-		String error;
-		const bool valid = !argument && constant_value(*image, fn.defaults[arg - required], value, error) && from_variant(type, value, frame.data + param.offset, true);
-		if (!valid) {
-			if (error.is_empty()) {
-				error = entry_mismatch(type, argument ? *argument : value);
-			}
-			// A program error at the entry, and the engine gets the default value
-			// (spec §8.1, §10.1); the engine's backtrace of the caller goes with it.
-			report_argument(*image, fn, i, error);
-			if (r_failed) {
-				*r_failed = true;
-			}
-			return default_variant(result_type);
+		// A program error at the entry, and the engine gets the default value
+		// (spec §8.1, §10.1); the engine's backtrace of the caller goes with it.
+		report_argument(*image, fn, i, entry_mismatch(type, *p_args[arg]));
+		if (r_failed) {
+			*r_failed = true;
 		}
+		return default_variant(result_type);
 	}
 
 	if (fn.is_async) {

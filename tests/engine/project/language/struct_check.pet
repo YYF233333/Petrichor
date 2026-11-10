@@ -163,3 +163,29 @@ pub func loop_fresh() -> int:
 			total += 10
 		total += h.damage
 	return total
+
+static var issued := 0
+
+static func issue() -> int:
+	issued += 1
+	return issued
+
+pub struct Ticket:
+	var id: int = issue()
+	var note := "t"
+
+# A field's default that is no constant is computed for each construction that
+# leaves the field out (spec §3.6), here and in another class.
+pub func tickets() -> String:
+	var a := Ticket()
+	var b := Ticket(id = 0)
+	var c: Ticket
+	var list: Array[Ticket] = []
+	list.resize(2)
+	var d := Issuer.ticket()
+	return str(a.id) + " " + str(b.id) + " " + str(c.id) + " " + str(list[0].id) + " " + str(list[1].id) + " " + str(d.id)
+
+
+class Issuer:
+	static func ticket() -> Ticket:
+		return Ticket()

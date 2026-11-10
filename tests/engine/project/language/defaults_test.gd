@@ -54,5 +54,12 @@ func run(_errors) -> int:
 	check(results.size() == 4, "async defaults complete")
 	for result in results:
 		check(result == [[1, 2], null], "suspended calls keep independent defaults and None")
+	check(c.computed(1) == [1, 11, 1] and c.local_computed() == [1, 11, 2] and caller.computed(c) == [2, 5, 3] and c.computed(1, 2, 0) == [1, 2, 0] and c.computed(1)[2] == 4, "defaults that are no constants see self and the parameters before them, computed only when left out")
+	for method in c.get_script().get_script_method_list():
+		if method.name == "computed":
+			check(method.default_args == [null, null], "defaults that are no constants are listed as null, as GDScript lists them")
+	var louder: DefaultValues = load("res://language/default_override.pet").new()
+	check(caller.label_of(louder) == "louder 10" and caller.label_of(c) == "plain", "an override called through its base computes its own default")
+	louder.free()
 	c.free()
 	return failures

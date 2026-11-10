@@ -66,6 +66,7 @@ struct Function {
 	std::unordered_map<uint32_t, View> views; // By register; a root comes before its views.
 	std::map<uint32_t, uint64_t> presets; // By register: constants that the frame starts with (bytecode::Preset).
 	uint32_t param_count = 0;
+	uint32_t given = NO_REG; // As bytecode::Function::given.
 	bytecode::Slot result; // As bytecode::Function::result.
 	bool is_async = false;
 	bool is_pub = false;
