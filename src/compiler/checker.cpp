@@ -6798,25 +6798,33 @@ class Checker : public ClassRelation {
 		return set(r_expr, Type::task(*result));
 	}
 
-	// The tasks of Task.any() or Task.all(), listed in brackets: a task started
-	// there is the join's own (spec §9.5). any gives the index of the first to
-	// finish; all gives nothing, as tuples could give the results (BACKLOG).
+	// The tasks of Task.any() or Task.all(), listed in brackets, where a task
+	// started is the join's own, or in an Array[Task[T]] (spec §9.5). any gives
+	// the index of the first to finish; all gives nothing, as tuples could give
+	// the results (BACKLOG).
 	Type check_task_join(Expr &r_expr) {
 		const bool any = r_expr.text == "any";
-		if (r_expr.args.size() != 1 || r_expr.args[0]->kind != ExprKind::ArrayLiteral) {
-			return fail_call(r_expr, "Task." + r_expr.text + "() takes the tasks in brackets, as Task." + r_expr.text + "([a, f()]); arrays of Task are not supported yet.");
+		if (r_expr.args.size() != 1) {
+			return fail_call(r_expr, "Task." + r_expr.text + "() takes one list of tasks, as Task." + r_expr.text + "([a, f()]).");
 		}
 		Expr &list = *r_expr.args[0];
-		if (any && list.args.empty()) {
-			error(list.range, "Task.any() needs a task to wait for.");
-		}
-		for (auto &member : list.args) {
-			const Type type = check_value(*member);
-			if (!type.is_error() && (type.kind != TypeKind::Task || type.nullable)) {
-				error(member->range, "Task." + r_expr.text + "() takes tasks, not " + type.to_string() + ".");
+		if (list.kind == ExprKind::ArrayLiteral) {
+			if (any && list.args.empty()) {
+				error(list.range, "Task.any() needs a task to wait for.");
+			}
+			for (auto &member : list.args) {
+				const Type type = check_value(*member);
+				if (!type.is_error() && (type.kind != TypeKind::Task || type.nullable)) {
+					error(member->range, "Task." + r_expr.text + "() takes tasks, not " + type.to_string() + ".");
+				}
+			}
+			set(list, Type::builtin("Array"));
+		} else {
+			const Type tasks = check_value(list);
+			if (!tasks.is_error() && (!is_typed_container(tasks) || tasks.name != "Array" || tasks.args[0].kind != TypeKind::Task || tasks.args[0].nullable)) {
+				error(list.range, "Task." + r_expr.text + "() takes tasks in brackets or an Array[Task[T]], not " + tasks.to_string() + ".");
 			}
 		}
-		set(list, Type::builtin("Array"));
 		r_expr.target = any ? Target::TaskAny : Target::TaskAll;
 		return set(r_expr, Type::task(Type::of(any ? TypeKind::Int : TypeKind::Void)));
 	}

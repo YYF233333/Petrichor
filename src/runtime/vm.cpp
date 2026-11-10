@@ -2176,9 +2176,26 @@ class Execution {
 
 	// TASK_ANY and TASK_ALL (spec §9.5).
 	PETRICHOR_NOINLINE bool op_task_join(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		const TaskJoin::Kind kind = Op(p_op[0]) == Op::TASK_ANY ? TaskJoin::Kind::Any : TaskJoin::Kind::All;
 		std::vector<TaskRef> members;
 		std::vector<bool> owned;
-		for (uint32_t i = 0; i < p_op[4]; i += 2) {
+		if (p_op[4] == 1) {
+			const Array &tasks = *reinterpret_cast<const Array *>(p_frame + p_op[6]);
+			if (kind == TaskJoin::Kind::Any && tasks.is_empty()) {
+				return fail_cstr(p_fn, p_line, "Task.any() of an empty Array has no task to wait for.");
+			}
+			const TypeImage &element = *image.types[p_op[5]].item;
+			for (int64_t i = 0; i < tasks.size(); i++) {
+				// Another language can put any Callable in it.
+				const uint8_t *member = opened(element, tasks[i]);
+				if (!member) {
+					return fail(p_fn, p_line, read_error(element, tasks[i]));
+				}
+				members.push_back(task_at(member));
+			}
+			owned.assign(members.size(), false);
+		}
+		for (uint32_t i = 0; i + 1 < p_op[4]; i += 2) {
 			const TaskRef &member = task_at(p_frame + p_op[6 + 2 * i]);
 			if (!member) {
 				return fail_cstr(p_fn, p_line, "Expected a Task handle.");
@@ -2186,7 +2203,6 @@ class Execution {
 			members.push_back(member);
 			owned.push_back(*reinterpret_cast<const int64_t *>(p_frame + p_op[8 + 2 * i]) != 0);
 		}
-		const TaskJoin::Kind kind = Op(p_op[0]) == Op::TASK_ANY ? TaskJoin::Kind::Any : TaskJoin::Kind::All;
 		task_at(p_frame + p_op[2]) = TaskJoin::make(kind, members, owned, image.types[p_op[1]], context, image.shared_from_this(), p_fn, p_line);
 		return true;
 	}

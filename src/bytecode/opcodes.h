@@ -26,7 +26,9 @@ namespace petrichor::bytecode {
 // makes, no base, and the values it captures, each of the type of its capture
 // parameter (spec §3.11). So do TASK_ANY and TASK_ALL: the type T of the
 // Task[T] they make, int for any and void for all, the task, no base, and each
-// task waited for with an int, 1 when it is owned (spec §9.5). So does RANGE:
+// task waited for with an int, 1 when it is owned, or one Array[Task[T]] of
+// tasks it does not own; any of an empty Array is a program error (spec
+// §9.5). So does RANGE:
 // the type of dst, dst, no base, and range()'s from, to and step, each an int;
 // it puts in an int how many values range() gives, at most INT64_MAX, or in an
 // Array[int] the values, and a step of 0 is a program error. So does CLEAR:

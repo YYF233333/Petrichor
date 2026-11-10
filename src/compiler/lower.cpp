@@ -1861,17 +1861,22 @@ class Lowerer {
 			return call_builtin(engine_builtin_method(type, text ? "length" : "size", {}, ValueType::Int), value, {}, result);
 		}
 		if (p_call.target == Target::TaskAny || p_call.target == Target::TaskAll) {
-			// Each task, with whether it was started for the join, which owns it then (spec §9.5).
+			// Each task, with whether it was started for the join, which owns it
+			// then, or an Array of tasks, none of them its own (spec §9.5).
 			ir::Instr i;
 			i.op = p_call.target == Target::TaskAny ? Op::TASK_ANY : Op::TASK_ALL;
-			uint32_t flags[2] = { NO_REG, NO_REG };
-			for (const auto &member : p_call.args[0]->args) {
-				const bool owned = member->kind == ExprKind::Call && member->is_async;
-				i.args.push_back(lower_expr(*member));
-				if (flags[owned] == NO_REG) {
-					flags[owned] = int_constant(owned);
+			if (p_call.args[0]->kind != ExprKind::ArrayLiteral) {
+				i.args.push_back(lower_expr(*p_call.args[0]));
+			} else {
+				uint32_t flags[2] = { NO_REG, NO_REG };
+				for (const auto &member : p_call.args[0]->args) {
+					const bool owned = member->kind == ExprKind::Call && member->is_async;
+					i.args.push_back(lower_expr(*member));
+					if (flags[owned] == NO_REG) {
+						flags[owned] = int_constant(owned);
+					}
+					i.args.push_back(flags[owned]);
 				}
-				i.args.push_back(flags[owned]);
 			}
 			i.dst = temp(p_call.type);
 			i.imm = type_index(p_call.type.args[0]);

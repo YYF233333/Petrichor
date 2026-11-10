@@ -123,8 +123,8 @@ async func f() -> int:
 }
 
 // Spec §9.5: any gives the index of the first task to finish, all nothing; a
-// task started in the brackets is the join's.
-TEST_CASE("Task.any() and Task.all() wait for the tasks in brackets") {
+// task started in the brackets is the join's, and those of an Array are not.
+TEST_CASE("Task.any() and Task.all() wait for the tasks in brackets or in an Array") {
 	const auto result = compile(R"(extends Node
 signal tick(value: int)
 async func work() -> int:
@@ -134,17 +134,27 @@ async func nothing():
 async func f() -> int:
 	var t := work()
 	await Task.all([t, nothing(), Task.delay(1)])
+	var tasks: Array[Task[int]] = [t, work()]
+	await Task.all(tasks)
 	return await Task.any([work(), t]) + await t
 )");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	std::string error;
 	REQUIRE_MESSAGE(bytecode::verify(result.module, error), error);
 	const auto &f = function_named(result.module, "f");
-	CHECK(f.code[find_instruction(f, Op::TASK_ALL) + 4] == 6);
+	size_t pc = find_instruction(f, Op::TASK_ALL);
+	CHECK(f.code[pc + 4] == 6);
+	do {
+		pc += bytecode::instruction_length(f.code.data() + pc);
+	} while (pc < f.code.size() && Op(f.code[pc]) != Op::TASK_ALL);
+	REQUIRE(pc < f.code.size());
+	CHECK(f.code[pc + 4] == 1);
 	CHECK(f.code[find_instruction(f, Op::TASK_ANY) + 4] == 4);
 	CHECK(type_of("Task.any([Task.delay(1)])") == "Task[int]");
 	CHECK(type_of("Task.all([])") == "Task[void]");
-	CHECK(has_error(in_function("var t := Task.any(3)"), "Task.any() takes the tasks in brackets, as Task.any([a, f()]); arrays of Task are not supported yet."));
+	CHECK(type_of("Task.any(tasks)", "var tasks: Array[Task[void]] = []") == "Task[int]");
+	CHECK(has_error(in_function("var t := Task.any(3)"), "Task.any() takes tasks in brackets or an Array[Task[T]], not int."));
+	CHECK(has_error(in_function("var maybe: Array[Task[int]?] = []\nvar t := Task.all(maybe)"), "Task.all() takes tasks in brackets or an Array[Task[T]], not Array[Task[int]?]."));
 	CHECK(has_error(in_function("var t := Task.any([])"), "Task.any() needs a task to wait for."));
 	CHECK(has_error(in_function("var t := Task.all([3])"), "Task.all() takes tasks, not int."));
 }

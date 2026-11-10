@@ -75,7 +75,7 @@ enum class Target {
 	TaskOf, // `Task.of(signal)` (spec §9.5).
 	TaskDelay, // `Task.delay(seconds)`.
 	TaskSettled, // `t.settled()` (spec §9.2).
-	TaskAny, // `Task.any([...])`, the tasks the array literal in args[0] lists (spec §9.5).
+	TaskAny, // `Task.any([...])`, the tasks the array literal in args[0] lists, or `Task.any(tasks)` of an Array[Task[T]] (spec §9.5).
 	TaskAll, // `Task.all([...])`, likewise.
 	Local,
 	Member,

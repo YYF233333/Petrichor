@@ -17,9 +17,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - a node of a scene whose script is abstract (§4.1).
 - `@parent(T)` (spec §7.3).
 - Checking at compile time what resources store in exported structs and enums with payloads (spec §4.3). They are `.tres` files and resources inside scenes, which the scene index does not read. Nor does it read a node of an instanced scene that the outer scene changes.
-- Containers of function types and of `Task[T]`, which the checker says are not supported yet (`container_element`).
-  - Spec §3.8 gives elements of this language's own types its own representation, as for structs.
-  - Until then, `Task.all()` and `Task.any()` take only tasks written in brackets.
 - `Array[T]?`, and nested `Option`:
   - `T??` and `Some(...)`, with `flatten()` (spec §3.4);
   - `pop_front()` and `pop_back()` of `Array[T?]` giving `T??`;

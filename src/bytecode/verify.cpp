@@ -607,10 +607,12 @@ class Verifier {
 			case Op::TASK_ANY:
 			case Op::TASK_ALL: {
 				const ValueType result = p_op == Op::TASK_ANY ? ValueType::Int : ValueType::Void;
-				if (callee >= module.types.size() || storage(callee) != result || base != NO_SLOT || p_call[3] % 2 != 0) {
+				const bool listed = p_call[3] == 1 && p_call[4] < module.types.size() && module.types[p_call[4]].kind == TypeKind::Array && storage(module.types[p_call[4]].element) == ValueType::Task &&
+						!module.types[module.types[p_call[4]].element].nullable;
+				if (callee >= module.types.size() || storage(callee) != result || base != NO_SLOT || (p_call[3] % 2 != 0 && !listed)) {
 					return fail("a task of other tasks that is not Task.any() or Task.all()");
 				}
-				for (uint32_t i = 0; i < p_call[3]; i++) {
+				for (uint32_t i = 0; i < p_call[3] && !listed; i++) {
 					if (storage(p_call[4 + 2 * i]) != (i % 2 ? ValueType::Int : ValueType::Task)) {
 						return fail("Task.any() or Task.all() of what is not a task and whether it is owned");
 					}

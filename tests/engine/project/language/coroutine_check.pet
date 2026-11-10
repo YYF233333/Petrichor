@@ -152,6 +152,22 @@ pub async func all_of(t: Task[int]) -> int:
 pub async func any_cancelled(t: Task[int]) -> int:
 	return await Task.any([t, Task.of(tick)])
 
+# Tasks kept in an Array, which the joins wait for without owning them, and
+# Array(x) gives as the engine sees them (spec §3.8, §9.5).
+pub async func joined(t: Task[int]) -> String:
+	var tasks: Array[Task[int]] = [t]
+	tasks.append(twice())
+	var first := await Task.any(tasks)
+	await Task.all(tasks)
+	var total := 0
+	for task in tasks:
+		total += await task
+	return str(first) + " " + str(total) + " " + str(Array(tasks)[0] == t) + " " + str(tasks.pop_back() != None)
+
+pub async func any_of_none() -> int:
+	var tasks: Array[Task[int]] = []
+	return await Task.any(tasks)
+
 # Freeing an object on another thread waits for none of the tasks of others,
 # this running one among them.
 pub async func join_freeing_thread() -> bool:
