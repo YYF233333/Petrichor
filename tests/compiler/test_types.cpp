@@ -383,6 +383,13 @@ TEST_CASE("load() is ResourceLoader.load()") {
 	CHECK(has_error(in_function("var r = load(1)"), "Cannot pass a value of type int as String"));
 }
 
+TEST_CASE("duplicate() of a resource is of the receiver's type (spec §7.6)") {
+	CHECK(type_of("t.duplicate()", "var t := Texture2D.new()") == "Texture2D");
+	CHECK(type_of("t.duplicate_deep()", "var t := Texture2D.new()") == "Texture2D");
+	const compiler::CompileResult own = compile_in("extends Resource\n\nvar hp := 1\n\nfunc copied_hp() -> int:\n\treturn duplicate(true).hp\n", FakeProject());
+	CHECK_MESSAGE(own.ok(), messages(own));
+}
+
 // Spec §3.11, §4.7.
 TEST_CASE("method values, signals and connect") {
 	const std::string handler = "extends Node\n\nfunc handle(p: AudioStreamPlayer):\n\tpass\n\nfunc on_child(n: Node):\n\tpass\n\nfunc f():\n\tvar p := AudioStreamPlayer.new()\n\t";

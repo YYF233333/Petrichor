@@ -173,6 +173,10 @@ public:
 		methods["PackedScene"] = {
 			method("instantiate", { { "edit_state", t(TypeKind::Int) } }, node, false, 1),
 		};
+		methods["Resource"] = {
+			method("duplicate", { { "deep", t(TypeKind::Bool) } }, Type::object("Resource", true), false, 1),
+			method("duplicate_deep", { { "deep_subresources_mode", t(TypeKind::Int) } }, Type::object("Resource", true), false, 1),
+		};
 		methods["AudioStreamPlayer"] = {
 			method("play", { { "from_position", t(TypeKind::Float) } }, t(TypeKind::Void), false, 1),
 		};

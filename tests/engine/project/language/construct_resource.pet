@@ -11,3 +11,10 @@ pub var size := 0
 pub func _init(p_health: int = 10, p_size: int = 4):
 	health = p_health
 	size = p_size
+
+
+# duplicate() gives this class (spec §7.6), checked at run time.
+pub func copy() -> ConstructResource:
+	var made := duplicate()
+	made.size += 1
+	return made

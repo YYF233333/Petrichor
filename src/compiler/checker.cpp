@@ -4089,6 +4089,12 @@ class Checker : public ClassRelation {
 			r_expr.returns_reference = p_method.return_type.kind == TypeKind::Object && engine.inherits(p_method.return_type.engine_class(), "RefCounted");
 		}
 		r_expr.engine_return = engine_result(p_method);
+		if (p_method.owner == "Resource" && (p_method.name == "duplicate" || p_method.name == "duplicate_deep")) {
+			// Of the receiver's type (spec §7.6), which the result is checked for.
+			Type copy = r_expr.base ? r_expr.base->type : script_class_type(cls, options.path);
+			copy.nullable = false;
+			return set(r_expr, copy);
+		}
 		return set(r_expr, r_expr.getter ? tried_result(p_method, *r_expr.getter) : filtered_result(r_expr, p_method));
 	}
 

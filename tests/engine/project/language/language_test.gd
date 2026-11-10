@@ -790,6 +790,8 @@ func _ready() -> void:
 	node_made.queue_free()
 	var loaded: ConstructResource = load("res://language/construct_resource.tres")
 	_check(ConstructResource.new(7, 8).size == 8 and loaded.size == 4 and loaded.health == 25, "loading a Resource runs its _init() with the defaults, before the values the file saved")
+	var copied := loaded.copy()
+	_check(copied != loaded and copied is ConstructResource and copied.health == 25, "duplicate() of a resource of this language gives its class")
 
 	# Object's methods that the engine calls through the instance (spec §10.5).
 	var hooks := PropertyHooksSub.new()
