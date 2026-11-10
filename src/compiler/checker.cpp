@@ -10056,32 +10056,29 @@ class Checker : public ClassRelation {
 		}
 		std::set<std::string> reported;
 		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
-			for (const VarDecl *member : exports) {
-				require_export(*member, p_scene, p_node.path, p_node.path, reported);
-			}
+			require_exports(exports, p_scene, p_node.path, p_node.path, reported);
 		});
 	}
 
-	// That the node at `p_path` of a scene gets a value for an export, from
+	// That the node at `p_path` of a scene gets a value for each export, from
 	// any of the scenes it is built from. Each instance of the scene is checked
 	// in the scene that has it, at the instance `p_marked` names. The scene
 	// itself is checked where it is used as a root, which only the main scene
 	// is known to be. Who instantiates another scene gives its root the rest
 	// (spec §7.4), and one that nothing references only warns.
-	void require_export(const VarDecl &p_member, const Scene &p_scene, const std::string &p_path, const std::string &p_marked, std::set<std::string> &r_reported, int p_depth = 0) {
+	void require_exports(const std::vector<const VarDecl *> &p_exports, const Scene &p_scene, const std::string &p_path, const std::string &p_marked, std::set<std::string> &r_reported, int p_depth = 0) {
 		for (const Scene &outer : p_depth > 32 ? std::vector<Scene>() : options.project->scenes_instancing(p_scene.path)) {
 			for (const SceneNode &node : outer.nodes) {
 				if (node.instance == p_scene.path) {
-					require_export(p_member, outer, p_path == "." ? node.path : node.path + "/" + p_path, node.path, r_reported, p_depth + 1);
+					require_exports(p_exports, outer, p_path == "." ? node.path : node.path + "/" + p_path, node.path, r_reported, p_depth + 1);
 				}
 			}
 		}
-		if (p_scene.path != options.project->main_scene()) {
-			return;
-		}
-		if (!stored_value(p_scene, p_path, p_member.name).value_or(false) && r_reported.insert(p_member.name + "\n" + p_scene.path + "\n" + p_path).second) {
-			error_in_scene(TokenRange{ p_member.name_token, p_member.name_token }, p_scene, p_marked, p_scene.path + ": " + (p_path == "." ? std::string("the root") : p_path) + " has no value for \"" + p_member.name + "\", an export that must be assigned.");
-			errors.back().runs = true;
+		for (const VarDecl *member : p_scene.path == options.project->main_scene() ? p_exports : std::vector<const VarDecl *>()) {
+			if (!stored_value(p_scene, p_path, member->name).value_or(false) && r_reported.insert(member->name + "\n" + p_scene.path + "\n" + p_path).second) {
+				error_in_scene(TokenRange{ member->name_token, member->name_token }, p_scene, p_marked, p_scene.path + ": " + (p_path == "." ? std::string("the root") : p_path) + " has no value for \"" + member->name + "\", an export that must be assigned.");
+				errors.back().runs = true;
+			}
 		}
 	}
 
