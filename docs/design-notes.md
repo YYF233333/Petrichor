@@ -171,6 +171,9 @@
   - 引擎按实例列出的属性族都带 `/`，而 ClassDB 注册的属性名都不带。
 
   按实例列出、又不带 `/` 的属性约有 20 个类，如 Bone2D 的 `length` 和每个对象的 `script`。它们写成 `.名字` 同样报错，经 `Object` 访问。
+- **autoload 名可写在类型中（§11.1）**：GDScript 允许这样写（`modules/gdscript/gdscript_analyzer.cpp:806-836`）。语料中有 35 处，33 处在 Pixelorama。
+  - 编辑器拒绝与全局类同名的 autoload（`editor/settings/editor_autoload_settings.cpp:95`）。所以 autoload 的脚本常不写 `class_name`，autoload 名是这个类唯一的名字。
+  - 作用域中更近的名字优先，与本语言其他名字的查找相同。GDScript 让 autoload 优先。
 - **跨语言、线程与工具链（§11.2、§12.3、§13.2–§13.4）**：跨语言继承限制见[暗坑清单](surveys/pitfalls.md) C-17。[第二次纸面迁移](surveys/paper-migration-2.md)中，Ring 的 `Brick` 和 `Enemy` 因此连带迁移了 5 个子类。全部 230 处迁移修改中，有 197 处是机械修改。GDScript 不能调用本语言的静态方法，也不能以其 enum 作类型。[语料计数](surveys/corpus-counts.md)中，游戏仓库 514 个类里有 97 个受此影响，82 个在 godot-tiny-mmo。所以迁移工具把这些使用方列入连带迁移，不急于做转发外壳。[语料计数](surveys/corpus-counts.md)中 `Thread.new` 仅 5 处、`WorkerThreadPool` 2 处。括号续行在真实代码中大多只缩进一层，风格指南要求两层。GDScript 格式化器草稿因解析器丢弃字面量写法与括号而受阻（[godotengine/godot#76211](https://github.com/godotengine/godot/pull/76211)）。自带测试运行器，是因为 `gdUnit4` 和 `GUT` 要求继承其 GDScript 基类。
 
 ## 3. 考虑过但没有采用的方案

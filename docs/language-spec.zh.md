@@ -900,6 +900,9 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 - 本语言经反射看到其他语言的类（GDScript、C# 等）和 autoload，含它们的继承子类型关系，适用于参数、`is` 与 `as`。对象类型的成员、参数和返回值视为 `T?`。值类型照声明，未标注类型的为 `Variant`。
 - autoload 名是全局标识符，类型为其脚本的类（无 `class_name` 时同样如此）。
+- autoload 名也可写在类型中，指同一个类，如 `func get_export() -> Export` 和 `f: Export.FileFormat`。
+  - 场景 autoload 指根节点脚本的类。根节点没有脚本时，指它的引擎类。
+  - 作用域中更近的同名声明优先。
 - 经全局类名或 `preload` 指称其他语言的类时，以 `new(...)` 按其 `_init` 参数构造。还可经类访问静态方法与带值类型的常量（`Unit.make()`、`Unit.TILE_SIZE`）。
 - 【已知限制】引擎不提供 C# 类的构造器参数和常量。因此 C# 类只能以无参 `new()` 构造，其常量不可访问。
 

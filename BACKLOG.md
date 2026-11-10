@@ -18,6 +18,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - a scene used as a root whose root has a script with `@owner` (§7.3);
   - a node of a scene whose script is abstract (§4.1).
 - `@parent(T)` (spec §7.3).
+- An autoload's name in a type, as `-> Export` and `Export.FileFormat` (spec §11.1). The checker resolves `Export.Inner` only as a value now (`script_type()`).
 - Exporting structs and enums with payloads (spec §4.3, architecture §6.2). The checker refuses them now.
   - The type in the hint string, and the encoded initial value as the default.
   - The values that scenes and `.tres` files store, checked at compile time against the type.
@@ -198,7 +199,6 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - warn wherever a `NaN` is detected.
   A survey of the corpus decides. Until then, spec §5.2 marks it a known limitation.
 - Whether setters that run before ready wait for ready on their own after the first version (spec §6.5, §14.2). The alternative is writing the behavior in the setter. The owner suspects that the implicit suspension makes setters hard to understand.
-- Whether an autoload's name stands for its script's class in a type, as GDScript's does (`modules/gdscript/gdscript_analyzer.cpp:806-826`). The corpus has 35 such type uses, 33 of them in Pixelorama, a tool, and none in games. Most are `Autoload.Enum` and `Autoload.Inner`.
 - Whether the first version (spec §14) leaves out the built-in test runner (§13.2). The FPS and Ring scripts of the second paper migration do not use it.
 - Before 0.9: whether a container that holds itself is a program error as a `Dictionary` key (spec §3.8). The engine stops hashing it at a depth of 100 with an error. One that holds itself twice takes about 2^100 steps, in GDScript too (`core/variant/array.cpp:195-208`, `ed1daf0`).
 - The long-term boundary of compatibility with GDScript and Godot: which agreements are promises and which merely hold today. How semantics may change is settled (architecture §5, 0.9).
