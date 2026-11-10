@@ -204,7 +204,6 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 - 值语义：赋值、传参、返回均浅复制，对象与容器字段复制引用。只存在于本语言内部。构造只接受具名实参。
 - 跨引擎边界时按引擎边界的规则编码。解码按 `T.try_from` 的规则递归检查各字段及嵌套容器/struct，多余的键忽略。缺少的键取字段的默认值。字段没有默认值时解码失败。
-- 【已知限制】第一版 struct 不能 `@export` 或存入 `.tres`（编辑器数据用 `Resource`）。
 - 可声明 `func` 和 `static func`。实例方法中 `self` 只读，给 `self` 字段赋值报编译错误。
 - 方法中的名字先查 struct 自身，再按内部类的规则查外层类的无实例声明。
 - 构造省略字段时，每次都求一次该字段的默认值。默认值中的名字按静态方法的规则查找，不能读字段。
@@ -249,7 +248,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 - 带载荷的 enum：
   - 载荷字段必须命名（如 `MOVE(target: Vector3)`），只能经 `match` 解构，写 `c.target` 报编译错误；
   - `==`、`<` 和哈希按 struct 的规则，先按分支（`<` 按声明顺序），同分支再按字段；
-  - 【已知限制】第一版不能声明方法，也不能 `@export`。
+  - 【已知限制】第一版不能声明方法。
 
 ### 3.8 容器
 
@@ -398,7 +397,10 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 - 无初始化式的成员：
   - 数值、`bool`、字符串、core 值类型、容器、`Callable`、`Signal` 和含值 0 的无载荷 enum 取各自默认值。`T?` 取 `None`，`Variant` 取 NIL；
   - struct 在所有字段均有默认值时取默认值，否则属于必须赋值的成员。非空对象引用、带载荷 enum、不含 0 的 enum 和函数类型也是必须赋值的成员。
-- `@export` 沿用 GDScript，但有四点不同。导出的变量须带 `pub`。禁止导出 struct 和带载荷 enum。导出场景写 `PackedScene[T]`。非空对象导出必须赋值。
+- `@export` 沿用 GDScript，但有三点不同。导出的变量须带 `pub`。导出场景写 `PackedScene[T]`。非空对象导出必须赋值。
+- struct 和带载荷 enum 可以导出，存储时按引擎边界的规则编码。场景和 `.tres` 中存的值在编译时按类型检查。
+  - 字段中任何一层含 `Node` 时，导出报编译错误。
+  - 【已知限制】检查器暂以通用的 Dictionary 编辑器编辑它们。
 
 ### 4.4 属性访问器
 
@@ -984,7 +986,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
   - 更严的 `private`；
   - 导出变量和 `@rpc` 函数隐含 `pub`；
   - struct 位置构造、可变方法、运算符重定义与间接递归；
-  - struct/带载荷 enum 的 `@export`；
+  - 导出的 struct 和带载荷 enum 中的 `Node` 字段；
   - 函数类型参数名、直接调用 `f(x)` 和共享捕获；
   - 未知签名的 `Callable` 显式转为函数类型；
   - 普通函数隐式用于期望 `async` 处；

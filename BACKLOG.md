@@ -18,6 +18,10 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - a scene used as a root whose root has a script with `@owner` (§7.3);
   - a node of a scene whose script is abstract (§4.1).
 - `@parent(T)` (spec §7.3).
+- Exporting structs and enums with payloads (spec §4.3, architecture §6.2). The checker refuses them now.
+  - The type in the hint string, and the encoded initial value as the default.
+  - The values that scenes and `.tres` files store, checked at compile time against the type.
+  - A compile error for a `Node` field at any depth.
 - Containers of function types and of `Task[T]`, which the checker says are not supported yet (`container_element`).
   - Spec §3.8 gives elements of this language's own types its own representation, as for structs.
   - Until then, `Task.all()` and `Task.any()` take only tasks written in brackets.
@@ -65,6 +69,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - When lints are added, consider a warning on code that relies on the order of assignment (spec §3.6). An example is `arr[i] = next()` with `next()` assigning `i`. The owner considers such code harmful.
 - When lints are added, consider a warning on names spelled as this language's keywords, such as `None` (spec §2.2). They are legal but not recommended.
 - Compiled bytecode is checked against its own source only. A game run from the command line without a build keeps old bytecode. That happens after a change to a scene or to a script it uses. Only the runtime checks (signatures, `$X` classes) then catch the difference. The analysis knows what each script read, but keeps it only in the editor's memory (architecture §2.1).
+- The typed inspector panel for exported structs and enums with payloads (architecture §6.2). Until then the engine's generic Dictionary editor edits them.
 - The scene index: read scenes unsaved in the editor, which are marked as last saved (architecture §2.4). Check whether it handles autoloads that are scenes.
 - Completion of the names in strings that wait on their checks (spec §10.4, §13.2). They are property names, as in `set_deferred("speed", v)`, members of other objects, as in `other.connect("hit", f)`, and the paths of `get_node("...")`.
 - Completing a bare name takes about 75 ms in the test project, GDScript about 21 ms. Our check takes 19 ms of it. The editor spends most of the rest on about 2550 options. GDScript's list lacks about 470 editor classes.
@@ -194,7 +199,6 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - warn wherever a `NaN` is detected.
   A survey of the corpus decides. Until then, spec §5.2 marks it a known limitation.
 - Whether setters that run before ready wait for ready on their own after the first version (spec §6.5, §14.2). The alternative is writing the behavior in the setter. The owner suspects that the implicit suspension makes setters hard to understand.
-- Exporting enums with payloads, which 0.1 needs (spec §3.7). Architecture §5 still puts it after the first version, designed in §6.2. How is settled with the toolchain (step 8).
 - What the name of an enum with payloads gives as a value (spec §3.7). Spec §3.7 gives every enum name `keys()`, `values()`, `find_key()` and `get()`. `values()` cannot list a variant with fields. The checker now rejects the name as a value.
 - Whether an autoload's name stands for its script's class in a type, as GDScript's does (`modules/gdscript/gdscript_analyzer.cpp:806-826`). The corpus has 35 such type uses, 33 of them in Pixelorama, a tool, and none in games. Most are `Autoload.Enum` and `Autoload.Inner`.
 - Whether the first version (spec §14) leaves out the built-in test runner (§13.2). The FPS and Ring scripts of the second paper migration do not use it.
