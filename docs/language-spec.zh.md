@@ -248,6 +248,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 - 带载荷的 enum：
   - 载荷字段必须命名（如 `MOVE(target: Vector3)`），只能经 `match` 解构，写 `c.target` 报编译错误；
   - `==`、`<` 和哈希按 struct 的规则，先按分支（`<` 按声明顺序），同分支再按字段；
+  - 名字不能作为值使用，如 `Command.keys()`。以它初始化的常量照常指同一 enum；
   - 【已知限制】第一版不能声明方法。
 
 ### 3.8 容器

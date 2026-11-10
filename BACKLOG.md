@@ -198,7 +198,6 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - warn wherever a `NaN` is detected.
   A survey of the corpus decides. Until then, spec §5.2 marks it a known limitation.
 - Whether setters that run before ready wait for ready on their own after the first version (spec §6.5, §14.2). The alternative is writing the behavior in the setter. The owner suspects that the implicit suspension makes setters hard to understand.
-- What the name of an enum with payloads gives as a value (spec §3.7). Spec §3.7 gives every enum name `keys()`, `values()`, `find_key()` and `get()`. `values()` cannot list a variant with fields. The checker now rejects the name as a value.
 - Whether an autoload's name stands for its script's class in a type, as GDScript's does (`modules/gdscript/gdscript_analyzer.cpp:806-826`). The corpus has 35 such type uses, 33 of them in Pixelorama, a tool, and none in games. Most are `Autoload.Enum` and `Autoload.Inner`.
 - Whether the first version (spec §14) leaves out the built-in test runner (§13.2). The FPS and Ring scripts of the second paper migration do not use it.
 - Before 0.9: whether a container that holds itself is a program error as a `Dictionary` key (spec §3.8). The engine stops hashing it at a depth of 100 with an error. One that holds itself twice takes about 2^100 steps, in GDScript too (`core/variant/array.cpp:195-208`, `ed1daf0`).
