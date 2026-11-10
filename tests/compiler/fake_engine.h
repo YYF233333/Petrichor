@@ -186,9 +186,13 @@ public:
 		};
 		methods["FileAccess"] = {
 			method("open", { { "path", t(TypeKind::String) }, { "flags", enum_type("FileAccess.ModeFlags") } }, Type::object("FileAccess", true)),
+			method("get_file_as_string", { { "path", t(TypeKind::String) } }, t(TypeKind::String)),
+			method("get_open_error", {}, compiler::api_type("enum::Error", true)),
 			method("get_as_text", {}, t(TypeKind::String)),
 		};
-		methods["FileAccess"][0].is_static = true;
+		for (size_t i = 0; i < 3; i++) {
+			methods["FileAccess"][i].is_static = true;
+		}
 		methods["RandomNumberGenerator"] = {
 			method("randf_range", { { "from", t(TypeKind::Float) }, { "to", t(TypeKind::Float) } }, t(TypeKind::Float)),
 			method("randi", {}, t(TypeKind::Int)),

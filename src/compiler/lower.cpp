@@ -945,6 +945,41 @@ class Lowerer {
 		return i.dst;
 	}
 
+	// A try_ version (spec §10.3): Ok of what the engine method returned, or Err
+	// of the error that its getter reads, which the call has just set.
+	uint32_t tried_result(const Expr &p_call, uint32_t p_value) {
+		const EngineMethod &getter = *p_call.getter;
+		ir::Instr i;
+		i.op = Op::CALL_ENGINE;
+		i.dst = temp(p_call.type.args[1]);
+		bytecode::EngineCall call{ getter.name, fn.regs[i.dst].type, getter.owner };
+		call.owner = getter.owner;
+		call.hash = getter.hash;
+		call.return_type = value_type(getter.return_type);
+		i.imm = engine_call(call);
+		add(i);
+		const uint32_t failed = temp(ValueType::Bool);
+		instr(Op::NE_INT, failed, i.dst, int_constant(0));
+		const uint32_t result = temp(p_call.type);
+		const uint32_t ok_block = new_block();
+		const uint32_t err_block = new_block();
+		const uint32_t end_block = new_block();
+		branch(failed, err_block, ok_block);
+		current = ok_block;
+		uint32_t value = p_value;
+		if (p_call.engine_return.nullable) {
+			value = temp(p_call.type.args[0]);
+			instr(Op::UNWRAP, value, p_value, NO_REG, 0, fn.regs[value].type);
+		}
+		make_variant(result, p_call.type, 0, { value });
+		jump(end_block);
+		current = err_block;
+		make_variant(result, p_call.type, 1, { i.dst });
+		jump(end_block);
+		current = end_block;
+		return result;
+	}
+
 	uint32_t call_function(uint32_t p_function, std::vector<uint32_t> p_args, const Type &p_result) {
 		ir::Instr i;
 		i.op = Op::CALL;
@@ -1819,9 +1854,11 @@ class Lowerer {
 			instr(Op::GET_INDEX, temp(ValueType::Variant), i.base, i.args[0]);
 		}
 
-		// An array of the class an argument named (spec §10.3).
+		// An array of the class an argument named, or a try_ version (spec §10.3).
 		const bool filtered = p_call.target == Target::EngineMethod && p_call.engine_return.builtin_name() == "Array" && p_call.type != p_call.engine_return;
-		i.dst = p_call.type.kind == TypeKind::Void ? NO_REG : temp(filtered ? p_call.engine_return : p_call.type);
+		const bool tried = p_call.target == Target::EngineMethod && p_call.getter;
+		const Type &returned = filtered || tried ? p_call.engine_return : p_call.type;
+		i.dst = p_call.type.kind == TypeKind::Void ? NO_REG : temp(returned);
 		switch (p_call.target) {
 			case Target::ScriptFunction:
 				i.op = Op::CALL;
@@ -1860,7 +1897,7 @@ class Lowerer {
 			}
 			case Target::EngineMethod: {
 				i.op = Op::CALL_ENGINE;
-				bytecode::EngineCall call{ p_call.text, type_index(filtered ? p_call.engine_return : p_call.type), p_call.is_static ? p_call.owner : std::string() };
+				bytecode::EngineCall call{ tried ? std::string(builtin::tried_method(p_call.text)) : p_call.text, type_index(returned), p_call.is_static ? p_call.owner : std::string() };
 				if (p_call.hash) {
 					call.owner = p_call.owner;
 					call.hash = p_call.hash;
@@ -1941,6 +1978,9 @@ class Lowerer {
 		add(i);
 		if (written_back) {
 			store(*written_back, i.base);
+		}
+		if (tried) {
+			return tried_result(p_call, i.dst);
 		}
 		if (filtered) {
 			// The engine made a new array, so a new array typed by that class

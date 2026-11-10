@@ -134,6 +134,13 @@ struct Keyed {
 std::optional<bytecode::IntRange> param_int_range(std::string_view p_class, std::string_view p_method, uint32_t p_index);
 std::optional<bytecode::IntRange> property_int_range(std::string_view p_class, std::string_view p_property);
 
+// Of `try_m`, a try_ version of the static method m of an engine class (spec
+// §10.3): the static getter of the Error that m sets; null for another name.
+const char *error_getter(std::string_view p_class, std::string_view p_name);
+// The engine method that `try_m` calls, m, and the reverse.
+std::string_view tried_method(std::string_view p_name);
+std::string try_version(std::string_view p_method);
+
 struct KeyedIndex {
 	const char *key; // "Class.property".
 	int32_t index;

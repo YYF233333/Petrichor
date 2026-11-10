@@ -25,6 +25,8 @@ extern const Keyed INT_PARAMS[];
 extern const size_t INT_PARAMS_COUNT;
 extern const Keyed INT_PROPERTIES[];
 extern const size_t INT_PROPERTIES_COUNT;
+extern const Keyed ERROR_GETTERS[];
+extern const size_t ERROR_GETTERS_COUNT;
 extern const KeyedIndex PROPERTY_INDICES[];
 extern const size_t PROPERTY_INDICES_COUNT;
 extern const GlobalConstant GLOBAL_CONSTANTS[];
@@ -35,11 +37,18 @@ extern const size_t ENUM_COUNT;
 
 namespace {
 
+constexpr std::string_view TRY_PREFIX = "try_";
+
 // The generator sorts these by key.
-std::optional<bytecode::IntRange> int_range(const Keyed *p_list, size_t p_count, const std::string &p_key) {
+const Keyed *find_keyed(const Keyed *p_list, size_t p_count, const std::string &p_key) {
 	const Keyed *end = p_list + p_count;
 	const Keyed *found = std::lower_bound(p_list, end, p_key, [](const Keyed &a, const std::string &b) { return std::string_view(a.key) < b; });
-	if (found == end || p_key != found->key) {
+	return found == end || p_key != found->key ? nullptr : found;
+}
+
+std::optional<bytecode::IntRange> int_range(const Keyed *p_list, size_t p_count, const std::string &p_key) {
+	const Keyed *found = find_keyed(p_list, p_count, p_key);
+	if (!found) {
 		return std::nullopt;
 	}
 	for (uint32_t range = 0; range < uint32_t(bytecode::IntRange::COUNT); range++) {
@@ -123,6 +132,22 @@ std::optional<bytecode::IntRange> param_int_range(std::string_view p_class, std:
 
 std::optional<bytecode::IntRange> property_int_range(std::string_view p_class, std::string_view p_property) {
 	return int_range(INT_PROPERTIES, INT_PROPERTIES_COUNT, std::string(p_class) + "." + std::string(p_property));
+}
+
+const char *error_getter(std::string_view p_class, std::string_view p_name) {
+	if (p_name.substr(0, TRY_PREFIX.size()) != TRY_PREFIX) {
+		return nullptr;
+	}
+	const Keyed *found = find_keyed(ERROR_GETTERS, ERROR_GETTERS_COUNT, std::string(p_class) + "." + std::string(tried_method(p_name)));
+	return found ? found->value : nullptr;
+}
+
+std::string_view tried_method(std::string_view p_name) {
+	return p_name.substr(TRY_PREFIX.size());
+}
+
+std::string try_version(std::string_view p_method) {
+	return std::string(TRY_PREFIX) + std::string(p_method);
 }
 
 int property_index(std::string_view p_class, std::string_view p_property) {

@@ -62,3 +62,22 @@ pub const BY_NAME := {"nodes": NODES}
 
 pub func scenes() -> Array:
 	return [SCENES, BY_NAME["nodes"], is_same(SCENES, SCENES), SCENES.is_read_only()]
+
+
+# The try_ versions of the engine methods that leave their error for a getter
+# (spec §10.3).
+pub func tried() -> Array:
+	FileAccess.open("user://try_empty.txt", FileAccess.WRITE).unwrap().close()
+	return [
+		FileAccess.try_open("res://project.godot", FileAccess.READ).ok() != None,
+		FileAccess.try_open("res://missing.txt", FileAccess.READ).err(),
+		first_line("res://missing.txt").err(),
+		first_line("res://project.godot").ok(),
+		FileAccess.try_get_file_as_string("user://try_empty.txt").ok(),
+		DirAccess.try_open("res://language").ok() != None,
+	]
+
+
+func first_line(path: String) -> Result[String, Error]:
+	var file := FileAccess.try_open(path, FileAccess.READ)?
+	return Ok(file.get_line())

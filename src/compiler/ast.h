@@ -240,7 +240,8 @@ struct Expr {
 	bool returns_reference = false;
 	// An engine property: the getter and setter it is read and written through
 	// (spec §10.5), and the index that one of a family passes them first, or
-	// -1. Without them it goes by name.
+	// -1. Without them it goes by name. A try_ version of an engine method: the
+	// getter of the Error that the method sets, as Result[T, Error] (§10.3).
 	std::optional<EngineMethod> getter;
 	std::optional<EngineMethod> setter;
 	int property_index = -1;

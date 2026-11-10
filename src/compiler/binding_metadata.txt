@@ -18,9 +18,23 @@
 #                     A literal name is a static reference (spec §10.4).
 #   queries-member    As names-member, for a method that asks whether the
 #                     member exists, so a name the type lacks is no error.
+#   reports-error     The static method returns null or an empty value on
+#                     failure, and the static getter named next returns the
+#                     Error the call set. Its try_ version returns
+#                     Result[T, Error] (spec §10.3).
 
 returns-non-null Node.get_tree scene/main/node.h:558-561
 filters-by-class Node.find_children 1 scene/main/node.cpp:2031-2042
+
+reports-error FileAccess.open get_open_error core/io/file_access.cpp:187-195
+reports-error FileAccess.open_encrypted get_open_error core/io/file_access.cpp:197-211
+reports-error FileAccess.open_encrypted_with_pass get_open_error core/io/file_access.cpp:213-227
+reports-error FileAccess.open_compressed get_open_error core/io/file_access.cpp:229-239
+reports-error FileAccess.create_temp get_open_error core/io/file_access.cpp:140-142
+reports-error FileAccess.get_file_as_bytes get_open_error core/io/file_access.h:280
+reports-error FileAccess.get_file_as_string get_open_error core/io/file_access.h:281
+reports-error DirAccess.open get_open_error core/io/dir_access.cpp:253-261
+reports-error DirAccess.create_temp get_open_error core/io/dir_access.cpp:376-378
 
 names-member Object.call 0 - core/object/object.cpp:613
 names-member Object.call_deferred 0 - core/object/object.cpp:632

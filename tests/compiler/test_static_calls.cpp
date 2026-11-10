@@ -43,6 +43,21 @@ TEST_CASE("a static engine method is called through its class") {
 	CHECK(has_error(in_function("FileAccess.nope()"), "FileAccess has no method \"nope()\"."));
 }
 
+TEST_CASE("an engine method that leaves its error for a getter has a try_ version (spec §10.3)") {
+	CHECK(type_of("FileAccess.open(\"res://a.txt\", FileAccess.READ)") == "FileAccess?");
+	CHECK(type_of("FileAccess.try_open(\"res://a.txt\", FileAccess.READ)") == "Result[FileAccess, Error]");
+	CHECK(type_of("FileAccess.try_get_file_as_string(\"res://a.txt\")") == "Result[String, Error]");
+	const compiler::CompileResult result = compile(in_function("print(read().unwrap_or(\"\"))") + "\nfunc read() -> Result[String, Error]:\n\tvar file := FileAccess.try_open(\"res://a.txt\", FileAccess.READ)?\n\treturn Ok(file.get_as_text())\n");
+	require_verified(result);
+	const auto calls = [&](const std::string &p_method) {
+		return std::any_of(result.module.engine_calls.begin(), result.module.engine_calls.end(), [&](const bytecode::EngineCall &p_call) { return p_call.method == p_method && p_call.static_class == "FileAccess"; });
+	};
+	CHECK(calls("open"));
+	CHECK(calls("get_open_error"));
+	CHECK(has_error(in_function("var read := FileAccess.try_open"), "FileAccess.try_open as a value is not supported yet"));
+	CHECK(has_error(in_function("FileAccess.try_get_as_text()"), "FileAccess has no method \"try_get_as_text()\"."));
+}
+
 TEST_CASE("a static engine method called on an object is its class's, after the object (spec §4.8)") {
 	const compiler::CompileResult result = compile(in_function("var again: FileAccess? = opened().open(\"res://b.txt\", FileAccess.READ)") + "\nfunc opened() -> FileAccess:\n\treturn FileAccess.open(\"res://a.txt\", FileAccess.WRITE).unwrap()\n");
 	require_verified(result);

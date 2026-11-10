@@ -2792,6 +2792,9 @@ class Checker : public ClassRelation {
 			if (r_expr.text == "new") {
 				return refuse_new_value(r_expr, base.text);
 			}
+			if (builtin::error_getter(base.text, r_expr.text)) {
+				return fail(r_expr, base.text + "." + r_expr.text + " as a value is not supported yet; write a lambda that calls it.");
+			}
 			if (const auto method = engine.find_method(base.text, r_expr.text)) {
 				if (!method->is_static) {
 					return fail(r_expr, "\"" + r_expr.text + "()\" of " + base.text + " is not static; take it from an object.");
@@ -4004,7 +4007,7 @@ class Checker : public ClassRelation {
 				const std::string &value = p_method.params[i].default_value;
 				texts.push_back(p_method.params[i].name + ": " + params[i].to_string() + (value.empty() ? "" : " = " + (value == "null" ? "None" : value)));
 			}
-			return signature(r_expr.text, texts, p_method.is_vararg, p_current, engine_result(p_method).to_string());
+			return signature(r_expr.text, texts, p_method.is_vararg, p_current, (r_expr.getter ? tried_result(p_method, *r_expr.getter) : engine_result(p_method)).to_string());
 		});
 		check_arguments(r_expr, params, int(params.size()) - p_method.default_count, p_method.is_vararg);
 		const bool on_self = !r_expr.base || extends_script(r_expr.base->type.script, options.path);
@@ -4038,7 +4041,7 @@ class Checker : public ClassRelation {
 			r_expr.returns_reference = p_method.return_type.kind == TypeKind::Object && engine.inherits(p_method.return_type.engine_class(), "RefCounted");
 		}
 		r_expr.engine_return = engine_result(p_method);
-		return set(r_expr, filtered_result(r_expr, p_method));
+		return set(r_expr, r_expr.getter ? tried_result(p_method, *r_expr.getter) : filtered_result(r_expr, p_method));
 	}
 
 	// The member of a class a literal name refers to (spec §10.4).
@@ -5612,10 +5615,27 @@ class Checker : public ClassRelation {
 		if (builtin::find_class(base.text)) {
 			return check_builtin_method(r_expr, api_type(base.text, false), true);
 		}
+		// A try_ version (spec §10.3), which no engine member of its name hides.
+		if (const char *getter = builtin::error_getter(base.text, r_expr.text)) {
+			const auto method = engine.find_method(base.text, std::string(builtin::tried_method(r_expr.text)));
+			r_expr.getter = engine.find_method(base.text, getter);
+			if (method && r_expr.getter) {
+				return check_engine_call(r_expr, *method, base.text);
+			}
+			r_expr.getter.reset();
+		}
 		if (const auto method = engine.find_method(base.text, r_expr.text)) {
 			return check_engine_call(r_expr, *method, base.text);
 		}
 		return fail_call(r_expr, base.text + " has no method \"" + r_expr.text + "()\".");
+	}
+
+	// What a try_ version gives (spec §10.3): what the engine method returns
+	// when it succeeds, or the Error its getter reads.
+	static Type tried_result(const EngineMethod &p_method, const EngineMethod &p_getter) {
+		Type value = engine_result(p_method);
+		value.nullable = false;
+		return Type::result(value, p_getter.return_type);
 	}
 
 	// `Class.new()` or a static method of a class of this language, through its
@@ -9239,6 +9259,9 @@ class Checker : public ClassRelation {
 	void engine_candidates(const std::string &p_class, Candidates &r_names) const {
 		for (const std::string &name : engine.member_names(p_class)) {
 			r_names.values.insert(name);
+			if (const std::string tried = builtin::try_version(name); builtin::error_getter(p_class, tried)) {
+				r_names.values.insert(tried);
+			}
 		}
 		for (const std::string &name : engine.enum_names(p_class)) {
 			r_names.types.insert(name);

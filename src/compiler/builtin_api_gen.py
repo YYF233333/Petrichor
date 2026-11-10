@@ -54,13 +54,25 @@ def _member_name(where, arguments, index, target, query):
     return f"{index}, {target}, MemberName::Kind::{MEMBER_KINDS[named['name']]}, {_bool(query)}, {value}, {_bool(path)}"
 
 
+def _member_names(api, cls):
+    """The names of what an engine class has, also through its bases."""
+    classes = {c["name"]: c for c in api["classes"]}
+    names = set()
+    while cls in classes:
+        c = classes[cls]
+        for kind in ("methods", "properties", "signals", "constants", "enums"):
+            names.update(m["name"] for m in c.get(kind, []))
+        cls = c.get("inherits")
+    return names
+
+
 def _binding_metadata(api, metadata_path):
     """The engine's RequiredResult and RequiredParam metadata, merged with the
     audit in binding_metadata.txt (spec §10.2, §10.3). Returns sorted lists of
     what is never null, "Class.method", "Class.property" and
     "Class.method:index", of the parameters that filter by class,
-    "Class.method:index", and of those that name a member, ("Class.method",
-    row)."""
+    "Class.method:index", of those that name a member, ("Class.method",
+    row), and of the methods with a try_ version, ("Class.method", getter)."""
     methods = {(c["name"], m["name"]): m for c in api["classes"] for m in c.get("methods", [])}
     returns = {f"{c}.{m}" for (c, m), info in methods.items() if info.get("return_value", {}).get("meta") == "required"}
     params = {
@@ -71,6 +83,7 @@ def _binding_metadata(api, metadata_path):
     }
     filters = set()
     names = {}
+    getters = {}
     with open(metadata_path, encoding="utf-8") as file:
         for number, line in enumerate(file, 1):
             words = line.split("#", 1)[0].split()
@@ -95,6 +108,14 @@ def _binding_metadata(api, metadata_path):
                 assert words[1] not in names, f"{where}: {words[1]} is listed twice"
                 target = -1 if words[3] == "-" else int(words[3])
                 names[words[1]] = _member_name(where, methods[(cls, method)].get("arguments", []), int(words[2]), target, words[0] == "queries-member")
+            elif words[0] == "reports-error":
+                assert len(words) == 4, f"{where}: expected 'reports-error Class.method getter path:line'"
+                getter = methods.get((cls, words[2]), {})
+                assert methods[(cls, method)].get("is_static"), f"{where}: {words[1]} is not static"
+                assert getter.get("is_static") and not getter.get("arguments") and getter.get("return_value", {}).get("type") == "enum::Error", f"{where}: {words[2]} of {cls} is no static getter of an Error"
+                # The try_ version's name is this language's (spec §10.3).
+                assert f"try_{method}" not in _member_names(api, cls), f"{where}: the engine now has {cls}.try_{method}"
+                getters[words[1]] = words[2]
             else:
                 assert False, f"{where}: unknown kind {words[0]}"
     # A property reads through its getter.
@@ -104,7 +125,7 @@ def _binding_metadata(api, metadata_path):
         for p in c.get("properties", [])
         if p.get("getter") and f"{c['name']}.{p['getter']}" in returns
     }
-    return sorted(returns), sorted(properties), sorted(params), sorted(filters), sorted(names.items())
+    return sorted(returns), sorted(properties), sorted(params), sorted(filters), sorted(names.items()), sorted(getters.items())
 
 
 # Integer widths the engine truncates or wraps a value to (spec §10.6). A
@@ -252,9 +273,9 @@ def generate(json_path, metadata_path, out_path):
         out.write("extern const MemberNameEntry MEMBER_NAMES[];\nextern const size_t MEMBER_NAMES_COUNT;\n")
         out.write("const MemberNameEntry MEMBER_NAMES[] = {\n" + "".join(f"\t{{ {_c_string(key)}, {{ {row} }} }},\n" for key, row in rows) + "};\n")
         out.write(f"const size_t MEMBER_NAMES_COUNT = {len(rows)};\n\n")
-        for name, rows in zip(("INT_PARAMS", "INT_PROPERTIES"), _int_ranges(api)):
+        for name, rows in zip(("INT_PARAMS", "INT_PROPERTIES", "ERROR_GETTERS"), (*_int_ranges(api), metadata[5])):
             out.write(f"extern const Keyed {name}[];\nextern const size_t {name}_COUNT;\n")
-            out.write(f"const Keyed {name}[] = {{\n" + "".join(f"\t{{ {_c_string(key)}, {_c_string(width)} }},\n" for key, width in rows) + "};\n")
+            out.write(f"const Keyed {name}[] = {{\n" + "".join(f"\t{{ {_c_string(key)}, {_c_string(value)} }},\n" for key, value in rows) + "};\n")
             out.write(f"const size_t {name}_COUNT = {len(rows)};\n\n")
         rows = _property_indices(api)
         out.write("extern const KeyedIndex PROPERTY_INDICES[];\nextern const size_t PROPERTY_INDICES_COUNT;\n")
