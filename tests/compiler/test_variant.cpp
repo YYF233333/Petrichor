@@ -109,7 +109,8 @@ TEST_CASE("a typed container goes where an untyped one is expected, the reverse 
 
 TEST_CASE("members, parameters and results may be Variant") {
 	CHECK(errors_of("extends Control\n@export pub var any: Variant\nvar kept: Variant\nsignal changed(value: Variant)\n\nfunc pick(v: Variant) -> Variant:\n\tchanged.emit(v)\n\treturn v\n\nfunc _can_drop_data(at: Vector2, data: Variant) -> bool:\n\treturn data is Dictionary\n").empty());
-	CHECK(has_error("extends Node\n\nfunc _get(property: StringName) -> Variant:\n\treturn null\n", "Overriding _get() is not supported yet."));
-	CHECK(has_error("extends Node\n\nfunc _set(property: StringName, value: Variant) -> bool:\n\treturn false\n", "Overriding _set() is not supported yet."));
+	// Object's methods that the engine calls through the instance (spec §10.5).
+	const compiler::CompileResult hooks = compile("extends Node\n\nfunc _get(property: StringName) -> Variant:\n\treturn null\n\nfunc _set(property, value) -> bool:\n\treturn value is int\n\nfunc _property_get_revert(property):\n\treturn 0\n\nfunc _get_property_list() -> Array[Dictionary]:\n\treturn [{ \"name\": \"extra\", \"type\": TYPE_INT }]\n");
+	CHECK_MESSAGE(hooks.ok(), messages(hooks));
 	CHECK(has_error(in_function("var n: Nil"), "Unknown type \"Nil\"."));
 }

@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstring>
 #include <functional>
+#include <iterator>
 #include <mutex>
 #include <unordered_map>
 
@@ -132,13 +133,13 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 		if (function.name == "_init") {
 			image->user_init = int(i);
 		}
-		// The checker gave them the engine's signatures, taking more parameters
-		// with defaults or a rest parameter (spec §4.6).
-		if (function.name == "_notification" && function.takes(1)) {
-			image->notification_function = int(i);
-		}
-		if (function.name == "_to_string" && function.takes(0) && types[function.result.type].storage == ValueType::String) {
-			image->to_string_function = int(i);
+		// The checker gave them the engine's signatures (spec §4.6).
+		static const char *const virtual_names[] = { "_notification", "_to_string", "_get", "_set", "_get_property_list", "_validate_property", "_property_can_revert", "_property_get_revert" };
+		static_assert(std::size(virtual_names) == size_t(Virtual::Count));
+		for (size_t v = 0; v < std::size(virtual_names); v++) {
+			if (function.name == virtual_names[v]) {
+				image->virtuals[v] = int(i);
+			}
 		}
 		image->function_signatures.push_back(signature_id(module.types, function.params, function.defaults.size(), function.result, function.is_async, function.is_vararg));
 		image->frames.push_back(frame_layout(function, types));

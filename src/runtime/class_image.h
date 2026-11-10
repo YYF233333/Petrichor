@@ -75,10 +75,22 @@ public:
 	godot::HashMap<godot::StringName, int> function_lookup;
 	std::vector<SlotLayout> frames; // By function index.
 	int user_init = -1; // The nearest _init(), run after the member initializers (spec §6.1).
-	// _notification(what: int) and _to_string() -> String, which the engine
-	// reaches through the instance rather than by calling them; -1 when absent.
-	int notification_function = -1;
-	int to_string_function = -1;
+	// The methods of Object that the engine reaches through the instance
+	// rather than by calling them (core/object/object.cpp:1928-1971; ed1daf0);
+	// -1 when absent.
+	enum class Virtual {
+		Notification,
+		ToString,
+		Get,
+		Set,
+		GetPropertyList,
+		ValidateProperty,
+		PropertyCanRevert,
+		PropertyGetRevert,
+		Count,
+	};
+	int virtuals[size_t(Virtual::Count)] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+	int virtual_function(Virtual p_virtual) const { return virtuals[size_t(p_virtual)]; }
 	// "_ready", which runs the @onready initializers first (spec §6.3); kept
 	// here because godot-cpp values cannot be globals.
 	godot::StringName ready_method = "_ready";

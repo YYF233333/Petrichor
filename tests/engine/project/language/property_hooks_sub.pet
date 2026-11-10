@@ -1,0 +1,14 @@
+# Its own _get() and _get_property_list(), which the engine calls before its
+# base's, as Object's documentation says (spec §10.5).
+class_name PropertyHooksSub
+extends PropertyHooks
+
+
+func _get(property: StringName) -> Variant:
+	if property == &"sub_only":
+		return "sub"
+	return None
+
+
+func _get_property_list() -> Array[Dictionary]:
+	return [{ "name": "sub_extra", "type": TYPE_STRING }]

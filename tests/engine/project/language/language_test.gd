@@ -762,6 +762,17 @@ func _ready() -> void:
 	var loaded: ConstructResource = load("res://language/construct_resource.tres")
 	_check(ConstructResource.new(7, 8).size == 8 and loaded.size == 4 and loaded.health == 25, "loading a Resource runs its _init() with the defaults, before the values the file saved")
 
+	# Object's methods that the engine calls through the instance (spec §10.5).
+	var hooks := PropertyHooksSub.new()
+	hooks.set("extra", 7)
+	_check(hooks.get("sub_only") == "sub" and hooks.get("base_only") == "base base_only" and hooks.get("extra") == 7 and hooks.get("shown") == 1 and hooks.get("kept") == "base kept", "by name, the members come first, then each class's _get() and _set(), the subclass's first; a member without pub is none there")
+	var usages := {}
+	for property in hooks.get_property_list():
+		usages[property.name] = property.usage
+	_check(usages.has("extra") and usages.has("sub_extra") and usages["hidden"] == PROPERTY_USAGE_NO_EDITOR and usages["process_priority"] == PROPERTY_USAGE_NO_EDITOR and usages["shown"] != PROPERTY_USAGE_NO_EDITOR, "each class adds its properties, and _validate_property() changes the members and the engine's properties")
+	_check(hooks.property_can_revert("extra") and hooks.property_get_revert("extra") == 5 and hooks.property_can_revert("shown") and hooks.property_get_revert("shown") == 1, "_property_can_revert() and _property_get_revert() answer before the members' initial values")
+	hooks.free()
+
 	# Annotations describe a class to the engine as GDScript's do (spec §2.3).
 	var annotated := AnnotationCheck.new()
 	var reference := AnnotationReference.new()

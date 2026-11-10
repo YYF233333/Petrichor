@@ -217,6 +217,51 @@ static const bytecode::Member *visible_member(const ClassImage &p_image, const S
 	return &p_image.module.members[index];
 }
 
+// Calls a method of Object on each class of the chain that declares it, the
+// most derived first, until one handles the call. Object's documentation says
+// so of _get, _set, _get_property_list, _property_can_revert and
+// _property_get_revert, which therefore call no super (doc/classes/Object.xml:77,
+// 192, 284, 293, 348; modules/gdscript/gdscript.cpp:1590, 1677, 1739, 1857, 1879;
+// ed1daf0). A program error ends the engine's call (spec §8.1). Tweens and
+// animations write by name every frame, so a chain without one costs no copy.
+template <typename Handled>
+static bool call_each(PetInstance *p_instance, const std::shared_ptr<const ClassImage> &p_image, ClassImage::Virtual p_virtual, const Variant **p_args, int p_argc, const Handled &p_handled) {
+	for (const ClassImage *owner = p_image.get(); owner; owner = owner->base.get()) {
+		const int index = owner->virtual_function(p_virtual);
+		if (index < 0 || owner->module.functions[index].is_inherited) {
+			continue;
+		}
+		InstanceContext context = p_instance->context();
+		context.self_image = p_image;
+		GDExtensionCallError error;
+		bool failed = false;
+		const Variant result = vm::call(owner->shared_from_this(), index, std::move(context), p_args, p_argc, error, &failed);
+		if (failed || error.error != GDEXTENSION_CALL_OK) {
+			return false;
+		}
+		if (p_handled(*owner, owner->module.functions[index], result)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// The nearest _validate_property(), an ordinary override, changes a property
+// in the dictionary it is given (doc/classes/Object.xml:369;
+// modules/gdscript/gdscript.cpp:1710-1729; ed1daf0).
+static bool validate_property(PetInstance *p_instance, const std::shared_ptr<const ClassImage> &p_image, Dictionary &r_property) {
+	const int index = p_image->virtual_function(ClassImage::Virtual::ValidateProperty);
+	if (index < 0) {
+		return false;
+	}
+	const Variant property = r_property;
+	const Variant *args[] = { &property };
+	GDExtensionCallError error;
+	bool failed = false;
+	vm::call(p_image, index, p_instance->context(), args, 1, error, &failed);
+	return !failed && error.error == GDEXTENSION_CALL_OK;
+}
+
 static void instance_property_state(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionScriptInstancePropertyStateAdd p_add, void *p_userdata) {
 	PetInstance *instance = self(p_instance);
 	const auto image = instance->current_image();
@@ -237,12 +282,17 @@ static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance,
 	PetInstance *instance = self(p_instance);
 	const std::shared_ptr<const ClassImage> image = instance->current_image();
 	const bytecode::Member *member = visible_member(*image, as_name(p_name));
+	const Variant &value = *reinterpret_cast<const Variant *>(p_value);
 	if (!member) {
 		// A pub static variable, through an object as in GDScript
-		// (modules/gdscript/gdscript.cpp:1562-1587; spec §4.8).
-		return vm::set_static(image, as_name(p_name), *reinterpret_cast<const Variant *>(p_value));
+		// (modules/gdscript/gdscript.cpp:1562-1587; spec §4.8); then _set().
+		if (vm::set_static(image, as_name(p_name), value)) {
+			return true;
+		}
+		const Variant name = as_name(p_name);
+		const Variant *args[] = { &name, &value };
+		return call_each(instance, image, ClassImage::Virtual::Set, args, 2, [](const ClassImage &, const bytecode::Function &, const Variant &p_handled) { return bool(p_handled); });
 	}
-	const Variant &value = *reinterpret_cast<const Variant *>(p_value);
 	// The scene, the inspector, Tween and other classes write through the
 	// setter (spec §4.4), whose entry check takes the value.
 	if (member->setter >= 0) {
@@ -278,7 +328,16 @@ static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance,
 		// A pub constant reads through an instance too, as in GDScript
 		// (modules/gdscript/gdscript.cpp:1624-1632; spec §4.5).
 		// So do pub static variables (gdscript.cpp:1634-1646; spec §4.8).
-		return pub_constant(*image, as_name(p_name), *reinterpret_cast<Variant *>(r_ret)) || vm::get_static(image, as_name(p_name), *reinterpret_cast<Variant *>(r_ret));
+		Variant &ret = *reinterpret_cast<Variant *>(r_ret);
+		if (pub_constant(*image, as_name(p_name), ret) || vm::get_static(image, as_name(p_name), ret)) {
+			return true;
+		}
+		const Variant name = as_name(p_name);
+		const Variant *args[] = { &name };
+		return call_each(instance, image, ClassImage::Virtual::Get, args, 1, [&](const ClassImage &, const bytecode::Function &, const Variant &p_value) {
+			ret = p_value;
+			return p_value.get_type() != Variant::NIL;
+		});
 	}
 	if (member->getter >= 0) {
 		GDExtensionCallError error;
@@ -296,8 +355,28 @@ static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance,
 	return true;
 }
 
+// The members, then what each class's _get_property_list() adds; each passes
+// _validate_property(), as in GDScript (modules/gdscript/gdscript.cpp:1731-1848; ed1daf0).
 static const GDExtensionPropertyInfo *instance_get_property_list(GDExtensionScriptInstanceDataPtr p_instance, uint32_t *r_count) {
-	const TypedArray<Dictionary> list = visible_properties(*self(p_instance)->current_image());
+	PetInstance *instance = self(p_instance);
+	const std::shared_ptr<const ClassImage> image = instance->current_image();
+	TypedArray<Dictionary> list = visible_properties(*image);
+	call_each(instance, image, ClassImage::Virtual::GetPropertyList, nullptr, 0, [&](const ClassImage &p_class, const bytecode::Function &p_function, const Variant &p_added) {
+		const Array added = p_added;
+		for (int64_t i = 0; i < added.size(); i++) {
+			const Dictionary property = added[i];
+			if (property.has("name") && property.has("type")) {
+				list.push_back(property);
+			} else {
+				vm::report_error(p_class, "_get_property_list", int(p_function.line), "_get_property_list() gave a property without \"name\" or \"type\"; each needs both.");
+			}
+		}
+		return false;
+	});
+	for (int64_t i = 0; i < list.size(); i++) {
+		Dictionary property = list[i];
+		validate_property(instance, image, property);
+	}
 	*r_count = uint32_t(list.size());
 	return make_property_list(list);
 }
@@ -306,20 +385,68 @@ static void instance_free_property_list(GDExtensionScriptInstanceDataPtr p_insta
 	free_property_list(p_list, p_count);
 }
 
-// Only a constant initial value is a default the editor can revert to; other
-// initializers run per instance (spec §6.1).
+// The classes' own _property_can_revert() and _property_get_revert() answer
+// first. Otherwise only a constant initial value is a default the editor can
+// revert to; other initializers run per instance (spec §6.1).
 static GDExtensionBool instance_property_can_revert(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name) {
-	const bytecode::Member *member = visible_member(*self(p_instance)->current_image(), as_name(p_name));
+	PetInstance *instance = self(p_instance);
+	const std::shared_ptr<const ClassImage> image = instance->current_image();
+	const Variant name = as_name(p_name);
+	const Variant *args[] = { &name };
+	if (call_each(instance, image, ClassImage::Virtual::PropertyCanRevert, args, 1, [](const ClassImage &, const bytecode::Function &, const Variant &p_can) { return bool(p_can); })) {
+		return true;
+	}
+	const bytecode::Member *member = visible_member(*image, as_name(p_name));
 	return member && member->has_initial;
 }
 
 static GDExtensionBool instance_property_get_revert(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionVariantPtr r_ret) {
-	const std::shared_ptr<const ClassImage> image = self(p_instance)->current_image();
+	PetInstance *instance = self(p_instance);
+	const std::shared_ptr<const ClassImage> image = instance->current_image();
+	Variant &ret = *reinterpret_cast<Variant *>(r_ret);
+	const Variant name = as_name(p_name);
+	const Variant *args[] = { &name };
+	if (call_each(instance, image, ClassImage::Virtual::PropertyGetRevert, args, 1, [&](const ClassImage &, const bytecode::Function &, const Variant &p_value) {
+			ret = p_value;
+			return p_value.get_type() != Variant::NIL;
+		})) {
+		return true;
+	}
 	const bytecode::Member *member = visible_member(*image, as_name(p_name));
 	if (!member || !member->has_initial) {
 		return false;
 	}
-	*reinterpret_cast<Variant *>(r_ret) = initial_value(*image, size_t(member - image->module.members.data()));
+	ret = initial_value(*image, size_t(member - image->module.members.data()));
+	return true;
+}
+
+// For the engine's own properties, which Object::validate_property() passes to the
+// script last (core/object/object.cpp:565, core/object/script_language_extension.h:757-778; ed1daf0).
+static GDExtensionBool instance_validate_property(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionPropertyInfo *p_property) {
+	PetInstance *instance = self(p_instance);
+	const std::shared_ptr<const ClassImage> image = instance->current_image();
+	if (image->virtual_function(ClassImage::Virtual::ValidateProperty) < 0) {
+		return false;
+	}
+	StringName &name = *reinterpret_cast<StringName *>(p_property->name);
+	StringName &class_name = *reinterpret_cast<StringName *>(p_property->class_name);
+	String &hint_string = *reinterpret_cast<String *>(p_property->hint_string);
+	Dictionary property;
+	property["name"] = String(name);
+	property["class_name"] = class_name;
+	property["type"] = int64_t(p_property->type);
+	property["hint"] = p_property->hint;
+	property["hint_string"] = hint_string;
+	property["usage"] = p_property->usage;
+	if (!validate_property(instance, image, property)) {
+		return false;
+	}
+	p_property->type = GDExtensionVariantType(int(property.get("type", 0)));
+	name = property.get("name", String());
+	class_name = property.get("class_name", StringName());
+	p_property->hint = uint32_t(int(property.get("hint", 0)));
+	hint_string = property.get("hint_string", String());
+	p_property->usage = uint32_t(int(property.get("usage", 0)));
 	return true;
 }
 
@@ -400,7 +527,7 @@ static void instance_notification(GDExtensionScriptInstanceDataPtr p_instance, i
 	const Variant what = int64_t(p_what);
 	const Variant *args[] = { &what };
 	for (const auto &owner : chain) {
-		const int index = owner->notification_function;
+		const int index = owner->virtual_function(ClassImage::Virtual::Notification);
 		if (index < 0 || owner->module.functions[index].is_inherited) {
 			continue;
 		}
@@ -417,13 +544,14 @@ static void instance_notification(GDExtensionScriptInstanceDataPtr p_instance, i
 static void instance_to_string(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionBool *r_is_valid, GDExtensionStringPtr r_out) {
 	PetInstance *instance = self(p_instance);
 	const std::shared_ptr<const ClassImage> image = instance->current_image();
+	const int index = image->virtual_function(ClassImage::Virtual::ToString);
 	*r_is_valid = false;
-	if (image->to_string_function < 0) {
+	if (index < 0) {
 		return;
 	}
 	GDExtensionCallError error;
 	bool failed = false;
-	const Variant text = vm::call(image, image->to_string_function, instance->context(), nullptr, 0, error, &failed);
+	const Variant text = vm::call(image, index, instance->context(), nullptr, 0, error, &failed);
 	if (!failed && error.error == GDEXTENSION_CALL_OK) {
 		*reinterpret_cast<String *>(r_out) = text;
 		*r_is_valid = true;
@@ -483,6 +611,7 @@ static GDExtensionScriptInstanceInfo3 build_info() {
 	info.get_method_list_func = instance_get_method_list;
 	info.free_method_list_func = instance_free_method_list;
 	info.get_property_type_func = instance_get_property_type;
+	info.validate_property_func = instance_validate_property;
 	info.has_method_func = instance_has_method;
 	info.get_method_argument_count_func = instance_get_method_argument_count;
 	info.call_func = instance_call;

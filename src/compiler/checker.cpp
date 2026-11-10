@@ -8430,13 +8430,6 @@ class Checker : public ClassRelation {
 				error(r_function.name_token, "An engine virtual method returning " + engine_method->return_type.to_string() + " cannot be async: the engine takes the result at once, without waiting.");
 			}
 		}
-
-		// The engine reaches these through the script instance, which does not
-		// call them yet, as GDScript's does (modules/gdscript/gdscript.cpp:1590, 1677, 1714, 1739, 1857, 1879; ed1daf0).
-		static const std::unordered_set<std::string> by_instance = { "_get", "_set", "_get_property_list", "_validate_property", "_property_can_revert", "_property_get_revert" };
-		if (by_instance.count(r_function.name) && !r_function.is_static) {
-			error(r_function.name_token, "Overriding " + r_function.name + "() is not supported yet.");
-		}
 		// It takes as many arguments as the engine passes (spec §4.6).
 		if (r_function.is_override && !takes(r_function, engine_method->params.size())) {
 			error(r_function.name_token, "\"" + r_function.name + "()\" overrides an engine method with " + std::to_string(engine_method->params.size()) + " parameter(s).");

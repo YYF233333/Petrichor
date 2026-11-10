@@ -49,7 +49,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The parts of the standard library that the spec promises:
   - functions returning `Result` for the engine APIs that return null on failure, such as `FileAccess.open` (spec §10.3);
   - encoding structs and enums to and from JSON, `var_to_str` and `ConfigFile` (spec §10.8).
-- Overriding Object's `_get`, `_set`, `_get_property_list`, `_validate_property`, `_property_can_revert` and `_property_get_revert`. The engine reaches them through the script instance, and GDScript's instance calls them (`modules/gdscript/gdscript.cpp:1590, 1677, 1714, 1739, 1857, 1879`, `ed1daf0`). Now they are a compile error, since the runtime does not call them.
 - A `Callable` of unknown signature converted to a function type and checked on every call (spec §3.11).
 - In debug builds, reporting two places (spec §3.3, §6.7, §12.5):
   - where a freed instance was freed;

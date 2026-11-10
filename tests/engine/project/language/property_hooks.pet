@@ -1,0 +1,44 @@
+# Object's _get(), _set(), _get_property_list(), _validate_property(),
+# _property_can_revert() and _property_get_revert(), which the engine calls
+# through the instance (spec §10.5), driven by language_test.gd.
+class_name PropertyHooks
+extends Node
+
+@export pub var shown := 1
+@export pub var hidden := 2
+var kept := 3
+var extra := 0
+
+
+func _get(property: StringName) -> Variant:
+	if property == &"extra":
+		return extra
+	if property == &"base_only" or property == &"kept":
+		return "base " + str(property)
+	return None
+
+
+func _set(property: StringName, value: Variant) -> bool:
+	if property != &"extra" or value is not int:
+		return false
+	extra = value
+	return true
+
+
+func _get_property_list() -> Array[Dictionary]:
+	return [{ "name": "extra", "type": TYPE_INT }]
+
+
+func _validate_property(property: Dictionary) -> void:
+	if property["name"] == "hidden" or property["name"] == "process_priority":
+		property["usage"] = PROPERTY_USAGE_NO_EDITOR
+
+
+func _property_can_revert(property: StringName) -> bool:
+	return property == &"extra"
+
+
+func _property_get_revert(property: StringName) -> Variant:
+	if property == &"extra":
+		return 5
+	return None
