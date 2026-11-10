@@ -33,7 +33,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - `ok()` and `err()` of `Result[T?, E]` and `Result[T, E?]`.
 - The names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7).
 - `Ok(v)`, `Err(e)`, `None` and `?` in a lambda without a return type passed to `and_then()` or `or_else()`. Nothing gives their `U` or `F` yet (spec §3.4, §3.5, §4.6).
-- `is_instance_of(v, T)` with `T` held in a variable, which needs classes as values (spec §2.6). gdUnit4 does it.
+- `is_instance_of(v, T)` with `T` a value of static type `Script` (spec §2.6). Native classes held in variables wait for classes as values. gdUnit4 passes them.
 - An inner class named as an engine enum, such as `Key`. A type reads the name as the engine's enum, an expression as the inner class (spec §4.1). So `func make() -> Key: return Key.new()` is an error.
 - Node paths (spec §7.1):
   - into instanced scenes;
@@ -46,6 +46,9 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - `pub` required on the members that animation tracks and synchronized properties name (spec §10.5). The compiler does not read them yet (spec §7.7).
 - `Callable(object, name)` and `Signal(object, name)` with a name known only at run time (spec §10.4). `Callable.create()` serves the first.
 - The audit of the most frequently called engine APIs for null (spec §10.2); `binding_metadata.txt` has two entries.
+- The parts of the standard library that the spec promises:
+  - functions returning `Result` for the engine APIs that return null on failure, such as `FileAccess.open` (spec §10.3);
+  - encoding structs and enums to and from JSON, `var_to_str` and `ConfigFile` (spec §10.8).
 - Overriding Object's `_get`, `_set`, `_get_property_list`, `_validate_property`, `_property_can_revert` and `_property_get_revert`. The engine reaches them through the script instance, and GDScript's instance calls them (`modules/gdscript/gdscript.cpp:1590, 1677, 1714, 1739, 1857, 1879`, `ed1daf0`). Now they are a compile error, since the runtime does not call them.
 - A `Callable` of unknown signature converted to a function type and checked on every call (spec §3.11).
 - In debug builds, reporting two places (spec §3.3, §6.7, §12.5):
@@ -95,7 +98,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
     - `s[i] = c` becomes `s = s.erase(i).insert(i, c)`, and `s[i] = ""` becomes `s = s.erase(i)`.
     - A negative literal index `-k` becomes `s.length() - k`, since `erase` refuses negative positions (`core/string/ustring.cpp:2881-2884`, `ed1daf0`).
     - The report lists other indices and bases with side effects.
-    - Consider a method that replaces a character, designed with the standard library's other extensions.
 - The debugger lists all locals of a function regardless of scope. So same-named locals of blocks side by side collide. The bytecode would record the scope of each slot.
 - Before 0.9, diagnostics and semantic queries that serve programs, not only the editor's interface. They say which declaration or scene a constraint comes from, and list the references that broke. Agents then fix errors while reading less code. Accepted by an agent evaluation (architecture §5, 0.9).
 - Before 0.9, function times in Godot's profiler. The `_profiling_*` methods of `PetLanguage` are empty, so the profiler shows no function of this language. Deeper integration comes after 1.0 (spec §14.2).
@@ -195,6 +197,10 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - On 4.7 an extension must name its own script there, as this one does (`editor/script/script_text_editor.cpp:859-860`, `ed1daf0`; `src/adapter/pet_language.cpp:199`).
   - It also puts the extension's one-based lines into zero-based ranges, so warnings move down a line. GDScript's own conversion subtracts one (`modules/gdscript/gdscript_editor.cpp:160-164`, `05ee117`).
   - Once it merges, one build would need different output per engine version. A fix in the wrapper keeps the contract: take the script's own path as its own, and subtract one.
+- Godot: String has no method that replaces the character at a position. The owner may contribute one.
+  - Its methods replace by content, insert or erase (`core/variant/variant_call.cpp:2039-2048`, `ed1daf0`).
+  - Here `s[i] = c` is a compile error, and its fix uses `erase()` and `insert()` (spec §5.1).
+  - Gaps in the methods of engine types go upstream before the standard library (architecture §5).
 
 ## Open questions
 
