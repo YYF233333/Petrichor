@@ -20,9 +20,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - `@parent(T)` (spec §7.3).
 - `weak[T]` (spec §3.12).
 - A literal path of `load` typed as preload types it (spec §7.4).
-- Of GDScript classes (spec §11.1):
-  - enums, inner classes and static variables;
-  - nodes in scenes typed by their GDScript class rather than its engine class.
+- Nodes in scenes typed by their GDScript class rather than its engine class (spec §11.1).
 - Containers of function types and of `Task[T]`, which the checker says are not supported yet (`container_element`).
   - Spec §3.8 gives elements of this language's own types its own representation, as for structs.
   - Until then, `Task.all()` and `Task.any()` take only tasks written in brackets.
@@ -197,6 +195,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - On 4.7 an extension must name its own script there, as this one does (`editor/script/script_text_editor.cpp:859-860`, `ed1daf0`; `src/adapter/pet_language.cpp:199`).
   - It also puts the extension's one-based lines into zero-based ranges, so warnings move down a line. GDScript's own conversion subtracts one (`modules/gdscript/gdscript_editor.cpp:160-164`, `05ee117`).
   - Once it merges, one build would need different output per engine version. A fix in the wrapper keeps the contract: take the script's own path as its own, and subtract one.
+- Views of the enums, inner classes and static variables of GDScript classes, a later addition (spec §11.1, §14.2). They need a change in Godot first, which the owner may contribute.
 - Godot: String has no method that replaces the character at a position. The owner may contribute one.
   - Its methods replace by content, insert or erase (`core/variant/variant_call.cpp:2039-2048`, `ed1daf0`).
   - Here `s[i] = c` is a compile error, and its fix uses `erase()` and `insert()` (spec §5.1).
