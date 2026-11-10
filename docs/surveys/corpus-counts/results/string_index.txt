@@ -1,0 +1,5 @@
+subscript assignments: 2212
+on names declared as String: 3
+Pixelorama/src/Classes/Project.gd:780 (tool): data[...] = ( cel as CelTileMap ) . serialize_undo_data ( )
+Pixelorama/src/Classes/Project.gd:782 (tool): data[...] = { }
+Pixelorama/src/UI/Recorder/Recorder.gd:15 (tool): chosen_dir[...] = ''

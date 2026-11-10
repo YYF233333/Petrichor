@@ -34,7 +34,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - `ok()` and `err()` of `Result[T?, E]` and `Result[T, E?]`.
 - The names of the engine's enums as values, as in `Tween.TransitionType.keys()` (spec §3.7).
 - `Ok(v)`, `Err(e)`, `None` and `?` in a lambda without a return type passed to `and_then()` or `or_else()`. Nothing gives their `U` or `F` yet (spec §3.4, §3.5, §4.6).
-- Assigning to a character of a String, as `s[i] = c`. GDScript keeps only the first character of `c`, and an empty `c` removes the character (`core/variant/variant_setget.cpp:785-809`, `ed1daf0`).
 - `is_instance_of(v, T)` with `T` held in a variable, which needs classes as values (spec §2.6). gdUnit4 does it.
 - An inner class named as an engine enum, such as `Key`. A type reads the name as the engine's enum, an expression as the inner class (spec §4.1). So `func make() -> Key: return Key.new()` is an error.
 - Node paths (spec §7.1):
@@ -92,6 +91,11 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - It drops this language's names from `@warning_ignore`, which GDScript rejects (`modules/gdscript/gdscript_parser.cpp:5126-5128`, `ed1daf0`).
   - The report lists by-name access with names that are not literals, and `get_name()` on signals. Their members may need `pub` (spec §10.5).
   - Migrating a class offers to migrate its GDScript users that GDScript could not keep (spec §11.3). They call its static methods or use its enums in types. `docs/surveys/corpus-counts/class_level_access.py` finds them by spelling.
+  - It rewrites assignments to a character of a String, a compile error here (spec §5.1).
+    - `s[i] = c` becomes `s = s.erase(i).insert(i, c)`, and `s[i] = ""` becomes `s = s.erase(i)`.
+    - A negative literal index `-k` becomes `s.length() - k`, since `erase` refuses negative positions (`core/string/ustring.cpp:2881-2884`, `ed1daf0`).
+    - The report lists other indices and bases with side effects.
+    - Consider a method that replaces a character, designed with the standard library's other extensions.
 - The debugger lists all locals of a function regardless of scope. So same-named locals of blocks side by side collide. The bytecode would record the scope of each slot.
 - Before 0.9, diagnostics and semantic queries that serve programs, not only the editor's interface. They say which declaration or scene a constraint comes from, and list the references that broke. Agents then fix errors while reading less code. Accepted by an agent evaluation (architecture §5, 0.9).
 - Before 0.9, function times in Godot's profiler. The `_profiling_*` methods of `PetLanguage` are empty, so the profiler shows no function of this language. Deeper integration comes after 1.0 (spec §14.2).
