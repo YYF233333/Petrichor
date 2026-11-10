@@ -12,8 +12,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - a statically known scene's `instantiate(...)` missing an export the scene does not assign (§7.4). The scene index reads only what each scene itself stores on nodes with this language's scripts;
   - a child reading a member that ancestors assign in its own `_ready` (§6.2);
   - a must-assign member that is not pub, which its file or a subclass must export or assign (§4.2). It needs every subclass;
-  - a scene used as a root whose root has a script with `@owner` (§7.3);
-  - a node of a scene whose script is abstract (§4.1).
+  - a scene used as a root whose root has a script with `@owner` (§7.3).
 - Checking at compile time what resources store in exported structs and enums with payloads (spec §4.3). They are `.tres` files and resources inside scenes, which the scene index does not read. Nor does it read a node of an instanced scene that the outer scene changes.
 - How `T??` crosses the engine boundary (spec §10.1), where `None` and `Some(None)` would both be null. Until then, pub members and parameters, signal parameters and coroutine results of `T??` are refused. These still lose `Some(None)`:
   - `Variant?` in those places;

@@ -9432,6 +9432,18 @@ class Checker : public ClassRelation {
 		}
 	}
 
+	// No node of a scene has an abstract class (spec §4.1), which the engine
+	// refuses to set (core/object/object.cpp:976; ed1daf0).
+	void check_abstract_scenes() {
+		for (const Scene &scene : cls.is_abstract ? scenes : std::vector<Scene>()) {
+			for (const SceneNode &node : scene.nodes) {
+				if (node.script == options.path) {
+					error_in_scene(TokenRange{ cls.extends_token, cls.extends_token }, scene, node.path, scene.path + ": " + (node.path == "." ? std::string("the root") : node.path) + " has " + display_name(cls, options.path) + ", which is abstract and cannot be set on a node.");
+				}
+			}
+		}
+	}
+
 	// What a signal of a node in a scene passes: one its script of this
 	// language declares (spec §4.7), or one of its engine class. nullopt when
 	// that is not known: a script of another language, or one with errors;
@@ -11497,6 +11509,7 @@ private:
 		}
 		check_warning_ignores();
 		check_connections();
+		check_abstract_scenes();
 		check_owner_scenes();
 		check_parent_scenes();
 		check_stored_exports();
