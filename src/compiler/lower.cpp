@@ -2070,6 +2070,21 @@ class Lowerer {
 			// Such as an element of Array[T], or the root of PackedScene[T].
 			check_object(i.dst, p_call.type);
 		}
+		if (p_call.target == Target::EngineMethod && p_call.type.kind == TypeKind::Object && p_call.type.nullable && p_call.type != p_call.engine_return) {
+			// A T? narrower than the engine's, as get_node_or_null() of a
+			// literal path (spec §7.2), is checked unless it is None.
+			const uint32_t none = temp(ValueType::Bool);
+			instr(Op::IS_NONE, none, i.dst, NO_REG, 0, fn.regs[i.dst].type);
+			const uint32_t check_block = new_block();
+			const uint32_t end_block = new_block();
+			branch(none, end_block, check_block);
+			current = check_block;
+			Type found = p_call.type;
+			found.nullable = false;
+			check_object(i.dst, found);
+			jump(end_block);
+			current = end_block;
+		}
 		return i.dst;
 	}
 

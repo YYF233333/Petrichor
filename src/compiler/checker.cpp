@@ -3338,28 +3338,33 @@ class Checker : public ClassRelation {
 	// Each node a path leads to from a node of a scene that has the script
 	// (spec §7.1): in that scene, or, past its root, in each scene that
 	// instances it, as it is there. A scene that lacks the node has the error
-	// marked on it, at `p_marked`.
-	void walk_from(const Expr &p_at, const Scene &p_scene, const std::string &p_from, const std::string &p_marked, const std::string &p_path, std::vector<NodeWalk> &r_found, int p_depth = 0) {
+	// marked on it, at `p_marked`, unless the path is optional or the scene
+	// is used only as the base of inherited scenes (spec §7.2).
+	void walk_from(const Expr &p_at, const Scene &p_scene, const std::string &p_from, const std::string &p_marked, const std::string &p_path, const std::string &p_shown, bool p_optional, std::vector<NodeWalk> &r_found, int p_depth = 0) {
 		NodeWalk walk = walk_node_path(p_scene, p_from, p_path);
-		if (!walk.leaves) {
-			if (walk.node) {
-				r_found.push_back(std::move(walk));
-			} else {
-				error_in_scene(p_at.range, p_scene, p_marked, walk.missing);
-			}
+		if (walk.node) {
+			r_found.push_back(std::move(walk));
 			return;
 		}
+		std::string missing = walk.missing;
+		const std::vector<Scene> outers = p_depth > 32 ? std::vector<Scene>() : options.project->scenes_instancing(p_scene.path);
 		bool instanced = false;
-		for (const Scene &outer : p_depth > 32 ? std::vector<Scene>() : options.project->scenes_instancing(p_scene.path)) {
+		for (const Scene &outer : walk.leaves ? outers : std::vector<Scene>()) {
 			for (const SceneNode &node : outer.nodes) {
 				if (node.instance == p_scene.path) {
 					instanced = true;
-					walk_from(p_at, outer, p_from == "." ? node.path : node.path + "/" + p_from, node.path, p_path, r_found, p_depth + 1);
+					walk_from(p_at, outer, p_from == "." ? node.path : node.path + "/" + p_from, node.path, p_path, p_shown, p_optional, r_found, p_depth + 1);
 				}
 			}
 		}
-		if (!instanced) {
-			error_in_scene(p_at.range, p_scene, p_marked, p_scene.path + ": " + shown_path(p_path) + " leads out of the scene, and no scene instances it.");
+		if (walk.leaves) {
+			missing = p_scene.path + ": " + p_shown + " leads out of the scene, and no scene instances it.";
+		}
+		const bool only_inherited = !outers.empty() && p_scene.path != options.project->main_scene() && std::all_of(outers.begin(), outers.end(), [&](const Scene &p_outer) {
+			return p_outer.base == p_scene.path && std::none_of(p_outer.nodes.begin(), p_outer.nodes.end(), [&](const SceneNode &p_node) { return p_node.instance == p_scene.path; });
+		});
+		if (!instanced && !p_optional && !only_inherited) {
+			error_in_scene(p_at.range, p_scene, p_marked, missing);
 		}
 	}
 
@@ -3408,39 +3413,78 @@ class Checker : public ClassRelation {
 		if (path.empty() || path[0] == '/') {
 			return fail(r_expr, "Only paths from this node, such as $Head/Camera, are supported yet.");
 		}
+		const Type type = scene_node_at(r_expr, shown_path(path), false);
+		r_expr.owner = type.engine_class();
+		return set(r_expr, type);
+	}
+
+	// The node at a literal path from this node, `p_path_expr` holding the
+	// path, as `$X` and get_node() name it (spec §7.1, §7.2): its type in every
+	// scene that gives this script a node, which must agree. With `p_optional`,
+	// for get_node_or_null(), a scene may lack it and the type is T?, or Node?
+	// when no scene has it. Error after reporting.
+	Type scene_node_at(const Expr &p_path_expr, const std::string &p_shown, bool p_optional) {
+		const std::string &path = p_path_expr.text;
 		bool attached = false;
 		std::vector<NodeWalk> found;
 		for (const Scene &scene : scenes) {
 			for (const SceneNode &node : scene.nodes) {
 				if (extends_script(node.script, options.path)) {
 					attached = true;
-					walk_from(r_expr, scene, node.path, node.path, path, found);
+					walk_from(p_path_expr, scene, node.path, node.path, path, p_shown, p_optional, found);
 				}
 			}
 		}
 		std::optional<Type> type;
 		std::string type_scene;
 		for (const NodeWalk &walk : found) {
-			refer_node_path(r_expr, walk);
-			const Type found_type = scene_node_type(r_expr.range, walk.node->node, shown_path(path));
+			refer_node_path(p_path_expr, walk);
+			const Type found_type = scene_node_type(p_path_expr.range, walk.node->node, p_shown);
 			if (found_type.is_error()) {
-				return set(r_expr, found_type);
+				return found_type;
 			}
 			if (!type) {
 				type = found_type;
 				type_scene = walk.scene;
 			} else if (found_type != *type) {
-				return fail(r_expr, shown_path(path) + " is a " + type->to_string() + " in " + type_scene + " but a " + found_type.to_string() + " in " + walk.scene + "; assign it to a variable typed with a class both extend.");
+				error(p_path_expr.range, p_shown + " is a " + type->to_string() + " in " + type_scene + " but a " + found_type.to_string() + " in " + walk.scene + "; assign it to a variable typed with a class both extend.");
+				return Type::of(TypeKind::Error);
 			}
 		}
+		if (!type && p_optional) {
+			return Type::object("Node", true);
+		}
 		if (!attached) {
-			return fail(r_expr, shown_path(path) + " is typed from the scenes that use this script, and no scene does.");
+			error(p_path_expr.range, p_shown + " is typed from the scenes that use this script, and no scene does.");
 		}
 		if (!type) {
-			return set(r_expr, Type::of(TypeKind::Error)); // Reported for each scene above.
+			return Type::of(TypeKind::Error); // Reported for each scene above.
 		}
-		r_expr.owner = type->engine_class();
-		return set(r_expr, *type);
+		Type result = *type;
+		result.nullable = p_optional;
+		return result;
+	}
+
+	// get_node() and get_node_or_null() of a literal path from this node,
+	// typed as `$X` (spec §7.1, §7.2); get_node("..") as `$".."`, and
+	// get_node_or_null("..") as the engine types it (§7.3). nullopt for any
+	// other call, and for a path from the root.
+	std::optional<Type> literal_node_type(const Expr &p_call, const EngineMethod &p_method) {
+		const bool optional = p_method.name == "get_node_or_null";
+		if (p_method.owner != "Node" || (p_method.name != "get_node" && !optional) || p_call.args.size() != 1 || p_call.args[0]->kind != ExprKind::StringLiteral || (p_call.base && p_call.base->kind != ExprKind::Self)) {
+			return std::nullopt;
+		}
+		const std::string &path = p_call.args[0]->text;
+		if (path.empty() || path[0] == '/' || (optional && path == "..")) {
+			return std::nullopt;
+		}
+		if (options.declarations_only) {
+			return Type::of(TypeKind::Error); // Scenes are not read while loading.
+		}
+		if (path == "..") {
+			return cls.parent_ref ? cls.parent_type : Type::object("Node");
+		}
+		return scene_node_at(*p_call.args[0], p_call.text + "(\"" + path + "\")", optional);
 	}
 
 	// Each name in the path of `$X` refers to the node it reaches in a scene;
@@ -4496,6 +4540,9 @@ class Checker : public ClassRelation {
 			Type copy = r_expr.base ? r_expr.base->type : script_class_type(cls, options.path);
 			copy.nullable = false;
 			return set(r_expr, copy);
+		}
+		if (const std::optional<Type> node = literal_node_type(r_expr, p_method)) {
+			return set(r_expr, *node);
 		}
 		if (p_method.owner == "Node" && p_method.name == "get_parent" && cls.parent_ref && (!r_expr.base || r_expr.base->kind == ExprKind::Self)) {
 			// What @parent(T) requires, which a node without a parent fails (spec §7.3).

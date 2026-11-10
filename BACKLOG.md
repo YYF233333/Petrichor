@@ -22,7 +22,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - `map()` of `T?` whose function returns `U?`;
   - `ok()` and `err()` of `Result[T?, E]` and `Result[T, E?]`.
 - `is_instance_of(v, T)` with a native class held in a variable, which waits for classes as values (spec §2.6). gdUnit4 passes them.
-- `get_node` and `get_node_or_null` typed from literal paths, exempting base scenes used only for inheritance (spec §7.1, §7.2).
+- A scene used as a root through `load`, `preload` or an exported `PackedScene` (spec §7.2). The node paths of a script take a scene that is also inherited for a base used only for inheritance. It may then lack a node without an error, which the run-time check catches.
 - `pub` required on the members that animation tracks and synchronized properties name (spec §10.5). The compiler does not read them yet (spec §7.7).
 - The audit of the most frequently called engine APIs for null (spec §10.2); `binding_metadata.txt` has two entries.
 - In debug builds, reporting two places (spec §3.3, §6.7, §12.5):

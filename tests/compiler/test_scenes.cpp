@@ -456,6 +456,49 @@ TEST_CASE("a path with .. goes up to the parent in the scene, and $\"..\" is a N
 	CHECK(compile("extends Node\n\nfunc f() -> Node:\n\treturn $\"..\"\n").ok());
 }
 
+TEST_CASE("get_node() of a literal path is typed as $X; get_node_or_null() as T?, which a scene may lack (spec §7.1, §7.2)") {
+	FakeProject project = hud_scene();
+	compiler::Scene menu;
+	menu.path = "res://menu.tscn";
+	menu.nodes = { { ".", "CanvasLayer", "res://test.pet" }, { "Score", "Label", "" } };
+	project.scenes.push_back(menu);
+	CHECK(contains(hud_errors("var n: Node3D = get_node(\"Health\")", project), "Cannot assign a value of type Label as Node3D"));
+	CHECK(contains(hud_errors("var n = get_node(\"Score\")", project), "res://main.tscn: HUD has no node at \"Score\"."));
+	CHECK(contains(hud_errors("var n: Label = get_node_or_null(\"Score\")", project), "Cannot assign a value of type Label? as Label"));
+	CHECK(hud_errors("var n: Label? = get_node_or_null(\"Score\")\n\tvar m: Node? = get_node_or_null(\"Ammo\")", project).empty());
+	CHECK(contains(hud_errors("var n: Node = get_node_or_null(\"..\")", project), "Cannot assign a value of type Node? as Node"));
+	// Checked at run time unless it is None, in case the tree has changed since.
+	const compiler::CompileResult result = compile_in("extends CanvasLayer\n\nfunc f() -> Label?:\n\treturn get_node_or_null(\"Score\")\n", project);
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	find_instruction(function_named(result.module, "f"), bytecode::Op::IS_NONE);
+	find_instruction(function_named(result.module, "f"), bytecode::Op::CHECK_OBJECT);
+	CHECK(contains(messages(compile_in("@parent(Node2D)\nextends Node\n\nfunc f():\n\tvar p: Label = get_node(\"..\")\n", FakeProject())), "Cannot assign a value of type Node2D as Label"));
+}
+
+TEST_CASE("a scene used only as the base of inherited scenes may lack a node that they have (spec §7.2)") {
+	FakeProject project;
+	compiler::Scene base;
+	base.path = "res://enemy.tscn";
+	base.nodes = { { ".", "Node3D", "res://test.pet" } };
+	compiler::Scene armed;
+	armed.path = "res://armed_enemy.tscn";
+	armed.base = "res://enemy.tscn";
+	armed.nodes = { { ".", "Node3D", "res://test.pet" }, { "Gun", "MeshInstance3D", "" } };
+	project.scenes = { base, armed };
+	const char *source = "extends Node3D\n\nfunc f():\n\tvar gun: MeshInstance3D = $Gun\n";
+	CHECK(messages(compile_in(source, project)).empty());
+	// Used as a root or instanced, it must have the node.
+	project.main = "res://enemy.tscn";
+	CHECK(contains(messages(compile_in(source, project)), "res://enemy.tscn: the root has no node at \"Gun\"."));
+	project.main.clear();
+	compiler::Scene level;
+	level.path = "res://level.tscn";
+	level.nodes = { { ".", "Node3D", "" }, { "Enemy", "Node3D", "", true, "res://test.pet" } };
+	level.nodes[1].instance = "res://enemy.tscn";
+	project.scenes.push_back(level);
+	CHECK(contains(messages(compile_in(source, project)), "res://enemy.tscn: the root has no node at \"Gun\"."));
+}
+
 TEST_CASE("paths that are not typed yet are refused rather than guessed") {
 	CHECK(contains(hud_errors("var n: Node = $\"/root/Main\""), "are supported yet"));
 	CHECK(contains(hud_errors("var n: Node = $/root/Main"), "are supported yet"));
