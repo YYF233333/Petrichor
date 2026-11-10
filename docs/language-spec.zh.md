@@ -841,7 +841,10 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 - 引擎未导出的既有约束在绑定元数据中补齐，已导出的直接使用。
 - `Variant` 数学工具函数（`lerp`、`clamp`、`min`、`max`、`abs`、`wrap` 等）按同类型实参返回该类型。混用 `int` 与 `float` 报编译错误，快速修复把整数实参改为 `float`（如 `min(1.5, 1.0)`）。
 - 以字面量类名过滤的引擎 API 按该类定型（如 `find_children("*", "MeshInstance3D")` 返回 `Array[MeshInstance3D]`）。
-- “失败返回 `null`、错误另取”的引擎 API（如 `FileAccess.open`）由标准库封装为返回 `Result` 的函数。
+- 有些引擎 API 失败时返回空值，错误可在事后读取，如 `FileAccess.open` 与 `FileAccess.get_open_error()`。
+  - 标准库为它们各加一个返回 `Result[T, Error]` 的版本，名字是原名加前缀 `try_`，如 `FileAccess.try_open`。
+  - 原 API 的类型不变。
+  - 错误无从读取的 API 仍返回 `T?`，如 `load()`。
 
 ### 10.4 字符串形式的成员名
 
