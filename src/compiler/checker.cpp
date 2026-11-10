@@ -3485,6 +3485,12 @@ class Checker : public ClassRelation {
 		if (operand.is_error()) {
 			return set(r_expr, operand);
 		}
+		if (r_expr.op != TokenKind::Minus && r_expr.op != TokenKind::Tilde) {
+			if (operand.kind == TypeKind::Bool) {
+				return set(r_expr, operand);
+			}
+			return fail(r_expr, "\"not\" requires bool, found " + operand.to_string() + "." + compare_hint(operand, true));
+		}
 		if (operand.kind == TypeKind::Variant) {
 			return fail(r_expr, std::string("Cannot use ") + token_name(r_expr.op) + " on a Variant." + variant_hint());
 		}
@@ -3502,13 +3508,26 @@ class Checker : public ClassRelation {
 			}
 			return fail(r_expr, "Cannot negate a value of type " + operand.to_string() + ".");
 		}
-		if (r_expr.op == TokenKind::Tilde) {
-			return operand.kind == TypeKind::Int ? set(r_expr, operand) : fail(r_expr, "\"~\" requires int, found " + operand.to_string() + ".");
+		return operand.kind == TypeKind::Int ? set(r_expr, operand) : fail(r_expr, "\"~\" requires int, found " + operand.to_string() + ".");
+	}
+
+	// How to write what GDScript's truth test of a value means: `x != 0`, or
+	// for `not x` `x == 0` (spec §5.4); empty for a type it has none for.
+	static std::string compare_hint(const Type &p_type, bool p_negated) {
+		const std::string op = p_negated ? " == " : " != ";
+		if (p_type.is_numeric()) {
+			return " Compare explicitly, for example x" + op + "0.";
 		}
-		if (operand.kind == TypeKind::Bool) {
-			return set(r_expr, operand);
+		if (p_type.kind == TypeKind::String) {
+			return " Compare explicitly, for example x" + op + "\"\".";
 		}
-		return fail(r_expr, "\"not\" requires bool, found " + operand.to_string() + ". Compare explicitly, for example x == 0.");
+		if (p_type.is_optional() || p_type.kind == TypeKind::Variant) {
+			return " Compare explicitly, for example x" + op + "None.";
+		}
+		if (p_type.kind == TypeKind::Builtin && (p_type.name == "Array" || p_type.name == "Dictionary" || p_type.name.rfind("Packed", 0) == 0)) {
+			return std::string(" Test it explicitly, for example ") + (p_negated ? "x.is_empty()." : "not x.is_empty().");
+		}
+		return std::string();
 	}
 
 	// The result of `p_left op p_right` (spec §5.1), or Error after reporting;
@@ -6942,15 +6961,7 @@ class Checker : public ClassRelation {
 		if (type.is_error() || type.kind == TypeKind::Bool) {
 			return;
 		}
-		std::string hint;
-		if (type.is_numeric()) {
-			hint = " Compare explicitly, for example x != 0.";
-		} else if (type.kind == TypeKind::String) {
-			hint = " Compare explicitly, for example x != \"\".";
-		} else if (type.is_optional() || type.kind == TypeKind::Variant) {
-			hint = " Compare explicitly, for example x != None.";
-		}
-		error(r_condition.range, "A condition must be bool, found " + type.to_string() + "." + hint);
+		error(r_condition.range, "A condition must be bool, found " + type.to_string() + "." + compare_hint(type, false));
 	}
 
 	/* Statements */

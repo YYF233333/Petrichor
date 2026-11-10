@@ -136,6 +136,12 @@ TEST_CASE("a condition must be bool") {
 	CHECK(has_error(in_function("var s := \"\"\nwhile s:\n\tpass"), "x != \"\""));
 	CHECK(has_error(in_function("var b := not 1"), "requires bool"));
 	CHECK(has_error(in_function("var b := 1 and true"), "requires bool operands"));
+	// The fix for `not x` by x's type.
+	CHECK(has_error(in_function("var s := \"\"\nif not s:\n\tpass"), "\"not\" requires bool, found String. Compare explicitly, for example x == \"\"."));
+	CHECK(has_error(in_function("var n: Node? = None\nif not n:\n\tpass"), "x == None."));
+	CHECK(has_error(in_function("var a: Array[int] = []\nif not a:\n\tpass"), "Test it explicitly, for example x.is_empty()."));
+	CHECK(has_error(in_function("var a: Array[int] = []\nif a:\n\tpass"), "not x.is_empty()."));
+	CHECK(has_error(in_function("var v: Variant = 1\nif not v:\n\tpass"), "x == None."));
 }
 
 // Spec §4.6, signatures.
