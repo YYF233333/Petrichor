@@ -6590,7 +6590,7 @@ class Checker : public ClassRelation {
 		}
 		if (p_target.kind == ExprKind::Subscript) {
 			if (p_target.base->type.kind == TypeKind::String) {
-				error(p_target.range, "Assigning to a character of a String is not supported yet.");
+				error(p_target.range, "A String's characters cannot be assigned. Remove one with s = s.erase(i), or replace it with s = s.erase(i).insert(i, c).");
 				return false;
 			}
 			// An Array or a Dictionary changes in place; a packed array is a value,

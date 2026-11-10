@@ -150,6 +150,12 @@ TEST_CASE("assignment writes members of built-in values back to their place") {
 	CHECK(has_error(in_function("position = 1", "func f() -> void:", "Node3D"), "Cannot assign a value of type int as Vector3"));
 }
 
+// Spec §5.1.
+TEST_CASE("a String's characters are read by index but not assigned") {
+	CHECK(errors_of(in_function("var s := \"cat\"\nvar c: String = s[-1]\ns = s.erase(0).insert(0, c)")).empty());
+	CHECK(has_error(in_function("var s := \"cat\"\ns[-1] = \"\""), "A String's characters cannot be assigned. Remove one with s = s.erase(i)"));
+}
+
 TEST_CASE("a method that changes a value needs a place to write it back") {
 	CHECK(errors_of(in_function("var a := PackedInt32Array()\na.push_back(1)")).empty());
 	CHECK(has_error(in_function("PackedInt32Array().push_back(1)"), "a temporary value"));
