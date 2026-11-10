@@ -107,6 +107,12 @@ TEST_CASE("a typed container goes where an untyped one is expected, the reverse 
 	CHECK(has_error(in_function("var hits: Array[Hit] = []\nvar any: Array = hits", "func f() -> void:") + "\n\nstruct Hit:\n\tvar damage: int\n", "Hit] as Array."));
 }
 
+TEST_CASE("a typed container keeps Variant as its keys or values (spec §3.13)") {
+	const compiler::CompileResult result = compile("extends Node\nvar props: Dictionary[StringName, Variant] = {}\nvar by_any: Dictionary[Variant, int] = {}\nvar list: Array[Variant] = []\nvar rows: Array[Dictionary[String, Variant]] = []\n\n"
+												   "func f() -> void:\n\tprops[&\"hp\"] = 3\n\tvar hp: Variant? = props.get(&\"hp\")\n\tby_any[Vector2()] = 1\n\tlist.append(\"a\")\n\tvar first: Variant = list[0]\n\trows.append({\"a\": 1})\n\tfor key in props:\n\t\tprint(key, props[key])\n");
+	require_verified(result);
+}
+
 TEST_CASE("members, parameters and results may be Variant") {
 	CHECK(errors_of("extends Control\n@export pub var any: Variant\nvar kept: Variant\nsignal changed(value: Variant)\n\nfunc pick(v: Variant) -> Variant:\n\tchanged.emit(v)\n\treturn v\n\nfunc _can_drop_data(at: Vector2, data: Variant) -> bool:\n\treturn data is Dictionary\n").empty());
 	// Object's methods that the engine calls through the instance (spec §10.5).

@@ -79,8 +79,8 @@ class Verifier {
 	bool is_void(uint32_t p_type) const { return p_type >= module.types.size() || (module.types[p_type].kind == TypeKind::Value && module.types[p_type].value == ValueType::Void); }
 	bool same_layout(uint32_t p_a, uint32_t p_b) const { return layout_key(module.types, p_a) == layout_key(module.types, p_b); }
 	bool is_boxed(uint32_t p_type) const { return bytecode::is_boxed(module.types, p_type); }
-	// What a typed container can keep.
-	bool kept(uint32_t p_type) const { return is_element(storage(p_type)) || is_boxed(p_type); }
+	// What a typed container can keep: Variant keeps a side untyped (spec §3.13).
+	bool kept(uint32_t p_type) const { return is_element(storage(p_type)) || storage(p_type) == ValueType::Variant || is_boxed(p_type); }
 
 	// The type as an error names it.
 	std::string type_name(uint32_t p_type) const {

@@ -376,3 +376,14 @@ pub func instance_of(values: Array, s: Script) -> Array[bool]:
 	for value in values:
 		results.append(is_instance_of(value, s))
 	return results
+
+# A typed container keeps Variant as its keys or values, which the engine
+# leaves untyped (spec §3.13).
+pub var props: Dictionary[StringName, Variant] = {}
+
+pub func variant_sides() -> Array:
+	props[&"hp"] = 3
+	props[&"tag"] = "a"
+	var list: Array[Variant] = [1, "b"]
+	list.append(Vector2())
+	return [props.get_typed_key_builtin(), props.get_typed_value_builtin(), props[&"tag"], list.size(), list.is_typed()]
