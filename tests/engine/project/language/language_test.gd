@@ -583,6 +583,19 @@ func _ready() -> void:
 	other_owner.free()
 	owned.free()
 
+	var parent_2d := Node2D.new()
+	parent_2d.position.x = 3.0
+	var parented := ParentCheck.new()
+	parent_2d.add_child(parented)
+	_check(parented.parent_x() == 3.0, "@parent types get_parent() by the requirement")
+	parent_2d.remove_child(parented)
+	parented.parent_x()
+	var plain_parent := Node.new()
+	plain_parent.add_child(parented)
+	_check_errors(["parent_check.pet:7: Expected Node2D, found None.", "parent_check.pet:2: The parent: expected Node2D, found Node (@parent)."], "@parent is checked as the node gets a parent, and get_parent() without one is a program error")
+	plain_parent.free()
+	parent_2d.free()
+
 	var k := ConstantCheck.new()
 	_check(k.day() == 86400000, "a constant the compiler computes (spec §4.5)")
 	_check(k.extents() == Vector3(0.5, 0.5, 0.5) and k.half_x() == 0.5 and k.tint() == Color(1, 1, 1, 0.5), "constants of engine types, computed when the class loads")

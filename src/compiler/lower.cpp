@@ -3515,6 +3515,10 @@ public:
 			module.interfaces.push_back(interface_id(interface));
 		}
 		module.declarations_only = p_declarations_only;
+		if (cls.parent_ref) {
+			module.parent_class = int32_t(class_index(cls.parent_type));
+			module.parent_line = uint32_t(cls.source->line(cls.parent_ref->range.first));
+		}
 		uint32_t offset = 0;
 		for (const VarDecl *entry : cls.all_members) {
 			const VarDecl &decl_member = *entry;

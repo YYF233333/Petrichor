@@ -376,6 +376,11 @@ std::optional<compiler::Scene> SceneIndex::scene(const std::string &p_path) cons
 	return entry->scene.nodes.empty() ? std::nullopt : std::optional<compiler::Scene>(entry->scene);
 }
 
+// The setting may hold a uid:// path (main/main.cpp:4336-4345; ed1daf0).
+std::string SceneIndex::main_scene() const {
+	return to_utf8(ResourceUID::ensure_path(ProjectSettings::get_singleton()->get_setting("application/run/main_scene", String())));
+}
+
 namespace {
 
 // The value of `p_name="…"` in a line of a resource file, or "".

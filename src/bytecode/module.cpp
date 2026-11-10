@@ -542,7 +542,7 @@ void archive(Ar &r_ar, T &r_value) {
 		}
 		io(r_ar, r_value.source_hash, r_value.declarations_only, r_value.is_abstract, r_value.global_name, r_value.base_class, r_value.base_script, r_value.inherited_members,
 				r_value.types, r_value.members, r_value.signals, r_value.groups, r_value.instance_size, r_value.functions, r_value.init_function, r_value.ready_function,
-				r_value.init_tables, r_value.statics, r_value.statics_size, r_value.static_init_function, r_value.static_unload, r_value.named_constants, r_value.constants,
+				r_value.init_tables, r_value.parent_class, r_value.parent_line, r_value.statics, r_value.statics_size, r_value.static_init_function, r_value.static_unload, r_value.named_constants, r_value.constants,
 				r_value.engine_calls, r_value.properties, r_value.utility_calls, r_value.operators, r_value.fields, r_value.constructors, r_value.builtin_methods,
 				r_value.classes, r_value.method_calls, r_value.interfaces, r_value.name, r_value.is_pub, r_value.inner_classes);
 		if constexpr (Ar::reading) {

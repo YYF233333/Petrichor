@@ -71,6 +71,7 @@ class ScriptClasses {
 		std::vector<Scene> scenes_with_script(const std::string &p_script_path) const override;
 		std::vector<Scene> scenes_instancing_script(const std::string &p_script_path) const override;
 		std::optional<Scene> scene(const std::string &p_path) const override;
+		std::string main_scene() const override;
 		std::optional<ResourceInfo> resource(const std::string &p_path) const override;
 		std::string uid_path(const std::string &p_uid) const override;
 		std::vector<std::string> dependencies(const std::string &p_path) const override;

@@ -16,7 +16,7 @@ bool is_layout(TokenKind p_kind) {
 // file's class (spec §2.1, §2.3, §4.8, §7.3); @tool and @parent are reported
 // there as not supported.
 using AnnotationNames = std::vector<std::pair<std::string, bool>>;
-const AnnotationNames CLASS_ANNOTATIONS = { { "abstract", false }, { "icon", true }, { "owner", true }, { "static_unload", false } };
+const AnnotationNames CLASS_ANNOTATIONS = { { "abstract", false }, { "icon", true }, { "owner", true }, { "parent", true }, { "static_unload", false } };
 // Of a member besides the @export family, which the checker knows.
 const AnnotationNames MEMBER_ANNOTATIONS = { { "abstract", false }, { "onready", false }, { "rpc", true } };
 // Standing alone among the members, as in GDScript.
@@ -1682,7 +1682,7 @@ class Parser {
 	}
 
 	static bool is_class_annotation(const std::string &p_name) {
-		return p_name == "tool" || p_name == "parent" || is_named(CLASS_ANNOTATIONS, p_name);
+		return p_name == "tool" || is_named(CLASS_ANNOTATIONS, p_name);
 	}
 
 	// Whether the @abstract at the cursor is the class's: it is when class_name,
@@ -2063,13 +2063,14 @@ public:
 					match(TokenKind::Newline);
 					continue;
 				}
-				if (name.text == "owner") {
-					if (result.owner_ref) {
-						fail(name, "The class already has @owner.");
+				if (name.text == "owner" || name.text == "parent") {
+					std::optional<TypeRef> &required = name.text == "owner" ? result.owner_ref : result.parent_ref;
+					if (required) {
+						fail(name, "The class already has @" + name.text + ".");
 						continue;
 					}
 					expect(TokenKind::ParenOpen, "\"(\"");
-					result.owner_ref = type_ref();
+					required = type_ref();
 					expect(TokenKind::ParenClose, "\")\"");
 					end_of_statement();
 					continue;

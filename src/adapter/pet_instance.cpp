@@ -6,6 +6,7 @@
 #include "runtime/vm.h"
 
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/node.hpp>
 
 #include <algorithm>
 #include <new>
@@ -520,6 +521,11 @@ static void instance_notification(GDExtensionScriptInstanceDataPtr p_instance, i
 	}
 	const std::shared_ptr<const ClassImage> image = instance->current_image();
 	auto chain = image_chain(image);
+	// Sent as the node gets a parent (scene/main/node.cpp:1699; ed1daf0), before
+	// _notification() (spec §6.4).
+	if (p_what == Node::NOTIFICATION_PARENTED && !std::all_of(chain.rbegin(), chain.rend(), [&](const auto &p_class) { return vm::check_parent(*p_class, instance->owner_object); })) {
+		return;
+	}
 	if (!p_reversed) {
 		std::reverse(chain.begin(), chain.end());
 	}

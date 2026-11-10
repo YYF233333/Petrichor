@@ -96,6 +96,10 @@ const std::vector<StackFrame> &stack();
 // debugger breaks, and the engine logs it with the call stack.
 void report_error(const ClassImage &p_image, const char *p_function, int p_line, const godot::String &p_message);
 
+// Whether the node's parent is what the class's @parent(T) requires, as the
+// node gets one (spec §6.4); false after reporting the program error.
+bool check_parent(const ClassImage &p_image, godot::Object *p_node);
+
 } // namespace vm
 
 } // namespace petrichor

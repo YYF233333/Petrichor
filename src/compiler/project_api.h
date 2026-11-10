@@ -118,6 +118,8 @@ public:
 	virtual std::vector<Scene> scenes_instancing_script(const std::string &p_script_path) const = 0;
 	// A scene by its res:// path, for preload (spec §7.4); nullopt if there is none.
 	virtual std::optional<Scene> scene(const std::string &p_path) const = 0;
+	// The res:// path of the main scene, or "" (spec §7.3).
+	virtual std::string main_scene() const = 0;
 	// Any other resource by its res:// path, for preload; nullopt if there is none.
 	virtual std::optional<ResourceInfo> resource(const std::string &p_path) const = 0;
 	// The res:// path a uid:// path names, or "".

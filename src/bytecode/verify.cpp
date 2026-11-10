@@ -1015,6 +1015,9 @@ public:
 				return fail("an initializer function takes or returns a value");
 			}
 		}
+		if (module.parent_class < -1 || module.parent_class >= int32_t(module.classes.size())) {
+			return fail("the class @parent requires is not a class of the module");
+		}
 		if (!layout(module.members, module.instance_size, instance)) {
 			return false;
 		}

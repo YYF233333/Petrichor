@@ -3319,7 +3319,7 @@ class Checker : public ClassRelation {
 
 	// `$X` (spec §7.1): the node at the path from every node that has this
 	// script, in every scene; they must agree on its class. `$".."` is any
-	// Node (spec §7.3).
+	// Node, or what @parent(T) requires (spec §7.3).
 	Type check_get_node(Expr &r_expr) {
 		if (options.declarations_only) {
 			return set(r_expr, Type::of(TypeKind::Error)); // Scenes are not read while loading.
@@ -3333,8 +3333,9 @@ class Checker : public ClassRelation {
 			r_expr.hash = get_node->hash;
 		}
 		if (path == "..") {
-			r_expr.owner = "Node";
-			return set(r_expr, Type::object("Node"));
+			const Type parent = cls.parent_ref ? cls.parent_type : Type::object("Node");
+			r_expr.owner = parent.engine_class();
+			return set(r_expr, parent);
 		}
 		const std::string autoload = through_autoload(path, shown_path(path));
 		if (!autoload.empty()) {
@@ -4437,6 +4438,10 @@ class Checker : public ClassRelation {
 			Type copy = r_expr.base ? r_expr.base->type : script_class_type(cls, options.path);
 			copy.nullable = false;
 			return set(r_expr, copy);
+		}
+		if (p_method.owner == "Node" && p_method.name == "get_parent" && cls.parent_ref && (!r_expr.base || r_expr.base->kind == ExprKind::Self)) {
+			// What @parent(T) requires, which a node without a parent fails (spec §7.3).
+			return set(r_expr, cls.parent_type);
 		}
 		return set(r_expr, r_expr.getter ? tried_result(p_method, *r_expr.getter) : filtered_result(r_expr, p_method));
 	}
@@ -9613,23 +9618,60 @@ class Checker : public ClassRelation {
 		}
 	}
 
-	// @owner(T): a class of this language, an interface or an engine class, on
-	// a class that extends Node (spec §7.3).
-	void declare_owner() {
-		if (!cls.owner_ref) {
+	// @owner(T) and @parent(T): a class of this language, an interface or an
+	// engine class, on a class that extends Node (spec §7.3).
+	void declare_requirement(const std::optional<TypeRef> &p_ref, Type &r_type, const std::string &p_annotation) {
+		if (!p_ref) {
 			return;
 		}
-		const TypeRef &ref = *cls.owner_ref;
-		cls.owner_type = resolve(ref, false);
-		if (cls.owner_type.is_error()) {
+		r_type = resolve(*p_ref, false);
+		if (r_type.is_error()) {
 			return;
 		}
-		if (cls.owner_type.kind != TypeKind::Object || cls.owner_type.nullable) {
-			error(ref.range, "@owner takes a class or an interface, not " + cls.owner_type.to_string() + ".");
-			cls.owner_type = Type::of(TypeKind::Error);
+		if (r_type.kind != TypeKind::Object || r_type.nullable) {
+			error(p_ref->range, p_annotation + " takes a class or an interface, not " + r_type.to_string() + ".");
+			r_type = Type::of(TypeKind::Error);
 		} else if (!engine.inherits(cls.native_base, "Node")) {
-			error(ref.range, "@owner is for classes that extend Node.");
-			cls.owner_type = Type::of(TypeKind::Error);
+			error(p_ref->range, p_annotation + " is for classes that extend Node.");
+			r_type = Type::of(TypeKind::Error);
+		}
+	}
+
+	// Each node that scenes give the script: those with it attached, and the
+	// instances of scenes whose root has it.
+	void for_each_placement(const std::function<void(const Scene &, const SceneNode &)> &p_check) {
+		for (const Scene &scene : scenes) {
+			for (const SceneNode &node : scene.nodes) {
+				if (extends_script(node.script, options.path)) {
+					p_check(scene, node);
+				}
+			}
+		}
+		if (!options.project || options.declarations_only || options.path.empty()) {
+			return;
+		}
+		for (const Scene &scene : options.project->scenes_instancing_script(options.path)) {
+			for (const SceneNode &node : scene.nodes) {
+				if (node.is_instance && node.script.empty() && extends_script(node.instance_script, options.path)) {
+					p_check(scene, node);
+				}
+			}
+		}
+	}
+
+	// That a node of a scene is what @owner(T) or @parent(T) requires; a class
+	// of another language is left to the check at run time.
+	void check_required(const TokenRange &p_at, const Scene &p_scene, const SceneNode &p_placed, const SceneNode &p_node, const Type &p_required, const std::string &p_what, const std::string &p_annotation) {
+		const std::string &script = p_node.script.empty() ? p_node.instance_script : p_node.script;
+		if (!script.empty() && !is_script_path(script) && !p_required.is_interface && !p_required.script.empty()) {
+			return;
+		}
+		check_required_type(p_at, p_scene, p_placed, scene_node_type(p_at, p_node, p_scene.path + ": " + p_what), p_required, p_what, p_annotation);
+	}
+
+	void check_required_type(const TokenRange &p_at, const Scene &p_scene, const SceneNode &p_placed, const Type &p_found, const Type &p_required, const std::string &p_what, const std::string &p_annotation) {
+		if (!p_found.is_error() && !assignable(p_found, p_required)) {
+			error_in_scene(p_at, p_scene, p_placed.path, p_scene.path + ": " + p_what + " is " + p_found.to_string() + ", not " + p_required.to_string() + " (" + p_annotation + ").");
 		}
 	}
 
@@ -9640,38 +9682,33 @@ class Checker : public ClassRelation {
 		if (!cls.owner_ref || cls.owner_type.is_error()) {
 			return;
 		}
-		const TokenRange &at = cls.owner_ref->range;
-		const auto check_owner = [&](const Scene &p_scene, const SceneNode &p_node) {
+		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
 			const SceneNode *root = p_scene.find_node(".");
-			if (p_node.path == "." || !root) {
-				return;
+			if (p_node.path != "." && root) {
+				check_required(cls.owner_ref->range, p_scene, p_node, *root, cls.owner_type, "the owner of " + p_node.path, "@owner");
 			}
-			const std::string &script = root->script.empty() ? root->instance_script : root->script;
-			if (!script.empty() && !is_script_path(script) && !cls.owner_type.is_interface && !cls.owner_type.script.empty()) {
-				return; // A class of another language, which the reads check.
-			}
-			const Type owner = scene_node_type(at, *root, p_scene.path + ": the root");
-			if (!owner.is_error() && !assignable(owner, cls.owner_type)) {
-				error_in_scene(at, p_scene, p_node.path, p_scene.path + ": the owner of " + p_node.path + " is " + owner.to_string() + ", not " + cls.owner_type.to_string() + " (@owner).");
-			}
-		};
-		for (const Scene &scene : scenes) {
-			for (const SceneNode &node : scene.nodes) {
-				if (extends_script(node.script, options.path)) {
-					check_owner(scene, node);
-				}
-			}
-		}
-		if (!options.project || options.declarations_only || options.path.empty()) {
+		});
+	}
+
+	// Where scenes place the script, its parent satisfies @parent(T) (spec
+	// §7.3): the parent in the scene, that of a scene's root in each scene that
+	// instances it, and the root viewport, a Window, for the main scene's root
+	// (scene/main/scene_tree.cpp:1762-1765, 2068; ed1daf0). The root of a scene
+	// used otherwise is checked at run time.
+	void check_parent_scenes() {
+		if (!cls.parent_ref || cls.parent_type.is_error()) {
 			return;
 		}
-		for (const Scene &scene : options.project->scenes_instancing_script(options.path)) {
-			for (const SceneNode &node : scene.nodes) {
-				if (node.is_instance && node.script.empty() && extends_script(node.instance_script, options.path)) {
-					check_owner(scene, node);
+		const TokenRange &at = cls.parent_ref->range;
+		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
+			if (p_node.path != ".") {
+				if (const SceneNode *parent = p_scene.find_node(parent_path(p_node.path))) {
+					check_required(at, p_scene, p_node, *parent, cls.parent_type, "the parent of " + p_node.path, "@parent");
 				}
+			} else if (p_scene.path == options.project->main_scene()) {
+				check_required_type(at, p_scene, p_node, Type::object("Window"), cls.parent_type, "the parent of the main scene's root", "@parent");
 			}
-		}
+		});
 	}
 
 	// The values that scenes store for this class's exported structs and
@@ -9689,7 +9726,7 @@ class Checker : public ClassRelation {
 		if (exports.empty() || !options.project || options.declarations_only || options.path.empty()) {
 			return;
 		}
-		const auto check = [&](const Scene &p_scene, const SceneNode &p_node) {
+		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
 			for (const VarDecl *member : exports) {
 				for (const auto &[name, value] : p_node.properties) {
 					const std::string why = name == member->name ? undecodable(member->type, value, std::string()) : std::string();
@@ -9698,21 +9735,7 @@ class Checker : public ClassRelation {
 					}
 				}
 			}
-		};
-		for (const Scene &scene : scenes) {
-			for (const SceneNode &node : scene.nodes) {
-				if (extends_script(node.script, options.path)) {
-					check(scene, node);
-				}
-			}
-		}
-		for (const Scene &scene : options.project->scenes_instancing_script(options.path)) {
-			for (const SceneNode &node : scene.nodes) {
-				if (node.is_instance && node.script.empty() && extends_script(node.instance_script, options.path)) {
-					check(scene, node);
-				}
-			}
-		}
+		});
 	}
 
 	// Why a value that a scene stores does not decode as the type, as the
@@ -11190,7 +11213,8 @@ private:
 		declare_functions();
 		declare_interfaces();
 		declare_structs();
-		declare_owner();
+		declare_requirement(cls.owner_ref, cls.owner_type, "@owner");
+		declare_requirement(cls.parent_ref, cls.parent_type, "@parent");
 		for (FuncDecl &fn : cls.functions) {
 			if (completion && at_cursor(fn.name)) {
 				complete_override(fn);
@@ -11236,6 +11260,7 @@ private:
 		check_warning_ignores();
 		check_connections();
 		check_owner_scenes();
+		check_parent_scenes();
 		check_stored_exports();
 		return true;
 	}

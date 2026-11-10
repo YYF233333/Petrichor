@@ -706,6 +706,8 @@ struct ClassDecl {
 	std::vector<TypeRef> implements;
 	std::optional<TypeRef> owner_ref; // @owner(T) (spec §7.3).
 	Type owner_type; // Filled by the checker.
+	std::optional<TypeRef> parent_ref; // @parent(T) (spec §7.3).
+	Type parent_type; // Filled by the checker.
 	std::vector<std::unique_ptr<ClassDecl>> classes; // Its inner classes.
 	std::vector<InterfaceDecl> interfaces;
 	std::vector<StructDecl> structs;
@@ -862,6 +864,8 @@ void for_each_child(const Node &p_node, Fn &&p_fn) {
 		separate(p_node.extends, p_node.properties, p_node.methods, p_node.signals);
 	} else if constexpr (std::is_same_v<Node, ClassDecl>) {
 		opt(p_node.owner_ref);
+		group = true; // The two annotations come in either order.
+		opt(p_node.parent_ref);
 		separate(p_node.implements);
 		group = true;
 		for (const ExportGroupDecl &decl : p_node.groups) {

@@ -546,6 +546,11 @@ struct Module {
 	// and compared with it as declarations.
 	int32_t ready_function = -1;
 	TablePrefix init_tables; // What the two use.
+	// @parent(T): the class the parent must fit, by its index in the classes,
+	// checked as the node gets a parent (spec §6.4, §7.3); -1 without one. The
+	// line is the annotation's, where a failure is reported.
+	int32_t parent_class = -1;
+	uint32_t parent_line = 0;
 	// The static variables (spec §4.8) in declaration order, at their offsets
 	// in the class's static storage; `has_initial` marks those without an
 	// initializer, which hold their type's default from the start.

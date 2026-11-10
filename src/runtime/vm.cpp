@@ -3802,6 +3802,17 @@ void report_error(const ClassImage &p_image, const char *p_function, int p_line,
 	godot::gdextension_interface::print_script_error(description.get_data(), p_function, file.get_data(), p_line, true);
 }
 
+bool check_parent(const ClassImage &p_image, Object *p_node) {
+	const int32_t index = p_image.module.parent_class;
+	const Node *node = Object::cast_to<Node>(p_node);
+	Node *parent = node ? node->get_parent() : nullptr;
+	if (index < 0 || (parent && p_image.fits_class(parent, uint32_t(index)))) {
+		return true;
+	}
+	report_error(p_image, "@parent", int(p_image.module.parent_line), vformat("The parent: %s (@parent).", entry_mismatch(ValueType::Object, Variant(parent), class_check(p_image, uint32_t(index)))));
+	return false;
+}
+
 } // namespace vm
 
 } // namespace petrichor

@@ -31,6 +31,7 @@ public:
 	std::map<std::string, std::vector<std::string>> loads; // What dependencies() lists, by path.
 	std::vector<std::string> files; // What resource_files() lists.
 	std::vector<std::string> actions; // Input actions.
+	std::string main; // The main scene.
 
 	// Adds a script of this language, with its class_name if it has one.
 	void add_script(const std::string &p_path, const std::string &p_source, const std::string &p_class_name = std::string());
@@ -43,6 +44,7 @@ public:
 	std::vector<compiler::Scene> scenes_with_script(const std::string &p_script_path) const override;
 	std::vector<compiler::Scene> scenes_instancing_script(const std::string &p_script_path) const override;
 	std::optional<compiler::Scene> scene(const std::string &p_path) const override;
+	std::string main_scene() const override { return main; }
 	std::optional<compiler::ResourceInfo> resource(const std::string &p_path) const override;
 	std::string uid_path(const std::string &p_uid) const override;
 	std::vector<std::string> dependencies(const std::string &p_path) const override {

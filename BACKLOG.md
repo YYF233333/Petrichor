@@ -15,7 +15,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - a must-assign member that is not pub, which its file or a subclass must export or assign (§4.2). It needs every subclass;
   - a scene used as a root whose root has a script with `@owner` (§7.3);
   - a node of a scene whose script is abstract (§4.1).
-- `@parent(T)` (spec §7.3).
 - Checking at compile time what resources store in exported structs and enums with payloads (spec §4.3). They are `.tres` files and resources inside scenes, which the scene index does not read. Nor does it read a node of an instanced scene that the outer scene changes.
 - `Array[T]?`, and nested `Option`:
   - `T??` and `Some(...)`, with `flatten()` (spec §3.4);

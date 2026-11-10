@@ -199,6 +199,12 @@ std::optional<Scene> ScriptClasses::RecordedProject::scene(const std::string &p_
 	});
 }
 
+std::string ScriptClasses::RecordedProject::main_scene() const {
+	return ask<std::string>("main scene", [](const ProjectApi &p_project) {
+		return p_project.main_scene();
+	});
+}
+
 std::optional<ResourceInfo> ScriptClasses::RecordedProject::resource(const std::string &p_path) const {
 	return ask<std::optional<ResourceInfo>>("resource " + p_path, [p_path](const ProjectApi &p_project) {
 		return p_project.resource(p_path);

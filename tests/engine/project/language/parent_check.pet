@@ -1,0 +1,7 @@
+# @parent (spec §7.3): a node whose parent is a Node2D.
+@parent(Node2D)
+class_name ParentCheck
+extends Node
+
+pub func parent_x() -> float:
+	return get_parent().position.x

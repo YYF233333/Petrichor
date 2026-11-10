@@ -324,7 +324,44 @@ TEST_CASE("@owner(T): owner has type T, and scenes give the script such an owner
 	CHECK(contains(messages(compile_in("extends Node\n\nfunc f():\n\tprint(owner.name)\n", project)), "The value may be None (Node?)"));
 	CHECK(contains(messages(compile_in("@owner(Node?)\nextends Node\n", FakeProject())), "@owner takes a class or an interface, not Node?."));
 	CHECK(contains(messages(compile_in("@owner(Node)\nextends RefCounted\n", FakeProject())), "@owner is for classes that extend Node."));
-	CHECK(contains(messages(compile_in("@parent(Node)\nextends Node\n", FakeProject())), "The class annotation @parent is not supported yet."));
+}
+
+TEST_CASE("@parent(T): get_parent() and $\"..\" have type T, and scenes give the script such a parent (spec §7.3)") {
+	// A scene whose root has the script, instanced in another; and a scene
+	// with a node that has it.
+	FakeProject project;
+	compiler::Scene paddle;
+	paddle.path = "res://paddle.tscn";
+	paddle.nodes = { { ".", "Node2D", "res://test.pet" } };
+	compiler::Scene level;
+	level.path = "res://level.tscn";
+	level.nodes = { { ".", "Node2D", "" }, { "Paddle", "Node2D", "res://test.pet" } };
+	compiler::Scene breakout;
+	breakout.path = "res://breakout.tscn";
+	breakout.nodes = { { ".", "Node2D", "" }, { "Paddle", "Node2D", "", true, "res://test.pet" } };
+	project.scenes = { paddle, level, breakout };
+	const std::string source = "@parent(Node2D)\nextends Node2D\n\nfunc f() -> float:\n\treturn get_parent().position.x + $\"..\".position.y + self.get_parent().position.x\n";
+	const compiler::CompileResult result = compile_in(source, project);
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	// Checked as the node gets a parent; get_parent() is checked where it is called.
+	REQUIRE(result.module.parent_class >= 0);
+	CHECK(result.module.classes[result.module.parent_class].name == "Node2D");
+	find_instruction(function_named(result.module, "f"), bytecode::Op::CHECK_OBJECT);
+
+	compiler::Scene menu;
+	menu.path = "res://menu.tscn";
+	menu.nodes = { { ".", "Control", "" }, { "Paddle", "Node2D", "", true, "res://test.pet" }, { "Direct", "Node2D", "res://test.pet" } };
+	project.scenes.push_back(menu);
+	project.main = "res://paddle.tscn";
+	const std::string errors = messages(compile_in(source, project));
+	CHECK(contains(errors, "res://menu.tscn: the parent of Paddle is Control, not Node2D (@parent)."));
+	CHECK(contains(errors, "res://menu.tscn: the parent of Direct is Control, not Node2D (@parent)."));
+	CHECK(contains(errors, "res://paddle.tscn: the parent of the main scene's root is Window, not Node2D (@parent)."));
+	CHECK(!contains(errors, "level.tscn"));
+
+	CHECK(contains(messages(compile_in("extends Node\n\nfunc f():\n\tprint(get_parent().name)\n", FakeProject())), "The value may be None (Node?)"));
+	CHECK(contains(messages(compile_in("@parent(Node?)\nextends Node\n", FakeProject())), "@parent takes a class or an interface, not Node?."));
+	CHECK(contains(messages(compile_in("@parent(Node)\n@parent(Node)\nextends Node\n", FakeProject())), "The class already has @parent."));
 }
 
 TEST_CASE("%Name is the node with that unique name, which the scene's root owns (spec §7.1)") {
