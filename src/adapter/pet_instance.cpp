@@ -263,22 +263,6 @@ static bool validate_property(PetInstance *p_instance, const std::shared_ptr<con
 	return !failed && error.error == GDEXTENSION_CALL_OK;
 }
 
-static void instance_property_state(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionScriptInstancePropertyStateAdd p_add, void *p_userdata) {
-	PetInstance *instance = self(p_instance);
-	const auto image = instance->current_image();
-	for (size_t i = 0; i < image->module.members.size(); ++i) {
-		const auto &member = image->module.members[i];
-		if (!member.is_export) {
-			continue;
-		}
-		if (member.must_assign && !image->assigned(instance->storage->members, i)) {
-			continue;
-		}
-		const Variant value = outward_variant(image->types[member.type], instance->storage->members + member.offset);
-		p_add(image->member_names[i]._native_ptr(), value._native_ptr(), p_userdata);
-	}
-}
-
 static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionConstVariantPtr p_value) {
 	PetInstance *instance = self(p_instance);
 	const std::shared_ptr<const ClassImage> image = instance->current_image();
@@ -385,6 +369,27 @@ static const GDExtensionPropertyInfo *instance_get_property_list(GDExtensionScri
 
 static void instance_free_property_list(GDExtensionScriptInstanceDataPtr p_instance, const GDExtensionPropertyInfo *p_list, uint32_t p_count) {
 	free_property_list(p_list, p_count);
+}
+
+// The engine's default: every stored property that reads
+// (core/object/script_instance.cpp:61-73; ed1daf0). A member not yet assigned
+// has no value to keep; writing its null back would fail the entry check.
+static void instance_property_state(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionScriptInstancePropertyStateAdd p_add, void *p_userdata) {
+	PetInstance *instance = self(p_instance);
+	const std::shared_ptr<const ClassImage> image = instance->current_image();
+	uint32_t count = 0;
+	const GDExtensionPropertyInfo *list = instance_get_property_list(p_instance, &count);
+	for (uint32_t i = 0; i < count; i++) {
+		const bytecode::Member *member = visible_member(*image, as_name(list[i].name));
+		if (!(list[i].usage & PROPERTY_USAGE_STORAGE) || (member && member->must_assign && !image->assigned(instance->storage->members, size_t(member - image->module.members.data())))) {
+			continue;
+		}
+		Variant value;
+		if (instance_get(p_instance, list[i].name, &value)) {
+			p_add(list[i].name, &value, p_userdata);
+		}
+	}
+	free_property_list(list, count);
 }
 
 // The classes' own _property_can_revert() and _property_get_revert() answer
