@@ -1063,7 +1063,11 @@ class Execution {
 				continue;
 			}
 			const Variant value = to_variant(source, frame + p_call[6 + 2 * i]);
+			const uint64_t failures = failed_defaults();
 			if (!from_variant(param_type, value, param, true)) {
+				if (failed_defaults() != failures) {
+					return false;
+				}
 				if (p_entry) {
 					report_argument(p_callee, method, i, entry_mismatch(param_type, value));
 					return false;
@@ -2835,7 +2839,9 @@ public:
 					break;
 				}
 				case Op::TRY_FROM:
-					try_from(types[code[pc + 1]], *reinterpret_cast<const Variant *>(frame + code[pc + 3]), frame + code[pc + 2]);
+					if (!try_from(types[code[pc + 1]], *reinterpret_cast<const Variant *>(frame + code[pc + 3]), frame + code[pc + 2])) {
+						return false;
+					}
 					pc += 4;
 					break;
 				case Op::UNWRAP_OK: {
@@ -3633,12 +3639,15 @@ Variant call(std::shared_ptr<const ClassImage> p_image, int p_function, Instance
 			return default_variant(result_type);
 		}
 		// The function computes the default of an argument left out.
+		const uint64_t failures = failed_defaults();
 		if (arg >= size_t(p_argc) || from_variant(type, *p_args[arg], frame.data + param.offset, true)) {
 			continue;
 		}
 		// A program error at the entry, and the engine gets the default value
 		// (spec §8.1, §10.1); the engine's backtrace of the caller goes with it.
-		report_argument(*image, fn, i, entry_mismatch(type, *p_args[arg]));
+		if (failed_defaults() == failures) {
+			report_argument(*image, fn, i, entry_mismatch(type, *p_args[arg]));
+		}
 		if (r_failed) {
 			*r_failed = true;
 		}

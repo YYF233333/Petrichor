@@ -305,9 +305,11 @@ static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance,
 	// member, which keeps its value (spec §7.5, §10.1); the write is handled.
 	const size_t index = size_t(member - image->module.members.data());
 	const TypeImage &type = image->types[member->type];
-	if (!from_variant(type, value, instance->storage->members + member->offset, true)) {
+	const uint64_t failures = failed_defaults();
+	const bool written = from_variant(type, value, instance->storage->members + member->offset, true);
+	if (!written && failed_defaults() == failures) {
 		vm::report_error(*image, member->name.c_str(), int(member->line), vformat("\"%s\" was not written: %s.", image->member_names[index], entry_mismatch(type, value)));
-	} else if (member->tracks_assignment()) {
+	} else if (written && member->tracks_assignment()) {
 		image->assigned(instance->storage->members, index) = 1;
 	}
 	return true;

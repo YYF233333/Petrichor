@@ -464,6 +464,12 @@ func _ready() -> void:
 	s.resumed.emit()
 	_check(s.awaited == 4 and s.inherited(4) == 9, "an async method of a struct keeps its copy across an await; a subclass calls the methods it inherits")
 	_check(s.tickets() == "1 0 2 3 4 5", "a field's default that is no constant is computed for each construction that leaves the field out, also from another class")
+	_check(s.damage_of({"damage": 7.0, "point": Vector2()}) == 7, "a Dictionary without the fields that have defaults decodes at the entry (spec §3.6)")
+	_check(s.through_json() == [true, 1, 2, "t", 10, true, true], "a struct goes through JSON and back, its enum fields from floats; a key left out takes its field's default, computed only then (spec §3.6, §10.8)")
+	_check(s.json_error("{\"best\": 1}") == "StructCheck.Saved.level is missing" and s.json_error("{\"level\": 1, \"foes\": [{\"name\": \"a\"}, {\"name\": \"b\", \"hp\": \"x\"}]}") == "StructCheck.Saved.foes[1].hp: expected int, found String" and s.json_error("{\"level\": 1, \"foes\": [{\"name\": \"a\", \"mood\": 2}]}") == "StructCheck.Saved.foes[0].mood: expected StructCheck.Mood, found 2, which is none of its values", "try_from() names where a decoded value does not fit, into containers: %s" % [[s.json_error("{\"best\": 1}"), s.json_error("{\"level\": 1, \"foes\": [{\"name\": \"a\"}, {\"name\": \"b\", \"hp\": \"x\"}]}"), s.json_error("{\"level\": 1, \"foes\": [{\"name\": \"a\", \"mood\": 2}]}")]])
+	s.decode_fragile()
+	_check_errors(["struct_check.pet:224: Division by zero."], "a default that fails while decoding is a program error")
+	_check(not s.after_fragile, "a default that fails while decoding ends the function that decodes (spec §8.1)")
 	s.free()
 	other.free()
 

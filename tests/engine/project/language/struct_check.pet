@@ -189,3 +189,45 @@ pub func tickets() -> String:
 class Issuer:
 	static func ticket() -> Ticket:
 		return Ticket()
+
+# Spec §3.6, §10.8: a struct goes through JSON as the engine encodes it and
+# comes back by try_from(), a key left out taking its field's default, which
+# runs only then; an int or an enum also from the whole float JSON gives.
+enum Mood { CALM, ANGRY = 3 }
+
+struct Foe:
+	var name: String
+	var hp: int = 10
+	var mood := Mood.CALM
+
+struct Saved:
+	var level: int
+	var ticket: Ticket = Ticket()
+	var foes: Array[Foe] = []
+	var best: int? = None
+
+pub func through_json() -> Array:
+	var before := issued
+	var saved := Saved(level = 2, foes = [Foe(name = "a", mood = Mood.ANGRY)], best = 5)
+	var back := Saved.try_from(JSON.parse_string(JSON.stringify(saved))).unwrap()
+	var decoded := issued - before
+	var short := Saved.try_from(JSON.parse_string("{\"level\": 1, \"foes\": [{\"name\": \"b\"}], \"best\": null}")).unwrap()
+	return [back == saved, decoded, issued - before, short.ticket.note, short.foes[0].hp, short.foes[0].mood == Mood.CALM, short.best == None]
+
+pub func json_error(text: String) -> String:
+	return Saved.try_from(JSON.parse_string(text)).err().map(func(e): return e.message).unwrap_or("")
+
+# A default that ends in a program error while decoding ends the function that
+# decodes, as in a construction (spec §3.6, §8.1).
+static func broken() -> int:
+	var zero := 0
+	return 1 / zero
+
+struct Fragile:
+	var n: int = broken()
+
+pub var after_fragile := false
+
+pub func decode_fragile():
+	Fragile.try_from({}).ok()
+	after_fragile = true

@@ -2,6 +2,7 @@
 
 #include "runtime/method_callable.h"
 #include "runtime/task.h"
+#include "runtime/vm.h"
 
 #include <godot_cpp/classes/object.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
@@ -743,10 +744,24 @@ Variant encode(const TypeImage &p_type, const uint8_t *p_slot) {
 
 static bool decode_container(const TypeImage &p_type, const Variant &p_value, uint8_t *p_slot);
 static String found_description(ValueType p_type, const Variant &p_value, const ValueCheck &p_check);
+static String described(const TypeImage &p_type, const Variant &p_value, bool p_decoding);
 
-// As `T.try_from` decodes a field (spec §5.3): an int also from a float that
-// is exactly an integer within its range, which is how the engine parses
-// every number in JSON (§10.8).
+// A float that is exactly an integer within its range, as the engine parses
+// every number in JSON (spec §10.8).
+static bool whole_float(const Variant &p_value, int64_t &r_int) {
+	if (type_of(p_value) != Variant::FLOAT) {
+		return false;
+	}
+	const double value = p_value;
+	if (!(value >= -9223372036854775808.0 && value < 9223372036854775808.0) || value != double(int64_t(value))) {
+		return false;
+	}
+	r_int = int64_t(value);
+	return true;
+}
+
+// As `T.try_from` decodes a field (spec §5.3): an int or an enum without
+// payloads also from a whole float.
 static bool decode_field(const TypeImage &p_type, const Variant &p_value, uint8_t *p_slot, bool p_check) {
 	if (is_option(p_type) && !is_none(p_value)) {
 		if (!decode_field(*p_type.element, p_value, p_slot + 8, p_check)) {
@@ -755,13 +770,9 @@ static bool decode_field(const TypeImage &p_type, const Variant &p_value, uint8_
 		tag(p_slot) = 1;
 		return true;
 	}
-	if (p_type.kind == bytecode::TypeKind::Value && p_type.storage == ValueType::Int && type_of(p_value) == Variant::FLOAT) {
-		const double value = p_value;
-		if (!(value >= -9223372036854775808.0 && value < 9223372036854775808.0) || value != double(int64_t(value))) {
-			return false;
-		}
-		*reinterpret_cast<int64_t *>(p_slot) = int64_t(value);
-		return true;
+	if (p_type.storage == ValueType::Int && type_of(p_value) == Variant::FLOAT) {
+		int64_t whole = 0;
+		return whole_float(p_value, whole) && from_variant(p_type, whole, p_slot, p_check);
 	}
 	if (p_type.item && !from_variant(p_type, p_value, p_slot, true)) {
 		return decode_container(p_type, p_value, p_slot);
@@ -826,6 +837,38 @@ static int64_t encoded_variant(const TypeImage &p_type, const Dictionary &p_enco
 	return -1;
 }
 
+// While a mismatch is described by decoding again, a field left out only has
+// to have a default, so that no default runs twice.
+static thread_local bool describing = false;
+static thread_local uint64_t defaults_failed = 0;
+
+uint64_t failed_defaults() {
+	return defaults_failed;
+}
+
+// A struct's field left out takes its default, which the function
+// "@Struct.field" of the struct's class computes, as for a construction that
+// leaves it out (spec §3.6). A variant's fields have none.
+static bool decode_default(const TypeImage &p_type, const FieldImage &p_field, uint8_t *p_slot) {
+	if (is_payload_enum(p_type)) {
+		return false;
+	}
+	const int64_t at = p_type.name.rfind("::");
+	const std::shared_ptr<const ClassImage> image = script_image(p_type.name.substr(0, at));
+	const int index = image ? image->find_function("@" + p_type.name.substr(at + 2) + "." + p_field.name) : -1;
+	if (index < 0 || describing) {
+		return index >= 0;
+	}
+	GDExtensionCallError error;
+	bool failed = false;
+	const Variant value = vm::call(image, index, InstanceContext(), nullptr, 0, error, &failed);
+	if (failed) {
+		defaults_failed++;
+		return false;
+	}
+	return error.error == GDEXTENSION_CALL_OK && decode_field(*p_field.type, value, p_slot, true);
+}
+
 // Decodes the fields that the encoded struct, or the variant whose index is
 // already in the slot, holds; false at the first that does not decode, which
 // goes in `r_failed`.
@@ -834,7 +877,7 @@ static bool decode_fields(const TypeImage &p_type, const Dictionary &p_encoded, 
 		if (is_payload_enum(p_type) && &p_field == &p_type.fields[0]) {
 			return true;
 		}
-		if (p_encoded.has(p_field.name) && decode_field(*p_field.type, p_encoded[p_field.name], p_slot + p_field.offset, p_check)) {
+		if (p_encoded.has(p_field.name) ? decode_field(*p_field.type, p_encoded[p_field.name], p_slot + p_field.offset, p_check) : decode_default(p_type, p_field, p_slot + p_field.offset)) {
 			return true;
 		}
 		if (r_failed) {
@@ -928,19 +971,24 @@ bool is_enum_value(const TypeImage &p_type, int64_t p_value) {
 	return std::binary_search(p_type.enum_values.begin(), p_type.enum_values.end(), p_value);
 }
 
-void try_from(const TypeImage &p_result, const Variant &p_value, uint8_t *p_slot) {
+bool try_from(const TypeImage &p_result, const Variant &p_value, uint8_t *p_slot) {
 	destroy_value(p_result, p_slot);
 	construct_value(p_result, p_slot);
 	const FieldImage &value = p_result.fields[1];
+	const uint64_t failures = defaults_failed;
 	if (decode_field(*value.type, p_value, p_slot + value.offset, true)) {
-		return;
+		return true;
+	}
+	if (defaults_failed != failures) {
+		return false;
 	}
 	// The value field back at its default, as the other variant's fields are.
 	destroy_value(*value.type, p_slot + value.offset);
 	construct_value(*value.type, p_slot + value.offset);
 	tag(p_slot) = 1;
 	const FieldImage &error = p_result.fields[2];
-	*reinterpret_cast<String *>(p_slot + error.offset + error.type->fields[0].offset) = entry_mismatch(*value.type, p_value);
+	*reinterpret_cast<String *>(p_slot + error.offset + error.type->fields[0].offset) = described(*value.type, p_value, true);
+	return true;
 }
 
 String type_description(const TypeImage &p_type) {
@@ -965,49 +1013,97 @@ String type_description(const TypeImage &p_type) {
 	return is_option(p_type) ? type_description(*p_type.element) + "?" : type_description(p_type.storage, p_type.check);
 }
 
-String entry_mismatch(const TypeImage &p_type, const Variant &p_value) {
+// Why the value does not fit the type, after the path to where it lies in a
+// value being decoded: "SaveData.enemies[2].pos: expected Vector2, found
+// String". Decoding takes what decode_field() takes, an entry check a
+// container only as the engine types it (spec §3.8).
+static String mismatch(const TypeImage &p_type, const Variant &p_value, const String &p_path, bool p_decoding) {
+	const String at = p_path.is_empty() ? String() : p_path + String(": ");
+	const String where = p_path.is_empty() ? type_description(p_type) : p_path;
+	if (p_decoding && is_option(p_type) && !is_none(p_value)) {
+		return mismatch(*p_type.element, p_value, p_path, true);
+	}
+	int64_t whole = 0;
+	if (p_decoding && p_type.storage == ValueType::Int && whole_float(p_value, whole)) {
+		return mismatch(p_type, whole, p_path, true);
+	}
+	Variant kept;
+	if (p_decoding && p_type.item && p_type.storage == ValueType::Array && type_of(p_value) == Variant::ARRAY) {
+		const Array array = p_value;
+		for (int64_t i = 0; i < array.size(); i++) {
+			if (!decode_kept(*p_type.item, array[i], false, kept)) {
+				return mismatch(*p_type.item, array[i], vformat("%s[%d]", where, i), true);
+			}
+		}
+	}
+	if (p_decoding && p_type.item && p_type.storage == ValueType::Dictionary && type_of(p_value) == Variant::DICTIONARY) {
+		const Dictionary dictionary = p_value;
+		const Array keys = dictionary.keys();
+		for (int64_t i = 0; i < keys.size(); i++) {
+			const String key = UtilityFunctions::var_to_str(keys[i]);
+			if (!decode_kept(*p_type.key, keys[i], true, kept)) {
+				return mismatch(*p_type.key, keys[i], vformat("%s (the key %s)", where, key), true);
+			}
+			if (!decode_kept(*p_type.item, dictionary[keys[i]], false, kept)) {
+				return mismatch(*p_type.item, dictionary[keys[i]], vformat("%s[%s]", where, key), true);
+			}
+		}
+	}
 	if (p_type.item) {
 		// Typed as the engine types it, with an element that is not what the
 		// type says: "found Array[float] at index 2".
 		ValueBuffer value(p_type);
-		const int64_t at = from_variant(p_type.storage, p_value, value.data, &p_type.check) ? misfit_element(p_type, p_value) : -1;
-		String found = at < 0 ? found_description(p_type.storage, p_value, p_type.check) : String();
-		if (at >= 0 && type_of(p_value) == Variant::ARRAY) {
-			found = vformat("%s at index %d", value_description(Array(p_value)[at]), at);
-		} else if (at >= 0) {
+		const int64_t misfit = from_variant(p_type.storage, p_value, value.data, &p_type.check) ? misfit_element(p_type, p_value) : -1;
+		String found = misfit < 0 ? found_description(p_type.storage, p_value, p_type.check) : String();
+		if (misfit >= 0 && type_of(p_value) == Variant::ARRAY) {
+			found = vformat("%s at index %d", value_description(Array(p_value)[misfit]), misfit);
+		} else if (misfit >= 0) {
 			const Dictionary dictionary = p_value;
-			const Variant key = dictionary.keys()[at];
+			const Variant key = dictionary.keys()[misfit];
 			found = kept_fits(*p_type.key, key) ? vformat("%s for the key %s", value_description(dictionary[key]), UtilityFunctions::var_to_str(key)) : vformat("the key %s", value_description(key));
 		}
-		return vformat("expected %s, found %s", type_description(p_type), found);
+		return vformat("%sexpected %s, found %s", at, type_description(p_type), found);
 	}
 	if (p_type.kind == bytecode::TypeKind::Enum && type_of(p_value) == Variant::INT) {
-		return vformat("expected %s, found %d, which is none of its values", type_description(p_type), int64_t(p_value));
+		return vformat("%sexpected %s, found %d, which is none of its values", at, type_description(p_type), int64_t(p_value));
 	}
 	if (is_struct(p_type) && type_of(p_value) == Variant::DICTIONARY) {
 		// Which field: "Hit.damage: expected int, found String", or of a
 		// variant: "Command.MOVE.target is missing".
 		const Dictionary encoded = p_value;
 		ValueBuffer slot(p_type);
-		String where = type_description(p_type);
+		String field_path = where;
 		if (is_payload_enum(p_type)) {
 			const int64_t variant = encoded_variant(p_type, encoded);
 			if (variant < 0) {
-				return vformat("expected %s, found a Dictionary whose \"%s\" names none of its variants", where, VARIANT_KEY);
+				return vformat("%sexpected %s, found a Dictionary whose \"%s\" names none of its variants", at, type_description(p_type), VARIANT_KEY);
 			}
 			tag(slot.data) = uint64_t(variant);
-			where += "." + p_type.enum_declared[variant].first;
+			field_path += "." + p_type.enum_declared[variant].first;
 		}
 		const FieldImage *field = nullptr;
 		if (!decode_fields(p_type, encoded, slot.data, true, &field)) {
-			where += "." + field->name;
-			return encoded.has(field->name) ? vformat("%s: %s", where, entry_mismatch(*field->type, encoded[field->name])) : vformat("%s is missing", where);
+			field_path += "." + field->name;
+			return encoded.has(field->name) ? mismatch(*field->type, encoded[field->name], field_path, true) : field_path + " is missing";
 		}
 	}
 	if (is_option(p_type) || is_struct(p_type)) {
-		return vformat("expected %s, found %s", type_description(p_type), value_description(p_value));
+		return vformat("%sexpected %s, found %s", at, type_description(p_type), value_description(p_value));
 	}
-	return entry_mismatch(p_type.storage, p_value, p_type.check);
+	return at + entry_mismatch(p_type.storage, p_value, p_type.check);
+}
+
+// A mismatch described without computing defaults again.
+static String described(const TypeImage &p_type, const Variant &p_value, bool p_decoding) {
+	const bool was = describing;
+	describing = true;
+	const String description = mismatch(p_type, p_value, String(), p_decoding);
+	describing = was;
+	return description;
+}
+
+String entry_mismatch(const TypeImage &p_type, const Variant &p_value) {
+	return described(p_type, p_value, false);
 }
 
 Variant default_variant(const TypeImage &p_type) {

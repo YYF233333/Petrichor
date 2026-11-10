@@ -3499,9 +3499,11 @@ public:
 			}
 		}
 
+		// Every default has its function, which decoding runs for a field left
+		// out (spec §3.6); a construction runs only those that are no constant.
 		for (const StructDecl &structure : cls.structs) {
 			for (const VarDecl &field : structure.fields) {
-				if (computed(field)) {
+				if (field.initializer) {
 					field_defaults.emplace(&field, uint32_t(cls.all_functions.size() + field_defaults.size()));
 				}
 			}
