@@ -38,6 +38,31 @@ TEST_CASE("_init reads a member that must be assigned only once it has assigned 
 	CHECK(contains(init("\ttarget.position = Vector3.ZERO"), "_init reads \"target\" before assigning it"));
 }
 
+TEST_CASE("a node with an owner reads in its _ready no member its ancestors assign, until it awaits (spec §6.2, §6.4)") {
+	// must_assign.tscn of the engine tests: the parent assigns the child's members in its own _ready.
+	FakeProject project;
+	compiler::Scene scene;
+	scene.path = "res://squad.tscn";
+	scene.nodes = { { ".", "Node", "" }, { "Child", "Node", "res://test.pet" } };
+	compiler::SceneValue path;
+	path.type = "NodePath";
+	scene.nodes[1].properties = { { "exported", path } };
+	project.scenes = { scene };
+	const std::string members = "extends Node\n\npub var target: Node\n@export pub var exported: Node\n\n";
+	const compiler::CompileResult result = compile_in(members + "func _ready():\n\tprint(target)\n", project);
+	REQUIRE(result.errors.size() == 1);
+	CHECK(result.errors[0].message == "res://squad.tscn: Child reads \"target\" in _ready, before the ancestors that assign it are ready. Read it after await get_parent().ready, or let the parent's _ready configure the node.");
+	CHECK((result.errors[0].scene == "res://squad.tscn" && result.errors[0].node == "Child"));
+	// After an await; after assigning it; an export, which the scene gives;
+	// one that _init assigns.
+	CHECK(messages(compile_in("@parent(Node)\n" + members + "async func _ready():\n\tawait get_parent().ready\n\tprint(target)\n", project)).empty());
+	CHECK(messages(compile_in(members + "func _ready():\n\ttarget = self\n\tprint(target, exported)\n", project)).empty());
+	CHECK(messages(compile_in(members + "func _init():\n\ttarget = Node.new()\n\nfunc _ready():\n\tprint(target)\n", project)).empty());
+	// The root of a scene has no owner: who instantiates it gives the member.
+	project.scenes[0].nodes = { { ".", "Node", "res://test.pet" } };
+	CHECK(messages(compile_in(members + "func _ready():\n\tprint(target, exported)\n", project)).empty());
+}
+
 namespace {
 
 std::string made_errors(const std::string &p_body) {

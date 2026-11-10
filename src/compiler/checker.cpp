@@ -252,6 +252,11 @@ class Checker : public ClassRelation {
 	bool in_assert = false;
 	// The interfaces this class's own `implements` names, with where.
 	std::vector<std::pair<Type, const TypeRef *>> own_interfaces;
+	// The members that must be assigned which _init assigns on every path
+	// that ends, and the class's _ready, walked once every body is checked
+	// (spec §6.2).
+	std::set<int> init_assigned;
+	FuncDecl *ready = nullptr;
 	// The member whose initializer is being checked: it and the members after
 	// it are not initialized yet (spec §6.1), nor are @onready members unless
 	// it is one too (§6.3).
@@ -10466,13 +10471,60 @@ class Checker : public ClassRelation {
 		}
 		if (r_function.name == "_init" && !r_function.is_static) {
 			std::set<int> reported;
-			init_block(r_function.body, std::set<int>(), reported);
+			const EarlyReads reads{ [&](int p_member) { return cls.all_members[p_member]->must_assign; },
+				[&](const Expr &p_read) { error(p_read.range, "_init reads \"" + p_read.text + "\" before assigning it: a member that must be assigned gets its value from the scene or the creator only after _init."); } };
+			init_assigned = init_block(r_function.body, std::set<int>(), reported, reads).value_or(std::set<int>());
+		}
+		if (r_function.name == "_ready" && !r_function.is_static && !r_function.of_struct) {
+			ready = &r_function;
 		}
 		function = nullptr;
 		scopes.clear();
 	}
 
 	/* _init and members that must be assigned (spec §6.2) */
+
+	// What a walk of _init or _ready reports: a read of a member it tracks
+	// before the function assigns it. _ready's walk ends at an await.
+	struct EarlyReads {
+		std::function<bool(int)> tracked;
+		std::function<void(const Expr &)> report;
+		bool ends_at_await = false;
+	};
+
+	// The node's members that ancestors assign, once they are ready (spec
+	// §6.2, §6.4): where a scene gives the node an owner, those that must be
+	// assigned and are not exported, unless _init assigns them. Its own _ready
+	// may not read them before it awaits.
+	void check_ready_reads() {
+		if (!ready) {
+			return;
+		}
+		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
+			const ViewNode *placed = view_node(p_scene, p_node.path);
+			if (!placed || placed->owner.empty()) {
+				return;
+			}
+			std::set<int> reported;
+			const EarlyReads reads{ [&](int p_member) { return cls.all_members[p_member]->must_assign && !cls.all_members[p_member]->is_export && !init_assigned.count(p_member); },
+				[&](const Expr &p_read) {
+					error_in_scene(p_read.range, p_scene, p_node.path, p_scene.path + ": " + p_node.path + " reads \"" + p_read.text + "\" in _ready, before the ancestors that assign it are ready. Read it after await get_parent().ready, or let the parent's _ready configure the node.");
+				},
+				true };
+			init_block(ready->body, std::set<int>(), reported, reads);
+		});
+	}
+
+	// Whether evaluating an expression may suspend, outside its lambdas.
+	static bool awaits(const Expr &p_expr) {
+		bool found = p_expr.kind == ExprKind::Await;
+		for_each_child(p_expr, [&](const auto &p_child) {
+			if constexpr (std::is_same_v<std::decay_t<decltype(p_child)>, Expr>) {
+				found = found || awaits(p_child);
+			}
+		});
+		return found && p_expr.kind != ExprKind::Lambda;
+	}
 
 	// The members that must be assigned which _init has assigned on every path
 	// so far; nullopt where no path goes on.
@@ -10487,9 +10539,9 @@ class Checker : public ClassRelation {
 		return both;
 	}
 
-	Assigned init_block(const Block &p_block, Assigned p_assigned, std::set<int> &r_reported) {
+	Assigned init_block(const Block &p_block, Assigned p_assigned, std::set<int> &r_reported, const EarlyReads &p_reads) {
 		for (const auto &stmt : p_block) {
-			p_assigned = init_stmt(*stmt, std::move(p_assigned), r_reported);
+			p_assigned = init_stmt(*stmt, std::move(p_assigned), r_reported, p_reads);
 		}
 		return p_assigned;
 	}
@@ -10497,13 +10549,14 @@ class Checker : public ClassRelation {
 	// The scene and the creator assign only after _init, so _init reading one
 	// it has not assigned itself is an error. A read through a call is left to
 	// the program error: methods may be overridden in other files.
-	Assigned init_stmt(const Stmt &p_stmt, Assigned p_assigned, std::set<int> &r_reported) {
-		if (!p_assigned) {
-			return p_assigned;
+	Assigned init_stmt(const Stmt &p_stmt, Assigned p_assigned, std::set<int> &r_reported, const EarlyReads &p_reads) {
+		const auto suspends = [](const std::unique_ptr<Expr> &p_expr) { return p_expr && awaits(*p_expr); };
+		if (!p_assigned || (p_reads.ends_at_await && (suspends(p_stmt.target) || suspends(p_stmt.value) || suspends(p_stmt.condition)))) {
+			return std::nullopt;
 		}
 		const auto reads = [&](const std::unique_ptr<Expr> &p_expr) {
 			if (p_expr) {
-				init_reads(*p_expr, *p_assigned, r_reported);
+				init_reads(*p_expr, *p_assigned, r_reported, p_reads);
 			}
 		};
 		switch (p_stmt.kind) {
@@ -10521,19 +10574,19 @@ class Checker : public ClassRelation {
 			}
 			case StmtKind::If:
 				reads(p_stmt.condition);
-				return joined(init_block(p_stmt.body, p_assigned, r_reported), init_block(p_stmt.else_body, p_assigned, r_reported));
+				return joined(init_block(p_stmt.body, p_assigned, r_reported, p_reads), init_block(p_stmt.else_body, p_assigned, r_reported, p_reads));
 			case StmtKind::While:
 			case StmtKind::For:
 				reads(p_stmt.condition);
 				reads(p_stmt.value);
-				init_block(p_stmt.body, p_assigned, r_reported);
+				init_block(p_stmt.body, p_assigned, r_reported, p_reads);
 				return p_assigned;
 			case StmtKind::Match: {
 				reads(p_stmt.value);
 				Assigned after = p_stmt.exhaustive ? Assigned() : p_assigned;
 				for (const MatchBranch &branch : p_stmt.branches) {
 					reads(branch.guard);
-					after = joined(after, init_block(branch.body, p_assigned, r_reported));
+					after = joined(after, init_block(branch.body, p_assigned, r_reported, p_reads));
 				}
 				return after;
 			}
@@ -10550,16 +10603,16 @@ class Checker : public ClassRelation {
 		}
 	}
 
-	void init_reads(const Expr &p_expr, const std::set<int> &p_assigned, std::set<int> &r_reported) {
+	void init_reads(const Expr &p_expr, const std::set<int> &p_assigned, std::set<int> &r_reported, const EarlyReads &p_reads) {
 		if (p_expr.kind == ExprKind::Lambda) {
 			return; // It runs later.
 		}
-		if (p_expr.target == Target::Member && p_expr.index >= 0 && cls.all_members[p_expr.index]->must_assign && !p_assigned.count(p_expr.index) && r_reported.insert(p_expr.index).second) {
-			error(p_expr.range, "_init reads \"" + p_expr.text + "\" before assigning it: a member that must be assigned gets its value from the scene or the creator only after _init.");
+		if (p_expr.target == Target::Member && p_expr.index >= 0 && p_reads.tracked(p_expr.index) && !p_assigned.count(p_expr.index) && r_reported.insert(p_expr.index).second) {
+			p_reads.report(p_expr);
 		}
 		for_each_child(p_expr, [&](const auto &p_child) {
 			if constexpr (std::is_same_v<std::decay_t<decltype(p_child)>, Expr>) {
-				init_reads(p_child, p_assigned, r_reported);
+				init_reads(p_child, p_assigned, r_reported, p_reads);
 			}
 		});
 	}
@@ -11474,6 +11527,7 @@ public:
 				check_body(fn);
 			}
 		}
+		check_ready_reads();
 		for (StructDecl &decl : cls.structs) {
 			structure = &decl;
 			structure_type = Type::structure(display_name(cls, options.path) + "." + decl.name, options.path);

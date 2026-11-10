@@ -5,10 +5,9 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 ## Language
 
 - Of `_init` on Node and Resource scripts (spec §6.2):
-  - `instantiate(...)` still asks by name for a member that the root's `_init` assigns. The checker does not check that body, which is in another file.
+  - A member that `_init` in another file assigns counts as unassigned, since the checker does not check that body. So `instantiate(...)` asks for one that the root's `_init` assigns. A child's `_ready` may not read one that a base's `_init` assigns.
   - A scene or `.tres` using a script whose `_init` has required parameters is a compile error. Now the engine's construction gives the program error.
 - Static checks of:
-  - a child reading a member that ancestors assign in its own `_ready` (§6.2);
   - a must-assign member that is not pub, which its file or a subclass must export or assign (§4.2). It needs every subclass.
 - Checking at compile time what resources store in exported structs and enums with payloads (spec §4.3). Also their exported scenes and must-assign exports (§7.4, §7.5). They are `.tres` files and resources inside scenes, which the scene index does not read. Nor is a struct checked that a scene stores on a node of an instanced scene it changes.
 - How `T??` crosses the engine boundary (spec §10.1), where `None` and `Some(None)` would both be null. Until then, pub members and parameters, signal parameters and coroutine results of `T??` are refused. These still lose `Some(None)`:
