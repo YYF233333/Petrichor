@@ -3687,13 +3687,8 @@ class Checker : public ClassRelation {
 			} else if (const std::optional<ForeignClass> foreign = options.project->foreign_class(p_file, false)) {
 				files.push_back(foreign->base);
 			}
-			std::vector<Diagnostic> ignored;
-			const std::shared_ptr<const SourceFile> source = tokenize(options.project->script_source(p_file).value_or(std::string()), ignored);
-			const std::vector<Token> &tokens = source->tokens;
-			for (size_t i = 0; i + 3 < tokens.size(); i++) {
-				if (tokens[i].kind == TokenKind::Identifier && tokens[i].text == "preload" && tokens[i + 1].kind == TokenKind::ParenOpen && tokens[i + 2].kind == TokenKind::String && tokens[i + 3].kind == TokenKind::ParenClose) {
-					files.push_back(preload_file(resolved_path(tokens[i + 2].text, p_file)));
-				}
+			for (const std::string &path : classes.preloads(p_file)) {
+				files.push_back(preload_file(resolved_path(path, p_file)));
 			}
 		}
 		return loaded_files.emplace(p_file, std::move(files)).first->second;

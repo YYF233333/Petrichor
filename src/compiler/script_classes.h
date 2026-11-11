@@ -61,12 +61,12 @@ class ScriptClasses {
 	class RecordedProject : public ProjectApi {
 		ScriptClasses &classes;
 
-		template <typename T>
-		T ask(const std::string &p_key, std::function<T(const ProjectApi &)> p_question) const;
-
 	public:
 		explicit RecordedProject(ScriptClasses &r_classes) :
 				classes(r_classes) {}
+
+		template <typename T>
+		T ask(const std::string &p_key, std::function<T(const ProjectApi &)> p_question) const;
 
 		std::vector<Scene> scenes_with_script(const std::string &p_script_path) const override;
 		std::vector<Scene> scenes_instancing_script(const std::string &p_script_path) const override;
@@ -145,6 +145,9 @@ public:
 
 	// The hash of the file as the project has it now, read once.
 	uint64_t script_hash(const std::string &p_file);
+	// The String of each preload() of one literal String in the file, as
+	// written, in function bodies too (spec §7.6).
+	std::vector<std::string> preloads(const std::string &p_file);
 	// Records what the compile of `p_file` from `p_source` reads, until
 	// end_compile(), after which nothing refers to its classes.
 	void begin_compile(const std::string &p_file, const std::string &p_source);

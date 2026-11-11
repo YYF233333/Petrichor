@@ -491,6 +491,21 @@ uint64_t ScriptClasses::script_hash(const std::string &p_file) {
 	return hashes[p_file] = declaration_hash(sources ? sources->script_source(p_file) : std::nullopt);
 }
 
+std::vector<std::string> ScriptClasses::preloads(const std::string &p_file) {
+	return recorded.ask<std::vector<std::string>>("preloads of " + p_file, [p_file](const ProjectApi &p_project) {
+		std::vector<std::string> paths;
+		std::vector<Diagnostic> ignored;
+		const std::shared_ptr<const SourceFile> source = tokenize(p_project.script_source(p_file).value_or(std::string()), ignored);
+		const std::vector<Token> &tokens = source->tokens;
+		for (size_t i = 0; i + 3 < tokens.size(); i++) {
+			if (tokens[i].kind == TokenKind::Identifier && tokens[i].text == "preload" && tokens[i + 1].kind == TokenKind::ParenOpen && tokens[i + 2].kind == TokenKind::String && tokens[i + 3].kind == TokenKind::ParenClose) {
+				paths.push_back(tokens[i + 2].text);
+			}
+		}
+		return paths;
+	});
+}
+
 void ScriptClasses::begin_compile(const std::string &p_file, const std::string &p_source) {
 	compiled = { p_file, declaration_hash(p_source) };
 	frames.emplace_back(p_file, Reads());

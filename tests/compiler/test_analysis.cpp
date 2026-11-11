@@ -123,6 +123,16 @@ TEST_CASE("a script is checked again when a scene that uses it changes") {
 	CHECK_FALSE(after->ok());
 }
 
+TEST_CASE("a script is checked again when a file it preloads adds a preload of it in a function body") {
+	FakeProject project;
+	project.add_script("res://a.pet", "extends Node\n\nconst B = preload(\"res://b.pet\")\n");
+	project.add_script("res://b.pet", "extends Node\n\nfunc make() -> void:\n\tpass\n");
+	compiler::Analysis analysis(fake_engine(), project);
+	REQUIRE(compile_all(analysis, project, { "res://a.pet" })[0]->ok());
+	project.sources["res://b.pet"] = "extends Node\n\nfunc make() -> void:\n\tprint(preload(\"res://a.pet\"))\n";
+	CHECK(contains(messages(*compile_all(analysis, project, { "res://a.pet" })[0]), "This preload loads this script again (res://b.pet -> res://a.pet)"));
+}
+
 namespace {
 
 // Each script compiled in one pass, in order, is as it is compiled alone.
