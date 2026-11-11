@@ -7,12 +7,14 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Of `_init` on Node and Resource scripts (spec §6.2):
   - A member that `_init` in another file assigns counts as unassigned, since the checker does not check that body. So `instantiate(...)` asks for one that the root's `_init` assigns. A child's `_ready` may not read one that a base's `_init` assigns.
   - A scene or `.tres` using a script whose `_init` has required parameters is a compile error. Now the engine's construction gives the program error.
-- Static checks of:
-  - a must-assign member that is not pub, which its file or a subclass must export or assign (§4.2). It needs every subclass.
+- A must-assign member without pub that no code of its file or its subclasses writes (spec §4.2). It needs each file's list of the inherited members it writes, and the subclasses of a class.
+- Assignments by ancestors (spec §6.2), which the checker assumes without looking for them.
+  - It takes a must-assign member of a node with an owner as one they assign. Exported members and those `_init` assigns are not.
+  - The spec requires `$Child.target = v` or an `@onready` reference in their `_ready`. Without one, the member must be `T?`.
 - Checking at compile time what resources store in exported structs and enums with payloads (spec §4.3). Also their exported scenes and must-assign exports (§7.4, §7.5). They are `.tres` files and resources inside scenes, which the scene index does not read. Nor is a struct checked that a scene stores on a node of an instanced scene it changes.
-- How `T??` crosses the engine boundary (spec §10.1), where `None` and `Some(None)` would both be null. Until then, pub members and parameters, signal parameters and coroutine results of `T??` are refused. These still lose `Some(None)`:
+- `T??` and `Variant?` wherever the engine boundary would encode them, a compile error (spec §10.1). The checker refuses `T??` only in pub members and parameters, signal parameters and coroutine results. These still lose the inner `None` silently:
   - `Variant?` in those places;
-  - `T??` in a struct or `Result` that crosses, and in `Array(a)`;
+  - either in a struct, an enum with payloads or a `Result` that crosses, and in `Array(a)`;
   - the result of an async lambda, and the arguments of `bind()`.
 - `find_key()` of `Dictionary[T?, V]` for an object `T`. The engine gives null for a missing key and for a None key.
 - `is_instance_of(v, T)` with a native class held in a variable, which waits for classes as values (spec §2.6). gdUnit4 passes them.
@@ -48,6 +50,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - A quick fix adding the constructor for the implicit conversions of GDScript that this language drops (spec §3.14).
 - When lints are added, consider a hint on ordering arrays whose elements can be NaN. GDScript's results differ there (spec §5.2).
 - When lints are added, consider a warning on code that relies on the order of assignment (spec §3.6). An example is `arr[i] = next()` with `next()` assigning `i`. The owner considers such code harmful.
+- When lints are added, consider a hint on assignments to must-assign members right after `new()`. Named arguments of `new(...)` would let the compiler check them (spec §6.2).
 - When lints are added, consider a warning on names spelled as this language's keywords, such as `None` (spec §2.2). They are legal but not recommended.
 - Compiled bytecode is checked against its own source only. A game run from the command line without a build keeps old bytecode. That happens after a change to a scene or to a script it uses. Only the runtime checks (signatures, `$X` classes) then catch the difference. The analysis knows what each script read, but keeps it only in the editor's memory (architecture §2.1).
 - The typed inspector panel for exported structs and enums with payloads (architecture §6.2). Until then the engine's generic Dictionary editor edits them.
