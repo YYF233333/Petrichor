@@ -9573,25 +9573,17 @@ class Checker : public ClassRelation {
 		return p_method ? ", which is not pub; the engine calls only pub methods by name." : ", which is not pub; the engine finds only pub properties by name.";
 	}
 
-	// The members of this class that animation tracks and synchronized
-	// properties name (spec §7.7), which the engine finds by name, so they
-	// must be pub (§10.5). Each is resolved as $X is, in the scene that
-	// stores it: one that places the class, or one that instances such a
-	// scene. A path that leads to no node, and a member that the class
-	// lacks, are left to the engine at run time.
+	// The members of this class that the scene's animation tracks and
+	// synchronized properties name (spec §7.7), each resolved as $X is. The
+	// class must have them, and the engine finds them by name, so they must be
+	// pub (§10.5). An engine class may take names that it does not list: those
+	// with a slash, as metadata/ (core/object/object.cpp:279; ed1daf0), and any
+	// where the class has _set() or _get(). A path that leads to no node is
+	// left to the engine at run time.
 	void check_named_members() {
 		const TokenRange header{ cls.extends_token, cls.extends_token };
-		std::set<std::string> seen;
-		std::vector<Scene> pending = scenes;
-		while (!pending.empty()) {
-			const Scene scene = std::move(pending.back());
-			pending.pop_back();
-			if (!seen.insert(scene.path).second) {
-				continue;
-			}
-			for (Scene &outer : options.project->scenes_instancing(scene.path)) {
-				pending.push_back(std::move(outer));
-			}
+		const bool takes_any = function_index.count("_set") || function_index.count("_get");
+		for (const Scene &scene : scenes) {
 			for (const SceneNamedMember &named : scene.named_members) {
 				const ViewNode *node = walk_node_path(scene, named.from, named.node).node;
 				if (!node || (node->node.script.empty() ? node->node.instance_script : node->node.script) != options.path) {
@@ -9605,6 +9597,8 @@ class Checker : public ClassRelation {
 					const FuncDecl *method = found == function_index.end() ? nullptr : cls.all_functions[found->second];
 					if (method && !method->is_pub && !method->is_override) {
 						error_in_scene(own_name(*method, cls.functions, header), scene, node->path, where + not_pub(true));
+					} else if (!method && !engine.find_method(cls.native_base, named.name)) {
+						error_in_scene(header, scene, node->path, where + ", which this class does not declare.");
 					}
 					continue;
 				}
@@ -9612,6 +9606,8 @@ class Checker : public ClassRelation {
 				const VarDecl *member = found == member_index.end() ? nullptr : cls.all_members[found->second];
 				if (member && !member->is_pub) {
 					error_in_scene(own_name(*member, cls.members, header), scene, node->path, where + not_pub(false));
+				} else if (!member && !static_index.count(named.name) && !takes_any && named.name.find('/') == std::string::npos && !engine.find_property(cls.native_base, named.name)) {
+					error_in_scene(header, scene, node->path, where + ", which this class does not declare.");
 				}
 			}
 		}
@@ -11740,6 +11736,7 @@ public:
 		scenes = { *scene };
 		check_abstract_scenes();
 		check_connections();
+		check_named_members();
 	}
 
 private:
@@ -11916,7 +11913,6 @@ private:
 			}
 		}
 		check_warning_ignores();
-		check_named_members();
 		check_owner_scenes();
 		check_parent_scenes();
 		check_stored_exports();

@@ -22,8 +22,8 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - a function returning it;
   - an element of a container, as `[preload("enemy.tscn")]`;
   - a parameter's default value.
-- A track or synchronized property naming a member its node's class of this language lacks: a compile error (spec §7.7). One whose path leads to no node is a warning, with the warnings of spec §7.2.
-- Members that animation tracks and synchronized properties name, unchecked for `pub` (spec §10.5):
+- A track or synchronized property whose path leads to no node: a warning (spec §7.7). It goes with the warnings of spec §7.2.
+- Members that animation tracks and synchronized properties name, unchecked for `pub` and existence (spec §7.7, §10.5):
   - through a path that leaves the scene storing it, as from an AnimationPlayer at its root;
   - after the first subname, on a resource of this language, as `health` in `Body:stats:health`.
 

@@ -64,13 +64,32 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 	checks++;
 	classes->begin_compile(p_path, std::string());
 	const std::optional<Scene> scene = classes->get_project()->scene(p_path);
-	Reads reads = classes->end_compile();
+	// The scripts on its nodes; when its tracks or synchronized properties
+	// name members, also those in the scenes it instances, which they reach.
 	std::set<std::string> scripts;
-	for (const SceneNode &node : scene ? scene->nodes : std::vector<SceneNode>()) {
-		if (node.script.size() > 4 && node.script.compare(node.script.size() - 4, 4, ".pet") == 0) {
-			scripts.insert(node.script);
+	const auto add = [&](const std::string &p_script) {
+		if (p_script.size() > 4 && p_script.compare(p_script.size() - 4, 4, ".pet") == 0) {
+			scripts.insert(p_script);
+		}
+	};
+	const bool deep = scene && !scene->named_members.empty();
+	std::vector<Scene> pending = scene ? std::vector<Scene>{ *scene } : std::vector<Scene>();
+	std::set<std::string> instanced;
+	while (!pending.empty()) {
+		const Scene each = std::move(pending.back());
+		pending.pop_back();
+		for (const SceneNode &node : each.nodes) {
+			add(node.script);
+			if (!deep || node.instance.empty()) {
+				continue;
+			}
+			std::optional<Scene> inner = instanced.insert(node.instance).second ? classes->get_project()->scene(node.instance) : std::nullopt;
+			if (inner) {
+				pending.push_back(std::move(*inner));
+			}
 		}
 	}
+	Reads reads = classes->end_compile();
 	CompileResult result;
 	for (const std::string &script : scripts) {
 		reads.scripts.emplace(script, classes->script_hash(script));

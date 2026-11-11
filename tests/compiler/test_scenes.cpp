@@ -121,16 +121,17 @@ TEST_CASE("the members that animation tracks and synchronized properties name mu
 		{ "AnimationPlayer", "hit", "..", "flash_amount", false },
 		{ "AnimationPlayer", "hit", "..", "flash", true },
 		{ "MultiplayerSynchronizer", "", "../.", "health", false },
-		// The engine's own property, and an override, which it finds by name.
+		// The engine's own property and method, and an override, which it finds by name.
 		{ "AnimationPlayer", "hit", "..", "position", false },
+		{ "AnimationPlayer", "hit", "..", "queue_free", true },
 		{ "AnimationPlayer", "hit", "..", "_process", true },
 	};
 	project.scenes = { scene };
-	const auto compiled = [&](const std::string &p_visibility) {
-		return compile_in("extends Node2D\n\n" + p_visibility + "var flash_amount := 0.0\n" + p_visibility + "var health := 3\n\n" + p_visibility + "func flash():\n\tpass\n\nfunc _process(delta: float):\n\tpass\n", project);
+	const auto checked = [&](const std::string &p_visibility) {
+		return check_scenes_in("extends Node2D\n\n" + p_visibility + "var flash_amount := 0.0\n" + p_visibility + "var health := 3\n\n" + p_visibility + "func flash():\n\tpass\n\nfunc _process(delta: float):\n\tpass\n", project);
 	};
-	CHECK(compiled("pub ").ok());
-	const compiler::CompileResult hidden = compiled("");
+	CHECK(checked("pub ").errors.empty());
+	const compiler::CompileResult hidden = checked("");
 	REQUIRE(hidden.errors.size() == 3);
 	CHECK(hidden.errors[0].message == "res://enemy.tscn: the animation \"hit\" of AnimationPlayer animates \"flash_amount\" of the root, which is not pub; the engine finds only pub properties by name.");
 	CHECK(hidden.errors[1].message == "res://enemy.tscn: MultiplayerSynchronizer synchronizes \"health\" of the root, which is not pub; the engine finds only pub properties by name.");
@@ -144,10 +145,33 @@ TEST_CASE("the members that animation tracks and synchronized properties name mu
 	level.nodes[1].instance = "res://enemy.tscn";
 	level.named_members = { { "Cutscene", "intro", "../Enemy", "speed", false } };
 	project.scenes = { { "res://enemy.tscn", { { ".", "Node2D", "res://test.pet" } } }, level };
-	const compiler::CompileResult outer = compile_in("extends Node2D\n\nvar speed := 1.0\n", project);
+	const compiler::CompileResult outer = check_scenes_in("extends Node2D\n\nvar speed := 1.0\n", project);
 	REQUIRE(outer.errors.size() == 1);
 	CHECK(outer.errors[0].message == "res://level.tscn: the animation \"intro\" of Cutscene animates \"speed\" of Enemy, which is not pub; the engine finds only pub properties by name.");
 	CHECK((outer.errors[0].scene == "res://level.tscn" && outer.errors[0].node == "Enemy"));
+}
+
+TEST_CASE("a track or a synchronized property names a member that its node's class has (spec §7.7)") {
+	FakeProject project;
+	compiler::Scene scene;
+	scene.path = "res://enemy.tscn";
+	scene.nodes = { { ".", "Node2D", "res://test.pet" }, { "AnimationPlayer", "AnimationPlayer", "" }, { "MultiplayerSynchronizer", "MultiplayerSynchronizer", "" } };
+	scene.named_members = {
+		{ "AnimationPlayer", "hit", "..", "flash_amont", false },
+		{ "AnimationPlayer", "hit", "..", "flsh", true },
+		{ "MultiplayerSynchronizer", "", "..", "helth", false },
+		// A name the engine class may take without listing it.
+		{ "AnimationPlayer", "hit", "..", "metadata/glow", false },
+	};
+	project.scenes = { scene };
+	const std::string errors = messages(check_scenes_in("extends Node2D\n\npub var flash_amount := 0.0\n", project));
+	CHECK(contains(errors, "res://enemy.tscn: the animation \"hit\" of AnimationPlayer animates \"flash_amont\" of the root, which this class does not declare."));
+	CHECK(contains(errors, "res://enemy.tscn: the animation \"hit\" of AnimationPlayer calls flsh() on the root, which this class does not declare."));
+	CHECK(contains(errors, "res://enemy.tscn: MultiplayerSynchronizer synchronizes \"helth\" of the root, which this class does not declare."));
+	CHECK(!contains(errors, "glow"));
+	// A class with _set() takes any name.
+	const std::string taking = messages(check_scenes_in("extends Node2D\n\nfunc _set(property: StringName, value: Variant) -> bool:\n\treturn false\n", project));
+	CHECK((contains(taking, "flsh") && !contains(taking, "flash_amont")));
 }
 
 TEST_CASE("$X has the class of the node at that path in the scenes that use the script (spec §7.1)") {

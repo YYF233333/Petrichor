@@ -323,6 +323,14 @@ func _check_scene_marks() -> void:
 		DirAccess.remove_absolute(file)
 
 
+# The errors marked on the root of a scene loaded anew (spec §13.2).
+func _scene_marks(path: String) -> String:
+	var root := (ResourceLoader.load(path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
+	var marks := "\n".join(root.call("_get_configuration_warnings"))
+	root.free()
+	return marks
+
+
 # The tooltips of the buttons on the node's item in the scene dock.
 func _dock_tooltips(node: Node) -> String:
 	var dock: Node = EditorInterface.get_base_control().find_children("*", "SceneTreeDock", true, false)[0]
@@ -492,10 +500,8 @@ func _check_stored_exports() -> void:
 	_write(derived, inherit % [base, '{"crit": false}'])
 	var script: Script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_IGNORE)
 	_check(not _compiles(script, script_path), "a scene that inherits another replaces the whole value, here without a field that has no default")
-	var root := (ResourceLoader.load(derived, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
-	var warnings := "\n".join(root.call("_get_configuration_warnings"))
+	var warnings := _scene_marks(derived)
 	_check(warnings.contains("the value stored for \"hit\" of . does not decode: editor_check_stored.pet.Hit.damage is missing."), "the error is marked on the node of the scene that stores the value: " + warnings)
-	root.free()
 
 	# Modification times count whole seconds.
 	var written := FileAccess.get_modified_time(derived)
@@ -538,7 +544,8 @@ func _check_scene_exports() -> void:
 
 
 # Spec §10.5: the members that a scene's animation tracks and synchronized
-# properties name must be pub, as the engine finds them by name. A library
+# properties name must be pub, as the engine finds them by name. The scene's
+# check marks them on the node, and the script still compiles. A library
 # stored apart names them too, and a change to it alone reaches the next
 # analysis.
 func _check_named_members() -> void:
@@ -551,10 +558,8 @@ func _check_named_members() -> void:
 	_write(script_path, "extends Node2D\n\nvar flash_amount := 0.0\nvar health := 3\nvar speed := 1.0\n\nfunc flash():\n\tpass\n")
 	_write(scene_path, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n[ext_resource type="AnimationLibrary" path="%s" id="2"]\n\n[sub_resource type="Animation" id="3"]\n%stracks/1/type = "method"\ntracks/1/path = NodePath(".")\ntracks/1/keys = {"times": PackedFloat32Array(0), "transitions": PackedFloat32Array(1), "values": [{"args": [], "method": &"flash"}]}\n\n[sub_resource type="AnimationLibrary" id="4"]\n_data = {&"hit": SubResource("3")}\n\n[sub_resource type="SceneReplicationConfig" id="5"]\nproperties/0/path = NodePath(".:health")\nproperties/0/spawn = true\nproperties/0/replication_mode = 1\n\n[node name="Root" type="Node2D"]\nscript = ExtResource("1")\n\n[node name="AnimationPlayer" type="AnimationPlayer" parent="."]\nlibraries = {&"": SubResource("4"), &"extra": ExtResource("2")}\n\n[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="."]\nreplication_config = SubResource("5")\n' % [script_path, library, track % "flash_amount"])
 	var script: Script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_IGNORE)
-	_check(not _compiles(script, script_path), "a member that a scene names for the engine must be pub")
-	var root := (ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
-	var warnings := "\n".join(root.call("_get_configuration_warnings"))
-	root.free()
+	_check(_compiles(script, script_path), "a script compiles whatever its scenes name")
+	var warnings := _scene_marks(scene_path)
 	for named in ['the animation "hit" of AnimationPlayer animates "flash_amount" of the root', 'the animation "hit" of AnimationPlayer calls flash() on the root', 'the animation "extra/blink" of AnimationPlayer animates "speed" of the root', 'MultiplayerSynchronizer synchronizes "health" of the root']:
 		_check(warnings.contains(named + ", which is not pub"), "the error is marked on the node: " + named)
 
@@ -565,6 +570,11 @@ func _check_named_members() -> void:
 	_write(library, stored_apart % "flash_amount")
 	_write(script_path, "extends Node2D\n\npub var flash_amount := 0.0\npub var health := 3\nvar speed := 1.0\n\npub func flash():\n\tpass\n")
 	script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_IGNORE)
-	_check(_compiles(script, script_path), "a change to the library alone reaches the next analysis")
+	# Saving tells the editor of a change once the frame ends
+	# (editor/editor_node.cpp:7839-7841; ed1daf0).
+	_compiles(script, script_path)
+	await get_tree().process_frame
+	warnings = _scene_marks(scene_path)
+	_check(warnings.is_empty(), "a change to the library alone reaches the next analysis: " + warnings)
 	for file in [script_path, script_path + ".uid", scene_path, library, "res://.godot/petrichor/editor_check_named.petc"]:
 		DirAccess.remove_absolute(file)
