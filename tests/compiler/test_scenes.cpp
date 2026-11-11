@@ -371,10 +371,20 @@ TEST_CASE("instantiate() of a scene known statically takes the exports it does n
 	CHECK(contains(errors("var e := load(\"res://enemy.tscn\").instantiate(target = self)"), needs));
 	// A variable or a parameter is not known statically: instantiate()
 	// asks only for the members of T that are not exported.
-	CHECK(contains(errors("var s := ENEMY"), "res://enemy.tscn leaves \"player\" to instantiate(), but a PackedScene[Enemy] does not ask for it."));
+	const char *player = "res://enemy.tscn leaves \"player\" to instantiate(), but a PackedScene[Enemy] does not ask for it.";
+	CHECK(contains(errors("var s := ENEMY"), player));
+	CHECK(contains(errors("var s := [ENEMY]"), player));
+	CHECK(contains(errors("var s := {1: ENEMY}"), player));
+	CHECK(contains(errors("var g := func(): return ENEMY"), player));
 	project.scenes[0].nodes[0].properties.push_back({ "player", path });
 	CHECK(errors("var s: PackedScene[Enemy] = ENEMY\n\tvar e := s.instantiate(target = self)").empty());
-	CHECK(contains(errors("g(ENEMY)\n\nfunc g(s: PackedScene[Node3D]):\n\tpass"), "res://enemy.tscn leaves \"target\" to instantiate(), but a PackedScene[Node3D] does not ask for it."));
+	// Wherever it converts, as Enemy's "target" is no member of Node3D.
+	const char *target = "res://enemy.tscn leaves \"target\" to instantiate(), but a PackedScene[Node3D] does not ask for it.";
+	CHECK(contains(errors("g(ENEMY)\n\nfunc g(s: PackedScene[Node3D]):\n\tpass"), target));
+	CHECK(contains(errors("pass\n\nfunc g() -> PackedScene[Node3D]:\n\treturn ENEMY"), target));
+	CHECK(contains(errors("pass\n\nfunc g(s: PackedScene[Node3D] = ENEMY):\n\tpass"), target));
+	CHECK(contains(errors("var c := p.is_inside_tree()\n\tvar s: PackedScene[Node3D] = ENEMY if c else ENEMY"), target));
+	CHECK(contains(errors("set_deferred(\"wave\", ENEMY)\n\n@export pub var wave: PackedScene[Node3D]"), target));
 	// Nor may a scene that a scene stores for an export, which that scene's
 	// check reports.
 	compiler::Scene level;

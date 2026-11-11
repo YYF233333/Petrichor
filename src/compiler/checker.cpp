@@ -289,9 +289,9 @@ class Checker : public ClassRelation {
 		// What the function type the lambda goes to returns, if known, which the
 		// values it returns take their type from, as Ok(v) and None do.
 		Type expected;
-		// Returned values that leave part of their type to the others, typed
-		// as the lambda's return type once that is known.
-		std::vector<Expr *> partial;
+		// The values returned. Those that leave part of their type to the
+		// others are typed as the lambda's return type once that is known.
+		std::vector<Expr *> values;
 	};
 	Returns *returns = nullptr;
 
@@ -4910,6 +4910,8 @@ class Checker : public ClassRelation {
 				const Expr &value = *r_call.args[p_named.value];
 				if (!value.type.is_error() && !assignable(value.type, *type)) {
 					error(value.range, "\"" + text + "\" is " + type->to_string() + ", which takes no " + value.type.to_string() + ".");
+				} else {
+					expect_scene_fits(value, *type);
 				}
 			}
 		} else if (p_method.is_vararg) {
@@ -4926,6 +4928,8 @@ class Checker : public ClassRelation {
 				const Type &param = i < member.params.size() ? member.params[i] : *member.rest;
 				if (!arg.type.is_error() && !assignable(arg.type, param)) {
 					error(arg.range, "\"" + name + "\" takes " + param.to_string() + " as argument " + std::to_string(i + 1) + "; found " + arg.type.to_string() + ".");
+				} else {
+					expect_scene_fits(arg, param);
 				}
 			}
 		} else if (p_named.kind == Kind::Signal && first < r_call.args.size() && (r_call.args[first]->type.kind == TypeKind::Function || rest_function(*r_call.args[first]))) {
@@ -5579,8 +5583,11 @@ class Checker : public ClassRelation {
 				error(r_expr.range, function_label() + " needs a return type: what it returns does not say " + missing + ".");
 				lambda.return_type = Type::of(TypeKind::Error);
 			}
-			for (Expr *value : inferred.partial) {
-				set(*value, lambda.return_type);
+			for (Expr *value : inferred.values) {
+				if (partial(value->type)) {
+					set(*value, lambda.return_type);
+				}
+				expect_scene_fits(*value, lambda.return_type);
 			}
 		}
 		if (lambda.return_type.kind != TypeKind::Void && !lambda.return_type.is_error() && !always_ends(lambda.body, false)) {
@@ -5985,6 +5992,7 @@ class Checker : public ClassRelation {
 				error(arg->range, "Cannot put a value of type " + type.to_string() + " in " + expected.to_string() + ".");
 			} else {
 				expect_implemented(*arg, type, element);
+				expect_scene_fits(*arg, element);
 			}
 		}
 		return set(r_expr, expected);
@@ -6014,7 +6022,13 @@ class Checker : public ClassRelation {
 			}
 			common = next;
 		}
-		return ok ? common : std::nullopt;
+		if (!ok) {
+			return std::nullopt;
+		}
+		for (size_t i = p_first; i < r_values.size(); i += p_step) {
+			expect_scene_fits(*r_values[i], *common);
+		}
+		return common;
 	}
 
 	// `{k: v}` takes its type from where it goes, as `[a, b]` does, or from
@@ -6055,11 +6069,13 @@ class Checker : public ClassRelation {
 				error(r_expr.args[i]->range, "The keys of " + expected.to_string() + " are " + entries->first.to_string() + ", not " + key.to_string() + ".");
 			} else {
 				expect_implemented(*r_expr.args[i], key, want_key);
+				expect_scene_fits(*r_expr.args[i], want_key);
 			}
 			if (!assignable(value, entries->second)) {
 				error(r_expr.args[i + 1]->range, "Cannot put a value of type " + value.to_string() + " in " + expected.to_string() + ".");
 			} else {
 				expect_implemented(*r_expr.args[i + 1], value, entries->second);
+				expect_scene_fits(*r_expr.args[i + 1], entries->second);
 			}
 		}
 		return set(r_expr, expected);
@@ -7531,12 +7547,20 @@ class Checker : public ClassRelation {
 		return false;
 	}
 
-	// A scene statically known that a variable or a parameter of a
-	// PackedScene[T] takes (spec §7.4), whose instantiate(...) then asks only
-	// for the members of T that must be assigned and are not exported. The
-	// scene may leave no other member to it.
+	// A scene statically known going to a PackedScene[T] that is not, whose
+	// instantiate(...) asks only for the members of T that must be assigned
+	// and are not exported (spec §7.4). The scene may leave no other member
+	// to it. A conditional not folded converts each branch.
 	void expect_scene_fits(const Expr &p_value, const Type &p_to) {
-		const std::optional<Scene> scene = is_typed_scene(p_to) ? known_scene(p_value) : std::nullopt;
+		if (!is_typed_scene(p_to)) {
+			return;
+		}
+		if (p_value.kind == ExprKind::Conditional && !p_value.constant) {
+			expect_scene_fits(*p_value.left, p_to);
+			expect_scene_fits(*p_value.right, p_to);
+			return;
+		}
+		const std::optional<Scene> scene = known_scene(p_value);
 		const std::string unfit = scene ? unfit_scene(*scene, p_to) : std::string();
 		if (!unfit.empty()) {
 			error(p_value.range, scene->path + " " + unfit);
@@ -7614,9 +7638,7 @@ class Checker : public ClassRelation {
 	void expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action) {
 		if (assignable(p_from, p_to)) {
 			expect_implemented(p_value, p_from, p_to);
-			if (std::strcmp(p_action, "assign") == 0 || std::strcmp(p_action, "pass") == 0) {
-				expect_scene_fits(p_value, p_to);
-			}
+			expect_scene_fits(p_value, p_to);
 			return;
 		}
 		std::string message = std::string("Cannot ") + p_action + " a value of type " + p_from.to_string() + " as " + p_to.to_string() + ".";
@@ -8475,11 +8497,8 @@ class Checker : public ClassRelation {
 						returns->bare = true;
 						return;
 					}
-					const Type value = check_value(*r_stmt.value, returns->expected);
-					if (partial(value)) {
-						returns->partial.push_back(r_stmt.value.get());
-					}
-					add_returned(value, r_stmt.value->range);
+					returns->values.push_back(r_stmt.value.get());
+					add_returned(check_value(*r_stmt.value, returns->expected), r_stmt.value->range);
 					return;
 				}
 				const Type expected = function->return_type;
