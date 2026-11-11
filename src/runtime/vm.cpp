@@ -3798,9 +3798,9 @@ const std::vector<StackFrame> &stack() {
 }
 
 #ifdef DEBUG_ENABLED
-// The latest frees of each thread, in a ring that allocates nothing to record
-// one. A free older than it holds, or on another thread, shows no place, as
-// AddressSanitizer forgets frees that left its quarantine.
+// The latest frees of a thread, in a ring that allocates nothing to record
+// one. A free older than it holds shows no place, as AddressSanitizer forgets
+// frees that left its quarantine.
 struct FreeSite {
 	uint64_t object = 0;
 	std::weak_ptr<const ClassImage> image; // Of the function.
@@ -3810,10 +3810,37 @@ struct FreeSite {
 };
 struct FreeSites {
 	static constexpr size_t SIZE = 4096;
+	std::mutex lock; // A lookup's; recording skips a free rather than wait.
 	std::array<FreeSite, SIZE> sites;
 	size_t recorded = 0;
+	std::atomic<bool> owned{ true }; // By a thread; one that ended leaves it to the next.
 };
-thread_local std::unique_ptr<FreeSites> free_sites;
+// Every thread's ring, which outlives the thread, so that frees on threads
+// that ended keep their places. The rings are never deleted, as a thread may
+// end after the library's statics.
+std::mutex free_rings_lock;
+std::vector<FreeSites *> free_rings;
+
+struct OwnRing {
+	FreeSites *sites = nullptr;
+	~OwnRing() {
+		if (sites) {
+			sites->owned.store(false, std::memory_order_release);
+		}
+	}
+};
+thread_local OwnRing own_ring;
+
+FreeSites *take_ring() {
+	std::lock_guard<std::mutex> guard(free_rings_lock);
+	for (FreeSites *ring : free_rings) {
+		bool owned = false;
+		if (ring->owned.compare_exchange_strong(owned, true, std::memory_order_acquire)) {
+			return ring;
+		}
+	}
+	return free_rings.emplace_back(new FreeSites());
+}
 #endif
 
 void record_free(uint64_t p_object, bool p_queued) {
@@ -3821,27 +3848,35 @@ void record_free(uint64_t p_object, bool p_queued) {
 	if (call_stack.empty()) {
 		return;
 	}
-	if (!free_sites) {
-		free_sites = std::make_unique<FreeSites>();
+	if (!own_ring.sites) {
+		own_ring.sites = take_ring();
+	}
+	FreeSites &ring = *own_ring.sites;
+	const std::unique_lock<std::mutex> locked(ring.lock, std::try_to_lock);
+	if (!locked) {
+		return;
 	}
 	const StackFrame &frame = call_stack.back();
-	free_sites->sites[free_sites->recorded++ % FreeSites::SIZE] = { p_object, frame.image->weak_from_this(), frame.function, frame.line, p_queued };
+	ring.sites[ring.recorded++ % FreeSites::SIZE] = { p_object, frame.image->weak_from_this(), frame.function, frame.line, p_queued };
 #endif
 }
 
 String freed_site(uint64_t p_object) {
 #ifdef DEBUG_ENABLED
-	const size_t recorded = free_sites ? free_sites->recorded : 0;
-	for (size_t i = 1; i <= std::min(recorded, FreeSites::SIZE); i++) {
-		const FreeSite &site = free_sites->sites[(recorded - i) % FreeSites::SIZE];
-		if (site.object != p_object) {
-			continue;
+	std::lock_guard<std::mutex> guard(free_rings_lock);
+	for (FreeSites *ring : free_rings) {
+		std::lock_guard<std::mutex> locked(ring->lock);
+		for (size_t i = 1; i <= std::min(ring->recorded, FreeSites::SIZE); i++) {
+			const FreeSite &site = ring->sites[(ring->recorded - i) % FreeSites::SIZE];
+			if (site.object != p_object) {
+				continue;
+			}
+			const std::shared_ptr<const ClassImage> image = site.image.lock();
+			if (!image) {
+				return String();
+			}
+			return vformat(site.queued ? " queue_free() was called on it at %s:%d in function '%s'." : " It was freed at %s:%d in function '%s'.", image->path, site.line, to_godot(site.function->name));
 		}
-		const std::shared_ptr<const ClassImage> image = site.image.lock();
-		if (!image) {
-			break;
-		}
-		return vformat(site.queued ? " queue_free() was called on it at %s:%d in function '%s'." : " It was freed at %s:%d in function '%s'.", image->path, site.line, to_godot(site.function->name));
 	}
 #endif
 	return String();

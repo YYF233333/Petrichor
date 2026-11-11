@@ -581,6 +581,8 @@ func _ready() -> void:
 	_check(c.deferred == 2, "Callable.call_deferred() with an argument runs at the end of the frame")
 	freer.call_queued()
 	_check_errors(["free_check.pet:48: The function value's object was freed. queue_free() was called on it at res://language/free_check.pet:45 in function 'queue'."], "an object deleted at the end of the frame shows where queue_free() was called")
+	freer.free_on_thread()
+	_check_errors(["free_check.pet:56: The object was freed. It was freed at res://language/free_check.pet:54 in function '<lambda>'."], "a free on a thread that has ended shows where")
 	freer.free()
 
 	var owned: TargetCheck = preload("res://language/owner.tscn").instantiate()

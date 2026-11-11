@@ -46,3 +46,11 @@ pub func queue(other: FreeCheck):
 
 pub func call_queued():
 	queued.call()
+
+# A thread that has ended keeps the places of its frees.
+pub func free_on_thread():
+	var other := Object.new()
+	var thread := Thread.new()
+	thread.start(func(): other.free())
+	thread.wait_to_finish()
+	other.get_class()
