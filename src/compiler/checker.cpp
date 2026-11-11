@@ -10713,6 +10713,27 @@ class Checker : public ClassRelation {
 		}
 	}
 
+	// Only this file and the files of subclasses assign a member that must be
+	// assigned and is not pub, so one of them must (spec §4.2). Code in them
+	// that may assign it counts.
+	void check_unassigned() {
+		std::set<std::string> assigned = assigned_names(*cls.source);
+		bool asked = false;
+		for (const VarDecl &member : cls.members) {
+			if (!member.must_assign || member.is_pub || member.is_static || assigned.count(member.name)) {
+				continue;
+			}
+			for (const std::string &file : asked ? std::vector<std::string>() : classes.subclasses(options.path)) {
+				const std::set<std::string> names = classes.assigned_in(file);
+				assigned.insert(names.begin(), names.end());
+			}
+			asked = true;
+			if (!assigned.count(member.name)) {
+				error(member.name_token, "\"" + member.name + "\" must be assigned and is not pub, but no code of this file or of a subclass assigns it.");
+			}
+		}
+	}
+
 	// Whether evaluating an expression may suspend, outside its lambdas.
 	static bool awaits(const Expr &p_expr) {
 		bool found = p_expr.kind == ExprKind::Await;
@@ -11752,6 +11773,7 @@ public:
 		// It needs what _init assigns, which only the check of its body finds.
 		if (check_bodies) {
 			check_ready_reads();
+			check_unassigned();
 		}
 		for (StructDecl &decl : cls.structs) {
 			structure = &decl;

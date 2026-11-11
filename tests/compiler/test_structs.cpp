@@ -46,7 +46,7 @@ TEST_CASE("structs compare field by field") {
 TEST_CASE("a struct starts at its default only when every field has one") {
 	CHECK(errors("var s: Settings\nprint(s.volume)", "var settings: Settings\n\n").empty());
 	CHECK(contains(errors("var h: Hit"), "\"h\" of type Shots.Hit needs an initial value"));
-	CHECK(errors("pass", "var last: Hit\n\n").empty()); // One that must be assigned (spec §6.2).
+	CHECK(errors("last = a", "var last: Hit\n\n").empty()); // One that must be assigned (spec §6.2).
 }
 
 TEST_CASE("a field's default value sees what a static method of the struct sees") {

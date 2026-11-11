@@ -6,7 +6,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 - Of `_init` on Node and Resource scripts (spec §6.2):
   - A scene or `.tres` using a script whose `_init` has required parameters is a compile error. Now the engine's construction gives the program error.
-- A must-assign member without pub that no code of its file or its subclasses writes (spec §4.2). It needs each file's list of the inherited members it writes, and the subclasses of a class.
 - Assignments by ancestors (spec §6.2), which the checker assumes without looking for them.
   - It takes a must-assign member of a node with an owner as one they assign. Exported members and those `_init` assigns are not.
   - The spec requires `$Child.target = v` or an `@onready` reference in their `_ready`. Without one, the member must be `T?`.

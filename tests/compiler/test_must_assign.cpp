@@ -8,7 +8,7 @@ using namespace petrichor::tests;
 // Members that must be assigned (spec §4.3, §6.2, §6.4).
 
 TEST_CASE("a member whose type has no default must be assigned, which is checked before it is read") {
-	const char *source = "extends Node3D\n\nstruct Hit:\n\tvar damage: int\n\nenum Mode { AIM = 1, FIRE = 2 }\nenum Order { HOLD, MOVE(to: Vector3) }\n\nvar target: Node3D\nvar last: Hit\nvar mode: Mode\nvar order: Order\nvar on_fire: func(int)\nvar aimed: Node3D?\n\nfunc aim() -> float:\n\ttarget = Node3D.new()\n\treturn target.position.x\n";
+	const char *source = "extends Node3D\n\nstruct Hit:\n\tvar damage: int\n\nenum Mode { AIM = 1, FIRE = 2 }\nenum Order { HOLD, MOVE(to: Vector3) }\n\nvar target: Node3D\nvar last: Hit\nvar mode: Mode\nvar order: Order\nvar on_fire: func(int)\nvar aimed: Node3D?\n\nfunc aim() -> float:\n\ttarget = Node3D.new()\n\treturn target.position.x\n\nfunc configure(hit: Hit, m: Mode, o: Order, f: func(int)) -> void:\n\tlast = hit\n\tmode = m\n\torder = o\n\ton_fire = f\n";
 	const compiler::CompileResult result = compile(source);
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	std::string error;
@@ -178,6 +178,25 @@ TEST_CASE("an export that the _init of a base in another file assigns needs no v
 	project.main = level.path;
 	CHECK(check_scenes_in("extends Archer\n", project).errors.empty());
 	CHECK(contains(messages(check_scenes_in("extends Archer\n\nfunc _init():\n\tpass\n", project)), "res://level.tscn: Archer has no value for \"bow\", an export that must be assigned."));
+}
+
+TEST_CASE("code of its file or of a subclass's assigns a member that must be assigned and is not pub (spec §4.2)") {
+	const std::string source = "class_name Gun\nextends Node\n\nvar holder: Node\n";
+	FakeProject project;
+	project.add_script("res://test.pet", source, "Gun");
+	const compiler::CompileResult nowhere = compile_in(source, project);
+	REQUIRE(nowhere.errors.size() == 1);
+	CHECK(nowhere.errors[0].message == "\"holder\" must be assigned and is not pub, but no code of this file or of a subclass assigns it.");
+	CHECK((nowhere.errors[0].line == 4 && nowhere.errors[0].column == 5));
+	CHECK(messages(compile_in(source + "\nfunc arm(unit: Node) -> void:\n\tholder = unit\n", project)).empty());
+	// Another file may not give it by name.
+	FakeProject named = project;
+	named.add_script("res://armory.pet", "extends Node\n\nfunc f() -> void:\n\tadd_child(Gun.new(holder = self))\n");
+	CHECK(contains(messages(compile_in(source, named)), "\"holder\" must be assigned and is not pub"));
+	// A subclass of a subclass, an inner class of another file.
+	project.add_script("res://rifle.pet", "extends Gun\n");
+	project.add_script("res://units.pet", "class_name Units\nextends Node\n\nclass Sniper extends \"res://rifle.pet\":\n\tfunc _init():\n\t\tholder = Node.new()\n", "Units");
+	CHECK(messages(compile_in(source, project)).empty());
 }
 
 namespace {

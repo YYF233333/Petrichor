@@ -58,7 +58,7 @@ TEST_CASE("an enum's name as a value is a read-only Dictionary typed by the enum
 TEST_CASE("an enum without the value 0 has no default value (spec §3.7, §4.3)") {
 	CHECK(errors("var t: State\nvar o: Other", "var state: State\n\n").empty());
 	CHECK(contains(errors("var l: Level"), "\"l\" needs an initial value: Level has no value 0 to start at."));
-	CHECK(errors("pass", "var level: Level\n\n").empty()); // A member that must be assigned (spec §6.2).
+	CHECK(errors("level = Level.HARD", "var level: Level\n\n").empty()); // A member that must be assigned (spec §6.2).
 	CHECK(errors("pass", "var level := Level.EASY\n\n").empty());
 }
 

@@ -189,6 +189,16 @@ uint64_t declaration_hash(const std::optional<std::string> &p_source) {
 	return hash.value;
 }
 
+std::set<std::string> assigned_names(const SourceFile &p_source) {
+	std::set<std::string> names;
+	for (size_t i = 0; i + 1 < p_source.tokens.size(); i++) {
+		if (p_source.tokens[i].kind == TokenKind::Identifier && p_source.tokens[i + 1].kind == TokenKind::Equal) {
+			names.insert(p_source.tokens[i].text);
+		}
+	}
+	return names;
+}
+
 void Reads::merge(const Reads &p_other) {
 	scripts.insert(p_other.scripts.begin(), p_other.scripts.end());
 	answers.insert(p_other.answers.begin(), p_other.answers.end());
@@ -582,6 +592,35 @@ std::vector<Scene> ScriptClasses::scenes_instancing(const std::string &p_scene) 
 		return r_classes.scenes_where([&](const Scene &p_each) {
 			return p_each.base == p_scene || std::any_of(p_each.nodes.begin(), p_each.nodes.end(), [&](const SceneNode &p_node) { return p_node.instance == p_scene; });
 		});
+	});
+}
+
+std::vector<std::string> ScriptClasses::subclasses(const std::string &p_class) {
+	return answer<std::vector<std::string>>("subclasses of " + p_class, [p_class](ScriptClasses &r_classes) {
+		std::vector<std::string> found;
+		for (const std::string &file : r_classes.sources ? r_classes.sources->script_paths() : found) {
+			std::vector<std::pair<const ClassDecl *, std::string>> in_file;
+			if (is_script_path(file) && file != script_file(p_class)) {
+				in_file.emplace_back(r_classes.file_header(file), file);
+			}
+			for (size_t i = 0; i < in_file.size() && in_file[i].first; i++) {
+				if (r_classes.is_or_extends(in_file[i].second, p_class)) {
+					found.push_back(file);
+					break;
+				}
+				for (const std::unique_ptr<ClassDecl> &inner : in_file[i].first->classes) {
+					in_file.emplace_back(inner.get(), in_file[i].second + "::" + inner->name);
+				}
+			}
+		}
+		return found;
+	});
+}
+
+std::set<std::string> ScriptClasses::assigned_in(const std::string &p_file) {
+	return recorded.ask<std::set<std::string>>("names assigned in " + p_file, [p_file](const ProjectApi &p_project) {
+		std::vector<Diagnostic> ignored;
+		return assigned_names(*tokenize(p_project.script_source(p_file).value_or(std::string()), ignored));
 	});
 }
 

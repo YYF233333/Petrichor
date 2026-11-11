@@ -517,6 +517,9 @@ struct 和带载荷 enum 的成员可以 `@export`，存进场景和 `.tres`（�
   - 挂载它的场景，及逐层实例化这些场景的场景，供 `$X` 定型（规范 §7.1）；
   - 它的子类，供不带 `pub` 的必须赋值成员（规范 §4.2）。
 - 编译器从项目列出的场景和各脚本的基类路径算出挂载它的场景（`ScriptClasses::scenes_with_script`）。
+- 子类也由各脚本的基类路径算出（`ScriptClasses::subclasses`）。
+  - 各文件用 `=` 赋值的名字按 token 找出，局部变量和具名实参也算（`ScriptClasses::assigned_in`）。
+  - 多算一处赋值只会少报错误，不会误报。
 - 资源检查问的反向问题，如场景是否被当作根使用、是否无人引用，也只查这些索引。
   - 当作根使用的场景（`ScriptClasses::root_use`）：主场景，`.pet` 和 `.gd` 中字面量路径 `preload` 和 `load` 的场景，以及场景的节点属性存的场景。
   - GDScript 的 `get_dependencies` 不列出 `preload`，所以按 token 找这些调用（`modules/gdscript/gdscript_resource_format.cpp:88`，`gdscript_parser.h:1647-1650`）。
