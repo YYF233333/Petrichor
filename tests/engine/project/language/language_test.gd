@@ -758,6 +758,7 @@ func _ready() -> void:
 	var shot = shot_script.new()
 	_check(shot.get_script() == shot_script and shot.boosted() == 12, "an object of an inner class has its script")
 	var inner_file: Script = load("res://language/inner_check.pet")
+	_check(inner.global_scripts() == [inner_file, LambdaCheck], "a class_name as a value is its script")
 	_check(inner_file.get_script_constant_map().get("Shot") == shot_script and not inner_file.get_script_constant_map().has("Trail") and inner_file.get("Shot") == shot_script and InnerCheck.Shot == shot_script, "a pub inner class is a constant of the class around it, which GDScript reads (spec §10.5)")
 	var trail_node := Node.new()
 	inner.attach(trail_node)

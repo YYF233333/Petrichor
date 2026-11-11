@@ -203,6 +203,17 @@ TEST_CASE("an inner class is a script as a value") {
 	CHECK(result.module.classes[f.code[get + 1]].script == "res://test.pet::Shot");
 }
 
+TEST_CASE("a class_name is a script as a value, as an inner class is (spec §2.1)") {
+	FakeProject project;
+	project.add_script("res://weapon.pet", "class_name Weapon extends RefCounted\n", "Weapon");
+	const auto result = compile_in("class_name Holder extends Node\nfunc f() -> Array[Script]:\n\treturn [Weapon, Holder]\n", project);
+	require_verified(result);
+	const bytecode::Function &f = function_named(result.module, "f");
+	const size_t get = find_instruction(f, Op::GET_SCRIPT);
+	REQUIRE(get < f.code.size());
+	CHECK(result.module.classes[f.code[get + 1]].script == "res://weapon.pet");
+}
+
 TEST_CASE("an inner class extends one of its file, one of another class, or the class around it") {
 	require_verified(compile_in(R"(class_name Weapon extends RefCounted
 class Shot:

@@ -654,15 +654,16 @@ class Checker : public ClassRelation {
 		return p_expr.kind == ExprKind::Member && p_expr.base ? first_name_token(*p_expr.base) : p_expr.name_token;
 	}
 
-	// An inner class as a value: its script, which has no path of its own to
-	// preload (spec §2.1, §4.1).
+	// A class of this language as a value: its script, which for an inner
+	// class has no path of its own to preload (spec §2.1, §4.1).
 	Type class_value(Expr &r_expr, const std::string &p_path) {
 		const ClassDecl *header = script_header(p_path);
 		if (!header) {
 			return fail(r_expr, p_path + " cannot be read.");
 		}
 		refer(r_expr.name_token, script_id(p_path));
-		if (!header->is_pub && !sees(p_path.substr(0, p_path.rfind("::")))) {
+		const size_t inner = p_path.rfind("::");
+		if (inner != std::string::npos && !header->is_pub && !sees(p_path.substr(0, inner))) {
 			return fail(r_expr, display_name(*header, p_path) + " is not pub.");
 		}
 		r_expr.target = Target::ClassScript;
@@ -2266,6 +2267,15 @@ class Checker : public ClassRelation {
 	// language or another (spec §2.1, §11.1): through a constant of a preload
 	// of its script, the preload itself, or its class_name when nothing closer
 	// has the name; nullopt for any other base, and Error after reporting.
+	// The file whose class_name the name is: this one, or another of the
+	// project; empty if none.
+	std::string class_name_path(const std::string &p_name) const {
+		if (!cls.class_name.empty() && p_name == cls.class_name) {
+			return options.path;
+		}
+		return options.project ? options.project->global_class_path(p_name) : std::string();
+	}
+
 	std::optional<Type> named_class(Expr &r_base) {
 		if (r_base.kind == ExprKind::Call && !r_base.base && r_base.text == "preload") {
 			if (!is_script_file(preload_file(preload_path(r_base)))) {
@@ -2308,8 +2318,7 @@ class Checker : public ClassRelation {
 			refer(r_base.name_token, script_id(inner));
 			return script_class_type(*script_header(inner), inner);
 		}
-		const bool own = !cls.class_name.empty() && r_base.text == cls.class_name;
-		const std::string path = own ? options.path : (options.project ? options.project->global_class_path(r_base.text) : std::string());
+		const std::string path = class_name_path(r_base.text);
 		if (path.empty()) {
 			return std::nullopt;
 		}
@@ -2660,6 +2669,10 @@ class Checker : public ClassRelation {
 			r_expr.target = Target::Autoload;
 			refer(r_expr.name_token, autoload_id(r_expr.text));
 			return set(r_expr, *autoload);
+		}
+		const std::string global = class_name_path(r_expr.text);
+		if (is_script_path(global)) {
+			return class_value(r_expr, global);
 		}
 		// GDScript's own constants, which declarations can hide, as in GDScript
 		// (modules/gdscript/gdscript.cpp:2154-2157, gdscript_tokenizer.cpp:202-207; ed1daf0).

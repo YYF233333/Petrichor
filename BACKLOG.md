@@ -5,7 +5,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 ## Language
 
 - Before step 7 is accepted, the gaps of the third coverage rerun that the spec has decided (docs/surveys/implementation-coverage.md):
-  - a `class_name` as a value, as inner classes and preloaded constants already are;
   - `instance_from_id()`, `Callable.get_object()` and `Signal.get_object()`, refused for returning `Object?`;
   - `$"/root/X"` when `X` is no autoload, typed `Node` as `get_node()` is (spec §7.3).
 - Of `_init` on Node and Resource scripts (spec §6.2):

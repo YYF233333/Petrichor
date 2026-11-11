@@ -51,6 +51,11 @@ pub func shot_script() -> Script:
 	return Shot
 
 
+# A class_name is a script as a value too (spec §2.1).
+pub func global_scripts() -> Array[Script]:
+	return [InnerCheck, LambdaCheck]
+
+
 pub func attach(node: Node) -> void:
 	node.set_script(Trail)
 
