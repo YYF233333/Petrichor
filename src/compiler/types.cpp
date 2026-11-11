@@ -259,9 +259,43 @@ Conversion conversion(const Type &p_from, const Type &p_to, const ClassRelation 
 	if (is_typed_container(p_from) && !is_boxed(p_from) && p_to.kind == TypeKind::Builtin && p_to.args.empty() && p_to.name == p_from.name) {
 		return C::Same;
 	}
-	// Not T?? nor Variant?, whose None a Variant cannot tell from the null inside.
-	const bool nested = p_from.kind == TypeKind::Option && (p_from.args[0].is_optional() || p_from.args[0].kind == TypeKind::Variant);
-	return p_to.kind == TypeKind::Variant && p_from.is_storable() && !nested && !(is_typed_container(p_from) && is_boxed(p_from)) ? C::ToVariant : C::None;
+	return p_to.kind == TypeKind::Variant && p_from.is_storable() && !(is_typed_container(p_from) && is_boxed(p_from)) && !lost_in_encoding(p_from, p_classes) ? C::ToVariant : C::None;
+}
+
+static std::optional<Type> lost_in_encoding(const Type &p_type, const ClassRelation &p_classes, bool p_copied, std::vector<Type> &r_seen) {
+	if (p_type.kind == TypeKind::Option && (p_type.args[0].is_optional() || p_type.args[0].kind == TypeKind::Variant)) {
+		return p_type;
+	}
+	std::vector<Type> parts;
+	if (p_type.kind == TypeKind::Option || (p_copied && is_typed_container(p_type))) {
+		parts = p_type.args;
+	} else if (p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum) {
+		// A struct may hold itself through a container (spec §3.6).
+		if (std::find(r_seen.begin(), r_seen.end(), p_type) != r_seen.end()) {
+			return std::nullopt;
+		}
+		r_seen.push_back(p_type);
+		p_copied = true;
+		if (p_type.kind == TypeKind::Struct) {
+			parts = p_classes.fields(p_type);
+		}
+		for (size_t v = 0; p_type.kind == TypeKind::PayloadEnum && p_type.values && v < p_type.values->fields.size(); v++) {
+			for (const auto &[name, type] : p_type.values->fields[v]) {
+				parts.push_back(type);
+			}
+		}
+	}
+	for (const Type &part : parts) {
+		if (std::optional<Type> lost = lost_in_encoding(part, p_classes, p_copied, r_seen)) {
+			return lost;
+		}
+	}
+	return std::nullopt;
+}
+
+std::optional<Type> lost_in_encoding(const Type &p_type, const ClassRelation &p_classes, bool p_copied) {
+	std::vector<Type> seen;
+	return lost_in_encoding(p_type, p_classes, p_copied, seen);
 }
 
 bool is_assignable(const Type &p_from, const Type &p_to, const ClassRelation &p_classes) {

@@ -214,11 +214,26 @@ TEST_CASE("T?? keeps both levels, and each step peels one (spec §3.4)") {
 	CHECK(contains(type_of("Some(None)"), "Some(None) does not say which type it holds"));
 	CHECK(contains(type_of("c.flatten()", "var c: int? = 2"), "int? has no method \"flatten()\", which makes a T?? into a T?."));
 	CHECK(has_error(in_function("var r: int?? = 1\nvar v: Variant = r"), "A Variant cannot tell its None from Some(None); pass x.flatten()."));
-	// The engine would see None and Some(None) alike (spec §10.1).
-	CHECK(has_error("extends Node\npub var r: int??\n", "The pub \"r\" has type int??, which cannot cross to the engine yet"));
+	CHECK(errors_of("extends Node\nvar r: int??\n\nfunc f(x: Node??) -> int??:\n\treturn r\n").empty());
+}
+
+TEST_CASE("T?? and Variant? do not cross the engine, at any depth of encoding (spec §10.1)") {
+	const std::string head = "class_name Shots\nextends Node\n\nstruct Hit:\n\tvar r: int??\nstruct Tree:\n\tvar kids: Array[Tree]\n\tvar v: Variant?\nenum Order { HOLD, MOVE(to: Vector3?) }\n\n";
+	CHECK(has_error("extends Node\npub var r: int??\n", "The pub \"r\" has type int??, but the engine cannot tell its None from Some(None)."));
+	CHECK(has_error("extends Node\npub const R: int?? = None\n", "The pub \"R\" has type int??"));
+	CHECK(has_error("extends Node\npub var v: Variant?\n", "The pub \"v\" has type Variant?, but the engine cannot tell its None from null."));
 	CHECK(has_error("extends Node\nsignal hit(r: Node??)\n", "The parameter \"r\" of the signal \"hit\" has type Node??"));
 	CHECK(has_error("extends Node\n\nasync func f() -> int??:\n\treturn None\n", "\"f()\" returns int??"));
-	CHECK(errors_of("extends Node\nvar r: int??\n\nfunc f(x: Node??) -> int??:\n\treturn r\n").empty());
+	CHECK(has_error(head + "pub func f() -> Hit?:\n\treturn None\n", "\"f()\" returns Shots.Hit?, but the engine cannot tell the None of the int?? inside from Some(None)."));
+	CHECK(has_error(head + "signal grew(t: Tree)\n", "has type Shots.Tree, but the engine cannot tell the None of the Variant? inside from null."));
+	CHECK(has_error(head + "func f(h: Hit) -> void:\n\tvar v: Variant = h\n", "Cannot assign a value of type Shots.Hit as Variant. A Variant cannot tell the None of the int?? inside from Some(None)."));
+	CHECK(has_error(head + "func f(r: Result[Variant?, String]) -> void:\n\tprint(r)\n", "the None of the Variant? inside from null"));
+	CHECK(has_error(head + "func f(a: Array[int??]) -> void:\n\tprint(Array(a))\n", "Array(x) encodes Array[int??], but the engine cannot tell the None of the int?? inside from Some(None)."));
+	CHECK(has_error(head + "func f() -> void:\n\tvar g := async func() -> Variant?:\n\t\treturn None\n", "The lambda returns Variant?, but the engine cannot tell its None from null."));
+	CHECK(has_error(head + "func f(r: int??) -> void:\n\tvar g := func(x: int??) -> void:\n\t\tpass\n\tvar h := g.bind(r)\n", "bind() keeps a value of type int??, but the engine cannot tell its None from Some(None)."));
+	// Encoding copies the containers of a struct; others pass in boxes.
+	CHECK(has_error(head + "struct Hits:\n\tvar all: Array[Hit]\n\nfunc f(h: Hits) -> void:\n\tprint(h)\n", "the None of the int?? inside"));
+	CHECK(errors_of(head + "struct Branch:\n\tvar kids: Array[Branch]\n\tvar n: int?\n\npub var hits: Array[int??]\nsignal moved(o: Order, a: Array[Variant?])\n\nfunc f(b: Branch, o: Order) -> void:\n\tvar v: Variant = o\n\tprint(b, Array(b.kids))\n\nasync func g() -> Array[Hit]:\n\treturn []\n").empty());
 }
 
 TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec §3.8)") {

@@ -176,7 +176,16 @@ public:
 	virtual ~ClassRelation() = default;
 	// Whether every object of class `p_from` is a `p_to`; nullability aside.
 	virtual bool is_a(const Type &p_from, const Type &p_to) const = 0;
+	// The types of a struct's fields; none when they are not known.
+	virtual std::vector<Type> fields(const Type &) const { return {}; }
 };
+
+// The T?? or Variant? that a value of the type loses as the engine sees it
+// (spec §10.1): its None and the null inside are both null there. Encoding
+// copies the containers in a struct or an enum with payloads, and the
+// container itself when `p_copied`, as `Array(hits)` does; others pass as
+// they are, their elements in boxes.
+std::optional<Type> lost_in_encoding(const Type &p_type, const ClassRelation &p_classes, bool p_copied = false);
 
 // How a value of one type becomes one of another where it is expected (spec
 // §3.14), which the checker allows and lowering does.

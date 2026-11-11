@@ -915,6 +915,16 @@ class Checker : public ClassRelation {
 		return engine.inherits(p_from.engine_class(), p_to.name);
 	}
 
+	std::vector<Type> fields(const Type &p_struct) const override {
+		std::vector<Type> types;
+		if (const StructDecl *decl = struct_decl(p_struct)) {
+			for (const VarDecl &field : decl->fields) {
+				types.push_back(field.type);
+			}
+		}
+		return types;
+	}
+
 	// Whether an object can be both: `is` and `as` between them are not always false.
 	bool related(const Type &p_a, const Type &p_b) const {
 		return is_a(p_a, p_b) || is_a(p_b, p_a) || p_a.is_interface || p_b.is_interface;
@@ -3924,11 +3934,7 @@ class Checker : public ClassRelation {
 		// (spec §5.1, §10.1).
 		if (p_op == TokenKind::Percent && is_format_string(p_left)) {
 			if (!assignable(p_right, Type::of(TypeKind::Variant))) {
-				std::string message = "Cannot format a value of type " + p_right.to_string() + ".";
-				if (is_typed_container(p_right) && is_boxed(p_right)) {
-					message += " Its elements exist only in this language; convert it explicitly with " + p_right.name + "(x), a copy with the elements encoded.";
-				}
-				error(p_at, message);
+				error(p_at, "Cannot format a value of type " + p_right.to_string() + "." + variant_refusal(p_right));
 				return Type::of(TypeKind::Error);
 			}
 			return Type::of(TypeKind::String);
@@ -5093,6 +5099,10 @@ class Checker : public ClassRelation {
 		}
 		if (args.size() == 1 && args[0].name == name && is_typed_container(args[0]) && is_boxed(args[0])) {
 			// An untyped copy with the elements encoded (spec §3.8, §10.1).
+			const std::string loss = encoding_loss(args[0], "the engine", false, true);
+			if (!loss.empty()) {
+				return fail(r_expr, name + "(x) encodes " + args[0].to_string() + ", but " + loss);
+			}
 			r_expr.param_types.push_back(args[0]);
 			r_expr.target = Target::Encode;
 			return set(r_expr, Type::builtin(name));
@@ -5407,6 +5417,13 @@ class Checker : public ClassRelation {
 		const std::vector<Type> rest(p_function.args.begin() + 1, p_function.args.end() - bound);
 		const std::vector<Type> bound_params(p_function.args.end() - bound, p_function.args.end());
 		check_arguments(r_expr, bound_params, int(bound), false);
+		// The engine's Callable keeps them as Variants.
+		for (size_t i = 0; i < bound; i++) {
+			const std::string loss = encoding_loss(bound_params[i], "the engine", false);
+			if (!loss.empty()) {
+				error(r_expr.args[i]->range, "bind() keeps a value of type " + bound_params[i].to_string() + ", but " + loss);
+			}
+		}
 		r_expr.target = Target::BindArguments;
 		refer(r_expr.name_token, engine_id("Callable", "bind"));
 		Type type = Type::function(p_function.args[0], rest);
@@ -5501,6 +5518,11 @@ class Checker : public ClassRelation {
 		}
 		if (lambda.return_type.kind != TypeKind::Void && !lambda.return_type.is_error() && !always_ends(lambda.body, false)) {
 			error(r_expr.range, "Not all paths of " + (lambda.name.empty() ? std::string("the lambda") : "the lambda \"" + lambda.name + "\"") + " return a value.");
+		}
+		// Its task keeps the result as the engine does (§9.8).
+		const std::string loss = lambda.is_async ? encoding_loss(lambda.return_type, "the engine", false) : std::string();
+		if (!loss.empty()) {
+			error(r_expr.range, function_label() + " returns " + lambda.return_type.to_string() + ", but " + loss);
 		}
 		Enclosing &outer = enclosing.back();
 		function = outer.function;
@@ -7476,6 +7498,36 @@ class Checker : public ClassRelation {
 		return std::string();
 	}
 
+	// Why the engine would lose a None of a value of the type (spec §10.1), as
+	// a sentence whose subject is `p_who`; empty when it would not. With
+	// `p_fix`, a T?? or Variant? itself is given the call that makes it fit.
+	std::string encoding_loss(const Type &p_type, const std::string &p_who, bool p_fix, bool p_copied = false) const {
+		const std::optional<Type> lost = lost_in_encoding(p_type, *this, p_copied);
+		if (!lost) {
+			return std::string();
+		}
+		const bool variant = lost->args[0].kind == TypeKind::Variant;
+		const bool whole = *lost == p_type;
+		std::string text = p_who + " cannot tell " + (whole ? std::string("its None") : "the None of the " + lost->to_string() + " inside") + " from " + (variant ? "null" : "Some(None)");
+		if (whole && p_fix) {
+			text += variant ? "; pass x.unwrap_or(null)" : "; pass x.flatten()";
+		}
+		return text + ".";
+	}
+
+	// Why a value of the type does not go to a Variant or an untyped container
+	// as it is (spec §3.14), after the error that says so.
+	std::string variant_refusal(const Type &p_type) const {
+		const std::string loss = encoding_loss(p_type, "A Variant", true);
+		if (!loss.empty()) {
+			return " " + loss;
+		}
+		if (is_typed_container(p_type) && is_boxed(p_type)) {
+			return " Its elements exist only in this language; convert it explicitly with " + p_type.name + "(x), a copy with the elements encoded.";
+		}
+		return std::string();
+	}
+
 	void expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action) {
 		if (assignable(p_from, p_to)) {
 			expect_implemented(p_value, p_from, p_to);
@@ -7493,17 +7545,11 @@ class Checker : public ClassRelation {
 			message += " Convert explicitly with " + name + "(x), which checks that it is one of the values.";
 		}
 		const bool untyped_view = p_to.kind == TypeKind::Builtin && p_to.args.empty() && p_to.name == p_from.name;
-		if ((p_to.kind == TypeKind::Variant || untyped_view) && is_typed_container(p_from) && is_boxed(p_from)) {
-			message += " Its elements exist only in this language; convert it explicitly with " + p_from.name + "(x), a copy with the elements encoded.";
+		if (p_to.kind == TypeKind::Variant || untyped_view) {
+			message += variant_refusal(p_from);
 		}
 		if (p_from.kind == TypeKind::Variant) {
 			message += variant_hint(p_to.unwrapped());
-		}
-		if (p_to.kind == TypeKind::Variant && p_from == Type::option(Type::of(TypeKind::Variant))) {
-			message += " A Variant cannot tell its None from null; pass x.unwrap_or(null).";
-		}
-		if (p_to.kind == TypeKind::Variant && p_from.kind == TypeKind::Option && p_from.args[0].is_optional()) {
-			message += " A Variant cannot tell its None from Some(None); pass x.flatten().";
 		}
 		if (is_typed_container(p_to) && p_from.kind == TypeKind::Builtin && p_from.args.empty() && p_from.name == p_to.name) {
 			message += " Its elements may be of any type; narrow it with `if x is " + p_to.to_string() + ":`, or copy them in with assign().";
@@ -10371,13 +10417,14 @@ class Checker : public ClassRelation {
 		}
 	}
 
-	// T?? where the engine sees the value (spec §10.1): None and Some(None)
-	// would both be null there. Pub members and functions, signals, which
+	// Types whose None the engine would lose where it sees the value (spec
+	// §10.1): of pub members, constants and functions, of signals, which
 	// always pass through the engine, and what coroutines return (§9.8).
 	void check_engine_options() {
 		const auto check = [&](uint32_t p_token, const std::string &p_what, const Type &p_type) {
-			if (p_type.kind == TypeKind::Option && p_type.args[0].is_optional()) {
-				error(p_token, p_what + " " + p_type.to_string() + ", which cannot cross to the engine yet: None and Some(None) would both be null there.");
+			const std::string loss = encoding_loss(p_type, "the engine", false);
+			if (!loss.empty()) {
+				error(p_token, p_what + " " + p_type.to_string() + ", but " + loss);
 			}
 		};
 		for (const std::vector<VarDecl> *variables : { &cls.members, &cls.static_vars }) {
@@ -10385,6 +10432,11 @@ class Checker : public ClassRelation {
 				if (variable.is_pub) {
 					check(variable.name_token, "The pub \"" + variable.name + "\" has type", variable.type);
 				}
+			}
+		}
+		for (const ConstDecl &constant : cls.constants) {
+			if (constant.is_pub) {
+				check(constant.name_token, "The pub \"" + constant.name + "\" has type", constant.type);
 			}
 		}
 		for (const FuncDecl &function : cls.functions) {
