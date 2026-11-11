@@ -130,14 +130,13 @@ constexpr int MAX_DEPTH = 100;
 // engine stops its own walks is a program error (§3.6). While a function of
 // this language runs on the thread, the walk is left for the VM to report
 // (walked_too_deep()), and every walk ends at once until then. A walk that
-// the engine starts on its own, and a copy, which that rule leaves out, get
-// the engine's error and the result it gives at that depth
-// (core/variant/array.cpp:149-153, 195-199).
+// the engine starts on its own gets the engine's error and the result it
+// gives at that depth (core/variant/array.cpp:149-153, 195-199).
 thread_local int box_depth = 0;
 thread_local bool walk_failed = false;
 
-void walked_past(bool p_copy) {
-	if (p_copy || vm::stack().empty()) {
+void walked_past() {
+	if (vm::stack().empty()) {
 		ERR_PRINT("Max recursion reached");
 	} else if (!walk_failed) {
 		walk_failed = true;
@@ -148,10 +147,10 @@ void walked_past(bool p_copy) {
 class BoxLevel {
 public:
 	const bool too_deep;
-	explicit BoxLevel(bool p_copy = false) :
+	BoxLevel() :
 			too_deep(++box_depth > MAX_DEPTH || walk_failed) {
 		if (too_deep && !walk_failed) {
-			walked_past(p_copy);
+			walked_past();
 		}
 	}
 	~BoxLevel() { box_depth--; }
@@ -1298,7 +1297,7 @@ uint32_t hash_of(const TypeImage &p_type, const uint8_t *p_slot) {
 // A Dictionary's entries in any order, as `==` compares them (spec §5.2).
 uint32_t hash_contents(const Variant &p_value, int p_depth) {
 	if (p_depth > MAX_DEPTH) {
-		walked_past(false);
+		walked_past();
 		return 0;
 	}
 	if (const Box *box = as_box(p_value)) {
@@ -1403,13 +1402,14 @@ using Copies = std::optional<std::unordered_map<uint64_t, Variant>>;
 // with `p_mode` for duplicate_deep()), or for frozen_copy() (`p_freeze`),
 // since make_read_only() leaves inner containers alone and cannot be undone
 // (core/variant/array.cpp:938-942, core/variant/dictionary.cpp:599-603).
-// A container that holds itself gets a copy that holds itself. A frozen copy
-// shares what the value shares; deep_copy() copies a container once for each
-// place that holds it, as duplicate(true) does (core/variant/array.cpp:553-555).
+// A frozen copy shares what the value shares, and holds itself where the
+// value does. deep_copy() copies a container once for each place that holds
+// it, as duplicate(true) does (core/variant/array.cpp:553-555); one that holds
+// itself has no end to copy (spec §3.6).
 static Variant copy_containers(const Variant &p_value, int64_t p_mode, bool p_freeze, Copies &r_copies) {
 	if (const Box *box = as_box(p_value)) {
 		const TypeImage &type = box->type->type();
-		const BoxLevel level(true);
+		const BoxLevel level;
 		if (level.too_deep || (!box->type->holds_containers && (p_freeze ? box->is_key : p_mode < 0))) {
 			return p_value;
 		}
@@ -1444,6 +1444,9 @@ static Variant copy_containers(const Variant &p_value, int64_t p_mode, bool p_fr
 	auto &copies = r_copies ? *r_copies : r_copies.emplace();
 	const uint64_t id = object_id_of(p_value);
 	if (const auto found = copies.find(id); found != copies.end()) {
+		if (!p_freeze) {
+			walked_past();
+		}
 		return found->second;
 	}
 	Variant result;

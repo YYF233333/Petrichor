@@ -343,8 +343,8 @@ pub func recursive() -> String:
 
 
 # A value nested more than 100 levels deep is not compared, hashed, shown,
-# encoded or decoded (spec §3.6).
-pub func deep(depth: int, decoded: bool) -> bool:
+# encoded, decoded or deep-copied (spec §3.6).
+pub func deep(depth: int, walk: String) -> bool:
 	var a := Twig(name = "a")
 	var b := Twig(name = "a")
 	var encoded: Variant = {"name": "a", "children": []}
@@ -352,19 +352,23 @@ pub func deep(depth: int, decoded: bool) -> bool:
 		a = Twig(name = "a", children = [a])
 		b = Twig(name = "a", children = [b])
 		encoded = {"name": "a", "children": [encoded]}
-	if decoded:
+	if walk == "decode":
 		return Twig.try_from(encoded).ok() != None
+	if walk == "copy":
+		return a.children.duplicate(true).size() == 1
 	return a.children == b.children
 
 # Nor is one that holds itself through a container it shares.
 var tangled: Array[Twig] = []
 
-pub func endless(hashed: bool) -> String:
+pub func endless(walk: String) -> String:
 	var a := Twig(name = "c", children = tangled)
 	tangled.append(a)
-	if hashed:
+	if walk == "hash":
 		var keyed: Dictionary[Twig, int] = {a: 1}
 		return str(keyed.size())
+	if walk == "copy":
+		return str(tangled.duplicate(true).size())
 	return str(a)
 
 pub func untangle() -> void:
