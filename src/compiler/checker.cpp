@@ -9599,11 +9599,11 @@ class Checker : public ClassRelation {
 	}
 
 	// Connections saved in scenes to methods of this class (spec §7.7), on a
-	// node with it, also one inside a scene it instances, or on an instance of
-	// a scene whose root has it: the method
-	// must exist and take what the signal passes. The engine finds the method
-	// and the signal by name, so both must be pub (§10.5). A method of the
-	// engine class that is not virtual is found so too.
+	// node with it or on an instance of a scene whose root has it; either end
+	// may be inside a scene it instances. The method must exist and take what
+	// the signal passes. The engine finds the method and the signal by name,
+	// so both must be pub (§10.5). A method of the engine class that is not
+	// virtual is found so too.
 	void check_connections() {
 		const TokenRange header{ cls.extends_token, cls.extends_token };
 		for (const Scene &scene : scenes) {
@@ -9631,10 +9631,10 @@ class Checker : public ClassRelation {
 					reference.connection = connection;
 					references->push_back(std::move(reference));
 				}
-				const SceneNode *source = scene.find_node(connection.source);
+				const ViewNode *source = view_node(scene, connection.source);
 				bool missing = false;
 				bool hidden = false;
-				const std::optional<std::vector<Type>> arguments = source ? signal_arguments(*source, connection.signal, missing, hidden) : std::nullopt;
+				const std::optional<std::vector<Type>> arguments = source ? signal_arguments(source->node, connection.signal, missing, hidden) : std::nullopt;
 				if (missing) {
 					error_in_scene(header, scene, connection.target, where + ", but " + connection.source + " has no such signal.");
 				} else if (hidden) {

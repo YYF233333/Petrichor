@@ -111,6 +111,11 @@ TEST_CASE("signal arguments must fit the connected method's parameters") {
 	// The parameters of a method of the engine class too.
 	project.scenes[0].connections[0].method = "set_process";
 	CHECK(contains(messages(check_scenes_in("extends Node\n", project)), "res://main.tscn: the signal \"child_entered_tree\" of . is connected to set_process(), which passes Node here."));
+	// Between nodes inside an instanced scene, as editable children allow.
+	project.scenes[0].nodes = { { ".", "Node", "" }, { "Enemy", "Node3D", "", true, "", false, {}, "res://unit.tscn" } };
+	project.scenes[0].connections = { { "child_entered_tree", "Enemy/Hurt", "Enemy/Body", "_on_child", 0, 0 } };
+	project.scenes.push_back({ "res://unit.tscn", { { ".", "Node3D", "" }, { "Hurt", "Node3D", "" }, { "Body", "Node3D", "res://test.pet" } } });
+	CHECK(contains(messages(check_scenes_in("extends Node3D\n\npub func _on_child(node: int):\n\tpass\n", project)), "res://main.tscn: the signal \"child_entered_tree\" of Enemy/Hurt is connected to _on_child(), which passes Node here."));
 }
 
 TEST_CASE("a signal declared by a script of this language is checked like the engine's (spec §4.7, §7.7)") {
