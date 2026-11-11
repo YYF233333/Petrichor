@@ -179,11 +179,14 @@ TEST_CASE("a track or a synchronized property names a member that its node's cla
 		{ "MultiplayerSynchronizer", "", "..", "helth", false },
 		// A name the engine class may take without listing it.
 		{ "AnimationPlayer", "hit", "..", "metadata/glow", false },
+		// A virtual method that the class does not implement, which has no MethodBind.
+		{ "AnimationPlayer", "hit", "..", "_ready", true },
 	};
 	project.scenes = { scene };
 	const std::string errors = messages(check_scenes_in("extends Node2D\n\npub var flash_amount := 0.0\n", project));
 	CHECK(contains(errors, "res://enemy.tscn: the animation \"hit\" of AnimationPlayer animates \"flash_amont\" of the root, which this class does not declare."));
 	CHECK(contains(errors, "res://enemy.tscn: the animation \"hit\" of AnimationPlayer calls flsh() on the root, which this class does not declare."));
+	CHECK(contains(errors, "res://enemy.tscn: the animation \"hit\" of AnimationPlayer calls _ready() on the root, which this class does not declare."));
 	CHECK(contains(errors, "res://enemy.tscn: MultiplayerSynchronizer synchronizes \"helth\" of the root, which this class does not declare."));
 	CHECK(!contains(errors, "glow"));
 	// A class with _set() takes any name.

@@ -9588,9 +9588,10 @@ class Checker : public ClassRelation {
 				if (named.method) {
 					const auto found = function_index.find(named.name);
 					const FuncDecl *method = found == function_index.end() ? nullptr : cls.all_functions[found->second];
+					const std::optional<EngineMethod> native = method ? std::nullopt : engine.find_method(cls.native_base, named.name);
 					if (method && !method->is_pub && !method->is_override) {
 						error_in_scene(own_name(*method, cls.functions, header), scene, node->path, where + not_pub(true));
-					} else if (!method && !engine.find_method(cls.native_base, named.name)) {
+					} else if (!method && (!native || native->is_virtual)) {
 						error_in_scene(header, scene, node->path, where + ", which this class does not declare.");
 					}
 					continue;
