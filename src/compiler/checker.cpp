@@ -9613,16 +9613,17 @@ class Checker : public ClassRelation {
 		}
 	}
 
-	// Connections saved in scenes to methods of this class (spec §7.7): the
-	// method must exist and take what the signal passes. The engine finds the
-	// method and the signal by name, so both must be pub (§10.5). A method of
-	// the engine class that is not virtual is found so too.
+	// Connections saved in scenes to methods of this class (spec §7.7), on a
+	// node with it or on an instance of a scene whose root has it: the method
+	// must exist and take what the signal passes. The engine finds the method
+	// and the signal by name, so both must be pub (§10.5). A method of the
+	// engine class that is not virtual is found so too.
 	void check_connections() {
 		const TokenRange header{ cls.extends_token, cls.extends_token };
 		for (const Scene &scene : scenes) {
 			for (const SceneConnection &connection : scene.connections) {
 				const SceneNode *target = scene.find_node(connection.target);
-				if (!target || target->script != options.path) {
+				if (!target || (target->script.empty() ? target->instance_script : target->script) != options.path) {
 					continue;
 				}
 				const std::string where = scene.path + ": the signal \"" + connection.signal + "\" of " + connection.source + " is connected to " + connection.method + "()";

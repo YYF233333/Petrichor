@@ -76,6 +76,15 @@ TEST_CASE("scene connections are checked against the class (spec §7.7)") {
 	CHECK(check_scenes_in(source, timer_scene("queue_free")).errors.empty());
 	CHECK(contains(messages(check_scenes_in(source, timer_scene("queue_free", 1))), "res://enemy.tscn: the signal \"timeout\" of Timer is connected to queue_free(), which passes 1 argument(s); queue_free() takes 0."));
 	CHECK(contains(messages(check_scenes_in(source, timer_scene("_ready"))), "is connected to _ready(), which this class does not declare."));
+	// To an instance of a scene whose root has the class.
+	FakeProject instanced = timer_scene("_on_missing");
+	instanced.scenes[0].nodes[0].script.clear();
+	instanced.scenes[0].nodes.push_back({ "Enemy", "Node3D", "", true, "res://test.pet" });
+	instanced.scenes[0].connections[0].target = "Enemy";
+	const compiler::CompileResult checked = check_scenes_in(source, instanced);
+	REQUIRE(checked.errors.size() == 1);
+	CHECK(checked.errors[0].message == "res://enemy.tscn: the signal \"timeout\" of Timer is connected to _on_missing(), which this class does not declare.");
+	CHECK(checked.errors[0].node == "Enemy");
 }
 
 TEST_CASE("signal arguments must fit the connected method's parameters") {
