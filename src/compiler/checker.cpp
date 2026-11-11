@@ -11739,6 +11739,7 @@ public:
 		}
 		scenes = { *scene };
 		check_abstract_scenes();
+		check_connections();
 	}
 
 private:
@@ -11915,7 +11916,6 @@ private:
 			}
 		}
 		check_warning_ignores();
-		check_connections();
 		check_named_members();
 		check_owner_scenes();
 		check_parent_scenes();
@@ -11967,6 +11967,9 @@ void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &
 		}
 	} else {
 		r_errors.clear();
+		if (r_references) {
+			r_references->clear();
+		}
 		file.checkers.front()->check_scene();
 	}
 	r_classes.leave(p_options.path);

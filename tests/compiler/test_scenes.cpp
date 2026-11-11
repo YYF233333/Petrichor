@@ -52,8 +52,8 @@ std::string hud_errors(const std::string &p_body, const FakeProject &p_project =
 } // namespace
 
 TEST_CASE("a method connected in a scene must be pub, since the engine finds it by name (spec §10.5)") {
-	CHECK(compile_in("extends Node3D\n\npub func _on_timer_timeout():\n\tpass\n", timer_scene("_on_timer_timeout")).ok());
-	CHECK(contains(messages(compile_in("extends Node3D\n\nfunc _on_timer_timeout():\n\tpass\n", timer_scene("_on_timer_timeout"))), "is connected to _on_timer_timeout(), which is not pub; the engine calls only pub methods by name."));
+	CHECK(check_scenes_in("extends Node3D\n\npub func _on_timer_timeout():\n\tpass\n", timer_scene("_on_timer_timeout")).errors.empty());
+	CHECK(contains(messages(check_scenes_in("extends Node3D\n\nfunc _on_timer_timeout():\n\tpass\n", timer_scene("_on_timer_timeout"))), "is connected to _on_timer_timeout(), which is not pub; the engine calls only pub methods by name."));
 }
 
 TEST_CASE("a method the engine is to call by a literal name must be pub (spec §10.4)") {
@@ -68,9 +68,9 @@ TEST_CASE("a method the engine is to call by a literal name must be pub (spec §
 
 TEST_CASE("scene connections are checked against the class (spec §7.7)") {
 	const char *source = "extends Node3D\n\npub func _on_timer_timeout():\n\tpass\n";
-	CHECK(contains(messages(compile_in(source, timer_scene("_on_missing"))), "res://enemy.tscn: the signal \"timeout\" of Timer is connected to _on_missing(), which this class does not declare."));
-	CHECK(contains(messages(compile_in(source, timer_scene("_on_timer_timeout", 1))), "which passes 1 argument(s); _on_timer_timeout() takes 0."));
-	CHECK(compile_in("extends Node3D\n\npub func _on_timer_timeout(extra: int):\n\tpass\n", timer_scene("_on_timer_timeout", 1)).ok());
+	CHECK(contains(messages(check_scenes_in(source, timer_scene("_on_missing"))), "res://enemy.tscn: the signal \"timeout\" of Timer is connected to _on_missing(), which this class does not declare."));
+	CHECK(contains(messages(check_scenes_in(source, timer_scene("_on_timer_timeout", 1))), "which passes 1 argument(s); _on_timer_timeout() takes 0."));
+	CHECK(check_scenes_in("extends Node3D\n\npub func _on_timer_timeout(extra: int):\n\tpass\n", timer_scene("_on_timer_timeout", 1)).errors.empty());
 }
 
 TEST_CASE("signal arguments must fit the connected method's parameters") {
@@ -80,10 +80,10 @@ TEST_CASE("signal arguments must fit the connected method's parameters") {
 	scene.nodes = { { ".", "Node", "res://test.pet" } };
 	scene.connections = { { "child_entered_tree", ".", ".", "_on_child", 0, 0 } };
 	project.scenes = { scene };
-	CHECK(compile_in("extends Node\n\npub func _on_child(node: Node):\n\tpass\n", project).ok());
+	CHECK(check_scenes_in("extends Node\n\npub func _on_child(node: Node):\n\tpass\n", project).errors.empty());
 	// A handler may accept None where the engine might pass it (spec §10.2).
-	CHECK(compile_in("extends Node\n\npub func _on_child(node: Node?):\n\tpass\n", project).ok());
-	CHECK(contains(messages(compile_in("extends Node\n\npub func _on_child(node: int):\n\tpass\n", project)), "which passes Node here"));
+	CHECK(check_scenes_in("extends Node\n\npub func _on_child(node: Node?):\n\tpass\n", project).errors.empty());
+	CHECK(contains(messages(check_scenes_in("extends Node\n\npub func _on_child(node: int):\n\tpass\n", project)), "which passes Node here"));
 }
 
 TEST_CASE("a signal declared by a script of this language is checked like the engine's (spec §4.7, §7.7)") {
@@ -93,7 +93,7 @@ TEST_CASE("a signal declared by a script of this language is checked like the en
 		project.add_script("res://player.pet", "extends Node3D\n" + p_visibility + "signal health_updated(health: int)\n");
 		project.scenes[0].nodes[1].instance_script = "res://player.pet";
 		project.scenes[0].connections = { { p_signal, "Player", "HUD", "_on_health_updated", 0, 0 } };
-		return messages(compile_in("extends CanvasLayer\n\npub func _on_health_updated(" + p_handler + "):\n\tpass\n", project));
+		return messages(check_scenes_in("extends CanvasLayer\n\npub func _on_health_updated(" + p_handler + "):\n\tpass\n", project));
 	};
 	CHECK(connected("health_updated", "health: int").empty());
 	// The engine connects it by name (spec §10.5).
@@ -103,7 +103,7 @@ TEST_CASE("a signal declared by a script of this language is checked like the en
 	CHECK(contains(connected("health_changed", "health: int"), "res://main.tscn: the signal \"health_changed\" of Player is connected to _on_health_updated(), but Player has no such signal."));
 	// The engine class's own signals.
 	CHECK(connected("ready", "").empty());
-	CHECK(contains(messages(compile_in("extends Node3D\n\npub func _on_timer_timeout():\n\tpass\n", [] {
+	CHECK(contains(messages(check_scenes_in("extends Node3D\n\npub func _on_timer_timeout():\n\tpass\n", [] {
 		FakeProject project = timer_scene("_on_timer_timeout");
 		project.scenes[0].connections[0].signal = "timed_out";
 		return project;
@@ -456,7 +456,7 @@ TEST_CASE("an abstract class is set on no node of a scene, which the scene's che
 	scene.path = "res://enemies.tscn";
 	scene.nodes = { { ".", "Node3D", "" }, { "Unit", "Node3D", "res://test.pet" }, { "Archer", "Node3D", "res://archer.pet" } };
 	project.scenes = { scene };
-	const std::vector<compiler::Diagnostic> errors = check_scene(project, "res://enemies.tscn");
+	const std::vector<compiler::Diagnostic> errors = check_scenes_in(source, project).errors;
 	REQUIRE(errors.size() == 1);
 	CHECK(errors[0].message == "res://enemies.tscn: Unit has test.pet, which is abstract and cannot be set on a node.");
 	CHECK((errors[0].scene == "res://enemies.tscn" && errors[0].node == "Unit"));
@@ -680,10 +680,13 @@ TEST_CASE("an error in how a scene uses the script is marked on the script's nod
 	REQUIRE(missing.errors.size() == 1);
 	CHECK(missing.errors[0].scene == "res://main.tscn");
 	CHECK(missing.errors[0].node == "HUD");
-	const compiler::CompileResult connection = compile_in("extends Node3D\n", timer_scene("_on_missing"));
+	// The scene's check reports the scene's own errors (architecture §6.4),
+	// which leave the script compiling.
+	const compiler::CompileResult connection = check_scenes_in("extends Node3D\n", timer_scene("_on_missing"));
 	REQUIRE(connection.errors.size() == 1);
 	CHECK(connection.errors[0].scene == "res://enemy.tscn");
 	CHECK(connection.errors[0].node == ".");
+	CHECK(compile_in("extends Node3D\n", timer_scene("_on_missing")).ok());
 	// An error of the script alone is marked on no scene.
 	const compiler::CompileResult own = compile_in("extends CanvasLayer\n\nfunc f():\n\tvar health: int = \"full\"\n", hud_scene());
 	REQUIRE(own.errors.size() == 1);

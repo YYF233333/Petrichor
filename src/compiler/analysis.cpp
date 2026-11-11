@@ -87,8 +87,10 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 		options.declarations_only = true;
 		options.scene = p_path;
 		classes->begin_compile(script, *source);
-		check(cls, engine, options, errors, *classes, false);
+		std::vector<Reference> references;
+		check(cls, engine, options, errors, *classes, false, &references);
 		reads.merge(classes->end_compile());
+		result.references.insert(result.references.end(), references.begin(), references.end());
 		std::stable_sort(errors.begin(), errors.end(), [](const Diagnostic &a, const Diagnostic &b) {
 			return a.begin < b.begin;
 		});

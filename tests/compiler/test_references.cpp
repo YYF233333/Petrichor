@@ -24,7 +24,7 @@ std::vector<std::pair<DeclId, std::optional<DeclId>>> at(const compiler::Compile
 	REQUIRE(offset != std::string::npos);
 	std::vector<std::pair<DeclId, std::optional<DeclId>>> found;
 	for (const Reference &reference : p_result.references) {
-		if (reference.scene.empty() && reference.begin == offset && reference.end == offset + p_text.size()) {
+		if (reference.begin == offset && reference.end == offset + p_text.size()) {
 			found.push_back({ reference.target, reference.overrides });
 		}
 	}
@@ -106,11 +106,10 @@ TEST_CASE("a method a scene connects is referred to from the scene, and one name
 	const std::string source = "extends Node3D\n\npub func _on_timeout():\n\tcall_deferred(\"reset\")\n\tcall_deferred(&'''reset''')\n\npub func reset():\n\tpass\n";
 	const auto result = compile_in(source, project);
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	bool connected = false;
-	for (const Reference &reference : result.references) {
-		connected = connected || (reference.scene == "res://enemy.tscn" && reference.connection.source == "Timer" && reference.target == DeclId{ Kind::Script, "res://test.pet", "_on_timeout" });
-	}
-	CHECK(connected);
+	// The scene's check has it (architecture §2.1).
+	const auto checked = check_scenes_in(source, project);
+	REQUIRE(checked.references.size() == 1);
+	CHECK((checked.references[0].scene == "res://enemy.tscn" && checked.references[0].connection.source == "Timer" && checked.references[0].target == DeclId{ Kind::Script, "res://test.pet", "_on_timeout" }));
 	CHECK(has(at(result, source, "reset"), { Kind::Script, "res://test.pet", "reset" }));
 	CHECK(has(at(result, source, "reset", 1), { Kind::Script, "res://test.pet", "reset" }));
 }

@@ -447,7 +447,7 @@ Completion complete(Analysis &r_analysis, const EngineApi &p_engine, const std::
 std::optional<Lookup> lookup(Analysis &r_analysis, const EngineApi &p_engine, const ProjectApi &p_project, const DocName &p_doc_name, const std::string &p_path, const std::string &p_source, uint32_t p_offset) {
 	const std::shared_ptr<const CompileResult> result = r_analysis.compile(p_path, p_source);
 	const auto at = std::find_if(result->references.begin(), result->references.end(), [&](const Reference &p_reference) {
-		return p_reference.scene.empty() && p_reference.begin <= p_offset && p_offset <= p_reference.end;
+		return p_reference.begin <= p_offset && p_offset <= p_reference.end;
 	});
 	if (at == result->references.end()) {
 		return std::nullopt;

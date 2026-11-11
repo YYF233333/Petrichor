@@ -55,8 +55,8 @@ public:
 	std::shared_ptr<const CompileResult> compile(const std::string &p_path, const std::string &p_source);
 	// The check of the scene at `p_path` (architecture §6.4): its errors in how
 	// it places scripts of this language on its nodes, each in the source of
-	// its `file`, without a module; the previous result if nothing it read has
-	// changed.
+	// its `file`, and its references to their declarations, without a module;
+	// the previous result if nothing it read has changed.
 	std::shared_ptr<const CompileResult> check_scene(const std::string &p_path);
 	// The other scripts as the pass that is open reads them, for a check whose
 	// result is not kept.

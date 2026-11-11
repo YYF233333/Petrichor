@@ -266,9 +266,6 @@ void check_references(const std::string &p_source, const EngineApi &p_engine, co
 	std::map<DeclId, std::string> locals;
 	std::set<std::pair<uint32_t, uint32_t>> places;
 	for (const Reference &reference : references) {
-		if (!reference.scene.empty()) {
-			continue;
-		}
 		const std::string text = file.text.substr(reference.begin, reference.end - reference.begin);
 		places.insert({ reference.begin, reference.end });
 		if (reference.target.kind == DeclId::Kind::Local) {

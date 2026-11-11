@@ -161,9 +161,17 @@ compiler::CompileResult compile_in(const std::string &p_source, const FakeProjec
 	return result;
 }
 
-std::vector<compiler::Diagnostic> check_scene(const FakeProject &p_project, const std::string &p_scene) {
+compiler::CompileResult check_scenes_in(const std::string &p_source, FakeProject p_project) {
+	p_project.add_script("res://test.pet", p_source);
 	compiler::Analysis analysis(fake_engine(), p_project);
-	return analysis.check_scene(p_scene)->errors;
+	const compiler::Analysis::Pass pass(analysis);
+	compiler::CompileResult result;
+	for (const compiler::Scene &scene : p_project.scenes) {
+		const std::shared_ptr<const compiler::CompileResult> checked = analysis.check_scene(scene.path);
+		result.errors.insert(result.errors.end(), checked->errors.begin(), checked->errors.end());
+		result.references.insert(result.references.end(), checked->references.begin(), checked->references.end());
+	}
+	return result;
 }
 
 std::string messages(const compiler::CompileResult &p_result) {

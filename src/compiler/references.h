@@ -67,8 +67,9 @@ struct Reference {
 	// The name's bytes in the source, or none for a reference in a scene.
 	uint32_t begin = 0;
 	uint32_t end = 0;
-	// A method named by a signal connection of a scene that attaches the
-	// script (spec §7.7): the scene's path, and the connection.
+	// A method named by a signal connection, in the check of the scene that
+	// saves it (spec §7.7, architecture §6.4): the scene's path, and the
+	// connection.
 	std::string scene;
 	SceneConnection connection;
 };
