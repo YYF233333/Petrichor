@@ -17,9 +17,9 @@
 namespace petrichor::compiler {
 
 // What other scripts can see of a script: its syntax tokens outside function
-// bodies but _init's, whose assignments they see, and its literal node paths;
-// all its text if it has syntax errors, whose recovery may read any line as a
-// declaration; 0 for none.
+// bodies but _init's, whose assignments they see; all its text if it has
+// syntax errors, whose recovery may read any line as a declaration; 0 for
+// none.
 uint64_t declaration_hash(const std::optional<std::string> &p_source);
 
 // Each name that a source assigns with `=`, by its tokens: a member's or a
@@ -33,6 +33,9 @@ class ScriptClasses;
 // still gets the same answer.
 struct Reads {
 	std::map<std::string, uint64_t> scripts;
+	// By their whole text: the scripts in whose lines a resource check reports
+	// (architecture §6.4).
+	std::map<std::string, uint64_t> sources;
 	std::map<std::string, std::function<bool(ScriptClasses &)>> answers;
 	// It read a file whose check was in progress, so no later check reuses it.
 	bool partial = false;
@@ -104,7 +107,7 @@ class ScriptClasses {
 	std::map<std::string, Checking> checking;
 	// The checks that record reads, innermost last, with their files.
 	std::vector<std::pair<std::string, Reads>> frames;
-	std::map<std::string, uint64_t> hashes; // declaration_hash() of files read.
+	std::map<std::string, std::pair<uint64_t, uint64_t>> hashes; // declaration_hash() and hash_source() of files read.
 	std::pair<std::string, uint64_t> compiled; // The file being compiled, and its hash.
 	std::optional<std::vector<Scene>> listed; // The project's scenes, as scene_structure() gives them.
 	std::map<std::string, std::string> bases; // The base paths of the scripts on their nodes.
@@ -160,8 +163,10 @@ public:
 	void enter(const std::string &p_file, ClassDecl &r_decl, std::function<const ClassDecl *(const std::string &)> p_declarations);
 	void leave(const std::string &p_file);
 
-	// The hash of the file as the project has it now, read once.
+	// The hash of the file's declarations as the project has it now, and of
+	// all its text, read once.
 	uint64_t script_hash(const std::string &p_file);
+	uint64_t source_hash(const std::string &p_file);
 	// The String of each preload() of one literal String in the file, as
 	// written, in function bodies too (spec §7.6).
 	std::vector<std::string> preloads(const std::string &p_file);

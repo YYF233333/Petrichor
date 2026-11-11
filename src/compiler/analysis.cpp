@@ -28,6 +28,11 @@ bool Analysis::unchanged(const Reads &p_reads) {
 			return false;
 		}
 	}
+	for (const auto &[file, hash] : p_reads.sources) {
+		if (classes->source_hash(file) != hash) {
+			return false;
+		}
+	}
 	for (const auto &[question, same] : p_reads.answers) {
 		if (!same(*classes)) {
 			return false;
@@ -104,7 +109,8 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 	Reads reads = classes->end_compile();
 	CompileResult result;
 	for (const std::string &script : scripts) {
-		reads.scripts.emplace(script, classes->script_hash(script));
+		// Its errors give lines anywhere in the script, and its literal node paths.
+		reads.sources.emplace(script, classes->source_hash(script));
 		const std::optional<std::string> source = project.script_source(script);
 		std::vector<Diagnostic> errors;
 		ClassDecl cls = parse(source.value_or(std::string()), errors);
