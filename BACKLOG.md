@@ -22,6 +22,10 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - the node paths of a script take a scene that is also inherited for a base used only for inheritance. It may then lack a node without an error, which the run-time check catches;
   - a root with an `@owner` script is a compile error on the main scene only. Elsewhere reading `owner` gives the program error;
   - a must-assign export without a value is a compile error only in what the main scene is built from. Elsewhere the node's check at ready gives the program error.
+- The check of a statically known scene converted to `PackedScene[T]` at every conversion (spec §7.4). Unchecked now:
+  - a function returning it;
+  - an element of a container, as `[preload("enemy.tscn")]`;
+  - a parameter's default value.
 - A track or synchronized property naming a member its node's class of this language lacks: a compile error (spec §7.7). One whose path leads to no node is a warning, with the warnings of spec §7.2.
 - Members that animation tracks and synchronized properties name, unchecked for `pub` (spec §10.5):
   - through a path that leaves the scene storing it, as from an AnimationPlayer at its root;
@@ -185,10 +189,6 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 
 ## Open questions
 
-- Whether a scene known statically converts as an assignment does where spec §7.4 does not list it. Its `instantiate(...)` then skips the exports the scene does not assign, which the node's ready check catches. Unchecked now:
-  - a function returning it as `PackedScene[T]`;
-  - an element of a container, as `[preload("enemy.tscn")]`;
-  - a parameter's default value.
 - Before 0.9: how `NaN` behaves in containers, which GDScript handles inconsistently (spec §5.2, engine facts). NaN rarely stands for a legal state in game logic. Candidates:
   - forbid `NaN` from entering containers;
   - warn wherever a `NaN` is detected.
