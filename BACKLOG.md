@@ -25,7 +25,9 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Members that animation tracks and synchronized properties name, unchecked for `pub` (spec §10.5):
   - through a path that leaves the scene storing it, as from an AnimationPlayer at its root;
   - after the first subname, on a resource of this language, as `health` in `Body:stats:health`.
-- In debug builds, listing where the instances still alive at exit were made (spec §6.7, §12.5).
+- In debug builds, listing what this language made and is alive at exit, by creation site (spec §6.7, §12.5).
+  - The engine's `ObjectDB::cleanup` runs after the languages finish, so the list comes from this language's own records (`core/object/object.cpp:2532-2568`, `ed1daf0`).
+  - Instances of this language keep their site. Engine objects that its `new()` makes need a table; measure its cost.
 
 ## Runtime
 
@@ -165,6 +167,10 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - Wrapped's constructor takes a StringName, so each construction converts it (`wrapped.hpp:133`, `8070599`). The engine then looks the name up under a lock.
   - In coroutines.pet, when each call made a CoroutineTask, this took 1.8% of the loop. The whole construction took 14.5%.
   - A candidate fix: pass the class's cached `get_class_static()` instead.
+- Godot: objects record no creation site. The owner may contribute an option for debug builds that records one, which would serve GDScript too.
+  - `ObjectDB::cleanup` lists leaked objects only with `--verbose`, by class, ID and path (`core/object/object.cpp:2532-2568`, `ed1daf0`).
+  - Script backtraces can be captured at any point (`core/object/script_language.h:103`, `ed1daf0`). Capturing one as an object is made would give its site.
+  - With it, this language's table of the engine objects it makes could go.
 - Godot: the open [#124220](https://github.com/godotengine/godot/pull/124220) changes how the script editor takes an extension's errors and warnings. The owner may comment before it merges; nothing here changes until then.
   - It groups every error that names a path into one diagnostic on the last line. The editor does not underline it (`core/object/script_language_extension.h:425-436`, `editor/script/script_text_editor.cpp:756-758`, `05ee117`).
   - On 4.7 an extension must name its own script there, as this one does (`editor/script/script_text_editor.cpp:859-860`, `ed1daf0`; `src/adapter/pet_language.cpp:199`).
