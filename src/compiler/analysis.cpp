@@ -73,9 +73,9 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 	// scenes it instances, with the files of the classes they extend, inner
 	// ones too, whose checks look at them too. When its tracks or synchronized
 	// properties name members, or it connects to a node inside a scene it
-	// instances, also those deeper in the scenes it instances, which they
-	// reach; and so when it is used as a root, as its nodes all get the
-	// exports that must be assigned.
+	// instances or stores values for one, also those deeper in the scenes it
+	// instances, which they reach; and so when it is used as a root, as its
+	// nodes all get the exports that must be assigned.
 	std::set<std::string> extended;
 	std::set<std::string> scripts;
 	const auto add = [&](std::string p_class) {
@@ -90,7 +90,10 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 			return !p_node.instance.empty() && p_connection.target.rfind(p_node.path + "/", 0) == 0;
 		});
 	};
-	const bool deep = scene && (!scene->named_members.empty() || std::any_of(scene->connections.begin(), scene->connections.end(), inside_instance) || !classes->root_use(p_path).empty());
+	const auto changes = [](const SceneNode &p_node) {
+		return p_node.type.empty() && !p_node.is_instance && !p_node.properties.empty();
+	};
+	const bool deep = scene && (!scene->named_members.empty() || std::any_of(scene->connections.begin(), scene->connections.end(), inside_instance) || std::any_of(scene->nodes.begin(), scene->nodes.end(), changes) || !classes->root_use(p_path).empty());
 	for (const SceneResource &resource : scene ? scene->resources : std::vector<SceneResource>()) {
 		add(resource.script);
 	}

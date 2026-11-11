@@ -7,7 +7,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Assignments by ancestors (spec §6.2), which the checker assumes without looking for them.
   - It takes a must-assign member of a node with an owner as one they assign. Exported members and those `_init` assigns are not.
   - The spec requires `$Child.target = v` or an `@onready` reference in their `_ready`. Without one, the member must be `T?`.
-- A struct that a scene stores on a node of an instanced scene it changes, unchecked when compiling (spec §4.3).
 - `find_key()` of `Dictionary[T?, V]` for an object `T`. The engine gives null for a missing key and for a None key.
 - `is_instance_of(v, T)` with a native class held in a variable, which waits for classes as values (spec §2.6). gdUnit4 passes them.
 - Scenes used as roots that the checks do not know as such (spec §7.2, §7.3, §7.5):

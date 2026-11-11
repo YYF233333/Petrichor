@@ -10236,8 +10236,9 @@ class Checker : public ClassRelation {
 	// enums with payloads, which the entry check decodes as the scene is
 	// instantiated (spec §4.3), and for its exported scenes, which may leave
 	// to instantiate(...) only what PackedScene[T] asks for (§7.4): on the
-	// nodes with the class, on the instances of scenes whose root has it, and
-	// on the resources with it that the scene or resource file holds.
+	// nodes with the class, on the instances of scenes whose root has it, on
+	// the nodes with it inside instanced scenes that the scene changes, and on
+	// the resources with it that the scene or resource file holds.
 	void check_stored_exports() {
 		std::vector<const VarDecl *> exports;
 		for (const VarDecl &member : cls.members) {
@@ -10276,6 +10277,13 @@ class Checker : public ClassRelation {
 				check(p_scene, p_node.properties, p_node.path, p_node.path);
 			}
 		});
+		for (const SceneNode &change : scenes[0].nodes) {
+			const ViewNode *changed = change.type.empty() && !change.is_instance && change.script.empty() ? view_node(scenes[0], change.path) : nullptr;
+			const std::string script = changed ? (changed->node.script.empty() ? changed->node.instance_script : changed->node.script) : std::string();
+			if (extends_script(script, options.path) && placed_class(script)) {
+				check(scenes[0], change.properties, change.path, change.path);
+			}
+		}
 		for (const SceneResource &resource : scenes[0].resources) {
 			if (extends_script(resource.script, options.path) && !resource.unread && placed_class(resource.script)) {
 				check(scenes[0], resource.properties, resource.shown(), std::string());

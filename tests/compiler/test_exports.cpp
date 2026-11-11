@@ -416,6 +416,21 @@ TEST_CASE("the values that scenes store for an exported struct or enum with payl
 	CHECK(contains(errors("order", entries({ { "$variant", text("MOVE") } })), "Loadout.Order.MOVE.target is missing."));
 	CHECK(contains(errors("order", of("int", 1)), "does not decode: expected Loadout.Order, found int."));
 	CHECK(contains(messages(stored("hit", entries({ { "crit", of("bool") } }), true)), "the value stored for \"hit\" of Enemy does not decode: Loadout.Hit.damage is missing."));
+	// Or on a node with it inside an instanced scene, which the scene changes.
+	FakeProject project;
+	compiler::Scene enemy;
+	enemy.path = "res://enemy.tscn";
+	enemy.nodes = { { ".", "Node", "" }, { "Brain", "Node", "res://test.pet" } };
+	compiler::Scene level;
+	level.path = "res://level.tscn";
+	level.nodes = { { ".", "Node", "" }, { "Enemy", "Node", "", true }, { "Enemy/Brain", "", "" } };
+	level.nodes[1].instance = enemy.path;
+	level.nodes[2].properties = { { "hit", entries({ { "crit", of("bool") } }) } };
+	project.scenes = { enemy, level };
+	const compiler::CompileResult changed = check_scenes_in(source, project);
+	REQUIRE(changed.errors.size() == 1);
+	CHECK(changed.errors[0].message == "res://level.tscn: the value stored for \"hit\" of Enemy/Brain does not decode: Loadout.Hit.damage is missing.");
+	CHECK((changed.errors[0].scene == "res://level.tscn" && changed.errors[0].node == "Enemy/Brain"));
 }
 
 TEST_CASE("a resource file and a scene check what their resources with the class store, as on nodes (spec §4.3, §7.4)") {
