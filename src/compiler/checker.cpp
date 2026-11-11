@@ -5399,7 +5399,7 @@ class Checker : public ClassRelation {
 		// elements (spec §3.8, §4.6). That of reduce() also takes what it
 		// accumulates, which has no type here.
 		for (size_t i = 0; base_name == "Array" && r_expr.text != "reduce" && i < r_expr.args.size() && i < params.size(); i++) {
-			if (params[i].builtin_name() == "Callable" && r_expr.args[i]->kind == ExprKind::Lambda) {
+			if (params[i] == Type::builtin("Callable") && r_expr.args[i]->kind == ExprKind::Lambda) {
 				check_lambda(*r_expr.args[i], element_function(r_expr.text, p_base));
 			}
 		}

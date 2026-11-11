@@ -51,6 +51,8 @@ TEST_CASE("a lambda passed to an Array method takes the elements (spec §3.8, §
 	CHECK(type_of("a.map(func(x): return x.length())", "var a: Array[String] = []") == "Array");
 	require_verified(compile(in_function("var a: Array[Node] = []\na.sort_custom(func(x, y): return x.name < y.name)\nprint(a.any(func(n): return n.name == &\"a\"), a.rfind_custom(func(n): return n.name.is_empty()))\nprint(a.bsearch_custom(a[0], func(x, y): return x.name < y.name))")));
 	CHECK(has_error(in_function("var a: Array = [1]\nprint(a.all(func(x): return x.length() > 0))"), "Cannot call \"length()\" on a Variant."));
+	// An element that is a function takes a lambda as one.
+	require_verified(compile(in_function("var checks: Array[func(int) -> bool] = []\nchecks.append(func(n): return n < 10)")));
 	CHECK(has_error(in_function("var a: Array[int] = []\nprint(a.reduce(func(sum, x): return sum + x, 0))"), "Parameter \"sum\" needs a type: nothing the lambda goes to gives one."));
 }
 
