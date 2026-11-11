@@ -608,6 +608,13 @@ func _ready() -> void:
 	var plain_parent := Node.new()
 	plain_parent.add_child(parented)
 	_check_errors(["parent_check.pet:7: Expected Node2D, found None.", "parent_check.pet:2: The parent: expected Node2D, found Node (@parent)."], "@parent is checked as the node gets a parent, and get_parent() without one is a program error")
+	var fitting := Node.new()
+	parent_2d.add_child(fitting)
+	fitting.set_script(ParentCheck)
+	var misplaced := Node.new()
+	plain_parent.add_child(misplaced)
+	misplaced.set_script(ParentCheck)
+	_check_errors(["parent_check.pet:2: The parent: expected Node2D, found Node (@parent)."], "@parent is checked as the script joins a node that has a parent")
 	plain_parent.free()
 	parent_2d.free()
 

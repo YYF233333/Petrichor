@@ -117,6 +117,12 @@ static std::vector<std::shared_ptr<const ClassImage>> image_chain(const std::sha
 	return chain;
 }
 
+// @parent(T) of each class of the chain, base first (spec §6.4).
+static bool parent_fits(const std::shared_ptr<const ClassImage> &p_image, Object *p_node) {
+	const auto chain = image_chain(p_image);
+	return std::all_of(chain.rbegin(), chain.rend(), [&](const auto &p_class) { return vm::check_parent(*p_class, p_node); });
+}
+
 static bool run_initializers(const std::shared_ptr<const ClassImage> &p_image, InstanceContext p_context, bool p_ready) {
 	const auto chain = image_chain(p_image);
 	p_context.self_image = p_image;
@@ -145,6 +151,7 @@ PetInstance::PetInstance(PetScript *p_script, const std::shared_ptr<const ClassI
 	const bool init_later = init_left_to_caller();
 	storage = std::make_shared<InstanceStorage>(image, p_owner->get_instance_id());
 	const bool initialized = run_initializers(image, context(), false);
+	bool failed = !initialized;
 	// Then the nearest _init(), as GDScript runs it after the member
 	// initializers; new(...) calls it itself with its arguments.
 	if (initialized && image->user_init >= 0 && !init_later) {
@@ -152,12 +159,21 @@ PetInstance::PetInstance(PetScript *p_script, const std::shared_ptr<const ClassI
 		if (!init.takes(0)) {
 			// GDScript creates no instance then (modules/gdscript/gdscript.cpp:192-203, 406-424).
 			vm::report_error(*image, "_init", int(init.line), vformat("%s was constructed without arguments, but its _init() requires them; construct it with new(...).", image->global_name == StringName() ? String(image->path) : String(image->global_name)));
+			failed = true;
 		} else {
 			GDExtensionCallError error;
-			vm::call(image, image->user_init, context(), nullptr, 0, error);
+			vm::call(image, image->user_init, context(), nullptr, 0, error, &failed);
 		}
 	}
 	constructed(initialized);
+	// A script that joins a node with a parent, by set_script() or as an
+	// inherited scene sets it, gets no NOTIFICATION_PARENTED (spec §6.4). A
+	// scene sets a parent's script before its children's
+	// (scene/resources/packed_scene.cpp:202, 282-285, 400; ed1daf0).
+	const Node *node = Object::cast_to<Node>(p_owner);
+	if (!failed && node && node->get_parent()) {
+		parent_fits(image, p_owner);
+	}
 }
 
 // The members go when no call runs on them any more (spec §3.3).
@@ -529,7 +545,7 @@ static void instance_notification(GDExtensionScriptInstanceDataPtr p_instance, i
 	auto chain = image_chain(image);
 	// Sent as the node gets a parent (scene/main/node.cpp:1699; ed1daf0), before
 	// _notification() (spec §6.4).
-	if (p_what == Node::NOTIFICATION_PARENTED && !std::all_of(chain.rbegin(), chain.rend(), [&](const auto &p_class) { return vm::check_parent(*p_class, instance->owner_object); })) {
+	if (p_what == Node::NOTIFICATION_PARENTED && !parent_fits(image, instance->owner_object)) {
 		return;
 	}
 	if (!p_reversed) {
