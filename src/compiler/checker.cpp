@@ -7554,14 +7554,16 @@ class Checker : public ClassRelation {
 	// Why the engine would lose a None of a value of the type (spec §10.1), as
 	// a sentence whose subject is `p_who`; empty when it would not. With
 	// `p_fix`, a T?? or Variant? itself is given the call that makes it fit.
-	std::string encoding_loss(const Type &p_type, const std::string &p_who, bool p_fix, bool p_copied = false) const {
+	// `p_what` names the value, as "its result", when it is not the subject's.
+	std::string encoding_loss(const Type &p_type, const std::string &p_who, bool p_fix, bool p_copied = false, const std::string &p_what = std::string()) const {
 		const std::optional<Type> lost = lost_in_encoding(p_type, *this, p_copied);
 		if (!lost) {
 			return std::string();
 		}
 		const bool variant = lost->args[0].kind == TypeKind::Variant;
 		const bool whole = *lost == p_type;
-		std::string text = p_who + " cannot tell " + (whole ? std::string("its None") : "the None of the " + lost->to_string() + " inside") + " from " + (variant ? "null" : "Some(None)");
+		const std::string none = whole ? (p_what.empty() ? std::string("its None") : "the None of " + p_what) : "the None of the " + lost->to_string() + " inside" + (p_what.empty() ? std::string() : " " + p_what);
+		std::string text = p_who + " cannot tell " + none + " from " + (variant ? "null" : "Some(None)");
 		if (whole && p_fix) {
 			text += variant ? "; pass x.unwrap_or(null)" : "; pass x.flatten()";
 		}
@@ -7577,6 +7579,19 @@ class Checker : public ClassRelation {
 		}
 		if (is_typed_container(p_type) && is_boxed(p_type)) {
 			return " Its elements exist only in this language; convert it explicitly with " + p_type.name + "(x), a copy with the elements encoded.";
+		}
+		return std::string();
+	}
+
+	// Why a function value does not go to a Callable or a Variant, whose
+	// calls encode as those of a pub function do (spec §10.1).
+	std::string callable_refusal(const Type &p_function) const {
+		for (size_t i = 1; i <= p_function.args.size(); i++) {
+			const size_t part = i % p_function.args.size(); // The result last.
+			const std::string loss = encoding_loss(p_function.args[part], "The engine", false, false, part == 0 ? std::string("its result") : "its parameter " + std::to_string(part));
+			if (!loss.empty()) {
+				return " " + loss;
+			}
 		}
 		return std::string();
 	}
@@ -7600,6 +7615,9 @@ class Checker : public ClassRelation {
 		const bool untyped_view = p_to.kind == TypeKind::Builtin && p_to.args.empty() && p_to.name == p_from.name;
 		if (p_to.kind == TypeKind::Variant || untyped_view) {
 			message += variant_refusal(p_from);
+		}
+		if (p_from.kind == TypeKind::Function && (p_to.kind == TypeKind::Variant || p_to == Type::builtin("Callable"))) {
+			message += callable_refusal(p_from);
 		}
 		if (p_from.kind == TypeKind::Variant) {
 			message += variant_hint(p_to.unwrapped());

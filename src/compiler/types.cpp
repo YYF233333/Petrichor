@@ -250,16 +250,18 @@ Conversion conversion(const Type &p_from, const Type &p_to, const ClassRelation 
 		}
 		return allowed(p_to.args[0].kind == TypeKind::Void ? p_from.args[0].kind == TypeKind::Void : is_assignable(p_from.args[0], p_to.args[0], p_classes));
 	}
-	// The engine takes them as its Callable and Signal.
+	// The engine takes them as its Callable and Signal. A function value's
+	// Callable is called as a pub function is (spec §10.1).
+	const bool called_encoded = p_from.kind == TypeKind::Function && std::any_of(p_from.args.begin(), p_from.args.end(), [&](const Type &p_part) { return lost_in_encoding(p_part, p_classes).has_value(); });
 	if ((p_from.kind == TypeKind::Function || p_from.kind == TypeKind::Signal) && p_to.kind == TypeKind::Builtin && p_to.name == p_from.builtin_name()) {
-		return C::Same;
+		return allowed(!called_encoded);
 	}
 	// A typed container is the same container through an untyped view (spec
 	// §3.14), unless it keeps boxes, which leave only as an encoded copy.
 	if (is_typed_container(p_from) && !is_boxed(p_from) && p_to.kind == TypeKind::Builtin && p_to.args.empty() && p_to.name == p_from.name) {
 		return C::Same;
 	}
-	return p_to.kind == TypeKind::Variant && p_from.is_storable() && !(is_typed_container(p_from) && is_boxed(p_from)) && !lost_in_encoding(p_from, p_classes) ? C::ToVariant : C::None;
+	return p_to.kind == TypeKind::Variant && p_from.is_storable() && !(is_typed_container(p_from) && is_boxed(p_from)) && !lost_in_encoding(p_from, p_classes) && !called_encoded ? C::ToVariant : C::None;
 }
 
 static std::optional<Type> lost_in_encoding(const Type &p_type, const ClassRelation &p_classes, bool p_copied, std::vector<Type> &r_seen) {

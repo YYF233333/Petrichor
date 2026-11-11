@@ -231,6 +231,11 @@ TEST_CASE("T?? and Variant? do not cross the engine, at any depth of encoding (s
 	CHECK(has_error(head + "func f(a: Array[int??]) -> void:\n\tprint(Array(a))\n", "Array(x) encodes Array[int??], but the engine cannot tell the None of the int?? inside from Some(None)."));
 	CHECK(has_error(head + "func f() -> void:\n\tvar g := async func() -> Variant?:\n\t\treturn None\n", "The lambda returns Variant?, but the engine cannot tell its None from null."));
 	CHECK(has_error(head + "func f(r: int??) -> void:\n\tvar g := func(x: int??) -> void:\n\t\tpass\n\tvar h := g.bind(r)\n", "bind() keeps a value of type int??, but the engine cannot tell its None from Some(None)."));
+	// A function value's Callable is called as a pub function is.
+	CHECK(has_error(head + "func f() -> void:\n\tvar c: Callable = func() -> int??: return Some(None)\n", "Cannot assign a value of type func() -> int?? as Callable. The engine cannot tell the None of its result from Some(None)."));
+	CHECK(has_error(head + "func f() -> void:\n\tvar v: Variant = func(a: int, h: Hit): pass\n", "Cannot assign a value of type func(int, Shots.Hit) as Variant. The engine cannot tell the None of the int?? inside its parameter 2 from Some(None)."));
+	CHECK(has_error(head + "func f() -> void:\n\tchild_entered_tree.connect(func(n: Variant?): pass)\n", "the None of its parameter 1 from null"));
+	CHECK(errors_of(head + "func f() -> void:\n\tvar c: Callable = func(x: int?) -> int?: return x\n").empty());
 	// Encoding copies the containers of a struct; others pass in boxes.
 	CHECK(has_error(head + "struct Hits:\n\tvar all: Array[Hit]\n\nfunc f(h: Hits) -> void:\n\tprint(h)\n", "the None of the int?? inside"));
 	CHECK(errors_of(head + "struct Branch:\n\tvar kids: Array[Branch]\n\tvar n: int?\n\npub var hits: Array[int??]\nsignal moved(o: Order, a: Array[Variant?])\n\nfunc f(b: Branch, o: Order) -> void:\n\tvar v: Variant = o\n\tprint(b, Array(b.kids))\n\nasync func g() -> Array[Hit]:\n\treturn []\n").empty());
