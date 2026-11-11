@@ -3364,13 +3364,13 @@ class Checker : public ClassRelation {
 		return walk;
 	}
 
-	// Each node a path leads to from a node of a scene that has the script
-	// (spec §7.1): in that scene, or, past its root, in each scene that
-	// instances it, as it is there. A scene that lacks the node has the error
+	// Each node that the path `p_at` holds leads to from a node of a scene that
+	// has the script (spec §7.1): in that scene, or, past its root, in each
+	// scene that instances it, as it is there. A scene that lacks the node has the error
 	// marked on it, at `p_marked`, unless the path is optional or the scene
 	// is used only as the base of inherited scenes (spec §7.2).
-	void walk_from(const Expr &p_at, const Scene &p_scene, const std::string &p_from, const std::string &p_marked, const std::string &p_path, const std::string &p_shown, bool p_optional, std::vector<NodeWalk> &r_found, int p_depth = 0) {
-		NodeWalk walk = walk_node_path(p_scene, p_from, p_path);
+	void walk_from(const Expr &p_at, const Scene &p_scene, const std::string &p_from, const std::string &p_marked, const std::string &p_shown, bool p_optional, std::vector<NodeWalk> &r_found, int p_depth = 0) {
+		NodeWalk walk = walk_node_path(p_scene, p_from, p_at.text);
 		if (walk.node) {
 			r_found.push_back(std::move(walk));
 			return;
@@ -3382,7 +3382,7 @@ class Checker : public ClassRelation {
 			for (const SceneNode &node : outer.nodes) {
 				if (node.instance == p_scene.path) {
 					instanced = true;
-					walk_from(p_at, outer, p_from == "." ? node.path : node.path + "/" + p_from, node.path, p_path, p_shown, p_optional, r_found, p_depth + 1);
+					walk_from(p_at, outer, p_from == "." ? node.path : node.path + "/" + p_from, node.path, p_shown, p_optional, r_found, p_depth + 1);
 				}
 			}
 		}
@@ -3390,7 +3390,7 @@ class Checker : public ClassRelation {
 			missing = p_scene.path + ": " + p_shown + " leads out of the scene, and no scene instances it.";
 		}
 		// Such as $"../Music" for an autoload beside the main scene (spec §7.3).
-		std::string named = p_path;
+		std::string named = p_at.text;
 		while (named.rfind("../", 0) == 0 || named.rfind("./", 0) == 0) {
 			named = named.substr(named.find('/') + 1);
 		}
@@ -3474,7 +3474,7 @@ class Checker : public ClassRelation {
 			for (const SceneNode &node : scene.nodes) {
 				if (extends_script(node.script, options.path)) {
 					attached = true;
-					walk_from(p_path_expr, scene, node.path, node.path, p_path_expr.text, p_shown, p_optional, r_found);
+					walk_from(p_path_expr, scene, node.path, node.path, p_shown, p_optional, r_found);
 				}
 			}
 		}
