@@ -126,18 +126,32 @@ uint32_t hash_of(const TypeImage &p_type, const uint8_t *p_slot);
 constexpr int MAX_DEPTH = 100;
 
 // A value that holds itself through a container (spec §3.6) has no end to
-// walk. Each walk into a box counts, and stops past the depth at which the
-// engine stops its own walks, with the engine's error and the result it
-// gives there (core/variant/array.cpp:149-153, 195-199).
+// walk. Each walk into a box counts, and one past the depth at which the
+// engine stops its own walks is a program error (§3.6). While a function of
+// this language runs on the thread, the walk is left for the VM to report
+// (walked_too_deep()), and every walk ends at once until then. A walk that
+// the engine starts on its own, and a copy, which that rule leaves out, get
+// the engine's error and the result it gives at that depth
+// (core/variant/array.cpp:149-153, 195-199).
 thread_local int box_depth = 0;
+thread_local bool walk_failed = false;
+
+void walked_past(bool p_copy) {
+	if (p_copy || vm::stack().empty()) {
+		ERR_PRINT("Max recursion reached");
+	} else if (!walk_failed) {
+		walk_failed = true;
+		unasked_walks.fetch_add(1, std::memory_order_relaxed);
+	}
+}
 
 class BoxLevel {
 public:
 	const bool too_deep;
-	BoxLevel() :
-			too_deep(++box_depth > MAX_DEPTH) {
-		if (too_deep) {
-			ERR_PRINT("Max recursion reached");
+	explicit BoxLevel(bool p_copy = false) :
+			too_deep(++box_depth > MAX_DEPTH || walk_failed) {
+		if (too_deep && !walk_failed) {
+			walked_past(p_copy);
 		}
 	}
 	~BoxLevel() { box_depth--; }
@@ -755,8 +769,13 @@ Variant encode_variant(const TypeImage &p_type, size_t p_variant, const std::vec
 // A key or an element as spec §10.1 encodes it, out of its box.
 static Variant encode_kept(const TypeImage &p_type, const Variant &p_value) {
 	const uint8_t *value = opened(p_type, p_value);
+	if (!value) {
+		return p_value;
+	}
 	const BoxLevel level;
-	return value ? (level.too_deep ? Variant() : encode(p_type, value)) : p_value;
+	const Variant encoded = level.too_deep ? Variant() : encode(p_type, value);
+	// A walk too deep leaves the engine nothing deep to walk in turn.
+	return walk_failed ? Variant() : encoded;
 }
 
 Variant encode(const TypeImage &p_type, const uint8_t *p_slot) {
@@ -1032,7 +1051,7 @@ bool try_from(const TypeImage &p_result, const Variant &p_value, uint8_t *p_slot
 	if (decode_field(*value.type, p_value, p_slot + value.offset, true)) {
 		return true;
 	}
-	if (defaults_failed != failures) {
+	if (defaults_failed != failures || walk_failed) {
 		return false;
 	}
 	// The value field back at its default, as the other variant's fields are.
@@ -1041,6 +1060,17 @@ bool try_from(const TypeImage &p_result, const Variant &p_value, uint8_t *p_slot
 	tag(p_slot) = 1;
 	const FieldImage &error = p_result.fields[2];
 	*reinterpret_cast<String *>(p_slot + error.offset + error.type->fields[0].offset) = described(*value.type, p_value, true);
+	return true;
+}
+
+std::atomic<int> unasked_walks{ 0 };
+
+bool walked_too_deep() {
+	if (!walk_failed) {
+		return false;
+	}
+	walk_failed = false;
+	unasked_walks.fetch_sub(1, std::memory_order_relaxed);
 	return true;
 }
 
@@ -1076,7 +1106,7 @@ static String mismatch(const TypeImage &p_type, const Variant &p_value, const St
 	const String where = p_path.is_empty() ? type_description(p_type) : p_path;
 	const BoxLevel level;
 	if (level.too_deep) {
-		return vformat("%sthe value nests more than %d levels deep", at, MAX_DEPTH);
+		return vformat("%sthe value nests more than %d levels deep, or holds itself", at, MAX_DEPTH);
 	}
 	if (p_decoding && is_option(p_type) && !is_none(p_value)) {
 		return mismatch(*p_type.element, p_value, p_path, true);
@@ -1268,6 +1298,7 @@ uint32_t hash_of(const TypeImage &p_type, const uint8_t *p_slot) {
 // A Dictionary's entries in any order, as `==` compares them (spec §5.2).
 uint32_t hash_contents(const Variant &p_value, int p_depth) {
 	if (p_depth > MAX_DEPTH) {
+		walked_past(false);
 		return 0;
 	}
 	if (const Box *box = as_box(p_value)) {
@@ -1378,7 +1409,7 @@ using Copies = std::optional<std::unordered_map<uint64_t, Variant>>;
 static Variant copy_containers(const Variant &p_value, int64_t p_mode, bool p_freeze, Copies &r_copies) {
 	if (const Box *box = as_box(p_value)) {
 		const TypeImage &type = box->type->type();
-		const BoxLevel level;
+		const BoxLevel level(true);
 		if (level.too_deep || (!box->type->holds_containers && (p_freeze ? box->is_key : p_mode < 0))) {
 			return p_value;
 		}

@@ -889,6 +889,10 @@ class Execution {
 		return false;
 	}
 
+	PETRICHOR_NOINLINE bool fail_too_deep(const bytecode::Function &p_fn, int p_line) {
+		return fail_cstr(p_fn, p_line, "The value nests more than 100 levels deep, or holds itself.");
+	}
+
 	PETRICHOR_NOINLINE bool fail_stack_overflow() {
 		const StackFrame &caller = stack.back();
 		report_error(*caller.image, *caller.function, caller.line, vformat("Stack overflow: more than %d calls deep. Check for infinite recursion.", int64_t(MAX_CALL_DEPTH)));
@@ -2577,7 +2581,7 @@ public:
 						return false;
 					}
 					pc += 4;
-					break;
+					goto walked;
 #define COMPARE(m_op, m_access, m_cmp) \
 	case Op::m_op: \
 		U64(code[pc + 1]) = (m_access(code[pc + 2]) m_cmp m_access(code[pc + 3])) ? 1 : 0; \
@@ -2608,7 +2612,7 @@ public:
 					const uint32_t right = code[pc + 4];
 					image.evaluators[code[pc + 1]](frame + code[pc + 3], right == NO_SLOT ? NOTHING : frame + right, frame + code[pc + 2]);
 					pc += 5;
-					break;
+					goto walked;
 				}
 				case Op::GET_FIELD:
 					image.getters[code[pc + 1]](frame + code[pc + 3], frame + code[pc + 2]);
@@ -2623,7 +2627,7 @@ public:
 						return false;
 					}
 					pc += 4;
-					break;
+					goto walked;
 				case Op::CHECK_ENUM:
 					if (!is_enum_value(types[code[pc + 1]], I64(code[pc + 2]))) {
 						return fail_check_enum(fn, record.line, code[pc + 1], I64(code[pc + 2]));
@@ -2641,7 +2645,7 @@ public:
 						return false;
 					}
 					pc += 4;
-					break;
+					goto walked;
 				case Op::GET_MEMBER_OF:
 					if (!op_get_member_of(code + pc, frame, freed, fn, record.line)) {
 						return false;
@@ -2789,13 +2793,13 @@ public:
 						return false;
 					}
 					pc += 6;
-					break;
+					goto walked;
 				case Op::SET_INDEX:
 					if (!op_set_index(code + pc, frame, fn, record.line)) {
 						return false;
 					}
 					pc += 5;
-					break;
+					goto walked;
 				case Op::ITER_STATE:
 					if (!op_iter_state(code + pc, frame, fn, record.line)) {
 						return false;
@@ -2847,7 +2851,7 @@ public:
 				case Op::EQUAL:
 					U64(code[pc + 2]) = equal_values(types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 4]) ? 1 : 0;
 					pc += 5;
-					break;
+					goto walked;
 				case Op::SAME_OBJECT:
 					U64(code[pc + 2]) = same_object(frame + code[pc + 3], code[pc + 1] & 1, frame + code[pc + 4], code[pc + 1] & 2) ? 1 : 0;
 					pc += 5;
@@ -2855,11 +2859,11 @@ public:
 				case Op::LESS:
 					U64(code[pc + 2]) = less_values(types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 4]) ? 1 : 0;
 					pc += 5;
-					break;
+					goto walked;
 				case Op::TO_VARIANT:
 					op_to_variant(code + pc, frame);
 					pc += 4;
-					break;
+					goto walked;
 				case Op::FROM_VARIANT:
 					if (!read_variant(types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 2])) {
 						return fail_helper(fn, record.line);
@@ -2886,15 +2890,15 @@ public:
 						return fail_helper(fn, record.line);
 					}
 					pc += 4;
-					break;
+					goto walked;
 				case Op::BOX:
 					op_box(code + pc, frame);
 					pc += 5;
-					break;
+					goto walked;
 				case Op::ENCODE:
 					op_encode(code + pc, frame);
 					pc += 4;
-					break;
+					goto walked;
 				case Op::UNWRAP: {
 					const TypeImage &type = types[code[pc + 1]];
 					const uint8_t *src = frame + code[pc + 3];
@@ -2912,7 +2916,8 @@ public:
 				}
 				case Op::TRY_FROM:
 					if (!try_from(types[code[pc + 1]], *reinterpret_cast<const Variant *>(frame + code[pc + 3]), frame + code[pc + 2])) {
-						return false;
+						// A default's program error is reported already, a walk too deep not.
+						return walked_too_deep() && fail_too_deep(fn, record.line);
 					}
 					pc += 4;
 					break;
@@ -2961,13 +2966,13 @@ public:
 						return false;
 					}
 					pc += 5 + 2 * code[pc + 4];
-					break;
+					goto walked;
 				case Op::CALL_VALUE:
 					if (!op_call_value(code + pc, frame, fn, record.line)) {
 						return false;
 					}
 					pc += 5 + 2 * code[pc + 4];
-					break;
+					goto walked;
 				case Op::CLEAR:
 					for (uint32_t i = 0; i < code[pc + 4]; i++) {
 						clear_value(image.types[code[pc + 5 + 2 * i]], frame + code[pc + 6 + 2 * i]);
@@ -2994,16 +2999,16 @@ public:
 							return false;
 						}
 						pc += 5 + 2 * code[pc + 4];
-						break;
+						goto walked;
 					}
 					bool done = false;
 					if (!op_call_engine(code + pc, frame, freed, p_async, pc, done, fn, record.line)) {
 						return false;
 					}
 					if (done) {
-						return true;
+						return !walked_too_deep() || fail_too_deep(fn, record.line);
 					}
-					break;
+					goto walked;
 				}
 				case Op::CALL_AWAIT_BUILTIN: {
 					bool done = false;
@@ -3011,9 +3016,9 @@ public:
 						return false;
 					}
 					if (done) {
-						return true;
+						return !walked_too_deep() || fail_too_deep(fn, record.line);
 					}
-					break;
+					goto walked;
 				}
 				case Op::CALL_UTILITY:
 				case Op::CALL_BUILTIN: {
@@ -3022,12 +3027,12 @@ public:
 						return false;
 					}
 					pc += 5 + 2 * code[pc + 4];
-					break;
+					goto walked;
 				}
 				case Op::CONSTRUCT:
 					op_construct(code + pc, frame);
 					pc += 5 + 2 * code[pc + 4];
-					break;
+					goto walked;
 				case Op::TASK_CANCEL:
 					if (!op_task_cancel(code + pc, frame, fn, record.line)) {
 						return false;
@@ -3068,6 +3073,13 @@ public:
 					return true;
 				default:
 					return fail_invalid_op(fn, record.line, code[pc]);
+				walked:
+					// After an instruction that may compare, hash, show, encode or
+					// decode a value nested deeper than walks go (spec §3.6).
+					if (unasked_walks.load(std::memory_order_relaxed) != 0 && walked_too_deep()) {
+						return fail_too_deep(fn, record.line);
+					}
+					break;
 			}
 		}
 #undef I64
@@ -3870,6 +3882,9 @@ bool initialize_statics(const std::shared_ptr<const ClassImage> &p_image) {
 }
 
 void report_error(const ClassImage &p_image, const char *p_function, int p_line, const String &p_message) {
+	// A walk too deep in the chain this error ends needs no report of its
+	// own, as when a value that failed to decode is described.
+	walked_too_deep();
 	// The debugger breaks while the stack is still intact (spec §12.5).
 	debugger::error(p_message);
 	const CharString description = p_message.utf8();

@@ -10,6 +10,7 @@
 #include <godot_cpp/variant/string_name.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
+#include <atomic>
 #include <cstring>
 #include <memory>
 #include <utility>
@@ -169,8 +170,16 @@ bool from_variant(const TypeImage &p_type, const godot::Variant &p_value, uint8_
 bool entry_check(const TypeImage &p_type, const godot::Variant &p_value, uint8_t *p_slot, godot::String &r_mismatch);
 // `T.try_from(v)` into the slot of a Result[T, ConversionError] (spec §5.3):
 // Ok of the value decoded as a struct's field of type T is (§3.6), or Err
-// naming where it does not fit. False after a default's program error.
+// naming where it does not fit. False after a default's program error, or a
+// walk too deep.
 bool try_from(const TypeImage &p_result, const godot::Variant &p_value, uint8_t *p_slot);
+// Whether a walk into a value, while a function of this language ran on this
+// thread, went deeper than 100 levels since this was last asked: a program
+// error of the instruction that started it (spec §3.6).
+bool walked_too_deep();
+// Such walks on any thread not asked about yet, which is mostly 0: the VM
+// reads it before it calls walked_too_deep().
+extern std::atomic<int> unasked_walks;
 // Whether an int is one of an enum's values (spec §3.7).
 bool is_enum_value(const TypeImage &p_type, int64_t p_value);
 // The value as spec §10.1 encodes it: a struct as a Dictionary, a container

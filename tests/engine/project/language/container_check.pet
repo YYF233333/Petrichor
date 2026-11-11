@@ -342,19 +342,33 @@ pub func recursive() -> String:
 	return root.children[1].children[0].name + " " + str(back == root) + " " + str(keyed[back]) + " " + str(sum == Expr.ADD(items = [Expr.NUM(v = 1), Expr.NUM(v = 2)])) + " " + str(Array[Twig].try_from(untyped).unwrap() == root.children) + " " + str(untyped[1] == expected)
 
 
-# One that holds itself through a container it shares has no end; walks into
-# it stop as the engine's do.
-pub func endless() -> String:
-	var a := Twig(name = "c")
-	a.children.append(a)
-	var b := Twig(name = "c")
-	b.children.append(b)
-	var same := a == b
-	var text := str(a)
-	var encoded := Array(a.children)
-	a.children.clear()
-	b.children.clear()
-	return str(same) + " " + str(text.begins_with("{ \"name\": \"c\"")) + " " + str(encoded.size())
+# A value nested more than 100 levels deep is not compared, hashed, shown,
+# encoded or decoded (spec §3.6).
+pub func deep(depth: int, decoded: bool) -> bool:
+	var a := Twig(name = "a")
+	var b := Twig(name = "a")
+	var encoded: Variant = {"name": "a", "children": []}
+	for i in depth:
+		a = Twig(name = "a", children = [a])
+		b = Twig(name = "a", children = [b])
+		encoded = {"name": "a", "children": [encoded]}
+	if decoded:
+		return Twig.try_from(encoded).ok() != None
+	return a == b
+
+# Nor is one that holds itself through a container it shares.
+var tangled: Array[Twig] = []
+
+pub func endless(hashed: bool) -> String:
+	var a := Twig(name = "c", children = tangled)
+	tangled.append(a)
+	if hashed:
+		var keyed: Dictionary[Twig, int] = {a: 1}
+		return str(keyed.size())
+	return str(a)
+
+pub func untangle() -> void:
+	tangled.clear()
 
 
 # T?? (spec §3.4): an empty array is told from a None element (§3.8), and a

@@ -552,12 +552,18 @@ func _ready() -> void:
 	containers.first(no_ints)
 	_check_errors(["container_check.pet:145: min() of an empty array.", "container_check.pet:148: front() of an empty array."], "min() and front() of an empty array are program errors")
 	_check(containers.recursive() == "leaf true 1 true true true", "a struct and an enum with payloads hold themselves through containers, which encode and decode")
-	_check(containers.endless() == "true true 1", "a struct that holds itself through a shared container is compared, printed and encoded down to the engine's depth")
-	_check_errors(["Max recursion reached", "Max recursion reached", "Maximum array recursion reached!", "Max recursion reached"], "walking a struct that holds itself stops with the engine's error")
+	_check(containers.deep(100, false) and containers.deep(100, true), "a value nested 100 levels deep is compared and decoded")
+	containers.deep(101, false)
+	containers.deep(101, true)
+	containers.endless(false)
+	containers.endless(true)
+	containers.untangle()
+	var too_deep := "The value nests more than 100 levels deep, or holds itself."
+	_check_errors(["container_check.pet:357: " + too_deep, "container_check.pet:356: " + too_deep, "container_check.pet:368: " + too_deep, "container_check.pet:366: " + too_deep], "comparing, decoding, showing or hashing a value nested deeper, or that holds itself, is a program error")
 	_check(containers.nested_options() == "none empty true true true 4 true true <null> true", "T?? tells an empty array from a None element and a missing key from a None value, and each level is peeled once")
 	_check(containers.maybe_sum(some_ints) == 4 and containers.maybe_sum(null) == 0, "an Array[T]? takes an Array[T] or null")
 	containers.callv("maybe_sum", [[1]])
-	_check_errors(["container_check.pet:393: Argument \"values\" of maybe_sum(): expected Array[int]?, found Array."], "an Array[T]? is refused an array of another type")
+	_check_errors(["container_check.pet:407: Argument \"values\" of maybe_sum(): expected Array[int]?, found Array."], "an Array[T]? is refused an array of another type")
 	containers.free()
 
 	var frames_before: int = c.frames

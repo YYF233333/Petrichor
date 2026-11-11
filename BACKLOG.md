@@ -188,7 +188,6 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   A survey of the corpus decides. Until then, spec §5.2 marks it a known limitation.
 - Whether setters that run before ready wait for ready on their own after the first version (spec §6.5, §14.2). The alternative is writing the behavior in the setter. The owner suspects that the implicit suspension makes setters hard to understand.
 - Whether the first version (spec §14) leaves out the built-in test runner (§13.2). The FPS and Ring scripts of the second paper migration do not use it.
-- Whether deep walks of a struct that holds itself through a shared container are program errors (spec §1.5, §3.6). As `a.children.append(a)` makes one, `a == b`, `str(a)` and `Array(a.children)` now stop past 100 boxes as the engine's walks stop. They give its error and its result there (architecture §2.2).
 - Before 0.9: whether a container that holds itself is a program error as a `Dictionary` key (spec §3.8). The engine stops hashing it at a depth of 100 with an error. One that holds itself twice takes about 2^100 steps, in GDScript too (`core/variant/array.cpp:195-208`, `ed1daf0`).
 - The long-term boundary of compatibility with GDScript and Godot: which agreements are promises and which merely hold today. How semantics may change is settled (architecture §5, 0.9).
 - Tuples, to be discussed after the first version. `await Task.all([...])` gives nothing (spec §9.5). With tuples it could give the results of tasks of different types, which an array cannot type.

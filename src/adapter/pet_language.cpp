@@ -382,6 +382,14 @@ void PetLanguage::_thread_exit() {
 
 /* Debugger */
 
+// A value encoded as far as walks go; one nested deeper is no error of the
+// program being inspected (spec §3.6).
+static Variant shown(const TypeImage &p_type, const uint8_t *p_slot) {
+	const Variant value = encode(p_type, p_slot);
+	walked_too_deep();
+	return value;
+}
+
 // Level 0 is the innermost frame of this language on the current thread.
 static const StackFrame *frame_at(int32_t p_level) {
 	const std::vector<StackFrame> &stack = vm::stack();
@@ -425,7 +433,7 @@ Dictionary PetLanguage::_debug_get_stack_level_locals(int32_t p_level, int32_t p
 	for (const bytecode::Slot &slot : frame->function->slots) {
 		if (!slot.name.empty()) {
 			names.push_back(to_godot(slot.name));
-			values.push_back(encode(frame->image->types[slot.type], frame->frame + slot.offset));
+			values.push_back(shown(frame->image->types[slot.type], frame->frame + slot.offset));
 		}
 	}
 	result["locals"] = names;
@@ -445,7 +453,7 @@ Dictionary PetLanguage::_debug_get_stack_level_members(int32_t p_level, int32_t 
 	const ClassImage &image = *(frame->self_image ? frame->self_image : frame->image);
 	for (const bytecode::Member &member : image.module.members) {
 		names.push_back(to_godot(member.name));
-		values.push_back(encode(image.types[member.type], frame->members + member.offset));
+		values.push_back(shown(image.types[member.type], frame->members + member.offset));
 	}
 	result["members"] = names;
 	result["values"] = values;
