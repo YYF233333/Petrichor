@@ -726,7 +726,7 @@ func _ready() -> void:
 	_check(lambdas.untyped_misfits() == ["", "", ""], "an untyped Callable passes no int that is none of an enum's values, no array typed otherwise and no null Callable for a function type")
 	_check_errors(["lambda_check.pet:181: Argument \"l\" of <lambda>(): expected LambdaCheck.Level, found 7, which is none of its values.", "lambda_check.pet:181: Argument \"a\" of <lambda>(): expected Array[int], found Array[String].", "lambda_check.pet:181: Argument \"g\" of <lambda>(): expected func() -> int, found a null Callable."], "each is a program error of the callee")
 	_check(lambdas.node_from(lambdas.returns_resource()) == "", "a function value's result is checked against the function type it came in as")
-	_check(lambdas.nested_options() == [true, true, true, true], "a coroutine, a struct's method, a static function and a lambda with captures, as values, keep Some(None) (spec §10.1)")
+	_check(lambdas.nested_options() == [true, true, true, true, true], "a coroutine, a struct's method, a static function, a lambda with captures and new, as values, keep Some(None) (spec §10.1)")
 	_check_errors(["lambda_check.pet:189: Result of <lambda>(): expected Node, found Resource."], "a result of another type is a program error")
 	_check(lambdas.call_given(Callable()) == 0, "a function type takes no null Callable")
 	_check_errors(["lambda_check.pet:191: Argument \"f\" of call_given(): expected func() -> int, found a null Callable."], "a null Callable for a function type fails the entry check (spec §4.3)")

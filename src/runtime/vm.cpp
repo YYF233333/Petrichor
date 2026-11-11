@@ -1836,6 +1836,10 @@ class Execution {
 				struct_method = static_cast<const StructMethodCallable *>(custom);
 			}
 		}
+		Variant script;
+		if (const std::shared_ptr<const ClassImage> made = static_function ? static_function->constructed(script) : nullptr) {
+			return construct_directly(made, script, p_op, p_frame, p_result, p_entry, p_fn, p_line);
+		}
 		// For a method of self, resolving would end with the image and the
 		// context this call holds already.
 		const bool on_self = method && context.storage && context.self_image && !context.storage->freed.load(std::memory_order_relaxed) && uint64_t(method->get_object()) == instance_id(context.owner);
@@ -1897,6 +1901,37 @@ class Execution {
 		}
 		if (p_op[2] != NO_SLOT) {
 			from_variant(image.types[p_result.type], default_variant(target.types[function.result.type]), p_frame + p_op[2], false);
+		}
+		return true;
+	}
+
+	// new as a value, which constructs as new(...) does (spec §6.1), and runs
+	// _init() as call_directly() runs a function. None when the class has no
+	// _init() that takes the arguments, which the engine reports.
+	std::optional<bool> construct_directly(const std::shared_ptr<const ClassImage> &p_class, const Variant &p_script, const uint32_t *p_op, uint8_t *p_frame, const bytecode::Slot &p_result, bool p_entry, const bytecode::Function &p_fn, int p_line) {
+		const auto init_of = [](const ClassImage &p_image, int &r_index) -> const ClassImage & {
+			const ClassImage::FunctionOrigin &origin = p_image.function_origins[p_image.user_init];
+			r_index = origin.image ? origin.index : p_image.user_init;
+			return origin.image ? *origin.image : p_image;
+		};
+		int index = p_class->user_init;
+		if (index < 0 || !init_of(*p_class, index).module.functions[index].takes(p_op[4])) {
+			return std::nullopt;
+		}
+		// _init() gives no result; the call's is the object.
+		std::vector<uint32_t> init_call(p_op, p_op + 5 + 2 * p_op[4]);
+		init_call[2] = NO_SLOT;
+		bool ok = true;
+		const Variant object = construct(p_class, p_script, [&](const ScriptedObject &p_instance) {
+			const ClassImage &target = init_of(*p_instance.image, index);
+			ok = call_function(target, uint32_t(index), p_instance.context, init_call.data(), p_frame, p_result, p_fn, p_line, nullptr, p_entry, false);
+			return ok;
+		});
+		if (!ok && !p_entry) {
+			return false;
+		}
+		if (p_op[2] != NO_SLOT) {
+			from_variant(image.types[p_result.type], object, p_frame + p_op[2], false);
 		}
 		return true;
 	}

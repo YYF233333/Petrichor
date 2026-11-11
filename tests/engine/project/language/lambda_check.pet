@@ -201,13 +201,20 @@ func call_with_null(f: Callable) -> String:
 
 
 # A function value of this language that this language calls keeps its
-# values: a coroutine, a struct's method, a static function and a lambda
-# with captures, whose signature is not the call's (spec §10.1).
+# values: a coroutine, a struct's method, a static function, a lambda with
+# captures, whose signature is not the call's, and new (spec §10.1).
 struct Deep:
 	var held: int??
 
 	func kept() -> int??:
 		return held
+
+
+class Made:
+	var held: int??
+
+	func _init(x: int??):
+		held = x
 
 
 static func unchanged(x: int??) -> int??:
@@ -222,4 +229,5 @@ pub func nested_options() -> Array[bool]:
 	var kept := Deep(held = inner_none).kept
 	var same := unchanged
 	var capturing := func(x: int??) -> bool: return x == inner_none
-	return [seen[0], kept.call() == inner_none, same.call(inner_none) == inner_none, capturing.call(inner_none)]
+	var make := Made.new
+	return [seen[0], kept.call() == inner_none, same.call(inner_none) == inner_none, capturing.call(inner_none), make.call(inner_none).held == inner_none]

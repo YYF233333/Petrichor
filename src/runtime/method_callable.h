@@ -37,6 +37,8 @@ void constructed(bool p_initialized);
 // (spec §6.1). Null when they do not fit or _init() ends in a program error,
 // which is then the error of a pending call of a function value (§8.1).
 godot::Variant construct(const std::shared_ptr<const ClassImage> &p_image, const godot::Variant &p_script, const godot::Variant **p_args, int p_argcount, GDExtensionCallError &r_error);
+// Likewise with `p_init` calling _init() on the instance; null when it fails.
+godot::Variant construct(const std::shared_ptr<const ClassImage> &p_image, const godot::Variant &p_script, const std::function<bool(const ScriptedObject &)> &p_init);
 
 // Likewise the current image of a script of this language by its path, which
 // a static method is called on (spec §4.8); null when it has none.
@@ -134,6 +136,10 @@ public:
 	// The static function of this language it calls, on the class's current
 	// image, and its index there; false for one of the engine, or for new.
 	bool resolve(std::shared_ptr<const ClassImage> &r_image, int &r_function) const;
+	// For new, the class's current image, with its script loaded into
+	// `r_script` as new_object() loads it, so that it is held while it
+	// constructs; null for another function, or without an image.
+	std::shared_ptr<const ClassImage> constructed(godot::Variant &r_script) const;
 };
 
 // A method of a struct as a value (spec §3.11): a Callable that runs the
