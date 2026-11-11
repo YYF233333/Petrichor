@@ -10661,19 +10661,20 @@ class Checker : public ClassRelation {
 
 	// The node's members that ancestors assign, once they are ready (spec
 	// §6.2, §6.4): where a scene gives the node an owner, those that must be
-	// assigned and are not exported, unless _init assigns them. Its own
-	// @onready initializers, which run first, may not read them, nor its
-	// _ready before it awaits. A node has an owner unless it is a scene's
-	// root, which gets one where another scene instances that scene.
+	// assigned and are not exported, unless the _init of the node's class
+	// assigns them. Its own @onready initializers, which run first, may not
+	// read them, nor its _ready before it awaits. A node has an owner unless
+	// it is a scene's root, which gets one where another scene instances that
+	// scene.
 	void check_ready_reads() {
 		const bool initializes = std::any_of(cls.members.begin(), cls.members.end(), [](const VarDecl &p_member) { return p_member.is_onready && p_member.initializer; });
 		if (!ready && !initializes) {
 			return;
 		}
-		const auto check_at = [&](const Scene &p_scene, const std::string &p_node) {
+		const auto check_at = [&](const Scene &p_scene, const std::string &p_node, const ClassDecl *p_placed) {
 			std::set<int> reported;
 			bool initializer = true;
-			const EarlyReads reads{ [&](int p_member) { return cls.all_members[p_member]->must_assign && !cls.all_members[p_member]->is_export && !init_assigns(cls, cls.all_members[p_member]->name); },
+			const EarlyReads reads{ [&](int p_member) { const VarDecl &member = *cls.all_members[p_member]; return member.must_assign && !member.is_export && !(p_placed && init_assigns(*p_placed, member.name)); },
 				[&](const Expr &p_read) {
 					const std::string where = initializer ? "in an @onready initializer" : "in _ready";
 					const std::string fix = initializer ? "in _ready after" : "after";
@@ -10695,14 +10696,15 @@ class Checker : public ClassRelation {
 				if (!extends_script(node.script, options.path)) {
 					continue;
 				}
+				const ClassDecl *placed = script_decl(node.script);
 				if (node.path != ".") {
-					check_at(scene, node.path);
+					check_at(scene, node.path, placed);
 					continue;
 				}
 				for (const Scene &outer : classes.scenes_instancing(scene.path)) {
 					for (const SceneNode &instance : outer.nodes) {
 						if (instance.instance == scene.path && instance.script.empty()) {
-							check_at(outer, instance.path);
+							check_at(outer, instance.path, placed);
 						}
 					}
 				}

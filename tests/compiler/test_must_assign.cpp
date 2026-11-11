@@ -84,6 +84,19 @@ TEST_CASE("a node with an owner reads in its _ready and @onready initializers wh
 	CHECK(messages(compile_in("extends Base\n\n@onready var aimed := target\n\nfunc _ready():\n\tprint(target)\n", project)).empty());
 }
 
+TEST_CASE("a node's _ready reads what the _init of the node's own class assigns, not a base's that it replaces (spec §6.2)") {
+	FakeProject project;
+	compiler::Scene scene;
+	scene.path = "res://squad.tscn";
+	scene.nodes = { { ".", "Node", "" }, { "Child", "Node", "res://child.pet" } };
+	project.scenes = { scene };
+	const std::string source = "extends Node\n\npub var target: Node\n\nfunc _init():\n\ttarget = Node.new()\n\nfunc _ready():\n\tprint(target)\n";
+	project.add_script("res://child.pet", "extends \"res://test.pet\"\n");
+	CHECK(messages(compile_in(source, project)).empty());
+	project.add_script("res://child.pet", "extends \"res://test.pet\"\n\nfunc _init():\n\tpass\n");
+	CHECK(contains(messages(compile_in(source, project)), "res://squad.tscn: Child reads \"target\" in _ready"));
+}
+
 TEST_CASE("instantiate(...) and the scene leave out what the _init of the root's class assigns, also in another file (spec §6.2, §7.4)") {
 	FakeProject project;
 	project.add_script("res://armed.pet", "class_name Armed\nextends Node3D\n\npub var target: Node3D\n\nfunc _init():\n\ttarget = Node3D.new()\n", "Armed");
