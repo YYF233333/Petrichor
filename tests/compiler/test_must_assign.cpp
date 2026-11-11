@@ -1,3 +1,4 @@
+#include "compiler/analysis.h"
 #include "doctest.h"
 #include "helpers.h"
 
@@ -113,6 +114,26 @@ TEST_CASE("super() in _init assigns what the base's _init assigns, from there on
 	CHECK(contains(errors("\tpass"), "res://squad.tscn: Child reads \"target\" in _ready"));
 	// Through classes of the same file, a subclass before its base.
 	CHECK(errors("\tsuper()\n\nclass Sub extends Inner:\n\tfunc _init():\n\t\tsuper()\n\t\tprint(target)\n\nclass Inner extends Base:\n\tfunc _init():\n\t\tsuper()").empty());
+}
+
+TEST_CASE("the _init of two files that make each other's objects counts what each assigns (spec §6.2)") {
+	FakeProject project;
+	compiler::Scene scene;
+	scene.path = "res://squad.tscn";
+	scene.nodes = { { ".", "Node", "" }, { "A", "Node", "res://a.pet" }, { "B", "Node", "res://b.pet" }, { "Child", "Node", "res://test.pet" } };
+	project.scenes = { scene };
+	const auto source = [](const std::string &p_name, const std::string &p_other) {
+		return "class_name " + p_name + "\nextends Node\n\npub var partner: Node\n\npub func _init():\n\tpartner = " + p_other + ".new()\n\tprint(" + p_other + ".new().partner)\n\nfunc _ready():\n\tprint(partner)\n";
+	};
+	project.add_script("res://a.pet", source("A", "B"), "A");
+	project.add_script("res://b.pet", source("B", "A"), "B");
+	CHECK(messages(compile_in("extends A\n\nfunc _ready():\n\tprint(partner)\n", project)).empty());
+	compiler::Analysis analysis(fake_engine(), project);
+	const compiler::Analysis::Pass pass(analysis);
+	for (const char *path : { "res://a.pet", "res://b.pet" }) {
+		const std::string errors = messages(*analysis.compile(path, *project.script_source(path)));
+		CHECK_MESSAGE(errors.empty(), errors);
+	}
 }
 
 TEST_CASE("instantiate(...) and the scene leave out what the _init of the root's class assigns, also in another file (spec §6.2, §7.4)") {
