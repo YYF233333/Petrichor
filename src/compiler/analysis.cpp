@@ -65,16 +65,18 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 	classes->begin_compile(p_path, std::string());
 	const std::optional<Scene> scene = classes->get_project()->scene(p_path);
 	// The scripts on its nodes and on the roots of the scenes it instances,
-	// with the scripts they extend, whose checks look at their nodes too. When
-	// its tracks or synchronized properties name members, or it connects to a
-	// node inside a scene it instances, also those deeper in the scenes it
-	// instances, which they reach; and so when it is used as a root, as its
-	// nodes all get the exports that must be assigned.
+	// with the files of the classes they extend, inner ones too, whose checks
+	// look at their nodes too. When its tracks or synchronized properties name
+	// members, or it connects to a node inside a scene it instances, also those
+	// deeper in the scenes it instances, which they reach; and so when it is
+	// used as a root, as its nodes all get the exports that must be assigned.
+	std::set<std::string> extended;
 	std::set<std::string> scripts;
-	const auto add = [&](std::string p_script) {
-		while (p_script.size() > 4 && p_script.compare(p_script.size() - 4, 4, ".pet") == 0 && scripts.insert(p_script).second) {
-			const ClassDecl *header = classes->header(p_script);
-			p_script = header ? classes->base_path(*header, p_script) : std::string();
+	const auto add = [&](std::string p_class) {
+		while (is_script_path(p_class) && extended.insert(p_class).second) {
+			scripts.insert(script_file(p_class));
+			const ClassDecl *header = classes->header(p_class);
+			p_class = header ? classes->base_path(*header, p_class) : std::string();
 		}
 	};
 	const auto inside_instance = [&](const SceneConnection &p_connection) {

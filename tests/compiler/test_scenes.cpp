@@ -529,6 +529,20 @@ TEST_CASE("a scene gives a subclass what its base requires, which is marked on t
 	CHECK(errors[1].node == "Instanced");
 }
 
+TEST_CASE("a scene gives a node what the classes it extends through an inner class require (spec §4.1, §7.3, §7.5)") {
+	FakeProject project;
+	project.add_script("res://units.pet", "class_name Units\n\nclass Archer extends \"res://test.pet\":\n\t@export pub var bow: Node2D\n", "Units");
+	project.add_script("res://archer.pet", "extends Units.Archer\n");
+	compiler::Scene menu;
+	menu.path = "res://menu.tscn";
+	menu.nodes = { { ".", "Control", "" }, { "Archer", "Node2D", "res://archer.pet" } };
+	project.scenes = { menu };
+	project.main = menu.path;
+	const std::string errors = messages(check_scenes_in("@parent(Node2D)\nextends Node2D\n", project));
+	CHECK(contains(errors, "res://menu.tscn: the parent of Archer is Control, not Node2D (@parent)."));
+	CHECK(contains(errors, "res://menu.tscn: Archer has no value for \"bow\", an export that must be assigned."));
+}
+
 TEST_CASE("an abstract class is set on no node of a scene, which the scene's check reports (spec §4.1)") {
 	FakeProject project;
 	const std::string source = "@abstract\nextends Node3D\n\n@abstract func aim() -> float\n";

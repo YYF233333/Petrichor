@@ -10207,7 +10207,8 @@ class Checker : public ClassRelation {
 	void check_scene_exports() {
 		const Scene &scene = scenes[0];
 		const bool main = scene.path == options.project->main_scene();
-		if (!main && classes.root_use(scene.path).empty()) {
+		const bool any = std::any_of(cls.members.begin(), cls.members.end(), [](const VarDecl &p_member) { return p_member.is_export && p_member.must_assign; });
+		if (!any || (!main && classes.root_use(scene.path).empty())) {
 			return;
 		}
 		for (const ViewNode &node : view_of(scene)) {
@@ -11954,7 +11955,10 @@ void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &
 		if (r_references) {
 			r_references->clear();
 		}
-		file.checkers.front()->check_scene();
+		// An inner class too, which a node's script may extend.
+		for (const std::unique_ptr<Checker> &checker : file.checkers) {
+			checker->check_scene();
+		}
 	}
 	r_classes.leave(p_options.path);
 }
