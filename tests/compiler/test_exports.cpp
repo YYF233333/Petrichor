@@ -317,7 +317,8 @@ TEST_CASE("the values that scenes store for an exported struct or enum with payl
 		}
 		return value;
 	};
-	// On the root of a scene with the class, or on an instance of one.
+	// On the root of a scene with the class, or on an instance of one, which
+	// the scene's check reports; the script compiles.
 	const auto stored = [&](const std::string &p_name, const Value &p_value, bool p_instance = false) {
 		FakeProject project;
 		compiler::Scene scene;
@@ -329,7 +330,8 @@ TEST_CASE("the values that scenes store for an exported struct or enum with payl
 		node.properties = { { p_name, p_value } };
 		scene.nodes = { node };
 		project.scenes = { scene };
-		return compile_in(source, project);
+		CHECK(compile_in(source, project).errors.empty());
+		return check_scenes_in(source, project);
 	};
 	const auto errors = [&](const std::string &p_name, const Value &p_value) { return messages(stored(p_name, p_value)); };
 	// A field with a default may be left out, as by a scene saved before it

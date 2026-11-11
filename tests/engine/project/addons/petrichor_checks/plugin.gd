@@ -488,8 +488,8 @@ func _check_struct_exports() -> void:
 
 
 # Spec §4.3: the values that scenes store for an exported struct are checked
-# as the script compiles, each scene's own, and an error is marked on the
-# node. A scene that inherits another replaces the whole value.
+# by each scene's own check, which marks an error on the node; the script
+# compiles. A scene that inherits another replaces the whole value.
 func _check_stored_exports() -> void:
 	var script_path := "res://editor_check_stored.pet"
 	var base := "res://editor_check_stored_base.tscn"
@@ -499,16 +499,21 @@ func _check_stored_exports() -> void:
 	_write(base, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Base" type="Node"]\nscript = ExtResource("1")\nhit = {"crit": true, "damage": 5}\n' % script_path)
 	_write(derived, inherit % [base, '{"crit": false}'])
 	var script: Script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_IGNORE)
-	_check(not _compiles(script, script_path), "a scene that inherits another replaces the whole value, here without a field that has no default")
+	_check(_compiles(script, script_path), "a script compiles whatever its scenes store")
 	var warnings := _scene_marks(derived)
-	_check(warnings.contains("the value stored for \"hit\" of . does not decode: editor_check_stored.pet.Hit.damage is missing."), "the error is marked on the node of the scene that stores the value: " + warnings)
+	_check(warnings.contains("the value stored for \"hit\" of . does not decode: editor_check_stored.pet.Hit.damage is missing."), "a scene that inherits another replaces the whole value, here without a field that has no default; the error is marked on the node of the scene that stores it: " + warnings)
 
 	# Modification times count whole seconds.
 	var written := FileAccess.get_modified_time(derived)
 	while int(Time.get_unix_time_from_system()) <= written:
 		await get_tree().process_frame
 	_write(derived, inherit % [base, '{"damage": 7}'])
-	_check(_compiles(script, script_path), "a field left out that has a default decodes")
+	# Saving tells the editor of a change once the frame ends
+	# (editor/editor_node.cpp:7839-7841; ed1daf0).
+	_compiles(script, script_path)
+	await get_tree().process_frame
+	warnings = _scene_marks(derived)
+	_check(warnings.is_empty(), "a field left out that has a default decodes: " + warnings)
 	for file in [script_path, script_path + ".uid", base, derived, "res://.godot/petrichor/editor_check_stored.petc"]:
 		DirAccess.remove_absolute(file)
 
@@ -537,8 +542,8 @@ func _check_scene_exports() -> void:
 	var spawn := "res://editor_check_spawner.tscn"
 	_write(spawner_path, "extends Node\n\n@export pub var wave: PackedScene[Node]\n")
 	_write(spawn, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n[ext_resource type="PackedScene" path="%s" id="2"]\n\n[node name="Spawner" type="Node"]\nscript = ExtResource("1")\nwave = ExtResource("2")\n' % [spawner_path, inner])
-	var spawner: Script = ResourceLoader.load(spawner_path, "", ResourceLoader.CACHE_MODE_IGNORE)
-	_check(not _compiles(spawner, spawner_path), "the scene stored for an export leaves its root's target to instantiate()")
+	var marks := _scene_marks(spawn)
+	_check(marks.contains('"wave" of . holds %s, which leaves "target" to instantiate()' % inner), "the scene stored for an export leaves its root's target to instantiate(): " + marks)
 	for file in [script_path, script_path + ".uid", inner, level, game, spawner_path, spawner_path + ".uid", spawn, "res://.godot/petrichor/editor_check_exports.petc"]:
 		DirAccess.remove_absolute(file)
 

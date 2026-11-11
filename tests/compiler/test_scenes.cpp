@@ -340,7 +340,8 @@ TEST_CASE("instantiate() of a scene known statically takes the exports it does n
 	project.scenes[0].nodes[0].properties.push_back({ "player", path });
 	CHECK(errors("var s: PackedScene[Enemy] = ENEMY\n\tvar e := s.instantiate(target = self)").empty());
 	CHECK(contains(errors("g(ENEMY)\n\nfunc g(s: PackedScene[Node3D]):\n\tpass"), "res://enemy.tscn leaves \"target\" to instantiate(), but a PackedScene[Node3D] does not ask for it."));
-	// Nor may a scene that a scene stores for an export, marked there.
+	// Nor may a scene that a scene stores for an export, which that scene's
+	// check reports.
 	compiler::Scene level;
 	level.path = "res://level.tscn";
 	level.nodes = { { ".", "Node", "" }, { "Spawner", "Node", "res://test.pet" } };
@@ -350,11 +351,11 @@ TEST_CASE("instantiate() of a scene known statically takes the exports it does n
 	stored.path = enemy.path;
 	level.nodes[1].properties = { { "wave", stored } };
 	project.scenes.push_back(level);
-	const compiler::CompileResult spawner = compile_in("extends Node\n@export pub var wave: PackedScene[Node3D]\n", project);
+	const compiler::CompileResult spawner = check_scenes_in("extends Node\n@export pub var wave: PackedScene[Node3D]\n", project);
 	REQUIRE(spawner.errors.size() == 1);
 	CHECK(spawner.errors[0].message == "res://level.tscn: \"wave\" of Spawner holds res://enemy.tscn, which leaves \"target\" to instantiate(), but a PackedScene[Node3D] does not ask for it.");
 	CHECK((spawner.errors[0].scene == level.path && spawner.errors[0].node == "Spawner"));
-	CHECK(compile_in("extends Node\n@export pub var wave: PackedScene[Enemy]\n", project).errors.empty());
+	CHECK(check_scenes_in("extends Node\n@export pub var wave: PackedScene[Enemy]\n", project).errors.empty());
 }
 
 // Spec §7.6.

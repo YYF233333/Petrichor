@@ -10170,12 +10170,11 @@ class Checker : public ClassRelation {
 		});
 	}
 
-	// The values that scenes store for this class's exported structs and
+	// The values that the scene stores for this class's exported structs and
 	// enums with payloads, which the entry check decodes as the scene is
 	// instantiated (spec §4.3), and for its exported scenes, which may leave
-	// to instantiate(...) only what PackedScene[T] asks for (§7.4). Each
-	// scene's own, on the nodes with the class, and on the instances of scenes
-	// whose root has it.
+	// to instantiate(...) only what PackedScene[T] asks for (§7.4): on the
+	// nodes with the class, and on the instances of scenes whose root has it.
 	void check_stored_exports() {
 		std::vector<const VarDecl *> exports;
 		for (const VarDecl &member : cls.members) {
@@ -10184,7 +10183,7 @@ class Checker : public ClassRelation {
 				exports.push_back(&member);
 			}
 		}
-		if (exports.empty() || !options.project || options.declarations_only || options.path.empty()) {
+		if (exports.empty()) {
 			return;
 		}
 		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
@@ -11741,6 +11740,7 @@ public:
 		check_named_members();
 		check_owner_scenes();
 		check_parent_scenes();
+		check_stored_exports();
 	}
 
 private:
@@ -11917,7 +11917,6 @@ private:
 			}
 		}
 		check_warning_ignores();
-		check_stored_exports();
 		check_scene_exports();
 		return true;
 	}
