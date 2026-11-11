@@ -20,6 +20,8 @@ TEST_CASE("objects compare by identity, never when neither class extends the oth
 	const std::string setup = "var node := Node.new()\nvar node2d := Node2D.new()\nvar label := Label.new()\nvar maybe: Node? = None";
 	CHECK(type_of("node == node2d and node2d != node and maybe == node and node2d != maybe and maybe == maybe", setup) == "bool");
 	CHECK(contains(type_of("label == node2d", setup), "Label and Node2D are never the same object, since neither class extends the other."));
+	// So are tasks (spec §5.2).
+	CHECK(contains(type_of("t != u", "var t: Task[int]? = None\nvar u: Task[String]? = None"), "Task[int] and Task[String] are never the same task, since neither result type is the other."));
 	const auto result = compile("interface Hit:\n\tfunc hit()\n\nfunc f(h: Hit, l: Label, m: Node?) -> bool:\n\treturn h == l and l != m\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	std::string error;

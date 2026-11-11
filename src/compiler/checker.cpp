@@ -4037,6 +4037,8 @@ class Checker : public ClassRelation {
 			if (assignable(left, right) || assignable(right, left)) {
 				return Type::of(TypeKind::Bool);
 			}
+			error(p_at, left.to_string() + " and " + right.to_string() + " are never the same task, since neither result type is the other.");
+			return Type::of(TypeKind::Error);
 		}
 		if (p_left.kind == TypeKind::Enum || p_right.kind == TypeKind::Enum) {
 			return binary_type(p_op, as_int(p_left), as_int(p_right), p_at);
