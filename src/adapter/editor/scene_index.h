@@ -28,8 +28,10 @@ class SceneIndex : public compiler::ProjectApi {
 		std::vector<std::pair<std::string, uint64_t>> files;
 		compiler::Scene scene;
 	};
-	mutable std::mutex mutex; // Only around `scenes`: loading takes the engine's locks.
+	mutable std::mutex mutex; // Only around `scenes` and `loads`: loading takes the engine's locks.
 	mutable std::map<std::string, std::shared_ptr<const Entry>> scenes;
+	// literal_loads() of each script read, with when it changed.
+	mutable std::map<std::string, std::pair<uint64_t, std::vector<std::pair<bool, std::string>>>> loads;
 
 	// The scene, read again unless it is up to date.
 	std::shared_ptr<const Entry> read(const std::string &p_path) const;
@@ -49,6 +51,7 @@ public:
 	std::vector<std::string> input_actions() const override;
 	std::vector<std::string> script_paths() const override;
 	std::optional<std::string> script_source(const std::string &p_path) const override;
+	std::vector<std::pair<bool, std::string>> literal_loads(const std::string &p_path) const override;
 	std::optional<compiler::ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override;
 
 	// The editor saved the file: it and the scenes read from it are read again,

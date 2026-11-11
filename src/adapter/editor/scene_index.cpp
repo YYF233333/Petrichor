@@ -406,6 +406,7 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 
 void SceneIndex::forget(const std::string &p_path) const {
 	std::lock_guard<std::mutex> lock(mutex);
+	loads.erase(p_path);
 	for (auto entry = scenes.begin(); entry != scenes.end();) {
 		const auto &files = entry->second->files;
 		if (entry->first == p_path || std::any_of(files.begin(), files.end(), [&](const auto &p_file) { return p_file.first == p_path; })) {
@@ -677,6 +678,22 @@ std::optional<std::string> SceneIndex::script_source(const std::string &p_path) 
 		return std::nullopt;
 	}
 	return to_utf8(FileAccess::get_file_as_string(path));
+}
+
+// Read again only when the file changed, as a scene is.
+std::vector<std::pair<bool, std::string>> SceneIndex::literal_loads(const std::string &p_path) const {
+	const uint64_t modified = FileAccess::get_modified_time(to_godot(p_path));
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		const auto found = loads.find(p_path);
+		if (found != loads.end() && found->second.first == modified) {
+			return found->second.second;
+		}
+	}
+	std::vector<std::pair<bool, std::string>> found = ProjectApi::literal_loads(p_path);
+	std::lock_guard<std::mutex> lock(mutex);
+	loads.insert_or_assign(p_path, std::make_pair(modified, found));
+	return found;
 }
 
 } // namespace petrichor

@@ -175,6 +175,11 @@ public:
 	virtual std::vector<std::string> script_paths() const = 0;
 	// The source of a script, UTF-8; nullopt if it cannot be read.
 	virtual std::optional<std::string> script_source(const std::string &p_path) const = 0;
+	// Each preload() and load() of one literal String in a script of this
+	// language or GDScript, in function bodies too: whether it is a preload,
+	// and the String as written (architecture §6.4). An index may keep them
+	// per file.
+	virtual std::vector<std::pair<bool, std::string>> literal_loads(const std::string &p_path) const;
 	// A script of another language by its res:// path, nullopt if there is
 	// none; its members only with `p_members`, which loads it, since a script
 	// of this language that is being loaded may load no other.

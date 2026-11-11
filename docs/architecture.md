@@ -521,6 +521,7 @@ struct 和带载荷 enum 的成员可以 `@export`，存进场景和 `.tres`（�
   - 当作根使用的场景（`ScriptClasses::root_use`）：主场景，`.pet` 和 `.gd` 中字面量路径 `preload` 和 `load` 的场景，以及场景的节点属性存的场景。
   - GDScript 的 `get_dependencies` 不列出 `preload`，所以按 token 找这些调用（`modules/gdscript/gdscript_resource_format.cpp:88`，`gdscript_parser.h:1647-1650`）。
   - 一次分析只读一遍所有脚本和场景，得出全部回答。
+  - 编辑器按文件保留每个脚本的这些调用，文件的修改时间变了才重读（`SceneIndex::literal_loads`）。所以之后的分析只重读改过的脚本，与场景相同。
 - 用到其他文件函数体中的事实时，由那个文件检查时算出摘要，放进它的声明。
   - 如 `_init` 在每条路径上赋值的成员，和 `_ready` 中给子节点的赋值。
   - 声明的哈希包含决定摘要的输入，所以摘要可能变化时，依赖它的检查重做。

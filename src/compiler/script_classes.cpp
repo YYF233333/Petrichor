@@ -147,12 +147,11 @@ Scene structure(Scene p_scene) {
 	return p_scene;
 }
 
-// Each preload() and load() of one literal String in a source of this
-// language or GDScript, in function bodies too: whether it is a preload, and
-// the String as written.
-std::vector<std::pair<bool, std::string>> literal_loads(const std::string &p_source) {
+} // namespace
+
+std::vector<std::pair<bool, std::string>> ProjectApi::literal_loads(const std::string &p_path) const {
 	std::vector<Diagnostic> ignored;
-	const std::shared_ptr<const SourceFile> source = tokenize(p_source, ignored);
+	const std::shared_ptr<const SourceFile> source = tokenize(script_source(p_path).value_or(std::string()), ignored);
 	const std::vector<Token> &tokens = source->tokens;
 	std::vector<std::pair<bool, std::string>> found;
 	for (size_t i = 0; i + 3 < tokens.size(); i++) {
@@ -162,8 +161,6 @@ std::vector<std::pair<bool, std::string>> literal_loads(const std::string &p_sou
 	}
 	return found;
 }
-
-} // namespace
 
 uint64_t declaration_hash(const std::optional<std::string> &p_source) {
 	if (!p_source) {
@@ -526,7 +523,7 @@ uint64_t ScriptClasses::script_hash(const std::string &p_file) {
 std::vector<std::string> ScriptClasses::preloads(const std::string &p_file) {
 	return recorded.ask<std::vector<std::string>>("preloads of " + p_file, [p_file](const ProjectApi &p_project) {
 		std::vector<std::string> paths;
-		for (const auto &[preload, path] : literal_loads(p_project.script_source(p_file).value_or(std::string()))) {
+		for (const auto &[preload, path] : p_project.literal_loads(p_file)) {
 			if (preload) {
 				paths.push_back(path);
 			}
@@ -598,7 +595,7 @@ std::string ScriptClasses::root_use(const std::string &p_scene) {
 			uses.emplace();
 			uses->emplace(project.main_scene(), "the scene is the main scene");
 			for (const std::string &script : project.script_paths()) {
-				for (const auto &[preload, written] : literal_loads(project.script_source(script).value_or(std::string()))) {
+				for (const auto &[preload, written] : project.literal_loads(script)) {
 					const std::string path = resolved_path(written, preload ? script : std::string("res://"));
 					uses->emplace(path.rfind("uid://", 0) == 0 ? project.uid_path(path) : path, script + (preload ? " preloads the scene" : " loads the scene"));
 				}
