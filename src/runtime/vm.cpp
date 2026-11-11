@@ -1819,11 +1819,23 @@ class Execution {
 		// subclasses, and comparing types costs less than the casts of
 		// get_custom() (thirdparty/godot-cpp/src/variant/callable_custom.cpp:122-125).
 		const auto *custom = static_cast<const CallableCustomBase *>(gdextension_interface::callable_custom_get_userdata(reinterpret_cast<const Callable *>(p_frame + p_op[3])->_native_ptr(), gdextension_interface::token));
-		const std::type_info *kind = custom ? &typeid(*custom) : nullptr;
-		const auto *lambda = kind && *kind == typeid(LambdaCallable) ? static_cast<const LambdaCallable *>(custom) : nullptr;
-		const auto *method = kind && *kind == typeid(MethodCallable) ? static_cast<const MethodCallable *>(custom) : nullptr;
-		const auto *static_function = kind && *kind == typeid(StaticCallable) ? static_cast<const StaticCallable *>(custom) : nullptr;
-		const auto *struct_method = kind && *kind == typeid(StructMethodCallable) ? static_cast<const StructMethodCallable *>(custom) : nullptr;
+		// Compared until one matches: a type that does not compares the names.
+		const LambdaCallable *lambda = nullptr;
+		const MethodCallable *method = nullptr;
+		const StaticCallable *static_function = nullptr;
+		const StructMethodCallable *struct_method = nullptr;
+		if (custom) {
+			const std::type_info &kind = typeid(*custom);
+			if (kind == typeid(LambdaCallable)) {
+				lambda = static_cast<const LambdaCallable *>(custom);
+			} else if (kind == typeid(MethodCallable)) {
+				method = static_cast<const MethodCallable *>(custom);
+			} else if (kind == typeid(StaticCallable)) {
+				static_function = static_cast<const StaticCallable *>(custom);
+			} else if (kind == typeid(StructMethodCallable)) {
+				struct_method = static_cast<const StructMethodCallable *>(custom);
+			}
+		}
 		// For a method of self, resolving would end with the image and the
 		// context this call holds already.
 		const bool on_self = method && context.storage && context.self_image && !context.storage->freed.load(std::memory_order_relaxed) && uint64_t(method->get_object()) == instance_id(context.owner);
