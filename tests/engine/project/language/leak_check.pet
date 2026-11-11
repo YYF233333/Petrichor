@@ -1,0 +1,16 @@
+# Leaves a node and two RefCounted objects that hold each other alive at exit,
+# which debug builds list by where this language made them (spec §6.7, §12.5).
+# run.py runs it in a process of its own.
+extends Node
+
+func _ready():
+	var lost := Node.new()
+	lost.name = "Lost"
+	var a := pair()
+	var b := pair()
+	a.other = b
+	b.other = a
+	get_tree().quit()
+
+func pair() -> LeakPair:
+	return LeakPair.new()

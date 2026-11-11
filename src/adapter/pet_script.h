@@ -1,6 +1,6 @@
 #pragma once
 
-#include "runtime/class_image.h"
+#include "runtime/vm.h"
 
 #include <godot_cpp/classes/script_extension.hpp>
 #include <godot_cpp/classes/script_language.hpp>
@@ -78,6 +78,9 @@ public:
 	static void update_warnings();
 	// The instance of this script on the object; null for a placeholder.
 	PetInstance *find_instance(godot::Object *p_object) const;
+	// In debug builds, the class of each live instance that code of this
+	// language made, and where (spec §6.7).
+	static std::vector<std::pair<godot::String, Site>> made_instances();
 
 	// Members and functions visible to the engine and other languages (spec
 	// §10.5): pub members, but no container that keeps boxes; pub functions

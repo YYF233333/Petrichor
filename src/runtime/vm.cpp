@@ -26,6 +26,7 @@
 #include <cmath>
 #include <condition_variable>
 #include <cstring>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -40,15 +41,12 @@ using bytecode::NO_SLOT;
 using bytecode::Op;
 using bytecode::ValueType;
 
-InstanceStorage::InstanceStorage(const std::shared_ptr<const ClassImage> &p_image, uint64_t p_owner_id) :
-		image(p_image), members(static_cast<uint8_t *>(::operator new(p_image->members_layout.size))), owner_id(p_owner_id) {
-	image->members_layout.construct(members);
-}
-
-InstanceStorage::~InstanceStorage() {
-	image->members_layout.destroy(members);
-	::operator delete(members);
-}
+#ifdef DEBUG_ENABLED
+struct SiteNames {
+	String path;
+	std::vector<StringName> functions;
+};
+#endif
 
 // What a task runs: a function of this language, or for a task of a signal
 // (spec §9.5) no function, with no image and no data, only the wait.
@@ -326,6 +324,121 @@ constexpr size_t MAX_CALL_DEPTH = 1024;
 // and the debugger. It never grows past its first reservation, so that a
 // function's record stays put while it runs.
 thread_local std::vector<StackFrame> call_stack;
+
+#ifdef DEBUG_ENABLED
+struct Freed {
+	uint64_t object = 0;
+	Site site;
+	bool queued = false;
+};
+struct Made {
+	uint64_t object = 0;
+	Site site;
+};
+// What a thread records for program errors and for the listing at exit. Its
+// latest frees are in a ring that allocates nothing to record one: an older
+// free shows no place, as AddressSanitizer forgets frees that left its
+// quarantine. What its new() made is pruned of what was freed whenever it
+// doubles.
+struct ThreadRecords {
+	static constexpr size_t FREES = 4096;
+	std::array<Freed, FREES> frees;
+	size_t freed = 0;
+	std::vector<Made> made;
+	size_t prune_at = 1024;
+	std::atomic<bool> owned{ true }; // By a thread; one that ended leaves them to the next.
+	std::atomic<bool> held{ false };
+};
+// A hold on a thread's records. A reader waits for it; the thread itself,
+// recording, skips the record rather than wait. Its release is a plain store,
+// where a mutex's costs a second atomic operation.
+class Holding {
+	ThreadRecords *records;
+
+public:
+	Holding(ThreadRecords &p_records, bool p_wait) :
+			records(&p_records) {
+		while (records->held.exchange(true, std::memory_order_acquire)) {
+			if (!p_wait) {
+				records = nullptr;
+				return;
+			}
+			std::this_thread::yield();
+		}
+	}
+	~Holding() {
+		if (records) {
+			records->held.store(false, std::memory_order_release);
+		}
+	}
+	Holding(const Holding &) = delete;
+	Holding &operator=(const Holding &) = delete;
+	explicit operator bool() const { return records; }
+};
+// Every thread's records, which outlive the thread, so that what happened on
+// threads that ended stays known, and the names of the sites. They are never
+// deleted, as a thread may end after the library's statics; the listing at
+// exit lets go of the names.
+std::mutex all_records_lock;
+std::vector<ThreadRecords *> all_records;
+std::vector<SiteNames *> all_site_names;
+
+// The statement of this language running on this thread.
+Site here() {
+	const StackFrame &frame = call_stack.back();
+	const ClassImage &image = *frame.image;
+	const SiteNames *names = image.site_names.load(std::memory_order_acquire);
+	if (!names) {
+		std::lock_guard<std::mutex> guard(all_records_lock);
+		names = image.site_names.load(std::memory_order_relaxed);
+		if (!names) {
+			names = all_site_names.emplace_back(new SiteNames{ image.path, image.function_names });
+			image.site_names.store(names, std::memory_order_release);
+		}
+	}
+	return { names, uint32_t(frame.function - image.module.functions.data()), frame.line };
+}
+
+struct OwnRecords {
+	ThreadRecords *records = nullptr;
+	~OwnRecords() {
+		if (records) {
+			records->owned.store(false, std::memory_order_release);
+		}
+	}
+};
+thread_local OwnRecords thread_records;
+
+ThreadRecords &own_records() {
+	if (thread_records.records) {
+		return *thread_records.records;
+	}
+	std::lock_guard<std::mutex> guard(all_records_lock);
+	for (ThreadRecords *records : all_records) {
+		bool owned = false;
+		if (records->owned.compare_exchange_strong(owned, true, std::memory_order_acquire)) {
+			return *(thread_records.records = records);
+		}
+	}
+	return *(thread_records.records = all_records.emplace_back(new ThreadRecords()));
+}
+
+// Keeps where this language's new() made an engine object (spec §6.7).
+void record_made(uint64_t p_object) {
+	const Site site = here();
+	ThreadRecords &records = own_records();
+	const Holding holding(records, false);
+	if (!holding) {
+		return;
+	}
+	std::vector<Made> &made = records.made;
+	if (made.size() >= records.prune_at) {
+		made.erase(std::remove_if(made.begin(), made.end(), [](const Made &p_made) { return !gdextension_interface::object_get_instance_from_id(p_made.object); }), made.end());
+		records.prune_at = std::max<size_t>(1024, 2 * made.size());
+	}
+	made.push_back({ p_object, site });
+}
+#endif
 
 // The memory of the frames of this language on this thread, taken and given
 // back last in first out, from blocks that do not move.
@@ -718,6 +831,11 @@ PETRICHOR_NOINLINE bool new_object(const ClassImage &p_image, uint32_t p_class, 
 		}
 	}
 	set_object(p_slot, object);
+#ifdef DEBUG_ENABLED
+	if (p_image.class_scripts[p_class].is_empty()) {
+		record_made(*reinterpret_cast<const uint64_t *>(p_slot)); // Its ObjectID.
+	}
+#endif
 	return true;
 }
 
@@ -3136,6 +3254,21 @@ public:
 
 } // namespace
 
+InstanceStorage::InstanceStorage(const std::shared_ptr<const ClassImage> &p_image, uint64_t p_owner_id) :
+		image(p_image), members(static_cast<uint8_t *>(::operator new(p_image->members_layout.size))), owner_id(p_owner_id) {
+	image->members_layout.construct(members);
+#ifdef DEBUG_ENABLED
+	if (!call_stack.empty()) {
+		made = here();
+	}
+#endif
+}
+
+InstanceStorage::~InstanceStorage() {
+	image->members_layout.destroy(members);
+	::operator delete(members);
+}
+
 void CoroutineTask::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("cancel"), &CoroutineTask::cancel);
 	ADD_SIGNAL(MethodInfo("completed", PropertyInfo(Variant::NIL, "result", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NIL_IS_VARIANT)));
@@ -3797,91 +3930,90 @@ const std::vector<StackFrame> &stack() {
 	return call_stack;
 }
 
-#ifdef DEBUG_ENABLED
-// The latest frees of a thread, in a ring that allocates nothing to record
-// one. A free older than it holds shows no place, as AddressSanitizer forgets
-// frees that left its quarantine.
-struct FreeSite {
-	uint64_t object = 0;
-	std::weak_ptr<const ClassImage> image; // Of the function.
-	const bytecode::Function *function = nullptr;
-	int line = 0;
-	bool queued = false;
-};
-struct FreeSites {
-	static constexpr size_t SIZE = 4096;
-	std::mutex lock; // A lookup's; recording skips a free rather than wait.
-	std::array<FreeSite, SIZE> sites;
-	size_t recorded = 0;
-	std::atomic<bool> owned{ true }; // By a thread; one that ended leaves it to the next.
-};
-// Every thread's ring, which outlives the thread, so that frees on threads
-// that ended keep their places. The rings are never deleted, as a thread may
-// end after the library's statics.
-std::mutex free_rings_lock;
-std::vector<FreeSites *> free_rings;
-
-struct OwnRing {
-	FreeSites *sites = nullptr;
-	~OwnRing() {
-		if (sites) {
-			sites->owned.store(false, std::memory_order_release);
-		}
-	}
-};
-thread_local OwnRing own_ring;
-
-FreeSites *take_ring() {
-	std::lock_guard<std::mutex> guard(free_rings_lock);
-	for (FreeSites *ring : free_rings) {
-		bool owned = false;
-		if (ring->owned.compare_exchange_strong(owned, true, std::memory_order_acquire)) {
-			return ring;
-		}
-	}
-	return free_rings.emplace_back(new FreeSites());
-}
-#endif
-
 void record_free(uint64_t p_object, bool p_queued) {
 #ifdef DEBUG_ENABLED
 	if (call_stack.empty()) {
 		return;
 	}
-	if (!own_ring.sites) {
-		own_ring.sites = take_ring();
+	// Before the hold, as a reader may hold the list while it waits for it.
+	const Site site = here();
+	ThreadRecords &records = own_records();
+	if (const Holding holding{ records, false }) {
+		records.frees[records.freed++ % ThreadRecords::FREES] = { p_object, site, p_queued };
 	}
-	FreeSites &ring = *own_ring.sites;
-	const std::unique_lock<std::mutex> locked(ring.lock, std::try_to_lock);
-	if (!locked) {
-		return;
-	}
-	const StackFrame &frame = call_stack.back();
-	ring.sites[ring.recorded++ % FreeSites::SIZE] = { p_object, frame.image->weak_from_this(), frame.function, frame.line, p_queued };
 #endif
 }
 
 String freed_site(uint64_t p_object) {
 #ifdef DEBUG_ENABLED
-	std::lock_guard<std::mutex> guard(free_rings_lock);
-	for (FreeSites *ring : free_rings) {
-		std::lock_guard<std::mutex> locked(ring->lock);
-		for (size_t i = 1; i <= std::min(ring->recorded, FreeSites::SIZE); i++) {
-			const FreeSite &site = ring->sites[(ring->recorded - i) % FreeSites::SIZE];
-			if (site.object != p_object) {
-				continue;
+	std::lock_guard<std::mutex> guard(all_records_lock);
+	for (ThreadRecords *records : all_records) {
+		const Holding holding(*records, true);
+		for (size_t i = 1; i <= std::min(records->freed, ThreadRecords::FREES); i++) {
+			const Freed &freed = records->frees[(records->freed - i) % ThreadRecords::FREES];
+			if (freed.object == p_object) {
+				const Site &site = freed.site;
+				return vformat(freed.queued ? " queue_free() was called on it at %s:%d in function '%s'." : " It was freed at %s:%d in function '%s'.", site.names->path, site.line, site.names->functions[site.function]);
 			}
-			const std::shared_ptr<const ClassImage> image = site.image.lock();
-			if (!image) {
-				return String();
-			}
-			return vformat(site.queued ? " queue_free() was called on it at %s:%d in function '%s'." : " It was freed at %s:%d in function '%s'.", image->path, site.line, to_godot(site.function->name));
 		}
 	}
 #endif
 	return String();
 }
 
+void report_leaks(std::vector<std::pair<String, Site>> p_instances) {
+#ifdef DEBUG_ENABLED
+	std::map<String, int64_t> places;
+	int64_t total = 0;
+	const auto count = [&](const String &p_class, const Site &p_site) {
+		places[vformat("%s, made at %s:%d in %s()", p_class, p_site.names->path, p_site.line, p_site.names->functions[p_site.function])]++;
+		total++;
+	};
+	{
+		std::lock_guard<std::mutex> guard(all_records_lock);
+		for (const auto &[made, site] : p_instances) {
+			count(made, site);
+		}
+		for (ThreadRecords *records : all_records) {
+			const Holding holding(*records, true);
+			for (const Made &made : records->made) {
+				StringName name;
+				const GDExtensionObjectPtr object = gdextension_interface::object_get_instance_from_id(made.object);
+				if (object && gdextension_interface::object_get_class_name(object, gdextension_interface::library, name._native_ptr())) {
+					count(name, made.site);
+				}
+			}
+			records->made = {};
+		}
+		// The names go while the engine can still free them; nothing records
+		// after this.
+		for (SiteNames *names : all_site_names) {
+			delete names;
+		}
+		all_site_names.clear();
+	}
+	if (places.empty()) {
+		return;
+	}
+	std::vector<std::pair<int64_t, String>> counted;
+	for (const auto &[place, made] : places) {
+		counted.emplace_back(-made, place);
+	}
+	std::sort(counted.begin(), counted.end());
+	const auto plural = [](int64_t p_count, const char *p_word) { return vformat(p_count == 1 ? "%d %s" : "%d %ss", p_count, p_word); };
+	String message = plural(total, "object") + " made by this language leaked at exit, at " + plural(int64_t(counted.size()), "place") + ":";
+	const int64_t width = String::num_int64(-counted[0].first).length();
+	for (size_t i = 0; i < std::min<size_t>(counted.size(), 5); i++) {
+		message += "\n  " + String::num_int64(-counted[i].first).lpad(width) + " " + String::chr(0xD7) + " " + counted[i].second;
+	}
+	if (counted.size() > 5) {
+		message += "\n  and " + plural(int64_t(counted.size() - 5), "more place");
+	}
+	// With no place, which the engine's printing at exit then leaves out
+	// (core/error/error_macros.cpp:51-61, 110-114, ed1daf0).
+	_err_print_error(nullptr, nullptr, 0, message, false, true);
+#endif
+}
 namespace {
 
 // The pub static variable of that name of the class or a base: the image of

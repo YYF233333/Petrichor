@@ -19,6 +19,8 @@
 
 namespace petrichor {
 
+struct SiteNames;
+
 // The static variables of a class (spec §4.8): made with its image, and
 // handed on to the next image of the class by a hot reload that changes only
 // function bodies, so that they keep their values.
@@ -72,6 +74,11 @@ public:
 
 	std::vector<TypeImage> types; // By the module's type index.
 	std::vector<godot::StringName> function_names;
+#ifdef DEBUG_ENABLED
+	// Its path and function names, which the records of what its code made
+	// and freed name: made at the first record and kept until exit (vm.cpp).
+	mutable std::atomic<const SiteNames *> site_names{ nullptr };
+#endif
 	godot::HashMap<godot::StringName, int> function_lookup;
 	std::vector<SlotLayout> frames; // By function index.
 	int user_init = -1; // The nearest _init(), run after the member initializers (spec §6.1).

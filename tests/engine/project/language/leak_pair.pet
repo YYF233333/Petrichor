@@ -1,0 +1,5 @@
+# A RefCounted that holds another, so that two of them keep each other.
+class_name LeakPair
+extends RefCounted
+
+pub var other: LeakPair? = None

@@ -511,6 +511,23 @@ void PetScript::update_warnings() {
 	}
 }
 
+std::vector<std::pair<String, Site>> PetScript::made_instances() {
+	std::vector<std::pair<String, Site>> made;
+#ifdef DEBUG_ENABLED
+	std::lock_guard<std::mutex> lock(scripts_mutex);
+	for (PetScript *script : scripts) {
+		std::lock_guard<std::mutex> instances_lock(script->mutex);
+		for (PetInstance *instance : script->instances) {
+			if (instance->storage->made.names) {
+				const std::shared_ptr<const ClassImage> image = instance->current_image();
+				made.emplace_back(image->global_name == StringName() ? image->path : String(image->global_name), instance->storage->made);
+			}
+		}
+	}
+#endif
+	return made;
+}
+
 bool PetScript::_can_instantiate() const {
 	const std::shared_ptr<const ClassImage> current = get_image();
 	return current && !current->module.declarations_only && !current->module.is_abstract && (_is_tool() || !Engine::get_singleton()->is_editor_hint());

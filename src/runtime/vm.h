@@ -14,6 +14,15 @@ namespace petrichor {
 
 struct TaskState;
 
+// Where this language made or freed an object (spec §3.3, §6.7): the
+// statement of this language running on the thread. Kept in debug builds,
+// which keep the names until exit, also when the class image goes.
+struct Site {
+	const SiteNames *names = nullptr; // None when no code of this language ran.
+	uint32_t function = 0;
+	int line = 0;
+};
+
 // Active tasks in the order they started, under the lock of the active tasks
 // (vm.cpp).
 struct TaskList {
@@ -36,6 +45,9 @@ public:
 	std::atomic<bool> coroutines_cancelled{ false };
 	// Those of its tasks that have not ended, whose frames keep it until they do.
 	TaskList tasks;
+#ifdef DEBUG_ENABLED
+	Site made;
+#endif
 
 	InstanceStorage(const std::shared_ptr<const ClassImage> &p_image, uint64_t p_owner_id);
 	~InstanceStorage();
@@ -98,6 +110,11 @@ const std::vector<StackFrame> &stack();
 void record_free(uint64_t p_object, bool p_queued = false);
 // " It was freed at ...", or empty when no such place is kept.
 godot::String freed_site(uint64_t p_object);
+// In debug builds, warns of what this language made that is still alive
+// (spec §6.7, §12.5): the engine objects its new() made, and the instances
+// of this language in `p_instances`, by class and place. Then lets go of the
+// records while the engine can still free their names.
+void report_leaks(std::vector<std::pair<godot::String, Site>> p_instances);
 
 // Reports a program error at a line of the module's source (spec §8.1): the
 // debugger breaks, and the engine logs it with the call stack.

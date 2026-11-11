@@ -31,9 +31,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Members that animation tracks and synchronized properties name, unchecked for `pub` (spec §10.5):
   - through a path that leaves the scene storing it, as from an AnimationPlayer at its root;
   - after the first subname, on a resource of this language, as `health` in `Body:stats:health`.
-- In debug builds, listing what this language made and is alive at exit, by creation site (spec §6.7, §12.5).
-  - The engine's `ObjectDB::cleanup` runs after the languages finish, so the list comes from this language's own records (`core/object/object.cpp:2532-2568`, `ed1daf0`).
-  - Instances of this language keep their site. Engine objects that its `new()` makes need a table; measure its cost.
 
 ## Runtime
 

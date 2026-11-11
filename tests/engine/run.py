@@ -499,6 +499,13 @@ def main():
         code, output = run(godot, "--verbose", "--path", str(PROJECT), "res://language/language.tscn")
         expect_run("language", code, output, ["language: 0 failure(s)"], expected_errors(output, "language"))
         expect("language: no value leaks", "Orphan StringName: petrichor_leak_probe" not in output, output)
+        # Spec §6.7, §12.5: what this language made and leaked, listed at exit.
+        code, output = run(godot, "--path", str(PROJECT), "res://language/leak.tscn")
+        expect_run("leaks at exit", code, output, [
+            "WARNING: 3 objects made by this language leaked at exit, at 2 places:",
+            "2 × LeakPair, made at res://language/leak_check.pet:16 in pair()",
+            "1 × Node, made at res://language/leak_check.pet:7 in _ready()",
+        ], ["1 resources still in use at exit (run with --verbose for details)."])
         run_stale_bytecode(godot)
 
     if wanted("debugger"):
