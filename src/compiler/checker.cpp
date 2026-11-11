@@ -11720,7 +11720,10 @@ public:
 				check_body(fn);
 			}
 		}
-		check_ready_reads();
+		// It needs what _init assigns, which only the check of its body finds.
+		if (check_bodies) {
+			check_ready_reads();
+		}
 		for (StructDecl &decl : cls.structs) {
 			structure = &decl;
 			structure_type = Type::structure(display_name(cls, options.path) + "." + decl.name, options.path);

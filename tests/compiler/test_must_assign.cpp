@@ -67,6 +67,17 @@ TEST_CASE("a node with an owner reads in its _ready no member its ancestors assi
 	CHECK(messages(compile_in(members + "func _ready():\n\tprint(target, exported)\n", project)).empty());
 }
 
+TEST_CASE("a subclass on a node with an owner has a base whose _init assigns what its @onready initializer reads") {
+	FakeProject project;
+	compiler::Scene scene;
+	scene.path = "res://squad.tscn";
+	scene.nodes = { { ".", "Node", "" }, { "Child", "Node", "res://test.pet" } };
+	project.scenes = { scene };
+	project.add_script("res://base.pet", "class_name Base\nextends Node\n\npub var target: Node\n@onready var aim := target\n\nfunc _init():\n\ttarget = Node.new()\n", "Base");
+	project.add_script("res://test.pet", "extends Base\n");
+	CHECK(messages(compile_in("extends Base\n", project)).empty());
+}
+
 namespace {
 
 std::string made_errors(const std::string &p_body) {
