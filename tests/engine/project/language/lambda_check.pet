@@ -198,3 +198,28 @@ pub func call_any(f: Callable) -> String:
 
 func call_with_null(f: Callable) -> String:
 	return str(f.call(Callable()))
+
+
+# A function value of this language that this language calls keeps its
+# values: a coroutine, a struct's method, a static function and a lambda
+# with captures, whose signature is not the call's (spec §10.1).
+struct Deep:
+	var held: int??
+
+	func kept() -> int??:
+		return held
+
+
+static func unchanged(x: int??) -> int??:
+	return x
+
+
+pub func nested_options() -> Array[bool]:
+	var inner_none: int?? = Some(None)
+	var seen: Array[bool] = []
+	var later := async func(x: int??): seen.append(x == inner_none)
+	later.call(inner_none).detach()
+	var kept := Deep(held = inner_none).kept
+	var same := unchanged
+	var capturing := func(x: int??) -> bool: return x == inner_none
+	return [seen[0], kept.call() == inner_none, same.call(inner_none) == inner_none, capturing.call(inner_none)]

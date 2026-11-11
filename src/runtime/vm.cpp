@@ -1191,13 +1191,17 @@ class Execution {
 	// Unless `p_typed`, the call's types are not the function's at all: what is
 	// laid out alike is checked too, unless its layout says all its type does:
 	// an engine value type, but no function type, which is never null.
-	// A lambda's captures follow the arguments. As an engine entry, an argument
-	// that fails the entry check is reported as the engine's call reports it.
-	PETRICHOR_NOINLINE bool call_function(const ClassImage &p_callee, uint32_t p_index, const InstanceContext &p_context, const uint32_t *p_call, uint8_t *frame, const bytecode::Slot &p_result, const bytecode::Function &p_caller, int p_line, const uint8_t *p_captures = nullptr, bool p_entry = false, bool p_typed = true) {
+	// A lambda's captures follow the arguments, and a struct's method takes
+	// the struct of its value first. As an engine entry, an argument that
+	// fails the entry check is reported as the engine's call reports it.
+	PETRICHOR_NOINLINE bool call_function(const ClassImage &p_callee, uint32_t p_index, const InstanceContext &p_context, const uint32_t *p_call, uint8_t *frame, const bytecode::Slot &p_result, const bytecode::Function &p_caller, int p_line, const uint8_t *p_captures = nullptr, bool p_entry = false, bool p_typed = true, const uint8_t *p_bound_self = nullptr) {
+		// The same type of this language has the same box, and a Variant
+		// would not keep what it means (spec §10.1).
 		const auto copies = [&](const TypeImage &p_from, const TypeImage &p_to) {
-			return p_from.layout == p_to.layout && (p_typed || (p_to.kind == bytecode::TypeKind::Value && p_to.check.nullable));
+			return p_from.layout == p_to.layout && (p_typed || (p_to.box && p_to.box == p_from.box) || (p_to.kind == bytecode::TypeKind::Value && p_to.check.nullable));
 		};
 		const uint32_t dst = p_call[2], argc = p_call[4];
+		const size_t bound = p_bound_self ? 1 : 0;
 		const bytecode::Function &method = p_callee.module.functions[p_index];
 		if (!method.is_static && !method.is_lambda && !p_context.storage) {
 			return fail_cstr(p_caller, p_line, "An instance method needs a receiver. Build the project again.");
@@ -1205,39 +1209,44 @@ class Execution {
 		if (method.is_abstract) {
 			return fail(p_caller, p_line, vformat("%s() is abstract, and this object's class does not implement it. Build the project again.", p_callee.function_names[p_index]));
 		}
-		if (!method.takes(argc)) {
+		if (!method.takes(argc + bound)) {
 			return fail_cstr(p_caller, p_line, "Override argument count changed. Rebuild the project.");
 		}
 		const size_t given = method.params.size() - method.captures;
 		const size_t fixed = method.fixed_params();
 		Frame callee_frame(frames, p_callee.frames[p_index]);
 		if (method.given != NO_SLOT) {
-			*reinterpret_cast<int64_t *>(callee_frame.data + method.given) = int64_t(argc);
+			*reinterpret_cast<int64_t *>(callee_frame.data + method.given) = int64_t(argc + bound);
 		}
 		const uint8_t *capture = p_captures;
 		for (size_t i = 0; i < method.params.size(); i++) {
 			uint8_t *param = callee_frame.data + method.params[i].offset;
 			const TypeImage &param_type = p_callee.types[method.params[i].type];
+			if (i < bound) {
+				copy_value(param_type, param, p_bound_self);
+				continue;
+			}
 			if (i >= given) {
 				copy_value(param_type, param, capture);
 				capture += param_type.size;
 				continue;
 			}
+			const size_t arg = i - bound;
 			String error;
 			if (i == fixed) {
 				const auto argument = [&](size_t p_rest) {
-					const uint32_t *pair = p_call + 5 + 2 * (fixed + p_rest);
+					const uint32_t *pair = p_call + 5 + 2 * (arg + p_rest);
 					return to_variant(image.types[pair[0]], frame + pair[1]);
 				};
-				if (fill_rest(param_type, param, argc > fixed ? argc - fixed : 0, argument, error)) {
+				if (fill_rest(param_type, param, argc > arg ? argc - arg : 0, argument, error)) {
 					continue;
 				}
-			} else if (i >= argc) {
+			} else if (arg >= argc) {
 				continue; // The callee computes its default.
-			} else if (copies(image.types[p_call[5 + 2 * i]], param_type)) {
-				copy_value(param_type, param, frame + p_call[6 + 2 * i]);
+			} else if (copies(image.types[p_call[5 + 2 * arg]], param_type)) {
+				copy_value(param_type, param, frame + p_call[6 + 2 * arg]);
 				continue;
-			} else if (entry_check(param_type, to_variant(image.types[p_call[5 + 2 * i]], frame + p_call[6 + 2 * i]), param, error)) {
+			} else if (entry_check(param_type, to_variant(image.types[p_call[5 + 2 * arg]], frame + p_call[6 + 2 * arg]), param, error)) {
 				continue;
 			}
 			if (error.is_empty()) {
@@ -1795,21 +1804,26 @@ class Execution {
 		return call_function(*callee.image, uint32_t(index), callee.context, p_op, p_frame, image.module.method_calls[target].result, p_fn, p_line) && within_depth(p_fn, p_line);
 	}
 
-	// A lambda or a method value of this language, run as a method of another
-	// object is (spec §3.11); none for another Callable, or one whose function
-	// does not take as many arguments, which the engine passes on. The
-	// arguments and the result are checked unless the call's signature is the
-	// function's, or one it overrides: a function value came in as any Callable
-	// from the engine, and an untyped Callable's call() passes anything. As an
-	// engine entry, which that call() is (§8.1), a program error in it gives the
-	// default result and this call goes on.
+	// A function value of this language, run as a method of another object is
+	// (spec §3.11): a lambda, or a method, static function or struct's method
+	// as a value, so that its values keep what they mean (§10.1). None for
+	// another Callable, for one whose function does not take as many
+	// arguments, and for a coroutine whose Task the call does not take, which
+	// the engine passes on. The arguments and the result are checked unless
+	// the call's signature is the function's, or one it overrides: a function
+	// value came in as any Callable from the engine, and an untyped Callable's
+	// call() passes anything. As an engine entry, which that call() is (§8.1),
+	// a program error in it gives the default result and this call goes on.
 	std::optional<bool> call_directly(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Slot &p_result, bool p_entry, const bytecode::Function &p_fn, int p_line) {
-		// A Callable of this library by its exact type: neither type has
+		// A Callable of this library by its exact type: none of these types has
 		// subclasses, and comparing types costs less than the casts of
 		// get_custom() (thirdparty/godot-cpp/src/variant/callable_custom.cpp:122-125).
 		const auto *custom = static_cast<const CallableCustomBase *>(gdextension_interface::callable_custom_get_userdata(reinterpret_cast<const Callable *>(p_frame + p_op[3])->_native_ptr(), gdextension_interface::token));
-		const auto *lambda = custom && typeid(*custom) == typeid(LambdaCallable) ? static_cast<const LambdaCallable *>(custom) : nullptr;
-		const auto *method = custom && typeid(*custom) == typeid(MethodCallable) ? static_cast<const MethodCallable *>(custom) : nullptr;
+		const std::type_info *kind = custom ? &typeid(*custom) : nullptr;
+		const auto *lambda = kind && *kind == typeid(LambdaCallable) ? static_cast<const LambdaCallable *>(custom) : nullptr;
+		const auto *method = kind && *kind == typeid(MethodCallable) ? static_cast<const MethodCallable *>(custom) : nullptr;
+		const auto *static_function = kind && *kind == typeid(StaticCallable) ? static_cast<const StaticCallable *>(custom) : nullptr;
+		const auto *struct_method = kind && *kind == typeid(StructMethodCallable) ? static_cast<const StructMethodCallable *>(custom) : nullptr;
 		// For a method of self, resolving would end with the image and the
 		// context this call holds already.
 		const bool on_self = method && context.storage && context.self_image && !context.storage->freed.load(std::memory_order_relaxed) && uint64_t(method->get_object()) == instance_id(context.owner);
@@ -1842,6 +1856,16 @@ class Execution {
 				return std::nullopt;
 			}
 			typed = !p_entry && found->has_signature(method->get_method(), image.call_signatures[p_op[1]]);
+		} else if ((static_function && static_function->resolve(resolved.image, index)) || struct_method) {
+			if (struct_method) {
+				resolved.image = struct_method->get_image();
+				index = struct_method->get_function();
+			}
+			// Without an instance, as vm::call() completes it.
+			resolved.context.self_image = resolved.image;
+			found = resolved.image.get();
+			callee_context = &resolved.context;
+			typed = !p_entry && !struct_method && found->function_signatures[index] == image.call_signatures[p_op[1]];
 		} else {
 			return std::nullopt;
 		}
@@ -1849,10 +1873,13 @@ class Execution {
 		const ClassImage &target = origin.image ? *origin.image : *found;
 		index = origin.image ? origin.index : index;
 		const bytecode::Function &function = target.module.functions[index];
-		if (function.is_async || !function.takes(p_op[4])) {
+		const uint8_t *self_value = struct_method ? struct_method->get_self() : nullptr;
+		// A coroutine gives its Task to a call that takes one (§9.1).
+		const bool task = !p_entry && image.types[p_result.type].storage == ValueType::Task;
+		if ((function.is_async && !task) || !function.takes(p_op[4] + (self_value ? 1 : 0))) {
 			return std::nullopt;
 		}
-		const bool ok = call_function(target, uint32_t(index), *callee_context, p_op, p_frame, p_result, p_fn, p_line, captures, p_entry, typed);
+		const bool ok = call_function(target, uint32_t(index), *callee_context, p_op, p_frame, p_result, p_fn, p_line, captures, p_entry, typed, self_value);
 		if (ok || !p_entry) {
 			return ok;
 		}

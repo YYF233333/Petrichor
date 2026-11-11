@@ -273,19 +273,30 @@ void StaticCallable::call(const Variant **p_arguments, int p_argcount, Variant &
 		call_static(owner, method, p_arguments, uint32_t(p_argcount), r_return_value, r_call_error);
 		return;
 	}
-	// Loaded as new_object() loads it, so that it is held while it constructs.
-	const Variant loaded = constructs ? load_resource(owner) : Variant();
-	std::shared_ptr<const ClassImage> image = script_image(owner);
-	if (image && constructs) {
-		r_return_value = construct(image, loaded, p_arguments, p_argcount, r_call_error);
+	std::shared_ptr<const ClassImage> image;
+	int function = -1;
+	if (constructs) {
+		// Loaded as new_object() loads it, so that it is held while it constructs.
+		const Variant loaded = load_resource(owner);
+		image = script_image(owner);
+		if (image) {
+			r_return_value = construct(image, loaded, p_arguments, p_argcount, r_call_error);
+			return;
+		}
+	} else if (resolve(image, function)) {
+		r_return_value = call_value(std::move(image), function, InstanceContext(), p_arguments, p_argcount, r_call_error, nullptr);
 		return;
 	}
-	const int function = image ? image->find_function(method) : -1;
-	if (function < 0 || !image->module.functions[function].is_static) {
-		r_call_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
-		return;
+	r_call_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
+}
+
+bool StaticCallable::resolve(std::shared_ptr<const ClassImage> &r_image, int &r_function) const {
+	if (of_engine || constructs) {
+		return false;
 	}
-	r_return_value = call_value(std::move(image), function, InstanceContext(), p_arguments, p_argcount, r_call_error, nullptr);
+	r_image = script_image(owner);
+	r_function = r_image ? r_image->find_function(method) : -1;
+	return r_function >= 0 && r_image->module.functions[r_function].is_static;
 }
 
 StructMethodCallable::StructMethodCallable(const std::shared_ptr<const ClassImage> &p_image, int p_function, const uint8_t *p_self) :

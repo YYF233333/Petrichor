@@ -130,6 +130,10 @@ public:
 	godot::ObjectID get_object() const override;
 	int get_argument_count(bool &r_is_valid) const override;
 	void call(const godot::Variant **p_arguments, int p_argcount, godot::Variant &r_return_value, GDExtensionCallError &r_call_error) const override;
+
+	// The static function of this language it calls, on the class's current
+	// image, and its index there; false for one of the engine, or for new.
+	bool resolve(std::shared_ptr<const ClassImage> &r_image, int &r_function) const;
 };
 
 // A method of a struct as a value (spec §3.11): a Callable that runs the
@@ -156,6 +160,10 @@ public:
 	godot::ObjectID get_object() const override;
 	int get_argument_count(bool &r_is_valid) const override;
 	void call(const godot::Variant **p_arguments, int p_argcount, godot::Variant &r_return_value, GDExtensionCallError &r_call_error) const override;
+
+	const std::shared_ptr<const ClassImage> &get_image() const { return image; }
+	int get_function() const { return function; }
+	const uint8_t *get_self() const { return self.data; }
 };
 
 // A lambda (spec §3.11): a Callable that runs the lambda's function in the
