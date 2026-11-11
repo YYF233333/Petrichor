@@ -3466,22 +3466,57 @@ class Checker : public ClassRelation {
 		return set(r_expr, type);
 	}
 
+	// Walks the path that `p_path_expr` holds from each node of the scenes with
+	// the class; whether there is one.
+	bool walk_placements(const std::vector<Scene> &p_scenes, const Expr &p_path_expr, const std::string &p_shown, bool p_optional, std::vector<NodeWalk> &r_found) {
+		bool attached = false;
+		for (const Scene &scene : p_scenes) {
+			for (const SceneNode &node : scene.nodes) {
+				if (extends_script(node.script, options.path)) {
+					attached = true;
+					walk_from(p_path_expr, scene, node.path, node.path, p_path_expr.text, p_shown, p_optional, r_found);
+				}
+			}
+		}
+		return attached;
+	}
+
+	// Each literal node path of the class leads to a node from the nodes of
+	// this scene with the class (spec §7.1). Where no scene that places it has
+	// the node, the script's check reports them instead, as `$X` has no type.
+	void check_node_paths() {
+		for_each_node_path(cls, [&](const Expr &p_expr) {
+			const bool call = p_expr.kind == ExprKind::Call;
+			const Expr &path = call ? *p_expr.args[0] : p_expr;
+			if (path.text.empty() || path.text[0] == '/' || path.text == "..") {
+				return;
+			}
+			const std::string shown = call ? p_expr.text + "(\"" + path.text + "\")" : shown_path(path.text);
+			const bool optional = p_expr.text == "get_node_or_null";
+			std::vector<NodeWalk> found;
+			const size_t lacking = errors.size();
+			walk_placements(scenes, path, shown, optional, found);
+			if (found.empty() && errors.size() > lacking) {
+				const size_t elsewhere = errors.size();
+				walk_placements(classes.scenes_with_script(options.path), path, shown, optional, found);
+				errors.erase(errors.begin() + std::ptrdiff_t(found.empty() ? lacking : elsewhere), errors.end());
+			}
+		});
+	}
+
 	// The node at a literal path from this node, `p_path_expr` holding the
 	// path, as `$X` and get_node() name it (spec §7.1, §7.2): its type in every
 	// scene that gives this script a node, which must agree. With `p_optional`,
 	// for get_node_or_null(), a scene may lack it and the type is T?, or Node?
-	// when no scene has it. Error after reporting.
+	// when no scene has it. Where some scene has it, the checks of those that
+	// lack it report them (architecture §6.4); completion still offers only
+	// the paths every scene has. Error after reporting.
 	Type scene_node_at(const Expr &p_path_expr, const std::string &p_shown, bool p_optional) {
-		const std::string &path = p_path_expr.text;
-		bool attached = false;
 		std::vector<NodeWalk> found;
-		for (const Scene &scene : scenes) {
-			for (const SceneNode &node : scene.nodes) {
-				if (extends_script(node.script, options.path)) {
-					attached = true;
-					walk_from(p_path_expr, scene, node.path, node.path, path, p_shown, p_optional, found);
-				}
-			}
+		const size_t lacking = errors.size();
+		const bool attached = walk_placements(scenes, p_path_expr, p_shown, p_optional, found);
+		if (!found.empty() && !completion) {
+			errors.erase(errors.begin() + std::ptrdiff_t(lacking), errors.end());
 		}
 		std::optional<Type> type;
 		std::string type_scene;
@@ -11795,6 +11830,7 @@ public:
 		}
 		scenes = { *scene };
 		check_abstract_scenes();
+		check_node_paths();
 		check_connections();
 		check_named_members();
 		check_owner_scenes();
@@ -12031,6 +12067,28 @@ void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &
 		}
 	}
 	r_classes.leave(p_options.path);
+}
+
+void for_each_node_path(const ClassDecl &p_class, const std::function<void(const Expr &)> &p_fn) {
+	const auto visit = [&](const auto &p_self, const auto &p_node) -> void {
+		using Node = std::decay_t<decltype(p_node)>;
+		if constexpr (std::is_same_v<Node, ClassDecl>) {
+			if (&p_node != &p_class) {
+				return;
+			}
+		} else if constexpr (std::is_same_v<Node, FuncDecl>) {
+			if (p_node.is_static) {
+				return;
+			}
+		} else if constexpr (std::is_same_v<Node, Expr>) {
+			const bool literal = p_node.kind == ExprKind::Call && (p_node.text == "get_node" || p_node.text == "get_node_or_null") && (!p_node.base || p_node.base->kind == ExprKind::Self) && p_node.args.size() == 1 && p_node.args[0]->kind == ExprKind::StringLiteral && p_node.arg_names.empty();
+			if (p_node.kind == ExprKind::GetNode || literal) {
+				p_fn(p_node);
+			}
+		}
+		for_each_child(p_node, [&](const auto &p_child) { p_self(p_self, p_child); });
+	};
+	visit(visit, p_class);
 }
 
 std::vector<std::pair<std::string, bool>> export_annotations() {

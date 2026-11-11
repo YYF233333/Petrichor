@@ -17,9 +17,9 @@
 namespace petrichor::compiler {
 
 // What other scripts can see of a script: its syntax tokens outside function
-// bodies but _init's, whose assignments they see; all its text if it has
-// syntax errors, whose recovery may read any line as a declaration; 0 for
-// none.
+// bodies but _init's, whose assignments they see, and its literal node paths;
+// all its text if it has syntax errors, whose recovery may read any line as a
+// declaration; 0 for none.
 uint64_t declaration_hash(const std::optional<std::string> &p_source);
 
 // Each name that a source assigns with `=`, by its tokens: a member's or a

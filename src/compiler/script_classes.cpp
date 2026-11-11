@@ -186,6 +186,17 @@ uint64_t declaration_hash(const std::optional<std::string> &p_source) {
 			hash.add(tokens[i].int_overflows);
 		}
 	}
+	// The checks of the scenes that place a class walk its literal node paths.
+	const auto add_paths = [&](const auto &p_self, const ClassDecl &p_decl) -> void {
+		for_each_node_path(p_decl, [&](const Expr &p_path) {
+			hash.add(p_path.text);
+			hash.add(p_path.args.empty() ? std::string() : p_path.args[0]->text);
+		});
+		for (const std::unique_ptr<ClassDecl> &inner : p_decl.classes) {
+			p_self(p_self, *inner);
+		}
+	};
+	add_paths(add_paths, decl);
 	return hash.value;
 }
 

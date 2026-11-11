@@ -423,14 +423,20 @@ TEST_CASE("a preload whose file loads the script again is an error") {
 TEST_CASE("a path that a scene using the script lacks is an error marked with that scene (spec §7.1, §7.2)") {
 	CHECK(contains(hud_errors("$Score.text = \"\""), "res://main.tscn: HUD has no node at \"Score\""));
 
+	// Where no scene has it, the script's check reports it, and no scene's.
+	CHECK(check_scenes_in("extends CanvasLayer\n\nfunc f():\n\t$Score.text = \"\"\n", hud_scene()).errors.empty());
+
+	// Where another scene has it, the check of the scene that lacks it does.
 	FakeProject two = hud_scene();
 	compiler::Scene menu;
 	menu.path = "res://menu.tscn";
 	menu.nodes = { { ".", "CanvasLayer", "res://test.pet" }, { "Score", "Label", "" }, { "Health", "TextureRect", "" } };
 	two.scenes.push_back(menu);
-	const std::string score = hud_errors("$Score.text = \"\"", two);
-	CHECK(contains(score, "res://main.tscn: HUD has no node at \"Score\""));
-	CHECK(!contains(score, "menu.tscn"));
+	CHECK(hud_errors("$Score.text = \"\"", two).empty());
+	const std::vector<compiler::Diagnostic> score = check_scenes_in("extends CanvasLayer\n\nfunc f():\n\t$Score.text = \"\"\n", two).errors;
+	REQUIRE(score.size() == 1);
+	CHECK(score[0].message == "res://main.tscn: HUD has no node at \"Score\".");
+	CHECK((score[0].scene == "res://main.tscn" && score[0].node == "HUD" && score[0].line == 4));
 	CHECK(contains(hud_errors("$Health.text = \"\"", two), "$Health is a Label in res://main.tscn but a TextureRect in res://menu.tscn"));
 
 	// A script that no scene uses has no nodes to type $X from.
@@ -659,7 +665,7 @@ TEST_CASE("get_node() of a literal path is typed as $X; get_node_or_null() as T?
 	menu.nodes = { { ".", "CanvasLayer", "res://test.pet" }, { "Score", "Label", "" } };
 	project.scenes.push_back(menu);
 	CHECK(contains(hud_errors("var n: Node3D = get_node(\"Health\")", project), "Cannot assign a value of type Label as Node3D"));
-	CHECK(contains(hud_errors("var n = get_node(\"Score\")", project), "res://main.tscn: HUD has no node at \"Score\"."));
+	CHECK(contains(messages(check_scenes_in("extends CanvasLayer\n\nfunc f():\n\tvar n = get_node(\"Score\")\n", project)), "res://main.tscn: HUD has no node at \"Score\"."));
 	CHECK(contains(hud_errors("var n: Label = get_node_or_null(\"Score\")", project), "Cannot assign a value of type Label? as Label"));
 	CHECK(hud_errors("var n: Label? = get_node_or_null(\"Score\")\n\tvar m: Node? = get_node_or_null(\"Ammo\")", project).empty());
 	CHECK(contains(hud_errors("var n: Node = get_node_or_null(\"..\")", project), "Cannot assign a value of type Node? as Node"));
@@ -683,16 +689,18 @@ TEST_CASE("a scene used only as the base of inherited scenes may lack a node tha
 	project.scenes = { base, armed };
 	const char *source = "extends Node3D\n\nfunc f():\n\tvar gun: MeshInstance3D = $Gun\n";
 	CHECK(messages(compile_in(source, project)).empty());
-	// Used as a root or instanced, it must have the node.
+	CHECK(check_scenes_in(source, project).errors.empty());
+	// Used as a root or instanced, it must have the node, which its check reports.
 	project.main = "res://enemy.tscn";
-	CHECK(contains(messages(compile_in(source, project)), "res://enemy.tscn: the root has no node at \"Gun\"."));
+	CHECK(contains(messages(check_scenes_in(source, project)), "res://enemy.tscn: the root has no node at \"Gun\"."));
 	project.main.clear();
 	compiler::Scene level;
 	level.path = "res://level.tscn";
 	level.nodes = { { ".", "Node3D", "" }, { "Enemy", "Node3D", "", true, "res://test.pet" } };
 	level.nodes[1].instance = "res://enemy.tscn";
 	project.scenes.push_back(level);
-	CHECK(contains(messages(compile_in(source, project)), "res://enemy.tscn: the root has no node at \"Gun\"."));
+	CHECK(contains(messages(check_scenes_in(source, project)), "res://enemy.tscn: the root has no node at \"Gun\"."));
+	CHECK(messages(compile_in(source, project)).empty());
 }
 
 TEST_CASE("a literal path from the root into an autoload names the autoload instead (spec §7.3)") {

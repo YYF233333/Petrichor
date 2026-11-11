@@ -180,6 +180,41 @@ TEST_CASE("a scene is checked again only when it, the declarations of a script o
 	}
 }
 
+TEST_CASE("a scene is checked again when a literal node path of a script on it changes, not another function body (architecture §6.4)") {
+	FakeProject project;
+	compiler::Scene main;
+	main.path = "res://main.tscn";
+	main.nodes = { { ".", "Node", "" }, { "HUD", "Node", "res://hud.pet" } };
+	compiler::Scene menu;
+	menu.path = "res://menu.tscn";
+	menu.nodes = { { ".", "Node", "res://hud.pet" }, { "Score", "Label", "" }, { "Ammo", "Label", "" } };
+	project.scenes = { main, menu };
+	const auto hud = [](const std::string &p_path, const std::string &p_other) {
+		return "extends Node\n\nfunc show() -> void:\n\tprint(" + p_path + ")\n\nfunc aim() -> void:\n\t" + p_other + "\n";
+	};
+	project.add_script("res://hud.pet", hud("$Score", "pass"));
+	compiler::Analysis analysis(fake_engine(), project);
+	const auto check = [&] {
+		const compiler::Analysis::Pass pass(analysis);
+		return analysis.check_scene("res://main.tscn");
+	};
+	const Result before = check();
+	REQUIRE(before->errors.size() == 1);
+	REQUIRE(analysis.checks_run() == 1);
+
+	SUBCASE("another function body") {
+		project.sources["res://hud.pet"] = hud("$Score", "print(1)");
+		CHECK((check() == before));
+		CHECK(analysis.checks_run() == 1);
+	}
+	SUBCASE("the path") {
+		project.sources["res://hud.pet"] = hud("get_node(\"Ammo\")", "pass");
+		const Result after = check();
+		REQUIRE(after->errors.size() == 1);
+		CHECK(after->errors[0].message == "res://main.tscn: HUD has no node at \"Ammo\".");
+	}
+}
+
 TEST_CASE("a script is checked again when the _init of a class it extends changes, not another function body (architecture §6.4)") {
 	FakeProject project;
 	compiler::Scene scene;
