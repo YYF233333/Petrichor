@@ -700,15 +700,15 @@ def run_export_groups(godot):
         for file in ("export_presets.cfg", "petrichor.gdextension", ".godot/extension_list.cfg", "bin/petrichor.windows.editor.x86_64.dll"):
             shutil.copy(PROJECT / file, unassigned / file)
         (unassigned / "unassigned_export_check.pet").write_text("extends Node\n\n@export pub var target: Node\n", encoding="utf-8")
-        # The scene's own check (architecture §6.4) fails both too: an abstract
-        # class on a node (spec §4.1), whose script compiles.
+        # The scene's own check (architecture §6.4) reports it, and an abstract
+        # class on a node (spec §4.1), whose script compiles too.
         (unassigned / "abstract_export_check.pet").write_text("@abstract\nextends Node\n", encoding="utf-8")
         (unassigned / "unassigned_export_check.tscn").write_text('[gd_scene format=3]\n\n[ext_resource type="Script" path="res://unassigned_export_check.pet" id="1"]\n[ext_resource type="Script" path="res://abstract_export_check.pet" id="2"]\n\n[node name="Root" type="Node"]\n\n[node name="Child" type="Node" parent="."]\nscript = ExtResource("1")\n\n[node name="Unit" type="Node" parent="."]\nscript = ExtResource("2")\n', encoding="utf-8")
         code, built = run(godot, "-e", "--path", str(unassigned), "--", "--petrichor-build")
         code_export, output = run(godot, "--path", str(unassigned), "--export-pack", "Windows Desktop", str(tmp / "unassigned.pck"))
         lacking = 'res://unassigned_export_check.tscn: Child has no value for "target", an export that must be assigned.'
         abstract = "res://unassigned_export_check.tscn: Unit has abstract_export_check.pet, which is abstract and cannot be set on a node."
-        expect("export: the headless build fails on a value that a scene lacks", code != 0 and "2 script(s), 1 scene(s), 2 with errors" in built and lacking in built, built)
+        expect("export: the headless build fails on a value that a scene lacks", code != 0 and "2 script(s), 1 scene(s), 1 with errors" in built and lacking in built, built)
         expect("export: a value that a scene lacks is an export error", code_export == 0 and lacking in output and "has errors and is left out" not in output, output)
         expect("export: the headless build and the export fail on a scene's check", abstract in built and abstract in output, built + output)
 

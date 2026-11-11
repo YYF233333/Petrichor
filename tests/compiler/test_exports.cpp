@@ -144,7 +144,7 @@ TEST_CASE("a node is checked for the exports it must be assigned when it becomes
 	CHECK(compile("extends Node3D\n@export pub var player: Node3D?\n").module.ready_function < 0);
 }
 
-TEST_CASE("an export that must be assigned gets a value from a scene the node is built from, checked on the main scene (spec §7.5)") {
+TEST_CASE("an export that must be assigned gets a value from a scene the node is built from, which the main scene's check reports (spec §7.5)") {
 	const char *source = "extends Node3D\n@export pub var player: Node3D\n";
 	compiler::SceneValue path;
 	path.type = "NodePath";
@@ -161,35 +161,41 @@ TEST_CASE("an export that must be assigned gets a value from a scene the node is
 	level.nodes[1].properties = { { "player", path } };
 	project.scenes = { enemy, level };
 	// A scene that nothing references only warns.
-	CHECK(compile_in(source, project).errors.empty());
+	CHECK(check_scenes_in(source, project).errors.empty());
 	// Each instance in the scene that has it; whoever instantiates a scene
 	// gives its root the rest.
 	project.main = level.path;
-	const compiler::CompileResult result = compile_in(source, project);
+	const compiler::CompileResult result = check_scenes_in(source, project);
 	REQUIRE(result.errors.size() == 1);
 	CHECK(result.errors[0].message == "res://level.tscn: Far has no value for \"player\", an export that must be assigned.");
 	CHECK((result.errors[0].scene == "res://level.tscn" && result.errors[0].node == "Far"));
-	// The script runs all the same: the node fails the check as it becomes ready.
+	// The game runs all the same: the node fails the check as it becomes ready.
 	CHECK(result.ok());
-	REQUIRE(result.module.ready_function >= 0);
+	CHECK(compile_in(source, project).errors.empty());
+	// On a subclass's node, the base's check reports its export, once.
 	FakeProject based = project;
-	based.add_script("res://enemy.pet", source);
-	based.scenes[0].nodes[0].script = "res://enemy.pet";
-	CHECK(compile_in("extends \"res://enemy.pet\"\n", based).errors.empty());
-	// Up the instances, any scene may give it.
+	based.add_script("res://archer.pet", "extends \"res://test.pet\"\n");
+	based.scenes[0].nodes[0].script = based.scenes[1].nodes[1].instance_script = based.scenes[1].nodes[2].instance_script = "res://archer.pet";
+	const compiler::CompileResult subclass = check_scenes_in(source, based);
+	REQUIRE(subclass.errors.size() == 1);
+	CHECK(subclass.errors[0].file == "res://test.pet");
+	// Up the instances, any scene may give it; the error is marked on the node.
 	compiler::Scene game;
 	game.path = "res://game.tscn";
 	game.nodes = { { ".", "Node", "" }, { "Level", "Node3D", "", true }, { "Level/Far", "", "" } };
 	game.nodes[1].instance = level.path;
 	project.scenes.push_back(game);
 	project.main = game.path;
-	CHECK(contains(messages(compile_in(source, project)), "res://game.tscn: Level/Far has no value for \"player\""));
+	const compiler::CompileResult deep = check_scenes_in(source, project);
+	REQUIRE(deep.errors.size() == 1);
+	CHECK(deep.errors[0].message == "res://game.tscn: Level/Far has no value for \"player\", an export that must be assigned.");
+	CHECK((deep.errors[0].scene == "res://game.tscn" && deep.errors[0].node == "Level/Far"));
 	project.scenes[2].nodes[2].properties = { { "player", path } };
-	CHECK(compile_in(source, project).errors.empty());
+	CHECK(check_scenes_in(source, project).errors.empty());
 	// The last to store one decides.
 	project.scenes[0].nodes[0].properties = { { "player", path } };
 	project.scenes[2].nodes[2].properties = { { "player", null } };
-	CHECK(contains(messages(compile_in(source, project)), "res://game.tscn: Level/Far has no value"));
+	CHECK(contains(messages(check_scenes_in(source, project)), "res://game.tscn: Level/Far has no value"));
 
 	// The main scene, built from the scene it inherits.
 	FakeProject inherited;
@@ -198,9 +204,9 @@ TEST_CASE("an export that must be assigned gets a value from a scene the node is
 	archer.base = enemy.path;
 	inherited.scenes = { enemy, archer };
 	inherited.main = archer.path;
-	CHECK(contains(messages(compile_in(source, inherited)), "res://archer.tscn: the root has no value for \"player\""));
+	CHECK(contains(messages(check_scenes_in(source, inherited)), "res://archer.tscn: the root has no value for \"player\""));
 	inherited.scenes[0].nodes[0].properties = { { "player", path } };
-	CHECK(compile_in(source, inherited).errors.empty());
+	CHECK(check_scenes_in(source, inherited).errors.empty());
 }
 
 TEST_CASE("an exported scene is written PackedScene[T] (spec §7.4)") {

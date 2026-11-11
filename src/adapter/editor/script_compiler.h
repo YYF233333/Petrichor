@@ -22,9 +22,8 @@ enum class CompileMode {
 	Declarations,
 };
 
-// Compiles a script in the editor. Returns null when there are errors other
-// than those after which it runs; with `p_report`, each error is printed as a
-// script error at its line.
+// Compiles a script in the editor. Returns null when there are errors; with
+// `p_report`, each error is printed as a script error at its line.
 std::shared_ptr<const ClassImage> compile_script(const godot::String &p_path, const godot::String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, CompileMode p_mode = CompileMode::Full, std::vector<compiler::Diagnostic> *r_warnings = nullptr);
 
 // Compiles every .pet file of the project and writes the bytecode cache

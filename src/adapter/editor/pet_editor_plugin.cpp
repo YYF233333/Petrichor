@@ -51,19 +51,12 @@ void PetExportPlugin::_export_file(const String &p_path, const String &p_type, c
 		get_export_platform()->add_message(EditorExportPlatform::EXPORT_MESSAGE_ERROR, "Petrichor", vformat("Cannot read %s for export.", p_path));
 		return;
 	}
-	std::vector<compiler::Diagnostic> errors;
-	const std::shared_ptr<const ClassImage> image = compile_script(p_path, source, &errors, true);
+	const std::shared_ptr<const ClassImage> image = compile_script(p_path, source, nullptr, true);
 	if (!image) {
 		skip();
 		get_export_platform()->add_message(EditorExportPlatform::EXPORT_MESSAGE_ERROR, "Petrichor", vformat("%s has errors and is left out of the export.", p_path));
 		return;
 	}
-	// Those after which it runs, such as a value that a scene lacks, fail the
-	// export too (spec §7.5).
-	for (const compiler::Diagnostic &error : errors) {
-		get_export_platform()->add_message(EditorExportPlatform::EXPORT_MESSAGE_ERROR, "Petrichor", to_godot(error.message));
-	}
-
 	const std::vector<uint8_t> data = bytecode::serialize(image->module);
 	PackedByteArray bytes;
 	bytes.resize(int64_t(data.size()));

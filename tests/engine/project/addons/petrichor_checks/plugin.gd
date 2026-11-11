@@ -518,33 +518,21 @@ func _check_stored_exports() -> void:
 		DirAccess.remove_absolute(file)
 
 
-# Spec §7.5: an export that must be assigned gets its value from any scene the
-# node is built from, here from the main scene, which changes the node inside
-# the scene it instances.
+# Spec §7.4: a scene stored for an exported PackedScene[T] leaves to
+# instantiate() only what it asks for, here the export that its root must be
+# assigned (§7.5).
 func _check_scene_exports() -> void:
 	var script_path := "res://editor_check_exports.pet"
 	var inner := "res://editor_check_exports_inner.tscn"
-	var level := "res://editor_check_exports_level.tscn"
-	var game := "res://editor_check_exports_game.tscn"
-	var instance := '[gd_scene format=3]\n\n[ext_resource type="PackedScene" path="%s" id="1"]\n\n[node name="%s" type="Node"]\n\n[node name="%s" parent="." instance=ExtResource("1")]\n'
 	_write(script_path, "extends Node\n\n@export pub var target: Node\n")
 	_write(inner, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Inner" type="Node"]\nscript = ExtResource("1")\n' % script_path)
-	_write(level, instance % [inner, "Level", "Far"])
-	_write(game, instance % [level, "Game", "Level"] + '\n[node name="Far" parent="Level" node_paths=PackedStringArray("target")]\ntarget = NodePath("..")\n')
-	var main: String = ProjectSettings.get_setting("application/run/main_scene")
-	ProjectSettings.set_setting("application/run/main_scene", game)
-	var script: Script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_IGNORE)
-	_check(_compiles(script, script_path), "a scene gives the value to a node of the scene it instances")
-	ProjectSettings.set_setting("application/run/main_scene", main)
-	# Spec §7.4: a scene stored for an exported PackedScene[T] leaves to
-	# instantiate() only what it asks for.
 	var spawner_path := "res://editor_check_spawner.pet"
 	var spawn := "res://editor_check_spawner.tscn"
 	_write(spawner_path, "extends Node\n\n@export pub var wave: PackedScene[Node]\n")
 	_write(spawn, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n[ext_resource type="PackedScene" path="%s" id="2"]\n\n[node name="Spawner" type="Node"]\nscript = ExtResource("1")\nwave = ExtResource("2")\n' % [spawner_path, inner])
 	var marks := _scene_marks(spawn)
 	_check(marks.contains('"wave" of . holds %s, which leaves "target" to instantiate()' % inner), "the scene stored for an export leaves its root's target to instantiate(): " + marks)
-	for file in [script_path, script_path + ".uid", inner, level, game, spawner_path, spawner_path + ".uid", spawn, "res://.godot/petrichor/editor_check_exports.petc"]:
+	for file in [script_path, script_path + ".uid", inner, spawner_path, spawner_path + ".uid", spawn]:
 		DirAccess.remove_absolute(file)
 
 

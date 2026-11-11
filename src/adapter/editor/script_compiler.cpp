@@ -69,7 +69,7 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 	if (r_warnings) {
 		*r_warnings = result->warnings;
 	}
-	if (!result->ok()) {
+	if (!result->errors.empty()) {
 		return nullptr;
 	}
 	String load_error;
@@ -133,10 +133,9 @@ int build_project(int *r_script_count, int *r_scene_count, bool p_command) {
 	int failed = 0;
 	for (const String &path : paths) {
 		const String source = FileAccess::get_file_as_string(path);
-		std::vector<compiler::Diagnostic> errors;
 		std::vector<compiler::Diagnostic> warnings;
-		const std::shared_ptr<const ClassImage> image = compile_script(path, source, &errors, true, CompileMode::Full, &warnings);
-		if (!image || !write_compiled(cache_path(path), *image) || (p_command && !errors.empty())) {
+		const std::shared_ptr<const ClassImage> image = compile_script(path, source, nullptr, true, CompileMode::Full, &warnings);
+		if (!image || !write_compiled(cache_path(path), *image)) {
 			failed++;
 		}
 		const CharString file = path.utf8();

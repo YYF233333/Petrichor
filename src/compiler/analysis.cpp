@@ -67,7 +67,8 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 	// The scripts on its nodes and on the roots of the scenes it instances,
 	// with the scripts they extend, whose checks look at their nodes too. When
 	// its tracks or synchronized properties name members, also those deeper in
-	// the scenes it instances, which they reach.
+	// the scenes it instances, which they reach; and so for the main scene,
+	// whose nodes all get the exports that must be assigned.
 	std::set<std::string> scripts;
 	const auto add = [&](std::string p_script) {
 		while (p_script.size() > 4 && p_script.compare(p_script.size() - 4, 4, ".pet") == 0 && scripts.insert(p_script).second) {
@@ -75,7 +76,7 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 			p_script = header ? classes->base_path(*header, p_script) : std::string();
 		}
 	};
-	const bool deep = scene && !scene->named_members.empty();
+	const bool deep = scene && (!scene->named_members.empty() || p_path == classes->get_project()->main_scene());
 	std::vector<Scene> pending = scene ? std::vector<Scene>{ *scene } : std::vector<Scene>();
 	std::set<std::string> instanced;
 	while (!pending.empty()) {

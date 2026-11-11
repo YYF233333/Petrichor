@@ -29,9 +29,9 @@ struct Diagnostic {
 	// The script whose source its range is in, when a scene's check reports it
 	// (architecture §6.4); empty for the script compiled.
 	std::string file;
-	// An error after which the script still compiles and runs, as a check at
-	// run time reports it too: a value that a scene lacks (spec §7.5). Exports
-	// and the headless build fail on it.
+	// An error of a scene's check after which the game still runs, as a check
+	// at run time reports it too: a value that a scene lacks (spec §7.5).
+	// Exports and the headless build fail on it.
 	bool runs = false;
 };
 
