@@ -23,6 +23,16 @@ struct SceneValue {
 	std::vector<SceneValue> items; // An Array's elements, or a Dictionary's keys and values one after another.
 	std::string path; // A resource's res:// path, such as a scene's, if it has one.
 
+	// The paths of the scenes it holds, itself or in its items.
+	void add_scenes(std::vector<std::string> &r_paths) const {
+		if (class_name == "PackedScene" && !path.empty()) {
+			r_paths.push_back(path);
+		}
+		for (const SceneValue &item : items) {
+			item.add_scenes(r_paths);
+		}
+	}
+
 	bool operator==(const SceneValue &p_other) const {
 		return type == p_other.type && class_name == p_other.class_name && script == p_other.script && path == p_other.path && integer == p_other.integer && whole == p_other.whole && text == p_other.text &&
 				items == p_other.items;
@@ -41,7 +51,8 @@ struct SceneNode {
 	bool unique = false; // Reached from the scene's nodes as `%Name` (unique_name_in_owner).
 	// What this scene itself stores for the properties of a node with a script
 	// of this language, or of an instanced scene's node it changes, by name; a
-	// base or an instanced scene stores the rest.
+	// base or an instanced scene stores the rest. Of another node, only the
+	// values that hold scenes.
 	std::vector<std::pair<std::string, SceneValue>> properties;
 	std::string instance; // For an instanced scene: its res:// path.
 
@@ -160,7 +171,9 @@ public:
 	virtual std::vector<std::string> autoload_names() const = 0;
 	virtual std::vector<std::string> resource_files() const = 0;
 	virtual std::vector<std::string> input_actions() const = 0;
-	// The source of a script of this language, UTF-8; nullopt if it cannot be read.
+	// The res:// paths of the project's scripts of this language and GDScript.
+	virtual std::vector<std::string> script_paths() const = 0;
+	// The source of a script, UTF-8; nullopt if it cannot be read.
 	virtual std::optional<std::string> script_source(const std::string &p_path) const = 0;
 	// A script of another language by its res:// path, nullopt if there is
 	// none; its members only with `p_members`, which loads it, since a script

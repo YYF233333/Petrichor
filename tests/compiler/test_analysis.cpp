@@ -144,7 +144,7 @@ TEST_CASE("a script is checked again only when the nodes of a scene that uses it
 	}
 }
 
-TEST_CASE("a scene is checked again only when it or the declarations of a script on it change") {
+TEST_CASE("a scene is checked again only when it, the declarations of a script on it or its use as a root change") {
 	FakeProject project;
 	compiler::Scene scene;
 	scene.path = "res://enemies.tscn";
@@ -172,6 +172,11 @@ TEST_CASE("a scene is checked again only when it or the declarations of a script
 	SUBCASE("the scene") {
 		project.scenes[0].nodes[1].script.clear();
 		CHECK(check()->errors.empty());
+	}
+	SUBCASE("its use as a root") {
+		project.sources["res://spawner.gd"] = "extends Node\n\nfunc f():\n\tload(\"res://enemies.tscn\")\n";
+		check();
+		CHECK(analysis.checks_run() == 2);
 	}
 }
 

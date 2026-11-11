@@ -22,7 +22,7 @@ compiler::CompileResult compile(const std::string &p_source);
 class FakeProject : public compiler::ProjectApi {
 public:
 	std::vector<compiler::Scene> scenes;
-	std::map<std::string, std::string> sources; // By res:// path.
+	std::map<std::string, std::string> sources; // By res:// path, GDScript's too.
 	std::map<std::string, std::string> global_classes; // class_name to path.
 	std::map<std::string, std::string> autoloads; // Global name to path.
 	std::map<std::string, compiler::ForeignClass> foreign; // Scripts of other languages, by path.
@@ -51,6 +51,7 @@ public:
 	std::vector<std::string> autoload_names() const override;
 	std::vector<std::string> resource_files() const override { return files; }
 	std::vector<std::string> input_actions() const override { return actions; }
+	std::vector<std::string> script_paths() const override;
 	std::optional<std::string> script_source(const std::string &p_path) const override;
 	std::optional<compiler::ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override;
 };

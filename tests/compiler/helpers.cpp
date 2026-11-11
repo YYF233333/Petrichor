@@ -74,6 +74,14 @@ std::vector<std::string> FakeProject::autoload_names() const {
 	return names;
 }
 
+std::vector<std::string> FakeProject::script_paths() const {
+	std::vector<std::string> paths;
+	for (const auto &entry : sources) {
+		paths.push_back(entry.first);
+	}
+	return paths;
+}
+
 std::optional<std::string> FakeProject::script_source(const std::string &p_path) const {
 	const auto found = sources.find(p_path);
 	return found == sources.end() ? std::nullopt : std::optional<std::string>(found->second);

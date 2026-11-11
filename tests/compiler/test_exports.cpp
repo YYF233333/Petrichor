@@ -209,6 +209,47 @@ TEST_CASE("an export that must be assigned gets a value from a scene the node is
 	CHECK(check_scenes_in(source, inherited).errors.empty());
 }
 
+TEST_CASE("a scene used as a root gives the nodes below its root the exports that must be assigned (spec §7.5)") {
+	const char *source = "extends Node3D\n@export pub var player: Node3D\n";
+	FakeProject project;
+	compiler::Scene enemy;
+	enemy.path = "res://enemy.tscn";
+	enemy.nodes = { { ".", "Node3D", "res://test.pet" }, { "Gun", "Node3D", "res://test.pet" } };
+	// Only instanced in another scene, which may give them.
+	compiler::Scene level;
+	level.path = "res://level.tscn";
+	level.nodes = { { ".", "Node3D", "" }, { "Enemy", "Node3D", "", true, "res://test.pet" } };
+	level.nodes[1].instance = enemy.path;
+	project.scenes = { enemy, level };
+	CHECK(check_scenes_in(source, project).errors.empty());
+	const auto errors = [&](const FakeProject &p_project) {
+		std::vector<std::string> found;
+		for (const compiler::Diagnostic &error : check_scenes_in(source, p_project).errors) {
+			found.push_back(error.message);
+		}
+		return found;
+	};
+	// Whoever instantiates it may give the root the rest (§7.4).
+	const std::vector<std::string> gun = { "res://enemy.tscn: Gun has no value for \"player\", an export that must be assigned." };
+	FakeProject preloaded = project;
+	preloaded.add_script("res://spawner.pet", "extends Node\n\nconst ENEMY = preload(\"enemy.tscn\")\n");
+	CHECK(errors(preloaded) == gun);
+	FakeProject loaded = project;
+	loaded.sources["res://spawner.gd"] = "extends Node\n\nfunc spawn():\n\tadd_child(load(\"res://enemy.tscn\").instantiate())\n";
+	CHECK(errors(loaded) == gun);
+	// A scene stores it, also on a node without a script of this language.
+	FakeProject stored = project;
+	compiler::SceneValue scene{ "Object", "PackedScene" };
+	scene.path = enemy.path;
+	compiler::Scene wave;
+	wave.path = "res://wave.tscn";
+	wave.nodes = { { ".", "Node", "res://wave.gd" } };
+	wave.nodes[0].properties = { { "enemies", compiler::SceneValue{ "Array" } } };
+	wave.nodes[0].properties[0].second.items = { scene };
+	stored.scenes.push_back(wave);
+	CHECK(errors(stored) == gun);
+}
+
 TEST_CASE("an exported scene is written PackedScene[T] (spec §7.4)") {
 	CHECK(exports_errors("@export pub var model: PackedScene[Node3D]").empty());
 	CHECK(contains(exports_errors("@export pub var model: PackedScene"), "written PackedScene[T]"));

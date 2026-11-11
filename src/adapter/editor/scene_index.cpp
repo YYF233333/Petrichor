@@ -275,12 +275,21 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state,
 		const std::string path = node_path(p_state->get_node_path(i));
 		const std::optional<std::string> script = attached_script(p_state, i);
 		const auto inherited = std::find_if(scene.nodes.begin(), scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return p_node.path == path; });
-		// Only for a script of this language, whose exports the check reads, and
-		// for a change of an instanced scene's node, whose script that scene gives.
+		// For a script of this language, whose exports the check reads, and for
+		// a change of an instanced scene's node, whose script that scene gives.
+		// Of other nodes, the scenes they hold, which are used as roots (spec §7.5).
 		const auto store = [&](compiler::SceneNode &r_node) {
 			const std::string &attached = r_node.script.empty() ? r_node.instance_script : r_node.script;
 			const bool change = r_node.type.empty() && !r_node.is_instance;
-			r_node.properties = change || to_godot(attached).get_extension() == "pet" ? stored_properties(p_state, i) : std::vector<std::pair<std::string, compiler::SceneValue>>();
+			r_node.properties = stored_properties(p_state, i);
+			if (!change && to_godot(attached).get_extension() != "pet") {
+				r_node.properties.erase(std::remove_if(r_node.properties.begin(), r_node.properties.end(), [](const auto &p_property) {
+					std::vector<std::string> scenes;
+					p_property.second.add_scenes(scenes);
+					return scenes.empty();
+				}),
+						r_node.properties.end());
+			}
 		};
 		if (inherited != scene.nodes.end()) {
 			if (script) {
@@ -652,6 +661,14 @@ std::optional<compiler::ForeignClass> SceneIndex::foreign_class(const std::strin
 	}
 	result.members_known = true;
 	return result;
+}
+
+std::vector<std::string> SceneIndex::script_paths() const {
+	std::vector<std::string> paths;
+	for (const String &path : project_files(PackedStringArray({ "pet", "gd" }))) {
+		paths.push_back(to_utf8(path));
+	}
+	return paths;
 }
 
 std::optional<std::string> SceneIndex::script_source(const std::string &p_path) const {

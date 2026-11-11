@@ -3619,15 +3619,6 @@ class Checker : public ClassRelation {
 		return resolved_path(p_call.args[0]->text, options.path);
 	}
 
-	// A path as a file at `p_from` names it: from its directory when it is
-	// relative; a uid:// path as written.
-	static std::string resolved_path(const std::string &p_path, const std::string &p_from) {
-		if (p_path.rfind("uid://", 0) == 0) {
-			return p_path;
-		}
-		return simplify_path(p_path.rfind("res://", 0) == 0 ? p_path : p_from.substr(0, p_from.find_last_of('/') + 1) + p_path);
-	}
-
 	// A preload whose file loads this script again is a compile error: the
 	// class loads its preloads as it loads, which that file would wait for
 	// (spec §7.6).
@@ -10128,8 +10119,8 @@ class Checker : public ClassRelation {
 
 	// Where scenes place the script, its owner satisfies @owner(T) (spec §7.3):
 	// that of a node is the root of the scene that stores it, and that of a
-	// scene's root the root of each scene that instances it. The main scene's
-	// root has none.
+	// scene's root the root of each scene that instances it. The root of a
+	// scene used as a root has none.
 	void check_owner_scenes() {
 		if (!cls.owner_ref || cls.owner_type.is_error()) {
 			return;
@@ -10137,10 +10128,12 @@ class Checker : public ClassRelation {
 		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
 			const ViewNode *placed = view_node(p_scene, p_node.path);
 			const ViewNode *owner = placed && !placed->owner.empty() ? view_node(p_scene, placed->owner) : nullptr;
+			const std::string use = placed && !owner ? classes.root_use(p_scene.path) : std::string();
 			if (owner) {
 				check_required(cls.owner_ref->range, p_scene, p_node, owner->node, cls.owner_type, "the owner of " + p_node.path, "@owner");
-			} else if (placed && p_scene.path == options.project->main_scene()) {
-				error_in_scene(cls.owner_ref->range, p_scene, p_node.path, p_scene.path + ": the main scene's root has no owner (@owner).");
+			} else if (!use.empty()) {
+				const bool main = p_scene.path == options.project->main_scene();
+				error_in_scene(cls.owner_ref->range, p_scene, p_node.path, p_scene.path + (main ? ": the main scene's root has no owner (@owner)." : ": the root has no owner where " + use + " (@owner)."));
 			}
 		});
 	}
@@ -10207,17 +10200,18 @@ class Checker : public ClassRelation {
 
 	// Where the scene is used as a root, each node of its view with the class
 	// gets a value for each of its exports that must be assigned, from any of
-	// the scenes it is built from (spec §7.5). Only the main scene is known to
-	// be used so. Who instantiates another scene gives its root the rest
-	// (§7.4), and one that nothing references only warns. The game runs all the
-	// same: a node without one fails the check as it becomes ready.
+	// the scenes it is built from (spec §7.5); the root only in the main scene,
+	// since whoever instantiates another may give its root the rest (§7.4). One
+	// that nothing references only warns. The game runs all the same: a node
+	// without one fails the check as it becomes ready.
 	void check_scene_exports() {
 		const Scene &scene = scenes[0];
-		if (scene.path != options.project->main_scene()) {
+		const bool main = scene.path == options.project->main_scene();
+		if (!main && classes.root_use(scene.path).empty()) {
 			return;
 		}
 		for (const ViewNode &node : view_of(scene)) {
-			if (!extends_script(node.node.script.empty() ? node.node.instance_script : node.node.script, options.path)) {
+			if ((!main && node.path == ".") || !extends_script(node.node.script.empty() ? node.node.instance_script : node.node.script, options.path)) {
 				continue;
 			}
 			for (const VarDecl &member : cls.members) {

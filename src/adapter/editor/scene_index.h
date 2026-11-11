@@ -47,6 +47,7 @@ public:
 	std::vector<std::string> autoload_names() const override;
 	std::vector<std::string> resource_files() const override;
 	std::vector<std::string> input_actions() const override;
+	std::vector<std::string> script_paths() const override;
 	std::optional<std::string> script_source(const std::string &p_path) const override;
 	std::optional<compiler::ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override;
 

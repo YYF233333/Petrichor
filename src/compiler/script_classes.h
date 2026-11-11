@@ -82,6 +82,7 @@ class ScriptClasses {
 		std::vector<std::string> autoload_names() const override;
 		std::vector<std::string> resource_files() const override;
 		std::vector<std::string> input_actions() const override;
+		std::vector<std::string> script_paths() const override;
 		std::optional<std::string> script_source(const std::string &p_path) const override;
 		std::optional<ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override;
 	};
@@ -102,6 +103,7 @@ class ScriptClasses {
 	std::pair<std::string, uint64_t> compiled; // The file being compiled, and its hash.
 	std::optional<std::vector<Scene>> listed; // The project's scenes, as scene_structure() gives them.
 	std::map<std::string, std::string> bases; // The base paths of the scripts on their nodes.
+	std::optional<std::map<std::string, std::string>> roots; // The uses of scenes as roots, as root_use() gives them.
 
 	std::unique_ptr<File> parse_file(const std::string &p_file) const;
 	const ClassDecl *file_header(const std::string &p_file);
@@ -166,6 +168,11 @@ public:
 	// and those that instance the scene or inherit it.
 	std::vector<Scene> scenes_with_script(const std::string &p_script);
 	std::vector<Scene> scenes_instancing(const std::string &p_scene);
+	// A reverse question of the check of a scene: how it is used as a root
+	// (spec §7.5), as "res://spawner.gd loads the scene"; "" when it is not.
+	// The main scene is, and so is a scene that a script of this language or
+	// GDScript preloads or loads by a literal path, or that a scene stores.
+	std::string root_use(const std::string &p_scene);
 	// Records what the compile of `p_file` from `p_source` reads, until
 	// end_compile(), after which nothing refers to its classes.
 	void begin_compile(const std::string &p_file, const std::string &p_source);

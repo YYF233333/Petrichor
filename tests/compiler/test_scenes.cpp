@@ -458,6 +458,9 @@ TEST_CASE("@owner(T): owner has type T, and scenes give the script such an owner
 	CHECK(contains(errors, "res://plain.tscn: the owner of Component is Node3D, not Combat.Combatant (@owner)."));
 	CHECK(contains(errors, "res://plain.tscn: the owner of Direct is Node3D, not Combat.Combatant (@owner)."));
 	// The root of a scene used as the root has no owner.
+	FakeProject preloaded = project;
+	preloaded.add_script("res://spawner.pet", "extends Node\n\nfunc f() -> Node:\n\treturn preload(\"res://component.tscn\").instantiate()\n");
+	CHECK(contains(messages(check_scenes_in(source, preloaded)), "res://component.tscn: the root has no owner where res://spawner.pet preloads the scene (@owner)."));
 	project.main = "res://component.tscn";
 	CHECK(contains(messages(check_scenes_in(source, project)), "res://component.tscn: the main scene's root has no owner (@owner)."));
 

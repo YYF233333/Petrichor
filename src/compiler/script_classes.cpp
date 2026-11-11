@@ -147,6 +147,22 @@ Scene structure(Scene p_scene) {
 	return p_scene;
 }
 
+// Each preload() and load() of one literal String in a source of this
+// language or GDScript, in function bodies too: whether it is a preload, and
+// the String as written.
+std::vector<std::pair<bool, std::string>> literal_loads(const std::string &p_source) {
+	std::vector<Diagnostic> ignored;
+	const std::shared_ptr<const SourceFile> source = tokenize(p_source, ignored);
+	const std::vector<Token> &tokens = source->tokens;
+	std::vector<std::pair<bool, std::string>> found;
+	for (size_t i = 0; i + 3 < tokens.size(); i++) {
+		if (tokens[i].kind == TokenKind::Identifier && (tokens[i].text == "preload" || tokens[i].text == "load") && tokens[i + 1].kind == TokenKind::ParenOpen && tokens[i + 2].kind == TokenKind::String && tokens[i + 3].kind == TokenKind::ParenClose) {
+			found.emplace_back(tokens[i].text == "preload", tokens[i + 2].text);
+		}
+	}
+	return found;
+}
+
 } // namespace
 
 uint64_t declaration_hash(const std::optional<std::string> &p_source) {
@@ -272,6 +288,12 @@ std::vector<std::string> ScriptClasses::RecordedProject::resource_files() const 
 std::vector<std::string> ScriptClasses::RecordedProject::input_actions() const {
 	return ask<std::vector<std::string>>("input actions", [](const ProjectApi &p_project) {
 		return p_project.input_actions();
+	});
+}
+
+std::vector<std::string> ScriptClasses::RecordedProject::script_paths() const {
+	return ask<std::vector<std::string>>("script paths", [](const ProjectApi &p_project) {
+		return p_project.script_paths();
 	});
 }
 
@@ -504,12 +526,9 @@ uint64_t ScriptClasses::script_hash(const std::string &p_file) {
 std::vector<std::string> ScriptClasses::preloads(const std::string &p_file) {
 	return recorded.ask<std::vector<std::string>>("preloads of " + p_file, [p_file](const ProjectApi &p_project) {
 		std::vector<std::string> paths;
-		std::vector<Diagnostic> ignored;
-		const std::shared_ptr<const SourceFile> source = tokenize(p_project.script_source(p_file).value_or(std::string()), ignored);
-		const std::vector<Token> &tokens = source->tokens;
-		for (size_t i = 0; i + 3 < tokens.size(); i++) {
-			if (tokens[i].kind == TokenKind::Identifier && tokens[i].text == "preload" && tokens[i + 1].kind == TokenKind::ParenOpen && tokens[i + 2].kind == TokenKind::String && tokens[i + 3].kind == TokenKind::ParenClose) {
-				paths.push_back(tokens[i + 2].text);
+		for (const auto &[preload, path] : literal_loads(p_project.script_source(p_file).value_or(std::string()))) {
+			if (preload) {
+				paths.push_back(path);
 			}
 		}
 		return paths;
@@ -566,6 +585,39 @@ std::vector<Scene> ScriptClasses::scenes_instancing(const std::string &p_scene) 
 		return r_classes.scenes_where([&](const Scene &p_each) {
 			return p_each.base == p_scene || std::any_of(p_each.nodes.begin(), p_each.nodes.end(), [&](const SceneNode &p_node) { return p_node.instance == p_scene; });
 		});
+	});
+}
+
+// From the whole project, read once in a pass; the first use found is given.
+// A relative path of load() is from res:// (core/io/resource_loader.cpp:693-694; ed1daf0).
+std::string ScriptClasses::root_use(const std::string &p_scene) {
+	return answer<std::string>("use of the scene " + p_scene + " as a root", [p_scene](ScriptClasses &r_classes) {
+		const ProjectApi &project = *r_classes.sources;
+		std::optional<std::map<std::string, std::string>> &uses = r_classes.roots;
+		if (!uses) {
+			uses.emplace();
+			uses->emplace(project.main_scene(), "the scene is the main scene");
+			for (const std::string &script : project.script_paths()) {
+				for (const auto &[preload, written] : literal_loads(project.script_source(script).value_or(std::string()))) {
+					const std::string path = resolved_path(written, preload ? script : std::string("res://"));
+					uses->emplace(path.rfind("uid://", 0) == 0 ? project.uid_path(path) : path, script + (preload ? " preloads the scene" : " loads the scene"));
+				}
+			}
+			for (const std::string &path : project.scene_paths()) {
+				const std::optional<Scene> scene = project.scene(path);
+				for (const SceneNode &node : scene ? scene->nodes : std::vector<SceneNode>()) {
+					for (const auto &[name, value] : node.properties) {
+						std::vector<std::string> held;
+						value.add_scenes(held);
+						for (const std::string &each : held) {
+							uses->emplace(each, path + " stores the scene in \"" + name + "\" of " + (node.path == "." ? std::string("the root") : node.path));
+						}
+					}
+				}
+			}
+		}
+		const auto found = uses->find(p_scene);
+		return found == uses->end() ? std::string() : found->second;
 	});
 }
 

@@ -689,6 +689,15 @@ inline std::string simplify_path(const std::string &p_path) {
 	return result;
 }
 
+// A path as a file at `p_from` names it: from its directory when it is
+// relative; a uid:// path as written.
+inline std::string resolved_path(const std::string &p_path, const std::string &p_from) {
+	if (p_path.rfind("uid://", 0) == 0) {
+		return p_path;
+	}
+	return simplify_path(p_path.rfind("res://", 0) == 0 ? p_path : p_from.substr(0, p_from.find_last_of('/') + 1) + p_path);
+}
+
 struct ClassDecl {
 	std::shared_ptr<const SourceFile> source; // What the token indices of its nodes refer to.
 	// An inner class's name, declared in the class that encloses it (spec
