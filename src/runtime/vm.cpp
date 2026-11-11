@@ -4011,7 +4011,7 @@ void report_leaks(std::vector<std::pair<String, Site>> p_instances) {
 	std::map<String, int64_t> places;
 	int64_t total = 0;
 	const auto count = [&](const String &p_class, const Site &p_site) {
-		places[vformat("%s, made at %s:%d in %s()", p_class, p_site.names->path, p_site.line, p_site.names->functions[p_site.function])]++;
+		places[p_site.names ? vformat("%s, made at %s:%d in %s()", p_class, p_site.names->path, p_site.line, p_site.names->functions[p_site.function]) : vformat("%s, made outside this language", p_class)]++;
 		total++;
 	};
 	{
@@ -4046,7 +4046,7 @@ void report_leaks(std::vector<std::pair<String, Site>> p_instances) {
 	}
 	std::sort(counted.begin(), counted.end());
 	const auto plural = [](int64_t p_count, const char *p_word) { return vformat(p_count == 1 ? "%d %s" : "%d %ss", p_count, p_word); };
-	String message = plural(total, "object") + " made by this language leaked at exit, at " + plural(int64_t(counted.size()), "place") + ":";
+	String message = plural(total, "object") + " of this language leaked at exit, at " + plural(int64_t(counted.size()), "place") + ":";
 	const int64_t width = String::num_int64(-counted[0].first).length();
 	for (size_t i = 0; i < std::min<size_t>(counted.size(), 5); i++) {
 		message += "\n  " + String::num_int64(-counted[i].first).lpad(width) + " " + String::chr(0xD7) + " " + counted[i].second;

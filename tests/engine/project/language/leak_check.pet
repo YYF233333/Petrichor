@@ -1,5 +1,6 @@
 # Leaves a node and two RefCounted objects that hold each other alive at exit,
 # which debug builds list by where this language made them (spec §6.7, §12.5).
+# Also a node of this language that the scene placed, removed and never freed.
 # run.py runs it in a process of its own.
 extends Node
 
@@ -10,6 +11,7 @@ func _ready():
 	var b := pair()
 	a.other = b
 	b.other = a
+	remove_child($Placed)
 	get_tree().quit()
 
 func pair() -> LeakPair:

@@ -105,7 +105,7 @@ static void uninitialize_petrichor(ModuleInitializationLevel p_level) {
 	// The servers and the scene tree have freed what they held, and only then
 	// is what is left a leak (main/main.cpp:5259, 5295-5391, ed1daf0).
 	if (p_level == MODULE_INITIALIZATION_LEVEL_CORE) {
-		vm::report_leaks(PetScript::made_instances());
+		vm::report_leaks(PetScript::live_instances());
 	}
 }
 

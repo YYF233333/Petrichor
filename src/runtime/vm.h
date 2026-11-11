@@ -112,7 +112,8 @@ void record_free(uint64_t p_object, bool p_queued = false);
 godot::String freed_site(uint64_t p_object);
 // In debug builds, warns of what this language made that is still alive
 // (spec §6.7, §12.5): the engine objects its new() made, and the instances
-// of this language in `p_instances`, by class and place. Then lets go of the
+// of this language in `p_instances`, by class and place, or by class alone
+// for those it did not make. Then lets go of the
 // records while the engine can still free their names.
 void report_leaks(std::vector<std::pair<godot::String, Site>> p_instances);
 

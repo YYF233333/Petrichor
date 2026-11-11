@@ -1,6 +1,10 @@
 [gd_scene format=3]
 
 [ext_resource type="Script" path="res://language/leak_check.pet" id="1_leak"]
+[ext_resource type="Script" path="res://language/accessor_check.pet" id="2_placed"]
 
 [node name="LeakCheck" type="Node"]
 script = ExtResource("1_leak")
+
+[node name="Placed" type="Node" parent="."]
+script = ExtResource("2_placed")
