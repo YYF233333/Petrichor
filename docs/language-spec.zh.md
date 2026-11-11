@@ -677,6 +677,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 ### 7.3 向上访问
 
 - autoload 用全局名访问，类型为其脚本的类。字面量路径 `/root/X` 报编译错误，快速修复改为 `X`。
+- `X` 不是 autoload 时，`$"/root/X"` 与 `get_node("/root/X")` 相同，类型为 `Node`，转具体类型须显式转换。这类节点由代码在运行时挂到根下。
 - 父节点和 owner 要求写作类级注解 `@parent(T)`、`@owner(T)`。声明后 `get_parent()`、`$".."` 和 `owner` 类型为 `T`。未声明时 `get_parent()` 和 `owner` 为 `Node?`，`$".."` 和 `get_node("..")` 为 `Node`。此时写 `get_parent().x` 或 `owner.x` 报编译错误。快速修复按场景推断公共类型，补上 `@parent(T)` / `@owner(T)`，或在调用处加 `.unwrap()`：
 
   ```gdscript
