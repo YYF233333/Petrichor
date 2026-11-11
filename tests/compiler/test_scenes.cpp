@@ -71,6 +71,11 @@ TEST_CASE("scene connections are checked against the class (spec §7.7)") {
 	CHECK(contains(messages(check_scenes_in(source, timer_scene("_on_missing"))), "res://enemy.tscn: the signal \"timeout\" of Timer is connected to _on_missing(), which this class does not declare."));
 	CHECK(contains(messages(check_scenes_in(source, timer_scene("_on_timer_timeout", 1))), "which passes 1 argument(s); _on_timer_timeout() takes 0."));
 	CHECK(check_scenes_in("extends Node3D\n\npub func _on_timer_timeout(extra: int):\n\tpass\n", timer_scene("_on_timer_timeout", 1)).errors.empty());
+	// A method of the engine class, which the engine finds by name too; not a
+	// virtual one that the class does not implement.
+	CHECK(check_scenes_in(source, timer_scene("queue_free")).errors.empty());
+	CHECK(contains(messages(check_scenes_in(source, timer_scene("queue_free", 1))), "res://enemy.tscn: the signal \"timeout\" of Timer is connected to queue_free(), which passes 1 argument(s); queue_free() takes 0."));
+	CHECK(contains(messages(check_scenes_in(source, timer_scene("_ready"))), "is connected to _ready(), which this class does not declare."));
 }
 
 TEST_CASE("signal arguments must fit the connected method's parameters") {
@@ -84,6 +89,9 @@ TEST_CASE("signal arguments must fit the connected method's parameters") {
 	// A handler may accept None where the engine might pass it (spec §10.2).
 	CHECK(check_scenes_in("extends Node\n\npub func _on_child(node: Node?):\n\tpass\n", project).errors.empty());
 	CHECK(contains(messages(check_scenes_in("extends Node\n\npub func _on_child(node: int):\n\tpass\n", project)), "which passes Node here"));
+	// The parameters of a method of the engine class too.
+	project.scenes[0].connections[0].method = "set_process";
+	CHECK(contains(messages(check_scenes_in("extends Node\n", project)), "res://main.tscn: the signal \"child_entered_tree\" of . is connected to set_process(), which passes Node here."));
 }
 
 TEST_CASE("a signal declared by a script of this language is checked like the engine's (spec §4.7, §7.7)") {

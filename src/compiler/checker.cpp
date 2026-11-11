@@ -9615,7 +9615,8 @@ class Checker : public ClassRelation {
 
 	// Connections saved in scenes to methods of this class (spec §7.7): the
 	// method must exist and take what the signal passes. The engine finds the
-	// method and the signal by name, so both must be pub (§10.5).
+	// method and the signal by name, so both must be pub (§10.5). A method of
+	// the engine class that is not virtual is found so too.
 	void check_connections() {
 		const TokenRange header{ cls.extends_token, cls.extends_token };
 		for (const Scene &scene : scenes) {
@@ -9626,18 +9627,19 @@ class Checker : public ClassRelation {
 				}
 				const std::string where = scene.path + ": the signal \"" + connection.signal + "\" of " + connection.source + " is connected to " + connection.method + "()";
 				const auto found = function_index.find(connection.method);
-				if (found == function_index.end()) {
+				const FuncDecl *method = found == function_index.end() ? nullptr : cls.all_functions[found->second];
+				const std::optional<EngineMethod> native = method ? std::nullopt : engine.find_method(cls.native_base, connection.method);
+				if (!method && (!native || native->is_virtual)) {
 					error_in_scene(header, scene, connection.target, where + ", which this class does not declare.");
 					continue;
 				}
-				const FuncDecl &method = *cls.all_functions[found->second];
-				const bool own = is_own(method, cls.functions);
-				if (!method.is_pub) {
-					error_in_scene(own_name(method, cls.functions, header), scene, connection.target, where + not_pub(true));
+				const TokenRange at = method ? own_name(*method, cls.functions, header) : header;
+				if (method && !method->is_pub) {
+					error_in_scene(at, scene, connection.target, where + not_pub(true));
 				}
-				if (references) {
+				if (method && references) {
 					Reference reference;
-					reference.target = script_id(declaring(cls, method, &ClassDecl::functions).path, method.name);
+					reference.target = script_id(declaring(cls, *method, &ClassDecl::functions).path, method->name);
 					reference.scene = scene.path;
 					reference.connection = connection;
 					references->push_back(std::move(reference));
@@ -9655,14 +9657,23 @@ class Checker : public ClassRelation {
 					continue;
 				}
 				const int passed = int(arguments->size()) - connection.unbinds + connection.binds;
-				if (passed < 0 || !takes(method, size_t(passed))) {
-					error_in_scene(own_name(method, cls.functions, header), scene, connection.target, where + ", which passes " + std::to_string(passed) + " argument(s); " + method.name + "() takes " + argument_count(method) + ".");
+				const int most = int(method ? method->params.size() : native->params.size());
+				const int required = method ? required_params(*method) : most - native->default_count;
+				const bool rest = method ? method->has_rest() : native->is_vararg;
+				if (passed < required || (!rest && passed > most)) {
+					error_in_scene(at, scene, connection.target, where + ", which passes " + std::to_string(passed) + " argument(s); " + connection.method + "() takes " + argument_count(required, most, rest) + ".");
 					continue;
 				}
 				for (int i = 0; i < int(arguments->size()) - connection.unbinds; i++) {
-					if (!assignable((*arguments)[i], *argument_type(method, size_t(i)))) {
-						const ParamDecl &param = method.params[std::min(size_t(i), method.params.size() - 1)];
-						error_in_scene(own ? TokenRange{ param.name_token, param.name_token } : header, scene, connection.target, where + ", which passes " + (*arguments)[i].to_string() + " here.");
+					std::optional<Type> param = method ? argument_type(*method, size_t(i)) : std::nullopt;
+					// The rest of a vararg engine method are Variant.
+					if (!method && i < most) {
+						param = native->params[i].type;
+					}
+					if (param && param->is_storable() && !assignable((*arguments)[i], *param)) {
+						const bool own = method && is_own(*method, cls.functions);
+						const ParamDecl *named = own ? &method->params[std::min(size_t(i), method->params.size() - 1)] : nullptr;
+						error_in_scene(named ? TokenRange{ named->name_token, named->name_token } : header, scene, connection.target, where + ", which passes " + (*arguments)[i].to_string() + " here.");
 					}
 				}
 			}
