@@ -69,12 +69,13 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 	checks++;
 	classes->begin_compile(p_path, std::string());
 	const std::optional<Scene> scene = classes->get_project()->scene(p_path);
-	// The scripts on its nodes and on the roots of the scenes it instances,
-	// with the files of the classes they extend, inner ones too, whose checks
-	// look at their nodes too. When its tracks or synchronized properties name
-	// members, or it connects to a node inside a scene it instances, also those
-	// deeper in the scenes it instances, which they reach; and so when it is
-	// used as a root, as its nodes all get the exports that must be assigned.
+	// The scripts of its resources, on its nodes and on the roots of the
+	// scenes it instances, with the files of the classes they extend, inner
+	// ones too, whose checks look at them too. When its tracks or synchronized
+	// properties name members, or it connects to a node inside a scene it
+	// instances, also those deeper in the scenes it instances, which they
+	// reach; and so when it is used as a root, as its nodes all get the
+	// exports that must be assigned.
 	std::set<std::string> extended;
 	std::set<std::string> scripts;
 	const auto add = [&](std::string p_class) {
@@ -90,6 +91,9 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 		});
 	};
 	const bool deep = scene && (!scene->named_members.empty() || std::any_of(scene->connections.begin(), scene->connections.end(), inside_instance) || !classes->root_use(p_path).empty());
+	for (const SceneResource &resource : scene ? scene->resources : std::vector<SceneResource>()) {
+		add(resource.script);
+	}
 	std::vector<Scene> pending = scene ? std::vector<Scene>{ *scene } : std::vector<Scene>();
 	std::set<std::string> instanced;
 	while (!pending.empty()) {

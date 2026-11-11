@@ -140,6 +140,65 @@ compiler::SceneValue scene_value(const Variant &p_value) {
 	return value;
 }
 
+// The resources of the file at `p_file` that `p_value` holds at any depth: its
+// own and its sub-resources, but not those of other files, which are checked
+// with them. Those with a script of this language, whose files go to
+// `r_files` as their properties come through it, or that hold scenes. The
+// engine sets each property the file stores, and saves only those that differ
+// from the default (scene/resources/resource_format_text.cpp:640-716,
+// 1955-1994; ed1daf0); a placeholder keeps them so.
+void read_resources(const String &p_file, const Variant &p_value, compiler::Scene &r_scene, std::set<std::string> &r_files, std::set<uint64_t> &r_seen) {
+	if (p_value.get_type() == Variant::ARRAY) {
+		const Array array = p_value;
+		for (int64_t i = 0; i < array.size(); i++) {
+			read_resources(p_file, array[i], r_scene, r_files, r_seen);
+		}
+		return;
+	}
+	if (p_value.get_type() == Variant::DICTIONARY) {
+		const Dictionary dictionary = p_value;
+		const Array keys = dictionary.keys();
+		for (int64_t i = 0; i < keys.size(); i++) {
+			read_resources(p_file, keys[i], r_scene, r_files, r_seen);
+			read_resources(p_file, dictionary[keys[i]], r_scene, r_files, r_seen);
+		}
+		return;
+	}
+	Resource *resource = p_value.get_type() == Variant::OBJECT ? Object::cast_to<Resource>(p_value.get_validated_object()) : nullptr;
+	const String path = resource ? resource->get_path() : String();
+	if (!resource || (path != p_file && !path.begins_with(p_file + String("::"))) || !r_seen.insert(resource->get_instance_id()).second) {
+		return;
+	}
+	const Ref<Script> script = resource->get_script();
+	compiler::SceneResource read;
+	read.path = to_utf8(path);
+	read.script = script.is_valid() ? to_utf8(script->get_path()) : std::string();
+	const bool ours = to_godot(read.script).get_extension() == "pet";
+	if (ours) {
+		r_files.insert(read.script);
+	}
+	const TypedArray<Dictionary> properties = resource->get_property_list();
+	for (int64_t i = 0; i < properties.size(); i++) {
+		const Dictionary property = properties[i];
+		const String name = property.get("name", String());
+		const uint32_t usage = uint32_t(int(property.get("usage", 0)));
+		if (!(usage & PROPERTY_USAGE_STORAGE) || name == "script") {
+			continue;
+		}
+		const Variant value = resource->get(name);
+		read_resources(p_file, value, r_scene, r_files, r_seen);
+		compiler::SceneValue stored = scene_value(value);
+		std::vector<std::string> scenes;
+		stored.add_scenes(scenes);
+		if (stored.type != "Nil" && ((ours && (usage & PROPERTY_USAGE_SCRIPT_VARIABLE)) || !scenes.empty())) {
+			read.properties.emplace_back(to_utf8(name), std::move(stored));
+		}
+	}
+	if (ours || !read.properties.empty()) {
+		r_scene.resources.push_back(std::move(read));
+	}
+}
+
 // What the scene itself stores for the properties of the node.
 std::vector<std::pair<std::string, compiler::SceneValue>> stored_properties(const Ref<SceneState> &p_state, int32_t p_index) {
 	std::vector<std::pair<std::string, compiler::SceneValue>> properties;
@@ -267,10 +326,16 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state,
 	compiler::Scene scene = base.is_valid() ? read_scene(p_state->get_node_instance(0)->get_path(), base, r_files) : compiler::Scene();
 	scene.base = base.is_valid() ? scene.path : std::string();
 	scene.path = to_utf8(p_path);
+	// The base stores them, and the check reads them there.
 	for (compiler::SceneNode &node : scene.nodes) {
-		node.properties.clear(); // The base stores them, and the check reads them there.
+		node.properties.clear();
 	}
+	scene.resources.clear();
+	std::set<uint64_t> seen;
 	for (int32_t i = 0; i < p_state->get_node_count(); i++) {
+		for (int32_t p = 0; p < p_state->get_node_property_count(i); p++) {
+			read_resources(p_path, p_state->get_node_property_value(i, p), scene, r_files, seen);
+		}
 		read_named_members(p_state, i, scene, r_files);
 		const std::string path = node_path(p_state->get_node_path(i));
 		const std::optional<std::string> script = attached_script(p_state, i);
@@ -390,14 +455,30 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 	// From the file: the editor keeps the scene it loaded once, such as one in
 	// an exported property, after the file changes (core/io/resource_loader.cpp:800-803,
 	// scene/resources/packed_scene.h:256).
-	const Ref<PackedScene> packed = ResourceLoader::get_singleton()->load(path, "PackedScene", ResourceLoader::CACHE_MODE_IGNORE);
-	if (packed.is_valid() && packed->get_state().is_valid()) {
-		std::set<std::string> files;
-		entry->scene = read_scene(path, packed->get_state(), files);
-		instanced_scenes(packed->get_state(), files);
-		for (const std::string &file : files) {
-			entry->files.emplace_back(file, FileAccess::get_modified_time(to_godot(file)));
+	std::set<std::string> files;
+	const String extension = path.get_extension().to_lower();
+	if (extension == "tscn" || extension == "scn") {
+		const Ref<PackedScene> packed = ResourceLoader::get_singleton()->load(path, "PackedScene", ResourceLoader::CACHE_MODE_IGNORE);
+		if (packed.is_valid() && packed->get_state().is_valid()) {
+			entry->scene = read_scene(path, packed->get_state(), files);
+			instanced_scenes(packed->get_state(), files);
 		}
+	} else {
+		// Only a resource file that may hold something the check reads: its
+		// scripts and the scenes it holds are external resources, which the
+		// engine lists without loading it.
+		const std::vector<std::string> dependencies = this->dependencies(p_path);
+		if (std::any_of(dependencies.begin(), dependencies.end(), [](const std::string &p_dependency) {
+				const String extension = to_godot(p_dependency).get_extension();
+				return extension == "pet" || extension == "tscn" || extension == "scn";
+			})) {
+			std::set<uint64_t> seen;
+			entry->scene.path = p_path;
+			read_resources(path, ResourceLoader::get_singleton()->load(path, "", ResourceLoader::CACHE_MODE_IGNORE), entry->scene, files, seen);
+		}
+	}
+	for (const std::string &file : files) {
+		entry->files.emplace_back(file, FileAccess::get_modified_time(to_godot(file)));
 	}
 	std::lock_guard<std::mutex> lock(mutex);
 	scenes.insert_or_assign(p_path, entry);
@@ -419,7 +500,7 @@ void SceneIndex::forget(const std::string &p_path) const {
 
 std::vector<std::string> SceneIndex::scene_paths() const {
 	std::vector<std::string> paths;
-	for (const String &path : project_files(PackedStringArray({ "tscn", "scn" }))) {
+	for (const String &path : project_files(PackedStringArray({ "tscn", "scn", "tres", "res" }))) {
 		paths.push_back(to_utf8(path));
 	}
 	return paths;
@@ -430,7 +511,7 @@ std::optional<compiler::Scene> SceneIndex::scene(const std::string &p_path) cons
 		return std::nullopt;
 	}
 	const std::shared_ptr<const Entry> entry = read(p_path);
-	return entry->scene.nodes.empty() ? std::nullopt : std::optional<compiler::Scene>(entry->scene);
+	return entry->scene.nodes.empty() && entry->scene.resources.empty() ? std::nullopt : std::optional<compiler::Scene>(entry->scene);
 }
 
 // The setting may hold a uid:// path (main/main.cpp:4336-4345; ed1daf0).

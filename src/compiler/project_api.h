@@ -91,15 +91,38 @@ struct SceneNamedMember {
 	}
 };
 
+// A resource that a scene or a resource file holds, with a script of this
+// language or holding scenes (spec §4.3, §6.2, §7.4).
+struct SceneResource {
+	std::string path; // Its res:// path; a sub-resource's is the file's, "::" and its id.
+	std::string script; // The res:// path of its script, if any.
+	// What the file stores for its properties, as the engine loads them, but
+	// null, which the check takes as none. Of a resource without a script of
+	// this language, only the values that hold scenes.
+	std::vector<std::pair<std::string, SceneValue>> properties;
+
+	// As messages name it: "the resource", or "the resource Resource_x1" for a
+	// sub-resource.
+	std::string shown() const {
+		const size_t at = path.find("::");
+		return at == std::string::npos ? std::string("the resource") : "the resource " + path.substr(at + 2);
+	}
+
+	bool operator==(const SceneResource &p_other) const { return path == p_other.path && script == p_other.script && properties == p_other.properties; }
+};
+
+// A scene, or a resource file as one without nodes: the unit of the resource
+// check (architecture §6.4).
 struct Scene {
 	std::string path;
 	std::vector<SceneNode> nodes; // With those of the scene it inherits.
 	std::vector<SceneConnection> connections;
 	std::string base; // The scene it inherits, if any.
 	std::vector<SceneNamedMember> named_members; // With those of the scene it inherits.
+	std::vector<SceneResource> resources; // Those it holds itself, a resource file's own too.
 
 	bool operator==(const Scene &p_other) const {
-		return path == p_other.path && nodes == p_other.nodes && connections == p_other.connections && base == p_other.base && named_members == p_other.named_members;
+		return path == p_other.path && nodes == p_other.nodes && connections == p_other.connections && base == p_other.base && named_members == p_other.named_members && resources == p_other.resources;
 	}
 
 	const SceneNode *find_node(const std::string &p_path) const {
@@ -146,9 +169,10 @@ class ProjectApi {
 public:
 	virtual ~ProjectApi() = default;
 
-	// The res:// paths of the project's scenes.
+	// The res:// paths of the project's scenes and resource files.
 	virtual std::vector<std::string> scene_paths() const = 0;
-	// A scene by its res:// path; nullopt if there is none.
+	// A scene or a resource file by its res:// path; nullopt if there is
+	// none, or if a resource file holds nothing the check reads.
 	virtual std::optional<Scene> scene(const std::string &p_path) const = 0;
 	// The res:// path of the main scene, or "" (spec §7.3).
 	virtual std::string main_scene() const = 0;

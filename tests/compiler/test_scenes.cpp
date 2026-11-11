@@ -566,6 +566,35 @@ TEST_CASE("an abstract class is set on no node of a scene, which the scene's che
 	CHECK(compile_in(source, project).errors.empty());
 }
 
+TEST_CASE("a scene or a resource file sets no script whose _init has required parameters, which the engine does not pass (spec §6.2)") {
+	const std::string unit = "extends Node3D\n\nvar speed: float\n\nfunc _init(p_speed: float, scale: float = 1.0):\n\tspeed = p_speed\n";
+	FakeProject project;
+	project.add_script("res://archer.pet", "extends \"res://test.pet\"\n");
+	project.add_script("res://knight.pet", "extends \"res://test.pet\"\n\nfunc _init():\n\tsuper(2.0)\n");
+	compiler::Scene scene;
+	scene.path = "res://enemies.tscn";
+	scene.nodes = { { ".", "Node3D", "" }, { "Unit", "Node3D", "res://test.pet" }, { "Archer", "Node3D", "res://archer.pet" }, { "Knight", "Node3D", "res://knight.pet" } };
+	project.scenes = { scene };
+	// A subclass without its own _init() runs this one, and its check reports it.
+	const compiler::CompileResult checked = check_scenes_in(unit, project);
+	REQUIRE(checked.errors.size() == 2);
+	CHECK(messages(checked) == "1:9: res://enemies.tscn: Archer has archer.pet, whose _init() has required parameters, which the engine does not pass.\n"
+							   "5:6: res://enemies.tscn: Unit has test.pet, whose _init() has required parameters, which the engine does not pass.\n");
+	CHECK((checked.errors[1].scene == "res://enemies.tscn" && checked.errors[1].node == "Unit"));
+	CHECK_FALSE(checked.ok());
+	CHECK(compile_in(unit, project).errors.empty());
+
+	FakeProject resources;
+	compiler::Scene file;
+	file.path = "res://loot.tres";
+	file.resources = { { "res://loot.tres", "res://test.pet" }, { "res://loot.tres::Resource_k2x", "res://test.pet" } };
+	resources.scenes = { file };
+	const std::string loot = "extends Resource\n\nfunc _init(p_count: int):\n\tpass\n";
+	CHECK(messages(check_scenes_in(loot, resources)) == "3:6: res://loot.tres: the resource has test.pet, whose _init() has required parameters, which the engine does not pass.\n"
+														"3:6: res://loot.tres: the resource Resource_k2x has test.pet, whose _init() has required parameters, which the engine does not pass.\n");
+	CHECK(check_scenes_in("extends Resource\n\nfunc _init(p_count: int = 1):\n\tpass\n", resources).errors.empty());
+}
+
 TEST_CASE("%Name is the node with that unique name, which the scene's root owns (spec §7.1)") {
 	// The engine looks in the unique names the node owns, then in its owner's
 	// (scene/main/node.cpp:1942-1950).

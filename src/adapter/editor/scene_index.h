@@ -13,18 +13,19 @@
 namespace petrichor {
 
 // The project as the compiler sees it. Scenes for the scene model (spec §7)
-// are read from the engine's scene states, so that text and binary scenes and
-// instances read as the engine reads them, and read again when a file they
-// are read from changes; loading a scene loads what it
-// refers to, so scenes are only asked for outside of resource loading
-// (CompileMode::Full). Global classes and autoloads come from the project
-// settings, and sources from the files.
+// are read from the engine's scene states, and resource files from what the
+// engine loads, so that text and binary files and instances read as the
+// engine reads them, and read again when a file they are read from changes;
+// loading a scene loads what it refers to, so scenes are only asked for
+// outside of resource loading (CompileMode::Full). Global classes and
+// autoloads come from the project settings, and sources from the files.
 class SceneIndex : public compiler::ProjectApi {
 	struct Entry {
 		uint64_t modified = 0;
 		// The other files it is read from, and when they changed: the scenes it
 		// instances, at any depth, as an instance takes the class and the script
-		// of its scene's root, and animation libraries stored apart.
+		// of its scene's root, animation libraries stored apart, and the scripts
+		// of this language of its resources, which give their properties.
 		std::vector<std::pair<std::string, uint64_t>> files;
 		compiler::Scene scene;
 	};

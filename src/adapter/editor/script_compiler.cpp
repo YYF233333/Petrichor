@@ -124,7 +124,7 @@ std::shared_ptr<const compiler::CompileResult> check_scene(const String &p_path,
 	return result;
 }
 
-int build_project(int *r_script_count, int *r_scene_count, bool p_command) {
+int build_project(int *r_script_count, int *r_scene_count, int *r_resource_count, bool p_command) {
 	const compiler::Analysis::Pass analysis_pass(analysis());
 	const PackedStringArray paths = project_files(PackedStringArray({ "pet" }));
 	int failed = 0;
@@ -141,18 +141,24 @@ int build_project(int *r_script_count, int *r_scene_count, bool p_command) {
 			gdextension_interface::print_warning(message.c_str(), "", file.get_data(), warnings[i].line, false);
 		}
 	}
-	const PackedStringArray scenes = project_files(PackedStringArray({ "tscn", "scn" }));
-	for (const String &path : scenes) {
-		const std::shared_ptr<const compiler::CompileResult> result = check_scene(path, true);
+	int scenes = 0;
+	const std::vector<std::string> checked = SceneIndex::get().scene_paths();
+	for (const std::string &path : checked) {
+		const std::shared_ptr<const compiler::CompileResult> result = check_scene(to_godot(path), true);
 		if (p_command ? !result->errors.empty() : !result->ok()) {
 			failed++;
 		}
+		const String extension = to_godot(path).get_extension().to_lower();
+		scenes += extension == "tscn" || extension == "scn";
 	}
 	if (r_script_count) {
 		*r_script_count = int(paths.size());
 	}
 	if (r_scene_count) {
-		*r_scene_count = int(scenes.size());
+		*r_scene_count = scenes;
+	}
+	if (r_resource_count) {
+		*r_resource_count = int(checked.size()) - scenes;
 	}
 	return failed;
 }
@@ -214,8 +220,16 @@ std::vector<compiler::Diagnostic> placed_errors(const String &p_path) {
 	const std::string path = to_utf8(p_path);
 	std::vector<compiler::Diagnostic> placed;
 	// The scenes that place it, and those that instance them, which check the
-	// roots of the scenes they instance and what their tracks name.
+	// roots of the scenes they instance and what their tracks name; and the
+	// files whose resources have scripts of this language, which may extend it.
 	std::vector<compiler::Scene> pending = classes.scenes_with_script(path);
+	const compiler::ProjectApi &project = *classes.get_project();
+	for (const std::string &file : project.scene_paths()) {
+		const std::optional<compiler::Scene> held = project.scene(file);
+		if (held && std::any_of(held->resources.begin(), held->resources.end(), [](const compiler::SceneResource &p_resource) { return compiler::is_script_path(p_resource.script); })) {
+			pending.push_back(*held);
+		}
+	}
 	std::set<std::string> seen;
 	while (!pending.empty()) {
 		const std::string scene = pending.back().path;

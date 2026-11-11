@@ -221,6 +221,36 @@ TEST_CASE("a scene's errors in a script on it move with its lines; a script usin
 	}
 }
 
+TEST_CASE("a resource file is checked again when it or a script of its resources changes") {
+	FakeProject project;
+	compiler::Scene file;
+	file.path = "res://sword.tres";
+	file.resources = { { file.path, "res://item.pet" } };
+	project.scenes = { file };
+	project.add_script("res://item.pet", "extends Resource\n\n@export pub var icon: Texture2D\n");
+	compiler::Analysis analysis(fake_engine(), project);
+	const auto check = [&] {
+		const compiler::Analysis::Pass pass(analysis);
+		return analysis.check_scene("res://sword.tres");
+	};
+	const Result before = check();
+	REQUIRE(before->errors.size() == 1);
+	REQUIRE(analysis.checks_run() == 1);
+
+	SUBCASE("nothing") {
+		CHECK((check() == before));
+		CHECK(analysis.checks_run() == 1);
+	}
+	SUBCASE("the file") {
+		project.scenes[0].resources[0].properties = { { "icon", compiler::SceneValue{ "Object", "CompressedTexture2D" } } };
+		CHECK(check()->errors.empty());
+	}
+	SUBCASE("the script's declarations") {
+		project.sources["res://item.pet"] = "extends Resource\n\n@export pub var icon: Texture2D?\n";
+		CHECK(check()->errors.empty());
+	}
+}
+
 TEST_CASE("a script is checked again when the _init of a class it extends changes, not another function body (architecture §6.4)") {
 	FakeProject project;
 	compiler::Scene scene;

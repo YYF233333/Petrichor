@@ -185,7 +185,8 @@ public:
 	// A reverse question of the check of a scene: how it is used as a root
 	// (spec §7.5), as "res://spawner.gd loads the scene"; "" when it is not.
 	// The main scene is, and so is a scene that a script of this language or
-	// GDScript preloads or loads by a literal path, or that a scene stores.
+	// GDScript preloads or loads by a literal path, or that a scene or a
+	// resource file stores, on a node or in a resource.
 	std::string root_use(const std::string &p_scene);
 	// Records what the compile of `p_file` from `p_source` reads, until
 	// end_compile(), after which nothing refers to its classes.

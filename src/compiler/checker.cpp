@@ -9701,16 +9701,37 @@ class Checker : public ClassRelation {
 		}
 	}
 
-	// No node of a scene has an abstract class (spec §4.1), which the engine
-	// refuses to set (core/object/object.cpp:976; ed1daf0).
-	void check_abstract_scenes() {
-		for (const Scene &scene : cls.is_abstract ? scenes : std::vector<Scene>()) {
-			for (const SceneNode &node : scene.nodes) {
-				if (node.script == options.path) {
-					error_in_scene(TokenRange{ cls.extends_token, cls.extends_token }, scene, node.path, scene.path + ": " + (node.path == "." ? std::string("the root") : node.path) + " has " + display_name(cls, options.path) + ", which is abstract and cannot be set on a node.");
-				}
+	// Each node of the scene and each resource it holds that has the class
+	// set, with its name in messages and the node it marks.
+	void for_each_attached(const std::function<void(const std::string &, const std::string &)> &p_check) {
+		for (const SceneNode &node : scenes[0].nodes) {
+			if (node.script == options.path) {
+				p_check(node.path == "." ? std::string("the root") : node.path, node.path);
 			}
 		}
+		for (const SceneResource &resource : scenes[0].resources) {
+			if (resource.script == options.path) {
+				p_check(resource.shown(), std::string());
+			}
+		}
+	}
+
+	// No node or resource has an abstract class (spec §4.1), which the engine
+	// refuses to set (core/object/object.cpp:976; ed1daf0); nor one whose
+	// _init() has required parameters, which the engine does not pass (§6.2).
+	void check_attached() {
+		const TokenRange header{ cls.extends_token, cls.extends_token };
+		const FuncDecl *init = init_of(cls);
+		const bool takes = init && required_params(*init) > 0;
+		for_each_attached([&](const std::string &p_shown, const std::string &p_node) {
+			const std::string has = scenes[0].path + ": " + p_shown + " has " + display_name(cls, options.path);
+			if (cls.is_abstract) {
+				error_in_scene(header, scenes[0], p_node, has + ", which is abstract and cannot be set on a " + (p_node.empty() ? "resource." : "node."));
+			}
+			if (takes) {
+				error_in_scene(own_name(*init, cls.functions, header), scenes[0], p_node, has + ", whose _init() has required parameters, which the engine does not pass.");
+			}
+		});
 	}
 
 	// What a signal of a node in a scene passes: one its script of this
@@ -10196,7 +10217,8 @@ class Checker : public ClassRelation {
 	// enums with payloads, which the entry check decodes as the scene is
 	// instantiated (spec §4.3), and for its exported scenes, which may leave
 	// to instantiate(...) only what PackedScene[T] asks for (§7.4): on the
-	// nodes with the class, and on the instances of scenes whose root has it.
+	// nodes with the class, on the instances of scenes whose root has it, and
+	// on the resources with it that the scene or resource file holds.
 	void check_stored_exports() {
 		std::vector<const VarDecl *> exports;
 		for (const VarDecl &member : cls.members) {
@@ -10205,12 +10227,9 @@ class Checker : public ClassRelation {
 				exports.push_back(&member);
 			}
 		}
-		if (exports.empty()) {
-			return;
-		}
-		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
+		const auto check = [&](const Scene &p_scene, const std::vector<std::pair<std::string, SceneValue>> &p_properties, const std::string &p_shown, const std::string &p_node) {
 			for (const VarDecl *member : exports) {
-				for (const auto &[name, value] : p_node.properties) {
+				for (const auto &[name, value] : p_properties) {
 					if (name != member->name) {
 						continue;
 					}
@@ -10219,17 +10238,49 @@ class Checker : public ClassRelation {
 						const std::optional<Scene> scene = is_scene_file(value.path) ? options.project->scene(value.path) : std::nullopt;
 						const std::string unfit = scene ? unfit_scene(*scene, member->type) : std::string();
 						if (!unfit.empty()) {
-							error_in_scene(at, p_scene, p_node.path, p_scene.path + ": \"" + name + "\" of " + p_node.path + " holds " + scene->path + ", which " + unfit);
+							error_in_scene(at, p_scene, p_node, p_scene.path + ": \"" + name + "\" of " + p_shown + " holds " + scene->path + ", which " + unfit);
 						}
 						continue;
 					}
 					const std::string why = undecodable(member->type, value, std::string());
 					if (!why.empty()) {
-						error_in_scene(at, p_scene, p_node.path, p_scene.path + ": the value stored for \"" + name + "\" of " + p_node.path + " does not decode: " + why + ".");
+						error_in_scene(at, p_scene, p_node, p_scene.path + ": the value stored for \"" + name + "\" of " + p_shown + " does not decode: " + why + ".");
 					}
 				}
 			}
+		};
+		if (exports.empty()) {
+			return;
+		}
+		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
+			check(p_scene, p_node.properties, p_node.path, p_node.path);
 		});
+		for (const SceneResource &resource : scenes[0].resources) {
+			if (extends_script(resource.script, options.path)) {
+				check(scenes[0], resource.properties, resource.shown(), std::string());
+			}
+		}
+	}
+
+	// A resource has no ready phase, so the file gives each member of a
+	// resource with the class that must be assigned and that the _init it
+	// runs does not assign (spec §6.2). Only exports are stored. The game runs
+	// all the same: reading one without a value fails the check at run time.
+	void check_resource_values() {
+		for (const SceneResource &resource : scenes[0].resources) {
+			if (!extends_script(resource.script, options.path)) {
+				continue;
+			}
+			const ClassDecl *placed = is_script_path(resource.script) ? script_decl(resource.script) : &cls;
+			for (const VarDecl &member : cls.members) {
+				const bool given = std::any_of(resource.properties.begin(), resource.properties.end(), [&](const auto &p_property) { return p_property.first == member.name && p_property.second.type != "Nil"; });
+				if (member.must_assign && !given && !(placed && init_assigns(*placed, member.name))) {
+					const std::string why = member.is_export ? ", an export that must be assigned." : ", which must be assigned and is not exported.";
+					error_in_scene(TokenRange{ member.name_token, member.name_token }, scenes[0], std::string(), scenes[0].path + ": " + resource.shown() + " has no value for \"" + member.name + "\"" + why);
+					errors.back().runs = true;
+				}
+			}
+		}
 	}
 
 	// Where the scene is used as a root, each node of its view with the class
@@ -11829,7 +11880,7 @@ public:
 			return;
 		}
 		scenes = { *scene };
-		check_abstract_scenes();
+		check_attached();
 		check_node_paths();
 		check_connections();
 		check_named_members();
@@ -11837,6 +11888,7 @@ public:
 		check_parent_scenes();
 		check_stored_exports();
 		check_scene_exports();
+		check_resource_values();
 	}
 
 private:

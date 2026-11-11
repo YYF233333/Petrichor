@@ -248,6 +248,20 @@ TEST_CASE("a scene used as a root gives the nodes below its root the exports tha
 	wave.nodes[0].properties[0].second.items = { scene };
 	stored.scenes.push_back(wave);
 	CHECK(errors(stored) == gun);
+	// So does a resource file or a resource in a scene.
+	FakeProject held = project;
+	compiler::Scene waves;
+	waves.path = "res://waves.tres";
+	waves.resources = { { waves.path, "res://waves.gd", { { "first", scene } } } };
+	held.scenes.push_back(waves);
+	CHECK(errors(held) == gun);
+	FakeProject inside = project;
+	compiler::Scene arena;
+	arena.path = "res://arena.tscn";
+	arena.nodes = { { ".", "Node", "" } };
+	arena.resources = { { "res://arena.tscn::Resource_w1", "", { { "enemies", wave.nodes[0].properties[0].second } } } };
+	inside.scenes.push_back(arena);
+	CHECK(errors(inside) == gun);
 }
 
 TEST_CASE("an exported scene is written PackedScene[T] (spec §7.4)") {
@@ -398,4 +412,71 @@ TEST_CASE("the values that scenes store for an exported struct or enum with payl
 	CHECK(contains(errors("order", entries({ { "$variant", text("MOVE") } })), "Loadout.Order.MOVE.target is missing."));
 	CHECK(contains(errors("order", of("int", 1)), "does not decode: expected Loadout.Order, found int."));
 	CHECK(contains(messages(stored("hit", entries({ { "crit", of("bool") } }), true)), "the value stored for \"hit\" of Enemy does not decode: Loadout.Hit.damage is missing."));
+}
+
+TEST_CASE("a resource file and a scene check what their resources with the class store, as on nodes (spec §4.3, §7.4)") {
+	const std::string source = "class_name Loadout\nextends Resource\n\npub struct Hit:\n\tvar damage: int\n\npub enum Order { WAIT, MOVE(target: Vector3) }\n\n@export pub var hit: Hit?\n@export pub var order := Order.WAIT\n@export pub var model: PackedScene[Node3D]\n";
+	const auto text = [](const std::string &p_text) {
+		compiler::SceneValue value{ "String" };
+		value.text = p_text;
+		return value;
+	};
+	compiler::SceneValue hit{ "Dictionary" };
+	hit.items = { text("damage"), text("5") };
+	compiler::SceneValue order{ "Dictionary" };
+	order.items = { text("$variant"), text("RUN") };
+	compiler::SceneValue model{ "Object", "PackedScene" };
+	model.path = "res://enemy.tscn";
+	FakeProject project;
+	project.add_script("res://enemy.pet", "extends Node3D\n\npub var target: Node3D\n");
+	compiler::Scene enemy;
+	enemy.path = model.path;
+	enemy.nodes = { { ".", "Node3D", "res://enemy.pet" } };
+	compiler::Scene loadout;
+	loadout.path = "res://loadout.tres";
+	loadout.resources = { { loadout.path, "res://test.pet", { { "hit", hit }, { "order", order }, { "model", model } } } };
+	compiler::Scene level;
+	level.path = "res://level.tscn";
+	level.nodes = { { ".", "Node", "" } };
+	level.resources = { { "res://level.tscn::Resource_a1", "res://test.pet", { { "hit", hit }, { "model", model } } } };
+	project.scenes = { enemy, loadout, level };
+	const compiler::CompileResult checked = check_scenes_in(source, project);
+	const std::string errors = messages(checked);
+	CHECK(contains(errors, "res://loadout.tres: the value stored for \"hit\" of the resource does not decode: Loadout.Hit.damage: expected int, found String."));
+	CHECK(contains(errors, "res://loadout.tres: the value stored for \"order\" of the resource does not decode: Loadout.Order: expected Loadout.Order, found a Dictionary whose \"$variant\" names none of its variants."));
+	CHECK(contains(errors, "res://loadout.tres: \"model\" of the resource holds res://enemy.tscn, which leaves \"target\" to instantiate(), but a PackedScene[Node3D] does not ask for it."));
+	CHECK(contains(errors, "res://level.tscn: the value stored for \"hit\" of the resource Resource_a1 does not decode"));
+	REQUIRE(!checked.errors.empty());
+	// Marked on the file, which has no node to mark.
+	CHECK((checked.errors[0].scene == "res://loadout.tres" && checked.errors[0].node.empty()));
+	CHECK(compile_in(source, project).errors.empty());
+}
+
+TEST_CASE("a resource file gives a resource with the class each member that must be assigned and that its _init does not assign (spec §6.2)") {
+	const std::string source = "extends Resource\n\n@export pub var icon: Texture2D\n@export pub var cost := 1\npub var holder: RefCounted\n";
+	compiler::SceneValue icon{ "Object", "CompressedTexture2D" };
+	compiler::SceneValue null{ "Nil" };
+	const auto errors = [&](const std::string &p_script, const std::vector<std::pair<std::string, compiler::SceneValue>> &p_stored) {
+		FakeProject project;
+		project.add_script("res://knife.pet", "extends \"res://test.pet\"\n\nfunc _init():\n\tholder = RefCounted.new()\n");
+		compiler::Scene file;
+		file.path = "res://knife.tres";
+		file.resources = { { file.path, p_script, p_stored } };
+		project.scenes = { file };
+		const compiler::CompileResult checked = check_scenes_in(source, project);
+		// The game runs all the same, as reading one without a value fails.
+		CHECK(checked.ok());
+		std::vector<std::string> found;
+		for (const compiler::Diagnostic &error : checked.errors) {
+			found.push_back(error.message);
+		}
+		return found;
+	};
+	const std::string lacking_icon = "res://knife.tres: the resource has no value for \"icon\", an export that must be assigned.";
+	const std::string lacking_holder = "res://knife.tres: the resource has no value for \"holder\", which must be assigned and is not exported.";
+	CHECK(errors("res://test.pet", {}) == std::vector<std::string>{ lacking_icon, lacking_holder });
+	CHECK(errors("res://test.pet", { { "icon", null } }) == std::vector<std::string>{ lacking_icon, lacking_holder });
+	CHECK(errors("res://test.pet", { { "icon", icon } }) == std::vector<std::string>{ lacking_holder });
+	CHECK(errors("res://knife.pet", { { "icon", icon } }).empty());
+	CHECK(errors("res://knife.pet", {}) == std::vector<std::string>{ lacking_icon });
 }

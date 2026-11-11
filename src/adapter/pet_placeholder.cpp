@@ -112,7 +112,9 @@ static GDExtensionBool placeholder_set(GDExtensionScriptInstanceDataPtr p_instan
 		}
 		return true;
 	}
-	if (has_default && holds(Variant::OP_NOT_EQUAL, default_, value)) {
+	// Also one of another type, as an int stored for what is now a struct,
+	// which the resource check reports (architecture §6.4).
+	if (has_default && !holds(Variant::OP_EQUAL, default_, value)) {
 		placeholder->values[name] = value;
 	}
 	return has_default;

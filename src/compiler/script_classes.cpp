@@ -145,6 +145,7 @@ Scene structure(Scene p_scene) {
 	}
 	p_scene.connections.clear();
 	p_scene.named_members.clear();
+	p_scene.resources.clear();
 	return p_scene;
 }
 
@@ -647,16 +648,22 @@ std::string ScriptClasses::root_use(const std::string &p_scene) {
 					uses->emplace(path.rfind("uid://", 0) == 0 ? project.uid_path(path) : path, script + (preload ? " preloads the scene" : " loads the scene"));
 				}
 			}
+			const auto stored = [&](const std::string &p_path, const std::vector<std::pair<std::string, SceneValue>> &p_properties, const std::string &p_holder) {
+				for (const auto &[name, value] : p_properties) {
+					std::vector<std::string> held;
+					value.add_scenes(held);
+					for (const std::string &each : held) {
+						uses->emplace(each, p_path + " stores the scene in \"" + name + "\" of " + p_holder);
+					}
+				}
+			};
 			for (const std::string &path : project.scene_paths()) {
 				const std::optional<Scene> scene = project.scene(path);
 				for (const SceneNode &node : scene ? scene->nodes : std::vector<SceneNode>()) {
-					for (const auto &[name, value] : node.properties) {
-						std::vector<std::string> held;
-						value.add_scenes(held);
-						for (const std::string &each : held) {
-							uses->emplace(each, path + " stores the scene in \"" + name + "\" of " + (node.path == "." ? std::string("the root") : node.path));
-						}
-					}
+					stored(path, node.properties, node.path == "." ? std::string("the root") : node.path);
+				}
+				for (const SceneResource &resource : scene ? scene->resources : std::vector<SceneResource>()) {
+					stored(path, resource.properties, resource.shown());
 				}
 			}
 		}

@@ -704,13 +704,18 @@ def run_export_groups(godot):
         # class on a node (spec §4.1), whose script compiles too.
         (unassigned / "abstract_export_check.pet").write_text("@abstract\nextends Node\n", encoding="utf-8")
         (unassigned / "unassigned_export_check.tscn").write_text('[gd_scene format=3]\n\n[ext_resource type="Script" path="res://unassigned_export_check.pet" id="1"]\n[ext_resource type="Script" path="res://abstract_export_check.pet" id="2"]\n\n[node name="Root" type="Node"]\n\n[node name="Child" type="Node" parent="."]\nscript = ExtResource("1")\n\n[node name="Unit" type="Node" parent="."]\nscript = ExtResource("2")\n', encoding="utf-8")
+        # So does a resource file's check: a struct it stores that does not
+        # decode (spec §4.3).
+        (unassigned / "loot_export_check.pet").write_text("extends Resource\n\npub struct Hit:\n\tvar damage: int\n\n@export pub var hit: Hit?\n", encoding="utf-8")
+        (unassigned / "loot_export_check.tres").write_text('[gd_resource type="Resource" format=3]\n\n[ext_resource type="Script" path="res://loot_export_check.pet" id="1"]\n\n[resource]\nscript = ExtResource("1")\nhit = {\n"damage": "5"\n}\n', encoding="utf-8")
         code, built = run(godot, "-e", "--path", str(unassigned), "--", "--petrichor-build")
         code_export, output = run(godot, "--path", str(unassigned), "--export-pack", "Windows Desktop", str(tmp / "unassigned.pck"))
         lacking = 'res://unassigned_export_check.tscn: Child has no value for "target", an export that must be assigned.'
         abstract = "res://unassigned_export_check.tscn: Unit has abstract_export_check.pet, which is abstract and cannot be set on a node."
-        expect("export: the headless build fails on a value that a scene lacks", code != 0 and "2 script(s), 1 scene(s), 1 with errors" in built and lacking in built, built)
+        loot = 'res://loot_export_check.tres: the value stored for "hit" of the resource does not decode: '
+        expect("export: the headless build fails on a value that a scene lacks", code != 0 and "3 script(s), 1 scene(s), 1 resource file(s), 2 with errors" in built and lacking in built, built)
         expect("export: a value that a scene lacks is an export error", code_export == 0 and lacking in output and "has errors and is left out" not in output, output)
-        expect("export: the headless build and the export fail on a scene's check", abstract in built and abstract in output, built + output)
+        expect("export: the headless build and the export fail on the checks of a scene and a resource file", all(error in built and error in output for error in (abstract, loot)), built + output)
 
         # A project directory without sources, whose only library is the one
         # exported games load, without the compiler: without the editor's
