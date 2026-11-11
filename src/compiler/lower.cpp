@@ -1617,14 +1617,17 @@ class Lowerer {
 			}
 			return result;
 		}
-		if (is_struct_reg(p_left) || is_option_reg(p_left)) {
+		const ValueType left_type = reg_type(p_left);
+		const ValueType right_type = reg_type(p_right);
+		// Containers too, whose `==` may walk into boxes too deep, which only
+		// this instruction reports (spec §3.6).
+		const bool containers = (p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual) && left_type == right_type && (left_type == ValueType::Array || left_type == ValueType::Dictionary);
+		if (is_struct_reg(p_left) || is_option_reg(p_left) || containers) {
 			// Field by field (spec §3.6), None equal to None (§5.2).
 			const uint32_t result = temp(ValueType::Bool);
 			instr(Op::EQUAL, result, p_left, p_right, 0, fn.regs[p_left].type);
 			return p_op == TokenKind::BangEqual ? negate(result) : result;
 		}
-		const ValueType left_type = reg_type(p_left);
-		const ValueType right_type = reg_type(p_right);
 		if (!is_primitive(left_type) || !is_primitive(right_type)) {
 			// The engine's operator for these two types (spec §5.1).
 			const uint8_t op = engine_operator(p_op);

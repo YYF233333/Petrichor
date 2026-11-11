@@ -354,7 +354,7 @@ pub func deep(depth: int, decoded: bool) -> bool:
 		encoded = {"name": "a", "children": [encoded]}
 	if decoded:
 		return Twig.try_from(encoded).ok() != None
-	return a == b
+	return a.children == b.children
 
 # Nor is one that holds itself through a container it shares.
 var tangled: Array[Twig] = []

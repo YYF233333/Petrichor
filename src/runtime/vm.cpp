@@ -709,6 +709,14 @@ PETRICHOR_NOINLINE bool new_object(const ClassImage &p_image, uint32_t p_class, 
 	return true;
 }
 
+const char *const TOO_DEEP = "The value nests more than 100 levels deep, or holds itself.";
+
+// Whether a walk went deeper than walks go since this was last asked (spec
+// §3.6). The count, mostly 0, spares reading the thread's flag.
+bool too_deep() {
+	return unasked_walks.load(std::memory_order_relaxed) != 0 && walked_too_deep();
+}
+
 // `==` by the engine's operator table (spec §5.2), or with `p_pattern` the
 // match of a pattern, of its type first, String and StringName alike (§5.6).
 PETRICHOR_NOINLINE bool compare_variants(const uint8_t *p_a, const uint8_t *p_b, bool p_pattern, uint64_t &r_equal) {
@@ -722,6 +730,10 @@ PETRICHOR_NOINLINE bool compare_variants(const uint8_t *p_a, const uint8_t *p_b,
 	Variant result;
 	bool valid = false;
 	Variant::evaluate(Variant::OP_EQUAL, a, b, result, valid);
+	if (too_deep()) {
+		helper_error() = TOO_DEEP;
+		return false;
+	}
 	if (!valid) {
 		helper_error() = vformat("Cannot compare %s with %s.", describe_value(a), describe_value(b));
 		return false;
@@ -890,7 +902,14 @@ class Execution {
 	}
 
 	PETRICHOR_NOINLINE bool fail_too_deep(const bytecode::Function &p_fn, int p_line) {
-		return fail_cstr(p_fn, p_line, "The value nests more than 100 levels deep, or holds itself.");
+		return fail_cstr(p_fn, p_line, TOO_DEEP);
+	}
+
+	// Reports an instruction's walk that went deeper than walks go (spec §3.6).
+	// The helpers of instructions that may walk ask, not the dispatch loop: a
+	// check there slowed loops that never walk.
+	bool within_depth(const bytecode::Function &p_fn, int p_line) {
+		return !too_deep() || fail_too_deep(p_fn, p_line);
 	}
 
 	PETRICHOR_NOINLINE bool fail_stack_overflow() {
@@ -1170,7 +1189,7 @@ class Execution {
 			return fail(p_fn, p_line, vformat("String formatting error: %s.", result));
 		}
 		*reinterpret_cast<String *>(p_frame + p_op[1]) = result;
-		return true;
+		return within_depth(p_fn, p_line);
 	}
 
 	PETRICHOR_NOINLINE bool op_get_property(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
@@ -1188,7 +1207,7 @@ class Execution {
 		if (!from_variant(image.types[image.module.properties[index].type], value, p_frame + p_op[2], false)) {
 			return fail(p_fn, p_line, vformat("The property %s holds an unexpected %s.", image.properties[index], Variant::get_type_name(value.get_type())));
 		}
-		return true;
+		return within_depth(p_fn, p_line);
 	}
 
 	PETRICHOR_NOINLINE bool op_has_member(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
@@ -1216,7 +1235,7 @@ class Execution {
 		if (!valid) {
 			return fail(p_fn, p_line, vformat("Cannot write the property %s.", image.properties[index]));
 		}
-		return true;
+		return within_depth(p_fn, p_line);
 	}
 
 	// The slot of the member that GET_MEMBER_OF or SET_MEMBER_OF names, of
@@ -1497,7 +1516,7 @@ class Execution {
 			if (!from_variant(element, value, p_frame + p_op[3], checked_when_read(element))) {
 				return fail(p_fn, p_line, read_error(element, value));
 			}
-			return true;
+			return within_depth(p_fn, p_line);
 		}
 		// A negative index counts from the end, as in GDScript.
 		const uint8_t *container = p_frame + p_op[4];
@@ -1505,7 +1524,7 @@ class Execution {
 		const int64_t at = raw < 0 ? raw + array_size(base.storage, container) : raw;
 		switch (at < 0 ? ElementRead::Past : read_element(base, element, container, at, p_frame + p_op[3])) {
 			case ElementRead::Done:
-				return true;
+				return within_depth(p_fn, p_line);
 			case ElementRead::Past:
 				return fail(p_fn, p_line, vformat("Index %d is out of bounds (size %d).", raw, array_size(base.storage, container)));
 			case ElementRead::Misfit:
@@ -1550,7 +1569,7 @@ class Execution {
 				key = frozen_copy(key);
 			}
 			dictionary.set(key, kept(base.item, src));
-			return true;
+			return within_depth(p_fn, p_line);
 		}
 		// A negative index counts from the end, as in GDScript.
 		const int64_t raw = *reinterpret_cast<const int64_t *>(index);
@@ -1575,20 +1594,30 @@ class Execution {
 			} else {
 				set_packed_element(base.storage, container, at, src);
 			}
-			return true;
+			return within_depth(p_fn, p_line);
 		}
 		return fail(p_fn, p_line, vformat("Index %d is out of bounds (size %d).", raw, array_size(base.storage, container)));
 	}
 
-	PETRICHOR_NOINLINE void op_to_variant(const uint32_t *p_op, uint8_t *p_frame) {
+	// EQUAL and LESS.
+	PETRICHOR_NOINLINE bool op_compare(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		const bool less = Op(p_op[0]) == Op::LESS;
+		*reinterpret_cast<uint64_t *>(p_frame + p_op[2]) = (less ? less_values : equal_values)(image.types[p_op[1]], p_frame + p_op[3], p_frame + p_op[4]) ? 1 : 0;
+		return within_depth(p_fn, p_line);
+	}
+
+	PETRICHOR_NOINLINE bool op_to_variant(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
 		variant_at(p_frame + p_op[2]) = to_variant(image.types[p_op[1]], p_frame + p_op[3]);
+		return within_depth(p_fn, p_line);
 	}
 
-	PETRICHOR_NOINLINE void op_box(const uint32_t *p_op, uint8_t *p_frame) {
+	// A key's box hashes the value.
+	PETRICHOR_NOINLINE bool op_box(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
 		variant_at(p_frame + p_op[2]) = make_box(image.types[p_op[1]], p_frame + p_op[3], p_op[4] != 0);
+		return within_depth(p_fn, p_line);
 	}
 
-	PETRICHOR_NOINLINE void op_encode(const uint32_t *p_op, uint8_t *p_frame) {
+	PETRICHOR_NOINLINE bool op_encode(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
 		const TypeImage &type = image.types[p_op[1]];
 		const Variant encoded = encode(type, p_frame + p_op[3]);
 		if (type.storage == ValueType::Array) {
@@ -1596,6 +1625,7 @@ class Execution {
 		} else {
 			*reinterpret_cast<Dictionary *>(p_frame + p_op[2]) = encoded;
 		}
+		return within_depth(p_fn, p_line);
 	}
 
 	PETRICHOR_NOINLINE bool op_call_method(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
@@ -1632,7 +1662,7 @@ class Execution {
 			return fail(p_fn, p_line, vformat("%s() is not the method this script was compiled against. Build the project again.", name));
 		}
 		ClassImage::resolve_function(callee.image, index);
-		return call_function(*callee.image, uint32_t(index), callee.context, p_op, p_frame, image.module.method_calls[target].result, p_fn, p_line);
+		return call_function(*callee.image, uint32_t(index), callee.context, p_op, p_frame, image.module.method_calls[target].result, p_fn, p_line) && within_depth(p_fn, p_line);
 	}
 
 	// A lambda or a method value of this language, run as a method of another
@@ -1706,7 +1736,7 @@ class Execution {
 		const bytecode::MethodCall &call = image.module.method_calls[p_op[1]];
 		if (call.method == "call") {
 			if (const std::optional<bool> done = call_directly(p_op, p_frame, call.result, false, p_fn, p_line)) {
-				return *done;
+				return *done && within_depth(p_fn, p_line);
 			}
 		}
 		// Through the engine, which passes the call on, also through bind(); a
@@ -1757,7 +1787,7 @@ class Execution {
 		if (dst != NO_SLOT && !entry_check(image.types[call.result.type], result, p_frame + dst, mismatch)) {
 			return !mismatch.is_empty() && fail(p_fn, p_line, vformat("A function value returned an unexpected %s.", Variant::get_type_name(result.get_type())));
 		}
-		return true;
+		return within_depth(p_fn, p_line);
 	}
 
 	// Through the method's MethodBind, with pointers to the values, as GDScript
@@ -1817,7 +1847,7 @@ class Execution {
 				copy_value(type, p_frame + dst, result.data);
 			}
 		}
-		return true;
+		return within_depth(p_fn, p_line);
 	}
 
 	PETRICHOR_NOINLINE bool op_call_engine(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, CoroutineFrame *p_async, size_t &r_pc, bool &r_done, const bytecode::Function &p_fn, int p_line) {
@@ -1836,7 +1866,7 @@ class Execution {
 				return fail(p_fn, p_line, vformat("%s() returned an unexpected %s.", image.engine_methods[target], Variant::get_type_name(result.get_type())));
 			}
 			r_pc += 5 + 2 * argc;
-			return true;
+			return within_depth(p_fn, p_line);
 		}
 		ObjectView view(nullptr);
 		Variant *object = resolve_object(p_frame, p_op[3], p_freed, view, p_fn, p_line);
@@ -1858,7 +1888,7 @@ class Execution {
 			if (Op(p_op[0]) == Op::CALL_AWAIT_ENGINE) {
 				if (p_async->task->cancel_requested) {
 					r_done = true;
-					return true;
+					return within_depth(p_fn, p_line);
 				}
 				p_async->held_state = result;
 				p_async->pc = r_pc + 5 + 2 * argc;
@@ -1866,7 +1896,7 @@ class Execution {
 					return fail_cstr(p_fn, p_line, "Cannot await GDScript completion.");
 				}
 				r_done = true;
-				return true;
+				return within_depth(p_fn, p_line);
 			}
 			if (dst != NO_SLOT) {
 				return fail_cstr(p_fn, p_line, "The method is a GDScript coroutine and needs await.");
@@ -1875,7 +1905,7 @@ class Execution {
 			return fail(p_fn, p_line, vformat("%s() returned an unexpected %s.", image.engine_methods[target], Variant::get_type_name(result.get_type())));
 		}
 		r_pc += 5 + 2 * argc;
-		return true;
+		return within_depth(p_fn, p_line);
 	}
 
 	PETRICHOR_NOINLINE bool op_call_await_builtin(const uint32_t *p_op, uint8_t *p_frame, CoroutineFrame *p_async, size_t &r_pc, bool &r_done, const bytecode::Function &p_fn, int p_line) {
@@ -1898,7 +1928,7 @@ class Execution {
 		if (state && state->is_class("GDScriptFunctionState")) {
 			if (p_async->task->cancel_requested) {
 				r_done = true;
-				return true;
+				return within_depth(p_fn, p_line);
 			}
 			p_async->held_state = result;
 			p_async->pc = r_pc + 5 + 2 * argc;
@@ -1906,12 +1936,12 @@ class Execution {
 				return fail_cstr(p_fn, p_line, "Cannot await GDScript completion.");
 			}
 			r_done = true;
-			return true;
+			return within_depth(p_fn, p_line);
 		}
 		if (result.get_type() == Variant::SIGNAL) {
 			if (p_async->task->cancel_requested) {
 				r_done = true;
-				return true;
+				return within_depth(p_fn, p_line);
 			}
 			const Signal signal = result;
 			const TaskRef task = task_of(signal.get_object());
@@ -1925,13 +1955,13 @@ class Execution {
 			}
 			if (p_async->task->state == TaskState::State::Suspended) {
 				r_done = true;
-				return true;
+				return within_depth(p_fn, p_line);
 			}
 		} else if (!p_async->receive(result)) {
 			return false;
 		}
 		r_pc += 5 + 2 * argc;
-		return true;
+		return within_depth(p_fn, p_line);
 	}
 
 	// A plain built-in method (ClassImage::BuiltinCall) with its arguments in
@@ -1970,7 +2000,7 @@ class Execution {
 		}
 		// A method without a result does not write it (core/variant/variant_call.cpp:184-191, 508-510).
 		image.builtin_calls[p_op[1]].method(base, args, dst == NO_SLOT ? nullptr : p_frame + dst, int(argc));
-		return true;
+		return within_depth(p_fn, p_line);
 	}
 
 	PETRICHOR_NOINLINE bool op_call_builtin(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
@@ -1983,7 +2013,7 @@ class Execution {
 			bytecode::Slot result;
 			result.type = module.builtin_methods[target].result_type;
 			if (const std::optional<bool> done = call_directly(p_op, p_frame, result, true, p_fn, p_line)) {
-				return *done;
+				return *done && within_depth(p_fn, p_line);
 			}
 		}
 		if (!utility && image.builtin_calls[target].runs_callable && target_freed(*reinterpret_cast<const Callable *>(p_frame + p_op[3]))) {
@@ -2134,10 +2164,10 @@ class Execution {
 		if (!fits) {
 			return fail(p_fn, p_line, vformat("A call returned an unexpected %s.", Variant::get_type_name(got)));
 		}
-		return true;
+		return within_depth(p_fn, p_line);
 	}
 
-	PETRICHOR_NOINLINE void op_construct(const uint32_t *p_op, uint8_t *p_frame) {
+	PETRICHOR_NOINLINE bool op_construct(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
 		const uint32_t target = p_op[1];
 		const uint32_t dst = p_op[2];
 		const uint32_t argc = p_op[4];
@@ -2156,13 +2186,14 @@ class Execution {
 			if (native) {
 				destroy_value(constructor.type, p_frame + dst);
 				image.constructors[target](p_frame + dst, ptrs);
-				return;
+				return true;
 			}
 		}
 		Arguments args(image.types, p_frame, p_op + 5, argc, &constructor.params);
 		// The engine constructs into memory that holds no value.
 		destroy_value(constructor.type, p_frame + dst);
 		image.constructors[target](p_frame + dst, args.pointers);
+		return within_depth(p_fn, p_line);
 	}
 
 	PETRICHOR_NOINLINE bool op_task_cancel(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
@@ -2581,7 +2612,7 @@ public:
 						return false;
 					}
 					pc += 4;
-					goto walked;
+					break;
 #define COMPARE(m_op, m_access, m_cmp) \
 	case Op::m_op: \
 		U64(code[pc + 1]) = (m_access(code[pc + 2]) m_cmp m_access(code[pc + 3])) ? 1 : 0; \
@@ -2612,7 +2643,7 @@ public:
 					const uint32_t right = code[pc + 4];
 					image.evaluators[code[pc + 1]](frame + code[pc + 3], right == NO_SLOT ? NOTHING : frame + right, frame + code[pc + 2]);
 					pc += 5;
-					goto walked;
+					break;
 				}
 				case Op::GET_FIELD:
 					image.getters[code[pc + 1]](frame + code[pc + 3], frame + code[pc + 2]);
@@ -2627,7 +2658,7 @@ public:
 						return false;
 					}
 					pc += 4;
-					goto walked;
+					break;
 				case Op::CHECK_ENUM:
 					if (!is_enum_value(types[code[pc + 1]], I64(code[pc + 2]))) {
 						return fail_check_enum(fn, record.line, code[pc + 1], I64(code[pc + 2]));
@@ -2645,7 +2676,7 @@ public:
 						return false;
 					}
 					pc += 4;
-					goto walked;
+					break;
 				case Op::GET_MEMBER_OF:
 					if (!op_get_member_of(code + pc, frame, freed, fn, record.line)) {
 						return false;
@@ -2793,13 +2824,13 @@ public:
 						return false;
 					}
 					pc += 6;
-					goto walked;
+					break;
 				case Op::SET_INDEX:
 					if (!op_set_index(code + pc, frame, fn, record.line)) {
 						return false;
 					}
 					pc += 5;
-					goto walked;
+					break;
 				case Op::ITER_STATE:
 					if (!op_iter_state(code + pc, frame, fn, record.line)) {
 						return false;
@@ -2849,21 +2880,22 @@ public:
 					break;
 				}
 				case Op::EQUAL:
-					U64(code[pc + 2]) = equal_values(types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 4]) ? 1 : 0;
+				case Op::LESS:
+					if (!op_compare(code + pc, frame, fn, record.line)) {
+						return false;
+					}
 					pc += 5;
-					goto walked;
+					break;
 				case Op::SAME_OBJECT:
 					U64(code[pc + 2]) = same_object(frame + code[pc + 3], code[pc + 1] & 1, frame + code[pc + 4], code[pc + 1] & 2) ? 1 : 0;
 					pc += 5;
 					break;
-				case Op::LESS:
-					U64(code[pc + 2]) = less_values(types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 4]) ? 1 : 0;
-					pc += 5;
-					goto walked;
 				case Op::TO_VARIANT:
-					op_to_variant(code + pc, frame);
+					if (!op_to_variant(code + pc, frame, fn, record.line)) {
+						return false;
+					}
 					pc += 4;
-					goto walked;
+					break;
 				case Op::FROM_VARIANT:
 					if (!read_variant(types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 2])) {
 						return fail_helper(fn, record.line);
@@ -2890,15 +2922,19 @@ public:
 						return fail_helper(fn, record.line);
 					}
 					pc += 4;
-					goto walked;
+					break;
 				case Op::BOX:
-					op_box(code + pc, frame);
+					if (!op_box(code + pc, frame, fn, record.line)) {
+						return false;
+					}
 					pc += 5;
-					goto walked;
+					break;
 				case Op::ENCODE:
-					op_encode(code + pc, frame);
+					if (!op_encode(code + pc, frame, fn, record.line)) {
+						return false;
+					}
 					pc += 4;
-					goto walked;
+					break;
 				case Op::UNWRAP: {
 					const TypeImage &type = types[code[pc + 1]];
 					const uint8_t *src = frame + code[pc + 3];
@@ -2966,13 +3002,13 @@ public:
 						return false;
 					}
 					pc += 5 + 2 * code[pc + 4];
-					goto walked;
+					break;
 				case Op::CALL_VALUE:
 					if (!op_call_value(code + pc, frame, fn, record.line)) {
 						return false;
 					}
 					pc += 5 + 2 * code[pc + 4];
-					goto walked;
+					break;
 				case Op::CLEAR:
 					for (uint32_t i = 0; i < code[pc + 4]; i++) {
 						clear_value(image.types[code[pc + 5 + 2 * i]], frame + code[pc + 6 + 2 * i]);
@@ -2999,16 +3035,16 @@ public:
 							return false;
 						}
 						pc += 5 + 2 * code[pc + 4];
-						goto walked;
+						break;
 					}
 					bool done = false;
 					if (!op_call_engine(code + pc, frame, freed, p_async, pc, done, fn, record.line)) {
 						return false;
 					}
 					if (done) {
-						return !walked_too_deep() || fail_too_deep(fn, record.line);
+						return true;
 					}
-					goto walked;
+					break;
 				}
 				case Op::CALL_AWAIT_BUILTIN: {
 					bool done = false;
@@ -3016,9 +3052,9 @@ public:
 						return false;
 					}
 					if (done) {
-						return !walked_too_deep() || fail_too_deep(fn, record.line);
+						return true;
 					}
-					goto walked;
+					break;
 				}
 				case Op::CALL_UTILITY:
 				case Op::CALL_BUILTIN: {
@@ -3027,12 +3063,14 @@ public:
 						return false;
 					}
 					pc += 5 + 2 * code[pc + 4];
-					goto walked;
+					break;
 				}
 				case Op::CONSTRUCT:
-					op_construct(code + pc, frame);
+					if (!op_construct(code + pc, frame, fn, record.line)) {
+						return false;
+					}
 					pc += 5 + 2 * code[pc + 4];
-					goto walked;
+					break;
 				case Op::TASK_CANCEL:
 					if (!op_task_cancel(code + pc, frame, fn, record.line)) {
 						return false;
@@ -3073,13 +3111,6 @@ public:
 					return true;
 				default:
 					return fail_invalid_op(fn, record.line, code[pc]);
-				walked:
-					// After an instruction that may compare, hash, show, encode or
-					// decode a value nested deeper than walks go (spec §3.6).
-					if (unasked_walks.load(std::memory_order_relaxed) != 0 && walked_too_deep()) {
-						return fail_too_deep(fn, record.line);
-					}
-					break;
 			}
 		}
 #undef I64
