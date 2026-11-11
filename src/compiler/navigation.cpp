@@ -666,11 +666,21 @@ struct Documenter {
 			doc.name = name + "." + decl.name;
 			// The engine's documentation follows one parent (core/doc_data.h:700,
 			// editor/doc/editor_help.cpp:1032-1044; ed1daf0), so an interface
-			// with several shows none.
-			if (decl.parents.size() == 1) {
-				doc.inherits = doc_class_name(doc_name, decl.parents[0].script) + "." + decl.parents[0].interface_name();
+			// with several names them in its first line.
+			std::vector<std::string> parents;
+			for (const Type &parent : decl.parents) {
+				parents.push_back(doc_class_name(doc_name, parent.script) + "." + parent.interface_name());
 			}
 			doc.comment = comments.of(decl.range.first, decl.name_token, true);
+			if (parents.size() == 1) {
+				doc.inherits = parents[0];
+			} else if (!parents.empty()) {
+				std::string named = parents[0];
+				for (size_t i = 1; i < parents.size(); i++) {
+					named += ", " + parents[i];
+				}
+				doc.comment.brief = "Extends " + named + "." + (doc.comment.brief.empty() ? std::string() : "\n" + doc.comment.brief);
+			}
 			for (const FuncDecl &method : decl.methods) {
 				doc.methods.push_back(function(method));
 			}
