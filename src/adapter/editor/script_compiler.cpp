@@ -17,6 +17,7 @@
 #include <godot_cpp/godot.hpp>
 
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -114,7 +115,18 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 	return image;
 }
 
-int build_project(int *r_script_count, bool p_command) {
+std::shared_ptr<const compiler::CompileResult> check_scene(const String &p_path, bool p_report) {
+	const SceneIndex::Pass pass;
+	const compiler::Analysis::Pass analysis_pass(analysis());
+	const std::shared_ptr<const compiler::CompileResult> result = analysis().check_scene(to_utf8(p_path));
+	for (size_t i = 0; p_report && i < result->errors.size(); i++) {
+		const compiler::Diagnostic &error = result->errors[i];
+		gdextension_interface::print_script_error(error.message.c_str(), "", error.file.c_str(), error.line, true);
+	}
+	return result;
+}
+
+int build_project(int *r_script_count, int *r_scene_count, bool p_command) {
 	const SceneIndex::Pass pass;
 	const compiler::Analysis::Pass analysis_pass(analysis());
 	const PackedStringArray paths = project_files(PackedStringArray({ "pet" }));
@@ -133,8 +145,18 @@ int build_project(int *r_script_count, bool p_command) {
 			gdextension_interface::print_warning(message.c_str(), "", file.get_data(), warnings[i].line, false);
 		}
 	}
+	const PackedStringArray scenes = project_files(PackedStringArray({ "tscn", "scn" }));
+	for (const String &path : scenes) {
+		const std::shared_ptr<const compiler::CompileResult> result = check_scene(path, true);
+		if (p_command ? !result->errors.empty() : !result->ok()) {
+			failed++;
+		}
+	}
 	if (r_script_count) {
 		*r_script_count = int(paths.size());
+	}
+	if (r_scene_count) {
+		*r_scene_count = int(scenes.size());
 	}
 	return failed;
 }
@@ -155,32 +177,54 @@ struct SceneErrors {
 
 std::mutex scene_errors_mutex;
 uint64_t project_change = 1;
-std::map<std::string, SceneErrors> scene_errors_of;
+std::map<std::string, SceneErrors> scene_errors_of; // By the path of the script, or of the scene checked.
+
+// What `p_check` gives for the file at the path, from a source with that hash,
+// as of the last change to the project.
+std::vector<compiler::Diagnostic> as_of_change(const std::string &p_path, uint64_t p_source_hash, const std::function<std::vector<compiler::Diagnostic>()> &p_check) {
+	uint64_t change;
+	{
+		std::lock_guard<std::mutex> lock(scene_errors_mutex);
+		change = project_change;
+		const auto found = scene_errors_of.find(p_path);
+		if (found != scene_errors_of.end() && found->second.change == change && found->second.source_hash == p_source_hash) {
+			return found->second.errors;
+		}
+	}
+	const std::vector<compiler::Diagnostic> errors = p_check();
+	std::lock_guard<std::mutex> lock(scene_errors_mutex);
+	scene_errors_of[p_path] = { change, p_source_hash, errors };
+	return errors;
+}
 
 } // namespace
 
 std::vector<compiler::Diagnostic> scene_errors(const String &p_path, const String &p_source) {
 	const std::string path = to_utf8(p_path);
 	const std::string source = to_utf8(p_source);
-	const uint64_t source_hash = bytecode::hash_source(source);
-	uint64_t change;
-	{
-		std::lock_guard<std::mutex> lock(scene_errors_mutex);
-		change = project_change;
-		const auto found = scene_errors_of.find(path);
-		if (found != scene_errors_of.end() && found->second.change == change && found->second.source_hash == source_hash) {
-			return found->second.errors;
-		}
-	}
-	std::vector<compiler::Diagnostic> errors;
-	{
+	return as_of_change(path, bytecode::hash_source(source), [&] {
 		const SceneIndex::Pass pass;
 		const compiler::Analysis::Pass analysis_pass(analysis());
-		errors = analysis().compile(path, source)->errors;
+		return analysis().compile(path, source)->errors;
+	});
+}
+
+std::vector<compiler::Diagnostic> resource_errors(const String &p_path) {
+	return as_of_change(to_utf8(p_path), 0, [&] { return check_scene(p_path, false)->errors; });
+}
+
+std::vector<compiler::Diagnostic> placed_errors(const String &p_path) {
+	const SceneIndex::Pass pass;
+	const std::string path = to_utf8(p_path);
+	std::vector<compiler::Diagnostic> placed;
+	for (const compiler::Scene &scene : SceneIndex::get().scenes_with_script(path)) {
+		for (const compiler::Diagnostic &error : resource_errors(to_godot(scene.path))) {
+			if (error.file == path) {
+				placed.push_back(error);
+			}
+		}
 	}
-	std::lock_guard<std::mutex> lock(scene_errors_mutex);
-	scene_errors_of[path] = { change, source_hash, errors };
-	return errors;
+	return placed;
 }
 
 void project_changed() {

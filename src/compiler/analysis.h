@@ -11,9 +11,9 @@
 
 namespace petrichor::compiler {
 
-// The compiled scripts of a project, each kept for as long as what its check
-// read is unchanged: its source, the declarations of other scripts and the
-// project's answers (architecture §2.1). In a pass the project is taken to stay
+// The compiled scripts of a project and the checks of its scenes, each kept for
+// as long as what its check read is unchanged: its source, the declarations of
+// other scripts and the project's answers (architecture §2.1). In a pass the project is taken to stay
 // as it is, so each answer is checked once and each other script's
 // declarations are checked once; between passes only the results are kept,
 // since checked declarations point into the syntax trees of other files.
@@ -29,7 +29,7 @@ class Analysis {
 	std::recursive_mutex mutex;
 	int passes = 0; // Nested on the thread that holds `mutex`.
 	std::unique_ptr<ScriptClasses> classes; // Of the pass.
-	std::map<std::string, Compiled> compiled;
+	std::map<std::string, Compiled> compiled; // Scripts, and the checks of scenes, by their paths.
 	int checks = 0;
 
 	bool unchanged(const Reads &p_reads);
@@ -53,6 +53,11 @@ public:
 	// The script at `p_path` (res://) compiled from `p_source` with its scenes,
 	// as compile() does; the previous result if nothing it read has changed.
 	std::shared_ptr<const CompileResult> compile(const std::string &p_path, const std::string &p_source);
+	// The check of the scene at `p_path` (architecture §6.4): its errors in how
+	// it places scripts of this language on its nodes, each in the source of
+	// its `file`, without a module; the previous result if nothing it read has
+	// changed.
+	std::shared_ptr<const CompileResult> check_scene(const std::string &p_path);
 	// The other scripts as the pass that is open reads them, for a check whose
 	// result is not kept.
 	ScriptClasses &pass_classes() { return *classes; }

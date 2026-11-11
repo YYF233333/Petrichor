@@ -6,7 +6,8 @@
 
 namespace petrichor {
 
-// Replaces `.pet` sources with bytecode in exported games (spec §1.3).
+// Replaces `.pet` sources with bytecode in exported games (spec §1.3), and
+// fails the export on the errors of the scenes' checks (architecture §6.4).
 class PetExportPlugin : public godot::EditorExportPlugin {
 	GDCLASS(PetExportPlugin, godot::EditorExportPlugin);
 

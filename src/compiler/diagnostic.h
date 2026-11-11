@@ -26,6 +26,9 @@ struct Diagnostic {
 	// that scene that has it (spec §7, §13.2), by its path from the root.
 	std::string scene;
 	std::string node;
+	// The script whose source its range is in, when a scene's check reports it
+	// (architecture §6.4); empty for the script compiled.
+	std::string file;
 	// An error after which the script still compiles and runs, as a check at
 	// run time reports it too: a value that a scene lacks (spec §7.5). Exports
 	// and the headless build fail on it.

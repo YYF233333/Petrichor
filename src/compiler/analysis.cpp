@@ -1,6 +1,11 @@
 #include "compiler/analysis.h"
 
 #include "compiler/ast.h"
+#include "compiler/checker.h"
+#include "compiler/parser.h"
+
+#include <algorithm>
+#include <set>
 
 namespace petrichor::compiler {
 
@@ -48,6 +53,56 @@ std::shared_ptr<const CompileResult> Analysis::compile(const std::string &p_path
 	Compiled &entry = compiled[p_path];
 	entry = { source_hash, result, classes->end_compile() };
 	return result;
+}
+
+std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_path) {
+	const Pass pass(*this);
+	const auto found = compiled.find(p_path);
+	if (found != compiled.end() && unchanged(found->second.reads)) {
+		return found->second.result;
+	}
+	checks++;
+	classes->begin_compile(p_path, std::string());
+	const std::optional<Scene> scene = classes->get_project()->scene(p_path);
+	Reads reads = classes->end_compile();
+	std::set<std::string> scripts;
+	for (const SceneNode &node : scene ? scene->nodes : std::vector<SceneNode>()) {
+		if (node.script.size() > 4 && node.script.compare(node.script.size() - 4, 4, ".pet") == 0) {
+			scripts.insert(node.script);
+		}
+	}
+	CompileResult result;
+	for (const std::string &script : scripts) {
+		reads.scripts.emplace(script, classes->script_hash(script));
+		const std::optional<std::string> source = project.script_source(script);
+		std::vector<Diagnostic> errors;
+		ClassDecl cls = parse(source.value_or(std::string()), errors);
+		// Its own check reports what keeps it from being read.
+		if (!source || !errors.empty()) {
+			continue;
+		}
+		CompileOptions options;
+		options.path = script;
+		options.project = classes->get_project();
+		options.declarations_only = true;
+		options.scene = p_path;
+		classes->begin_compile(script, *source);
+		check(cls, engine, options, errors, *classes, false);
+		reads.merge(classes->end_compile());
+		std::stable_sort(errors.begin(), errors.end(), [](const Diagnostic &a, const Diagnostic &b) {
+			return a.begin < b.begin;
+		});
+		for (Diagnostic &error : errors) {
+			const SourcePosition position = cls.source->position(error.begin);
+			error.line = position.line;
+			error.column = position.column;
+			error.file = script;
+			result.errors.push_back(std::move(error));
+		}
+	}
+	const std::shared_ptr<const CompileResult> shared = std::make_shared<const CompileResult>(std::move(result));
+	compiled[p_path] = { 0, shared, std::move(reads) };
+	return shared;
 }
 
 void Analysis::clear() {

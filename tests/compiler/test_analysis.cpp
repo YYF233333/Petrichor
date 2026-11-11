@@ -123,6 +123,37 @@ TEST_CASE("a script is checked again when a scene that uses it changes") {
 	CHECK_FALSE(after->ok());
 }
 
+TEST_CASE("a scene is checked again only when it or the declarations of a script on it change") {
+	FakeProject project;
+	compiler::Scene scene;
+	scene.path = "res://enemies.tscn";
+	scene.nodes = { { ".", "Node3D", "" }, { "Unit", "Node3D", "res://unit.pet" } };
+	project.scenes = { scene };
+	project.add_script("res://unit.pet", "@abstract\nextends Node3D\n\nfunc aim() -> float:\n\treturn 1.0\n");
+	compiler::Analysis analysis(fake_engine(), project);
+	const auto check = [&] {
+		const compiler::Analysis::Pass pass(analysis);
+		return analysis.check_scene("res://enemies.tscn");
+	};
+	const Result before = check();
+	REQUIRE(before->errors.size() == 1);
+	REQUIRE(analysis.checks_run() == 1);
+
+	SUBCASE("nothing, or a function body of the script") {
+		project.sources["res://unit.pet"] = "@abstract\nextends Node3D\n\nfunc aim() -> float:\n\treturn 2.0\n";
+		CHECK((check() == before));
+		CHECK(analysis.checks_run() == 1);
+	}
+	SUBCASE("the script's declarations") {
+		project.sources["res://unit.pet"] = "extends Node3D\n\nfunc aim() -> float:\n\treturn 1.0\n";
+		CHECK(check()->errors.empty());
+	}
+	SUBCASE("the scene") {
+		project.scenes[0].nodes[1].script.clear();
+		CHECK(check()->errors.empty());
+	}
+}
+
 TEST_CASE("a script is checked again when a file it preloads adds a preload of it in a function body") {
 	FakeProject project;
 	project.add_script("res://a.pet", "extends Node\n\nconst B = preload(\"res://b.pet\")\n");

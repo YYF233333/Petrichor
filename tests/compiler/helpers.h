@@ -65,6 +65,9 @@ public:
 // Compiles res://test.pet, used by the scenes of `p_project`.
 compiler::CompileResult compile_in(const std::string &p_source, const FakeProject &p_project, bool p_declarations_only = false);
 
+// The errors of the check of a scene of `p_project` (architecture §6.4).
+std::vector<compiler::Diagnostic> check_scene(const FakeProject &p_project, const std::string &p_scene);
+
 std::string messages(const compiler::CompileResult &p_result);
 
 // Each error as "line:column: message".

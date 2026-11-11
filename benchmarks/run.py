@@ -53,7 +53,7 @@ def import_project(godot, project):
 
 def build(godot, project, count):
     output, elapsed = run(godot, "-e", "--path", project, "--", "--petrichor-build")
-    if f"petrichor build: {count} script(s), 0 with errors" not in output:
+    if not re.search(rf"petrichor build: {count} script\(s\), \d+ scene\(s\), 0 with errors", output):
         raise RuntimeError(output)
     return elapsed
 

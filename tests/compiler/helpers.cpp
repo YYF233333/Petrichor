@@ -1,5 +1,6 @@
 #include "helpers.h"
 
+#include "compiler/analysis.h"
 #include "compiler/script_classes.h"
 #include "conventions.h"
 #include "fake_engine.h"
@@ -158,6 +159,11 @@ compiler::CompileResult compile_in(const std::string &p_source, const FakeProjec
 		check_recovery(p_source, [&](const std::string &p_cut) { compiler::compile(p_cut, fake_engine(), options); });
 	}
 	return result;
+}
+
+std::vector<compiler::Diagnostic> check_scene(const FakeProject &p_project, const std::string &p_scene) {
+	compiler::Analysis analysis(fake_engine(), p_project);
+	return analysis.check_scene(p_scene)->errors;
 }
 
 std::string messages(const compiler::CompileResult &p_result) {

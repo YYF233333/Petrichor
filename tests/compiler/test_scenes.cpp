@@ -447,17 +447,21 @@ TEST_CASE("@parent(T): get_parent() and $\"..\" have type T, and scenes give the
 	CHECK(contains(messages(compile_in("@parent(Node)\n@parent(Node)\nextends Node\n", FakeProject())), "The class already has @parent."));
 }
 
-TEST_CASE("an abstract class is set on no node of a scene (spec §4.1)") {
+TEST_CASE("an abstract class is set on no node of a scene, which the scene's check reports (spec §4.1)") {
 	FakeProject project;
+	const std::string source = "@abstract\nextends Node3D\n\n@abstract func aim() -> float\n";
+	project.add_script("res://test.pet", source);
 	project.add_script("res://archer.pet", "extends \"res://test.pet\"\n\nfunc aim() -> float:\n\treturn 1.0\n");
 	compiler::Scene scene;
 	scene.path = "res://enemies.tscn";
 	scene.nodes = { { ".", "Node3D", "" }, { "Unit", "Node3D", "res://test.pet" }, { "Archer", "Node3D", "res://archer.pet" } };
 	project.scenes = { scene };
-	const compiler::CompileResult result = compile_in("@abstract\nextends Node3D\n\n@abstract func aim() -> float\n", project);
-	REQUIRE(result.errors.size() == 1);
-	CHECK(result.errors[0].message == "res://enemies.tscn: Unit has test.pet, which is abstract and cannot be set on a node.");
-	CHECK((result.errors[0].scene == "res://enemies.tscn" && result.errors[0].node == "Unit"));
+	const std::vector<compiler::Diagnostic> errors = check_scene(project, "res://enemies.tscn");
+	REQUIRE(errors.size() == 1);
+	CHECK(errors[0].message == "res://enemies.tscn: Unit has test.pet, which is abstract and cannot be set on a node.");
+	CHECK((errors[0].scene == "res://enemies.tscn" && errors[0].node == "Unit"));
+	CHECK((errors[0].file == "res://test.pet" && errors[0].line == 2));
+	CHECK(compile_in(source, project).errors.empty());
 }
 
 TEST_CASE("%Name is the node with that unique name, which the scene's root owns (spec §7.1)") {

@@ -32,13 +32,19 @@ String PetExportPlugin::_get_name() const {
 }
 
 void PetExportPlugin::_export_file(const String &p_path, const String &p_type, const PackedStringArray &p_features) {
+	// An error message fails the export in the editor's window
+	// (editor/export/editor_export_platform.cpp:131-148; ed1daf0).
+	if (p_type == "PackedScene") {
+		for (const compiler::Diagnostic &error : check_scene(p_path, true)->errors) {
+			get_export_platform()->add_message(EditorExportPlatform::EXPORT_MESSAGE_ERROR, "Petrichor", to_godot(error.message));
+		}
+		return;
+	}
 	if (p_path.get_extension().to_lower() != "pet") {
 		return;
 	}
 	// Without skip(), the engine would export the source as it is; exported
-	// games contain only bytecode (spec §1.3). An error message fails the
-	// export in the editor's window (editor/export/editor_export_platform.cpp:
-	// 131-148; ed1daf0).
+	// games contain only bytecode (spec §1.3).
 	const String source = FileAccess::get_file_as_string(p_path);
 	if (FileAccess::get_open_error() != OK) {
 		skip();
@@ -163,9 +169,10 @@ void PetEditorPlugin::run_build_command() {
 	if (waits_for_scan(&PetEditorPlugin::run_build_command)) {
 		return;
 	}
-	int count = 0;
-	const int failed = build_project(&count, true);
-	UtilityFunctions::print(vformat("petrichor build: %d script(s), %d with errors", count, failed));
+	int scripts = 0;
+	int scenes = 0;
+	const int failed = build_project(&scripts, &scenes, true);
+	UtilityFunctions::print(vformat("petrichor build: %d script(s), %d scene(s), %d with errors", scripts, scenes, failed));
 	// A non-zero exit code on compile errors (spec §13.1).
 	get_tree()->quit(failed > 0 ? 1 : 0);
 }

@@ -194,6 +194,10 @@ Dictionary PetLanguage::_validate(const String &p_script, const String &p_path, 
 	std::vector<compiler::Diagnostic> diagnostics;
 	std::vector<compiler::Diagnostic> warning_diagnostics;
 	compile_script(p_path, p_script, &diagnostics, false, CompileMode::Full, &warning_diagnostics);
+	// Those of the scenes are listed, but the script stays valid (architecture §6.4).
+	result["valid"] = diagnostics.empty();
+	const std::vector<compiler::Diagnostic> placed = placed_errors(p_path);
+	diagnostics.insert(diagnostics.end(), placed.begin(), placed.end());
 	for (const compiler::Diagnostic &diagnostic : diagnostics) {
 		Dictionary error;
 		error["path"] = p_path;
@@ -216,8 +220,9 @@ Dictionary PetLanguage::_validate(const String &p_script, const String &p_path, 
 		warning["message"] = to_godot(diagnostic.message);
 		warnings.push_back(warning);
 	}
+#else
+	result["valid"] = true;
 #endif
-	result["valid"] = errors.is_empty();
 	result["errors"] = errors;
 	result["warnings"] = warnings;
 	result["functions"] = PackedStringArray();

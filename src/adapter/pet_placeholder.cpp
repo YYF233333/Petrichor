@@ -178,7 +178,8 @@ static GDExtensionBool placeholder_has_method(GDExtensionScriptInstanceDataPtr p
 
 #ifdef TOOLS_ENABLED
 // The errors marked on the node where scenes place it (spec §13.2): in the
-// scene it belongs to, and, as the root of an instanced scene, in that scene.
+// scene it belongs to, and, as the root of an instanced scene, in that scene;
+// by the script's check and by those scenes' (architecture §6.4).
 static PackedStringArray node_errors(const PetPlaceholder &p_placeholder) {
 	PackedStringArray errors;
 	Node *node = Object::cast_to<Node>(p_placeholder.owner);
@@ -193,7 +194,12 @@ static PackedStringArray node_errors(const PetPlaceholder &p_placeholder) {
 	if (!node->get_scene_file_path().is_empty()) {
 		places.emplace_back(to_utf8(node->get_scene_file_path()), ".");
 	}
-	for (const compiler::Diagnostic &error : scene_errors(path, p_placeholder.script->_get_source_code())) {
+	std::vector<compiler::Diagnostic> found = scene_errors(path, p_placeholder.script->_get_source_code());
+	for (const auto &[scene, at] : places) {
+		const std::vector<compiler::Diagnostic> checked = resource_errors(to_godot(scene));
+		found.insert(found.end(), checked.begin(), checked.end());
+	}
+	for (const compiler::Diagnostic &error : found) {
 		for (const auto &[scene, at] : places) {
 			if (error.scene == scene && error.node == at) {
 				// The message names the scene for the script editor; the dock shows it already.

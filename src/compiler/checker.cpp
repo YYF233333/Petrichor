@@ -208,7 +208,7 @@ class Checker : public ClassRelation {
 	std::vector<Diagnostic> &errors;
 	bool check_bodies;
 	ScriptClasses &classes; // The project's other scripts of this language.
-	std::vector<Scene> scenes; // The scenes that use this script.
+	std::vector<Scene> scenes; // The scenes that use this script, or the one whose check this is.
 	// A node of a scene as the engine builds the scene (spec §7.1), with those
 	// of the scenes it instances.
 	struct ViewNode {
@@ -11731,6 +11731,16 @@ public:
 		structure = nullptr;
 	}
 
+	// The checks of how the scene options.scene places the class.
+	void check_scene() {
+		const std::optional<Scene> scene = declared ? options.project->scene(options.scene) : std::nullopt;
+		if (!scene) {
+			return;
+		}
+		scenes = { *scene };
+		check_abstract_scenes();
+	}
+
 private:
 	// Whether a class of `p_file` extends one of this file, directly or
 	// through the classes of the other files `r_files` lists after it. Each
@@ -11907,7 +11917,6 @@ private:
 		check_warning_ignores();
 		check_connections();
 		check_named_members();
-		check_abstract_scenes();
 		check_owner_scenes();
 		check_parent_scenes();
 		check_stored_exports();
@@ -11952,8 +11961,13 @@ void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &
 	for (const std::unique_ptr<Checker> &checker : file.checkers) {
 		checker->declare();
 	}
-	for (const std::unique_ptr<Checker> &checker : file.checkers) {
-		checker->check_function_bodies();
+	if (p_options.scene.empty()) {
+		for (const std::unique_ptr<Checker> &checker : file.checkers) {
+			checker->check_function_bodies();
+		}
+	} else {
+		r_errors.clear();
+		file.checkers.front()->check_scene();
 	}
 	r_classes.leave(p_options.path);
 }

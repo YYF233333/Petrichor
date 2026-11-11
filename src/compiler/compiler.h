@@ -39,6 +39,9 @@ struct CompileOptions {
 	// being loaded, when the scenes that use it cannot be loaded. The module
 	// describes the class but cannot run.
 	bool declarations_only = false;
+	// With `declarations_only`: checks instead how the scene at this res://
+	// path uses the class (architecture §6.4), whose own errors are left out.
+	std::string scene;
 };
 
 struct ClassDecl;
