@@ -518,21 +518,39 @@ func _check_stored_exports() -> void:
 		DirAccess.remove_absolute(file)
 
 
-# Spec §7.4: a scene stored for an exported PackedScene[T] leaves to
-# instantiate() only what it asks for, here the export that its root must be
-# assigned (§7.5).
+# Spec §7.5: an export that must be assigned gets its value from any scene the
+# node is built from, here from the main scene, which changes the node inside
+# the scene it instances. The scene dock marks a node without one, also deep
+# in the scenes that the main scene instances.
 func _check_scene_exports() -> void:
 	var script_path := "res://editor_check_exports.pet"
 	var inner := "res://editor_check_exports_inner.tscn"
+	var level := "res://editor_check_exports_level.tscn"
+	var game := "res://editor_check_exports_game.tscn"
+	var instance := '[gd_scene format=3]\n\n[ext_resource type="PackedScene" path="%s" id="1"]\n\n[node name="%s" type="Node"]\n\n[node name="%s" parent="." instance=ExtResource("1")]\n'
 	_write(script_path, "extends Node\n\n@export pub var target: Node\n")
 	_write(inner, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Inner" type="Node"]\nscript = ExtResource("1")\n' % script_path)
+	_write(level, instance % [inner, "Level", "Far"])
+	_write(game, instance % [level, "Game", "Level"] + '\n[node name="Far" parent="Level" node_paths=PackedStringArray("target")]\ntarget = NodePath("..")\n\n[node name="Other" parent="." instance=ExtResource("1")]\n')
+	var main: String = ProjectSettings.get_setting("application/run/main_scene")
+	ProjectSettings.set_setting("application/run/main_scene", game)
+	var root := (ResourceLoader.load(game, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
+	var given := "\n".join(root.get_node("Level/Far").call("_get_configuration_warnings"))
+	var lacking := "\n".join(root.get_node("Other/Far").call("_get_configuration_warnings"))
+	root.free()
+	ProjectSettings.set_setting("application/run/main_scene", main)
+	_check(given.is_empty(), "a scene gives the value to a node of the scene it instances: " + given)
+	_check(lacking == 'Other/Far has no value for "target", an export that must be assigned.', "the main scene's check marks a node deep in the scenes it instances: " + lacking)
+
+	# Spec §7.4: a scene stored for an exported PackedScene[T] leaves to
+	# instantiate() only what it asks for.
 	var spawner_path := "res://editor_check_spawner.pet"
 	var spawn := "res://editor_check_spawner.tscn"
 	_write(spawner_path, "extends Node\n\n@export pub var wave: PackedScene[Node]\n")
 	_write(spawn, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n[ext_resource type="PackedScene" path="%s" id="2"]\n\n[node name="Spawner" type="Node"]\nscript = ExtResource("1")\nwave = ExtResource("2")\n' % [spawner_path, inner])
 	var marks := _scene_marks(spawn)
 	_check(marks.contains('"wave" of . holds %s, which leaves "target" to instantiate()' % inner), "the scene stored for an export leaves its root's target to instantiate(): " + marks)
-	for file in [script_path, script_path + ".uid", inner, spawner_path, spawner_path + ".uid", spawn]:
+	for file in [script_path, script_path + ".uid", inner, level, game, spawner_path, spawner_path + ".uid", spawn]:
 		DirAccess.remove_absolute(file)
 
 

@@ -177,9 +177,11 @@ static GDExtensionBool placeholder_has_method(GDExtensionScriptInstanceDataPtr p
 }
 
 #ifdef TOOLS_ENABLED
-// The errors marked on the node where scenes place it (spec §13.2): in the
-// scene it belongs to, and, as the root of an instanced scene, in that scene;
-// by the script's check and by those scenes' (architecture §6.4).
+// The errors marked on the node where scenes place it (spec §13.2): as the
+// root of an instanced scene, in that scene, and in the scene of each owner
+// up the chain, whose root owns the roots of the scenes it instances, which
+// own their nodes (scene/resources/packed_scene.cpp:567-573; ed1daf0); by the
+// script's check and by those scenes' (architecture §6.4).
 static PackedStringArray node_errors(const PetPlaceholder &p_placeholder) {
 	PackedStringArray errors;
 	Node *node = Object::cast_to<Node>(p_placeholder.owner);
@@ -188,11 +190,10 @@ static PackedStringArray node_errors(const PetPlaceholder &p_placeholder) {
 		return errors;
 	}
 	std::vector<std::pair<std::string, std::string>> places;
-	if (const Node *root = node->get_owner()) {
-		places.emplace_back(to_utf8(root->get_scene_file_path()), to_utf8(String(root->get_path_to(node))));
-	}
-	if (!node->get_scene_file_path().is_empty()) {
-		places.emplace_back(to_utf8(node->get_scene_file_path()), ".");
+	for (const Node *root = node; root; root = root->get_owner()) {
+		if (!root->get_scene_file_path().is_empty()) {
+			places.emplace_back(to_utf8(root->get_scene_file_path()), to_utf8(String(root->get_path_to(node))));
+		}
 	}
 	std::vector<compiler::Diagnostic> found = scene_errors(path, p_placeholder.script->_get_source_code());
 	for (const auto &[scene, at] : places) {

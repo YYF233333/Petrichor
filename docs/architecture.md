@@ -256,6 +256,8 @@
 - 编辑器中本语言脚本的实例是自己的占位实例（`src/adapter/pet_placeholder.h`）。它像引擎的占位实例一样保存导出的属性，脚本有错时保留场景设的值（`core/object/script_language.cpp:680-923`）。它还回答 `_get_configuration_warnings`，场景面板由此把错误标在节点上；引擎的占位实例不回答任何调用（`scene/main/node.cpp:3522-3532`，`editor/scene/scene_tree_editor.cpp:493-519`，`core/object/script_language.cpp:793-804`）。
 - 场景用错脚本的诊断记下场景和节点，信号连接的错误记在连接的目标上。动画轨道和同步属性的错误记在它们所指的节点上。节点的位置是它所属场景中的路径，实例化的场景根记为 `.`。
 - 节点上的错误取自它的脚本的检查，和它所在各场景的检查。
+  - 这些场景沿 owner 链向上找：实例化的场景的根拥有它的节点，外层场景的根又拥有这个根（`scene/resources/packed_scene.cpp:567-573`）。
+  - 在每个场景中，节点的位置是从该场景的根到它的路径。
 - 脚本编辑器列出挂载脚本的场景报在脚本中的错误，但仍判脚本有效，照常应用它的源码（`editor/script/script_text_editor.cpp:841-886`）。
 - 错误按保存后的场景计算。保存资源或场景、文件系统变化时，节点重新取错误，分析只重新检查输入变了的脚本（`editor/plugins/editor_plugin.cpp:284-289`）。
 - 编辑器加载脚本时只编译声明，足以提供反射信息，但不能运行。
