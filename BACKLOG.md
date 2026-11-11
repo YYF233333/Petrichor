@@ -4,8 +4,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Language
 
-- Before step 7 is accepted, the gaps of the third coverage rerun that the spec has decided (docs/surveys/implementation-coverage.md):
-  - `$"/root/X"` when `X` is no autoload, typed `Node` as `get_node()` is (spec §7.3).
 - Of `_init` on Node and Resource scripts (spec §6.2):
   - A member that `_init` in another file assigns counts as unassigned, since the checker does not check that body. So `instantiate(...)` asks for one that the root's `_init` assigns. A child's `_ready` and `@onready` initializers may not read one that a base's `_init` assigns.
   - A scene or `.tres` using a script whose `_init` has required parameters is a compile error. Now the engine's construction gives the program error.

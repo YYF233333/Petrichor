@@ -595,11 +595,6 @@ TEST_CASE("a scene used only as the base of inherited scenes may lack a node tha
 	CHECK(contains(messages(compile_in(source, project)), "res://enemy.tscn: the root has no node at \"Gun\"."));
 }
 
-TEST_CASE("paths that are not typed yet are refused rather than guessed") {
-	CHECK(contains(hud_errors("var n: Node = $\"/root/Main\""), "are supported yet"));
-	CHECK(contains(hud_errors("var n: Node = $/root/Main"), "are supported yet"));
-}
-
 TEST_CASE("a literal path from the root into an autoload names the autoload instead (spec §7.3)") {
 	FakeProject project = hud_scene();
 	project.autoloads["Music"] = "res://music.pet";
@@ -607,6 +602,12 @@ TEST_CASE("a literal path from the root into an autoload names the autoload inst
 	CHECK(contains(hud_errors("var n: Node = $/root/Music/Player", project), "$\"/root/Music/Player\" is in the autoload Music; write Music.get_node(\"Player\")."));
 	CHECK(contains(hud_errors("var n := get_node_or_null(\"/root/Music\")", project), "get_node_or_null(\"/root/Music\") is the autoload Music; write Music."));
 	CHECK(hud_errors("var n := get_node(\"/root/Main\")", project).empty());
+	// Another node under the root is a Node, as get_node() gives it.
+	CHECK(hud_errors("var n: Node = $/root/Main", project).empty());
+	CHECK(contains(hud_errors("var n: Label = $\"/root/Main\"", project), "Cannot assign a value of type Node as Label"));
+	// A relative path that misses names the autoload it may mean.
+	CHECK(contains(hud_errors("var n = $\"../Music/Player\"", project), "res://main.tscn: HUD has no node at \"../Music/Player\". Music is an autoload; write Music.get_node(\"Player\")."));
+	CHECK(contains(hud_errors("var n = $\"../../Music\"", project), "leads out of the scene, and no scene instances it. Music is an autoload; write Music."));
 }
 
 // Spec §6.3.

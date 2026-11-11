@@ -3398,6 +3398,15 @@ class Checker : public ClassRelation {
 		if (walk.leaves) {
 			missing = p_scene.path + ": " + p_shown + " leads out of the scene, and no scene instances it.";
 		}
+		// Such as $"../Music" for an autoload beside the main scene (spec §7.3).
+		std::string named = p_path;
+		while (named.rfind("../", 0) == 0 || named.rfind("./", 0) == 0) {
+			named = named.substr(named.find('/') + 1);
+		}
+		const std::string way = autoload_way(named);
+		if (!way.empty()) {
+			missing += " " + way.substr(0, way.find('.')) + " is an autoload; write " + way + ".";
+		}
 		const bool only_inherited = !outers.empty() && p_scene.path != options.project->main_scene() && std::all_of(outers.begin(), outers.end(), [&](const Scene &p_outer) {
 			return p_outer.base == p_scene.path && std::none_of(p_outer.nodes.begin(), p_outer.nodes.end(), [&](const SceneNode &p_node) { return p_node.instance == p_scene.path; });
 		});
@@ -3410,18 +3419,23 @@ class Checker : public ClassRelation {
 	// the autoload is reached by its name (spec §7.3). Empty for another path.
 	std::string through_autoload(const std::string &p_path, const std::string &p_written) const {
 		const std::string root = "/root/";
-		if (p_path.rfind(root, 0) != 0 || !options.project) {
+		const std::string way = p_path.rfind(root, 0) == 0 ? autoload_way(p_path.substr(root.size())) : std::string();
+		if (way.empty()) {
 			return std::string();
 		}
-		const size_t end = p_path.find('/', root.size());
-		const std::string name = p_path.substr(root.size(), end == std::string::npos ? std::string::npos : end - root.size());
-		if (name.empty() || options.project->autoload_path(name).empty()) {
+		const std::string name = way.substr(0, way.find('.'));
+		return p_written + (way == name ? " is the autoload " : " is in the autoload ") + name + "; write " + way + ".";
+	}
+
+	// How to reach what a path names when its first name is an autoload's:
+	// the autoload, or get_node() of the rest on it. Empty for another path.
+	std::string autoload_way(const std::string &p_path) const {
+		const size_t end = p_path.find('/');
+		const std::string name = p_path.substr(0, end);
+		if (name.empty() || !options.project || options.project->autoload_path(name).empty()) {
 			return std::string();
 		}
-		if (end == std::string::npos) {
-			return p_written + " is the autoload " + name + "; write " + name + ".";
-		}
-		return p_written + " is in the autoload " + name + "; write " + name + ".get_node(\"" + p_path.substr(end + 1) + "\").";
+		return end == std::string::npos ? name : name + ".get_node(\"" + p_path.substr(end + 1) + "\")";
 	}
 
 	// `$X` (spec §7.1): the node at the path from every node that has this
@@ -3448,8 +3462,13 @@ class Checker : public ClassRelation {
 		if (!autoload.empty()) {
 			return fail(r_expr, autoload);
 		}
-		if (path.empty() || path[0] == '/') {
+		if (path.empty()) {
 			return fail(r_expr, "Only paths from this node, such as $Head/Camera, are supported yet.");
+		}
+		// A node that code put under the root, as get_node() types it (spec §7.3).
+		if (path[0] == '/') {
+			r_expr.owner = "Node";
+			return set(r_expr, Type::object("Node"));
 		}
 		const Type type = scene_node_at(r_expr, shown_path(path), false);
 		r_expr.owner = type.engine_class();
