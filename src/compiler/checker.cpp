@@ -245,10 +245,7 @@ class Checker : public ClassRelation {
 	bool in_assert = false;
 	// The interfaces this class's own `implements` names, with where.
 	std::vector<std::pair<Type, const TypeRef *>> own_interfaces;
-	// The members that must be assigned which _init assigns on every path
-	// that ends, and the class's _ready, walked once every body is checked
-	// (spec §6.2).
-	std::set<int> init_assigned;
+	// The class's _ready, walked once every body is checked (spec §6.2).
 	FuncDecl *ready = nullptr;
 	// The member whose initializer is being checked: it and the members after
 	// it are not initialized yet (spec §6.1), nor are @onready members unless
@@ -6377,8 +6374,7 @@ class Checker : public ClassRelation {
 		} else if (!decl) {
 			refused = class_name + " has errors.";
 		} else {
-			const auto init = std::find_if(decl->all_functions.begin(), decl->all_functions.end(), [](const FuncDecl *p_function) { return p_function->name == "_init"; });
-			r_init = init == decl->all_functions.end() ? nullptr : *init;
+			r_init = init_of(*decl);
 			if (r_init && !r_init->is_pub && !sees(declaring(*decl, *r_init, &ClassDecl::functions).path)) {
 				refused = "new() of " + class_name + " cannot be called here: its _init() is not pub.";
 			} else if (const auto message = r_init ? broken(r_init, class_name + "._init()") : std::nullopt) {
@@ -6620,8 +6616,9 @@ class Checker : public ClassRelation {
 
 	// The members by name of a call that makes an object of `p_made`: each
 	// one that must be assigned, given once (spec §4.6, §6.2). instantiate(...)
-	// must give those the scene does not export, and of a scene statically
-	// known, `p_scene`, the exports it does not assign (§7.4).
+	// must give those that _init does not assign and the scene does not
+	// export, and of a scene statically known, `p_scene`, the exports it does
+	// not assign (§7.4).
 	void check_members(Expr &r_call, const Type &p_made, bool p_instantiate, const Scene *p_scene = nullptr) {
 		r_call.member_types.clear();
 		const ClassDecl *decl = p_made.kind == TypeKind::Object && !p_made.script.empty() ? script_decl(p_made.script) : nullptr;
@@ -6654,7 +6651,7 @@ class Checker : public ClassRelation {
 			}
 		}
 		for (const VarDecl *member : decl &&p_instantiate ? decl->all_members : std::vector<const VarDecl *>()) {
-			if (!member->must_assign || given.count(member->name) || (member->is_export && (!p_scene || stored_value(*p_scene, ".", member->name).value_or(false)))) {
+			if (!member->must_assign || given.count(member->name) || init_assigns(*decl, member->name) || (member->is_export && (!p_scene || stored_value(*p_scene, ".", member->name).value_or(false)))) {
 				continue;
 			}
 			if (member->is_export) {
@@ -7515,7 +7512,8 @@ class Checker : public ClassRelation {
 	}
 
 	// What a scene leaves to instantiate(...) that a PackedScene[T] does not
-	// ask for, as the error says it after the scene; "" for nothing.
+	// ask for, as the error says it after the scene; "" for nothing. It does
+	// not ask for what the _init of T assigns.
 	std::string unfit_scene(const Scene &p_scene, const Type &p_to) {
 		const SceneNode *root = p_scene.find_node(".");
 		const std::string script = !root ? std::string() : root->script.empty() ? root->instance_script
@@ -7524,8 +7522,8 @@ class Checker : public ClassRelation {
 		const Type &taken = p_to.args[0];
 		const ClassDecl *asks = taken.kind == TypeKind::Object && !taken.is_interface && !taken.script.empty() ? script_decl(taken.script) : nullptr;
 		for (const VarDecl *member : made ? made->all_members : std::vector<const VarDecl *>()) {
-			const bool asked = !member->is_export && asks && std::any_of(asks->all_members.begin(), asks->all_members.end(), [&](const VarDecl *p_member) { return p_member->name == member->name; });
-			if (member->must_assign && !asked && (!member->is_export || !stored_value(p_scene, ".", member->name).value_or(false))) {
+			const bool asked = !member->is_export && asks && !init_assigns(*asks, member->name) && std::any_of(asks->all_members.begin(), asks->all_members.end(), [&](const VarDecl *p_member) { return p_member->name == member->name; });
+			if (member->must_assign && !init_assigns(*made, member->name) && !asked && (!member->is_export || !stored_value(p_scene, ".", member->name).value_or(false))) {
 				return "leaves \"" + member->name + "\" to instantiate(), but a " + p_to.to_string() + " does not ask for it.";
 			}
 		}
@@ -10199,8 +10197,9 @@ class Checker : public ClassRelation {
 	}
 
 	// Where the scene is used as a root, each node of its view with the class
-	// gets a value for each of its exports that must be assigned, from any of
-	// the scenes it is built from (spec §7.5); the root only in the main scene,
+	// gets a value for each of its exports that must be assigned and that the
+	// _init it runs does not assign, from any of the scenes it is built from
+	// (spec §7.5); the root only in the main scene,
 	// since whoever instantiates another may give its root the rest (§7.4). One
 	// that nothing references only warns. The game runs all the same: a node
 	// without one fails the check as it becomes ready.
@@ -10212,11 +10211,13 @@ class Checker : public ClassRelation {
 			return;
 		}
 		for (const ViewNode &node : view_of(scene)) {
-			if ((!main && node.path == ".") || !extends_script(node.node.script.empty() ? node.node.instance_script : node.node.script, options.path)) {
+			const std::string &script = node.node.script.empty() ? node.node.instance_script : node.node.script;
+			if ((!main && node.path == ".") || !extends_script(script, options.path)) {
 				continue;
 			}
+			const ClassDecl *placed = is_script_path(script) ? script_decl(script) : &cls;
 			for (const VarDecl &member : cls.members) {
-				if (member.is_export && member.must_assign && !stored_value(scene, node.path, member.name).value_or(false)) {
+				if (member.is_export && member.must_assign && !(placed && init_assigns(*placed, member.name)) && !stored_value(scene, node.path, member.name).value_or(false)) {
 					error_in_scene(TokenRange{ member.name_token, member.name_token }, scene, node.path, scene.path + ": " + (node.path == "." ? std::string("the root") : node.path) + " has no value for \"" + member.name + "\", an export that must be assigned.");
 					errors.back().runs = true;
 				}
@@ -10605,20 +10606,30 @@ class Checker : public ClassRelation {
 		}
 		declare_params(r_function, true);
 		const size_t cursor = completion ? cls.source->text.find(CURSOR) : 0;
-		if (options.declarations_only || !check_bodies || (completion && (cursor < cls.source->begin(r_function.range) || cursor >= cls.source->end(r_function.range)))) {
+		// Other files use what _init assigns (architecture §6.4), so a check of
+		// the declarations alone checks its body for that, without its errors.
+		const bool init = r_function.name == "_init" && !r_function.is_static;
+		const bool for_others = init && !check_bodies;
+		if (!for_others && (options.declarations_only || !check_bodies || (completion && (cursor < cls.source->begin(r_function.range) || cursor >= cls.source->end(r_function.range))))) {
 			function = nullptr;
 			scopes.clear();
 			return;
 		}
+		const size_t earlier_errors = errors.size();
 		check_block(r_function.body);
 		if (r_function.has_body && r_function.return_type.kind != TypeKind::Void && !r_function.return_type.is_error() && !always_ends(r_function.body, false)) {
 			error(r_function.name_token, "Not all paths of \"" + r_function.name + "()\" return a value.");
 		}
-		if (r_function.name == "_init" && !r_function.is_static) {
+		if (init) {
 			std::set<int> reported;
 			const EarlyReads reads{ [&](int p_member) { return cls.all_members[p_member]->must_assign; },
 				[&](const Expr &p_read) { error(p_read.range, "_init reads \"" + p_read.text + "\" before assigning it: a member that must be assigned gets its value from the scene or the creator only after _init."); } };
-			init_assigned = init_block(r_function.body, std::set<int>(), reported, reads).value_or(std::set<int>());
+			for (const int member : init_block(r_function.body, std::set<int>(), reported, reads).value_or(std::set<int>())) {
+				r_function.assigned.push_back(cls.all_members[member]->name);
+			}
+		}
+		if (for_others) {
+			errors.erase(errors.begin() + std::ptrdiff_t(earlier_errors), errors.end());
 		}
 		if (r_function.name == "_ready" && !r_function.is_static && !r_function.of_struct) {
 			ready = &r_function;
@@ -10637,6 +10648,17 @@ class Checker : public ClassRelation {
 		bool ends_at_await = false;
 	};
 
+	// The _init that new() of the class calls: its own or the nearest it inherits.
+	static const FuncDecl *init_of(const ClassDecl &p_class) {
+		const auto init = std::find_if(p_class.all_functions.begin(), p_class.all_functions.end(), [](const FuncDecl *p_function) { return p_function->name == "_init"; });
+		return init == p_class.all_functions.end() ? nullptr : *init;
+	}
+
+	static bool init_assigns(const ClassDecl &p_class, const std::string &p_member) {
+		const FuncDecl *init = init_of(p_class);
+		return init && std::find(init->assigned.begin(), init->assigned.end(), p_member) != init->assigned.end();
+	}
+
 	// The node's members that ancestors assign, once they are ready (spec
 	// §6.2, §6.4): where a scene gives the node an owner, those that must be
 	// assigned and are not exported, unless _init assigns them. Its own
@@ -10651,7 +10673,7 @@ class Checker : public ClassRelation {
 		const auto check_at = [&](const Scene &p_scene, const std::string &p_node) {
 			std::set<int> reported;
 			bool initializer = true;
-			const EarlyReads reads{ [&](int p_member) { return cls.all_members[p_member]->must_assign && !cls.all_members[p_member]->is_export && !init_assigned.count(p_member); },
+			const EarlyReads reads{ [&](int p_member) { return cls.all_members[p_member]->must_assign && !cls.all_members[p_member]->is_export && !init_assigns(cls, cls.all_members[p_member]->name); },
 				[&](const Expr &p_read) {
 					const std::string where = initializer ? "in an @onready initializer" : "in _ready";
 					const std::string fix = initializer ? "in _ready after" : "after";
@@ -11695,9 +11717,12 @@ public:
 		if (!declared) {
 			return;
 		}
-		for (FuncDecl &fn : cls.functions) {
-			if (is_declared(fn)) {
-				check_body(fn);
+		// _init first, as the others use what it assigns.
+		for (const bool init : { true, false }) {
+			for (FuncDecl &fn : cls.functions) {
+				if (is_declared(fn) && (fn.name == "_init") == init) {
+					check_body(fn);
+				}
 			}
 		}
 		// It needs what _init assigns, which only the check of its body finds.
@@ -11946,11 +11971,10 @@ void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &
 	for (const std::unique_ptr<Checker> &checker : file.checkers) {
 		checker->declare();
 	}
-	if (p_options.scene.empty()) {
-		for (const std::unique_ptr<Checker> &checker : file.checkers) {
-			checker->check_function_bodies();
-		}
-	} else {
+	for (const std::unique_ptr<Checker> &checker : file.checkers) {
+		checker->check_function_bodies();
+	}
+	if (!p_options.scene.empty()) {
 		r_errors.clear();
 		if (r_references) {
 			r_references->clear();

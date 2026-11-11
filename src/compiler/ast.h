@@ -520,6 +520,9 @@ struct FuncDecl {
 	std::vector<int> captures;
 	bool uses_self = false;
 	bool checked = false;
+	// Of a class's _init: the members that must be assigned which it assigns
+	// on every path that ends (spec §6.2), which other files use too.
+	std::vector<std::string> assigned;
 
 	bool has_rest() const { return !params.empty() && params.back().is_rest; }
 };

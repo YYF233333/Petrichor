@@ -74,15 +74,58 @@ TEST_CASE("a node with an owner reads in its _ready no member its ancestors assi
 	CHECK(contains(messages(compile_in(members + "func _ready():\n\tprint(target)\n", project)), "res://level.tscn: Squad reads \"target\" in _ready"));
 }
 
-TEST_CASE("a subclass on a node with an owner has a base whose _init assigns what its @onready initializer reads") {
+TEST_CASE("a node with an owner reads in its _ready and @onready initializers what the _init of a base in another file assigns") {
 	FakeProject project;
 	compiler::Scene scene;
 	scene.path = "res://squad.tscn";
 	scene.nodes = { { ".", "Node", "" }, { "Child", "Node", "res://test.pet" } };
 	project.scenes = { scene };
 	project.add_script("res://base.pet", "class_name Base\nextends Node\n\npub var target: Node\n@onready var aim := target\n\nfunc _init():\n\ttarget = Node.new()\n", "Base");
-	project.add_script("res://test.pet", "extends Base\n");
-	CHECK(messages(compile_in("extends Base\n", project)).empty());
+	CHECK(messages(compile_in("extends Base\n\n@onready var aimed := target\n\nfunc _ready():\n\tprint(target)\n", project)).empty());
+}
+
+TEST_CASE("instantiate(...) and the scene leave out what the _init of the root's class assigns, also in another file (spec §6.2, §7.4)") {
+	FakeProject project;
+	project.add_script("res://armed.pet", "class_name Armed\nextends Node3D\n\npub var target: Node3D\n\nfunc _init():\n\ttarget = Node3D.new()\n", "Armed");
+	project.add_script("res://kept.pet", "class_name Kept\nextends Armed\n", "Kept");
+	project.add_script("res://redone.pet", "class_name Redone\nextends Armed\n\nfunc _init():\n\tpass\n", "Redone");
+	compiler::Scene armed;
+	armed.path = "res://armed.tscn";
+	armed.nodes = { { ".", "Node3D", "res://armed.pet" } };
+	compiler::Scene redone;
+	redone.path = "res://redone.tscn";
+	redone.nodes = { { ".", "Node3D", "res://redone.pet" } };
+	project.scenes = { armed, redone };
+	const auto errors = [&](const std::string &p_body) {
+		return messages(compile_in("extends Node\n\nfunc f(a: PackedScene[Armed], k: PackedScene[Kept], r: PackedScene[Redone]) -> void:\n" + p_body + "\n", project));
+	};
+	CHECK(errors("\tadd_child(a.instantiate())\n\tadd_child(k.instantiate())\n\tvar s: PackedScene[Node3D] = preload(\"res://armed.tscn\")").empty());
+	// An _init of its own runs instead.
+	CHECK(contains(errors("\tadd_child(r.instantiate())"), "instantiate() needs target = ..., a member of Redone that must be assigned and the scene cannot."));
+	CHECK(contains(errors("\tvar s: PackedScene[Armed] = preload(\"res://redone.tscn\")"), "res://redone.tscn leaves \"target\" to instantiate(), but a PackedScene[Armed] does not ask for it."));
+	// A scene that a scene stores for an export.
+	compiler::Scene level;
+	level.path = "res://level.tscn";
+	level.nodes = { { ".", "Node", "" }, { "Spawner", "Node", "res://test.pet" } };
+	compiler::SceneValue stored;
+	stored.type = "Object";
+	stored.class_name = "PackedScene";
+	stored.path = armed.path;
+	level.nodes[1].properties = { { "wave", stored } };
+	project.scenes.push_back(level);
+	CHECK(check_scenes_in("extends Node\n@export pub var wave: PackedScene[Node3D]\n", project).errors.empty());
+}
+
+TEST_CASE("an export that the _init of a base in another file assigns needs no value from the scene (spec §6.2, §7.5)") {
+	FakeProject project;
+	project.add_script("res://archer.pet", "class_name Archer\nextends Node3D\n\n@export pub var bow: Node3D\n\nfunc _init():\n\tbow = Node3D.new()\n", "Archer");
+	compiler::Scene level;
+	level.path = "res://level.tscn";
+	level.nodes = { { ".", "Node3D", "" }, { "Archer", "Node3D", "res://test.pet" } };
+	project.scenes = { level };
+	project.main = level.path;
+	CHECK(check_scenes_in("extends Archer\n", project).errors.empty());
+	CHECK(contains(messages(check_scenes_in("extends Archer\n\nfunc _init():\n\tpass\n", project)), "res://level.tscn: Archer has no value for \"bow\", an export that must be assigned."));
 }
 
 namespace {

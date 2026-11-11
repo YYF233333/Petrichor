@@ -81,7 +81,7 @@ void for_each_function(const ClassDecl &p_decl, Fn &&p_fn) {
 
 void mark_bodies(const ClassDecl &p_decl, std::vector<bool> &r_body) {
 	for_each_function(p_decl, [&](const FuncDecl &p_fn) {
-		if (const std::optional<TokenRange> body = body_of(p_fn, p_decl.source->tokens)) {
+		if (const std::optional<TokenRange> body = p_fn.name == "_init" ? std::nullopt : body_of(p_fn, p_decl.source->tokens)) {
 			for (uint32_t i = body->first; i <= body->last; i++) {
 				r_body[i] = true;
 			}

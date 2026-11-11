@@ -180,6 +180,30 @@ TEST_CASE("a scene is checked again only when it, the declarations of a script o
 	}
 }
 
+TEST_CASE("a script is checked again when the _init of a class it extends changes, not another function body (architecture §6.4)") {
+	FakeProject project;
+	compiler::Scene scene;
+	scene.path = "res://squad.tscn";
+	scene.nodes = { { ".", "Node", "" }, { "Unit", "Node", "res://unit.pet" } };
+	project.scenes = { scene };
+	const std::string base = "class_name Base\nextends Node\n\npub var target: Node\n\nfunc _init():\n";
+	project.add_script("res://base.pet", base + "\ttarget = Node.new()\n\nfunc aim() -> void:\n\tpass\n", "Base");
+	project.add_script("res://unit.pet", "extends Base\n\nfunc _ready():\n\tprint(target)\n");
+	compiler::Analysis analysis(fake_engine(), project);
+	const Result before = compile_all(analysis, project, { "res://unit.pet" })[0];
+	REQUIRE(before->ok());
+
+	SUBCASE("another function body") {
+		project.sources["res://base.pet"] = base + "\ttarget = Node.new()\n\nfunc aim() -> void:\n\tprint(1)\n";
+		CHECK((compile_all(analysis, project, { "res://unit.pet" })[0] == before));
+		CHECK(analysis.checks_run() == 1);
+	}
+	SUBCASE("_init") {
+		project.sources["res://base.pet"] = base + "\tpass\n\nfunc aim() -> void:\n\tpass\n";
+		CHECK(contains(messages(*compile_all(analysis, project, { "res://unit.pet" })[0]), "res://squad.tscn: Unit reads \"target\" in _ready"));
+	}
+}
+
 TEST_CASE("a script is checked again when a file it preloads adds a preload of it in a function body") {
 	FakeProject project;
 	project.add_script("res://a.pet", "extends Node\n\nconst B = preload(\"res://b.pet\")\n");
