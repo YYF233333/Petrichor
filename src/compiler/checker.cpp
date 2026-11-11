@@ -4981,9 +4981,10 @@ class Checker : public ClassRelation {
 	}
 
 	// Whether this language can hold what a function of the engine's API
-	// returns; false after reporting it.
+	// returns; false after reporting it. An object is T? (spec §10.2), as
+	// instance_from_id() and get_object() give it.
 	bool api_result_supported(Expr &r_call, const Type &p_result) {
-		if (p_result.kind == TypeKind::Object || p_result.kind == TypeKind::Unsupported) {
+		if (p_result.kind == TypeKind::Unsupported) {
 			fail(r_call, "\"" + r_call.text + "()\" returns " + p_result.to_string() + ", which is not supported yet.");
 			return false;
 		}

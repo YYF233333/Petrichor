@@ -2193,8 +2193,11 @@ class Execution {
 		alignas(16) uint8_t scratch[64];
 		construct_value(via_variant ? ValueType::Variant : (unread ? returns : ValueType::Void), scratch);
 		void *result = via_variant || unread ? scratch : p_frame + dst;
+		// The engine writes an object as its pointer (core/variant/method_ptrcall.h:252-260).
+		void *object = nullptr;
+		void *written = returns == ValueType::Object ? static_cast<void *>(&object) : result;
 		if (utility) {
-			image.utilities[target](result, args.pointers, int(argc));
+			image.utilities[target](written, args.pointers, int(argc));
 		} else if (replaced == ClassImage::Replaced::Hash) {
 			*static_cast<int64_t *>(result) = content_hash(to_variant(module.builtin_methods[target].base, base));
 		} else if (replaced == ClassImage::Replaced::Sort && module.builtin_methods[target].base == ValueType::Array) {
@@ -2257,7 +2260,10 @@ class Execution {
 				destroy_value(ValueType::Variant, returned);
 			}
 		} else {
-			image.builtin_calls[target].method(base, args.pointers, result, int(argc));
+			image.builtin_calls[target].method(base, args.pointers, written, int(argc));
+		}
+		if (returns == ValueType::Object) {
+			take_returned_object(static_cast<uint8_t *>(result), object, false);
 		}
 		// A deep copy copies the boxes too (spec §3.8).
 		const bool deep = (replaced == ClassImage::Replaced::Duplicate && *static_cast<const uint8_t *>(args.pointers[0])) || replaced == ClassImage::Replaced::DuplicateDeep ||

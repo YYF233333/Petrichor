@@ -441,7 +441,8 @@ class Verifier {
 		return arguments(p_call);
 	}
 
-	// The engine writes a native return value straight into the result slot.
+	// The engine writes a native return value straight into the result slot,
+	// and an object as its pointer, which the slot then takes.
 	bool engine_result(uint32_t p_dst, ValueType p_return, uint32_t p_result) {
 		if (p_result >= module.types.size()) {
 			return fail("the result has no type");
@@ -449,8 +450,8 @@ class Verifier {
 		if (p_return != ValueType::Variant && (is_option(p_result) || p_return != storage(p_result))) {
 			return fail("the result slot does not have the return type");
 		}
-		if (p_return != ValueType::Void && p_return != ValueType::Variant && !is_native(p_return)) {
-			return fail("an engine function returns an object in its own layout");
+		if (p_return != ValueType::Void && p_return != ValueType::Variant && p_return != ValueType::Object && !is_native(p_return)) {
+			return fail("an engine function returns a value in a layout of this language");
 		}
 		return result(p_dst, p_result);
 	}

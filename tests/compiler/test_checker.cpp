@@ -353,6 +353,10 @@ TEST_CASE("objects the engine returns are nullable until audited (spec §10.2)")
 	CHECK(errors_of(in_function("var p = get_parent()\nset_owner(p)")).empty());
 	CHECK(has_error(in_function("var p = get_parent()\nprint(p.name)"), "may be None (Node?)"));
 	CHECK(has_error(in_function("var p = get_parent()\np.queue_free()"), "may be None (Node?)"));
+	// Also from a utility function or a method of a built-in type.
+	CHECK(type_of("instance_from_id(1)") == "Object?");
+	CHECK(type_of("c.get_object()", "var c := Callable()") == "Object?");
+	CHECK(type_of("s.get_object()", "var s := Signal()") == "Object?");
 }
 
 TEST_CASE("the smallest int can be written in decimal") {

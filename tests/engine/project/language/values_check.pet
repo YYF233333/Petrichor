@@ -423,3 +423,12 @@ pub func mortal_signal(target: CombatCheck.Mortal) -> String:
 	target.died.emit("fall")
 	var damageable: CombatCheck.Damageable = target
 	return str(heard) + " " + str(damageable is CombatCheck.Mortal)
+
+
+# An object found by its ID, or a Callable's or a Signal's, may be None (spec §10.2).
+pub func objects_found() -> Array[bool]:
+	var node := Node.new()
+	var id := node.get_instance_id()
+	var found := instance_from_id(id) == node
+	node.free()
+	return [found, instance_from_id(id) == None, scaled.get_object() == self, visibility_changed.get_object() == self]

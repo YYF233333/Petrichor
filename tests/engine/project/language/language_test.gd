@@ -323,6 +323,7 @@ func _ready() -> void:
 	_check(refused_interface == false and v.damage_through(target, 0.0), "a parameter of an interface takes only an object that implements it")
 	_check(refused_array == 0 and v.count_damageable(with_target) == 1, "an array of an interface takes only objects that implement it")
 	_check(v.mortal_signal(target) == "[\"fall\"] true", "a signal an interface requires connects and emits through it, and an object of an interface is one of those it extends")
+	_check(v.objects_found() == [true, true, true, true], "instance_from_id() and get_object() give the object, or None once it is freed")
 	_check(v.damageable == null, "a member of an interface refuses an object that does not implement it")
 	v.damageable = target
 	_check(v.damageable == target, "a member of an interface takes an object that implements it")
