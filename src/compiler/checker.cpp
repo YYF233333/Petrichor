@@ -235,6 +235,7 @@ class Checker : public ClassRelation {
 	};
 	State state = State::Unchecked;
 	bool declared = false; // Declared without an error that stops it, so its bodies are checked.
+	bool init_checked = false;
 
 	FuncDecl *function = nullptr;
 	std::vector<std::unordered_map<std::string, int>> scopes;
@@ -10796,6 +10797,12 @@ class Checker : public ClassRelation {
 			default:
 				reads(p_stmt.condition);
 				reads(p_stmt.value);
+				// super() runs the base's _init, which assigns what it does.
+				if (const FuncDecl *base = p_stmt.value && p_stmt.value->target == Target::SuperMethod && p_stmt.value->text == "_init" ? base_function("_init") : nullptr) {
+					for (const std::string &name : base->assigned) {
+						p_assigned->insert(member_index.at(name));
+					}
+				}
 				return p_assigned;
 		}
 	}
@@ -11715,16 +11722,31 @@ public:
 		state = State::Declared;
 	}
 
+	// _init's body, once, after those of the classes of this file it extends:
+	// the other bodies use what it assigns, and super() what theirs do.
+	void check_init() {
+		if (init_checked || !declared) {
+			return;
+		}
+		init_checked = true;
+		if (Checker *base = file->find(cls.base_script)) {
+			base->check_init();
+		}
+		for (FuncDecl &fn : cls.functions) {
+			if (is_declared(fn) && fn.name == "_init") {
+				check_body(fn);
+			}
+		}
+	}
+
 	void check_function_bodies() {
 		if (!declared) {
 			return;
 		}
-		// _init first, as the others use what it assigns.
-		for (const bool init : { true, false }) {
-			for (FuncDecl &fn : cls.functions) {
-				if (is_declared(fn) && (fn.name == "_init") == init) {
-					check_body(fn);
-				}
+		check_init();
+		for (FuncDecl &fn : cls.functions) {
+			if (is_declared(fn) && fn.name != "_init") {
+				check_body(fn);
 			}
 		}
 		// It needs what _init assigns, which only the check of its body finds.

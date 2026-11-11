@@ -97,6 +97,24 @@ TEST_CASE("a node's _ready reads what the _init of the node's own class assigns,
 	CHECK(contains(messages(compile_in(source, project)), "res://squad.tscn: Child reads \"target\" in _ready"));
 }
 
+TEST_CASE("super() in _init assigns what the base's _init assigns, from there on (spec §6.2)") {
+	FakeProject project;
+	compiler::Scene scene;
+	scene.path = "res://squad.tscn";
+	scene.nodes = { { ".", "Node", "" }, { "Child", "Node", "res://test.pet" } };
+	project.scenes = { scene };
+	project.add_script("res://base.pet", "class_name Base\nextends Node\n\npub var target: Node\n\nfunc _init():\n\ttarget = Node.new()\n", "Base");
+	const auto errors = [&](const std::string &p_init) {
+		return messages(compile_in("extends Base\n\nfunc _init():\n" + p_init + "\n\nfunc _ready():\n\tprint(target)\n", project));
+	};
+	CHECK(errors("\tsuper()\n\tprint(target)").empty());
+	CHECK(errors("\tsuper._init()\n\tprint(target)").empty());
+	CHECK(contains(errors("\tprint(target)\n\tsuper()"), "_init reads \"target\" before assigning it"));
+	CHECK(contains(errors("\tpass"), "res://squad.tscn: Child reads \"target\" in _ready"));
+	// Through classes of the same file, a subclass before its base.
+	CHECK(errors("\tsuper()\n\nclass Sub extends Inner:\n\tfunc _init():\n\t\tsuper()\n\t\tprint(target)\n\nclass Inner extends Base:\n\tfunc _init():\n\t\tsuper()").empty());
+}
+
 TEST_CASE("instantiate(...) and the scene leave out what the _init of the root's class assigns, also in another file (spec §6.2, §7.4)") {
 	FakeProject project;
 	project.add_script("res://armed.pet", "class_name Armed\nextends Node3D\n\npub var target: Node3D\n\nfunc _init():\n\ttarget = Node3D.new()\n", "Armed");
