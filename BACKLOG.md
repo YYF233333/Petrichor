@@ -5,7 +5,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 ## Language
 
 - Before step 7 is accepted, the gaps of the third coverage rerun that the spec has decided (docs/surveys/implementation-coverage.md):
-  - an untyped parameter of a lambda passed to an Array method, which takes the element type (spec §3.8, §4.6);
   - a `class_name` as a value, as inner classes and preloaded constants already are;
   - `instance_from_id()`, `Callable.get_object()` and `Signal.get_object()`, refused for returning `Object?`;
   - `$"/root/X"` when `X` is no autoload, typed `Node` as `get_node()` is (spec §7.3).

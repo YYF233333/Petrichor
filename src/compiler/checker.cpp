@@ -5292,6 +5292,18 @@ class Checker : public ClassRelation {
 		return true;
 	}
 
+	// The function an Array method of the engine calls on the elements: a
+	// comparison for sort_custom() and bsearch_custom(), whose value is an
+	// element too, and a test for the others, but map(), whose function
+	// returns any type (core/variant/array.cpp:392-470, 604-767; ed1daf0).
+	static Type element_function(const std::string &p_method, const Type &p_array) {
+		const Type element = p_array.args.empty() ? Type::of(TypeKind::Variant) : p_array.args[0];
+		if (p_method == "sort_custom" || p_method == "bsearch_custom") {
+			return Type::function(Type::of(TypeKind::Bool), { element, element });
+		}
+		return Type::function(p_method == "map" ? Type::of(TypeKind::Error) : Type::of(TypeKind::Bool), { element });
+	}
+
 	// A method of a value of a built-in type, or with `p_static` a static one
 	// called through the type's name, as Color.from_hsv().
 	Type check_builtin_method(Expr &r_expr, const Type &p_base, bool p_static = false) {
@@ -5381,6 +5393,14 @@ class Checker : public ClassRelation {
 			}
 			if (!check_place(base)) {
 				return set(r_expr, Type::of(TypeKind::Error));
+			}
+		}
+		// A lambda passed to filter(), sort_custom() and the like takes the
+		// elements (spec §3.8, §4.6). That of reduce() also takes what it
+		// accumulates, which has no type here.
+		for (size_t i = 0; base_name == "Array" && r_expr.text != "reduce" && i < r_expr.args.size() && i < params.size(); i++) {
+			if (params[i].builtin_name() == "Callable" && r_expr.args[i]->kind == ExprKind::Lambda) {
+				check_lambda(*r_expr.args[i], element_function(r_expr.text, p_base));
 			}
 		}
 		check_arguments(r_expr, params, int(params.size()), method->is_vararg);
