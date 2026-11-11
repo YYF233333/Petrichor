@@ -85,6 +85,16 @@ TEST_CASE("scene connections are checked against the class (spec §7.7)") {
 	REQUIRE(checked.errors.size() == 1);
 	CHECK(checked.errors[0].message == "res://enemy.tscn: the signal \"timeout\" of Timer is connected to _on_missing(), which this class does not declare.");
 	CHECK(checked.errors[0].node == "Enemy");
+	// To a node inside an instanced scene, as editable children allow.
+	FakeProject inside = timer_scene("_on_missing");
+	inside.scenes[0].nodes[0].script.clear();
+	inside.scenes[0].nodes.push_back({ "Enemy", "Node3D", "", true, "", false, {}, "res://unit.tscn" });
+	inside.scenes[0].connections[0].target = "Enemy/Body";
+	inside.scenes.push_back({ "res://unit.tscn", { { ".", "Node3D", "" }, { "Body", "Node3D", "res://test.pet" } } });
+	const compiler::CompileResult deep = check_scenes_in(source, inside);
+	REQUIRE(deep.errors.size() == 1);
+	CHECK(deep.errors[0].message == "res://enemy.tscn: the signal \"timeout\" of Timer is connected to _on_missing(), which this class does not declare.");
+	CHECK(deep.errors[0].node == "Enemy/Body");
 }
 
 TEST_CASE("signal arguments must fit the connected method's parameters") {
