@@ -356,7 +356,12 @@ pub func deep(depth: int, walk: String) -> bool:
 		return Twig.try_from(encoded).ok() != None
 	if walk == "copy":
 		return a.children.duplicate(true).size() == 1
+	if walk == "rest":
+		return count_twigs(a) == 1
 	return a.children == b.children
+
+func count_twigs(...twigs: Array[Twig]) -> int:
+	return twigs.size()
 
 # Nor is one that holds itself through a container it shares.
 var tangled: Array[Twig] = []
