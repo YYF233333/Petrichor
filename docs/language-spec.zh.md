@@ -852,6 +852,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 - `T??` 和 `Variant?` 不能编码，因为引擎中外层的 `None` 和内层的空值都是 null。
   - 值须经引擎边界编码时报编译错误。字段中含它们的 struct、带载荷 enum 和 `Result` 同样如此。
+  - 函数值转为 `Callable` 或 `Variant` 时，按 pub 函数检查参数和返回值。
   - 快速修复为 `T??` 加 `.flatten()`，为 `Variant?` 加 `.unwrap_or(null)`。
 - GDScript 通过脚本反射对本语言全局类做静态检查。检查的是实例成员（属性、方法、信号）及 `Player.new(...)` 的位置实参。`_init` 不带 `pub` 时，GDScript 调带参 `new` 报编译错误，无参 `new` 在运行时报错。具名必须赋值实参仅限本语言使用。其余类级访问见“跨语言调用与消息”一节。
 - **入口检查**：值从引擎、GDScript、C# 或远程检查器进入本语言时，按声明类型校验。进入的途径包括参数、`set` 写成员、信号实参、`await` 结果和解码。校验失败报程序错误。
