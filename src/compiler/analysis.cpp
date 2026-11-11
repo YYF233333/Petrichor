@@ -29,7 +29,7 @@ bool Analysis::unchanged(const Reads &p_reads) {
 		}
 	}
 	for (const auto &[question, same] : p_reads.answers) {
-		if (!same(project)) {
+		if (!same(*classes)) {
 			return false;
 		}
 	}

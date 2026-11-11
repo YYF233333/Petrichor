@@ -40,7 +40,6 @@ compiler::Analysis &analysis() {
 } // namespace
 
 std::shared_ptr<const ClassImage> compile_script(const String &p_path, const String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, CompileMode p_mode, std::vector<compiler::Diagnostic> *r_warnings) {
-	const SceneIndex::Pass pass;
 	std::shared_ptr<const compiler::CompileResult> result;
 	// Loads, which compile declarations, take no part in the analysis, whose
 	// passes take a lock while they load scenes.
@@ -116,7 +115,6 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 }
 
 std::shared_ptr<const compiler::CompileResult> check_scene(const String &p_path, bool p_report) {
-	const SceneIndex::Pass pass;
 	const compiler::Analysis::Pass analysis_pass(analysis());
 	const std::shared_ptr<const compiler::CompileResult> result = analysis().check_scene(to_utf8(p_path));
 	for (size_t i = 0; p_report && i < result->errors.size(); i++) {
@@ -127,7 +125,6 @@ std::shared_ptr<const compiler::CompileResult> check_scene(const String &p_path,
 }
 
 int build_project(int *r_script_count, int *r_scene_count, bool p_command) {
-	const SceneIndex::Pass pass;
 	const compiler::Analysis::Pass analysis_pass(analysis());
 	const PackedStringArray paths = project_files(PackedStringArray({ "pet" }));
 	int failed = 0;
@@ -202,7 +199,6 @@ std::vector<compiler::Diagnostic> scene_errors(const String &p_path, const Strin
 	const std::string path = to_utf8(p_path);
 	const std::string source = to_utf8(p_source);
 	return as_of_change(path, bytecode::hash_source(source), [&] {
-		const SceneIndex::Pass pass;
 		const compiler::Analysis::Pass analysis_pass(analysis());
 		return analysis().compile(path, source)->errors;
 	});
@@ -213,12 +209,13 @@ std::vector<compiler::Diagnostic> resource_errors(const String &p_path) {
 }
 
 std::vector<compiler::Diagnostic> placed_errors(const String &p_path) {
-	const SceneIndex::Pass pass;
+	const compiler::Analysis::Pass analysis_pass(analysis());
+	compiler::ScriptClasses &classes = analysis().pass_classes();
 	const std::string path = to_utf8(p_path);
 	std::vector<compiler::Diagnostic> placed;
 	// The scenes that place it, and those that instance them, which check the
 	// roots of the scenes they instance and what their tracks name.
-	std::vector<compiler::Scene> pending = SceneIndex::get().scenes_with_script(path);
+	std::vector<compiler::Scene> pending = classes.scenes_with_script(path);
 	std::set<std::string> seen;
 	while (!pending.empty()) {
 		const std::string scene = pending.back().path;
@@ -231,7 +228,7 @@ std::vector<compiler::Diagnostic> placed_errors(const String &p_path) {
 				placed.push_back(error);
 			}
 		}
-		const std::vector<compiler::Scene> outer = SceneIndex::get().scenes_instancing(scene);
+		const std::vector<compiler::Scene> outer = classes.scenes_instancing(scene);
 		pending.insert(pending.end(), outer.begin(), outer.end());
 	}
 	return placed;
@@ -303,13 +300,11 @@ Dictionary doc_member(const compiler::DocMember &p_member, const char *p_type_ke
 } // namespace
 
 std::optional<compiler::Lookup> lookup_name(const String &p_path, const std::string &p_source, uint32_t p_offset) {
-	const SceneIndex::Pass pass;
 	const compiler::Analysis::Pass analysis_pass(analysis());
 	return compiler::lookup(analysis(), ClassDBApi::get(), SceneIndex::get(), file_doc_name, to_utf8(p_path), p_source, p_offset);
 }
 
 compiler::Completion completion(const String &p_path, const std::string &p_source) {
-	const SceneIndex::Pass pass;
 	return compiler::complete(analysis(), ClassDBApi::get(), to_utf8(p_path), p_source);
 }
 
@@ -381,7 +376,6 @@ String class_doc_name(const String &p_path) {
 }
 
 TypedArray<Dictionary> script_documentation(const String &p_path, const String &p_source) {
-	const SceneIndex::Pass pass;
 	compiler::CompileOptions options;
 	options.path = to_utf8(p_path);
 	options.declarations_only = true;

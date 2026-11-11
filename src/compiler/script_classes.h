@@ -21,12 +21,14 @@ namespace petrichor::compiler {
 // line as a declaration; 0 for none.
 uint64_t declaration_hash(const std::optional<std::string> &p_source);
 
+class ScriptClasses;
+
 // What a check read (architecture §2.1): other scripts, by declaration_hash(),
-// and each question asked of the project, with a test of whether the project
-// still gives the same answer.
+// and each question asked of the project, with a test of whether a later pass
+// still gets the same answer.
 struct Reads {
 	std::map<std::string, uint64_t> scripts;
-	std::map<std::string, std::function<bool(const ProjectApi &)>> answers;
+	std::map<std::string, std::function<bool(ScriptClasses &)>> answers;
 	// It read a file whose check was in progress, so no later check reuses it.
 	bool partial = false;
 
@@ -68,8 +70,7 @@ class ScriptClasses {
 		template <typename T>
 		T ask(const std::string &p_key, std::function<T(const ProjectApi &)> p_question) const;
 
-		std::vector<Scene> scenes_with_script(const std::string &p_script_path) const override;
-		std::vector<Scene> scenes_instancing(const std::string &p_scene_path) const override;
+		std::vector<std::string> scene_paths() const override;
 		std::optional<Scene> scene(const std::string &p_path) const override;
 		std::string main_scene() const override;
 		std::optional<ResourceInfo> resource(const std::string &p_path) const override;
@@ -99,11 +100,21 @@ class ScriptClasses {
 	std::vector<std::pair<std::string, Reads>> frames;
 	std::map<std::string, uint64_t> hashes; // declaration_hash() of files read.
 	std::pair<std::string, uint64_t> compiled; // The file being compiled, and its hash.
+	std::optional<std::vector<Scene>> listed; // The project's scenes, as scene_structure() gives them.
+	std::map<std::string, std::string> bases; // The base paths of the scripts on their nodes.
 
 	std::unique_ptr<File> parse_file(const std::string &p_file) const;
 	const ClassDecl *file_header(const std::string &p_file);
 	// Notes in the innermost check that it read `p_file`.
 	void read_script(const std::string &p_file);
+	// Notes in the innermost check the answer to a question, which it gets
+	// again in a later pass to see whether the answer changed. What the
+	// question reads is its own, not the check's.
+	template <typename T>
+	T answer(const std::string &p_key, std::function<T(ScriptClasses &)> p_question);
+	std::vector<Scene> scenes_where(const std::function<bool(const Scene &)> &p_uses);
+	// Whether the script is `p_base` or extends it, as the headers say.
+	bool is_or_extends(std::string p_script, const std::string &p_base);
 
 public:
 	ScriptClasses(const EngineApi &p_engine, const ProjectApi *p_project, bool p_declarations_only = false, bool p_record = false) :
@@ -150,6 +161,11 @@ public:
 	// The scene at the path as a script check reads it (architecture §6.4):
 	// its nodes, without what it stores, connects or names.
 	std::optional<Scene> scene_structure(const std::string &p_path);
+	// The reverse questions of a script check (architecture §6.4), with the
+	// scenes so: those in which a node has the script or a subclass attached,
+	// and those that instance the scene or inherit it.
+	std::vector<Scene> scenes_with_script(const std::string &p_script);
+	std::vector<Scene> scenes_instancing(const std::string &p_scene);
 	// Records what the compile of `p_file` from `p_source` reads, until
 	// end_compile(), after which nothing refers to its classes.
 	void begin_compile(const std::string &p_file, const std::string &p_source);

@@ -5,6 +5,7 @@
 #include "compiler/parser.h"
 
 #include <algorithm>
+#include <iterator>
 
 namespace petrichor::compiler {
 
@@ -146,13 +147,6 @@ Scene structure(Scene p_scene) {
 	return p_scene;
 }
 
-std::vector<Scene> structures(std::vector<Scene> p_scenes) {
-	for (Scene &scene : p_scenes) {
-		scene = structure(std::move(scene));
-	}
-	return p_scenes;
-}
-
 } // namespace
 
 uint64_t declaration_hash(const std::optional<std::string> &p_source) {
@@ -189,25 +183,29 @@ void Reads::merge(const Reads &p_other) {
 }
 
 template <typename T>
-T ScriptClasses::RecordedProject::ask(const std::string &p_key, std::function<T(const ProjectApi &)> p_question) const {
-	T answer = p_question(*classes.sources);
-	if (!classes.frames.empty()) {
-		classes.frames.back().second.answers.emplace(p_key, [answer, p_question](const ProjectApi &p_project) {
-			return p_question(p_project) == answer;
+T ScriptClasses::answer(const std::string &p_key, std::function<T(ScriptClasses &)> p_question) {
+	std::vector<std::pair<std::string, Reads>> asking;
+	asking.swap(frames);
+	T given = p_question(*this);
+	frames.swap(asking);
+	if (!frames.empty()) {
+		frames.back().second.answers.emplace(p_key, [given, p_question](ScriptClasses &r_classes) {
+			return p_question(r_classes) == given;
 		});
 	}
-	return answer;
+	return given;
 }
 
-std::vector<Scene> ScriptClasses::RecordedProject::scenes_with_script(const std::string &p_script_path) const {
-	return ask<std::vector<Scene>>("scenes with " + p_script_path, [p_script_path](const ProjectApi &p_project) {
-		return structures(p_project.scenes_with_script(p_script_path));
+template <typename T>
+T ScriptClasses::RecordedProject::ask(const std::string &p_key, std::function<T(const ProjectApi &)> p_question) const {
+	return classes.answer<T>(p_key, [p_question](ScriptClasses &r_classes) {
+		return p_question(*r_classes.sources);
 	});
 }
 
-std::vector<Scene> ScriptClasses::RecordedProject::scenes_instancing(const std::string &p_scene_path) const {
-	return ask<std::vector<Scene>>("scenes instancing the scene " + p_scene_path, [p_scene_path](const ProjectApi &p_project) {
-		return structures(p_project.scenes_instancing(p_scene_path));
+std::vector<std::string> ScriptClasses::RecordedProject::scene_paths() const {
+	return ask<std::vector<std::string>>("scene paths", [](const ProjectApi &p_project) {
+		return p_project.scene_paths();
 	});
 }
 
@@ -522,6 +520,52 @@ std::optional<Scene> ScriptClasses::scene_structure(const std::string &p_path) {
 	return recorded.ask<std::optional<Scene>>("structure of the scene " + p_path, [p_path](const ProjectApi &p_project) {
 		const std::optional<Scene> scene = p_project.scene(p_path);
 		return scene ? std::optional<Scene>(structure(*scene)) : scene;
+	});
+}
+
+std::vector<Scene> ScriptClasses::scenes_where(const std::function<bool(const Scene &)> &p_uses) {
+	if (!listed) {
+		listed.emplace();
+		for (const std::string &path : sources->scene_paths()) {
+			if (const std::optional<Scene> scene = sources->scene(path)) {
+				listed->push_back(structure(*scene));
+			}
+		}
+	}
+	std::vector<Scene> found;
+	std::copy_if(listed->begin(), listed->end(), std::back_inserter(found), p_uses);
+	return found;
+}
+
+bool ScriptClasses::is_or_extends(std::string p_script, const std::string &p_base) {
+	std::set<std::string> seen;
+	while (!p_script.empty() && p_script != p_base && seen.insert(p_script).second) {
+		const auto [base, added] = bases.try_emplace(p_script);
+		if (added && is_script_path(p_script)) {
+			// As saved, as the project indexes it, also while it is being compiled.
+			const std::string file = script_file(p_script);
+			const std::unique_ptr<File> saved = file == compiled.first ? parse_file(file) : nullptr;
+			const ClassDecl *decl = walk(file == compiled.first ? (saved ? &saved->decl : nullptr) : file_header(file), p_script);
+			base->second = decl ? base_path(*decl, p_script) : std::string();
+		}
+		p_script = base->second;
+	}
+	return p_script == p_base;
+}
+
+std::vector<Scene> ScriptClasses::scenes_with_script(const std::string &p_script) {
+	return answer<std::vector<Scene>>("scenes with " + p_script, [p_script](ScriptClasses &r_classes) {
+		return r_classes.scenes_where([&](const Scene &p_scene) {
+			return std::any_of(p_scene.nodes.begin(), p_scene.nodes.end(), [&](const SceneNode &p_node) { return r_classes.is_or_extends(p_node.script, p_script); });
+		});
+	});
+}
+
+std::vector<Scene> ScriptClasses::scenes_instancing(const std::string &p_scene) {
+	return answer<std::vector<Scene>>("scenes instancing the scene " + p_scene, [p_scene](ScriptClasses &r_classes) {
+		return r_classes.scenes_where([&](const Scene &p_each) {
+			return p_each.base == p_scene || std::any_of(p_each.nodes.begin(), p_each.nodes.end(), [&](const SceneNode &p_node) { return p_node.instance == p_scene; });
+		});
 	});
 }
 

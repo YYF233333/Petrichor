@@ -135,11 +135,9 @@ class ProjectApi {
 public:
 	virtual ~ProjectApi() = default;
 
-	// The scenes in which some node has the script attached.
-	virtual std::vector<Scene> scenes_with_script(const std::string &p_script_path) const = 0;
-	// The scenes that instance the scene at the path, or inherit it.
-	virtual std::vector<Scene> scenes_instancing(const std::string &p_scene_path) const = 0;
-	// A scene by its res:// path, for preload (spec §7.4); nullopt if there is none.
+	// The res:// paths of the project's scenes.
+	virtual std::vector<std::string> scene_paths() const = 0;
+	// A scene by its res:// path; nullopt if there is none.
 	virtual std::optional<Scene> scene(const std::string &p_path) const = 0;
 	// The res:// path of the main scene, or "" (spec §7.3).
 	virtual std::string main_scene() const = 0;

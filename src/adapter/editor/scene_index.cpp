@@ -2,7 +2,6 @@
 
 #include "adapter/editor/class_db_api.h"
 #include "adapter/editor/project_files.h"
-#include "adapter/editor/script_compiler.h"
 #include "adapter/pet_compiled.h"
 #include "adapter/pet_script.h"
 #include "runtime/text.h"
@@ -396,21 +395,6 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 	return entry;
 }
 
-thread_local int SceneIndex::pass_depth = 0;
-thread_local std::unique_ptr<SceneIndex::Snapshot> SceneIndex::snapshot;
-
-SceneIndex::Pass::Pass() {
-	if (pass_depth++ == 0) {
-		snapshot = std::make_unique<Snapshot>();
-	}
-}
-
-SceneIndex::Pass::~Pass() {
-	if (--pass_depth == 0) {
-		snapshot.reset();
-	}
-}
-
 void SceneIndex::forget(const std::string &p_path) const {
 	std::lock_guard<std::mutex> lock(mutex);
 	for (auto entry = scenes.begin(); entry != scenes.end();) {
@@ -423,54 +407,12 @@ void SceneIndex::forget(const std::string &p_path) const {
 	}
 }
 
-std::vector<compiler::Scene> SceneIndex::scenes_where(const std::function<bool(const compiler::Scene &)> &p_uses) const {
-	const Pass pass;
-	if (!snapshot->listed) {
-		for (const String &path : project_files(PackedStringArray({ "tscn", "scn" }))) {
-			snapshot->scenes.push_back(read(to_utf8(path)));
-		}
-		snapshot->listed = true;
+std::vector<std::string> SceneIndex::scene_paths() const {
+	std::vector<std::string> paths;
+	for (const String &path : project_files(PackedStringArray({ "tscn", "scn" }))) {
+		paths.push_back(to_utf8(path));
 	}
-	std::vector<compiler::Scene> result;
-	for (const std::shared_ptr<const Entry> &entry : snapshot->scenes) {
-		if (p_uses(entry->scene)) {
-			result.push_back(entry->scene);
-		}
-	}
-	return result;
-}
-
-// A scene with a script that extends this one uses it too.
-bool SceneIndex::is_or_extends(const std::string &p_script, const std::string &p_base) const {
-	const Pass pass;
-	std::set<std::string> seen;
-	for (std::string path = p_script; !path.empty() && seen.insert(path).second;) {
-		if (path == p_base) {
-			return true;
-		}
-		const auto found = snapshot->bases.find(path);
-		if (found != snapshot->bases.end()) {
-			path = found->second;
-			continue;
-		}
-		const String script = to_godot(path);
-		const std::string base = script.get_extension() == "pet" ? to_utf8(script_base_path(script, FileAccess::get_file_as_string(script))) : std::string();
-		snapshot->bases.emplace(path, base);
-		path = base;
-	}
-	return false;
-}
-
-std::vector<compiler::Scene> SceneIndex::scenes_with_script(const std::string &p_script_path) const {
-	return scenes_where([&](const compiler::Scene &p_scene) {
-		return std::any_of(p_scene.nodes.begin(), p_scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return is_or_extends(p_node.script, p_script_path); });
-	});
-}
-
-std::vector<compiler::Scene> SceneIndex::scenes_instancing(const std::string &p_scene_path) const {
-	return scenes_where([&](const compiler::Scene &p_scene) {
-		return p_scene.base == p_scene_path || std::any_of(p_scene.nodes.begin(), p_scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return p_node.instance == p_scene_path; });
-	});
+	return paths;
 }
 
 std::optional<compiler::Scene> SceneIndex::scene(const std::string &p_path) const {

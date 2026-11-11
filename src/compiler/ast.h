@@ -653,6 +653,13 @@ inline std::string script_file(const std::string &p_path) {
 	return p_path.substr(0, p_path.find("::"));
 }
 
+// A class of this language, by its path: a script's, or an inner class's,
+// which the tests' unnamed file has too (spec §2.1).
+inline bool is_script_path(const std::string &p_path) {
+	const std::string file = script_file(p_path);
+	return file.empty() ? !p_path.empty() : file.size() > 4 && file.compare(file.size() - 4, 4, ".pet") == 0;
+}
+
 // "res://a/./b/../c" as "res://a/c", as the engine's String::simplify_path()
 // leaves it, so that a path matches the one the project knows the file by.
 inline std::string simplify_path(const std::string &p_path) {

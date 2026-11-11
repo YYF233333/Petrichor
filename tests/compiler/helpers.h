@@ -36,11 +36,7 @@ public:
 	// Adds a script of this language, with its class_name if it has one.
 	void add_script(const std::string &p_path, const std::string &p_source, const std::string &p_class_name = std::string());
 
-	// Whether the script is `p_base` or extends it.
-	bool extends_script(const std::string &p_script, const std::string &p_base) const;
-
-	std::vector<compiler::Scene> scenes_with_script(const std::string &p_script_path) const override;
-	std::vector<compiler::Scene> scenes_instancing(const std::string &p_scene_path) const override;
+	std::vector<std::string> scene_paths() const override;
 	std::optional<compiler::Scene> scene(const std::string &p_path) const override;
 	std::string main_scene() const override { return main; }
 	std::optional<compiler::ResourceInfo> resource(const std::string &p_path) const override;

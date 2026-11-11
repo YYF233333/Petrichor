@@ -1,11 +1,8 @@
 #include "helpers.h"
 
 #include "compiler/analysis.h"
-#include "compiler/script_classes.h"
 #include "conventions.h"
 #include "fake_engine.h"
-
-#include <set>
 
 namespace petrichor::tests {
 
@@ -32,37 +29,12 @@ void FakeProject::add_script(const std::string &p_path, const std::string &p_sou
 	}
 }
 
-bool FakeProject::extends_script(const std::string &p_script, const std::string &p_base) const {
-	compiler::ScriptClasses classes(fake_engine(), this);
-	std::set<std::string> seen;
-	for (std::string path = p_script; !path.empty() && seen.insert(path).second;) {
-		if (path == p_base) {
-			return true;
-		}
-		const auto *header = classes.header(path);
-		path = header ? classes.base_path(*header, path) : std::string();
-	}
-	return false;
-}
-
-std::vector<compiler::Scene> FakeProject::scenes_with_script(const std::string &p_script_path) const {
-	std::vector<compiler::Scene> result;
+std::vector<std::string> FakeProject::scene_paths() const {
+	std::vector<std::string> paths;
 	for (const compiler::Scene &scene : scenes) {
-		if (std::any_of(scene.nodes.begin(), scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return extends_script(p_node.script, p_script_path); })) {
-			result.push_back(scene);
-		}
+		paths.push_back(scene.path);
 	}
-	return result;
-}
-
-std::vector<compiler::Scene> FakeProject::scenes_instancing(const std::string &p_scene_path) const {
-	std::vector<compiler::Scene> result;
-	for (const compiler::Scene &scene : scenes) {
-		if (scene.base == p_scene_path || std::any_of(scene.nodes.begin(), scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return p_node.instance == p_scene_path; })) {
-			result.push_back(scene);
-		}
-	}
-	return result;
+	return paths;
 }
 
 std::optional<compiler::Scene> FakeProject::scene(const std::string &p_path) const {

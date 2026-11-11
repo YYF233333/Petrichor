@@ -3,7 +3,6 @@
 #include "compiler/project_api.h"
 
 #include <cstdint>
-#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -31,37 +30,12 @@ class SceneIndex : public compiler::ProjectApi {
 	};
 	mutable std::mutex mutex; // Only around `scenes`: loading takes the engine's locks.
 	mutable std::map<std::string, std::shared_ptr<const Entry>> scenes;
-	// What a pass has read of the project.
-	struct Snapshot {
-		bool listed = false;
-		std::vector<std::shared_ptr<const Entry>> scenes;
-		std::map<std::string, std::string> bases; // Of scripts of this language; "" for none.
-	};
-	static thread_local int pass_depth;
-	static thread_local std::unique_ptr<Snapshot> snapshot;
 
 	// The scene, read again unless it is up to date.
 	std::shared_ptr<const Entry> read(const std::string &p_path) const;
-	// The scenes for which `p_uses` holds.
-	std::vector<compiler::Scene> scenes_where(const std::function<bool(const compiler::Scene &)> &p_uses) const;
-	// Whether the script is `p_base` or extends it, as the headers say.
-	bool is_or_extends(const std::string &p_script, const std::string &p_base) const;
 
 public:
-	// An analysis, such as a build or the compilation of a script with the
-	// scripts it uses, sees the project's files as they were when it began:
-	// scenes are listed and checked for changes once, not at every query.
-	// Passes nest, and the outermost on a thread counts.
-	class Pass {
-	public:
-		Pass();
-		~Pass();
-		Pass(const Pass &) = delete;
-		Pass &operator=(const Pass &) = delete;
-	};
-
-	std::vector<compiler::Scene> scenes_with_script(const std::string &p_script_path) const override;
-	std::vector<compiler::Scene> scenes_instancing(const std::string &p_scene_path) const override;
+	std::vector<std::string> scene_paths() const override;
 	std::optional<compiler::Scene> scene(const std::string &p_path) const override;
 	std::string main_scene() const override;
 	std::optional<compiler::ResourceInfo> resource(const std::string &p_path) const override;

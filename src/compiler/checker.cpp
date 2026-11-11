@@ -183,13 +183,6 @@ size_t word_start(const std::string &p_text, size_t p_cursor) {
 	return p_cursor;
 }
 
-// A class of this language, by its path: a script's, or an inner class's,
-// which the tests' unnamed file has too (spec §2.1).
-bool is_script_path(const std::string &p_path) {
-	const std::string file = script_file(p_path);
-	return file.empty() ? !p_path.empty() : file.size() > 4 && file.compare(file.size() - 4, 4, ".pet") == 0;
-}
-
 class Checker;
 
 // The classes of one file, each checked by a checker of its own (spec §2.1,
@@ -3385,7 +3378,7 @@ class Checker : public ClassRelation {
 			return;
 		}
 		std::string missing = walk.missing;
-		const std::vector<Scene> outers = p_depth > 32 ? std::vector<Scene>() : options.project->scenes_instancing(p_scene.path);
+		const std::vector<Scene> outers = p_depth > 32 ? std::vector<Scene>() : classes.scenes_instancing(p_scene.path);
 		bool instanced = false;
 		for (const Scene &outer : walk.leaves ? outers : std::vector<Scene>()) {
 			for (const SceneNode &node : outer.nodes) {
@@ -10687,7 +10680,7 @@ class Checker : public ClassRelation {
 					check_at(scene, node.path);
 					continue;
 				}
-				for (const Scene &outer : options.project->scenes_instancing(scene.path)) {
+				for (const Scene &outer : classes.scenes_instancing(scene.path)) {
 					for (const SceneNode &instance : outer.nodes) {
 						if (instance.instance == scene.path && instance.script.empty()) {
 							check_at(outer, instance.path);
@@ -11861,7 +11854,7 @@ private:
 		}
 		// Only a file's class is set on nodes in scenes (spec §4.1).
 		if (options.project && !options.declarations_only && !options.path.empty() && cls.name.empty()) {
-			scenes = options.project->scenes_with_script(options.path);
+			scenes = classes.scenes_with_script(options.path);
 		}
 		declare_enums();
 		declare_members();
