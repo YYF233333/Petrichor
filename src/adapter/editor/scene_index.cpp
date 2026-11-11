@@ -177,6 +177,9 @@ void read_resources(const String &p_file, const Variant &p_value, compiler::Scen
 	if (ours) {
 		r_files.insert(read.script);
 	}
+	// Its placeholder then lists no property the file stores.
+	const PetScript *pet = Object::cast_to<PetScript>(script.ptr());
+	read.unread = pet && !pet->_is_valid();
 	const TypedArray<Dictionary> properties = resource->get_property_list();
 	for (int64_t i = 0; i < properties.size(); i++) {
 		const Dictionary property = properties[i];

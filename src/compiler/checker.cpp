@@ -10272,13 +10272,22 @@ class Checker : public ClassRelation {
 			return;
 		}
 		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
-			check(p_scene, p_node.properties, p_node.path, p_node.path);
+			if (placed_class(p_node.script.empty() ? p_node.instance_script : p_node.script)) {
+				check(p_scene, p_node.properties, p_node.path, p_node.path);
+			}
 		});
 		for (const SceneResource &resource : scenes[0].resources) {
-			if (extends_script(resource.script, options.path)) {
+			if (extends_script(resource.script, options.path) && !resource.unread && placed_class(resource.script)) {
 				check(scenes[0], resource.properties, resource.shown(), std::string());
 			}
 		}
+	}
+
+	// The class of a node or a resource with the script that extends this
+	// one; null when the script cannot be read or declared. Its own check
+	// reports why, and the checks of the values it is given wait for it.
+	const ClassDecl *placed_class(const std::string &p_script) const {
+		return is_script_path(p_script) ? script_decl(p_script) : &cls;
 	}
 
 	// A resource has no ready phase, so the file gives each member of a
@@ -10287,13 +10296,13 @@ class Checker : public ClassRelation {
 	// all the same: reading one without a value fails the check at run time.
 	void check_resource_values() {
 		for (const SceneResource &resource : scenes[0].resources) {
-			if (!extends_script(resource.script, options.path)) {
+			const ClassDecl *placed = extends_script(resource.script, options.path) && !resource.unread ? placed_class(resource.script) : nullptr;
+			if (!placed) {
 				continue;
 			}
-			const ClassDecl *placed = is_script_path(resource.script) ? script_decl(resource.script) : &cls;
 			for (const VarDecl &member : cls.members) {
 				const bool given = std::any_of(resource.properties.begin(), resource.properties.end(), [&](const auto &p_property) { return p_property.first == member.name && p_property.second.type != "Nil"; });
-				if (member.must_assign && !given && !(placed && init_assigns(*placed, member.name))) {
+				if (member.must_assign && !given && !init_assigns(*placed, member.name)) {
 					const std::string why = member.is_export ? ", an export that must be assigned." : ", which must be assigned and is not exported.";
 					error_in_scene(TokenRange{ member.name_token, member.name_token }, scenes[0], std::string(), scenes[0].path + ": " + resource.shown() + " has no value for \"" + member.name + "\"" + why);
 					errors.back().runs = true;
@@ -10318,12 +10327,12 @@ class Checker : public ClassRelation {
 		}
 		for (const ViewNode &node : view_of(scene)) {
 			const std::string &script = node.node.script.empty() ? node.node.instance_script : node.node.script;
-			if ((!main && node.path == ".") || !extends_script(script, options.path)) {
+			const ClassDecl *placed = (main || node.path != ".") && extends_script(script, options.path) ? placed_class(script) : nullptr;
+			if (!placed) {
 				continue;
 			}
-			const ClassDecl *placed = is_script_path(script) ? script_decl(script) : &cls;
 			for (const VarDecl &member : cls.members) {
-				if (member.is_export && member.must_assign && !(placed && init_assigns(*placed, member.name)) && !stored_value(scene, node.path, member.name).value_or(false)) {
+				if (member.is_export && member.must_assign && !init_assigns(*placed, member.name) && !stored_value(scene, node.path, member.name).value_or(false)) {
 					error_in_scene(TokenRange{ member.name_token, member.name_token }, scene, node.path, scene.path + ": " + (node.path == "." ? std::string("the root") : node.path) + " has no value for \"" + member.name + "\", an export that must be assigned.");
 					errors.back().runs = true;
 				}

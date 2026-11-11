@@ -100,6 +100,9 @@ struct SceneResource {
 	// null, which the check takes as none. Of a resource without a script of
 	// this language, only the values that hold scenes.
 	std::vector<std::pair<std::string, SceneValue>> properties;
+	// Its script of this language failed to compile in the editor, so its
+	// values were not read: the checks of them wait for the script.
+	bool unread = false;
 
 	// As messages name it: "the resource", or "the resource Resource_x1" for a
 	// sub-resource.
@@ -108,7 +111,7 @@ struct SceneResource {
 		return at == std::string::npos ? std::string("the resource") : "the resource " + path.substr(at + 2);
 	}
 
-	bool operator==(const SceneResource &p_other) const { return path == p_other.path && script == p_other.script && properties == p_other.properties; }
+	bool operator==(const SceneResource &p_other) const { return path == p_other.path && script == p_other.script && properties == p_other.properties && unread == p_other.unread; }
 };
 
 // A scene, or a resource file as one without nodes: the unit of the resource
