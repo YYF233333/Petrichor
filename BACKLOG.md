@@ -5,7 +5,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 ## Language
 
 - Of `_init` on Node and Resource scripts (spec §6.2):
-  - A member that `_init` in another file assigns counts as unassigned, since the checker does not check that body. So `instantiate(...)` asks for one that the root's `_init` assigns. A child's `_ready` may not read one that a base's `_init` assigns.
+  - A member that `_init` in another file assigns counts as unassigned, since the checker does not check that body. So `instantiate(...)` asks for one that the root's `_init` assigns. A child's `_ready` and `@onready` initializers may not read one that a base's `_init` assigns.
   - A scene or `.tres` using a script whose `_init` has required parameters is a compile error. Now the engine's construction gives the program error.
 - A must-assign member without pub that no code of its file or its subclasses writes (spec §4.2). It needs each file's list of the inherited members it writes, and the subclasses of a class.
 - Assignments by ancestors (spec §6.2), which the checker assumes without looking for them.

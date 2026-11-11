@@ -10549,10 +10549,12 @@ class Checker : public ClassRelation {
 
 	// The node's members that ancestors assign, once they are ready (spec
 	// §6.2, §6.4): where a scene gives the node an owner, those that must be
-	// assigned and are not exported, unless _init assigns them. Its own _ready
-	// may not read them before it awaits.
+	// assigned and are not exported, unless _init assigns them. Its own
+	// @onready initializers, which run first, may not read them, nor its
+	// _ready before it awaits.
 	void check_ready_reads() {
-		if (!ready) {
+		const bool initializes = std::any_of(cls.members.begin(), cls.members.end(), [](const VarDecl &p_member) { return p_member.is_onready && p_member.initializer; });
+		if (!ready && !initializes) {
 			return;
 		}
 		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
@@ -10561,12 +10563,23 @@ class Checker : public ClassRelation {
 				return;
 			}
 			std::set<int> reported;
+			bool initializer = true;
 			const EarlyReads reads{ [&](int p_member) { return cls.all_members[p_member]->must_assign && !cls.all_members[p_member]->is_export && !init_assigned.count(p_member); },
 				[&](const Expr &p_read) {
-					error_in_scene(p_read.range, p_scene, p_node.path, p_scene.path + ": " + p_node.path + " reads \"" + p_read.text + "\" in _ready, before the ancestors that assign it are ready. Read it after await get_parent().ready, or let the parent's _ready configure the node.");
+					const std::string where = initializer ? "in an @onready initializer" : "in _ready";
+					const std::string fix = initializer ? "in _ready after" : "after";
+					error_in_scene(p_read.range, p_scene, p_node.path, p_scene.path + ": " + p_node.path + " reads \"" + p_read.text + "\" " + where + ", before the ancestors that assign it are ready. Read it " + fix + " await get_parent().ready, or let the parent's _ready configure the node.");
 				},
 				true };
-			init_block(ready->body, std::set<int>(), reported, reads);
+			for (const VarDecl &member : cls.members) {
+				if (member.is_onready && member.initializer) {
+					init_reads(*member.initializer, std::set<int>(), reported, reads);
+				}
+			}
+			initializer = false;
+			if (ready) {
+				init_block(ready->body, std::set<int>(), reported, reads);
+			}
 		});
 	}
 

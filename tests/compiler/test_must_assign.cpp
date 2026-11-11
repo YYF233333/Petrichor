@@ -58,6 +58,10 @@ TEST_CASE("a node with an owner reads in its _ready no member its ancestors assi
 	CHECK(messages(compile_in("@parent(Node)\n" + members + "async func _ready():\n\tawait get_parent().ready\n\tprint(target)\n", project)).empty());
 	CHECK(messages(compile_in(members + "func _ready():\n\ttarget = self\n\tprint(target, exported)\n", project)).empty());
 	CHECK(messages(compile_in(members + "func _init():\n\ttarget = Node.new()\n\nfunc _ready():\n\tprint(target)\n", project)).empty());
+	// The @onready initializers run before _ready.
+	const compiler::CompileResult initialized = compile_in(members + "@onready var aim := target\n", project);
+	REQUIRE(initialized.errors.size() == 1);
+	CHECK(initialized.errors[0].message == "res://squad.tscn: Child reads \"target\" in an @onready initializer, before the ancestors that assign it are ready. Read it in _ready after await get_parent().ready, or let the parent's _ready configure the node.");
 	// The root of a scene has no owner: who instantiates it gives the member.
 	project.scenes[0].nodes = { { ".", "Node", "res://test.pet" } };
 	CHECK(messages(compile_in(members + "func _ready():\n\tprint(target, exported)\n", project)).empty());
