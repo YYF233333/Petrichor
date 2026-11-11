@@ -83,7 +83,7 @@ func _ready() -> void:
 	add_child(v)
 	var unready: ValuesCheck = ValuesCheck.new()
 	add_child(unready)
-	_check_errors(["values_check.pet:139: \"texture\" has not been assigned."], "the program error names the export that was not assigned")
+	_check_errors(["values_check.pet:139: \"texture\" has not been assigned before ready. Assign it on every path of _init(), set it in the scene, or pass it to new(texture = ...) or instantiate(texture = ...), so that the compiler checks it."], "the program error names the export that was not assigned, and the ways to assign it that the compiler checks, the scene among them")
 	_check(v.readied and not unready.readied, "a node that becomes ready without an export it must be assigned stops before _ready()")
 	# Members that must be assigned and are not exported (spec §6.2, §6.4).
 	var given := MustAssignCheck.new()
@@ -93,7 +93,7 @@ func _ready() -> void:
 	var unassigned := MustAssignCheck.new()
 	unassigned.target = self
 	add_child(unassigned)
-	_check_errors(["must_assign_check.pet:11: \"hit\" has not been assigned."], "a node made without a member its creator must assign stops when it becomes ready")
+	_check_errors(["must_assign_check.pet:11: \"hit\" has not been assigned before ready. Assign it on every path of _init(), or pass it to new(hit = ...) or instantiate(hit = ...), so that the compiler checks it."], "a node made without a member its creator must assign stops when it becomes ready, and the error names the ways the compiler checks, but not the scene")
 	_check(given.readied and given.damage() == 3 and not unassigned.readied, "members the creator assigned are there when the node is ready")
 	var unread := MustAssignCheck.new()
 	unread.damage()
@@ -101,7 +101,7 @@ func _ready() -> void:
 	_check_errors(["must_assign_check.pet:18: \"hit\" has not been assigned."], "reading a member before it is assigned is a program error")
 	var ancestors: Node = load("res://language/must_assign.tscn").instantiate()
 	add_child(ancestors)
-	_check_errors(["must_assign_check.pet:11: \"hit\" has not been assigned by the time the scene is ready."], "ancestors assign members in their _ready, and one that awaits first is too late")
+	_check_errors(["must_assign_check.pet:11: \"hit\" has not been assigned by the time the scene is ready. Assign it on every path of _init(), or in an ancestor's _ready() through $Child.hit = ... or an @onready reference, so that the compiler checks it."], "ancestors assign members in their _ready, and one that awaits first is too late")
 	_check(ancestors.get_node("Child").damage() == 5, "a member an ancestor assigned is there once the scene is ready")
 	var creator := MustAssignCreator.new()
 	add_child(creator)

@@ -287,6 +287,18 @@ TaskRef signal_task(const InstanceContext &p_context, const Signal &p_signal, co
 	return task;
 }
 
+// A member that must be assigned and is not as the node becomes ready, or as
+// its scene does for one that ancestors assign, with the ways to assign it
+// that the compiler checks (spec §6.2).
+String unassigned_at_ready(const ClassImage &p_image, uint32_t p_member, bool p_by_ancestors) {
+	const String name = p_image.member_names[p_member];
+	if (p_by_ancestors) {
+		return vformat("\"%s\" has not been assigned by the time the scene is ready. Assign it on every path of _init(), or in an ancestor's _ready() through $Child.%s = ... or an @onready reference, so that the compiler checks it.", name, name);
+	}
+	const char *scene = p_image.module.members[p_member].is_export ? "set it in the scene, " : "";
+	return vformat("\"%s\" has not been assigned before ready. Assign it on every path of _init(), %sor pass it to new(%s = ...) or instantiate(%s = ...), so that the compiler checks it.", name, scene, name, name);
+}
+
 // The members of the class that ancestors must have assigned once the owner
 // of the node is ready (spec §6.4); one an ancestor assigns after an await is
 // too late.
@@ -297,7 +309,7 @@ void check_from_ancestors(const ClassImage &p_image, const InstanceStorage &p_st
 	for (uint32_t m = p_image.module.inherited_members; m < p_image.module.members.size(); m++) {
 		const bytecode::Member &member = p_image.module.members[m];
 		if (member.must_assign && !member.is_export && !p_image.assigned(p_storage.members, m)) {
-			vm::report_error(p_image, "_ready", int(member.line), vformat("\"%s\" has not been assigned by the time the scene is ready.", p_image.member_names[m]));
+			vm::report_error(p_image, "_ready", int(member.line), unassigned_at_ready(p_image, m, true));
 		}
 	}
 }
@@ -960,7 +972,7 @@ class Execution {
 				deferred = true;
 				continue;
 			}
-			return fail_unassigned(p_fn, int(member.line), image, m);
+			return fail(p_fn, int(member.line), unassigned_at_ready(image, m, false));
 		}
 		if (deferred) {
 			std::function<void(const Variant &)> check = [image = image.shared_from_this(), storage = context.storage](const Variant &) { check_from_ancestors(*image, *storage); };
