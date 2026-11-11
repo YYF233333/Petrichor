@@ -467,14 +467,6 @@ std::vector<compiler::Scene> SceneIndex::scenes_with_script(const std::string &p
 	});
 }
 
-std::vector<compiler::Scene> SceneIndex::scenes_instancing_script(const std::string &p_script_path) const {
-	return scenes_where([&](const compiler::Scene &p_scene) {
-		return std::any_of(p_scene.nodes.begin(), p_scene.nodes.end(), [&](const compiler::SceneNode &p_node) {
-			return p_node.is_instance && p_node.script.empty() && is_or_extends(p_node.instance_script, p_script_path);
-		});
-	});
-}
-
 std::vector<compiler::Scene> SceneIndex::scenes_instancing(const std::string &p_scene_path) const {
 	return scenes_where([&](const compiler::Scene &p_scene) {
 		return p_scene.base == p_scene_path || std::any_of(p_scene.nodes.begin(), p_scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return p_node.instance == p_scene_path; });

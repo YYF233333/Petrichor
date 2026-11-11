@@ -137,9 +137,6 @@ public:
 
 	// The scenes in which some node has the script attached.
 	virtual std::vector<Scene> scenes_with_script(const std::string &p_script_path) const = 0;
-	// The scenes that instance a scene whose root has the script, without
-	// attaching another to it there.
-	virtual std::vector<Scene> scenes_instancing_script(const std::string &p_script_path) const = 0;
 	// The scenes that instance the scene at the path, or inherit it.
 	virtual std::vector<Scene> scenes_instancing(const std::string &p_scene_path) const = 0;
 	// A scene by its res:// path, for preload (spec §7.4); nullopt if there is none.

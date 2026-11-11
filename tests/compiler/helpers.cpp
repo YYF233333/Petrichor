@@ -45,28 +45,14 @@ bool FakeProject::extends_script(const std::string &p_script, const std::string 
 	return false;
 }
 
-std::vector<compiler::Scene> FakeProject::scenes_with(bool (*p_uses)(const FakeProject &, const compiler::SceneNode &, const std::string &), const std::string &p_script_path) const {
+std::vector<compiler::Scene> FakeProject::scenes_with_script(const std::string &p_script_path) const {
 	std::vector<compiler::Scene> result;
 	for (const compiler::Scene &scene : scenes) {
-		if (std::any_of(scene.nodes.begin(), scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return p_uses(*this, p_node, p_script_path); })) {
+		if (std::any_of(scene.nodes.begin(), scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return extends_script(p_node.script, p_script_path); })) {
 			result.push_back(scene);
 		}
 	}
 	return result;
-}
-
-std::vector<compiler::Scene> FakeProject::scenes_with_script(const std::string &p_script_path) const {
-	return scenes_with([](const FakeProject &p_project, const compiler::SceneNode &p_node, const std::string &p_script) {
-		return p_project.extends_script(p_node.script, p_script);
-	},
-			p_script_path);
-}
-
-std::vector<compiler::Scene> FakeProject::scenes_instancing_script(const std::string &p_script_path) const {
-	return scenes_with([](const FakeProject &p_project, const compiler::SceneNode &p_node, const std::string &p_script) {
-		return p_node.is_instance && p_node.script.empty() && p_project.extends_script(p_node.instance_script, p_script);
-	},
-			p_script_path);
 }
 
 std::vector<compiler::Scene> FakeProject::scenes_instancing(const std::string &p_scene_path) const {

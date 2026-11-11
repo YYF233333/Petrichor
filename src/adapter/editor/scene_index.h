@@ -61,7 +61,6 @@ public:
 	};
 
 	std::vector<compiler::Scene> scenes_with_script(const std::string &p_script_path) const override;
-	std::vector<compiler::Scene> scenes_instancing_script(const std::string &p_script_path) const override;
 	std::vector<compiler::Scene> scenes_instancing(const std::string &p_scene_path) const override;
 	std::optional<compiler::Scene> scene(const std::string &p_path) const override;
 	std::string main_scene() const override;

@@ -65,6 +65,13 @@ TEST_CASE("a node with an owner reads in its _ready no member its ancestors assi
 	// The root of a scene has no owner: who instantiates it gives the member.
 	project.scenes[0].nodes = { { ".", "Node", "res://test.pet" } };
 	CHECK(messages(compile_in(members + "func _ready():\n\tprint(target, exported)\n", project)).empty());
+	// Unless a scene instances it, where its root owns the instance.
+	compiler::Scene level;
+	level.path = "res://level.tscn";
+	level.nodes = { { ".", "Node", "" }, { "Squad", "Node", "", true, "res://test.pet" } };
+	level.nodes[1].instance = scene.path;
+	project.scenes.push_back(level);
+	CHECK(contains(messages(compile_in(members + "func _ready():\n\tprint(target)\n", project)), "res://level.tscn: Squad reads \"target\" in _ready"));
 }
 
 TEST_CASE("a subclass on a node with an owner has a base whose _init assigns what its @onready initializer reads") {

@@ -10091,24 +10091,12 @@ class Checker : public ClassRelation {
 		}
 	}
 
-	// Each node that scenes give the class: those with it or a subclass
-	// attached, and the instances of scenes whose root has one. The check of
-	// a scene finds those in that scene.
+	// Each node of the scene whose check this is that has the class or a
+	// subclass: attached, or as the root of a scene it instances.
 	void for_each_placement(const std::function<void(const Scene &, const SceneNode &)> &p_check) {
-		const bool instances = !options.scene.empty();
 		for (const Scene &scene : scenes) {
 			for (const SceneNode &node : scene.nodes) {
-				if (extends_script(node.script, options.path) || (instances && node.is_instance && node.script.empty() && extends_script(node.instance_script, options.path))) {
-					p_check(scene, node);
-				}
-			}
-		}
-		if (!options.project || options.declarations_only || options.path.empty()) {
-			return;
-		}
-		for (const Scene &scene : options.project->scenes_instancing_script(options.path)) {
-			for (const SceneNode &node : scene.nodes) {
-				if (node.is_instance && node.script.empty() && extends_script(node.instance_script, options.path)) {
+				if (extends_script(node.script.empty() ? node.instance_script : node.script, options.path)) {
 					p_check(scene, node);
 				}
 			}
@@ -10651,24 +10639,21 @@ class Checker : public ClassRelation {
 	// §6.2, §6.4): where a scene gives the node an owner, those that must be
 	// assigned and are not exported, unless _init assigns them. Its own
 	// @onready initializers, which run first, may not read them, nor its
-	// _ready before it awaits.
+	// _ready before it awaits. A node has an owner unless it is a scene's
+	// root, which gets one where another scene instances that scene.
 	void check_ready_reads() {
 		const bool initializes = std::any_of(cls.members.begin(), cls.members.end(), [](const VarDecl &p_member) { return p_member.is_onready && p_member.initializer; });
 		if (!ready && !initializes) {
 			return;
 		}
-		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
-			const ViewNode *placed = view_node(p_scene, p_node.path);
-			if (!placed || placed->owner.empty()) {
-				return;
-			}
+		const auto check_at = [&](const Scene &p_scene, const std::string &p_node) {
 			std::set<int> reported;
 			bool initializer = true;
 			const EarlyReads reads{ [&](int p_member) { return cls.all_members[p_member]->must_assign && !cls.all_members[p_member]->is_export && !init_assigned.count(p_member); },
 				[&](const Expr &p_read) {
 					const std::string where = initializer ? "in an @onready initializer" : "in _ready";
 					const std::string fix = initializer ? "in _ready after" : "after";
-					error_in_scene(p_read.range, p_scene, p_node.path, p_scene.path + ": " + p_node.path + " reads \"" + p_read.text + "\" " + where + ", before the ancestors that assign it are ready. Read it " + fix + " await get_parent().ready, or let the parent's _ready configure the node.");
+					error_in_scene(p_read.range, p_scene, p_node, p_scene.path + ": " + p_node + " reads \"" + p_read.text + "\" " + where + ", before the ancestors that assign it are ready. Read it " + fix + " await get_parent().ready, or let the parent's _ready configure the node.");
 				},
 				true };
 			for (const VarDecl &member : cls.members) {
@@ -10680,7 +10665,25 @@ class Checker : public ClassRelation {
 			if (ready) {
 				init_block(ready->body, std::set<int>(), reported, reads);
 			}
-		});
+		};
+		for (const Scene &scene : scenes) {
+			for (const SceneNode &node : scene.nodes) {
+				if (!extends_script(node.script, options.path)) {
+					continue;
+				}
+				if (node.path != ".") {
+					check_at(scene, node.path);
+					continue;
+				}
+				for (const Scene &outer : options.project->scenes_instancing(scene.path)) {
+					for (const SceneNode &instance : outer.nodes) {
+						if (instance.instance == scene.path && instance.script.empty()) {
+							check_at(outer, instance.path);
+						}
+					}
+				}
+			}
+		}
 	}
 
 	// Whether evaluating an expression may suspend, outside its lambdas.

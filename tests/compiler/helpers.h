@@ -39,10 +39,7 @@ public:
 	// Whether the script is `p_base` or extends it.
 	bool extends_script(const std::string &p_script, const std::string &p_base) const;
 
-	std::vector<compiler::Scene> scenes_with(bool (*p_uses)(const FakeProject &, const compiler::SceneNode &, const std::string &), const std::string &p_script_path) const;
-
 	std::vector<compiler::Scene> scenes_with_script(const std::string &p_script_path) const override;
-	std::vector<compiler::Scene> scenes_instancing_script(const std::string &p_script_path) const override;
 	std::vector<compiler::Scene> scenes_instancing(const std::string &p_scene_path) const override;
 	std::optional<compiler::Scene> scene(const std::string &p_path) const override;
 	std::string main_scene() const override { return main; }
