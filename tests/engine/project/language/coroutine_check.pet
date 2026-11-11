@@ -178,3 +178,9 @@ pub async func join_freeing_thread() -> bool:
 
 func free_ref():
 	var r := CoroutineRef.new()
+
+# Tasks compare by identity, and key a Dictionary (spec §5.2).
+pub func same_tasks(t: Task[int], u: Task[int]) -> String:
+	var maybe: Task[int]? = t
+	var keyed: Dictionary[Task[int], String] = {t: "t", u: "u"}
+	return str(t == t) + " " + str(t != u) + " " + str(maybe == t) + " " + keyed[t] + keyed[u]

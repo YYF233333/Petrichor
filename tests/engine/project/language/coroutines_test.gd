@@ -303,6 +303,7 @@ func run(p_errors: ErrorLog) -> int:
 	c.tick.emit(2)
 	check(results == ["0 6 true true"], "Task.any() and Task.all() wait for the tasks of an Array, which keeps them boxed")
 	results.clear()
+	check(c.same_tasks(c.start(), c.start()) == "true true true tu", "tasks compare by identity and key a Dictionary (spec §5.2)")
 	collect(c.any_of_none(), results)
 	check(results == [null], "Task.any() of an empty Array fails")
 	expect_errors(["coroutine_check.pet:169: Task.any() of an empty Array has no task to wait for."], "Task.any() of an empty Array is a program error")

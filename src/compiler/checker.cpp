@@ -3991,6 +3991,15 @@ class Checker : public ClassRelation {
 			}
 			return Type::of(TypeKind::Bool);
 		}
+		// Tasks by identity too (spec §5.2), when one could be the other.
+		if ((p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual) && p_left.kind == TypeKind::Task && p_right.kind == TypeKind::Task) {
+			Type left = p_left;
+			Type right = p_right;
+			left.nullable = right.nullable = false;
+			if (assignable(left, right) || assignable(right, left)) {
+				return Type::of(TypeKind::Bool);
+			}
+		}
 		if (p_left.kind == TypeKind::Enum || p_right.kind == TypeKind::Enum) {
 			return binary_type(p_op, as_int(p_left), as_int(p_right), p_at);
 		}
