@@ -64,12 +64,15 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 	checks++;
 	classes->begin_compile(p_path, std::string());
 	const std::optional<Scene> scene = classes->get_project()->scene(p_path);
-	// The scripts on its nodes; when its tracks or synchronized properties
-	// name members, also those in the scenes it instances, which they reach.
+	// The scripts on its nodes and on the roots of the scenes it instances,
+	// with the scripts they extend, whose checks look at their nodes too. When
+	// its tracks or synchronized properties name members, also those deeper in
+	// the scenes it instances, which they reach.
 	std::set<std::string> scripts;
-	const auto add = [&](const std::string &p_script) {
-		if (p_script.size() > 4 && p_script.compare(p_script.size() - 4, 4, ".pet") == 0) {
-			scripts.insert(p_script);
+	const auto add = [&](std::string p_script) {
+		while (p_script.size() > 4 && p_script.compare(p_script.size() - 4, 4, ".pet") == 0 && scripts.insert(p_script).second) {
+			const ClassDecl *header = classes->header(p_script);
+			p_script = header ? classes->base_path(*header, p_script) : std::string();
 		}
 	};
 	const bool deep = scene && !scene->named_members.empty();
@@ -79,7 +82,7 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 		const Scene each = std::move(pending.back());
 		pending.pop_back();
 		for (const SceneNode &node : each.nodes) {
-			add(node.script);
+			add(node.script.empty() ? node.instance_script : node.script);
 			if (!deep || node.instance.empty()) {
 				continue;
 			}

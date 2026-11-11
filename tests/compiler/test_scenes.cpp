@@ -416,17 +416,19 @@ TEST_CASE("@owner(T): owner has type T, and scenes give the script such an owner
 	project.scenes = { component, brick };
 	const std::string source = "@owner(Combat.Combatant)\nextends Node\n\nfunc f() -> int:\n\towner.health -= 1\n\treturn owner.health\n";
 	CHECK(messages(compile_in(source, project)).empty());
+	CHECK(check_scenes_in(source, project).errors.empty());
 
+	// The scenes' checks report the rest (architecture §6.4).
 	compiler::Scene plain;
 	plain.path = "res://plain.tscn";
 	plain.nodes = { { ".", "Node3D", "" }, { "Component", "Node", "", true, "res://test.pet" }, { "Direct", "Node", "res://test.pet" } };
 	project.scenes.push_back(plain);
-	const std::string errors = messages(compile_in(source, project));
+	const std::string errors = messages(check_scenes_in(source, project));
 	CHECK(contains(errors, "res://plain.tscn: the owner of Component is Node3D, not Combat.Combatant (@owner)."));
 	CHECK(contains(errors, "res://plain.tscn: the owner of Direct is Node3D, not Combat.Combatant (@owner)."));
 	// The root of a scene used as the root has no owner.
 	project.main = "res://component.tscn";
-	CHECK(contains(messages(compile_in(source, project)), "res://component.tscn: the main scene's root has no owner (@owner)."));
+	CHECK(contains(messages(check_scenes_in(source, project)), "res://component.tscn: the main scene's root has no owner (@owner)."));
 
 	CHECK(contains(messages(compile_in("extends Node\n\nfunc f():\n\tprint(owner.name)\n", project)), "The value may be None (Node?)"));
 	CHECK(contains(messages(compile_in("@owner(Node?)\nextends Node\n", FakeProject())), "@owner takes a class or an interface, not Node?."));
@@ -454,21 +456,38 @@ TEST_CASE("@parent(T): get_parent() and $\"..\" have type T, and scenes give the
 	REQUIRE(result.module.parent_class >= 0);
 	CHECK(result.module.classes[result.module.parent_class].name == "Node2D");
 	find_instruction(function_named(result.module, "f"), bytecode::Op::CHECK_OBJECT);
+	CHECK(check_scenes_in(source, project).errors.empty());
 
+	// The scenes' checks report the rest (architecture §6.4).
 	compiler::Scene menu;
 	menu.path = "res://menu.tscn";
 	menu.nodes = { { ".", "Control", "" }, { "Paddle", "Node2D", "", true, "res://test.pet" }, { "Direct", "Node2D", "res://test.pet" } };
 	project.scenes.push_back(menu);
 	project.main = "res://paddle.tscn";
-	const std::string errors = messages(compile_in(source, project));
+	const std::string errors = messages(check_scenes_in(source, project));
 	CHECK(contains(errors, "res://menu.tscn: the parent of Paddle is Control, not Node2D (@parent)."));
 	CHECK(contains(errors, "res://menu.tscn: the parent of Direct is Control, not Node2D (@parent)."));
 	CHECK(contains(errors, "res://paddle.tscn: the parent of the main scene's root is Window, not Node2D (@parent)."));
 	CHECK(!contains(errors, "level.tscn"));
+	CHECK(compile_in(source, project).ok());
 
 	CHECK(contains(messages(compile_in("extends Node\n\nfunc f():\n\tprint(get_parent().name)\n", FakeProject())), "The value may be None (Node?)"));
 	CHECK(contains(messages(compile_in("@parent(Node?)\nextends Node\n", FakeProject())), "@parent takes a class or an interface, not Node?."));
 	CHECK(contains(messages(compile_in("@parent(Node)\n@parent(Node)\nextends Node\n", FakeProject())), "The class already has @parent."));
+}
+
+TEST_CASE("a scene gives a subclass what its base requires, which is marked on the subclass's node (spec §7.3)") {
+	FakeProject project;
+	project.add_script("res://archer.pet", "extends \"res://test.pet\"\n");
+	compiler::Scene menu;
+	menu.path = "res://menu.tscn";
+	menu.nodes = { { ".", "Control", "" }, { "Archer", "Node2D", "res://archer.pet" }, { "Instanced", "Node2D", "", true, "res://archer.pet" } };
+	project.scenes = { menu };
+	const std::vector<compiler::Diagnostic> errors = check_scenes_in("@parent(Node2D)\nextends Node2D\n", project).errors;
+	REQUIRE(errors.size() == 2);
+	CHECK(errors[0].message == "res://menu.tscn: the parent of Archer is Control, not Node2D (@parent).");
+	CHECK((errors[0].node == "Archer" && errors[0].file == "res://test.pet" && errors[0].line == 1));
+	CHECK(errors[1].node == "Instanced");
 }
 
 TEST_CASE("an abstract class is set on no node of a scene, which the scene's check reports (spec §4.1)") {

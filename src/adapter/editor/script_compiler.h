@@ -49,8 +49,8 @@ std::vector<compiler::Diagnostic> scene_errors(const godot::String &p_path, cons
 // The errors of the check of the scene at the path, as of the last change to
 // the project.
 std::vector<compiler::Diagnostic> resource_errors(const godot::String &p_path);
-// Those that the checks of the scenes placing the script report in its source,
-// for the script editor (architecture §6.4).
+// Those that the checks of the scenes placing the script, or instancing such a
+// scene, report in its source, for the script editor (architecture §6.4).
 std::vector<compiler::Diagnostic> placed_errors(const godot::String &p_path);
 // A file of the project was saved or changed: the nodes ask again.
 void project_changed();

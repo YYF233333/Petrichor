@@ -10091,12 +10091,14 @@ class Checker : public ClassRelation {
 		}
 	}
 
-	// Each node that scenes give the script: those with it attached, and the
-	// instances of scenes whose root has it.
+	// Each node that scenes give the class: those with it or a subclass
+	// attached, and the instances of scenes whose root has one. The check of
+	// a scene finds those in that scene.
 	void for_each_placement(const std::function<void(const Scene &, const SceneNode &)> &p_check) {
+		const bool instances = !options.scene.empty();
 		for (const Scene &scene : scenes) {
 			for (const SceneNode &node : scene.nodes) {
-				if (extends_script(node.script, options.path)) {
+				if (extends_script(node.script, options.path) || (instances && node.is_instance && node.script.empty() && extends_script(node.instance_script, options.path))) {
 					p_check(scene, node);
 				}
 			}
@@ -11737,6 +11739,8 @@ public:
 		check_abstract_scenes();
 		check_connections();
 		check_named_members();
+		check_owner_scenes();
+		check_parent_scenes();
 	}
 
 private:
@@ -11913,8 +11917,6 @@ private:
 			}
 		}
 		check_warning_ignores();
-		check_owner_scenes();
-		check_parent_scenes();
 		check_stored_exports();
 		check_scene_exports();
 		return true;

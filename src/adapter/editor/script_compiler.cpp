@@ -217,12 +217,23 @@ std::vector<compiler::Diagnostic> placed_errors(const String &p_path) {
 	const SceneIndex::Pass pass;
 	const std::string path = to_utf8(p_path);
 	std::vector<compiler::Diagnostic> placed;
-	for (const compiler::Scene &scene : SceneIndex::get().scenes_with_script(path)) {
-		for (const compiler::Diagnostic &error : resource_errors(to_godot(scene.path))) {
+	// The scenes that place it, and those that instance them, which check the
+	// roots of the scenes they instance and what their tracks name.
+	std::vector<compiler::Scene> pending = SceneIndex::get().scenes_with_script(path);
+	std::set<std::string> seen;
+	while (!pending.empty()) {
+		const std::string scene = pending.back().path;
+		pending.pop_back();
+		if (!seen.insert(scene).second) {
+			continue;
+		}
+		for (const compiler::Diagnostic &error : resource_errors(to_godot(scene))) {
 			if (error.file == path) {
 				placed.push_back(error);
 			}
 		}
+		const std::vector<compiler::Scene> outer = SceneIndex::get().scenes_instancing(scene);
+		pending.insert(pending.end(), outer.begin(), outer.end());
 	}
 	return placed;
 }
