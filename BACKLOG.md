@@ -7,7 +7,8 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Before step 7 is accepted, the gaps of the third coverage rerun that the spec has decided (docs/surveys/implementation-coverage.md):
   - an untyped parameter of a lambda passed to an Array method, which takes the element type (spec §3.8, §4.6);
   - a `class_name` as a value, as inner classes and preloaded constants already are;
-  - `instance_from_id()`, `Callable.get_object()` and `Signal.get_object()`, refused for returning `Object?`.
+  - `instance_from_id()`, `Callable.get_object()` and `Signal.get_object()`, refused for returning `Object?`;
+  - `$"/root/X"` when `X` is no autoload, typed `Node` as `get_node()` is (spec §7.3).
 - Of `_init` on Node and Resource scripts (spec §6.2):
   - A member that `_init` in another file assigns counts as unassigned, since the checker does not check that body. So `instantiate(...)` asks for one that the root's `_init` assigns. A child's `_ready` and `@onready` initializers may not read one that a base's `_init` assigns.
   - A scene or `.tres` using a script whose `_init` has required parameters is a compile error. Now the engine's construction gives the program error.
@@ -191,7 +192,6 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 
 - Design questions from the third coverage rerun, which the spec leaves open:
   - engine classes as values, as gdUnit4 passes `[InputEventMouseButton, …]` (0.7% of the files; spec §2.6);
-  - the type of `$"/root/X"` when `X` is no autoload, as Ring's `$/root/Main` (spec §7.1, §7.3);
   - `Array[T](a)` as a typed copy, which the corpus does not use.
 - Before 0.9: how `NaN` behaves in containers, which GDScript handles inconsistently (spec §5.2, engine facts). NaN rarely stands for a legal state in game logic. Candidates:
   - forbid `NaN` from entering containers;
