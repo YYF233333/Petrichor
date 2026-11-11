@@ -135,6 +135,24 @@ void mark_errors(const ClassDecl &p_decl, const std::vector<Diagnostic> &p_error
 	});
 }
 
+// A scene as a script check reads it (architecture §6.4): its nodes, their
+// classes, scripts and instances, without what it stores, connects or names.
+Scene structure(Scene p_scene) {
+	for (SceneNode &node : p_scene.nodes) {
+		node.properties.clear();
+	}
+	p_scene.connections.clear();
+	p_scene.named_members.clear();
+	return p_scene;
+}
+
+std::vector<Scene> structures(std::vector<Scene> p_scenes) {
+	for (Scene &scene : p_scenes) {
+		scene = structure(std::move(scene));
+	}
+	return p_scenes;
+}
+
 } // namespace
 
 uint64_t declaration_hash(const std::optional<std::string> &p_source) {
@@ -183,13 +201,13 @@ T ScriptClasses::RecordedProject::ask(const std::string &p_key, std::function<T(
 
 std::vector<Scene> ScriptClasses::RecordedProject::scenes_with_script(const std::string &p_script_path) const {
 	return ask<std::vector<Scene>>("scenes with " + p_script_path, [p_script_path](const ProjectApi &p_project) {
-		return p_project.scenes_with_script(p_script_path);
+		return structures(p_project.scenes_with_script(p_script_path));
 	});
 }
 
 std::vector<Scene> ScriptClasses::RecordedProject::scenes_instancing(const std::string &p_scene_path) const {
 	return ask<std::vector<Scene>>("scenes instancing the scene " + p_scene_path, [p_scene_path](const ProjectApi &p_project) {
-		return p_project.scenes_instancing(p_scene_path);
+		return structures(p_project.scenes_instancing(p_scene_path));
 	});
 }
 
@@ -497,6 +515,13 @@ std::vector<std::string> ScriptClasses::preloads(const std::string &p_file) {
 			}
 		}
 		return paths;
+	});
+}
+
+std::optional<Scene> ScriptClasses::scene_structure(const std::string &p_path) {
+	return recorded.ask<std::optional<Scene>>("structure of the scene " + p_path, [p_path](const ProjectApi &p_project) {
+		const std::optional<Scene> scene = p_project.scene(p_path);
+		return scene ? std::optional<Scene>(structure(*scene)) : scene;
 	});
 }
 

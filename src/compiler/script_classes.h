@@ -147,6 +147,9 @@ public:
 	// The String of each preload() of one literal String in the file, as
 	// written, in function bodies too (spec §7.6).
 	std::vector<std::string> preloads(const std::string &p_file);
+	// The scene at the path as a script check reads it (architecture §6.4):
+	// its nodes, without what it stores, connects or names.
+	std::optional<Scene> scene_structure(const std::string &p_path);
 	// Records what the compile of `p_file` from `p_source` reads, until
 	// end_compile(), after which nothing refers to its classes.
 	void begin_compile(const std::string &p_file, const std::string &p_source);

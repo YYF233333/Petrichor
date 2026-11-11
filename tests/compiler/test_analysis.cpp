@@ -105,22 +105,43 @@ func hit(base: Base) -> int:
 	}
 }
 
-TEST_CASE("a script is checked again when a scene that uses it changes") {
+TEST_CASE("a script is checked again only when the nodes of a scene that uses it change") {
 	FakeProject project;
 	compiler::Scene scene;
 	scene.path = "res://hud.tscn";
-	scene.nodes = { { ".", "CanvasLayer", "res://hud.pet" }, { "Health", "Label", "" } };
-	project.scenes = { scene };
-	project.add_script("res://hud.pet", "extends CanvasLayer\n\nfunc show_health():\n\t$Health.text = \"full\"\n");
+	scene.nodes = { { ".", "CanvasLayer", "res://hud.pet" }, { "Health", "Label", "" }, { "Bar", "Control", "", true, "", false, {}, "res://bar.tscn" } };
+	compiler::Scene bar;
+	bar.path = "res://bar.tscn";
+	bar.nodes = { { ".", "Control", "" }, { "Fill", "TextureRect", "" } };
+	project.scenes = { scene, bar };
+	project.add_script("res://hud.pet", "extends CanvasLayer\n\npub var shown := 0\n\npub func show_health():\n\t$Health.text = \"full\"\n\t$Bar/Fill.z_index = 1\n");
 	compiler::Analysis analysis(fake_engine(), project);
 	const Result before = compile_all(analysis, project, { "res://hud.pet" })[0];
 	REQUIRE(before->ok());
-	CHECK((compile_all(analysis, project, { "res://hud.pet" })[0] == before));
+	REQUIRE(analysis.checks_run() == 1);
 
-	project.scenes[0].nodes[1].type = "Node3D";
-	const Result after = compile_all(analysis, project, { "res://hud.pet" })[0];
-	CHECK((after != before));
-	CHECK_FALSE(after->ok());
+	SUBCASE("what it and the scenes it instances store or connect") {
+		compiler::SceneValue value;
+		value.type = "int";
+		value.integer = 3;
+		project.scenes[0].nodes[0].properties = { { "shown", value } };
+		project.scenes[0].connections = { { "ready", "Health", ".", "show_health" } };
+		project.scenes[1].nodes[1].properties = { { "color", value } };
+		CHECK((compile_all(analysis, project, { "res://hud.pet" })[0] == before));
+		CHECK(analysis.checks_run() == 1);
+	}
+	SUBCASE("its nodes") {
+		project.scenes[0].nodes[1].type = "Node3D";
+		const Result after = compile_all(analysis, project, { "res://hud.pet" })[0];
+		CHECK((after != before));
+		CHECK_FALSE(after->ok());
+	}
+	SUBCASE("the nodes of a scene it instances") {
+		project.scenes[1].nodes[1].type = "Node3D";
+		const Result after = compile_all(analysis, project, { "res://hud.pet" })[0];
+		CHECK((after != before));
+		CHECK_FALSE(after->ok());
+	}
 }
 
 TEST_CASE("a scene is checked again only when it or the declarations of a script on it change") {

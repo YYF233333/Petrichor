@@ -3293,7 +3293,7 @@ class Checker : public ClassRelation {
 			}
 			nodes.push_back({ node.path, node, p_scene.path, node.path == "." ? std::string() : std::string(".") });
 			// A scene cannot instance itself; the depth stops a project that says so.
-			const std::optional<Scene> inner = node.instance.empty() || p_depth > 32 ? std::nullopt : options.project->scene(node.instance);
+			const std::optional<Scene> inner = node.instance.empty() || p_depth > 32 ? std::nullopt : classes.scene_structure(node.instance);
 			for (const ViewNode &each : inner ? view_of(*inner, p_depth + 1) : std::vector<ViewNode>()) {
 				if (each.path != ".") {
 					nodes.push_back({ node.path + "/" + each.path, each.node, each.scene, each.owner == "." ? node.path : node.path + "/" + each.owner });
