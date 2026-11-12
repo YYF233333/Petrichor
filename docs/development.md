@@ -87,6 +87,12 @@
   - fps_check.gd 的同一函数里若有与前面同名的变量，它就加载失败，所有 fps 检查随之失败。
 - 读真实的字节码：在临时 doctest 中反序列化 `.godot/petrichor/<path>.petc`，再用 `bytecode::disassemble` 反汇编。FakeEngine 缺大多数引擎类。
 
+## 发布包
+
+- 打包：`python tools/package.py <库目录> 0.1.0 <输出目录>`。
+  - 库目录可以是 `gh run download` 取下的 CI 产物，库在哪一层都行。
+  - 本地只有本机的库，所以加 `--allow-missing`。不加时缺一个库就失败。
+
 ## Godot 二进制
 
 - 按用途选二进制：

@@ -391,14 +391,15 @@ def migrate(project, migrated):
         replaced["res://" + relative.with_suffix(".gd").as_posix()] = "res://" + relative.as_posix()
 
     # Scenes and resources name a script by uid and path; the uid belonged to
-    # the original, so only the path stays.
+    # the original, so only the path stays. Line ends are kept, so that the
+    # demo package is the same on every host.
     for file in [*project.rglob("*.tscn"), *project.rglob("*.tres"), project / "project.godot"]:
-        lines = file.read_text(encoding="utf-8").split("\n")
+        lines = file.read_bytes().decode("utf-8").split("\n")
         for i, line in enumerate(lines):
             for old, new in replaced.items():
                 if f'"{old}"' in line or f'"*{old}"' in line:
                     lines[i] = re.sub(r' uid="[^"]*"', "", line).replace(old, new)
-        file.write_text("\n".join(lines), encoding="utf-8")
+        file.write_bytes("\n".join(lines).encode("utf-8"))
 
 
 report = threading.local()
