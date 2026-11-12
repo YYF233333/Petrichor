@@ -2,11 +2,31 @@
 
 In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow).
 
+## 0.1
+
+Due 2026-11-15 (architecture §5, step 10). These items gate the release.
+
+- CI builds the three libraries for Windows, Linux and macOS, and runs the compiler and engine tests on each. The three are editor, template_debug and template_release.
+- The sources have only been built with MSVC. The interpreter reads frame bytes through pointer casts, undefined under strict aliasing in GCC and Clang (`src/runtime/vm.cpp`).
+- The `.gdextension` lists Windows x86_64 only. The release adds Linux and macOS, in the layout users unzip, `addons/petrichor/`.
+- The export plugin lacks two errors of architecture §5. One reports a missing library for the target platform. The other reports a Web export without extension support.
+- An exported game runs with the official export templates. The release library has never been built.
+- The English spec, generated from the Chinese one, with a check that it is not stale.
+- The plugin package and the demo package, built by CI, each with its third-party notices.
+- Engine tests on a .NET build for classes written in C# (spec §11.1). The suite runs without .NET now, and the README says C# code works alongside.
+- The suites on Godot 4.8's release candidate, with its changes checked one by one. Until it is out, on the latest beta. One known: 4.8 rejects an extension class that binds a method its ancestor has ([godot-cpp#2083](https://github.com/godotengine/godot-cpp/issues/2083)).
+- The README lacks install and upgrade steps and the platforms tested. It promises a way back to GDScript without the limit of spec §13.4. Reverse conversion skips files using features GDScript lacks.
+- An icon for `.pet` scripts, and a run through the editor's dialog that creates one.
+- With the owner: the invitees and invitations, the icon, signing on macOS, and whether Ring's repository is public. The README's build steps fetch Ring as a submodule.
+
 ## Language
 
 - Assignments by ancestors (spec §6.2), which the checker assumes without looking for them.
   - It takes a must-assign member of a node with an owner as one they assign. Exported members and those `_init` assigns are not.
   - The spec requires `$Child.target = v` or an `@onready` reference in their `_ready`. Without one, the member must be `T?`.
+  - Is a member that no ancestor visibly assigns a compile error, or checked at ready? The spec says both.
+- A track naming an engine property that ClassDB does not list is refused, as `current` of AudioListener2D (spec §7.7). The engine takes such a name through `_set`. The check could ask an instance of the class for its properties.
+- `Array[PackedScene[T]]` cannot be written, though `[preload(...)]` infers it and spec §7.4 lists container elements.
 - `find_key()` of `Dictionary[T?, V]` for an object `T`. The engine gives null for a missing key and for a None key.
 - `is_instance_of(v, T)` with a native class held in a variable, which waits for classes as values (spec §2.6). gdUnit4 passes them.
 - Scenes used as roots that the checks do not know as such (spec §7.2, §7.3, §7.5):
@@ -68,9 +88,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Tests
 
-- Before 0.1, engine tests on a .NET build for classes written in C# (spec §11.1). The suite runs without .NET now, and the README says C# code works alongside.
-- Run an exported game with the official export templates; build and test the release library.
-- Before 0.1, run the suites on Godot 4.8's release candidate and check its changes one by one. One known: 4.8 rejects an extension class that binds a method its ancestor has ([godot-cpp#2083](https://github.com/godotengine/godot-cpp/issues/2083)).
 - Cross-rule checks kept from the former conformance checklist:
   - `player.last_hit.damage = 3` running `last_hit`'s setter (spec §3.6, §4.4);
   - for §3.11 and §9.1:
@@ -173,6 +190,8 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 
 ## Open questions
 
+- Whether `reduce()` types its lambda from the start value, as `func(A, T) -> A` (spec §3.8). Now the lambda's types must be written. A `None` start would need a rule of its own.
+- Whether a function value turned into a Callable has only its result checked for `T??` and `Variant?` (spec §10.1). Parameters cannot lose a `None`: the engine passes null or a boxed value. Now `Array[int??].filter(func(x): ...)` is refused.
 - Design questions from the third coverage rerun, which the spec leaves open:
   - engine classes as values, as gdUnit4 passes `[InputEventMouseButton, …]` (0.7% of the files; spec §2.6);
   - `Array[T](a)` as a typed copy, which the corpus does not use.
