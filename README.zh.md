@@ -81,7 +81,7 @@ xattr -dr com.apple.quarantine addons/petrichor
 |---|---|---|
 | Windows | x86_64 | Windows Server 2022 |
 | Linux | x86_64，需要 glibc 2.35 或更新 | Ubuntu 22.04 |
-| macOS | x86_64 和 arm64 合一，需要 macOS 11 或更新 | macOS 15，arm64；x86_64 未测试 |
+| macOS | x86_64 和 arm64 合一，需要 macOS 11 或更新 | macOS 15，arm64；x86_64 经 Rosetta 运行 |
 
 在 CI 中检查整个项目：
 

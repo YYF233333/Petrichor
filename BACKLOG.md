@@ -85,7 +85,7 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 
 ## Tests
 
-- On macOS, the x86_64 half of the libraries and the README's quarantine step have never run. CI runs arm64.
+- On macOS, the README's quarantine step has never run. The x86_64 half of the libraries runs only under Rosetta, on Godot 4.8.
 - Cross-rule checks kept from the former conformance checklist:
   - `player.last_hit.damage = 3` running `last_hit`'s setter (spec §3.6, §4.4);
   - for §3.11 and §9.1:

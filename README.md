@@ -81,7 +81,7 @@ CI tests each release with the official editor and the official export templates
 |---|---|---|
 | Windows | x86_64 | Windows Server 2022 |
 | Linux | x86_64, needs glibc 2.35 or later | Ubuntu 22.04 |
-| macOS | universal (x86_64 and arm64), needs macOS 11 or later | macOS 15 on arm64; x86_64 is untested |
+| macOS | universal (x86_64 and arm64), needs macOS 11 or later | macOS 15 on arm64; x86_64 through Rosetta |
 
 To check a whole project in CI:
 
