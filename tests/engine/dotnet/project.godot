@@ -1,0 +1,11 @@
+config_version=5
+
+[application]
+
+config/name="Petrichor .NET tests"
+run/main_scene="res://dotnet_check.tscn"
+config/features=PackedStringArray("4.7", "C#")
+
+[dotnet]
+
+project/assembly_name="DotnetCheck"

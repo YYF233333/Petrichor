@@ -1,0 +1,10 @@
+# What the static view of a C# class refuses (spec §11.1); run.py expects
+# these compile errors.
+extends Node
+
+func limits(c: Counter):
+	var made := Counter.new(3)
+	var limit := Counter.Limit
+	var target: Node = c.Target
+	var twin: Node = c.Twin(true)
+	var count: int = c.Anything

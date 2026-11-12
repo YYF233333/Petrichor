@@ -10,7 +10,9 @@ Checks the game run, the editor side (placeholders, saving), the language, the
 debugger, hot reload, an exported pack run in a directory without sources with
 each library of export templates, and the FPS starter kit and Ring's breakout
 with their migrated scripts. Naming groups runs only those, after the build;
-the groups are those of GROUPS, hot reload being part of debugger.
+the groups are those of GROUPS, hot reload being part of debugger. The dotnet
+group, classes written in C#, runs on a .NET editor or when named; it needs
+the .NET SDK 8 or later on PATH.
 
 Environment:
     PETRICHOR_PREBUILT=1          the libraries in tests/engine/project/bin were
@@ -56,7 +58,9 @@ GAME_OUTPUT = [
     "greeter: _ready, message = set from GDScript",
 ]
 
-GROUPS = ["game", "editor", "language", "debugger", "export", "fps", "ring"]
+GROUPS = ["game", "editor", "language", "debugger", "export", "fps", "ring", "dotnet"]
+DOTNET = HERE / "dotnet"
+DOTNET_ASSEMBLY = Path(".godot", "mono", "temp", "bin", "Debug", "DotnetCheck.dll")
 
 # The host's export platform, and its features by which the engine picks a
 # library (core/os/os.cpp:471-556; ed1daf0).
@@ -497,8 +501,13 @@ def main():
         finishes.append(beside("fps", run_migration_group, godot, "fps", prepare_fps, FPS_MIGRATED))
     if wanted("ring"):
         finishes.append(beside("ring", run_migration_group, godot, "ring", prepare_ring, RING_MIGRATED, "res://ring_check.tscn"))
+    dotnet = dotnet_build(godot)
+    if "dotnet" in only or (not only and dotnet):
+        finishes.append(beside("dotnet", run_dotnet_group, godot, dotnet))
+    elif not only:
+        print(f"dotnet: skipped, as {godot} is not a .NET build")
 
-    if not only or (only - {"fps", "ring"} and ("editor" in only or not project_bytecode_current(godot))):
+    if not only or (only - {"fps", "ring", "dotnet"} and ("editor" in only or not project_bytecode_current(godot))):
         # The game reads the bytecode the editor writes (architecture §2.4).
         # The checked build runs on an imported project, as import_project()
         # explains.
@@ -625,6 +634,50 @@ def run_migration_group(godot, name, prepare, migrated_scripts, *scene):
         expect(f"{name} run: no resources kept at exit that the original frees", resources_in_use(output) <= known_in_use, output)
         for script in scripts:
             expect(f"{name} run: {script.stem} runs migrated", f"{name} check: {script.stem} runs PetScript" in output, output)
+
+
+def dotnet_build(godot):
+    """Whether the editor is a .NET build, whose version names the mono module
+    (modules/mono/config.py:17, methods.py:132-153, core/version.h:62-70;
+    ed1daf0), as in 4.7.2.stable.mono.official.ed1daf0bf."""
+    version = subprocess.run([godot, "--version"], capture_output=True, text=True).stdout
+    return "mono" in version.strip().split(".")
+
+
+def run_dotnet_group(godot, dotnet):
+    """Spec §11.1 and §11.3 with classes written in C#, in a copy of
+    tests/engine/dotnet: a .NET editor writes its solution and builds into
+    the project it opens. The editor builds the C# with the .NET SDK
+    (main/main.cpp:5181-5194; ed1daf0), then this language's scripts."""
+    if not dotnet:
+        expect("dotnet: the editor is a .NET build", False, f"{godot} is not. The group needs Godot 4.7's .NET editor.")
+        return
+    if shutil.which("dotnet") is None:
+        expect("dotnet: the .NET SDK is on PATH", False, "dotnet was not found. The editor builds the group's C# with the .NET SDK 8 or later.")
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        project = Path(tmp) / "dotnet"
+        shutil.copytree(DOTNET, project)
+        (project / "bin").mkdir()
+        for file in ("petrichor.gdextension", "error_log.gd", host_library("editor")):
+            shutil.copy(PROJECT / file, project / file)
+        code, output = run(godot, "-e", "--path", str(project), "--build-solutions", "--quit")
+        if not (project / DOTNET_ASSEMBLY).is_file():
+            expect("dotnet: the editor builds the C# assembly", False, output)
+            return
+        # The static view of C# classes refuses what spec §11.1 says it does.
+        code, output = run(godot, "-e", "--path", str(project), "--", "--petrichor-build")
+        refused = re.findall(r"^SCRIPT ERROR: ([^\r\n]*)\s+at:  \(res://cs_limits\.pet:(\d+)\)", output, flags=re.M)
+        expect("dotnet build: only cs_limits.pet has errors", ", 1 with errors" in output, output)
+        expect("dotnet build: a C# class has no constructor arguments and no constants, its object members and results are T?, and its untyped ones Variant", [
+            ('Function "new()" takes 0 argument(s), 1 given.', "6"),
+            ('Counter has no constant "Limit".', "7"),
+            ("Cannot assign a value of type Object? as Node.", "8"),
+            ("Cannot assign a value of type Node? as Node.", "9"),
+            ("Cannot assign a value of type Variant as int. Convert it first with int(v), or narrow it with `if v is int:`.", "10"),
+        ] == refused, output)
+        code, output = run(godot, "--path", str(project))
+        expect_run("dotnet run", code, output, ["dotnet: 0 failure(s)"], expected_errors(output, "dotnet"))
 
 
 def run_debugger_groups(godot):

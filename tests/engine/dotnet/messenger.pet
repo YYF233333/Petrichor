@@ -1,0 +1,27 @@
+# What C# reaches of a class of this language by name, and the structs it
+# sends and receives (spec §10.5, §11.3). Driven by CsCaller.cs.
+class_name Messenger
+extends Node
+
+pub struct Hit:
+	var damage: int
+	var source: String
+
+pub signal sent(hit: Hit)
+signal hidden_sent
+
+pub var level := 1
+var hidden_level := 2
+
+pub func take(hit: Hit) -> int:
+	return hit.damage * 2
+
+func hidden_take() -> int:
+	return hidden_level
+
+pub func made(damage: int) -> Hit:
+	return Hit(damage = damage, source = "pet")
+
+pub func send(damage: int):
+	sent.emit(made(damage))
+	hidden_sent.emit()

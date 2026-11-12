@@ -1,0 +1,48 @@
+# C# classes as reflection shows them (spec §11.1): Counter and its subclass
+# Special. Driven by dotnet_check.gd.
+class_name CsView
+extends Node
+
+pub var bumped := -1
+
+pub func made() -> int:
+	var c := Counter.new()
+	var count := c.Count
+	c.free()
+	return count
+
+pub func counted(c: Counter) -> Array[int]:
+	c.Bumped.connect(_on_bumped)
+	var total: int = c.Add(2)
+	c.Count = c.Count * 10
+	return [total, bumped, c.Count]
+
+pub func counted_special(s: Special) -> Array[int]:
+	return counted(s)
+
+func _on_bumped(total: int):
+	bumped = total
+
+pub func target_of(c: Counter) -> String:
+	var target := c.Target as Node
+	if target == None:
+		return "None"
+	return target.name
+
+pub func twin_of(c: Counter, made: bool) -> String:
+	var twin: Node? = c.Twin(made)
+	var special := twin as Special
+	if special == None:
+		return "None"
+	var count := special.Count
+	special.free()
+	return "Special " + str(count)
+
+pub func kinds(n: Node) -> Array[bool]:
+	return [n is Counter, n is Special, (n as Special) != None]
+
+pub func anything_of(c: Counter) -> String:
+	var v: Variant = c.Anything
+	if v is String:
+		return "String " + v
+	return "other"
