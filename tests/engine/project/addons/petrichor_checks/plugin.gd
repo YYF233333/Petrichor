@@ -550,11 +550,7 @@ func _check_stored_exports() -> void:
 	var warnings := _scene_marks(derived)
 	_check(warnings.contains("the value stored for \"hit\" of . does not decode: editor_check_stored.pet.Hit.damage is missing."), "a scene that inherits another replaces the whole value, here without a field that has no default; the error is marked on the node of the scene that stores it: " + warnings)
 
-	# Modification times count whole seconds.
-	var written := FileAccess.get_modified_time(derived)
-	while int(Time.get_unix_time_from_system()) <= written:
-		await get_tree().process_frame
-	_write(derived, inherit % [base, '{"damage": 7}'])
+	await _write_after(derived, inherit % [base, '{"damage": 7}'], FileAccess.get_modified_time(derived))
 	# Saving tells the editor of a change once the frame ends
 	# (editor/editor_node.cpp:7839-7841; ed1daf0).
 	_compiles(script, script_path)
