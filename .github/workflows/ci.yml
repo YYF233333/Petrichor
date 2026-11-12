@@ -72,3 +72,139 @@ jobs:
             tests/engine/project/bin/*.so
             tests/engine/project/bin/*.dylib
           if-no-files-found: error
+
+  test:
+    name: ${{ matrix.platform }} engine tests
+    needs: build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            platform: windows
+            godot_zip: Godot_v4.7.2-stable_win64.exe.zip
+            godot: godot/Godot_v4.7.2-stable_win64_console.exe
+          - os: ubuntu-22.04
+            platform: linux
+            godot_zip: Godot_v4.7.2-stable_linux.x86_64.zip
+            godot: godot/Godot_v4.7.2-stable_linux.x86_64
+          - os: macos-15
+            platform: macos
+            godot_zip: Godot_v4.7.2-stable_macos.universal.zip
+            godot: godot/Godot.app/Contents/MacOS/Godot
+    env:
+      PETRICHOR_PREBUILT: "1"
+      PETRICHOR_TEST_TIMEOUT: "300"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: petrichor-${{ matrix.platform }}-*
+          path: tests/engine/project/bin
+          merge-multiple: true
+
+      - name: Fetch the engine
+        run: |
+          curl -fsSL -o godot.zip "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/${{ matrix.godot_zip }}"
+          unzip -q godot.zip -d godot
+
+      - name: Engine tests
+        run: python tests/engine/run.py "${{ matrix.godot }}"
+
+  # On Linux: a Windows checkout would give the packaged scripts CRLF.
+  package:
+    name: packages
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: petrichor-*
+          path: libraries
+
+      - run: python tools/package.py libraries 0.1.0 dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: dist/*.zip
+          if-no-files-found: error
+
+  # Architecture step 10: without a C++ toolchain, a project is edited,
+  # exported with the official templates and run on each platform.
+  acceptance:
+    name: ${{ matrix.platform }} acceptance
+    needs: package
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            platform: windows
+            godot_zip: Godot_v4.7.2-stable_win64.exe.zip
+            godot: godot/Godot_v4.7.2-stable_win64_console.exe
+            templates: "'templates/windows_*_x86_64*.exe' 'templates/icudt_godot.dat'"
+          - os: ubuntu-22.04
+            platform: linux
+            godot_zip: Godot_v4.7.2-stable_linux.x86_64.zip
+            godot: godot/Godot_v4.7.2-stable_linux.x86_64
+            templates: "'templates/linux_*.x86_64'"
+          - os: macos-15
+            platform: macos
+            godot_zip: Godot_v4.7.2-stable_macos.universal.zip
+            godot: godot/Godot.app/Contents/MacOS/Godot
+            templates: "'templates/macos.zip'"
+    env:
+      PETRICHOR_TEST_TIMEOUT: "300"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: dist
+
+      - name: Fetch the engine
+        run: |
+          curl -fsSL -o godot.zip "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/${{ matrix.godot_zip }}"
+          unzip -q godot.zip -d godot
+
+      - id: templates
+        uses: actions/cache@v4
+        with:
+          path: templates
+          key: godot-4.7.2-templates-${{ matrix.platform }}
+
+      - name: Fetch the export templates
+        if: steps.templates.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o templates.tpz "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_export_templates.tpz"
+          unzip -q -j templates.tpz ${{ matrix.templates }} -d templates
+          rm templates.tpz
+
+      - name: Acceptance test
+        run: python tests/acceptance/run.py "${{ matrix.godot }}" templates dist/petrichor-0.1.0-addon.zip dist/petrichor-0.1.0-demo.zip
