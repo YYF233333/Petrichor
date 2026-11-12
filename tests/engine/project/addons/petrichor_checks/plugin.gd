@@ -256,12 +256,9 @@ func _check_instanced_scene_change() -> void:
 	_check(_compiles(scripts[outer], outer), "$X of an instanced scene has the class of its root")
 	_check(_compiles(scripts[derived], derived), "$X of a base scene's node has the class it has there")
 
-	# Modification times count whole seconds.
 	var written := maxi(FileAccess.get_modified_time(inner), FileAccess.get_modified_time(base))
-	while int(Time.get_unix_time_from_system()) <= written:
-		await get_tree().process_frame
-	_write(inner, '[gd_scene format=3]\n\n[node name="Inner" type="Node2D"]\n')
-	_write(base, '[gd_scene format=3]\n\n[node name="Base" type="Node"]\n\n[node name="X" type="Node2D" parent="."]\n')
+	await _write_after(inner, '[gd_scene format=3]\n\n[node name="Inner" type="Node2D"]\n', written)
+	await _write_after(base, '[gd_scene format=3]\n\n[node name="Base" type="Node"]\n\n[node name="X" type="Node2D" parent="."]\n', written)
 	_check(not _compiles(scripts[outer], outer), "a change to the instanced scene alone reaches the next analysis ($X.position is now a Vector2)")
 	_check(not _compiles(scripts[derived], derived), "a change to the base scene alone reaches the next analysis")
 	for path in [outer, derived]:
@@ -283,6 +280,18 @@ func _write(path: String, text: String) -> void:
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	file.store_string(text)
 	file.close()
+
+
+# Writes the file so that its modification time is later than `after`. The
+# times count whole seconds, and Linux stamps a file from a clock that is up to
+# a timer tick behind the one read here.
+func _write_after(path: String, text: String, after: int) -> void:
+	while int(Time.get_unix_time_from_system()) <= after:
+		await get_tree().process_frame
+	_write(path, text)
+	while FileAccess.get_modified_time(path) <= after:
+		await get_tree().process_frame
+		_write(path, text)
 
 
 # Spec §13.2: an error in how a scene uses a script is marked on the node that
@@ -578,11 +587,7 @@ func _check_named_members() -> void:
 	for named in ['the animation "hit" of AnimationPlayer animates "flash_amount" of the root', 'the animation "hit" of AnimationPlayer calls flash() on the root', 'the animation "extra/blink" of AnimationPlayer animates "speed" of the root', 'MultiplayerSynchronizer synchronizes "health" of the root']:
 		_check(warnings.contains(named + ", which is not pub"), "the error is marked on the node: " + named)
 
-	# Modification times count whole seconds.
-	var written := FileAccess.get_modified_time(library)
-	while int(Time.get_unix_time_from_system()) <= written:
-		await get_tree().process_frame
-	_write(library, stored_apart % "flash_amount")
+	await _write_after(library, stored_apart % "flash_amount", FileAccess.get_modified_time(library))
 	_write(script_path, "extends Node2D\n\npub var flash_amount := 0.0\npub var health := 3\nvar speed := 1.0\n\npub func flash():\n\tpass\n")
 	script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_IGNORE)
 	# Saving tells the editor of a change once the frame ends
