@@ -176,7 +176,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
   - `T` 引用仍可持有已释放对象。读取、按 ObjectID 的 `==` 比较和普通传参不算访问。访问其成员是程序错误。对本语言实例或由本语言释放的对象，debug 构建在诊断中写明释放位置；
   - 把已释放对象传给声明为对象类型的引擎参数是程序错误。写入对象类型的引擎属性也是。传给对象元素 `Array[T]` 的方法（如 `append`、`erase`、`has`）也是。声明为 `Variant` 的参数不受此限（如 `is_instance_valid` 返回 `false`）；
   - 对任何静态类型，已释放对象的 `is` 为 `false`、`as` 为 `None`；
-  - 方法运行中自身被释放或被卸下本语言脚本时，可继续运行至返回。此后访问成员或 `self` 是程序错误。
+  - 方法运行中自身被释放或被卸下本语言脚本时，可继续运行至返回。自身被释放或卸下脚本之后，该方法再访问成员或 `self` 是程序错误。
 
 ### 3.4 Option
 
@@ -264,21 +264,21 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
   - `pop_at(i)`、`front()`、`back()`、`min()`、`max()` 返回 `T`，空数组或越界下标均为程序错误；普通下标越界也是程序错误；
   - `Dictionary[K, V].get(k)` 返回 `V?`（缺键为 `None`），`get(k, default)` 返回 `V`，`d[k]` 缺键是程序错误；
   - 所有方法按元素自身的 `==` 和 `<` 工作。`resize` 填入元素默认值，内层容器填入空的带类型容器。`duplicate(true)` 深复制元素内部容器；
-  - 排序方法在元素无 `<` 时报编译错误（如 `Array[Node]` 上提示 `sort_custom`）。【已知限制】`Variant` 元素排序时不可比较的一对算作不小于，与 GDScript 相同（`min`/`max` 返回 `null`）。`resize` 在元素无默认值时报编译错误（如 `Array[Node]` 上提示 `Array[Node?]`）；
+  - 排序方法在元素无 `<` 时报编译错误（如 `Array[Node]` 上提示 `sort_custom`）。【已知限制】`Variant` 元素排序时，不可比较的一对算作不小于，与 GDScript 相同。`min`/`max` 遇到这样的一对时返回 `null`，也与 GDScript 相同。`resize` 在元素无默认值时报编译错误（如 `Array[Node]` 上提示 `Array[Node?]`）；
   - 标准库在原生容器上提供接受带类型 lambda 的 `map`、`filter`、`sort` 等。
-- **Dictionary 的键**：插入新键时存入一份副本，后续修改原值不影响键。副本中的容器逐层只读。副本内容器的共享与原值相同，包括容器引用自身。`keys()`、`for k in d`、`find_key()` 交出该只读副本，修改它是程序错误。诊断建议插入修改后的 `duplicate()`。查找操作不复制也不冻结参数。外部传入的 `Dictionary` 在本语言取得其容器键时，就地设为只读。
+- **Dictionary 的键**：插入新键时存入一份副本，后续修改原值不影响键。副本中的容器逐层只读。副本内容器的共享与原值相同，包括容器引用自身。`keys()`、`for k in d`、`find_key()` 交出该只读副本，修改它是程序错误。诊断建议插入修改后的 `duplicate()`。查找操作不复制也不冻结参数。本语言从外部传入的 `Dictionary` 取得容器键时，只把该键就地逐层设为只读。
 
 ### 3.9 接口
 
 - 名义接口：类须以 `implements` 显式声明，且只有本语言的类能实现接口。实现接口的成员须标 `pub`，方法不能是 `static`。
 - 可声明方法、属性和信号，都是对实现类的要求。继承来的引擎属性可满足同类型的属性要求。未标 `@readonly` 的属性要求可读写。可读写的成员可满足 `@readonly`，而无 setter 的引擎属性只能满足 `@readonly`。在接口外使用 `@readonly` 报编译错误。
-- 接口的信号是要求，与属性相同。类自己声明的、继承来的和引擎类的同名信号都能满足它。它须带 `pub`，参数类型须完全一致。
+- 接口的信号是要求，与属性相同。类自己声明的、继承来的和引擎类的同名信号都能满足它。本语言声明的信号须带 `pub` 才能满足它。满足它的信号，参数类型须与它完全一致。
 - 接口可 `extends` 多个父接口。子接口可以协变返回类型重声明父接口方法。父接口同名成员签名不兼容，或继承成环，报编译错误。
 - 【已知限制】第一版的接口没有默认方法和带状态的 mixin，也不能是泛型。声明 `interface Source[T]:` 报编译错误。
 
 ### 3.10 泛型
 
-- 第一版只有内置泛型类型（`Array[T]`、`Dictionary[K, V]`、`Result[T, E]`、`Task[T]`、`PackedScene[T]`），用户代码不能声明类型参数。
+- 第一版只有内置泛型类型：`T?`、`Array[T]`、`Dictionary[K, V]`、`Result[T, E]`、`Task[T]`、`Settled[T]` 和 `PackedScene[T]`。用户代码不能声明类型参数。
 
 ### 3.11 函数类型与 Callable
 
@@ -508,7 +508,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 5.3 转换
 
-- `x as T` 只用于对象类型，返回 `T?`。不匹配、已释放或 `Variant` 内非对象时均得 `None`。`x` 静态类型已是 `T` 时返回 `T` 并提示多余。向下转型断言写 `(x as T).unwrap()`。先 `is_in_group` 再转型的代码，快速修复建议改用 `is`。
+- `x as T` 只用于对象类型，返回 `T?`。不匹配、已释放或 `Variant` 内非对象时均得 `None`。`x` 的静态类型已是 `T` 或其子类时，结果为 `T`，并给出提示，指出转换多余。向下转型断言写 `(x as T).unwrap()`。先 `is_in_group` 再转型的代码，快速修复建议改用 `is`。
 - `as` 转为内置类型或 enum 均报编译错误。快速修复提供两种改法：保留构造/显式转换的 `T(x)`（如 `int("5")`、`int(2.7)`、`State(x)`），以及严格转换 `T.try_from(x)`。
 - `T.try_from(v)` 返回 `Result[T, ConversionError]`，规则与 struct 字段解码一致。运行时类型须与 `T` 相符。转 `int` 时接受恰为整数且在 `int64` 范围内的 `float`。转本语言 enum 时在值域外返回 `Err`。
 - `ConversionError` 是内置 struct，只有字段 `message: String`。内容与该值未通过入口检查时的报错相同，如 `Hit.damage: expected int, found String`。
@@ -560,7 +560,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
           hit()
   ```
 
-- 对本语言 enum、`Result` 和 `Option` 的 `match` 必须穷尽或带 `_`。对开放的引擎 enum 必须带 `_`。带 `when` 的分支不计入覆盖。其他类型不要求穷尽。本语言 enum 的穷尽 `match` 计为覆盖所有返回路径。
+- 对本语言 enum、`Result`、`Option` 和 `Settled` 的 `match` 必须穷尽或带 `_`。对开放的引擎 enum 必须带 `_`。带 `when` 的分支不计入覆盖。其他类型不要求穷尽。本语言 enum 的穷尽 `match` 计为覆盖所有返回路径。
 - 【已知限制】第一版无类型模式（用 `if x is T`）、无 `match` 表达式、逗号多模式不可绑定。
 
 ### 5.7 循环
@@ -677,7 +677,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 7.3 向上访问
 
-- autoload 用全局名访问，类型为其脚本的类。字面量路径 `/root/X` 报编译错误，快速修复改为 `X`。
+- autoload 用全局名访问，类型为其脚本的类。`X` 是 autoload 时，字面量路径 `/root/X` 报编译错误，快速修复改为 `X`。
 - `X` 不是 autoload 时，`$"/root/X"` 与 `get_node("/root/X")` 相同，类型为 `Node`，转具体类型须显式转换。这类节点由代码在运行时挂到根下。
 - 父节点和 owner 要求写作类级注解 `@parent(T)`、`@owner(T)`。声明后 `get_parent()`、`$".."` 和 `owner` 类型为 `T`。未声明时 `get_parent()` 和 `owner` 为 `Node?`，`$".."` 和 `get_node("..")` 为 `Node`。此时写 `get_parent().x` 或 `owner.x` 报编译错误。快速修复按场景推断公共类型，补上 `@parent(T)` / `@owner(T)`，或在调用处加 `.unwrap()`：
 
@@ -718,7 +718,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 7.6 资源共享
 
-- 资源共享语义不变。编译器识别来自缓存（`load`、`preload`、导出属性）及未设为“局部于场景”的内嵌子资源。
+- 资源共享语义不变。编译器识别来自缓存的资源（`load`、`preload`、导出属性）。它也识别未设为“局部于场景”的内嵌子资源。
 - 对已知共享的资源写属性或调用修改方法时给出警告。警告列出共享位置，并提供两个快速修复：设为局部于场景，或修改前 `duplicate()`。有意共享时用 `@warning_ignore` 关闭。运行时替换的资源不追踪。
 - `duplicate()` 返回接收者的静态类型；复制深度用 `duplicate_deep(模式)` 写明。
 - `preload`、导出的 `PackedScene` 与资源之间的引用环报编译错误，快速修复将其中一条边改为运行时 `load`。
@@ -786,7 +786,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 9.3 取消与归属
 
-- 对挂起任务，`cancel()` 立即断开所等待的信号或任务并取消它。对正在执行的任务，`cancel()` 只能来自它同步调用到的代码，如它发出的信号的处理函数。这时任务在下一次 `await` 或返回时取消，返回值被丢弃。对已结束任务无效果。调用 `cancel()` 后结果必为取消。
+- 对挂起任务，`cancel()` 立即断开所等待的信号或任务并取消它。对正在执行的任务，`cancel()` 只能来自它同步调用到的代码，如它发出的信号的处理函数。这时任务在下一次 `await` 或返回时取消，返回值被丢弃。对已结束任务无效果。对未结束的任务，调用 `cancel()` 后结果必为取消。
 - 取消沿归属传播。以 `await f(...)` 直接启动并等待的子任务归父任务所有，随父任务一起取消。`await` 已有的 `Task` 值时，取消只停止等待，原任务继续运行。
 - 因所属对象释放而取消时，不沿归属传播。另一个仍存活对象上的子任务像 `detach` 一样继续运行，与 GDScript 相同。
 
@@ -804,7 +804,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 ### 9.6 await 信号
 
 - 无参信号 `await` 不产生值。单参信号得该参数类型的值。多参信号只能作语句 `await`，使用结果报编译错误。
-- 经已知类访问的信号签名已知。已知类指引擎 ClassDB 中的类、本语言声明的类和接口，以及经反射看到的 GDScript 类。静态类型仅为 `Signal` 时签名未知。作语句 `await` 时不受限制。作值 `await` 得 `Variant`：运行时无参为 NIL，单参为该值，多参为 `Array`：
+- 经已知类访问的信号签名已知。已知类指引擎 ClassDB 中的类、本语言声明的类和接口，以及经反射看到的其他语言的类。静态类型仅为 `Signal` 时签名未知。作语句 `await` 时不受限制。作值 `await` 得 `Variant`：运行时无参为 NIL，单参为该值，多参为 `Array`：
 
   ```gdscript
   var r = await DialogueManager.Resolved   # 签名未知：r 为 Variant
@@ -815,7 +815,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 ### 9.7 对象释放与挂起的协程
 
 - 协程所属对象收到 `NOTIFICATION_PREDELETE` 时（早于 `Node` 删除子节点），其协程立即静默取消并释放挂起帧引用。
-- 被等待对象指另一对象上的协程宿主或信号源。它在完成前被释放时，推迟到本帧删除队列清空后的每帧回调判定：
+- 被等待对象指所等待协程的宿主，或所等待信号的源。二者都指等待方所属对象以外的对象。它在完成前被释放时，推迟到本帧删除队列清空后的每帧回调判定：
   - 若等待方所属对象在此期间也已释放，等待方静默取消（`OWNER_FREED`）；
   - 否则等待方在 `await` 处报程序错误（写明被释放对象及释放位置）并沿 `await` 链传播。
 - 经 `settled()` 等待不报错：`Task.of(信号)` 得 `Cancelled(CancelReason.AWAITED_FREED)`，另一对象的协程得 `Cancelled(CancelReason.OWNER_FREED)`：
@@ -912,7 +912,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 10.8 JSON
 
-- JSON 数字解码到 `int` 或无载荷的 enum 时，只接受恰为整数且在 `int64` 范围内的浮点数，否则报错而不截断。
+- JSON 数字解码到 `int` 或无载荷的 enum 时，只接受恰为整数且在 `int64` 范围内的浮点数。其他浮点数不截断：`try_from` 得 `Err`，入口检查报程序错误。
 - struct 和 enum 赋给 `Variant` 时已按引擎边界的规则编码。所以 `JSON.stringify`、`var_to_str` 和 `ConfigFile` 直接存取它们，读回时用 `T.try_from`。它们的容器先以 `Array(hits)`、`Dictionary(d)` 转换。
 - 【已知限制】JSON 把 `Vector2`、`Color` 等引擎值写成字符串，读回时类型不符。绝对值超过 2^53 的整数也会失去精度。存这些值有三种办法：
   - `var_to_str`；
@@ -962,7 +962,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 ### 12.4 热重载
 
 - 仅修改函数体时在运行中直接替换。下一次调用走新代码。挂起中的协程和此前创建的 lambda 继续执行创建它们的旧版本代码。
-- 修改成员、签名、常量或类结构时不迁移状态，并提示重新运行。当前运行拒绝本次及后续一切热重载，保证单次运行中每个类只有一个版本。
+- 修改成员、签名、常量或类结构时不迁移状态。这时运行中的游戏输出一条消息，要求重新运行。当前运行拒绝本次及后续一切热重载，保证单次运行中每个类只有一个版本。
 
 ### 12.5 调试支持
 

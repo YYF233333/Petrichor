@@ -2,7 +2,7 @@
 
 **v0.2 draft · 2026-10-25**
 
-<!-- Generated from language-spec.zh.md, git blob 103bdd9559ea028696212e41bd7a0b6d201fcc31. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 50457defd19a7d714cce631f282b4fa3be29d8ed. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). The previous version of the specification, v0.1, is kept in the git tag `spec-v0.1`. This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -266,21 +266,21 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
   - `pop_at(i)`, `front()`, `back()`, `min()` and `max()` return `T`. An empty array or an out-of-bounds index is a program error. An ordinary index out of bounds is a program error too;
   - `Dictionary[K, V].get(k)` returns `V?`, which is `None` for a missing key. `get(k, default)` returns `V`, and `d[k]` with a missing key is a program error;
   - all methods work by the elements' own `==` and `<`. `resize` fills in the default value of the elements, and an empty typed container for an inner container. `duplicate(true)` deep-copies the containers inside the elements;
-  - when the elements have no `<`, a sorting method is a compile error. On `Array[Node]`, for example, it suggests `sort_custom`. **[Known limitation]** When `Variant` elements are sorted, a pair that cannot be compared counts as not less, as in GDScript. In that case `min` and `max` return `null`. When the elements have no default value, `resize` is a compile error. On `Array[Node]`, for example, it suggests `Array[Node?]`;
+  - when the elements have no `<`, a sorting method is a compile error. On `Array[Node]`, for example, it suggests `sort_custom`. **[Known limitation]** When `Variant` elements are sorted, a pair that cannot be compared counts as not less, as in GDScript. When `min` or `max` meets such a pair, it returns `null`, also as in GDScript. When the elements have no default value, `resize` is a compile error. On `Array[Node]`, for example, it suggests `Array[Node?]`;
   - the standard library provides `map`, `filter`, `sort` and so on for the native containers, taking typed lambdas.
-- **Dictionary keys**: inserting a new key stores a copy. Later changes to the original value do not affect the key. The containers in the copy are read-only at every level. Containers inside the copy are shared as in the original value, including a container that refers to itself. `keys()`, `for k in d` and `find_key()` hand out that read-only copy, and modifying it is a program error. The diagnostic suggests inserting a modified `duplicate()`. A lookup neither copies nor freezes its argument. For a `Dictionary` passed in from outside, a container key is made read-only in place when this language obtains it.
+- **Dictionary keys**: inserting a new key stores a copy. Later changes to the original value do not affect the key. The containers in the copy are read-only at every level. Containers inside the copy are shared as in the original value, including a container that refers to itself. `keys()`, `for k in d` and `find_key()` hand out that read-only copy, and modifying it is a program error. The diagnostic suggests inserting a modified `duplicate()`. A lookup neither copies nor freezes its argument. Suppose this language obtains a container key of a `Dictionary` passed in from outside. That key is then made read-only in place, at every level.
 
 ### 3.9 Interfaces
 
 - Interfaces are nominal: a class must declare them explicitly with `implements`, and only classes of this language can implement interfaces. A member that implements an interface must be marked `pub`, and a method cannot be `static`.
 - An interface may declare methods, properties and signals, which are all requirements on the implementing class. An inherited engine property can satisfy a property requirement of the same type. A property not marked `@readonly` is required to be readable and writable. A readable and writable member can satisfy `@readonly`, while an engine property without a setter can satisfy only `@readonly`. Using `@readonly` outside an interface is a compile error.
-- A signal of an interface is a requirement, as a property is. Signals of the same name that the class declares, inherits or has from an engine class all satisfy it. The signal that satisfies it must have `pub`, and the parameter types must be exactly the same.
+- A signal of an interface is a requirement, as a property is. Signals of the same name that the class declares, inherits or has from an engine class all satisfy it. A signal declared in this language satisfies it only with `pub`. The parameter types of the satisfying signal must be exactly the same.
 - An interface may `extends` several parent interfaces. A child interface may redeclare a method of a parent interface with a covariant return type. Members of the same name in parent interfaces with incompatible signatures are a compile error. So is inheritance that forms a cycle.
 - **[Known limitation]** In the first version, interfaces have no default methods and no stateful mixins, and cannot be generic. Declaring `interface Source[T]:` is a compile error.
 
 ### 3.10 Generics
 
-- The first version has only the built-in generic types: `Array[T]`, `Dictionary[K, V]`, `Result[T, E]`, `Task[T]` and `PackedScene[T]`. User code cannot declare type parameters.
+- The first version has only the built-in generic types: `T?`, `Array[T]`, `Dictionary[K, V]`, `Result[T, E]`, `Task[T]`, `Settled[T]` and `PackedScene[T]`. User code cannot declare type parameters.
 
 ### 3.11 Function types and Callable
 
@@ -510,7 +510,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 5.3 Conversions
 
-- `x as T` is used only for object types and returns `T?`. It gives `None` on a mismatch, on a freed object, and on a non-object inside a `Variant`. When the static type of `x` is already `T`, it returns `T`, and a hint says it is redundant. A downcast assertion is written `(x as T).unwrap()`. For code that calls `is_in_group` and then casts, the quick fix suggests `is` instead.
+- `x as T` is used only for object types and returns `T?`. It gives `None` on a mismatch, on a freed object, and on a non-object inside a `Variant`. When the static type of `x` is already `T` or a subclass of it, the result is `T`. A hint then says the cast is redundant. A downcast assertion is written `(x as T).unwrap()`. For code that calls `is_in_group` and then casts, the quick fix suggests `is` instead.
 - `as` to a built-in type or to an enum is a compile error. The quick fix offers two changes. One is `T(x)`, which keeps the construction or explicit conversion, such as `int("5")`, `int(2.7)` and `State(x)`. The other is the strict conversion `T.try_from(x)`.
 - `T.try_from(v)` returns `Result[T, ConversionError]`, by the same rules as the decoding of struct fields. The runtime type must match `T`. A conversion to `int` accepts a `float` that is exactly an integer and within the `int64` range. A conversion to an enum of this language returns `Err` for a value outside its range of values.
 - `ConversionError` is a built-in struct whose only field is `message: String`. Its content is the same as the error reported when that value fails the entry check, such as `Hit.damage: expected int, found String`.
@@ -562,7 +562,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
           hit()
   ```
 
-- A `match` on an enum of this language, on `Result` or on `Option` must be exhaustive or have `_`. On an open engine enum it must have `_`. A branch with `when` does not count toward coverage. Other types are not required to be exhaustive. An exhaustive `match` on an enum of this language counts as covering all return paths.
+- A `match` on an enum of this language, `Result`, `Option` or `Settled` must be exhaustive or have `_`. On an open engine enum it must have `_`. A branch with `when` does not count toward coverage. Other types are not required to be exhaustive. An exhaustive `match` on an enum of this language counts as covering all return paths.
 - **[Known limitation]** The first version has no type patterns (use `if x is T`) and no `match` expressions. Multiple patterns separated by commas cannot bind.
 
 ### 5.7 Loops
@@ -679,7 +679,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 7.3 Upward access
 
-- An autoload is accessed by its global name, and its type is the class of its script. The literal path `/root/X` is a compile error, and the quick fix changes it to `X`.
+- An autoload is accessed by its global name, and its type is the class of its script. When `X` is an autoload, the literal path `/root/X` is a compile error. The quick fix changes it to `X`.
 - When `X` is not an autoload, `$"/root/X"` is the same as `get_node("/root/X")`. Its type is `Node`, and a concrete type needs an explicit conversion. Code adds such nodes under the root at run time.
 - Requirements on the parent and the owner are written as the class-level annotations `@parent(T)` and `@owner(T)`. Once declared, `get_parent()`, `$".."` and `owner` have type `T`. When not declared, `get_parent()` and `owner` are `Node?`, while `$".."` and `get_node("..")` are `Node`. Writing `get_parent().x` or `owner.x` is then a compile error. The quick fix infers a common type from the scenes and adds `@parent(T)` / `@owner(T)`, or adds `.unwrap()` at the call:
 
@@ -788,7 +788,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 9.3 Cancellation and ownership
 
-- On a suspended task, `cancel()` at once disconnects the signal or task it is waiting for, and cancels it. On a task that is executing, `cancel()` can only come from code that the task calls synchronously. An example is a handler of a signal it emits. The task is then cancelled at its next `await` or return, and its return value is discarded. On a task that has ended, it has no effect. After `cancel()` is called, the result is always cancelled.
+- On a suspended task, `cancel()` at once disconnects the signal or task it is waiting for, and cancels it. On a task that is executing, `cancel()` can only come from code that the task calls synchronously. An example is a handler of a signal it emits. The task is then cancelled at its next `await` or return, and its return value is discarded. On a task that has ended, it has no effect. On a task that has not ended, the result after `cancel()` is always cancelled.
 - Cancellation propagates along ownership. A child task started and awaited directly with `await f(...)` is owned by the parent task, and is cancelled with it. With an `await` on an existing `Task` value, cancellation only stops the waiting, and the original task keeps running.
 - A cancellation caused by the owning object being freed does not propagate along ownership. A child task on another object that is still alive keeps running as if by `detach`, as in GDScript.
 
@@ -806,7 +806,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 ### 9.6 Awaiting signals
 
 - An `await` on a signal without parameters produces no value. A signal with one parameter gives a value of that parameter's type. An `await` on a signal with several parameters can only be a statement. Using the result is a compile error.
-- A signal accessed through a known class has a known signature. Known classes are those in the engine's ClassDB and the classes and interfaces declared in this language. GDScript classes seen through reflection are known too. When the static type is only `Signal`, the signature is unknown. An `await` on it as a statement is not restricted. An `await` on it as a value gives `Variant`. At run time that is NIL for no parameters, the value for one, and an `Array` for several:
+- A signal accessed through a known class has a known signature. Known classes are those in the engine's ClassDB and the classes and interfaces declared in this language. Classes of other languages seen through reflection are known too. When the static type is only `Signal`, the signature is unknown. An `await` on it as a statement is not restricted. An `await` on it as a value gives `Variant`. At run time that is NIL for no parameters, the value for one, and an `Array` for several:
 
   ```gdscript
   var r = await DialogueManager.Resolved   # unknown signature: r is Variant
@@ -817,7 +817,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 ### 9.7 Freed objects and suspended coroutines
 
 - When the owning object of a coroutine receives `NOTIFICATION_PREDELETE`, its coroutines are cancelled silently at once. This is before a `Node` deletes its children. The references of the suspended frames are released.
-- The awaited object means the coroutine host or the signal source on another object. When it is freed before completion, the decision is deferred. It is made in the per-frame callback after this frame's deletion queue is emptied:
+- The awaited object is the host of the awaited coroutine, or the source of the awaited signal. Either one is an object other than the waiter's own. When it is freed before completion, the decision is deferred. It is made in the per-frame callback after this frame's deletion queue is emptied:
   - if the owning object of the waiter has also been freed in the meantime, the waiter is cancelled silently (`OWNER_FREED`);
   - otherwise it is a program error for the waiter at the `await`, stating the freed object and its free site. The error propagates along the `await` chain.
 - Waiting through `settled()` is not an error: `Task.of(signal)` gives `Cancelled(CancelReason.AWAITED_FREED)`, and a coroutine of another object gives `Cancelled(CancelReason.OWNER_FREED)`:
@@ -914,7 +914,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 10.8 JSON
 
-- Suppose a JSON number is decoded to `int` or to an enum without payloads. Only a float that is exactly an integer and within the `int64` range is accepted. Otherwise it is an error, not a truncation.
+- Suppose a JSON number is decoded to `int` or to an enum without payloads. Only a float that is exactly an integer and within the `int64` range is accepted. Other floats are not truncated: `try_from` gives `Err`, and an entry check fails with a program error.
 - Structs and enums are already encoded by the rules of the engine boundary when assigned to `Variant`. So `JSON.stringify`, `var_to_str` and `ConfigFile` store and load them directly, and reading back uses `T.try_from`. Containers of them are first converted with `Array(hits)` or `Dictionary(d)`.
 - **[Known limitation]** JSON writes engine values such as `Vector2` and `Color` as strings. When they are read back, the type does not match. Integers whose absolute value exceeds 2^53 also lose precision. There are three ways to store these values:
   - `var_to_str`;
@@ -964,7 +964,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 ### 12.4 Hot reload
 
 - When only function bodies change, they are replaced directly during the run. The next call takes the new code. Suspended coroutines and lambdas created earlier keep running the old version of the code that created them.
-- When members, signatures, constants or the class structure change, state is not migrated, and a message asks to run again. The current run refuses this and every later hot reload. This guarantees that each class has only one version within one run.
+- When members, signatures, constants or the class structure change, state is not migrated. The running game then prints a message asking to run it again. The current run refuses this and every later hot reload. This guarantees that each class has only one version within one run.
 
 ### 12.5 Debugging support
 
