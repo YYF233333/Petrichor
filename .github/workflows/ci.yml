@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: ${{ matrix.platform }} ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-22.04, macos-15]
+        target: [editor, template_debug, template_release]
+        include:
+          - os: windows-2022
+            platform: windows
+          - os: ubuntu-22.04
+            platform: linux
+          # The engine's arm64 builds target macOS 11.0
+          # (platform/macos/detect.py:109-111, ed1daf0).
+          - os: macos-15
+            platform: macos
+            scons_args: macos_deployment_target=11.0
+    env:
+      SCONS_CACHE: ${{ github.workspace }}/.scons_cache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: python -m pip install scons==4.9.1
+
+      - id: godot_cpp
+        run: echo "commit=$(git rev-parse HEAD:thirdparty/godot-cpp)" >> "$GITHUB_OUTPUT"
+
+      # godot-cpp is most of a build and changes only with the submodule.
+      - uses: actions/cache@v4
+        with:
+          path: .scons_cache
+          key: scons-${{ matrix.platform }}-${{ matrix.target }}-${{ steps.godot_cpp.outputs.commit }}
+
+      - name: Build the library
+        run: scons target=${{ matrix.target }} ${{ matrix.scons_args }}
+
+      - name: Compiler tests
+        if: matrix.target == 'editor'
+        run: |
+          scons compiler_tests ${{ matrix.scons_args }}
+          tests/compiler/bin/compiler_tests
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: petrichor-${{ matrix.platform }}-${{ matrix.target }}
+          path: |
+            tests/engine/project/bin/*.dll
+            tests/engine/project/bin/*.so
+            tests/engine/project/bin/*.dylib
+          if-no-files-found: error
