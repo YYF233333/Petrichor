@@ -7,7 +7,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 
 - CI builds the three libraries for Windows, Linux and macOS, and runs the compiler and engine tests on each. The three are editor, template_debug and template_release.
-- The sources have only been built with MSVC. The interpreter reads frame bytes through pointer casts, undefined under strict aliasing in GCC and Clang (`src/runtime/vm.cpp`).
+- The sources have only been built with MSVC.
 - The `.gdextension` lists Windows x86_64 only. The release adds Linux and macOS, in the layout users unzip, `addons/petrichor/`.
 - The export plugin lacks two errors of architecture §5. One reports a missing library for the target platform. The other reports a Web export without extension support.
 - An exported game runs with the official export templates. The release library has never been built.

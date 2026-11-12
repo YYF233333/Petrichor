@@ -10,6 +10,11 @@ os.environ.setdefault("SCONS_CACHE_MSVC_CONFIG", "1")
 
 # The editor library is the one the tests and benchmarks load.
 ARGUMENTS.setdefault("target", "editor")
+# godot-cpp otherwise builds for the build machine's own macOS version
+# (thirdparty/godot-cpp/tools/macos.py:58-60); the engine's arm64 builds target
+# 11.0 (platform/macos/detect.py:109-111, ed1daf0).
+if sys.platform == "darwin":
+    ARGUMENTS.setdefault("macos_deployment_target", "11.0")
 
 
 def configure_godot_cpp():
@@ -134,6 +139,14 @@ if not only_compiler_tests:
 # project go into copies, or every change to them would rebuild godot-cpp.
 env = godot_cpp_env.Clone()
 env.Append(CPPPATH=["src/", "gen/"])
+# The three compilers are kept in step where their defaults differ. MSVC alone
+# binds a temporary to a non-const reference. GCC and Clang alone optimize by
+# the types of pointers, and the interpreter reads frame bytes through casts
+# to the types they hold (src/runtime/vm.cpp).
+if env.get("is_msvc", False):
+    env.Append(CXXFLAGS=["/Zc:referenceBinding"])
+else:
+    env.Append(CCFLAGS=["-fno-strict-aliasing"])
 
 # The compiler's tables of built-in types and utility functions come from the
 # extension API that godot-cpp is built against (architecture §2.1).
