@@ -6,11 +6,8 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 
-- CI builds the three libraries for Windows, Linux and macOS, and runs the compiler and engine tests on each. The three are editor, template_debug and template_release.
-- An exported game runs with the official export templates.
-- The plugin package and the demo package, built by CI, each with its third-party notices.
 - The suites on Godot 4.8's release candidate, with its changes checked one by one. They pass on beta3 (`c51ff06e8`).
-- The README lacks install and upgrade steps and the platforms tested. On macOS the libraries are signed ad hoc, so it also needs the first-run step. It promises a way back to GDScript without the limit of spec §13.4. Reverse conversion skips files using features GDScript lacks.
+- Release notes. They list where code spelled as in GDScript behaves differently, and the known limitations.
 - An icon for `.pet` scripts.
 - With the owner: the invitees, the invitations and the icon.
 
@@ -32,6 +29,9 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 - Members that animation tracks and synchronized properties name, unchecked for `pub` and existence (spec §7.7, §10.5):
   - through a path that leaves the scene storing it, as from an AnimationPlayer at its root;
   - after the first subname, on a resource of this language, as `health` in `Body:stats:health`.
+- Types of a C# class's members that are narrower than what is seen (spec §11.1):
+  - an exported object property is `Object?`, as its class is only in the hint string;
+  - a method's parameters and results have their native class, as the engine's generator drops the script class.
 
 ## Runtime
 
@@ -41,6 +41,8 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 
 ## Editor
 
+- The dialog that creates a script shows "No suitable template.", as this language has no templates. The script is created all the same.
+- `--petrichor-build` on a fresh clone can end with the engine's crash code (godot#111048). The README says to import first.
 - References from scenes for the keys of exported properties (architecture §2.1). Also for the members that animation tracks and synchronized properties name (spec §7.7). Now only the methods of signal connections are references.
 - The warnings of spec §6.7:
   - a lambda capturing self stored in a member of self, a signal connection or a container;
@@ -83,6 +85,7 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 
 ## Tests
 
+- On macOS, the x86_64 half of the libraries and the README's quarantine step have never run. CI runs arm64.
 - Cross-rule checks kept from the former conformance checklist:
   - `player.last_hit.damage = 3` running `last_hit`'s setter (spec §3.6, §4.4);
   - for §3.11 and §9.1:
@@ -185,6 +188,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 
 ## Open questions
 
+- Whether a C# property without `[Export]` is a known limitation (spec §11.1). The editor lists only exported ones, so `c.Hits` is a compile error.
 - Whether `reduce()` types its lambda from the start value, as `func(A, T) -> A` (spec §3.8). Now the lambda's types must be written. A `None` start would need a rule of its own.
 - Whether a function value turned into a Callable has only its result checked for `T??` and `Variant?` (spec §10.1). Parameters cannot lose a `None`: the engine passes null or a boxed value. Now `Array[int??].filter(func(x): ...)` is refused.
 - Design questions from the third coverage rerun, which the spec leaves open:
