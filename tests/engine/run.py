@@ -89,8 +89,11 @@ class Running:
     """A run whose output is read while it goes on, so that the test can answer it."""
 
     def __init__(self, godot, *args, stdin=False):
+        # In English: the checks read the editor's texts, which otherwise take
+        # the language of the editor's settings or of the system
+        # (editor/settings/editor_settings.cpp:1458-1465, 2031-2059; ed1daf0).
         self.process = subprocess.Popen(
-            [godot, "--headless", *args],
+            [godot, "--headless", "--language", "en", *args],
             stdin=subprocess.PIPE if stdin else subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -754,7 +757,7 @@ def lacks_library(output):
     the engine's own plugin, which warns
     (editor/export/gdextension_export_plugin.h:161-165), and by this
     language's, which repeats the engine's rule; they must agree."""
-    engine = any("WARNING" in line and '"res://petrichor.gdextension"' in line for line in output.splitlines())
+    engine = any("WARNING" in line and "res://petrichor.gdextension" in line for line in output.splitlines())
     return engine, "res://petrichor.gdextension has no library for " in output
 
 

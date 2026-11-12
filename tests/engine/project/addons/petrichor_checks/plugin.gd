@@ -335,7 +335,8 @@ func _scene_marks(path: String) -> String:
 func _dock_tooltips(node: Node) -> String:
 	var dock: Node = EditorInterface.get_base_control().find_children("*", "SceneTreeDock", true, false)[0]
 	var tree: Tree = dock.get_tree_editor().find_children("*", "Tree", true, false)[0]
-	var item := _find_item(tree.get_root(), node.get_path())
+	var item := _find_item(tree.get_root(), node)
+	_check(item != null, "the scene dock has an item for the node")
 	var tooltips := PackedStringArray()
 	for i in item.get_button_count(0) if item else 0:
 		tooltips.append(item.get_button_tooltip_text(0, i))
@@ -426,11 +427,14 @@ func _check_documentation() -> void:
 		DirAccess.remove_absolute(file)
 
 
-func _find_item(item: TreeItem, path: NodePath) -> TreeItem:
-	if item.get_metadata(0) == path:
+# The dock's item for a node. The item names its node by a path: from the
+# tree's root in Godot 4.7, and from the scene's root since 4.8
+# (editor/scene/scene_tree_editor.cpp:520, 2039-2044; c51ff06e8).
+func _find_item(item: TreeItem, node: Node) -> TreeItem:
+	if EditorInterface.get_edited_scene_root().get_node_or_null(item.get_metadata(0)) == node:
 		return item
 	for child in item.get_children():
-		var found := _find_item(child, path)
+		var found := _find_item(child, node)
 		if found:
 			return found
 	return null
