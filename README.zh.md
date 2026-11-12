@@ -62,19 +62,38 @@ func aim():
 
 ## 试用
 
-0.1 发布时，GitHub Releases 页面提供两个包：
+需要官方的 Godot 4.7 编辑器，标准版和 .NET 版都可以。[Releases](https://github.com/YYF233333/Petrichor/releases) 页面提供两个包：
 
-- 演示包：FPS 起步工程加迁移后的脚本，用 Godot 4.7 打开即可运行。
-- 插件包：解压到自己的项目中，重启编辑器后就能新建 `.pet` 脚本。
+- 演示包 `petrichor-<版本>-demo.zip`：FPS 起步工程加迁移后的脚本。解压后用编辑器打开，导入结束后即可运行。
+- 插件包 `petrichor-<版本>-addon.zip`：解压到项目根目录，得到 `addons/petrichor/`。重启编辑器后就能新建 `.pet` 脚本。
+
+升级时先关闭编辑器，再用新版的 `addons/petrichor/` 替换旧的。之后从编辑器运行一次项目，脚本会全部重新编译。
+
+macOS 上的库只有临时签名，没有公证。浏览器下载的包带有隔离标记，系统会拒绝加载其中的库。解压后在项目目录运行：
+
+```sh
+xattr -dr com.apple.quarantine addons/petrichor
+```
+
+每个版本都在 CI 中用官方编辑器和官方导出模板测试：编辑、运行、导出 debug 包和 release 包。
+
+| 平台 | 库 | 测试环境 |
+|---|---|---|
+| Windows | x86_64 | Windows Server 2022 |
+| Linux | x86_64，需要 glibc 2.35 或更新 | Ubuntu 22.04 |
+| macOS | x86_64 和 arm64 合一，需要 macOS 11 或更新 | macOS 15，arm64；x86_64 未测试 |
 
 在 CI 中检查整个项目：
 
 ```sh
+godot --headless --path <project> --import
 godot --headless -e --path <project> -- --petrichor-build
 godot --headless -e --path <project> -- --petrichor-format --check
 ```
 
-在那之前可以从源码构建，需要 C++17 工具链和 SCons。先运行 `git submodule update --init`，再运行 `scons`。
+第一行只在全新克隆的项目上需要，它的退出码不必检查。Godot 4.7 的编辑器第一次打开项目后立刻退出时可能崩溃（[godot#111048](https://github.com/godotengine/godot/issues/111048)）。
+
+从源码构建需要 C++17 工具链和 SCons。先运行 `git submodule update --init`，再运行 `scons`。
 
 ## 状态与限制
 
@@ -85,7 +104,7 @@ godot --headless -e --path <project> -- --petrichor-format --check
 - 0.9 之前，语言语义可能调整，不兼容的改动都在发布说明中列出。0.9 起，改变代码含义的改动都以编译错误出现。只改运行时行为的修正，在发布说明中单独列出。
 - 字节码不跨构建兼容。升级扩展后，项目要重新构建一次。
 - 编辑器还没有查找引用、重命名、快速修复、lint 和 LSP。它们排在 0.2–0.3。
-- 还没有 GDScript 迁移工具，0.1 要手工迁移。工具排在 0.2–0.3，它是双向的。即使本项目停止维护，也能用它把项目转回 GDScript。
+- 还没有 GDScript 迁移工具，0.1 要手工迁移。工具排在 0.2–0.3，它是双向的。不用 GDScript 所缺特性的文件，在本项目停止维护后也能转回 GDScript。用到这些特性（如 struct、`Result`）的文件不转换，工具只列出位置。
 - 支持 Godot 4.7 及之后的版本。
 
 完整路线见[实现架构](docs/architecture.md#5-推进顺序)，未完成的工作见 [BACKLOG.md](BACKLOG.md)。
@@ -110,7 +129,7 @@ Petrichor 的语言设计和每条规范由作者决定。实现、测试、文�
 - [开发说明](docs/development.md)：构建、测试和调试中的坑
 - [语料调查](docs/surveys/README.md)：基于 20 个 Godot 4 项目，每份附复现脚本
 
-`docs/` 下的文档目前为中文。英文版语言规范随 0.1 提供。
+`docs/` 下的文档为中文。语言规范另有[英文版](docs/language-spec.md)，由中文版生成，两者不一致时以中文版为准。
 
 ## 许可证
 

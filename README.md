@@ -54,7 +54,7 @@ Other differences:
 - It mixes with GDScript plugins and C# code.
 - The editor has completion, hover types, go to definition, formatting, breakpoints and hot reload of function bodies.
 
-The full rules are in the [language specification](docs/language-spec.zh.md).
+The full rules are in the [language specification](docs/language-spec.md).
 
 In microbenchmarks, computation runs 1.2 to 3.5 times as fast as GDScript, and engine property access about 1.6 times. Calls to engine methods, signals and object creation spend their time in the engine, so the two are close. Project startup takes the same time ([benchmarks](docs/architecture.md#4-性能)).
 
@@ -62,19 +62,38 @@ The migrated scripts of two real projects run: Kenney's FPS starter kit and the 
 
 ## Trying It
 
-With 0.1, GitHub Releases will offer two packages:
+It needs the official Godot 4.7 editor, standard or .NET. The [Releases](https://github.com/YYF233333/Petrichor/releases) page offers two packages:
 
-- A demo: the FPS starter kit with migrated scripts, ready to run in Godot 4.7.
-- The extension: unpack it into a project and restart the editor to create `.pet` scripts.
+- The demo, `petrichor-<version>-demo.zip`: the FPS starter kit with migrated scripts. Unpack it and open it in the editor. It runs once the import ends.
+- The extension, `petrichor-<version>-addon.zip`: unpack it into the project's root, which gives `addons/petrichor/`. Restart the editor to create `.pet` scripts.
+
+To upgrade, close the editor and replace `addons/petrichor/` with the new one. Then run the project once from the editor, which compiles every script again.
+
+On macOS the libraries are signed ad hoc and not notarized. A package downloaded with a browser is quarantined, and the system refuses to load its libraries. After unpacking, run this in the project's directory:
+
+```sh
+xattr -dr com.apple.quarantine addons/petrichor
+```
+
+CI tests each release with the official editor and the official export templates. It edits, runs and exports a project, as a debug and a release build.
+
+| Platform | Library | Tested on |
+|---|---|---|
+| Windows | x86_64 | Windows Server 2022 |
+| Linux | x86_64, needs glibc 2.35 or later | Ubuntu 22.04 |
+| macOS | universal (x86_64 and arm64), needs macOS 11 or later | macOS 15 on arm64; x86_64 is untested |
 
 To check a whole project in CI:
 
 ```sh
+godot --headless --path <project> --import
 godot --headless -e --path <project> -- --petrichor-build
 godot --headless -e --path <project> -- --petrichor-format --check
 ```
 
-Until then, build from source with a C++17 toolchain and SCons. Run `git submodule update --init`, then `scons`.
+Only a fresh clone needs the first line, and its exit code need not be checked. The editor of Godot 4.7 can crash when it exits right after it first opens a project ([godot#111048](https://github.com/godotengine/godot/issues/111048)).
+
+To build from source, you need a C++17 toolchain and SCons. Run `git submodule update --init`, then `scons`.
 
 ## Status and Limitations
 
@@ -85,7 +104,7 @@ Until then, build from source with a C++17 toolchain and SCons. Run `git submodu
 - Before 0.9, the language semantics may change, and release notes list every incompatible change. From 0.9, a change in what code means shows as a compile error. Fixes that change only runtime behavior are listed apart in release notes.
 - Bytecode is not compatible across builds. After upgrading the extension, rebuild the project once.
 - The editor lacks find references, rename, quick fixes, lints and LSP. They are planned for 0.2–0.3.
-- There is no GDScript migration tool yet, so 0.1 needs manual migration. The tool is planned for 0.2–0.3 and works both ways. Even if this project stops, it converts a project back to GDScript.
+- There is no GDScript migration tool yet, so 0.1 needs manual migration. The tool is planned for 0.2–0.3 and works both ways. A file that uses no feature GDScript lacks converts back to GDScript, even after this project stops. A file that uses one, such as a struct or `Result`, is not converted; the tool lists where.
 - Godot 4.7 and later are supported.
 
 The full roadmap is in the [architecture](docs/architecture.md#5-推进顺序), and unfinished work in [BACKLOG.md](BACKLOG.md).
@@ -103,14 +122,14 @@ The author is responsible for fixing what goes wrong. During 0.1, the project ta
 
 ## Documentation
 
-- [Language specification](docs/language-spec.zh.md)
+- [Language specification](docs/language-spec.md)
 - [Architecture](docs/architecture.md)
 - [Design notes](docs/design-notes.md): the trade-offs behind the rules, corpus counts and rejected alternatives
 - [Engine facts](docs/engine-facts.md): the engine behavior relied on, with source citations
 - [Development notes](docs/development.md): pitfalls in building, testing and debugging
 - [Corpus surveys](docs/surveys/README.md): across 20 Godot 4 projects, each with scripts to reproduce it
 
-Documents under `docs/` are currently in Chinese. The English language specification comes with 0.1.
+Documents under `docs/` are in Chinese. The language specification is also [in English](docs/language-spec.md), generated from the Chinese one, which prevails where they differ.
 
 ## License
 
