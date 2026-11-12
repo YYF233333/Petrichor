@@ -8,11 +8,14 @@
 #include "runtime/text.h"
 
 #include <godot_cpp/classes/code_edit.hpp>
+#include <godot_cpp/classes/config_file.hpp>
+#include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/editor_export_platform.hpp>
 #include <godot_cpp/classes/editor_file_system.hpp>
 #include <godot_cpp/classes/editor_interface.hpp>
 #include <godot_cpp/classes/editor_toaster.hpp>
 #include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/gd_extension_manager.hpp>
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/script_editor.hpp>
@@ -27,8 +30,104 @@ using namespace godot;
 
 namespace petrichor {
 
+namespace {
+
+// The features that the engine's export of extensions takes as architectures
+// (editor/export/gdextension_export_plugin.h:68-77; ed1daf0).
+bool is_architecture(const String &p_tag) {
+	for (const char *architecture : { "x86_32", "x86_64", "arm32", "arm64", "rv64", "ppc64", "wasm32", "loongarch64", "universal" }) {
+		if (p_tag == architecture) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// The key of [libraries] whose library the engine exports for an architecture:
+// the one with the most tags, each the architecture or a feature of the export
+// that is none, and the first of equals
+// (core/extension/gdextension_library_loader.cpp:82-97,
+// editor/export/gdextension_export_plugin.h:79-110; ed1daf0).
+String library_key(const PackedStringArray &p_keys, const PackedStringArray &p_features, const String &p_architecture) {
+	String best;
+	int64_t most = 0;
+	for (const String &key : p_keys) {
+		const PackedStringArray tags = key.split(".");
+		bool met = true;
+		for (const String &tag : tags) {
+			const String name = tag.strip_edges();
+			met = met && (name == p_architecture || (p_features.has(name) && !is_architecture(name)));
+		}
+		if (met && tags.size() > most) {
+			best = key;
+			most = tags.size();
+		}
+	}
+	return best;
+}
+
+} // namespace
+
 String PetExportPlugin::_get_name() const {
 	return "Petrichor";
+}
+
+void PetExportPlugin::_export_begin(const PackedStringArray &p_features, bool p_is_debug, const String &p_path, uint32_t p_flags) {
+	const Ref<EditorExportPlatform> platform = get_export_platform();
+	const auto fail = [&](const String &p_what, const String &p_remedy) {
+		platform->add_message(EditorExportPlatform::EXPORT_MESSAGE_ERROR, "Petrichor", vformat("%s The exported game cannot load Petrichor, so its .pet scripts will not run. %s", p_what, p_remedy));
+	};
+	// platform/web/export/export_plugin.cpp:362-366 (ed1daf0).
+	if (p_features.has("web_noextensions")) {
+		fail("This Web export has \"Extensions Support\" turned off.", "Turn it on in the options of the export preset.");
+	}
+	// Without a library for the target, the engine exports with a warning, and
+	// the game fails when it runs
+	// (editor/export/gdextension_export_plugin.h:161-165; ed1daf0).
+	for (const String &extension : GDExtensionManager::get_singleton()->get_loaded_extensions()) {
+		// This library's own file names its entry point, wherever the project
+		// keeps it (src/adapter/register_types.cpp).
+		Ref<ConfigFile> config;
+		config.instantiate();
+		config->load(extension);
+		if (String(config->get_value("configuration", "entry_symbol", String())) != "petrichor_library_init") {
+			continue;
+		}
+		const PackedStringArray keys = config->get_section_keys("libraries");
+		PackedStringArray architectures;
+		for (const String &feature : p_features) {
+			if (is_architecture(feature)) {
+				architectures.push_back(feature);
+			}
+		}
+		if (architectures.is_empty()) {
+			architectures.push_back("unknown_arch");
+		}
+		for (const String &architecture : architectures) {
+			// A universal library serves each architecture of the export.
+			if (architecture == "universal") {
+				continue;
+			}
+			String key = library_key(keys, p_features, architecture);
+			if (key.is_empty() && architectures.has("universal")) {
+				key = library_key(keys, p_features, "universal");
+			}
+			const String target = vformat("a %s export to %s %s", p_is_debug ? "debug" : "release", platform->get_os_name(), architecture);
+			if (key.is_empty()) {
+				fail(vformat("%s has no library for %s.", extension, target), "Install a release of Petrichor that supports this target.");
+				continue;
+			}
+			// core/extension/gdextension_library_loader.cpp:100-102 (ed1daf0).
+			String library = config->get_value("libraries", key);
+			if (library.is_relative_path()) {
+				library = extension.get_base_dir().path_join(library);
+			}
+			// On macOS a library may be a framework, a directory.
+			if (!FileAccess::file_exists(library) && !DirAccess::dir_exists_absolute(library)) {
+				fail(vformat("%s names %s as the library for %s, and that file does not exist.", extension, library, target), "Install Petrichor again, with every file of its release.");
+			}
+		}
+	}
 }
 
 void PetExportPlugin::_export_file(const String &p_path, const String &p_type, const PackedStringArray &p_features) {

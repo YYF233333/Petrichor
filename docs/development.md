@@ -17,6 +17,10 @@
   - 它们在 DLL 加载时构造，早于 godot-cpp 初始化，Windows 于是以 Error 1114 拒绝加载。
   - 症状是间接的：测试报 “No loader found for resource: res://*.pet”，场景不退出。
   - 全局状态改用 std 类型或函数内的 static。扩展突然加载不了时，先查新加的全局变量。
+- 不要调用 `GDExtensionManager::get_extension()`，godot-cpp 会为返回的 GDExtension 建包装。
+  - 引擎先关闭本库，再释放这个包装，回调落在已卸载的库里（`core/extension/gdextension.cpp:877-880`、`core/object/object.cpp:2363`，`ed1daf0`）。
+  - 症状是编辑器退出时崩溃，退出码 0xC0000005，没有回溯。
+  - 要找本扩展的 `.gdextension`，在 `get_loaded_extensions()` 给出的路径里按 `entry_symbol` 找。
 - 按路径加载资源只用 `load_resource()`（`src/runtime/values.h`），不要自己把 `load()` 的结果装进 Variant。
 - godot-cpp 的 String 没有 `quote()` 和 `find_char()`。
 - godot-cpp 移动 Variant 时整块交换字节，函数不在头文件中（`thirdparty/godot-cpp/src/variant/variant.cpp:90-92`）。

@@ -30,6 +30,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 PROJECT = HERE / "project"
 TEMPLATE_LIBRARY = "petrichor.windows.template_debug.x86_64.dll"
+RELEASE_LIBRARY = "petrichor.windows.template_release.x86_64.dll"
 BUILD_STAMP = PROJECT / ".godot" / "petrichor_build_stamp"
 FPS_UPSTREAM = ROOT / "thirdparty" / "starter-kit-fps"
 FPS_MIGRATED = HERE / "fps"
@@ -688,6 +689,7 @@ def run_export_groups(godot):
         expect("export: a script with errors is left out", "broken_export_check.pet has errors and is left out of the export." in output, output)
         # The editor's window says it failed; the command line, as a warning.
         expect("export: a script with errors is an export error", "completed with warnings" in output, output)
+        expect("export: the extension has a library for the target, for the engine as for this language", lacks_library(output) == (False, False), output)
 
         # A value that the main scene lacks fails the headless build and the
         # export, but the script compiles, and is exported (spec §7.5). The
@@ -717,6 +719,17 @@ def run_export_groups(godot):
         expect("export: a value that a scene lacks is an export error", code_export == 0 and lacking in output and "has errors and is left out" not in output, output)
         expect("export: the headless build and the export fail on the checks of a scene and a resource file", all(error in built and error in output for error in (abstract, loot)), built + output)
 
+        # An export whose game could not load the extension fails
+        # (architecture §5). The copy lacks the file of the release library.
+        # For the Web the extension lists no library, and the preset has no
+        # extension support.
+        expect("export: a library that the project lacks is an export error", f"res://petrichor.gdextension names res://bin/{RELEASE_LIBRARY} as the library for a release export to " in output and lacks_library(output) == (False, False), output)
+        with open(unassigned / "export_presets.cfg", "a", encoding="utf-8") as presets:
+            presets.write('\n[preset.1]\n\nname="Web"\nplatform="Web"\nexport_filter="all_resources"\ninclude_filter=""\nexclude_filter=""\n\n[preset.1.options]\n\nvariant/extensions_support=false\n')
+        code, output = run(godot, "--path", str(unassigned), "--export-pack", "Web", str(tmp / "web.pck"))
+        expect("export: a target without a library is an export error", "res://petrichor.gdextension has no library for a release export to Web wasm32. The exported game cannot load Petrichor, so its .pet scripts will not run." in output and lacks_library(output) == (True, True), output)
+        expect("export: a Web export without extension support is an export error", 'This Web export has "Extensions Support" turned off.' in output, output)
+
         # A project directory without sources, whose only library is the one
         # exported games load, without the compiler: without the editor's
         # entry, an editor binary takes the "debug" one
@@ -734,6 +747,15 @@ def run_export_groups(godot):
         (runner / "petrichor.gdextension").write_text("\n".join(line for line in extension if not line.startswith("windows.editor.")), encoding="utf-8")
         code, output = run(godot, "--path", str(runner), "--script", str(HERE / "export_check.gd"), "--", str(pack))
         expect_run("exported pack run with the template_debug library", code, output, ["export check: greeter.petc header = PETC", *GAME_OUTPUT])
+
+
+def lacks_library(output):
+    """Whether an export found no library of the extension for its target: by
+    the engine's own plugin, which warns
+    (editor/export/gdextension_export_plugin.h:161-165), and by this
+    language's, which repeats the engine's rule; they must agree."""
+    engine = any("WARNING" in line and '"res://petrichor.gdextension"' in line for line in output.splitlines())
+    return engine, "res://petrichor.gdextension has no library for " in output
 
 
 def project_build_stamp(godot):
