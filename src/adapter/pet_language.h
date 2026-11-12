@@ -2,6 +2,7 @@
 
 #include <godot_cpp/classes/script_language_extension.hpp>
 
+#include <cstdint>
 #include <mutex>
 #include <vector>
 

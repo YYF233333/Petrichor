@@ -2,6 +2,7 @@
 #include "bytecode/opcodes.h"
 
 #include <algorithm>
+#include <type_traits>
 #include <unordered_map>
 
 namespace petrichor::bytecode {

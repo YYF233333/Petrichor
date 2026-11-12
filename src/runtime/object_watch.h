@@ -2,6 +2,7 @@
 
 #include <gdextension_interface.h>
 
+#include <cstdint>
 #include <functional>
 
 namespace petrichor {

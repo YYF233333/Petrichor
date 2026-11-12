@@ -32,6 +32,7 @@
 #include <new>
 #include <optional>
 #include <thread>
+#include <typeinfo>
 
 using namespace godot;
 

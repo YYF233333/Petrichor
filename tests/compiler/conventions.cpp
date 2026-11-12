@@ -10,6 +10,7 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <type_traits>
 
 namespace petrichor::tests {
 
@@ -269,7 +270,7 @@ void check_references(const std::string &p_source, const EngineApi &p_engine, co
 		const std::string text = file.text.substr(reference.begin, reference.end - reference.begin);
 		places.insert({ reference.begin, reference.end });
 		if (reference.target.kind == DeclId::Kind::Local) {
-			const auto [entry, added] = locals.insert({ reference.target, text });
+			const auto entry = locals.insert({ reference.target, text }).first;
 			CHECK_MESSAGE(entry->second == text, "a local spelled ", entry->second, " is referred to as ", text, " in:\n", p_source);
 			continue;
 		}
@@ -280,8 +281,9 @@ void check_references(const std::string &p_source, const EngineApi &p_engine, co
 		return; // Without bodies, whose names are not resolved.
 	}
 	const ResolvedNames resolved(cls, file);
-	for (const auto &[token, what] : resolved.all()) {
-		CHECK_MESSAGE(places.count({ file.tokens[token].offset, file.tokens[token].end() }), "the ", what, " has no reference in:\n", p_source);
+	for (const std::pair<uint32_t, std::string> &name : resolved.all()) {
+		const Token &token = file.tokens[name.first];
+		CHECK_MESSAGE(places.count({ token.offset, token.end() }), "the ", name.second, " has no reference in:\n", p_source);
 	}
 }
 

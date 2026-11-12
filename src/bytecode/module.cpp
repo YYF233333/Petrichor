@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cstring>
 #include <sstream>
+#include <type_traits>
+#include <utility>
 
 namespace petrichor::bytecode {
 

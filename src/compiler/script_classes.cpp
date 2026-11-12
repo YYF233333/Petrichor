@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <type_traits>
 
 namespace petrichor::compiler {
 

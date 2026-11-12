@@ -2,6 +2,7 @@
 
 #include <godot_cpp/variant/string.hpp>
 
+#include <cstdint>
 #include <string>
 
 namespace petrichor {

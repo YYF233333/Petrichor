@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstdlib>
+#include <limits>
 #include <locale>
 #include <optional>
 #include <sstream>
@@ -675,6 +676,13 @@ class Lexer {
 			std::istringstream stream(digits);
 			stream.imbue(std::locale::classic());
 			stream >> token.float_value;
+			// An overflow fails the stream, leaving the largest double or
+			// infinity by the standard library; GDScript gives infinity
+			// (core/string/ustring.cpp:2551-2565; ed1daf0). An underflow may
+			// fail it too, leaving the value.
+			if (stream.fail() && token.float_value >= 1.0) {
+				token.float_value = std::numeric_limits<double>::infinity();
+			}
 		} else {
 			Token &token = push(TokenKind::Int, start);
 			const unsigned long long value = std::strtoull(digits.c_str(), nullptr, base);

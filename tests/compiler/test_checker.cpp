@@ -77,7 +77,8 @@ TEST_CASE("@rpc configures how other peers call a method, which they find by nam
 	CHECK((hit.rpc.mode == 1 && hit.rpc.call_local && hit.rpc.transfer_mode == 0 && hit.rpc.channel == 1));
 	const bytecode::Function &sync = function_named(result.module, "sync_state");
 	CHECK((sync.rpc.mode == 2 && !sync.rpc.call_local && sync.rpc.transfer_mode == 2 && sync.rpc.channel == 0));
-	CHECK(function_named(compile("extends Node\nfunc f():\n\tpass\n").module, "f").rpc.mode == 0);
+	const compiler::CompileResult plain = compile("extends Node\nfunc f():\n\tpass\n");
+	CHECK(function_named(plain.module, "f").rpc.mode == 0);
 
 	const auto rpc_errors = [](const std::string &p_annotation) { return joined(errors_of("extends Node\n" + p_annotation + "\nfunc f():\n\tpass\n")); };
 	CHECK(contains(rpc_errors("@rpc(\"server\")"), "@rpc takes \"call_local\" or \"call_remote\""));

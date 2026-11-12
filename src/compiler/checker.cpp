@@ -8,11 +8,13 @@
 #include <algorithm>
 #include <cctype>
 #include <iomanip>
+#include <iterator>
 #include <limits>
 #include <locale>
 #include <map>
 #include <set>
 #include <sstream>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 

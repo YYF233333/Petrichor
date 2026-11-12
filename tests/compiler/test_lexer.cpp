@@ -1,6 +1,8 @@
 #include "compiler/lexer.h"
 #include "doctest.h"
 
+#include <limits>
+
 using namespace petrichor::compiler;
 
 namespace {
@@ -77,6 +79,15 @@ TEST_CASE("numbers") {
 	CHECK(tokens[4].kind == TokenKind::Float);
 	CHECK(tokens[4].float_value == 1000.0);
 	CHECK(tokens[5].kind == TokenKind::Int);
+}
+
+// core/string/ustring.cpp:2551-2565 (ed1daf0).
+TEST_CASE("a float literal out of range is infinity or zero, whatever the host's library stores") {
+	std::vector<Diagnostic> errors;
+	const auto file = tokenize("1e999 1e-999", errors);
+	CHECK(errors.empty());
+	CHECK(file->tokens[0].float_value == std::numeric_limits<double>::infinity());
+	CHECK(file->tokens[1].float_value == 0.0);
 }
 
 TEST_CASE("a digit the base lacks, or a letter after a number, is an error") {

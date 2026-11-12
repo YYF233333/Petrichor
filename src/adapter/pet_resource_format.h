@@ -3,6 +3,8 @@
 #include <godot_cpp/classes/resource_format_loader.hpp>
 #include <godot_cpp/classes/resource_format_saver.hpp>
 
+#include <cstdint>
+
 namespace petrichor {
 
 // Loads `.pet` sources and `.petc` compiled scripts as PetScript.
