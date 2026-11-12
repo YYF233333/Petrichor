@@ -80,27 +80,47 @@ jobs:
             tests/engine/project/bin/*.dylib
           if-no-files-found: error
 
+  # On the engine the libraries are built for, and on the latest pre-release
+  # of the next one.
   test:
-    name: ${{ matrix.platform }} engine tests
+    name: ${{ matrix.platform }} engine tests on ${{ matrix.godot }}
     needs: build
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
+        platform: [windows, linux, macos]
+        godot: [4.7.2-stable, 4.8-beta3]
         include:
-          - os: windows-2022
-            platform: windows
-            godot_zip: Godot_v4.7.2-stable_win64.exe.zip
-            godot: godot/Godot_v4.7.2-stable_win64_console.exe
-          - os: ubuntu-22.04
-            platform: linux
-            godot_zip: Godot_v4.7.2-stable_linux.x86_64.zip
-            godot: godot/Godot_v4.7.2-stable_linux.x86_64
-          - os: macos-15
-            platform: macos
-            godot_zip: Godot_v4.7.2-stable_macos.universal.zip
-            godot: godot/Godot.app/Contents/MacOS/Godot
+          - platform: windows
+            os: windows-2022
+            libraries: windows
+            zip: win64.exe.zip
+            binary: Godot_v*_win64_console.exe
+          - platform: linux
+            os: ubuntu-22.04
+            libraries: linux
+            zip: linux.x86_64.zip
+            binary: Godot_v*_linux.x86_64
+          - platform: macos
+            os: macos-15
+            libraries: macos
+            binary: Godot.app/Contents/MacOS/Godot
+          # Godot 4.8 has an editor for each architecture of macOS.
+          - platform: macos
+            godot: 4.7.2-stable
+            zip: macos.universal.zip
+          - platform: macos
+            godot: 4.8-beta3
+            zip: macos.arm64.zip
+          # The x86_64 half of the libraries, which Rosetta runs.
+          - platform: macos x86_64
+            godot: 4.8-beta3
+            os: macos-15
+            libraries: macos
+            zip: macos.x86_64.zip
+            binary: Godot.app/Contents/MacOS/Godot
     env:
       PETRICHOR_PREBUILT: "1"
       PETRICHOR_TEST_TIMEOUT: "300"
@@ -115,17 +135,21 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          pattern: petrichor-${{ matrix.platform }}-*
+          pattern: petrichor-${{ matrix.libraries }}-*
           path: tests/engine/project/bin
           merge-multiple: true
 
       - name: Fetch the engine
         run: |
-          curl -fsSL -o godot.zip "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/${{ matrix.godot_zip }}"
+          curl -fsSL -o godot.zip "https://github.com/godotengine/godot-builds/releases/download/${{ matrix.godot }}/Godot_v${{ matrix.godot }}_${{ matrix.zip }}"
           unzip -q godot.zip -d godot
 
+      - name: Install Rosetta
+        if: matrix.platform == 'macos x86_64'
+        run: softwareupdate --install-rosetta --agree-to-license || true
+
       - name: Engine tests
-        run: python tests/engine/run.py "${{ matrix.godot }}"
+        run: python tests/engine/run.py godot/${{ matrix.binary }}
 
   # Spec §11.1 and §11.3 with classes written in C#, on the official .NET
   # editor.
