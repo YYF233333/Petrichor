@@ -16,4 +16,5 @@ func _init() -> void:
 			return
 	var header := FileAccess.get_file_as_bytes("res://greeter.petc").slice(0, 4).get_string_from_ascii()
 	print("export check: greeter.petc header = ", header)
+	print("export check: after a failed assert: ", load("res://assert_check.pet").new().after_assert(false))
 	change_scene_to_file.call_deferred("res://main.tscn")

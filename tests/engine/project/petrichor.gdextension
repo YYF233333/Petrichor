@@ -8,6 +8,14 @@ reloadable = false
 
 ; The editor library comes first: an editor binary also has the "debug"
 ; feature, and among equally specific entries the first one wins.
-windows.editor.x86_64 = "res://bin/petrichor.windows.editor.x86_64.dll"
-windows.debug.x86_64 = "res://bin/petrichor.windows.template_debug.x86_64.dll"
-windows.release.x86_64 = "res://bin/petrichor.windows.template_release.x86_64.dll"
+; A macOS library is universal: its entry names no architecture, so that it
+; serves an export to either one.
+windows.editor.x86_64 = "bin/petrichor.windows.editor.x86_64.dll"
+windows.debug.x86_64 = "bin/petrichor.windows.template_debug.x86_64.dll"
+windows.release.x86_64 = "bin/petrichor.windows.template_release.x86_64.dll"
+linux.editor.x86_64 = "bin/libpetrichor.linux.editor.x86_64.so"
+linux.debug.x86_64 = "bin/libpetrichor.linux.template_debug.x86_64.so"
+linux.release.x86_64 = "bin/libpetrichor.linux.template_release.x86_64.so"
+macos.editor = "bin/libpetrichor.macos.editor.universal.dylib"
+macos.debug = "bin/libpetrichor.macos.template_debug.universal.dylib"
+macos.release = "bin/libpetrichor.macos.template_release.universal.dylib"

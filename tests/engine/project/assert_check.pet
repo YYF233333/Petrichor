@@ -1,0 +1,6 @@
+# export_check.gd calls it in an exported pack.
+extends RefCounted
+
+pub func after_assert(ok: bool) -> int:
+	assert(ok)
+	return 1
