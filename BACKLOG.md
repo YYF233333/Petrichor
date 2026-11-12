@@ -43,6 +43,8 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 
 - The dialog that creates a script shows "No suitable template.", as this language has no templates. The script is created all the same.
 - `--petrichor-build` on a fresh clone can end with the engine's crash code (godot#111048). The README says to import first.
+- The hints of the spec other than `unused_ignore` and `modified_copy`, as the one on a redundant `as` (spec §5.3). None is implemented.
+- The scene index trusts modification times, which count whole seconds. A file rewritten outside the editor in the second it was read stays stale.
 - References from scenes for the keys of exported properties (architecture §2.1). Also for the members that animation tracks and synchronized properties name (spec §7.7). Now only the methods of signal connections are references.
 - The warnings of spec §6.7:
   - a lambda capturing self stored in a member of self, a signal connection or a container;
@@ -85,6 +87,7 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 
 ## Tests
 
+- `cancel()` on a task that has ended, and on an executing one that then returns a value (spec §9.3). No test runs either.
 - On macOS, the README's quarantine step has never run. The x86_64 half of the libraries runs only under Rosetta, on Godot 4.8.
 - Cross-rule checks kept from the former conformance checklist:
   - `player.last_hit.damage = 3` running `last_hit`'s setter (spec §3.6, §4.4);
@@ -188,6 +191,8 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 
 ## Open questions
 
+- Whether a task asked to cancel that then fails ends as failed. Now it ends as cancelled, so `settled()` gives `Cancelled` where spec §9.2 passes a failure on.
+- Whether any exhaustive `match` whose branches all return covers the return paths, as the checker has it. Spec §5.6 says so only of this language's enums.
 - Whether a C# property without `[Export]` is a known limitation (spec §11.1). The editor lists only exported ones, so `c.Hits` is a compile error.
 - Whether `reduce()` types its lambda from the start value, as `func(A, T) -> A` (spec §3.8). Now the lambda's types must be written. A `None` start would need a rule of its own.
 - Whether a function value turned into a Callable has only its result checked for `T??` and `Variant?` (spec §10.1). Parameters cannot lose a `None`: the engine passes null or a boxed value. Now `Array[int??].filter(func(x): ...)` is refused.
