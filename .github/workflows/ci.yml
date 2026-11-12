@@ -58,6 +58,13 @@ jobs:
       - name: Build the library
         run: scons target=${{ matrix.target }} ${{ matrix.scons_args }}
 
+      # Ad hoc, on both architectures: the release is not notarized.
+      - name: Sign the library
+        if: matrix.platform == 'macos'
+        run: |
+          codesign --force --sign - tests/engine/project/bin/*.dylib
+          codesign --verify --verbose tests/engine/project/bin/*.dylib
+
       - name: Compiler tests
         if: matrix.target == 'editor'
         run: |
@@ -119,6 +126,40 @@ jobs:
 
       - name: Engine tests
         run: python tests/engine/run.py "${{ matrix.godot }}"
+
+  # Spec §11.1 and §11.3 with classes written in C#, on the official .NET
+  # editor.
+  dotnet:
+    name: linux .NET tests
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      PETRICHOR_PREBUILT: "1"
+      PETRICHOR_TEST_TIMEOUT: "300"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: petrichor-linux-editor
+          path: tests/engine/project/bin
+
+      - name: Fetch the .NET editor
+        run: |
+          curl -fsSL -o godot.zip "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_mono_linux_x86_64.zip"
+          unzip -q godot.zip -d godot
+
+      - name: .NET tests
+        run: python tests/engine/run.py godot/*/Godot_v4.7.2-stable_mono_linux.x86_64 dotnet
 
   # On Linux: a Windows checkout would give the packaged scripts CRLF.
   package:
