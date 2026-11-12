@@ -499,8 +499,11 @@ def main():
         finishes.append(beside("ring", run_migration_group, godot, "ring", prepare_ring, RING_MIGRATED, "res://ring_check.tscn"))
 
     if not only or (only - {"fps", "ring"} and ("editor" in only or not project_bytecode_current(godot))):
-        # The game reads the bytecode the editor writes (architecture §2.4);
-        # the build waits for the first scan, which imports the project.
+        # The game reads the bytecode the editor writes (architecture §2.4).
+        # The checked build runs on an imported project, as import_project()
+        # explains.
+        if not (PROJECT / ".godot").is_dir():
+            import_project(godot, PROJECT)
         BUILD_STAMP.unlink(missing_ok=True)
         code, output = run(godot, "-e", "--path", str(PROJECT), "--", "--petrichor-build")
         build_ok = expect_run("build", code, output)
