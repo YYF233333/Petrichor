@@ -42,7 +42,7 @@ The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable`
 - Setup: run `git submodule update --init`. In every new clone, run `pip install pre-commit` and `git config core.hooksPath tools/hooks`. `AGENTS.local.md` (gitignored) holds machine-local paths and notes; no other tracked file refers to it. `docs/development.md` collects build, test and debugging pitfalls.
 - Build with SCons, MSVC on Windows; the output goes to `tests/engine/project/bin/`. Close the editor before rebuilding: the extension is not reloadable.
   - `scons` (`target=editor`) builds the library that every test and benchmark loads.
-  - `scons target=template_debug` builds the export library without the compiler. Only the `export` test group uses it, and reports when it is stale. Build it before a full run, not while iterating.
+  - `scons target=template_debug` and `scons target=template_release` build the two export libraries, without the compiler. Only the `export` test group uses them, and reports when one is stale. Build them before a full run, not while iterating.
 - Compiler tests: `scons compiler_tests`, then `tests/compiler/bin/compiler_tests`, with no engine.
 - Engine tests: `python tests/engine/run.py <Godot 4.7 editor binary> [group...]`, with the groups listed in `run.py`.
 - Benchmarks: `python benchmarks/run.py <Godot 4.7 editor binary>`. Run them on an optimized engine such as the official 4.7.2-stable release, not a `dev_build` (architecture §4).

@@ -2,12 +2,13 @@
 
 Usage:
     scons target=editor
-    scons target=template_debug    (for the export group)
+    scons target=template_debug      (for the export group)
+    scons target=template_release    (for the export group)
     python tests/engine/run.py <godot editor binary> [group...]    (or set GODOT)
 
 Checks the game run, the editor side (placeholders, saving), the language, the
 debugger, hot reload, an exported pack run in a directory without sources with
-the library of export templates, and the FPS starter kit and Ring's breakout
+each library of export templates, and the FPS starter kit and Ring's breakout
 with their migrated scripts. Naming groups runs only those, after the build;
 the groups are those of GROUPS, hot reload being part of debugger.
 """
@@ -29,8 +30,6 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 PROJECT = HERE / "project"
-TEMPLATE_LIBRARY = "petrichor.windows.template_debug.x86_64.dll"
-RELEASE_LIBRARY = "petrichor.windows.template_release.x86_64.dll"
 BUILD_STAMP = PROJECT / ".godot" / "petrichor_build_stamp"
 FPS_UPSTREAM = ROOT / "thirdparty" / "starter-kit-fps"
 FPS_MIGRATED = HERE / "fps"
@@ -675,6 +674,13 @@ def run_debugger_groups(godot):
 
 
 def run_export_groups(godot):
+    # The libraries that exported games load, without the compiler: an export
+    # looks for the release one, and the exported pack runs with each.
+    stale = [target for target in ("template_debug", "template_release") if not library_current(target)]
+    for target in stale:
+        expect(f"export: the {target} library is built from the current sources", False, f"Build it with: scons target={target}")
+    if stale:
+        return
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         pack = tmp / "game.pck"
@@ -726,30 +732,46 @@ def run_export_groups(godot):
         # (architecture §5). The copy lacks the file of the release library.
         # For the Web the extension lists no library, and the preset has no
         # extension support.
-        expect("export: a library that the project lacks is an export error", f"res://petrichor.gdextension names res://bin/{RELEASE_LIBRARY} as the library for a release export to " in output and lacks_library(output) == (False, False), output)
+        expect("export: a library that the project lacks is an export error", f"res://petrichor.gdextension names res://{template_extension('release')[1]} as the library for a release export to " in output and lacks_library(output) == (False, False), output)
         with open(unassigned / "export_presets.cfg", "a", encoding="utf-8") as presets:
             presets.write('\n[preset.1]\n\nname="Web"\nplatform="Web"\nexport_filter="all_resources"\ninclude_filter=""\nexclude_filter=""\n\n[preset.1.options]\n\nvariant/extensions_support=false\n')
         code, output = run(godot, "--path", str(unassigned), "--export-pack", "Web", str(tmp / "web.pck"))
         expect("export: a target without a library is an export error", "res://petrichor.gdextension has no library for a release export to Web wasm32. The exported game cannot load Petrichor, so its .pet scripts will not run." in output and lacks_library(output) == (True, True), output)
         expect("export: a Web export without extension support is an export error", 'This Web export has "Extensions Support" turned off.' in output, output)
 
-        # A project directory without sources, whose only library is the one
-        # exported games load, without the compiler: without the editor's
-        # entry, an editor binary takes the "debug" one
-        # (core/extension/gdextension_library_loader.cpp:82-96).
-        if not template_library_current():
-            expect("exported pack run: the template_debug library is built from the current sources", False, "Build it with: scons target=template_debug")
-            return
-        runner = tmp / "runner"
-        (runner / ".godot").mkdir(parents=True)
-        (runner / "bin").mkdir()
-        shutil.copy(PROJECT / "project.godot", runner)
-        shutil.copy(PROJECT / ".godot" / "extension_list.cfg", runner / ".godot")
-        shutil.copy(PROJECT / "bin" / TEMPLATE_LIBRARY, runner / "bin")
-        extension = (PROJECT / "petrichor.gdextension").read_text(encoding="utf-8").splitlines()
-        (runner / "petrichor.gdextension").write_text("\n".join(line for line in extension if not line.startswith("windows.editor.")), encoding="utf-8")
-        code, output = run(godot, "--path", str(runner), "--script", str(HERE / "export_check.gd"), "--", str(pack))
-        expect_run("exported pack run with the template_debug library", code, output, ["export check: greeter.petc header = PETC", *GAME_OUTPUT])
+        # A project directory without sources, whose only library is one that
+        # exported games load.
+        for kind in ("debug", "release"):
+            extension, library = template_extension(kind)
+            runner = tmp / f"runner_{kind}"
+            (runner / ".godot").mkdir(parents=True)
+            (runner / library).parent.mkdir()
+            shutil.copy(PROJECT / "project.godot", runner)
+            shutil.copy(PROJECT / ".godot" / "extension_list.cfg", runner / ".godot")
+            shutil.copy(PROJECT / library, runner / library)
+            (runner / "petrichor.gdextension").write_text(extension, encoding="utf-8")
+            code, output = run(godot, "--path", str(runner), "--script", str(HERE / "export_check.gd"), "--", str(pack))
+            expect_run(f"exported pack run with the template_{kind} library", code, output, ["export check: greeter.petc header = PETC", *GAME_OUTPUT])
+
+
+def template_extension(kind):
+    """The test project's petrichor.gdextension with one library, that of the
+    export templates of `kind`, "debug" or "release", and the library's path
+    in the project. The entry carries the "debug" tag: an editor binary has no
+    "release" feature (core/os/os.cpp:481-511), and takes the entry with the
+    most tags among those it has all of
+    (core/extension/gdextension_library_loader.cpp:82-96)."""
+    lines = []
+    for line in (PROJECT / "petrichor.gdextension").read_text(encoding="utf-8").splitlines():
+        key, equals, value = line.partition("=")
+        tags = key.strip().split(".")
+        if equals and not {"editor", "debug", "release"}.isdisjoint(tags):
+            if kind not in tags:
+                continue
+            library = value.strip().strip('"').removeprefix("res://")
+            line = key.replace(kind, "debug") + equals + value
+        lines.append(line)
+    return "\n".join(lines), library
 
 
 def lacks_library(output):
@@ -827,11 +849,15 @@ def project_bytecode_current(godot):
     return bool(recorded) and project_build_stamp(godot) == recorded
 
 
-def template_library_current():
-    """Whether the template_debug library is built from the current sources;
-    scons -q only answers, without building."""
+def library_current(target):
+    """Whether the library of `target` is built from the current sources: a
+    dry run of SCons that explains itself names each file it would build. Its
+    output answers, not its exit code, which a launcher script may lose."""
     scons = shutil.which("scons")
-    return scons is not None and subprocess.run([scons, "target=template_debug", "-q"], cwd=ROOT, capture_output=True).returncode == 0
+    if scons is None:
+        return False
+    output = subprocess.run([scons, f"target={target}", "-n", "--debug=explain"], cwd=ROOT, capture_output=True).stdout
+    return b"scons: done building targets." in output and not re.search(rb"building `|is being rebuilt", output)
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 - CI builds the three libraries for Windows, Linux and macOS, and runs the compiler and engine tests on each. The three are editor, template_debug and template_release.
 - The sources have only been built with MSVC.
 - The `.gdextension` lists Windows x86_64 only. The release adds Linux and macOS, in the layout users unzip, `addons/petrichor/`.
-- An exported game runs with the official export templates. The release library has never been built.
+- An exported game runs with the official export templates.
 - The English spec, generated from the Chinese one, with a check that it is not stale.
 - The plugin package and the demo package, built by CI, each with its third-party notices.
 - Engine tests on a .NET build for classes written in C# (spec §11.1). The suite runs without .NET now, and the README says C# code works alongside.
