@@ -35,6 +35,8 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 
 ## Runtime
 
+- GDScript cannot take a method of this language as a value: `n.on_pressed` fails, and so does `sig.connect(n.on_pressed)`. `instance_get` returns no methods, where GDScript's returns a Callable. `Callable(n, "on_pressed")` works.
+- `call()` by a name that is not pub fails without naming the method or the cause. It only says that calling `call()` failed.
 - Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`).
 - Ordering of arrays of engine types as spec §5.2 says. It differs from the engine's operators only with NaN, so it waits for the open question on NaN.
 - Range checks of ints passed through an engine method's value, as `f.call(x)` (spec §10.6). The value is the engine's Callable, which converts without them.
