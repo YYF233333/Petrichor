@@ -1,7 +1,7 @@
 """Writes the two packages of a release (architecture §5, step 10).
 
 Usage:
-    python tools/package.py <libraries> <version> <output directory> [--allow-missing]
+    python tools/package.py <libraries> <version> <output directory> [--allow-missing] [--godot <editor>]
 
 <libraries> holds the libraries that tests/engine/project/petrichor.gdextension
 lists, at any depth, as `gh run download` leaves them. Each one must be there,
@@ -9,11 +9,15 @@ unless --allow-missing is given.
 
 petrichor-<version>-addon.zip unzips into a project as addons/petrichor/.
 petrichor-<version>-demo.zip is the FPS starter kit with its migrated scripts
-and the plugin, in the directory petrichor-<version>-demo/.
+and the plugin, in the directory petrichor-<version>-demo/. --godot names a
+Godot 4.7 editor binary, which formats those scripts; this host's editor
+library must then be among the libraries. Its run has the limit
+PETRICHOR_TEST_TIMEOUT, in seconds, 60 by default.
 """
 
 import argparse
 import io
+import re
 import subprocess
 import sys
 import tarfile
@@ -65,24 +69,48 @@ def addon_files(libraries, allow_missing):
     return files
 
 
-def demo_files(addon, top):
+def demo_files(addon, top, godot):
     """The FPS starter kit at its pinned commit, with the migrated scripts in
-    place of its own (architecture §5 step 4) and the plugin."""
+    place of its own (architecture §5 step 4) and the plugin. With an
+    editor, the scripts are formatted, as tests/engine/fps keeps them as
+    written by hand."""
     kit = pinned("thirdparty/starter-kit-fps")
     with tempfile.TemporaryDirectory() as tmp:
         project = Path(tmp)
         with tarfile.open(fileobj=io.BytesIO(git("archive", "--format=tar", kit, cwd=engine_tests.FPS_UPSTREAM))) as tar:
             tar.extractall(project, filter="data")
         engine_tests.migrate(project, engine_tests.FPS_MIGRATED)
-        files = {f"{top}/{path.relative_to(project).as_posix()}": path.read_bytes() for path in project.rglob("*") if path.is_file()}
-    files[f"{top}/NOTICE.md"] = (
+        for path, data in addon.items():
+            (project / path).parent.mkdir(parents=True, exist_ok=True)
+            (project / path).write_bytes(data)
+        files = {path.relative_to(project).as_posix(): path.read_bytes() for path in project.rglob("*") if path.is_file()}
+        if godot:
+            format_scripts(godot, project, files)
+    files["NOTICE.md"] = (
         "# Notice\n\n"
         "The .pet scripts of this project are translated from the GDScript files of Kenney's Starter Kit FPS.\n"
         f"It is https://github.com/KenneyNL/Starter-Kit-FPS at commit {kit}, under the licence in LICENSE.md.\n"
         "addons/petrichor/ holds Petrichor, with its licences.\n"
     ).encode()
-    files.update({f"{top}/{path}": data for path, data in addon.items()})
-    return files
+    return {f"{top}/{name}": data for name, data in files.items()}
+
+
+def format_scripts(godot, project, files):
+    """Formats the .pet files of `files` in place, as the editor does (spec
+    §13.2). Of what the run writes, only they are taken: it also imports
+    the project and gives scripts .uid files."""
+    library = f"{ADDON}/{engine_tests.host_library('editor')}"
+    if library not in files:
+        sys.exit(f"Formatting the demo needs this host's editor library, {library}, among the libraries.")
+    _, output = engine_tests.run(godot, "-e", "--path", str(project), "--", "--petrichor-format")
+    # By the line it prints, not the exit code: the first editor run of a
+    # fresh project can crash as it exits, as import_project() of
+    # tests/engine/run.py explains.
+    if not re.search(r"^petrichor format: \d+ script\(s\), \d+ formatted, 0 with errors", output, flags=re.M):
+        sys.exit(f"Formatting the demo with {godot} failed:\n{output}")
+    for name in files:
+        if name.endswith(".pet"):
+            files[name] = (project / name).read_bytes()
 
 
 def write_zip(path, files):
@@ -104,12 +132,13 @@ def main():
     parser.add_argument("version")
     parser.add_argument("output")
     parser.add_argument("--allow-missing", action="store_true")
+    parser.add_argument("--godot")
     args = parser.parse_args()
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     addon = addon_files(args.libraries, args.allow_missing)
     write_zip(output / f"petrichor-{args.version}-addon.zip", addon)
-    write_zip(output / f"petrichor-{args.version}-demo.zip", demo_files(addon, f"petrichor-{args.version}-demo"))
+    write_zip(output / f"petrichor-{args.version}-demo.zip", demo_files(addon, f"petrichor-{args.version}-demo", args.godot))
 
 
 if __name__ == "__main__":
