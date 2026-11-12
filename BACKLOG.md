@@ -7,16 +7,14 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 
 - CI builds the three libraries for Windows, Linux and macOS, and runs the compiler and engine tests on each. The three are editor, template_debug and template_release.
-- The sources have only been built with MSVC.
 - The `.gdextension` lists Windows x86_64 only. The release adds Linux and macOS, in the layout users unzip, `addons/petrichor/`.
 - An exported game runs with the official export templates.
-- The English spec, generated from the Chinese one, with a check that it is not stale.
 - The plugin package and the demo package, built by CI, each with its third-party notices.
 - Engine tests on a .NET build for classes written in C# (spec §11.1). The suite runs without .NET now, and the README says C# code works alongside.
-- The suites on Godot 4.8's release candidate, with its changes checked one by one. Until it is out, on the latest beta. One known: 4.8 rejects an extension class that binds a method its ancestor has ([godot-cpp#2083](https://github.com/godotengine/godot-cpp/issues/2083)).
-- The README lacks install and upgrade steps and the platforms tested. It promises a way back to GDScript without the limit of spec §13.4. Reverse conversion skips files using features GDScript lacks.
+- The suites on Godot 4.8's release candidate, with its changes checked one by one. They pass on beta3 (`c51ff06e8`).
+- The README lacks install and upgrade steps and the platforms tested. On macOS the libraries are signed ad hoc, so it also needs the first-run step. It promises a way back to GDScript without the limit of spec §13.4. Reverse conversion skips files using features GDScript lacks.
 - An icon for `.pet` scripts, and a run through the editor's dialog that creates one.
-- With the owner: the invitees and invitations, the icon, signing on macOS, and whether Ring's repository is public. The README's build steps fetch Ring as a submodule.
+- With the owner: the invitees, the invitations and the icon.
 
 ## Language
 
