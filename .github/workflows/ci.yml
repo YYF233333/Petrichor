@@ -181,7 +181,15 @@ jobs:
           pattern: petrichor-*
           path: libraries
 
-      - run: python tools/package.py libraries 0.1.0 dist
+      # The editor formats the demo's scripts.
+      - name: Fetch the engine
+        run: |
+          curl -fsSL -o godot.zip "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"
+          unzip -q godot.zip -d godot
+
+      - run: python tools/package.py libraries 0.1.0 dist --godot godot/Godot_v4.7.2-stable_linux.x86_64
+        env:
+          PETRICHOR_TEST_TIMEOUT: "300"
 
       - uses: actions/upload-artifact@v4
         with:
