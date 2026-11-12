@@ -11,7 +11,7 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 - The plugin package and the demo package, built by CI, each with its third-party notices.
 - The suites on Godot 4.8's release candidate, with its changes checked one by one. They pass on beta3 (`c51ff06e8`).
 - The README lacks install and upgrade steps and the platforms tested. On macOS the libraries are signed ad hoc, so it also needs the first-run step. It promises a way back to GDScript without the limit of spec §13.4. Reverse conversion skips files using features GDScript lacks.
-- An icon for `.pet` scripts, and a run through the editor's dialog that creates one.
+- An icon for `.pet` scripts.
 - With the owner: the invitees, the invitations and the icon.
 
 ## Language

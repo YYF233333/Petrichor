@@ -53,6 +53,7 @@ func _run() -> void:
 	_check_lookup()
 	_check_completion()
 	await _check_documentation()
+	await _check_script_dialog()
 
 	print("editor check: %d failure(s)" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -433,6 +434,39 @@ func _check_documentation() -> void:
 	_check(shown, "the help of a class shows its members as declared, with their comments" + ("" if shown else ": " + text))
 	_check_errors([], "documenting reports nothing")
 	for file in [path, path + ".uid"]:
+		DirAccess.remove_absolute(file)
+
+
+# A user attaches a new script to a node through the scene dock's dialog, and
+# picks this language (editor/docks/scene_tree_dock.cpp:2680-2713, 4331-4363;
+# editor/script/script_create_dialog.cpp:186-196, 368-401, 416-437; ed1daf0).
+func _check_script_dialog() -> void:
+	var scene_path := "res://editor_dialog.tscn"
+	var script_path := "res://player.pet"
+	_write(scene_path, '[gd_scene format=3]\n\n[node name="Dialog" type="Node"]\n\n[node name="Player" type="Node2D" parent="."]\n')
+	EditorInterface.open_scene_from_path(scene_path)
+	await get_tree().process_frame
+	var player := EditorInterface.get_edited_scene_root().get_node("Player")
+	EditorInterface.get_selection().clear()
+	EditorInterface.get_selection().add_node(player)
+	await get_tree().process_frame
+	var dock: Node = EditorInterface.get_base_control().find_children("*", "SceneTreeDock", true, false)[0]
+	var attach: Button = dock.find_children("*", "Button", true, false).filter(func(b): return b.tooltip_text == "Attach a new or existing script to the selected node.")[0]
+	attach.pressed.emit()
+	var dialog := get_script_create_dialog()
+	var languages: OptionButton = dialog.find_children("*", "OptionButton", true, false)[0]
+	var language := range(languages.item_count).filter(func(i): return languages.get_item_text(i) == "Petrichor")
+	_check(attach.visible and dialog.visible and language.size() == 1, "Attach Script offers this language")
+	languages.select(language[0])
+	languages.item_selected.emit(language[0])
+	await get_tree().process_frame
+	var path: LineEdit = dialog.find_children("*", "LineEdit", true, false).filter(func(e): return e.text.begins_with("res://"))[0]
+	_check(path.text == script_path and not dialog.get_ok_button().disabled, "the dialog proposes a .pet file named after the node, which it accepts")
+	dialog.get_ok_button().pressed.emit()
+	var script: Script = load(script_path)
+	_check(FileAccess.get_file_as_string(script_path) == "extends Node2D\n" and script.get_class() == "PetScript" and player.get_script() == script, "the file has the language's template, loads as its script, and the node has it")
+	EditorInterface.close_scene()
+	for file in [scene_path, script_path, script_path + ".uid", "res://.godot/petrichor/player.petc"]:
 		DirAccess.remove_absolute(file)
 
 
