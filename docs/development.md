@@ -92,6 +92,9 @@
 - 打包：`python tools/package.py <库目录> 0.1.0 <输出目录>`。
   - 库目录可以是 `gh run download` 取下的 CI 产物，库在哪一层都行。
   - 本地只有本机的库，所以加 `--allow-missing`。不加时缺一个库就失败。
+- 验收：`python tests/acceptance/run.py <官方编辑器> <模板目录> <插件包> [<演示包>]`。
+  - 模板取自官方的 `Godot_v4.7.2-stable_export_templates.tpz`。它是 zip，只需解压本机的模板。
+  - 脚本把模板写进预设的 `custom_template`，不装进编辑器的数据目录。
 
 ## Godot 二进制
 
