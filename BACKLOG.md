@@ -34,7 +34,6 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 
 ## Runtime
 
-- A task started by `.call()` on an async function value has the result type `Task[Task[T]]` (`src/compiler/lower.cpp:2027-2038`). The entry check refuses it once it comes back from the engine.
 - A method that a child interface redeclares with a narrower result fails when called through the parent interface (spec §3.9). `has_signature` looks along the class chain only (`src/runtime/class_image.cpp:647-655`).
 - `call()` by a name that is not pub fails without naming the method or the cause. It only says that calling `call()` failed.
 - Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`).

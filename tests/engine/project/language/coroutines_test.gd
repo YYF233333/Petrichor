@@ -327,5 +327,8 @@ func run(p_errors: ErrorLog) -> int:
 	c.tick.emit(0)
 	expect_errors(["coroutine_check.pet:203: self was freed, or lost its script, while this method ran. It was freed at res://language/coroutine_check.pet:202 in function 'leave'."], "a task that frees its owner while it runs reports a program error it then has")
 	check(results == [null], "and fails rather than ending as Cancelled(OWNER_FREED), which settled() passes on (spec §9.3, §9.7)")
+	results.clear()
+	collect(c.shared(c.start_value()), results)
+	check(results == [1], "the Task of call() on an async function value passes back as Task[T] (spec §9.1)")
 	c.free()
 	return failures

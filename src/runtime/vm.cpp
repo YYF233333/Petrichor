@@ -1261,7 +1261,9 @@ class Execution {
 		}
 		const TypeImage &result_type = image.types[p_result.type];
 		if (method.is_async) {
-			TaskRef task = start_task(p_callee.shared_from_this(), p_index, p_context, callee_frame.data, &result_type.result_key);
+			// A method call's result is T, a function value call's the Task[T] (spec §9.1).
+			const std::string &key = Op(p_call[0]) == Op::CALL_VALUE ? result_type.check.task_result : result_type.result_key;
+			TaskRef task = start_task(p_callee.shared_from_this(), p_index, p_context, callee_frame.data, &key);
 			if (dst != NO_SLOT) {
 				task_at(frame + dst) = std::move(task);
 			}
