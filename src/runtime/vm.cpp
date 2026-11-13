@@ -1931,10 +1931,11 @@ class Execution {
 		if (!ok && !p_entry) {
 			return false;
 		}
-		if (p_op[2] != NO_SLOT) {
-			from_variant(image.types[p_result.type], object, p_frame + p_op[2], false);
+		String error;
+		if (p_op[2] == NO_SLOT || entry_check(image.types[p_result.type], object, p_frame + p_op[2], error)) {
+			return true;
 		}
-		return true;
+		return !error.is_empty() && fail(p_fn, p_line, vformat("Result of new(): %s.", error));
 	}
 
 	PETRICHOR_NOINLINE bool op_call_value(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {

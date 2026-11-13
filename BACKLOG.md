@@ -34,7 +34,6 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 
 ## Runtime
 
-- A `new` taken as a function value writes its result unchecked (`src/runtime/vm.cpp:1934-1936`). Through an untyped Callable, a `func() -> Node` slot then holds another class (spec §3.11).
 - A task started by `.call()` on an async function value has the result type `Task[Task[T]]` (`src/compiler/lower.cpp:2027-2038`). The entry check refuses it once it comes back from the engine.
 - A method that a child interface redeclares with a narrower result fails when called through the parent interface (spec §3.9). `has_signature` looks along the class chain only (`src/runtime/class_image.cpp:647-655`).
 - `call()` by a name that is not pub fails without naming the method or the cause. It only says that calling `call()` failed.

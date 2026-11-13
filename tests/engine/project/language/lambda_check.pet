@@ -231,3 +231,18 @@ pub func nested_options() -> Array[bool]:
 	var capturing := func(x: int??) -> bool: return x == inner_none
 	var make := Made.new
 	return [seen[0], kept.call() == inner_none, same.call(inner_none) == inner_none, capturing.call(inner_none), make.call(inner_none).held == inner_none]
+
+
+# new as a value through an untyped Callable, called as a function type whose
+# result its class is not.
+class Plain:
+	func _init():
+		pass
+
+
+pub func add_made():
+	call_with_made(func(make: func() -> Node): add_child(make.call()))
+
+
+func call_with_made(add: Callable):
+	add.call(Plain.new)
