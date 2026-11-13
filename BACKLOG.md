@@ -27,12 +27,17 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 - Members that animation tracks and synchronized properties name, unchecked for `pub` and existence (spec §7.7, §10.5):
   - through a path that leaves the scene storing it, as from an AnimationPlayer at its root;
   - after the first subname, on a resource of this language, as `health` in `Body:stats:health`.
+- Animation tracks in an inherited scene. The checks read the `root_node` and the libraries of the scene's own layer only (`src/adapter/editor/scene_index.cpp:238-243, 283-309`). So a derived scene can miss an error or get a false one.
 - Types of a C# class's members that are narrower than what is seen (spec §11.1):
   - an exported object property is `Object?`, as its class is only in the hint string;
   - a method's parameters and results have their native class, as the engine's generator drops the script class.
 
 ## Runtime
 
+- `construct()` touches an object that its `_init` freed before failing, and deletes it again (`src/runtime/method_callable.cpp:102-106`). It is a use after free.
+- A `new` taken as a function value writes its result unchecked (`src/runtime/vm.cpp:1934-1936`). Through an untyped Callable, a `func() -> Node` slot then holds another class (spec §3.11).
+- A task started by `.call()` on an async function value has the result type `Task[Task[T]]` (`src/compiler/lower.cpp:2027-2038`). The entry check refuses it once it comes back from the engine.
+- A method that a child interface redeclares with a narrower result fails when called through the parent interface (spec §3.9). `has_signature` looks along the class chain only (`src/runtime/class_image.cpp:647-655`).
 - `call()` by a name that is not pub fails without naming the method or the cause. It only says that calling `call()` failed.
 - Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`).
 - Ordering of arrays of engine types as spec §5.2 says. It differs from the engine's operators only with NaN, so it waits for the open question on NaN.
@@ -151,6 +156,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 
 ## Upstream
 
+- Objects that an extension creates have no signal mutex. `_postinitialize` does not run for them (`core/extension/gdextension_interface.cpp:1669-1672`, `core/object/object.cpp:226-231`, `ed1daf0`; godot#125308). So a task's `completed` and `cancelled` are unguarded when GDScript awaits it from another thread.
 - GDScript's per-iteration clearing of loop-body locals, left as commented-out TODOs (`modules/gdscript/gdscript_compiler.cpp:2106, 2140`, `ed1daf0`). It would match spec §6.8. The owner may contribute it.
 - Store-forwarding stalls in moves of Variant, found while profiling arrays (d516c08). A wide load reads a Variant just written by narrower stores. It then waits for those stores to reach the cache. The owner may contribute both fixes once the current work is done.
   - godot-cpp: the move constructor and assignment are out of line and swap the bytes (`src/variant/variant.cpp:90-92, 551-554`, `8070599`).
@@ -194,7 +200,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 
 - Whether a C# property without `[Export]` is a known limitation (spec §11.1). The editor lists only exported ones, so `c.Hits` is a compile error.
 - Whether `reduce()` types its lambda from the start value, as `func(A, T) -> A` (spec §3.8). Now the lambda's types must be written. A `None` start would need a rule of its own.
-- Whether a function value turned into a Callable has only its result checked for `T??` and `Variant?` (spec §10.1). Parameters cannot lose a `None`: the engine passes null or a boxed value. Now `Array[int??].filter(func(x): ...)` is refused.
+- Whether a function value turned into a Callable has only its result checked for `T??` and `Variant?` (spec §10.1). Parameters cannot lose a `None`: the engine passes null or a boxed value. Now `Array[int??].filter(func(x): ...)` is refused. `bind()`, `callv()` and a function type that holds `T??` are not checked, and turn `Some(None)` into `None`.
 - Design questions from the third coverage rerun, which the spec leaves open:
   - engine classes as values, as gdUnit4 passes `[InputEventMouseButton, …]` (0.7% of the files; spec §2.6);
   - `Array[T](a)` as a typed copy, which the corpus does not use.
