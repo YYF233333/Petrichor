@@ -50,7 +50,7 @@ Other differences:
 - Object types are non-null by default. A freed object reads as `None` through `T?`.
 - Expected failures use `Option` and `Result[T, E]`, with a postfix `?` for early return.
 - Value-type `struct`, `enum` with payloads, exhaustive `match`, interfaces and nested typed containers.
-- `async func` returns an owned `Task`. When its owner is freed, the coroutine is cancelled instead of hanging forever.
+- `async func` returns an owned `Task`. When its owner is freed, the coroutine is cancelled. Whoever awaits it gets a cancellation or a program error instead of hanging forever.
 - It mixes with GDScript plugins and C# code.
 - The editor has completion, hover types, go to definition, formatting, breakpoints and hot reload of function bodies.
 
