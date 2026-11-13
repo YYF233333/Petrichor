@@ -162,6 +162,8 @@ public:
 	std::vector<godot::StringName> method_names;
 	std::vector<uint32_t> call_signatures;
 	std::vector<uint32_t> function_signatures;
+	// A function's index with each of its interface signatures (bytecode/module.h).
+	std::vector<std::pair<int, uint32_t>> interface_signatures;
 
 	// The images of the inner classes, in declaration order (spec §4.1), each
 	// at its path: this one's followed by "::" and its name.

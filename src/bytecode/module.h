@@ -331,6 +331,9 @@ struct Preset {
 struct Function {
 	bool is_inherited = false;
 	std::string base_signature;
+	// Of the interface methods it implements, the signatures other than its own:
+	// those that a child interface redeclares with a narrower result (spec §3.9).
+	std::vector<std::string> interface_signatures;
 	bool is_async = false;
 	std::string name;
 	std::vector<Slot> params;

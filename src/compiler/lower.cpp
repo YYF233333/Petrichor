@@ -3697,23 +3697,30 @@ public:
 			if (inherited || function.is_abstract) {
 				out.code.clear();
 			}
+			const auto declared_signature = [&](const FuncDecl &p_decl) {
+				std::vector<bytecode::Slot> params;
+				if (p_decl.of_struct && !p_decl.is_static) {
+					params.push_back(slot("self", p_decl.locals[0].type));
+				}
+				size_t defaults = 0;
+				for (const ParamDecl &param : p_decl.params) {
+					params.push_back(slot(param.name, param.type));
+					if (param.default_value) {
+						++defaults;
+					}
+				}
+				return bytecode::signature_key(module.types, params, defaults, slot("", p_decl.return_type), p_decl.is_async, p_decl.has_rest());
+			};
 			if (cls.base) {
 				for (const FuncDecl *parent : cls.base->all_functions) {
-					if (parent->name != function.name) {
-						continue;
+					if (parent->name == function.name) {
+						out.base_signature = declared_signature(*parent);
 					}
-					std::vector<bytecode::Slot> params;
-					if (parent->of_struct && !parent->is_static) {
-						params.push_back(slot("self", parent->locals[0].type));
-					}
-					size_t defaults = 0;
-					for (const ParamDecl &param : parent->params) {
-						params.push_back(slot(param.name, param.type));
-						if (param.default_value) {
-							++defaults;
-						}
-					}
-					out.base_signature = bytecode::signature_key(module.types, params, defaults, slot("", parent->return_type), parent->is_async, parent->has_rest());
+				}
+			}
+			for (const FuncDecl *required : cls.interface_methods) {
+				if (required->name == function.name && declared_signature(*required) != declared_signature(function)) {
+					out.interface_signatures.push_back(declared_signature(*required));
 				}
 			}
 			out.is_vararg = function.has_rest();

@@ -738,6 +738,7 @@ struct ClassDecl {
 	std::vector<EnumDecl> enums;
 	std::vector<const EnumDecl *> all_enums; // With those it inherits; filled by the checker.
 	std::vector<Type> implemented; // Filled by the checker.
+	std::vector<const FuncDecl *> interface_methods; // Filled by the checker: the methods of `implemented`.
 	// Filled by the checker: the interfaces of `implemented` it has errors in
 	// implementing, with the line of their `implements`, which other scripts
 	// report where they use the class as one (architecture §2.1).

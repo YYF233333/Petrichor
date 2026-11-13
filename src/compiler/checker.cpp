@@ -10066,6 +10066,13 @@ class Checker : public ClassRelation {
 				}
 			}
 		}
+		for (const Type &interface : cls.implemented) {
+			if (const InterfaceDecl *decl = interface_decl(interface)) {
+				for (const FuncDecl &method : decl->methods) {
+					cls.interface_methods.push_back(&method);
+				}
+			}
+		}
 		for (const auto &entry : named) {
 			const Type &type = entry.first;
 			const TypeRef &ref = *entry.second;

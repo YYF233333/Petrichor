@@ -27,11 +27,15 @@ static GDExtensionVariantType engine_type(ValueType p_type) {
 // A signature as a number that is the same for the same signature in every
 // image, so that a call compares the one it was compiled against with the
 // callee's by comparing two numbers.
-static uint32_t signature_id(const std::vector<bytecode::TypeDesc> &p_types, const std::vector<bytecode::Slot> &p_params, size_t p_defaults, const bytecode::Slot &p_result, bool p_async, bool p_vararg) {
+static uint32_t signature_id(const std::string &p_key) {
 	static std::mutex mutex;
 	static std::unordered_map<std::string, uint32_t> ids;
 	std::lock_guard<std::mutex> lock(mutex);
-	return ids.emplace(bytecode::signature_key(p_types, p_params, p_defaults, p_result, p_async, p_vararg), uint32_t(ids.size())).first->second;
+	return ids.emplace(p_key, uint32_t(ids.size())).first->second;
+}
+
+static uint32_t signature_id(const std::vector<bytecode::TypeDesc> &p_types, const std::vector<bytecode::Slot> &p_params, size_t p_defaults, const bytecode::Slot &p_result, bool p_async, bool p_vararg) {
+	return signature_id(bytecode::signature_key(p_types, p_params, p_defaults, p_result, p_async, p_vararg));
 }
 
 static std::string signature_key(const bytecode::Module &p_module, const bytecode::Function &p_function) {
@@ -142,6 +146,9 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 			}
 		}
 		image->function_signatures.push_back(signature_id(module.types, function.params, function.defaults.size(), function.result, function.is_async, function.is_vararg));
+		for (const std::string &key : function.interface_signatures) {
+			image->interface_signatures.push_back({ int(i), signature_id(key) });
+		}
 		image->frames.push_back(frame_layout(function, types));
 	}
 	for (size_t i = 0; i < module.members.size(); i++) {
@@ -647,7 +654,8 @@ void ClassImage::resolve_function(std::shared_ptr<const ClassImage> &r_image, in
 bool ClassImage::has_signature(const StringName &p_name, uint32_t p_signature) const {
 	for (const ClassImage *image = this; image; image = image->base.get()) {
 		const int index = image->find_function(p_name);
-		if (index >= 0 && image->function_signatures[index] == p_signature) {
+		const auto &others = image->interface_signatures;
+		if (index >= 0 && (image->function_signatures[index] == p_signature || std::find(others.begin(), others.end(), std::pair(index, p_signature)) != others.end())) {
 			return true;
 		}
 	}
@@ -856,7 +864,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	for (size_t i = 0; i < declared(a); i++) {
 		const bytecode::Function &x = a.functions[i];
 		const bytecode::Function &y = b.functions[i];
-		if (x.is_inherited != y.is_inherited || x.base_signature != y.base_signature || x.name != y.name || !pair.same_slot(x.result, y.result) || x.is_pub != y.is_pub || x.is_override != y.is_override ||
+		if (x.is_inherited != y.is_inherited || x.base_signature != y.base_signature || x.interface_signatures != y.interface_signatures || x.name != y.name || !pair.same_slot(x.result, y.result) || x.is_pub != y.is_pub || x.is_override != y.is_override ||
 				x.is_async != y.is_async || x.is_static != y.is_static || !(x.rpc == y.rpc) || x.is_abstract != y.is_abstract || x.params.size() != y.params.size() || x.defaults.size() != y.defaults.size() || x.is_vararg != y.is_vararg) {
 			return false;
 		}

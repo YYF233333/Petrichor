@@ -13,3 +13,22 @@ pub interface Placed:
 # One that extends another, with a signal its implementers declare (spec §3.9).
 pub interface Mortal extends Damageable:
 	signal died(by: String)
+
+# One that redeclares a method of its parent with a narrower result, which a
+# call through the parent reaches (spec §3.9).
+pub interface Spawner:
+	func spawn() -> Node
+
+pub interface NodeSpawner extends Spawner:
+	func spawn() -> Node2D
+
+class Nest implements NodeSpawner:
+	pub func spawn() -> Node2D:
+		return Node2D.new()
+
+pub func spawned() -> String:
+	var spawner: Spawner = Nest.new()
+	var made := spawner.spawn()
+	var name := made.get_class()
+	made.free()
+	return name
