@@ -98,9 +98,11 @@ Variant construct(const std::shared_ptr<const ClassImage> &p_image, const Varian
 	if (!attach_script(made, p_script, p_image->user_init >= 0, instance, initialized) || !initialized || instance.image->user_init < 0) {
 		return object;
 	}
-	// The object is not handed out when the arguments do not fit.
+	// The object is not handed out when the arguments do not fit. _init() may
+	// have freed it (core/object/object.cpp:771-795).
+	const ObjectID id(object_id_of(object));
 	if (!p_init(instance)) {
-		if (!Object::cast_to<RefCounted>(made)) {
+		if (alive(id) && !Object::cast_to<RefCounted>(made)) {
 			memdelete(made);
 		}
 		return Variant();

@@ -54,3 +54,18 @@ pub func free_on_thread():
 	thread.start(func(): other.free())
 	thread.wait_to_finish()
 	other.get_class()
+
+
+# A program error in _init() after it freed self ends new as a value, which
+# leaves the freed object alone.
+class FreedInInit extends Node:
+	var count := 1
+
+	func _init():
+		free()
+		print(count)
+
+
+pub func free_in_init():
+	var make := FreedInInit.new
+	make.call()
