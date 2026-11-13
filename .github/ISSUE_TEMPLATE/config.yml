@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Language design and questions
+    url: https://github.com/YYF233333/Petrichor/discussions
+    about: Opinions on a rule, proposals and questions go to Discussions.
