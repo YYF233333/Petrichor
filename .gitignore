@@ -33,3 +33,5 @@ gen/
 # Machine-local agent notes and the owner's own agent setup
 /AGENTS.local.md
 /.claude/
+/.agents/
+/local/
