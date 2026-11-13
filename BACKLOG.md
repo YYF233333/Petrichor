@@ -36,6 +36,7 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 ## Runtime
 
 - GDScript cannot take a method of this language as a value: `n.on_pressed` fails, and so does `sig.connect(n.on_pressed)`. `instance_get` returns no methods, where GDScript's returns a Callable. `Callable(n, "on_pressed")` works.
+- A task asked to cancel that then has a program error ends as cancelled. Spec §9.3 has it fail.
 - `call()` by a name that is not pub fails without naming the method or the cause. It only says that calling `call()` failed.
 - Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`).
 - Ordering of arrays of engine types as spec §5.2 says. It differs from the engine's operators only with NaN, so it waits for the open question on NaN.
@@ -193,8 +194,6 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 
 ## Open questions
 
-- Whether a task asked to cancel that then fails ends as failed. Now it ends as cancelled, so `settled()` gives `Cancelled` where spec §9.2 passes a failure on.
-- Whether any exhaustive `match` whose branches all return covers the return paths, as the checker has it. Spec §5.6 says so only of this language's enums.
 - Whether a C# property without `[Export]` is a known limitation (spec §11.1). The editor lists only exported ones, so `c.Hits` is a compile error.
 - Whether `reduce()` types its lambda from the start value, as `func(A, T) -> A` (spec §3.8). Now the lambda's types must be written. A `None` start would need a rule of its own.
 - Whether a function value turned into a Callable has only its result checked for `T??` and `Variant?` (spec §10.1). Parameters cannot lose a `None`: the engine passes null or a boxed value. Now `Array[int??].filter(func(x): ...)` is refused.

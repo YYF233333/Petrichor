@@ -2,7 +2,7 @@
 
 **v0.2 draft · 2026-10-25**
 
-<!-- Generated from language-spec.zh.md, git blob fe2b8ae3fb33846c560b26ff11f3f8ddd949ce7b. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 19c27a317381345ac5642d9af42422a13ef8eecb. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). The previous version of the specification, v0.1, is kept in the git tag `spec-v0.1`. This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -562,7 +562,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
           hit()
   ```
 
-- A `match` on an enum of this language, `Result`, `Option` or `Settled` must be exhaustive or have `_`. On an open engine enum it must have `_`. A branch with `when` does not count toward coverage. Other types are not required to be exhaustive. An exhaustive `match` on an enum of this language counts as covering all return paths.
+- A `match` on an enum of this language, `Result`, `Option` or `Settled` must be exhaustive or have `_`. On an open engine enum it must have `_`. A branch with `when` does not count toward coverage. Other types are not required to be exhaustive. When every branch returns, a `match` that is exhaustive or has `_` counts as covering all return paths.
 - **[Known limitation]** The first version has no type patterns (use `if x is T`) and no `match` expressions. Multiple patterns separated by commas cannot bind.
 
 ### 5.7 Loops
@@ -788,7 +788,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 9.3 Cancellation and ownership
 
-- On a suspended task, `cancel()` at once disconnects the signal or task it is waiting for, and cancels it. On a task that is executing, `cancel()` can only come from code that the task calls synchronously. An example is a handler of a signal it emits. The task is then cancelled at its next `await` or return, and its return value is discarded. On a task that has ended, it has no effect. On a task that has not ended, the result after `cancel()` is always cancelled.
+- On a suspended task, `cancel()` at once disconnects the signal or task it is waiting for, and cancels it. On a task that is executing, `cancel()` can only come from code that the task calls synchronously. An example is a handler of a signal it emits. The task is then cancelled at its next `await` or return, and its return value is discarded. On a task that has ended, it has no effect. On a task that has not ended, the result after `cancel()` is cancelled. A task that has a program error before the cancellation takes effect still fails.
 - Cancellation propagates along ownership. A child task started and awaited directly with `await f(...)` is owned by the parent task, and is cancelled with it. With an `await` on an existing `Task` value, cancellation only stops the waiting, and the original task keeps running.
 - A cancellation caused by the owning object being freed does not propagate along ownership. A child task on another object that is still alive keeps running as if by `detach`, as in GDScript.
 
