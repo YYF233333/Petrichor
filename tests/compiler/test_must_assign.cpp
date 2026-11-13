@@ -39,95 +39,27 @@ TEST_CASE("_init reads a member that must be assigned only once it has assigned 
 	CHECK(contains(init("\ttarget.position = Vector3.ZERO"), "_init reads \"target\" before assigning it"));
 }
 
-TEST_CASE("a node with an owner reads in its _ready no member its ancestors assign, until it awaits (spec §6.2, §6.4)") {
-	// must_assign.tscn of the engine tests: the parent assigns the child's members in its own _ready.
-	FakeProject project;
-	compiler::Scene scene;
-	scene.path = "res://squad.tscn";
-	scene.nodes = { { ".", "Node", "" }, { "Child", "Node", "res://test.pet" } };
-	compiler::SceneValue path;
-	path.type = "NodePath";
-	scene.nodes[1].properties = { { "exported", path } };
-	project.scenes = { scene };
-	const std::string members = "extends Node\n\npub var target: Node\n@export pub var exported: Node\n\n";
-	const compiler::CompileResult result = compile_in(members + "func _ready():\n\tprint(target)\n", project);
-	REQUIRE(result.errors.size() == 1);
-	CHECK(result.errors[0].message == "res://squad.tscn: Child reads \"target\" in _ready, before the ancestors that assign it are ready. Read it after await get_parent().ready, or let the parent's _ready configure the node.");
-	CHECK((result.errors[0].scene == "res://squad.tscn" && result.errors[0].node == "Child"));
-	// After an await; after assigning it; an export, which the scene gives;
-	// one that _init assigns.
-	CHECK(messages(compile_in("@parent(Node)\n" + members + "async func _ready():\n\tawait get_parent().ready\n\tprint(target)\n", project)).empty());
-	CHECK(messages(compile_in(members + "func _ready():\n\ttarget = self\n\tprint(target, exported)\n", project)).empty());
-	CHECK(messages(compile_in(members + "func _init():\n\ttarget = Node.new()\n\nfunc _ready():\n\tprint(target)\n", project)).empty());
-	// The @onready initializers run before _ready.
-	const compiler::CompileResult initialized = compile_in(members + "@onready var aim := target\n", project);
-	REQUIRE(initialized.errors.size() == 1);
-	CHECK(initialized.errors[0].message == "res://squad.tscn: Child reads \"target\" in an @onready initializer, before the ancestors that assign it are ready. Read it in _ready after await get_parent().ready, or let the parent's _ready configure the node.");
-	// The root of a scene has no owner: who instantiates it gives the member.
-	project.scenes[0].nodes = { { ".", "Node", "res://test.pet" } };
-	CHECK(messages(compile_in(members + "func _ready():\n\tprint(target, exported)\n", project)).empty());
-	// Unless a scene instances it, where its root owns the instance.
-	compiler::Scene level;
-	level.path = "res://level.tscn";
-	level.nodes = { { ".", "Node", "" }, { "Squad", "Node", "", true, "res://test.pet" } };
-	level.nodes[1].instance = scene.path;
-	project.scenes.push_back(level);
-	CHECK(contains(messages(compile_in(members + "func _ready():\n\tprint(target)\n", project)), "res://level.tscn: Squad reads \"target\" in _ready"));
-}
-
-TEST_CASE("a node with an owner reads in its _ready and @onready initializers what the _init of a base in another file assigns") {
-	FakeProject project;
-	compiler::Scene scene;
-	scene.path = "res://squad.tscn";
-	scene.nodes = { { ".", "Node", "" }, { "Child", "Node", "res://test.pet" } };
-	project.scenes = { scene };
-	project.add_script("res://base.pet", "class_name Base\nextends Node\n\npub var target: Node\n@onready var aim := target\n\nfunc _init():\n\ttarget = Node.new()\n", "Base");
-	CHECK(messages(compile_in("extends Base\n\n@onready var aimed := target\n\nfunc _ready():\n\tprint(target)\n", project)).empty());
-}
-
-TEST_CASE("a node's _ready reads what the _init of the node's own class assigns, not a base's that it replaces (spec §6.2)") {
-	FakeProject project;
-	compiler::Scene scene;
-	scene.path = "res://squad.tscn";
-	scene.nodes = { { ".", "Node", "" }, { "Child", "Node", "res://child.pet" } };
-	project.scenes = { scene };
-	const std::string source = "extends Node\n\npub var target: Node\n\nfunc _init():\n\ttarget = Node.new()\n\nfunc _ready():\n\tprint(target)\n";
-	project.add_script("res://child.pet", "extends \"res://test.pet\"\n");
-	CHECK(messages(compile_in(source, project)).empty());
-	project.add_script("res://child.pet", "extends \"res://test.pet\"\n\nfunc _init():\n\tpass\n");
-	CHECK(contains(messages(compile_in(source, project)), "res://squad.tscn: Child reads \"target\" in _ready"));
-}
-
 TEST_CASE("super() in _init assigns what the base's _init assigns, from there on (spec §6.2)") {
 	FakeProject project;
-	compiler::Scene scene;
-	scene.path = "res://squad.tscn";
-	scene.nodes = { { ".", "Node", "" }, { "Child", "Node", "res://test.pet" } };
-	project.scenes = { scene };
 	project.add_script("res://base.pet", "class_name Base\nextends Node\n\npub var target: Node\n\nfunc _init():\n\ttarget = Node.new()\n", "Base");
 	const auto errors = [&](const std::string &p_init) {
-		return messages(compile_in("extends Base\n\nfunc _init():\n" + p_init + "\n\nfunc _ready():\n\tprint(target)\n", project));
+		return messages(compile_in("extends Base\n\nfunc _init():\n" + p_init + "\n", project));
 	};
 	CHECK(errors("\tsuper()\n\tprint(target)").empty());
 	CHECK(errors("\tsuper._init()\n\tprint(target)").empty());
 	CHECK(contains(errors("\tprint(target)\n\tsuper()"), "_init reads \"target\" before assigning it"));
-	CHECK(contains(errors("\tpass"), "res://squad.tscn: Child reads \"target\" in _ready"));
 	// Through classes of the same file, a subclass before its base.
 	CHECK(errors("\tsuper()\n\nclass Sub extends Inner:\n\tfunc _init():\n\t\tsuper()\n\t\tprint(target)\n\nclass Inner extends Base:\n\tfunc _init():\n\t\tsuper()").empty());
 }
 
 TEST_CASE("the _init of two files that make each other's objects counts what each assigns (spec §6.2)") {
 	FakeProject project;
-	compiler::Scene scene;
-	scene.path = "res://squad.tscn";
-	scene.nodes = { { ".", "Node", "" }, { "A", "Node", "res://a.pet" }, { "B", "Node", "res://b.pet" }, { "Child", "Node", "res://test.pet" } };
-	project.scenes = { scene };
 	const auto source = [](const std::string &p_name, const std::string &p_other) {
-		return "class_name " + p_name + "\nextends Node\n\npub var partner: Node\n\npub func _init():\n\tpartner = " + p_other + ".new()\n\tprint(" + p_other + ".new().partner)\n\nfunc _ready():\n\tprint(partner)\n";
+		return "class_name " + p_name + "\nextends Node\n\npub var partner: Node\n\npub func _init():\n\tpartner = " + p_other + ".new()\n\tprint(" + p_other + ".new().partner)\n";
 	};
 	project.add_script("res://a.pet", source("A", "B"), "A");
 	project.add_script("res://b.pet", source("B", "A"), "B");
-	CHECK(messages(compile_in("extends A\n\nfunc _ready():\n\tprint(partner)\n", project)).empty());
+	CHECK(messages(compile_in("extends Node\n\nfunc f(a: PackedScene[A], b: PackedScene[B]) -> void:\n\tadd_child(a.instantiate())\n\tadd_child(b.instantiate())\n", project)).empty());
 	compiler::Analysis analysis(fake_engine(), project);
 	const compiler::Analysis::Pass pass(analysis);
 	for (const char *path : { "res://a.pet", "res://b.pet" }) {
@@ -178,25 +110,6 @@ TEST_CASE("an export that the _init of a base in another file assigns needs no v
 	project.main = level.path;
 	CHECK(check_scenes_in("extends Archer\n", project).errors.empty());
 	CHECK(contains(messages(check_scenes_in("extends Archer\n\nfunc _init():\n\tpass\n", project)), "res://level.tscn: Archer has no value for \"bow\", an export that must be assigned."));
-}
-
-TEST_CASE("code of its file or of a subclass's assigns a member that must be assigned and is not pub (spec §4.2)") {
-	const std::string source = "class_name Gun\nextends Node\n\nvar holder: Node\n";
-	FakeProject project;
-	project.add_script("res://test.pet", source, "Gun");
-	const compiler::CompileResult nowhere = compile_in(source, project);
-	REQUIRE(nowhere.errors.size() == 1);
-	CHECK(nowhere.errors[0].message == "\"holder\" must be assigned and is not pub, but no code of this file or of a subclass assigns it.");
-	CHECK((nowhere.errors[0].line == 4 && nowhere.errors[0].column == 5));
-	CHECK(messages(compile_in(source + "\nfunc arm(unit: Node) -> void:\n\tholder = unit\n", project)).empty());
-	// Another file may not give it by name.
-	FakeProject named = project;
-	named.add_script("res://armory.pet", "extends Node\n\nfunc f() -> void:\n\tadd_child(Gun.new(holder = self))\n");
-	CHECK(contains(messages(compile_in(source, named)), "\"holder\" must be assigned and is not pub"));
-	// A subclass of a subclass, an inner class of another file.
-	project.add_script("res://rifle.pet", "extends Gun\n");
-	project.add_script("res://units.pet", "class_name Units\nextends Node\n\nclass Sniper extends \"res://rifle.pet\":\n\tfunc _init():\n\t\tholder = Node.new()\n", "Units");
-	CHECK(messages(compile_in(source, project)).empty());
 }
 
 namespace {

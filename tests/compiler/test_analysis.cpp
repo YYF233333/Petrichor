@@ -253,13 +253,9 @@ TEST_CASE("a resource file is checked again when it or a script of its resources
 
 TEST_CASE("a script is checked again when the _init of a class it extends changes, not another function body (architecture §6.4)") {
 	FakeProject project;
-	compiler::Scene scene;
-	scene.path = "res://squad.tscn";
-	scene.nodes = { { ".", "Node", "" }, { "Unit", "Node", "res://unit.pet" } };
-	project.scenes = { scene };
 	const std::string base = "class_name Base\nextends Node\n\npub var target: Node\n\nfunc _init():\n";
 	project.add_script("res://base.pet", base + "\ttarget = Node.new()\n\nfunc aim() -> void:\n\tpass\n", "Base");
-	project.add_script("res://unit.pet", "extends Base\n\nfunc _ready():\n\tprint(target)\n");
+	project.add_script("res://unit.pet", "extends Base\n\nfunc spawn(s: PackedScene[Base]) -> void:\n\tadd_child(s.instantiate())\n");
 	compiler::Analysis analysis(fake_engine(), project);
 	const Result before = compile_all(analysis, project, { "res://unit.pet" })[0];
 	REQUIRE(before->ok());
@@ -271,7 +267,7 @@ TEST_CASE("a script is checked again when the _init of a class it extends change
 	}
 	SUBCASE("_init") {
 		project.sources["res://base.pet"] = base + "\tpass\n\nfunc aim() -> void:\n\tpass\n";
-		CHECK(contains(messages(*compile_all(analysis, project, { "res://unit.pet" })[0]), "res://squad.tscn: Unit reads \"target\" in _ready"));
+		CHECK(contains(messages(*compile_all(analysis, project, { "res://unit.pet" })[0]), "instantiate() needs target = ..., a member of Base that must be assigned and the scene cannot."));
 	}
 }
 

@@ -9,7 +9,6 @@
 #include <map>
 #include <memory>
 #include <optional>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -21,10 +20,6 @@ namespace petrichor::compiler {
 // syntax errors, whose recovery may read any line as a declaration; 0 for
 // none.
 uint64_t declaration_hash(const std::optional<std::string> &p_source);
-
-// Each name that a source assigns with `=`, by its tokens: a member's or a
-// local's, and an argument's by name, so more than it assigns.
-std::set<std::string> assigned_names(const SourceFile &p_source);
 
 class ScriptClasses;
 
@@ -178,10 +173,6 @@ public:
 	// and those that instance the scene or inherit it.
 	std::vector<Scene> scenes_with_script(const std::string &p_script);
 	std::vector<Scene> scenes_instancing(const std::string &p_scene);
-	// The files other than its own with a class that extends the class.
-	std::vector<std::string> subclasses(const std::string &p_class);
-	// assigned_names() of a saved file, an index kept per file.
-	std::set<std::string> assigned_in(const std::string &p_file);
 	// A reverse question of the check of a scene: how it is used as a root
 	// (spec §7.5), as "res://spawner.gd loads the scene"; "" when it is not.
 	// The main scene is, and so is a scene that a script of this language or

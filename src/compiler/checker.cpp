@@ -248,8 +248,6 @@ class Checker : public ClassRelation {
 	bool in_assert = false;
 	// The interfaces this class's own `implements` names, with where.
 	std::vector<std::pair<Type, const TypeRef *>> own_interfaces;
-	// The class's _ready, walked once every body is checked (spec §6.2).
-	FuncDecl *ready = nullptr;
 	// The member whose initializer is being checked: it and the members after
 	// it are not initialized yet (spec §6.1), nor are @onready members unless
 	// it is one too (§6.3).
@@ -10747,31 +10745,18 @@ class Checker : public ClassRelation {
 		}
 		if (init) {
 			std::set<int> reported;
-			const EarlyReads reads{ [&](int p_member) { return cls.all_members[p_member]->must_assign; },
-				[&](const Expr &p_read) { error(p_read.range, "_init reads \"" + p_read.text + "\" before assigning it: a member that must be assigned gets its value from the scene or the creator only after _init."); } };
-			for (const int member : init_block(r_function.body, std::set<int>(), reported, reads).value_or(std::set<int>())) {
+			for (const int member : init_block(r_function.body, std::set<int>(), reported).value_or(std::set<int>())) {
 				r_function.assigned.push_back(cls.all_members[member]->name);
 			}
 		}
 		if (for_others) {
 			errors.erase(errors.begin() + std::ptrdiff_t(earlier_errors), errors.end());
 		}
-		if (r_function.name == "_ready" && !r_function.is_static && !r_function.of_struct) {
-			ready = &r_function;
-		}
 		function = nullptr;
 		scopes.clear();
 	}
 
 	/* _init and members that must be assigned (spec §6.2) */
-
-	// What a walk of _init or _ready reports: a read of a member it tracks
-	// before the function assigns it. _ready's walk ends at an await.
-	struct EarlyReads {
-		std::function<bool(int)> tracked;
-		std::function<void(const Expr &)> report;
-		bool ends_at_await = false;
-	};
 
 	// The _init that new() of the class calls: its own or the nearest it inherits.
 	static const FuncDecl *init_of(const ClassDecl &p_class) {
@@ -10782,91 +10767,6 @@ class Checker : public ClassRelation {
 	static bool init_assigns(const ClassDecl &p_class, const std::string &p_member) {
 		const FuncDecl *init = init_of(p_class);
 		return init && std::find(init->assigned.begin(), init->assigned.end(), p_member) != init->assigned.end();
-	}
-
-	// The node's members that ancestors assign, once they are ready (spec
-	// §6.2, §6.4): where a scene gives the node an owner, those that must be
-	// assigned and are not exported, unless the _init of the node's class
-	// assigns them. Its own @onready initializers, which run first, may not
-	// read them, nor its _ready before it awaits. A node has an owner unless
-	// it is a scene's root, which gets one where another scene instances that
-	// scene.
-	void check_ready_reads() {
-		const bool initializes = std::any_of(cls.members.begin(), cls.members.end(), [](const VarDecl &p_member) { return p_member.is_onready && p_member.initializer; });
-		if (!ready && !initializes) {
-			return;
-		}
-		const auto check_at = [&](const Scene &p_scene, const std::string &p_node, const ClassDecl *p_placed) {
-			std::set<int> reported;
-			bool initializer = true;
-			const EarlyReads reads{ [&](int p_member) { const VarDecl &member = *cls.all_members[p_member]; return member.must_assign && !member.is_export && !(p_placed && init_assigns(*p_placed, member.name)); },
-				[&](const Expr &p_read) {
-					const std::string where = initializer ? "in an @onready initializer" : "in _ready";
-					const std::string fix = initializer ? "in _ready after" : "after";
-					error_in_scene(p_read.range, p_scene, p_node, p_scene.path + ": " + p_node + " reads \"" + p_read.text + "\" " + where + ", before the ancestors that assign it are ready. Read it " + fix + " await get_parent().ready, or let the parent's _ready configure the node.");
-				},
-				true };
-			for (const VarDecl &member : cls.members) {
-				if (member.is_onready && member.initializer) {
-					init_reads(*member.initializer, std::set<int>(), reported, reads);
-				}
-			}
-			initializer = false;
-			if (ready) {
-				init_block(ready->body, std::set<int>(), reported, reads);
-			}
-		};
-		for (const Scene &scene : scenes) {
-			for (const SceneNode &node : scene.nodes) {
-				if (!extends_script(node.script, options.path)) {
-					continue;
-				}
-				const ClassDecl *placed = script_decl(node.script);
-				if (node.path != ".") {
-					check_at(scene, node.path, placed);
-					continue;
-				}
-				for (const Scene &outer : classes.scenes_instancing(scene.path)) {
-					for (const SceneNode &instance : outer.nodes) {
-						if (instance.instance == scene.path && instance.script.empty()) {
-							check_at(outer, instance.path, placed);
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// Only this file and the files of subclasses assign a member that must be
-	// assigned and is not pub, so one of them must (spec §4.2). Code in them
-	// that may assign it counts.
-	void check_unassigned() {
-		std::set<std::string> assigned = assigned_names(*cls.source);
-		bool asked = false;
-		for (const VarDecl &member : cls.members) {
-			if (!member.must_assign || member.is_pub || member.is_static || assigned.count(member.name)) {
-				continue;
-			}
-			for (const std::string &file : asked ? std::vector<std::string>() : classes.subclasses(options.path)) {
-				const std::set<std::string> names = classes.assigned_in(file);
-				assigned.insert(names.begin(), names.end());
-			}
-			asked = true;
-			if (!assigned.count(member.name)) {
-				error(member.name_token, "\"" + member.name + "\" must be assigned and is not pub, but no code of this file or of a subclass assigns it.");
-			}
-		}
-	}
-
-	// Whether evaluating an expression may suspend, outside its lambdas.
-	static bool awaits(const Expr &p_expr) {
-		bool found = p_expr.kind == ExprKind::Await;
-		for_each_child(p_expr, [&](const auto &p_child) {
-			if constexpr (std::is_same_v<std::decay_t<decltype(p_child)>, Expr>) {
-				found = found || awaits(p_child);
-			}
-		});
-		return found && p_expr.kind != ExprKind::Lambda;
 	}
 
 	// The members that must be assigned which _init has assigned on every path
@@ -10882,9 +10782,9 @@ class Checker : public ClassRelation {
 		return both;
 	}
 
-	Assigned init_block(const Block &p_block, Assigned p_assigned, std::set<int> &r_reported, const EarlyReads &p_reads) {
+	Assigned init_block(const Block &p_block, Assigned p_assigned, std::set<int> &r_reported) {
 		for (const auto &stmt : p_block) {
-			p_assigned = init_stmt(*stmt, std::move(p_assigned), r_reported, p_reads);
+			p_assigned = init_stmt(*stmt, std::move(p_assigned), r_reported);
 		}
 		return p_assigned;
 	}
@@ -10892,14 +10792,13 @@ class Checker : public ClassRelation {
 	// The scene and the creator assign only after _init, so _init reading one
 	// it has not assigned itself is an error. A read through a call is left to
 	// the program error: methods may be overridden in other files.
-	Assigned init_stmt(const Stmt &p_stmt, Assigned p_assigned, std::set<int> &r_reported, const EarlyReads &p_reads) {
-		const auto suspends = [](const std::unique_ptr<Expr> &p_expr) { return p_expr && awaits(*p_expr); };
-		if (!p_assigned || (p_reads.ends_at_await && (suspends(p_stmt.target) || suspends(p_stmt.value) || suspends(p_stmt.condition)))) {
+	Assigned init_stmt(const Stmt &p_stmt, Assigned p_assigned, std::set<int> &r_reported) {
+		if (!p_assigned) {
 			return std::nullopt;
 		}
 		const auto reads = [&](const std::unique_ptr<Expr> &p_expr) {
 			if (p_expr) {
-				init_reads(*p_expr, *p_assigned, r_reported, p_reads);
+				init_reads(*p_expr, *p_assigned, r_reported);
 			}
 		};
 		switch (p_stmt.kind) {
@@ -10917,19 +10816,19 @@ class Checker : public ClassRelation {
 			}
 			case StmtKind::If:
 				reads(p_stmt.condition);
-				return joined(init_block(p_stmt.body, p_assigned, r_reported, p_reads), init_block(p_stmt.else_body, p_assigned, r_reported, p_reads));
+				return joined(init_block(p_stmt.body, p_assigned, r_reported), init_block(p_stmt.else_body, p_assigned, r_reported));
 			case StmtKind::While:
 			case StmtKind::For:
 				reads(p_stmt.condition);
 				reads(p_stmt.value);
-				init_block(p_stmt.body, p_assigned, r_reported, p_reads);
+				init_block(p_stmt.body, p_assigned, r_reported);
 				return p_assigned;
 			case StmtKind::Match: {
 				reads(p_stmt.value);
 				Assigned after = p_stmt.exhaustive ? Assigned() : p_assigned;
 				for (const MatchBranch &branch : p_stmt.branches) {
 					reads(branch.guard);
-					after = joined(after, init_block(branch.body, p_assigned, r_reported, p_reads));
+					after = joined(after, init_block(branch.body, p_assigned, r_reported));
 				}
 				return after;
 			}
@@ -10952,16 +10851,16 @@ class Checker : public ClassRelation {
 		}
 	}
 
-	void init_reads(const Expr &p_expr, const std::set<int> &p_assigned, std::set<int> &r_reported, const EarlyReads &p_reads) {
+	void init_reads(const Expr &p_expr, const std::set<int> &p_assigned, std::set<int> &r_reported) {
 		if (p_expr.kind == ExprKind::Lambda) {
 			return; // It runs later.
 		}
-		if (p_expr.target == Target::Member && p_expr.index >= 0 && p_reads.tracked(p_expr.index) && !p_assigned.count(p_expr.index) && r_reported.insert(p_expr.index).second) {
-			p_reads.report(p_expr);
+		if (p_expr.target == Target::Member && p_expr.index >= 0 && cls.all_members[p_expr.index]->must_assign && !p_assigned.count(p_expr.index) && r_reported.insert(p_expr.index).second) {
+			error(p_expr.range, "_init reads \"" + p_expr.text + "\" before assigning it: a member that must be assigned gets its value from the scene or the creator only after _init.");
 		}
 		for_each_child(p_expr, [&](const auto &p_child) {
 			if constexpr (std::is_same_v<std::decay_t<decltype(p_child)>, Expr>) {
-				init_reads(p_child, p_assigned, r_reported, p_reads);
+				init_reads(p_child, p_assigned, r_reported);
 			}
 		});
 	}
@@ -11893,11 +11792,6 @@ public:
 			if (is_declared(fn) && fn.name != "_init") {
 				check_body(fn);
 			}
-		}
-		// It needs what _init assigns, which only the check of its body finds.
-		if (check_bodies) {
-			check_ready_reads();
-			check_unassigned();
 		}
 		for (StructDecl &decl : cls.structs) {
 			structure = &decl;
