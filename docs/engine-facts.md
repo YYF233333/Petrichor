@@ -23,7 +23,7 @@
 | 由字符串构造 Color 时，不是十六进制写法就按颜色名查找，找不到时打印错误并返回黑色。颜色名就是 Color 的常量名 | `core/math/color.h:274-280`；`core/math/color.cpp:396-402`；`core/variant/variant_call.cpp:3086-3089` | §4.5 |
 | debug 构建中有四项检查：由轴和角构造 Basis、Quaternion，要求轴已归一化；由 Basis 构造 Quaternion，要求它是旋转。由两个向量构造 Quaternion，要求它们不为零；Quaternion 乘向量，要求四元数已归一化 | `core/math/basis.cpp:716-717, 843-844`；`core/math/quaternion.cpp:289-290`；`core/math/quaternion.h:91-94, 139-140`；`core/math/math_defs.h:56-58` | §4.5 |
 | Array 的 `==` 逐元素用 `hash_compare`，它要求元素类型相同 | `core/variant/array.cpp:155-158`；`core/variant/variant.cpp:3176-3179` | §5.2 |
-| `hash_compare` 只在语义比较时认为 float 的 NaN 与 NaN 匹配。Array 的 `==` 不做语义比较，float 元素的 NaN 因此不匹配；Dictionary 查键做语义比较。向量、Color、Quaternion 按 `is_same` 比较，NaN 总是匹配 | `core/variant/variant.cpp:3138-3155, 3186-3187, 3399-3401`；`core/variant/variant.h:829`；`core/variant/array.cpp:155` | §5.2 |
+| `hash_compare` 只在语义比较时认为 float 的 NaN 与 NaN 匹配。Array 的 `==` 不做语义比较，float 元素的 NaN 因此不匹配；Dictionary 查键做语义比较。向量、Color、Quaternion 按 `is_same` 比较，NaN 总是匹配 | `core/variant/variant.cpp:3138-3157, 3186-3187, 3399-3401`；`core/variant/variant.h:829`；`core/variant/array.cpp:156` | §5.2 |
 | Array 的 `<` 逐元素比较，比不出大小的元素当作相等，接着比下一个。元素按 `Variant::operator<` 比较：类型不同时按类型编号排序，查不到运算时为假 | `core/variant/array.cpp:164-179`；`core/variant/variant.cpp:868-876` | §5.2 |
 | Array 的 `<=` 是 `not (b < a)`，`>=` 是 `not (a < b)` | `core/variant/array.cpp:181-188` | §5.2 |
 | Dictionary 的 `==` 按键查找后逐项比较值，与顺序无关 | `core/variant/dictionary.cpp:255-285` | §5.2 |
@@ -49,8 +49,8 @@
 | `bind` 把绑定的实参接在调用实参之后 | `core/variant/callable_bind.cpp:141-150` | §3.11 |
 | 从 String 构造 StringName 需要在全局表的互斥锁下查找 | `core/string/string_name.cpp:263-285` | §10.7 |
 | JSON 中的数字都解析为浮点数 | `core/io/json.cpp:390-396` | §10.8 |
-| `JSON.stringify` 把 `Vector2` 等引擎值写成字符串。`JSON.from_native` 按类型编码，`to_native` 能还原 | `core/io/json.cpp:193-197, 675-720` | §10.8 |
-| 资源按路径缓存，`load` 默认复用缓存 | `core/io/resource_loader.cpp:800-810` | §7.6 |
+| `JSON.stringify` 把 `Vector2` 等引擎值写成字符串。`JSON.from_native` 按类型编码，`to_native` 能还原 | `core/io/json.cpp:193-197, 675-720, 1063` | §10.8 |
+| 资源按路径缓存，`load` 默认复用缓存 | `core/io/resource_loader.cpp:800-810`；`core/io/resource_loader.h:259` | §7.6 |
 | 资源的循环加载返回 null | `core/io/resource_loader.cpp:1049-1056` | §7.6 |
 | 方法的反射信息中没有协程性 | `core/object/method_info.h:37-44` | §9.8 |
 | 脚本语言所需的钩子对 GDExtension 公开 | `core/object/script_language_extension.h:304, 391, 441, 497, 655` | §1.3 |
@@ -90,7 +90,7 @@
 | 加载场景时不检查属性写入是否成功 | `scene/resources/packed_scene.cpp:494` | §6.5、§13.3 |
 | 节点引用以路径保存，实例化时解析 | `scene/resources/packed_scene.cpp:376-395` | §7.5 |
 | 保存场景时只写节点当前属性列表中的属性 | `scene/resources/packed_scene.cpp:860-869` | §13.3 |
-| 场景的根被实例化到另一个场景中时，owner 是外层场景的根 | `scene/resources/packed_scene.cpp:567-570` | §7.3 |
+| 场景的根被实例化到另一个场景中时，owner 是外层场景的根 | `scene/resources/packed_scene.cpp:567-570, 1041-1043` | §7.3 |
 | 编辑器给节点改名或移动节点时，更新场景中的 NodePath 属性和动画轨道 | `editor/docks/scene_tree_dock.cpp:2143-2248, 2250-2401`（调用在 `:2426, 2667`） | §13.3 |
 | 移动节点时，编辑器在动作内部不发出信号 | `editor/docks/scene_tree_dock.cpp:2535-2677` | §13.3 |
 | 提交动作时先退出动作再执行，执行中不能再追加操作 | `core/object/undo_redo.cpp:313-332` | §13.3 |
@@ -164,7 +164,7 @@
 | GDScript 的类型只能以标识符或 `void` 开头 | `modules/gdscript/gdscript_parser.cpp:3874-3886` | §2.4 |
 | GDScript 的 lambda 含 await 时即为协程，不加标记 | `modules/gdscript/gdscript_parser.cpp:3249-3251, 3752-3753` | §9.1 |
 | match 的模式 | `modules/gdscript/gdscript_parser.cpp:2487-2711` | §4.6、§5.6 |
-| GDScript 的 match 中，字面量和表达式模式先比较类型，String 与 StringName 视为相同，再比较值 | `modules/gdscript/gdscript_compiler.cpp:1451-1477, 1550-1556` | §5.6 |
+| GDScript 的 match 中，字面量和表达式模式先比较类型，String 与 StringName 视为相同，再比较值 | `modules/gdscript/gdscript_compiler.cpp:1451-1491, 1550-1576` | §5.6 |
 | `as` 转为对象类型失败时得到 null | `modules/gdscript/gdscript_vm.cpp:1677-1678` | §5.3 |
 | GDScript 把不是对象的值 `as` 转为对象类型时，debug 构建报错，release 构建原样交出这个值 | `modules/gdscript/gdscript_vm.cpp:1670-1681` | §5.3 |
 | GDScript 的 `is Array[T]` 要求数组的类型完全一致；把数组赋给带类型的变量时也这样要求，否则报错 | `modules/gdscript/gdscript_vm.cpp:879-895, 1454-1481` | §3.8 |
@@ -184,7 +184,7 @@
 | GDScript 的 `assert` 失败时报“Assertion failed” | `modules/gdscript/gdscript_vm.cpp:3876-3902` | §8.3 |
 | GDScript 的 await 接受任意 Signal 值 | `modules/gdscript/gdscript_vm.cpp:2586-2600` | §9.8 |
 | GDScript 对返回类型既不是协程、也不是 Variant 或 Signal 的调用的 await 给出“多余的 await”警告 | `modules/gdscript/gdscript_analyzer.cpp:3102-3107` | §9.8 |
-| await 的结果不经检查写入按被等待者返回类型定型的临时变量 | `modules/gdscript/gdscript_vm.cpp:2667-2668`；`modules/gdscript/gdscript_byte_codegen.cpp:998-1001` | §9.8 |
+| await 的结果不经检查写入按被等待者返回类型定型的临时变量 | `modules/gdscript/gdscript_vm.cpp:2667-2668`；`modules/gdscript/gdscript_compiler.cpp:766` | §9.8 |
 | Variant 赋给有类型的变量时，只在 debug 构建中检查类型 | `modules/gdscript/gdscript_vm.cpp:1433-1444` | §9.8 |
 | 挂起的 GDScript 函数状态不复制 self，只以裸指针指向实例 | `modules/gdscript/gdscript_vm.cpp:2609-2625` | §9.4 |
 | GDScript 每次调用把实例装进 Variant 作为 self，RefCounted 在 PREDELETE 中因此得到 null；调用自己的方法以它为接收者 | `modules/gdscript/gdscript_vm.cpp:656-657`；`modules/gdscript/gdscript_byte_codegen.cpp:1345-1355` | §6.6 |
