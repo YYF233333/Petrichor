@@ -320,5 +320,12 @@ func run(p_errors: ErrorLog) -> int:
 	collect(c.settle(returning), results)
 	c.tick.emit(0)
 	check(results == ["cancelled 0"], "a task asked to cancel while it runs and then returning is cancelled, its value dropped (spec §9.3)")
+	results.clear()
+	var leaving := CoroutineCheck.new()
+	add_child(leaving)
+	collect(c.settle(leaving.start_leave(c)), results)
+	c.tick.emit(0)
+	expect_errors(["coroutine_check.pet:203: self was freed, or lost its script, while this method ran. It was freed at res://language/coroutine_check.pet:202 in function 'leave'."], "a task that frees its owner while it runs reports a program error it then has")
+	check(results == [null], "and fails rather than ending as Cancelled(OWNER_FREED), which settled() passes on (spec §9.3, §9.7)")
 	c.free()
 	return failures

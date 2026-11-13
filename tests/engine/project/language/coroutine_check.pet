@@ -195,3 +195,12 @@ pub async func run_asked_to_cancel(divisor: int) -> int:
 
 pub func start_asked_to_cancel(divisor: int) -> Task[int]:
 	return run_asked_to_cancel(divisor)
+
+# Frees its owner while it runs, then has a program error (spec §9.3, §9.7).
+pub async func leave(door: CoroutineCheck) -> int:
+	await door.tick
+	free()
+	return count
+
+pub func start_leave(door: CoroutineCheck) -> Task[int]:
+	return leave(door)
