@@ -10,13 +10,13 @@ The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable`
 
 ## Design
 
-- A restriction must prevent a wrong meaning or keep a later design open. Allow what has a determined meaning; style belongs to lints. Where unsure, provide a default consistent with the defaults around it. Never restrict users or work around a design to save implementation work. Do not optimize for hypothetical needs; the goals of spec §1 and §13 are real ones.
+- A restriction must prevent a wrong meaning or keep a later design open. Allow what has a determined meaning; style belongs to lints. A check that still refuses such code needs real code that meets it: a corpus count or a migrated script. Without one it waits in `BACKLOG.md` as a question. Where unsure, provide a default consistent with the defaults around it. Never restrict users or work around a design to save implementation work. Do not optimize for hypothetical needs; the goals of spec §1 and §13 are real ones.
 - A design proposal shows:
   - what users see, in two or three concrete code examples;
   - what GDScript does, with engine citations, giving bugs of GDScript or the engine sane semantics instead of copying them;
   - for tools and the runtime, also what mature implementations do, without assuming GDScript's is best;
   - whether it stays consistent with the defaults around it and allows what GDScript allows;
-  - where it crosses freed objects, the time before ready, `await` and cancellation, the engine boundary, scene inheritance and hot reload. Each case with no obvious result is a script of five lines or fewer, checked against the spec's guarantees. The owner decides it, and it becomes a test;
+  - where it crosses freed objects, the time before ready, `await` and cancellation, the engine boundary, scene inheritance and hot reload. Each case with no obvious result is a script of five lines or fewer, checked against the spec's guarantees. It is decided as Workflow says, and becomes a test;
   - the cost of doing it now against later.
 - Each stage is part of the final design. A shortcut taken now must not show users behavior that the final design changes.
 - When real code can answer a design question, survey real Godot projects first. A survey in `docs/surveys/` is a write-up plus the scripts that reproduce it. A single count backing one rule goes into `corpus-counts`. A survey records the design it evaluated. When the design changes, point to the current rule rather than rewriting the data.
@@ -77,11 +77,19 @@ The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable`
   - Make a small gap or cheap fix in the area at hand now.
   - Clean up debt in code a change touches, without widening into an open-ended refactor. Paying down debt is progress too. The owner decides whether debt or features come next.
 - Ask the owner first, proposing the smallest option, about:
-  - what users see: language semantics, spec rules and diagnostics;
+  - what cannot be changed back compatibly: the run-time meaning of legal code, stored formats and what the project promises users;
   - the roadmap: architecture §5 and `BACKLOG.md`;
   - any new component, pass or process.
-- Decide the details of an agreed design yourself, such as format fields, opcodes, test helpers and file splits. List them in the report.
-- Asked what comes next, choose from the roadmap and the backlog. Do not close a step or propose a milestone instead.
+- Decide the rest yourself and list it in the report, for the owner to overrule:
+  - a case that the spec's rules and guarantees already settle;
+  - a case they leave open, as a compile error that can be allowed later, recorded among the open questions;
+  - the details of an agreed design, such as format fields, opcodes, test helpers and file splits.
+- Each release has a date and a list that gates it (architecture §5, `BACKLOG.md`). Work on the list first, and choose from it when asked what comes next. Do not close a step or propose a milestone instead. When the measure that accepts a step has stopped moving, say so.
+- Report at the end of each working day:
+  - the release list: what moved and what is stuck;
+  - the work that went elsewhere;
+  - what you decided yourself, each new rule with the real code that meets it;
+  - what waits for the owner.
 - The owner starts reviews when needed. Reviewers follow `REVIEW.md` and leave their findings as files in the repository root.
   - Findings are not tasks: they are first checked against the tree, the spec and the engine source. The implementer does not argue them one by one.
   - When a findings file has nothing left to act on, propose deleting it.

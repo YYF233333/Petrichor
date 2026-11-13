@@ -49,7 +49,14 @@ Review what the message names: a commit range, an area, sections of the spec or 
   - the Chinese and English READMEs saying different things;
   - language features that no test runs.
 
-A review usually looks at the roadmap too (architecture §5, `BACKLOG.md`). The task is to find what decides whether the project succeeds. For each such item, argue that it can be solved later and has its place in the roadmap. Do not solve it now or narrow the scope. For each deferred item, say whether anything blocks doing it later, and in which step it is done.
+A review usually looks at the roadmap too (architecture §5, `BACKLOG.md`). The task is to find what decides whether the project succeeds, and whether the work is going there. Report:
+
+- the items of the current release's list that the range did not move;
+- what the README or the roadmap promises that no test or document backs;
+- the rules and checks the range added that no real code meets (`AGENTS.md`, Design);
+- where the range's commits went instead.
+
+For an item that can wait, say what would block doing it later, and in which step it is done. Do not solve it in the review.
 
 ## Working in the shared tree
 
