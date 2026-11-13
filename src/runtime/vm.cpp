@@ -3711,11 +3711,13 @@ void CoroutineFrame::resume() {
 				SlotLayout::hold_again(data, Variant(context.owner), let_go_of_self);
 				let_go_of_self.clear();
 			}
+			// A program error wins over a pending cancel() (spec §9.3). Stopping at
+			// an await for the cancellation is no error.
 			const bool ok = Execution(*image, context, debugger::is_active()).run(function, data, result.data, this);
-			if (task->cancel_requested) {
-				ends = TaskState::State::Cancelled;
-			} else if (!ok) {
+			if (!ok) {
 				ends = TaskState::State::Failed;
+			} else if (task->cancel_requested) {
+				ends = TaskState::State::Cancelled;
 			} else if (task->state == TaskState::State::Running) {
 				ends = TaskState::State::Finished;
 				value = outward_variant(result_type, result.data);

@@ -35,7 +35,6 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 
 ## Runtime
 
-- A task asked to cancel that then has a program error ends as cancelled. Spec §9.3 has it fail.
 - `call()` by a name that is not pub fails without naming the method or the cause. It only says that calling `call()` failed.
 - Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`).
 - Ordering of arrays of engine types as spec §5.2 says. It differs from the engine's operators only with NaN, so it waits for the open question on NaN.
@@ -89,7 +88,7 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 
 ## Tests
 
-- `cancel()` on a task that has ended, and on an executing one that then returns a value (spec §9.3). No test runs either.
+- `cancel()` on a task that has ended (spec §9.3). No test runs it.
 - On macOS, the README's quarantine step has never run. The x86_64 half of the libraries runs only under Rosetta, on Godot 4.8.
 - Cross-rule checks kept from the former conformance checklist:
   - `player.last_hit.damage = 3` running `last_hit`'s setter (spec §3.6, §4.4);

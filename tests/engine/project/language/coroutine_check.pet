@@ -184,3 +184,14 @@ pub func same_tasks(t: Task[int], u: Task[int]) -> String:
 	var maybe: Task[int]? = t
 	var keyed: Dictionary[Task[int], String] = {t: "t", u: "u"}
 	return str(t == t) + " " + str(t != u) + " " + str(maybe == t) + " " + keyed[t] + keyed[u]
+
+# Asked to cancel while it runs, by a handler of a signal it emits (spec §9.3).
+pub signal ran
+
+pub async func run_asked_to_cancel(divisor: int) -> int:
+	await tick
+	ran.emit()
+	return 1 / divisor
+
+pub func start_asked_to_cancel(divisor: int) -> Task[int]:
+	return run_asked_to_cancel(divisor)
