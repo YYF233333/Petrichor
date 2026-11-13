@@ -92,6 +92,7 @@ def demo_files(addon, top, godot):
         f"It is https://github.com/KenneyNL/Starter-Kit-FPS at commit {kit}, under the licence in LICENSE.md.\n"
         "addons/petrichor/ holds Petrichor, with its licences.\n"
     ).encode()
+    files["PETRICHOR.md"] = (ROOT / "tools" / "demo_trying.md").read_bytes()
     return {f"{top}/{name}": data for name, data in files.items()}
 
 
