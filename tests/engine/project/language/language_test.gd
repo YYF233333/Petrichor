@@ -46,6 +46,12 @@ func _ready() -> void:
 	c.counted.connect(func(total): received.append(total))
 	c.emit_count(5)
 	_check(c.has_signal("counted") and received == [5], "a signal of the class, connected from GDScript and emitted")
+	var add_method: Callable = c.add
+	var toggle := Button.new()
+	toggle.toggled.connect(c.choose_if)
+	toggle.toggled.emit(true)
+	toggle.free()
+	_check(add_method.call(2, 3) == 5 and c.chosen == 4 and c.get("summed") == null, "a pub method reads as a Callable, which GDScript calls and connects; one without pub is not reached by name (spec §10.5)")
 	_check(c.describe(-1) == "negative" and c.describe(0) == "zero" and c.describe(4) == "positive", "elif chains and early returns")
 	_check(c.fib(15) == 610, "recursive calls")
 	_check(c.truncate(2.7) == 2 and c.truncate(-2.7) == -2, "int() truncates toward zero")

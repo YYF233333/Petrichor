@@ -334,6 +334,12 @@ static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance,
 		if (pub_constant(*image, as_name(p_name), ret) || vm::get_static(image, as_name(p_name), ret)) {
 			return true;
 		}
+		// A method reads as a Callable, a static one too (gdscript.cpp:1656-1666;
+		// gdscript_compiler.cpp:2311, 2524; spec §10.5).
+		if (PetScript::find_visible_function(*image, as_name(p_name)) >= 0) {
+			ret = Callable(instance->owner_object, as_name(p_name));
+			return true;
+		}
 		const Variant name = as_name(p_name);
 		const Variant *args[] = { &name };
 		return call_each(instance, image, ClassImage::Virtual::Get, args, 1, [&](const ClassImage &, const bytecode::Function &, const Variant &p_value) {
