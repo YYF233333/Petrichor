@@ -210,4 +210,16 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Before 0.9: whether a container that holds itself is a program error as a `Dictionary` key (spec §3.8). The engine stops hashing it at a depth of 100 with an error. One that holds itself twice takes about 2^100 steps, in GDScript too (`core/variant/array.cpp:195-208`, `ed1daf0`).
 - The long-term boundary of compatibility with GDScript and Godot: which agreements are promises and which merely hold today. How semantics may change is settled (architecture §5, 0.9).
 - Tuples, to be discussed after the first version. `await Task.all([...])` gives nothing (spec §9.5). With tuples it could give the results of tasks of different types, which an array cannot type.
+- The differences from GDScript in code spelled the same, which the owner reviews one by one. The aim is to agree with GDScript wherever possible. A difference stays only where the semantic design or safety needs it. Seventeen are known. Until the review, the README's first paragraph and spec §1.2 promise more than holds. These seven fall outside the exception that spec §1.2 names:
+  - an array or dictionary literal takes its type from its elements;
+  - members without `pub` are invisible to reflection by name;
+  - a `null` stored in a `Variant` is a value;
+  - an assignment evaluates its right side before reading its target;
+  - engine properties bypass a script's `_get` and `_set`;
+  - a container used as a `Dictionary` key is stored as a read-only copy;
+  - an autoload name in a type yields to nearer declarations.
+- Members that are non-null only once the node is ready, which need a design of their own. The owner likens it to linear types. It covers these (spec §6.2, §6.4):
+  - members that must be assigned, and where the compiler looks for the assignment;
+  - assignments by ancestors;
+  - members assigned after ready, which now must be `T?`.
 - How to test the gain in maintenance. Use the language in a real project through several rounds of changing requirements. See how many problems it points out ahead of renames, interface changes and refactorings across files. The cost of adoption includes migrating in step by step, mixing and leaving. With cross-language inheritance restricted, the unit of migration may be an inheritance cluster or a subsystem.
