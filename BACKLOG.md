@@ -6,10 +6,8 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 
-- The suites on Godot 4.8's release candidate, with its changes checked one by one. They pass on beta3 (`c51ff06e8`).
 - Release notes. They list where code spelled as in GDScript behaves differently, and the known limitations.
-- An icon for `.pet` scripts.
-- With the owner: the invitees, the invitations and the icon.
+- With the owner: the invitees and the invitations.
 
 ## Language
 
@@ -42,6 +40,7 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 
 ## Editor
 
+- An icon for `.pet` scripts. The release notes of 0.1 ask reviewers what it should be.
 - The dialog that creates a script shows "No suitable template.", as this language has no templates. The script is created all the same.
 - `--petrichor-build` on a fresh clone can end with the engine's crash code (godot#111048). The README says to import first.
 - The hints of the spec other than `unused_ignore` and `modified_copy`, as the one on a redundant `as` (spec §5.3). None is implemented.
@@ -88,6 +87,7 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 
 ## Tests
 
+- The suites on Godot 4.8's release candidate, with its changes checked one by one. They pass on beta3 (`c51ff06e8`), which stands in until then.
 - `cancel()` on a task that has ended (spec §9.3). No test runs it.
 - On macOS, the README's quarantine step has never run. The x86_64 half of the libraries runs only under Rosetta, on Godot 4.8.
 - Cross-rule checks kept from the former conformance checklist:
