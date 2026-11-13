@@ -34,6 +34,9 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 
 ## Runtime
 
+- A Task of another result type is described by its class alone, as in "expected CoroutineTask, found CoroutineTask".
+- Messages name an inner class by its path, as `res://a.pet::Plain`, where the script writes `A.Plain`.
+- GDScript can pass an `async func() -> String` where `func() -> Task[int]` is expected. `.call()` then reports the mismatch only at the `await`, while `callv()` refuses at once. Read from the code, not run.
 - `call()` by a name that is not pub fails without naming the method or the cause. It only says that calling `call()` failed.
 - Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`).
 - Ordering of arrays of engine types as spec §5.2 says. It differs from the engine's operators only with NaN, so it waits for the open question on NaN.
