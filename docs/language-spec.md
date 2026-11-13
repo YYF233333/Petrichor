@@ -2,7 +2,7 @@
 
 **v0.2 draft · 2026-10-25**
 
-<!-- Generated from language-spec.zh.md, git blob 50457defd19a7d714cce631f282b4fa3be29d8ed. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob fe2b8ae3fb33846c560b26ff11f3f8ddd949ce7b. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). The previous version of the specification, v0.1, is kept in the git tag `spec-v0.1`. This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -394,7 +394,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - An override must keep the visibility unchanged. A member that implements an interface must be `pub`. A non-`pub` type in the signature of a `pub` member is a compile error.
 - The parent interfaces of a `pub` interface must be `pub`, or it is a compile error.
 - The visibility of `new(...)` is that of the nearest `_init` on the inheritance chain. With no `_init`, `new()` can be called anywhere. When `_init` is without `pub`, only its file and subclasses can call `new(...)`.
-- A member that must be assigned and is without `pub` can be assigned only by its file and by subclasses. When none of these files has code that assigns it, it is a compile error at the declaration. The section "Members exposed through reflection" says which members reflection by name can see.
+- A member that must be assigned and is without `pub` can be assigned only by its file and by subclasses. The section "Members exposed through reflection" says which members reflection by name can see.
 
 ### 4.3 Member variables
 
@@ -595,9 +595,9 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
   - assignments on every path in `_init`;
   - values stored in the scene;
   - named arguments of `new(...)` and `instantiate(...)`;
-  - assignments by an ancestor in `_ready`, through `$Child.target = v` or an `@onready` reference.
+  - assignments by an ancestor in `_ready`, through `$Child.target = v` or an `@onready` reference. [Known limitation] Such an assignment is checked only at ready; see the open questions.
 - A member still unassigned at ready is a program error. The error suggests one of the forms above, so that it is checked at compile time.
-- The ready order says when the checks happen. A child node reading an ancestor-assigned member in its own `@onready` initializers or `_ready` is a compile error. Before ready, reading a member not yet assigned is a program error that states the member name.
+- The ready order says when the checks happen. Before ready, reading a member not yet assigned is a program error that states the member name.
 - Suppose `_init` directly reads a member that must be assigned. Unless `_init` has assigned it on every path before that, the read is a compile error. Reading it indirectly through a call is a program error.
 - A `Resource` has no ready phase. A `.tres` is checked statically, and one made by `new()` in code is checked when read.
 - When `_init` has required parameters, attaching the script by a route without arguments, such as `set_script`, is a program error. `_init` is not run then. A scene or a `.tres` that uses such a script is a compile error.
@@ -1041,3 +1041,7 @@ The full designs of generics and of setters that suspend automatically before re
 
 - When native code is generated: at run time, at export, or both.
 - The rules for `@tool` scripts running in the editor.
+- The rules for members that are non-null only once ready, which await a design as a whole:
+  - who assigns a member that must be assigned, and which of those assignments the compiler looks for;
+  - assignments by ancestors;
+  - members assigned after ready.

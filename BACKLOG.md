@@ -16,7 +16,7 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
 - Assignments by ancestors (spec §6.2), which the checker assumes without looking for them.
   - It takes a must-assign member of a node with an owner as one they assign. Exported members and those `_init` assigns are not.
   - The spec requires `$Child.target = v` or an `@onready` reference in their `_ready`. Without one, the member must be `T?`.
-  - Is a member that no ancestor visibly assigns a compile error, or checked at ready? The spec says both.
+  - The spec marks it a known limitation, until these members get their design (Open questions).
 - A track naming an engine property that ClassDB does not list is refused, as `current` of AudioListener2D (spec §7.7). The engine takes such a name through `_set`. The check could ask an instance of the class for its properties.
 - `Array[PackedScene[T]]` cannot be written, though `[preload(...)]` infers it and spec §7.4 lists container elements.
 - `find_key()` of `Dictionary[T?, V]` for an object `T`. The engine gives null for a missing key and for a None key.
