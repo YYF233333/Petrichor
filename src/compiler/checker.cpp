@@ -882,6 +882,8 @@ class Checker : public ClassRelation {
 		return std::nullopt;
 	}
 
+	/* How classes relate */
+
 	// The script itself, or one it extends.
 	bool extends_script(const std::string &p_script, const std::string &p_base) const {
 		std::unordered_set<std::string> seen;
@@ -948,6 +950,8 @@ class Checker : public ClassRelation {
 	bool related(const Type &p_a, const Type &p_b) const {
 		return is_a(p_a, p_b) || is_a(p_b, p_a) || p_a.is_interface || p_b.is_interface;
 	}
+
+	/* Type resolution */
 
 	// A class of this language named by its class_name, or an interface or a
 	// struct in one, such as Combat.Damageable; nullopt if the name is not one.
@@ -1370,7 +1374,7 @@ class Checker : public ClassRelation {
 		return Type::signal(params);
 	}
 
-	/* Expressions */
+	/* Results of expressions */
 
 	Type set(Expr &r_expr, const Type &p_type) {
 		r_expr.type = p_type;
@@ -1402,6 +1406,8 @@ class Checker : public ClassRelation {
 	void on_resource_loader(Expr &r_call) {
 		r_call.base = synthetic(ExprKind::Name, "ResourceLoader", r_call.range);
 	}
+
+	/* Locals and captures (spec §3.11) */
 
 	static int find_in(const std::vector<std::unordered_map<std::string, int>> &p_scopes, const std::string &p_name) {
 		for (auto scope = p_scopes.rbegin(); scope != p_scopes.rend(); ++scope) {
@@ -1497,6 +1503,114 @@ class Checker : public ClassRelation {
 
 	bool names_variable(const std::string &p_name) const {
 		return visible_local(p_name) || member_index.count(p_name) || static_index.count(p_name) || engine.find_property(cls.native_base, p_name);
+	}
+
+	/* _init and members that must be assigned (spec §6.2) */
+
+	// The _init that new() of the class calls: its own or the nearest it inherits.
+	static const FuncDecl *init_of(const ClassDecl &p_class) {
+		return find_named(p_class.all_functions, "_init");
+	}
+
+	static bool init_assigns(const ClassDecl &p_class, const std::string &p_member) {
+		const FuncDecl *init = init_of(p_class);
+		return init && std::find(init->assigned.begin(), init->assigned.end(), p_member) != init->assigned.end();
+	}
+
+	// The members that must be assigned which _init has assigned on every path
+	// so far; nullopt where no path goes on.
+	using Assigned = std::optional<std::set<int>>;
+
+	static Assigned joined(const Assigned &p_a, const Assigned &p_b) {
+		if (!p_a || !p_b) {
+			return p_a ? p_a : p_b;
+		}
+		std::set<int> both;
+		std::set_intersection(p_a->begin(), p_a->end(), p_b->begin(), p_b->end(), std::inserter(both, both.begin()));
+		return both;
+	}
+
+	Assigned init_block(const Block &p_block, Assigned p_assigned, std::set<int> &r_reported) {
+		for (const auto &stmt : p_block) {
+			p_assigned = init_stmt(*stmt, std::move(p_assigned), r_reported);
+		}
+		return p_assigned;
+	}
+
+	// The scene and the creator assign only after _init, so _init reading one
+	// it has not assigned itself is an error. A read through a call is left to
+	// the program error: methods may be overridden in other files.
+	Assigned init_stmt(const Stmt &p_stmt, Assigned p_assigned, std::set<int> &r_reported) {
+		if (!p_assigned) {
+			return std::nullopt;
+		}
+		const auto reads = [&](const std::unique_ptr<Expr> &p_expr) {
+			if (p_expr) {
+				init_reads(*p_expr, *p_assigned, r_reported);
+			}
+		};
+		switch (p_stmt.kind) {
+			case StmtKind::Assign: {
+				const Expr &target = *p_stmt.target;
+				const bool whole = p_stmt.assign_op == TokenKind::Equal && target.target == Target::Member && (target.kind == ExprKind::Name || target.base->kind == ExprKind::Self);
+				if (!whole) {
+					reads(p_stmt.target);
+				}
+				reads(p_stmt.value);
+				if (whole) {
+					p_assigned->insert(target.index);
+				}
+				return p_assigned;
+			}
+			case StmtKind::If:
+				reads(p_stmt.condition);
+				return joined(init_block(p_stmt.body, p_assigned, r_reported), init_block(p_stmt.else_body, p_assigned, r_reported));
+			case StmtKind::While:
+			case StmtKind::For:
+				reads(p_stmt.condition);
+				reads(p_stmt.value);
+				init_block(p_stmt.body, p_assigned, r_reported);
+				return p_assigned;
+			case StmtKind::Match: {
+				reads(p_stmt.value);
+				Assigned after = p_stmt.exhaustive ? Assigned() : p_assigned;
+				for (const MatchBranch &branch : p_stmt.branches) {
+					reads(branch.guard);
+					after = joined(after, init_block(branch.body, p_assigned, r_reported));
+				}
+				return after;
+			}
+			case StmtKind::Return:
+				reads(p_stmt.value);
+				return std::nullopt;
+			case StmtKind::Break:
+			case StmtKind::Continue:
+				return std::nullopt;
+			default:
+				reads(p_stmt.condition);
+				reads(p_stmt.value);
+				// super() runs the base's _init, which assigns what it does.
+				if (const FuncDecl *base = p_stmt.value && p_stmt.value->target == Target::SuperMethod && p_stmt.value->text == "_init" ? base_function("_init") : nullptr) {
+					for (const std::string &name : base->assigned) {
+						p_assigned->insert(member_index.at(name));
+					}
+				}
+				return p_assigned;
+		}
+	}
+
+	void init_reads(const Expr &p_expr, const std::set<int> &p_assigned, std::set<int> &r_reported) {
+		if (p_expr.kind == ExprKind::Lambda) {
+			return; // It runs later.
+		}
+		if (p_expr.target == Target::Member && p_expr.index >= 0 && cls.all_members[p_expr.index]->must_assign && !p_assigned.count(p_expr.index) && r_reported.insert(p_expr.index).second) {
+			error(p_expr.range, "_init reads \"" + p_expr.text + "\" before assigning it: a member that must be assigned gets its value from the scene or the creator only after _init.");
+		}
+		for_each_child(p_expr, [&](const auto &p_child) {
+			if constexpr (std::is_same_v<std::decay_t<decltype(p_child)>, Expr>) {
+				init_reads(p_child, p_assigned, r_reported);
+			}
+		});
 	}
 
 	/* Constants (spec §4.5) */
@@ -2192,6 +2306,8 @@ class Checker : public ClassRelation {
 	bool enum_has_default(const Type &p_enum) const {
 		return p_enum.kind != TypeKind::Enum || !p_enum.values || p_enum.values->has(0);
 	}
+
+	/* Named classes, names and members */
 
 	// A constant initialized with a preload of a script, which names its class
 	// where its bare name is used (spec §2.1): a local constant or a constant
@@ -3165,6 +3281,8 @@ class Checker : public ClassRelation {
 		return fail(r_expr, "Values of type " + base_type.to_string() + " have no members.");
 	}
 
+	/* Node paths and scene views (spec §7.1) */
+
 	// A node path as written: $Head/Camera, %Name or $"../Level".
 	static std::string shown_path(const std::string &p_path) {
 		if (p_path[0] == '%') {
@@ -3568,6 +3686,8 @@ class Checker : public ClassRelation {
 		return Type::object(p_node.type);
 	}
 
+	/* load() and preload() */
+
 	static bool has_extension(const std::string &p_path, std::initializer_list<const char *> p_extensions) {
 		const size_t dot = p_path.find_last_of("./");
 		const std::string extension = dot != std::string::npos && p_path[dot] == '.' ? p_path.substr(dot) : std::string();
@@ -3845,6 +3965,526 @@ class Checker : public ClassRelation {
 		}
 		return Type::object(p_resource.type);
 	}
+
+	/* Connections and attached scripts (spec §7.7) */
+
+	// Why a member that a scene names must be pub (spec §10.5).
+	static std::string not_pub(bool p_method) {
+		return p_method ? ", which is not pub; the engine calls only pub methods by name." : ", which is not pub; the engine finds only pub properties by name.";
+	}
+
+	// The members of this class that the scene's animation tracks and
+	// synchronized properties name (spec §7.7), each resolved as $X is. The
+	// class must have them, and the engine finds them by name, so they must be
+	// pub (§10.5). An engine class may take names that it does not list: those
+	// with a slash, as metadata/ (core/object/object.cpp:279; ed1daf0), and any
+	// where the class has _set() or _get(). A path that leads to no node is
+	// left to the engine at run time.
+	void check_named_members() {
+		const TokenRange header{ cls.extends_token, cls.extends_token };
+		const bool takes_any = function_index.count("_set") || function_index.count("_get");
+		for (const Scene &scene : scenes) {
+			for (const SceneNamedMember &named : scene.named_members) {
+				const ViewNode *node = walk_node_path(scene, named.from, named.node).node;
+				if (!node || (node->node.script.empty() ? node->node.instance_script : node->node.script) != options.path) {
+					continue;
+				}
+				const auto shown = [](const std::string &p_path) { return p_path == "." ? std::string("the root") : p_path; };
+				const std::string what = named.method ? "calls " + named.name + "() on " + shown(node->path) : (named.animation.empty() ? "synchronizes \"" : "animates \"") + named.name + "\" of " + shown(node->path);
+				const std::string where = scene.path + ": " + (named.animation.empty() ? shown(named.from) : "the animation \"" + named.animation + "\" of " + shown(named.from)) + " " + what;
+				if (named.method) {
+					const auto found = function_index.find(named.name);
+					const FuncDecl *method = found == function_index.end() ? nullptr : cls.all_functions[found->second];
+					const std::optional<EngineMethod> native = method ? std::nullopt : engine.find_method(cls.native_base, named.name);
+					if (method && !method->is_pub && !method->is_override) {
+						error_in_scene(own_name(*method, cls.functions, header), scene, node->path, where + not_pub(true));
+					} else if (!method && (!native || native->is_virtual)) {
+						error_in_scene(header, scene, node->path, where + ", which this class does not declare.");
+					}
+					continue;
+				}
+				const auto found = member_index.find(named.name);
+				const VarDecl *member = found == member_index.end() ? nullptr : cls.all_members[found->second];
+				if (member && !member->is_pub) {
+					error_in_scene(own_name(*member, cls.members, header), scene, node->path, where + not_pub(false));
+				} else if (!member && !static_index.count(named.name) && !takes_any && named.name.find('/') == std::string::npos && !engine.find_property(cls.native_base, named.name)) {
+					error_in_scene(header, scene, node->path, where + ", which this class does not declare.");
+				}
+			}
+		}
+	}
+
+	// Connections saved in scenes to methods of this class (spec §7.7), on a
+	// node with it or on an instance of a scene whose root has it; either end
+	// may be inside a scene it instances. The method must exist and take what
+	// the signal passes. The engine finds the method and the signal by name,
+	// so both must be pub (§10.5). A method of the engine class that is not
+	// virtual is found so too.
+	void check_connections() {
+		const TokenRange header{ cls.extends_token, cls.extends_token };
+		for (const Scene &scene : scenes) {
+			for (const SceneConnection &connection : scene.connections) {
+				const ViewNode *target = view_node(scene, connection.target);
+				if (!target || (target->node.script.empty() ? target->node.instance_script : target->node.script) != options.path) {
+					continue;
+				}
+				const std::string where = scene.path + ": the signal \"" + connection.signal + "\" of " + connection.source + " is connected to " + connection.method + "()";
+				const auto found = function_index.find(connection.method);
+				const FuncDecl *method = found == function_index.end() ? nullptr : cls.all_functions[found->second];
+				const std::optional<EngineMethod> native = method ? std::nullopt : engine.find_method(cls.native_base, connection.method);
+				if (!method && (!native || native->is_virtual)) {
+					error_in_scene(header, scene, connection.target, where + ", which this class does not declare.");
+					continue;
+				}
+				const TokenRange at = method ? own_name(*method, cls.functions, header) : header;
+				if (method && !method->is_pub) {
+					error_in_scene(at, scene, connection.target, where + not_pub(true));
+				}
+				if (method && references) {
+					Reference reference;
+					reference.target = script_id(declaring(cls, *method, &ClassDecl::functions).path, method->name);
+					reference.scene = scene.path;
+					reference.connection = connection;
+					references->push_back(std::move(reference));
+				}
+				const ViewNode *source = view_node(scene, connection.source);
+				bool missing = false;
+				bool hidden = false;
+				const std::optional<std::vector<Type>> arguments = source ? signal_arguments(source->node, connection.signal, missing, hidden) : std::nullopt;
+				if (missing) {
+					error_in_scene(header, scene, connection.target, where + ", but " + connection.source + " has no such signal.");
+				} else if (hidden) {
+					error_in_scene(header, scene, connection.target, where + ", but that signal is not pub; the engine connects only pub signals by name.");
+				}
+				if (!arguments) {
+					continue;
+				}
+				const int passed = int(arguments->size()) - connection.unbinds + connection.binds;
+				const int most = int(method ? method->params.size() : native->params.size());
+				const int required = method ? required_params(*method) : most - native->default_count;
+				const bool rest = method ? method->has_rest() : native->is_vararg;
+				if (passed < required || (!rest && passed > most)) {
+					error_in_scene(at, scene, connection.target, where + ", which passes " + std::to_string(passed) + " argument(s); " + connection.method + "() takes " + argument_count(required, most, rest) + ".");
+					continue;
+				}
+				for (int i = 0; i < int(arguments->size()) - connection.unbinds; i++) {
+					std::optional<Type> param = method ? argument_type(*method, size_t(i)) : std::nullopt;
+					// The rest of a vararg engine method are Variant.
+					if (!method && i < most) {
+						param = native->params[i].type;
+					}
+					if (param && param->is_storable() && !assignable((*arguments)[i], *param)) {
+						const bool own = method && is_own(*method, cls.functions);
+						const ParamDecl *named = own ? &method->params[std::min(size_t(i), method->params.size() - 1)] : nullptr;
+						error_in_scene(named ? TokenRange{ named->name_token, named->name_token } : header, scene, connection.target, where + ", which passes " + (*arguments)[i].to_string() + " here.");
+					}
+				}
+			}
+		}
+	}
+
+	// Each node of the scene and each resource it holds that has the class
+	// set, with its name in messages and the node it marks.
+	void for_each_attached(const std::function<void(const std::string &, const std::string &)> &p_check) {
+		for (const SceneNode &node : scenes[0].nodes) {
+			if (node.script == options.path) {
+				p_check(node.path == "." ? std::string("the root") : node.path, node.path);
+			}
+		}
+		for (const SceneResource &resource : scenes[0].resources) {
+			if (resource.script == options.path) {
+				p_check(resource.shown(), std::string());
+			}
+		}
+	}
+
+	// No node or resource has an abstract class (spec §4.1), which the engine
+	// refuses to set (core/object/object.cpp:976; ed1daf0); nor one whose
+	// _init() has required parameters, which the engine does not pass (§6.2).
+	void check_attached() {
+		const TokenRange header{ cls.extends_token, cls.extends_token };
+		const FuncDecl *init = init_of(cls);
+		const bool takes = init && required_params(*init) > 0;
+		for_each_attached([&](const std::string &p_shown, const std::string &p_node) {
+			const std::string has = scenes[0].path + ": " + p_shown + " has " + display_name(cls, options.path);
+			if (cls.is_abstract) {
+				error_in_scene(header, scenes[0], p_node, has + ", which is abstract and cannot be set on a " + (p_node.empty() ? "resource." : "node."));
+			}
+			if (takes) {
+				error_in_scene(own_name(*init, cls.functions, header), scenes[0], p_node, has + ", whose _init() has required parameters, which the engine does not pass.");
+			}
+		});
+	}
+
+	// What a signal of a node in a scene passes: one its script of this
+	// language declares (spec §4.7), or one of its engine class. nullopt when
+	// that is not known: a script of another language, or one with errors;
+	// `r_missing` when the node certainly has no such signal, `r_hidden` when
+	// it is not pub.
+	std::optional<std::vector<Type>> signal_arguments(const SceneNode &p_node, const std::string &p_signal, bool &r_missing, bool &r_hidden) {
+		const std::string &script = p_node.script.empty() ? p_node.instance_script : p_node.script;
+		if (!script.empty() && !is_script_path(script)) {
+			return std::nullopt;
+		}
+		if (!script.empty()) {
+			const ClassDecl *decl = script_decl(script);
+			if (!decl) {
+				return std::nullopt;
+			}
+			if (const SignalDecl *signal = find_named(decl->all_signals, p_signal)) {
+				r_hidden = !signal->is_pub;
+				return param_types(signal->params);
+			}
+		}
+		const auto signal = engine.find_signal(p_node.type, p_signal);
+		if (!signal) {
+			r_missing = engine.class_exists(p_node.type);
+			return std::nullopt;
+		}
+		return signal_type(*signal).args;
+	}
+
+	/* Scene requirements and stored exports (spec §7) */
+
+	// @owner(T) and @parent(T): a class of this language, an interface or an
+	// engine class, on a class that extends Node (spec §7.3).
+	void declare_requirement(const std::optional<TypeRef> &p_ref, Type &r_type, const std::string &p_annotation) {
+		if (!p_ref) {
+			return;
+		}
+		r_type = resolve(*p_ref, false);
+		if (r_type.is_error()) {
+			return;
+		}
+		if (r_type.kind != TypeKind::Object || r_type.nullable) {
+			error(p_ref->range, p_annotation + " takes a class or an interface, not " + r_type.to_string() + ".");
+			r_type = Type::of(TypeKind::Error);
+		} else if (!engine.inherits(cls.native_base, "Node")) {
+			error(p_ref->range, p_annotation + " is for classes that extend Node.");
+			r_type = Type::of(TypeKind::Error);
+		}
+	}
+
+	// Each node of the scene whose check this is that has the class or a
+	// subclass: attached, or as the root of a scene it instances.
+	void for_each_placement(const std::function<void(const Scene &, const SceneNode &)> &p_check) {
+		for (const Scene &scene : scenes) {
+			for (const SceneNode &node : scene.nodes) {
+				if (extends_script(node.script.empty() ? node.instance_script : node.script, options.path)) {
+					p_check(scene, node);
+				}
+			}
+		}
+	}
+
+	// That a node of a scene is what @owner(T) or @parent(T) requires; a class
+	// of another language is left to the check at run time.
+	void check_required(const TokenRange &p_at, const Scene &p_scene, const SceneNode &p_placed, const SceneNode &p_node, const Type &p_required, const std::string &p_what, const std::string &p_annotation) {
+		const std::string &script = p_node.script.empty() ? p_node.instance_script : p_node.script;
+		if (!script.empty() && !is_script_path(script) && !p_required.is_interface && !p_required.script.empty()) {
+			return;
+		}
+		check_required_type(p_at, p_scene, p_placed, scene_node_type(p_at, p_node, p_scene.path + ": " + p_what), p_required, p_what, p_annotation);
+	}
+
+	void check_required_type(const TokenRange &p_at, const Scene &p_scene, const SceneNode &p_placed, const Type &p_found, const Type &p_required, const std::string &p_what, const std::string &p_annotation) {
+		if (!p_found.is_error() && !assignable(p_found, p_required)) {
+			error_in_scene(p_at, p_scene, p_placed.path, p_scene.path + ": " + p_what + " is " + p_found.to_string() + ", not " + p_required.to_string() + " (" + p_annotation + ").");
+		}
+	}
+
+	// Where scenes place the script, its owner satisfies @owner(T) (spec §7.3):
+	// that of a node is the root of the scene that stores it, and that of a
+	// scene's root the root of each scene that instances it. The root of a
+	// scene used as a root has none.
+	void check_owner_scenes() {
+		if (!cls.owner_ref || cls.owner_type.is_error()) {
+			return;
+		}
+		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
+			const ViewNode *placed = view_node(p_scene, p_node.path);
+			const ViewNode *owner = placed && !placed->owner.empty() ? view_node(p_scene, placed->owner) : nullptr;
+			const std::string use = placed && !owner ? classes.root_use(p_scene.path) : std::string();
+			if (owner) {
+				check_required(cls.owner_ref->range, p_scene, p_node, owner->node, cls.owner_type, "the owner of " + p_node.path, "@owner");
+			} else if (!use.empty()) {
+				const bool main = p_scene.path == options.project->main_scene();
+				error_in_scene(cls.owner_ref->range, p_scene, p_node.path, p_scene.path + (main ? ": the main scene's root has no owner (@owner)." : ": the root has no owner where " + use + " (@owner)."));
+			}
+		});
+	}
+
+	// Where scenes place the script, its parent satisfies @parent(T) (spec
+	// §7.3): the parent in the scene, that of a scene's root in each scene that
+	// instances it, and the root viewport, a Window, for the main scene's root
+	// (scene/main/scene_tree.cpp:1762-1765, 2068; ed1daf0). The root of a scene
+	// used otherwise is checked at run time.
+	void check_parent_scenes() {
+		if (!cls.parent_ref || cls.parent_type.is_error()) {
+			return;
+		}
+		const TokenRange &at = cls.parent_ref->range;
+		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
+			const NodeWalk walk = walk_node_path(p_scene, p_node.path, "..");
+			if (walk.node) {
+				check_required(at, p_scene, p_node, walk.node->node, cls.parent_type, "the parent of " + p_node.path, "@parent");
+			} else if (walk.leaves && p_scene.path == options.project->main_scene()) {
+				check_required_type(at, p_scene, p_node, Type::object("Window"), cls.parent_type, "the parent of the main scene's root", "@parent");
+			}
+		});
+	}
+
+	// The values that the scene stores for this class's exported structs and
+	// enums with payloads, which the entry check decodes as the scene is
+	// instantiated (spec §4.3), and for its exported scenes, which may leave
+	// to instantiate(...) only what PackedScene[T] asks for (§7.4): on the
+	// nodes with the class, on the instances of scenes whose root has it, on
+	// the nodes with it inside instanced scenes that the scene changes, and on
+	// the resources with it that the scene or resource file holds.
+	void check_stored_exports() {
+		std::vector<const VarDecl *> exports;
+		for (const VarDecl &member : cls.members) {
+			const TypeKind kind = member.type.unwrapped().kind;
+			if (member.is_export && (kind == TypeKind::Struct || kind == TypeKind::PayloadEnum || is_typed_scene(member.type))) {
+				exports.push_back(&member);
+			}
+		}
+		const auto check = [&](const Scene &p_scene, const std::vector<std::pair<std::string, SceneValue>> &p_properties, const std::string &p_shown, const std::string &p_node) {
+			for (const VarDecl *member : exports) {
+				for (const auto &[name, value] : p_properties) {
+					if (name != member->name) {
+						continue;
+					}
+					const TokenRange at{ member->name_token, member->name_token };
+					if (is_typed_scene(member->type)) {
+						const std::optional<Scene> scene = is_scene_file(value.path) ? options.project->scene(value.path) : std::nullopt;
+						const std::string unfit = scene ? unfit_scene(*scene, member->type) : std::string();
+						if (!unfit.empty()) {
+							error_in_scene(at, p_scene, p_node, p_scene.path + ": \"" + name + "\" of " + p_shown + " holds " + scene->path + ", which " + unfit);
+						}
+						continue;
+					}
+					const std::string why = undecodable(member->type, value, std::string());
+					if (!why.empty()) {
+						error_in_scene(at, p_scene, p_node, p_scene.path + ": the value stored for \"" + name + "\" of " + p_shown + " does not decode: " + why + ".");
+					}
+				}
+			}
+		};
+		if (exports.empty()) {
+			return;
+		}
+		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
+			if (placed_class(p_node.script.empty() ? p_node.instance_script : p_node.script)) {
+				check(p_scene, p_node.properties, p_node.path, p_node.path);
+			}
+		});
+		for (const SceneNode &change : scenes[0].nodes) {
+			const ViewNode *changed = change.type.empty() && !change.is_instance && change.script.empty() ? view_node(scenes[0], change.path) : nullptr;
+			const std::string script = changed ? (changed->node.script.empty() ? changed->node.instance_script : changed->node.script) : std::string();
+			if (extends_script(script, options.path) && placed_class(script)) {
+				check(scenes[0], change.properties, change.path, change.path);
+			}
+		}
+		for (const SceneResource &resource : scenes[0].resources) {
+			if (extends_script(resource.script, options.path) && !resource.unread && placed_class(resource.script)) {
+				check(scenes[0], resource.properties, resource.shown(), std::string());
+			}
+		}
+	}
+
+	// The class of a node or a resource with the script that extends this
+	// one; null when the script cannot be read or declared. Its own check
+	// reports why, and the checks of the values it is given wait for it.
+	const ClassDecl *placed_class(const std::string &p_script) const {
+		return is_script_path(p_script) ? script_decl(p_script) : &cls;
+	}
+
+	// A resource has no ready phase, so the file gives each member of a
+	// resource with the class that must be assigned and that the _init it
+	// runs does not assign (spec §6.2). Only exports are stored. The game runs
+	// all the same: reading one without a value fails the check at run time.
+	void check_resource_values() {
+		for (const SceneResource &resource : scenes[0].resources) {
+			const ClassDecl *placed = extends_script(resource.script, options.path) && !resource.unread ? placed_class(resource.script) : nullptr;
+			if (!placed) {
+				continue;
+			}
+			for (const VarDecl &member : cls.members) {
+				const bool given = std::any_of(resource.properties.begin(), resource.properties.end(), [&](const auto &p_property) { return p_property.first == member.name && p_property.second.type != "Nil"; });
+				if (member.must_assign && !given && !init_assigns(*placed, member.name)) {
+					const std::string why = member.is_export ? ", an export that must be assigned." : ", which must be assigned and is not exported.";
+					error_in_scene(TokenRange{ member.name_token, member.name_token }, scenes[0], std::string(), scenes[0].path + ": " + resource.shown() + " has no value for \"" + member.name + "\"" + why);
+					errors.back().runs = true;
+				}
+			}
+		}
+	}
+
+	// Where the scene is used as a root, each node of its view with the class
+	// gets a value for each of its exports that must be assigned and that the
+	// _init it runs does not assign, from any of the scenes it is built from
+	// (spec §7.5); the root only in the main scene,
+	// since whoever instantiates another may give its root the rest (§7.4). One
+	// that nothing references only warns. The game runs all the same: a node
+	// without one fails the check as it becomes ready.
+	void check_scene_exports() {
+		const Scene &scene = scenes[0];
+		const bool main = scene.path == options.project->main_scene();
+		const bool any = std::any_of(cls.members.begin(), cls.members.end(), [](const VarDecl &p_member) { return p_member.is_export && p_member.must_assign; });
+		if (!any || (!main && classes.root_use(scene.path).empty())) {
+			return;
+		}
+		for (const ViewNode &node : view_of(scene)) {
+			const std::string &script = node.node.script.empty() ? node.node.instance_script : node.node.script;
+			const ClassDecl *placed = (main || node.path != ".") && extends_script(script, options.path) ? placed_class(script) : nullptr;
+			if (!placed) {
+				continue;
+			}
+			for (const VarDecl &member : cls.members) {
+				if (member.is_export && member.must_assign && !init_assigns(*placed, member.name) && !stored_value(scene, node.path, member.name).value_or(false)) {
+					error_in_scene(TokenRange{ member.name_token, member.name_token }, scene, node.path, scene.path + ": " + (node.path == "." ? std::string("the root") : node.path) + " has no value for \"" + member.name + "\", an export that must be assigned.");
+					errors.back().runs = true;
+				}
+			}
+		}
+	}
+
+	// Whether the node at `p_path` of a scene has a value other than null for
+	// a member, as the last scene to set one gives it; nullopt if none does.
+	// The engine sets an instanced or inherited scene's values first, then the
+	// outer scene's (scene/resources/packed_scene.cpp:263-266, 494; ed1daf0).
+	std::optional<bool> stored_value(const Scene &p_scene, const std::string &p_path, const std::string &p_name, int p_depth = 0) {
+		const SceneNode *node = p_scene.find_node(p_path);
+		for (const auto &[name, value] : node ? node->properties : std::vector<std::pair<std::string, SceneValue>>()) {
+			if (name == p_name) {
+				return value.type != "Nil";
+			}
+		}
+		const std::optional<Scene> base = p_scene.base.empty() || p_depth > 32 ? std::nullopt : options.project->scene(p_scene.base);
+		const std::optional<bool> inherited = base ? stored_value(*base, p_path, p_name, p_depth + 1) : std::nullopt;
+		if (inherited) {
+			return inherited;
+		}
+		// The innermost instance on the path.
+		const SceneNode *instance = nullptr;
+		for (const SceneNode &each : p_scene.nodes) {
+			if (!each.instance.empty() && (each.path == p_path || p_path.rfind(each.path + "/", 0) == 0) && (!instance || each.path.size() > instance->path.size())) {
+				instance = &each;
+			}
+		}
+		const std::optional<Scene> inner = !instance || p_depth > 32 ? std::nullopt : options.project->scene(instance->instance);
+		return inner ? stored_value(*inner, instance->path == p_path ? std::string(".") : p_path.substr(instance->path.size() + 1), p_name, p_depth + 1) : std::nullopt;
+	}
+
+	// Why a value that a scene stores does not decode as the type, as the
+	// entry check says (spec §3.6, §10.1), after `p_at`, the path to where it
+	// lies, such as "Combat.Hit.damage"; "" when it decodes.
+	std::string undecodable(const Type &p_type, const SceneValue &p_value, const std::string &p_at) {
+		const std::string at = p_at.empty() ? std::string() : p_at + ": ";
+		const auto mismatch = [&]() {
+			const std::string found = p_value.type == "Nil" ? std::string("null") : stored_type(p_value).to_string();
+			return at + "expected " + p_type.to_string() + ", found " + found;
+		};
+		if (p_type.kind == TypeKind::Option && p_value.type != "Nil") {
+			return undecodable(p_type.args[0], p_value, p_at);
+		}
+		if (p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum) {
+			return p_value.type == "Dictionary" ? undecodable_fields(p_type, p_value, p_at.empty() ? p_type.to_string() : p_at) : mismatch();
+		}
+		// A container by its elements, as decoding builds a new one of them.
+		if (is_typed_container(p_type)) {
+			const bool array = p_type.args.size() == 1;
+			if (p_value.type != (array ? "Array" : "Dictionary")) {
+				return mismatch();
+			}
+			const std::string where = p_at.empty() ? p_type.to_string() : p_at;
+			for (size_t i = 0; i < p_value.items.size(); i++) {
+				const bool key = !array && i % 2 == 0;
+				const std::string why = undecodable(p_type.args[key || array ? 0 : 1], p_value.items[i], where + (key ? " (a key)" : "[" + std::to_string(array ? i : i / 2) + "]"));
+				if (!why.empty()) {
+					return why;
+				}
+			}
+			return std::string();
+		}
+		// An int also from a whole float, and an enum of this language only one
+		// of its values (spec §3.7, §10.8).
+		const bool integer = p_value.type == "int" || (p_value.type == "float" && p_value.whole);
+		if (p_type.kind == TypeKind::Enum && integer) {
+			const bool closed = p_type.values && !p_type.values->is_engine;
+			return closed && !p_type.values->has(p_value.integer) ? at + "expected " + p_type.to_string() + ", found " + std::to_string(p_value.integer) + ", which is none of its values" : std::string();
+		}
+		if (p_type.kind == TypeKind::Int && integer) {
+			return std::string();
+		}
+		return assignable(stored_type(p_value), p_type) ? std::string() : mismatch();
+	}
+
+	// The fields of a stored struct, or of the variant that "$variant" names,
+	// each by its name as a key; a struct's field with a default may be left
+	// out (spec §3.6, §10.1).
+	std::string undecodable_fields(const Type &p_type, const SceneValue &p_value, const std::string &p_at) {
+		const auto entry = [&](const std::string &p_key) -> const SceneValue * {
+			for (size_t i = 0; i + 1 < p_value.items.size(); i += 2) {
+				const SceneValue &key = p_value.items[i];
+				if ((key.type == "String" || key.type == "StringName") && key.text == p_key) {
+					return &p_value.items[i + 1];
+				}
+			}
+			return nullptr;
+		};
+		std::vector<std::pair<std::string, Type>> fields;
+		std::vector<bool> defaults;
+		std::string at = p_at;
+		if (p_type.kind == TypeKind::Struct) {
+			const StructDecl *decl = struct_decl(p_type);
+			for (size_t f = 0; decl && f < decl->fields.size(); f++) {
+				fields.emplace_back(decl->fields[f].name, decl->fields[f].type);
+				defaults.push_back(bool(decl->fields[f].initializer));
+			}
+		} else if (p_type.values) {
+			const SceneValue *name = entry("$variant");
+			const auto &variants = p_type.values->list;
+			const auto named = std::find_if(variants.begin(), variants.end(), [&](const auto &p_variant) { return name && (name->type == "String" || name->type == "StringName") && name->text == p_variant.first; });
+			if (named == variants.end()) {
+				return p_at + ": expected " + p_type.to_string() + ", found a Dictionary whose \"$variant\" names none of its variants";
+			}
+			at += "." + named->first;
+			fields = p_type.values->fields[named - variants.begin()];
+			defaults.resize(fields.size(), false);
+		}
+		for (size_t f = 0; f < fields.size(); f++) {
+			const SceneValue *value = entry(fields[f].first);
+			const std::string why = value ? undecodable(fields[f].second, *value, at + "." + fields[f].first) : std::string();
+			if (!value && !defaults[f]) {
+				return at + "." + fields[f].first + " is missing";
+			}
+			if (!why.empty()) {
+				return why;
+			}
+		}
+		return std::string();
+	}
+
+	// The type of a value that a scene stores: an object of the class of its
+	// script, as a node's (spec §7.1, §11.1).
+	Type stored_type(const SceneValue &p_value) {
+		if (p_value.type == "Nil") {
+			return Type::of(TypeKind::None);
+		}
+		if (p_value.type != "Object") {
+			return api_type(p_value.type, false);
+		}
+		if (is_script_path(p_value.script)) {
+			const ClassDecl *header = script_header(p_value.script);
+			return header ? script_class_type(*header, p_value.script) : Type::object(p_value.class_name);
+		}
+		const ForeignClass *foreign = p_value.script.empty() ? nullptr : foreign_class(p_value.script);
+		return foreign && foreign->members_known && !foreign->native.empty() ? foreign_class_type(p_value.script, *foreign) : Type::object(p_value.class_name);
+	}
+
+	/* Operators (spec §5.1) */
 
 	// An enum's value takes part in operations as the int it is (spec §3.7).
 	static Type as_int(const Type &p_type) {
@@ -4356,6 +4996,1235 @@ class Checker : public ClassRelation {
 		}
 		return last.kind == StmtKind::If && always_ends(last.body, p_or_jump) && always_ends(last.else_body, p_or_jump);
 	}
+
+	/* Lambdas (spec §3.11) */
+
+	// `func(x): body` (spec §3.11): code of the function around it, checked
+	// as a function of its own. Its parameters take the types of the function
+	// type it goes to, unless written, and its return type is what it returns
+	// (§4.6). Checked once, also when a call checks its arguments again.
+	Type check_lambda(Expr &r_expr, const Type &p_expected) {
+		FuncDecl &lambda = *r_expr.function;
+		if (lambda.checked) {
+			return r_expr.type;
+		}
+		lambda.checked = true;
+		if (in_constant) {
+			return fail(r_expr, "A lambda is not a constant expression.");
+		}
+		lambda.is_static = function ? function->is_static : static_initializing >= 0;
+		// A function type has no rest parameter (spec §4.6).
+		const bool typed_by_expected = p_expected.kind == TypeKind::Function && p_expected.args.size() == lambda.params.size() + 1 && !lambda.has_rest();
+		for (size_t i = 0; i < lambda.params.size(); i++) {
+			ParamDecl &param = lambda.params[i];
+			if (param.default_value) {
+				error(param.default_value->range, "Lambda parameters have no default values.");
+			}
+			if (param.declared_type) {
+				param.type = resolve(*param.declared_type, false);
+			} else if (typed_by_expected) {
+				param.type = p_expected.args[i + 1];
+			} else {
+				untyped(param, ": nothing the lambda goes to gives one");
+			}
+		}
+		check_rest(lambda);
+		Returns inferred;
+		if (typed_by_expected) {
+			inferred.expected = p_expected.args[0];
+		}
+		Returns *const outer_returns = returns;
+		if (lambda.return_type_ref) {
+			lambda.return_type = resolve(*lambda.return_type_ref, true);
+			returns = nullptr;
+		} else {
+			returns = &inferred;
+		}
+
+		enclosing.push_back({ function, std::move(scopes), std::move(narrowed), &r_expr, loop_depth, in_predelete, initializing, initializing_onready, static_initializing });
+		function = &lambda;
+		scopes = { {} };
+		narrowed = { {} };
+		loop_depth = 0;
+		in_predelete = false;
+		const bool was_assert = in_assert;
+		in_assert = false;
+		initializing = -1;
+		static_initializing = -1;
+		declare_params(lambda);
+		check_block(lambda.body);
+		in_assert = was_assert;
+		if (!lambda.return_type_ref) {
+			lambda.return_type = inferred.type.value_or(Type::of(TypeKind::Void));
+			if (inferred.type && inferred.bare) {
+				error(r_expr.range, function_label() + " returns a value on some paths and none on others.");
+			}
+			if (partial(lambda.return_type)) {
+				const Type &left = lambda.return_type;
+				const std::string missing = !left.is_result() ? "which T? None is" : (left.args[0].is_error() ? "what Ok(...) holds" : "what Err(...) holds");
+				error(r_expr.range, function_label() + " needs a return type: what it returns does not say " + missing + ".");
+				lambda.return_type = Type::of(TypeKind::Error);
+			}
+			for (Expr *value : inferred.values) {
+				if (partial(value->type)) {
+					set(*value, lambda.return_type);
+				}
+				expect_scene_fits(*value, lambda.return_type);
+			}
+		}
+		if (lambda.return_type.kind != TypeKind::Void && !lambda.return_type.is_error() && !always_ends(lambda.body, false)) {
+			error(r_expr.range, "Not all paths of " + (lambda.name.empty() ? std::string("the lambda") : "the lambda \"" + lambda.name + "\"") + " return a value.");
+		}
+		// Its task keeps the result as the engine does (§9.8).
+		const std::string loss = lambda.is_async ? encoding_loss(lambda.return_type, "the engine", false) : std::string();
+		if (!loss.empty()) {
+			error(r_expr.range, function_label() + " returns " + lambda.return_type.to_string() + ", but " + loss);
+		}
+		Enclosing &outer = enclosing.back();
+		function = outer.function;
+		scopes = std::move(outer.scopes);
+		narrowed = std::move(outer.narrowed);
+		loop_depth = outer.loop_depth;
+		in_predelete = outer.in_predelete;
+		initializing = outer.initializing;
+		initializing_onready = outer.initializing_onready;
+		static_initializing = outer.static_initializing;
+		enclosing.pop_back();
+		returns = outer_returns;
+
+		return set(r_expr, function_type(lambda));
+	}
+
+	// The lambda or method value with a rest parameter that the value is, a
+	// Callable (spec §4.6).
+	static const FuncDecl *rest_function(const Expr &p_value) {
+		const bool method = p_value.target == Target::MethodValue || p_value.target == Target::StaticValue || p_value.target == Target::StructMethodValue || p_value.target == Target::NewValue;
+		const FuncDecl *declared = p_value.kind == ExprKind::Lambda ? p_value.function.get() : (method ? p_value.callee : nullptr);
+		return declared && declared->has_rest() ? declared : nullptr;
+	}
+
+	// A function connected to a signal takes what the signal passes (spec §4.7).
+	void check_handler(const Expr &p_handler, const Type &p_signal) {
+		const Type &handler = p_handler.type;
+		if (handler.is_error()) {
+			return;
+		}
+		// A Callable, checked by its declaration.
+		if (const FuncDecl *declared = rest_function(p_handler)) {
+			if (!takes(*declared, p_signal.args.size())) {
+				error(p_handler.range, p_signal.to_string() + " passes " + std::to_string(p_signal.args.size()) + " argument(s), but " + signature_text(*declared) + " takes " + argument_count(*declared) + ".");
+				return;
+			}
+			for (size_t i = 0; i < p_signal.args.size(); i++) {
+				if (!assignable(p_signal.args[i], *argument_type(*declared, i))) {
+					error(p_handler.range, p_signal.to_string() + " passes " + p_signal.args[i].to_string() + " as argument " + std::to_string(i + 1) + ", which " + signature_text(*declared) + " does not take.");
+					return;
+				}
+			}
+			return;
+		}
+		if (handler.kind != TypeKind::Function) {
+			error(p_handler.range, "A signal is connected to a function value, such as a method name, whose parameters it can check; found " + handler.to_string() + ".");
+			return;
+		}
+		if (handler.args.size() - 1 != p_signal.args.size()) {
+			error(p_handler.range, p_signal.to_string() + " passes " + std::to_string(p_signal.args.size()) + " argument(s), but " + handler.to_string() + " takes " + std::to_string(handler.args.size() - 1) + ".");
+			return;
+		}
+		for (size_t i = 0; i < p_signal.args.size(); i++) {
+			if (!assignable(p_signal.args[i], handler.args[i + 1])) {
+				error(p_handler.range, p_signal.to_string() + " passes " + p_signal.args[i].to_string() + " as argument " + std::to_string(i + 1) + ", which " + handler.to_string() + " does not take.");
+				return;
+			}
+		}
+	}
+
+	/* Option and Result (spec §3.4, §3.5) */
+
+	// The methods of T? (spec §3.4), as Rust's. Those that take a function
+	// call it only when there is a value, or only when there is none. ok_or()
+	// takes the error type from the Result expected, if any.
+	Type check_option_method(Expr &r_expr, const Type &p_base, const Type &p_expected) {
+		const std::string &name = r_expr.text;
+		const Type value = p_base.unwrapped();
+		const std::string t = value.to_string();
+		if (!option_methods().count(name)) {
+			return fail_call(r_expr, "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
+		}
+		refer(r_expr.name_token, language_id("Option", name));
+		r_expr.target = name == "unwrap" || name == "expect" ? Target::Unwrap : Target::OptionMethod;
+		if (name == "flatten") {
+			hint(r_expr, [&](int p_current) { return signature(name, {}, false, p_current, t); });
+			check_arguments(r_expr, {}, 0, false);
+			if (!value.is_optional()) {
+				return fail_call(r_expr, p_base.to_string() + " has no method \"flatten()\", which makes a T?? into a T?.");
+			}
+			return set(r_expr, value);
+		}
+		if (name == "unwrap" || name == "expect" || name == "unwrap_or" || name == "or") {
+			const std::vector<Type> params = name == "unwrap" ? std::vector<Type>() : std::vector<Type>{ name == "expect" ? Type::of(TypeKind::String) : (name == "or" ? p_base : value) };
+			const std::string shown = name == "expect" ? "message: String" : (name == "or" ? "other: " + p_base.to_string() : "default: " + t);
+			hint(r_expr, [&](int p_current) { return signature(name, params.empty() ? std::vector<std::string>() : std::vector<std::string>{ shown }, false, p_current, name == "or" ? p_base.to_string() : t); });
+			check_arguments(r_expr, params, int(params.size()), false);
+			return set(r_expr, name == "or" ? p_base : value);
+		}
+		if (name == "ok_or") {
+			const Type wanted = p_expected.is_result() ? p_expected.args[1] : Type::of(TypeKind::Error);
+			hint(r_expr, [&](int p_current) { return signature(name, { "error: E" }, false, p_current, "Result[" + t + ", E]"); });
+			if (r_expr.args.size() != 1) {
+				return fail_call(r_expr, "Function \"ok_or()\" takes 1 argument(s), " + std::to_string(r_expr.args.size()) + " given.");
+			}
+			Expr &arg = *r_expr.args[0];
+			Type failure = check_value(arg, wanted);
+			if (!wanted.is_error()) {
+				expect_assignable(arg, failure, wanted, "pass");
+				failure = wanted;
+			}
+			if (failure.kind == TypeKind::None) {
+				return fail(r_expr, "ok_or(None) needs the Result type it makes, from where it goes.");
+			}
+			r_expr.param_types.push_back(failure);
+			return set(r_expr, failure.is_error() ? failure : Type::result(value, failure));
+		}
+		// The others take a function: of the value, or of nothing.
+		const bool of_value = name == "map" || name == "and_then" || name == "filter";
+		const std::map<std::string, std::string> returns = { { "unwrap_or_else", t }, { "map", "U" }, { "and_then", "U?" }, { "or_else", p_base.to_string() }, { "filter", "bool" }, { "ok_or_else", "E" } };
+		const std::map<std::string, std::string> results = { { "unwrap_or_else", t }, { "map", "U?" }, { "and_then", "U?" }, { "or_else", p_base.to_string() }, { "filter", p_base.to_string() }, { "ok_or_else", "Result[" + t + ", E]" } };
+		hint(r_expr, [&](int p_current) { return signature(name, { "f: func(" + (of_value ? t : std::string()) + ") -> " + returns.at(name) }, false, p_current, results.at(name)); });
+		const std::map<std::string, Type> fitting = { { "unwrap_or_else", value }, { "or_else", p_base }, { "filter", Type::of(TypeKind::Bool) } };
+		const auto fits_type = fitting.find(name);
+		// and_then()'s function returns some U?, which its returns say.
+		const Type wanted = fits_type != fitting.end() ? fits_type->second : (name == "and_then" ? Type::option(Type::of(TypeKind::Error)) : Type::of(TypeKind::Error));
+		const std::optional<Type> returned = check_function_argument(r_expr, of_value ? std::vector<Type>{ value } : std::vector<Type>(), wanted);
+		if (!returned || returned->is_error()) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		const bool fits = fits_type != fitting.end() ? assignable(*returned, fits_type->second) : (name == "and_then" ? returned->is_optional() : returned->kind != TypeKind::Void);
+		if (!fits) {
+			error(r_expr.args[0]->range, "The function passed to " + name + "() returns " + returned->to_string() + ", not " + returns.at(name) + ".");
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		if (name == "map") {
+			return set(r_expr, optional_of(*returned));
+		}
+		if (name == "and_then") {
+			return set(r_expr, *returned);
+		}
+		return set(r_expr, name == "ok_or_else" ? Type::result(value, *returned) : (name == "unwrap_or_else" ? value : p_base));
+	}
+
+	// `Some(v)` (spec §3.4): of the T? it goes to, which says what v is, or of
+	// v's type.
+	Type check_some(Expr &r_expr, const Type &p_expected) {
+		const Type inner = p_expected.is_optional() ? p_expected.unwrapped() : Type::of(TypeKind::Error);
+		hint(r_expr, [&](int p_current) { return signature("Some", { "value: " + (inner.is_error() ? std::string("T") : inner.to_string()) }, false, p_current, inner.is_error() ? std::string("T?") : p_expected.to_string()); });
+		if (!r_expr.arg_names.empty() || r_expr.args.size() != 1) {
+			for (auto &arg : r_expr.args) {
+				check_value(*arg);
+			}
+			return fail_call(r_expr, "Some(...) takes one value by position, as in Some(x).");
+		}
+		refer(r_expr.name_token, language_id("Option", "Some"));
+		Expr &arg = *r_expr.args[0];
+		const Type given = check_value(arg, inner);
+		if (given.is_error()) {
+			return set(r_expr, given);
+		}
+		if (!inner.is_error()) {
+			expect_assignable(arg, given, inner, "pass");
+		} else if (given.kind == TypeKind::None || given.kind == TypeKind::Void) {
+			return fail_call(r_expr, std::string("Some(") + (given.kind == TypeKind::None ? "None" : "...") + ") does not say which type it holds; declare the type it goes to.");
+		}
+		const Type value = inner.is_error() ? given : inner;
+		r_expr.target = Target::Some;
+		r_expr.param_types = { value };
+		return set(r_expr, optional_of(value));
+	}
+
+	// `Ok(v)` and `Err(e)` (spec §3.5): of the Result they go to, which says
+	// what v or e is.
+	Type check_result_construction(Expr &r_expr, const Type &p_expected) {
+		const Type result = p_expected.kind == TypeKind::Option ? p_expected.args[0] : p_expected;
+		if (!result.is_result() || !r_expr.arg_names.empty()) {
+			if (!r_expr.arg_names.empty()) {
+				return fail_call(r_expr, r_expr.text + "(...) takes its value by position, as in " + r_expr.text + "(x).");
+			}
+			if (!result.is_error()) {
+				return fail_call(r_expr, r_expr.text + "(...) makes a Result, but a value of type " + result.to_string() + " goes here.");
+			}
+			return fail_call(r_expr, r_expr.text + "(...) takes its type from where it goes, as in `var r: Result[int, String] = " + r_expr.text + "(...)`; nothing here gives one.");
+		}
+		const int variant = r_expr.text == "Ok" ? 0 : 1;
+		refer(r_expr.name_token, language_id("Result", r_expr.text));
+		r_expr.target = Target::VariantConstructor;
+		r_expr.index = variant;
+		// Returned by a lambda going to and_then() or or_else(), whose Result
+		// leaves this side to what the lambda returns (spec §4.6).
+		if (result.args[variant].is_error() && r_expr.args.size() == 1) {
+			const Type given = check_value(*r_expr.args[0]);
+			if (given.kind == TypeKind::None || given.kind == TypeKind::Void) {
+				return fail_call(r_expr, r_expr.text + "(" + (given.kind == TypeKind::None ? "None" : "...") + ") does not say which type it holds; declare the lambda's return type.");
+			}
+			r_expr.param_types.push_back(given);
+			Type made = result;
+			made.args[variant] = given;
+			return given.is_error() ? set(r_expr, given) : set(r_expr, Type::result(made.args[0], made.args[1]));
+		}
+		hint(r_expr, [&](int p_current) { return signature(r_expr.text, { (variant == 0 ? "value: " : "error: ") + result.args[variant].to_string() }, false, p_current, result.to_string()); });
+		check_arguments(r_expr, { result.args[variant] }, 1, false);
+		return set(r_expr, result);
+	}
+
+	// The methods of Result[T, E] (spec §3.5), as Rust's. Those that take a
+	// function call it only on the variant they are for.
+	Type check_result_method(Expr &r_expr, const Type &p_base) {
+		const std::string &name = r_expr.text;
+		const Type &value = p_base.args[0];
+		const Type &failure = p_base.args[1];
+		const std::string t = value.to_string();
+		const std::string e = failure.to_string();
+		if (!result_methods().count(name)) {
+			return fail_call(r_expr, p_base.to_string() + " has no method \"" + name + "()\".");
+		}
+		refer(r_expr.name_token, language_id("Result", name));
+		r_expr.target = Target::ResultMethod;
+		if (name == "unwrap" || name == "expect" || name == "unwrap_or") {
+			const std::vector<Type> params = name == "unwrap" ? std::vector<Type>() : std::vector<Type>{ name == "expect" ? Type::of(TypeKind::String) : value };
+			hint(r_expr, [&](int p_current) { return signature(name, params.empty() ? std::vector<std::string>() : std::vector<std::string>{ name == "expect" ? "message: String" : "default: " + t }, false, p_current, t); });
+			check_arguments(r_expr, params, int(params.size()), false);
+			return set(r_expr, value);
+		}
+		if (name == "ok" || name == "err") {
+			const Type &inner = name == "ok" ? value : failure;
+			hint(r_expr, [&](int p_current) { return signature(name, {}, false, p_current, optional_of(inner).to_string()); });
+			check_arguments(r_expr, {}, 0, false);
+			return set(r_expr, optional_of(inner));
+		}
+		// The function's parameter, and what it returns as the hint shows it.
+		const bool on_error = name == "unwrap_or_else" || name == "map_err" || name == "or_else";
+		const std::map<std::string, std::string> returns = { { "unwrap_or_else", t }, { "map", "U" }, { "map_err", "F" }, { "and_then", "Result[U, " + e + "]" }, { "or_else", "Result[" + t + ", F]" } };
+		const std::map<std::string, std::string> results = { { "unwrap_or_else", t }, { "map", "Result[U, " + e + "]" }, { "map_err", "Result[" + t + ", F]" }, { "and_then", "Result[U, " + e + "]" }, { "or_else", "Result[" + t + ", F]" } };
+		hint(r_expr, [&](int p_current) { return signature(name, { "f: func(" + (on_error ? e : t) + ") -> " + returns.at(name) }, false, p_current, results.at(name)); });
+		// and_then()'s function returns some Result[U, E], or_else()'s some
+		// Result[T, F], which its returns say.
+		const std::map<std::string, Type> wanted = { { "unwrap_or_else", value }, { "and_then", Type::result(Type::of(TypeKind::Error), failure) }, { "or_else", Type::result(value, Type::of(TypeKind::Error)) } };
+		const auto known = wanted.find(name);
+		const std::optional<Type> returned = check_function_argument(r_expr, { on_error ? failure : value }, known != wanted.end() ? known->second : Type::of(TypeKind::Error));
+		if (!returned || returned->is_error()) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		// and_then keeps the error type, or_else the value type.
+		const size_t kept = name == "and_then" ? 1 : 0;
+		const bool fits = name == "unwrap_or_else" ? assignable(*returned, value) : (name == "map" || name == "map_err" ? returned->kind != TypeKind::Void : returned->is_result() && returned->args[kept] == p_base.args[kept]);
+		if (!fits) {
+			error(r_expr.args[0]->range, "The function passed to " + name + "() returns " + returned->to_string() + ", not " + returns.at(name) + ".");
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		if (name == "unwrap_or_else") {
+			return set(r_expr, value);
+		}
+		if (name == "map" || name == "map_err") {
+			return set(r_expr, name == "map" ? Type::result(*returned, failure) : Type::result(value, *returned));
+		}
+		return set(r_expr, *returned);
+	}
+
+	// The one argument of map() and the like: a function whose parameters take
+	// `p_params`, none or one, which a lambda's parameters then have unless
+	// written, as its returned values take `p_returns` when known; what it
+	// returns, or nullopt after reporting.
+	std::optional<Type> check_function_argument(Expr &r_call, const std::vector<Type> &p_params, const Type &p_returns = Type::of(TypeKind::Error)) {
+		if (r_call.args.size() != 1) {
+			for (auto &arg : r_call.args) {
+				check_value(*arg);
+			}
+			error(r_call.range, "Function \"" + r_call.text + "()\" takes 1 argument(s), " + std::to_string(r_call.args.size()) + " given.");
+			return std::nullopt;
+		}
+		Expr &arg = *r_call.args[0];
+		const Type function = check_value(arg, Type::function(p_returns, p_params));
+		if (function.is_error()) {
+			return std::nullopt;
+		}
+		if (function.kind != TypeKind::Function || function.is_async || function.args.size() != p_params.size() + 1 || (!p_params.empty() && !assignable(p_params[0], function.args[1]))) {
+			const std::string wanted = p_params.empty() ? "without parameters" : "of one parameter, which takes " + p_params[0].to_string();
+			error(arg.range, "\"" + r_call.text + "()\" takes a function " + wanted + "; found " + function.to_string() + ".");
+			return std::nullopt;
+		}
+		r_call.param_types.push_back(function);
+		return function.args[0];
+	}
+
+	/* Conditional expressions, subscripts, literals, casts and super */
+
+	// The type both branches fit: one of them, or for objects the nearest
+	// class both extend; Error if there is none.
+	Type common_type(const Type &p_a, const Type &p_b) const {
+		if (assignable(p_a, p_b)) {
+			return p_b;
+		}
+		if (assignable(p_b, p_a)) {
+			return p_a;
+		}
+		if (p_a.kind == TypeKind::Object && p_b.kind == TypeKind::Object && p_a.args.empty() && p_b.args.empty() && !p_a.is_interface && !p_b.is_interface) {
+			for (std::string path = p_a.script; is_script_path(path);) {
+				const ClassDecl *header = script_header(path);
+				if (!header) {
+					break;
+				}
+				if (extends_script(p_b.script, path)) {
+					Type result = script_class_type(*header, path);
+					result.nullable = p_a.nullable || p_b.nullable;
+					return result;
+				}
+				path = classes.base_path(*header, path);
+			}
+			for (std::string cls = p_a.engine_class(); !cls.empty(); cls = engine.parent_class(cls)) {
+				if (engine.inherits(p_b.engine_class(), cls)) {
+					return Type::object(cls, p_a.nullable || p_b.nullable);
+				}
+			}
+		}
+		return Type::of(TypeKind::Error);
+	}
+
+	// `a if c else b` (spec §5.5).
+	Type check_conditional(Expr &r_expr, const Type &p_expected) {
+		expect_condition(*r_expr.base);
+		const Facts facts = facts_of(*r_expr.base);
+		narrowed.push_back(facts.when_true);
+		Type a = check_value(*r_expr.left, p_expected);
+		narrowed.back() = facts.when_false;
+		Type b = check_value(*r_expr.right, p_expected);
+		narrowed.pop_back();
+		if (a.is_error() || b.is_error()) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		// As Ok(x) if c else Err(e), returned by a lambda going to and_then().
+		if (a.is_result() && partial(a) && !partial(b)) {
+			a = set(*r_expr.left, completed(a, b));
+		} else if (b.is_result() && partial(b) && !partial(a)) {
+			b = set(*r_expr.right, completed(b, a));
+		}
+		if (!p_expected.is_error() && !partial(p_expected) && assignable(a, p_expected) && assignable(b, p_expected)) {
+			expect_implemented(*r_expr.left, a, p_expected);
+			expect_implemented(*r_expr.right, b, p_expected);
+			return set(r_expr, p_expected);
+		}
+		Type result = common_type(a, b);
+		if (result.is_error() && (a.kind == TypeKind::None) != (b.kind == TypeKind::None)) {
+			result = optional_of(a.kind == TypeKind::None ? b : a);
+		}
+		if (result.is_error()) {
+			return fail(r_expr, "The branches have types " + a.to_string() + " and " + b.to_string() + ", which have no common type; declare the type.");
+		}
+		return set(r_expr, result);
+	}
+
+	// `a[i]`, or `d[k]` (spec §3.8); `p_written` when it is only assigned to.
+	Type check_subscript(Expr &r_expr) {
+		const Type base = check_value(*r_expr.base);
+		const std::optional<std::pair<Type, Type>> entries = base.is_error() ? std::nullopt : entries_of(base);
+		const Type index = check_value(*r_expr.right, entries ? entries->first : Type::of(TypeKind::Error));
+		if (base.is_error() || index.is_error()) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		if (base.is_optional()) {
+			return fail(r_expr, "The value may be None (" + base.to_string() + "); check it before indexing it.");
+		}
+		if (base.kind == TypeKind::Variant) {
+			return fail(r_expr, "Cannot index a Variant." + variant_hint());
+		}
+		if (entries) {
+			if (!assignable(index, entries->first)) {
+				return fail(*r_expr.right, "The keys of " + base.to_string() + " are " + entries->first.to_string() + ", not " + index.to_string() + ".");
+			}
+			r_expr.param_types = { entries->first };
+			return set(r_expr, entries->second);
+		}
+		// A String's elements are its characters, each a String.
+		const std::optional<Type> element = base.kind == TypeKind::String ? Type::of(TypeKind::String) : element_of(base);
+		if (!element) {
+			return fail(r_expr, "Values of type " + base.to_string() + " cannot be indexed.");
+		}
+		if (index.kind != TypeKind::Int) {
+			return fail(*r_expr.right, "An index must be int, found " + index.to_string() + ".");
+		}
+		return set(r_expr, *element);
+	}
+
+	// `[a, b]` takes its type from where it goes (spec §4.3).
+	Type check_array_literal(Expr &r_expr, const Type &p_expected) {
+		// Into a Variant, as in an untyped Array, it is an untyped Array.
+		const Type wanted = p_expected.kind == TypeKind::Option ? p_expected.args[0] : p_expected;
+		const Type expected = wanted.kind == TypeKind::Variant ? Type::builtin("Array") : wanted;
+		if (expected.kind != TypeKind::Builtin || expected.name != "Array") {
+			if (r_expr.args.empty()) {
+				return fail(r_expr, "An empty array needs a declared type, for example var a: Array[int] = [].");
+			}
+			// Otherwise its elements' common type gives it (spec §4.3).
+			const std::optional<Type> element = common_element(r_expr.args, 0, 1, "elements");
+			if (!element) {
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
+			r_expr.param_types.assign(r_expr.args.size(), *element);
+			return set(r_expr, Type::array(*element));
+		}
+		const Type element = expected.args.empty() ? Type::of(TypeKind::Variant) : expected.args[0];
+		for (auto &arg : r_expr.args) {
+			const Type type = check_value(*arg, element);
+			r_expr.param_types.push_back(element);
+			if (!assignable(type, element)) {
+				error(arg->range, "Cannot put a value of type " + type.to_string() + " in " + expected.to_string() + ".");
+			} else {
+				expect_implemented(*arg, type, element);
+				expect_scene_fits(*arg, element);
+			}
+		}
+		return set(r_expr, expected);
+	}
+
+	// The common type of the values at `p_first`, `p_first + p_step`… of a
+	// literal, which have no type to go to; nullopt after reporting.
+	std::optional<Type> common_element(std::vector<std::unique_ptr<Expr>> &r_values, size_t p_first, size_t p_step, const std::string &p_what) {
+		std::optional<Type> common;
+		bool ok = true;
+		for (size_t i = p_first; i < r_values.size(); i += p_step) {
+			const Type type = check_value(*r_values[i]);
+			if (type.is_error() || !ok) {
+				ok = false;
+				continue;
+			}
+			if (type.kind == TypeKind::None) {
+				error(r_values[i]->range, "None does not say which T? the " + p_what + " are; declare the type.");
+				ok = false;
+				continue;
+			}
+			const Type next = common ? common_type(*common, type) : type;
+			if (next.is_error()) {
+				error(r_values[i]->range, "The " + p_what + " have types " + common->to_string() + " and " + type.to_string() + ", which have no common type; declare the type.");
+				ok = false;
+				continue;
+			}
+			common = next;
+		}
+		if (!ok) {
+			return std::nullopt;
+		}
+		for (size_t i = p_first; i < r_values.size(); i += p_step) {
+			expect_scene_fits(*r_values[i], *common);
+		}
+		return common;
+	}
+
+	// `{k: v}` takes its type from where it goes, as `[a, b]` does, or from
+	// its keys and values. A key written as a name is a StringName, as in
+	// GDScript (modules/gdscript/gdscript_parser.cpp:3330-3336).
+	Type check_dictionary_literal(Expr &r_expr, const Type &p_expected) {
+		const Type wanted = p_expected.kind == TypeKind::Option ? p_expected.args[0] : p_expected;
+		const Type expected = wanted.kind == TypeKind::Variant ? Type::builtin("Dictionary") : wanted;
+		const std::optional<std::pair<Type, Type>> entries = entries_of(expected);
+		if (!entries && r_expr.args.empty()) {
+			return fail_call(r_expr, "An empty dictionary needs a declared type, for example var d: Dictionary[String, int] = {}.");
+		}
+		if (!entries) {
+			const std::optional<Type> key = r_expr.bool_value ? std::optional<Type>(Type::builtin("StringName")) : common_element(r_expr.args, 0, 2, "keys");
+			if (r_expr.bool_value) {
+				for (size_t i = 0; i < r_expr.args.size(); i += 2) {
+					check_value(*r_expr.args[i], *key);
+				}
+			}
+			const std::optional<Type> value = common_element(r_expr.args, 1, 2, "values");
+			if (!key || !value) {
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
+			for (size_t i = 0; i + 1 < r_expr.args.size(); i += 2) {
+				r_expr.param_types.push_back(*key);
+				r_expr.param_types.push_back(*value);
+			}
+			return set(r_expr, Type::dictionary(*key, *value));
+		}
+		const Type name_key = entries->first.kind == TypeKind::Variant ? Type::builtin("StringName") : entries->first;
+		for (size_t i = 0; i + 1 < r_expr.args.size(); i += 2) {
+			const Type &want_key = r_expr.bool_value ? name_key : entries->first;
+			const Type key = check_value(*r_expr.args[i], want_key);
+			const Type value = check_value(*r_expr.args[i + 1], entries->second);
+			r_expr.param_types.push_back(want_key);
+			r_expr.param_types.push_back(entries->second);
+			if (!assignable(key, want_key)) {
+				error(r_expr.args[i]->range, "The keys of " + expected.to_string() + " are " + entries->first.to_string() + ", not " + key.to_string() + ".");
+			} else {
+				expect_implemented(*r_expr.args[i], key, want_key);
+				expect_scene_fits(*r_expr.args[i], want_key);
+			}
+			if (!assignable(value, entries->second)) {
+				error(r_expr.args[i + 1]->range, "Cannot put a value of type " + value.to_string() + " in " + expected.to_string() + ".");
+			} else {
+				expect_implemented(*r_expr.args[i + 1], value, entries->second);
+				expect_scene_fits(*r_expr.args[i + 1], entries->second);
+			}
+		}
+		return set(r_expr, expected);
+	}
+
+	// `x as T` (spec §5.3).
+	Type check_cast(Expr &r_expr) {
+		const Type from = check_value(*r_expr.left);
+		const Type to = resolve(r_expr.cast_type, false);
+		if (from.is_error() || to.is_error()) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		if (to.kind != TypeKind::Object) {
+			const std::string name = to.unwrapped().to_string();
+			return fail(r_expr, "as only converts objects; convert to " + name + " with " + name + "(x) or " + name + ".try_from(x).");
+		}
+		if (from.kind == TypeKind::Variant) {
+			// None also when it holds no object (spec §5.3).
+			r_expr.tested = to;
+			Type result = to;
+			result.nullable = true;
+			return set(r_expr, result);
+		}
+		if (from.kind != TypeKind::Object) {
+			return fail(r_expr, "as only converts objects, not " + from.to_string() + ".");
+		}
+		if (!related(from, to)) {
+			return fail(r_expr, from.name + " and " + to.name + " are unrelated classes; as would always give None.");
+		}
+		r_expr.tested = to;
+		// Already a T: nothing to convert.
+		Type result = to;
+		result.nullable = from.nullable || !is_a(from, to);
+		return set(r_expr, result);
+	}
+
+	Type check_super(Expr &r_expr) {
+		if (!function) {
+			return fail_call(r_expr, "super is only valid inside a function.");
+		}
+		if (!r_expr.base) {
+			// `super()` names no function.
+			r_expr.text = function->name;
+			r_expr.name_token = NO_TOKEN;
+		}
+		const FuncDecl *callee = base_function(r_expr.text);
+		if (callee && callee->is_abstract) {
+			return fail_call(r_expr, "\"" + callee->name + "()\" is abstract in the base class, which has no body to call.");
+		}
+		if (callee) {
+			const ClassDecl &owner = declaring(*cls.base, *callee, &ClassDecl::functions);
+			refer(r_expr.name_token, script_id(owner.path, callee->name));
+			if (!callee->is_static && refuse_in_static(r_expr, "super." + r_expr.text)) {
+				return fail_call(r_expr);
+			}
+			const Type result = call_declared(r_expr, *callee, *owner.source, callee->return_type);
+			r_expr.target = Target::SuperMethod;
+			return result;
+		}
+		if (r_expr.text == "_init") {
+			if (refuse_in_static(r_expr, "super._init")) {
+				return fail_call(r_expr);
+			}
+			check_arguments(r_expr, {}, 0, false);
+			r_expr.target = Target::Noop;
+			refer(r_expr.name_token, engine_id("Object", "_init"));
+			return set(r_expr, Type::of(TypeKind::Void));
+		}
+		const auto method = engine.find_method(cls.native_base, r_expr.text);
+		if (!method || method->is_virtual) {
+			return fail_call(r_expr, "No base implementation of \"" + r_expr.text + "()\".");
+		}
+		if (!method->is_static && refuse_in_static(r_expr, r_expr.text)) {
+			return fail_call(r_expr);
+		}
+		r_expr.base.reset();
+		return check_engine_call(r_expr, *method);
+	}
+
+	/* await, tasks and ? (spec §8.2, §9) */
+
+	// Why await cannot be written here; empty where it can.
+	std::string no_await() const {
+		if (in_assert) {
+			return "await cannot appear in an assert: it would vanish with the assertion in release builds.";
+		}
+		if (in_predelete) {
+			return "await is not allowed in the PREDELETE branch.";
+		}
+		if (!function || !function->is_async || initializing >= 0) {
+			return "await requires an async function and cannot appear in an initializer.";
+		}
+		return std::string();
+	}
+
+	// `Task.of(signal)`, `Task.delay(seconds)`, `Task.any([...])` and
+	// `Task.all([...])` (spec §9.5): tasks the runtime makes, which an await
+	// owns when it starts them, as a call. A signal gives what an await of it
+	// gives as a value (§9.6).
+	Type check_task_function(Expr &r_expr) {
+		refer(r_expr.base->name_token, language_id("Task", std::string()));
+		const std::string &name = r_expr.text;
+		if (name != "of" && name != "delay" && name != "any" && name != "all") {
+			return fail_call(r_expr, "Task has no function \"" + name + "()\".");
+		}
+		refer(r_expr.name_token, language_id("Task", name));
+		r_expr.is_async = true;
+		if (name == "any" || name == "all") {
+			return check_task_join(r_expr);
+		}
+		if (name == "delay") {
+			check_arguments(r_expr, { Type::of(TypeKind::Float) }, 1, false);
+			r_expr.target = Target::TaskDelay;
+			return set(r_expr, Type::task(Type::of(TypeKind::Void)));
+		}
+		if (r_expr.args.size() != 1) {
+			return fail_call(r_expr, "Task.of() takes one signal.");
+		}
+		const Type signal = check_value(*r_expr.args[0]);
+		std::optional<Type> result;
+		if (signal.kind == TypeKind::Signal) {
+			result = signal.args.size() == 1 ? signal.args[0] : Type::of(TypeKind::Void);
+		} else if (signal.builtin_name() == "Signal") {
+			result = Type::of(TypeKind::Variant);
+		} else if (!signal.is_error()) {
+			error(r_expr.args[0]->range, "Task.of() takes a signal, not " + signal.to_string() + ".");
+		}
+		if (!result) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		r_expr.param_types.push_back(signal);
+		r_expr.target = Target::TaskOf;
+		return set(r_expr, Type::task(*result));
+	}
+
+	// The tasks of Task.any() or Task.all(), listed in brackets, where a task
+	// started is the join's own, or in an Array[Task[T]] (spec §9.5). any gives
+	// the index of the first to finish; all gives nothing, as tuples could give
+	// the results (BACKLOG).
+	Type check_task_join(Expr &r_expr) {
+		const bool any = r_expr.text == "any";
+		if (r_expr.args.size() != 1) {
+			return fail_call(r_expr, "Task." + r_expr.text + "() takes one list of tasks, as Task." + r_expr.text + "([a, f()]).");
+		}
+		Expr &list = *r_expr.args[0];
+		if (list.kind == ExprKind::ArrayLiteral) {
+			if (any && list.args.empty()) {
+				error(list.range, "Task.any() needs a task to wait for.");
+			}
+			for (auto &member : list.args) {
+				const Type type = check_value(*member);
+				if (!type.is_error() && (type.kind != TypeKind::Task || type.nullable)) {
+					error(member->range, "Task." + r_expr.text + "() takes tasks, not " + type.to_string() + ".");
+				}
+			}
+			set(list, Type::builtin("Array"));
+		} else {
+			const Type tasks = check_value(list);
+			if (!tasks.is_error() && (!is_typed_container(tasks) || tasks.name != "Array" || tasks.args[0].kind != TypeKind::Task || tasks.args[0].nullable)) {
+				error(list.range, "Task." + r_expr.text + "() takes tasks in brackets or an Array[Task[T]], not " + tasks.to_string() + ".");
+			}
+		}
+		r_expr.target = any ? Target::TaskAny : Target::TaskAll;
+		return set(r_expr, Type::task(Type::of(any ? TypeKind::Int : TypeKind::Void)));
+	}
+
+	Type check_await(Expr &r_expr) {
+		const std::string refused = no_await();
+		if (!refused.empty()) {
+			return fail(r_expr, refused);
+		}
+		Expr &operand = *r_expr.left;
+		operand.awaited = true;
+		const Type type = check_expr(operand);
+		if (type.is_error()) {
+			return set(r_expr, type);
+		}
+		if (type.kind == TypeKind::Task) {
+			if (type.nullable) {
+				return fail(r_expr, "Unwrap the optional Task before awaiting it.");
+			}
+			return set(r_expr, type.args[0]);
+		}
+		if (type.kind == TypeKind::Signal) {
+			return set(r_expr, type.args.size() == 1 ? type.args[0] : Type::of(TypeKind::Void));
+		}
+		if (type.builtin_name() == "Signal") {
+			return set(r_expr, Type::of(TypeKind::Variant));
+		}
+		if (operand.kind == ExprKind::Call && (operand.is_foreign || (operand.base && operand.base->type == Type::builtin("Callable") && (operand.text == "call" || operand.text == "callv")))) {
+			return set(r_expr, type);
+		}
+		return fail(r_expr, "await expects a Task, a signal or a call to GDScript.");
+	}
+
+	// Whether a type a lambda returns leaves out what its T? or Result holds,
+	// as None does, or Ok(v) going to and_then() (spec §4.6).
+	static bool partial(const Type &p_type) {
+		return p_type.kind == TypeKind::None || (p_type.kind == TypeKind::Option && p_type.args[0].is_error()) || (p_type.is_result() && (p_type.args[0].is_error() || p_type.args[1].is_error()));
+	}
+
+	// A partial type that a lambda returns, completed by another it returns.
+	static Type completed(const Type &p_partial, const Type &p_other) {
+		if (p_partial.is_result()) {
+			return p_other.is_result() ? Type::result(p_partial.args[0].is_error() ? p_other.args[0] : p_partial.args[0], p_partial.args[1].is_error() ? p_other.args[1] : p_partial.args[1]) : p_partial;
+		}
+		if (p_other.kind == TypeKind::None || (p_other.kind == TypeKind::Option && p_other.args[0].is_error())) {
+			return p_partial;
+		}
+		return p_other.is_optional() ? p_other : optional_of(p_other);
+	}
+
+	// A type that a lambda without a return type returns, whose return type is
+	// the type all of them fit (spec §4.6).
+	void add_returned(Type p_value, const TokenRange &p_at) {
+		if (!returns->type || p_value.is_error() || returns->type->is_error()) {
+			returns->type = returns->type ? Type::of(TypeKind::Error) : p_value;
+			return;
+		}
+		Type known = *returns->type;
+		if (partial(known)) {
+			known = completed(known, p_value);
+		}
+		if (partial(p_value)) {
+			p_value = completed(p_value, known);
+		}
+		const Type common = common_type(known, p_value);
+		if (common.is_error()) {
+			error(p_at, function_label() + " returns " + returned_text(*returns->type) + " and " + returned_text(p_value) + "; declare its return type.");
+		}
+		returns->type = common;
+	}
+
+	// A type a lambda returns, as a diagnostic shows it, even if partial.
+	static std::string returned_text(const Type &p_type) {
+		if (p_type.kind == TypeKind::None || p_type.kind == TypeKind::Option) {
+			return p_type.kind == TypeKind::None || p_type.args[0].is_error() ? std::string("None") : p_type.to_string();
+		}
+		return p_type.is_result() && partial(p_type) ? (p_type.args[0].is_error() ? "Err(" + p_type.args[1].to_string() + ")" : "Ok(" + p_type.args[0].to_string() + ")") : p_type.to_string();
+	}
+
+	// `x?` (spec §8.2): the value inside x, or the function returns the Err or
+	// the None x holds. So it returns a Result with the same error type, or a
+	// T?; between the two, ok() and ok_or() convert.
+	Type check_try(Expr &r_expr) {
+		const Type type = check_value(*r_expr.left);
+		if (type.is_error()) {
+			return set(r_expr, type);
+		}
+		const bool result = type.is_result();
+		if (!result && !type.is_optional()) {
+			return fail(r_expr, "? takes apart a Result or a T?, not " + type.to_string() + ".");
+		}
+		const std::string found = result ? "the Err(...) of " + type.to_string() : "the None of " + type.to_string();
+		if (in_assert) {
+			return fail(r_expr, "? cannot appear in an assert: it would vanish with the assertion in release builds.");
+		}
+		if (!function || initializing >= 0 || static_initializing >= 0) {
+			return fail(r_expr, "? returns " + found + " from the function, and cannot appear in an initializer.");
+		}
+		if (returns && returns->expected.is_error()) {
+			return fail(r_expr, "? returns " + found + " from the lambda, whose return type is then needed; write it, as in `func(x) -> " + (result ? "Result[int, " + type.args[1].to_string() + "]" : std::string("int?")) + ":`.");
+		}
+		// A lambda returns what the function type it goes to does.
+		const Type to = returns ? returns->expected : function->return_type;
+		if (to.is_error()) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		if (result && to.is_result() && to.args[1] != type.args[1]) {
+			return fail(r_expr, "? returns " + found + ", but " + function_label() + " returns " + to.to_string() + "; convert the error with map_err().");
+		}
+		if (result ? !to.is_result() : !to.is_optional()) {
+			const std::string convert = to.is_optional() ? "; convert it with ok()" : (to.is_result() ? "; convert it with ok_or()" : "");
+			return fail(r_expr, "? returns " + found + ", but " + function_label() + " returns " + to.to_string() + convert + ".");
+		}
+		if (returns) {
+			add_returned(to, r_expr.range);
+		}
+		return set(r_expr, result ? type.args[0] : type.unwrapped());
+	}
+
+	/* Values, places and assignability (spec §3.14) */
+
+	// Types an expression and computes its value when it is a constant
+	// expression (spec §4.5).
+	Type check_expr(Expr &r_expr, const Type &p_expected = Type::of(TypeKind::Error)) {
+		const Type type = type_expr(r_expr, p_expected);
+		if (type.is_error()) {
+			return type;
+		}
+		if (!r_expr.constant) {
+			r_expr.constant = fold(r_expr);
+		}
+		return type;
+	}
+
+	void report_constant_error(const Expr &p_expr) {
+		if (p_expr.constant_error_at) {
+			error(p_expr.constant_error_at->range, p_expr.constant_error);
+		} else if (p_expr.kind == ExprKind::Binary && p_expr.op_token != NO_TOKEN) {
+			error(p_expr.op_token, p_expr.constant_error);
+		} else {
+			error(p_expr.range, p_expr.constant_error);
+		}
+	}
+
+	// The part of an expression that keeps it from being a constant expression.
+	static const Expr &not_constant_part(const Expr &p_expr) {
+		for (const Expr *child : { p_expr.base.get(), p_expr.left.get(), p_expr.right.get() }) {
+			if (child && !child->constant && !child->type.is_error()) {
+				return not_constant_part(*child);
+			}
+		}
+		for (const auto &arg : p_expr.args) {
+			if (!arg->constant && !arg->type.is_error()) {
+				return not_constant_part(*arg);
+			}
+		}
+		return p_expr;
+	}
+
+	// Reports why an expression whose value must be a constant is not one.
+	void require_constant(const Expr &p_expr) {
+		const Expr &part = not_constant_part(p_expr);
+		if (!part.constant_error.empty()) {
+			report_constant_error(part);
+			return;
+		}
+		std::string what = "This is not a constant expression";
+		switch (part.kind) {
+			case ExprKind::Call:
+				what = "\"" + part.text + "()\" is not a constant expression: of calls, only constructors of built-in types and math functions are";
+				break;
+			case ExprKind::Name:
+			case ExprKind::Member:
+				if (part.target == Target::Local || part.target == Target::Member || part.target == Target::StaticVar || part.target == Target::SelfProperty || part.target == Target::ObjectProperty) {
+					what = "\"" + part.text + "\" is a variable, not a constant";
+				}
+				break;
+			case ExprKind::Self:
+				what = "self is not a constant expression";
+				break;
+			case ExprKind::Cast:
+			case ExprKind::TypeTest:
+				what = "as and is are not supported in constant expressions";
+				break;
+			default:
+				break;
+		}
+		error(part.range, what + ".");
+	}
+
+	// The string type a string literal is built as: the one it goes to, when
+	// it converts to that (spec §10.7), otherwise its own.
+	Type literal_type(const Expr &p_literal, const Type &p_to) const {
+		const Type own = p_literal.op == TokenKind::StringName ? Type::builtin("StringName") : (p_literal.op == TokenKind::NodePath ? Type::builtin("NodePath") : Type::of(TypeKind::String));
+		const Type to = p_to.kind == TypeKind::Option ? p_to.args[0] : p_to;
+		const bool text = to.kind == TypeKind::String || to.builtin_name() == "StringName" || to.builtin_name() == "NodePath";
+		return text && assignable(own, to) ? to : own;
+	}
+
+	// `p_expected` is the type the value goes to, if known; literals of arrays,
+	// dictionaries, strings and None take their type from it.
+	Type type_expr(Expr &r_expr, const Type &p_expected) {
+		if (completion && (r_expr.kind == ExprKind::Name || r_expr.kind == ExprKind::Member || r_expr.kind == ExprKind::Call || r_expr.kind == ExprKind::GetNode) && at_cursor(r_expr.text)) {
+			r_expr.kind == ExprKind::GetNode ? complete_node_path(r_expr) : complete(r_expr, p_expected);
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		switch (r_expr.kind) {
+			case ExprKind::IntLiteral:
+				if (r_expr.int_overflows) {
+					return fail(r_expr, "Integer literal is too large for int.");
+				}
+				return set(r_expr, Type::of(TypeKind::Int));
+			case ExprKind::FloatLiteral:
+				return set(r_expr, Type::of(TypeKind::Float));
+			case ExprKind::StringLiteral:
+				return set(r_expr, literal_type(r_expr, p_expected));
+			case ExprKind::BoolLiteral:
+				return set(r_expr, Type::of(TypeKind::Bool));
+			case ExprKind::Name:
+				return check_name(r_expr);
+			case ExprKind::Await:
+				return check_await(r_expr);
+			case ExprKind::Self:
+				return check_self(r_expr);
+			case ExprKind::Unary:
+				return check_unary(r_expr);
+			case ExprKind::Binary:
+				return check_binary(r_expr);
+			case ExprKind::Call:
+				return check_call(r_expr, p_expected);
+			case ExprKind::Member:
+				return check_member_access(r_expr);
+			case ExprKind::GetNode:
+				return check_get_node(r_expr);
+			case ExprKind::Cast:
+				return check_cast(r_expr);
+			case ExprKind::ArrayLiteral:
+				return check_array_literal(r_expr, p_expected);
+			case ExprKind::DictionaryLiteral:
+				return check_dictionary_literal(r_expr, p_expected);
+			case ExprKind::Subscript:
+				return check_subscript(r_expr);
+			case ExprKind::Conditional:
+				return check_conditional(r_expr, p_expected);
+			case ExprKind::NoneLiteral:
+				// The T? it goes to, where that is known.
+				if ((p_expected.is_optional() && !partial(p_expected)) || p_expected.kind == TypeKind::Variant) {
+					return set(r_expr, p_expected);
+				}
+				return set(r_expr, Type::of(TypeKind::None));
+			case ExprKind::TypeTest:
+				return check_type_test(r_expr);
+			case ExprKind::Lambda:
+				return check_lambda(r_expr, p_expected);
+			case ExprKind::Try:
+				return check_try(r_expr);
+			case ExprKind::Error:
+				break;
+		}
+		return set(r_expr, Type::of(TypeKind::Error));
+	}
+
+	// Checks an expression whose value is stored, passed or returned.
+	Type check_value(Expr &r_expr, const Type &p_expected = Type::of(TypeKind::Error)) {
+		const Type type = check_expr(r_expr, p_expected);
+		if (type.kind == TypeKind::Void) {
+			error(r_expr.range, "This call returns void and has no value.");
+			return Type::of(TypeKind::Error);
+		}
+		if (type.kind == TypeKind::Unsupported) {
+			error(r_expr.range, "Values of type " + type.to_string() + " are not supported yet.");
+			return Type::of(TypeKind::Error);
+		}
+		return type;
+	}
+
+	// What a Variant needs before it is used as a value of a type (spec §3.14).
+	static std::string variant_hint(const Type &p_to = Type::of(TypeKind::Error)) {
+		if (p_to.kind == TypeKind::Object) {
+			return " Convert it first with v as " + p_to.name + ", or narrow it with `if v is " + p_to.name + ":`.";
+		}
+		if (is_typed_container(p_to)) {
+			return " Narrow it first with `if v is " + p_to.to_string() + ":`.";
+		}
+		const std::string name = p_to.kind == TypeKind::Builtin || p_to.is_primitive() ? p_to.to_string() : "T";
+		return " Convert it first with " + name + "(v), or narrow it with `if v is " + name + ":`.";
+	}
+
+	// Whether the expression is a place that can be written: a local, a
+	// member, a property, or a member of a built-in value in such a place,
+	// which is then written back (architecture §2.1).
+	bool check_place(const Expr &p_target) {
+		const std::string constant = constant_root(p_target);
+		if (!constant.empty()) {
+			const bool whole = p_target.kind != ExprKind::Subscript && p_target.target != Target::Field && p_target.target != Target::StructField;
+			error(p_target.range, whole ? "Cannot assign to the constant \"" + constant + "\"." : "\"" + constant + "\" is a constant, whose containers are read-only.");
+			return false;
+		}
+		if (p_target.kind == ExprKind::Subscript) {
+			if (p_target.base->type.kind == TypeKind::String) {
+				error(p_target.range, "A String's characters cannot be assigned. Remove one with s = s.erase(i), or replace it with s = s.erase(i).insert(i, c).");
+				return false;
+			}
+			// An Array or a Dictionary changes in place; a packed array is a value,
+			// written back along the chain.
+			return is_shared(p_target.base->type) || check_written_back(p_target);
+		}
+		switch (p_target.target) {
+			case Target::Local:
+				if (p_target.kind == ExprKind::Self) {
+					error(p_target.range, "self is read-only in a struct's methods; return a changed copy instead.");
+					return false;
+				}
+				if (is_capture(p_target.index)) {
+					// It would change neither the variable outside nor the next call (spec §3.11).
+					error(p_target.range, "Cannot assign to \"" + p_target.text + "\", which the lambda captures as a copy; keep what it shares in a member or a container.");
+					return false;
+				}
+				return true;
+			case Target::Member:
+			case Target::StaticVar:
+			case Target::Owner:
+				return true;
+			case Target::SelfProperty:
+			case Target::ObjectProperty: {
+				if (p_target.is_static) {
+					error(p_target.range, "Cannot assign to the constant \"" + p_target.text + "\".");
+					return false;
+				}
+				const std::string &owner = p_target.target == Target::SelfProperty ? cls.native_base : p_target.owner;
+				const auto property = engine.find_property(owner, p_target.text);
+				if (property && !property->writable) {
+					error(p_target.range, "The property \"" + p_target.text + "\" is read-only.");
+					return false;
+				}
+				const InterfaceProperty *required = p_target.base && p_target.base->type.is_interface ? interface_property(p_target.base->type, p_target.text) : nullptr;
+				if (required && required->is_readonly) {
+					error(p_target.range, "The property \"" + p_target.text + "\" of " + p_target.base->type.to_string() + " is @readonly.");
+					return false;
+				}
+				return true;
+			}
+			case Target::Field:
+			case Target::StructField:
+				return check_written_back(p_target);
+			default:
+				if (!p_target.type.is_error()) {
+					error(p_target.range, "Cannot assign to this expression.");
+				}
+				return false;
+		}
+	}
+
+	// The constant an expression is or is a part of, as `C`, `C[i]` and `C.x`
+	// are; empty for anything else.
+	std::string constant_root(const Expr &p_expr) const {
+		const bool name = p_expr.kind == ExprKind::Name || p_expr.kind == ExprKind::Member;
+		if (name && (p_expr.target == Target::Constant || (p_expr.target == Target::Local && function && function->locals[p_expr.index].constant))) {
+			return p_expr.text;
+		}
+		const bool part = p_expr.kind == ExprKind::Subscript || (p_expr.kind == ExprKind::Member && (p_expr.target == Target::Field || p_expr.target == Target::StructField));
+		return part && p_expr.base ? constant_root(*p_expr.base) : std::string();
+	}
+
+	// A part of a value, changed in a copy written back along the chain (spec §3.6).
+	bool check_written_back(const Expr &p_target) {
+		const ExprKind base = p_target.base->kind;
+		if (base == ExprKind::Name || base == ExprKind::Member || base == ExprKind::Subscript || base == ExprKind::Self) {
+			return check_place(*p_target.base);
+		}
+		error(p_target.range, p_target.kind == ExprKind::Subscript ? "Cannot assign to an element of a temporary value." : "Cannot assign to a member of a temporary value.");
+		return false;
+	}
+
+	// A scene statically known going to a PackedScene[T] that is not, whose
+	// instantiate(...) asks only for the members of T that must be assigned
+	// and are not exported (spec §7.4). The scene may leave no other member
+	// to it. A conditional not folded converts each branch.
+	void expect_scene_fits(const Expr &p_value, const Type &p_to) {
+		if (!is_typed_scene(p_to)) {
+			return;
+		}
+		if (p_value.kind == ExprKind::Conditional && !p_value.constant) {
+			expect_scene_fits(*p_value.left, p_to);
+			expect_scene_fits(*p_value.right, p_to);
+			return;
+		}
+		const std::optional<Scene> scene = known_scene(p_value);
+		const std::string unfit = scene ? unfit_scene(*scene, p_to) : std::string();
+		if (!unfit.empty()) {
+			error(p_value.range, scene->path + " " + unfit);
+		}
+	}
+
+	static bool is_typed_scene(const Type &p_type) {
+		return p_type.kind == TypeKind::Object && p_type.name == "PackedScene" && !p_type.args.empty();
+	}
+
+	// What a scene leaves to instantiate(...) that a PackedScene[T] does not
+	// ask for, as the error says it after the scene; "" for nothing. It does
+	// not ask for what the _init of T assigns.
+	std::string unfit_scene(const Scene &p_scene, const Type &p_to) {
+		const SceneNode *root = p_scene.find_node(".");
+		const std::string script = !root ? std::string() : root->script.empty() ? root->instance_script
+																				: root->script;
+		const ClassDecl *made = is_script_path(script) ? script_decl(script) : nullptr;
+		const Type &taken = p_to.args[0];
+		const ClassDecl *asks = taken.kind == TypeKind::Object && !taken.is_interface && !taken.script.empty() ? script_decl(taken.script) : nullptr;
+		for (const VarDecl *member : made ? made->all_members : std::vector<const VarDecl *>()) {
+			const bool asked = !member->is_export && asks && !init_assigns(*asks, member->name) && find_named(asks->all_members, member->name);
+			if (member->must_assign && !init_assigns(*made, member->name) && !asked && (!member->is_export || !stored_value(p_scene, ".", member->name).value_or(false))) {
+				return "leaves \"" + member->name + "\" to instantiate(), but a " + p_to.to_string() + " does not ask for it.";
+			}
+		}
+		return std::string();
+	}
+
+	// Why the engine would lose a None of a value of the type (spec §10.1), as
+	// a sentence whose subject is `p_who`; empty when it would not. With
+	// `p_fix`, a T?? or Variant? itself is given the call that makes it fit.
+	// `p_what` names the value, as "its result", when it is not the subject's.
+	std::string encoding_loss(const Type &p_type, const std::string &p_who, bool p_fix, bool p_copied = false, const std::string &p_what = std::string()) const {
+		const std::optional<Type> lost = lost_in_encoding(p_type, *this, p_copied);
+		if (!lost) {
+			return std::string();
+		}
+		const bool variant = lost->args[0].kind == TypeKind::Variant;
+		const bool whole = *lost == p_type;
+		const std::string none = whole ? (p_what.empty() ? std::string("its None") : "the None of " + p_what) : "the None of the " + lost->to_string() + " inside" + (p_what.empty() ? std::string() : " " + p_what);
+		std::string text = p_who + " cannot tell " + none + " from " + (variant ? "null" : "Some(None)");
+		if (whole && p_fix) {
+			text += variant ? "; pass x.unwrap_or(null)" : "; pass x.flatten()";
+		}
+		return text + ".";
+	}
+
+	// Why a value of the type does not go to a Variant or an untyped container
+	// as it is (spec §3.14), after the error that says so.
+	std::string variant_refusal(const Type &p_type) const {
+		const std::string loss = encoding_loss(p_type, "A Variant", true);
+		if (!loss.empty()) {
+			return " " + loss;
+		}
+		if (is_typed_container(p_type) && is_boxed(p_type)) {
+			return " Its elements exist only in this language; convert it explicitly with " + p_type.name + "(x), a copy with the elements encoded.";
+		}
+		return std::string();
+	}
+
+	// Why a function value does not go to a Callable or a Variant, whose
+	// calls encode as those of a pub function do (spec §10.1).
+	std::string callable_refusal(const Type &p_function) const {
+		for (size_t i = 1; i <= p_function.args.size(); i++) {
+			const size_t part = i % p_function.args.size(); // The result last.
+			const std::string loss = encoding_loss(p_function.args[part], "The engine", false, false, part == 0 ? std::string("its result") : "its parameter " + std::to_string(part));
+			if (!loss.empty()) {
+				return " " + loss;
+			}
+		}
+		return std::string();
+	}
+
+	void expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action) {
+		if (assignable(p_from, p_to)) {
+			expect_implemented(p_value, p_from, p_to);
+			expect_scene_fits(p_value, p_to);
+			return;
+		}
+		std::string message = std::string("Cannot ") + p_action + " a value of type " + p_from.to_string() + " as " + p_to.to_string() + ".";
+		if (p_from.kind == TypeKind::Float && p_to.kind == TypeKind::Int) {
+			message += " Convert explicitly with int(x).";
+		}
+		if (p_to.unwrapped().kind == TypeKind::Enum && (p_from.kind == TypeKind::Int || p_from.kind == TypeKind::Enum)) {
+			const std::string name = enum_spelling(p_to.unwrapped());
+			message += " Convert explicitly with " + name + "(x), which checks that it is one of the values.";
+		}
+		const bool untyped_view = p_to.kind == TypeKind::Builtin && p_to.args.empty() && p_to.name == p_from.name;
+		if (p_to.kind == TypeKind::Variant || untyped_view) {
+			message += variant_refusal(p_from);
+		}
+		if (p_from.kind == TypeKind::Function && (p_to.kind == TypeKind::Variant || p_to == Type::builtin("Callable"))) {
+			message += callable_refusal(p_from);
+		}
+		if (p_from.kind == TypeKind::Variant) {
+			message += variant_hint(p_to.unwrapped());
+		}
+		if (is_typed_container(p_to) && p_from.kind == TypeKind::Builtin && p_from.args.empty() && p_from.name == p_to.name) {
+			message += " Its elements may be of any type; narrow it with `if x is " + p_to.to_string() + ":`, or copy them in with assign().";
+		}
+		error(p_value.range, message);
+	}
+
+	void expect_condition(Expr &r_condition) {
+		const Type type = check_value(r_condition);
+		if (type.is_error() || type.kind == TypeKind::Bool) {
+			return;
+		}
+		error(r_condition.range, "A condition must be bool, found " + type.to_string() + "." + compare_hint(type, false));
+	}
+
+	/* Calls */
 
 	// "2", "1 to 3" or "at least 1".
 	static std::string argument_count(int p_required, int p_max, bool p_vararg) {
@@ -5424,644 +7293,6 @@ class Checker : public ClassRelation {
 		return set(r_expr, p_function.is_async ? Type::task(p_function.args[0]) : p_function.args[0]);
 	}
 
-	// `func(x): body` (spec §3.11): code of the function around it, checked
-	// as a function of its own. Its parameters take the types of the function
-	// type it goes to, unless written, and its return type is what it returns
-	// (§4.6). Checked once, also when a call checks its arguments again.
-	Type check_lambda(Expr &r_expr, const Type &p_expected) {
-		FuncDecl &lambda = *r_expr.function;
-		if (lambda.checked) {
-			return r_expr.type;
-		}
-		lambda.checked = true;
-		if (in_constant) {
-			return fail(r_expr, "A lambda is not a constant expression.");
-		}
-		lambda.is_static = function ? function->is_static : static_initializing >= 0;
-		// A function type has no rest parameter (spec §4.6).
-		const bool typed_by_expected = p_expected.kind == TypeKind::Function && p_expected.args.size() == lambda.params.size() + 1 && !lambda.has_rest();
-		for (size_t i = 0; i < lambda.params.size(); i++) {
-			ParamDecl &param = lambda.params[i];
-			if (param.default_value) {
-				error(param.default_value->range, "Lambda parameters have no default values.");
-			}
-			if (param.declared_type) {
-				param.type = resolve(*param.declared_type, false);
-			} else if (typed_by_expected) {
-				param.type = p_expected.args[i + 1];
-			} else {
-				untyped(param, ": nothing the lambda goes to gives one");
-			}
-		}
-		check_rest(lambda);
-		Returns inferred;
-		if (typed_by_expected) {
-			inferred.expected = p_expected.args[0];
-		}
-		Returns *const outer_returns = returns;
-		if (lambda.return_type_ref) {
-			lambda.return_type = resolve(*lambda.return_type_ref, true);
-			returns = nullptr;
-		} else {
-			returns = &inferred;
-		}
-
-		enclosing.push_back({ function, std::move(scopes), std::move(narrowed), &r_expr, loop_depth, in_predelete, initializing, initializing_onready, static_initializing });
-		function = &lambda;
-		scopes = { {} };
-		narrowed = { {} };
-		loop_depth = 0;
-		in_predelete = false;
-		const bool was_assert = in_assert;
-		in_assert = false;
-		initializing = -1;
-		static_initializing = -1;
-		declare_params(lambda);
-		check_block(lambda.body);
-		in_assert = was_assert;
-		if (!lambda.return_type_ref) {
-			lambda.return_type = inferred.type.value_or(Type::of(TypeKind::Void));
-			if (inferred.type && inferred.bare) {
-				error(r_expr.range, function_label() + " returns a value on some paths and none on others.");
-			}
-			if (partial(lambda.return_type)) {
-				const Type &left = lambda.return_type;
-				const std::string missing = !left.is_result() ? "which T? None is" : (left.args[0].is_error() ? "what Ok(...) holds" : "what Err(...) holds");
-				error(r_expr.range, function_label() + " needs a return type: what it returns does not say " + missing + ".");
-				lambda.return_type = Type::of(TypeKind::Error);
-			}
-			for (Expr *value : inferred.values) {
-				if (partial(value->type)) {
-					set(*value, lambda.return_type);
-				}
-				expect_scene_fits(*value, lambda.return_type);
-			}
-		}
-		if (lambda.return_type.kind != TypeKind::Void && !lambda.return_type.is_error() && !always_ends(lambda.body, false)) {
-			error(r_expr.range, "Not all paths of " + (lambda.name.empty() ? std::string("the lambda") : "the lambda \"" + lambda.name + "\"") + " return a value.");
-		}
-		// Its task keeps the result as the engine does (§9.8).
-		const std::string loss = lambda.is_async ? encoding_loss(lambda.return_type, "the engine", false) : std::string();
-		if (!loss.empty()) {
-			error(r_expr.range, function_label() + " returns " + lambda.return_type.to_string() + ", but " + loss);
-		}
-		Enclosing &outer = enclosing.back();
-		function = outer.function;
-		scopes = std::move(outer.scopes);
-		narrowed = std::move(outer.narrowed);
-		loop_depth = outer.loop_depth;
-		in_predelete = outer.in_predelete;
-		initializing = outer.initializing;
-		initializing_onready = outer.initializing_onready;
-		static_initializing = outer.static_initializing;
-		enclosing.pop_back();
-		returns = outer_returns;
-
-		return set(r_expr, function_type(lambda));
-	}
-
-	// The lambda or method value with a rest parameter that the value is, a
-	// Callable (spec §4.6).
-	static const FuncDecl *rest_function(const Expr &p_value) {
-		const bool method = p_value.target == Target::MethodValue || p_value.target == Target::StaticValue || p_value.target == Target::StructMethodValue || p_value.target == Target::NewValue;
-		const FuncDecl *declared = p_value.kind == ExprKind::Lambda ? p_value.function.get() : (method ? p_value.callee : nullptr);
-		return declared && declared->has_rest() ? declared : nullptr;
-	}
-
-	// A function connected to a signal takes what the signal passes (spec §4.7).
-	void check_handler(const Expr &p_handler, const Type &p_signal) {
-		const Type &handler = p_handler.type;
-		if (handler.is_error()) {
-			return;
-		}
-		// A Callable, checked by its declaration.
-		if (const FuncDecl *declared = rest_function(p_handler)) {
-			if (!takes(*declared, p_signal.args.size())) {
-				error(p_handler.range, p_signal.to_string() + " passes " + std::to_string(p_signal.args.size()) + " argument(s), but " + signature_text(*declared) + " takes " + argument_count(*declared) + ".");
-				return;
-			}
-			for (size_t i = 0; i < p_signal.args.size(); i++) {
-				if (!assignable(p_signal.args[i], *argument_type(*declared, i))) {
-					error(p_handler.range, p_signal.to_string() + " passes " + p_signal.args[i].to_string() + " as argument " + std::to_string(i + 1) + ", which " + signature_text(*declared) + " does not take.");
-					return;
-				}
-			}
-			return;
-		}
-		if (handler.kind != TypeKind::Function) {
-			error(p_handler.range, "A signal is connected to a function value, such as a method name, whose parameters it can check; found " + handler.to_string() + ".");
-			return;
-		}
-		if (handler.args.size() - 1 != p_signal.args.size()) {
-			error(p_handler.range, p_signal.to_string() + " passes " + std::to_string(p_signal.args.size()) + " argument(s), but " + handler.to_string() + " takes " + std::to_string(handler.args.size() - 1) + ".");
-			return;
-		}
-		for (size_t i = 0; i < p_signal.args.size(); i++) {
-			if (!assignable(p_signal.args[i], handler.args[i + 1])) {
-				error(p_handler.range, p_signal.to_string() + " passes " + p_signal.args[i].to_string() + " as argument " + std::to_string(i + 1) + ", which " + handler.to_string() + " does not take.");
-				return;
-			}
-		}
-	}
-
-	// The methods of T? (spec §3.4), as Rust's. Those that take a function
-	// call it only when there is a value, or only when there is none. ok_or()
-	// takes the error type from the Result expected, if any.
-	Type check_option_method(Expr &r_expr, const Type &p_base, const Type &p_expected) {
-		const std::string &name = r_expr.text;
-		const Type value = p_base.unwrapped();
-		const std::string t = value.to_string();
-		if (!option_methods().count(name)) {
-			return fail_call(r_expr, "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
-		}
-		refer(r_expr.name_token, language_id("Option", name));
-		r_expr.target = name == "unwrap" || name == "expect" ? Target::Unwrap : Target::OptionMethod;
-		if (name == "flatten") {
-			hint(r_expr, [&](int p_current) { return signature(name, {}, false, p_current, t); });
-			check_arguments(r_expr, {}, 0, false);
-			if (!value.is_optional()) {
-				return fail_call(r_expr, p_base.to_string() + " has no method \"flatten()\", which makes a T?? into a T?.");
-			}
-			return set(r_expr, value);
-		}
-		if (name == "unwrap" || name == "expect" || name == "unwrap_or" || name == "or") {
-			const std::vector<Type> params = name == "unwrap" ? std::vector<Type>() : std::vector<Type>{ name == "expect" ? Type::of(TypeKind::String) : (name == "or" ? p_base : value) };
-			const std::string shown = name == "expect" ? "message: String" : (name == "or" ? "other: " + p_base.to_string() : "default: " + t);
-			hint(r_expr, [&](int p_current) { return signature(name, params.empty() ? std::vector<std::string>() : std::vector<std::string>{ shown }, false, p_current, name == "or" ? p_base.to_string() : t); });
-			check_arguments(r_expr, params, int(params.size()), false);
-			return set(r_expr, name == "or" ? p_base : value);
-		}
-		if (name == "ok_or") {
-			const Type wanted = p_expected.is_result() ? p_expected.args[1] : Type::of(TypeKind::Error);
-			hint(r_expr, [&](int p_current) { return signature(name, { "error: E" }, false, p_current, "Result[" + t + ", E]"); });
-			if (r_expr.args.size() != 1) {
-				return fail_call(r_expr, "Function \"ok_or()\" takes 1 argument(s), " + std::to_string(r_expr.args.size()) + " given.");
-			}
-			Expr &arg = *r_expr.args[0];
-			Type failure = check_value(arg, wanted);
-			if (!wanted.is_error()) {
-				expect_assignable(arg, failure, wanted, "pass");
-				failure = wanted;
-			}
-			if (failure.kind == TypeKind::None) {
-				return fail(r_expr, "ok_or(None) needs the Result type it makes, from where it goes.");
-			}
-			r_expr.param_types.push_back(failure);
-			return set(r_expr, failure.is_error() ? failure : Type::result(value, failure));
-		}
-		// The others take a function: of the value, or of nothing.
-		const bool of_value = name == "map" || name == "and_then" || name == "filter";
-		const std::map<std::string, std::string> returns = { { "unwrap_or_else", t }, { "map", "U" }, { "and_then", "U?" }, { "or_else", p_base.to_string() }, { "filter", "bool" }, { "ok_or_else", "E" } };
-		const std::map<std::string, std::string> results = { { "unwrap_or_else", t }, { "map", "U?" }, { "and_then", "U?" }, { "or_else", p_base.to_string() }, { "filter", p_base.to_string() }, { "ok_or_else", "Result[" + t + ", E]" } };
-		hint(r_expr, [&](int p_current) { return signature(name, { "f: func(" + (of_value ? t : std::string()) + ") -> " + returns.at(name) }, false, p_current, results.at(name)); });
-		const std::map<std::string, Type> fitting = { { "unwrap_or_else", value }, { "or_else", p_base }, { "filter", Type::of(TypeKind::Bool) } };
-		const auto fits_type = fitting.find(name);
-		// and_then()'s function returns some U?, which its returns say.
-		const Type wanted = fits_type != fitting.end() ? fits_type->second : (name == "and_then" ? Type::option(Type::of(TypeKind::Error)) : Type::of(TypeKind::Error));
-		const std::optional<Type> returned = check_function_argument(r_expr, of_value ? std::vector<Type>{ value } : std::vector<Type>(), wanted);
-		if (!returned || returned->is_error()) {
-			return set(r_expr, Type::of(TypeKind::Error));
-		}
-		const bool fits = fits_type != fitting.end() ? assignable(*returned, fits_type->second) : (name == "and_then" ? returned->is_optional() : returned->kind != TypeKind::Void);
-		if (!fits) {
-			error(r_expr.args[0]->range, "The function passed to " + name + "() returns " + returned->to_string() + ", not " + returns.at(name) + ".");
-			return set(r_expr, Type::of(TypeKind::Error));
-		}
-		if (name == "map") {
-			return set(r_expr, optional_of(*returned));
-		}
-		if (name == "and_then") {
-			return set(r_expr, *returned);
-		}
-		return set(r_expr, name == "ok_or_else" ? Type::result(value, *returned) : (name == "unwrap_or_else" ? value : p_base));
-	}
-
-	// `Some(v)` (spec §3.4): of the T? it goes to, which says what v is, or of
-	// v's type.
-	Type check_some(Expr &r_expr, const Type &p_expected) {
-		const Type inner = p_expected.is_optional() ? p_expected.unwrapped() : Type::of(TypeKind::Error);
-		hint(r_expr, [&](int p_current) { return signature("Some", { "value: " + (inner.is_error() ? std::string("T") : inner.to_string()) }, false, p_current, inner.is_error() ? std::string("T?") : p_expected.to_string()); });
-		if (!r_expr.arg_names.empty() || r_expr.args.size() != 1) {
-			for (auto &arg : r_expr.args) {
-				check_value(*arg);
-			}
-			return fail_call(r_expr, "Some(...) takes one value by position, as in Some(x).");
-		}
-		refer(r_expr.name_token, language_id("Option", "Some"));
-		Expr &arg = *r_expr.args[0];
-		const Type given = check_value(arg, inner);
-		if (given.is_error()) {
-			return set(r_expr, given);
-		}
-		if (!inner.is_error()) {
-			expect_assignable(arg, given, inner, "pass");
-		} else if (given.kind == TypeKind::None || given.kind == TypeKind::Void) {
-			return fail_call(r_expr, std::string("Some(") + (given.kind == TypeKind::None ? "None" : "...") + ") does not say which type it holds; declare the type it goes to.");
-		}
-		const Type value = inner.is_error() ? given : inner;
-		r_expr.target = Target::Some;
-		r_expr.param_types = { value };
-		return set(r_expr, optional_of(value));
-	}
-
-	// `Ok(v)` and `Err(e)` (spec §3.5): of the Result they go to, which says
-	// what v or e is.
-	Type check_result_construction(Expr &r_expr, const Type &p_expected) {
-		const Type result = p_expected.kind == TypeKind::Option ? p_expected.args[0] : p_expected;
-		if (!result.is_result() || !r_expr.arg_names.empty()) {
-			if (!r_expr.arg_names.empty()) {
-				return fail_call(r_expr, r_expr.text + "(...) takes its value by position, as in " + r_expr.text + "(x).");
-			}
-			if (!result.is_error()) {
-				return fail_call(r_expr, r_expr.text + "(...) makes a Result, but a value of type " + result.to_string() + " goes here.");
-			}
-			return fail_call(r_expr, r_expr.text + "(...) takes its type from where it goes, as in `var r: Result[int, String] = " + r_expr.text + "(...)`; nothing here gives one.");
-		}
-		const int variant = r_expr.text == "Ok" ? 0 : 1;
-		refer(r_expr.name_token, language_id("Result", r_expr.text));
-		r_expr.target = Target::VariantConstructor;
-		r_expr.index = variant;
-		// Returned by a lambda going to and_then() or or_else(), whose Result
-		// leaves this side to what the lambda returns (spec §4.6).
-		if (result.args[variant].is_error() && r_expr.args.size() == 1) {
-			const Type given = check_value(*r_expr.args[0]);
-			if (given.kind == TypeKind::None || given.kind == TypeKind::Void) {
-				return fail_call(r_expr, r_expr.text + "(" + (given.kind == TypeKind::None ? "None" : "...") + ") does not say which type it holds; declare the lambda's return type.");
-			}
-			r_expr.param_types.push_back(given);
-			Type made = result;
-			made.args[variant] = given;
-			return given.is_error() ? set(r_expr, given) : set(r_expr, Type::result(made.args[0], made.args[1]));
-		}
-		hint(r_expr, [&](int p_current) { return signature(r_expr.text, { (variant == 0 ? "value: " : "error: ") + result.args[variant].to_string() }, false, p_current, result.to_string()); });
-		check_arguments(r_expr, { result.args[variant] }, 1, false);
-		return set(r_expr, result);
-	}
-
-	// The methods of Result[T, E] (spec §3.5), as Rust's. Those that take a
-	// function call it only on the variant they are for.
-	Type check_result_method(Expr &r_expr, const Type &p_base) {
-		const std::string &name = r_expr.text;
-		const Type &value = p_base.args[0];
-		const Type &failure = p_base.args[1];
-		const std::string t = value.to_string();
-		const std::string e = failure.to_string();
-		if (!result_methods().count(name)) {
-			return fail_call(r_expr, p_base.to_string() + " has no method \"" + name + "()\".");
-		}
-		refer(r_expr.name_token, language_id("Result", name));
-		r_expr.target = Target::ResultMethod;
-		if (name == "unwrap" || name == "expect" || name == "unwrap_or") {
-			const std::vector<Type> params = name == "unwrap" ? std::vector<Type>() : std::vector<Type>{ name == "expect" ? Type::of(TypeKind::String) : value };
-			hint(r_expr, [&](int p_current) { return signature(name, params.empty() ? std::vector<std::string>() : std::vector<std::string>{ name == "expect" ? "message: String" : "default: " + t }, false, p_current, t); });
-			check_arguments(r_expr, params, int(params.size()), false);
-			return set(r_expr, value);
-		}
-		if (name == "ok" || name == "err") {
-			const Type &inner = name == "ok" ? value : failure;
-			hint(r_expr, [&](int p_current) { return signature(name, {}, false, p_current, optional_of(inner).to_string()); });
-			check_arguments(r_expr, {}, 0, false);
-			return set(r_expr, optional_of(inner));
-		}
-		// The function's parameter, and what it returns as the hint shows it.
-		const bool on_error = name == "unwrap_or_else" || name == "map_err" || name == "or_else";
-		const std::map<std::string, std::string> returns = { { "unwrap_or_else", t }, { "map", "U" }, { "map_err", "F" }, { "and_then", "Result[U, " + e + "]" }, { "or_else", "Result[" + t + ", F]" } };
-		const std::map<std::string, std::string> results = { { "unwrap_or_else", t }, { "map", "Result[U, " + e + "]" }, { "map_err", "Result[" + t + ", F]" }, { "and_then", "Result[U, " + e + "]" }, { "or_else", "Result[" + t + ", F]" } };
-		hint(r_expr, [&](int p_current) { return signature(name, { "f: func(" + (on_error ? e : t) + ") -> " + returns.at(name) }, false, p_current, results.at(name)); });
-		// and_then()'s function returns some Result[U, E], or_else()'s some
-		// Result[T, F], which its returns say.
-		const std::map<std::string, Type> wanted = { { "unwrap_or_else", value }, { "and_then", Type::result(Type::of(TypeKind::Error), failure) }, { "or_else", Type::result(value, Type::of(TypeKind::Error)) } };
-		const auto known = wanted.find(name);
-		const std::optional<Type> returned = check_function_argument(r_expr, { on_error ? failure : value }, known != wanted.end() ? known->second : Type::of(TypeKind::Error));
-		if (!returned || returned->is_error()) {
-			return set(r_expr, Type::of(TypeKind::Error));
-		}
-		// and_then keeps the error type, or_else the value type.
-		const size_t kept = name == "and_then" ? 1 : 0;
-		const bool fits = name == "unwrap_or_else" ? assignable(*returned, value) : (name == "map" || name == "map_err" ? returned->kind != TypeKind::Void : returned->is_result() && returned->args[kept] == p_base.args[kept]);
-		if (!fits) {
-			error(r_expr.args[0]->range, "The function passed to " + name + "() returns " + returned->to_string() + ", not " + returns.at(name) + ".");
-			return set(r_expr, Type::of(TypeKind::Error));
-		}
-		if (name == "unwrap_or_else") {
-			return set(r_expr, value);
-		}
-		if (name == "map" || name == "map_err") {
-			return set(r_expr, name == "map" ? Type::result(*returned, failure) : Type::result(value, *returned));
-		}
-		return set(r_expr, *returned);
-	}
-
-	// The one argument of map() and the like: a function whose parameters take
-	// `p_params`, none or one, which a lambda's parameters then have unless
-	// written, as its returned values take `p_returns` when known; what it
-	// returns, or nullopt after reporting.
-	std::optional<Type> check_function_argument(Expr &r_call, const std::vector<Type> &p_params, const Type &p_returns = Type::of(TypeKind::Error)) {
-		if (r_call.args.size() != 1) {
-			for (auto &arg : r_call.args) {
-				check_value(*arg);
-			}
-			error(r_call.range, "Function \"" + r_call.text + "()\" takes 1 argument(s), " + std::to_string(r_call.args.size()) + " given.");
-			return std::nullopt;
-		}
-		Expr &arg = *r_call.args[0];
-		const Type function = check_value(arg, Type::function(p_returns, p_params));
-		if (function.is_error()) {
-			return std::nullopt;
-		}
-		if (function.kind != TypeKind::Function || function.is_async || function.args.size() != p_params.size() + 1 || (!p_params.empty() && !assignable(p_params[0], function.args[1]))) {
-			const std::string wanted = p_params.empty() ? "without parameters" : "of one parameter, which takes " + p_params[0].to_string();
-			error(arg.range, "\"" + r_call.text + "()\" takes a function " + wanted + "; found " + function.to_string() + ".");
-			return std::nullopt;
-		}
-		r_call.param_types.push_back(function);
-		return function.args[0];
-	}
-
-	// The type both branches fit: one of them, or for objects the nearest
-	// class both extend; Error if there is none.
-	Type common_type(const Type &p_a, const Type &p_b) const {
-		if (assignable(p_a, p_b)) {
-			return p_b;
-		}
-		if (assignable(p_b, p_a)) {
-			return p_a;
-		}
-		if (p_a.kind == TypeKind::Object && p_b.kind == TypeKind::Object && p_a.args.empty() && p_b.args.empty() && !p_a.is_interface && !p_b.is_interface) {
-			for (std::string path = p_a.script; is_script_path(path);) {
-				const ClassDecl *header = script_header(path);
-				if (!header) {
-					break;
-				}
-				if (extends_script(p_b.script, path)) {
-					Type result = script_class_type(*header, path);
-					result.nullable = p_a.nullable || p_b.nullable;
-					return result;
-				}
-				path = classes.base_path(*header, path);
-			}
-			for (std::string cls = p_a.engine_class(); !cls.empty(); cls = engine.parent_class(cls)) {
-				if (engine.inherits(p_b.engine_class(), cls)) {
-					return Type::object(cls, p_a.nullable || p_b.nullable);
-				}
-			}
-		}
-		return Type::of(TypeKind::Error);
-	}
-
-	// `a if c else b` (spec §5.5).
-	Type check_conditional(Expr &r_expr, const Type &p_expected) {
-		expect_condition(*r_expr.base);
-		const Facts facts = facts_of(*r_expr.base);
-		narrowed.push_back(facts.when_true);
-		Type a = check_value(*r_expr.left, p_expected);
-		narrowed.back() = facts.when_false;
-		Type b = check_value(*r_expr.right, p_expected);
-		narrowed.pop_back();
-		if (a.is_error() || b.is_error()) {
-			return set(r_expr, Type::of(TypeKind::Error));
-		}
-		// As Ok(x) if c else Err(e), returned by a lambda going to and_then().
-		if (a.is_result() && partial(a) && !partial(b)) {
-			a = set(*r_expr.left, completed(a, b));
-		} else if (b.is_result() && partial(b) && !partial(a)) {
-			b = set(*r_expr.right, completed(b, a));
-		}
-		if (!p_expected.is_error() && !partial(p_expected) && assignable(a, p_expected) && assignable(b, p_expected)) {
-			expect_implemented(*r_expr.left, a, p_expected);
-			expect_implemented(*r_expr.right, b, p_expected);
-			return set(r_expr, p_expected);
-		}
-		Type result = common_type(a, b);
-		if (result.is_error() && (a.kind == TypeKind::None) != (b.kind == TypeKind::None)) {
-			result = optional_of(a.kind == TypeKind::None ? b : a);
-		}
-		if (result.is_error()) {
-			return fail(r_expr, "The branches have types " + a.to_string() + " and " + b.to_string() + ", which have no common type; declare the type.");
-		}
-		return set(r_expr, result);
-	}
-
-	// `a[i]`, or `d[k]` (spec §3.8); `p_written` when it is only assigned to.
-	Type check_subscript(Expr &r_expr) {
-		const Type base = check_value(*r_expr.base);
-		const std::optional<std::pair<Type, Type>> entries = base.is_error() ? std::nullopt : entries_of(base);
-		const Type index = check_value(*r_expr.right, entries ? entries->first : Type::of(TypeKind::Error));
-		if (base.is_error() || index.is_error()) {
-			return set(r_expr, Type::of(TypeKind::Error));
-		}
-		if (base.is_optional()) {
-			return fail(r_expr, "The value may be None (" + base.to_string() + "); check it before indexing it.");
-		}
-		if (base.kind == TypeKind::Variant) {
-			return fail(r_expr, "Cannot index a Variant." + variant_hint());
-		}
-		if (entries) {
-			if (!assignable(index, entries->first)) {
-				return fail(*r_expr.right, "The keys of " + base.to_string() + " are " + entries->first.to_string() + ", not " + index.to_string() + ".");
-			}
-			r_expr.param_types = { entries->first };
-			return set(r_expr, entries->second);
-		}
-		// A String's elements are its characters, each a String.
-		const std::optional<Type> element = base.kind == TypeKind::String ? Type::of(TypeKind::String) : element_of(base);
-		if (!element) {
-			return fail(r_expr, "Values of type " + base.to_string() + " cannot be indexed.");
-		}
-		if (index.kind != TypeKind::Int) {
-			return fail(*r_expr.right, "An index must be int, found " + index.to_string() + ".");
-		}
-		return set(r_expr, *element);
-	}
-
-	// `[a, b]` takes its type from where it goes (spec §4.3).
-	Type check_array_literal(Expr &r_expr, const Type &p_expected) {
-		// Into a Variant, as in an untyped Array, it is an untyped Array.
-		const Type wanted = p_expected.kind == TypeKind::Option ? p_expected.args[0] : p_expected;
-		const Type expected = wanted.kind == TypeKind::Variant ? Type::builtin("Array") : wanted;
-		if (expected.kind != TypeKind::Builtin || expected.name != "Array") {
-			if (r_expr.args.empty()) {
-				return fail(r_expr, "An empty array needs a declared type, for example var a: Array[int] = [].");
-			}
-			// Otherwise its elements' common type gives it (spec §4.3).
-			const std::optional<Type> element = common_element(r_expr.args, 0, 1, "elements");
-			if (!element) {
-				return set(r_expr, Type::of(TypeKind::Error));
-			}
-			r_expr.param_types.assign(r_expr.args.size(), *element);
-			return set(r_expr, Type::array(*element));
-		}
-		const Type element = expected.args.empty() ? Type::of(TypeKind::Variant) : expected.args[0];
-		for (auto &arg : r_expr.args) {
-			const Type type = check_value(*arg, element);
-			r_expr.param_types.push_back(element);
-			if (!assignable(type, element)) {
-				error(arg->range, "Cannot put a value of type " + type.to_string() + " in " + expected.to_string() + ".");
-			} else {
-				expect_implemented(*arg, type, element);
-				expect_scene_fits(*arg, element);
-			}
-		}
-		return set(r_expr, expected);
-	}
-
-	// The common type of the values at `p_first`, `p_first + p_step`… of a
-	// literal, which have no type to go to; nullopt after reporting.
-	std::optional<Type> common_element(std::vector<std::unique_ptr<Expr>> &r_values, size_t p_first, size_t p_step, const std::string &p_what) {
-		std::optional<Type> common;
-		bool ok = true;
-		for (size_t i = p_first; i < r_values.size(); i += p_step) {
-			const Type type = check_value(*r_values[i]);
-			if (type.is_error() || !ok) {
-				ok = false;
-				continue;
-			}
-			if (type.kind == TypeKind::None) {
-				error(r_values[i]->range, "None does not say which T? the " + p_what + " are; declare the type.");
-				ok = false;
-				continue;
-			}
-			const Type next = common ? common_type(*common, type) : type;
-			if (next.is_error()) {
-				error(r_values[i]->range, "The " + p_what + " have types " + common->to_string() + " and " + type.to_string() + ", which have no common type; declare the type.");
-				ok = false;
-				continue;
-			}
-			common = next;
-		}
-		if (!ok) {
-			return std::nullopt;
-		}
-		for (size_t i = p_first; i < r_values.size(); i += p_step) {
-			expect_scene_fits(*r_values[i], *common);
-		}
-		return common;
-	}
-
-	// `{k: v}` takes its type from where it goes, as `[a, b]` does, or from
-	// its keys and values. A key written as a name is a StringName, as in
-	// GDScript (modules/gdscript/gdscript_parser.cpp:3330-3336).
-	Type check_dictionary_literal(Expr &r_expr, const Type &p_expected) {
-		const Type wanted = p_expected.kind == TypeKind::Option ? p_expected.args[0] : p_expected;
-		const Type expected = wanted.kind == TypeKind::Variant ? Type::builtin("Dictionary") : wanted;
-		const std::optional<std::pair<Type, Type>> entries = entries_of(expected);
-		if (!entries && r_expr.args.empty()) {
-			return fail_call(r_expr, "An empty dictionary needs a declared type, for example var d: Dictionary[String, int] = {}.");
-		}
-		if (!entries) {
-			const std::optional<Type> key = r_expr.bool_value ? std::optional<Type>(Type::builtin("StringName")) : common_element(r_expr.args, 0, 2, "keys");
-			if (r_expr.bool_value) {
-				for (size_t i = 0; i < r_expr.args.size(); i += 2) {
-					check_value(*r_expr.args[i], *key);
-				}
-			}
-			const std::optional<Type> value = common_element(r_expr.args, 1, 2, "values");
-			if (!key || !value) {
-				return set(r_expr, Type::of(TypeKind::Error));
-			}
-			for (size_t i = 0; i + 1 < r_expr.args.size(); i += 2) {
-				r_expr.param_types.push_back(*key);
-				r_expr.param_types.push_back(*value);
-			}
-			return set(r_expr, Type::dictionary(*key, *value));
-		}
-		const Type name_key = entries->first.kind == TypeKind::Variant ? Type::builtin("StringName") : entries->first;
-		for (size_t i = 0; i + 1 < r_expr.args.size(); i += 2) {
-			const Type &want_key = r_expr.bool_value ? name_key : entries->first;
-			const Type key = check_value(*r_expr.args[i], want_key);
-			const Type value = check_value(*r_expr.args[i + 1], entries->second);
-			r_expr.param_types.push_back(want_key);
-			r_expr.param_types.push_back(entries->second);
-			if (!assignable(key, want_key)) {
-				error(r_expr.args[i]->range, "The keys of " + expected.to_string() + " are " + entries->first.to_string() + ", not " + key.to_string() + ".");
-			} else {
-				expect_implemented(*r_expr.args[i], key, want_key);
-				expect_scene_fits(*r_expr.args[i], want_key);
-			}
-			if (!assignable(value, entries->second)) {
-				error(r_expr.args[i + 1]->range, "Cannot put a value of type " + value.to_string() + " in " + expected.to_string() + ".");
-			} else {
-				expect_implemented(*r_expr.args[i + 1], value, entries->second);
-				expect_scene_fits(*r_expr.args[i + 1], entries->second);
-			}
-		}
-		return set(r_expr, expected);
-	}
-
-	// `x as T` (spec §5.3).
-	Type check_cast(Expr &r_expr) {
-		const Type from = check_value(*r_expr.left);
-		const Type to = resolve(r_expr.cast_type, false);
-		if (from.is_error() || to.is_error()) {
-			return set(r_expr, Type::of(TypeKind::Error));
-		}
-		if (to.kind != TypeKind::Object) {
-			const std::string name = to.unwrapped().to_string();
-			return fail(r_expr, "as only converts objects; convert to " + name + " with " + name + "(x) or " + name + ".try_from(x).");
-		}
-		if (from.kind == TypeKind::Variant) {
-			// None also when it holds no object (spec §5.3).
-			r_expr.tested = to;
-			Type result = to;
-			result.nullable = true;
-			return set(r_expr, result);
-		}
-		if (from.kind != TypeKind::Object) {
-			return fail(r_expr, "as only converts objects, not " + from.to_string() + ".");
-		}
-		if (!related(from, to)) {
-			return fail(r_expr, from.name + " and " + to.name + " are unrelated classes; as would always give None.");
-		}
-		r_expr.tested = to;
-		// Already a T: nothing to convert.
-		Type result = to;
-		result.nullable = from.nullable || !is_a(from, to);
-		return set(r_expr, result);
-	}
-
-	Type check_super(Expr &r_expr) {
-		if (!function) {
-			return fail_call(r_expr, "super is only valid inside a function.");
-		}
-		if (!r_expr.base) {
-			// `super()` names no function.
-			r_expr.text = function->name;
-			r_expr.name_token = NO_TOKEN;
-		}
-		const FuncDecl *callee = base_function(r_expr.text);
-		if (callee && callee->is_abstract) {
-			return fail_call(r_expr, "\"" + callee->name + "()\" is abstract in the base class, which has no body to call.");
-		}
-		if (callee) {
-			const ClassDecl &owner = declaring(*cls.base, *callee, &ClassDecl::functions);
-			refer(r_expr.name_token, script_id(owner.path, callee->name));
-			if (!callee->is_static && refuse_in_static(r_expr, "super." + r_expr.text)) {
-				return fail_call(r_expr);
-			}
-			const Type result = call_declared(r_expr, *callee, *owner.source, callee->return_type);
-			r_expr.target = Target::SuperMethod;
-			return result;
-		}
-		if (r_expr.text == "_init") {
-			if (refuse_in_static(r_expr, "super._init")) {
-				return fail_call(r_expr);
-			}
-			check_arguments(r_expr, {}, 0, false);
-			r_expr.target = Target::Noop;
-			refer(r_expr.name_token, engine_id("Object", "_init"));
-			return set(r_expr, Type::of(TypeKind::Void));
-		}
-		const auto method = engine.find_method(cls.native_base, r_expr.text);
-		if (!method || method->is_virtual) {
-			return fail_call(r_expr, "No base implementation of \"" + r_expr.text + "()\".");
-		}
-		if (!method->is_static && refuse_in_static(r_expr, r_expr.text)) {
-			return fail_call(r_expr);
-		}
-		r_expr.base.reset();
-		return check_engine_call(r_expr, *method);
-	}
-
 	// The struct that a base or, with `p_call`, a call names (spec §2.4):
 	// `Hit` in the file that declares it, when no local or function has the
 	// name, `Combat.Hit` anywhere; Error after reporting one that may not be
@@ -6993,586 +8224,7 @@ class Checker : public ClassRelation {
 		return set(r_expr, Type::of(TypeKind::Error));
 	}
 
-	// Why await cannot be written here; empty where it can.
-	std::string no_await() const {
-		if (in_assert) {
-			return "await cannot appear in an assert: it would vanish with the assertion in release builds.";
-		}
-		if (in_predelete) {
-			return "await is not allowed in the PREDELETE branch.";
-		}
-		if (!function || !function->is_async || initializing >= 0) {
-			return "await requires an async function and cannot appear in an initializer.";
-		}
-		return std::string();
-	}
-
-	// `Task.of(signal)`, `Task.delay(seconds)`, `Task.any([...])` and
-	// `Task.all([...])` (spec §9.5): tasks the runtime makes, which an await
-	// owns when it starts them, as a call. A signal gives what an await of it
-	// gives as a value (§9.6).
-	Type check_task_function(Expr &r_expr) {
-		refer(r_expr.base->name_token, language_id("Task", std::string()));
-		const std::string &name = r_expr.text;
-		if (name != "of" && name != "delay" && name != "any" && name != "all") {
-			return fail_call(r_expr, "Task has no function \"" + name + "()\".");
-		}
-		refer(r_expr.name_token, language_id("Task", name));
-		r_expr.is_async = true;
-		if (name == "any" || name == "all") {
-			return check_task_join(r_expr);
-		}
-		if (name == "delay") {
-			check_arguments(r_expr, { Type::of(TypeKind::Float) }, 1, false);
-			r_expr.target = Target::TaskDelay;
-			return set(r_expr, Type::task(Type::of(TypeKind::Void)));
-		}
-		if (r_expr.args.size() != 1) {
-			return fail_call(r_expr, "Task.of() takes one signal.");
-		}
-		const Type signal = check_value(*r_expr.args[0]);
-		std::optional<Type> result;
-		if (signal.kind == TypeKind::Signal) {
-			result = signal.args.size() == 1 ? signal.args[0] : Type::of(TypeKind::Void);
-		} else if (signal.builtin_name() == "Signal") {
-			result = Type::of(TypeKind::Variant);
-		} else if (!signal.is_error()) {
-			error(r_expr.args[0]->range, "Task.of() takes a signal, not " + signal.to_string() + ".");
-		}
-		if (!result) {
-			return set(r_expr, Type::of(TypeKind::Error));
-		}
-		r_expr.param_types.push_back(signal);
-		r_expr.target = Target::TaskOf;
-		return set(r_expr, Type::task(*result));
-	}
-
-	// The tasks of Task.any() or Task.all(), listed in brackets, where a task
-	// started is the join's own, or in an Array[Task[T]] (spec §9.5). any gives
-	// the index of the first to finish; all gives nothing, as tuples could give
-	// the results (BACKLOG).
-	Type check_task_join(Expr &r_expr) {
-		const bool any = r_expr.text == "any";
-		if (r_expr.args.size() != 1) {
-			return fail_call(r_expr, "Task." + r_expr.text + "() takes one list of tasks, as Task." + r_expr.text + "([a, f()]).");
-		}
-		Expr &list = *r_expr.args[0];
-		if (list.kind == ExprKind::ArrayLiteral) {
-			if (any && list.args.empty()) {
-				error(list.range, "Task.any() needs a task to wait for.");
-			}
-			for (auto &member : list.args) {
-				const Type type = check_value(*member);
-				if (!type.is_error() && (type.kind != TypeKind::Task || type.nullable)) {
-					error(member->range, "Task." + r_expr.text + "() takes tasks, not " + type.to_string() + ".");
-				}
-			}
-			set(list, Type::builtin("Array"));
-		} else {
-			const Type tasks = check_value(list);
-			if (!tasks.is_error() && (!is_typed_container(tasks) || tasks.name != "Array" || tasks.args[0].kind != TypeKind::Task || tasks.args[0].nullable)) {
-				error(list.range, "Task." + r_expr.text + "() takes tasks in brackets or an Array[Task[T]], not " + tasks.to_string() + ".");
-			}
-		}
-		r_expr.target = any ? Target::TaskAny : Target::TaskAll;
-		return set(r_expr, Type::task(Type::of(any ? TypeKind::Int : TypeKind::Void)));
-	}
-
-	Type check_await(Expr &r_expr) {
-		const std::string refused = no_await();
-		if (!refused.empty()) {
-			return fail(r_expr, refused);
-		}
-		Expr &operand = *r_expr.left;
-		operand.awaited = true;
-		const Type type = check_expr(operand);
-		if (type.is_error()) {
-			return set(r_expr, type);
-		}
-		if (type.kind == TypeKind::Task) {
-			if (type.nullable) {
-				return fail(r_expr, "Unwrap the optional Task before awaiting it.");
-			}
-			return set(r_expr, type.args[0]);
-		}
-		if (type.kind == TypeKind::Signal) {
-			return set(r_expr, type.args.size() == 1 ? type.args[0] : Type::of(TypeKind::Void));
-		}
-		if (type.builtin_name() == "Signal") {
-			return set(r_expr, Type::of(TypeKind::Variant));
-		}
-		if (operand.kind == ExprKind::Call && (operand.is_foreign || (operand.base && operand.base->type == Type::builtin("Callable") && (operand.text == "call" || operand.text == "callv")))) {
-			return set(r_expr, type);
-		}
-		return fail(r_expr, "await expects a Task, a signal or a call to GDScript.");
-	}
-
-	// Whether a type a lambda returns leaves out what its T? or Result holds,
-	// as None does, or Ok(v) going to and_then() (spec §4.6).
-	static bool partial(const Type &p_type) {
-		return p_type.kind == TypeKind::None || (p_type.kind == TypeKind::Option && p_type.args[0].is_error()) || (p_type.is_result() && (p_type.args[0].is_error() || p_type.args[1].is_error()));
-	}
-
-	// A partial type that a lambda returns, completed by another it returns.
-	static Type completed(const Type &p_partial, const Type &p_other) {
-		if (p_partial.is_result()) {
-			return p_other.is_result() ? Type::result(p_partial.args[0].is_error() ? p_other.args[0] : p_partial.args[0], p_partial.args[1].is_error() ? p_other.args[1] : p_partial.args[1]) : p_partial;
-		}
-		if (p_other.kind == TypeKind::None || (p_other.kind == TypeKind::Option && p_other.args[0].is_error())) {
-			return p_partial;
-		}
-		return p_other.is_optional() ? p_other : optional_of(p_other);
-	}
-
-	// A type that a lambda without a return type returns, whose return type is
-	// the type all of them fit (spec §4.6).
-	void add_returned(Type p_value, const TokenRange &p_at) {
-		if (!returns->type || p_value.is_error() || returns->type->is_error()) {
-			returns->type = returns->type ? Type::of(TypeKind::Error) : p_value;
-			return;
-		}
-		Type known = *returns->type;
-		if (partial(known)) {
-			known = completed(known, p_value);
-		}
-		if (partial(p_value)) {
-			p_value = completed(p_value, known);
-		}
-		const Type common = common_type(known, p_value);
-		if (common.is_error()) {
-			error(p_at, function_label() + " returns " + returned_text(*returns->type) + " and " + returned_text(p_value) + "; declare its return type.");
-		}
-		returns->type = common;
-	}
-
-	// A type a lambda returns, as a diagnostic shows it, even if partial.
-	static std::string returned_text(const Type &p_type) {
-		if (p_type.kind == TypeKind::None || p_type.kind == TypeKind::Option) {
-			return p_type.kind == TypeKind::None || p_type.args[0].is_error() ? std::string("None") : p_type.to_string();
-		}
-		return p_type.is_result() && partial(p_type) ? (p_type.args[0].is_error() ? "Err(" + p_type.args[1].to_string() + ")" : "Ok(" + p_type.args[0].to_string() + ")") : p_type.to_string();
-	}
-
-	// `x?` (spec §8.2): the value inside x, or the function returns the Err or
-	// the None x holds. So it returns a Result with the same error type, or a
-	// T?; between the two, ok() and ok_or() convert.
-	Type check_try(Expr &r_expr) {
-		const Type type = check_value(*r_expr.left);
-		if (type.is_error()) {
-			return set(r_expr, type);
-		}
-		const bool result = type.is_result();
-		if (!result && !type.is_optional()) {
-			return fail(r_expr, "? takes apart a Result or a T?, not " + type.to_string() + ".");
-		}
-		const std::string found = result ? "the Err(...) of " + type.to_string() : "the None of " + type.to_string();
-		if (in_assert) {
-			return fail(r_expr, "? cannot appear in an assert: it would vanish with the assertion in release builds.");
-		}
-		if (!function || initializing >= 0 || static_initializing >= 0) {
-			return fail(r_expr, "? returns " + found + " from the function, and cannot appear in an initializer.");
-		}
-		if (returns && returns->expected.is_error()) {
-			return fail(r_expr, "? returns " + found + " from the lambda, whose return type is then needed; write it, as in `func(x) -> " + (result ? "Result[int, " + type.args[1].to_string() + "]" : std::string("int?")) + ":`.");
-		}
-		// A lambda returns what the function type it goes to does.
-		const Type to = returns ? returns->expected : function->return_type;
-		if (to.is_error()) {
-			return set(r_expr, Type::of(TypeKind::Error));
-		}
-		if (result && to.is_result() && to.args[1] != type.args[1]) {
-			return fail(r_expr, "? returns " + found + ", but " + function_label() + " returns " + to.to_string() + "; convert the error with map_err().");
-		}
-		if (result ? !to.is_result() : !to.is_optional()) {
-			const std::string convert = to.is_optional() ? "; convert it with ok()" : (to.is_result() ? "; convert it with ok_or()" : "");
-			return fail(r_expr, "? returns " + found + ", but " + function_label() + " returns " + to.to_string() + convert + ".");
-		}
-		if (returns) {
-			add_returned(to, r_expr.range);
-		}
-		return set(r_expr, result ? type.args[0] : type.unwrapped());
-	}
-
-	// Types an expression and computes its value when it is a constant
-	// expression (spec §4.5).
-	Type check_expr(Expr &r_expr, const Type &p_expected = Type::of(TypeKind::Error)) {
-		const Type type = type_expr(r_expr, p_expected);
-		if (type.is_error()) {
-			return type;
-		}
-		if (!r_expr.constant) {
-			r_expr.constant = fold(r_expr);
-		}
-		return type;
-	}
-
-	void report_constant_error(const Expr &p_expr) {
-		if (p_expr.constant_error_at) {
-			error(p_expr.constant_error_at->range, p_expr.constant_error);
-		} else if (p_expr.kind == ExprKind::Binary && p_expr.op_token != NO_TOKEN) {
-			error(p_expr.op_token, p_expr.constant_error);
-		} else {
-			error(p_expr.range, p_expr.constant_error);
-		}
-	}
-
-	// The part of an expression that keeps it from being a constant expression.
-	static const Expr &not_constant_part(const Expr &p_expr) {
-		for (const Expr *child : { p_expr.base.get(), p_expr.left.get(), p_expr.right.get() }) {
-			if (child && !child->constant && !child->type.is_error()) {
-				return not_constant_part(*child);
-			}
-		}
-		for (const auto &arg : p_expr.args) {
-			if (!arg->constant && !arg->type.is_error()) {
-				return not_constant_part(*arg);
-			}
-		}
-		return p_expr;
-	}
-
-	// Reports why an expression whose value must be a constant is not one.
-	void require_constant(const Expr &p_expr) {
-		const Expr &part = not_constant_part(p_expr);
-		if (!part.constant_error.empty()) {
-			report_constant_error(part);
-			return;
-		}
-		std::string what = "This is not a constant expression";
-		switch (part.kind) {
-			case ExprKind::Call:
-				what = "\"" + part.text + "()\" is not a constant expression: of calls, only constructors of built-in types and math functions are";
-				break;
-			case ExprKind::Name:
-			case ExprKind::Member:
-				if (part.target == Target::Local || part.target == Target::Member || part.target == Target::StaticVar || part.target == Target::SelfProperty || part.target == Target::ObjectProperty) {
-					what = "\"" + part.text + "\" is a variable, not a constant";
-				}
-				break;
-			case ExprKind::Self:
-				what = "self is not a constant expression";
-				break;
-			case ExprKind::Cast:
-			case ExprKind::TypeTest:
-				what = "as and is are not supported in constant expressions";
-				break;
-			default:
-				break;
-		}
-		error(part.range, what + ".");
-	}
-
-	// The string type a string literal is built as: the one it goes to, when
-	// it converts to that (spec §10.7), otherwise its own.
-	Type literal_type(const Expr &p_literal, const Type &p_to) const {
-		const Type own = p_literal.op == TokenKind::StringName ? Type::builtin("StringName") : (p_literal.op == TokenKind::NodePath ? Type::builtin("NodePath") : Type::of(TypeKind::String));
-		const Type to = p_to.kind == TypeKind::Option ? p_to.args[0] : p_to;
-		const bool text = to.kind == TypeKind::String || to.builtin_name() == "StringName" || to.builtin_name() == "NodePath";
-		return text && assignable(own, to) ? to : own;
-	}
-
-	// `p_expected` is the type the value goes to, if known; literals of arrays,
-	// dictionaries, strings and None take their type from it.
-	Type type_expr(Expr &r_expr, const Type &p_expected) {
-		if (completion && (r_expr.kind == ExprKind::Name || r_expr.kind == ExprKind::Member || r_expr.kind == ExprKind::Call || r_expr.kind == ExprKind::GetNode) && at_cursor(r_expr.text)) {
-			r_expr.kind == ExprKind::GetNode ? complete_node_path(r_expr) : complete(r_expr, p_expected);
-			return set(r_expr, Type::of(TypeKind::Error));
-		}
-		switch (r_expr.kind) {
-			case ExprKind::IntLiteral:
-				if (r_expr.int_overflows) {
-					return fail(r_expr, "Integer literal is too large for int.");
-				}
-				return set(r_expr, Type::of(TypeKind::Int));
-			case ExprKind::FloatLiteral:
-				return set(r_expr, Type::of(TypeKind::Float));
-			case ExprKind::StringLiteral:
-				return set(r_expr, literal_type(r_expr, p_expected));
-			case ExprKind::BoolLiteral:
-				return set(r_expr, Type::of(TypeKind::Bool));
-			case ExprKind::Name:
-				return check_name(r_expr);
-			case ExprKind::Await:
-				return check_await(r_expr);
-			case ExprKind::Self:
-				return check_self(r_expr);
-			case ExprKind::Unary:
-				return check_unary(r_expr);
-			case ExprKind::Binary:
-				return check_binary(r_expr);
-			case ExprKind::Call:
-				return check_call(r_expr, p_expected);
-			case ExprKind::Member:
-				return check_member_access(r_expr);
-			case ExprKind::GetNode:
-				return check_get_node(r_expr);
-			case ExprKind::Cast:
-				return check_cast(r_expr);
-			case ExprKind::ArrayLiteral:
-				return check_array_literal(r_expr, p_expected);
-			case ExprKind::DictionaryLiteral:
-				return check_dictionary_literal(r_expr, p_expected);
-			case ExprKind::Subscript:
-				return check_subscript(r_expr);
-			case ExprKind::Conditional:
-				return check_conditional(r_expr, p_expected);
-			case ExprKind::NoneLiteral:
-				// The T? it goes to, where that is known.
-				if ((p_expected.is_optional() && !partial(p_expected)) || p_expected.kind == TypeKind::Variant) {
-					return set(r_expr, p_expected);
-				}
-				return set(r_expr, Type::of(TypeKind::None));
-			case ExprKind::TypeTest:
-				return check_type_test(r_expr);
-			case ExprKind::Lambda:
-				return check_lambda(r_expr, p_expected);
-			case ExprKind::Try:
-				return check_try(r_expr);
-			case ExprKind::Error:
-				break;
-		}
-		return set(r_expr, Type::of(TypeKind::Error));
-	}
-
-	// Checks an expression whose value is stored, passed or returned.
-	Type check_value(Expr &r_expr, const Type &p_expected = Type::of(TypeKind::Error)) {
-		const Type type = check_expr(r_expr, p_expected);
-		if (type.kind == TypeKind::Void) {
-			error(r_expr.range, "This call returns void and has no value.");
-			return Type::of(TypeKind::Error);
-		}
-		if (type.kind == TypeKind::Unsupported) {
-			error(r_expr.range, "Values of type " + type.to_string() + " are not supported yet.");
-			return Type::of(TypeKind::Error);
-		}
-		return type;
-	}
-
-	// What a Variant needs before it is used as a value of a type (spec §3.14).
-	static std::string variant_hint(const Type &p_to = Type::of(TypeKind::Error)) {
-		if (p_to.kind == TypeKind::Object) {
-			return " Convert it first with v as " + p_to.name + ", or narrow it with `if v is " + p_to.name + ":`.";
-		}
-		if (is_typed_container(p_to)) {
-			return " Narrow it first with `if v is " + p_to.to_string() + ":`.";
-		}
-		const std::string name = p_to.kind == TypeKind::Builtin || p_to.is_primitive() ? p_to.to_string() : "T";
-		return " Convert it first with " + name + "(v), or narrow it with `if v is " + name + ":`.";
-	}
-
-	// Whether the expression is a place that can be written: a local, a
-	// member, a property, or a member of a built-in value in such a place,
-	// which is then written back (architecture §2.1).
-	bool check_place(const Expr &p_target) {
-		const std::string constant = constant_root(p_target);
-		if (!constant.empty()) {
-			const bool whole = p_target.kind != ExprKind::Subscript && p_target.target != Target::Field && p_target.target != Target::StructField;
-			error(p_target.range, whole ? "Cannot assign to the constant \"" + constant + "\"." : "\"" + constant + "\" is a constant, whose containers are read-only.");
-			return false;
-		}
-		if (p_target.kind == ExprKind::Subscript) {
-			if (p_target.base->type.kind == TypeKind::String) {
-				error(p_target.range, "A String's characters cannot be assigned. Remove one with s = s.erase(i), or replace it with s = s.erase(i).insert(i, c).");
-				return false;
-			}
-			// An Array or a Dictionary changes in place; a packed array is a value,
-			// written back along the chain.
-			return is_shared(p_target.base->type) || check_written_back(p_target);
-		}
-		switch (p_target.target) {
-			case Target::Local:
-				if (p_target.kind == ExprKind::Self) {
-					error(p_target.range, "self is read-only in a struct's methods; return a changed copy instead.");
-					return false;
-				}
-				if (is_capture(p_target.index)) {
-					// It would change neither the variable outside nor the next call (spec §3.11).
-					error(p_target.range, "Cannot assign to \"" + p_target.text + "\", which the lambda captures as a copy; keep what it shares in a member or a container.");
-					return false;
-				}
-				return true;
-			case Target::Member:
-			case Target::StaticVar:
-			case Target::Owner:
-				return true;
-			case Target::SelfProperty:
-			case Target::ObjectProperty: {
-				if (p_target.is_static) {
-					error(p_target.range, "Cannot assign to the constant \"" + p_target.text + "\".");
-					return false;
-				}
-				const std::string &owner = p_target.target == Target::SelfProperty ? cls.native_base : p_target.owner;
-				const auto property = engine.find_property(owner, p_target.text);
-				if (property && !property->writable) {
-					error(p_target.range, "The property \"" + p_target.text + "\" is read-only.");
-					return false;
-				}
-				const InterfaceProperty *required = p_target.base && p_target.base->type.is_interface ? interface_property(p_target.base->type, p_target.text) : nullptr;
-				if (required && required->is_readonly) {
-					error(p_target.range, "The property \"" + p_target.text + "\" of " + p_target.base->type.to_string() + " is @readonly.");
-					return false;
-				}
-				return true;
-			}
-			case Target::Field:
-			case Target::StructField:
-				return check_written_back(p_target);
-			default:
-				if (!p_target.type.is_error()) {
-					error(p_target.range, "Cannot assign to this expression.");
-				}
-				return false;
-		}
-	}
-
-	// The constant an expression is or is a part of, as `C`, `C[i]` and `C.x`
-	// are; empty for anything else.
-	std::string constant_root(const Expr &p_expr) const {
-		const bool name = p_expr.kind == ExprKind::Name || p_expr.kind == ExprKind::Member;
-		if (name && (p_expr.target == Target::Constant || (p_expr.target == Target::Local && function && function->locals[p_expr.index].constant))) {
-			return p_expr.text;
-		}
-		const bool part = p_expr.kind == ExprKind::Subscript || (p_expr.kind == ExprKind::Member && (p_expr.target == Target::Field || p_expr.target == Target::StructField));
-		return part && p_expr.base ? constant_root(*p_expr.base) : std::string();
-	}
-
-	// A part of a value, changed in a copy written back along the chain (spec §3.6).
-	bool check_written_back(const Expr &p_target) {
-		const ExprKind base = p_target.base->kind;
-		if (base == ExprKind::Name || base == ExprKind::Member || base == ExprKind::Subscript || base == ExprKind::Self) {
-			return check_place(*p_target.base);
-		}
-		error(p_target.range, p_target.kind == ExprKind::Subscript ? "Cannot assign to an element of a temporary value." : "Cannot assign to a member of a temporary value.");
-		return false;
-	}
-
-	// A scene statically known going to a PackedScene[T] that is not, whose
-	// instantiate(...) asks only for the members of T that must be assigned
-	// and are not exported (spec §7.4). The scene may leave no other member
-	// to it. A conditional not folded converts each branch.
-	void expect_scene_fits(const Expr &p_value, const Type &p_to) {
-		if (!is_typed_scene(p_to)) {
-			return;
-		}
-		if (p_value.kind == ExprKind::Conditional && !p_value.constant) {
-			expect_scene_fits(*p_value.left, p_to);
-			expect_scene_fits(*p_value.right, p_to);
-			return;
-		}
-		const std::optional<Scene> scene = known_scene(p_value);
-		const std::string unfit = scene ? unfit_scene(*scene, p_to) : std::string();
-		if (!unfit.empty()) {
-			error(p_value.range, scene->path + " " + unfit);
-		}
-	}
-
-	static bool is_typed_scene(const Type &p_type) {
-		return p_type.kind == TypeKind::Object && p_type.name == "PackedScene" && !p_type.args.empty();
-	}
-
-	// What a scene leaves to instantiate(...) that a PackedScene[T] does not
-	// ask for, as the error says it after the scene; "" for nothing. It does
-	// not ask for what the _init of T assigns.
-	std::string unfit_scene(const Scene &p_scene, const Type &p_to) {
-		const SceneNode *root = p_scene.find_node(".");
-		const std::string script = !root ? std::string() : root->script.empty() ? root->instance_script
-																				: root->script;
-		const ClassDecl *made = is_script_path(script) ? script_decl(script) : nullptr;
-		const Type &taken = p_to.args[0];
-		const ClassDecl *asks = taken.kind == TypeKind::Object && !taken.is_interface && !taken.script.empty() ? script_decl(taken.script) : nullptr;
-		for (const VarDecl *member : made ? made->all_members : std::vector<const VarDecl *>()) {
-			const bool asked = !member->is_export && asks && !init_assigns(*asks, member->name) && find_named(asks->all_members, member->name);
-			if (member->must_assign && !init_assigns(*made, member->name) && !asked && (!member->is_export || !stored_value(p_scene, ".", member->name).value_or(false))) {
-				return "leaves \"" + member->name + "\" to instantiate(), but a " + p_to.to_string() + " does not ask for it.";
-			}
-		}
-		return std::string();
-	}
-
-	// Why the engine would lose a None of a value of the type (spec §10.1), as
-	// a sentence whose subject is `p_who`; empty when it would not. With
-	// `p_fix`, a T?? or Variant? itself is given the call that makes it fit.
-	// `p_what` names the value, as "its result", when it is not the subject's.
-	std::string encoding_loss(const Type &p_type, const std::string &p_who, bool p_fix, bool p_copied = false, const std::string &p_what = std::string()) const {
-		const std::optional<Type> lost = lost_in_encoding(p_type, *this, p_copied);
-		if (!lost) {
-			return std::string();
-		}
-		const bool variant = lost->args[0].kind == TypeKind::Variant;
-		const bool whole = *lost == p_type;
-		const std::string none = whole ? (p_what.empty() ? std::string("its None") : "the None of " + p_what) : "the None of the " + lost->to_string() + " inside" + (p_what.empty() ? std::string() : " " + p_what);
-		std::string text = p_who + " cannot tell " + none + " from " + (variant ? "null" : "Some(None)");
-		if (whole && p_fix) {
-			text += variant ? "; pass x.unwrap_or(null)" : "; pass x.flatten()";
-		}
-		return text + ".";
-	}
-
-	// Why a value of the type does not go to a Variant or an untyped container
-	// as it is (spec §3.14), after the error that says so.
-	std::string variant_refusal(const Type &p_type) const {
-		const std::string loss = encoding_loss(p_type, "A Variant", true);
-		if (!loss.empty()) {
-			return " " + loss;
-		}
-		if (is_typed_container(p_type) && is_boxed(p_type)) {
-			return " Its elements exist only in this language; convert it explicitly with " + p_type.name + "(x), a copy with the elements encoded.";
-		}
-		return std::string();
-	}
-
-	// Why a function value does not go to a Callable or a Variant, whose
-	// calls encode as those of a pub function do (spec §10.1).
-	std::string callable_refusal(const Type &p_function) const {
-		for (size_t i = 1; i <= p_function.args.size(); i++) {
-			const size_t part = i % p_function.args.size(); // The result last.
-			const std::string loss = encoding_loss(p_function.args[part], "The engine", false, false, part == 0 ? std::string("its result") : "its parameter " + std::to_string(part));
-			if (!loss.empty()) {
-				return " " + loss;
-			}
-		}
-		return std::string();
-	}
-
-	void expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action) {
-		if (assignable(p_from, p_to)) {
-			expect_implemented(p_value, p_from, p_to);
-			expect_scene_fits(p_value, p_to);
-			return;
-		}
-		std::string message = std::string("Cannot ") + p_action + " a value of type " + p_from.to_string() + " as " + p_to.to_string() + ".";
-		if (p_from.kind == TypeKind::Float && p_to.kind == TypeKind::Int) {
-			message += " Convert explicitly with int(x).";
-		}
-		if (p_to.unwrapped().kind == TypeKind::Enum && (p_from.kind == TypeKind::Int || p_from.kind == TypeKind::Enum)) {
-			const std::string name = enum_spelling(p_to.unwrapped());
-			message += " Convert explicitly with " + name + "(x), which checks that it is one of the values.";
-		}
-		const bool untyped_view = p_to.kind == TypeKind::Builtin && p_to.args.empty() && p_to.name == p_from.name;
-		if (p_to.kind == TypeKind::Variant || untyped_view) {
-			message += variant_refusal(p_from);
-		}
-		if (p_from.kind == TypeKind::Function && (p_to.kind == TypeKind::Variant || p_to == Type::builtin("Callable"))) {
-			message += callable_refusal(p_from);
-		}
-		if (p_from.kind == TypeKind::Variant) {
-			message += variant_hint(p_to.unwrapped());
-		}
-		if (is_typed_container(p_to) && p_from.kind == TypeKind::Builtin && p_from.args.empty() && p_from.name == p_to.name) {
-			message += " Its elements may be of any type; narrow it with `if x is " + p_to.to_string() + ":`, or copy them in with assign().";
-		}
-		error(p_value.range, message);
-	}
-
-	void expect_condition(Expr &r_condition) {
-		const Type type = check_value(r_condition);
-		if (type.is_error() || type.kind == TypeKind::Bool) {
-			return;
-		}
-		error(r_condition.range, "A condition must be bool, found " + type.to_string() + "." + compare_hint(type, false));
-	}
-
-	/* Statements */
+	/* Blocks and match (spec §5.6) */
 
 	// Returns what is known at the end of the block, starting from `p_facts`.
 	std::unordered_map<int, Type> check_block(Block &r_block, const std::unordered_map<int, Type> &p_facts = {}) {
@@ -8125,6 +8777,8 @@ class Checker : public ClassRelation {
 		return subtype && assignable(p_pattern, p_matched);
 	}
 
+	/* Loops and other statements (spec §5.7) */
+
 	// `for i in n`, over the elements of an array, over the keys of a
 	// Dictionary, over the characters of a String, or over an object (spec §5.7).
 	void check_for(Stmt &r_stmt) {
@@ -8463,6 +9117,31 @@ class Checker : public ClassRelation {
 			cls.all_static_vars.push_back(&variable);
 			refer(variable.name_token, script_id(options.path, variable.name), SymbolKind::Property);
 		}
+	}
+
+	// Every function's name, before any type is resolved, which may need a
+	// class of this file that uses them (spec §4.1).
+	void declare_functions() {
+		std::unordered_set<std::string> own_functions;
+		for (FuncDecl &fn : cls.functions) {
+			if (!own_functions.insert(fn.name).second || member_index.count(fn.name) || static_index.count(fn.name) || constant_index.count(fn.name) || signal_index.count(fn.name)) {
+				error(fn.name_token, "\"" + fn.name + "\" is already declared.");
+				continue;
+			}
+			const auto found = function_index.find(fn.name);
+			if (found == function_index.end()) {
+				function_index[fn.name] = int(cls.all_functions.size());
+				cls.all_functions.push_back(&fn);
+			} else {
+				cls.all_functions[found->second] = &fn;
+			}
+		}
+	}
+
+	// Whether the function is the one its name was declared for.
+	bool is_declared(const FuncDecl &p_function) const {
+		const auto found = function_index.find(p_function.name);
+		return found != function_index.end() && cls.all_functions[found->second] == &p_function;
 	}
 
 	/* Annotations (spec §2.3) */
@@ -8823,6 +9502,8 @@ class Checker : public ClassRelation {
 		}
 	}
 
+	/* Members (spec §4.3) */
+
 	// After the signatures, since an initializer can call this class's functions.
 	// The other members first, then the @onready ones, whose initializers may
 	// read any of the others (spec §6.3), so that a member's type is known
@@ -9137,6 +9818,8 @@ class Checker : public ClassRelation {
 		r_member.setter_index = accessor(r_member.setter, true);
 		r_member.getter_index = accessor(r_member.getter, false);
 	}
+
+	/* Functions (spec §4.6) */
 
 	// The values themselves are checked with the body (declare_params()).
 	void check_defaults(const FuncDecl &p_function) {
@@ -9485,181 +10168,46 @@ class Checker : public ClassRelation {
 		}
 	}
 
-	// Why a member that a scene names must be pub (spec §10.5).
-	static std::string not_pub(bool p_method) {
-		return p_method ? ", which is not pub; the engine calls only pub methods by name." : ", which is not pub; the engine finds only pub properties by name.";
+	void check_body(FuncDecl &r_function) {
+		function = &r_function;
+		scopes.clear();
+		scopes.emplace_back();
+		narrowed.clear();
+		narrowed.emplace_back();
+		if (r_function.of_struct && !r_function.is_static) {
+			scopes.back()["self"] = 0;
+			r_function.locals.push_back({ "self", structure_type, r_function.name_token });
+		}
+		declare_params(r_function, true);
+		const size_t cursor = completion ? cls.source->text.find(CURSOR) : 0;
+		// Other files use what _init assigns (architecture §6.4), so a check of
+		// the declarations alone checks its body for that, without its errors.
+		const bool init = r_function.name == "_init" && !r_function.is_static;
+		const bool for_others = init && !check_bodies;
+		if (!for_others && (options.declarations_only || !check_bodies || (completion && (cursor < cls.source->begin(r_function.range) || cursor >= cls.source->end(r_function.range))))) {
+			function = nullptr;
+			scopes.clear();
+			return;
+		}
+		const size_t earlier_errors = errors.size();
+		check_block(r_function.body);
+		if (r_function.has_body && r_function.return_type.kind != TypeKind::Void && !r_function.return_type.is_error() && !always_ends(r_function.body, false)) {
+			error(r_function.name_token, "Not all paths of \"" + r_function.name + "()\" return a value.");
+		}
+		if (init) {
+			std::set<int> reported;
+			for (const int member : init_block(r_function.body, std::set<int>(), reported).value_or(std::set<int>())) {
+				r_function.assigned.push_back(cls.all_members[member]->name);
+			}
+		}
+		if (for_others) {
+			errors.erase(errors.begin() + std::ptrdiff_t(earlier_errors), errors.end());
+		}
+		function = nullptr;
+		scopes.clear();
 	}
 
-	// The members of this class that the scene's animation tracks and
-	// synchronized properties name (spec §7.7), each resolved as $X is. The
-	// class must have them, and the engine finds them by name, so they must be
-	// pub (§10.5). An engine class may take names that it does not list: those
-	// with a slash, as metadata/ (core/object/object.cpp:279; ed1daf0), and any
-	// where the class has _set() or _get(). A path that leads to no node is
-	// left to the engine at run time.
-	void check_named_members() {
-		const TokenRange header{ cls.extends_token, cls.extends_token };
-		const bool takes_any = function_index.count("_set") || function_index.count("_get");
-		for (const Scene &scene : scenes) {
-			for (const SceneNamedMember &named : scene.named_members) {
-				const ViewNode *node = walk_node_path(scene, named.from, named.node).node;
-				if (!node || (node->node.script.empty() ? node->node.instance_script : node->node.script) != options.path) {
-					continue;
-				}
-				const auto shown = [](const std::string &p_path) { return p_path == "." ? std::string("the root") : p_path; };
-				const std::string what = named.method ? "calls " + named.name + "() on " + shown(node->path) : (named.animation.empty() ? "synchronizes \"" : "animates \"") + named.name + "\" of " + shown(node->path);
-				const std::string where = scene.path + ": " + (named.animation.empty() ? shown(named.from) : "the animation \"" + named.animation + "\" of " + shown(named.from)) + " " + what;
-				if (named.method) {
-					const auto found = function_index.find(named.name);
-					const FuncDecl *method = found == function_index.end() ? nullptr : cls.all_functions[found->second];
-					const std::optional<EngineMethod> native = method ? std::nullopt : engine.find_method(cls.native_base, named.name);
-					if (method && !method->is_pub && !method->is_override) {
-						error_in_scene(own_name(*method, cls.functions, header), scene, node->path, where + not_pub(true));
-					} else if (!method && (!native || native->is_virtual)) {
-						error_in_scene(header, scene, node->path, where + ", which this class does not declare.");
-					}
-					continue;
-				}
-				const auto found = member_index.find(named.name);
-				const VarDecl *member = found == member_index.end() ? nullptr : cls.all_members[found->second];
-				if (member && !member->is_pub) {
-					error_in_scene(own_name(*member, cls.members, header), scene, node->path, where + not_pub(false));
-				} else if (!member && !static_index.count(named.name) && !takes_any && named.name.find('/') == std::string::npos && !engine.find_property(cls.native_base, named.name)) {
-					error_in_scene(header, scene, node->path, where + ", which this class does not declare.");
-				}
-			}
-		}
-	}
-
-	// Connections saved in scenes to methods of this class (spec §7.7), on a
-	// node with it or on an instance of a scene whose root has it; either end
-	// may be inside a scene it instances. The method must exist and take what
-	// the signal passes. The engine finds the method and the signal by name,
-	// so both must be pub (§10.5). A method of the engine class that is not
-	// virtual is found so too.
-	void check_connections() {
-		const TokenRange header{ cls.extends_token, cls.extends_token };
-		for (const Scene &scene : scenes) {
-			for (const SceneConnection &connection : scene.connections) {
-				const ViewNode *target = view_node(scene, connection.target);
-				if (!target || (target->node.script.empty() ? target->node.instance_script : target->node.script) != options.path) {
-					continue;
-				}
-				const std::string where = scene.path + ": the signal \"" + connection.signal + "\" of " + connection.source + " is connected to " + connection.method + "()";
-				const auto found = function_index.find(connection.method);
-				const FuncDecl *method = found == function_index.end() ? nullptr : cls.all_functions[found->second];
-				const std::optional<EngineMethod> native = method ? std::nullopt : engine.find_method(cls.native_base, connection.method);
-				if (!method && (!native || native->is_virtual)) {
-					error_in_scene(header, scene, connection.target, where + ", which this class does not declare.");
-					continue;
-				}
-				const TokenRange at = method ? own_name(*method, cls.functions, header) : header;
-				if (method && !method->is_pub) {
-					error_in_scene(at, scene, connection.target, where + not_pub(true));
-				}
-				if (method && references) {
-					Reference reference;
-					reference.target = script_id(declaring(cls, *method, &ClassDecl::functions).path, method->name);
-					reference.scene = scene.path;
-					reference.connection = connection;
-					references->push_back(std::move(reference));
-				}
-				const ViewNode *source = view_node(scene, connection.source);
-				bool missing = false;
-				bool hidden = false;
-				const std::optional<std::vector<Type>> arguments = source ? signal_arguments(source->node, connection.signal, missing, hidden) : std::nullopt;
-				if (missing) {
-					error_in_scene(header, scene, connection.target, where + ", but " + connection.source + " has no such signal.");
-				} else if (hidden) {
-					error_in_scene(header, scene, connection.target, where + ", but that signal is not pub; the engine connects only pub signals by name.");
-				}
-				if (!arguments) {
-					continue;
-				}
-				const int passed = int(arguments->size()) - connection.unbinds + connection.binds;
-				const int most = int(method ? method->params.size() : native->params.size());
-				const int required = method ? required_params(*method) : most - native->default_count;
-				const bool rest = method ? method->has_rest() : native->is_vararg;
-				if (passed < required || (!rest && passed > most)) {
-					error_in_scene(at, scene, connection.target, where + ", which passes " + std::to_string(passed) + " argument(s); " + connection.method + "() takes " + argument_count(required, most, rest) + ".");
-					continue;
-				}
-				for (int i = 0; i < int(arguments->size()) - connection.unbinds; i++) {
-					std::optional<Type> param = method ? argument_type(*method, size_t(i)) : std::nullopt;
-					// The rest of a vararg engine method are Variant.
-					if (!method && i < most) {
-						param = native->params[i].type;
-					}
-					if (param && param->is_storable() && !assignable((*arguments)[i], *param)) {
-						const bool own = method && is_own(*method, cls.functions);
-						const ParamDecl *named = own ? &method->params[std::min(size_t(i), method->params.size() - 1)] : nullptr;
-						error_in_scene(named ? TokenRange{ named->name_token, named->name_token } : header, scene, connection.target, where + ", which passes " + (*arguments)[i].to_string() + " here.");
-					}
-				}
-			}
-		}
-	}
-
-	// Each node of the scene and each resource it holds that has the class
-	// set, with its name in messages and the node it marks.
-	void for_each_attached(const std::function<void(const std::string &, const std::string &)> &p_check) {
-		for (const SceneNode &node : scenes[0].nodes) {
-			if (node.script == options.path) {
-				p_check(node.path == "." ? std::string("the root") : node.path, node.path);
-			}
-		}
-		for (const SceneResource &resource : scenes[0].resources) {
-			if (resource.script == options.path) {
-				p_check(resource.shown(), std::string());
-			}
-		}
-	}
-
-	// No node or resource has an abstract class (spec §4.1), which the engine
-	// refuses to set (core/object/object.cpp:976; ed1daf0); nor one whose
-	// _init() has required parameters, which the engine does not pass (§6.2).
-	void check_attached() {
-		const TokenRange header{ cls.extends_token, cls.extends_token };
-		const FuncDecl *init = init_of(cls);
-		const bool takes = init && required_params(*init) > 0;
-		for_each_attached([&](const std::string &p_shown, const std::string &p_node) {
-			const std::string has = scenes[0].path + ": " + p_shown + " has " + display_name(cls, options.path);
-			if (cls.is_abstract) {
-				error_in_scene(header, scenes[0], p_node, has + ", which is abstract and cannot be set on a " + (p_node.empty() ? "resource." : "node."));
-			}
-			if (takes) {
-				error_in_scene(own_name(*init, cls.functions, header), scenes[0], p_node, has + ", whose _init() has required parameters, which the engine does not pass.");
-			}
-		});
-	}
-
-	// What a signal of a node in a scene passes: one its script of this
-	// language declares (spec §4.7), or one of its engine class. nullopt when
-	// that is not known: a script of another language, or one with errors;
-	// `r_missing` when the node certainly has no such signal, `r_hidden` when
-	// it is not pub.
-	std::optional<std::vector<Type>> signal_arguments(const SceneNode &p_node, const std::string &p_signal, bool &r_missing, bool &r_hidden) {
-		const std::string &script = p_node.script.empty() ? p_node.instance_script : p_node.script;
-		if (!script.empty() && !is_script_path(script)) {
-			return std::nullopt;
-		}
-		if (!script.empty()) {
-			const ClassDecl *decl = script_decl(script);
-			if (!decl) {
-				return std::nullopt;
-			}
-			if (const SignalDecl *signal = find_named(decl->all_signals, p_signal)) {
-				r_hidden = !signal->is_pub;
-				return param_types(signal->params);
-			}
-		}
-		const auto signal = engine.find_signal(p_node.type, p_signal);
-		if (!signal) {
-			r_missing = engine.class_exists(p_node.type);
-			return std::nullopt;
-		}
-		return signal_type(*signal).args;
-	}
+	/* Interfaces (spec §3.9) */
 
 	// The signatures of the interfaces the class declares (spec §3.9).
 	void declare_interfaces() {
@@ -9784,6 +10332,186 @@ class Checker : public ClassRelation {
 		}
 		return false;
 	}
+
+	// `implements I`: the class has every method of I and of the interfaces I
+	// extends, pub and with the same signature, and is each of those
+	// interfaces (spec §3.9).
+	void check_implements() {
+		std::vector<std::pair<Type, const TypeRef *>> named;
+		for (const TypeRef &ref : cls.implements) {
+			const Type type = resolve(ref, false);
+			if (type.is_error()) {
+				continue;
+			}
+			if (!type.is_interface) {
+				error(ref.range, type.to_string() + " is not an interface.");
+				continue;
+			}
+			named.push_back({ type, &ref });
+			for (const Type &interface : interface_order({ type })) {
+				if (std::find(cls.implemented.begin(), cls.implemented.end(), interface) == cls.implemented.end()) {
+					cls.implemented.push_back(interface);
+				}
+			}
+		}
+		for (const Type &interface : cls.implemented) {
+			if (const InterfaceDecl *decl = interface_decl(interface)) {
+				for (const FuncDecl &method : decl->methods) {
+					cls.interface_methods.push_back(&method);
+				}
+			}
+		}
+		for (const auto &entry : named) {
+			const Type &type = entry.first;
+			const TypeRef &ref = *entry.second;
+			// One that another named interface extends is checked with it.
+			if (std::any_of(named.begin(), named.end(), [&](const auto &p_other) { return !(p_other.first == type) && is_a(p_other.first, type); })) {
+				continue;
+			}
+			own_interfaces.push_back({ type, &ref });
+			const size_t reported = errors.size();
+			const InterfaceDecl *interface = interface_decl(type);
+			if (!interface) {
+				error(ref.range, type.script + " has errors.");
+				note_implementation(type, ref, reported);
+				continue;
+			}
+			for (const InterfaceMember &member : interface_members({ type })) {
+				if (!member.method) {
+					continue;
+				}
+				const FuncDecl &method = *member.method;
+				const auto found = function_index.find(method.name);
+				if (found == function_index.end()) {
+					error(ref.range, "The class does not implement " + method.name + "() of " + member.owner.name + ".");
+					continue;
+				}
+				const FuncDecl &function = *cls.all_functions[found->second];
+				if (is_own(function, cls.functions)) {
+					refer(function.name_token, script_id(options.path, function.name), SymbolKind::Method, interface_member_id(member));
+				}
+				if (!function.is_pub) {
+					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + member.owner.name + " and must be pub.");
+				}
+				if (function.is_static) {
+					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + member.owner.name + ", so it cannot be static.");
+				}
+				bool same = function.params.size() == method.params.size() && function.return_type == method.return_type && function.is_async == method.is_async;
+				for (size_t i = 0; same && i < method.params.size(); i++) {
+					same = function.params[i].type == method.params[i].type && function.params[i].is_rest == method.params[i].is_rest;
+				}
+				if (!same) {
+					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" does not have the signature that " + member.owner.name + " declares, " + signature_text(method) + ".");
+				}
+			}
+			note_implementation(type, ref, reported);
+		}
+	}
+
+	// That the class has errors in implementing the interface, when some were
+	// reported since `p_reported`.
+	void note_implementation(const Type &p_interface, const TypeRef &p_ref, size_t p_reported) {
+		const auto &noted = cls.implemented_with_errors;
+		if (errors.size() == p_reported || std::any_of(noted.begin(), noted.end(), [&](const auto &p_noted) { return p_noted.first == p_interface; })) {
+			return;
+		}
+		cls.implemented_with_errors.push_back({ p_interface, cls.source->position(cls.source->begin(p_ref.range)).line });
+	}
+
+	// A class of another file used as an interface it has errors in
+	// implementing, as other declarations with errors are (architecture §2.1).
+	void expect_implemented(const Expr &p_value, const Type &p_from, const Type &p_to) {
+		if (!p_to.is_interface || p_from.is_interface || !is_script_path(p_from.script) || in_this_file(p_from.script)) {
+			return;
+		}
+		const ClassDecl *decl = script_decl(p_from.script);
+		if (!decl) {
+			return;
+		}
+		Type interface = p_to;
+		interface.nullable = false;
+		for (const auto &[type, line] : decl->implemented_with_errors) {
+			if (type == interface) {
+				Type from = p_from;
+				from.nullable = false;
+				error(p_value.range, from.to_string() + " implements " + interface.to_string() + " with errors (" + script_file(p_from.script) + ", line " + std::to_string(line) + ").");
+			}
+		}
+	}
+
+	// The properties and signals the class's interfaces require, after the
+	// members' types and the signals are known (spec §3.9): a pub member of the
+	// same type, or an inherited engine property, which must have a setter
+	// unless the requirement is @readonly; a pub signal with the same arguments,
+	// its own, inherited or of the engine class.
+	void check_interface_properties() {
+		for (const auto &[type, ref] : own_interfaces) {
+			const size_t reported = errors.size();
+			for (const InterfaceMember &member : interface_members({ type })) {
+				if (member.signal) {
+					check_interface_signal(member, *ref);
+				}
+				if (!member.property || member.property->type.is_error()) {
+					continue;
+				}
+				const InterfaceProperty &required = *member.property;
+				const std::string &owner = member.owner.name;
+				const auto found = member_index.find(required.name);
+				if (found != member_index.end()) {
+					const VarDecl &provided = *cls.all_members[found->second];
+					if (is_own(provided, cls.members)) {
+						refer(provided.name_token, script_id(options.path, provided.name), SymbolKind::Property, interface_member_id(member));
+					}
+					if (!provided.is_pub) {
+						error(own_name(provided, cls.members, ref->range), "\"" + provided.name + "\" implements " + owner + " and must be pub.");
+					} else if (!provided.type.is_error() && provided.type != required.type) {
+						error(own_name(provided, cls.members, ref->range), "\"" + provided.name + "\" has type " + provided.type.to_string() + ", but " + owner + " requires " + required.type.to_string() + ".");
+					}
+					continue;
+				}
+				const auto property = engine.find_property(cls.native_base, required.name);
+				if (!property) {
+					error(ref->range, "The class does not implement the property \"" + required.name + "\" of " + owner + ".");
+				} else if (property->type != required.type) {
+					error(ref->range, "The engine property \"" + required.name + "\" has type " + property->type.to_string() + ", but " + owner + " requires " + required.type.to_string() + ".");
+				} else if (!property->writable && !required.is_readonly) {
+					error(ref->range, "The engine property \"" + required.name + "\" is read-only, so it satisfies only a @readonly property of " + owner + ".");
+				}
+			}
+			note_implementation(type, *ref, reported);
+		}
+	}
+
+	void check_interface_signal(const InterfaceMember &p_member, const TypeRef &p_ref) {
+		const SignalDecl &required = *p_member.signal;
+		const std::vector<Type> wanted = param_types(required.params);
+		if (std::any_of(wanted.begin(), wanted.end(), [](const Type &p_type) { return p_type.is_error(); })) {
+			return;
+		}
+		const std::string &owner = p_member.owner.name;
+		const auto found = signal_index.find(required.name);
+		if (found != signal_index.end()) {
+			const SignalDecl &provided = *cls.all_signals[found->second];
+			if (is_own(provided, cls.signals)) {
+				refer(provided.name_token, script_id(options.path, provided.name), SymbolKind::Signal, interface_member_id(p_member));
+			}
+			const std::vector<Type> given = param_types(provided.params);
+			if (!provided.is_pub) {
+				error(own_name(provided, cls.signals, p_ref.range), "\"" + provided.name + "\" implements " + owner + " and must be pub.");
+			} else if (std::none_of(given.begin(), given.end(), [](const Type &p_type) { return p_type.is_error(); }) && given != wanted) {
+				error(own_name(provided, cls.signals, p_ref.range), "\"" + provided.name + "\" is " + Type::signal(given).to_string() + ", but " + owner + " requires " + Type::signal(wanted).to_string() + ".");
+			}
+			return;
+		}
+		const auto signal = engine.find_signal(cls.native_base, required.name);
+		if (!signal) {
+			error(p_ref.range, "The class does not implement the signal \"" + required.name + "\" of " + owner + ".");
+		} else if (signal_type(*signal).args != wanted) {
+			error(p_ref.range, "The engine signal \"" + required.name + "\" is " + signal_type(*signal).to_string() + ", but " + owner + " requires " + Type::signal(wanted).to_string() + ".");
+		}
+	}
+
+	/* Structs (spec §3.6) */
 
 	// The fields of the structs the class declares (spec §3.6); the types that
 	// only default values give come with check_field_defaults().
@@ -9922,449 +10650,7 @@ class Checker : public ClassRelation {
 		return p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum ? std::vector<Type>{ p_type } : std::vector<Type>();
 	}
 
-	// `implements I`: the class has every method of I and of the interfaces I
-	// extends, pub and with the same signature, and is each of those
-	// interfaces (spec §3.9).
-	void check_implements() {
-		std::vector<std::pair<Type, const TypeRef *>> named;
-		for (const TypeRef &ref : cls.implements) {
-			const Type type = resolve(ref, false);
-			if (type.is_error()) {
-				continue;
-			}
-			if (!type.is_interface) {
-				error(ref.range, type.to_string() + " is not an interface.");
-				continue;
-			}
-			named.push_back({ type, &ref });
-			for (const Type &interface : interface_order({ type })) {
-				if (std::find(cls.implemented.begin(), cls.implemented.end(), interface) == cls.implemented.end()) {
-					cls.implemented.push_back(interface);
-				}
-			}
-		}
-		for (const Type &interface : cls.implemented) {
-			if (const InterfaceDecl *decl = interface_decl(interface)) {
-				for (const FuncDecl &method : decl->methods) {
-					cls.interface_methods.push_back(&method);
-				}
-			}
-		}
-		for (const auto &entry : named) {
-			const Type &type = entry.first;
-			const TypeRef &ref = *entry.second;
-			// One that another named interface extends is checked with it.
-			if (std::any_of(named.begin(), named.end(), [&](const auto &p_other) { return !(p_other.first == type) && is_a(p_other.first, type); })) {
-				continue;
-			}
-			own_interfaces.push_back({ type, &ref });
-			const size_t reported = errors.size();
-			const InterfaceDecl *interface = interface_decl(type);
-			if (!interface) {
-				error(ref.range, type.script + " has errors.");
-				note_implementation(type, ref, reported);
-				continue;
-			}
-			for (const InterfaceMember &member : interface_members({ type })) {
-				if (!member.method) {
-					continue;
-				}
-				const FuncDecl &method = *member.method;
-				const auto found = function_index.find(method.name);
-				if (found == function_index.end()) {
-					error(ref.range, "The class does not implement " + method.name + "() of " + member.owner.name + ".");
-					continue;
-				}
-				const FuncDecl &function = *cls.all_functions[found->second];
-				if (is_own(function, cls.functions)) {
-					refer(function.name_token, script_id(options.path, function.name), SymbolKind::Method, interface_member_id(member));
-				}
-				if (!function.is_pub) {
-					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + member.owner.name + " and must be pub.");
-				}
-				if (function.is_static) {
-					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + member.owner.name + ", so it cannot be static.");
-				}
-				bool same = function.params.size() == method.params.size() && function.return_type == method.return_type && function.is_async == method.is_async;
-				for (size_t i = 0; same && i < method.params.size(); i++) {
-					same = function.params[i].type == method.params[i].type && function.params[i].is_rest == method.params[i].is_rest;
-				}
-				if (!same) {
-					error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" does not have the signature that " + member.owner.name + " declares, " + signature_text(method) + ".");
-				}
-			}
-			note_implementation(type, ref, reported);
-		}
-	}
-
-	// That the class has errors in implementing the interface, when some were
-	// reported since `p_reported`.
-	void note_implementation(const Type &p_interface, const TypeRef &p_ref, size_t p_reported) {
-		const auto &noted = cls.implemented_with_errors;
-		if (errors.size() == p_reported || std::any_of(noted.begin(), noted.end(), [&](const auto &p_noted) { return p_noted.first == p_interface; })) {
-			return;
-		}
-		cls.implemented_with_errors.push_back({ p_interface, cls.source->position(cls.source->begin(p_ref.range)).line });
-	}
-
-	// A class of another file used as an interface it has errors in
-	// implementing, as other declarations with errors are (architecture §2.1).
-	void expect_implemented(const Expr &p_value, const Type &p_from, const Type &p_to) {
-		if (!p_to.is_interface || p_from.is_interface || !is_script_path(p_from.script) || in_this_file(p_from.script)) {
-			return;
-		}
-		const ClassDecl *decl = script_decl(p_from.script);
-		if (!decl) {
-			return;
-		}
-		Type interface = p_to;
-		interface.nullable = false;
-		for (const auto &[type, line] : decl->implemented_with_errors) {
-			if (type == interface) {
-				Type from = p_from;
-				from.nullable = false;
-				error(p_value.range, from.to_string() + " implements " + interface.to_string() + " with errors (" + script_file(p_from.script) + ", line " + std::to_string(line) + ").");
-			}
-		}
-	}
-
-	// @owner(T) and @parent(T): a class of this language, an interface or an
-	// engine class, on a class that extends Node (spec §7.3).
-	void declare_requirement(const std::optional<TypeRef> &p_ref, Type &r_type, const std::string &p_annotation) {
-		if (!p_ref) {
-			return;
-		}
-		r_type = resolve(*p_ref, false);
-		if (r_type.is_error()) {
-			return;
-		}
-		if (r_type.kind != TypeKind::Object || r_type.nullable) {
-			error(p_ref->range, p_annotation + " takes a class or an interface, not " + r_type.to_string() + ".");
-			r_type = Type::of(TypeKind::Error);
-		} else if (!engine.inherits(cls.native_base, "Node")) {
-			error(p_ref->range, p_annotation + " is for classes that extend Node.");
-			r_type = Type::of(TypeKind::Error);
-		}
-	}
-
-	// Each node of the scene whose check this is that has the class or a
-	// subclass: attached, or as the root of a scene it instances.
-	void for_each_placement(const std::function<void(const Scene &, const SceneNode &)> &p_check) {
-		for (const Scene &scene : scenes) {
-			for (const SceneNode &node : scene.nodes) {
-				if (extends_script(node.script.empty() ? node.instance_script : node.script, options.path)) {
-					p_check(scene, node);
-				}
-			}
-		}
-	}
-
-	// That a node of a scene is what @owner(T) or @parent(T) requires; a class
-	// of another language is left to the check at run time.
-	void check_required(const TokenRange &p_at, const Scene &p_scene, const SceneNode &p_placed, const SceneNode &p_node, const Type &p_required, const std::string &p_what, const std::string &p_annotation) {
-		const std::string &script = p_node.script.empty() ? p_node.instance_script : p_node.script;
-		if (!script.empty() && !is_script_path(script) && !p_required.is_interface && !p_required.script.empty()) {
-			return;
-		}
-		check_required_type(p_at, p_scene, p_placed, scene_node_type(p_at, p_node, p_scene.path + ": " + p_what), p_required, p_what, p_annotation);
-	}
-
-	void check_required_type(const TokenRange &p_at, const Scene &p_scene, const SceneNode &p_placed, const Type &p_found, const Type &p_required, const std::string &p_what, const std::string &p_annotation) {
-		if (!p_found.is_error() && !assignable(p_found, p_required)) {
-			error_in_scene(p_at, p_scene, p_placed.path, p_scene.path + ": " + p_what + " is " + p_found.to_string() + ", not " + p_required.to_string() + " (" + p_annotation + ").");
-		}
-	}
-
-	// Where scenes place the script, its owner satisfies @owner(T) (spec §7.3):
-	// that of a node is the root of the scene that stores it, and that of a
-	// scene's root the root of each scene that instances it. The root of a
-	// scene used as a root has none.
-	void check_owner_scenes() {
-		if (!cls.owner_ref || cls.owner_type.is_error()) {
-			return;
-		}
-		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
-			const ViewNode *placed = view_node(p_scene, p_node.path);
-			const ViewNode *owner = placed && !placed->owner.empty() ? view_node(p_scene, placed->owner) : nullptr;
-			const std::string use = placed && !owner ? classes.root_use(p_scene.path) : std::string();
-			if (owner) {
-				check_required(cls.owner_ref->range, p_scene, p_node, owner->node, cls.owner_type, "the owner of " + p_node.path, "@owner");
-			} else if (!use.empty()) {
-				const bool main = p_scene.path == options.project->main_scene();
-				error_in_scene(cls.owner_ref->range, p_scene, p_node.path, p_scene.path + (main ? ": the main scene's root has no owner (@owner)." : ": the root has no owner where " + use + " (@owner)."));
-			}
-		});
-	}
-
-	// Where scenes place the script, its parent satisfies @parent(T) (spec
-	// §7.3): the parent in the scene, that of a scene's root in each scene that
-	// instances it, and the root viewport, a Window, for the main scene's root
-	// (scene/main/scene_tree.cpp:1762-1765, 2068; ed1daf0). The root of a scene
-	// used otherwise is checked at run time.
-	void check_parent_scenes() {
-		if (!cls.parent_ref || cls.parent_type.is_error()) {
-			return;
-		}
-		const TokenRange &at = cls.parent_ref->range;
-		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
-			const NodeWalk walk = walk_node_path(p_scene, p_node.path, "..");
-			if (walk.node) {
-				check_required(at, p_scene, p_node, walk.node->node, cls.parent_type, "the parent of " + p_node.path, "@parent");
-			} else if (walk.leaves && p_scene.path == options.project->main_scene()) {
-				check_required_type(at, p_scene, p_node, Type::object("Window"), cls.parent_type, "the parent of the main scene's root", "@parent");
-			}
-		});
-	}
-
-	// The values that the scene stores for this class's exported structs and
-	// enums with payloads, which the entry check decodes as the scene is
-	// instantiated (spec §4.3), and for its exported scenes, which may leave
-	// to instantiate(...) only what PackedScene[T] asks for (§7.4): on the
-	// nodes with the class, on the instances of scenes whose root has it, on
-	// the nodes with it inside instanced scenes that the scene changes, and on
-	// the resources with it that the scene or resource file holds.
-	void check_stored_exports() {
-		std::vector<const VarDecl *> exports;
-		for (const VarDecl &member : cls.members) {
-			const TypeKind kind = member.type.unwrapped().kind;
-			if (member.is_export && (kind == TypeKind::Struct || kind == TypeKind::PayloadEnum || is_typed_scene(member.type))) {
-				exports.push_back(&member);
-			}
-		}
-		const auto check = [&](const Scene &p_scene, const std::vector<std::pair<std::string, SceneValue>> &p_properties, const std::string &p_shown, const std::string &p_node) {
-			for (const VarDecl *member : exports) {
-				for (const auto &[name, value] : p_properties) {
-					if (name != member->name) {
-						continue;
-					}
-					const TokenRange at{ member->name_token, member->name_token };
-					if (is_typed_scene(member->type)) {
-						const std::optional<Scene> scene = is_scene_file(value.path) ? options.project->scene(value.path) : std::nullopt;
-						const std::string unfit = scene ? unfit_scene(*scene, member->type) : std::string();
-						if (!unfit.empty()) {
-							error_in_scene(at, p_scene, p_node, p_scene.path + ": \"" + name + "\" of " + p_shown + " holds " + scene->path + ", which " + unfit);
-						}
-						continue;
-					}
-					const std::string why = undecodable(member->type, value, std::string());
-					if (!why.empty()) {
-						error_in_scene(at, p_scene, p_node, p_scene.path + ": the value stored for \"" + name + "\" of " + p_shown + " does not decode: " + why + ".");
-					}
-				}
-			}
-		};
-		if (exports.empty()) {
-			return;
-		}
-		for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
-			if (placed_class(p_node.script.empty() ? p_node.instance_script : p_node.script)) {
-				check(p_scene, p_node.properties, p_node.path, p_node.path);
-			}
-		});
-		for (const SceneNode &change : scenes[0].nodes) {
-			const ViewNode *changed = change.type.empty() && !change.is_instance && change.script.empty() ? view_node(scenes[0], change.path) : nullptr;
-			const std::string script = changed ? (changed->node.script.empty() ? changed->node.instance_script : changed->node.script) : std::string();
-			if (extends_script(script, options.path) && placed_class(script)) {
-				check(scenes[0], change.properties, change.path, change.path);
-			}
-		}
-		for (const SceneResource &resource : scenes[0].resources) {
-			if (extends_script(resource.script, options.path) && !resource.unread && placed_class(resource.script)) {
-				check(scenes[0], resource.properties, resource.shown(), std::string());
-			}
-		}
-	}
-
-	// The class of a node or a resource with the script that extends this
-	// one; null when the script cannot be read or declared. Its own check
-	// reports why, and the checks of the values it is given wait for it.
-	const ClassDecl *placed_class(const std::string &p_script) const {
-		return is_script_path(p_script) ? script_decl(p_script) : &cls;
-	}
-
-	// A resource has no ready phase, so the file gives each member of a
-	// resource with the class that must be assigned and that the _init it
-	// runs does not assign (spec §6.2). Only exports are stored. The game runs
-	// all the same: reading one without a value fails the check at run time.
-	void check_resource_values() {
-		for (const SceneResource &resource : scenes[0].resources) {
-			const ClassDecl *placed = extends_script(resource.script, options.path) && !resource.unread ? placed_class(resource.script) : nullptr;
-			if (!placed) {
-				continue;
-			}
-			for (const VarDecl &member : cls.members) {
-				const bool given = std::any_of(resource.properties.begin(), resource.properties.end(), [&](const auto &p_property) { return p_property.first == member.name && p_property.second.type != "Nil"; });
-				if (member.must_assign && !given && !init_assigns(*placed, member.name)) {
-					const std::string why = member.is_export ? ", an export that must be assigned." : ", which must be assigned and is not exported.";
-					error_in_scene(TokenRange{ member.name_token, member.name_token }, scenes[0], std::string(), scenes[0].path + ": " + resource.shown() + " has no value for \"" + member.name + "\"" + why);
-					errors.back().runs = true;
-				}
-			}
-		}
-	}
-
-	// Where the scene is used as a root, each node of its view with the class
-	// gets a value for each of its exports that must be assigned and that the
-	// _init it runs does not assign, from any of the scenes it is built from
-	// (spec §7.5); the root only in the main scene,
-	// since whoever instantiates another may give its root the rest (§7.4). One
-	// that nothing references only warns. The game runs all the same: a node
-	// without one fails the check as it becomes ready.
-	void check_scene_exports() {
-		const Scene &scene = scenes[0];
-		const bool main = scene.path == options.project->main_scene();
-		const bool any = std::any_of(cls.members.begin(), cls.members.end(), [](const VarDecl &p_member) { return p_member.is_export && p_member.must_assign; });
-		if (!any || (!main && classes.root_use(scene.path).empty())) {
-			return;
-		}
-		for (const ViewNode &node : view_of(scene)) {
-			const std::string &script = node.node.script.empty() ? node.node.instance_script : node.node.script;
-			const ClassDecl *placed = (main || node.path != ".") && extends_script(script, options.path) ? placed_class(script) : nullptr;
-			if (!placed) {
-				continue;
-			}
-			for (const VarDecl &member : cls.members) {
-				if (member.is_export && member.must_assign && !init_assigns(*placed, member.name) && !stored_value(scene, node.path, member.name).value_or(false)) {
-					error_in_scene(TokenRange{ member.name_token, member.name_token }, scene, node.path, scene.path + ": " + (node.path == "." ? std::string("the root") : node.path) + " has no value for \"" + member.name + "\", an export that must be assigned.");
-					errors.back().runs = true;
-				}
-			}
-		}
-	}
-
-	// Whether the node at `p_path` of a scene has a value other than null for
-	// a member, as the last scene to set one gives it; nullopt if none does.
-	// The engine sets an instanced or inherited scene's values first, then the
-	// outer scene's (scene/resources/packed_scene.cpp:263-266, 494; ed1daf0).
-	std::optional<bool> stored_value(const Scene &p_scene, const std::string &p_path, const std::string &p_name, int p_depth = 0) {
-		const SceneNode *node = p_scene.find_node(p_path);
-		for (const auto &[name, value] : node ? node->properties : std::vector<std::pair<std::string, SceneValue>>()) {
-			if (name == p_name) {
-				return value.type != "Nil";
-			}
-		}
-		const std::optional<Scene> base = p_scene.base.empty() || p_depth > 32 ? std::nullopt : options.project->scene(p_scene.base);
-		const std::optional<bool> inherited = base ? stored_value(*base, p_path, p_name, p_depth + 1) : std::nullopt;
-		if (inherited) {
-			return inherited;
-		}
-		// The innermost instance on the path.
-		const SceneNode *instance = nullptr;
-		for (const SceneNode &each : p_scene.nodes) {
-			if (!each.instance.empty() && (each.path == p_path || p_path.rfind(each.path + "/", 0) == 0) && (!instance || each.path.size() > instance->path.size())) {
-				instance = &each;
-			}
-		}
-		const std::optional<Scene> inner = !instance || p_depth > 32 ? std::nullopt : options.project->scene(instance->instance);
-		return inner ? stored_value(*inner, instance->path == p_path ? std::string(".") : p_path.substr(instance->path.size() + 1), p_name, p_depth + 1) : std::nullopt;
-	}
-
-	// Why a value that a scene stores does not decode as the type, as the
-	// entry check says (spec §3.6, §10.1), after `p_at`, the path to where it
-	// lies, such as "Combat.Hit.damage"; "" when it decodes.
-	std::string undecodable(const Type &p_type, const SceneValue &p_value, const std::string &p_at) {
-		const std::string at = p_at.empty() ? std::string() : p_at + ": ";
-		const auto mismatch = [&]() {
-			const std::string found = p_value.type == "Nil" ? std::string("null") : stored_type(p_value).to_string();
-			return at + "expected " + p_type.to_string() + ", found " + found;
-		};
-		if (p_type.kind == TypeKind::Option && p_value.type != "Nil") {
-			return undecodable(p_type.args[0], p_value, p_at);
-		}
-		if (p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum) {
-			return p_value.type == "Dictionary" ? undecodable_fields(p_type, p_value, p_at.empty() ? p_type.to_string() : p_at) : mismatch();
-		}
-		// A container by its elements, as decoding builds a new one of them.
-		if (is_typed_container(p_type)) {
-			const bool array = p_type.args.size() == 1;
-			if (p_value.type != (array ? "Array" : "Dictionary")) {
-				return mismatch();
-			}
-			const std::string where = p_at.empty() ? p_type.to_string() : p_at;
-			for (size_t i = 0; i < p_value.items.size(); i++) {
-				const bool key = !array && i % 2 == 0;
-				const std::string why = undecodable(p_type.args[key || array ? 0 : 1], p_value.items[i], where + (key ? " (a key)" : "[" + std::to_string(array ? i : i / 2) + "]"));
-				if (!why.empty()) {
-					return why;
-				}
-			}
-			return std::string();
-		}
-		// An int also from a whole float, and an enum of this language only one
-		// of its values (spec §3.7, §10.8).
-		const bool integer = p_value.type == "int" || (p_value.type == "float" && p_value.whole);
-		if (p_type.kind == TypeKind::Enum && integer) {
-			const bool closed = p_type.values && !p_type.values->is_engine;
-			return closed && !p_type.values->has(p_value.integer) ? at + "expected " + p_type.to_string() + ", found " + std::to_string(p_value.integer) + ", which is none of its values" : std::string();
-		}
-		if (p_type.kind == TypeKind::Int && integer) {
-			return std::string();
-		}
-		return assignable(stored_type(p_value), p_type) ? std::string() : mismatch();
-	}
-
-	// The fields of a stored struct, or of the variant that "$variant" names,
-	// each by its name as a key; a struct's field with a default may be left
-	// out (spec §3.6, §10.1).
-	std::string undecodable_fields(const Type &p_type, const SceneValue &p_value, const std::string &p_at) {
-		const auto entry = [&](const std::string &p_key) -> const SceneValue * {
-			for (size_t i = 0; i + 1 < p_value.items.size(); i += 2) {
-				const SceneValue &key = p_value.items[i];
-				if ((key.type == "String" || key.type == "StringName") && key.text == p_key) {
-					return &p_value.items[i + 1];
-				}
-			}
-			return nullptr;
-		};
-		std::vector<std::pair<std::string, Type>> fields;
-		std::vector<bool> defaults;
-		std::string at = p_at;
-		if (p_type.kind == TypeKind::Struct) {
-			const StructDecl *decl = struct_decl(p_type);
-			for (size_t f = 0; decl && f < decl->fields.size(); f++) {
-				fields.emplace_back(decl->fields[f].name, decl->fields[f].type);
-				defaults.push_back(bool(decl->fields[f].initializer));
-			}
-		} else if (p_type.values) {
-			const SceneValue *name = entry("$variant");
-			const auto &variants = p_type.values->list;
-			const auto named = std::find_if(variants.begin(), variants.end(), [&](const auto &p_variant) { return name && (name->type == "String" || name->type == "StringName") && name->text == p_variant.first; });
-			if (named == variants.end()) {
-				return p_at + ": expected " + p_type.to_string() + ", found a Dictionary whose \"$variant\" names none of its variants";
-			}
-			at += "." + named->first;
-			fields = p_type.values->fields[named - variants.begin()];
-			defaults.resize(fields.size(), false);
-		}
-		for (size_t f = 0; f < fields.size(); f++) {
-			const SceneValue *value = entry(fields[f].first);
-			const std::string why = value ? undecodable(fields[f].second, *value, at + "." + fields[f].first) : std::string();
-			if (!value && !defaults[f]) {
-				return at + "." + fields[f].first + " is missing";
-			}
-			if (!why.empty()) {
-				return why;
-			}
-		}
-		return std::string();
-	}
-
-	// The type of a value that a scene stores: an object of the class of its
-	// script, as a node's (spec §7.1, §11.1).
-	Type stored_type(const SceneValue &p_value) {
-		if (p_value.type == "Nil") {
-			return Type::of(TypeKind::None);
-		}
-		if (p_value.type != "Object") {
-			return api_type(p_value.type, false);
-		}
-		if (is_script_path(p_value.script)) {
-			const ClassDecl *header = script_header(p_value.script);
-			return header ? script_class_type(*header, p_value.script) : Type::object(p_value.class_name);
-		}
-		const ForeignClass *foreign = p_value.script.empty() ? nullptr : foreign_class(p_value.script);
-		return foreign && foreign->members_known && !foreign->native.empty() ? foreign_class_type(p_value.script, *foreign) : Type::object(p_value.class_name);
-	}
+	/* pub signatures and what the engine sees (spec §4.2, §10.1) */
 
 	// The part of a type that is not seen everywhere: a struct, an enum, an
 	// interface or an inner class without pub, or one inside a class without
@@ -10500,77 +10786,7 @@ class Checker : public ClassRelation {
 		}
 	}
 
-	// The properties and signals the class's interfaces require, after the
-	// members' types and the signals are known (spec §3.9): a pub member of the
-	// same type, or an inherited engine property, which must have a setter
-	// unless the requirement is @readonly; a pub signal with the same arguments,
-	// its own, inherited or of the engine class.
-	void check_interface_properties() {
-		for (const auto &[type, ref] : own_interfaces) {
-			const size_t reported = errors.size();
-			for (const InterfaceMember &member : interface_members({ type })) {
-				if (member.signal) {
-					check_interface_signal(member, *ref);
-				}
-				if (!member.property || member.property->type.is_error()) {
-					continue;
-				}
-				const InterfaceProperty &required = *member.property;
-				const std::string &owner = member.owner.name;
-				const auto found = member_index.find(required.name);
-				if (found != member_index.end()) {
-					const VarDecl &provided = *cls.all_members[found->second];
-					if (is_own(provided, cls.members)) {
-						refer(provided.name_token, script_id(options.path, provided.name), SymbolKind::Property, interface_member_id(member));
-					}
-					if (!provided.is_pub) {
-						error(own_name(provided, cls.members, ref->range), "\"" + provided.name + "\" implements " + owner + " and must be pub.");
-					} else if (!provided.type.is_error() && provided.type != required.type) {
-						error(own_name(provided, cls.members, ref->range), "\"" + provided.name + "\" has type " + provided.type.to_string() + ", but " + owner + " requires " + required.type.to_string() + ".");
-					}
-					continue;
-				}
-				const auto property = engine.find_property(cls.native_base, required.name);
-				if (!property) {
-					error(ref->range, "The class does not implement the property \"" + required.name + "\" of " + owner + ".");
-				} else if (property->type != required.type) {
-					error(ref->range, "The engine property \"" + required.name + "\" has type " + property->type.to_string() + ", but " + owner + " requires " + required.type.to_string() + ".");
-				} else if (!property->writable && !required.is_readonly) {
-					error(ref->range, "The engine property \"" + required.name + "\" is read-only, so it satisfies only a @readonly property of " + owner + ".");
-				}
-			}
-			note_implementation(type, *ref, reported);
-		}
-	}
-
-	void check_interface_signal(const InterfaceMember &p_member, const TypeRef &p_ref) {
-		const SignalDecl &required = *p_member.signal;
-		const std::vector<Type> wanted = param_types(required.params);
-		if (std::any_of(wanted.begin(), wanted.end(), [](const Type &p_type) { return p_type.is_error(); })) {
-			return;
-		}
-		const std::string &owner = p_member.owner.name;
-		const auto found = signal_index.find(required.name);
-		if (found != signal_index.end()) {
-			const SignalDecl &provided = *cls.all_signals[found->second];
-			if (is_own(provided, cls.signals)) {
-				refer(provided.name_token, script_id(options.path, provided.name), SymbolKind::Signal, interface_member_id(p_member));
-			}
-			const std::vector<Type> given = param_types(provided.params);
-			if (!provided.is_pub) {
-				error(own_name(provided, cls.signals, p_ref.range), "\"" + provided.name + "\" implements " + owner + " and must be pub.");
-			} else if (std::none_of(given.begin(), given.end(), [](const Type &p_type) { return p_type.is_error(); }) && given != wanted) {
-				error(own_name(provided, cls.signals, p_ref.range), "\"" + provided.name + "\" is " + Type::signal(given).to_string() + ", but " + owner + " requires " + Type::signal(wanted).to_string() + ".");
-			}
-			return;
-		}
-		const auto signal = engine.find_signal(cls.native_base, required.name);
-		if (!signal) {
-			error(p_ref.range, "The class does not implement the signal \"" + required.name + "\" of " + owner + ".");
-		} else if (signal_type(*signal).args != wanted) {
-			error(p_ref.range, "The engine signal \"" + required.name + "\" is " + signal_type(*signal).to_string() + ", but " + owner + " requires " + Type::signal(wanted).to_string() + ".");
-		}
-	}
+	/* Signals (spec §4.7) */
 
 	// The class's signals, whose arguments are typed (spec §4.7).
 	void declare_signals() {
@@ -10599,178 +10815,6 @@ class Checker : public ClassRelation {
 			}
 			param.type = resolve(*param.declared_type, false);
 		}
-	}
-
-	void check_body(FuncDecl &r_function) {
-		function = &r_function;
-		scopes.clear();
-		scopes.emplace_back();
-		narrowed.clear();
-		narrowed.emplace_back();
-		if (r_function.of_struct && !r_function.is_static) {
-			scopes.back()["self"] = 0;
-			r_function.locals.push_back({ "self", structure_type, r_function.name_token });
-		}
-		declare_params(r_function, true);
-		const size_t cursor = completion ? cls.source->text.find(CURSOR) : 0;
-		// Other files use what _init assigns (architecture §6.4), so a check of
-		// the declarations alone checks its body for that, without its errors.
-		const bool init = r_function.name == "_init" && !r_function.is_static;
-		const bool for_others = init && !check_bodies;
-		if (!for_others && (options.declarations_only || !check_bodies || (completion && (cursor < cls.source->begin(r_function.range) || cursor >= cls.source->end(r_function.range))))) {
-			function = nullptr;
-			scopes.clear();
-			return;
-		}
-		const size_t earlier_errors = errors.size();
-		check_block(r_function.body);
-		if (r_function.has_body && r_function.return_type.kind != TypeKind::Void && !r_function.return_type.is_error() && !always_ends(r_function.body, false)) {
-			error(r_function.name_token, "Not all paths of \"" + r_function.name + "()\" return a value.");
-		}
-		if (init) {
-			std::set<int> reported;
-			for (const int member : init_block(r_function.body, std::set<int>(), reported).value_or(std::set<int>())) {
-				r_function.assigned.push_back(cls.all_members[member]->name);
-			}
-		}
-		if (for_others) {
-			errors.erase(errors.begin() + std::ptrdiff_t(earlier_errors), errors.end());
-		}
-		function = nullptr;
-		scopes.clear();
-	}
-
-	/* _init and members that must be assigned (spec §6.2) */
-
-	// The _init that new() of the class calls: its own or the nearest it inherits.
-	static const FuncDecl *init_of(const ClassDecl &p_class) {
-		return find_named(p_class.all_functions, "_init");
-	}
-
-	static bool init_assigns(const ClassDecl &p_class, const std::string &p_member) {
-		const FuncDecl *init = init_of(p_class);
-		return init && std::find(init->assigned.begin(), init->assigned.end(), p_member) != init->assigned.end();
-	}
-
-	// The members that must be assigned which _init has assigned on every path
-	// so far; nullopt where no path goes on.
-	using Assigned = std::optional<std::set<int>>;
-
-	static Assigned joined(const Assigned &p_a, const Assigned &p_b) {
-		if (!p_a || !p_b) {
-			return p_a ? p_a : p_b;
-		}
-		std::set<int> both;
-		std::set_intersection(p_a->begin(), p_a->end(), p_b->begin(), p_b->end(), std::inserter(both, both.begin()));
-		return both;
-	}
-
-	Assigned init_block(const Block &p_block, Assigned p_assigned, std::set<int> &r_reported) {
-		for (const auto &stmt : p_block) {
-			p_assigned = init_stmt(*stmt, std::move(p_assigned), r_reported);
-		}
-		return p_assigned;
-	}
-
-	// The scene and the creator assign only after _init, so _init reading one
-	// it has not assigned itself is an error. A read through a call is left to
-	// the program error: methods may be overridden in other files.
-	Assigned init_stmt(const Stmt &p_stmt, Assigned p_assigned, std::set<int> &r_reported) {
-		if (!p_assigned) {
-			return std::nullopt;
-		}
-		const auto reads = [&](const std::unique_ptr<Expr> &p_expr) {
-			if (p_expr) {
-				init_reads(*p_expr, *p_assigned, r_reported);
-			}
-		};
-		switch (p_stmt.kind) {
-			case StmtKind::Assign: {
-				const Expr &target = *p_stmt.target;
-				const bool whole = p_stmt.assign_op == TokenKind::Equal && target.target == Target::Member && (target.kind == ExprKind::Name || target.base->kind == ExprKind::Self);
-				if (!whole) {
-					reads(p_stmt.target);
-				}
-				reads(p_stmt.value);
-				if (whole) {
-					p_assigned->insert(target.index);
-				}
-				return p_assigned;
-			}
-			case StmtKind::If:
-				reads(p_stmt.condition);
-				return joined(init_block(p_stmt.body, p_assigned, r_reported), init_block(p_stmt.else_body, p_assigned, r_reported));
-			case StmtKind::While:
-			case StmtKind::For:
-				reads(p_stmt.condition);
-				reads(p_stmt.value);
-				init_block(p_stmt.body, p_assigned, r_reported);
-				return p_assigned;
-			case StmtKind::Match: {
-				reads(p_stmt.value);
-				Assigned after = p_stmt.exhaustive ? Assigned() : p_assigned;
-				for (const MatchBranch &branch : p_stmt.branches) {
-					reads(branch.guard);
-					after = joined(after, init_block(branch.body, p_assigned, r_reported));
-				}
-				return after;
-			}
-			case StmtKind::Return:
-				reads(p_stmt.value);
-				return std::nullopt;
-			case StmtKind::Break:
-			case StmtKind::Continue:
-				return std::nullopt;
-			default:
-				reads(p_stmt.condition);
-				reads(p_stmt.value);
-				// super() runs the base's _init, which assigns what it does.
-				if (const FuncDecl *base = p_stmt.value && p_stmt.value->target == Target::SuperMethod && p_stmt.value->text == "_init" ? base_function("_init") : nullptr) {
-					for (const std::string &name : base->assigned) {
-						p_assigned->insert(member_index.at(name));
-					}
-				}
-				return p_assigned;
-		}
-	}
-
-	void init_reads(const Expr &p_expr, const std::set<int> &p_assigned, std::set<int> &r_reported) {
-		if (p_expr.kind == ExprKind::Lambda) {
-			return; // It runs later.
-		}
-		if (p_expr.target == Target::Member && p_expr.index >= 0 && cls.all_members[p_expr.index]->must_assign && !p_assigned.count(p_expr.index) && r_reported.insert(p_expr.index).second) {
-			error(p_expr.range, "_init reads \"" + p_expr.text + "\" before assigning it: a member that must be assigned gets its value from the scene or the creator only after _init.");
-		}
-		for_each_child(p_expr, [&](const auto &p_child) {
-			if constexpr (std::is_same_v<std::decay_t<decltype(p_child)>, Expr>) {
-				init_reads(p_child, p_assigned, r_reported);
-			}
-		});
-	}
-
-	// Every function's name, before any type is resolved, which may need a
-	// class of this file that uses them (spec §4.1).
-	void declare_functions() {
-		std::unordered_set<std::string> own_functions;
-		for (FuncDecl &fn : cls.functions) {
-			if (!own_functions.insert(fn.name).second || member_index.count(fn.name) || static_index.count(fn.name) || constant_index.count(fn.name) || signal_index.count(fn.name)) {
-				error(fn.name_token, "\"" + fn.name + "\" is already declared.");
-				continue;
-			}
-			const auto found = function_index.find(fn.name);
-			if (found == function_index.end()) {
-				function_index[fn.name] = int(cls.all_functions.size());
-				cls.all_functions.push_back(&fn);
-			} else {
-				cls.all_functions[found->second] = &fn;
-			}
-		}
-	}
-
-	// Whether the function is the one its name was declared for.
-	bool is_declared(const FuncDecl &p_function) const {
-		const auto found = function_index.find(p_function.name);
-		return found != function_index.end() && cls.all_functions[found->second] == &p_function;
 	}
 
 	/* Completion (spec §13.2) */
