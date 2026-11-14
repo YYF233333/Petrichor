@@ -21,7 +21,7 @@ These are settled and need evidence they did not weigh to reopen:
 
 ## Scope
 
-Review what the message names: a commit range, an area, sections of the spec or the whole repository. Without one, review the commits not yet pushed (`git log origin/main..HEAD`). Implementation goes on while you review, so the scope is a range, not a snapshot. Note the HEAD you start from. Before writing a finding, check that it still holds at the current HEAD.
+Review what the message names: a commit range, an area, sections of the spec or the whole repository. Without one, review the commits since the latest release tag (`git log $(git describe --tags --abbrev=0)..HEAD`). Implementation goes on while you review, so the scope is a range, not a snapshot. Note the HEAD you start from. Before writing a finding, check that it still holds at the current HEAD.
 
 - Changes:
   - whether the code does what the spec says, including the cases its tests leave out;

@@ -61,7 +61,7 @@ The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable`
 
 ## Commits
 
-- Other sessions share the working tree and its index. Commit only your own files, by path (`git commit -m … -- <paths>`). Commit locally; the owner pushes.
+- Other sessions share the working tree and its index. Commit only your own files, by path (`git commit -m … -- <paths>`). Push to main after committing. A push that changes code cancels the CI run in progress.
 - Git hooks in `tools/hooks/` run `.pre-commit-config.yaml`, with project checks in `tools/`. When a hook fixes a file, the commit stops; commit again.
 - Commit messages are in English: a subject, a blank line and a body wrapped at 72 columns.
   - The subject is `Area: Imperative summary` within 72 characters, capitalized and without a full stop.
