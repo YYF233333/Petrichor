@@ -2582,7 +2582,7 @@ public:
 		if (stack.size() == MAX_CALL_DEPTH) {
 			return fail_stack_overflow();
 		}
-		stack.push_back({ &image, context.self_image.get(), &fn, frame, members, p_async ? p_async->line : int(fn.line) });
+		stack.push_back({ &image, context.self_image.get(), &fn, frame, context.storage.get(), p_async ? p_async->line : int(fn.line) });
 		StackFrame &record = stack.back();
 		if (debugging) {
 			debugger::enter_function();
@@ -3538,8 +3538,7 @@ void CoroutineFrame::report_error(const String &p_message) {
 		if (call_stack.capacity() < MAX_CALL_DEPTH + 1) {
 			call_stack.reserve(MAX_CALL_DEPTH + 1);
 		}
-		uint8_t *members = context.storage && !context.storage->freed.load() ? context.storage->members : nullptr;
-		call_stack.push_back({ image.get(), context.self_image.get(), &fn, data, members, line });
+		call_stack.push_back({ image.get(), context.self_image.get(), &fn, data, context.storage.get(), line });
 	}
 	vm::report_error(*image, fn.name.c_str(), line, p_message);
 	if (!already_running) {

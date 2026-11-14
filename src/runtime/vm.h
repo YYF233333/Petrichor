@@ -45,6 +45,9 @@ public:
 	std::atomic<bool> coroutines_cancelled{ false };
 	// Those of its tasks that have not ended, whose frames keep it until they do.
 	TaskList tasks;
+	// The engine's script instance, for the debugger; none while the
+	// initializers run.
+	GDExtensionScriptInstancePtr script_instance = nullptr;
 #ifdef DEBUG_ENABLED
 	Site made;
 #endif
@@ -70,7 +73,7 @@ struct StackFrame {
 	const ClassImage *self_image = nullptr;
 	const bytecode::Function *function = nullptr;
 	uint8_t *frame = nullptr;
-	uint8_t *members = nullptr;
+	const InstanceStorage *storage = nullptr; // Of the context it was called in.
 	int line = 0;
 };
 

@@ -606,7 +606,8 @@ void *PetScript::_instance_create(Object *p_for_object) const {
 		std::lock_guard<std::mutex> lock(mutex);
 		instances.insert(instance);
 	}
-	return gdextension_interface::script_instance_create3(&PetInstance::info, instance);
+	instance->storage->script_instance = gdextension_interface::script_instance_create3(&PetInstance::info, instance);
+	return instance->storage->script_instance;
 }
 
 void *PetScript::_placeholder_instance_create(Object *p_for_object) const {

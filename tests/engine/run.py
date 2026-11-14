@@ -204,6 +204,58 @@ def send_editor_message(connection, command, data):
     connection.sendall(struct.pack("<I", len(message)) + message)
 
 
+def run_evaluate(godot):
+    """Stands in for the editor's evaluator at the breakpoint in step() of
+    breakpoint.pet, with an expression that reads a member. The answer holds
+    the expression, 3, the value's type and the value (remote_debugger.cpp:549-618,
+    debugger_marshalls.cpp:65-88). Then the game runs on with breakpoints and
+    error breaks off. Error breaks are off before the expression too: the
+    engine loads every global class for it (:598-607), and the static
+    initialization of one of the project's fails. Gives the run, and whether
+    the answer came in the break."""
+    answer = b"".join(encode_variant(value) for value in ["calls + 4321", 3, 2, 4321])
+    with socket.create_server(("127.0.0.1", 0)) as server:
+        server.settimeout(TIMEOUT)
+        running = Running(
+            godot,
+            "--remote-debug",
+            f"tcp://127.0.0.1:{server.getsockname()[1]}",
+            "--breakpoints",
+            "res://language/breakpoint.pet:8",
+            "--path",
+            str(PROJECT),
+            "res://language/breakpoint.tscn",
+        )
+        try:
+            connection, _ = server.accept()
+        except OSError:
+            return (*running.finish(), False)
+        with connection:
+            connection.settimeout(TIMEOUT)
+            received = bytearray()
+
+            def receive(data):
+                try:
+                    while data not in received:
+                        chunk = connection.recv(65536)
+                        if not chunk:
+                            return False
+                        received.extend(chunk)
+                except OSError:
+                    return False
+                return True
+
+            answered = receive(encode_variant("debug_enter"))
+            send_editor_message(connection, "set_ignore_error_breaks", [1])
+            if answered:
+                send_editor_message(connection, "evaluate", ["calls + 4321", 0])
+                answered = receive(answer) and b"step returned" not in running.output
+            send_editor_message(connection, "set_skip_breakpoints", [1])
+            send_editor_message(connection, "continue", [])
+            threading.Thread(target=drain, args=(connection,), daemon=True).start()
+            return (*running.finish(), answered)
+
+
 def snapshot_files(paths):
     return {path: (path.read_bytes(), path.stat()) for path in paths}
 
@@ -719,6 +771,10 @@ def run_debugger_groups(godot):
         ],
         ["Division by zero."],
     )
+
+    # The editor's evaluator reads the frame's instance and keeps the break.
+    code, output, answered = run_evaluate(godot)
+    expect("debugger evaluate", answered and code == 0 and "breakpoint: pause returned 5" in output, output)
 
     code, output = run_debugger(
         godot, "-d", "--path", str(PROJECT), "--script", "res://language/coroutines_debug.gd",

@@ -431,6 +431,15 @@ static const StackFrame *frame_at(int32_t p_level) {
 	return &stack[stack.size() - 1 - size_t(p_level)];
 }
 
+// A static function has no instance (spec §4.8), and one the engine freed is
+// gone for the debugger (§3.3).
+static const InstanceStorage *frame_instance(const StackFrame *p_frame) {
+	if (!p_frame || p_frame->function->is_static || !p_frame->storage || p_frame->storage->freed) {
+		return nullptr;
+	}
+	return p_frame->storage;
+}
+
 String PetLanguage::_debug_get_error() const {
 	return debugger::last_error();
 }
@@ -476,8 +485,8 @@ Dictionary PetLanguage::_debug_get_stack_level_locals(int32_t p_level, int32_t p
 Dictionary PetLanguage::_debug_get_stack_level_members(int32_t p_level, int32_t p_max_subitems, int32_t p_max_depth) {
 	Dictionary result;
 	const StackFrame *frame = frame_at(p_level);
-	// A static function has no instance (spec §4.8).
-	if (!frame || !frame->members) {
+	const InstanceStorage *instance = frame_instance(frame);
+	if (!instance) {
 		return result;
 	}
 	PackedStringArray names;
@@ -485,15 +494,19 @@ Dictionary PetLanguage::_debug_get_stack_level_members(int32_t p_level, int32_t 
 	const ClassImage &image = *(frame->self_image ? frame->self_image : frame->image);
 	for (const bytecode::Member &member : image.module.members) {
 		names.push_back(to_godot(member.name));
-		values.push_back(shown(image.types[member.type], frame->members + member.offset));
+		values.push_back(shown(image.types[member.type], instance->members + member.offset));
 	}
 	result["members"] = names;
 	result["values"] = values;
 	return result;
 }
 
+// The engine evaluates the editor's expressions on its owner, and leaves the
+// break without one (core/debugger/remote_debugger.cpp:549-556, 611; ed1daf0),
+// as in GDScript's static functions (modules/gdscript/gdscript_editor.cpp:379-387).
 void *PetLanguage::_debug_get_stack_level_instance(int32_t p_level) {
-	return nullptr;
+	const InstanceStorage *instance = frame_instance(frame_at(p_level));
+	return instance ? instance->script_instance : nullptr;
 }
 
 Dictionary PetLanguage::_debug_get_globals(int32_t p_max_subitems, int32_t p_max_depth) {
