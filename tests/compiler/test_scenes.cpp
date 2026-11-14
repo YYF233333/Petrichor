@@ -219,6 +219,8 @@ TEST_CASE("$X has the class of the node at that path in the scenes that use the 
 	CHECK(result.module.classes[0].name == "Label");
 
 	CHECK(hud_errors("$\"Health\".text = \"\"").empty());
+	// A keyword names a node, as in GDScript (modules/gdscript/gdscript_tokenizer.cpp:213-258; ed1daf0).
+	CHECK(!contains(hud_errors("$await.free()"), "Expected"));
 	CHECK(contains(hud_errors("$Crosshair.text = \"\""), "TextureRect has no property \"text\""));
 	CHECK(contains(hud_errors("var n: Node3D = $Health"), "Cannot assign a value of type Label as Node3D"));
 }

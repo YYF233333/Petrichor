@@ -117,7 +117,7 @@ const char *token_name(TokenKind p_kind);
 
 // Names in a node path may be keywords, as in GDScript.
 inline bool is_node_name(TokenKind p_kind) {
-	return p_kind == TokenKind::Identifier || (p_kind >= TokenKind::And && p_kind <= TokenKind::While);
+	return p_kind == TokenKind::Identifier || (p_kind >= TokenKind::Await && p_kind <= TokenKind::While);
 }
 
 // The operator of a compound assignment: + for +=; Invalid for other tokens.
