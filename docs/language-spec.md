@@ -2,7 +2,7 @@
 
 **v0.2 draft · 2026-10-25**
 
-<!-- Generated from language-spec.zh.md, git blob 5aff0bd997a1fe2a3b2291a952a502c7d5cb9986. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 7fd1dd3b46b27c9376e850db883fadc0dd46d06f. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). The previous version of the specification, v0.1, is kept in the git tag `spec-v0.1`. This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -362,7 +362,11 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 4.1 Classes and inheritance
 
-- Class names use the engine's flat global class table. A name that duplicates an engine class, a built-in type, or a class name of this language, of GDScript plugins or of C# is a compile error. **[Known limitation]** The first version has no namespaces.
+- Class names use the engine's flat global class table. A class name that duplicates one of these names is a compile error:
+  - an engine class, a built-in type or a standard type of this language;
+  - an autoload;
+  - another class of this language, of a GDScript plugin or of C#.
+- **[Known limitation]** The first version has no namespaces.
 - A class can extend an engine class or a class of this language. **[Known limitation]** Cross-language inheritance is not supported in either direction.
 - **Bare-name resolution**: a bare name in a class is first looked up in local variables. Next come the declarations of the class and of its base classes of this language. Last come the members of the inherited engine class and its ancestors:
   - properties, methods, signals and constants;
