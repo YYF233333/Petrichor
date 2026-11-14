@@ -332,7 +332,7 @@ class Parser {
 	}
 
 	std::unique_ptr<Expr> conditional() {
-		auto expr = or_expr();
+		auto expr = operators(OR);
 		if (!check(TokenKind::If)) {
 			return expr;
 		}
@@ -346,44 +346,92 @@ class Parser {
 		return result;
 	}
 
-	std::unique_ptr<Expr> or_expr() {
-		auto left = and_expr();
-		while (check(TokenKind::Or)) {
-			const Token &op = advance();
-			left = binary(op, std::move(left), and_expr());
+	// How tightly the operators bind, loosest first, as in GDScript
+	// (modules/gdscript/gdscript_parser.h:1437-1450; ed1daf0). The bitwise
+	// operators bind tighter than comparisons, `in` and `not in` looser.
+	enum Level {
+		NONE,
+		OR,
+		AND,
+		NOT, // `not` and `!`, as a prefix.
+		CONTENT, // `in` and `not in`.
+		COMPARISON,
+		BIT_OR,
+		BIT_XOR,
+		BIT_AND,
+		SHIFT,
+		ADDITIVE,
+		MULTIPLICATIVE,
+		SIGN, // `-`, `~` and `await`, as a prefix.
+		POWER,
+	};
+
+	// Of the binary operator that comes next, or NONE.
+	Level binary_level() const {
+		switch (peek().kind) {
+			case TokenKind::Or:
+				return OR;
+			case TokenKind::And:
+				return AND;
+			case TokenKind::In:
+				return CONTENT;
+			case TokenKind::Not:
+				return peek(1).kind == TokenKind::In ? CONTENT : NONE;
+			case TokenKind::EqualEqual:
+			case TokenKind::BangEqual:
+			case TokenKind::Less:
+			case TokenKind::LessEqual:
+			case TokenKind::Greater:
+			case TokenKind::GreaterEqual:
+				return COMPARISON;
+			case TokenKind::Pipe:
+				return BIT_OR;
+			case TokenKind::Caret:
+				return BIT_XOR;
+			case TokenKind::Ampersand:
+				return BIT_AND;
+			case TokenKind::ShiftLeft:
+			case TokenKind::ShiftRight:
+				return SHIFT;
+			case TokenKind::Plus:
+			case TokenKind::Minus:
+				return ADDITIVE;
+			case TokenKind::Star:
+			case TokenKind::Slash:
+			case TokenKind::Percent:
+				return MULTIPLICATIVE;
+			case TokenKind::StarStar:
+				return POWER;
+			default:
+				return NONE;
 		}
-		return left;
 	}
 
-	std::unique_ptr<Expr> and_expr() {
-		auto left = not_expr();
-		while (check(TokenKind::And)) {
-			const Token &op = advance();
-			left = binary(op, std::move(left), not_expr());
-		}
-		return left;
+	std::unique_ptr<Expr> unary_op(const Token &p_op, TokenKind p_kind, std::unique_ptr<Expr> p_operand, uint32_t p_first) {
+		auto expr = make(ExprKind::Unary, p_op);
+		expr->op = p_kind;
+		expr->op_token = index(p_op);
+		expr->left = std::move(p_operand);
+		expr->range = span(p_first);
+		return expr;
 	}
 
-	std::unique_ptr<Expr> not_expr() {
-		// `!` is `not`, as in GDScript.
-		if (check(TokenKind::Not) || check(TokenKind::Bang)) {
+	// Operators that bind at least as tightly as `p_level`, each binary one
+	// left-associative, `**` too. `x not in c` is `not (x in c)`
+	// (modules/gdscript/gdscript_parser.cpp:2942, 2981-2993, 3001; ed1daf0).
+	std::unique_ptr<Expr> operators(int p_level) {
+		std::unique_ptr<Expr> left;
+		if (p_level <= NOT && (check(TokenKind::Not) || check(TokenKind::Bang))) {
+			// `!` is `not`, as in GDScript.
 			const Token &op = advance();
-			auto expr = make(ExprKind::Unary, op);
-			expr->op = TokenKind::Not;
-			expr->op_token = index(op);
-			expr->left = not_expr();
-			expr->range = span(index(op));
-			return expr;
+			left = unary_op(op, TokenKind::Not, operators(NOT), index(op));
+		} else if (p_level <= SIGN || check(TokenKind::Minus) || check(TokenKind::Tilde)) {
+			// The right side of `**` may start with a sign, as in `2 ** -1`.
+			left = unary();
+		} else {
+			left = type_test();
 		}
-		return content_test();
-	}
-
-	// `x in c` and `x not in c` bind looser than comparisons, as in GDScript
-	// (gdscript_parser.h:1439-1441); `not in` is `not (x in c)`
-	// (gdscript_parser.cpp:2981-2993).
-	std::unique_ptr<Expr> content_test() {
-		auto left = comparison();
-		while (check(TokenKind::In) || (check(TokenKind::Not) && peek(1).kind == TokenKind::In)) {
+		for (int level = binary_level(); level >= p_level; level = binary_level()) {
 			const Token &first = peek();
 			const bool negated = first.kind == TokenKind::Not;
 			if (negated) {
@@ -391,85 +439,10 @@ class Parser {
 			}
 			const Token &op = advance();
 			const uint32_t start = left->range.first;
-			left = binary(op, std::move(left), comparison());
+			left = binary(op, std::move(left), operators(level + 1));
 			if (negated) {
-				auto expr = make(ExprKind::Unary, first);
-				expr->op = TokenKind::Not;
-				expr->op_token = index(first);
-				expr->left = std::move(left);
-				expr->range = span(start);
-				left = std::move(expr);
+				left = unary_op(first, TokenKind::Not, std::move(left), start);
 			}
-		}
-		return left;
-	}
-
-	static bool is_comparison(TokenKind p_kind) {
-		return p_kind == TokenKind::EqualEqual || p_kind == TokenKind::BangEqual || p_kind == TokenKind::Less ||
-				p_kind == TokenKind::LessEqual || p_kind == TokenKind::Greater || p_kind == TokenKind::GreaterEqual;
-	}
-
-	std::unique_ptr<Expr> comparison() {
-		auto left = bit_or();
-		while (is_comparison(peek().kind)) {
-			const Token &op = advance();
-			left = binary(op, std::move(left), bit_or());
-		}
-		return left;
-	}
-
-	// The bitwise operators bind tighter than comparisons, | loosest and the
-	// shifts tightest, as in GDScript (gdscript_parser.h:1441-1446).
-	std::unique_ptr<Expr> bit_or() {
-		auto left = bit_xor();
-		while (check(TokenKind::Pipe)) {
-			const Token &op = advance();
-			left = binary(op, std::move(left), bit_xor());
-		}
-		return left;
-	}
-
-	std::unique_ptr<Expr> bit_xor() {
-		auto left = bit_and();
-		while (check(TokenKind::Caret)) {
-			const Token &op = advance();
-			left = binary(op, std::move(left), bit_and());
-		}
-		return left;
-	}
-
-	std::unique_ptr<Expr> bit_and() {
-		auto left = shift();
-		while (check(TokenKind::Ampersand)) {
-			const Token &op = advance();
-			left = binary(op, std::move(left), shift());
-		}
-		return left;
-	}
-
-	std::unique_ptr<Expr> shift() {
-		auto left = additive();
-		while (check(TokenKind::ShiftLeft) || check(TokenKind::ShiftRight)) {
-			const Token &op = advance();
-			left = binary(op, std::move(left), additive());
-		}
-		return left;
-	}
-
-	std::unique_ptr<Expr> additive() {
-		auto left = multiplicative();
-		while (check(TokenKind::Plus) || check(TokenKind::Minus)) {
-			const Token &op = advance();
-			left = binary(op, std::move(left), multiplicative());
-		}
-		return left;
-	}
-
-	std::unique_ptr<Expr> multiplicative() {
-		auto left = unary();
-		while (check(TokenKind::Star) || check(TokenKind::Slash) || check(TokenKind::Percent)) {
-			const Token &op = advance();
-			left = binary(op, std::move(left), unary());
 		}
 		return left;
 	}
@@ -484,14 +457,10 @@ class Parser {
 			expr->range = span(expr->range.first);
 			return awaiting ? std::move(expr) : postfix(std::move(expr));
 		}
-		if (check(TokenKind::Minus)) {
+		if (check(TokenKind::Minus) || check(TokenKind::Tilde)) {
 			const Token &op = advance();
-			auto expr = make(ExprKind::Unary, op);
-			expr->op = op.kind;
-			expr->op_token = index(op);
-			expr->left = unary();
-			expr->range = span(index(op));
-			if (expr->left->kind == ExprKind::IntLiteral && expr->left->int_overflows) {
+			auto expr = unary_op(op, op.kind, unary(), index(op));
+			if (op.kind == TokenKind::Minus && expr->left->kind == ExprKind::IntLiteral && expr->left->int_overflows) {
 				// -9223372036854775808 is the smallest int; its magnitude alone is not.
 				auto literal = std::move(expr->left);
 				literal->int_overflows = false;
@@ -500,28 +469,7 @@ class Parser {
 			}
 			return expr;
 		}
-		if (check(TokenKind::Tilde)) {
-			const Token &op = advance();
-			auto expr = make(ExprKind::Unary, op);
-			expr->op = op.kind;
-			expr->op_token = index(op);
-			expr->left = unary();
-			expr->range = span(index(op));
-			return expr;
-		}
-		return power();
-	}
-
-	// `**` binds tighter than the signs and is left-associative, as in GDScript
-	// (gdscript_parser.h:1448-1450, gdscript_parser.cpp:2942, 3001); its right
-	// side may start with a sign, as in `2 ** -1`.
-	std::unique_ptr<Expr> power() {
-		auto left = type_test();
-		while (check(TokenKind::StarStar)) {
-			const Token &op = advance();
-			left = binary(op, std::move(left), check(TokenKind::Minus) || check(TokenKind::Tilde) ? unary() : type_test());
-		}
-		return left;
+		return operators(POWER);
 	}
 
 	// `x is T` and `x is not T` bind tighter than arithmetic, as in GDScript

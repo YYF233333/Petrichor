@@ -52,6 +52,11 @@ const LEFT = 2 ** 3 ** 2
 const SIGNED = -2 ** 2 + 2 ** -1 + (-1) ** -3
 const EXACT = 3 ** 39
 const WRAPS = 2 ** 64
+const LADDER = 1 | 2 ^ 3 & 4 << 1 + 2 * 3
+const DOWN = 2 * 3 + 1 << 4 & 255 ^ 7 | 8
+const LEFTWARD = 100 - 10 - 1 + 64 / 4 / 2 + (1 << 2 << 3)
+const LOGIC = true or false and false
+const TESTS = not 1 == 2 and 1 | 2 == 3
 )");
 	CHECK(named(module, "DAY_MS").i == 86400000);
 	CHECK(named(module, "MASK").i == 9);
@@ -69,6 +74,13 @@ const WRAPS = 2 ** 64
 	CHECK(named(module, "SIGNED").i == -4 + 0 - 1);
 	CHECK(named(module, "EXACT").i == 4052555153018976267);
 	CHECK(named(module, "WRAPS").i == 0);
+	// The binary operators by how tightly they bind, each left-associative, as
+	// in GDScript (gdscript_parser.h:1435-1451; ed1daf0).
+	CHECK(named(module, "LADDER").i == 3);
+	CHECK(named(module, "DOWN").i == 127);
+	CHECK(named(module, "LEFTWARD").i == 89 + 8 + 32);
+	CHECK(named(module, "LOGIC").b);
+	CHECK(named(module, "TESTS").b);
 	CHECK(storage(module, named(module, "LIMITS").type) == ValueType::Array);
 	CHECK(named(module, "LIMITS").args.size() == 3);
 }
