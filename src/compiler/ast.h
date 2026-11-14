@@ -113,14 +113,12 @@ enum class Target {
 	NewObject, // `Class.new()`, the class being the call's type.
 	Utility,
 	Range, // GDScript's `range(...)`, an Array[int] that `for` counts over without making.
-	GDScriptUtility, // GDScript's len(), ord(), print_stack(), get_stack() or is_instance_of() of a Script, named by `text`.
+	GDScriptUtility, // `language`, one of GDScript's own, such as len() or is_instance_of() of a Script.
 	ConvertToInt,
 	ConvertToFloat,
 	Encode, // `Array(hits)` or `Dictionary(d)` of a container that keeps boxes (spec §3.8).
 	Some, // `Some(v)`: v, as the T of the call's type T?, wrapped once (spec §3.4).
-	Unwrap, // `unwrap()` or `expect(message)` of T? (spec §3.4).
-	OptionMethod, // A method of T? other than those, named by `text`.
-	ResultMethod, // A method of Result, named by `text` (spec §3.5).
+	LanguageMethod, // `language`, a method of T? or Result on `base` (spec §3.4, §3.5).
 	TryFrom, // `T.try_from(v)`: Result[T, ConversionError] of the call's type (spec §5.3).
 	Singleton, // An engine singleton, such as Input, by its class name.
 	Autoload, // An autoload by its global name (spec §7.3).
@@ -165,6 +163,92 @@ enum class Target {
 	// evaluated first (spec §4.8).
 	StaticVar,
 };
+
+// What a method of T? or Result gives on one side of the value it holds,
+// Some or None, Ok or Err (spec §3.4, §3.5).
+enum class Gives : uint8_t {
+	Fail, // A program error.
+	Default, // None, or the default of the result.
+	Inner, // The value on that side.
+	Self, // The receiver.
+	Argument,
+	// What the function passed returns, given the value on that side if it
+	// takes one: as the method returns it, or of its type.
+	Called,
+	Filtered, // The receiver if the function passed says yes for the value inside, else None.
+	// Those in the variant of that side, or in Some.
+	WrappedInner,
+	WrappedArgument,
+	WrappedCalled,
+};
+
+// A function that this language implements itself: a method of T? or Result
+// (spec §3.4, §3.5), as Rust's, or one of GDScript's own (§2.6).
+struct LanguageFunction {
+	enum class Of : uint8_t {
+		Option,
+		Result,
+		GDScript,
+	};
+	enum class Id : uint8_t {
+		Method,
+		Len,
+		Char,
+		Ord,
+		PrintStack,
+		GetStack,
+		IsInstanceOf,
+	};
+	const char *name;
+	Of of;
+	// Of a method: what it gives on Some or Ok, then on None or Err, which its
+	// type follows, and its signature as completion shows it, T and E standing
+	// for what the receiver holds.
+	Gives sides[2] = { Gives::Fail, Gives::Fail };
+	const char *takes = "";
+	const char *returns = "";
+	Id id = Id::Method;
+};
+
+inline constexpr LanguageFunction LANGUAGE_FUNCTIONS[] = {
+	{ "unwrap", LanguageFunction::Of::Option, { Gives::Inner, Gives::Fail }, "", "T" },
+	{ "expect", LanguageFunction::Of::Option, { Gives::Inner, Gives::Fail }, "message: String", "T" },
+	{ "unwrap_or", LanguageFunction::Of::Option, { Gives::Inner, Gives::Argument }, "default: T", "T" },
+	{ "unwrap_or_else", LanguageFunction::Of::Option, { Gives::Inner, Gives::Called }, "f: func() -> T", "T" },
+	{ "map", LanguageFunction::Of::Option, { Gives::WrappedCalled, Gives::Default }, "f: func(T) -> U", "U?" },
+	{ "and_then", LanguageFunction::Of::Option, { Gives::Called, Gives::Default }, "f: func(T) -> U?", "U?" },
+	{ "or", LanguageFunction::Of::Option, { Gives::Self, Gives::Argument }, "other: T?", "T?" },
+	{ "or_else", LanguageFunction::Of::Option, { Gives::Self, Gives::Called }, "f: func() -> T?", "T?" },
+	{ "filter", LanguageFunction::Of::Option, { Gives::Filtered, Gives::Default }, "f: func(T) -> bool", "T?" },
+	{ "ok_or", LanguageFunction::Of::Option, { Gives::WrappedInner, Gives::WrappedArgument }, "error: E", "Result[T, E]" },
+	{ "ok_or_else", LanguageFunction::Of::Option, { Gives::WrappedInner, Gives::WrappedCalled }, "f: func() -> E", "Result[T, E]" },
+	{ "flatten", LanguageFunction::Of::Option, { Gives::Inner, Gives::Default }, "", "T" }, // Of T??.
+	{ "unwrap", LanguageFunction::Of::Result, { Gives::Inner, Gives::Fail }, "", "T" },
+	{ "expect", LanguageFunction::Of::Result, { Gives::Inner, Gives::Fail }, "message: String", "T" },
+	{ "unwrap_or", LanguageFunction::Of::Result, { Gives::Inner, Gives::Argument }, "default: T", "T" },
+	{ "unwrap_or_else", LanguageFunction::Of::Result, { Gives::Inner, Gives::Called }, "f: func(E) -> T", "T" },
+	{ "map", LanguageFunction::Of::Result, { Gives::WrappedCalled, Gives::WrappedInner }, "f: func(T) -> U", "Result[U, E]" },
+	{ "map_err", LanguageFunction::Of::Result, { Gives::WrappedInner, Gives::WrappedCalled }, "f: func(E) -> F", "Result[T, F]" },
+	{ "and_then", LanguageFunction::Of::Result, { Gives::Called, Gives::WrappedInner }, "f: func(T) -> Result[U, E]", "Result[U, E]" },
+	{ "or_else", LanguageFunction::Of::Result, { Gives::WrappedInner, Gives::Called }, "f: func(E) -> Result[T, F]", "Result[T, F]" },
+	{ "ok", LanguageFunction::Of::Result, { Gives::Inner, Gives::Default }, "", "T?" },
+	{ "err", LanguageFunction::Of::Result, { Gives::Default, Gives::Inner }, "", "E?" },
+	{ "len", LanguageFunction::Of::GDScript, {}, "", "", LanguageFunction::Id::Len },
+	{ "char", LanguageFunction::Of::GDScript, {}, "", "", LanguageFunction::Id::Char },
+	{ "ord", LanguageFunction::Of::GDScript, {}, "", "", LanguageFunction::Id::Ord },
+	{ "print_stack", LanguageFunction::Of::GDScript, {}, "", "", LanguageFunction::Id::PrintStack },
+	{ "get_stack", LanguageFunction::Of::GDScript, {}, "", "", LanguageFunction::Id::GetStack },
+	{ "is_instance_of", LanguageFunction::Of::GDScript, {}, "", "", LanguageFunction::Id::IsInstanceOf },
+};
+
+inline const LanguageFunction *language_function(LanguageFunction::Of p_of, const std::string &p_name) {
+	for (const LanguageFunction &function : LANGUAGE_FUNCTIONS) {
+		if (function.of == p_of && p_name == function.name) {
+			return &function;
+		}
+	}
+	return nullptr;
+}
 
 struct Expr {
 	ExprKind kind = ExprKind::IntLiteral;
@@ -262,6 +346,7 @@ struct Expr {
 	const VarDecl *variable = nullptr;
 	const FuncDecl *callee = nullptr; // StructMethod.
 	const SignalDecl *signal = nullptr;
+	const LanguageFunction *language = nullptr;
 	// Its value when it is a constant expression (spec §4.5); otherwise null,
 	// and when that is because computing it would fail, why, and at which of
 	// its parts if not at itself.

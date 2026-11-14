@@ -61,18 +61,6 @@ inline std::vector<Type> param_types(const std::vector<ParamDecl> &p_params) {
 	return types;
 }
 
-// The methods of T? (spec §3.4), as Rust's; flatten() only of T??.
-inline const std::unordered_set<std::string> &option_methods() {
-	static const std::unordered_set<std::string> methods = { "unwrap", "expect", "unwrap_or", "unwrap_or_else", "map", "and_then", "or", "or_else", "filter", "ok_or", "ok_or_else", "flatten" };
-	return methods;
-}
-
-// The methods of Result (spec §3.5), as Rust's.
-inline const std::unordered_set<std::string> &result_methods() {
-	static const std::unordered_set<std::string> methods = { "unwrap", "expect", "unwrap_or", "unwrap_or_else", "map", "map_err", "and_then", "or_else", "ok", "err" };
-	return methods;
-}
-
 struct HintAnnotation {
 	const char *name;
 	uint32_t hint; // PropertyHint as the engine numbers it (core/object/property_info.h:39-85).
@@ -829,10 +817,9 @@ class Checker : public ClassRelation {
 	Type check_lambda(Expr &r_expr, const Type &p_expected);
 	static const FuncDecl *rest_function(const Expr &p_value);
 	void check_handler(const Expr &p_handler, const Type &p_signal);
-	Type check_option_method(Expr &r_expr, const Type &p_base, const Type &p_expected);
+	Type check_language_method(Expr &r_expr, const Type &p_base, const Type &p_expected);
 	Type check_some(Expr &r_expr, const Type &p_expected);
 	Type check_result_construction(Expr &r_expr, const Type &p_expected);
-	Type check_result_method(Expr &r_expr, const Type &p_base);
 	std::optional<Type> check_function_argument(Expr &r_call, const std::vector<Type> &p_params, const Type &p_returns = Type::of(TypeKind::Error));
 	Type common_type(const Type &p_a, const Type &p_b) const;
 	Type check_conditional(Expr &r_expr, const Type &p_expected);

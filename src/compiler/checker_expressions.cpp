@@ -679,36 +679,48 @@ void Checker::check_handler(const Expr &p_handler, const Type &p_signal) {
 
 /* Option and Result (spec §3.4, §3.5) */
 
-// The methods of T? (spec §3.4), as Rust's. Those that take a function
-// call it only when there is a value, or only when there is none. ok_or()
-// takes the error type from the Result expected, if any.
-Type Checker::check_option_method(Expr &r_expr, const Type &p_base, const Type &p_expected) {
-	const std::string &name = r_expr.text;
-	const Type value = p_base.unwrapped();
-	const std::string t = value.to_string();
-	if (!option_methods().count(name)) {
-		return fail_call(r_expr, "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
-	}
-	refer(r_expr.name_token, language_id("Option", name));
-	r_expr.target = name == "unwrap" || name == "expect" ? Target::Unwrap : Target::OptionMethod;
-	if (name == "flatten") {
-		hint(r_expr, [&](int p_current) { return signature(name, {}, false, p_current, t); });
-		check_arguments(r_expr, {}, 0, false);
-		if (!value.is_optional()) {
-			return fail_call(r_expr, p_base.to_string() + " has no method \"flatten()\", which makes a T?? into a T?.");
+// A signature of LANGUAGE_FUNCTIONS, with T and E, and T? and E?, spelled as
+// the types the receiver holds; E stays without `p_e`.
+static std::string spelled(const char *p_text, const Type &p_t, const Type *p_e) {
+	std::string text;
+	for (const char *c = p_text; *c; c++) {
+		const Type *named = *c == 'T' ? &p_t : (*c == 'E' ? p_e : nullptr);
+		if (!named || (c > p_text && std::isalnum(static_cast<unsigned char>(c[-1]))) || std::isalnum(static_cast<unsigned char>(c[1]))) {
+			text += *c;
+			continue;
 		}
-		return set(r_expr, value);
+		const bool optional = c[1] == '?';
+		text += optional ? optional_of(*named).to_string() : named->to_string();
+		c += optional;
 	}
-	if (name == "unwrap" || name == "expect" || name == "unwrap_or" || name == "or") {
-		const std::vector<Type> params = name == "unwrap" ? std::vector<Type>() : std::vector<Type>{ name == "expect" ? Type::of(TypeKind::String) : (name == "or" ? p_base : value) };
-		const std::string shown = name == "expect" ? "message: String" : (name == "or" ? "other: " + p_base.to_string() : "default: " + t);
-		hint(r_expr, [&](int p_current) { return signature(name, params.empty() ? std::vector<std::string>() : std::vector<std::string>{ shown }, false, p_current, name == "or" ? p_base.to_string() : t); });
-		check_arguments(r_expr, params, int(params.size()), false);
-		return set(r_expr, name == "or" ? p_base : value);
+	return text;
+}
+
+// A method of T? or Result[T, E] (spec §3.4, §3.5), as Rust's, typed by what
+// it gives on each side. One that takes a function calls it only on the side
+// it is for. ok_or() takes the error type from the Result expected, if any.
+Type Checker::check_language_method(Expr &r_expr, const Type &p_base, const Type &p_expected) {
+	const std::string &name = r_expr.text;
+	const bool of_result = p_base.is_result();
+	const LanguageFunction *method = language_function(of_result ? LanguageFunction::Of::Result : LanguageFunction::Of::Option, name);
+	if (!method) {
+		return fail_call(r_expr, of_result ? p_base.to_string() + " has no method \"" + name + "()\"." : "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
 	}
-	if (name == "ok_or") {
+	refer(r_expr.name_token, language_id(of_result ? "Result" : "Option", name));
+	r_expr.target = Target::LanguageMethod;
+	r_expr.language = method;
+	// What each side holds: T, then E or nothing.
+	const Type held[2] = { of_result ? p_base.args[0] : p_base.unwrapped(), of_result ? p_base.args[1] : Type::of(TypeKind::Void) };
+	const Type &value = held[0];
+	const std::string takes = spelled(method->takes, value, of_result ? &held[1] : nullptr);
+	hint(r_expr, [&](int p_current) { return signature(name, *method->takes ? std::vector<std::string>{ takes } : std::vector<std::string>(), false, p_current, spelled(method->returns, value, of_result ? &held[1] : nullptr)); });
+	// The side that calls the function passed, if one does.
+	const int side = method->sides[0] == Gives::Called || method->sides[0] == Gives::WrappedCalled || method->sides[0] == Gives::Filtered ? 0 : 1;
+	const Gives gives = method->sides[side];
+	const Gives other = method->sides[1 - side];
+	if (method->sides[1] == Gives::WrappedArgument) {
+		// ok_or()
 		const Type wanted = p_expected.is_result() ? p_expected.args[1] : Type::of(TypeKind::Error);
-		hint(r_expr, [&](int p_current) { return signature(name, { "error: E" }, false, p_current, "Result[" + t + ", E]"); });
 		if (r_expr.args.size() != 1) {
 			return fail_call(r_expr, "Function \"ok_or()\" takes 1 argument(s), " + std::to_string(r_expr.args.size()) + " given.");
 		}
@@ -724,31 +736,47 @@ Type Checker::check_option_method(Expr &r_expr, const Type &p_base, const Type &
 		r_expr.param_types.push_back(failure);
 		return set(r_expr, failure.is_error() ? failure : Type::result(value, failure));
 	}
-	// The others take a function: of the value, or of nothing.
-	const bool of_value = name == "map" || name == "and_then" || name == "filter";
-	const std::map<std::string, std::string> returns = { { "unwrap_or_else", t }, { "map", "U" }, { "and_then", "U?" }, { "or_else", p_base.to_string() }, { "filter", "bool" }, { "ok_or_else", "E" } };
-	const std::map<std::string, std::string> results = { { "unwrap_or_else", t }, { "map", "U?" }, { "and_then", "U?" }, { "or_else", p_base.to_string() }, { "filter", p_base.to_string() }, { "ok_or_else", "Result[" + t + ", E]" } };
-	hint(r_expr, [&](int p_current) { return signature(name, { "f: func(" + (of_value ? t : std::string()) + ") -> " + returns.at(name) }, false, p_current, results.at(name)); });
-	const std::map<std::string, Type> fitting = { { "unwrap_or_else", value }, { "or_else", p_base }, { "filter", Type::of(TypeKind::Bool) } };
-	const auto fits_type = fitting.find(name);
-	// and_then()'s function returns some U?, which its returns say.
-	const Type wanted = fits_type != fitting.end() ? fits_type->second : (name == "and_then" ? Type::option(Type::of(TypeKind::Error)) : Type::of(TypeKind::Error));
-	const std::optional<Type> returned = check_function_argument(r_expr, of_value ? std::vector<Type>{ value } : std::vector<Type>(), wanted);
+	if (gives != Gives::Called && gives != Gives::WrappedCalled && gives != Gives::Filtered) {
+		// What a side holds, as a T? for ok() and err(), or the receiver;
+		// unwrap_or() and or() take one more of it, expect() a message.
+		const bool to_option = of_result && (method->sides[0] == Gives::Default || method->sides[1] == Gives::Default);
+		const Type result = method->sides[0] == Gives::Self ? p_base : (to_option ? optional_of(held[method->sides[0] == Gives::Default]) : value);
+		const std::vector<Type> params = method->sides[1] == Gives::Argument ? std::vector<Type>{ result } : (*method->takes ? std::vector<Type>{ Type::of(TypeKind::String) } : std::vector<Type>());
+		check_arguments(r_expr, params, int(params.size()), false);
+		if (!of_result && method->sides[1] == Gives::Default && !value.is_optional()) {
+			return fail_call(r_expr, p_base.to_string() + " has no method \"flatten()\", which makes a T?? into a T?.");
+		}
+		return set(r_expr, result);
+	}
+	// The function, called on the side it is for, of what the side holds, or
+	// of nothing on None. What it returns when the method says: the type the
+	// other side gives, some U? as and_then() of T? returns, or a Result that
+	// keeps the other side's type; which its returns say.
+	const std::vector<Type> params = of_result || side == 0 ? std::vector<Type>{ held[side] } : std::vector<Type>();
+	Type wanted = Type::of(TypeKind::Error);
+	if (gives == Gives::Filtered) {
+		wanted = Type::of(TypeKind::Bool);
+	} else if (gives == Gives::Called) {
+		const Type open = Type::of(TypeKind::Error);
+		wanted = other == Gives::Inner ? value : (other == Gives::Self ? p_base : (other == Gives::Default ? Type::option(open) : (side == 0 ? Type::result(open, held[1]) : Type::result(value, open))));
+	}
+	const std::optional<Type> returned = check_function_argument(r_expr, params, wanted);
 	if (!returned || returned->is_error()) {
 		return set(r_expr, Type::of(TypeKind::Error));
 	}
-	const bool fits = fits_type != fitting.end() ? assignable(*returned, fits_type->second) : (name == "and_then" ? returned->is_optional() : returned->kind != TypeKind::Void);
+	const size_t kept = wanted.is_result() && wanted.args[0].is_error() ? 1 : 0;
+	const bool fits = wanted.is_error() ? returned->kind != TypeKind::Void : (!partial(wanted) ? assignable(*returned, wanted) : (wanted.is_result() ? returned->is_result() && returned->args[kept] == wanted.args[kept] : returned->is_optional()));
 	if (!fits) {
-		error(r_expr.args[0]->range, "The function passed to " + name + "() returns " + returned->to_string() + ", not " + returns.at(name) + ".");
+		error(r_expr.args[0]->range, "The function passed to " + name + "() returns " + returned->to_string() + ", not " + takes.substr(takes.find("-> ") + 3) + ".");
 		return set(r_expr, Type::of(TypeKind::Error));
 	}
-	if (name == "map") {
-		return set(r_expr, optional_of(*returned));
+	if (gives == Gives::Filtered) {
+		return set(r_expr, p_base);
 	}
-	if (name == "and_then") {
-		return set(r_expr, *returned);
+	if (gives == Gives::WrappedCalled) {
+		return set(r_expr, !of_result && other == Gives::Default ? optional_of(*returned) : (side == 0 ? Type::result(*returned, held[1]) : Type::result(value, *returned)));
 	}
-	return set(r_expr, name == "ok_or_else" ? Type::result(value, *returned) : (name == "unwrap_or_else" ? value : p_base));
+	return set(r_expr, partial(wanted) ? *returned : wanted);
 }
 
 // `Some(v)` (spec §3.4): of the T? it goes to, which says what v is, or of
@@ -811,60 +839,6 @@ Type Checker::check_result_construction(Expr &r_expr, const Type &p_expected) {
 	hint(r_expr, [&](int p_current) { return signature(r_expr.text, { (variant == 0 ? "value: " : "error: ") + result.args[variant].to_string() }, false, p_current, result.to_string()); });
 	check_arguments(r_expr, { result.args[variant] }, 1, false);
 	return set(r_expr, result);
-}
-
-// The methods of Result[T, E] (spec §3.5), as Rust's. Those that take a
-// function call it only on the variant they are for.
-Type Checker::check_result_method(Expr &r_expr, const Type &p_base) {
-	const std::string &name = r_expr.text;
-	const Type &value = p_base.args[0];
-	const Type &failure = p_base.args[1];
-	const std::string t = value.to_string();
-	const std::string e = failure.to_string();
-	if (!result_methods().count(name)) {
-		return fail_call(r_expr, p_base.to_string() + " has no method \"" + name + "()\".");
-	}
-	refer(r_expr.name_token, language_id("Result", name));
-	r_expr.target = Target::ResultMethod;
-	if (name == "unwrap" || name == "expect" || name == "unwrap_or") {
-		const std::vector<Type> params = name == "unwrap" ? std::vector<Type>() : std::vector<Type>{ name == "expect" ? Type::of(TypeKind::String) : value };
-		hint(r_expr, [&](int p_current) { return signature(name, params.empty() ? std::vector<std::string>() : std::vector<std::string>{ name == "expect" ? "message: String" : "default: " + t }, false, p_current, t); });
-		check_arguments(r_expr, params, int(params.size()), false);
-		return set(r_expr, value);
-	}
-	if (name == "ok" || name == "err") {
-		const Type &inner = name == "ok" ? value : failure;
-		hint(r_expr, [&](int p_current) { return signature(name, {}, false, p_current, optional_of(inner).to_string()); });
-		check_arguments(r_expr, {}, 0, false);
-		return set(r_expr, optional_of(inner));
-	}
-	// The function's parameter, and what it returns as the hint shows it.
-	const bool on_error = name == "unwrap_or_else" || name == "map_err" || name == "or_else";
-	const std::map<std::string, std::string> returns = { { "unwrap_or_else", t }, { "map", "U" }, { "map_err", "F" }, { "and_then", "Result[U, " + e + "]" }, { "or_else", "Result[" + t + ", F]" } };
-	const std::map<std::string, std::string> results = { { "unwrap_or_else", t }, { "map", "Result[U, " + e + "]" }, { "map_err", "Result[" + t + ", F]" }, { "and_then", "Result[U, " + e + "]" }, { "or_else", "Result[" + t + ", F]" } };
-	hint(r_expr, [&](int p_current) { return signature(name, { "f: func(" + (on_error ? e : t) + ") -> " + returns.at(name) }, false, p_current, results.at(name)); });
-	// and_then()'s function returns some Result[U, E], or_else()'s some
-	// Result[T, F], which its returns say.
-	const std::map<std::string, Type> wanted = { { "unwrap_or_else", value }, { "and_then", Type::result(Type::of(TypeKind::Error), failure) }, { "or_else", Type::result(value, Type::of(TypeKind::Error)) } };
-	const auto known = wanted.find(name);
-	const std::optional<Type> returned = check_function_argument(r_expr, { on_error ? failure : value }, known != wanted.end() ? known->second : Type::of(TypeKind::Error));
-	if (!returned || returned->is_error()) {
-		return set(r_expr, Type::of(TypeKind::Error));
-	}
-	// and_then keeps the error type, or_else the value type.
-	const size_t kept = name == "and_then" ? 1 : 0;
-	const bool fits = name == "unwrap_or_else" ? assignable(*returned, value) : (name == "map" || name == "map_err" ? returned->kind != TypeKind::Void : returned->is_result() && returned->args[kept] == p_base.args[kept]);
-	if (!fits) {
-		error(r_expr.args[0]->range, "The function passed to " + name + "() returns " + returned->to_string() + ", not " + returns.at(name) + ".");
-		return set(r_expr, Type::of(TypeKind::Error));
-	}
-	if (name == "unwrap_or_else") {
-		return set(r_expr, value);
-	}
-	if (name == "map" || name == "map_err") {
-		return set(r_expr, name == "map" ? Type::result(*returned, failure) : Type::result(value, *returned));
-	}
-	return set(r_expr, *returned);
 }
 
 // The one argument of map() and the like: a function whose parameters take

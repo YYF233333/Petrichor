@@ -439,97 +439,79 @@ class Lowerer {
 		}
 	}
 
-	// A method of Result (spec §3.5): its argument evaluated first, as a call's
-	// are, then the variant decides, a function passed being called only on
-	// the variant it is for.
-	uint32_t result_method(const Expr &p_call) {
+	// A method of T? or Result (spec §3.4, §3.5), as its row of
+	// LANGUAGE_FUNCTIONS says: its argument evaluated first, as a call's are,
+	// then the side of the value decides, a function passed being called only
+	// on the side it is for.
+	uint32_t language_method(const Expr &p_call) {
 		const Type &type = p_call.base->type;
-		const std::string &name = p_call.text;
+		const Gives *sides = p_call.language->sides;
 		const uint32_t value = lower_expr(*p_call.base);
 		const uint32_t argument = p_call.args.empty() ? NO_REG : convert(lower_expr(*p_call.args[0]), p_call.args[0]->type, p_call.param_types[0]);
 		const uint32_t result = temp(p_call.type);
-		if (name == "unwrap" || name == "expect") {
-			instr(Op::UNWRAP_OK, result, value, argument);
+		if (sides[1] == Gives::Fail) {
+			instr(type.is_result() ? Op::UNWRAP_OK : Op::UNWRAP, result, value, argument);
 			return result;
 		}
-		const uint32_t ok = temp(ValueType::Bool);
-		const uint32_t zero = int_constant(0);
-		instr(Op::EQ_INT, ok, field_view(value, 0), zero);
+		const uint32_t absent = temp(ValueType::Bool);
+		if (type.is_result()) {
+			instr(Op::NE_INT, absent, field_view(value, 0), int_constant(0));
+		} else {
+			instr(Op::IS_NONE, absent, value, NO_REG, 0, fn.regs[value].type);
+		}
 		const uint32_t blocks[2] = { new_block(), new_block() };
 		const uint32_t end_block = new_block();
-		branch(ok, blocks[0], blocks[1]);
-		const bool on_error = name == "err" || name == "unwrap_or" || name == "unwrap_or_else" || name == "map_err" || name == "or_else";
-		for (int variant = 0; variant < 2; variant++) {
-			current = blocks[variant];
-			const uint32_t inner = field_view(value, variant_field(type, variant, 0));
-			const bool applies = (variant == 1) == on_error;
-			const auto called = [&]() { return call_value(argument, p_call.param_types[0], inner, type.args[variant]); };
-			if (name == "unwrap_or") {
-				move(result, applies ? argument : inner);
-			} else if (name == "unwrap_or_else") {
-				move(result, applies ? convert(called(), p_call.param_types[0].args[0], p_call.type) : inner);
-			} else if (name == "ok" || name == "err") {
-				applies ? move(result, convert(inner, type.args[variant], p_call.type)) : (void)default_value(result);
-			} else if (applies && (name == "and_then" || name == "or_else")) {
-				move(result, called());
-			} else {
-				make_variant(result, p_call.type, variant, { applies ? called() : inner });
+		branch(absent, blocks[1], blocks[0]);
+		for (int side = 0; side < 2; side++) {
+			current = blocks[side];
+			const Gives gives = sides[side];
+			// What the side holds: a field of a Result, the value of a T?, nothing of None.
+			const Type held = type.is_result() ? type.args[side] : type.unwrapped();
+			uint32_t inner = NO_REG;
+			if (type.is_result()) {
+				inner = field_view(value, variant_field(type, side, 0));
+			} else if (side == 0 && gives != Gives::Self) {
+				inner = temp(held);
+				instr(Op::UNWRAP, inner, value);
+			}
+			const auto called = [&]() { return call_value(argument, p_call.param_types[0], inner, held); };
+			switch (gives) {
+				case Gives::Fail:
+				case Gives::Default:
+					default_value(result);
+					break;
+				case Gives::Inner:
+					move(result, convert(inner, held, p_call.type));
+					break;
+				case Gives::Self:
+					move(result, value);
+					break;
+				case Gives::Argument:
+					move(result, argument);
+					break;
+				case Gives::Filtered: {
+					const uint32_t kept_block = new_block();
+					branch(called(), kept_block, blocks[1]);
+					current = kept_block;
+					move(result, value);
+					break;
+				}
+				case Gives::WrappedInner:
+				case Gives::WrappedArgument:
+					make_variant(result, p_call.type, side, { gives == Gives::WrappedInner ? inner : argument });
+					break;
+				case Gives::WrappedCalled:
+					if (p_call.type.is_result()) {
+						make_variant(result, p_call.type, side, { called() });
+						break;
+					}
+					[[fallthrough]]; // In Some, as the conversion to the T? makes it.
+				case Gives::Called:
+					move(result, convert(called(), p_call.param_types[0].args[0], p_call.type));
+					break;
 			}
 			jump(end_block);
 		}
-		current = end_block;
-		return result;
-	}
-
-	// A method of T? (spec §3.4), as result_method() lowers those of Result.
-	// filter() goes on as None when its function says no; flatten() gives the
-	// T? inside.
-	uint32_t option_method(const Expr &p_call) {
-		const Type &type = p_call.base->type;
-		const std::string &name = p_call.text;
-		const uint32_t value = lower_expr(*p_call.base);
-		const uint32_t argument = p_call.args.empty() ? NO_REG : convert(lower_expr(*p_call.args[0]), p_call.args[0]->type, p_call.param_types[0]);
-		const uint32_t result = temp(p_call.type);
-		const uint32_t none = temp(ValueType::Bool);
-		instr(Op::IS_NONE, none, value, NO_REG, 0, fn.regs[value].type);
-		const uint32_t some_block = new_block();
-		const uint32_t none_block = new_block();
-		const uint32_t end_block = new_block();
-		branch(none, none_block, some_block);
-		const auto called = [&](uint32_t p_inner) { return call_value(argument, p_call.param_types[0], p_inner, type.unwrapped()); };
-		// What the function returns, as the method gives it.
-		const auto returned = [&](uint32_t p_value) { return convert(p_value, p_call.param_types[0].args[0], p_call.type); };
-
-		current = some_block;
-		if (name == "or" || name == "or_else") {
-			move(result, value);
-		} else {
-			const uint32_t inner = temp(type.unwrapped());
-			instr(Op::UNWRAP, inner, value);
-			if (name == "filter") {
-				const uint32_t kept_block = new_block();
-				branch(called(inner), kept_block, none_block);
-				current = kept_block;
-				move(result, value);
-			} else if (name == "ok_or" || name == "ok_or_else") {
-				make_variant(result, p_call.type, 0, { inner });
-			} else {
-				move(result, name == "map" || name == "and_then" ? returned(called(inner)) : inner);
-			}
-		}
-		jump(end_block);
-
-		current = none_block;
-		if (name == "ok_or" || name == "ok_or_else") {
-			make_variant(result, p_call.type, 1, { name == "ok_or" ? argument : called(NO_REG) });
-		} else if (name == "unwrap_or" || name == "or") {
-			move(result, argument);
-		} else if (name == "unwrap_or_else" || name == "or_else") {
-			move(result, returned(called(NO_REG)));
-		} else {
-			default_value(result);
-		}
-		jump(end_block);
 		current = end_block;
 		return result;
 	}
@@ -1803,17 +1785,8 @@ class Lowerer {
 				const Type &value = p_call.param_types[0];
 				return convert(convert(lower_expr(*p_call.args[0]), p_call.args[0]->type, value), value, p_call.type);
 			}
-			case Target::Unwrap: {
-				const uint32_t value = lower_expr(*p_call.base);
-				const uint32_t message = p_call.args.empty() ? NO_REG : convert(lower_expr(*p_call.args[0]), p_call.args[0]->type, Type::of(TypeKind::String));
-				const uint32_t result = temp(p_call.type);
-				instr(Op::UNWRAP, result, value, message);
-				return result;
-			}
-			case Target::OptionMethod:
-				return option_method(p_call);
-			case Target::ResultMethod:
-				return result_method(p_call);
+			case Target::LanguageMethod:
+				return language_method(p_call);
 			case Target::TryFrom: {
 				const uint32_t value = convert(lower_expr(*p_call.args[0]), p_call.args[0]->type, Type::of(TypeKind::Variant));
 				const uint32_t result = temp(p_call.type);
@@ -1838,32 +1811,33 @@ class Lowerer {
 			case Target::Range:
 				return range(p_call, temp(p_call.type));
 			case Target::GDScriptUtility: {
-				if (p_call.text == "print_stack") {
-					instr(Op::PRINT_STACK, NO_REG);
-					return NO_REG;
-				}
-				const uint32_t result = temp(p_call.type);
-				if (p_call.text == "is_instance_of") {
-					uint32_t value = lower_expr(*p_call.args[0]);
-					if (reg_type(value) == ValueType::Variant) {
-						value = variant_object(value, Type::object("Object"));
+				const uint32_t result = p_call.type.kind == TypeKind::Void ? NO_REG : temp(p_call.type);
+				switch (p_call.language->id) {
+					case LanguageFunction::Id::PrintStack:
+						instr(Op::PRINT_STACK, NO_REG);
+						return NO_REG;
+					case LanguageFunction::Id::GetStack:
+						instr(Op::GET_STACK, result, NO_REG, NO_REG, 0, fn.regs[result].type);
+						return result;
+					case LanguageFunction::Id::IsInstanceOf: {
+						uint32_t value = lower_expr(*p_call.args[0]);
+						if (reg_type(value) == ValueType::Variant) {
+							value = variant_object(value, Type::object("Object"));
+						}
+						instr(Op::IS_SCRIPT, result, value, lower_expr(*p_call.args[1]));
+						return result;
 					}
-					instr(Op::IS_SCRIPT, result, value, lower_expr(*p_call.args[1]));
-					return result;
+					case LanguageFunction::Id::Ord:
+						instr(Op::ORD, result, lower_expr(*p_call.args[0]));
+						return result;
+					case LanguageFunction::Id::Len:
+					default: {
+						const uint32_t value = lower_expr(*p_call.args[0]);
+						const ValueType type = reg_type(value);
+						const bool text = type == ValueType::String || type == ValueType::StringName;
+						return call_builtin(engine_builtin_method(type, text ? "length" : "size", {}, ValueType::Int), value, {}, result);
+					}
 				}
-				if (p_call.text == "get_stack") {
-					instr(Op::GET_STACK, result, NO_REG, NO_REG, 0, fn.regs[result].type);
-					return result;
-				}
-				const uint32_t value = lower_expr(*p_call.args[0]);
-				if (p_call.text == "ord") {
-					instr(Op::ORD, result, value);
-					return result;
-				}
-				// len()
-				const ValueType type = reg_type(value);
-				const bool text = type == ValueType::String || type == ValueType::StringName;
-				return call_builtin(engine_builtin_method(type, text ? "length" : "size", {}, ValueType::Int), value, {}, result);
 			}
 			case Target::TaskAny:
 			case Target::TaskAll: {

@@ -108,8 +108,11 @@ void Checker::builtin_candidates(const builtin::Class &p_type, Candidates &r_nam
 // What may follow `value.` for a value of the type.
 void Checker::value_candidates(const Type &p_type, Candidates &r_names) {
 	if (p_type.is_optional() || p_type.is_result()) {
-		const std::unordered_set<std::string> &methods = p_type.is_result() ? result_methods() : option_methods();
-		r_names.values.insert(methods.begin(), methods.end());
+		for (const LanguageFunction &method : LANGUAGE_FUNCTIONS) {
+			if (method.of == (p_type.is_result() ? LanguageFunction::Of::Result : LanguageFunction::Of::Option)) {
+				r_names.values.insert(method.name);
+			}
+		}
 		return;
 	}
 	if (p_type.kind == TypeKind::Task) {

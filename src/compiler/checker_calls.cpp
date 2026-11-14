@@ -1743,11 +1743,9 @@ Type Checker::type_call(Expr &r_expr, const Type &p_expected) {
 		if (name == "range") {
 			return check_range(r_expr);
 		}
-		if (name == "len" || name == "char" || name == "ord" || name == "print_stack" || name == "get_stack") {
-			return check_gdscript_utility(r_expr);
-		}
-		if (name == "is_instance_of") {
-			return check_is_instance_of(r_expr);
+		r_expr.language = language_function(LanguageFunction::Of::GDScript, name);
+		if (r_expr.language) {
+			return r_expr.language->id == LanguageFunction::Id::IsInstanceOf ? check_is_instance_of(r_expr) : check_gdscript_utility(r_expr);
 		}
 		// What Godot's documentation says to use instead
 		// (modules/gdscript/doc_classes/@GDScript.xml:14, 61, 77, 106, 269; ed1daf0).
@@ -1827,11 +1825,8 @@ Type Checker::type_method_call(Expr &r_expr, const Type &p_expected) {
 		refer(r_expr.name_token, language_id("Task", name));
 		return set(r_expr, Type::task(Type::settled(base_type.args[0])));
 	}
-	if (base_type.is_optional()) {
-		return check_option_method(r_expr, base_type, p_expected);
-	}
-	if (base_type.is_result()) {
-		return check_result_method(r_expr, base_type);
+	if (base_type.is_optional() || base_type.is_result()) {
+		return check_language_method(r_expr, base_type, p_expected);
 	}
 	if (base_type.kind == TypeKind::Variant) {
 		return fail_call(r_expr, "Cannot call \"" + name + "()\" on a Variant." + variant_hint() + " To call a method by name, convert it to Object and use call().");
@@ -1908,9 +1903,10 @@ Type Checker::check_range(Expr &r_expr) {
 // GDScript's own len(), char(), ord(), print_stack() and get_stack()
 // (modules/gdscript/gdscript_utility_functions.cpp:120-134, 364-452; ed1daf0).
 Type Checker::check_gdscript_utility(Expr &r_expr) {
-	const std::string &name = r_expr.text;
-	refer(r_expr.name_token, engine_id("@GDScript", name));
-	if (name == "char") {
+	using Id = LanguageFunction::Id;
+	const LanguageFunction &utility = *r_expr.language;
+	refer(r_expr.name_token, engine_id("@GDScript", utility.name));
+	if (utility.id == Id::Char) {
 		// String.chr() of a code that fits a char32, as GDScript checks it.
 		r_expr.base = synthetic(ExprKind::Name, "String", r_expr.range);
 		r_expr.text = "chr";
@@ -1920,7 +1916,7 @@ Type Checker::check_gdscript_utility(Expr &r_expr) {
 		return result;
 	}
 	r_expr.target = Target::GDScriptUtility;
-	if (name == "len") {
+	if (utility.id == Id::Len) {
 		if (r_expr.args.size() != 1) {
 			return fail_call(r_expr, "Function \"len()\" takes 1 argument(s), " + std::to_string(r_expr.args.size()) + " given.");
 		}
@@ -1931,12 +1927,12 @@ Type Checker::check_gdscript_utility(Expr &r_expr) {
 		}
 		return set(r_expr, Type::of(TypeKind::Int));
 	}
-	if (name == "ord") {
+	if (utility.id == Id::Ord) {
 		check_arguments(r_expr, { Type::of(TypeKind::String) }, 1, false);
 		return set(r_expr, Type::of(TypeKind::Int));
 	}
 	check_arguments(r_expr, {}, 0, false);
-	return set(r_expr, name == "get_stack" ? Type::array(Type::builtin("Dictionary")) : Type::of(TypeKind::Void));
+	return set(r_expr, utility.id == Id::GetStack ? Type::array(Type::builtin("Dictionary")) : Type::of(TypeKind::Void));
 }
 
 // is_instance_of(v, T) of a class name or a TYPE_* constant, as `v is T`;
