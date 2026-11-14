@@ -7,11 +7,16 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 0.2, due 2026-11-29. Its list and date are set with the owner (architecture §5, step 11).
 
 - With the owner: the invitations to review 0.1.
-- Finding references across scripts and scenes, including names in literals (spec §10.4).
+- Finding references across scripts and scenes, including names in literals (spec §10.4). The results show by file in a bottom panel. A result in a scene opens the scene at the node.
   - References from scenes for the keys of exported properties (architecture §2.1). Also for the members that animation tracks and synchronized properties name (spec §7.7). Now only the methods of signal connections are references.
   - A `Foreign` `DeclId` names the script accessed, not the one that declares the member. Finding references needs the declaring one.
-- Renaming, with the rewriting of scenes (spec §13.3). The rule that keeps a member's old name in its declaration comes with it (architecture §6.4).
-- The first quick fixes, those the migration tool needs.
+- Renaming, with the rewriting of scenes (spec §13.3).
+  - A preview lists every change by file. Same-named candidates that do not resolve start unchecked, as in `.gd` files and dynamic access.
+  - Applying saves the affected open scenes, writes the files and reloads them. One undo in the editor restores them all.
+  - Then renaming a node in the scene editor updates `$X` and literal paths in scripts. If time is short it moves to 0.3, since a stale `$X` is a compile error, not a silent one.
+- The first quick fixes: the five kinds most frequent in the second paper migration, about half of its 230 changes. They are adding `pub`, truthiness, `async` and `.detach()`, `T?` or `.unwrap()`, and `float` arguments.
+  - A light bulb on the caret's line opens them in a small list at the caret, as in VS Code. So does a shortcut registered in the editor settings, and the context menu.
+  - Ctrl+. is taken by Go to Next Breakpoint (`editor/script/script_text_editor.cpp:2672`, `ed1daf0`). Alt+Enter, as in JetBrains IDEs, is free.
 - Assignments evaluate the right side first, as Python does (owner, 2026-11-15). Then come the place, the read, the change and the write back. The rule of spec §3.6 changes with it.
   - 0.1 evaluates the place's objects and indices first, to stay close to GDScript, and reads after the right side.
   - A warning when the right side has an `await` and the place has an object or an index, as `position.x = await f()`. It says that GDScript reads the place before the `await`.
@@ -238,6 +243,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - an assignment evaluates its right side before reading its target;
   - engine properties bypass a script's `_get` and `_set`;
   - a container used as a `Dictionary` key is stored as a read-only copy.
+- The rule that keeps a member's old name in its declaration (architecture §6.4). It is proposed when a team that edits scenes in parallel needs it. Until then renaming rewrites scenes.
 - A constant named as an autoload, written in a type: a compile error for now (spec §11.1). Allow it later as the nearer name, or as the autoload as GDScript does?
 - Members that are non-null only once the node is ready, which need a design of their own. The owner likens it to linear types. It covers these (spec §6.2, §6.4):
   - members that must be assigned, and where the compiler looks for the assignment;
