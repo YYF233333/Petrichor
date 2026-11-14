@@ -4,13 +4,13 @@ The owner asks for a scan at Godot's development snapshots, betas, release candi
 
 ## Why
 
-Petrichor's hard rule binds it to the GDScript of Godot 4 (spec §1.2, §1.4). Code spelled as in GDScript behaves the same or fails to compile. Its runtime and editor rely on the engine behavior in `docs/engine-facts.md`. A scan finds the upstream changes that touch either, and what Petrichor's users will meet next.
+Petrichor's no-silent-differences rule binds it to the GDScript of Godot 4 (spec §1.2, §1.4). Code spelled as in GDScript behaves the same or fails to compile. Its runtime and editor rely on the engine behavior in `docs/engine-facts.md`. A scan finds the upstream changes that touch either, and what Petrichor's users will meet next.
 
 ## What to look for
 
 Report only what changed in the range.
 
-1. GDScript spellings that Petrichor also uses. Such a feature with other semantics would break the hard rule. Watch:
+1. GDScript spellings that Petrichor also uses. Such a feature with other semantics would break the no-silent-differences rule. Watch:
    - optional and nullable types, and `?` in types;
    - structs, traits, interfaces and enums with payloads;
    - visibility keywords and annotations;
