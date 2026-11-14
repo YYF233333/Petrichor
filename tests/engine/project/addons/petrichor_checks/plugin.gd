@@ -52,6 +52,7 @@ func _run() -> void:
 	await _check_scene_marks()
 	_check_lookup()
 	_check_completion()
+	_check_highlighting()
 	await _check_documentation()
 	await _check_script_dialog()
 
@@ -400,6 +401,29 @@ func _check_completion() -> void:
 	for path in [hit_path, script_path]:
 		for file in [path, path + ".uid", path.replace("res://", "res://.godot/petrichor/").replace(".pet", ".petc")]:
 			DirAccess.remove_absolute(file)
+
+
+# The script editor colors a script by the lexer's tokens, in the colors of the
+# settings GDScript's highlighter reads. Columns count characters, not bytes,
+# and a string in triple quotes goes on to the next line.
+func _check_highlighting() -> void:
+	var path := "res://editor_highlight.pet"
+	_write(path, "extends Node\n\n@export pub var speed := 1.0\nvar title := \"雨后\" + str(1)\nvar poem := \"\"\"雨\n后\"\"\" + \"!\"\n")
+	EditorInterface.edit_script(load(path))
+	var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	var shown := func(line: int, column: int, setting: String) -> bool:
+		var colors: Dictionary = code.syntax_highlighter.get_line_syntax_highlighting(line)
+		var found := Color()
+		for from: int in colors:
+			if from <= column:
+				found = colors[from].color
+		return found == EditorInterface.get_editor_settings().get_setting("text_editor/theme/highlighting/" + setting)
+	_check(shown.call(2, 1, "gdscript/annotation_color") and shown.call(2, 8, "keyword_color"), "the script editor colors annotations and keywords")
+	_check(shown.call(3, 18, "symbol_color") and shown.call(3, 20, "gdscript/global_function_color"), "the script editor colors by characters after Chinese text")
+	_check(shown.call(5, 0, "string_color") and shown.call(5, 5, "symbol_color"), "the script editor colors a string in triple quotes over its lines")
+	_check_errors([], "highlighting reports nothing")
+	for file in [path, path + ".uid", path.replace("res://", "res://.godot/petrichor/").replace(".pet", ".petc")]:
+		DirAccess.remove_absolute(file)
 
 
 # The options completion offers at a line and column, by what they show. A

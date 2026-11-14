@@ -74,6 +74,7 @@ static void initialize_petrichor(ModuleInitializationLevel p_level) {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
 		GDREGISTER_INTERNAL_CLASS(PetExportPlugin);
 		GDREGISTER_INTERNAL_CLASS(PetFormatMenu);
+		GDREGISTER_INTERNAL_CLASS(PetHighlighter);
 		GDREGISTER_INTERNAL_CLASS(PetEditorPlugin);
 		EditorPlugins::add_by_type<PetEditorPlugin>();
 		connect_extension_signals(true);
