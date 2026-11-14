@@ -13,6 +13,11 @@ After the release, with the owner: the invitations.
 
 ## Language
 
+- In 0.2, assignments evaluate the right side first, as Python does (owner, 2026-11-15). Then come the place, the read, the change and the write back. The rule of spec §3.6 changes with it.
+  - 0.1 evaluates the place's objects and indices first, to stay close to GDScript, and reads after the right side.
+  - A warning when the right side has an `await` and the place has an object or an index, as `position.x = await f()`. It says that GDScript reads the place before the `await`.
+  - Compound assignments follow the same order. Calls that modify their receiver do not change.
+
 - Assignments by ancestors (spec §6.2), which the checker assumes without looking for them.
   - It takes a must-assign member of a node with an owner as one they assign. Exported members and those `_init` assigns are not.
   - The spec requires `$Child.target = v` or an `@onready` reference in their `_ready`. Without one, the member must be `T?`.
