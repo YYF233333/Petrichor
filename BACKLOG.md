@@ -243,6 +243,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - an assignment evaluates its right side before reading its target;
   - engine properties bypass a script's `_get` and `_set`;
   - a container used as a `Dictionary` key is stored as a read-only copy.
+- Whether a member may have the name of a member of another kind in a base class of this language (spec §4.1). It is a compile error, as in GDScript (`modules/gdscript/gdscript_analyzer.cpp:234-253`, `ed1daf0`). An example is a function named as an inherited enum.
 - The rule that keeps a member's old name in its declaration (architecture §6.4). It is proposed when a team that edits scenes in parallel needs it. Until then renaming rewrites scenes.
 - A constant named as an autoload, written in a type: a compile error for now (spec §11.1). Allow it later as the nearer name, or as the autoload as GDScript does?
 - Members that are non-null only once the node is ready, which need a design of their own. The owner likens it to linear types. It covers these (spec §6.2, §6.4):

@@ -2,7 +2,7 @@
 
 **v0.2 draft · 2026-10-25**
 
-<!-- Generated from language-spec.zh.md, git blob 1f2086c88f01e8960f16e81baf9b2ff9ffef4278. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 5aff0bd997a1fe2a3b2291a952a502c7d5cb9986. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). The previous version of the specification, v0.1, is kept in the git tag `spec-v0.1`. This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -362,13 +362,14 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 4.1 Classes and inheritance
 
-- Class names use the engine's flat global class table. The compiler checks for names that duplicate class names of this language, of GDScript plugins and of C#. **[Known limitation]** The first version has no namespaces.
+- Class names use the engine's flat global class table. A name that duplicates an engine class, a built-in type, or a class name of this language, of GDScript plugins or of C# is a compile error. **[Known limitation]** The first version has no namespaces.
 - A class can extend an engine class or a class of this language. **[Known limitation]** Cross-language inheritance is not supported in either direction.
 - **Bare-name resolution**: a bare name in a class is first looked up in local variables. Next come the declarations of the class and of its base classes of this language. Last come the members of the inherited engine class and its ancestors:
   - properties, methods, signals and constants;
   - enum values, whose type is that engine enum;
   - enum names, which can be used in type annotations. Bitfield values and the other integer constants are `int`.
 - A class declares variables, constants, signals, anonymous enum values and inner classes, which may clash with its engine base class. When one has the name of a constant, enum value or enum name there, it is a compile error. In an inner class, a bare name can be both an outer class's name and one of those engine names. That is a compile error, and `Outer.X` or `Area3D.X` must be written.
+- When a member of a class has the name of a member of a base class of this language, it is a compile error. A function overriding a function is the exception.
 - `new` is the constructor name that the compiler provides for a class. Declaring a function named `new` in a class or an interface is a compile error.
 - **`@abstract`**: an abstract method has no colon and no body. A class that has abstract methods must be marked `@abstract`. A concrete subclass must implement all abstract methods. An abstract class cannot be constructed, and cannot be attached to a scene node (an error marked on the scene). Calling an abstract method through `super` is a compile error, and so is marking a `static` method `@abstract`.
 
