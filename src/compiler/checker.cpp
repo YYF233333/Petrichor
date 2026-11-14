@@ -314,6 +314,9 @@ Type Checker::value_around(Expr &r_expr, Checker &r_around) {
 		refer(r_expr.name_token, script_id(owner, name));
 		return static_value(r_expr, found, owner);
 	}
+	if (const std::optional<Type> found = engine_class_value(r_expr, r_around.cls.native_base)) {
+		return *found;
+	}
 	if (r_around.member_index.count(name) || r_around.signal_index.count(name) || function != r_around.function_index.end() || engine.find_property(r_around.cls.native_base, name) ||
 			engine.find_method(r_around.cls.native_base, name) || engine.find_signal(r_around.cls.native_base, name)) {
 		return fail(r_expr, no_instance(name, r_around));
@@ -1302,6 +1305,7 @@ bool Checker::declare_class() {
 		cls.base = parent;
 		cls.all_members = cls.base->all_members;
 		cls.all_static_vars = cls.base->all_static_vars;
+		cls.all_constants = cls.base->all_constants;
 		cls.all_functions = cls.base->all_functions;
 		cls.all_signals = cls.base->all_signals;
 		cls.implemented = cls.base->implemented;
@@ -1311,6 +1315,9 @@ bool Checker::declare_class() {
 		}
 		for (size_t i = 0; i < cls.all_static_vars.size(); ++i) {
 			static_index[cls.all_static_vars[i]->name] = int(i);
+		}
+		for (size_t i = 0; i < cls.all_constants.size(); ++i) {
+			constant_index[cls.all_constants[i]->name] = int(i);
 		}
 		for (size_t i = 0; i < cls.all_functions.size(); ++i) {
 			function_index[cls.all_functions[i]->name] = int(i);

@@ -4,10 +4,23 @@ namespace petrichor::compiler::checking {
 
 /* Declarations */
 
+// Whether a declaration of this class cannot take the name, which a member,
+// constant, signal or function has, or an enum, enum value or inner class of
+// a base class of this language (spec §4.1). With `p_function` the
+// declaration is a function, which may override one. The class's own types
+// are checked once all else is declared.
+bool Checker::name_taken(const std::string &p_name, bool p_function) const {
+	if (member_index.count(p_name) || static_index.count(p_name) || constant_index.count(p_name) || signal_index.count(p_name) || (!p_function && function_index.count(p_name))) {
+		return true;
+	}
+	const auto names = [&](const EnumDecl *p_decl) { return p_decl->name == p_name || (p_decl->name.empty() && p_decl->find(p_name) >= 0); };
+	return cls.base && (std::any_of(cls.base->all_enums.begin(), cls.base->all_enums.end(), names) || !inner_class_path(cls.base_script, p_name).empty());
+}
+
 void Checker::declare_members() {
 	for (size_t i = 0; i < cls.members.size(); i++) {
 		VarDecl &member = cls.members[i];
-		if (member_index.count(member.name) || static_index.count(member.name) || function_index.count(member.name) || signal_index.count(member.name)) {
+		if (name_taken(member.name)) {
 			error(member.name_token, "The member \"" + member.name + "\" is already declared.");
 			continue;
 		}
@@ -16,7 +29,7 @@ void Checker::declare_members() {
 		refer(member.name_token, script_id(options.path, member.name), SymbolKind::Property);
 	}
 	for (VarDecl &variable : cls.static_vars) {
-		if (member_index.count(variable.name) || static_index.count(variable.name) || function_index.count(variable.name) || signal_index.count(variable.name)) {
+		if (name_taken(variable.name)) {
 			error(variable.name_token, "The member \"" + variable.name + "\" is already declared.");
 			continue;
 		}
@@ -31,7 +44,7 @@ void Checker::declare_members() {
 void Checker::declare_functions() {
 	std::unordered_set<std::string> own_functions;
 	for (FuncDecl &fn : cls.functions) {
-		if (!own_functions.insert(fn.name).second || member_index.count(fn.name) || static_index.count(fn.name) || constant_index.count(fn.name) || signal_index.count(fn.name)) {
+		if (!own_functions.insert(fn.name).second || name_taken(fn.name, true)) {
 			error(fn.name_token, "\"" + fn.name + "\" is already declared.");
 			continue;
 		}
@@ -1695,7 +1708,7 @@ void Checker::check_engine_options() {
 void Checker::declare_signals() {
 	for (size_t i = 0; i < cls.signals.size(); i++) {
 		SignalDecl &signal = cls.signals[i];
-		if (signal_index.count(signal.name) || member_index.count(signal.name) || constant_index.count(signal.name) || function_index.count(signal.name) || engine.find_signal(cls.native_base, signal.name)) {
+		if (name_taken(signal.name) || engine.find_signal(cls.native_base, signal.name)) {
 			error(signal.name_token, "\"" + signal.name + "\" is already declared.");
 			continue;
 		}

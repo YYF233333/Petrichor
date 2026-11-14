@@ -131,6 +131,9 @@ TEST_CASE("the name of an engine's enum as a value is typed as one of this langu
 					"var b: MouseButton? = MouseButton.get(\"MOUSE_BUTTON_LEFT\")\nvar axes: int = Vector3.Axis.size()\nvar mode: ProcessMode = ProcessMode[\"PROCESS_MODE_ALWAYS\"]")
 					.empty());
 	CHECK(contains(errors_in("var values: Array[int] = Tween.EaseType.values()"), "Cannot assign a value of type Array[Tween.EaseType] as Array[int]."));
+	// A singleton's name names its class before an enum's name, as in GDScript
+	// (modules/gdscript/gdscript_analyzer.cpp:4566-4569; ed1daf0).
+	CHECK(errors_in("var m: Input.MouseMode = Input.MouseMode.MOUSE_MODE_HIDDEN\nvar n: int = Input.MouseMode.size()").empty());
 }
 
 TEST_CASE("an enum compiles to an int checked where it is made from one") {

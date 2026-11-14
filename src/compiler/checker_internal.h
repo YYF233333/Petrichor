@@ -753,6 +753,7 @@ class Checker : public ClassRelation {
 	std::optional<Type> script_method(Expr &r_expr, const Type &p_class);
 	Type call_declared(Expr &r_expr, const FuncDecl &p_callee, const SourceFile &p_source, const Type &p_result);
 	Type check_engine_constant(Expr &r_expr, const std::string &p_class);
+	std::optional<Type> engine_class_value(Expr &r_expr, const std::string &p_class);
 	Type check_member_access(Expr &r_expr);
 
 	/* checker_scenes.cpp */
@@ -951,6 +952,7 @@ class Checker : public ClassRelation {
 
 	/* checker_declarations.cpp */
 
+	bool name_taken(const std::string &p_name, bool p_function = false) const;
 	void declare_members();
 	void declare_functions();
 	bool is_declared(const FuncDecl &p_function) const;

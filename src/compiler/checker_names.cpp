@@ -4,17 +4,10 @@ namespace petrichor::compiler::checking {
 
 /* Constants (spec §4.5) */
 
-// The class's own constants and those it inherits; a name may be declared
-// once among them, the members, the functions and the signals.
+// The class's own constants, after those it inherits.
 void Checker::declare_constants() {
-	if (cls.base) {
-		cls.all_constants = cls.base->all_constants;
-		for (size_t i = 0; i < cls.all_constants.size(); i++) {
-			constant_index[cls.all_constants[i]->name] = int(i);
-		}
-	}
 	for (ConstDecl &constant : cls.constants) {
-		if (constant_index.count(constant.name) || member_index.count(constant.name) || static_index.count(constant.name)) {
+		if (name_taken(constant.name)) {
 			error(constant.name_token, "\"" + constant.name + "\" is already declared.");
 			continue;
 		}
@@ -181,27 +174,19 @@ void Checker::declare_enums() {
 
 // The names of the types the class declares and of its unnamed enums'
 // values (spec §4.1), after everything else is declared: each once among
-// the class's declarations, and no type a built-in, engine or global class.
+// the class's declarations and those it inherits, and no type a built-in,
+// engine or global class. The file's class_name is in the engine's global
+// class table too.
 void Checker::check_type_names() {
+	if (is_type_name(cls.class_name)) {
+		error(cls.class_name_token, "\"" + cls.class_name + "\" is already declared.");
+	}
 	std::unordered_set<std::string> names;
 	const auto declare = [&](const std::string &p_name, uint32_t p_at, bool p_type) {
-		const bool taken = !names.insert(p_name).second || constant_index.count(p_name) || member_index.count(p_name) || static_index.count(p_name) || function_index.count(p_name) || signal_index.count(p_name);
-		if (taken || (p_type && (is_type_name(p_name) || (options.project && !options.project->global_class_path(p_name).empty())))) {
+		if (!names.insert(p_name).second || name_taken(p_name) || (p_type && (is_type_name(p_name) || (options.project && !options.project->global_class_path(p_name).empty())))) {
 			error(p_at, "\"" + p_name + "\" is already declared.");
 		}
 	};
-	for (const EnumDecl *decl : cls.all_enums) {
-		if (is_own(*decl)) {
-			continue;
-		}
-		if (!decl->name.empty()) {
-			names.insert(decl->name);
-			continue;
-		}
-		for (const EnumValueDecl &value : decl->values) {
-			names.insert(value.name);
-		}
-	}
 	for (const InterfaceDecl &interface : cls.interfaces) {
 		declare(interface.name, interface.name_token, true);
 	}
@@ -457,8 +442,8 @@ std::optional<Type> Checker::aliased_enum_type(const std::string &p_name) {
 // `EASE.EASE_IN` or, with `p_call`, the callee of `Tween.EaseType(x)`
 // names (spec §3.7): by the engine's name, unless a closer one hides it,
 // by a constant that names it, or one of the engine class this one
-// extends, such as ProcessMode (§4.1). A callee's class may be a
-// singleton's, as Input of `Input.MouseMode(x)`.
+// extends, such as ProcessMode (§4.1). The class may be a singleton's, as
+// Input of `Input.MouseMode`.
 std::optional<Type> Checker::named_engine_enum(const Expr &p_name, bool p_call) {
 	if (!may_name(p_name, p_call)) {
 		return std::nullopt;
@@ -466,7 +451,7 @@ std::optional<Type> Checker::named_engine_enum(const Expr &p_name, bool p_call) 
 	const std::string &name = p_name.text;
 	if (p_name.base) {
 		const std::string dotted = p_name.base->text + "." + name;
-		const std::optional<Type> found = names_type(*p_name.base, p_call) ? named_engine_enum(dotted) : std::nullopt;
+		const std::optional<Type> found = names_type(*p_name.base, true) ? named_engine_enum(dotted) : std::nullopt;
 		if (found) {
 			refer_engine_enum(dotted, p_name.base->name_token, p_name.name_token);
 		}
@@ -917,22 +902,25 @@ std::optional<Type> Checker::check_self_name(Expr &r_expr) {
 		}
 		return engine_method_value(r_expr, *method);
 	}
-	// Such as NOTIFICATION_PREDELETE (spec §4.1).
-	if (engine.find_constant(cls.native_base, r_expr.text)) {
-		if (refuse_ambiguous_engine_name(r_expr.text, r_expr.range)) {
-			return set(r_expr, Type::of(TypeKind::Error));
-		}
-		return check_engine_constant(r_expr, cls.native_base);
+	if ((engine.find_constant(cls.native_base, r_expr.text) || engine.find_enum(cls.native_base, r_expr.text)) && refuse_ambiguous_engine_name(r_expr.text, r_expr.range)) {
+		return set(r_expr, Type::of(TypeKind::Error));
 	}
-	// Such as ProcessMode, an enum's name as a value (spec §3.7, §4.1).
-	if (const std::optional<Type> found = engine.find_enum(cls.native_base, r_expr.text)) {
-		if (refuse_ambiguous_engine_name(r_expr.text, r_expr.range)) {
-			return set(r_expr, Type::of(TypeKind::Error));
-		}
-		refer(r_expr.name_token, engine_id(found->name.substr(0, found->name.find('.')), r_expr.text));
-		return use_engine_enum_dictionary(r_expr, *found);
+	return engine_class_value(r_expr, cls.native_base);
+}
+
+// A name of the engine class `p_class` that needs no instance (spec §3.7,
+// §4.1): a constant, such as NOTIFICATION_PREDELETE, or an enum's name, such
+// as ProcessMode, as a value.
+std::optional<Type> Checker::engine_class_value(Expr &r_expr, const std::string &p_class) {
+	if (engine.find_constant(p_class, r_expr.text)) {
+		return check_engine_constant(r_expr, p_class);
 	}
-	return std::nullopt;
+	const std::optional<Type> found = engine.find_enum(p_class, r_expr.text);
+	if (!found) {
+		return std::nullopt;
+	}
+	refer(r_expr.name_token, engine_id(found->name.substr(0, found->name.find('.')), r_expr.text));
+	return use_engine_enum_dictionary(r_expr, *found);
 }
 
 Type Checker::check_self(Expr &r_expr) {
@@ -1448,12 +1436,13 @@ Type Checker::check_member_access(Expr &r_expr) {
 		}
 		return class_member_value(r_expr, named->script, named->name);
 	}
-	if (names_type(base)) {
+	// Such as Tween.TransitionType, Vector3.Axis or Input.MouseMode, an enum's name as a value (spec §3.7).
+	const std::optional<Type> enum_named = names_type(base, true) ? named_engine_enum(base.text + "." + r_expr.text) : std::nullopt;
+	if (enum_named || names_type(base)) {
 		refer(base.name_token, engine_id(base.text));
-		// Such as Tween.TransitionType or Vector3.Axis, an enum's name as a value (spec §3.7).
-		if (const std::optional<Type> found = named_engine_enum(base.text + "." + r_expr.text)) {
+		if (enum_named) {
 			refer(r_expr.name_token, engine_id(base.text, r_expr.text));
-			return use_engine_enum_dictionary(r_expr, *found);
+			return use_engine_enum_dictionary(r_expr, *enum_named);
 		}
 		if (const builtin::Class *type = builtin::find_class(base.text)) {
 			if (const builtin::Constant *constant = builtin::find_constant(*type, r_expr.text)) {

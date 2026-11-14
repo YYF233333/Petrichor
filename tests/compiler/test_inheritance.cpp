@@ -87,6 +87,23 @@ TEST_CASE("inheritance rejects incompatible overrides and member collisions") {
 	CHECK(contains(messages(compile_in("extends Numeric\nfunc n(value: float) -> int:\n\treturn 1\n", p)), "narrows"));
 }
 
+// Spec §4.1, as GDScript checks it (modules/gdscript/gdscript_analyzer.cpp:234-253,
+// 291-301; ed1daf0): only a function overrides.
+TEST_CASE("a member does not take the name of a member of a base class, except a function") {
+	FakeProject p;
+	p.add_script("res://states.pet", "class_name States\nextends Node\nenum State { A, B }\nenum { IDLE }\nconst LIMIT := 1\nclass Part:\n\tpass\nfunc act() -> void:\n\tpass\n", "States");
+	const auto taken = [&](const std::string &p_member) { return contains(messages(compile_in("extends States\n" + p_member + "\n", p)), "is already declared."); };
+	CHECK(taken("func State(x: int) -> int:\n\treturn x"));
+	CHECK(taken("var IDLE := 1"));
+	CHECK(taken("static var Part := 1"));
+	CHECK(taken("const act := 1"));
+	CHECK(taken("signal State"));
+	CHECK(taken("enum Part { X }"));
+	CHECK(taken("class LIMIT:\n\tpass"));
+	CHECK(compile_in("extends States\nfunc act() -> void:\n\tpass\n", p).ok());
+	CHECK(contains(messages(compile_in("extends Node\nstatic var x := 1\nsignal x\n", p)), "\"x\" is already declared."));
+}
+
 TEST_CASE("inheritance subtyping and common ancestors retain script identity") {
 	auto p = inheritance_project();
 	const auto r = compile_in(R"(extends Node
