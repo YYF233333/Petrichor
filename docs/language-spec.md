@@ -2,7 +2,7 @@
 
 **v0.2 draft · 2026-10-25**
 
-<!-- Generated from language-spec.zh.md, git blob a2c13befe7c042d8be34f0e335df4c96e49b6b5d. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 1f2086c88f01e8960f16e81baf9b2ff9ffef4278. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). The previous version of the specification, v0.1, is kept in the git tag `spec-v0.1`. This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -930,6 +930,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - An autoload name can also be written in a type, where it names the same class. Examples are `func get_export() -> Export` and `f: Export.FileFormat`.
   - A scene autoload names the class of the root node's script. When the root node has no script, it names its engine class.
   - A nearer declaration of the same name in scope takes precedence.
+  - When a constant has the name of an autoload, writing that name in a type is a compile error. GDScript takes the autoload in a type, so taking the nearer one would differ silently.
 - Suppose a class of another language is named by its global class name or by `preload`. It is then constructed with `new(...)`, by the parameters of its `_init`. Static methods and constants of value types can also be accessed through the class (`Unit.make()`, `Unit.TILE_SIZE`).
 - **[Known limitation]** The engine does not provide the constructor parameters and constants of C# classes. So a C# class can be constructed only with `new()` without arguments, and its constants cannot be accessed.
 
