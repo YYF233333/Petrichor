@@ -575,6 +575,13 @@ class Checker : public ClassRelation {
 		return false;
 	}
 
+	// Whether a bare name reaches the global names: no local, declaration of
+	// this class or of one around it, or member of the engine class it
+	// extends has it (spec §4.1).
+	bool is_global(const std::string &p_name) const {
+		return !declares(p_name) && !class_around(p_name);
+	}
+
 	// Whether a bare name is declared by this class or one around it, which
 	// then comes before the engine's global names (spec §4.1).
 	bool declared_in_scope(const std::string &p_name) const {
@@ -632,26 +639,28 @@ class Checker : public ClassRelation {
 			const std::string file = preload_file(preload_path(p_expr));
 			return is_script_path(file) ? file : std::string();
 		}
-		if (p_expr.kind != ExprKind::Name || visible_local(p_expr.text) || member_index.count(p_expr.text) || static_index.count(p_expr.text) || engine.find_property(cls.native_base, p_expr.text)) {
-			return std::string();
-		}
-		if (const ConstPtr alias = class_alias(p_expr.text)) {
-			return is_script_path(alias->script) ? alias->script : std::string();
-		}
-		if (constant_index.count(p_expr.text)) {
-			return std::string();
-		}
-		std::string path = scope_class(p_expr.text);
-		if (path.empty() && !cls.class_name.empty() && p_expr.text == cls.class_name) {
-			path = options.path;
-		}
-		if (path.empty() && options.project) {
-			path = options.project->global_class_path(p_expr.text);
-			if (path.empty() && p_object) {
-				path = autoload_script(p_expr.text);
-			}
-		}
+		const std::string path = p_expr.kind == ExprKind::Name ? class_named(p_expr.text, p_object) : std::string();
 		return is_script_path(path) ? path : std::string();
+	}
+
+	// The class, of this language or another, that a bare name names when
+	// nothing closer has the name (spec §2.1, §4.1): through a constant that
+	// preloads its script, as an inner class of this class or of one around
+	// it, or by its class_name; with `p_autoload`, the class of an autoload,
+	// an object it is reached through. Empty for any other name.
+	std::string class_named(const std::string &p_name, bool p_autoload = false) {
+		if (const ConstPtr alias = class_alias(p_name)) {
+			return alias->script;
+		}
+		if (names_variable(p_name) || constant_index.count(p_name)) {
+			return std::string();
+		}
+		const std::string inner = scope_class(p_name);
+		if (!inner.empty() || !is_global(p_name)) {
+			return inner;
+		}
+		const std::string path = class_name_path(p_name);
+		return path.empty() && p_autoload ? autoload_script(p_name) : path;
 	}
 
 	// `Outer.Inner` and the like as written, from its first name.
@@ -1478,7 +1487,7 @@ class Checker : public ClassRelation {
 	// whose name any closer one hides (spec §4.1). A singleton's name is its
 	// object, except where it names the class (`p_singleton`).
 	bool names_type(const Expr &p_expr, bool p_singleton = false) const {
-		return p_expr.kind == ExprKind::Name && is_type_name(p_expr.text) && !declares(p_expr.text) && !class_around(p_expr.text) && (p_singleton || !engine.is_singleton(p_expr.text));
+		return p_expr.kind == ExprKind::Name && is_type_name(p_expr.text) && is_global(p_expr.text) && (p_singleton || !engine.is_singleton(p_expr.text));
 	}
 
 	bool names_variable(const std::string &p_name) const {
@@ -1908,9 +1917,9 @@ class Checker : public ClassRelation {
 		return set(r_expr, r_expr.constant->type);
 	}
 
-	// Whether an expression may name an enum, as `State` and `Player.State`
+	// Whether an expression may name a type, as `State` and `Player.State`
 	// do, or a call's callee, as in `State(x)`.
-	static bool may_name_enum(const Expr &p_name, bool p_call) {
+	static bool may_name(const Expr &p_name, bool p_call) {
 		return p_call || p_name.kind == ExprKind::Name || (p_name.kind == ExprKind::Member && p_name.base);
 	}
 
@@ -1920,7 +1929,7 @@ class Checker : public ClassRelation {
 	// another class, as in `Player.State`; null for any other name. A bare
 	// callee that is a function's name calls the function.
 	const EnumDecl *named_enum(Expr &r_name, bool p_call = false) {
-		if (!may_name_enum(r_name, p_call)) {
+		if (!may_name(r_name, p_call)) {
 			return nullptr;
 		}
 		const std::string &name = r_name.text;
@@ -1999,7 +2008,7 @@ class Checker : public ClassRelation {
 	// extends, such as ProcessMode (§4.1). A callee's class may be a
 	// singleton's, as Input of `Input.MouseMode(x)`.
 	std::optional<Type> named_engine_enum(const Expr &p_name, bool p_call) {
-		if (!may_name_enum(p_name, p_call)) {
+		if (!may_name(p_name, p_call)) {
 			return std::nullopt;
 		}
 		const std::string &name = p_name.text;
@@ -2210,10 +2219,6 @@ class Checker : public ClassRelation {
 		return script_id(declaring(*owner, *decl, &ClassDecl::constants).path, decl->name);
 	}
 
-	// The class that the base of `Base.x` or `Base.f()` names, of this
-	// language or another (spec §2.1, §11.1): through a constant of a preload
-	// of its script, the preload itself, or its class_name when nothing closer
-	// has the name; nullopt for any other base, and Error after reporting.
 	// The file whose class_name the name is: this one, or another of the
 	// project; empty if none.
 	std::string class_name_path(const std::string &p_name) const {
@@ -2223,6 +2228,10 @@ class Checker : public ClassRelation {
 		return options.project ? options.project->global_class_path(p_name) : std::string();
 	}
 
+	// The class that the base of `Base.x` or `Base.f()` names, of this
+	// language or another (spec §2.1, §11.1): the preload of its script,
+	// `Outer.Inner`, or a name as class_named() finds it; nullopt for any
+	// other base, and Error after reporting.
 	std::optional<Type> named_class(Expr &r_base) {
 		if (r_base.kind == ExprKind::Call && !r_base.base && r_base.text == "preload") {
 			if (!is_script_file(preload_file(preload_path(r_base)))) {
@@ -2256,16 +2265,7 @@ class Checker : public ClassRelation {
 			check_value(r_base); // The constant, whose value is the script.
 			return alias->script_class;
 		}
-		if (visible_local(r_base.text) || member_index.count(r_base.text) || static_index.count(r_base.text) || constant_index.count(r_base.text) || engine.find_property(cls.native_base, r_base.text)) {
-			return std::nullopt;
-		}
-		// An inner class of this class or of one around it (spec §4.1).
-		const std::string inner = scope_class(r_base.text);
-		if (!inner.empty()) {
-			refer(r_base.name_token, script_id(inner));
-			return script_class_type(*script_header(inner), inner);
-		}
-		const std::string path = class_name_path(r_base.text);
+		const std::string path = class_named(r_base.text);
 		if (path.empty()) {
 			return std::nullopt;
 		}
@@ -3069,10 +3069,8 @@ class Checker : public ClassRelation {
 			}
 			return check_engine_constant(r_expr, base.text);
 		}
-		if ((base.kind == ExprKind::Member || base.kind == ExprKind::Name) && !visible_local(base.text)) {
-			if (const std::optional<Type> named = constructed_struct(base)) {
-				return named->is_error() ? set(r_expr, *named) : struct_method_value(r_expr, *named, false);
-			}
+		if (const std::optional<Type> named = constructed_struct(base, false)) {
+			return named->is_error() ? set(r_expr, *named) : struct_method_value(r_expr, *named, false);
 		}
 
 		const Type base_type = check_value(base);
@@ -6059,38 +6057,43 @@ class Checker : public ClassRelation {
 		return check_engine_call(r_expr, *method);
 	}
 
-	// The struct that a call constructs (spec §2.4): `Hit(...)` in the file
-	// that declares it, `Combat.Hit(...)` anywhere; Error after reporting one
-	// that may not be used here.
-	std::optional<Type> constructed_struct(const Expr &p_call) {
+	// The struct that a base or, with `p_call`, a call names (spec §2.4):
+	// `Hit` in the file that declares it, when no local or function has the
+	// name, `Combat.Hit` anywhere; Error after reporting one that may not be
+	// used here.
+	std::optional<Type> constructed_struct(const Expr &p_name, bool p_call) {
+		if (!may_name(p_name, p_call)) {
+			return std::nullopt;
+		}
+		const std::string &name = p_name.text;
 		TypeRef ref;
-		ref.range = p_call.range;
-		ref.name_token = p_call.name_token;
-		if (!p_call.base) {
-			if (function_index.count(p_call.text)) {
+		ref.range = p_name.range;
+		ref.name_token = p_name.name_token;
+		if (!p_name.base) {
+			if (visible_local(name) || function_index.count(name)) {
 				return std::nullopt;
 			}
-			if (!cls.find_struct(p_call.text)) {
+			if (!cls.find_struct(name)) {
 				// One of a class around this one (spec §4.1).
-				const Checker *around = class_around(p_call.text);
-				if (!around || !around->cls.find_struct(p_call.text)) {
-					if (p_call.text == "ConversionError" && !declares_in_script(p_call.text)) {
-						refer(p_call.name_token, language_id(p_call.text, std::string()));
+				const Checker *around = class_around(name);
+				if (!around || !around->cls.find_struct(name)) {
+					if (name == "ConversionError" && !declares_in_script(name)) {
+						refer(p_name.name_token, language_id(name, std::string()));
 						return Type::conversion_error();
 					}
 					return std::nullopt;
 				}
 			}
-			ref.name = p_call.text;
+			ref.name = name;
 		} else {
-			const Expr &base = *p_call.base;
+			const Expr &base = *p_name.base;
 			const std::string path = class_path_of(base, true);
 			const ClassDecl *header = path.empty() ? nullptr : script_header(path);
-			if (!header || !header->find_struct(p_call.text)) {
+			if (!header || !header->find_struct(name)) {
 				return std::nullopt;
 			}
 			ref.name_token = first_name_token(base); // Each name two tokens after the one before.
-			ref.name = dotted_name(base) + "." + p_call.text;
+			ref.name = dotted_name(base) + "." + name;
 		}
 		return script_type(ref);
 	}
@@ -6625,7 +6628,7 @@ class Checker : public ClassRelation {
 		if (r_expr.base && r_expr.base->kind == ExprKind::Name && r_expr.base->text == "Task" && !declares_in_script("Task") && !visible_local("Task")) {
 			return check_task_function(r_expr);
 		}
-		if (const std::optional<Type> constructed = constructed_struct(r_expr)) {
+		if (const std::optional<Type> constructed = constructed_struct(r_expr, true)) {
 			return check_struct_construction(r_expr, *constructed);
 		}
 		if (const EnumDecl *decl = named_enum(r_expr, true)) {
@@ -6788,10 +6791,8 @@ class Checker : public ClassRelation {
 			}
 			return is_script_path(named->script) ? check_class_call(r_expr, named->script) : check_foreign_class_call(r_expr, *named);
 		}
-		if ((base.kind == ExprKind::Member || base.kind == ExprKind::Name) && !visible_local(base.text)) {
-			if (const std::optional<Type> named = constructed_struct(base)) {
-				return named->is_error() ? fail_call(r_expr) : check_struct_call(r_expr, *named, false);
-			}
+		if (const std::optional<Type> named = constructed_struct(base, false)) {
+			return named->is_error() ? fail_call(r_expr) : check_struct_call(r_expr, *named, false);
 		}
 		const Type base_type = check_value(base);
 		if (base_type.is_error()) {
@@ -7774,14 +7775,7 @@ class Checker : public ClassRelation {
 				return;
 			}
 		}
-		Expr probe;
-		probe.text = callee.text;
-		probe.name_token = callee.name_token;
-		probe.range = callee.range;
-		probe.base = std::move(callee.base);
-		const std::optional<Type> constructed = constructed_struct(probe);
-		callee.base = std::move(probe.base);
-		if (constructed) {
+		if (const std::optional<Type> constructed = constructed_struct(callee, true)) {
 			const StructDecl *decl = constructed->is_error() ? nullptr : struct_decl(*constructed);
 			if (decl && fits(*constructed)) {
 				r_pattern.type = *constructed;

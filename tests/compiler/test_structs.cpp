@@ -30,6 +30,8 @@ TEST_CASE("a struct is constructed with its fields by name, and those with defau
 	CHECK(contains(errors("var h := Hit(damage = \"3\", point = Vector3.ZERO)"), "Cannot pass a value of type String as int"));
 	CHECK(contains(errors("print(a.speed)"), "has no field \"speed\""));
 	CHECK(contains(errors("add_child(Node.new(), force_readable_name = true)"), "takes them by position"));
+	// A local of its name hides it (spec §4.1).
+	CHECK(contains(errors("var Settings := 2\nprint(Settings(name = \"loud\"))"), "takes them by position"));
 }
 
 TEST_CASE("a field is changed where its struct lives, never in a temporary") {

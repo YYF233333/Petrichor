@@ -149,6 +149,8 @@ TEST_CASE("an inner class has no object of the class around it (spec §4.1)") {
 	CHECK(has(errors_in(around + "\t\theal()\n"), "\"heal()\" belongs to an object of test.pet"));
 	CHECK(has(errors_in(around + "\t\thurt.emit()\n"), "\"hurt\" belongs to an object of test.pet"));
 	CHECK(has(errors_in(around + "\t\tprint(name)\n"), "\"name\" belongs to an object of test.pet"));
+	// Also before a global class of its name.
+	CHECK(has(errors_in("extends Node\nvar Combat := 3\nclass Shot:\n\tfunc f() -> void:\n\t\tprint(Combat.Shot.SPEED)\n"), "\"Combat\" belongs to an object of test.pet"));
 }
 
 TEST_CASE("what an inner class declares or inherits comes before what is around it") {

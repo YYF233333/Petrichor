@@ -392,6 +392,15 @@ TEST_CASE("a constant of a preloaded script names its class (spec §2.1)") {
 	CHECK(in("const Squad = preload(\"res://units/squad.gd\")\n\tvar make: func(int) -> Squad = Squad.new\n\tvar s: Squad = make.call(3)").empty());
 }
 
+// A local constant names the class as a constant of the class does (spec
+// §2.1, §4.5), also before its enums and structs.
+TEST_CASE("a local constant of a preloaded script reaches the enums and structs of its class") {
+	FakeProject project;
+	project.add_script("res://board.pet", "extends Node\n\npub enum Side { LEFT, RIGHT }\n\npub struct Cell:\n\tvar x: int\n");
+	const compiler::CompileResult result = compile_in("extends Node\n\nfunc f() -> int:\n\tconst Board = preload(\"res://board.pet\")\n\tvar side: Board.Side = Board.Side(1)\n\tvar cell := Board.Cell(x = 2)\n\treturn cell.x if side == Board.Side.RIGHT else 0\n", project);
+	CHECK_MESSAGE(result.ok(), messages(result));
+}
+
 TEST_CASE("GDScript classes by class_name: new(), static methods and constants (spec §11.1)") {
 	CHECK(errors("var l: Legacy = Legacy.new()\n\tvar c: int = Legacy.count()\n\tvar s: float = Legacy.MAX_SPEED").empty());
 	CHECK(contains(errors("Legacy.hit(1)"), "\"hit()\" of Legacy is not static"));
