@@ -947,6 +947,11 @@ class Checker : public ClassRelation {
 		const ConstPtr alias = class_alias(head);
 		std::string path = alias ? alias->script : scope_class(head);
 		if (alias) {
+			// GDScript takes the autoload in a type (spec §11.1).
+			if (options.project && !options.project->autoload_path(head).empty()) {
+				error(p_ref.range, "The constant " + head + " has the name of an autoload, which GDScript takes in a type. Rename the constant.");
+				return Type::of(TypeKind::Error);
+			}
 			refer(p_ref.name_token, alias_id(head));
 			if (alias->script_class.is_error()) {
 				return alias->script_class; // Not known while only the declarations are checked.

@@ -270,6 +270,10 @@ TEST_CASE("an autoload's name stands for its class in a type, after nearer names
 	CHECK(contains(messages(in("var x: ValueManager.Thing\n")), "ValueManager is a class of another language, which has no interfaces."));
 	// A type this class declares by the name comes first.
 	CHECK(in("enum Export { CSV }\n\nfunc f() -> Export:\n\treturn Export.CSV\n").ok());
+	// A constant by the name is the autoload's class in GDScript's types.
+	const std::string aliased = messages(in("const Export = preload(\"res://export.pet\")\n\nfunc f(v: Variant) -> bool:\n\treturn v is Export\n"));
+	CHECK(contains(aliased, "The constant Export has the name of an autoload, which GDScript takes in a type. Rename the constant."));
+	CHECK(in("const Export = preload(\"res://export.pet\")\n\nfunc f() -> void:\n\tExport.new()\n").ok());
 	// Only the declarations are checked while a script loads.
 	CHECK(compile_in("extends Node\n\npub var format: Export.FileFormat\npub var values: ValueManager?\n", p, true).ok());
 	// A struct that holds itself through one is seen.
