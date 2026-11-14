@@ -429,7 +429,8 @@ func _check_highlighting() -> void:
 
 # The script editor's method list shows the functions of a script and of its
 # inner classes, each going to its line, as the language lists them
-# (editor/script/script_editor_plugin.cpp:1762-1800; ed1daf0).
+# (editor/script/script_editor_plugin.cpp:1762-1800; ed1daf0). Godot 4.8
+# shows them in a tree, an inner class's under its name.
 func _check_members_overview() -> void:
 	var path := "res://editor_members.pet"
 	_write(path, "extends Node\n\nfunc f() -> void:\n\tpass\n\nclass Inner:\n\tfunc g() -> void:\n\t\tpass\n")
@@ -439,6 +440,15 @@ func _check_members_overview() -> void:
 	for list: ItemList in EditorInterface.get_script_editor().find_children("*", "ItemList", true, false):
 		for i in list.item_count:
 			listed[list.get_item_text(i)] = list.get_item_metadata(i)
+	for tree: Tree in EditorInterface.get_script_editor().find_children("*", "Tree", true, false):
+		var items: Array[TreeItem] = []
+		if tree.is_visible_in_tree() and tree.get_root():
+			items.append(tree.get_root())
+		while not items.is_empty():
+			var item: TreeItem = items.pop_back()
+			var parent := item.get_parent()
+			listed[(parent.get_text(0) + "." if parent and parent.get_parent() else "") + item.get_text(0)] = item.get_metadata(0)
+			items.append_array(item.get_children())
 	var shown: bool = listed.get("f") == 2 and listed.get("Inner.g") == 6
 	_check(shown, "the method list shows a script's functions at their lines" + ("" if shown else ": " + str(listed)))
 	for file in [path, path + ".uid", path.replace("res://", "res://.godot/petrichor/").replace(".pet", ".petc")]:
