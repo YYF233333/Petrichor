@@ -10,6 +10,8 @@
 #include "adapter/editor/script_compiler.h"
 
 #include <godot_cpp/classes/resource_loader.hpp>
+
+#include <map>
 #endif
 
 #include <godot_cpp/classes/file_access.hpp>
@@ -186,14 +188,39 @@ bool PetLanguage::_is_using_templates() {
 	return false;
 }
 
+#ifdef TOOLS_ENABLED
+// The named functions of the class and of its inner classes by line, an inner
+// class's after its name, as GDScript lists them for the script editor's method
+// list (modules/gdscript/gdscript_editor.cpp:134-144; ed1daf0).
+static void list_functions(const bytecode::Module &p_module, const std::string &p_prefix, std::map<uint32_t, std::string> &r_functions) {
+	for (const bytecode::Function &function : p_module.functions) {
+		if (!function.is_inherited && !function.is_lambda && function.name[0] != '@') {
+			r_functions[function.line] = p_prefix + function.name;
+		}
+	}
+	for (const bytecode::Module &inner : p_module.inner_classes) {
+		list_functions(inner, p_prefix + inner.name + ".", r_functions);
+	}
+}
+#endif
+
 Dictionary PetLanguage::_validate(const String &p_script, const String &p_path, bool p_validate_functions, bool p_validate_errors, bool p_validate_warnings, bool p_validate_safe_lines) const {
 	Dictionary result;
 	Array errors;
 	Array warnings;
+	PackedStringArray functions;
 #ifdef TOOLS_ENABLED
 	std::vector<compiler::Diagnostic> diagnostics;
 	std::vector<compiler::Diagnostic> warning_diagnostics;
-	compile_script(p_path, p_script, &diagnostics, false, CompileMode::Full, &warning_diagnostics);
+	const std::shared_ptr<const ClassImage> image = compile_script(p_path, p_script, &diagnostics, false, CompileMode::Full, &warning_diagnostics);
+	// Only for a valid script, as GDScript (modules/gdscript/gdscript_editor.cpp:168-201; ed1daf0).
+	if (image) {
+		std::map<uint32_t, std::string> lines;
+		list_functions(image->module, std::string(), lines);
+		for (const auto &[line, name] : lines) {
+			functions.push_back(to_godot(name + ":" + std::to_string(line)));
+		}
+	}
 	// Those of the scenes are listed, but the script stays valid (architecture §6.4).
 	result["valid"] = diagnostics.empty();
 	const std::vector<compiler::Diagnostic> placed = placed_errors(p_path);
@@ -225,7 +252,7 @@ Dictionary PetLanguage::_validate(const String &p_script, const String &p_path, 
 #endif
 	result["errors"] = errors;
 	result["warnings"] = warnings;
-	result["functions"] = PackedStringArray();
+	result["functions"] = functions;
 	result["safe_lines"] = PackedInt32Array();
 	return result;
 }

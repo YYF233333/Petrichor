@@ -53,6 +53,7 @@ func _run() -> void:
 	_check_lookup()
 	_check_completion()
 	_check_highlighting()
+	await _check_members_overview()
 	await _check_documentation()
 	await _check_script_dialog()
 
@@ -422,6 +423,24 @@ func _check_highlighting() -> void:
 	_check(shown.call(3, 18, "symbol_color") and shown.call(3, 20, "gdscript/global_function_color"), "the script editor colors by characters after Chinese text")
 	_check(shown.call(5, 0, "string_color") and shown.call(5, 5, "symbol_color"), "the script editor colors a string in triple quotes over its lines")
 	_check_errors([], "highlighting reports nothing")
+	for file in [path, path + ".uid", path.replace("res://", "res://.godot/petrichor/").replace(".pet", ".petc")]:
+		DirAccess.remove_absolute(file)
+
+
+# The script editor's method list shows the functions of a script and of its
+# inner classes, each going to its line, as the language lists them
+# (editor/script/script_editor_plugin.cpp:1762-1800; ed1daf0).
+func _check_members_overview() -> void:
+	var path := "res://editor_members.pet"
+	_write(path, "extends Node\n\nfunc f() -> void:\n\tpass\n\nclass Inner:\n\tfunc g() -> void:\n\t\tpass\n")
+	EditorInterface.edit_script(load(path))
+	await get_tree().process_frame
+	var listed := {}
+	for list: ItemList in EditorInterface.get_script_editor().find_children("*", "ItemList", true, false):
+		for i in list.item_count:
+			listed[list.get_item_text(i)] = list.get_item_metadata(i)
+	var shown: bool = listed.get("f") == 2 and listed.get("Inner.g") == 6
+	_check(shown, "the method list shows a script's functions at their lines" + ("" if shown else ": " + str(listed)))
 	for file in [path, path + ".uid", path.replace("res://", "res://.godot/petrichor/").replace(".pet", ".petc")]:
 		DirAccess.remove_absolute(file)
 
