@@ -2,11 +2,11 @@
 
 In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow).
 
-## 0.1
+## Next release
 
-Due 2026-11-15 (architecture §5, step 10). Nothing gates the release any more; the owner publishes it.
+Its list and date are set with the owner (architecture §5, step 11).
 
-After the release, with the owner: the invitations.
+- With the owner: the invitations to review 0.1.
 
 ## Language
 
