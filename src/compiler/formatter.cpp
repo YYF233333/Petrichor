@@ -60,11 +60,6 @@ bool is_unary(TokenKind p_kind) {
 	return p_kind == TokenKind::Minus || p_kind == TokenKind::Plus || p_kind == TokenKind::Bang || p_kind == TokenKind::Tilde || p_kind == TokenKind::Percent;
 }
 
-// Names in a node path may be keywords, as the parser reads them.
-bool is_node_name(TokenKind p_kind) {
-	return p_kind == TokenKind::Identifier || (p_kind >= TokenKind::And && p_kind <= TokenKind::While);
-}
-
 std::string trimmed(std::string p_text) {
 	while (!p_text.empty() && (p_text.back() == ' ' || p_text.back() == '\t')) {
 		p_text.pop_back();

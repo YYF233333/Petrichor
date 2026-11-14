@@ -13,8 +13,7 @@ bool is_layout(TokenKind p_kind) {
 }
 
 // The annotations of each kind, with whether each takes arguments. Of the
-// file's class (spec §2.1, §2.3, §4.8, §7.3); @tool and @parent are reported
-// there as not supported.
+// file's class (spec §2.1, §2.3, §4.8, §7.3).
 using AnnotationNames = std::vector<std::pair<std::string, bool>>;
 const AnnotationNames CLASS_ANNOTATIONS = { { "abstract", false }, { "icon", true }, { "owner", true }, { "parent", true }, { "static_unload", false } };
 // Of a member besides the @export family, which the checker knows.
@@ -614,11 +613,6 @@ class Parser {
 				return expr;
 			}
 		}
-	}
-
-	// Node names in a path may be keywords, as in GDScript.
-	static bool is_node_name(TokenKind p_kind) {
-		return p_kind == TokenKind::Identifier || (p_kind >= TokenKind::And && p_kind <= TokenKind::While);
 	}
 
 	// `$Head/Camera`, `$"../Level"`, `%Name` or `$%Name/Child` (spec §7.1): names
@@ -1897,11 +1891,16 @@ class Parser {
 			return;
 		}
 
-		if (match(TokenKind::Const)) {
-			if (!annotations.empty() || is_static) {
-				fail(peek(), "A constant takes no annotations and is not static.");
+		const std::pair<bool, const char *> plain[] = { { check(TokenKind::Const), "A constant" }, { check_word("interface"), "An interface" }, { check_word("struct"), "A struct" }, { check(TokenKind::Enum), "An enum" }, { check(TokenKind::Signal), "A signal" } };
+		for (const auto &[found, what] : plain) {
+			if (found && (!annotations.empty() || is_static)) {
+				advance();
+				fail(peek(), std::string(what) + " takes no annotations and is not static.");
 				return;
 			}
+		}
+
+		if (match(TokenKind::Const)) {
 			ConstDecl decl;
 			const Token &name = declared_name("a constant name");
 			decl.name = name.text;
@@ -1919,37 +1918,21 @@ class Parser {
 		}
 
 		if (match_word("interface")) {
-			if (!annotations.empty() || is_static) {
-				fail(peek(), "An interface takes no annotations and is not static.");
-				return;
-			}
 			r_class.interfaces.push_back(interface(is_pub, first, r_class));
 			return;
 		}
 
 		if (match_word("struct")) {
-			if (!annotations.empty() || is_static) {
-				fail(peek(), "A struct takes no annotations and is not static.");
-				return;
-			}
 			r_class.structs.push_back(structure(is_pub, first, r_class));
 			return;
 		}
 
 		if (match(TokenKind::Enum)) {
-			if (!annotations.empty() || is_static) {
-				fail(peek(), "An enum takes no annotations and is not static.");
-				return;
-			}
 			r_class.enums.push_back(enumeration(is_pub, first));
 			return;
 		}
 
 		if (match(TokenKind::Signal)) {
-			if (!annotations.empty() || is_static) {
-				fail(peek(), "A signal takes no annotations and is not static.");
-				return;
-			}
 			SignalDecl decl;
 			const Token &name = declared_name("a signal name");
 			decl.name = name.text;
@@ -2109,11 +2092,7 @@ public:
 					match(TokenKind::Newline);
 					continue;
 				}
-				if (name.text == "tool") {
-					report(name, "@tool is not in the first version: scripts of this language do not run in the editor.");
-				} else {
-					report(name, "The class annotation @" + name.text + " is not supported yet.");
-				}
+				report(name, "@tool is not in the first version: scripts of this language do not run in the editor.");
 				if (check(TokenKind::ParenOpen)) {
 					Expr holder;
 					call_arguments(holder);
