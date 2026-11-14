@@ -210,7 +210,8 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 - 字段和方法在 struct 可见处均可见。
 - 修改 `s.x = 1` 作用于 `s` 所在存储位置：
   - 链式赋值沿链读出、修改并写回（`player.last_hit.damage = 3` 触发 `last_hit` 的 setter，`hits[0].damage = 3` 更新数组元素）；
-  - 赋值先从左到右求出位置中的对象和下标，最后一个下标除外。再求右边的值和最后一个下标，与 GDScript 相同。然后连续完成读出、修改和写回，中间不挂起。引擎值类型（如 `position.x`）和复合赋值同样如此。修改接收者的方法调用（如 `points.append(x)`）先求接收者的位置，再求实参，然后读出、调用并写回；
+  - 赋值先求右边的值，再从左到右求出位置中的对象和下标。然后连续完成读出、修改和写回，中间不挂起。引擎值类型（如 `position.x`）和复合赋值同样如此。所以位置上的错误，如对象已释放、下标越界，在右边求值之后才报告。修改接收者的方法调用（如 `points.append(x)`）先求接收者的位置，再求实参，然后读出、调用并写回；
+  - 右边含 `await`，且赋值要读出一个不是局部变量的值时，给出 `await_in_assignment` 警告。例如 `hp -= await hit()` 和 `position.x = await slide_x()`，GDScript 在 `await` 之前读出它们；
   - 给临时值的字段赋值（如 `get_hit().damage = 3`）报编译错误；
   - 循环变量和 lambda 捕获是副本。修改 struct 循环变量的字段且后续不再读取该变量时，给出 `modified_copy` 警告。经容器或对象字段修改共享值不算。
 - struct 默认提供逐字段 `==` 和包含全部字段的哈希，因此都可作 `Dictionary` 的键。哈希中的容器按内容计算。所有字段都有 `<` 时，它还按声明顺序提供词典序 `<`。对象字段没有 `<`，含对象字段的 struct 因此也没有。
@@ -226,6 +227,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
           return damage * 2 if crit else damage
 
   player.last_hit.damage = 3   # 读出、修改，经 last_hit 的 setter 写回
+  position.x = await slide_x() # 先等待，再读出 position、改 x、写回；警告：await_in_assignment
   get_hit().damage = 3         # 编译错误：修改临时值
   for h in hits:
       h.damage = 0             # 警告：modified_copy

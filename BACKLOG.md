@@ -17,10 +17,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The first quick fixes: the five kinds most frequent in the second paper migration, about half of its 230 changes. They are adding `pub`, truthiness, `async` and `.detach()`, `T?` or `.unwrap()`, and `float` arguments.
   - A light bulb on the caret's line opens them in a small list at the caret, as in VS Code. So does a shortcut registered in the editor settings, and the context menu.
   - Ctrl+. is taken by Go to Next Breakpoint (`editor/script/script_text_editor.cpp:2672`, `ed1daf0`). Alt+Enter, as in JetBrains IDEs, is free.
-- Assignments evaluate the right side first, as Python does (owner, 2026-11-15). Then come the place, the read, the change and the write back. The rule of spec §3.6 changes with it.
-  - 0.1 evaluates the place's objects and indices first, to stay close to GDScript, and reads after the right side.
-  - A warning when the right side has an `await` and the place has an object or an index, as `position.x = await f()`. It says that GDScript reads the place before the `await`.
-  - Compound assignments follow the same order. Calls that modify their receiver do not change.
+- Assignments evaluating the right side first, and the `await_in_assignment` warning (spec §3.6). The implementation still evaluates the place's objects and indices first, as 0.1 did.
 
 ## Language
 

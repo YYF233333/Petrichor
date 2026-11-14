@@ -86,7 +86,14 @@
   - 引擎的 `weakref()` 和 `WeakRef` 照常可用，所以没有失去能力。带类型的版本超出 GDScript，留待公开征询（godot-proposals#9174）。
 - **嵌套 Option 保留两层（§3.4）**：若合并为一层，泛型代码的行为会随 `T` 改变。例如 `first[T]` 在 `T` 为 `Enemy?` 时分不清空数组和首元素为空。通用缓存也会把存入的 `None` 当作未命中。JSON 中缺少的键与 `null` 同样无法区分。本语言没有 `?.`，嵌套基本只出现在泛型和容器取值上。
 - **struct 方法只读与默认运算（§3.6）**：修改 `self` 的方法要求调用处可写回。在临时值、经 getter 读出的属性和循环变量上，这样的调用要么报错，要么悄悄改副本。解码忽略多余键，使较新发送方多带字段的消息或面向多读取方的 JSON 仍能解码。默认提供 `==`、`<` 和哈希，以像脚本语言一样开箱即用。
-- **赋值的求值顺序（§3.6）**：GDScript 先沿链读出副本，再求右边（[引擎事实](engine-facts.md)）。右边挂起或修改了这条链时，写回的旧副本会覆盖期间的修改。例如 `position.x = await slide_x()` 会丢掉等待期间物理过程对 `y` 的修改。本语言采用 Swift 形式访问的顺序：先求位置，再求右边，最后连续读改写。getter 因此在右边之后调用。最后一个下标在右边之后求值，与 GDScript 相同。这一点各语言不同，Python 在右边之后求目标，Java 和 C# 从左到右，没有实质优劣。依赖它的代码本身有害，留给 lint 提示。修改接收者的方法调用按同一顺序，实参等同于右边。
+- **赋值的求值顺序（§3.6）**：GDScript 先沿链读出副本，再求右边（[引擎事实](engine-facts.md)）。右边挂起或修改了这条链时，写回的旧副本会覆盖期间的修改。例如 `position.x = await slide_x()` 会丢掉等待期间物理过程对 `y` 的修改。本语言先求右边，再求位置，最后连续读改写，复合赋值也一样。
+  - 普通赋值先求右边的有 Python、Rust 和 C++17。复合赋值先求右边的有 C++17 和 Rust 的原始类型（[Python](https://docs.python.org/3/reference/expressions.html#evaluation-order)，[Rust](https://doc.rust-lang.org/reference/expressions/operator-expr.html)）。
+  - Python、Java、C# 和 JavaScript 的复合赋值先读出旧值（[Python](https://docs.python.org/3/reference/simple_stmts.html#augmented-assignment-statements)，[JLS §15.26.2](https://docs.oracle.com/javase/specs/jls/se21/html/jls-15.html#jls-15.26.2)）。
+  - 先读旧值的语言跨 `await` 丢失修改，C# 和 ESLint 都专门提醒（[Raymond Chen](https://devblogs.microsoft.com/oldnewthing/20140814-00/?p=243)，[require-atomic-updates](https://eslint.org/docs/latest/rules/require-atomic-updates)）。
+  - 代价是位置上的错误在右边的副作用之后才报告。C# 正因此从左到右求值（[Raymond Chen](https://devblogs.microsoft.com/oldnewthing/20170718-00/?p=96635)）。本语言的非空类型排除了空对象，只剩已释放的对象和越界的下标。
+  - 否决的做法：先求位置中的对象和下标，最后一个下标在右边之后，与 GDScript 相同。这一顺序来自 GDScript 的代码生成，难以说清。
+  - 修改接收者的方法调用不变，与其他调用一样先求接收者，再求实参。
+  - 依赖求值顺序的代码本身有害，留给 lint 提示。
 - **enum（§3.7）**：引擎 enum 开放，是因为引擎会产生枚举外的值（如带修饰键位的 `Key`）。后续 4.x 小版本还会新增枚举值，而同一份构建须继续运行（实现架构 §6.3）。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中：
   - 用 `as` 把 `int` 转为 enum 10 处，忽略 `INT_AS_ENUM_WITHOUT_CAST` 警告 4 处；
   - 把 enum 名当 Dictionary 用 38 处，常量作 enum 别名 3 处；
