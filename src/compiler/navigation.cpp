@@ -457,7 +457,7 @@ std::optional<Lookup> lookup(Analysis &r_analysis, const EngineApi &p_engine, co
 		// Its script's class; the editor opens a scene itself
 		// (editor/script/script_text_editor.cpp:1292-1297).
 		const std::string path = p_project.autoload_path(target.name);
-		const bool own = path.size() > 4 && path.compare(path.size() - 4, 4, ".pet") == 0;
+		const bool own = is_script_path(path);
 		if (!own && !p_project.foreign_class(path, false)) {
 			return std::nullopt;
 		}
