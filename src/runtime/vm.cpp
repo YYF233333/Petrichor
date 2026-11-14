@@ -1688,7 +1688,7 @@ class Execution {
 		const int64_t counter = ++*reinterpret_cast<int64_t *>(p_frame + p_op[5]);
 		switch (read_element(image.types[p_op[1]], element, p_frame + p_op[4], counter, p_frame + p_op[3])) {
 			case ElementRead::Done:
-				r_pc += 7;
+				r_pc += bytecode::fixed_length(Op::ITERATE);
 				return true;
 			case ElementRead::Past:
 				r_pc = p_op[6];
@@ -1929,7 +1929,7 @@ class Execution {
 			return std::nullopt;
 		}
 		// _init() gives no result; the call's is the object.
-		std::vector<uint32_t> init_call(p_op, p_op + 5 + 2 * p_op[4]);
+		std::vector<uint32_t> init_call(p_op, p_op + bytecode::call_length(p_op));
 		init_call[2] = NO_SLOT;
 		bool ok = true;
 		const Variant object = construct(p_class, p_script, [&](const ScriptedObject &p_instance) {
@@ -2096,7 +2096,7 @@ class Execution {
 			if (dst != NO_SLOT && !from_variant(image.types[image.module.engine_calls[target].result_type], result, p_frame + dst, false)) {
 				return fail(p_fn, p_line, vformat("%s() returned an unexpected %s.", image.engine_methods[target], Variant::get_type_name(result.get_type())));
 			}
-			r_pc += 5 + 2 * argc;
+			r_pc += bytecode::call_length(p_op);
 			return within_depth(p_fn, p_line);
 		}
 		ObjectView view(nullptr);
@@ -2117,7 +2117,7 @@ class Execution {
 		Object *state = result.get_type() == Variant::OBJECT ? result.get_validated_object() : nullptr;
 		if (state && state->is_class("GDScriptFunctionState")) {
 			if (Op(p_op[0]) == Op::CALL_AWAIT_ENGINE) {
-				return await_function_state(p_async, result, state, dst, object_id_of(*object), r_pc + 5 + 2 * argc, r_done, p_fn, p_line);
+				return await_function_state(p_async, result, state, dst, object_id_of(*object), r_pc + bytecode::call_length(p_op), r_done, p_fn, p_line);
 			}
 			if (dst != NO_SLOT) {
 				return fail_cstr(p_fn, p_line, "The method is a GDScript coroutine and needs await.");
@@ -2125,7 +2125,7 @@ class Execution {
 		} else if (dst != NO_SLOT && !from_variant(image.types[image.module.engine_calls[target].result_type], result, p_frame + dst, false)) {
 			return fail(p_fn, p_line, vformat("%s() returned an unexpected %s.", image.engine_methods[target], Variant::get_type_name(result.get_type())));
 		}
-		r_pc += 5 + 2 * argc;
+		r_pc += bytecode::call_length(p_op);
 		return within_depth(p_fn, p_line);
 	}
 
@@ -2147,7 +2147,7 @@ class Execution {
 		Object *state = result.get_type() == Variant::OBJECT ? result.get_validated_object() : nullptr;
 		p_async->destination = dst;
 		if (state && state->is_class("GDScriptFunctionState")) {
-			return await_function_state(p_async, result, state, dst, uint64_t(callable.get_object_id()), r_pc + 5 + 2 * argc, r_done, p_fn, p_line);
+			return await_function_state(p_async, result, state, dst, uint64_t(callable.get_object_id()), r_pc + bytecode::call_length(p_op), r_done, p_fn, p_line);
 		}
 		if (result.get_type() == Variant::SIGNAL) {
 			if (p_async->task->cancel_requested) {
@@ -2156,7 +2156,7 @@ class Execution {
 			}
 			const Signal signal = result;
 			const TaskRef task = task_of(signal.get_object());
-			p_async->pc = r_pc + 5 + 2 * argc;
+			p_async->pc = r_pc + bytecode::call_length(p_op);
 			static const StringName completed("completed");
 			if (task && signal.get_name() == completed) {
 				if (!p_async->await_task(task)) {
@@ -2172,7 +2172,7 @@ class Execution {
 		} else if (!p_async->receive(result)) {
 			return false;
 		}
-		r_pc += 5 + 2 * argc;
+		r_pc += bytecode::call_length(p_op);
 		return within_depth(p_fn, p_line);
 	}
 
@@ -2521,7 +2521,7 @@ class Execution {
 		return true;
 	}
 
-	PETRICHOR_NOINLINE bool op_await_task(const uint32_t *p_op, uint8_t *p_frame, CoroutineFrame *p_async, size_t &r_pc, bool &r_done, const bytecode::Function &p_fn, int p_line) {
+	PETRICHOR_NOINLINE bool op_await_task(const uint32_t *p_op, uint8_t *p_frame, CoroutineFrame *p_async, size_t p_pc, bool &r_done, const bytecode::Function &p_fn, int p_line) {
 		const TaskRef task = task_at(p_frame + p_op[2]);
 		if (!task) {
 			return fail_cstr(p_fn, p_line, "Expected a Task handle.");
@@ -2534,15 +2534,11 @@ class Execution {
 			return true;
 		}
 		p_async->destination = p_op[1];
-		p_async->pc = r_pc + 4;
+		p_async->pc = p_pc + bytecode::fixed_length(Op::AWAIT_TASK);
 		if (!p_async->await_task(task)) {
 			return false;
 		}
-		if (p_async->task->state == TaskState::State::Suspended) {
-			r_done = true;
-			return true;
-		}
-		r_pc += 4;
+		r_done = p_async->task->state == TaskState::State::Suspended;
 		return true;
 	}
 
@@ -2551,7 +2547,7 @@ class Execution {
 			return true;
 		}
 		const Signal &signal = *reinterpret_cast<const Signal *>(p_frame + p_op[2]);
-		p_async->pc = p_pc + 3;
+		p_async->pc = p_pc + bytecode::fixed_length(Op::AWAIT_SIGNAL);
 		if (!p_async->suspend(signal, p_op[1], uint64_t(signal.get_object_id()))) {
 			return fail_cstr(p_fn, p_line, "Cannot await this signal.");
 		}
@@ -2614,6 +2610,10 @@ public:
 	if (freed.load(std::memory_order_relaxed)) { \
 		return fail_self_freed(fn, record.line); \
 	}
+// On to the instruction after this one, of a fixed size: a constant per case.
+#define NEXT(m_op) \
+	pc += bytecode::fixed_length(Op::m_op); \
+	break
 
 		size_t pc = p_async ? p_async->pc : 0;
 		while (true) {
@@ -2626,121 +2626,97 @@ public:
 					if (debugging) {
 						step_debugger(record.line);
 					}
-					pc += 2;
-					break;
+					NEXT(LINE);
 				case Op::BREAKPOINT:
 					if (debugging) {
 						debugger::breakpoint();
 					}
-					pc += 1;
-					break;
+					NEXT(BREAKPOINT);
 				case Op::CONST_INT:
 					I64(code[pc + 1]) = constants[code[pc + 2]].i;
-					pc += 3;
-					break;
+					NEXT(CONST_INT);
 				case Op::CONST_FLOAT:
 					F64(code[pc + 1]) = constants[code[pc + 2]].f;
-					pc += 3;
-					break;
+					NEXT(CONST_FLOAT);
 				case Op::CONST_BOOL:
 					U64(code[pc + 1]) = code[pc + 2];
-					pc += 3;
-					break;
+					NEXT(CONST_BOOL);
 				case Op::CONST_STRING:
 					STR(code[pc + 1]) = image.strings[code[pc + 2]];
-					pc += 3;
-					break;
+					NEXT(CONST_STRING);
 				case Op::CONST_VALUE:
 					if (const uint8_t *native = image.native_values[code[pc + 3]]) {
 						copy_value(types[code[pc + 1]].storage, frame + code[pc + 2], native);
 					} else {
 						from_variant(types[code[pc + 1]], image.values[code[pc + 3]], frame + code[pc + 2], false);
 					}
-					pc += 4;
-					break;
+					NEXT(CONST_VALUE);
 				case Op::MOVE_8:
 					U64(code[pc + 1]) = U64(code[pc + 2]);
-					pc += 3;
-					break;
+					NEXT(MOVE_8);
 				case Op::MOVE_STRING:
 					STR(code[pc + 1]) = STR(code[pc + 2]);
-					pc += 3;
-					break;
+					NEXT(MOVE_STRING);
 				case Op::MOVE_VALUE:
 					copy_value(types[code[pc + 1]], frame + code[pc + 2], frame + code[pc + 3]);
-					pc += 4;
-					break;
+					NEXT(MOVE_VALUE);
 				case Op::LOAD_MEMBER_8:
 					SELF_ALIVE();
 					std::memcpy(frame + code[pc + 1], members + code[pc + 2], 8);
-					pc += 3;
-					break;
+					NEXT(LOAD_MEMBER_8);
 				case Op::LOAD_MEMBER_STRING:
 					SELF_ALIVE();
 					STR(code[pc + 1]) = *reinterpret_cast<String *>(members + code[pc + 2]);
-					pc += 3;
-					break;
+					NEXT(LOAD_MEMBER_STRING);
 				case Op::LOAD_MEMBER_VALUE:
 					SELF_ALIVE();
 					copy_value(types[code[pc + 1]], frame + code[pc + 2], members + code[pc + 3]);
-					pc += 4;
-					break;
+					NEXT(LOAD_MEMBER_VALUE);
 				case Op::STORE_MEMBER_8:
 					SELF_ALIVE();
 					std::memcpy(members + code[pc + 1], frame + code[pc + 2], 8);
-					pc += 3;
-					break;
+					NEXT(STORE_MEMBER_8);
 				case Op::STORE_MEMBER_STRING:
 					SELF_ALIVE();
 					*reinterpret_cast<String *>(members + code[pc + 1]) = STR(code[pc + 2]);
-					pc += 3;
-					break;
+					NEXT(STORE_MEMBER_STRING);
 				case Op::STORE_MEMBER_VALUE:
 					SELF_ALIVE();
 					copy_value(types[code[pc + 1]], members + code[pc + 2], frame + code[pc + 3]);
-					pc += 4;
-					break;
+					NEXT(STORE_MEMBER_VALUE);
 				case Op::LOAD_STATIC:
 					if (!op_load_static(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 5;
-					break;
+					NEXT(LOAD_STATIC);
 				case Op::STORE_STATIC:
 					if (!op_store_static(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 5;
-					break;
+					NEXT(STORE_STATIC);
 				case Op::INIT_STATIC:
 					op_init_static(code + pc, frame);
-					pc += 4;
-					break;
+					NEXT(INIT_STATIC);
 				case Op::INT_TO_FLOAT:
 					F64(code[pc + 1]) = double(I64(code[pc + 2]));
-					pc += 3;
-					break;
+					NEXT(INT_TO_FLOAT);
 				case Op::FLOAT_TO_INT: {
 					const double value = F64(code[pc + 2]);
 					if (!(value >= -9223372036854775808.0 && value < 9223372036854775808.0)) {
 						return fail_float_to_int(fn, record.line, value);
 					}
 					I64(code[pc + 1]) = int64_t(value);
-					pc += 3;
-					break;
+					NEXT(FLOAT_TO_INT);
 				}
 				case Op::ADD_INT:
 					I64(code[pc + 1]) = WRAP(+);
-					pc += 4;
-					break;
+					NEXT(ADD_INT);
 				case Op::SUB_INT:
 					I64(code[pc + 1]) = WRAP(-);
-					pc += 4;
-					break;
+					NEXT(SUB_INT);
 				case Op::MUL_INT:
 					I64(code[pc + 1]) = WRAP(*);
-					pc += 4;
-					break;
+					NEXT(MUL_INT);
 				case Op::DIV_INT:
 				case Op::MOD_INT: {
 					const int64_t a = I64(code[pc + 2]);
@@ -2755,29 +2731,23 @@ public:
 					} else {
 						I64(code[pc + 1]) = div ? a / b : a % b;
 					}
-					pc += 4;
-					break;
+					NEXT(DIV_INT);
 				}
 				case Op::NEG_INT:
 					I64(code[pc + 1]) = int64_t(0ull - uint64_t(I64(code[pc + 2])));
-					pc += 3;
-					break;
+					NEXT(NEG_INT);
 				case Op::AND_INT:
 					I64(code[pc + 1]) = I64(code[pc + 2]) & I64(code[pc + 3]);
-					pc += 4;
-					break;
+					NEXT(AND_INT);
 				case Op::OR_INT:
 					I64(code[pc + 1]) = I64(code[pc + 2]) | I64(code[pc + 3]);
-					pc += 4;
-					break;
+					NEXT(OR_INT);
 				case Op::XOR_INT:
 					I64(code[pc + 1]) = I64(code[pc + 2]) ^ I64(code[pc + 3]);
-					pc += 4;
-					break;
+					NEXT(XOR_INT);
 				case Op::NOT_INT:
 					I64(code[pc + 1]) = ~I64(code[pc + 2]);
-					pc += 3;
-					break;
+					NEXT(NOT_INT);
 				case Op::SHL_INT:
 				case Op::SHR_INT: {
 					const int64_t a = I64(code[pc + 2]);
@@ -2787,55 +2757,44 @@ public:
 						return fail_shift(fn, record.line, a, b, left);
 					}
 					I64(code[pc + 1]) = left ? int64_t(uint64_t(a) << b) : a >> b;
-					pc += 4;
-					break;
+					NEXT(SHL_INT);
 				}
 				case Op::POW_INT:
 					if (!bytecode::int_power(I64(code[pc + 2]), I64(code[pc + 3]), I64(code[pc + 1]))) {
 						return fail_pow_int(fn, record.line, I64(code[pc + 3]));
 					}
-					pc += 4;
-					break;
+					NEXT(POW_INT);
 				case Op::ADD_FLOAT:
 					F64(code[pc + 1]) = F64(code[pc + 2]) + F64(code[pc + 3]);
-					pc += 4;
-					break;
+					NEXT(ADD_FLOAT);
 				case Op::SUB_FLOAT:
 					F64(code[pc + 1]) = F64(code[pc + 2]) - F64(code[pc + 3]);
-					pc += 4;
-					break;
+					NEXT(SUB_FLOAT);
 				case Op::MUL_FLOAT:
 					F64(code[pc + 1]) = F64(code[pc + 2]) * F64(code[pc + 3]);
-					pc += 4;
-					break;
+					NEXT(MUL_FLOAT);
 				case Op::DIV_FLOAT:
 					F64(code[pc + 1]) = F64(code[pc + 2]) / F64(code[pc + 3]);
-					pc += 4;
-					break;
+					NEXT(DIV_FLOAT);
 				case Op::POW_FLOAT:
 					// As the engine's Math::pow (core/math/math_funcs.h:185-187; ed1daf0).
 					F64(code[pc + 1]) = std::pow(F64(code[pc + 2]), F64(code[pc + 3]));
-					pc += 4;
-					break;
+					NEXT(POW_FLOAT);
 				case Op::NEG_FLOAT:
 					F64(code[pc + 1]) = -F64(code[pc + 2]);
-					pc += 3;
-					break;
+					NEXT(NEG_FLOAT);
 				case Op::ADD_STRING:
 					op_add_string(code + pc, frame);
-					pc += 4;
-					break;
+					NEXT(ADD_STRING);
 				case Op::FORMAT:
 					if (!op_format(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 4;
-					break;
+					NEXT(FORMAT);
 #define COMPARE(m_op, m_access, m_cmp) \
 	case Op::m_op: \
 		U64(code[pc + 1]) = (m_access(code[pc + 2]) m_cmp m_access(code[pc + 3])) ? 1 : 0; \
-		pc += 4; \
-		break;
+		NEXT(m_op);
 					COMPARE(EQ_INT, I64, ==)
 					COMPARE(NE_INT, I64, !=)
 					COMPARE(LT_INT, I64, <)
@@ -2855,58 +2814,48 @@ public:
 #undef COMPARE
 				case Op::NOT:
 					U64(code[pc + 1]) = U64(code[pc + 2]) ? 0 : 1;
-					pc += 3;
-					break;
+					NEXT(NOT);
 				case Op::EVALUATE: {
 					const uint32_t right = code[pc + 4];
 					image.evaluators[code[pc + 1]](frame + code[pc + 3], right == NO_SLOT ? NOTHING : frame + right, frame + code[pc + 2]);
-					pc += 5;
-					break;
+					NEXT(EVALUATE);
 				}
 				case Op::GET_FIELD:
 					image.getters[code[pc + 1]](frame + code[pc + 3], frame + code[pc + 2]);
-					pc += 4;
-					break;
+					NEXT(GET_FIELD);
 				case Op::SET_FIELD:
 					image.setters[code[pc + 1]](frame + code[pc + 2], frame + code[pc + 3]);
-					pc += 4;
-					break;
+					NEXT(SET_FIELD);
 				case Op::GET_PROPERTY:
 					if (!op_get_property(code + pc, frame, freed, fn, record.line)) {
 						return false;
 					}
-					pc += 4;
-					break;
+					NEXT(GET_PROPERTY);
 				case Op::CHECK_ENUM:
 					if (!is_enum_value(types[code[pc + 1]], I64(code[pc + 2]))) {
 						return fail_check_enum(fn, record.line, code[pc + 1], I64(code[pc + 2]));
 					}
-					pc += 3;
-					break;
+					NEXT(CHECK_ENUM);
 				case Op::HAS_MEMBER:
 					if (!op_has_member(code + pc, frame, freed, fn, record.line)) {
 						return false;
 					}
-					pc += 4;
-					break;
+					NEXT(HAS_MEMBER);
 				case Op::SET_PROPERTY:
 					if (!op_set_property(code + pc, frame, freed, fn, record.line)) {
 						return false;
 					}
-					pc += 4;
-					break;
+					NEXT(SET_PROPERTY);
 				case Op::GET_MEMBER_OF:
 					if (!op_get_member_of(code + pc, frame, freed, fn, record.line)) {
 						return false;
 					}
-					pc += 4;
-					break;
+					NEXT(GET_MEMBER_OF);
 				case Op::SET_MEMBER_OF:
 					if (!op_set_member_of(code + pc, frame, freed, fn, record.line)) {
 						return false;
 					}
-					pc += 4;
-					break;
+					NEXT(SET_MEMBER_OF);
 				case Op::NEW_OBJECT:
 				case Op::NEW_WITHOUT_INIT: {
 					bool initialized;
@@ -2914,7 +2863,7 @@ public:
 					if (!new_object(image, code[pc + 1], without_init, frame + code[pc + 2], initialized)) {
 						return fail_helper(fn, record.line);
 					}
-					pc += 3;
+					pc += bytecode::fixed_length(Op::NEW_OBJECT);
 					if (!initialized && without_init) {
 						// A program error ended the initializers: no _init() (spec §8.1).
 						pc += bytecode::instruction_length(code + pc);
@@ -2925,155 +2874,131 @@ public:
 					if (!op_get_script(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 3;
-					break;
+					NEXT(GET_SCRIPT);
 				case Op::GET_OWNER:
 					if (!op_get_owner(code + pc, frame, freed, fn, record.line)) {
 						return false;
 					}
-					pc += 3;
-					break;
+					NEXT(GET_OWNER);
 				case Op::GET_SELF:
 					if (!op_get_self(code + pc, frame, freed, fn, record.line)) {
 						return false;
 					}
-					pc += 2;
-					break;
+					NEXT(GET_SELF);
 				case Op::GET_SINGLETON:
 					if (!op_get_singleton(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 3;
-					break;
+					NEXT(GET_SINGLETON);
 				case Op::GET_AUTOLOAD:
 					if (!op_get_autoload(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 3;
-					break;
+					NEXT(GET_AUTOLOAD);
 				case Op::METHOD_VALUE:
 				case Op::ENGINE_METHOD_VALUE:
 					if (!op_method_value(code + pc, frame, freed, fn, record.line)) {
 						return false;
 					}
-					pc += 4;
-					break;
+					NEXT(METHOD_VALUE);
 				case Op::STATIC_VALUE:
 					op_static_value(code + pc, frame);
-					pc += 4;
-					break;
+					NEXT(STATIC_VALUE);
 				case Op::STRUCT_METHOD_VALUE:
 					if (!op_struct_method_value(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 4;
-					break;
+					NEXT(STRUCT_METHOD_VALUE);
 				case Op::MAKE_LAMBDA:
 					if (!op_make_lambda(code + pc, frame, freed, fn, record.line)) {
 						return false;
 					}
-					pc += 5 + 2 * code[pc + 4];
+					pc += bytecode::call_length(code + pc);
 					break;
 				case Op::GET_SIGNAL:
 					if (!op_get_signal(code + pc, frame, freed, fn, record.line)) {
 						return false;
 					}
-					pc += 4;
-					break;
+					NEXT(GET_SIGNAL);
 				case Op::CHECK_MUST:
 					SELF_ALIVE();
 					if (!image.assigned(members, code[pc + 1])) {
 						return fail_unassigned(fn, record.line, image, code[pc + 1]);
 					}
-					pc += 2;
-					break;
+					NEXT(CHECK_MUST);
 				case Op::MARK_ASSIGNED:
 					SELF_ALIVE();
 					image.assigned(members, code[pc + 1]) = 1;
-					pc += 2;
-					break;
+					NEXT(MARK_ASSIGNED);
 				case Op::CHECK_PROVIDED:
 					SELF_ALIVE();
 					if (!check_provided(fn, members)) {
 						return false;
 					}
-					pc += 1;
-					break;
+					NEXT(CHECK_PROVIDED);
 				case Op::CHECK_RANGE: {
 					const bytecode::IntRange range = bytecode::IntRange(code[pc + 1]);
 					if (!bytecode::int_in_range(range, I64(code[pc + 2]))) {
 						return fail_range(fn, record.line, range, I64(code[pc + 2]));
 					}
-					pc += 3;
-					break;
+					NEXT(CHECK_RANGE);
 				}
 				case Op::CHECK_OBJECT:
 					if (!op_check_object(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 3;
-					break;
+					NEXT(CHECK_OBJECT);
 				case Op::CHECK_LIVE:
 					if (!is_live_object(frame + code[pc + 1])) {
 						return fail_freed(fn, record.line, "The object given to the engine was freed.", *reinterpret_cast<const uint64_t *>(frame + code[pc + 1]));
 					}
-					pc += 2;
-					break;
+					NEXT(CHECK_LIVE);
 				case Op::DEBUG_BUILD:
 #ifdef DEBUG_ENABLED
 					U64(code[pc + 1]) = 1;
 #else
 					U64(code[pc + 1]) = 0;
 #endif
-					pc += 2;
-					break;
+					NEXT(DEBUG_BUILD);
 				case Op::ASSERT_FAIL:
 					return fail_assert(fn, record.line, frame, code[pc + 1]);
 				case Op::CAST_OBJECT:
 					op_cast_object(code + pc, frame);
-					pc += 4;
-					break;
+					NEXT(CAST_OBJECT);
 				case Op::NEW_CONTAINER:
 					op_new_container(code + pc, frame);
-					pc += 3;
-					break;
+					NEXT(NEW_CONTAINER);
 				case Op::GET_INDEX:
 					if (!op_get_index(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 6;
-					break;
+					NEXT(GET_INDEX);
 				case Op::SET_INDEX:
 					if (!op_set_index(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 5;
-					break;
+					NEXT(SET_INDEX);
 				case Op::ITER_STATE:
 					if (!op_iter_state(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 4;
-					break;
+					NEXT(ITER_STATE);
 				case Op::ORD:
 					if (!op_ord(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 3;
-					break;
+					NEXT(ORD);
 				case Op::PRINT_STACK:
 				case Op::GET_STACK:
 					op_stack(code + pc, frame);
-					pc += Op(code[pc]) == Op::GET_STACK ? 3 : 1;
+					pc += bytecode::fixed_length(Op(code[pc]));
 					break;
 				case Op::IS_INSTANCE:
 					op_is_instance(code + pc, frame);
-					pc += 4;
-					break;
+					NEXT(IS_INSTANCE);
 				case Op::IS_SCRIPT:
 					op_is_script(code + pc, frame);
-					pc += 4;
-					break;
+					NEXT(IS_SCRIPT);
 				case Op::IS_NONE: {
 					const uint8_t *src = frame + code[pc + 3];
 					const TypeImage &type = types[code[pc + 1]];
@@ -3087,72 +3012,60 @@ public:
 						const Variant &value = variant_at(src);
 						U64(code[pc + 2]) = is_none(value) || (value.get_type() == Variant::OBJECT && !value.booleanize()) ? 1 : 0;
 					}
-					pc += 4;
-					break;
+					NEXT(IS_NONE);
 				}
 				case Op::SOME: {
 					const TypeImage &option = types[code[pc + 1]];
 					copy_value(*option.element, frame + code[pc + 2] + 8, frame + code[pc + 3]);
 					U64(code[pc + 2]) = 1;
-					pc += 4;
-					break;
+					NEXT(SOME);
 				}
 				case Op::EQUAL:
 				case Op::LESS:
 					if (!op_compare(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 5;
-					break;
+					NEXT(EQUAL);
 				case Op::SAME_OBJECT:
 					U64(code[pc + 2]) = same_object(frame + code[pc + 3], code[pc + 1] & 1, frame + code[pc + 4], code[pc + 1] & 2) ? 1 : 0;
-					pc += 5;
-					break;
+					NEXT(SAME_OBJECT);
 				case Op::TO_VARIANT:
 					if (!op_to_variant(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 4;
-					break;
+					NEXT(TO_VARIANT);
 				case Op::FROM_VARIANT:
 					if (!read_variant(types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 2])) {
 						return fail_helper(fn, record.line);
 					}
-					pc += 4;
-					break;
+					NEXT(FROM_VARIANT);
 				case Op::VARIANT_OBJECT:
 					set_object(frame + code[pc + 1], variant_at(frame + code[pc + 2]));
-					pc += 3;
-					break;
+					NEXT(VARIANT_OBJECT);
 				case Op::IS_TYPE:
 					U64(code[pc + 2]) = is_exactly(types[code[pc + 1]], variant_at(frame + code[pc + 3])) ? 1 : 0;
-					pc += 4;
-					break;
+					NEXT(IS_TYPE);
 				case Op::CONSTRUCT_FROM:
 					if (!construct_from(types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 2])) {
 						return fail_helper(fn, record.line);
 					}
-					pc += 4;
-					break;
+					NEXT(CONSTRUCT_FROM);
 				case Op::VARIANT_EQUAL:
 				case Op::MATCHES:
 					if (!compare_variants(frame + code[pc + 2], frame + code[pc + 3], Op(code[pc]) == Op::MATCHES, U64(code[pc + 1]))) {
 						return fail_helper(fn, record.line);
 					}
-					pc += 4;
-					break;
+					NEXT(VARIANT_EQUAL);
 				case Op::BOX:
 					if (!op_box(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 5;
-					break;
+					NEXT(BOX);
 				case Op::ENCODE:
 					if (!op_encode(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 4;
-					break;
+					NEXT(ENCODE);
 				case Op::UNWRAP: {
 					const TypeImage &type = types[code[pc + 1]];
 					const uint8_t *src = frame + code[pc + 3];
@@ -3165,16 +3078,14 @@ public:
 						return fail_unwrap(fn, record.line, frame, code[pc + 4]);
 					}
 					copy_value(option ? *type.element : type, frame + code[pc + 2], option ? src + 8 : src);
-					pc += 5;
-					break;
+					NEXT(UNWRAP);
 				}
 				case Op::TRY_FROM:
 					if (!try_from(types[code[pc + 1]], *reinterpret_cast<const Variant *>(frame + code[pc + 3]), frame + code[pc + 2])) {
 						// A default's program error is reported already, a walk too deep not.
 						return walked_too_deep() && fail_too_deep(fn, record.line);
 					}
-					pc += 4;
-					break;
+					NEXT(TRY_FROM);
 				case Op::UNWRAP_OK: {
 					// The index of the variant, 0 for Ok, then Ok's value (module.h).
 					const TypeImage &type = types[code[pc + 1]];
@@ -3183,20 +3094,19 @@ public:
 						return fail_unwrap_err(fn, record.line, frame, type, src, code[pc + 4]);
 					}
 					copy_value(*type.fields[1].type, frame + code[pc + 2], src + type.fields[1].offset);
-					pc += 5;
-					break;
+					NEXT(UNWRAP_OK);
 				}
 				case Op::JUMP:
 					pc = code[pc + 1];
 					break;
 				case Op::JUMP_IF_FALSE:
-					pc = U64(code[pc + 1]) ? pc + 3 : code[pc + 2];
+					pc = U64(code[pc + 1]) ? pc + bytecode::fixed_length(Op::JUMP_IF_FALSE) : code[pc + 2];
 					break;
 				case Op::JUMP_IF_TRUE:
-					pc = U64(code[pc + 1]) ? code[pc + 2] : pc + 3;
+					pc = U64(code[pc + 1]) ? code[pc + 2] : pc + bytecode::fixed_length(Op::JUMP_IF_TRUE);
 					break;
 				case Op::ITERATE_INT:
-					pc = ++I64(code[pc + 1]) < I64(code[pc + 2]) ? pc + 4 : code[pc + 3];
+					pc = ++I64(code[pc + 1]) < I64(code[pc + 2]) ? pc + bytecode::fixed_length(Op::ITERATE_INT) : code[pc + 3];
 					break;
 				case Op::ITERATE:
 					if (!op_iterate(code + pc, frame, pc, fn, record.line)) {
@@ -3211,7 +3121,7 @@ public:
 					if (!call_function(origin.image ? *origin.image : *owner, origin.image ? uint32_t(origin.index) : target, context, code + pc, frame, module.functions[target].result, fn, record.line)) {
 						return false;
 					}
-					pc += 5 + 2 * code[pc + 4];
+					pc += bytecode::call_length(code + pc);
 					break;
 				}
 				case Op::CALL_SUPER:
@@ -3219,32 +3129,32 @@ public:
 					if (!op_call_method(code + pc, frame, freed, fn, record.line)) {
 						return false;
 					}
-					pc += 5 + 2 * code[pc + 4];
+					pc += bytecode::call_length(code + pc);
 					break;
 				case Op::CALL_VALUE:
 					if (!op_call_value(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 5 + 2 * code[pc + 4];
+					pc += bytecode::call_length(code + pc);
 					break;
 				case Op::CLEAR:
 					for (uint32_t i = 0; i < code[pc + 4]; i++) {
 						clear_value(image.types[code[pc + 5 + 2 * i]], frame + code[pc + 6 + 2 * i]);
 					}
-					pc += 5 + 2 * code[pc + 4];
+					pc += bytecode::call_length(code + pc);
 					break;
 				case Op::TASK_ANY:
 				case Op::TASK_ALL:
 					if (!op_task_join(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 5 + 2 * code[pc + 4];
+					pc += bytecode::call_length(code + pc);
 					break;
 				case Op::RANGE:
 					if (!op_range(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 11;
+					pc += bytecode::call_length(code + pc);
 					break;
 				case Op::CALL_AWAIT_ENGINE:
 				case Op::CALL_ENGINE: {
@@ -3252,7 +3162,7 @@ public:
 						if (!op_call_native(code + pc, frame, freed, fn, record.line)) {
 							return false;
 						}
-						pc += 5 + 2 * code[pc + 4];
+						pc += bytecode::call_length(code + pc);
 						break;
 					}
 					bool done = false;
@@ -3280,34 +3190,31 @@ public:
 					if (!(plain ? op_call_plain(code + pc, frame, fn, record.line) : op_call_builtin(code + pc, frame, fn, record.line))) {
 						return false;
 					}
-					pc += 5 + 2 * code[pc + 4];
+					pc += bytecode::call_length(code + pc);
 					break;
 				}
 				case Op::CONSTRUCT:
 					if (!op_construct(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 5 + 2 * code[pc + 4];
+					pc += bytecode::call_length(code + pc);
 					break;
 				case Op::TASK_CANCEL:
 					if (!op_task_cancel(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 2;
-					break;
+					NEXT(TASK_CANCEL);
 				case Op::TASK_OF:
 				case Op::TASK_DELAY:
 					if (!op_signal_task(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 4;
-					break;
+					NEXT(TASK_OF);
 				case Op::TASK_SETTLED:
 					if (!op_task_settled(code + pc, frame, fn, record.line)) {
 						return false;
 					}
-					pc += 5;
-					break;
+					NEXT(TASK_SETTLED);
 				case Op::AWAIT_TASK: {
 					bool done = false;
 					if (!op_await_task(code + pc, frame, p_async, pc, done, fn, record.line)) {
@@ -3316,7 +3223,7 @@ public:
 					if (done) {
 						return true;
 					}
-					break;
+					NEXT(AWAIT_TASK);
 				}
 				case Op::AWAIT_SIGNAL:
 					return op_await_signal(code + pc, frame, p_async, pc, fn, record.line);
@@ -3337,6 +3244,7 @@ public:
 #undef STR
 #undef WRAP
 #undef SELF_ALIVE
+#undef NEXT
 	}
 };
 

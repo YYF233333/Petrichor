@@ -28,14 +28,6 @@ const OpInfo OP_INFOS[] = {
 
 } // namespace
 
-int operand_count(Op p_op) {
-	if (uint32_t(p_op) >= uint32_t(Op::COUNT)) {
-		return 0;
-	}
-	const char *emit = OP_INFOS[uint32_t(p_op)].emit;
-	return emit[0] == '*' ? -1 : int(std::strlen(emit));
-}
-
 const char *int_range_name(IntRange p_range) {
 	static const char *const names[] = { "int8", "int16", "int32", "uint8", "uint16", "uint32", "char32" };
 	static_assert(sizeof(names) / sizeof(names[0]) == size_t(IntRange::COUNT), "one name per range");

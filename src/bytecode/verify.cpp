@@ -955,14 +955,10 @@ class Verifier {
 			if (code[at] >= uint32_t(Op::COUNT)) {
 				return fail("unknown instruction " + std::to_string(code[at]));
 			}
-			const int count = operand_count(Op(code[at]));
-			size_t length = size_t(1 + count);
-			if (count < 0) {
-				if (code.size() - at < 5 || code[at + 4] > (code.size() - at - 5) / 2) {
-					return fail("a call is cut off");
-				}
-				length = 5 + 2 * size_t(code[at + 4]);
+			if (operand_count(Op(code[at])) < 0 && (code.size() - at < 5 || code[at + 4] > (code.size() - at - 5) / 2)) {
+				return fail("a call is cut off");
 			}
+			const size_t length = instruction_length(code.data() + at);
 			if (code.size() - at < length) {
 				return fail("an instruction is cut off");
 			}

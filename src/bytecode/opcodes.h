@@ -270,17 +270,35 @@ inline int64_t int_wrapi(int64_t p_value, int64_t p_min, int64_t p_max) {
 // As the engine API names it: "int8", "uint32", "char32"…
 const char *int_range_name(IntRange p_range);
 
+constexpr int8_t OPERAND_COUNTS[] = {
+#define PETRICHOR_OPCODE_OPERANDS(m_name, m_emit, m_verify) int8_t(m_emit[0] == '*' ? -1 : int(sizeof(m_emit)) - 1),
+	PETRICHOR_OPCODES(PETRICHOR_OPCODE_OPERANDS)
+#undef PETRICHOR_OPCODE_OPERANDS
+};
+
 // Number of operand words of a fixed-size instruction, or -1 for a call.
-int operand_count(Op p_op);
-const char *op_name(Op p_op);
-const char *op_emit_schema(Op p_op);
-const char *op_verify_schema(Op p_op);
+constexpr int operand_count(Op p_op) {
+	return OPERAND_COUNTS[uint32_t(p_op)];
+}
+
+// The words of a fixed-size instruction, opcode included.
+constexpr size_t fixed_length(Op p_op) {
+	return 1 + size_t(operand_count(p_op));
+}
+
+// The words of the call at `p_call`, opcode included.
+inline size_t call_length(const uint32_t *p_call) {
+	return 5 + 2 * size_t(p_call[4]);
+}
 
 // The words of the instruction at `p_code`, opcode included. A call's length
 // depends on its argument count, p_code[4], which must be there.
 inline size_t instruction_length(const uint32_t *p_code) {
-	const int count = operand_count(Op(p_code[0]));
-	return count < 0 ? 5 + 2 * size_t(p_code[4]) : 1 + size_t(count);
+	return operand_count(Op(p_code[0])) < 0 ? call_length(p_code) : fixed_length(Op(p_code[0]));
 }
+
+const char *op_name(Op p_op);
+const char *op_emit_schema(Op p_op);
+const char *op_verify_schema(Op p_op);
 
 } // namespace petrichor::bytecode
