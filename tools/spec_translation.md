@@ -92,7 +92,7 @@ One Chinese term has one English term. A term from Godot or GDScript keeps its o
 |---|---|---|
 | 本语言 | this language | Never "Petrichor" inside a rule. The compiler says "a class of this language". |
 | 其他语言的类 | class of another language | Compiler term. |
-| 语法硬规则 | the syntax hard rule | |
+| 无静默差异 | no silent differences; the no-silent-differences rule | |
 | 可还原规则 | the reversibility rule | |
 | 可还原的写法 | reversible form | |
 | 写法 | form; "written as" | "Spelling" only for the text of a literal. |

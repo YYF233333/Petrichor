@@ -2,7 +2,7 @@
 
 **v0.2 draft · 2026-10-25**
 
-<!-- Generated from language-spec.zh.md, git blob 19c27a317381345ac5642d9af42422a13ef8eecb. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob a2c13befe7c042d8be34f0e335df4c96e49b6b5d. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). The previous version of the specification, v0.1, is kept in the git tag `spec-v0.1`. This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -18,11 +18,11 @@ Petrichor is a fully statically typed scripting language for Godot 4, shipped as
 ### 1.2 Relation to GDScript
 
 - The surface syntax follows GDScript: indentation, `func`, `var`, `extends`, `signal`, `@export`, `$X` and so on. New constructs extend it in the same style.
-- **The syntax hard rule**: a construct written as in GDScript either behaves as in GDScript or is a compile error. The error gives a fix. The construct is never silently different. The only exception is where GDScript fails at run time or silently gives a wrong result. Examples are a default value, a truncation and hanging forever. There, this language makes it a program error, or does what the code originally intended.
+- **No silent differences**: a construct written as in GDScript either behaves as in GDScript or is a compile error. The error gives a fix. The construct is never silently different. The only exception is where GDScript fails at run time or silently gives a wrong result. Examples are a default value, a truncation and hanging forever. There, this language makes it a program error, or does what the code originally intended.
 - **The reversibility rule**: what GDScript code means can always be written in this language with only two kinds of forms:
   - forms that GDScript also has, with the same meaning;
   - reversible forms, that is, forms whose removal or replacement by a fixed rule gives GDScript of the same meaning. Examples are `pub`, `async`, `.detach()` and `?` in types.
-- The reversibility rule has these exceptions: those of the syntax hard rule, and each **[Known limitation]** marked where it applies.
+- The reversibility rule has these exceptions: those of the no-silent-differences rule, and each **[Known limitation]** marked where it applies.
 - There is no promise to compile GDScript source code directly. The migration tool converts in both directions by the reversibility rule.
 
 ### 1.3 Delivery
@@ -36,13 +36,13 @@ Petrichor is a fully statically typed scripting language for Godot 4, shipped as
 - The first version means version 1.0. Versions before 1.0 may still change the semantics.
 - Status markers: **[Open]** means not yet decided. **[Known limitation]** means the first version does not support it, but its restrictions on legality are still normative. The chapter "First-version scope and open questions" collects the open questions. It also collects the features that can be added compatibly after the first version.
 - A **compile error** is reported by the analysis service before the program runs, and makes the program illegal. The only exception is a missing-value error marked on a scene, which does not prevent running in the editor. **Warnings** and **hints** do not affect legality. A **program error** is a runtime error, handled as the chapter on errors says.
-- GDScript here means the GDScript of Godot 4. The syntax hard rule and the reversibility rule both take it as their reference.
+- GDScript here means the GDScript of Godot 4. The no-silent-differences rule and the reversibility rule both take it as their reference.
 - The engine behavior relied on here is checked against Godot 4.7.2-stable (commit `ed1daf0`). The sources are listed in the [engine facts](engine-facts.md).
 - The extension of source files is `.pet`.
 
 ### 1.5 Guarantees
 
-Besides the syntax hard rule, this language's own operations guarantee the following three points everywhere. The behavior of engine APIs does not change. The only exceptions are each **[Known limitation]** marked where it applies.
+Besides the no-silent-differences rule, this language's own operations guarantee the following three points everywhere. The behavior of engine APIs does not change. The only exceptions are each **[Known limitation]** marked where it applies.
 
 - **Types can be trusted**: a value not fitting its static type is a program error before use as that type. A non-null `T` is never null, but it may be a freed object.
 - **No silent failure**: a failure is a compile error, gives an `Option` or a `Result`, or is a program error. Nothing silently gives a default value or a wrong result, and nothing hangs forever. Except for `assert`, detection and handling are exactly the same in debug and release builds.
@@ -656,7 +656,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
   - the value that `for` iterates over is kept until the loop ends. Other temporary values of the header are released before entering the loop body.
 - A local variable is released on leaving its block. The end of each round of a loop body also counts as leaving.
 - When an `await` in a statement suspends, the temporary values of that statement are still held. `self` is excepted, as the release rules of coroutines say.
-- GDScript releases values that code can no longer reach later than this. Examples are the loop locals of the previous round and the matched value of `match`. This falls under the exception to the syntax hard rule.
+- GDScript releases values that code can no longer reach later than this. Examples are the loop locals of the previous round and the matched value of `match`. This falls under the exception to the no-silent-differences rule.
 
 ## 7. Scene model
 
@@ -761,7 +761,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 ### 8.3 Assertions
 
 - `assert(condition, message)` is evaluated only in debug builds, which are runs in the editor and debug exports. A failure is a program error. In release builds it is removed, and neither the condition nor the message is evaluated.
-- The message is a `String`, evaluated only when the condition is false. This falls under the exception to the syntax hard rule. GDScript always evaluates it in debug builds, and not in release builds. An `await` or a postfix `?` in the condition or the message is a compile error. The condition must be `bool`. For example, `assert(save_data, "...")` is a compile error that suggests `save_data != None`. A check that release builds need too uses `expect` or an explicit `if`.
+- The message is a `String`, evaluated only when the condition is false. This falls under the exception to the no-silent-differences rule. GDScript always evaluates it in debug builds, and not in release builds. An `await` or a postfix `?` in the condition or the message is a compile error. The condition must be `bool`. For example, `assert(save_data, "...")` is a compile error that suggests `save_data != None`. A check that release builds need too uses `expect` or an explicit `if`.
 
 ### 8.4 Diagnostics
 
