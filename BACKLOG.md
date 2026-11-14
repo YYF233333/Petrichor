@@ -85,6 +85,10 @@ Due 2026-11-15 (architecture §5, step 10). These items gate the release.
     - `s[i] = c` becomes `s = s.erase(i).insert(i, c)`, and `s[i] = ""` becomes `s = s.erase(i)`.
     - A negative literal index `-k` becomes `s.length() - k`, since `erase` refuses negative positions (`core/string/ustring.cpp:2881-2884`, `ed1daf0`).
     - The report lists other indices and bases with side effects.
+- A bottom panel listing the errors that keep the project from running, wanted in 0.3 or later. A click opens the file at the line.
+  - Now the errors reach only the Output panel and a toast (`src/adapter/editor/script_compiler.cpp:62`).
+  - GDScript compiles as the game loads, so its debugger shows them. C# opens its MSBuild panel on a failed build (`modules/mono/editor/GodotTools/GodotTools/Build/BuildManager.cs:51-56`, `ed1daf0`).
+  - Consider a toast too when saving a scene breaks a script.
 - The debugger lists all locals of a function regardless of scope. So same-named locals of blocks side by side collide. The bytecode would record the scope of each slot.
 - Before 0.9, diagnostics and semantic queries that serve programs, not only the editor's interface. They say which declaration or scene a constraint comes from, and list the references that broke. Agents then fix errors while reading less code. Accepted by an agent evaluation (architecture §5, 0.9).
 - Before 0.9, function times in Godot's profiler. The `_profiling_*` methods of `PetLanguage` are empty, so the profiler shows no function of this language. Deeper integration comes after 1.0 (spec §14.2).
