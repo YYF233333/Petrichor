@@ -46,6 +46,12 @@ TEST_CASE("an int becomes an enum only explicitly, and two enums do not mix (spe
 	CHECK(contains(errors("var t := State.WALK"), "State has no value \"WALK\"."));
 }
 
+// A declaration of the class comes before a member of the engine class it
+// extends (spec §4.1), Node's property `name` here.
+TEST_CASE("an enum of the class hides a property of the engine class of its name") {
+	CHECK(errors_of("extends Node\n\nenum name { A, B }\n\nfunc f() -> name:\n\treturn name.B if name(0) == name.A else name.A\n").empty());
+}
+
 TEST_CASE("an enum's name as a value is a read-only Dictionary typed by the enum (spec §3.7)") {
 	CHECK(errors("var names: Array[String] = State.keys()\nvar values: Array[State] = State.values()\nvar count: int = State.size()\n"
 				 "var key: String? = State.find_key(s)\nvar maybe: State? = State.get(\"RUN\")\nvar run: State = State[\"RUN\"]\nvar has: bool = State.has(\"RUN\")\n"

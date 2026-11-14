@@ -107,6 +107,13 @@ TEST_CASE("a static method of a class of this language is called on the class") 
 	CHECK(on_object.module.method_calls[0].static_class < 0);
 }
 
+// The constant is a declaration of the class, which comes before the
+// engine's names (spec §2.1, §4.1).
+TEST_CASE("a constant that preloads a script hides an engine class of its name") {
+	const compiler::CompileResult result = compile_in("extends Node\nconst Timer = preload(\"res://spawner.pet\")\nfunc f() -> Spawner:\n\tprint(Timer.make(1))\n\treturn Timer.new()\n", spawner_project());
+	CHECK_MESSAGE(result.ok(), messages(result));
+}
+
 TEST_CASE("a member inherited without pub is seen as where it is declared, whichever class names it") {
 	FakeProject project;
 	project.add_script("res://base.pet", "class_name Base extends RefCounted\nconst SECRET := 1\nenum { HIDDEN }\nenum Mode { A }\nstatic func secret() -> int:\n\treturn SECRET\n", "Base");

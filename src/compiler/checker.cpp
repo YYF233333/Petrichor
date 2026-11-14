@@ -1474,10 +1474,11 @@ class Checker : public ClassRelation {
 		return field_default ? "default value of \"" + field_default->name + "\"" : "static function \"" + outermost()->name + "()\"";
 	}
 
-	// The type a name refers to when it is the base of `Name.x` or
-	// `Name.f()`: not when a local, a member or a property has that name.
-	bool names_type(const Expr &p_expr) const {
-		return p_expr.kind == ExprKind::Name && !names_variable(p_expr.text) && is_type_name(p_expr.text) && !engine.is_singleton(p_expr.text);
+	// Whether the base of `Name.x` or `Name.f()` names a type of the engine,
+	// whose name any closer one hides (spec §4.1). A singleton's name is its
+	// object, except where it names the class (`p_singleton`).
+	bool names_type(const Expr &p_expr, bool p_singleton = false) const {
+		return p_expr.kind == ExprKind::Name && is_type_name(p_expr.text) && !declares(p_expr.text) && !class_around(p_expr.text) && (p_singleton || !engine.is_singleton(p_expr.text));
 	}
 
 	bool names_variable(const std::string &p_name) const {
@@ -1907,53 +1908,60 @@ class Checker : public ClassRelation {
 		return set(r_expr, r_expr.constant->type);
 	}
 
-	// The enum that the base of `State.IDLE`, `State(x)` or `State.try_from(x)`
-	// names: one of this class by its bare name, when nothing closer has it, or
-	// a pub one of another class, as in `Player.State`; null for any other base.
-	const EnumDecl *named_enum(Expr &r_base) {
-		if (r_base.kind == ExprKind::Name) {
-			if (visible_local(r_base.text) || member_index.count(r_base.text) || engine.find_property(cls.native_base, r_base.text)) {
+	// Whether an expression may name an enum, as `State` and `Player.State`
+	// do, or a call's callee, as in `State(x)`.
+	static bool may_name_enum(const Expr &p_name, bool p_call) {
+		return p_call || p_name.kind == ExprKind::Name || (p_name.kind == ExprKind::Member && p_name.base);
+	}
+
+	// The enum that the base of `State.IDLE` or, with `p_call`, the callee of
+	// `State(x)` names: by its bare name, when no local or member has it, one
+	// of this class or of one around it, or one a constant names; a pub one of
+	// another class, as in `Player.State`; null for any other name. A bare
+	// callee that is a function's name calls the function.
+	const EnumDecl *named_enum(Expr &r_name, bool p_call = false) {
+		if (!may_name_enum(r_name, p_call)) {
+			return nullptr;
+		}
+		const std::string &name = r_name.text;
+		if (!r_name.base) {
+			if (visible_local(name) || member_index.count(name) || (p_call && function_index.count(name))) {
 				return nullptr;
 			}
-			if (constant_index.count(r_base.text)) {
-				const EnumDecl *aliased = aliased_enum(r_base.text);
-				if (aliased) {
-					refer(r_base.name_token, alias_id(r_base.text));
-				}
-				return aliased;
-			}
-			const EnumDecl *decl = scope_enum(r_base.text);
+			const bool aliased = constant_index.count(name);
+			const EnumDecl *decl = aliased ? aliased_enum(name) : scope_enum(name);
 			if (decl) {
-				refer(r_base.name_token, enum_id(*decl));
+				refer(r_name.name_token, aliased ? alias_id(name) : enum_id(*decl));
 			}
 			return decl;
 		}
-		if (r_base.kind != ExprKind::Member || !r_base.base || !names_enum_of_class(*r_base.base, r_base.text)) {
+		Expr &base = *r_name.base;
+		if (!names_enum_of_class(base, name)) {
 			return nullptr;
 		}
-		std::optional<Type> named = named_class(*r_base.base);
-		if (!named && r_base.base->kind == ExprKind::Name) {
-			named = check_value(*r_base.base); // An autoload, which leads to its class (spec §11.1).
+		std::optional<Type> named = named_class(base);
+		if (!named && base.kind == ExprKind::Name) {
+			named = check_value(base); // An autoload, which leads to its class (spec §11.1).
 		}
 		if (!named || named->is_error() || !is_script_path(named->script)) {
 			return nullptr;
 		}
 		const ClassDecl *decl = named->script == options.path ? &cls : script_decl(named->script);
-		const EnumDecl *found = decl ? decl->find_enum(r_base.text) : nullptr;
+		const EnumDecl *found = decl ? decl->find_enum(name) : nullptr;
 		if (!found) {
 			return nullptr;
 		}
 		Checker *local = file->find(named->script);
 		// Checked when first used, also while that class is declared.
-		if (const EnumDecl *checked = local ? local->own_enum(r_base.text) : nullptr) {
+		if (const EnumDecl *checked = local ? local->own_enum(name) : nullptr) {
 			found = checked;
 		}
 		if (!found->is_pub && !sees(found->script)) {
-			error(r_base.range, "The enum " + named->name + "." + found->name + " is not pub.");
+			error(r_name.range, "The enum " + named->name + "." + found->name + " is not pub.");
 		} else if (const auto message = local ? std::nullopt : broken(found, named->name + "." + found->name)) {
-			error(r_base.range, *message);
+			error(r_name.range, *message);
 		}
-		refer(r_base.name_token, script_id(found->script, found->name));
+		refer(r_name.name_token, script_id(found->script, found->name));
 		return found;
 	}
 
@@ -1985,42 +1993,45 @@ class Checker : public ClassRelation {
 	}
 
 	// The engine's enum that the base of `Tween.EaseType.EASE_IN` or
-	// `EASE.EASE_IN` names: by the engine's name, unless a closer one hides
-	// it, or by a constant that names it (spec §3.7).
-	std::optional<Type> named_engine_enum_base(const Expr &p_base) {
-		if (p_base.kind == ExprKind::Name) {
-			if (visible_local(p_base.text) || member_index.count(p_base.text) || engine.find_property(cls.native_base, p_base.text)) {
-				return std::nullopt;
-			}
-			if (constant_index.count(p_base.text)) {
-				const std::optional<Type> aliased = aliased_enum_type(p_base.text);
-				if (aliased && aliased->values->is_engine) {
-					refer(p_base.name_token, alias_id(p_base.text));
-					return aliased;
-				}
-				return std::nullopt;
-			}
-			if (declared_in_scope(p_base.text)) {
-				return std::nullopt;
-			}
-			if (const std::optional<Type> found = named_engine_enum(p_base.text)) {
-				refer_engine_enum(p_base.text, p_base.name_token, p_base.name_token);
-				return found;
-			}
-			// One of the engine class this one extends, such as ProcessMode (spec §4.1).
-			const std::optional<Type> found = engine.find_enum(cls.native_base, p_base.text);
+	// `EASE.EASE_IN` or, with `p_call`, the callee of `Tween.EaseType(x)`
+	// names (spec §3.7): by the engine's name, unless a closer one hides it,
+	// by a constant that names it, or one of the engine class this one
+	// extends, such as ProcessMode (§4.1). A callee's class may be a
+	// singleton's, as Input of `Input.MouseMode(x)`.
+	std::optional<Type> named_engine_enum(const Expr &p_name, bool p_call) {
+		if (!may_name_enum(p_name, p_call)) {
+			return std::nullopt;
+		}
+		const std::string &name = p_name.text;
+		if (p_name.base) {
+			const std::string dotted = p_name.base->text + "." + name;
+			const std::optional<Type> found = names_type(*p_name.base, p_call) ? named_engine_enum(dotted) : std::nullopt;
 			if (found) {
-				refer(p_base.name_token, engine_id(found->name.substr(0, found->name.find('.')), p_base.text));
+				refer_engine_enum(dotted, p_name.base->name_token, p_name.name_token);
 			}
 			return found;
 		}
-		if (p_base.kind != ExprKind::Member || !p_base.base || !names_type(*p_base.base)) {
+		if (visible_local(name) || member_index.count(name) || engine.find_property(cls.native_base, name)) {
 			return std::nullopt;
 		}
-		const std::string name = p_base.base->text + "." + p_base.text;
-		const std::optional<Type> found = named_engine_enum(name);
+		if (constant_index.count(name)) {
+			const std::optional<Type> aliased = aliased_enum_type(name);
+			if (!aliased || !aliased->values->is_engine) {
+				return std::nullopt;
+			}
+			refer(p_name.name_token, alias_id(name));
+			return aliased;
+		}
+		if (declared_in_scope(name)) {
+			return std::nullopt;
+		}
+		if (const std::optional<Type> found = named_engine_enum(name)) {
+			refer_engine_enum(name, p_name.name_token, p_name.name_token);
+			return found;
+		}
+		const std::optional<Type> found = engine.find_enum(cls.native_base, name);
 		if (found) {
-			refer_engine_enum(name, p_base.base->name_token, p_base.name_token);
+			refer(p_name.name_token, engine_id(found->name.substr(0, found->name.find('.')), name));
 		}
 		return found;
 	}
@@ -2114,72 +2125,6 @@ class Checker : public ClassRelation {
 	// How this file writes an enum: State for its own, Player.State for another class's.
 	std::string enum_spelling(const Type &p_enum) const {
 		return p_enum.values && !p_enum.values->is_engine && !p_enum.is_result() && p_enum.script == options.path ? p_enum.interface_name() : p_enum.to_string();
-	}
-
-	// `State(x)` or `Player.State(x)`: the enum the call names, if any.
-	const EnumDecl *called_enum(Expr &r_call) {
-		if (!r_call.base) {
-			if (function_index.count(r_call.text) || visible_local(r_call.text) || member_index.count(r_call.text)) {
-				return nullptr;
-			}
-			if (constant_index.count(r_call.text)) {
-				const EnumDecl *aliased = aliased_enum(r_call.text);
-				if (aliased) {
-					refer(r_call.name_token, alias_id(r_call.text));
-				}
-				return aliased;
-			}
-			const EnumDecl *decl = scope_enum(r_call.text);
-			if (decl) {
-				refer(r_call.name_token, enum_id(*decl));
-			}
-			return decl;
-		}
-		if (!names_enum_of_class(*r_call.base, r_call.text)) {
-			return nullptr;
-		}
-		Expr type;
-		type.kind = ExprKind::Member;
-		type.text = r_call.text;
-		type.range = r_call.range;
-		type.name_token = r_call.name_token;
-		type.base = std::move(r_call.base);
-		const EnumDecl *decl = named_enum(type);
-		r_call.base = std::move(type.base);
-		return decl;
-	}
-
-	// `MouseButton(x)`, `Node.ProcessMode(x)` or `Vector3.Axis(x)`: the
-	// engine's enum the call names, if any.
-	std::optional<Type> called_engine_enum(Expr &r_call) {
-		std::string name = r_call.text;
-		if (r_call.base) {
-			if (r_call.base->kind != ExprKind::Name || visible_local(r_call.base->text) || member_index.count(r_call.base->text) || constant_index.count(r_call.base->text)) {
-				return std::nullopt;
-			}
-			name = r_call.base->text + "." + r_call.text;
-		} else if (constant_index.count(name) && !visible_local(name)) {
-			const std::optional<Type> aliased = aliased_enum_type(name);
-			if (!aliased || !aliased->values->is_engine) {
-				return std::nullopt;
-			}
-			refer(r_call.name_token, alias_id(name));
-			return aliased;
-		} else if (declared_in_scope(name)) {
-			return std::nullopt;
-		}
-		const std::optional<Type> found = named_engine_enum(name);
-		if (found) {
-			refer_engine_enum(name, r_call.base ? r_call.base->name_token : r_call.name_token, r_call.name_token);
-		} else if (!r_call.base) {
-			// One of the engine class this one extends (spec §4.1).
-			const std::optional<Type> base_enum = engine.find_enum(cls.native_base, name);
-			if (base_enum) {
-				refer(r_call.name_token, engine_id(base_enum->name.substr(0, base_enum->name.find('.')), name));
-			}
-			return base_enum;
-		}
-		return found;
 	}
 
 	// MouseButton, or Node and ProcessMode of Node.ProcessMode, each by its token.
@@ -3064,7 +3009,7 @@ class Checker : public ClassRelation {
 		if (const EnumDecl *decl = named_enum(base)) {
 			return check_enum_value(r_expr, *decl);
 		}
-		if (const std::optional<Type> engine_enum = named_engine_enum_base(base)) {
+		if (const std::optional<Type> engine_enum = named_engine_enum(base, false)) {
 			return check_engine_enum_value(r_expr, *engine_enum);
 		}
 		if (names_enum_of_class(base, r_expr.text)) {
@@ -6683,13 +6628,13 @@ class Checker : public ClassRelation {
 		if (const std::optional<Type> constructed = constructed_struct(r_expr)) {
 			return check_struct_construction(r_expr, *constructed);
 		}
-		if (const EnumDecl *decl = called_enum(r_expr)) {
+		if (const EnumDecl *decl = named_enum(r_expr, true)) {
 			if (decl->has_payloads) {
 				return fail_call(r_expr, "No int converts to " + enum_spelling(decl->type) + ", an enum with payloads.");
 			}
 			return check_enum_conversion(r_expr, decl->type);
 		}
-		if (const std::optional<Type> found = called_engine_enum(r_expr)) {
+		if (const std::optional<Type> found = named_engine_enum(r_expr, true)) {
 			return check_enum_conversion(r_expr, *found);
 		}
 		if (const EnumDecl *decl = called_variant(r_expr)) {
