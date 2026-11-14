@@ -4,10 +4,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## 0.1
 
-Due 2026-11-15 (architecture §5, step 10). These items gate the release.
-
-- Release notes. They list where code spelled as in GDScript behaves differently, and the known limitations.
-- The README's status line, which still says the project is in development toward 0.1.
+Due 2026-11-15 (architecture §5, step 10). Nothing gates the release any more; the owner publishes it.
 
 After the release, with the owner: the invitations.
 
