@@ -7,7 +7,7 @@ The owner asks for reviews from time to time, often from other vendors' models. 
 Judge by the principles of `AGENTS.md` rather than by common review taste. Where they differ most:
 
 - **The spec leads.** Code that disagrees with the spec is a code defect. When the rule itself is wrong, the finding is against the spec instead.
-- **Code is a liability.** What can go without losing behavior is a finding. Refactoring that removes code is welcome. Restructuring that keeps as much (splitting files, adding layers) is not a finding. A fix adds no more than the problem needs.
+- **Code is a liability.** What can go without losing behavior is a finding. Refactoring that removes code is welcome. A fix adds no more than the problem needs.
 - **Tests clear a high bar.** A test below it is a finding as much as a bug is. Propose a new test only when it clears the bar.
 - **Rarity excuses no crash.** A crash, memory corruption or broken type guarantee on a legal script is a finding, however rare. Only unreasonable input is out, such as thousands of nested levels or bytecode crafted by hand (architecture §6.1). Other defects count by their actual impact. A cheap fix is worth reporting before any script needs it.
 

@@ -55,7 +55,6 @@ The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable`
 - Code is a liability: keep only real complexity, and count fewer lines as progress.
   - Remove dead paths, rules kept in several places, abstractions with one use and generality nothing uses.
   - Remove checks for states that cannot occur. Replace a rare, hard-to-test fallback path with a definite error where one would do.
-  - Refactor to remove code, not to restructure the same amount.
   - Let the engine compute what it defines. When this language repeats engine behavior, keep both in step by construction or by a check that catches drift.
   - Write no comment that the code is understood without.
 
