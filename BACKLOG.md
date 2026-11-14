@@ -161,6 +161,8 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 
 ## Upstream
 
+- After the 0.1 release, list the engine interfaces newer than 4.4 that the code uses (architecture §6.3). Compare 4.4-stable with 4.7.2 for the extension interface and the virtual methods of `ScriptLanguageExtension`.
+
 - Objects that an extension creates have no signal mutex. `_postinitialize` does not run for them (`core/extension/gdextension_interface.cpp:1669-1672`, `core/object/object.cpp:226-231`, `ed1daf0`; godot#125308). So a task's `completed` and `cancelled` are unguarded when GDScript awaits it from another thread.
 - GDScript's per-iteration clearing of loop-body locals, left as commented-out TODOs (`modules/gdscript/gdscript_compiler.cpp:2106, 2140`, `ed1daf0`). It would match spec §6.8. The owner may contribute it.
 - Store-forwarding stalls in moves of Variant, found while profiling arrays (d516c08). A wide load reads a Variant just written by narrower stores. It then waits for those stores to reach the cache. The owner may contribute both fixes once the current work is done.
