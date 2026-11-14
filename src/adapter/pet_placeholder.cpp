@@ -83,10 +83,6 @@ static PetPlaceholder *self(GDExtensionScriptInstanceDataPtr p_instance) {
 	return static_cast<PetPlaceholder *>(p_instance);
 }
 
-static const StringName &as_name(GDExtensionConstStringNamePtr p_name) {
-	return *reinterpret_cast<const StringName *>(p_name);
-}
-
 static bool holds(Variant::Operator p_operator, const Variant &p_a, const Variant &p_b) {
 	Variant result;
 	bool valid = false;
@@ -218,7 +214,8 @@ static PackedStringArray node_errors(const PetPlaceholder &p_placeholder) {
 
 static void placeholder_call(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_method, const GDExtensionConstVariantPtr *p_args, GDExtensionInt p_argument_count, GDExtensionVariantPtr r_return, GDExtensionCallError *r_error) {
 #ifdef TOOLS_ENABLED
-	if (as_name(p_method) == StringName("_get_configuration_warnings") && p_argument_count == 0) {
+	static const StringName warnings("_get_configuration_warnings");
+	if (as_name(p_method) == warnings && p_argument_count == 0) {
 		*reinterpret_cast<Variant *>(r_return) = node_errors(*self(p_instance));
 		r_error->error = GDEXTENSION_CALL_OK;
 		return;
@@ -268,9 +265,6 @@ static GDExtensionBool placeholder_get_fallback(GDExtensionScriptInstanceDataPtr
 	return value != nullptr;
 }
 
-static void placeholder_refcount_incremented(GDExtensionScriptInstanceDataPtr p_instance) {
-}
-
 // Without it a RefCounted object with the placeholder, such as a resource,
 // would never be freed (core/object/script_language_extension.h:887-892).
 static GDExtensionBool placeholder_refcount_decremented(GDExtensionScriptInstanceDataPtr p_instance) {
@@ -312,7 +306,6 @@ static GDExtensionScriptInstanceInfo3 build_info() {
 	info.call_func = placeholder_call;
 	info.set_fallback_func = placeholder_set_fallback;
 	info.get_fallback_func = placeholder_get_fallback;
-	info.refcount_incremented_func = placeholder_refcount_incremented;
 	info.refcount_decremented_func = placeholder_refcount_decremented;
 	info.get_owner_func = placeholder_get_owner;
 	info.get_script_func = placeholder_get_script;

@@ -65,6 +65,11 @@ std::shared_ptr<const ClassImage> resolve_script(const godot::String &p_path);
 godot::Variant resolve_inner_script(const godot::Variant &p_script, const godot::String &p_name);
 godot::String resolve_script_path(const godot::Ref<godot::Script> &p_script);
 
+// A name the engine passes to the callbacks of a script instance.
+inline const godot::StringName &as_name(GDExtensionConstStringNamePtr p_name) {
+	return *reinterpret_cast<const godot::StringName *>(p_name);
+}
+
 // Converts the dictionaries used by Script reflection into the C structures of
 // the script instance interface, and frees them again.
 GDExtensionPropertyInfo *make_property_list(const godot::TypedArray<godot::Dictionary> &p_list);

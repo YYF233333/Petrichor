@@ -222,10 +222,6 @@ static PetInstance *self(GDExtensionScriptInstanceDataPtr p_instance) {
 	return static_cast<PetInstance *>(p_instance);
 }
 
-static const StringName &as_name(GDExtensionConstStringNamePtr p_name) {
-	return *reinterpret_cast<const StringName *>(p_name);
-}
-
 static const bytecode::Member *visible_member(const ClassImage &p_image, const StringName &p_name) {
 	const int index = p_image.find_member(p_name);
 	if (index < 0 || !PetScript::is_visible(p_image, p_image.module.members[index])) {
@@ -593,9 +589,6 @@ static void instance_to_string(GDExtensionScriptInstanceDataPtr p_instance, GDEx
 	}
 }
 
-static void instance_refcount_incremented(GDExtensionScriptInstanceDataPtr p_instance) {
-}
-
 // Without this callback the engine answers false, and a RefCounted owner is
 // never freed (core/object/script_language_extension.h:888-891; ed1daf0).
 static GDExtensionBool instance_refcount_decremented(GDExtensionScriptInstanceDataPtr p_instance) {
@@ -652,7 +645,6 @@ static GDExtensionScriptInstanceInfo3 build_info() {
 	info.call_func = instance_call;
 	info.notification_func = instance_notification;
 	info.to_string_func = instance_to_string;
-	info.refcount_incremented_func = instance_refcount_incremented;
 	info.refcount_decremented_func = instance_refcount_decremented;
 	info.get_script_func = instance_get_script;
 	info.is_placeholder_func = instance_is_placeholder;

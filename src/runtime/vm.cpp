@@ -2157,7 +2157,8 @@ class Execution {
 			const Signal signal = result;
 			const TaskRef task = task_of(signal.get_object());
 			p_async->pc = r_pc + 5 + 2 * argc;
-			if (task && signal.get_name() == StringName("completed")) {
+			static const StringName completed("completed");
+			if (task && signal.get_name() == completed) {
 				if (!p_async->await_task(task)) {
 					return false;
 				}

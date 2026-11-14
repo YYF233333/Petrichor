@@ -42,8 +42,9 @@ PetScript::~PetScript() {
 	scripts.erase(this);
 }
 
-static StringName init_name() {
-	return "_init";
+static const StringName &init_name() {
+	static const StringName name("_init");
+	return name;
 }
 
 // Whether other languages may construct the class with new(...): its nearest
