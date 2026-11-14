@@ -1,4 +1,4 @@
-exclude: ^(thirdparty/|docs/surveys/[^/]+/)
+exclude: ^thirdparty/
 default_stages: [pre-commit]
 
 repos:

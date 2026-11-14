@@ -111,5 +111,5 @@
 
 ## 语料
 
-- 调查用的 20 个仓库按固定提交克隆，只取第一方代码：`python docs/surveys/cross-branch-duplication/gdcorpus.py <目录>`。
-- 克隆放在临时目录时，目录被清理后用上面的命令重建。
+- 语料调查在 [petrichor-corpus](https://github.com/YYF233333/petrichor-corpus) 仓库中。
+- 调查用的 20 个仓库按固定提交克隆：在该仓库中运行 `python fetch.py`，克隆放在其 `corpus/v1/` 中。

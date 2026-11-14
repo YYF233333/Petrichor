@@ -91,7 +91,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - Reverse conversion writes types GDScript can express. A nested typed container becomes `Array[Array]`, and a narrower result such as `map`'s goes through `assign()`.
   - It drops this language's names from `@warning_ignore`, which GDScript rejects (`modules/gdscript/gdscript_parser.cpp:5126-5128`, `ed1daf0`).
   - The report lists by-name access with names that are not literals, and `get_name()` on signals. Their members may need `pub` (spec §10.5).
-  - Migrating a class offers to migrate its GDScript users that GDScript could not keep (spec §11.3). They call its static methods or use its enums in types. `docs/surveys/corpus-counts/class_level_access.py` finds them by spelling.
+  - Migrating a class offers to migrate its GDScript users that GDScript could not keep (spec §11.3). They call its static methods or use its enums in types. [`class_level_access.py`](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts/class_level_access.py) in petrichor-corpus finds them by spelling.
   - It rewrites assignments to a character of a String, a compile error here (spec §5.1).
     - `s[i] = c` becomes `s = s.erase(i).insert(i, c)`, and `s[i] = ""` becomes `s = s.erase(i)`.
     - A negative literal index `-k` becomes `s.length() - k`, since `erase` refuses negative positions (`core/string/ustring.cpp:2881-2884`, `ed1daf0`).

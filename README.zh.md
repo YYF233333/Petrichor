@@ -10,7 +10,7 @@ English: [README.md](README.md)
 
 ## 为什么
 
-Godot 项目变大以后，重构越来越依赖运行时才暴露的错误。GDScript 的类型是渐进的。即使脚本写满类型，场景中的节点路径、信号连接和导出属性仍是动态的。对象引用默认可为空，运行时出错后调用方仍会拿到假值继续执行。C# 有静态类型，但桥接层有不少暗坑（[调查](docs/surveys/pitfalls.md)）。
+Godot 项目变大以后，重构越来越依赖运行时才暴露的错误。GDScript 的类型是渐进的。即使脚本写满类型，场景中的节点路径、信号连接和导出属性仍是动态的。对象引用默认可为空，运行时出错后调用方仍会拿到假值继续执行。C# 有静态类型，但桥接层有不少暗坑（[调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md)）。
 
 Petrichor 把静态检查延伸到场景，并让空值和失败在编译期可见。
 
@@ -58,7 +58,7 @@ func aim():
 
 在微基准上，纯计算比 GDScript 快 1.2 到 3.5 倍，读写引擎属性快约 1.6 倍。调用引擎方法、发信号和创建对象时，时间主要花在引擎里，两者相近。项目启动时间持平（[基准](docs/architecture.md#4-性能)）。
 
-两个真实项目迁移后的脚本已能运行：Kenney 的 FPS 起步工程和 Ring 中的打砖块小游戏（[迁移调查](docs/surveys/paper-migration-2.md)）。
+两个真实项目迁移后的脚本已能运行：Kenney 的 FPS 起步工程和 Ring 中的打砖块小游戏（[迁移调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/paper-migration-2.md)）。
 
 ## 试用
 
@@ -127,7 +127,7 @@ Petrichor 的语言设计和每条规范由作者决定。实现、测试、文�
 - [设计说明](docs/design-notes.md)：规则背后的取舍、语料计数和被否决的方案
 - [引擎事实](docs/engine-facts.md)：依赖的引擎行为及其源码出处
 - [开发说明](docs/development.md)：构建、测试和调试中的坑
-- [语料调查](docs/surveys/README.md)：基于 20 个 Godot 4 项目，每份附复现脚本
+- [语料调查](https://github.com/YYF233333/petrichor-corpus)：基于 20 个 Godot 4 项目，每份附复现脚本，并有从每条规则到其依据的索引
 
 `docs/` 下的文档为中文。语言规范另有[英文版](docs/language-spec.md)，由中文版生成，两者不一致时以中文版为准。
 

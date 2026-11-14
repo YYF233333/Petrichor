@@ -314,7 +314,7 @@ thirdparty/ring/       git 子模块：同一次迁移所用提交的 Ring，只
   - await 期间所属对象被释放，或信号源被释放；
   - 信号同步发出后再次挂起，同一个挂起点被恢复两次；
   - GDScript 调用本语言后，本语言再等待外部信号。
-- **真实代码**：[第二次纸面迁移](surveys/paper-migration-2.md)中的 FPS 和 Ring 代码真正运行起来。
+- **真实代码**：[第二次纸面迁移](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/paper-migration-2.md)中的 FPS 和 Ring 代码真正运行起来。
   - 迁移测试复制原项目，换入迁移后的脚本，尚未迁移的仍是 GDScript。迁移后的运行只能报告原项目也报告的错误，退出时也只能占用原项目占用的资源。
   - Ring 的测试不需要 .NET：`tests/engine/ring/ring_check.tscn` 代替 `Root.cs`，发出 Ring 的 `main.md` 构造的消息。C# 的 `Call()` 与 GDScript 的动态调用一样，都经引擎按名字调用。
 
@@ -387,7 +387,7 @@ thirdparty/ring/       git 子模块：同一次迁移所用提交的 Ring，只
    - 第 9 步只等这一步中改动热路径的特性。其余特性放到第 9 步之后，如 match 的数组模式和剩余参数。
    - 这一步其余的部分放到第 8 步的前一段之后。
 
-   验收：[实现覆盖调查](surveys/implementation-coverage.md)表中的写法都得到支持，重跑调查。已完成。
+   验收：[实现覆盖调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/implementation-coverage.md)表中的写法都得到支持，重跑调查。已完成。
 8. **工具链**：规范 §13.2 的第一版工具，包括带场景部分的重命名（§13.3）。
    - 它分两段。前一段在第 7 步其余部分之前，包括分析服务、诊断、格式化和查找引用以外的导航。
    - 后一段在 0.1 之后，与迁移工具一起（第 11 步）。它依赖尚未实现的语言规则和 IR 上的分析，先做会随之返工。例如查找引用和重命名要包括字面量名字（规范 §10.4）。lint 要用的 IR 活跃性分析随第一个 lint 一起做。
@@ -418,7 +418,7 @@ thirdparty/ring/       git 子模块：同一次迁移所用提交的 Ring，只
     - 0.2 做查找引用、带场景的重命名和快速修复，0.3 做迁移工具、lint 和 LSP。
     - 0.3 之前，发布不等外部的反馈。工具链的进展和评审互不阻塞。
     - 0.3 邀请有真实项目的团队。他们用迁移工具转换、试用，不合适再转回。0.9 的证据主要来自他们。
-    - 手工迁移每百行要改二十多处，所以真实项目等迁移工具（[第二次纸面迁移](surveys/paper-migration-2.md)）。
+    - 手工迁移每百行要改二十多处，所以真实项目等迁移工具（[第二次纸面迁移](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/paper-migration-2.md)）。
     - 补 `pub` 要知道成员在哪里被使用；
     - 需要判断之处由快速修复给出选项；
     - 规范之外的标准库扩展与它一起设计，因为反向转换要能写回 GDScript。扩展的内容按 0.1 的反馈和公开征询选定。引擎内置类型缺的方法先提交上游。

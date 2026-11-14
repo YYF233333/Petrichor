@@ -10,7 +10,7 @@ Petrichor is a statically typed scripting language for Godot 4 that keeps GDScri
 
 ## Why
 
-As Godot projects grow, refactoring depends more and more on errors that only show at run time. GDScript's typing is gradual. Even in fully typed GDScript, node paths, signal connections and exported properties stay dynamic in scenes. Object references are nullable by default, and runtime errors still hand callers a fallback value. C# brings static types, but its bridge has many pitfalls ([survey](docs/surveys/pitfalls.md)).
+As Godot projects grow, refactoring depends more and more on errors that only show at run time. GDScript's typing is gradual. Even in fully typed GDScript, node paths, signal connections and exported properties stay dynamic in scenes. Object references are nullable by default, and runtime errors still hand callers a fallback value. C# brings static types, but its bridge has many pitfalls ([survey](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md)).
 
 Petrichor extends static checking into scenes, and makes null values and failures visible at compile time.
 
@@ -58,7 +58,7 @@ The full rules are in the [language specification](docs/language-spec.md).
 
 In microbenchmarks, computation runs 1.2 to 3.5 times as fast as GDScript, and engine property access about 1.6 times. Calls to engine methods, signals and object creation spend their time in the engine, so the two are close. Project startup takes the same time ([benchmarks](docs/architecture.md#4-性能)).
 
-The migrated scripts of two real projects run: Kenney's FPS starter kit and the breakout minigame in Ring ([migration survey](docs/surveys/paper-migration-2.md)).
+The migrated scripts of two real projects run: Kenney's FPS starter kit and the breakout minigame in Ring ([migration survey](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/paper-migration-2.md)).
 
 ## Trying It
 
@@ -127,7 +127,7 @@ The author is responsible for fixing what goes wrong. During 0.1, the project ta
 - [Design notes](docs/design-notes.md): the trade-offs behind the rules, corpus counts and rejected alternatives
 - [Engine facts](docs/engine-facts.md): the engine behavior relied on, with source citations
 - [Development notes](docs/development.md): pitfalls in building, testing and debugging
-- [Corpus surveys](docs/surveys/README.md): across 20 Godot 4 projects, each with scripts to reproduce it
+- [Corpus surveys](https://github.com/YYF233333/petrichor-corpus): across 20 Godot 4 projects, each with scripts to reproduce it, and an index from each rule to its evidence
 
 Documents under `docs/` are in Chinese. The language specification is also [in English](docs/language-spec.md), generated from the Chinese one, which prevails where they differ.
 

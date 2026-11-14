@@ -26,7 +26,7 @@
 #                     Result[T, Error] (spec §10.3).
 
 # The audit of null (spec §10.2), by use in real code
-# (docs/surveys/corpus-counts/results/engine_objects.txt).
+# (petrichor-corpus: surveys/corpus-counts/results/engine_objects.txt).
 returns-non-null Node.get_tree scene/main/node.h:558-561
 returns-non-null Node.get_node scene/main/node.cpp:1966-1978
 returns-non-null Node.get_child scene/main/node.cpp:1847-1865

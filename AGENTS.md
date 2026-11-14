@@ -19,7 +19,7 @@ The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable`
   - where it crosses freed objects, the time before ready, `await` and cancellation, the engine boundary, scene inheritance and hot reload. Each case with no obvious result is a script of five lines or fewer, checked against the spec's guarantees. It is decided as Workflow says, and becomes a test;
   - the cost of doing it now against later.
 - Each stage is part of the final design. A shortcut taken now must not show users behavior that the final design changes.
-- When real code can answer a design question, survey real Godot projects first. A survey in `docs/surveys/` is a write-up plus the scripts that reproduce it. A single count backing one rule goes into `corpus-counts`. A survey records the design it evaluated. When the design changes, point to the current rule rather than rewriting the data.
+- When real code can answer a design question, survey real Godot projects first. A survey lives in the [petrichor-corpus](https://github.com/YYF233333/petrichor-corpus) repository: a write-up plus the scripts that reproduce it. A single count backing one rule goes into `corpus-counts`. A survey records the design it evaluated. When the design changes, point to the current rule rather than rewriting the data.
 
 ## Documentation
 
