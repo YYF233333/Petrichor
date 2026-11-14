@@ -45,7 +45,7 @@ After the release, with the owner: the invitations.
 - Messages name an inner class by its path, as `res://a.pet::Plain`, where the script writes `A.Plain`.
 - GDScript can pass an `async func() -> String` where `func() -> Task[int]` is expected. `.call()` then reports the mismatch only at the `await`, while `callv()` refuses at once. Read from the code, not run.
 - `call()` by a name that is not pub fails without naming the method or the cause. It only says that calling `call()` failed.
-- Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`).
+- Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`). The 0.1 release notes promise them before 1.0.
 - Ordering of arrays of engine types as spec §5.2 says. It differs from the engine's operators only with NaN, so it waits for the open question on NaN.
 - Range checks of ints passed through an engine method's value, as `f.call(x)` (spec §10.6). The value is the engine's Callable, which converts without them.
 
@@ -107,9 +107,11 @@ After the release, with the owner: the invitations.
 
 ## Tests
 
-- The suites on Godot 4.8's release candidate, with its changes checked one by one. They pass on beta3 (`c51ff06e8`), which stands in until then.
+- The suites on Godot 4.8's release candidate, with its changes checked one by one. They pass on beta3 (`c51ff06e8`), which stands in until then. The 0.1 release notes promise to follow the 4.8 release at once.
 - `cancel()` on a task that has ended (spec §9.3). No test runs it.
 - On macOS, the README's quarantine step has never run. The x86_64 half of the libraries runs only under Rosetta, on Godot 4.8.
+  - CI can mark the unpacked package with `xattr -w com.apple.quarantine`, run the README's step and load the library.
+  - That checks the step, but not that Gatekeeper refuses without it, if the runners do not enforce it.
 - Cross-rule checks kept from the former conformance checklist:
   - `player.last_hit.damage = 3` running `last_hit`'s setter (spec §3.6, §4.4);
   - for §3.11 and §9.1:
