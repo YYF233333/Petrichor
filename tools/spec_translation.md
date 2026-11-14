@@ -30,7 +30,7 @@
   - Leave identifiers and string literals as they are, Chinese string literals included.
 - Translate Chinese placeholders in inline code, such as `expect(消息)` to `expect(message)`.
 - Follow the house style of `AGENTS.md`, "Documentation".
-  - Write one idea per sentence, at most 20 words.
+  - Write one idea per sentence. The style check flags sentences over 30 words.
   - Where one Chinese sentence needs more, split it into two sentences without changing the meaning.
   - A parenthesis that makes a sentence too long becomes the next sentence.
   - The words of a status marker count toward the sentence that follows it.

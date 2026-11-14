@@ -31,7 +31,7 @@ The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable`
   - `docs/architecture.md`: implementation decisions, the constraints they keep and the roadmap, without progress notes;
   - `BACKLOG.md`: unfinished work and open questions.
 - Decided content carries no marker. Non-normative status is marked 【待定】/[Open] or 【已知限制】/[Known limitation] where it applies. Additions after the first version are listed only in spec §14.2. When a rule changes the first-version scope or open questions, update spec §14.
-- Write one idea per sentence, at most 40 字 in Chinese and 20 words in English. `tools/check_doc_style.py` checks the lines a commit changes.
+- Write one idea per sentence. `tools/check_doc_style.py` flags sentences over 60 字 or 30 words in the lines a commit changes. It catches several ideas piled into one, and does not ask for natural sentences to be split. One-off texts, such as release notes and reports, are not held to it.
   - Turn an embedded list or a chain of "or" into a list.
   - Put the condition before the result.
   - Put `path:line` citations and links at the end, in brackets.

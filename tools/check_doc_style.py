@@ -2,7 +2,7 @@ import re
 import subprocess
 import sys
 
-ZH_LIMIT, EN_LIMIT = 40, 20
+ZH_LIMIT, EN_LIMIT = 60, 30
 CJK = re.compile(r"[㐀-鿿豈-﫿]")
 WORD = re.compile(r"[A-Za-z0-9_]+(?:['.\-][A-Za-z0-9_]+)*")
 ZH_END = re.compile(r"(?<=[。！？])")
@@ -78,7 +78,7 @@ def main():
     for error in errors:
         print(error, file=sys.stderr)
     if errors:
-        print(f"{len(errors)} sentences are too long; split them or turn them into lists (AGENTS.md, Documentation).", file=sys.stderr)
+        print(f"{len(errors)} sentences may pile up several ideas; split them or turn them into lists (AGENTS.md, Documentation).", file=sys.stderr)
     return 1 if errors else 0
 
 
