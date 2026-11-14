@@ -117,6 +117,14 @@ std::unique_ptr<Expr> synthetic(ExprKind p_kind, const std::string &p_text, cons
 	return expr;
 }
 
+// The declaration of a name in one of a class's lists, which holds each name
+// once; null when it has none.
+template <typename T>
+const T *find_named(const std::vector<const T *> &p_decls, const std::string &p_name) {
+	const auto found = std::find_if(p_decls.begin(), p_decls.end(), [&](const T *p_decl) { return p_decl->name == p_name; });
+	return found == p_decls.end() ? nullptr : *found;
+}
+
 std::vector<Type> param_types(const std::vector<ParamDecl> &p_params) {
 	std::vector<Type> types;
 	for (const ParamDecl &param : p_params) {
@@ -2350,10 +2358,7 @@ class Checker : public ClassRelation {
 		if (!decl) {
 			return fail(r_expr, p_class + " has errors.");
 		}
-		for (const ConstDecl *constant : decl->all_constants) {
-			if (constant->name != r_expr.text) {
-				continue;
-			}
+		if (const ConstDecl *constant = find_named(decl->all_constants, r_expr.text)) {
 			const std::string &owner = declaring(*decl, *constant, &ClassDecl::constants).path;
 			if (const auto message = refused(constant, constant->is_pub || sees(owner), "The constant ", p_class, constant->name)) {
 				return fail(r_expr, *message);
@@ -2403,10 +2408,7 @@ class Checker : public ClassRelation {
 		if (!decl) {
 			return fail(r_expr, p_class + " has errors.");
 		}
-		for (const VarDecl *variable : decl->all_static_vars) {
-			if (variable->name != r_expr.text) {
-				continue;
-			}
+		if (const VarDecl *variable = find_named(decl->all_static_vars, r_expr.text)) {
 			const ClassDecl &owner = declaring(*decl, *variable, &ClassDecl::static_vars);
 			if (!variable->is_pub && !sees(owner.path)) {
 				refer(r_expr.name_token, script_id(owner.path, variable->name));
@@ -2750,11 +2752,8 @@ class Checker : public ClassRelation {
 			r_expr.static_on_value = r_expr.target == Target::StaticVar;
 			return variable;
 		}
-		for (const VarDecl *entry : decl->all_members) {
+		if (const VarDecl *entry = find_named(decl->all_members, r_expr.text)) {
 			const VarDecl &member = *entry;
-			if (member.name != r_expr.text) {
-				continue;
-			}
 			const std::string &owner = declaring(*decl, member, &ClassDecl::members).path;
 			if (const auto message = refused(&member, member.is_pub || sees(owner), "", p_class.name, member.name)) {
 				return fail(r_expr, *message);
@@ -2770,11 +2769,8 @@ class Checker : public ClassRelation {
 			refer(r_expr.name_token, script_id(owner, member.name));
 			return member.type;
 		}
-		for (const SignalDecl *entry : decl->all_signals) {
+		if (const SignalDecl *entry = find_named(decl->all_signals, r_expr.text)) {
 			const SignalDecl &signal = *entry;
-			if (signal.name != r_expr.text) {
-				continue;
-			}
 			// The engine knows every signal a class declares.
 			if (const auto message = refused(&signal, signal.is_pub || sees(declaring(*decl, signal, &ClassDecl::signals).path), "The signal ", p_class.name, signal.name)) {
 				return fail(r_expr, *message);
@@ -2784,11 +2780,8 @@ class Checker : public ClassRelation {
 			refer(r_expr.name_token, script_id(declaring(*decl, signal, &ClassDecl::signals).path, signal.name));
 			return Type::signal(param_types(signal.params));
 		}
-		for (const FuncDecl *entry : decl->all_functions) {
+		if (const FuncDecl *entry = find_named(decl->all_functions, r_expr.text)) {
 			const FuncDecl &function = *entry;
-			if (function.name != r_expr.text) {
-				continue;
-			}
 			const std::string &owner = declaring(*decl, function, &ClassDecl::functions).path;
 			if (const auto message = refused(&function, function.is_pub || function.is_override || sees(owner), "", p_class.name, function.name + "()")) {
 				return fail(r_expr, *message);
@@ -2822,11 +2815,8 @@ class Checker : public ClassRelation {
 			return new_value(r_expr, p_path);
 		}
 		const ClassDecl *decl = script_decl(p_path); // class_static() reports one with errors.
-		for (const FuncDecl *entry : decl->all_functions) {
+		if (const FuncDecl *entry = find_named(decl->all_functions, r_expr.text)) {
 			const FuncDecl &function = *entry;
-			if (function.name != r_expr.text) {
-				continue;
-			}
 			const std::string &owner = declaring(*decl, function, &ClassDecl::functions).path;
 			if (!function.is_static) {
 				return fail(r_expr, "\"" + function.name + "()\" of " + p_class + " is not static; take it from an object.");
@@ -3007,15 +2997,12 @@ class Checker : public ClassRelation {
 				}
 			}
 		} else if (const ClassDecl *decl = script_decl(p_class.script)) {
-			for (const FuncDecl *entry : decl->all_functions) {
-				const FuncDecl &function = *entry;
-				if (function.name == r_expr.text) {
-					const ClassDecl &declarer = declaring(*decl, function, &ClassDecl::functions);
-					callee = &function;
-					source = declarer.source.get();
-					owner = declarer.path;
-					id = script_id(owner, function.name);
-				}
+			callee = find_named(decl->all_functions, r_expr.text);
+			if (callee) {
+				const ClassDecl &declarer = declaring(*decl, *callee, &ClassDecl::functions);
+				source = declarer.source.get();
+				owner = declarer.path;
+				id = script_id(owner, callee->name);
 			}
 		} else {
 			return fail(r_expr, p_class.script + " has errors.");
@@ -4735,32 +4722,24 @@ class Checker : public ClassRelation {
 		} else if (is_script_path(p_class.script)) {
 			if (const ClassDecl *decl = script_decl(p_class.script)) {
 				if (p_kind == Kind::Property) {
-					for (const VarDecl *member : decl->all_members) {
-						if (member->name == p_name) {
-							out.found = true;
-							out.hidden = !member->is_pub;
-							out.id = script_id(declaring(*decl, *member, &ClassDecl::members).path, member->name);
-							out.type = member->type;
-							return out;
-						}
+					if (const VarDecl *member = find_named(decl->all_members, p_name)) {
+						out.found = true;
+						out.hidden = !member->is_pub;
+						out.id = script_id(declaring(*decl, *member, &ClassDecl::members).path, member->name);
+						out.type = member->type;
+						return out;
 					}
 				} else if (p_kind == Kind::Method) {
-					for (const FuncDecl *function : decl->all_functions) {
-						if (function->name == p_name) {
-							from_function(*function, declaring(*decl, *function, &ClassDecl::functions).path);
-							return out;
-						}
+					if (const FuncDecl *function = find_named(decl->all_functions, p_name)) {
+						from_function(*function, declaring(*decl, *function, &ClassDecl::functions).path);
+						return out;
 					}
-				} else {
-					for (const SignalDecl *signal : decl->all_signals) {
-						if (signal->name == p_name) {
-							out.found = true;
-							out.hidden = !signal->is_pub;
-							out.id = script_id(declaring(*decl, *signal, &ClassDecl::signals).path, signal->name);
-							out.params = param_types(signal->params);
-							return out;
-						}
-					}
+				} else if (const SignalDecl *signal = find_named(decl->all_signals, p_name)) {
+					out.found = true;
+					out.hidden = !signal->is_pub;
+					out.id = script_id(declaring(*decl, *signal, &ClassDecl::signals).path, signal->name);
+					out.params = param_types(signal->params);
+					return out;
 				}
 			}
 		} else if (!p_class.script.empty()) {
@@ -6448,11 +6427,11 @@ class Checker : public ClassRelation {
 		if (!decl) {
 			return fail_call(r_expr, class_name + " has errors.");
 		}
-		const auto found = std::find_if(decl->all_functions.begin(), decl->all_functions.end(), [&](const FuncDecl *p_function) { return p_function->name == r_expr.text; });
-		if (found == decl->all_functions.end()) {
+		const FuncDecl *found = find_named(decl->all_functions, r_expr.text);
+		if (!found) {
 			return fail_call(r_expr, missing(class_name + " has no method \"" + r_expr.text + "()\".", p_path));
 		}
-		const FuncDecl &callee = **found;
+		const FuncDecl &callee = *found;
 		if (!callee.is_static) {
 			return fail_call(r_expr, "\"" + callee.name + "()\" of " + class_name + " is not static; call it on an object.");
 		}
@@ -6465,7 +6444,7 @@ class Checker : public ClassRelation {
 		refer(r_expr.name_token, script_id(owner.path, callee.name));
 		if (p_path == options.path) {
 			r_expr.target = Target::ScriptFunction;
-			r_expr.index = int(found - decl->all_functions.begin());
+			r_expr.index = function_index.at(callee.name);
 		} else {
 			// Called on the class's current image (spec §12.4).
 			r_expr.target = Target::ScriptMethod;
@@ -6651,10 +6630,7 @@ class Checker : public ClassRelation {
 		for (size_t i = 0; i < r_call.member_values.size(); i++) {
 			Expr &value = *r_call.member_values[i];
 			const std::string &name = r_call.member_names[i];
-			const VarDecl *found = nullptr;
-			for (const VarDecl *candidate : decl ? decl->all_members : std::vector<const VarDecl *>()) {
-				found = candidate->name == name ? candidate : found;
-			}
+			const VarDecl *found = decl ? find_named(decl->all_members, name) : nullptr;
 			if (!found) {
 				r_call.member_types.push_back(check_value(value));
 				error(value.range, missing(p_made.to_string() + " has no member \"" + name + "\".", p_made.script));
@@ -7554,7 +7530,7 @@ class Checker : public ClassRelation {
 		const Type &taken = p_to.args[0];
 		const ClassDecl *asks = taken.kind == TypeKind::Object && !taken.is_interface && !taken.script.empty() ? script_decl(taken.script) : nullptr;
 		for (const VarDecl *member : made ? made->all_members : std::vector<const VarDecl *>()) {
-			const bool asked = !member->is_export && asks && !init_assigns(*asks, member->name) && std::any_of(asks->all_members.begin(), asks->all_members.end(), [&](const VarDecl *p_member) { return p_member->name == member->name; });
+			const bool asked = !member->is_export && asks && !init_assigns(*asks, member->name) && find_named(asks->all_members, member->name);
 			if (member->must_assign && !init_assigns(*made, member->name) && !asked && (!member->is_export || !stored_value(p_scene, ".", member->name).value_or(false))) {
 				return "leaves \"" + member->name + "\" to instantiate(), but a " + p_to.to_string() + " does not ask for it.";
 			}
@@ -9728,12 +9704,9 @@ class Checker : public ClassRelation {
 			if (!decl) {
 				return std::nullopt;
 			}
-			for (const SignalDecl *entry : decl->all_signals) {
-				const SignalDecl &signal = *entry;
-				if (signal.name == p_signal) {
-					r_hidden = !signal.is_pub;
-					return param_types(signal.params);
-				}
+			if (const SignalDecl *signal = find_named(decl->all_signals, p_signal)) {
+				r_hidden = !signal->is_pub;
+				return param_types(signal->params);
 			}
 		}
 		const auto signal = engine.find_signal(p_node.type, p_signal);
@@ -10727,8 +10700,7 @@ class Checker : public ClassRelation {
 
 	// The _init that new() of the class calls: its own or the nearest it inherits.
 	static const FuncDecl *init_of(const ClassDecl &p_class) {
-		const auto init = std::find_if(p_class.all_functions.begin(), p_class.all_functions.end(), [](const FuncDecl *p_function) { return p_function->name == "_init"; });
-		return init == p_class.all_functions.end() ? nullptr : *init;
+		return find_named(p_class.all_functions, "_init");
 	}
 
 	static bool init_assigns(const ClassDecl &p_class, const std::string &p_member) {
