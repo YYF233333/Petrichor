@@ -172,18 +172,48 @@ void Checker::declare_enums() {
 	}
 }
 
+// What a type of this name would hide, as the end of a message; empty if
+// nothing (spec §4.1). The file's class_name is in the engine's global class
+// table, which lists one script for each name, as GDScript reads it
+// (modules/gdscript/gdscript_analyzer.cpp:396-406; ed1daf0). A type the class
+// declares may take the name of a standard type or of an autoload, being the
+// nearer name (spec §11.1).
+std::string Checker::taken_type_name(const std::string &p_name, bool p_class_name) const {
+	if (p_name == "int" || p_name == "float" || p_name == "bool" || builtin::find_class(p_name)) {
+		return "is the name of a built-in type.";
+	}
+	if (engine.class_exists(p_name)) {
+		return "is the name of an engine class.";
+	}
+	if (p_class_name && (p_name == "Result" || p_name == "Task" || p_name == "Settled" || p_name == "ConversionError")) {
+		return "is the name of a standard type.";
+	}
+	const std::string path = options.project ? options.project->global_class_path(p_name) : std::string();
+	if (!path.empty() && !(p_class_name && path == options.path)) {
+		return "is already the class_name of " + path + ".";
+	}
+	if (p_class_name && options.project && !options.project->autoload_path(p_name).empty()) {
+		return "is the name of an autoload.";
+	}
+	return std::string();
+}
+
 // The names of the types the class declares and of its unnamed enums'
 // values (spec §4.1), after everything else is declared: each once among
-// the class's declarations and those it inherits, and no type a built-in,
-// engine or global class. The file's class_name is in the engine's global
-// class table too.
+// the class's declarations and those it inherits.
 void Checker::check_type_names() {
-	if (is_type_name(cls.class_name)) {
-		error(cls.class_name_token, "\"" + cls.class_name + "\" is already declared.");
+	if (!cls.class_name.empty()) {
+		const std::string taken = taken_type_name(cls.class_name, true);
+		if (!taken.empty()) {
+			error(cls.class_name_token, "\"" + cls.class_name + "\" " + taken);
+		}
 	}
 	std::unordered_set<std::string> names;
 	const auto declare = [&](const std::string &p_name, uint32_t p_at, bool p_type) {
-		if (!names.insert(p_name).second || name_taken(p_name) || (p_type && (is_type_name(p_name) || (options.project && !options.project->global_class_path(p_name).empty())))) {
+		const std::string taken = p_type ? taken_type_name(p_name, false) : std::string();
+		if (!taken.empty()) {
+			error(p_at, "\"" + p_name + "\" " + taken);
+		} else if (!names.insert(p_name).second || name_taken(p_name)) {
 			error(p_at, "\"" + p_name + "\" is already declared.");
 		}
 	};

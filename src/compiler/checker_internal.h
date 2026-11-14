@@ -694,6 +694,7 @@ class Checker : public ClassRelation {
 	const EnumDecl *initializer_payload_enum(Expr &r_initializer);
 	const ConstDecl *own_constant(const std::string &p_name);
 	void declare_enums();
+	std::string taken_type_name(const std::string &p_name, bool p_class_name) const;
 	void check_type_names();
 	void check_enum(EnumDecl &r_decl);
 	void check_variant_fields(EnumDecl &r_decl, EnumValueDecl &r_value);

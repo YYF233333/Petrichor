@@ -131,6 +131,26 @@ TEST_CASE("a class_name names a class of another script") {
 	CHECK(contains(errors("var x: Enemy = w"), "Cannot assign a value of type Weapon as Enemy"));
 }
 
+// Spec §4.1. Of two scripts with one name, the one the engine's global class
+// table does not list reports it, as in GDScript
+// (modules/gdscript/gdscript_analyzer.cpp:396-406; ed1daf0).
+TEST_CASE("a class_name is no name of the engine, the language, an autoload or another class") {
+	FakeProject listed = project();
+	listed.global_classes["Here"] = "res://test.pet";
+	const auto named = [&](const std::string &p_name) { return messages(compile_in("class_name " + p_name + "\nextends Node\n", listed)); };
+	CHECK(named("Timer") == "1:12: \"Timer\" is the name of an engine class.\n");
+	CHECK(named("Vector2") == "1:12: \"Vector2\" is the name of a built-in type.\n");
+	CHECK(named("Result") == "1:12: \"Result\" is the name of a standard type.\n");
+	CHECK(named("Audio") == "1:12: \"Audio\" is the name of an autoload.\n");
+	CHECK(named("Weapon") == "1:12: \"Weapon\" is already the class_name of res://weapon.pet.\n");
+	CHECK(named("Legacy") == "1:12: \"Legacy\" is already the class_name of res://legacy.gd.\n");
+	CHECK(named("Here").empty());
+	// An inner class is no global name: it may hide a standard type or an
+	// autoload as the nearer name (spec §11.1).
+	CHECK(messages(compile_in("extends Node\nclass Result:\n\tpass\nclass Audio:\n\tpass\n", listed)).empty());
+	CHECK(messages(compile_in("extends Node\nclass Weapon:\n\tpass\n", listed)) == "2:7: \"Weapon\" is already the class_name of res://weapon.pet.\n");
+}
+
 TEST_CASE("members without pub are visible in their own file and subclasses (spec §4.2)") {
 	FakeProject classes = project();
 	classes.add_script("res://door.pet", "class_name Door\nextends Node\n\nsignal opened\npub signal closed\nvar code := 1\n\nfunc knock() -> void:\n\tpass\n\ninterface Lock:\n\tfunc open()\n", "Door");

@@ -169,7 +169,7 @@ TEST_CASE("inheritance scene connections belong to their attached class") {
 TEST_CASE("an abstract class declares methods its subclasses implement") {
 	FakeProject p;
 	p.add_script("res://action.pet", "@abstract\nclass_name Action\nextends Resource\n@export pub var label: String\n\n@abstract pub async func execute() -> int\n\n@abstract\nfunc cost() -> int\n\npub func describe() -> String:\n\treturn label + str(cost())\n", "Action");
-	const auto action = compile_in(p.sources.at("res://action.pet"), p);
+	const auto action = compile_in(p.sources.at("res://action.pet"), FakeProject());
 	REQUIRE_MESSAGE(action.ok(), messages(action));
 	CHECK(action.module.is_abstract);
 	CHECK((function_named(action.module, "cost").is_abstract && function_named(action.module, "cost").code.empty()));

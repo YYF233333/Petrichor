@@ -234,16 +234,12 @@ class Copy extends Weapon:
 
 TEST_CASE("an inner class's name is declared once, and class_name and the file's annotations stay with the file") {
 	CHECK(has(errors_in("extends Node\nvar Shot := 1\nclass Shot:\n\tpass\n"), "\"Shot\" is already declared."));
-	CHECK(has(errors_in("extends Node\nclass Node3D:\n\tpass\n"), "\"Node3D\" is already declared."));
-	// The file's class_name is in the engine's global class table, as in GDScript
-	// (modules/gdscript/gdscript_analyzer.cpp:398-401; ed1daf0).
-	CHECK(has(errors_in("class_name Timer\nextends Node\n"), "1:12: \"Timer\" is already declared."));
-	CHECK(has(errors_in("class_name Vector2\nextends Node\n"), "\"Vector2\" is already declared."));
+	CHECK(has(errors_in("extends Node\nclass Node3D:\n\tpass\n"), "\"Node3D\" is the name of an engine class."));
 	// Every type the class declares, as one rule.
 	CHECK(has(errors_in("extends Node\nvar Item := 1\nstruct Item:\n\tvar x := 0\n"), "\"Item\" is already declared."));
 	CHECK(has(errors_in("extends Node\nstatic var State := 1\nenum State { A, B }\n"), "\"State\" is already declared."));
 	CHECK(has(errors_in("extends Node\nstatic var A := 1\nenum { A, B }\n"), "\"A\" is already declared."));
-	CHECK(has(errors_in("extends Node\ninterface Node:\n\tfunc f() -> void\n"), "\"Node\" is already declared."));
+	CHECK(has(errors_in("extends Node\ninterface Vector2:\n\tfunc f() -> void\n"), "\"Vector2\" is the name of a built-in type."));
 	CHECK(has(errors_in("extends Node\ninterface Hit:\n\tfunc f() -> void\nclass Hit:\n\tpass\n"), "\"Hit\" is already declared."));
 	CHECK(has(errors_in("extends Node\nclass Shot:\n\tclass_name Shot\n"), "class_name belongs to the file's class."));
 	CHECK(has(errors_in("extends Node\nclass Shot:\n\t@icon(\"res://a.svg\")\n\tvar x := 1\n"), "@icon belongs to the file's class."));
