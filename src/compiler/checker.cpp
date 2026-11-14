@@ -6726,118 +6726,7 @@ class Checker : public ClassRelation {
 		const std::string &name = r_expr.text;
 
 		if (r_expr.base && (r_expr.base->kind != ExprKind::Self || structure)) {
-			Expr &base = *r_expr.base;
-			if (names_type(base)) {
-				if (name == "new" && engine.class_exists(base.text) && !builtin::find_class(base.text)) {
-					if (!engine.can_instantiate(base.text)) {
-						return fail_call(r_expr, base.text + " cannot be instantiated.");
-					}
-					if (!r_expr.args.empty()) {
-						return fail_call(r_expr, "new() of an engine class takes no arguments.");
-					}
-					r_expr.target = Target::NewObject;
-					r_expr.owner = base.text;
-					refer(base.name_token, engine_id(base.text));
-					refer(r_expr.name_token, engine_id(base.text, name));
-					return set(r_expr, Type::object(base.text));
-				}
-				return check_static_call(r_expr);
-			}
-			if (const std::optional<Type> named = named_class(base)) {
-				if (named->is_error()) {
-					return fail_call(r_expr);
-				}
-				return is_script_path(named->script) ? check_class_call(r_expr, named->script) : check_foreign_class_call(r_expr, *named);
-			}
-			if ((base.kind == ExprKind::Member || base.kind == ExprKind::Name) && !visible_local(base.text)) {
-				if (const std::optional<Type> named = constructed_struct(base)) {
-					return named->is_error() ? fail_call(r_expr) : check_struct_call(r_expr, *named, false);
-				}
-			}
-			const Type base_type = check_value(base);
-			if (base_type.is_error()) {
-				return fail_call(r_expr);
-			}
-			if (base.target == Target::ClassScript) {
-				return check_class_call(r_expr, base.owner); // An inner class reached through an object (spec §4.1).
-			}
-			if (base_type.kind == TypeKind::Task && !base_type.nullable && (name == "cancel" || name == "detach")) {
-				check_arguments(r_expr, {}, 0, false);
-				r_expr.target = name == "cancel" ? Target::TaskCancel : Target::TaskDetach;
-				refer(r_expr.name_token, language_id("Task", name));
-				return set(r_expr, Type::of(TypeKind::Void));
-			}
-			if (base_type.kind == TypeKind::Task && !base_type.nullable && name == "settled") {
-				// A task of its own, which owns a task started for it, as an await does (spec §9.2, §9.3).
-				check_arguments(r_expr, {}, 0, false);
-				r_expr.target = Target::TaskSettled;
-				r_expr.is_async = true;
-				refer(r_expr.name_token, language_id("Task", name));
-				return set(r_expr, Type::task(Type::settled(base_type.args[0])));
-			}
-			if (base_type.is_optional()) {
-				return check_option_method(r_expr, base_type, p_expected);
-			}
-			if (base_type.is_result()) {
-				return check_result_method(r_expr, base_type);
-			}
-			if (base_type.kind == TypeKind::Variant) {
-				return fail_call(r_expr, "Cannot call \"" + name + "()\" on a Variant." + variant_hint() + " To call a method by name, convert it to Object and use call().");
-			}
-			if (base_type.kind == TypeKind::Function && (name == "bind" || name == "call" || name == "callv")) {
-				return name == "bind" ? check_bind(r_expr, base_type) : check_function_call(r_expr, base_type);
-			}
-			if (base_type.kind == TypeKind::Signal && name == "emit") {
-				// What the connected functions take (spec §4.7).
-				hint(r_expr, [&](int p_current) { return signature(name, type_names(base_type.args), false, p_current, "void"); });
-				check_arguments(r_expr, base_type.args, int(base_type.args.size()), false);
-				r_expr.target = Target::EmitSignal;
-				refer(r_expr.name_token, engine_id("Signal", "emit"));
-				return set(r_expr, Type::of(TypeKind::Void));
-			}
-			if (base_type.kind == TypeKind::Signal && (name == "connect" || name == "disconnect" || name == "is_connected")) {
-				if (!r_expr.args.empty() && r_expr.args[0]->kind == ExprKind::Lambda) {
-					// It takes what the signal passes (spec §4.7).
-					check_lambda(*r_expr.args[0], Type::function(Type::of(TypeKind::Void), base_type.args));
-				}
-				const Type result = check_builtin_method(r_expr, base_type);
-				if (!result.is_error() && !r_expr.args.empty()) {
-					check_handler(*r_expr.args[0], base_type);
-				}
-				return result;
-			}
-			if (!base_type.builtin_name().empty()) {
-				const Type result = check_builtin_method(r_expr, base_type);
-				const std::string constant = result.is_error() || r_expr.is_const ? std::string() : constant_root(base);
-				if (!constant.empty()) {
-					return fail(r_expr, "\"" + constant + "\" is a constant, whose containers are read-only.");
-				}
-				return result;
-			}
-			if (base_type.kind == TypeKind::Object) {
-				if (!base_type.script.empty()) {
-					const std::optional<Type> result = script_method(r_expr, base_type);
-					if (result) {
-						return *result;
-					}
-				}
-				if (const auto method = engine.find_method(base_type.engine_class(), name)) {
-					const Type result = check_engine_call(r_expr, *method);
-					if (name == "instantiate" && base_type.name == "PackedScene" && !base_type.args.empty() && !result.is_error()) {
-						// The scene's root, checked as it is made, with the members it
-						// must be assigned (spec §7.4).
-						const std::optional<Scene> scene = known_scene(*r_expr.base);
-						check_member_arguments(r_expr, base_type.args[0], true, scene ? &*scene : nullptr);
-						return set(r_expr, base_type.args[0]);
-					}
-					return result;
-				}
-				return fail(r_expr, missing(base_type.name + " has no method \"" + name + "()\".", base_type.script));
-			}
-			if (base_type.kind == TypeKind::Struct) {
-				return check_struct_call(r_expr, base_type, true);
-			}
-			return fail(r_expr, "Values of type " + base_type.to_string() + " have no methods.");
+			return type_method_call(r_expr, p_expected);
 		}
 
 		if (!r_expr.base) {
@@ -6944,6 +6833,124 @@ class Checker : public ClassRelation {
 		}
 
 		return fail_call(r_expr, "Function \"" + name + "()\" not found in the class or its base " + cls.extends + ".");
+	}
+
+	// A call on a base other than self in a class's function: a method of
+	// the value, or a function of the class or type that the base names.
+	Type type_method_call(Expr &r_expr, const Type &p_expected) {
+		const std::string &name = r_expr.text;
+		Expr &base = *r_expr.base;
+		if (names_type(base)) {
+			if (name == "new" && engine.class_exists(base.text) && !builtin::find_class(base.text)) {
+				if (!engine.can_instantiate(base.text)) {
+					return fail_call(r_expr, base.text + " cannot be instantiated.");
+				}
+				if (!r_expr.args.empty()) {
+					return fail_call(r_expr, "new() of an engine class takes no arguments.");
+				}
+				r_expr.target = Target::NewObject;
+				r_expr.owner = base.text;
+				refer(base.name_token, engine_id(base.text));
+				refer(r_expr.name_token, engine_id(base.text, name));
+				return set(r_expr, Type::object(base.text));
+			}
+			return check_static_call(r_expr);
+		}
+		if (const std::optional<Type> named = named_class(base)) {
+			if (named->is_error()) {
+				return fail_call(r_expr);
+			}
+			return is_script_path(named->script) ? check_class_call(r_expr, named->script) : check_foreign_class_call(r_expr, *named);
+		}
+		if ((base.kind == ExprKind::Member || base.kind == ExprKind::Name) && !visible_local(base.text)) {
+			if (const std::optional<Type> named = constructed_struct(base)) {
+				return named->is_error() ? fail_call(r_expr) : check_struct_call(r_expr, *named, false);
+			}
+		}
+		const Type base_type = check_value(base);
+		if (base_type.is_error()) {
+			return fail_call(r_expr);
+		}
+		if (base.target == Target::ClassScript) {
+			return check_class_call(r_expr, base.owner); // An inner class reached through an object (spec §4.1).
+		}
+		if (base_type.kind == TypeKind::Task && !base_type.nullable && (name == "cancel" || name == "detach")) {
+			check_arguments(r_expr, {}, 0, false);
+			r_expr.target = name == "cancel" ? Target::TaskCancel : Target::TaskDetach;
+			refer(r_expr.name_token, language_id("Task", name));
+			return set(r_expr, Type::of(TypeKind::Void));
+		}
+		if (base_type.kind == TypeKind::Task && !base_type.nullable && name == "settled") {
+			// A task of its own, which owns a task started for it, as an await does (spec §9.2, §9.3).
+			check_arguments(r_expr, {}, 0, false);
+			r_expr.target = Target::TaskSettled;
+			r_expr.is_async = true;
+			refer(r_expr.name_token, language_id("Task", name));
+			return set(r_expr, Type::task(Type::settled(base_type.args[0])));
+		}
+		if (base_type.is_optional()) {
+			return check_option_method(r_expr, base_type, p_expected);
+		}
+		if (base_type.is_result()) {
+			return check_result_method(r_expr, base_type);
+		}
+		if (base_type.kind == TypeKind::Variant) {
+			return fail_call(r_expr, "Cannot call \"" + name + "()\" on a Variant." + variant_hint() + " To call a method by name, convert it to Object and use call().");
+		}
+		if (base_type.kind == TypeKind::Function && (name == "bind" || name == "call" || name == "callv")) {
+			return name == "bind" ? check_bind(r_expr, base_type) : check_function_call(r_expr, base_type);
+		}
+		if (base_type.kind == TypeKind::Signal && name == "emit") {
+			// What the connected functions take (spec §4.7).
+			hint(r_expr, [&](int p_current) { return signature(name, type_names(base_type.args), false, p_current, "void"); });
+			check_arguments(r_expr, base_type.args, int(base_type.args.size()), false);
+			r_expr.target = Target::EmitSignal;
+			refer(r_expr.name_token, engine_id("Signal", "emit"));
+			return set(r_expr, Type::of(TypeKind::Void));
+		}
+		if (base_type.kind == TypeKind::Signal && (name == "connect" || name == "disconnect" || name == "is_connected")) {
+			if (!r_expr.args.empty() && r_expr.args[0]->kind == ExprKind::Lambda) {
+				// It takes what the signal passes (spec §4.7).
+				check_lambda(*r_expr.args[0], Type::function(Type::of(TypeKind::Void), base_type.args));
+			}
+			const Type result = check_builtin_method(r_expr, base_type);
+			if (!result.is_error() && !r_expr.args.empty()) {
+				check_handler(*r_expr.args[0], base_type);
+			}
+			return result;
+		}
+		if (!base_type.builtin_name().empty()) {
+			const Type result = check_builtin_method(r_expr, base_type);
+			const std::string constant = result.is_error() || r_expr.is_const ? std::string() : constant_root(base);
+			if (!constant.empty()) {
+				return fail(r_expr, "\"" + constant + "\" is a constant, whose containers are read-only.");
+			}
+			return result;
+		}
+		if (base_type.kind == TypeKind::Object) {
+			if (!base_type.script.empty()) {
+				const std::optional<Type> result = script_method(r_expr, base_type);
+				if (result) {
+					return *result;
+				}
+			}
+			if (const auto method = engine.find_method(base_type.engine_class(), name)) {
+				const Type result = check_engine_call(r_expr, *method);
+				if (name == "instantiate" && base_type.name == "PackedScene" && !base_type.args.empty() && !result.is_error()) {
+					// The scene's root, checked as it is made, with the members it
+					// must be assigned (spec §7.4).
+					const std::optional<Scene> scene = known_scene(*r_expr.base);
+					check_member_arguments(r_expr, base_type.args[0], true, scene ? &*scene : nullptr);
+					return set(r_expr, base_type.args[0]);
+				}
+				return result;
+			}
+			return fail(r_expr, missing(base_type.name + " has no method \"" + name + "()\".", base_type.script));
+		}
+		if (base_type.kind == TypeKind::Struct) {
+			return check_struct_call(r_expr, base_type, true);
+		}
+		return fail(r_expr, "Values of type " + base_type.to_string() + " have no methods.");
 	}
 
 	// GDScript's range(to), range(from, to) and range(from, to, step) of ints,
