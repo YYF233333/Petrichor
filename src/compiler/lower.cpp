@@ -49,9 +49,10 @@ ValueType value_type(const Type &p_type) {
 	}
 }
 
-// An interface as the runtime names it, "script::Name" (spec §3.9).
-std::string interface_id(const Type &p_interface) {
-	return p_interface.script + "::" + p_interface.interface_name();
+// An interface, a struct or an enum of this language as the runtime names
+// it, "script::Name" (spec §3.9).
+std::string qualified_name(const Type &p_type) {
+	return p_type.script + "::" + p_type.interface_name();
 }
 
 // The engine's class, and for a class of this language its script; for an
@@ -278,10 +279,9 @@ class Lowerer {
 		} else if (p_type.kind == TypeKind::PayloadEnum) {
 			return payload_enum_index(p_type);
 		} else if (p_type.kind == TypeKind::Enum) {
-			// "script::Name" for an enum of this language, as for a struct.
 			type.kind = bytecode::TypeKind::Enum;
 			type.value = ValueType::Int;
-			type.name = p_type.values && p_type.values->is_engine ? p_type.name : p_type.script + "::" + p_type.interface_name();
+			type.name = p_type.values && p_type.values->is_engine ? p_type.name : qualified_name(p_type);
 			for (const auto &[name, value] : p_type.values ? p_type.values->list : std::vector<std::pair<std::string, int64_t>>()) {
 				type.values.push_back({ name, value });
 			}
@@ -299,7 +299,7 @@ class Lowerer {
 	uint32_t struct_index(const Type &p_struct) {
 		bytecode::TypeDesc type;
 		type.kind = bytecode::TypeKind::Struct;
-		type.name = p_struct.script + "::" + p_struct.interface_name();
+		type.name = qualified_name(p_struct);
 		if (const auto found = named_types.find(type.name); found != named_types.end()) {
 			return found->second;
 		}
@@ -369,8 +369,7 @@ class Lowerer {
 		if (p_type.kind == TypeKind::Option || p_type.is_result() || p_type.is_settled()) {
 			return std::any_of(p_type.args.begin(), p_type.args.end(), [&](const Type &p_arg) { return holds_interning(p_arg); });
 		}
-		const std::string name = p_type.script + "::" + p_type.interface_name();
-		return (p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum) && std::find(interning.begin(), interning.end(), name) != interning.end();
+		return (p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum) && std::find(interning.begin(), interning.end(), qualified_name(p_type)) != interning.end();
 	}
 
 	// An enum with payloads, "script::Name", or "Result" or "Settled", laid out
@@ -379,7 +378,7 @@ class Lowerer {
 		bytecode::TypeDesc type;
 		type.kind = bytecode::TypeKind::PayloadEnum;
 		const bool generic = p_enum.is_result() || p_enum.is_settled();
-		type.name = generic ? p_enum.name : p_enum.script + "::" + p_enum.interface_name();
+		type.name = generic ? p_enum.name : qualified_name(p_enum);
 		if (const auto found = generic ? named_types.end() : named_types.find(type.name); found != named_types.end()) {
 			return found->second;
 		}
@@ -557,8 +556,7 @@ class Lowerer {
 		} else {
 			default_value(returned);
 		}
-		fn.blocks[current].terminator = ir::Terminator::Return;
-		fn.blocks[current].value = returned;
+		ret(returned);
 		current = next_block;
 		const uint32_t result = temp(p_expr.type);
 		if (type.is_result()) {
@@ -667,9 +665,7 @@ class Lowerer {
 			bytecode::MethodCall method;
 			method.method = field_default_name(p_decl, p_field);
 			method.result = slot(std::string(), p_field.type);
-			bytecode::ClassRef declaring; // Only its script matters.
-			declaring.script = p_struct.script;
-			method.static_class = int32_t(class_index(declaring));
+			method.static_class = int32_t(script_index(p_struct.script));
 			i.imm = method_call(method);
 		}
 		add(i);
@@ -716,13 +712,9 @@ class Lowerer {
 			case Kind::Operator:
 				constant.op = p_value.index;
 				break;
-			case Kind::Utility: {
-				// A utility typed by its arguments takes them all as Variant (spec §10.3).
-				const bool argument_typed = p_value.returns.kind == TypeKind::Variant && p_value.type.kind != TypeKind::Variant;
-				const std::vector<ValueType> params = argument_typed ? std::vector<ValueType>(p_value.items.size(), ValueType::Variant) : value_types(p_value.params);
-				constant.utility = int32_t(utility({ p_value.text, p_value.hash, p_value.b, params, value_type(p_value.returns), type_index(p_value.type) }));
+			case Kind::Utility:
+				constant.utility = int32_t(utility(p_value.text, p_value.hash, false, p_value.returns, p_value.type, p_value.items.size(), p_value.params));
 				break;
-			}
 			case Kind::Field:
 				constant.field = p_value.text;
 				break;
@@ -913,9 +905,7 @@ class Lowerer {
 		if (p_place.owner == cls.path) {
 			return bytecode::NO_SLOT;
 		}
-		bytecode::ClassRef declaring; // Only its script matters.
-		declaring.script = p_place.owner;
-		return class_index(declaring);
+		return script_index(p_place.owner);
 	}
 
 	// The setter or getter that using a static variable calls: its index in
@@ -1024,8 +1014,10 @@ class Lowerer {
 		ir::Instr i;
 		i.op = Op::CALL_ENGINE;
 		i.dst = temp(p_call.type.args[1]);
-		bytecode::EngineCall call{ getter.name, fn.regs[i.dst].type, getter.owner };
-		call.owner = getter.owner;
+		bytecode::EngineCall call;
+		call.method = getter.name;
+		call.result_type = fn.regs[i.dst].type;
+		call.static_class = call.owner = getter.owner;
 		call.hash = getter.hash;
 		call.return_type = value_type(getter.return_type);
 		i.imm = engine_call(call);
@@ -1104,8 +1096,12 @@ class Lowerer {
 		});
 	}
 
-	uint32_t utility(const bytecode::UtilityCall &p_call) {
-		return intern(module.utility_calls, p_call, [](const auto &a, const auto &b) {
+	// A utility typed by its arguments takes them all as Variant (spec §10.3).
+	uint32_t utility(const std::string &p_name, uint32_t p_hash, bool p_vararg, const Type &p_returns, const Type &p_type, size_t p_args, const std::vector<Type> &p_params) {
+		const bool argument_typed = p_returns.kind == TypeKind::Variant && p_type.kind != TypeKind::Variant;
+		const std::vector<ValueType> params = argument_typed ? std::vector<ValueType>(p_args, ValueType::Variant) : value_types(p_params);
+		const bytecode::UtilityCall call{ p_name, p_hash, p_vararg, params, value_type(p_returns), type_index(p_type) };
+		return intern(module.utility_calls, call, [](const auto &a, const auto &b) {
 			return a.function == b.function && a.params == b.params && a.result_type == b.result_type;
 		});
 	}
@@ -1141,6 +1137,13 @@ class Lowerer {
 	uint32_t class_index(const std::string &p_engine_class) {
 		bytecode::ClassRef ref;
 		ref.name = p_engine_class;
+		return class_index(ref);
+	}
+
+	// A class of this language, of which only the script matters.
+	uint32_t script_index(const std::string &p_script) {
+		bytecode::ClassRef ref;
+		ref.script = p_script;
 		return class_index(ref);
 	}
 
@@ -1817,87 +1820,86 @@ class Lowerer {
 				instr(Op::TRY_FROM, result, value, NO_REG, 0, fn.regs[result].type);
 				return result;
 			}
+			case Target::TaskCancel:
+				instr(Op::TASK_CANCEL, NO_REG, lower_expr(*p_call.base));
+				return NO_REG;
+			case Target::TaskDetach:
+				// Only says that the task is not awaited (spec §9.1); it runs either way.
+				lower_expr(*p_call.base);
+				return NO_REG;
+			case Target::TaskSettled: {
+				// It owns a task started for it, as an await does (spec §9.3).
+				const bool owned = p_call.base->kind == ExprKind::Call && p_call.base->is_async;
+				const uint32_t member = lower_expr(*p_call.base);
+				const uint32_t task = temp(p_call.type);
+				instr(Op::TASK_SETTLED, task, member, NO_REG, owned ? 1 : 0, type_index(p_call.type.args[0]));
+				return task;
+			}
+			case Target::Range:
+				return range(p_call, temp(p_call.type));
+			case Target::GDScriptUtility: {
+				if (p_call.text == "print_stack") {
+					instr(Op::PRINT_STACK, NO_REG);
+					return NO_REG;
+				}
+				const uint32_t result = temp(p_call.type);
+				if (p_call.text == "is_instance_of") {
+					uint32_t value = lower_expr(*p_call.args[0]);
+					if (reg_type(value) == ValueType::Variant) {
+						value = variant_object(value, Type::object("Object"));
+					}
+					instr(Op::IS_SCRIPT, result, value, lower_expr(*p_call.args[1]));
+					return result;
+				}
+				if (p_call.text == "get_stack") {
+					instr(Op::GET_STACK, result, NO_REG, NO_REG, 0, fn.regs[result].type);
+					return result;
+				}
+				const uint32_t value = lower_expr(*p_call.args[0]);
+				if (p_call.text == "ord") {
+					instr(Op::ORD, result, value);
+					return result;
+				}
+				// len()
+				const ValueType type = reg_type(value);
+				const bool text = type == ValueType::String || type == ValueType::StringName;
+				return call_builtin(engine_builtin_method(type, text ? "length" : "size", {}, ValueType::Int), value, {}, result);
+			}
+			case Target::TaskAny:
+			case Target::TaskAll: {
+				// Each task, with whether it was started for the join, which owns it
+				// then, or an Array of tasks, none of them its own (spec §9.5).
+				ir::Instr i;
+				i.op = p_call.target == Target::TaskAny ? Op::TASK_ANY : Op::TASK_ALL;
+				if (p_call.args[0]->kind != ExprKind::ArrayLiteral) {
+					i.args.push_back(lower_expr(*p_call.args[0]));
+				} else {
+					uint32_t flags[2] = { NO_REG, NO_REG };
+					for (const auto &member : p_call.args[0]->args) {
+						const bool owned = member->kind == ExprKind::Call && member->is_async;
+						i.args.push_back(lower_expr(*member));
+						if (flags[owned] == NO_REG) {
+							flags[owned] = int_constant(owned);
+						}
+						i.args.push_back(flags[owned]);
+					}
+				}
+				i.dst = temp(p_call.type);
+				i.imm = type_index(p_call.type.args[0]);
+				add(i);
+				return i.dst;
+			}
+			case Target::TaskOf:
+			case Target::TaskDelay: {
+				const uint32_t made = arguments(p_call)[0];
+				const uint32_t task = temp(p_call.type);
+				instr(p_call.target == Target::TaskOf ? Op::TASK_OF : Op::TASK_DELAY, task, made);
+				return task;
+			}
 			default:
 				break;
 		}
 
-		if (p_call.target == Target::TaskCancel) {
-			instr(Op::TASK_CANCEL, NO_REG, lower_expr(*p_call.base));
-			return NO_REG;
-		}
-		if (p_call.target == Target::TaskDetach) {
-			// Only says that the task is not awaited (spec §9.1); it runs either way.
-			lower_expr(*p_call.base);
-			return NO_REG;
-		}
-		if (p_call.target == Target::TaskSettled) {
-			// It owns a task started for it, as an await does (spec §9.3).
-			const bool owned = p_call.base->kind == ExprKind::Call && p_call.base->is_async;
-			const uint32_t member = lower_expr(*p_call.base);
-			const uint32_t task = temp(p_call.type);
-			instr(Op::TASK_SETTLED, task, member, NO_REG, owned ? 1 : 0, type_index(p_call.type.args[0]));
-			return task;
-		}
-		if (p_call.target == Target::Range) {
-			return range(p_call, temp(p_call.type));
-		}
-		if (p_call.target == Target::GDScriptUtility) {
-			if (p_call.text == "print_stack") {
-				instr(Op::PRINT_STACK, NO_REG);
-				return NO_REG;
-			}
-			const uint32_t result = temp(p_call.type);
-			if (p_call.text == "is_instance_of") {
-				uint32_t value = lower_expr(*p_call.args[0]);
-				if (reg_type(value) == ValueType::Variant) {
-					value = variant_object(value, Type::object("Object"));
-				}
-				instr(Op::IS_SCRIPT, result, value, lower_expr(*p_call.args[1]));
-				return result;
-			}
-			if (p_call.text == "get_stack") {
-				instr(Op::GET_STACK, result, NO_REG, NO_REG, 0, fn.regs[result].type);
-				return result;
-			}
-			const uint32_t value = lower_expr(*p_call.args[0]);
-			if (p_call.text == "ord") {
-				instr(Op::ORD, result, value);
-				return result;
-			}
-			// len()
-			const ValueType type = reg_type(value);
-			const bool text = type == ValueType::String || type == ValueType::StringName;
-			return call_builtin(engine_builtin_method(type, text ? "length" : "size", {}, ValueType::Int), value, {}, result);
-		}
-		if (p_call.target == Target::TaskAny || p_call.target == Target::TaskAll) {
-			// Each task, with whether it was started for the join, which owns it
-			// then, or an Array of tasks, none of them its own (spec §9.5).
-			ir::Instr i;
-			i.op = p_call.target == Target::TaskAny ? Op::TASK_ANY : Op::TASK_ALL;
-			if (p_call.args[0]->kind != ExprKind::ArrayLiteral) {
-				i.args.push_back(lower_expr(*p_call.args[0]));
-			} else {
-				uint32_t flags[2] = { NO_REG, NO_REG };
-				for (const auto &member : p_call.args[0]->args) {
-					const bool owned = member->kind == ExprKind::Call && member->is_async;
-					i.args.push_back(lower_expr(*member));
-					if (flags[owned] == NO_REG) {
-						flags[owned] = int_constant(owned);
-					}
-					i.args.push_back(flags[owned]);
-				}
-			}
-			i.dst = temp(p_call.type);
-			i.imm = type_index(p_call.type.args[0]);
-			add(i);
-			return i.dst;
-		}
-		if (p_call.target == Target::TaskOf || p_call.target == Target::TaskDelay) {
-			const uint32_t made = arguments(p_call)[0];
-			const uint32_t task = temp(p_call.type);
-			instr(p_call.target == Target::TaskOf ? Op::TASK_OF : Op::TASK_DELAY, task, made);
-			return task;
-		}
 		ir::Instr i;
 		std::unique_ptr<Place> written_back;
 		// The base before the arguments, as it reads in the source.
@@ -1962,9 +1964,7 @@ class Lowerer {
 				method.is_async = p_call.is_async;
 				method.result = slot(std::string(), p_call.is_async ? p_call.type.args[0] : p_call.type);
 				if (p_call.is_static) {
-					bytecode::ClassRef declaring; // Only its script matters.
-					declaring.script = p_call.owner;
-					method.static_class = int32_t(class_index(declaring));
+					method.static_class = int32_t(script_index(p_call.owner));
 				}
 				i.imm = method_call(method);
 				break;
@@ -1994,20 +1994,10 @@ class Lowerer {
 				i.imm = engine_call(call);
 				break;
 			}
-			case Target::Utility: {
+			case Target::Utility:
 				i.op = Op::CALL_UTILITY;
-				bytecode::UtilityCall utility_call;
-				utility_call.function = p_call.text;
-				utility_call.hash = p_call.hash;
-				utility_call.is_vararg = p_call.is_vararg;
-				// A utility typed by its arguments takes them all as Variant (spec §10.3).
-				const bool argument_typed = p_call.engine_return.kind == TypeKind::Variant && p_call.type.kind != TypeKind::Variant;
-				utility_call.params = argument_typed ? std::vector<ValueType>(p_call.args.size(), ValueType::Variant) : value_types(p_call.param_types);
-				utility_call.return_type = value_type(p_call.engine_return);
-				utility_call.result_type = type_index(p_call.type);
-				i.imm = utility(utility_call);
+				i.imm = utility(p_call.text, p_call.hash, p_call.is_vararg, p_call.engine_return, p_call.type, p_call.args.size(), p_call.param_types);
 				break;
-			}
 			case Target::BuiltinMethod: {
 				i.op = Op::CALL_BUILTIN;
 				bytecode::BuiltinMethodCall method;
@@ -2112,9 +2102,7 @@ class Lowerer {
 		method.is_vararg = p_method.has_rest();
 		method.is_async = p_method.is_async;
 		method.result = slot(std::string(), p_method.return_type);
-		bytecode::ClassRef declaring; // Only its script matters.
-		declaring.script = p_owner;
-		method.static_class = int32_t(class_index(declaring));
+		method.static_class = int32_t(script_index(p_owner));
 		return method_call(method);
 	}
 
@@ -2217,10 +2205,8 @@ class Lowerer {
 					return result;
 				}
 				if (p_expr.target == Target::ClassScript) {
-					bytecode::ClassRef script; // Only its script matters.
-					script.script = p_expr.owner;
 					const uint32_t result = temp(p_expr.type);
-					instr(Op::GET_SCRIPT, result, NO_REG, NO_REG, class_index(script));
+					instr(Op::GET_SCRIPT, result, NO_REG, NO_REG, script_index(p_expr.owner));
 					return result;
 				}
 				if (p_expr.target == Target::Singleton) {
@@ -2238,11 +2224,9 @@ class Lowerer {
 					if (p_expr.static_on_value) {
 						lower_expr(*p_expr.base);
 					}
-					bytecode::ClassRef owner;
-					(p_expr.target == Target::EngineStaticValue ? owner.name : owner.script) = p_expr.owner;
 					ir::Instr i;
 					i.op = Op::STATIC_VALUE;
-					i.field = class_index(owner);
+					i.field = p_expr.target == Target::EngineStaticValue ? class_index(p_expr.owner) : script_index(p_expr.owner);
 					i.dst = temp(p_expr.type);
 					// A struct's is named after it, as `Hit.make`.
 					i.imm = text_constant(ValueType::StringName, p_expr.target == Target::StaticValue ? p_expr.callee->name : p_expr.text);
@@ -2623,7 +2607,7 @@ class Lowerer {
 			case Place::Kind::StructCopy:
 				return p_place.reg;
 			case Place::Kind::Static: {
-				if (const int getter = static_accessor(p_place, false); getter != NO_ACCESSOR) {
+				if (static_accessor(p_place, false) != NO_ACCESSOR) {
 					return call_static_accessor(p_place, false, {});
 				}
 				ir::Instr i;
@@ -2974,10 +2958,7 @@ class Lowerer {
 				break;
 			}
 			case PatternKind::Value: {
-				const uint32_t local = reg_of(p_pattern.local);
-				if (local != p_value) {
-					move(local, p_value);
-				}
+				move(reg_of(p_pattern.local), p_value);
 				branch(lower_expr(*p_pattern.value), next_block, p_fail);
 				current = next_block;
 				return;
@@ -3297,12 +3278,7 @@ class Lowerer {
 					current = new_block();
 				}
 				if (p_stmt.value) {
-					const uint32_t value = convert(lower_expr(*p_stmt.value), p_stmt.value->type, decl->return_type);
-					if (terminated()) {
-						current = new_block();
-					}
-					fn.blocks[current].terminator = ir::Terminator::Return;
-					fn.blocks[current].value = value;
+					ret(convert(lower_expr(*p_stmt.value), p_stmt.value->type, decl->return_type));
 				} else {
 					fn.blocks[current].terminator = ir::Terminator::ReturnVoid;
 				}
@@ -3357,6 +3333,15 @@ class Lowerer {
 		}
 	}
 
+	// Returns `p_value`, from a block of its own when computing it ended this one.
+	void ret(uint32_t p_value) {
+		if (terminated()) {
+			current = new_block();
+		}
+		fn.blocks[current].terminator = ir::Terminator::Return;
+		fn.blocks[current].value = p_value;
+	}
+
 	void start(const std::string &p_name) {
 		fn = ir::Function();
 		fn.name = p_name;
@@ -3400,12 +3385,7 @@ class Lowerer {
 		fn.line = uint32_t(cls.source->line(p_field.name_token));
 		if (!p_declarations_only) {
 			instr(Op::LINE, NO_REG, NO_REG, NO_REG, fn.line);
-			const uint32_t value = convert(lower_expr(*p_field.initializer), p_field.initializer->type, p_field.type);
-			if (terminated()) {
-				current = new_block();
-			}
-			fn.blocks[current].terminator = ir::Terminator::Return;
-			fn.blocks[current].value = value;
+			ret(convert(lower_expr(*p_field.initializer), p_field.initializer->type, p_field.type));
 		}
 		finish();
 		bytecode::Function out = ir::emit(fn, module);
@@ -3537,7 +3517,7 @@ public:
 		module.base_script = cls.base_script;
 		module.inherited_members = cls.base ? uint32_t(cls.base->all_members.size()) : 0;
 		for (const Type &interface : cls.implemented) {
-			module.interfaces.push_back(interface_id(interface));
+			module.interfaces.push_back(qualified_name(interface));
 		}
 		module.declarations_only = p_declarations_only;
 		if (cls.parent_ref) {
