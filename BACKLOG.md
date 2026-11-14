@@ -4,16 +4,20 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Next release
 
-Its list and date are set with the owner (architecture §5, step 11).
+0.2, due 2026-11-29. Its list and date are set with the owner (architecture §5, step 11).
 
 - With the owner: the invitations to review 0.1.
-
-## Language
-
-- In 0.2, assignments evaluate the right side first, as Python does (owner, 2026-11-15). Then come the place, the read, the change and the write back. The rule of spec §3.6 changes with it.
+- Finding references across scripts and scenes, including names in literals (spec §10.4).
+  - References from scenes for the keys of exported properties (architecture §2.1). Also for the members that animation tracks and synchronized properties name (spec §7.7). Now only the methods of signal connections are references.
+  - A `Foreign` `DeclId` names the script accessed, not the one that declares the member. Finding references needs the declaring one.
+- Renaming, with the rewriting of scenes (spec §13.3). The rule that keeps a member's old name in its declaration comes with it (architecture §6.4).
+- The first quick fixes, those the migration tool needs.
+- Assignments evaluate the right side first, as Python does (owner, 2026-11-15). Then come the place, the read, the change and the write back. The rule of spec §3.6 changes with it.
   - 0.1 evaluates the place's objects and indices first, to stay close to GDScript, and reads after the right side.
   - A warning when the right side has an `await` and the place has an object or an index, as `position.x = await f()`. It says that GDScript reads the place before the `await`.
   - Compound assignments follow the same order. Calls that modify their receiver do not change.
+
+## Language
 
 - Assignments by ancestors (spec §6.2), which the checker assumes without looking for them.
   - It takes a must-assign member of a node with an owner as one they assign. Exported members and those `_init` assigns are not.
@@ -53,7 +57,6 @@ Its list and date are set with the owner (architecture §5, step 11).
 - `--petrichor-build` on a fresh clone can end with the engine's crash code (godot#111048). The README says to import first.
 - The hints of the spec other than `unused_ignore` and `modified_copy`, as the one on a redundant `as` (spec §5.3). None is implemented.
 - The scene index trusts modification times, which count whole seconds. A file rewritten outside the editor in the second it was read stays stale.
-- References from scenes for the keys of exported properties (architecture §2.1). Also for the members that animation tracks and synchronized properties name (spec §7.7). Now only the methods of signal connections are references.
 - The warnings of spec §6.7:
   - a lambda capturing self stored in a member of self, a signal connection or a container;
   - two RefCounted classes referring to each other through strong fields;
@@ -76,7 +79,6 @@ Its list and date are set with the owner (architecture §5, step 11).
 - Completion of the names in strings that wait on their checks (spec §10.4, §13.2). They are property names, as in `set_deferred("speed", v)`, members of other objects, as in `other.connect("hit", f)`, and the paths of `get_node("...")`.
 - Completing a bare name takes about 75 ms in the test project, GDScript about 21 ms. Our check takes 19 ms of it. The editor spends most of the rest on about 2550 options. GDScript's list lacks about 470 editor classes.
 - `_can_make_function`, so that the signal connection dialog generates the callback (editor/scene/connections_dialog.cpp:505-512; ed1daf0). It writes `pub func`, as connected methods need (spec §10.5).
-- A `Foreign` `DeclId` names the script accessed, not the one that declares the member. Finding references (step 8) needs the declaring one.
 - Declarations that are not pub show in the editor's help beyond their own file. The engine's documentation has no visibility (`core/doc_data.h:698-720`, `ed1daf0`). Keeping them to their own file needs support from the engine, to be sought later.
   - Structs, interfaces and inner classes have documentation classes of their own, which the whole project searches (`editor/doc/editor_help_search.cpp:113`).
   - Enums and members are listed on their class's page.
