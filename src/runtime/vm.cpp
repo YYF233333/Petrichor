@@ -742,9 +742,46 @@ String misfit_error(const TypeImage &p_element, const uint8_t *p_array, int64_t 
 // its program error.
 #ifdef _MSC_VER
 #define PETRICHOR_NOINLINE __declspec(noinline)
+#define PETRICHOR_INLINE __forceinline
 #else
 #define PETRICHOR_NOINLINE __attribute__((noinline))
+#define PETRICHOR_INLINE inline __attribute__((always_inline))
 #endif
+
+// Binds a call's `p_argc` arguments into `p_frame`, the frame of function
+// `p_function` of `p_image` (spec §4.6, §8.1). A struct's method takes the
+// struct of its value first, `p_bound_self`, and a lambda its captures last.
+// `p_argument(i)` gives argument i, checked as the parameter's type, unless
+// `p_copy(i, type, slot)` copied it as it is. The callee computes the default
+// of one left out. The parameter an argument does not fit, with why in
+// `r_error`, empty after a default's program error, which is reported; -1
+// when all fit. Each call of this language binds here: out of line, as MSVC
+// left it, the calls benchmark took 8% longer.
+template <typename Copy, typename Argument>
+PETRICHOR_INLINE int bind_arguments(const ClassImage &p_image, uint32_t p_function, uint8_t *p_frame, size_t p_argc, const uint8_t *p_bound_self, const uint8_t *p_captures, Copy p_copy, Argument p_argument, String &r_error) {
+	const bytecode::Function &fn = p_image.module.functions[p_function];
+	const size_t bound = p_bound_self ? 1 : 0;
+	if (fn.given != bytecode::NO_SLOT) {
+		*reinterpret_cast<int64_t *>(p_frame + fn.given) = int64_t(p_argc + bound);
+	}
+	const size_t given = fn.params.size() - fn.captures;
+	const size_t fixed = fn.fixed_params();
+	const uint8_t *capture = p_captures;
+	for (size_t i = 0; i < fn.params.size(); i++) {
+		uint8_t *slot = p_frame + fn.params[i].offset;
+		const TypeImage &type = p_image.types[fn.params[i].type];
+		const size_t arg = i - bound;
+		if (i < bound) {
+			copy_value(type, slot, p_bound_self);
+		} else if (i >= given) {
+			copy_value(type, slot, capture);
+			capture += type.size;
+		} else if (i == fixed ? !fill_rest(type, slot, p_argc > arg ? p_argc - arg : 0, [&](size_t p_rest) { return p_argument(arg + p_rest); }, r_error) : arg < p_argc && !p_copy(arg, type, slot) && !entry_check(type, p_argument(arg), slot, r_error)) {
+			return int(i);
+		}
+	}
+	return -1;
+}
 
 // Made on first use and never destroyed: no godot-cpp value may be made before
 // the engine loads the library, or destroyed after it unloads it.
@@ -1209,7 +1246,6 @@ class Execution {
 			return p_from.layout == p_to.layout && (p_typed || (p_to.box && p_to.box == p_from.box) || (p_to.kind == bytecode::TypeKind::Value && p_to.check.nullable));
 		};
 		const uint32_t dst = p_call[2], argc = p_call[4];
-		const size_t bound = p_bound_self ? 1 : 0;
 		const bytecode::Function &method = p_callee.module.functions[p_index];
 		if (!method.is_static && !method.is_lambda && !p_context.storage) {
 			return fail_cstr(p_caller, p_line, "An instance method needs a receiver. Build the project again.");
@@ -1217,54 +1253,31 @@ class Execution {
 		if (method.is_abstract) {
 			return fail(p_caller, p_line, vformat("%s() is abstract, and this object's class does not implement it. Build the project again.", p_callee.function_names[p_index]));
 		}
-		if (!method.takes(argc + bound)) {
+		if (!method.takes(argc + (p_bound_self ? 1 : 0))) {
 			return fail_cstr(p_caller, p_line, "Override argument count changed. Rebuild the project.");
 		}
-		const size_t given = method.params.size() - method.captures;
-		const size_t fixed = method.fixed_params();
 		Frame callee_frame(frames, p_callee.frames[p_index]);
-		if (method.given != NO_SLOT) {
-			*reinterpret_cast<int64_t *>(callee_frame.data + method.given) = int64_t(argc + bound);
-		}
-		const uint8_t *capture = p_captures;
-		for (size_t i = 0; i < method.params.size(); i++) {
-			uint8_t *param = callee_frame.data + method.params[i].offset;
-			const TypeImage &param_type = p_callee.types[method.params[i].type];
-			if (i < bound) {
-				copy_value(param_type, param, p_bound_self);
-				continue;
+		// (type, offset) of each argument.
+		const uint32_t *pairs = p_call + 5;
+		const auto copy = [&](size_t p_arg, const TypeImage &p_type, uint8_t *p_slot) {
+			if (!copies(image.types[pairs[2 * p_arg]], p_type)) {
+				return false;
 			}
-			if (i >= given) {
-				copy_value(param_type, param, capture);
-				capture += param_type.size;
-				continue;
-			}
-			const size_t arg = i - bound;
-			String error;
-			if (i == fixed) {
-				const auto argument = [&](size_t p_rest) {
-					const uint32_t *pair = p_call + 5 + 2 * (arg + p_rest);
-					return to_variant(image.types[pair[0]], frame + pair[1]);
-				};
-				if (fill_rest(param_type, param, argc > arg ? argc - arg : 0, argument, error)) {
-					continue;
-				}
-			} else if (arg >= argc) {
-				continue; // The callee computes its default.
-			} else if (copies(image.types[p_call[5 + 2 * arg]], param_type)) {
-				copy_value(param_type, param, frame + p_call[6 + 2 * arg]);
-				continue;
-			} else if (entry_check(param_type, to_variant(image.types[p_call[5 + 2 * arg]], frame + p_call[6 + 2 * arg]), param, error)) {
-				continue;
-			}
+			copy_value(p_type, p_slot, frame + pairs[2 * p_arg + 1]);
+			return true;
+		};
+		const auto argument = [&](size_t p_arg) { return to_variant(image.types[pairs[2 * p_arg]], frame + pairs[2 * p_arg + 1]); };
+		String error;
+		const int failed = bind_arguments(p_callee, p_index, callee_frame.data, argc, p_bound_self, p_captures, copy, argument, error);
+		if (failed >= 0) {
 			if (error.is_empty()) {
 				return false; // A default's program error, which was reported.
 			}
 			if (p_entry) {
-				report_argument(p_callee, method, i, error);
+				report_argument(p_callee, method, size_t(failed), error);
 				return false;
 			}
-			return fail(p_caller, p_line, vformat("Argument \"%s\" of %s(): %s.", to_godot(method.params[i].name), p_callee.function_names[p_index], error));
+			return fail(p_caller, p_line, vformat("Argument \"%s\" of %s(): %s.", to_godot(method.params[failed].name), p_callee.function_names[p_index], error));
 		}
 		const TypeImage &result_type = image.types[p_result.type];
 		if (method.is_async) {
@@ -1288,7 +1301,6 @@ class Execution {
 		if (!run_callee(returned.data)) {
 			return false;
 		}
-		String error;
 		if (entry_check(result_type, outward_variant(returns, returned.data), frame + dst, error)) {
 			return true;
 		}
@@ -3855,44 +3867,25 @@ Variant call(std::shared_ptr<const ClassImage> p_image, int p_function, Instance
 	// The last parameters may be left out when they have default values, and a
 	// rest parameter takes any number more.
 	const size_t bound = p_bound_self ? 1 : 0;
-	const size_t given = fn.params.size() - fn.captures - bound;
 	const size_t fixed = fn.fixed_params() - bound;
-	const size_t required = fixed - fn.defaults.size();
 	if (!fn.takes(size_t(p_argc) + bound)) {
 		const bool many = size_t(p_argc) > fixed;
 		r_error.error = many ? GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS : GDEXTENSION_CALL_ERROR_TOO_FEW_ARGUMENTS;
-		r_error.expected = int32_t(many ? fixed : required);
+		r_error.expected = int32_t(many ? fixed : fixed - fn.defaults.size());
 		return Variant();
 	}
 
 	Frame frame(frame_stack, image->frames[p_function]);
-	if (fn.given != bytecode::NO_SLOT) {
-		*reinterpret_cast<int64_t *>(frame.data + fn.given) = p_argc + int64_t(bound);
-	}
 	const TypeImage &result_type = image->types[fn.result.type];
-	const uint8_t *capture = p_captures;
-	for (size_t i = 0; i < fn.params.size(); i++) {
-		const bytecode::Slot &param = fn.params[i];
-		const TypeImage &type = image->types[param.type];
-		const size_t arg = i - bound;
-		if (i < bound) {
-			copy_value(type, frame.data + param.offset, p_bound_self);
-			continue;
-		}
-		if (arg >= given) {
-			copy_value(type, frame.data + param.offset, capture);
-			capture += type.size;
-			continue;
-		}
-		// The function computes the default of an argument left out.
-		String error;
-		if (arg == fixed ? fill_rest(type, frame.data + param.offset, size_t(p_argc) > fixed ? size_t(p_argc) - fixed : 0, [&](size_t p_rest) { return *p_args[fixed + p_rest]; }, error) : arg >= size_t(p_argc) || entry_check(type, *p_args[arg], frame.data + param.offset, error)) {
-			continue;
-		}
+	const auto copy = [](size_t, const TypeImage &, uint8_t *) { return false; };
+	const auto argument = [&](size_t p_arg) { return *p_args[p_arg]; };
+	String error;
+	const int failed = bind_arguments(*image, uint32_t(p_function), frame.data, size_t(p_argc), p_bound_self, p_captures, copy, argument, error);
+	if (failed >= 0) {
 		// A program error at the entry, and the engine gets the default value
 		// (spec §8.1, §10.1); the engine's backtrace of the caller goes with it.
 		if (!error.is_empty()) {
-			report_argument(*image, fn, i, error);
+			report_argument(*image, fn, size_t(failed), error);
 		}
 		if (r_failed) {
 			*r_failed = true;
