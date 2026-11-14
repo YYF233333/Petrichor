@@ -110,7 +110,7 @@ TEST_CASE("a static method of a class of this language is called on the class") 
 // The constant is a declaration of the class, which comes before the
 // engine's names (spec §2.1, §4.1).
 TEST_CASE("a constant that preloads a script hides an engine class of its name") {
-	const compiler::CompileResult result = compile_in("extends Node\nconst Timer = preload(\"res://spawner.pet\")\nfunc f() -> Spawner:\n\tprint(Timer.make(1))\n\treturn Timer.new()\n", spawner_project());
+	const compiler::CompileResult result = compile_in("extends Node\nconst Timer = preload(\"res://spawner.pet\")\nfunc f() -> Timer:\n\tprint(Timer.make(1))\n\treturn Timer.new()\n", spawner_project());
 	CHECK_MESSAGE(result.ok(), messages(result));
 }
 

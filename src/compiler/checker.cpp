@@ -1224,6 +1224,11 @@ class Checker : public ClassRelation {
 			error(p_ref.range, "Unknown type \"Nil\".");
 			return Type::of(TypeKind::Error);
 		}
+		// A constant that preloads a script names its class before the
+		// engine's names do (spec §2.1, §4.1).
+		if (class_alias(p_ref.name.substr(0, p_ref.name.find('.')))) {
+			return *script_type(p_ref);
+		}
 		if (builtin::find_class(p_ref.name)) {
 			refer(p_ref.name_token, engine_id(p_ref.name));
 			return api_type(p_ref.name, false);
