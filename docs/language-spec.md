@@ -2,7 +2,7 @@
 
 **v0.2 draft · 2026-10-25**
 
-<!-- Generated from language-spec.zh.md, git blob 7fd1dd3b46b27c9376e850db883fadc0dd46d06f. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 2751443ec5987cd74dc7a33700a420819336da46. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). The previous version of the specification, v0.1, is kept in the git tag `spec-v0.1`. This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -161,7 +161,7 @@ Besides the no-silent-differences rule, this language's own operations guarantee
 | Objects | non-null `T` and nullable `T?`; `PackedScene[T]` |
 | Value types of this language | struct, enum |
 | Interfaces | interface |
-| Standard types | `T?` (Option), `Result[T, E]`, `Task[T]` and `Settled[T]`, `ConversionError` |
+| Standard types | `T?` (Option), `Result[T, E]`, `Task[T]` and `Settled[T]`, `CancelReason`, `ConversionError` |
 | Functions | function types |
 
 Numbers, strings, core value types, containers, `Callable`, `Signal` and `Variant` follow GDScript's types. The sections below state only the differences.

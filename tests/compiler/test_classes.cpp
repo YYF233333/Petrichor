@@ -141,6 +141,7 @@ TEST_CASE("a class_name is no name of the engine, the language, an autoload or a
 	CHECK(named("Timer") == "1:12: \"Timer\" is the name of an engine class.\n");
 	CHECK(named("Vector2") == "1:12: \"Vector2\" is the name of a built-in type.\n");
 	CHECK(named("Result") == "1:12: \"Result\" is the name of a standard type.\n");
+	CHECK(named("CancelReason") == "1:12: \"CancelReason\" is the name of a standard type.\n");
 	CHECK(named("Audio") == "1:12: \"Audio\" is the name of an autoload.\n");
 	CHECK(named("Weapon") == "1:12: \"Weapon\" is already the class_name of res://weapon.pet.\n");
 	CHECK(named("Legacy") == "1:12: \"Legacy\" is already the class_name of res://legacy.gd.\n");

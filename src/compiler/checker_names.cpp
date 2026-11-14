@@ -185,7 +185,7 @@ std::string Checker::taken_type_name(const std::string &p_name, bool p_class_nam
 	if (engine.class_exists(p_name)) {
 		return "is the name of an engine class.";
 	}
-	if (p_class_name && (p_name == "Result" || p_name == "Task" || p_name == "Settled" || p_name == "ConversionError")) {
+	if (p_class_name && (p_name == "Result" || p_name == "Task" || p_name == "Settled" || p_name == "CancelReason" || p_name == "ConversionError")) {
 		return "is the name of a standard type.";
 	}
 	const std::string path = options.project ? options.project->global_class_path(p_name) : std::string();

@@ -159,7 +159,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 | 对象 | 非空 `T` 与可空 `T?`；`PackedScene[T]` |
 | 本语言值类型 | struct、enum |
 | 接口 | interface |
-| 标准类型 | `T?`（Option）、`Result[T, E]`、`Task[T]` 与 `Settled[T]`、`ConversionError` |
+| 标准类型 | `T?`（Option）、`Result[T, E]`、`Task[T]` 与 `Settled[T]`、`CancelReason`、`ConversionError` |
 | 函数 | 函数类型 |
 
 数值、字符串、core 值类型、容器、`Callable`、`Signal` 和 `Variant` 沿用 GDScript 的类型，下面只写不同之处。
