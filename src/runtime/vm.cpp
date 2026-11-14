@@ -169,13 +169,32 @@ void remove_task(TaskList &r_list, TaskLinks TaskState::*p_links, TaskState *p_t
 	p_task->*p_links = TaskLinks();
 }
 
-void list_task(const TaskRef &p_task) {
-	std::lock_guard<std::mutex> lock(tasks_mutex);
-	p_task->serial = ++last_serial;
-	append_task(all_tasks, &TaskState::among_all, p_task.get());
-	if (p_task->owner_storage) {
-		append_task(p_task->owner_storage->tasks, &TaskState::among_owners, p_task.get());
+// A task of the context's instance, which list_task() lists among its own.
+TaskRef new_task(const InstanceContext &p_context, const std::string &p_result_key) {
+	const TaskRef task = TaskRef::make();
+	task->owner_id = p_context.owner ? instance_id(p_context.owner) : 0;
+	task->owner_storage = p_context.storage.get();
+	task->result_signature = p_result_key;
+	return task;
+}
+
+// Lists a new task once its frame or join is set. True when its owner went
+// first; the task is then marked as cancelled with it (spec §9.7).
+bool list_task(const TaskRef &p_task) {
+	{
+		std::lock_guard<std::mutex> lock(tasks_mutex);
+		p_task->serial = ++last_serial;
+		append_task(all_tasks, &TaskState::among_all, p_task.get());
+		if (p_task->owner_storage) {
+			append_task(p_task->owner_storage->tasks, &TaskState::among_owners, p_task.get());
+		}
 	}
+	if (!p_task->owner_storage || !p_task->owner_storage->coroutines_cancelled) {
+		return false;
+	}
+	p_task->owner_freed = true;
+	p_task->owner_freed_frame = task_frame.load();
+	return true;
 }
 
 // While its frame or join still keeps the owner's storage.
@@ -240,10 +259,7 @@ public:
 // give as another type (spec §4.6).
 TaskRef start_task(const std::shared_ptr<const ClassImage> &p_image, uint32_t p_function, const InstanceContext &p_context, uint8_t *p_frame, const std::string *p_result_key = nullptr) {
 	const bytecode::Function &fn = p_image->module.functions[p_function];
-	const TaskRef task = TaskRef::make();
-	task->owner_id = p_context.owner ? instance_id(p_context.owner) : 0;
-	task->owner_storage = p_context.storage.get();
-	task->result_signature = p_result_key ? *p_result_key : p_image->types[fn.result.type].result_key;
+	const TaskRef task = new_task(p_context, p_result_key ? *p_result_key : p_image->types[fn.result.type].result_key);
 	task->continuation = std::make_shared<CoroutineFrame>(p_image, p_function, p_context, task);
 	for (const auto &param : fn.params) {
 		copy_value(p_image->types[param.type], task->continuation->data + param.offset, p_frame + param.offset);
@@ -251,11 +267,8 @@ TaskRef start_task(const std::shared_ptr<const ClassImage> &p_image, uint32_t p_
 	if (fn.given != bytecode::NO_SLOT) {
 		std::memcpy(task->continuation->data + fn.given, p_frame + fn.given, sizeof(int64_t));
 	}
-	list_task(task);
-	if (p_context.storage && p_context.storage->coroutines_cancelled) {
+	if (list_task(task)) {
 		task->cancel_requested = true;
-		task->owner_freed = true;
-		task->owner_freed_frame = task_frame.load();
 	}
 	task->continuation->resume();
 	return task;
@@ -266,15 +279,9 @@ TaskRef start_task(const std::shared_ptr<const ClassImage> &p_image, uint32_t p_
 // (§9.2); tasks::frame() decides that, as for other awaits (§9.7). Null when
 // the signal cannot be connected to.
 TaskRef signal_task(const InstanceContext &p_context, const Signal &p_signal, const std::string &p_result_key) {
-	const TaskRef task = TaskRef::make();
-	task->owner_id = p_context.owner ? instance_id(p_context.owner) : 0;
-	task->owner_storage = p_context.storage.get();
-	task->result_signature = p_result_key;
+	const TaskRef task = new_task(p_context, p_result_key);
 	task->continuation = std::make_shared<CoroutineFrame>(p_context, task);
-	list_task(task);
-	if (p_context.storage && p_context.storage->coroutines_cancelled) {
-		task->owner_freed = true;
-		task->owner_freed_frame = task_frame.load();
+	if (list_task(task)) {
 		task->finish(TaskState::State::Cancelled);
 		return task;
 	}
@@ -1942,7 +1949,9 @@ class Execution {
 
 	PETRICHOR_NOINLINE bool op_call_value(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
 		const bytecode::MethodCall &call = image.module.method_calls[p_op[1]];
-		if (call.method == "call") {
+		// The verifier allows call() and callv() alone.
+		const bool callv = image.method_names[p_op[1]] != image.call_method;
+		if (!callv) {
 			if (const std::optional<bool> done = call_directly(p_op, p_frame, call.result, false, p_fn, p_line)) {
 				return *done && within_depth(p_fn, p_line);
 			}
@@ -1960,7 +1969,7 @@ class Execution {
 		std::vector<const Variant *> spread_pointers;
 		const Variant **pointers = args.as_variants();
 		int count = int(argc);
-		if (call.method == "callv") {
+		if (callv) {
 			const Array &values = *reinterpret_cast<const Array *>(p_frame + p_op[6]);
 			for (int64_t i = 0; i < values.size(); i++) {
 				spread.push_back(values[i]);
@@ -2058,6 +2067,20 @@ class Execution {
 		return within_depth(p_fn, p_line);
 	}
 
+	// Unless the task is being cancelled, suspends it until a GDScript coroutine
+	// completes, keeping the coroutine's state, to resume at `p_next`.
+	bool await_function_state(CoroutineFrame *p_async, const Variant &p_result, Object *p_state, uint32_t p_dst, uint64_t p_watch, size_t p_next, bool &r_done, const bytecode::Function &p_fn, int p_line) {
+		r_done = true;
+		if (!p_async->task->cancel_requested) {
+			p_async->held_state = p_result;
+			p_async->pc = p_next;
+			if (!p_async->suspend(Signal(p_state, "completed"), p_dst, p_watch, true)) {
+				return fail_cstr(p_fn, p_line, "Cannot await GDScript completion.");
+			}
+		}
+		return within_depth(p_fn, p_line);
+	}
+
 	PETRICHOR_NOINLINE bool op_call_engine(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, CoroutineFrame *p_async, size_t &r_pc, bool &r_done, const bytecode::Function &p_fn, int p_line) {
 		const uint32_t target = p_op[1];
 		const uint32_t dst = p_op[2];
@@ -2094,17 +2117,7 @@ class Execution {
 		Object *state = result.get_type() == Variant::OBJECT ? result.get_validated_object() : nullptr;
 		if (state && state->is_class("GDScriptFunctionState")) {
 			if (Op(p_op[0]) == Op::CALL_AWAIT_ENGINE) {
-				if (p_async->task->cancel_requested) {
-					r_done = true;
-					return within_depth(p_fn, p_line);
-				}
-				p_async->held_state = result;
-				p_async->pc = r_pc + 5 + 2 * argc;
-				if (!p_async->suspend(Signal(state, "completed"), dst, object_id_of(*object), true)) {
-					return fail_cstr(p_fn, p_line, "Cannot await GDScript completion.");
-				}
-				r_done = true;
-				return within_depth(p_fn, p_line);
+				return await_function_state(p_async, result, state, dst, object_id_of(*object), r_pc + 5 + 2 * argc, r_done, p_fn, p_line);
 			}
 			if (dst != NO_SLOT) {
 				return fail_cstr(p_fn, p_line, "The method is a GDScript coroutine and needs await.");
@@ -2134,17 +2147,7 @@ class Execution {
 		Object *state = result.get_type() == Variant::OBJECT ? result.get_validated_object() : nullptr;
 		p_async->destination = dst;
 		if (state && state->is_class("GDScriptFunctionState")) {
-			if (p_async->task->cancel_requested) {
-				r_done = true;
-				return within_depth(p_fn, p_line);
-			}
-			p_async->held_state = result;
-			p_async->pc = r_pc + 5 + 2 * argc;
-			if (!p_async->suspend(Signal(state, "completed"), dst, uint64_t(callable.get_object_id()), true)) {
-				return fail_cstr(p_fn, p_line, "Cannot await GDScript completion.");
-			}
-			r_done = true;
-			return within_depth(p_fn, p_line);
+			return await_function_state(p_async, result, state, dst, uint64_t(callable.get_object_id()), r_pc + 5 + 2 * argc, r_done, p_fn, p_line);
 		}
 		if (result.get_type() == Variant::SIGNAL) {
 			if (p_async->task->cancel_requested) {
@@ -2298,9 +2301,9 @@ class Execution {
 			*static_cast<int64_t *>(result) = reinterpret_cast<const Array *>(base)->bsearch_custom(*static_cast<const Variant *>(args.pointers[0]), less_callable(), before);
 		} else if (replaced == ClassImage::Replaced::Min || replaced == ClassImage::Replaced::Max) {
 			// The first of the least or the greatest, as the engine picks it
-			// (core/variant/array.cpp:828-868); null for an empty array.
+			// (core/variant/array.cpp:828-868).
 			const Array &array = *reinterpret_cast<const Array *>(base);
-			Variant best = array.is_empty() ? Variant() : array[0];
+			Variant best = array[0];
 			for (int64_t i = 1; i < array.size(); i++) {
 				if (replaced == ClassImage::Replaced::Min ? variant_less(array[i], best) : variant_less(best, array[i])) {
 					best = array[i];
@@ -3546,6 +3549,10 @@ void CoroutineFrame::report_error(const String &p_message) {
 	}
 }
 
+static String awaited_object_freed(uint64_t p_object) {
+	return vformat("The awaited object %d was freed or lost its script.", int64_t(p_object)) + vm::freed_site(p_object);
+}
+
 bool CoroutineFrame::await_task(const TaskRef &p_task) {
 	if (p_task->state == TaskState::State::Finished) {
 		child = TaskRef();
@@ -3557,7 +3564,7 @@ bool CoroutineFrame::await_task(const TaskRef &p_task) {
 	if (p_task->owner_freed) {
 		const uint64_t id = p_task->owner_id;
 		if (p_task->owner_freed_frame != task_frame.load()) {
-			report_error(vformat("The awaited object %d was freed or lost its script.", int64_t(id)) + vm::freed_site(id));
+			report_error(awaited_object_freed(id));
 			return false;
 		}
 		child = TaskRef();
@@ -3737,10 +3744,7 @@ void CoroutineFrame::resume() {
 }
 
 TaskRef TaskJoin::make(Kind p_kind, const std::vector<TaskRef> &p_members, const std::vector<bool> &p_owned, const TypeImage &p_result, const InstanceContext &p_context, const std::shared_ptr<const ClassImage> &p_image, const bytecode::Function &p_function, int p_line) {
-	const TaskRef task = TaskRef::make();
-	task->owner_id = p_context.owner ? instance_id(p_context.owner) : 0;
-	task->owner_storage = p_context.storage.get();
-	task->result_signature = p_result.result_key;
+	const TaskRef task = new_task(p_context, p_result.result_key);
 	const auto join = std::make_shared<TaskJoin>();
 	join->kind = p_kind;
 	join->task = task;
@@ -3753,10 +3757,7 @@ TaskRef TaskJoin::make(Kind p_kind, const std::vector<TaskRef> &p_members, const
 	join->owned = p_owned;
 	join->seen.assign(p_members.size(), false);
 	task->join = join;
-	list_task(task);
-	if (p_context.storage && p_context.storage->coroutines_cancelled) {
-		task->owner_freed = true;
-		task->owner_freed_frame = task_frame.load();
+	if (list_task(task)) {
 		task->finish(TaskState::State::Cancelled);
 		return task;
 	}
@@ -3820,7 +3821,7 @@ void TaskJoin::member_ended(size_t p_member) {
 			value = cancelled(*member.get());
 		} else {
 			// As awaiting it would be (spec §9.2).
-			report_error(member->owner_freed ? vformat("The awaited object %d was freed or lost its script.", int64_t(member->owner_id)) + vm::freed_site(member->owner_id) : String("The awaited task was cancelled."));
+			report_error(member->owner_freed ? awaited_object_freed(member->owner_id) : String("The awaited task was cancelled."));
 			ends = TaskState::State::Failed;
 		}
 	}
@@ -3881,7 +3882,7 @@ void frame() {
 			const bool settled = join->kind == TaskJoin::Kind::Settled;
 			const Variant value = owner_gone || !settled ? Variant() : join->cancelled(member);
 			if (!owner_gone && !settled) {
-				join->report_error(vformat("The awaited object %d was freed or lost its script.", int64_t(member.owner_id)) + vm::freed_site(member.owner_id));
+				join->report_error(awaited_object_freed(member.owner_id));
 			}
 			lock.unlock();
 			if (owner_gone) {
@@ -3903,7 +3904,7 @@ void frame() {
 			lock.unlock();
 			task->cancel();
 		} else {
-			frame->report_error(vformat("The awaited object %d was freed or lost its script.", int64_t(frame->lost_object)) + vm::freed_site(frame->lost_object));
+			frame->report_error(awaited_object_freed(frame->lost_object));
 			lock.unlock();
 			task->finish(TaskState::State::Failed);
 		}

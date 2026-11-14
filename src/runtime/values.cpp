@@ -345,7 +345,9 @@ String typed_description(int64_t p_builtin, const StringName &p_class, const Var
 	return name.is_empty() ? String(p_class) : name;
 }
 
-String value_description(const Variant &p_value) {
+} // namespace
+
+String describe_value(const Variant &p_value) {
 	if (is_none(p_value)) {
 		return "None";
 	}
@@ -380,6 +382,8 @@ String value_description(const Variant &p_value) {
 	}
 	return Variant::get_type_name(p_value.get_type());
 }
+
+namespace {
 
 // A container typed as the engine types it, with the element type, and with
 // the class and script of object elements (spec §3.8); a container does not
@@ -1143,11 +1147,11 @@ static String mismatch(const TypeImage &p_type, const Variant &p_value, const St
 		const int64_t misfit = from_variant(p_type.storage, p_value, value.data, &p_type.check) ? misfit_element(p_type, p_value) : -1;
 		String found = misfit < 0 ? found_description(p_type.storage, p_value, p_type.check) : String();
 		if (misfit >= 0 && type_of(p_value) == Variant::ARRAY) {
-			found = vformat("%s at index %d", value_description(Array(p_value)[misfit]), misfit);
+			found = vformat("%s at index %d", describe_value(Array(p_value)[misfit]), misfit);
 		} else if (misfit >= 0) {
 			const Dictionary dictionary = p_value;
 			const Variant key = dictionary.keys()[misfit];
-			found = kept_fits(*p_type.key, key) ? vformat("%s for the key %s", value_description(dictionary[key]), UtilityFunctions::var_to_str(key)) : vformat("the key %s", value_description(key));
+			found = kept_fits(*p_type.key, key) ? vformat("%s for the key %s", describe_value(dictionary[key]), UtilityFunctions::var_to_str(key)) : vformat("the key %s", describe_value(key));
 		}
 		return vformat("%sexpected %s, found %s", at, type_description(p_type), found);
 	}
@@ -1175,7 +1179,7 @@ static String mismatch(const TypeImage &p_type, const Variant &p_value, const St
 		}
 	}
 	if (is_option(p_type) || is_struct(p_type) || (p_type.storage == ValueType::Callable && !p_type.name.is_empty())) {
-		return vformat("%sexpected %s, found %s", at, type_description(p_type), value_description(p_value));
+		return vformat("%sexpected %s, found %s", at, type_description(p_type), describe_value(p_value));
 	}
 	return at + entry_mismatch(p_type.storage, p_value, p_type.check);
 }
@@ -1788,11 +1792,11 @@ static String found_description(ValueType p_type, const Variant &p_value, const 
 		for (int64_t i = 0; i < array.size(); i++) {
 			const Variant element = array[i];
 			if (element.booleanize() && !implements_interface(element, p_check.interface)) {
-				return vformat("%s at index %d", value_description(element), i);
+				return vformat("%s at index %d", describe_value(element), i);
 			}
 		}
 	}
-	return value_description(p_value);
+	return describe_value(p_value);
 }
 
 String entry_mismatch(ValueType p_type, const Variant &p_value, const ValueCheck &p_check) {
@@ -1963,10 +1967,6 @@ bool fits_typed(int64_t p_builtin, const StringName &p_class, const Variant &p_s
 
 } // namespace
 
-String describe_value(const Variant &p_value) {
-	return value_description(p_value);
-}
-
 bool is_exactly(const TypeImage &p_type, const Variant &p_value) {
 	if (type_of(p_value) != variant_type(p_type.storage)) {
 		return false;
@@ -2010,7 +2010,7 @@ String untyped_misfit(const Variant &p_container, ElementRole p_role, const Vari
 			return String();
 		}
 		const String holds = key ? String("has keys of type") : String("holds");
-		return vformat("%s %s %s, not %s%s.", value_description(p_container), holds, typed_description(builtin, class_name, script), value_description(p_item), p_where);
+		return vformat("%s %s %s, not %s%s.", describe_value(p_container), holds, typed_description(builtin, class_name, script), describe_value(p_item), p_where);
 	};
 	switch (p_role) {
 		case ElementRole::Element:
