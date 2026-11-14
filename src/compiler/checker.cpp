@@ -107,6 +107,16 @@ void relocate(Expr &r_expr, const TokenRange &p_range) {
 	}
 }
 
+// An expression made by the compiler, at the position of the code it belongs to.
+std::unique_ptr<Expr> synthetic(ExprKind p_kind, const std::string &p_text, const TokenRange &p_range) {
+	auto expr = std::make_unique<Expr>();
+	expr->kind = p_kind;
+	expr->text = p_text;
+	expr->range = p_range;
+	expr->name_token = expr->op_token = NO_TOKEN;
+	return expr;
+}
+
 std::vector<Type> param_types(const std::vector<ParamDecl> &p_params) {
 	std::vector<Type> types;
 	for (const ParamDecl &param : p_params) {
@@ -934,18 +944,16 @@ class Checker : public ClassRelation {
 		const std::string &head = names[0];
 		// The token of each name of `Outer.Inner.Hit`.
 		const auto token = [&](size_t p_index) { return p_ref.name_token == NO_TOKEN ? NO_TOKEN : p_ref.name_token + uint32_t(2 * p_index); };
-		std::string path;
 		const ConstPtr alias = class_alias(head);
+		std::string path = alias ? alias->script : scope_class(head);
 		if (alias) {
 			refer(p_ref.name_token, alias_id(head));
 			if (alias->script_class.is_error()) {
 				return alias->script_class; // Not known while only the declarations are checked.
 			}
-			path = alias->script;
-		} else if (!(path = scope_class(head)).empty()) {
-		} else if (!cls.class_name.empty() && head == cls.class_name) {
+		} else if (path.empty() && !cls.class_name.empty() && head == cls.class_name) {
 			path = options.path;
-		} else if (options.project) {
+		} else if (path.empty() && options.project) {
 			path = options.project->global_class_path(head);
 		}
 		if (path.empty()) {
@@ -1103,9 +1111,8 @@ class Checker : public ClassRelation {
 		return std::nullopt;
 	}
 
-	// The declaration of a struct, with its fields checked; null when its
-	// script has errors.
-	// Null also when it has errors, which its type's name reports.
+	// The declaration of a struct, with its fields checked; null when it or its
+	// script has errors, which its type's name reports.
 	const StructDecl *struct_decl(const Type &p_struct) const {
 		if (p_struct == Type::conversion_error()) {
 			return &conversion_error_decl();
@@ -1366,12 +1373,7 @@ class Checker : public ClassRelation {
 	// Makes a call a call of the engine's ResourceLoader, as GDScript's load()
 	// and preload() are.
 	void on_resource_loader(Expr &r_call) {
-		auto loader = std::make_unique<Expr>();
-		loader->kind = ExprKind::Name;
-		loader->text = "ResourceLoader";
-		loader->range = r_call.range;
-		loader->name_token = NO_TOKEN;
-		r_call.base = std::move(loader);
+		r_call.base = synthetic(ExprKind::Name, "ResourceLoader", r_call.range);
 	}
 
 	static int find_in(const std::vector<std::unordered_map<std::string, int>> &p_scopes, const std::string &p_name) {
@@ -1423,11 +1425,7 @@ class Checker : public ClassRelation {
 				FuncDecl &into = innermost ? *function : *enclosing[inner + 1].function;
 				Expr &lambda = *enclosing[inner].lambda;
 				// The value as the function around the lambda reads it.
-				auto read = std::make_unique<Expr>();
-				read->kind = ExprKind::Name;
-				read->text = p_name;
-				read->range = lambda.range;
-				read->name_token = NO_TOKEN;
+				auto read = synthetic(ExprKind::Name, p_name, lambda.range);
 				read->target = Target::Local;
 				read->index = source;
 				read->type = type;
@@ -2568,11 +2566,7 @@ class Checker : public ClassRelation {
 	// Self, unchecked, as the base that a field or a method of the struct
 	// named bare in its methods is on.
 	static std::unique_ptr<Expr> struct_self(const Expr &p_at) {
-		auto self = std::make_unique<Expr>();
-		self->kind = ExprKind::Self;
-		self->range = p_at.range;
-		self->name_token = NO_TOKEN;
-		return self;
+		return synthetic(ExprKind::Self, std::string(), p_at.range);
 	}
 
 	// A field or a method of the struct whose method is being checked, by its
@@ -3984,6 +3978,7 @@ class Checker : public ClassRelation {
 			return Type::of(TypeKind::String);
 		}
 		const bool ordering = p_op == TokenKind::Less || p_op == TokenKind::LessEqual || p_op == TokenKind::Greater || p_op == TokenKind::GreaterEqual;
+		const bool equality = p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual;
 		// Ordered by LESS (spec §3.6, §5.2), the types of both sides being one:
 		// `<` does not wrap a T into T?.
 		if (ordering && p_left == p_right && (p_left.kind == TypeKind::Struct || p_left.kind == TypeKind::PayloadEnum || p_left.kind == TypeKind::Option || (is_typed_container(p_left) && p_left.name == "Array"))) {
@@ -3994,7 +3989,7 @@ class Checker : public ClassRelation {
 			return Type::of(TypeKind::Bool);
 		}
 		// The side with fewer levels of T? is wrapped (spec §5.2).
-		if ((p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual) && (p_left.kind == TypeKind::Option || p_right.kind == TypeKind::Option)) {
+		if (equality && (p_left.kind == TypeKind::Option || p_right.kind == TypeKind::Option)) {
 			const bool left_deeper = option_depth(p_left) >= option_depth(p_right);
 			if (wraps_to(left_deeper ? p_right : p_left, left_deeper ? p_left : p_right)) {
 				if (r_compared) {
@@ -4019,37 +4014,26 @@ class Checker : public ClassRelation {
 		// the program runs (spec §3.13, §5.2).
 		if (p_left.kind == TypeKind::Variant || p_right.kind == TypeKind::Variant) {
 			const Type &other = p_left.kind == TypeKind::Variant ? p_right : p_left;
-			const bool compares = p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual;
-			if (compares && assignable(other, Type::of(TypeKind::Variant))) {
+			if (equality && assignable(other, Type::of(TypeKind::Variant))) {
 				if (r_compared) {
 					*r_compared = Type::of(TypeKind::Variant);
 				}
 				return Type::of(TypeKind::Bool);
 			}
-			error(p_at, compares ? "Cannot compare a Variant with " + other.to_string() + "." : std::string("Cannot use ") + token_name(p_op) + " on a Variant." + variant_hint());
+			error(p_at, equality ? "Cannot compare a Variant with " + other.to_string() + "." : std::string("Cannot use ") + token_name(p_op) + " on a Variant." + variant_hint());
 			return Type::of(TypeKind::Error);
 		}
-		// Objects by identity (spec §5.2), which two classes that do not extend
-		// one another never share.
-		if ((p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual) && p_left.kind == TypeKind::Object && p_right.kind == TypeKind::Object) {
+		// Objects and tasks by identity (spec §5.2), when one could be the other:
+		// two classes that do not extend one another never share an object.
+		if (equality && p_left.kind == p_right.kind && (p_left.kind == TypeKind::Object || p_left.kind == TypeKind::Task)) {
 			Type left = p_left;
 			Type right = p_right;
 			left.nullable = right.nullable = false;
-			if (!left.is_interface && !right.is_interface && !assignable(left, right) && !assignable(right, left)) {
-				error(p_at, left.to_string() + " and " + right.to_string() + " are never the same object, since neither class extends the other.");
-				return Type::of(TypeKind::Error);
-			}
-			return Type::of(TypeKind::Bool);
-		}
-		// Tasks by identity too (spec §5.2), when one could be the other.
-		if ((p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual) && p_left.kind == TypeKind::Task && p_right.kind == TypeKind::Task) {
-			Type left = p_left;
-			Type right = p_right;
-			left.nullable = right.nullable = false;
-			if (assignable(left, right) || assignable(right, left)) {
+			if (left.is_interface || right.is_interface || assignable(left, right) || assignable(right, left)) {
 				return Type::of(TypeKind::Bool);
 			}
-			error(p_at, left.to_string() + " and " + right.to_string() + " are never the same task, since neither result type is the other.");
+			const bool object = left.kind == TypeKind::Object;
+			error(p_at, left.to_string() + " and " + right.to_string() + (object ? " are never the same object, since neither class extends the other." : " are never the same task, since neither result type is the other."));
 			return Type::of(TypeKind::Error);
 		}
 		if (p_left.kind == TypeKind::Enum || p_right.kind == TypeKind::Enum) {
@@ -4058,7 +4042,6 @@ class Checker : public ClassRelation {
 		if (p_left.is_primitive() && p_right.is_primitive()) {
 			return primitive_binary_type(p_op, p_left, p_right, p_at);
 		}
-		const bool equality = p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual;
 		// Structs compare field by field (spec §3.6), enums with payloads by
 		// variant and then so (§3.7).
 		if ((p_left.kind == TypeKind::Struct || p_left.kind == TypeKind::PayloadEnum) && equality && p_left == p_right) {
@@ -4558,17 +4541,9 @@ class Checker : public ClassRelation {
 		if (in_constant) {
 			return set(r_expr, type); // No constant, as no other function value is (spec §4.5).
 		}
-		const auto made = [&](ExprKind p_kind, const std::string &p_text) {
-			auto expr = std::make_unique<Expr>();
-			expr->kind = p_kind;
-			expr->text = p_text;
-			expr->range = r_expr.range;
-			expr->name_token = NO_TOKEN;
-			return expr;
-		};
-		std::unique_ptr<Expr> call = made(ExprKind::Call, r_expr.text);
+		std::unique_ptr<Expr> call = synthetic(ExprKind::Call, r_expr.text, r_expr.range);
 		call->name_token = r_expr.name_token;
-		call->base = made(ExprKind::Name, r_expr.base->text);
+		call->base = synthetic(ExprKind::Name, r_expr.base->text, r_expr.range);
 		auto lambda = std::make_unique<FuncDecl>();
 		lambda->is_lambda = true;
 		lambda->name = r_expr.base->text + "." + r_expr.text;
@@ -4579,7 +4554,7 @@ class Checker : public ClassRelation {
 			param.name = engine_param.name;
 			param.range = r_expr.range;
 			param.name_token = NO_TOKEN;
-			call->args.push_back(made(ExprKind::Name, param.name));
+			call->args.push_back(synthetic(ExprKind::Name, param.name, r_expr.range));
 		}
 		auto body = std::make_unique<Stmt>();
 		body->kind = StmtKind::Return;
@@ -6461,7 +6436,7 @@ class Checker : public ClassRelation {
 			}
 			refer(r_expr.name_token, script_id(p_path, "new"));
 			r_expr.target = Target::NewObject;
-			check_members(r_expr, type, false);
+			check_member_arguments(r_expr, type, false);
 			return set(r_expr, type);
 		}
 		const ClassDecl *decl = script_decl(p_path);
@@ -6534,16 +6509,9 @@ class Checker : public ClassRelation {
 	// class_name loads it as preload() does.
 	Type script_base(Expr &r_access, const std::string &p_path) {
 		if (!r_access.base->constant) {
-			auto path = std::make_unique<Expr>();
-			path->kind = ExprKind::StringLiteral;
+			auto path = synthetic(ExprKind::StringLiteral, p_path, r_access.base->range);
 			path->op = TokenKind::String;
-			path->text = p_path;
-			path->range = r_access.base->range;
-			auto load = std::make_unique<Expr>();
-			load->kind = ExprKind::Call;
-			load->text = "preload";
-			load->range = r_access.base->range;
-			load->name_token = NO_TOKEN;
+			auto load = synthetic(ExprKind::Call, "preload", r_access.base->range);
 			load->args.push_back(std::move(path));
 			r_access.base = std::move(load);
 			return check_value(*r_access.base);
@@ -6671,7 +6639,7 @@ class Checker : public ClassRelation {
 	// must give those that _init does not assign and the scene does not
 	// export, and of a scene statically known, `p_scene`, the exports it does
 	// not assign (§7.4).
-	void check_members(Expr &r_call, const Type &p_made, bool p_instantiate, const Scene *p_scene = nullptr) {
+	void check_member_arguments(Expr &r_call, const Type &p_made, bool p_instantiate, const Scene *p_scene = nullptr) {
 		r_call.member_types.clear();
 		const ClassDecl *decl = p_made.kind == TypeKind::Object && !p_made.script.empty() ? script_decl(p_made.script) : nullptr;
 		std::unordered_set<std::string> given;
@@ -6859,7 +6827,7 @@ class Checker : public ClassRelation {
 						// The scene's root, checked as it is made, with the members it
 						// must be assigned (spec §7.4).
 						const std::optional<Scene> scene = known_scene(*r_expr.base);
-						check_members(r_expr, base_type.args[0], true, scene ? &*scene : nullptr);
+						check_member_arguments(r_expr, base_type.args[0], true, scene ? &*scene : nullptr);
 						return set(r_expr, base_type.args[0]);
 					}
 					return result;
@@ -6926,11 +6894,8 @@ class Checker : public ClassRelation {
 				// GDScript's own: print() of the arguments and where it is called
 				// (modules/gdscript/gdscript_utility_functions.cpp:349-362), which is
 				// known here.
-				auto where = std::make_unique<Expr>();
-				where->kind = ExprKind::StringLiteral;
-				where->range = r_expr.range;
-				where->text = "\n   At: " + options.path + ":" + std::to_string(cls.source->line(r_expr.range.first)) + ":" + outermost()->name + "()";
-				r_expr.args.push_back(std::move(where));
+				const std::string where = "\n   At: " + options.path + ":" + std::to_string(cls.source->line(r_expr.range.first)) + ":" + outermost()->name + "()";
+				r_expr.args.push_back(synthetic(ExprKind::StringLiteral, where, r_expr.range));
 				refer(r_expr.name_token, engine_id("@GlobalScope", "print_debug"));
 				// Calls print(), as written nowhere.
 				r_expr.text = "print";
@@ -7001,12 +6966,7 @@ class Checker : public ClassRelation {
 		refer(r_expr.name_token, engine_id("@GDScript", name));
 		if (name == "char") {
 			// String.chr() of a code that fits a char32, as GDScript checks it.
-			auto type = std::make_unique<Expr>();
-			type->kind = ExprKind::Name;
-			type->text = "String";
-			type->range = r_expr.range;
-			type->name_token = NO_TOKEN;
-			r_expr.base = std::move(type);
+			r_expr.base = synthetic(ExprKind::Name, "String", r_expr.range);
 			r_expr.text = "chr";
 			r_expr.name_token = NO_TOKEN;
 			const Type result = check_call(r_expr);
@@ -7779,14 +7739,9 @@ class Checker : public ClassRelation {
 					return;
 				}
 				r_pattern.local = p_local;
-				auto compare = std::make_unique<Expr>();
-				compare->kind = ExprKind::Binary;
+				auto compare = synthetic(ExprKind::Binary, std::string(), r_pattern.value->range);
 				compare->op = TokenKind::EqualEqual;
-				compare->range = r_pattern.value->range;
-				compare->left = std::make_unique<Expr>();
-				compare->left->kind = ExprKind::Name;
-				compare->left->range = r_pattern.value->range;
-				compare->left->name_token = NO_TOKEN;
+				compare->left = synthetic(ExprKind::Name, std::string(), r_pattern.value->range);
 				compare->right = std::move(r_pattern.value);
 				r_pattern.value = std::move(compare);
 				// The nameless local is the one that holds what the pattern matches.
@@ -8310,18 +8265,11 @@ class Checker : public ClassRelation {
 			scopes.back()[holders[i]] = int(function->locals.size());
 			function->locals.push_back({ std::string(), types[i] });
 		}
-		const auto expr = [&](ExprKind p_kind, const char *p_text) {
-			auto made = std::make_unique<Expr>();
-			made->kind = p_kind;
-			made->text = p_text;
-			made->range = r_stmt.value->range;
-			made->name_token = NO_TOKEN;
-			return made;
-		};
+		const TokenRange &at = r_stmt.value->range;
 		for (const char *method : methods) {
-			auto call = expr(ExprKind::Call, method);
-			call->base = expr(ExprKind::Name, holders[0]);
-			call->args.push_back(expr(ExprKind::Name, method == methods[2] ? holders[2] : holders[1]));
+			auto call = synthetic(ExprKind::Call, method, at);
+			call->base = synthetic(ExprKind::Name, holders[0], at);
+			call->args.push_back(synthetic(ExprKind::Name, method == methods[2] ? holders[2] : holders[1], at));
 			check_value(*call);
 			// Another language's may declare another type.
 			if (method != methods[2] && !call->type.is_error() && call->type.kind != TypeKind::Bool) {
@@ -11228,9 +11176,7 @@ class Checker : public ClassRelation {
 			probe.name_token = r_site.name_token;
 			if (on_self) {
 				// A call drops it, as `self.f()` is `f()`.
-				probe.base = std::make_unique<Expr>();
-				probe.base->kind = ExprKind::Self;
-				probe.base->range = r_site.base->range;
+				probe.base = synthetic(ExprKind::Self, std::string(), r_site.base->range);
 			} else if (moves_base) {
 				probe.base = std::move(r_site.base);
 			}
@@ -11364,10 +11310,7 @@ class Checker : public ClassRelation {
 				std::unique_ptr<Expr> probe;
 				for (size_t start = 0; start <= written.size();) {
 					const size_t end = std::min(written.find('.', start), written.size());
-					auto part = std::make_unique<Expr>();
-					part->kind = probe ? ExprKind::Member : ExprKind::Name;
-					part->text = written.substr(start, end - start);
-					part->range = r_site.range;
+					auto part = synthetic(probe ? ExprKind::Member : ExprKind::Name, written.substr(start, end - start), r_site.range);
 					part->name_token = r_site.name_token;
 					part->base = std::move(probe);
 					probe = std::move(part);
@@ -11759,7 +11702,7 @@ public:
 
 	const std::string &path() const { return options.path; }
 	const ClassDecl &decl() const { return cls; }
-	bool is_declared_class() const { return state == State::Declared && declared; }
+	bool is_declared_class() const { return declared; }
 
 	// The class's declarations, once; when another class of this file needs
 	// them first, then.
