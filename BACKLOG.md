@@ -9,7 +9,8 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - With the owner: the invitations to review 0.1.
 - Renaming, with the rewriting of scenes (spec §13.3).
   - A preview lists every change by file. Same-named candidates that do not resolve start unchecked, as in `.gd` files and dynamic access.
-  - Applying saves the affected open scenes, writes the files and reloads them. One undo in the editor restores them all.
+  - Applying saves the affected open scenes, writes the files and reloads them. One undo in the editor restores them all (architecture §2.3).
+  - Ctrl+Z in the script editor, once the script's history is used up, undoes the rename. First check that the plugin sees the key before the CodeEdit takes it.
   - Then renaming a node in the scene editor updates `$X` and literal paths in scripts. If time is short it moves to 0.3, since a stale `$X` is a compile error, not a silent one.
 - The first quick fixes: the five kinds most frequent in the second paper migration, about half of its 230 changes. They are adding `pub`, truthiness, `async` and `.detach()`, `T?` or `.unwrap()`, and `float` arguments.
   - A light bulb on the caret's line opens them in a small list at the caret, as in VS Code. So does a shortcut registered in the editor settings, and the context menu.
