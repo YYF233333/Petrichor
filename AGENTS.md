@@ -23,7 +23,7 @@ The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable`
 
 ## Documentation
 
-- The README is in Chinese and English. Both versions say the same thing and change in the same commit. The documents under `docs/` are in Chinese only. The English spec is generated before the first release.
+- The README is in Chinese and English. Both versions say the same thing and change in the same commit. The documents under `docs/` are in Chinese only, except the English spec. Commits that change the Chinese spec regenerate the English one by `tools/spec_translation.md`.
 - Each document holds one kind of content:
   - the spec: concise normative rules, without engine `path:line` citations or review history;
   - `docs/design-notes.md`: detailed rationales, corpus counts, post-v1 designs and rejected alternatives;

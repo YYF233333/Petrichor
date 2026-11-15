@@ -1,6 +1,8 @@
 import subprocess
 import sys
 
+import check_spec_translation
+
 README = ("README.zh.md", "README.md")
 
 
@@ -17,7 +19,8 @@ def main():
             errors.append(f"{path} is staged without {other}; change both versions in the same commit.")
     for error in errors:
         print(error, file=sys.stderr)
-    return 1 if errors else 0
+    spec_stale = check_spec_translation.SOURCE in staged and check_spec_translation.main()
+    return 1 if errors or spec_stale else 0
 
 
 if __name__ == "__main__":
