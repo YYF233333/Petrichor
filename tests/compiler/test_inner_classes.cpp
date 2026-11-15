@@ -10,12 +10,6 @@ using bytecode::Op;
 
 namespace {
 
-void require_verified(const compiler::CompileResult &p_result) {
-	REQUIRE_MESSAGE(p_result.ok(), messages(p_result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(p_result.module, error), error);
-}
-
 bool uses(const bytecode::Function &p_function, Op p_op) {
 	for (size_t pc = 0; pc < p_function.code.size(); pc += bytecode::instruction_length(p_function.code.data() + pc)) {
 		if (Op(p_function.code[pc]) == p_op) {
@@ -93,7 +87,7 @@ class Flash:
 	var brightness := 1.0
 )",
 			FakeProject());
-	require_verified(result);
+	require_ok(result);
 	CHECK(inner(result.module, "Plain").base_class == "RefCounted");
 	CHECK(inner(result.module, "Shot").base_class == "Node3D");
 	CHECK(inner(result.module, "Flash").base_class == "Node3D");
@@ -112,7 +106,7 @@ class Target:
 		pass
 )",
 			FakeProject());
-	require_verified(implementing);
+	require_ok(implementing);
 	CHECK(inner(implementing.module, "Target").interfaces == std::vector<std::string>{ "res://test.pet::Hurtable" });
 }
 
@@ -137,7 +131,7 @@ class Trail:
 	var length := LIMIT
 )",
 			FakeProject());
-	require_verified(result);
+	require_ok(result);
 	const bytecode::Module &shot = inner(result.module, "Shot");
 	const bytecode::Function &power = function_named(shot, "power");
 	CHECK(uses(power, Op::CALL_METHOD)); // double(), static, on the class's script.
@@ -155,7 +149,7 @@ TEST_CASE("an inner class has no object of the class around it (spec §4.1)") {
 
 TEST_CASE("what an inner class declares or inherits comes before what is around it") {
 	// The String around them would not be returned as an int.
-	require_verified(compile_in(R"(extends Node
+	require_ok(compile_in(R"(extends Node
 const MAX := "ten"
 class Own:
 	const MAX := 2
@@ -169,7 +163,7 @@ class Inherited extends Base:
 }
 
 TEST_CASE("an inner class is named through its class from other files, when pub") {
-	require_verified(compile_in(R"(extends Node
+	require_ok(compile_in(R"(extends Node
 func f() -> void:
 	var shot: Combat.Shot = Combat.Shot.make()
 	var other := Combat.Shot.new()
@@ -190,7 +184,7 @@ func f() -> int:
 	return Constants.Match.MAX_PLAYERS + Constants.Match.Player.limit()
 )",
 			constants_project());
-	require_verified(result);
+	require_ok(result);
 	// Nothing is read from the autoload: it only leads to the class.
 	CHECK_FALSE(uses(function_named(result.module, "f"), Op::GET_AUTOLOAD));
 	CHECK(has(errors_in("extends Node\nfunc f() -> void:\n\tprint(Constants.Hidden)\n"), "constants.pet.Hidden is not pub."));
@@ -198,7 +192,7 @@ func f() -> int:
 
 TEST_CASE("an inner class is a script as a value") {
 	const auto result = compile_in("extends Node\nclass Shot:\n\tpass\nfunc f(node: Node) -> void:\n\tnode.set_script(Shot)\n", FakeProject());
-	require_verified(result);
+	require_ok(result);
 	const bytecode::Function &f = function_named(result.module, "f");
 	const size_t get = find_instruction(f, Op::GET_SCRIPT);
 	REQUIRE(get < f.code.size());
@@ -209,7 +203,7 @@ TEST_CASE("a class_name is a script as a value, as an inner class is (spec §2.1
 	FakeProject project;
 	project.add_script("res://weapon.pet", "class_name Weapon extends RefCounted\n", "Weapon");
 	const auto result = compile_in("class_name Holder extends Node\nfunc f() -> Array[Script]:\n\treturn [Weapon, Holder]\n", project);
-	require_verified(result);
+	require_ok(result);
 	const bytecode::Function &f = function_named(result.module, "f");
 	const size_t get = find_instruction(f, Op::GET_SCRIPT);
 	REQUIRE(get < f.code.size());
@@ -217,7 +211,7 @@ TEST_CASE("a class_name is a script as a value, as an inner class is (spec §2.1
 }
 
 TEST_CASE("an inner class extends one of its file, one of another class, or the class around it") {
-	require_verified(compile_in(R"(class_name Weapon extends RefCounted
+	require_ok(compile_in(R"(class_name Weapon extends RefCounted
 class Shot:
 	pub var damage := 1
 class Bolt extends Shot:
@@ -244,7 +238,7 @@ TEST_CASE("an inner class's name is declared once, and class_name and the file's
 	CHECK(has(errors_in("extends Node\nclass Shot:\n\tclass_name Shot\n"), "class_name belongs to the file's class."));
 	CHECK(has(errors_in("extends Node\nclass Shot:\n\t@icon(\"res://a.svg\")\n\tvar x := 1\n"), "@icon belongs to the file's class."));
 	CHECK(has(errors_in("extends Node\nclass Shot:\n\tvar x := 1\n\textends Node\n"), "\"extends\" belongs to the class header, before the members."));
-	require_verified(compile_in("extends Node\n@abstract class Shape:\n\t@abstract func area() -> float\nclass Square extends Shape:\n\tfunc area() -> float:\n\t\treturn 1.0\n", FakeProject()));
+	require_ok(compile_in("extends Node\n@abstract class Shape:\n\t@abstract func area() -> float\nclass Square extends Shape:\n\tfunc area() -> float:\n\t\treturn 1.0\n", FakeProject()));
 	CHECK(has(errors_in("extends Node\n@abstract class Shape:\n\tpass\nfunc f() -> void:\n\tvar s := Shape.new()\n"), "is abstract and cannot be instantiated"));
 }
 
@@ -256,7 +250,7 @@ pub class Shot:
 		pass
 )",
 			FakeProject());
-	require_verified(result);
+	require_ok(result);
 	const bytecode::Module &shot = inner(result.module, "Shot");
 	CHECK(shot.is_pub);
 	CHECK(inner(shot, "Trail").name == "Trail");

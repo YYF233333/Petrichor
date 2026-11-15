@@ -8,12 +8,6 @@ using bytecode::Op;
 
 namespace {
 
-void require_verified(const compiler::CompileResult &p_result) {
-	REQUIRE_MESSAGE(p_result.ok(), messages(p_result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(p_result.module, error), error);
-}
-
 const bytecode::Function *only_lambda(const bytecode::Module &p_module) {
 	const bytecode::Function *found = nullptr;
 	for (const bytecode::Function &function : p_module.functions) {
@@ -49,10 +43,10 @@ TEST_CASE("a lambda's types: parameters written or from where it goes, the retur
 TEST_CASE("a lambda passed to an Array method takes the elements (spec §3.8, §4.6)") {
 	CHECK(type_of("a.filter(func(x): return x > 1)", "var a: Array[int] = [1, 2]") == "Array[int]");
 	CHECK(type_of("a.map(func(x): return x.length())", "var a: Array[String] = []") == "Array");
-	require_verified(compile(in_function("var a: Array[Node] = []\na.sort_custom(func(x, y): return x.name < y.name)\nprint(a.any(func(n): return n.name == &\"a\"), a.rfind_custom(func(n): return n.name.is_empty()))\nprint(a.bsearch_custom(a[0], func(x, y): return x.name < y.name))")));
+	require_ok(compile(in_function("var a: Array[Node] = []\na.sort_custom(func(x, y): return x.name < y.name)\nprint(a.any(func(n): return n.name == &\"a\"), a.rfind_custom(func(n): return n.name.is_empty()))\nprint(a.bsearch_custom(a[0], func(x, y): return x.name < y.name))")));
 	CHECK(has_error(in_function("var a: Array = [1]\nprint(a.all(func(x): return x.length() > 0))"), "Cannot call \"length()\" on a Variant."));
 	// An element that is a function takes a lambda as one.
-	require_verified(compile(in_function("var checks: Array[func(int) -> bool] = []\nchecks.append(func(n): return n < 10)")));
+	require_ok(compile(in_function("var checks: Array[func(int) -> bool] = []\nchecks.append(func(n): return n < 10)")));
 	CHECK(has_error(in_function("var a: Array[int] = []\nprint(a.reduce(func(sum, x): return sum + x, 0))"), "Parameter \"sum\" needs a type: nothing the lambda goes to gives one."));
 }
 
@@ -65,7 +59,7 @@ TEST_CASE("function values are called with call(), checked against their types (
 	CHECK(has_error(in_function("var f: func(int) = func(x: String): pass"), "Cannot assign a value of type func(String) as func(int)."));
 	CHECK(has_error("extends Node\nvar f: func(int)? = null\n", "A function type that may be None is written in parentheses, as (func(int))?."));
 	const compiler::CompileResult result = compile(in_function("var f := func(x: int) -> int: return x * 2\nprint(f.call(3))\nprint(f.callv([3]))"));
-	require_verified(result);
+	require_ok(result);
 	// Not a call of the engine's Callable.call, so that a program error in it aborts the caller (§8.1).
 	const bytecode::Function &caller = function_named(result.module, "f");
 	const size_t pc = find_instruction(caller, Op::CALL_VALUE);
@@ -77,34 +71,34 @@ TEST_CASE("a lambda captures by value: assigning a capture is a compile error, a
 	CHECK(has_error(in_function("var hits := 0\nchild_entered_tree.connect(func(node): hits += 1)"), "Cannot assign to \"hits\", which the lambda captures as a copy; keep what it shares in a member or a container."));
 	CHECK(has_error(in_function("var v := Vector2()\nvar f := func(): v.x = 1"), "Cannot assign to \"v\", which the lambda captures as a copy"));
 	CHECK(has_error(in_function("const K = 3\nvar f := func(): K = 4"), "Cannot assign to the constant \"K\"."));
-	require_verified(compile(in_function("var counter: Array[int] = [0]\nchild_entered_tree.connect(func(node): counter[0] += 1)")));
+	require_ok(compile(in_function("var counter: Array[int] = [0]\nchild_entered_tree.connect(func(node): counter[0] += 1)")));
 	// Its own locals, and those of a lambda in it, it may assign.
-	require_verified(compile(in_function("var f := func():\n\tvar n := 1\n\tn += 1\n\tvar g := func(): return n\n\treturn g.call()")));
+	require_ok(compile(in_function("var f := func():\n\tvar n := 1\n\tn += 1\n\tvar g := func(): return n\n\treturn g.call()")));
 }
 
 TEST_CASE("what is narrowed where a lambda is made stays narrowed in it (spec §5.4)") {
-	require_verified(compile(in_function("var parent: Node? = get_parent()\nif parent != None:\n\tvar f := func(): print(parent.name)\n\tf.call()")));
+	require_ok(compile(in_function("var parent: Node? = get_parent()\nif parent != None:\n\tvar f := func(): print(parent.name)\n\tf.call()")));
 	CHECK(has_error(in_function("var parent: Node? = get_parent()\nvar f := func(): print(parent.name)"), "may be None"));
 }
 
 TEST_CASE("a lambda's parameters take what the signal it is connected to passes (spec §4.7)") {
-	require_verified(compile(in_function("child_entered_tree.connect(func(node):\n\tprint(node.name)\n)")));
+	require_ok(compile(in_function("child_entered_tree.connect(func(node):\n\tprint(node.name)\n)")));
 	CHECK(has_error(in_function("child_entered_tree.connect(func(node: int): pass)"), "passes Node as argument 1"));
 	CHECK(has_error(in_function("child_entered_tree.connect(func(): pass)"), "passes 1 argument(s)"));
 }
 
 TEST_CASE("the names of lambdas: locals of the function around it are taken, parameters may reuse them, and a lambda's name is not in its body (spec §3.11, §4.6)") {
 	CHECK(has_error(in_function("var n := 1\nvar f := func():\n\tvar n := 2\n\treturn n"), "\"n\" is already declared in the function around this lambda."));
-	require_verified(compile(in_function("var node := get_parent()\nchild_entered_tree.connect(func(node): print(node.name))")));
+	require_ok(compile(in_function("var node := get_parent()\nchild_entered_tree.connect(func(node): print(node.name))")));
 	CHECK(has_error(in_function("var f := func fact(n: int) -> int: return n * fact.call(n - 1)"), "Identifier \"fact\" is not declared in the current scope."));
 	const compiler::CompileResult named = compile(in_function("var f := func on_timeout(): pass\nf.call()"));
-	require_verified(named);
+	require_ok(named);
 	CHECK(only_lambda(named.module)->name == "on_timeout");
 }
 
 TEST_CASE("a lambda is a function of the module after the class's, made by MAKE_LAMBDA with what it captures (spec §3.11)") {
 	const compiler::CompileResult result = compile("extends Node\n\nvar speed := 2.0\n\nfunc scale(by: int) -> Callable:\n\tvar factor := by * 2\n\treturn func(x: float): return x * factor * speed\n\nfunc plain() -> Callable:\n\treturn func(): return 1\n\nfunc after() -> void:\n\tpass\n");
-	require_verified(result);
+	require_ok(result);
 	const bytecode::Module &module = result.module;
 	REQUIRE(module.functions.size() >= 5);
 	// The class's functions first, so that hot reload compares them alone (§12.4).
@@ -127,7 +121,7 @@ TEST_CASE("a lambda is a function of the module after the class's, made by MAKE_
 
 TEST_CASE("a lambda in a lambda captures through it, and one that uses self makes both use it (spec §3.11)") {
 	const compiler::CompileResult result = compile("extends Node\n\nvar total := 0\n\nfunc f() -> void:\n\tvar n := 3\n\tvar outer := func():\n\t\tvar inner := func(): total = n\n\t\tinner.call()\n\touter.call()\n");
-	require_verified(result);
+	require_ok(result);
 	int lambdas = 0;
 	for (const bytecode::Function &function : result.module.functions) {
 		if (function.is_lambda) {
@@ -141,14 +135,14 @@ TEST_CASE("a lambda in a lambda captures through it, and one that uses self make
 
 TEST_CASE("a lambda in a static function is static (spec §4.8)") {
 	CHECK(has_error("extends Node\nvar total := 0\nstatic func f() -> void:\n\tvar g := func(): total = 1\n", "\"total\" belongs to an instance, which the static function \"f()\" does not have."));
-	require_verified(compile("extends Node\nstatic func f() -> int:\n\tvar n := 2\n\tvar g := func(): return n\n\treturn g.call()\n"));
+	require_ok(compile("extends Node\nstatic func f() -> int:\n\tvar n := 2\n\tvar g := func(): return n\n\treturn g.call()\n"));
 }
 
 TEST_CASE("lambdas over several lines inside brackets, and several on one line (spec §3.11)") {
-	require_verified(compile(in_function("var fs: Array[Callable] = [\n\tfunc():\n\t\treturn 1,\n\tfunc():\n\t\treturn 2,\n]\nprint(fs.size())")));
-	require_verified(compile(in_function("var f := func():\n\tprint(1)\n\tprint(2)\nf.call()")));
-	require_verified(compile(in_function("var f := func(): print(1); print(2)\nf.call()")));
-	require_verified(compile(in_function("child_entered_tree.connect(func(node):\n\tif node.name == &\"a\":\n\t\tprint(1)\n\tchild_entered_tree.connect(func(other):\n\t\tprint(other.name)\n\t)\n)\nprint(2)")));
-	require_verified(compile(in_function("child_entered_tree.connect(func(node):\n\tprint(node.name))\nprint(2)")));
-	require_verified(compile("extends Node\nvar on_hit := func(amount: int): print(amount)\nfunc f() -> void:\n\ton_hit.call(3)\n"));
+	require_ok(compile(in_function("var fs: Array[Callable] = [\n\tfunc():\n\t\treturn 1,\n\tfunc():\n\t\treturn 2,\n]\nprint(fs.size())")));
+	require_ok(compile(in_function("var f := func():\n\tprint(1)\n\tprint(2)\nf.call()")));
+	require_ok(compile(in_function("var f := func(): print(1); print(2)\nf.call()")));
+	require_ok(compile(in_function("child_entered_tree.connect(func(node):\n\tif node.name == &\"a\":\n\t\tprint(1)\n\tchild_entered_tree.connect(func(other):\n\t\tprint(other.name)\n\t)\n)\nprint(2)")));
+	require_ok(compile(in_function("child_entered_tree.connect(func(node):\n\tprint(node.name))\nprint(2)")));
+	require_ok(compile("extends Node\nvar on_hit := func(amount: int): print(amount)\nfunc f() -> void:\n\ton_hit.call(3)\n"));
 }

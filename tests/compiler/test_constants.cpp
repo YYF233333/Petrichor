@@ -154,8 +154,6 @@ func f() -> float:
 	return total
 )");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	CHECK(named(result.module, "LIMIT").i == 3);
 	CHECK(named(result.module, "RATE").f == 2.0);
 	find_instruction(function_named(result.module, "f"), bytecode::Op::SOME);
@@ -203,8 +201,6 @@ const LABEL = "Insert an expression..."
 TEST_CASE("bitwise operators and their assignments take ints at run time") {
 	const compiler::CompileResult result = compile(in_function("var flags := x & 3 | ~n ^ 1\nflags <<= n\nflags >>= 1\nflags &= 7\nflags |= 8\nflags ^= 2\nreturn flags", "func f(x: int, n: int) -> int:"));
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	const bytecode::Function &f = function_named(result.module, "f");
 	for (const bytecode::Op op : { bytecode::Op::AND_INT, bytecode::Op::OR_INT, bytecode::Op::XOR_INT, bytecode::Op::NOT_INT, bytecode::Op::SHL_INT, bytecode::Op::SHR_INT }) {
 		find_instruction(f, op);

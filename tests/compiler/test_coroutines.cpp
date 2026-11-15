@@ -55,8 +55,6 @@ TEST_CASE("coroutine declarations enforce their public contracts") {
 TEST_CASE("an async function value is called for its Task") {
 	const auto result = compile("extends Node\nsignal tick(value: int)\nasync func f() -> int:\n\tvar g := async func(x: int) -> int: return x + await tick\n\tvar t: Task[int] = g.call(1)\n\ttick.connect(async func(value): await t)\n\treturn await g.call(2) + await t\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	REQUIRE_MESSAGE(bytecode::verify(result.module, error), error);
 	const auto &f = function_named(result.module, "f");
 	size_t pc = find_instruction(f, Op::AWAIT_TASK);
 	CHECK(f.code[pc + 3] == 1);
@@ -78,8 +76,6 @@ TEST_CASE("Task.of() and Task.delay() make tasks, owned when awaited at once") {
 	CHECK(has_error(in_function("var t := Task.wait(1.0)"), "Task has no function \"wait()\"."));
 	const auto result = compile("extends Node\nsignal moved(x: int, y: int)\nasync func f():\n\tvar t: Task[void] = Task.of(moved)\n\tawait Task.of(moved)\n\tawait Task.delay(0.5)\n\tawait t\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	REQUIRE_MESSAGE(bytecode::verify(result.module, error), error);
 	const auto &f = function_named(result.module, "f");
 	find_instruction(f, Op::TASK_DELAY);
 	const size_t pc = find_instruction(f, Op::AWAIT_TASK);
@@ -113,8 +109,6 @@ async func f() -> int:
 			return reason
 )");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	REQUIRE_MESSAGE(bytecode::verify(result.module, error), error);
 	const auto &f = function_named(result.module, "f");
 	const size_t pc = find_instruction(f, Op::TASK_SETTLED);
 	CHECK(f.code[pc + 4] == 1);
@@ -139,8 +133,6 @@ async func f() -> int:
 	return await Task.any([work(), t]) + await t
 )");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	REQUIRE_MESSAGE(bytecode::verify(result.module, error), error);
 	const auto &f = function_named(result.module, "f");
 	size_t pc = find_instruction(f, Op::TASK_ALL);
 	CHECK(f.code[pc + 4] == 6);

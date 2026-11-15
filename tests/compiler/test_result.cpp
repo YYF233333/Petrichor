@@ -28,8 +28,6 @@ TEST_CASE("the methods of Result take the value or the error apart") {
 	const std::string body = "\tvar a: int = r.unwrap() + r.expect(\"m\") + r.unwrap_or(0) + r.unwrap_or_else(func(e): return e.length())\n\tvar b: Result[String, String] = r.map(func(v): return str(v))\n\tvar c: Result[int, int] = r.map_err(func(e): return e.length())\n\tvar d: Result[float, String] = r.and_then(func(v) -> Result[float, String]: return Ok(v * 0.5))\n\tvar k: Result[int, bool] = r.or_else(func(e) -> Result[int, bool]: return Err(e.is_empty()))\n\tvar g: int? = r.ok()\n\tvar h: String? = r.err()\n\treturn r";
 	const compiler::CompileResult result = compile(std::string(HEAD) + "func f(r: Result[int, String], o: int?) -> Result[int, String]:\n" + body + "\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	CHECK(contains(errors("\tvar x := r.and_then(func(v) -> Result[int, bool]: return Ok(v))\n\treturn r"), "The function passed to and_then() returns Result[int, bool], not Result[U, String]."));
 	CHECK(contains(errors("\tvar x := r.map(func(v: String): return v)\n\treturn r"), "\"map()\" takes a function of one parameter, which takes int; found func(String) -> String."));
 	CHECK(contains(errors("\tvar x := r.flatten()\n\treturn r"), "Result[int, String] has no method \"flatten()\"."));
@@ -47,8 +45,6 @@ TEST_CASE("a lambda passed to and_then() or or_else() returns Ok, Err, None and 
 							 "\tvar e: String? = o.and_then(func(x): return str(o?))\n\treturn r";
 	const compiler::CompileResult result = compile(std::string(HEAD) + "func f(r: Result[int, String], o: int?) -> Result[int, String]:\n" + body + "\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	CHECK(contains(errors("\tvar x := r.and_then(func(v): return Err(\"no\"))\n\treturn r"), "needs a return type: what it returns does not say what Ok(...) holds."));
 	CHECK(contains(errors("\tvar x := o.and_then(func(v): return None)\n\treturn r"), "needs a return type: what it returns does not say which T? None is."));
 	CHECK(contains(errors("\tvar x := r.or_else(func(e): return Ok(1))\n\treturn r"), "what Err(...) holds."));
@@ -77,8 +73,6 @@ TEST_CASE("T.try_from(v) gives the value as a T, or a ConversionError") {
 	const std::string body = "\tvar a: Result[int, ConversionError] = int.try_from(3.0)\n\tvar b: Result[Array[int], ConversionError] = Array[int].try_from([1])\n\tvar c: Result[Dictionary[String, int?], ConversionError] = Dictionary[String, int?].try_from({})\n\tvar d: Result[Node, ConversionError] = Node.try_from(self)\n\tvar e := ConversionError(message = \"x\")\n\tvar m: String = c.err().unwrap_or(e).message\n\treturn r";
 	const compiler::CompileResult result = compile(std::string(HEAD) + "func f(r: Result[int, String], o: int?) -> Result[int, String]:\n" + body + "\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	// A value named so is not a type.
 	CHECK(contains(errors("\tvar x := r.try_from(1)\n\treturn r"), "Result[int, String] has no method \"try_from()\"."));
 }

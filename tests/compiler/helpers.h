@@ -14,8 +14,16 @@ namespace petrichor::tests {
 
 const compiler::EngineApi &fake_engine();
 
-// Compiles a source; when it compiles, also checks its references and cuts it
-// line by line (architecture §3).
+// Checks that the bytecode of a result that compiled verifies: what the
+// compiler writes is what the runtime accepts.
+void check_verified(const compiler::CompileResult &p_result);
+
+// Requires `p_result` to have compiled; compile() and compile_in() have then
+// verified it.
+void require_ok(const compiler::CompileResult &p_result);
+
+// Compiles a source; when it compiles, also verifies it, checks its
+// references and cuts it line by line (architecture §3).
 compiler::CompileResult compile(const std::string &p_source);
 
 // Scenes described by hand, for the scene model (spec §7).
@@ -56,7 +64,8 @@ public:
 	std::optional<compiler::ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override;
 };
 
-// Compiles res://test.pet, used by the scenes of `p_project`.
+// Compiles res://test.pet, used by the scenes of `p_project`, as compile()
+// does.
 compiler::CompileResult compile_in(const std::string &p_source, const FakeProject &p_project, bool p_declarations_only = false);
 
 // The errors and references of the checks of each scene of `p_project`

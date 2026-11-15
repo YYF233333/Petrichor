@@ -28,9 +28,7 @@ TEST_CASE("!= None and == None narrow a T? local") {
 
 TEST_CASE("a narrowed T? of a value type is read and written as the T inside") {
 	const auto compiles = [](const std::string &p_body) {
-		const auto result = compile(in_function(p_body, "func f(p: Vector3?) -> float:"));
-		std::string error;
-		return result.ok() && petrichor::bytecode::verify(result.module, error);
+		return compile(in_function(p_body, "func f(p: Vector3?) -> float:")).ok();
 	};
 	CHECK(compiles("if p != None:\n\treturn p.x\nreturn 0.0"));
 	CHECK(compiles("if p != None:\n\tp.x = 2.0\n\treturn p.x\nreturn 0.0"));
@@ -100,10 +98,7 @@ TEST_CASE("an option of a value narrows too") {
 TEST_CASE("a compound assignment reads a narrowed local as narrowed") {
 	CHECK(narrowing("if x != None:\n\tx += 1\n\tvar y: int = x", "func f(x: int?) -> void:").empty());
 	CHECK(contains(narrowing("x += 1", "func f(x: int?) -> void:"), "may be None (int?)"));
-	const auto result = compile(in_function("if x != None:\n\tx += 1\n\treturn x\nreturn 0", "func f(x: int?) -> int:"));
-	std::string error;
-	CHECK(result.ok());
-	CHECK(petrichor::bytecode::verify(result.module, error));
+	CHECK(compile(in_function("if x != None:\n\tx += 1\n\treturn x\nreturn 0", "func f(x: int?) -> int:")).ok());
 }
 
 TEST_CASE("None goes where a T? is expected") {

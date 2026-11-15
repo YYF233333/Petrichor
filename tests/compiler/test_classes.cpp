@@ -171,8 +171,6 @@ TEST_CASE("members without pub are visible in their own file and subclasses (spe
 TEST_CASE("a method of another object is a value, which does not keep the object (spec §3.11)") {
 	const compiler::CompileResult result = compile_in("extends Node\n\nfunc f(w: Weapon, e: Enemy) -> String:\n\tvar hit: Combat.Damageable = e\n\tvar a := e.damage\n\tvar b := hit.damage\n\tvar c := e.rotate_y\n\tvar describe := w.describe\n\treturn describe.call()\n", project());
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	CHECK(contains(errors("var x := w.hidden"), "\"hidden()\" of Weapon is not pub."));
 	CHECK(contains(errors("var x := Weapon.new().describe"), "nothing else holds this new Weapon."));
 	CHECK(contains(errors("var x := RandomNumberGenerator.new().randi"), "nothing else holds this new RandomNumberGenerator"));
@@ -208,10 +206,7 @@ TEST_CASE("T? and common types of a class of this language keep its class") {
 TEST_CASE("calls to methods of other classes that return arrays") {
 	FakeProject classes = project();
 	classes.add_script("res://inventory.pet", "class_name Inventory\n\npub func names() -> Array[String]:\n\treturn []\n", "Inventory");
-	const compiler::CompileResult result = compile_in("extends Node\n\nfunc f(i: Inventory) -> int:\n\tvar names := i.names()\n\treturn names.size()\n", classes);
-	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	require_ok(compile_in("extends Node\n\nfunc f(i: Inventory) -> int:\n\tvar names := i.names()\n\treturn names.size()\n", classes));
 }
 
 TEST_CASE("a method of another class, another instance or an interface is called directly (spec §8.1)") {
@@ -222,8 +217,6 @@ TEST_CASE("a method of another class, another instance or an interface is called
 			"func f(w: Weapon, s: Shield, d: Combat.Damageable, other: Gate) -> void:\n\tvar text := w.describe()\n\tvar hits := s.hit(2)\n\td.damage(5)\n\tvar i := other.id()\n\ts._ready()\n",
 			classes);
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	const bytecode::Module &module = result.module;
 	const bytecode::Function &f = function_named(module, "f");
 	std::vector<uint32_t> methods;
@@ -257,8 +250,6 @@ TEST_CASE("an interface is described in slots, for the entry checks and signatur
 	classes.add_script("res://heal.pet", "class_name Heal\n\npub interface Healable:\n\tfunc heal(amount: float)\n", "Heal");
 	const compiler::CompileResult result = compile_in("extends Node\n\nfunc a(d: Combat.Damageable) -> void:\n\tpass\n\nfunc b(h: Heal.Healable) -> void:\n\tpass\n\nfunc c(all: Array[Heal.Healable]) -> void:\n\tpass\n", classes);
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	const std::vector<bytecode::TypeDesc> &types = result.module.types;
 	const auto param = [&](const char *p_function) -> const bytecode::Slot & { return function_named(result.module, p_function).params[0]; };
 	const bytecode::ClassRef &a = types[param("a").type].object;
@@ -287,8 +278,6 @@ TEST_CASE("an autoload's name stands for its class in a type, after nearer names
 											  "func f(n: Node, actions: Array[Export.Action]) -> void:\n\tvar format: Export.FileFormat = Export.FileFormat(1)\n\tformat = Export.FileFormat.PNG\n"
 											  "\tvar frame: Export.Frame = Export.Frame()\n\tvar e := n as Export\n\tvar v: ValueManager = ValueManager\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	CHECK(contains(messages(in("var x: ValueManager.Thing\n")), "ValueManager is a class of another language, which has no interfaces."));
 	// A type this class declares by the name comes first.
 	CHECK(in("enum Export { CSV }\n\nfunc f() -> Export:\n\treturn Export.CSV\n").ok());
@@ -429,8 +418,6 @@ TEST_CASE("GDScript classes by class_name: new(), static methods and constants (
 	CHECK(errors("var l: Legacy = Legacy.new()\n\tvar c: int = l.count()").empty());
 	const compiler::CompileResult result = compile_in("extends Node\n\nconst Unit = preload(\"res://units/unit.gd\")\n\nfunc f() -> float:\n\tvar u := Unit.new()\n\tvar l := Legacy.new()\n\tvar made := Unit.make(1)\n\treturn Unit.TILE_SIZE + Legacy.MAX_SPEED\n", project());
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	// Called by name on the script, which preload() loads.
 	std::vector<std::string> calls;
 	for (const bytecode::EngineCall &call : result.module.engine_calls) {
@@ -445,8 +432,6 @@ TEST_CASE("the declarations know the classes that preloads of scripts name (spec
 	// at all, as no script is loaded.
 	const compiler::CompileResult result = compile_in("extends Node\n\nconst Grid = preload(\"res://tools/grid.pet\")\nconst Unit = preload(\"res://units/unit.gd\")\n\npub signal spawned(u: Unit)\npub var grid: Grid?\npub var unit: Unit?\n\npub func f(u: Unit) -> Unit:\n\treturn u\n", project(), true);
 	CHECK_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	FakeProject classes = project();
 	classes.add_script("res://board.pet", "class_name Board\nextends Node\n\nconst Grid = preload(\"res://tools/grid.pet\")\n\npub var grid: Grid?\n", "Board");
 	CHECK(messages(compile_in("extends Node\n\nfunc f(b: Board) -> void:\n\tvar g = b.grid\n\tif g != None:\n\t\tg.clear()\n", classes)).empty());
@@ -572,8 +557,6 @@ TEST_CASE("self is a value of this class, except in the PREDELETE branch (spec �
 	const std::string head = "extends Node implements Combat.Damageable\nclass_name Turret\n\nvar hp := 1\n\npub func damage(amount: float):\n\tpass\n\n";
 	const compiler::CompileResult result = compile_in(head + "func f(n: Node, hp: String) -> void:\n\tvar me: Turret = self\n\tvar d: Combat.Damageable = self\n\tn.add_child(self)\n\tself.hp = 2\n\tvar h: int = self.hp\n", project());
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	find_instruction(function_named(result.module, "f"), bytecode::Op::GET_SELF);
 
 	const auto check = [&](const std::string &p_functions) { return messages(compile_in(head + p_functions, project())); };

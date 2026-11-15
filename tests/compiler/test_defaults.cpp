@@ -16,12 +16,11 @@ func local_call():
 	for (const bool declarations : { false, true }) {
 		const auto result = compile_in(source, project, declarations);
 		REQUIRE_MESSAGE(result.ok(), messages(result));
-		std::string error;
-		CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 		const auto &defaults = function_named(result.module, "values").defaults;
 		CHECK(defaults.size() == 10);
 		const auto data = bytecode::serialize(result.module);
 		bytecode::Module copy;
+		std::string error;
 		REQUIRE_MESSAGE(bytecode::deserialize(data.data(), data.size(), copy, error), error);
 		CHECK(bytecode::serialize(copy) == data);
 	}

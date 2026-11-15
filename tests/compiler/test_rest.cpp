@@ -12,8 +12,6 @@ TEST_CASE("a rest parameter takes the arguments after the others, each checked")
 	const auto &joined = function_named(result.module, "joined");
 	CHECK(joined.is_vararg);
 	CHECK(joined.fixed_params() == 1);
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	CHECK(has_error(declared + "func f() -> void:\n\tjoined(\"-\", \"a\", 2)\n", "Cannot pass"));
 	CHECK(has_error(declared + "func f() -> void:\n\tjoined()\n", "at least 1"));
 	CHECK(has_error(declared + "func f(names: Array[String]) -> void:\n\tjoined(\"-\", ...names)\n", "use callv()"));

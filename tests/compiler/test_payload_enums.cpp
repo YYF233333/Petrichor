@@ -52,8 +52,6 @@ TEST_CASE("a pattern takes a variant, a struct or a T? apart, and binds its fiel
 	const std::string body = "\tmatch c:\n\t\tCommand.IDLE:\n\t\t\treturn 0\n\t\tCommand.MOVE(var target):\n\t\t\treturn int(target.x)\n\t\tCommand.ATTACK(power = var p, ..):\n\t\t\treturn p";
 	const compiler::CompileResult result = compile(source(body + "\n\nfunc g(h: Hit, o: int?) -> int:\n\tmatch h:\n\t\tHit(var damage, crit = true):\n\t\t\treturn damage\n\tmatch o:\n\t\tNone:\n\t\t\treturn 0\n\t\tSome(3):\n\t\t\treturn 3\n\t\tvar x:\n\t\t\treturn x + 1"));
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	CHECK(contains(errors("\tmatch h:\n\t\tHit(damage = 3):\n\t\t\treturn 1\n\treturn 0"), "Hit(...) leaves out \"crit\"; match it, or end with `..`."));
 	CHECK(contains(errors("\tmatch c:\n\t\tCommand.MOVE(Vector3.ZERO):\n\t\t\treturn 1\n\t\t_:\n\t\t\treturn 0"), "The fields of Command.MOVE are matched by name, as in target = pattern."));
 	CHECK(contains(errors("\tmatch c:\n\t\tCommand.MOVE(var target), Command.IDLE:\n\t\t\treturn 1\n\t\t_:\n\t\t\treturn 0"), "Patterns separated by commas cannot bind."));

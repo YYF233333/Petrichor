@@ -16,9 +16,6 @@ namespace {
 bytecode::Module module_of(const std::string &p_source) {
 	compiler::CompileResult result = compile(p_source);
 	REQUIRE_MESSAGE(result.ok(), joined(errors_of(p_source)));
-	// What the compiler writes is what the runtime accepts.
-	std::string problem;
-	CHECK_MESSAGE(bytecode::verify(result.module, problem), problem);
 	return result.module;
 }
 

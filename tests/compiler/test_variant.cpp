@@ -9,12 +9,6 @@ using bytecode::Op;
 
 namespace {
 
-void require_verified(const compiler::CompileResult &p_result) {
-	REQUIRE_MESSAGE(p_result.ok(), messages(p_result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(p_result.module, error), error);
-}
-
 bool uses(const bytecode::Function &p_function, Op p_op) {
 	for (size_t pc = 0; pc < p_function.code.size(); pc += bytecode::instruction_length(p_function.code.data() + pc)) {
 		if (Op(p_function.code[pc]) == p_op) {
@@ -63,7 +57,7 @@ TEST_CASE("is narrows a Variant to the type it tests (spec §5.4)") {
 	CHECK(errors_of(in_function("var v: Variant? = None\nif v != None and v is Vector2:\n\tvar x: float = v.x")).empty());
 	CHECK(has_error(in_function("var v: Variant = 1\nif v is int:\n\tv = \"a\"\n\tvar n: int = v"), "Cannot assign a value of type Variant as int."));
 	const compiler::CompileResult result = compile(in_function("var v: Variant = 1\nif v is int:\n\tprint(v + 1)\nvar n = v as Node\nprint(int(v) == 2)"));
-	require_verified(result);
+	require_ok(result);
 	const bytecode::Function &f = function_named(result.module, "f");
 	CHECK(uses(f, Op::IS_TYPE));
 	CHECK(uses(f, Op::FROM_VARIANT));
@@ -73,7 +67,7 @@ TEST_CASE("is narrows a Variant to the type it tests (spec §5.4)") {
 
 TEST_CASE("== with a Variant compares by the engine, a match pattern by type first (spec §5.2, §5.6)") {
 	const compiler::CompileResult result = compile(in_function("var v: Variant = 1\nprint(v == 1)\nmatch v:\n\t1:\n\t\tprint(1)\n\t\"a\", &\"b\":\n\t\tprint(2)"));
-	require_verified(result);
+	require_ok(result);
 	const bytecode::Function &f = function_named(result.module, "f");
 	CHECK(uses(f, Op::VARIANT_EQUAL));
 	CHECK(uses(f, Op::MATCHES));
@@ -89,7 +83,7 @@ TEST_CASE("the elements of untyped containers are Variant (spec §3.8)") {
 	CHECK(has_error(in_function("var d: Dictionary = {}\nprint(d.get(\"a\"))"), "Cannot pass a value of type Variant? as Variant. A Variant cannot tell its None from null; pass x.unwrap_or(null)"));
 	CHECK(errors_of(in_function("var u: Array = [1, \"a\"]\nu.append(Node.new())\nvar d: Dictionary = {1: \"a\"}\nd[Vector2()] = []\nfor k in d:\n\tprint(k)\nd[1] = {}\nvar w: Variant = [1, \"a\"]")).empty());
 	const compiler::CompileResult result = compile(in_function("var u: Array = [1]\nvar x = u.pop_back()\nu.append(2)\nprint(3 in u)"));
-	require_verified(result);
+	require_ok(result);
 	bool checked = false;
 	for (const bytecode::BuiltinMethodCall &call : result.module.builtin_methods) {
 		checked = checked || (call.method == "append" && call.checks_elements);
@@ -110,7 +104,7 @@ TEST_CASE("a typed container goes where an untyped one is expected, the reverse 
 TEST_CASE("a typed container keeps Variant as its keys or values (spec §3.13)") {
 	const compiler::CompileResult result = compile("extends Node\nvar props: Dictionary[StringName, Variant] = {}\nvar by_any: Dictionary[Variant, int] = {}\nvar list: Array[Variant] = []\nvar rows: Array[Dictionary[String, Variant]] = []\n\n"
 												   "func f() -> void:\n\tprops[&\"hp\"] = 3\n\tvar hp: Variant? = props.get(&\"hp\")\n\tby_any[Vector2()] = 1\n\tlist.append(\"a\")\n\tvar first: Variant = list[0]\n\trows.append({\"a\": 1})\n\tfor key in props:\n\t\tprint(key, props[key])\n");
-	require_verified(result);
+	require_ok(result);
 }
 
 TEST_CASE("members, parameters and results may be Variant") {

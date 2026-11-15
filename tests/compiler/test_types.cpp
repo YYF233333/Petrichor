@@ -24,8 +24,6 @@ TEST_CASE("objects compare by identity, never when neither class extends the oth
 	CHECK(contains(type_of("t != u", "var t: Task[int]? = None\nvar u: Task[String]? = None"), "Task[int] and Task[String] are never the same task, since neither result type is the other."));
 	const auto result = compile("interface Hit:\n\tfunc hit()\n\nfunc f(h: Hit, l: Label, m: Node?) -> bool:\n\treturn h == l and l != m\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	const bytecode::Function &f = function_named(result.module, "f");
 	const size_t first = find_instruction(f, bytecode::Op::SAME_OBJECT);
 	CHECK(f.code[first + 1] == 0);
@@ -209,8 +207,6 @@ TEST_CASE("T?? keeps both levels, and each step peels one (spec §3.4)") {
 							 "if r != None:\n\tvar x: int? = r\n\tif r != None:\n\t\tvar y: int = r\n\t\tr += 1\nmatch n:\n\tNone:\n\t\tpass\n\tvar e:\n\t\tvar m: Node? = e";
 	const compiler::CompileResult result = compile(in_function(body));
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	CHECK(type_of("r.unwrap()", "var r: int?? = Some(None)") == "int?");
 	CHECK(type_of("Some(3)") == "int?");
 	CHECK(contains(type_of("Some(None)"), "Some(None) does not say which type it holds"));

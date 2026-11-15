@@ -9,12 +9,6 @@ using bytecode::Op;
 
 namespace {
 
-void require_verified(const compiler::CompileResult &p_result) {
-	REQUIRE_MESSAGE(p_result.ok(), messages(p_result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(p_result.module, error), error);
-}
-
 FakeProject spawner_project() {
 	FakeProject project;
 	project.add_script("res://spawner.pet", R"(class_name Spawner extends Node
@@ -35,7 +29,7 @@ pub func tick() -> void:
 
 TEST_CASE("a static engine method is called through its class") {
 	const compiler::CompileResult result = compile(in_function("var file: FileAccess? = FileAccess.open(\"res://a.txt\", FileAccess.READ)\nif file != None:\n\tprint(file.get_as_text())"));
-	require_verified(result);
+	require_ok(result);
 	const auto opened = std::find_if(result.module.engine_calls.begin(), result.module.engine_calls.end(), [](const bytecode::EngineCall &p_call) { return p_call.method == "open"; });
 	REQUIRE(opened != result.module.engine_calls.end());
 	CHECK(opened->static_class == "FileAccess");
@@ -48,7 +42,7 @@ TEST_CASE("an engine method that leaves its error for a getter has a try_ versio
 	CHECK(type_of("FileAccess.try_open(\"res://a.txt\", FileAccess.READ)") == "Result[FileAccess, Error]");
 	CHECK(type_of("FileAccess.try_get_file_as_string(\"res://a.txt\")") == "Result[String, Error]");
 	const compiler::CompileResult result = compile(in_function("print(read().unwrap_or(\"\"))") + "\nfunc read() -> Result[String, Error]:\n\tvar file := FileAccess.try_open(\"res://a.txt\", FileAccess.READ)?\n\treturn Ok(file.get_as_text())\n");
-	require_verified(result);
+	require_ok(result);
 	const auto calls = [&](const std::string &p_method) {
 		return std::any_of(result.module.engine_calls.begin(), result.module.engine_calls.end(), [&](const bytecode::EngineCall &p_call) { return p_call.method == p_method && p_call.static_class == "FileAccess"; });
 	};
@@ -58,14 +52,14 @@ TEST_CASE("an engine method that leaves its error for a getter has a try_ versio
 	// As a value, the lambda that calls it (spec §3.11).
 	CHECK(type_of("FileAccess.try_open") == "func(String, FileAccess.ModeFlags) -> Result[FileAccess, Error]");
 	const compiler::CompileResult value = compile(in_function("var read := FileAccess.try_open\nprint(read.call(\"res://a.txt\", FileAccess.READ).ok() != None)"));
-	require_verified(value);
+	require_ok(value);
 	CHECK(function_named(value.module, "FileAccess.try_open").is_lambda);
 	CHECK(has_error("extends Node\nconst READ = FileAccess.try_open\n", "This is not a constant expression."));
 }
 
 TEST_CASE("a static engine method called on an object is its class's, after the object (spec §4.8)") {
 	const compiler::CompileResult result = compile(in_function("var again: FileAccess? = opened().open(\"res://b.txt\", FileAccess.READ)") + "\nfunc opened() -> FileAccess:\n\treturn FileAccess.open(\"res://a.txt\", FileAccess.WRITE).unwrap()\n");
-	require_verified(result);
+	require_ok(result);
 	const bytecode::Function &f = function_named(result.module, "f");
 	const size_t engine = find_instruction(f, Op::CALL_ENGINE);
 	CHECK(find_instruction(f, Op::CALL) < engine);
@@ -74,7 +68,7 @@ TEST_CASE("a static engine method called on an object is its class's, after the 
 
 TEST_CASE("a static method of a built-in type is called through the type") {
 	const compiler::CompileResult result = compile(in_function("var tint := Color.from_hsv(0.5, 1.0, 1.0)\nprint(tint)"));
-	require_verified(result);
+	require_ok(result);
 	const auto from_hsv = std::find_if(result.module.builtin_methods.begin(), result.module.builtin_methods.end(), [](const bytecode::BuiltinMethodCall &p_call) { return p_call.method == "from_hsv"; });
 	REQUIRE(from_hsv != result.module.builtin_methods.end());
 	CHECK(from_hsv->is_static);
@@ -83,13 +77,13 @@ TEST_CASE("a static method of a built-in type is called through the type") {
 	CHECK(has_error(in_function("print(Vector2.length())"), "\"length()\" of Vector2 is not static; call it on a value."));
 	// On a value, the type's own (spec §4.8).
 	CHECK(type_of("c.from_hsv(0.5, 1.0, 1.0)", "var c := Color.RED") == "Color");
-	require_verified(compile(in_function("var c := Color.RED\nprint(c.from_hsv(0.5, 1.0, 1.0))")));
+	require_ok(compile(in_function("var c := Color.RED\nprint(c.from_hsv(0.5, 1.0, 1.0))")));
 }
 
 TEST_CASE("a static method of a class of this language is called on the class") {
 	const FakeProject project = spawner_project();
 	const compiler::CompileResult result = compile_in("extends Node\nstatic func twice() -> int:\n\treturn Spawner.make(1)\nfunc f() -> int:\n\treturn Spawner.make(3) + twice()\n", project);
-	require_verified(result);
+	require_ok(result);
 	REQUIRE(result.module.method_calls.size() == 1);
 	const bytecode::MethodCall &make = result.module.method_calls[0];
 	CHECK(make.method == "make");
@@ -102,7 +96,7 @@ TEST_CASE("a static method of a class of this language is called on the class") 
 	CHECK(contains(messages(compile_in("extends Node\nfunc f() -> void:\n\tSpawner.make(\"x\")\n", project)), "Cannot pass a value of type String as int"));
 	// On an object, found by name from its class up, as an instance method is (spec §4.8).
 	const compiler::CompileResult on_object = compile_in("extends Node\nfunc f(s: Spawner) -> int:\n\treturn s.make(2)\n", project);
-	require_verified(on_object);
+	require_ok(on_object);
 	REQUIRE(on_object.module.method_calls.size() == 1);
 	CHECK(on_object.module.method_calls[0].static_class < 0);
 }
@@ -122,7 +116,7 @@ TEST_CASE("a member inherited without pub is seen as where it is declared, which
 		return "func f() -> void:\n\tprint(" + p_class + ".secret(), " + p_class + ".SECRET, " + p_class + ".HIDDEN, " + p_class + ".Mode.A)\n";
 	};
 	// A subclass of the declaring class, through another subclass (spec §4.2).
-	require_verified(compile_in("extends Base\n" + through("Heir"), project));
+	require_ok(compile_in("extends Base\n" + through("Heir"), project));
 	// Not a subclass, through a subclass of its own file.
 	const std::string leak = messages(compile_in("class_name Other extends RefCounted\nclass Sub extends Base:\n\tpass\n" + through("Sub"), project));
 	CHECK(contains(leak, "\"secret()\" of Other.Sub is not pub."));
@@ -134,7 +128,7 @@ TEST_CASE("a member inherited without pub is seen as where it is declared, which
 TEST_CASE("a static function is a value, of this language or of the engine (spec §3.11)") {
 	const FakeProject project = spawner_project();
 	const compiler::CompileResult result = compile_in("extends Node\nstatic func twice(n: int) -> int:\n\treturn n * 2\nstatic func f(s: Spawner) -> int:\n\tvar own := twice\n\tvar other := Spawner.make\n\tvar on_object := s.make\n\tvar open := FileAccess.open\n\treturn own.call(1) + other.call(2) + on_object.call(3)\nclass Inner:\n\tfunc g() -> int:\n\t\tvar around := twice\n\t\treturn around.call(4)\n", project);
-	require_verified(result);
+	require_ok(result);
 	find_instruction(function_named(result.module, "f"), Op::STATIC_VALUE);
 	CHECK(std::any_of(result.module.classes.begin(), result.module.classes.end(), [](const bytecode::ClassRef &p_class) { return p_class.script == "res://spawner.pet"; }));
 	CHECK(type_of("FileAccess.open") == "func(String, FileAccess.ModeFlags) -> FileAccess?");
@@ -149,7 +143,7 @@ TEST_CASE("new of a class of this language is a value, with the arguments and th
 	project.add_script("res://pair.pet", "class_name Pair extends RefCounted\npub func _init(a: int, b: String = \"b\"):\n\tpass\npub class Inner:\n\tpass\n", "Pair");
 	project.add_script("res://pool.pet", "class_name Pool extends RefCounted\nfunc _init(n: int):\n\tpass\n", "Pool");
 	const compiler::CompileResult result = compile_in("extends Node\nconst P = preload(\"res://pair.pet\")\nfunc f() -> Pair:\n\tvar inner: func() -> Pair.Inner = P.Inner.new\n\tinner.call()\n\tvar make: func(int, String) -> Pair = Pair.new\n\treturn make.call(1, \"x\")\n", project);
-	require_verified(result);
+	require_ok(result);
 	const bytecode::Function &f = function_named(result.module, "f");
 	CHECK(result.module.constants[f.code[find_instruction(f, Op::STATIC_VALUE) + 3]].s == "new");
 	const auto errors = [&](const std::string &p_source) { return messages(compile_in(p_source, project)); };
@@ -160,7 +154,7 @@ TEST_CASE("new of a class of this language is a value, with the arguments and th
 
 TEST_CASE("a class calls its own static methods through its class_name") {
 	const compiler::CompileResult result = compile_in("class_name Grid extends Node\nstatic func cell() -> int:\n\treturn 8\nfunc f() -> int:\n\treturn Grid.cell()\n", FakeProject());
-	require_verified(result);
+	require_ok(result);
 	CHECK(result.module.method_calls.empty());
 	find_instruction(function_named(result.module, "f"), Op::CALL);
 }
@@ -168,7 +162,7 @@ TEST_CASE("a class calls its own static methods through its class_name") {
 TEST_CASE("new() of a class of this language makes the engine object with the script") {
 	const FakeProject project = spawner_project();
 	const compiler::CompileResult result = compile_in("extends Node\nfunc f() -> int:\n\tvar s := Spawner.new()\n\tadd_child(s)\n\tvar c: Counter = Counter.new()\n\treturn c.count\n", project);
-	require_verified(result);
+	require_ok(result);
 	const bytecode::Function &f = function_named(result.module, "f");
 	const uint32_t made = f.code[find_instruction(f, Op::NEW_OBJECT) + 1];
 	CHECK(result.module.classes[made].name == "Node");
@@ -192,7 +186,7 @@ TEST_CASE("new(...) passes its arguments to the nearest _init(), whose visibilit
 	project.add_script("res://pool.pet", "class_name Pool extends RefCounted\nvar size := 0\nfunc _init(n: int):\n\tsize = n\npub static func make() -> Pool:\n\treturn Pool.new(8)\n", "Pool");
 	project.add_script("res://quiet.pet", "class_name Quiet extends RefCounted\nfunc _init():\n\tpass\n", "Quiet");
 	const compiler::CompileResult result = compile_in("extends Node\nfunc f() -> int:\n\tvar p := Pair.new(order(1), \"x\")\n\treturn p.left + Triple.new(2).left\nfunc order(n: int) -> int:\n\treturn n\n", project);
-	require_verified(result);
+	require_ok(result);
 	const bytecode::Function &f = function_named(result.module, "f");
 	// The arguments, the object, then its _init() with them.
 	const size_t made = find_instruction(f, Op::NEW_WITHOUT_INIT);
@@ -214,7 +208,7 @@ TEST_CASE("new(...) passes its arguments to the nearest _init(), whose visibilit
 	CHECK(compile_in("extends Pool\nfunc f() -> void:\n\tprint(Pool.new(1))\n", project).ok());
 	// Each class's _init() has its own signature and visibility; a base's runs through super.
 	const compiler::CompileResult named = compile_in("class_name Named extends Pair\nfunc _init(name: String):\n\tsuper._init(1, name)\nfunc again() -> Named:\n\treturn Named.new(\"n\")\n", project);
-	require_verified(named);
+	require_ok(named);
 	CHECK(contains(errors("extends Pair\nfunc _init():\n\tsuper._init(\"x\")\n"), "Cannot pass a value of type String as int"));
 	CHECK(contains(errors("extends Pair\nfunc _init(name):\n\tpass\n"), "Parameter \"name\" needs a type."));
 	CHECK(compile_in("class_name Counted extends Object\nfunc _init(n: int):\n\tpass\n", project).ok());

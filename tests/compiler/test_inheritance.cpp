@@ -66,7 +66,6 @@ pub func read() -> int:
 	CHECK(inherited);
 	CHECK(override);
 	std::string error;
-	CHECK(bytecode::verify(r.module, error));
 	auto bytes = bytecode::serialize(r.module);
 	bytecode::Module decoded;
 	CHECK(bytecode::deserialize(bytes.data(), bytes.size(), decoded, error));

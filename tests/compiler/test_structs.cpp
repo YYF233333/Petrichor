@@ -75,13 +75,10 @@ TEST_CASE("a struct that contains itself without a container has no size") {
 }
 
 TEST_CASE("a struct or an enum with payloads holds itself through a container (spec §3.6)") {
-	const compiler::CompileResult result = compile("extends Node\n\nstruct Twig:\n\tvar children: Array[Twig]\n\tvar parent: Dictionary[String, Twig?] = {}\n\n"
-												   "enum Expr { NUM(v: int), ADD(items: Array[Expr]), LET(names: Dictionary[Expr, Result[Expr, int]]) }\n\n"
-												   "func f(t: Twig, e: Expr) -> bool:\n\tvar u := Twig(children = [t])\n\tvar sum := Expr.ADD(items = [e, Expr.NUM(v = 1)])\n"
-												   "\treturn u.children[0] == t and Array(u.children).size() == 1 and Array[Twig].try_from(Array(u.children)).unwrap()[0] == t and sum != e\n");
-	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	require_ok(compile("extends Node\n\nstruct Twig:\n\tvar children: Array[Twig]\n\tvar parent: Dictionary[String, Twig?] = {}\n\n"
+					   "enum Expr { NUM(v: int), ADD(items: Array[Expr]), LET(names: Dictionary[Expr, Result[Expr, int]]) }\n\n"
+					   "func f(t: Twig, e: Expr) -> bool:\n\tvar u := Twig(children = [t])\n\tvar sum := Expr.ADD(items = [e, Expr.NUM(v = 1)])\n"
+					   "\treturn u.children[0] == t and Array(u.children).size() == 1 and Array[Twig].try_from(Array(u.children)).unwrap()[0] == t and sum != e\n"));
 }
 
 TEST_CASE("another class's struct is written ClassName.Name, and must be pub") {
@@ -110,8 +107,6 @@ TEST_CASE("containers of structs") {
 	CHECK(contains(errors("pass", "@export pub var hits: Array[Settings] = []\n\n"), "cannot be exported"));
 	const compiler::CompileResult result = compile(std::string("extends Node\n\n") + HIT + "func f(a: Hit) -> int:\n\tvar hits: Array[Hit] = [a]\n\tvar keyed: Dictionary[Hit, int] = {a: 1}\n\tvar s: Array[Settings] = []\n\ts.resize(2)\n\tvar u: Array = Array(hits)\n\treturn keyed[hits[0]]\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	find_instruction(function_named(result.module, "f"), bytecode::Op::ENCODE);
 }
 
@@ -138,8 +133,6 @@ const char *const SCORE = "struct Score:\n\tvar points: int\n\tvar bonus: bool =
 TEST_CASE("a struct's methods read its fields bare or through self, and are called on its values") {
 	const compiler::CompileResult result = compile(std::string("extends Node\n\n") + SCORE + "func f(s: Score) -> int:\n\treturn s.total() + s.doubled().total(3) + Score.zero().total() + s.zero().points + s.later().call()\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	const bytecode::Function &total = function_named(result.module, "Score.total");
 	CHECK(total.is_static);
 	CHECK(total.params.size() == 2);
@@ -150,13 +143,11 @@ TEST_CASE("a struct's methods read its fields bare or through self, and are call
 TEST_CASE("a struct's methods are values, an instance method with a copy of the struct (spec §3.11)") {
 	const compiler::CompileResult result = compile_in(std::string("extends Node\n\n") + SCORE + "func f(s: Score) -> int:\n\tvar total := s.total\n\tvar zero := Score.zero\n\tvar inside := s.later\n\treturn total.call(2) + zero.call().points\n", FakeProject());
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	const bytecode::Function &f = function_named(result.module, "f");
 	CHECK(result.module.method_calls[f.code[find_instruction(f, bytecode::Op::STRUCT_METHOD_VALUE) + 1]].method == "Score.total");
 	find_instruction(f, bytecode::Op::STATIC_VALUE);
 	// Bare in a method, on self.
-	CHECK(errors("pass", std::string(SCORE) + "\tfunc each() -> func(int) -> int:\n\t\treturn total\n\n").empty());
+	require_ok(compile_in(std::string("extends Node\n\n") + SCORE + "\tfunc each() -> func(int) -> int:\n\t\treturn total\n", FakeProject()));
 }
 
 // Score with only its fields and `p_head`, a method with the lines of `p_body`.
@@ -200,16 +191,12 @@ TEST_CASE("another class's struct has its methods called on that class's image")
 	project.add_script("res://tally.pet", std::string("class_name Tally\n\npub ") + SCORE, "Tally");
 	const compiler::CompileResult result = compile_in("extends Node\n\nfunc f() -> int:\n\tvar s := Tally.Score.zero()\n\treturn s.total(2)\n", project);
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	find_instruction(function_named(result.module, "f"), bytecode::Op::CALL_METHOD);
 }
 
 TEST_CASE("a field of a struct in a register is a slot inside it, which the verifier accepts") {
 	const compiler::CompileResult result = compile(std::string("extends Node\n\n") + HIT + "func f(a: Hit) -> bool:\n\tvar h := a\n\th.crit = h.damage > 2\n\th.point.y = 1.0\n\treturn h == a\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	const bytecode::Function &f = function_named(result.module, "f");
 	find_instruction(f, bytecode::Op::EQUAL);
 }

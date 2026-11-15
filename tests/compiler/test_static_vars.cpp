@@ -9,12 +9,6 @@ using bytecode::Op;
 
 namespace {
 
-void require_verified(const compiler::CompileResult &p_result) {
-	REQUIRE_MESSAGE(p_result.ok(), messages(p_result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(p_result.module, error), error);
-}
-
 bool uses(const bytecode::Function &p_function, Op p_op) {
 	for (size_t pc = 0; pc < p_function.code.size(); pc += bytecode::instruction_length(p_function.code.data() + pc)) {
 		if (Op(p_function.code[pc]) == p_op) {
@@ -68,7 +62,7 @@ static var doubled := total * 2
 static func _static_init() -> void:
 	total += 1
 )");
-	require_verified(valid);
+	require_ok(valid);
 	const bytecode::Module &module = valid.module;
 	REQUIRE(module.statics.size() == 4);
 	CHECK(module.statics[0].name == "names");
@@ -101,9 +95,9 @@ TEST_CASE("a static initializer reads only static variables declared before it, 
 	CHECK(has_error("extends Node\nstatic var a := func(): return name\n", "\"name\" belongs to an instance, which a static variable's initializer does not have."));
 	CHECK(has_error("extends Node\nconst C := count\nstatic var count := 1\n", "\"count\" is a variable, not a constant."));
 	// A function the initializer calls runs then, and is checked when it runs.
-	require_verified(compile("extends Node\nstatic var a := read_b()\nstatic var b := 1\nstatic func read_b() -> int:\n\treturn b\n"));
+	require_ok(compile("extends Node\nstatic var a := read_b()\nstatic var b := 1\nstatic func read_b() -> int:\n\treturn b\n"));
 	// A lambda runs later; the type of a later variable is known when written.
-	require_verified(compile("extends Node\nstatic var get_b := func() -> int: return b\nstatic var b: int = 1\n"));
+	require_ok(compile("extends Node\nstatic var get_b := func() -> int: return b\nstatic var b: int = 1\n"));
 	CHECK(has_error("extends Node\nstatic var get_b := func() -> int: return b\nstatic var b := 1\n", "declare it, as in `static var b: T`."));
 }
 
@@ -127,7 +121,7 @@ static func rename() -> String:
 	label = "b"
 	return label
 )");
-	require_verified(result);
+	require_ok(result);
 	const bytecode::Function &rename = function_named(result.module, "rename");
 	CHECK(uses(rename, Op::CALL)); // Through the accessors.
 	CHECK_FALSE(uses(rename, Op::STORE_STATIC));
@@ -135,7 +129,7 @@ static func rename() -> String:
 }
 
 TEST_CASE("a static variable is named in its class, subclasses and inner classes, through its class and through objects (spec §4.8)") {
-	require_verified(compile_in(R"(extends Registry
+	require_ok(compile_in(R"(extends Registry
 static var mine := count + 1
 class Inner:
 	static var copy := mine
@@ -151,7 +145,7 @@ func f(r: Registry) -> void:
 )",
 			registry_project()));
 	const auto result = compile_in("extends Node\nfunc f(r: Registry) -> int:\n\tRegistry.label = \"a\"\n\treturn r.count + Registry.count\n", registry_project());
-	require_verified(result);
+	require_ok(result);
 	const bytecode::Function &f = function_named(result.module, "f");
 	CHECK(uses(f, Op::LOAD_STATIC));
 	CHECK(uses(f, Op::CALL_METHOD)); // Registry's setter of label.
@@ -168,6 +162,7 @@ TEST_CASE("a cycle between the static initializations of classes is found when t
 		options.path = path;
 		options.project = &project;
 		const auto result = compiler::compile(*project.script_source(path), fake_engine(), options);
-		require_verified(result);
+		require_ok(result);
+		check_verified(result);
 	}
 }

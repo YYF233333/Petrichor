@@ -32,6 +32,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Types of a C# class's members that are narrower than what is seen (spec §11.1):
   - an exported object property is `Object?`, as its class is only in the hint string;
   - a method's parameters and results have their native class, as the engine's generator drops the script class.
+- A script without a path cannot take a method of its own struct as a value. The value names its class by the script's path. The verifier then rejects the module as an internal compiler error (`src/compiler/lower.cpp`, `struct_method_call`). A script made at run time in the editor, as by `PetScript.new()`, has no path.
 
 ## Runtime
 

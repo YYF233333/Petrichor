@@ -301,10 +301,7 @@ TEST_CASE("conditional expressions") {
 	CHECK(type_of("None if true else [1]") == "Array[int]?");
 	// With a type to go to, both branches go to it.
 	CHECK(errors_of(in_function("var v: Variant = 1 if randf() > 0.5 else \"a\"")).empty());
-	const compiler::CompileResult result = compile(in_function("var x := None if randf() > 0.5 else 1"));
-	REQUIRE_MESSAGE(result.ok(), messages(result));
-	std::string error;
-	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
+	require_ok(compile(in_function("var x := None if randf() > 0.5 else 1")));
 }
 
 TEST_CASE("a call that fails still reports the errors of its arguments") {

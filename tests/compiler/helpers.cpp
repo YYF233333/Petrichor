@@ -11,11 +11,21 @@ const compiler::EngineApi &fake_engine() {
 	return engine;
 }
 
+void check_verified(const compiler::CompileResult &p_result) {
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(p_result.module, error), error);
+}
+
+void require_ok(const compiler::CompileResult &p_result) {
+	REQUIRE_MESSAGE(p_result.ok(), messages(p_result));
+}
+
 compiler::CompileResult compile(const std::string &p_source) {
 	check_syntax_conventions(p_source);
 	check_formatting(p_source);
 	compiler::CompileResult result = compiler::compile(p_source, fake_engine());
 	if (result.ok()) {
+		check_verified(result);
 		check_references(p_source, fake_engine(), compiler::CompileOptions());
 		check_recovery(p_source, [](const std::string &p_cut) { compiler::compile(p_cut, fake_engine()); });
 	}
@@ -120,6 +130,9 @@ compiler::CompileResult compile_in(const std::string &p_source, const FakeProjec
 	check_syntax_conventions(p_source);
 	check_formatting(p_source);
 	compiler::CompileResult result = compiler::compile(p_source, fake_engine(), options);
+	if (result.ok()) {
+		check_verified(result);
+	}
 	if (result.errors.empty()) {
 		check_references(p_source, fake_engine(), options);
 		check_recovery(p_source, [&](const std::string &p_cut) { compiler::compile(p_cut, fake_engine(), options); });
