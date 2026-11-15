@@ -437,7 +437,7 @@ thirdparty/ring/       git 子模块：同一次迁移所用提交的 Ring，只
     - 验收这一条用代理评测：同一组 Godot 小任务，由代理分别用 GDScript 和本语言写，比较运行时才暴露的错误。
 
     验收：不装 C++ 工具链，一个项目导出到每个平台都能运行。
-13. **1.0**：不再加功能。新增的语义都由外部真实项目用过，社区和上游的反应也已到位，这时改版本号。
+13. **1.0**：不再加功能。新增的语义都由外部真实项目用过，社区和上游的反应也已到位，这时改版本号。Godot 4 期间保持 `1.x`，`2.0` 留给 Godot 5。
 14. **1.0 之后**：原生代码（§7）、Mod（§6.1），以及规范 §14.2 所列的其他内容。
 
 各步尚未做完的具体工作列在仓库根目录的 `BACKLOG.md` 中。
@@ -450,7 +450,7 @@ thirdparty/ring/       git 子模块：同一次迁移所用提交的 Ring，只
 
 用本语言写的游戏在运行时加载 Mod 的包。Mod 的类继承、调用和实现游戏的类，使用游戏的场景，而 Mod 的作者拿不到游戏的源码。
 
-- 加载：Mod 的包由 `ProjectSettings.load_resource_pack` 载入，包中的 `.remap` 同样生效（`core/config/project_settings.cpp:581-585`，`core/io/resource_loader.cpp:1491-1519`）。所以 Mod 的脚本与游戏的脚本经同一条路径到达运行时。字节码按路径指称类，不必登记全局类名（`src/bytecode/module.h` 的 `ClassRef`）。
+- 加载：Mod 的包由 `ProjectSettings.load_resource_pack` 载入，包中的 `.remap` 同样生效（`core/config/project_settings.cpp:581-585`，`core/io/resource_loader.cpp:1491-1519`）。所以 Mod 的脚本与游戏的脚本经同一条路径到达运行时。挂载不刷新已缓存的资源，所以包须在目标脚本和场景首次加载前挂载（`core/io/resource_loader.cpp:622, 801`）。字节码按路径指称类，不必登记全局类名（`src/bytecode/module.h` 的 `ClassRef`）。
 - 链接：脚本之间按路径和名字引用。运行时做三项检查：
   - 加载时检查基类的成员布局和签名（`src/runtime/class_image.cpp` 的 `ClassImage::load_class`）；
   - 调用时检查方法的签名（`src/runtime/vm.cpp` 的 `has_signature`）；
