@@ -178,6 +178,15 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 ## Upstream
 
 - List the gaps and workarounds hit in `ScriptLanguageExtension`, with citations, for the owner's reply on [#14652](https://github.com/godotengine/godot-proposals/issues/14652).
+- Godot: three defects in `ScriptInstanceExtension` (`core/object/script_language_extension.h:870-892, 909-926`, `core/extension/gdextension_interface.cpp:1589`, `ed1daf0`):
+  - missing fallback callbacks leave `*r_valid` uninitialized;
+  - `object_get_script_instance` casts a placeholder instance to `ScriptInstanceExtension`;
+  - an unset `refcount_decremented` returns `false`, leaking `RefCounted` owners.
+- Godot: two defects in the GDScript VM (`modules/gdscript/gdscript_vm.cpp:1675-1681, 2667-2668`, `ed1daf0`):
+  - resuming an `await` writes `null` unchecked into a typed value register, crashing on a cancelled coroutine;
+  - in release builds, `as` copies a non-object value into a typed object slot.
+- Godot: `ClassDB` leaves return and parameter metadata empty on `MethodInfo` (`core/object/method_info.h:55-56`, `core/object/class_db.cpp:955-974`, `ed1daf0`). Filling and exporting them exposes `RequiredResult` and integer widths at runtime.
+- Godot: GDScript cannot call static methods of non-GDScript scripts or read the member types of non-GDScript autoloads (`core/object/object.cpp:800-826`, `modules/gdscript/gdscript_analyzer.cpp:806-826`, `ed1daf0`; [#14614](https://github.com/godotengine/godot-proposals/issues/14614)).
 - After the 0.1 release, list the engine interfaces newer than 4.4 that the code uses (architecture §6.3). Compare 4.4-stable with 4.7.2 for the extension interface and the virtual methods of `ScriptLanguageExtension`.
 
 - Objects that an extension creates have no signal mutex. `_postinitialize` does not run for them (`core/extension/gdextension_interface.cpp:1669-1672`, `core/object/object.cpp:226-231`, `ed1daf0`; godot#125308). So a task's `completed` and `cancelled` are unguarded when GDScript awaits it from another thread.
