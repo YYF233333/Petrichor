@@ -801,8 +801,11 @@ class Checker : public ClassRelation {
 	void check_resource_values();
 	void check_scene_exports();
 	std::optional<bool> stored_value(const Scene &p_scene, const std::string &p_path, const std::string &p_name, int p_depth = 0);
-	std::string undecodable(const Type &p_type, const SceneValue &p_value, const std::string &p_at, const std::function<void(const DeclId &)> &p_refer);
-	std::string undecodable_fields(const Type &p_type, const SceneValue &p_value, const std::string &p_at, const std::function<void(const DeclId &)> &p_refer);
+	// Takes a field or a variant that a stored value names, and where its name
+	// lies in the value (Reference::value_path).
+	using ReferStored = std::function<void(const DeclId &, const std::vector<int> &)>;
+	std::string undecodable(const Type &p_type, const SceneValue &p_value, const std::string &p_at, const std::vector<int> &p_path, const ReferStored &p_refer);
+	std::string undecodable_fields(const Type &p_type, const SceneValue &p_value, const std::string &p_at, const std::vector<int> &p_path, const ReferStored &p_refer);
 	Type stored_type(const SceneValue &p_value);
 
 	/* checker_expressions.cpp */

@@ -241,15 +241,19 @@ void read_named_members(const Ref<SceneState> &p_state, int32_t p_index, compile
 		return given ? NodePath(path) : NodePath("..");
 	};
 	const NodePath root_node = root("root_node");
-	const auto add = [&](const std::string &p_animation, const NodePath &p_root, const NodePath &p_path, const StringName &p_name, bool p_method) {
+	const auto add = [&](const std::string &p_animation, const NodePath &p_root, const NodePath &p_path, const StringName &p_name, bool p_method, const compiler::ScenePlace &p_place) {
 		const std::optional<std::string> node = joined(p_root, p_path);
 		if (!node) {
 			return;
 		}
 		const compiler::SceneNamedMember named{ node_path(p_state->get_node_path(p_index)), p_animation, *node, to_utf8(p_name), p_method };
-		if (std::find(r_scene.named_members.begin(), r_scene.named_members.end(), named) == r_scene.named_members.end()) {
-			r_scene.named_members.push_back(named);
+		auto same = std::find_if(r_scene.named_members.begin(), r_scene.named_members.end(), [&](const compiler::SceneNamedMember &p_other) {
+			return p_other.from == named.from && p_other.animation == named.animation && p_other.node == named.node && p_other.name == named.name && p_other.method == named.method;
+		});
+		if (same == r_scene.named_members.end()) {
+			same = r_scene.named_members.insert(same, named);
 		}
+		same->places.push_back(p_place);
 	};
 	const auto watch = [&](const Ref<Resource> &p_resource) {
 		const String path = p_resource->get_path();
@@ -268,14 +272,15 @@ void read_named_members(const Ref<SceneState> &p_state, int32_t p_index, compile
 			const String name = animations[a];
 			const std::string shown = to_utf8(p_name.is_empty() ? name : p_name + String("/") + name);
 			watch(animation);
+			const std::string resource = to_utf8(animation->get_path());
 			for (int32_t t = 0; t < animation->get_track_count(); t++) {
 				const NodePath path = animation->track_get_path(t);
 				const Animation::TrackType type = animation->track_get_type(t);
 				if ((type == Animation::TYPE_VALUE || type == Animation::TYPE_BEZIER) && path.get_subname_count() > 0) {
-					add(shown, root_node, path, path.get_subname(0), false);
+					add(shown, root_node, path, path.get_subname(0), false, { resource, t });
 				}
 				for (int32_t k = 0; type == Animation::TYPE_METHOD && k < animation->track_get_key_count(t); k++) {
-					add(shown, root_node, path, animation->method_track_get_name(t, k), true);
+					add(shown, root_node, path, animation->method_track_get_name(t, k), true, { resource, t, k });
 				}
 			}
 		}
@@ -302,7 +307,7 @@ void read_named_members(const Ref<SceneState> &p_state, int32_t p_index, compile
 			for (int64_t q = 0; q < properties.size(); q++) {
 				const NodePath property = properties[q];
 				if (property.get_subname_count() > 0) {
-					add(std::string(), root_path, property, property.get_subname(0), false);
+					add(std::string(), root_path, property, property.get_subname(0), false, { to_utf8(config->get_path()), int(q) });
 				}
 			}
 		}
@@ -395,6 +400,7 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state,
 		connection.method = to_utf8(p_state->get_connection_method(i));
 		connection.binds = int(p_state->get_connection_binds(i).size());
 		connection.unbinds = int(p_state->get_connection_unbinds(i));
+		connection.file = scene.path;
 		scene.connections.push_back(connection);
 	}
 	return scene;

@@ -972,7 +972,7 @@ void Checker::check_stored_exports() {
 		}
 	}
 	const auto check = [&](const Scene &p_scene, const std::vector<std::pair<std::string, SceneValue>> &p_properties, const std::string &p_shown, const std::string &p_node, const std::string &p_resource) {
-		const auto refer_property = [&](const std::string &p_property, const DeclId &p_target) {
+		const auto refer_property = [&](const std::string &p_property, const DeclId &p_target, const std::vector<int> &p_path) {
 			if (!references) {
 				return;
 			}
@@ -982,9 +982,10 @@ void Checker::check_stored_exports() {
 			reference.node = p_node;
 			reference.resource = p_resource;
 			reference.property = p_property;
+			reference.value_path = p_path;
 			if (std::none_of(references->begin(), references->end(), [&](const Reference &p_existing) {
 					return p_existing.target == reference.target && p_existing.scene == reference.scene && p_existing.node == reference.node &&
-							p_existing.resource == reference.resource && p_existing.property == reference.property;
+							p_existing.resource == reference.resource && p_existing.property == reference.property && p_existing.value_path == reference.value_path;
 				})) {
 				references->push_back(std::move(reference));
 			}
@@ -995,7 +996,7 @@ void Checker::check_stored_exports() {
 				if (name != member->name) {
 					continue;
 				}
-				refer_property(name, script_id(options.path, member->name));
+				refer_property(name, script_id(options.path, member->name), {});
 				const TokenRange at{ member->name_token, member->name_token };
 				if (is_typed_scene(member->type)) {
 					const std::optional<Scene> scene = is_scene_file(value.path) ? options.project->scene(value.path) : std::nullopt;
@@ -1008,7 +1009,7 @@ void Checker::check_stored_exports() {
 				if (kind != TypeKind::Struct && kind != TypeKind::PayloadEnum) {
 					continue;
 				}
-				const std::string why = undecodable(member->type, value, std::string(), [&](const DeclId &p_target) { refer_property(name, p_target); });
+				const std::string why = undecodable(member->type, value, std::string(), {}, [&](const DeclId &p_target, const std::vector<int> &p_path) { refer_property(name, p_target, p_path); });
 				if (!why.empty()) {
 					error_in_scene(at, p_scene, p_node, p_scene.path + ": the value stored for \"" + name + "\" of " + p_shown + " does not decode: " + why + ".");
 				}
@@ -1117,17 +1118,17 @@ std::optional<bool> Checker::stored_value(const Scene &p_scene, const std::strin
 // Why a value that a scene stores does not decode as the type, as the
 // entry check says (spec §3.6, §10.1), after `p_at`, the path to where it
 // lies, such as "Combat.Hit.damage"; "" when it decodes.
-std::string Checker::undecodable(const Type &p_type, const SceneValue &p_value, const std::string &p_at, const std::function<void(const DeclId &)> &p_refer) {
+std::string Checker::undecodable(const Type &p_type, const SceneValue &p_value, const std::string &p_at, const std::vector<int> &p_path, const ReferStored &p_refer) {
 	const std::string at = p_at.empty() ? std::string() : p_at + ": ";
 	const auto mismatch = [&]() {
 		const std::string found = p_value.type == "Nil" ? std::string("null") : stored_type(p_value).to_string();
 		return at + "expected " + p_type.to_string() + ", found " + found;
 	};
 	if (p_type.kind == TypeKind::Option && p_value.type != "Nil") {
-		return undecodable(p_type.args[0], p_value, p_at, p_refer);
+		return undecodable(p_type.args[0], p_value, p_at, p_path, p_refer);
 	}
 	if (p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum) {
-		return p_value.type == "Dictionary" ? undecodable_fields(p_type, p_value, p_at.empty() ? p_type.to_string() : p_at, p_refer) : mismatch();
+		return p_value.type == "Dictionary" ? undecodable_fields(p_type, p_value, p_at.empty() ? p_type.to_string() : p_at, p_path, p_refer) : mismatch();
 	}
 	// A container by its elements, as decoding builds a new one of them.
 	if (is_typed_container(p_type)) {
@@ -1139,7 +1140,9 @@ std::string Checker::undecodable(const Type &p_type, const SceneValue &p_value, 
 		std::string first_error;
 		for (size_t i = 0; i < p_value.items.size(); i++) {
 			const bool key = !array && i % 2 == 0;
-			const std::string why = undecodable(p_type.args[key || array ? 0 : 1], p_value.items[i], where + (key ? " (a key)" : "[" + std::to_string(array ? i : i / 2) + "]"), p_refer);
+			std::vector<int> path = p_path;
+			path.push_back(int(i));
+			const std::string why = undecodable(p_type.args[key || array ? 0 : 1], p_value.items[i], where + (key ? " (a key)" : "[" + std::to_string(array ? i : i / 2) + "]"), path, p_refer);
 			if (first_error.empty() && !why.empty()) {
 				first_error = why;
 			}
@@ -1162,15 +1165,23 @@ std::string Checker::undecodable(const Type &p_type, const SceneValue &p_value, 
 // The fields of a stored struct, or of the variant that "$variant" names,
 // each by its name as a key; a struct's field with a default may be left
 // out (spec §3.6, §10.1).
-std::string Checker::undecodable_fields(const Type &p_type, const SceneValue &p_value, const std::string &p_at, const std::function<void(const DeclId &)> &p_refer) {
-	const auto entry = [&](const std::string &p_key) -> const SceneValue * {
+std::string Checker::undecodable_fields(const Type &p_type, const SceneValue &p_value, const std::string &p_at, const std::vector<int> &p_path, const ReferStored &p_refer) {
+	// The index of the key's item, or -1.
+	const auto entry = [&](const std::string &p_key) {
 		for (size_t i = 0; i + 1 < p_value.items.size(); i += 2) {
 			const SceneValue &key = p_value.items[i];
 			if ((key.type == "String" || key.type == "StringName") && key.text == p_key) {
-				return &p_value.items[i + 1];
+				return int(i);
 			}
 		}
-		return nullptr;
+		return -1;
+	};
+	const auto refer_at = [&](const std::string &p_id, int p_item) {
+		if (!p_type.script.empty() && p_item >= 0) {
+			std::vector<int> path = p_path;
+			path.push_back(p_item);
+			p_refer(script_id(p_type.script, p_id), path);
+		}
 	};
 	std::vector<std::pair<std::string, Type>> fields;
 	std::vector<bool> defaults;
@@ -1178,36 +1189,34 @@ std::string Checker::undecodable_fields(const Type &p_type, const SceneValue &p_
 	if (p_type.kind == TypeKind::Struct) {
 		const StructDecl *decl = struct_decl(p_type);
 		for (size_t f = 0; decl && f < decl->fields.size(); f++) {
-			if (!p_type.script.empty() && entry(decl->fields[f].name)) {
-				p_refer(script_id(p_type.script, decl->name + "." + decl->fields[f].name));
-			}
+			refer_at(decl->name + "." + decl->fields[f].name, entry(decl->fields[f].name));
 			fields.emplace_back(decl->fields[f].name, decl->fields[f].type);
 			defaults.push_back(bool(decl->fields[f].initializer));
 		}
 	} else if (p_type.values) {
-		const SceneValue *name = entry("$variant");
+		const int key = entry("$variant");
+		const SceneValue *name = key < 0 ? nullptr : &p_value.items[key + 1];
 		const auto &variants = p_type.values->list;
 		const auto named = std::find_if(variants.begin(), variants.end(), [&](const auto &p_variant) { return name && (name->type == "String" || name->type == "StringName") && name->text == p_variant.first; });
 		if (named == variants.end()) {
 			return p_at + ": expected " + p_type.to_string() + ", found a Dictionary whose \"$variant\" names none of its variants";
 		}
 		const std::string variant_id = p_type.interface_name() + "." + named->first;
-		if (!p_type.script.empty()) {
-			p_refer(script_id(p_type.script, variant_id));
-		}
+		refer_at(variant_id, key + 1);
 		at += "." + named->first;
 		fields = p_type.values->fields[named - variants.begin()];
 		defaults.resize(fields.size(), false);
-		for (size_t f = 0; !p_type.script.empty() && f < fields.size(); f++) {
-			if (entry(fields[f].first)) {
-				p_refer(script_id(p_type.script, variant_id + "." + fields[f].first));
-			}
+		for (size_t f = 0; f < fields.size(); f++) {
+			refer_at(variant_id + "." + fields[f].first, entry(fields[f].first));
 		}
 	}
 	std::string first_error;
 	for (size_t f = 0; f < fields.size(); f++) {
-		const SceneValue *value = entry(fields[f].first);
-		const std::string why = value ? undecodable(fields[f].second, *value, at + "." + fields[f].first, p_refer) : std::string();
+		const int key = entry(fields[f].first);
+		const SceneValue *value = key < 0 ? nullptr : &p_value.items[key + 1];
+		std::vector<int> path = p_path;
+		path.push_back(key + 1);
+		const std::string why = value ? undecodable(fields[f].second, *value, at + "." + fields[f].first, path, p_refer) : std::string();
 		if (first_error.empty() && !value && !defaults[f]) {
 			first_error = at + "." + fields[f].first + " is missing";
 		} else if (first_error.empty() && !why.empty()) {

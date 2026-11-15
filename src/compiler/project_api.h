@@ -70,10 +70,24 @@ struct SceneConnection {
 	std::string method;
 	int binds = 0; // Arguments bound to the call, after the signal's.
 	int unbinds = 0; // Signal arguments dropped from the end.
+	std::string file; // The scene that stores it: this one, or a scene it inherits.
 
 	bool operator==(const SceneConnection &p_other) const {
-		return signal == p_other.signal && source == p_other.source && target == p_other.target && method == p_other.method && binds == p_other.binds && unbinds == p_other.unbinds;
+		return signal == p_other.signal && source == p_other.source && target == p_other.target && method == p_other.method && binds == p_other.binds && unbinds == p_other.unbinds &&
+				file == p_other.file;
 	}
+};
+
+// Where an animation track or a synchronized property names a member: the
+// res:// path of the Animation or the SceneReplicationConfig, a
+// sub-resource's being its file's, "::" and its id; the index of the track or
+// the property; for a method track, the index of the key.
+struct ScenePlace {
+	std::string resource;
+	int index = 0;
+	int key = 0;
+
+	bool operator==(const ScenePlace &p_other) const { return resource == p_other.resource && index == p_other.index && key == p_other.key; }
 };
 
 // A member that a scene names for the engine to find by name (spec §7.7,
@@ -85,9 +99,10 @@ struct SceneNamedMember {
 	std::string node; // The path from `from` to the node that has the member.
 	std::string name;
 	bool method = false;
+	std::vector<ScenePlace> places; // Each track or key that names it.
 
 	bool operator==(const SceneNamedMember &p_other) const {
-		return from == p_other.from && animation == p_other.animation && node == p_other.node && name == p_other.name && method == p_other.method;
+		return from == p_other.from && animation == p_other.animation && node == p_other.node && name == p_other.name && method == p_other.method && places == p_other.places;
 	}
 };
 

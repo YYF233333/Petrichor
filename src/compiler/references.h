@@ -76,6 +76,10 @@ struct Reference {
 	std::string property;
 	SceneConnection connection;
 	SceneNamedMember named;
+	// For a field of a struct or a variant of an enum in the value stored for
+	// `property`: the indices down to the String that names it, as SceneValue
+	// lists the items of each Array and Dictionary.
+	std::vector<int> value_path;
 };
 
 } // namespace petrichor::compiler
