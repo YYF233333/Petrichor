@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob a4394ddf8d52b7cf53c4e1f9af28002df8393dc8. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 0b6ece67d4eee558f4622a475ae9acbdb2d3fb00. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -157,7 +157,7 @@ Besides the no-silent-differences rule, this language's own operations guarantee
 - `Color8`, `convert`, `type_exists`, `inst_to_dict` and `dict_to_inst`, which GDScript has deprecated, are compile errors. The diagnostic gives the replacement that the Godot documentation suggests.
 - The `T` of `is_instance_of(v, T)` is one of three kinds:
   - a written class name, which means the same as `v is T`;
-  - a `TYPE_*` constant, which compares only `typeof(v)`, as in GDScript. So a freed object also belongs to `TYPE_OBJECT`. Narrowing is the same as for `is`;
+  - a `TYPE_*` constant, which compares only `typeof(v)`, as in GDScript. So a freed object also belongs to `TYPE_OBJECT`. Narrowing is the same as for `is`. The only exception is the engine's null object: its type is OBJECT, but the result is false, because the narrowed non-null `Object` cannot be null;
   - a value whose static type is `Script`. It is tested by the rules of `is`, but does not narrow the type of `v`.
 - **[Known limitation]** An engine class stored in a variable cannot be tested this way.
 

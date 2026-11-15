@@ -131,6 +131,7 @@ One Chinese term has one English term. A term from Godot or GDScript keeps its o
 | 可空 | nullable | README term. The compiler also says "may be None". |
 | 非空 | non-null | README term. |
 | 已释放对象 | freed object | |
+| 空对象 (engine) | null object | A Variant of type OBJECT holding null. |
 | 存活检查 | liveness check | |
 | 保持存活 | keep alive | |
 | 读作 | reads as | README: "reads as `None`". |

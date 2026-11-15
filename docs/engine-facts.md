@@ -114,6 +114,7 @@
 | GDScript 的 `is_instance_of` 的第二个参数可以是 `TYPE_*` 常量、原生类或脚本，三者都可以是变量中的值 | `modules/gdscript/gdscript_utility_functions.cpp:454-506` | §2.6 |
 | GDScript 的 `is_instance_of` 的第二个参数是 `TYPE_*` 常量时，只比较值的 Variant 类型，不查对象是否已释放，所以 `is_instance_of(freed, TYPE_OBJECT)` 为真。第二个参数是类或脚本时，对已释放的值报错。值为 null 或不是对象时得到假，此前不查第二个参数是不是类或脚本 | `modules/gdscript/gdscript_utility_functions.cpp:457-462, 471-477, 479-505` | §2.6 |
 | `typeof` 只返回 Variant 中记下的类型，所以已释放对象仍得 `TYPE_OBJECT`。已释放对象转为文本是 `<Freed Object>` | `core/variant/variant_utility.cpp:845-847`；`core/variant/variant.h:381-383`；`core/variant/variant.cpp:1712-1715` | §2.6、§3.3 |
+| 由空的 Object 指针构造的 Variant，类型也是 OBJECT。所以引擎给出的空对象 `typeof` 得 `TYPE_OBJECT`，GDScript 的 `is_instance_of(它, TYPE_OBJECT)` 为真 | `core/variant/variant.cpp:2507-2511`；`modules/gdscript/gdscript_utility_functions.cpp:457-462` | §2.6 |
 | GDScript 中作为值的原生类是 `GDScriptNativeClass` 对象，这个类不登记也不暴露给扩展 | `modules/gdscript/gdscript_compiler.cpp:109-113` | §2.6 |
 | GDScript 的 `@warning_ignore` 遇到不认识的警告名时报错 | `modules/gdscript/gdscript_parser.cpp:5126-5128` | §2.3 |
 | GDScript 的 `@warning_ignore` 按行忽略警告，从注解所在行到所注语句或声明的开头部分结束；`@warning_ignore_start` 忽略到同名的 `@warning_ignore_restore` | `modules/gdscript/gdscript_parser.cpp:291-294, 5131-5189, 5199-5228` | §2.3 |

@@ -82,7 +82,7 @@
 - **`@tool` 在语义冻结之前加入（§2.3）**：在编辑器中运行脚本需要在加载时完整编译。它还要求在编辑器中实例化和重载脚本。这样大的功能可能牵动别处的规则，所以放在 0.9 之前做。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 326 个含 `@tool` 的文件有 211 个在插件仓库。游戏仓库中有 58 个，其中 31 个在 `godot-open-rpg`。v2 中含 `@tool` 的文件有 2,752 个，分布在 135 库（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
 - **`pub` 用关键字（§2.4）**：[成员可见性调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/member-visibility.md)中每千行至少出现 22 处，写成 `@public` 注解过于冗长。
 - **`is_instance_of` 接受脚本值（§2.6）**：脚本本来就是值（§2.1），对它检测的含义确定，所以允许。GDScript 的引擎类值是不对扩展公开的对象。它留给类作为值一并设计。
-- **`is_instance_of` 的 `TYPE_*` 只比较类型（§2.6）**：GDScript 就是这样定义的，不查对象是否已释放（[引擎事实](engine-facts.md)）。若按 `is` 判断，它还与本语言中的 `typeof(v) == TYPE_OBJECT` 不一致。收窄出的非空 `Object` 本来就可能持有已释放对象，所以类型保证不受影响。
+- **`is_instance_of` 的 `TYPE_*` 只比较类型（§2.6）**：GDScript 就是这样定义的，不查对象是否已释放（[引擎事实](engine-facts.md)）。若按 `is` 判断，它还与本语言中的 `typeof(v) == TYPE_OBJECT` 不一致。收窄出的非空 `Object` 本来就可能持有已释放对象，所以类型保证不受影响。引擎给出的空对象则不同：收窄出的非空 `Object` 不能是 null，所以结果为假。GDScript 在这里得真，之后使用它就出错。
 
 ### §3 类型
 
