@@ -59,6 +59,11 @@ void project_changed();
 // script editor's lookup (spec §13.2).
 std::optional<compiler::Lookup> lookup_name(const godot::String &p_path, const std::string &p_source, uint32_t p_offset);
 
+// Where what the name at byte `p_offset` of the script's text refers to is
+// declared and referred to in the project, with the candidates in GDScript
+// and C# files (spec §13.2); nullopt where it refers to nothing.
+std::optional<std::vector<compiler::Occurrence>> find_references(const godot::String &p_path, const std::string &p_source, uint32_t p_offset);
+
 // What can be written at the cursor, which U+FFFF marks in `p_source`, for
 // the script editor's completion (spec §13.2).
 compiler::Completion completion(const godot::String &p_path, const std::string &p_source);

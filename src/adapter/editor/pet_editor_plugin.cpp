@@ -11,20 +11,29 @@
 #include "compiler/lexer.h"
 #include "runtime/text.h"
 
+#include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/code_edit.hpp>
 #include <godot_cpp/classes/config_file.hpp>
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/editor_export_platform.hpp>
 #include <godot_cpp/classes/editor_file_system.hpp>
 #include <godot_cpp/classes/editor_interface.hpp>
+#include <godot_cpp/classes/editor_selection.hpp>
 #include <godot_cpp/classes/editor_settings.hpp>
 #include <godot_cpp/classes/editor_toaster.hpp>
 #include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/font.hpp>
 #include <godot_cpp/classes/gd_extension_manager.hpp>
+#include <godot_cpp/classes/input_event_key.hpp>
 #include <godot_cpp/classes/os.hpp>
+#include <godot_cpp/classes/rendering_server.hpp>
+#include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/script_editor.hpp>
+#include <godot_cpp/classes/script_editor_base.hpp>
 #include <godot_cpp/classes/text_edit.hpp>
+#include <godot_cpp/classes/tree_item.hpp>
+#include <godot_cpp/classes/viewport.hpp>
 #include <godot_cpp/core/error_macros.hpp>
 #include <godot_cpp/godot.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
@@ -172,16 +181,17 @@ void PetExportPlugin::_export_file(const String &p_path, const String &p_type, c
 	add_file(p_path.get_basename() + ".petc", bytes, true);
 }
 
-void PetFormatMenu::_popup_menu(const PackedStringArray &p_paths) {
+void PetCodeMenu::_popup_menu(const PackedStringArray &p_paths) {
 	// The path given is the code editor's node, not the script's
 	// (editor/script/script_text_editor.cpp:2600-2601; ed1daf0).
 	const Ref<Script> script = EditorInterface::get_singleton()->get_script_editor()->get_current_script();
 	if (Object::cast_to<PetScript>(script.ptr())) {
-		add_context_menu_item("Format", callable_mp(this, &PetFormatMenu::format));
+		add_context_menu_item("Format", callable_mp(this, &PetCodeMenu::format));
+		add_context_menu_item_from_shortcut("Find References", find_references);
 	}
 }
 
-void PetFormatMenu::format(Object *p_code_edit) {
+void PetCodeMenu::format(Object *p_code_edit) {
 	CodeEdit *code_edit = Object::cast_to<CodeEdit>(p_code_edit);
 	ERR_FAIL_NULL(code_edit);
 	const String text = code_edit->get_text();
@@ -206,6 +216,156 @@ void PetFormatMenu::format(Object *p_code_edit) {
 	code_edit->set_caret_line(std::min(line, code_edit->get_line_count() - 1));
 	code_edit->set_caret_column(column);
 	code_edit->set_v_scroll(scroll);
+}
+
+namespace {
+
+// Where a scene or a resource file refers: a node path, `:` and the property
+// stored there; or a connection's signal, or the node that names a track's
+// member, and what it names.
+String place_in_scene(const compiler::Reference &p_reference) {
+	const compiler::SceneConnection &connection = p_reference.connection;
+	const compiler::SceneNamedMember &named = p_reference.named;
+	std::string place;
+	if (!connection.signal.empty()) {
+		place = connection.source + ":" + connection.signal + " → " + connection.method;
+	} else if (!named.from.empty()) {
+		place = named.from + (named.animation.empty() ? std::string() : ":" + named.animation) + " → " + named.node + ":" + named.name;
+	} else if (p_reference.resource.find("::") != std::string::npos) {
+		place = p_reference.resource.substr(p_reference.resource.find("::") + 2) + ":" + p_reference.property;
+	} else if (!p_reference.resource.empty()) {
+		place = p_reference.property;
+	} else {
+		place = p_reference.node + (p_reference.property.empty() ? std::string() : ":" + p_reference.property);
+	}
+	return to_godot(place);
+}
+
+} // namespace
+
+PetReferences::PetReferences() {
+	set_name("References");
+	tree = memnew(Tree);
+	tree->set_v_size_flags(SIZE_EXPAND_FILL);
+	tree->set_hide_root(true);
+	tree->set_select_mode(Tree::SELECT_ROW);
+	tree->set_allow_reselect(true);
+	tree->add_theme_constant_override("inner_item_margin_left", 0);
+	tree->add_theme_constant_override("inner_item_margin_right", 0);
+	tree->connect("item_selected", callable_mp(this, &PetReferences::open));
+	add_child(tree);
+}
+
+void PetReferences::_notification(int p_what) {
+	if (p_what == NOTIFICATION_THEME_CHANGED) {
+		tree->add_theme_font_override("font", get_theme_font("source", "EditorFonts"));
+		tree->add_theme_font_size_override("font_size", get_theme_font_size("source_size", "EditorFonts"));
+		fill();
+	}
+}
+
+void PetReferences::set_found(std::vector<compiler::Occurrence> p_found) {
+	found = std::move(p_found);
+	fill();
+}
+
+// By file, with the candidates in files of their own after the rest, dimmed.
+void PetReferences::fill() {
+	tree->clear();
+	TreeItem *root = tree->create_item();
+	const Color color = tree->get_theme_color("font_color");
+	TreeItem *file = nullptr;
+	for (size_t i = 0; i < found.size(); i++) {
+		const compiler::Occurrence &each = found[i];
+		if (i == 0 || each.file != found[i - 1].file || each.candidate != found[i - 1].candidate) {
+			file = tree->create_item(root);
+			file->set_text(0, to_godot(each.file));
+			file->set_custom_color(0, color * Color(1, 1, 1, 0.67));
+			file->set_selectable(0, false);
+		}
+		TreeItem *item = tree->create_item(file);
+		if (each.line > 0) {
+			// First, as it clears the cell.
+			item->set_cell_mode(0, TreeItem::CELL_MODE_CUSTOM);
+			item->set_text(0, vformat("%3s: ", each.line) + to_godot(each.text).strip_edges(true, false));
+			item->set_custom_draw_callback(0, callable_mp(this, &PetReferences::highlight));
+		} else {
+			item->set_text(0, place_in_scene(each.reference));
+		}
+		item->set_metadata(0, int64_t(i));
+		if (each.candidate) {
+			item->set_custom_color(0, color * Color(1, 1, 1, 0.5));
+		}
+	}
+}
+
+// Behind the name in its line, as Find in Files marks a match.
+void PetReferences::highlight(Object *p_item, const Rect2 &p_rect) {
+	const TreeItem *item = Object::cast_to<TreeItem>(p_item);
+	const compiler::Occurrence &each = found[int64_t(item->get_metadata(0))];
+	const String line = to_godot(each.text);
+	const String shown = item->get_text(0);
+	const Ref<Font> font = tree->get_theme_font("font");
+	const int32_t size = tree->get_theme_font_size("font_size");
+	const float scale = EditorInterface::get_singleton()->get_editor_scale();
+	// The line is shown after its number, without its indentation.
+	const int64_t before = shown.length() - line.length() + each.column - 1;
+	Rect2 rect = p_rect;
+	rect.position.x += font->get_string_size(shown.left(before), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x - 1;
+	rect.position.y += scale;
+	rect.size.x = font->get_string_size(line.substr(each.column - 1, each.end_column - each.column), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x + 1;
+	rect.size.y -= 2 * scale;
+	const Color accent = get_theme_color("accent_color", "Editor");
+	const RID canvas = tree->get_custom_drawing_canvas_item();
+	RenderingServer::get_singleton()->canvas_item_add_rect(canvas, rect, Color(accent, 0.17));
+	const PackedVector2Array outline({ rect.position, rect.position + Vector2(rect.size.x, 0), rect.get_end(), rect.position + Vector2(0, rect.size.y), rect.position });
+	RenderingServer::get_singleton()->canvas_item_add_polyline(canvas, outline, PackedColorArray({ Color(accent, 0.33) }), 2.0);
+}
+
+// A script at the name; a scene at the node, with the property stored
+// there; a resource at the property.
+void PetReferences::open() {
+	const compiler::Occurrence &each = found[int64_t(tree->get_selected()->get_metadata(0))];
+	EditorInterface *editor = EditorInterface::get_singleton();
+	const compiler::Reference &reference = each.reference;
+	const String file = to_godot(each.file);
+	const String property = to_godot(reference.property);
+	if (each.line > 0) {
+		editor->edit_script(ResourceLoader::get_singleton()->load(file), each.line, each.column);
+		return;
+	}
+	const String extension = file.get_extension().to_lower();
+	if (extension != "tscn" && extension != "scn") {
+		editor->inspect_object(ResourceLoader::get_singleton()->load(file).ptr(), property);
+		return;
+	}
+	editor->open_scene_from_path(file);
+	Node *root = editor->get_edited_scene_root();
+	if (!root || root->get_scene_file_path() != file) {
+		return;
+	}
+	if (!reference.resource.empty()) {
+		// The scene's own resources are cached with it.
+		const Ref<Resource> resource = ResourceLoader::get_singleton()->get_cached_ref(to_godot(reference.resource));
+		if (resource.is_valid()) {
+			editor->inspect_object(resource.ptr(), property);
+		}
+		return;
+	}
+	// The node that sends a connection's signal, or whose track names it.
+	std::string path = reference.node;
+	if (!reference.connection.source.empty()) {
+		path = reference.connection.source;
+	} else if (!reference.named.from.empty()) {
+		path = reference.named.from;
+	}
+	Node *node = root->get_node_or_null(NodePath(to_godot(path)));
+	if (!node) {
+		return;
+	}
+	editor->get_selection()->clear();
+	editor->get_selection()->add_node(node);
+	editor->inspect_object(node, property);
 }
 
 String PetHighlighter::_get_name() const {
@@ -383,8 +543,25 @@ Dictionary PetHighlighter::_get_line_syntax_highlighting(int32_t p_line) const {
 void PetEditorPlugin::_enter_tree() {
 	export_plugin.instantiate();
 	add_export_plugin(export_plugin);
-	format_menu.instantiate();
-	add_context_menu_plugin(EditorContextMenuPlugin::CONTEXT_SLOT_SCRIPT_EDITOR_CODE, format_menu);
+	Ref<InputEventKey> key;
+	key.instantiate();
+	key->set_keycode(KEY_F12);
+	key->set_shift_pressed(true);
+	key->set_alt_pressed(true);
+	Ref<Shortcut> shortcut;
+	shortcut.instantiate();
+	shortcut->set_name("Find References");
+	shortcut->set_events(Array::make(key));
+	// So that users can change it; Godot 4.4 does not bind add_shortcut.
+	if (ClassDBSingleton::get_singleton()->class_has_method("EditorSettings", "add_shortcut")) {
+		EditorInterface::get_singleton()->get_editor_settings()->call("add_shortcut", "petrichor/find_references", shortcut);
+	}
+	code_menu.instantiate();
+	code_menu->find_references = shortcut;
+	code_menu->add_menu_shortcut(shortcut, callable_mp(this, &PetEditorPlugin::show_references));
+	add_context_menu_plugin(EditorContextMenuPlugin::CONTEXT_SLOT_SCRIPT_EDITOR_CODE, code_menu);
+	references = memnew(PetReferences);
+	add_control_to_bottom_panel(references, "References");
 	highlighter.instantiate();
 	EditorInterface::get_singleton()->get_script_editor()->register_syntax_highlighter(highlighter);
 	// editor/plugins/editor_plugin.cpp:284-289 (ed1daf0).
@@ -415,11 +592,48 @@ void PetEditorPlugin::filesystem_changed() {
 	project_changed();
 }
 
+// A context menu's shortcut in the code editor acts only while the menu is
+// open (editor/inspector/editor_context_menu_plugin.cpp:155-176,
+// editor/script/script_editor_plugin.cpp:3111; ed1daf0), so the plugin takes
+// it wherever the script editor shows.
+void PetEditorPlugin::_shortcut_input(const Ref<InputEvent> &p_event) {
+	ScriptEditor *script_editor = EditorInterface::get_singleton()->get_script_editor();
+	ScriptEditorBase *current = script_editor->get_current_editor();
+	if (p_event->is_pressed() && !p_event->is_echo() && code_menu->find_references->matches_event(p_event) && script_editor->is_visible_in_tree() && current) {
+		show_references(current->get_base_editor());
+		get_viewport()->set_input_as_handled();
+	}
+}
+
+void PetEditorPlugin::show_references(Object *p_code_edit) {
+	const CodeEdit *code_edit = Object::cast_to<CodeEdit>(p_code_edit);
+	const Ref<Script> script = EditorInterface::get_singleton()->get_script_editor()->get_current_script();
+	if (!code_edit || !Object::cast_to<PetScript>(script.ptr())) {
+		return;
+	}
+	const String text = code_edit->get_text();
+	int64_t caret = 0;
+	for (int line = 0; line < code_edit->get_caret_line(); line++) {
+		caret = text.find("\n", caret) + 1;
+	}
+	const std::string before = to_utf8(text.substr(0, caret + code_edit->get_caret_column()));
+	std::optional<std::vector<compiler::Occurrence>> found = find_references(script->get_path(), to_utf8(text), uint32_t(before.size()));
+	if (!found) {
+		EditorInterface::get_singleton()->get_editor_toaster()->push_toast("No declaration at the caret.", EditorToaster::SEVERITY_INFO);
+		return;
+	}
+	references->set_found(std::move(*found));
+	make_bottom_panel_item_visible(references);
+}
+
 void PetEditorPlugin::_exit_tree() {
+	remove_control_from_bottom_panel(references);
+	memdelete(references);
+	references = nullptr;
 	EditorInterface::get_singleton()->get_script_editor()->unregister_syntax_highlighter(highlighter);
 	highlighter.unref();
-	remove_context_menu_plugin(format_menu);
-	format_menu.unref();
+	remove_context_menu_plugin(code_menu);
+	code_menu.unref();
 	remove_export_plugin(export_plugin);
 	export_plugin.unref();
 }

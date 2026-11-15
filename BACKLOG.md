@@ -7,7 +7,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 0.2, due 2026-11-29. Its list and date are set with the owner (architecture §5, step 11).
 
 - With the owner: the invitations to review 0.1.
-- Finding references across scripts and scenes, including names in literals (spec §10.4). The results show by file in a bottom panel. A result in a scene opens the scene at the node.
 - Renaming, with the rewriting of scenes (spec §13.3).
   - A preview lists every change by file. Same-named candidates that do not resolve start unchecked, as in `.gd` files and dynamic access.
   - Applying saves the affected open scenes, writes the files and reloads them. One undo in the editor restores them all.
