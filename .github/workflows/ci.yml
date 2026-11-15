@@ -218,7 +218,7 @@ jobs:
           curl -fsSL -o godot.zip "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"
           unzip -q godot.zip -d godot
 
-      - run: python tools/package.py libraries 0.1.0 dist --godot godot/Godot_v4.7.2-stable_linux.x86_64
+      - run: python tools/package.py libraries 0.1.1 dist --godot godot/Godot_v4.7.2-stable_linux.x86_64
         env:
           PETRICHOR_TEST_TIMEOUT: "300"
 
@@ -287,4 +287,4 @@ jobs:
           rm templates.tpz
 
       - name: Acceptance test
-        run: python tests/acceptance/run.py "${{ matrix.godot }}" templates dist/petrichor-0.1.0-addon.zip dist/petrichor-0.1.0-demo.zip
+        run: python tests/acceptance/run.py "${{ matrix.godot }}" templates dist/petrichor-0.1.1-addon.zip dist/petrichor-0.1.1-demo.zip
