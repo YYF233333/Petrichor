@@ -164,6 +164,13 @@ std::vector<uint32_t> line_starts_of(const std::string &p_text);
 // Where byte `p_offset` of `p_text` is, whose lines begin at `p_line_starts`.
 SourcePosition position_in(const std::string &p_text, const std::vector<uint32_t> &p_line_starts, uint32_t p_offset);
 
+// A change to a source: its bytes from `begin` to `end` replaced by `text`.
+struct Edit {
+	uint32_t begin = 0;
+	uint32_t end = 0;
+	std::string text;
+};
+
 // A source file as the lexer gives it to the parser and the tools
 // (architecture §2.1). Merged by offset, its tokens and trivia leave only
 // whitespace between them.

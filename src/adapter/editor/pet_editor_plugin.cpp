@@ -192,31 +192,51 @@ void PetCodeMenu::_popup_menu(const PackedStringArray &p_paths) {
 	}
 }
 
+namespace {
+
+// Applies `p_edits`, in bytes of `p_source`, the text of `p_code_edit`, as one
+// step to undo, as the editor trims trailing whitespace
+// (editor/gui/code_editor.cpp:1201-1226; ed1daf0). Each removes its range and
+// inserts its text there, the last first, so that the offsets of the others
+// hold. Carets and the marks of lines, as breakpoints, stay with the text. A
+// removal over several lines keeps the marks of its first line only, and the
+// lines an insertion adds have none (scene/gui/text_edit.cpp:513-565,
+// 4356-4385, 9248-9337).
+void apply_edits(CodeEdit *p_code_edit, const std::string &p_source, const std::vector<compiler::Edit> &p_edits) {
+	// An empty operation would join the last one to undo to those before it
+	// (scene/gui/text_edit.cpp:4722-4742).
+	if (p_edits.empty()) {
+		return;
+	}
+	const std::vector<uint32_t> starts = compiler::line_starts_of(p_source);
+	p_code_edit->begin_complex_operation();
+	for (auto edit = p_edits.rbegin(); edit != p_edits.rend(); ++edit) {
+		const compiler::SourcePosition begin = compiler::position_in(p_source, starts, edit->begin);
+		if (edit->end > edit->begin) {
+			const compiler::SourcePosition end = compiler::position_in(p_source, starts, edit->end);
+			p_code_edit->remove_text(begin.line - 1, begin.column - 1, end.line - 1, end.column - 1);
+		}
+		if (!edit->text.empty()) {
+			p_code_edit->insert_text(to_godot(edit->text), begin.line - 1, begin.column - 1);
+		}
+	}
+	p_code_edit->merge_overlapping_carets();
+	p_code_edit->end_complex_operation();
+}
+
+} // namespace
+
 void PetCodeMenu::format(Object *p_code_edit) {
 	CodeEdit *code_edit = Object::cast_to<CodeEdit>(p_code_edit);
 	ERR_FAIL_NULL(code_edit);
-	const String text = code_edit->get_text();
+	const std::string source = to_utf8(code_edit->get_text());
 	std::string error;
-	const std::optional<std::string> result = compiler::format(to_utf8(text), &error);
+	const std::optional<std::string> result = compiler::format(source, &error);
 	if (!result) {
 		EditorInterface::get_singleton()->get_editor_toaster()->push_toast(String::utf8(error.c_str()), EditorToaster::SEVERITY_WARNING);
 		return;
 	}
-	const String formatted = String::utf8(result->data(), int64_t(result->size()));
-	if (formatted == text) {
-		return;
-	}
-	const int line = code_edit->get_caret_line();
-	const int column = code_edit->get_caret_column();
-	const double scroll = code_edit->get_v_scroll();
-	// A single step to undo.
-	code_edit->begin_complex_operation();
-	code_edit->select_all();
-	code_edit->insert_text_at_caret(formatted);
-	code_edit->end_complex_operation();
-	code_edit->set_caret_line(std::min(line, code_edit->get_line_count() - 1));
-	code_edit->set_caret_column(column);
-	code_edit->set_v_scroll(scroll);
+	apply_edits(code_edit, source, compiler::format_edits(source, *result));
 }
 
 namespace {

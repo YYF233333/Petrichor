@@ -549,4 +549,50 @@ std::optional<std::string> format(const std::string &p_source, std::string *r_er
 	return text;
 }
 
+std::vector<Edit> format_edits(const std::string &p_source, const std::string &p_formatted) {
+	const auto blank = [](char p_char) {
+		return p_char == ' ' || p_char == '\t' || p_char == '\r' || p_char == '\n';
+	};
+	// The lines of the blanks from `p_begin` to `p_end`, as their ranges.
+	const auto lines = [](const std::string &p_text, size_t p_begin, size_t p_end) {
+		std::vector<std::pair<size_t, size_t>> found;
+		for (size_t start = p_begin;; start = found.back().second + 1) {
+			found.emplace_back(start, std::min(p_text.find('\n', start), p_end));
+			if (found.back().second == p_end) {
+				return found;
+			}
+		}
+	};
+	std::vector<Edit> edits;
+	const auto replace = [&](std::pair<size_t, size_t> p_old, std::pair<size_t, size_t> p_new) {
+		const std::string text = p_formatted.substr(p_new.first, p_new.second - p_new.first);
+		if (p_source.compare(p_old.first, p_old.second - p_old.first, text) != 0) {
+			edits.push_back({ uint32_t(p_old.first), uint32_t(p_old.second), text });
+		}
+	};
+	// Between the same characters of both, the blanks of each line are
+	// replaced, the lines matched from the last.
+	for (size_t i = 0, j = 0;; i++, j++) {
+		const size_t old_begin = i;
+		const size_t new_begin = j;
+		while (i < p_source.size() && blank(p_source[i])) {
+			i++;
+		}
+		while (j < p_formatted.size() && blank(p_formatted[j])) {
+			j++;
+		}
+		const std::vector<std::pair<size_t, size_t>> old_lines = lines(p_source, old_begin, i);
+		const std::vector<std::pair<size_t, size_t>> new_lines = lines(p_formatted, new_begin, j);
+		const size_t removed = old_lines.size() > new_lines.size() ? old_lines.size() - new_lines.size() : 0;
+		const size_t added = new_lines.size() > old_lines.size() ? new_lines.size() - old_lines.size() : 0;
+		replace({ old_lines[0].first, old_lines[removed].second }, { new_lines[0].first, new_lines[added].second });
+		for (size_t k = 1; k + removed < old_lines.size(); k++) {
+			replace(old_lines[k + removed], new_lines[k + added]);
+		}
+		if (i == p_source.size()) {
+			return edits;
+		}
+	}
+}
+
 } // namespace petrichor::compiler
