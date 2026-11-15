@@ -76,6 +76,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 ## Editor
 
 - Renaming through binary `.scn` and `.res` files, by an engine resave of `PackedScene._bundled` (design-notes). Until then such a reference refuses the rename (architecture §6.4). Binary files cannot be merged, so rewriting a whole one costs little. Done when someone asks for it.
+- Member names in the `advance_expression` of AnimationTree transitions. Find references and rename do not see them, so a rename breaks the expression silently. They are expressions evaluated at run time, not a literal-name position of spec §10.4. Corpus v2 has 447 in 63 files. Candidates: list them as unchecked candidates, or parse the expression and check it as the spec checks literal names.
 - An icon for `.pet` scripts, plus a standalone mark and an organization avatar before 0.9. The release notes of 0.1 ask reviewers what the script icon should be.
 - The dialog that creates a script shows "No suitable template.", as this language has no templates. The script is created all the same.
 - `--petrichor-build` on a fresh clone can end with the engine's crash code (godot#111048). The README says to import first.
