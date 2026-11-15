@@ -8,8 +8,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 - With the owner: the invitations to review 0.1.
 - Finding references across scripts and scenes, including names in literals (spec §10.4). The results show by file in a bottom panel. A result in a scene opens the scene at the node.
-  - References from scenes for the keys of exported properties (architecture §2.1). Also for the members that animation tracks and synchronized properties name (spec §7.7). Now only the methods of signal connections are references.
-  - A `Foreign` `DeclId` names the script accessed, not the one that declares the member. Finding references needs the declaring one.
 - Renaming, with the rewriting of scenes (spec §13.3).
   - A preview lists every change by file. Same-named candidates that do not resolve start unchecked, as in `.gd` files and dynamic access.
   - Applying saves the affected open scenes, writes the files and reloads them. One undo in the editor restores them all.
