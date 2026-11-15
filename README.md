@@ -97,14 +97,15 @@ To build from source, you need a C++17 toolchain and SCons. Run `git submodule u
 
 ## Status and Limitations
 
-0.1 is the first public release. It gathers feedback on the semantics from real projects before 1.0.
+0.1 is the first public release. It gathers feedback on the semantics before 1.0.
 
 - Suited to: projects that already use typed GDScript heavily and accept code changes during 0.x.
 - Not yet suited to: projects that export to Android, iOS or Web. Their libraries come with 0.9.
 - Before 0.9, the language semantics may change, and release notes list every incompatible change. From 0.9, a change in what code means shows as a compile error. Fixes that change only runtime behavior are listed apart in release notes.
+- Some constructs still behave differently from GDScript without a compile error. The [list](BACKLOG.md#open-questions) is under review.
 - Bytecode is not compatible across builds. After upgrading the extension, rebuild the project once.
 - The editor lacks find references, rename, quick fixes, lints and LSP. They are planned for 0.2–0.3.
-- There is no GDScript migration tool yet, so 0.1 needs manual migration. The tool is planned for 0.3 and works both ways. A file that uses no feature GDScript lacks converts back to GDScript, even after this project stops. A file that uses one, such as a struct or `Result`, is not converted; the tool lists where.
+- There is no GDScript migration tool yet. Manual migration takes over twenty changes per hundred lines, so a real project is best tried with the tool, planned for 0.3. It works both ways. A file that uses no feature GDScript lacks converts back to GDScript, even after this project stops. A file that uses one, such as a struct or `Result`, is not converted; the tool lists where.
 - Godot 4.7 and later are supported.
 
 The full roadmap is in the [architecture](docs/architecture.md#5-推进顺序), and unfinished work in [BACKLOG.md](BACKLOG.md).
