@@ -1993,10 +1993,10 @@ class Execution {
 			count = int(spread.size());
 		}
 		// The callee is a function value of this language, also after bind();
-		// any other Callable is an engine entry. bind() or unbind() of another
-		// Callable is still taken for one.
+		// any other Callable is an engine entry. bind() of another Callable is
+		// still taken for one.
 		const Callable &target = *reinterpret_cast<const Callable *>(p_frame + p_op[3]);
-		const bool function_value = gdextension_interface::callable_custom_get_userdata(target._native_ptr(), gdextension_interface::token) || target.get_bound_arguments_count() > 0 || target.get_unbound_arguments_count() > 0;
+		const bool function_value = gdextension_interface::callable_custom_get_userdata(target._native_ptr(), gdextension_interface::token) || target.get_bound_arguments_count() > 0;
 		ValueCall &value = value_call();
 		const ValueCall outer = value;
 		value = { function_value, false, false, !image.types[call.result.type].check.task_result.empty() };
