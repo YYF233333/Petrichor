@@ -61,8 +61,9 @@ struct Occurrence {
 	// As the reference table has it: in a script, the name's bytes; in a scene
 	// or a resource file, what stores or names the declaration there.
 	Reference reference;
-	// In a script: the line from 1, the columns of the name and after it from
-	// 1, in code points, and the line's text.
+	// In a script, and in a scene or a resource file that renaming changes:
+	// the line from 1, the columns of the name and after it from 1, in code
+	// points, and the line's text.
 	int line = 0;
 	int column = 0;
 	int end_column = 0;
@@ -80,9 +81,9 @@ struct Occurrence {
 // searches the project's scripts of this language and the checks of its
 // scenes and resource files, each as Analysis reads it. The declaration of
 // the name comes first, then the files of the others, then the rest by file.
-// Then, for a declaration of this language that is not a local, the
-// candidates by file, the whole words in `p_other_scripts` among them.
-// nullopt where the name refers to nothing.
+// Then, for a declaration of this language that the engine finds by name
+// (spec §10.5), the candidates by file, the whole words in `p_other_scripts`
+// among them. nullopt where the name refers to nothing.
 std::optional<std::vector<Occurrence>> find_references(Analysis &r_analysis, const std::string &p_path, const std::string &p_source, uint32_t p_offset, const std::vector<std::string> &p_other_scripts);
 
 // As the script editor shows a name it completes

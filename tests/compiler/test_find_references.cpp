@@ -140,6 +140,13 @@ TEST_CASE("a method is found with those it overrides and that override it, then 
 	CHECK(found(project(), "res://derived.pet", "hit") == expected);
 }
 
+TEST_CASE("a declaration that is not pub has no candidates, as the engine does not find it by name") {
+	FakeProject unit;
+	unit.add_script("res://unit.pet", "extends Node\n\n\nfunc hit():\n\tpass\n");
+	unit.sources["res://legacy.gd"] = "extends Node\n\nfunc f(unit):\n\tunit.hit()\n";
+	CHECK(found(unit, "res://unit.pet", "hit") == "res://unit.pet:4:6 declaration\n");
+}
+
 TEST_CASE("a method of an interface is found with its implementations") {
 	FakeProject combat;
 	combat.add_script("res://combat.pet", "class_name Combat\n\npub interface Damageable:\n\tfunc damage(amount: int)\n", "Combat");

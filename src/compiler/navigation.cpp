@@ -615,6 +615,25 @@ struct Script {
 	std::shared_ptr<const CompileResult> result;
 };
 
+// Whether the engine finds a declaration of this language by name, as other
+// languages and dynamic access do (spec §10.5): a pub member, a file's class
+// by its global name, a pub inner class, and a field, a value or a member of
+// a pub struct, enum or interface.
+bool reflected(ScriptClasses &r_classes, const DeclId &p_id) {
+	const ClassDecl *cls = r_classes.header(p_id.scope);
+	if (!cls || p_id.name.empty()) {
+		return cls && (cls->name.empty() || cls->is_pub);
+	}
+	const std::string head = p_id.name.substr(0, p_id.name.find('.'));
+	const auto pub = [&](const auto &p_decls) {
+		return std::any_of(p_decls.begin(), p_decls.end(), [&](const auto &p_decl) { return p_decl.name == head && p_decl.is_pub; });
+	};
+	const bool unnamed_value = std::any_of(cls->enums.begin(), cls->enums.end(), [&](const EnumDecl &p_enum) {
+		return p_enum.name.empty() && p_enum.is_pub && std::any_of(p_enum.values.begin(), p_enum.values.end(), [&](const EnumValueDecl &p_value) { return p_value.name == head; });
+	});
+	return unnamed_value || pub(cls->members) || pub(cls->static_vars) || pub(cls->constants) || pub(cls->functions) || pub(cls->signals) || pub(cls->structs) || pub(cls->enums) || pub(cls->interfaces);
+}
+
 } // namespace
 
 std::optional<std::vector<Occurrence>> find_references(Analysis &r_analysis, const std::string &p_path, const std::string &p_source, uint32_t p_offset, const std::vector<std::string> &p_other_scripts) {
@@ -709,7 +728,8 @@ std::optional<std::vector<Occurrence>> find_references(Analysis &r_analysis, con
 		}
 	}
 
-	if (!name.empty()) {
+	const bool by_name = std::any_of(family.begin(), family.end(), [&](const DeclId &p_id) { return p_id.kind == Kind::Script && reflected(r_analysis.pass_classes(), p_id); });
+	if (!name.empty() && by_name) {
 		for (const Script &script : scripts) {
 			const Lines lines(script.source);
 			for (const Reference &reference : script.result->references) {
