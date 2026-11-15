@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 7f7c91a7be9db3f0bc378abe22de4b97da4cfb7d. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 38e97132339d3df4e795c5e9fe3ba5d4fc251718. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -996,7 +996,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
   - a top-level function or class, struct and interface included, has two blank lines before and after it. Inside an inner class it has one. The comments and annotations directly above it are counted with it. The place before the first member of a block, and methods without a body, are excepted. Elsewhere, consecutive blank lines are squeezed into one. A file has no blank line at its start and a single newline at its end;
   - line breaks stay where they are. Lines are not split or joined by column width, and `;`, same-line blocks and `\` are kept. Literals, quotes, brackets, comment text, trailing commas and the file's original line endings do not change.
 - **Migration**: a migration tool that works both ways between GDScript and this language.
-- **Lints, debugging and testing**: lints are reported as warnings of the analysis service and suppressed with `@warning_ignore`. Connection to the engine debugger. A built-in test runner that can run headless is provided. No package manager is provided.
+- **Lints and debugging**: lints are reported as warnings of the analysis service and suppressed with `@warning_ignore`. Connection to the engine debugger. No package manager is provided.
 
 ### 13.3 Refactoring
 
@@ -1032,7 +1032,6 @@ The full designs of generics and of setters that suspend automatically before re
   - spreading into rest parameters at the call site, and rest parameters in function types;
   - field narrowing/conditional binding;
   - type patterns of `match`, `match` expressions and bindings in multiple patterns;
-  - non-null members assigned after ready;
   - setters that suspend automatically before ready;
   - always-on assertions;
   - debug text that shows values as written in this language;
@@ -1042,6 +1041,7 @@ The full designs of generics and of setters that suspend automatically before re
   - `Task` handles for GDScript coroutines;
   - views of GDScript enums/inner classes/static variables, and static method calls;
   - checking GDScript code that accesses private signals by their rewritten names;
+  - a built-in test runner that can run headless;
   - advanced refactorings, deep integration with profiling, documentation generation and generation of forwarding shells.
 
 ### 14.3 Open questions
