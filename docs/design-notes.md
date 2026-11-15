@@ -40,7 +40,7 @@
 
 ### 1.2 就绪前自动等待就绪的 setter（规范 §6.5）
 
-- [属性访问器调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/property-accessors.md)中有 25 个 setter 用 `await ready` 等待节点就绪。第一版中 setter 立即执行，就绪前访问 `@onready` 成员或子节点是程序错误。以后可兼容地放宽为由编译器自动挂起（是否采用见 `BACKLOG.md` 待定问题）：
+- [属性访问器调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/property-accessors.md)中有 25 个 setter 用 `await ready` 等待节点就绪，v2 中有 174 个，分布在 21 库（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。第一版中 setter 立即执行，就绪前访问 `@onready` 成员或子节点是程序错误。以后可兼容地放宽为由编译器自动挂起（是否采用见 `BACKLOG.md` 待定问题）：
   - setter 执行到第一处需要节点就绪的语句时，若节点尚未就绪，就在此挂起，就绪后从这里继续；
   - 需要就绪的语句由静态分析确定，包括：
     - 访问 `@onready` 成员、`$X` 或子节点；
@@ -68,10 +68,10 @@
   - 用于其他成员 134 处；
   - 用在 `is` 之后 69 处；
   - 作为类型 46 处。
-- **`null` 别名与单行引号字符串（§2.2）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `null` 每千行 22.2 处。改为编译错误只会增加机械迁移工作。单引号和双引号跨行字符串在语料中只有 97 个，其中 95 个在 `godot_dialogue_manager` 的测试中。禁止跨行可在漏写右引号时把错误报在本行，避免吞掉后续代码。
+- **`null` 别名与单行引号字符串（§2.2）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `null` 每千行 22.2 处。改为编译错误只会增加机械迁移工作。单引号和双引号跨行字符串在 v1 语料中有 97 个，其中 95 个在 `godot_dialogue_manager` 的测试中。v2 中有 185 个，分布在 9 库，抽样的 50 个中 23 个是界面文字（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。它们仍能机械改写为三引号。禁止跨行可在漏写右引号时把错误报在本行，避免吞掉后续代码。
 - **上下文关键字（§2.2）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中，新增的六个关键字在第一方代码中都没有用作名字。[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)在 7 个仓库中检出 32 处，进一步说明不能用硬关键字。但 Ring 附带的 dialogue_manager 声明了 `TranslationSource.None`。若是硬关键字，本语言连这个插件的值都写不出。有 Rust 背景的用户也会在 GDScript 中自造 Option 类，迁移后就有这些名字。C#、Python 和 Kotlin 同样用上下文关键字加入新词。裸名 `None` 若能指用户的声明，同一写法就有两种含义，所以报错。
 - **`###` 注释不是文档（§2.2）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中，紧贴在声明上方、全由 `###` 开头的行组成的注释有 41 段。它们都是 `### Public variables ###` 这样的分节标题或分隔线，GDScript 却把它们显示为该声明的文档。没有一段文档把这样的行和其他行混写。v2 抽样的 50 段纯 `###` 中 40 段是标题或分隔线、6 段描述声明，混写有 7 段（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。Rust 同样把 `////` 当作普通注释。
-- **`@tool` 在语义冻结之前加入（§2.3）**：在编辑器中运行脚本需要在加载时完整编译。它还要求在编辑器中实例化和重载脚本。这样大的功能可能牵动别处的规则，所以放在 0.9 之前做。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 326 个含 `@tool` 的文件有 211 个在插件仓库。游戏仓库中有 58 个，其中 31 个集中在 `godot-open-rpg`。
+- **`@tool` 在语义冻结之前加入（§2.3）**：在编辑器中运行脚本需要在加载时完整编译。它还要求在编辑器中实例化和重载脚本。这样大的功能可能牵动别处的规则，所以放在 0.9 之前做。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 326 个含 `@tool` 的文件有 211 个在插件仓库。游戏仓库中有 58 个，其中 31 个在 `godot-open-rpg`。v2 中含 `@tool` 的文件有 2,752 个，分布在 135 库（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
 - **`pub` 用关键字（§2.4）**：[成员可见性调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/member-visibility.md)中每千行至少出现 22 处，写成 `@public` 注解过于冗长。
 - **`is_instance_of` 接受脚本值（§2.6）**：脚本本来就是值（§2.1），对它检测的含义确定，所以允许。GDScript 的引擎类值是不对扩展公开的对象。它留给类作为值一并设计。
 
@@ -100,7 +100,7 @@
   - 把 enum 名当 Dictionary 用 38 处，常量作 enum 别名 3 处；
   - 258 个 enum 中有 8 个没有值 0。
 - **容器（§3.8）**：经无类型视图写入或查找不合元素类型的值报程序错误。原因是引擎在写入报错后跳过写入继续运行，查找和 `assign()` 则把 `1.5` 截断为 `1`。元素为本语言独有类型的容器交给引擎须写 `Array(hits)`，以免隐式复制造成“修改了副本”的坑。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 14 处 `pop_at` 都按算出的下标移出元素，没有一处判空。Dictionary 插入键时复制并逐层冻结容器，是因为引擎保存插入时的哈希，且 `make_read_only` 不可撤销。不冻结会使修改后的键按新旧内容都查不到。直接冻结原值又会让调用方的容器永久只读。
-- **接口与无带状态 mixin（§3.9）**：以下数据来自[跨分支重复调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/cross-branch-duplication.md)。原生基类不同造成的重复，在多数游戏仓库中每千行约 4–10 行。游戏中这类重复共 353 行，其中 185 行可用组合或静态函数消除。适合带状态 mixin 的 102 行中，72 行来自 Ring 一个项目。同一原生基类无关脚本间和同一继承链上的重复，分别是它的 4.9 倍和 8.2 倍（主要在 `tanks-of-freedom-ii`）。`gdUnit4` 中 16 个只有抽象方法的类，有 14 个继承 `GdUnitAssert` 并以协变返回类型重新声明方法。例如 `GdUnitAssert.gd:7` 的 `is_null() -> GdUnitAssert`，在 `GdUnitIntAssert.gd:7` 中为 `-> GdUnitIntAssert`。第一版不支持泛型接口，以免在没有真实代码需求时过早规定型变和自引用约束。
+- **接口与无带状态 mixin（§3.9）**：以下数据来自[跨分支重复调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/cross-branch-duplication.md)。原生基类不同造成的重复，在多数游戏仓库中每千行约 4–10 行。游戏中这类重复共 353 行，其中 185 行可用组合或静态函数消除。适合带状态 mixin 的 102 行中，72 行来自 Ring 一个项目。同一原生基类无关脚本间和同一继承链上的重复，分别是它的 4.9 倍和 8.2 倍（主要在 `tanks-of-freedom-ii`）。v2 中这两个倍数是 3.3 和 2.9，抽样的 50 组中可用组合或静态函数的有 12 组（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。两者分母不同，v1 按行数得出的过半可消除不能搬到 v2。`gdUnit4` 中 16 个只有抽象方法的类，有 14 个继承 `GdUnitAssert` 并以协变返回类型重新声明方法。例如 `GdUnitAssert.gd:7` 的 `is_null() -> GdUnitAssert`，在 `GdUnitIntAssert.gd:7` 中为 `-> GdUnitIntAssert`。第一版不支持泛型接口，以免在没有真实代码需求时过早规定型变和自引用约束。
   - 默认方法也在第一版之后。第二次纸面迁移的接口都不用它，GDScript 也没有接口。
   - 调查中默认方法对应的 54 行，多数要调用 `self` 上的引擎 API。接口不知道实现类的基类，所以默认方法应连同对基类的约束一起设计。
   - 有了默认方法，多继承才有菱形问题。加入时要定：
@@ -118,7 +118,7 @@
 ### §4 声明
 
 - **类、抽象类与内部类（§4.1）**：内部类直接解析外层的静态函数和静态变量，GDScript 因其查找实现而不解析。这与 Java、C#、Kotlin 一致，也不改变 GDScript 已解析名字的含义。[实现覆盖调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/implementation-coverage.md)中 4.9% 的文件以裸名使用引擎基类常量。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中：
-  - 28 个 `@abstract` 类有 25 个在 `gdUnit4`；
+  - 28 个 `@abstract` 类有 25 个在 `gdUnit4`。v2 中有 98 个，分布在 18 库（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）；
   - 文件级抽象类中 17 个只有抽象方法，可改写为接口。`godot-open-rpg` 的 `BattlerAction` 则不同，同时带导出字段和抽象协程；
   - 2,800 个文件中有 121 个含内部类，共 192 个。游戏仓库中 19 个文件含 37 个；
   - 7 个内部类嵌套在内部类中，10 个把 `extends` 写在类体开头；
@@ -136,18 +136,17 @@
 - **遍历对象（§5.7）**：[覆盖率调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/implementation-coverage.md)的语料中，定义 `_iter_init` 的类为 0。v2 中有 6 个类定义 `_iter_init`（5 库，[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
   - GDScript 编译时只查 `_iter_get`，缺另外两个要到运行时才报错。编辑器中 Object 自带这三个虚函数，`for x in node` 因此也能编译（[引擎事实](engine-facts.md)）。本语言要求类自己定义三者。
   - 引擎类中只有 PackedDataContainer 定义它们。引擎已弃用该类，所以不支持遍历它。
-- **生命周期与析构（§6.2–§6.7）**：相关引擎暗坑见[暗坑清单](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md) G-02、G-03、G-04、G-05、G-09、G-10。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中，在 `_ready` 里把节点登记到 autoload 成员上的写法只有 6 处（5 处在 Ring）。`NOTIFICATION_PREDELETE` 仅 40 次（32 次在 `gdUnit4`）。
-- **`_init` 参数（§6.2）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中，`_init` 带参数的 `Node` 脚本 28 个，`Resource` 脚本 2 个，多数有必填参数。godot-open-rts 的 11 个动作节点由代码以 `Moving.new(p)` 构造。引擎经无参途径创建时，通用规则已报程序错误，场景中的用法在编译期报错。所以不为 `Node` 和 `Resource` 另设无参特例。
+- **生命周期与析构（§6.2–§6.7）**：相关引擎暗坑见[暗坑清单](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md) G-02、G-03、G-04、G-05、G-09、G-10。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中，在 `_ready` 里把节点登记到 autoload 成员上的写法有 6 处（5 处在 Ring）。`NOTIFICATION_PREDELETE` 有 40 次（32 次在 `gdUnit4`）。v2 中两者分别为 64 处（17 库）和 79 次（32 库，[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
+- **`_init` 参数（§6.2）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中，`_init` 带参数的 `Node` 脚本 28 个，`Resource` 脚本 2 个，多数有必填参数。v2 中分别为 109 个和 89 个，`Resource` 脚本分布在 30 库（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。godot-open-rts 的 11 个动作节点由代码以 `Moving.new(p)` 构造。引擎经无参途径创建时，通用规则已报程序错误，场景中的用法在编译期报错。所以不为 `Node` 和 `Resource` 另设无参特例。
 - **释放时机（§6.8）**：释放时机用户看得到，所以按作用域释放，与 C++、Rust 一致。
   - GDScript 晚释放的值，代码都已访问不到，只有析构副作用和 WeakRef 看得出区别。它自己在循环内逐轮清空的代码留为 TODO（[引擎事实](engine-facts.md)），所以晚释放是未完成的实现。
   - Swift 原先允许在最后一次使用后释放。5.7 改为锚定在作用域结束，优化器只在析构屏障之间提前（[Swift 论坛](https://forums.swift.org/t/what-is-the-current-status-of-lexical-lifetimes/76587)）。
   - Rust 2021 的 `if let` 把头部的临时值带入 else 块，锁在其中一直持有。2024 版改为进入 else 之前释放（[LWN](https://lwn.net/Articles/1002456)）。
-  - GDScript 循环体的局部变量到循环结束才清空，源码留有 TODO。本语言每轮释放，不让上一轮的值留到下一轮。
 - **场景定型与差异结构（§7.1–§7.2）**：数据来自[场景结构调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/scene-structures.md)的游戏仓库。2,023 处字面量路径中，没有一处在不同结构中解析为不同类型。v2 有 60 处类型差异（向下路径 44 处，多数只换附加脚本），由标注共同基类或接口承接（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。任何场景都没有的 `$X` 也能抓出改名遗漏。例如 `tps-demo` 的 `door.gd:6` 写 `$DoorModel/AnimationPlayer`，而 `door.tscn` 中叫 `DoorModel2`。部分结构缺失的路径中：
   - 7 处是模板或占位场景缺节点。如 `tanks-of-freedom-ii` 的 `base_ground.tscn` 被 preload 作占位地块，却缺少 `tile.gd` 的 `$"mesh"`；
   - 8 处用 `get_node_or_null`，如 `Starter-Kit-Racing` 两种车的尾迹。
 - **向上访问与资源共享（§7.3、§7.6）**：不在移动节点时检查 `owner`，因为先读 `owner` 再移走自己是合法操作。Ring 的 `DeathComponent` 就先读 `owner`，再把自己移到前景层。共享子资源被改写的实例见 `godot-open-rpg` 的 `interaction_popup.tscn`。其中内嵌的 `CircleShape2D` 未设局部于场景，`interaction_popup.gd:30` 改它的半径。而 `main.tscn:484-486` 中只有一个实例设为 64。资源环见[暗坑清单](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md) G-19、G-20、G-34。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中：
-  - 自身的 `get_parent()` 174 处，直接访问成员 62 处，分布在 46 个文件。判空 3 处，含 `beehave` 在挂上父节点前运行的 setter；
+  - 自身的 `get_parent()` 174 处，直接访问成员 62 处，分布在 46 个文件。判空 3 处，含 `beehave` 在挂上父节点前运行的 setter。v2 中判空 34 处，分布在 17 库（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）；
   - `owner` 直接访问成员 49 处，分布在 21 个文件。
 
 ### §8–§13 错误、协程、引擎边界与工具链
@@ -157,15 +156,15 @@
 - **子任务的归属（§9.3）**：归属让取消能传下去。`Task.any` 超时后要停下落选的任务，`cancel()` 打断行为时要停下它正在等的 `move_to`。没有归属，就不知道一个任务是否还有别人在等。Rust 同样让父 future 拥有它等待的子 future。
   - Godot 的协程另有一个主人，即运行它的对象，对象会被显式释放。两个主人只在一种情形下冲突：等待方的对象释放了，子任务的对象还活着。
   - GDScript 中这时子任务照常跑完，同一写法须与它一致。归属的用处都来自主动取消，所以对象释放引起的取消不传播。
-- **协程与信号（§9.1–§9.7）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 979 个 lambda 只有 35 个含 `await`（33 个在 `gdUnit4` 测试中）。重入与释放暗坑见[暗坑清单](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md) G-11、G-12、G-13，及提案 [godot-proposals#8838](https://github.com/godotengine/godot-proposals/issues/8838)、[#6243](https://github.com/godotengine/godot-proposals/issues/6243)。[await 信号结果调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/await-signal-results.md)中，1,356 个 `await` 只有 1 个使用了多参数信号的结果。也只有 1 个使用了签名未知的 `Signal` 结果（`godot_dialogue_manager` `:1956` 经 `RefCounted` 接收者等待 C# 两参数信号）。v2 使用多参数信号结果增至 24 处（9 库，15 处接收者签名静态已知），拟以元组承接并在第一版冻结前定下规则（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
+- **协程与信号（§9.1–§9.7）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 979 个 lambda 有 35 个含 `await`（33 个在 `gdUnit4` 测试中），v2 的 3,518 个中有 125 个（11 库）。重入与释放暗坑见[暗坑清单](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md) G-11、G-12、G-13，及提案 [godot-proposals#8838](https://github.com/godotengine/godot-proposals/issues/8838)、[#6243](https://github.com/godotengine/godot-proposals/issues/6243)。[await 信号结果调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/await-signal-results.md)中，1,356 个 `await` 只有 1 个使用了多参数信号的结果。也只有 1 个使用了签名未知的 `Signal` 结果（`godot_dialogue_manager` `:1956` 经 `RefCounted` 接收者等待 C# 两参数信号）。v2 使用多参数信号结果增至 24 处（9 库，15 处接收者签名静态已知，[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
 - **引擎边界（§10.2–§10.6）**：引擎用 `RequiredResult` 标注的 API 仅约 50 处（29 处在 `Tween`）。引擎传入虚函数和信号的对象几乎总是非空。默认非空加入口检查，避免每个 `_input` 和信号处理函数重复判空。引擎 API 中窄于 `int64` 或无符号的方法参数有 3,700 多个、属性约 460 个。例如 `uint32` 的 `collision_layer` 写入 `-1` 会回绕为 `4294967295`。
 - **引擎 API 的 `Result` 版本（§10.3）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `FileAccess.open` 有 125 处调用，只有 21 处随后读取错误。改变原 API 的返回类型，迁移来的每处调用都要改写。所以 `try_` 版本另加，原 API 不变。独立的模块多一个全局名字，用户在 `FileAccess` 下也找不到。
   - 引擎类上只加按固定前缀从引擎成员派生的名字，如 `try_from` 和 `try_open`。4.7 的引擎 API 中只有 `Mutex.try_lock` 和 `Semaphore.try_wait` 用这个前缀。
   - 引擎几乎每个 4.x 版本都给 `FileAccess` 和 `DirAccess` 加方法，但没有一个以 `try_` 开头。生成的名字与新版引擎的成员重名时，构建失败。
-  - 其他新功能放进本语言自己的模块，或先提交上游（架构 §5）。
+  - 其他新功能的去处见[实现架构](architecture.md#5-推进顺序)。
 - **按名访问（§10.4、§10.5）**：引擎分不清按名访问的调用方。只对引擎暴露私有成员，GDScript 的无类型访问也就能读写它，私有成员的不变量因此要防外部修改。[按名访问调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/by-name-access.md)中：
   - 引擎按名访问的脚本成员几乎都来自场景信号连接、导出和 `@rpc`，编译器都已读取；
-  - 代码中指向本脚本的字面量名字每千行仅 0.5 处，多数可改用方法值；
+  - 代码中指向本脚本的字面量名字每千行 0.5 处，多数可改用方法值。v2 中有 2,750 处，分布在 146 库，不再少见，但仍能机械找出（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）；
   - 要求它们带 `pub`，每千行多写约 16 个，几乎都能由编译器找出并给出快速修复；
   - 本语言的 `connect` 和 `emit` 也经引擎按名核对信号，所以私有信号改名注册。
 - **引擎属性的读写（§10.5）**：GDScript 按名字读写引擎属性，对象脚本的 `_get`、`_set` 于是能拦截它们。
@@ -179,12 +178,14 @@
   - 引擎按实例列出的属性族都带 `/`，而 ClassDB 注册的属性名都不带。
 
   按实例列出、又不带 `/` 的属性约有 20 个类，如 Bone2D 的 `length` 和每个对象的 `script`。它们写成 `.名字` 同样报错，经 `Object` 访问。
-- **autoload 名可写在类型中（§11.1）**：GDScript 允许这样写（`modules/gdscript/gdscript_analyzer.cpp:806-836`）。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中有 35 处，33 处在 Pixelorama。
-  - 编辑器拒绝与全局类同名的 autoload（`editor/settings/editor_autoload_settings.cpp:95`）。所以 autoload 的脚本常不写 `class_name`，autoload 名是这个类唯一的名字。
-  - 作用域中更近的名字优先，与本语言其他名字的查找相同。GDScript 让 autoload 优先。
-- **跨语言、线程与工具链（§11.2、§12.3、§13.2–§13.4）**：跨语言继承限制见[暗坑清单](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md) C-17。[第二次纸面迁移](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/paper-migration-2.md)中，Ring 的 `Brick` 和 `Enemy` 因此连带迁移了 5 个子类。全部 230 处迁移修改中，有 197 处是机械修改。GDScript 不能调用本语言的静态方法，也不能以其 enum 作类型。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中，游戏仓库 514 个类里有 97 个受此影响，82 个在 godot-tiny-mmo。v2 中游戏的 4,834 个具名类里有 451 个受此影响，分布在 121 个游戏仓库中的 69 个（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。根本的解法在上游，静态方法一项已有提案（godot-proposals#14614）。在此之前，以及在不含它的引擎版本上，迁移工具把这些使用方列入连带迁移。0.3 是否生成转发外壳，等量出连带迁移的规模再定。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `Thread.new` 仅 5 处、`WorkerThreadPool` 2 处。v2 中两者合计 100 处（34 库，[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。括号续行在真实代码中大多只缩进一层，风格指南要求两层。GDScript 格式化器草稿因解析器丢弃字面量写法与括号而受阻（[godotengine/godot#76211](https://github.com/godotengine/godot/pull/76211)）。自带测试运行器，是因为 `gdUnit4` 和 `GUT` 要求继承其 GDScript 基类。
+- **autoload 名可写在类型中（§11.1）**：GDScript 允许这样写（[引擎事实](engine-facts.md)）。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中有 35 处，33 处在 Pixelorama。v2 中有 212 处，分布在 27 库（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
+  - 编辑器拒绝与全局类同名的 autoload（[引擎事实](engine-facts.md)）。所以 autoload 的脚本常不写 `class_name`，autoload 名是这个类唯一的名字。
+  - 作用域中更近的名字优先，与本语言其他名字的查找相同。GDScript 让 autoload 优先，所以常量与 autoload 同名时，在类型中写这个名字报错，以免两者悄悄不同。
+- **跨语言、线程与工具链（§11.2、§12.3、§13.2–§13.4）**：跨语言继承限制见[暗坑清单](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md) C-17。[第二次纸面迁移](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/paper-migration-2.md)中，Ring 的 `Brick` 和 `Enemy` 因此连带迁移了 5 个子类。全部 230 处迁移修改中，有 197 处是机械修改。GDScript 不能调用本语言的静态方法，也不能以其 enum 作类型。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中，游戏仓库 514 个类里有 97 个受此影响，82 个在 godot-tiny-mmo。v2 中游戏的 4,834 个具名类里有 451 个受此影响，分布在 121 个游戏仓库中的 69 个（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。根本的解法在上游，静态方法一项已有提案（godot-proposals#14614）。在此之前，以及在不含它的引擎版本上，迁移工具把这些使用方列入连带迁移。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `Thread.new` 仅 5 处、`WorkerThreadPool` 2 处。v2 中两者合计 100 处（34 库，[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。括号续行在真实代码中大多只缩进一层，风格指南要求两层。GDScript 格式化器草稿因解析器丢弃字面量写法与括号而受阻（[godotengine/godot#76211](https://github.com/godotengine/godot/pull/76211)）。自带测试运行器，是因为 `gdUnit4` 和 `GUT` 要求继承其 GDScript 基类。
 
 ## 3. 考虑过但没有采用的方案
+
+表中的“规范 v0.1”指上一版规范，保存在 git 标签 `spec-v0.1` 中。
 
 | 方案 | 不采用的原因 | 现行规则 |
 |---|---|---|
@@ -247,7 +248,7 @@
 | 编译器求出全部常量，包括引擎类型的运算 | 向量的分量随引擎的构建是 float 或 double，编译一次的字节码只能写死其中一种结果。编译器还要重写引擎的运算 | §4.5 |
 | 编译期经引擎求出常量 | 编译器就要依赖引擎，编译器测试要么测不了常量，要么在测试桩中再写一遍求值 | §4.5 |
 | 全部常量在类加载时求值 | 注解参数、enum 的值在编译期拿不到值，`10 / 0` 一类错误推迟到加载时才报 | §4.5 |
-| 单引号和双引号字符串可以跨行，与 GDScript 相同 | 漏写右引号时错误报在远处；语料中 97 个这样的字符串，95 个在同一个仓库的测试中 | §2.2 |
+| 单引号和双引号字符串可以跨行，与 GDScript 相同 | 漏写右引号时错误报在远处；v1 语料中 97 个这样的字符串有 95 个在同一个仓库的测试中，v2 的 185 个分布在 9 库，仍能机械改写 | §2.2 |
 | 内部类只解析外层类的常量、enum 和内部类，与 GDScript 相同 | GDScript 的限制是其查找方式的副产品；静态成员不需要实例，Java、C#、Kotlin 的嵌套类都能直接用 | §4.1 |
 | 没有初始化式的对象类型静态变量从 None 开始，与 GDScript 相同 | 非空的类型没有 None 这个值；需要空值时写作 `T?` | §4.8 |
 | 无类型的容器隐式转为带类型的容器，与 GDScript 的静态检查相同 | GDScript 运行时只有容器恰为该类型时才成功，隐式转换把这个一定会做的检查藏到运行时。显式的 `is` 写出了它 | §3.8 |

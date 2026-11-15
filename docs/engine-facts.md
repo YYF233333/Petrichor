@@ -38,7 +38,7 @@
 | `pop_at` 在空数组上返回 null 而不报错，非空数组越界时报错并返回 null，负下标从末尾数起 | `core/variant/array.cpp:802-826` | §3.8 |
 | `front`、`back` 在空数组上报错 | `core/variant/array.cpp:354-362` | §3.8 |
 | Dictionary 的 `get` 在缺键时返回默认值 | `core/variant/dictionary.cpp:178-187` | §3.8 |
-| 大小比较运算只有 bool、数值、String、StringName、向量、RID 和 Array 有，对象、Dictionary、Callable 没有；Array 逐元素比较 | `core/variant/variant_op.cpp:731-791`；`core/variant/array.cpp:164-179` | §3.6、§5.2 |
+| 大小比较运算只有 bool、数值、String、StringName、向量、RID 和 Array 有，对象、Dictionary、Callable 没有 | `core/variant/variant_op.cpp:731-791` | §3.6、§5.2 |
 | Array 的 `sort`、`bsearch`、`min`、`max` 和 Dictionary 的 `sort` 按运算表比较。`sort` 把做不了的比较当作假；`min`、`max` 返回 null，在空数组上也是；都不报错 | `core/variant/array.cpp:721-736, 756-760, 828-868`；`core/variant/dictionary.cpp:315-330` | §3.8 |
 | 带类型的 Array 的 `resize` 以该类型的默认值填充新元素，对象为 null | `core/variant/array.cpp:306-318` | §3.8 |
 | 带类型的容器收到不合元素类型的值时，能按 `can_convert_strict` 转换的先转换，float 因此截断为 int。不能转换的报错，不写入也不查找 | `core/variant/container_type_validate.h:55-75`；`core/variant/variant.cpp:557-566`；`core/variant/array.cpp:285, 374, 499, 520`；`core/variant/dictionary.cpp:205-207, 222` | §3.8、§5.1 |
@@ -95,7 +95,7 @@
 | 移动节点时，编辑器在动作内部不发出信号 | `editor/docks/scene_tree_dock.cpp:2535-2677` | §13.3 |
 | 提交动作时先退出动作再执行，执行中不能再追加操作 | `core/object/undo_redo.cpp:313-332` | §13.3 |
 | 编辑器的撤销管理器在提交后发出 `history_changed` | `editor/editor_undo_redo_manager.cpp:298` | §13.3 |
-| 同名、合并方式为 `MERGE_ALL`、在前一个动作之后 800 毫秒内创建的动作并入前一个动作，保留其原有的操作 | `core/object/undo_redo.cpp:97, 116-117` | §13.3 |
+| 同名、`backward_undo_ops` 相同、合并方式为 `MERGE_ALL`、距前一个动作创建或上次并入不到 800 毫秒的动作并入前一个动作，保留其原有的操作。每次并入都重新计时 | `core/object/undo_redo.cpp:97, 116-117, 122` | §13.3 |
 | 撤销管理器按动作的上下文对象选择撤销历史，被编辑场景中的节点进入该场景的历史 | `editor/editor_undo_redo_manager.cpp:63-105, 149-156` | §13.3 |
 | Web 导出开启 Extensions Support 时使用带动态链接的模板；跨域隔离响应头只在开启线程支持时需要 | `platform/web/export/export_plugin.cpp:374`；`platform/web/export/export_plugin.h:59-73`；`platform/web/doc_classes/EditorExportPlatformWeb.xml:93-95` | §1.3 |
 | 导出插件的钩子都不能使导出失败 | `editor/export/editor_export_platform.cpp:2568-2576`；`editor/export/editor_export_plugin.h:120-122` | §7.5 |
@@ -111,7 +111,7 @@
 | GDScript 的 `PI`、`TAU`、`INF`、`NAN` 是可被声明遮蔽的全局常量 | `modules/gdscript/gdscript.cpp:2154-2157`；`modules/gdscript/gdscript_tokenizer.cpp:202-207` | §2.6 |
 | GDScript 的 `Color8`、`convert`、`type_exists`、`inst_to_dict`、`dict_to_inst` 在禁用弃用功能的构建中不存在，文档给出替代写法 | `modules/gdscript/gdscript_utility_functions.cpp:572-585`；`modules/gdscript/doc_classes/@GDScript.xml:14, 61, 77, 106, 269` | §2.6 |
 | GDScript 的 `is_instance_of` 的第二个参数可以是 `TYPE_*` 常量、原生类或脚本，三者都可以是变量中的值 | `modules/gdscript/gdscript_utility_functions.cpp:454-506` | §2.6 |
-| GDScript 的 `is_instance_of` 对已释放的值报错。值为 null 或不是对象时得到假，此前不查第二个参数是不是类或脚本 | `modules/gdscript/gdscript_utility_functions.cpp:471-477, 479-505` | §2.6 |
+| GDScript 的 `is_instance_of` 的第二个参数是 `TYPE_*` 常量时，只比较值的 Variant 类型，不查对象是否已释放，所以 `is_instance_of(freed, TYPE_OBJECT)` 为真。第二个参数是类或脚本时，对已释放的值报错。值为 null 或不是对象时得到假，此前不查第二个参数是不是类或脚本 | `modules/gdscript/gdscript_utility_functions.cpp:457-462, 471-477, 479-505` | §2.6 |
 | GDScript 中作为值的原生类是 `GDScriptNativeClass` 对象，这个类不登记也不暴露给扩展 | `modules/gdscript/gdscript_compiler.cpp:109-113` | §2.6 |
 | GDScript 的 `@warning_ignore` 遇到不认识的警告名时报错 | `modules/gdscript/gdscript_parser.cpp:5126-5128` | §2.3 |
 | GDScript 的 `@warning_ignore` 按行忽略警告，从注解所在行到所注语句或声明的开头部分结束；`@warning_ignore_start` 忽略到同名的 `@warning_ignore_restore` | `modules/gdscript/gdscript_parser.cpp:291-294, 5131-5189, 5199-5228` | §2.3 |
@@ -123,7 +123,7 @@
 | GDScript 的函数和 lambda 可以有剩余参数，信号不能 | `modules/gdscript/gdscript_parser.cpp:1555-1578, 1690-1737, 3765` | §4.6 |
 | GDScript 把默认值编进被调函数的开头，每次调用从第一个省略的参数处求值。默认值可读前面的参数。方法信息中，不是常量的默认值记为 null | `modules/gdscript/gdscript_compiler.cpp:2438-2456`；`modules/gdscript/gdscript_vm.cpp:2781-2784`；`modules/gdscript/gdscript_parser.cpp:1704-1735`；`modules/gdscript/gdscript_analyzer.cpp:1795-1798` | §4.6 |
 | GDScript 把 `new` 当作静态的 `_init` 检查；`new` 由 GDScript 自己绑定，Script 基类没有 | `modules/gdscript/gdscript_analyzer.cpp:5958-5961`；`modules/gdscript/gdscript.cpp:1078` | §10.1 |
-| GDScript 的 `new` 构造原生对象，运行各类的成员初始化式，再把实参交给继承链上最近的 `_init` | `modules/gdscript/gdscript.cpp:125-152, 176-194, 210-254` | §6.1、§11.1 |
+| GDScript 的 `new` 构造原生对象，从基类到本类运行各类的成员初始化式，再把实参交给继承链上最近的 `_init` | `modules/gdscript/gdscript.cpp:125-152, 176-194, 210-254` | §6.1、§6.4、§11.1 |
 | GDScript 不按覆盖规则检查 `_init` 的签名 | `modules/gdscript/gdscript_analyzer.cpp:1830-1875` | §4.8、§6.1 |
 | 引擎附加 GDScript 脚本时不带实参调用 `_init`，调用失败则不创建脚本实例 | `modules/gdscript/gdscript.cpp:192-203, 406-424` | §6.2 |
 | GDScript 把没有报告 `_init` 的其他语言的脚本当作只有无参的构造 | `modules/gdscript/gdscript_analyzer.cpp:6005-6031` | §10.1、§11.1 |
@@ -145,6 +145,8 @@
 | GDScript 在编译期对常量取下标，取不到时报错；字典字面量中重复的常量键是编译错误 | `modules/gdscript/gdscript_analyzer.cpp:3854-3856, 4920-4927` | §4.5 |
 | GDScript 把常量中的数组和字典逐层设为只读 | `modules/gdscript/gdscript_analyzer.cpp:5318-5367` | §4.5 |
 | GDScript 只为 GDScript 写的 autoload 定型 | `modules/gdscript/gdscript_analyzer.cpp:806-826, 4579-4616` | §11.3 |
+| GDScript 的类型中可以写 autoload 名，指它的脚本的类；场景 autoload 指根节点的脚本 | `modules/gdscript/gdscript_analyzer.cpp:806-836` | §11.1 |
+| 编辑器拒绝与全局脚本类同名的 autoload | `editor/settings/editor_autoload_settings.cpp:95` | §11.1 |
 | GDScript 中以调用函数的写法调用 Callable 变量是编译错误，提示改用 `.call()` | `modules/gdscript/gdscript_analyzer.cpp:3741-3745` | §3.11 |
 | GDScript 中不加 await 把协程调用当值使用是编译错误，作为语句时只是警告 | `modules/gdscript/gdscript_analyzer.cpp:3776-3784` | §9.1、§9.8 |
 | GDScript 中 `?` 是语法错误 | `modules/gdscript/gdscript_parser.cpp:3860-3861` | §2.2 |
@@ -154,7 +156,7 @@
 | GDScript 中不写 `extends` 的内部类继承 RefCounted，`extends` 可以写在类体第一行 | `modules/gdscript/gdscript_analyzer.cpp:425-429`；`modules/gdscript/gdscript_parser.cpp:974-980` | §2.1、§4.1 |
 | GDScript 的内部类按裸名解析外层类的常量、enum 和内部类，不解析其静态函数和静态变量 | `modules/gdscript/gdscript_analyzer.cpp:4229, 4249, 4270-4271` | §4.1、§4.8 |
 | GDScript 中的裸名先在本类、脚本基类和外层类中找。然后在原生基类的属性、方法、信号、enum 和整数常量中找。类型中的裸名也可以是原生基类的 enum | `modules/gdscript/gdscript_analyzer.cpp:332-343, 837-839, 4185-4275, 4333-4385` | §4.1、§4.8 |
-| GDScript 中类的变量、常量、信号、enum 和内部类与原生基类的信号、属性或整数常量同名是编译错误 | `modules/gdscript/gdscript_analyzer.cpp:255-276, 1050, 1110, 1121, 1151, 1216, 1232, 1250` | §4.1 |
+| GDScript 中类的变量、常量、信号、enum、enum 值和内部类与原生基类的信号、属性或整数常量同名是编译错误，名为 `script` 也是 | `modules/gdscript/gdscript_analyzer.cpp:255-276, 1050, 1110, 1121, 1151, 1216, 1232, 1250` | §4.1 |
 | GDScript 的内部类是单独的脚本，没有资源路径和全局名，列在外层类的常量中 | `modules/gdscript/gdscript.cpp:1082-1084`；`modules/gdscript/gdscript_parser.h:778-780`；`modules/gdscript/gdscript_compiler.cpp:3003` | §4.1、§10.5 |
 | GDScript 的内部类中不能写 `class_name`、`@tool`、`@icon` 和 `@static_unload` | `modules/gdscript/gdscript_parser.cpp:146-149, 1215, 1859-1861` | §4.1 |
 | 抽象方法的声明不写冒号 | `modules/gdscript/gdscript_parser.cpp:1773-1774` | §2.4 |
@@ -199,9 +201,8 @@
 | GDScript 的链式赋值沿链读出、修改，再把值类型写回，共享类型原地修改 | `modules/gdscript/gdscript_compiler.cpp:1172-1190` | §3.6 |
 | GDScript 的链式赋值先求基对象并沿链读出中间值，再求右边，然后求最后一个下标，最后写入并写回 | `modules/gdscript/gdscript_compiler.cpp:1069, 1097-1121, 1124, 1134, 1157-1162` | §3.6 |
 | GDScript 给变量的普通赋值和复合赋值先求右边，再读出目标 | `modules/gdscript/gdscript_compiler.cpp:1251-1265, 1331-1349` | §3.6 |
-| GDScript 链式赋值的基是不带 getter 的成员时按地址原地修改。引擎属性、带 getter 的成员和静态变量先读出副本，带 setter 的值类型成员也先复制 | `modules/gdscript/gdscript_compiler.cpp:292-295, 304-312, 396-407, 1079-1083` | §3.6 |
+| GDScript 链式赋值的基是不带 getter 的成员时按地址原地修改。引擎属性、带 getter 的成员和静态变量先读出副本，带 setter 的成员是值类型或类型未知时也先复制 | `modules/gdscript/gdscript_compiler.cpp:292-295, 304-312, 396-407, 1082-1085` | §3.6 |
 | 成员的初始化式不经过 setter | `modules/gdscript/gdscript_compiler.cpp:2414-2430, 2603-2626` | §4.8、§6.1 |
-| 创建实例时先从基类到本类运行成员初始化式，再调用 `_init` | `modules/gdscript/gdscript.cpp:140-148, 176, 192-194` | §6.4 |
 | 构造调用不等待 `_init` 的返回值；带返回值的引擎虚函数同步读取并转换脚本返回值 | `modules/gdscript/gdscript.cpp:194`；`core/object/make_virtuals.py:1-10, 173-174` | §9.1 |
 | 静态成员初始化之后调用 `_static_init` | `modules/gdscript/gdscript_compiler.cpp:2629-2632` | §4.8 |
 | GDScript 先初始化外层类的静态成员，再依次初始化其内部类 | `modules/gdscript/gdscript.cpp:667-683` | §4.8 |
