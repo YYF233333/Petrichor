@@ -52,10 +52,11 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Ordering of arrays of engine types as spec §5.2 says. It differs from the engine's operators only with NaN, so it waits for the open question on NaN.
 - Range checks of ints passed through an engine method's value, as `f.call(x)` (spec §10.6). The value is the engine's Callable, which converts without them.
 - Destruction order of `LambdaCallable` at exit when `WorkerThreadPool` holds unclaimed tasks (`main/main.cpp:5268, 5295`, `core/object/worker_thread_pool.cpp:855-880`, `ed1daf0`). Add an engine test and verify teardown.
+- Before the 0.9 bytecode freeze, evaluate load-time constants with bytecode instead of the recursive `bytecode::Constant` tree and `constant_value` (`src/bytecode/module.h:241`, `src/runtime/class_image.cpp:519`).
 
 ## Editor
 
-- An icon for `.pet` scripts. The release notes of 0.1 ask reviewers what it should be.
+- An icon for `.pet` scripts, plus a standalone mark and an organization avatar before 0.9. The release notes of 0.1 ask reviewers what the script icon should be.
 - The dialog that creates a script shows "No suitable template.", as this language has no templates. The script is created all the same.
 - `--petrichor-build` on a fresh clone can end with the engine's crash code (godot#111048). The README says to import first.
 - The hints of the spec other than `unused_ignore` and `modified_copy`, as the one on a redundant `as` (spec §5.3). None is implemented.
@@ -242,6 +243,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Design questions from the third coverage rerun, which the spec leaves open:
   - engine classes as values, as gdUnit4 passes `[InputEventMouseButton, …]` (0.7% of the files; spec §2.6);
   - `Array[T](a)` as a typed copy, which the corpus does not use.
+- Before 0.9: the rules of `@tool` in the editor (spec §2.3, §14.3). They cover keeping edited state across declaration changes via entry checks, and folding repeated per-frame errors.
 - Before 0.9: how `NaN` behaves in containers, which GDScript handles inconsistently (spec §5.2, engine facts). NaN rarely stands for a legal state in game logic. Candidates:
   - forbid `NaN` from entering containers;
   - warn wherever a `NaN` is detected.
