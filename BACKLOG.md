@@ -250,7 +250,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - The long-term boundary of compatibility with GDScript and Godot: which agreements are promises and which merely hold today. How semantics may change is settled (architecture §5, 0.9).
 - After 0.3 and before 0.9: tuples for multi-parameter signal `await` (spec §9.6, §14.3). Decide then whether `await Task.all([...])` also returns a tuple of heterogeneous results (§9.5).
   - About half of the uses in corpus v2 await `HTTPRequest.request_completed`, often reading `[3]`. Fields named by the signal's parameters, as `.body`, are a candidate besides tuples.
-- After 0.3 and before 0.9: default values of lambda parameters, with optional parameters in function types (spec §3.11, §14.3).
+- After 0.3 and before 0.9: default values of lambda parameters and of interface method parameters, with optional parameters in function types (spec §3.9, §3.11, §14.3).
 - Before the migration tool of 0.3: how many GDScript files migrating one class drags along in the games of corpus v2. GDScript cannot call this language's static methods or use its enums in types (spec §11.3). If the number is large, the tool generates forwarding shells in 0.3.
   - The proper fix is upstream: [godot#118595](https://github.com/godotengine/godot/pull/118595) for static methods has waited for review since July. Enums in types need a change of their own.
   - Engines older than the fix keep the restriction, back to 4.4 (architecture §6.3).

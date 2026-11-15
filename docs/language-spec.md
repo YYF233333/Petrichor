@@ -2,7 +2,7 @@
 
 **v0.2 draft · 2026-10-25**
 
-<!-- Generated from language-spec.zh.md, git blob b019c5e555a14a6e71a5b4fc013faa9c93782dc9. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 482c391f1e4932b7afe13dbb667bfb951e52b82d. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). The previous version of the specification, v0.1, is kept in the git tag `spec-v0.1`. This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -281,6 +281,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - An interface may declare methods, properties and signals, which are all requirements on the implementing class. An inherited engine property can satisfy a property requirement of the same type. A property not marked `@readonly` is required to be readable and writable. A readable and writable member can satisfy `@readonly`, while an engine property without a setter can satisfy only `@readonly`. Using `@readonly` outside an interface is a compile error.
 - A signal of an interface is a requirement, as a property is. Signals of the same name that the class declares, inherits or has from an engine class all satisfy it. A signal declared in this language satisfies it only with `pub`. The parameter types of the satisfying signal must be exactly the same.
 - An interface may `extends` several parent interfaces. A child interface may redeclare a method of a parent interface with a covariant return type. Members of the same name in parent interfaces with incompatible signatures are a compile error. So is inheritance that forms a cycle.
+- **[Open]** Default values of interface method parameters are settled together with optional parameters in function types. Until then, writing a default value is a compile error.
 - **[Known limitation]** In the first version, interfaces have no default methods and no stateful mixins, and cannot be generic. Declaring `interface Source[T]:` is a compile error.
 
 ### 3.10 Generics
@@ -1053,7 +1054,7 @@ The full designs of generics and of setters that suspend automatically before re
 - When native code is generated: at run time, at export, or both.
 - The rules for `@tool` scripts running in the editor.
 - The rules for tuples and an `await` on a signal with several parameters, and whether `Task.all` returns a tuple.
-- The rules for default values of lambda parameters and optional parameters in function types.
+- The rules for default values of lambda parameters and of interface method parameters, and for optional parameters in function types.
 - The rules for members that are non-null only once ready, which await a design as a whole:
   - who assigns a member that must be assigned, and which of those assignments the compiler looks for;
   - assignments by ancestors;
