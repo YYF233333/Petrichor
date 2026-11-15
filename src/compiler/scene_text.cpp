@@ -291,6 +291,9 @@ bool holds(const std::string &p_text, const Section &p_section, const StoredName
 		const SceneConnection &connection = p_name.connection;
 		return p_section.tag == "connection" && field("signal") == connection.signal && field("from") == connection.source && field("to") == connection.target && field("method") == connection.method;
 	}
+	if (p_name.kind == StoredName::Kind::Class) {
+		return p_section.tag == "gd_resource";
+	}
 	if (p_name.node) {
 		const std::string parent = field("parent");
 		return p_section.tag == "node" && (parent.empty() ? std::string(".") : parent == "." ? field("name")
@@ -329,6 +332,7 @@ std::string StoredName::shown() const {
 																											 : "the resource " + section;
 	switch (kind) {
 		case Kind::Key:
+		case Kind::Stale:
 			return "\"" + key + "\" of " + owner + (items.empty() ? "" : " (in its value)");
 		case Kind::Connection:
 			return "the connection of \"" + connection.signal + "\" from " + connection.source + " to " + connection.target;
@@ -336,6 +340,8 @@ std::string StoredName::shown() const {
 			return key + " of " + owner;
 		case Kind::Method:
 			return "key " + std::to_string(items[0]) + " of " + key + " of " + owner;
+		case Kind::Class:
+			return "the script_class of the header";
 	}
 	return std::string();
 }
@@ -414,15 +420,25 @@ LocatedNames locate_names(const std::string &p_text, const std::set<StoredName> 
 				in_string(field_value(section, p_signal ? "signal" : "method"), section.begin);
 				continue;
 			}
+			if (name.kind == Kind::Class) {
+				in_string(field_value(section, "script_class"), section.begin);
+				continue;
+			}
 			for (const Entry &entry : section.entries) {
 				if (entry.key != name.key) {
 					continue;
 				}
-				if (name.kind == Kind::Key && name.items.empty()) {
+				if (name.kind == Kind::Stale) {
+					wrong(entry.begin, name.shown() + " is stored already, and its value would take effect after renaming.");
+				} else if (name.kind == Kind::Key && name.items.empty()) {
 					found.push_back({ { entry.begin, entry.end, p_text.substr(entry.begin, entry.end - entry.begin), plain ? p_new : "\"" + p_new + "\"" }, entry.key });
-					for (const Entry &other : section.entries) {
-						if (other.key == p_new) {
-							wrong(other.begin, name.shown() + " would be renamed beside \"" + p_new + "\", which is stored already and would then take effect.");
+					// The engine makes a node's value a node only under a key
+					// that the header lists (scene/resources/resource_format_text.cpp:225-232,
+					// 305; ed1daf0).
+					const Value *paths = name.node ? field_value(section, "node_paths") : nullptr;
+					for (size_t i = 0; paths && i < paths->items.size(); i++) {
+						if (paths->items[i].kind == Value::Kind::String && Reader::decode(p_text, paths->items[i]) == p_old) {
+							located.edits.push_back(edit(paths->items[i]));
 						}
 					}
 				} else if (name.kind == Kind::Key) {
@@ -465,6 +481,9 @@ LocatedNames locate_names(const std::string &p_text, const std::set<StoredName> 
 		}
 		if (!problem.empty()) {
 			return refuse(problem_at, problem);
+		}
+		if (name.kind == Kind::Stale) {
+			continue;
 		}
 		if (found.size() != 1) {
 			return refuse(found.empty() ? std::nullopt : std::optional<uint32_t>(found[1].first.begin), name.shown() + (found.empty() ? " is not found." : " is found " + std::to_string(found.size()) + " times."));

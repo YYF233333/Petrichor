@@ -118,8 +118,6 @@ class ScriptClasses {
 	template <typename T>
 	T answer(const std::string &p_key, std::function<T(ScriptClasses &)> p_question);
 	std::vector<Scene> scenes_where(const std::function<bool(const Scene &)> &p_uses);
-	// Whether the script is `p_base` or extends it, as the headers say.
-	bool is_or_extends(std::string p_script, const std::string &p_base);
 
 public:
 	ScriptClasses(const EngineApi &p_engine, const ProjectApi *p_project, bool p_declarations_only = false, bool p_record = false) :
@@ -133,6 +131,8 @@ public:
 	// engine class or none.
 	std::string base_path(const ClassDecl &p_decl, const std::string &p_path);
 	std::string native_base(const ClassDecl &p_decl, const std::string &p_path);
+	// Whether the script is `p_base` or extends it, as the headers say.
+	bool is_or_extends(std::string p_script, const std::string &p_base);
 	// The project as checks should ask it.
 	const ProjectApi *get_project() const { return project; }
 	// The parsed class, or null when it cannot be read. Other scripts see what

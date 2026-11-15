@@ -69,7 +69,14 @@ public:
 	std::vector<std::string> scene_paths() const override { return project.scene_paths(); }
 	std::optional<Scene> scene(const std::string &p_path) const override { return project.scene(p_path); }
 	std::string main_scene() const override { return project.main_scene(); }
-	std::optional<ResourceInfo> resource(const std::string &p_path) const override { return project.resource(p_path); }
+	// The edits rewrite the headers that name the class (architecture §6.4).
+	std::optional<ResourceInfo> resource(const std::string &p_path) const override {
+		std::optional<ResourceInfo> found = project.resource(p_path);
+		if (found && !global_path.empty() && found->script_class == old_global) {
+			found->script_class = new_global;
+		}
+		return found;
+	}
 	std::string uid_path(const std::string &p_uid) const override { return project.uid_path(p_uid); }
 	std::vector<std::string> dependencies(const std::string &p_path) const override { return project.dependencies(p_path); }
 	std::string global_class_path(const std::string &p_name) const override {
@@ -119,6 +126,22 @@ Rename refused(const std::string &p_file, int p_line, const std::string &p_why) 
 	return result;
 }
 
+// The script of a node of a scene; a node inside a scene it instances, which
+// it changes, has the one that scene gives it.
+std::string script_of(const ProjectApi &p_project, const Scene &p_scene, const std::string &p_node) {
+	const SceneNode *node = p_scene.find_node(p_node);
+	if (node && (!node->type.empty() || node->is_instance || !node->script.empty())) {
+		return node->script.empty() ? node->instance_script : node->script;
+	}
+	for (const SceneNode &instance : p_scene.nodes) {
+		if (instance.is_instance && p_node.rfind(instance.path + "/", 0) == 0) {
+			const std::optional<Scene> inner = p_project.scene(instance.instance);
+			return inner ? script_of(p_project, *inner, p_node.substr(instance.path.size() + 1)) : std::string();
+		}
+	}
+	return std::string();
+}
+
 } // namespace
 
 Rename rename(Analysis &r_analysis, const std::string &p_path, const std::string &p_source, uint32_t p_offset, const std::string &p_new, const std::vector<std::string> &p_other_scripts,
@@ -147,14 +170,20 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, const std::string
 	std::map<std::string, Edits> edits; // In them, by file.
 	std::set<DeclId> family;
 	std::string old_name;
+	std::string global; // The file whose class's global name it renames.
 	std::vector<RenameEdit> candidates;
+	// The scripts as the unsaved one is, without the edits and with them.
+	const std::map<std::string, std::string> unedited_sources{ { p_path, p_source } };
+	const EditedProject unedited(project, unedited_sources);
+	std::map<std::string, std::shared_ptr<const CompileResult>> before;
 	{
-		const Analysis::Pass pass(r_analysis);
+		const Analysis::Pass pass(r_analysis, &unedited);
 		const std::optional<std::vector<Occurrence>> found = find_references(r_analysis, p_path, p_source, p_offset, p_other_scripts);
 		if (!found) {
 			return refused(p_path, 0, "There is no name here to rename.");
 		}
 		bool signal = false;
+		std::set<std::string> owners; // The classes whose variable it renames.
 		for (const Occurrence &each : *found) {
 			const Reference &reference = each.reference;
 			if (each.candidate) {
@@ -171,6 +200,9 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, const std::string
 			}
 			family.insert(reference.target);
 			signal = signal || reference.declares == SymbolKind::Signal;
+			if (reference.declares == SymbolKind::Property && reference.target.kind == Kind::Script && reference.target.name.find('.') == std::string::npos) {
+				owners.insert(reference.target.scope);
+			}
 			if (each.file == p_path && each.line > 0 && reference.begin <= p_offset && p_offset <= reference.end) {
 				old_name = p_source.substr(reference.begin, reference.end - reference.begin);
 			}
@@ -180,8 +212,11 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, const std::string
 		}
 		for (const DeclId &id : family) {
 			// A file's class by its global name, which the project lists.
-			if (id.kind == Kind::Script && id.name.empty() && id.scope.find("::") == std::string::npos && !(project.global_class_path(p_new).empty() && project.autoload_path(p_new).empty())) {
-				return refused(p_path, 0, "\"" + p_new + "\" names a class or an autoload already.");
+			if (id.kind == Kind::Script && id.name.empty() && id.scope.find("::") == std::string::npos) {
+				if (!(project.global_class_path(p_new).empty() && project.autoload_path(p_new).empty())) {
+					return refused(p_path, 0, "\"" + p_new + "\" names a class or an autoload already.");
+				}
+				global = id.scope;
 			}
 		}
 		std::map<std::string, std::set<StoredName>> stored; // By file.
@@ -193,6 +228,10 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, const std::string
 				continue;
 			}
 			const std::string &text = text_of(each.file);
+			if (each.reference.end > text.size()) {
+				refuse(each.file, each.line, "The file changed.");
+				continue;
+			}
 			const RenameEdit renamed{ each, { each.reference.begin, each.reference.end, text.substr(each.reference.begin, each.reference.end - each.reference.begin), p_new } };
 			if (each.candidate) {
 				candidates.push_back(renamed);
@@ -203,9 +242,83 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, const std::string
 				edits[each.file].push_back(renamed.edit);
 			}
 		}
+		const bool members = std::any_of(family.begin(), family.end(), [](const DeclId &p_id) { return p_id.kind == Kind::Script; });
+		// A place it rewrites that a scene uses, `p_there` in this scene too.
+		const auto rewrites = [&](const std::function<bool(const Reference &)> &p_uses, const std::string &p_there) {
+			return std::any_of(found->begin(), found->end(), [&](const Occurrence &p_each) {
+				return p_each.line == 0 && (p_there.empty() || p_each.reference.scene == p_there) && p_uses(p_each.reference);
+			});
+		};
+		const auto of_owner = [&](const std::string &p_script) {
+			return std::any_of(owners.begin(), owners.end(), [&](const std::string &p_owner) { return r_analysis.pass_classes().is_or_extends(p_script, p_owner); });
+		};
+		for (const std::string &path : members ? project.scene_paths() : std::vector<std::string>()) {
+			const std::optional<Scene> scene = project.scene(path);
+			if (!scene) {
+				continue;
+			}
+			// Where the scene's check refers a place it rewrites to no declaration
+			// it renames, as when another scene's script or a .gd has the name.
+			const auto another = [&](const std::string &p_file) {
+				refuse(path, 0, "\"" + old_name + "\" here is another declaration, but renaming changes it in " + p_file + ".");
+			};
+			for (const SceneNamedMember &named : scene->named_members) {
+				const auto shares = [&](const Reference &p_reference) {
+					return std::find_first_of(named.places.begin(), named.places.end(), p_reference.named.places.begin(), p_reference.named.places.end()) != named.places.end();
+				};
+				if (rewrites(shares, "") && !rewrites([&](const Reference &p_reference) { return p_reference.named == named; }, path)) {
+					another(named.places[0].resource.substr(0, named.places[0].resource.find("::")));
+				}
+			}
+			for (const SceneConnection &connection : scene->connections) {
+				const auto same = [&](const Reference &p_reference) { return p_reference.connection == connection; };
+				if (rewrites(same, "") && !rewrites(same, path)) {
+					another(connection.file);
+				}
+			}
+			const std::string type = extension(path);
+			if (type != "tscn" && type != "tres") {
+				continue;
+			}
+			// A key under the new name on a node or a resource with the class, as
+			// a removed export leaves: renaming would make its value take effect.
+			StoredName stale;
+			stale.kind = StoredName::Kind::Stale;
+			stale.key = p_new;
+			stale.node = true;
+			for (const SceneNode &node : scene->nodes) {
+				const bool stores = std::any_of(node.properties.begin(), node.properties.end(), [&](const auto &p_property) { return p_property.first == p_new; });
+				if (stores && of_owner(script_of(project, *scene, node.path))) {
+					stale.section = node.path;
+					stored[path].insert(stale);
+				}
+			}
+			// The scene index cannot see one on a resource, which the engine
+			// drops as it loads it (src/adapter/pet_placeholder.cpp:113-116).
+			stale.node = false;
+			for (const SceneResource &resource : scene->resources) {
+				if (of_owner(resource.script)) {
+					const size_t at = resource.path.find("::");
+					stale.section = at == std::string::npos ? std::string() : resource.path.substr(at + 2);
+					stored[path].insert(stale);
+				}
+			}
+			// The header of a resource file names its script's class, by which
+			// preload() types it (scene/resources/resource_format_text.cpp:1806; ed1daf0).
+			const std::optional<ResourceInfo> info = !global.empty() && type == "tres" ? project.resource(path) : std::nullopt;
+			if (info && info->script_class == old_name && std::any_of(scene->resources.begin(), scene->resources.end(), [&](const SceneResource &p_resource) { return p_resource.path == path && p_resource.script == global; })) {
+				StoredName header;
+				header.kind = StoredName::Kind::Class;
+				stored[path].insert(header);
+			}
+		}
 		for (const auto &[file, names] : stored) {
 			const std::string type = extension(file);
-			if (type == "scn" || type == "res") {
+			// The binary formats of what stores names: scenes, animations,
+			// synchronization configurations and other resources
+			// (scene/resources/packed_scene.h:248, animation.h:40;
+			// modules/multiplayer/scene_replication_config.h:39; core/io/resource.h:59; ed1daf0).
+			if (type == "scn" || type == "res" || type == "anim" || type == "repl") {
 				refuse(file, 0, std::string("It is a binary file, whose names cannot be rewritten. Save it as ") + (type == "scn" ? ".tscn" : ".tres") + " first.");
 				continue;
 			}
@@ -236,38 +349,29 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, const std::string
 				result.edits.push_back(renamed);
 			}
 		}
-		for (const std::string &path : project.script_paths()) {
+		if (!result.refusals.empty()) {
+			result.edits.clear();
+			return result;
+		}
+		// A local is not seen from the other scripts.
+		for (const std::string &path : members ? project.script_paths() : std::vector<std::string>()) {
 			if (is_script_path(path) && path != p_path) {
 				scripts.push_back(path);
 			}
 		}
-	}
-	if (!result.refusals.empty()) {
-		result.edits.clear();
-		return result;
+		for (const std::string &path : scripts) {
+			before[path] = r_analysis.compile(path, text_of(path));
+		}
 	}
 
-	// The edited scripts, checked as the unsaved script is with and without
-	// the edits.
-	std::map<std::string, std::string> unedited_sources{ { p_path, p_source } };
 	std::map<std::string, std::string> edited_sources;
 	for (auto &[file, in_file] : edits) {
 		std::sort(in_file.begin(), in_file.end(), [](const CheckedEdit &p_a, const CheckedEdit &p_b) { return p_a.begin < p_b.begin; });
 		edited_sources[file] = applied(text_of(file), in_file);
 	}
-	EditedProject unedited(project, unedited_sources);
 	EditedProject edited(project, edited_sources);
-	for (const DeclId &id : family) {
-		if (id.kind == Kind::Script && id.name.empty() && id.scope.find("::") == std::string::npos) {
-			edited.rename_global(old_name, p_new, id.scope);
-		}
-	}
-	std::map<std::string, std::shared_ptr<const CompileResult>> before;
-	{
-		const Analysis::Pass pass(r_analysis, &unedited);
-		for (const std::string &path : scripts) {
-			before[path] = r_analysis.compile(path, text_of(path));
-		}
+	if (!global.empty()) {
+		edited.rename_global(old_name, p_new, global);
 	}
 	// What an id is after the edits: the offsets of locals move, and a
 	// declaration renamed takes what it declares inside it along. A member of
@@ -299,6 +403,10 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, const std::string
 	for (const std::string &path : scripts) {
 		const auto found = edited_sources.find(path);
 		const std::shared_ptr<const CompileResult> after = r_analysis.compile(path, found == edited_sources.end() ? text_of(path) : found->second);
+		// What it read did not change, so it refers to nothing renamed.
+		if (after == before[path]) {
+			continue;
+		}
 		const Edits &in_file = edits[path];
 		const std::string &text = text_of(path);
 		const std::vector<uint32_t> starts = line_starts_of(text);

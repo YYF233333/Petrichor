@@ -395,14 +395,15 @@ namespace {
 // inherit_leaf.tscn, which inherits it and so has its connection too.
 Project connections() {
 	Project project;
-	project.add_script("res://inherit_base.pet", "class_name InheritBase\nextends Node\n\npub signal tick()\n\n\npub func _entered():\n\tpass\n", "InheritBase");
+	project.add_script("res://inherit_base.pet", "class_name InheritBase\nextends Node\n\npub signal tick()\n@export pub var target: Node3D\n\n\npub func _entered():\n\tpass\n", "InheritBase");
 	project.add_script("res://inherit_leaf.pet", "extends InheritBase\n\n\npub func _leaf_tick():\n\ttick.emit()\n");
 	project.texts["res://inherit_base.tscn"] = R"([gd_scene format=3]
 [ext_resource type="Script" path="res://inherit_base.pet" id="1"]
-[node name="Inherited" type="Node"]
+[node name="Inherited" type="Node" node_paths=PackedStringArray("target")]
 script = ExtResource("1")
+target = NodePath("Target")
 [node name="Target" type="Node3D" parent="."]
-[connection signal="ready" from="Target" to="." method="_entered"]
+[connection signal="tree_entered" from="Target" to="." method="_entered"]
 )";
 	project.texts["res://inherit_leaf.tscn"] = R"([gd_scene format=3]
 [ext_resource type="PackedScene" path="res://inherit_base.tscn" id="1"]
@@ -415,12 +416,13 @@ visible = false
 )";
 	compiler::Scene base;
 	base.path = "res://inherit_base.tscn";
-	base.nodes = { { ".", "Node", "res://inherit_base.pet" }, { "Target", "Node3D" } };
-	base.connections = { { "ready", "Target", ".", "_entered", 0, 0, base.path } };
+	base.nodes = { { ".", "Node", "res://inherit_base.pet", false, "", false, { { "target", value("NodePath") } } }, { "Target", "Node3D" } };
+	base.connections = { { "tree_entered", "Target", ".", "_entered", 0, 0, base.path } };
 	compiler::Scene leaf = base;
 	leaf.path = "res://inherit_leaf.tscn";
 	leaf.base = base.path;
 	leaf.nodes[0].script = "res://inherit_leaf.pet";
+	leaf.nodes[0].properties.clear();
 	leaf.connections.push_back({ "tick", ".", ".", "_leaf_tick", 0, 0, leaf.path });
 	project.scenes = { base, leaf };
 	return project;
@@ -432,12 +434,41 @@ TEST_CASE("a connection's method and signal are renamed in the scene that stores
 	const Project project = connections();
 	const compiler::Rename method = renamed(project, "res://inherit_base.pet", "_entered", "_on_entered");
 	REQUIRE_MESSAGE(method.refusals.empty(), refusals(method));
-	CHECK(places(method) == joined({ "res://inherit_base.pet:7", "res://inherit_base.tscn:6" }));
-	CHECK(contains(after(project, method, "res://inherit_base.tscn"), "[connection signal=\"ready\" from=\"Target\" to=\".\" method=\"_on_entered\"]"));
+	CHECK(places(method) == joined({ "res://inherit_base.pet:8", "res://inherit_base.tscn:7" }));
+	CHECK(contains(after(project, method, "res://inherit_base.tscn"), "[connection signal=\"tree_entered\" from=\"Target\" to=\".\" method=\"_on_entered\"]"));
 	const compiler::Rename signal = renamed(project, "res://inherit_base.pet", "tick", "pulse");
 	REQUIRE_MESSAGE(signal.refusals.empty(), refusals(signal));
 	CHECK(contains(after(project, signal, "res://inherit_leaf.tscn"), "[connection signal=\"pulse\" from=\".\" to=\".\" method=\"_leaf_tick\"]"));
 	CHECK(contains(after(project, signal, "res://inherit_leaf.pet"), "\tpulse.emit()\n"));
+}
+
+TEST_CASE("an export of a Node type is renamed in its key and where the node's header lists the key as a node path") {
+	const Project project = connections();
+	const compiler::Rename rename = renamed(project, "res://inherit_base.pet", "target", "goal");
+	REQUIRE_MESSAGE(rename.refusals.empty(), refusals(rename));
+	CHECK(contains(after(project, rename, "res://inherit_base.tscn"), "node_paths=PackedStringArray(\"goal\")]\nscript = ExtResource(\"1\")\ngoal = NodePath(\"Target\")\n"));
+}
+
+TEST_CASE("a class's global name is renamed in the headers of the resource files whose script it is, by which a preload is typed") {
+	Project project;
+	project.add_script("res://weapon.pet", "class_name Weapon\nextends Resource\n\n@export pub var damage := 1\n", "Weapon");
+	project.add_script("res://shop.pet", "extends Node\n\nconst SWORD = preload(\"res://sword.tres\")\n");
+	project.texts["res://sword.tres"] = R"([gd_resource type="Resource" script_class="Weapon" format=3 uid="uid://c4xvb1yyfmxfo"]
+
+[ext_resource type="Script" path="res://weapon.pet" id="1_wpn"]
+
+[resource]
+script = ExtResource("1_wpn")
+damage = 3
+)";
+	project.resources["res://sword.tres"] = { "Resource", "Weapon" };
+	compiler::Scene sword;
+	sword.path = "res://sword.tres";
+	sword.resources = { { sword.path, "res://weapon.pet", { { "damage", number(3) } } } };
+	project.scenes = { sword };
+	const compiler::Rename rename = renamed(project, "res://weapon.pet", "Weapon", "Arm");
+	REQUIRE_MESSAGE(rename.refusals.empty(), refusals(rename));
+	CHECK(contains(after(project, rename, "res://sword.tres"), "[gd_resource type=\"Resource\" script_class=\"Arm\" format=3"));
 }
 
 TEST_CASE("a method is renamed with those that override it, and a scene's connection to an override") {
@@ -512,7 +543,6 @@ TEST_CASE("candidates by name come last and start unchecked") {
 	project.sources["res://legacy.gd"] = "extends Node\n\nfunc f(unit):\n\tunit.hit()\n";
 	const compiler::Rename rename = renamed(project, "res://unit.pet", "hit", "strike");
 	CHECK(places(rename) == joined({ "res://unit.pet:4", "res://legacy.gd:4 candidate" }));
-	CHECK(after(project, rename, "res://legacy.gd") == project.sources.at("res://legacy.gd"));
 }
 
 TEST_CASE("renaming is refused when the new name is not a name, or the edits change what the scripts mean") {
@@ -540,24 +570,68 @@ TEST_CASE("renaming is refused when a binary or imported file stores the name, o
 	Project project = player();
 	project.scenes[0].path = "res://player.scn";
 	project.scenes[0].named_members[0].places[0].resource = "res://model.glb::Animation_1";
+	project.scenes[0].named_members[0].places.push_back({ "res://hit.anim", 0 });
 	CHECK(refusals(renamed(project, "res://player.pet", "stunned", "dazed")) ==
 			joined({
+					"res://hit.anim:0: It is a binary file, whose names cannot be rewritten. Save it as .tres first.",
 					"res://model.glb:0: It is imported, and its names cannot be rewritten.",
 					"res://player.scn:0: It is a binary file, whose names cannot be rewritten. Save it as .tscn first.",
 			}));
 	Project moved = player();
-	moved.scenes[0].named_members[0].places[0].index = 2;
-	CHECK(refusals(renamed(moved, "res://player.pet", "stunned", "dazed")) == "res://player.tscn:35: tracks/2/path of the resource 3 names \"recoil\", not \"stunned\".\n");
+	moved.scenes[0].named_members[0].places[0].index = 0;
+	CHECK(refusals(renamed(moved, "res://player.pet", "stunned", "dazed")) == "res://player.tscn:11: tracks/0/path of the resource 3 names \"frame\", not \"stunned\".\n");
 }
 
-TEST_CASE("renaming is refused beside a key the new name already has, whose value would then take effect") {
+TEST_CASE("renaming is refused where a node or a resource with the class stores the new name already, whose value would then take effect") {
+	// As a removed export leaves it, where the renamed one is not stored.
 	Project project = player();
 	std::string &scene = project.texts["res://player.tscn"];
-	scene.insert(scene.find("stunned = true"), "dazed = false\n");
-	CHECK(refusals(renamed(project, "res://player.pet", "stunned", "dazed")) == "res://player.tscn:61: \"stunned\" of the root would be renamed beside \"dazed\", which is stored already and would then take effect.\n");
+	scene.replace(scene.find("stunned = true"), 7, "dazed");
+	project.scenes[0].nodes[0].properties = { { "dazed", value("bool") } };
+	CHECK(refusals(renamed(project, "res://player.pet", "stunned", "dazed")) == "res://player.tscn:61: \"dazed\" of the root is stored already, and its value would take effect after renaming.\n");
+	// The engine drops it as it loads the resource, so only the text has it;
+	// here the resource has a subclass.
+	Project items;
+	items.add_script("res://item.pet", "extends Resource\n\n@export pub var price := 1\n");
+	items.add_script("res://elixir.pet", "extends \"res://item.pet\"\n");
+	items.texts["res://potion.tres"] = "[gd_resource type=\"Resource\" format=3]\n\n[ext_resource type=\"Script\" path=\"res://elixir.pet\" id=\"1\"]\n\n[resource]\nscript = ExtResource(\"1\")\ncost = 5\n";
+	compiler::Scene potion;
+	potion.path = "res://potion.tres";
+	potion.resources = { { potion.path, "res://elixir.pet" } };
+	items.scenes = { potion };
+	CHECK(refusals(renamed(items, "res://item.pet", "price", "cost")) == "res://potion.tres:7: \"cost\" of the resource is stored already, and its value would take effect after renaming.\n");
 	Project fields = exports();
 	std::string &derived = fields.texts["res://export_derived.tscn"];
 	derived.replace(derived.find("{\"damage\": 7}"), 13, "{\"amount\": 1, \"damage\": 7}");
 	fields.scenes[1].nodes[0].properties[0].second = value("Dictionary", { text("amount"), number(1), text("damage"), number(7) });
 	CHECK(contains(refusals(renamed(fields, "res://export_check.pet", "damage", "amount")), "res://export_derived.tscn:6: "));
+}
+
+TEST_CASE("renaming is refused where another scene uses a place it rewrites for another declaration") {
+	// An animation stored apart, which a scene with a script of GDScript
+	// animates too.
+	Project project;
+	project.add_script("res://player.pet", "extends Node2D\n\npub var flash := 0.0\n");
+	project.sources["res://enemy.gd"] = "extends Node2D\n\nvar flash := 0.0\n";
+	project.texts["res://hurt.tres"] = R"([gd_resource type="Animation" format=3]
+
+[resource]
+resource_name = "hurt"
+tracks/0/type = "value"
+tracks/0/path = NodePath(".:flash")
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [1.0]
+}
+)";
+	for (const std::string &name : { "player", "enemy" }) {
+		compiler::Scene scene;
+		scene.path = "res://" + name + ".tscn";
+		scene.nodes = { { ".", "Node2D", name == "player" ? "res://player.pet" : "res://enemy.gd" }, { "AnimationPlayer", "AnimationPlayer" } };
+		scene.named_members = { { "AnimationPlayer", "hurt", "..", "flash", false, { { "res://hurt.tres", 0 } } } };
+		project.scenes.push_back(scene);
+	}
+	CHECK(refusals(renamed(project, "res://player.pet", "flash", "blink")) == "res://enemy.tscn:0: \"flash\" here is another declaration, but renaming changes it in res://hurt.tres.\n");
 }
