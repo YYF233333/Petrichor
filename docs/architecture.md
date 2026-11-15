@@ -200,7 +200,7 @@
   - 直接调用不复制 lambda 的镜像和上下文，因为调用方的寄存器在调用期间持有它。
 - 无类型 `Callable` 的 `call()` 遇到本语言的 lambda 或方法值时，也按槽位直接调用。它按引擎入口处理，被调用者出错后调用方得到默认值继续（规范 §8.1）。
 - 其他实例的成员同样不经过引擎读写：
-  - 虚拟机按名字在其当前镜像中找到成员，核对布局，直接读写槽位；
+  - 虚拟机按名字在其当前镜像中找到成员，核对类型，直接读写槽位；
   - 有访问器的成员经 `CALL_METHOD` 调用该对象的访问器；
   - 所以不是 `pub` 的成员可以按规范 §4.2 访问，装箱的容器也不必经反射暴露（§10.5）。
 - 有 MethodBind 的引擎方法经它的 ptrcall 调用，`$Path` 也是。这与 GDScript 调用已知类的方法相同，不经过脚本实例（`modules/gdscript/gdscript_vm.cpp:2273-2313`）。
@@ -265,7 +265,7 @@
   - 这些场景沿 owner 链向上找：实例化的场景的根拥有它的节点，外层场景的根又拥有这个根（`scene/resources/packed_scene.cpp:567-573`）。
   - 在每个场景中，节点的位置是从该场景的根到它的路径。
 - 脚本编辑器列出挂载脚本的场景报在脚本中的错误，但仍判脚本有效，照常应用它的源码（`editor/script/script_text_editor.cpp:841-886`）。
-- 错误按保存后的场景计算。保存资源或场景、文件系统变化时，节点重新取错误，分析只重新检查输入变了的脚本（`editor/plugins/editor_plugin.cpp:284-289`）。
+- 错误按保存后的场景计算。保存资源或场景，或者文件系统、项目设置变化时，节点重新取错误。分析只重新检查输入变了的脚本（`editor/plugins/editor_plugin.cpp:284-289`，`core/config/project_settings.cpp:575`）。
 - 编辑器加载脚本时只编译声明，足以提供反射信息，但不能运行。
   - 这时不能加载用到这个脚本的场景，引擎会当作循环加载拒绝（`core/io/resource_loader.cpp:1049-1056`）。
   - 所以完整编译在加载之外进行：编辑时的检查、保存、运行前的构建和导出。
@@ -463,9 +463,10 @@ thirdparty/ring/       git 子模块：同一次迁移所用提交的 Ring，只
 用本语言写的游戏在运行时加载 Mod 的包。Mod 的类继承、调用和实现游戏的类，使用游戏的场景，而 Mod 的作者拿不到游戏的源码。
 
 - 加载：Mod 的包由 `ProjectSettings.load_resource_pack` 载入，包中的 `.remap` 同样生效（`core/config/project_settings.cpp:581-585`，`core/io/resource_loader.cpp:1491-1519`）。所以 Mod 的脚本与游戏的脚本经同一条路径到达运行时。挂载不刷新已缓存的资源，所以包须在目标脚本和场景首次加载前挂载（`core/io/resource_loader.cpp:622, 801`）。字节码按路径指称类，不必登记全局类名（`src/bytecode/module.h` 的 `ClassRef`）。
-- 链接：脚本之间按路径和名字引用。运行时做三项检查：
+- 链接：脚本之间按路径和名字引用。运行时做四项检查：
   - 加载时检查基类的成员布局和签名（`src/runtime/class_image.cpp` 的 `ClassImage::load_class`）；
   - 调用时检查方法的签名（`src/runtime/vm.cpp` 的 `has_signature`）；
+  - 读写时检查其他脚本的成员和静态变量的类型（`src/runtime/values.h` 的 `TypeImage::type_id`）；
   - 使用处检查场景中节点的类（`vm.cpp` 的 `fits_class`）。
 
   所以版本不符或替换了场景的 Mod 得到加载错误或程序错误，不会读错内存。C# 和 Java 的 Mod 也建在这种带检查的动态链接上。

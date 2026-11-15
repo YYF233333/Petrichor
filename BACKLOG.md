@@ -43,10 +43,11 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - With them, the format id must cover the value sizes. It is computed when SConstruct runs, before `gen/` exists.
 - Ordering of arrays of engine types as spec §5.2 says. It differs from the engine's operators only with NaN, so it waits for the open question on NaN.
 - Range checks of ints passed through an engine method's value, as `f.call(x)` (spec §10.6). The value is the engine's Callable, which converts without them.
+- A Callable of another language after `bind()`, called through a function type, is taken for a function value of this language (spec §8.1). A program error in this language's code that it calls then ends the caller's run silently. The engine does not show what a bound Callable wraps.
 - Destruction order of `LambdaCallable` at exit when `WorkerThreadPool` holds unclaimed tasks (`main/main.cpp:5268, 5295`, `core/object/worker_thread_pool.cpp:855-880`, `ed1daf0`). Add an engine test and verify teardown.
 - Before the 0.9 bytecode freeze, evaluate load-time constants with bytecode instead of the recursive `bytecode::Constant` tree and `constant_value` (`src/bytecode/module.h:241`, `src/runtime/class_image.cpp:519`).
 - At the 0.9 format freeze, settle these decisions of the bytecode format:
-  - members and static variables of other scripts are checked only by layout, and static variables are referenced by index;
+  - static variables of other scripts are referenced by index;
   - the format id does not cover the value sizes;
   - the await instructions do not carry the type of their result;
   - `Task[T]` holds T as a key string in the type table and as a type index in instructions;
