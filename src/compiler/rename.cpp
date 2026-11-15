@@ -184,11 +184,11 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, const std::string
 				return refused(p_path, 0, "\"" + p_new + "\" names a class or an autoload already.");
 			}
 		}
-		std::map<std::string, std::vector<Reference>> stored; // By the file that stores them.
+		std::map<std::string, std::set<StoredName>> stored; // By file.
 		for (const Occurrence &each : *found) {
 			if (each.line == 0) {
-				for (const std::string &file : files_storing(each.reference)) {
-					stored[file].push_back(each.reference);
+				for (const auto &[file, name] : stored_names(each.reference)) {
+					stored[file].insert(name);
 				}
 				continue;
 			}
@@ -203,7 +203,7 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, const std::string
 				edits[each.file].push_back(renamed.edit);
 			}
 		}
-		for (const auto &[file, references] : stored) {
+		for (const auto &[file, names] : stored) {
 			const std::string type = extension(file);
 			if (type == "scn" || type == "res") {
 				refuse(file, 0, std::string("It is a binary file, whose names cannot be rewritten. Save it as ") + (type == "scn" ? ".tscn" : ".tres") + " first.");
@@ -214,7 +214,7 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, const std::string
 				continue;
 			}
 			const std::optional<std::string> text = p_text(file);
-			const LocatedNames located = text ? locate_names(*text, file, references, signal, old_name, p_new) : LocatedNames{ {}, "It cannot be read.", 0 };
+			const LocatedNames located = text ? locate_names(*text, names, signal, old_name, p_new) : LocatedNames{ {}, "It cannot be read.", 0 };
 			if (!located.error.empty()) {
 				refuse(file, located.line, located.error);
 				continue;

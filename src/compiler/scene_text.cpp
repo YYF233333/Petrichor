@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <optional>
-#include <set>
 #include <tuple>
 
 namespace petrichor::compiler {
@@ -55,24 +54,6 @@ bool is_space(char p_char) {
 // What ends a bare token, such as a number, an identifier or a color.
 bool ends_word(char p_char) {
 	return is_space(p_char) || std::string("[]{}(),:\"=;").find(p_char) != std::string::npos;
-}
-
-void append_utf8(std::string &r_text, uint32_t p_code) {
-	if (p_code < 0x80) {
-		r_text += char(p_code);
-	} else if (p_code < 0x800) {
-		r_text += char(0xC0 | (p_code >> 6));
-		r_text += char(0x80 | (p_code & 0x3F));
-	} else if (p_code < 0x10000) {
-		r_text += char(0xE0 | (p_code >> 12));
-		r_text += char(0x80 | ((p_code >> 6) & 0x3F));
-		r_text += char(0x80 | (p_code & 0x3F));
-	} else {
-		r_text += char(0xF0 | (p_code >> 18));
-		r_text += char(0x80 | ((p_code >> 12) & 0x3F));
-		r_text += char(0x80 | ((p_code >> 6) & 0x3F));
-		r_text += char(0x80 | (p_code & 0x3F));
-	}
 }
 
 class Reader {
@@ -232,7 +213,7 @@ public:
 			entry.begin = uint32_t(at);
 			if (peek() == '"') {
 				const Value quoted = string();
-				entry.key = decode(text, quoted.begin, quoted.end);
+				entry.key = decode(text, quoted);
 				entry.end = uint32_t(at);
 				skip_space();
 			} else {
@@ -255,66 +236,23 @@ public:
 		}
 	}
 
-	// A string's text as the engine reads it (variant_parser.cpp:277-415),
-	// with the offset in `p_text` where each byte of it begins, and its end.
-	static std::string decode(const std::string &p_text, uint32_t p_begin, uint32_t p_end, std::vector<uint32_t> *r_offsets = nullptr) {
+	// A string's text as the engine reads a name in it, with the offset in
+	// `p_text` where each byte of it begins, and its end. In the names and
+	// node paths it writes, the engine escapes only quotes, apostrophes and
+	// backslashes (core/string/ustring.cpp:4473-4494, 5052-5063; ed1daf0).
+	// Another escape reads here as the character after the backslash, so a
+	// name with one does not match the old name, which refuses.
+	static std::string decode(const std::string &p_text, const Value &p_string, std::vector<uint32_t> *r_offsets = nullptr) {
 		std::string decoded;
-		const auto mark = [&](uint32_t p_at) {
+		for (uint32_t i = p_string.begin; i < p_string.end; i++) {
 			if (r_offsets) {
-				r_offsets->resize(decoded.size(), p_at);
+				r_offsets->push_back(i);
 			}
-		};
-		uint32_t lead = 0;
-		for (uint32_t i = p_begin; i < p_end;) {
-			const uint32_t start = i;
-			if (p_text[i] != '\\' || i + 1 >= p_end) {
-				decoded += p_text[i++];
-				mark(start);
-				continue;
-			}
-			const char next = p_text[i + 1];
-			i += 2;
-			uint32_t code = 0;
-			switch (next) {
-				case 'b':
-					code = 8;
-					break;
-				case 't':
-					code = 9;
-					break;
-				case 'n':
-					code = 10;
-					break;
-				case 'f':
-					code = 12;
-					break;
-				case 'r':
-					code = 13;
-					break;
-				case 'u':
-				case 'U': {
-					const uint32_t digits = next == 'U' ? 6 : 4;
-					for (uint32_t d = 0; d < digits && i < p_end; d++, i++) {
-						const char c = p_text[i];
-						code = (code << 4) | uint32_t(c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10);
-					}
-				} break;
-				default:
-					code = static_cast<unsigned char>(next);
-			}
-			if ((code & 0xFFFFFC00) == 0xD800) {
-				lead = code;
-				continue;
-			}
-			if ((code & 0xFFFFFC00) == 0xDC00 && lead) {
-				code = (lead << 10) + code - ((0xD800 << 10) + 0xDC00 - 0x10000);
-			}
-			lead = 0;
-			append_utf8(decoded, code);
-			mark(start);
+			i += p_text[i] == '\\' && i + 1 < p_string.end ? 1 : 0;
+			decoded += p_text[i];
 		}
 		if (r_offsets) {
-			r_offsets->push_back(p_end);
+			r_offsets->push_back(p_string.end);
 		}
 		return decoded;
 	}
@@ -330,94 +268,6 @@ std::string id_of(const std::string &p_resource) {
 	return at == std::string::npos ? std::string() : p_resource.substr(at + 2);
 }
 
-// A node path from a scene's root: "." for the root, "Head/Camera".
-std::string from_root(std::string p_path) {
-	if (p_path.rfind("./", 0) == 0) {
-		p_path = p_path.substr(2);
-	}
-	return p_path.empty() ? std::string(".") : p_path;
-}
-
-// A place in the file that stores a name.
-struct Site {
-	enum class Kind {
-		Key, // A key of a node or a resource, or a String down its value.
-		Connection, // The signal or the method of a connection.
-		Path, // The first subname of a track's or a synchronized property's NodePath.
-		Method, // The method of a key of a method track.
-	};
-	Kind kind = Kind::Key;
-	bool node = false;
-	std::string section; // A node's path, or a resource's id.
-	std::string key;
-	std::vector<int> items; // For a Key, down its value; for a Method, the key's index.
-	SceneConnection connection;
-
-	bool operator<(const Site &p_other) const {
-		const SceneConnection &a = connection;
-		const SceneConnection &b = p_other.connection;
-		return std::tie(kind, node, section, key, items, a.signal, a.source, a.target, a.method) < std::tie(p_other.kind, p_other.node, p_other.section, p_other.key, p_other.items, b.signal, b.source, b.target, b.method);
-	}
-
-	std::string shown() const {
-		const std::string owner = node ? (section == "." ? "the root" : "the node " + section) : section.empty() ? "the resource"
-																												 : "the resource " + section;
-		switch (kind) {
-			case Kind::Key:
-				return "\"" + key + "\" of " + owner + (items.empty() ? "" : " (in its value)");
-			case Kind::Connection:
-				return "the connection of \"" + connection.signal + "\" from " + connection.source + " to " + connection.target;
-			case Kind::Path:
-				return key + " of " + owner;
-			case Kind::Method:
-				return "key " + std::to_string(items[0]) + " of " + key + " of " + owner;
-		}
-		return std::string();
-	}
-};
-
-void add_sites(const Reference &p_reference, const std::string &p_file, std::set<Site> &r_sites) {
-	Site site;
-	if (!p_reference.named.from.empty()) {
-		const SceneNamedMember &named = p_reference.named;
-		for (const ScenePlace &place : named.places) {
-			if (file_of(place.resource) != p_file) {
-				continue;
-			}
-			site.section = id_of(place.resource);
-			const std::string index = std::to_string(place.index);
-			site.kind = named.method ? Site::Kind::Method : Site::Kind::Path;
-			site.key = named.animation.empty() ? "properties/" + index + "/path" : "tracks/" + index + (named.method ? "/keys" : "/path");
-			site.items = named.method ? std::vector<int>{ place.key } : std::vector<int>();
-			r_sites.insert(site);
-		}
-	} else if (!p_reference.connection.signal.empty()) {
-		if (p_reference.connection.file == p_file) {
-			site.kind = Site::Kind::Connection;
-			site.connection = p_reference.connection;
-			site.connection.binds = 0;
-			site.connection.unbinds = 0;
-			r_sites.insert(site);
-		}
-	} else if (p_reference.scene == p_file) {
-		site.node = p_reference.resource.empty();
-		site.section = site.node ? p_reference.node : id_of(p_reference.resource);
-		site.key = p_reference.property;
-		site.items = p_reference.value_path;
-		r_sites.insert(site);
-	}
-}
-
-// The text of a field of a section's header: a string's, or a bare token's.
-std::optional<std::string> field_text(const std::string &p_text, const Section &p_section, const std::string &p_name) {
-	for (const auto &[name, value] : p_section.fields) {
-		if (name == p_name) {
-			return value.kind == Value::Kind::String ? Reader::decode(p_text, value.begin, value.end) : p_text.substr(value.begin, value.end - value.begin);
-		}
-	}
-	return std::nullopt;
-}
-
 const Value *field_value(const Section &p_section, const std::string &p_name) {
 	for (const auto &[name, value] : p_section.fields) {
 		if (name == p_name) {
@@ -427,22 +277,26 @@ const Value *field_value(const Section &p_section, const std::string &p_name) {
 	return nullptr;
 }
 
-bool holds(const std::string &p_text, const Section &p_section, const Site &p_site) {
-	if (p_site.kind == Site::Kind::Connection) {
-		const SceneConnection &connection = p_site.connection;
-		return p_section.tag == "connection" && field_text(p_text, p_section, "signal") == connection.signal && from_root(field_text(p_text, p_section, "from").value_or("")) == connection.source &&
-				from_root(field_text(p_text, p_section, "to").value_or("")) == connection.target && field_text(p_text, p_section, "method") == connection.method;
+bool holds(const std::string &p_text, const Section &p_section, const StoredName &p_name) {
+	// A string, or a bare token such as an id of format 2; "" for none.
+	const auto field = [&](const char *p_field) {
+		const Value *value = field_value(p_section, p_field);
+		return !value ? std::string() : value->kind == Value::Kind::String ? Reader::decode(p_text, *value)
+																		   : p_text.substr(value->begin, value->end - value->begin);
+	};
+	// The engine writes the ends of a connection simplified, as the scene
+	// index reads them (scene/resources/resource_format_text.cpp:2107-2108;
+	// ed1daf0).
+	if (p_name.kind == StoredName::Kind::Connection) {
+		const SceneConnection &connection = p_name.connection;
+		return p_section.tag == "connection" && field("signal") == connection.signal && field("from") == connection.source && field("to") == connection.target && field("method") == connection.method;
 	}
-	if (p_site.node) {
-		if (p_section.tag != "node") {
-			return false;
-		}
-		const std::optional<std::string> parent = field_text(p_text, p_section, "parent");
-		const std::string name = field_text(p_text, p_section, "name").value_or("");
-		return (!parent ? std::string(".") : *parent == "." ? name
-															: *parent + "/" + name) == p_site.section;
+	if (p_name.node) {
+		const std::string parent = field("parent");
+		return p_section.tag == "node" && (parent.empty() ? std::string(".") : parent == "." ? field("name")
+																							 : parent + "/" + field("name")) == p_name.section;
 	}
-	return p_site.section.empty() ? p_section.tag == "resource" : p_section.tag == "sub_resource" && field_text(p_text, p_section, "id") == p_site.section;
+	return p_name.section.empty() ? p_section.tag == "resource" : p_section.tag == "sub_resource" && field("id") == p_name.section;
 }
 
 // A typed container's contents, as Array[int]([…]).
@@ -455,7 +309,7 @@ const Value *entry_of(const std::string &p_text, const Value &p_dictionary, cons
 	const Value &dictionary = unwrapped(p_dictionary);
 	for (size_t i = 0; dictionary.kind == Value::Kind::Dictionary && i + 1 < dictionary.items.size(); i += 2) {
 		const Value &key = dictionary.items[i];
-		if (key.kind == Value::Kind::String && Reader::decode(p_text, key.begin, key.end) == p_key) {
+		if (key.kind == Value::Kind::String && Reader::decode(p_text, key) == p_key) {
 			return &dictionary.items[i + 1];
 		}
 	}
@@ -464,24 +318,63 @@ const Value *entry_of(const std::string &p_text, const Value &p_dictionary, cons
 
 } // namespace
 
-std::vector<std::string> files_storing(const Reference &p_reference) {
-	if (!p_reference.named.from.empty()) {
-		std::set<std::string> files;
-		for (const ScenePlace &place : p_reference.named.places) {
-			files.insert(file_of(place.resource));
-		}
-		return std::vector<std::string>(files.begin(), files.end());
-	}
-	return { p_reference.connection.signal.empty() ? p_reference.scene : p_reference.connection.file };
+bool StoredName::operator<(const StoredName &p_other) const {
+	const SceneConnection &a = connection;
+	const SceneConnection &b = p_other.connection;
+	return std::tie(kind, node, section, key, items, a.signal, a.source, a.target, a.method) < std::tie(p_other.kind, p_other.node, p_other.section, p_other.key, p_other.items, b.signal, b.source, b.target, b.method);
 }
 
-LocatedNames locate_names(const std::string &p_text, const std::string &p_file, const std::vector<Reference> &p_references, bool p_signal, const std::string &p_old, const std::string &p_new) {
+std::string StoredName::shown() const {
+	const std::string owner = node ? (section == "." ? "the root" : "the node " + section) : section.empty() ? "the resource"
+																											 : "the resource " + section;
+	switch (kind) {
+		case Kind::Key:
+			return "\"" + key + "\" of " + owner + (items.empty() ? "" : " (in its value)");
+		case Kind::Connection:
+			return "the connection of \"" + connection.signal + "\" from " + connection.source + " to " + connection.target;
+		case Kind::Path:
+			return key + " of " + owner;
+		case Kind::Method:
+			return "key " + std::to_string(items[0]) + " of " + key + " of " + owner;
+	}
+	return std::string();
+}
+
+std::vector<std::pair<std::string, StoredName>> stored_names(const Reference &p_reference) {
+	std::vector<std::pair<std::string, StoredName>> found;
+	StoredName name;
+	if (!p_reference.named.from.empty()) {
+		const SceneNamedMember &named = p_reference.named;
+		for (const ScenePlace &place : named.places) {
+			const std::string index = std::to_string(place.index);
+			name.kind = named.method ? StoredName::Kind::Method : StoredName::Kind::Path;
+			name.section = id_of(place.resource);
+			name.key = named.animation.empty() ? "properties/" + index + "/path" : "tracks/" + index + (named.method ? "/keys" : "/path");
+			name.items = named.method ? std::vector<int>{ place.key } : std::vector<int>();
+			found.emplace_back(file_of(place.resource), name);
+		}
+	} else if (!p_reference.connection.signal.empty()) {
+		name.kind = StoredName::Kind::Connection;
+		name.connection = p_reference.connection;
+		found.emplace_back(p_reference.connection.file, name);
+	} else {
+		name.node = p_reference.resource.empty();
+		name.section = name.node ? p_reference.node : id_of(p_reference.resource);
+		name.key = p_reference.property;
+		name.items = p_reference.value_path;
+		found.emplace_back(p_reference.scene, name);
+	}
+	return found;
+}
+
+LocatedNames locate_names(const std::string &p_text, const std::set<StoredName> &p_names, bool p_signal, const std::string &p_old, const std::string &p_new) {
+	using Kind = StoredName::Kind;
 	LocatedNames located;
 	const std::vector<uint32_t> starts = line_starts_of(p_text);
-	const auto refuse = [&](uint32_t p_at, const std::string &p_error) {
+	const auto refuse = [&](std::optional<uint32_t> p_at, const std::string &p_error) {
 		located.edits.clear();
 		located.error = p_error;
-		located.line = position_in(p_text, starts, p_at).line;
+		located.line = p_at ? position_in(p_text, starts, *p_at).line : 0;
 		return located;
 	};
 	Reader reader(p_text);
@@ -489,14 +382,13 @@ LocatedNames locate_names(const std::string &p_text, const std::string &p_file, 
 	if (!reader.error.empty()) {
 		return refuse(reader.error_at, "The file cannot be read: " + reader.error + ".");
 	}
-	std::set<Site> sites;
-	for (const Reference &reference : p_references) {
-		add_sites(reference, p_file, sites);
-	}
 	// A key is written plain unless it needs quotes; in a string, a name needs
 	// no escapes (core/string/ustring.cpp:4474-4496, 5053-5064; ed1daf0).
 	const bool plain = std::none_of(p_new.begin(), p_new.end(), [](char p_char) { return static_cast<unsigned char>(p_char) > 126; });
-	for (const Site &site : sites) {
+	const auto edit = [&](const Value &p_string) {
+		return CheckedEdit{ p_string.begin, p_string.end, p_text.substr(p_string.begin, p_string.end - p_string.begin), p_new };
+	};
+	for (const StoredName &name : p_names) {
 		// Each place found, with the name it holds as the engine reads it.
 		std::vector<std::pair<CheckedEdit, std::string>> found;
 		std::string problem;
@@ -509,64 +401,60 @@ LocatedNames locate_names(const std::string &p_text, const std::string &p_file, 
 		};
 		const auto in_string = [&](const Value *p_value, uint32_t p_at) {
 			if (!p_value || p_value->kind != Value::Kind::String) {
-				wrong(p_at, site.shown() + " holds no name where the reference says.");
+				wrong(p_at, name.shown() + " holds no name where the reference says.");
 				return;
 			}
-			found.push_back({ { p_value->begin, p_value->end, p_text.substr(p_value->begin, p_value->end - p_value->begin), p_new }, Reader::decode(p_text, p_value->begin, p_value->end) });
-		};
-		// Another key `p_new` beside the one renamed.
-		const auto beside = [&](uint32_t p_at) {
-			wrong(p_at, site.shown() + " would be renamed beside \"" + p_new + "\", which is stored already and would then take effect.");
+			found.push_back({ edit(*p_value), Reader::decode(p_text, *p_value) });
 		};
 		for (const Section &section : sections) {
-			if (!holds(p_text, section, site)) {
+			if (!holds(p_text, section, name)) {
 				continue;
 			}
-			if (site.kind == Site::Kind::Connection) {
+			if (name.kind == Kind::Connection) {
 				in_string(field_value(section, p_signal ? "signal" : "method"), section.begin);
 				continue;
 			}
 			for (const Entry &entry : section.entries) {
-				if (entry.key != site.key) {
+				if (entry.key != name.key) {
 					continue;
 				}
-				if (site.kind == Site::Kind::Key && site.items.empty()) {
+				if (name.kind == Kind::Key && name.items.empty()) {
 					found.push_back({ { entry.begin, entry.end, p_text.substr(entry.begin, entry.end - entry.begin), plain ? p_new : "\"" + p_new + "\"" }, entry.key });
 					for (const Entry &other : section.entries) {
 						if (other.key == p_new) {
-							beside(other.begin);
+							wrong(other.begin, name.shown() + " would be renamed beside \"" + p_new + "\", which is stored already and would then take effect.");
 						}
 					}
-				} else if (site.kind == Site::Kind::Key) {
+				} else if (name.kind == Kind::Key) {
 					const Value *value = &entry.value;
 					const Value *container = nullptr;
-					for (const int item : site.items) {
+					for (const int item : name.items) {
 						container = value ? &unwrapped(*value) : nullptr;
 						const bool holds_items = container && (container->kind == Value::Kind::Array || container->kind == Value::Kind::Dictionary);
 						value = holds_items && item >= 0 && size_t(item) < container->items.size() ? &container->items[item] : nullptr;
 					}
 					in_string(value, entry.begin);
 					// A struct's field renamed beside a key that has the new name.
-					for (size_t i = 0; value && container->kind == Value::Kind::Dictionary && site.items.back() % 2 == 0 && i < container->items.size(); i += 2) {
+					for (size_t i = 0; value && container->kind == Value::Kind::Dictionary && name.items.back() % 2 == 0 && i < container->items.size(); i += 2) {
 						const Value &other = container->items[i];
-						if (other.kind == Value::Kind::String && Reader::decode(p_text, other.begin, other.end) == p_new) {
-							beside(other.begin);
+						if (other.kind == Value::Kind::String && Reader::decode(p_text, other) == p_new) {
+							wrong(other.begin, name.shown() + " would be renamed beside \"" + p_new + "\", which is stored already and would then take effect.");
 						}
 					}
-				} else if (site.kind == Site::Kind::Method) {
+				} else if (name.kind == Kind::Method) {
 					const Value *values = entry_of(p_text, entry.value, "values");
 					const Value *list = values ? &unwrapped(*values) : nullptr;
-					const size_t key = size_t(site.items[0]);
+					const size_t key = size_t(name.items[0]);
 					in_string(list && list->kind == Value::Kind::Array && key < list->items.size() ? entry_of(p_text, list->items[key], "method") : nullptr, entry.begin);
 				} else {
 					const Value &path = entry.value;
-					const Value *string = path.kind == Value::Kind::Call && path.items.size() == 1 ? &path.items[0] : nullptr;
+					const Value *string = path.kind == Value::Kind::Call && path.items.size() == 1 && path.items[0].kind == Value::Kind::String ? &path.items[0] : nullptr;
 					std::vector<uint32_t> offsets;
-					const std::string decoded = string && string->kind == Value::Kind::String ? Reader::decode(p_text, string->begin, string->end, &offsets) : std::string();
+					const std::string decoded = string ? Reader::decode(p_text, *string, &offsets) : std::string();
 					// The first subname, after the first colon.
 					const size_t colon = decoded.find(':');
 					if (colon == std::string::npos) {
-						wrong(entry.begin, site.shown() + " holds no property where the reference says.");
+						wrong(entry.begin, name.shown() + " holds no property where the reference says.");
 						continue;
 					}
 					const size_t end = std::min(decoded.find(':', colon + 1), decoded.size());
@@ -579,10 +467,10 @@ LocatedNames locate_names(const std::string &p_text, const std::string &p_file, 
 			return refuse(problem_at, problem);
 		}
 		if (found.size() != 1) {
-			return refuse(found.empty() ? 0 : found[1].first.begin, site.shown() + (found.empty() ? " is not found." : " is found " + std::to_string(found.size()) + " times."));
+			return refuse(found.empty() ? std::nullopt : std::optional<uint32_t>(found[1].first.begin), name.shown() + (found.empty() ? " is not found." : " is found " + std::to_string(found.size()) + " times."));
 		}
 		if (found[0].second != p_old) {
-			return refuse(found[0].first.begin, site.shown() + " names \"" + found[0].second + "\", not \"" + p_old + "\".");
+			return refuse(found[0].first.begin, name.shown() + " names \"" + found[0].second + "\", not \"" + p_old + "\".");
 		}
 		located.edits.push_back(found[0].first);
 	}
