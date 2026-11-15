@@ -68,7 +68,7 @@ std::string found(const FakeProject &p_project, const std::string &p_path, const
 		const auto checked = analysis.check_scene(scene.path);
 		REQUIRE_MESSAGE(checked->errors.empty(), scene.path, "\n", messages(*checked));
 	}
-	const auto result = compiler::find_references(analysis, p_project, p_path, source, uint32_t(offset), { "res://legacy.gd" });
+	const auto result = compiler::find_references(analysis, p_path, source, uint32_t(offset), { "res://legacy.gd" });
 	REQUIRE(result);
 	std::vector<std::string> shown;
 	for (const compiler::Occurrence &each : *result) {

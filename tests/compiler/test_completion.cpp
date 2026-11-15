@@ -65,7 +65,7 @@ compiler::Completion completion(const std::string &p_source) {
 	source.replace(at, mark.size(), "\xEF\xBF\xBF");
 	const FakeProject classes = project();
 	compiler::Analysis analysis(fake_engine(), classes);
-	return compiler::complete(analysis, fake_engine(), "res://test.pet", source);
+	return compiler::complete(analysis, "res://test.pet", source);
 }
 
 std::vector<CompletionItem> complete(const std::string &p_source) {

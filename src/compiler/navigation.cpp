@@ -19,8 +19,14 @@ namespace {
 
 using Kind = SymbolKind;
 
-int line_of(const std::string &p_source, uint32_t p_offset) {
-	return 1 + int(std::count(p_source.begin(), p_source.begin() + std::min<size_t>(p_offset, p_source.size()), '\n'));
+// The reference whose name holds byte `p_offset` or ends at it.
+const Reference *reference_at(const CompileResult &p_result, uint32_t p_offset) {
+	for (const Reference &reference : p_result.references) {
+		if (reference.begin <= p_offset && p_offset <= reference.end) {
+			return &reference;
+		}
+	}
+	return nullptr;
 }
 
 const Reference *declaration_of(const std::vector<Reference> &p_references, const DeclId &p_target) {
@@ -403,7 +409,7 @@ std::string doc_class_name(const DocName &p_doc_name, const std::string &p_path)
 	return name;
 }
 
-Completion complete(Analysis &r_analysis, const EngineApi &p_engine, const std::string &p_path, const std::string &p_source) {
+Completion complete(Analysis &r_analysis, const std::string &p_path, const std::string &p_source) {
 	const Analysis::Pass pass(r_analysis);
 	ScriptClasses &classes = r_analysis.pass_classes();
 	CompileOptions options;
@@ -441,26 +447,25 @@ Completion complete(Analysis &r_analysis, const EngineApi &p_engine, const std::
 	}
 	std::vector<Reference> references;
 	classes.begin_compile(p_path, p_source);
-	check(decl, p_engine, options, errors, classes, true, &references, &completion);
+	check(decl, r_analysis.engine_api(), options, errors, classes, true, &references, &completion);
 	classes.end_compile();
 	return completion;
 }
 
-std::optional<Lookup> lookup(Analysis &r_analysis, const EngineApi &p_engine, const ProjectApi &p_project, const DocName &p_doc_name, const std::string &p_path, const std::string &p_source, uint32_t p_offset) {
+std::optional<Lookup> lookup(Analysis &r_analysis, const DocName &p_doc_name, const std::string &p_path, const std::string &p_source, uint32_t p_offset) {
+	const ProjectApi &project = r_analysis.project_api();
 	const std::shared_ptr<const CompileResult> result = r_analysis.compile(p_path, p_source);
-	const auto at = std::find_if(result->references.begin(), result->references.end(), [&](const Reference &p_reference) {
-		return p_reference.begin <= p_offset && p_offset <= p_reference.end;
-	});
-	if (at == result->references.end()) {
+	const Reference *at = reference_at(*result, p_offset);
+	if (!at) {
 		return std::nullopt;
 	}
 	DeclId target = at->target;
 	if (target.kind == DeclId::Kind::Autoload) {
 		// Its script's class; the editor opens a scene itself
 		// (editor/script/script_text_editor.cpp:1292-1297).
-		const std::string path = p_project.autoload_path(target.name);
+		const std::string path = project.autoload_path(target.name);
 		const bool own = is_script_path(path);
-		if (!own && !p_project.foreign_class(path, false)) {
+		if (!own && !project.foreign_class(path, false)) {
 			return std::nullopt;
 		}
 		target = { own ? DeclId::Kind::Script : DeclId::Kind::Foreign, path, std::string() };
@@ -484,12 +489,12 @@ std::optional<Lookup> lookup(Analysis &r_analysis, const EngineApi &p_engine, co
 				found.comment = DocComments(*file).of_local(uint32_t(name - file->tokens.begin()));
 			}
 			found.path = p_path;
-			found.line = line_of(p_source, offset);
+			found.line = file->position(offset).line;
 			return found;
 		}
 		case DeclId::Kind::Script: {
 			const std::string file = script_file(target.scope);
-			const std::optional<std::string> source = file == p_path ? p_source : p_project.script_source(file);
+			const std::optional<std::string> source = file == p_path ? p_source : project.script_source(file);
 			if (!source) {
 				return std::nullopt;
 			}
@@ -517,11 +522,11 @@ std::optional<Lookup> lookup(Analysis &r_analysis, const EngineApi &p_engine, co
 				found.member.clear();
 			}
 			found.path = file;
-			found.line = declaration ? line_of(*source, declaration->begin) : 1;
+			found.line = declaration ? position_in(*source, line_starts_of(*source), declaration->begin).line : 1;
 			return found;
 		}
 		case DeclId::Kind::Foreign: {
-			const std::optional<std::string> source = target.scope.empty() ? std::nullopt : p_project.script_source(target.scope);
+			const std::optional<std::string> source = target.scope.empty() ? std::nullopt : project.script_source(target.scope);
 			if (!source) {
 				return std::nullopt;
 			}
@@ -541,7 +546,7 @@ std::optional<Lookup> lookup(Analysis &r_analysis, const EngineApi &p_engine, co
 			return found;
 		}
 		case DeclId::Kind::Engine:
-			return engine_lookup(p_engine, target);
+			return engine_lookup(r_analysis.engine_api(), target);
 		default:
 			return std::nullopt;
 	}
@@ -566,28 +571,22 @@ std::vector<uint32_t> whole_words(const std::string &p_text, const std::string &
 // The lines of a script, to place names in.
 class Lines {
 	const std::string &text;
-	std::vector<uint32_t> starts{ 0 };
-
-	int code_points(uint32_t p_begin, uint32_t p_end) const {
-		return int(std::count_if(text.begin() + p_begin, text.begin() + p_end, [](char p_byte) { return (static_cast<unsigned char>(p_byte) & 0xC0) != 0x80; }));
-	}
+	const std::vector<uint32_t> starts;
 
 public:
 	explicit Lines(const std::string &p_text) :
-			text(p_text) {
-		for (size_t at = text.find('\n'); at != std::string::npos; at = text.find('\n', at + 1)) {
-			starts.push_back(uint32_t(at + 1));
-		}
-	}
+			text(p_text), starts(line_starts_of(p_text)) {}
 
+	// A name does not go on to another line.
 	Occurrence at(const std::string &p_file, const Reference &p_reference) const {
 		Occurrence found;
 		found.file = p_file;
 		found.reference = p_reference;
-		found.line = int(std::upper_bound(starts.begin(), starts.end(), p_reference.begin) - starts.begin());
+		const SourcePosition begin = position_in(text, starts, p_reference.begin);
+		found.line = begin.line;
+		found.column = begin.column;
+		found.end_column = position_in(text, starts, p_reference.end).column;
 		const uint32_t start = starts[found.line - 1];
-		found.column = 1 + code_points(start, p_reference.begin);
-		found.end_column = found.column + code_points(p_reference.begin, p_reference.end);
 		const size_t end = size_t(found.line) < starts.size() ? starts[found.line] - 1 : text.size();
 		found.text = text.substr(start, end - start);
 		if (!found.text.empty() && found.text.back() == '\r') {
@@ -618,15 +617,14 @@ struct Script {
 
 } // namespace
 
-std::optional<std::vector<Occurrence>> find_references(Analysis &r_analysis, const ProjectApi &p_project, const std::string &p_path, const std::string &p_source, uint32_t p_offset, const std::vector<std::string> &p_other_scripts) {
+std::optional<std::vector<Occurrence>> find_references(Analysis &r_analysis, const std::string &p_path, const std::string &p_source, uint32_t p_offset, const std::vector<std::string> &p_other_scripts) {
 	using Kind = DeclId::Kind;
 	const Analysis::Pass pass(r_analysis);
+	const ProjectApi &project = r_analysis.project_api();
 	std::vector<Script> scripts{ { p_path, p_source, r_analysis.compile(p_path, p_source) } };
 	const std::vector<Reference> &own = scripts[0].result->references;
-	const auto at = std::find_if(own.begin(), own.end(), [&](const Reference &p_reference) {
-		return p_reference.begin <= p_offset && p_offset <= p_reference.end;
-	});
-	if (at == own.end() || at->target.kind == Kind::Unresolved) {
+	const Reference *at = reference_at(*scripts[0].result, p_offset);
+	if (!at || at->target.kind == Kind::Unresolved) {
 		return std::nullopt;
 	}
 	const DeclId target = at->target;
@@ -638,8 +636,8 @@ std::optional<std::vector<Occurrence>> find_references(Analysis &r_analysis, con
 		}
 	}
 	if (target.kind != Kind::Local) {
-		for (const std::string &path : p_project.script_paths()) {
-			const std::optional<std::string> source = is_script_path(path) && path != p_path ? p_project.script_source(path) : std::nullopt;
+		for (const std::string &path : project.script_paths()) {
+			const std::optional<std::string> source = is_script_path(path) && path != p_path ? project.script_source(path) : std::nullopt;
 			if (source) {
 				scripts.push_back({ path, *source, r_analysis.compile(path, *source) });
 			}
@@ -690,7 +688,7 @@ std::optional<std::vector<Occurrence>> find_references(Analysis &r_analysis, con
 			node.declaration = true;
 			found.push_back(std::move(node));
 		}
-		const std::optional<std::string> source = id.kind == Kind::Foreign && !id.name.empty() ? p_project.script_source(id.scope) : std::nullopt;
+		const std::optional<std::string> source = id.kind == Kind::Foreign && !id.name.empty() ? project.script_source(id.scope) : std::nullopt;
 		const std::optional<Lookup> declared = source ? gdscript_declaration(*source, id.name) : std::nullopt;
 		for (Occurrence &word : declared ? Lines(*source).words(id.scope, id.name) : std::vector<Occurrence>()) {
 			if (word.line == declared->line) {
@@ -702,7 +700,7 @@ std::optional<std::vector<Occurrence>> find_references(Analysis &r_analysis, con
 		}
 	}
 	if (std::any_of(family.begin(), family.end(), [](const DeclId &p_id) { return p_id.kind == Kind::Script; })) {
-		for (const std::string &scene : p_project.scene_paths()) {
+		for (const std::string &scene : project.scene_paths()) {
 			for (const Reference &reference : r_analysis.check_scene(scene)->references) {
 				if (family.count(reference.target)) {
 					found.push_back({ reference.scene, reference });
@@ -722,7 +720,7 @@ std::optional<std::vector<Occurrence>> find_references(Analysis &r_analysis, con
 			}
 		}
 		for (const std::string &path : p_other_scripts) {
-			const std::string source = p_project.script_source(path).value_or(std::string());
+			const std::string source = project.script_source(path).value_or(std::string());
 			for (Occurrence &word : Lines(source).words(path, name)) {
 				word.candidate = true;
 				found.push_back(std::move(word));

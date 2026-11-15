@@ -72,7 +72,7 @@ std::optional<compiler::Lookup> find(const std::string &p_text, int p_nth = 0) {
 	const compiler::Analysis::Pass pass(analysis);
 	const auto compiled = analysis.compile("res://test.pet", SOURCE);
 	REQUIRE_MESSAGE(compiled->ok(), messages(*compiled));
-	return compiler::lookup(analysis, fake_engine(), classes, doc_names(classes), "res://test.pet", SOURCE, uint32_t(offset + 1));
+	return compiler::lookup(analysis, doc_names(classes), "res://test.pet", SOURCE, uint32_t(offset + 1));
 }
 
 // The lookup as "kind class.member type path:line".

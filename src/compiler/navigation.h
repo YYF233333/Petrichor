@@ -52,7 +52,7 @@ struct Lookup {
 // What the name at byte `p_offset` of the script at `p_path` refers to, the
 // script compiled from `p_source`; nullopt where nothing is, or what the
 // editor cannot show, such as a node of a scene.
-std::optional<Lookup> lookup(Analysis &r_analysis, const EngineApi &p_engine, const ProjectApi &p_project, const DocName &p_doc_name, const std::string &p_path, const std::string &p_source, uint32_t p_offset);
+std::optional<Lookup> lookup(Analysis &r_analysis, const DocName &p_doc_name, const std::string &p_path, const std::string &p_source, uint32_t p_offset);
 
 // A place that refers to what a name declares, as finding references lists it
 // (spec §13.2) and renaming changes it (§13.3).
@@ -83,7 +83,7 @@ struct Occurrence {
 // Then, for a declaration of this language that is not a local, the
 // candidates by file, the whole words in `p_other_scripts` among them.
 // nullopt where the name refers to nothing.
-std::optional<std::vector<Occurrence>> find_references(Analysis &r_analysis, const ProjectApi &p_project, const std::string &p_path, const std::string &p_source, uint32_t p_offset, const std::vector<std::string> &p_other_scripts);
+std::optional<std::vector<Occurrence>> find_references(Analysis &r_analysis, const std::string &p_path, const std::string &p_source, uint32_t p_offset, const std::vector<std::string> &p_other_scripts);
 
 // As the script editor shows a name it completes
 // (core/object/script_language.h:293-306).
@@ -139,7 +139,7 @@ struct Completion {
 // the checker's own lookup accepts there, so that none is an error, or an
 // annotation's that the parser does. Only the declarations and the function
 // around the cursor are checked.
-Completion complete(Analysis &r_analysis, const EngineApi &p_engine, const std::string &p_path, const std::string &p_source);
+Completion complete(Analysis &r_analysis, const std::string &p_path, const std::string &p_source);
 
 // A member in the editor's documentation (core/doc_data.h).
 struct DocMember {

@@ -158,6 +158,12 @@ struct SourcePosition {
 	int column = 0; // From 1, in code points.
 };
 
+// The offsets at which the lines of `p_text` begin.
+std::vector<uint32_t> line_starts_of(const std::string &p_text);
+
+// Where byte `p_offset` of `p_text` is, whose lines begin at `p_line_starts`.
+SourcePosition position_in(const std::string &p_text, const std::vector<uint32_t> &p_line_starts, uint32_t p_offset);
+
 // A source file as the lexer gives it to the parser and the tools
 // (architecture §2.1). Merged by offset, its tokens and trivia leave only
 // whitespace between them.
@@ -167,7 +173,7 @@ struct SourceFile {
 	std::vector<Token> trivia; // Comments, line continuations and invalid characters, in order.
 	std::vector<uint32_t> line_starts;
 
-	SourcePosition position(uint32_t p_offset) const;
+	SourcePosition position(uint32_t p_offset) const { return position_in(text, line_starts, p_offset); }
 	int line(uint32_t p_token) const { return position(tokens[p_token].offset).line; }
 	uint32_t begin(const TokenRange &p_range) const { return tokens[p_range.first].offset; }
 	uint32_t end(const TokenRange &p_range) const { return tokens[p_range.last].end(); }

@@ -315,7 +315,7 @@ Dictionary doc_member(const compiler::DocMember &p_member, const char *p_type_ke
 
 std::optional<compiler::Lookup> lookup_name(const String &p_path, const std::string &p_source, uint32_t p_offset) {
 	const compiler::Analysis::Pass analysis_pass(analysis());
-	return compiler::lookup(analysis(), ClassDBApi::get(), SceneIndex::get(), file_doc_name, to_utf8(p_path), p_source, p_offset);
+	return compiler::lookup(analysis(), file_doc_name, to_utf8(p_path), p_source, p_offset);
 }
 
 std::optional<std::vector<compiler::Occurrence>> find_references(const String &p_path, const std::string &p_source, uint32_t p_offset) {
@@ -323,11 +323,11 @@ std::optional<std::vector<compiler::Occurrence>> find_references(const String &p
 	for (const String &path : project_files(PackedStringArray({ "gd", "cs" }))) {
 		others.push_back(to_utf8(path));
 	}
-	return compiler::find_references(analysis(), SceneIndex::get(), to_utf8(p_path), p_source, p_offset, others);
+	return compiler::find_references(analysis(), to_utf8(p_path), p_source, p_offset, others);
 }
 
 compiler::Completion completion(const String &p_path, const std::string &p_source) {
-	return compiler::complete(analysis(), ClassDBApi::get(), to_utf8(p_path), p_source);
+	return compiler::complete(analysis(), to_utf8(p_path), p_source);
 }
 
 namespace {

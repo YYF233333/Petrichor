@@ -38,6 +38,9 @@ public:
 	Analysis(const EngineApi &p_engine, const ProjectApi &p_project) :
 			engine(p_engine), project(p_project) {}
 
+	const EngineApi &engine_api() const { return engine; }
+	const ProjectApi &project_api() const { return project; }
+
 	// One at a time; nested ones are part of the outermost.
 	class Pass {
 		Analysis &analysis;

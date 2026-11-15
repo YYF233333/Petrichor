@@ -203,17 +203,25 @@ const char *token_name(TokenKind p_kind) {
 	return "?";
 }
 
-SourcePosition SourceFile::position(uint32_t p_offset) const {
-	const auto next = std::upper_bound(line_starts.begin(), line_starts.end(), p_offset);
+std::vector<uint32_t> line_starts_of(const std::string &p_text) {
+	std::vector<uint32_t> starts{ 0 };
+	for (size_t at = p_text.find('\n'); at != std::string::npos; at = p_text.find('\n', at + 1)) {
+		starts.push_back(uint32_t(at + 1));
+	}
+	return starts;
+}
+
+SourcePosition position_in(const std::string &p_text, const std::vector<uint32_t> &p_line_starts, uint32_t p_offset) {
+	const auto next = std::upper_bound(p_line_starts.begin(), p_line_starts.end(), p_offset);
 	const uint32_t start = *(next - 1);
 	int column = 1;
-	for (uint32_t at = start; at < p_offset && at < text.size(); at++) {
+	for (uint32_t at = start; at < p_offset && at < p_text.size(); at++) {
 		// Columns count code points, not UTF-8 bytes.
-		if ((static_cast<unsigned char>(text[at]) & 0xC0) != 0x80) {
+		if ((static_cast<unsigned char>(p_text[at]) & 0xC0) != 0x80) {
 			column++;
 		}
 	}
-	return { int(next - line_starts.begin()), column };
+	return { int(next - p_line_starts.begin()), column };
 }
 
 TokenKind compound_operator(TokenKind p_assign) {
@@ -1104,12 +1112,7 @@ public:
 std::vector<uint32_t> lex(SourceFile &r_file, const std::vector<uint32_t> &p_resets, const std::vector<uint32_t> &p_unclosed, std::vector<Diagnostic> &r_errors, std::vector<std::pair<uint32_t, uint32_t>> *r_recovered) {
 	r_file.tokens.clear();
 	r_file.trivia.clear();
-	r_file.line_starts = { 0 };
-	for (uint32_t i = 0; i < r_file.text.size(); i++) {
-		if (r_file.text[i] == '\n') {
-			r_file.line_starts.push_back(i + 1);
-		}
-	}
+	r_file.line_starts = line_starts_of(r_file.text);
 	return Lexer(r_file, p_resets, p_unclosed, r_errors, r_recovered).run();
 }
 
