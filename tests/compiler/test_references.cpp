@@ -109,9 +109,179 @@ TEST_CASE("a method a scene connects is referred to from the scene, and one name
 	// The scene's check has it (architecture §2.1).
 	const auto checked = check_scenes_in(source, project);
 	REQUIRE(checked.references.size() == 1);
-	CHECK((checked.references[0].scene == "res://enemy.tscn" && checked.references[0].connection.source == "Timer" && checked.references[0].target == DeclId{ Kind::Script, "res://test.pet", "_on_timeout" }));
+	CHECK((checked.references[0].scene == "res://enemy.tscn" && checked.references[0].node == "." && checked.references[0].connection.source == "Timer" && checked.references[0].target == DeclId{ Kind::Script, "res://test.pet", "_on_timeout" }));
 	CHECK(has(at(result, source, "reset"), { Kind::Script, "res://test.pet", "reset" }));
 	CHECK(has(at(result, source, "reset", 1), { Kind::Script, "res://test.pet", "reset" }));
+}
+
+TEST_CASE("a member of a foreign class refers to the script that declares it, also in a literal") {
+	FakeProject project;
+	compiler::ForeignClass base;
+	base.native = "Node";
+	base.properties = { { "speed", compiler::Type::of(compiler::TypeKind::Float), true, "res://legacy_base.gd" } };
+	compiler::EngineMethod step{ "step", "res://legacy_base.gd" };
+	compiler::EngineMethod hit{ "hit", "res://legacy_base.gd" };
+	compiler::EngineMethod count{ "count", "res://legacy_base.gd", {}, 0, compiler::Type::of(compiler::TypeKind::Int), false, true };
+	compiler::EngineMethod init{ "_init", "res://legacy_base.gd" };
+	compiler::EngineMethod scored{ "scored", "res://legacy_base.gd", { { "points", compiler::Type::of(compiler::TypeKind::Int) } } };
+	base.methods = { step, hit, count, init };
+	base.signals = { scored };
+	base.constants = { { "MAX_SPEED", compiler::Type::of(compiler::TypeKind::Float), false, "res://legacy_base.gd" } };
+	project.foreign["res://legacy_base.gd"] = base;
+
+	compiler::ForeignClass derived = base;
+	derived.name = "Legacy";
+	derived.base = "res://legacy_base.gd";
+	compiler::EngineMethod overridden = hit;
+	overridden.owner = "res://legacy.gd";
+	derived.methods.insert(derived.methods.begin(), overridden);
+	project.foreign["res://legacy.gd"] = derived;
+	project.global_classes["Legacy"] = "res://legacy.gd";
+
+	const std::string source =
+			"extends Node\n\n"
+			"func on_scored(points: int):\n"
+			"\tpass\n\n"
+			"func f(l: Legacy) -> float:\n"
+			"\tvar copy := Legacy.new()\n"
+			"\tl.step()\n"
+			"\tvar fn := l.step\n"
+			"\tl.hit()\n"
+			"\tvar s := l.scored\n"
+			"\tl.set_deferred(\"speed\", 1.0)\n"
+			"\tl.call_deferred(\"step\")\n"
+			"\tl.connect(\"scored\", on_scored)\n"
+			"\tprint(copy, fn, s, Legacy.count())\n"
+			"\treturn l.speed + Legacy.MAX_SPEED\n";
+	const auto result = compile_in(source, project);
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	CHECK(has(at(result, source, "new"), { Kind::Foreign, "res://legacy.gd", "new" }));
+	CHECK(has(at(result, source, "step", 0), { Kind::Foreign, "res://legacy_base.gd", "step" }));
+	CHECK(has(at(result, source, "step", 1), { Kind::Foreign, "res://legacy_base.gd", "step" }));
+	CHECK(has(at(result, source, "step", 2), { Kind::Foreign, "res://legacy_base.gd", "step" }));
+	CHECK(has(at(result, source, "hit"), { Kind::Foreign, "res://legacy.gd", "hit" }));
+	CHECK(has(at(result, source, "scored", 1), { Kind::Foreign, "res://legacy_base.gd", "scored" }));
+	CHECK(has(at(result, source, "scored", 2), { Kind::Foreign, "res://legacy_base.gd", "scored" }));
+	CHECK(has(at(result, source, "speed", 0), { Kind::Foreign, "res://legacy_base.gd", "speed" }));
+	CHECK(has(at(result, source, "speed", 1), { Kind::Foreign, "res://legacy_base.gd", "speed" }));
+	CHECK(has(at(result, source, "count"), { Kind::Foreign, "res://legacy_base.gd", "count" }));
+	CHECK(has(at(result, source, "MAX_SPEED"), { Kind::Foreign, "res://legacy_base.gd", "MAX_SPEED" }));
+}
+
+TEST_CASE("scenes and resources refer to the exported keys, tracks and synchronized properties they store (spec §7.5, §7.7)") {
+	const auto text = [](const std::string &p_text) {
+		compiler::SceneValue value{ "String" };
+		value.text = p_text;
+		return value;
+	};
+	compiler::SceneValue count{ "int" };
+	count.integer = 3;
+	compiler::SceneValue hit{ "Dictionary" };
+	hit.items = { text("damage"), count };
+	compiler::SceneValue order{ "Dictionary" };
+	order.items = { text("$variant"), text("MOVE"), text("target"), compiler::SceneValue{ "Vector3" } };
+
+	FakeProject project;
+	project.add_script(
+			"res://base_enemy.pet",
+			"class_name BaseEnemy\nextends Node2D\n\n"
+			"pub struct Hit:\n\tvar damage: int\n\n"
+			"pub enum Order { WAIT, MOVE(target: Vector3) }\n\n"
+			"@export pub var speed := 1.0\n"
+			"@export pub var hit: Hit?\n"
+			"@export pub var order := Order.WAIT\n"
+			"pub var health := 3\n\n"
+			"pub func flash():\n\tpass\n",
+			"BaseEnemy");
+	project.add_script(
+			"res://loadout.pet",
+			"class_name Loadout\nextends Resource\n\n"
+			"@export pub var ammo := 5\n",
+			"Loadout");
+
+	compiler::Scene enemy;
+	enemy.path = "res://enemy.tscn";
+	enemy.nodes = {
+		{ ".", "Node2D", "res://test.pet", false, "", false, { { "speed", count }, { "hit", hit }, { "order", order } } },
+		{ "AnimationPlayer", "AnimationPlayer" },
+		{ "MultiplayerSynchronizer", "MultiplayerSynchronizer" },
+	};
+	enemy.named_members = {
+		{ "AnimationPlayer", "hurt", "..", "speed", false },
+		{ "AnimationPlayer", "hurt", "..", "flash", true },
+		{ "MultiplayerSynchronizer", "", "..", "health", false },
+	};
+	enemy.resources = { { "res://enemy.tscn::Resource_1", "res://loadout.pet", { { "ammo", count } } } };
+
+	compiler::Scene level;
+	level.path = "res://level.tscn";
+	level.nodes = {
+		{ ".", "Node2D" },
+		{ "Enemy", "Node2D", "", true, "res://test.pet", false, { { "extra", count } } },
+		{ "Squad", "Node2D", "", true },
+		{ "Squad/Member", "", "", false, "", false, { { "speed", count } } },
+	};
+	level.nodes[1].instance = enemy.path;
+	level.nodes[2].instance = "res://squad.tscn";
+
+	compiler::Scene squad;
+	squad.path = "res://squad.tscn";
+	squad.nodes = { { ".", "Node2D" }, { "Member", "Node2D", "res://test.pet" } };
+
+	compiler::Scene pack;
+	pack.path = "res://pack.tres";
+	pack.resources = { { pack.path, "res://loadout.pet", { { "ammo", count } } } };
+
+	project.scenes = { enemy, squad, level, pack };
+	const std::string source = "extends BaseEnemy\n\n@export pub var extra := 0\n";
+	const auto checked = check_scenes_in(source, project);
+	REQUIRE_MESSAGE(checked.errors.empty(), messages(checked));
+
+	const auto count_matching = [&](const std::function<bool(const Reference &)> &p_pred) {
+		return std::count_if(checked.references.begin(), checked.references.end(), p_pred);
+	};
+	// Each inherited member is attributed to BaseEnemy once, not duplicated for the subclass.
+	CHECK(count_matching([](const Reference &r) {
+		return r.scene == "res://enemy.tscn" && r.node == "." && r.property == "speed" && r.target == DeclId{ Kind::Script, "res://base_enemy.pet", "speed" };
+	}) == 1);
+	CHECK(count_matching([](const Reference &r) {
+		return r.scene == "res://enemy.tscn" && r.node == "." && r.property == "hit" && r.target == DeclId{ Kind::Script, "res://base_enemy.pet", "hit" };
+	}) == 1);
+	CHECK(count_matching([](const Reference &r) {
+		return r.scene == "res://enemy.tscn" && r.node == "." && r.property == "hit" && r.target == DeclId{ Kind::Script, "res://base_enemy.pet", "Hit.damage" };
+	}) == 1);
+	CHECK(count_matching([](const Reference &r) {
+		return r.scene == "res://enemy.tscn" && r.node == "." && r.property == "order" && r.target == DeclId{ Kind::Script, "res://base_enemy.pet", "Order.MOVE" };
+	}) == 1);
+	CHECK(count_matching([](const Reference &r) {
+		return r.scene == "res://enemy.tscn" && r.node == "." && r.property == "order" && r.target == DeclId{ Kind::Script, "res://base_enemy.pet", "Order.MOVE.target" };
+	}) == 1);
+	CHECK(count_matching([](const Reference &r) {
+		return r.scene == "res://enemy.tscn" && r.node == "." && r.named.from == "AnimationPlayer" && r.named.animation == "hurt" && !r.named.method &&
+				r.target == DeclId{ Kind::Script, "res://base_enemy.pet", "speed" };
+	}) == 1);
+	CHECK(count_matching([](const Reference &r) {
+		return r.scene == "res://enemy.tscn" && r.node == "." && r.named.from == "AnimationPlayer" && r.named.animation == "hurt" && r.named.method &&
+				r.target == DeclId{ Kind::Script, "res://base_enemy.pet", "flash" };
+	}) == 1);
+	CHECK(count_matching([](const Reference &r) {
+		return r.scene == "res://enemy.tscn" && r.node == "." && r.named.from == "MultiplayerSynchronizer" && r.named.animation.empty() &&
+				r.target == DeclId{ Kind::Script, "res://base_enemy.pet", "health" };
+	}) == 1);
+	CHECK(count_matching([](const Reference &r) {
+		return r.scene == "res://enemy.tscn" && r.node.empty() && r.resource == "res://enemy.tscn::Resource_1" && r.property == "ammo" &&
+				r.target == DeclId{ Kind::Script, "res://loadout.pet", "ammo" };
+	}) == 1);
+	CHECK(count_matching([](const Reference &r) {
+		return r.scene == "res://level.tscn" && r.node == "Enemy" && r.property == "extra" && r.target == DeclId{ Kind::Script, "res://test.pet", "extra" };
+	}) == 1);
+	CHECK(count_matching([](const Reference &r) {
+		return r.scene == "res://level.tscn" && r.node == "Squad/Member" && r.property == "speed" && r.target == DeclId{ Kind::Script, "res://base_enemy.pet", "speed" };
+	}) == 1);
+	CHECK(count_matching([](const Reference &r) {
+		return r.scene == "res://pack.tres" && r.node.empty() && r.resource == "res://pack.tres" && r.property == "ammo" &&
+				r.target == DeclId{ Kind::Script, "res://loadout.pet", "ammo" };
+	}) == 1);
 }
 
 TEST_CASE("a local is the same where it is declared and where it is used") {

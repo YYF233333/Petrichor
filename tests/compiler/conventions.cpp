@@ -267,8 +267,12 @@ void check_references(const std::string &p_source, const EngineApi &p_engine, co
 	std::map<DeclId, std::string> locals;
 	std::set<std::pair<uint32_t, uint32_t>> places;
 	for (const Reference &reference : references) {
+		if (!reference.scene.empty()) {
+			continue;
+		}
 		const std::string text = file.text.substr(reference.begin, reference.end - reference.begin);
 		places.insert({ reference.begin, reference.end });
+		CHECK_MESSAGE((reference.target.kind != DeclId::Kind::Foreign || !reference.target.scope.empty()), "a foreign reference to ", reference.target.name, " has no declaring script in:\n", p_source);
 		if (reference.target.kind == DeclId::Kind::Local) {
 			const auto entry = locals.insert({ reference.target, text }).first;
 			CHECK_MESSAGE(entry->second == text, "a local spelled ", entry->second, " is referred to as ", text, " in:\n", p_source);

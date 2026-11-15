@@ -359,22 +359,30 @@ func _dock_tooltips(node: Node) -> String:
 # editor asks the language for (editor/script/script_text_editor.cpp:1190-1291).
 func _check_lookup() -> void:
 	var hit_path := "res://editor_lookup_hit.pet"
+	var base_gd := "res://editor_lookup_base.gd"
+	var child_gd := "res://editor_lookup_child.gd"
 	var script_path := "res://editor_lookup.pet"
 	_write(hit_path, "extends RefCounted\n\npub var damage := 1\n")
-	_write(script_path, "extends Node\n\nconst Hit = preload(\"editor_lookup_hit.pet\")\n\nfunc f(hit: Hit) -> int:\n\treturn hit.damage\n")
+	_write(base_gd, "extends RefCounted\n\nconst LIMIT := 5\nvar speed := 2.0\n")
+	_write(child_gd, "extends \"res://editor_lookup_base.gd\"\n")
+	_write(script_path, "extends Node\n\nconst Hit = preload(\"editor_lookup_hit.pet\")\nconst Child = preload(\"editor_lookup_child.gd\")\n\nfunc f(hit: Hit, child: Child) -> float:\n\treturn hit.damage + child.speed + Child.LIMIT\n")
 	var script: Script = load(script_path)
 	var script_editor := EditorInterface.get_script_editor()
 	var click := func(symbol: String) -> CodeEdit:
 		EditorInterface.edit_script(script)
 		var code: CodeEdit = script_editor.get_current_editor().get_base_editor()
-		code.symbol_lookup.emit(symbol, 5, code.get_line(5).find(symbol))
+		code.symbol_lookup.emit(symbol, 6, code.get_line(6).find(symbol))
 		return script_editor.get_current_editor().get_base_editor()
 	var reached := click.call("damage")
 	_check(script_editor.get_current_script().resource_path == hit_path and reached.get_caret_line() == 2, "Ctrl+click on a member goes to its declaration in its file")
+	reached = click.call("speed")
+	_check(script_editor.get_current_script().resource_path == base_gd and reached.get_caret_line() == 3, "Ctrl+click on an inherited GDScript member goes to the base script")
+	reached = click.call("LIMIT")
+	_check(script_editor.get_current_script().resource_path == base_gd and reached.get_caret_line() == 2, "Ctrl+click on an inherited GDScript constant goes to the base script")
 	reached = click.call("hit")
-	_check(script_editor.get_current_script() == script and reached.get_caret_line() == 4, "Ctrl+click on a parameter goes to its declaration")
+	_check(script_editor.get_current_script() == script and reached.get_caret_line() == 5, "Ctrl+click on a parameter goes to its declaration")
 	_check_errors([], "looking up reports nothing")
-	for path in [hit_path, script_path]:
+	for path in [hit_path, base_gd, child_gd, script_path]:
 		for file in [path, path + ".uid", path.replace("res://", "res://.godot/petrichor/").replace(".pet", ".petc")]:
 			DirAccess.remove_absolute(file)
 

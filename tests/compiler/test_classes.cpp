@@ -58,6 +58,7 @@ FakeProject project() {
 	legacy.constants = { { "MAX_SPEED", Type::of(TypeKind::Float), false, "res://legacy.gd" } };
 	compiler::EngineMethod scored;
 	scored.name = "scored";
+	scored.owner = "res://legacy.gd";
 	scored.params = { { "points", Type::of(TypeKind::Int) } };
 	legacy.signals = { scored };
 	project.foreign["res://legacy.gd"] = legacy;
@@ -442,8 +443,10 @@ TEST_CASE("GDScript classes by class_name: new(), static methods and constants (
 TEST_CASE("the declarations know the classes that preloads of scripts name (spec §2.1)") {
 	// Of this language from its header; of another without a global name not
 	// at all, as no script is loaded.
-	const compiler::CompileResult result = compile_in("extends Node\n\nconst Grid = preload(\"res://tools/grid.pet\")\nconst Unit = preload(\"res://units/unit.gd\")\n\npub var grid: Grid?\npub var unit: Unit?\n", project(), true);
+	const compiler::CompileResult result = compile_in("extends Node\n\nconst Grid = preload(\"res://tools/grid.pet\")\nconst Unit = preload(\"res://units/unit.gd\")\n\npub signal spawned(u: Unit)\npub var grid: Grid?\npub var unit: Unit?\n\npub func f(u: Unit) -> Unit:\n\treturn u\n", project(), true);
 	CHECK_MESSAGE(result.ok(), messages(result));
+	std::string error;
+	CHECK_MESSAGE(bytecode::verify(result.module, error), error);
 	FakeProject classes = project();
 	classes.add_script("res://board.pet", "class_name Board\nextends Node\n\nconst Grid = preload(\"res://tools/grid.pet\")\n\npub var grid: Grid?\n", "Board");
 	CHECK(messages(compile_in("extends Node\n\nfunc f(b: Board) -> void:\n\tvar g = b.grid\n\tif g != None:\n\t\tg.clear()\n", classes)).empty());

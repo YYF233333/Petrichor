@@ -652,7 +652,7 @@ class Checker : public ClassRelation {
 	Type unknown_foreign(Expr &r_expr, const Type &p_class);
 	std::optional<Type> foreign_member(Expr &r_expr, const Type &p_class);
 	std::optional<Type> foreign_method(Expr &r_expr, const Type &p_class);
-	std::optional<EngineMethod> foreign_method_named(Expr &r_expr, const Type &p_class, const ForeignClass &p_foreign);
+	std::optional<EngineMethod> foreign_method_named(Expr &r_expr, const ForeignClass &p_foreign);
 	bool extends_script(const std::string &p_script, const std::string &p_base) const;
 	bool implements(const Type &p_class, const Type &p_interface) const;
 	bool is_a(const Type &p_from, const Type &p_to) const override;
@@ -793,8 +793,8 @@ class Checker : public ClassRelation {
 	void check_resource_values();
 	void check_scene_exports();
 	std::optional<bool> stored_value(const Scene &p_scene, const std::string &p_path, const std::string &p_name, int p_depth = 0);
-	std::string undecodable(const Type &p_type, const SceneValue &p_value, const std::string &p_at);
-	std::string undecodable_fields(const Type &p_type, const SceneValue &p_value, const std::string &p_at);
+	std::string undecodable(const Type &p_type, const SceneValue &p_value, const std::string &p_at, const std::function<void(const DeclId &)> &p_refer);
+	std::string undecodable_fields(const Type &p_type, const SceneValue &p_value, const std::string &p_at, const std::function<void(const DeclId &)> &p_refer);
 	Type stored_type(const SceneValue &p_value);
 
 	/* checker_expressions.cpp */

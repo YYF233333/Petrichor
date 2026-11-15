@@ -426,18 +426,18 @@ std::optional<Type> Checker::foreign_member(Expr &r_expr, const Type &p_class) {
 			}
 			r_expr.target = Target::ObjectProperty;
 			r_expr.owner = p_class.engine_class();
-			refer(r_expr.name_token, foreign_id(p_class.script, r_expr.text));
+			refer(r_expr.name_token, foreign_id(property.owner, r_expr.text));
 			return localized(property.type);
 		}
 	}
 	for (const EngineMethod &signal : foreign->signals) {
 		if (signal.name == r_expr.text) {
 			r_expr.target = Target::ObjectSignal;
-			refer(r_expr.name_token, foreign_id(p_class.script, r_expr.text));
+			refer(r_expr.name_token, foreign_id(signal.owner, r_expr.text));
 			return localized(signal_type(signal));
 		}
 	}
-	if (const std::optional<EngineMethod> method = foreign_method_named(r_expr, p_class, *foreign)) {
+	if (const std::optional<EngineMethod> method = foreign_method_named(r_expr, *foreign)) {
 		return engine_method_value(r_expr, *method);
 	}
 	return std::nullopt;
@@ -448,7 +448,7 @@ std::optional<Type> Checker::foreign_method(Expr &r_expr, const Type &p_class) {
 	if (!foreign || !foreign->members_known) {
 		return unknown_foreign(r_expr, p_class);
 	}
-	if (const std::optional<EngineMethod> method = foreign_method_named(r_expr, p_class, *foreign)) {
+	if (const std::optional<EngineMethod> method = foreign_method_named(r_expr, *foreign)) {
 		return check_engine_call(r_expr, *method);
 	}
 	return std::nullopt;
@@ -456,7 +456,7 @@ std::optional<Type> Checker::foreign_method(Expr &r_expr, const Type &p_class) {
 
 // The method `r_expr` names, with types of this language; the engine runs
 // it through the object.
-std::optional<EngineMethod> Checker::foreign_method_named(Expr &r_expr, const Type &p_class, const ForeignClass &p_foreign) {
+std::optional<EngineMethod> Checker::foreign_method_named(Expr &r_expr, const ForeignClass &p_foreign) {
 	for (const EngineMethod &method : p_foreign.methods) {
 		if (method.name == r_expr.text) {
 			EngineMethod local = method;
@@ -465,7 +465,7 @@ std::optional<EngineMethod> Checker::foreign_method_named(Expr &r_expr, const Ty
 			}
 			local.return_type = localized(local.return_type);
 			r_expr.is_foreign = true;
-			refer(r_expr.name_token, foreign_id(p_class.script, r_expr.text));
+			refer(r_expr.name_token, foreign_id(method.owner, r_expr.text));
 			return local;
 		}
 	}

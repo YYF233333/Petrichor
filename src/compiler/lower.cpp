@@ -254,6 +254,12 @@ class Lowerer {
 	}
 
 	uint32_t type_index(const Type &p_type) {
+		// Without the scenes or other languages' scripts, a type that comes
+		// from them is unknown; the module only describes the class then
+		// (architecture §2.4).
+		if (module.declarations_only && p_type.is_error()) {
+			return type_index(ValueType::Variant);
+		}
 		bytecode::TypeDesc type;
 		if (p_type.kind == TypeKind::Task) {
 			type.kind = bytecode::TypeKind::Object;
@@ -3503,11 +3509,6 @@ public:
 			const VarDecl &decl_member = *entry;
 			bytecode::Member member;
 			static_cast<bytecode::Slot &>(member) = slot(decl_member.name, decl_member.type);
-			// Without the scenes, a type that comes from them is unknown; the
-			// module only describes the class then (architecture §2.4).
-			if (p_declarations_only && member.type == type_index(ValueType::Void)) {
-				member.type = type_index(ValueType::Variant);
-			}
 			member.is_onready = decl_member.is_onready;
 			member.setter = decl_member.setter_index;
 			member.getter = decl_member.getter_index;
@@ -3537,9 +3538,6 @@ public:
 		for (const VarDecl &variable : cls.static_vars) {
 			bytecode::Member out;
 			static_cast<bytecode::Slot &>(out) = slot(variable.name, variable.type);
-			if (p_declarations_only && out.type == type_index(ValueType::Void)) {
-				out.type = type_index(ValueType::Variant);
-			}
 			out.line = uint32_t(cls.source->line(variable.name_token));
 			out.offset = static_offset;
 			static_offset += bytecode::type_size(module.types, out.type);

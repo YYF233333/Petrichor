@@ -683,10 +683,23 @@ void Checker::check_named_members() {
 			const auto shown = [](const std::string &p_path) { return p_path == "." ? std::string("the root") : p_path; };
 			const std::string what = named.method ? "calls " + named.name + "() on " + shown(node->path) : (named.animation.empty() ? "synchronizes \"" : "animates \"") + named.name + "\" of " + shown(node->path);
 			const std::string where = scene.path + ": " + (named.animation.empty() ? shown(named.from) : "the animation \"" + named.animation + "\" of " + shown(named.from)) + " " + what;
+			const auto refer_named = [&](const DeclId &p_target) {
+				if (references) {
+					Reference reference;
+					reference.target = p_target;
+					reference.scene = scene.path;
+					reference.node = node->path;
+					reference.named = named;
+					references->push_back(std::move(reference));
+				}
+			};
 			if (named.method) {
 				const auto found = function_index.find(named.name);
 				const FuncDecl *method = found == function_index.end() ? nullptr : cls.all_functions[found->second];
 				const std::optional<EngineMethod> native = method ? std::nullopt : engine.find_method(cls.native_base, named.name);
+				if (method) {
+					refer_named(script_id(declaring(cls, *method, &ClassDecl::functions).path, method->name));
+				}
 				if (method && !method->is_pub && !method->is_override) {
 					error_in_scene(own_name(*method, cls.functions, header), scene, node->path, where + not_pub(true));
 				} else if (!method && (!native || native->is_virtual)) {
@@ -696,9 +709,16 @@ void Checker::check_named_members() {
 			}
 			const auto found = member_index.find(named.name);
 			const VarDecl *member = found == member_index.end() ? nullptr : cls.all_members[found->second];
+			const auto static_found = member ? static_index.end() : static_index.find(named.name);
+			const VarDecl *static_var = static_found == static_index.end() ? nullptr : cls.all_static_vars[static_found->second];
+			if (member) {
+				refer_named(script_id(declaring(cls, *member, &ClassDecl::members).path, member->name));
+			} else if (static_var) {
+				refer_named(script_id(declaring(cls, *static_var, &ClassDecl::static_vars).path, static_var->name));
+			}
 			if (member && !member->is_pub) {
 				error_in_scene(own_name(*member, cls.members, header), scene, node->path, where + not_pub(false));
-			} else if (!member && !static_index.count(named.name) && !takes_any && named.name.find('/') == std::string::npos && !engine.find_property(cls.native_base, named.name)) {
+			} else if (!member && !static_var && !takes_any && named.name.find('/') == std::string::npos && !engine.find_property(cls.native_base, named.name)) {
 				error_in_scene(header, scene, node->path, where + ", which this class does not declare.");
 			}
 		}
@@ -735,6 +755,7 @@ void Checker::check_connections() {
 				Reference reference;
 				reference.target = script_id(declaring(cls, *method, &ClassDecl::functions).path, method->name);
 				reference.scene = scene.path;
+				reference.node = connection.target;
 				reference.connection = connection;
 				references->push_back(std::move(reference));
 			}
@@ -925,27 +946,46 @@ void Checker::check_parent_scenes() {
 	});
 }
 
-// The values that the scene stores for this class's exported structs and
-// enums with payloads, which the entry check decodes as the scene is
-// instantiated (spec §4.3), and for its exported scenes, which may leave
-// to instantiate(...) only what PackedScene[T] asks for (§7.4): on the
-// nodes with the class, on the instances of scenes whose root has it, on
-// the nodes with it inside instanced scenes that the scene changes, and on
-// the resources with it that the scene or resource file holds.
+// The keys and values that the scene stores for this class's exports: each
+// key as a reference (architecture §2.1), the values of exported structs
+// and enums with payloads as the entry check decodes them (spec §4.3), and
+// exported scenes, which may leave to instantiate(...) only what
+// PackedScene[T] asks for (§7.4), on the nodes with the class, on the
+// instances of scenes whose root has it, on the nodes with it inside
+// instanced scenes that the scene changes, and on the resources with it
+// that the scene or resource file holds.
 void Checker::check_stored_exports() {
 	std::vector<const VarDecl *> exports;
 	for (const VarDecl &member : cls.members) {
-		const TypeKind kind = member.type.unwrapped().kind;
-		if (member.is_export && (kind == TypeKind::Struct || kind == TypeKind::PayloadEnum || is_typed_scene(member.type))) {
+		if (member.is_export) {
 			exports.push_back(&member);
 		}
 	}
-	const auto check = [&](const Scene &p_scene, const std::vector<std::pair<std::string, SceneValue>> &p_properties, const std::string &p_shown, const std::string &p_node) {
+	const auto check = [&](const Scene &p_scene, const std::vector<std::pair<std::string, SceneValue>> &p_properties, const std::string &p_shown, const std::string &p_node, const std::string &p_resource) {
+		const auto refer_property = [&](const std::string &p_property, const DeclId &p_target) {
+			if (!references) {
+				return;
+			}
+			Reference reference;
+			reference.target = p_target;
+			reference.scene = p_scene.path;
+			reference.node = p_node;
+			reference.resource = p_resource;
+			reference.property = p_property;
+			if (std::none_of(references->begin(), references->end(), [&](const Reference &p_existing) {
+					return p_existing.target == reference.target && p_existing.scene == reference.scene && p_existing.node == reference.node &&
+							p_existing.resource == reference.resource && p_existing.property == reference.property;
+				})) {
+				references->push_back(std::move(reference));
+			}
+		};
 		for (const VarDecl *member : exports) {
+			const TypeKind kind = member->type.unwrapped().kind;
 			for (const auto &[name, value] : p_properties) {
 				if (name != member->name) {
 					continue;
 				}
+				refer_property(name, script_id(options.path, member->name));
 				const TokenRange at{ member->name_token, member->name_token };
 				if (is_typed_scene(member->type)) {
 					const std::optional<Scene> scene = is_scene_file(value.path) ? options.project->scene(value.path) : std::nullopt;
@@ -955,7 +995,10 @@ void Checker::check_stored_exports() {
 					}
 					continue;
 				}
-				const std::string why = undecodable(member->type, value, std::string());
+				if (kind != TypeKind::Struct && kind != TypeKind::PayloadEnum) {
+					continue;
+				}
+				const std::string why = undecodable(member->type, value, std::string(), [&](const DeclId &p_target) { refer_property(name, p_target); });
 				if (!why.empty()) {
 					error_in_scene(at, p_scene, p_node, p_scene.path + ": the value stored for \"" + name + "\" of " + p_shown + " does not decode: " + why + ".");
 				}
@@ -967,19 +1010,19 @@ void Checker::check_stored_exports() {
 	}
 	for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
 		if (placed_class(p_node.script.empty() ? p_node.instance_script : p_node.script)) {
-			check(p_scene, p_node.properties, p_node.path, p_node.path);
+			check(p_scene, p_node.properties, p_node.path, p_node.path, std::string());
 		}
 	});
 	for (const SceneNode &change : scenes[0].nodes) {
 		const ViewNode *changed = change.type.empty() && !change.is_instance && change.script.empty() ? view_node(scenes[0], change.path) : nullptr;
 		const std::string script = changed ? (changed->node.script.empty() ? changed->node.instance_script : changed->node.script) : std::string();
 		if (extends_script(script, options.path) && placed_class(script)) {
-			check(scenes[0], change.properties, change.path, change.path);
+			check(scenes[0], change.properties, change.path, change.path, std::string());
 		}
 	}
 	for (const SceneResource &resource : scenes[0].resources) {
 		if (extends_script(resource.script, options.path) && !resource.unread && placed_class(resource.script)) {
-			check(scenes[0], resource.properties, resource.shown(), std::string());
+			check(scenes[0], resource.properties, resource.shown(), std::string(), resource.path);
 		}
 	}
 }
@@ -1064,17 +1107,17 @@ std::optional<bool> Checker::stored_value(const Scene &p_scene, const std::strin
 // Why a value that a scene stores does not decode as the type, as the
 // entry check says (spec §3.6, §10.1), after `p_at`, the path to where it
 // lies, such as "Combat.Hit.damage"; "" when it decodes.
-std::string Checker::undecodable(const Type &p_type, const SceneValue &p_value, const std::string &p_at) {
+std::string Checker::undecodable(const Type &p_type, const SceneValue &p_value, const std::string &p_at, const std::function<void(const DeclId &)> &p_refer) {
 	const std::string at = p_at.empty() ? std::string() : p_at + ": ";
 	const auto mismatch = [&]() {
 		const std::string found = p_value.type == "Nil" ? std::string("null") : stored_type(p_value).to_string();
 		return at + "expected " + p_type.to_string() + ", found " + found;
 	};
 	if (p_type.kind == TypeKind::Option && p_value.type != "Nil") {
-		return undecodable(p_type.args[0], p_value, p_at);
+		return undecodable(p_type.args[0], p_value, p_at, p_refer);
 	}
 	if (p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum) {
-		return p_value.type == "Dictionary" ? undecodable_fields(p_type, p_value, p_at.empty() ? p_type.to_string() : p_at) : mismatch();
+		return p_value.type == "Dictionary" ? undecodable_fields(p_type, p_value, p_at.empty() ? p_type.to_string() : p_at, p_refer) : mismatch();
 	}
 	// A container by its elements, as decoding builds a new one of them.
 	if (is_typed_container(p_type)) {
@@ -1083,14 +1126,15 @@ std::string Checker::undecodable(const Type &p_type, const SceneValue &p_value, 
 			return mismatch();
 		}
 		const std::string where = p_at.empty() ? p_type.to_string() : p_at;
+		std::string first_error;
 		for (size_t i = 0; i < p_value.items.size(); i++) {
 			const bool key = !array && i % 2 == 0;
-			const std::string why = undecodable(p_type.args[key || array ? 0 : 1], p_value.items[i], where + (key ? " (a key)" : "[" + std::to_string(array ? i : i / 2) + "]"));
-			if (!why.empty()) {
-				return why;
+			const std::string why = undecodable(p_type.args[key || array ? 0 : 1], p_value.items[i], where + (key ? " (a key)" : "[" + std::to_string(array ? i : i / 2) + "]"), p_refer);
+			if (first_error.empty() && !why.empty()) {
+				first_error = why;
 			}
 		}
-		return std::string();
+		return first_error;
 	}
 	// An int also from a whole float, and an enum of this language only one
 	// of its values (spec §3.7, §10.8).
@@ -1108,7 +1152,7 @@ std::string Checker::undecodable(const Type &p_type, const SceneValue &p_value, 
 // The fields of a stored struct, or of the variant that "$variant" names,
 // each by its name as a key; a struct's field with a default may be left
 // out (spec §3.6, §10.1).
-std::string Checker::undecodable_fields(const Type &p_type, const SceneValue &p_value, const std::string &p_at) {
+std::string Checker::undecodable_fields(const Type &p_type, const SceneValue &p_value, const std::string &p_at, const std::function<void(const DeclId &)> &p_refer) {
 	const auto entry = [&](const std::string &p_key) -> const SceneValue * {
 		for (size_t i = 0; i + 1 < p_value.items.size(); i += 2) {
 			const SceneValue &key = p_value.items[i];
@@ -1124,6 +1168,9 @@ std::string Checker::undecodable_fields(const Type &p_type, const SceneValue &p_
 	if (p_type.kind == TypeKind::Struct) {
 		const StructDecl *decl = struct_decl(p_type);
 		for (size_t f = 0; decl && f < decl->fields.size(); f++) {
+			if (!p_type.script.empty() && entry(decl->fields[f].name)) {
+				p_refer(script_id(p_type.script, decl->name + "." + decl->fields[f].name));
+			}
 			fields.emplace_back(decl->fields[f].name, decl->fields[f].type);
 			defaults.push_back(bool(decl->fields[f].initializer));
 		}
@@ -1134,21 +1181,30 @@ std::string Checker::undecodable_fields(const Type &p_type, const SceneValue &p_
 		if (named == variants.end()) {
 			return p_at + ": expected " + p_type.to_string() + ", found a Dictionary whose \"$variant\" names none of its variants";
 		}
+		const std::string variant_id = p_type.interface_name() + "." + named->first;
+		if (!p_type.script.empty()) {
+			p_refer(script_id(p_type.script, variant_id));
+		}
 		at += "." + named->first;
 		fields = p_type.values->fields[named - variants.begin()];
 		defaults.resize(fields.size(), false);
+		for (size_t f = 0; !p_type.script.empty() && f < fields.size(); f++) {
+			if (entry(fields[f].first)) {
+				p_refer(script_id(p_type.script, variant_id + "." + fields[f].first));
+			}
+		}
 	}
+	std::string first_error;
 	for (size_t f = 0; f < fields.size(); f++) {
 		const SceneValue *value = entry(fields[f].first);
-		const std::string why = value ? undecodable(fields[f].second, *value, at + "." + fields[f].first) : std::string();
-		if (!value && !defaults[f]) {
-			return at + "." + fields[f].first + " is missing";
-		}
-		if (!why.empty()) {
-			return why;
+		const std::string why = value ? undecodable(fields[f].second, *value, at + "." + fields[f].first, p_refer) : std::string();
+		if (first_error.empty() && !value && !defaults[f]) {
+			first_error = at + "." + fields[f].first + " is missing";
+		} else if (first_error.empty() && !why.empty()) {
+			first_error = why;
 		}
 	}
-	return std::string();
+	return first_error;
 }
 
 // The type of a value that a scene stores: an object of the class of its

@@ -519,31 +519,24 @@ std::optional<Lookup> lookup(Analysis &r_analysis, const EngineApi &p_engine, co
 			return found;
 		}
 		case DeclId::Kind::Foreign: {
-			// The script that declares it, along the scripts the class extends.
-			for (std::string script = target.scope; !script.empty();) {
-				const std::optional<std::string> source = p_project.script_source(script);
-				// With members, which says the script's base also without a class_name.
-				const std::optional<ForeignClass> foreign = p_project.foreign_class(script, true);
-				if (!source || !foreign) {
-					return std::nullopt;
-				}
-				std::optional<Lookup> found;
-				if (target.name.empty()) {
-					found.emplace();
-					found->kind = Kind::Class;
-					found->line = 1;
-				} else {
-					found = gdscript_declaration(*source, target.name);
-				}
-				if (found) {
-					found->class_name = p_doc_name(script);
-					found->member = target.name;
-					found->path = script;
-					return found;
-				}
-				script = foreign->base;
+			const std::optional<std::string> source = target.scope.empty() ? std::nullopt : p_project.script_source(target.scope);
+			if (!source) {
+				return std::nullopt;
 			}
-			return std::nullopt;
+			std::optional<Lookup> found;
+			if (target.name.empty()) {
+				found.emplace();
+				found->kind = Kind::Class;
+				found->line = 1;
+			} else {
+				found = gdscript_declaration(*source, target.name);
+			}
+			if (found) {
+				found->class_name = p_doc_name(target.scope);
+				found->member = target.name;
+				found->path = target.scope;
+			}
+			return found;
 		}
 		case DeclId::Kind::Engine:
 			return engine_lookup(p_engine, target);

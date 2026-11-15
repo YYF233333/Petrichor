@@ -355,7 +355,7 @@ Checker::NamedMember Checker::named_member(const Type &p_class, builtin::MemberN
 			for (const EngineProperty &property : foreign->properties) {
 				if (property.name == p_name) {
 					out.found = true;
-					out.id = foreign_id(p_class.script, p_name);
+					out.id = foreign_id(property.owner, p_name);
 					out.type = property.type.is_storable() ? localized(property.type) : Type::of(TypeKind::Error);
 					return out;
 				}
@@ -364,7 +364,7 @@ Checker::NamedMember Checker::named_member(const Type &p_class, builtin::MemberN
 		for (const EngineMethod &method : p_kind == Kind::Method ? foreign->methods : p_kind == Kind::Signal ? foreign->signals
 																											 : std::vector<EngineMethod>()) {
 			if (method.name == p_name) {
-				from_engine(method, foreign_id(p_class.script, p_name));
+				from_engine(method, foreign_id(method.owner, p_name));
 				return out;
 			}
 		}
@@ -1509,7 +1509,7 @@ Type Checker::check_foreign_class_call(Expr &r_expr, const Type &p_class, bool p
 		return fail_call(r_expr);
 	}
 	r_expr.is_foreign = true;
-	refer(r_expr.name_token, foreign_id(p_class.script, r_expr.text));
+	refer(r_expr.name_token, foreign_id(r_expr.text == "new" ? p_class.script : method.owner, r_expr.text));
 	return p_value ? engine_method_value(r_expr, method) : check_engine_call(r_expr, method);
 }
 
@@ -1534,7 +1534,7 @@ Type Checker::check_foreign_constant(Expr &r_expr, const Type &p_class) {
 		r_expr.target = Target::ObjectProperty;
 		r_expr.owner = script.engine_class();
 		r_expr.is_static = true;
-		refer(r_expr.name_token, foreign_id(p_class.script, r_expr.text));
+		refer(r_expr.name_token, foreign_id(constant.owner, r_expr.text));
 		return set(r_expr, localized(constant.type));
 	}
 	return fail(r_expr, p_class.name + " has no constant \"" + r_expr.text + "\".");

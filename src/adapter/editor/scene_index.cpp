@@ -723,26 +723,54 @@ std::optional<compiler::ForeignClass> SceneIndex::foreign_class(const std::strin
 	if (base.is_valid()) {
 		result.base = to_utf8(base->get_path());
 	}
-	const TypedArray<Dictionary> properties = script->get_script_property_list();
-	for (int64_t i = 0; i < properties.size(); i++) {
-		const Dictionary info = properties[i];
-		// Members; the list also has the groups and categories of exports.
-		if (uint32_t(int(info.get("usage", 0))) & PROPERTY_USAGE_SCRIPT_VARIABLE) {
-			result.properties.push_back({ to_utf8(info.get("name", String())), type_of(info, false), true, p_path });
+	// Each script lists its own properties, methods and signals before those of
+	// its base, and its own constants only (modules/gdscript/gdscript.cpp:296-309,
+	// 315-352, 908-914, 963-971, 1291-1308; modules/mono/csharp_script.cpp:2509-2522,
+	// 2678-2694, 2725-2751; ed1daf0).
+	const auto script_properties = [](const Ref<Script> &p_script) {
+		TypedArray<Dictionary> listed;
+		const TypedArray<Dictionary> all = p_script.is_valid() ? p_script->get_script_property_list() : TypedArray<Dictionary>();
+		for (int64_t i = 0; i < all.size(); i++) {
+			const Dictionary info = all[i];
+			// Members; the list also has the groups and categories of exports.
+			if (uint32_t(int(info.get("usage", 0))) & PROPERTY_USAGE_SCRIPT_VARIABLE) {
+				listed.push_back(info);
+			}
 		}
-	}
-	const TypedArray<Dictionary> methods = script->get_script_method_list();
-	for (int64_t i = 0; i < methods.size(); i++) {
-		result.methods.push_back(method_of(methods[i], p_path));
-	}
-	const TypedArray<Dictionary> signals = script->get_script_signal_list();
-	for (int64_t i = 0; i < signals.size(); i++) {
-		result.signals.push_back(method_of(signals[i], p_path));
-	}
-	const Dictionary constants = script->get_script_constant_map();
-	const Array names = constants.keys();
-	for (int64_t i = 0; i < names.size(); i++) {
-		result.constants.push_back({ to_utf8(names[i]), value_type(constants[names[i]]), false, p_path });
+		return listed;
+	};
+	TypedArray<Dictionary> properties = script_properties(script);
+	TypedArray<Dictionary> methods = script->get_script_method_list();
+	TypedArray<Dictionary> signals = script->get_script_signal_list();
+	std::set<const Script *> seen;
+	for (Ref<Script> current = script; current.is_valid() && seen.insert(current.ptr()).second;) {
+		const std::string owner = current == script ? p_path : to_utf8(current->get_path());
+		const Ref<Script> next = current->get_base_script();
+		const TypedArray<Dictionary> next_properties = script_properties(next);
+		const TypedArray<Dictionary> next_methods = next.is_valid() ? next->get_script_method_list() : TypedArray<Dictionary>();
+		const TypedArray<Dictionary> next_signals = next.is_valid() ? next->get_script_signal_list() : TypedArray<Dictionary>();
+		for (int64_t i = 0; i < properties.size() - next_properties.size(); i++) {
+			const Dictionary info = properties[i];
+			result.properties.push_back({ to_utf8(info.get("name", String())), type_of(info, false), true, owner });
+		}
+		for (int64_t i = 0; i < methods.size() - next_methods.size(); i++) {
+			result.methods.push_back(method_of(methods[i], owner));
+		}
+		for (int64_t i = 0; i < signals.size() - next_signals.size(); i++) {
+			result.signals.push_back(method_of(signals[i], owner));
+		}
+		const Dictionary constants = current->get_script_constant_map();
+		const Array names = constants.keys();
+		for (int64_t i = 0; i < names.size(); i++) {
+			const std::string name = to_utf8(names[i]);
+			if (std::none_of(result.constants.begin(), result.constants.end(), [&](const compiler::EngineProperty &p_constant) { return p_constant.name == name; })) {
+				result.constants.push_back({ name, value_type(constants[names[i]]), false, owner });
+			}
+		}
+		current = next;
+		properties = next_properties;
+		methods = next_methods;
+		signals = next_signals;
 	}
 	result.members_known = true;
 	return result;

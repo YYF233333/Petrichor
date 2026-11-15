@@ -32,11 +32,12 @@ FakeProject project() {
 	project.sources["res://legacy.gd"] = "extends \"res://legacy_base.gd\"\nclass_name Legacy\n";
 	compiler::ForeignClass base;
 	base.native = "Node";
+	base.properties = { { "speed", compiler::Type::of(compiler::TypeKind::Float), true, "res://legacy_base.gd" } };
 	project.foreign["res://legacy_base.gd"] = base;
 	compiler::ForeignClass legacy;
 	legacy.native = "Node";
 	legacy.base = "res://legacy_base.gd";
-	legacy.properties = { { "speed", compiler::Type::of(compiler::TypeKind::Float), true, "res://legacy.gd" } };
+	legacy.properties = base.properties;
 	project.foreign["res://legacy.gd"] = legacy;
 	project.global_classes["Legacy"] = "res://legacy.gd";
 	return project;

@@ -67,11 +67,15 @@ struct Reference {
 	// The name's bytes in the source, or none for a reference in a scene.
 	uint32_t begin = 0;
 	uint32_t end = 0;
-	// A method named by a signal connection, in the check of the scene that
-	// saves it (spec §7.7, architecture §6.4): the scene's path, and the
-	// connection.
+	// In the check of a scene or a resource file (spec §7.5, §7.7,
+	// architecture §2.1, §6.4): the file's path, the node's path, and the
+	// resource, stored property key, signal connection or named member.
 	std::string scene;
+	std::string node;
+	std::string resource;
+	std::string property;
 	SceneConnection connection;
+	SceneNamedMember named;
 };
 
 } // namespace petrichor::compiler
