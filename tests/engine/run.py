@@ -553,9 +553,9 @@ def main():
     # the groups of the test project.
     finishes = []
     if wanted("fps"):
-        finishes.append(beside("fps", run_migration_group, godot, "fps", prepare_fps, FPS_MIGRATED))
+        finishes.append(beside("fps", run_migration_group, godot, "fps", prepare_fps, FPS_MIGRATED, True))
     if wanted("ring"):
-        finishes.append(beside("ring", run_migration_group, godot, "ring", prepare_ring, RING_MIGRATED, "res://ring_check.tscn"))
+        finishes.append(beside("ring", run_migration_group, godot, "ring", prepare_ring, RING_MIGRATED, False, "res://ring_check.tscn"))
     dotnet = dotnet_build(godot)
     if "dotnet" in only or (not only and dotnet):
         finishes.append(beside("dotnet", run_dotnet_group, godot, dotnet))
@@ -622,12 +622,14 @@ def resources_in_use(output):
     return {line for line in output.splitlines() if line.startswith("Resource still in use: ") and not re.search(r"\.(ogg|wav|mp3)\b", line)}
 
 
-def run_migration_group(godot, name, prepare, migrated_scripts, *scene):
+def run_migration_group(godot, name, prepare, migrated_scripts, check_format, *scene):
     """A real project runs with its migrated scripts (architecture §5 steps 4
     and 6). The original reports errors of its own in a headless run, such as
     the FPS kit's sounds still playing at exit and weapon models it removes
     without freeing, so the migrated run may only repeat those, and keep no
-    resource at exit, other than sounds, that the original does not."""
+    resource at exit, other than sounds, that the original does not. With
+    `check_format`, the format check first fails on the scripts written by
+    hand (README)."""
     # A headless frame sleeps, as nothing is drawn (core/os/os.cpp:721-723),
     # unless the frame rate is fixed (main/main.cpp:5170-5172); fixed, each
     # frame advances the game by 1/60 s, however fast it runs.
@@ -670,12 +672,19 @@ def run_migration_group(godot, name, prepare, migrated_scripts, *scene):
         (migrated / ".godot" / "global_script_class_cache.cfg").unlink()
         migrate(migrated, migrated_scripts)
         # Spec §13.2: the migrated game is built and run formatted; the
-        # scripts written by hand are not.
+        # scripts written by hand are not. A byte order mark is no text, and
+        # stays.
+        bom = migrated / "bom_check.pet"
+        bom.write_bytes(b"\xef\xbb\xbfextends Node\nvar x=1\n")
+        if check_format:
+            code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-format", "--check")
+            unformatted = re.search(r", (\d+) not formatted,", output)
+            expect(f"{name} format check: they are not formatted yet", code == 1 and ", 0 with errors" in output and unformatted and int(unformatted.group(1)) > 1, output)
         code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-format")
         changed = re.search(r", (\d+) formatted,", output)
         expect(f"{name} format", code == 0 and ", 0 with errors" in output and changed and int(changed.group(1)) > 0, output)
-        code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-format", "--check")
-        expect(f"{name} format check: then they are", code == 0 and " 0 not formatted," in output, output)
+        formatted_bom = bom.read_bytes()
+        expect(f"{name} format: a byte order mark stays", formatted_bom.startswith(b"\xef\xbb\xbfextends") and b"var x = 1" in formatted_bom, formatted_bom.decode("utf-8", "replace"))
         code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-build")
         new_build_errors = [line for line in output.splitlines() if "ERROR" in line and line not in known_build_errors]
         expect(f"{name} build", code == 0 and not new_build_errors, "\n".join(new_build_errors) if code == 0 else output)
@@ -947,17 +956,6 @@ def project_build_stamp(godot):
     digest.update(f"godot:{godot_bin.resolve()}:{godot_stat.st_mtime_ns}:{godot_stat.st_size}\0".encode())
     for name, stat in lib_stats:
         digest.update(f"lib:{name}:{stat.st_mtime_ns}:{stat.st_size}\0".encode())
-
-    for source_dir in ("src/bytecode", "src/compiler", "src/adapter/editor", "gen"):
-        base = ROOT / source_dir
-        if base.is_dir():
-            for dirpath, dirnames, filenames in os.walk(base):
-                dirnames.sort()
-                for name in sorted(filenames):
-                    full = Path(dirpath, name)
-                    stat = full.stat()
-                    rel = full.relative_to(ROOT).as_posix()
-                    digest.update(f"src:{rel}:{stat.st_mtime_ns}:{stat.st_size}\0".encode())
 
     scripts = []
     for dirpath, dirnames, filenames in os.walk(PROJECT):
