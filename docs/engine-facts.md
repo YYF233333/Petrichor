@@ -198,6 +198,8 @@
 | GDScript 在判断 `assert` 的条件之前求值其消息，并要求消息是 String | `modules/gdscript/gdscript_compiler.cpp:2185-2198`；`modules/gdscript/gdscript_analyzer.cpp:2399-2405` | §8.3 |
 | GDScript 的链式赋值沿链读出、修改，再把值类型写回，共享类型原地修改 | `modules/gdscript/gdscript_compiler.cpp:1172-1190` | §3.6 |
 | GDScript 的链式赋值先求基对象并沿链读出中间值，再求右边，然后求最后一个下标，最后写入并写回 | `modules/gdscript/gdscript_compiler.cpp:1069, 1097-1121, 1124, 1134, 1157-1162` | §3.6 |
+| GDScript 给变量的普通赋值和复合赋值先求右边，再读出目标 | `modules/gdscript/gdscript_compiler.cpp:1251-1265, 1331-1349` | §3.6 |
+| GDScript 链式赋值的基是不带 getter 的成员时按地址原地修改。引擎属性、带 getter 的成员和静态变量先读出副本，带 setter 的值类型成员也先复制 | `modules/gdscript/gdscript_compiler.cpp:292-295, 304-312, 396-407, 1079-1083` | §3.6 |
 | 成员的初始化式不经过 setter | `modules/gdscript/gdscript_compiler.cpp:2414-2430, 2603-2626` | §4.8、§6.1 |
 | 创建实例时先从基类到本类运行成员初始化式，再调用 `_init` | `modules/gdscript/gdscript.cpp:140-148, 176, 192-194` | §6.4 |
 | 构造调用不等待 `_init` 的返回值；带返回值的引擎虚函数同步读取并转换脚本返回值 | `modules/gdscript/gdscript.cpp:194`；`core/object/make_virtuals.py:1-10, 173-174` | §9.1 |

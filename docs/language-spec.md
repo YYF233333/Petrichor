@@ -2,7 +2,7 @@
 
 **v0.2 draft · 2026-10-25**
 
-<!-- Generated from language-spec.zh.md, git blob 7902c9299a4e107ba20bcf50aadba45b81e97dd4. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 4c3c1a43a384e6fb543163164c7e0f0731407e2c. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). The previous version of the specification, v0.1, is kept in the git tag `spec-v0.1`. This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -213,7 +213,10 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - The modification `s.x = 1` acts on the storage location that holds `s`:
   - a chained assignment reads, modifies and writes back along the chain. `player.last_hit.damage = 3` runs the setter of `last_hit`, and `hits[0].damage = 3` updates the array element;
   - an assignment first evaluates the value on the right. It then evaluates the objects and indexes in the location from left to right. Then it reads, modifies and writes back in one go, without suspending in between. The same holds for engine value types, such as `position.x`, and for compound assignments. So an error in the location, such as a freed object or an index out of range, is reported after the right side is evaluated. A method call that modifies its receiver, such as `points.append(x)`, first evaluates the location of the receiver. It then evaluates the arguments, and then reads, calls and writes back;
-  - when the right side has an `await` and the assignment reads a value that is not a local variable, it gives the `await_in_assignment` warning. Examples are `hp -= await hit()` and `position.x = await slide_x()`, which GDScript reads before the `await`;
+  - when the right side has an `await` and GDScript reads before it a value-type copy in the location that is written back, it gives the `await_in_assignment` warning:
+    - the value is an engine property, a member with accessors or a static variable, such as `position` in `position.x = await slide_x()`;
+    - or it is in the middle of the chain, such as `player.velocity` in `player.velocity.x = await push()`;
+    - local variables and members without accessors are modified in place and give no warning. Nor does the target itself: both languages read `hp` after the `await` in `hp -= await hit()`;
   - assigning to a field of a temporary value, such as `get_hit().damage = 3`, is a compile error;
   - loop variables and lambda captures are copies. When a struct loop variable has a field modified and is not read afterwards, it gives the `modified_copy` warning. Modifying a shared value through a container or an object field does not count.
 - By default a struct provides a field-by-field `==` and a hash over all its fields. So every struct can be a `Dictionary` key. The hash computes containers by their contents. When all fields have `<`, the struct also provides a lexicographic `<` in declaration order. Object fields have no `<`, so a struct with an object field has none either.
