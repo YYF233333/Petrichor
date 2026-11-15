@@ -57,6 +57,10 @@ TEST_CASE("a field's default value sees what a static method of the struct sees"
 	CHECK_MESSAGE(computed.empty(), computed);
 	CHECK(contains(errors("pass", members + "struct Ticket:\n\tvar id: int = 1\n\tvar copy: int = id\n\n"), "\"id\" is a field of self, which the default value of \"copy\" does not have."));
 	CHECK(contains(errors("pass", members + "struct Ticket:\n\tvar id: int = hp\n\n"), "\"hp\" belongs to an object of Shots"));
+	// A constant first used there is checked in the class, where no field hides its names.
+	const compiler::CompileResult limited = compile("extends Node\n\nconst scale := 2\nconst LIMIT := scale * 10\nvar limit: int = LIMIT\n\nstruct Hit:\n\tvar scale: int = 1\n\tvar damage: int = LIMIT\n");
+	REQUIRE_MESSAGE(limited.ok(), messages(limited));
+	CHECK(member_named(limited.module, "limit").initial.i == 20);
 }
 
 TEST_CASE("a struct that contains itself without a container has no size") {
@@ -84,6 +88,11 @@ TEST_CASE("another class's struct is written ClassName.Name, and must be pub") {
 	const compiler::CompileResult ok = compile_in("extends Node\n\nfunc f() -> Combat.Hit:\n\tvar h := Combat.Hit(damage = 2)\n\th.crit = true\n\treturn h\n", project());
 	CHECK_MESSAGE(ok.ok(), messages(ok));
 	CHECK(contains(messages(compile_in("extends Node\n\nfunc f() -> void:\n\tvar s := Combat.Secret()\n", project())), "Combat.Secret is not pub"));
+	// A subclass sees the structs and interfaces declared without pub (spec §4.2).
+	FakeProject base;
+	base.add_script("res://base.pet", "class_name Base\nextends Node\n\nstruct Hit:\n\tvar damage: int = 1\n\ninterface Lock:\n\tfunc open()\n", "Base");
+	const compiler::CompileResult derived = compile_in("extends Base\n\nfunc f(h: Base.Hit, l: Base.Lock) -> void:\n\tpass\n", base);
+	CHECK_MESSAGE(derived.ok(), messages(derived));
 }
 
 // Spec §3.8: containers keep structs boxed.

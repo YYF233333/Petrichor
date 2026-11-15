@@ -105,6 +105,12 @@ TEST_CASE("a constant initialized with an enum's name names the same enum (spec 
 			ease)
 					.empty());
 	CHECK(contains(errors("var e := EASE.EASE_SIDEWAYS", ease), "Tween.EaseType has no value \"EASE_SIDEWAYS\"."));
+	// Asking whether the constant names an enum with payloads keeps what
+	// checking the enum, or declaring its class, reports and refers to, which
+	// the helpers check.
+	CHECK(has_error("extends Node\nenum State { IDLE = MISSING, RUN }\nconst S = State\n\nfunc f(s: S) -> void:\n\tpass\n", "\"MISSING\" is not declared"));
+	const compiler::CompileResult inner = compile_in("extends Node\n\nclass Inner:\n\tconst BASE := 1\n\tenum State { IDLE = BASE, RUN }\n\tvar speed := BASE\n\nconst S = Inner.State\n\nfunc f(s: S) -> void:\n\tpass\n", FakeProject());
+	CHECK_MESSAGE(inner.ok(), messages(inner));
 }
 
 TEST_CASE("the engine's enums are enum types too, and its bitfields stay int (spec §3.7)") {

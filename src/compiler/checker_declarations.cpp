@@ -1133,6 +1133,9 @@ void Checker::declare_interfaces() {
 			refuse_new(method);
 			refer(method.name_token, script_id(options.path, interface.name + "." + method.name), SymbolKind::Method);
 			for (ParamDecl &param : method.params) {
+				if (param.default_value) {
+					error(param.default_value->range, "Interface methods have no default values.");
+				}
 				if (!param.declared_type) {
 					untyped(param);
 					continue;

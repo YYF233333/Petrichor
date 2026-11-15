@@ -1204,21 +1204,27 @@ Type Checker::check_try_from(Expr &r_expr, const Type &p_type) {
 	return set(r_expr, result);
 }
 
-// The enum with payloads that the base of `Command.MOVE` names, if any;
-// for any other base, nothing is referred to or reported, as it is then
-// checked as what it is.
+// The enum with payloads that the base of `Command.MOVE` names, if any. It
+// is told by what the parser marks, without referring to or reporting the
+// base, which is otherwise then checked as what it is.
 const EnumDecl *Checker::payload_enum_named(Expr &r_base) {
-	const size_t referred = references ? references->size() : 0;
-	const size_t reported = errors.size();
-	const EnumDecl *decl = named_enum(r_base);
-	if (decl && decl->has_payloads) {
-		return decl;
+	if (!may_name(r_base, false)) {
+		return nullptr;
 	}
-	if (references) {
-		references->resize(referred);
+	const std::string &name = r_base.text;
+	const EnumDecl *marked = nullptr;
+	if (r_base.base) {
+		marked = enum_in_header(*r_base.base, name);
+	} else if (visible_local(name) || member_index.count(name)) {
+		return nullptr;
+	} else if (constant_index.count(name)) {
+		marked = aliased_enum(name);
+	} else {
+		// As scope_enum() finds it.
+		const Checker *around = cls.find_enum(name) ? this : class_around(name);
+		marked = around ? around->cls.find_enum(name) : nullptr;
 	}
-	errors.resize(reported);
-	return nullptr;
+	return marked && marked->has_payloads ? named_enum(r_base) : nullptr;
 }
 
 // The fields of a variant, by name (spec §3.7), in a call that the

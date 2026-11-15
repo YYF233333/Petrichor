@@ -658,7 +658,7 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 	const uint32_t at = token(names.size() - 1);
 	for (const InterfaceDecl &interface : header->interfaces) {
 		if (interface.name == inner) {
-			if (!interface.is_pub && !in_this_file(path)) {
+			if (!interface.is_pub && !sees(path)) {
 				error(p_ref.range, p_ref.name + " is not pub.");
 				return Type::of(TypeKind::Error);
 			}
@@ -671,7 +671,7 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 		}
 	}
 	if (const StructDecl *found = header->find_struct(inner)) {
-		if (!found->is_pub && !in_this_file(path)) {
+		if (!found->is_pub && !sees(path)) {
 			error(p_ref.range, p_ref.name + " is not pub.");
 			return Type::of(TypeKind::Error);
 		}

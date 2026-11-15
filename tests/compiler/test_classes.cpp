@@ -472,6 +472,8 @@ TEST_CASE("implements: the class has every method of the interface, pub, not sta
 	CHECK(contains(header("\npub static func damage(amount: float):\n\tpass"), "\"damage()\" implements Combat.Damageable, so it cannot be static."));
 	CHECK(contains(header("\npub func damage(amount: int):\n\tpass"), "does not have the signature that Combat.Damageable declares, func(float)."));
 	CHECK(contains(messages(compile_in("extends Node implements Weapon\n", project())), "Weapon is not an interface."));
+	// Open until function types have optional parameters (spec §3.9).
+	CHECK(has_error("extends Node\n\ninterface Gun:\n\tfunc fire(times: int = 3)\n", "Interface methods have no default values."));
 }
 
 TEST_CASE("implements: interface properties, by a pub member of the same type or an engine property (spec §3.9)") {

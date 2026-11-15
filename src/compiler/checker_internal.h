@@ -395,9 +395,12 @@ class Checker : public ClassRelation {
 		int initializing;
 		bool initializing_onready;
 		int static_initializing;
+		const StructDecl *structure;
+		Type structure_type;
+		const VarDecl *field_default;
 
 		explicit ClassScope(Checker &r_checker) :
-				checker(r_checker), function(r_checker.function), scopes(std::move(r_checker.scopes)), narrowed(std::move(r_checker.narrowed)), loop_depth(r_checker.loop_depth), in_predelete(r_checker.in_predelete), initializing(r_checker.initializing), initializing_onready(r_checker.initializing_onready), static_initializing(r_checker.static_initializing) {
+				checker(r_checker), function(r_checker.function), scopes(std::move(r_checker.scopes)), narrowed(std::move(r_checker.narrowed)), loop_depth(r_checker.loop_depth), in_predelete(r_checker.in_predelete), initializing(r_checker.initializing), initializing_onready(r_checker.initializing_onready), static_initializing(r_checker.static_initializing), structure(std::exchange(r_checker.structure, nullptr)), structure_type(std::exchange(r_checker.structure_type, Type())), field_default(std::exchange(r_checker.field_default, nullptr)) {
 			checker.function = nullptr;
 			checker.scopes.clear();
 			checker.narrowed.assign(1, {});
@@ -416,6 +419,9 @@ class Checker : public ClassRelation {
 			checker.initializing = initializing;
 			checker.initializing_onready = initializing_onready;
 			checker.static_initializing = static_initializing;
+			checker.structure = structure;
+			checker.structure_type = std::move(structure_type);
+			checker.field_default = field_default;
 		}
 	};
 
@@ -710,7 +716,7 @@ class Checker : public ClassRelation {
 	std::optional<Type> aliased_enum_type(const std::string &p_name);
 	std::optional<Type> named_engine_enum(const Expr &p_name, bool p_call);
 	Type check_engine_enum_value(Expr &r_expr, const Type &p_enum);
-	bool names_enum_of_class(const Expr &p_class, const std::string &p_name);
+	const EnumDecl *enum_in_header(const Expr &p_class, const std::string &p_name);
 	const EnumDecl *scope_enum(const std::string &p_name);
 	static const EnumDecl &cancel_reason_decl();
 	static DeclId enum_id(const EnumDecl &p_decl, const std::string &p_value = std::string());

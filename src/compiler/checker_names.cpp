@@ -412,7 +412,7 @@ const EnumDecl *Checker::named_enum(Expr &r_name, bool p_call) {
 		return decl;
 	}
 	Expr &base = *r_name.base;
-	if (!names_enum_of_class(base, name)) {
+	if (!enum_in_header(base, name)) {
 		return nullptr;
 	}
 	std::optional<Type> named = named_class(base);
@@ -526,25 +526,28 @@ Type Checker::check_engine_enum_value(Expr &r_expr, const Type &p_enum) {
 	return fail(r_expr, p_enum.name + " has no value \"" + r_expr.text + "\".");
 }
 
-// Whether `Class.Name` names an enum of a class of this language, found
-// as named_class() finds the class, without referring to anything yet.
-bool Checker::names_enum_of_class(const Expr &p_class, const std::string &p_name) {
+// The enum of a class of this language that `Class.Name` names, as its
+// header declares it, found as named_class() finds the class, without
+// referring to anything yet; null if none.
+const EnumDecl *Checker::enum_in_header(const Expr &p_class, const std::string &p_name) {
 	if (p_class.kind != ExprKind::Name && p_class.kind != ExprKind::Member) {
-		return false;
+		return nullptr;
 	}
 	// Declared or inherited, as the headers say.
 	std::unordered_set<std::string> seen;
 	for (std::string path = class_path_of(p_class, true); is_script_path(path) && seen.insert(path).second;) {
 		const ClassDecl *decl = script_header(path);
 		if (!decl) {
-			return false;
+			return nullptr;
 		}
-		if (std::any_of(decl->enums.begin(), decl->enums.end(), [&](const EnumDecl &p_enum) { return p_enum.name == p_name; })) {
-			return true;
+		for (const EnumDecl &found : decl->enums) {
+			if (found.name == p_name) {
+				return &found;
+			}
 		}
 		path = classes.base_path(*decl, path);
 	}
-	return false;
+	return nullptr;
 }
 
 // A named enum by its bare name: one this class has, checked, or one a
@@ -1450,7 +1453,7 @@ Type Checker::check_member_access(Expr &r_expr) {
 	if (const std::optional<Type> engine_enum = named_engine_enum(base, false)) {
 		return check_engine_enum_value(r_expr, *engine_enum);
 	}
-	if (names_enum_of_class(base, r_expr.text)) {
+	if (enum_in_header(base, r_expr.text)) {
 		// `Player.State`, the enum's name as a value.
 		if (const EnumDecl *decl = named_enum(r_expr)) {
 			return use_enum_dictionary(r_expr, *decl, false);
