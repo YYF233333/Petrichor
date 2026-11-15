@@ -1,6 +1,20 @@
 # Backlog
 
-In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow).
+In no fixed order, except the first section. An item is removed as soon as it is done (AGENTS.md, Workflow).
+
+## First
+
+Refactorings that remove code, taken in this order. The line counts are estimates from reading the code.
+
+- One list of the tokens, about 200 lines less. Now the enum, `token_name()` and the keyword table each repeat them (`src/compiler/lexer.h`, `src/compiler/lexer.cpp`). Messages then quote `await` and `super`, as they quote the other keywords.
+- One struct for the checker's mutable context, saved and restored whole, and one per-function state for lowering. About 70 lines less.
+  - Now seven places of the checker save parts of its context.
+  - Lowering also gets one setup path for methods and lambdas (`src/compiler/lower.cpp`).
+- The scene checks find members through `named_member()`, as the checks of literal names do. About 50 lines less. Now `check_named_members()`, `check_connections()` and `signal_arguments()` look them up themselves (`src/compiler/checker_scenes.cpp`).
+  - With it, one visibility check returning the message and the hidden declaration. Now 19 places test `is_pub` themselves, and the quick fix that adds `pub` would hang on each.
+- Load-time constants evaluated by bytecode, about 300 lines less. Now a recursive `bytecode::Constant` tree has an evaluator of its own, `constant_value` (`src/bytecode/module.h`, `src/runtime/class_image.cpp`).
+  - A design proposal comes first. The stored format changes, and the editor would run the initializers of constants in scripts without `@tool`.
+  - It must land before the 0.9 bytecode freeze.
 
 ## Next release
 
@@ -18,7 +32,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - A light bulb on the caret's line opens them in a small list at the caret, as in VS Code. So does a shortcut registered in the editor settings, and the context menu.
   - Ctrl+. is taken by Go to Next Breakpoint (`editor/script/script_text_editor.cpp:2672`, `ed1daf0`). Alt+Enter, as in JetBrains IDEs, is free.
   - Before them, one guard for the checker's tentative queries, kept or dropped whole. Now 13 places cut `errors` and `references` back by hand, which keeps no warnings. A fix such as adding `.unwrap()` is such a query. One mode then replaces the four overlapping switches of `CompileOptions` and the completion pointer.
-  - Before them, one visibility check returning the message and the hidden declaration. Now 19 places test `is_pub` themselves, and adding `pub` would hang on each.
 - The three differences from GDScript settled on 11-16. The 0.2 release notes list them as incompatible changes, with the updated list of differences:
   - `is_instance_of(v, TYPE_*)` compares `typeof(v)` (spec §2.6). `TYPE_OBJECT` then needs a type test without the liveness check;
   - a `T?` converted to `Variant` keeps a freed object (spec §3.3). Lowering stops casting it on the way out (`outward` in `src/compiler/lower.cpp`);
@@ -55,7 +68,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Range checks of ints passed through an engine method's value, as `f.call(x)` (spec §10.6). The value is the engine's Callable, which converts without them.
 - A Callable of another language after `bind()`, called through a function type, is taken for a function value of this language (spec §8.1). A program error in this language's code that it calls then ends the caller's run silently. The engine does not show what a bound Callable wraps.
 - Destruction order of `LambdaCallable` at exit when `WorkerThreadPool` holds unclaimed tasks (`main/main.cpp:5268, 5295`, `core/object/worker_thread_pool.cpp:855-880`, `ed1daf0`). Add an engine test and verify teardown.
-- Before the 0.9 bytecode freeze, evaluate load-time constants with bytecode instead of the recursive `bytecode::Constant` tree and `constant_value` (`src/bytecode/module.h:241`, `src/runtime/class_image.cpp:519`).
 - At the 0.9 format freeze, settle these decisions of the bytecode format:
   - static variables of other scripts are referenced by index;
   - the format id does not cover the value sizes;
@@ -279,8 +291,6 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - Before them, `AWAIT_TASK` and `AWAIT_SIGNAL` must carry the type of their result, as other instructions with a result do. Now the VM searches the frame's slots on each resume.
 - After 0.3 and before 0.9: default values of lambda parameters and of interface method parameters, with optional parameters in function types (spec §3.9, §3.11, §14.3).
   - Before them, one `Signature` value should serve overriding, implementing, signal handlers and function-type conversion. Now each repeats the rules of compatibility and argument counts.
-  - Before them, the checker's mutable context should become one struct, saved and restored whole. Now seven places save parts of it.
-  - Before them, lowering should get one per-function state and one setup path for methods and lambdas (`src/compiler/lower.cpp`).
   - Before them, hot reload must tell function types apart. `type_key` erases them, so a change from `Callable` to `func() -> void` counts as a body change.
 - Before the migration tool of 0.3: how many GDScript files migrating one class drags along in the games of corpus v2. GDScript cannot call this language's static methods or use its enums in types (spec §11.3). If the number is large, the tool generates forwarding shells in 0.3.
   - The proper fix is upstream: [godot#118595](https://github.com/godotengine/godot/pull/118595) for static methods has waited for review since July. Enums in types need a change of their own.
