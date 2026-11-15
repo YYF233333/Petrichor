@@ -2,7 +2,7 @@
 
 **v0.2 draft · 2026-10-25**
 
-<!-- Generated from language-spec.zh.md, git blob 4c3c1a43a384e6fb543163164c7e0f0731407e2c. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob b019c5e555a14a6e71a5b4fc013faa9c93782dc9. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). The previous version of the specification, v0.1, is kept in the git tag `spec-v0.1`. This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -306,7 +306,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
   area.body_entered.connect(func(body): counter[0] += 1)  # legal: the container is shared
   ```
 
-  - a lambda parameter cannot have a default value, and writing one is a compile error.
+  - **[Open]** Default values of lambda parameters belong to the first version. They need optional parameters in function types, whose rules are not settled yet. Until then, writing a default value is a compile error.
 
 ### 3.12 Weak references
 
@@ -815,7 +815,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 9.6 Awaiting signals
 
-- An `await` on a signal without parameters produces no value. A signal with one parameter gives a value of that parameter's type. An `await` on a signal with several parameters can only be a statement. Using the result is a compile error.
+- An `await` on a signal without parameters produces no value. A signal with one parameter gives a value of that parameter's type. **[Open]** Tuples and an `await` on a signal with several parameters as a value belong to the first version, and their rules are not settled yet. Until then, such an `await` can only be a statement. Using the result is a compile error.
 - A signal accessed through a known class has a known signature. Known classes are those in the engine's ClassDB and the classes and interfaces declared in this language. Classes of other languages seen through reflection are known too. When the static type is only `Signal`, the signature is unknown. An `await` on it as a statement is not restricted. An `await` on it as a value gives `Variant`. At run time that is NIL for no parameters, the value for one, and an `Array` for several:
 
   ```gdscript
@@ -1040,7 +1040,7 @@ The full designs of generics and of setters that suspend automatically before re
   - setters that suspend automatically before ready;
   - always-on assertions;
   - debug text that shows values as written in this language;
-  - reentrancy annotations for coroutines, destructuring of signals with several parameters, and `Signal` with parameters.
+  - reentrancy annotations for coroutines and `Signal` with parameters.
 - **Cross-language and tools**:
   - an optional runtime library with the compiler;
   - `Task` handles for GDScript coroutines;
@@ -1052,6 +1052,8 @@ The full designs of generics and of setters that suspend automatically before re
 
 - When native code is generated: at run time, at export, or both.
 - The rules for `@tool` scripts running in the editor.
+- The rules for tuples and an `await` on a signal with several parameters, and whether `Task.all` returns a tuple.
+- The rules for default values of lambda parameters and optional parameters in function types.
 - The rules for members that are non-null only once ready, which await a design as a whole:
   - who assigns a member that must be assigned, and which of those assignments the compiler looks for;
   - assignments by ancestors;
