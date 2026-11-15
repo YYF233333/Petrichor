@@ -58,6 +58,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Editor
 
+- Renaming through binary `.scn` and `.res` files, by an engine resave of `PackedScene._bundled` (design-notes). Until then such a reference refuses the rename (architecture §6.4). Binary files cannot be merged, so rewriting a whole one costs little. Done when someone asks for it.
 - An icon for `.pet` scripts, plus a standalone mark and an organization avatar before 0.9. The release notes of 0.1 ask reviewers what the script icon should be.
 - The dialog that creates a script shows "No suitable template.", as this language has no templates. The script is created all the same.
 - `--petrichor-build` on a fresh clone can end with the engine's crash code (godot#111048). The README says to import first.
