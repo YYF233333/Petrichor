@@ -32,10 +32,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - A light bulb on the caret's line opens them in a small list at the caret, as in VS Code. So does a shortcut registered in the editor settings, and the context menu.
   - Ctrl+. is taken by Go to Next Breakpoint (`editor/script/script_text_editor.cpp:2672`, `ed1daf0`). Alt+Enter, as in JetBrains IDEs, is free.
   - Before them, one guard for the checker's tentative queries, kept or dropped whole. Now 13 places cut `errors` and `references` back by hand, which keeps no warnings. A fix such as adding `.unwrap()` is such a query. One mode then replaces the four overlapping switches of `CompileOptions` and the completion pointer.
-- The three differences from GDScript settled on 11-16. The 0.2 release notes list them as incompatible changes, with the updated list of differences:
-  - `is_instance_of(v, TYPE_*)` compares `typeof(v)` (spec §2.6). `TYPE_OBJECT` then needs a type test without the liveness check;
-  - a `T?` converted to `Variant` keeps a freed object (spec §3.3). Lowering stops casting it on the way out (`outward` in `src/compiler/lower.cpp`);
-  - a two-level Option compared with `null`, or matched by a `null` pattern, is a compile error (spec §3.4).
 
 ## Language
 
