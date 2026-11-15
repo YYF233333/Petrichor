@@ -112,7 +112,7 @@ async func later(value: int) -> int:
 	await resumed
 	return value
 
-# An assignment evaluates its place, then its value, then reads, changes and
+# An assignment evaluates its value, then its place, then reads, changes and
 # writes back, so what changed during the await stays.
 pub async func assign_after():
 	hits[0].damage = await later(3)

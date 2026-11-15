@@ -18,8 +18,9 @@ struct Completion;
 // `r_references` records where each name is resolved (architecture §2.1).
 // Other scripts of this language come from `r_classes`. With `r_completion`,
 // gives what can be written at the cursor that U+FFFF marks (spec §13.2),
-// and of the function bodies checks only the one around it.
-void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies = true, std::vector<Reference> *r_references = nullptr, Completion *r_completion = nullptr);
+// and of the function bodies checks only the one around it. With
+// `r_warnings`, the warnings, which @warning_ignore has not filtered yet.
+void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies = true, std::vector<Reference> *r_references = nullptr, Completion *r_completion = nullptr, std::vector<Diagnostic> *r_warnings = nullptr);
 
 // Each literal node path in the code of a class, outside its inner classes
 // and static functions, before types are known (spec §7.1): `$X`, and the

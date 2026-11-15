@@ -15,6 +15,7 @@ const char *const UNUSED_IGNORE = "unused_ignore";
 // The warnings and hints of this language, which @warning_ignore takes by
 // name (spec §2.3).
 const char *const NAMES[] = {
+	"await_in_assignment", // §3.6
 	"modified_copy", // §3.6; off until the IR has liveness (BACKLOG).
 	UNUSED_IGNORE,
 };

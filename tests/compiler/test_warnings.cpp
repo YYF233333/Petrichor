@@ -65,6 +65,23 @@ TEST_CASE("@warning_ignore reaches the head of the next statement or declaration
 	CHECK(left("@warning_ignore_start(\"modified_copy\")\n" + LOOP + "\t\tprint(h)\n", 6).empty());
 }
 
+TEST_CASE("an assignment that reads other than a local after an await on its right warns (spec §3.6)") {
+	const std::string head = "extends Node2D\n\nsignal tick(value: int)\nsignal moved(x: float)\nvar hp := 3\nvar hits: Array[int] = [0]\n\nasync func f(local: Vector2):\n";
+	const auto warned = [&](const std::string &p_body) {
+		return warnings_of(head + indented(p_body));
+	};
+	const std::string message = "9: await_in_assignment: This is read after the await on the right, where GDScript reads it before.";
+	CHECK(warned("hp -= await tick") == std::vector<std::string>{ message });
+	CHECK(warned("position.x = await moved") == std::vector<std::string>{ message });
+	CHECK(warned("hits[0] += await tick") == std::vector<std::string>{ message });
+	// What it writes without reading, a local, and an await in a lambda.
+	CHECK(warned("hp = await tick").empty());
+	CHECK(warned("hits[0] = await tick").empty());
+	CHECK(warned("local.x += await moved").empty());
+	CHECK(warned("hp += [async func(): await tick].size()").empty());
+	CHECK(warned("@warning_ignore(\"await_in_assignment\")\nposition.x = await moved").empty());
+}
+
 TEST_CASE("a name of @warning_ignore that ignores nothing gets a hint, which its own name ignores") {
 	const std::string gdscript_ignore = "@warning_ignore(\"unused_parameter\")\nfunc f(x: int):\n\tpass\n";
 	const std::vector<std::string> gdscript = warnings_of("extends Node\n\n" + gdscript_ignore);

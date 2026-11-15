@@ -136,6 +136,7 @@ class Checker : public ClassRelation {
 	std::map<std::string, std::vector<ViewNode>> views; // view_of(), by the scene's path.
 	std::map<std::string, std::vector<std::string>> loaded_files; // loaded_with(), as found.
 	std::vector<Reference> *references; // Recorded for this file only.
+	std::vector<Diagnostic> *warnings; // Likewise, before @warning_ignore.
 	// What can be written at the cursor (spec §13.2), whose function alone has
 	// its body checked; null when not completing.
 	Completion *completion;
@@ -624,6 +625,7 @@ class Checker : public ClassRelation {
 
 	void error(const TokenRange &p_range, const std::string &p_message);
 	void error_in_scene(const TokenRange &p_range, const Scene &p_scene, const std::string &p_node, const std::string &p_message);
+	void warn(const TokenRange &p_range, const char *p_warning, const std::string &p_message);
 	Reference *refer(uint32_t p_token, const DeclId &p_target, std::optional<SymbolKind> p_declares = std::nullopt, const std::optional<DeclId> &p_overrides = std::nullopt);
 	Reference *refer_bytes(uint32_t p_begin, uint32_t p_end, const DeclId &p_target);
 	void refer_local(uint32_t p_token, const Type &p_type, bool p_constant = false);
@@ -1034,8 +1036,8 @@ class Checker : public ClassRelation {
 	void complete_string(const EngineMethod *p_method, size_t p_index, bool p_on_self);
 
 public:
-	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, Completion *r_completion) :
-			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), check_bodies(p_check_bodies), classes(r_classes), references(r_references), completion(r_completion) {}
+	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, Completion *r_completion, std::vector<Diagnostic> *r_warnings) :
+			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), check_bodies(p_check_bodies), classes(r_classes), references(r_references), warnings(r_warnings), completion(r_completion) {}
 
 	void attach(FileCheck &r_file, Checker *p_outer) {
 		file = &r_file;

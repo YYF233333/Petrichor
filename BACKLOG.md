@@ -15,7 +15,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The first quick fixes: the five kinds most frequent in the second paper migration, about half of its 230 changes. They are adding `pub`, truthiness, `async` and `.detach()`, `T?` or `.unwrap()`, and `float` arguments.
   - A light bulb on the caret's line opens them in a small list at the caret, as in VS Code. So does a shortcut registered in the editor settings, and the context menu.
   - Ctrl+. is taken by Go to Next Breakpoint (`editor/script/script_text_editor.cpp:2672`, `ed1daf0`). Alt+Enter, as in JetBrains IDEs, is free.
-- Assignments evaluating the right side first, and the `await_in_assignment` warning (spec §3.6). The implementation still evaluates the place's objects and indices first, as 0.1 did.
 
 ## Language
 

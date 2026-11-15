@@ -647,6 +647,28 @@ bool Checker::predelete_branch(const Expr &p_matched, const MatchBranch &p_branc
 	return false;
 }
 
+// Whether the expression has an await outside the lambdas in it.
+static bool awaits(const Expr &p_expr) {
+	bool found = p_expr.kind == ExprKind::Await;
+	for_each_child(p_expr, [&](const auto &p_child) {
+		if constexpr (std::is_same_v<std::decay_t<decltype(p_child)>, Expr>) {
+			found = found || awaits(p_child);
+		}
+	});
+	return found;
+}
+
+// What an assignment to `p_target` reads (spec §3.6): the value that a field
+// or a packed array's element is changed in and written back to, through the
+// chain; otherwise the target of a compound assignment. Null for none.
+static const Expr *read_by(const Expr &p_target, bool p_compound) {
+	const Expr *read = p_compound ? &p_target : nullptr;
+	for (const Expr *at = &p_target; at->kind == ExprKind::Subscript ? !is_shared(at->base->type) : (at->target == Target::Field || at->target == Target::StructField); at = at->base.get()) {
+		read = at->base.get();
+	}
+	return read;
+}
+
 void Checker::check_stmt(Stmt &r_stmt) {
 	switch (r_stmt.kind) {
 		case StmtKind::Var: {
@@ -714,6 +736,10 @@ void Checker::check_stmt(Stmt &r_stmt) {
 			if (compound && place) {
 				value = binary_type(compound_operator(r_stmt.assign_op), read_type, value, r_stmt.range);
 				r_stmt.compound_result = value;
+			}
+			const Expr *read = place && awaits(*r_stmt.value) ? read_by(target, compound) : nullptr;
+			if (read && read->target != Target::Local) {
+				warn(read->range, "await_in_assignment", "This is read after the await on the right, where GDScript reads it before.");
 			}
 			if (local >= 0) {
 				forget(local);

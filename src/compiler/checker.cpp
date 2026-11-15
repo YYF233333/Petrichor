@@ -13,6 +13,15 @@ void Checker::error_in_scene(const TokenRange &p_range, const Scene &p_scene, co
 	errors.back().scene = p_scene.path;
 	errors.back().node = p_node;
 }
+void Checker::warn(const TokenRange &p_range, const char *p_warning, const std::string &p_message) {
+	if (!warnings) {
+		return;
+	}
+	Diagnostic warning{ cls.source->begin(p_range), cls.source->end(p_range), p_message };
+	warning.severity = Severity::Warning;
+	warning.warning = p_warning;
+	warnings->push_back(std::move(warning));
+}
 
 /* References (architecture §2.1) */
 
@@ -1399,14 +1408,14 @@ Checker *FileCheck::find(const std::string &p_path) const {
 	return nullptr;
 }
 
-void add_checkers(FileCheck &r_file, ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, Completion *r_completion, Checker *p_outer) {
-	r_file.checkers.push_back(std::make_unique<Checker>(r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references, r_completion));
+void add_checkers(FileCheck &r_file, ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, Completion *r_completion, std::vector<Diagnostic> *r_warnings, Checker *p_outer) {
+	r_file.checkers.push_back(std::make_unique<Checker>(r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references, r_completion, r_warnings));
 	Checker *checker = r_file.checkers.back().get();
 	checker->attach(r_file, p_outer);
 	for (std::unique_ptr<ClassDecl> &inner : r_class.classes) {
 		CompileOptions options = p_options;
 		options.path += "::" + inner->name;
-		add_checkers(r_file, *inner, p_engine, options, r_errors, r_classes, p_check_bodies, r_references, r_completion, checker);
+		add_checkers(r_file, *inner, p_engine, options, r_errors, r_classes, p_check_bodies, r_references, r_completion, r_warnings, checker);
 	}
 }
 
@@ -1416,9 +1425,9 @@ namespace petrichor::compiler {
 
 using namespace checking;
 
-void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, Completion *r_completion) {
+void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, Completion *r_completion, std::vector<Diagnostic> *r_warnings) {
 	FileCheck file;
-	add_checkers(file, r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references, r_completion, nullptr);
+	add_checkers(file, r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references, r_completion, r_warnings, nullptr);
 	r_classes.enter(p_options.path, r_class, [&](const std::string &p_path) -> const ClassDecl * {
 		Checker *checker = file.find(p_path);
 		if (!checker) {
