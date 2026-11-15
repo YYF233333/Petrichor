@@ -106,10 +106,9 @@
   - 引擎测试用优化过的 dev 编辑器，在 Godot 源码树中用 `scons platform=windows target=editor dev_build=yes optimize=speed_trace extra_suffix=opt` 构建；
   - 调试崩溃用未优化的 dev 编辑器；
   - 基准用官方 4.7.2-stable 发布版，dev 构建会扭曲与 GDScript 的比较；
-  - 带 C# 运行 Ring 和 dotnet 测试组用官方 .NET 版。PATH 上还要有 .NET SDK 8 或更新的版本。
+  - dotnet 测试组和手动带 C# 运行 Ring 用官方 .NET 版。PATH 上还要有 .NET SDK 8 或更新的版本。
 - 没有要求时不要重建引擎。
 
 ## 语料
 
-- 语料调查在 [petrichor-corpus](https://github.com/YYF233333/petrichor-corpus) 仓库中。
-- 调查用的 20 个仓库按固定提交克隆：在该仓库中运行 `python fetch.py`，克隆放在其 `corpus/v1/` 中。
+- 取语料和复跑调查，见 [petrichor-corpus](https://github.com/YYF233333/petrichor-corpus) 的 README。

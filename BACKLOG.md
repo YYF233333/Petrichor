@@ -17,14 +17,9 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Language
 
-- Assignments by ancestors (spec §6.2), which the checker assumes without looking for them.
-  - It takes a must-assign member of a node with an owner as one they assign. Exported members and those `_init` assigns are not.
-  - The spec requires `$Child.target = v` or an `@onready` reference in their `_ready`. Without one, the member must be `T?`.
-  - The spec marks it a known limitation, until these members get their design (Open questions).
 - A track naming an engine property that ClassDB does not list is refused, as `current` of AudioListener2D (spec §7.7). The engine takes such a name through `_set`. The check could ask an instance of the class for its properties.
 - `Array[PackedScene[T]]` cannot be written, though `[preload(...)]` infers it and spec §7.4 lists container elements.
 - `find_key()` of `Dictionary[T?, V]` for an object `T`. The engine gives null for a missing key and for a None key.
-- `is_instance_of(v, T)` with a native class held in a variable, which waits for classes as values (spec §2.6). gdUnit4 passes them.
 - Scenes used as roots that the checks do not know as such (spec §7.2, §7.3, §7.5):
   - autoloads that are scenes, and the paths that `change_scene_to_file()` and a MultiplayerSpawner name. The spec does not list them;
   - for the node paths of a script, all but the main scene. The script check does not ask how a scene is used (architecture §6.4). So a scene also inherited may lack a node without an error, which the run-time check catches.
@@ -45,17 +40,26 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - GDScript can pass an `async func() -> String` where `func() -> Task[int]` is expected. `.call()` then reports the mismatch only at the `await`, while `callv()` refuses at once. Read from the code, not run.
 - `call()` by a name that is not pub fails without naming the method or the cause. It only says that calling `call()` failed.
 - Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`). The 0.1 release notes promise them before 1.0.
+  - With them, the format id must cover the value sizes. It is computed when SConstruct runs, before `gen/` exists.
 - Ordering of arrays of engine types as spec §5.2 says. It differs from the engine's operators only with NaN, so it waits for the open question on NaN.
 - Range checks of ints passed through an engine method's value, as `f.call(x)` (spec §10.6). The value is the engine's Callable, which converts without them.
 - Destruction order of `LambdaCallable` at exit when `WorkerThreadPool` holds unclaimed tasks (`main/main.cpp:5268, 5295`, `core/object/worker_thread_pool.cpp:855-880`, `ed1daf0`). Add an engine test and verify teardown.
 - Before the 0.9 bytecode freeze, evaluate load-time constants with bytecode instead of the recursive `bytecode::Constant` tree and `constant_value` (`src/bytecode/module.h:241`, `src/runtime/class_image.cpp:519`).
+- At the 0.9 format freeze, settle these decisions of the bytecode format:
+  - members and static variables of other scripts are checked only by layout, and static variables are referenced by index;
+  - the format id does not cover the value sizes;
+  - the await instructions do not carry the type of their result;
+  - `Task[T]` holds T as a key string in the type table and as a type index in instructions;
+  - opcodes are numbered by their position in the X macro, so inserting one renumbers the rest;
+  - `Function::params` repeats a prefix of `slots`, and `CALL_AWAIT_BUILTIN` is recognized by its method name;
+  - hot reload compares declarations by a list kept by hand beside the serializer's fields. Driven by those fields, a new field would count by default.
 
 ## Editor
 
 - An icon for `.pet` scripts, plus a standalone mark and an organization avatar before 0.9. The release notes of 0.1 ask reviewers what the script icon should be.
 - The dialog that creates a script shows "No suitable template.", as this language has no templates. The script is created all the same.
 - `--petrichor-build` on a fresh clone can end with the engine's crash code (godot#111048). The README says to import first.
-- The hints of the spec other than `unused_ignore` and `modified_copy`, as the one on a redundant `as` (spec §5.3). None is implemented.
+- The hints of the spec other than `unused_ignore`, as the one on a redundant `as` (spec §5.3). None is implemented.
 - The scene index trusts modification times, which count whole seconds. A file rewritten outside the editor in the second it was read stays stale.
 - The warnings of spec §6.7:
   - a lambda capturing self stored in a member of self, a signal connection or a container;
@@ -82,7 +86,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Declarations that are not pub show in the editor's help beyond their own file. The engine's documentation has no visibility (`core/doc_data.h:698-720`, `ed1daf0`). Keeping them to their own file needs support from the engine, to be sought later.
   - Structs, interfaces and inner classes have documentation classes of their own, which the whole project searches (`editor/doc/editor_help_search.cpp:113`).
   - Enums and members are listed on their class's page.
-- The two-way migration tool (spec §1.2, §13.4), wanted in 0.2 or 0.3.
+- The two-way migration tool (spec §1.2, §13.4), planned for 0.3.
   - It infers missing types from call sites and from scene connections, saved values and node paths. Bounds that would change `int` and `float` arithmetic are not merged. Measure the inferred share on the corpus first.
   - Reverse conversion writes types GDScript can express. A nested typed container becomes `Array[Array]`, and a narrower result such as `map`'s goes through `assign()`.
   - It drops this language's names from `@warning_ignore`, which GDScript rejects (`modules/gdscript/gdscript_parser.cpp:5126-5128`, `ed1daf0`).
@@ -92,8 +96,13 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
     - `s[i] = c` becomes `s = s.erase(i).insert(i, c)`, and `s[i] = ""` becomes `s = s.erase(i)`.
     - A negative literal index `-k` becomes `s.length() - k`, since `erase` refuses negative positions (`core/string/ustring.cpp:2881-2884`, `ed1daf0`).
     - The report lists other indices and bases with side effects.
+  - Before it walks projects, `project_files` must skip subfolders that hold their own `project.godot`, as the engine does (`editor/file_system/editor_file_system.cpp:1183, 3494-3500`, `ed1daf0`). Listing files from EditorFileSystem would do it.
+  - Reverse conversion works from the tokens and the reference table, not by printing the checked AST. The checker rewrites about a dozen forms there, as `print_debug` to `print`.
 - A minimal VS Code extension alongside the LSP server (architecture §5, step 8). It highlights `.pet` files and connects to the editor's LSP port.
 - When the LSP server is added (0.3), map `textDocument/typeDefinition` alongside `definition`.
+- Before the LSP server (0.3), measure the memory of the reference table. By estimate an entry takes about 600 bytes, with the strings of scene entries in each, and the analysis keeps every script's table (`src/compiler/references.h`).
+- Before the LSP server (0.3), one change counter for the analysis caches. Now four places decide when a result is stale: `Analysis`, the adapter's cache, `SceneIndex` and `ClassDBApi`.
+- Before 1.0, localize the items this extension adds to the code editor's context menu, "Find References" and "Format" (`src/adapter/editor/pet_editor_plugin.cpp`).
 - When quick fixes insert `@warning_ignore` (0.3), place it after leading doc comments so `##` stays attached to the declaration.
 - Class reference XML for the public classes `CoroutineTask` and `PetScript`, or making `PetScript` internal if F1 does not need it (`src/adapter/register_types.cpp:55-57`).
 - A bottom panel listing the errors that keep the project from running, wanted in 0.3 or later. A click opens the file at the line.
@@ -111,10 +120,11 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Tests
 
-- Once the migration tool is ready (0.3), migrate one or two popular open-source games as real-code tests. Keep `thirdparty/ring` for its C# interop coverage.
+- Once the migration tool is ready (0.3), migrate one or two popular open-source games as real-code tests. Keep `thirdparty/ring` as a real-code test.
 - The suites on Godot 4.8's release candidate, with its changes checked one by one. They pass on beta3 (`c51ff06e8`), which stands in until then. The 0.1 release notes promise to follow the 4.8 release at once.
   - When moving the engine commit, `git diff -L` over the ranges in `docs/engine-facts.md` isolates the citations that moved.
 - `cancel()` on a task that has ended (spec §9.3). No test runs it.
+- Before supporting engines older than 4.7, an engine test comparing constant-folded math with the same expressions in a function body. The compiler folds `posmod`, `wrapi`, `snapped`, `nearest_po2` and `step_decimals` with its own copies (`src/compiler/constant.cpp`).
 - On macOS, the README's quarantine step has never run. The x86_64 half of the libraries runs only under Rosetta, on Godot 4.8.
   - CI can mark the unpacked package with `xattr -w com.apple.quarantine`, run the README's step and load the library.
   - That checks the step, but not that Gatekeeper refuses without it, if the runners do not enforce it.
@@ -159,7 +169,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - Candidates:
     - dispatch without one shared indirect jump, as computed goto or tail calls do (architecture §2.2);
     - placing the hot handlers.
-- Instructions left in compute code, which already beats GDScript by 2 to 3.5 times.
+- Instructions left in compute code, which already beats GDScript by 1.2 to 3.5 times.
   - Each evaluation of a String literal copies it with an instruction. Other literals are preset in the frame or read from the constant table.
   - Each statement starts with a LINE instruction, one of six per iteration of int_loop. GDScript debug builds also emit one per statement (`modules/gdscript/gdscript.cpp:2871-2875`, `ed1daf0`). Release builds emit none.
     - A table from code positions to lines would replace it.
@@ -167,11 +177,13 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
     - Every engine error captures the backtraces of all languages (`core/error/error_macros.cpp:126`, `ed1daf0`). So a frame would save its position before each instruction that can call the engine. Lua saves it only before such instructions. CPython 3.11 and later save it at every instruction.
     - Under the debugger, breakpoints, stepping and the editor's break button need a call at each line (`core/debugger/engine_debugger.h:128-134`, `ed1daf0`). The debugger is on or off for the whole process. When it is off, the runtime would drop LINE as it loads the code.
     - The compiler could record each instruction's statement in the table. Such a table would also fix a wrong line. From the second pass on, an error in a `while` condition is reported at the body's last statement. GDScript does the same (`modules/gdscript/gdscript_compiler.cpp:1903`, `ed1daf0`).
+- Before teams bring real projects in 0.3, measure the build of a large project. `ScriptClasses::errors_in` walks every read file on each cross-script use, so the build grows with the square of the scripts.
 - Benchmarks of real workloads; optimizations of the IR and code generation after those. In the init function, instructions that can run other code are barriers to them.
 - Liveness of the IR's registers (`src/compiler/ir.h`), one analysis on the IR before any optimization.
   - It serves the warning `modified_copy` (spec §3.6), which is off until then.
   - It also serves native code's register allocation (architecture §5).
-  - Each instruction's reads and writes go in the opcode table beside its schemas. Writing a View writes part of its root.
+  - One table states each opcode's operands and whether each is read, written or both. It replaces the two schema strings, `stores_last` and the verifier's per-instruction rules. Writing a View writes part of its root.
+  - With this first IR lint, lowering gets a warning channel, and `@warning_ignore` filters after lowering. Each instruction records its statement's token range, where the warning shows.
   - The warning takes a write to a field of a struct loop variable, after which the variable is not live. The write may also go through a value type's subscript, as `h.pos[0] = 1.0`.
   - A read in an inner loop's next iteration keeps the variable live, as `while h.count > 0: h.count -= 1`. So does a lambda's capture.
   - `continue`, `break` and `return` end its paths.
@@ -190,7 +202,6 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Godot: `ClassDB` leaves return and parameter metadata empty on `MethodInfo` (`core/object/method_info.h:55-56`, `core/object/class_db.cpp:955-974`, `ed1daf0`). Filling and exporting them exposes `RequiredResult` and integer widths at runtime.
 - Godot: GDScript cannot call static methods of non-GDScript scripts or read the member types of non-GDScript autoloads (`core/object/object.cpp:800-826`, `modules/gdscript/gdscript_analyzer.cpp:806-826`, `ed1daf0`; [#14614](https://github.com/godotengine/godot-proposals/issues/14614)).
 - After the 0.1 release, list the engine interfaces newer than 4.4 that the code uses (architecture §6.3). Compare 4.4-stable with 4.7.2 for the extension interface and the virtual methods of `ScriptLanguageExtension`.
-
 - Objects that an extension creates have no signal mutex. `_postinitialize` does not run for them (`core/extension/gdextension_interface.cpp:1669-1672`, `core/object/object.cpp:226-231`, `ed1daf0`; godot#125308). So a task's `completed` and `cancelled` are unguarded when GDScript awaits it from another thread.
 - GDScript's per-iteration clearing of loop-body locals, left as commented-out TODOs (`modules/gdscript/gdscript_compiler.cpp:2106, 2140`, `ed1daf0`). It would match spec §6.8. The owner may contribute it.
 - Store-forwarding stalls in moves of Variant, found while profiling arrays (d516c08). A wide load reads a Variant just written by narrower stores. It then waits for those stores to reach the cache. The owner may contribute both fixes once the current work is done.
@@ -222,14 +233,13 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - With it, this language's table of the engine objects it makes could go.
 - Godot: the open [#124220](https://github.com/godotengine/godot/pull/124220) changes how the script editor takes an extension's errors and warnings. The owner may comment before it merges; nothing here changes until then.
   - It groups every error that names a path into one diagnostic on the last line. The editor does not underline it (`core/object/script_language_extension.h:425-436`, `editor/script/script_text_editor.cpp:756-758`, `05ee117`).
-  - On 4.7 an extension must name its own script there, as this one does (`editor/script/script_text_editor.cpp:859-860`, `ed1daf0`; `src/adapter/pet_language.cpp:199`).
+  - On 4.7 an extension must name its own script there, as this one does (`editor/script/script_text_editor.cpp:859-860`, `ed1daf0`; `PetLanguage::_validate`).
   - It also puts the extension's one-based lines into zero-based ranges, so warnings move down a line. GDScript's own conversion subtracts one (`modules/gdscript/gdscript_editor.cpp:160-164`, `05ee117`).
   - Once it merges, one build would need different output per engine version. A fix in the wrapper keeps the contract: take the script's own path as its own, and subtract one.
 - Views of the enums, inner classes and static variables of GDScript classes, a later addition (spec §11.1, §14.2). They need a change in Godot first, which the owner may contribute.
 - Godot: String has no method that replaces the character at a position. The owner may contribute one.
   - Its methods replace by content, insert or erase (`core/variant/variant_call.cpp:2039-2048`, `ed1daf0`).
   - Here `s[i] = c` is a compile error, and its fix uses `erase()` and `insert()` (spec §5.1).
-  - Gaps in the methods of engine types go upstream before the standard library (architecture §5).
 
 ## Open questions
 
@@ -237,9 +247,11 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Whether `reduce()` types its lambda from the start value, as `func(A, T) -> A` (spec §3.8). Now the lambda's types must be written. A `None` start would need a rule of its own.
 - Whether a function value turned into a Callable has only its result checked for `T??` and `Variant?` (spec §10.1). Parameters cannot lose a `None`: the engine passes null or a boxed value. Now `Array[int??].filter(func(x): ...)` is refused. `bind()`, `callv()` and a function type that holds `T??` are not checked, and turn `Some(None)` into `None`.
 - Design questions from the third coverage rerun, which the spec leaves open:
-  - engine classes as values, as gdUnit4 passes `[InputEventMouseButton, …]` (0.7% of the files; spec §2.6);
+  - engine classes as values, as gdUnit4 passes `[InputEventMouseButton, …]` (0.7% of the files; spec §2.6). They would also let `is_instance_of(v, T)` take a native class held in a variable;
   - `Array[T](a)` as a typed copy, which the corpus does not use.
 - Before 0.9: the rules of `@tool` in the editor (spec §2.3, §14.3). They cover keeping edited state across declaration changes via entry checks, and folding repeated per-frame errors.
+  - When the work starts, gather into one check the about ten branches on `Engine::is_editor_hint()` that mean no code runs in the editor.
+  - `PetScript::set_image` swaps every instance's image without comparing declarations. Under `@tool` a changed layout would then corrupt memory, so it must compare them first.
 - Before 0.9: how `NaN` behaves in containers, which GDScript handles inconsistently (spec §5.2, engine facts). NaN rarely stands for a legal state in game logic. Candidates:
   - forbid `NaN` from entering containers;
   - warn wherever a `NaN` is detected.
@@ -250,24 +262,32 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - The long-term boundary of compatibility with GDScript and Godot: which agreements are promises and which merely hold today. How semantics may change is settled (architecture §5, 0.9).
 - After 0.3 and before 0.9: tuples for multi-parameter signal `await` (spec §9.6, §14.3). Decide then whether `await Task.all([...])` also returns a tuple of heterogeneous results (§9.5).
   - About half of the uses in corpus v2 await `HTTPRequest.request_completed`, often reading `[3]`. Fields named by the signal's parameters, as `.body`, are a candidate besides tuples.
+  - Before them, `AWAIT_TASK` and `AWAIT_SIGNAL` must carry the type of their result, as other instructions with a result do. Now the VM searches the frame's slots on each resume.
 - After 0.3 and before 0.9: default values of lambda parameters and of interface method parameters, with optional parameters in function types (spec §3.9, §3.11, §14.3).
+  - Before them, one `Signature` value should serve overriding, implementing, signal handlers and function-type conversion. Now each repeats the rules of compatibility and argument counts.
+  - Before them, the checker's mutable context should become one struct, saved and restored whole. Now seven places save parts of it.
+  - Before them, lowering should get one per-function state and one setup path for methods and lambdas (`src/compiler/lower.cpp`).
+  - Before them, hot reload must tell function types apart. `type_key` erases them, so a change from `Callable` to `func() -> void` counts as a body change.
 - Before the migration tool of 0.3: how many GDScript files migrating one class drags along in the games of corpus v2. GDScript cannot call this language's static methods or use its enums in types (spec §11.3). If the number is large, the tool generates forwarding shells in 0.3.
   - The proper fix is upstream: [godot#118595](https://github.com/godotengine/godot/pull/118595) for static methods has waited for review since July. Enums in types need a change of their own.
   - Engines older than the fix keep the restriction, back to 4.4 (architecture §6.3).
-- The differences from GDScript in code spelled the same, which the owner reviews one by one. The aim is to agree with GDScript wherever possible. A difference stays only where the semantic design or safety needs it. Sixteen are known. Until the review, the README's first paragraph and spec §1.2 promise more than holds. These six fall outside the exception that spec §1.2 names:
+- The differences from GDScript in code spelled the same, which the owner reviews one by one. The aim is to agree with GDScript wherever possible. A difference stays only where the semantic design or safety needs it. Seventeen are known. The latest is `is_instance_of(v, TYPE_OBJECT)` on a freed object: GDScript gives true, and this language gives false, as for `v is Object` (engine facts). Until the review, the README's first paragraph and spec §1.2 promise more than holds. These six fall outside the exception that spec §1.2 names:
   - an array or dictionary literal takes its type from its elements;
   - members without `pub` are invisible to reflection by name;
   - a `null` stored in a `Variant` is a value;
   - an assignment evaluates its right side before reading its target;
   - engine properties bypass a script's `_get` and `_set`;
   - a container used as a `Dictionary` key is stored as a read-only copy.
+- A cycle of static initialization whose two classes load on two loader threads deadlocks, instead of being a program error (`initialize_class` in `src/runtime/vm.cpp`). The cycle is a program error anyway. Whether GDScript deadlocks too is unchecked.
 - Whether a class may be named as a standard type of this language, as `class_name Result` (spec §4.1). It is a compile error for now. Corpus v1 has no such class name. Inner classes may take these names, as godot-tiny-mmo's `class Result` does.
 - Whether a member may have the name of a member of another kind in a base class of this language (spec §4.1). It is a compile error, as in GDScript (`modules/gdscript/gdscript_analyzer.cpp:234-253`, `ed1daf0`). An example is a function named as an inherited enum.
 - The rule that keeps a member's old name in its declaration (architecture §6.4). It is proposed when a team that edits scenes in parallel needs it. Until then renaming rewrites scenes.
 - A constant named as an autoload, written in a type: a compile error for now (spec §11.1). Allow it later as the nearer name, or as the autoload as GDScript does?
 - Members that are non-null only once the node is ready, which need a design of their own. The owner likens it to linear types. It covers these (spec §6.2, §6.4):
   - members that must be assigned, and where the compiler looks for the assignment;
-  - assignments by ancestors;
+  - assignments by ancestors, which the checker now assumes without looking for them:
+    - it takes a must-assign member of a node with an owner as one they assign, unless it is exported or `_init` assigns it;
+    - the spec requires `$Child.target = v` or an `@onready` reference in their `_ready`, or else `T?`. It marks the check a known limitation;
   - members assigned after ready, which now must be `T?`.
 - How third-party C++ extensions declare non-null results and narrower types once a project in 0.3 needs them (spec §10.2, §10.3). Candidates are an external metadata file and upstream `ClassDB` metadata.
 - How to test the gain in maintenance. Use the language in a real project through several rounds of changing requirements. See how many problems it points out ahead of renames, interface changes and refactorings across files. The cost of adoption includes migrating in step by step, mixing and leaving. With cross-language inheritance restricted, the unit of migration may be an inheritance cluster or a subsystem.
