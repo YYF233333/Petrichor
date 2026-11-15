@@ -58,7 +58,9 @@ enum class ExprKind {
 	Subscript, // `base[right]`.
 	Conditional, // `left if base else right` (spec §5.5).
 	NoneLiteral, // `None`, or `null` when `op` is Null (spec §2.2).
-	TypeTest, // `left is cast_type`, or `left is not cast_type` when `bool_value`.
+	// `left is cast_type`, or `left is not cast_type` when `bool_value`;
+	// is_instance_of() of a TYPE_* constant when `target` is GDScriptUtility.
+	TypeTest,
 	// `left?` (spec §8.2): the value inside the Result or the T? in `left`, or a
 	// return of its Err or None from the function.
 	Try,

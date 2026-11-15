@@ -2308,6 +2308,11 @@ class Lowerer {
 					}
 					source = variant_object(source, p_expr.tested);
 				}
+				if (p_expr.target == Target::GDScriptUtility) {
+					// TYPE_OBJECT: not None, a freed object too, as typeof() tells (spec §2.6).
+					instr(Op::SAME_OBJECT, result, source, default_value(temp(optional_of(p_expr.tested))));
+					return negate(result);
+				}
 				instr(Op::IS_INSTANCE, result, source, NO_REG, class_index(p_expr.tested));
 				return p_expr.bool_value ? negate(result) : result;
 			}

@@ -264,6 +264,7 @@ func _ready() -> void:
 	var heir_base: Script = load("res://language/rest_check.pet")
 	_check(v.instance_of([heir, RefCounted.new(), null, 3], heir_base) == [false, true, false, false, false] and v.instance_of([heir], heir.get_script()) == [false, true], "is_instance_of() of a Script value: the script or one it extends, never of a freed object, None or other values (spec §2.6)")
 	_check(v.instance_of([self, heir], get_script()) == [false, true, false] and v.instance_of([heir, self], GDScript.new()) == [false, false, false], "is_instance_of() of a GDScript script, and of a script without a path, which is only itself")
+	_check(v.freed_type_object() == [true, true, true, false, false], "is_instance_of() of TYPE_OBJECT is true of a freed object, as typeof() tells, and of a class name false")
 	heir.free()
 	_check(v.variant_sides() == [TYPE_STRING_NAME, TYPE_NIL, "a", 3, false], "a typed container keeps Variant as its keys or values, which the engine leaves untyped (spec §3.13)")
 	_check(v.engine_enum_names() == ["EASE_OUT", Tween.EASE_IN_OUT, MOUSE_BUTTON_RIGHT, 3], "the name of an engine's enum as a value gives its names and values (spec §3.7)")

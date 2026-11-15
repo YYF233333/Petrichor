@@ -1948,8 +1948,9 @@ Type Checker::check_gdscript_utility(Expr &r_expr) {
 	return set(r_expr, utility.id == Id::GetStack ? Type::array(Type::builtin("Dictionary")) : Type::of(TypeKind::Void));
 }
 
-// is_instance_of(v, T) of a class name or a TYPE_* constant, as `v is T`;
-// of a Script value, by the rules of `is` without narrowing (spec §2.6).
+// is_instance_of(v, T) of a class name, as `v is T`; of a TYPE_* constant, by
+// typeof(v) and narrowing as `is`; of a Script value, by the rules of `is`
+// without narrowing (spec §2.6).
 Type Checker::check_is_instance_of(Expr &r_expr) {
 	refer(r_expr.name_token, engine_id("@GDScript", "is_instance_of"));
 	if (r_expr.args.size() != 2) {
@@ -1970,6 +1971,7 @@ Type Checker::check_is_instance_of(Expr &r_expr) {
 		tested.name = bytecode::value_type_name(bytecode::ValueType(variant_type));
 		tested.name_token = NO_TOKEN;
 		refer(type.name_token, engine_id("@GlobalScope", type.text));
+		r_expr.target = Target::GDScriptUtility;
 	}
 	r_expr.kind = ExprKind::TypeTest;
 	r_expr.left = std::move(r_expr.args[0]);
