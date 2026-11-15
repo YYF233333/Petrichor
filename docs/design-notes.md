@@ -157,7 +157,7 @@
 - **子任务的归属（§9.3）**：归属让取消能传下去。`Task.any` 超时后要停下落选的任务，`cancel()` 打断行为时要停下它正在等的 `move_to`。没有归属，就不知道一个任务是否还有别人在等。Rust 同样让父 future 拥有它等待的子 future。
   - Godot 的协程另有一个主人，即运行它的对象，对象会被显式释放。两个主人只在一种情形下冲突：等待方的对象释放了，子任务的对象还活着。
   - GDScript 中这时子任务照常跑完，同一写法须与它一致。归属的用处都来自主动取消，所以对象释放引起的取消不传播。
-- **协程与信号（§9.1–§9.7）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 979 个 lambda 只有 35 个含 `await`（33 个在 `gdUnit4` 测试中）。重入与释放暗坑见[暗坑清单](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md) G-11、G-12、G-13，及提案 [godot-proposals#8838](https://github.com/godotengine/godot-proposals/issues/8838)、[#6243](https://github.com/godotengine/godot-proposals/issues/6243)。[await 信号结果调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/await-signal-results.md)中，1,356 个 `await` 只有 1 个使用了多参数信号的结果。也只有 1 个使用了签名未知的 `Signal` 结果（`godot_dialogue_manager` `:1956` 经 `RefCounted` 接收者等待 C# 两参数信号）。v2 使用多参数信号结果增至 24 处（9 库，15 处接收者签名静态已知），解构留待第一版之后（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
+- **协程与信号（§9.1–§9.7）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 979 个 lambda 只有 35 个含 `await`（33 个在 `gdUnit4` 测试中）。重入与释放暗坑见[暗坑清单](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md) G-11、G-12、G-13，及提案 [godot-proposals#8838](https://github.com/godotengine/godot-proposals/issues/8838)、[#6243](https://github.com/godotengine/godot-proposals/issues/6243)。[await 信号结果调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/await-signal-results.md)中，1,356 个 `await` 只有 1 个使用了多参数信号的结果。也只有 1 个使用了签名未知的 `Signal` 结果（`godot_dialogue_manager` `:1956` 经 `RefCounted` 接收者等待 C# 两参数信号）。v2 使用多参数信号结果增至 24 处（9 库，15 处接收者签名静态已知），拟以元组承接并在第一版冻结前定下规则（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
 - **引擎边界（§10.2–§10.6）**：引擎用 `RequiredResult` 标注的 API 仅约 50 处（29 处在 `Tween`）。引擎传入虚函数和信号的对象几乎总是非空。默认非空加入口检查，避免每个 `_input` 和信号处理函数重复判空。引擎 API 中窄于 `int64` 或无符号的方法参数有 3,700 多个、属性约 460 个。例如 `uint32` 的 `collision_layer` 写入 `-1` 会回绕为 `4294967295`。
 - **引擎 API 的 `Result` 版本（§10.3）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `FileAccess.open` 有 125 处调用，只有 21 处随后读取错误。改变原 API 的返回类型，迁移来的每处调用都要改写。所以 `try_` 版本另加，原 API 不变。独立的模块多一个全局名字，用户在 `FileAccess` 下也找不到。
   - 引擎类上只加按固定前缀从引擎成员派生的名字，如 `try_from` 和 `try_open`。4.7 的引擎 API 中只有 `Mutex.try_lock` 和 `Semaphore.try_wait` 用这个前缀。
@@ -222,7 +222,7 @@
 | int 与 float 混用的工具函数统一提升为 float | GDScript 原样返回实参，结果会悄悄不同 | §10.3 |
 | `pop_front()` 在空数组上是程序错误 | 引擎在这里返回 null 而不报错，会悄悄不同 | §3.8 |
 | `pop_at` 与 `pop_back` 一样返回 `T?` | 真实代码都按已知的下标用 `pop_at` 移出元素，不判断结果为空。返回 `T?` 让每处都要解开，而越界本身就是错误 | §3.8 |
-| await 多参数信号得到 Array，或按参数解构 | v1 仅 1 处、v2 增至 24 处（9 库）使用多参数信号结果。第一版只允许语句 await，多参信号解构可在第一版之后兼容加入（§14.2） | §9.6 |
+| await 多参数信号得到无类型 Array，与 GDScript 相同 | 会丢失各参数的静态类型。v2 在 9 库中有 24 处使用多参数信号结果，第一版拟改用元组承接，定下规则前先报编译错误（§14.3） | §9.6 |
 | 引擎属性照 GDScript 按名读写，对象脚本的 `_get`、`_set` 可以拦截 | 每次访问都要先问对象有没有脚本。经 GDExtension 问一次，就抵掉了直接调用的大部分收益；GDScript 自己调 setter 时也不经拦截 | §10.5 |
 | 以 if/else 块为值 | 与条件表达式重复 | §5.5 |
 | 为基类要求的、可选的和运行时添加的子节点各设一种声明 | 按使用方式的检查和 `get_node_or_null` 已经覆盖这三种情况，新的声明只会增加概念 | §7.2 |

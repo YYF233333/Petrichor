@@ -250,7 +250,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Whether the first version (spec §14) leaves out the built-in test runner (§13.2). The FPS and Ring scripts of the second paper migration do not use it.
 - Before 0.9: whether a container that holds itself is a program error as a `Dictionary` key (spec §3.8). The engine stops hashing it at a depth of 100 with an error. One that holds itself twice takes about 2^100 steps, in GDScript too (`core/variant/array.cpp:195-208`, `ed1daf0`).
 - The long-term boundary of compatibility with GDScript and Godot: which agreements are promises and which merely hold today. How semantics may change is settled (architecture §5, 0.9).
-- Tuples, to be discussed after the first version. `await Task.all([...])` gives nothing (spec §9.5). With tuples it could give the results of tasks of different types, which an array cannot type.
+- After 0.3 and before 0.9: tuples for multi-parameter signal `await` (spec §9.6, §14.3). Decide then whether `await Task.all([...])` also returns a tuple of heterogeneous results (§9.5).
 - The differences from GDScript in code spelled the same, which the owner reviews one by one. The aim is to agree with GDScript wherever possible. A difference stays only where the semantic design or safety needs it. Sixteen are known. Until the review, the README's first paragraph and spec §1.2 promise more than holds. These six fall outside the exception that spec §1.2 names:
   - an array or dictionary literal takes its type from its elements;
   - members without `pub` are invisible to reflection by name;
