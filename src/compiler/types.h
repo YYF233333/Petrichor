@@ -162,9 +162,8 @@ struct EnumValues {
 // a class name.
 Type api_type(const std::string &p_name, bool p_object_nullable);
 
-// An enum of the engine (spec §3.7), such as Node.ProcessMode or Key, with
-// its values, which `p_values` gives the first time the name is asked for.
-Type engine_enum(const std::string &p_name, const std::function<std::vector<std::pair<std::string, int64_t>>()> &p_values);
+// An enum of the engine (spec §3.7), such as Node.ProcessMode or Key, with its values.
+Type engine_enum(const std::string &p_name, std::vector<std::pair<std::string, int64_t>> p_values);
 // One of the engine's global enums or an enum of a built-in type, such as
 // MouseButton or Vector3.Axis; nullopt for any other name and for a bitfield,
 // which stays int.

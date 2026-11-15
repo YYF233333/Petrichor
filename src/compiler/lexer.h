@@ -123,6 +123,10 @@ inline bool is_node_name(TokenKind p_kind) {
 // The operator of a compound assignment: + for +=; Invalid for other tokens.
 TokenKind compound_operator(TokenKind p_assign);
 
+// Whether an operator after the token is binary, and a bracket after it calls
+// or subscripts it.
+bool ends_operand(TokenKind p_kind);
+
 struct Token {
 	TokenKind kind = TokenKind::EndOfFile;
 	uint32_t offset = 0; // In bytes.

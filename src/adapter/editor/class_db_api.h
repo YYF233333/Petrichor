@@ -28,6 +28,9 @@ class ClassDBApi : public compiler::EngineApi {
 	};
 	mutable std::mutex mutex;
 	mutable std::unordered_map<std::string, std::shared_ptr<const Members>> classes;
+	// Each enum by the class and name asked for, also until extensions change
+	// ClassDB. Apart from Members, whose types look enums up while it is built.
+	mutable std::unordered_map<std::string, std::optional<compiler::Type>> enums;
 
 	// Null for no class.
 	std::shared_ptr<const Members> members(const std::string &p_class) const;

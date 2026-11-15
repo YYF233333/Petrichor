@@ -26,6 +26,7 @@
 #include <godot_cpp/classes/gd_extension_manager.hpp>
 #include <godot_cpp/classes/input_event_key.hpp>
 #include <godot_cpp/classes/os.hpp>
+#include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
@@ -469,9 +470,7 @@ void PetHighlighter::highlight() const {
 		const bool adjacent = i > 0 && tokens[i - 1].end() == token.offset;
 		const bool word = (kind == TokenKind::Identifier || (kind >= TokenKind::Await && kind <= TokenKind::While)) && !token.text.empty();
 		const bool call = tokens[i + 1].kind == TokenKind::ParenOpen;
-		const bool unique_name = kind == TokenKind::Percent &&
-				!((previous >= TokenKind::Identifier && previous <= TokenKind::NodePath) || previous == TokenKind::ParenClose || previous == TokenKind::BracketClose || previous == TokenKind::BraceClose ||
-						previous == TokenKind::True || previous == TokenKind::False || previous == TokenKind::Null || previous == TokenKind::Self || previous == TokenKind::Super);
+		const bool unique_name = kind == TokenKind::Percent && !compiler::ends_operand(previous);
 		node_reference_goes_on = node_reference_goes_on && adjacent && (word || kind == TokenKind::String || kind == TokenKind::Slash);
 		Color color = symbol;
 		if (node_reference_goes_on || kind == TokenKind::Dollar || unique_name) {
@@ -567,7 +566,9 @@ void PetEditorPlugin::_enter_tree() {
 	// editor/plugins/editor_plugin.cpp:284-289 (ed1daf0).
 	connect("resource_saved", callable_mp(this, &PetEditorPlugin::resource_saved));
 	connect("scene_saved", callable_mp(this, &PetEditorPlugin::scene_saved));
-	EditorInterface::get_singleton()->get_resource_filesystem()->connect("filesystem_changed", callable_mp(this, &PetEditorPlugin::filesystem_changed));
+	EditorInterface::get_singleton()->get_resource_filesystem()->connect("filesystem_changed", callable_mp(this, &PetEditorPlugin::files_or_settings_changed));
+	// Such as the main scene and autoloads (core/config/project_settings.cpp:575, ed1daf0).
+	ProjectSettings::get_singleton()->connect("settings_changed", callable_mp(this, &PetEditorPlugin::files_or_settings_changed));
 	const PackedStringArray args = OS::get_singleton()->get_cmdline_user_args();
 	if (args.has("--petrichor-build")) {
 		callable_mp(this, &PetEditorPlugin::run_build_command).call_deferred();
@@ -588,7 +589,7 @@ void PetEditorPlugin::scene_saved(const String &p_path) {
 	project_changed();
 }
 
-void PetEditorPlugin::filesystem_changed() {
+void PetEditorPlugin::files_or_settings_changed() {
 	project_changed();
 }
 
@@ -676,9 +677,13 @@ void PetEditorPlugin::run_format_command() {
 	int changed = 0;
 	int failed = 0;
 	for (const String &path : paths) {
-		// As bytes, which keeps the file's line breaks.
+		// As bytes, which keeps the file's line breaks. A byte order mark is no
+		// text, as the build reads it (core/string/ustring.cpp:1756-1759, ed1daf0),
+		// and is written back.
 		const PackedByteArray bytes = FileAccess::get_file_as_bytes(path);
-		const std::string source = bytes.is_empty() ? std::string() : std::string(reinterpret_cast<const char *>(bytes.ptr()), size_t(bytes.size()));
+		std::string source = bytes.is_empty() ? std::string() : std::string(reinterpret_cast<const char *>(bytes.ptr()), size_t(bytes.size()));
+		const std::string bom = source.rfind("\xEF\xBB\xBF", 0) == 0 ? "\xEF\xBB\xBF" : "";
+		source.erase(0, bom.size());
 		std::string error;
 		const std::optional<std::string> result = compiler::format(source, &error);
 		if (!result) {
@@ -701,10 +706,11 @@ void PetEditorPlugin::run_format_command() {
 			ERR_PRINT(vformat("Cannot write %s.", path));
 			continue;
 		}
+		const std::string text = bom + *result;
 		PackedByteArray data;
-		data.resize(int64_t(result->size()));
-		if (!result->empty()) {
-			std::memcpy(data.ptrw(), result->data(), result->size());
+		data.resize(int64_t(text.size()));
+		if (!text.empty()) {
+			std::memcpy(data.ptrw(), text.data(), text.size());
 		}
 		file->store_buffer(data);
 	}

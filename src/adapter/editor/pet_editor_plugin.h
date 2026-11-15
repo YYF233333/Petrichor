@@ -122,7 +122,7 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	void run_format_command();
 	void resource_saved(godot::Object *p_resource);
 	void scene_saved(const godot::String &p_path);
-	void filesystem_changed();
+	void files_or_settings_changed();
 
 protected:
 	static void _bind_methods() {}

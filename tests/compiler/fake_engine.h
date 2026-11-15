@@ -75,14 +75,12 @@ class FakeEngine : public compiler::EngineApi {
 	};
 
 	Type enum_type(const std::string &p_name) const {
-		return compiler::engine_enum(p_name, [&]() {
-			std::vector<std::pair<std::string, int64_t>> values;
-			const std::string owner = p_name.substr(0, p_name.find('.'));
-			for (const std::string &constant : enums.at(p_name)) {
-				values.push_back({ constant, constants.at(owner + "." + constant) });
-			}
-			return values;
-		});
+		std::vector<std::pair<std::string, int64_t>> values;
+		const std::string owner = p_name.substr(0, p_name.find('.'));
+		for (const std::string &constant : enums.at(p_name)) {
+			values.push_back({ constant, constants.at(owner + "." + constant) });
+		}
+		return compiler::engine_enum(p_name, std::move(values));
 	}
 	std::map<std::string, std::vector<EngineMethod>> methods;
 	std::map<std::string, std::vector<EngineProperty>> properties;

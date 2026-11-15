@@ -245,6 +245,29 @@ TokenKind compound_operator(TokenKind p_assign) {
 	}
 }
 
+bool ends_operand(TokenKind p_kind) {
+	switch (p_kind) {
+		case TokenKind::Identifier:
+		case TokenKind::Int:
+		case TokenKind::Float:
+		case TokenKind::String:
+		case TokenKind::StringName:
+		case TokenKind::NodePath:
+		case TokenKind::True:
+		case TokenKind::False:
+		case TokenKind::Null:
+		case TokenKind::Self:
+		case TokenKind::Super:
+		case TokenKind::ParenClose:
+		case TokenKind::BracketClose:
+		case TokenKind::BraceClose:
+		case TokenKind::Question:
+			return true;
+		default:
+			return false;
+	}
+}
+
 namespace {
 
 const std::unordered_map<std::string, TokenKind> &keywords() {

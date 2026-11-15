@@ -120,6 +120,7 @@ void ClassDBApi::extensions_changed() {
 	const ClassDBApi &api = get();
 	std::lock_guard<std::mutex> lock(api.mutex);
 	api.classes.clear();
+	api.enums.clear();
 }
 
 std::shared_ptr<const ClassDBApi::Members> ClassDBApi::members(const std::string &p_class) const {
@@ -242,25 +243,32 @@ std::optional<int64_t> ClassDBApi::find_constant(const std::string &p_class, con
 }
 
 std::optional<Type> ClassDBApi::find_enum(const std::string &p_class, const std::string &p_enum) const {
+	const std::string key = p_class + "." + p_enum;
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		const auto found = enums.find(key);
+		if (found != enums.end()) {
+			return found->second;
+		}
+	}
+	std::optional<Type> result;
 	ClassDBSingleton *db = ClassDBSingleton::get_singleton();
 	const StringName name = to_godot(p_enum);
 	for (StringName cls = to_godot(p_class); cls != StringName(); cls = db->get_parent_class(cls)) {
 		if (!db->class_get_enum_list(cls, true).has(String(name))) {
 			continue;
 		}
-		if (db->is_class_enum_bitfield(cls, name, true)) {
-			return std::nullopt;
-		}
-		return compiler::engine_enum(to_utf8(cls) + "." + p_enum, [&]() {
+		if (!db->is_class_enum_bitfield(cls, name, true)) {
 			std::vector<std::pair<std::string, int64_t>> values;
-			const PackedStringArray constants = db->class_get_enum_constants(cls, name, true);
-			for (const String &constant : constants) {
+			for (const String &constant : db->class_get_enum_constants(cls, name, true)) {
 				values.push_back({ to_utf8(constant), db->class_get_integer_constant(cls, constant) });
 			}
-			return values;
-		});
+			result = compiler::engine_enum(to_utf8(cls) + "." + p_enum, std::move(values));
+		}
+		break;
 	}
-	return std::nullopt;
+	std::lock_guard<std::mutex> lock(mutex);
+	return enums.emplace(key, result).first->second;
 }
 
 Type ClassDBApi::constant_type(const std::string &p_class, const std::string &p_constant) const {

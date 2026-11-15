@@ -31,31 +31,6 @@ int nesting(TokenKind p_kind) {
 	return is_closing(p_kind) ? -1 : 0;
 }
 
-// Whether an operator after the token is binary, and a bracket after it calls
-// or subscripts it.
-bool ends_operand(TokenKind p_kind) {
-	switch (p_kind) {
-		case TokenKind::Identifier:
-		case TokenKind::Int:
-		case TokenKind::Float:
-		case TokenKind::String:
-		case TokenKind::StringName:
-		case TokenKind::NodePath:
-		case TokenKind::True:
-		case TokenKind::False:
-		case TokenKind::Null:
-		case TokenKind::Self:
-		case TokenKind::Super:
-		case TokenKind::ParenClose:
-		case TokenKind::BracketClose:
-		case TokenKind::BraceClose:
-		case TokenKind::Question:
-			return true;
-		default:
-			return false;
-	}
-}
-
 bool is_unary(TokenKind p_kind) {
 	return p_kind == TokenKind::Minus || p_kind == TokenKind::Plus || p_kind == TokenKind::Bang || p_kind == TokenKind::Tilde || p_kind == TokenKind::Percent;
 }
