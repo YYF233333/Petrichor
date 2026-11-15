@@ -228,9 +228,11 @@ std::optional<std::string> joined(const NodePath &p_root, const NodePath &p_path
 // What a node of a scene names for the engine to find by name (spec §7.7):
 // the members that the tracks of an AnimationMixer's animations name from
 // its root node, and the properties that a MultiplayerSynchronizer
-// synchronizes from its root path, both ".." unless set. A property track
-// or a synchronized property names the node's property by its first
-// subname (scene/animation/animation_mixer.cpp:74-91, 722, 2077-2093, 2547;
+// synchronizes from its root path, both ".." unless set. The animations
+// include those under the `anims/` keys of 3.x, which the engine adds to the
+// default library. A property track or a synchronized property names the
+// node's property by its first subname
+// (scene/animation/animation_mixer.cpp:60-91, 722, 2077-2093, 2547;
 // scene/main/node.cpp:3317-3340; modules/multiplayer/multiplayer_synchronizer.cpp:37-44,
 // 164-180; multiplayer_synchronizer.h:55; ed1daf0). The files of libraries,
 // animations and configurations stored apart go to `r_files`.
@@ -261,6 +263,24 @@ void read_named_members(const Ref<SceneState> &p_state, int32_t p_index, compile
 			r_files.insert(to_utf8(path));
 		}
 	};
+	const auto read_animation = [&](const String &p_name, const Ref<Animation> &p_animation) {
+		if (p_animation.is_null()) {
+			return;
+		}
+		watch(p_animation);
+		const std::string shown = to_utf8(p_name);
+		const std::string resource = to_utf8(p_animation->get_path());
+		for (int32_t t = 0; t < p_animation->get_track_count(); t++) {
+			const NodePath path = p_animation->track_get_path(t);
+			const Animation::TrackType type = p_animation->track_get_type(t);
+			if ((type == Animation::TYPE_VALUE || type == Animation::TYPE_BEZIER) && path.get_subname_count() > 0) {
+				add(shown, root_node, path, path.get_subname(0), false, { resource, t });
+			}
+			for (int32_t k = 0; type == Animation::TYPE_METHOD && k < p_animation->track_get_key_count(t); k++) {
+				add(shown, root_node, path, p_animation->method_track_get_name(t, k), true, { resource, t, k });
+			}
+		}
+	};
 	const auto read_library = [&](const String &p_name, const Ref<AnimationLibrary> &p_library) {
 		if (p_library.is_null()) {
 			return;
@@ -268,21 +288,8 @@ void read_named_members(const Ref<SceneState> &p_state, int32_t p_index, compile
 		watch(p_library);
 		const TypedArray<StringName> animations = p_library->get_animation_list();
 		for (int64_t a = 0; a < animations.size(); a++) {
-			const Ref<Animation> animation = p_library->get_animation(animations[a]);
 			const String name = animations[a];
-			const std::string shown = to_utf8(p_name.is_empty() ? name : p_name + String("/") + name);
-			watch(animation);
-			const std::string resource = to_utf8(animation->get_path());
-			for (int32_t t = 0; t < animation->get_track_count(); t++) {
-				const NodePath path = animation->track_get_path(t);
-				const Animation::TrackType type = animation->track_get_type(t);
-				if ((type == Animation::TYPE_VALUE || type == Animation::TYPE_BEZIER) && path.get_subname_count() > 0) {
-					add(shown, root_node, path, path.get_subname(0), false, { resource, t });
-				}
-				for (int32_t k = 0; type == Animation::TYPE_METHOD && k < animation->track_get_key_count(t); k++) {
-					add(shown, root_node, path, animation->method_track_get_name(t, k), true, { resource, t, k });
-				}
-			}
+			read_animation(p_name.is_empty() ? name : p_name + String("/") + name, p_library->get_animation(name));
 		}
 	};
 	for (int32_t p = 0; p < p_state->get_node_property_count(p_index); p++) {
@@ -296,6 +303,8 @@ void read_named_members(const Ref<SceneState> &p_state, int32_t p_index, compile
 			}
 		} else if (name.begins_with("libraries/")) {
 			read_library(name.trim_prefix("libraries/"), value);
+		} else if (name.begins_with("anims/")) {
+			read_animation(name.get_slicec('/', 1), value);
 		} else if (name == "replication_config") {
 			const Ref<SceneReplicationConfig> config = value;
 			if (config.is_null()) {

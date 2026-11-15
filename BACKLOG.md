@@ -46,7 +46,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - Members that animation tracks and synchronized properties name, unchecked for `pub` and existence (spec §7.7, §10.5):
   - through a path that leaves the scene storing it, as from an AnimationPlayer at its root;
   - after the first subname, on a resource of this language, as `health` in `Body:stats:health`.
-- Animation tracks in an inherited scene. The checks read the `root_node` and the libraries of the scene's own layer only (`src/adapter/editor/scene_index.cpp:238-243, 283-309`). So a derived scene can miss an error or get a false one.
+- Animation tracks in an inherited scene. The checks read the `root_node` and the libraries of the scene's own layer only (`src/adapter/editor/scene_index.cpp:240-245, 295-307`). So a derived scene can miss an error or get a false one.
 - Types of a C# class's members that are narrower than what is seen (spec §11.1):
   - an exported object property is `Object?`, as its class is only in the hint string;
   - a method's parameters and results have their native class, as the engine's generator drops the script class.

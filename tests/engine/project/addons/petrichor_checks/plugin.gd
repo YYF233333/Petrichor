@@ -662,7 +662,7 @@ func _check_scene_exports() -> void:
 # properties name must be pub, as the engine finds them by name. The scene's
 # check marks them on the node, and the script still compiles. A library
 # stored apart names them too, and a change to it alone reaches the next
-# analysis.
+# analysis. An animation under a key `anims/` of 3.x names them too.
 func _check_named_members() -> void:
 	var script_path := "res://editor_check_named.pet"
 	var scene_path := "res://editor_check_named.tscn"
@@ -671,11 +671,11 @@ func _check_named_members() -> void:
 	var stored_apart := '[gd_resource type="AnimationLibrary" format=3]\n\n[sub_resource type="Animation" id="1"]\n' + track + '\n[resource]\n_data = {&"blink": SubResource("1")}\n'
 	_write(library, stored_apart % "speed")
 	_write(script_path, "extends Node2D\n\nvar flash_amount := 0.0\nvar health := 3\nvar speed := 1.0\n\nfunc flash():\n\tpass\n")
-	_write(scene_path, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n[ext_resource type="AnimationLibrary" path="%s" id="2"]\n\n[sub_resource type="Animation" id="3"]\n%stracks/1/type = "method"\ntracks/1/path = NodePath(".")\ntracks/1/keys = {"times": PackedFloat32Array(0), "transitions": PackedFloat32Array(1), "values": [{"args": [], "method": &"flash"}]}\n\n[sub_resource type="AnimationLibrary" id="4"]\n_data = {&"hit": SubResource("3")}\n\n[sub_resource type="SceneReplicationConfig" id="5"]\nproperties/0/path = NodePath(".:health")\nproperties/0/spawn = true\nproperties/0/replication_mode = 1\n\n[node name="Root" type="Node2D"]\nscript = ExtResource("1")\n\n[node name="AnimationPlayer" type="AnimationPlayer" parent="."]\nlibraries = {&"": SubResource("4"), &"extra": ExtResource("2")}\n\n[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="."]\nreplication_config = SubResource("5")\n' % [script_path, library, track % "flash_amount"])
+	_write(scene_path, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n[ext_resource type="AnimationLibrary" path="%s" id="2"]\n\n[sub_resource type="Animation" id="3"]\n%stracks/1/type = "method"\ntracks/1/path = NodePath(".")\ntracks/1/keys = {"times": PackedFloat32Array(0), "transitions": PackedFloat32Array(1), "values": [{"args": [], "method": &"flash"}]}\n\n[sub_resource type="AnimationLibrary" id="4"]\n_data = {&"hit": SubResource("3")}\n\n[sub_resource type="SceneReplicationConfig" id="5"]\nproperties/0/path = NodePath(".:health")\nproperties/0/spawn = true\nproperties/0/replication_mode = 1\n\n[node name="Root" type="Node2D"]\nscript = ExtResource("1")\n\n[node name="AnimationPlayer" type="AnimationPlayer" parent="."]\nlibraries = {&"": SubResource("4"), &"extra": ExtResource("2")}\n\n[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="."]\nreplication_config = SubResource("5")\n\n[node name="Legacy" type="AnimationPlayer" parent="."]\nanims/old = SubResource("3")\n' % [script_path, library, track % "flash_amount"])
 	var script: Script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_IGNORE)
 	_check(_compiles(script, script_path), "a script compiles whatever its scenes name")
 	var warnings := _scene_marks(scene_path)
-	for named in ['the animation "hit" of AnimationPlayer animates "flash_amount" of the root', 'the animation "hit" of AnimationPlayer calls flash() on the root', 'the animation "extra/blink" of AnimationPlayer animates "speed" of the root', 'MultiplayerSynchronizer synchronizes "health" of the root']:
+	for named in ['the animation "hit" of AnimationPlayer animates "flash_amount" of the root', 'the animation "hit" of AnimationPlayer calls flash() on the root', 'the animation "extra/blink" of AnimationPlayer animates "speed" of the root', 'MultiplayerSynchronizer synchronizes "health" of the root', 'the animation "old" of Legacy animates "flash_amount" of the root']:
 		_check(warnings.contains(named + ", which is not pub"), "the error is marked on the node: " + named)
 
 	await _write_after(library, stored_apart % "flash_amount", FileAccess.get_modified_time(library))
