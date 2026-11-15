@@ -649,9 +649,12 @@ class Parser {
 			case TokenKind::Self:
 				advance();
 				return make(ExprKind::Self, token);
-			case TokenKind::Null:
+			case TokenKind::Null: {
 				advance();
-				return make(ExprKind::NoneLiteral, token);
+				auto expr = make(ExprKind::NoneLiteral, token);
+				expr->op = TokenKind::Null;
+				return expr;
+			}
 			case TokenKind::Dollar:
 			case TokenKind::Percent:
 				return get_node();

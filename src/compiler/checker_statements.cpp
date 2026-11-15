@@ -88,6 +88,9 @@ void Checker::check_pattern(Pattern &r_pattern, const Type &p_matched, int p_loc
 			return;
 		case PatternKind::Value: {
 			if (r_pattern.value->kind == ExprKind::NoneLiteral && p_matched.is_optional()) {
+				if (r_pattern.value->op == TokenKind::Null && p_matched.is_two_level()) {
+					error(r_pattern.value->range, "In GDScript, null here stands for both levels of the " + p_matched.to_string() + ". Match the outer level with None, or both by matching x.unwrap_or(null).");
+				}
 				r_pattern.kind = PatternKind::Constructor;
 				r_pattern.type = p_matched;
 				return;

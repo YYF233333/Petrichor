@@ -255,7 +255,7 @@ Conversion conversion(const Type &p_from, const Type &p_to, const ClassRelation 
 }
 
 static std::optional<Type> lost_in_encoding(const Type &p_type, const ClassRelation &p_classes, bool p_copied, std::vector<Type> &r_seen) {
-	if (p_type.kind == TypeKind::Option && (p_type.args[0].is_optional() || p_type.args[0].kind == TypeKind::Variant)) {
+	if (p_type.is_two_level()) {
 		return p_type;
 	}
 	std::vector<Type> parts;

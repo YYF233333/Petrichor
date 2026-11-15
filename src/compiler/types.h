@@ -126,6 +126,9 @@ struct Type {
 	bool is_settled() const { return kind == TypeKind::PayloadEnum && args.size() == 1 && name == "Settled"; }
 	// May be None: T? of an object or of a value type.
 	bool is_optional() const { return kind == TypeKind::Option || ((kind == TypeKind::Object || kind == TypeKind::Task) && nullable); }
+	// T?? or Variant?, whose None and the None or null inside are one null in
+	// the engine and in GDScript (spec §3.4, §10.1).
+	bool is_two_level() const { return kind == TypeKind::Option && (args[0].is_optional() || args[0].kind == TypeKind::Variant); }
 	// The type inside T?, which unwrap() gives.
 	Type unwrapped() const;
 	// Object: the engine class its objects have.

@@ -301,14 +301,20 @@ Type Checker::check_binary(Expr &r_expr) {
 // `x == None` and `x != None` (spec §5.2), which narrow x (§5.4).
 Type Checker::check_none_comparison(Expr &r_expr) {
 	Expr &value = r_expr.left->kind == ExprKind::NoneLiteral ? *r_expr.right : *r_expr.left;
+	Expr &literal = r_expr.left->kind == ExprKind::NoneLiteral ? *r_expr.left : *r_expr.right;
 	const Type type = check_value(value);
-	set(r_expr.left->kind == ExprKind::NoneLiteral ? *r_expr.left : *r_expr.right, type);
+	set(literal, type);
 	if (type.is_error()) {
 		return set(r_expr, type);
 	}
 	if (!type.is_optional() && type.kind != TypeKind::Variant) {
 		const std::string hint = type.kind == TypeKind::Object ? " Check whether it is alive with is_instance_valid(x), or make its type " + type.to_string() + "?." : "";
 		return fail(r_expr, "A value of type " + type.to_string() + " is never None." + hint);
+	}
+	if (literal.op == TokenKind::Null && type.is_two_level()) {
+		const std::string op = r_expr.op == TokenKind::BangEqual ? " != " : " == ";
+		const std::string both = value.kind == ExprKind::Call && value.target == Target::GetOrNone ? "d.get(k, null)" : "x.unwrap_or(null)";
+		return fail(r_expr, "In GDScript, null here stands for both levels of the " + type.to_string() + ". Test the outer level with x" + op + "None, or both with " + both + op + "null.");
 	}
 	r_expr.target = Target::NoneComparison;
 	return set(r_expr, Type::of(TypeKind::Bool));

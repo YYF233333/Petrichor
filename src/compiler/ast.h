@@ -57,7 +57,7 @@ enum class ExprKind {
 	DictionaryLiteral,
 	Subscript, // `base[right]`.
 	Conditional, // `left if base else right` (spec §5.5).
-	NoneLiteral, // `None`, or `null` (spec §2.2).
+	NoneLiteral, // `None`, or `null` when `op` is Null (spec §2.2).
 	TypeTest, // `left is cast_type`, or `left is not cast_type` when `bool_value`.
 	// `left?` (spec §8.2): the value inside the Result or the T? in `left`, or a
 	// return of its Err or None from the function.
@@ -263,7 +263,7 @@ struct Expr {
 	std::string text; // String literal, name, called method, or node path.
 
 	// Unary and binary operators; StringName or NodePath for a string literal
-	// with its prefix (spec §2.2).
+	// with its prefix (spec §2.2); Null for `null`.
 	TokenKind op = TokenKind::EndOfFile;
 	// The operand of a unary, a cast or a type test, the left of a binary,
 	// or the value of a conditional when it holds.

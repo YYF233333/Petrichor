@@ -215,6 +215,14 @@ TEST_CASE("T?? keeps both levels, and each step peels one (spec §3.4)") {
 	CHECK(errors_of("extends Node\nvar r: int??\n\nfunc f(x: Node??) -> int??:\n\treturn r\n").empty());
 }
 
+TEST_CASE("null does not test a T?? or a Variant?, where GDScript's null stands for both levels (spec §3.4)") {
+	const std::string head = "var d: Dictionary[String, Variant] = {}\nvar n: Node?? = None\n";
+	CHECK(has_error(in_function(head + "print(d.get(\"hp\") == null)"), "In GDScript, null here stands for both levels of the Variant?. Test the outer level with x == None, or both with d.get(k, null) == null."));
+	CHECK(has_error(in_function(head + "print(null != n)"), "both levels of the Node??. Test the outer level with x != None, or both with x.unwrap_or(null) != null."));
+	CHECK(has_error(in_function(head + "match n:\n\tnull:\n\t\tpass"), "both levels of the Node??. Match the outer level with None, or both by matching x.unwrap_or(null)."));
+	require_ok(compile(in_function(head + "print(d.get(\"hp\") == None, d.get(\"hp\", null) == null, n.unwrap_or(null) != null)")));
+}
+
 TEST_CASE("T?? and Variant? do not cross the engine, at any depth of encoding (spec §10.1)") {
 	const std::string head = "class_name Shots\nextends Node\n\nstruct Hit:\n\tvar r: int??\nstruct Tree:\n\tvar kids: Array[Tree]\n\tvar v: Variant?\nenum Order { HOLD, MOVE(to: Vector3?) }\n\n";
 	CHECK(has_error("extends Node\npub var r: int??\n", "The pub \"r\" has type int??, but the engine cannot tell its None from Some(None)."));
