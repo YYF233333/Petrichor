@@ -10,7 +10,7 @@ English: [README.md](README.md)
 
 ## 为什么
 
-Godot 项目变大以后，重构越来越依赖运行时才暴露的错误。GDScript 的类型是渐进的。即使脚本写满类型，场景中的节点路径、信号连接和导出属性仍是动态的。对象引用默认可为空，运行时出错后调用方仍会拿到假值继续执行。C# 有静态类型，但桥接层有不少暗坑（[调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md)）。
+Godot 项目变大以后，重构越来越依赖运行时才暴露的错误。GDScript 的类型是渐进的。即使脚本写满类型，场景中的节点路径、信号连接和导出属性仍是动态的。对象引用默认可为空，运行时出错后调用方仍会拿到假值。C# 有静态类型，但桥接层有不少暗坑（[调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md)）。
 
 Petrichor 把静态检查延伸到场景，并让空值和失败在编译期可见。
 
@@ -49,7 +49,7 @@ func aim():
 - 信号连接和导出属性也按场景检查，错误标在场景节点上。
 - 对象类型默认非空。已释放的对象在 `T?` 上读作 `None`。
 - 预期内的失败用 `Option` 和 `Result[T, E]` 表示，后缀 `?` 提前返回。
-- 有值语义的 `struct`、带载荷的 `enum`、穷尽的 `match`、接口和任意嵌套的带类型容器。
+- 有值语义的 `struct`、带载荷的 `enum`、穷尽的 `match`、接口和嵌套的带类型容器。
 - `async func` 返回有归属的 `Task`。所属对象被释放时，协程随之取消。等待它的一方得到取消或程序错误，不会永远挂起。
 - 可以与 GDScript 插件和 C# 代码混用。
 - 编辑器提供补全、悬停类型、跳转、格式化、断点和函数体热重载。
@@ -104,7 +104,7 @@ godot --headless -e --path <project> -- --petrichor-format --check
 - 0.9 之前，语言语义可能调整，不兼容的改动都在发布说明中列出。0.9 起，改变代码含义的改动都以编译错误出现。只改运行时行为的修正，在发布说明中单独列出。
 - 字节码不跨构建兼容。升级扩展后，项目要重新构建一次。
 - 编辑器还没有查找引用、重命名、快速修复、lint 和 LSP。它们排在 0.2–0.3。
-- 还没有 GDScript 迁移工具，0.1 要手工迁移。工具排在 0.2–0.3，它是双向的。不用 GDScript 所缺特性的文件，在本项目停止维护后也能转回 GDScript。用到这些特性（如 struct、`Result`）的文件不转换，工具只列出位置。
+- 还没有 GDScript 迁移工具，0.1 要手工迁移。工具排在 0.3，它是双向的。不用 GDScript 所缺特性的文件，在本项目停止维护后也能转回 GDScript。用到这些特性（如 struct、`Result`）的文件不转换，工具只列出位置。
 - 支持 Godot 4.7 及之后的版本。
 
 完整路线见[实现架构](docs/architecture.md#5-推进顺序)，未完成的工作见 [BACKLOG.md](BACKLOG.md)。
@@ -127,7 +127,7 @@ Petrichor 的语言设计和每条规范由作者决定。实现、测试、文�
 - [设计说明](docs/design-notes.md)：规则背后的取舍、语料计数和被否决的方案
 - [引擎事实](docs/engine-facts.md)：依赖的引擎行为及其源码出处
 - [开发说明](docs/development.md)：构建、测试和调试中的坑
-- [语料调查](https://github.com/YYF233333/petrichor-corpus)：基于 20 个 Godot 4 项目，每份附复现脚本，并有从每条规则到其依据的索引
+- [语料调查](https://github.com/YYF233333/petrichor-corpus)：基于语料 v1 的 20 个和 v2 的 200 个 Godot 4 项目，每份附复现脚本，并有从每条规则到其依据的索引
 
 `docs/` 下的文档为中文。语言规范另有[英文版](docs/language-spec.md)，由中文版生成，两者不一致时以中文版为准。
 

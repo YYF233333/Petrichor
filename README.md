@@ -104,7 +104,7 @@ To build from source, you need a C++17 toolchain and SCons. Run `git submodule u
 - Before 0.9, the language semantics may change, and release notes list every incompatible change. From 0.9, a change in what code means shows as a compile error. Fixes that change only runtime behavior are listed apart in release notes.
 - Bytecode is not compatible across builds. After upgrading the extension, rebuild the project once.
 - The editor lacks find references, rename, quick fixes, lints and LSP. They are planned for 0.2–0.3.
-- There is no GDScript migration tool yet, so 0.1 needs manual migration. The tool is planned for 0.2–0.3 and works both ways. A file that uses no feature GDScript lacks converts back to GDScript, even after this project stops. A file that uses one, such as a struct or `Result`, is not converted; the tool lists where.
+- There is no GDScript migration tool yet, so 0.1 needs manual migration. The tool is planned for 0.3 and works both ways. A file that uses no feature GDScript lacks converts back to GDScript, even after this project stops. A file that uses one, such as a struct or `Result`, is not converted; the tool lists where.
 - Godot 4.7 and later are supported.
 
 The full roadmap is in the [architecture](docs/architecture.md#5-推进顺序), and unfinished work in [BACKLOG.md](BACKLOG.md).
@@ -127,7 +127,7 @@ The author is responsible for fixing what goes wrong. During 0.1, the project ta
 - [Design notes](docs/design-notes.md): the trade-offs behind the rules, corpus counts and rejected alternatives
 - [Engine facts](docs/engine-facts.md): the engine behavior relied on, with source citations
 - [Development notes](docs/development.md): pitfalls in building, testing and debugging
-- [Corpus surveys](https://github.com/YYF233333/petrichor-corpus): across 20 Godot 4 projects, each with scripts to reproduce it, and an index from each rule to its evidence
+- [Corpus surveys](https://github.com/YYF233333/petrichor-corpus): across corpus v1's 20 Godot 4 projects and v2's 200, each with scripts to reproduce it, and an index from each rule to its evidence
 
 Documents under `docs/` are in Chinese. The language specification is also [in English](docs/language-spec.md), generated from the Chinese one, which prevails where they differ.
 
