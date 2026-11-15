@@ -658,15 +658,15 @@ static bool awaits(const Expr &p_expr) {
 	return found;
 }
 
-// What an assignment to `p_target` reads (spec §3.6): the value that a field
-// or a packed array's element is changed in and written back to, through the
-// chain; otherwise the target of a compound assignment. Null for none.
-static const Expr *read_by(const Expr &p_target, bool p_compound) {
-	const Expr *read = p_compound ? &p_target : nullptr;
+// The value-type copy that an assignment to `p_target` writes back (spec
+// §3.6): the value that its fields and packed arrays' elements are in,
+// through the chain; null for none.
+static const Expr *written_back(const Expr &p_target) {
+	const Expr *copy = nullptr;
 	for (const Expr *at = &p_target; at->kind == ExprKind::Subscript ? !is_shared(at->base->type) : (at->target == Target::Field || at->target == Target::StructField); at = at->base.get()) {
-		read = at->base.get();
+		copy = at->base.get();
 	}
-	return read;
+	return copy;
 }
 
 void Checker::check_stmt(Stmt &r_stmt) {
@@ -737,9 +737,16 @@ void Checker::check_stmt(Stmt &r_stmt) {
 				value = binary_type(compound_operator(r_stmt.assign_op), read_type, value, r_stmt.range);
 				r_stmt.compound_result = value;
 			}
-			const Expr *read = place && awaits(*r_stmt.value) ? read_by(target, compound) : nullptr;
-			if (read && read->target != Target::Local) {
-				warn(read->range, "await_in_assignment", "This is read after the await on the right, where GDScript reads it before.");
+			// GDScript reads the copy before the right side, but changes a local or a
+			// member without accessors in place.
+			const Expr *copy = place && awaits(*r_stmt.value) ? written_back(target) : nullptr;
+			bool read_first = copy && (copy->kind != ExprKind::Name || copy->target == Target::SelfProperty || copy->target == Target::StaticVar);
+			if (copy && copy->kind == ExprKind::Name && copy->target == Target::Member) {
+				const VarDecl &member = *cls.all_members[copy->index];
+				read_first = !member.getter.empty() || !member.setter.empty();
+			}
+			if (read_first) {
+				warn(copy->range, "await_in_assignment", "This is read after the await on the right, where GDScript reads it before.");
 			}
 			if (local >= 0) {
 				forget(local);

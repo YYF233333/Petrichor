@@ -65,20 +65,24 @@ TEST_CASE("@warning_ignore reaches the head of the next statement or declaration
 	CHECK(left("@warning_ignore_start(\"modified_copy\")\n" + LOOP + "\t\tprint(h)\n", 6).empty());
 }
 
-TEST_CASE("an assignment that reads other than a local after an await on its right warns (spec §3.6)") {
-	const std::string head = "extends Node2D\n\nsignal tick(value: int)\nsignal moved(x: float)\nvar hp := 3\nvar hits: Array[int] = [0]\n\nasync func f(local: Vector2):\n";
+TEST_CASE("an assignment warns of an await on its right where GDScript reads the copy it writes back first (spec §3.6)") {
+	const std::string head = "extends Node2D\n\nsignal tick(value: int)\nsignal moved(x: float)\nvar hp := 3\nvar hits: Array[int] = [0]\nvar v := Vector2()\nvar guarded := Vector2():\n\tset(value):\n\t\tguarded = value\nstatic var shared := Vector2()\n\nasync func f(local: Vector2, i: int, player: Node2D, rng: RandomNumberGenerator):\n";
 	const auto warned = [&](const std::string &p_body) {
 		return warnings_of(head + indented(p_body));
 	};
-	const std::string message = "9: await_in_assignment: This is read after the await on the right, where GDScript reads it before.";
-	CHECK(warned("hp -= await tick") == std::vector<std::string>{ message });
-	CHECK(warned("position.x = await moved") == std::vector<std::string>{ message });
-	CHECK(warned("hits[0] += await tick") == std::vector<std::string>{ message });
-	// What it writes without reading, a local, and an await in a lambda.
-	CHECK(warned("hp = await tick").empty());
-	CHECK(warned("hits[0] = await tick").empty());
+	const std::vector<std::string> warning = { "14: await_in_assignment: This is read after the await on the right, where GDScript reads it before." };
+	// An engine property, the middle of a chain, a member with accessors and a static variable.
+	CHECK(warned("position.x = await moved") == warning);
+	CHECK(warned("player.position.x = await moved") == warning);
+	CHECK(warned("guarded.x = await moved") == warning);
+	CHECK(warned("shared.x = await moved") == warning);
+	// The target itself, what GDScript changes in place, and an await in a lambda.
+	CHECK(warned("hp -= await tick").empty());
+	CHECK(warned("v.x = await moved").empty());
+	CHECK(warned("rng.seed = await tick").empty());
+	CHECK(warned("hits[i] += await tick").empty());
 	CHECK(warned("local.x += await moved").empty());
-	CHECK(warned("hp += [async func(): await tick].size()").empty());
+	CHECK(warned("guarded.x = float([async func(): await tick].size())").empty());
 	CHECK(warned("@warning_ignore(\"await_in_assignment\")\nposition.x = await moved").empty());
 }
 
