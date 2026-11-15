@@ -10,6 +10,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Renaming, with the rewriting of scenes (spec §13.3).
   - A preview lists every change by file. Same-named candidates that do not resolve start unchecked, as in `.gd` files and dynamic access.
   - Applying saves the affected open scenes, writes the files and reloads them. One undo in the editor restores them all (architecture §2.3).
+  - The scene index reads the scenes open in the editor, unsaved changes included, for the preview and for the marks of errors. Check whether it handles autoloads that are scenes.
   - Ctrl+Z in the script editor, once the script's history is used up, undoes the rename. First check that the plugin sees the key before the CodeEdit takes it.
   - Then renaming a node in the scene editor updates `$X` and literal paths in scripts. If time is short it moves to 0.3, since a stale `$X` is a compile error, not a silent one.
 - The first quick fixes: the five kinds most frequent in the second paper migration, about half of its 230 changes. They are adding `pub`, truthiness, `async` and `.detach()`, `T?` or `.unwrap()`, and `float` arguments.
@@ -85,7 +86,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - When lints are added, consider a warning on names spelled as this language's keywords, such as `None` (spec §2.2). They are legal but not recommended.
 - Compiled bytecode is checked against its own source only. A game run from the command line without a build keeps old bytecode. That happens after a change to a scene or to a script it uses. Only the runtime checks (signatures, `$X` classes) then catch the difference. The analysis knows what each script read, but keeps it only in the editor's memory (architecture §2.1).
 - The typed inspector panel for exported structs and enums with payloads (architecture §6.2). Until then the engine's generic Dictionary editor edits them.
-- The scene index: read scenes unsaved in the editor, which are marked as last saved (architecture §2.4). Check whether it handles autoloads that are scenes.
 - Completion of the names in strings that wait on their checks (spec §10.4, §13.2). They are property names, as in `set_deferred("speed", v)`, members of other objects, as in `other.connect("hit", f)`, and the paths of `get_node("...")`.
 - Completing a bare name takes about 75 ms in the test project, GDScript about 21 ms. Our check takes 19 ms of it. The editor spends most of the rest on about 2550 options. GDScript's list lacks about 470 editor classes.
 - `_can_make_function`, so that the signal connection dialog generates the callback (editor/scene/connections_dialog.cpp:505-512; ed1daf0). It writes `pub func`, as connected methods need (spec §10.5).
