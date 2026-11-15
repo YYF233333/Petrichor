@@ -392,8 +392,8 @@ bool has_script(const godot::Variant &p_script, const godot::String &p_path);
 // Whether the script is the base script itself or extends it, by identity, so
 // that a script without a path is only itself (spec §2.6).
 bool extends_script(const godot::Variant &p_script, const godot::Variant &p_base);
-// The value of a slot as it leaves this language: a T? whose object was
-// freed reads as None (spec §3.3).
+// The value of a slot read as its declared type, as the engine reads a result
+// or a member: a T? whose object was freed is None (spec §3.3).
 godot::Variant outward_variant(const TypeImage &p_type, const uint8_t *p_data);
 inline godot::Variant &variant_at(uint8_t *p_slot) {
 	return *reinterpret_cast<godot::Variant *>(p_slot);

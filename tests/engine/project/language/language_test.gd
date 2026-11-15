@@ -404,7 +404,7 @@ func _ready() -> void:
 	_check_errors(["nodes_check.pet:25: Expected Label, found Node.", "Node not found: \"Caption\" (relative to \"/root/LanguageTest/NodesCheck\").", "nodes_check.pet:25: Expected Label, found None."], "the program errors give the class $X expects and what it found")
 	_check(replaced == null and gone == null, "$X whose node has changed class or is gone is a program error")
 
-	# Spec §3.3: a T? to a freed object reads as None where it leaves the language too.
+	# Spec §3.3: a T? to a freed object reads as None where it leaves the language as an object.
 	var refs := FreedRefCheck.new()
 	var held := Node.new()
 	refs.hold(held)
@@ -412,13 +412,14 @@ func _ready() -> void:
 	var orphan := Node.new()
 	refs.written(orphan)
 	_check(typeof(refs.returned()) == TYPE_NIL and typeof(refs.held) == TYPE_NIL and typeof(refs.get("held")) == TYPE_NIL, "a T? to a freed object reaches GDScript as None, returned or read as a member")
-	_check(refs.printed() == "<null>", "the engine gets None for it as an argument")
-	_check(typeof(refs.listed()[0]) == TYPE_NIL, "and in an array")
+	var converted: Array = refs.as_variants()
+	_check(converted[0] == "<Freed Object>" and converted.slice(1).all(func(x): return typeof(x) == TYPE_OBJECT), "converted to Variant, it keeps the freed object, as in GDScript")
+	_check(typeof(refs.listed()[0]) == TYPE_NIL, "and in an Array[Node?]")
 	_check(orphan.owner == null, "and written to a property")
 	refs.adopted(orphan)
 	refs.owned(orphan)
 	refs.appended()
-	_check_errors(["freed_ref_check.pet:29: The object given to the engine was freed. It was freed at res://language/freed_ref_check.pet:28 in function 'adopted'.", "freed_ref_check.pet:34: The object given to the engine was freed. It was freed at res://language/freed_ref_check.pet:33 in function 'owned'.", "freed_ref_check.pet:40: The object given to the engine was freed. It was freed at res://language/freed_ref_check.pet:39 in function 'appended'."], "a freed object in a T is a program error as an engine argument, an engine property and an element of Array[Node]")
+	_check_errors(["freed_ref_check.pet:34: The object given to the engine was freed. It was freed at res://language/freed_ref_check.pet:33 in function 'adopted'.", "freed_ref_check.pet:39: The object given to the engine was freed. It was freed at res://language/freed_ref_check.pet:38 in function 'owned'.", "freed_ref_check.pet:45: The object given to the engine was freed. It was freed at res://language/freed_ref_check.pet:44 in function 'appended'."], "a freed object in a T is a program error as an engine argument, an engine property and an element of Array[Node]")
 	_check(orphan.get_child_count() == 0 and orphan.owner == null, "and the engine does not get it")
 	_check(not refs.valid(), "is_instance_valid() of a freed object in a T is false")
 	_check(refs.identities() == [true, true, false, true, false, true, false], "== compares objects by ObjectID, two freed ones too, and a freed one in a T? is None (spec §5.2)")

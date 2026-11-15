@@ -1193,18 +1193,16 @@ class Lowerer {
 		return internal_error("no conversion from " + p_from.to_string() + " to " + p_to.to_string());
 	}
 
-	// A T? that goes where this language no longer follows it, to the engine
-	// or into its storage, is read there, so a freed object gives None, as
-	// every read of a T? does. A T must hold a live object where the engine
-	// takes an object, which it uses without checking (spec §3.3).
+	// An object where the engine takes an object, to use or keep without
+	// checking it: a T must hold a live one, and a T? whose object was freed
+	// is read there, giving None. A Variant keeps a freed object, as in
+	// GDScript (spec §3.3).
 	uint32_t outward(uint32_t p_reg, const Type &p_type, bool p_takes_object) {
-		if (p_type.kind != TypeKind::Object) {
+		if (p_type.kind != TypeKind::Object || !p_takes_object) {
 			return p_reg;
 		}
 		if (!p_type.nullable) {
-			if (p_takes_object) {
-				instr(Op::CHECK_LIVE, NO_REG, p_reg);
-			}
+			instr(Op::CHECK_LIVE, NO_REG, p_reg);
 			return p_reg;
 		}
 		const uint32_t result = temp(p_type);
@@ -1215,8 +1213,7 @@ class Lowerer {
 	uint32_t argument(const Expr &p_arg, const Type &p_param, bool p_outward, bool p_takes_object) {
 		const uint32_t value = lower_expr(p_arg);
 		if (p_outward && p_param.kind == TypeKind::Variant) {
-			// The call makes the Variant from the slot and its type.
-			return outward(value, p_arg.type, p_takes_object);
+			return value; // The call makes the Variant from the slot and its type.
 		}
 		return convert(p_outward ? outward(value, p_arg.type, p_takes_object) : value, p_arg.type, p_param);
 	}
@@ -1360,11 +1357,9 @@ class Lowerer {
 
 	// A value as a container keeps it, as a key or an element: of the type
 	// `p_as` is converted to, boxed when the container keeps it boxed, or a
-	// Variant in a container without types (spec §10.1). The engine keeps it,
-	// so a T must hold a live object, and a T? whose object was freed is None
-	// (§3.3).
+	// Variant in a container without types (spec §10.1).
 	uint32_t stored(const Expr &p_value, const Type &p_as, const Type &p_element, bool p_key) {
-		const uint32_t value = convert(outward(lower_expr(p_value), p_value.type, true), p_value.type, p_as);
+		const uint32_t value = convert(outward(lower_expr(p_value), p_value.type, p_element.kind == TypeKind::Object), p_value.type, p_as);
 		const uint32_t converted = convert(value, p_as, p_element);
 		return is_boxed(p_element) ? box(converted, p_key) : converted;
 	}
@@ -1406,10 +1401,10 @@ class Lowerer {
 
 	// `text % value` (spec §5.1): the value enters the engine as an argument
 	// does (§10.1).
-	uint32_t format(uint32_t p_text, const Type &p_text_type, uint32_t p_value, const Type &p_type) {
+	uint32_t format(uint32_t p_text, const Type &p_text_type, uint32_t p_value) {
 		const uint32_t text = convert(p_text, p_text_type, Type::of(TypeKind::String));
 		const uint32_t result = temp(ValueType::String);
-		instr(Op::FORMAT, result, text, engine_variant(p_value, p_type));
+		instr(Op::FORMAT, result, text, as_variant(p_value));
 		return result;
 	}
 
@@ -1437,9 +1432,10 @@ class Lowerer {
 		return result;
 	}
 
-	// A value as a Variant that the engine works on (spec §5.1, §5.2).
+	// A value as a Variant that the engine compares (spec §5.2): a T? whose
+	// object was freed is None, as wherever this language tests it (§3.3).
 	uint32_t engine_variant(uint32_t p_reg, const Type &p_type) {
-		return as_variant(outward(p_reg, p_type, false));
+		return as_variant(p_type.nullable ? outward(p_reg, p_type, true) : p_reg);
 	}
 
 	// The index of `a[i]`, or the key of `d[k]`.
@@ -2266,7 +2262,7 @@ class Lowerer {
 				}
 				if (p_expr.op == TokenKind::Percent && is_format_string(p_expr.left->type)) {
 					const uint32_t text = lower_expr(*p_expr.left);
-					return format(text, p_expr.left->type, lower_expr(*p_expr.right), p_expr.right->type);
+					return format(text, p_expr.left->type, lower_expr(*p_expr.right));
 				}
 				if (p_expr.op == TokenKind::And || p_expr.op == TokenKind::Or) {
 					return short_circuit(p_expr);
@@ -3051,13 +3047,11 @@ class Lowerer {
 				Type type = p_stmt.value->type;
 				open(place);
 				if (p_stmt.assign_op == TokenKind::Equal) {
-					if (place.kind == Place::Kind::SelfProperty || place.kind == Place::Kind::Owner || place.kind == Place::Kind::ObjectProperty) {
+					if (place.kind == Place::Kind::SelfProperty || place.kind == Place::Kind::Owner || place.kind == Place::Kind::ObjectProperty || place.kind == Place::Kind::Element) {
 						value = outward(value, type, target.type.kind == TypeKind::Object); // The engine keeps it.
-					} else if (place.kind == Place::Kind::Element) {
-						value = outward(value, type, true);
 					}
 				} else if (p_stmt.assign_op == TokenKind::PercentEqual && is_format_string(target.type)) {
-					value = format(load(place), target.type, value, type);
+					value = format(load(place), target.type, value);
 					type = Type::of(TypeKind::String);
 				} else {
 					value = binary(compound_operator(p_stmt.assign_op), load(place), value, p_stmt.compound_result);

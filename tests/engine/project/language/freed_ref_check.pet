@@ -1,8 +1,8 @@
 # A T? that refers to a freed object reads as None also where the value leaves
-# this language (spec §3.3): returned to the engine, read by it as a member,
-# passed to it, put into an array or written to a property. A T that holds one
-# is a program error where the engine takes an object. Driven by
-# language_test.gd.
+# this language as an object (spec §3.3): returned to the engine, read by it as
+# a member, put into an Array[Node?] or written to a property. Converted to
+# Variant, it keeps the object, as in GDScript. A T that holds one is a program
+# error where the engine takes an object. Driven by language_test.gd.
 class_name FreedRefCheck
 extends Node
 
@@ -14,8 +14,13 @@ pub func hold(node: Node):
 pub func returned() -> Node?:
 	return held
 
-pub func printed() -> String:
-	return str(held)
+# A Variant parameter of the engine, untyped containers and a Variant.
+pub func as_variants() -> Array:
+	var v: Variant = held
+	var a: Array = [held]
+	var d: Dictionary = {}
+	d[0] = held
+	return [str(held), v, a[0], d[0]]
 
 pub func listed() -> Array[Node?]:
 	return [held]
