@@ -108,6 +108,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 ## Tests
 
+- Once the migration tool is ready (0.3), migrate one or two popular open-source games as real-code tests. Keep `thirdparty/ring` for its C# interop coverage.
 - The suites on Godot 4.8's release candidate, with its changes checked one by one. They pass on beta3 (`c51ff06e8`), which stands in until then. The 0.1 release notes promise to follow the 4.8 release at once.
 - `cancel()` on a task that has ended (spec §9.3). No test runs it.
 - On macOS, the README's quarantine step has never run. The x86_64 half of the libraries runs only under Rosetta, on Godot 4.8.
