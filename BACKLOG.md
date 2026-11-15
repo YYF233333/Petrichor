@@ -250,6 +250,11 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Before 0.9: whether a container that holds itself is a program error as a `Dictionary` key (spec §3.8). The engine stops hashing it at a depth of 100 with an error. One that holds itself twice takes about 2^100 steps, in GDScript too (`core/variant/array.cpp:195-208`, `ed1daf0`).
 - The long-term boundary of compatibility with GDScript and Godot: which agreements are promises and which merely hold today. How semantics may change is settled (architecture §5, 0.9).
 - After 0.3 and before 0.9: tuples for multi-parameter signal `await` (spec §9.6, §14.3). Decide then whether `await Task.all([...])` also returns a tuple of heterogeneous results (§9.5).
+  - About half of the uses in corpus v2 await `HTTPRequest.request_completed`, often reading `[3]`. Fields named by the signal's parameters, as `.body`, are a candidate besides tuples.
+- After 0.3 and before 0.9: default values of lambda parameters, with optional parameters in function types (spec §3.11, §14.3).
+- Before the migration tool of 0.3: how many GDScript files migrating one class drags along in the games of corpus v2. GDScript cannot call this language's static methods or use its enums in types (spec §11.3). If the number is large, the tool generates forwarding shells in 0.3.
+  - The proper fix is upstream: [godot#118595](https://github.com/godotengine/godot/pull/118595) for static methods has waited for review since July. Enums in types need a change of their own.
+  - Engines older than the fix keep the restriction, back to 4.4 (architecture §6.3).
 - The differences from GDScript in code spelled the same, which the owner reviews one by one. The aim is to agree with GDScript wherever possible. A difference stays only where the semantic design or safety needs it. Sixteen are known. Until the review, the README's first paragraph and spec §1.2 promise more than holds. These six fall outside the exception that spec §1.2 names:
   - an array or dictionary literal takes its type from its elements;
   - members without `pub` are invisible to reflection by name;
