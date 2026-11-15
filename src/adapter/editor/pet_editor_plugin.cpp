@@ -236,7 +236,26 @@ void PetCodeMenu::format(Object *p_code_edit) {
 		EditorInterface::get_singleton()->get_editor_toaster()->push_toast(String::utf8(error.c_str()), EditorToaster::SEVERITY_WARNING);
 		return;
 	}
-	apply_edits(code_edit, source, compiler::format_edits(source, *result));
+	const std::vector<compiler::Edit> edits = compiler::format_edits(source, *result);
+	int64_t operations = 0;
+	for (const compiler::Edit &edit : edits) {
+		operations += int64_t(edit.end > edit.begin) + int64_t(!edit.text.empty());
+	}
+	// Beyond what the undo stack holds, which the editor reads when it is made,
+	// one undo would restore only part of the text
+	// (scene/gui/text_edit.cpp:4785-4796, 8198-8200, 9407; ed1daf0). The whole
+	// text is then replaced, and the marks of its lines are lost.
+	if (operations <= int64_t(ProjectSettings::get_singleton()->get_setting("gui/common/text_edit_undo_stack_max_size"))) {
+		apply_edits(code_edit, source, edits);
+		return;
+	}
+	const int line = code_edit->get_caret_line();
+	const int column = code_edit->get_caret_column();
+	const double scroll = code_edit->get_v_scroll();
+	apply_edits(code_edit, source, { { 0, uint32_t(source.size()), *result } });
+	code_edit->set_caret_line(std::min(line, code_edit->get_line_count() - 1));
+	code_edit->set_caret_column(column);
+	code_edit->set_v_scroll(scroll);
 }
 
 namespace {

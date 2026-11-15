@@ -106,7 +106,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Before the LSP server (0.3), one change counter for the analysis caches. Now four places decide when a result is stale: `Analysis`, the adapter's cache, `SceneIndex` and `ClassDBApi`.
 - Before 1.0, localize the items this extension adds to the code editor's context menu, "Find References" and "Format" (`src/adapter/editor/pet_editor_plugin.cpp`).
 - When quick fixes insert `@warning_ignore` (0.3), place it after leading doc comments so `##` stays attached to the declaration.
-- Format with more than about 500 edits overflows the script editor's undo stack, 1024 operations by default. One undo then restores only part of the text and prints an error (`scene/gui/text_edit.cpp:4785-4796, 8198-8200`, `ed1daf0`). The engine's trimming of trailing whitespace shares this. Above the limit, Format could replace the whole text, losing the breakpoints.
 - Class reference XML for the public classes `CoroutineTask` and `PetScript`, or making `PetScript` internal if F1 does not need it (`src/adapter/register_types.cpp:55-57`).
 - A bottom panel listing the errors that keep the project from running, wanted in 0.3 or later. A click opens the file at the line.
   - Now the errors reach only the Output panel and a toast (`src/adapter/editor/script_compiler.cpp:62`).
