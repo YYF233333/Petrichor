@@ -17,7 +17,7 @@ These are settled and need evidence they did not weigh to reopen:
 - the alternatives in `docs/design-notes.md`;
 - the unfinished work in `BACKLOG.md`;
 - optimization that does not also simplify the code (step 9 of architecture §5);
-- the limits in architecture §6.
+- the constraints in architecture §6.
 
 ## Scope
 
