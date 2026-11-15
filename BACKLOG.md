@@ -14,6 +14,8 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The first quick fixes: the five kinds most frequent in the second paper migration, about half of its 230 changes. They are adding `pub`, truthiness, `async` and `.detach()`, `T?` or `.unwrap()`, and `float` arguments.
   - A light bulb on the caret's line opens them in a small list at the caret, as in VS Code. So does a shortcut registered in the editor settings, and the context menu.
   - Ctrl+. is taken by Go to Next Breakpoint (`editor/script/script_text_editor.cpp:2672`, `ed1daf0`). Alt+Enter, as in JetBrains IDEs, is free.
+  - Before them, one guard for the checker's tentative queries, kept or dropped whole. Now 13 places cut `errors` and `references` back by hand, which keeps no warnings. A fix such as adding `.unwrap()` is such a query. One mode then replaces the four overlapping switches of `CompileOptions` and the completion pointer.
+  - Before them, one visibility check returning the message and the hidden declaration. Now 19 places test `is_pub` themselves, and adding `pub` would hang on each.
 
 ## Language
 
@@ -119,6 +121,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The debugger lists all locals of a function regardless of scope. So same-named locals of blocks side by side collide. The bytecode would record the scope of each slot.
 - Before 0.9, diagnostics and semantic queries that serve programs, not only the editor's interface. They say which declaration or scene a constraint comes from, and list the references that broke. Agents then fix errors while reading less code. Accepted by an agent evaluation (architecture §5, 0.9).
 - Before 0.9, function times in Godot's profiler. The `_profiling_*` methods of `PetLanguage` are empty, so the profiler shows no function of this language. Deeper integration comes after 1.0 (spec §14.2).
+  - Before it, one entry into functions of this language. Now `vm::call`, `call_function`, `call_directly`, `construct_directly`, `call_value` and `start_task` each find the callee's image, index and `self_image`. Spec §8.1's chain or engine entry becomes a field of the callee, not a thread-local protocol.
 
 ## Tests
 
@@ -204,6 +207,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Godot: `ClassDB` leaves return and parameter metadata empty on `MethodInfo` (`core/object/method_info.h:55-56`, `core/object/class_db.cpp:955-974`, `ed1daf0`). Filling and exporting them exposes `RequiredResult` and integer widths at runtime.
 - Godot: GDScript cannot call static methods of non-GDScript scripts or read the member types of non-GDScript autoloads (`core/object/object.cpp:800-826`, `modules/gdscript/gdscript_analyzer.cpp:806-826`, `ed1daf0`; [#14614](https://github.com/godotengine/godot-proposals/issues/14614)).
 - After the 0.1 release, list the engine interfaces newer than 4.4 that the code uses (architecture §6.3). Compare 4.4-stable with 4.7.2 for the extension interface and the virtual methods of `ScriptLanguageExtension`.
+- Before supporting engines other than 4.7, an engine test that constant folding agrees with the engine. The compiler repeats about 15 of its math functions, as `posmod`, `wrapi`, `snapped` and `step_decimals` (`src/compiler/constant.cpp`). The test compares each as a constant and in a function body.
 - Objects that an extension creates have no signal mutex. `_postinitialize` does not run for them (`core/extension/gdextension_interface.cpp:1669-1672`, `core/object/object.cpp:226-231`, `ed1daf0`; godot#125308). So a task's `completed` and `cancelled` are unguarded when GDScript awaits it from another thread.
 - GDScript's per-iteration clearing of loop-body locals, left as commented-out TODOs (`modules/gdscript/gdscript_compiler.cpp:2106, 2140`, `ed1daf0`). It would match spec §6.8. The owner may contribute it.
 - Store-forwarding stalls in moves of Variant, found while profiling arrays (d516c08). A wide load reads a Variant just written by narrower stores. It then waits for those stores to reach the cache. The owner may contribute both fixes once the current work is done.
