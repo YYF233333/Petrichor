@@ -41,13 +41,15 @@ public:
 	const EngineApi &engine_api() const { return engine; }
 	const ProjectApi &project_api() const { return project; }
 
-	// One at a time; nested ones are part of the outermost.
+	// One at a time; nested ones are part of the outermost. An outermost one
+	// may read the project from `p_project`, as renaming checks the scripts it
+	// would edit; what it compiles is kept as any other pass's.
 	class Pass {
 		Analysis &analysis;
 		std::lock_guard<std::recursive_mutex> lock;
 
 	public:
-		explicit Pass(Analysis &r_analysis);
+		explicit Pass(Analysis &r_analysis, const ProjectApi *p_project = nullptr);
 		~Pass();
 		Pass(const Pass &) = delete;
 		Pass &operator=(const Pass &) = delete;

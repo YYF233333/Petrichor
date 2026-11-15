@@ -9,10 +9,10 @@
 
 namespace petrichor::compiler {
 
-Analysis::Pass::Pass(Analysis &r_analysis) :
+Analysis::Pass::Pass(Analysis &r_analysis, const ProjectApi *p_project) :
 		analysis(r_analysis), lock(r_analysis.mutex) {
 	if (analysis.passes++ == 0) {
-		analysis.classes = std::make_unique<ScriptClasses>(analysis.engine, &analysis.project, false, true);
+		analysis.classes = std::make_unique<ScriptClasses>(analysis.engine, p_project ? p_project : &analysis.project, false, true);
 	}
 }
 
@@ -119,7 +119,7 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 	for (const std::string &script : scripts) {
 		// Its errors give lines anywhere in the script, and its literal node paths.
 		reads.sources.emplace(script, classes->source_hash(script));
-		const std::optional<std::string> source = project.script_source(script);
+		const std::optional<std::string> source = classes->get_project()->script_source(script);
 		std::vector<Diagnostic> errors;
 		ClassDecl cls = parse(source.value_or(std::string()), errors);
 		// Its own check reports what keeps it from being read.
