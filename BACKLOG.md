@@ -97,7 +97,6 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
     - `s[i] = c` becomes `s = s.erase(i).insert(i, c)`, and `s[i] = ""` becomes `s = s.erase(i)`.
     - A negative literal index `-k` becomes `s.length() - k`, since `erase` refuses negative positions (`core/string/ustring.cpp:2881-2884`, `ed1daf0`).
     - The report lists other indices and bases with side effects.
-  - Before it walks projects, `project_files` must skip subfolders that hold their own `project.godot`, as the engine does (`editor/file_system/editor_file_system.cpp:1183, 3494-3500`, `ed1daf0`). Listing files from EditorFileSystem would do it.
   - Reverse conversion works from the tokens and the reference table, not by printing the checked AST. The checker rewrites about a dozen forms there, as `print_debug` to `print`.
 - A minimal VS Code extension alongside the LSP server (architecture §5, step 8). It highlights `.pet` files and connects to the editor's LSP port.
 - When the LSP server is added (0.3), map `textDocument/typeDefinition` alongside `definition`.
