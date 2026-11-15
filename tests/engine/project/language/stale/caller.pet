@@ -1,6 +1,15 @@
 # Calls the method of the script on $X directly (spec §8.1), with the signature
-# it was compiled against.
+# it was compiled against, and reads its members of the types it was compiled
+# against.
 extends Node
+
+const Callee = preload("callee.pet")
 
 pub func run() -> int:
 	return $X.value(1)
+
+pub func read_member() -> bool:
+	return $X.held == None
+
+pub func read_static() -> bool:
+	return Callee.shared == None

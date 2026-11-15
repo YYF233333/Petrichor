@@ -516,8 +516,8 @@ bool is_none_object(const uint8_t *p_slot) {
 	return !object_data(p_slot).object;
 }
 
-// A number for each layout, the same in every image.
-static uint32_t layout_id(const std::string &p_key) {
+// A number for each layout or type key, the same in every image.
+static uint32_t key_id(const std::string &p_key) {
 	static std::mutex mutex;
 	static std::unordered_map<std::string, uint32_t> ids;
 	std::lock_guard<std::mutex> lock(mutex);
@@ -534,7 +534,8 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 		image.storage = bytecode::storage_of(p_types, i);
 		image.element = type.kind == bytecode::TypeKind::Option ? &images[type.element] : nullptr;
 		image.size = bytecode::type_size(p_types, i);
-		image.layout = layout_id(bytecode::layout_key(p_types, i));
+		image.layout = key_id(bytecode::layout_key(p_types, i));
+		image.type_id = key_id(bytecode::type_key(p_types, i));
 		image.result_key = bytecode::task_result_key(p_types, i);
 		ValueCheck &check = image.check;
 		const bool container = type.kind == bytecode::TypeKind::Array || type.kind == bytecode::TypeKind::Dictionary;
@@ -1204,6 +1205,16 @@ bool entry_check(const TypeImage &p_type, const Variant &p_value, uint8_t *p_slo
 	}
 	r_mismatch = defaults_failed == failures ? entry_mismatch(p_type, p_value) : String();
 	return false;
+}
+
+bool entry_write(const TypeImage &p_type, const Variant &p_value, uint8_t *p_slot, String &r_mismatch) {
+	// A struct is decoded field by field.
+	ValueBuffer decoded(p_type);
+	if (!entry_check(p_type, p_value, decoded.data, r_mismatch)) {
+		return false;
+	}
+	copy_value(p_type, p_slot, decoded.data);
+	return true;
 }
 
 Variant default_variant(const TypeImage &p_type) {

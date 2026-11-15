@@ -129,6 +129,7 @@ struct TypeImage {
 	const TypeImage *key = nullptr;
 	uint32_t size = 0; // Of its slot.
 	uint32_t layout = 0; // Equal for types laid out alike, in every image.
+	uint32_t type_id = 0; // Equal for the same type, in every image.
 	ValueCheck check;
 	std::string result_key; // The signature key of a Task[T] whose T it is.
 	godot::String name; // Struct and the enums: "script::Name"; an engine enum as the engine names it.
@@ -168,6 +169,9 @@ bool from_variant(const TypeImage &p_type, const godot::Variant &p_value, uint8_
 // when a default computed for a field left out ended in a program error
 // instead, which was reported (§3.6).
 bool entry_check(const TypeImage &p_type, const godot::Variant &p_value, uint8_t *p_slot, godot::String &r_mismatch);
+// entry_check() into a slot that keeps its value when the check fails, as a
+// member or a static variable does (spec §7.5).
+bool entry_write(const TypeImage &p_type, const godot::Variant &p_value, uint8_t *p_slot, godot::String &r_mismatch);
 // `T.try_from(v)` into the slot of a Result[T, ConversionError] (spec §5.3):
 // Ok of the value decoded as a struct's field of type T is (§3.6), or Err
 // naming where it does not fit. False after a default's program error, or a

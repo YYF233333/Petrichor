@@ -472,6 +472,9 @@ func _ready() -> void:
 	var other := StructCheck.new()
 	s.remote(other)
 	_check(other.last_hit["damage"] == 42 and other.last_hit["tag"] == "hit", "a field of another instance's member is written back through the engine")
+	other.last_hit = {"damage": 5, "point": Vector2(), "crit": "yes"}
+	_check_errors(["struct_check.pet:46: \"last_hit\" was not written: StructCheck.Hit.crit: expected bool, found String."], "the program error of a struct member's write names the field")
+	_check(other.last_hit["damage"] == 42, "a write that fails the entry check leaves the whole struct as it was (spec §7.5)")
 	s.assign_after()
 	s.crit_meanwhile()
 	s.move_meanwhile()
@@ -597,6 +600,8 @@ func _ready() -> void:
 	_check_errors(["free_check.pet:56: The object was freed. It was freed at res://language/free_check.pet:54 in function '<lambda>'."], "a free on a thread that has ended shows where")
 	freer.free_in_init()
 	_check_errors(["free_check.pet:66: self was freed, or lost its script, while this method ran. It was freed at res://language/free_check.pet::FreedInInit:65 in function '_init'."], "new as a value whose _init() frees self and then fails touches the object no more (spec §3.3)")
+	freer.free_through(FreeCheck.new())
+	_check_errors(["free_check.pet:76: self was freed, or lost its script, while this method ran. It was freed at res://language/free_check.pet:75 in function 'freed_by'."], "an engine method called on a self freed through another reference is a program error")
 	freer.free()
 
 	var owned: TargetCheck = preload("res://language/owner.tscn").instantiate()
@@ -743,6 +748,11 @@ func _ready() -> void:
 	_check_errors(["lambda_check.pet:189: Result of <lambda>(): expected Node, found Resource."], "a result of another type is a program error")
 	lambdas.add_made()
 	_check_errors(["lambda_check.pet:244: Result of new(): expected Node, found res://language/lambda_check.pet::Plain."], "so is that of new as a value")
+	var failing_lambda := lambdas.out_of_bounds()
+	lambdas.after_error = 0
+	lambdas.call_relay(func(): failing_lambda.call([1]))
+	_check_errors(["lambda_check.pet:254: Index 2 is out of bounds (size 1)."], "a program error in a lambda GDScript calls reports where it is")
+	_check(lambdas.after_error == 2, "a GDScript lambda that a function value of this language calls is an engine entry, and the caller goes on (spec §8.1)")
 	_check(lambdas.get_child_count() == 0, "which is not passed on")
 	_check(lambdas.call_given(Callable()) == 0, "a function type takes no null Callable")
 	_check_errors(["lambda_check.pet:191: Argument \"f\" of call_given(): expected func() -> int, found a null Callable."], "a null Callable for a function type fails the entry check (spec §4.3)")

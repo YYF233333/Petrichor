@@ -1218,7 +1218,7 @@ class Execution {
 			return nullptr;
 		}
 		const std::vector<bytecode::Member> &variables = owner->module.statics;
-		if (p_variable >= variables.size() || owner->types[variables[p_variable].type].layout != image.types[p_type].layout) {
+		if (p_variable >= variables.size() || owner->types[variables[p_variable].type].type_id != image.types[p_type].type_id) {
 			r_error = vformat("A static variable of %s is not the one this script was compiled against. Build the project again.", path);
 			return nullptr;
 		}
@@ -1416,7 +1416,7 @@ class Execution {
 		const StringName &name = image.properties[p_op[1]];
 		r_member = r_object.image->find_member(name);
 		const bytecode::Member *member = r_member >= 0 ? &r_object.image->module.members[r_member] : nullptr;
-		if (!member || r_object.image->types[member->type].layout != image.types[image.module.properties[p_op[1]].type].layout) {
+		if (!member || r_object.image->types[member->type].type_id != image.types[image.module.properties[p_op[1]].type].type_id) {
 			fail(p_fn, p_line, vformat("\"%s\" is not the member this script was compiled against. Build the project again.", name));
 			return nullptr;
 		}
@@ -1992,9 +1992,14 @@ class Execution {
 			pointers = spread_pointers.data();
 			count = int(spread.size());
 		}
+		// The callee is a function value of this language, also after bind();
+		// any other Callable is an engine entry. bind() or unbind() of another
+		// Callable is still taken for one.
+		const Callable &target = *reinterpret_cast<const Callable *>(p_frame + p_op[3]);
+		const bool function_value = gdextension_interface::callable_custom_get_userdata(target._native_ptr(), gdextension_interface::token) || target.get_bound_arguments_count() > 0 || target.get_unbound_arguments_count() > 0;
 		ValueCall &value = value_call();
 		const ValueCall outer = value;
-		value = { true, false, false, !image.types[call.result.type].check.task_result.empty() };
+		value = { function_value, false, false, !image.types[call.result.type].check.task_result.empty() };
 		Variant result;
 		GDExtensionCallError error;
 		callable.callp(image.call_method, pointers, count, result, error);
@@ -2027,11 +2032,11 @@ class Execution {
 		const uint32_t dst = p_op[2];
 		void *object = nullptr; // None for a static method.
 		if (call.static_class.empty()) {
-			const uint8_t *slot = p_op[3] == NO_SLOT ? data_of(self()) : p_frame + p_op[3];
-			if (p_op[3] == NO_SLOT ? p_freed.load(std::memory_order_relaxed) : !is_live_object(slot)) {
+			if (p_op[3] == NO_SLOT ? p_freed.load(std::memory_order_relaxed) : !is_live_object(p_frame + p_op[3])) {
 				ObjectView view(nullptr);
 				return resolve_object(p_frame, p_op[3], p_freed, view, p_fn, p_line); // Reports why.
 			}
+			const uint8_t *slot = p_op[3] == NO_SLOT ? data_of(self()) : p_frame + p_op[3];
 			object = *reinterpret_cast<const GDExtensionObjectPtr *>(slot + 8);
 #ifdef DEBUG_ENABLED
 			if (native.queues_free) {
@@ -2591,7 +2596,7 @@ public:
 		const TypeImage *types = image.types.data();
 		uint8_t *members = context.storage ? context.storage->members : nullptr;
 		const std::atomic<bool> &freed = context.storage ? context.storage->freed : NO_INSTANCE_FREED;
-		if (stack.size() == MAX_CALL_DEPTH) {
+		if (stack.size() >= MAX_CALL_DEPTH) {
 			return fail_stack_overflow();
 		}
 		stack.push_back({ &image, context.self_image.get(), &fn, frame, context.storage.get(), p_async ? p_async->line : int(fn.line) });
@@ -3832,7 +3837,19 @@ void frame() {
 	}
 }
 void clear() {
-	for (const auto &task : listed_tasks(all_tasks, &TaskState::among_all)) {
+	const std::vector<TaskRef> listed = listed_tasks(all_tasks, &TaskState::among_all);
+	// Each lets go of what it awaits first, so that none wakes to report the
+	// cancelled task it awaited.
+	for (const auto &task : listed) {
+		std::lock_guard<std::recursive_mutex> lock(task->mutex);
+		if (task->continuation) {
+			task->continuation->disconnect();
+		}
+		if (task->join) {
+			task->join->stop();
+		}
+	}
+	for (const auto &task : listed) {
 		task->cancel();
 	}
 	std::vector<TaskRef> decided;
@@ -4065,7 +4082,7 @@ bool set_static(const std::shared_ptr<const ClassImage> &p_image, const StringNa
 		return true;
 	}
 	String mismatch;
-	if (!entry_check(owner->types[variable.type], p_value, owner->statics->at(variable.offset), mismatch) && !mismatch.is_empty()) {
+	if (!entry_write(owner->types[variable.type], p_value, owner->statics->at(variable.offset), mismatch) && !mismatch.is_empty()) {
 		report_error(*owner, variable.name.c_str(), int(variable.line), vformat("\"%s\" was not written: %s.", p_name, mismatch));
 	}
 	return true;

@@ -1,5 +1,9 @@
-# callee.pet with another signature for value().
+# callee.pet with another signature for value(), and members of other types
+# laid out alike.
 extends Node
+
+pub var held: Resource? = None
+pub static var shared: Resource? = None
 
 pub func value(x: float) -> float:
 	return x * 2.0

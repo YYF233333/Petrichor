@@ -309,13 +309,14 @@ def run_hot_reload(godot):
 
 def run_stale_bytecode(godot):
     """Spec §8.1: a call to a method of this language checks that the callee
-    still has the signature the caller was compiled against, and a class loads
-    only with the base it was compiled against. Within a run that always holds
+    still has the signature the caller was compiled against, a member or a
+    static variable of another script the type, and a class loads only with
+    the base it was compiled against. Within a run that always holds
     (§12.4); a run from bytecode that was not built together, here callee.pet
     and inherit_base.pet replaced by other versions while the scripts that use
     them are not built again, is the way to break it."""
     code, output = run(godot, "--path", str(PROJECT), "res://language/stale/stale_test.tscn")
-    expect_run("stale bytecode: as built", code, output, ["stale: 2", "stale inheritance: valid: 1"])
+    expect_run("stale bytecode: as built", code, output, ["stale: 2", "stale member: true static: true", "stale inheritance: valid: 1"])
     replaced = ("callee", "inherit_base")
     originals = snapshot_files(path for name in replaced for path in (STALE / f"{name}.pet", STALE_BYTECODE / f"{name}.petc"))
     try:
@@ -327,6 +328,8 @@ def run_stale_bytecode(godot):
         restore_files(originals)
     changed = "value() is not the method this script was compiled against. Build the project again."
     expect("stale bytecode: a call to a changed signature is a program error", code == 0 and changed in output and "stale: 0" in output, output)
+    retyped = ['"held" is not the member this script was compiled against.', "A static variable of res://language/stale/callee.pet is not the one this script was compiled against."]
+    expect("stale bytecode: a member or static variable whose type changed is a program error", all(text in output for text in retyped) and "stale member: false static: false" in output, output)
     refused = "inherit_derived.pet Base method declaration changed. Rebuild the project."
     expect("stale bytecode: a class whose base changed is refused", refused in output and "stale inheritance: rejected" in output, output)
 

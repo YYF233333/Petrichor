@@ -69,3 +69,11 @@ class FreedInInit extends Node:
 pub func free_in_init():
 	var make := FreedInInit.new
 	make.call()
+
+# Freed through another reference, self is first used by an engine method.
+pub func freed_by(me: FreeCheck):
+	me.free()
+	queue_free()
+
+pub func free_through(other: FreeCheck):
+	other.freed_by(other)

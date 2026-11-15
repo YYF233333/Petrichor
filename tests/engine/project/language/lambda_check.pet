@@ -246,3 +246,14 @@ pub func add_made():
 
 func call_with_made(add: Callable):
 	add.call(Plain.new)
+
+
+# A GDScript lambda between two calls of this language is an engine entry: a
+# program error in what it calls ends that call only (spec §8.1).
+pub func out_of_bounds() -> func(Array) -> Variant:
+	return func(items: Array) -> Variant: return items[2]
+
+
+pub func call_relay(relay: func() -> void) -> void:
+	relay.call()
+	after_error = 2

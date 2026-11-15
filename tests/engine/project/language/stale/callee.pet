@@ -3,5 +3,8 @@
 # again, as a run from stale bytecode would.
 extends Node
 
+pub var held: Node? = None
+pub static var shared: Node? = None
+
 pub func value(x: int) -> int:
 	return x + 1

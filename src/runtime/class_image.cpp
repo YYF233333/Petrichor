@@ -803,6 +803,11 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	if (a.global_name != b.global_name || a.base_class != b.base_class || a.is_abstract != b.is_abstract || a.instance_size != b.instance_size || a.members.size() != b.members.size() || declared(a) != declared(b)) {
 		return false;
 	}
+	// @parent, without the line it is reported at.
+	const auto parent = [](const bytecode::Module &p_module) { return p_module.parent_class < 0 ? bytecode::ClassRef() : p_module.classes[p_module.parent_class]; };
+	if (!(parent(a) == parent(b))) {
+		return false;
+	}
 	const ModulePair pair{ a, b };
 	for (size_t i = 0; i < a.members.size(); i++) {
 		const bytecode::Member &x = a.members[i];

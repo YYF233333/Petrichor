@@ -2673,7 +2673,7 @@ class Lowerer {
 				}
 				ir::Instr i;
 				i.op = Op::STORE_STATIC;
-				i.type = fn.regs[p_value].type;
+				i.type = type_index(p_place.type); // The variable's, which another class's must match.
 				i.a = p_value;
 				i.imm = p_place.index;
 				i.field = static_class(p_place);
