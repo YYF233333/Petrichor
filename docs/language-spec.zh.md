@@ -1,8 +1,8 @@
 # Petrichor 语言规范
 
-**v0.2 草案 · 2026-10-25**
+**v0.2 草案**
 
-Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的形式交付。它在项目代码中替代 GDScript，与 GDScript 插件共存。本文是它的语言规范草案，[实现](architecture.md)尚未覆盖全部规则。设计取舍与语料依据见[设计说明](design-notes.md)，引擎核对基线见[引擎事实](engine-facts.md)。上一版规范 v0.1 保存在 git 标签 `spec-v0.1` 中。
+Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的形式交付。它在项目代码中替代 GDScript，与 GDScript 插件共存。本文是它的语言规范草案，[实现](architecture.md)尚未覆盖全部规则。设计取舍与语料依据见[设计说明](design-notes.md)，引擎核对基线见[引擎事实](engine-facts.md)。
 
 ## 1. 概述
 
@@ -181,7 +181,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 ### 3.4 Option
 
 - `T?` 即 Option，值为 `Some(v)` 或 `None`。显式包装写 `Some(v)`（如 `T??` 中的 `Some(None)`）。
-- 操作均为方法，名字同 Rust：`unwrap`、`expect(消息)`（失败均为程序错误）、`unwrap_or`、`unwrap_or_else`、`map`、`and_then`、`or`、`or_else`、`filter`、`ok_or`、`ok_or_else`。没有 `!`、`??`、`?.` 运算符；唯一特殊语法是短路返回的后缀 `?`。判空用 `!= None` 与收窄。
+- 操作均为方法，名字同 Rust：`unwrap`、`expect(消息)`（失败均为程序错误）、`unwrap_or`、`unwrap_or_else`、`map`、`and_then`、`or`、`or_else`、`filter`、`ok_or`、`ok_or_else`。没有 `!`、`??`、`?.` 运算符。判空用 `!= None` 与收窄。
 - 嵌套 Option 保留多层（如 `T??`）：
   - 字面量 `None` 总是最外层的 `None`；
   - `?`、`unwrap`、`match` 和收窄每次剥一层，`.flatten()` 把 `T??` 合为 `T?`；
@@ -197,12 +197,12 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 ### 3.5 Result
 
 - `Result[T, E]` 用 `Ok(v)` 和 `Err(e)` 构造，成功值不隐式包装。
-- 方法名同 Rust：`unwrap`、`expect`、`unwrap_or`、`unwrap_or_else`、`map`、`map_err`、`and_then`、`or_else`、`ok`、`err`；后缀 `?` 遇 `Err(e)` 返回 `Err(e)`。
+- 方法名同 Rust：`unwrap`、`expect`、`unwrap_or`、`unwrap_or_else`、`map`、`map_err`、`and_then`、`or_else`、`ok`、`err`。
 - 丢弃 `Result` 报编译错误；有意忽略写 `.ok()`。
 
 ### 3.6 struct
 
-- 值语义：赋值、传参、返回均浅复制，对象与容器字段复制引用。只存在于本语言内部。构造只接受具名实参。
+- 值语义：赋值、传参、返回均浅复制，对象与容器字段复制引用。只存在于本语言内部。
 - 跨引擎边界时按引擎边界的规则编码。解码按 `T.try_from` 的规则递归检查各字段及嵌套容器/struct，多余的键忽略。缺少的键取字段的默认值。字段没有默认值时解码失败。
 - 可声明 `func` 和 `static func`。实例方法中 `self` 只读，给 `self` 字段赋值报编译错误。
 - 方法中的名字先查 struct 自身，再按内部类的规则查外层类的无实例声明。
@@ -239,7 +239,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 ### 3.7 enum
 
 - enum 的显式值须是编译器求出的 `int`。匿名 `enum { A, B }` 声明类的 `int` 常量。
-- 本语言的 enum 封闭，其值在入口检查和从容器读出时校验。引擎的 enum 开放：引擎会产生枚举外的值，后续版本也可能新增。因此 `MouseButton(x)` 不检查范围，对它的 `match` 必须带 `_`。
+- 本语言的 enum 封闭，其值在入口检查和从容器读出时校验。引擎的 enum 开放：`MouseButton(x)` 不检查范围，对它的 `match` 必须带 `_`。
 - `int` 转本语言 enum 须显式写 `State(x)`（非枚举值时报程序错误）或 `State.try_from(x)`：
 
   ```gdscript
@@ -356,7 +356,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
   - 元素可由引擎表示的带类型容器，赋给同种无类型容器，得到同一容器的无类型视图；
   - 任何值赋给 `Variant`，struct 和带载荷 enum 按引擎边界的规则编码。例外有两种：
     - 元素为本语言独有类型的容器，须显式写 `Array(hits)`、`Dictionary(d)`；
-    - `T??` 和 `Variant?`，因为 `None` 和内层的 NIL 无法区分。快速修复提供 `.flatten()` 或 `.unwrap_or(null)`。
+    - `T??` 和 `Variant?`，因为 `None` 和内层的 NIL 无法区分。
 - 其余情况须显式转换，否则报编译错误，快速修复补上转换。例如：
   - 带类型容器、`Result` 和 `Task` 对类型参数不变，`Array[Node2D]` 不能赋给 `Array[Node]`；
   - `float` 转 `int` 写 `int(x)`，还有 `Vector2i(v)`、`bool(n)`、`Color(s)`；
@@ -371,7 +371,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
   - autoload；
   - 本语言、GDScript 插件和 C# 的其他类。
 - 【已知限制】第一版没有命名空间。
-- 类可以继承引擎类或本语言的类。【已知限制】两个方向的跨语言继承均不支持。
+- 类可以继承引擎类或本语言的类。
 - **裸名解析**：类中的裸名先依次查找局部变量、本类与本语言基类的声明。再查找所继承引擎类及其祖先的成员：
   - 属性、方法、信号和常量；
   - enum 值，类型为该引擎 enum；
@@ -400,7 +400,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 ### 4.2 可见性
 
 - 不带 `pub` 的成员在声明文件内和子类中可见，其他类不可见。struct、enum、interface 和内部类同样适用。声明文件包括其中的内部类。子类可以读写、调用和覆盖这些成员。带 `pub` 的成员对所有代码可见。
-- 覆盖须保持可见性不变；实现接口的成员须为 `pub`；`pub` 成员签名中出现非 `pub` 类型报编译错误。
+- 覆盖须保持可见性不变；`pub` 成员签名中出现非 `pub` 类型报编译错误。
 - `pub` 接口的父接口须为 `pub`，否则报编译错误。
 - `new(...)` 的可见性取继承链上最近的 `_init`。无 `_init` 时随处可 `new()`。`_init` 不带 `pub` 时，仅本文件和子类可调用 `new(...)`。
 - 不带 `pub` 的必须赋值成员只能由本文件和子类赋值。按名字反射能看到哪些成员，见“反射暴露的成员”一节。
@@ -466,7 +466,6 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 - 普通调用按位置传参。具名传参只用于 struct、带载荷 enum 构造和 `instantiate(...)`、`new(...)` 的必须赋值成员。
 - 局部变量可由初始化式推断类型。lambda 参数在有期望函数类型时取自期望类型，否则须标注。lambda 返回类型由函数体推断。
 - 同一函数中，局部变量、`for` 变量和 `match` 的 `var x` 绑定不能与外层块的局部变量或参数同名。并列块可同名。lambda 函数体视为外层函数的内层块。但 lambda 参数可与外层局部变量同名。
-- 协程（含 lambda）须在签名写 `async func`。
 
 ### 4.7 信号
 
@@ -509,8 +508,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
   - 对象按 ObjectID 比较同一性，两个不同的已释放对象不相等。互不为子类的两个类类型之间比较报编译错误，涉及接口时允许；
   - `Task[T]` 也按同一性比较，同一个任务才相等，可作 `Dictionary` 的键；
   - `Option`：`None == None` 为真，两个 `Some` 比较内部值。层数少的一侧先包装到同层再比较，如 `int?` 与 `3`、`T?` 与 `T??`。非 `Option` 且非 `Variant` 的值与 `None` 比较报编译错误，快速修复改为 `T?` 或 `is_instance_valid(x)`；
-  - 容器逐元素/逐键比较，元素类型不同则不匹配，如 `[1] == [1.0]` 为假。【已知限制】含 `NaN` 的容器在 `==`、查找和字典键中如何匹配，第一版未统一，结果随元素类型而不同。静态元素类型不同的容器比较（如 `Array[int] == Array[float]`）报编译错误。struct 与带载荷 enum 逐字段匹配；
-  - 对 `Variant`，`v == None` 在 NIL 和已释放对象上为真。
+  - 容器逐元素/逐键比较，元素类型不同则不匹配，如 `[1] == [1.0]` 为假。【已知限制】含 `NaN` 的容器在 `==`、查找和字典键中如何匹配，第一版未统一，结果随元素类型而不同。静态元素类型不同的容器比较（如 `Array[int] == Array[float]`）报编译错误。struct 与带载荷 enum 逐字段匹配。
 - 大小比较：
   - `Array` 在元素有 `<` 时按字典序比较。在第一个按容器 `==` 不匹配的位置，结果取该处元素的 `<`。各处都匹配时，短的小；
   - `T?` 在 `T` 有 `<` 时令 `None` 小于一切 `Some`，且**不**隐式包装：`hp: int?` 时 `hp < 3` 报编译错误；
@@ -706,7 +704,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 7.4 场景资源
 
-- `preload` 和字面量路径 `load` 按资源实际内容定型。场景得 `PackedScene[T]`，`T` 为根节点类型或根节点脚本的类。`preload` 脚本得其类。
+- `preload` 和字面量路径 `load` 按资源实际内容定型。场景得 `PackedScene[T]`，`T` 为根节点类型或根节点脚本的类。
 - 导出场景写作 `PackedScene[T]`，由编辑器检查所填场景，`instantiate()` 得 `T`。
 - `instantiate(...)` 必须传入的成员取决于场景是否静态已知：
   - 静态已知（`preload`、字面量路径 `load` 及以它们初始化的常量）：须传入该场景未提供的必须赋值成员；
@@ -747,7 +745,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 ### 8.1 程序错误
 
 - 程序错误中止本语言的整条调用链，退回到引擎调用进来的入口。调用本语言类声明的方法属于同一条链，无论接收者是哪个类，即使经接口调用也是。`f` 的静态类型为函数类型时，用 `f.call(x)` / `f.callv(args)` 调用本语言函数值也属于同一条链。函数值指 lambda 或方法值，含 `bind()` 之后。只有引擎入口开始新链，包括信号、引擎 `Callable`、引擎虚函数，以及静态类型为 `Callable` 的值的 `call()` 和 `callv()`。退出时释放持有的引用，记录错误和调用栈。编辑器内运行时进入调试器；游戏继续运行。
-- debug 构建仅补充诊断细节，并在退出时报告泄漏。
+- debug 构建仅补充诊断细节。
 - 需要返回值的引擎入口在中止后得到该返回类型的默认值。
 - 本文称为“程序错误”的情形均按此处理。例如访问已释放对象、`unwrap`/`expect` 失败、越界下标和整数除以 0。还有就绪前读未赋值成员、入口检查失败、修改 `Dictionary` 键和等待被取消任务等。
 - 同一线程上本语言调用嵌套超过 1024 层报程序错误，不因栈溢出崩溃。
@@ -783,10 +781,9 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 ### 9.1 async 与 Task
 
 - 函数和 lambda 含 `await` 时须在签名写 `async func`，如 `button.pressed.connect(async func(): await fade_out())`。未写时报编译错误，并提供补 `async` 的快速修复。
-- 只有返回 `void` 的引擎虚函数可声明为 `async`。`async func _init()` 和非 `void` 引擎虚函数的 `async` 覆盖均报编译错误。省略返回类型时相同。引擎调用的位置接受 `async` 函数并作为根任务运行。
+- 只有返回 `void` 的引擎虚函数可声明为 `async`。`async func _init()` 和非 `void` 引擎虚函数的 `async` 覆盖均报编译错误。省略返回类型时相同。
 - 调用 `async` 函数立即启动并运行到首次挂起，返回 `Task[T]`。无返回值时为 `Task[void]`；`void` 仅在 `Task[void]` 中可作类型实参。裸写 `Task` 报编译错误。`await f()` 和 `await t` 得 `T`。
 - 丢弃 `async` 调用结果报编译错误；有意不等待写 `f().detach()`。
-- setter、getter、`@onready` 初始化式和静态初始化不能 `await`。
 
 ### 9.2 结束状态
 
@@ -939,20 +936,19 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 - autoload 名也可写在类型中，指同一个类，如 `func get_export() -> Export` 和 `f: Export.FileFormat`。
   - 场景 autoload 指根节点脚本的类。根节点没有脚本时，指它的引擎类。
   - 作用域中更近的同名声明优先。
-  - 常量与 autoload 同名时，在类型中写该名字是编译错误。GDScript 在类型中取 autoload，近者优先会使两者悄悄不同。
+  - 常量与 autoload 同名时，在类型中写该名字是编译错误。
 - 经全局类名或 `preload` 指称其他语言的类时，以 `new(...)` 按其 `_init` 参数构造。还可经类访问静态方法与带值类型的常量（`Unit.make()`、`Unit.TILE_SIZE`）。
 - 【已知限制】引擎不提供 C# 类的构造器参数和常量。因此 C# 类只能以无参 `new()` 构造，其常量不可访问。
 
 ### 11.2 继承
 
-- 两个方向的跨语言继承均不支持：
+- 【已知限制】两个方向的跨语言继承均不支持：
   - 本语言类不能继承 GDScript 类。插件要求继承时，手写薄 GDScript 转发子类。其中调用本语言实例成员仍受 GDScript 静态检查；
   - GDScript 脚本继承本语言类时，分析服务在该 GDScript 文件上报错并说明原因；
   - 迁移一个类时须连带迁移其 GDScript 子类。
 
 ### 11.3 跨语言调用与消息
 
-- GDScript 和 C# 按名字只能访问反射暴露的成员。
 - 【已知限制】GDScript 除使用实例、调用 `new` 外，还能按名读写 `pub` 静态变量，并读取常量值和 `Player.Inner` 脚本。此外不支持以下类级访问，替代写法是经实例或 autoload 实例方法转发：
   - 调用本语言静态方法；
   - 把本语言 enum、常量或内部类用于 GDScript 类型标注或常量表达式；
@@ -973,13 +969,12 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 12.4 热重载
 
-- 仅修改函数体时在运行中直接替换。下一次调用走新代码。挂起中的协程和此前创建的 lambda 继续执行创建它们的旧版本代码。
+- 仅修改函数体、静态变量的初始化式或 `_static_init` 时在运行中直接替换。下一次调用走新代码。挂起中的协程和此前创建的 lambda 继续执行创建它们的旧版本代码。
 - 修改成员、签名、常量或类结构时不迁移状态。这时运行中的游戏输出一条消息，要求重新运行。当前运行拒绝本次及后续一切热重载，保证单次运行中每个类只有一个版本。
 
 ### 12.5 调试支持
 
 - 接入引擎调试界面（断点、单步、局部变量、调用栈）。
-- debug 构建记录本语言实例及由本语言释放对象的释放位置。退出时按创建位置列出泄漏的节点与对象。
 - 【已知限制】释放位置只为最近的释放保留，更早的释放在诊断中不写位置。全部保留会使内存随释放次数一直增长。
 
 ## 13. 工具链
@@ -999,7 +994,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
   - 顶层函数与类（含 struct、interface）前后各空两行，内部类中前后各空一行。计算时连同紧贴其上的注释与注解。块首成员前及无函数体方法除外。其余位置连续空行压为一行，文件首无空行、尾留单个换行；
   - 换行位置不变：不按列宽拆合行，保留 `;`、同行块与 `\`。字面量、引号、括号、注释文字、尾随逗号和原文件换行符不变。
 - **迁移**：GDScript 与本语言之间的双向迁移工具。
-- **lint、调试与测试**：lint 作为分析服务警告报告，并用 `@warning_ignore` 抑制；某个 `@warning_ignore` 不再抑制任何诊断时给出提示。接入引擎调试器。提供可无界面运行的自带测试运行器。不提供包管理器。
+- **lint、调试与测试**：lint 作为分析服务警告报告，并用 `@warning_ignore` 抑制。接入引擎调试器。提供可无界面运行的自带测试运行器。不提供包管理器。
 
 ### 13.3 重构
 

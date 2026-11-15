@@ -1,10 +1,10 @@
 # Petrichor Language Specification
 
-**v0.2 draft · 2026-10-25**
+**v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 482c391f1e4932b7afe13dbb667bfb951e52b82d. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 7f7c91a7be9db3f0bc378abe22de4b97da4cfb7d. Do not edit by hand; see tools/spec_translation.md. -->
 
-Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). The previous version of the specification, v0.1, is kept in the git tag `spec-v0.1`. This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
+Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
 ## 1. Overview
 
@@ -183,7 +183,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 ### 3.4 Option
 
 - `T?` is Option, whose value is `Some(v)` or `None`. An explicit wrap is written `Some(v)`, such as `Some(None)` in `T??`.
-- All operations are methods, named as in Rust. `unwrap` and `expect(message)` are program errors on failure. The others are `unwrap_or`, `unwrap_or_else`, `map`, `and_then`, `or`, `or_else`, `filter`, `ok_or` and `ok_or_else`. There are no `!`, `??` or `?.` operators. The only special syntax is the postfix `?` for short-circuit return. A test for `None` uses `!= None` and narrowing.
+- All operations are methods, named as in Rust. `unwrap` and `expect(message)` are program errors on failure. The others are `unwrap_or`, `unwrap_or_else`, `map`, `and_then`, `or`, `or_else`, `filter`, `ok_or` and `ok_or_else`. There are no `!`, `??` or `?.` operators. A test for `None` uses `!= None` and narrowing.
 - A nested Option keeps its levels, such as `T??`:
   - the literal `None` is always the outermost `None`;
   - `?`, `unwrap`, `match` and narrowing each peel one level at a time, and `.flatten()` merges `T??` into `T?`;
@@ -199,12 +199,12 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 ### 3.5 Result
 
 - `Result[T, E]` is constructed with `Ok(v)` and `Err(e)`. A success value is not wrapped implicitly.
-- The methods are named as in Rust: `unwrap`, `expect`, `unwrap_or`, `unwrap_or_else`, `map`, `map_err`, `and_then`, `or_else`, `ok`, `err`. On `Err(e)`, the postfix `?` returns `Err(e)`.
+- The methods are named as in Rust: `unwrap`, `expect`, `unwrap_or`, `unwrap_or_else`, `map`, `map_err`, `and_then`, `or_else`, `ok`, `err`.
 - Discarding a `Result` is a compile error. To ignore it deliberately, write `.ok()`.
 
 ### 3.6 struct
 
-- Value semantics: assignment, argument passing and return all make a shallow copy, and object and container fields copy the reference. A struct exists only inside this language. Construction takes named arguments only.
+- Value semantics: assignment, argument passing and return all make a shallow copy, and object and container fields copy the reference. A struct exists only inside this language.
 - Across the engine boundary, a struct is encoded by the rules of the engine boundary. Decoding checks each field and each nested container or struct recursively, by the rules of `T.try_from`. Extra keys are ignored. A missing key takes the default value of the field. When the field has no default value, decoding fails.
 - A struct may declare `func` and `static func`. In an instance method `self` is read-only, and assigning to a field of `self` is a compile error.
 - A name in a method is looked up in the struct itself first. It is then looked up in the non-instance declarations of the outer classes, by the rules of inner classes.
@@ -212,7 +212,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - Fields and methods are visible wherever the struct is visible.
 - The modification `s.x = 1` acts on the storage location that holds `s`:
   - a chained assignment reads, modifies and writes back along the chain. `player.last_hit.damage = 3` runs the setter of `last_hit`, and `hits[0].damage = 3` updates the array element;
-  - an assignment first evaluates the value on the right. It then evaluates the objects and indexes in the location from left to right. Then it reads, modifies and writes back in one go, without suspending in between. The same holds for engine value types, such as `position.x`, and for compound assignments. So an error in the location, such as a freed object or an index out of range, is reported after the right side is evaluated. A method call that modifies its receiver, such as `points.append(x)`, first evaluates the location of the receiver. It then evaluates the arguments, and then reads, calls and writes back;
+  - an assignment first evaluates the value on the right. It then evaluates the objects and indexes in the location from left to right. Then it reads, modifies and writes back in one go, without suspending in between. The same holds for engine value types, such as `position.x`, and for compound assignments. So an error in the location, such as a freed object or an index out of bounds, is reported after the right side is evaluated. A method call that modifies its receiver, such as `points.append(x)`, first evaluates the location of the receiver. It then evaluates the arguments, and then reads, calls and writes back;
   - when the right side has an `await` and GDScript reads before it a value-type copy in the location that is written back, it gives the `await_in_assignment` warning:
     - the value is an engine property, a member with accessors or a static variable, such as `position` in `position.x = await slide_x()`;
     - or it is in the middle of the chain, such as `player.velocity` in `player.velocity.x = await push()`;
@@ -241,7 +241,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 ### 3.7 enum
 
 - An explicit enum value must be an `int` that the compiler computes. An anonymous `enum { A, B }` declares `int` constants of the class.
-- An enum of this language is closed. Its values are validated by the entry check and when read from a container. An engine enum is open: the engine produces values outside the enum, and later versions may add values. So `MouseButton(x)` does not check the range, and a `match` on it must have `_`.
+- An enum of this language is closed. Its values are validated by the entry check and when read from a container. An engine enum is open: `MouseButton(x)` does not check the range, and a `match` on it must have `_`.
 - Converting an `int` to an enum of this language must be written explicitly. Write `State(x)`, a program error when `x` is not an enum value, or `State.try_from(x)`:
 
   ```gdscript
@@ -273,7 +273,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
   - all methods work by the elements' own `==` and `<`. `resize` fills in the default value of the elements, and an empty typed container for an inner container. `duplicate(true)` deep-copies the containers inside the elements;
   - when the elements have no `<`, a sorting method is a compile error. On `Array[Node]`, for example, it suggests `sort_custom`. **[Known limitation]** When `Variant` elements are sorted, a pair that cannot be compared counts as not less, as in GDScript. When `min` or `max` meets such a pair, it returns `null`, also as in GDScript. When the elements have no default value, `resize` is a compile error. On `Array[Node]`, for example, it suggests `Array[Node?]`;
   - the standard library provides `map`, `filter`, `sort` and so on for the native containers, taking typed lambdas.
-- **Dictionary keys**: inserting a new key stores a copy. Later changes to the original value do not affect the key. The containers in the copy are read-only at every level. Containers inside the copy are shared as in the original value, including a container that refers to itself. `keys()`, `for k in d` and `find_key()` hand out that read-only copy, and modifying it is a program error. The diagnostic suggests inserting a modified `duplicate()`. A lookup neither copies nor freezes its argument. Suppose this language obtains a container key of a `Dictionary` passed in from outside. That key is then made read-only in place, at every level.
+- **Dictionary keys**: inserting a new key stores a copy. Later changes to the original value do not affect the key. The containers in the copy are read-only at every level. Containers inside the copy are shared as in the original value, including a container that refers to itself. `keys()`, `for k in d` and `find_key()` hand out that read-only copy, and modifying it is a program error. The diagnostic suggests inserting a modified `duplicate()`. A lookup neither copies nor freezes its argument. Suppose this language obtains a container key of a `Dictionary` passed in from outside. This language then only makes that key read-only in place, at every level.
 
 ### 3.9 Interfaces
 
@@ -307,7 +307,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
   area.body_entered.connect(func(body): counter[0] += 1)  # legal: the container is shared
   ```
 
-  - **[Open]** Default values of lambda parameters belong to the first version. They need optional parameters in function types, whose rules are not settled yet. Until then, writing a default value is a compile error.
+  - **[Open]** Default values of lambda parameters belong to the first version. This needs optional parameters in function types, and the rules are not settled yet. Until then, writing a default value is a compile error.
 
 ### 3.12 Weak references
 
@@ -358,7 +358,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
   - a typed container whose elements the engine can represent, to the untyped container of the same kind. This gives an untyped view of the same container;
   - any value to `Variant`, where structs and enums with payloads are encoded by the rules of the engine boundary. There are two exceptions:
     - a container whose element type exists only in this language, which must be written explicitly as `Array(hits)` or `Dictionary(d)`;
-    - `T??` and `Variant?`, because `None` and the inner NIL cannot be told apart. The quick fix offers `.flatten()` or `.unwrap_or(null)`.
+    - `T??` and `Variant?`, because `None` and the inner NIL cannot be told apart.
 - Every other case needs an explicit conversion. Without one it is a compile error, and the quick fix adds the conversion. For example:
   - typed containers, `Result` and `Task` are invariant in their type parameters, so `Array[Node2D]` is not assignable to `Array[Node]`;
   - `float` to `int` is written `int(x)`, and likewise `Vector2i(v)`, `bool(n)` and `Color(s)`;
@@ -373,7 +373,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
   - an autoload;
   - another class of this language, of a GDScript plugin or of C#.
 - **[Known limitation]** The first version has no namespaces.
-- A class can extend an engine class or a class of this language. **[Known limitation]** Cross-language inheritance is not supported in either direction.
+- A class can extend an engine class or a class of this language.
 - **Bare-name resolution**: a bare name in a class is first looked up in local variables. Next come the declarations of the class and of its base classes of this language. Last come the members of the inherited engine class and its ancestors:
   - properties, methods, signals and constants;
   - enum values, whose type is that engine enum;
@@ -402,7 +402,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 ### 4.2 Visibility
 
 - A member without `pub` is visible in its declaring file and in subclasses, and not visible to other classes. The same applies to structs, enums, interfaces and inner classes. The declaring file includes the inner classes in it. A subclass can read, write, call and override these members. A member with `pub` is visible to all code.
-- An override must keep the visibility unchanged. A member that implements an interface must be `pub`. A non-`pub` type in the signature of a `pub` member is a compile error.
+- An override must keep the visibility unchanged. A non-`pub` type in the signature of a `pub` member is a compile error.
 - The parent interfaces of a `pub` interface must be `pub`, or it is a compile error.
 - The visibility of `new(...)` is that of the nearest `_init` on the inheritance chain. With no `_init`, `new()` can be called anywhere. When `_init` is without `pub`, only its file and subclasses can call `new(...)`.
 - A member that must be assigned and is without `pub` can be assigned only by its file and by subclasses. The section "Members exposed through reflection" says which members reflection by name can see.
@@ -468,7 +468,6 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - An ordinary call passes arguments by position. Named arguments are used only in two places. They construct structs and enums with payloads, and they give `instantiate(...)` and `new(...)` the members that must be assigned.
 - A local variable may have its type inferred from its initializer. When there is an expected function type, a lambda parameter takes its type from it. Otherwise it must be annotated. The return type of a lambda is inferred from its body.
 - Within one function, some names cannot repeat a local variable or parameter of an enclosing block. They are local variables, `for` variables and the `var x` bindings of `match`. Sibling blocks may use the same name. A lambda body counts as an inner block of the enclosing function. But a lambda parameter may have the name of an outer local variable.
-- A coroutine, lambdas included, must write `async func` in its signature.
 
 ### 4.7 Signals
 
@@ -511,8 +510,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
   - objects compare identity by ObjectID, and two different freed objects are not equal. Comparing two class types of which neither is a subclass of the other is a compile error. It is allowed when an interface is involved;
   - `Task[T]` also compares by identity: only the same task is equal. It can be a `Dictionary` key;
   - `Option`: `None == None` is true, and two `Some` compare their inner values. The side with fewer levels is first wrapped to the same level. Examples are `int?` with `3`, and `T?` with `T??`. Comparing a value that is neither `Option` nor `Variant` with `None` is a compile error. The quick fix changes it to `T?` or to `is_instance_valid(x)`;
-  - containers compare element by element or key by key. They do not match when the element types differ, so `[1] == [1.0]` is false. **[Known limitation]** The first version has not unified how containers with `NaN` match in `==`, lookups and dictionary keys. The result varies with the element type. Comparing containers whose static element types differ, such as `Array[int] == Array[float]`, is a compile error. Structs and enums with payloads match field by field;
-  - for a `Variant`, `v == None` is true on NIL and on a freed object.
+  - containers compare element by element or key by key. They do not match when the element types differ, so `[1] == [1.0]` is false. **[Known limitation]** The first version has not unified how containers with `NaN` match in `==`, lookups and dictionary keys. The result varies with the element type. Comparing containers whose static element types differ, such as `Array[int] == Array[float]`, is a compile error. Structs and enums with payloads match field by field.
 - Ordering comparisons:
   - when its elements have `<`, an `Array` compares in lexicographic order. At the first position that does not match by the container `==`, the result is the elements' `<` there. When every position matches, the shorter one is less;
   - when `T` has `<`, `T?` makes `None` less than every `Some`, and does **not** wrap implicitly. With `hp: int?`, `hp < 3` is a compile error;
@@ -606,7 +604,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
   - assignments on every path in `_init`;
   - values stored in the scene;
   - named arguments of `new(...)` and `instantiate(...)`;
-  - assignments by an ancestor in `_ready`, through `$Child.target = v` or an `@onready` reference. [Known limitation] Such an assignment is checked only at ready; see the open questions.
+  - assignments by an ancestor in `_ready`, through `$Child.target = v` or an `@onready` reference. **[Known limitation]** Such an assignment is checked only at ready; see the open questions.
 - A member still unassigned at ready is a program error. The error suggests one of the forms above, so that it is checked at compile time.
 - The ready order says when the checks happen. Before ready, reading a member not yet assigned is a program error that states the member name.
 - Suppose `_init` directly reads a member that must be assigned. Unless `_init` has assigned it on every path before that, the read is a compile error. Reading it indirectly through a call is a program error.
@@ -708,7 +706,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 7.4 Scene resources
 
-- `preload`, and `load` with a literal path, are typed by the actual content of the resource. A scene gives `PackedScene[T]`, where `T` is the type of the root node or the class of its script. `preload` of a script gives its class.
+- `preload`, and `load` with a literal path, are typed by the actual content of the resource. A scene gives `PackedScene[T]`, where `T` is the type of the root node or the class of its script.
 - An exported scene is written `PackedScene[T]`. The editor checks the scene filled in, and `instantiate()` gives `T`.
 - The members that `instantiate(...)` must be given depend on whether the scene is statically known:
   - statically known, which means `preload`, `load` with a literal path, and constants initialized with them. The members that must be assigned and that the scene does not provide must be passed;
@@ -749,7 +747,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 ### 8.1 Program errors
 
 - A program error aborts the whole call chain of this language. It returns to the entry point where the engine called in. A call to a method declared by a class of this language belongs to the same chain. This holds whatever class the receiver is, even for a call through an interface. Suppose the static type of `f` is a function type. Calling a function value of this language with `f.call(x)` / `f.callv(args)` then belongs to the same chain too. A function value is a lambda or a method value, including after `bind()`. Only an engine entry point starts a new chain. These include signals, engine `Callable`s, engine virtual functions, and `call()` and `callv()` on a value of static type `Callable`. On the way out, held references are released, and the error and the call stack are recorded. When running in the editor, it enters the debugger. The game keeps running.
-- A debug build only adds diagnostic detail, and reports leaks at exit.
+- A debug build only adds diagnostic detail.
 - An engine entry point that needs a return value gets the default value of that return type after the abort.
 - Every case this document calls a "program error" is handled this way. Examples are accessing a freed object, a failed `unwrap`/`expect`, an out-of-bounds index and integer division by 0. Others include reading an unassigned member before ready, failed entry checks, modifying a `Dictionary` key and awaiting a cancelled task.
 - On one thread, calls of this language nested more than 1024 levels deep are a program error. They do not crash from stack overflow.
@@ -785,10 +783,9 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 ### 9.1 async and Task
 
 - A function or a lambda that contains `await` must write `async func` in its signature, as in `button.pressed.connect(async func(): await fade_out())`. Without it, it is a compile error, with a quick fix that adds `async`.
-- Only engine virtual functions that return `void` can be declared `async`. `async func _init()` is a compile error, and so is an `async` override of a non-`void` engine virtual function. The same holds when the return type is omitted. A position that the engine calls accepts an `async` function and runs it as a root task.
+- Only engine virtual functions that return `void` can be declared `async`. `async func _init()` is a compile error, and so is an `async` override of a non-`void` engine virtual function. The same holds when the return type is omitted.
 - Calling an `async` function starts it at once, runs it to its first suspension, and returns `Task[T]`. With no return value it is `Task[void]`. `void` can be a type argument only in `Task[void]`. A bare `Task` is a compile error. `await f()` and `await t` give `T`.
 - Discarding the result of an `async` call is a compile error. To not wait deliberately, write `f().detach()`.
-- Setters, getters, `@onready` initializers and static initialization cannot `await`.
 
 ### 9.2 End states
 
@@ -816,7 +813,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 9.6 Awaiting signals
 
-- An `await` on a signal without parameters produces no value. A signal with one parameter gives a value of that parameter's type. **[Open]** Tuples and an `await` on a signal with several parameters as a value belong to the first version, and their rules are not settled yet. Until then, such an `await` can only be a statement. Using the result is a compile error.
+- An `await` on a signal without parameters produces no value. A signal with one parameter gives a value of that parameter's type. **[Open]** Tuples and an `await` on a signal with several parameters as a value belong to the first version, and their rules are not settled yet. Until then, an `await` on a signal with several parameters can only be a statement. Using the result is a compile error.
 - A signal accessed through a known class has a known signature. Known classes are those in the engine's ClassDB and the classes and interfaces declared in this language. Classes of other languages seen through reflection are known too. When the static type is only `Signal`, the signature is unknown. An `await` on it as a statement is not restricted. An `await` on it as a value gives `Variant`. At run time that is NIL for no parameters, the value for one, and an `Array` for several:
 
   ```gdscript
@@ -941,20 +938,19 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - An autoload name can also be written in a type, where it names the same class. Examples are `func get_export() -> Export` and `f: Export.FileFormat`.
   - A scene autoload names the class of the root node's script. When the root node has no script, it names its engine class.
   - A nearer declaration of the same name in scope takes precedence.
-  - When a constant has the name of an autoload, writing that name in a type is a compile error. GDScript takes the autoload in a type, so taking the nearer one would differ silently.
+  - When a constant has the name of an autoload, writing that name in a type is a compile error.
 - Suppose a class of another language is named by its global class name or by `preload`. It is then constructed with `new(...)`, by the parameters of its `_init`. Static methods and constants of value types can also be accessed through the class (`Unit.make()`, `Unit.TILE_SIZE`).
 - **[Known limitation]** The engine does not provide the constructor parameters and constants of C# classes. So a C# class can be constructed only with `new()` without arguments, and its constants cannot be accessed.
 
 ### 11.2 Inheritance
 
-- Cross-language inheritance is not supported in either direction:
+- **[Known limitation]** Cross-language inheritance is not supported in either direction:
   - a class of this language cannot extend a GDScript class. When a plugin requires inheritance, write a thin GDScript forwarding subclass by hand. Its calls to instance members of this language are still checked statically by GDScript;
   - when a GDScript script extends a class of this language, the analysis service reports an error on that GDScript file. The error explains the cause;
   - migrating a class must also migrate its GDScript subclasses.
 
 ### 11.3 Cross-language calls and messages
 
-- By name, GDScript and C# can access only the members exposed through reflection.
 - **[Known limitation]** Besides using instances and calling `new`, GDScript can read and write `pub` static variables by name. It can also read constant values and `Player.Inner` scripts. Beyond that, the following class-level access is not supported. The alternative forwards through an instance method of an instance or of an autoload:
   - calling a static method of this language;
   - using an enum, constant or inner class of this language in a GDScript type annotation or constant expression;
@@ -975,13 +971,12 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 12.4 Hot reload
 
-- When only function bodies change, they are replaced directly during the run. The next call takes the new code. Suspended coroutines and lambdas created earlier keep running the old version of the code that created them.
+- When only function bodies, initializers of static variables or `_static_init` change, the code is replaced directly during the run. The next call takes the new code. Suspended coroutines and lambdas created earlier keep running the old version of the code that created them.
 - When members, signatures, constants or the class structure change, state is not migrated. The running game then prints a message asking to run it again. The current run refuses this and every later hot reload. This guarantees that each class has only one version within one run.
 
 ### 12.5 Debugging support
 
 - It plugs into the engine's debugging interface (breakpoints, stepping, local variables, call stack).
-- A debug build records the free sites of instances of this language and of objects freed by this language. At exit it lists leaked nodes and objects by creation site.
 - **[Known limitation]** Free sites are kept only for the most recent frees. For an earlier free, the diagnostic states no site. Keeping all of them would make memory grow without end as the number of frees grows.
 
 ## 13. Toolchain
@@ -1001,7 +996,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
   - a top-level function or class, struct and interface included, has two blank lines before and after it. Inside an inner class it has one. The comments and annotations directly above it are counted with it. The place before the first member of a block, and methods without a body, are excepted. Elsewhere, consecutive blank lines are squeezed into one. A file has no blank line at its start and a single newline at its end;
   - line breaks stay where they are. Lines are not split or joined by column width, and `;`, same-line blocks and `\` are kept. Literals, quotes, brackets, comment text, trailing commas and the file's original line endings do not change.
 - **Migration**: a migration tool that works both ways between GDScript and this language.
-- **Lints, debugging and testing**: lints are reported as warnings of the analysis service and suppressed with `@warning_ignore`. When a `@warning_ignore` no longer suppresses any diagnostic, it gives a hint. Connection to the engine debugger. A built-in test runner that can run headless is provided. No package manager is provided.
+- **Lints, debugging and testing**: lints are reported as warnings of the analysis service and suppressed with `@warning_ignore`. Connection to the engine debugger. A built-in test runner that can run headless is provided. No package manager is provided.
 
 ### 13.3 Refactoring
 
