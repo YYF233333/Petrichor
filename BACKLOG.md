@@ -51,6 +51,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - Double-precision builds of the engine (`precision=double`), whose constants spec §4.5 provides for. The bytecode lays out built-in values at their sizes in standard builds. So initialization and loading refuse such builds (`check_value_sizes()`). The 0.1 release notes promise them before 1.0.
 - Ordering of arrays of engine types as spec §5.2 says. It differs from the engine's operators only with NaN, so it waits for the open question on NaN.
 - Range checks of ints passed through an engine method's value, as `f.call(x)` (spec §10.6). The value is the engine's Callable, which converts without them.
+- Destruction order of `LambdaCallable` at exit when `WorkerThreadPool` holds unclaimed tasks (`main/main.cpp:5268, 5295`, `core/object/worker_thread_pool.cpp:855-880`, `ed1daf0`). Add an engine test and verify teardown.
 
 ## Editor
 
@@ -95,6 +96,9 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
     - A negative literal index `-k` becomes `s.length() - k`, since `erase` refuses negative positions (`core/string/ustring.cpp:2881-2884`, `ed1daf0`).
     - The report lists other indices and bases with side effects.
 - A minimal VS Code extension alongside the LSP server (architecture §5, step 8). It highlights `.pet` files and connects to the editor's LSP port.
+- When the LSP server is added (0.3), map `textDocument/typeDefinition` alongside `definition`.
+- When quick fixes insert `@warning_ignore` (0.3), place it after leading doc comments so `##` stays attached to the declaration.
+- Class reference XML for the public classes `CoroutineTask` and `PetScript`, or making `PetScript` internal if F1 does not need it (`src/adapter/register_types.cpp:55-57`).
 - A bottom panel listing the errors that keep the project from running, wanted in 0.3 or later. A click opens the file at the line.
   - Now the errors reach only the Output panel and a toast (`src/adapter/editor/script_compiler.cpp:62`).
   - GDScript compiles as the game loads, so its debugger shows them. C# opens its MSBuild panel on a failed build (`modules/mono/editor/GodotTools/GodotTools/Build/BuildManager.cs:51-56`, `ed1daf0`).
@@ -112,6 +116,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 
 - Once the migration tool is ready (0.3), migrate one or two popular open-source games as real-code tests. Keep `thirdparty/ring` for its C# interop coverage.
 - The suites on Godot 4.8's release candidate, with its changes checked one by one. They pass on beta3 (`c51ff06e8`), which stands in until then. The 0.1 release notes promise to follow the 4.8 release at once.
+  - When moving the engine commit, `git diff -L` over the ranges in `docs/engine-facts.md` isolates the citations that moved.
 - `cancel()` on a task that has ended (spec §9.3). No test runs it.
 - On macOS, the README's quarantine step has never run. The x86_64 half of the libraries runs only under Rosetta, on Godot 4.8.
   - CI can mark the unpacked package with `xattr -w com.apple.quarantine`, run the README's step and load the library.
