@@ -63,11 +63,11 @@ The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable`
 
 - Other sessions share the working tree and its index. Commit only your own files, by path (`git commit -m … -- <paths>`). Push to main after committing. A push that changes code cancels the CI run in progress.
 - Git hooks in `tools/hooks/` run `.pre-commit-config.yaml`, with project checks in `tools/`. When a hook fixes a file, the commit stops; commit again.
-- Commit messages are in English: a subject, a blank line and a body wrapped at 72 columns.
+- Commit messages are in English: a subject, and an optional body after a blank line, wrapped at 72 columns.
   - The subject is `Area: Imperative summary` within 72 characters, capitalized and without a full stop.
   - `Area` is one of `Spec`, `Arch`, `Survey`, `Compiler`, `Bytecode`, `Runtime`, `Adapter`, `Editor`, `Tests`, `Bench`, `Tools` and `Docs`. A commit spanning several areas names the primary one.
-  - The body gives the problem, the decision with its evidence and the alternatives rejected. Evidence means spec sections and engine citations. Use `-` lists for parallel points.
-  - Do not retell the diff; a small change needs no body.
+  - Omit the body when the subject, the diff and the updated documents already explain the change. Do not retell the diff or repeat what the commit writes into `docs/`.
+  - Write a body only for what `git blame` cannot find in the diff or `docs/`: non-obvious causes, spec or engine citations, measurements and traps in rejected alternatives. Use `-` lists for parallel points.
 
 ## Workflow
 
