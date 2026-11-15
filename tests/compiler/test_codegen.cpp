@@ -67,6 +67,21 @@ TEST_CASE("signatures") {
 	CHECK(storage(module, add.result.type) == ValueType::Int);
 }
 
+// The engine computes a value that owns nothing before it stores it, so the
+// constructor may write over its argument.
+TEST_CASE("a value constructed from itself") {
+	module_of(R"(extends Node
+struct Hit:
+	var tint: Color
+func fade() -> Color:
+	var c := Color.RED
+	c = Color(c, 0.5)
+	var h := Hit(tint = c)
+	h.tint = Color(h.tint, 0.5)
+	return h.tint
+)");
+}
+
 // An initializer that is a constant expression is the editor's default, as
 // what GDScript reduces to a constant is (modules/gdscript/gdscript_analyzer.cpp:5652-5681;
 // spec §4.5); the init function still writes them all.

@@ -163,8 +163,8 @@ TEST_CASE("a static function does not use the instance") {
 	}
 }
 
-TEST_CASE("a constructor does not write over its arguments") {
-	compiler::CompileResult result = compile("extends Node\n\nfunc v(x: Vector3) -> Vector3:\n\treturn Vector3(x)\n");
+TEST_CASE("a constructor of a value that owns something does not write over its arguments") {
+	compiler::CompileResult result = compile("extends Node\n\nfunc v(x: PackedInt32Array) -> PackedInt32Array:\n\treturn PackedInt32Array(x)\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	bytecode::Function &v = function_named(result.module, "v");
 	const size_t construct = find_instruction(v, Op::CONSTRUCT);

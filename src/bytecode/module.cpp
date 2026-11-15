@@ -73,6 +73,12 @@ ValueType packed_element(ValueType p_type) {
 	return p_type < ValueType::Count ? TYPES[uint32_t(p_type)].packed_element : ValueType::Void;
 }
 
+// core/variant/variant_destruct.cpp:40-58, variant_construct.h:115-116 and
+// variant_op.h:50-83 (ed1daf0).
+bool owns_nothing(ValueType p_type) {
+	return (p_type >= ValueType::Bool && p_type <= ValueType::Float) || (p_type >= ValueType::Vector2 && p_type <= ValueType::Color) || p_type == ValueType::RID;
+}
+
 const ContainerMethod *find_container_method(ValueType p_base, std::string_view p_name) {
 	using R = ElementRole;
 	static const ContainerMethod methods[] = {

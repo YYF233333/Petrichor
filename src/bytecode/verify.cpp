@@ -587,7 +587,7 @@ class Verifier {
 					}
 				}
 				// The old value of dst is destroyed before the engine reads the arguments.
-				for (uint32_t i = 0; i < p_call[3]; i++) {
+				for (uint32_t i = 0; i < p_call[3] && !owns_nothing(constructor.type); i++) {
 					if (p_call[5 + 2 * i] == dst) {
 						return fail("a constructor writes over one of its arguments");
 					}

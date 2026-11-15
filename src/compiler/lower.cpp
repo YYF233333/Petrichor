@@ -2769,16 +2769,12 @@ class Lowerer {
 	}
 
 	// Whether the instruction has read its operands when it stores its result,
-	// so that the result can go to one of them. The engine's operators and
-	// constructors compute a value of its math types before storing it
-	// (core/variant/variant_op.h:50-83), but not an Array's (:659-673).
+	// so that the result can go to one of them.
 	bool stores_last(const ir::Instr &p_instr) const {
 		switch (p_instr.op) {
 			case Op::EVALUATE:
-			case Op::CONSTRUCT: {
-				const ValueType type = reg_type(p_instr.dst);
-				return is_8_byte(type) || (type >= ValueType::Vector2 && type <= ValueType::Color);
-			}
+			case Op::CONSTRUCT:
+				return bytecode::owns_nothing(reg_type(p_instr.dst));
 			case Op::CONST_STRING:
 			case Op::CONST_VALUE:
 			case Op::MOVE_8:

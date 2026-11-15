@@ -77,6 +77,10 @@ const char *value_type_name(ValueType p_type);
 ValueType value_type_from_name(const std::string &p_name);
 // The elements of a packed array, as a slot holds them, or Void.
 ValueType packed_element(ValueType p_type);
+// Whether a value of the type owns nothing, and so has no destructor. The
+// engine's constructors and operators compute such a value whole before they
+// store it, so it may go over one of their operands.
+bool owns_nothing(ValueType p_type);
 
 // What an argument or the return value of a method of Array or Dictionary is
 // to the container (spec §3.8).
