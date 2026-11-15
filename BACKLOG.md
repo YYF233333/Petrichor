@@ -85,6 +85,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - Structs, interfaces and inner classes have documentation classes of their own, which the whole project searches (`editor/doc/editor_help_search.cpp:113`).
   - Enums and members are listed on their class's page.
 - The two-way migration tool (spec §1.2, §13.4), wanted in 0.2 or 0.3.
+  - It infers missing types from call sites and from scene connections, saved values and node paths. Bounds that would change `int` and `float` arithmetic are not merged. Measure the inferred share on the corpus first.
   - Reverse conversion writes types GDScript can express. A nested typed container becomes `Array[Array]`, and a narrower result such as `map`'s goes through `assign()`.
   - It drops this language's names from `@warning_ignore`, which GDScript rejects (`modules/gdscript/gdscript_parser.cpp:5126-5128`, `ed1daf0`).
   - The report lists by-name access with names that are not literals, and `get_name()` on signals. Their members may need `pub` (spec §10.5).
@@ -93,6 +94,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
     - `s[i] = c` becomes `s = s.erase(i).insert(i, c)`, and `s[i] = ""` becomes `s = s.erase(i)`.
     - A negative literal index `-k` becomes `s.length() - k`, since `erase` refuses negative positions (`core/string/ustring.cpp:2881-2884`, `ed1daf0`).
     - The report lists other indices and bases with side effects.
+- A minimal VS Code extension alongside the LSP server (architecture §5, step 8). It highlights `.pet` files and connects to the editor's LSP port.
 - A bottom panel listing the errors that keep the project from running, wanted in 0.3 or later. A click opens the file at the line.
   - Now the errors reach only the Output panel and a toast (`src/adapter/editor/script_compiler.cpp:62`).
   - GDScript compiles as the game loads, so its debugger shows them. C# opens its MSBuild panel on a failed build (`modules/mono/editor/GodotTools/GodotTools/Build/BuildManager.cs:51-56`, `ed1daf0`).
@@ -175,6 +177,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 
 ## Upstream
 
+- List the gaps and workarounds hit in `ScriptLanguageExtension`, with citations, for the owner's reply on [#14652](https://github.com/godotengine/godot-proposals/issues/14652).
 - After the 0.1 release, list the engine interfaces newer than 4.4 that the code uses (architecture §6.3). Compare 4.4-stable with 4.7.2 for the extension interface and the virtual methods of `ScriptLanguageExtension`.
 
 - Objects that an extension creates have no signal mutex. `_postinitialize` does not run for them (`core/extension/gdextension_interface.cpp:1669-1672`, `core/object/object.cpp:226-231`, `ed1daf0`; godot#125308). So a task's `completed` and `cancelled` are unguarded when GDScript awaits it from another thread.
@@ -249,4 +252,6 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - members that must be assigned, and where the compiler looks for the assignment;
   - assignments by ancestors;
   - members assigned after ready, which now must be `T?`.
+- How third-party C++ extensions declare non-null results and narrower types once a project in 0.3 needs them (spec §10.2, §10.3). Candidates are an external metadata file and upstream `ClassDB` metadata.
 - How to test the gain in maintenance. Use the language in a real project through several rounds of changing requirements. See how many problems it points out ahead of renames, interface changes and refactorings across files. The cost of adoption includes migrating in step by step, mixing and leaving. With cross-language inheritance restricted, the unit of migration may be an inheritance cluster or a subsystem.
+  - Record the share of edits that the compiler locates during a change. Also record how defects fall across editing, instantiation, runtime and silent wrong behavior.
