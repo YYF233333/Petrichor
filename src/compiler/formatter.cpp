@@ -550,44 +550,34 @@ std::optional<std::string> format(const std::string &p_source, std::string *r_er
 }
 
 std::vector<Edit> format_edits(const std::string &p_source, const std::string &p_formatted) {
-	const auto blank = [](char p_char) {
-		return p_char == ' ' || p_char == '\t' || p_char == '\r' || p_char == '\n';
-	};
-	// The lines of the blanks from `p_begin` to `p_end`, as their ranges.
-	const auto lines = [](const std::string &p_text, size_t p_begin, size_t p_end) {
-		std::vector<std::pair<size_t, size_t>> found;
-		for (size_t start = p_begin;; start = found.back().second + 1) {
-			found.emplace_back(start, std::min(p_text.find('\n', start), p_end));
-			if (found.back().second == p_end) {
-				return found;
+	// The ranges of the lines of the blanks at `r_at`, which moves past them.
+	const auto blank_lines = [](const std::string &p_text, size_t &r_at) {
+		std::vector<std::pair<size_t, size_t>> lines{ { r_at, r_at } };
+		for (; r_at < p_text.size() && (p_text[r_at] == ' ' || p_text[r_at] == '\t' || p_text[r_at] == '\r' || p_text[r_at] == '\n'); r_at++) {
+			if (p_text[r_at] == '\n') {
+				lines.emplace_back(r_at + 1, r_at + 1);
+			} else {
+				lines.back().second = r_at + 1;
 			}
 		}
+		return lines;
 	};
 	std::vector<Edit> edits;
-	const auto replace = [&](std::pair<size_t, size_t> p_old, std::pair<size_t, size_t> p_new) {
-		const std::string text = p_formatted.substr(p_new.first, p_new.second - p_new.first);
-		if (p_source.compare(p_old.first, p_old.second - p_old.first, text) != 0) {
-			edits.push_back({ uint32_t(p_old.first), uint32_t(p_old.second), text });
-		}
-	};
-	// Between the same characters of both, the blanks of each line are
-	// replaced, the lines matched from the last.
+	// Between the same characters of both, the lines of blanks are matched
+	// from the last, and the first takes those removed or added.
 	for (size_t i = 0, j = 0;; i++, j++) {
-		const size_t old_begin = i;
-		const size_t new_begin = j;
-		while (i < p_source.size() && blank(p_source[i])) {
-			i++;
-		}
-		while (j < p_formatted.size() && blank(p_formatted[j])) {
-			j++;
-		}
-		const std::vector<std::pair<size_t, size_t>> old_lines = lines(p_source, old_begin, i);
-		const std::vector<std::pair<size_t, size_t>> new_lines = lines(p_formatted, new_begin, j);
-		const size_t removed = old_lines.size() > new_lines.size() ? old_lines.size() - new_lines.size() : 0;
-		const size_t added = new_lines.size() > old_lines.size() ? new_lines.size() - old_lines.size() : 0;
-		replace({ old_lines[0].first, old_lines[removed].second }, { new_lines[0].first, new_lines[added].second });
-		for (size_t k = 1; k + removed < old_lines.size(); k++) {
-			replace(old_lines[k + removed], new_lines[k + added]);
+		const std::vector<std::pair<size_t, size_t>> old_lines = blank_lines(p_source, i);
+		const std::vector<std::pair<size_t, size_t>> new_lines = blank_lines(p_formatted, j);
+		const size_t removed = old_lines.size() - std::min(old_lines.size(), new_lines.size());
+		const size_t added = new_lines.size() - std::min(old_lines.size(), new_lines.size());
+		for (size_t k = 0; k + removed < old_lines.size(); k++) {
+			const size_t begin = old_lines[k > 0 ? k + removed : 0].first;
+			const size_t end = old_lines[k + removed].second;
+			const size_t new_begin = new_lines[k > 0 ? k + added : 0].first;
+			const std::string text = p_formatted.substr(new_begin, new_lines[k + added].second - new_begin);
+			if (p_source.compare(begin, end - begin, text) != 0) {
+				edits.push_back({ uint32_t(begin), uint32_t(end), text });
+			}
 		}
 		if (i == p_source.size()) {
 			return edits;

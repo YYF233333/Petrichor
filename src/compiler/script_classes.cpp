@@ -110,16 +110,13 @@ void mark_errors(const ClassDecl &p_decl, const std::vector<Diagnostic> &p_error
 			return p_offset >= source.begin(p_body) && p_offset < source.end(p_body);
 		});
 	};
-	const auto line_of = [&](uint32_t p_offset) {
-		return source.position(p_offset).line;
-	};
 	const auto mark = [&](const void *p_node, const TokenRange &p_range) {
 		const uint32_t begin = source.begin(p_range);
 		const uint32_t end = source.end(p_range);
-		const int first = line_of(begin);
-		const int last = line_of(end > begin ? end - 1 : begin);
+		const int first = source.position(begin).line;
+		const int last = source.position(end > begin ? end - 1 : begin).line;
 		for (const Diagnostic &error : p_errors) {
-			const int line = line_of(error.begin);
+			const int line = source.position(error.begin).line;
 			if (line < first || line > last || in_body(error.begin)) {
 				continue;
 			}
