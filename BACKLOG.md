@@ -14,10 +14,15 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - Ctrl+Z in the script editor, once the script's history is used up, undoes the rename. First check that the plugin sees the key before the CodeEdit takes it.
   - Then renaming a node in the scene editor updates `$X` and literal paths in scripts. If time is short it moves to 0.3, since a stale `$X` is a compile error, not a silent one.
 - The first quick fixes: the five kinds most frequent in the second paper migration, about half of its 230 changes. They are adding `pub`, truthiness, `async` and `.detach()`, `T?` or `.unwrap()`, and `float` arguments.
+  - A sixth kind joins them: a two-level Option compared with `null` becomes `get(k, null) == null` or `.unwrap_or(null) == null` (spec §3.4). It is mechanical, and the migration tool needs the same rewrite.
   - A light bulb on the caret's line opens them in a small list at the caret, as in VS Code. So does a shortcut registered in the editor settings, and the context menu.
   - Ctrl+. is taken by Go to Next Breakpoint (`editor/script/script_text_editor.cpp:2672`, `ed1daf0`). Alt+Enter, as in JetBrains IDEs, is free.
   - Before them, one guard for the checker's tentative queries, kept or dropped whole. Now 13 places cut `errors` and `references` back by hand, which keeps no warnings. A fix such as adding `.unwrap()` is such a query. One mode then replaces the four overlapping switches of `CompileOptions` and the completion pointer.
   - Before them, one visibility check returning the message and the hidden declaration. Now 19 places test `is_pub` themselves, and adding `pub` would hang on each.
+- The three differences from GDScript settled on 11-16. The 0.2 release notes list them as incompatible changes, with the updated list of differences:
+  - `is_instance_of(v, TYPE_*)` compares `typeof(v)` (spec §2.6). `TYPE_OBJECT` then needs a type test without the liveness check;
+  - a `T?` converted to `Variant` keeps a freed object (spec §3.3). Lowering stops casting it on the way out (`outward` in `src/compiler/lower.cpp`);
+  - a two-level Option compared with `null`, or matched by a `null` pattern, is a compile error (spec §3.4).
 
 ## Language
 
@@ -81,7 +86,9 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
 - The error explaining why a GDScript file cannot extend a class of this language (spec §11.2).
 - A quick fix adding the constructor for the implicit conversions of GDScript that this language drops (spec §3.14).
 - When lints are added, consider a hint on ordering arrays whose elements can be NaN. GDScript's results differ there (spec §5.2).
-- When lints are added, consider a warning on code that relies on the order of assignment (spec §3.6). An example is `arr[i] = next()` with `next()` assigning `i`. The owner considers such code harmful.
+- With the lints of 0.3, a warning on code that relies on the order of side effects between an assignment's target and its right side (spec §3.6). The owner considers such code harmful.
+  - Examples are `next_slot().value = compute()`, whose calls run in another order in GDScript, and `arr[i] = next()` with `next()` assigning `i`.
+  - It needs a rule in the spec and a count of its noise in the corpus first.
 - When lints are added, consider a hint on assignments to must-assign members right after `new()`. Named arguments of `new(...)` would let the compiler check them (spec §6.2).
 - When lints are added, consider a warning on names spelled as this language's keywords, such as `None` (spec §2.2). They are legal but not recommended.
 - Compiled bytecode is checked against its own source only. A game run from the command line without a build keeps old bytecode. That happens after a change to a scene or to a script it uses. Only the runtime checks (signatures, `$X` classes) then catch the difference. The analysis knows what each script read, but keeps it only in the editor's memory (architecture §2.1).
@@ -97,6 +104,7 @@ In no fixed order. An item is removed as soon as it is done (AGENTS.md, Workflow
   - Reverse conversion writes types GDScript can express. A nested typed container becomes `Array[Array]`, and a narrower result such as `map`'s goes through `assign()`.
   - It drops this language's names from `@warning_ignore`, which GDScript rejects (`modules/gdscript/gdscript_parser.cpp:5126-5128`, `ed1daf0`).
   - The report lists by-name access with names that are not literals, and `get_name()` on signals. Their members may need `pub` (spec §10.5).
+  - A two-level Option compared with `null` becomes `get(k, null) == null` or `.unwrap_or(null) == null`, which mean the same in both languages (spec §3.4).
   - Migrating a class offers to migrate its GDScript users that GDScript could not keep (spec §11.3). They call its static methods or use its enums in types. [`class_level_access.py`](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts/class_level_access.py) in petrichor-corpus finds them by spelling.
   - It rewrites assignments to a character of a String, a compile error here (spec §5.1).
     - `s[i] = c` becomes `s = s.erase(i).insert(i, c)`, and `s[i] = ""` becomes `s = s.erase(i)`.
@@ -277,13 +285,8 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Before the migration tool of 0.3: how many GDScript files migrating one class drags along in the games of corpus v2. GDScript cannot call this language's static methods or use its enums in types (spec §11.3). If the number is large, the tool generates forwarding shells in 0.3.
   - The proper fix is upstream: [godot#118595](https://github.com/godotengine/godot/pull/118595) for static methods has waited for review since July. Enums in types need a change of their own.
   - Engines older than the fix keep the restriction, back to 4.4 (architecture §6.3).
-- The differences from GDScript in code spelled the same, which the owner reviews one by one. The aim is to agree with GDScript wherever possible. A difference stays only where the semantic design or safety needs it. Seventeen are known. The latest is `is_instance_of(v, TYPE_OBJECT)` on a freed object: GDScript gives true, and this language gives false, as for `v is Object` (engine facts). Until the review, the README's first paragraph and spec §1.2 promise more than holds. These six fall outside the exception that spec §1.2 names:
-  - an array or dictionary literal takes its type from its elements;
-  - members without `pub` are invisible to reflection by name;
-  - a `null` stored in a `Variant` is a value;
-  - an assignment evaluates its right side before reading its target;
-  - engine properties bypass a script's `_get` and `_set`;
-  - a container used as a `Dictionary` key is stored as a read-only copy.
+- The differences from GDScript that spec §1.2 names stay open for public comment until 0.9. Literals typed by their elements are singled out. Their risk is GDScript code writing another type into an inferred `Array[int]`, which the engine truncates. Revisit one only on feedback with real code.
+- What GDScript does when a freed object is passed to an engine parameter of an object type. From a `T?`, this language passes null (spec §3.3). If GDScript reports an error there, the case falls inside the exception of spec §1.2. Otherwise it is a difference to settle.
 - A cycle of static initialization whose two classes load on two loader threads deadlocks, instead of being a program error (`initialize_class` in `src/runtime/vm.cpp`). The cycle is a program error anyway. Whether GDScript deadlocks too is unchecked.
 - Whether a class may be named as a standard type of this language, as `class_name Result` (spec §4.1). It is a compile error for now. Corpus v1 has no such class name. Inner classes may take these names, as godot-tiny-mmo's `class Result` does.
 - Whether a member may have the name of a member of another kind in a base class of this language (spec §4.1). It is a compile error, as in GDScript (`modules/gdscript/gdscript_analyzer.cpp:234-253`, `ed1daf0`). An example is a function named as an inherited enum.

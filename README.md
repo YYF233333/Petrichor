@@ -1,6 +1,6 @@
 # Petrichor
 
-Petrichor is a statically typed scripting language for Godot 4 that keeps GDScript's syntax. Code written as in GDScript either behaves the same or fails at compile time with a suggested fix. It ships as a GDExtension for the official editor. Exports use the official templates, with no custom engine build.
+Petrichor is a statically typed scripting language for Godot 4 that keeps GDScript's syntax. Apart from a few differences that the spec names, code written as in GDScript either behaves the same or fails at compile time with a suggested fix. It ships as a GDExtension for the official editor. Exports use the official templates, with no custom engine build.
 
 0.1 has been released. Semantics may still change before 1.0; see [Status and Limitations](#status-and-limitations).
 
@@ -102,7 +102,7 @@ To build from source, you need a C++17 toolchain and SCons. Run `git submodule u
 - Suited to: projects that already use typed GDScript heavily and accept code changes during 0.x.
 - Not yet suited to: projects that export to Android, iOS or Web. Their libraries come with 0.9.
 - Before 0.9, the language semantics may change, and release notes list every incompatible change. From 0.9, a change in what code means shows as a compile error. Fixes that change only runtime behavior are listed apart in release notes.
-- Some constructs still behave differently from GDScript without a compile error. The [list](BACKLOG.md#open-questions) is under review.
+- A few constructs behave differently from GDScript without a compile error, where the design needs it. The [spec](docs/language-spec.md#12-relation-to-gdscript) names each one, and they stay open for comment until 0.9.
 - Bytecode is not compatible across builds. After upgrading the extension, rebuild the project once.
 - The editor lacks find references, rename, quick fixes, lints and LSP. They are planned for 0.2–0.3.
 - There is no GDScript migration tool yet. Manual migration takes over twenty changes per hundred lines, so a real project is best tried with the tool, planned for 0.3. It works both ways. A file that uses no feature GDScript lacks converts back to GDScript, even after this project stops. A file that uses one, such as a struct or `Result`, is not converted; the tool lists where.
