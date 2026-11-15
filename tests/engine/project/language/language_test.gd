@@ -414,7 +414,7 @@ func _ready() -> void:
 	refs.written(orphan)
 	_check(typeof(refs.returned()) == TYPE_NIL and typeof(refs.held) == TYPE_NIL and typeof(refs.get("held")) == TYPE_NIL, "a T? to a freed object reaches GDScript as None, returned or read as a member")
 	var converted: Array = refs.as_variants()
-	_check(converted[0] == "<Freed Object>" and converted.slice(1).all(func(x): return typeof(x) == TYPE_OBJECT), "converted to Variant, it keeps the freed object, as in GDScript")
+	_check(converted[0] == "<Freed Object>" and converted.slice(1, 4).all(func(x): return typeof(x) == TYPE_OBJECT) and typeof(converted[4]["n"]) == TYPE_OBJECT, "converted to Variant, it keeps the freed object, as in GDScript, also in an encoded struct")
 	_check(typeof(refs.listed()[0]) == TYPE_NIL, "and in an Array[Node?]")
 	_check(orphan.owner == null, "and written to a property")
 	refs.adopted(orphan)

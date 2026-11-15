@@ -14,13 +14,13 @@ pub func hold(node: Node):
 pub func returned() -> Node?:
 	return held
 
-# A Variant parameter of the engine, untyped containers and a Variant.
+# A Variant parameter of the engine, untyped containers, a Variant and a struct.
 pub func as_variants() -> Array:
 	var v: Variant = held
 	var a: Array = [held]
 	var d: Dictionary = {}
 	d[0] = held
-	return [str(held), v, a[0], d[0]]
+	return [str(held), v, a[0], d[0], Holder(n = held)]
 
 pub func listed() -> Array[Node?]:
 	return [held]
@@ -61,3 +61,7 @@ pub func identities() -> Array[bool]:
 	var maybe_a: Node? = also_a
 	var none: Node? = None
 	return live + [a == also_a, a == b, maybe_a == none, maybe_a == a]
+
+
+struct Holder:
+	var n: Node?

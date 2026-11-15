@@ -816,7 +816,8 @@ Variant encode(const TypeImage &p_type, const uint8_t *p_slot) {
 		}
 		return encoded;
 	}
-	return outward_variant(p_type, p_slot);
+	// A T? keeps a freed object, as a value converted to Variant does (spec §3.3).
+	return to_variant(p_type.storage, p_slot);
 }
 
 static bool decode_container(const TypeImage &p_type, const Variant &p_value, uint8_t *p_slot);
