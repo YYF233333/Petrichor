@@ -54,6 +54,37 @@ struct Lookup {
 // editor cannot show, such as a node of a scene.
 std::optional<Lookup> lookup(Analysis &r_analysis, const EngineApi &p_engine, const ProjectApi &p_project, const DocName &p_doc_name, const std::string &p_path, const std::string &p_source, uint32_t p_offset);
 
+// A place that refers to what a name declares, as finding references lists it
+// (spec §13.2) and renaming changes it (§13.3).
+struct Occurrence {
+	std::string file; // The script, or the scene or resource file.
+	// As the reference table has it: in a script, the name's bytes; in a scene
+	// or a resource file, what stores or names the declaration there.
+	Reference reference;
+	// In a script: the line from 1, the columns of the name and after it from
+	// 1, in code points, and the line's text.
+	int line = 0;
+	int column = 0;
+	int end_column = 0;
+	std::string text;
+	bool declaration = false;
+	// A name that may refer to it, but resolves to nothing: one found by name
+	// at run time, or a word in a script of another language.
+	bool candidate = false;
+};
+
+// Where what the name at byte `p_offset` of the script at `p_path` refers to
+// is declared and referred to, the script compiled from `p_source`; also
+// every declaration of this language that overriding or implementing joins
+// to it, through others, as an interface joins its implementations. It
+// searches the project's scripts of this language and the checks of its
+// scenes and resource files, each as Analysis reads it. The declaration of
+// the name comes first, then the files of the others, then the rest by file.
+// Then, for a declaration of this language that is not a local, the
+// candidates by file, the whole words in `p_other_scripts` among them.
+// nullopt where the name refers to nothing.
+std::optional<std::vector<Occurrence>> find_references(Analysis &r_analysis, const ProjectApi &p_project, const std::string &p_path, const std::string &p_source, uint32_t p_offset, const std::vector<std::string> &p_other_scripts);
+
 // As the script editor shows a name it completes
 // (core/object/script_language.h:293-306).
 enum class CompletionKind {

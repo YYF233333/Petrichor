@@ -10,6 +10,8 @@
 #include <cctype>
 #include <climits>
 #include <map>
+#include <set>
+#include <tuple>
 
 namespace petrichor::compiler {
 
@@ -543,6 +545,211 @@ std::optional<Lookup> lookup(Analysis &r_analysis, const EngineApi &p_engine, co
 		default:
 			return std::nullopt;
 	}
+}
+
+namespace {
+
+// The whole words `p_name` in `p_text`, by offset.
+std::vector<uint32_t> whole_words(const std::string &p_text, const std::string &p_name) {
+	const auto in_name = [&](size_t p_at) {
+		return p_at < p_text.size() && (is_name_char(p_text[p_at]) || static_cast<unsigned char>(p_text[p_at]) >= 0x80);
+	};
+	std::vector<uint32_t> found;
+	for (size_t at = p_text.find(p_name); at != std::string::npos; at = p_text.find(p_name, at + 1)) {
+		if ((at == 0 || !in_name(at - 1)) && !in_name(at + p_name.size())) {
+			found.push_back(uint32_t(at));
+		}
+	}
+	return found;
+}
+
+// The lines of a script, to place names in.
+class Lines {
+	const std::string &text;
+	std::vector<uint32_t> starts{ 0 };
+
+	int code_points(uint32_t p_begin, uint32_t p_end) const {
+		return int(std::count_if(text.begin() + p_begin, text.begin() + p_end, [](char p_byte) { return (static_cast<unsigned char>(p_byte) & 0xC0) != 0x80; }));
+	}
+
+public:
+	explicit Lines(const std::string &p_text) :
+			text(p_text) {
+		for (size_t at = text.find('\n'); at != std::string::npos; at = text.find('\n', at + 1)) {
+			starts.push_back(uint32_t(at + 1));
+		}
+	}
+
+	Occurrence at(const std::string &p_file, const Reference &p_reference) const {
+		Occurrence found;
+		found.file = p_file;
+		found.reference = p_reference;
+		found.line = int(std::upper_bound(starts.begin(), starts.end(), p_reference.begin) - starts.begin());
+		const uint32_t start = starts[found.line - 1];
+		found.column = 1 + code_points(start, p_reference.begin);
+		found.end_column = found.column + code_points(p_reference.begin, p_reference.end);
+		const size_t end = size_t(found.line) < starts.size() ? starts[found.line] - 1 : text.size();
+		found.text = text.substr(start, end - start);
+		if (!found.text.empty() && found.text.back() == '\r') {
+			found.text.pop_back();
+		}
+		return found;
+	}
+
+	// The whole words `p_name`, which nothing resolves.
+	std::vector<Occurrence> words(const std::string &p_file, const std::string &p_name) const {
+		std::vector<Occurrence> found;
+		for (const uint32_t offset : whole_words(text, p_name)) {
+			Reference word;
+			word.target = { DeclId::Kind::Unresolved, std::string(), p_name };
+			word.begin = offset;
+			word.end = offset + uint32_t(p_name.size());
+			found.push_back(at(p_file, word));
+		}
+		return found;
+	}
+};
+
+struct Script {
+	std::string path;
+	std::string source;
+	std::shared_ptr<const CompileResult> result;
+};
+
+} // namespace
+
+std::optional<std::vector<Occurrence>> find_references(Analysis &r_analysis, const ProjectApi &p_project, const std::string &p_path, const std::string &p_source, uint32_t p_offset, const std::vector<std::string> &p_other_scripts) {
+	using Kind = DeclId::Kind;
+	const Analysis::Pass pass(r_analysis);
+	std::vector<Script> scripts{ { p_path, p_source, r_analysis.compile(p_path, p_source) } };
+	const std::vector<Reference> &own = scripts[0].result->references;
+	const auto at = std::find_if(own.begin(), own.end(), [&](const Reference &p_reference) {
+		return p_reference.begin <= p_offset && p_offset <= p_reference.end;
+	});
+	if (at == own.end() || at->target.kind == Kind::Unresolved) {
+		return std::nullopt;
+	}
+	const DeclId target = at->target;
+	// A node path names the node in each scene the script is in.
+	std::set<DeclId> family;
+	for (const Reference &reference : own) {
+		if (reference.begin == at->begin && reference.end == at->end) {
+			family.insert(reference.target);
+		}
+	}
+	if (target.kind != Kind::Local) {
+		for (const std::string &path : p_project.script_paths()) {
+			const std::optional<std::string> source = is_script_path(path) && path != p_path ? p_project.script_source(path) : std::nullopt;
+			if (source) {
+				scripts.push_back({ path, *source, r_analysis.compile(path, *source) });
+			}
+		}
+	}
+	// Declarations that override or implement each other are renamed together,
+	// but not through those of the engine or of another language.
+	std::vector<std::pair<DeclId, DeclId>> overrides;
+	for (const Script &script : scripts) {
+		for (const Reference &reference : script.result->references) {
+			if (reference.declares && reference.overrides && reference.target.kind == Kind::Script && reference.overrides->kind == Kind::Script) {
+				overrides.emplace_back(reference.target, *reference.overrides);
+			}
+		}
+	}
+	for (bool grown = true; grown;) {
+		grown = false;
+		for (const auto &[overriding, overridden] : overrides) {
+			if (family.count(overriding) != family.count(overridden)) {
+				family.insert(overriding);
+				family.insert(overridden);
+				grown = true;
+			}
+		}
+	}
+
+	std::vector<Occurrence> found;
+	std::string name; // As its declaration spells it, for a declaration of this language.
+	for (const Script &script : scripts) {
+		const Lines lines(script.source);
+		for (const Reference &reference : script.result->references) {
+			if (family.count(reference.target)) {
+				found.push_back(lines.at(script.path, reference));
+				found.back().declaration = reference.declares.has_value();
+			}
+			if (reference.declares && reference.target == target && target.kind == Kind::Script) {
+				name = script.source.substr(reference.begin, reference.end - reference.begin);
+			}
+		}
+	}
+	for (const DeclId &id : family) {
+		if (id.kind == Kind::Node) {
+			Occurrence node;
+			node.file = id.scope;
+			node.reference.target = id;
+			node.reference.scene = id.scope;
+			node.reference.node = id.name;
+			node.declaration = true;
+			found.push_back(std::move(node));
+		}
+		const std::optional<std::string> source = id.kind == Kind::Foreign && !id.name.empty() ? p_project.script_source(id.scope) : std::nullopt;
+		const std::optional<Lookup> declared = source ? gdscript_declaration(*source, id.name) : std::nullopt;
+		for (Occurrence &word : declared ? Lines(*source).words(id.scope, id.name) : std::vector<Occurrence>()) {
+			if (word.line == declared->line) {
+				word.reference.target = id;
+				word.declaration = true;
+				found.push_back(std::move(word));
+				break;
+			}
+		}
+	}
+	if (std::any_of(family.begin(), family.end(), [](const DeclId &p_id) { return p_id.kind == Kind::Script; })) {
+		for (const std::string &scene : p_project.scene_paths()) {
+			for (const Reference &reference : r_analysis.check_scene(scene)->references) {
+				if (family.count(reference.target)) {
+					found.push_back({ reference.scene, reference });
+				}
+			}
+		}
+	}
+
+	if (!name.empty()) {
+		for (const Script &script : scripts) {
+			const Lines lines(script.source);
+			for (const Reference &reference : script.result->references) {
+				if (reference.target == DeclId{ Kind::Unresolved, std::string(), name }) {
+					found.push_back(lines.at(script.path, reference));
+					found.back().candidate = true;
+				}
+			}
+		}
+		for (const std::string &path : p_other_scripts) {
+			const std::string source = p_project.script_source(path).value_or(std::string());
+			for (Occurrence &word : Lines(source).words(path, name)) {
+				word.candidate = true;
+				found.push_back(std::move(word));
+			}
+		}
+	}
+
+	// The files of declarations first, the name's own first of all.
+	const auto order = [&](const Occurrence &p_found) {
+		return p_found.declaration ? int(p_found.reference.target != target) : 2;
+	};
+	std::map<std::string, int> file_order;
+	for (const Occurrence &each : found) {
+		const auto entry = file_order.emplace(each.file, order(each)).first;
+		entry->second = std::min(entry->second, order(each));
+	}
+	const auto key = [&](const Occurrence &p_found) {
+		return std::make_tuple(p_found.candidate, p_found.candidate ? 2 : file_order.at(p_found.file), std::cref(p_found.file), order(p_found), p_found.reference.begin);
+	};
+	std::stable_sort(found.begin(), found.end(), [&](const Occurrence &p_a, const Occurrence &p_b) { return key(p_a) < key(p_b); });
+	// A name in a script once, which an implementation of an interface's
+	// member and a node path in several scenes have several references for.
+	const auto same_place = [](const Occurrence &p_a, const Occurrence &p_b) {
+		return p_a.line > 0 && p_a.file == p_b.file && p_a.reference.begin == p_b.reference.begin;
+	};
+	found.erase(std::unique(found.begin(), found.end(), same_place), found.end());
+	return found;
 }
 
 namespace {

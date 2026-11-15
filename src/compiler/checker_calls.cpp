@@ -408,7 +408,18 @@ std::optional<Checker::NamedMember> Checker::literal_member(Expr &r_call, const 
 		object = r_call.args[p_named.target]->type;
 	}
 	object.nullable = false;
-	if (object.kind != TypeKind::Object || (object.name == "Object" && object.script.empty()) || text.find('/') != std::string::npos) {
+	// A name found only at run time is unresolved, a candidate for finding
+	// references and renaming (architecture §2.1).
+	const auto unresolved = [&] {
+		if (text.find_first_of(":/") == std::string::npos) {
+			refer_string(literal, { DeclId::Kind::Unresolved, std::string(), text });
+		}
+		return std::nullopt;
+	};
+	if (object.kind != TypeKind::Object || (object.name == "Object" && object.script.empty())) {
+		return unresolved();
+	}
+	if (text.find('/') != std::string::npos) {
 		return std::nullopt;
 	}
 	size_t start = p_named.path && !text.empty() && text[0] == ':' ? 1 : 0;
@@ -424,14 +435,12 @@ std::optional<Checker::NamedMember> Checker::literal_member(Expr &r_call, const 
 	const NamedMember member = named_member(object, p_named.kind, name);
 	const char *kind = p_named.kind == Kind::Method ? "method" : p_named.kind == Kind::Property ? "property"
 																								: "signal";
-	if (!member.found) {
-		if (!p_named.query) {
-			error(literal.range, object.to_string() + " has no " + kind + " \"" + name + "\".");
-		}
+	if (!member.found && !p_named.query) {
+		error(literal.range, object.to_string() + " has no " + kind + " \"" + name + "\".");
 		return std::nullopt;
 	}
-	if (member.unknown) {
-		return std::nullopt;
+	if (!member.found || member.unknown) {
+		return unresolved();
 	}
 	if (member.hidden) {
 		const std::string fix = p_named.kind == Kind::Method ? "pass the method itself, as " + name : p_named.kind == Kind::Signal ? "use the signal itself, as " + name
