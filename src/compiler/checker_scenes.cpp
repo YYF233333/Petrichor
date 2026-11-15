@@ -735,6 +735,17 @@ void Checker::check_connections() {
 	const TokenRange header{ cls.extends_token, cls.extends_token };
 	for (const Scene &scene : scenes) {
 		for (const SceneConnection &connection : scene.connections) {
+			const ViewNode *source = view_node(scene, connection.source);
+			const bool sends = source && (source->node.script.empty() ? source->node.instance_script : source->node.script) == options.path;
+			const SignalDecl *signal = sends ? find_named(cls.all_signals, connection.signal) : nullptr;
+			if (signal && references) {
+				Reference reference;
+				reference.target = script_id(declaring(cls, *signal, &ClassDecl::signals).path, signal->name);
+				reference.scene = scene.path;
+				reference.node = connection.source;
+				reference.connection = connection;
+				references->push_back(std::move(reference));
+			}
 			const ViewNode *target = view_node(scene, connection.target);
 			if (!target || (target->node.script.empty() ? target->node.instance_script : target->node.script) != options.path) {
 				continue;
@@ -759,7 +770,6 @@ void Checker::check_connections() {
 				reference.connection = connection;
 				references->push_back(std::move(reference));
 			}
-			const ViewNode *source = view_node(scene, connection.source);
 			bool missing = false;
 			bool hidden = false;
 			const std::optional<std::vector<Type>> arguments = source ? signal_arguments(source->node, connection.signal, missing, hidden) : std::nullopt;

@@ -72,7 +72,7 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 	// The scripts of its resources, on its nodes and on the roots of the
 	// scenes it instances, with the files of the classes they extend, inner
 	// ones too, whose checks look at them too. When its tracks or synchronized
-	// properties name members, or it connects to a node inside a scene it
+	// properties name members, or it connects a node inside a scene it
 	// instances or stores values for one, also those deeper in the scenes it
 	// instances, which they reach; and so when it is used as a root, as its
 	// nodes all get the exports that must be assigned.
@@ -87,7 +87,8 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 	};
 	const auto inside_instance = [&](const SceneConnection &p_connection) {
 		return std::any_of(scene->nodes.begin(), scene->nodes.end(), [&](const SceneNode &p_node) {
-			return !p_node.instance.empty() && p_connection.target.rfind(p_node.path + "/", 0) == 0;
+			const std::string inside = p_node.path + "/";
+			return !p_node.instance.empty() && (p_connection.target.rfind(inside, 0) == 0 || p_connection.source.rfind(inside, 0) == 0);
 		});
 	};
 	const auto changes = [](const SceneNode &p_node) {

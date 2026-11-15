@@ -408,11 +408,21 @@ std::optional<Checker::NamedMember> Checker::literal_member(Expr &r_call, const 
 		object = r_call.args[p_named.target]->type;
 	}
 	object.nullable = false;
+	const size_t first = p_named.path && !text.empty() && text[0] == ':' ? 1 : 0;
+	for (size_t start = first;;) {
+		const size_t colon = p_named.path ? text.find(':', start) : std::string::npos;
+		r_path.push_back(text.substr(start, colon == std::string::npos ? std::string::npos : colon - start));
+		if (colon == std::string::npos) {
+			break;
+		}
+		start = colon + 1;
+	}
+	const std::string &name = r_path[0];
 	// A name found only at run time is unresolved, a candidate for finding
 	// references and renaming (architecture §2.1).
 	const auto unresolved = [&] {
-		if (text.find_first_of(":/") == std::string::npos) {
-			refer_string(literal, { DeclId::Kind::Unresolved, std::string(), text });
+		if (!name.empty() && name.find('/') == std::string::npos) {
+			refer_string(literal, { DeclId::Kind::Unresolved, std::string(), name }, first, name.size());
 		}
 		return std::nullopt;
 	};
@@ -422,16 +432,6 @@ std::optional<Checker::NamedMember> Checker::literal_member(Expr &r_call, const 
 	if (text.find('/') != std::string::npos) {
 		return std::nullopt;
 	}
-	size_t start = p_named.path && !text.empty() && text[0] == ':' ? 1 : 0;
-	while (true) {
-		const size_t colon = p_named.path ? text.find(':', start) : std::string::npos;
-		r_path.push_back(text.substr(start, colon == std::string::npos ? std::string::npos : colon - start));
-		if (colon == std::string::npos) {
-			break;
-		}
-		start = colon + 1;
-	}
-	const std::string &name = r_path[0];
 	const NamedMember member = named_member(object, p_named.kind, name);
 	const char *kind = p_named.kind == Kind::Method ? "method" : p_named.kind == Kind::Property ? "property"
 																								: "signal";
@@ -448,9 +448,7 @@ std::optional<Checker::NamedMember> Checker::literal_member(Expr &r_call, const 
 		error(literal.range, "\"" + name + (p_named.kind == Kind::Method ? "()" : "") + "\" is not pub, so the engine cannot find it by name; " + fix + ".");
 		return std::nullopt;
 	}
-	if (r_path.size() == 1) {
-		refer_string(literal, member.id);
-	}
+	refer_string(literal, member.id, first, name.size());
 	return member;
 }
 

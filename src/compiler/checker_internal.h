@@ -629,7 +629,7 @@ class Checker : public ClassRelation {
 	Reference *refer(uint32_t p_token, const DeclId &p_target, std::optional<SymbolKind> p_declares = std::nullopt, const std::optional<DeclId> &p_overrides = std::nullopt);
 	Reference *refer_bytes(uint32_t p_begin, uint32_t p_end, const DeclId &p_target);
 	void refer_local(uint32_t p_token, const Type &p_type, bool p_constant = false);
-	void refer_string(const Expr &p_literal, const DeclId &p_target);
+	void refer_string(const Expr &p_literal, const DeclId &p_target, size_t p_from = 0, size_t p_length = std::string::npos);
 	const ClassDecl *script_decl(const std::string &p_path) const;
 	const ClassDecl *script_header(const std::string &p_path) const;
 	std::optional<std::string> broken(const void *p_decl, const std::string &p_what) const;

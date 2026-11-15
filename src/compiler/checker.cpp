@@ -57,8 +57,9 @@ void Checker::refer_local(uint32_t p_token, const Type &p_type, bool p_constant)
 	}
 }
 
-// What a string literal holds, when it is written without escapes.
-void Checker::refer_string(const Expr &p_literal, const DeclId &p_target) {
+// What a string literal holds, or `p_length` bytes of it from `p_from`, when
+// it is written without escapes.
+void Checker::refer_string(const Expr &p_literal, const DeclId &p_target, size_t p_from, size_t p_length) {
 	if (p_literal.kind != ExprKind::StringLiteral || p_literal.range.first >= cls.source->tokens.size()) {
 		return;
 	}
@@ -72,7 +73,8 @@ void Checker::refer_string(const Expr &p_literal, const DeclId &p_target) {
 	const uint32_t length = token.end() - begin;
 	const uint32_t quotes = length >= 6 && length - 6 == p_literal.text.size() ? 3 : 1;
 	if (length == p_literal.text.size() + 2 * quotes && cls.source->text.compare(begin + quotes, p_literal.text.size(), p_literal.text) == 0) {
-		refer_bytes(begin + quotes, token.end() - quotes, p_target);
+		const uint32_t from = begin + quotes + uint32_t(p_from);
+		refer_bytes(from, from + uint32_t(std::min(p_length, p_literal.text.size() - p_from)), p_target);
 	}
 }
 

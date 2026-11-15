@@ -101,7 +101,7 @@ TEST_CASE("a member is found where other scripts use it, by name in a literal to
 	CHECK(found(project(), "res://user.pet", "speed") == expected);
 }
 
-TEST_CASE("a method a scene connects and a signal named by a literal are found in the scene and in the literal") {
+TEST_CASE("a method and a signal a scene connects are found in the scene, and a signal in a literal") {
 	const std::string method = joined({
 			"res://user.pet:4:10 declaration",
 			"res://user.pet:10:20",
@@ -110,9 +110,20 @@ TEST_CASE("a method a scene connects and a signal named by a literal are found i
 	CHECK(found(project(), "res://user.pet", "on_hurt", 1) == method);
 	const std::string signal = joined({
 			"res://base.pet:4:12 declaration",
+			"res://level.tscn Enemy Enemy.hurt",
 			"res://user.pet:10:13",
 	});
 	CHECK(found(project(), "res://user.pet", "hurt\"") == signal);
+}
+
+TEST_CASE("a property path names the member in its first subname") {
+	FakeProject paths;
+	paths.add_script("res://shake.pet", "extends Node\n\npub var offset := Vector2.ZERO\n\n\nfunc shake(tween: Tween):\n\ttween.tween_property(self, \"offset:x\", 2.0, 1.0)\n");
+	const std::string expected = joined({
+			"res://shake.pet:3:9 declaration",
+			"res://shake.pet:7:30",
+	});
+	CHECK(found(paths, "res://shake.pet", "offset") == expected);
 }
 
 TEST_CASE("a method is found with those it overrides and that override it, then the names that may call it") {
