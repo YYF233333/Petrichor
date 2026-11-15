@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 38e97132339d3df4e795c5e9fe3ba5d4fc251718. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob a4394ddf8d52b7cf53c4e1f9af28002df8393dc8. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -18,7 +18,15 @@ Petrichor is a fully statically typed scripting language for Godot 4, shipped as
 ### 1.2 Relation to GDScript
 
 - The surface syntax follows GDScript: indentation, `func`, `var`, `extends`, `signal`, `@export`, `$X` and so on. New constructs extend it in the same style.
-- **No silent differences**: a construct written as in GDScript either behaves as in GDScript or is a compile error. The error gives a fix. The construct is never silently different. The only exception is where GDScript fails at run time or silently gives a wrong result. Examples are a default value, a truncation and hanging forever. There, this language makes it a program error, or does what the code originally intended.
+- **No silent differences**: a construct written as in GDScript either behaves as in GDScript or is a compile error. The error gives a fix. The construct is never silently different. The exceptions are of two kinds:
+  - where GDScript fails at run time or silently gives a wrong result. Examples are a default value, a truncation and hanging forever. There, this language makes it a program error, or does what the code originally intended;
+  - differences that the design of this language needs, each stated in its rules:
+    - an array or dictionary literal without a target type takes its type from its elements;
+    - members without `pub` are invisible to reflection by name;
+    - object types are non-null, so a null passed in by the engine or another language is also a program error;
+    - calls in the target of an assignment run after the right side;
+    - reading and writing a property of an engine class calls its getter and setter directly, not the `_get` and `_set` of the object's script;
+    - when two two-level Options are compared with each other, an outer `None` does not equal an inner empty value.
 - **The reversibility rule**: what GDScript code means can always be written in this language with only two kinds of forms:
   - forms that GDScript also has, with the same meaning;
   - reversible forms, that is, forms whose removal or replacement by a fixed rule gives GDScript of the same meaning. Examples are `pub`, `async`, `.detach()` and `?` in types.
@@ -85,7 +93,7 @@ Besides the no-silent-differences rule, this language's own operations guarantee
   - New contextual keywords: `pub`, `struct`, `interface`, `implements`, `async`, `None`. They are keywords only in their own syntactic positions. After a dot and in other positions, they are ordinary names.
   - A `None` standing alone is always the empty Option. **[Known limitation]** A declaration named `None` that a bare name can reach is a compile error. Examples are a variable, a function and a value of an anonymous enum.
   - A new postfix operator `?` for short-circuit return.
-  - `null` is an alias of `None`, with the same semantics as `None`. A hint suggests writing `None` in new code.
+  - `null` is an alias of `None`, with the same semantics as `None`. A hint suggests writing `None` in new code. Writing `null` in a comparison with a two-level Option is a compile error; see the rules of Option.
   - Single-quoted and double-quoted strings cannot span lines. A string that spans lines must use triple quotes.
   - `##` documentation comments also apply to structs and their fields, and to interfaces and their members. A comment that begins with `###` is an ordinary comment.
 
@@ -147,8 +155,9 @@ Besides the no-silent-differences rule, this language's own operations guarantee
 
 - GDScript's own constants and utility functions follow GDScript, such as `PI`, `range()` and `len()`. A declaration with the same name shadows them.
 - `Color8`, `convert`, `type_exists`, `inst_to_dict` and `dict_to_inst`, which GDScript has deprecated, are compile errors. The diagnostic gives the replacement that the Godot documentation suggests.
-- The `T` of `is_instance_of(v, T)` is one of two kinds:
-  - a written class name or a `TYPE_*` constant, which means the same as `v is T`;
+- The `T` of `is_instance_of(v, T)` is one of three kinds:
+  - a written class name, which means the same as `v is T`;
+  - a `TYPE_*` constant, which compares only `typeof(v)`, as in GDScript. So a freed object also belongs to `TYPE_OBJECT`. Narrowing is the same as for `is`;
   - a value whose static type is `Script`. It is tested by the rules of `is`, but does not narrow the type of `v`.
 - **[Known limitation]** An engine class stored in a variable cannot be tested this way.
 
@@ -174,7 +183,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 - An object type `T` is non-null. `T?` is an object or `None`.
 - After an object is freed:
-  - every read of a `T?` reference does a liveness check, consistent with `is_instance_valid`, and a freed object reads as `None`. So narrowing by `!= None` is also a liveness check;
+  - reading a `T?` reference does a liveness check, consistent with `is_instance_valid`, and a freed object reads as `None`. So narrowing by `!= None` is also a liveness check. The only exception is a conversion to `Variant`: it keeps the freed object, as in GDScript, so `print` and `typeof` still see it;
   - a `T` reference may still hold a freed object. Reading it, comparing by ObjectID with `==` and ordinary argument passing do not count as access. Accessing its members is a program error. For instances of this language and objects it freed, a debug build states the free site in the diagnostic;
   - passing a freed object to an engine parameter declared with an object type is a program error. So is writing it to an engine property of an object type. So is passing it to a method of an `Array[T]` with object elements, such as `append`, `erase` and `has`. Parameters declared as `Variant` are not restricted this way, e.g. `is_instance_valid` returns `false`;
   - for any static type, `is` on a freed object is `false` and `as` is `None`;
@@ -187,7 +196,8 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - A nested Option keeps its levels, such as `T??`:
   - the literal `None` is always the outermost `None`;
   - `?`, `unwrap`, `match` and narrowing each peel one level at a time, and `.flatten()` merges `T??` into `T?`;
-  - the same holds for `Variant?`: `None` means no value, and NIL is a value.
+  - the same holds for `Variant?`: `None` means no value, and NIL is a value;
+  - comparing a two-level Option, that is `T??` or `Variant?`, with `null` is a compile error, because `null` there stands for both levels in GDScript. So is matching it with a `null` pattern. Writing `== None` tests only the outer level. To test both levels, the quick fix writes `get(k, null) == null` or `.unwrap_or(null) == null`.
 
   ```gdscript
   var r = enemies.pop_back()   # enemies: Array[Enemy?], r: Enemy??
@@ -897,7 +907,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 10.5 Members exposed through reflection
 
-- Through reflection by name, the engine, GDScript and C# can access only `pub` members. Reflection by name means `get_property_list`, `has_method`, `call`, `get`, `set` and `connect`. Overrides of engine virtual functions are excepted: the engine calls them by their agreed names. Other members are invisible to access by name. GDScript reports a compile error, and a dynamic access reports at run time that the member is not found.
+- Through reflection by name, the engine, GDScript and C# can access only `pub` members. Reflection by name means `get_property_list`, `has_method`, `call`, `get`, `set` and `connect`. Overrides of engine virtual functions are excepted: the engine calls them by their agreed names. Other members are invisible to access by name, as if they did not exist. In GDScript, writing them is a compile error. In a dynamic access, `call` reports an error, `get` gives null, `set` has no effect and `in` gives false.
 - The following members, which the engine accesses by name, must have `pub`. Otherwise it is a compile error, and the quick fix adds `pub`:
   - exported variables and `@rpc` functions;
   - the signals and methods of signal connections in scenes;

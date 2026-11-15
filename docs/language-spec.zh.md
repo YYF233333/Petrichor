@@ -16,7 +16,15 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 ### 1.2 与 GDScript 的关系
 
 - 表层语法沿用 GDScript：缩进、`func`、`var`、`extends`、`signal`、`@export`、`$X` 等。新增构造按同一风格扩展。
-- **无静默差异**：与 GDScript 写法相同的构造，行为要么与 GDScript 一致，要么报编译错误并给出改法，绝不悄悄不同。唯一的例外是 GDScript 在运行时出错或悄悄给出错误结果之处（如默认值、截断、永远挂起）。本语言在那里改为程序错误，或给出代码本来的意图。
+- **无静默差异**：与 GDScript 写法相同的构造，行为要么与 GDScript 一致，要么报编译错误并给出改法，绝不悄悄不同。例外有两类：
+  - GDScript 在运行时出错或悄悄给出错误结果之处（如默认值、截断、永远挂起）。本语言在那里改为程序错误，或给出代码本来的意图；
+  - 本语言的设计所需、在各处规则中写明的差异：
+    - 无目标类型的数组和字典字面量由元素定型；
+    - 不带 `pub` 的成员对按名反射不可见；
+    - 对象类型非空，引擎和其他语言传入 null 也是程序错误；
+    - 赋值目标中的调用在右边之后执行；
+    - 读写引擎类的属性直接调用其 getter 和 setter，不经对象脚本的 `_get` 和 `_set`；
+    - 两个两层 Option 互相比较时，外层的 `None` 与内层的空值不等。
 - **可还原规则**：GDScript 代码的含义，在本语言中都能只用两类写法写出：
   - GDScript 也有、且含义相同的写法；
   - 可还原的写法，即去掉或按固定规则替换后得到同义 GDScript 的写法，如 `pub`、`async`、`.detach()`、类型中的 `?`。
@@ -83,7 +91,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
   - 新增上下文关键字：`pub`、`struct`、`interface`、`implements`、`async`、`None`。它们只在各自的语法位置上是关键字，在点号之后和其他位置是普通名字。
   - 单独出现的 `None` 总是空的 Option。【已知限制】以 `None` 为名、可用裸名访问的声明报编译错误，如变量、函数和匿名 enum 的值。
   - 新增短路返回的后缀运算符 `?`。
-  - `null` 是 `None` 的别名，语义与 `None` 相同。提示建议新代码写 `None`。
+  - `null` 是 `None` 的别名，语义与 `None` 相同。提示建议新代码写 `None`。与两层 Option 比较时写 `null` 报编译错误，见 Option 的规则。
   - 单引号和双引号字符串不能跨行，跨行须用三引号。
   - `##` 文档注释也用于 struct 及其字段、interface 及其成员。以 `###` 开头的注释是普通注释。
 
@@ -145,8 +153,9 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 - GDScript 自有的常量和工具函数沿用 GDScript，如 `PI`、`range()`、`len()`。同名的声明遮蔽它们。
 - GDScript 已弃用的 `Color8`、`convert`、`type_exists`、`inst_to_dict` 和 `dict_to_inst` 报编译错误。诊断给出 Godot 文档建议的替代写法。
-- `is_instance_of(v, T)` 的 `T` 有两种：
-  - 写出的类名或 `TYPE_*` 常量，含义与 `v is T` 相同；
+- `is_instance_of(v, T)` 的 `T` 有三种：
+  - 写出的类名，含义与 `v is T` 相同；
+  - `TYPE_*` 常量，与 GDScript 相同，只比较 `typeof(v)`。所以已释放对象也属于 `TYPE_OBJECT`。收窄与 `is` 相同；
   - 静态类型为 `Script` 的值，按 `is` 的规则检测，但不收窄 `v` 的类型。
 - 【已知限制】存在变量中的引擎类不能这样检测。
 
@@ -172,7 +181,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 - 对象类型 `T` 非空；`T?` 为对象或 `None`。
 - 对象被释放后：
-  - 每次读取 `T?` 引用都做存活检查（与 `is_instance_valid` 一致），已释放对象读作 `None`。因此 `!= None` 收窄同时也是存活检查；
+  - 读取 `T?` 引用时做存活检查（与 `is_instance_valid` 一致），已释放对象读作 `None`。因此 `!= None` 收窄同时也是存活检查。唯一的例外是转为 `Variant`：这时保留已释放对象，与 GDScript 相同，所以 `print` 和 `typeof` 看到的仍是它；
   - `T` 引用仍可持有已释放对象。读取、按 ObjectID 的 `==` 比较和普通传参不算访问。访问其成员是程序错误。对本语言实例或由本语言释放的对象，debug 构建在诊断中写明释放位置；
   - 把已释放对象传给声明为对象类型的引擎参数是程序错误。写入对象类型的引擎属性也是。传给对象元素 `Array[T]` 的方法（如 `append`、`erase`、`has`）也是。声明为 `Variant` 的参数不受此限（如 `is_instance_valid` 返回 `false`）；
   - 对任何静态类型，已释放对象的 `is` 为 `false`、`as` 为 `None`；
@@ -185,7 +194,8 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 - 嵌套 Option 保留多层（如 `T??`）：
   - 字面量 `None` 总是最外层的 `None`；
   - `?`、`unwrap`、`match` 和收窄每次剥一层，`.flatten()` 把 `T??` 合为 `T?`；
-  - `Variant?` 同理：`None` 表示无值，NIL 是一个值。
+  - `Variant?` 同理：`None` 表示无值，NIL 是一个值；
+  - 两层 Option（`T??` 和 `Variant?`）与 `null` 比较，或以 `null` 模式匹配，报编译错误，因为 GDScript 中这里的 `null` 兼指两层。改为 `== None` 只判外层。同时判两层时，快速修复改为 `get(k, null) == null` 或 `.unwrap_or(null) == null`。
 
   ```gdscript
   var r = enemies.pop_back()   # enemies: Array[Enemy?]，r: Enemy??
@@ -895,7 +905,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 10.5 反射暴露的成员
 
-- 引擎、GDScript 和 C# 经按名反射（`get_property_list`、`has_method`、`call`、`get`、`set`、`connect`）只能访问 `pub` 成员。引擎虚函数的覆盖除外，引擎按约定的名字调用它们。其余成员对按名访问不可见：GDScript 报编译错误，动态访问在运行时报找不到成员。
+- 引擎、GDScript 和 C# 经按名反射（`get_property_list`、`has_method`、`call`、`get`、`set`、`connect`）只能访问 `pub` 成员。引擎虚函数的覆盖除外，引擎按约定的名字调用它们。其余成员对按名访问不可见，如同不存在：GDScript 中写出它们报编译错误。动态访问时 `call` 报错，`get` 得 null，`set` 不起作用，`in` 得 false。
 - 引擎按名字访问的以下成员须带 `pub`，否则报编译错误，快速修复补上 `pub`：
   - 导出的变量和 `@rpc` 函数；
   - 场景中信号连接的信号和方法；

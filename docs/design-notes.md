@@ -61,6 +61,14 @@
 - **可还原规则（§1.2、§13.4）**：试用的代价取决于反悔的代价。Jolt 改一项设置就能换上，换回同样容易。语言要逐个文件迁移，只能靠双向转换做到这一点。[第二次纸面迁移](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/paper-migration-2.md)的 230 处修改中，只有引入接口的 13 处和消息 struct 的 2 处不可还原。它们是迁移者主动选的改进，并非必需。
   - 有了自动迁移，机械修改不再花人力。衡量与 GDScript 的距离，改看需要判断的修改（每百行 3.6 处）和能否还原。所以不必为减少修改而放宽 `pub` 这类规则。
   - 这条规则也约束以后的规则。
+- **无静默差异的例外（§1.2）**：0.1 之后清点出 17 处与 GDScript 写法相同、能编译却行为不同的代码。逐条审查后分为三类。
+  - 10 处是 GDScript 出错或给出错误结果之处，如中止调用链、等待已释放的对象和 `int` 的 `**`。
+  - 其中用作字典键的容器是审查时归入的。插入后被修改的键，在 GDScript 中再也查不到。
+  - 2 处改为与 GDScript 一致或报编译错误：`is_instance_of` 的 `TYPE_*`，以及两层 Option 与 `null` 比较。
+  - 5 处是设计所需，规范逐条点名。
+  - 审查中另发现 2 处。`T?` 转为 `Variant` 时丢掉已释放对象，已改为与 GDScript 一致。两个两层 Option 互相比较，一并点名。
+  - 字面量由元素定型，在 0.9 之前继续公开征询。它的风险在引擎边界：GDScript 代码向推断出的 `Array[int]` 写入 `0.5`，引擎截断为 `0`（[引擎事实](engine-facts.md)）。
+  - 否决的做法：脚本实例收到不带 `pub` 的成员名时打印错误。`"hp" in obj` 也经 `Object::get` 判断，鸭子类型的试探会因此到处报错（[引擎事实](engine-facts.md)）。v2 中抽样的 `obj.get(名字) == null` 也多是这种试探（[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)）。
 - **GDExtension 与只发字节码（§1.3）**：[暗坑清单](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md)中没有只有引擎模块才能修复的条目。GDExtension 修不了的部分需要修改引擎，模块同样修不了。`$X`、`@parent` 和 `PackedScene[T]` 的类型取决于场景（§7）。若在加载时编译源码，就要在游戏进程内重新分析场景，并把分析器带到所有导出平台。
 - **preload 脚本作为类（§2.1）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 preload `.gd` 文件 351 处，其中 207 处初始化常量。直接跟 `.new()` 的 preload 有 69 处。初始化出的常量在同一文件中的用途：
   - 用于 `new()` 54 处；
@@ -74,11 +82,13 @@
 - **`@tool` 在语义冻结之前加入（§2.3）**：在编辑器中运行脚本需要在加载时完整编译。它还要求在编辑器中实例化和重载脚本。这样大的功能可能牵动别处的规则，所以放在 0.9 之前做。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 326 个含 `@tool` 的文件有 211 个在插件仓库。游戏仓库中有 58 个，其中 31 个在 `godot-open-rpg`。v2 中含 `@tool` 的文件有 2,752 个，分布在 135 库（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
 - **`pub` 用关键字（§2.4）**：[成员可见性调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/member-visibility.md)中每千行至少出现 22 处，写成 `@public` 注解过于冗长。
 - **`is_instance_of` 接受脚本值（§2.6）**：脚本本来就是值（§2.1），对它检测的含义确定，所以允许。GDScript 的引擎类值是不对扩展公开的对象。它留给类作为值一并设计。
+- **`is_instance_of` 的 `TYPE_*` 只比较类型（§2.6）**：GDScript 就是这样定义的，不查对象是否已释放（[引擎事实](engine-facts.md)）。若按 `is` 判断，它还与本语言中的 `typeof(v) == TYPE_OBJECT` 不一致。收窄出的非空 `Object` 本来就可能持有已释放对象，所以类型保证不受影响。
 
 ### §3 类型
 
 - **`float` 不隐式转 `int`（§3.14）**：`var hp = 10` 在本语言中推断为 `int`（§4.3），在 GDScript 中则是无类型变量。GDScript 中 `hp = 2.5` 之后值为 `2.5`。若隐式截断，结果会悄悄不同。
 - **对象可空与已释放对象（§3.3）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `is_instance_valid` 每千行 3.3 处，`phantom-camera` 中每千行 12.8 处。Godot 4.4 起也让已释放对象在条件中为假（[godotengine/godot#93885](https://github.com/godotengine/godot/pull/93885)）。相关问题见[暗坑清单](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md) G-07、G-08。
+  - `T?` 转为 `Variant` 时保留已释放对象。否则 `print` 显示 `<null>` 而不是 `<Freed Object>`，`typeof` 得 `TYPE_NIL`。`Variant` 本来就可能持有已释放对象，其中的已释放对象也等于 `None`，所以判断的结果不变。
 - **带类型的弱引用在第一版之后（§3.12）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `weakref` 只有 3 处，游戏中没有。
   - 2 处在 gdUnit4 的测试中，确认对象已释放。
   - 唯一的产品代码是 dialogue_manager 的父指针，写了从不读。
@@ -86,6 +96,8 @@
   - “对象可能已释放”的需要由 `T?` 满足，每次读取都检查存活。
   - 引擎的 `weakref()` 和 `WeakRef` 照常可用，所以没有失去能力。带类型的版本超出 GDScript，留待公开征询（godot-proposals#9174）。
 - **嵌套 Option 保留两层（§3.4）**：若合并为一层，泛型代码的行为会随 `T` 改变。例如 `first[T]` 在 `T` 为 `Enemy?` 时分不清空数组和首元素为空。通用缓存也会把存入的 `None` 当作未命中。JSON 中缺少的键与 `null` 同样无法区分。本语言没有 `?.`，嵌套基本只出现在泛型和容器取值上。
+  - 两层 Option 与 `null` 比较是编译错误。GDScript 中 `d.get("hp") == null` 对缺键和存了 null 都为真，本语言只对缺键为真。写 `None` 是本语言的写法，含义确定，所以照常合法。
+  - [语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中，单参数的 `get(k)` 与 `null` 比较只有 1 处。v2 中有 194 处，抽样的 14 处中只有 2 处是字典，其余是 `Object.get`，不受影响。
 - **struct 方法只读与默认运算（§3.6）**：修改 `self` 的方法要求调用处可写回。在临时值、经 getter 读出的属性和循环变量上，这样的调用要么报错，要么悄悄改副本。解码忽略多余键，使较新发送方多带字段的消息或面向多读取方的 JSON 仍能解码。默认提供 `==`、`<` 和哈希，以像脚本语言一样开箱即用。
 - **赋值的求值顺序（§3.6）**：GDScript 先沿链读出副本，再求右边（[引擎事实](engine-facts.md)）。右边挂起或修改了这条链时，写回的旧副本会覆盖期间的修改。例如 `position.x = await slide_x()` 会丢掉等待期间物理过程对 `y` 的修改。本语言先求右边，再求位置，最后连续读改写，复合赋值也一样。
   - 普通赋值先求右边的有 Python、Rust 和 C++17。复合赋值先求右边的有 C++17 和 Rust 的原始类型（[Python](https://docs.python.org/3/reference/expressions.html#evaluation-order)，[Rust](https://doc.rust-lang.org/reference/expressions/operator-expr.html)）。

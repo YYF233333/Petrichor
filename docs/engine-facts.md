@@ -67,6 +67,7 @@
 | GDScript 实例对不是自身成员的名字都先调 `_set`、`_get`，引擎类的属性名也是。Object 的文档却说它们不处理内置属性（`29a3f56701`） | `modules/gdscript/gdscript.cpp:1589-1600, 1676-1685`；`doc/classes/Object.xml:39, 303` | §10.5 |
 | Object 的文档说 `_get_property_list` 加入的属性不经过 `_validate_property`。GDScript 实例却让它们经过 | `doc/classes/Object.xml:369`；`modules/gdscript/gdscript.cpp:1810, 1840` | §10.5 |
 | GDScript 的 `obj.prop` 按名读写，只对内置类型的成员用 validated 访问。对已知类的方法则直接调用 MethodBind，所以 `label.set_text(s)` 不经 `_set` | `modules/gdscript/gdscript_byte_codegen.cpp:848-883`；`modules/gdscript/gdscript_vm.cpp:1220, 1277, 2273-2313` | §10.5 |
+| 对对象用 `in` 时，引擎按名字调用 `Object::get`，看是否找到。它与按名读取走同一条路，脚本实例分不清两者 | `core/variant/variant_op.h:1217-1231, 1254-1268` | §10.5 |
 | C# 绑定的引擎属性调用 getter 和 setter 方法 | `modules/mono/editor/bindings_generator.cpp:2816, 2834` | §10.5 |
 | 对象设置脚本后发出 `script_changed` | `core/object/object.cpp:995` | §9.8 |
 | 引擎不给对象设置抽象脚本 | `core/object/object.cpp:976` | §4.1 |
@@ -112,6 +113,7 @@
 | GDScript 的 `Color8`、`convert`、`type_exists`、`inst_to_dict`、`dict_to_inst` 在禁用弃用功能的构建中不存在，文档给出替代写法 | `modules/gdscript/gdscript_utility_functions.cpp:572-585`；`modules/gdscript/doc_classes/@GDScript.xml:14, 61, 77, 106, 269` | §2.6 |
 | GDScript 的 `is_instance_of` 的第二个参数可以是 `TYPE_*` 常量、原生类或脚本，三者都可以是变量中的值 | `modules/gdscript/gdscript_utility_functions.cpp:454-506` | §2.6 |
 | GDScript 的 `is_instance_of` 的第二个参数是 `TYPE_*` 常量时，只比较值的 Variant 类型，不查对象是否已释放，所以 `is_instance_of(freed, TYPE_OBJECT)` 为真。第二个参数是类或脚本时，对已释放的值报错。值为 null 或不是对象时得到假，此前不查第二个参数是不是类或脚本 | `modules/gdscript/gdscript_utility_functions.cpp:457-462, 471-477, 479-505` | §2.6 |
+| `typeof` 只返回 Variant 中记下的类型，所以已释放对象仍得 `TYPE_OBJECT`。已释放对象转为文本是 `<Freed Object>` | `core/variant/variant_utility.cpp:845-847`；`core/variant/variant.h:381-383`；`core/variant/variant.cpp:1712-1715` | §2.6、§3.3 |
 | GDScript 中作为值的原生类是 `GDScriptNativeClass` 对象，这个类不登记也不暴露给扩展 | `modules/gdscript/gdscript_compiler.cpp:109-113` | §2.6 |
 | GDScript 的 `@warning_ignore` 遇到不认识的警告名时报错 | `modules/gdscript/gdscript_parser.cpp:5126-5128` | §2.3 |
 | GDScript 的 `@warning_ignore` 按行忽略警告，从注解所在行到所注语句或声明的开头部分结束；`@warning_ignore_start` 忽略到同名的 `@warning_ignore_restore` | `modules/gdscript/gdscript_parser.cpp:291-294, 5131-5189, 5199-5228` | §2.3 |

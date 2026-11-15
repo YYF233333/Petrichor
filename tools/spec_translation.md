@@ -139,6 +139,7 @@ One Chinese term has one English term. A term from Godot or GDScript keeps its o
 | 提前返回 | early return | A `return` before the end of a function. |
 | 包装 | wrap | |
 | 层 (of Option) | level | |
+| 两层 Option | two-level Option | `T??` and `Variant?`. |
 | 值类型 | value type | |
 | 值语义 | value semantics | |
 | 载荷 | payload | |
