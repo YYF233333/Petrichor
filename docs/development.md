@@ -57,7 +57,7 @@
 - 优化之前先测时间花在哪里（`scons --debug=time`，或在 `tests/engine/run.py` 的 `run.run` 外包一层计时）。
 - 跑基准用普通的 `scons` 构建。`debug_symbols=yes` 让链接器带上 `/DEBUG`，它改变 `/OPT` 的默认值和代码布局。
 - CPU 混有两种核心时，不固定核心的计时分成两档。手动比较时用 `cmd /c start /affinity 4 /wait /b "" <godot> ...` 固定。
-- 纯计算组的数字随代码布局变化，无关的改动也会让它变化 20% 以上，只作记录（architecture §4）。
+- 纯计算组的数字随代码布局变化，只作记录（architecture §4）。
   - 要比较两个提交时，在 `git worktree` 中构建另一个提交，不要在共享的工作区里切换。
   - 判断一个变化是否来自布局：改动解释器之前无关的代码再测一次。
 - 运行时的热点用 samply 采样，它需要管理员权限。
@@ -89,7 +89,7 @@
 
 ## 发布包
 
-- 打包：`python tools/package.py <库目录> 0.1.0 <输出目录>`。
+- 打包：`python tools/package.py <库目录> <版本> <输出目录>`。
   - 库目录可以是 `gh run download` 取下的 CI 产物，库在哪一层都行。
   - 本地只有本机的库，所以加 `--allow-missing`。不加时缺一个库就失败。
   - 加 `--godot <编辑器>` 时，用它格式化演示包里的 `.pet` 文件。
