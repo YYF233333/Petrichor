@@ -30,6 +30,11 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - A light bulb on the caret's line opens them in a small list at the caret, as in VS Code. So does a shortcut registered in the editor settings, and the context menu.
   - Ctrl+. is taken by Go to Next Breakpoint (`editor/script/script_text_editor.cpp:2672`, `ed1daf0`). Alt+Enter, as in JetBrains IDEs, is free.
   - Before them, one guard for the checker's tentative queries, kept or dropped whole. Now 13 places cut `errors` and `references` back by hand, which keeps no warnings. A fix such as adding `.unwrap()` is such a query. One mode then replaces the four overlapping switches of `CompileOptions` and the completion pointer.
+- The LSP server, after `$X` (architecture §5, step 8). Its design is set with the owner first.
+  - A minimal VS Code extension alongside it. It highlights `.pet` files and connects to the editor's LSP port.
+  - Map `textDocument/typeDefinition` alongside `definition`.
+  - Before it, measure the memory of the reference table. By estimate an entry takes about 600 bytes, with the strings of scene entries in each, and the analysis keeps every script's table (`src/compiler/references.h`).
+  - Before it, one change counter for the analysis caches. Now four places decide when a result is stale: `Analysis`, the adapter's cache, `SceneIndex` and `ClassDBApi`.
 
 ## Language
 
@@ -119,10 +124,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
     - A negative literal index `-k` becomes `s.length() - k`, since `erase` refuses negative positions (`core/string/ustring.cpp:2881-2884`, `ed1daf0`).
     - The report lists other indices and bases with side effects.
   - Reverse conversion works from the tokens and the reference table, not by printing the checked AST. The checker rewrites about a dozen forms there, as `print_debug` to `print`.
-- A minimal VS Code extension alongside the LSP server (architecture §5, step 8). It highlights `.pet` files and connects to the editor's LSP port.
-- When the LSP server is added (0.3), map `textDocument/typeDefinition` alongside `definition`.
-- Before the LSP server (0.3), measure the memory of the reference table. By estimate an entry takes about 600 bytes, with the strings of scene entries in each, and the analysis keeps every script's table (`src/compiler/references.h`).
-- Before the LSP server (0.3), one change counter for the analysis caches. Now four places decide when a result is stale: `Analysis`, the adapter's cache, `SceneIndex` and `ClassDBApi`.
 - Before 1.0, localize the items this extension adds to the code editor's context menu, "Find References" and "Format" (`src/adapter/editor/pet_editor_plugin.cpp`).
 - When quick fixes insert `@warning_ignore` (0.3), place it after leading doc comments so `##` stays attached to the declaration.
 - Class reference XML for the public classes `CoroutineTask` and `PetScript`, or making `PetScript` internal if F1 does not need it (`src/adapter/register_types.cpp:55-57`).
