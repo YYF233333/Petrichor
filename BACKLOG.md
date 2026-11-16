@@ -147,7 +147,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - The suites on Godot 4.8's release candidate, with its changes checked one by one. They pass on beta3 (`c51ff06e8`), which stands in until then. The 0.1 release notes promise to follow the 4.8 release at once.
   - When moving the engine commit, `git diff -L` over the ranges in `docs/engine-facts.md` isolates the citations that moved.
 - `cancel()` on a task that has ended (spec §9.3). No test runs it.
-- Before supporting engines older than 4.7, an engine test comparing constant-folded math with the same expressions in a function body. The compiler folds `posmod`, `wrapi`, `snapped`, `nearest_po2` and `step_decimals` with its own copies (`src/compiler/constant.cpp`).
+- Before supporting engines other than 4.7, an engine test that constant folding agrees with the engine. The compiler folds about 15 groups of math functions with its own copies, as `posmod`, `wrapi`, `snapped` and `step_decimals` (`src/compiler/constant.cpp`). The test compares each as a constant and in a function body.
 - On macOS, the README's quarantine step has never run. The x86_64 half of the libraries runs only under Rosetta, on Godot 4.8.
   - CI can mark the unpacked package with `xattr -w com.apple.quarantine`, run the README's step and load the library.
   - That checks the step, but not that Gatekeeper refuses without it, if the runners do not enforce it.
@@ -159,7 +159,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
     - connecting an `async` method to a signal;
   - awaiting a `Signal` variable with two parameters yielding `Array` in `Variant` (§9.6);
   - a scene-saved value triggering a pre-ready setter error, and `if is_node_ready():` guarding it (§6.5);
-  - `RefCounted` `PREDELETE` self field/method access, plus `self == x` and `await` errors (§6.6);
+  - a `RefCounted` calling its own methods in `PREDELETE`, and the errors on `self == x` and `await` there (§6.6);
   - GDScript assigning a cancelled `Transform3D` coroutine result (§9.8);
   - a lambda created before a body-only hot reload running its old body (§12.4).
 
@@ -187,7 +187,6 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - Escape analysis can give containers that do not escape a private representation (architecture §2.2). The engine container stays the reference semantics.
   - A private representation supports some operations. A container that uses others keeps the engine's. Each private operation is tested against the engine's.
 - An interpreter whose speed does not depend on code layout. The compute benchmarks could then gate changes again (architecture §4).
-  - Changing unrelated functions before `Execution::run` slowed int_loop by 24% on AMD Zen 5.
   - Placing `run` first in `.text` (`__declspec(code_seg(".text$a"))`) steadied float_loop, members and vectors, but not int_loop.
   - Candidates:
     - dispatch without one shared indirect jump, as computed goto or tail calls do (architecture §2.2);
@@ -196,7 +195,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - Each evaluation of a String literal copies it with an instruction. Other literals are preset in the frame or read from the constant table.
   - Each statement starts with a LINE instruction, one of six per iteration of int_loop. GDScript debug builds also emit one per statement (`modules/gdscript/gdscript.cpp:2871-2875`, `ed1daf0`). Release builds emit none.
     - A table from code positions to lines would replace it.
-    - An error would look its line up by position. The 52 handler calls that pass a line would drop it.
+    - An error would look its line up by position. The handler calls that pass a line would drop it.
     - Every engine error captures the backtraces of all languages (`core/error/error_macros.cpp:126`, `ed1daf0`). So a frame would save its position before each instruction that can call the engine. Lua saves it only before such instructions. CPython 3.11 and later save it at every instruction.
     - Under the debugger, breakpoints, stepping and the editor's break button need a call at each line (`core/debugger/engine_debugger.h:128-134`, `ed1daf0`). The debugger is on or off for the whole process. When it is off, the runtime would drop LINE as it loads the code.
     - The compiler could record each instruction's statement in the table. Such a table would also fix a wrong line. From the second pass on, an error in a `while` condition is reported at the body's last statement. GDScript does the same (`modules/gdscript/gdscript_compiler.cpp:1903`, `ed1daf0`).
@@ -224,10 +223,9 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - in release builds, `as` copies a non-object value into a typed object slot.
 - Godot: `ClassDB` leaves return and parameter metadata empty on `MethodInfo` (`core/object/method_info.h:55-56`, `core/object/class_db.cpp:955-974`, `ed1daf0`). Filling and exporting them exposes `RequiredResult` and integer widths at runtime.
 - Godot: GDScript cannot call static methods of non-GDScript scripts or read the member types of non-GDScript autoloads (`core/object/object.cpp:800-826`, `modules/gdscript/gdscript_analyzer.cpp:806-826`, `ed1daf0`; [#14614](https://github.com/godotengine/godot-proposals/issues/14614)).
-- After the 0.1 release, list the engine interfaces newer than 4.4 that the code uses (architecture §6.3). Compare 4.4-stable with 4.7.2 for the extension interface and the virtual methods of `ScriptLanguageExtension`.
-- Before supporting engines other than 4.7, an engine test that constant folding agrees with the engine. The compiler repeats about 15 of its math functions, as `posmod`, `wrapi`, `snapped` and `step_decimals` (`src/compiler/constant.cpp`). The test compares each as a constant and in a function body.
+- List the engine interfaces newer than 4.4 that the code uses (architecture §6.3). Compare 4.4-stable with 4.7.2 for the extension interface and the virtual methods of `ScriptLanguageExtension`.
 - Objects that an extension creates have no signal mutex. `_postinitialize` does not run for them (`core/extension/gdextension_interface.cpp:1669-1672`, `core/object/object.cpp:226-231`, `ed1daf0`; godot#125308). So a task's `completed` and `cancelled` are unguarded when GDScript awaits it from another thread.
-- GDScript's per-iteration clearing of loop-body locals, left as commented-out TODOs (`modules/gdscript/gdscript_compiler.cpp:2106, 2140`, `ed1daf0`). It would match spec §6.8. The owner may contribute it.
+- GDScript's per-iteration clearing of loop-body locals, left as commented-out TODOs (engine facts). It would match spec §6.8. The owner may contribute it.
 - Store-forwarding stalls in moves of Variant, found while profiling arrays (d516c08). A wide load reads a Variant just written by narrower stores. It then waits for those stores to reach the cache. The owner may contribute both fixes once the current work is done.
   - godot-cpp: the move constructor and assignment are out of line and swap the bytes (`src/variant/variant.cpp:90-92, 551-554`, `8070599`).
     - MSVC builds have no LTO by default, so no caller can inline them (`tools/windows.py:214-217`).
@@ -238,8 +236,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
     - GDScript spends 54% of a loop writing `Array[int]` elements stalled there. `push_back()` has the same shape (`core/variant/array.cpp:282-287`, `ed1daf0`).
     - A candidate fix: `reference()` copies the whole `_data` for types that need no deinit.
   - Each patch needs a benchmark that shows its gain. `docs/development.md` describes the profiling.
-- Godot: a script's `_get` and `_set` take engine property names in GDScript's `.` access, not in calls of their methods. On 4.7.2, `label.text = s` goes to a `_set` that takes `text`, and `label.set_text(s)` does not. Object's docs say these methods are not called for built-in properties (`doc/classes/Object.xml:39, 303`, `29a3f56701`). The owner may report it as an issue, or contribute a PR that makes the docs and the behavior agree.
-  - The order comes from the first public commit (`core/object/object.cpp:233-259, 316-338`, `0b806ee0fc9`). GDScript instances call `_set` and `_get` for every name that is not a member (`modules/gdscript/gdscript.cpp:1589-1600, 1676-1685`, `ed1daf0`).
+- Godot: a script's `_get` and `_set` take engine property names in GDScript's `.` access, not in calls of their methods. On 4.7.2, `label.text = s` goes to a `_set` that takes `text`, and `label.set_text(s)` does not. Object's docs say these methods are not called for built-in properties (engine facts). The owner may report it as an issue, or contribute a PR that makes the docs and the behavior agree.
   - [#99828](https://github.com/godotengine/godot/issues/99828) is about a script's own properties, which these methods do not see. It likely led to the note in the docs.
 - Godot: in the official Windows builds, each read of a `thread_local` goes through GCC's emulated TLS. The owner may report it as an issue.
   - Each read calls winpthreads' `pthread_getspecific`, as disassembly of the official 4.7.2 binary shows. That call saves the last error, takes a spin lock and restores the error.
@@ -293,7 +290,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Before the migration tool of 0.3: how many GDScript files migrating one class drags along in the games of corpus v2. GDScript cannot call this language's static methods or use its enums in types (spec §11.3). If the number is large, the tool generates forwarding shells in 0.3.
   - The proper fix is upstream: [godot#118595](https://github.com/godotengine/godot/pull/118595) for static methods has waited for review since July. Enums in types need a change of their own.
   - Engines older than the fix keep the restriction, back to 4.4 (architecture §6.3).
-- The differences from GDScript that spec §1.2 names stay open for public comment until 0.9. Literals typed by their elements are singled out. Their risk is GDScript code writing another type into an inferred `Array[int]`, which the engine truncates. Revisit one only on feedback with real code.
+- The differences from GDScript that spec §1.2 names stay open for public comment until 0.9, literals typed by their elements above all (design-notes). Revisit one only on feedback with real code.
 - What GDScript does when a freed object is passed to an engine parameter of an object type. From a `T?`, this language passes null (spec §3.3). If GDScript reports an error there, the case falls inside the exception of spec §1.2. Otherwise it is a difference to settle.
 - A cycle of static initialization whose two classes load on two loader threads deadlocks, instead of being a program error (`initialize_class` in `src/runtime/vm.cpp`). The cycle is a program error anyway. Whether GDScript deadlocks too is unchecked.
 - Whether a class may be named as a standard type of this language, as `class_name Result` (spec §4.1). It is a compile error for now. Corpus v1 has no such class name. Inner classes may take these names, as godot-tiny-mmo's `class Result` does.
