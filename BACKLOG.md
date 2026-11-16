@@ -26,10 +26,13 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - Applying a rename shows each open scene it saves. When the current tab is a new scene without a path, the editor stays on the last one saved. Godot shows an open scene only by its path.
   - Applying a rename reloads the closed scripts it rewrote against the open scripts as saved. When the renamed declaration's script is open, each loaded script that uses the name reports an error, as `Unit has no property "pace"`.
   - Then renaming a node in the scene editor updates `$X` and literal paths in scripts. If time is short it moves to 0.3, since a stale `$X` is a compile error, not a silent one.
-- The first quick fixes: the five kinds most frequent in the second paper migration, about half of its 230 changes. They are adding `pub`, truthiness, `async` and `.detach()`, `T?` or `.unwrap()`, and `float` arguments.
+- The first quick fixes: the five kinds most frequent in the second paper migration. They are adding `pub`, truthiness, `async` and `.detach()`, `T?` or `.unwrap()`, and `float` arguments. They reach about 75 of its 230 changes: 36 `pub` serve only GDScript or C# callers, which no error here sees, and 29 served subclasses only.
   - A sixth kind joins them: a two-level Option compared with `null` becomes `get(k, null) == null` or `.unwrap_or(null) == null` (spec §3.4). It is mechanical, and the migration tool needs the same rewrite.
   - A light bulb on the caret's line opens them in a small list at the caret, as in VS Code. So does a shortcut registered in the editor settings, and the context menu.
   - Ctrl+. is taken by Go to Next Breakpoint (`editor/script/script_text_editor.cpp:2672`, `ed1daf0`). Alt+Enter, as in JetBrains IDEs, is free.
+  - A fix in another file, as adding `pub` to a declaration there, keeps the current tab. It edits and saves the open buffer, or writes the closed file, so the error goes at once. One action in the editor's history undoes it, as for renaming.
+  - The list ends with one item that applies every automatic fix in the file. It makes one pass, skips overlapping ranges, and is one step to undo. Nothing is fixed on save.
+  - A condition of type `Variant` gets no fix, and its hint `v != None` goes, since it misses 0, "" and empty values.
   - Before them, one guard for the checker's tentative queries, kept or dropped whole. Now 13 places cut `errors` and `references` back by hand, which keeps no warnings. A fix such as adding `.unwrap()` is such a query. One mode then replaces the four overlapping switches of `CompileOptions` and the completion pointer.
 - The LSP server, after `$X` (architecture §5, step 8). Its design is set with the owner first.
   - A minimal VS Code extension alongside it. It highlights `.pet` files and connects to the editor's LSP port.
@@ -300,6 +303,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - Engines older than the fix keep the restriction, back to 4.4 (architecture §6.3).
 - The differences from GDScript that spec §1.2 names stay open for public comment until 0.9, literals typed by their elements above all (design-notes). Revisit one only on feedback with real code.
 - A cycle of static initialization whose two classes load on two loader threads deadlocks, instead of being a program error (`initialize_class` in `src/runtime/vm.cpp`). The cycle is a program error anyway. Whether GDScript deadlocks too is unchecked.
+- Whether the spec gives a spelling of GDScript's truthiness for a `Variant` condition. `v != None` misses 0, "" and empty values, and the exact `bool(type_convert(v, TYPE_BOOL))` is no idiom. The second paper migration has no such condition.
 - Whether a class may be named as a standard type of this language, as `class_name Result` (spec §4.1). It is a compile error for now. Corpus v1 has no such class name. Inner classes may take these names, as godot-tiny-mmo's `class Result` does.
 - Whether a member may have the name of a member of another kind in a base class of this language (spec §4.1). It is a compile error, as in GDScript (`modules/gdscript/gdscript_analyzer.cpp:234-253`, `ed1daf0`). An example is a function named as an inherited enum.
 - The rule that keeps a member's old name in its declaration (architecture §6.4). It is proposed when a team that edits scenes in parallel needs it. Until then renaming rewrites scenes.
