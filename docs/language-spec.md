@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob c22390c8c23088e0c8a41cb91f3040826cc83f73. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 5cfac516c868755338f1a7cc75fcba8f4b6cdd96. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -19,7 +19,7 @@ Petrichor is a fully statically typed scripting language for Godot 4, shipped as
 
 - The surface syntax follows GDScript: indentation, `func`, `var`, `extends`, `signal`, `@export`, `$X` and so on. New constructs extend it in the same style.
 - **No silent differences**: a construct written as in GDScript either behaves as in GDScript or is a compile error. The error gives a fix. The construct is never silently different. The exceptions are of two kinds:
-  - where GDScript fails at run time or silently gives a wrong result. Examples are a default value, a truncation and hanging forever. There, this language makes it a program error, or does what the code originally intended;
+  - where GDScript fails at run time or silently gives a wrong result. Examples are a default value, a truncation, hanging forever, freeing late, and an assert message evaluated or not depending on the build. There, this language makes it a program error, or does what the code originally intended;
   - differences that the design of this language needs, each stated in its rules:
     - an array or dictionary literal without a target type takes its type from its elements;
     - members without `pub` are invisible to reflection by name;
