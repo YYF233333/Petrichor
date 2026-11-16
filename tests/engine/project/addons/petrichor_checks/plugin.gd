@@ -56,7 +56,8 @@ func _run() -> void:
 	await _check_members_overview()
 	await _check_documentation()
 	await _check_script_dialog()
-	_check_rename()
+	_check_autoload_by_uid()
+	await _check_rename()
 
 	print("editor check: %d failure(s)" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -298,8 +299,9 @@ func _write_after(path: String, text: String, after: int) -> void:
 		_write(path, text)
 
 
-# Spec §13.2: an error in how a scene uses a script is marked on the node that
-# has it, in the scene dock, and goes once the scene is fixed and saved.
+# Spec §7.5, §13.2: an error in how a scene uses a script is marked on the node
+# that has it, in the scene dock, and goes once the scene is fixed, before it
+# is saved (architecture §2.4).
 func _check_scene_marks() -> void:
 	var scene_path := "res://editor_marks.tscn"
 	var script_path := "res://editor_marks.pet"
@@ -317,19 +319,30 @@ func _check_scene_marks() -> void:
 	await get_tree().process_frame
 	_check(_dock_tooltips(root).contains(mark), "the scene dock shows the mark")
 
-	# Saved within the second the scene was written, which its modification
-	# time does not tell apart.
+	# Sooner than the editor's pause.
+	var plugin: Node = get_tree().root.find_children("*", "PetEditorPlugin", true, false)[0]
+	var marks: Timer = plugin.get_children().filter(func(c): return c is Timer)[0]
+	marks.wait_time = 0.05
 	var label := Label.new()
 	label.name = "Label"
-	root.add_child(label)
-	label.owner = root
+	var undo_redo := get_undo_redo()
+	undo_redo.create_action("Add Label")
+	undo_redo.add_do_method(root, "add_child", label)
+	undo_redo.add_do_property(label, "owner", root)
+	undo_redo.add_do_reference(label)
+	undo_redo.add_undo_method(root, "remove_child", label)
+	undo_redo.commit_action()
+	await marks.timeout
+	_check(root.call("_get_configuration_warnings").is_empty(), "the mark goes once the scene has the node, before it is saved")
+
+	# Saved within the second the scene was written, which its modification
+	# time does not tell apart.
 	EditorInterface.save_scene()
 	await get_tree().process_frame
 	# Headless, the scene's thumbnail has no texture
 	# (servers/rendering/dummy/storage/texture_storage.h:108-111; ed1daf0).
 	_check_errors(['Parameter "t" is null.'], "saving the scene reports only its missing thumbnail")
-	_check(root.call("_get_configuration_warnings").is_empty(), "the mark goes once the scene has the node and is saved")
-	_check(not _dock_tooltips(root).contains(mark), "the scene dock no longer shows it")
+	_check(root.call("_get_configuration_warnings").is_empty() and not _dock_tooltips(root).contains(mark), "the scene dock no longer shows it once the scene is saved")
 
 	EditorInterface.close_scene()
 	for file in [scene_path, script_path, script_path + ".uid", "res://.godot/petrichor/editor_marks.petc"]:
@@ -532,12 +545,25 @@ func _check_script_dialog() -> void:
 		DirAccess.remove_absolute(file)
 
 
+# Spec §11.1: an autoload's name has the class of its scene's root. The editor
+# adds an autoload by its uid (editor/settings/editor_autoload_settings.cpp:787;
+# ed1daf0).
+func _check_autoload_by_uid() -> void:
+	var path := "res://editor_autoload.pet"
+	_write(path, "extends Node\n\nfunc f() -> String:\n\treturn EditorAutoload.greet()\n")
+	ProjectSettings.set_setting("autoload/EditorAutoload", "*" + ResourceUID.path_to_uid("res://main.tscn"))
+	_check(_compiles(ResourceLoader.load(path, "", ResourceLoader.CACHE_MODE_IGNORE), path), "an autoload added by its uid has the class of its scene's root")
+	ProjectSettings.set_setting("autoload/EditorAutoload", null)
+	for file in [path, path + ".uid", "res://.godot/petrichor/editor_autoload.petc"]:
+		DirAccess.remove_absolute(file)
+
+
 # Spec §13.3 in the editor (architecture §2.3). A rename that cannot be made
 # changes nothing. A local renamed in one script is one step of that script's
 # undo. A member's rename reads the open script's text and the open scene's
 # unsaved change, which it saves before rewriting the scene. It writes a
-# closed script byte for byte, and one undo in the editor's history restores
-# them all.
+# closed script byte for byte. Once the script has nothing left to undo,
+# Ctrl+Z there undoes the rename everywhere, and Ctrl+Shift+Z redoes it.
 func _check_rename() -> void:
 	var dir := "res://editor_rename"
 	var unit := dir + "/unit.pet"
@@ -576,8 +602,10 @@ func _check_rename() -> void:
 	apply.pressed.emit()
 	_check(code.text == text.replace("stride", "pace") and FileAccess.get_file_as_string(scene).contains("\npace = 7\n"), "a member is renamed in the open script and in the open scene, with its unsaved change")
 	_check(FileAccess.get_file_as_bytes(user) == user_text.replace("stride", "pace").to_utf8_buffer(), "a closed script keeps its byte order mark and line breaks")
-	global.undo()
-	_check(code.text == text and FileAccess.get_file_as_string(scene).contains("\nstride = 7\n") and FileAccess.get_file_as_bytes(user) == user_text.to_utf8_buffer(), "one undo in the editor's history restores the script, the scene and the closed script")
+	await _press(code, "ui_undo")
+	_check(code.text == text and FileAccess.get_file_as_string(scene).contains("\nstride = 7\n") and FileAccess.get_file_as_bytes(user) == user_text.to_utf8_buffer(), "Ctrl+Z in the script, with nothing left to undo there, restores the script, the scene and the closed script")
+	await _press(code, "ui_redo")
+	_check(code.text == text.replace("stride", "pace") and FileAccess.get_file_as_string(scene).contains("\npace = 7\n"), "Ctrl+Shift+Z there renames them again")
 	_check_errors([], "renaming reports nothing")
 
 	EditorInterface.close_scene()
@@ -601,6 +629,16 @@ func _rename(code: CodeEdit, line: int, column: int, name: String) -> void:
 	var edit: LineEdit = plugin.find_children("*", "LineEdit", true, false)[0]
 	edit.text = name
 	edit.text_submitted.emit(name)
+
+
+# Presses the first key of the input action with the focus in the code editor,
+# and waits for the frame to end.
+func _press(code: CodeEdit, action: String) -> void:
+	code.grab_focus()
+	var key: InputEventKey = InputMap.action_get_events(action)[0].duplicate()
+	key.pressed = true
+	get_viewport().push_input(key)
+	await get_tree().process_frame
 
 
 func _references_tree() -> Tree:

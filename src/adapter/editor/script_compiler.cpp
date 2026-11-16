@@ -181,6 +181,19 @@ std::mutex scene_errors_mutex;
 uint64_t project_change = 1;
 std::map<std::string, SceneErrors> scene_errors_of; // By the path of the script, or of the scene checked.
 
+// The project with the scenes open with unsaved changes as they were at the
+// last change to it, which the marks of errors read (architecture §2.4).
+const compiler::ProjectApi *open_scenes() {
+	static std::unique_ptr<const OpenProject> open;
+	static uint64_t opened = 0;
+	std::lock_guard<std::mutex> lock(scene_errors_mutex);
+	if (opened != project_change) {
+		opened = project_change;
+		open = std::make_unique<const OpenProject>(false);
+	}
+	return open.get();
+}
+
 // What `p_check` gives for the file at the path, from a source with that hash,
 // as of the last change to the project.
 std::vector<compiler::Diagnostic> as_of_change(const std::string &p_path, uint64_t p_source_hash, const std::function<std::vector<compiler::Diagnostic>()> &p_check) {
@@ -193,6 +206,7 @@ std::vector<compiler::Diagnostic> as_of_change(const std::string &p_path, uint64
 			return found->second.errors;
 		}
 	}
+	const compiler::Analysis::Pass analysis_pass(analysis(), open_scenes());
 	const std::vector<compiler::Diagnostic> errors = p_check();
 	std::lock_guard<std::mutex> lock(scene_errors_mutex);
 	scene_errors_of[p_path] = { change, p_source_hash, errors };
@@ -204,10 +218,7 @@ std::vector<compiler::Diagnostic> as_of_change(const std::string &p_path, uint64
 std::vector<compiler::Diagnostic> scene_errors(const String &p_path, const String &p_source) {
 	const std::string path = to_utf8(p_path);
 	const std::string source = to_utf8(p_source);
-	return as_of_change(path, bytecode::hash_source(source), [&] {
-		const compiler::Analysis::Pass analysis_pass(analysis());
-		return analysis().compile(path, source)->errors;
-	});
+	return as_of_change(path, bytecode::hash_source(source), [&] { return analysis().compile(path, source)->errors; });
 }
 
 std::vector<compiler::Diagnostic> resource_errors(const String &p_path) {
@@ -215,7 +226,7 @@ std::vector<compiler::Diagnostic> resource_errors(const String &p_path) {
 }
 
 std::vector<compiler::Diagnostic> placed_errors(const String &p_path) {
-	const compiler::Analysis::Pass analysis_pass(analysis());
+	const compiler::Analysis::Pass analysis_pass(analysis(), open_scenes());
 	compiler::ScriptClasses &classes = analysis().pass_classes();
 	const std::string path = to_utf8(p_path);
 	std::vector<compiler::Diagnostic> placed;
@@ -270,11 +281,9 @@ std::string file_doc_name(const std::string &p_file) {
 			return to_utf8(entry.get("class", String()));
 		}
 	}
-	const TypedArray<Dictionary> properties = settings->get_property_list();
-	for (int64_t i = 0; i < properties.size(); i++) {
-		const String name = Dictionary(properties[i]).get("name", String());
-		if (name.begins_with("autoload/") && String(settings->get_setting(name)) == "*" + path) {
-			return to_utf8(name.trim_prefix("autoload/"));
+	for (const std::string &name : SceneIndex::get().autoload_names()) {
+		if (SceneIndex::get().autoload_path(name) == p_file) {
+			return name;
 		}
 	}
 	return to_utf8("\"" + path.trim_prefix("res://") + "\"");

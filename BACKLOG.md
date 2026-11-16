@@ -22,10 +22,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 - With the owner: the invitations to review 0.1.
 - Renaming, with the rewriting of scenes (spec §13.3).
-  - The marks of errors read the scenes open in the editor, unsaved changes included, as renaming does (architecture §2.3). Check whether the scene index handles autoloads that are scenes.
-  - Ctrl+Z in the script editor, once the script's history is used up, undoes the rename.
-    - The plugin sees the key in `_input`, before the CodeEdit (`scene/main/viewport.cpp:3537`, `ed1daf0`).
-    - `_shortcut_input` comes too late: TextEdit takes `ui_undo` even with nothing to undo (`scene/gui/text_edit.cpp:2737-2740, 4766-4768`).
   - An open scene that instances a scene the rename rewrote keeps its instance as loaded. Check what the editor updates when the tab is shown (`editor/editor_data.cpp:722-811`).
   - Applying a rename shows each open scene it saves. When the current tab is a new scene without a path, the editor stays on the last one saved. Godot shows an open scene only by its path.
   - Then renaming a node in the scene editor updates `$X` and literal paths in scripts. If time is short it moves to 0.3, since a stale `$X` is a compile error, not a silent one.
@@ -84,6 +80,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - `--petrichor-build` on a fresh clone can end with the engine's crash code (godot#111048). The README says to import first.
 - The hints of the spec other than `unused_ignore`, as the one on a redundant `as` (spec §5.3). None is implemented.
 - The scene index trusts modification times, which count whole seconds. A file rewritten outside the editor in the second it was read stays stale.
+- The script editor checks a script against the scenes as saved, and again only when its text changes. The marks on nodes read the open scenes unsaved (architecture §2.4). So after a scene edit the two can differ until the scene is saved.
 - The warnings of spec §6.7:
   - a lambda capturing self stored in a member of self, a signal connection or a container;
   - two RefCounted classes referring to each other through strong fields;

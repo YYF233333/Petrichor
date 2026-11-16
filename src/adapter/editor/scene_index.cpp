@@ -623,14 +623,16 @@ std::string SceneIndex::global_class_path(const std::string &p_name) const {
 }
 
 std::string SceneIndex::autoload_path(const std::string &p_name) const {
-	// "*res://scripts/audio.gd": the star makes it a global name.
+	// "*res://scripts/audio.gd": the star makes it a global name. The editor
+	// adds one by its uid, which loading resolves
+	// (editor/settings/editor_autoload_settings.cpp:787, main/main.cpp:4524; ed1daf0).
 	const String setting = "autoload/" + to_godot(p_name);
 	ProjectSettings *settings = ProjectSettings::get_singleton();
 	if (!settings->has_setting(setting)) {
 		return std::string();
 	}
 	const String value = settings->get_setting(setting);
-	return value.begins_with("*") ? to_utf8(value.substr(1)) : std::string();
+	return value.begins_with("*") ? to_utf8(ResourceUID::ensure_path(value.substr(1))) : std::string();
 }
 
 std::map<std::string, std::string> SceneIndex::global_class_paths() const {
@@ -795,7 +797,7 @@ std::optional<compiler::ForeignClass> SceneIndex::foreign_class(const std::strin
 	return result;
 }
 
-OpenProject::OpenProject() {
+OpenProject::OpenProject(bool p_scripts) {
 	EditorInterface *editor = EditorInterface::get_singleton();
 	// The open scripts are those of the editors of ScriptTextEditor, in order;
 	// the others edit text files (editor/script/script_editor_plugin.cpp:3549-3575,
@@ -803,7 +805,7 @@ OpenProject::OpenProject() {
 	const TypedArray<Ref<Script>> scripts = editor->get_script_editor()->get_open_scripts();
 	const TypedArray<ScriptEditorBase> editors = editor->get_script_editor()->get_open_script_editors();
 	int64_t index = 0;
-	for (int64_t i = 0; i < editors.size(); i++) {
+	for (int64_t i = 0; p_scripts && i < editors.size(); i++) {
 		const ScriptEditorBase *each = Object::cast_to<ScriptEditorBase>(editors[i]);
 		if (each->get_class() != String("ScriptTextEditor")) {
 			continue;

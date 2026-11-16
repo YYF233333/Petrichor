@@ -12,10 +12,13 @@
 #include <godot_cpp/classes/line_edit.hpp>
 #include <godot_cpp/classes/popup_panel.hpp>
 #include <godot_cpp/classes/shortcut.hpp>
+#include <godot_cpp/classes/timer.hpp>
 #include <godot_cpp/classes/tree.hpp>
 #include <godot_cpp/classes/v_box_container.hpp>
 
 #include <cstdint>
+#include <map>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -130,8 +133,8 @@ public:
 // headless commands (spec §13.1, §13.2):
 //   godot --headless -e --path <project> -- --petrichor-build
 //   godot --headless -e --path <project> -- --petrichor-format [--check]
-// has the nodes ask again for their errors when a file changes, shows the
-// references found in its panel, and renames (spec §13.3).
+// has the nodes ask again for their errors when a file or an open scene
+// changes, shows the references found in its panel, and renames (spec §13.3).
 class PetEditorPlugin : public godot::EditorPlugin {
 	GDCLASS(PetEditorPlugin, godot::EditorPlugin);
 
@@ -150,7 +153,21 @@ class PetEditorPlugin : public godot::EditorPlugin {
 		std::string name;
 		compiler::Rename changes;
 	} renaming;
+	// The renames in the editor's global history, by their index there: the
+	// action's name, the files it changed and `elsewhere` when it was made.
+	struct Recorded {
+		godot::String name;
+		std::set<std::string> files;
+		uint64_t elsewhere = 0;
+	};
+	std::map<int32_t, Recorded> recorded;
+	// The steps in the editor's other histories since the first rename, which
+	// may come before a rename in its undo (architecture §2.3).
+	uint64_t elsewhere = 0;
+	uint64_t global_version = 0;
+	godot::Timer *marks = nullptr; // Asks the nodes for their errors once scenes stop changing.
 
+	void history_changed();
 	void show_references(godot::Object *p_code_edit);
 	void ask_name(godot::Object *p_code_edit);
 	void rename_to(const godot::String &p_name);
@@ -170,6 +187,7 @@ protected:
 public:
 	void _enter_tree() override;
 	void _exit_tree() override;
+	void _input(const godot::Ref<godot::InputEvent> &p_event) override;
 	void _shortcut_input(const godot::Ref<godot::InputEvent> &p_event) override;
 	bool _build() override;
 };

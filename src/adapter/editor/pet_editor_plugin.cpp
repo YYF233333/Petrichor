@@ -29,6 +29,7 @@
 #include <godot_cpp/classes/gd_extension_manager.hpp>
 #include <godot_cpp/classes/input_event_key.hpp>
 #include <godot_cpp/classes/os.hpp>
+#include <godot_cpp/classes/popup_menu.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
@@ -703,6 +704,19 @@ void PetEditorPlugin::_enter_tree() {
 	EditorInterface::get_singleton()->get_resource_filesystem()->connect("filesystem_changed", callable_mp(this, &PetEditorPlugin::files_or_settings_changed));
 	// Such as the main scene and autoloads (core/config/project_settings.cpp:575, ed1daf0).
 	ProjectSettings::get_singleton()->connect("settings_changed", callable_mp(this, &PetEditorPlugin::files_or_settings_changed));
+	// An edit of an open scene, its undo and redo, as the editor learns that a
+	// scene changed (editor/editor_node.cpp:8406-8409,
+	// editor/editor_undo_redo_manager.cpp:298, 327, 380). Once they pause for
+	// as long as the script editor waits before it checks a script
+	// (editor/gui/code_editor.cpp:1014, 1166, 1696-1699; ed1daf0).
+	marks = memnew(Timer);
+	marks->set_one_shot(true);
+	marks->set_wait_time(EditorInterface::get_singleton()->get_editor_settings()->get_setting("text_editor/completion/idle_parse_delay"));
+	marks->connect("timeout", callable_mp_static(&project_changed));
+	add_child(marks);
+	get_undo_redo()->connect("history_changed", callable_mp(this, &PetEditorPlugin::history_changed));
+	get_undo_redo()->connect("version_changed", callable_mp(this, &PetEditorPlugin::history_changed));
+	connect("scene_closed", callable_mp(this, &PetEditorPlugin::history_changed).unbind(1));
 	const PackedStringArray args = OS::get_singleton()->get_cmdline_user_args();
 	if (args.has("--petrichor-build")) {
 		callable_mp(this, &PetEditorPlugin::run_build_command).call_deferred();
@@ -725,6 +739,15 @@ void PetEditorPlugin::scene_saved(const String &p_path) {
 
 void PetEditorPlugin::files_or_settings_changed() {
 	project_changed();
+}
+
+void PetEditorPlugin::history_changed() {
+	marks->start();
+	if (!recorded.empty()) {
+		const uint64_t version = get_undo_redo()->get_history_undo_redo(EditorUndoRedoManager::GLOBAL_HISTORY)->get_version();
+		elsewhere += version == global_version;
+		global_version = version;
+	}
 }
 
 // A context menu's shortcut in the code editor acts only while the menu is
@@ -821,12 +844,51 @@ void save_scenes(const std::set<std::string> &p_files) {
 
 } // namespace
 
+// The plugin sees a key before the CodeEdit (scene/main/viewport.cpp:3537),
+// which takes Undo and Redo also with nothing to undo or redo
+// (scene/gui/text_edit.cpp:2737-2746, 4766-4768; ed1daf0). Once a script of
+// this language has none, they undo or redo a rename that changed it, when
+// the editor's Undo or Redo would (architecture §2.3).
+void PetEditorPlugin::_input(const Ref<InputEvent> &p_event) {
+	const bool undo = p_event->is_action_pressed("ui_undo", true, true);
+	if (recorded.empty() || !(undo || p_event->is_action_pressed("ui_redo", true, true))) {
+		return;
+	}
+	ScriptEditor *script_editor = EditorInterface::get_singleton()->get_script_editor();
+	ScriptEditorBase *current = script_editor->get_current_editor();
+	const CodeEdit *code_edit = current ? Object::cast_to<CodeEdit>(current->get_base_editor()) : nullptr;
+	const Ref<Script> script = script_editor->get_current_script();
+	if (!code_edit || !code_edit->has_focus() || !Object::cast_to<PetScript>(script.ptr()) || (undo ? code_edit->has_undo() : code_edit->has_redo())) {
+		return;
+	}
+	UndoRedo *global = get_undo_redo()->get_history_undo_redo(EditorUndoRedoManager::GLOBAL_HISTORY);
+	const int32_t index = global->get_current_action() + (undo ? 0 : 1);
+	const auto found = recorded.find(index);
+	if (found == recorded.end() || index >= global->get_history_count() || global->get_action_name(index) != found->second.name || !found->second.files.count(to_utf8(script->get_path())) || found->second.elsewhere != elsewhere) {
+		return;
+	}
+	// The item of the main menu that the key chooses elsewhere
+	// (editor/editor_node.cpp:3584-3634, 8036-8037, 8267-8279; ed1daf0).
+	const TypedArray<Node> bars = EditorInterface::get_singleton()->get_base_control()->find_children("*", "MenuBar", true, false);
+	for (int64_t i = 0; i < bars.size(); i++) {
+		const TypedArray<Node> menus = Object::cast_to<Node>(bars[i])->get_children();
+		for (int64_t j = 0; j < menus.size(); j++) {
+			PopupMenu *menu = Object::cast_to<PopupMenu>(menus[j]);
+			if (menu && menu->activate_item_by_event(p_event)) {
+				get_viewport()->set_input_as_handled();
+				return;
+			}
+		}
+	}
+}
+
 void PetEditorPlugin::show_references(Object *p_code_edit) {
 	const std::optional<std::pair<String, uint32_t>> at = at_caret(p_code_edit);
 	if (!at) {
 		return;
 	}
-	std::optional<std::vector<compiler::Occurrence>> found = find_references(at->first, to_utf8(Object::cast_to<CodeEdit>(p_code_edit)->get_text()), at->second);
+	const OpenProject project;
+	std::optional<std::vector<compiler::Occurrence>> found = find_references(at->first, to_utf8(Object::cast_to<CodeEdit>(p_code_edit)->get_text()), at->second, &project);
 	if (!found) {
 		toast("No declaration at the caret.");
 		return;
@@ -933,6 +995,8 @@ void PetEditorPlugin::apply(const OpenProject &p_project, const std::string &p_p
 	std::string old_name;
 	Array candidates_before;
 	Array candidates_after;
+	// Reloading a scene clears its history, which is no step of its own.
+	const uint64_t steps = elsewhere;
 	for (auto &[file, edits] : by_file) {
 		std::sort(edits.begin(), edits.end(), [](const compiler::RenameEdit *p_a, const compiler::RenameEdit *p_b) { return p_a->edit.begin < p_b->edit.begin; });
 		int64_t delta = 0;
@@ -996,6 +1060,7 @@ void PetEditorPlugin::apply(const OpenProject &p_project, const std::string &p_p
 			loaded->copy_from_resource(ResourceLoader::get_singleton()->load(path, loaded->get_class(), ResourceLoader::CACHE_MODE_IGNORE));
 		}
 	}
+	elsewhere = steps;
 	project_changed();
 	// What finding references lists of the new name should be what changed.
 	const OpenProject after;
@@ -1027,16 +1092,28 @@ void PetEditorPlugin::apply(const OpenProject &p_project, const std::string &p_p
 		UtilityFunctions::push_warning(vformat("After renaming \"%s\" to \"%s\", finding references lists other places than it changed in %s.", to_godot(old_name), to_godot(p_name), String(", ").join(differing)));
 	}
 	const auto declared = std::find_if(p_edits.begin(), p_edits.end(), [](const compiler::RenameEdit &p_edit) { return p_edit.occurrence.declaration; });
-	if (!p_record || one_buffer || !found || declared == p_edits.end()) {
+	if (!p_record || one_buffer || !found || found->empty() || declared == p_edits.end()) {
 		return;
 	}
 	const compiler::DeclId &before = declared->occurrence.reference.target;
 	const compiler::DeclId &renamed = found->front().reference.target;
 	EditorUndoRedoManager *undo_redo = get_undo_redo();
-	undo_redo->create_action(vformat("Rename \"%s\" to \"%s\"", to_godot(old_name), to_godot(p_name)), UndoRedo::MERGE_DISABLE, nullptr, false, false);
-	undo_redo->add_do_method(this, "_rename_declaration", int(before.kind), to_godot(before.scope), to_godot(before.name), to_godot(p_name), candidates_before);
-	undo_redo->add_undo_method(this, "_rename_declaration", int(renamed.kind), to_godot(renamed.scope), to_godot(renamed.name), to_godot(old_name), candidates_after);
+	const String action = vformat("Rename \"%s\" to \"%s\"", to_godot(old_name), to_godot(p_name));
+	undo_redo->create_action(action, UndoRedo::MERGE_DISABLE, nullptr, false, false);
+	// Once the editor's undo or redo returns: a scene reloaded clears its
+	// history, and the editor reads its histories then, which are half undone
+	// during it (core/object/undo_redo.cpp:432-434,
+	// editor/editor_undo_redo_manager.cpp:321-325, 402-407; ed1daf0).
+	undo_redo->add_do_method(this, "call_deferred", "_rename_declaration", int(before.kind), to_godot(before.scope), to_godot(before.name), to_godot(p_name), candidates_before);
+	undo_redo->add_undo_method(this, "call_deferred", "_rename_declaration", int(renamed.kind), to_godot(renamed.scope), to_godot(renamed.name), to_godot(old_name), candidates_after);
 	undo_redo->commit_action(false);
+	UndoRedo *global = undo_redo->get_history_undo_redo(EditorUndoRedoManager::GLOBAL_HISTORY);
+	Recorded &made = recorded[global->get_current_action()];
+	made = { action, {}, elsewhere };
+	for (const auto &[file, edits] : by_file) {
+		made.files.insert(file);
+	}
+	global_version = global->get_version();
 }
 
 // Renames the declaration `p_scope` and `p_name` identify, as undoing and

@@ -65,10 +65,10 @@ public:
 	static const SceneIndex &get();
 };
 
-// The project with what the editor has not saved (architecture §2.3): the text
-// of the scripts open in the script editor, and the scenes open with unsaved
-// changes, packed as saving packs them (editor/editor_node.cpp:2505; ed1daf0).
-// The rest it reads as SceneIndex does.
+// The project with what the editor has not saved (architecture §2.3): the
+// scenes open with unsaved changes, packed as saving packs them
+// (editor/editor_node.cpp:2505; ed1daf0), and with `p_scripts` the text of the
+// scripts open in the script editor. The rest it reads as SceneIndex does.
 class OpenProject : public compiler::ProjectApi {
 	std::map<std::string, godot::CodeEdit *> code_edits;
 	std::map<std::string, std::string> buffers;
@@ -76,7 +76,7 @@ class OpenProject : public compiler::ProjectApi {
 	std::map<std::string, compiler::Scene> scenes;
 
 public:
-	OpenProject();
+	explicit OpenProject(bool p_scripts = true);
 	// The open script's editor, or null.
 	godot::CodeEdit *code_edit(const std::string &p_path) const;
 	bool is_unsaved_scene(const std::string &p_path) const { return packed.count(p_path) > 0; }
