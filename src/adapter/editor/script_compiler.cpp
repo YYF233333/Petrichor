@@ -318,12 +318,36 @@ std::optional<compiler::Lookup> lookup_name(const String &p_path, const std::str
 	return compiler::lookup(analysis(), file_doc_name, to_utf8(p_path), p_source, p_offset);
 }
 
-std::optional<std::vector<compiler::Occurrence>> find_references(const String &p_path, const std::string &p_source, uint32_t p_offset) {
+namespace {
+
+std::vector<std::string> other_scripts() {
 	std::vector<std::string> others;
 	for (const String &path : project_files(PackedStringArray({ "gd", "cs" }))) {
 		others.push_back(to_utf8(path));
 	}
-	return compiler::find_references(analysis(), to_utf8(p_path), p_source, p_offset, others);
+	return others;
+}
+
+} // namespace
+
+std::optional<std::vector<compiler::Occurrence>> find_references(const String &p_path, const std::string &p_source, uint32_t p_offset, const compiler::ProjectApi *p_project) {
+	const compiler::Analysis::Pass analysis_pass(analysis(), p_project);
+	return compiler::find_references(analysis(), to_utf8(p_path), p_source, p_offset, other_scripts());
+}
+
+compiler::Rename rename(const OpenProject &p_project, const std::string &p_path, uint32_t p_offset, const std::string &p_new) {
+	const auto text = [&](const std::string &p_file) { return p_project.text(p_file); };
+	return compiler::rename(analysis(), p_path, p_project.script_source(p_path).value_or(std::string()), p_offset, p_new, other_scripts(), text, &p_project);
+}
+
+std::optional<uint32_t> declaration_offset(const compiler::ProjectApi &p_project, const std::string &p_path, const std::string &p_source, const compiler::DeclId &p_id) {
+	const compiler::Analysis::Pass analysis_pass(analysis(), &p_project);
+	for (const compiler::Reference &reference : analysis().compile(p_path, p_source)->references) {
+		if (reference.declares && reference.target == p_id) {
+			return reference.begin;
+		}
+	}
+	return std::nullopt;
 }
 
 compiler::Completion completion(const String &p_path, const std::string &p_source) {

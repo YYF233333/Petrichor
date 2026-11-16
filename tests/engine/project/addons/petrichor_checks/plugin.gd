@@ -56,6 +56,7 @@ func _run() -> void:
 	await _check_members_overview()
 	await _check_documentation()
 	await _check_script_dialog()
+	_check_rename()
 
 	print("editor check: %d failure(s)" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -529,6 +530,81 @@ func _check_script_dialog() -> void:
 	EditorInterface.close_scene()
 	for file in [scene_path, script_path, script_path + ".uid", "res://.godot/petrichor/player.petc"]:
 		DirAccess.remove_absolute(file)
+
+
+# Spec §13.3 in the editor (architecture §2.3). A rename that cannot be made
+# changes nothing. A local renamed in one script is one step of that script's
+# undo. A member's rename reads the open script's text and the open scene's
+# unsaved change, which it saves before rewriting the scene. It writes a
+# closed script byte for byte, and one undo in the editor's history restores
+# them all.
+func _check_rename() -> void:
+	var dir := "res://editor_rename"
+	var unit := dir + "/unit.pet"
+	var user := dir + "/user.pet"
+	var scene := dir + "/unit.tscn"
+	DirAccess.make_dir_absolute(dir)
+	_write(unit, "extends Node\n\n@export pub var stride := 1\nvar health := 3\n\nfunc twice() -> int:\n\tvar count := stride\n\treturn count * 2\n")
+	var user_text := "﻿extends Node\r\n\r\nconst Unit = preload(\"unit.pet\")\r\n\r\nfunc f(unit: Unit) -> int:\r\n\treturn unit.stride\r\n"
+	FileAccess.open(user, FileAccess.WRITE).store_buffer(user_text.to_utf8_buffer())
+	_write(scene, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Unit" type="Node"]\nscript = ExtResource("1")\nstride = 5\n' % unit)
+	EditorInterface.open_scene_from_path(scene)
+	var root := EditorInterface.get_edited_scene_root()
+	var undo_redo := get_undo_redo()
+	undo_redo.create_action("Set stride")
+	undo_redo.add_do_property(root, "stride", 7)
+	undo_redo.add_undo_property(root, "stride", 5)
+	undo_redo.commit_action()
+	EditorInterface.edit_script(load(unit))
+	var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	var text := code.text
+	var scene_text := FileAccess.get_file_as_string(scene)
+	var global := undo_redo.get_history_undo_redo(EditorUndoRedoManager.GLOBAL_HISTORY)
+	var actions := global.get_history_count()
+
+	_rename(code, 2, 17, "health")
+	var refused := _references_tree().get_root().get_child(0).get_text(0) if _references_tree().get_root().get_child_count() > 0 else ""
+	_check(refused.begins_with(unit) and code.text == text and FileAccess.get_file_as_string(scene) == scene_text and EditorInterface.get_unsaved_scenes().has(scene), "a rename that cannot be made shows why and changes nothing: " + refused)
+
+	_rename(code, 6, 7, "total")
+	_check(code.text == text.replace("count", "total") and global.get_history_count() == actions, "a local is renamed in its script, outside the editor's history")
+	code.undo()
+	_check(code.text == text, "one undo in the script restores it")
+
+	_rename(code, 2, 17, "pace")
+	var apply: Button = _references_tree().get_parent().find_children("*", "Button", true, false).filter(func(b): return b.text == "Apply")[0]
+	apply.pressed.emit()
+	_check(code.text == text.replace("stride", "pace") and FileAccess.get_file_as_string(scene).contains("\npace = 7\n"), "a member is renamed in the open script and in the open scene, with its unsaved change")
+	_check(FileAccess.get_file_as_bytes(user) == user_text.replace("stride", "pace").to_utf8_buffer(), "a closed script keeps its byte order mark and line breaks")
+	global.undo()
+	_check(code.text == text and FileAccess.get_file_as_string(scene).contains("\nstride = 7\n") and FileAccess.get_file_as_bytes(user) == user_text.to_utf8_buffer(), "one undo in the editor's history restores the script, the scene and the closed script")
+	_check_errors([], "renaming reports nothing")
+
+	EditorInterface.close_scene()
+	EditorInterface.get_script_editor().close_file(unit)
+	for file in DirAccess.get_files_at(dir):
+		DirAccess.remove_absolute(dir.path_join(file))
+	DirAccess.remove_absolute(dir)
+
+
+# Renames the name at the line and column of the open script, as F2 and
+# entering the new name do.
+func _rename(code: CodeEdit, line: int, column: int, name: String) -> void:
+	code.set_caret_line(line)
+	code.set_caret_column(column)
+	code.grab_focus()
+	var key := InputEventKey.new()
+	key.keycode = KEY_F2
+	key.pressed = true
+	get_viewport().push_input(key)
+	var plugin: Node = get_tree().root.find_children("*", "PetEditorPlugin", true, false)[0]
+	var edit: LineEdit = plugin.find_children("*", "LineEdit", true, false)[0]
+	edit.text = name
+	edit.text_submitted.emit(name)
+
+
+func _references_tree() -> Tree:
+	return EditorInterface.get_base_control().find_children("*", "PetReferences", true, false)[0].find_children("*", "Tree", true, false)[0]
 
 
 # The dock's item for a node. The item names its node by a path: from the

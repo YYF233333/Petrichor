@@ -22,10 +22,12 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 - With the owner: the invitations to review 0.1.
 - Renaming, with the rewriting of scenes (spec §13.3).
-  - A preview lists every change by file. Same-named candidates that do not resolve start unchecked, as in `.gd` files and dynamic access.
-  - Applying saves the affected open scenes, writes the files and reloads them. One undo in the editor restores them all (architecture §2.3).
-  - The scene index reads the scenes open in the editor, unsaved changes included, for the preview and for the marks of errors. Check whether it handles autoloads that are scenes.
-  - Ctrl+Z in the script editor, once the script's history is used up, undoes the rename. First check that the plugin sees the key before the CodeEdit takes it.
+  - The marks of errors read the scenes open in the editor, unsaved changes included, as renaming does (architecture §2.3). Check whether the scene index handles autoloads that are scenes.
+  - Ctrl+Z in the script editor, once the script's history is used up, undoes the rename.
+    - The plugin sees the key in `_input`, before the CodeEdit (`scene/main/viewport.cpp:3537`, `ed1daf0`).
+    - `_shortcut_input` comes too late: TextEdit takes `ui_undo` even with nothing to undo (`scene/gui/text_edit.cpp:2737-2740, 4766-4768`).
+  - An open scene that instances a scene the rename rewrote keeps its instance as loaded. Check what the editor updates when the tab is shown (`editor/editor_data.cpp:722-811`).
+  - Applying a rename shows each open scene it saves. When the current tab is a new scene without a path, the editor stays on the last one saved. Godot shows an open scene only by its path.
   - Then renaming a node in the scene editor updates `$X` and literal paths in scripts. If time is short it moves to 0.3, since a stale `$X` is a compile error, not a silent one.
 - The first quick fixes: the five kinds most frequent in the second paper migration, about half of its 230 changes. They are adding `pub`, truthiness, `async` and `.detach()`, `T?` or `.unwrap()`, and `float` arguments.
   - A sixth kind joins them: a two-level Option compared with `null` becomes `get(k, null) == null` or `.unwrap_or(null) == null` (spec §3.4). It is mechanical, and the migration tool needs the same rewrite.

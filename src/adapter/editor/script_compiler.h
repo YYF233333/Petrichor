@@ -1,7 +1,9 @@
 #pragma once
 
+#include "adapter/editor/scene_index.h"
 #include "compiler/diagnostic.h"
 #include "compiler/navigation.h"
+#include "compiler/rename.h"
 #include "runtime/class_image.h"
 
 #include <godot_cpp/variant/string.hpp>
@@ -60,9 +62,18 @@ void project_changed();
 std::optional<compiler::Lookup> lookup_name(const godot::String &p_path, const std::string &p_source, uint32_t p_offset);
 
 // Where what the name at byte `p_offset` of the script's text refers to is
-// declared and referred to in the project, with the candidates in GDScript
-// and C# files (spec §13.2); nullopt where it refers to nothing.
-std::optional<std::vector<compiler::Occurrence>> find_references(const godot::String &p_path, const std::string &p_source, uint32_t p_offset);
+// declared and referred to in the project, read from `p_project` if given,
+// with the candidates in GDScript and C# files (spec §13.2); nullopt where it
+// refers to nothing.
+std::optional<std::vector<compiler::Occurrence>> find_references(const godot::String &p_path, const std::string &p_source, uint32_t p_offset, const compiler::ProjectApi *p_project = nullptr);
+
+// What renaming the name at byte `p_offset` of the script's text to `p_new`
+// changes (spec §13.3), with what the editor has not saved.
+compiler::Rename rename(const OpenProject &p_project, const std::string &p_path, uint32_t p_offset, const std::string &p_new);
+
+// Where the script compiled from `p_source` declares `p_id`; nullopt if it
+// does not.
+std::optional<uint32_t> declaration_offset(const compiler::ProjectApi &p_project, const std::string &p_path, const std::string &p_source, const compiler::DeclId &p_id);
 
 // What can be written at the cursor, which U+FFFF marks in `p_source`, for
 // the script editor's completion (spec §13.2).

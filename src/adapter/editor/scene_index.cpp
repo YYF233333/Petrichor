@@ -9,6 +9,7 @@
 #include <godot_cpp/classes/animation.hpp>
 #include <godot_cpp/classes/animation_library.hpp>
 #include <godot_cpp/classes/class_db_singleton.hpp>
+#include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/editor_file_system.hpp>
 #include <godot_cpp/classes/editor_file_system_directory.hpp>
 #include <godot_cpp/classes/editor_interface.hpp>
@@ -16,10 +17,13 @@
 #include <godot_cpp/classes/packed_scene.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
+#include <godot_cpp/classes/resource_saver.hpp>
 #include <godot_cpp/classes/resource_uid.hpp>
 #include <godot_cpp/classes/scene_replication_config.hpp>
 #include <godot_cpp/classes/scene_state.hpp>
 #include <godot_cpp/classes/script.hpp>
+#include <godot_cpp/classes/script_editor.hpp>
+#include <godot_cpp/classes/script_editor_base.hpp>
 
 #include <algorithm>
 #include <optional>
@@ -789,6 +793,85 @@ std::optional<compiler::ForeignClass> SceneIndex::foreign_class(const std::strin
 	}
 	result.members_known = true;
 	return result;
+}
+
+OpenProject::OpenProject() {
+	EditorInterface *editor = EditorInterface::get_singleton();
+	// The open scripts are those of the editors of ScriptTextEditor, in order;
+	// the others edit text files (editor/script/script_editor_plugin.cpp:3549-3575,
+	// script_text_editor.cpp:2788-2793, text_editor.cpp:68-73; ed1daf0).
+	const TypedArray<Ref<Script>> scripts = editor->get_script_editor()->get_open_scripts();
+	const TypedArray<ScriptEditorBase> editors = editor->get_script_editor()->get_open_script_editors();
+	int64_t index = 0;
+	for (int64_t i = 0; i < editors.size(); i++) {
+		const ScriptEditorBase *each = Object::cast_to<ScriptEditorBase>(editors[i]);
+		if (each->get_class() != String("ScriptTextEditor")) {
+			continue;
+		}
+		const Ref<Script> script = scripts[index++];
+		CodeEdit *code_edit = Object::cast_to<CodeEdit>(each->get_base_editor());
+		const String path = script->get_path();
+		if (code_edit && path.begins_with("res://") && !path.contains("::")) {
+			code_edits[to_utf8(path)] = code_edit;
+			buffers[to_utf8(path)] = to_utf8(code_edit->get_text());
+		}
+	}
+	const PackedStringArray unsaved = editor->get_unsaved_scenes();
+	const TypedArray<Node> roots = editor->get_open_scene_roots();
+	for (int64_t i = 0; i < roots.size(); i++) {
+		Node *root = Object::cast_to<Node>(roots[i]);
+		const String path = root->get_scene_file_path();
+		Ref<PackedScene> scene;
+		scene.instantiate();
+		if (!path.is_empty() && unsaved.has(path) && scene->pack(root) == OK) {
+			std::set<std::string> files;
+			packed[to_utf8(path)] = scene;
+			scenes[to_utf8(path)] = read_scene(path, scene->get_state(), files);
+		}
+	}
+}
+
+CodeEdit *OpenProject::code_edit(const std::string &p_path) const {
+	const auto found = code_edits.find(p_path);
+	return found == code_edits.end() ? nullptr : found->second;
+}
+
+std::optional<std::string> OpenProject::text(const std::string &p_path) const {
+	String path = to_godot(p_path);
+	const auto unsaved = packed.find(p_path);
+	if (unsaved != packed.end()) {
+		// Outside res://, so that the editor does not take it as a file of the
+		// project; under .godot/, so that it gives it no uid
+		// (core/io/resource_saver.cpp:146-147, editor/file_system/editor_file_system.cpp:3672-3676; ed1daf0).
+		path = ProjectSettings::get_singleton()->globalize_path("res://.godot/petrichor/rename." + path.get_extension());
+		DirAccess::make_dir_recursive_absolute(path.get_base_dir());
+		if (ResourceSaver::get_singleton()->save(unsaved->second, path) != OK) {
+			return std::nullopt;
+		}
+	}
+	const PackedByteArray bytes = FileAccess::get_file_as_bytes(path);
+	const Error error = FileAccess::get_open_error();
+	if (unsaved != packed.end()) {
+		DirAccess::remove_absolute(path);
+	}
+	if (error != OK) {
+		return std::nullopt;
+	}
+	return bytes.is_empty() ? std::string() : std::string(reinterpret_cast<const char *>(bytes.ptr()), size_t(bytes.size()));
+}
+
+std::optional<compiler::Scene> OpenProject::scene(const std::string &p_path) const {
+	const auto found = scenes.find(p_path);
+	return found == scenes.end() ? SceneIndex::get().scene(p_path) : std::optional<compiler::Scene>(found->second);
+}
+
+std::optional<std::string> OpenProject::script_source(const std::string &p_path) const {
+	const auto found = buffers.find(p_path);
+	return found == buffers.end() ? SceneIndex::get().script_source(p_path) : std::optional<std::string>(found->second);
+}
+
+std::vector<std::pair<bool, std::string>> OpenProject::literal_loads(const std::string &p_path) const {
+	return buffers.count(p_path) ? ProjectApi::literal_loads(p_path) : SceneIndex::get().literal_loads(p_path);
 }
 
 std::vector<std::string> SceneIndex::script_paths() const {

@@ -1,12 +1,16 @@
 #pragma once
 
-#include "compiler/navigation.h"
+#include "adapter/editor/scene_index.h"
+#include "compiler/rename.h"
 
 #include <godot_cpp/classes/editor_context_menu_plugin.hpp>
 #include <godot_cpp/classes/editor_export_plugin.hpp>
 #include <godot_cpp/classes/editor_plugin.hpp>
 #include <godot_cpp/classes/editor_syntax_highlighter.hpp>
+#include <godot_cpp/classes/h_box_container.hpp>
 #include <godot_cpp/classes/input_event.hpp>
+#include <godot_cpp/classes/line_edit.hpp>
+#include <godot_cpp/classes/popup_panel.hpp>
 #include <godot_cpp/classes/shortcut.hpp>
 #include <godot_cpp/classes/tree.hpp>
 #include <godot_cpp/classes/v_box_container.hpp>
@@ -36,7 +40,8 @@ public:
 };
 
 // The script editor's context menu on a script of this language: formatting
-// it, and finding the references of the name at the caret (spec §13.2).
+// it, finding the references of the name at the caret (spec §13.2) and
+// renaming it (§13.3).
 class PetCodeMenu : public godot::EditorContextMenuPlugin {
 	GDCLASS(PetCodeMenu, godot::EditorContextMenuPlugin);
 
@@ -47,21 +52,35 @@ protected:
 
 public:
 	godot::Ref<godot::Shortcut> find_references;
+	godot::Ref<godot::Shortcut> rename;
 
 	void _popup_menu(const godot::PackedStringArray &p_paths) override;
 };
 
 // The places that finding references lists, in the bottom panel by file, as
 // the results of Find in Files show (editor/script/find_in_files.cpp:791-924;
-// ed1daf0). Selecting one opens it.
+// ed1daf0). Selecting one opens it. It also previews the changes of a rename,
+// or shows why it cannot rename.
 class PetReferences : public godot::VBoxContainer {
 	GDCLASS(PetReferences, godot::VBoxContainer);
 
+	enum class Shown {
+		References,
+		Changes,
+		Refusals, // Their messages are the texts.
+	};
+
 	godot::Tree *tree = nullptr;
+	godot::HBoxContainer *actions = nullptr;
+	Shown shown = Shown::References;
 	std::vector<compiler::Occurrence> found;
+	std::vector<bool> ticked; // Of the changes.
+	godot::Callable apply;
 
 	void fill();
 	void open();
+	void tick();
+	void finish(bool p_apply);
 	void highlight(godot::Object *p_item, const godot::Rect2 &p_rect);
 
 protected:
@@ -71,6 +90,11 @@ protected:
 public:
 	PetReferences();
 	void set_found(std::vector<compiler::Occurrence> p_found);
+	// Each with a check box: candidates start unchecked, and the rest cannot
+	// be unchecked. Apply calls `p_apply`.
+	void set_changes(const std::vector<compiler::RenameEdit> &p_changes, const godot::Callable &p_apply);
+	void set_refusals(const std::vector<compiler::Diagnostic> &p_refusals);
+	const std::vector<bool> &checked() const { return ticked; }
 };
 
 // Colors scripts in the script editor by the lexer's tokens, in the colors of
@@ -106,8 +130,8 @@ public:
 // headless commands (spec §13.1, §13.2):
 //   godot --headless -e --path <project> -- --petrichor-build
 //   godot --headless -e --path <project> -- --petrichor-format [--check]
-// has the nodes ask again for their errors when a file changes, and shows
-// the references found in its panel.
+// has the nodes ask again for their errors when a file changes, shows the
+// references found in its panel, and renames (spec §13.3).
 class PetEditorPlugin : public godot::EditorPlugin {
 	GDCLASS(PetEditorPlugin, godot::EditorPlugin);
 
@@ -115,8 +139,24 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	godot::Ref<PetCodeMenu> code_menu;
 	godot::Ref<PetHighlighter> highlighter;
 	PetReferences *references = nullptr;
+	godot::PopupPanel *name_popup = nullptr;
+	godot::LineEdit *name_edit = nullptr;
+	// The rename asked for: the script, the name's offset in its text and the
+	// new name, and what renaming changes, which the References panel may
+	// preview.
+	struct {
+		std::string path;
+		uint32_t offset = 0;
+		std::string name;
+		compiler::Rename changes;
+	} renaming;
 
 	void show_references(godot::Object *p_code_edit);
+	void ask_name(godot::Object *p_code_edit);
+	void rename_to(const godot::String &p_name);
+	void apply_previewed();
+	void apply(const OpenProject &p_project, const std::string &p_path, uint32_t p_offset, const std::string &p_name, const std::vector<compiler::RenameEdit> &p_edits, bool p_record);
+	void rename_declaration(int p_kind, const godot::String &p_scope, const godot::String &p_name, const godot::String &p_new, const godot::Array &p_candidates);
 	bool waits_for_scan(void (PetEditorPlugin::*p_command)());
 	void run_build_command();
 	void run_format_command();
@@ -125,7 +165,7 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	void files_or_settings_changed();
 
 protected:
-	static void _bind_methods() {}
+	static void _bind_methods();
 
 public:
 	void _enter_tree() override;

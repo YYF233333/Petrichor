@@ -6,11 +6,13 @@
 #include "adapter/editor/script_compiler.h"
 #include "adapter/pet_language.h"
 #include "adapter/pet_script.h"
+#include "compiler/ast.h"
 #include "compiler/builtin_api.h"
 #include "compiler/formatter.h"
 #include "compiler/lexer.h"
 #include "runtime/text.h"
 
+#include <godot_cpp/classes/button.hpp>
 #include <godot_cpp/classes/class_db_singleton.hpp>
 #include <godot_cpp/classes/code_edit.hpp>
 #include <godot_cpp/classes/config_file.hpp>
@@ -21,6 +23,7 @@
 #include <godot_cpp/classes/editor_selection.hpp>
 #include <godot_cpp/classes/editor_settings.hpp>
 #include <godot_cpp/classes/editor_toaster.hpp>
+#include <godot_cpp/classes/editor_undo_redo_manager.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/font.hpp>
 #include <godot_cpp/classes/gd_extension_manager.hpp>
@@ -41,6 +44,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <map>
+#include <set>
 
 using namespace godot;
 
@@ -189,6 +194,7 @@ void PetCodeMenu::_popup_menu(const PackedStringArray &p_paths) {
 	if (Object::cast_to<PetScript>(script.ptr())) {
 		add_context_menu_item("Format", callable_mp(this, &PetCodeMenu::format));
 		add_context_menu_item_from_shortcut("Find References", find_references);
+		add_context_menu_item_from_shortcut("Rename...", rename);
 	}
 }
 
@@ -285,6 +291,16 @@ String place_in_scene(const compiler::Reference &p_reference) {
 
 PetReferences::PetReferences() {
 	set_name("References");
+	actions = memnew(HBoxContainer);
+	Button *apply_button = memnew(Button);
+	apply_button->set_text("Apply");
+	apply_button->connect("pressed", callable_mp(this, &PetReferences::finish).bind(true));
+	Button *cancel = memnew(Button);
+	cancel->set_text("Cancel");
+	cancel->connect("pressed", callable_mp(this, &PetReferences::finish).bind(false));
+	actions->add_child(apply_button);
+	actions->add_child(cancel);
+	add_child(actions);
 	tree = memnew(Tree);
 	tree->set_v_size_flags(SIZE_EXPAND_FILL);
 	tree->set_hide_root(true);
@@ -293,6 +309,7 @@ PetReferences::PetReferences() {
 	tree->add_theme_constant_override("inner_item_margin_left", 0);
 	tree->add_theme_constant_override("inner_item_margin_right", 0);
 	tree->connect("item_selected", callable_mp(this, &PetReferences::open));
+	tree->connect("item_edited", callable_mp(this, &PetReferences::tick));
 	add_child(tree);
 }
 
@@ -305,36 +322,91 @@ void PetReferences::_notification(int p_what) {
 }
 
 void PetReferences::set_found(std::vector<compiler::Occurrence> p_found) {
+	shown = Shown::References;
 	found = std::move(p_found);
 	fill();
 }
 
+void PetReferences::set_changes(const std::vector<compiler::RenameEdit> &p_changes, const Callable &p_apply) {
+	shown = Shown::Changes;
+	found.clear();
+	ticked.clear();
+	for (const compiler::RenameEdit &change : p_changes) {
+		found.push_back(change.occurrence);
+		ticked.push_back(!change.occurrence.candidate);
+	}
+	apply = p_apply;
+	fill();
+}
+
+void PetReferences::set_refusals(const std::vector<compiler::Diagnostic> &p_refusals) {
+	shown = Shown::Refusals;
+	found.clear();
+	for (const compiler::Diagnostic &refusal : p_refusals) {
+		compiler::Occurrence &each = found.emplace_back();
+		each.file = refusal.file;
+		each.line = refusal.line;
+		each.text = refusal.message;
+	}
+	fill();
+}
+
+void PetReferences::tick() {
+	const TreeItem *item = tree->get_edited();
+	ticked[int64_t(item->get_metadata(0))] = item->is_checked(0);
+}
+
+void PetReferences::finish(bool p_apply) {
+	if (p_apply) {
+		apply.call();
+	} else {
+		set_found({});
+	}
+}
+
 // By file, with the candidates in files of their own after the rest, dimmed.
+// Changes have their check boxes before them.
 void PetReferences::fill() {
 	tree->clear();
+	actions->set_visible(shown == Shown::Changes);
+	tree->set_columns(shown == Shown::Changes ? 2 : 1);
+	tree->set_column_expand(0, shown != Shown::Changes);
+	const int column = tree->get_columns() - 1;
 	TreeItem *root = tree->create_item();
 	const Color color = tree->get_theme_color("font_color");
 	TreeItem *file = nullptr;
 	for (size_t i = 0; i < found.size(); i++) {
 		const compiler::Occurrence &each = found[i];
+		if (shown == Shown::Refusals) {
+			TreeItem *item = tree->create_item(root);
+			item->set_text(0, to_godot(each.file) + (each.line > 0 ? vformat(":%d", each.line) : String()) + ": " + to_godot(each.text));
+			item->set_metadata(0, int64_t(i));
+			continue;
+		}
 		if (i == 0 || each.file != found[i - 1].file || each.candidate != found[i - 1].candidate) {
 			file = tree->create_item(root);
-			file->set_text(0, to_godot(each.file));
-			file->set_custom_color(0, color * Color(1, 1, 1, 0.67));
+			file->set_text(column, to_godot(each.file));
+			file->set_custom_color(column, color * Color(1, 1, 1, 0.67));
 			file->set_selectable(0, false);
+			file->set_selectable(column, false);
 		}
 		TreeItem *item = tree->create_item(file);
+		if (shown == Shown::Changes) {
+			item->set_cell_mode(0, TreeItem::CELL_MODE_CHECK);
+			item->set_checked(0, ticked[i]);
+			item->set_editable(0, each.candidate);
+		}
 		if (each.line > 0) {
 			// First, as it clears the cell.
-			item->set_cell_mode(0, TreeItem::CELL_MODE_CUSTOM);
-			item->set_text(0, vformat("%3s: ", each.line) + to_godot(each.text).strip_edges(true, false));
-			item->set_custom_draw_callback(0, callable_mp(this, &PetReferences::highlight));
+			item->set_cell_mode(column, TreeItem::CELL_MODE_CUSTOM);
+			item->set_text(column, vformat("%3s: ", each.line) + to_godot(each.text).strip_edges(true, false));
+			item->set_custom_draw_callback(column, callable_mp(this, &PetReferences::highlight));
 		} else {
-			item->set_text(0, place_in_scene(each.reference));
+			item->set_text(column, place_in_scene(each.reference));
 		}
 		item->set_metadata(0, int64_t(i));
 		if (each.candidate) {
-			item->set_custom_color(0, color * Color(1, 1, 1, 0.5));
+			item->set_custom_color(column, color * Color(1, 1, 1, 0.5));
 		}
 	}
 }
@@ -344,7 +416,7 @@ void PetReferences::highlight(Object *p_item, const Rect2 &p_rect) {
 	const TreeItem *item = Object::cast_to<TreeItem>(p_item);
 	const compiler::Occurrence &each = found[int64_t(item->get_metadata(0))];
 	const String line = to_godot(each.text);
-	const String shown = item->get_text(0);
+	const String shown = item->get_text(tree->get_columns() - 1);
 	const Ref<Font> font = tree->get_theme_font("font");
 	const int32_t size = tree->get_theme_font_size("font_size");
 	const float scale = EditorInterface::get_singleton()->get_editor_scale();
@@ -363,18 +435,21 @@ void PetReferences::highlight(Object *p_item, const Rect2 &p_rect) {
 }
 
 // A script at the name; a scene at the node, with the property stored
-// there; a resource at the property.
+// there; a resource at the property. Not on ticking a change.
 void PetReferences::open() {
+	if (shown == Shown::Changes && tree->get_selected_column() == 0) {
+		return;
+	}
 	const compiler::Occurrence &each = found[int64_t(tree->get_selected()->get_metadata(0))];
 	EditorInterface *editor = EditorInterface::get_singleton();
 	const compiler::Reference &reference = each.reference;
 	const String file = to_godot(each.file);
 	const String property = to_godot(reference.property);
-	if (each.line > 0) {
+	const String extension = file.get_extension().to_lower();
+	if (extension == "pet" || extension == "gd" || extension == "cs") {
 		editor->edit_script(ResourceLoader::get_singleton()->load(file), each.line, each.column);
 		return;
 	}
-	const String extension = file.get_extension().to_lower();
 	if (extension != "tscn" && extension != "scn") {
 		editor->inspect_object(ResourceLoader::get_singleton()->load(file).ptr(), property);
 		return;
@@ -578,28 +653,48 @@ Dictionary PetHighlighter::_get_line_syntax_highlighting(int32_t p_line) const {
 	return colors;
 }
 
+void PetEditorPlugin::_bind_methods() {
+	// For the editor's undo history, which calls methods by name.
+	ClassDB::bind_method(D_METHOD("_rename_declaration", "kind", "scope", "name", "new_name", "candidates"), &PetEditorPlugin::rename_declaration);
+}
+
 void PetEditorPlugin::_enter_tree() {
 	export_plugin.instantiate();
 	add_export_plugin(export_plugin);
-	Ref<InputEventKey> key;
-	key.instantiate();
-	key->set_keycode(KEY_F12);
-	key->set_shift_pressed(true);
-	key->set_alt_pressed(true);
-	Ref<Shortcut> shortcut;
-	shortcut.instantiate();
-	shortcut->set_name("Find References");
-	shortcut->set_events(Array::make(key));
-	// So that users can change it; Godot 4.4 does not bind add_shortcut.
-	if (ClassDBSingleton::get_singleton()->class_has_method("EditorSettings", "add_shortcut")) {
-		EditorInterface::get_singleton()->get_editor_settings()->call("add_shortcut", "petrichor/find_references", shortcut);
-	}
+	const auto shortcut = [](const char *p_setting, const char *p_name, Key p_key, bool p_shift_alt) {
+		Ref<InputEventKey> key;
+		key.instantiate();
+		key->set_keycode(p_key);
+		key->set_shift_pressed(p_shift_alt);
+		key->set_alt_pressed(p_shift_alt);
+		Ref<Shortcut> made;
+		made.instantiate();
+		made->set_name(p_name);
+		made->set_events(Array::make(key));
+		// So that users can change it; Godot 4.4 does not bind add_shortcut.
+		if (ClassDBSingleton::get_singleton()->class_has_method("EditorSettings", "add_shortcut")) {
+			EditorInterface::get_singleton()->get_editor_settings()->call("add_shortcut", p_setting, made);
+		}
+		return made;
+	};
 	code_menu.instantiate();
-	code_menu->find_references = shortcut;
-	code_menu->add_menu_shortcut(shortcut, callable_mp(this, &PetEditorPlugin::show_references));
+	code_menu->find_references = shortcut("petrichor/find_references", "Find References", KEY_F12, true);
+	code_menu->add_menu_shortcut(code_menu->find_references, callable_mp(this, &PetEditorPlugin::show_references));
+	// F2, as Rename in the scene tree and the FileSystem docks, which take it
+	// only where they have focus (editor/docks/scene_tree_dock.cpp:181-184, 5013;
+	// editor/docks/filesystem_dock.cpp:2780, 3885, 4449; ed1daf0). The script
+	// editor binds no F2.
+	code_menu->rename = shortcut("petrichor/rename", "Rename", KEY_F2, false);
+	code_menu->add_menu_shortcut(code_menu->rename, callable_mp(this, &PetEditorPlugin::ask_name));
 	add_context_menu_plugin(EditorContextMenuPlugin::CONTEXT_SLOT_SCRIPT_EDITOR_CODE, code_menu);
 	references = memnew(PetReferences);
 	add_control_to_bottom_panel(references, "References");
+	name_popup = memnew(PopupPanel);
+	name_edit = memnew(LineEdit);
+	name_edit->set_custom_minimum_size(Vector2(240, 0) * EditorInterface::get_singleton()->get_editor_scale());
+	name_edit->connect("text_submitted", callable_mp(this, &PetEditorPlugin::rename_to));
+	name_popup->add_child(name_edit);
+	add_child(name_popup);
 	highlighter.instantiate();
 	EditorInterface::get_singleton()->get_script_editor()->register_syntax_highlighter(highlighter);
 	// editor/plugins/editor_plugin.cpp:284-289 (ed1daf0).
@@ -639,34 +734,360 @@ void PetEditorPlugin::files_or_settings_changed() {
 void PetEditorPlugin::_shortcut_input(const Ref<InputEvent> &p_event) {
 	ScriptEditor *script_editor = EditorInterface::get_singleton()->get_script_editor();
 	ScriptEditorBase *current = script_editor->get_current_editor();
-	if (p_event->is_pressed() && !p_event->is_echo() && code_menu->find_references->matches_event(p_event) && script_editor->is_visible_in_tree() && current) {
+	if (!p_event->is_pressed() || p_event->is_echo() || !current) {
+		return;
+	}
+	if (code_menu->find_references->matches_event(p_event) && script_editor->is_visible_in_tree()) {
 		show_references(current->get_base_editor());
+		get_viewport()->set_input_as_handled();
+	} else if (code_menu->rename->matches_event(p_event) && current->get_base_editor()->has_focus()) {
+		ask_name(current->get_base_editor());
 		get_viewport()->set_input_as_handled();
 	}
 }
 
-void PetEditorPlugin::show_references(Object *p_code_edit) {
+namespace {
+
+// The script open in the script editor at `p_code_edit`, if of this language,
+// and the offset of the caret in its text.
+std::optional<std::pair<String, uint32_t>> at_caret(const Object *p_code_edit) {
 	const CodeEdit *code_edit = Object::cast_to<CodeEdit>(p_code_edit);
 	const Ref<Script> script = EditorInterface::get_singleton()->get_script_editor()->get_current_script();
 	if (!code_edit || !Object::cast_to<PetScript>(script.ptr())) {
-		return;
+		return std::nullopt;
 	}
 	const String text = code_edit->get_text();
 	int64_t caret = 0;
 	for (int line = 0; line < code_edit->get_caret_line(); line++) {
 		caret = text.find("\n", caret) + 1;
 	}
-	const std::string before = to_utf8(text.substr(0, caret + code_edit->get_caret_column()));
-	std::optional<std::vector<compiler::Occurrence>> found = find_references(script->get_path(), to_utf8(text), uint32_t(before.size()));
+	return std::make_pair(script->get_path(), uint32_t(to_utf8(text.substr(0, caret + code_edit->get_caret_column())).size()));
+}
+
+void toast(const String &p_message, EditorToaster::Severity p_severity = EditorToaster::SEVERITY_INFO) {
+	EditorInterface::get_singleton()->get_editor_toaster()->push_toast(p_message, p_severity);
+}
+
+bool is_script(const std::string &p_file) {
+	const String extension = to_godot(p_file).get_extension().to_lower();
+	return extension == "pet" || extension == "gd" || extension == "cs";
+}
+
+std::string file_bytes(const String &p_path) {
+	const PackedByteArray bytes = FileAccess::get_file_as_bytes(p_path);
+	return bytes.is_empty() ? std::string() : std::string(reinterpret_cast<const char *>(bytes.ptr()), size_t(bytes.size()));
+}
+
+bool write_file(const String &p_path, const std::string &p_bytes) {
+	const Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::WRITE);
+	if (file.is_null()) {
+		ERR_PRINT(vformat("Cannot write %s.", p_path));
+		return false;
+	}
+	PackedByteArray data;
+	data.resize(int64_t(p_bytes.size()));
+	if (!p_bytes.empty()) {
+		std::memcpy(data.ptrw(), p_bytes.data(), p_bytes.size());
+	}
+	file->store_buffer(data);
+	return true;
+}
+
+// A byte order mark is no text, as the build reads a script
+// (core/string/ustring.cpp:1756-1759, ed1daf0), and is written back.
+std::string byte_order_mark(const std::string &p_bytes) {
+	return p_bytes.rfind("\xEF\xBB\xBF", 0) == 0 ? "\xEF\xBB\xBF" : "";
+}
+
+// The open scenes among `p_files` with unsaved changes saved as Save Scene
+// saves the current one; another is shown while it is saved
+// (editor/editor_interface.cpp:699-704, 775-777, editor/editor_node.h:981-987,
+// editor/editor_node.cpp:2466-2560, 4961-4974; ed1daf0).
+void save_scenes(const std::set<std::string> &p_files) {
+	EditorInterface *editor = EditorInterface::get_singleton();
+	const OpenProject project;
+	const Node *current = editor->get_edited_scene_root();
+	const String shown = current ? current->get_scene_file_path() : String();
+	for (const std::string &file : p_files) {
+		if (project.is_unsaved_scene(file)) {
+			editor->open_scene_from_path(to_godot(file));
+			editor->save_scene_as(to_godot(file), false);
+		}
+	}
+	if (!shown.is_empty()) {
+		editor->open_scene_from_path(shown);
+	}
+}
+
+} // namespace
+
+void PetEditorPlugin::show_references(Object *p_code_edit) {
+	const std::optional<std::pair<String, uint32_t>> at = at_caret(p_code_edit);
+	if (!at) {
+		return;
+	}
+	std::optional<std::vector<compiler::Occurrence>> found = find_references(at->first, to_utf8(Object::cast_to<CodeEdit>(p_code_edit)->get_text()), at->second);
 	if (!found) {
-		EditorInterface::get_singleton()->get_editor_toaster()->push_toast("No declaration at the caret.", EditorToaster::SEVERITY_INFO);
+		toast("No declaration at the caret.");
 		return;
 	}
 	references->set_found(std::move(*found));
 	make_bottom_panel_item_visible(references);
 }
 
+void PetEditorPlugin::ask_name(Object *p_code_edit) {
+	const std::optional<std::pair<String, uint32_t>> at = at_caret(p_code_edit);
+	const CodeEdit *code_edit = Object::cast_to<CodeEdit>(p_code_edit);
+	const String word = at ? code_edit->get_word_under_caret(0) : String();
+	if (word.is_empty()) {
+		if (at) {
+			toast("No declaration at the caret.");
+		}
+		return;
+	}
+	renaming.path = to_utf8(at->first);
+	renaming.offset = at->second;
+	name_edit->set_text(word);
+	name_popup->set_position(Vector2i(code_edit->get_screen_position() + code_edit->get_caret_draw_pos(0)));
+	name_popup->reset_size();
+	name_popup->popup();
+	name_edit->grab_focus();
+	name_edit->select_all();
+}
+
+// Previews the changes when they reach a scene or a resource file or include
+// candidates, as JetBrains IDEs do; applies them at once otherwise.
+void PetEditorPlugin::rename_to(const String &p_name) {
+	name_popup->hide();
+	renaming.name = to_utf8(p_name);
+	const OpenProject project;
+	renaming.changes = rename(project, renaming.path, renaming.offset, renaming.name);
+	const std::vector<compiler::RenameEdit> &edits = renaming.changes.edits;
+	if (!renaming.changes.refusals.empty()) {
+		references->set_refusals(renaming.changes.refusals);
+	} else if (std::any_of(edits.begin(), edits.end(), [](const compiler::RenameEdit &p_edit) { return p_edit.occurrence.candidate || !is_script(p_edit.occurrence.file); })) {
+		references->set_changes(edits, callable_mp(this, &PetEditorPlugin::apply_previewed));
+	} else {
+		references->set_found({});
+		apply(project, renaming.path, renaming.offset, renaming.name, edits, true);
+		return;
+	}
+	make_bottom_panel_item_visible(references);
+}
+
+// The scenes it changes are saved, and the changes found again. The preview
+// is shown again if they differ.
+void PetEditorPlugin::apply_previewed() {
+	const std::vector<bool> ticked = references->checked();
+	std::set<std::string> files;
+	for (size_t i = 0; i < ticked.size(); i++) {
+		if (ticked[i]) {
+			files.insert(renaming.changes.edits[i].occurrence.file);
+		}
+	}
+	save_scenes(files);
+	const OpenProject project;
+	const compiler::Rename again = rename(project, renaming.path, renaming.offset, renaming.name);
+	const auto same = [](const compiler::RenameEdit &p_a, const compiler::RenameEdit &p_b) {
+		const compiler::Occurrence &a = p_a.occurrence;
+		const compiler::Occurrence &b = p_b.occurrence;
+		return a.file == b.file && a.line == b.line && a.column == b.column && a.candidate == b.candidate && p_a.edit.old_text == p_b.edit.old_text;
+	};
+	const std::vector<compiler::RenameEdit> &previewed = renaming.changes.edits;
+	if (!again.refusals.empty() || !std::equal(again.edits.begin(), again.edits.end(), previewed.begin(), previewed.end(), same)) {
+		renaming.changes = again;
+		if (again.refusals.empty()) {
+			references->set_changes(again.edits, callable_mp(this, &PetEditorPlugin::apply_previewed));
+		} else {
+			references->set_refusals(again.refusals);
+		}
+		toast("The project changed.");
+		return;
+	}
+	std::vector<compiler::RenameEdit> chosen;
+	for (size_t i = 0; i < ticked.size(); i++) {
+		if (ticked[i]) {
+			chosen.push_back(again.edits[i]);
+		}
+	}
+	references->set_found({});
+	apply(project, renaming.path, renaming.offset, renaming.name, chosen, true);
+}
+
+// Each open script's buffer is edited as one step to undo. Other files are
+// written as bytes, and the open scenes among them reloaded, which clears
+// their undo histories (editor/editor_node.cpp:7124-7160; ed1daf0). When it
+// changes more than one buffer, the histories of the open scripts are cleared
+// too, and the editor's history records the rename (architecture §2.3).
+void PetEditorPlugin::apply(const OpenProject &p_project, const std::string &p_path, uint32_t p_offset, const std::string &p_name, const std::vector<compiler::RenameEdit> &p_edits, bool p_record) {
+	std::map<std::string, std::vector<const compiler::RenameEdit *>> by_file;
+	for (const compiler::RenameEdit &edit : p_edits) {
+		by_file[edit.occurrence.file].push_back(&edit);
+	}
+	const bool one_buffer = by_file.size() == 1 && p_project.code_edit(by_file.begin()->first);
+	EditorInterface *editor = EditorInterface::get_singleton();
+	const PackedStringArray open_scenes = editor->get_open_scenes();
+	// Where the name renamed is after the edits, and where the candidates
+	// changed are before and after them.
+	uint32_t offset = p_offset;
+	std::string old_name;
+	Array candidates_before;
+	Array candidates_after;
+	for (auto &[file, edits] : by_file) {
+		std::sort(edits.begin(), edits.end(), [](const compiler::RenameEdit *p_a, const compiler::RenameEdit *p_b) { return p_a->edit.begin < p_b->edit.begin; });
+		int64_t delta = 0;
+		std::vector<compiler::Edit> plain;
+		for (const compiler::RenameEdit *each : edits) {
+			const compiler::CheckedEdit &edit = each->edit;
+			if (file == p_path && edit.begin <= p_offset && p_offset <= edit.end) {
+				offset = uint32_t(edit.begin + delta);
+				old_name = edit.old_text;
+			}
+			if (each->occurrence.candidate) {
+				candidates_before.push_back(Array::make(to_godot(file), edit.begin));
+				candidates_after.push_back(Array::make(to_godot(file), edit.begin + delta));
+			}
+			delta += int64_t(edit.new_text.size()) - (edit.end - edit.begin);
+			plain.push_back({ edit.begin, edit.end, edit.new_text });
+		}
+		const String path = to_godot(file);
+		if (CodeEdit *code_edit = p_project.code_edit(file)) {
+			apply_edits(code_edit, *p_project.script_source(file), plain);
+			if (!one_buffer) {
+				code_edit->clear_undo_history();
+			}
+			continue;
+		}
+		std::string text = file_bytes(path);
+		const std::string bom = is_script(file) ? byte_order_mark(text) : std::string();
+		text.erase(0, bom.size());
+		std::string result;
+		uint32_t done = 0;
+		bool intact = true;
+		for (const compiler::RenameEdit *each : edits) {
+			const compiler::CheckedEdit &edit = each->edit;
+			intact = intact && text.compare(edit.begin, edit.end - edit.begin, edit.old_text) == 0;
+			result += text.substr(done, edit.begin - done) + edit.new_text;
+			done = edit.end;
+		}
+		if (!intact) {
+			ERR_PRINT(vformat("%s changed while renaming, and is left as it is.", path));
+			continue;
+		}
+		if (!write_file(path, bom + result + text.substr(done))) {
+			continue;
+		}
+		SceneIndex::get().forget(file);
+		// A changed script_class takes effect (editor/file_system/editor_file_system.cpp:2400-2492; ed1daf0).
+		editor->get_resource_filesystem()->update_file(path);
+		if (open_scenes.has(path)) {
+			editor->reload_scene_from_path(path);
+			continue;
+		}
+		// What is loaded is read again, as when the editor sees a file change; it
+		// leaves scenes to itself, and a script as the script editor reloads one
+		// (editor/editor_node.cpp:1291-1323, core/io/resource.cpp:263-276,
+		// scene/resources/packed_scene.h:256, editor/script/script_editor_plugin.cpp:2564-2565; ed1daf0).
+		const Ref<Resource> loaded = ResourceLoader::get_singleton()->get_cached_ref(path);
+		if (Script *script = Object::cast_to<Script>(loaded.ptr())) {
+			script->set_source_code(FileAccess::get_file_as_string(path));
+			script->reload(true);
+		} else if (loaded.is_valid() && !Object::cast_to<PackedScene>(loaded.ptr())) {
+			loaded->copy_from_resource(ResourceLoader::get_singleton()->load(path, loaded->get_class(), ResourceLoader::CACHE_MODE_IGNORE));
+		}
+	}
+	project_changed();
+	// What finding references lists of the new name should be what changed.
+	const OpenProject after;
+	const std::optional<std::vector<compiler::Occurrence>> found = find_references(to_godot(p_path), after.script_source(p_path).value_or(std::string()), offset, &after);
+	std::map<std::string, size_t> changed;
+	std::map<std::string, size_t> listed;
+	for (const compiler::RenameEdit &edit : p_edits) {
+		if (!edit.occurrence.candidate) {
+			changed[edit.occurrence.file] = is_script(edit.occurrence.file) ? changed[edit.occurrence.file] + 1 : 1;
+		}
+	}
+	for (const compiler::Occurrence &each : found.value_or(std::vector<compiler::Occurrence>())) {
+		if (!each.candidate) {
+			listed[each.file] = is_script(each.file) ? listed[each.file] + 1 : 1;
+		}
+	}
+	if (changed != listed) {
+		PackedStringArray differing;
+		for (const auto &[file, count] : changed) {
+			if (listed[file] != count) {
+				differing.push_back(to_godot(file));
+			}
+		}
+		for (const auto &[file, count] : listed) {
+			if (!changed.count(file)) {
+				differing.push_back(to_godot(file));
+			}
+		}
+		UtilityFunctions::push_warning(vformat("After renaming \"%s\" to \"%s\", finding references lists other places than it changed in %s.", to_godot(old_name), to_godot(p_name), String(", ").join(differing)));
+	}
+	const auto declared = std::find_if(p_edits.begin(), p_edits.end(), [](const compiler::RenameEdit &p_edit) { return p_edit.occurrence.declaration; });
+	if (!p_record || one_buffer || !found || declared == p_edits.end()) {
+		return;
+	}
+	const compiler::DeclId &before = declared->occurrence.reference.target;
+	const compiler::DeclId &renamed = found->front().reference.target;
+	EditorUndoRedoManager *undo_redo = get_undo_redo();
+	undo_redo->create_action(vformat("Rename \"%s\" to \"%s\"", to_godot(old_name), to_godot(p_name)), UndoRedo::MERGE_DISABLE, nullptr, false, false);
+	undo_redo->add_do_method(this, "_rename_declaration", int(before.kind), to_godot(before.scope), to_godot(before.name), to_godot(p_name), candidates_before);
+	undo_redo->add_undo_method(this, "_rename_declaration", int(renamed.kind), to_godot(renamed.scope), to_godot(renamed.name), to_godot(old_name), candidates_after);
+	undo_redo->commit_action(false);
+}
+
+// Renames the declaration `p_scope` and `p_name` identify, as undoing and
+// redoing a rename do, from the text as it is now, with the candidates
+// changed at the offsets given. A scene it changes is saved first.
+void PetEditorPlugin::rename_declaration(int p_kind, const String &p_scope, const String &p_name, const String &p_new, const Array &p_candidates) {
+	const compiler::DeclId id{ compiler::DeclId::Kind(p_kind), to_utf8(p_scope), to_utf8(p_name) };
+	const std::string file = compiler::script_file(id.scope);
+	const auto refuse = [&](const std::string &p_why) {
+		toast(vformat("Cannot rename it to \"%s\": %s", p_new, to_godot(p_why)), EditorToaster::SEVERITY_WARNING);
+	};
+	for (bool saved = false;; saved = true) {
+		const OpenProject project;
+		const std::optional<std::string> source = project.script_source(file);
+		const std::optional<uint32_t> offset = source ? declaration_offset(project, file, *source, id) : std::nullopt;
+		if (!offset) {
+			refuse("its declaration is gone.");
+			return;
+		}
+		const compiler::Rename found = rename(project, file, *offset, to_utf8(p_new));
+		if (!found.refusals.empty()) {
+			refuse(found.refusals[0].message);
+			return;
+		}
+		std::set<std::string> files;
+		std::vector<compiler::RenameEdit> chosen;
+		int64_t candidates = 0;
+		for (const compiler::RenameEdit &edit : found.edits) {
+			files.insert(edit.occurrence.file);
+			const bool candidate = edit.occurrence.candidate && p_candidates.has(Array::make(to_godot(edit.occurrence.file), edit.edit.begin));
+			if (!edit.occurrence.candidate || candidate) {
+				chosen.push_back(edit);
+				candidates += candidate;
+			}
+		}
+		if (!saved && std::any_of(files.begin(), files.end(), [&](const std::string &p_file) { return project.is_unsaved_scene(p_file); })) {
+			save_scenes(files);
+			continue;
+		}
+		if (candidates != p_candidates.size()) {
+			refuse("a name it changed by text has moved.");
+			return;
+		}
+		apply(project, file, *offset, to_utf8(p_new), chosen, false);
+		return;
+	}
+}
+
 void PetEditorPlugin::_exit_tree() {
+	memdelete(name_popup);
+	name_popup = nullptr;
 	remove_control_from_bottom_panel(references);
 	memdelete(references);
 	references = nullptr;
@@ -716,12 +1137,9 @@ void PetEditorPlugin::run_format_command() {
 	int changed = 0;
 	int failed = 0;
 	for (const String &path : paths) {
-		// As bytes, which keeps the file's line breaks. A byte order mark is no
-		// text, as the build reads it (core/string/ustring.cpp:1756-1759, ed1daf0),
-		// and is written back.
-		const PackedByteArray bytes = FileAccess::get_file_as_bytes(path);
-		std::string source = bytes.is_empty() ? std::string() : std::string(reinterpret_cast<const char *>(bytes.ptr()), size_t(bytes.size()));
-		const std::string bom = source.rfind("\xEF\xBB\xBF", 0) == 0 ? "\xEF\xBB\xBF" : "";
+		// As bytes, which keeps the file's line breaks.
+		std::string source = file_bytes(path);
+		const std::string bom = byte_order_mark(source);
 		source.erase(0, bom.size());
 		std::string error;
 		const std::optional<std::string> result = compiler::format(source, &error);
@@ -739,19 +1157,7 @@ void PetEditorPlugin::run_format_command() {
 			UtilityFunctions::print(vformat("%s is not formatted.", path));
 			continue;
 		}
-		const Ref<FileAccess> file = FileAccess::open(path, FileAccess::WRITE);
-		if (file.is_null()) {
-			failed++;
-			ERR_PRINT(vformat("Cannot write %s.", path));
-			continue;
-		}
-		const std::string text = bom + *result;
-		PackedByteArray data;
-		data.resize(int64_t(text.size()));
-		if (!text.empty()) {
-			std::memcpy(data.ptrw(), text.data(), text.size());
-		}
-		file->store_buffer(data);
+		failed += !write_file(path, bom + *result);
 	}
 	UtilityFunctions::print(vformat("petrichor format: %d script(s), %d %s, %d with errors", int(paths.size()), changed, check ? "not formatted" : "formatted", failed));
 	get_tree()->quit(failed > 0 || (check && changed > 0) ? 1 : 0);
