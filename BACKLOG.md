@@ -75,7 +75,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 ## Editor
 
-- Renaming through binary `.scn` and `.res` files, by an engine resave of `PackedScene._bundled` (design-notes). Until then such a reference refuses the rename (architecture §6.4). Binary files cannot be merged, so rewriting a whole one costs little. Done when someone asks for it.
+- Renaming through binary `.scn` and `.res` files, by an engine resave of `PackedScene._bundled` (design-notes). Until then such a reference refuses the rename (architecture §6.4). Done when someone asks for it.
 - Member names in the `advance_expression` of AnimationTree transitions. Find references and rename do not see them, so a rename breaks the expression silently. They are expressions evaluated at run time, not a literal-name position of spec §10.4. Corpus v2 has 447 in 63 files. Candidates: list them as unchecked candidates, or parse the expression and check it as the spec checks literal names.
 - An icon for `.pet` scripts, plus a standalone mark and an organization avatar before 0.9. The release notes of 0.1 ask reviewers what the script icon should be.
 - The dialog that creates a script shows "No suitable template.", as this language has no templates. The script is created all the same.
@@ -95,7 +95,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - The error explaining why a GDScript file cannot extend a class of this language (spec §11.2).
 - A quick fix adding the constructor for the implicit conversions of GDScript that this language drops (spec §3.14).
 - When lints are added, consider a hint on ordering arrays whose elements can be NaN. GDScript's results differ there (spec §5.2).
-- With the lints of 0.3, a warning on code that relies on the order of side effects between an assignment's target and its right side (spec §3.6). The owner considers such code harmful.
+- With the lints of 0.3, a warning on code that relies on the order of side effects between an assignment's target and its right side (spec §3.6, design-notes).
   - Examples are `next_slot().value = compute()`, whose calls run in another order in GDScript, and `arr[i] = next()` with `next()` assigning `i`.
   - It needs a rule in the spec and a count of its noise in the corpus first.
 - When lints are added, consider a hint on assignments to must-assign members right after `new()`. Named arguments of `new(...)` would let the compiler check them (spec §6.2).
@@ -137,7 +137,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - The debugger's evaluator reads members through `Object::get`, so only `pub` ones. Spec §10.5 says the debugger sees all members, as the members panel does.
 - Evaluating in the debugger loads every global class, which runs the static initialization of each. GDScript does the same.
 - The debugger lists all locals of a function regardless of scope. So same-named locals of blocks side by side collide. The bytecode would record the scope of each slot.
-- Before 0.9, diagnostics and semantic queries that serve programs, not only the editor's interface. They say which declaration or scene a constraint comes from, and list the references that broke. Agents then fix errors while reading less code. Accepted by an agent evaluation (architecture §5, 0.9).
+- Before 0.9, diagnostics and semantic queries that serve programs, not only the editor's interface (architecture §5, 0.9).
 - Before 0.9, function times in Godot's profiler. The `_profiling_*` methods of `PetLanguage` are empty, so the profiler shows no function of this language. Deeper integration comes after 1.0 (spec §14.2).
   - Before it, one entry into functions of this language. Now `vm::call`, `call_function`, `call_directly`, `construct_directly`, `call_value` and `start_task` each find the callee's image, index and `self_image`. Spec §8.1's chain or engine entry becomes a field of the callee, not a thread-local protocol.
 
