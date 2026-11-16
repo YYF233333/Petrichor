@@ -205,6 +205,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - renaming a `pub` member that every script and scene uses takes 73 s to its preview at first, 43 s after. Each checks every script twice, before and after the edits;
   - applying that rename had not ended after 11 minutes, though every file was written;
   - renaming a local takes 4 to 5 s, though it checks one script.
+  - Once fixed, CI holds these times to a budget (architecture §5, step 11).
 - Benchmarks of real workloads; optimizations of the IR and code generation after those. In the init function, instructions that can run other code are barriers to them.
 - Liveness of the IR's registers (`src/compiler/ir.h`), one analysis on the IR before any optimization.
   - It serves the warning `modified_copy` (spec §3.6), which is off until then.
