@@ -40,8 +40,9 @@ struct Rename {
 // - edits after which the scripts of this language have an error they did
 //   not have, or a name refers to another declaration.
 // The last is decided by checking the edited scripts in a pass of its own, so
-// it is called outside any pass.
+// it is called outside any pass. It reads the project from `p_project` if
+// given, as the editor gives what it has not saved.
 Rename rename(Analysis &r_analysis, const std::string &p_path, const std::string &p_source, uint32_t p_offset, const std::string &p_new, const std::vector<std::string> &p_other_scripts,
-		const std::function<std::optional<std::string>(const std::string &)> &p_text);
+		const std::function<std::optional<std::string>(const std::string &)> &p_text, const ProjectApi *p_project = nullptr);
 
 } // namespace petrichor::compiler

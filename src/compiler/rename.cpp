@@ -145,7 +145,7 @@ std::string script_of(const ProjectApi &p_project, const Scene &p_scene, const s
 } // namespace
 
 Rename rename(Analysis &r_analysis, const std::string &p_path, const std::string &p_source, uint32_t p_offset, const std::string &p_new, const std::vector<std::string> &p_other_scripts,
-		const std::function<std::optional<std::string>(const std::string &)> &p_text) {
+		const std::function<std::optional<std::string>(const std::string &)> &p_text, const ProjectApi *p_project) {
 	std::vector<Diagnostic> lexed_errors;
 	const std::shared_ptr<const SourceFile> lexed = tokenize(p_new, lexed_errors);
 	const Token &word = lexed->tokens[0];
@@ -156,7 +156,7 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, const std::string
 	const auto refuse = [&](const std::string &p_file, int p_line, const std::string &p_why) {
 		result.refusals.push_back(refusal(p_file, p_line, p_why));
 	};
-	const ProjectApi &project = r_analysis.project_api();
+	const ProjectApi &project = p_project ? *p_project : r_analysis.project_api();
 	std::map<std::string, std::string> texts; // Of the scripts read, by path.
 	const auto text_of = [&](const std::string &p_file) -> const std::string & {
 		auto known = texts.find(p_file);
