@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 97a35eb0930f6478fec9c52694665d286afe9c27. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob c22390c8c23088e0c8a41cb91f3040826cc83f73. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -1024,7 +1024,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 14.2 Compatible later additions
 
-The full design of setters that suspend automatically before ready is in the [design notes](design-notes.md). The following features can be added compatibly after the first version:
+The following features can be added compatibly after the first version:
 
 - **Language features**:
   - generic interfaces;
@@ -1042,7 +1042,7 @@ The full design of setters that suspend automatically before ready is in the [de
   - spreading into rest parameters at the call site, and rest parameters in function types;
   - field narrowing/conditional binding;
   - type patterns of `match`, `match` expressions and bindings in multiple patterns;
-  - setters that suspend automatically before ready;
+  - setters that suspend automatically before ready, with their design in the [design notes](design-notes.md);
   - always-on assertions;
   - debug text that shows values as written in this language;
   - reentrancy annotations for coroutines and `Signal` with parameters.
