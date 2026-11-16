@@ -979,8 +979,9 @@ void PetEditorPlugin::apply_previewed() {
 // Each open script's buffer is edited as one step to undo. Other files are
 // written as bytes, and the open scenes among them reloaded, which clears
 // their undo histories (editor/editor_node.cpp:7124-7160; ed1daf0). When it
-// changes more than one buffer, the histories of the open scripts are cleared
-// too, and the editor's history records the rename (architecture §2.3).
+// changes more than one file, the open scripts are saved too, with their
+// histories cleared, and the editor's history records the rename
+// (architecture §2.3).
 void PetEditorPlugin::apply(const OpenProject &p_project, const std::string &p_path, uint32_t p_offset, const std::string &p_name, const std::vector<compiler::RenameEdit> &p_edits, bool p_record) {
 	std::map<std::string, std::vector<const compiler::RenameEdit *>> by_file;
 	for (const compiler::RenameEdit &edit : p_edits) {
@@ -997,6 +998,8 @@ void PetEditorPlugin::apply(const OpenProject &p_project, const std::string &p_p
 	Array candidates_after;
 	// Reloading a scene clears its history, which is no step of its own.
 	const uint64_t steps = elsewhere;
+	std::vector<String> written;
+	std::vector<String> saved; // Open scripts.
 	for (auto &[file, edits] : by_file) {
 		std::sort(edits.begin(), edits.end(), [](const compiler::RenameEdit *p_a, const compiler::RenameEdit *p_b) { return p_a->edit.begin < p_b->edit.begin; });
 		int64_t delta = 0;
@@ -1017,8 +1020,14 @@ void PetEditorPlugin::apply(const OpenProject &p_project, const std::string &p_p
 		const String path = to_godot(file);
 		if (CodeEdit *code_edit = p_project.code_edit(file)) {
 			apply_edits(code_edit, *p_project.script_source(file), plain);
-			if (!one_buffer) {
-				code_edit->clear_undo_history();
+			if (one_buffer) {
+				continue;
+			}
+			code_edit->clear_undo_history();
+			// Saved as its saver writes it, so that the files it reloads read it.
+			if (write_file(path, to_utf8(code_edit->get_text()))) {
+				written.push_back(path);
+				saved.push_back(path);
 			}
 			continue;
 		}
@@ -1038,30 +1047,52 @@ void PetEditorPlugin::apply(const OpenProject &p_project, const std::string &p_p
 			ERR_PRINT(vformat("%s changed while renaming, and is left as it is.", path));
 			continue;
 		}
-		if (!write_file(path, bom + result + text.substr(done))) {
-			continue;
+		if (write_file(path, bom + result + text.substr(done))) {
+			written.push_back(path);
 		}
-		SceneIndex::get().forget(file);
+	}
+	for (const String &path : written) {
+		SceneIndex::get().forget(to_utf8(path));
+	}
+	// What is loaded is read again once every file is written, as when the
+	// editor sees a file change; it leaves scenes to itself, and a script as the
+	// script editor reloads one (editor/editor_node.cpp:1291-1323,
+	// core/io/resource.cpp:263-276, scene/resources/packed_scene.h:256,
+	// editor/script/script_editor_plugin.cpp:2564-2565; ed1daf0).
+	std::vector<Ref<Script>> scripts;
+	for (const String &path : written) {
 		// A changed script_class takes effect (editor/file_system/editor_file_system.cpp:2400-2492; ed1daf0).
 		editor->get_resource_filesystem()->update_file(path);
 		if (open_scenes.has(path)) {
 			editor->reload_scene_from_path(path);
 			continue;
 		}
-		// What is loaded is read again, as when the editor sees a file change; it
-		// leaves scenes to itself, and a script as the script editor reloads one
-		// (editor/editor_node.cpp:1291-1323, core/io/resource.cpp:263-276,
-		// scene/resources/packed_scene.h:256, editor/script/script_editor_plugin.cpp:2564-2565; ed1daf0).
 		const Ref<Resource> loaded = ResourceLoader::get_singleton()->get_cached_ref(path);
 		if (Script *script = Object::cast_to<Script>(loaded.ptr())) {
 			script->set_source_code(FileAccess::get_file_as_string(path));
-			script->reload(true);
+			scripts.push_back(loaded);
 		} else if (loaded.is_valid() && !Object::cast_to<PackedScene>(loaded.ptr())) {
 			loaded->copy_from_resource(ResourceLoader::get_singleton()->load(path, loaded->get_class(), ResourceLoader::CACHE_MODE_IGNORE));
 		}
 	}
+	{
+		// With every source set, in one pass, each script and those that use it
+		// compile once.
+		const compiler::Analysis::Pass pass(analysis());
+		for (const Ref<Script> &script : scripts) {
+			script->reload(true);
+		}
+	}
+	// Their tabs show them saved, as when the editor saves a script
+	// (editor/editor_node.cpp:1774, 8664-8665,
+	// editor/script/script_editor_plugin.cpp:723-742; ed1daf0).
+	for (const String &path : saved) {
+		editor->get_base_control()->get_parent()->emit_signal("resource_saved", ResourceLoader::get_singleton()->get_cached_ref(path));
+	}
 	elsewhere = steps;
-	project_changed();
+	if (!written.empty()) {
+		project_changed();
+	}
 	// What finding references lists of the new name should be what changed.
 	const OpenProject after;
 	const std::optional<std::vector<compiler::Occurrence>> found = find_references(to_godot(p_path), after.script_source(p_path).value_or(std::string()), offset, &after);

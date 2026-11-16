@@ -24,7 +24,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - Renaming, with the rewriting of scenes (spec §13.3).
   - An open scene that instances a scene the rename rewrote keeps its instance as loaded. Check what the editor updates when the tab is shown (`editor/editor_data.cpp:722-811`).
   - Applying a rename shows each open scene it saves. When the current tab is a new scene without a path, the editor stays on the last one saved. Godot shows an open scene only by its path.
-  - Applying a rename reloads the closed scripts it rewrote against the open scripts as saved. When the renamed declaration's script is open, each loaded script that uses the name reports an error, as `Unit has no property "pace"`.
   - Then renaming a node in the scene editor updates `$X` and literal paths in scripts. If time is short it moves to 0.3, since a stale `$X` is a compile error, not a silent one.
 - The first quick fixes: the five kinds most frequent in the second paper migration. They are adding `pub`, truthiness, `async` and `.detach()`, `T?` or `.unwrap()`, and `float` arguments. They reach about 75 of its 230 changes: 36 `pub` serve only GDScript or C# callers, which no error here sees, and 29 served subclasses only.
   - A sixth kind joins them: a two-level Option compared with `null` becomes `get(k, null) == null` or `.unwrap_or(null) == null` (spec §3.4). It is mechanical, and the migration tool needs the same rewrite.
@@ -203,11 +202,14 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
     - Every engine error captures the backtraces of all languages (`core/error/error_macros.cpp:126`, `ed1daf0`). So a frame would save its position before each instruction that can call the engine. Lua saves it only before such instructions. CPython 3.11 and later save it at every instruction.
     - Under the debugger, breakpoints, stepping and the editor's break button need a call at each line (`core/debugger/engine_debugger.h:128-134`, `ed1daf0`). The debugger is on or off for the whole process. When it is off, the runtime would drop LINE as it loads the code.
     - The compiler could record each instruction's statement in the table. Such a table would also fix a wrong line. From the second pass on, an error in a `while` condition is reported at the body's last statement. GDScript does the same (`modules/gdscript/gdscript_compiler.cpp:1903`, `ed1daf0`).
-- Large projects, before teams bring real ones in 0.3. `ScriptClasses::errors_in` walks every read file on each cross-script use, so the build grows with the square of the scripts. A generated project of 1000 scripts, 300 scenes and 60 `.gd` files, on the official 4.7.2 editor:
-  - opening it takes about 200 s, and the headless build about 30 s more;
-  - renaming a `pub` member that every script and scene uses takes 73 s to its preview at first, 43 s after. Each checks every script twice, before and after the edits;
-  - applying that rename had not ended after 11 minutes, though every file was written;
-  - renaming a local takes 4 to 5 s, though it checks one script.
+- Large projects, before teams bring real ones in 0.3. A generated project of 1000 scripts, 300 scenes and 60 `.gd` files, on the official 4.7.2 editor, headless:
+  - opening it takes 80 to 150 s, and the headless build about 80 s in all. Most of it reads each scene once.
+    - Reading a scene loads the scenes it instances, and compiles their scripts anew, as nothing keeps them loaded (`SceneIndex::read`).
+    - Instances nest about 30 deep there;
+  - renaming a `pub` member that every script and scene uses takes 9 to 16 s to its preview at first, 5 to 10 s after. Each checks every script twice, before and after the edits;
+  - applying it takes about 100 s. Two thirds of it reload the open scene, which reads every rewritten scene again;
+  - `EditorFileSystem::update_file` takes 15 ms for each script there. It saves the whole list of global classes, and `update_files` is not bound (`editor/file_system/editor_file_system.cpp:2160-2197, 3730`, `ed1daf0`);
+  - renaming a local takes 1 to 2.5 s. Each of its three passes lists every scene and parses each script on a node. One change counter for the analysis caches would spare them (Next release).
   - Once fixed, CI holds these times to a budget (architecture §5, step 11).
 - Benchmarks of real workloads; optimizations of the IR and code generation after those. In the init function, instructions that can run other code are barriers to them.
 - Liveness of the IR's registers (`src/compiler/ir.h`), one analysis on the IR before any optimization.

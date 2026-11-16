@@ -28,16 +28,10 @@ using namespace godot;
 
 namespace petrichor {
 
-namespace {
-
-// The project's scripts as the editor and the headless build check them,
-// each checked again only when what it read changes (architecture §2.4).
 compiler::Analysis &analysis() {
 	static compiler::Analysis analysis(ClassDBApi::get(), SceneIndex::get());
 	return analysis;
 }
-
-} // namespace
 
 std::shared_ptr<const ClassImage> compile_script(const String &p_path, const String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, CompileMode p_mode, std::vector<compiler::Diagnostic> *r_warnings) {
 	std::shared_ptr<const compiler::CompileResult> result;

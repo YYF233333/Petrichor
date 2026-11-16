@@ -562,8 +562,9 @@ func _check_autoload_by_uid() -> void:
 # changes nothing. A local renamed in one script is one step of that script's
 # undo. A member's rename reads the open script's text and the open scene's
 # unsaved change, which it saves before rewriting the scene. It writes a
-# closed script byte for byte. Once the script has nothing left to undo,
-# Ctrl+Z there undoes the rename everywhere, and Ctrl+Shift+Z redoes it.
+# closed script byte for byte, and saves the open one, against which a loaded
+# closed script reloads. Once the script has nothing left to undo, Ctrl+Z
+# there undoes the rename everywhere, and Ctrl+Shift+Z redoes it.
 func _check_rename() -> void:
 	var dir := "res://editor_rename"
 	var unit := dir + "/unit.pet"
@@ -597,10 +598,12 @@ func _check_rename() -> void:
 	code.undo()
 	_check(code.text == text, "one undo in the script restores it")
 
+	var loaded_user := load(user)
 	_rename(code, 2, 17, "pace")
 	var apply: Button = _references_tree().get_parent().find_children("*", "Button", true, false).filter(func(b): return b.text == "Apply")[0]
 	apply.pressed.emit()
 	_check(code.text == text.replace("stride", "pace") and FileAccess.get_file_as_string(scene).contains("\npace = 7\n"), "a member is renamed in the open script and in the open scene, with its unsaved change")
+	_check(FileAccess.get_file_as_string(unit) == code.text and loaded_user.source_code.contains("pace"), "the open script is saved, and a loaded closed one reloads against it")
 	_check(FileAccess.get_file_as_bytes(user) == user_text.replace("stride", "pace").to_utf8_buffer(), "a closed script keeps its byte order mark and line breaks")
 	await _press(code, "ui_undo")
 	_check(code.text == text and FileAccess.get_file_as_string(scene).contains("\nstride = 7\n") and FileAccess.get_file_as_bytes(user) == user_text.to_utf8_buffer(), "Ctrl+Z in the script, with nothing left to undo there, restores the script, the scene and the closed script")

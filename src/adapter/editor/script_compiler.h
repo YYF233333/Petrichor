@@ -24,6 +24,10 @@ enum class CompileMode {
 	Declarations,
 };
 
+// The project's scripts as the editor and the headless build check them,
+// each checked again only when what it read changes (architecture §2.4).
+compiler::Analysis &analysis();
+
 // Compiles a script in the editor. Returns null when there are errors; with
 // `p_report`, each error is printed as a script error at its line.
 std::shared_ptr<const ClassImage> compile_script(const godot::String &p_path, const godot::String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, CompileMode p_mode = CompileMode::Full, std::vector<compiler::Diagnostic> *r_warnings = nullptr);
