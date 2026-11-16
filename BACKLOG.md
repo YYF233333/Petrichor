@@ -144,7 +144,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 ## Tests
 
-- Once the migration tool is ready (0.3), migrate one or two popular open-source games as real-code tests. Keep `thirdparty/ring` as a real-code test.
+- Once the migration tool is ready (0.3), migrate one or two popular open-source games as real-code tests. They can stand in for outside projects in the conditions of 0.9 (architecture §5, step 12). Keep `thirdparty/ring` as a real-code test.
 - The suites on Godot 4.8's release candidate, with its changes checked one by one. They pass on beta3 (`c51ff06e8`), which stands in until then. The 0.1 release notes promise to follow the 4.8 release at once.
   - When moving the engine commit, `git diff -L` over the ranges in `docs/engine-facts.md` isolates the citations that moved.
 - `cancel()` on a task that has ended (spec §9.3). No test runs it.
