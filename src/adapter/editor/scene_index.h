@@ -4,11 +4,13 @@
 
 #include <godot_cpp/classes/code_edit.hpp>
 #include <godot_cpp/classes/packed_scene.hpp>
+#include <godot_cpp/variant/array.hpp>
 
 #include <cstdint>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -32,13 +34,18 @@ class SceneIndex : public compiler::ProjectApi {
 		std::vector<std::pair<std::string, uint64_t>> files;
 		compiler::Scene scene;
 	};
-	mutable std::mutex mutex; // Only around `scenes` and `loads`: loading takes the engine's locks.
+	mutable std::mutex mutex; // Not around loading, which takes the engine's locks.
 	mutable std::map<std::string, std::shared_ptr<const Entry>> scenes;
 	// literal_loads() of each script read, with when it changed.
 	mutable std::map<std::string, std::pair<uint64_t, std::vector<std::pair<bool, std::string>>>> loads;
+	// The global classes by name, and the list of the project settings they
+	// were read from, which the editor replaces when they change.
+	mutable std::shared_ptr<const std::map<std::string, std::string>> global_classes;
+	mutable std::optional<godot::Array> global_list;
 
 	// The scene, read again unless it is up to date.
 	std::shared_ptr<const Entry> read(const std::string &p_path) const;
+	std::shared_ptr<const std::map<std::string, std::string>> listed_classes() const;
 
 public:
 	std::vector<std::string> scene_paths() const override;

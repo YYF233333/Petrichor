@@ -610,16 +610,30 @@ std::vector<std::string> SceneIndex::dependencies(const std::string &p_path) con
 	return paths;
 }
 
-std::string SceneIndex::global_class_path(const std::string &p_name) const {
-	const StringName name = to_godot(p_name);
-	const TypedArray<Dictionary> classes = ProjectSettings::get_singleton()->get_global_class_list();
-	for (int64_t i = 0; i < classes.size(); i++) {
-		const Dictionary entry = classes[i];
-		if (StringName(entry.get("class", StringName())) == name) {
-			return to_utf8(entry.get("path", String()));
+// The editor stores a new list when a class changes. Each call copies the list
+// into a new typed Array that shares its Dictionaries, so comparing it with
+// the list read before compares a pointer per class
+// (core/config/project_settings.cpp:1473-1480, core/variant/typed_array.h:43-50,
+// core/variant/array.cpp:137-159, core/variant/dictionary.cpp:263-267; ed1daf0).
+std::shared_ptr<const std::map<std::string, std::string>> SceneIndex::listed_classes() const {
+	const Array listed = ProjectSettings::get_singleton()->get_global_class_list();
+	std::lock_guard<std::mutex> lock(mutex);
+	if (!global_list || *global_list != listed) {
+		std::map<std::string, std::string> paths;
+		for (int64_t i = 0; i < listed.size(); i++) {
+			const Dictionary entry = listed[i];
+			paths.emplace(to_utf8(entry.get("class", String())), to_utf8(entry.get("path", String())));
 		}
+		global_classes = std::make_shared<const std::map<std::string, std::string>>(std::move(paths));
 	}
-	return std::string();
+	global_list = listed;
+	return global_classes;
+}
+
+std::string SceneIndex::global_class_path(const std::string &p_name) const {
+	const std::shared_ptr<const std::map<std::string, std::string>> classes = listed_classes();
+	const auto found = classes->find(p_name);
+	return found == classes->end() ? std::string() : found->second;
 }
 
 std::string SceneIndex::autoload_path(const std::string &p_name) const {
@@ -636,13 +650,7 @@ std::string SceneIndex::autoload_path(const std::string &p_name) const {
 }
 
 std::map<std::string, std::string> SceneIndex::global_class_paths() const {
-	std::map<std::string, std::string> paths;
-	const TypedArray<Dictionary> classes = ProjectSettings::get_singleton()->get_global_class_list();
-	for (int64_t i = 0; i < classes.size(); i++) {
-		const Dictionary entry = classes[i];
-		paths[to_utf8(entry.get("class", String()))] = to_utf8(entry.get("path", String()));
-	}
-	return paths;
+	return *listed_classes();
 }
 
 std::vector<std::string> SceneIndex::autoload_names() const {
