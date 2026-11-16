@@ -17,7 +17,6 @@
 | 移位只在 debug 构建中拒绝负的运算数 | `core/variant/variant_op.h:360-372, 386-398` | §4.5、§5.1 |
 | 两个 int 的 `**` 用 double 计算再转回 int，超过 2^53 不精确，超出范围或为无穷时是 C++ 的未定义行为 | `core/variant/variant_op.h:86-95` | §4.5、§5.1 |
 | Packed 数组的 `in` 先把左运算数转为元素类型，float 因此截断为 int | `core/variant/variant_op.h:1142-1153` | §5.1 |
-| `name in obj` 在对象上查找该名字的成员，与 `obj.get(name)` 相同 | `core/variant/variant_op.h:1217-1252` | §5.1 |
 | String 或 StringName 的 `%` 格式化任何类型的值，Array 视为其中各个值。格式出错时，经验证的求值打印错误并给出格式串，直接求值给出错误文本 | `core/variant/variant_op.cpp:205-210, 408-449`；`core/variant/variant_op.h:720-837` | §5.1 |
 | 引擎归为 math 类的工具函数。它们的调用错误都是实参类型不符，`posmod` 的除数为 0 时打印错误并返回 0 | `core/variant/variant_utility.cpp:383-402, 459-470, 587-606, 653-668, 697-712, 737-751, 1632-1732`；`core/math/math_funcs.h:312-313` | §4.5、§10.3 |
 | 由字符串构造 Color 时，不是十六进制写法就按颜色名查找，找不到时打印错误并返回黑色。颜色名就是 Color 的常量名 | `core/math/color.h:274-280`；`core/math/color.cpp:396-402`；`core/variant/variant_call.cpp:3086-3089` | §4.5 |
@@ -67,7 +66,7 @@
 | GDScript 实例对不是自身成员的名字都先调 `_set`、`_get`，引擎类的属性名也是。Object 的文档却说它们不处理内置属性（`29a3f56701`） | `modules/gdscript/gdscript.cpp:1589-1600, 1676-1685`；`doc/classes/Object.xml:39, 303` | §10.5 |
 | Object 的文档说 `_get_property_list` 加入的属性不经过 `_validate_property`。GDScript 实例却让它们经过 | `doc/classes/Object.xml:369`；`modules/gdscript/gdscript.cpp:1810, 1840` | §10.5 |
 | GDScript 的 `obj.prop` 按名读写，只对内置类型的成员用 validated 访问。对已知类的方法则直接调用 MethodBind，所以 `label.set_text(s)` 不经 `_set` | `modules/gdscript/gdscript_byte_codegen.cpp:848-883`；`modules/gdscript/gdscript_vm.cpp:1220, 1277, 2273-2313` | §10.5 |
-| 对对象用 `in` 时，引擎按名字调用 `Object::get`，看是否找到。它与按名读取走同一条路，脚本实例分不清两者 | `core/variant/variant_op.h:1217-1231, 1254-1268` | §10.5 |
+| 对对象用 `in` 时，引擎按名字调用 `Object::get`，看是否找到。它与按名读取走同一条路，脚本实例分不清两者 | `core/variant/variant_op.h:1217-1231, 1254-1268` | §5.1、§10.5 |
 | C# 绑定的引擎属性调用 getter 和 setter 方法 | `modules/mono/editor/bindings_generator.cpp:2816, 2834` | §10.5 |
 | 对象设置脚本后发出 `script_changed` | `core/object/object.cpp:995` | §9.8 |
 | 引擎不给对象设置抽象脚本 | `core/object/object.cpp:976` | §4.1 |
@@ -87,8 +86,7 @@
 | `queue_free` 把节点放入删除队列，在每个物理步和处理帧的末尾删除 | `scene/main/node.cpp:3461-3471`；`scene/main/scene_tree.cpp:666, 735, 1626-1643` | §3.3、§9.7 |
 | Area3D 的 `body_shape_entered` 在物体的节点不在树中时以 null 作为节点参数 | `scene/3d/physics/area_3d.cpp:233-234` | §10.2 |
 | 没有设为局部于场景的子资源，由场景的所有实例共用 | `scene/resources/packed_scene.cpp:705-706` | §7.6 |
-| 实例化场景时，先设置保存的属性，再把节点加到父节点下 | `scene/resources/packed_scene.cpp:494, 543` | §6.5、§13.3 |
-| 加载场景时不检查属性写入是否成功 | `scene/resources/packed_scene.cpp:494` | §6.5、§13.3 |
+| 实例化场景时，先设置保存的属性，再把节点加到父节点下。属性写入是否成功不检查 | `scene/resources/packed_scene.cpp:494, 543` | §6.5、§13.3 |
 | 节点引用以路径保存，实例化时解析 | `scene/resources/packed_scene.cpp:376-395` | §7.5 |
 | 保存场景时只写节点当前属性列表中的属性 | `scene/resources/packed_scene.cpp:860-869` | §13.3 |
 | 场景的根被实例化到另一个场景中时，owner 是外层场景的根 | `scene/resources/packed_scene.cpp:567-570, 1041-1043` | §7.3 |
