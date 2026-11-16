@@ -14,7 +14,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - With it, one visibility check returning the message and the hidden declaration. Now 19 places test `is_pub` themselves, and the quick fix that adds `pub` would hang on each.
 - Load-time constants evaluated by bytecode, about 300 lines less. Now a recursive `bytecode::Constant` tree has an evaluator of its own, `constant_value` (`src/bytecode/module.h`, `src/runtime/class_image.cpp`).
   - A design proposal comes first. The stored format changes, and the editor would run the initializers of constants in scripts without `@tool`.
-  - It must land before the 0.9 bytecode freeze.
+  - It must land before the bytecode format gets its version, with Mod (architecture §6.1).
 
 ## Next release
 
@@ -68,7 +68,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - Range checks of ints passed through an engine method's value, as `f.call(x)` (spec §10.6). The value is the engine's Callable, which converts without them.
 - A Callable of another language after `bind()`, called through a function type, is taken for a function value of this language (spec §8.1). A program error in this language's code that it calls then ends the caller's run silently. The engine does not show what a bound Callable wraps.
 - Destruction order of `LambdaCallable` at exit when `WorkerThreadPool` holds unclaimed tasks (`main/main.cpp:5268, 5295`, `core/object/worker_thread_pool.cpp:855-880`, `ed1daf0`). Add an engine test and verify teardown.
-- At the 0.9 format freeze, settle these decisions of the bytecode format:
+- Before the bytecode format gets its version, with Mod (architecture §6.1), settle these decisions of the format:
   - static variables of other scripts are referenced by index;
   - the format id does not cover the value sizes;
   - the await instructions do not carry the type of their result;
@@ -285,7 +285,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Whether setters that run before ready wait for ready on their own after the first version (spec §6.5, §14.2). The alternative is writing the behavior in the setter. The owner suspects that the implicit suspension makes setters hard to understand.
 - Before 0.9: whether a container that holds itself is a program error as a `Dictionary` key (spec §3.8). The engine stops hashing it at a depth of 100 with an error. One that holds itself twice takes about 2^100 steps, in GDScript too (`core/variant/array.cpp:195-208`, `ed1daf0`).
 - The long-term boundary of compatibility with GDScript and Godot: which agreements are promises and which merely hold today. How semantics may change is settled (architecture §5, 0.9).
-- After 0.3 and before 0.9: user-defined generics (spec §3.10, §14.3, design-notes §1.1), whose representation in modules must settle before the 0.9 bytecode freeze (architecture §6.1).
+- After 0.3 and before 0.9: user-defined generics (spec §3.10, §14.3, design-notes §1.1). Their definitions stay in their own modules (architecture §6.1).
 - After 0.3 and before 0.9: tuples for multi-parameter signal `await` (spec §9.6, §14.3). Decide then whether `await Task.all([...])` also returns a tuple of heterogeneous results (§9.5).
   - About half of the uses in corpus v2 await `HTTPRequest.request_completed`, often reading `[3]`. Fields named by the signal's parameters, as `.body`, are a candidate besides tuples.
   - Before them, `AWAIT_TASK` and `AWAIT_SIGNAL` must carry the type of their result, as other instructions with a result do. Now the VM searches the frame's slots on each resume.
