@@ -95,9 +95,9 @@ void mark_bodies(const ClassDecl &p_decl, std::vector<bool> &r_body) {
 }
 
 // Notes in `r_marked` the declarations of `p_decl` and its inner classes on
-// whose lines `p_errors` fall, with the line of the first. Errors in function
-// bodies, those of inline setters and getters included, mark none.
-void mark_errors(const ClassDecl &p_decl, const std::vector<Diagnostic> &p_errors, std::map<const void *, int> &r_marked) {
+// whose lines `p_errors` fall, with `p_key` and the line of the first. Errors
+// in function bodies, those of inline setters and getters included, mark none.
+void mark_errors(const ClassDecl &p_decl, const std::vector<Diagnostic> &p_errors, const std::string &p_key, std::map<const void *, std::pair<std::string, int>> &r_marked) {
 	const SourceFile &source = *p_decl.source;
 	std::vector<TokenRange> bodies;
 	for_each_function(p_decl, [&](const FuncDecl &p_fn) {
@@ -120,15 +120,15 @@ void mark_errors(const ClassDecl &p_decl, const std::vector<Diagnostic> &p_error
 			if (line < first || line > last || in_body(error.begin)) {
 				continue;
 			}
-			const auto [entry, added] = r_marked.emplace(p_node, line);
+			const auto [entry, added] = r_marked.emplace(p_node, std::make_pair(p_key, line));
 			if (!added) {
-				entry->second = std::min(entry->second, line);
+				entry->second.second = std::min(entry->second.second, line);
 			}
 		}
 	};
 	for_each_child(p_decl, [&](const auto &p_child) {
 		if constexpr (std::is_same_v<std::decay_t<decltype(p_child)>, ClassDecl>) {
-			mark_errors(p_child, p_errors, r_marked);
+			mark_errors(p_child, p_errors, p_key, r_marked);
 		} else {
 			mark(&p_child, p_child.range);
 		}
@@ -197,14 +197,24 @@ void Reads::merge(const Reads &p_other) {
 }
 
 template <typename T>
+const T &ScriptClasses::asked(const std::string &p_key, const std::function<T(ScriptClasses &)> &p_question) {
+	auto found = answered.find(p_key);
+	if (found == answered.end()) {
+		std::vector<std::pair<std::string, Reads>> asking;
+		asking.swap(frames);
+		T given = p_question(*this);
+		frames.swap(asking);
+		found = answered.emplace(p_key, std::move(given)).first;
+	}
+	return *std::any_cast<T>(&found->second);
+}
+
+template <typename T>
 T ScriptClasses::answer(const std::string &p_key, std::function<T(ScriptClasses &)> p_question) {
-	std::vector<std::pair<std::string, Reads>> asking;
-	asking.swap(frames);
-	T given = p_question(*this);
-	frames.swap(asking);
+	const T &given = asked(p_key, p_question);
 	if (!frames.empty()) {
-		frames.back().second.answers.emplace(p_key, [given, p_question](ScriptClasses &r_classes) {
-			return p_question(r_classes) == given;
+		frames.back().second.answers.emplace(p_key, [p_key, given, p_question](ScriptClasses &r_classes) {
+			return r_classes.asked(p_key, p_question) == given;
 		});
 	}
 	return given;
@@ -367,7 +377,7 @@ std::string ScriptClasses::native_base(const ClassDecl &p_decl, const std::strin
 	return std::string();
 }
 
-std::unique_ptr<ScriptClasses::File> ScriptClasses::parse_file(const std::string &p_file) const {
+std::unique_ptr<ScriptClasses::File> ScriptClasses::parse_file(const std::string &p_file, const std::string &p_key) {
 	const std::optional<std::string> source = sources ? sources->script_source(p_file) : std::nullopt;
 	if (!source) {
 		return nullptr;
@@ -380,7 +390,9 @@ std::unique_ptr<ScriptClasses::File> ScriptClasses::parse_file(const std::string
 		file->syntax_error_line = decl.source->position(first->begin).line;
 	}
 	file->decl = std::move(decl);
-	mark_errors(file->decl, errors, file->errors);
+	if (!p_key.empty()) {
+		mark_errors(file->decl, errors, p_key, erring);
+	}
 	return file;
 }
 
@@ -394,7 +406,7 @@ const ClassDecl *ScriptClasses::file_header(const std::string &p_file) {
 		return found->second ? &found->second->decl : nullptr;
 	}
 	std::unique_ptr<File> &file = files[p_file];
-	file = parse_file(p_file);
+	file = parse_file(p_file, p_file);
 	return file ? &file->decl : nullptr;
 }
 
@@ -426,10 +438,12 @@ const ClassDecl *ScriptClasses::declarations(const std::string &p_path, bool p_w
 		return nullptr;
 	}
 	const bool with_scenes = !declarations_only && p_with_scenes;
-	std::unique_ptr<File> *slot = &files[file];
+	std::string key = file;
+	std::unique_ptr<File> *slot = &files[key];
 	if (((*slot)->checked || (*slot)->failed) && (*slot)->with_scenes != with_scenes) {
-		slot = &files[file + (with_scenes ? "\nwith scenes" : "\nwithout scenes")];
-		if (!*slot && !(*slot = parse_file(file))) {
+		key += with_scenes ? "\nwith scenes" : "\nwithout scenes";
+		slot = &files[key];
+		if (!*slot && !(*slot = parse_file(file, key))) {
 			return nullptr;
 		}
 	}
@@ -449,11 +463,17 @@ const ClassDecl *ScriptClasses::declarations(const std::string &p_path, bool p_w
 		if (recording) {
 			entry.reads = std::move(frames.back().second);
 			frames.pop_back();
+			for (const auto &[read, hash] : entry.reads.scripts) {
+				readers[read].insert(key);
+			}
+			if (entry.reads.partial) {
+				partial.push_back(key);
+			}
 		}
 		entry.with_scenes = with_scenes;
 		entry.failed = !entry.decl.declared;
 		entry.checked = !entry.failed;
-		mark_errors(entry.decl, errors, entry.errors);
+		mark_errors(entry.decl, errors, key, erring);
 	}
 	if (!frames.empty() && frames.back().first != file) {
 		frames.back().second.merge(entry.reads);
@@ -463,27 +483,20 @@ const ClassDecl *ScriptClasses::declarations(const std::string &p_path, bool p_w
 }
 
 std::optional<std::pair<std::string, int>> ScriptClasses::errors_in(const void *p_decl) const {
-	for (const auto &[key, file] : files) {
-		if (!file) {
-			continue;
-		}
-		const auto found = file->errors.find(p_decl);
-		if (found != file->errors.end()) {
-			return std::make_pair(key.substr(0, key.find('\n')), found->second);
-		}
+	const auto found = erring.find(p_decl);
+	if (found == erring.end()) {
+		return std::nullopt;
 	}
-	return std::nullopt;
+	const std::string &key = found->second.first;
+	return std::make_pair(key.substr(0, key.find('\n')), found->second.second);
 }
 
 std::optional<int> ScriptClasses::first_error(const std::string &p_path) const {
 	const std::string file = script_file(p_path);
 	std::optional<int> first;
-	for (const auto &[key, entry] : files) {
-		if (!entry || key.substr(0, key.find('\n')) != file) {
-			continue;
-		}
-		for (const auto &[decl, line] : entry->errors) {
-			first = first ? std::min(*first, line) : line;
+	for (const auto &[decl, mark] : erring) {
+		if (mark.first.substr(0, mark.first.find('\n')) == file) {
+			first = first ? std::min(*first, mark.second) : mark.second;
 		}
 	}
 	return first;
@@ -567,7 +580,7 @@ bool ScriptClasses::is_or_extends(std::string p_script, const std::string &p_bas
 		if (added && is_script_path(p_script)) {
 			// As saved, as the project indexes it, also while it is being compiled.
 			const std::string file = script_file(p_script);
-			const std::unique_ptr<File> saved = file == compiled.first ? parse_file(file) : nullptr;
+			const std::unique_ptr<File> saved = file == compiled.first ? parse_file(file, std::string()) : nullptr;
 			const ClassDecl *decl = walk(file == compiled.first ? (saved ? &saved->decl : nullptr) : file_header(file), p_script);
 			base->second = decl ? base_path(*decl, p_script) : std::string();
 		}
@@ -643,19 +656,22 @@ Reads ScriptClasses::end_compile() {
 	// Checks that saw a file in progress, such as the compiled one, may refer
 	// to its classes, and so may checks that read theirs; they are done again
 	// when needed.
-	std::set<std::string> dropped;
-	for (bool again = true; again;) {
-		again = false;
-		for (auto entry = files.begin(); entry != files.end();) {
-			const Reads *of = entry->second ? &entry->second->reads : nullptr;
-			if (of && (of->partial || std::any_of(of->scripts.begin(), of->scripts.end(), [&](const auto &p_read) { return dropped.count(p_read.first) > 0; }))) {
-				dropped.insert(entry->first.substr(0, entry->first.find('\n')));
-				entry = files.erase(entry);
-				again = true;
-			} else {
-				++entry;
-			}
+	while (!partial.empty()) {
+		const std::string key = std::move(partial.back());
+		partial.pop_back();
+		const auto entry = files.find(key);
+		if (entry == files.end() || !entry->second) {
+			continue;
 		}
+		for (const auto &[read, hash] : entry->second->reads.scripts) {
+			readers[read].erase(key);
+		}
+		files.erase(entry);
+		for (auto mark = erring.begin(); mark != erring.end();) {
+			mark = mark->second.first == key ? erring.erase(mark) : std::next(mark);
+		}
+		const std::set<std::string> &read_by = readers[key.substr(0, key.find('\n'))];
+		partial.insert(partial.end(), read_by.begin(), read_by.end());
 	}
 	compiled = {};
 	return reads;

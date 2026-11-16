@@ -4,11 +4,13 @@
 #include "compiler/engine_api.h"
 #include "compiler/project_api.h"
 
+#include <any>
 #include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -48,9 +50,6 @@ class ScriptClasses {
 	struct File {
 		ClassDecl decl; // Recovered from syntax errors, if any.
 		int syntax_error_line = 0; // The first one's; 0 for none.
-		// The declarations with syntax errors or errors of their check, each
-		// with the line of its first.
-		std::map<const void *, int> errors;
 		bool checked = false; // The checker's fields of its classes are filled in.
 		bool failed = false; // Its class could not be declared, as when its base has errors.
 		bool with_scenes = false; // How they were checked.
@@ -99,7 +98,15 @@ class ScriptClasses {
 	// both with and without scenes has a second entry, its path followed by a
 	// line break and the way.
 	std::map<std::string, std::unique_ptr<File>> files;
+	// The declarations of `files` with syntax errors or errors of their check,
+	// each with its entry's key and the line of its first.
+	std::map<const void *, std::pair<std::string, int>> erring;
+	// The entries whose checks read each file, and those that read a file
+	// whose check was in progress.
+	std::map<std::string, std::set<std::string>> readers;
+	std::vector<std::string> partial;
 	std::map<std::string, Checking> checking;
+	std::map<std::string, std::any> answered; // By the questions' keys.
 	// The checks that record reads, innermost last, with their files.
 	std::vector<std::pair<std::string, Reads>> frames;
 	std::map<std::string, std::pair<uint64_t, uint64_t>> hashes; // declaration_hash() and hash_source() of files read.
@@ -108,13 +115,17 @@ class ScriptClasses {
 	std::map<std::string, std::string> bases; // The base paths of the scripts on their nodes.
 	std::optional<std::map<std::string, std::string>> roots; // The uses of scenes as roots, as root_use() gives them.
 
-	std::unique_ptr<File> parse_file(const std::string &p_file) const;
+	// Its syntax errors are marked under `p_key`, unless it is empty.
+	std::unique_ptr<File> parse_file(const std::string &p_file, const std::string &p_key);
 	const ClassDecl *file_header(const std::string &p_file);
 	// Notes in the innermost check that it read `p_file`.
 	void read_script(const std::string &p_file);
+	// The answer to a question, asked once. What the question reads is its
+	// own, not the check's.
+	template <typename T>
+	const T &asked(const std::string &p_key, const std::function<T(ScriptClasses &)> &p_question);
 	// Notes in the innermost check the answer to a question, which it gets
-	// again in a later pass to see whether the answer changed. What the
-	// question reads is its own, not the check's.
+	// again in a later pass to see whether the answer changed.
 	template <typename T>
 	T answer(const std::string &p_key, std::function<T(ScriptClasses &)> p_question);
 	std::vector<Scene> scenes_where(const std::function<bool(const Scene &)> &p_uses);
