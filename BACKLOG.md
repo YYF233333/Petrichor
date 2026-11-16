@@ -205,7 +205,11 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Large projects, before teams bring real ones in 0.3. A generated project of 1000 scripts, 300 scenes and 60 `.gd` files, on the official 4.7.2 editor, headless:
   - opening it takes 80 to 150 s, and the headless build about 80 s in all. Most of it reads each scene once.
     - Reading a scene loads the scenes it instances, and compiles their scripts anew, as nothing keeps them loaded (`SceneIndex::read`).
-    - Instances nest about 30 deep there;
+    - Instances nest about 30 deep there, likely deeper than in real projects.
+    - Ways out, to choose with the owner:
+      - keep loaded scripts alive in the scene index;
+      - compile scripts lazily on load, as GDScript's cache does;
+      - read the structure from the scene text;
   - renaming a `pub` member that every script and scene uses takes 9 to 16 s to its preview at first, 5 to 10 s after. Each checks every script twice, before and after the edits;
   - applying it takes about 100 s. Two thirds of it reload the open scene, which reads every rewritten scene again;
   - `EditorFileSystem::update_file` takes 15 ms for each script there. It saves the whole list of global classes, and `update_files` is not bound (`editor/file_system/editor_file_system.cpp:2160-2197, 3730`, `ed1daf0`);
