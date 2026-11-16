@@ -8,11 +8,11 @@
 
 语言规则以语言规范为准。引擎行为的出处见[引擎事实](engine-facts.md)。
 
-## 1. 第一版之后的设计
+## 1. 待定与后续设计
 
 ### 1.1 用户定义的泛型（规范 §2.4、§3.10）
 
-- GDScript 没有用户定义的泛型，迁移来的代码（含 FPS 和 Ring）不会用到。相关语法在第一版中都是编译错误，所以以后加入是兼容的扩展。
+- GDScript 没有用户定义的泛型，迁移来的代码（含 FPS 和 Ring）不会用到。泛型定义须留在字节码模块中（实现架构 §6.1），因此在 0.9 冻结语言与字节码格式前定下。定下之前相关语法报编译错误。
 - **可泛型的声明**：函数、struct、enum，以及不继承 Resource 的 RefCounted 类。Node、Resource 脚本和 autoload 不能声明类型参数，因为引擎实例化它们时不提供类型实参。泛型类不登记进引擎的全局类表，GDScript 看不到它，因为 GDScript 给不出类型实参。
 - **语法**：类型参数写在名字之后的方括号中，与 `Array[int]` 一致，写法同 Python 3.12（PEP 695）。约束写作 `T: 接口`。文件的类在 `class_name` 上声明类型参数，例如 `class_name Cache[K, V] extends RefCounted`。内部类写作 `class Cache[K, V] extends RefCounted:`。GDScript 在内部类名、`class_name` 的名字、enum 名和函数名之后遇到 `[` 都是语法错误（[引擎事实](engine-facts.md)）。因此这些写法不违反无静默差异。
 

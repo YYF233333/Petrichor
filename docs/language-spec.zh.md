@@ -294,7 +294,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 3.10 泛型
 
-- 第一版只有内置泛型类型：`T?`、`Array[T]`、`Dictionary[K, V]`、`Result[T, E]`、`Task[T]`、`Settled[T]` 和 `PackedScene[T]`。用户代码不能声明类型参数。
+- 内置泛型类型有 `T?`、`Array[T]`、`Dictionary[K, V]`、`Result[T, E]`、`Task[T]`、`Settled[T]` 和 `PackedScene[T]`。【待定】用户定义泛型属于第一版，规则尚未定下。设计见[设计说明](design-notes.md)。定下之前，声明类型参数报编译错误。
 
 ### 3.11 函数类型与 Callable
 
@@ -1022,10 +1022,10 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 14.2 以后可以兼容地加入
 
-以下特性可在第一版之后兼容加入，泛型与就绪前自动挂起 setter 的完整设计见[设计说明](design-notes.md)：
+以下特性可在第一版之后兼容加入，就绪前自动挂起 setter 的完整设计见[设计说明](design-notes.md)：
 
 - **语言特性**：
-  - 用户定义泛型与泛型接口；
+  - 泛型接口；
   - 接口的默认方法；
   - 带类型的弱引用 `weak[T]`，及引用环警告中改用它的快速修复；
   - 别名/`import` 与跨类访问 `preload` 类；
@@ -1056,6 +1056,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 - 原生代码的生成时机：运行时、导出时，或两者都有。
 - `@tool` 脚本在编辑器中运行的规则。
+- 用户定义泛型的规则。
 - 元组与多参信号 `await` 的规则，以及 `Task.all` 是否返回元组。
 - lambda 参数和接口方法参数的默认值，以及函数类型中可选参数的规则。
 - 就绪后才非空的成员，其规则待整体设计：

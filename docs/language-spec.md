@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 0b6ece67d4eee558f4622a475ae9acbdb2d3fb00. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 97a35eb0930f6478fec9c52694665d286afe9c27. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -296,7 +296,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 3.10 Generics
 
-- The first version has only the built-in generic types: `T?`, `Array[T]`, `Dictionary[K, V]`, `Result[T, E]`, `Task[T]`, `Settled[T]` and `PackedScene[T]`. User code cannot declare type parameters.
+- The built-in generic types are `T?`, `Array[T]`, `Dictionary[K, V]`, `Result[T, E]`, `Task[T]`, `Settled[T]` and `PackedScene[T]`. **[Open]** User-defined generics belong to the first version, and their rules are not settled yet. The design is in the [design notes](design-notes.md). Until then, declaring type parameters is a compile error.
 
 ### 3.11 Function types and Callable
 
@@ -1024,10 +1024,10 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 14.2 Compatible later additions
 
-The full designs of generics and of setters that suspend automatically before ready are in the [design notes](design-notes.md). The following features can be added compatibly after the first version:
+The full design of setters that suspend automatically before ready is in the [design notes](design-notes.md). The following features can be added compatibly after the first version:
 
 - **Language features**:
-  - user-defined generics and generic interfaces;
+  - generic interfaces;
   - default methods of interfaces;
   - typed weak references `weak[T]`, and a quick fix in the reference cycle warning that switches to them;
   - aliases/`import`, and access to `preload` classes across classes;
@@ -1058,6 +1058,7 @@ The full designs of generics and of setters that suspend automatically before re
 
 - When native code is generated: at run time, at export, or both.
 - The rules for `@tool` scripts running in the editor.
+- The rules for user-defined generics.
 - The rules for tuples and an `await` on a signal with several parameters, and whether `Task.all` returns a tuple.
 - The rules for default values of lambda parameters and of interface method parameters, and for optional parameters in function types.
 - The rules for members that are non-null only once ready, which await a design as a whole:
