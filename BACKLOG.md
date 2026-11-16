@@ -274,7 +274,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Whether `reduce()` types its lambda from the start value, as `func(A, T) -> A` (spec §3.8). Now the lambda's types must be written. A `None` start would need a rule of its own.
 - Whether a function value turned into a Callable has only its result checked for `T??` and `Variant?` (spec §10.1). Parameters cannot lose a `None`: the engine passes null or a boxed value. Now `Array[int??].filter(func(x): ...)` is refused. `bind()`, `callv()` and a function type that holds `T??` are not checked, and turn `Some(None)` into `None`.
 - Design questions from the third coverage rerun, which the spec leaves open:
-  - engine classes as values, as gdUnit4 passes `[InputEventMouseButton, …]` (0.7% of the files; spec §2.6). They would also let `is_instance_of(v, T)` take a native class held in a variable;
+  - engine classes as values, as gdUnit4 passes `[InputEventMouseButton, …]` (0.7% of the files; spec §2.6). They would also let `is_instance_of(v, T)` take a native class held in a variable. Decide them before 0.9, with the type patterns of `match` (spec §14.2). An identifier is a value pattern (spec §5.6), so a class that is a value takes the spelling of a type pattern;
   - `Array[T](a)` as a typed copy, which the corpus does not use.
 - Before 0.9: the rules of `@tool` in the editor (spec §2.3, §14.3). They cover keeping edited state across declaration changes via entry checks, and folding repeated per-frame errors.
   - When the work starts, gather into one check the about ten branches on `Engine::is_editor_hint()` that mean no code runs in the editor.
@@ -286,6 +286,8 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Whether setters that run before ready wait for ready on their own after the first version (spec §6.5, §14.2). The alternative is writing the behavior in the setter. The owner suspects that the implicit suspension makes setters hard to understand.
 - Before 0.9: whether a container that holds itself is a program error as a `Dictionary` key (spec §3.8). The engine stops hashing it at a depth of 100 with an error. One that holds itself twice takes about 2^100 steps, in GDScript too (`core/variant/array.cpp:195-208`, `ed1daf0`).
 - The long-term boundary of compatibility with GDScript and Godot: which agreements are promises and which merely hold today. How semantics may change is settled (architecture §5, 0.9).
+- Before 0.9: the text that `str`, `print` and `%` give for values of this language (spec §5.1). Showing them as written is a later addition (spec §14.2). After the freeze it would change what legal code does.
+- Before 0.9: a design on paper for the cleanup code of a cancelled task, a later addition (spec §9.4, §14.2). It must fit `cancel()` releasing the frame at once (spec §9.3).
 - After 0.3 and before 0.9: user-defined generics (spec §3.10, §14.3, design-notes §1.1). Their definitions stay in their own modules (architecture §6.1).
 - After 0.3 and before 0.9: tuples for multi-parameter signal `await` (spec §9.6, §14.3). Decide then whether `await Task.all([...])` also returns a tuple of heterogeneous results (§9.5).
   - About half of the uses in corpus v2 await `HTTPRequest.request_completed`, often reading `[3]`. Fields named by the signal's parameters, as `.body`, are a candidate besides tuples.
