@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 5cfac516c868755338f1a7cc75fcba8f4b6cdd96. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 3aead19386ba9968920bdc5d3a84d2776620c9f7. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -1036,6 +1036,7 @@ The following features can be added compatibly after the first version:
   - exported variables and `@rpc` functions implying `pub`;
   - positional construction, mutating methods, operator redefinition and indirect recursion for structs;
   - `Node` fields in exported structs and enums with payloads;
+  - methods of enums with payloads;
   - parameter names in function types, the direct call `f(x)` and shared captures;
   - explicit conversion of a `Callable` of unknown signature to a function type;
   - an ordinary function used implicitly where `async` is expected;
@@ -1045,6 +1046,7 @@ The following features can be added compatibly after the first version:
   - setters that suspend automatically before ready, with their design in the [design notes](design-notes.md);
   - always-on assertions;
   - debug text that shows values as written in this language;
+  - cleanup code that runs when a task is cancelled, such as `finally` or `defer`;
   - reentrancy annotations for coroutines and `Signal` with parameters.
 - **Cross-language and tools**:
   - an optional runtime library with the compiler;

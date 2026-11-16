@@ -1034,6 +1034,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
   - 导出变量和 `@rpc` 函数隐含 `pub`；
   - struct 位置构造、可变方法、运算符重定义与间接递归；
   - 导出的 struct 和带载荷 enum 中的 `Node` 字段；
+  - 带载荷 enum 的方法；
   - 函数类型参数名、直接调用 `f(x)` 和共享捕获；
   - 未知签名的 `Callable` 显式转为函数类型；
   - 普通函数隐式用于期望 `async` 处；
@@ -1043,6 +1044,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
   - 就绪前自动挂起 setter，设计见[设计说明](design-notes.md)；
   - 常驻断言；
   - 按本语言写法显示值的调试文本；
+  - 任务取消时运行的清理代码，如 `finally` 或 `defer`；
   - 协程重入注解与带参 `Signal`。
 - **跨语言与工具**：
   - 可选带编译器的运行时库；
