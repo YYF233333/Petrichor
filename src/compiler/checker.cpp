@@ -77,6 +77,44 @@ std::string Checker::operand(const Expr &p_expr) const {
 	}
 }
 
+// Gives the error reported last the fix that unwraps `r_value`, a T? (spec
+// §3.4), which fails where GDScript fails on null. It is automatic when
+// `p_check` checks the code again without errors with the value unwrapped.
+void Checker::fix_unwrap(std::unique_ptr<Expr> &r_value, const std::function<bool()> &p_check) {
+	const Write unwrap{ r_value->range, operand(*r_value) + ".unwrap()" };
+	bool clean = false;
+	// Completion shows no errors, and checking again would complete again.
+	if (!completion) {
+		std::unique_ptr<Expr> unwrapped = synthetic(ExprKind::Call, "unwrap", r_value->range);
+		unwrapped->base = std::move(r_value);
+		r_value = std::move(unwrapped);
+		const Tentative tried(*this);
+		clean = p_check() && tried.clean();
+		r_value = std::move(r_value->base);
+	}
+	fix({ unwrap }, clean);
+}
+
+// Gives the error reported last the fix that makes the type written at
+// `p_written` a T?.
+void Checker::fix_optional(const TypeRef &p_written, bool p_automatic) {
+	const std::string text = cls.source->text_of(p_written.range);
+	fix({ { p_written.range, (p_written.is_function ? "(" + text + ")" : text) + "?" } }, p_automatic);
+}
+
+// The type written in this file for the local, member or static variable
+// that `p_target` names; null when it is inferred or declared elsewhere.
+const TypeRef *Checker::type_written_for(const Expr &p_target) const {
+	if (p_target.target == Target::Local) {
+		return function->locals[p_target.index].written;
+	}
+	const VarDecl *variable = p_target.target == Target::Member ? cls.all_members[p_target.index] : (p_target.target == Target::StaticVar || p_target.target == Target::ObjectProperty ? p_target.variable : nullptr);
+	const bool here = variable && std::any_of(file->checkers.begin(), file->checkers.end(), [&](const std::unique_ptr<Checker> &p_checker) {
+		return is_own(*variable, p_checker->cls.members) || is_own(*variable, p_checker->cls.static_vars);
+	});
+	return here && variable->declared_type ? &*variable->declared_type : nullptr;
+}
+
 /* References (architecture §2.1) */
 
 // A name of this file, unless the compiler made it or a syntax error left

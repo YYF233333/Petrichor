@@ -662,6 +662,7 @@ class Checker : public ClassRelation {
 
 	void declare_local(Stmt &r_stmt, const Type &p_type) {
 		r_stmt.local = declare_local(r_stmt.name, r_stmt.name_token, p_type, r_stmt.kind == StmtKind::Const);
+		function->locals[r_stmt.local].written = r_stmt.declared_type ? &*r_stmt.declared_type : nullptr;
 	}
 
 	static bool binds(const Pattern &p_pattern) {
@@ -717,6 +718,9 @@ class Checker : public ClassRelation {
 	void fix(const std::vector<Write> &p_writes, bool p_automatic);
 	TokenRange unparenthesized(TokenRange p_range) const;
 	std::string operand(const Expr &p_expr) const;
+	void fix_unwrap(std::unique_ptr<Expr> &r_value, const std::function<bool()> &p_check);
+	void fix_optional(const TypeRef &p_written, bool p_automatic);
+	const TypeRef *type_written_for(const Expr &p_target) const;
 	Reference *refer(uint32_t p_token, const DeclId &p_target, std::optional<SymbolKind> p_declares = std::nullopt, const std::optional<DeclId> &p_overrides = std::nullopt);
 	Reference *refer_bytes(uint32_t p_begin, uint32_t p_end, const DeclId &p_target);
 	void refer_local(uint32_t p_token, const Type &p_type, bool p_constant = false);
@@ -952,13 +956,13 @@ class Checker : public ClassRelation {
 	static std::string fitting_call(const Type &p_two_level);
 	std::string variant_refusal(const Type &p_type) const;
 	std::string callable_refusal(const Type &p_function) const;
-	void expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action);
+	void expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action, const TypeRef *p_written = nullptr);
 	void expect_condition(Expr &r_condition);
 
 	/* checker_calls.cpp */
 
 	static std::string argument_count(int p_required, int p_max, bool p_vararg);
-	void check_arguments(Expr &r_call, const std::vector<Type> &p_params, int p_required, bool p_vararg, const Type &p_rest = Type::of(TypeKind::Variant));
+	void check_arguments(Expr &r_call, const std::vector<Type> &p_params, int p_required, bool p_vararg, const Type &p_rest = Type::of(TypeKind::Variant), const FuncDecl *p_declared = nullptr);
 	std::vector<Type> engine_params(const EngineMethod &p_method, Expr &r_call, bool &r_ok);
 	static Type engine_result(const EngineMethod &p_method);
 	Type property_type(const EngineProperty &p_property, Expr &r_expr);
@@ -1031,6 +1035,7 @@ class Checker : public ClassRelation {
 	void check_exhaustive(Stmt &r_match, const Type &p_matched);
 	bool pattern_fits(const Type &p_pattern, const Type &p_matched) const;
 	void check_for(Stmt &r_stmt);
+	Type element_type(Stmt &r_stmt, const Type &p_iterated);
 	Type check_iteration(Stmt &r_stmt, const Type &p_object);
 	bool predelete_branch(const Expr &p_condition, bool p_true) const;
 	bool predelete_branch(const Expr &p_matched, const MatchBranch &p_branch) const;

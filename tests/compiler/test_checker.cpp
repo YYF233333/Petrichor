@@ -253,6 +253,7 @@ TEST_CASE("for over an object whose class defines _iter_init, _iter_next and _it
 	CHECK(contains(errors("extends Node\n\nfunc _iter_get(iter) -> int:\n\treturn 0\n\nfunc f() -> void:\n\tfor n in self:\n\t\tpass\n"), "whose class lacks _iter_init() and _iter_next()."));
 	CHECK(has_error(in_function("for x in Node.new():\n\tpass"), "Cannot iterate over Node, whose class lacks _iter_init(), _iter_next() and _iter_get()."));
 	CHECK(has_error(in_function("var n: Node? = None\nfor x in n:\n\tpass"), "The value may be None (Node?); check it before iterating over it."));
+	CHECK(fixed(in_function("var n: Node? = None\nfor x in n:\n\tpass")) == "no such fix"); // A Node is not iterated either.
 	CHECK(has_error("extends RefCounted\n\nfunc _iter_init(iter) -> int:\n\treturn 0\n", "The overridden method returns bool."));
 
 	// Called directly, in the loop's chain (spec §8.1).

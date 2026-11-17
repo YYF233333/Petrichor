@@ -1413,7 +1413,7 @@ Type Checker::call_declared(Expr &r_expr, const FuncDecl &p_callee, const Source
 	const std::vector<Type> params = param_types(p_callee.params);
 	const bool rest = p_callee.has_rest();
 	const std::vector<Type> fixed(params.begin(), params.end() - (rest ? 1 : 0));
-	check_arguments(r_expr, fixed, required_params(p_callee), rest, rest ? rest_element(params.back()) : Type::of(TypeKind::Variant));
+	check_arguments(r_expr, fixed, required_params(p_callee), rest, rest ? rest_element(params.back()) : Type::of(TypeKind::Variant), &p_source == cls.source.get() ? &p_callee : nullptr);
 	r_expr.engine_params = params;
 	r_expr.index = int(fixed.size()) - required_params(p_callee);
 	r_expr.is_vararg = rest;
@@ -1524,7 +1524,9 @@ Type Checker::check_member_access(Expr &r_expr) {
 		return class_member_value(r_expr, base.owner, display_name(*script_header(base.owner), base.owner));
 	}
 	if (base_type.is_optional()) {
-		return fail(r_expr, "The value may be None (" + base_type.to_string() + "); check it before reading \"" + r_expr.text + "\".");
+		fail(r_expr, "The value may be None (" + base_type.to_string() + "); check it before reading \"" + r_expr.text + "\".");
+		fix_unwrap(r_expr.base, [&] { return !check_member_access(r_expr).is_error(); });
+		return set(r_expr, Type::of(TypeKind::Error));
 	}
 	if (base_type.kind == TypeKind::Variant) {
 		return fail(r_expr, "Cannot read \"" + r_expr.text + "\" of a Variant." + variant_hint());

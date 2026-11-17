@@ -547,28 +547,8 @@ bool Checker::pattern_fits(const Type &p_pattern, const Type &p_matched) const {
 // Dictionary, over the characters of a String, or over an object (spec §5.7).
 void Checker::check_for(Stmt &r_stmt) {
 	const Type iterated = check_value(*r_stmt.value);
-	Type element = Type::of(TypeKind::Error);
-	const std::string &name = iterated.name;
 	scopes.emplace_back();
-	if (iterated.kind == TypeKind::Int) {
-		element = iterated;
-	} else if (iterated.kind == TypeKind::Float || (iterated.kind == TypeKind::Builtin && (name == "Vector2" || name == "Vector2i" || name == "Vector3" || name == "Vector3i"))) {
-		error(r_stmt.value->range, "Cannot iterate over " + iterated.to_string() + "; iterate over range(...) instead.");
-	} else if (const std::optional<std::pair<Type, Type>> entries = entries_of(iterated)) {
-		element = entries->first;
-	} else if (const std::optional<Type> elements = element_of(iterated)) {
-		element = *elements;
-	} else if (iterated.is_optional()) {
-		error(r_stmt.value->range, "The value may be None (" + iterated.to_string() + "); check it before iterating over it.");
-	} else if (iterated.kind == TypeKind::Object) {
-		element = check_iteration(r_stmt, iterated);
-	} else if (iterated.kind == TypeKind::Variant) {
-		error(r_stmt.value->range, "Cannot iterate over a Variant." + variant_hint());
-	} else if (iterated.kind == TypeKind::String) {
-		element = Type::of(TypeKind::String);
-	} else if (!iterated.is_error()) {
-		error(r_stmt.value->range, "Cannot iterate over " + iterated.to_string() + ".");
-	}
+	const Type element = element_type(r_stmt, iterated);
 	r_stmt.element = element;
 	Type type = element;
 	if (r_stmt.declared_type) {
@@ -585,6 +565,33 @@ void Checker::check_for(Stmt &r_stmt) {
 	check_block(r_stmt.body);
 	loop_depth--;
 	scopes.pop_back();
+}
+
+// What `for` gives of a value of the type, or Error after the error.
+Type Checker::element_type(Stmt &r_stmt, const Type &p_iterated) {
+	const std::string &name = p_iterated.name;
+	if (p_iterated.kind == TypeKind::Int) {
+		return p_iterated;
+	}
+	if (p_iterated.kind == TypeKind::Float || (p_iterated.kind == TypeKind::Builtin && (name == "Vector2" || name == "Vector2i" || name == "Vector3" || name == "Vector3i"))) {
+		error(r_stmt.value->range, "Cannot iterate over " + p_iterated.to_string() + "; iterate over range(...) instead.");
+	} else if (const std::optional<std::pair<Type, Type>> entries = entries_of(p_iterated)) {
+		return entries->first;
+	} else if (const std::optional<Type> elements = element_of(p_iterated)) {
+		return *elements;
+	} else if (p_iterated.is_optional()) {
+		error(r_stmt.value->range, "The value may be None (" + p_iterated.to_string() + "); check it before iterating over it.");
+		fix_unwrap(r_stmt.value, [&] { return !element_type(r_stmt, check_value(*r_stmt.value)).is_error(); });
+	} else if (p_iterated.kind == TypeKind::Object) {
+		return check_iteration(r_stmt, p_iterated);
+	} else if (p_iterated.kind == TypeKind::Variant) {
+		error(r_stmt.value->range, "Cannot iterate over a Variant." + variant_hint());
+	} else if (p_iterated.kind == TypeKind::String) {
+		return Type::of(TypeKind::String);
+	} else if (!p_iterated.is_error()) {
+		error(r_stmt.value->range, "Cannot iterate over " + p_iterated.to_string() + ".");
+	}
+	return Type::of(TypeKind::Error);
 }
 
 // The type of the elements of an object whose class of this or another
@@ -688,7 +695,7 @@ void Checker::check_stmt(Stmt &r_stmt) {
 			if (r_stmt.value) {
 				value = check_value(*r_stmt.value, type);
 				if (r_stmt.declared_type) {
-					expect_assignable(*r_stmt.value, value, type, "assign");
+					expect_assignable(*r_stmt.value, value, type, "assign", &*r_stmt.declared_type);
 				} else if (value.kind == TypeKind::None) {
 					error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs a type: None does not say which T? it is.");
 					type = Type::of(TypeKind::Error);
@@ -769,7 +776,7 @@ void Checker::check_stmt(Stmt &r_stmt) {
 			if (!place) {
 				return;
 			}
-			expect_assignable(*r_stmt.value, value, target_type, "assign");
+			expect_assignable(*r_stmt.value, value, target_type, "assign", type_written_for(target));
 			return;
 		}
 		case StmtKind::If: {

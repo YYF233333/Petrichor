@@ -44,7 +44,8 @@ std::string Checker::argument_count(int p_required, int p_max, bool p_vararg) {
 
 // Checks the arguments of a call against parameter types.
 // With `p_vararg`, those after `p_params` are of type `p_rest`.
-void Checker::check_arguments(Expr &r_call, const std::vector<Type> &p_params, int p_required, bool p_vararg, const Type &p_rest) {
+// `p_declared` is the function called when this file declares it.
+void Checker::check_arguments(Expr &r_call, const std::vector<Type> &p_params, int p_required, bool p_vararg, const Type &p_rest, const FuncDecl *p_declared) {
 	const int count = int(r_call.args.size());
 	const int max = int(p_params.size());
 	if (probing) {
@@ -57,7 +58,8 @@ void Checker::check_arguments(Expr &r_call, const std::vector<Type> &p_params, i
 		const Type param = i < max ? p_params[i] : p_rest;
 		const Type arg_type = check_value(arg, param);
 		r_call.param_types.push_back(param);
-		expect_assignable(arg, arg_type, param, "pass");
+		const ParamDecl *declared = p_declared && i < max ? &p_declared->params[i] : nullptr;
+		expect_assignable(arg, arg_type, param, "pass", declared && declared->declared_type ? &*declared->declared_type : nullptr);
 	}
 }
 
@@ -726,7 +728,9 @@ Type Checker::check_constructor(Expr &r_expr, const builtin::Class &p_type) {
 	}
 	if ((name == "Callable" || name == "Signal") && args.size() == 2 && args[0].kind == TypeKind::Object) {
 		if (args[0].is_optional()) {
-			return fail(r_expr, "The value may be None (" + args[0].to_string() + "); check it before taking its " + (name == "Signal" ? "signal." : "method."));
+			fail(r_expr, "The value may be None (" + args[0].to_string() + "); check it before taking its " + (name == "Signal" ? "signal." : "method."));
+			fix_unwrap(r_expr.args[0], [&] { return !check_constructor(r_expr, p_type).is_error(); });
+			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		if (name == "Callable" && !receiver_kept(r_expr.args[0].get(), r_expr.range)) {
 			return set(r_expr, Type::of(TypeKind::Error));

@@ -575,6 +575,7 @@ struct LocalInfo {
 	Type type;
 	uint32_t token = NO_TOKEN; // Of its name where declared.
 	ConstPtr constant; // A local constant's value (spec §4.5).
+	const TypeRef *written = nullptr; // Its type as declared, if written.
 };
 
 struct FuncDecl {

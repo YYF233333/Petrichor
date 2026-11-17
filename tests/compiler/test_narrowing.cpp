@@ -107,4 +107,15 @@ TEST_CASE("None goes where a T? is expected") {
 	CHECK(contains(narrowing("var q: Node = None"), "Cannot assign a value of type None as Node"));
 	CHECK(contains(narrowing("var q := 1 == None"), "A value of type int is never None."));
 	CHECK(contains(narrowing("if e == None:\n\tpass"), "A value of type InputEvent is never None. Check whether it is alive with is_instance_valid(x)"));
+	// null for a T makes the declared type T?, which holds it as GDScript does.
+	CHECK(fixed(in_function("var q: Node = None")) == in_function("var q: Node? = None"));
+	const std::string member = "extends Node\nvar tween: Tween\n\nfunc f(n: Node = null) -> void:\n\ttween = null\n";
+	CHECK(fixed(member) == "extends Node\nvar tween: Tween\n\nfunc f(n: Node? = null) -> void:\n\ttween = null\n" + std::string("5:10: Cannot assign a value of type None as Tween.\n"));
+	CHECK(contains(fixed("extends Node\nvar tween: Tween\n\nfunc f() -> void:\n\ttween = null\n"), "var tween: Tween?"));
+	CHECK(fixed(in_function("var q := Node.new()\nq = None")) == "no such fix");
+	// GDScript's x == null is true of a freed object too.
+	const std::string compared = "func f(e: InputEvent) -> void:";
+	CHECK(fixed(in_function("if e == null:\n\tpass", compared)) == in_function("if not is_instance_valid(e):\n\tpass", compared));
+	CHECK(fixed(in_function("var b := (e != None)", compared)) == in_function("var b := (is_instance_valid(e))", compared));
+	CHECK(fixed(in_function("if e == null:\n\tpass", compared), "Write InputEvent?") == in_function("if e == null:\n\tpass", "func f(e: InputEvent?) -> void:"));
 }

@@ -88,6 +88,10 @@
 - **`float` 不隐式转 `int`（§3.14）**：`var hp = 10` 在本语言中推断为 `int`（§4.3），在 GDScript 中则是无类型变量。GDScript 中 `hp = 2.5` 之后值为 `2.5`。若隐式截断，结果会悄悄不同。
 - **对象可空与已释放对象（§3.3）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `is_instance_valid` 每千行 3.3 处，`phantom-camera` 中每千行 12.8 处。Godot 4.4 起也让已释放对象在条件中为假（[godotengine/godot#93885](https://github.com/godotengine/godot/pull/93885)）。相关问题见[暗坑清单](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md) G-07、G-08。
   - `T?` 转为 `Variant` 时保留已释放对象。否则 `print` 显示 `<null>` 而不是 `<Freed Object>`，`typeof` 得 `TYPE_NIL`。`Variant` 本来就可能持有已释放对象，其中的已释放对象也等于 `None`，所以判断的结果不变。
+- **`T?` 的快速修复（§3.3、§3.4）**：
+  - `T?` 的值去往 `T` 时，`.unwrap()` 排在第一并自动应用。GDScript 存下 null，到使用处才出错；`.unwrap()` 提前出错，属于已列出的差异“对象类型非空”。
+  - 把目标的类型改为 `T?` 排在第二，不自动应用，因为它把错误移到其他使用处。
+  - 非空对象与 `null` 比较时，`x == null` 改为 `not is_instance_valid(x)`，因为 GDScript 中已释放的对象也等于 null。改为 `T?` 会波及这个变量的其他使用处，所以排在第二。
 - **带类型的弱引用在第一版之后（§3.12）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `weakref` 只有 3 处，游戏中没有。
   - 2 处在 gdUnit4 的测试中，确认对象已释放。
   - 唯一的产品代码是 dialogue_manager 的父指针，写了从不读。

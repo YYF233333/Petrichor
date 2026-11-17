@@ -478,7 +478,7 @@ void Checker::check_member_declaration(size_t p_index) {
 		initializing = -1;
 		initializing_onready = false;
 		if (member.declared_type) {
-			expect_assignable(*member.initializer, value, type, "assign");
+			expect_assignable(*member.initializer, value, type, "assign", &*member.declared_type);
 		} else {
 			type = value;
 			expect_scene_fits(*member.initializer, type);
@@ -676,7 +676,7 @@ void Checker::check_static_declaration(size_t p_index) {
 		const Type value = check_value(*variable.initializer, type);
 		static_initializing = -1;
 		if (variable.declared_type) {
-			expect_assignable(*variable.initializer, value, type, "assign");
+			expect_assignable(*variable.initializer, value, type, "assign", &*variable.declared_type);
 		} else {
 			type = value;
 			expect_scene_fits(*variable.initializer, type);
@@ -1073,13 +1073,14 @@ void Checker::declare_params(FuncDecl &r_function, bool p_defaults) {
 	for (const ParamDecl &param : r_function.params) {
 		// What a syntax error left is reported.
 		if (p_defaults && param.default_value && param.default_value->kind != ExprKind::Error) {
-			expect_assignable(*param.default_value, check_value(*param.default_value, param.type), param.type, "use");
+			expect_assignable(*param.default_value, check_value(*param.default_value, param.type), param.type, "use", param.declared_type ? &*param.declared_type : nullptr);
 		}
 		if (scopes.back().count(param.name)) {
 			error(param.name_token, "Parameter \"" + param.name + "\" is declared twice.");
 		}
 		scopes.back()[param.name] = int(r_function.locals.size());
 		r_function.locals.push_back({ param.name, param.type, param.name_token });
+		r_function.locals.back().written = param.declared_type ? &*param.declared_type : nullptr;
 		refer_local(param.name_token, param.type);
 	}
 }

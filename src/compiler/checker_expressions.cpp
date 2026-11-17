@@ -359,7 +359,16 @@ Type Checker::check_none_comparison(Expr &r_expr) {
 	}
 	if (!type.is_optional() && type.kind != TypeKind::Variant) {
 		const std::string hint = type.kind == TypeKind::Object ? " Check whether it is alive with is_instance_valid(x), or make its type " + type.to_string() + "?." : "";
-		return fail(r_expr, "A value of type " + type.to_string() + " is never None." + hint);
+		const Type failed = fail(r_expr, "A value of type " + type.to_string() + " is never None." + hint);
+		if (type.kind == TypeKind::Object) {
+			// GDScript's x == null is true of a freed object too
+			// (core/variant/variant_op.h:484-488; ed1daf0).
+			fix({ { unparenthesized(r_expr.range), (r_expr.op == TokenKind::BangEqual ? "" : "not ") + ("is_instance_valid(" + cls.source->text_of(value.range) + ")") } }, true);
+			if (const TypeRef *written = type_written_for(value)) {
+				fix_optional(*written, false);
+			}
+		}
+		return failed;
 	}
 	if (literal.op == TokenKind::Null && type.is_two_level()) {
 		const std::string op = r_expr.op == TokenKind::BangEqual ? " != " : " == ";
@@ -771,8 +780,13 @@ Type Checker::check_language_method(Expr &r_expr, const Type &p_base, const Type
 	const std::string &name = r_expr.text;
 	const bool of_result = p_base.is_result();
 	const LanguageFunction *method = language_function(of_result ? LanguageFunction::Of::Result : LanguageFunction::Of::Option, name);
+	if (!method && of_result) {
+		return fail_call(r_expr, p_base.to_string() + " has no method \"" + name + "()\".");
+	}
 	if (!method) {
-		return fail_call(r_expr, of_result ? p_base.to_string() + " has no method \"" + name + "()\"." : "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
+		fail_call(r_expr, "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
+		fix_unwrap(r_expr.base, [&] { return !type_method_call(r_expr, p_expected).is_error(); });
+		return set(r_expr, Type::of(TypeKind::Error));
 	}
 	refer(r_expr.name_token, language_id(of_result ? "Result" : "Option", name));
 	r_expr.target = Target::LanguageMethod;
@@ -1010,7 +1024,9 @@ Type Checker::check_subscript(Expr &r_expr) {
 		return set(r_expr, Type::of(TypeKind::Error));
 	}
 	if (base.is_optional()) {
-		return fail(r_expr, "The value may be None (" + base.to_string() + "); check it before indexing it.");
+		fail(r_expr, "The value may be None (" + base.to_string() + "); check it before indexing it.");
+		fix_unwrap(r_expr.base, [&] { return !check_subscript(r_expr).is_error(); });
+		return set(r_expr, Type::of(TypeKind::Error));
 	}
 	if (base.kind == TypeKind::Variant) {
 		return fail(r_expr, "Cannot index a Variant." + variant_hint());
@@ -1762,7 +1778,9 @@ std::string Checker::callable_refusal(const Type &p_function) const {
 	return std::string();
 }
 
-void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action) {
+// `p_written` is the type of where the value goes, as written in this file
+// for a variable or a parameter.
+void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action, const TypeRef *p_written) {
 	if (assignable(p_from, p_to)) {
 		expect_implemented(p_value, p_from, p_to);
 		expect_scene_fits(p_value, p_to);
@@ -1792,6 +1810,14 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 	error(p_value.range, message);
 	if (p_to.kind == TypeKind::Variant && lost_in_encoding(p_from, *this, false) == p_from) {
 		fix({ { p_value.range, operand(p_value) + fitting_call(p_from) } }, true);
+	} else if (p_from.kind == TypeKind::None && p_written) {
+		fix_optional(*p_written, true); // As GDScript holds the null.
+	} else if (p_from.is_optional() && !p_to.is_optional() && assignable(p_from.unwrapped(), p_to)) {
+		// It fails here, not where GDScript uses the null later (spec §1.2).
+		fix({ { p_value.range, operand(p_value) + ".unwrap()" } }, true);
+		if (p_written) {
+			fix_optional(*p_written, false);
+		}
 	}
 }
 
